@@ -33,8 +33,9 @@ switch ($action) {
         $stmt->execute([$uid]);
         $fleets = [];
         foreach ($stmt->fetchAll() as $f) {
-            $f['ships'] = json_decode($f['ships_json'], true);
+            $f['ships']   = json_decode($f['ships_json'], true);
             unset($f['ships_json']);
+            $f['current_pos'] = fleet_current_position($f);
             $fleets[] = $f;
         }
         json_ok(['fleets' => $fleets]);
@@ -153,6 +154,25 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     $dist       = coordinate_distance($origin['galaxy'], $origin['system'], $origin['position'], $tg, $ts, $tp);
     $speed      = fleet_speed($shipsToSend);
     $travel     = fleet_travel_time($dist, $speed);
+
+    // ── 3-D Newtonian movement ──────────────────────────────────────────────
+    [$ox, $oy, $oz] = get_system_3d_coords($db, $origin['galaxy'], $origin['system']);
+    [$tx, $ty, $tz] = get_system_3d_coords($db, $tg, $ts);
+    $distLy   = fleet_3d_distance($ox, $oy, $oz, $tx, $ty, $tz);
+    $speedLyH = fleet_speed_ly_h($shipsToSend);
+
+    // Check for fleet commander bonus on origin colony
+    $commander = get_colony_leader($db, $originCid, 'fleet_commander');
+    if ($commander) {
+        $speedLyH = leader_fleet_speed($speedLyH, (int)$commander['skill_navigation']);
+    }
+
+    // Use 3-D travel time when coords are available (distLy > 0), else fall back to grid
+    if ($distLy > 0) {
+        $travel = fleet_travel_time_3d($distLy, $speedLyH);
+    }
+    // ── end 3-D ────────────────────────────────────────────────────────────
+
     $now        = time();
     $arrival    = date('Y-m-d H:i:s', $now + $travel);
     $returnT    = date('Y-m-d H:i:s', $now + $travel * 2);
@@ -169,10 +189,14 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         'INSERT INTO fleets (user_id, origin_colony_id, target_galaxy, target_system,
                              target_position, mission, ships_json,
                              cargo_metal, cargo_crystal, cargo_deuterium,
+                             origin_x_ly, origin_y_ly, origin_z_ly,
+                             target_x_ly, target_y_ly, target_z_ly,
+                             speed_ly_h, distance_ly,
                              departure_time, arrival_time, return_time)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )->execute([$uid, $originCid, $tg, $ts, $tp, $mission,
                 json_encode($shipsToSend), $cMetal, $cCrys, $cDeut,
+                $ox, $oy, $oz, $tx, $ty, $tz, $speedLyH, $distLy,
                 $departure, $arrival, $returnT]);
 
     json_ok(['fleet_id' => (int)$db->lastInsertId(), 'arrival_time' => $arrival]);

@@ -136,11 +136,52 @@ CREATE TABLE IF NOT EXISTS fleets (
     cargo_metal DECIMAL(20,4) NOT NULL DEFAULT 0,
     cargo_crystal DECIMAL(20,4) NOT NULL DEFAULT 0,
     cargo_deuterium DECIMAL(20,4) NOT NULL DEFAULT 0,
+    -- 3-D galactic coordinates (light-years) for Newtonian flight mechanics
+    origin_x_ly DOUBLE NOT NULL DEFAULT 0,
+    origin_y_ly DOUBLE NOT NULL DEFAULT 0,
+    origin_z_ly DOUBLE NOT NULL DEFAULT 0,
+    target_x_ly DOUBLE NOT NULL DEFAULT 0,
+    target_y_ly DOUBLE NOT NULL DEFAULT 0,
+    target_z_ly DOUBLE NOT NULL DEFAULT 0,
+    speed_ly_h  DOUBLE NOT NULL DEFAULT 1.0,   -- fleet speed in ly/h
+    distance_ly DOUBLE NOT NULL DEFAULT 0,     -- pre-computed 3-D Euclidean distance
     departure_time DATETIME NOT NULL,
     arrival_time DATETIME NOT NULL,
     return_time DATETIME,
     returning TINYINT(1) NOT NULL DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Leaders / Officers
+-- Each leader is a named character that can be assigned to a colony or fleet.
+-- When autonomy >= 2 the AI tick drives their decisions automatically.
+CREATE TABLE IF NOT EXISTS leaders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    name VARCHAR(64) NOT NULL,
+    role ENUM('colony_manager','fleet_commander','science_director') NOT NULL,
+    -- Assignment (at most one active assignment at a time)
+    colony_id INT DEFAULT NULL,
+    fleet_id  INT DEFAULT NULL,
+    -- Skill points (1-10); each point adds a small multiplier
+    skill_production   TINYINT UNSIGNED NOT NULL DEFAULT 1, -- colony_manager: output bonus
+    skill_construction TINYINT UNSIGNED NOT NULL DEFAULT 1, -- colony_manager: build-time reduction
+    skill_tactics      TINYINT UNSIGNED NOT NULL DEFAULT 1, -- fleet_commander: combat attack bonus
+    skill_navigation   TINYINT UNSIGNED NOT NULL DEFAULT 1, -- fleet_commander: speed bonus
+    skill_research     TINYINT UNSIGNED NOT NULL DEFAULT 1, -- science_director: research-time reduction
+    skill_efficiency   TINYINT UNSIGNED NOT NULL DEFAULT 1, -- science_director: resource-cost reduction
+    -- Autonomy: 0 = inactive, 1 = suggest only, 2 = full auto
+    autonomy TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    -- Last AI decision log entry
+    last_action TEXT DEFAULT NULL,
+    last_action_at DATETIME DEFAULT NULL,
+    -- Progression
+    xp    INT UNSIGNED NOT NULL DEFAULT 0,
+    level TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id)   REFERENCES users(id)    ON DELETE CASCADE,
+    FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE SET NULL,
+    FOREIGN KEY (fleet_id)  REFERENCES fleets(id)   ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 -- Messages

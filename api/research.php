@@ -73,8 +73,15 @@ switch ($action) {
             json_error('Insufficient resources.');
         }
 
-        $labLevel = get_building_level($db, $cid, 'research_lab');
-        $secs     = research_time($cost, $labLevel);
+        $labLevel  = get_building_level($db, $cid, 'research_lab');
+        $secs      = research_time($cost, $labLevel);
+
+        // Apply science director bonuses (time + cost reduction)
+        $sciDir = get_colony_leader($db, $cid, 'science_director');
+        if ($sciDir) {
+            $secs = leader_research_time($secs, (int)$sciDir['skill_research']);
+            $cost = leader_research_cost($cost, (int)$sciDir['skill_efficiency']);
+        }
         $end      = date('Y-m-d H:i:s', time() + $secs);
 
         $db->prepare(

@@ -80,6 +80,13 @@ switch ($action) {
         $rLevel = (int)(get_building_level($db, $cid, 'robotics_factory') ?? 0);
         $nLevel = (int)(get_building_level($db, $cid, 'nanite_factory')   ?? 0);
         $secs   = building_build_time($cost, $rLevel, $nLevel);
+
+        // Apply colony manager construction-time bonus
+        $manager = get_colony_leader($db, $cid, 'colony_manager');
+        if ($manager) {
+            $secs = leader_build_time($secs, (int)$manager['skill_construction']);
+        }
+
         $end    = date('Y-m-d H:i:s', time() + $secs);
 
         $db->prepare(

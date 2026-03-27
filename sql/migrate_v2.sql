@@ -196,3 +196,38 @@ UPDATE fleets f
   JOIN colonies c ON c.planet_id = f.origin_planet_id
   SET f.origin_colony_id = c.id
   WHERE f.origin_colony_id IS NULL;
+
+-- ── Fleet 3-D coordinates (Newtonian movement) ───────────────────────────────
+ALTER TABLE fleets ADD COLUMN IF NOT EXISTS origin_x_ly DOUBLE NOT NULL DEFAULT 0;
+ALTER TABLE fleets ADD COLUMN IF NOT EXISTS origin_y_ly DOUBLE NOT NULL DEFAULT 0;
+ALTER TABLE fleets ADD COLUMN IF NOT EXISTS origin_z_ly DOUBLE NOT NULL DEFAULT 0;
+ALTER TABLE fleets ADD COLUMN IF NOT EXISTS target_x_ly DOUBLE NOT NULL DEFAULT 0;
+ALTER TABLE fleets ADD COLUMN IF NOT EXISTS target_y_ly DOUBLE NOT NULL DEFAULT 0;
+ALTER TABLE fleets ADD COLUMN IF NOT EXISTS target_z_ly DOUBLE NOT NULL DEFAULT 0;
+ALTER TABLE fleets ADD COLUMN IF NOT EXISTS speed_ly_h  DOUBLE NOT NULL DEFAULT 1.0;
+ALTER TABLE fleets ADD COLUMN IF NOT EXISTS distance_ly DOUBLE NOT NULL DEFAULT 0;
+
+-- ── Leaders / Officers ────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS leaders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    name VARCHAR(64) NOT NULL,
+    role ENUM('colony_manager','fleet_commander','science_director') NOT NULL,
+    colony_id INT DEFAULT NULL,
+    fleet_id  INT DEFAULT NULL,
+    skill_production   TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    skill_construction TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    skill_tactics      TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    skill_navigation   TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    skill_research     TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    skill_efficiency   TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    autonomy TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    last_action TEXT DEFAULT NULL,
+    last_action_at DATETIME DEFAULT NULL,
+    xp    INT UNSIGNED NOT NULL DEFAULT 0,
+    level TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id)   REFERENCES users(id)    ON DELETE CASCADE,
+    FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE SET NULL,
+    FOREIGN KEY (fleet_id)  REFERENCES fleets(id)   ON DELETE SET NULL
+) ENGINE=InnoDB;

@@ -15,8 +15,8 @@
   document.getElementById('commander-name').textContent = '⚙ ' + currentUser.username;
 
   // ── State ────────────────────────────────────────────────
-  let planets       = [];
-  let currentPlanet = null;
+  let colonies       = [];
+  let currentColony  = null;
 
   // ── Utilities ────────────────────────────────────────────
   function fmt(n) {
@@ -56,7 +56,7 @@
   }
 
   // ── WM window registrations ──────────────────────────────
-  WM.register('overview',    { title: '🌍 Overview',    w: 860, h: 540, onRender: () => renderOverview() });
+  WM.register('overview',    { title: '🌍 Overview',    w: 860, h: 560, onRender: () => renderOverview() });
   WM.register('buildings',   { title: '🏗 Buildings',   w: 680, h: 540, onRender: () => renderBuildings() });
   WM.register('research',    { title: '🔬 Research',    w: 680, h: 540, onRender: () => renderResearch() });
   WM.register('shipyard',    { title: '🚀 Shipyard',    w: 740, h: 540, onRender: () => renderShipyard() });
@@ -65,41 +65,41 @@
   WM.register('messages',    { title: '✉ Messages',     w: 640, h: 520, onRender: () => renderMessages() });
   WM.register('quests',      { title: '📋 Quests',      w: 860, h: 620, onRender: () => renderQuests() });
   WM.register('leaderboard', { title: '🏆 Leaderboard', w: 540, h: 480, onRender: () => renderLeaderboard() });
+  WM.register('leaders',     { title: '👤 Leaders',     w: 780, h: 580, onRender: () => renderLeaders() });
 
   // ── Nav buttons → open windows ───────────────────────────
   document.querySelectorAll('.nav-btn[data-win]').forEach(btn => {
     btn.addEventListener('click', () => WM.open(btn.dataset.win));
   });
 
-  // ── Planet selector ──────────────────────────────────────
+  // ── Colony selector ──────────────────────────────────────
   const planetSelect = document.getElementById('planet-select');
   planetSelect.addEventListener('change', () => {
-    const pid = parseInt(planetSelect.value, 10);
-    currentPlanet = planets.find(p => p.id === pid) || null;
+    const cid = parseInt(planetSelect.value, 10);
+    currentColony = colonies.find(c => c.id === cid) || null;
     updateResourceBar();
-    // Re-render planet-specific windows that are open
     ['buildings','research','shipyard','fleet'].forEach(id => WM.refresh(id));
   });
 
   function populatePlanetSelect() {
-    planetSelect.innerHTML = planets.map(p =>
-      `<option value="${p.id}">${esc(p.name)} [${p.galaxy}:${p.system}:${p.position}]</option>`
+    planetSelect.innerHTML = colonies.map(c =>
+      `<option value="${c.id}">${esc(c.name)} [${c.galaxy}:${c.system}:${c.position}]</option>`
     ).join('');
-    if (!currentPlanet && planets.length) {
-      currentPlanet = planets[0];
-      planetSelect.value = currentPlanet.id;
+    if (!currentColony && colonies.length) {
+      currentColony = colonies[0];
+      planetSelect.value = currentColony.id;
     }
   }
 
   // ── Resource bar ─────────────────────────────────────────
   function updateResourceBar() {
-    if (!currentPlanet) return;
-    document.getElementById('res-metal').textContent     = fmt(currentPlanet.metal);
-    document.getElementById('res-crystal').textContent   = fmt(currentPlanet.crystal);
-    document.getElementById('res-deuterium').textContent = fmt(currentPlanet.deuterium);
-    document.getElementById('res-energy').textContent    = currentPlanet.energy ?? '—';
+    if (!currentColony) return;
+    document.getElementById('res-metal').textContent     = fmt(currentColony.metal);
+    document.getElementById('res-crystal').textContent   = fmt(currentColony.crystal);
+    document.getElementById('res-deuterium').textContent = fmt(currentColony.deuterium);
+    document.getElementById('res-energy').textContent    = currentColony.energy ?? '—';
     document.getElementById('topbar-coords').textContent =
-      `[${currentPlanet.galaxy}:${currentPlanet.system}:${currentPlanet.position}]`;
+      `[${currentColony.galaxy}:${currentColony.system}:${currentColony.position}]`;
     if (window._gqUserMeta) {
       document.getElementById('res-dark-matter').textContent =
         fmt(window._gqUserMeta.dark_matter ?? 0);
@@ -111,7 +111,7 @@
     try {
       const data = await API.overview();
       if (!data.success) return;
-      planets = data.planets || [];
+      colonies = data.colonies || [];
       populatePlanetSelect();
       updateResourceBar();
 
@@ -148,8 +148,8 @@
   function renderOverview() {
     const root = WM.body('overview');
     if (!root) return;
-    if (!planets.length) {
-      root.innerHTML = '<p class="text-muted">No planets yet.</p>';
+    if (!colonies.length) {
+      root.innerHTML = '<p class="text-muted">No colonies yet.</p>';
       return;
     }
 
@@ -161,6 +161,11 @@
       ? `🛡 Newbie protection until ${protUntil.toLocaleDateString()}`
       : '🛡 No protection';
 
+    const colonyTypeLabels = {
+      balanced:'⚖ Balanced', mining:'⛏ Mining', industrial:'🏭 Industrial',
+      research:'🔬 Research', agricultural:'🌾 Agricultural', military:'⚔ Military'
+    };
+
     root.innerHTML = `
       <div class="status-bar">
         <span class="status-chip ${protected_ ? 'chip-shield' : 'chip-neutral'}">${protText}</span>
@@ -171,35 +176,52 @@
         </button>
         <span class="status-chip chip-rank">★ ${fmt(meta.rank_points ?? 0)} RP</span>
         <span class="status-chip chip-dm">◆ ${fmt(meta.dark_matter ?? 0)} DM</span>
+        <button class="btn btn-secondary btn-sm" id="open-leaders-btn">👤 Leaders</button>
       </div>
 
-      <h3 style="margin:0.75rem 0 0.5rem">Your Planets</h3>
+      <h3 style="margin:0.75rem 0 0.5rem">Your Colonies</h3>
       <div class="overview-grid">
-        ${planets.map(p => `
-          <div class="planet-card ${currentPlanet && p.id === currentPlanet.id ? 'selected' : ''}"
-               data-pid="${p.id}">
-            <div class="planet-card-name">${esc(p.name)}</div>
-            <div class="planet-card-coords">[${p.galaxy}:${p.system}:${p.position}]</div>
-            <div class="planet-card-type">${fmtName(p.type)} • ${p.is_homeworld ? '🏠 Homeworld' : '🌐 Colony'}</div>
-            <div style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-secondary)">
-              ⬡ ${fmt(p.metal)} &nbsp; 💎 ${fmt(p.crystal)} &nbsp; 🔵 ${fmt(p.deuterium)}
+        ${colonies.map(c => {
+          const leaderChips = (c.leaders || []).map(l =>
+            `<span class="leader-chip" title="${esc(l.role)} Lv${l.level} – ${l.last_action||'idle'}">
+               ${l.role==='colony_manager'?'🏗':l.role==='science_director'?'🔬':'⚔'} ${esc(l.name)}
+             </span>`
+          ).join('');
+          return `
+          <div class="planet-card ${currentColony && c.id === currentColony.id ? 'selected' : ''}"
+               data-cid="${c.id}">
+            <div class="planet-card-name">${esc(c.name)}
+              ${c.is_homeworld ? '<span class="hw-badge">🏠</span>' : ''}
             </div>
-          </div>`).join('')}
+            <div class="planet-card-coords">[${c.galaxy}:${c.system}:${c.position}]</div>
+            <div class="planet-card-type">
+              <span class="colony-type-badge">${colonyTypeLabels[c.colony_type] || c.colony_type}</span>
+              • ${fmtName(c.planet_type||'terrestrial')}
+              ${c.in_habitable_zone ? '<span class="hz-badge" title="Habitable Zone">🌿</span>' : ''}
+            </div>
+            <div style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-secondary)">
+              ⬡ ${fmt(c.metal)} &nbsp; 💎 ${fmt(c.crystal)} &nbsp; 🔵 ${fmt(c.deuterium)}
+            </div>
+            ${leaderChips ? `<div class="leader-chips">${leaderChips}</div>` : ''}
+          </div>`;
+        }).join('')}
       </div>
 
       <h3 style="margin:1rem 0 0.5rem">Fleets in Motion</h3>
       <div id="fleet-list-wm"></div>`;
 
-    // Planet card clicks
+    // Colony card clicks
     root.querySelectorAll('.planet-card').forEach(card => {
       card.addEventListener('click', () => {
-        const pid = parseInt(card.dataset.pid, 10);
-        currentPlanet = planets.find(p => p.id === pid);
-        planetSelect.value = pid;
+        const cid = parseInt(card.dataset.cid, 10);
+        currentColony = colonies.find(c => c.id === cid);
+        planetSelect.value = cid;
         updateResourceBar();
         renderOverview();
       });
     });
+
+    root.querySelector('#open-leaders-btn')?.addEventListener('click', () => WM.open('leaders'));
 
     // PvP toggle
     root.querySelector('#pvp-toggle-btn')?.addEventListener('click', async () => {
@@ -218,14 +240,25 @@
     if (!fleets.length) {
       fleetList.innerHTML = '<p class="text-muted">No active fleets.</p>';
     } else {
-      fleetList.innerHTML = fleets.map(f => `
+      fleetList.innerHTML = fleets.map(f => {
+        const pos = f.current_pos || {};
+        const posStr = (pos.x !== undefined)
+          ? `<span class="fleet-pos" title="3D position">📍 ${pos.x.toFixed(0)}, ${pos.y.toFixed(0)}, ${pos.z.toFixed(0)} ly</span>`
+          : '';
+        const pct  = ((pos.progress || 0) * 100).toFixed(0);
+        return `
         <div class="fleet-row">
           <span class="fleet-mission">${esc(f.mission.toUpperCase())}</span>
           <span class="fleet-target">→ [${f.target_galaxy}:${f.target_system}:${f.target_position}]</span>
+          ${posStr}
           <span class="fleet-timer" data-end="${esc(f.arrival_time)}">${countdown(f.arrival_time)}</span>
+          <div class="progress-bar-wrap" style="width:80px">
+            <div class="progress-bar" style="width:${pct}%"></div>
+          </div>
           ${f.returning ? '<span class="fleet-returning">↩ Returning</span>' : ''}
           ${!f.returning ? `<button class="btn btn-warning btn-sm recall-btn" data-fid="${f.id}">Recall</button>` : ''}
-        </div>`).join('');
+        </div>`;
+      }).join('');
 
       fleetList.querySelectorAll('.recall-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -241,12 +274,12 @@
   async function renderBuildings() {
     const root = WM.body('buildings');
     if (!root) return;
-    if (!currentPlanet) { root.innerHTML = '<p class="text-muted">Select a planet first.</p>'; return; }
+    if (!currentColony) { root.innerHTML = '<p class="text-muted">Select a colony first.</p>'; return; }
     root.innerHTML = '<p class="text-muted">Loading…</p>';
 
     try {
-      await API.finishBuilding(currentPlanet.id);
-      const data = await API.buildings(currentPlanet.id);
+      await API.finishBuilding(currentColony.id);
+      const data = await API.buildings(currentColony.id);
       if (!data.success) { root.innerHTML = '<p class="text-red">Error loading buildings.</p>'; return; }
 
       root.innerHTML = `<div class="card-grid">${data.buildings.map(b => {
@@ -274,11 +307,11 @@
       root.querySelectorAll('.upgrade-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           btn.disabled = true;
-          const r = await API.upgrade(currentPlanet.id, btn.dataset.type);
+          const r = await API.upgrade(currentColony.id, btn.dataset.type);
           if (r.success) {
             showToast(`Upgrading ${fmtName(btn.dataset.type)}…`, 'success');
-            const res = await API.resources(currentPlanet.id);
-            if (res.success) Object.assign(currentPlanet, res.resources);
+            const res = await API.resources(currentColony.id);
+            if (res.success) Object.assign(currentColony, res.resources);
             updateResourceBar();
             renderBuildings();
           } else { showToast(r.error || 'Upgrade failed', 'error'); btn.disabled = false; }
@@ -291,12 +324,12 @@
   async function renderResearch() {
     const root = WM.body('research');
     if (!root) return;
-    if (!currentPlanet) { root.innerHTML = '<p class="text-muted">Select a planet first.</p>'; return; }
+    if (!currentColony) { root.innerHTML = '<p class="text-muted">Select a colony first.</p>'; return; }
     root.innerHTML = '<p class="text-muted">Loading…</p>';
 
     try {
       await API.finishResearch();
-      const data = await API.research(currentPlanet.id);
+      const data = await API.research(currentColony.id);
       if (!data.success) { root.innerHTML = '<p class="text-red">Error.</p>'; return; }
 
       root.innerHTML = `<div class="card-grid">${data.research.map(r => {
@@ -323,7 +356,7 @@
       root.querySelectorAll('.research-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           btn.disabled = true;
-          const res = await API.doResearch(currentPlanet.id, btn.dataset.type);
+          const res = await API.doResearch(currentColony.id, btn.dataset.type);
           if (res.success) { showToast(`Researching ${fmtName(btn.dataset.type)}…`, 'success'); renderResearch(); }
           else { showToast(res.error || 'Research failed', 'error'); btn.disabled = false; }
         });
@@ -335,11 +368,11 @@
   async function renderShipyard() {
     const root = WM.body('shipyard');
     if (!root) return;
-    if (!currentPlanet) { root.innerHTML = '<p class="text-muted">Select a planet first.</p>'; return; }
+    if (!currentColony) { root.innerHTML = '<p class="text-muted">Select a colony first.</p>'; return; }
     root.innerHTML = '<p class="text-muted">Loading…</p>';
 
     try {
-      const data = await API.ships(currentPlanet.id);
+      const data = await API.ships(currentColony.id);
       if (!data.success) { root.innerHTML = '<p class="text-red">Error.</p>'; return; }
 
       root.innerHTML = `<div class="card-grid">${data.ships.map(s => `
@@ -367,11 +400,11 @@
           const type = btn.dataset.type;
           const qty  = parseInt(root.querySelector(`.ship-qty[data-type="${type}"]`).value, 10) || 1;
           btn.disabled = true;
-          const res = await API.buildShip(currentPlanet.id, type, qty);
+          const res = await API.buildShip(currentColony.id, type, qty);
           if (res.success) {
             showToast(`Built ${qty}× ${fmtName(type)}`, 'success');
-            const r2 = await API.resources(currentPlanet.id);
-            if (r2.success) Object.assign(currentPlanet, r2.resources);
+            const r2 = await API.resources(currentColony.id);
+            if (r2.success) Object.assign(currentColony, r2.resources);
             updateResourceBar();
             renderShipyard();
           } else { showToast(res.error || 'Build failed', 'error'); btn.disabled = false; }
@@ -384,7 +417,7 @@
   async function renderFleetForm() {
     const root = WM.body('fleet');
     if (!root) return;
-    if (!currentPlanet) { root.innerHTML = '<p class="text-muted">Select a planet first.</p>'; return; }
+    if (!currentColony) { root.innerHTML = '<p class="text-muted">Select a colony first.</p>'; return; }
 
     // Build the form HTML (self-contained in window)
     root.innerHTML = `
@@ -421,7 +454,7 @@
 
     // Load available ships
     try {
-      const data = await API.ships(currentPlanet.id);
+      const data = await API.ships(currentColony.id);
       const shipEl = root.querySelector('#fleet-ship-select-wm');
       if (!data.success) { shipEl.innerHTML = '<p class="text-red">Error.</p>'; return; }
       const avail = data.ships.filter(s => s.count > 0);
@@ -452,7 +485,7 @@
       const tp = parseInt(root.querySelector('#f-position').value, 10);
 
       const payload = {
-        origin_planet_id: currentPlanet.id,
+        origin_colony_id: currentColony.id,
         target_galaxy: tg, target_system: ts, target_position: tp,
         mission,
         ships,

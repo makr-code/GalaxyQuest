@@ -165,17 +165,17 @@ function fetch_achievements_for_user(PDO $db, int $userId): array
 function grant_achievement_reward(PDO $db, int $userId, int $achievementId,
                                   array $row): void
 {
-    // Credit resources to homeworld (or first planet)
+    // Credit resources to homeworld colony (or first colony)
     if ($row['reward_metal'] || $row['reward_crystal'] || $row['reward_deuterium']) {
-        $pid = $db->prepare(
-            'SELECT id FROM planets WHERE user_id = ?
+        $cid = $db->prepare(
+            'SELECT id FROM colonies WHERE user_id = ?
              ORDER BY is_homeworld DESC, id ASC LIMIT 1'
         );
-        $pid->execute([$userId]);
-        $planetId = $pid->fetchColumn();
-        if ($planetId) {
+        $cid->execute([$userId]);
+        $colonyId = $cid->fetchColumn();
+        if ($colonyId) {
             $db->prepare(
-                'UPDATE planets
+                'UPDATE colonies
                  SET metal     = metal     + ?,
                      crystal   = crystal   + ?,
                      deuterium = deuterium + ?
@@ -184,7 +184,7 @@ function grant_achievement_reward(PDO $db, int $userId, int $achievementId,
                 $row['reward_metal'],
                 $row['reward_crystal'],
                 $row['reward_deuterium'],
-                $planetId,
+                $colonyId,
             ]);
         }
     }
@@ -244,10 +244,10 @@ function evaluate_achievement(PDO $db, int $userId, string $code): array
         'tutorial_spy'         => ach_spy_count($db, $userId, 1),
         'tutorial_transport'   => ach_transport_count($db, $userId, 1),
         'tutorial_research'    => ach_any_research($db, $userId),
-        'tutorial_colony'      => ach_planet_count($db, $userId, 2),
+        'tutorial_colony'      => ach_colony_count($db, $userId, 2),
         'eco_metal_100k'       => ach_total_metal($db, $userId, 100000),
-        'eco_planets_5'        => ach_planet_count($db, $userId, 5),
-        'eco_planets_10'       => ach_planet_count($db, $userId, 10),
+        'eco_planets_5'        => ach_colony_count($db, $userId, 5),
+        'eco_planets_10'       => ach_colony_count($db, $userId, 10),
         'combat_first_win'     => ach_battle_wins($db, $userId, 1),
         'combat_10_wins'       => ach_battle_wins($db, $userId, 10),
         'veteran_deathstar'    => ach_ship_owned($db, $userId, 'death_star', 1),
@@ -262,8 +262,8 @@ function ach_building_level(PDO $db, int $userId, string $type, int $target): ar
 {
     $stmt = $db->prepare(
         'SELECT MAX(b.level) AS lv
-         FROM buildings b JOIN planets p ON p.id = b.planet_id
-         WHERE p.user_id = ? AND b.type = ?'
+         FROM buildings b JOIN colonies c ON c.id = b.colony_id
+         WHERE c.user_id = ? AND b.type = ?'
     );
     $stmt->execute([$userId, $type]);
     $lv = (int)($stmt->fetchColumn() ?? 0);
@@ -302,9 +302,9 @@ function ach_any_research(PDO $db, int $userId): array
     return ['completed' => $cnt >= 1, 'progress' => min($cnt, 1), 'goal' => 1];
 }
 
-function ach_planet_count(PDO $db, int $userId, int $target): array
+function ach_colony_count(PDO $db, int $userId, int $target): array
 {
-    $stmt = $db->prepare('SELECT COUNT(*) FROM planets WHERE user_id = ?');
+    $stmt = $db->prepare('SELECT COUNT(*) FROM colonies WHERE user_id = ?');
     $stmt->execute([$userId]);
     $cnt = (int)$stmt->fetchColumn();
     return ['completed' => $cnt >= $target, 'progress' => min($cnt, $target), 'goal' => $target];
@@ -313,7 +313,7 @@ function ach_planet_count(PDO $db, int $userId, int $target): array
 function ach_total_metal(PDO $db, int $userId, int $target): array
 {
     $stmt = $db->prepare(
-        'SELECT COALESCE(SUM(metal), 0) FROM planets WHERE user_id = ?'
+        'SELECT COALESCE(SUM(metal), 0) FROM colonies WHERE user_id = ?'
     );
     $stmt->execute([$userId]);
     $total = (int)$stmt->fetchColumn();
@@ -336,8 +336,8 @@ function ach_ship_owned(PDO $db, int $userId, string $shipType, int $target): ar
 {
     $stmt = $db->prepare(
         'SELECT COALESCE(SUM(s.count), 0)
-         FROM ships s JOIN planets p ON p.id = s.planet_id
-         WHERE p.user_id = ? AND s.type = ?'
+         FROM ships s JOIN colonies c ON c.id = s.colony_id
+         WHERE c.user_id = ? AND s.type = ?'
     );
     $stmt->execute([$userId, $shipType]);
     $cnt = (int)$stmt->fetchColumn();

@@ -27,13 +27,15 @@ $starSystem = ensure_star_system($db, $g, $s);
 
 // ── 2. Query player-colonised planets ─────────────────────────────────────────
 $stmt = $db->prepare(
-    'SELECT p.id, p.position, p.name, p.type, p.planet_class, p.diameter,
+    'SELECT p.id, p.position, p.type, p.planet_class, p.diameter,
             p.temp_min, p.temp_max, p.in_habitable_zone,
             p.semi_major_axis_au, p.orbital_period_days,
             p.surface_gravity_g, p.atmosphere_type,
-            u.username AS owner, p.user_id
-     FROM planets p
-     JOIN users u ON u.id = p.user_id
+            c.name, c.id AS colony_id, c.user_id,
+            u.username AS owner
+     FROM colonies c
+     JOIN planets p ON p.id = c.planet_id
+     JOIN users u   ON u.id = c.user_id
      WHERE p.galaxy = ? AND p.system = ?
      ORDER BY p.position ASC'
 );
