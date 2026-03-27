@@ -38,7 +38,9 @@ const API = (() => {
 
     // Game overview
     overview:    ()    => get('api/game.php?action=overview'),
+    health:      ()    => get('api/game.php?action=health'),
     resources:   (cid) => get(`api/game.php?action=resources&colony_id=${cid}`),
+    planetIntel: (g, s, p) => get(`api/game.php?action=planet_intel&galaxy=${g}&system=${s}&position=${p}`),
     leaderboard: ()    => get('api/game.php?action=leaderboard'),
     renameColony:  (cid, name) => post('api/game.php?action=rename_colony',   { colony_id: cid, name }),
     setColonyType: (cid, type) => post('api/game.php?action=set_colony_type', { colony_id: cid, colony_type: type }),
@@ -64,6 +66,8 @@ const API = (() => {
 
     // Galaxy
     galaxy: (g, s) => get(`api/galaxy.php?galaxy=${g}&system=${s}`),
+    galaxyStars: (g, from = 1, to = 25000, maxPoints = 1500) =>
+      get(`api/galaxy.php?action=stars&galaxy=${g}&from=${from}&to=${to}&max_points=${maxPoints}`),
 
     // Achievements / quests
     achievements:    ()    => get('api/achievements.php?action=list'),

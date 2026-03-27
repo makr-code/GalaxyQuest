@@ -7,17 +7,16 @@
 ## Quick Start
 
 ```bash
-# 1. Create the database
-mysql -u root -p -e "CREATE DATABASE galaxyquest CHARACTER SET utf8mb4;"
-mysql -u root -p galaxyquest < sql/schema.sql
+# Docker Desktop
+docker compose up --build
 
-# 2. Configure credentials
-cp config/config.php.example config/config.php   # then edit the DB_* constants
-
-# 3. Point a web server at the project root and open http://localhost/
+# App: http://localhost:8080
+# MySQL: localhost:3307  (user: galaxyquest_user / password: galaxyquest_dev)
 ```
 
 Full installation notes: [→ Installation](#installation)
+
+For a non-Docker setup, see [Manual Installation](#manual-installation).
 
 ---
 
@@ -26,7 +25,7 @@ Full installation notes: [→ Installation](#installation)
 | Area | Status |
 |---|---|
 | 🔐 Auth (register / login / CSRF / session) | ✅ |
-| 🌌 Procedural spiral galaxy (deterministic, 9 galaxies × 499 systems) | ✅ |
+| 🌌 Procedural spiral galaxy (deterministic, configurable, default 25,000 systems in galaxy 1) | ✅ |
 | 🌍 Scientific planet generation (Kopparapu HZ, Kepler periods, IMF star types) | ✅ |
 | 🏗 Colony hierarchy: Galaxy → System → Planet → Colony → Buildings | ✅ |
 | ⛏ 22 building types across 8 categories | ✅ |
@@ -77,7 +76,7 @@ This makes the game trivially deployable on shared hosting with no background pr
 ```
 Universe
   └─ Galaxy  (1–9, spiral arm structure)
-       └─ StarSystem  (1–499 per galaxy; x/y/z in light-years)
+    └─ StarSystem  (configurable per galaxy; default bootstrap seeds 25,000 in galaxy 1)
             └─ Planet  (scientific properties, finite deposits)
                  └─ Colony  (player base: resources, population, buildings)
 ```
@@ -93,7 +92,7 @@ Planets are **purely astronomical** objects (orbital mechanics, temperature, atm
 - Planet orbital semi-major axes placed by a log-normal distribution; periods via **Kepler's third law**.
 - 9 planet classes (Terrestrial, Super-Earth, Ocean, Desert, Ice, Gas Giant, Ice Giant, Lava, Barren) assigned by temperature and mass.
 
-Star system metadata is cached in `star_systems`; planet rows are only inserted when first visited (colonize / spy / harvest mission).
+Star system metadata and generated planets can be pre-seeded into the database. The default bootstrap fills galaxy 1 with 25,000 cached systems and their generated planets, then each newly registered user seeds another 50 nearby systems around the homeworld region.
 
 ### Resource Economy
 
@@ -176,6 +175,49 @@ Winners loot up to 50% of metal/crystal/deuterium and 30% of rare earth (capped 
 
 ## Installation
 
+### Docker Desktop (recommended for development)
+
+Requirements:
+- Docker Desktop with Compose enabled
+- VS Code PHP Debug extension if you want step debugging
+
+```bash
+# Start web + database
+docker compose up --build
+
+# Stop the stack
+docker compose down
+
+# Stop and remove the database volume as well
+docker compose down -v
+```
+
+What this setup gives you:
+- Apache + PHP 8.2 in a web container
+- MySQL 8.4 in a separate container
+- Automatic schema import on first database startup
+- Xdebug preconfigured for Docker Desktop via `host.docker.internal:9003`
+- Live code editing through a bind mount of the project directory
+
+Debugging in VS Code:
+1. Install the PHP Debug extension.
+2. Start the stack with `docker compose up --build`.
+3. Open the Run and Debug view and select `Listen for Xdebug (Docker)`.
+4. Set a breakpoint in any PHP file and trigger the corresponding request in the browser.
+
+Workspace helpers:
+- `.vscode/tasks.json` includes `Docker: Up`, `Docker: Down`, `Docker: Reset DB`, `Docker: Logs`, `Docker: Rebuild Web`, and `Docker: Bootstrap Galaxy`.
+- `.vscode/extensions.json` recommends the PHP Debug and Docker extensions.
+
+Notes:
+- The app is served at `http://localhost:8080`.
+- MySQL is exposed on port `3307` to avoid conflicts with a local server.
+- The schema in `sql/schema.sql` is only imported when the named Docker volume is empty.
+- If you need a clean database, run `docker compose down -v` and start again.
+- To force the full base galaxy into the database after startup, run `Docker: Bootstrap Galaxy` or `docker compose exec -T web php scripts/bootstrap_galaxy.php`.
+
+### Manual Installation
+
 ### Requirements
 - PHP 8.0+ with `pdo_mysql`
 - MySQL 8.0+ (or MariaDB 10.6+)
@@ -193,7 +235,7 @@ mysql -u root -p galaxyquest < sql/migrate_v2.sql
 
 # 2. Config
 cp config/config.php.example config/config.php
-# Set DB_HOST, DB_NAME, DB_USER, DB_PASS, GAME_SPEED
+# Set DB_HOST, DB_NAME, DB_USER, DB_PASS, GAME_SPEED as needed
 
 # 3a. Apache — .htaccess is included, just enable mod_rewrite
 # 3b. Nginx
@@ -209,13 +251,15 @@ php -S localhost:8080
 
 ### Configuration (`config/config.php`)
 
+The config file also supports environment-variable overrides. That means the Docker setup can inject database credentials without requiring a separate local config edit.
+
 | Constant | Default | Description |
 |---|---|---|
 | `GAME_SPEED` | `1` | Global speed multiplier (higher = faster production) |
 | `GALAXY_MAX` | `9` | Number of galaxies |
-| `SYSTEM_MAX` | `499` | Systems per galaxy |
+| `SYSTEM_MAX` | `499` | Legacy fallback only; runtime uses `config/galaxy_config.json` when present |
 | `POSITION_MAX` | `15` | Planet slots per system |
-| `MAX_COLONIES` | `9` | Max colonies per player |
+| `SESSION_LIFETIME` | `3600` | Session cookie lifetime in seconds |
 
 ---
 

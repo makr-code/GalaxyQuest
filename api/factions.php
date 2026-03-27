@@ -2,7 +2,8 @@
 /**
  * Factions & Diplomacy API
  *
- * GET  /api/factions.php?action=list                       – all factions + player standing
+ * GET  /api/factions.php?action=list                       – all factions + player standing + government forms + alliances
+ * GET  /api/factions.php?action=government&faction_id=X    – government form details + alliances
  * GET  /api/factions.php?action=trade_offers&faction_id=X  – available trade offers
  * POST /api/factions.php?action=accept_trade  body: {offer_id, colony_id}
  * GET  /api/factions.php?action=quests&faction_id=X        – available faction quests
@@ -13,13 +14,15 @@
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';   // verify_colony_ownership
+require_once __DIR__ . '/galaxy_seed.php';  // get_faction_government, get_faction_alliances
 
-$action = $_GET['action'] ?? '';
-$uid    = require_auth();
+if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    $action = $_GET['action'] ?? '';
+    $uid    = require_auth();
 
-switch ($action) {
+    switch ($action) {
 
-    // ── List all factions with player standing ────────────────────────────────
+    // ── List all factions with player standing, government forms & alliances ──
     case 'list':
         only_method('GET');
         $db = get_db();
@@ -35,7 +38,42 @@ switch ($action) {
              ORDER BY f.id'
         );
         $stmt->execute([$uid]);
-        json_ok(['factions' => $stmt->fetchAll()]);
+        $factions = $stmt->fetchAll();
+        
+        // Enrich with government forms and alliances
+        foreach ($factions as &$faction) {
+            $fid = (int)$faction['id'];
+            $faction['government'] = get_faction_government($db, $fid);
+            $faction['alliances'] = get_faction_alliances($db, $fid);
+        }
+        unset($faction);
+        
+        json_ok(['factions' => $factions]);
+        break;
+
+    // ── Faction government form details & alliances ───────────────────────────
+    case 'government':
+        only_method('GET');
+        $fid = (int)($_GET['faction_id'] ?? 0);
+        $db  = get_db();
+        
+        $faction = $db->prepare('SELECT * FROM npc_factions WHERE id = ?')
+                     ->execute([$fid])
+                     ->fetch();
+        if (!$faction) {
+            json_error('Faction not found.', 404);
+        }
+        
+        $government = get_faction_government($db, $fid);
+        $alliances = get_faction_alliances($db, $fid);
+        $standing = get_standing($db, $uid, $fid);
+        
+        json_ok([
+            'faction' => $faction,
+            'government' => $government,
+            'alliances' => $alliances,
+            'player_standing' => $standing,
+        ]);
         break;
 
     // ── Active trade offers from a faction ────────────────────────────────────
@@ -250,8 +288,9 @@ switch ($action) {
         ]);
         break;
 
-    default:
-        json_error('Unknown action');
+        default:
+            json_error('Unknown action');
+        }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

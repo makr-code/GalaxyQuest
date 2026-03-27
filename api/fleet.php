@@ -11,6 +11,7 @@ require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/planet_helper.php';
+require_once __DIR__ . '/galaxy_seed.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -25,7 +26,7 @@ switch ($action) {
                     f.target_galaxy, f.target_system, f.target_position,
                     f.ships_json, f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
                     f.departure_time, f.arrival_time, f.return_time, f.returning,
-                    p.galaxy AS origin_galaxy, p.system AS origin_system, p.position AS origin_position
+                    p.galaxy AS origin_galaxy, p.`system` AS origin_system, p.position AS origin_position
              FROM fleets f
              JOIN colonies c ON c.id = f.origin_colony_id
              JOIN planets  p ON p.id = c.planet_id
@@ -79,7 +80,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     if (!in_array($mission, ['attack','transport','colonize','harvest','spy'], true)) {
         json_error('Invalid mission type.');
     }
-    if ($tg < 1 || $tg > GALAXY_MAX || $ts < 1 || $ts > SYSTEM_MAX
+    if ($tg < 1 || $tg > GALAXY_MAX || $ts < 1 || $ts > galaxy_system_limit()
         || $tp < 1 || $tp > POSITION_MAX) {
         json_error('Target coordinates out of range.');
     }
@@ -87,7 +88,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     // Verify colony ownership and get coordinates
     $colStmt = $db->prepare(
         'SELECT c.id, c.metal, c.crystal, c.deuterium, c.user_id,
-                p.galaxy, p.system, p.position
+                p.galaxy, p.`system`, p.position
          FROM colonies c JOIN planets p ON p.id = c.planet_id
          WHERE c.id = ? AND c.user_id = ?'
     );
@@ -108,7 +109,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
              FROM colonies c
              JOIN planets p ON p.id = c.planet_id
              JOIN users u ON u.id = c.user_id
-             WHERE p.galaxy = ? AND p.system = ? AND p.position = ?'
+               WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?'
         );
         $tgtRow->execute([$tg, $ts, $tp]);
         $tgtUser = $tgtRow->fetch();
@@ -252,7 +253,7 @@ function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
 }
 
 function deliver_resources(PDO $db, array $fleet, array $ships): void {
-    $tgt = $db->prepare('SELECT c.id FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE p.galaxy=? AND p.system=? AND p.position=?');
+    $tgt = $db->prepare('SELECT c.id FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE p.galaxy=? AND p.`system`=? AND p.position=?');
     $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $target = $tgt->fetch();
     if ($target) {
@@ -269,7 +270,7 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $tgt = $db->prepare(
         'SELECT c.id, c.user_id, c.metal, c.crystal, c.deuterium, c.rare_earth
          FROM colonies c JOIN planets p ON p.id=c.planet_id
-         WHERE p.galaxy=? AND p.system=? AND p.position=?'
+            WHERE p.galaxy=? AND p.`system`=? AND p.position=?'
     );
     $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $target = $tgt->fetch();
@@ -494,13 +495,16 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
         'SELECT c.id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
                 c.population, c.max_population, c.happiness, c.public_services, c.energy,
                 p.planet_class, p.diameter, p.in_habitable_zone,
+            p.composition_family, p.dominant_surface_material, p.surface_pressure_bar,
+            p.water_state, p.methane_state, p.ammonia_state, p.dominant_surface_liquid,
+            p.radiation_level, p.habitability_score, p.life_friendliness, p.species_affinity_json,
                 p.deposit_metal, p.deposit_crystal, p.deposit_deuterium, p.deposit_rare_earth,
                 p.richness_metal, p.richness_crystal,
                 u.username
          FROM colonies c
          JOIN planets  p ON p.id = c.planet_id
          JOIN users    u ON u.id = c.user_id
-         WHERE p.galaxy=? AND p.system=? AND p.position=?'
+            WHERE p.galaxy=? AND p.`system`=? AND p.position=?'
     );
     $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $target = $tgt->fetch();
@@ -510,8 +514,11 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
         $pRow = $db->prepare(
             'SELECT planet_class, in_habitable_zone, deposit_metal, deposit_crystal,
                     deposit_deuterium, deposit_rare_earth, richness_metal, richness_crystal,
-                    richness_deuterium, richness_rare_earth
-             FROM planets WHERE galaxy=? AND system=? AND position=?'
+                    richness_deuterium, richness_rare_earth, composition_family,
+                    dominant_surface_material, surface_pressure_bar, water_state,
+                    methane_state, ammonia_state, dominant_surface_liquid,
+                    radiation_level, habitability_score, life_friendliness, species_affinity_json
+               FROM planets WHERE galaxy=? AND `system`=? AND position=?'
         );
         $pRow->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
         $pData = $pRow->fetch();
@@ -552,6 +559,17 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
             'planet'       => [
                 'planet_class'       => $target['planet_class'],
                 'in_habitable_zone'  => (bool)$target['in_habitable_zone'],
+                'composition_family' => $target['composition_family'],
+                'dominant_surface_material' => $target['dominant_surface_material'],
+                'surface_pressure_bar' => (float)$target['surface_pressure_bar'],
+                'water_state' => $target['water_state'],
+                'methane_state' => $target['methane_state'],
+                'ammonia_state' => $target['ammonia_state'],
+                'dominant_surface_liquid' => $target['dominant_surface_liquid'],
+                'radiation_level' => $target['radiation_level'],
+                'habitability_score' => (int)$target['habitability_score'],
+                'life_friendliness' => $target['life_friendliness'],
+                'species_affinity' => json_decode((string)($target['species_affinity_json'] ?? '[]'), true),
                 'deposit_metal'      => $target['deposit_metal'],
                 'deposit_crystal'    => $target['deposit_crystal'],
                 'deposit_rare_earth' => $target['deposit_rare_earth'],
@@ -583,7 +601,7 @@ function harvest_resources(PDO $db, array $fleet, array $ships): void {
         'SELECT p.id, p.deposit_metal, p.deposit_crystal, p.deposit_deuterium, p.deposit_rare_earth,
                 p.richness_metal, p.richness_crystal, p.richness_deuterium, p.richness_rare_earth
          FROM planets p
-         WHERE p.galaxy=? AND p.system=? AND p.position=?'
+            WHERE p.galaxy=? AND p.`system`=? AND p.position=?'
     );
     $pRow->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $planet = $pRow->fetch();

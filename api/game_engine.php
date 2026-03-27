@@ -3,6 +3,8 @@
  * Core game engine: resource production, building costs, ship stats, etc.
  */
 
+require_once __DIR__ . '/galaxy_seed.php';
+
 // ─── Resource production (per hour) ─────────────────────────────────────────
 
 function metal_production(int $level): float {
@@ -29,6 +31,131 @@ function fusion_energy(int $level): float {
 
 function storage_cap(int $level): float {
     return 5000 * round(2.5 * exp(20 * $level / 33));
+}
+
+function ship_definitions(): array {
+    return SHIP_STATS;
+}
+
+function building_definitions(): array {
+    return [
+        'metal_mine'       => ['category' => 'extraction', 'label' => 'Metal Mine',       'icon' => '⬡', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'industrial'],
+        'crystal_mine'     => ['category' => 'extraction', 'label' => 'Crystal Mine',     'icon' => '💎', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'industrial'],
+        'deuterium_synth'  => ['category' => 'extraction', 'label' => 'Deuterium Synth',  'icon' => '🔵', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'industrial'],
+        'rare_earth_drill' => ['category' => 'extraction', 'label' => 'Rare Earth Drill', 'icon' => '💜', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'industrial'],
+        'solar_plant'      => ['category' => 'energy',     'label' => 'Solar Plant',      'icon' => '☀', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'utility'],
+        'fusion_reactor'   => ['category' => 'energy',     'label' => 'Fusion Reactor',   'icon' => '🔆', 'zone' => 'surface', 'footprint' => 3, 'class_key' => 'utility'],
+        'hydroponic_farm'  => ['category' => 'life',       'label' => 'Hydroponic Farm',  'icon' => '🌾', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'civic'],
+        'food_silo'        => ['category' => 'life',       'label' => 'Food Silo',        'icon' => '🥫', 'zone' => 'surface', 'footprint' => 1, 'class_key' => 'utility'],
+        'habitat'          => ['category' => 'population', 'label' => 'Habitat',          'icon' => '🏠', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'civic'],
+        'hospital'         => ['category' => 'population', 'label' => 'Hospital',         'icon' => '🏥', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'civic'],
+        'school'           => ['category' => 'population', 'label' => 'School',           'icon' => '🎓', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'civic'],
+        'security_post'    => ['category' => 'population', 'label' => 'Security Post',    'icon' => '🛡', 'zone' => 'surface', 'footprint' => 1, 'class_key' => 'military'],
+        'robotics_factory' => ['category' => 'industry',   'label' => 'Robotics Factory', 'icon' => '🤖', 'zone' => 'surface', 'footprint' => 3, 'class_key' => 'industrial'],
+        'shipyard'         => ['category' => 'industry',   'label' => 'Shipyard',         'icon' => '🛰', 'zone' => 'orbital', 'footprint' => 2, 'class_key' => 'orbital'],
+        'metal_storage'    => ['category' => 'storage',    'label' => 'Metal Storage',    'icon' => '📦', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'utility'],
+        'crystal_storage'  => ['category' => 'storage',    'label' => 'Crystal Storage',  'icon' => '📦', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'utility'],
+        'deuterium_tank'   => ['category' => 'storage',    'label' => 'Deuterium Tank',   'icon' => '🛢', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'utility'],
+        'research_lab'     => ['category' => 'science',    'label' => 'Research Lab',     'icon' => '🔬', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'science'],
+        'missile_silo'     => ['category' => 'defense',    'label' => 'Missile Silo',     'icon' => '🚀', 'zone' => 'orbital', 'footprint' => 2, 'class_key' => 'orbital'],
+        'nanite_factory'   => ['category' => 'advanced',   'label' => 'Nanite Factory',   'icon' => '⚙', 'zone' => 'surface', 'footprint' => 3, 'class_key' => 'science'],
+        'terraformer'      => ['category' => 'advanced',   'label' => 'Terraformer',      'icon' => '🌍', 'zone' => 'surface', 'footprint' => 4, 'class_key' => 'utility'],
+        'colony_hq'        => ['category' => 'command',    'label' => 'Colony HQ',        'icon' => '🏛', 'zone' => 'surface', 'footprint' => 3, 'class_key' => 'civic'],
+    ];
+}
+
+function colony_layout_profile(array $planet): array {
+    $diameter = max(800, (int)($planet['diameter'] ?? 10000));
+    $planetClass = (string)($planet['planet_class'] ?? 'rocky');
+    $cols = max(5, min(12, (int)floor($diameter / 2200) + 3));
+    $rows = max(4, min(10, (int)floor($diameter / 3200) + 2));
+    $surfaceSlots = $cols * $rows;
+
+    $classWeights = [
+        'industrial' => 0.22,
+        'utility' => 0.16,
+        'civic' => 0.18,
+        'science' => 0.12,
+        'military' => 0.12,
+        'orbital' => 0.10,
+    ];
+    if (str_contains($planetClass, 'gas')) {
+        $classWeights['orbital'] = 0.24;
+        $classWeights['industrial'] = 0.10;
+    } elseif (str_contains($planetClass, 'ocean')) {
+        $classWeights['civic'] = 0.22;
+        $classWeights['industrial'] = 0.17;
+    } elseif (str_contains($planetClass, 'lava')) {
+        $classWeights['military'] = 0.18;
+        $classWeights['utility'] = 0.20;
+    }
+
+    $classCaps = [];
+    $allocated = 0;
+    foreach ($classWeights as $classKey => $weight) {
+        $cap = max(2, (int)floor($surfaceSlots * $weight));
+        $classCaps[$classKey] = $cap;
+        $allocated += $cap;
+    }
+    $classCaps['flex'] = max(2, $surfaceSlots - $allocated);
+    $orbitalSlots = max(2, min(12, (int)floor($diameter / 7000) + (str_contains($planetClass, 'gas') ? 3 : 1)));
+
+    return [
+        'grid' => ['cols' => $cols, 'rows' => $rows, 'surface_slots' => $surfaceSlots, 'orbital_slots' => $orbitalSlots],
+        'class_caps' => $classCaps,
+        'planet_scale' => [
+            'diameter' => $diameter,
+            'tier' => $diameter >= 60000 ? 'colossal' : ($diameter >= 24000 ? 'large' : ($diameter >= 12000 ? 'medium' : 'small')),
+            'planet_class' => $planetClass,
+        ],
+    ];
+}
+
+function summarize_orbital_facilities(array $buildings, array $ships = []): array {
+    $defs = building_definitions();
+    $facilities = [];
+    foreach ($buildings as $building) {
+        $type = (string)($building['type'] ?? '');
+        $def = $defs[$type] ?? null;
+        if (!$def || ($def['zone'] ?? 'surface') !== 'orbital') {
+            continue;
+        }
+        $facilities[] = [
+            'type' => $type,
+            'label' => $def['label'],
+            'icon' => $def['icon'],
+            'level' => (int)($building['level'] ?? 0),
+            'category' => $def['category'],
+        ];
+    }
+    $solarSatellites = (int)($ships['solar_satellite'] ?? 0);
+    if ($solarSatellites > 0) {
+        $facilities[] = [
+            'type' => 'solar_satellite',
+            'label' => 'Solar Satellites',
+            'icon' => '🛰',
+            'level' => $solarSatellites,
+            'category' => 'orbital-energy',
+        ];
+    }
+    return $facilities;
+}
+
+function vessel_manifest(array $ships, int $capPerType = 10): array {
+    $manifest = [];
+    foreach ($ships as $type => $count) {
+        $count = max(0, (int)$count);
+        if ($count <= 0) {
+            continue;
+        }
+        $manifest[] = [
+            'type' => (string)$type,
+            'count' => $count,
+            'sample_count' => min($capPerType, $count),
+            'stats' => SHIP_STATS[(string)$type] ?? null,
+        ];
+    }
+    return $manifest;
 }
 
 // ─── Building costs ──────────────────────────────────────────────────────────
@@ -187,7 +314,7 @@ function get_system_3d_coords(PDO $db, int $g, int $s): array {
     $bandFrac  = (int)(($g - 1) / $arms) / 2.0;
     $rMin      = $r0 + $bandFrac * ($rEnd - $r0) * 0.5;
     $rMax      = $rMin + ($rEnd - $r0) * 0.5;
-    $sysMax    = defined('SYSTEM_MAX') ? SYSTEM_MAX : 499;
+    $sysMax    = galaxy_system_limit();
     $t         = ($sysMax > 1) ? ($s - 1) / ($sysMax - 1) : 0.5;
     $r         = $rMin + $t * ($rMax - $rMin);
     $theta     = log($r / $r0) / $b + $armIdx * (2.0 * M_PI / $arms);

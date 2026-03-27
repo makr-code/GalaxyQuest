@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GalaxyQuest – Command Center</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=20260327w" />
 </head>
 <body class="game-page">
 
@@ -22,7 +22,6 @@
       <button class="nav-btn" data-win="research">Research</button>
       <button class="nav-btn" data-win="shipyard">Shipyard</button>
       <button class="nav-btn" data-win="fleet">Fleet</button>
-      <button class="nav-btn" data-win="galaxy">Galaxy</button>
       <button class="nav-btn" data-win="messages">
         Messages <span id="msg-badge" class="msg-badge hidden">0</span>
       </button>
@@ -106,10 +105,15 @@
   <!-- Toast notification -->
   <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
 
-  <script src="js/starfield.js"></script>
-  <script src="js/wm.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/game.js"></script>
+  <script src="js/starfield.js?v=20260327w"></script>
+  <script src="js/wm.js?v=20260327w"></script>
+  <script src="js/api.js?v=20260327w"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js"></script>
+  <script src="js/galaxy-model.js?v=20260327w"></script>
+  <script src="js/galaxy-db.js?v=20260327w"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script src="js/galaxy3d.js?v=20260327w"></script>
+  <script src="js/game.js?v=20260327w"></script>
 </body>
 </html>
 

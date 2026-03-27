@@ -6,7 +6,7 @@
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   let W, H, stars = [];
-  const STAR_COUNT = 200;
+  const STAR_COUNT = 150;
 
   function resize() {
     W = canvas.width  = window.innerWidth;
@@ -19,10 +19,10 @@
       stars.push({
         x:       Math.random() * W,
         y:       Math.random() * H,
-        r:       Math.random() * 1.4 + 0.2,
-        speed:   Math.random() * 0.15 + 0.05,
-        opacity: Math.random() * 0.6 + 0.2,
-        drift:   (Math.random() - 0.5) * 0.08,
+        r:       Math.random() * 0.9 + 0.15,
+        speed:   Math.random() * 0.06 + 0.02,
+        opacity: Math.random() * 0.32 + 0.12,
+        drift:   (Math.random() - 0.5) * 0.035,
       });
     }
   }

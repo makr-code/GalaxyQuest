@@ -18,6 +18,11 @@
   const tabs    = document.querySelectorAll('.tab-btn');
   const loginForm    = document.getElementById('login-form');
   const registerForm = document.getElementById('register-form');
+  const devTools = document.getElementById('dev-auth-tools');
+  const devResetBtn = document.getElementById('dev-reset-btn');
+  const devResetUser = document.getElementById('dev-reset-username');
+  const devResetPass = document.getElementById('dev-reset-password');
+  const devResetResult = document.getElementById('dev-reset-result');
 
   tabs.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -36,6 +41,52 @@
     return d.token;
   }
 
+  async function loadDevToolsStatus() {
+    try {
+      const r = await fetch('api/auth.php?action=dev_tools_status');
+      const d = await r.json();
+      if (d.success && d.enabled) {
+        devTools.classList.remove('hidden');
+      }
+    } catch (_) {
+      // Keep hidden on errors.
+    }
+  }
+
+  devResetBtn?.addEventListener('click', async () => {
+    devResetResult.textContent = '';
+    const username = devResetUser.value.trim();
+    const password = devResetPass.value;
+    if (!username || password.length < 8) {
+      devResetResult.textContent = 'Username and password (min 8 chars) required.';
+      return;
+    }
+    devResetBtn.disabled = true;
+    devResetBtn.textContent = 'Resetting...';
+    try {
+      const csrf = await getCsrf();
+      const res = await fetch('api/auth.php?action=dev_reset_password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        devResetResult.style.color = '#86efac';
+        devResetResult.textContent = data.message || 'Password reset complete.';
+      } else {
+        devResetResult.style.color = '';
+        devResetResult.textContent = data.error || 'Reset failed.';
+      }
+    } catch (_) {
+      devResetResult.style.color = '';
+      devResetResult.textContent = 'Network error. Please try again.';
+    } finally {
+      devResetBtn.disabled = false;
+      devResetBtn.textContent = 'Reset Password (Dev)';
+    }
+  });
+
   // ── Login ────────────────────────────────────────────────
   loginForm.addEventListener('submit', async e => {
     e.preventDefault();
@@ -53,6 +104,7 @@
         body: JSON.stringify({
           username: document.getElementById('login-username').value.trim(),
           password: document.getElementById('login-password').value,
+          remember: document.getElementById('login-remember').checked,
         }),
       });
       const data = await res.json();
@@ -87,6 +139,7 @@
           username: document.getElementById('reg-username').value.trim(),
           email:    document.getElementById('reg-email').value.trim(),
           password: document.getElementById('reg-password').value,
+          remember: document.getElementById('reg-remember').checked,
         }),
       });
       const data = await res.json();
@@ -102,4 +155,6 @@
       btn.textContent = 'Launch into the Galaxy';
     }
   });
+
+  loadDevToolsStatus();
 })();

@@ -12,64 +12,66 @@
  */
 require_once __DIR__ . '/helpers.php';
 
-$action = $_GET['action'] ?? '';
-$uid    = require_auth();
+if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    $action = $_GET['action'] ?? '';
+    $uid    = require_auth();
 
-switch ($action) {
-    // ── List all achievements with this user's progress ───────────────────────
-    case 'list':
-        only_method('GET');
-        $db = get_db();
-        // Auto-check before returning so the client always sees fresh state
-        check_and_update_achievements($db, $uid);
-        json_ok(['achievements' => fetch_achievements_for_user($db, $uid)]);
-        break;
+    switch ($action) {
+        // ── List all achievements with this user's progress ───────────────────────
+        case 'list':
+            only_method('GET');
+            $db = get_db();
+            // Auto-check before returning so the client always sees fresh state
+            check_and_update_achievements($db, $uid);
+            json_ok(['achievements' => fetch_achievements_for_user($db, $uid)]);
+            break;
 
-    // ── Claim the reward for one completed achievement ────────────────────────
-    case 'claim':
-        only_method('POST');
-        verify_csrf();
-        $body = get_json_body();
-        $aid  = (int)($body['achievement_id'] ?? 0);
-        $db   = get_db();
+        // ── Claim the reward for one completed achievement ────────────────────────
+        case 'claim':
+            only_method('POST');
+            verify_csrf();
+            $body = get_json_body();
+            $aid  = (int)($body['achievement_id'] ?? 0);
+            $db   = get_db();
 
-        // Fetch the user_achievements row
-        $stmt = $db->prepare(
-            'SELECT ua.id, ua.completed, ua.reward_claimed,
-                    a.title, a.reward_metal, a.reward_crystal,
-                    a.reward_deuterium, a.reward_dark_matter, a.reward_rank_points
-             FROM user_achievements ua
-             JOIN achievements a ON a.id = ua.achievement_id
-             WHERE ua.user_id = ? AND ua.achievement_id = ?'
-        );
-        $stmt->execute([$uid, $aid]);
-        $row = $stmt->fetch();
+            // Fetch the user_achievements row
+            $stmt = $db->prepare(
+                'SELECT ua.id, ua.completed, ua.reward_claimed,
+                        a.title, a.reward_metal, a.reward_crystal,
+                        a.reward_deuterium, a.reward_dark_matter, a.reward_rank_points
+                 FROM user_achievements ua
+                 JOIN achievements a ON a.id = ua.achievement_id
+                 WHERE ua.user_id = ? AND ua.achievement_id = ?'
+            );
+            $stmt->execute([$uid, $aid]);
+            $row = $stmt->fetch();
 
-        if (!$row) {
-            json_error('Achievement not found.', 404);
-        }
-        if (!$row['completed']) {
-            json_error('Achievement not yet completed.');
-        }
-        if ($row['reward_claimed']) {
-            json_error('Reward already claimed.');
-        }
+            if (!$row) {
+                json_error('Achievement not found.', 404);
+            }
+            if (!$row['completed']) {
+                json_error('Achievement not yet completed.');
+            }
+            if ($row['reward_claimed']) {
+                json_error('Reward already claimed.');
+            }
 
-        grant_achievement_reward($db, $uid, $aid, $row);
-        json_ok(['message' => '🏆 Reward claimed for: ' . $row['title']]);
-        break;
+            grant_achievement_reward($db, $uid, $aid, $row);
+            json_ok(['message' => '🏆 Reward claimed for: ' . $row['title']]);
+            break;
 
-    // ── Re-check all conditions and mark newly completed achievements ─────────
-    case 'check':
-        only_method('POST');
-        verify_csrf();
-        $db      = get_db();
-        $newlyDone = check_and_update_achievements($db, $uid);
-        json_ok(['newly_completed' => $newlyDone]);
-        break;
+        // ── Re-check all conditions and mark newly completed achievements ─────────
+        case 'check':
+            only_method('POST');
+            verify_csrf();
+            $db      = get_db();
+            $newlyDone = check_and_update_achievements($db, $uid);
+            json_ok(['newly_completed' => $newlyDone]);
+            break;
 
-    default:
-        json_error('Unknown action');
+        default:
+            json_error('Unknown action');
+    }
 }
 
 // ─── Core engine (also used by other API files via require_once) ──────────────

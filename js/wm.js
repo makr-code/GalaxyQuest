@@ -26,6 +26,8 @@ const WM = (() => {
   let _nextX = 60;
   let _nextY = 60;
 
+  window.addEventListener('resize', () => _syncFullscreenWindows());
+
   // ── Default window configurations ───────────────────────────────────────────
   const DEFAULTS = {
     overview:    { title: '🌍 Overview',       w: 860, h: 540 },
@@ -58,28 +60,47 @@ const WM = (() => {
     const el  = _buildEl(id, cfg);
     const desktop = _desktop();
 
-    // Position: restore saved or use cascaded default
-    const saved = _loadPos(id);
-    let x = saved ? saved.x : _nextX;
-    let y = saved ? saved.y : _nextY;
+    if (cfg.fullscreenDesktop) {
+      el.style.left   = '0px';
+      el.style.top    = '0px';
+      el.style.width  = desktop.offsetWidth + 'px';
+      el.style.height = desktop.offsetHeight + 'px';
+    } else {
+      // Position: restore saved or use cascaded default
+      const saved = _loadPos(id);
+      let x = saved ? saved.x : _nextX;
+      let y = saved ? saved.y : _nextY;
 
-    if (!saved) {
-      _nextX = (_nextX + 32) % Math.max(100, desktop.offsetWidth  - cfg.w  - 60);
-      _nextY = (_nextY + 32) % Math.max(100, desktop.offsetHeight - cfg.h  - 60);
+      if (!saved) {
+        if (cfg.defaultDock === 'right') {
+          const margin = Number(cfg.defaultDockMargin ?? 12);
+          const dockY = Number(cfg.defaultY ?? 12);
+          x = Math.max(0, desktop.offsetWidth - (cfg.w ?? 600) - margin);
+          y = Math.max(0, dockY);
+        } else {
+          if (Number.isFinite(Number(cfg.defaultX))) x = Number(cfg.defaultX);
+          if (Number.isFinite(Number(cfg.defaultY))) y = Number(cfg.defaultY);
+        }
+      }
+
+      if (!saved) {
+        _nextX = (_nextX + 32) % Math.max(100, desktop.offsetWidth  - cfg.w  - 60);
+        _nextY = (_nextY + 32) % Math.max(100, desktop.offsetHeight - cfg.h  - 60);
+      }
+
+      // Clamp to desktop
+      x = Math.max(0, Math.min(x, Math.max(0, desktop.offsetWidth  - cfg.w)));
+      y = Math.max(0, Math.min(y, Math.max(0, desktop.offsetHeight - cfg.h)));
+
+      el.style.left   = x + 'px';
+      el.style.top    = y + 'px';
+      el.style.width  = (saved?.w ?? cfg.w) + 'px';
+      el.style.height = (saved?.h ?? cfg.h) + 'px';
     }
-
-    // Clamp to desktop
-    x = Math.max(0, Math.min(x, Math.max(0, desktop.offsetWidth  - cfg.w)));
-    y = Math.max(0, Math.min(y, Math.max(0, desktop.offsetHeight - cfg.h)));
-
-    el.style.left   = x + 'px';
-    el.style.top    = y + 'px';
-    el.style.width  = (saved?.w ?? cfg.w) + 'px';
-    el.style.height = (saved?.h ?? cfg.h) + 'px';
 
     desktop.appendChild(el);
     _wins.set(id, { el, cfg, minimized: false });
-    _addTaskBtn(id, cfg.title);
+    if (!cfg.hideTaskButton) _addTaskBtn(id, cfg.title);
     _focus(id);
     _callRender(id);
   }
@@ -117,32 +138,37 @@ const WM = (() => {
   // ── Internal: build window DOM element ──────────────────────────────────────
   function _buildEl(id, cfg) {
     const el = document.createElement('div');
-    el.className = 'wm-window';
+    el.className = 'wm-window' + (cfg.fullscreenDesktop ? ' wm-window-fullscreen' : '');
     el.id        = 'wm-win-' + id;
     el.setAttribute('data-winid', id);
-    el.innerHTML = `
+    const titlebar = cfg.fullscreenDesktop ? '' : `
       <div class="wm-titlebar">
         <span class="wm-title">${_esc(cfg.title)}</span>
         <div class="wm-controls">
           <button class="wm-btn wm-btn-min"   title="Minimise">&#8211;</button>
           <button class="wm-btn wm-btn-close" title="Close">&#x2715;</button>
         </div>
-      </div>
+      </div>`;
+    const resizeHandle = cfg.fullscreenDesktop ? '' : '<div class="wm-resize-handle" title="Resize"></div>';
+    el.innerHTML = `${titlebar}
       <div class="wm-body"></div>
-      <div class="wm-resize-handle" title="Resize"></div>`;
+      ${resizeHandle}`;
 
     // Title-bar click → focus
     el.addEventListener('mousedown', () => _focus(id), true);
 
     // Buttons
-    el.querySelector('.wm-btn-min').addEventListener('click',   e => { e.stopPropagation(); _minimize(id); });
-    el.querySelector('.wm-btn-close').addEventListener('click', e => { e.stopPropagation(); close(id); });
+    const minBtn = el.querySelector('.wm-btn-min');
+    const closeBtn = el.querySelector('.wm-btn-close');
+    if (minBtn) minBtn.addEventListener('click', e => { e.stopPropagation(); _minimize(id); });
+    if (closeBtn) closeBtn.addEventListener('click', e => { e.stopPropagation(); close(id); });
 
-    // Drag
-    _makeDraggable(el);
-
-    // Resize
-    _makeResizable(el);
+    if (!cfg.fullscreenDesktop) {
+      // Drag
+      _makeDraggable(el);
+      // Resize
+      _makeResizable(el);
+    }
 
     return el;
   }
@@ -186,6 +212,7 @@ const WM = (() => {
   // ── Internal: drag-by-titlebar ───────────────────────────────────────────────
   function _makeDraggable(winEl) {
     const bar = winEl.querySelector('.wm-titlebar');
+    if (!bar) return;
     let dragging = false, ox = 0, oy = 0;
 
     bar.addEventListener('mousedown', e => {
@@ -232,6 +259,7 @@ const WM = (() => {
   // ── Internal: resize by SE corner handle ─────────────────────────────────────
   function _makeResizable(winEl) {
     const handle = winEl.querySelector('.wm-resize-handle');
+    if (!handle) return;
     let resizing = false, sx = 0, sy = 0, sw = 0, sh = 0;
 
     handle.addEventListener('mousedown', e => {
@@ -274,6 +302,17 @@ const WM = (() => {
       win.minimized ? _restore(id) : _minimize(id);
     });
     taskbar.appendChild(btn);
+  }
+
+  function _syncFullscreenWindows() {
+    const desktop = _desktop();
+    _wins.forEach((win) => {
+      if (!win.cfg?.fullscreenDesktop) return;
+      win.el.style.left = '0px';
+      win.el.style.top = '0px';
+      win.el.style.width = desktop.offsetWidth + 'px';
+      win.el.style.height = desktop.offsetHeight + 'px';
+    });
   }
 
   // ── Internal: localStorage position persistence ───────────────────────────────

@@ -4,6 +4,8 @@
  */
 require_once __DIR__ . '/../config/db.php';
 
+const REMEMBER_COOKIE_NAME = 'gq_remember';
+
 // ─── Session ────────────────────────────────────────────────────────────────
 function session_start_secure(): void {
     if (session_status() === PHP_SESSION_NONE) {
@@ -20,7 +22,142 @@ function session_start_secure(): void {
 
 function current_user_id(): ?int {
     session_start_secure();
+    if (!isset($_SESSION['user_id'])) {
+        try_auto_login_from_cookie();
+    }
     return isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
+}
+
+function is_https_request(): bool {
+    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        return true;
+    }
+    return (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+}
+
+function read_remember_cookie(): ?array {
+    $raw = $_COOKIE[REMEMBER_COOKIE_NAME] ?? '';
+    if (!preg_match('/^[a-f0-9]{18}:[a-f0-9]{64}$/', $raw)) {
+        return null;
+    }
+    [$selector, $validator] = explode(':', $raw, 2);
+    return [$selector, $validator];
+}
+
+function set_remember_cookie(string $selector, string $validator, int $expiresTs): void {
+    setcookie(REMEMBER_COOKIE_NAME, $selector . ':' . $validator, [
+        'expires'  => $expiresTs,
+        'path'     => '/',
+        'secure'   => is_https_request(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
+
+function clear_remember_cookie(): void {
+    setcookie(REMEMBER_COOKIE_NAME, '', [
+        'expires'  => time() - 3600,
+        'path'     => '/',
+        'secure'   => is_https_request(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    unset($_COOKIE[REMEMBER_COOKIE_NAME]);
+}
+
+function issue_remember_me_token(int $userId): void {
+    $selector  = bin2hex(random_bytes(9));
+    $validator = bin2hex(random_bytes(32));
+    $tokenHash = hash('sha256', $validator);
+    $days      = max(1, REMEMBER_ME_DAYS);
+    $expiresTs = time() + ($days * 86400);
+    $expiresAt = date('Y-m-d H:i:s', $expiresTs);
+
+    try {
+        $db = get_db();
+        $db->prepare('DELETE FROM remember_tokens WHERE user_id = ? AND expires_at <= NOW()')
+           ->execute([$userId]);
+        $db->prepare(
+            'INSERT INTO remember_tokens (user_id, selector, token_hash, expires_at)
+             VALUES (?, ?, ?, ?)'
+        )->execute([$userId, $selector, $tokenHash, $expiresAt]);
+        set_remember_cookie($selector, $validator, $expiresTs);
+    } catch (Throwable $e) {
+        clear_remember_cookie();
+    }
+}
+
+function revoke_remember_me_token_from_cookie(): void {
+    $parts = read_remember_cookie();
+    if ($parts) {
+        [$selector] = $parts;
+        try {
+            get_db()->prepare('DELETE FROM remember_tokens WHERE selector = ?')->execute([$selector]);
+        } catch (Throwable $e) {
+            // Ignore DB errors during logout cleanup.
+        }
+    }
+    clear_remember_cookie();
+}
+
+function try_auto_login_from_cookie(): bool {
+    if (isset($_SESSION['user_id'])) {
+        return true;
+    }
+
+    $parts = read_remember_cookie();
+    if (!$parts) {
+        return false;
+    }
+
+    [$selector, $validator] = $parts;
+
+    try {
+        $db = get_db();
+        $stmt = $db->prepare(
+            'SELECT rt.id, rt.token_hash, rt.user_id, u.username
+             FROM remember_tokens rt
+             JOIN users u ON u.id = rt.user_id
+             WHERE rt.selector = ? AND rt.expires_at > NOW()'
+        );
+        $stmt->execute([$selector]);
+        $row = $stmt->fetch();
+
+        if (!$row) {
+            clear_remember_cookie();
+            return false;
+        }
+
+        $expected = hash('sha256', $validator);
+        if (!hash_equals($row['token_hash'], $expected)) {
+            $db->prepare('DELETE FROM remember_tokens WHERE selector = ?')->execute([$selector]);
+            clear_remember_cookie();
+            return false;
+        }
+
+        session_regenerate_id(true);
+        $_SESSION['user_id']  = (int)$row['user_id'];
+        $_SESSION['username'] = $row['username'];
+
+        // Rotate validator after each successful auto-login.
+        $newValidator = bin2hex(random_bytes(32));
+        $newHash      = hash('sha256', $newValidator);
+        $days         = max(1, REMEMBER_ME_DAYS);
+        $newExpiresTs = time() + ($days * 86400);
+        $newExpiresAt = date('Y-m-d H:i:s', $newExpiresTs);
+
+        $db->prepare(
+            'UPDATE remember_tokens
+             SET token_hash = ?, expires_at = ?, last_used_at = NOW()
+             WHERE id = ?'
+        )->execute([$newHash, $newExpiresAt, $row['id']]);
+
+        set_remember_cookie($selector, $newValidator, $newExpiresTs);
+        return true;
+    } catch (Throwable $e) {
+        clear_remember_cookie();
+        return false;
+    }
 }
 
 function require_auth(): int {

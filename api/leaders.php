@@ -46,7 +46,7 @@ switch ($action) {
         $stmt = $db->prepare(
             'SELECT l.*,
                     c.name AS colony_name,
-                    CONCAT(p.galaxy,\':\',p.system,\':\',p.position) AS colony_coords
+                    CONCAT(p.galaxy,\':\',p.`system`,\':\',p.position) AS colony_coords
              FROM leaders l
              LEFT JOIN colonies c ON c.id = l.colony_id
              LEFT JOIN planets  p ON p.id = c.planet_id

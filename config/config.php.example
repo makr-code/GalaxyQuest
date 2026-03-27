@@ -1,8 +1,8 @@
 <?php
 
 function env_value(string $key, $default) {
-	$value = getenv($key);
-	return ($value === false || $value === '') ? $default : $value;
+    $value = getenv($key);
+    return ($value === false || $value === '') ? $default : $value;
 }
 
 // Database configuration – edit these values for your server or inject them via env vars
@@ -16,7 +16,7 @@ define('DB_CHARSET', env_value('DB_CHARSET', 'utf8mb4'));
 // Game configuration
 define('GAME_SPEED', (int) env_value('GAME_SPEED', 1));   // Resource/fleet speed multiplier
 define('GALAXY_MAX', (int) env_value('GALAXY_MAX', 9));   // Max galaxies
-define('SYSTEM_MAX', (int) env_value('SYSTEM_MAX', 25000)); // Max systems per galaxy
+define('SYSTEM_MAX', (int) env_value('SYSTEM_MAX', 499)); // Max systems per galaxy
 define('POSITION_MAX', (int) env_value('POSITION_MAX', 15)); // Max planets per system
 define('SESSION_LIFETIME', (int) env_value('SESSION_LIFETIME', 3600)); // Seconds
 define('REMEMBER_ME_DAYS', (int) env_value('REMEMBER_ME_DAYS', 30)); // Persistent login cookie lifetime

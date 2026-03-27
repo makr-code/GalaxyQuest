@@ -1,0 +1,392 @@
+{
+  "galaxy": {
+    "name": "Milky Way Core",
+    "arms": 4,
+    "radius_ly": 50000.0,
+    "arm_start_ly": 3500.0,
+    "arm_end_ly": 45000.0,
+    "arm_width_ly": 1500.0,
+    "pitch_angle_deg": 14.0,
+    "disk_height_ly": 300.0,
+    "bulge_radius_ly": 4500.0,
+    "bulge_fraction": 0.08,
+    "systems_per_galaxy": 25000
+  },
+  "bootstrap": {
+    "initial_galaxy_index": 1,
+    "initial_systems": 25000,
+    "auto_seed_batch_size": 250,
+    "per_user_systems": 50,
+    "seed_planets": true
+  },
+  "pve_factions": {
+    "enabled": true,
+    "count": 8,
+    "seed_galaxy_min": 1,
+    "seed_galaxy_max": 9,
+    "archetype_weights": {
+      "ancient": 0.18,
+      "raider": 0.2,
+      "merchant": 0.22,
+      "helpers": 0.2,
+      "evil": 0.2
+    },
+    "non_expansive": true,
+    "max_power_level": 2200,
+    "quest_reward_scale": 1.0
+  },
+  "government_forms": {
+    "enabled": true,
+    "forms": {
+      "monarchy": {
+        "label": "Königreich",
+        "description": "Hierarchische Autorität unter einem Herrscher",
+        "icon": "👑",
+        "color": "#FFD700",
+        "decision_speed": 0.95,
+        "diplomacy_decay": 0.02,
+        "alliance_affinity": { "monarchy": 0.25, "oligarchy": 0.15, "democracy": -0.1 },
+        "quest_bonus": 1.15,
+        "diplomacy_bonus": 1.05,
+        "stability_base": 70,
+        "base_aggression": 55
+      },
+      "oligarchy": {
+        "label": "Oligarchie",
+        "description": "Macht durch kleine herrschende Klasse verteilt",
+        "icon": "⚖️",
+        "color": "#C0C0C0",
+        "decision_speed": 0.75,
+        "diplomacy_decay": 0.03,
+        "alliance_affinity": { "monarchy": 0.15, "oligarchy": 0.3, "democracy": 0.05 },
+        "quest_bonus": 1.08,
+        "diplomacy_bonus": 1.02,
+        "stability_base": 60,
+        "base_aggression": 60
+      },
+      "democracy": {
+        "label": "Demokratie",
+        "description": "Kollektive Entscheidungsfindung durch Konsens",
+        "icon": "🗳️",
+        "color": "#4169E1",
+        "decision_speed": 0.5,
+        "diplomacy_decay": 0.01,
+        "alliance_affinity": { "monarchy": -0.1, "oligarchy": 0.05, "democracy": 0.35 },
+        "quest_bonus": 1.0,
+        "diplomacy_bonus": 1.2,
+        "stability_base": 80,
+        "base_aggression": 35
+      }
+    },
+    "archetype_form_mapping": {
+      "ancient": { "monarchy": 0.5, "oligarchy": 0.3, "democracy": 0.2 },
+      "raider": { "monarchy": 0.4, "oligarchy": 0.45, "democracy": 0.15 },
+      "merchant": { "monarchy": 0.2, "oligarchy": 0.5, "democracy": 0.3 },
+      "helpers": { "monarchy": 0.1, "oligarchy": 0.2, "democracy": 0.7 },
+      "evil": { "monarchy": 0.6, "oligarchy": 0.35, "democracy": 0.05 }
+    },
+    "alliance_decay_per_turn": 0.015,
+    "diplomacy_change_threshold": 5,
+    "min_alliance_strength": -50,
+    "max_alliance_strength": 100
+  },
+  "naming": {
+    "max_name_length": 16,
+    "profiles": {
+      "latin_soft": {
+        "weight": 0.36,
+        "class_affinity": { "O": 0.6, "B": 0.7, "A": 0.9, "F": 1.1, "G": 1.2, "K": 1.15, "M": 1.05 },
+        "arm_bias": [1.25, 0.95, 0.9, 1.0],
+        "onsets": ["", "l", "m", "n", "r", "s", "t", "v", "c", "d", "f", "al", "el", "or", "ve"],
+        "nuclei": ["a", "e", "i", "o", "u", "ae", "ia", "io", "oa"],
+        "codas": ["", "n", "r", "s", "l", "m", "th", "ra", "ria"],
+        "suffixes": ["", "a", "ia", "on", "or", "is"],
+        "syllables": { "min": 2, "max": 3 }
+      },
+      "nordic_hard": {
+        "weight": 0.24,
+        "class_affinity": { "O": 1.2, "B": 1.15, "A": 1.0, "F": 0.95, "G": 0.85, "K": 0.8, "M": 0.75 },
+        "arm_bias": [0.9, 1.25, 1.05, 0.95],
+        "onsets": ["", "k", "kr", "dr", "sk", "st", "th", "v", "br", "gr", "h"],
+        "nuclei": ["a", "e", "i", "o", "u", "y", "ei", "au"],
+        "codas": ["", "k", "r", "n", "nd", "rk", "ld", "m"],
+        "suffixes": ["", "gard", "heim", "var", "sk"],
+        "syllables": { "min": 2, "max": 3 }
+      },
+      "semitic_angular": {
+        "weight": 0.20,
+        "class_affinity": { "O": 1.1, "B": 1.05, "A": 1.0, "F": 1.0, "G": 0.95, "K": 0.95, "M": 0.9 },
+        "arm_bias": [0.95, 0.9, 1.25, 1.0],
+        "onsets": ["", "z", "zh", "q", "kh", "s", "sh", "t", "d", "r", "h"],
+        "nuclei": ["a", "e", "i", "o", "u", "aa", "ia", "ua"],
+        "codas": ["", "n", "m", "r", "th", "q", "z"],
+        "suffixes": ["", "ar", "esh", "un", "aq"],
+        "syllables": { "min": 2, "max": 3 }
+      },
+      "alien_breathy": {
+        "weight": 0.20,
+        "class_affinity": { "O": 1.35, "B": 1.25, "A": 1.1, "F": 0.95, "G": 0.85, "K": 0.8, "M": 0.75 },
+        "arm_bias": [0.9, 0.95, 0.95, 1.3],
+        "onsets": ["", "x", "zh", "qh", "vr", "yl", "kh", "sr", "th"],
+        "nuclei": ["a", "e", "i", "o", "u", "ae", "ou", "ui", "io"],
+        "codas": ["", "x", "r", "n", "sh", "th", "l"],
+        "suffixes": ["", "ix", "ion", "ara", "eth"],
+        "syllables": { "min": 2, "max": 4 }
+      }
+    },
+    "illegal_clusters": ["aaa", "eee", "iii", "ooo", "uuu", "qj", "jj", "zxz", "vvv", "rthh"],
+    "planet_suffix_mode": "roman"
+  },
+  "resource_types": [
+    "metal",
+    "crystal",
+    "deuterium",
+    "rare_earth"
+  ],
+  "planet_types": [
+    "lava",
+    "hot_jupiter",
+    "rocky",
+    "super_earth",
+    "ocean",
+    "gas_giant",
+    "ice_giant",
+    "ice_dwarf",
+    "comet_belt"
+  ],
+  "stellar_types": {
+    "cdf": [
+      { "cum_prob": 0.7645, "class": "M", "subtype_min": 0, "subtype_max": 9 },
+      { "cum_prob": 0.8855, "class": "K", "subtype_min": 0, "subtype_max": 9 },
+      { "cum_prob": 0.9615, "class": "G", "subtype_min": 0, "subtype_max": 9 },
+      { "cum_prob": 0.9925, "class": "F", "subtype_min": 0, "subtype_max": 9 },
+      { "cum_prob": 0.9985, "class": "A", "subtype_min": 0, "subtype_max": 9 },
+      { "cum_prob": 0.9998, "class": "B", "subtype_min": 0, "subtype_max": 9 },
+      { "cum_prob": 1.0, "class": "O", "subtype_min": 3, "subtype_max": 8 }
+    ],
+    "mean_planets_by_class": {
+      "O": 2.0,
+      "B": 2.0,
+      "A": 3.5,
+      "F": 5.0,
+      "G": 6.5,
+      "K": 6.5,
+      "M": 5.5,
+      "default": 5.0
+    },
+    "main_sequence_params": {
+      "O": {
+        "3": [60.0, 12.0, 44500, 500000.0],
+        "5": [37.0, 9.5, 40600, 180000.0],
+        "8": [18.0, 7.4, 35000, 46000.0]
+      },
+      "B": {
+        "0": [17.0, 7.0, 28000, 39000.0],
+        "2": [9.0, 4.9, 21000, 4000.0],
+        "5": [5.0, 3.9, 15400, 750.0],
+        "8": [3.5, 2.9, 11400, 200.0]
+      },
+      "A": {
+        "0": [2.9, 2.4, 9600, 54.0],
+        "2": [2.5, 2.0, 8970, 28.0],
+        "5": [2.0, 1.7, 8100, 14.0],
+        "7": [1.8, 1.6, 7600, 8.0]
+      },
+      "F": {
+        "0": [1.6, 1.5, 7200, 6.5],
+        "2": [1.46, 1.41, 6890, 4.8],
+        "5": [1.3, 1.3, 6440, 3.2],
+        "8": [1.16, 1.16, 6200, 2.0]
+      },
+      "G": {
+        "0": [1.06, 1.1, 6030, 1.5],
+        "2": [1.0, 1.0, 5778, 1.0],
+        "5": [0.94, 0.95, 5660, 0.79],
+        "8": [0.87, 0.9, 5440, 0.59]
+      },
+      "K": {
+        "0": [0.78, 0.85, 5240, 0.42],
+        "2": [0.74, 0.8, 4890, 0.29],
+        "5": [0.69, 0.74, 4410, 0.16],
+        "8": [0.62, 0.68, 3990, 0.08]
+      },
+      "M": {
+        "0": [0.47, 0.51, 3800, 0.063],
+        "2": [0.35, 0.4, 3550, 0.0254],
+        "4": [0.25, 0.3, 3150, 0.0063],
+        "6": [0.16, 0.2, 2900, 0.0011],
+        "8": [0.08, 0.12, 2650, 0.0001]
+      }
+    }
+  },
+  "resources": {
+    "base_deposits": {
+      "metal": 5000000,
+      "crystal": 2000000,
+      "deuterium": 1000000,
+      "rare_earth": 200000
+    },
+    "low_metal_deposit_classes": ["gas_giant", "ice_giant", "hot_jupiter"],
+    "unlimited_deuterium_classes": ["gas_giant"],
+    "mass_factor": {
+      "min": 0.5,
+      "max": 3.0,
+      "rare_earth_max": 2.0
+    },
+    "hz_bonus": {
+      "classes": ["rocky", "ocean", "super_earth"],
+      "metal": 1.2,
+      "crystal": 1.1,
+      "deuterium": 1.3
+    },
+    "class_richness": {
+      "lava":        { "metal": 1.8, "crystal": 0.9, "deuterium": 0.2, "rare_earth": 2.0 },
+      "rocky":       { "metal": 1.4, "crystal": 1.3, "deuterium": 1.0, "rare_earth": 1.5 },
+      "super_earth": { "metal": 1.1, "crystal": 1.0, "deuterium": 1.0, "rare_earth": 1.2 },
+      "ocean":       { "metal": 0.7, "crystal": 0.8, "deuterium": 1.3, "rare_earth": 0.5 },
+      "ice_dwarf":   { "metal": 0.6, "crystal": 1.8, "deuterium": 1.4, "rare_earth": 1.0 },
+      "comet_belt":  { "metal": 0.5, "crystal": 0.9, "deuterium": 1.2, "rare_earth": 0.4 },
+      "gas_giant":   { "metal": 0.3, "crystal": 0.2, "deuterium": 2.0, "rare_earth": 0.1 },
+      "ice_giant":   { "metal": 0.4, "crystal": 1.5, "deuterium": 1.6, "rare_earth": 0.5 },
+      "hot_jupiter": { "metal": 0.2, "crystal": 0.1, "deuterium": 0.5, "rare_earth": 0.1 }
+    }
+  },
+  "planet_science": {
+    "class_templates": {
+      "lava": { "composition_family": "silicate_metal", "dominant_surface_material": "molten_basalt", "core_fraction": 0.36, "volatile_fraction": 0.0, "pressure_min_bar": 0.001, "pressure_max_bar": 15.0 },
+      "hot_jupiter": { "composition_family": "hydrogen_helium", "dominant_surface_material": "superheated_gas_envelope", "core_fraction": 0.08, "volatile_fraction": 0.92, "pressure_min_bar": 20.0, "pressure_max_bar": 400.0 },
+      "rocky": { "composition_family": "silicate_metal", "dominant_surface_material": "basaltic_regolith", "core_fraction": 0.32, "volatile_fraction": 0.03, "pressure_min_bar": 0.01, "pressure_max_bar": 8.0 },
+      "super_earth": { "composition_family": "silicate_metal", "dominant_surface_material": "compressed_silicate_crust", "core_fraction": 0.3, "volatile_fraction": 0.08, "pressure_min_bar": 0.2, "pressure_max_bar": 25.0 },
+      "ocean": { "composition_family": "silicate_hydrosphere", "dominant_surface_material": "global_ocean", "core_fraction": 0.24, "volatile_fraction": 0.35, "pressure_min_bar": 0.7, "pressure_max_bar": 12.0 },
+      "gas_giant": { "composition_family": "hydrogen_helium", "dominant_surface_material": "deep_gas_ocean", "core_fraction": 0.06, "volatile_fraction": 0.94, "pressure_min_bar": 10.0, "pressure_max_bar": 300.0 },
+      "ice_giant": { "composition_family": "ice_volatile", "dominant_surface_material": "water_ammonia_mantle", "core_fraction": 0.12, "volatile_fraction": 0.82, "pressure_min_bar": 5.0, "pressure_max_bar": 180.0 },
+      "ice_dwarf": { "composition_family": "ice_silicate", "dominant_surface_material": "water_ice_crust", "core_fraction": 0.18, "volatile_fraction": 0.55, "pressure_min_bar": 0.0001, "pressure_max_bar": 1.2 },
+      "comet_belt": { "composition_family": "ice_dust", "dominant_surface_material": "volatile_ice_dust", "core_fraction": 0.1, "volatile_fraction": 0.7, "pressure_min_bar": 0.0, "pressure_max_bar": 0.05 }
+    },
+    "habitability": {
+      "ideal_temp_k": 288.0,
+      "ideal_gravity_g": 1.0,
+      "ideal_pressure_bar": 1.0,
+      "liquid_water_bonus": 18,
+      "oxygen_bonus": 12,
+      "co2_penalty": 8,
+      "hydrogen_penalty": 20,
+      "sulfuric_penalty": 35,
+      "radiation_penalty": {
+        "low": 0,
+        "moderate": 6,
+        "elevated": 14,
+        "high": 28,
+        "extreme": 45
+      }
+    },
+    "species_profiles": {
+      "terran": {
+        "label": "Terran",
+        "temperature_c": { "min": -20, "optimal_min": 4, "optimal_max": 28, "max": 42 },
+        "gravity_g": { "min": 0.65, "optimal_min": 0.85, "optimal_max": 1.15, "max": 1.45 },
+        "pressure_bar": { "min": 0.35, "optimal_min": 0.8, "optimal_max": 1.4, "max": 3.5 },
+        "preferred_water_states": ["liquid"],
+        "preferred_compositions": ["silicate_hydrosphere", "silicate_metal"],
+        "radiation_tolerance": "moderate"
+      },
+      "cryoran": {
+        "label": "Cryoran",
+        "temperature_c": { "min": -170, "optimal_min": -95, "optimal_max": -20, "max": 5 },
+        "gravity_g": { "min": 0.3, "optimal_min": 0.5, "optimal_max": 1.0, "max": 1.4 },
+        "pressure_bar": { "min": 0.05, "optimal_min": 0.3, "optimal_max": 2.0, "max": 8.0 },
+        "preferred_water_states": ["solid", "subsurface_liquid", "liquid_methane"],
+        "preferred_compositions": ["ice_silicate", "ice_volatile", "ice_dust"],
+        "radiation_tolerance": "elevated"
+      },
+      "lithian": {
+        "label": "Lithian",
+        "temperature_c": { "min": -40, "optimal_min": 20, "optimal_max": 120, "max": 220 },
+        "gravity_g": { "min": 0.9, "optimal_min": 1.1, "optimal_max": 1.9, "max": 2.5 },
+        "pressure_bar": { "min": 0.02, "optimal_min": 0.2, "optimal_max": 8.0, "max": 30.0 },
+        "preferred_water_states": ["none", "supercritical_water"],
+        "preferred_compositions": ["silicate_metal", "compressed_silicate", "molten_silicate"],
+        "radiation_tolerance": "high"
+      },
+      "aerthian": {
+        "label": "Aerthian",
+        "temperature_c": { "min": -60, "optimal_min": -10, "optimal_max": 30, "max": 70 },
+        "gravity_g": { "min": 0.15, "optimal_min": 0.3, "optimal_max": 0.9, "max": 1.2 },
+        "pressure_bar": { "min": 1.0, "optimal_min": 2.0, "optimal_max": 12.0, "max": 60.0 },
+        "preferred_water_states": ["vapor", "liquid"],
+        "preferred_compositions": ["hydrogen_helium", "ice_volatile", "silicate_hydrosphere"],
+        "radiation_tolerance": "moderate"
+      }
+    }
+  },
+  "starter_homeworld": {
+    "colony_name_template": "{username}'s Homeworld",
+    "colony_type": "balanced",
+    "resources": {
+      "metal": 2500,
+      "crystal": 1500,
+      "deuterium": 800,
+      "rare_earth": 40,
+      "food": 900,
+      "energy": 120
+    },
+    "population": {
+      "population": 1500,
+      "max_population": 5000,
+      "happiness": 78,
+      "public_services": 35
+    },
+    "buildings": {
+      "metal_mine": 2,
+      "crystal_mine": 2,
+      "deuterium_synth": 1,
+      "rare_earth_drill": 0,
+      "solar_plant": 2,
+      "fusion_reactor": 0,
+      "hydroponic_farm": 1,
+      "food_silo": 0,
+      "habitat": 1,
+      "hospital": 1,
+      "school": 1,
+      "security_post": 1,
+      "robotics_factory": 1,
+      "shipyard": 1,
+      "metal_storage": 1,
+      "crystal_storage": 1,
+      "deuterium_tank": 1,
+      "research_lab": 1,
+      "missile_silo": 0,
+      "nanite_factory": 0,
+      "terraformer": 0,
+      "colony_hq": 1
+    },
+    "ships": {
+      "small_cargo": 2,
+      "light_fighter": 4,
+      "espionage_probe": 2,
+      "colony_ship": 1,
+      "recycler": 1
+    },
+    "story": {
+      "messages": [
+        {
+          "subject": "Welcome Commander - Your Story Begins",
+          "body": "Commander {username},\n\nYou awake in the command chamber of {colony_name}. The colony AI confirms a stable economy, an initial fleet, and enough supplies to secure your first expansion corridor.\n\nThe galaxy is quiet for now, but only because no one has disturbed it yet.",
+          "quest_hook": "Stabilize your colony and review your initial assets."
+        },
+        {
+          "subject": "Sector Briefing - First Expansion Window",
+          "body": "Long-range telemetry around {colony_name} shows multiple viable frontier lanes. Local scouts believe the surrounding sector can support rapid expansion before rival powers arrive.\n\nYour logistics crews request immediate orders for survey, transport, and orbital staging.",
+          "quest_hook": "Scout nearby systems and prepare your first expansion route."
+        },
+        {
+          "subject": "Encrypted Relay - The Precursor Signal",
+          "body": "A forgotten relay beacon beyond the outer orbit is transmitting fragmented charts and references to precursor ruins. Whoever decodes it first may control far more than a single colony.\n\nYour advisors agree on one thing: the commander who secures momentum now will shape this region for generations.",
+          "quest_hook": "Build strength, expand your presence, and investigate the anomalous signal."
+        }
+      ],
+      "subject": "Welcome Commander - Your Story Begins",
+      "body": "Commander {username},\n\nYou awake in the command chamber of {colony_name}. The colony AI confirms a stable economy, an initial fleet, and enough supplies to secure your first expansion corridor.\n\nA forgotten relay beacon in the outer orbit is transmitting fragmented star charts and references to ancient precursor ruins. Your task is clear: stabilize your sector, scout nearby systems, and decide what kind of empire this world will become.\n\nThe galaxy is young again. Write its next chapter."
+    }
+  }
+}

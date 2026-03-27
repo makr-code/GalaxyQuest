@@ -1,0 +1,48 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: galaxyquest-web
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: galaxyquest
+      DB_USER: galaxyquest_user
+      DB_PASS: galaxyquest_dev
+      DB_CHARSET: utf8mb4
+      GAME_SPEED: 1
+      SESSION_LIFETIME: 3600
+      XDEBUG_MODE: develop,debug
+      XDEBUG_CONFIG: client_host=host.docker.internal client_port=9003 idekey=VSCODE
+    ports:
+      - "8080:80"
+    volumes:
+      - ./:/var/www/html
+
+  db:
+    image: mysql:8.4
+    container_name: galaxyquest-db
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_DATABASE: galaxyquest
+      MYSQL_USER: galaxyquest_user
+      MYSQL_PASSWORD: galaxyquest_dev
+      MYSQL_ROOT_PASSWORD: root
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    ports:
+      - "3307:3306"
+    volumes:
+      - galaxyquest-db-data:/var/lib/mysql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+
+volumes:
+  galaxyquest-db-data:

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GalaxyQuest – Space Strategy MMO</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=20260327w" />
 </head>
 <body class="auth-page">
   <!-- Starfield background -->
@@ -35,9 +35,30 @@
         <input id="login-password" type="password" name="password" required
                autocomplete="current-password" placeholder="••••••••" />
       </div>
+      <div class="form-group">
+        <label>
+          <input id="login-remember" type="checkbox" name="remember" value="1" />
+          Keep me signed in
+        </label>
+      </div>
       <button type="submit" class="btn btn-primary btn-full">Enter the Galaxy</button>
       <div id="login-error" class="form-error" aria-live="polite"></div>
     </form>
+
+    <div id="dev-auth-tools" class="auth-form hidden" aria-live="polite">
+      <h3>Dev Tools</h3>
+      <p style="margin-top:0">Local-only password reset for test users.</p>
+      <div class="form-group">
+        <label for="dev-reset-username">Username</label>
+        <input id="dev-reset-username" type="text" placeholder="default_user" />
+      </div>
+      <div class="form-group">
+        <label for="dev-reset-password">New Password</label>
+        <input id="dev-reset-password" type="password" minlength="8" placeholder="New password" />
+      </div>
+      <button id="dev-reset-btn" type="button" class="btn btn-danger btn-full">Reset Password (Dev)</button>
+      <div id="dev-reset-result" class="form-error" aria-live="polite"></div>
+    </div>
 
     <!-- Register form -->
     <form id="register-form" class="auth-form hidden" autocomplete="on">
@@ -58,6 +79,12 @@
         <input id="reg-password" type="password" name="password" required
                autocomplete="new-password" minlength="8"
                placeholder="Min 8 characters" />
+      </div>
+      <div class="form-group">
+        <label>
+          <input id="reg-remember" type="checkbox" name="remember" value="1" />
+          Keep me signed in
+        </label>
       </div>
       <button type="submit" class="btn btn-primary btn-full">Launch into the Galaxy</button>
       <div id="register-error" class="form-error" aria-live="polite"></div>

@@ -3,6 +3,7 @@
  * Game data API
  * GET  /api/game.php?action=overview
  * GET  /api/game.php?action=resources&colony_id=X
+ * GET  /api/game.php?action=health
  * POST /api/game.php?action=pvp_toggle
  * POST /api/game.php?action=rename_colony   body: {colony_id, name}
  * POST /api/game.php?action=set_colony_type body: {colony_id, colony_type}
@@ -12,6 +13,7 @@ require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/buildings.php';   // verify_colony_ownership
+require_once __DIR__ . '/galaxy_seed.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -26,7 +28,7 @@ switch ($action) {
         check_and_update_achievements($db, $uid);
         // NPC AI tick (rate-limited internally to once per 5 minutes)
         require_once __DIR__ . '/npc_ai.php';
-        npc_ai_tick($db, $uid);
+        try { npc_ai_tick($db, $uid); } catch (Throwable $e) { error_log('npc_ai_tick error: ' . $e->getMessage()); }
 
         // User meta
         $metaStmt = $db->prepare(
@@ -48,7 +50,7 @@ switch ($action) {
             'SELECT c.id, c.name, c.colony_type, c.metal, c.crystal, c.deuterium,
                     c.rare_earth, c.food, c.energy, c.population, c.max_population,
                     c.happiness, c.public_services, c.is_homeworld, c.last_update,
-                    p.id AS planet_id, p.galaxy, p.system, p.position,
+                    p.id AS planet_id, p.galaxy, p.`system`, p.position,
                     p.type AS planet_type, p.planet_class, p.diameter,
                     p.temp_min, p.temp_max, p.in_habitable_zone, p.semi_major_axis_au,
                     p.orbital_period_days, p.surface_gravity_g, p.atmosphere_type,
@@ -73,6 +75,7 @@ switch ($action) {
             $leadersByColony[(int)$l['colony_id']][] = $l;
         }
         foreach ($colonies as &$col) {
+            $col['layout'] = colony_layout_profile($col);
             $col['leaders'] = $leadersByColony[(int)$col['id']] ?? [];
         }
         unset($col);
@@ -81,12 +84,13 @@ switch ($action) {
         $fleetStmt = $db->prepare(
             'SELECT f.id, f.mission, f.origin_colony_id,
                     f.target_galaxy, f.target_system, f.target_position,
+                    f.ships_json,
                     f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
                     f.origin_x_ly, f.origin_y_ly, f.origin_z_ly,
                     f.target_x_ly, f.target_y_ly, f.target_z_ly,
                     f.speed_ly_h, f.distance_ly,
                     f.departure_time, f.arrival_time, f.return_time, f.returning,
-                    p.galaxy AS origin_galaxy, p.system AS origin_system, p.position AS origin_position
+                    p.galaxy AS origin_galaxy, p.`system` AS origin_system, p.position AS origin_position
              FROM fleets f
              JOIN colonies c ON c.id = f.origin_colony_id
              JOIN planets  p ON p.id = c.planet_id
@@ -95,6 +99,10 @@ switch ($action) {
         $fleetStmt->execute([$uid]);
         $fleets = [];
         foreach ($fleetStmt->fetchAll() as $f) {
+            $ships = json_decode((string)$f['ships_json'], true);
+            $f['ships'] = is_array($ships) ? $ships : [];
+            $f['vessels'] = vessel_manifest($f['ships']);
+            unset($f['ships_json']);
             $f['current_pos'] = fleet_current_position($f);
             $fleets[] = $f;
         }
@@ -141,6 +149,109 @@ switch ($action) {
                              FROM colonies WHERE id=?');
         $row->execute([$cid]);
         json_ok(['resources' => $row->fetch()]);
+        break;
+
+    // ── Foreign colony intel / sector overview ───────────────────────────────
+    case 'planet_intel':
+        only_method('GET');
+        $g = max(1, min(GALAXY_MAX, (int)($_GET['galaxy'] ?? 1)));
+        $s = max(1, min(galaxy_system_limit(), (int)($_GET['system'] ?? 1)));
+        $p = max(1, min(15, (int)($_GET['position'] ?? 1)));
+        $db = get_db();
+
+        $stmt = $db->prepare(
+            'SELECT p.id, p.galaxy, p.`system`, p.position, p.planet_class,
+                    p.habitability_score, p.life_friendliness,
+                    c.id AS colony_id, c.name AS colony_name, c.colony_type,
+                    c.population, c.max_population, c.happiness, c.public_services, c.energy,
+                    u.id AS owner_id, u.username AS owner_name
+             FROM planets p
+             LEFT JOIN colonies c ON c.planet_id = p.id
+             LEFT JOIN users u ON u.id = c.user_id
+             WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$g, $s, $p]);
+        $planet = $stmt->fetch();
+        if (!$planet) {
+            json_ok([
+                'intel' => null,
+                'territory' => territory_factions_for_galaxy($db, $uid, $g),
+                'diplomacy_hint' => 'Unkartierter Randbereich. Keine belastbaren diplomatischen Hinweise verfügbar.',
+            ]);
+            break;
+        }
+
+        $latestScan = null;
+        if (!empty($planet['id'])) {
+            $scanStmt = $db->prepare(
+                'SELECT id, created_at, report_json
+                 FROM spy_reports
+                 WHERE owner_id = ? AND target_planet_id = ?
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 1'
+            );
+            $scanStmt->execute([$uid, (int)$planet['id']]);
+            $latestScan = $scanStmt->fetch();
+        }
+
+        $scanPayload = null;
+        if ($latestScan && !empty($latestScan['report_json'])) {
+            $scanPayload = json_decode((string)$latestScan['report_json'], true);
+            if (!is_array($scanPayload)) {
+                $scanPayload = null;
+            }
+        }
+
+        $territory = territory_factions_for_galaxy($db, $uid, $g);
+        $threat = compute_planet_threat($planet, $scanPayload, $territory);
+
+        json_ok([
+            'intel' => [
+                'planet_id' => (int)($planet['id'] ?? 0),
+                'colony_id' => (int)($planet['colony_id'] ?? 0),
+                'owner_id' => (int)($planet['owner_id'] ?? 0),
+                'owner_name' => $planet['owner_name'] ?? null,
+                'colony_name' => $planet['colony_name'] ?? null,
+                'colony_type' => $planet['colony_type'] ?? null,
+                'threat' => $threat,
+                'latest_scan_at' => $latestScan['created_at'] ?? null,
+                'latest_scan' => summarize_scan_payload($scanPayload),
+            ],
+            'territory' => $territory,
+            'diplomacy_hint' => build_diplomacy_hint($territory, $threat),
+        ]);
+        break;
+
+    // ── Health / integrity snapshot ────────────────────────────────────────────
+    case 'health':
+        only_method('GET');
+        $db = get_db();
+        ensure_star_system_columns($db);
+
+        $meta = [
+            'star_systems_total' => 0,
+            'star_systems_missing_metadata' => 0,
+            'planets_total' => 0,
+            'timestamp_utc' => gmdate('c'),
+        ];
+
+        $meta['star_systems_total'] = (int)$db
+            ->query('SELECT COUNT(*) FROM star_systems')
+            ->fetchColumn();
+        $meta['star_systems_missing_metadata'] = (int)$db
+            ->query('SELECT COUNT(*) FROM star_systems WHERE COALESCE(catalog_name, "") = "" OR COALESCE(planet_count, 0) = 0')
+            ->fetchColumn();
+        $meta['planets_total'] = (int)$db
+            ->query('SELECT COUNT(*) FROM planets')
+            ->fetchColumn();
+
+        json_ok([
+            'health' => [
+                'ok' => $meta['star_systems_missing_metadata'] === 0,
+                'checks' => $meta,
+            ],
+        ]);
         break;
 
     // ── Rename colony ─────────────────────────────────────────────────────────
@@ -211,4 +322,153 @@ switch ($action) {
 
     default:
         json_error('Unknown action');
+}
+
+function territory_factions_for_galaxy(PDO $db, int $uid, int $galaxy): array
+{
+    $factionIds = $db->query('SELECT id, base_diplomacy FROM npc_factions')->fetchAll();
+    if ($factionIds) {
+        $insert = $db->prepare('INSERT IGNORE INTO diplomacy (user_id, faction_id, standing) VALUES (?, ?, ?)');
+        foreach ($factionIds as $factionRow) {
+            $insert->execute([$uid, (int)$factionRow['id'], (int)$factionRow['base_diplomacy']]);
+        }
+    }
+
+    $stmt = $db->prepare(
+        'SELECT f.id, f.code, f.name, f.faction_type, f.power_level, f.color, f.icon,
+                f.home_galaxy_min, f.home_galaxy_max,
+                COALESCE(d.standing, f.base_diplomacy) AS standing
+         FROM npc_factions f
+         LEFT JOIN diplomacy d ON d.faction_id = f.id AND d.user_id = ?
+         WHERE ? BETWEEN f.home_galaxy_min AND f.home_galaxy_max
+         ORDER BY f.power_level DESC, f.id ASC'
+    );
+    $stmt->execute([$uid, $galaxy]);
+    $rows = $stmt->fetchAll();
+
+    $territory = [];
+    foreach ($rows as $row) {
+        $gov = get_faction_government($db, (int)$row['id']);
+        $territory[] = [
+            'id' => (int)$row['id'],
+            'code' => (string)$row['code'],
+            'name' => (string)$row['name'],
+            'type' => (string)$row['faction_type'],
+            'power_level' => (int)$row['power_level'],
+            'color' => (string)$row['color'],
+            'icon' => (string)$row['icon'],
+            'standing' => (int)$row['standing'],
+            'home_galaxy_min' => (int)$row['home_galaxy_min'],
+            'home_galaxy_max' => (int)$row['home_galaxy_max'],
+            'government' => [
+                'form' => (string)($gov['government_form'] ?? ''),
+                'label' => (string)($gov['form_label'] ?? 'Herrschaftsform'),
+                'icon' => (string)($gov['form_icon'] ?? '🏳'),
+                'color' => (string)($gov['form_color'] ?? $row['color']),
+            ],
+        ];
+    }
+    return $territory;
+}
+
+function summarize_scan_payload(?array $scanPayload): ?array
+{
+    if (!$scanPayload) {
+        return null;
+    }
+
+    $ships = is_array($scanPayload['ships'] ?? null) ? $scanPayload['ships'] : [];
+    $leaders = is_array($scanPayload['leaders'] ?? null) ? $scanPayload['leaders'] : [];
+    $resources = is_array($scanPayload['resources'] ?? null) ? $scanPayload['resources'] : [];
+    $welfare = is_array($scanPayload['welfare'] ?? null) ? $scanPayload['welfare'] : [];
+
+    return [
+        'status' => (string)($scanPayload['status'] ?? 'unknown'),
+        'ship_count' => array_sum(array_map('intval', $ships)),
+        'combat_power_estimate' => estimate_ship_threat($ships),
+        'leader_count' => count($leaders),
+        'resource_total' => (float)(($resources['metal'] ?? 0) + ($resources['crystal'] ?? 0) + ($resources['deuterium'] ?? 0)),
+        'population' => (int)($welfare['population'] ?? 0),
+        'happiness' => (int)($welfare['happiness'] ?? 0),
+    ];
+}
+
+function compute_planet_threat(array $planet, ?array $scanPayload, array $territory): array
+{
+    $scanSummary = summarize_scan_payload($scanPayload);
+    $territoryPressure = 0;
+    foreach ($territory as $faction) {
+        $territoryPressure += max(0, (int)$faction['power_level']) / 1500;
+        if ((int)$faction['standing'] < -20) {
+            $territoryPressure += 8;
+        }
+    }
+
+    $score = 6 + $territoryPressure;
+    $score += min(35, (int)round(((int)($planet['population'] ?? 0)) / 250));
+    $score += max(0, 12 - (int)round(((int)($planet['happiness'] ?? 0)) / 8));
+    if ($scanSummary) {
+        $score += min(40, (int)round(($scanSummary['combat_power_estimate'] ?? 0) / 250));
+        $score += min(15, (int)round(($scanSummary['ship_count'] ?? 0) / 3));
+        $score += min(8, (int)($scanSummary['leader_count'] ?? 0) * 2);
+    } else {
+        $score += 10;
+    }
+
+    $level = 'low';
+    $label = 'Niedrig';
+    if ($score >= 85) {
+        $level = 'extreme';
+        $label = 'Extrem';
+    } elseif ($score >= 60) {
+        $level = 'high';
+        $label = 'Hoch';
+    } elseif ($score >= 35) {
+        $level = 'medium';
+        $label = 'Mittel';
+    }
+
+    return [
+        'score' => (int)round($score),
+        'level' => $level,
+        'label' => $label,
+    ];
+}
+
+function estimate_ship_threat(array $ships): int
+{
+    $defs = ship_definitions();
+    $total = 0;
+    foreach ($ships as $type => $count) {
+        $def = $defs[(string)$type] ?? null;
+        if (!$def) {
+            continue;
+        }
+        $attack = (float)($def['attack'] ?? 0);
+        $shield = (float)($def['shield'] ?? 0);
+        $hull = (float)($def['hull'] ?? 0);
+        $total += (int)round(((int)$count) * ($attack + ($shield * 0.5) + ($hull / 1200)));
+    }
+    return $total;
+}
+
+function build_diplomacy_hint(array $territory, array $threat): string
+{
+    if (!$territory) {
+        return 'Kein etablierter Machtblock in diesem Sektor erfasst. Aufklärung empfohlen.';
+    }
+
+    $friendly = array_values(array_filter($territory, static fn(array $f): bool => (int)$f['standing'] >= 20));
+    $hostile = array_values(array_filter($territory, static fn(array $f): bool => (int)$f['standing'] <= -20));
+
+    if ($threat['level'] === 'extreme' || $threat['level'] === 'high') {
+        if ($hostile) {
+            return 'Militärischer Druck in diesem Sektor ist erhöht. Erst aufklären, dann nur mit Eskorte oder Schlagflotte operieren.';
+        }
+        return 'Die Kolonie wirkt stark gesichert. Spionage oder Probeangriff vor jeder größeren Operation einplanen.';
+    }
+    if ($friendly) {
+        return 'Diplomatische Lage im Sektor ist stabil. Handel oder begrenzte Präsenz sind wahrscheinlicher als sofortige Eskalation.';
+    }
+    return 'Gemischte diplomatische Lage. Erst letzte Aufklärung sichern und Flottenprofil an die Missionsart anpassen.';
 }

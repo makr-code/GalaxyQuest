@@ -20,6 +20,20 @@ ALTER TABLE users
     ADD COLUMN IF NOT EXISTS is_npc          TINYINT(1) NOT NULL DEFAULT 0
         AFTER pvp_mode;
 
+-- ─── Persistent login tokens (remember me) ──────────────────────────────────
+CREATE TABLE IF NOT EXISTS remember_tokens (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    selector CHAR(18) NOT NULL UNIQUE,
+    token_hash CHAR(64) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME DEFAULT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_remember_user (user_id),
+    INDEX idx_remember_expires (expires_at)
+) ENGINE=InnoDB;
+
 -- ─── Star systems table (new in v2) ──────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS star_systems (
@@ -40,8 +54,16 @@ CREATE TABLE IF NOT EXISTS star_systems (
     hz_outer_au DOUBLE NOT NULL DEFAULT 1.6765,
     frost_line_au DOUBLE NOT NULL DEFAULT 2.68,
     name VARCHAR(16) NOT NULL DEFAULT '',
+    catalog_name VARCHAR(32) NOT NULL DEFAULT '',
+    planet_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
     UNIQUE KEY unique_system (galaxy_index, system_index)
 ) ENGINE=InnoDB;
+
+ALTER TABLE star_systems
+    ADD COLUMN IF NOT EXISTS catalog_name VARCHAR(32) NOT NULL DEFAULT ''
+        AFTER name,
+    ADD COLUMN IF NOT EXISTS planet_count TINYINT UNSIGNED NOT NULL DEFAULT 0
+        AFTER catalog_name;
 
 -- ─── Planets: add scientific columns ─────────────────────────────────────────
 

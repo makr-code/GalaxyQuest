@@ -13,17 +13,64 @@
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/galaxy_gen.php';
+require_once __DIR__ . '/galaxy_seed.php';
+require_once __DIR__ . '/game_engine.php';
 
 only_method('GET');
 require_auth();
 
+$action = (string)($_GET['action'] ?? 'system');
 $g = max(1, min(GALAXY_MAX, (int)($_GET['galaxy'] ?? 1)));
-$s = max(1, min(SYSTEM_MAX, (int)($_GET['system'] ?? 1)));
+$s = max(1, min(galaxy_system_limit(), (int)($_GET['system'] ?? 1)));
 
 $db = get_db();
+ensure_galaxy_bootstrap_progress($db, true);
+
+if ($action === 'stars') {
+    $from = max(1, min(galaxy_system_limit(), (int)($_GET['from'] ?? 1)));
+    $to = max($from, min(galaxy_system_limit(), (int)($_GET['to'] ?? galaxy_system_limit())));
+    $maxPoints = max(100, min(50000, (int)($_GET['max_points'] ?? 1500)));
+
+    // Make sure the requested range is generated and cached.
+    ensure_star_system($db, $g, $from);
+    ensure_star_system($db, $g, $to);
+
+    $span = max(1, $to - $from + 1);
+    $stride = max(1, (int)ceil($span / $maxPoints));
+
+    $stmt = $db->prepare(
+                                'SELECT id, galaxy_index, system_index, name,
+                                COALESCE(NULLIF(catalog_name, ""), name) AS catalog_name,
+                spectral_class, subtype, x_ly, y_ly, z_ly,
+                                planet_count, hz_inner_au, hz_outer_au
+         FROM star_systems
+         WHERE galaxy_index = ?
+           AND system_index BETWEEN ? AND ?
+           AND MOD(system_index - ?, ?) = 0
+         ORDER BY system_index ASC'
+    );
+    $stmt->execute([$g, $from, $to, $from, $stride]);
+    $stars = $stmt->fetchAll();
+
+    json_ok([
+        'action' => 'stars',
+        'galaxy' => $g,
+        'from' => $from,
+        'to' => $to,
+        'stride' => $stride,
+        'count' => count($stars),
+        'server_ts' => gmdate('c'),
+        'server_ts_ms' => (int)round(microtime(true) * 1000),
+        'stars' => $stars,
+    ]);
+    exit;
+}
 
 // ── 1. Ensure star system is generated and cached ─────────────────────────────
 $starSystem = ensure_star_system($db, $g, $s);
+if (!isset($starSystem['catalog_name']) || $starSystem['catalog_name'] === '') {
+    $starSystem['catalog_name'] = (string)($starSystem['name'] ?? '');
+}
 
 // ── 2. Query player-colonised planets ─────────────────────────────────────────
 $stmt = $db->prepare(
@@ -31,12 +78,16 @@ $stmt = $db->prepare(
             p.temp_min, p.temp_max, p.in_habitable_zone,
             p.semi_major_axis_au, p.orbital_period_days,
             p.surface_gravity_g, p.atmosphere_type,
+            p.composition_family, p.dominant_surface_material,
+            p.surface_pressure_bar, p.water_state, p.methane_state,
+            p.ammonia_state, p.dominant_surface_liquid, p.radiation_level,
+            p.habitability_score, p.life_friendliness, p.species_affinity_json,
             c.name, c.id AS colony_id, c.user_id,
             u.username AS owner
      FROM colonies c
      JOIN planets p ON p.id = c.planet_id
      JOIN users u   ON u.id = c.user_id
-     WHERE p.galaxy = ? AND p.system = ?
+    WHERE p.galaxy = ? AND p.`system` = ?
      ORDER BY p.position ASC'
 );
 $stmt->execute([$g, $s]);
@@ -47,6 +98,29 @@ $playerSlots = [];
 foreach ($rows as $row) {
     $playerSlots[(int)$row['position']] = $row;
 }
+
+$colonyIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['colony_id'] ?? 0), $rows)));
+$buildingsByColony = [];
+$shipsByColony = [];
+if ($colonyIds) {
+    $placeholders = implode(',', array_fill(0, count($colonyIds), '?'));
+    $buildingStmt = $db->prepare("SELECT colony_id, type, level FROM buildings WHERE colony_id IN ($placeholders) ORDER BY colony_id, type");
+    $buildingStmt->execute($colonyIds);
+    foreach ($buildingStmt->fetchAll() as $buildingRow) {
+        $buildingsByColony[(int)$buildingRow['colony_id']][] = $buildingRow;
+    }
+    $shipStmt = $db->prepare("SELECT colony_id, type, count FROM ships WHERE colony_id IN ($placeholders) ORDER BY colony_id, type");
+    $shipStmt->execute($colonyIds);
+    foreach ($shipStmt->fetchAll() as $shipRow) {
+        $shipsByColony[(int)$shipRow['colony_id']][(string)$shipRow['type']] = (int)$shipRow['count'];
+    }
+}
+
+foreach ($playerSlots as $position => &$slotRow) {
+    $colonyId = (int)($slotRow['colony_id'] ?? 0);
+    $slotRow['orbital_facilities'] = summarize_orbital_facilities($buildingsByColony[$colonyId] ?? [], $shipsByColony[$colonyId] ?? []);
+}
+unset($slotRow);
 
 // Merge generated planets with player slots (player data takes precedence)
 $posMax  = defined('POSITION_MAX') ? POSITION_MAX : 15;
@@ -66,11 +140,39 @@ for ($pos = 1; $pos <= $posMax; $pos++) {
     ];
 }
 
+$fleetStmt = $db->prepare(
+    'SELECT f.id, f.user_id, f.origin_colony_id, f.target_galaxy, f.target_system, f.target_position,
+            f.mission, f.ships_json, f.departure_time, f.arrival_time, f.return_time, f.returning,
+            f.origin_x_ly, f.origin_y_ly, f.origin_z_ly, f.target_x_ly, f.target_y_ly, f.target_z_ly,
+            p.galaxy AS origin_galaxy, p.`system` AS origin_system, p.position AS origin_position,
+            u.username AS owner
+     FROM fleets f
+     JOIN colonies c ON c.id = f.origin_colony_id
+     JOIN planets p ON p.id = c.planet_id
+     JOIN users u ON u.id = f.user_id
+     WHERE (p.galaxy = ? AND p.`system` = ?) OR (f.target_galaxy = ? AND f.target_system = ?)
+     ORDER BY f.arrival_time ASC'
+);
+$fleetStmt->execute([$g, $s, $g, $s]);
+$fleetsInSystem = [];
+foreach ($fleetStmt->fetchAll() as $fleetRow) {
+    $ships = json_decode((string)$fleetRow['ships_json'], true);
+    $fleetRow['ships'] = is_array($ships) ? $ships : [];
+    $fleetRow['vessels'] = vessel_manifest($fleetRow['ships']);
+    unset($fleetRow['ships_json']);
+    $fleetRow['current_pos'] = fleet_current_position($fleetRow);
+    $fleetsInSystem[] = $fleetRow;
+}
+
 json_ok([
     'galaxy'      => $g,
     'system'      => $s,
+    'system_max'  => galaxy_system_limit(),
+    'server_ts'   => gmdate('c'),
+    'server_ts_ms'=> (int)round(microtime(true) * 1000),
     'star_system' => $starSystem,
     'planets'     => $mergedPlanets,
+    'fleets_in_system' => $fleetsInSystem,
 ]);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -82,50 +184,6 @@ require_once __DIR__ . '/planet_helper.php';
  */
 function ensure_star_system(PDO $db, int $galaxyIdx, int $systemIdx): array
 {
-    $stmt = $db->prepare(
-        'SELECT * FROM star_systems WHERE galaxy_index = ? AND system_index = ?'
-    );
-    $stmt->execute([$galaxyIdx, $systemIdx]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($row) {
-        // Reattach generated planets (not stored in DB, computed on demand)
-        $system          = $row;
-        $system['planets'] = generate_planets(
-            [
-                'spectral_class'   => $row['spectral_class'],
-                'subtype'          => (int)$row['subtype'],
-                'luminosity_class' => $row['luminosity_class'],
-                'mass_solar'       => (float)$row['mass_solar'],
-                'radius_solar'     => (float)$row['radius_solar'],
-                'temperature_k'    => (int)$row['temperature_k'],
-                'luminosity_solar' => (float)$row['luminosity_solar'],
-            ],
-            $galaxyIdx,
-            $systemIdx
-        );
-        return $system;
-    }
-
-    // Generate and cache
-    $system = generate_star_system($galaxyIdx, $systemIdx);
-    $db->prepare(
-        'INSERT IGNORE INTO star_systems
-             (galaxy_index, system_index, x_ly, y_ly, z_ly,
-              spectral_class, subtype, luminosity_class,
-              mass_solar, radius_solar, temperature_k, luminosity_solar,
-              hz_inner_au, hz_outer_au, frost_line_au, name)
-         VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?,?)'
-    )->execute([
-        $galaxyIdx, $systemIdx,
-        $system['x_ly'], $system['y_ly'], $system['z_ly'],
-        $system['spectral_class'], $system['subtype'], $system['luminosity_class'],
-        $system['mass_solar'], $system['radius_solar'],
-        $system['temperature_k'], $system['luminosity_solar'],
-        $system['hz_inner_au'], $system['hz_outer_au'],
-        $system['frost_line_au'], $system['name'],
-    ]);
-
-    return $system;
+    return cache_generated_system($db, $galaxyIdx, $systemIdx, true);
 }
 

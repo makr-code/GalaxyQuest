@@ -22,6 +22,27 @@ CREATE TABLE IF NOT EXISTS users (
     last_npc_tick DATETIME DEFAULT NULL
 ) ENGINE=InnoDB;
 
+-- Persistent login tokens (remember-me cookies)
+CREATE TABLE IF NOT EXISTS remember_tokens (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    selector CHAR(18) NOT NULL UNIQUE,
+    token_hash CHAR(64) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME DEFAULT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_remember_user (user_id),
+    INDEX idx_remember_expires (expires_at)
+) ENGINE=InnoDB;
+
+-- Application / bootstrap state
+CREATE TABLE IF NOT EXISTS app_state (
+    state_key VARCHAR(64) PRIMARY KEY,
+    state_value VARCHAR(255) NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
 -- Star systems
 CREATE TABLE IF NOT EXISTS star_systems (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -41,6 +62,8 @@ CREATE TABLE IF NOT EXISTS star_systems (
     hz_outer_au DOUBLE NOT NULL DEFAULT 1.6765,
     frost_line_au DOUBLE NOT NULL DEFAULT 2.68,
     name VARCHAR(16) NOT NULL DEFAULT '',
+    catalog_name VARCHAR(32) NOT NULL DEFAULT '',
+    planet_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
     UNIQUE KEY unique_system (galaxy_index, system_index)
 ) ENGINE=InnoDB;
 
@@ -49,7 +72,7 @@ CREATE TABLE IF NOT EXISTS planets (
     id INT AUTO_INCREMENT PRIMARY KEY,
     system_id INT DEFAULT NULL,
     galaxy INT NOT NULL DEFAULT 1,
-    system INT NOT NULL DEFAULT 1,
+    `system` INT NOT NULL DEFAULT 1,
     position INT NOT NULL DEFAULT 1,
     type ENUM('terrestrial','gas_giant','ice','desert','volcanic') NOT NULL DEFAULT 'terrestrial',
     planet_class ENUM(
@@ -70,6 +93,17 @@ CREATE TABLE IF NOT EXISTS planets (
         'nitrogen_oxygen','hydrogen_helium',
         'methane','sulfuric'
     ) NOT NULL DEFAULT 'nitrogen_oxygen',
+    composition_family VARCHAR(64) NOT NULL DEFAULT 'silicate_metal',
+    dominant_surface_material VARCHAR(64) NOT NULL DEFAULT 'basaltic_regolith',
+    surface_pressure_bar DOUBLE NOT NULL DEFAULT 0.0,
+    water_state VARCHAR(32) NOT NULL DEFAULT 'solid',
+    methane_state VARCHAR(32) NOT NULL DEFAULT 'gas',
+    ammonia_state VARCHAR(32) NOT NULL DEFAULT 'gas',
+    dominant_surface_liquid VARCHAR(32) NOT NULL DEFAULT 'none',
+    radiation_level VARCHAR(32) NOT NULL DEFAULT 'moderate',
+    habitability_score TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    life_friendliness VARCHAR(32) NOT NULL DEFAULT 'life_hostile',
+    species_affinity_json JSON DEFAULT NULL,
     -- ── Resource deposits (finite; depleted by mining) ──────────────────────
     -- richness 0.0–2.0 (1.0 = standard; HZ terrestrial get bonus)
     richness_metal      DOUBLE NOT NULL DEFAULT 1.0,
@@ -82,7 +116,7 @@ CREATE TABLE IF NOT EXISTS planets (
     deposit_deuterium   BIGINT NOT NULL DEFAULT 1000000,
     deposit_rare_earth  BIGINT NOT NULL DEFAULT 200000,
     FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE SET NULL,
-    UNIQUE KEY unique_position (galaxy, system, position)
+    UNIQUE KEY unique_position (galaxy, `system`, position)
 ) ENGINE=InnoDB;
 
 -- Colonies (player bases on planets)
@@ -154,7 +188,7 @@ CREATE TABLE IF NOT EXISTS fleets (
     target_system INT NOT NULL,
     target_position INT NOT NULL,
     mission ENUM('attack','transport','colonize','harvest','spy','recall') NOT NULL DEFAULT 'transport',
-    ships_json TEXT NOT NULL DEFAULT '{}',
+    ships_json TEXT NOT NULL,
     cargo_metal DECIMAL(20,4) NOT NULL DEFAULT 0,
     cargo_crystal DECIMAL(20,4) NOT NULL DEFAULT 0,
     cargo_deuterium DECIMAL(20,4) NOT NULL DEFAULT 0,
@@ -302,7 +336,7 @@ CREATE TABLE IF NOT EXISTS faction_quests (
     title        VARCHAR(128) NOT NULL,
     description  TEXT NOT NULL,
     quest_type   ENUM('kill','deliver','explore','build','research','spy') NOT NULL,
-    requirements_json TEXT NOT NULL DEFAULT '{}',
+    requirements_json TEXT NOT NULL,
     reward_metal       INT UNSIGNED NOT NULL DEFAULT 0,
     reward_crystal     INT UNSIGNED NOT NULL DEFAULT 0,
     reward_deuterium   INT UNSIGNED NOT NULL DEFAULT 0,
@@ -322,7 +356,7 @@ CREATE TABLE IF NOT EXISTS user_faction_quests (
     user_id          INT NOT NULL,
     faction_quest_id INT NOT NULL,
     status ENUM('active','completed','failed','claimed') NOT NULL DEFAULT 'active',
-    progress_json    TEXT NOT NULL DEFAULT '{}',
+    progress_json    TEXT NOT NULL,
     started_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at     DATETIME DEFAULT NULL,
     FOREIGN KEY (user_id)          REFERENCES users(id)          ON DELETE CASCADE,
@@ -361,53 +395,69 @@ VALUES
 
 -- ─── Seed: Faction quests ─────────────────────────────────────────────────────
 INSERT IGNORE INTO faction_quests
-    (faction_id, code, title, description, quest_type,
-     requirements_json,
-     reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
-     reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
-SELECT f.id, q.code, q.title, q.description, q.quest_type,
-       q.req, q.rm, q.rc, q.rd, q.rre, q.rdm, q.rrp, q.rs, q.ms, q.diff, q.rep
-FROM npc_factions f
-JOIN (VALUES
-  -- Empire quests
-  ('empire', 'empire_tribute_metal',  'Metal Tribute',
-   'The Empire demands a tribute of 10 000 metal as proof of loyalty.',
-   'deliver', '{"resource":"metal","amount":10000}',
-   0,5000,2000,0,0,50,15,-100,'easy',1),
-  ('empire', 'empire_patrol_kill',    'Border Patrol',
-   'Destroy 3 pirate ships that have been harassing imperial supply routes.',
-   'kill', '{"faction":"pirates","count":3}',
-   8000,4000,2000,0,50,100,20,-20,'medium',0),
-  -- Guild quests
-  ('guild', 'guild_supply_crystal',  'Crystal Delivery',
-   'The Guild needs 5 000 crystal delivered to secure a new trade route.',
-   'deliver', '{"resource":"crystal","amount":5000}',
-   10000,0,3000,0,0,40,10,-100,'easy',1),
-  ('guild', 'guild_rare_earth',      'Rare Earth Procurement',
-   'Procure 500 units of rare earth for the Guild''s advanced manufacturing.',
-   'deliver', '{"resource":"rare_earth","amount":500}',
-   20000,10000,5000,0,100,150,20,0,'hard',0),
-  -- Science quests
-  ('science', 'sci_explore_system',  'Stellar Survey',
-   'Visit an unexplored star system and send a probe report back.',
-   'explore', '{"spy_reports":1}',
-   5000,5000,0,0,50,80,15,-100,'easy',0),
-  ('science', 'sci_research_lvl5',   'Knowledge is Power',
-   'Reach level 5 in any research technology.',
-   'research', '{"research_level":5}',
-   0,10000,8000,200,100,200,25,10,'medium',0),
-  -- Pirate quests
-  ('pirates', 'pirate_raid_help',    'Pirate Muscle',
-   'The Clans need a show of strength — win a battle against any enemy.',
-   'kill', '{"battle_wins":1}',
-   12000,3000,0,0,0,60,20,-100,'easy',1),
-  -- Precursor quests
-  ('precursors', 'prec_rare_earth_offering', 'The Ancient Toll',
-   'The Precursors require 1 000 units of rare earth to open negotiations.',
-   'deliver', '{"resource":"rare_earth","amount":1000}',
-   0,0,0,500,500,300,30,-100,'epic',0)
-) AS q(fc, code, title, description, quest_type, req, rm,rc,rd,rre,rdm,rrp,rs,ms,diff,rep)
-ON f.code = q.fc;
+     (faction_id, code, title, description, quest_type, requirements_json,
+      reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+      reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+SELECT f.id, 'empire_tribute_metal', 'Metal Tribute',
+    'The Empire demands a tribute of 10 000 metal as proof of loyalty.',
+    'deliver', '{"resource":"metal","amount":10000}', 0,5000,2000,0,0,50,15,-100,'easy',1
+FROM npc_factions f WHERE f.code='empire';
+INSERT IGNORE INTO faction_quests
+     (faction_id, code, title, description, quest_type, requirements_json,
+      reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+      reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+SELECT f.id, 'empire_patrol_kill', 'Border Patrol',
+    'Destroy 3 pirate ships that have been harassing imperial supply routes.',
+    'kill', '{"faction":"pirates","count":3}', 8000,4000,2000,0,50,100,20,-20,'medium',0
+FROM npc_factions f WHERE f.code='empire';
+INSERT IGNORE INTO faction_quests
+     (faction_id, code, title, description, quest_type, requirements_json,
+      reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+      reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+SELECT f.id, 'guild_supply_crystal', 'Crystal Delivery',
+    'The Guild needs 5 000 crystal delivered to secure a new trade route.',
+    'deliver', '{"resource":"crystal","amount":5000}', 10000,0,3000,0,0,40,10,-100,'easy',1
+FROM npc_factions f WHERE f.code='guild';
+INSERT IGNORE INTO faction_quests
+     (faction_id, code, title, description, quest_type, requirements_json,
+      reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+      reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+SELECT f.id, 'guild_rare_earth', 'Rare Earth Procurement',
+    'Procure 500 units of rare earth for the Guild advanced manufacturing.',
+    'deliver', '{"resource":"rare_earth","amount":500}', 20000,10000,5000,0,100,150,20,0,'hard',0
+FROM npc_factions f WHERE f.code='guild';
+INSERT IGNORE INTO faction_quests
+     (faction_id, code, title, description, quest_type, requirements_json,
+      reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+      reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+SELECT f.id, 'sci_explore_system', 'Stellar Survey',
+    'Visit an unexplored star system and send a probe report back.',
+    'explore', '{"spy_reports":1}', 5000,5000,0,0,50,80,15,-100,'easy',0
+FROM npc_factions f WHERE f.code='science';
+INSERT IGNORE INTO faction_quests
+     (faction_id, code, title, description, quest_type, requirements_json,
+      reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+      reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+SELECT f.id, 'sci_research_lvl5', 'Knowledge is Power',
+    'Reach level 5 in any research technology.',
+    'research', '{"research_level":5}', 0,10000,8000,200,100,200,25,10,'medium',0
+FROM npc_factions f WHERE f.code='science';
+INSERT IGNORE INTO faction_quests
+     (faction_id, code, title, description, quest_type, requirements_json,
+      reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+      reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+SELECT f.id, 'pirate_raid_help', 'Pirate Muscle',
+    'The Clans need a show of strength - win a battle against any enemy.',
+    'kill', '{"battle_wins":1}', 12000,3000,0,0,0,60,20,-100,'easy',1
+FROM npc_factions f WHERE f.code='pirates';
+INSERT IGNORE INTO faction_quests
+     (faction_id, code, title, description, quest_type, requirements_json,
+      reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+      reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+SELECT f.id, 'prec_rare_earth_offering', 'The Ancient Toll',
+    'The Precursors require 1 000 units of rare earth to open negotiations.',
+    'deliver', '{"resource":"rare_earth","amount":1000}', 0,0,0,500,500,300,30,-100,'epic',0
+FROM npc_factions f WHERE f.code='precursors';
 
 -- ─── Achievement / quest system ───────────────────────────────────────────────
 

@@ -1,0 +1,70 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Docker: Up",
+      "type": "shell",
+      "command": "docker compose up -d --build",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker: Down",
+      "type": "shell",
+      "command": "docker compose down",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker: Reset DB",
+      "type": "shell",
+      "command": "docker compose down -v && docker compose up -d --build",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker: Logs",
+      "type": "shell",
+      "command": "docker compose logs -f",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker: Rebuild Web",
+      "type": "shell",
+      "command": "docker compose up -d --build web",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker: Bootstrap Galaxy",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/bootstrap_galaxy.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker: Backfill Star Metadata",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/backfill_star_system_metadata.php --all --batch=2000",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

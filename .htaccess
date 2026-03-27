@@ -1,10 +1,8 @@
 Options -Indexes
 RewriteEngine On
 
-# Deny access to config directory
-<Directory "config">
-    Require all denied
-</Directory>
+# Deny direct access to config files
+RewriteRule ^config/ - [F,L]
 
 # PHP files in api/ are served normally
 # Everything else (non-existing files/dirs) falls back to index.html
