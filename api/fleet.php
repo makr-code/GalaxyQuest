@@ -2,9 +2,9 @@
 /**
  * Fleet API
  * GET  /api/fleet.php?action=list
- * POST /api/fleet.php?action=send  body: {origin_planet_id, target_galaxy, target_system, target_position, mission, ships:{type:count,...}, cargo:{metal,crystal,deuterium}}
- * POST /api/fleet.php?action=recall  body: {fleet_id}
- * GET  /api/fleet.php?action=check   (process arrivals)
+ * POST /api/fleet.php?action=send   body: {origin_colony_id, target_galaxy, target_system, target_position, mission, ships:{type:count,...}, cargo:{metal,crystal,deuterium}}
+ * POST /api/fleet.php?action=recall body: {fleet_id}
+ * GET  /api/fleet.php?action=check  (process arrivals – called by client polling)
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
@@ -20,10 +20,15 @@ switch ($action) {
         $db = get_db();
         process_fleet_arrivals($db);
         $stmt = $db->prepare(
-            'SELECT id, mission, origin_planet_id, target_galaxy, target_system, target_position,
-                    ships_json, cargo_metal, cargo_crystal, cargo_deuterium,
-                    departure_time, arrival_time, return_time, returning
-             FROM fleets WHERE user_id = ? ORDER BY arrival_time ASC'
+            'SELECT f.id, f.mission, f.origin_colony_id,
+                    f.target_galaxy, f.target_system, f.target_position,
+                    f.ships_json, f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
+                    f.departure_time, f.arrival_time, f.return_time, f.returning,
+                    p.galaxy AS origin_galaxy, p.system AS origin_system, p.position AS origin_position
+             FROM fleets f
+             JOIN colonies c ON c.id = f.origin_colony_id
+             JOIN planets  p ON p.id = c.planet_id
+             WHERE f.user_id = ? ORDER BY f.arrival_time ASC'
         );
         $stmt->execute([$uid]);
         $fleets = [];
@@ -38,24 +43,19 @@ switch ($action) {
     case 'send':
         only_method('POST');
         verify_csrf();
-        $body = get_json_body();
-        $db   = get_db();
-        send_fleet($db, $uid, $body);
+        send_fleet(get_db(), $uid, get_json_body());
         break;
 
     case 'recall':
         only_method('POST');
         verify_csrf();
-        $body    = get_json_body();
-        $fleetId = (int)($body['fleet_id'] ?? 0);
-        $db      = get_db();
-        recall_fleet($db, $uid, $fleetId);
+        $body = get_json_body();
+        recall_fleet(get_db(), $uid, (int)($body['fleet_id'] ?? 0));
         break;
 
     case 'check':
         only_method('GET');
-        $db = get_db();
-        process_fleet_arrivals($db);
+        process_fleet_arrivals(get_db());
         json_ok();
         break;
 
@@ -63,19 +63,18 @@ switch ($action) {
         json_error('Unknown action');
 }
 
-// ─── Fleet send ──────────────────────────────────────────────────────────────
+// ─── Send ─────────────────────────────────────────────────────────────────────
 
 function send_fleet(PDO $db, int $uid, array $body): never {
-    $originId = (int)($body['origin_planet_id']  ?? 0);
-    $tg       = (int)($body['target_galaxy']      ?? 0);
-    $ts       = (int)($body['target_system']      ?? 0);
-    $tp       = (int)($body['target_position']    ?? 0);
-    $mission  = $body['mission']                   ?? 'transport';
-    $ships    = $body['ships']                     ?? [];
-    $cargo    = $body['cargo']                     ?? [];
+    $originCid = (int)($body['origin_colony_id'] ?? 0);
+    $tg        = (int)($body['target_galaxy']    ?? 0);
+    $ts        = (int)($body['target_system']    ?? 0);
+    $tp        = (int)($body['target_position']  ?? 0);
+    $mission   = $body['mission'] ?? 'transport';
+    $ships     = $body['ships']   ?? [];
+    $cargo     = $body['cargo']   ?? [];
 
-    $allowedMissions = ['attack', 'transport', 'colonize', 'harvest', 'spy'];
-    if (!in_array($mission, $allowedMissions, true)) {
+    if (!in_array($mission, ['attack','transport','colonize','harvest','spy'], true)) {
         json_error('Invalid mission type.');
     }
     if ($tg < 1 || $tg > GALAXY_MAX || $ts < 1 || $ts > SYSTEM_MAX
@@ -83,33 +82,40 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         json_error('Target coordinates out of range.');
     }
 
-    // ── PvP / protection guard ──────────────────────────────────────────────
+    // Verify colony ownership and get coordinates
+    $colStmt = $db->prepare(
+        'SELECT c.id, c.metal, c.crystal, c.deuterium, c.user_id,
+                p.galaxy, p.system, p.position
+         FROM colonies c JOIN planets p ON p.id = c.planet_id
+         WHERE c.id = ? AND c.user_id = ?'
+    );
+    $colStmt->execute([$originCid, $uid]);
+    $origin = $colStmt->fetch();
+    if (!$origin) { json_error('Colony not found.', 404); }
+
+    // PvP guard for attack missions
     if ($mission === 'attack') {
-        // Check whether the attacker has PvP enabled
         $atkRow = $db->prepare('SELECT pvp_mode, protection_until FROM users WHERE id = ?');
         $atkRow->execute([$uid]);
         $atkUser = $atkRow->fetch();
-
         if ($atkUser['protection_until'] && strtotime($atkUser['protection_until']) > time()) {
-            json_error('You are under newbie protection and cannot launch attacks yet.');
+            json_error('You are under newbie protection and cannot launch attacks.');
         }
-
-        // Check target planet owner
         $tgtRow = $db->prepare(
             'SELECT u.pvp_mode, u.protection_until, u.is_npc
-             FROM planets p JOIN users u ON u.id = p.user_id
+             FROM colonies c
+             JOIN planets p ON p.id = c.planet_id
+             JOIN users u ON u.id = c.user_id
              WHERE p.galaxy = ? AND p.system = ? AND p.position = ?'
         );
         $tgtRow->execute([$tg, $ts, $tp]);
         $tgtUser = $tgtRow->fetch();
-
         if ($tgtUser && !$tgtUser['is_npc']) {
-            // Target is a real player
             if (!$atkUser['pvp_mode']) {
-                json_error('Enable PvP mode in your overview to attack other players.');
+                json_error('Enable PvP mode to attack other players.');
             }
             if (!$tgtUser['pvp_mode']) {
-                json_error('Target player has PvP mode disabled and cannot be attacked.');
+                json_error('Target player has PvP disabled.');
             }
             if ($tgtUser['protection_until'] && strtotime($tgtUser['protection_until']) > time()) {
                 json_error('Target player is under newbie protection.');
@@ -117,417 +123,216 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         }
     }
 
-    verify_planet_ownership($db, $originId, $uid);
-    update_planet_resources($db, $originId);
+    update_colony_resources($db, $originCid);
 
-    // Validate ships
+    // Validate & collect ships
     $shipsToSend = [];
     foreach ($ships as $type => $count) {
         $count = (int)$count;
         if ($count <= 0 || !isset(SHIP_STATS[$type])) continue;
-        // Check availability
-        $stmt = $db->prepare('SELECT count FROM ships WHERE planet_id = ? AND type = ?');
-        $stmt->execute([$originId, $type]);
-        $row = $stmt->fetch();
-        if (!$row || (int)$row['count'] < $count) {
-            json_error("Not enough $type ships available.");
+        $row = $db->prepare('SELECT count FROM ships WHERE colony_id = ? AND type = ?');
+        $row->execute([$originCid, $type]);
+        $available = $row->fetch();
+        if (!$available || (int)$available['count'] < $count) {
+            json_error("Not enough $type available.");
         }
         $shipsToSend[$type] = $count;
     }
-    if (empty($shipsToSend)) {
-        json_error('No ships selected.');
-    }
+    if (empty($shipsToSend)) { json_error('No ships selected.'); }
 
     // Cargo
-    $cargoMetal     = max(0.0, (float)($cargo['metal']     ?? 0));
-    $cargoCrystal   = max(0.0, (float)($cargo['crystal']   ?? 0));
-    $cargoDeuterium = max(0.0, (float)($cargo['deuterium'] ?? 0));
-
-    // Check cargo capacity
-    $totalCargo = 0;
-    foreach ($shipsToSend as $type => $cnt) {
-        $totalCargo += ship_cargo($type) * $cnt;
-    }
-    if ($cargoMetal + $cargoCrystal + $cargoDeuterium > $totalCargo) {
-        json_error('Cargo exceeds fleet capacity.');
-    }
-
-    // Check resources for cargo
-    $planetRes = $db->prepare('SELECT metal, crystal, deuterium FROM planets WHERE id = ?');
-    $planetRes->execute([$originId]);
-    $res = $planetRes->fetch();
-    if ($res['metal'] < $cargoMetal || $res['crystal'] < $cargoCrystal
-        || $res['deuterium'] < $cargoDeuterium) {
+    $cMetal = max(0.0, (float)($cargo['metal']     ?? 0));
+    $cCrys  = max(0.0, (float)($cargo['crystal']   ?? 0));
+    $cDeut  = max(0.0, (float)($cargo['deuterium'] ?? 0));
+    $cap    = array_sum(array_map(fn($t, $c) => ship_cargo($t) * $c, array_keys($shipsToSend), $shipsToSend));
+    if ($cMetal + $cCrys + $cDeut > $cap) { json_error('Cargo exceeds fleet capacity.'); }
+    if ($origin['metal'] < $cMetal || $origin['crystal'] < $cCrys || $origin['deuterium'] < $cDeut) {
         json_error('Insufficient resources for cargo.');
     }
 
-    // Origin coordinates
-    $originCoord = $db->prepare('SELECT galaxy, system, position FROM planets WHERE id = ?');
-    $originCoord->execute([$originId]);
-    $oc = $originCoord->fetch();
+    $dist       = coordinate_distance($origin['galaxy'], $origin['system'], $origin['position'], $tg, $ts, $tp);
+    $speed      = fleet_speed($shipsToSend);
+    $travel     = fleet_travel_time($dist, $speed);
+    $now        = time();
+    $arrival    = date('Y-m-d H:i:s', $now + $travel);
+    $returnT    = date('Y-m-d H:i:s', $now + $travel * 2);
+    $departure  = date('Y-m-d H:i:s', $now);
 
-    $distance    = coordinate_distance($oc['galaxy'], $oc['system'], $oc['position'], $tg, $ts, $tp);
-    $speed       = fleet_speed($shipsToSend);
-    $travelSecs  = fleet_travel_time($distance, $speed);
-    $now         = time();
-    $arrivalTime = date('Y-m-d H:i:s', $now + $travelSecs);
-    $returnTime  = date('Y-m-d H:i:s', $now + $travelSecs * 2);
-    $departure   = date('Y-m-d H:i:s', $now);
-
-    // Deduct ships and cargo
     foreach ($shipsToSend as $type => $cnt) {
-        $db->prepare(
-            'UPDATE ships SET count = count - ? WHERE planet_id = ? AND type = ?'
-        )->execute([$cnt, $originId, $type]);
+        $db->prepare('UPDATE ships SET count=count-? WHERE colony_id=? AND type=?')
+           ->execute([$cnt, $originCid, $type]);
     }
-    $db->prepare(
-        'UPDATE planets SET metal = metal - ?, crystal = crystal - ?, deuterium = deuterium - ?
-         WHERE id = ?'
-    )->execute([$cargoMetal, $cargoCrystal, $cargoDeuterium, $originId]);
+    $db->prepare('UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?')
+       ->execute([$cMetal, $cCrys, $cDeut, $originCid]);
 
     $db->prepare(
-        'INSERT INTO fleets (user_id, origin_planet_id, target_galaxy, target_system,
+        'INSERT INTO fleets (user_id, origin_colony_id, target_galaxy, target_system,
                              target_position, mission, ships_json,
                              cargo_metal, cargo_crystal, cargo_deuterium,
                              departure_time, arrival_time, return_time)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    )->execute([
-        $uid, $originId, $tg, $ts, $tp, $mission,
-        json_encode($shipsToSend),
-        $cargoMetal, $cargoCrystal, $cargoDeuterium,
-        $departure, $arrivalTime, $returnTime,
-    ]);
-    $fleetId = (int)$db->lastInsertId();
+    )->execute([$uid, $originCid, $tg, $ts, $tp, $mission,
+                json_encode($shipsToSend), $cMetal, $cCrys, $cDeut,
+                $departure, $arrival, $returnT]);
 
-    json_ok(['fleet_id' => $fleetId, 'arrival_time' => $arrivalTime]);
+    json_ok(['fleet_id' => (int)$db->lastInsertId(), 'arrival_time' => $arrival]);
 }
 
-// ─── Recall ──────────────────────────────────────────────────────────────────
+// ─── Recall ───────────────────────────────────────────────────────────────────
 
 function recall_fleet(PDO $db, int $uid, int $fleetId): never {
-    $stmt = $db->prepare(
-        'SELECT * FROM fleets WHERE id = ? AND user_id = ? AND returning = 0'
-    );
+    $stmt = $db->prepare('SELECT * FROM fleets WHERE id=? AND user_id=? AND returning=0');
     $stmt->execute([$fleetId, $uid]);
     $fleet = $stmt->fetch();
-    if (!$fleet) {
-        json_error('Fleet not found or already returning.', 404);
-    }
+    if (!$fleet) { json_error('Fleet not found or already returning.', 404); }
 
-    $now         = time();
-    $departure   = strtotime($fleet['departure_time']);
-    $arrival     = strtotime($fleet['arrival_time']);
-    $elapsed     = $now - $departure;
-    $totalTime   = $arrival - $departure;
-    $returnSecs  = max(1, $elapsed);     // same travel time as elapsed
-    $returnTime  = date('Y-m-d H:i:s', $now + $returnSecs);
-
-    $db->prepare(
-        'UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ? WHERE id = ?'
-    )->execute([$returnTime, $returnTime, $fleetId]);
-
+    $elapsed    = time() - strtotime($fleet['departure_time']);
+    $returnSecs = max(1, $elapsed);
+    $returnTime = date('Y-m-d H:i:s', time() + $returnSecs);
+    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=? WHERE id=?')
+       ->execute([$returnTime, $returnTime, $fleetId]);
     json_ok(['return_time' => $returnTime]);
 }
 
-// ─── Process arrivals ─────────────────────────────────────────────────────────
+// ─── Arrival processing ───────────────────────────────────────────────────────
 
 function process_fleet_arrivals(PDO $db): void {
-    $due = $db->prepare(
-        'SELECT * FROM fleets WHERE arrival_time <= NOW() ORDER BY arrival_time ASC'
-    );
+    $due = $db->prepare('SELECT * FROM fleets WHERE arrival_time <= NOW() ORDER BY arrival_time ASC');
     $due->execute();
-    foreach ($due->fetchAll() as $fleet) {
-        handle_fleet_arrival($db, $fleet);
-    }
+    foreach ($due->fetchAll() as $fleet) { handle_fleet_arrival($db, $fleet); }
 }
 
 function handle_fleet_arrival(PDO $db, array $fleet): void {
     $ships = json_decode($fleet['ships_json'], true) ?? [];
-
-    if ($fleet['returning']) {
-        // Return to origin
-        return_fleet_to_origin($db, $fleet, $ships);
-        return;
-    }
-
-    switch ($fleet['mission']) {
-        case 'transport':
-            deliver_resources($db, $fleet, $ships);
-            break;
-        case 'attack':
-            resolve_battle($db, $fleet, $ships);
-            break;
-        case 'colonize':
-            colonize_planet($db, $fleet, $ships);
-            break;
-        case 'spy':
-            create_spy_report($db, $fleet, $ships);
-            break;
-        case 'harvest':
-            harvest_debris($db, $fleet, $ships);
-            break;
-        default:
-            return_fleet_to_origin($db, $fleet, $ships);
-    }
+    if ($fleet['returning']) { return_fleet_to_origin($db, $fleet, $ships); return; }
+    match ($fleet['mission']) {
+        'transport' => deliver_resources($db, $fleet, $ships),
+        'attack'    => resolve_battle($db, $fleet, $ships),
+        'colonize'  => colonize_planet($db, $fleet, $ships),
+        'spy'       => create_spy_report($db, $fleet, $ships),
+        default     => return_fleet_to_origin($db, $fleet, $ships),
+    };
 }
 
 function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
-    $oPid = (int)$fleet['origin_planet_id'];
-    // Return ships
+    $cid = (int)$fleet['origin_colony_id'];
     foreach ($ships as $type => $cnt) {
-        $db->prepare(
-            'INSERT INTO ships (planet_id, type, count) VALUES (?, ?, ?)
-             ON DUPLICATE KEY UPDATE count = count + ?'
-        )->execute([$oPid, $type, $cnt, $cnt]);
+        $db->prepare('INSERT INTO ships (colony_id,type,count) VALUES (?,?,?) ON DUPLICATE KEY UPDATE count=count+?')
+           ->execute([$cid, $type, $cnt, $cnt]);
     }
-    // Return cargo
-    $db->prepare(
-        'UPDATE planets SET metal = metal + ?, crystal = crystal + ?, deuterium = deuterium + ?
-         WHERE id = ?'
-    )->execute([
-        $fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $oPid
-    ]);
-    $db->prepare('DELETE FROM fleets WHERE id = ?')->execute([$fleet['id']]);
+    $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
+       ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $cid]);
+    $db->prepare('DELETE FROM fleets WHERE id=?')->execute([$fleet['id']]);
 }
 
 function deliver_resources(PDO $db, array $fleet, array $ships): void {
-    // Find target planet
-    $stmt = $db->prepare(
-        'SELECT id FROM planets WHERE galaxy = ? AND system = ? AND position = ?'
-    );
-    $stmt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
-    $target = $stmt->fetch();
-
+    $tgt = $db->prepare('SELECT c.id FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE p.galaxy=? AND p.system=? AND p.position=?');
+    $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
+    $target = $tgt->fetch();
     if ($target) {
-        $db->prepare(
-            'UPDATE planets SET metal = metal + ?, crystal = crystal + ?, deuterium = deuterium + ?
-             WHERE id = ?'
-        )->execute([
-            $fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'],
-            $target['id']
-        ]);
-        // If it's the owner's planet, ships stay; else ships return
+        $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
+           ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $target['id']]);
     }
-
-    // Fleet returns (with empty cargo if delivered, or with cargo if no target)
-    $returnSecs = (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time']));
-    $returnTime = date('Y-m-d H:i:s', time() + $returnSecs);
-    if ($target) {
-        $db->prepare(
-            'UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ?,
-                               cargo_metal = 0, cargo_crystal = 0, cargo_deuterium = 0
-             WHERE id = ?'
-        )->execute([$returnTime, $returnTime, $fleet['id']]);
-    } else {
-        $db->prepare(
-            'UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ? WHERE id = ?'
-        )->execute([$returnTime, $returnTime, $fleet['id']]);
-    }
+    $travel  = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
+    $retTime = date('Y-m-d H:i:s', time() + $travel);
+    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=?, cargo_metal=0, cargo_crystal=0, cargo_deuterium=0 WHERE id=?')
+       ->execute([$retTime, $retTime, $fleet['id']]);
 }
 
 function resolve_battle(PDO $db, array $fleet, array $ships): void {
-    // Simplified battle: total attack vs total hull
-    $stmt = $db->prepare(
-        'SELECT p.*, p.user_id AS defender_id
-         FROM planets p
-         WHERE p.galaxy = ? AND p.system = ? AND p.position = ?'
-    );
-    $stmt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
-    $target = $stmt->fetch();
+    $tgt = $db->prepare('SELECT c.id, c.user_id, c.metal, c.crystal, c.deuterium FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE p.galaxy=? AND p.system=? AND p.position=?');
+    $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
+    $target = $tgt->fetch();
 
-    if (!$target || (int)$target['defender_id'] === (int)$fleet['user_id']) {
-        // No target or own planet – return fleet
-        $returnSecs = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
-        $returnTime = date('Y-m-d H:i:s', time() + $returnSecs);
-        $db->prepare(
-            'UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ? WHERE id = ?'
-        )->execute([$returnTime, $returnTime, $fleet['id']]);
+    if (!$target || (int)$target['user_id'] === (int)$fleet['user_id']) {
+        $travel  = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
+        $retTime = date('Y-m-d H:i:s', time() + $travel);
+        $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=? WHERE id=?')->execute([$retTime, $retTime, $fleet['id']]);
         return;
     }
 
-    // Attacker stats
-    $atkAttack = $atkHull = 0;
-    foreach ($ships as $type => $cnt) {
-        $s = SHIP_STATS[$type] ?? [];
-        $atkAttack += ($s['attack'] ?? 0) * $cnt;
-        $atkHull   += ($s['hull']   ?? 0) * $cnt;
-    }
+    $atkAtk = $atkHull = 0;
+    foreach ($ships as $type => $cnt) { $s=SHIP_STATS[$type]??[]; $atkAtk+=($s['attack']??0)*$cnt; $atkHull+=($s['hull']??0)*$cnt; }
 
-    // Defender ships
-    $defShips = $db->prepare('SELECT type, count FROM ships WHERE planet_id = ?');
+    $defShips = $db->prepare('SELECT type,count FROM ships WHERE colony_id=?');
     $defShips->execute([$target['id']]);
-    $defFleet = [];
-    foreach ($defShips->fetchAll() as $r) {
-        $defFleet[$r['type']] = (int)$r['count'];
-    }
-    $defAttack = $defHull = 0;
-    foreach ($defFleet as $type => $cnt) {
-        $s = SHIP_STATS[$type] ?? [];
-        $defAttack += ($s['attack'] ?? 0) * $cnt;
-        $defHull   += ($s['hull']   ?? 0) * $cnt;
-    }
+    $defFleet = []; $defHull = 0;
+    foreach ($defShips->fetchAll() as $r) { $defFleet[$r['type']]=(int)$r['count']; $s=SHIP_STATS[$r['type']]??[]; $defHull+=($s['hull']??0)*$r['count']; }
 
-    // Outcome: attacker wins if attack > 50% of defender hull
-    $attackerWins = $atkAttack > ($defHull * 0.5);
-
-    $lootMetal = $lootCrystal = $lootDeuterium = 0;
+    $attackerWins = $atkAtk > ($defHull * 0.5);
+    $lootM = $lootC = $lootD = 0.0;
     if ($attackerWins) {
-        // Loot up to 50% of resources, capped by fleet cargo capacity
-        $fleetCargo = array_sum(array_map(
-            fn($t, $c) => ship_cargo($t) * $c,
-            array_keys($ships), $ships
-        ));
-        $lootMetal     = min((float)$target['metal']     * 0.5, $fleetCargo);
-        $remaining     = $fleetCargo - $lootMetal;
-        $lootCrystal   = min((float)$target['crystal']   * 0.5, $remaining);
-        $remaining    -= $lootCrystal;
-        $lootDeuterium = min((float)$target['deuterium'] * 0.5, $remaining);
-
-        $db->prepare(
-            'UPDATE planets SET metal = metal - ?, crystal = crystal - ?, deuterium = deuterium - ?
-             WHERE id = ?'
-        )->execute([$lootMetal, $lootCrystal, $lootDeuterium, $target['id']]);
-
-        // Destroy 30% of defender ships
+        $cap   = array_sum(array_map(fn($t,$c)=>ship_cargo($t)*$c, array_keys($ships), $ships));
+        $lootM = min((float)$target['metal']*0.5, $cap);   $cap -= $lootM;
+        $lootC = min((float)$target['crystal']*0.5, $cap); $cap -= $lootC;
+        $lootD = min((float)$target['deuterium']*0.5, $cap);
+        $db->prepare('UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?')->execute([$lootM,$lootC,$lootD,$target['id']]);
         foreach ($defFleet as $type => $cnt) {
-            $destroyed = (int)round($cnt * 0.3);
-            if ($destroyed > 0) {
-                $db->prepare(
-                    'UPDATE ships SET count = GREATEST(0, count - ?) WHERE planet_id = ? AND type = ?'
-                )->execute([$destroyed, $target['id'], $type]);
-            }
+            $d=(int)round($cnt*0.3);
+            if ($d>0) $db->prepare('UPDATE ships SET count=GREATEST(0,count-?) WHERE colony_id=? AND type=?')->execute([$d,$target['id'],$type]);
         }
     }
 
-    // Build report
-    $report = [
-        'attacker_ships'  => $ships,
-        'defender_ships'  => $defFleet,
-        'attacker_wins'   => $attackerWins,
-        'loot'            => ['metal' => $lootMetal, 'crystal' => $lootCrystal, 'deuterium' => $lootDeuterium],
-    ];
-    $db->prepare(
-        'INSERT INTO battle_reports (attacker_id, defender_id, planet_id, report_json)
-         VALUES (?, ?, ?, ?)'
-    )->execute([$fleet['user_id'], $target['defender_id'], $target['id'], json_encode($report)]);
-
-    // Check combat achievements for attacker
+    $report=['attacker_ships'=>$ships,'defender_ships'=>$defFleet,'attacker_wins'=>$attackerWins,'loot'=>['metal'=>$lootM,'crystal'=>$lootC,'deuterium'=>$lootD]];
+    $db->prepare('INSERT INTO battle_reports (attacker_id,defender_id,planet_id,report_json) VALUES (?,?,?,?)')->execute([$fleet['user_id'],$target['user_id'],$target['id'],json_encode($report)]);
     check_and_update_achievements($db, (int)$fleet['user_id']);
 
-    // Message both players
-    $msgBody = $attackerWins
-        ? "Your fleet attacked [" . $fleet['target_galaxy'] . ':' . $fleet['target_system'] . ':' . $fleet['target_position'] . "] and WON. Looted: {$lootMetal} metal, {$lootCrystal} crystal, {$lootDeuterium} deuterium."
-        : "Your fleet attacked [" . $fleet['target_galaxy'] . ':' . $fleet['target_system'] . ':' . $fleet['target_position'] . "] but LOST.";
-    $db->prepare(
-        'INSERT INTO messages (receiver_id, subject, body) VALUES (?, ?, ?)'
-    )->execute([$fleet['user_id'], 'Battle Report', $msgBody]);
+    $msg = $attackerWins ? "Victory at [{$fleet['target_galaxy']}:{$fleet['target_system']}:{$fleet['target_position']}]! Looted: {$lootM}M {$lootC}C {$lootD}D." : "Defeat at [{$fleet['target_galaxy']}:{$fleet['target_system']}:{$fleet['target_position']}].";
+    $db->prepare('INSERT INTO messages (receiver_id,subject,body) VALUES (?,?,?)')->execute([$fleet['user_id'],'Battle Report',$msg]);
 
-    // Return fleet
-    $returnSecs = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
-    $returnTime = date('Y-m-d H:i:s', time() + $returnSecs);
-    $db->prepare(
-        'UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ?,
-                           cargo_metal = ?, cargo_crystal = ?, cargo_deuterium = ?
-         WHERE id = ?'
-    )->execute([$returnTime, $returnTime, $lootMetal, $lootCrystal, $lootDeuterium, $fleet['id']]);
+    $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
+    $retTime = date('Y-m-d H:i:s', time()+$travel);
+    $db->prepare('UPDATE fleets SET returning=1,arrival_time=?,return_time=?,cargo_metal=?,cargo_crystal=?,cargo_deuterium=? WHERE id=?')->execute([$retTime,$retTime,$lootM,$lootC,$lootD,$fleet['id']]);
 }
 
 function colonize_planet(PDO $db, array $fleet, array $ships): void {
-    // Check if position is free
-    $stmt = $db->prepare(
-        'SELECT id FROM planets WHERE galaxy = ? AND system = ? AND position = ?'
-    );
-    $stmt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
-    $existing = $stmt->fetch();
+    // Ensure planet record exists at target coords
+    $pStmt = $db->prepare('SELECT id FROM planets WHERE galaxy=? AND system=? AND position=?');
+    $pStmt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
+    $planet = $pStmt->fetch();
 
-    if ($existing) {
-        // Cannot colonize – return
-        $db->prepare(
-            'INSERT INTO messages (receiver_id, subject, body) VALUES (?, ?, ?)'
-        )->execute([
-            $fleet['user_id'],
-            'Colonization Failed',
-            'The target position [' . $fleet['target_galaxy'] . ':' . $fleet['target_system'] . ':' . $fleet['target_position'] . '] is already occupied.'
-        ]);
+    $occupied = false;
+    if ($planet) {
+        $cStmt = $db->prepare('SELECT id FROM colonies WHERE planet_id=?');
+        $cStmt->execute([$planet['id']]);
+        $occupied = (bool)$cStmt->fetch();
+    }
+
+    if ($occupied) {
+        $db->prepare('INSERT INTO messages (receiver_id,subject,body) VALUES (?,?,?)')->execute([$fleet['user_id'],'Colonization Failed','Position already occupied.']);
     } else {
-        // Create colony
-        $db->prepare(
-            'INSERT INTO planets (user_id, name, galaxy, system, position, type, is_homeworld,
-                                  metal, crystal, deuterium, last_update)
-             VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 0, NOW())'
-        )->execute([
-            $fleet['user_id'],
-            'Colony [' . $fleet['target_galaxy'] . ':' . $fleet['target_system'] . ':' . $fleet['target_position'] . ']',
-            $fleet['target_galaxy'],
-            $fleet['target_system'],
-            $fleet['target_position'],
-            'terrestrial',
-        ]);
-        $newPlanetId = (int)$db->lastInsertId();
-
-        // Seed default buildings level 0
-        foreach (array_keys(BUILDING_BASE_COST) as $bType) {
-            $db->prepare(
-                'INSERT IGNORE INTO buildings (planet_id, type, level) VALUES (?, ?, 0)'
-            )->execute([$newPlanetId, $bType]);
+        if (!$planet) {
+            $db->prepare('INSERT INTO planets (galaxy,system,position,type) VALUES (?,?,?,\'terrestrial\')')->execute([$fleet['target_galaxy'],$fleet['target_system'],$fleet['target_position']]);
+            $planetId = (int)$db->lastInsertId();
+        } else {
+            $planetId = (int)$planet['id'];
         }
 
-        // Remove colony ship from fleet
-        unset($ships['colony_ship']);
-        $db->prepare(
-            'INSERT INTO messages (receiver_id, subject, body) VALUES (?, ?, ?)'
-        )->execute([
-            $fleet['user_id'],
-            'Colony Established',
-            'You have successfully colonized [' . $fleet['target_galaxy'] . ':' . $fleet['target_system'] . ':' . $fleet['target_position'] . ']!'
-        ]);
+        $db->prepare('INSERT INTO colonies (planet_id,user_id,name,metal,crystal,deuterium,last_update) VALUES (?,?,?,0,0,0,NOW())')->execute([$planetId,$fleet['user_id'],'Colony ['.$fleet['target_galaxy'].':'.$fleet['target_system'].':'.$fleet['target_position'].']']);
+        $colonyId = (int)$db->lastInsertId();
 
-        // Check expansion achievements
+        foreach (array_keys(BUILDING_BASE_COST) as $bType) {
+            $db->prepare('INSERT IGNORE INTO buildings (colony_id,type,level) VALUES (?,?,0)')->execute([$colonyId,$bType]);
+        }
+
+        $db->prepare('INSERT INTO messages (receiver_id,subject,body) VALUES (?,?,?)')->execute([$fleet['user_id'],'Colony Established','Colony established at ['.$fleet['target_galaxy'].':'.$fleet['target_system'].':'.$fleet['target_position'].']!']);
         check_and_update_achievements($db, (int)$fleet['user_id']);
     }
 
-    // Return remaining ships (excluding consumed colony ship)
-    $returnSecs = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
-    $returnTime = date('Y-m-d H:i:s', time() + $returnSecs);
-    $db->prepare(
-        'UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ?, ships_json = ?
-         WHERE id = ?'
-    )->execute([$returnTime, $returnTime, json_encode($ships), $fleet['id']]);
+    unset($ships['colony_ship']);
+    $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
+    $retTime = date('Y-m-d H:i:s', time()+$travel);
+    $db->prepare('UPDATE fleets SET returning=1,arrival_time=?,return_time=?,ships_json=? WHERE id=?')->execute([$retTime,$retTime,json_encode($ships),$fleet['id']]);
 }
 
 function create_spy_report(PDO $db, array $fleet, array $ships): void {
-    $stmt = $db->prepare(
-        'SELECT p.*, u.username
-         FROM planets p JOIN users u ON u.id = p.user_id
-         WHERE p.galaxy = ? AND p.system = ? AND p.position = ?'
-    );
-    $stmt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
-    $target = $stmt->fetch();
-
-    $report = $target
-        ? ['metal' => $target['metal'], 'crystal' => $target['crystal'],
-           'deuterium' => $target['deuterium'], 'owner' => $target['username']]
-        : ['error' => 'No planet at target coordinates'];
-
-    $db->prepare(
-        'INSERT INTO spy_reports (owner_id, target_planet_id, report_json)
-         VALUES (?, ?, ?)'
-    )->execute([$fleet['user_id'], $target['id'] ?? null, json_encode($report)]);
-
-    check_and_update_achievements($db, (int)$fleet['user_id']);
-
-    $returnSecs = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
-    $returnTime = date('Y-m-d H:i:s', time() + $returnSecs);
-    $db->prepare(
-        'UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ? WHERE id = ?'
-    )->execute([$returnTime, $returnTime, $fleet['id']]);
-}
-
-function harvest_debris(PDO $db, array $fleet, array $ships): void {
-    // No debris field mechanic for simplicity – just return
-    $returnSecs = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
-    $returnTime = date('Y-m-d H:i:s', time() + $returnSecs);
-    $db->prepare(
-        'UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ? WHERE id = ?'
-    )->execute([$returnTime, $returnTime, $fleet['id']]);
+    $tgt = $db->prepare('SELECT c.id,c.metal,c.crystal,c.deuterium,u.username FROM colonies c JOIN planets p ON p.id=c.planet_id JOIN users u ON u.id=c.user_id WHERE p.galaxy=? AND p.system=? AND p.position=?');
+    $tgt->execute([$fleet['target_galaxy'],$fleet['target_system'],$fleet['target_position']]);
+    $target = $tgt->fetch();
+    $report = $target ? ['metal'=>$target['metal'],'crystal'=>$target['crystal'],'deuterium'=>$target['deuterium'],'owner'=>$target['username']] : ['error'=>'Empty coordinates'];
+    $db->prepare('INSERT INTO spy_reports (owner_id,target_planet_id,report_json) VALUES (?,?,?)')->execute([$fleet['user_id'],$target['id']??null,json_encode($report)]);
+    check_and_update_achievements($db,(int)$fleet['user_id']);
+    $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
+    $retTime = date('Y-m-d H:i:s', time()+$travel);
+    $db->prepare('UPDATE fleets SET returning=1,arrival_time=?,return_time=? WHERE id=?')->execute([$retTime,$retTime,$fleet['id']]);
 }

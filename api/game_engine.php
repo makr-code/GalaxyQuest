@@ -101,11 +101,13 @@ function coordinate_distance(int $g1, int $s1, int $p1, int $g2, int $s2, int $p
     return 1000 + abs($p1 - $p2) * 5;
 }
 
-// ─── Planet resource update ───────────────────────────────────────────────────
+// ─── Colony resource update ───────────────────────────────────────────────────
 
-function update_planet_resources(PDO $db, int $planetId): void {
-    $planet = $db->prepare(
-        'SELECT p.*, b_mm.level AS metal_mine_level,
+function update_colony_resources(PDO $db, int $colonyId): void {
+    $stmt = $db->prepare(
+        'SELECT c.id, c.metal, c.crystal, c.deuterium, c.energy, c.last_update,
+                c.colony_type, p.temp_max,
+                b_mm.level AS metal_mine_level,
                 b_cm.level AS crystal_mine_level,
                 b_ds.level AS deuterium_synth_level,
                 b_sp.level AS solar_plant_level,
@@ -113,19 +115,20 @@ function update_planet_resources(PDO $db, int $planetId): void {
                 b_ms.level AS metal_storage_level,
                 b_cs.level AS crystal_storage_level,
                 b_dt.level AS deuterium_tank_level
-         FROM planets p
-         LEFT JOIN buildings b_mm ON b_mm.planet_id = p.id AND b_mm.type = \'metal_mine\'
-         LEFT JOIN buildings b_cm ON b_cm.planet_id = p.id AND b_cm.type = \'crystal_mine\'
-         LEFT JOIN buildings b_ds ON b_ds.planet_id = p.id AND b_ds.type = \'deuterium_synth\'
-         LEFT JOIN buildings b_sp ON b_sp.planet_id = p.id AND b_sp.type = \'solar_plant\'
-         LEFT JOIN buildings b_fr ON b_fr.planet_id = p.id AND b_fr.type = \'fusion_reactor\'
-         LEFT JOIN buildings b_ms ON b_ms.planet_id = p.id AND b_ms.type = \'metal_storage\'
-         LEFT JOIN buildings b_cs ON b_cs.planet_id = p.id AND b_cs.type = \'crystal_storage\'
-         LEFT JOIN buildings b_dt ON b_dt.planet_id = p.id AND b_dt.type = \'deuterium_tank\'
-         WHERE p.id = ?'
+         FROM colonies c
+         JOIN planets p ON p.id = c.planet_id
+         LEFT JOIN buildings b_mm ON b_mm.colony_id = c.id AND b_mm.type = \'metal_mine\'
+         LEFT JOIN buildings b_cm ON b_cm.colony_id = c.id AND b_cm.type = \'crystal_mine\'
+         LEFT JOIN buildings b_ds ON b_ds.colony_id = c.id AND b_ds.type = \'deuterium_synth\'
+         LEFT JOIN buildings b_sp ON b_sp.colony_id = c.id AND b_sp.type = \'solar_plant\'
+         LEFT JOIN buildings b_fr ON b_fr.colony_id = c.id AND b_fr.type = \'fusion_reactor\'
+         LEFT JOIN buildings b_ms ON b_ms.colony_id = c.id AND b_ms.type = \'metal_storage\'
+         LEFT JOIN buildings b_cs ON b_cs.colony_id = c.id AND b_cs.type = \'crystal_storage\'
+         LEFT JOIN buildings b_dt ON b_dt.colony_id = c.id AND b_dt.type = \'deuterium_tank\'
+         WHERE c.id = ?'
     );
-    $planet->execute([$planetId]);
-    $row = $planet->fetch();
+    $stmt->execute([$colonyId]);
+    $row = $stmt->fetch();
     if (!$row) return;
 
     $last   = strtotime($row['last_update']);
@@ -148,9 +151,28 @@ function update_planet_resources(PDO $db, int $planetId): void {
                 + deuterium_production_energy($dsL);
     $efficiency = $energyReq > 0 ? min(1.0, $energyProd / $energyReq) : 1.0;
 
-    $metalProd     = metal_production($mmL)                         * $efficiency;
-    $crystalProd   = crystal_production($cmL)                       * $efficiency;
-    $deuteriumProd = deuterium_production($dsL, $row['temp_max'])   * $efficiency;
+    $metalProd     = metal_production($mmL)                      * $efficiency;
+    $crystalProd   = crystal_production($cmL)                    * $efficiency;
+    $deuteriumProd = deuterium_production($dsL, (int)$row['temp_max']) * $efficiency;
+
+    // Apply colony_type production bonuses
+    $colonyType = $row['colony_type'] ?? 'balanced';
+    switch ($colonyType) {
+        case 'mining':
+            $metalProd   *= 1.3;
+            $crystalProd *= 1.3;
+            break;
+        case 'agricultural':
+            $deuteriumProd *= 1.4;
+            break;
+        case 'industrial':
+        case 'research':
+            $metalProd     *= 0.9;
+            $crystalProd   *= 0.9;
+            $deuteriumProd *= 0.9;
+            break;
+        // 'balanced', 'military': no modifier
+    }
 
     $metalCap     = storage_cap($msL);
     $crystalCap   = storage_cap($csL);
@@ -162,18 +184,33 @@ function update_planet_resources(PDO $db, int $planetId): void {
     $newEnergy    = (int)round($energyProd - $energyReq);
 
     $db->prepare(
-        'UPDATE planets SET metal = ?, crystal = ?, deuterium = ?, energy = ?,
-                            last_update = FROM_UNIXTIME(?)
+        'UPDATE colonies SET metal = ?, crystal = ?, deuterium = ?, energy = ?,
+                             last_update = FROM_UNIXTIME(?)
          WHERE id = ?'
-    )->execute([$newMetal, $newCrystal, $newDeuterium, $newEnergy, $now, $planetId]);
+    )->execute([$newMetal, $newCrystal, $newDeuterium, $newEnergy, $now, $colonyId]);
 }
 
-function update_all_planets(PDO $db, int $userId): void {
-    $stmt = $db->prepare('SELECT id FROM planets WHERE user_id = ?');
+function update_all_colonies(PDO $db, int $userId): void {
+    $stmt = $db->prepare('SELECT id FROM colonies WHERE user_id = ?');
     $stmt->execute([$userId]);
     foreach ($stmt->fetchAll() as $row) {
-        update_planet_resources($db, (int)$row['id']);
+        update_colony_resources($db, (int)$row['id']);
     }
+}
+
+/**
+ * Returns emoji+name label for a colony type.
+ */
+function get_colony_type_label(string $type): string {
+    return match ($type) {
+        'balanced'     => '⚖ Balanced',
+        'mining'       => '⛏ Mining',
+        'industrial'   => '🏭 Industrial',
+        'research'     => '🔬 Research',
+        'agricultural' => '🌾 Agricultural',
+        'military'     => '⚔ Military',
+        default        => $type,
+    };
 }
 
 // Energy consumption of mines
@@ -204,6 +241,7 @@ const BUILDING_BASE_COST = [
     'missile_silo'     => ['metal' =>  20000,'crystal' => 20000, 'deuterium' =>  0],
     'nanite_factory'   => ['metal' =>1000000,'crystal' =>500000, 'deuterium' =>100000],
     'terraformer'      => ['metal' =>  0,    'crystal' =>50000,  'deuterium' =>100000],
+    'colony_hq'        => ['metal' =>   200, 'crystal' =>   400, 'deuterium' => 200],
 ];
 
 const BUILDING_COST_FACTOR = [
@@ -221,6 +259,7 @@ const BUILDING_COST_FACTOR = [
     'missile_silo'     => 2.0,
     'nanite_factory'   => 2.0,
     'terraformer'      => 2.0,
+    'colony_hq'        => 3.0,
 ];
 
 const RESEARCH_BASE_COST = [
@@ -255,7 +294,7 @@ const SHIP_STATS = [
     'death_star'       => ['cost' => ['metal' =>5000000,'crystal'=>4000000,'deuterium'=>1000000],'cargo'=>1000000,'speed' =>   100, 'attack' =>200000,'shield'=>50000, 'hull' =>9000000],
     'reaper'           => ['cost' => ['metal' =>85000, 'crystal' =>55000, 'deuterium' =>20000], 'cargo' =>  7000, 'speed' =>  7000, 'attack' =>2800, 'shield' => 700, 'hull' =>140000],
     'pathfinder'       => ['cost' => ['metal' =>8000,  'crystal' => 15000, 'deuterium' =>  0],  'cargo' =>10000, 'speed' => 12000, 'attack' => 200, 'shield' => 100, 'hull' => 23000],
-    'espionage_probe'  => ['cost' => ['metal' =>    0, 'crystal' =>  1000, 'deuterium' =>    0], 'cargo' =>     5, 'speed' => 500000 /* near-instant */, 'attack' =>0,'shield' =>0.01,'hull' =>1000],
+    'espionage_probe'  => ['cost' => ['metal' =>    0, 'crystal' =>  1000, 'deuterium' =>    0], 'cargo' =>     5, 'speed' => 500000, 'attack' =>0,'shield' =>0.01,'hull' =>1000],
     'solar_satellite'  => ['cost' => ['metal' =>    0, 'crystal' =>  2000, 'deuterium' =>  500], 'cargo' =>     0, 'speed' =>     0, 'attack' =>   1, 'shield' =>   1, 'hull' =>  2000],
     'colony_ship'      => ['cost' => ['metal' =>10000, 'crystal' =>20000, 'deuterium' =>10000], 'cargo' =>  7500, 'speed' =>  2500, 'attack' =>  50, 'shield' => 100, 'hull' => 30000],
     'recycler'         => ['cost' => ['metal' =>10000, 'crystal' => 6000, 'deuterium' =>  2000], 'cargo' => 20000, 'speed' =>  2000, 'attack' =>   1, 'shield' =>  10, 'hull' => 16000],

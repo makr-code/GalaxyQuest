@@ -148,3 +148,51 @@ VALUES
 ('veteran_all_research','milestone','Omniscient',
  'Complete all research trees.',
  0,0,0,50,500, 920);
+
+-- ── Colony layer migration ────────────────────────────────────────────────────
+-- Create colonies table if it doesn't exist
+CREATE TABLE IF NOT EXISTS colonies (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    planet_id INT NOT NULL,
+    user_id INT NOT NULL,
+    name VARCHAR(64) NOT NULL DEFAULT 'Colony',
+    colony_type ENUM('balanced','mining','industrial','research','agricultural','military') NOT NULL DEFAULT 'balanced',
+    metal    DECIMAL(20,4) NOT NULL DEFAULT 500,
+    crystal  DECIMAL(20,4) NOT NULL DEFAULT 300,
+    deuterium DECIMAL(20,4) NOT NULL DEFAULT 100,
+    energy   INT NOT NULL DEFAULT 0,
+    is_homeworld TINYINT(1) NOT NULL DEFAULT 0,
+    last_update DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (planet_id) REFERENCES planets(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_colony (planet_id)
+) ENGINE=InnoDB;
+
+-- Populate colonies from existing planets data
+INSERT IGNORE INTO colonies (planet_id, user_id, name, colony_type, metal, crystal, deuterium, energy, is_homeworld, last_update)
+SELECT id, user_id, name, 'balanced', metal, crystal, deuterium, energy, is_homeworld, last_update
+FROM planets WHERE user_id IS NOT NULL AND user_id > 0;
+
+-- Add colony_id column to buildings (keep planet_id for backward compat)
+ALTER TABLE buildings ADD COLUMN IF NOT EXISTS colony_id INT DEFAULT NULL;
+ALTER TABLE buildings ADD INDEX IF NOT EXISTS idx_colony (colony_id);
+-- Populate colony_id from planet_id
+UPDATE buildings b
+  JOIN colonies c ON c.planet_id = b.planet_id
+  SET b.colony_id = c.id
+  WHERE b.colony_id IS NULL;
+
+-- Add colony_id to ships
+ALTER TABLE ships ADD COLUMN IF NOT EXISTS colony_id INT DEFAULT NULL;
+ALTER TABLE ships ADD INDEX IF NOT EXISTS idx_colony (colony_id);
+UPDATE ships s
+  JOIN colonies c ON c.planet_id = s.planet_id
+  SET s.colony_id = c.id
+  WHERE s.colony_id IS NULL;
+
+-- Add origin_colony_id to fleets
+ALTER TABLE fleets ADD COLUMN IF NOT EXISTS origin_colony_id INT DEFAULT NULL;
+UPDATE fleets f
+  JOIN colonies c ON c.planet_id = f.origin_planet_id
+  SET f.origin_colony_id = c.id
+  WHERE f.origin_colony_id IS NULL;
