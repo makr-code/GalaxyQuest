@@ -590,7 +590,7 @@ function generate_planets(array $star, int $galaxyIdx, int $systemIdx): array
             'in_habitable_zone'    => (int)$inHz,
             'has_atmosphere'       => (int)($atmoType !== 'none'),
             'atmosphere_type'      => $atmoType,
-        ] + planet_deposits($planetClass, $inHz, $massEarth);
+        ] + derive_planet_deposits($planetClass, $inHz, $massEarth);
     }
 
     return $planets;
@@ -600,7 +600,7 @@ function generate_planets(array $star, int $galaxyIdx, int $systemIdx): array
  * Derive resource richness multipliers and deposit amounts from planet class.
  * richness 0.1–2.0 (1.0 = standard), deposit -1 = unlimited (gas giant deuterium).
  */
-function planet_deposits(string $planetClass, bool $inHz, float $massEarth): array {
+function derive_planet_deposits(string $planetClass, bool $inHz, float $massEarth): array {
     // Base richness by planet class (uses actual planet_class enum values)
     $richMetal = match ($planetClass) {
         'lava'        => 1.8, 'rocky'      => 1.4, 'super_earth' => 1.1,

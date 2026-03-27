@@ -227,7 +227,9 @@ CREATE TABLE IF NOT EXISTS battle_reports (
     report_json TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (attacker_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (defender_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (defender_id) REFERENCES users(id) ON DELETE CASCADE,
+    KEY idx_attacker_time (attacker_id, created_at),
+    KEY idx_defender_time (defender_id, created_at)
 ) ENGINE=InnoDB;
 
 -- Spy reports

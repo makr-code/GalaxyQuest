@@ -114,9 +114,9 @@
     }
     document.getElementById('topbar-coords').textContent =
       `[${currentColony.galaxy}:${currentColony.system}:${currentColony.position}]`;
-    if (window._gqUserMeta) {
+    if (window._GQ_meta) {
       document.getElementById('res-dark-matter').textContent =
-        fmt(window._gqUserMeta.dark_matter ?? 0);
+        fmt(window._GQ_meta.dark_matter ?? 0);
     }
   }
 
@@ -126,11 +126,11 @@
       const data = await API.overview();
       if (!data.success) return;
       colonies = data.colonies || [];
-      window._gqBattles = data.battles || [];
+      window._GQ_battles = data.battles || [];
       populatePlanetSelect();
       updateResourceBar();
 
-      window._gqUserMeta = data.user_meta || {};
+      window._GQ_meta = data.user_meta || {};
       updateResourceBar();
 
       // Message badge
@@ -152,7 +152,7 @@
         qBadge.classList.add('hidden');
       }
 
-      window._gqFleets = data.fleets || [];
+      window._GQ_fleets = data.fleets || [];
       WM.refresh('overview');
     } catch (e) {
       console.error('Overview load failed', e);
@@ -168,7 +168,7 @@
       return;
     }
 
-    const meta       = window._gqUserMeta || {};
+    const meta       = window._GQ_meta || {};
     const protUntil  = meta.protection_until ? new Date(meta.protection_until) : null;
     const protected_ = protUntil && protUntil > Date.now();
     const pvpOn      = !!parseInt(meta.pvp_mode, 10);
@@ -284,7 +284,7 @@
 
     // Fleets
     const fleetList = root.querySelector('#fleet-list-wm');
-    const fleets = window._gqFleets || [];
+    const fleets = window._GQ_fleets || [];
     if (!fleets.length) {
       fleetList.innerHTML = '<p class="text-muted">No active fleets.</p>';
     } else {
@@ -320,7 +320,7 @@
     // Battle log
     const battleLog = root.querySelector('#battle-log-wm');
     if (battleLog) {
-      const battles = window._gqBattles || [];
+      const battles = window._GQ_battles || [];
       if (!battles.length) {
         battleLog.innerHTML = '<p class="text-muted">No battles yet.</p>';
       } else {

@@ -331,3 +331,7 @@ CREATE TABLE IF NOT EXISTS user_faction_quests (
 ) ENGINE=InnoDB;
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_npc_tick DATETIME DEFAULT NULL;
+
+-- ── Battle report indexes ─────────────────────────────────────────────────────
+ALTER TABLE battle_reports ADD KEY IF NOT EXISTS idx_attacker_time (attacker_id, created_at);
+ALTER TABLE battle_reports ADD KEY IF NOT EXISTS idx_defender_time  (defender_id, created_at);

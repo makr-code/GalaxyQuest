@@ -1,6 +1,31 @@
 <?php
 /**
  * Planet DB helper — shared between galaxy.php, fleet.php, npc_ai.php.
+ *
+ * Special deposit values:
+ *   -1 (DEPOSIT_UNLIMITED) = inexhaustible resource (e.g. deuterium on gas giants)
+ *    0                     = fully depleted
+ *   >0                     = remaining units
+ */
+
+/** Sentinel value for inexhaustible planet deposits (e.g. gas-giant deuterium). */
+const DEPOSIT_UNLIMITED = -1;
+
+/**
+ * Ensure a planet row exists for (galaxy, system, position).
+ *
+ * If the planet is not yet in the DB, this function:
+ *  1. Generates the full star system (may also INSERT into `star_systems`)
+ *  2. Finds the matching planet by position
+ *  3. INSERTs a `planets` row with proper richness + deposit values
+ *
+ * Side effects: may write to `star_systems` and `planets` tables.
+ *
+ * @param PDO $db
+ * @param int $galaxy   1-based galaxy index
+ * @param int $system   1-based system index
+ * @param int $position 1-based planet position
+ * @return int          DB id of the planet row
  */
 
 /**
