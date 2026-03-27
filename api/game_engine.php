@@ -101,16 +101,6 @@ function coordinate_distance(int $g1, int $s1, int $p1, int $g2, int $s2, int $p
     return 1000 + abs($p1 - $p2) * 5;
 }
 
-function fleet_travel_time(int $distance, int $speed): int {
-    return max(1, (int)round(35000 / GAME_SPEED * sqrt($distance * 10 / $speed) + 10));
-}
-
-function coordinate_distance(int $g1, int $s1, int $p1, int $g2, int $s2, int $p2): int {
-    if ($g1 !== $g2) return 20000 + abs($g1 - $g2) * 40000 / GALAXY_MAX;
-    if ($s1 !== $s2) return 2700 + abs($s1 - $s2) * 95;
-    return 1000 + abs($p1 - $p2) * 5;
-}
-
 // ─── Fleet 3-D Newtonian physics ─────────────────────────────────────────────
 
 /**
@@ -436,11 +426,23 @@ function deuterium_production_energy(int $level): float {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const BUILDING_BASE_COST = [
+    // ── Raw-resource extraction ────────────────────────────────────────────
     'metal_mine'       => ['metal' =>    60, 'crystal' =>    15, 'deuterium' =>  0],
     'crystal_mine'     => ['metal' =>    48, 'crystal' =>    24, 'deuterium' =>  0],
     'deuterium_synth'  => ['metal' =>   225, 'crystal' =>    75, 'deuterium' =>  0],
+    'rare_earth_drill' => ['metal' =>  2000, 'crystal' =>  1000, 'deuterium' => 500],
+    // ── Energy production ─────────────────────────────────────────────────
     'solar_plant'      => ['metal' =>    75, 'crystal' =>    30, 'deuterium' =>  0],
     'fusion_reactor'   => ['metal' =>   900, 'crystal' =>   360, 'deuterium' => 180],
+    // ── Food / life support ───────────────────────────────────────────────
+    'hydroponic_farm'  => ['metal' =>   300, 'crystal' =>   150, 'deuterium' =>  50],
+    'food_silo'        => ['metal' =>   500, 'crystal' =>   200, 'deuterium' =>   0],
+    // ── Population & public services ──────────────────────────────────────
+    'habitat'          => ['metal' =>   800, 'crystal' =>   400, 'deuterium' => 100],
+    'hospital'         => ['metal' =>  1000, 'crystal' =>   500, 'deuterium' => 200],
+    'school'           => ['metal' =>   600, 'crystal' =>   400, 'deuterium' => 100],
+    'security_post'    => ['metal' =>   800, 'crystal' =>   300, 'deuterium' =>   0],
+    // ── Industry / infrastructure ─────────────────────────────────────────
     'robotics_factory' => ['metal' =>   400, 'crystal' =>   120, 'deuterium' =>  0],
     'shipyard'         => ['metal' =>   400, 'crystal' =>   200, 'deuterium' => 100],
     'metal_storage'    => ['metal' =>  1000, 'crystal' =>     0, 'deuterium' =>  0],
@@ -457,8 +459,15 @@ const BUILDING_COST_FACTOR = [
     'metal_mine'       => 1.5,
     'crystal_mine'     => 1.6,
     'deuterium_synth'  => 1.5,
+    'rare_earth_drill' => 1.8,
     'solar_plant'      => 1.5,
     'fusion_reactor'   => 1.8,
+    'hydroponic_farm'  => 1.5,
+    'food_silo'        => 1.8,
+    'habitat'          => 1.6,
+    'hospital'         => 1.8,
+    'school'           => 1.8,
+    'security_post'    => 1.6,
     'robotics_factory' => 2.0,
     'shipyard'         => 2.0,
     'metal_storage'    => 2.0,

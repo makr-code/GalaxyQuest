@@ -69,6 +69,17 @@ CREATE TABLE IF NOT EXISTS planets (
         'nitrogen_oxygen','hydrogen_helium',
         'methane','sulfuric'
     ) NOT NULL DEFAULT 'nitrogen_oxygen',
+    -- ── Resource deposits (finite; depleted by mining) ──────────────────────
+    -- richness 0.0–2.0 (1.0 = standard; HZ terrestrial get bonus)
+    richness_metal      DOUBLE NOT NULL DEFAULT 1.0,
+    richness_crystal    DOUBLE NOT NULL DEFAULT 1.0,
+    richness_deuterium  DOUBLE NOT NULL DEFAULT 1.0,
+    richness_rare_earth DOUBLE NOT NULL DEFAULT 0.5,
+    -- total reserves in raw units (0 = depleted; -1 = unlimited gas-giant deuterium)
+    deposit_metal       BIGINT NOT NULL DEFAULT 5000000,
+    deposit_crystal     BIGINT NOT NULL DEFAULT 2000000,
+    deposit_deuterium   BIGINT NOT NULL DEFAULT 1000000,
+    deposit_rare_earth  BIGINT NOT NULL DEFAULT 200000,
     FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE SET NULL,
     UNIQUE KEY unique_position (galaxy, system, position)
 ) ENGINE=InnoDB;
@@ -80,12 +91,22 @@ CREATE TABLE IF NOT EXISTS colonies (
     user_id INT NOT NULL,
     name VARCHAR(64) NOT NULL DEFAULT 'Colony',
     colony_type ENUM('balanced','mining','industrial','research','agricultural','military') NOT NULL DEFAULT 'balanced',
-    metal    DECIMAL(20,4) NOT NULL DEFAULT 500,
-    crystal  DECIMAL(20,4) NOT NULL DEFAULT 300,
-    deuterium DECIMAL(20,4) NOT NULL DEFAULT 100,
-    energy   INT NOT NULL DEFAULT 0,
-    is_homeworld TINYINT(1) NOT NULL DEFAULT 0,
-    last_update DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Stockpiled resources
+    metal         DECIMAL(20,4) NOT NULL DEFAULT 500,
+    crystal       DECIMAL(20,4) NOT NULL DEFAULT 300,
+    deuterium     DECIMAL(20,4) NOT NULL DEFAULT 100,
+    rare_earth    DECIMAL(20,4) NOT NULL DEFAULT 0,
+    food          DECIMAL(20,4) NOT NULL DEFAULT 200,
+    energy        INT NOT NULL DEFAULT 0,
+    -- Population
+    population    INT UNSIGNED NOT NULL DEFAULT 100,
+    max_population INT UNSIGNED NOT NULL DEFAULT 500,
+    -- Welfare metrics (0–100)
+    happiness     TINYINT UNSIGNED NOT NULL DEFAULT 70,
+    -- Public-services index: weighted average of hospital/school/security coverage (0–100)
+    public_services TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    is_homeworld  TINYINT(1) NOT NULL DEFAULT 0,
+    last_update   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (planet_id) REFERENCES planets(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE KEY unique_colony (planet_id)
