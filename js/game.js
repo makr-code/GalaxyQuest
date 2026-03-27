@@ -99,6 +99,19 @@
     document.getElementById('res-crystal').textContent   = fmt(currentColony.crystal);
     document.getElementById('res-deuterium').textContent = fmt(currentColony.deuterium);
     document.getElementById('res-energy').textContent    = currentColony.energy ?? '—';
+    const foodEl = document.getElementById('res-food');
+    if (foodEl) foodEl.textContent = fmt(currentColony.food ?? 0);
+    const reEl = document.getElementById('res-rare-earth');
+    if (reEl) reEl.textContent = fmt(currentColony.rare_earth ?? 0);
+    const popEl = document.getElementById('res-population');
+    if (popEl) popEl.textContent =
+      `${fmt(currentColony.population ?? 0)}/${fmt(currentColony.max_population ?? 500)}`;
+    const happEl = document.getElementById('res-happiness');
+    if (happEl) {
+      const h = parseInt(currentColony.happiness ?? 70);
+      happEl.textContent = h + '%';
+      happEl.style.color = h >= 70 ? '#2ecc71' : h >= 40 ? '#f1c40f' : '#e74c3c';
+    }
     document.getElementById('topbar-coords').textContent =
       `[${currentColony.galaxy}:${currentColony.system}:${currentColony.position}]`;
     if (window._gqUserMeta) {
@@ -200,9 +213,39 @@
               • ${fmtName(c.planet_type||'terrestrial')}
               ${c.in_habitable_zone ? '<span class="hz-badge" title="Habitable Zone">🌿</span>' : ''}
             </div>
-            <div style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-secondary)">
+            <div style="margin-top:0.4rem;font-size:0.78rem;color:var(--text-secondary)">
               ⬡ ${fmt(c.metal)} &nbsp; 💎 ${fmt(c.crystal)} &nbsp; 🔵 ${fmt(c.deuterium)}
+              ${parseFloat(c.rare_earth||0)>0 ? `&nbsp; 💜 ${fmt(c.rare_earth)}` : ''}
             </div>
+            <div style="margin-top:0.2rem;font-size:0.75rem;color:var(--text-secondary)">
+              🌾 ${fmt(c.food||0)} &nbsp; ⚡ ${c.energy??0}
+            </div>
+            <div class="welfare-bar" style="margin-top:0.4rem">
+              <span title="Happiness ${c.happiness??70}%">😊</span>
+              <div class="bar-wrap"><div class="bar-fill bar-happiness" style="width:${c.happiness??70}%"></div></div>
+              <span style="font-size:0.7rem;min-width:28px">${c.happiness??70}%</span>
+            </div>
+            <div class="welfare-bar">
+              <span title="Population ${c.population??0}/${c.max_population??500}">👥</span>
+              <div class="bar-wrap"><div class="bar-fill bar-population"
+                style="width:${Math.min(100,Math.round((c.population??0)/(c.max_population||500)*100))}%">
+              </div></div>
+              <span style="font-size:0.7rem;min-width:28px">${fmt(c.population??0)}</span>
+            </div>
+            <div class="welfare-bar">
+              <span title="Public Services ${c.public_services??0}%">🏥</span>
+              <div class="bar-wrap"><div class="bar-fill bar-services" style="width:${c.public_services??0}%"></div></div>
+              <span style="font-size:0.7rem;min-width:28px">${c.public_services??0}%</span>
+            </div>
+            ${c.deposit_metal >= 0 ? `
+            <div style="margin-top:0.3rem;font-size:0.7rem">
+              <span class="deposit-chip ${c.deposit_metal<100000?'depleted':''}"
+                    title="Metal deposit remaining">⬡ ${fmt(c.deposit_metal)}</span>
+              <span class="deposit-chip ${c.deposit_crystal<50000?'depleted':''}"
+                    title="Crystal deposit">💎 ${fmt(c.deposit_crystal)}</span>
+              <span class="deposit-chip rare-earth-chip"
+                    title="Rare Earth deposit">💜 ${fmt(c.deposit_rare_earth)}</span>
+            </div>` : ''}
             ${leaderChips ? `<div class="leader-chips">${leaderChips}</div>` : ''}
           </div>`;
         }).join('')}
@@ -278,32 +321,77 @@
     if (!currentColony) { root.innerHTML = '<p class="text-muted">Select a colony first.</p>'; return; }
     root.innerHTML = '<p class="text-muted">Loading…</p>';
 
+    // Building metadata: category, emoji, description
+    const BLDG_META = {
+      metal_mine:       { cat:'Extraction', icon:'⬡', desc:'Mines metal from the planet crust. Output scales with richness.' },
+      crystal_mine:     { cat:'Extraction', icon:'💎', desc:'Extracts crystal formations. Higher levels deplete deposits faster.' },
+      deuterium_synth:  { cat:'Extraction', icon:'🔵', desc:'Synthesises deuterium from surface water or atmosphere.' },
+      rare_earth_drill: { cat:'Extraction', icon:'💜', desc:'Extracts rare earth elements — finite deposit, high value.' },
+      solar_plant:      { cat:'Energy',     icon:'☀', desc:'Converts sunlight to energy. Output depends on star type.' },
+      fusion_reactor:   { cat:'Energy',     icon:'🔆', desc:'High-output fusion reactor. Consumes deuterium.' },
+      hydroponic_farm:  { cat:'Life Support',icon:'🌾', desc:'Grows food for the population. Required to prevent starvation.' },
+      food_silo:        { cat:'Life Support',icon:'🏚', desc:'Increases food storage capacity.' },
+      habitat:          { cat:'Population', icon:'🏠', desc:'+200 max population per level.' },
+      hospital:         { cat:'Population', icon:'🏥', desc:'Improves healthcare. Raises happiness and public services index.' },
+      school:           { cat:'Population', icon:'🎓', desc:'Education facility. Improves public services and colony productivity.' },
+      security_post:    { cat:'Population', icon:'🔒', desc:'Maintains order. Reduces unrest and deters pirate raids.' },
+      robotics_factory: { cat:'Industry',   icon:'🤖', desc:'Reduces building construction time.' },
+      shipyard:         { cat:'Industry',   icon:'🚀', desc:'Required to build spacecraft.' },
+      metal_storage:    { cat:'Storage',    icon:'📦', desc:'Increases metal storage cap.' },
+      crystal_storage:  { cat:'Storage',    icon:'📦', desc:'Increases crystal storage cap.' },
+      deuterium_tank:   { cat:'Storage',    icon:'📦', desc:'Increases deuterium storage cap.' },
+      research_lab:     { cat:'Science',    icon:'🔬', desc:'Enables and accelerates research.' },
+      missile_silo:     { cat:'Military',   icon:'🚀', desc:'Launches defensive missiles.' },
+      nanite_factory:   { cat:'Advanced',   icon:'⚙', desc:'Nano-assemblers that dramatically cut build times.' },
+      terraformer:      { cat:'Advanced',   icon:'🌍', desc:'Reshapes planetary geology to expand available tiles.' },
+      colony_hq:        { cat:'Advanced',   icon:'🏛', desc:'Colony administration. Raises colony level cap.' },
+    };
+
     try {
       await API.finishBuilding(currentColony.id);
       const data = await API.buildings(currentColony.id);
       if (!data.success) { root.innerHTML = '<p class="text-red">Error loading buildings.</p>'; return; }
 
-      root.innerHTML = `<div class="card-grid">${data.buildings.map(b => {
-        const busy = !!b.upgrade_end;
-        const c    = b.next_cost;
-        return `
-          <div class="item-card">
-            <div class="item-card-header">
-              <span class="item-name">${fmtName(b.type)}</span>
-              <span class="item-level">Lv ${b.level}</span>
-            </div>
-            <div class="item-cost">
-              ${c.metal     ? `<span class="cost-metal">⬡ ${fmt(c.metal)}</span>` : ''}
-              ${c.crystal   ? `<span class="cost-crystal">💎 ${fmt(c.crystal)}</span>` : ''}
-              ${c.deuterium ? `<span class="cost-deut">🔵 ${fmt(c.deuterium)}</span>` : ''}
-            </div>
-            ${busy
-              ? `<div class="item-timer">⏳ <span data-end="${esc(b.upgrade_end)}">${countdown(b.upgrade_end)}</span></div>
-                 <div class="progress-bar-wrap"><div class="progress-bar" style="width:50%"></div></div>`
-              : `<button class="btn btn-primary btn-sm upgrade-btn" data-type="${esc(b.type)}">↑ Upgrade</button>`
-            }
-          </div>`;
-      }).join('')}</div>`;
+      // Group by category
+      const byCategory = {};
+      for (const b of data.buildings) {
+        const meta = BLDG_META[b.type] || { cat:'Other', icon:'🏗', desc:'' };
+        (byCategory[meta.cat] ??= []).push({ ...b, meta });
+      }
+
+      const catOrder = ['Extraction','Energy','Life Support','Population','Industry','Storage','Science','Military','Advanced','Other'];
+      let html = '';
+      for (const cat of catOrder) {
+        const items = byCategory[cat];
+        if (!items?.length) continue;
+        html += `<div class="building-category">
+          <h4 class="building-cat-title">${cat}</h4>
+          <div class="card-grid">`;
+        for (const b of items) {
+          const busy = !!b.upgrade_end;
+          const c = b.next_cost;
+          html += `
+            <div class="item-card">
+              <div class="item-card-header">
+                <span class="item-name">${b.meta.icon} ${fmtName(b.type)}</span>
+                <span class="item-level">Lv ${b.level}</span>
+              </div>
+              <div class="item-desc">${b.meta.desc}</div>
+              <div class="item-cost">
+                ${c.metal     ? `<span class="cost-metal">⬡ ${fmt(c.metal)}</span>` : ''}
+                ${c.crystal   ? `<span class="cost-crystal">💎 ${fmt(c.crystal)}</span>` : ''}
+                ${c.deuterium ? `<span class="cost-deut">🔵 ${fmt(c.deuterium)}</span>` : ''}
+              </div>
+              ${busy
+                ? `<div class="item-timer">⏳ <span data-end="${esc(b.upgrade_end)}">${countdown(b.upgrade_end)}</span></div>
+                   <div class="progress-bar-wrap"><div class="progress-bar" style="width:50%"></div></div>`
+                : `<button class="btn btn-primary btn-sm upgrade-btn" data-type="${esc(b.type)}">↑ Upgrade</button>`
+              }
+            </div>`;
+        }
+        html += '</div></div>';
+      }
+      root.innerHTML = html;
 
       root.querySelectorAll('.upgrade-btn').forEach(btn => {
         btn.addEventListener('click', async () => {

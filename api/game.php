@@ -46,11 +46,14 @@ switch ($action) {
         // Colonies with their planet data
         $colStmt = $db->prepare(
             'SELECT c.id, c.name, c.colony_type, c.metal, c.crystal, c.deuterium,
-                    c.energy, c.is_homeworld, c.last_update,
+                    c.rare_earth, c.food, c.energy, c.population, c.max_population,
+                    c.happiness, c.public_services, c.is_homeworld, c.last_update,
                     p.id AS planet_id, p.galaxy, p.system, p.position,
                     p.type AS planet_type, p.planet_class, p.diameter,
                     p.temp_min, p.temp_max, p.in_habitable_zone, p.semi_major_axis_au,
-                    p.orbital_period_days, p.surface_gravity_g, p.atmosphere_type
+                    p.orbital_period_days, p.surface_gravity_g, p.atmosphere_type,
+                    p.richness_metal, p.richness_crystal, p.richness_deuterium, p.richness_rare_earth,
+                    p.deposit_metal, p.deposit_crystal, p.deposit_deuterium, p.deposit_rare_earth
              FROM colonies c
              JOIN planets p ON p.id = c.planet_id
              WHERE c.user_id = ?
@@ -115,7 +118,9 @@ switch ($action) {
         $db  = get_db();
         verify_colony_ownership($db, $cid, $uid);
         update_colony_resources($db, $cid);
-        $row = $db->prepare('SELECT metal, crystal, deuterium, energy FROM colonies WHERE id=?');
+        $row = $db->prepare('SELECT metal, crystal, deuterium, rare_earth, food, energy,
+                                    population, max_population, happiness, public_services
+                             FROM colonies WHERE id=?');
         $row->execute([$cid]);
         json_ok(['resources' => $row->fetch()]);
         break;

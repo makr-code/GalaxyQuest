@@ -190,11 +190,23 @@ function create_homeworld(int $userId): int {
 
     // Seed default buildings on the colony
     $defaultBuildings = [
+        // Extraction
         'metal_mine'       => 1,
         'crystal_mine'     => 1,
         'deuterium_synth'  => 0,
+        'rare_earth_drill' => 0,
+        // Energy
         'solar_plant'      => 1,
         'fusion_reactor'   => 0,
+        // Food & life support
+        'hydroponic_farm'  => 0,
+        'food_silo'        => 0,
+        // Population & welfare
+        'habitat'          => 0,
+        'hospital'         => 0,
+        'school'           => 0,
+        'security_post'    => 0,
+        // Industry
         'robotics_factory' => 0,
         'shipyard'         => 0,
         'metal_storage'    => 0,
@@ -204,6 +216,7 @@ function create_homeworld(int $userId): int {
         'missile_silo'     => 0,
         'nanite_factory'   => 0,
         'terraformer'      => 0,
+        'colony_hq'        => 0,
     ];
     $ins = $db->prepare(
         'INSERT INTO buildings (colony_id, type, level) VALUES (?, ?, ?)
