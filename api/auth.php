@@ -87,8 +87,8 @@ function handle_register(): void {
     $_SESSION['username'] = $username;
 
     json_ok([
-        'user'          => ['id' => $userId, 'username' => $username],
-        'homeworld_id'  => $planet,
+        'user'               => ['id' => $userId, 'username' => $username],
+        'homeworld_colony_id' => $planet,
     ]);
 }
 
@@ -159,17 +159,36 @@ function handle_me(): void {
 function create_homeworld(int $userId): int {
     $db = get_db();
 
-    // Find a free slot
+    // Username for colony name
+    $uRow = $db->prepare('SELECT username FROM users WHERE id = ?');
+    $uRow->execute([$userId]);
+    $username = $uRow->fetchColumn() ?: 'Commander';
+
+    // Find a free slot (position not already occupied by a colony)
     [$g, $s, $p] = find_free_position($db);
 
-    $db->prepare(
-        'INSERT INTO planets (user_id, name, galaxy, system, position, type, is_homeworld,
-                              metal, crystal, deuterium, last_update)
-         VALUES (?, ?, ?, ?, ?, \'terrestrial\', 1, 500, 300, 100, NOW())'
-    )->execute([$userId, 'Homeworld', $g, $s, $p]);
-    $planetId = (int)$db->lastInsertId();
+    // Create or reuse a planet record (pure astronomical object – no user data)
+    $pCheck = $db->prepare('SELECT id FROM planets WHERE galaxy=? AND system=? AND position=?');
+    $pCheck->execute([$g, $s, $p]);
+    $existingPlanet = $pCheck->fetch();
+    if ($existingPlanet) {
+        $planetId = (int)$existingPlanet['id'];
+    } else {
+        $db->prepare(
+            'INSERT INTO planets (galaxy, system, position, type) VALUES (?, ?, ?, \'terrestrial\')'
+        )->execute([$g, $s, $p]);
+        $planetId = (int)$db->lastInsertId();
+    }
 
-    // Default buildings
+    // Create the homeworld colony
+    $db->prepare(
+        'INSERT INTO colonies (planet_id, user_id, name, colony_type, is_homeworld,
+                               metal, crystal, deuterium, last_update)
+         VALUES (?, ?, ?, \'balanced\', 1, 500, 300, 100, NOW())'
+    )->execute([$planetId, $userId, $username . '\'s Homeworld']);
+    $colonyId = (int)$db->lastInsertId();
+
+    // Seed default buildings on the colony
     $defaultBuildings = [
         'metal_mine'       => 1,
         'crystal_mine'     => 1,
@@ -187,41 +206,42 @@ function create_homeworld(int $userId): int {
         'terraformer'      => 0,
     ];
     $ins = $db->prepare(
-        'INSERT INTO buildings (planet_id, type, level) VALUES (?, ?, ?)
+        'INSERT INTO buildings (colony_id, type, level) VALUES (?, ?, ?)
          ON DUPLICATE KEY UPDATE level = VALUES(level)'
     );
     foreach ($defaultBuildings as $type => $level) {
-        $ins->execute([$planetId, $type, $level]);
+        $ins->execute([$colonyId, $type, $level]);
     }
 
-    // Default research
+    // Default research entries (per user, not per colony)
     $defaultResearch = [
         'energy_tech', 'laser_tech', 'ion_tech', 'hyperspace_tech',
         'plasma_tech', 'combustion_drive', 'impulse_drive', 'hyperspace_drive',
         'espionage_tech', 'computer_tech', 'astrophysics', 'intergalactic_network',
         'graviton_tech', 'weapons_tech', 'shielding_tech', 'armor_tech',
     ];
-    $resIns = $db->prepare(
-        'INSERT IGNORE INTO research (user_id, type, level) VALUES (?, ?, 0)'
-    );
+    $resIns = $db->prepare('INSERT IGNORE INTO research (user_id, type, level) VALUES (?, ?, 0)');
     foreach ($defaultResearch as $type) {
         $resIns->execute([$userId, $type]);
     }
 
-    return $planetId;
+    return $colonyId;
 }
 
 function find_free_position(PDO $db): array {
-    // Try up to 100 random positions
+    // Check whether a position has a colony on it
+    $check = $db->prepare(
+        'SELECT c.id FROM colonies c
+         JOIN planets p ON p.id = c.planet_id
+         WHERE p.galaxy = ? AND p.system = ? AND p.position = ?'
+    );
+    // Random tries first
     for ($attempt = 0; $attempt < 100; $attempt++) {
         $g = random_int(1, GALAXY_MAX);
         $s = random_int(1, SYSTEM_MAX);
         $p = random_int(1, POSITION_MAX);
-        $stmt = $db->prepare(
-            'SELECT id FROM planets WHERE galaxy = ? AND system = ? AND position = ?'
-        );
-        $stmt->execute([$g, $s, $p]);
-        if (!$stmt->fetch()) {
+        $check->execute([$g, $s, $p]);
+        if (!$check->fetch()) {
             return [$g, $s, $p];
         }
     }
@@ -229,11 +249,8 @@ function find_free_position(PDO $db): array {
     for ($g = 1; $g <= GALAXY_MAX; $g++) {
         for ($s = 1; $s <= SYSTEM_MAX; $s++) {
             for ($p = 1; $p <= POSITION_MAX; $p++) {
-                $stmt = $db->prepare(
-                    'SELECT id FROM planets WHERE galaxy = ? AND system = ? AND position = ?'
-                );
-                $stmt->execute([$g, $s, $p]);
-                if (!$stmt->fetch()) {
+                $check->execute([$g, $s, $p]);
+                if (!$check->fetch()) {
                     return [$g, $s, $p];
                 }
             }
