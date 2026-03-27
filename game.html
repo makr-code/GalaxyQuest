@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GalaxyQuest – Command Center</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="game-page">
+  <!-- Top navigation bar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo-small">🌌 GalaxyQuest</span>
+      <span id="topbar-coords" class="coords-badge"></span>
+    </div>
+
+    <nav class="topbar-nav">
+      <button class="nav-btn active" data-view="overview">Overview</button>
+      <button class="nav-btn" data-view="buildings">Buildings</button>
+      <button class="nav-btn" data-view="research">Research</button>
+      <button class="nav-btn" data-view="shipyard">Shipyard</button>
+      <button class="nav-btn" data-view="fleet">Fleet</button>
+      <button class="nav-btn" data-view="galaxy">Galaxy</button>
+      <button class="nav-btn" data-view="messages">
+        Messages <span id="msg-badge" class="msg-badge hidden">0</span>
+      </button>
+      <button class="nav-btn" data-view="leaderboard">Leaderboard</button>
+    </nav>
+
+    <div class="topbar-right">
+      <span id="commander-name" class="commander"></span>
+      <button id="logout-btn" class="btn btn-danger btn-sm">Logout</button>
+    </div>
+  </header>
+
+  <!-- Resource bar -->
+  <div class="resource-bar">
+    <div class="resource metal" title="Metal">
+      <span class="res-icon">⬡</span>
+      <span class="res-label">Metal</span>
+      <span id="res-metal" class="res-value">—</span>
+    </div>
+    <div class="resource crystal" title="Crystal">
+      <span class="res-icon">💎</span>
+      <span class="res-label">Crystal</span>
+      <span id="res-crystal" class="res-value">—</span>
+    </div>
+    <div class="resource deuterium" title="Deuterium">
+      <span class="res-icon">🔵</span>
+      <span class="res-label">Deuterium</span>
+      <span id="res-deuterium" class="res-value">—</span>
+    </div>
+    <div class="resource energy" title="Energy">
+      <span class="res-icon">⚡</span>
+      <span class="res-label">Energy</span>
+      <span id="res-energy" class="res-value">—</span>
+    </div>
+
+    <!-- Planet selector -->
+    <div class="planet-selector">
+      <label for="planet-select">Planet:</label>
+      <select id="planet-select"></select>
+    </div>
+  </div>
+
+  <!-- Main content area -->
+  <main class="game-main">
+    <!-- ── Overview ────────────────────────────── -->
+    <section id="view-overview" class="view active">
+      <div class="panel">
+        <h2>Command Overview</h2>
+        <div id="overview-content">Loading…</div>
+      </div>
+      <div class="panel" id="fleet-panel">
+        <h2>Fleets in Motion</h2>
+        <div id="fleet-list">No active fleets.</div>
+      </div>
+    </section>
+
+    <!-- ── Buildings ──────────────────────────── -->
+    <section id="view-buildings" class="view hidden">
+      <div class="panel">
+        <h2>Buildings</h2>
+        <div id="buildings-content">Select a planet first.</div>
+      </div>
+    </section>
+
+    <!-- ── Research ───────────────────────────── -->
+    <section id="view-research" class="view hidden">
+      <div class="panel">
+        <h2>Research Laboratory</h2>
+        <div id="research-content">Select a planet first.</div>
+      </div>
+    </section>
+
+    <!-- ── Shipyard ───────────────────────────── -->
+    <section id="view-shipyard" class="view hidden">
+      <div class="panel">
+        <h2>Shipyard</h2>
+        <div id="shipyard-content">Select a planet first.</div>
+      </div>
+    </section>
+
+    <!-- ── Fleet ─────────────────────────────── -->
+    <section id="view-fleet" class="view hidden">
+      <div class="panel">
+        <h2>Dispatch Fleet</h2>
+        <form id="fleet-form">
+          <h3>1. Select Ships</h3>
+          <div id="fleet-ship-select">Loading…</div>
+
+          <h3>2. Select Mission</h3>
+          <div class="mission-grid">
+            <label><input type="radio" name="mission" value="attack" /> ⚔️ Attack</label>
+            <label><input type="radio" name="mission" value="transport" checked /> 📦 Transport</label>
+            <label><input type="radio" name="mission" value="spy" /> 🔭 Spy</label>
+            <label><input type="radio" name="mission" value="colonize" /> 🌍 Colonize</label>
+            <label><input type="radio" name="mission" value="harvest" /> ♻️ Harvest</label>
+          </div>
+
+          <h3>3. Target Coordinates</h3>
+          <div class="coord-inputs">
+            <label>Galaxy <input type="number" id="f-galaxy" min="1" max="9" value="1" /></label>
+            <label>System <input type="number" id="f-system" min="1" max="499" value="1" /></label>
+            <label>Position <input type="number" id="f-position" min="1" max="15" value="1" /></label>
+          </div>
+
+          <h3>4. Cargo (optional)</h3>
+          <div class="cargo-inputs">
+            <label>Metal <input type="number" id="f-cargo-metal" min="0" value="0" /></label>
+            <label>Crystal <input type="number" id="f-cargo-crystal" min="0" value="0" /></label>
+            <label>Deuterium <input type="number" id="f-cargo-deut" min="0" value="0" /></label>
+          </div>
+
+          <button type="submit" class="btn btn-primary">🚀 Launch Fleet</button>
+          <div id="fleet-send-result" class="form-info" aria-live="polite"></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ── Galaxy ─────────────────────────────── -->
+    <section id="view-galaxy" class="view hidden">
+      <div class="panel">
+        <h2>Galaxy Map</h2>
+        <div class="galaxy-nav">
+          <label>Galaxy: <input type="number" id="gal-galaxy" min="1" max="9" value="1" /></label>
+          <label>System: <input type="number" id="gal-system" min="1" max="499" value="1" /></label>
+          <button class="btn btn-secondary" id="gal-search-btn">Search</button>
+          <button class="btn btn-secondary" id="gal-prev-btn">◀ Prev</button>
+          <button class="btn btn-secondary" id="gal-next-btn">Next ▶</button>
+        </div>
+        <div id="galaxy-content">Enter coordinates and search.</div>
+      </div>
+    </section>
+
+    <!-- ── Messages ───────────────────────────── -->
+    <section id="view-messages" class="view hidden">
+      <div class="panel">
+        <h2>Messages</h2>
+        <button class="btn btn-secondary" id="compose-btn">✉ Compose</button>
+        <div id="compose-form" class="hidden" style="margin-top:1rem;">
+          <div class="form-group">
+            <label>To (username)</label>
+            <input id="msg-to" type="text" placeholder="recipient" />
+          </div>
+          <div class="form-group">
+            <label>Subject</label>
+            <input id="msg-subject" type="text" placeholder="Subject" />
+          </div>
+          <div class="form-group">
+            <label>Message</label>
+            <textarea id="msg-body" rows="4" placeholder="Your message…"></textarea>
+          </div>
+          <button class="btn btn-primary" id="msg-send-btn">Send</button>
+          <div id="msg-send-result" class="form-info" aria-live="polite"></div>
+        </div>
+        <div id="messages-content" style="margin-top:1rem;">Loading…</div>
+      </div>
+    </section>
+
+    <!-- ── Leaderboard ────────────────────────── -->
+    <section id="view-leaderboard" class="view hidden">
+      <div class="panel">
+        <h2>🏆 Leaderboard</h2>
+        <div id="leaderboard-content">Loading…</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden" aria-live="assertive"></div>
+
+  <script src="js/starfield.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
