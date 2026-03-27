@@ -126,6 +126,7 @@
       const data = await API.overview();
       if (!data.success) return;
       colonies = data.colonies || [];
+      window._gqBattles = data.battles || [];
       populatePlanetSelect();
       updateResourceBar();
 
@@ -252,7 +253,10 @@
       </div>
 
       <h3 style="margin:1rem 0 0.5rem">Fleets in Motion</h3>
-      <div id="fleet-list-wm"></div>`;
+      <div id="fleet-list-wm"></div>
+
+      <h3 style="margin:1rem 0 0.5rem">Recent Battles</h3>
+      <div id="battle-log-wm"></div>`;
 
     // Colony card clicks
     root.querySelectorAll('.planet-card').forEach(card => {
@@ -311,6 +315,33 @@
           else showToast(r.error || 'Recall failed', 'error');
         });
       });
+    }
+
+    // Battle log
+    const battleLog = root.querySelector('#battle-log-wm');
+    if (battleLog) {
+      const battles = window._gqBattles || [];
+      if (!battles.length) {
+        battleLog.innerHTML = '<p class="text-muted">No battles yet.</p>';
+      } else {
+        battleLog.innerHTML = battles.map(b => {
+          const r = b.report || {};
+          const won = r.attacker_wins;
+          const loot = r.loot || {};
+          const lootStr = [
+            loot.metal   > 0 ? `⬡${fmt(loot.metal)}`   : '',
+            loot.crystal > 0 ? `💎${fmt(loot.crystal)}` : '',
+            loot.deuterium > 0 ? `🔵${fmt(loot.deuterium)}` : '',
+            loot.rare_earth > 0 ? `💜${fmt(loot.rare_earth)}` : '',
+          ].filter(Boolean).join(' ');
+          return `<div class="battle-row ${won ? 'battle-win' : 'battle-loss'}">
+            <span class="battle-result">${won ? '⚔ Victory' : '💀 Defeat'}</span>
+            <span class="battle-vs">vs ${esc(b.defender_name)}</span>
+            <span class="battle-time" style="font-size:0.75rem;color:var(--text-muted)">${new Date(b.created_at).toLocaleString()}</span>
+            ${won && lootStr ? `<span class="battle-loot">${lootStr}</span>` : ''}
+          </div>`;
+        }).join('');
+      }
     }
   }
 
@@ -516,11 +547,11 @@
 
         <h3>2. Select Mission</h3>
         <div class="mission-grid">
-          <label><input type="radio" name="mission" value="attack" /> ⚔️ Attack</label>
-          <label><input type="radio" name="mission" value="transport" checked /> 📦 Transport</label>
-          <label><input type="radio" name="mission" value="spy" /> 🔭 Spy</label>
-          <label><input type="radio" name="mission" value="colonize" /> 🌍 Colonize</label>
-          <label><input type="radio" name="mission" value="harvest" /> ♻️ Harvest</label>
+          <label><input type="radio" name="mission" value="attack" /> ⚔️ Attack colony</label>
+          <label><input type="radio" name="mission" value="transport" checked /> 📦 Transport resources</label>
+          <label><input type="radio" name="mission" value="spy" /> 🔭 Spy on colony</label>
+          <label><input type="radio" name="mission" value="colonize" /> 🌍 Colonize planet</label>
+          <label><input type="radio" name="mission" value="harvest" /> ⛏ Harvest deposits</label>
         </div>
 
         <h3>3. Target Coordinates</h3>

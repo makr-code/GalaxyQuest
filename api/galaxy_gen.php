@@ -590,10 +590,76 @@ function generate_planets(array $star, int $galaxyIdx, int $systemIdx): array
             'in_habitable_zone'    => (int)$inHz,
             'has_atmosphere'       => (int)($atmoType !== 'none'),
             'atmosphere_type'      => $atmoType,
-        ];
+        ] + planet_deposits($planetClass, $inHz, $massEarth);
     }
 
     return $planets;
+}
+
+/**
+ * Derive resource richness multipliers and deposit amounts from planet class.
+ * richness 0.1–2.0 (1.0 = standard), deposit -1 = unlimited (gas giant deuterium).
+ */
+function planet_deposits(string $planetClass, bool $inHz, float $massEarth): array {
+    // Base richness by planet class (uses actual planet_class enum values)
+    $richMetal = match ($planetClass) {
+        'lava'        => 1.8, 'rocky'      => 1.4, 'super_earth' => 1.1,
+        'ocean'       => 0.7, 'ice_dwarf'  => 0.6, 'comet_belt'  => 0.5,
+        'gas_giant'   => 0.3, 'ice_giant'  => 0.4, 'hot_jupiter' => 0.2,
+        default       => 1.0,
+    };
+    $richCrystal = match ($planetClass) {
+        'ice_dwarf'   => 1.8, 'ice_giant'  => 1.5, 'rocky'      => 1.3,
+        'super_earth' => 1.0, 'ocean'      => 0.8, 'comet_belt' => 0.9,
+        'gas_giant'   => 0.2, 'hot_jupiter'=> 0.1,
+        default       => 1.0,
+    };
+    $richDeut = match ($planetClass) {
+        'gas_giant'   => 2.0, 'ice_giant'  => 1.6, 'ice_dwarf'  => 1.4,
+        'ocean'       => 1.3, 'comet_belt' => 1.2,
+        'super_earth' => 1.0, 'rocky'      => 1.0,
+        'hot_jupiter' => 0.5, 'lava'       => 0.2,
+        default       => 1.0,
+    };
+    $richRare = match ($planetClass) {
+        'lava'        => 2.0, 'rocky'      => 1.5, 'super_earth' => 1.2,
+        'ice_dwarf'   => 1.0, 'ocean'      => 0.5, 'comet_belt'  => 0.4,
+        'gas_giant'   => 0.1, 'hot_jupiter'=> 0.1,
+        default       => 0.5,
+    };
+
+    // HZ bonus: terrestrial/ocean planets in HZ are richer overall
+    if ($inHz && in_array($planetClass, ['rocky', 'ocean', 'super_earth'], true)) {
+        $richMetal   *= 1.2;
+        $richCrystal *= 1.1;
+        $richDeut    *= 1.3;
+    }
+
+    // Add ±20% random-ish variation seeded from class (deterministic per class, not per instance)
+    // (actual per-planet randomness comes from galaxy_gen's seeded RNG stored in planet row)
+
+    // Deposits: base amounts scaled by richness and planet mass
+    $massFactor = max(0.5, min(3.0, $massEarth));
+    $depositMetal    = ($planetClass === 'gas_giant' || $planetClass === 'ice_giant'
+                        || $planetClass === 'hot_jupiter')
+        ? (int)round(500000  * $richMetal   * $massFactor)
+        : (int)round(5000000 * $richMetal   * $massFactor);
+    $depositCrystal  = (int)round(2000000 * $richCrystal * $massFactor);
+    $depositDeut     = ($planetClass === 'gas_giant')
+        ? -1   // unlimited deuterium on gas giants
+        : (int)round(1000000 * $richDeut * $massFactor);
+    $depositRare     = (int)round(200000  * $richRare    * min($massFactor, 2.0));
+
+    return [
+        'richness_metal'      => round($richMetal,   2),
+        'richness_crystal'    => round($richCrystal, 2),
+        'richness_deuterium'  => round($richDeut,    2),
+        'richness_rare_earth' => round($richRare,    2),
+        'deposit_metal'       => $depositMetal,
+        'deposit_crystal'     => $depositCrystal,
+        'deposit_deuterium'   => $depositDeut,
+        'deposit_rare_earth'  => $depositRare,
+    ];
 }
 
 // ─── Top-level generator ──────────────────────────────────────────────────────

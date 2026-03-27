@@ -103,10 +103,28 @@ switch ($action) {
         $unreadStmt = $db->prepare('SELECT COUNT(*) FROM messages WHERE receiver_id=? AND is_read=0');
         $unreadStmt->execute([$uid]);
 
+        // Recent battle reports (last 5)
+        $battleStmt = $db->prepare(
+            'SELECT br.id, br.created_at, br.report_json,
+                    u.username AS defender_name
+             FROM battle_reports br
+             JOIN users u ON u.id = br.defender_id
+             WHERE br.attacker_id = ?
+             ORDER BY br.created_at DESC LIMIT 5'
+        );
+        $battleStmt->execute([$uid]);
+        $battles = [];
+        foreach ($battleStmt->fetchAll() as $b) {
+            $b['report'] = json_decode($b['report_json'], true);
+            unset($b['report_json']);
+            $battles[] = $b;
+        }
+
         json_ok([
             'user_meta'   => $meta,
             'colonies'    => $colonies,
             'fleets'      => $fleets,
+            'battles'     => $battles,
             'unread_msgs' => (int)$unreadStmt->fetchColumn(),
         ]);
         break;

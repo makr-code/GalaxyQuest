@@ -75,6 +75,8 @@ json_ok([
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+require_once __DIR__ . '/planet_helper.php';
+
 /**
  * Return the star system row from DB, generating and inserting it first if needed.
  */
