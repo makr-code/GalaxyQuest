@@ -66,6 +66,7 @@
   WM.register('quests',      { title: '📋 Quests',      w: 860, h: 620, onRender: () => renderQuests() });
   WM.register('leaderboard', { title: '🏆 Leaderboard', w: 540, h: 480, onRender: () => renderLeaderboard() });
   WM.register('leaders',     { title: '👤 Leaders',     w: 780, h: 580, onRender: () => renderLeaders() });
+  WM.register('factions', { title: '🌐 Factions', w: 860, h: 620, onRender: () => renderFactions() });
 
   // ── Nav buttons → open windows ───────────────────────────
   document.querySelectorAll('.nav-btn[data-win]').forEach(btn => {
@@ -763,6 +764,264 @@
   }
 
   // ── Leaderboard window ────────────────────────────────────
+  async function renderLeaders() {
+    const root = WM.body('leaders');
+    if (!root) return;
+    root.innerHTML = '<p class="text-muted">Loading leaders…</p>';
+    try {
+      const data = await API.leaders();
+      if (!data.success) { root.innerHTML = '<p class="error">Failed to load leaders.</p>'; return; }
+      const leaders = data.leaders || [];
+
+      const roleLabel = {
+        colony_manager:   '🏗 Colony Manager',
+        fleet_commander:  '⚔ Fleet Commander',
+        science_director: '🔬 Science Director',
+      };
+      const hireCost = {
+        colony_manager:   '5k ⬡ 3k 💎 1k 🔵',
+        fleet_commander:  '8k ⬡ 5k 💎 2k 🔵',
+        science_director: '4k ⬡ 8k 💎 4k 🔵',
+      };
+
+      root.innerHTML = `
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem">
+          ${Object.entries(roleLabel).map(([role, label]) => `
+            <div class="hire-panel">
+              <strong>${label}</strong>
+              <div style="font-size:0.78rem;color:var(--text-secondary)">Cost: ${hireCost[role]}</div>
+              <input class="input-sm hire-name" data-role="${role}" placeholder="Leader name" maxlength="48" style="width:140px"/>
+              <button class="btn btn-primary btn-sm hire-btn" data-role="${role}">Hire</button>
+            </div>`).join('')}
+        </div>
+        <table class="data-table" style="width:100%">
+          <thead><tr>
+            <th>Name</th><th>Role</th><th>Lv</th><th>Assigned to</th>
+            <th>Autonomy</th><th>Last Action</th><th>Actions</th>
+          </tr></thead>
+          <tbody>
+          ${leaders.length ? leaders.map(l => `
+            <tr>
+              <td>${esc(l.name)}</td>
+              <td>${roleLabel[l.role] ?? l.role}</td>
+              <td>${l.level}</td>
+              <td>${l.colony_name
+                ? `${esc(l.colony_name)} [${esc(l.colony_coords||'?')}]`
+                : l.fleet_id ? `Fleet #${l.fleet_id}` : '<em>Unassigned</em>'}</td>
+              <td>
+                <select class="input-sm autonomy-sel" data-lid="${l.id}">
+                  <option value="0" ${+l.autonomy===0?'selected':''}>Off</option>
+                  <option value="1" ${+l.autonomy===1?'selected':''}>Suggest</option>
+                  <option value="2" ${+l.autonomy===2?'selected':''}>Full Auto</option>
+                </select>
+              </td>
+              <td style="font-size:0.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis"
+                  title="${esc(l.last_action||'')}">
+                ${l.last_action ? esc(l.last_action.substring(0,60))+'…' : '—'}
+              </td>
+              <td>
+                <select class="input-sm assign-col-sel" data-lid="${l.id}">
+                  <option value="">— Colony —</option>
+                  ${colonies.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
+                </select>
+                <button class="btn btn-secondary btn-sm assign-col-btn" data-lid="${l.id}">Assign</button>
+                <button class="btn btn-danger btn-sm dismiss-btn" data-lid="${l.id}">✕</button>
+              </td>
+            </tr>`).join('')
+          : '<tr><td colspan="7" class="text-muted">No leaders hired yet.</td></tr>'}
+          </tbody>
+        </table>
+        <div style="margin-top:0.75rem">
+          <button class="btn btn-secondary btn-sm" id="ai-tick-btn">▶ Run AI Tick</button>
+        </div>`;
+
+      // Hire buttons
+      root.querySelectorAll('.hire-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const role = btn.dataset.role;
+          const nameEl = root.querySelector(`.hire-name[data-role="${role}"]`);
+          const name = nameEl?.value.trim();
+          if (!name) { showToast('Enter a name first.', 'error'); return; }
+          const r = await API.hireLeader(name, role);
+          if (r.success) { showToast(r.message, 'success'); WM.refresh('leaders'); }
+          else showToast(r.error || 'Failed', 'error');
+        });
+      });
+
+      // Autonomy selects
+      root.querySelectorAll('.autonomy-sel').forEach(sel => {
+        sel.addEventListener('change', async () => {
+          const r = await API.setAutonomy(parseInt(sel.dataset.lid), parseInt(sel.value));
+          if (r.success) showToast(r.message, 'info');
+          else showToast(r.error, 'error');
+        });
+      });
+
+      // Assign to colony
+      root.querySelectorAll('.assign-col-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const lid = parseInt(btn.dataset.lid);
+          const sel = root.querySelector(`.assign-col-sel[data-lid="${lid}"]`);
+          const cid = sel?.value ? parseInt(sel.value) : null;
+          const r = await API.assignLeader(lid, cid, null);
+          if (r.success) { showToast(r.message, 'success'); WM.refresh('leaders'); }
+          else showToast(r.error, 'error');
+        });
+      });
+
+      // Dismiss
+      root.querySelectorAll('.dismiss-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Dismiss this leader?')) return;
+          const r = await API.dismissLeader(parseInt(btn.dataset.lid));
+          if (r.success) { showToast(r.message, 'success'); WM.refresh('leaders'); }
+          else showToast(r.error, 'error');
+        });
+      });
+
+      // AI tick
+      root.querySelector('#ai-tick-btn')?.addEventListener('click', async () => {
+        const r = await API.aiTick();
+        if (r.success) {
+          const actions = r.actions || [];
+          showToast(actions.length ? `AI: ${actions[0]}` : 'AI: No actions taken.', 'info');
+          WM.refresh('leaders');
+        }
+      });
+
+    } catch (e) {
+      root.innerHTML = `<p class="error">${esc(String(e))}</p>`;
+    }
+  }
+
+  async function renderFactions() {
+    const root = WM.body('factions');
+    if (!root) return;
+    root.innerHTML = '<p class="text-muted">Loading factions…</p>';
+    try {
+      const data = await API.factions();
+      if (!data.success) { root.innerHTML = '<p class="error">Failed.</p>'; return; }
+      const factions = data.factions || [];
+
+      const standingClass = (s) => s >= 50 ? 'chip-allied' : s >= 10 ? 'chip-friendly'
+                                          : s >= -10 ? 'chip-neutral' : s >= -50 ? 'chip-hostile' : 'chip-war';
+      const standingLabel = (s) => s >= 50 ? 'Allied' : s >= 10 ? 'Friendly'
+                                          : s >= -10 ? 'Neutral' : s >= -50 ? 'Hostile' : 'War';
+
+      root.innerHTML = `
+        <div class="factions-grid">
+          ${factions.map(f => `
+            <div class="faction-card" style="border-color:${esc(f.color)}">
+              <div class="faction-header">
+                <span class="faction-icon">${esc(f.icon)}</span>
+                <span class="faction-name" style="color:${esc(f.color)}">${esc(f.name)}</span>
+                <span class="status-chip ${standingClass(f.standing)}">
+                  ${standingLabel(f.standing)} (${f.standing > 0 ? '+' : ''}${f.standing})
+                </span>
+              </div>
+              <p style="font-size:0.8rem;color:var(--text-secondary);margin:0.3rem 0 0.6rem">
+                ${esc(f.description)}
+              </p>
+              <div style="font-size:0.75rem;color:var(--text-muted)">
+                ⚔ Aggression: ${f.aggression}/100 &nbsp;
+                💰 Trade: ${f.trade_willingness}/100 &nbsp;
+                ✅ Quests done: ${f.quests_done}
+              </div>
+              ${f.last_event ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">${esc(f.last_event)}</div>` : ''}
+              <div class="faction-actions" style="margin-top:0.6rem;display:flex;gap:0.4rem">
+                <button class="btn btn-secondary btn-sm" data-fid="${f.id}" data-act="trade">💱 Trade</button>
+                <button class="btn btn-secondary btn-sm" data-fid="${f.id}" data-act="quests">📋 Quests</button>
+              </div>
+            </div>`).join('')}
+        </div>
+
+        <div id="faction-detail" style="margin-top:1rem"></div>`;
+
+      // Trade / Quest buttons
+      root.querySelectorAll('[data-act]').forEach(btn => {
+        btn.addEventListener('click', () => renderFactionDetail(root, parseInt(btn.dataset.fid), btn.dataset.act));
+      });
+
+    } catch (e) { root.innerHTML = `<p class="error">${esc(String(e))}</p>`; }
+  }
+
+  async function renderFactionDetail(root, fid, mode) {
+    const detail = root.querySelector('#faction-detail');
+    if (!detail) return;
+    detail.innerHTML = '<p class="text-muted">Loading…</p>';
+
+    if (mode === 'trade') {
+      const d = await API.tradeOffers(fid);
+      if (!d.success || !d.offers.length) {
+        detail.innerHTML = '<p class="text-muted">No active trade offers from this faction.</p>';
+        return;
+      }
+      detail.innerHTML = `
+        <h4>Trade Offers (Standing: ${d.standing})</h4>
+        <table class="data-table" style="width:100%">
+          <thead><tr><th>They Offer</th><th>They Want</th><th>Expires</th><th>Claims</th><th></th></tr></thead>
+          <tbody>${d.offers.map(o => `
+            <tr>
+              <td>⬡ ${o.offer_amount.toLocaleString()} ${o.offer_resource}</td>
+              <td>⬡ ${o.request_amount.toLocaleString()} ${o.request_resource}</td>
+              <td style="font-size:0.75rem">${new Date(o.valid_until).toLocaleString()}</td>
+              <td>${o.claims_count}/${o.max_claims}</td>
+              <td><button class="btn btn-primary btn-sm trade-accept-btn"
+                    data-oid="${o.id}">Accept</button></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+
+      detail.querySelectorAll('.trade-accept-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!currentColony) { showToast('Select a colony first.', 'error'); return; }
+          const r = await API.acceptTrade(parseInt(btn.dataset.oid), currentColony.id);
+          if (r.success) {
+            showToast(r.message, 'success');
+            await loadOverview();
+            renderFactionDetail(root, fid, 'trade');
+          } else showToast(r.error || 'Trade failed', 'error');
+        });
+      });
+
+    } else {
+      const d = await API.factionQuests(fid);
+      if (!d.success) { detail.innerHTML = '<p class="error">Failed to load quests.</p>'; return; }
+      const quests = d.quests || [];
+
+      // Also fetch user's active faction quests to show status
+      detail.innerHTML = `
+        <h4>Faction Quests (Standing: ${d.standing})</h4>
+        <div style="display:flex;flex-wrap:wrap;gap:0.75rem">
+          ${quests.map(q => `
+            <div class="quest-card" style="min-width:240px;max-width:320px">
+              <div style="font-weight:bold">${esc(q.title)}</div>
+              <div style="font-size:0.75rem;color:var(--text-secondary);margin:0.2rem 0">${esc(q.description)}</div>
+              <div style="font-size:0.72rem">
+                Difficulty: <strong>${q.difficulty}</strong> &nbsp;
+                Type: ${q.quest_type}
+              </div>
+              <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem">
+                Reward: ${q.reward_metal?'⬡'+q.reward_metal+' ':''} ${q.reward_crystal?'💎'+q.reward_crystal+' ':''}
+                        ${q.reward_rank_points?'★'+q.reward_rank_points:''} ${q.reward_standing?'+'+q.reward_standing+' 🤝':''}
+              </div>
+              ${q.taken
+                ? '<span class="status-chip chip-neutral">Active / Done</span>'
+                : `<button class="btn btn-primary btn-sm start-fq-btn" data-fqid="${q.id}" style="margin-top:0.4rem">Start Quest</button>`}
+            </div>`).join('')}
+          ${!quests.length ? '<p class="text-muted">No quests available at your current standing.</p>' : ''}
+        </div>`;
+
+      detail.querySelectorAll('.start-fq-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const r = await API.startFactionQuest(parseInt(btn.dataset.fqid));
+          if (r.success) { showToast(r.message, 'success'); renderFactionDetail(root, fid, 'quests'); }
+          else showToast(r.error || 'Failed', 'error');
+        });
+      });
+    }
+  }
+
   async function renderLeaderboard() {
     const root = WM.body('leaderboard');
     if (!root) return;

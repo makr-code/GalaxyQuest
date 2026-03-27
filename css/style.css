@@ -774,3 +774,39 @@ input:focus, select:focus, textarea:focus {
   font-size: 0.7rem;
   color: var(--text-muted);
 }
+
+/* ── Colony welfare display ────────────────────────────────────────────── */
+.welfare-bar { display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; margin-top:0.3rem; }
+.welfare-bar .bar-wrap { flex:1; height:6px; background:var(--bg-secondary); border-radius:3px; overflow:hidden; }
+.welfare-bar .bar-fill { height:100%; border-radius:3px; transition:width 0.3s; }
+.bar-happiness  { background:linear-gradient(90deg, #e74c3c, #f1c40f, #2ecc71); }
+.bar-food       { background:#27ae60; }
+.bar-population { background:#3498db; }
+.bar-services   { background:#9b59b6; }
+.deposit-chip   { font-size:0.72rem; color:var(--text-muted); }
+.deposit-chip.depleted { color:#e74c3c; }
+.rare-earth-chip { color:#bb44ff; font-weight:600; }
+
+/* ── Faction cards ────────────────────────────────────────────────────── */
+.factions-grid { display:flex; flex-wrap:wrap; gap:0.75rem; }
+.faction-card  { border:1px solid var(--border); border-radius:var(--radius); padding:0.75rem;
+                 min-width:260px; max-width:320px; background:var(--bg-secondary); }
+.faction-header { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem; }
+.faction-icon   { font-size:1.5rem; }
+.faction-name   { font-weight:700; font-size:1rem; }
+.chip-allied    { background:#1a5c2a; color:#2ecc71; }
+.chip-friendly  { background:#1a3a1a; color:#27ae60; }
+.chip-hostile   { background:#5c2a1a; color:#e67e22; }
+.chip-war       { background:#5c1a1a; color:#e74c3c; }
+
+/* ── Leader cards ─────────────────────────────────────────────────────── */
+.hire-panel     { border:1px solid var(--border); border-radius:var(--radius);
+                  padding:0.6rem; background:var(--bg-secondary); min-width:200px; }
+.leader-chips   { display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.4rem; }
+.leader-chip    { font-size:0.7rem; background:var(--bg-secondary); border:1px solid var(--border);
+                  border-radius:4px; padding:1px 5px; cursor:help; }
+
+/* ── Progress bar for fleets ──────────────────────────────────────────── */
+.progress-bar-wrap { background:var(--bg-secondary); border-radius:3px; height:5px; overflow:hidden; }
+.progress-bar      { height:100%; background:var(--accent); border-radius:3px; transition:width 0.5s; }
+.fleet-pos         { font-size:0.72rem; color:var(--text-muted); }

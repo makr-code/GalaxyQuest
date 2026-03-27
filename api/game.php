@@ -24,6 +24,9 @@ switch ($action) {
         $db = get_db();
         update_all_colonies($db, $uid);
         check_and_update_achievements($db, $uid);
+        // NPC AI tick (rate-limited internally to once per 5 minutes)
+        require_once __DIR__ . '/npc_ai.php';
+        npc_ai_tick($db, $uid);
 
         // User meta
         $metaStmt = $db->prepare(

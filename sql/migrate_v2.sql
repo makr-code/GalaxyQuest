@@ -231,3 +231,103 @@ CREATE TABLE IF NOT EXISTS leaders (
     FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE SET NULL,
     FOREIGN KEY (fleet_id)  REFERENCES fleets(id)   ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+-- ── Planet deposit & richness columns ────────────────────────────────────────
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS richness_metal      DOUBLE NOT NULL DEFAULT 1.0;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS richness_crystal    DOUBLE NOT NULL DEFAULT 1.0;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS richness_deuterium  DOUBLE NOT NULL DEFAULT 1.0;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS richness_rare_earth DOUBLE NOT NULL DEFAULT 0.5;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS deposit_metal       BIGINT NOT NULL DEFAULT 5000000;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS deposit_crystal     BIGINT NOT NULL DEFAULT 2000000;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS deposit_deuterium   BIGINT NOT NULL DEFAULT 1000000;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS deposit_rare_earth  BIGINT NOT NULL DEFAULT 200000;
+
+-- ── Colony population / food / welfare columns ────────────────────────────────
+ALTER TABLE colonies ADD COLUMN IF NOT EXISTS rare_earth      DECIMAL(20,4) NOT NULL DEFAULT 0;
+ALTER TABLE colonies ADD COLUMN IF NOT EXISTS food            DECIMAL(20,4) NOT NULL DEFAULT 200;
+ALTER TABLE colonies ADD COLUMN IF NOT EXISTS population      INT UNSIGNED NOT NULL DEFAULT 100;
+ALTER TABLE colonies ADD COLUMN IF NOT EXISTS max_population  INT UNSIGNED NOT NULL DEFAULT 500;
+ALTER TABLE colonies ADD COLUMN IF NOT EXISTS happiness       TINYINT UNSIGNED NOT NULL DEFAULT 70;
+ALTER TABLE colonies ADD COLUMN IF NOT EXISTS public_services TINYINT UNSIGNED NOT NULL DEFAULT 0;
+
+-- ── NPC faction tables ────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS npc_factions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(32) NOT NULL UNIQUE,
+    name VARCHAR(64) NOT NULL,
+    description TEXT NOT NULL,
+    faction_type ENUM('military','trade','science','pirate','ancient') NOT NULL,
+    aggression TINYINT UNSIGNED NOT NULL DEFAULT 50,
+    trade_willingness TINYINT UNSIGNED NOT NULL DEFAULT 50,
+    base_diplomacy SMALLINT NOT NULL DEFAULT 0,
+    power_level INT UNSIGNED NOT NULL DEFAULT 1000,
+    home_galaxy_min TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    home_galaxy_max TINYINT UNSIGNED NOT NULL DEFAULT 9,
+    color VARCHAR(7) NOT NULL DEFAULT '#888888',
+    icon VARCHAR(4) NOT NULL DEFAULT '👾'
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS diplomacy (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    faction_id INT NOT NULL,
+    standing SMALLINT NOT NULL DEFAULT 0,
+    attacks_against INT UNSIGNED NOT NULL DEFAULT 0,
+    trades_completed INT UNSIGNED NOT NULL DEFAULT 0,
+    quests_completed INT UNSIGNED NOT NULL DEFAULT 0,
+    last_event TEXT DEFAULT NULL,
+    last_event_at DATETIME DEFAULT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_diplomacy (user_id, faction_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS trade_offers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    faction_id INT NOT NULL,
+    offer_resource ENUM('metal','crystal','deuterium','rare_earth','food') NOT NULL,
+    offer_amount BIGINT UNSIGNED NOT NULL DEFAULT 1000,
+    request_resource ENUM('metal','crystal','deuterium','rare_earth','food') NOT NULL,
+    request_amount BIGINT UNSIGNED NOT NULL DEFAULT 1000,
+    min_standing SMALLINT NOT NULL DEFAULT -50,
+    max_claims SMALLINT UNSIGNED NOT NULL DEFAULT 5,
+    claims_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    valid_until DATETIME NOT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS faction_quests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    faction_id INT NOT NULL,
+    code VARCHAR(64) NOT NULL UNIQUE,
+    title VARCHAR(128) NOT NULL,
+    description TEXT NOT NULL,
+    quest_type ENUM('kill','deliver','explore','build','research','spy') NOT NULL,
+    requirements_json TEXT NOT NULL DEFAULT '{}',
+    reward_metal INT UNSIGNED NOT NULL DEFAULT 0,
+    reward_crystal INT UNSIGNED NOT NULL DEFAULT 0,
+    reward_deuterium INT UNSIGNED NOT NULL DEFAULT 0,
+    reward_rare_earth INT UNSIGNED NOT NULL DEFAULT 0,
+    reward_dark_matter INT UNSIGNED NOT NULL DEFAULT 0,
+    reward_rank_points INT UNSIGNED NOT NULL DEFAULT 0,
+    reward_standing SMALLINT NOT NULL DEFAULT 10,
+    min_standing SMALLINT NOT NULL DEFAULT -100,
+    difficulty ENUM('easy','medium','hard','epic') NOT NULL DEFAULT 'medium',
+    repeatable TINYINT(1) NOT NULL DEFAULT 0,
+    FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS user_faction_quests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    faction_quest_id INT NOT NULL,
+    status ENUM('active','completed','failed','claimed') NOT NULL DEFAULT 'active',
+    progress_json TEXT NOT NULL DEFAULT '{}',
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME DEFAULT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (faction_quest_id) REFERENCES faction_quests(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_npc_tick DATETIME DEFAULT NULL;

@@ -80,6 +80,15 @@ const API = (() => {
     dismissLeader:  (lid)                   => post('api/leaders.php?action=dismiss',  { leader_id: lid }),
     aiTick:         ()                      => post('api/leaders.php?action=ai_tick',  {}),
 
+    // Factions & diplomacy
+    factions:        ()           => get('api/factions.php?action=list'),
+    tradeOffers:     (fid)        => get(`api/factions.php?action=trade_offers&faction_id=${fid}`),
+    acceptTrade:     (oid, cid)   => post('api/factions.php?action=accept_trade',  { offer_id: oid, colony_id: cid }),
+    factionQuests:   (fid)        => get(`api/factions.php?action=quests&faction_id=${fid}`),
+    startFactionQuest:(fqid)      => post('api/factions.php?action=start_quest',   { faction_quest_id: fqid }),
+    checkFactionQuests:()         => post('api/factions.php?action=check_quests',  {}),
+    claimFactionQuest:(uqid)      => post('api/factions.php?action=claim_quest',   { user_quest_id: uqid }),
+
     // Messages
     inbox:    ()               => get('api/messages.php?action=inbox'),
     readMsg:  (id)             => get(`api/messages.php?action=read&id=${id}`),

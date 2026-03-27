@@ -294,18 +294,111 @@ function get_fleet_leader(PDO $db, int $fleetId): ?array {
 
 // ─── Colony resource update ───────────────────────────────────────────────────
 
+// ─── Food & population production helpers ────────────────────────────────────
+
+/** Hydroponic farm food output (units/h). Level 1 → 40/h, +30/h per level. */
+function food_production(int $level): float {
+    return $level > 0 ? 10 * $level * (1 + 0.3 * $level) : 0;
+}
+
+/** Food storage capacity from food_silo buildings. */
+function food_storage_cap(int $siloLevel): float {
+    return 1000 + $siloLevel * 500;
+}
+
+/** Rare-earth drill output (units/h). */
+function rare_earth_production(int $level): float {
+    return $level > 0 ? 2 * $level * (1 + 0.2 * $level) : 0;
+}
+
+/** Habitat building capacity contribution: +200 population per level. */
+function habitat_capacity(int $level): int {
+    return 200 * $level;
+}
+
+/**
+ * Compute colony happiness (0–100) from food coverage, energy balance,
+ * and public-services index.
+ *
+ * @param float $foodCoverage  ratio of food produced / food consumed (0..2+, clamped)
+ * @param int   $energyBalance surplus energy (negative = brownout)
+ * @param int   $publicServices  0–100 public-services index
+ */
+function compute_happiness(float $foodCoverage, int $energyBalance, int $publicServices): int {
+    // Food satisfaction: 0 = starving (-30), 1 = neutral, 2 = abundant (+15)
+    $foodScore  = min(100, max(0, (int)round(50 + ($foodCoverage - 1.0) * 40)));
+    // Energy satisfaction: shortage reduces happiness
+    $energyScore = $energyBalance >= 0 ? 100 : max(0, 100 + $energyBalance * 2);
+    // Blend: food 40%, energy 30%, services 30%
+    return min(100, max(0, (int)round($foodScore * 0.4 + $energyScore * 0.3 + $publicServices * 0.3)));
+}
+
+/**
+ * Compute public-services index (0–100) from hospital, school, security_post
+ * building levels relative to population.
+ */
+function compute_public_services(int $hospitalL, int $schoolL, int $securityL, int $population): int {
+    if ($population <= 0) return 100;
+    // Each level covers ~200 people
+    $coverage = min(1.0, ($hospitalL + $schoolL + $securityL) * 200 / $population);
+    return (int)round($coverage * 100);
+}
+
+/**
+ * Productivity multiplier from happiness (0.5 at 0%, 1.0 at 70%, 1.25 at 100%).
+ */
+function happiness_productivity(int $happiness): float {
+    if ($happiness >= 70) return 1.0 + ($happiness - 70) / 120.0;
+    return max(0.5, 0.5 + $happiness / 140.0);
+}
+
+/**
+ * Population growth per hour.
+ * Growth is logistic: fast when population << max_population, slows near cap.
+ * Requires happiness >= 40 and food coverage >= 0.8.
+ *
+ * @return int  people added per hour (can be negative if starving)
+ */
+function population_growth(int $population, int $maxPopulation, int $happiness, float $foodCoverage): int {
+    if ($population <= 0 || $maxPopulation <= 0) return 0;
+    if ($foodCoverage < 0.3) {
+        // Starvation: population shrinks
+        return -(int)round($population * 0.005);
+    }
+    if ($happiness < 30) {
+        return -(int)round($population * 0.002);
+    }
+    $roomFraction = max(0.0, 1.0 - $population / $maxPopulation);
+    $base         = $population * 0.002 * $roomFraction; // 0.2% per hour max
+    $happinessF   = max(0.0, ($happiness - 40) / 60.0);  // 0 at 40%, 1 at 100%
+    $foodF        = min(1.0, ($foodCoverage - 0.8) / 0.7); // 0 at 80% food, 1 at 150%
+    return (int)round($base * $happinessF * max(0.0, $foodF));
+}
+
 function update_colony_resources(PDO $db, int $colonyId): void {
     $stmt = $db->prepare(
-        'SELECT c.id, c.metal, c.crystal, c.deuterium, c.energy, c.last_update,
-                c.colony_type, p.temp_max,
-                b_mm.level AS metal_mine_level,
-                b_cm.level AS crystal_mine_level,
-                b_ds.level AS deuterium_synth_level,
-                b_sp.level AS solar_plant_level,
-                b_fr.level AS fusion_reactor_level,
-                b_ms.level AS metal_storage_level,
-                b_cs.level AS crystal_storage_level,
-                b_dt.level AS deuterium_tank_level
+        'SELECT c.id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
+                c.energy, c.population, c.max_population, c.happiness,
+                c.public_services, c.last_update, c.colony_type,
+                p.temp_max, p.richness_metal, p.richness_crystal,
+                p.richness_deuterium, p.richness_rare_earth,
+                p.deposit_metal, p.deposit_crystal,
+                p.deposit_deuterium, p.deposit_rare_earth,
+                b_mm.level  AS metal_mine_level,
+                b_cm.level  AS crystal_mine_level,
+                b_ds.level  AS deuterium_synth_level,
+                b_sp.level  AS solar_plant_level,
+                b_fr.level  AS fusion_reactor_level,
+                b_ms.level  AS metal_storage_level,
+                b_cs.level  AS crystal_storage_level,
+                b_dt.level  AS deuterium_tank_level,
+                b_re.level  AS rare_earth_drill_level,
+                b_hf.level  AS hydroponic_farm_level,
+                b_fs.level  AS food_silo_level,
+                b_ha.level  AS habitat_level,
+                b_ho.level  AS hospital_level,
+                b_sc.level  AS school_level,
+                b_se.level  AS security_post_level
          FROM colonies c
          JOIN planets p ON p.id = c.planet_id
          LEFT JOIN buildings b_mm ON b_mm.colony_id = c.id AND b_mm.type = \'metal_mine\'
@@ -316,6 +409,13 @@ function update_colony_resources(PDO $db, int $colonyId): void {
          LEFT JOIN buildings b_ms ON b_ms.colony_id = c.id AND b_ms.type = \'metal_storage\'
          LEFT JOIN buildings b_cs ON b_cs.colony_id = c.id AND b_cs.type = \'crystal_storage\'
          LEFT JOIN buildings b_dt ON b_dt.colony_id = c.id AND b_dt.type = \'deuterium_tank\'
+         LEFT JOIN buildings b_re ON b_re.colony_id = c.id AND b_re.type = \'rare_earth_drill\'
+         LEFT JOIN buildings b_hf ON b_hf.colony_id = c.id AND b_hf.type = \'hydroponic_farm\'
+         LEFT JOIN buildings b_fs ON b_fs.colony_id = c.id AND b_fs.type = \'food_silo\'
+         LEFT JOIN buildings b_ha ON b_ha.colony_id = c.id AND b_ha.type = \'habitat\'
+         LEFT JOIN buildings b_ho ON b_ho.colony_id = c.id AND b_ho.type = \'hospital\'
+         LEFT JOIN buildings b_sc ON b_sc.colony_id = c.id AND b_sc.type = \'school\'
+         LEFT JOIN buildings b_se ON b_se.colony_id = c.id AND b_se.type = \'security_post\'
          WHERE c.id = ?'
     );
     $stmt->execute([$colonyId]);
@@ -327,66 +427,148 @@ function update_colony_resources(PDO $db, int $colonyId): void {
     $deltaH = ($now - $last) / 3600.0;
     if ($deltaH <= 0) return;
 
-    $mmL = (int)($row['metal_mine_level']       ?? 0);
-    $cmL = (int)($row['crystal_mine_level']      ?? 0);
-    $dsL = (int)($row['deuterium_synth_level']   ?? 0);
-    $spL = (int)($row['solar_plant_level']       ?? 0);
-    $frL = (int)($row['fusion_reactor_level']    ?? 0);
-    $msL = (int)($row['metal_storage_level']     ?? 0);
-    $csL = (int)($row['crystal_storage_level']   ?? 0);
-    $dtL = (int)($row['deuterium_tank_level']    ?? 0);
+    // ── Building levels ───────────────────────────────────────────────────
+    $mmL  = (int)($row['metal_mine_level']      ?? 0);
+    $cmL  = (int)($row['crystal_mine_level']     ?? 0);
+    $dsL  = (int)($row['deuterium_synth_level']  ?? 0);
+    $spL  = (int)($row['solar_plant_level']      ?? 0);
+    $frL  = (int)($row['fusion_reactor_level']   ?? 0);
+    $msL  = (int)($row['metal_storage_level']    ?? 0);
+    $csL  = (int)($row['crystal_storage_level']  ?? 0);
+    $dtL  = (int)($row['deuterium_tank_level']   ?? 0);
+    $reL  = (int)($row['rare_earth_drill_level'] ?? 0);
+    $hfL  = (int)($row['hydroponic_farm_level']  ?? 0);
+    $fsL  = (int)($row['food_silo_level']        ?? 0);
+    $haL  = (int)($row['habitat_level']          ?? 0);
+    $hoL  = (int)($row['hospital_level']         ?? 0);
+    $scL  = (int)($row['school_level']           ?? 0);
+    $seL  = (int)($row['security_post_level']    ?? 0);
 
+    $population    = max(1, (int)($row['population']    ?? 100));
+    $maxPopulation = max(500, (int)($row['max_population'] ?? 500));
+    $happiness     = (int)($row['happiness']       ?? 70);
+
+    // ── Planet richness multipliers ───────────────────────────────────────
+    $richM  = max(0.1, (float)($row['richness_metal']      ?? 1.0));
+    $richC  = max(0.1, (float)($row['richness_crystal']    ?? 1.0));
+    $richD  = max(0.1, (float)($row['richness_deuterium']  ?? 1.0));
+    $richRE = max(0.1, (float)($row['richness_rare_earth'] ?? 0.5));
+
+    // Deposits (-1 = unlimited, 0 = depleted)
+    $depM  = (int)($row['deposit_metal']       ?? -1);
+    $depC  = (int)($row['deposit_crystal']     ?? -1);
+    $depD  = (int)($row['deposit_deuterium']   ?? -1);
+    $depRE = (int)($row['deposit_rare_earth']  ?? -1);
+
+    // ── Energy balance ────────────────────────────────────────────────────
     $energyProd = solar_energy($spL) + fusion_energy($frL);
     $energyReq  = metal_production_energy($mmL)
                 + crystal_production_energy($cmL)
-                + deuterium_production_energy($dsL);
-    $efficiency = $energyReq > 0 ? min(1.0, $energyProd / $energyReq) : 1.0;
+                + deuterium_production_energy($dsL)
+                + ($reL > 0 ? $reL * 15 : 0)       // rare-earth drill draws energy
+                + ($hfL > 0 ? $hfL * 10 : 0);       // hydroponic farm draws energy
+    $energyBalance = (int)round($energyProd - $energyReq);
+    $efficiency    = $energyReq > 0 ? min(1.0, $energyProd / $energyReq) : 1.0;
 
-    $metalProd     = metal_production($mmL)                      * $efficiency;
-    $crystalProd   = crystal_production($cmL)                    * $efficiency;
-    $deuteriumProd = deuterium_production($dsL, (int)$row['temp_max']) * $efficiency;
-
-    // Apply colony_type production bonuses
+    // ── Food system ───────────────────────────────────────────────────────
+    $foodProdPerH   = food_production($hfL);
+    // Agricultural colony type bonus
     $colonyType = $row['colony_type'] ?? 'balanced';
+    if ($colonyType === 'agricultural') $foodProdPerH *= 1.5;
+    // Population consumes 1 food/h per 100 people
+    $foodConsumedPerH = $population / 100.0;
+    $foodCoverage     = $foodConsumedPerH > 0
+        ? min(2.0, $foodProdPerH / $foodConsumedPerH)
+        : 1.0;
+    $foodCap          = food_storage_cap($fsL);
+
+    // ── Raw-resource production (richness + efficiency + happiness productivity) ──
+    $prodMulti     = happiness_productivity($happiness) * $efficiency;
+    $metalProdH    = metal_production($mmL)                               * $richM  * $prodMulti;
+    $crystalProdH  = crystal_production($cmL)                             * $richC  * $prodMulti;
+    $deutProdH     = deuterium_production($dsL, (int)($row['temp_max'] ?? 20)) * $richD  * $prodMulti;
+    $rareProdH     = rare_earth_production($reL)                           * $richRE * $prodMulti;
+
+    // ── Deposit cap: limit production if deposit nearly exhausted ─────────
+    if ($depM  >= 0) $metalProdH   = min($metalProdH,   $depM  / max($deltaH, 1) * $deltaH);
+    if ($depC  >= 0) $crystalProdH = min($crystalProdH, $depC  / max($deltaH, 1) * $deltaH);
+    if ($depD  >= 0) $deutProdH    = min($deutProdH,    $depD  / max($deltaH, 1) * $deltaH);
+    if ($depRE >= 0) $rareProdH    = min($rareProdH,    $depRE / max($deltaH, 1) * $deltaH);
+
+    // ── Colony-type production bonuses ────────────────────────────────────
     switch ($colonyType) {
         case 'mining':
-            $metalProd   *= 1.3;
-            $crystalProd *= 1.3;
-            break;
-        case 'agricultural':
-            $deuteriumProd *= 1.4;
+            $metalProdH   *= 1.3;
+            $crystalProdH *= 1.3;
             break;
         case 'industrial':
         case 'research':
-            $metalProd     *= 0.9;
-            $crystalProd   *= 0.9;
-            $deuteriumProd *= 0.9;
+            $metalProdH   *= 0.9;
+            $crystalProdH *= 0.9;
+            $deutProdH    *= 0.9;
             break;
-        // 'balanced', 'military': no modifier
     }
 
-    $metalCap     = storage_cap($msL);
-    $crystalCap   = storage_cap($csL);
-    $deuteriumCap = storage_cap($dtL);
-
-    // Apply colony-manager production bonus if one is assigned
+    // ── Colony manager bonus ──────────────────────────────────────────────
     $manager = get_colony_leader($db, $colonyId, 'colony_manager');
     if ($manager) {
-        $metalProd     = leader_production_bonus($metalProd,     (int)$manager['skill_production']);
-        $crystalProd   = leader_production_bonus($crystalProd,   (int)$manager['skill_production']);
-        $deuteriumProd = leader_production_bonus($deuteriumProd, (int)$manager['skill_production']);
+        $sk            = (int)$manager['skill_production'];
+        $metalProdH    = leader_production_bonus($metalProdH,   $sk);
+        $crystalProdH  = leader_production_bonus($crystalProdH, $sk);
+        $deutProdH     = leader_production_bonus($deutProdH,    $sk);
+        $rareProdH     = leader_production_bonus($rareProdH,    $sk);
+        $foodProdPerH  = leader_production_bonus($foodProdPerH, $sk);
     }
 
-    $newMetal     = min($metalCap,     (float)$row['metal']     + $metalProd    * $deltaH);
-    $newCrystal   = min($crystalCap,   (float)$row['crystal']   + $crystalProd  * $deltaH);
-    $newDeuterium = min($deuteriumCap, (float)$row['deuterium'] + $deuteriumProd * $deltaH);
-    $newEnergy    = (int)round($energyProd - $energyReq);
+    // ── Storage caps ─────────────────────────────────────────────────────
+    $metalCap    = storage_cap($msL);
+    $crystalCap  = storage_cap($csL);
+    $deutCap     = storage_cap($dtL);
 
+    // ── New stockpile values ──────────────────────────────────────────────
+    $newMetal    = min($metalCap,   (float)($row['metal']      ?? 0) + $metalProdH   * $deltaH);
+    $newCrystal  = min($crystalCap, (float)($row['crystal']    ?? 0) + $crystalProdH * $deltaH);
+    $newDeut     = min($deutCap,    (float)($row['deuterium']  ?? 0) + $deutProdH    * $deltaH);
+    $newRareEarth= min(50000,       (float)($row['rare_earth'] ?? 0) + $rareProdH    * $deltaH);
+    $newFood     = min($foodCap,    max(0, (float)($row['food'] ?? 0) + ($foodProdPerH - $foodConsumedPerH) * $deltaH));
+
+    // ── Deposit depletion ─────────────────────────────────────────────────
+    $mined_metal    = $metalProdH   * $deltaH;
+    $mined_crystal  = $crystalProdH * $deltaH;
+    $mined_deut     = $deutProdH    * $deltaH;
+    $mined_rare     = $rareProdH    * $deltaH;
+
+    // ── Public services index ─────────────────────────────────────────────
+    $newPublicServices = compute_public_services($hoL, $scL, $seL, $population);
+
+    // ── Happiness ────────────────────────────────────────────────────────
+    $newHappiness = compute_happiness($foodCoverage, $energyBalance, $newPublicServices);
+
+    // ── Population max (500 base + habitat buildings) ─────────────────────
+    $newMaxPop = 500 + habitat_capacity($haL);
+
+    // ── Population growth ─────────────────────────────────────────────────
+    $growthPerH     = population_growth($population, $newMaxPop, $newHappiness, $foodCoverage);
+    $newPopulation  = max(1, min($newMaxPop, $population + (int)round($growthPerH * $deltaH)));
+
+    // ── Persist ───────────────────────────────────────────────────────────
     $db->prepare(
-        'UPDATE colonies SET metal = ?, crystal = ?, deuterium = ?, energy = ?,
-                             last_update = FROM_UNIXTIME(?)
-         WHERE id = ?'
-    )->execute([$newMetal, $newCrystal, $newDeuterium, $newEnergy, $now, $colonyId]);
+        'UPDATE colonies
+         SET metal=?, crystal=?, deuterium=?, rare_earth=?, food=?,
+             energy=?, population=?, max_population=?, happiness=?,
+             public_services=?, last_update=FROM_UNIXTIME(?)
+         WHERE id=?'
+    )->execute([
+        $newMetal, $newCrystal, $newDeut, $newRareEarth, $newFood,
+        $energyBalance, $newPopulation, $newMaxPop, $newHappiness,
+        $newPublicServices, $now, $colonyId,
+    ]);
+
+    // Deplete planet deposits (skip if unlimited = -1)
+    if ($depM  > 0) $db->prepare('UPDATE planets SET deposit_metal=GREATEST(0,deposit_metal-?)       WHERE id=(SELECT planet_id FROM colonies WHERE id=?)')->execute([(int)$mined_metal,   $colonyId]);
+    if ($depC  > 0) $db->prepare('UPDATE planets SET deposit_crystal=GREATEST(0,deposit_crystal-?)   WHERE id=(SELECT planet_id FROM colonies WHERE id=?)')->execute([(int)$mined_crystal, $colonyId]);
+    if ($depD  > 0) $db->prepare('UPDATE planets SET deposit_deuterium=GREATEST(0,deposit_deuterium-?) WHERE id=(SELECT planet_id FROM colonies WHERE id=?)')->execute([(int)$mined_deut,    $colonyId]);
+    if ($depRE > 0) $db->prepare('UPDATE planets SET deposit_rare_earth=GREATEST(0,deposit_rare_earth-?) WHERE id=(SELECT planet_id FROM colonies WHERE id=?)')->execute([(int)$mined_rare,    $colonyId]);
 }
 
 function update_all_colonies(PDO $db, int $userId): void {
