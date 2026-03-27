@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GalaxyQuest – Space Strategy MMO</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="auth-page">
+  <!-- Starfield background -->
+  <canvas id="starfield"></canvas>
+
+  <div class="auth-wrapper">
+    <div class="auth-logo">
+      <div class="logo-icon">🌌</div>
+      <h1 class="logo-title">GalaxyQuest</h1>
+      <p class="logo-subtitle">Conquer the Stars</p>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="auth-tabs">
+      <button class="tab-btn active" data-tab="login">Login</button>
+      <button class="tab-btn" data-tab="register">Register</button>
+    </div>
+
+    <!-- Login form -->
+    <form id="login-form" class="auth-form" autocomplete="on">
+      <div class="form-group">
+        <label for="login-username">Commander Name</label>
+        <input id="login-username" type="text" name="username" required
+               autocomplete="username" placeholder="Your username" />
+      </div>
+      <div class="form-group">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" name="password" required
+               autocomplete="current-password" placeholder="••••••••" />
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Enter the Galaxy</button>
+      <div id="login-error" class="form-error" aria-live="polite"></div>
+    </form>
+
+    <!-- Register form -->
+    <form id="register-form" class="auth-form hidden" autocomplete="on">
+      <div class="form-group">
+        <label for="reg-username">Commander Name</label>
+        <input id="reg-username" type="text" name="username" required
+               autocomplete="username" pattern="[A-Za-z0-9_]{3,32}"
+               title="3-32 alphanumeric characters or underscores"
+               placeholder="Choose a unique name" />
+      </div>
+      <div class="form-group">
+        <label for="reg-email">Email</label>
+        <input id="reg-email" type="email" name="email" required
+               autocomplete="email" placeholder="you@example.com" />
+      </div>
+      <div class="form-group">
+        <label for="reg-password">Password</label>
+        <input id="reg-password" type="password" name="password" required
+               autocomplete="new-password" minlength="8"
+               placeholder="Min 8 characters" />
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Launch into the Galaxy</button>
+      <div id="register-error" class="form-error" aria-live="polite"></div>
+    </form>
+  </div>
+
+  <script src="js/starfield.js"></script>
+  <script src="js/auth.js"></script>
+</body>
+</html>

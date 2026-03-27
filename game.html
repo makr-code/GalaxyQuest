@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GalaxyQuest – Command Center</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="game-page">
+
+  <!-- ── Top bar ───────────────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo-small">🌌 GalaxyQuest</span>
+      <span id="topbar-coords" class="coords-badge"></span>
+    </div>
+
+    <!-- Window-launcher buttons -->
+    <nav class="topbar-nav" aria-label="Open windows">
+      <button class="nav-btn" data-win="overview">Overview</button>
+      <button class="nav-btn" data-win="buildings">Buildings</button>
+      <button class="nav-btn" data-win="research">Research</button>
+      <button class="nav-btn" data-win="shipyard">Shipyard</button>
+      <button class="nav-btn" data-win="fleet">Fleet</button>
+      <button class="nav-btn" data-win="galaxy">Galaxy</button>
+      <button class="nav-btn" data-win="messages">
+        Messages <span id="msg-badge" class="msg-badge hidden">0</span>
+      </button>
+      <button class="nav-btn" data-win="quests">
+        Quests <span id="quest-badge" class="msg-badge hidden">0</span>
+      </button>
+      <button class="nav-btn" data-win="factions">🌐 Factions</button>
+      <button class="nav-btn" data-win="leaders">👤 Leaders</button>
+      <button class="nav-btn" data-win="leaderboard">Leaderboard</button>
+    </nav>
+
+    <div class="topbar-right">
+      <span id="commander-name" class="commander"></span>
+      <button id="logout-btn" class="btn btn-danger btn-sm">Logout</button>
+    </div>
+  </header>
+
+  <!-- ── Resource bar ──────────────────────────────────────────────────────── -->
+  <div class="resource-bar">
+    <div class="resource metal" title="Metal">
+      <span class="res-icon">⬡</span>
+      <span class="res-label">Metal</span>
+      <span id="res-metal" class="res-value">—</span>
+    </div>
+    <div class="resource crystal" title="Crystal">
+      <span class="res-icon">💎</span>
+      <span class="res-label">Crystal</span>
+      <span id="res-crystal" class="res-value">—</span>
+    </div>
+    <div class="resource deuterium" title="Deuterium">
+      <span class="res-icon">🔵</span>
+      <span class="res-label">Deuterium</span>
+      <span id="res-deuterium" class="res-value">—</span>
+    </div>
+    <div class="resource food" title="Food stockpile – needed to feed population">
+      <span class="res-icon">🌾</span>
+      <span class="res-label">Food</span>
+      <span id="res-food" class="res-value">—</span>
+    </div>
+    <div class="resource rare-earth" title="Rare Earth – advanced manufacturing resource">
+      <span class="res-icon">💜</span>
+      <span class="res-label">Rare Earth</span>
+      <span id="res-rare-earth" class="res-value">—</span>
+    </div>
+    <div class="resource population" title="Colony population">
+      <span class="res-icon">👥</span>
+      <span class="res-label">Pop</span>
+      <span id="res-population" class="res-value">—</span>
+    </div>
+    <div class="resource happiness" title="Happiness – affects worker productivity">
+      <span class="res-icon">😊</span>
+      <span class="res-label">Happy</span>
+      <span id="res-happiness" class="res-value">—</span>
+    </div>
+    <div class="resource energy" title="Energy">
+      <span class="res-icon">⚡</span>
+      <span class="res-label">Energy</span>
+      <span id="res-energy" class="res-value">—</span>
+    </div>
+    <div class="resource dark-matter" title="Dark Matter – prestige currency earned from quests">
+      <span class="res-icon">◆</span>
+      <span class="res-label">Dark Matter</span>
+      <span id="res-dark-matter" class="res-value">0</span>
+    </div>
+
+    <!-- Planet selector -->
+    <div class="planet-selector">
+      <label for="planet-select">Planet:</label>
+      <select id="planet-select"></select>
+    </div>
+  </div>
+
+  <!-- ── WM Desktop (windows float here) ──────────────────────────────────── -->
+  <div id="wm-desktop" class="wm-desktop" aria-label="Game desktop"></div>
+
+  <!-- ── WM Taskbar (minimised windows) ───────────────────────────────────── -->
+  <div id="wm-taskbar" class="wm-taskbar" aria-label="Open windows">
+    <span class="wm-taskbar-label">Windows:</span>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
+
+  <script src="js/starfield.js"></script>
+  <script src="js/wm.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
+

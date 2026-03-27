@@ -1,0 +1,14 @@
+Options -Indexes
+RewriteEngine On
+
+# Deny access to config directory
+<Directory "config">
+    Require all denied
+</Directory>
+
+# PHP files in api/ are served normally
+# Everything else (non-existing files/dirs) falls back to index.html
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_URI} !^/api/
+RewriteRule ^(.*)$ /index.html [L]
