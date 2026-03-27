@@ -24,6 +24,9 @@
       <button class="nav-btn" data-view="messages">
         Messages <span id="msg-badge" class="msg-badge hidden">0</span>
       </button>
+      <button class="nav-btn" data-view="quests">
+        Quests <span id="quest-badge" class="msg-badge hidden">0</span>
+      </button>
       <button class="nav-btn" data-view="leaderboard">Leaderboard</button>
     </nav>
 
@@ -54,6 +57,11 @@
       <span class="res-icon">⚡</span>
       <span class="res-label">Energy</span>
       <span id="res-energy" class="res-value">—</span>
+    </div>
+    <div class="resource dark-matter" title="Dark Matter – prestige currency earned from quests">
+      <span class="res-icon">◆</span>
+      <span class="res-label">Dark Matter</span>
+      <span id="res-dark-matter" class="res-value">0</span>
     </div>
 
     <!-- Planet selector -->
@@ -183,6 +191,18 @@
       <div class="panel">
         <h2>🏆 Leaderboard</h2>
         <div id="leaderboard-content">Loading…</div>
+      </div>
+    </section>
+
+    <!-- ── Quests ─────────────────────────────── -->
+    <section id="view-quests" class="view hidden">
+      <div class="panel">
+        <h2>📋 Quests &amp; Achievements</h2>
+        <p class="text-muted" style="margin-bottom:1rem">
+          Complete quests to earn resources, Dark Matter and Rank Points.
+          Tutorial quests guide new commanders; milestones reward long-term play.
+        </p>
+        <div id="quests-content">Loading…</div>
       </div>
     </section>
   </main>

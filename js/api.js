@@ -73,6 +73,14 @@ const API = (() => {
     // Galaxy
     galaxy:   (g, s)    => get(`api/galaxy.php?galaxy=${g}&system=${s}`),
 
+    // Achievements / quests
+    achievements:   ()    => get('api/achievements.php?action=list'),
+    claimAchievement:(id) => post('api/achievements.php?action=claim', { achievement_id: id }),
+    checkAchievements:()  => post('api/achievements.php?action=check', {}),
+
+    // PvP toggle
+    togglePvp: ()         => post('api/game.php?action=pvp_toggle', {}),
+
     // Messages
     inbox:    ()        => get('api/messages.php?action=inbox'),
     readMsg:  (id)      => get(`api/messages.php?action=read&id=${id}`),

@@ -8,6 +8,7 @@
  * GET  /api/auth.php?action=csrf
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/achievements.php';
 
 $action = $_GET['action'] ?? '';
 
@@ -69,12 +70,16 @@ function handle_register(): void {
 
     $hash = password_hash($password, PASSWORD_BCRYPT);
     $db->prepare(
-        'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)'
+        'INSERT INTO users (username, email, password_hash, protection_until)
+         VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY))'
     )->execute([$username, $email, $hash]);
     $userId = (int)$db->lastInsertId();
 
     // Create homeworld
     $planet = create_homeworld($userId);
+
+    // Seed achievement tracker and run first check
+    ensure_user_achievements_seeded($db, $userId);
 
     session_start_secure();
     session_regenerate_id(true);
@@ -126,12 +131,23 @@ function handle_logout(): void {
 function handle_me(): void {
     $uid = require_auth();
     $db   = get_db();
-    $stmt = $db->prepare('SELECT id, username, email, created_at, last_login FROM users WHERE id = ?');
+    $stmt = $db->prepare(
+        'SELECT id, username, email, dark_matter, rank_points,
+                protection_until, vacation_mode, pvp_mode, created_at, last_login
+         FROM users WHERE id = ?'
+    );
     $stmt->execute([$uid]);
     $user = $stmt->fetch();
     if (!$user) {
         json_error('User not found', 404);
     }
+    // Count unclaimed completed achievements for badge
+    $badge = $db->prepare(
+        'SELECT COUNT(*) FROM user_achievements
+         WHERE user_id = ? AND completed = 1 AND reward_claimed = 0'
+    );
+    $badge->execute([$uid]);
+    $user['unclaimed_quests'] = (int)$badge->fetchColumn();
     json_ok(['user' => $user]);
 }
 

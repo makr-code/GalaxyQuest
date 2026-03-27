@@ -515,7 +515,6 @@ function generate_planets(array $star, int $galaxyIdx, int $systemIdx): array
     // Innermost orbital distance (AU), scaled with √L
     $a0 = max(0.04,
               gen_rand_normal(0.12, 0.05, $galaxyIdx, $systemIdx, 202)) * sqrt($lum);
-    $a0 = max(0.02, $a0);
 
     $planets    = [];
     $aCurrent   = $a0;

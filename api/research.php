@@ -7,6 +7,7 @@
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php'; // get_building_level, verify_planet_ownership
+require_once __DIR__ . '/achievements.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -106,6 +107,7 @@ switch ($action) {
                  WHERE user_id = ? AND type = ?'
             )->execute([$uid, $r['type']]);
         }
+        check_and_update_achievements($db, $uid);
         json_ok();
         break;
 

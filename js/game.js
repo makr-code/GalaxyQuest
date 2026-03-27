@@ -79,6 +79,7 @@
       case 'fleet':       renderFleetForm();  break;
       case 'galaxy':      /* on demand */     break;
       case 'messages':    renderMessages();   break;
+      case 'quests':      renderQuests();     break;
       case 'leaderboard': renderLeaderboard();break;
     }
   }
@@ -110,6 +111,11 @@
     document.getElementById('res-energy').textContent    = currentPlanet.energy ?? '—';
     document.getElementById('topbar-coords').textContent =
       `[${currentPlanet.galaxy}:${currentPlanet.system}:${currentPlanet.position}]`;
+    // Dark matter is per-user, updated from overview payload
+    if (window._gqUserMeta) {
+      document.getElementById('res-dark-matter').textContent =
+        fmt(window._gqUserMeta.dark_matter ?? 0);
+    }
   }
 
   // ── Initial data load ─────────────────────────────────────
@@ -121,13 +127,27 @@
       populatePlanetSelect();
       updateResourceBar();
 
-      // Unread badge
+      // Store user meta (dark matter, pvp mode, protection, rank)
+      window._gqUserMeta = data.user_meta || {};
+      updateResourceBar(); // re-run to apply dark matter
+
+      // Unread message badge
       const badge = document.getElementById('msg-badge');
       if (data.unread_msgs > 0) {
         badge.textContent = data.unread_msgs;
         badge.classList.remove('hidden');
       } else {
         badge.classList.add('hidden');
+      }
+
+      // Quest badge (unclaimed completed quests)
+      const qBadge = document.getElementById('quest-badge');
+      const unclaimed = data.user_meta?.unclaimed_quests ?? 0;
+      if (unclaimed > 0) {
+        qBadge.textContent = unclaimed;
+        qBadge.classList.remove('hidden');
+      } else {
+        qBadge.classList.add('hidden');
       }
 
       // Store fleets for overview
@@ -143,7 +163,31 @@
     const content = document.getElementById('overview-content');
     if (!planets.length) { content.innerHTML = '<p class="text-muted">No planets yet.</p>'; return; }
 
-    content.innerHTML = `
+    const meta = window._gqUserMeta || {};
+
+    // Commander status bar
+    const protUntil  = meta.protection_until ? new Date(meta.protection_until) : null;
+    const protected_ = protUntil && protUntil > Date.now();
+    const pvpOn      = !!parseInt(meta.pvp_mode, 10);
+    const protText   = protected_
+      ? `🛡 Newbie protection active until ${protUntil.toLocaleDateString()}`
+      : '🛡 Protection expired';
+
+    const statusBar = `
+      <div class="status-bar">
+        <span class="status-chip ${protected_ ? 'chip-shield' : 'chip-neutral'}">${protText}</span>
+        <span class="status-chip ${pvpOn ? 'chip-pvp-on' : 'chip-pvp-off'}">
+          ⚔ PvP: ${pvpOn ? 'ON' : 'OFF'}
+        </span>
+        <button id="pvp-toggle-btn" class="btn btn-sm ${pvpOn ? 'btn-warning' : 'btn-secondary'}"
+                ${protected_ ? 'disabled title="Cannot enable PvP under protection"' : ''}>
+          ${pvpOn ? 'Disable PvP' : 'Enable PvP'}
+        </button>
+        <span class="status-chip chip-rank">★ ${fmt(meta.rank_points ?? 0)} RP</span>
+        <span class="status-chip chip-dm">◆ ${fmt(meta.dark_matter ?? 0)} DM</span>
+      </div>`;
+
+    content.innerHTML = statusBar + `
       <div class="overview-grid">
         ${planets.map(p => `
           <div class="planet-card ${currentPlanet && p.id === currentPlanet.id ? 'selected' : ''}"
@@ -167,6 +211,20 @@
         renderOverview();
       });
     });
+
+    // PvP toggle button handler
+    const pvpBtn = document.getElementById('pvp-toggle-btn');
+    if (pvpBtn && !pvpBtn.disabled) {
+      pvpBtn.addEventListener('click', async () => {
+        const r = await API.togglePvp();
+        if (r.success) {
+          showToast(r.pvp_mode ? '⚔ PvP mode enabled!' : '🛡 PvP mode disabled.', 'info');
+          await loadOverview();
+        } else {
+          showToast(r.error || 'Could not toggle PvP.', 'error');
+        }
+      });
+    }
 
     // Fleets
     const fleetList = document.getElementById('fleet-list');
@@ -610,11 +668,121 @@
         <div class="lb-row">
           <span class="lb-rank">${i + 1}</span>
           <span class="lb-name">${esc(row.username)} ${row.username === currentUser.username ? '(You)' : ''}</span>
-          <span class="lb-stat">🌍 ${row.planet_count} planets</span>
-          <span class="lb-stat">⬡ ${fmt(row.total_resources)}</span>
+          <span class="lb-stat">★ ${fmt(row.rank_points)} RP</span>
+          <span class="lb-stat">🌍 ${row.planet_count}</span>
+          <span class="lb-stat">◆ ${fmt(row.dark_matter)}</span>
         </div>`).join('');
     } catch (e) {
       el.innerHTML = '<p class="text-red">Failed to load leaderboard.</p>';
+    }
+  }
+
+  // ── Quests & Achievements ─────────────────────────────────
+  async function renderQuests() {
+    const el = document.getElementById('quests-content');
+    el.innerHTML = '<p class="text-muted">Loading…</p>';
+    try {
+      const data = await API.achievements();
+      if (!data.success) { el.innerHTML = '<p class="text-red">Error loading quests.</p>'; return; }
+
+      const all = data.achievements || [];
+
+      // Group by category
+      const groups = {};
+      for (const a of all) {
+        if (!groups[a.category]) groups[a.category] = [];
+        groups[a.category].push(a);
+      }
+
+      const categoryLabels = {
+        tutorial:  '📘 Tutorial – New Player Quests',
+        economy:   '💰 Economy',
+        expansion: '🌍 Expansion',
+        combat:    '⚔ Combat',
+        milestone: '🏆 Veteran Milestones',
+      };
+      const categoryOrder = ['tutorial','economy','expansion','combat','milestone'];
+
+      // Quest badge cleanup (will refresh via loadOverview after claim)
+      let html = '';
+
+      for (const cat of categoryOrder) {
+        if (!groups[cat]) continue;
+        const quests = groups[cat];
+        const done   = quests.filter(q => q.completed && q.reward_claimed).length;
+        const claimable = quests.filter(q => q.completed && !q.reward_claimed).length;
+
+        html += `<div class="quest-group">
+          <h3 class="quest-group-title">
+            ${esc(categoryLabels[cat] ?? cat)}
+            <span class="quest-group-progress">${done}/${quests.length}</span>
+            ${claimable ? `<span class="quest-claimable-badge">${claimable} ready!</span>` : ''}
+          </h3>
+          <div class="quest-list">`;
+
+        for (const q of quests) {
+          const pct   = (q.goal > 0) ? Math.min(100, Math.round(q.progress / q.goal * 100)) : 100;
+          const state = q.reward_claimed ? 'claimed'
+                      : q.completed      ? 'claimable'
+                      :                    'pending';
+
+          // Build reward preview string
+          const rewards = [];
+          if (q.reward_metal)       rewards.push(`⬡ ${fmt(q.reward_metal)}`);
+          if (q.reward_crystal)     rewards.push(`💎 ${fmt(q.reward_crystal)}`);
+          if (q.reward_deuterium)   rewards.push(`🔵 ${fmt(q.reward_deuterium)}`);
+          if (q.reward_dark_matter) rewards.push(`◆ ${fmt(q.reward_dark_matter)} DM`);
+          if (q.reward_rank_points) rewards.push(`★ ${fmt(q.reward_rank_points)} RP`);
+          const rewardStr = rewards.join(' &nbsp; ');
+
+          html += `
+            <div class="quest-card quest-${state}" data-aid="${q.id}">
+              <div class="quest-header">
+                <span class="quest-icon">${state === 'claimed' ? '✅' : state === 'claimable' ? '🎁' : '○'}</span>
+                <span class="quest-title">${esc(q.title)}</span>
+              </div>
+              <div class="quest-desc">${esc(q.description)}</div>
+              ${state !== 'claimed' ? `
+                <div class="quest-progress-wrap">
+                  <div class="quest-progress-bar">
+                    <div class="quest-progress-fill" style="width:${pct}%"></div>
+                  </div>
+                  <span class="quest-progress-label">${q.progress} / ${q.goal}</span>
+                </div>` : ''}
+              <div class="quest-footer">
+                <span class="quest-rewards">${rewardStr}</span>
+                ${state === 'claimable'
+                  ? `<button class="btn btn-primary btn-sm claim-btn" data-aid="${q.id}">✨ Claim</button>`
+                  : state === 'claimed'
+                    ? `<span class="quest-claimed-label">Claimed ${q.completed_at ? new Date(q.completed_at).toLocaleDateString() : ''}</span>`
+                    : ''}
+              </div>
+            </div>`;
+        }
+        html += `</div></div>`;
+      }
+
+      el.innerHTML = html || '<p class="text-muted">No quests found.</p>';
+
+      // Claim button handlers
+      el.querySelectorAll('.claim-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          const aid = parseInt(btn.dataset.aid, 10);
+          const r = await API.claimAchievement(aid);
+          if (r.success) {
+            showToast(r.message || '🏆 Reward claimed!', 'success');
+            await loadOverview(); // refresh dark matter + quest badge
+            renderQuests();
+          } else {
+            showToast(r.error || 'Could not claim reward.', 'error');
+            btn.disabled = false;
+          }
+        });
+      });
+
+    } catch (e) {
+      el.innerHTML = '<p class="text-red">Failed to load quests.</p>';
     }
   }
 

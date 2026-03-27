@@ -19,6 +19,10 @@ CREATE TABLE IF NOT EXISTS users (
     protection_until DATETIME DEFAULT NULL,
     -- Vacation mode: production halved, cannot be attacked
     vacation_mode TINYINT(1) NOT NULL DEFAULT 0,
+    -- PvP participation: 0 = PvE-only, 1 = PvP enabled (can attack/be attacked by players)
+    pvp_mode TINYINT(1) NOT NULL DEFAULT 0,
+    -- Internal flag for NPC faction accounts
+    is_npc TINYINT(1) NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login DATETIME
 ) ENGINE=InnoDB;
@@ -217,6 +221,8 @@ CREATE TABLE IF NOT EXISTS user_achievements (
     -- NULL = not started, 0 = in progress, 1 = completed
     completed TINYINT(1) NOT NULL DEFAULT 0,
     completed_at DATETIME DEFAULT NULL,
+    -- Whether the player has already collected the reward for this achievement
+    reward_claimed TINYINT(1) NOT NULL DEFAULT 0,
     -- Generic progress counter (e.g. current building level, ships built …)
     progress INT UNSIGNED NOT NULL DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,

@@ -14,7 +14,11 @@ ALTER TABLE users
     ADD COLUMN IF NOT EXISTS protection_until DATETIME DEFAULT NULL
         AFTER rank_points,
     ADD COLUMN IF NOT EXISTS vacation_mode   TINYINT(1) NOT NULL DEFAULT 0
-        AFTER protection_until;
+        AFTER protection_until,
+    ADD COLUMN IF NOT EXISTS pvp_mode        TINYINT(1) NOT NULL DEFAULT 0
+        AFTER vacation_mode,
+    ADD COLUMN IF NOT EXISTS is_npc          TINYINT(1) NOT NULL DEFAULT 0
+        AFTER pvp_mode;
 
 -- ─── Star systems table (new in v2) ──────────────────────────────────────────
 
@@ -93,6 +97,7 @@ CREATE TABLE IF NOT EXISTS user_achievements (
     achievement_id INT NOT NULL,
     completed TINYINT(1) NOT NULL DEFAULT 0,
     completed_at DATETIME DEFAULT NULL,
+    reward_claimed TINYINT(1) NOT NULL DEFAULT 0,
     progress INT UNSIGNED NOT NULL DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (achievement_id) REFERENCES achievements(id) ON DELETE CASCADE,

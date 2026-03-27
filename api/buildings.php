@@ -7,6 +7,7 @@
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
+require_once __DIR__ . '/achievements.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -129,7 +130,8 @@ function get_building_level(PDO $db, int $planetId, string $type): int {
     return $row ? (int)$row['level'] : 0;
 }
 
-function complete_upgrades(PDO $db, int $planetId): void {
+function complete_upgrades(PDO $db, int $planetId): void
+{
     $due = $db->prepare(
         'SELECT type, level FROM buildings
          WHERE planet_id = ? AND upgrade_end IS NOT NULL AND upgrade_end <= NOW()'
@@ -140,5 +142,13 @@ function complete_upgrades(PDO $db, int $planetId): void {
             'UPDATE buildings SET level = level + 1, upgrade_end = NULL
              WHERE planet_id = ? AND type = ?'
         )->execute([$planetId, $row['type']]);
+    }
+
+    // Check for newly completed building-related achievements
+    $owner = $db->prepare('SELECT user_id FROM planets WHERE id = ?');
+    $owner->execute([$planetId]);
+    $uid = $owner->fetchColumn();
+    if ($uid) {
+        check_and_update_achievements($db, (int)$uid);
     }
 }

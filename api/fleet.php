@@ -9,6 +9,7 @@
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
+require_once __DIR__ . '/achievements.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -80,6 +81,40 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     if ($tg < 1 || $tg > GALAXY_MAX || $ts < 1 || $ts > SYSTEM_MAX
         || $tp < 1 || $tp > POSITION_MAX) {
         json_error('Target coordinates out of range.');
+    }
+
+    // ── PvP / protection guard ──────────────────────────────────────────────
+    if ($mission === 'attack') {
+        // Check whether the attacker has PvP enabled
+        $atkRow = $db->prepare('SELECT pvp_mode, protection_until FROM users WHERE id = ?');
+        $atkRow->execute([$uid]);
+        $atkUser = $atkRow->fetch();
+
+        if ($atkUser['protection_until'] && strtotime($atkUser['protection_until']) > time()) {
+            json_error('You are under newbie protection and cannot launch attacks yet.');
+        }
+
+        // Check target planet owner
+        $tgtRow = $db->prepare(
+            'SELECT u.pvp_mode, u.protection_until, u.is_npc
+             FROM planets p JOIN users u ON u.id = p.user_id
+             WHERE p.galaxy = ? AND p.system = ? AND p.position = ?'
+        );
+        $tgtRow->execute([$tg, $ts, $tp]);
+        $tgtUser = $tgtRow->fetch();
+
+        if ($tgtUser && !$tgtUser['is_npc']) {
+            // Target is a real player
+            if (!$atkUser['pvp_mode']) {
+                json_error('Enable PvP mode in your overview to attack other players.');
+            }
+            if (!$tgtUser['pvp_mode']) {
+                json_error('Target player has PvP mode disabled and cannot be attacked.');
+            }
+            if ($tgtUser['protection_until'] && strtotime($tgtUser['protection_until']) > time()) {
+                json_error('Target player is under newbie protection.');
+            }
+        }
     }
 
     verify_planet_ownership($db, $originId, $uid);
@@ -376,6 +411,9 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
          VALUES (?, ?, ?, ?)'
     )->execute([$fleet['user_id'], $target['defender_id'], $target['id'], json_encode($report)]);
 
+    // Check combat achievements for attacker
+    check_and_update_achievements($db, (int)$fleet['user_id']);
+
     // Message both players
     $msgBody = $attackerWins
         ? "Your fleet attacked [" . $fleet['target_galaxy'] . ':' . $fleet['target_system'] . ':' . $fleet['target_position'] . "] and WON. Looted: {$lootMetal} metal, {$lootCrystal} crystal, {$lootDeuterium} deuterium."
@@ -443,6 +481,9 @@ function colonize_planet(PDO $db, array $fleet, array $ships): void {
             'Colony Established',
             'You have successfully colonized [' . $fleet['target_galaxy'] . ':' . $fleet['target_system'] . ':' . $fleet['target_position'] . ']!'
         ]);
+
+        // Check expansion achievements
+        check_and_update_achievements($db, (int)$fleet['user_id']);
     }
 
     // Return remaining ships (excluding consumed colony ship)
@@ -472,6 +513,8 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
         'INSERT INTO spy_reports (owner_id, target_planet_id, report_json)
          VALUES (?, ?, ?)'
     )->execute([$fleet['user_id'], $target['id'] ?? null, json_encode($report)]);
+
+    check_and_update_achievements($db, (int)$fleet['user_id']);
 
     $returnSecs = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
     $returnTime = date('Y-m-d H:i:s', time() + $returnSecs);
