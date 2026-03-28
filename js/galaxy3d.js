@@ -41,6 +41,15 @@
         onClick: null,
         onDoubleClick: null,
       }, opts);
+      this.debugEnabled = false;
+      this.debugThrottleMs = 420;
+      this._debugLastByKey = new Map();
+      try {
+        const persistedDebug = window.localStorage?.getItem('gq:debug:galaxy3d') === '1';
+        this.debugEnabled = !!(this.opts.debug || window.GQ_DEBUG_GALAXY3D || persistedDebug);
+      } catch (_) {
+        this.debugEnabled = !!(this.opts.debug || window.GQ_DEBUG_GALAXY3D);
+      }
 
       this.scene = new THREE.Scene();
       this.scene.background = new THREE.Color(0x050a1a);
@@ -56,6 +65,11 @@
       this.renderer.setSize(w, h);
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       container.appendChild(this.renderer.domElement);
+      this.texturePipeline = window.GQPlanetTexturePipeline
+        ? new window.GQPlanetTexturePipeline({ size: 256, maxEntries: 128 })
+        : null;
+      this.vesselGeometryCache = new Map();
+      this.proceduralTextureCache = new Map();
 
       const hasOrbitControls = typeof THREE.OrbitControls === 'function';
       this.hasExternalOrbitControls = hasOrbitControls;
@@ -71,6 +85,14 @@
       this.raycaster = new THREE.Raycaster();
       this.raycaster.params.Points.threshold = 8;
       this.pointer = new THREE.Vector2();
+      this.lodProfile = this._detectLodProfile();
+      this.dynamicClusterLod = true;
+      this.clusterDensityMode = 'auto';
+      this._lastLodReclusterMs = 0;
+      this._appliedClusterTargetPoints = 6500;
+      this._lastZoomInputMs = 0;
+      this.transitionSelectionMinMs = 220;
+      this._selectionTouchedMs = 0;
 
       this.clock = new THREE.Clock();
       this.stars = [];
@@ -85,23 +107,39 @@
       this.systemPlanetEntries = [];
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
+      this.systemAtmosphereEntries = [];
+      this.systemCloudEntries = [];
       this.clusterAuraEntries = [];
       this.clusterSummaryData = [];
+      this.clusterBoundsVisible = true;
+      this.hoverClusterIndex = -1;
+      this.selectedClusterIndex = -1;
       this.empireHeartbeatFactionId = null;
       this.empireHeartbeatSystems = new Set();
       this.heartbeatPhase = 0;
       this.systemHoverEntry = null;
       this.systemSelectedEntry = null;
+      this.systemRefinementQueue = [];
+      this.systemRefinementInProgress = false;
+      this.systemRefinementTimeoutId = null;
       this.autoTransitionCooldownUntil = 0;
+      this.transitionsEnabled = true;
+      this.persistentHoverDistance = 220;
+      this._persistentHoverCacheUntil = 0;
+      this._persistentHoverIndex = -1;
+      this.transitionStableSpeed = 22;
+      this.transitionStableMinMs = 160;
+      this._cameraStableSinceMs = performance.now();
+      this.cameraMotionSpeed = 0;
       this.zoomThresholds = {
-        galaxyEnterSystem: 150,
-        galaxyResetSystem: 185,
-        systemEnterPlanet: 54,
-        systemResetPlanet: 74,
-        planetExitToSystem: 96,
-        planetResetExit: 70,
-        systemExitToGalaxy: 305,
-        systemResetExit: 250,
+        galaxyEnterSystem: 145,
+        galaxyResetSystem: 210,
+        systemEnterPlanet: 50,
+        systemResetPlanet: 86,
+        planetExitToSystem: 108,
+        planetResetExit: 66,
+        systemExitToGalaxy: 330,
+        systemResetExit: 230,
       };
       this.autoTransitionArmed = {
         galaxyEnterSystem: true,
@@ -124,59 +162,94 @@
       this._setupScene();
       this._bindEvents();
       this._onResize();
+      this._debugLog('renderer-init', {
+        lodProfile: this.lodProfile,
+        densityMode: this.clusterDensityMode,
+        dynamicClusterLod: this.dynamicClusterLod,
+      });
       this._animate();
+
     }
 
     _setupScene() {
-      const hemi = new THREE.HemisphereLight(0x7ca8ff, 0x10182d, 0.8);
-      this.scene.add(hemi);
+      const ambient = new THREE.AmbientLight(0x9bb5ff, 0.62);
+      this.scene.add(ambient);
 
-      const dir = new THREE.DirectionalLight(0xaed0ff, 0.55);
-      dir.position.set(150, 220, 120);
-      this.scene.add(dir);
+      const key = new THREE.DirectionalLight(0xdde8ff, 1.18);
+      key.position.set(240, 280, 190);
+      this.scene.add(key);
 
-      this._buildGalaxyCoreStars();
-
-      const haloGeo = new THREE.RingGeometry(30, 110, 96);
-      const haloMat = new THREE.MeshBasicMaterial({
-        color: 0x2a5bb3,
-        transparent: true,
-        opacity: 0.11,
-        side: THREE.DoubleSide,
-      });
-      this.halo = new THREE.Mesh(haloGeo, haloMat);
-      this.halo.rotation.x = Math.PI / 2;
-      this.scene.add(this.halo);
-
-      const grid = new THREE.GridHelper(1200, 24, 0x244b83, 0x13243f);
-      grid.position.y = -120;
-      grid.material.opacity = 0.13;
-      grid.material.transparent = true;
-      this.grid = grid;
-      this.scene.add(grid);
+      const fill = new THREE.DirectionalLight(0x6da6ff, 0.28);
+      fill.position.set(-180, -90, -220);
+      this.scene.add(fill);
 
       this.clusterAuraGroup = new THREE.Group();
-      this.clusterAuraGroup.visible = true;
       this.scene.add(this.clusterAuraGroup);
 
+      this.systemSkyGroup = new THREE.Group();
+      this.systemSkyGroup.visible = false;
+      this.scene.add(this.systemSkyGroup);
+
+      this.systemBackdrop = new THREE.Group();
+      this.systemBackdrop.visible = false;
+      this.scene.add(this.systemBackdrop);
+
+      this.systemOrbitGroup = new THREE.Group();
+      this.systemOrbitGroup.visible = false;
+      this.scene.add(this.systemOrbitGroup);
+
+      this.systemBodyGroup = new THREE.Group();
+      this.systemBodyGroup.visible = false;
+      this.scene.add(this.systemBodyGroup);
+
+      this.systemFacilityGroup = new THREE.Group();
+      this.systemFacilityGroup.visible = false;
+      this.scene.add(this.systemFacilityGroup);
+
+      this.systemFleetGroup = new THREE.Group();
+      this.systemFleetGroup.visible = false;
+      this.scene.add(this.systemFleetGroup);
+
+      this._buildGalaxyCoreStars();
       this._buildHoverMarker();
-      this._buildSystemScene();
     }
 
-    _buildSystemScene() {
-      this.systemGroup = new THREE.Group();
-      this.systemGroup.visible = false;
-      this.systemBackdrop = new THREE.Group();
-      this.systemOrbitGroup = new THREE.Group();
-      this.systemBodyGroup = new THREE.Group();
-      this.systemFacilityGroup = new THREE.Group();
-      this.systemFleetGroup = new THREE.Group();
-      this.systemGroup.add(this.systemBackdrop);
-      this.systemGroup.add(this.systemOrbitGroup);
-      this.systemGroup.add(this.systemBodyGroup);
-      this.systemGroup.add(this.systemFacilityGroup);
-      this.systemGroup.add(this.systemFleetGroup);
-      this.scene.add(this.systemGroup);
+    _syncSystemSkyDome(dt = 0) {
+      if (!this.systemMode || !this.systemSkyGroup) return;
+      this.systemSkyGroup.position.copy(this.camera.position);
+      const distance = this._cameraDistance();
+      const profile = this._systemSkyProfile(this.systemSelectedEntry || this.systemHoverEntry || null);
+      const scale = THREE.MathUtils.clamp(distance * 4.8, 760, 1850);
+      this.systemSkyGroup.scale.setScalar(scale / 1180);
+      this.systemSkyGroup.quaternion.slerp(this.camera.quaternion, THREE.MathUtils.clamp(0.05 + dt * 1.8, 0.05, 0.16));
+      this.systemSkyGroup.children.forEach((child) => {
+        const uniforms = child.material?.uniforms;
+        if (uniforms?.uTime) uniforms.uTime.value = this.clock.elapsedTime;
+        if (String(child.userData?.kind || '').startsWith('system-sky-nebula') && uniforms) {
+          const accentMix = child.userData.kind === 'system-sky-nebula-blue'
+            ? 0.38
+            : child.userData.kind === 'system-sky-nebula-red'
+              ? 0.12
+              : 0.18;
+          uniforms.uColorA.value.copy(child.userData.colorA).lerp(profile.starColor, 0.10);
+          uniforms.uColorB.value.copy(child.userData.colorB).lerp(profile.accent, accentMix);
+          uniforms.uOpacity.value = THREE.MathUtils.clamp(
+            child.userData.baseOpacity + (profile.cloudOpacity - 0.22) * (child.userData.kind === 'system-sky-nebula-blue' ? 0.45 : 0.28),
+            0.04,
+            0.24
+          );
+        }
+        const drift = child.userData?.drift;
+        if (drift) {
+          child.rotation.x += drift.x * Math.max(0.18, distance / 520);
+          child.rotation.y += drift.y * Math.max(0.18, distance / 520);
+          child.rotation.z += drift.z * Math.max(0.18, distance / 520);
+        }
+        const align = Number(child.userData?.align || 0);
+        if (align > 0) {
+          child.quaternion.slerp(this.camera.quaternion, align * 0.05);
+        }
+      });
     }
 
     _buildGalaxyCoreStars() {
@@ -316,13 +389,224 @@
       while (group.children.length) {
         const child = group.children.pop();
         group.remove(child);
-        if (child.geometry) child.geometry.dispose();
-        if (Array.isArray(child.material)) child.material.forEach((m) => m?.dispose?.());
+        if (child.geometry && !child.geometry.userData?.sharedGeometry) child.geometry.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m) => {
+            if (!m) return;
+            if (!m.userData?.sharedTexture) {
+              m.map?.dispose?.();
+              m.bumpMap?.dispose?.();
+              m.emissiveMap?.dispose?.();
+              m.normalMap?.dispose?.();
+              m.alphaMap?.dispose?.();
+            }
+            m.dispose?.();
+          });
+        }
         else if (child.material) {
-          child.material.map?.dispose?.();
+          if (!child.material.userData?.sharedTexture) {
+            child.material.map?.dispose?.();
+            child.material.bumpMap?.dispose?.();
+            child.material.emissiveMap?.dispose?.();
+            child.material.normalMap?.dispose?.();
+            child.material.alphaMap?.dispose?.();
+          }
           child.material.dispose?.();
         }
       }
+    }
+
+    _planetTextureDescriptor(payload, slot, body, index) {
+      const manifest = payload?.planet_texture_manifest?.planets;
+      const position = String(slot?.position || body?.position || (index + 1));
+      if (manifest && typeof manifest === 'object' && manifest[position]) {
+        return Object.assign({ version: payload?.planet_texture_manifest?.version || 1 }, manifest[position]);
+      }
+      return null;
+    }
+
+    _planetMaterial(payload, slot, body, index) {
+      const fallbackColor = this._planetColor(body?.planet_class);
+      const descriptor = this._planetTextureDescriptor(payload, slot, body, index);
+      if (!this.texturePipeline || !descriptor) {
+        return new THREE.MeshStandardMaterial({ color: fallbackColor, roughness: 0.82, metalness: 0.04 });
+      }
+      return this.texturePipeline.getPlanetMaterial(body, descriptor, fallbackColor);
+    }
+
+    _planetAtmosphereShell(payload, slot, body, index, radius) {
+      const descriptor = this._planetTextureDescriptor(payload, slot, body, index);
+      if (!this.texturePipeline || !descriptor) return null;
+      const config = this.texturePipeline.getAtmosphereConfig(descriptor);
+      if (!config) return null;
+
+      const shell = new THREE.Mesh(
+        new THREE.SphereGeometry(radius * config.scale, 18, 18),
+        new THREE.MeshBasicMaterial({
+          color: config.color,
+          transparent: true,
+          opacity: config.opacity,
+          blending: THREE.AdditiveBlending,
+          side: THREE.BackSide,
+          depthWrite: false,
+        })
+      );
+      shell.userData = { kind: 'planet-atmosphere' };
+      return shell;
+    }
+
+    _planetCloudShell(payload, slot, body, index, radius) {
+      const descriptor = this._planetTextureDescriptor(payload, slot, body, index);
+      if (!this.texturePipeline || !descriptor) return null;
+      const config = this.texturePipeline.getCloudLayerConfig(descriptor, this._planetColor(body?.planet_class));
+      if (!config) return null;
+
+      const shell = new THREE.Mesh(
+        new THREE.SphereGeometry(radius * config.scale, 18, 18),
+        new THREE.MeshStandardMaterial({
+          color: config.color,
+          alphaMap: config.alphaMap,
+          transparent: true,
+          opacity: config.opacity,
+          roughness: 0.94,
+          metalness: 0,
+          depthWrite: false,
+        })
+      );
+      shell.userData = {
+        kind: 'planet-clouds',
+        baseOpacity: config.opacity,
+        rotationSpeed: config.rotationSpeed,
+      };
+      return shell;
+    }
+
+    _buildStarAtmosphereShells(colorHex, radius) {
+      const shells = [];
+      const outerShell = new THREE.Mesh(
+        new THREE.SphereGeometry(radius * 1.18, 28, 28),
+        new THREE.MeshBasicMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: 0.22,
+          blending: THREE.AdditiveBlending,
+          side: THREE.BackSide,
+          depthWrite: false,
+        })
+      );
+      outerShell.userData = {
+        kind: 'star-atmosphere',
+        baseOpacity: 0.22,
+        pulseAmplitude: 0.08,
+        pulseSpeed: 1.45,
+        scaleAmplitude: 0.028,
+        phase: 0.4,
+      };
+      shells.push(outerShell);
+
+      const coronaShell = new THREE.Mesh(
+        new THREE.SphereGeometry(radius * 1.36, 24, 24),
+        new THREE.MeshBasicMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: 0.10,
+          blending: THREE.AdditiveBlending,
+          side: THREE.BackSide,
+          depthWrite: false,
+        })
+      );
+      coronaShell.userData = {
+        kind: 'star-atmosphere',
+        baseOpacity: 0.10,
+        pulseAmplitude: 0.05,
+        pulseSpeed: 0.95,
+        scaleAmplitude: 0.045,
+        phase: 1.2,
+      };
+      shells.push(coronaShell);
+      return shells;
+    }
+
+    _buildStarCoronaShader(colorHex, radius) {
+      const uniforms = {
+        uTime: { value: 0 },
+        uColor: { value: new THREE.Color(colorHex) },
+        uOpacity: { value: 0.22 },
+      };
+      const material = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        side: THREE.BackSide,
+        blending: THREE.AdditiveBlending,
+        uniforms,
+        vertexShader: `
+          varying vec3 vNormal;
+          varying vec3 vWorldPos;
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            vec4 worldPos = modelMatrix * vec4(position, 1.0);
+            vWorldPos = worldPos.xyz;
+            gl_Position = projectionMatrix * viewMatrix * worldPos;
+          }
+        `,
+        fragmentShader: `
+          uniform float uTime;
+          uniform vec3 uColor;
+          uniform float uOpacity;
+          varying vec3 vNormal;
+          varying vec3 vWorldPos;
+          float hash(vec3 p) {
+            return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+          }
+          void main() {
+            vec3 viewDir = normalize(cameraPosition - vWorldPos);
+            float rim = pow(1.0 - max(dot(normalize(vNormal), viewDir), 0.0), 2.8);
+            float flicker = 0.55 + 0.45 * sin(uTime * 2.3 + vWorldPos.y * 0.06 + hash(vWorldPos) * 6.2831);
+            float band = 0.55 + 0.45 * sin(uTime * 1.3 + vWorldPos.x * 0.03 + vWorldPos.z * 0.04);
+            float alpha = rim * (0.45 + flicker * 0.35 + band * 0.2) * uOpacity;
+            gl_FragColor = vec4(uColor, alpha);
+          }
+        `,
+      });
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.52, 28, 28), material);
+      mesh.userData = {
+        kind: 'star-corona',
+        baseOpacity: 0.22,
+        pulseAmplitude: 0.07,
+        pulseSpeed: 1.2,
+        scaleAmplitude: 0.035,
+        phase: 0.8,
+      };
+      return mesh;
+    }
+
+    _registerAnimatedAtmosphere(mesh, opts = {}) {
+      if (!mesh) return null;
+      const uniforms = mesh.material?.uniforms || null;
+      const entry = {
+        mesh,
+        baseScale: mesh.scale.clone(),
+        baseOpacity: Number(opts.baseOpacity ?? mesh.material?.opacity ?? 0.1),
+        pulseAmplitude: Number(opts.pulseAmplitude ?? 0.04),
+        pulseSpeed: Number(opts.pulseSpeed ?? 1),
+        scaleAmplitude: Number(opts.scaleAmplitude ?? 0.02),
+        phase: Number(opts.phase ?? 0),
+        uniforms,
+      };
+      this.systemAtmosphereEntries.push(entry);
+      return entry;
+    }
+
+    _registerAnimatedCloud(mesh, opts = {}) {
+      if (!mesh) return null;
+      const entry = {
+        mesh,
+        baseOpacity: Number(opts.baseOpacity ?? mesh.material?.opacity ?? 0.18),
+        rotationSpeed: Number(opts.rotationSpeed ?? 0.06),
+        phase: Number(opts.phase ?? 0),
+      };
+      this.systemCloudEntries.push(entry);
+      return entry;
     }
 
     _planetColor(planetClass) {
@@ -337,6 +621,60 @@
       if (cls.includes('barren') || cls.includes('rocky')) return 0x8f8173;
       if (cls.includes('terra') || cls.includes('hab')) return 0x6ebf72;
       return 0x9aa7b8;
+    }
+
+    _systemSkyProfile(activeEntry = null) {
+      const starColor = new THREE.Color(this._spectralColorHex(this.systemSourceStar?.spectral_class));
+      const body = activeEntry?.body || null;
+      const cls = String(body?.planet_class || '').toLowerCase();
+      const atmosphere = Number(body?.surface_pressure_bar || 0);
+      const waterState = String(body?.water_state || '').toLowerCase();
+      let accent = starColor.clone().lerp(new THREE.Color(0x8bb8ff), 0.42);
+      let cloudBoost = 0.18;
+      let plasmaBoost = 0.12;
+      let starBoost = 1.0;
+
+      if (cls.includes('lava') || cls.includes('volcan')) {
+        accent = new THREE.Color(0xff784b);
+        plasmaBoost = 0.28;
+        cloudBoost = 0.08;
+        starBoost = 1.08;
+      } else if (cls.includes('ocean') || waterState === 'liquid') {
+        accent = new THREE.Color(0x78d6ff);
+        cloudBoost = 0.24;
+      } else if (cls.includes('ice') || cls.includes('frozen')) {
+        accent = new THREE.Color(0xc9ecff);
+        cloudBoost = 0.20;
+        plasmaBoost = 0.06;
+      } else if (cls.includes('gas')) {
+        accent = new THREE.Color(0xffd59a);
+        cloudBoost = 0.30;
+        plasmaBoost = 0.08;
+        starBoost = 1.06;
+      } else if (cls.includes('desert')) {
+        accent = new THREE.Color(0xf2bf72);
+        plasmaBoost = 0.16;
+      } else if (cls.includes('toxic')) {
+        accent = new THREE.Color(0x9fda72);
+        cloudBoost = 0.22;
+        plasmaBoost = 0.18;
+      } else if (cls.includes('terra') || cls.includes('hab')) {
+        accent = new THREE.Color(0x87d99d);
+        cloudBoost = 0.20;
+      }
+
+      const focusStrength = activeEntry ? (this.systemSelectedEntry ? 1 : 0.55) : 0;
+      const atmoBoost = THREE.MathUtils.clamp(atmosphere / 8, 0, 0.18);
+      const zoomDistance = this._cameraDistance();
+      const zoomT = THREE.MathUtils.clamp((260 - zoomDistance) / 180, 0, 1);
+
+      return {
+        starColor,
+        accent,
+        plasmaOpacity: 0.26 + plasmaBoost + focusStrength * 0.08 + zoomT * 0.06,
+        cloudOpacity: 0.12 + cloudBoost + atmoBoost + focusStrength * 0.05,
+        starBrightness: starBoost + focusStrength * 0.16 + zoomT * 0.08,
+      };
     }
 
     _planetSize(body, fallbackIndex) {
@@ -378,6 +716,7 @@
     setClusterAuras(clusters) {
       this.clusterSummaryData = Array.isArray(clusters) ? clusters.slice() : [];
       this._rebuildClusterAuras();
+      this.setClusterBoundsVisible(this.clusterBoundsVisible);
       this._applyEmpireHeartbeatMask();
     }
 
@@ -431,8 +770,61 @@
       }
     }
 
+    _syncClusterAuraTransform() {
+      if (!this.clusterAuraGroup) return;
+      if (!this.starPoints || this.systemMode) {
+        this.clusterAuraGroup.visible = false;
+        return;
+      }
+      this.clusterAuraGroup.visible = !!this.starPoints.visible;
+      this.clusterAuraGroup.position.copy(this.starPoints.position);
+      this.clusterAuraGroup.quaternion.copy(this.starPoints.quaternion);
+      this.clusterAuraGroup.scale.copy(this.starPoints.scale);
+    }
+
+    _clusterPayload(entry, index) {
+      if (!entry) return null;
+      const cluster = entry.cluster || {};
+      return Object.assign({}, cluster, {
+        __kind: 'cluster',
+        __clusterIndex: index,
+        __clusterCenter: {
+          x: Number(entry.center?.x || 0),
+          y: Number(entry.center?.y || 0),
+          z: Number(entry.center?.z || 0),
+        },
+        __clusterSize: {
+          x: Number(entry.size?.x || 0),
+          y: Number(entry.size?.y || 0),
+          z: Number(entry.size?.z || 0),
+        },
+        __clusterSystems: Array.isArray(entry.systems) ? entry.systems.slice() : [],
+        __clusterBoundsVisible: !!this.clusterBoundsVisible,
+      });
+    }
+
+    _clusterWorldScreenPosition(entry) {
+      if (!entry?.group) return null;
+      return this.getWorldScreenPosition(entry.group.getWorldPosition(new THREE.Vector3()));
+    }
+
+    _pickClusterBox() {
+      if (this.systemMode || !this.clusterBoundsVisible || !Array.isArray(this.clusterAuraEntries) || !this.clusterAuraEntries.length) return null;
+      const targets = this.clusterAuraEntries
+        .map((entry) => entry?.hitMesh)
+        .filter(Boolean);
+      if (!targets.length) return null;
+      this.raycaster.setFromCamera(this.pointer, this.camera);
+      const hits = this.raycaster.intersectObjects(targets, false);
+      if (!hits.length) return null;
+      const hitObject = hits[0].object;
+      return this.clusterAuraEntries.findIndex((entry) => entry?.hitMesh === hitObject);
+    }
+
     _rebuildClusterAuras() {
       this.clusterAuraEntries = [];
+      this.hoverClusterIndex = -1;
+      this.selectedClusterIndex = -1;
       this._clearGroup(this.clusterAuraGroup);
       if (!Array.isArray(this.stars) || !this.stars.length) return;
       if (!Array.isArray(this.clusterSummaryData) || !this.clusterSummaryData.length) return;
@@ -548,6 +940,8 @@
         this.clusterAuraGroup.add(lineMesh);
 
         const nodeMeshes = [];
+        const clusterGroup = new THREE.Group();
+        this.clusterAuraGroup.add(clusterGroup);
         nodes.forEach((node) => {
           const mesh = new THREE.Mesh(
             new THREE.SphereGeometry(0.72, 10, 8),
@@ -560,16 +954,69 @@
             })
           );
           mesh.position.copy(node.position);
-          this.clusterAuraGroup.add(mesh);
+          clusterGroup.add(mesh);
           nodeMeshes.push(mesh);
         });
 
+        clusterGroup.add(lineMesh);
+
+        const bounds = new THREE.Box3();
+        nodes.forEach((node) => bounds.expandByPoint(node.position));
+        const pad = THREE.MathUtils.clamp(spread * 0.12, 1.6, 10);
+        bounds.min.addScalar(-pad);
+        bounds.max.addScalar(pad);
+        const size = bounds.getSize(new THREE.Vector3());
+        const center = bounds.getCenter(new THREE.Vector3());
+        const boxGeo = new THREE.BoxGeometry(
+          Math.max(2, size.x),
+          Math.max(2, size.y),
+          Math.max(2, size.z)
+        );
+        const wireGeo = new THREE.EdgesGeometry(boxGeo);
+        const wireMat = new THREE.LineBasicMaterial({
+          color,
+          transparent: true,
+          opacity: this.clusterBoundsVisible ? 0.26 : 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        });
+        const wireMesh = new THREE.LineSegments(wireGeo, wireMat);
+        wireMesh.position.copy(center);
+        wireMesh.visible = !!this.clusterBoundsVisible;
+        clusterGroup.add(wireMesh);
+
+        const hitMesh = new THREE.Mesh(
+          boxGeo.clone(),
+          new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+          })
+        );
+        hitMesh.position.copy(center);
+        hitMesh.visible = !!this.clusterBoundsVisible;
+        clusterGroup.add(hitMesh);
+
+        const systemsForCluster = systems.length
+          ? systems.slice()
+          : Array.from(new Set(starsInRange.map((star) => Number(star.system_index || 0)).filter((n) => Number.isFinite(n) && n > 0)));
+
         this.clusterAuraEntries.push({
+          cluster,
+          group: clusterGroup,
           nodeMeshes,
           lineMat,
           lineGeo,
           segmentCount,
           phase: index * 0.7,
+          wireMesh,
+          wireMat,
+          wireGeo,
+          hitMesh,
+          center,
+          size,
+          systems: systemsForCluster,
         });
       });
     }
@@ -591,10 +1038,21 @@
 
       facilities.slice(0, 8).forEach((facility, facilityIndex) => {
         const angle = (facilityIndex / Math.max(1, facilities.length)) * Math.PI * 2;
+        const fColor = this._facilityColor(facility.category);
+        const fTex = this._fleetHullTexture(fColor, (index * 31 + facilityIndex * 17) >>> 0);
         const module = new THREE.Mesh(
           new THREE.BoxGeometry(0.8, 0.8, 1.4),
-          new THREE.MeshStandardMaterial({ color: this._facilityColor(facility.category), emissive: this._facilityColor(facility.category), emissiveIntensity: 0.25 })
+          new THREE.MeshStandardMaterial({
+            color: fColor,
+            map: fTex,
+            emissive: fColor,
+            emissiveMap: fTex,
+            emissiveIntensity: 0.2,
+            roughness: 0.56,
+            metalness: 0.38,
+          })
         );
+        module.material.userData = Object.assign({}, module.material.userData, { sharedTexture: true });
         module.position.set(Math.cos(angle) * radius, (facilityIndex % 2 === 0 ? 0.55 : -0.55), Math.sin(angle) * radius);
         module.lookAt(new THREE.Vector3(0, 0, 0));
         group.add(module);
@@ -615,15 +1073,29 @@
       const color = this._fleetColor(fleet.mission);
       let cursor = 0;
       vessels.slice(0, 5).forEach((vessel) => {
+        const vesselType = String(vessel.ship_type || vessel.type || vessel.name || 'frigate');
         const sample = Math.max(1, Number(vessel.sample_count || Math.min(4, vessel.count || 1)));
         for (let i = 0; i < sample; i++) {
+          const seed = this._vesselSeed(fleet, vesselType, index, cursor, i);
+          const geometry = this._proceduralVesselGeometry(vesselType, seed);
+          const hullTex = this._fleetHullTexture(color, seed);
           const mesh = new THREE.Mesh(
-            new THREE.ConeGeometry(0.32, 1.15, 6),
-            new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.2, roughness: 0.35, metalness: 0.45 })
+            geometry,
+            new THREE.MeshStandardMaterial({
+              color,
+              map: hullTex,
+              emissive: color,
+              emissiveMap: hullTex,
+              emissiveIntensity: 0.18,
+              roughness: 0.36,
+              metalness: 0.48,
+            })
           );
+          mesh.material.userData = Object.assign({}, mesh.material.userData, { sharedTexture: true });
           const row = Math.floor(cursor / 3);
           const col = cursor % 3;
           mesh.rotation.x = Math.PI / 2;
+          mesh.rotation.z = ((seed % 17) - 8) * 0.006;
           mesh.position.set((col - 1) * 1.2, row * 0.45, (row % 2 === 0 ? 1 : -1) * 0.7);
           group.add(mesh);
           cursor += 1;
@@ -642,6 +1114,187 @@
         fleet,
         phase: index * 0.7,
       };
+    }
+
+    _vesselSeed(fleet, vesselType, fleetIndex, cursor, sampleIndex) {
+      const base = String(fleet?.id || `${fleet?.origin_position || 0}-${fleet?.target_position || 0}`);
+      const key = `${base}|${vesselType}|${fleetIndex}|${cursor}|${sampleIndex}`;
+      let hash = 2166136261;
+      for (let i = 0; i < key.length; i++) {
+        hash ^= key.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return hash >>> 0;
+    }
+
+    _proceduralVesselGeometry(vesselType, seed) {
+      const familyRaw = String(vesselType || 'frigate').toLowerCase();
+      const family = familyRaw.includes('destroyer') || familyRaw.includes('cruiser')
+        ? 'heavy'
+        : familyRaw.includes('fighter') || familyRaw.includes('interceptor')
+          ? 'light'
+          : familyRaw.includes('transport') || familyRaw.includes('cargo')
+            ? 'cargo'
+            : 'frigate';
+      const k = `${family}:${seed % 11}`;
+      const cached = this.vesselGeometryCache.get(k);
+      if (cached) return cached;
+
+      const noseLen = 0.58 + ((seed >>> 3) % 8) * 0.045;
+      const midLen = 0.52 + ((seed >>> 7) % 7) * 0.04;
+      const rearLen = 0.34 + ((seed >>> 12) % 6) * 0.03;
+      const widthBase = family === 'heavy' ? 0.42 : family === 'cargo' ? 0.5 : family === 'light' ? 0.28 : 0.34;
+      const heightBase = family === 'cargo' ? 0.34 : 0.24;
+      const width = widthBase + ((seed >>> 17) % 6) * 0.028;
+      const height = heightBase + ((seed >>> 21) % 5) * 0.02;
+
+      const points = [];
+      const x0 = 0;
+      const x1 = noseLen;
+      const x2 = noseLen + midLen;
+      const x3 = noseLen + midLen + rearLen;
+      points.push(new THREE.Vector3(x0, 0, 0));
+      points.push(new THREE.Vector3(x1, height * 0.5, width * 0.55));
+      points.push(new THREE.Vector3(x2, height, width));
+      points.push(new THREE.Vector3(x3, height * 0.72, width * 0.78));
+      points.push(new THREE.Vector3(x3 + 0.12, 0, 0));
+
+      const hull = new THREE.LatheGeometry(points, 8);
+      hull.rotateZ(Math.PI / 2);
+      hull.scale(0.62, 0.62, 0.62);
+
+      const geo = hull.toNonIndexed();
+      const pos = geo.getAttribute('position');
+      const arr = pos.array;
+      const wingAmp = family === 'light' ? 0.18 : family === 'heavy' ? 0.12 : 0.08;
+      for (let i = 0; i < arr.length; i += 3) {
+        const x = arr[i];
+        const y = arr[i + 1];
+        const z = arr[i + 2];
+        const taper = THREE.MathUtils.clamp((x + 0.3) / 1.8, 0, 1);
+        arr[i + 2] = z + Math.sin((x * 5.4) + (seed % 31)) * wingAmp * taper * (Math.abs(y) > 0.12 ? 1 : 0.35);
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+      geo.userData = Object.assign({}, geo.userData, { sharedGeometry: true });
+
+      this.vesselGeometryCache.set(k, geo);
+      if (this.vesselGeometryCache.size > 96) {
+        const firstKey = this.vesselGeometryCache.keys().next().value;
+        const firstGeo = this.vesselGeometryCache.get(firstKey);
+        firstGeo?.dispose?.();
+        this.vesselGeometryCache.delete(firstKey);
+      }
+      return geo;
+    }
+
+    _starSeed(star) {
+      const key = `${star?.galaxy_index || 0}:${star?.system_index || 0}:${star?.spectral_class || 'G'}`;
+      let hash = 2166136261;
+      for (let i = 0; i < key.length; i++) {
+        hash ^= key.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return hash >>> 0;
+    }
+
+    _getProceduralTexture(key, size, drawFn) {
+      const cacheKey = `${key}|${size}`;
+      const existing = this.proceduralTextureCache.get(cacheKey);
+      if (existing) return existing;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      drawFn(ctx, size);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.needsUpdate = true;
+      texture.userData = Object.assign({}, texture.userData, { sharedTexture: true });
+      this.proceduralTextureCache.set(cacheKey, texture);
+
+      if (this.proceduralTextureCache.size > 128) {
+        const firstKey = this.proceduralTextureCache.keys().next().value;
+        const firstTexture = this.proceduralTextureCache.get(firstKey);
+        firstTexture?.dispose?.();
+        this.proceduralTextureCache.delete(firstKey);
+      }
+      return texture;
+    }
+
+    _starSurfaceTexture(spectralClass, seed) {
+      const cls = String(spectralClass || 'G').toUpperCase();
+      const s = seed >>> 0;
+      return this._getProceduralTexture(`star:${cls}:${s % 17}`, 192, (ctx, size) => {
+        const c = new THREE.Color(this._spectralColorHex(cls));
+        const warm = new THREE.Color(0xffc96a);
+        const cool = new THREE.Color(0x8fb5ff);
+        const mix = THREE.MathUtils.clamp(((s % 13) / 12), 0, 1);
+        const a = c.clone().lerp(warm, 0.25 + mix * 0.25);
+        const b = c.clone().lerp(cool, 0.18 + (1 - mix) * 0.22);
+
+        const grad = ctx.createRadialGradient(size * 0.34, size * 0.30, size * 0.06, size * 0.5, size * 0.5, size * 0.66);
+        grad.addColorStop(0, `rgb(${Math.round(a.r * 255)}, ${Math.round(a.g * 255)}, ${Math.round(a.b * 255)})`);
+        grad.addColorStop(0.48, `rgb(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)})`);
+        grad.addColorStop(1, `rgb(${Math.round(b.r * 255)}, ${Math.round(b.g * 255)}, ${Math.round(b.b * 255)})`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, size, size);
+
+        ctx.globalAlpha = 0.16;
+        for (let y = 0; y < size; y += 4) {
+          const wave = Math.sin((y / size) * Math.PI * (4 + (s % 5))) * 0.5 + 0.5;
+          ctx.fillStyle = `rgba(255, 240, 210, ${0.06 + wave * 0.14})`;
+          ctx.fillRect(0, y, size, 2);
+        }
+
+        ctx.globalAlpha = 0.2;
+        for (let i = 0; i < 180; i++) {
+          const x = ((i * 73 + s) % size);
+          const y = ((i * 37 + (s >>> 3)) % size);
+          const r = 0.7 + ((i + (s % 9)) % 3);
+          ctx.fillStyle = `rgba(255, ${210 + ((i + s) % 40)}, 120, ${0.08 + ((i % 7) * 0.015)})`;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    _fleetHullTexture(colorHex, seed) {
+      const color = new THREE.Color(colorHex || 0x8fc4ff);
+      const s = seed >>> 0;
+      return this._getProceduralTexture(`fleet:${Math.round(color.r * 255)}:${Math.round(color.g * 255)}:${Math.round(color.b * 255)}:${s % 23}`, 128, (ctx, size) => {
+        const dark = color.clone().multiplyScalar(0.35);
+        const bright = color.clone().lerp(new THREE.Color(0xffffff), 0.55);
+        const grad = ctx.createLinearGradient(0, 0, size, size);
+        grad.addColorStop(0, `rgb(${Math.round(dark.r * 255)}, ${Math.round(dark.g * 255)}, ${Math.round(dark.b * 255)})`);
+        grad.addColorStop(0.5, `rgb(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)})`);
+        grad.addColorStop(1, `rgb(${Math.round(bright.r * 255)}, ${Math.round(bright.g * 255)}, ${Math.round(bright.b * 255)})`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, size, size);
+
+        // Panel-like striping to break up smooth hull shading.
+        ctx.globalAlpha = 0.25;
+        for (let x = 0; x < size; x += 8) {
+          const w = (x / 8 + (s % 5)) % 3 === 0 ? 2 : 1;
+          ctx.fillStyle = 'rgba(255,255,255,0.22)';
+          ctx.fillRect(x, 0, w, size);
+        }
+        ctx.globalAlpha = 0.2;
+        for (let i = 0; i < 80; i++) {
+          const y = ((i * 19 + s) % size);
+          const h = ((i + s) % 2) + 1;
+          ctx.fillStyle = 'rgba(16, 24, 36, 0.3)';
+          ctx.fillRect(0, y, size, h);
+        }
+        ctx.globalAlpha = 1;
+      });
     }
 
     _buildSystemBackdrop(star) {
@@ -695,14 +1348,25 @@
     }
 
     exitSystemView(restoreGalaxy = true) {
+      // Cancel pending refinement tasks
+      if (this.systemRefinementTimeoutId) {
+        clearTimeout(this.systemRefinementTimeoutId);
+        this.systemRefinementTimeoutId = null;
+      }
+      this.systemRefinementQueue = [];
+      this.systemRefinementInProgress = false;
+
       this.systemMode = false;
       this.systemSourceStar = null;
       this.systemPlanetEntries = [];
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
+      this.systemAtmosphereEntries = [];
+      this.systemCloudEntries = [];
       this.systemHoverEntry = null;
       this.systemSelectedEntry = null;
       if (this.systemGroup) this.systemGroup.visible = false;
+      this._clearGroup(this.systemSkyGroup);
       this._clearGroup(this.systemBackdrop);
       this._clearGroup(this.systemOrbitGroup);
       this._clearGroup(this.systemBodyGroup);
@@ -713,6 +1377,7 @@
       if (this.halo) this.halo.visible = true;
       if (this.grid) this.grid.visible = true;
       if (this.hoverMarker) this.hoverMarker.visible = false;
+      this._syncClusterAuraTransform();
       if (restoreGalaxy && this.starPoints) {
         this.autoFrameEnabled = true;
         if (this.selectedIndex >= 0 && this.selectedIndex < this.visibleStars.length) {
@@ -735,21 +1400,52 @@
       if (this.halo) this.halo.visible = false;
       if (this.grid) this.grid.visible = false;
       if (this.hoverMarker) this.hoverMarker.visible = false;
+      this._syncClusterAuraTransform();
+      this._buildSystemSkyDome(star);
 
+      // Phase 0: Fast baseline (orbits + star + flat-color planets + fleets)
+      this._buildSystemPhase0(star, payload);
+
+      // Queue Phases 1-3: Progressive texture & visual refinement (per-planet)
+      this._queueSystemRefinement(star, payload);
+
+      this.controls.target.set(0, 0, 0);
+      this.focusTarget = {
+        fromTarget: this.controls.target.clone(),
+        toTarget: new THREE.Vector3(0, 0, 0),
+        fromPos: this.camera.position.clone(),
+        toPos: new THREE.Vector3(0, 132, 214),
+        t: 0,
+      };
+    }
+
+    _buildSystemPhase0(star, payload) {
       const starRadius = {
         O: 20, B: 17, A: 15, F: 13, G: 11, K: 9, M: 7,
       }[String(star.spectral_class || 'G').toUpperCase()] || 11;
       const starColor = this._spectralColorHex(star.spectral_class);
+      const starSeed = this._starSeed(star);
+      const starMap = this._starSurfaceTexture(star.spectral_class, starSeed);
       const starMesh = new THREE.Mesh(
         new THREE.SphereGeometry(starRadius, 28, 28),
         new THREE.MeshStandardMaterial({
           color: starColor,
+          map: starMap,
           emissive: starColor,
+          emissiveMap: starMap,
           emissiveIntensity: 0.85,
           roughness: 0.4,
           metalness: 0.02,
         })
       );
+      starMesh.material.userData = Object.assign({}, starMesh.material.userData, { sharedTexture: true });
+      const starCorona = this._buildStarCoronaShader(starColor, starRadius);
+      starMesh.add(starCorona);
+      this._registerAnimatedAtmosphere(starCorona, starCorona.userData || {});
+      this._buildStarAtmosphereShells(starColor, starRadius).forEach((shell) => {
+        starMesh.add(shell);
+        this._registerAnimatedAtmosphere(shell, shell.userData || {});
+      });
       this.systemBodyGroup.add(starMesh);
 
       const bodies = (payload.planets || [])
@@ -781,9 +1477,16 @@
         orbitPivot.add(orbitLine);
         this.systemOrbitGroup.add(orbitPivot);
 
+        const planetSize = this._planetSize(body, index);
+        // Phase 0: Use flat-color base material (no texture yet)
+        const baseMaterial = new THREE.MeshStandardMaterial({
+          color: this._planetColor(body?.planet_class),
+          roughness: 0.82,
+          metalness: 0.04,
+        });
         const mesh = new THREE.Mesh(
-          new THREE.SphereGeometry(this._planetSize(body, index), 18, 18),
-          new THREE.MeshStandardMaterial({ color: this._planetColor(body.planet_class), roughness: 0.82, metalness: 0.04 })
+          new THREE.SphereGeometry(planetSize, 18, 18),
+          baseMaterial
         );
         this.systemBodyGroup.add(mesh);
         mesh.userData = {
@@ -793,6 +1496,9 @@
           body,
           orbitRadius,
           orbitMinor,
+          payload,
+          index,
+          refinementPhase: 0, // Track which phase this planet is at
         };
         return {
           mesh,
@@ -807,6 +1513,7 @@
         };
       });
 
+      // Phase 0: Add fleets now (not deferred)
       this.systemFacilityEntries = this.systemPlanetEntries
         .map((entry, index) => this._buildOrbitalFacilityEntry(entry, index))
         .filter(Boolean);
@@ -815,16 +1522,97 @@
         .map((fleet, index) => this._buildFleetFormationEntry(fleet, index));
 
       this._buildSystemBackdrop(star);
-
-      this.controls.target.set(0, 0, 0);
-      this.focusTarget = {
-        fromTarget: this.controls.target.clone(),
-        toTarget: new THREE.Vector3(0, 0, 0),
-        fromPos: this.camera.position.clone(),
-        toPos: new THREE.Vector3(0, 132, 214),
-        t: 0,
-      };
+      this._syncSystemSkyDome(0);
     }
+
+    _queueSystemRefinement(star, payload) {
+      if (!Array.isArray(this.systemPlanetEntries) || !this.systemPlanetEntries.length) return;
+
+      // Queue one texture-gen task per planet
+      this.systemRefinementQueue = this.systemPlanetEntries.map((entry, index) => ({
+        phase: 1, // Texture generation
+        entryIndex: index,
+        entry,
+        star,
+        payload,
+        slot: entry.slot,
+        body: entry.body,
+        mesh: entry.mesh,
+        delayMs: index * 50, // Stagger: planet 0 @ 0ms, planet 1 @ 50ms, etc.
+      }));
+
+      // Start processing
+      this._processSystemRefinementQueue();
+    }
+
+    _processSystemRefinementQueue() {
+      if (this.systemRefinementInProgress || !this.systemRefinementQueue.length) return;
+
+      const task = this.systemRefinementQueue.shift();
+      if (!task) return;
+
+      this.systemRefinementInProgress = true;
+
+      const runTask = () => {
+        try {
+          // Phase 1: Generate planet texture and apply
+          const descriptor = this._planetTextureDescriptor(task.payload, task.slot, task.body, task.entryIndex);
+          if (descriptor && this.texturePipeline) {
+            const fallbackColor = this._planetColor(task.body?.planet_class);
+            const material = this.texturePipeline.getPlanetMaterial(task.body, descriptor, fallbackColor);
+            if (task.mesh && material) {
+              task.mesh.material = material;
+              task.mesh.userData.refinementPhase = 1;
+            }
+          }
+
+          // Phase 2: Add atmosphere shell
+          const planetSize = this._planetSize(task.body, task.entryIndex);
+          const atmosphereShell = this._planetAtmosphereShell(task.payload, task.slot, task.body, task.entryIndex, planetSize);
+          if (atmosphereShell && task.mesh) {
+            task.mesh.add(atmosphereShell);
+            this._registerAnimatedAtmosphere(atmosphereShell, {
+              baseOpacity: atmosphereShell.material?.opacity ?? 0.12,
+              pulseAmplitude: 0.02,
+              pulseSpeed: 0.65 + task.entryIndex * 0.08,
+              scaleAmplitude: 0.008,
+              phase: task.entryIndex * 0.7,
+            });
+            task.mesh.userData.refinementPhase = 2;
+          }
+
+          // Phase 3: Add cloud shell
+          const cloudShell = this._planetCloudShell(task.payload, task.slot, task.body, task.entryIndex, planetSize);
+          if (cloudShell && task.mesh) {
+            task.mesh.add(cloudShell);
+            this._registerAnimatedCloud(cloudShell, {
+              baseOpacity: cloudShell.userData?.baseOpacity ?? cloudShell.material?.opacity ?? 0.18,
+              rotationSpeed: cloudShell.userData?.rotationSpeed ?? (0.03 + task.entryIndex * 0.01),
+              phase: task.entryIndex * 0.91,
+            });
+            task.mesh.userData.refinementPhase = 3;
+          }
+
+          this.systemRefinementInProgress = false;
+
+          // Process next task
+          if (this.systemRefinementQueue.length) {
+            const nextTask = this.systemRefinementQueue[0];
+            this.systemRefinementTimeoutId = setTimeout(runTask, Math.max(0, nextTask.delayMs));
+          }
+        } catch (err) {
+          console.error('[GQ] systemRefinement task failed:', err);
+          this.systemRefinementInProgress = false;
+          // Skip this task and continue
+          if (this.systemRefinementQueue.length) {
+            this.systemRefinementTimeoutId = setTimeout(runTask, 100);
+          }
+        }
+      };
+
+      this.systemRefinementTimeoutId = setTimeout(runTask, task.delayMs);
+    }
+
 
     focusOnSystemPlanet(planetLike, smooth = true) {
       if (!this.systemMode || !planetLike) return;
@@ -833,6 +1621,7 @@
       if (!entry) return;
 
       this.systemSelectedEntry = entry;
+      this._touchSelection('focus-system-planet');
       this._updateHoverMarker();
 
       const worldPos = entry.mesh.getWorldPosition(new THREE.Vector3());
@@ -890,6 +1679,7 @@
       if (this.hasExternalOrbitControls) return;
       e.preventDefault();
       this.autoFrameEnabled = false;
+      this._lastZoomInputMs = performance.now();
       const zoomIn = e.deltaY < 0;
       this._zoomTowardsTarget(zoomIn ? 0.88 : 1.14);
     }
@@ -957,6 +1747,7 @@
     }
 
     _zoomTowardsTarget(factor) {
+      this._lastZoomInputMs = performance.now();
       const offset = this.camera.position.clone().sub(this.controls.target).multiplyScalar(factor);
       const dist = offset.length();
       if (dist < this.controls.minDistance) offset.setLength(this.controls.minDistance);
@@ -1006,6 +1797,10 @@
       this.autoFrameEnabled = false;
       if (this.systemMode && this.systemSelectedEntry) {
         this.focusOnSystemPlanet(this._planetPayload(this.systemSelectedEntry), true);
+        return;
+      }
+      if (!this.systemMode && this.selectedClusterIndex >= 0) {
+        this.focusOnCluster(this.selectedClusterIndex, true, { close: true });
         return;
       }
       if (!this.systemMode && this.selectedIndex >= 0) {
@@ -1066,9 +1861,24 @@
     _pickSystemPlanet() {
       if (!this.systemMode || !this.systemPlanetEntries.length) return null;
       this.raycaster.setFromCamera(this.pointer, this.camera);
-      const hits = this.raycaster.intersectObjects(this.systemPlanetEntries.map((entry) => entry.mesh), false);
+      const hits = this.raycaster.intersectObjects(this.systemPlanetEntries.map((entry) => entry.mesh), true);
       if (!hits.length) return null;
-      return this.systemPlanetEntries.find((entry) => entry.mesh === hits[0].object) || null;
+      for (const hit of hits) {
+        const entry = this._resolveSystemPlanetEntryFromObject(hit.object);
+        if (entry) return entry;
+      }
+      return null;
+    }
+
+    _resolveSystemPlanetEntryFromObject(obj) {
+      if (!obj || !this.systemPlanetEntries?.length) return null;
+      let current = obj;
+      while (current) {
+        const found = this.systemPlanetEntries.find((entry) => entry.mesh === current);
+        if (found) return found;
+        current = current.parent || null;
+      }
+      return null;
     }
 
     _handlePointerMove(e) {
@@ -1083,6 +1893,19 @@
         }
         return;
       }
+      const clusterIdx = this._pickClusterBox();
+      if (clusterIdx >= 0) {
+        this.hoverClusterIndex = clusterIdx;
+        this.hoverIndex = -1;
+        this._updateHoverMarker();
+        this._updateStarVisualState();
+        if (typeof this.opts.onHover === 'function') {
+          const entry = this.clusterAuraEntries[clusterIdx] || null;
+          this.opts.onHover(this._clusterPayload(entry, clusterIdx), this._clusterWorldScreenPosition(entry));
+        }
+        return;
+      }
+      this.hoverClusterIndex = -1;
       const idx = this._pickStar();
       if (idx === this.hoverIndex) return;
       this.hoverIndex = idx;
@@ -1099,6 +1922,7 @@
         const entry = this._pickSystemPlanet();
         if (!entry) return;
         this.systemSelectedEntry = entry;
+        this._touchSelection('click-planet');
         this._updateHoverMarker();
         this.focusOnSystemPlanet(this._planetPayload(entry), true);
         if (typeof this.opts.onClick === 'function') {
@@ -1106,9 +1930,27 @@
         }
         return;
       }
+      const clusterIdx = this._pickClusterBox();
+      if (clusterIdx >= 0) {
+        const entry = this.clusterAuraEntries[clusterIdx] || null;
+        this.selectedClusterIndex = clusterIdx;
+        this.selectedIndex = -1;
+        this.hoverClusterIndex = clusterIdx;
+        this._touchSelection('click-cluster');
+        this._updateHoverMarker();
+        this.focusOnCluster(clusterIdx, true);
+        this._updateStarVisualState();
+        if (typeof this.opts.onClick === 'function') {
+          this.opts.onClick(this._clusterPayload(entry, clusterIdx), this._clusterWorldScreenPosition(entry));
+        }
+        return;
+      }
       const idx = this._pickStar();
       if (idx < 0) return;
+      this.selectedClusterIndex = -1;
+      this.hoverClusterIndex = -1;
       this.selectedIndex = idx;
+      this._touchSelection('click-star');
       this._updateHoverMarker();
       this.focusOnStar(this.visibleStars[idx], true);
       this._updateStarVisualState();
@@ -1123,6 +1965,7 @@
         const entry = this._pickSystemPlanet();
         if (!entry) return;
         this.systemSelectedEntry = entry;
+        this._touchSelection('doubleclick-planet');
         this._updateHoverMarker();
         if (typeof this.opts.onDoubleClick === 'function') {
           this.opts.onDoubleClick(Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }), this.getWorldScreenPosition(entry.mesh.getWorldPosition(new THREE.Vector3())));
@@ -1130,8 +1973,26 @@
         return;
       }
       const idx = this._pickStar();
+      const clusterIdx = this._pickClusterBox();
+      if (clusterIdx >= 0) {
+        const entry = this.clusterAuraEntries[clusterIdx] || null;
+        this.selectedClusterIndex = clusterIdx;
+        this.selectedIndex = -1;
+        this.hoverClusterIndex = clusterIdx;
+        this._touchSelection('doubleclick-cluster');
+        this._updateHoverMarker();
+        this.focusOnCluster(clusterIdx, true, { close: true });
+        this._updateStarVisualState();
+        if (typeof this.opts.onDoubleClick === 'function') {
+          this.opts.onDoubleClick(this._clusterPayload(entry, clusterIdx), this._clusterWorldScreenPosition(entry));
+        }
+        return;
+      }
       if (idx < 0) return;
+      this.selectedClusterIndex = -1;
+      this.hoverClusterIndex = -1;
       this.selectedIndex = idx;
+      this._touchSelection('doubleclick-star');
       this._updateHoverMarker();
       this.focusOnStar(this.visibleStars[idx], true);
       this._updateStarVisualState();
@@ -1234,8 +2095,92 @@
       return { stars: out, map };
     }
 
-    setStars(stars) {
+    _detectLodProfile() {
+      try {
+        const cores = Number(navigator?.hardwareConcurrency || 0);
+        const mem = Number(navigator?.deviceMemory || 0);
+        if (cores >= 12 || mem >= 16) return 'ultra';
+        if (cores >= 8 || mem >= 8) return 'high';
+        if (cores >= 4 || mem >= 4) return 'medium';
+      } catch (_) {}
+      return 'low';
+    }
+
+    _adaptiveClusterTargetPoints() {
+      const baseByProfile = {
+        low: 5200,
+        medium: 7000,
+        high: 9000,
+        ultra: 11000,
+      };
+      const boostByProfile = {
+        low: 1.0,
+        medium: 1.3,
+        high: 1.8,
+        ultra: 2.2,
+      };
+      const base = Number(baseByProfile[this.lodProfile] || 6500);
+      const boost = Number(boostByProfile[this.lodProfile] || 1.0);
+      const distance = this._cameraDistance();
+      const zoomNear = 90;
+      const zoomFar = 900;
+      const zoomT = THREE.MathUtils.clamp((zoomFar - distance) / (zoomFar - zoomNear), 0, 1);
+      const mode = String(this.clusterDensityMode || 'auto');
+      if (mode === 'max') {
+        const maxTarget = Math.round((base * 2.25) * (1 + zoomT * 0.85));
+        return THREE.MathUtils.clamp(maxTarget, 13000, 42000);
+      }
+      if (mode === 'high') {
+        const highTarget = Math.round((base * 1.55) * (1 + zoomT * 0.62));
+        return THREE.MathUtils.clamp(highTarget, 8200, 30000);
+      }
+      const target = Math.round(base * (1 + zoomT * boost));
+      return THREE.MathUtils.clamp(target, 3500, 26000);
+    }
+
+    setClusterDensityMode(mode, opts = {}) {
+      const normalized = ['auto', 'high', 'max'].includes(String(mode || '').toLowerCase())
+        ? String(mode || '').toLowerCase()
+        : 'auto';
+      this.clusterDensityMode = normalized;
+      const shouldRecluster = opts.recluster !== false;
+      const preserveView = opts.preserveView !== false;
+      if (shouldRecluster && Array.isArray(this.stars) && this.stars.length && !this.systemMode) {
+        this.setStars(this.stars, { preserveView });
+      }
+      return this.clusterDensityMode;
+    }
+
+    getClusterDensityMode() {
+      return String(this.clusterDensityMode || 'auto');
+    }
+
+    getRenderStats() {
+      const raw = Array.isArray(this.stars) ? this.stars.length : 0;
+      const visible = Array.isArray(this.visibleStars) ? this.visibleStars.length : 0;
+      const ratio = raw > 0 ? (visible / raw) : 0;
+      return {
+        rawStars: raw,
+        visibleStars: visible,
+        clusterCount: Array.isArray(this.clusterAuraEntries) ? this.clusterAuraEntries.length : 0,
+        clusterBoundsVisible: !!this.clusterBoundsVisible,
+        densityRatio: ratio,
+        targetPoints: Number(this._appliedClusterTargetPoints || 0),
+        densityMode: String(this.clusterDensityMode || 'auto'),
+        lodProfile: String(this.lodProfile || 'medium'),
+        cameraDistance: Number(this._cameraDistance() || 0),
+      };
+    }
+
+    setStars(stars, opts = {}) {
       if (this.systemMode) this.exitSystemView(false);
+      const preserveView = !!opts.preserveView;
+      const prevRawSelected = (this.selectedIndex >= 0 && this.visibleToRawIndex[this.selectedIndex] != null)
+        ? Number(this.visibleToRawIndex[this.selectedIndex])
+        : -1;
+      const prevRawHover = (this.hoverIndex >= 0 && this.visibleToRawIndex[this.hoverIndex] != null)
+        ? Number(this.visibleToRawIndex[this.hoverIndex])
+        : -1;
       this.stars = Array.isArray(stars) ? stars.slice() : [];
       this.visibleStars = [];
       this.visibleToRawIndex = [];
@@ -1251,12 +2196,35 @@
 
       if (!this.stars.length) {
         this._rebuildClusterAuras();
+        this._syncClusterAuraTransform();
         return;
       }
 
-      const clustered = this._clusterStars(this.stars, 6500);
+      const targetPoints = this.dynamicClusterLod
+        ? this._adaptiveClusterTargetPoints()
+        : 6500;
+      const clustered = this._clusterStars(this.stars, targetPoints);
+      this._appliedClusterTargetPoints = targetPoints;
       this.visibleStars = clustered.stars;
       this.visibleToRawIndex = clustered.map;
+      this._debugLog('set-stars', {
+        rawStars: this.stars.length,
+        visibleStars: this.visibleStars.length,
+        targetPoints,
+        preserveView,
+      });
+
+      if (prevRawSelected >= 0) {
+        const mapped = this.visibleToRawIndex.indexOf(prevRawSelected);
+        if (mapped >= 0) this.selectedIndex = mapped;
+        else this.selectedIndex = this._findClosestStarToTargetIndex();
+        if (preserveView && this.selectedIndex >= 0) this._touchSelection('recluster-remap-selection');
+      }
+      if (prevRawHover >= 0) {
+        const mapped = this.visibleToRawIndex.indexOf(prevRawHover);
+        if (mapped >= 0) this.hoverIndex = mapped;
+        else this.hoverIndex = this._findClosestStarToTargetIndex();
+      }
 
       if (!this.visibleStars.length) return;
 
@@ -1362,20 +2330,25 @@
       this.starPoints = new THREE.Points(geo, material);
       this.scene.add(this.starPoints);
 
-      const bs = geo.boundingSphere;
-      if (bs && Number.isFinite(bs.radius) && bs.radius > 0) {
-        const center = bs.center.clone();
-        const radius = Math.max(80, bs.radius);
-        const distance = radius * 1.55;
-        this.controls.target.copy(center);
-        this.camera.position.set(center.x + distance * 0.42, center.y + distance * 0.22, center.z + distance);
+      if (!preserveView) {
+        const bs = geo.boundingSphere;
+        if (bs && Number.isFinite(bs.radius) && bs.radius > 0) {
+          const center = bs.center.clone();
+          const radius = Math.max(80, bs.radius);
+          const distance = radius * 1.55;
+          this.controls.target.copy(center);
+          this.camera.position.set(center.x + distance * 0.42, center.y + distance * 0.22, center.z + distance);
+        } else {
+          this.controls.target.set(0, 0, 0);
+        }
+        this.controls.update();
+        this.fitCameraToStars(true, true);
       } else {
-        this.controls.target.set(0, 0, 0);
+        this.controls.update();
       }
-      this.controls.update();
-      this.fitCameraToStars(true, true);
       this._rebuildClusterAuras();
       this._applyEmpireHeartbeatMask();
+      this._syncClusterAuraTransform();
       this._updateHoverMarker();
     }
 
@@ -1408,6 +2381,20 @@
         this.hoverMarker.position.copy(worldPos);
         this.hoverMarker.scale.setScalar(baseSize * (this.systemHoverEntry ? 3.2 : 2.7));
         this.hoverMarker.visible = true;
+        return;
+      }
+      const clusterMarkerIndex = this.hoverClusterIndex >= 0 ? this.hoverClusterIndex : this.selectedClusterIndex;
+      if (clusterMarkerIndex >= 0) {
+        const clusterEntry = this.clusterAuraEntries?.[clusterMarkerIndex] || null;
+        if (!clusterEntry?.center || !clusterEntry?.size) {
+          this.hoverMarker.visible = false;
+          return;
+        }
+        const worldPos = this.clusterAuraGroup.localToWorld(clusterEntry.center.clone());
+        const baseSize = Math.max(10, clusterEntry.size.length() * 0.18);
+        this.hoverMarker.position.copy(worldPos);
+        this.hoverMarker.scale.setScalar(baseSize * (this.hoverClusterIndex >= 0 ? 2.1 : 1.8));
+        this.hoverMarker.visible = !!this.clusterBoundsVisible;
         return;
       }
       if (!this.starPoints) return;
@@ -1495,18 +2482,66 @@
       return !!this.followSelectionEnabled;
     }
 
+    setTransitionsEnabled(enabled) {
+      this.transitionsEnabled = !!enabled;
+      return this.transitionsEnabled;
+    }
+
     _updateDoppler(dt) {
       if (!this.starPoints || !this.starPoints.material?.uniforms) return;
       const delta = this.camera.position.clone().sub(this.prevCamPos);
       this.prevCamPos.copy(this.camera.position);
       const invDt = dt > 0 ? (1 / dt) : 0;
       const speed = delta.length() * invDt;
+      this.cameraMotionSpeed = speed;
+      const now = performance.now();
+      if (speed <= this.transitionStableSpeed) {
+        if (!this._cameraStableSinceMs) this._cameraStableSinceMs = now;
+      } else {
+        this._cameraStableSinceMs = 0;
+      }
       if (speed <= 1e-5) {
         this.cameraVelocity.set(0, 0, 0);
       } else {
         this.cameraVelocity.copy(delta.normalize().multiplyScalar(Math.min(1.0, speed / 120.0)));
       }
       this.starPoints.material.uniforms.uCameraVel.value.copy(this.cameraVelocity);
+    }
+
+    _isTransitionMotionStable() {
+      if (!this._cameraStableSinceMs) return false;
+      return (performance.now() - this._cameraStableSinceMs) >= this.transitionStableMinMs;
+    }
+
+    _debugLog(event, data = null, level = 'debug') {
+      if (!this.debugEnabled) return;
+      const logger = (console && typeof console[level] === 'function') ? console[level] : console.log;
+      if (data == null) logger.call(console, `[Galaxy3D] ${event}`);
+      else logger.call(console, `[Galaxy3D] ${event}`, data);
+    }
+
+    _debugLogThrottled(key, event, data = null, minIntervalMs = this.debugThrottleMs) {
+      if (!this.debugEnabled) return;
+      const now = performance.now();
+      const last = Number(this._debugLastByKey.get(key) || 0);
+      if ((now - last) < minIntervalMs) return;
+      this._debugLastByKey.set(key, now);
+      this._debugLog(event, data);
+    }
+
+    _touchSelection(reason = 'unspecified') {
+      this._selectionTouchedMs = performance.now();
+      this._debugLog('selection-touch', {
+        reason,
+        selectedIndex: this.selectedIndex,
+        hoverIndex: this.hoverIndex,
+        systemMode: this.systemMode,
+      });
+    }
+
+    _selectionIsSettled() {
+      if (!this._selectionTouchedMs) return true;
+      return (performance.now() - this._selectionTouchedMs) >= this.transitionSelectionMinMs;
     }
 
     focusOnStar(star, smooth) {
@@ -1530,6 +2565,52 @@
         toPos: new THREE.Vector3(tx + 70, ty + 46, tz + 95),
         t: 0,
       };
+    }
+
+    focusOnCluster(clusterIndex, smooth = true, opts = {}) {
+      const entry = this.clusterAuraEntries?.[clusterIndex] || null;
+      if (!entry?.center || !entry?.size) return;
+      const center = entry.center.clone();
+      const radius = Math.max(18, entry.size.length() * 0.75);
+      const distance = (opts.close ? 1.35 : 1.75) * radius;
+      const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+      const viewDir = dir.lengthSq() > 1e-5 ? dir : new THREE.Vector3(0.72, 0.48, 1).normalize();
+      const targetPos = center.clone().add(viewDir.multiplyScalar(distance));
+      if (!smooth) {
+        this.controls.target.copy(center);
+        this.camera.position.copy(targetPos);
+        this.controls.update();
+        return;
+      }
+      this.focusTarget = {
+        fromTarget: this.controls.target.clone(),
+        toTarget: center.clone(),
+        fromPos: this.camera.position.clone(),
+        toPos: targetPos,
+        t: 0,
+      };
+    }
+
+    setClusterBoundsVisible(enabled) {
+      this.clusterBoundsVisible = !!enabled;
+      (this.clusterAuraEntries || []).forEach((entry) => {
+        if (entry?.wireMesh) entry.wireMesh.visible = this.clusterBoundsVisible;
+        if (entry?.hitMesh) entry.hitMesh.visible = this.clusterBoundsVisible;
+        if (entry?.wireMat) entry.wireMat.opacity = this.clusterBoundsVisible ? Math.max(0.12, entry.wireMat.opacity || 0.26) : 0;
+      });
+      if (!this.clusterBoundsVisible) {
+        this.hoverClusterIndex = -1;
+        if (this.selectedClusterIndex >= 0) this.selectedClusterIndex = -1;
+      }
+      return this.clusterBoundsVisible;
+    }
+
+    toggleClusterBounds() {
+      return this.setClusterBoundsVisible(!this.clusterBoundsVisible);
+    }
+
+    areClusterBoundsVisible() {
+      return !!this.clusterBoundsVisible;
     }
 
     // Explicit matrix chain for UI overlay projection: P * V * M * p
@@ -1587,12 +2668,65 @@
       return this.camera.position.distanceTo(this.controls.target);
     }
 
+    _galaxySpinSpeeds() {
+      const distance = this._cameraDistance();
+      const t = THREE.MathUtils.clamp((distance - 95) / (860 - 95), 0, 1);
+      const outer = THREE.MathUtils.lerp(0.009, 0.021, t);
+      return {
+        outer,
+        core: outer * 1.55,
+        halo: outer * 1.22,
+      };
+    }
+
+    _findClosestStarToTargetIndex() {
+      if (!this.starPoints || !Array.isArray(this.visibleStars) || !this.visibleStars.length) return -1;
+      const posAttr = this.starPoints.geometry?.getAttribute('position');
+      if (!posAttr) return -1;
+
+      const localTarget = this.starPoints.worldToLocal(this.controls.target.clone());
+      let best = -1;
+      let bestD2 = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < posAttr.count; i++) {
+        const dx = posAttr.getX(i) - localTarget.x;
+        const dy = posAttr.getY(i) - localTarget.y;
+        const dz = posAttr.getZ(i) - localTarget.z;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    _persistentHoverIndexForDistance(distance) {
+      if (distance > this.persistentHoverDistance) return -1;
+      if (this.hoverClusterIndex >= 0 || this.selectedClusterIndex >= 0) return -1;
+      if (this.hoverIndex >= 0) return this.hoverIndex;
+      if (this.selectedIndex >= 0) return this.selectedIndex;
+
+      const now = performance.now();
+      if (now < this._persistentHoverCacheUntil && this._persistentHoverIndex >= 0) {
+        return this._persistentHoverIndex;
+      }
+      this._persistentHoverIndex = this._findClosestStarToTargetIndex();
+      this._persistentHoverCacheUntil = now + 170;
+      return this._persistentHoverIndex;
+    }
+
     _planetPayload(entry) {
       return Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar });
     }
 
     _triggerAutoTransition(kind, payload, screenPos = null) {
       this.autoTransitionCooldownUntil = performance.now() + 900;
+      this._debugLog('auto-transition', {
+        kind,
+        distance: Number(this._cameraDistance().toFixed(2)),
+        selectedIndex: this.selectedIndex,
+        hasSystemSelection: !!this.systemSelectedEntry,
+      });
       if (kind === 'enter-system') {
         this.autoTransitionArmed.galaxyEnterSystem = false;
         if (typeof this.opts.onDoubleClick === 'function') {
@@ -1633,12 +2767,25 @@
     }
 
     _handleZoomThresholdTransitions() {
+      if (!this.transitionsEnabled) return;
       if (performance.now() < this.autoTransitionCooldownUntil || this.focusTarget || this.controls.dragging) return;
+      const motionStable = this._isTransitionMotionStable();
+      const selectionSettled = this._selectionIsSettled();
       const distance = this._cameraDistance();
 
       if (!this.systemMode) {
         const idx = this.selectedIndex >= 0 ? this.selectedIndex : this.hoverIndex;
-        if (idx >= 0 && distance <= this.zoomThresholds.galaxyEnterSystem && this.autoTransitionArmed.galaxyEnterSystem) {
+        const allowSelection = this.selectedIndex < 0 || selectionSettled;
+        const allowGalaxyEnter = motionStable || distance <= this.zoomThresholds.galaxyEnterSystem * 0.86;
+        if (idx >= 0 && distance <= this.zoomThresholds.galaxyEnterSystem * 1.05 && !allowSelection) {
+          this._debugLogThrottled('guard-galaxy-enter-selection', 'transition-guarded', {
+            kind: 'enter-system',
+            reason: 'selection-not-settled',
+            distance: Number(distance.toFixed(2)),
+            settleMsLeft: Math.max(0, Math.ceil(this.transitionSelectionMinMs - (performance.now() - this._selectionTouchedMs))),
+          });
+        }
+        if (idx >= 0 && allowSelection && allowGalaxyEnter && distance <= this.zoomThresholds.galaxyEnterSystem && this.autoTransitionArmed.galaxyEnterSystem) {
           this.selectedIndex = idx;
           this._triggerAutoTransition('enter-system', this.visibleStars[idx], this.getScreenPosition(idx));
           return;
@@ -1650,7 +2797,17 @@
       }
 
       const activeEntry = this.systemSelectedEntry || this.systemHoverEntry;
-      if (activeEntry && distance <= this.zoomThresholds.systemEnterPlanet && this.autoTransitionArmed.systemEnterPlanet) {
+      const allowSelection = !this.systemSelectedEntry || selectionSettled;
+      const allowPlanetEnter = motionStable || distance <= this.zoomThresholds.systemEnterPlanet * 0.84;
+      if (activeEntry && distance <= this.zoomThresholds.systemEnterPlanet * 1.08 && !allowSelection) {
+        this._debugLogThrottled('guard-planet-enter-selection', 'transition-guarded', {
+          kind: 'enter-planet',
+          reason: 'selection-not-settled',
+          distance: Number(distance.toFixed(2)),
+          settleMsLeft: Math.max(0, Math.ceil(this.transitionSelectionMinMs - (performance.now() - this._selectionTouchedMs))),
+        });
+      }
+      if (activeEntry && allowSelection && allowPlanetEnter && distance <= this.zoomThresholds.systemEnterPlanet && this.autoTransitionArmed.systemEnterPlanet) {
         this.systemSelectedEntry = activeEntry;
         this._triggerAutoTransition('enter-planet', this._planetPayload(activeEntry), this.getWorldScreenPosition(activeEntry.mesh.getWorldPosition(new THREE.Vector3())));
         return;
@@ -1659,7 +2816,8 @@
         this.autoTransitionArmed.systemEnterPlanet = true;
       }
 
-      if (this.systemSelectedEntry && distance >= this.zoomThresholds.planetExitToSystem && this.autoTransitionArmed.planetExitToSystem) {
+      const allowPlanetExit = motionStable || distance >= this.zoomThresholds.planetExitToSystem * 1.08;
+      if (this.systemSelectedEntry && allowPlanetExit && distance >= this.zoomThresholds.planetExitToSystem && this.autoTransitionArmed.planetExitToSystem) {
         this._triggerAutoTransition('exit-planet');
         return;
       }
@@ -1667,7 +2825,8 @@
         this.autoTransitionArmed.planetExitToSystem = true;
       }
 
-      if (!this.systemSelectedEntry && distance >= this.zoomThresholds.systemExitToGalaxy && this.autoTransitionArmed.systemExitToGalaxy) {
+      const allowSystemExit = motionStable || distance >= this.zoomThresholds.systemExitToGalaxy * 1.08;
+      if (!this.systemSelectedEntry && allowSystemExit && distance >= this.zoomThresholds.systemExitToGalaxy && this.autoTransitionArmed.systemExitToGalaxy) {
         this._triggerAutoTransition('exit-system');
         return;
       }
@@ -1682,8 +2841,34 @@
       const dt = this.clock.getDelta();
 
       if (!this.systemMode) {
-        if (this.coreStars) this.coreStars.rotation.y += dt * 0.03;
-        this.halo.rotation.z += dt * 0.022;
+        if (this.dynamicClusterLod && this.stars.length > 2800) {
+          const now = performance.now();
+          const desired = this._adaptiveClusterTargetPoints();
+          const current = Math.max(1, Number(this._appliedClusterTargetPoints || 6500));
+          const drift = Math.abs(desired - current) / current;
+          const distance = this._cameraDistance();
+          const transitionSensitiveZoom = distance <= (this.zoomThresholds.galaxyResetSystem * 1.08);
+          const recentZoomInput = (now - this._lastZoomInputMs) < 1400;
+          if (drift >= 0.22
+            && (now - this._lastLodReclusterMs) >= 1100
+            && !this.focusTarget
+            && !this.controls.dragging
+            && !transitionSensitiveZoom
+            && !recentZoomInput) {
+            this._lastLodReclusterMs = now;
+            this._debugLog('lod-recluster', {
+              desired,
+              current,
+              drift: Number(drift.toFixed(3)),
+              distance: Number(distance.toFixed(2)),
+              recentZoomInput,
+            });
+            this.setStars(this.stars, { preserveView: true });
+          }
+        }
+        const spin = this._galaxySpinSpeeds();
+        if (this.coreStars) this.coreStars.rotation.y += dt * spin.core;
+        if (this.halo) this.halo.rotation.z += dt * spin.halo;
         this.heartbeatPhase += dt * 4.2;
         if (this.starPoints?.material?.uniforms?.uHeartbeatPhase) {
           this.starPoints.material.uniforms.uHeartbeatPhase.value = this.heartbeatPhase;
@@ -1706,12 +2891,39 @@
           if (entry.lineMat) {
             entry.lineMat.opacity = THREE.MathUtils.lerp(0.04, 0.20, zoomT) + beat * 0.08;
           }
+          if (entry.group) {
+            entry.group.rotation.y += dt * (0.018 + index * 0.0008);
+          }
+          if (entry.wireMat) {
+            const isSelected = index === this.selectedClusterIndex;
+            const isHovered = index === this.hoverClusterIndex;
+            const baseOpacity = this.clusterBoundsVisible ? THREE.MathUtils.lerp(0.14, 0.28, zoomT) : 0;
+            const accentOpacity = isSelected ? 0.52 : isHovered ? 0.34 : 0;
+            entry.wireMat.opacity = this.clusterBoundsVisible
+              ? THREE.MathUtils.clamp(baseOpacity + accentOpacity + beat * 0.08, 0, 0.88)
+              : 0;
+          }
+          if (entry.wireMesh) {
+            const scale = index === this.selectedClusterIndex
+              ? 1.05 + beat * 0.035
+              : index === this.hoverClusterIndex
+                ? 1.025 + beat * 0.02
+                : 1;
+            entry.wireMesh.scale.setScalar(scale);
+            entry.wireMesh.visible = !!this.clusterBoundsVisible;
+          }
+          if (entry.hitMesh) {
+            entry.hitMesh.visible = !!this.clusterBoundsVisible;
+          }
         });
 
-        if (this.autoFrameEnabled && !this.controls.dragging && this.starPoints) {
-          this.starPoints.rotation.y += dt * 0.018;
+        if (this.starPoints) {
+          this.starPoints.rotation.y += dt * spin.outer;
         }
+        this._syncClusterAuraTransform();
       } else {
+        const elapsed = this.clock.elapsedTime;
+        this._syncSystemSkyDome(dt);
         this.systemPlanetEntries.forEach((entry, index) => {
           entry.angle += dt * entry.speed;
           const x = Math.cos(entry.angle) * entry.orbitRadius;
@@ -1742,6 +2954,25 @@
           fleetEntry.group.position.copy(pos);
           fleetEntry.group.rotation.y += dt * 0.9;
         });
+        this.systemAtmosphereEntries.forEach((entry) => {
+          const material = entry.mesh?.material;
+          if (!entry.mesh || !material) return;
+          const beat = 0.5 + 0.5 * Math.sin(elapsed * entry.pulseSpeed + entry.phase);
+          const opacity = entry.baseOpacity + beat * entry.pulseAmplitude;
+          if (entry.uniforms?.uTime) entry.uniforms.uTime.value = elapsed;
+          if (entry.uniforms?.uOpacity) entry.uniforms.uOpacity.value = THREE.MathUtils.clamp(opacity, 0.02, 0.42);
+          else material.opacity = THREE.MathUtils.clamp(opacity, 0.02, 0.42);
+          const scaleMul = 1 + ((beat - 0.5) * 2 * entry.scaleAmplitude);
+          entry.mesh.scale.copy(entry.baseScale).multiplyScalar(scaleMul);
+        });
+        this.systemCloudEntries.forEach((entry, index) => {
+          const mesh = entry.mesh;
+          const material = mesh?.material;
+          if (!mesh || !material) return;
+          mesh.rotation.y += dt * entry.rotationSpeed;
+          mesh.rotation.z = Math.sin(elapsed * (0.22 + index * 0.03) + entry.phase) * 0.03;
+          material.opacity = THREE.MathUtils.clamp(entry.baseOpacity + Math.sin(elapsed * 0.7 + entry.phase) * 0.03, 0.05, 0.42);
+        });
         if (this.systemBackdrop) this.systemBackdrop.rotation.y += dt * 0.01;
       }
 
@@ -1758,14 +2989,25 @@
 
       this._tickFocus(dt);
       this._followTrackedSelection();
-      this._handleZoomThresholdTransitions();
       this._updateDoppler(dt);
+      this._handleZoomThresholdTransitions();
       this._updateHoverMarker();
       this.controls.update();
       this.renderer.render(this.scene, this.camera);
 
-      if (!this.systemMode && typeof this.opts.onHover === 'function' && this.hoverIndex >= 0) {
-        this.opts.onHover(this.visibleStars[this.hoverIndex], this.getScreenPosition(this.hoverIndex));
+      if (!this.systemMode && typeof this.opts.onHover === 'function') {
+        const activeClusterIndex = this.hoverClusterIndex >= 0 ? this.hoverClusterIndex : this.selectedClusterIndex;
+        if (activeClusterIndex >= 0) {
+          const activeCluster = this.clusterAuraEntries?.[activeClusterIndex] || null;
+          this.opts.onHover(this._clusterPayload(activeCluster, activeClusterIndex), this._clusterWorldScreenPosition(activeCluster));
+          return;
+        }
+        const displayIndex = this._persistentHoverIndexForDistance(this._cameraDistance());
+        if (displayIndex >= 0) {
+          this.opts.onHover(this.visibleStars[displayIndex], this.getScreenPosition(displayIndex));
+        } else {
+          this.opts.onHover(null, null);
+        }
       }
     }
 
@@ -1787,11 +3029,18 @@
         this.coreStars.material.dispose();
       }
       this._clearGroup(this.clusterAuraGroup);
+      this._clearGroup(this.systemSkyGroup);
       this._clearGroup(this.systemBackdrop);
       this._clearGroup(this.systemOrbitGroup);
       this._clearGroup(this.systemBodyGroup);
       this._clearGroup(this.systemFacilityGroup);
       this._clearGroup(this.systemFleetGroup);
+      this.texturePipeline?.dispose?.();
+      for (const tex of this.proceduralTextureCache.values()) tex?.dispose?.();
+      this.proceduralTextureCache.clear();
+      for (const geo of this.vesselGeometryCache.values()) geo?.dispose?.();
+      this.vesselGeometryCache.clear();
+      this._debugLastByKey.clear();
       if (this.starPoints) {
         this.starPoints.geometry.dispose();
         this.starPoints.material.dispose();

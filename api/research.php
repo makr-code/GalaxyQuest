@@ -99,18 +99,20 @@ switch ($action) {
         only_method('POST');
         verify_csrf();
         $db = get_db();
+        $completed = [];
         $due = $db->prepare(
             'SELECT type FROM research
              WHERE user_id=? AND research_end IS NOT NULL AND research_end <= NOW()'
         );
         $due->execute([$uid]);
         foreach ($due->fetchAll() as $r) {
+            $completed[] = (string)$r['type'];
             $db->prepare(
                 'UPDATE research SET level=level+1, research_end=NULL WHERE user_id=? AND type=?'
             )->execute([$uid, $r['type']]);
         }
         check_and_update_achievements($db, $uid);
-        json_ok();
+        json_ok(['completed' => $completed]);
         break;
 
     default:

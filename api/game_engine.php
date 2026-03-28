@@ -311,9 +311,11 @@ function get_system_3d_coords(PDO $db, int $g, int $s): array {
     $r0        = 3500.0;
     $rEnd      = 45000.0;
     $armIdx    = ($g - 1) % $arms;
-    $bandFrac  = (int)(($g - 1) / $arms) / 2.0;
-    $rMin      = $r0 + $bandFrac * ($rEnd - $r0) * 0.5;
-    $rMax      = $rMin + ($rEnd - $r0) * 0.5;
+    $zoneCount = max(1, (int)ceil(9 / $arms));
+    $radialZone = min($zoneCount - 1, (int)(($g - 1) / $arms));
+    $zoneWidth = ($rEnd - $r0) / $zoneCount;
+    $rMin      = $r0 + $radialZone * $zoneWidth;
+    $rMax      = min($rEnd, $rMin + $zoneWidth);
     $sysMax    = galaxy_system_limit();
     $t         = ($sysMax > 1) ? ($s - 1) / ($sysMax - 1) : 0.5;
     $r         = $rMin + $t * ($rMax - $rMin);

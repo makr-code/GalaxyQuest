@@ -867,12 +867,12 @@ function galactic_position(int $galaxyIdx, int $systemIdx): array
     // Assign to one of 4 spiral arms based on game galaxy index
     $armIndex = ($galaxyIdx - 1) % max(1, $arms);
 
-    // Radial zone: galaxies 1-4 → inner half; 5-8 → outer half; 9 → outermost
-    $radialZone = (int)(($galaxyIdx - 1) / max(1, $arms));  // 0, 1, 2
-    $bandFrac   = $radialZone / 2.0;                    // 0.0, 0.5, 1.0
-
-    $rMin = $armStartLy + $bandFrac * ($armEndLy - $armStartLy) * 0.5;
-    $rMax = $rMin + ($armEndLy - $armStartLy) * 0.5;
+    // Radial zone: split into non-overlapping annuli to avoid duplicated/flattened arm segments.
+    $zoneCount  = max(1, (int)ceil(9 / max(1, $arms))); // default: 3 zones for 9 game galaxies
+    $radialZone = min($zoneCount - 1, (int)(($galaxyIdx - 1) / max(1, $arms)));
+    $zoneWidth  = ($armEndLy - $armStartLy) / $zoneCount;
+    $rMin       = $armStartLy + $radialZone * $zoneWidth;
+    $rMax       = min($armEndLy, $rMin + $zoneWidth);
 
     // Position fraction along the arm (0..1)
     $t = ($sysMax > 1) ? ($systemIdx - 1) / ($sysMax - 1) : 0.5;
@@ -893,7 +893,7 @@ function galactic_position(int $galaxyIdx, int $systemIdx): array
     $scatterT = gen_rand_normal(0, 0.05,
                                 $galaxyIdx * 100 + $armIndex, $systemIdx, 5);
 
-    $rFinal     = $r     + $scatterR;
+    $rFinal     = max($armStartLy, min($armEndLy, $r + $scatterR));
     $thetaFinal = $theta + $scatterT;
 
     return [

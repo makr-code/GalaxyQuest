@@ -12,6 +12,34 @@ $action = $_GET['action'] ?? '';
 $uid    = require_auth();
 
 switch ($action) {
+    case 'users':
+        only_method('GET');
+        $q = trim((string)($_GET['q'] ?? ''));
+        $db = get_db();
+        if ($q === '') {
+            $stmt = $db->prepare(
+                'SELECT username
+                 FROM users
+                 WHERE id <> ?
+                 ORDER BY last_login DESC, username ASC
+                 LIMIT 12'
+            );
+            $stmt->execute([$uid]);
+            json_ok(['users' => array_map(static fn($r) => (string)$r['username'], $stmt->fetchAll())]);
+            break;
+        }
+
+        $stmt = $db->prepare(
+            'SELECT username
+             FROM users
+             WHERE id <> ? AND username LIKE ?
+             ORDER BY username ASC
+             LIMIT 12'
+        );
+        $stmt->execute([$uid, $q . '%']);
+        json_ok(['users' => array_map(static fn($r) => (string)$r['username'], $stmt->fetchAll())]);
+        break;
+
     case 'inbox':
         only_method('GET');
         $db   = get_db();

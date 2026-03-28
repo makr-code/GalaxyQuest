@@ -335,3 +335,7 @@ const WM = (() => {
 
   return { register, open, close, refresh, body, isOpen, setTitle };
 })();
+
+if (typeof window !== 'undefined') {
+  window.WM = WM;
+}

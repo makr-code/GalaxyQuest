@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GalaxyQuest Binary Compression Benchmark</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+        
+        button.active {
+            background: #667eea;
+            color: white;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:not(.active) {
+            background: #f0f0f0;
+            color: #333;
+        }
+        
+        button:not(.active):hover {
+            background: #e0e0e0;
+        }
+        
+        .results {
+            margin-top: 30px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        table thead {
+            background: #667eea;
+            color: white;
+            font-weight: bold;
+        }
+        
+        table th,
+        table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        
+        table tbody tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        
+        table tbody tr:hover {
+            background: #f0f0f0;
+        }
+        
+        table td:nth-child(2),
+        table td:nth-child(3),
+        table td:nth-child(4),
+        table td:nth-child(5),
+        table td:nth-child(6),
+        table td:nth-child(7) {
+            text-align: right;
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
+        
+        .reduction-good {
+            color: #107c10;
+            font-weight: bold;
+        }
+        
+        .reduction-better {
+            color: #0078d4;
+            font-weight: bold;
+        }
+        
+        .chart-container {
+            margin: 40px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+        
+        .chart-title {
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .chart-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .chart-label {
+            min-width: 120px;
+            font-weight: bold;
+        }
+        
+        .chart-bars {
+            display: flex;
+            gap: 15px;
+            flex: 1;
+        }
+        
+        .bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 50px;
+            height: 40px;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+        
+        .bar:hover {
+            filter: brightness(1.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        
+        .bar-json { background: #cc0000; }
+        .bar-v1 { background: #0078d4; }
+        .bar-v2 { background: #107c10; }
+        .bar-v1-gz { background: #6c63ff; }
+        .bar-v2-gz { background: #00b4d8; }
+        
+        .summary {
+            margin-top: 40px;
+            padding: 20px;
+            background: #e8f4f8;
+            border-left: 4px solid #667eea;
+            border-radius: 5px;
+        }
+        
+        .summary h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+        
+        .summary p {
+            margin: 10px 0;
+            line-height: 1.6;
+        }
+        
+        .metric {
+            display: inline-block;
+            background: white;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-family: monospace;
+            margin: 0 5px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌌 GalaxyQuest Compression Benchmark</h1>
+        <p class="subtitle">JSON vs V1 Binary vs V2 Binary (mit String Pool)</p>
+        
+        <div class="controls">
+            <button class="active" onclick="runBenchmark('small')">Small (2P, 1F)</button>
+            <button onclick="runBenchmark('medium')">Medium (8P, 3F)</button>
+            <button onclick="runBenchmark('large')">Large (16P, 6F)</button>
+            <button onclick="runBenchmark('all')">Alle Laden</button>
+        </div>
+        
+        <div id="results" class="results">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Benchmark wird ausgeführt...</p>
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/benchmark.js"></script>
+    <script>
+        function formatBytes(bytes) {
+            return bytes.toLocaleString() + ' B';
+        }
+        
+        function renderResults(data) {
+            if (!data) data = [];
+            if (!Array.isArray(data)) data = [data];
+            
+            let html = '';
+            
+            // Table
+            html += '<table>';
+            html += '<thead>';
+            html += '<tr>';
+            html += '<th>Payload</th>';
+            html += '<th>JSON</th>';
+            html += '<th>V1 Binary</th>';
+            html += '<th>V2 Binary</th>';
+            html += '<th>JSON gzip</th>';
+            html += '<th>V1 gzip</th>';
+            html += '<th>V2 gzip</th>';
+            html += '<th>V1→JSON</th>';
+            html += '<th>V2→JSON</th>';
+            html += '<th>V2→V1</th>';
+            html += '</tr>';
+            html += '</thead>';
+            html += '<tbody>';
+            
+            data.forEach((r, i) => {
+                html += '<tr>';
+                html += `<td><strong>${r.label}</strong></td>`;
+                html += `<td>${formatBytes(r.json_size)}</td>`;
+                html += `<td>${formatBytes(r.v1_estimate_size)}</td>`;
+                html += `<td>${formatBytes(r.v2_estimate_size)}</td>`;
+                html += `<td>${formatBytes(r.json_gzipped)}</td>`;
+                html += `<td>${formatBytes(r.v1_gzipped)}</td>`;
+                html += `<td>${formatBytes(r.v2_gzipped)}</td>`;
+                html += `<td><span class="reduction-good">${r.v1_vs_json_reduction.toFixed(1)}%</span></td>`;
+                html += `<td><span class="reduction-better">${r.v2_vs_json_reduction.toFixed(1)}%</span></td>`;
+                html += `<td><span class="reduction-better">${r.v2_vs_v1_reduction.toFixed(1)}%</span></td>`;
+                html += '</tr>';
+            });
+            
+            html += '</tbody>';
+            html += '</table>';
+            
+            // Chart
+            if (data.length > 0) {
+                html += '<div class="chart-container">';
+                html += '<div class="chart-title">Größenvergleich (mit Gzip)</div>';
+                
+                const maxSize = Math.max(...data.map(r => Math.max(r.json_gzipped, r.v1_gzipped, r.v2_gzipped)));
+                const scale = 350 / maxSize;
+                
+                data.forEach(r => {
+                    html += '<div class="chart-row">';
+                    html += `<div class="chart-label">${r.label}</div>`;
+                    html += '<div class="chart-bars">';
+                    
+                    html += `<div class="bar bar-json" style="width: ${Math.max(50, r.json_gzipped * scale)}px; title="${formatBytes(r.json_gzipped)}">JSON<br/>${formatBytes(r.json_gzipped)}</div>`;
+                    html += `<div class="bar bar-v1" style="width: ${Math.max(50, r.v1_gzipped * scale)}px; title="${formatBytes(r.v1_gzipped)}">V1<br/>${formatBytes(r.v1_gzipped)}</div>`;
+                    html += `<div class="bar bar-v2" style="width: ${Math.max(50, r.v2_gzipped * scale)}px; title="${formatBytes(r.v2_gzipped)}">V2<br/>${formatBytes(r.v2_gzipped)}</div>`;
+                    
+                    html += '</div>';
+                    html += '</div>';
+                });
+                
+                html += '</div>';
+            }
+            
+            // Summary
+            if (data.length > 0) {
+                const med = data.find(r => r.label.includes('Medium')) || data[0];
+                
+                html += '<div class="summary">';
+                html += '<h3>📊 Zusammenfassung</h3>';
+                html += `<p><strong>Medium Payload (${med.label}):</strong></p>`;
+                html += `<p>Raw JSON: ${formatBytes(med.json_size)} | `;
+                html += `V1 Binary: ${formatBytes(med.v1_estimate_size)} `;
+                html += `<span class="reduction-good">(${med.v1_vs_json_reduction.toFixed(1)}% kleiner)</span></p>`;
+                html += `<p>Raw JSON: ${formatBytes(med.json_size)} | `;
+                html += `V2 Binary: ${formatBytes(med.v2_estimate_size)} `;
+                html += `<span class="reduction-better">(${med.v2_vs_json_reduction.toFixed(1)}% kleiner)</span></p>`;
+                html += `<p>V2 vs V1: <span class="reduction-better">${med.v2_vs_v1_reduction.toFixed(1)}% Ersparnis</span> durch String Pool Deduplizierung</p>`;
+                html += '<p><strong>✓ Empfehlung:</strong> <span class="metric">V2 Binary</span> für maximale Effizienz bei allen Payload-Größen</p>';
+                html += '</div>';
+            }
+            
+            return html;
+        }
+        
+        function runBenchmark(mode) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div><p>Benchmark wird ausgeführt...</p></div>';
+            
+            setTimeout(() => {
+                let results;
+                
+                if (mode === 'small') {
+                    results = [CompressionBenchmark.benchmark(
+                        CompressionBenchmark.generateTestPayload(2, 1),
+                        'Small (2 planets, 1 fleet)'
+                    )];
+                } else if (mode === 'medium') {
+                    results = [CompressionBenchmark.benchmark(
+                        CompressionBenchmark.generateTestPayload(8, 3),
+                        'Medium (8 planets, 3 fleets)'
+                    )];
+                } else if (mode === 'large') {
+                    results = [CompressionBenchmark.benchmark(
+                        CompressionBenchmark.generateTestPayload(16, 6),
+                        'Large (16 planets, 6 fleets)'
+                    )];
+                } else if (mode === 'all') {
+                    results = [
+                        CompressionBenchmark.benchmark(CompressionBenchmark.generateTestPayload(2, 1), 'Small'),
+                        CompressionBenchmark.benchmark(CompressionBenchmark.generateTestPayload(8, 3), 'Medium'),
+                        CompressionBenchmark.benchmark(CompressionBenchmark.generateTestPayload(16, 6), 'Large'),
+                    ];
+                }
+                
+                resultsDiv.innerHTML = renderResults(results);
+                
+                // Update active button
+                document.querySelectorAll('.controls button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                event.target.classList.add('active');
+            }, 100);
+        }
+        
+        // Initial load - Small
+        window.addEventListener('load', () => {
+            setTimeout(() => runBenchmark('small'), 500);
+        });
+    </script>
+</body>
+</html>

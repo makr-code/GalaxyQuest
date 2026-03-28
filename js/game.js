@@ -12,30 +12,170 @@
     currentUser = meData.user;
   } catch (_) { window.location.href = 'index.html'; return; }
 
-  document.getElementById('commander-name').textContent = '⚙ ' + currentUser.username;
+  function updateCommanderButtonLabel() {
+    const commanderBtn = document.getElementById('commander-name');
+    if (commanderBtn) commanderBtn.textContent = `⚙ ${currentUser.username} ▾`;
+  }
+  updateCommanderButtonLabel();
 
   // ── State ────────────────────────────────────────────────
   let colonies       = [];
   let currentColony  = null;
   let galaxySystemMax = 499;
   let galaxy3d = null;
+  let galaxy3dInitReason = '';
+  const messageConsoleState = {
+    maxLines: 140,
+    userHints: [],
+    lines: [
+      '[system] Message console ready. Type "help" for commands.',
+    ],
+  };
+  const uiConsoleState = {
+    maxLines: 220,
+    lines: ['[ui] Console ready. Type "help".'],
+    filter: 'all',
+  };
   let galaxyStars = [];
   let pinnedStar = null;
   let galaxyHealthLast = null;
   let galaxyHealthLastCheckMs = 0;
   let galaxyHealthWarned = false;
   let galaxyOverlayHotkeysBound = false;
+  let galaxyHydrationToken = 0;
+  const galaxyDebugState = {
+    maxEntries: 6,
+    entries: [],
+  };
+  const topbarSearchState = {
+    query: '',
+    localResults: [],
+    serverResults: [],
+    open: false,
+    serverPending: false,
+    debounceId: 0,
+    requestToken: 0,
+    maxLocal: 10,
+    maxServer: 18,
+  };
+  let lastLoadErrorToastAt = 0;
   const uiState = {
     activeGalaxy: 1,
     activeSystem: 1,
     activeStar: null,
     activeRange: { from: 1, to: 499 },
-    selectedFactionId: null,
     colonyViewFocus: null,
     fleetPrefill: null,
     intelCache: new Map(),
     territory: [],
     clusterSummary: [],
+  };
+  const footerLoadUi = {
+    root: document.getElementById('footer-load'),
+    bar: document.getElementById('footer-load-bar'),
+    pct: document.getElementById('footer-load-pct'),
+    queue: document.getElementById('footer-load-queue'),
+    net: document.getElementById('footer-network-status'),
+    label: document.getElementById('footer-load-label'),
+  };
+  const footerNetworkState = {
+    lastProbeAt: 0,
+    inFlight: false,
+  };
+  const AUDIO_TRACK_OPTIONS = [
+    { value: 'music/Nebula_Overture.mp3', label: 'Nebula Overture' },
+  ];
+  const AUDIO_SFX_OPTIONS = [
+    { value: 'sfx/mixkit-video-game-retro-click-237.wav', label: 'Retro Click' },
+    { value: 'sfx/mixkit-quick-positive-video-game-notification-interface-265.wav', label: 'Positive Notification' },
+    { value: 'sfx/mixkit-negative-game-notification-249.wav', label: 'Negative Notification' },
+    { value: 'sfx/mixkit-sci-fi-positive-notification-266.wav', label: 'Sci-Fi Positive Notification' },
+    { value: 'sfx/mixkit-sci-fi-warp-slide-3113.wav', label: 'Sci-Fi Warp Slide' },
+    { value: 'sfx/mixkit-unlock-new-item-game-notification-254.wav', label: 'Unlock New Item' },
+    { value: 'sfx/mixkit-casino-bling-achievement-2067.wav', label: 'Achievement Bling' },
+    { value: 'sfx/mixkit-space-shot-whoosh-3001.wav', label: 'Space Shot Whoosh' },
+    { value: 'sfx/mixkit-space-coin-win-notification-271.wav', label: 'Space Coin Win' },
+    { value: 'sfx/mixkit-falling-hit-757.wav', label: 'Falling Hit' },
+    { value: 'sfx/mixkit-horn-suspense-transition-3112.wav', label: 'Horn Suspense Transition' },
+    { value: 'sfx/mixkit-laser-gun-shot-3110.wav', label: 'Laser Gun Shot' },
+    { value: 'sfx/mixkit-night-vision-starting-2476.wav', label: 'Night Vision Start' },
+    { value: 'sfx/mixkit-medieval-show-fanfare-announcement-226.wav', label: 'Fanfare Announcement' },
+    { value: 'sfx/mixkit-space-plasma-shot-3002.wav', label: 'Space Plasma Shot' },
+    { value: 'sfx/mixkit-bonus-earned-in-video-game-2058.wav', label: 'Bonus Earned' },
+    { value: 'sfx/mixkit-space-deploy-whizz-3003.wav', label: 'Space Deploy Whizz' },
+    { value: 'sfx/mixkit-sci-fi-laser-in-space-sound-2825.wav', label: 'Sci-Fi Laser' },
+    { value: 'sfx/mixkit-space-plasma-shot-3002.wav', label: 'Space Plasma Shot' },
+    { value: 'sfx/mixkit-space-shot-whoosh-3001.wav', label: 'Space Shot Whoosh' },
+    { value: 'sfx/mixkit-unlock-new-item-game-notification-254.wav', label: 'Unlock New Item' },
+    { value: 'sfx/mixkit-space-coin-win-notification-271.wav', label: 'Space Coin Win' },
+    { value: 'sfx/mixkit-medieval-show-fanfare-announcement-226.wav', label: 'Fanfare Announcement' },
+    { value: 'sfx/mixkit-laser-gun-shot-3110.wav', label: 'Laser Gun Shot' },
+    { value: 'sfx/mixkit-short-laser-gun-shot-1670.wav', label: 'Short Laser Shot' },
+  ];
+  const AUDIO_SFX_EVENTS = [
+    { key: 'uiClick', label: 'UI Click', tester: 'playUiClick' },
+    { key: 'uiConfirm', label: 'UI Confirm', tester: 'playUiConfirm' },
+    { key: 'uiError', label: 'UI Error', tester: 'playUiError' },
+    { key: 'uiNotify', label: 'UI Notify', tester: 'playUiNotify' },
+    { key: 'navigation', label: 'Navigation', tester: 'playNavigation' },
+    { key: 'pvpToggle', label: 'PvP Toggle', tester: 'playPvpToggle' },
+    { key: 'researchStart', label: 'Research Start', tester: 'playResearchStart' },
+    { key: 'researchComplete', label: 'Research Complete', tester: 'playResearchComplete' },
+    { key: 'fleetRecall', label: 'Fleet Recall', tester: 'playFleetRecall' },
+    { key: 'messageSend', label: 'Message Send', tester: 'playMessageSend' },
+    { key: 'messageRead', label: 'Message Read', tester: 'playMessageRead' },
+    { key: 'messageDelete', label: 'Message Delete', tester: 'playMessageDelete' },
+    { key: 'fleetAttack', label: 'Fleet Attack', tester: 'playFleetAttack' },
+    { key: 'fleetTransport', label: 'Fleet Transport', tester: 'playFleetTransport' },
+    { key: 'fleetSpy', label: 'Fleet Spy', tester: 'playFleetSpy' },
+    { key: 'fleetColonize', label: 'Fleet Colonize', tester: 'playFleetColonize' },
+    { key: 'fleetHarvest', label: 'Fleet Harvest', tester: 'playFleetHarvest' },
+    { key: 'buildComplete', label: 'Build Complete', tester: 'playBuildComplete' },
+    { key: 'fleetLaunch', label: 'Fleet Launch', tester: 'playFleetLaunch' },
+  ];
+  const settingsState = {
+    transitionPreset: 'balanced',
+    autoTransitions: true,
+    clusterDensityMode: 'auto',
+    clusterBoundsVisible: true,
+    persistentHoverDistance: 220,
+    transitionStableMinMs: 160,
+    homeEnterSystem: false,
+    masterVolume: 0.8,
+    musicVolume: 0.55,
+    sfxVolume: 0.8,
+    masterMuted: false,
+    musicMuted: false,
+    sfxMuted: false,
+    musicUrl: '',
+    autoSceneMusic: true,
+    sceneTracks: {
+      galaxy: '',
+      system: '',
+      battle: '',
+      ui: '',
+    },
+    sfxMap: {
+      uiClick: 'sfx/mixkit-video-game-retro-click-237.wav',
+      uiConfirm: 'sfx/mixkit-quick-positive-video-game-notification-interface-265.wav',
+      uiError: 'sfx/mixkit-negative-game-notification-249.wav',
+      uiNotify: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
+      navigation: 'sfx/mixkit-sci-fi-warp-slide-3113.wav',
+      pvpToggle: 'sfx/mixkit-horn-suspense-transition-3112.wav',
+      researchStart: 'sfx/mixkit-unlock-new-item-game-notification-254.wav',
+      researchComplete: 'sfx/mixkit-casino-bling-achievement-2067.wav',
+      fleetRecall: 'sfx/mixkit-space-shot-whoosh-3001.wav',
+      messageSend: 'sfx/mixkit-space-coin-win-notification-271.wav',
+      messageRead: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
+      messageDelete: 'sfx/mixkit-falling-hit-757.wav',
+      fleetAttack: 'sfx/mixkit-laser-gun-shot-3110.wav',
+      fleetTransport: 'sfx/mixkit-space-deploy-whizz-3003.wav',
+      fleetSpy: 'sfx/mixkit-night-vision-starting-2476.wav',
+      fleetColonize: 'sfx/mixkit-medieval-show-fanfare-announcement-226.wav',
+      fleetHarvest: 'sfx/mixkit-space-plasma-shot-3002.wav',
+      buildComplete: 'sfx/mixkit-bonus-earned-in-video-game-2058.wav',
+      fleetLaunch: 'sfx/mixkit-space-deploy-whizz-3003.wav',
+    },
   };
   const BUILDING_UI_META = {
     metal_mine:       { cat:'Extraction', icon:'⬡', desc:'Mines metal from the planet crust. Output scales with richness.' },
@@ -73,6 +213,9 @@
   };
   const galaxyModel = window.GQGalaxyModel ? new window.GQGalaxyModel() : null;
   const galaxyDB = window.GQGalaxyDB ? new window.GQGalaxyDB() : null;
+  const audioManager = window.GQAudioManager
+    ? new window.GQAudioManager({ storageKey: 'gq_audio_settings' })
+    : null;
   const STAR_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
   const SYSTEM_CACHE_MAX_AGE_MS = 20 * 60 * 1000;
   const POLICY_PROFILES = {
@@ -118,6 +261,259 @@
       },
     },
   };
+
+  function setFooterLoadProgress(detail = {}) {
+    const root = footerLoadUi.root;
+    const bar = footerLoadUi.bar;
+    const pct = footerLoadUi.pct;
+    const queue = footerLoadUi.queue;
+    const net = footerLoadUi.net;
+    const label = footerLoadUi.label;
+    if (!root || !bar || !pct || !queue || !label) return;
+
+    const active = !!detail.active;
+    const progress = Math.max(0, Math.min(1, Number(detail.progress || 0)));
+    const percent = Math.round(progress * 100);
+    const pending = Math.max(0, Number(detail.pending || 0));
+    const queued = Math.max(0, Number(detail.queued || 0));
+    const inFlight = Math.max(0, Number(detail.inFlight || 0));
+    const concurrency = Math.max(0, Number(detail.concurrency || 0));
+    const queueTotal = queued + inFlight;
+
+    if (!active && percent <= 0) {
+      root.classList.add('hidden');
+      bar.style.width = '0%';
+      pct.textContent = '0%';
+      queue.textContent = 'Q:0|F:0|C:0';
+      if (net && !net.textContent) {
+        net.textContent = 'NET: ?';
+      }
+      label.textContent = 'Bereit';
+      return;
+    }
+
+    root.classList.remove('hidden');
+    bar.style.width = `${percent}%`;
+    pct.textContent = `${percent}%`;
+    queue.textContent = `Q:${queued}|F:${inFlight}|C:${concurrency}`;
+    label.textContent = detail.label
+      ? String(detail.label)
+      : (pending > 1 ? `Lade Daten (${pending})…` : 'Lade Daten…');
+
+    refreshFooterNetworkStatus(false);
+  }
+
+  function setFooterNetworkStatus(kind = 'unknown', latencyMs = 0, status = 0) {
+    const node = footerLoadUi.net;
+    if (!node) return;
+
+    node.classList.remove('footer-net-ok', 'footer-net-warn', 'footer-net-bad', 'footer-net-unknown');
+
+    const latency = Math.max(0, Number(latencyMs || 0));
+    const httpStatus = Math.max(0, Number(status || 0));
+    const k = String(kind || 'unknown');
+
+    if (k === 'ok') {
+      node.textContent = `NET: ${latency}ms`;
+      node.classList.add('footer-net-ok');
+      return;
+    }
+    if (k === 'offline') {
+      node.textContent = 'NET: offline';
+      node.classList.add('footer-net-bad');
+      return;
+    }
+    if (k === 'timeout') {
+      node.textContent = 'NET: timeout';
+      node.classList.add('footer-net-warn');
+      return;
+    }
+    if (k === 'unreachable') {
+      node.textContent = 'NET: unreachable';
+      node.classList.add('footer-net-bad');
+      return;
+    }
+    if (k === 'auth') {
+      node.textContent = httpStatus > 0 ? `NET: auth ${httpStatus}` : 'NET: auth';
+      node.classList.add('footer-net-warn');
+      return;
+    }
+    if (k === 'http') {
+      node.textContent = httpStatus > 0 ? `NET: HTTP ${httpStatus}` : 'NET: HTTP';
+      node.classList.add('footer-net-warn');
+      return;
+    }
+
+    node.textContent = 'NET: ?';
+    node.classList.add('footer-net-unknown');
+  }
+
+  async function refreshFooterNetworkStatus(force = false) {
+    if (footerNetworkState.inFlight) return;
+    if (typeof API?.networkHealth !== 'function') {
+      setFooterNetworkStatus('unknown');
+      return;
+    }
+
+    const now = Date.now();
+    if (!force && (now - footerNetworkState.lastProbeAt) < 5000) return;
+
+    footerNetworkState.inFlight = true;
+    footerNetworkState.lastProbeAt = now;
+    try {
+      const health = await API.networkHealth(!!force);
+      const kind = String(health?.kind || (health?.ok ? 'ok' : 'unknown'));
+      const latencyMs = Number(health?.latencyMs || 0);
+      const status = Number(health?.status || 0);
+      setFooterNetworkStatus(kind, latencyMs, status);
+    } catch (_) {
+      setFooterNetworkStatus(navigator.onLine === false ? 'offline' : 'unknown');
+    } finally {
+      footerNetworkState.inFlight = false;
+    }
+  }
+
+  function pushGalaxyDebugError(source, message, extra = '') {
+    const src = String(source || 'unknown');
+    const msg = String(message || 'unknown error');
+    const ex = String(extra || '');
+    galaxyDebugState.entries.unshift({
+      ts: Date.now(),
+      source: src,
+      message: msg,
+      extra: ex,
+    });
+    galaxyDebugState.entries = galaxyDebugState.entries.slice(0, galaxyDebugState.maxEntries);
+    renderGalaxyDebugPanel();
+  }
+
+  function renderGalaxyDebugPanel(rootRef = null) {
+    const root = rootRef || WM.body('galaxy');
+    const log = root?.querySelector?.('#galaxy-debug-log');
+    if (!log) return;
+
+    if (!galaxyDebugState.entries.length) {
+      log.innerHTML = '<div class="galaxy-debug-empty">Keine aktuellen Lade-/Renderfehler.</div>';
+      return;
+    }
+
+    log.innerHTML = galaxyDebugState.entries.map((entry) => {
+      const time = new Date(entry.ts).toLocaleTimeString();
+      const extra = entry.extra ? `<div class="galaxy-debug-extra">${esc(entry.extra)}</div>` : '';
+      return `<div class="galaxy-debug-item">
+        <div class="galaxy-debug-head"><span class="galaxy-debug-time">${esc(time)}</span><span class="galaxy-debug-source">${esc(entry.source)}</span></div>
+        <div class="galaxy-debug-msg">${esc(entry.message)}</div>
+        ${extra}
+      </div>`;
+    }).join('');
+  }
+
+  async function copyLastGalaxyDebugError() {
+    const last = galaxyDebugState.entries[0] || null;
+    if (!last) {
+      showToast('Kein Fehler zum Kopieren vorhanden.', 'info');
+      return;
+    }
+    const payload = `[${new Date(last.ts).toISOString()}] ${last.source}: ${last.message}${last.extra ? ` | ${last.extra}` : ''}`;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = payload;
+        ta.setAttribute('readonly', 'readonly');
+        ta.style.position = 'fixed';
+        ta.style.left = '-10000px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      showToast('Letzter Fehler in Zwischenablage kopiert.', 'success');
+    } catch (err) {
+      console.error('[GQ] copyLastGalaxyDebugError failed', err);
+      showToast('Kopieren fehlgeschlagen.', 'warning');
+    }
+  }
+
+  function clearGalaxyDebugErrors() {
+    galaxyDebugState.entries = [];
+    renderGalaxyDebugPanel();
+    showToast('Galaxy-Debuglog geleert.', 'info');
+  }
+
+  function downloadGalaxyDebugLog() {
+    if (!galaxyDebugState.entries.length) {
+      showToast('Kein Debuglog zum Download vorhanden.', 'info');
+      return;
+    }
+
+    const lines = galaxyDebugState.entries
+      .slice()
+      .reverse()
+      .map((entry) => {
+        const stamp = new Date(entry.ts).toISOString();
+        const extra = entry.extra ? ` | ${entry.extra}` : '';
+        return `[${stamp}] ${entry.source}: ${entry.message}${extra}`;
+      });
+
+    const content = lines.join('\n') + '\n';
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const fileName = `gq-galaxy-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
+
+    try {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast('Debuglog heruntergeladen.', 'success');
+    } catch (err) {
+      console.error('[GQ] downloadGalaxyDebugLog failed', err);
+      showToast('Download des Debuglogs fehlgeschlagen.', 'warning');
+    }
+  }
+
+  window.addEventListener('gq:load-progress', (ev) => {
+    setFooterLoadProgress(ev?.detail || {});
+  });
+  window.addEventListener('gq:load-error', (ev) => {
+    const detail = ev?.detail || {};
+    const endpoint = String(detail.endpoint || 'unbekannt');
+    const context = String(detail.context || 'request');
+    const message = String(detail.message || 'Ladevorgang fehlgeschlagen');
+    const kind = String(detail.kind || 'unknown');
+    if (/aborted|cancelled|canceled/i.test(message)) return;
+    pushGalaxyDebugError(`api:${context}`, message, endpoint);
+    console.error('[GQ][LoadError]', { endpoint, context, kind, message, detail });
+
+    const now = Date.now();
+    if ((now - lastLoadErrorToastAt) > 2500) {
+      let suffix = '';
+      if (kind === 'offline') suffix = ' (Offline)';
+      else if (kind === 'unreachable') suffix = ' (API nicht erreichbar)';
+      else if (kind === 'timeout') suffix = ' (Timeout)';
+      showToast(`Laden fehlgeschlagen (${context}${suffix}): ${message}`, 'error');
+      lastLoadErrorToastAt = now;
+    }
+
+    if (kind === 'offline' || kind === 'timeout' || kind === 'unreachable' || kind === 'http' || kind === 'auth') {
+      setFooterNetworkStatus(kind);
+    }
+  });
+
+  window.addEventListener('online', () => {
+    refreshFooterNetworkStatus(true);
+  });
+  window.addEventListener('offline', () => {
+    setFooterNetworkStatus('offline');
+  });
+
+  setFooterNetworkStatus(navigator.onLine === false ? 'offline' : 'unknown');
+  refreshFooterNetworkStatus(false);
 
   function applyPolicyProfile(name) {
     const profileName = POLICY_PROFILES[name] ? name : 'balanced';
@@ -423,12 +819,807 @@
     el.classList.remove('hidden');
     clearTimeout(el._timeout);
     el._timeout = setTimeout(() => el.classList.add('hidden'), 3500);
+    if (audioManager) {
+      if (type === 'error' || type === 'warning') audioManager.playUiError();
+      else if (type === 'success') audioManager.playUiConfirm();
+      else audioManager.playUiNotify();
+    }
+  }
+
+  function uiConsolePush(line) {
+    const text = String(line || '').trim();
+    if (!text) return;
+    uiConsoleState.lines.push(text);
+    if (uiConsoleState.lines.length > uiConsoleState.maxLines) {
+      uiConsoleState.lines.splice(0, uiConsoleState.lines.length - uiConsoleState.maxLines);
+    }
+    renderUiConsole();
+  }
+
+  function getUiConsoleVisibleLines() {
+    const selected = String(uiConsoleState.filter || 'all').toLowerCase();
+    return selected === 'all'
+      ? uiConsoleState.lines.slice()
+      : uiConsoleState.lines.filter((line) => {
+          const text = String(line || '').toLowerCase();
+          if (selected === 'abort') {
+            return text.includes('abort') || text.includes('cancel') || text.includes('navigation') || text.includes('fetchabort');
+          }
+          if (selected === 'system') {
+            return text.includes('[ui]') || text.includes('[system]') || text.includes('[api:');
+          }
+          return text.includes(`[${selected}]`);
+        });
+  }
+
+  async function copyUiConsoleToClipboard() {
+    const lines = getUiConsoleVisibleLines();
+    if (!lines.length) {
+      showToast('Keine Console-Zeilen zum Kopieren.', 'info');
+      return;
+    }
+    const payload = lines.join('\n');
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = payload;
+        ta.setAttribute('readonly', 'readonly');
+        ta.style.position = 'fixed';
+        ta.style.left = '-10000px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      showToast(`Console kopiert (${lines.length} Zeilen).`, 'success');
+    } catch (err) {
+      console.error('[GQ] copyUiConsoleToClipboard failed', err);
+      showToast('Kopieren der Console fehlgeschlagen.', 'warning');
+    }
+  }
+
+  function renderUiConsole() {
+    const log = document.getElementById('ui-console-log');
+    if (!log) return;
+    const visibleLines = getUiConsoleVisibleLines();
+    log.innerHTML = visibleLines.map((line) => `<div>${esc(line)}</div>`).join('');
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function runUiConsoleCommand(raw) {
+    const input = String(raw || '').trim();
+    if (!input) return;
+    uiConsolePush(`> ${input}`);
+
+    const parts = input.split(/\s+/).filter(Boolean);
+    const cmd = String(parts[0] || '').toLowerCase();
+
+    if (cmd === 'help' || cmd === '?') {
+      uiConsolePush('[help] refresh | home | galaxy | open <window> | transitions on/off/status | term debug on/off/status | term clear | term download | msg <user> <text> | copy | clear');
+      return;
+    }
+    if (cmd === 'copy') {
+      await copyUiConsoleToClipboard();
+      return;
+    }
+    if (cmd === 'clear') {
+      uiConsoleState.lines = ['[ui] Console cleared.'];
+      renderUiConsole();
+      return;
+    }
+    if (cmd === 'refresh') {
+      await loadOverview();
+      uiConsolePush('[ok] Overview refreshed.');
+      return;
+    }
+    if (cmd === 'home') {
+      WM.open('galaxy');
+      const root = WM.body('galaxy');
+      if (root) await focusHomeSystemInGalaxy(root);
+      uiConsolePush('[ok] Jumped to home system.');
+      return;
+    }
+    if (cmd === 'galaxy') {
+      WM.open('galaxy');
+      uiConsolePush('[ok] Galaxy window opened.');
+      return;
+    }
+    if (cmd === 'open') {
+      const win = String(parts[1] || '').toLowerCase();
+      const valid = new Set(['overview','buildings','colony','research','shipyard','fleet','galaxy','messages','quests','leaderboard','leaders','factions','settings']);
+      if (!valid.has(win)) {
+        uiConsolePush('[error] Unknown window.');
+        return;
+      }
+      WM.open(win);
+      uiConsolePush(`[ok] Opened ${win}.`);
+      return;
+    }
+    if (cmd === 'transitions') {
+      const arg = String(parts[1] || '').toLowerCase();
+      if (arg === 'status') {
+        uiConsolePush(`[state] transitions=${settingsState.autoTransitions ? 'on' : 'off'}`);
+        return;
+      }
+      if (arg === 'on' || arg === 'off') {
+        settingsState.autoTransitions = arg === 'on';
+        applyRuntimeSettings();
+        saveUiSettings();
+        uiConsolePush(`[ok] transitions=${arg}`);
+        return;
+      }
+      uiConsolePush('[usage] transitions on|off|status');
+      return;
+    }
+    if (cmd === 'msg') {
+      if (parts.length < 3) {
+        uiConsolePush('[usage] msg <user> <text>');
+        return;
+      }
+      const to = parts[1];
+      const body = input.split(/\s+/).slice(2).join(' ').trim();
+      const r = await API.sendMsg(to, 'Direct Message', body);
+      if (r.success) {
+        if (audioManager && typeof audioManager.playMessageSend === 'function') audioManager.playMessageSend();
+        uiConsolePush(`[ok] message sent to ${to}`);
+      }
+      else uiConsolePush(`[error] ${r.error || 'send failed'}`);
+      return;
+    }
+
+    if (cmd === 'term' || cmd === 'terminal') {
+      const sub = String(parts[1] || '').toLowerCase();
+      if (!window.GQLog) {
+        uiConsolePush('[error] Terminal logger nicht verfuegbar.');
+        return;
+      }
+      if (sub === 'clear') {
+        window.GQLog.clear();
+        uiConsolePush('[ok] Terminal-Log geleert.');
+        return;
+      }
+      if (sub === 'download') {
+        window.GQLog.download();
+        uiConsolePush('[ok] Terminal-Log Download gestartet.');
+        return;
+      }
+      if (sub === 'debug') {
+        const mode = String(parts[2] || '').toLowerCase();
+        if (mode === 'status') {
+          uiConsolePush(`[state] term.debug=${window.GQLog.debugEnabled() ? 'on' : 'off'}`);
+          return;
+        }
+        if (mode === 'on' || mode === 'off') {
+          window.GQLog.setDebugEnabled(mode === 'on');
+          uiConsolePush(`[ok] term.debug=${mode}`);
+          return;
+        }
+        uiConsolePush('[usage] term debug on|off|status');
+        return;
+      }
+      if (sub === 'trace') {
+        const mode = String(parts[2] || '').toLowerCase();
+        if (mode === 'status') {
+          uiConsolePush(`[state] term.trace=${window.GQLog.traceEnabled() ? 'on' : 'off'}`);
+          return;
+        }
+        if (mode === 'on' || mode === 'off') {
+          window.GQLog.setTraceEnabled(mode === 'on');
+          window.GQLog.instrumentNow();
+          uiConsolePush(`[ok] term.trace=${mode}`);
+          return;
+        }
+        uiConsolePush('[usage] term trace on|off|status');
+        return;
+      }
+      if (sub === 'instrument') {
+        const count = Number(window.GQLog.instrumentNow() || 0);
+        uiConsolePush(`[ok] Instrumentierung ausgefuehrt (+${count}).`);
+        return;
+      }
+      uiConsolePush('[usage] term clear | term download | term debug on|off|status | term trace on|off|status | term instrument');
+      return;
+    }
+
+    uiConsolePush(`[error] Unknown command: ${cmd}`);
+  }
+
+  function initUiConsole() {
+    const panel = document.getElementById('ui-console-panel');
+    const toggleBtn = document.getElementById('ui-console-toggle');
+    const closeBtn = document.getElementById('ui-console-close');
+    const clearBtn = document.getElementById('ui-console-clear');
+    const copyBtn = document.getElementById('ui-console-copy');
+    const filterSelect = document.getElementById('ui-console-filter');
+    const runBtn = document.getElementById('ui-console-run');
+    const input = document.getElementById('ui-console-input');
+    if (!panel || !toggleBtn || !runBtn || !input) return;
+
+    if (window.GQLog && typeof window.GQLog.getAll === 'function') {
+      const source = typeof window.GQLog.getSessionEntries === 'function'
+        ? window.GQLog.getSessionEntries()
+        : window.GQLog.getAll();
+      const history = source.slice(-25);
+      history.forEach((entry) => {
+        const level = String(entry?.level || 'log').toUpperCase();
+        const source = String(entry?.source || 'app');
+        const text = String(entry?.text || '');
+        uiConsolePush(`[${level}] [${source}] ${text}`);
+      });
+    }
+
+    if (!window.__gqTerminalLogBound) {
+      window.__gqTerminalLogBound = true;
+      window.addEventListener('gq:terminal-log', (ev) => {
+        const entry = ev?.detail || {};
+        const level = String(entry.level || 'log').toUpperCase();
+        const source = String(entry.source || 'app');
+        const text = String(entry.text || '');
+        uiConsolePush(`[${level}] [${source}] ${text}`);
+      });
+    }
+
+    const setOpen = (open) => {
+      panel.classList.toggle('hidden', !open);
+      toggleBtn.textContent = open ? '⌃ Console' : '⌄ Console';
+      if (open) {
+        renderUiConsole();
+        input.focus();
+      }
+    };
+
+    toggleBtn.addEventListener('click', () => setOpen(panel.classList.contains('hidden')));
+    closeBtn?.addEventListener('click', () => setOpen(false));
+    clearBtn?.addEventListener('click', () => {
+      uiConsoleState.lines = ['[ui] Console cleared.'];
+      renderUiConsole();
+    });
+    copyBtn?.addEventListener('click', async () => {
+      await copyUiConsoleToClipboard();
+    });
+    filterSelect?.addEventListener('change', () => {
+      uiConsoleState.filter = String(filterSelect.value || 'all').toLowerCase();
+      renderUiConsole();
+    });
+    runBtn.addEventListener('click', async () => {
+      const cmd = input.value;
+      input.value = '';
+      await runUiConsoleCommand(cmd);
+    });
+    input.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const cmd = input.value;
+      input.value = '';
+      await runUiConsoleCommand(cmd);
+    });
+
+    setOpen(false);
+  }
+
+  function refreshAudioUi() {
+    const btn = document.getElementById('audio-toggle-btn');
+    if (!btn) return;
+    if (!audioManager) {
+      btn.disabled = true;
+      btn.textContent = '🔇';
+      btn.title = 'Audio nicht verfuegbar';
+      return;
+    }
+    const state = audioManager.snapshot();
+    const muted = !!state.masterMuted;
+    btn.disabled = false;
+    btn.textContent = muted ? '🔇' : '🔊';
+    btn.title = muted ? 'Audio aktivieren' : 'Audio stummschalten';
+  }
+
+  function formatLastAudioEvent(detail) {
+    if (!detail || !detail.key) return 'Kein Event';
+    const key = String(detail.key || '');
+    const matching = AUDIO_SFX_EVENTS.find((item) => item.key === key);
+    const label = matching ? matching.label : key;
+    const stamp = detail.ts ? new Date(detail.ts).toLocaleTimeString() : '';
+    return stamp ? `${label} @ ${stamp}` : label;
+  }
+
+  function updateLastAudioEventUi(detail) {
+    const node = document.querySelector('#set-last-audio-event');
+    if (!node) return;
+    node.textContent = formatLastAudioEvent(detail);
+  }
+
+  window.addEventListener('gq:audio-event', (ev) => {
+    updateLastAudioEventUi(ev?.detail || null);
+  });
+
+  function loadUiSettings() {
+    try {
+      const raw = localStorage.getItem('gq_ui_settings');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return;
+      Object.assign(settingsState, parsed);
+    } catch (_) {}
+    applyTransitionPreset(settingsState.transitionPreset);
+    if (!settingsState.sceneTracks || typeof settingsState.sceneTracks !== 'object') {
+      settingsState.sceneTracks = { galaxy: '', system: '', battle: '', ui: '' };
+    }
+    if (!settingsState.sfxMap || typeof settingsState.sfxMap !== 'object') {
+      settingsState.sfxMap = {
+        uiClick: 'sfx/mixkit-video-game-retro-click-237.wav',
+        uiConfirm: 'sfx/mixkit-quick-positive-video-game-notification-interface-265.wav',
+        uiError: 'sfx/mixkit-negative-game-notification-249.wav',
+        uiNotify: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
+        navigation: 'sfx/mixkit-sci-fi-warp-slide-3113.wav',
+        pvpToggle: 'sfx/mixkit-horn-suspense-transition-3112.wav',
+        researchStart: 'sfx/mixkit-unlock-new-item-game-notification-254.wav',
+        researchComplete: 'sfx/mixkit-casino-bling-achievement-2067.wav',
+        fleetRecall: 'sfx/mixkit-space-shot-whoosh-3001.wav',
+        messageSend: 'sfx/mixkit-space-coin-win-notification-271.wav',
+        messageRead: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
+        messageDelete: 'sfx/mixkit-falling-hit-757.wav',
+        fleetAttack: 'sfx/mixkit-laser-gun-shot-3110.wav',
+        fleetTransport: 'sfx/mixkit-space-deploy-whizz-3003.wav',
+        fleetSpy: 'sfx/mixkit-night-vision-starting-2476.wav',
+        fleetColonize: 'sfx/mixkit-medieval-show-fanfare-announcement-226.wav',
+        fleetHarvest: 'sfx/mixkit-space-plasma-shot-3002.wav',
+        buildComplete: 'sfx/mixkit-bonus-earned-in-video-game-2058.wav',
+        fleetLaunch: 'sfx/mixkit-space-deploy-whizz-3003.wav',
+      };
+    }
+    if (audioManager) {
+      const audioSnapshot = audioManager.snapshot();
+      if (audioSnapshot?.sfxMap && typeof audioSnapshot.sfxMap === 'object') {
+        settingsState.sfxMap = Object.assign({}, settingsState.sfxMap, audioSnapshot.sfxMap);
+      }
+      audioManager.setMasterVolume(settingsState.masterVolume);
+      audioManager.setMusicVolume(settingsState.musicVolume);
+      audioManager.setSfxVolume(settingsState.sfxVolume);
+      audioManager.setMasterMuted(settingsState.masterMuted);
+      audioManager.setMusicMuted(settingsState.musicMuted);
+      audioManager.setSfxMuted(settingsState.sfxMuted);
+      if (typeof audioManager.setAutoSceneMusic === 'function') {
+        audioManager.setAutoSceneMusic(!!settingsState.autoSceneMusic);
+      }
+      if (typeof audioManager.setSceneTrack === 'function') {
+        ['galaxy', 'system', 'battle', 'ui'].forEach((sceneKey) => {
+          audioManager.setSceneTrack(sceneKey, settingsState.sceneTracks?.[sceneKey] || '');
+        });
+      }
+      if (typeof audioManager.setSfxTrack === 'function') {
+        Object.entries(settingsState.sfxMap || {}).forEach(([eventKey, trackUrl]) => {
+          audioManager.setSfxTrack(eventKey, trackUrl || '');
+        });
+      }
+      if (settingsState.musicUrl) {
+        audioManager.setMusicTrack(settingsState.musicUrl, false);
+      }
+    }
+    refreshAudioUi();
+  }
+
+  function saveUiSettings() {
+    try {
+      localStorage.setItem('gq_ui_settings', JSON.stringify(settingsState));
+    } catch (_) {}
+  }
+
+  function renderUserMenu() {
+    const menu = document.getElementById('user-menu');
+    if (!menu) return;
+    const meta = window._GQ_meta || {};
+    const pvpOn = !!parseInt(meta.pvp_mode, 10);
+    const audioSnap = audioManager ? audioManager.snapshot() : settingsState;
+    const masterMuted = !!audioSnap.masterMuted;
+    const transitionPreset = String(settingsState.transitionPreset || 'balanced');
+    const homeEnterSystem = !!settingsState.homeEnterSystem;
+
+    menu.innerHTML = `
+      <button class="user-menu-item" type="button" data-user-action="open-settings" role="menuitem">⚙ Benutzereinstellungen öffnen</button>
+      <button class="user-menu-item" type="button" data-user-action="toggle-master-mute" role="menuitem">${masterMuted ? '🔈 Ton aktivieren' : '🔇 Ton stummschalten'}</button>
+      <button class="user-menu-item" type="button" data-user-action="cycle-transition" role="menuitem">🎬 Transition: ${esc(transitionPreset)}</button>
+      <button class="user-menu-item" type="button" data-user-action="toggle-home-enter" role="menuitem">🏠 Home-Öffnung: ${homeEnterSystem ? 'Systemansicht' : 'Galaxieansicht'}</button>
+      <hr class="user-menu-sep" />
+      <button class="user-menu-item" type="button" data-user-action="toggle-pvp" role="menuitem">⚔ PvP: ${pvpOn ? 'aktiv (klicken zum Deaktivieren)' : 'inaktiv (klicken zum Aktivieren)'}</button>
+      <button class="user-menu-item" type="button" data-user-action="refresh-profile" role="menuitem">🔄 Profildaten neu laden</button>
+      <hr class="user-menu-sep" />
+      <button class="user-menu-item user-menu-item-danger" type="button" data-user-action="logout" role="menuitem">⎋ Logout</button>`;
+  }
+
+  function closeUserMenu() {
+    const wrap = document.getElementById('user-menu-wrap');
+    const menu = document.getElementById('user-menu');
+    const btn = document.getElementById('commander-name');
+    if (menu) menu.classList.add('hidden');
+    if (wrap) wrap.classList.remove('open');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  function openUserMenu() {
+    const wrap = document.getElementById('user-menu-wrap');
+    const menu = document.getElementById('user-menu');
+    const btn = document.getElementById('commander-name');
+    if (!menu || !btn) return;
+    renderUserMenu();
+    menu.classList.remove('hidden');
+    if (wrap) wrap.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+  }
+
+  function toggleUserMenu() {
+    const menu = document.getElementById('user-menu');
+    if (!menu) return;
+    if (menu.classList.contains('hidden')) openUserMenu();
+    else closeUserMenu();
+  }
+
+  function initUserMenu() {
+    const wrap = document.getElementById('user-menu-wrap');
+    const btn = document.getElementById('commander-name');
+    const menu = document.getElementById('user-menu');
+    if (!wrap || !btn || !menu) return;
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleUserMenu();
+    });
+
+    menu.addEventListener('click', async (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const action = String(target.getAttribute('data-user-action') || '');
+      if (!action) return;
+
+      if (audioManager) audioManager.playNavigation();
+      if (action === 'open-settings') {
+        WM.open('settings');
+        closeUserMenu();
+        return;
+      }
+      if (action === 'toggle-master-mute') {
+        settingsState.masterMuted = !settingsState.masterMuted;
+        if (audioManager) audioManager.setMasterMuted(settingsState.masterMuted);
+        saveUiSettings();
+        refreshAudioUi();
+        renderUserMenu();
+        return;
+      }
+      if (action === 'cycle-transition') {
+        const order = ['smooth', 'balanced', 'snappy'];
+        const idx = Math.max(0, order.indexOf(String(settingsState.transitionPreset || 'balanced')));
+        const next = order[(idx + 1) % order.length];
+        applyTransitionPreset(next);
+        applyRuntimeSettings();
+        saveUiSettings();
+        renderUserMenu();
+        showToast(`Transition-Preset: ${next}`, 'info');
+        return;
+      }
+      if (action === 'toggle-home-enter') {
+        settingsState.homeEnterSystem = !settingsState.homeEnterSystem;
+        saveUiSettings();
+        renderUserMenu();
+        showToast(`Home-Navigation: ${settingsState.homeEnterSystem ? 'Systemansicht' : 'Galaxieansicht'}`, 'info');
+        return;
+      }
+      if (action === 'toggle-pvp') {
+        const r = await API.togglePvp();
+        if (r.success) {
+          if (audioManager && typeof audioManager.playPvpToggle === 'function') audioManager.playPvpToggle();
+          showToast(r.pvp_mode ? '⚔ PvP enabled!' : '🛡 PvP disabled.', 'info');
+          await loadOverview();
+          renderUserMenu();
+        } else {
+          showToast(r.error || 'PvP konnte nicht geändert werden.', 'error');
+        }
+        return;
+      }
+      if (action === 'refresh-profile') {
+        await loadOverview();
+        renderUserMenu();
+        showToast('Profildaten aktualisiert.', 'success');
+        return;
+      }
+      if (action === 'logout') {
+        closeUserMenu();
+        document.getElementById('logout-btn')?.click();
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      const target = e.target;
+      if (!(target instanceof Node)) return;
+      if (!wrap.contains(target)) closeUserMenu();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeUserMenu();
+    });
+  }
+
+  function applyTransitionPreset(presetName) {
+    const preset = String(presetName || 'balanced');
+    const presets = {
+      smooth: { hover: 270, stableMs: 240 },
+      balanced: { hover: 220, stableMs: 160 },
+      snappy: { hover: 175, stableMs: 100 },
+    };
+    const selected = presets[preset] || presets.balanced;
+    settingsState.transitionPreset = presets[preset] ? preset : 'balanced';
+    settingsState.persistentHoverDistance = selected.hover;
+    settingsState.transitionStableMinMs = selected.stableMs;
+  }
+
+  function applyRuntimeSettings() {
+    if (!galaxy3d) return;
+    if (typeof galaxy3d.setTransitionsEnabled === 'function') {
+      galaxy3d.setTransitionsEnabled(!!settingsState.autoTransitions);
+    } else {
+      galaxy3d.transitionsEnabled = !!settingsState.autoTransitions;
+    }
+    galaxy3d.persistentHoverDistance = Math.max(120, Number(settingsState.persistentHoverDistance || 220));
+    galaxy3d.transitionStableMinMs = Math.max(60, Number(settingsState.transitionStableMinMs || 160));
+    if (typeof galaxy3d.setClusterDensityMode === 'function') {
+      galaxy3d.setClusterDensityMode(settingsState.clusterDensityMode || 'auto', {
+        recluster: true,
+        preserveView: true,
+      });
+    }
+    if (typeof galaxy3d.setClusterBoundsVisible === 'function') {
+      galaxy3d.setClusterBoundsVisible(settingsState.clusterBoundsVisible !== false);
+    }
+  }
+
+  function hasPlanetTextureManifest(payload) {
+    // Accept any payload that has a star_system or a non-empty planets array —
+    // a missing/empty texture manifest is harmless (planets render with fallback colors).
+    if (!payload) return false;
+    if (Array.isArray(payload.planets) && payload.planets.length > 0) return true;
+    if (payload.star_system && typeof payload.star_system === 'object') return true;
+    const planets = payload?.planet_texture_manifest?.planets;
+    return !!(planets && typeof planets === 'object' && Object.keys(planets).length);
   }
 
   function esc(str) {
     return String(str)
       .replace(/&/g,'&amp;').replace(/</g,'&lt;')
       .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function starSearchKey(star) {
+    if (!star) return '';
+    const g = Number(star.galaxy_index || star.galaxy || 1);
+    const s = Number(star.system_index || star.system || 0);
+    return `${g}:${s}`;
+  }
+
+  function scoreStarSearchMatch(star, queryLower, systemExact) {
+    const name = String(star?.name || '').toLowerCase();
+    const catalog = String(star?.catalog_name || '').toLowerCase();
+    const sys = Number(star?.system_index || 0);
+    const sysText = String(sys);
+    let score = -1;
+
+    if (systemExact > 0 && sys === systemExact) score = Math.max(score, 120);
+    if (sysText === queryLower) score = Math.max(score, 116);
+    if (sysText.startsWith(queryLower)) score = Math.max(score, 100);
+    if (name === queryLower) score = Math.max(score, 98);
+    if (catalog === queryLower) score = Math.max(score, 96);
+    if (name.startsWith(queryLower)) score = Math.max(score, 86);
+    if (catalog.startsWith(queryLower)) score = Math.max(score, 84);
+    if (name.includes(queryLower)) score = Math.max(score, 70);
+    if (catalog.includes(queryLower)) score = Math.max(score, 66);
+
+    if (score < 0) return -1;
+    return score - Math.min(30, Math.floor(sys / 1000));
+  }
+
+  function collectLocalStarSearch(query, limit = 10) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return [];
+    const g = Number(uiState.activeGalaxy || currentColony?.galaxy || 1);
+    const systemExact = /^\d+$/.test(q) ? Number(q) : -1;
+    const rows = [];
+
+    (Array.isArray(galaxyStars) ? galaxyStars : []).forEach((star) => {
+      if (Number(star?.galaxy_index || 0) !== g) return;
+      const score = scoreStarSearchMatch(star, q, systemExact);
+      if (score < 0) return;
+      rows.push({ score, star });
+    });
+
+    rows.sort((a, b) => b.score - a.score);
+    return rows.slice(0, Math.max(1, Number(limit || 10))).map((row) => row.star);
+  }
+
+  function getTopbarSearchDom() {
+    const wrap = document.getElementById('topbar-search-wrap');
+    const input = document.getElementById('topbar-search-input');
+    const overlay = document.getElementById('topbar-search-overlay');
+    return { wrap, input, overlay };
+  }
+
+  function closeTopbarSearchOverlay() {
+    topbarSearchState.open = false;
+    renderTopbarSearchOverlay();
+  }
+
+  function renderTopbarSearchOverlay() {
+    const { overlay } = getTopbarSearchDom();
+    if (!overlay) return;
+    if (!topbarSearchState.open) {
+      overlay.classList.add('hidden');
+      overlay.innerHTML = '';
+      return;
+    }
+
+    const localRows = Array.isArray(topbarSearchState.localResults) ? topbarSearchState.localResults : [];
+    const serverRows = Array.isArray(topbarSearchState.serverResults) ? topbarSearchState.serverResults : [];
+    const renderRow = (star, source, idx) => {
+      const name = star?.name || star?.catalog_name || `System ${Number(star?.system_index || 0)}`;
+      const cls = `${String(star?.spectral_class || '?')}${String(star?.subtype || '')}`;
+      const g = Number(star?.galaxy_index || uiState.activeGalaxy || 1);
+      const s = Number(star?.system_index || 0);
+      return `<button type="button" class="topbar-search-item" data-search-source="${esc(source)}" data-search-index="${idx}" role="option"><div class="topbar-search-title">${esc(name)}</div><div class="topbar-search-meta">${g}:${s} · ${esc(cls)} · ${source === 'local' ? 'lokal (3D)' : 'server'}</div></button>`;
+    };
+
+    const localHtml = localRows.length
+      ? localRows.map((star, idx) => renderRow(star, 'local', idx)).join('')
+      : '<div class="topbar-search-empty">Keine lokalen Treffer im aktuell geladenen 3D-Sternfeld.</div>';
+    const serverHtml = topbarSearchState.serverPending
+      ? '<div class="topbar-search-empty">Server-Suche läuft...</div>'
+      : (serverRows.length
+        ? serverRows.map((star, idx) => renderRow(star, 'server', idx)).join('')
+        : '<div class="topbar-search-empty">Keine zusätzlichen Server-Treffer.</div>');
+
+    overlay.innerHTML = `
+      <div class="topbar-search-section">
+        <div class="topbar-search-head">Lokal (Three)</div>
+        ${localHtml}
+      </div>
+      <div class="topbar-search-section">
+        <div class="topbar-search-head">Server-Erweiterung</div>
+        ${serverHtml}
+      </div>`;
+    overlay.classList.remove('hidden');
+
+    overlay.querySelectorAll('.topbar-search-item').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const source = String(btn.getAttribute('data-search-source') || 'local');
+        const index = Number(btn.getAttribute('data-search-index') || -1);
+        const list = source === 'server' ? serverRows : localRows;
+        const star = (index >= 0 && index < list.length) ? list[index] : null;
+        if (!star) return;
+        await jumpToSearchStar(star);
+      });
+    });
+  }
+
+  function queueServerStarSearch(query, token) {
+    if (topbarSearchState.debounceId) {
+      clearTimeout(topbarSearchState.debounceId);
+      topbarSearchState.debounceId = 0;
+    }
+    topbarSearchState.debounceId = window.setTimeout(async () => {
+      if (token !== topbarSearchState.requestToken) return;
+      const g = Number(uiState.activeGalaxy || currentColony?.galaxy || 1);
+      try {
+        const data = await API.galaxySearch(g, query, topbarSearchState.maxServer);
+        if (token !== topbarSearchState.requestToken) return;
+        const localKeys = new Set((topbarSearchState.localResults || []).map((s) => starSearchKey(s)));
+        const stars = Array.isArray(data?.stars) ? data.stars : [];
+        topbarSearchState.serverResults = stars.filter((star) => !localKeys.has(starSearchKey(star)));
+      } catch (_) {
+        if (token !== topbarSearchState.requestToken) return;
+        topbarSearchState.serverResults = [];
+      }
+      topbarSearchState.serverPending = false;
+      renderTopbarSearchOverlay();
+    }, 260);
+  }
+
+  function runTopbarSearch(query) {
+    const normalized = String(query || '').trim();
+    topbarSearchState.query = normalized;
+    topbarSearchState.requestToken += 1;
+    const token = topbarSearchState.requestToken;
+
+    if (!normalized) {
+      topbarSearchState.localResults = [];
+      topbarSearchState.serverResults = [];
+      topbarSearchState.serverPending = false;
+      closeTopbarSearchOverlay();
+      return;
+    }
+
+    topbarSearchState.localResults = collectLocalStarSearch(normalized, topbarSearchState.maxLocal);
+    topbarSearchState.serverResults = [];
+    topbarSearchState.serverPending = normalized.length >= 2;
+    topbarSearchState.open = true;
+    renderTopbarSearchOverlay();
+
+    if (topbarSearchState.serverPending) {
+      queueServerStarSearch(normalized, token);
+    }
+  }
+
+  async function jumpToSearchStar(star) {
+    if (!star) return;
+    closeTopbarSearchOverlay();
+    const { input } = getTopbarSearchDom();
+    if (input) input.blur();
+
+    const g = Math.max(1, Number(star.galaxy_index || uiState.activeGalaxy || 1));
+    const s = Math.max(1, Number(star.system_index || 1));
+    WM.open('galaxy');
+    const root = WM.body('galaxy');
+    if (!root) return;
+
+    const from = Math.max(1, s - 420);
+    const to = Math.min(galaxySystemMax, s + 420);
+    const galInput = root.querySelector('#gal-galaxy');
+    const fromInput = root.querySelector('#gal-from');
+    const toInput = root.querySelector('#gal-to');
+    if (galInput) galInput.value = String(g);
+    if (fromInput) fromInput.value = String(from);
+    if (toInput) toInput.value = String(to);
+
+    await loadGalaxyStars3D(root);
+
+    let target = (Array.isArray(galaxyStars) ? galaxyStars : []).find((row) => Number(row?.galaxy_index || 0) === g && Number(row?.system_index || 0) === s) || null;
+    if (!target) target = Object.assign({}, star, { galaxy_index: g, system_index: s });
+
+    pinnedStar = target;
+    uiState.activeStar = target;
+    setGalaxyContext(g, s, target);
+    if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
+      galaxy3d.focusOnStar(target, true);
+    }
+    toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
+    renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
+    showToast(`Navigation: ${target.name || target.catalog_name || `System ${s}`}`, 'info');
+  }
+
+  function initTopbarSearch() {
+    const { wrap, input, overlay } = getTopbarSearchDom();
+    if (!wrap || !input || !overlay) return;
+
+    input.addEventListener('input', () => runTopbarSearch(input.value));
+    input.addEventListener('focus', () => {
+      if (!String(input.value || '').trim()) return;
+      topbarSearchState.open = true;
+      renderTopbarSearchOverlay();
+    });
+    input.addEventListener('keydown', async (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeTopbarSearchOverlay();
+        input.blur();
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const candidate = topbarSearchState.localResults[0] || topbarSearchState.serverResults[0] || null;
+        if (candidate) await jumpToSearchStar(candidate);
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      const target = e.target;
+      if (!(target instanceof Node)) return;
+      if (!wrap.contains(target)) closeTopbarSearchOverlay();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) return;
+        e.preventDefault();
+        input.focus();
+      }
+    });
   }
 
   function starClassColor(spectralClass) {
@@ -522,6 +1713,11 @@
     return { cols, rows, cells };
   }
 
+  loadUiSettings();
+  initUserMenu();
+  initUiConsole();
+  initTopbarSearch();
+
   // ── WM window registrations ──────────────────────────────
   WM.register('overview',    {
     title: '🌍 Overview', w: 460, h: 620, defaultDock: 'right', defaultY: 12,
@@ -573,15 +1769,62 @@
     title: '🌐 Factions', w: 560, h: 620, defaultDock: 'right', defaultY: 24,
     onRender: () => renderFactions(),
   });
+  WM.register('settings', {
+    title: '⚙ Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12,
+    onRender: () => renderSettings(),
+  });
 
   // ── Nav buttons → open windows ───────────────────────────
   document.querySelectorAll('.nav-btn[data-win]').forEach(btn => {
-    btn.addEventListener('click', () => WM.open(btn.dataset.win));
+    btn.addEventListener('click', () => {
+      if (audioManager && typeof audioManager.playNavigation === 'function') audioManager.playNavigation();
+      const win = String(btn.dataset.win || '');
+      if (typeof API !== 'undefined' && API && typeof API.cancelPendingRequests === 'function') {
+        API.cancelPendingRequests(`View switch to ${win || 'unknown'}`);
+      }
+      WM.open(win);
+      if (audioManager && typeof audioManager.setScene === 'function') {
+        if (win === 'galaxy') audioManager.setScene('galaxy', { autoplay: false, transition: 'fast', force: true });
+        else if (win === 'fleet') audioManager.setScene('battle', { autoplay: false, transition: 'normal', force: true });
+        else audioManager.setScene('ui', { autoplay: false, transition: 'fast', force: true });
+      }
+    });
+  });
+
+  document.getElementById('topbar-title-btn')?.addEventListener('click', async () => {
+    if (audioManager) audioManager.playNavigation();
+    await loadOverview();
+    ['overview','colony','buildings','research','shipyard','fleet','messages','quests','leaders','factions','leaderboard'].forEach((id) => {
+      try { WM.refresh(id); } catch (_) {}
+    });
+    showToast('Daten aktualisiert.', 'success');
+  });
+
+  document.getElementById('topbar-home-btn')?.addEventListener('click', async () => {
+    if (audioManager) audioManager.playNavigation();
+    if (typeof API !== 'undefined' && API && typeof API.cancelPendingRequests === 'function') {
+      API.cancelPendingRequests('Home navigation');
+    }
+    WM.open('galaxy');
+    const root = WM.body('galaxy');
+    if (!root) return;
+    await focusHomeSystemInGalaxy(root);
+  });
+
+  document.getElementById('audio-toggle-btn')?.addEventListener('click', () => {
+    if (!audioManager) return;
+    const snap = audioManager.snapshot();
+    settingsState.masterMuted = !snap.masterMuted;
+    audioManager.setMasterMuted(settingsState.masterMuted);
+    if (!settingsState.masterMuted) audioManager.playUiClick();
+    saveUiSettings();
+    refreshAudioUi();
   });
 
   // ── Colony selector ──────────────────────────────────────
   const planetSelect = document.getElementById('planet-select');
   planetSelect.addEventListener('change', () => {
+    if (audioManager && typeof audioManager.playNavigation === 'function') audioManager.playNavigation();
     const cid = parseInt(planetSelect.value, 10);
     selectColonyById(cid);
   });
@@ -630,6 +1873,49 @@
         missionInput.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }, 0);
+  }
+
+  async function focusHomeSystemInGalaxy(root) {
+    if (!root || !currentColony) {
+      showToast('Kein Heimatplanet verfügbar.', 'warning');
+      return;
+    }
+    const g = Math.max(1, Number(currentColony.galaxy || 1));
+    const s = Math.max(1, Number(currentColony.system || 1));
+    const from = Math.max(1, s - 420);
+    const to = Math.min(galaxySystemMax, s + 420);
+
+    const galInput = root.querySelector('#gal-galaxy');
+    const fromInput = root.querySelector('#gal-from');
+    const toInput = root.querySelector('#gal-to');
+    if (galInput) galInput.value = String(g);
+    if (fromInput) fromInput.value = String(from);
+    if (toInput) toInput.value = String(to);
+
+    await loadGalaxyStars3D(root);
+
+    let target = (galaxyStars || []).find((star) => Number(star.system_index || 0) === s) || null;
+    if (!target && Array.isArray(galaxyStars) && galaxyStars.length) {
+      target = galaxyStars.slice().sort((a, b) => Math.abs(Number(a.system_index || 0) - s) - Math.abs(Number(b.system_index || 0) - s))[0] || null;
+    }
+    if (!target) {
+      showToast('Heimatsystem nicht im aktuellen Sternbereich gefunden.', 'warning');
+      return;
+    }
+
+    pinnedStar = target;
+    uiState.activeStar = target;
+    if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
+      galaxy3d.focusOnStar(target, true);
+    }
+    const shouldEnterSystem = !!settingsState.homeEnterSystem;
+    if (shouldEnterSystem && !galaxy3d?.systemMode) {
+      renderGalaxySystemDetails(root, target, true);
+      await loadStarSystemPlanets(root, target);
+    } else {
+      renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
+    }
+    showToast(`Heimatnavigation: ${target.name || target.catalog_name || `System ${s}`}`, 'success');
   }
 
   function pickFleetDefaultShips(mission, avail, intel) {
@@ -835,8 +2121,11 @@
       }
 
       window._GQ_fleets = data.fleets || [];
+      window._GQ_offline = data.offline_progress || null;
       WM.refresh('overview');
     } catch (e) {
+      const em = String(e?.message || e || '');
+      if (/abort|cancel|navigation/i.test(em)) return;
       console.error('Overview load failed', e);
       showToast('Overview konnte nicht geladen werden. Bitte Seite neu laden.', 'error');
       const root = WM.body('overview');
@@ -868,6 +2157,131 @@
       research:'🔬 Research', agricultural:'🌾 Agricultural', military:'⚔ Military'
     };
 
+    const offline = window._GQ_offline || null;
+    const economy = offline?.economy || null;
+    const netRates = economy?.net_rates_per_hour || offline?.rates_per_hour || null;
+    const hadOfflineTime = !!offline?.had_offline_time;
+    const statusCounts = economy?.status_counts || { stable: 0, watch: 0, strain: 0 };
+    const topRisks = Array.isArray(economy?.top_risks) ? economy.top_risks : [];
+    const riskFocusFromFlags = (flags) => {
+      const list = Array.isArray(flags) ? flags.map((f) => String(f || '')) : [];
+      if (list.includes('food_decline') || list.includes('low_food_buffer')) return 'hydroponic_farm';
+      if (list.includes('energy_deficit')) return 'solar_plant';
+      if (list.includes('low_welfare')) return 'hospital';
+      return 'colony_hq';
+    };
+    const AUTO_RISK_UPGRADE_BUDGET_SHARE = 0.55;
+    const parseRes = (v) => Math.max(0, Number(v || 0));
+    const evaluateRiskUpgradeBudget = (colony, nextCost, share = AUTO_RISK_UPGRADE_BUDGET_SHARE) => {
+      const resources = {
+        metal: parseRes(colony?.metal),
+        crystal: parseRes(colony?.crystal),
+        deuterium: parseRes(colony?.deuterium),
+      };
+      const costs = {
+        metal: parseRes(nextCost?.metal),
+        crystal: parseRes(nextCost?.crystal),
+        deuterium: parseRes(nextCost?.deuterium),
+      };
+      const over = [];
+      ['metal', 'crystal', 'deuterium'].forEach((k) => {
+        if (!costs[k]) return;
+        const limit = resources[k] * share;
+        if (costs[k] > limit) {
+          over.push(`${k}:${Math.round(costs[k])}>${Math.round(limit)}`);
+        }
+      });
+      return {
+        ok: over.length === 0,
+        details: over,
+      };
+    };
+    const runRiskAutoUpgrade = async (cid, focusBuilding) => {
+      focusColonyDevelopment(cid, {
+        source: 'economy-risk-auto',
+        focusBuilding,
+      });
+
+      const colony = colonies.find((c) => Number(c.id || 0) === Number(cid || 0)) || null;
+      if (!colony) {
+        showToast('Kolonie nicht gefunden, Auto-Upgrade abgebrochen.', 'warning');
+        return;
+      }
+
+      let buildingsPayload = null;
+      try {
+        buildingsPayload = await API.buildings(cid);
+      } catch (_) {
+        showToast('Kostenprüfung nicht möglich (Netzwerk). Auto-Upgrade aus Sicherheitsgründen abgebrochen.', 'warning');
+        return;
+      }
+      if (!buildingsPayload?.success) {
+        showToast(buildingsPayload?.error || 'Kostenprüfung fehlgeschlagen. Auto-Upgrade abgebrochen.', 'warning');
+        return;
+      }
+
+      const buildingEntry = (buildingsPayload.buildings || []).find((b) => String(b.type || '') === String(focusBuilding || ''));
+      if (!buildingEntry) {
+        showToast(`Gebäude ${fmtName(focusBuilding)} nicht verfügbar.`, 'warning');
+        return;
+      }
+
+      const budgetCheck = evaluateRiskUpgradeBudget(colony, buildingEntry.next_cost || {}, AUTO_RISK_UPGRADE_BUDGET_SHARE);
+      if (!budgetCheck.ok) {
+        showToast(`Auto +1 blockiert (Budgetlimit ${Math.round(AUTO_RISK_UPGRADE_BUDGET_SHARE * 100)}%). ${budgetCheck.details.join(', ')}`, 'warning');
+        return;
+      }
+
+      const res = await API.upgrade(cid, focusBuilding);
+      if (!res?.success) {
+        showToast(res?.error || 'Auto-Upgrade fehlgeschlagen.', 'warning');
+        return;
+      }
+      const queuePos = Number(res.queue_position || 0);
+      const targetLevel = Number(res.target_level || 0);
+      if (queuePos > 1) {
+        showToast(`${fmtName(focusBuilding)} eingereiht (Pos ${queuePos}, Lv ${targetLevel}).`, 'success');
+      } else {
+        showToast(`${fmtName(focusBuilding)} gestartet (Lv ${targetLevel}).`, 'success');
+      }
+      await loadOverview();
+      WM.refresh('buildings');
+      WM.refresh('colony');
+    };
+    const signed = (value, digits = 0) => {
+      const n = Number(value || 0);
+      const fixed = digits > 0 ? n.toFixed(digits) : Math.round(n).toString();
+      return `${n >= 0 ? '+' : ''}${fixed}`;
+    };
+    const riskLabel = (status) => {
+      const code = String(status || 'stable');
+      if (code === 'strain') return '<span class="text-red">Kritisch</span>';
+      if (code === 'watch') return '<span class="text-yellow">Beobachten</span>';
+      return '<span class="text-cyan">Stabil</span>';
+    };
+    const topRiskHtml = topRisks.length
+      ? `<div class="system-row" style="font-size:0.8rem;line-height:1.45;margin-top:0.25rem">
+          ${topRisks.map((r) => {
+            const flags = Array.isArray(r.risk_flags) ? r.risk_flags.join(', ') : '';
+            const cid = Number(r.colony_id || 0);
+            const focus = riskFocusFromFlags(r.risk_flags);
+            return `⚠ ${esc(String(r.colony_name || 'Colony'))}: ${riskLabel(r.status)} · Score ${esc(String(r.risk_score || 0))} · 🌾 ${esc(String(r.food_rate_per_hour || 0))}/h · ⚡ ${esc(String(r.energy || 0))}${flags ? ` · ${esc(flags)}` : ''} <button type="button" class="btn btn-secondary btn-sm" data-risk-action="focus" data-risk-cid="${cid}" data-risk-focus="${esc(focus)}" style="margin-left:0.35rem;padding:0.2rem 0.45rem;font-size:0.7rem">Fix</button><button type="button" class="btn btn-primary btn-sm" data-risk-action="auto" data-risk-cid="${cid}" data-risk-focus="${esc(focus)}" style="margin-left:0.25rem;padding:0.2rem 0.45rem;font-size:0.7rem">Auto +1</button>`;
+          }).join('<br>')}
+        </div>`
+      : '<div class="system-row text-cyan" style="font-size:0.8rem">Keine akuten Wirtschaftsrisiken erkannt.</div>';
+    const offlineSummaryHtml = `
+      <div class="system-card" style="margin:0.75rem 0 0.6rem">
+        <div class="system-row"><strong>Ökonomie-Snapshot</strong>${hadOfflineTime ? ` · Offline-Zeit: ${Math.max(1, Math.round((Number(offline?.max_elapsed_seconds || 0) / 60)))} min` : ''}</div>
+        <div class="system-row" style="font-size:0.8rem;color:var(--text-secondary)">
+          ⬡ ${signed(netRates?.metal, 1)}/h · 💎 ${signed(netRates?.crystal, 1)}/h · 🔵 ${signed(netRates?.deuterium, 1)}/h · 🌾 ${signed(netRates?.food, 1)}/h · 👥 ${signed(netRates?.population, 2)}/h
+        </div>
+        <div class="system-row" style="font-size:0.8rem;color:var(--text-secondary)">
+          Stabil: ${statusCounts.stable || 0} · Beobachten: ${statusCounts.watch || 0} · Kritisch: ${statusCounts.strain || 0}
+          ${economy ? ` · Wohlfahrt Ø ${(Number(economy.avg_welfare || 0)).toFixed(1)}%` : ''}
+        </div>
+        ${topRiskHtml}
+      </div>`;
+
     root.innerHTML = `
       <div class="status-bar">
         <span class="status-chip ${protected_ ? 'chip-shield' : 'chip-neutral'}">${protText}</span>
@@ -880,6 +2294,8 @@
         <span class="status-chip chip-dm">◆ ${fmt(meta.dark_matter ?? 0)} DM</span>
         <button class="btn btn-secondary btn-sm" id="open-leaders-btn">👤 Leaders</button>
       </div>
+
+      ${offlineSummaryHtml}
 
       <h3 style="margin:0.75rem 0 0.5rem">Your Colonies</h3>
       <div class="overview-grid">
@@ -958,10 +2374,46 @@
 
     root.querySelector('#open-leaders-btn')?.addEventListener('click', () => WM.open('leaders'));
 
+    root.querySelectorAll('[data-risk-action="focus"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const cid = Number(btn.getAttribute('data-risk-cid') || 0);
+        if (!cid) return;
+        const focusBuilding = String(btn.getAttribute('data-risk-focus') || 'colony_hq');
+        focusColonyDevelopment(cid, {
+          source: 'economy-risk',
+          focusBuilding,
+        });
+        if (audioManager) audioManager.playUiClick();
+        showToast(`Kolonie-Fokus gesetzt: ${fmtName(focusBuilding)}.`, 'info');
+      });
+    });
+
+    root.querySelectorAll('[data-risk-action="auto"]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const cid = Number(btn.getAttribute('data-risk-cid') || 0);
+        if (!cid) return;
+        const focusBuilding = String(btn.getAttribute('data-risk-focus') || 'colony_hq');
+        btn.disabled = true;
+        const prevLabel = btn.textContent;
+        btn.textContent = '...';
+        try {
+          await runRiskAutoUpgrade(cid, focusBuilding);
+          if (audioManager) audioManager.playUiConfirm();
+        } catch (err) {
+          showToast(String(err?.message || err || 'Auto-Upgrade fehlgeschlagen.'), 'error');
+          if (audioManager) audioManager.playUiError();
+        } finally {
+          btn.disabled = false;
+          btn.textContent = prevLabel || 'Auto +1';
+        }
+      });
+    });
+
     // PvP toggle
     root.querySelector('#pvp-toggle-btn')?.addEventListener('click', async () => {
       const r = await API.togglePvp();
       if (r.success) {
+        if (audioManager && typeof audioManager.playPvpToggle === 'function') audioManager.playPvpToggle();
         showToast(r.pvp_mode ? '⚔ PvP enabled!' : '🛡 PvP disabled.', 'info');
         await loadOverview();
       } else {
@@ -1000,7 +2452,11 @@
       fleetList.querySelectorAll('.recall-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           const r = await API.recallFleet(parseInt(btn.dataset.fid, 10));
-          if (r.success) { showToast('Fleet recalled.', 'success'); loadOverview(); }
+          if (r.success) {
+            if (audioManager && typeof audioManager.playFleetRecall === 'function') audioManager.playFleetRecall();
+            showToast('Fleet recalled.', 'success');
+            loadOverview();
+          }
           else showToast(r.error || 'Recall failed', 'error');
         });
       });
@@ -1131,11 +2587,22 @@
         const meta = getBuildingUiMeta(b.type);
         (byCategory[meta.cat] ??= []).push({ ...b, meta });
       }
+      const upgradeQueue = Array.isArray(data.upgrade_queue) ? data.upgrade_queue : [];
 
       const catOrder = ['Extraction','Energy','Life Support','Population','Industry','Storage','Science','Military','Advanced','Other'];
       let html = '';
       if (buildingFocus) {
         html += `<div class="build-focus-banner">Fokus: ${fmtName(buildingFocus)}${uiState.colonyViewFocus?.source ? ` · Quelle: ${esc(uiState.colonyViewFocus.source)}` : ''}</div>`;
+      }
+      if (upgradeQueue.length) {
+        const active = upgradeQueue.find((q) => String(q.status || '') === 'running') || null;
+        const queued = upgradeQueue.filter((q) => String(q.status || '') === 'queued');
+        html += `
+          <div class="system-card" style="margin-bottom:0.8rem">
+            <div class="system-row"><strong>Bauauftrags-Queue</strong></div>
+            ${active ? `<div class="system-row">🔧 Aktiv: ${esc(fmtName(active.type || 'building'))} -> Lv ${esc(String(active.target_level || '?'))} · ETA <span data-end="${esc(active.eta)}">${countdown(active.eta)}</span></div>` : '<div class="system-row text-muted">Aktuell kein aktiver Auftrag.</div>'}
+            ${queued.length ? `<div class="system-row">📋 Wartend: ${queued.map((q) => `${esc(fmtName(q.type || 'building'))} -> Lv ${esc(String(q.target_level || '?'))}`).join(' · ')}</div>` : '<div class="system-row text-muted">Keine weiteren Aufträge in Warteschlange.</div>'}
+          </div>`;
       }
       for (const cat of catOrder) {
         const items = byCategory[cat];
@@ -1174,7 +2641,13 @@
           btn.disabled = true;
           const r = await API.upgrade(currentColony.id, btn.dataset.type);
           if (r.success) {
-            showToast(`Upgrading ${fmtName(btn.dataset.type)}…`, 'success');
+            const queuePos = Number(r.queue_position || 0);
+            const targetLevel = Number(r.target_level || 0);
+            if (queuePos > 1) {
+              showToast(`Queued ${fmtName(btn.dataset.type)} -> Lv ${targetLevel} (Position ${queuePos}).`, 'success');
+            } else {
+              showToast(`Upgrading ${fmtName(btn.dataset.type)} -> Lv ${targetLevel}…`, 'success');
+            }
             const res = await API.resources(currentColony.id);
             if (res.success) Object.assign(currentColony, res.resources);
             updateResourceBar();
@@ -1197,7 +2670,11 @@
     root.innerHTML = '<p class="text-muted">Loading…</p>';
 
     try {
-      await API.finishResearch();
+      const finishResult = await API.finishResearch();
+      if (finishResult?.success && Array.isArray(finishResult.completed) && finishResult.completed.length > 0) {
+        if (audioManager && typeof audioManager.playResearchComplete === 'function') audioManager.playResearchComplete();
+        showToast(`Forschung abgeschlossen: ${finishResult.completed.map((type) => fmtName(type)).join(', ')}`, 'success');
+      }
       const data = await API.research(currentColony.id);
       if (!data.success) { root.innerHTML = '<p class="text-red">Error.</p>'; return; }
 
@@ -1226,7 +2703,11 @@
         btn.addEventListener('click', async () => {
           btn.disabled = true;
           const res = await API.doResearch(currentColony.id, btn.dataset.type);
-          if (res.success) { showToast(`Researching ${fmtName(btn.dataset.type)}…`, 'success'); renderResearch(); }
+          if (res.success) {
+            showToast(`Researching ${fmtName(btn.dataset.type)}…`, 'success');
+            if (audioManager && typeof audioManager.playResearchStart === 'function') audioManager.playResearchStart();
+            renderResearch();
+          }
           else { showToast(res.error || 'Research failed', 'error'); btn.disabled = false; }
         });
       });
@@ -1272,6 +2753,7 @@
           const res = await API.buildShip(currentColony.id, type, qty);
           if (res.success) {
             showToast(`Built ${qty}× ${fmtName(type)}`, 'success');
+            if (audioManager && typeof audioManager.playBuildComplete === 'function') audioManager.playBuildComplete();
             const r2 = await API.resources(currentColony.id);
             if (r2.success) Object.assign(currentColony, r2.resources);
             updateResourceBar();
@@ -1379,6 +2861,8 @@
           resultEl.className = 'form-info';
           resultEl.textContent = `Fleet launched! ETA: ${new Date(r.arrival_time).toLocaleString()}`;
           showToast('🚀 Fleet launched!', 'success');
+          if (audioManager && typeof audioManager.playFleetMission === 'function') audioManager.playFleetMission(mission);
+          else if (audioManager && typeof audioManager.playFleetLaunch === 'function') audioManager.playFleetLaunch();
           await loadOverview();
         } else {
           resultEl.className = 'form-error';
@@ -1402,16 +2886,6 @@
       : el.classList.contains('hidden');
     el.classList.toggle('hidden', !nextVisible);
     return nextVisible;
-  }
-
-  function flashGalaxyActivity(root, color = 'rgba(122, 194, 255, 0.22)') {
-    const stage = root?.querySelector('.galaxy-3d-wrap');
-    if (!stage) return;
-    const flash = document.createElement('div');
-    flash.className = 'galaxy-action-flash';
-    flash.style.setProperty('--flash-color', color);
-    stage.appendChild(flash);
-    window.setTimeout(() => flash.remove(), 520);
   }
 
   function makeGalaxyOverlayDraggable(root, selector) {
@@ -1510,6 +2984,7 @@
     if (!galaxy3d) return;
     const root = rootRef || WM.body('galaxy');
     const normalized = String(action || '');
+    if (audioManager) audioManager.playUiClick();
     if (normalized === 'zoom-in' && typeof galaxy3d.nudgeZoom === 'function') galaxy3d.nudgeZoom('in');
     else if (normalized === 'zoom-out' && typeof galaxy3d.nudgeZoom === 'function') galaxy3d.nudgeZoom('out');
     else if (normalized === 'rotate-left' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('left');
@@ -1526,6 +3001,7 @@
     else if (normalized === 'pan-down-right' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('down-right');
     else if (normalized === 'reset' && typeof galaxy3d.resetNavigationView === 'function') galaxy3d.resetNavigationView();
     else if (normalized === 'focus' && typeof galaxy3d.focusCurrentSelection === 'function') galaxy3d.focusCurrentSelection();
+    else if (normalized === 'home' && root) focusHomeSystemInGalaxy(root);
     else if (normalized === 'enter-system') {
       const activeStar = pinnedStar || uiState.activeStar || null;
       if (activeStar && root) {
@@ -1612,7 +3088,6 @@
         <div class="galaxy-3d-stage">
           <div class="galaxy-3d-wrap">
             <div id="galaxy-3d-canvas" class="galaxy-3d-canvas"></div>
-            <canvas id="galaxy-2d-overlay" class="galaxy-2d-overlay"></canvas>
             <div id="galaxy-hover-card" class="galaxy-hover-card hidden"></div>
           </div>
 
@@ -1634,7 +3109,16 @@
                   <option value="always_fresh" ${activePolicyMode === 'manual' && activePolicyProfile === 'always_fresh' ? 'selected' : ''}>Always Fresh</option>
                 </select>
               </label>
+              <label>Density:
+                <select id="gal-cluster-density">
+                  <option value="auto" ${String(settingsState.clusterDensityMode || 'auto') === 'auto' ? 'selected' : ''}>Auto</option>
+                  <option value="high" ${String(settingsState.clusterDensityMode || 'auto') === 'high' ? 'selected' : ''}>High</option>
+                  <option value="max" ${String(settingsState.clusterDensityMode || 'auto') === 'max' ? 'selected' : ''}>Max</option>
+                </select>
+              </label>
+              <button class="btn btn-secondary" id="gal-cluster-bounds-btn">Cluster Boxes: on</button>
               <span id="gal-policy-hint" class="text-muted"></span>
+              <span id="gal-density-metrics" class="text-muted">Density: n/a</span>
               <span id="gal-health-badge" class="text-muted">Health: checking...</span>
               <button class="btn btn-secondary" id="gal-load-3d-btn">Load 3D Stars</button>
               <button class="btn btn-warning" id="gal-clear-cache-btn">Clear Cache</button>
@@ -1647,7 +3131,17 @@
               <button class="btn btn-sm" data-overlay-close="#galaxy-info-overlay">Close</button>
             </div>
             <div id="galaxy-system-details" class="text-muted">Overlay hidden. Press I to open details.</div>
-            <div id="galaxy-territory-panel" class="galaxy-territory-panel text-muted">Keine Sektoransprüche geladen.</div>
+            <div class="galaxy-debug-wrap">
+              <div class="galaxy-debug-headline">
+                <div class="galaxy-debug-title">Lade-/Render-Log</div>
+                <div class="galaxy-debug-actions">
+                  <button class="btn btn-secondary btn-sm" id="galaxy-debug-copy-btn" type="button">Letzten kopieren</button>
+                  <button class="btn btn-secondary btn-sm" id="galaxy-debug-download-btn" type="button">Download</button>
+                  <button class="btn btn-secondary btn-sm" id="galaxy-debug-clear-btn" type="button">Leeren</button>
+                </div>
+              </div>
+              <div id="galaxy-debug-log" class="galaxy-debug-log">Keine aktuellen Lade-/Renderfehler.</div>
+            </div>
             <div id="galaxy-planets-panel" class="galaxy-planets-panel"></div>
           </aside>
 
@@ -1679,6 +3173,9 @@
               <button class="galaxy-nav-mini-btn" type="button" data-nav-action="pan-down" title="Pan down">↓</button>
               <button class="galaxy-nav-mini-btn" type="button" data-nav-action="pan-down-right" title="Pan down-right">↘</button>
             </div>
+            <div class="galaxy-nav-strip" style="margin-top:0.3rem;grid-template-columns:1fr;">
+              <button class="galaxy-nav-mini-btn" type="button" data-nav-action="home" title="Jump to home system">🏠 Home</button>
+            </div>
           </div>
         </div>`;
 
@@ -1694,6 +3191,14 @@
         galaxy3d.toggleFollowSelection();
         updateGalaxyFollowUi(root);
       });
+      root.querySelector('#gal-cluster-bounds-btn')?.addEventListener('click', () => {
+        settingsState.clusterBoundsVisible = !(settingsState.clusterBoundsVisible !== false);
+        applyRuntimeSettings();
+        refreshGalaxyDensityMetrics(root);
+        updateClusterBoundsUi(root);
+        saveUiSettings();
+        showToast(`Cluster-Boxen: ${settingsState.clusterBoundsVisible ? 'an' : 'aus'}`, 'info');
+      });
       root.querySelector('#gal-policy-profile').addEventListener('change', (e) => {
         const selected = String(e.target.value || 'auto');
         if (selected === 'auto') {
@@ -1706,7 +3211,16 @@
         refreshPolicyUi(root);
         loadGalaxyStars3D(root);
       });
+      root.querySelector('#gal-cluster-density')?.addEventListener('change', (e) => {
+        const selected = String(e.target.value || 'auto').toLowerCase();
+        settingsState.clusterDensityMode = ['auto', 'high', 'max'].includes(selected) ? selected : 'auto';
+        applyRuntimeSettings();
+        refreshGalaxyDensityMetrics(root);
+        saveUiSettings();
+        showToast(`Cluster-Dichte: ${settingsState.clusterDensityMode.toUpperCase()}`, 'info');
+      });
       root.querySelector('#gal-clear-cache-btn').addEventListener('click', async () => {
+        galaxyHydrationToken += 1;
         if (galaxyModel) galaxyModel.clearAll();
         if (galaxyDB) await galaxyDB.clearAll();
         galaxyStars = [];
@@ -1717,6 +3231,15 @@
         if (details) details.innerHTML = '<span class="text-muted">Galaxy cache cleared.</span>';
         if (panel) panel.innerHTML = '';
         showToast('Galaxy cache cleared.', 'success');
+      });
+      root.querySelector('#galaxy-debug-copy-btn')?.addEventListener('click', () => {
+        copyLastGalaxyDebugError();
+      });
+      root.querySelector('#galaxy-debug-download-btn')?.addEventListener('click', () => {
+        downloadGalaxyDebugLog();
+      });
+      root.querySelector('#galaxy-debug-clear-btn')?.addEventListener('click', () => {
+        clearGalaxyDebugErrors();
       });
       root.querySelector('#gal-from').addEventListener('change', () => {
         const from = root.querySelector('#gal-from');
@@ -1734,7 +3257,10 @@
 
       refreshPolicyUi(root);
       refreshGalaxyHealth(root, false);
+      refreshGalaxyDensityMetrics(root);
       updateGalaxyFollowUi(root);
+      updateClusterBoundsUi(root);
+      renderGalaxyDebugPanel(root);
     }
 
     if (root.querySelector('#gal-health-badge') && (Date.now() - galaxyHealthLastCheckMs) > 60 * 1000) {
@@ -1746,8 +3272,39 @@
       loadGalaxyStars3D(root);
     }
 
+    refreshGalaxyDensityMetrics(root);
     updateGalaxyFollowUi(root);
-    renderGalaxyTerritorySummary(root);
+    updateClusterBoundsUi(root);
+  }
+
+  function refreshGalaxyDensityMetrics(root) {
+    const label = root?.querySelector?.('#gal-density-metrics');
+    if (!label) return;
+    if (!galaxy3d || typeof galaxy3d.getRenderStats !== 'function') {
+      label.textContent = 'Density: renderer offline';
+      label.className = 'text-muted';
+      return;
+    }
+    const stats = galaxy3d.getRenderStats();
+    const raw = Number(stats.rawStars || 0);
+    const visible = Number(stats.visibleStars || 0);
+    const target = Number(stats.targetPoints || 0);
+    const clusters = Number(stats.clusterCount || 0);
+    const clusterLabel = stats.clusterBoundsVisible ? 'boxes on' : 'boxes off';
+    const ratioPct = raw > 0 ? Math.max(0, Math.min(100, Math.round((visible / raw) * 100))) : 0;
+    label.textContent = `Density: ${visible}/${raw} (${ratioPct}%) · target ${target} · ${clusters} clusters · ${clusterLabel} · ${String(stats.densityMode || 'auto').toUpperCase()} · ${String(stats.lodProfile || 'n/a')}`;
+    label.className = ratioPct >= 70 ? 'text-green' : ratioPct >= 35 ? 'text-yellow' : 'text-muted';
+  }
+
+  function updateClusterBoundsUi(root) {
+    const btn = root?.querySelector('#gal-cluster-bounds-btn');
+    const enabled = !galaxy3d || typeof galaxy3d.areClusterBoundsVisible !== 'function'
+      ? (settingsState.clusterBoundsVisible !== false)
+      : galaxy3d.areClusterBoundsVisible();
+    if (!btn) return;
+    btn.textContent = `Cluster Boxes: ${enabled ? 'on' : 'off'}`;
+    btn.classList.toggle('btn-secondary', enabled);
+    btn.classList.toggle('btn-warning', !enabled);
   }
 
   function updateGalaxyFollowUi(root) {
@@ -1764,38 +3321,6 @@
     if (root?.querySelector('#galaxy-system-details')) {
       renderGalaxySystemDetails(root, activeStar, !!galaxy3d?.systemMode);
     }
-  }
-
-  function renderGalaxyTerritorySummary(root) {
-    const panel = root?.querySelector('#galaxy-territory-panel');
-    if (!panel) return;
-    const territory = Array.isArray(uiState.territory) ? uiState.territory : [];
-    const clusters = Array.isArray(uiState.clusterSummary) ? uiState.clusterSummary : [];
-    if (!territory.length && !clusters.length) {
-      panel.innerHTML = '<div class="text-muted">Keine aktiven Staatsgebiete oder Cluster für die aktuelle Auswahl.</div>';
-      return;
-    }
-    panel.innerHTML = `
-      <div class="territory-section-title">Staatgebiete · Galaxie ${esc(String(uiState.activeGalaxy || 1))}</div>
-      <div class="territory-mini-list">${territory.slice(0, 4).map((f) => `
-        <button type="button" class="territory-chip territory-chip-select ${Number(uiState.selectedFactionId || 0) === Number(f.id || 0) ? 'territory-chip-active' : ''}" data-faction-select="${esc(String(f.id || 0))}" style="--territory-color:${esc(f.color)}">${esc(f.icon)} ${esc(f.name)} · ${esc(f.government?.icon || '🏳')} ${esc(f.government?.label || 'Herrschaft')} · Macht ${esc(String(f.power_level || 'n/a'))}</button>`).join('')}</div>
-      ${clusters.length ? `<div class="territory-section-title">Cluster</div>
-      <div class="cluster-mini-list">${clusters.slice(0, 4).map((cluster) => `
-        <span class="cluster-chip">${esc(cluster.label)} ${esc(String(cluster.from))}-${esc(String(cluster.to))}${cluster.faction ? ` · ${esc(cluster.faction.icon)} ${esc(cluster.faction.name)}` : ''}</span>`).join('')}</div>` : ''}`;
-
-    panel.querySelectorAll('[data-faction-select]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const factionId = Number(btn.getAttribute('data-faction-select') || 0);
-        const nextFaction = Number(uiState.selectedFactionId || 0) === factionId ? null : factionId;
-        uiState.selectedFactionId = nextFaction;
-        if (galaxy3d && typeof galaxy3d.setEmpireHeartbeatFaction === 'function') {
-          galaxy3d.setEmpireHeartbeatFaction(nextFaction);
-        }
-        renderGalaxyTerritorySummary(root);
-        flashGalaxyActivity(root, nextFaction ? 'rgba(122, 194, 255, 0.24)' : 'rgba(166, 177, 201, 0.20)');
-        showToast(nextFaction ? 'Imperiums-Heartbeat aktiviert.' : 'Imperiums-Heartbeat deaktiviert.', 'info');
-      });
-    });
   }
 
   async function refreshGalaxyHealth(root, force) {
@@ -1830,15 +3355,43 @@
       }
     } catch (_) {
       galaxyHealthLastCheckMs = Date.now();
-      badge.textContent = 'Health: unavailable';
-      badge.className = 'text-muted';
+      try {
+        const net = (typeof API?.networkHealth === 'function') ? await API.networkHealth(false) : null;
+        const kind = String(net?.kind || 'unknown');
+        if (kind === 'offline') {
+          badge.textContent = 'Health: offline';
+          badge.className = 'text-red';
+        } else if (kind === 'timeout') {
+          badge.textContent = 'Health: timeout';
+          badge.className = 'text-yellow';
+        } else if (kind === 'unreachable') {
+          badge.textContent = 'Health: API unreachable';
+          badge.className = 'text-red';
+        } else if (kind === 'http' || kind === 'auth') {
+          badge.textContent = `Health: API ${Number(net?.status || 0) || 'error'}`;
+          badge.className = 'text-yellow';
+        } else {
+          badge.textContent = 'Health: unavailable';
+          badge.className = 'text-muted';
+        }
+      } catch (_) {
+        badge.textContent = 'Health: unavailable';
+        badge.className = 'text-muted';
+      }
     }
   }
 
   function initGalaxy3D(root) {
     const holder = root.querySelector('#galaxy-3d-canvas');
-    if (!holder || !window.Galaxy3DRenderer) {
-      root.querySelector('#galaxy-system-details').innerHTML = '<span class="text-red">3D engine failed to load.</span>';
+    if (!holder) {
+      galaxy3dInitReason = 'Missing #galaxy-3d-canvas container';
+      root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D engine failed to load. Reason: ${esc(galaxy3dInitReason)}</span>`;
+      toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
+      return;
+    }
+    if (!window.Galaxy3DRenderer) {
+      galaxy3dInitReason = 'window.Galaxy3DRenderer unavailable';
+      root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D engine failed to load. Reason: ${esc(galaxy3dInitReason)}</span>`;
       toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
       return;
     }
@@ -1857,6 +3410,14 @@
             updateGalaxyHoverCard(root, star, pos, true);
             return;
           }
+          if (star?.__kind === 'cluster') {
+            pinnedStar = star;
+            toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
+            updateGalaxyHoverCard(root, star, pos, true);
+            renderGalaxySystemDetails(root, star, false);
+            applyClusterRangeToControls(root, star, { toast: false });
+            return;
+          }
           pinnedStar = star;
           toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
           updateGalaxyHoverCard(root, star, pos, true);
@@ -1868,6 +3429,20 @@
             updateGalaxyHoverCard(root, star, pos, true);
             return;
           }
+          if (star?.__kind === 'cluster') {
+            pinnedStar = star;
+            toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
+            updateGalaxyHoverCard(root, star, pos, true);
+            renderGalaxySystemDetails(root, star, true);
+            const range = applyClusterRangeToControls(root, star, { toast: true });
+            if (range) {
+              await loadGalaxyStars3D(root);
+            }
+            return;
+          }
+          if (audioManager && typeof audioManager.setScene === 'function') {
+            audioManager.setScene('system', { autoplay: true, transition: 'soft', minHoldMs: 700 });
+          }
           pinnedStar = star;
           toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
           updateGalaxyHoverCard(root, star, pos, true);
@@ -1875,6 +3450,9 @@
           await loadStarSystemPlanets(root, star);
         },
         onSystemZoomOut: (star) => {
+          if (audioManager && typeof audioManager.setScene === 'function') {
+            audioManager.setScene('galaxy', { autoplay: true, transition: 'soft', minHoldMs: 700 });
+          }
           if (galaxy3d && typeof galaxy3d.exitSystemView === 'function') {
             galaxy3d.exitSystemView(true);
           }
@@ -1884,29 +3462,75 @@
           if (panel && star) panel.innerHTML = '<p class="text-muted">Zur Galaxieansicht ausgezoomt. Für Systemdetails wieder hineinzoomen oder doppelklicken.</p>';
         },
         onPlanetZoomOut: (star) => {
+          if (audioManager && typeof audioManager.setScene === 'function') {
+            audioManager.setScene('system', { autoplay: true, transition: 'normal', minHoldMs: 500 });
+          }
           if (star) renderGalaxySystemDetails(root, star, true);
         },
       });
-    } catch (_) {
+      galaxy3dInitReason = '';
+      applyRuntimeSettings();
+      refreshGalaxyDensityMetrics(root);
+      updateGalaxyFollowUi(root);
+      updateClusterBoundsUi(root);
+    } catch (err) {
       galaxy3d = null;
-      root.querySelector('#galaxy-system-details').innerHTML = '<span class="text-red">3D renderer unavailable. Fallback list active.</span>';
+      console.error('Galaxy3D init failed:', err);
+      galaxy3dInitReason = String(err?.message || err || 'unknown error');
+      const reason = esc(galaxy3dInitReason);
+      root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D renderer unavailable. Fallback list active. Reason: ${reason}</span>`;
       toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
     }
   }
 
-  function renderGalaxyFallbackList(root, stars, from, to) {
+  function collectGalaxyRenderDiagnostics(root) {
+    let webglSupport = 'unknown';
+    try {
+      const testCanvas = document.createElement('canvas');
+      const gl2 = testCanvas.getContext('webgl2');
+      const gl1 = gl2 || testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl');
+      webglSupport = gl2 ? 'webgl2' : (gl1 ? 'webgl1' : 'none');
+    } catch (_) {
+      webglSupport = 'error';
+    }
+    return {
+      rendererGlobal: typeof window.Galaxy3DRenderer,
+      threeGlobal: typeof window.THREE,
+      threeRevision: String(window.THREE?.REVISION || 'n/a'),
+      hasCanvas: !!root?.querySelector?.('#galaxy-3d-canvas'),
+      webglSupport,
+      reason: String(galaxy3dInitReason || '').trim() || 'n/a',
+      time: new Date().toLocaleTimeString(),
+    };
+  }
+
+  function renderGalaxyFallbackList(root, stars, from, to, reason = '') {
     const panel = root.querySelector('#galaxy-planets-panel');
     if (!panel) return;
     const rows = (stars || []).slice(0, 40).map((s) => {
       return `<div class="planet-detail-row">#${Number(s.system_index)} - ${esc(s.name || s.catalog_name || 'Unnamed')} (${esc(String(s.spectral_class || '?'))}${esc(String(s.subtype ?? ''))})</div>`;
     }).join('');
+    const reasonText = String(reason || galaxy3dInitReason || '').trim();
+    const diag = collectGalaxyRenderDiagnostics(root);
     panel.innerHTML = `
       <h4>Fallback Star List</h4>
       <div class="planet-detail-3d">
+        ${reasonText ? `<div class="planet-detail-row text-red">Reason: ${esc(reasonText)}</div>` : ''}
+        <div class="planet-detail-row" style="margin:0.25rem 0;padding:0.35rem 0.4rem;border:1px solid rgba(180,120,120,0.35);border-radius:6px;background:rgba(32,10,10,0.2)">
+          <strong>Render Diagnostics</strong><br/>
+          Galaxy3DRenderer: ${esc(diag.rendererGlobal)} · THREE: ${esc(diag.threeGlobal)} (${esc(diag.threeRevision)})<br/>
+          Canvas: ${diag.hasCanvas ? 'yes' : 'no'} · WebGL: ${esc(diag.webglSupport)} · Last reason: ${esc(diag.reason)} · ${esc(diag.time)}
+          <div style="margin-top:0.35rem"><button id="galaxy-retry-3d-btn" class="btn btn-secondary btn-sm" type="button">Retry 3D Init</button></div>
+        </div>
         <div class="planet-detail-row">Range ${from}..${to}</div>
         <div class="planet-detail-row">Loaded stars: ${Number((stars || []).length)}</div>
         ${rows || '<div class="planet-detail-row">No stars returned.</div>'}
       </div>`;
+
+    panel.querySelector('#galaxy-retry-3d-btn')?.addEventListener('click', () => {
+      initGalaxy3D(root);
+      loadGalaxyStars3D(root);
+    });
   }
 
   function updateGalaxyHoverCard(root, star, pos, pinned) {
@@ -1924,6 +3548,14 @@
         <div class="hover-title hover-title-planet"><span class="hover-planet-icon">${planetIcon(star.planet_class)}</span>${esc(title)}</div>
         <div class="hover-meta">${esc(star.planet_class || 'Planet')} · slot ${esc(String(star.__slot?.position || star.position || '?'))}${owner}</div>
         <div class="hover-meta">around ${esc(sourceStar.name || sourceStar.catalog_name || 'system star')}</div>`;
+    } else if (star.__kind === 'cluster') {
+      const systems = Array.isArray(star.__clusterSystems) ? star.__clusterSystems : [];
+      const from = systems.length ? Math.min(...systems) : Number(star.from || 0);
+      const to = systems.length ? Math.max(...systems) : Number(star.to || 0);
+      card.innerHTML = `
+        <div class="hover-title"><span class="hover-star-dot" style="background:#ff7b72;box-shadow:0 0 10px #ff7b72;"></span>${esc(star.label || star.name || `Cluster ${Number(star.__clusterIndex || 0) + 1}`)}</div>
+        <div class="hover-meta">Systeme: ${esc(String(from || '?'))} - ${esc(String(to || '?'))}</div>
+        <div class="hover-meta">Hover/Klick selektiert · Doppelklick zoomt in die Bounding Box</div>`;
     } else {
       const starColor = starClassColor(star.spectral_class);
       card.innerHTML = `
@@ -1937,6 +3569,32 @@
     card.classList.toggle('pinned', !!pinned);
   }
 
+  function applyClusterRangeToControls(root, clusterPayload, opts = {}) {
+    if (!root || !clusterPayload || clusterPayload.__kind !== 'cluster') return null;
+    const systems = Array.isArray(clusterPayload.__clusterSystems)
+      ? clusterPayload.__clusterSystems
+        .map((n) => Number(n || 0))
+        .filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+    const rawFrom = systems.length ? Math.min(...systems) : Number(clusterPayload.from || 0);
+    const rawTo = systems.length ? Math.max(...systems) : Number(clusterPayload.to || rawFrom || 0);
+    if (!Number.isFinite(rawFrom) || rawFrom <= 0) return null;
+
+    const from = Math.max(1, Math.min(galaxySystemMax, Math.floor(rawFrom)));
+    const to = Math.max(from, Math.min(galaxySystemMax, Math.floor(rawTo || rawFrom)));
+    const fromInput = root.querySelector('#gal-from');
+    const toInput = root.querySelector('#gal-to');
+    if (fromInput) fromInput.value = String(from);
+    if (toInput) toInput.value = String(to);
+    uiState.activeRange = { from, to };
+
+    if (opts.toast !== false) {
+      const label = String(clusterPayload.label || clusterPayload.name || `Cluster ${Number(clusterPayload.__clusterIndex || 0) + 1}`);
+      showToast(`Cluster-Range gesetzt: ${label} (${from}-${to})`, 'info');
+    }
+    return { from, to };
+  }
+
   function renderGalaxySystemDetails(root, star, zoomed) {
     const details = root.querySelector('#galaxy-system-details');
     if (!details) return;
@@ -1944,6 +3602,7 @@
       ? true
       : galaxy3d.isFollowingSelection();
     const quickNavActions = [
+      { action: 'home', label: '🏠', title: 'Jump to home system' },
       { action: 'zoom-in', label: '+', title: 'Zoom in' },
       { action: 'zoom-out', label: '−', title: 'Zoom out' },
       { action: 'rotate-left', label: '◀', title: 'Rotate left' },
@@ -1967,6 +3626,35 @@
       details.innerHTML = `${navButtons}<span class="text-muted">Press I for this overlay. Camera: mouse drag + wheel, keyboard WASD/QE + arrows, F fit, R reset, L follow ${followEnabled ? 'off' : 'on'}.</span>`;
       details.querySelectorAll('[data-nav-action]').forEach((button) => {
         button.addEventListener('click', () => triggerGalaxyNavAction(button.getAttribute('data-nav-action'), root));
+      });
+      return;
+    }
+
+    if (star.__kind === 'cluster') {
+      const systems = Array.isArray(star.__clusterSystems) ? star.__clusterSystems : [];
+      const from = systems.length ? Math.min(...systems) : Number(star.from || 0);
+      const to = systems.length ? Math.max(...systems) : Number(star.to || 0);
+      const factionName = star?.faction?.name ? ` · ${esc(star.faction.name)}` : '';
+      details.innerHTML = `
+        <div class="system-card">
+          <div class="system-title">${esc(star.label || `Cluster ${Number(star.__clusterIndex || 0) + 1}`)}</div>
+          ${navButtons}
+          <div class="system-row">Clusterbereich: ${esc(String(from || '?'))} - ${esc(String(to || '?'))}${factionName}</div>
+          <div class="system-row">Bounding Box: ${Number(star.__clusterSize?.x || 0).toFixed(1)} × ${Number(star.__clusterSize?.y || 0).toFixed(1)} × ${Number(star.__clusterSize?.z || 0).toFixed(1)}</div>
+          <div class="system-row">Center: ${Number(star.__clusterCenter?.x || 0).toFixed(1)}, ${Number(star.__clusterCenter?.y || 0).toFixed(1)}, ${Number(star.__clusterCenter?.z || 0).toFixed(1)}</div>
+          <div class="system-row">Cluster gebunden, rotiert mit der Sternwolke und ist per Mouse hover-/selektierbar.</div>
+          <div class="system-row">Klick fokussiert die Box, Doppelklick zoomt clusterweise hinein.</div>
+          <div class="system-row" style="margin-top:0.45rem;">
+            <button id="gal-load-cluster-range-btn" type="button" class="btn btn-secondary btn-sm">Cluster-Range laden</button>
+          </div>
+        </div>`;
+      details.querySelectorAll('[data-nav-action]').forEach((button) => {
+        button.addEventListener('click', () => triggerGalaxyNavAction(button.getAttribute('data-nav-action'), root));
+      });
+      details.querySelector('#gal-load-cluster-range-btn')?.addEventListener('click', async () => {
+        const range = applyClusterRangeToControls(root, star, { toast: true });
+        if (!range) return;
+        await loadGalaxyStars3D(root);
       });
       return;
     }
@@ -1995,6 +3683,96 @@
     });
   }
 
+  function mergeGalaxyStarsBySystem(existingStars, incomingStars, galaxyIndex) {
+    const g = Number(galaxyIndex || 1);
+    const map = new Map();
+    (Array.isArray(existingStars) ? existingStars : []).forEach((s) => {
+      if (Number(s?.galaxy_index || 0) !== g) return;
+      const key = Number(s?.system_index || 0);
+      if (key > 0) map.set(key, s);
+    });
+    (Array.isArray(incomingStars) ? incomingStars : []).forEach((s) => {
+      if (Number(s?.galaxy_index || g) !== g) return;
+      const key = Number(s?.system_index || 0);
+      if (key > 0) map.set(key, s);
+    });
+    return [...map.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, value]) => value);
+  }
+
+  function hasDenseSystemCoverage(stars, galaxyIndex, fromSystem, toSystem) {
+    const g = Number(galaxyIndex || 1);
+    const from = Math.max(1, Number(fromSystem || 1));
+    const to = Math.max(from, Number(toSystem || from));
+    const span = to - from + 1;
+    if (!Array.isArray(stars) || stars.length < span) return false;
+    const seen = new Set();
+    for (const s of stars) {
+      if (Number(s?.galaxy_index || 0) !== g) continue;
+      const sys = Number(s?.system_index || 0);
+      if (sys >= from && sys <= to) seen.add(sys);
+      if (seen.size >= span) return true;
+    }
+    return seen.size >= span;
+  }
+
+  async function hydrateGalaxyRangeInBackground(root, galaxyIndex, fromSystem, toSystem) {
+    if (!root) return;
+    const g = Number(galaxyIndex || 1);
+    const from = Math.max(1, Number(fromSystem || 1));
+    const to = Math.max(from, Number(toSystem || from));
+    const myToken = ++galaxyHydrationToken;
+    const chunkSize = 2200;
+    let loadedChunks = 0;
+    let loadedSystems = 0;
+
+    for (let start = from; start <= to; start += chunkSize) {
+      if (myToken !== galaxyHydrationToken) return;
+      const end = Math.min(to, start + chunkSize - 1);
+      const alreadyFresh = galaxyModel
+        ? galaxyModel.hasLoadedStarRange(g, start, end, STAR_CACHE_MAX_AGE_MS)
+        : false;
+      if (alreadyFresh) continue;
+
+      let data = null;
+      try {
+        data = await API.galaxyStars(g, start, end, chunkSize);
+      } catch (netErr) {
+        console.warn('[GQ] hydrateGalaxyRangeInBackground: chunk request failed', { g, start, end, error: netErr });
+        continue;
+      }
+      if (!data?.success || !Array.isArray(data.stars)) continue;
+
+      const responseTs = Number(data.server_ts_ms || Date.now());
+      galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, data.stars, g);
+      loadedChunks += 1;
+      loadedSystems += data.stars.length;
+
+      if (galaxyModel) {
+        galaxyModel.upsertStarBatch(g, data.stars);
+        galaxyModel.addLoadedStarRange(g, start, end, responseTs);
+      }
+      if (galaxyDB) {
+        galaxyDB.upsertStars(data.stars, responseTs).catch(() => {});
+      }
+
+      if (uiState.activeGalaxy === g) {
+        uiState.clusterSummary = computeClusterSummary(galaxyStars, uiState.territory);
+        if (galaxy3d) {
+          galaxy3d.setStars(galaxyStars);
+          if (typeof galaxy3d.setClusterAuras === 'function') {
+            galaxy3d.setClusterAuras(uiState.clusterSummary || []);
+          }
+        }
+        const details = root.querySelector('#galaxy-system-details');
+        if (details) {
+          details.innerHTML = `<span class="text-cyan">Lazy full-load: ${loadedSystems} Systeme nachgeladen (${start}-${end}/${to}, chunk ${loadedChunks}).</span>`;
+        }
+      }
+    }
+  }
+
   async function loadGalaxyStars3D(root) {
     const details = root.querySelector('#galaxy-system-details');
     if (activePolicyMode === 'auto') {
@@ -2004,6 +3782,9 @@
     const g = parseInt(root.querySelector('#gal-galaxy').value, 10) || 1;
     const from = Math.max(1, parseInt(root.querySelector('#gal-from').value, 10) || 1);
     const to = Math.max(from, parseInt(root.querySelector('#gal-to').value, 10) || from);
+    if (galaxyStars.length && Number(galaxyStars[0]?.galaxy_index || 0) !== g) {
+      galaxyStars = [];
+    }
     uiState.activeRange = { from, to };
     setGalaxyContext(g, uiState.activeSystem || from, uiState.activeStar);
     const starsPolicy = LEVEL_POLICIES.galaxy.stars;
@@ -2020,30 +3801,30 @@
         const dbStars = await galaxyDB.getStars(g, from, to, { maxAgeMs: starsPolicy.cacheMaxAgeMs });
         if (dbStars.length && galaxyModel) {
           cachedStars = galaxyModel.upsertStarBatch(g, dbStars);
-          galaxyModel.addLoadedStarRange(g, from, to, Date.now());
+          if (hasDenseSystemCoverage(dbStars, g, from, to)) {
+            galaxyModel.addLoadedStarRange(g, from, to, Date.now());
+          }
         } else {
           cachedStars = dbStars;
         }
-      } catch (_) {}
+      } catch (dbErr) {
+        console.warn('[GQ] loadGalaxyStars3D: DB cache read failed', dbErr);
+      }
     }
 
     if (cachedStars && cachedStars.length) {
-      galaxyStars = cachedStars;
+      galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, cachedStars, g);
       uiState.clusterSummary = computeClusterSummary(galaxyStars, uiState.territory);
-      renderGalaxyTerritorySummary(root);
       if (galaxy3d) {
         galaxy3d.setStars(galaxyStars);
         if (typeof galaxy3d.setClusterAuras === 'function') {
           galaxy3d.setClusterAuras(uiState.clusterSummary || []);
         }
-        if (typeof galaxy3d.setEmpireHeartbeatFaction === 'function') {
-          galaxy3d.setEmpireHeartbeatFaction(uiState.selectedFactionId);
-        }
       }
-      renderGalaxy2DOverlay(root, galaxyStars);
       if (details) {
         details.innerHTML = `<span class="text-cyan">Cache: ${galaxyStars.length} stars loaded${fullRangeInModel ? ' (complete range)' : ''}. Syncing live data...</span>`;
       }
+      refreshGalaxyDensityMetrics(root);
     }
 
     const shouldRefreshNetwork = starsPolicy.alwaysRefreshNetwork || !fullRangeInModel;
@@ -2051,6 +3832,7 @@
       if (details) {
         details.innerHTML = `<span class="text-cyan">Policy hit: fresh range from cache (${from}-${to}), network refresh skipped.</span>`;
       }
+      hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch(() => {});
       return;
     }
 
@@ -2065,26 +3847,32 @@
       }
 
       if (Array.isArray(data.stars)) {
-        galaxyStars = data.stars;
+        galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, data.stars, g);
       } else if (data.star_system) {
         const single = Object.assign({}, data.star_system, {
           galaxy_index: Number(data.galaxy || g),
           system_index: Number(data.system || from),
         });
-        galaxyStars = [single];
+        galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, [single], g);
       } else {
         galaxyStars = [];
+      }
+      const reportedSystemMax = Number(data.system_max || 0);
+      if (reportedSystemMax > 0) {
+        galaxySystemMax = Math.max(galaxySystemMax, reportedSystemMax);
       }
       const territoryData = await API.factions().catch(() => null);
       uiState.territory = territoryData?.success
         ? (territoryData.factions || []).filter((f) => g >= Number(f.home_galaxy_min || 1) && g <= Number(f.home_galaxy_max || 0))
         : [];
       uiState.clusterSummary = computeClusterSummary(galaxyStars, uiState.territory);
-      renderGalaxyTerritorySummary(root);
       const responseTs = Number(data.server_ts_ms || Date.now());
       if (galaxyModel) {
         galaxyModel.upsertStarBatch(g, galaxyStars);
-        galaxyModel.addLoadedStarRange(g, from, to, responseTs);
+        const stride = Number(data.stride || 1);
+        if (stride <= 1 && hasDenseSystemCoverage(data.stars || galaxyStars, g, from, to)) {
+          galaxyModel.addLoadedStarRange(g, from, to, responseTs);
+        }
       }
       if (galaxyDB) {
         galaxyDB.upsertStars(galaxyStars, responseTs).catch(() => {});
@@ -2095,12 +3883,8 @@
         if (typeof galaxy3d.setClusterAuras === 'function') {
           galaxy3d.setClusterAuras(uiState.clusterSummary || []);
         }
-        if (typeof galaxy3d.setEmpireHeartbeatFaction === 'function') {
-          galaxy3d.setEmpireHeartbeatFaction(uiState.selectedFactionId);
-        }
       }
-      renderGalaxy2DOverlay(root, galaxyStars);
-      if (!galaxy3d) renderGalaxyFallbackList(root, galaxyStars, from, to);
+      if (!galaxy3d) renderGalaxyFallbackList(root, galaxyStars, from, to, galaxy3dInitReason || 'renderer unavailable');
 
       if (details) {
         details.innerHTML = `<span class="text-cyan">Loaded ${galaxyStars.length} stars from systems ${from}..${to} (stride ${data.stride}).</span>`;
@@ -2109,89 +3893,13 @@
       const fromInput = root.querySelector('#gal-from');
       if (toInput) toInput.max = String(galaxySystemMax);
       if (fromInput) fromInput.max = String(galaxySystemMax);
+      refreshGalaxyDensityMetrics(root);
+      hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch(() => {});
     } catch (err) {
+      pushGalaxyDebugError('galaxy-stars', String(err?.message || err || 'unknown error'), `${from}..${to}`);
       if (details) details.innerHTML = `<span class="text-red">Failed to load stars: ${esc(String(err?.message || err || 'unknown error'))}</span>`;
-      renderGalaxy2DOverlay(root, []);
-      renderGalaxyFallbackList(root, [], from, to);
+      renderGalaxyFallbackList(root, [], from, to, String(err?.message || err || 'network error'));
     }
-  }
-
-  function renderGalaxy2DOverlay(root, stars) {
-    const canvas = root.querySelector('#galaxy-2d-overlay');
-    const host = root.querySelector('#galaxy-3d-canvas');
-    if (!canvas || !host) return;
-
-    const w = Math.max(320, host.clientWidth || 320);
-    const h = Math.max(220, host.clientHeight || 220);
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, w, h);
-    const list = Array.isArray(stars) ? stars : [];
-    const territory = Array.isArray(uiState.territory) ? uiState.territory : [];
-    const clusters = Array.isArray(uiState.clusterSummary) ? uiState.clusterSummary : [];
-    if (!list.length && !territory.length && !clusters.length) {
-      canvas.style.display = 'none';
-      return;
-    }
-
-    canvas.style.display = 'block';
-    const rangeFrom = Number(uiState.activeRange?.from || 1);
-    const rangeTo = Math.max(rangeFrom, Number(uiState.activeRange?.to || rangeFrom));
-    const padX = 22;
-    const padY = 18;
-    const plotTop = padY + 20;
-    const plotBottom = h - 54;
-    const plotHeight = Math.max(40, plotBottom - plotTop);
-    const plotWidth = Math.max(80, w - padX * 2);
-    const systemSpan = Math.max(1, rangeTo - rangeFrom);
-    const yValues = list.map((star) => Number(star.y_ly || 0));
-    const minY = yValues.length ? Math.min(...yValues) : 0;
-    const maxY = yValues.length ? Math.max(...yValues) : 1;
-    const ySpan = Math.max(1, maxY - minY);
-    const xForSystem = (systemIndex) => padX + ((Number(systemIndex || rangeFrom) - rangeFrom) / systemSpan) * plotWidth;
-    const yForStar = (star) => plotBottom - (((Number(star.y_ly || 0) - minY) / ySpan) * plotHeight);
-
-    ctx.fillStyle = 'rgba(7, 17, 32, 0.14)';
-    ctx.fillRect(0, 0, w, h);
-
-    for (let i = 0; i <= 4; i++) {
-      const ratio = i / 4;
-      const x = padX + plotWidth * ratio;
-      const systemValue = Math.round(rangeFrom + systemSpan * ratio);
-      ctx.strokeStyle = 'rgba(116, 154, 199, 0.12)';
-      ctx.beginPath();
-      ctx.moveTo(x, plotTop);
-      ctx.lineTo(x, plotBottom);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(168, 196, 231, 0.55)';
-      ctx.font = '11px Segoe UI';
-      ctx.fillText(String(systemValue), x - 10, h - 34);
-    }
-
-    list.forEach((star) => {
-      const x = xForSystem(Number(star.system_index || rangeFrom));
-      const y = yForStar(star);
-      const size = Math.max(1.2, Math.min(4.5, 1.2 + Math.log2(Math.max(1, Number(star.cluster_size || 1)))));
-      ctx.fillStyle = 'rgba(207, 229, 255, 0.85)';
-      ctx.beginPath();
-      ctx.arc(x, y, size, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    territory.slice(0, 5).forEach((faction, index) => {
-      const x = padX + index * 140;
-      const y = 16;
-      ctx.fillStyle = 'rgba(5, 12, 24, 0.72)';
-      ctx.fillRect(x, y, 132, 18);
-      ctx.strokeStyle = String(faction.color || '#6a8cc9');
-      ctx.strokeRect(x, y, 132, 18);
-      ctx.fillStyle = 'rgba(228, 239, 255, 0.88)';
-      ctx.font = '11px Segoe UI';
-      ctx.fillText(`${faction.icon || '🏳'} ${faction.name}`, x + 6, y + 12);
-    });
   }
 
   async function loadStarSystemPlanets(root, star) {
@@ -2202,34 +3910,107 @@
 
     const g = Number(star.galaxy_index || 1);
     const s = Number(star.system_index || 1);
+
+    const buildSafeSystemPayload = (rawPayload) => {
+      const input = (rawPayload && typeof rawPayload === 'object') ? rawPayload : {};
+      const safeStar = (input.star_system && typeof input.star_system === 'object')
+        ? input.star_system
+        : {};
+      const safePlanets = Array.isArray(input.planets) ? input.planets : [];
+      const safeFleets = Array.isArray(input.fleets_in_system) ? input.fleets_in_system : [];
+      const safeManifest = (input.planet_texture_manifest && typeof input.planet_texture_manifest === 'object')
+        ? input.planet_texture_manifest
+        : { version: 1, planets: {} };
+
+      if (!safeManifest.planets || typeof safeManifest.planets !== 'object') {
+        safeManifest.planets = {};
+      }
+
+      return {
+        galaxy: Number(input.galaxy || g),
+        system: Number(input.system || s),
+        star_system: {
+          galaxy_index: g,
+          system_index: s,
+          name: String(safeStar.name || star.name || star.catalog_name || `System ${s}`),
+          spectral_class: String(safeStar.spectral_class || star.spectral_class || 'G'),
+          subtype: String(safeStar.subtype || star.subtype || ''),
+          x_ly: Number(safeStar.x_ly ?? star.x_ly ?? 0),
+          y_ly: Number(safeStar.y_ly ?? star.y_ly ?? 0),
+          z_ly: Number(safeStar.z_ly ?? star.z_ly ?? 0),
+        },
+        planets: safePlanets,
+        fleets_in_system: safeFleets,
+        planet_texture_manifest: safeManifest,
+      };
+    };
+
     setGalaxyContext(g, s, star);
     const systemPolicy = LEVEL_POLICIES.system.payload;
 
-    if (galaxyModel) {
-      galaxyModel.setSystemLoadState(g, s, { pending: true });
+    let loadResult = null;
+    try {
+      loadResult = await ensureSystemPayloadLazy(g, s, {
+        allowStaleFirst: systemPolicy.allowStaleFirst,
+        maxAgeMs: systemPolicy.cacheMaxAgeMs,
+        onStaleData: (payload) => {
+          renderPlanetPanel(panel, star, payload);
+          if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
+            galaxy3d.enterSystemView(star, payload);
+          }
+        },
+      });
+    } catch (err) {
+      console.error('[GQ] loadStarSystemPlanets: unexpected error during payload fetch', err);
+      pushGalaxyDebugError('system-payload', String(err?.message || err || 'unknown error'), `${g}:${s}`);
+      loadResult = null;
     }
-    const loadResult = await ensureSystemPayloadLazy(g, s, {
-      allowStaleFirst: systemPolicy.allowStaleFirst,
-      maxAgeMs: systemPolicy.cacheMaxAgeMs,
-      onStaleData: (payload) => {
-        renderPlanetPanel(panel, star, payload);
-        if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
-          galaxy3d.enterSystemView(star, payload);
-        }
-      },
-    });
 
     if (!loadResult || !loadResult.payload) {
-      panel.innerHTML = '<p class="text-red">Failed to load planets.</p>';
+      const fallbackPayload = buildSafeSystemPayload(null);
+      try {
+        if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
+          galaxy3d.enterSystemView(star, fallbackPayload);
+        }
+      } catch (e3d) {
+        console.error('[GQ] enterSystemView (fallback) failed:', e3d);
+        pushGalaxyDebugError('system-render-fallback', String(e3d?.message || e3d || 'unknown error'), `${g}:${s}`);
+      }
+      panel.innerHTML = `<p class="text-yellow">Systemansicht geöffnet. Planetendaten konnten nicht geladen werden.</p>
+        <button class="btn btn-secondary btn-sm" style="margin-top:0.4rem" id="planet-retry-btn">↺ Erneut laden</button>`;
+      const retryBtn = panel.querySelector('#planet-retry-btn');
+      if (retryBtn) retryBtn.addEventListener('click', () => loadStarSystemPlanets(root, star));
+      showToast('Planetendaten nicht verfügbar – bitte Retry klicken oder Doppelklick wiederholen.', 'warning');
       if (galaxyModel) {
         galaxyModel.setSystemLoadState(g, s, { pending: false, payload: 'error' });
       }
       return;
     }
 
-    renderPlanetPanel(panel, star, loadResult.payload);
-    if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
-      galaxy3d.enterSystemView(star, loadResult.payload);
+    const safePayload = buildSafeSystemPayload(loadResult.payload);
+    renderPlanetPanel(panel, star, safePayload);
+    try {
+      if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
+        galaxy3d.enterSystemView(star, safePayload);
+      }
+    } catch (e3d) {
+      console.error('[GQ] enterSystemView failed:', e3d);
+      pushGalaxyDebugError('system-render', String(e3d?.message || e3d || 'unknown error'), `${g}:${s}`);
+      let fallbackOk = false;
+      try {
+        if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
+          galaxy3d.enterSystemView(star, buildSafeSystemPayload(null));
+          fallbackOk = true;
+        }
+      } catch (fallbackErr) {
+        console.error('[GQ] enterSystemView fallback failed:', fallbackErr);
+        pushGalaxyDebugError('system-render-fallback', String(fallbackErr?.message || fallbackErr || 'unknown error'), `${g}:${s}`);
+      }
+      if (fallbackOk) {
+        showToast('Systemansicht mit Fallback geladen (Details im Log).', 'warning');
+      } else {
+        showToast(`3D-Systemansicht konnte nicht geladen werden: ${String(e3d?.message || e3d || 'unbekannt')}`, 'warning');
+      }
     }
     if (galaxyModel) {
       galaxyModel.setSystemLoadState(g, s, {
@@ -2249,10 +4030,11 @@
     const onStaleData = typeof opts.onStaleData === 'function' ? opts.onStaleData : null;
 
     const currentState = galaxyModel ? galaxyModel.getSystemLoadState(g, s) : null;
-    const alreadyLoaded = currentState && currentState.payload === 'loaded' && currentState.pending === false;
+    // Note: do NOT check currentState.pending here — the caller may have set it already.
+    const alreadyLoaded = currentState && currentState.payload === 'loaded';
     const systemNode = galaxyModel ? galaxyModel.read('system', { galaxy_index: g, system_index: s }) : null;
 
-    if (alreadyLoaded && systemNode?.payload) {
+    if (alreadyLoaded && systemNode?.payload && hasPlanetTextureManifest(systemNode.payload)) {
       return { source: 'model', payload: systemNode.payload, fresh: true };
     }
 
@@ -2260,10 +4042,12 @@
       onStaleData(systemNode.payload);
     }
 
+    let staleFallbackPayload = systemNode?.payload || null;
+
     if (galaxyDB) {
       try {
         const dbPayload = await galaxyDB.getSystemPayload(g, s, { maxAgeMs });
-        if (dbPayload) {
+        if (dbPayload && hasPlanetTextureManifest(dbPayload)) {
           if (galaxyModel) {
             galaxyModel.attachSystemPayload(g, s, dbPayload);
             galaxyModel.setSystemLoadState(g, s, {
@@ -2275,12 +4059,18 @@
           }
           return { source: 'db', payload: dbPayload, fresh: true };
         }
-      } catch (_) {}
+        if (dbPayload && !staleFallbackPayload) staleFallbackPayload = dbPayload;
+      } catch (dbErr) {
+        console.warn('[GQ] ensureSystemPayloadLazy: DB read failed', dbErr);
+      }
     }
 
     try {
       const data = await API.galaxy(g, s);
-      if (!data.success) return null;
+      if (!data || !data.success) {
+        console.error('[GQ] ensureSystemPayloadLazy: API returned non-success', data);
+        return staleFallbackPayload ? { source: 'stale', payload: staleFallbackPayload, fresh: false } : null;
+      }
       const responseTs = Number(data.server_ts_ms || Date.now());
 
       if (galaxyModel) {
@@ -2296,8 +4086,9 @@
         galaxyDB.upsertSystemPayload(g, s, data, responseTs).catch(() => {});
       }
       return { source: 'network', payload: data, fresh: true };
-    } catch (_) {
-      return null;
+    } catch (netErr) {
+      console.error('[GQ] ensureSystemPayloadLazy: network fetch failed for galaxy', g, 'system', s, netErr);
+      return staleFallbackPayload ? { source: 'stale', payload: staleFallbackPayload, fresh: false } : null;
     }
   }
 
@@ -2527,6 +4318,18 @@
         <button class="btn btn-primary btn-sm" id="msg-send-btn-wm">Send</button>
         <div id="msg-send-result-wm" class="form-info" aria-live="polite"></div>
       </div>
+      <div class="msg-terminal" style="margin-bottom:0.9rem;border:1px solid rgba(150,180,230,0.25);border-radius:10px;padding:0.55rem;background:rgba(7,14,28,0.55)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
+          <strong style="font-size:0.82rem;color:#b8cff3">Terminal Console</strong>
+          <span style="font-size:0.72rem;color:var(--text-muted)">Direktbefehle f\u00fcr Messages</span>
+        </div>
+        <div id="msg-terminal-log" style="height:140px;overflow:auto;background:rgba(5,10,18,0.82);border-radius:8px;padding:0.45rem;font-family:Consolas, 'Courier New', monospace;font-size:0.74rem;line-height:1.35;color:#d7e4ff"></div>
+        <div style="display:flex;gap:0.45rem;margin-top:0.45rem">
+          <input id="msg-terminal-input" type="text" list="msg-terminal-users" placeholder="help | msg <user> <text> | inbox | read <id> | delete <id> | clear" style="flex:1" />
+          <datalist id="msg-terminal-users"></datalist>
+          <button class="btn btn-secondary btn-sm" id="msg-terminal-run">Run</button>
+        </div>
+      </div>
       <div id="messages-list-wm"><p class="text-muted">Loading…</p></div>`;
 
     root.querySelector('#compose-toggle-btn').addEventListener('click', () => {
@@ -2541,6 +4344,7 @@
       if (!to || !subject || !body) { res.className='form-error'; res.textContent='Fill in all fields.'; return; }
       const r = await API.sendMsg(to, subject, body);
       if (r.success) {
+        if (audioManager && typeof audioManager.playMessageSend === 'function') audioManager.playMessageSend();
         res.className='form-info'; res.textContent='Message sent!';
         root.querySelector('#msg-to-wm').value = '';
         root.querySelector('#msg-subject-wm').value = '';
@@ -2549,7 +4353,243 @@
       } else { res.className='form-error'; res.textContent=r.error||'Failed.'; }
     });
 
+    _renderMessageConsoleLog(root);
+    await _refreshMessageUserHints(root, '');
+    const runTerminalCommand = async () => {
+      const input = root.querySelector('#msg-terminal-input');
+      if (!input) return;
+      const command = String(input.value || '').trim();
+      if (!command) return;
+      input.value = '';
+      await _runMessageConsoleCommand(root, command);
+    };
+    root.querySelector('#msg-terminal-run')?.addEventListener('click', runTerminalCommand);
+    root.querySelector('#msg-terminal-input')?.addEventListener('keydown', async (e) => {
+      if (e.key === 'Tab') {
+        const input = e.currentTarget;
+        if (!(input instanceof HTMLInputElement)) return;
+        const next = _autocompleteMessageCommand(input.value, messageConsoleState.userHints || []);
+        if (next && next !== input.value) {
+          e.preventDefault();
+          input.value = next;
+          input.setSelectionRange(next.length, next.length);
+          return;
+        }
+      }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      await runTerminalCommand();
+    });
+    root.querySelector('#msg-terminal-input')?.addEventListener('input', async (e) => {
+      const input = e.currentTarget;
+      if (!(input instanceof HTMLInputElement)) return;
+      const prefix = _extractMessageUserPrefix(input.value);
+      await _refreshMessageUserHints(root, prefix);
+    });
+
     await _loadMessagesList(root);
+  }
+
+  function _messageConsolePush(line) {
+    const text = String(line || '').trim();
+    if (!text) return;
+    messageConsoleState.lines.push(text);
+    if (messageConsoleState.lines.length > messageConsoleState.maxLines) {
+      messageConsoleState.lines.splice(0, messageConsoleState.lines.length - messageConsoleState.maxLines);
+    }
+  }
+
+  function _renderMessageConsoleLog(root) {
+    const log = root?.querySelector('#msg-terminal-log');
+    if (!log) return;
+    log.innerHTML = messageConsoleState.lines.map((line) => `<div>${esc(line)}</div>`).join('');
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function _extractMessageUserPrefix(raw) {
+    const txt = String(raw || '').trimStart();
+    const normalized = txt.startsWith('/') ? txt.slice(1) : txt;
+    const m = normalized.match(/^(msg|dm)\s+([^\s]*)$/i);
+    return m ? String(m[2] || '') : '';
+  }
+
+  function _autocompleteMessageCommand(raw, hints) {
+    const text = String(raw || '');
+    const leadSlash = text.startsWith('/');
+    const normalized = leadSlash ? text.slice(1) : text;
+    const match = normalized.match(/^(msg|dm)\s+([^\s]*)(\s*)$/i);
+    if (!match) return null;
+    const cmd = match[1];
+    const prefix = String(match[2] || '');
+    if (!prefix) return null;
+    const list = Array.isArray(hints) ? hints : [];
+    const hit = list.find((u) => String(u).toLowerCase().startsWith(prefix.toLowerCase()));
+    if (!hit) return null;
+    return `${leadSlash ? '/' : ''}${cmd} ${hit} `;
+  }
+
+  async function _refreshMessageUserHints(root, prefix = '') {
+    const datalist = root?.querySelector('#msg-terminal-users');
+    if (!datalist) return;
+    try {
+      const r = await API.messageUsers(prefix || '');
+      const users = r?.success && Array.isArray(r.users)
+        ? Array.from(new Set(r.users.map((u) => String(u || '').trim()).filter(Boolean))).slice(0, 12)
+        : [];
+      messageConsoleState.userHints = users;
+      datalist.innerHTML = users.map((u) => `<option value="${esc(u)}"></option>`).join('');
+    } catch (_) {
+      messageConsoleState.userHints = [];
+      datalist.innerHTML = '';
+    }
+  }
+
+  async function _runMessageConsoleCommand(root, rawCommand) {
+    const raw = String(rawCommand || '').trim();
+    if (!raw) return;
+    _messageConsolePush(`> ${raw}`);
+    _renderMessageConsoleLog(root);
+
+    const normalized = raw.startsWith('/') ? raw.slice(1).trim() : raw;
+    const parts = normalized.split(/\s+/).filter(Boolean);
+    const cmd = String(parts[0] || '').toLowerCase();
+
+    if (!cmd) {
+      _messageConsolePush('[system] Empty command.');
+      _renderMessageConsoleLog(root);
+      return;
+    }
+
+    if (cmd === 'help' || cmd === '?') {
+      _messageConsolePush('[help] msg <user> <text>  -> sends direct message (subject auto).');
+      _messageConsolePush('[help] msg <user> <subject> | <body>  -> custom subject/body.');
+      _messageConsolePush('[help] inbox  -> reload inbox list.');
+      _messageConsolePush('[help] read <id>  -> open message detail.');
+      _messageConsolePush('[help] delete <id>  -> delete message.');
+      _messageConsolePush('[help] clear  -> clear console output.');
+      _renderMessageConsoleLog(root);
+      return;
+    }
+
+    if (cmd === 'clear') {
+      messageConsoleState.lines = ['[system] Console cleared.'];
+      _renderMessageConsoleLog(root);
+      return;
+    }
+
+    if (cmd === 'inbox') {
+      await _loadMessagesList(root);
+      _messageConsolePush('[ok] Inbox refreshed.');
+      _renderMessageConsoleLog(root);
+      return;
+    }
+
+    if (cmd === 'read') {
+      const id = Number(parts[1] || 0);
+      if (!Number.isFinite(id) || id <= 0) {
+        _messageConsolePush('[error] Usage: read <id>');
+        _renderMessageConsoleLog(root);
+        return;
+      }
+      const d = await API.readMsg(id);
+      if (!d.success || !d.message) {
+        _messageConsolePush(`[error] ${d.error || 'Message not found.'}`);
+        _renderMessageConsoleLog(root);
+        return;
+      }
+      _showMessageDetail(root, d.message);
+      if (audioManager && typeof audioManager.playMessageRead === 'function') audioManager.playMessageRead();
+      _messageConsolePush(`[ok] Opened message #${id} from ${d.message.sender || 'Unknown'}.`);
+      await _loadMessagesList(root);
+      loadBadge();
+      _renderMessageConsoleLog(root);
+      return;
+    }
+
+    if (cmd === 'delete') {
+      const id = Number(parts[1] || 0);
+      if (!Number.isFinite(id) || id <= 0) {
+        _messageConsolePush('[error] Usage: delete <id>');
+        _renderMessageConsoleLog(root);
+        return;
+      }
+      const d = await API.deleteMsg(id);
+      if (!d.success) {
+        _messageConsolePush(`[error] ${d.error || 'Delete failed.'}`);
+        _renderMessageConsoleLog(root);
+        return;
+      }
+      await _loadMessagesList(root);
+      if (audioManager && typeof audioManager.playMessageDelete === 'function') audioManager.playMessageDelete();
+      _messageConsolePush(`[ok] Deleted message #${id}.`);
+      loadBadge();
+      _renderMessageConsoleLog(root);
+      return;
+    }
+
+    if (cmd === 'msg' || cmd === 'dm') {
+      if (parts.length < 3) {
+        _messageConsolePush('[error] Usage: msg <user> <text>');
+        _renderMessageConsoleLog(root);
+        return;
+      }
+      const to = parts[1];
+      const payload = normalized.split(/\s+/).slice(2).join(' ').trim();
+      if (!payload) {
+        _messageConsolePush('[error] Message text missing.');
+        _renderMessageConsoleLog(root);
+        return;
+      }
+      let subject = 'Direct Message';
+      let body = payload;
+      if (payload.includes('|')) {
+        const parts2 = payload.split('|');
+        subject = String(parts2.shift() || '').trim() || 'Direct Message';
+        body = parts2.join('|').trim();
+      }
+      if (!body) {
+        _messageConsolePush('[error] Message body missing after subject separator.');
+        _renderMessageConsoleLog(root);
+        return;
+      }
+
+      const r = await API.sendMsg(to, subject, body);
+      if (!r.success) {
+        _messageConsolePush(`[error] ${r.error || 'Send failed.'}`);
+        _renderMessageConsoleLog(root);
+        return;
+      }
+      if (audioManager && typeof audioManager.playMessageSend === 'function') audioManager.playMessageSend();
+      _messageConsolePush(`[ok] Sent message to ${to} (subject: ${subject}).`);
+      showToast(`Message sent to ${to}.`, 'success');
+      _renderMessageConsoleLog(root);
+      return;
+    }
+
+    _messageConsolePush(`[error] Unknown command: ${cmd}. Type "help".`);
+    _renderMessageConsoleLog(root);
+  }
+
+  function _showMessageDetail(root, m) {
+    const listEl = root.querySelector('#messages-list-wm');
+    if (!listEl) return;
+    let detail = root.querySelector('.msg-detail');
+    if (!detail) {
+      detail = document.createElement('div');
+      detail.className = 'msg-detail';
+      listEl.before(detail);
+    }
+    detail.innerHTML = `
+      <div class="msg-detail-header">
+        <div>
+          <strong>${esc(m.subject)}</strong>
+          <div class="msg-detail-meta">From: ${esc(m.sender)} &nbsp;•&nbsp; ${new Date(m.sent_at).toLocaleString()}</div>
+        </div>
+        <button class="btn btn-secondary btn-sm close-msg-btn">✕ Close</button>
+      </div>
+      <hr class="separator" />
+      <div class="msg-detail-body">${esc(m.body)}</div>`;
+    detail.querySelector('.close-msg-btn')?.addEventListener('click', () => detail.remove());
   }
 
   async function _loadMessagesList(root) {
@@ -2576,20 +4616,10 @@
           const d    = await API.readMsg(mid);
           if (!d.success) return;
           const m    = d.message;
-          // Show detail above list
-          let detail = root.querySelector('.msg-detail');
-          if (!detail) { detail = document.createElement('div'); detail.className='msg-detail'; el.before(detail); }
-          detail.innerHTML = `
-            <div class="msg-detail-header">
-              <div>
-                <strong>${esc(m.subject)}</strong>
-                <div class="msg-detail-meta">From: ${esc(m.sender)} &nbsp;•&nbsp; ${new Date(m.sent_at).toLocaleString()}</div>
-              </div>
-              <button class="btn btn-secondary btn-sm close-msg-btn">✕ Close</button>
-            </div>
-            <hr class="separator" />
-            <div class="msg-detail-body">${esc(m.body)}</div>`;
-          detail.querySelector('.close-msg-btn').addEventListener('click', () => detail.remove());
+          _showMessageDetail(root, m);
+          if (audioManager && typeof audioManager.playMessageRead === 'function') audioManager.playMessageRead();
+          _messageConsolePush(`[read] #${mid} from ${m.sender || 'Unknown'}: ${m.subject || '(no subject)'}`);
+          _renderMessageConsoleLog(root);
           row.classList.remove('unread');
           loadBadge();
         });
@@ -2599,7 +4629,12 @@
         btn.addEventListener('click', async e => {
           e.stopPropagation();
           const r = await API.deleteMsg(parseInt(btn.dataset.mid, 10));
-          if (r.success) _loadMessagesList(root);
+          if (r.success) {
+            if (audioManager && typeof audioManager.playMessageDelete === 'function') audioManager.playMessageDelete();
+            _messageConsolePush(`[ok] Deleted message #${btn.dataset.mid}.`);
+            _renderMessageConsoleLog(root);
+            _loadMessagesList(root);
+          }
         });
       });
     } catch (e) { el.innerHTML = '<p class="text-red">Failed to load messages.</p>'; }
@@ -2884,6 +4919,357 @@
     } catch (e) { root.innerHTML = '<p class="text-red">Failed to load leaderboard.</p>'; }
   }
 
+  function renderSettings() {
+    const root = WM.body('settings');
+    if (!root) return;
+    const audioState = audioManager ? audioManager.snapshot() : settingsState;
+    settingsState.sfxMap = Object.assign({}, settingsState.sfxMap || {}, audioState.sfxMap || {});
+    const musicTrackOptions = AUDIO_TRACK_OPTIONS
+      .map((entry) => `<option value="${esc(entry.value)}">${esc(entry.label)}</option>`)
+      .join('');
+    const sfxOptionMarkup = AUDIO_SFX_OPTIONS
+      .map((entry) => `<option value="${esc(entry.value)}">${esc(entry.label)}</option>`)
+      .join('');
+    const sfxRows = AUDIO_SFX_EVENTS.map((item) => {
+      const value = String(audioState.sfxMap?.[item.key] || settingsState.sfxMap?.[item.key] || '');
+      return `
+        <div class="system-row" style="display:grid;grid-template-columns:minmax(120px, 160px) 1fr auto;gap:0.5rem;align-items:center;">
+          <span>${esc(item.label)}</span>
+          <select class="set-sfx-select" data-sfx-key="${esc(item.key)}">
+            ${sfxOptionMarkup.replace(`value="${esc(value)}"`, `value="${esc(value)}" selected`)}
+          </select>
+          <button class="btn btn-secondary btn-sm set-sfx-test" type="button" data-sfx-test="${esc(item.tester)}">Test</button>
+        </div>`;
+    }).join('');
+
+    root.innerHTML = `
+      <div class="system-card">
+        <h3 style="margin-top:0">Einstellungen</h3>
+        <div class="system-row"><strong>Navigation & Transition</strong></div>
+        <label class="system-row">Transition-Preset</label>
+        <select id="set-transition-preset">
+          <option value="smooth" ${settingsState.transitionPreset === 'smooth' ? 'selected' : ''}>Smooth</option>
+          <option value="balanced" ${settingsState.transitionPreset === 'balanced' ? 'selected' : ''}>Balanced</option>
+          <option value="snappy" ${settingsState.transitionPreset === 'snappy' ? 'selected' : ''}>Snappy</option>
+        </select>
+        <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="checkbox" id="set-auto-transitions" ${settingsState.autoTransitions ? 'checked' : ''} />
+          Auto-Transitions aktivieren
+        </label>
+        <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="checkbox" id="set-home-enter-system" ${settingsState.homeEnterSystem ? 'checked' : ''} />
+          Home-Navigation öffnet direkt Systemansicht
+        </label>
+        <label class="system-row">Persistente Hover-Distanz: <span id="set-hover-distance-value">${Math.round(settingsState.persistentHoverDistance)}</span></label>
+        <input id="set-hover-distance" type="range" min="120" max="380" step="5" value="${Math.round(settingsState.persistentHoverDistance)}" />
+        <label class="system-row">Transition-Ruhezeit (ms): <span id="set-transition-ms-value">${Math.round(settingsState.transitionStableMinMs)}</span></label>
+        <input id="set-transition-ms" type="range" min="80" max="360" step="10" value="${Math.round(settingsState.transitionStableMinMs)}" />
+
+        <div class="system-row" style="margin-top:0.9rem;"><strong>Audio</strong></div>
+        <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="checkbox" id="set-master-mute" ${audioState.masterMuted ? 'checked' : ''} />
+          Ton aus
+        </label>
+        <label class="system-row">Master: <span id="set-master-vol-value">${Math.round((audioState.masterVolume || 0) * 100)}</span>%</label>
+        <input id="set-master-vol" type="range" min="0" max="100" step="1" value="${Math.round((audioState.masterVolume || 0) * 100)}" />
+
+        <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="checkbox" id="set-music-mute" ${audioState.musicMuted ? 'checked' : ''} />
+          Musik stumm
+        </label>
+        <label class="system-row">Musik: <span id="set-music-vol-value">${Math.round((audioState.musicVolume || 0) * 100)}</span>%</label>
+        <input id="set-music-vol" type="range" min="0" max="100" step="1" value="${Math.round((audioState.musicVolume || 0) * 100)}" />
+
+        <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="checkbox" id="set-sfx-mute" ${audioState.sfxMuted ? 'checked' : ''} />
+          SFX stumm
+        </label>
+        <label class="system-row">SFX: <span id="set-sfx-vol-value">${Math.round((audioState.sfxVolume || 0) * 100)}</span>%</label>
+        <input id="set-sfx-vol" type="range" min="0" max="100" step="1" value="${Math.round((audioState.sfxVolume || 0) * 100)}" />
+        <div class="system-row" style="font-size:0.8rem;color:var(--text-muted)">Letztes Audio-Event: <span id="set-last-audio-event">${esc(formatLastAudioEvent(audioState.lastAudioEvent || null))}</span></div>
+
+        <label class="system-row" style="margin-top:0.75rem;">Musik-URL (optional)</label>
+        <input id="set-music-url" type="text" placeholder="music/Nebula_Overture.mp3" value="${esc(audioState.musicUrl || '')}" />
+        <label class="system-row">Lokale Musik-Vorlage</label>
+        <select id="set-music-preset">
+          <option value="">Keine Vorlage</option>
+          ${musicTrackOptions}
+        </select>
+        <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;margin-top:0.65rem;">
+          <input type="checkbox" id="set-auto-scene-music" ${audioState.autoSceneMusic ? 'checked' : ''} />
+          Auto-Szenenmusik aktiv
+        </label>
+        <label class="system-row">Galaxy-Track URL</label>
+        <input id="set-scene-galaxy" type="text" placeholder="music/Nebula_Overture.mp3" value="${esc(audioState.sceneTracks?.galaxy || '')}" />
+        <label class="system-row">System-Track URL</label>
+        <input id="set-scene-system" type="text" placeholder="music/Nebula_Overture.mp3" value="${esc(audioState.sceneTracks?.system || '')}" />
+        <label class="system-row">Battle-Track URL</label>
+        <input id="set-scene-battle" type="text" placeholder="music/Nebula_Overture.mp3" value="${esc(audioState.sceneTracks?.battle || '')}" />
+        <label class="system-row">UI-Track URL</label>
+        <input id="set-scene-ui" type="text" placeholder="music/Nebula_Overture.mp3" value="${esc(audioState.sceneTracks?.ui || '')}" />
+        <div class="system-row" style="margin-top:0.85rem;"><strong>SFX-Browser</strong></div>
+        ${sfxRows}
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.55rem;">
+          <button id="set-audio-test" class="btn btn-secondary btn-sm" type="button">SFX-Test</button>
+          <button id="set-sfx-apply" class="btn btn-secondary btn-sm" type="button">SFX speichern</button>
+          <button id="set-audio-reset" class="btn btn-warning btn-sm" type="button">Audio-Defaults</button>
+          <button id="set-scene-apply" class="btn btn-secondary btn-sm" type="button">Szenen speichern</button>
+          <button id="set-scene-preview-galaxy" class="btn btn-secondary btn-sm" type="button">Preview Galaxy</button>
+          <button id="set-scene-preview-system" class="btn btn-secondary btn-sm" type="button">Preview System</button>
+          <button id="set-scene-preview-battle" class="btn btn-secondary btn-sm" type="button">Preview Battle</button>
+          <button id="set-scene-preview-ui" class="btn btn-secondary btn-sm" type="button">Preview UI</button>
+          <button id="set-music-apply" class="btn btn-secondary btn-sm" type="button">Musik laden</button>
+          <button id="set-music-play" class="btn btn-primary btn-sm" type="button">Play</button>
+          <button id="set-music-stop" class="btn btn-warning btn-sm" type="button">Stop</button>
+        </div>
+      </div>`;
+
+    const bindRange = (id, valueId, setter) => {
+      const input = root.querySelector(id);
+      const out = root.querySelector(valueId);
+      if (!input || !out) return;
+      const apply = () => {
+        out.textContent = String(input.value);
+        setter(Number(input.value || 0));
+      };
+      input.addEventListener('input', apply);
+      input.addEventListener('change', apply);
+    };
+
+    const autoTransitions = root.querySelector('#set-auto-transitions');
+    autoTransitions?.addEventListener('change', () => {
+      settingsState.autoTransitions = !!autoTransitions.checked;
+      applyRuntimeSettings();
+      saveUiSettings();
+    });
+
+    const homeEnterSystem = root.querySelector('#set-home-enter-system');
+    homeEnterSystem?.addEventListener('change', () => {
+      settingsState.homeEnterSystem = !!homeEnterSystem.checked;
+      saveUiSettings();
+    });
+
+    const transitionPreset = root.querySelector('#set-transition-preset');
+    transitionPreset?.addEventListener('change', () => {
+      applyTransitionPreset(transitionPreset.value);
+      const hoverSlider = root.querySelector('#set-hover-distance');
+      const stableSlider = root.querySelector('#set-transition-ms');
+      const hoverOut = root.querySelector('#set-hover-distance-value');
+      const stableOut = root.querySelector('#set-transition-ms-value');
+      if (hoverSlider) hoverSlider.value = String(Math.round(settingsState.persistentHoverDistance));
+      if (stableSlider) stableSlider.value = String(Math.round(settingsState.transitionStableMinMs));
+      if (hoverOut) hoverOut.textContent = String(Math.round(settingsState.persistentHoverDistance));
+      if (stableOut) stableOut.textContent = String(Math.round(settingsState.transitionStableMinMs));
+      applyRuntimeSettings();
+      saveUiSettings();
+    });
+
+    bindRange('#set-hover-distance', '#set-hover-distance-value', (v) => {
+      settingsState.persistentHoverDistance = Math.max(120, v);
+      applyRuntimeSettings();
+      saveUiSettings();
+    });
+
+    bindRange('#set-transition-ms', '#set-transition-ms-value', (v) => {
+      settingsState.transitionStableMinMs = Math.max(80, v);
+      applyRuntimeSettings();
+      saveUiSettings();
+    });
+
+    const masterMute = root.querySelector('#set-master-mute');
+    masterMute?.addEventListener('change', () => {
+      settingsState.masterMuted = !!masterMute.checked;
+      if (audioManager) audioManager.setMasterMuted(settingsState.masterMuted);
+      saveUiSettings();
+      refreshAudioUi();
+    });
+    const musicMute = root.querySelector('#set-music-mute');
+    musicMute?.addEventListener('change', () => {
+      settingsState.musicMuted = !!musicMute.checked;
+      if (audioManager) audioManager.setMusicMuted(settingsState.musicMuted);
+      saveUiSettings();
+    });
+    const sfxMute = root.querySelector('#set-sfx-mute');
+    sfxMute?.addEventListener('change', () => {
+      settingsState.sfxMuted = !!sfxMute.checked;
+      if (audioManager) audioManager.setSfxMuted(settingsState.sfxMuted);
+      saveUiSettings();
+    });
+
+    bindRange('#set-master-vol', '#set-master-vol-value', (v) => {
+      settingsState.masterVolume = Math.max(0, Math.min(1, v / 100));
+      if (audioManager) audioManager.setMasterVolume(settingsState.masterVolume);
+      saveUiSettings();
+    });
+    bindRange('#set-music-vol', '#set-music-vol-value', (v) => {
+      settingsState.musicVolume = Math.max(0, Math.min(1, v / 100));
+      if (audioManager) audioManager.setMusicVolume(settingsState.musicVolume);
+      saveUiSettings();
+    });
+    bindRange('#set-sfx-vol', '#set-sfx-vol-value', (v) => {
+      settingsState.sfxVolume = Math.max(0, Math.min(1, v / 100));
+      if (audioManager) audioManager.setSfxVolume(settingsState.sfxVolume);
+      saveUiSettings();
+    });
+
+    root.querySelector('#set-audio-test')?.addEventListener('click', () => {
+      if (audioManager) audioManager.playUiConfirm();
+    });
+
+    root.querySelector('#set-music-preset')?.addEventListener('change', () => {
+      const preset = String(root.querySelector('#set-music-preset')?.value || '').trim();
+      if (!preset) return;
+      const urlInput = root.querySelector('#set-music-url');
+      if (urlInput) urlInput.value = preset;
+      ['galaxy', 'system', 'battle', 'ui'].forEach((sceneKey) => {
+        const input = root.querySelector(`#set-scene-${sceneKey}`);
+        if (input && !String(input.value || '').trim()) {
+          input.value = preset;
+        }
+      });
+    });
+
+    const autoSceneMusic = root.querySelector('#set-auto-scene-music');
+    autoSceneMusic?.addEventListener('change', () => {
+      settingsState.autoSceneMusic = !!autoSceneMusic.checked;
+      if (audioManager && typeof audioManager.setAutoSceneMusic === 'function') {
+        audioManager.setAutoSceneMusic(settingsState.autoSceneMusic);
+      }
+      saveUiSettings();
+    });
+
+    root.querySelector('#set-scene-apply')?.addEventListener('click', () => {
+      const galaxyTrack = String(root.querySelector('#set-scene-galaxy')?.value || '').trim();
+      const systemTrack = String(root.querySelector('#set-scene-system')?.value || '').trim();
+      const battleTrack = String(root.querySelector('#set-scene-battle')?.value || '').trim();
+      const uiTrack = String(root.querySelector('#set-scene-ui')?.value || '').trim();
+      settingsState.sceneTracks = Object.assign({}, settingsState.sceneTracks, {
+        galaxy: galaxyTrack,
+        system: systemTrack,
+        battle: battleTrack,
+        ui: uiTrack,
+      });
+      if (audioManager && typeof audioManager.setSceneTrack === 'function') {
+        audioManager.setSceneTrack('galaxy', galaxyTrack);
+        audioManager.setSceneTrack('system', systemTrack);
+        audioManager.setSceneTrack('battle', battleTrack);
+        audioManager.setSceneTrack('ui', uiTrack);
+      }
+      saveUiSettings();
+      showToast('Szenenmusik gespeichert.', 'success');
+    });
+
+    root.querySelector('#set-sfx-apply')?.addEventListener('click', () => {
+      const nextMap = Object.assign({}, settingsState.sfxMap);
+      root.querySelectorAll('.set-sfx-select').forEach((node) => {
+        const key = String(node.getAttribute('data-sfx-key') || '').trim();
+        if (!key) return;
+        nextMap[key] = String(node.value || '').trim();
+      });
+      settingsState.sfxMap = nextMap;
+      if (audioManager && typeof audioManager.setSfxTrack === 'function') {
+        Object.entries(nextMap).forEach(([key, track]) => audioManager.setSfxTrack(key, track));
+      }
+      saveUiSettings();
+      showToast('SFX-Zuordnung gespeichert.', 'success');
+    });
+
+    root.querySelector('#set-audio-reset')?.addEventListener('click', () => {
+      settingsState.musicUrl = '';
+      settingsState.autoSceneMusic = true;
+      settingsState.sceneTracks = {
+        galaxy: 'music/Nebula_Overture.mp3',
+        system: 'music/Nebula_Overture.mp3',
+        battle: 'music/Nebula_Overture.mp3',
+        ui: 'music/Nebula_Overture.mp3',
+      };
+      settingsState.sfxMap = {
+        uiClick: 'sfx/mixkit-video-game-retro-click-237.wav',
+        uiConfirm: 'sfx/mixkit-quick-positive-video-game-notification-interface-265.wav',
+        uiError: 'sfx/mixkit-negative-game-notification-249.wav',
+        uiNotify: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
+        navigation: 'sfx/mixkit-sci-fi-warp-slide-3113.wav',
+        pvpToggle: 'sfx/mixkit-horn-suspense-transition-3112.wav',
+        researchStart: 'sfx/mixkit-unlock-new-item-game-notification-254.wav',
+        researchComplete: 'sfx/mixkit-casino-bling-achievement-2067.wav',
+        fleetRecall: 'sfx/mixkit-space-shot-whoosh-3001.wav',
+        messageSend: 'sfx/mixkit-space-coin-win-notification-271.wav',
+        messageRead: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
+        messageDelete: 'sfx/mixkit-falling-hit-757.wav',
+        fleetAttack: 'sfx/mixkit-laser-gun-shot-3110.wav',
+        fleetTransport: 'sfx/mixkit-space-deploy-whizz-3003.wav',
+        fleetSpy: 'sfx/mixkit-night-vision-starting-2476.wav',
+        fleetColonize: 'sfx/mixkit-medieval-show-fanfare-announcement-226.wav',
+        fleetHarvest: 'sfx/mixkit-space-plasma-shot-3002.wav',
+        buildComplete: 'sfx/mixkit-bonus-earned-in-video-game-2058.wav',
+        fleetLaunch: 'sfx/mixkit-space-deploy-whizz-3003.wav',
+      };
+      if (audioManager) {
+        if (typeof audioManager.resetAudioDefaults === 'function') {
+          audioManager.resetAudioDefaults();
+        }
+        if (typeof audioManager.setAutoSceneMusic === 'function') {
+          audioManager.setAutoSceneMusic(true);
+        }
+      }
+      saveUiSettings();
+      renderSettings();
+      showToast('Audio auf Standardwerte zurückgesetzt.', 'success');
+    });
+
+    root.querySelectorAll('.set-sfx-test').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (!audioManager) return;
+        const method = String(btn.getAttribute('data-sfx-test') || '').trim();
+        if (method && typeof audioManager[method] === 'function') {
+          audioManager[method]();
+        }
+      });
+    });
+
+    root.querySelector('#set-scene-preview-galaxy')?.addEventListener('click', async () => {
+      if (!audioManager || typeof audioManager.setScene !== 'function') return;
+      audioManager.setScene('galaxy', { autoplay: true, transition: 'dramatic', force: true });
+      const ok = await audioManager.playMusic();
+      if (!ok) showToast('Galaxy-Track konnte nicht gestartet werden.', 'warning');
+    });
+    root.querySelector('#set-scene-preview-system')?.addEventListener('click', async () => {
+      if (!audioManager || typeof audioManager.setScene !== 'function') return;
+      audioManager.setScene('system', { autoplay: true, transition: 'dramatic', force: true });
+      const ok = await audioManager.playMusic();
+      if (!ok) showToast('System-Track konnte nicht gestartet werden.', 'warning');
+    });
+    root.querySelector('#set-scene-preview-battle')?.addEventListener('click', async () => {
+      if (!audioManager || typeof audioManager.setScene !== 'function') return;
+      audioManager.setScene('battle', { autoplay: true, transition: 'dramatic', force: true });
+      const ok = await audioManager.playMusic();
+      if (!ok) showToast('Battle-Track konnte nicht gestartet werden.', 'warning');
+    });
+    root.querySelector('#set-scene-preview-ui')?.addEventListener('click', async () => {
+      if (!audioManager || typeof audioManager.setScene !== 'function') return;
+      audioManager.setScene('ui', { autoplay: true, transition: 'dramatic', force: true });
+      const ok = await audioManager.playMusic();
+      if (!ok) showToast('UI-Track konnte nicht gestartet werden.', 'warning');
+    });
+
+    root.querySelector('#set-music-apply')?.addEventListener('click', () => {
+      const urlInput = root.querySelector('#set-music-url');
+      const next = String(urlInput?.value || '').trim();
+      settingsState.musicUrl = next;
+      if (audioManager) audioManager.setMusicTrack(next, false);
+      saveUiSettings();
+      showToast(next ? 'Musik-URL gespeichert.' : 'Musik-URL entfernt.', 'info');
+    });
+    root.querySelector('#set-music-play')?.addEventListener('click', async () => {
+      if (!audioManager) return;
+      const ok = await audioManager.playMusic();
+      if (!ok) showToast('Musik konnte nicht gestartet werden (Autoplay/URL).', 'warning');
+    });
+    root.querySelector('#set-music-stop')?.addEventListener('click', () => {
+      if (audioManager) audioManager.stopMusic();
+    });
+  }
+
   // ── Quests window ─────────────────────────────────────────
   async function renderQuests() {
     const root = WM.body('quests');
@@ -2974,6 +5360,7 @@
 
   // ── Logout ────────────────────────────────────────────────
   document.getElementById('logout-btn').addEventListener('click', async () => {
+    if (audioManager) audioManager.playUiClick();
     await API.logout();
     window.location.href = 'index.html';
   });
@@ -3003,7 +5390,17 @@
     ['buildings','research','shipyard'].forEach(id => WM.refresh(id));
   }, 30000);
 
+  setInterval(() => {
+    const root = WM.body('galaxy');
+    if (!root) return;
+    refreshGalaxyDensityMetrics(root);
+  }, 1500);
+
   // ── Boot: keep galaxy fixed in main desktop area and preload overview data ──
   WM.open('galaxy');
+  if (audioManager && typeof audioManager.setScene === 'function') {
+    audioManager.setScene('galaxy', { autoplay: false, transition: 'fast', force: true });
+  }
+  refreshAudioUi();
   await loadOverview();
 })();

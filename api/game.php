@@ -24,7 +24,248 @@ switch ($action) {
     case 'overview':
         only_method('GET');
         $db = get_db();
+
+        $offlineBeforeStmt = $db->prepare(
+            'SELECT id, name, last_update, metal, crystal, deuterium, rare_earth, food, population,
+                    energy, max_population, happiness, public_services
+             FROM colonies WHERE user_id = ? ORDER BY id ASC'
+        );
+        $offlineBeforeStmt->execute([$uid]);
+        $offlineBeforeRows = $offlineBeforeStmt->fetchAll();
+        $offlineBeforeById = [];
+        foreach ($offlineBeforeRows as $row) {
+            $offlineBeforeById[(int)$row['id']] = $row;
+        }
+
         update_all_colonies($db, $uid);
+
+        $offlineAfterStmt = $db->prepare(
+            'SELECT id, name, last_update, metal, crystal, deuterium, rare_earth, food, population,
+                    energy, max_population, happiness, public_services
+             FROM colonies WHERE user_id = ? ORDER BY id ASC'
+        );
+        $offlineAfterStmt->execute([$uid]);
+        $offlineAfterRows = $offlineAfterStmt->fetchAll();
+
+        $offlineEntries = [];
+        $offlineTotals = [
+            'metal' => 0.0,
+            'crystal' => 0.0,
+            'deuterium' => 0.0,
+            'rare_earth' => 0.0,
+            'food' => 0.0,
+            'population' => 0,
+        ];
+        $offlineMaxElapsed = 0;
+        $offlineRateTotals = [
+            'metal' => 0.0,
+            'crystal' => 0.0,
+            'deuterium' => 0.0,
+            'rare_earth' => 0.0,
+            'food' => 0.0,
+            'population' => 0.0,
+        ];
+        $economyStatusTotals = [
+            'stable' => 0,
+            'watch' => 0,
+            'strain' => 0,
+        ];
+        $riskThresholds = [
+            'food_rate_watch' => -12.0,
+            'food_rate_strain' => -28.0,
+            'food_per_capita_watch' => 1.35,
+            'food_per_capita_strain' => 0.95,
+            'energy_watch' => -8.0,
+            'energy_strain' => -22.0,
+            'welfare_watch' => 50.0,
+            'welfare_strain' => 38.0,
+        ];
+        $topRisks = [];
+        $economyAverages = [
+            'happiness_sum' => 0.0,
+            'services_sum' => 0.0,
+            'welfare_sum' => 0.0,
+            'count' => 0,
+        ];
+        foreach ($offlineAfterRows as $after) {
+            $cid = (int)$after['id'];
+            $before = $offlineBeforeById[$cid] ?? null;
+            if (!$before) {
+                continue;
+            }
+            $beforeTs = strtotime((string)($before['last_update'] ?? ''));
+            $elapsed = is_int($beforeTs) ? max(0, time() - $beforeTs) : 0;
+            if ($elapsed <= 0) {
+                continue;
+            }
+
+            $deltaMetal = (float)$after['metal'] - (float)$before['metal'];
+            $deltaCrystal = (float)$after['crystal'] - (float)$before['crystal'];
+            $deltaDeut = (float)$after['deuterium'] - (float)$before['deuterium'];
+            $deltaRare = (float)$after['rare_earth'] - (float)$before['rare_earth'];
+            $deltaFood = (float)$after['food'] - (float)$before['food'];
+            $deltaPopulation = (int)$after['population'] - (int)$before['population'];
+            $hourFactor = $elapsed > 0 ? (3600 / $elapsed) : 0;
+            $riskHourFactor = 3600 / max(1200, $elapsed);
+
+            $rateMetal = $deltaMetal * $hourFactor;
+            $rateCrystal = $deltaCrystal * $hourFactor;
+            $rateDeut = $deltaDeut * $hourFactor;
+            $rateRare = $deltaRare * $hourFactor;
+            $rateFood = $deltaFood * $hourFactor;
+            $ratePopulation = $deltaPopulation * $hourFactor;
+            $riskRateFood = $deltaFood * $riskHourFactor;
+
+            $populationNow = max(1, (int)($after['population'] ?? 0));
+            $foodNow = (float)($after['food'] ?? 0);
+            $energyNow = (float)($after['energy'] ?? 0);
+            $happinessNow = (float)($after['happiness'] ?? 0);
+            $servicesNow = (float)($after['public_services'] ?? 0);
+            $foodPerCapita = $foodNow / $populationNow;
+            $welfare = ($happinessNow + $servicesNow) / 2;
+
+            $riskFlags = [];
+            $riskScore = 0;
+            if ($riskRateFood <= $riskThresholds['food_rate_strain']) {
+                $riskFlags[] = 'food_decline';
+                $riskScore += 3;
+            } elseif ($riskRateFood <= $riskThresholds['food_rate_watch']) {
+                $riskFlags[] = 'food_decline';
+                $riskScore += 1;
+            }
+            if ($foodPerCapita <= $riskThresholds['food_per_capita_strain']) {
+                $riskFlags[] = 'low_food_buffer';
+                $riskScore += 3;
+            } elseif ($foodPerCapita <= $riskThresholds['food_per_capita_watch']) {
+                $riskFlags[] = 'low_food_buffer';
+                $riskScore += 1;
+            }
+            if ($energyNow <= $riskThresholds['energy_strain']) {
+                $riskFlags[] = 'energy_deficit';
+                $riskScore += 3;
+            } elseif ($energyNow <= $riskThresholds['energy_watch']) {
+                $riskFlags[] = 'energy_deficit';
+                $riskScore += 1;
+            }
+            if ($welfare <= $riskThresholds['welfare_strain']) {
+                $riskFlags[] = 'low_welfare';
+                $riskScore += 3;
+            } elseif ($welfare <= $riskThresholds['welfare_watch']) {
+                $riskFlags[] = 'low_welfare';
+                $riskScore += 1;
+            }
+
+            $statusCode = 'stable';
+            if ($riskScore >= 5) {
+                $statusCode = 'strain';
+            } elseif ($riskScore >= 1) {
+                $statusCode = 'watch';
+            }
+            $statusLabel = $statusCode === 'stable'
+                ? 'Stable'
+                : ($statusCode === 'strain' ? 'Strained' : 'Watch');
+
+            $offlineTotals['metal'] += $deltaMetal;
+            $offlineTotals['crystal'] += $deltaCrystal;
+            $offlineTotals['deuterium'] += $deltaDeut;
+            $offlineTotals['rare_earth'] += $deltaRare;
+            $offlineTotals['food'] += $deltaFood;
+            $offlineTotals['population'] += $deltaPopulation;
+            $offlineMaxElapsed = max($offlineMaxElapsed, $elapsed);
+            $offlineRateTotals['metal'] += $rateMetal;
+            $offlineRateTotals['crystal'] += $rateCrystal;
+            $offlineRateTotals['deuterium'] += $rateDeut;
+            $offlineRateTotals['rare_earth'] += $rateRare;
+            $offlineRateTotals['food'] += $rateFood;
+            $offlineRateTotals['population'] += $ratePopulation;
+            $economyStatusTotals[$statusCode] += 1;
+            $economyAverages['happiness_sum'] += $happinessNow;
+            $economyAverages['services_sum'] += $servicesNow;
+            $economyAverages['welfare_sum'] += $welfare;
+            $economyAverages['count'] += 1;
+            if ($riskScore > 0) {
+                $topRisks[] = [
+                    'colony_id' => $cid,
+                    'colony_name' => (string)($after['name'] ?? $before['name'] ?? ('Colony #' . $cid)),
+                    'status' => $statusCode,
+                    'risk_score' => $riskScore,
+                    'risk_flags' => $riskFlags,
+                    'welfare' => round($welfare, 1),
+                    'food_per_capita' => round($foodPerCapita, 2),
+                    'energy' => round($energyNow, 2),
+                    'food_rate_per_hour' => round($riskRateFood, 2),
+                ];
+            }
+
+            $offlineEntries[] = [
+                'colony_id' => $cid,
+                'colony_name' => (string)($after['name'] ?? $before['name'] ?? ('Colony #' . $cid)),
+                'elapsed_seconds' => $elapsed,
+                'delta' => [
+                    'metal' => round($deltaMetal, 2),
+                    'crystal' => round($deltaCrystal, 2),
+                    'deuterium' => round($deltaDeut, 2),
+                    'rare_earth' => round($deltaRare, 2),
+                    'food' => round($deltaFood, 2),
+                    'population' => $deltaPopulation,
+                ],
+                'rates_per_hour' => [
+                    'metal' => round($rateMetal, 2),
+                    'crystal' => round($rateCrystal, 2),
+                    'deuterium' => round($rateDeut, 2),
+                    'rare_earth' => round($rateRare, 2),
+                    'food' => round($rateFood, 2),
+                    'population' => round($ratePopulation, 2),
+                ],
+                'status' => [
+                    'code' => $statusCode,
+                    'label' => $statusLabel,
+                    'risk_flags' => $riskFlags,
+                    'welfare' => round($welfare, 1),
+                    'food_per_capita' => round($foodPerCapita, 2),
+                    'energy' => round($energyNow, 2),
+                ],
+            ];
+        }
+
+        $avgCount = max(1, (int)$economyAverages['count']);
+        usort($topRisks, static function (array $a, array $b): int {
+            return ($b['risk_score'] <=> $a['risk_score'])
+                ?: (($a['welfare'] ?? 100) <=> ($b['welfare'] ?? 100));
+        });
+        $economySnapshot = [
+            'status_counts' => $economyStatusTotals,
+            'avg_happiness' => round($economyAverages['happiness_sum'] / $avgCount, 1),
+            'avg_public_services' => round($economyAverages['services_sum'] / $avgCount, 1),
+            'avg_welfare' => round($economyAverages['welfare_sum'] / $avgCount, 1),
+            'risk_thresholds' => $riskThresholds,
+            'top_risks' => array_slice($topRisks, 0, 4),
+            'net_rates_per_hour' => [
+                'metal' => round($offlineRateTotals['metal'], 2),
+                'crystal' => round($offlineRateTotals['crystal'], 2),
+                'deuterium' => round($offlineRateTotals['deuterium'], 2),
+                'rare_earth' => round($offlineRateTotals['rare_earth'], 2),
+                'food' => round($offlineRateTotals['food'], 2),
+                'population' => round($offlineRateTotals['population'], 2),
+            ],
+        ];
+
+        $offlineReport = [
+            'had_offline_time' => !empty($offlineEntries),
+            'max_elapsed_seconds' => $offlineMaxElapsed,
+            'totals' => [
+                'metal' => round($offlineTotals['metal'], 2),
+                'crystal' => round($offlineTotals['crystal'], 2),
+                'deuterium' => round($offlineTotals['deuterium'], 2),
+                'rare_earth' => round($offlineTotals['rare_earth'], 2),
+                'food' => round($offlineTotals['food'], 2),
+                'population' => (int)$offlineTotals['population'],
+            ],
+            'rates_per_hour' => $economySnapshot['net_rates_per_hour'],
+            'economy' => $economySnapshot,
+            'colonies' => $offlineEntries,
+        ];
+
         check_and_update_achievements($db, $uid);
         // NPC AI tick (rate-limited internally to once per 5 minutes)
         require_once __DIR__ . '/npc_ai.php';
@@ -130,6 +371,7 @@ switch ($action) {
 
         json_ok([
             'user_meta'   => $meta,
+            'offline_progress' => $offlineReport,
             'colonies'    => $colonies,
             'fleets'      => $fleets,
             'battles'     => $battles,

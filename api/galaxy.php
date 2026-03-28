@@ -12,12 +12,18 @@
  * cached in the star_systems table for subsequent queries.
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/compression.php';
+require_once __DIR__ . '/compression-v2.php';
+require_once __DIR__ . '/compression-v3.php';
 require_once __DIR__ . '/galaxy_gen.php';
 require_once __DIR__ . '/galaxy_seed.php';
 require_once __DIR__ . '/game_engine.php';
 
 only_method('GET');
 require_auth();
+
+// Enable gzip if supported
+enable_response_gzip();
 
 $action = (string)($_GET['action'] ?? 'system');
 $g = max(1, min(GALAXY_MAX, (int)($_GET['galaxy'] ?? 1)));
@@ -38,6 +44,14 @@ if ($action === 'stars') {
     $span = max(1, $to - $from + 1);
     $stride = max(1, (int)ceil($span / $maxPoints));
 
+    // Full-density range requests (stride=1) should always materialize every
+    // system in the requested span so client-side lazy hydration can converge.
+    if ($stride === 1) {
+        for ($sys = $from; $sys <= $to; $sys++) {
+            ensure_star_system($db, $g, $sys);
+        }
+    }
+
     $stmt = $db->prepare(
                                 'SELECT id, galaxy_index, system_index, name,
                                 COALESCE(NULLIF(catalog_name, ""), name) AS catalog_name,
@@ -55,6 +69,7 @@ if ($action === 'stars') {
     json_ok([
         'action' => 'stars',
         'galaxy' => $g,
+        'system_max' => galaxy_system_limit(),
         'from' => $from,
         'to' => $to,
         'stride' => $stride,
@@ -64,6 +79,77 @@ if ($action === 'stars') {
         'stars' => $stars,
     ]);
     exit;
+}
+
+if ($action === 'search') {
+        $q = trim((string)($_GET['q'] ?? ''));
+        $limit = max(1, min(40, (int)($_GET['limit'] ?? 18)));
+        if (strlen($q) < 2) {
+                json_ok([
+                        'action' => 'search',
+                        'galaxy' => $g,
+                        'query' => $q,
+                        'count' => 0,
+                        'stars' => [],
+                ]);
+                exit;
+        }
+
+        $isNumeric = ctype_digit($q);
+        $systemExact = $isNumeric ? (int)$q : -1;
+        if ($systemExact > 0 && $systemExact <= galaxy_system_limit()) {
+                ensure_star_system($db, $g, $systemExact);
+        }
+
+        $likeAny = '%' . $q . '%';
+        $likePrefix = $q . '%';
+
+        $stmt = $db->prepare(
+                'SELECT id, galaxy_index, system_index, name,
+                                COALESCE(NULLIF(catalog_name, ""), name) AS catalog_name,
+                                spectral_class, subtype, x_ly, y_ly, z_ly,
+                                planet_count, hz_inner_au, hz_outer_au
+                 FROM star_systems
+                 WHERE galaxy_index = ?
+                     AND (
+                         system_index = ?
+                         OR CAST(system_index AS TEXT) LIKE ?
+                         OR name LIKE ?
+                         OR catalog_name LIKE ?
+                     )
+                 ORDER BY
+                     CASE
+                         WHEN system_index = ? THEN 0
+                         WHEN CAST(system_index AS TEXT) LIKE ? THEN 1
+                         WHEN name LIKE ? THEN 2
+                         WHEN catalog_name LIKE ? THEN 3
+                         ELSE 4
+                     END,
+                     system_index ASC
+                 LIMIT ?'
+        );
+        $stmt->execute([
+                $g,
+                $systemExact,
+                $likePrefix,
+                $likeAny,
+                $likeAny,
+                $systemExact,
+                $likePrefix,
+                $likePrefix,
+                $likePrefix,
+                $limit,
+        ]);
+        $stars = $stmt->fetchAll();
+
+        json_ok([
+                'action' => 'search',
+                'galaxy' => $g,
+                'query' => $q,
+                'count' => count($stars),
+                'stars' => $stars,
+        ]);
+        exit;
 }
 
 // ── 1. Ensure star system is generated and cached ─────────────────────────────
@@ -164,16 +250,50 @@ foreach ($fleetStmt->fetchAll() as $fleetRow) {
     $fleetsInSystem[] = $fleetRow;
 }
 
-json_ok([
+$response = [
     'galaxy'      => $g,
     'system'      => $s,
     'system_max'  => galaxy_system_limit(),
-    'server_ts'   => gmdate('c'),
     'server_ts_ms'=> (int)round(microtime(true) * 1000),
     'star_system' => $starSystem,
     'planets'     => $mergedPlanets,
+    'planet_texture_manifest' => build_planet_texture_manifest($g, $s, $starSystem, $mergedPlanets),
     'fleets_in_system' => $fleetsInSystem,
-]);
+];
+
+// Format selection: binary or JSON
+$format = strtolower((string)($_GET['format'] ?? 'json'));
+
+if (in_array($format, ['bin', 'bin1', 'bin2', 'bin3'], true)) {
+    // Always trim for binary mode (compact)
+    $response = trim_system_payload_for_transit($response);
+
+    if ($format === 'bin1') {
+        $binary = encode_system_payload_binary($response);
+        $version = 1;
+    } elseif ($format === 'bin2' && function_exists('encode_system_payload_binary_v2')) {
+        $binary = encode_system_payload_binary_v2($response);
+        $version = 2;
+    } else {
+        // Default binary mode uses V3.
+        $binary = encode_system_payload_binary_v3($response);
+        $version = 3;
+    }
+
+    header('Content-Type: application/octet-stream');
+    header('Content-Length: ' . strlen($binary));
+    header('X-GQ-Format: binary');
+    header('X-GQ-Format-Version: ' . $version);
+    echo $binary;
+} else {
+    // JSON mode (default)
+    // Optional: trim payload for faster transit
+    if ((int)($_GET['trim'] ?? 0) === 1) {
+        $response = trim_system_payload_for_transit($response);
+    }
+    
+    json_ok($response);
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -185,5 +305,150 @@ require_once __DIR__ . '/planet_helper.php';
 function ensure_star_system(PDO $db, int $galaxyIdx, int $systemIdx): array
 {
     return cache_generated_system($db, $galaxyIdx, $systemIdx, true);
+}
+
+function build_planet_texture_manifest(int $galaxyIdx, int $systemIdx, array $starSystem, array $mergedPlanets): array
+{
+    $manifest = [
+        'version' => 1,
+        'system_seed' => texture_seed_value([$galaxyIdx, $systemIdx, $starSystem['spectral_class'] ?? 'G', $starSystem['name'] ?? 'system']),
+        'planets' => [],
+    ];
+
+    foreach ($mergedPlanets as $slot) {
+        $body = is_array($slot['player_planet'] ?? null)
+            ? $slot['player_planet']
+            : (is_array($slot['generated_planet'] ?? null) ? $slot['generated_planet'] : null);
+        if (!$body) {
+            continue;
+        }
+
+        $position = (int)($slot['position'] ?? $body['position'] ?? 0);
+        if ($position <= 0) {
+            continue;
+        }
+
+        $planetClass = (string)($body['planet_class'] ?? $body['type'] ?? 'unknown');
+        $composition = (string)($body['composition_family'] ?? $body['dominant_surface_material'] ?? 'generic');
+        $seed = texture_seed_value([
+            $galaxyIdx,
+            $systemIdx,
+            $position,
+            $planetClass,
+            $composition,
+            $body['diameter'] ?? 0,
+            $body['semi_major_axis_au'] ?? 0,
+        ]);
+
+        $variant = texture_variant_for_planet($planetClass);
+        $manifest['planets'][(string)$position] = [
+            'seed' => $seed,
+            'position' => $position,
+            'variant' => $variant,
+            'palette' => texture_palette_for_planet($planetClass, $composition, $seed),
+            'roughness' => round(texture_planet_scalar($seed, 'roughness', 0.58, 0.92), 3),
+            'metalness' => round(texture_planet_scalar($seed, 'metalness', 0.01, 0.12), 3),
+            'banding' => round(texture_planet_scalar($seed, 'banding', $variant === 'gas' ? 0.45 : 0.08, $variant === 'gas' ? 0.92 : 0.36), 3),
+            'clouds' => round(texture_planet_scalar($seed, 'clouds', 0.05, 0.75), 3),
+            'craters' => round(texture_planet_scalar($seed, 'craters', 0.0, $variant === 'rocky' ? 0.85 : 0.34), 3),
+            'ice_caps' => round(texture_planet_scalar($seed, 'ice_caps', $variant === 'ice' ? 0.25 : 0.0, $variant === 'ice' ? 0.75 : 0.24), 3),
+            'atmosphere' => round(texture_planet_scalar($seed, 'atmosphere', 0.12, 0.72), 3),
+            'glow' => round(texture_planet_scalar($seed, 'glow', $variant === 'lava' ? 0.08 : 0.0, $variant === 'lava' ? 0.48 : 0.16), 3),
+        ];
+    }
+
+    return $manifest;
+}
+
+function texture_variant_for_planet(string $planetClass): string
+{
+    $cls = strtolower($planetClass);
+    if (str_contains($cls, 'gas')) return 'gas';
+    if (str_contains($cls, 'ice')) return 'ice';
+    if (str_contains($cls, 'ocean')) return 'ocean';
+    if (str_contains($cls, 'lava') || str_contains($cls, 'volcan')) return 'lava';
+    if (str_contains($cls, 'desert')) return 'desert';
+    return 'rocky';
+}
+
+function texture_palette_for_planet(string $planetClass, string $composition, int $seed): array
+{
+    $variant = texture_variant_for_planet($planetClass);
+    $shift = texture_planet_scalar($seed, 'hue_shift', -0.055, 0.055);
+    $accentLift = texture_planet_scalar($seed, 'accent', 0.06, 0.16);
+
+    $base = match ($variant) {
+        'gas' => [0.09 + $shift, 0.42, 0.62],
+        'ice' => [0.56 + $shift, 0.46, 0.73],
+        'ocean' => [0.55 + $shift, 0.58, 0.47],
+        'lava' => [0.03 + $shift, 0.68, 0.46],
+        'desert' => [0.11 + $shift, 0.48, 0.58],
+        default => [0.09 + $shift, 0.16, 0.50],
+    };
+
+    $secondary = [$base[0] + texture_planet_scalar($seed, 'sec_hue', -0.03, 0.03), min(0.9, $base[1] + 0.08), max(0.12, $base[2] - 0.12)];
+    $accent = [$base[0] + texture_planet_scalar($seed, 'acc_hue', -0.08, 0.08), min(1.0, $base[1] + 0.12), min(0.92, $base[2] + $accentLift)];
+    $ice = [$base[0] + 0.02, 0.18, min(0.96, $base[2] + 0.22)];
+
+    if (str_contains(strtolower($composition), 'metal')) {
+        $secondary[1] = min(0.24, $secondary[1]);
+        $secondary[2] = max(0.34, $secondary[2]);
+    }
+
+    return [
+        'base' => hsl_to_hex($base[0], $base[1], $base[2]),
+        'secondary' => hsl_to_hex($secondary[0], $secondary[1], $secondary[2]),
+        'accent' => hsl_to_hex($accent[0], $accent[1], $accent[2]),
+        'ice' => hsl_to_hex($ice[0], $ice[1], $ice[2]),
+    ];
+}
+
+function texture_planet_scalar(int $seed, string $channel, float $min, float $max): float
+{
+    $range = max(0.0, $max - $min);
+    $unit = texture_seed_unit($seed, $channel);
+    return $min + ($range * $unit);
+}
+
+function texture_seed_unit(int $seed, string $channel): float
+{
+    $raw = sprintf('%u', crc32($seed . '|' . $channel));
+    $value = (int)$raw;
+    return ($value % 10000) / 9999;
+}
+
+function texture_seed_value(array $parts): int
+{
+    return (int)sprintf('%u', crc32(implode('|', array_map(static fn($part): string => (string)$part, $parts))));
+}
+
+function hsl_to_hex(float $h, float $s, float $l): string
+{
+    $h = $h - floor($h);
+    $s = max(0.0, min(1.0, $s));
+    $l = max(0.0, min(1.0, $l));
+
+    if ($s <= 0.00001) {
+        $v = (int)round($l * 255);
+        return sprintf('#%02x%02x%02x', $v, $v, $v);
+    }
+
+    $q = $l < 0.5 ? $l * (1 + $s) : $l + $s - ($l * $s);
+    $p = 2 * $l - $q;
+    $r = hue_to_rgb($p, $q, $h + 1 / 3);
+    $g = hue_to_rgb($p, $q, $h);
+    $b = hue_to_rgb($p, $q, $h - 1 / 3);
+
+    return sprintf('#%02x%02x%02x', (int)round($r * 255), (int)round($g * 255), (int)round($b * 255));
+}
+
+function hue_to_rgb(float $p, float $q, float $t): float
+{
+    if ($t < 0) $t += 1;
+    if ($t > 1) $t -= 1;
+    if ($t < 1 / 6) return $p + ($q - $p) * 6 * $t;
+    if ($t < 1 / 2) return $q;
+    if ($t < 2 / 3) return $p + ($q - $p) * (2 / 3 - $t) * 6;
+    return $p;
 }
 

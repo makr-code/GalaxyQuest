@@ -4,14 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GalaxyQuest – Command Center</title>
-  <link rel="stylesheet" href="css/style.css?v=20260327w" />
+  <link rel="stylesheet" href="css/style.css?v=20260328c" />
 </head>
 <body class="game-page">
 
   <!-- ── Top bar ───────────────────────────────────────────────────────────── -->
   <header class="topbar">
     <div class="topbar-left">
-      <span class="logo-small">🌌 GalaxyQuest</span>
+      <button id="topbar-title-btn" class="topbar-brand-btn" type="button" title="Daten aktualisieren">🌌 GalaxyQuest</button>
+      <button id="topbar-home-btn" class="topbar-home-btn" type="button" title="Zum Heimatsystem springen">🏠 Home</button>
       <span id="topbar-coords" class="coords-badge"></span>
     </div>
 
@@ -31,13 +32,50 @@
       <button class="nav-btn" data-win="factions">🌐 Factions</button>
       <button class="nav-btn" data-win="leaders">👤 Leaders</button>
       <button class="nav-btn" data-win="leaderboard">Leaderboard</button>
+      <button class="nav-btn" data-win="settings">⚙ Settings</button>
     </nav>
 
     <div class="topbar-right">
-      <span id="commander-name" class="commander"></span>
+      <div class="topbar-search-wrap" id="topbar-search-wrap">
+        <input id="topbar-search-input" class="topbar-search-input" type="search" placeholder="Sterne/Systeme suchen..." autocomplete="off" aria-label="Galaxy search" />
+        <div id="topbar-search-overlay" class="topbar-search-overlay hidden" role="listbox" aria-label="Search results"></div>
+      </div>
+      <div class="user-menu-wrap" id="user-menu-wrap">
+        <button id="commander-name" class="commander commander-btn" type="button" aria-expanded="false" aria-haspopup="menu"></button>
+        <div id="user-menu" class="user-menu hidden" role="menu" aria-label="Benutzermen\u00fc"></div>
+      </div>
+      <button id="ui-console-toggle" class="btn btn-secondary btn-sm" type="button" title="UI-Konsole ein-/ausklappen">⌄ Console</button>
+      <button id="audio-toggle-btn" class="btn btn-secondary btn-sm" type="button" title="Audio umschalten">🔊</button>
       <button id="logout-btn" class="btn btn-danger btn-sm">Logout</button>
     </div>
   </header>
+
+  <section id="ui-console-panel" class="ui-console-panel hidden" aria-label="UI-Konsole">
+    <div class="ui-console-head">
+      <strong>UI Console</strong>
+      <div class="ui-console-actions">
+        <label for="ui-console-filter" class="ui-console-filter-label">Level</label>
+        <select id="ui-console-filter" class="ui-console-filter" title="Log-Level filtern">
+          <option value="all" selected>All</option>
+          <option value="abort">Abort</option>
+          <option value="error">Error</option>
+          <option value="warn">Warn</option>
+          <option value="info">Info</option>
+          <option value="log">Log</option>
+          <option value="debug">Debug</option>
+          <option value="system">System</option>
+        </select>
+        <button id="ui-console-copy" class="btn btn-secondary btn-sm" type="button">Copy</button>
+        <button id="ui-console-clear" class="btn btn-secondary btn-sm" type="button">Clear</button>
+        <button id="ui-console-close" class="btn btn-secondary btn-sm" type="button">Close</button>
+      </div>
+    </div>
+    <div id="ui-console-log" class="ui-console-log"></div>
+    <div class="ui-console-input-row">
+      <input id="ui-console-input" type="text" placeholder="help | refresh | home | open settings | transitions on/off | msg <user> <text>" />
+      <button id="ui-console-run" class="btn btn-primary btn-sm" type="button">Run</button>
+    </div>
+  </section>
 
   <!-- ── Resource bar ──────────────────────────────────────────────────────── -->
   <div class="resource-bar">
@@ -100,20 +138,35 @@
   <!-- ── WM Taskbar (minimised windows) ───────────────────────────────────── -->
   <div id="wm-taskbar" class="wm-taskbar" aria-label="Open windows">
     <span class="wm-taskbar-label">Windows:</span>
+    <div id="footer-load" class="footer-load hidden" role="status" aria-live="polite">
+      <span id="footer-load-label" class="footer-load-label">Lade Daten…</span>
+      <div class="footer-load-track" aria-hidden="true">
+        <div id="footer-load-bar" class="footer-load-bar"></div>
+      </div>
+      <span id="footer-load-queue" class="footer-load-queue">Q:0|F:0|C:0</span>
+      <span id="footer-network-status" class="footer-net footer-net-unknown">NET: ?</span>
+      <span id="footer-load-pct" class="footer-load-pct">0%</span>
+    </div>
   </div>
 
   <!-- Toast notification -->
   <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
 
+  <script src="js/terminal.js?v=20260328a"></script>
   <script src="js/starfield.js?v=20260327w"></script>
   <script src="js/wm.js?v=20260327w"></script>
-  <script src="js/api.js?v=20260327w"></script>
+  <script src="js/binary-decoder.js?v=20260328a"></script>
+  <script src="js/binary-decoder-v2.js?v=20260328a"></script>
+  <script src="js/binary-decoder-v3.js?v=20260328b"></script>
+  <script src="js/api.js?v=20260328c"></script>
   <script src="https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js"></script>
   <script src="js/galaxy-model.js?v=20260327w"></script>
   <script src="js/galaxy-db.js?v=20260327w"></script>
+  <script src="js/audio.js?v=20260328ah"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-  <script src="js/galaxy3d.js?v=20260327w"></script>
-  <script src="js/game.js?v=20260327w"></script>
+  <script src="js/planet-textures.js?v=20260328a"></script>
+  <script src="js/galaxy3d.js?v=20260328m"></script>
+  <script src="js/game.js?v=20260328t"></script>
 </body>
 </html>
 

@@ -158,6 +158,24 @@ CREATE TABLE IF NOT EXISTS buildings (
     UNIQUE KEY unique_building (colony_id, type)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS building_upgrade_queue (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    colony_id INT NOT NULL,
+    building_type VARCHAR(64) NOT NULL,
+    target_level INT NOT NULL,
+    cost_metal INT NOT NULL DEFAULT 0,
+    cost_crystal INT NOT NULL DEFAULT 0,
+    cost_deuterium INT NOT NULL DEFAULT 0,
+    duration_secs INT NOT NULL,
+    queued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME DEFAULT NULL,
+    eta DATETIME DEFAULT NULL,
+    status ENUM('queued','running','done','cancelled') NOT NULL DEFAULT 'queued',
+    FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE CASCADE,
+    INDEX idx_buq_colony_status (colony_id, status),
+    INDEX idx_buq_eta (eta)
+) ENGINE=InnoDB;
+
 -- Research / technologies per user
 CREATE TABLE IF NOT EXISTS research (
     id INT AUTO_INCREMENT PRIMARY KEY,
