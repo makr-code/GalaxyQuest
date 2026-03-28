@@ -37,6 +37,14 @@ function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
          SET d.standing = d.standing + SIGN(f.base_diplomacy - d.standing)
          WHERE d.user_id = ? AND ABS(d.standing - f.base_diplomacy) > 5'
     )->execute([$userId]);
+
+    // Global NPC player accounts tick (build/research/ships).
+    // Triggered opportunistically by active player traffic, rate-limited via app_state.
+    try {
+        npc_player_accounts_tick_global($db, $force);
+    } catch (Throwable $e) {
+        error_log('npc_player_accounts_tick_global error: ' . $e->getMessage());
+    }
 }
 
 function npc_faction_tick(PDO $db, int $userId, array $faction): void {
@@ -170,4 +178,483 @@ function maybe_pirate_raid(PDO $db, int $userId, array $faction): void {
         require_once __DIR__ . '/factions.php';
         update_standing($db, $userId, (int)$faction['id'], -3, 'raid', 'Pirate raid on colony');
     }
+}
+
+// ─── NPC player accounts (Phase 4.1) ────────────────────────────────────────
+
+/**
+ * Run strategic AI for all NPC player accounts.
+ * Cooldown defaults to 3 minutes and is stored in app_state.
+ */
+function npc_player_accounts_tick_global(PDO $db, bool $force = false): void {
+    $now = time();
+    $stateKey = 'npc_player_tick:last_unix';
+    $cooldown = 180;
+
+    if (function_exists('app_state_get_int') && function_exists('app_state_set_int')) {
+        $last = app_state_get_int($db, $stateKey, 0);
+        if (!$force && ($now - $last) < $cooldown) {
+            return;
+        }
+        app_state_set_int($db, $stateKey, $now);
+    }
+
+    $stmt = $db->query('SELECT id FROM users WHERE is_npc = 1 ORDER BY id ASC LIMIT 64');
+    $npcIds = $stmt ? $stmt->fetchAll(PDO::FETCH_COLUMN) : [];
+    foreach ($npcIds as $npcIdRaw) {
+        $npcId = (int)$npcIdRaw;
+        if ($npcId <= 0) {
+            continue;
+        }
+        npc_player_account_tick($db, $npcId);
+    }
+}
+
+/**
+ * Single NPC account tick: one build action, one research action, one ship action.
+ */
+function npc_player_account_tick(PDO $db, int $npcUserId): void {
+    // Finish due research first so progression can continue.
+    $due = $db->prepare(
+        'SELECT type FROM research
+         WHERE user_id = ? AND research_end IS NOT NULL AND research_end <= NOW()'
+    );
+    $due->execute([$npcUserId]);
+    foreach ($due->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $type = (string)($row['type'] ?? '');
+        if ($type === '') {
+            continue;
+        }
+        $db->prepare(
+            'UPDATE research SET level = level + 1, research_end = NULL WHERE user_id = ? AND type = ?'
+        )->execute([$npcUserId, $type]);
+    }
+
+    $colStmt = $db->prepare(
+        'SELECT id, colony_type, metal, crystal, deuterium
+         FROM colonies WHERE user_id = ?
+         ORDER BY is_homeworld DESC, (metal + crystal + deuterium) DESC LIMIT 1'
+    );
+    $colStmt->execute([$npcUserId]);
+    $colony = $colStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$colony) {
+        return;
+    }
+
+    $colonyId = (int)$colony['id'];
+    update_colony_resources($db, $colonyId);
+
+    // Refresh resource snapshot after resource tick.
+    $snapStmt = $db->prepare('SELECT metal, crystal, deuterium, colony_type FROM colonies WHERE id = ?');
+    $snapStmt->execute([$colonyId]);
+    $snap = $snapStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$snap) {
+        return;
+    }
+
+    $resources = [
+        'metal' => (float)$snap['metal'],
+        'crystal' => (float)$snap['crystal'],
+        'deuterium' => (float)$snap['deuterium'],
+    ];
+    $colonyType = (string)($snap['colony_type'] ?? 'balanced');
+
+    npc_try_building_upgrade($db, $colonyId, $colonyType, $resources);
+    npc_try_start_research($db, $npcUserId, $colonyId, $colonyType, $resources);
+    npc_try_build_ships($db, $colonyId, $colonyType, $resources);
+    npc_try_fleet_actions($db, $npcUserId, $colonyType);
+}
+
+function npc_try_building_upgrade(PDO $db, int $colonyId, string $colonyType, array &$resources): void {
+    $priorityByType = [
+        'mining' => ['metal_mine', 'crystal_mine', 'deuterium_synth', 'solar_plant', 'robotics_factory', 'shipyard', 'research_lab'],
+        'research' => ['research_lab', 'crystal_mine', 'solar_plant', 'metal_mine', 'deuterium_synth', 'robotics_factory', 'shipyard'],
+        'military' => ['shipyard', 'metal_mine', 'crystal_mine', 'solar_plant', 'robotics_factory', 'research_lab', 'deuterium_synth'],
+        'industrial' => ['metal_mine', 'robotics_factory', 'shipyard', 'crystal_mine', 'solar_plant', 'deuterium_synth', 'research_lab'],
+        'agricultural' => ['hydroponic_farm', 'food_silo', 'metal_mine', 'crystal_mine', 'solar_plant', 'deuterium_synth', 'research_lab'],
+        'balanced' => ['metal_mine', 'crystal_mine', 'solar_plant', 'deuterium_synth', 'research_lab', 'shipyard', 'robotics_factory'],
+    ];
+    $caps = [
+        'metal_mine' => 18,
+        'crystal_mine' => 16,
+        'deuterium_synth' => 14,
+        'solar_plant' => 16,
+        'fusion_reactor' => 8,
+        'robotics_factory' => 8,
+        'shipyard' => 8,
+        'research_lab' => 10,
+        'hydroponic_farm' => 10,
+        'food_silo' => 8,
+    ];
+    $order = $priorityByType[$colonyType] ?? $priorityByType['balanced'];
+
+    $bStmt = $db->prepare('SELECT type, level FROM buildings WHERE colony_id = ?');
+    $bStmt->execute([$colonyId]);
+    $levels = [];
+    foreach ($bStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $levels[(string)$row['type']] = (int)$row['level'];
+    }
+
+    foreach ($order as $type) {
+        $current = (int)($levels[$type] ?? 0);
+        $cap = (int)($caps[$type] ?? 10);
+        if ($current >= $cap) {
+            continue;
+        }
+        $cost = building_cost($type, $current + 1);
+        if (!npc_can_afford($resources, $cost)) {
+            continue;
+        }
+        npc_spend_colony_resources($db, $colonyId, $resources, $cost);
+
+        if ($current > 0) {
+            $db->prepare('UPDATE buildings SET level = level + 1, upgrade_end = NULL WHERE colony_id = ? AND type = ?')
+               ->execute([$colonyId, $type]);
+        } else {
+            $db->prepare('INSERT INTO buildings (colony_id, type, level, upgrade_end) VALUES (?, ?, 1, NULL)')
+               ->execute([$colonyId, $type]);
+        }
+        break;
+    }
+}
+
+function npc_try_start_research(PDO $db, int $npcUserId, int $colonyId, string $colonyType, array &$resources): void {
+    $runningStmt = $db->prepare('SELECT COUNT(*) FROM research WHERE user_id = ? AND research_end IS NOT NULL');
+    $runningStmt->execute([$npcUserId]);
+    if ((int)$runningStmt->fetchColumn() > 0) {
+        return;
+    }
+
+    $researchOrder = [
+        'energy_tech',
+        'computer_tech',
+        'combustion_drive',
+        'weapons_tech',
+        'espionage_tech',
+        'laser_tech',
+        'impulse_drive',
+        'shielding_tech',
+        'armor_tech',
+        'hyperspace_tech',
+    ];
+    if ($colonyType === 'research') {
+        $researchOrder = [
+            'energy_tech', 'computer_tech', 'espionage_tech', 'laser_tech', 'ion_tech',
+            'impulse_drive', 'hyperspace_tech', 'astrophysics', 'weapons_tech', 'shielding_tech',
+        ];
+    }
+
+    $rStmt = $db->prepare('SELECT type, level FROM research WHERE user_id = ?');
+    $rStmt->execute([$npcUserId]);
+    $levels = [];
+    foreach ($rStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $levels[(string)$row['type']] = (int)$row['level'];
+    }
+
+    $labLevel = get_building_level($db, $colonyId, 'research_lab');
+    if ($labLevel <= 0) {
+        return;
+    }
+
+    foreach ($researchOrder as $tech) {
+        $current = (int)($levels[$tech] ?? 0);
+        if ($current >= 10) {
+            continue;
+        }
+        $pr = check_research_prereqs($db, $npcUserId, $tech);
+        if (empty($pr['can_research'])) {
+            continue;
+        }
+        $next = $current + 1;
+        $cost = research_cost($tech, $next);
+        if (!npc_can_afford($resources, $cost)) {
+            continue;
+        }
+
+        $secs = research_time($cost, $labLevel);
+        if ($colonyType === 'research') {
+            $secs = max(1, (int)round($secs * 0.85));
+        }
+        $end = date('Y-m-d H:i:s', time() + $secs);
+
+        npc_spend_colony_resources($db, $colonyId, $resources, $cost);
+
+        if ($current > 0) {
+            $db->prepare('UPDATE research SET research_start = NOW(), research_end = ? WHERE user_id = ? AND type = ?')
+               ->execute([$end, $npcUserId, $tech]);
+        } else {
+            $db->prepare(
+                'INSERT INTO research (user_id, type, level, research_start, research_end)
+                 VALUES (?, ?, 0, NOW(), ?)
+                 ON DUPLICATE KEY UPDATE research_start = NOW(), research_end = VALUES(research_end)'
+            )->execute([$npcUserId, $tech, $end]);
+        }
+        break;
+    }
+}
+
+function npc_try_build_ships(PDO $db, int $colonyId, string $colonyType, array &$resources): void {
+    $shipyardLevel = get_building_level($db, $colonyId, 'shipyard');
+    if ($shipyardLevel <= 0) {
+        return;
+    }
+
+    $shipOrder = ['small_cargo', 'light_fighter', 'heavy_fighter'];
+    if ($colonyType === 'military') {
+        $shipOrder = ['light_fighter', 'heavy_fighter', 'cruiser', 'small_cargo'];
+    } elseif ($colonyType === 'industrial' || $colonyType === 'mining') {
+        $shipOrder = ['small_cargo', 'large_cargo', 'light_fighter'];
+    }
+
+    foreach ($shipOrder as $type) {
+        $per = ship_cost($type);
+        if (!npc_can_afford($resources, $per)) {
+            continue;
+        }
+
+        $qty = 1;
+        if ($type === 'small_cargo' || $type === 'light_fighter') {
+            $maxByMetal = (int)floor(max(0, $resources['metal']) / max(1, (int)$per['metal']));
+            $maxByCrystal = (int)floor(max(0, $resources['crystal']) / max(1, (int)$per['crystal']));
+            $maxByDeut = (int)floor(max(0, $resources['deuterium']) / max(1, (int)$per['deuterium']));
+            $qty = max(1, min(5, $maxByMetal, $maxByCrystal, $maxByDeut));
+        }
+
+        $total = [
+            'metal' => (int)$per['metal'] * $qty,
+            'crystal' => (int)$per['crystal'] * $qty,
+            'deuterium' => (int)$per['deuterium'] * $qty,
+        ];
+        if (!npc_can_afford($resources, $total)) {
+            continue;
+        }
+
+        npc_spend_colony_resources($db, $colonyId, $resources, $total);
+        $db->prepare(
+            'INSERT INTO ships (colony_id, type, count)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE count = count + VALUES(count)'
+        )->execute([$colonyId, $type, $qty]);
+        break;
+    }
+}
+
+function npc_try_fleet_actions(PDO $db, int $npcUserId, string $colonyType): void {
+    $fleetCountStmt = $db->prepare('SELECT COUNT(*) FROM fleets WHERE user_id = ?');
+    $fleetCountStmt->execute([$npcUserId]);
+    if ((int)$fleetCountStmt->fetchColumn() >= 2) {
+        return;
+    }
+
+    $gate = ($colonyType === 'military') ? 55 : 35;
+    if (mt_rand(1, 100) > $gate) {
+        return;
+    }
+
+    if (npc_try_launch_colonization_mission($db, $npcUserId)) {
+        return;
+    }
+    npc_try_balance_transport_mission($db, $npcUserId);
+}
+
+function npc_try_launch_colonization_mission(PDO $db, int $npcUserId): bool {
+    $countStmt = $db->prepare('SELECT COUNT(*) FROM colonies WHERE user_id = ?');
+    $countStmt->execute([$npcUserId]);
+    $colonyCount = (int)$countStmt->fetchColumn();
+    if ($colonyCount >= 5) {
+        return false;
+    }
+
+    $originStmt = $db->prepare(
+        'SELECT c.id, p.galaxy, p.`system`, p.position
+         FROM colonies c
+         JOIN planets p ON p.id = c.planet_id
+         JOIN ships s ON s.colony_id = c.id AND s.type = "colony_ship" AND s.count > 0
+         WHERE c.user_id = ?
+         ORDER BY c.is_homeworld DESC, s.count DESC, c.id ASC
+         LIMIT 1'
+    );
+    $originStmt->execute([$npcUserId]);
+    $origin = $originStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$origin) {
+        return false;
+    }
+
+    $g = (int)$origin['galaxy'];
+    $s = (int)$origin['system'];
+    $nearStmt = $db->prepare(
+        'SELECT p.galaxy, p.`system`, p.position
+         FROM planets p
+         LEFT JOIN colonies c ON c.planet_id = p.id
+         WHERE c.id IS NULL
+           AND p.galaxy = ?
+           AND p.`system` BETWEEN ? AND ?
+         ORDER BY ABS(p.`system` - ?) ASC, RAND()
+         LIMIT 1'
+    );
+    $nearStmt->execute([$g, max(1, $s - 8), min(galaxy_system_limit(), $s + 8), $s]);
+    $target = $nearStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$target) {
+        $fallbackStmt = $db->prepare(
+            'SELECT p.galaxy, p.`system`, p.position
+             FROM planets p
+             LEFT JOIN colonies c ON c.planet_id = p.id
+             WHERE c.id IS NULL AND p.galaxy = ?
+             ORDER BY RAND()
+             LIMIT 1'
+        );
+        $fallbackStmt->execute([$g]);
+        $target = $fallbackStmt->fetch(PDO::FETCH_ASSOC);
+    }
+    if (!$target) {
+        return false;
+    }
+
+    return npc_launch_fleet(
+        $db,
+        $npcUserId,
+        (int)$origin['id'],
+        (int)$target['galaxy'],
+        (int)$target['system'],
+        (int)$target['position'],
+        'colonize',
+        ['colony_ship' => 1],
+        ['metal' => 0, 'crystal' => 0, 'deuterium' => 0]
+    );
+}
+
+function npc_try_balance_transport_mission(PDO $db, int $npcUserId): bool {
+    $colsStmt = $db->prepare(
+        'SELECT c.id, c.metal, c.crystal, c.deuterium, p.galaxy, p.`system`, p.position
+         FROM colonies c
+         JOIN planets p ON p.id = c.planet_id
+         WHERE c.user_id = ?'
+    );
+    $colsStmt->execute([$npcUserId]);
+    $colonies = $colsStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (count($colonies) < 2) {
+        return false;
+    }
+
+    $source = null;
+    $target = null;
+    $maxTotal = -1.0;
+    $minTotal = PHP_FLOAT_MAX;
+    foreach ($colonies as $col) {
+        $total = (float)$col['metal'] + (float)$col['crystal'] + (float)$col['deuterium'];
+        if ($total > $maxTotal) {
+            $maxTotal = $total;
+            $source = $col;
+        }
+        if ($total < $minTotal) {
+            $minTotal = $total;
+            $target = $col;
+        }
+    }
+
+    if (!$source || !$target || (int)$source['id'] === (int)$target['id']) {
+        return false;
+    }
+    if ($maxTotal < $minTotal * 1.2 + 2000) {
+        return false;
+    }
+
+    $shipStmt = $db->prepare(
+        'SELECT type, count
+         FROM ships
+         WHERE colony_id = ? AND type IN ("large_cargo", "small_cargo")
+         ORDER BY FIELD(type, "large_cargo", "small_cargo")'
+    );
+    $shipStmt->execute([(int)$source['id']]);
+    $ships = $shipStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $shipType = null;
+    $available = 0;
+    foreach ($ships as $row) {
+        $cnt = (int)$row['count'];
+        if ($cnt <= 0) {
+            continue;
+        }
+        $shipType = (string)$row['type'];
+        $available = $cnt;
+        break;
+    }
+    if (!$shipType || $available <= 0) {
+        return false;
+    }
+
+    $sendCount = min(5, $available);
+    $capacity = ship_cargo($shipType) * $sendCount;
+    if ($capacity <= 0) {
+        return false;
+    }
+
+    $reserveMetal = 8000.0;
+    $reserveCrystal = 5000.0;
+    $reserveDeut = 2500.0;
+    $availMetal = max(0.0, (float)$source['metal'] - $reserveMetal);
+    $availCrystal = max(0.0, (float)$source['crystal'] - $reserveCrystal);
+    $availDeut = max(0.0, (float)$source['deuterium'] - $reserveDeut);
+
+    $cargoMetal = min($availMetal, $capacity * 0.5);
+    $remaining = max(0.0, $capacity - $cargoMetal);
+    $cargoCrystal = min($availCrystal, $remaining * 0.6);
+    $remaining = max(0.0, $remaining - $cargoCrystal);
+    $cargoDeut = min($availDeut, $remaining);
+
+    if (($cargoMetal + $cargoCrystal + $cargoDeut) < 1000.0) {
+        return false;
+    }
+
+    return npc_launch_fleet(
+        $db,
+        $npcUserId,
+        (int)$source['id'],
+        (int)$target['galaxy'],
+        (int)$target['system'],
+        (int)$target['position'],
+        'transport',
+        [$shipType => $sendCount],
+        ['metal' => $cargoMetal, 'crystal' => $cargoCrystal, 'deuterium' => $cargoDeut]
+    );
+}
+
+function npc_launch_fleet(
+    PDO $db,
+    int $npcUserId,
+    int $originColonyId,
+    int $targetGalaxy,
+    int $targetSystem,
+    int $targetPosition,
+    string $mission,
+    array $ships,
+    array $cargo
+): bool {
+    return launch_fleet_for_user(
+        $db, $npcUserId, $originColonyId,
+        $targetGalaxy, $targetSystem, $targetPosition,
+        $mission, $ships, $cargo
+    );
+}
+
+function npc_can_afford(array $resources, array $cost): bool {
+    return (float)($resources['metal'] ?? 0) >= (float)($cost['metal'] ?? 0)
+        && (float)($resources['crystal'] ?? 0) >= (float)($cost['crystal'] ?? 0)
+        && (float)($resources['deuterium'] ?? 0) >= (float)($cost['deuterium'] ?? 0);
+}
+
+function npc_spend_colony_resources(PDO $db, int $colonyId, array &$resources, array $cost): void {
+    $m = (float)($cost['metal'] ?? 0);
+    $c = (float)($cost['crystal'] ?? 0);
+    $d = (float)($cost['deuterium'] ?? 0);
+    $db->prepare(
+        'UPDATE colonies
+         SET metal = metal - ?, crystal = crystal - ?, deuterium = deuterium - ?
+         WHERE id = ?'
+    )->execute([$m, $c, $d, $colonyId]);
+
+    $resources['metal'] = max(0.0, (float)($resources['metal'] ?? 0) - $m);
+    $resources['crystal'] = max(0.0, (float)($resources['crystal'] ?? 0) - $c);
+    $resources['deuterium'] = max(0.0, (float)($resources['deuterium'] ?? 0) - $d);
 }

@@ -697,6 +697,142 @@ function get_fleet_leader(PDO $db, int $fleetId): ?array {
     return $r ?: null;
 }
 
+// ─── Shared fleet launch helper ───────────────────────────────────────────────
+
+/**
+ * Launch a fleet for any user (NPC bots, autonomous leaders, etc.).
+ *
+ * Validates ship availability, cargo capacity, and resource balance inside a
+ * transaction.  Uses the same 3-D Newtonian travel time as the player-facing
+ * fleet API.  Returns true on success, false (with error_log entry) on failure.
+ */
+function launch_fleet_for_user(
+    PDO    $db,
+    int    $userId,
+    int    $originColonyId,
+    int    $targetGalaxy,
+    int    $targetSystem,
+    int    $targetPosition,
+    string $mission,
+    array  $ships,
+    array  $cargo
+): bool {
+    if ($targetGalaxy < 1 || $targetGalaxy > GALAXY_MAX
+        || $targetSystem < 1 || $targetSystem > galaxy_system_limit()
+        || $targetPosition < 1 || $targetPosition > POSITION_MAX) {
+        return false;
+    }
+
+    try {
+        $db->beginTransaction();
+
+        update_colony_resources($db, $originColonyId);
+
+        $originStmt = $db->prepare(
+            'SELECT c.id, c.metal, c.crystal, c.deuterium,
+                    p.galaxy, p.`system`, p.position
+             FROM colonies c
+             JOIN planets p ON p.id = c.planet_id
+             WHERE c.id = ? AND c.user_id = ?'
+        );
+        $originStmt->execute([$originColonyId, $userId]);
+        $origin = $originStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$origin) {
+            $db->rollBack();
+            return false;
+        }
+
+        $shipsToSend = [];
+        foreach ($ships as $type => $count) {
+            $count = (int)$count;
+            if ($count <= 0 || !isset(SHIP_STATS[$type])) continue;
+            $sStmt = $db->prepare('SELECT count FROM ships WHERE colony_id = ? AND type = ?');
+            $sStmt->execute([$originColonyId, $type]);
+            $available = (int)($sStmt->fetchColumn() ?: 0);
+            if ($available < $count) {
+                $db->rollBack();
+                return false;
+            }
+            $shipsToSend[$type] = $count;
+        }
+        if (empty($shipsToSend)) {
+            $db->rollBack();
+            return false;
+        }
+
+        $cMetal   = max(0.0, (float)($cargo['metal']     ?? 0));
+        $cCrystal = max(0.0, (float)($cargo['crystal']   ?? 0));
+        $cDeut    = max(0.0, (float)($cargo['deuterium'] ?? 0));
+        $cargoSum = $cMetal + $cCrystal + $cDeut;
+        $capacity = (float)array_sum(
+            array_map(
+                static fn(string $t, int $c): float => (float)ship_cargo($t) * $c,
+                array_keys($shipsToSend),
+                $shipsToSend
+            )
+        );
+        if ($cargoSum > $capacity + 0.0001
+            || (float)$origin['metal']     < $cMetal
+            || (float)$origin['crystal']   < $cCrystal
+            || (float)$origin['deuterium'] < $cDeut) {
+            $db->rollBack();
+            return false;
+        }
+
+        $dist  = coordinate_distance(
+            (int)$origin['galaxy'], (int)$origin['system'], (int)$origin['position'],
+            $targetGalaxy, $targetSystem, $targetPosition
+        );
+        $travel = fleet_travel_time($dist, fleet_speed($shipsToSend));
+
+        [$ox, $oy, $oz] = get_system_3d_coords($db, (int)$origin['galaxy'], (int)$origin['system']);
+        [$tx, $ty, $tz] = get_system_3d_coords($db, $targetGalaxy, $targetSystem);
+        $distLy   = fleet_3d_distance($ox, $oy, $oz, $tx, $ty, $tz);
+        $speedLyH = fleet_speed_ly_h($shipsToSend);
+        if ($distLy > 0) {
+            $travel = fleet_travel_time_3d($distLy, $speedLyH);
+        }
+
+        $now       = time();
+        $departure = date('Y-m-d H:i:s', $now);
+        $arrival   = date('Y-m-d H:i:s', $now + $travel);
+        $returnT   = date('Y-m-d H:i:s', $now + $travel * 2);
+
+        foreach ($shipsToSend as $type => $count) {
+            $db->prepare('UPDATE ships SET count = count - ? WHERE colony_id = ? AND type = ?')
+               ->execute([$count, $originColonyId, $type]);
+        }
+        $db->prepare('UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?')
+           ->execute([$cMetal, $cCrystal, $cDeut, $originColonyId]);
+
+        $db->prepare(
+            'INSERT INTO fleets (user_id, origin_colony_id, target_galaxy, target_system,
+                                 target_position, mission, ships_json,
+                                 cargo_metal, cargo_crystal, cargo_deuterium,
+                                 origin_x_ly, origin_y_ly, origin_z_ly,
+                                 target_x_ly, target_y_ly, target_z_ly,
+                                 speed_ly_h, distance_ly,
+                                 departure_time, arrival_time, return_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $userId, $originColonyId,
+            $targetGalaxy, $targetSystem, $targetPosition,
+            $mission, json_encode($shipsToSend),
+            $cMetal, $cCrystal, $cDeut,
+            $ox, $oy, $oz, $tx, $ty, $tz,
+            $speedLyH, $distLy,
+            $departure, $arrival, $returnT,
+        ]);
+
+        $db->commit();
+        return true;
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        error_log('launch_fleet_for_user failed: ' . $e->getMessage());
+        return false;
+    }
+}
+
 // ─── Colony resource update ───────────────────────────────────────────────────
 
 // ─── Food & population production helpers ────────────────────────────────────

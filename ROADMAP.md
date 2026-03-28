@@ -38,17 +38,19 @@ Achievements · Leaderboard · Messaging · Floating WM UI
 | 3.1 | Alliance system (create/join/leave/disband/chat) | Large | ✅ |
 | 3.2 | Alliance diplomacy (NAP / War / Alliance declarations) | Medium | ✅ |
 | 3.3 | Server-Sent Events push notifications | Medium | ✅ |
-| 3.4 | Player-to-player trade proposals | Medium | 🎯 |
-| 3.5 | War declarations & territory visualisation | Large | 🔭 |
+| 3.4 | Player-to-player trade proposals | Medium | ✅ |
+| 3.5 | War declarations & territory visualisation | Large | ✅ |
 
 ---
 
-## 💡 Phase 4 — AI & Simulation Depth
+## 💡 Phase 4 — AI & Simulation Depth (in progress)
 
-NPC bot player accounts (full colony AI) ·
-Fleet commander active decisions ·
-Dynamic faction events (Galactic War, Trade Boom, Pirate Surge) ·
-Planetary random events (solar flare, mineral vein, disease)
+| # | Item | Effort | Status |
+|---|---|---|---|
+| 4.1 | NPC bot player accounts (economy + basic fleet AI) | Large | ✅ |
+| 4.2 | Fleet commander active decisions (auto-scout, recall) | Medium | 🚧 |
+| 4.3 | Dynamic faction events (Galactic War, Trade Boom, Pirate Surge) | Large | 🔭 |
+| 4.4 | Planetary random events (solar flare, mineral vein, disease) | Medium | 🔭 |
 
 ---
 
@@ -71,4 +73,4 @@ Mobile / responsive layout
 
 ---
 
-*Last updated: March 2026*
+*Last updated: 28 March 2026*

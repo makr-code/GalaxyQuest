@@ -118,9 +118,8 @@ switch ($action) {
         if (!$leader) { json_error('Leader not found.', 404); }
 
         // Role-specific assignment validation
-        if ($leader['role'] === 'fleet_commander' && $colonyId !== null) {
-            json_error('Fleet commanders can only be assigned to fleets.');
-        }
+        // fleet_commanders may be assigned to a colony (acts as home-base for autonomous scouting)
+        // or to a fleet (passive speed/attack bonus on that specific fleet).
         if (in_array($leader['role'], ['colony_manager', 'science_director'], true) && $fleetId !== null) {
             json_error('Colony managers and science directors can only be assigned to colonies.');
         }
@@ -215,7 +214,10 @@ function run_ai_tick(PDO $db, int $uid): array {
                 break;
 
             case 'fleet_commander':
-                // Fleet commanders are passive (bonuses applied on send)
+                // When colony-assigned with autonomy=2: active scouting decisions.
+                if (!$leader['colony_id']) break;
+                $a = ai_fleet_commander_tick($db, $leader);
+                if ($a) { $actions[] = $a; }
                 break;
         }
 
@@ -229,6 +231,142 @@ function run_ai_tick(PDO $db, int $uid): array {
  * Colony manager AI: starts the cheapest affordable upgrade if nothing is queued.
  * Prioritises: metal_mine → crystal_mine → deuterium_synth → solar_plant.
  */
+/**
+ * Fleet commander AI (colony-assigned, autonomy=2).
+ *
+ * Actions (tried in order, at most one per call):
+ *  1. Auto-scout – dispatch a spy probe to the nearest stale/unseen system.
+ *  2. Auto-intercept – recall any of the user's returning-empty fleets early
+ *     if the home colony has surplus fighters for defence.
+ *
+ * Rate-limited: at most one action per 15 minutes per leader.
+ */
+function ai_fleet_commander_tick(PDO $db, array $leader): ?string {
+    $cid = (int)$leader['colony_id'];
+    $uid = (int)$leader['user_id'];
+
+    // Rate-limit: skip if acted within the last 15 minutes.
+    if ($leader['last_action_at'] && (time() - strtotime($leader['last_action_at'])) < 900) {
+        return null;
+    }
+
+    $colStmt = $db->prepare(
+        'SELECT c.id, p.galaxy, p.`system`, p.position
+         FROM colonies c
+         JOIN planets p ON p.id = c.planet_id
+         WHERE c.id = ? AND c.user_id = ?'
+    );
+    $colStmt->execute([$cid, $uid]);
+    $colony = $colStmt->fetch();
+    if (!$colony) return null;
+
+    $action = fc_auto_scout($db, $leader, $colony, $uid)
+           ?? fc_auto_recall_empty($db, $leader, $uid);
+
+    if ($action) {
+        $db->prepare('UPDATE leaders SET last_action=?, last_action_at=NOW() WHERE id=?')
+           ->execute([$action, (int)$leader['id']]);
+        leader_award_xp($db, (int)$leader['id'], LEADER_XP['fleet_arrived']);
+    }
+    return $action;
+}
+
+/**
+ * Dispatch one spy probe to the nearest galaxy system not yet fully scouted.
+ * Requires: espionage_tech >= 1, at least one spy_probe on the home colony,
+ *           and no other spy mission currently in flight from that colony.
+ */
+function fc_auto_scout(PDO $db, array $leader, array $colony, int $uid): ?string {
+    $cid = (int)$colony['id'];
+    $g   = (int)$colony['galaxy'];
+    $s   = (int)$colony['system'];
+
+    // Require basic espionage research.
+    $espStmt = $db->prepare('SELECT level FROM research WHERE user_id=? AND type="espionage_tech"');
+    $espStmt->execute([$uid]);
+    if ((int)($espStmt->fetchColumn() ?: 0) < 1) return null;
+
+    // Require spy probe on home colony.
+    $probeStmt = $db->prepare('SELECT count FROM ships WHERE colony_id=? AND type="spy_probe"');
+    $probeStmt->execute([$cid]);
+    if ((int)($probeStmt->fetchColumn() ?: 0) < 1) return null;
+
+    // No active spy mission in flight from this colony.
+    $activeStmt = $db->prepare(
+        'SELECT COUNT(*) FROM fleets
+         WHERE user_id=? AND origin_colony_id=? AND mission="spy" AND returning=0'
+    );
+    $activeStmt->execute([$uid, $cid]);
+    if ((int)$activeStmt->fetchColumn() > 0) return null;
+
+    // Find nearest unscouted / stale system in the same galaxy.
+    $targetStmt = $db->prepare(
+        'SELECT p.`system`, ABS(p.`system` - ?) AS dist
+         FROM planets p
+         WHERE p.galaxy = ?
+           AND p.`system` != ?
+           AND NOT EXISTS (
+               SELECT 1 FROM player_system_visibility v
+               WHERE v.user_id = ? AND v.galaxy = ? AND v.`system` = p.`system`
+                 AND v.level IN ("own","active")
+                 AND (v.expires_at IS NULL OR v.expires_at > NOW())
+           )
+         GROUP BY p.`system`
+         ORDER BY dist ASC
+         LIMIT 1'
+    );
+    $targetStmt->execute([$s, $g, $s, $uid, $g]);
+    $target = $targetStmt->fetch();
+    if (!$target) return null;
+
+    $ts = (int)$target['system'];
+    $tp = random_int(1, POSITION_MAX);
+
+    $launched = launch_fleet_for_user(
+        $db, $uid, $cid,
+        $g, $ts, $tp,
+        'spy',
+        ['spy_probe' => 1],
+        []
+    );
+    if (!$launched) return null;
+
+    // Record FoW active-visibility for the destination (active until fleet returns).
+    $travelSec = 3600; // rough upper bound; actual arrival will update this.
+    $visExpiry = date('Y-m-d H:i:s', time() + $travelSec);
+    touch_system_visibility($db, $uid, $g, $ts, 'active', $visExpiry, null);
+
+    return "[{$leader['name']}] Auto-scout dispatched spy probe to [{$g}:{$ts}:{$tp}]";
+}
+
+/**
+ * Auto-recall: recall any of the user's fleets that are returning with no cargo
+ * and whose origin is this colony, freeing the ships faster.
+ */
+function fc_auto_recall_empty(PDO $db, array $leader, int $uid): ?string {
+    $cid = (int)$leader['colony_id'];
+
+    // Find a returning, empty fleet originating from our home colony.
+    $stmt = $db->prepare(
+        'SELECT id, arrival_time FROM fleets
+         WHERE user_id = ? AND origin_colony_id = ? AND returning = 1
+           AND cargo_metal = 0 AND cargo_crystal = 0 AND cargo_deuterium = 0
+           AND arrival_time > NOW()
+         ORDER BY arrival_time DESC
+         LIMIT 1'
+    );
+    $stmt->execute([$uid, $cid]);
+    $fleet = $stmt->fetch();
+    if (!$fleet) return null;
+
+    // Accelerate return by setting arrival_time to now + 30 seconds.
+    $fast = date('Y-m-d H:i:s', time() + 30);
+    $db->prepare('UPDATE fleets SET arrival_time=?, return_time=? WHERE id=?')
+       ->execute([$fast, $fast, (int)$fleet['id']]);
+
+    return "[{$leader['name']}] Recalled empty fleet #{$fleet['id']} early to reinforce base.";
+}
+
 function ai_colony_manager_tick(PDO $db, array $leader): ?string {
     $cid = (int)$leader['colony_id'];
 

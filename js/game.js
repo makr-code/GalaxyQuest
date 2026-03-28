@@ -6916,10 +6916,9 @@
     await alliancesController.render();
   }
 
-  class LeadersController {
-      // ── Trade Proposals Controller ──────────────────────────────────────────────
+  // ── Trade Proposals Controller ──────────────────────────────────────────────
 
-      class TradeProposalsController {
+  class TradeProposalsController {
         constructor() {
           this._tab = 'inbox'; // 'inbox' | 'outbox'
         }
@@ -7115,9 +7114,11 @@
       const tradeProposalsController = new TradeProposalsController();
       window.GQTradeProposalsController = tradeProposalsController;
 
-      async function renderTradeProposals() {
-        await tradeProposalsController.render();
-      }
+  async function renderTradeProposals() {
+    await tradeProposalsController.render();
+  }
+
+  class LeadersController {
     constructor() {
       this.roleLabel = {
         colony_manager: '🏗 Colony Manager',
@@ -7138,6 +7139,9 @@
             <div class="hire-panel">
               <strong>${label}</strong>
               <div style="font-size:0.78rem;color:var(--text-secondary)">Cost: ${this.hireCost[role]}</div>
+              ${role === 'fleet_commander'
+                ? `<div style="font-size:0.72rem;color:#aaa;margin-bottom:3px;">Assign to a colony (home base auto-scouts) or a fleet (speed+attack bonus).</div>`
+                : ''}
               <input class="input-sm hire-name" data-role="${role}" placeholder="Leader name" maxlength="48" style="width:140px"/>
               <button class="btn btn-primary btn-sm hire-btn" data-role="${role}">Hire</button>
             </div>`).join('')}
@@ -7172,7 +7176,8 @@
                   <option value="">— Colony —</option>
                   ${colonies.map((colony) => `<option value="${colony.id}">${esc(colony.name)}</option>`).join('')}
                 </select>
-                <button class="btn btn-secondary btn-sm assign-col-btn" data-lid="${leader.id}">Assign</button>
+                <button class="btn btn-secondary btn-sm assign-col-btn" data-lid="${leader.id}"
+                  title="${leader.role === 'fleet_commander' ? 'Assign as home base (enables auto-scouting)' : 'Assign to colony'}">Assign</button>
                 <button class="btn btn-danger btn-sm dismiss-btn" data-lid="${leader.id}">✕</button>
               </td>
             </tr>`).join('')
