@@ -2988,7 +2988,9 @@
       const applyStarsToRenderer = (stars, clusterSummary, contextLabel = 'render') => {
         if (!galaxy3d) return true;
         try {
-          galaxy3d.setStars(stars);
+          const curGalaxy = galaxy3d.stars?.length > 0 ? Number(galaxy3d.stars[0]?.galaxy_index || 0) : 0;
+          const preserveView = curGalaxy > 0 && curGalaxy === g;
+          galaxy3d.setStars(stars, { preserveView });
           if (typeof galaxy3d.setClusterColorPalette === 'function') {
             galaxy3d.setClusterColorPalette(resolveClusterColorPalette(uiState.territory));
           }
@@ -5354,7 +5356,7 @@
         if (Array.isArray(data.clusters)) uiState.rawClusters = data.clusters;
         uiState.clusterSummary = assignClusterFactions(uiState.rawClusters || [], uiState.territory);
         if (galaxy3d) {
-          galaxy3d.setStars(galaxyStars);
+          galaxy3d.setStars(galaxyStars, { preserveView: true });
           if (typeof galaxy3d.setClusterAuras === 'function') {
             galaxy3d.setClusterAuras(uiState.clusterSummary || []);
           }
