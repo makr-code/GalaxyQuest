@@ -1,7 +1,7 @@
 <?php
 // api/trade.php — Trade routes: automated recurring transport
 require_once __DIR__ . '/../config/db.php';
-require_once __DIR__ . '/../helpers.php';
+require_once __DIR__ . '/helpers.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
