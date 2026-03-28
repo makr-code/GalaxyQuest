@@ -755,10 +755,6 @@ function action_revoke_relation(PDO $db, int $uid): never {
 
     json_ok(['revoked' => true, 'message' => 'Relation revoked.']);
 }
-function action_accept_member(PDO $db, int $uid): never {
-    // Leader/officer accepts pending member (placeholder for future invite system)
-    json_error('Not yet implemented.', 501);
-}
 
 function action_leave(PDO $db, int $uid): never {
     $allianceId = (int)($_POST['alliance_id'] ?? 0);
