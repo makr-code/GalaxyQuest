@@ -7339,13 +7339,24 @@
       }[String(key)] || String(key));
     }
 
-    buildMainView({ factions, politicsProfile, dynamicEffects, presets, activeUnrest }) {
+    buildMainView({ factions, politicsProfile, dynamicEffects, presets, activeUnrest, activeEvent }) {
       const effectRows = Object.entries(dynamicEffects || {})
         .filter(([key, value]) => !['faction_pressure_score', 'unrest_active', 'unrest_severity'].includes(String(key))
           && Number(value || 0) !== 0)
         .sort((a, b) => Math.abs(Number(b[1] || 0)) - Math.abs(Number(a[1] || 0)));
 
+      const eventBanner = activeEvent
+        ? `<div style="background:rgba(255,180,0,0.13);border:1px solid rgba(255,180,0,0.45);border-radius:6px;padding:0.55rem 0.8rem;margin-bottom:0.75rem;display:flex;gap:0.6rem;align-items:center">
+            <span style="font-size:1.4rem">${esc(activeEvent.icon)}</span>
+            <div>
+              <strong>${esc(activeEvent.label)}</strong> — galactic event active
+              <div style="font-size:0.76rem;color:var(--text-secondary)">Ends in ~${esc(String(activeEvent.ends_in_min))} min · Faction stats temporarily modified</div>
+            </div>
+          </div>`
+        : '';
+
       return `
+        ${eventBanner}
         <div class="system-card" style="margin-bottom:0.85rem">
           <h4 style="margin:0 0 0.35rem">Empire Politics</h4>
           ${politicsProfile ? `
@@ -7577,11 +7588,12 @@
           return;
         }
         const factions = factionsData.factions || [];
+        const activeEvent = factionsData.active_event || null;
         const politicsProfile = politicsData?.profile || null;
         const dynamicEffects = politicsData?.dynamic_effects || window._GQ_politics?.effects || {};
         const presets = Array.isArray(presetsData?.presets) ? presetsData.presets : [];
         const activeUnrest = (unrestData?.situations || []).find((s) => String(s?.situation_type || '') === 'faction_unrest') || null;
-        root.innerHTML = this.buildMainView({ factions, politicsProfile, dynamicEffects, presets, activeUnrest });
+        root.innerHTML = this.buildMainView({ factions, politicsProfile, dynamicEffects, presets, activeUnrest, activeEvent });
         this.bindMainActions(root);
       } catch (e) {
         root.innerHTML = `<p class="error">${esc(String(e))}</p>`;

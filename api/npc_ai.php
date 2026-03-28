@@ -45,6 +45,13 @@ function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
     } catch (Throwable $e) {
         error_log('npc_player_accounts_tick_global error: ' . $e->getMessage());
     }
+
+    // Dynamic faction events (galactic war, trade boom, pirate surge).
+    try {
+        faction_events_tick_global($db);
+    } catch (Throwable $e) {
+        error_log('faction_events_tick_global error: ' . $e->getMessage());
+    }
 }
 
 function npc_faction_tick(PDO $db, int $userId, array $faction): void {
@@ -637,6 +644,144 @@ function npc_launch_fleet(
         $mission, $ships, $cargo
     );
 }
+
+// ─── Phase 4.3: Dynamic Faction Events ──────────────────────────────────────
+
+/**
+ * Periodically triggers a random galaxy-wide faction event.
+ * Cooldown: 30 min. Event duration: 90–180 min. State persisted in app_state.
+ *
+ * Event types:
+ *   galactic_war  – military/pirate factions gain aggression; standing decays faster
+ *   trade_boom    – trade factions gain trade_willingness; pirate aggression lowered
+ *   pirate_surge  – all pirate factions gain aggression heavily
+ */
+function faction_events_tick_global(PDO $db): void {
+    if (!function_exists('app_state_get_int') || !function_exists('app_state_set_int')) {
+        return;
+    }
+
+    $now = time();
+
+    // Check if an active event has expired → clear it
+    $activeType   = app_state_get_int($db, 'faction_event:active_type', 0);
+    $endsAt       = app_state_get_int($db, 'faction_event:ends_at', 0);
+    if ($activeType > 0 && $endsAt > 0 && $now >= $endsAt) {
+        // Revert temporary faction modifiers
+        faction_event_revert($db, $activeType);
+        app_state_set_int($db, 'faction_event:active_type', 0);
+        app_state_set_int($db, 'faction_event:active_since', 0);
+        app_state_set_int($db, 'faction_event:ends_at', 0);
+        $activeType = 0;
+    }
+
+    // Only one global event at a time
+    if ($activeType > 0) {
+        return;
+    }
+
+    // Cooldown: 30 min since last event ended
+    $lastEventEnd = app_state_get_int($db, 'faction_event:last_end_unix', 0);
+    if (($now - $lastEventEnd) < 1800) {
+        return;
+    }
+
+    // 20 % chance per tick to actually fire
+    if (mt_rand(1, 100) > 20) {
+        return;
+    }
+
+    // Pick random event (1=galactic_war 2=trade_boom 3=pirate_surge)
+    $eventType = mt_rand(1, 3);
+
+    $durations = [1 => 7200, 2 => 10800, 3 => 5400]; // seconds
+    $duration  = $durations[$eventType];
+    $endsAt    = $now + $duration;
+
+    // Apply temporary modifiers to npc_factions
+    faction_event_apply($db, $eventType);
+
+    app_state_set_int($db, 'faction_event:active_type', $eventType);
+    app_state_set_int($db, 'faction_event:active_since', $now);
+    app_state_set_int($db, 'faction_event:ends_at', $endsAt);
+
+    // Broadcast to all recently-active players
+    $labels = [1 => 'Galactic War', 2 => 'Trade Boom', 3 => 'Pirate Surge'];
+    $icons  = [1 => '⚔️', 2 => '📈', 3 => '☠️'];
+    $bodies = [
+        1 => 'War has broken out across the galaxy. Military and pirate factions are far more aggressive. Watch your borders.',
+        2 => 'A wave of interstellar trade is sweeping the galaxy. Trade factions offer better deals and pirates are lying low.',
+        3 => 'Pirate clans are surging in numbers and boldness. All colonies face elevated raid risk.',
+    ];
+    $subject = $icons[$eventType] . ' Galactic Event: ' . $labels[$eventType];
+    $body    = $bodies[$eventType] . ' (Active for ' . round($duration / 3600, 1) . 'h)';
+
+    $db->prepare(
+        'INSERT INTO messages (receiver_id, subject, body)
+         SELECT id, ?, ? FROM users
+         WHERE is_npc = 0 AND last_login > DATE_SUB(NOW(), INTERVAL 7 DAY)'
+    )->execute([$subject, $body]);
+}
+
+function faction_event_apply(PDO $db, int $eventType): void {
+    // Store originals in app_state is complex; instead apply named delta columns.
+    // We mark with faction_event_mod so revert can undo by mirroring the delta.
+    switch ($eventType) {
+        case 1: // galactic_war
+            $db->prepare(
+                "UPDATE npc_factions SET aggression = LEAST(100, aggression + 25)
+                 WHERE faction_type IN ('military','pirate')"
+            )->execute();
+            break;
+        case 2: // trade_boom
+            $db->prepare(
+                "UPDATE npc_factions SET trade_willingness = LEAST(100, trade_willingness + 30)
+                 WHERE faction_type = 'trade'"
+            )->execute();
+            $db->prepare(
+                "UPDATE npc_factions SET aggression = GREATEST(0, aggression - 15)
+                 WHERE faction_type = 'pirate'"
+            )->execute();
+            break;
+        case 3: // pirate_surge
+            $db->prepare(
+                "UPDATE npc_factions SET aggression = LEAST(100, aggression + 40)
+                 WHERE faction_type = 'pirate'"
+            )->execute();
+            break;
+    }
+    app_state_set_int($db, 'faction_event:last_end_unix', 0); // reset so cooldown starts on revert
+}
+
+function faction_event_revert(PDO $db, int $eventType): void {
+    switch ($eventType) {
+        case 1:
+            $db->prepare(
+                "UPDATE npc_factions SET aggression = GREATEST(0, aggression - 25)
+                 WHERE faction_type IN ('military','pirate')"
+            )->execute();
+            break;
+        case 2:
+            $db->prepare(
+                "UPDATE npc_factions SET trade_willingness = GREATEST(0, trade_willingness - 30)
+                 WHERE faction_type = 'trade'"
+            )->execute();
+            $db->prepare(
+                "UPDATE npc_factions SET aggression = LEAST(100, aggression + 15)
+                 WHERE faction_type = 'pirate'"
+            )->execute();
+            break;
+        case 3:
+            $db->prepare(
+                "UPDATE npc_factions SET aggression = GREATEST(0, aggression - 40)
+                 WHERE faction_type = 'pirate'"
+            )->execute();
+            break;
+    }
+    app_state_set_int($db, 'faction_event:last_end_unix', time());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function npc_can_afford(array $resources, array $cost): bool {
     return (float)($resources['metal'] ?? 0) >= (float)($cost['metal'] ?? 0)

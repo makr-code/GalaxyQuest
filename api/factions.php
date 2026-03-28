@@ -54,7 +54,27 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         }
         unset($faction);
 
-        $payload = ['factions' => $factions];
+        // Active global faction event
+        $activeEvent = null;
+        if (function_exists('app_state_get_int')) {
+            $evType  = app_state_get_int($db, 'faction_event:active_type', 0);
+            $evSince = app_state_get_int($db, 'faction_event:active_since', 0);
+            $evEnds  = app_state_get_int($db, 'faction_event:ends_at', 0);
+            if ($evType > 0 && $evEnds > time()) {
+                $labels = [1 => 'Galactic War', 2 => 'Trade Boom', 3 => 'Pirate Surge'];
+                $icons  = [1 => '\u2694\ufe0f', 2 => '\ud83d\udcc8', 3 => '\u2620\ufe0f'];
+                $activeEvent = [
+                    'type'  => $evType,
+                    'label' => $labels[$evType] ?? 'Unknown',
+                    'icon'  => $icons[$evType] ?? '\u2b50',
+                    'since' => $evSince,
+                    'ends_at' => $evEnds,
+                    'ends_in_min' => (int)ceil(($evEnds - time()) / 60),
+                ];
+            }
+        }
+
+        $payload = ['factions' => $factions, 'active_event' => $activeEvent];
         gq_cache_set('factions_list', $cacheKeyParams, $payload, CACHE_TTL_FACTIONS);
         json_ok($payload);
         break;
