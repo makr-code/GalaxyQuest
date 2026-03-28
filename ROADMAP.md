@@ -16,27 +16,30 @@ Achievements · Leaderboard · Messaging · Floating WM UI
 
 ---
 
-## 🎯 Phase 2 — Depth & Polish (next up)
+## 🎯 Phase 2 — Depth & Polish (in progress)
 
-| # | Item | Effort |
-|---|---|---|
-| 2.1 | Live fleet position counter (real-time progress bar) | Small |
-| 2.2 | Building / research countdown timers (tick down without reload) | Small |
-| 2.3 | Galaxy map: 2D canvas sector view with colony & faction markers | Medium |
-| 2.4 | Spy report inbox window | Small |
-| 2.5 | Trade routes (automated recurring transport) | Medium |
-| 2.6 | Research prerequisites tree | Small |
-| 2.7 | Colony-type specialisation bonuses wired into production | Small |
-| 2.8 | Recall fleet returns cargo to origin | Tiny |
+| # | Item | Effort | Status |
+|---|---|---|---|
+| 2.1 | Live fleet position counter (real-time progress bar) | Small | ✅ |
+| 2.2 | Building / research countdown timers (tick down without reload) | Small | ✅ |
+| 2.3 | Galaxy map: 2D canvas sector view with colony & faction markers | Medium | ✅ |
+| 2.4 | Spy report inbox window | Small | ✅ |
+| 2.5 | Trade routes (automated recurring transport) | Medium | ✅ |
+| 2.6 | Research prerequisites tree | Small | ✅ |
+| 2.7 | Colony-type specialisation bonuses wired into production | Small | ✅ |
+| 2.8 | Recall fleet returns cargo to origin | Tiny | ✅ |
 
 ---
 
-## 💡 Phase 3 — Multiplayer & Social
+## � Phase 3 — Multiplayer & Social (in progress)
 
-Alliance system · Alliance diplomacy (NAP / War) · Alliance chat ·
-Server-Sent Events for push notifications ·
-Player-to-player trade proposals ·
-War declarations & territory visualisation
+| # | Item | Effort | Status |
+|---|---|---|---|
+| 3.1 | Alliance system (create/join/leave/disband/chat) | Large | ✅ |
+| 3.2 | Alliance diplomacy (NAP / War / Alliance declarations) | Medium | ✅ |
+| 3.3 | Server-Sent Events push notifications | Medium | ✅ |
+| 3.4 | Player-to-player trade proposals | Medium | 🎯 |
+| 3.5 | War declarations & territory visualisation | Large | 🔭 |
 
 ---
 

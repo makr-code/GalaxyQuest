@@ -4,6 +4,7 @@
  */
 const API = (() => {
   let _csrfToken = null;
+  let _sessionExpired = false;   // set on first 401 to stop redirect storm
   const _getCache = new Map();
   let _activeLoads = 0;
   let _activeNetworkRequests = 0;
@@ -11,11 +12,23 @@ const API = (() => {
   let _requestTaskId = 0;
   const _requestQueue = [];
   const _inflightTasks = new Map();
+  const _activeByRequestClass = Object.create(null);
   let _maxConcurrentRequests = 4;
   let _lastConnectivityProbe = { ts: 0, data: null };
+  const _recentLoadErrorLogs = new Map();
+  const _recentRetryLogs = new Map();
+  const _authErrorGate = { ts: 0, key: '' };
+  const _requestClassCaps = {
+    auth: 2,
+    overview: 1,
+    stars: 1,
+    binary: 2,
+    mutation: 2,
+  };
 
   // Short-lived cache tuned for frequently refreshed strategy-game data.
   const _defaultGetTtlMs = [
+    { re: /api\/ollama\.php\?action=status/i, ttl: 5 * 1000 },
     { re: /api\/game\.php\?action=health/i, ttl: 5 * 1000 },
     { re: /api\/game\.php\?action=overview/i, ttl: 10 * 1000 },
     { re: /api\/game\.php\?action=resources/i, ttl: 8 * 1000 },
@@ -26,11 +39,23 @@ const API = (() => {
     { re: /api\/fleet\.php\?action=list/i, ttl: 10 * 1000 },
     { re: /api\/messages\.php\?action=inbox/i, ttl: 8 * 1000 },
     { re: /api\/messages\.php\?action=users/i, ttl: 20 * 1000 },
+    { re: /api\/reports\.php\?action=spy_reports/i, ttl: 10 * 1000 },
+    { re: /api\/reports\.php\?action=battle_reports/i, ttl: 10 * 1000 },
+    { re: /api\/trade\.php\?action=list$/i,          ttl: 8 * 1000 },
+    { re: /api\/trade\.php\?action=list_proposals/i, ttl: 6 * 1000 },
+    { re: /api\/alliances\.php\?action=list/i, ttl: 8 * 1000 },
+    { re: /api\/alliances\.php\?action=details/i, ttl: 6 * 1000 },
+    { re: /api\/alliances\.php\?action=relations/i, ttl: 5 * 1000 },
+    { re: /api\/alliances\.php\?action=get_messages/i, ttl: 5 * 1000 },
+    { re: /api\/alliances\.php\?action=war_map/i, ttl: 10 * 1000 },
     { re: /api\/galaxy\.php\?action=stars/i, ttl: 45 * 1000 },
     { re: /api\/galaxy\.php\?/i, ttl: 15 * 1000 },
     { re: /api\/achievements\.php\?action=list/i, ttl: 15 * 1000 },
     { re: /api\/leaders\.php\?action=list/i, ttl: 15 * 1000 },
     { re: /api\/factions\.php\?action=/i, ttl: 20 * 1000 },
+    { re: /api\/npc_controller\.php\?action=status/i, ttl: 8 * 1000 },
+    { re: /api\/npc_controller\.php\?action=summary/i, ttl: 8 * 1000 },
+    { re: /api\/npc_controller\.php\?action=decisions/i, ttl: 6 * 1000 },
   ];
 
   const _mutationInvalidatePatterns = [
@@ -42,7 +67,11 @@ const API = (() => {
     /^api\/achievements\.php\?action=/i,
     /^api\/leaders\.php\?action=/i,
     /^api\/factions\.php\?action=/i,
+    /^api\/npc_controller\.php\?action=/i,
     /^api\/messages\.php\?action=/i,
+    /^api\/reports\.php\?action=/i,
+    /^api\/trade\.php\?action=/i,
+    /^api\/alliances\.php\?action=/i,
     /^api\/galaxy\.php\?/i,
   ];
 
@@ -60,6 +89,23 @@ const API = (() => {
   function _emitLoadError(detail) {
     if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
     window.dispatchEvent(new CustomEvent('gq:load-error', { detail }));
+  }
+
+  function _shouldLogWithCooldown(bucket, key, cooldownMs = 2000) {
+    const now = Date.now();
+    const prev = Number(bucket.get(key) || 0);
+    if ((now - prev) < cooldownMs) {
+      return false;
+    }
+    bucket.set(key, now);
+
+    if (bucket.size > 400) {
+      const pruneBefore = now - Math.max(60000, cooldownMs * 8);
+      for (const [k, ts] of bucket.entries()) {
+        if (Number(ts || 0) < pruneBefore) bucket.delete(k);
+      }
+    }
+    return true;
   }
 
   function _emitQueueStats(label = 'Queue aktiv') {
@@ -128,6 +174,25 @@ const API = (() => {
   function _reportLoadError(endpoint, err, context = '') {
     const message = _describeError(err, endpoint, context);
     const diagnostics = _diagnoseFromError(err, endpoint, context);
+
+    const status = Number(err?.status || err?.cause?.status || 0);
+    const baseKey = `${context}|${endpoint}|${diagnostics.kind}|${status}|${message}`;
+
+    // Auth failures can repeat rapidly across many callers; keep a single visible entry per short window.
+    if (diagnostics.kind === 'auth') {
+      const authKey = `${endpoint}|${status || 401}`;
+      const now = Date.now();
+      if (_authErrorGate.key === authKey && (now - _authErrorGate.ts) < 8000) {
+        return;
+      }
+      _authErrorGate.key = authKey;
+      _authErrorGate.ts = now;
+    }
+
+    if (!_shouldLogWithCooldown(_recentLoadErrorLogs, baseKey, diagnostics.kind === 'unreachable' ? 5000 : 2200)) {
+      return;
+    }
+
     console.error('[GQ][API] Ladefehler', {
       endpoint,
       context,
@@ -381,7 +446,9 @@ const API = (() => {
     if (explicitPriority) return String(explicitPriority);
 
     const ep = String(endpoint || '').toLowerCase();
-    if (/api\/galaxy\.php\?action=stars/.test(ep)) return 'critical';
+    if (/api\/auth\.php\?action=csrf|api\/auth\.php\?action=me/.test(ep)) return 'critical';
+    if (/api\/game\.php\?action=overview/.test(ep)) return 'critical';
+    if (/api\/galaxy\.php\?action=stars/.test(ep)) return 'high';
     if (/api\/galaxy\.php\?/.test(ep)) return 'high';
     if (/api\/fleet\.php\?action=send|api\/fleet\.php\?action=recall/.test(ep)) return 'high';
     if (/api\/messages\.php\?action=users/.test(ep)) return 'low';
@@ -389,24 +456,52 @@ const API = (() => {
     return 'normal';
   }
 
+  function _resolveRequestClass(endpoint, init = {}, explicitClass = '') {
+    if (explicitClass) return String(explicitClass);
+    const ep = String(endpoint || '').toLowerCase();
+    const method = String(init?.method || 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD') return 'mutation';
+    if (/api\/auth\.php\?action=csrf|api\/auth\.php\?action=me/.test(ep)) return 'auth';
+    if (/api\/game\.php\?action=overview/.test(ep)) return 'overview';
+    if (/api\/galaxy\.php\?action=stars/.test(ep)) return 'stars';
+    if (/api\/galaxy\.php\?/.test(ep)) return 'binary';
+    return 'default';
+  }
+
+  function _hasCriticalQueuePressure() {
+    return _requestQueue.some((item) => item.priorityValue === 0);
+  }
+
+  function _canStartTask(task) {
+    if (!task) return false;
+    const cls = String(task.requestClass || 'default');
+    const activeInClass = Number(_activeByRequestClass[cls] || 0);
+    const classCap = Number(_requestClassCaps[cls] || 0);
+    if (classCap > 0 && activeInClass >= classCap) return false;
+
+    // Keep one slot available when critical auth/overview requests are waiting.
+    if (task.priorityValue > 0 && _hasCriticalQueuePressure() && _activeNetworkRequests >= Math.max(1, _maxConcurrentRequests - 1)) {
+      return false;
+    }
+    return true;
+  }
+
   function _pickNextQueuedTask() {
     if (_requestQueue.length === 0) return null;
 
-    const hasHighWaiting = _requestQueue.some((item) => item.priorityValue <= 1);
-    if (hasHighWaiting && _activeNetworkRequests >= (_maxConcurrentRequests - 1)) {
-      const highIdx = _requestQueue.findIndex((item) => item.priorityValue <= 1);
-      if (highIdx >= 0) {
-        return _requestQueue.splice(highIdx, 1)[0];
+    for (let i = 0; i < _requestQueue.length; i += 1) {
+      const candidate = _requestQueue[i];
+      if (_canStartTask(candidate)) {
+        return _requestQueue.splice(i, 1)[0];
       }
     }
-
-    return _requestQueue.shift();
+    return null;
   }
 
   function _pumpRequestQueue() {
     while (_activeNetworkRequests < _maxConcurrentRequests && _requestQueue.length > 0) {
       const task = _pickNextQueuedTask();
-      if (!task) return;
+      if (!task) break;
 
       if (task.cancelled) {
         task.reject(_createAbortError(task.cancelReason || 'Request cancelled before start'));
@@ -414,6 +509,7 @@ const API = (() => {
       }
 
       _activeNetworkRequests += 1;
+      _activeByRequestClass[task.requestClass] = Number(_activeByRequestClass[task.requestClass] || 0) + 1;
       task.started = true;
       _inflightTasks.set(task.id, task);
 
@@ -423,6 +519,7 @@ const API = (() => {
         .finally(() => {
           _inflightTasks.delete(task.id);
           _activeNetworkRequests = Math.max(0, _activeNetworkRequests - 1);
+          _activeByRequestClass[task.requestClass] = Math.max(0, Number(_activeByRequestClass[task.requestClass] || 0) - 1);
           _emitQueueStats('Queue synchronisiert…');
           _pumpRequestQueue();
         });
@@ -433,6 +530,7 @@ const API = (() => {
     const priority = _resolveRequestPriority(endpoint, options.priority);
     const priorityValue = _priorityValue(priority);
     const method = String(init?.method || 'GET').toUpperCase();
+    const requestClass = _resolveRequestClass(endpoint, init, options.requestClass);
     const controller = new AbortController();
     const signal = options.signal || controller.signal;
     const canCancel = options.canCancel !== false && (method === 'GET' || method === 'HEAD');
@@ -453,6 +551,7 @@ const API = (() => {
         reject,
         priority,
         priorityValue,
+        requestClass,
         method,
         canCancel,
         controller,
@@ -520,19 +619,37 @@ const API = (() => {
     const retryCount = idempotent
       ? Math.max(0, Number.isFinite(Number(options.retryCount)) ? Number(options.retryCount) : 2)
       : 0;
+    const timeoutMs = Math.max(0, Number(options.timeoutMs || 0));
 
     let lastErr = null;
     for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+      let timeoutId = null;
       try {
-        const response = await _queueFetch(endpoint, init, options);
+        const timeoutController = new AbortController();
+        if (init?.signal && typeof init.signal.addEventListener === 'function') {
+          init.signal.addEventListener('abort', () => {
+            timeoutController.abort(init.signal.reason || _createAbortError('Request cancelled'));
+          }, { once: true });
+        }
+        if (timeoutMs > 0) {
+          timeoutId = setTimeout(() => {
+            timeoutController.abort(_createAbortError(`Request timeout after ${timeoutMs}ms`));
+          }, timeoutMs);
+        }
+
+        const queueInit = Object.assign({}, init, { signal: timeoutController.signal });
+        const queueOptions = Object.assign({}, options, { signal: timeoutController.signal });
+        const response = await _queueFetch(endpoint, queueInit, queueOptions);
         if (!response || !response.ok) {
           await _throwHttpError(endpoint, response, method);
         }
         return response;
       } catch (err) {
         lastErr = err;
-        if (_isAbortError(err)) throw err;
-        const transient = _isTransientError(err);
+        const abortMessage = String(err?.message || err?.reason || err?.cause?.message || err?.cause || '').toLowerCase();
+        const timeoutAbort = _isAbortError(err) && (abortMessage.includes('timeout') || abortMessage.includes('timed out'));
+        if (_isAbortError(err) && !timeoutAbort) throw err;
+        const transient = timeoutAbort || _isTransientError(err);
         if (!idempotent || !transient || attempt >= retryCount) {
           const finalMessage = _describeError(err, endpoint, `${method} retry ${attempt + 1}/${retryCount + 1}`);
           const wrapped = new Error(finalMessage);
@@ -542,14 +659,20 @@ const API = (() => {
           if (err?.responseSnippet) wrapped.responseSnippet = err.responseSnippet;
           throw wrapped;
         }
-        console.warn('[GQ][API] Retry due to transient error', {
-          endpoint,
-          method,
-          attempt: attempt + 1,
-          maxAttempts: retryCount + 1,
-          error: _describeError(err, endpoint, method),
-        });
+        const retryMsg = _describeError(err, endpoint, method);
+        const retryKey = `${method}|${endpoint}|${attempt + 1}|${retryMsg}`;
+        if (_shouldLogWithCooldown(_recentRetryLogs, retryKey, 2000)) {
+          console.warn('[GQ][API] Retry due to transient error', {
+            endpoint,
+            method,
+            attempt: attempt + 1,
+            maxAttempts: retryCount + 1,
+            error: retryMsg,
+          });
+        }
         await _sleep(_retryDelayMs(attempt));
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
       }
     }
     throw lastErr || new Error('Network request failed');
@@ -690,7 +813,7 @@ const API = (() => {
     try {
       _tickLoad(loadTicket, 0.25, loadTicket.label);
       const r = await _fetchWithRetry(endpoint, {}, { priority: options.priority, retryCount: options.retryCount });
-      if (r.status === 401) { window.location.href = 'index.html'; throw new Error('Not authenticated'); }
+      if (r.status === 401) { if (!_sessionExpired) { _sessionExpired = true; window.location.href = 'index.html'; } throw new Error('Not authenticated'); }
       _tickLoad(loadTicket, 0.7, 'Verarbeite Antwort…');
       const data = await r.json();
       _tickLoad(loadTicket, 0.92, 'Fertigstelle Daten…');
@@ -731,7 +854,7 @@ const API = (() => {
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
         body: JSON.stringify(body),
       }, {});
-      if (r.status === 401) { window.location.href = 'index.html'; throw new Error('Not authenticated'); }
+      if (r.status === 401) { if (!_sessionExpired) { _sessionExpired = true; window.location.href = 'index.html'; } throw new Error('Not authenticated'); }
       _tickLoad(loadTicket, 0.72, 'Verarbeite Serverantwort…');
       const data = await r.json();
       if (data && data.success !== false) {
@@ -767,7 +890,7 @@ const API = (() => {
         priority: options.priority || 'high',
         retryCount: options.retryCount,
       });
-      if (r.status === 401) { window.location.href = 'index.html'; throw new Error('Not authenticated'); }
+      if (r.status === 401) { if (!_sessionExpired) { _sessionExpired = true; window.location.href = 'index.html'; } throw new Error('Not authenticated'); }
       _tickLoad(loadTicket, 0.52, 'Dekodiere Binärdaten…');
       
       // Check for binary format marker
@@ -903,7 +1026,11 @@ const API = (() => {
     recallFleet:(id)      => post('api/fleet.php?action=recall', { fleet_id: id }),
 
     // Galaxy
-    galaxy: (g, s) => getBinary(`api/galaxy.php?galaxy=${g}&system=${s}&format=bin`, { priority: 'high' }),
+    galaxy: (g, s) => getBinary(`api/galaxy.php?galaxy=${g}&system=${s}&format=bin`, {
+      priority: 'high',
+      retryCount: 1,
+      timeoutMs: 12000,
+    }),
     galaxyStars: (g, from = 1, to = 25000, maxPoints = 1500) =>
       get(`api/galaxy.php?action=stars&galaxy=${g}&from=${from}&to=${to}&max_points=${maxPoints}`, { priority: 'critical' }),
     galaxySearch: (g, q, limit = 18) =>
@@ -933,15 +1060,141 @@ const API = (() => {
     checkFactionQuests:()         => post('api/factions.php?action=check_quests',  {}),
     claimFactionQuest:(uqid)      => post('api/factions.php?action=claim_quest',   { user_quest_id: uqid }),
 
+    // NPC / PvE controller
+    npcControllerStatus: () => get('api/npc_controller.php?action=status'),
+    npcControllerSummary: ({ hours = 24, faction_id = 0 } = {}) =>
+      get(`api/npc_controller.php?action=summary&hours=${Math.max(1, Math.min(168, Number(hours || 24)))}&faction_id=${Math.max(0, Number(faction_id || 0))}`),
+    npcControllerDecisions: ({ limit = 20, faction_id = 0 } = {}) =>
+      get(`api/npc_controller.php?action=decisions&limit=${Math.max(1, Number(limit || 20))}&faction_id=${Math.max(0, Number(faction_id || 0))}`),
+    npcControllerRunOnce: () => post('api/npc_controller.php?action=run_once', {}),
+
+    // Empire politics model (species/government/civics)
+    politicsCatalog: () => get('api/politics.php?action=catalog'),
+    politicsPresets: () => get('api/politics.php?action=presets'),
+    politicsStatus: () => get('api/politics.php?action=status', { priority: 'high' }),
+    configurePolitics: ({ primary_species_key, government_key, civic_keys } = {}) =>
+      post('api/politics.php?action=configure', {
+        primary_species_key,
+        government_key,
+        civic_keys,
+      }),
+    applyPoliticsPreset: (preset_key) =>
+      post('api/politics.php?action=apply_preset', { preset_key }),
+
     // Messages
     inbox:    ()               => get('api/messages.php?action=inbox'),
     messageUsers: (q = '')     => get(`api/messages.php?action=users&q=${encodeURIComponent(String(q || ''))}`),
     readMsg:  (id)             => get(`api/messages.php?action=read&id=${id}`),
     sendMsg:  (to, sub, body)  => post('api/messages.php?action=send', { to_username: to, subject: sub, body }),
     deleteMsg:(id)             => post('api/messages.php?action=delete', { id }),
+
+    // Reports
+    spyReports: ()             => get('api/reports.php?action=spy_reports'),
+    battleReports: ()          => get('api/reports.php?action=battle_reports'),
+
+    // Trade Routes
+    tradeRoutes: ()            => get('api/trade.php?action=list'),
+    createTradeRoute: (data)   => post('api/trade.php?action=create', data),
+    deleteTradeRoute: (id)     => post('api/trade.php?action=delete', { route_id: id }),
+    toggleTradeRoute: (id)     => post('api/trade.php?action=toggle', { route_id: id }),
+
+  // Trade Proposals (player-to-player)
+  listTradeProposals: ()       => get('api/trade.php?action=list_proposals'),
+  proposeTrade: (data)         => post('api/trade.php?action=propose', data),
+  acceptTrade: (id)            => post('api/trade.php?action=accept',  { proposal_id: id }),
+  rejectTrade: (id)            => post('api/trade.php?action=reject',  { proposal_id: id }),
+  cancelTrade: (id)            => post('api/trade.php?action=cancel',  { proposal_id: id }),
+
+    // Alliances
+    alliances: ()              => get('api/alliances.php?action=list'),
+    allianceDetails: (id)      => get(`api/alliances.php?action=details&alliance_id=${id}`),
+    createAlliance: (data)     => post('api/alliances.php?action=create', data),
+    joinAlliance: (id)         => post('api/alliances.php?action=join', { alliance_id: id }),
+    leaveAlliance: (id)        => post('api/alliances.php?action=leave', { alliance_id: id }),
+    disbandAlliance: (id)      => post('api/alliances.php?action=disband', { alliance_id: id }),
+    removeAllianceMember: (data) => post('api/alliances.php?action=remove_member', data),
+    setAllianceMemberRole: (data) => post('api/alliances.php?action=set_role', data),
+    contributeAlliance: (data) => post('api/alliances.php?action=contribute', data),
+    withdrawAlliance: (data)   => post('api/alliances.php?action=withdraw', data),
+    allianceRelations: (id)    => get(`api/alliances.php?action=relations&alliance_id=${id}`),
+    allianceWarMap: (galaxy, from, to) => get(`api/alliances.php?action=war_map&galaxy=${galaxy}&from=${from}&to=${to}`),
+    declareWar: (data)         => post('api/alliances.php?action=declare_war', data),
+    declareNap: (data)         => post('api/alliances.php?action=declare_nap', data),
+    declareAllianceDiplomacy: (data) => post('api/alliances.php?action=declare_alliance', data),
+    revokeRelation: (data)     => post('api/alliances.php?action=revoke_relation', data),
+    setAllianceRelation: (data) => post('api/alliances.php?action=set_relation', data),
+    allianceMessages: (id)     => get(`api/alliances.php?action=get_messages&alliance_id=${id}`),
+    sendAllianceMessage: (id, msg) => post('api/alliances.php?action=send_message', { alliance_id: id, message: msg }),
+
+    // Local LLM (Ollama)
+    llmStatus: () => get('api/ollama.php?action=status', { priority: 'high' }),
+    llmChat: ({
+      prompt,
+      system,
+      messages,
+      model,
+      temperature,
+      options,
+      timeout,
+    } = {}) => post('api/ollama.php?action=chat', {
+      prompt,
+      system,
+      messages,
+      model,
+      temperature,
+      options,
+      timeout,
+    }),
+    llmGenerate: ({
+      prompt,
+      model,
+      temperature,
+      options,
+      timeout,
+    } = {}) => post('api/ollama.php?action=generate', {
+      prompt,
+      model,
+      temperature,
+      options,
+      timeout,
+    }),
+    llmProfiles: () => get('api/llm.php?action=catalog', { priority: 'high' }),
+    llmCompose: ({ profile_key, input_vars } = {}) =>
+      post('api/llm.php?action=compose', { profile_key, input_vars }),
+    llmChatProfile: ({
+      profile_key,
+      input_vars,
+      model,
+      temperature,
+      options,
+      timeout,
+    } = {}) => post('api/llm.php?action=chat_profile', {
+      profile_key,
+      input_vars,
+      model,
+      temperature,
+      options,
+      timeout,
+    }),
+
+    // Situations
+    situations: (status = 'active', limit = 50) =>
+      get(`api/situations.php?action=list&status=${encodeURIComponent(String(status || 'active'))}&limit=${Math.max(1, Number(limit || 50))}`),
+    setSituationApproach: (situation_id, approach_key) =>
+      post('api/situations.php?action=set_approach', { situation_id, approach_key }),
+    tickSituations: (situation_id) =>
+      post('api/situations.php?action=tick', situation_id ? { situation_id } : {}),
   };
 })();
 
 if (typeof window !== 'undefined') {
   window.API = API;
+  window.GQ_LLM = {
+    status: () => API.llmStatus(),
+    chat: (payload) => API.llmChat(payload),
+    generate: (payload) => API.llmGenerate(payload),
+    profiles: () => API.llmProfiles(),
+    compose: (payload) => API.llmCompose(payload),
+    chatProfile: (payload) => API.llmChatProfile(payload),
+  };
 }

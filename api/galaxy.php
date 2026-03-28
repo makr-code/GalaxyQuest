@@ -12,6 +12,7 @@
  * cached in the star_systems table for subsequent queries.
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/compression.php';
 require_once __DIR__ . '/compression-v2.php';
 require_once __DIR__ . '/compression-v3.php';
@@ -33,38 +34,157 @@ $db = get_db();
 ensure_galaxy_bootstrap_progress($db, true);
 
 if ($action === 'stars') {
-    $from = max(1, min(galaxy_system_limit(), (int)($_GET['from'] ?? 1)));
-    $to = max($from, min(galaxy_system_limit(), (int)($_GET['to'] ?? galaxy_system_limit())));
+    $from      = max(1, min(galaxy_system_limit(), (int)($_GET['from'] ?? 1)));
+    $to        = max($from, min(galaxy_system_limit(), (int)($_GET['to'] ?? galaxy_system_limit())));
     $maxPoints = max(100, min(50000, (int)($_GET['max_points'] ?? 1500)));
 
-    // Make sure the requested range is generated and cached.
-    ensure_star_system($db, $g, $from);
-    ensure_star_system($db, $g, $to);
-
-    $span = max(1, $to - $from + 1);
+    $span   = max(1, $to - $from + 1);
     $stride = max(1, (int)ceil($span / $maxPoints));
 
-    // Full-density range requests (stride=1) should always materialize every
-    // system in the requested span so client-side lazy hydration can converge.
-    if ($stride === 1) {
-        for ($sys = $from; $sys <= $to; $sys++) {
-            ensure_star_system($db, $g, $sys);
+    // ── Cache-Lookup (statische Stern-Daten, ohne benutzerspezifisches FOW) ──
+    $cacheParams = ['g' => $g, 'from' => $from, 'to' => $to, 'stride' => $stride];
+    $cachedJson  = gq_cache_get_raw('stars', $cacheParams);
+    $stars = $cachedJson !== null ? json_decode($cachedJson, true) : null;
+    $servedFrom = $from;
+    $servedTo = $to;
+    $servedStride = $stride;
+    $cacheMode = $stars !== null ? 'exact' : 'miss';
+    $overlapPolicyRaw = strtolower((string)(defined('CACHE_STARS_OVERLAP_POLICY') ? CACHE_STARS_OVERLAP_POLICY : 'smallest_superset'));
+    $overlapPolicy = in_array($overlapPolicyRaw, ['smallest_superset', 'max_overlap'], true)
+        ? $overlapPolicyRaw
+        : 'smallest_superset';
+
+    // Fallback: vorhandene Chunk-Pakete mit überlappender ID-Range wiederverwenden.
+    if ($stars === null) {
+        $requestAnchor = $stride > 0 ? ($from % $stride) : 0;
+        $bestEntry = null;
+        $bestScore = -1;
+        foreach (gq_cache_index_entries('stars') as $entry) {
+            $meta = is_array($entry['meta'] ?? null) ? $entry['meta'] : [];
+            $params = is_array($entry['params'] ?? null) ? $entry['params'] : [];
+
+            $cg = (int)($meta['g'] ?? $params['g'] ?? 0);
+            if ($cg !== $g) continue;
+
+            $cFrom = (int)($meta['range_from'] ?? $params['from'] ?? 0);
+            $cTo = (int)($meta['range_to'] ?? $params['to'] ?? 0);
+            $cStride = max(1, (int)($meta['stride'] ?? $params['stride'] ?? 1));
+            $cAnchor = (int)($meta['anchor'] ?? ($cFrom % $cStride));
+            if ($cFrom <= 0 || $cTo < $cFrom) continue;
+
+            // Kompatibel, wenn Full-Density-Chunk oder exakt gleicher Stride+Anchor.
+            $compatibleStride = ($cStride === 1)
+                || ($cStride === $stride && $cAnchor === $requestAnchor);
+            if (!$compatibleStride) continue;
+
+            $overlapFrom = max($from, $cFrom);
+            $overlapTo   = min($to, $cTo);
+            if ($overlapTo < $overlapFrom) continue;
+
+            $overlapLen = $overlapTo - $overlapFrom + 1;
+            $coversRequest = ($cFrom <= $from && $cTo >= $to);
+            $span = max(1, $cTo - $cFrom + 1);
+
+            // Policy: smallest_superset bevorzugt das kleinste vollständige Paket,
+            // max_overlap bevorzugt maximale Schnittmenge (auch Teilmengen).
+            if ($overlapPolicy === 'smallest_superset') {
+                $score = $coversRequest
+                    ? (2_000_000 - $span)
+                    : (1_000_000 + $overlapLen - min(50000, $span));
+            } else {
+                $score = ($overlapLen * 10_000)
+                    + ($coversRequest ? 100_000 : 0)
+                    - min(50_000, $span);
+            }
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestEntry = $entry;
+            }
+        }
+
+        if (is_array($bestEntry)) {
+            $bestParams = is_array($bestEntry['params'] ?? null) ? $bestEntry['params'] : [];
+            $bestMeta = is_array($bestEntry['meta'] ?? null) ? $bestEntry['meta'] : [];
+            $candidateRaw = gq_cache_get_raw('stars', $bestParams);
+            $candidate = is_string($candidateRaw) ? json_decode($candidateRaw, true) : null;
+            if (is_array($candidate)) {
+                $stars = $candidate;
+                $servedFrom = (int)($bestMeta['range_from'] ?? $bestParams['from'] ?? $from);
+                $servedTo = (int)($bestMeta['range_to'] ?? $bestParams['to'] ?? $to);
+                $servedStride = max(1, (int)($bestMeta['stride'] ?? $bestParams['stride'] ?? $stride));
+                $cacheMode = 'overlap';
+            }
         }
     }
 
-    $stmt = $db->prepare(
-                                'SELECT id, galaxy_index, system_index, name,
-                                COALESCE(NULLIF(catalog_name, ""), name) AS catalog_name,
-                spectral_class, subtype, x_ly, y_ly, z_ly,
-                                planet_count, hz_inner_au, hz_outer_au
-         FROM star_systems
-         WHERE galaxy_index = ?
-           AND system_index BETWEEN ? AND ?
-           AND MOD(system_index - ?, ?) = 0
-         ORDER BY system_index ASC'
-    );
-    $stmt->execute([$g, $from, $to, $from, $stride]);
-    $stars = $stmt->fetchAll();
+    if ($stars === null) {
+        // Make sure the requested range is generated and cached.
+        ensure_star_system($db, $g, $from);
+        ensure_star_system($db, $g, $to);
+
+        // Full-density range requests (stride=1) are expensive on large spans.
+        // Guard with a hard limit to avoid long blocking requests starving PHP workers.
+        if ($stride === 1) {
+            $materializeLimit = max(50, (int)CACHE_STARS_FULL_MATERIALIZE_LIMIT);
+            $materializeTo = ($to - $from + 1) <= $materializeLimit
+                ? $to
+                : min($to, $from + $materializeLimit - 1);
+            for ($sys = $from; $sys <= $materializeTo; $sys++) {
+                ensure_star_system($db, $g, $sys);
+            }
+        }
+
+        $stmt = $db->prepare(
+            'SELECT id, galaxy_index, system_index, name,
+                    COALESCE(NULLIF(catalog_name, ""), name) AS catalog_name,
+                    spectral_class, subtype, x_ly, y_ly, z_ly,
+                    planet_count, hz_inner_au, hz_outer_au
+             FROM star_systems
+             WHERE galaxy_index = ?
+               AND system_index BETWEEN ? AND ?
+               AND MOD(system_index - ?, ?) = 0
+             ORDER BY system_index ASC'
+        );
+        $stmt->execute([$g, $from, $to, $from, $stride]);
+        $stars = $stmt->fetchAll();
+
+        // Rohen JSON-String cachen (inkl. ID-Range-Metadaten für Overlap-Reuse).
+        gq_cache_set_raw_meta(
+            'stars',
+            $cacheParams,
+            json_encode($stars, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            CACHE_TTL_STARS,
+            [
+                'g' => $g,
+                'range_from' => $from,
+                'range_to' => $to,
+                'stride' => $stride,
+                'anchor' => $stride > 0 ? ($from % $stride) : 0,
+            ]
+        );
+        $cacheMode = 'generated';
+    }
+    // ── Fog of War: attach visibility level per system ─────────────────────────
+    $currentUserId = current_user_id();
+    if ($currentUserId !== null && count($stars) > 0) {
+        $systemIndices = array_column($stars, 'system_index');
+        $placeholders  = implode(',', array_fill(0, count($systemIndices), '?'));
+        $params        = array_merge([$currentUserId, $g], $systemIndices);
+        $visStmt = $db->prepare(
+            "SELECT `system`, level FROM player_system_visibility
+              WHERE user_id = ? AND galaxy = ? AND `system` IN ($placeholders)"
+        );
+        $visStmt->execute($params);
+        $visMap = [];
+        foreach ($visStmt->fetchAll(PDO::FETCH_ASSOC) as $vr) {
+            $visMap[(int)$vr['system']] = $vr['level'];
+        }
+        foreach ($stars as &$star) {
+            $star['visibility_level'] = $visMap[(int)$star['system_index']] ?? 'unknown';
+        }
+        unset($star);
+    }
 
     json_ok([
         'action' => 'stars',
@@ -73,10 +193,16 @@ if ($action === 'stars') {
         'from' => $from,
         'to' => $to,
         'stride' => $stride,
+        'served_from' => $servedFrom,
+        'served_to' => $servedTo,
+        'served_stride' => $servedStride,
+        'cache_mode' => $cacheMode,
+        'cache_overlap_policy' => $overlapPolicy,
         'count' => count($stars),
         'server_ts' => gmdate('c'),
         'server_ts_ms' => (int)round(microtime(true) * 1000),
         'stars' => $stars,
+        'clusters' => compute_star_cluster_summary($stars),
     ]);
     exit;
 }
@@ -158,108 +284,170 @@ if (!isset($starSystem['catalog_name']) || $starSystem['catalog_name'] === '') {
     $starSystem['catalog_name'] = (string)($starSystem['name'] ?? '');
 }
 
-// ── 2. Query player-colonised planets ─────────────────────────────────────────
-$stmt = $db->prepare(
-    'SELECT p.id, p.position, p.type, p.planet_class, p.diameter,
-            p.temp_min, p.temp_max, p.in_habitable_zone,
-            p.semi_major_axis_au, p.orbital_period_days,
-            p.surface_gravity_g, p.atmosphere_type,
-            p.composition_family, p.dominant_surface_material,
-            p.surface_pressure_bar, p.water_state, p.methane_state,
-            p.ammonia_state, p.dominant_surface_liquid, p.radiation_level,
-            p.habitability_score, p.life_friendliness, p.species_affinity_json,
-            c.name, c.id AS colony_id, c.user_id,
-            u.username AS owner
-     FROM colonies c
-     JOIN planets p ON p.id = c.planet_id
-     JOIN users u   ON u.id = c.user_id
-    WHERE p.galaxy = ? AND p.`system` = ?
-     ORDER BY p.position ASC'
-);
-$stmt->execute([$g, $s]);
-$rows = $stmt->fetchAll();
-
-// Build a slot map keyed by position
-$playerSlots = [];
-foreach ($rows as $row) {
-    $playerSlots[(int)$row['position']] = $row;
-}
-
-$colonyIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['colony_id'] ?? 0), $rows)));
-$buildingsByColony = [];
-$shipsByColony = [];
-if ($colonyIds) {
-    $placeholders = implode(',', array_fill(0, count($colonyIds), '?'));
-    $buildingStmt = $db->prepare("SELECT colony_id, type, level FROM buildings WHERE colony_id IN ($placeholders) ORDER BY colony_id, type");
-    $buildingStmt->execute($colonyIds);
-    foreach ($buildingStmt->fetchAll() as $buildingRow) {
-        $buildingsByColony[(int)$buildingRow['colony_id']][] = $buildingRow;
-    }
-    $shipStmt = $db->prepare("SELECT colony_id, type, count FROM ships WHERE colony_id IN ($placeholders) ORDER BY colony_id, type");
-    $shipStmt->execute($colonyIds);
-    foreach ($shipStmt->fetchAll() as $shipRow) {
-        $shipsByColony[(int)$shipRow['colony_id']][(string)$shipRow['type']] = (int)$shipRow['count'];
+// ── 2. Build or load cached system base payload (planets/colonies/fleets) ────
+$systemCacheParams = ['g' => $g, 's' => $s, 'schema' => 2];
+$response = null;
+$cachedBaseRaw = gq_cache_get_raw('system_payload_base', $systemCacheParams);
+if (is_string($cachedBaseRaw) && $cachedBaseRaw !== '') {
+    $decodedBase = json_decode($cachedBaseRaw, true);
+    if (is_array($decodedBase)) {
+        $response = $decodedBase;
     }
 }
 
-foreach ($playerSlots as $position => &$slotRow) {
-    $colonyId = (int)($slotRow['colony_id'] ?? 0);
-    $slotRow['orbital_facilities'] = summarize_orbital_facilities($buildingsByColony[$colonyId] ?? [], $shipsByColony[$colonyId] ?? []);
-}
-unset($slotRow);
+if (!is_array($response)) {
+    $stmt = $db->prepare(
+        'SELECT p.id, p.position, p.type, p.planet_class, p.diameter,
+                p.temp_min, p.temp_max, p.in_habitable_zone,
+                p.semi_major_axis_au, p.orbital_period_days,
+                p.surface_gravity_g, p.atmosphere_type,
+                p.composition_family, p.dominant_surface_material,
+                p.surface_pressure_bar, p.water_state, p.methane_state,
+                p.ammonia_state, p.dominant_surface_liquid, p.radiation_level,
+                p.habitability_score, p.life_friendliness, p.species_affinity_json,
+                c.name, c.id AS colony_id, c.user_id,
+                u.username AS owner
+         FROM colonies c
+         JOIN planets p ON p.id = c.planet_id
+         JOIN users u   ON u.id = c.user_id
+        WHERE p.galaxy = ? AND p.`system` = ?
+         ORDER BY p.position ASC'
+    );
+    $stmt->execute([$g, $s]);
+    $rows = $stmt->fetchAll();
 
-// Merge generated planets with player slots (player data takes precedence)
-$posMax  = defined('POSITION_MAX') ? POSITION_MAX : 15;
-$mergedPlanets = [];
-for ($pos = 1; $pos <= $posMax; $pos++) {
-    $genPlanet = null;
-    foreach ($starSystem['planets'] as $gp) {
-        if ((int)$gp['position'] === $pos) {
-            $genPlanet = $gp;
+    $playerSlots = [];
+    foreach ($rows as $row) {
+        $playerSlots[(int)$row['position']] = $row;
+    }
+
+    $colonyIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['colony_id'] ?? 0), $rows)));
+    $buildingsByColony = [];
+    $shipsByColony = [];
+    if ($colonyIds) {
+        $placeholders = implode(',', array_fill(0, count($colonyIds), '?'));
+        $buildingStmt = $db->prepare("SELECT colony_id, type, level FROM buildings WHERE colony_id IN ($placeholders) ORDER BY colony_id, type");
+        $buildingStmt->execute($colonyIds);
+        foreach ($buildingStmt->fetchAll() as $buildingRow) {
+            $buildingsByColony[(int)$buildingRow['colony_id']][] = $buildingRow;
+        }
+        $shipStmt = $db->prepare("SELECT colony_id, type, count FROM ships WHERE colony_id IN ($placeholders) ORDER BY colony_id, type");
+        $shipStmt->execute($colonyIds);
+        foreach ($shipStmt->fetchAll() as $shipRow) {
+            $shipsByColony[(int)$shipRow['colony_id']][(string)$shipRow['type']] = (int)$shipRow['count'];
+        }
+    }
+
+    $starOrbitInstallations = [];
+    foreach ($playerSlots as $position => &$slotRow) {
+        $colonyId = (int)($slotRow['colony_id'] ?? 0);
+        $userId   = (int)($slotRow['user_id'] ?? 0);
+        $slotRow['orbital_facilities'] = summarize_orbital_facilities($buildingsByColony[$colonyId] ?? [], $shipsByColony[$colonyId] ?? []);
+        $slotRow['owner_color'] = user_empire_color($userId);
+        $starOrbitFacilities = summarize_star_orbit_facilities($buildingsByColony[$colonyId] ?? [], $colonyId, $position);
+        foreach ($starOrbitFacilities as $fac) {
+            $fac['owner_color'] = $slotRow['owner_color'];
+            $fac['owner']       = (string)($slotRow['owner'] ?? '');
+            $starOrbitInstallations[] = $fac;
+        }
+    }
+    unset($slotRow);
+
+    $posMax  = defined('POSITION_MAX') ? POSITION_MAX : 15;
+    $mergedPlanets = [];
+    for ($pos = 1; $pos <= $posMax; $pos++) {
+        $genPlanet = null;
+        foreach ($starSystem['planets'] as $gp) {
+            if ((int)$gp['position'] === $pos) {
+                $genPlanet = $gp;
+                break;
+            }
+        }
+        $mergedPlanets[] = [
+            'position'         => $pos,
+            'player_planet'    => $playerSlots[$pos] ?? null,
+            'generated_planet' => $genPlanet,
+        ];
+    }
+
+    $fleetStmt = $db->prepare(
+        'SELECT f.id, f.user_id, f.origin_colony_id, f.target_galaxy, f.target_system, f.target_position,
+                f.mission, f.ships_json, f.departure_time, f.arrival_time, f.return_time, f.returning,
+                f.origin_x_ly, f.origin_y_ly, f.origin_z_ly, f.target_x_ly, f.target_y_ly, f.target_z_ly,
+                p.galaxy AS origin_galaxy, p.`system` AS origin_system, p.position AS origin_position,
+                u.username AS owner
+         FROM fleets f
+         JOIN colonies c ON c.id = f.origin_colony_id
+         JOIN planets p ON p.id = c.planet_id
+         JOIN users u ON u.id = f.user_id
+         WHERE (p.galaxy = ? AND p.`system` = ?) OR (f.target_galaxy = ? AND f.target_system = ?)
+         ORDER BY f.arrival_time ASC'
+    );
+    $fleetStmt->execute([$g, $s, $g, $s]);
+    $fleetsInSystem = [];
+    foreach ($fleetStmt->fetchAll() as $fleetRow) {
+        $ships = json_decode((string)$fleetRow['ships_json'], true);
+        $fleetRow['ships'] = is_array($ships) ? $ships : [];
+        $fleetRow['vessels'] = vessel_manifest($fleetRow['ships']);
+        unset($fleetRow['ships_json']);
+        $fleetRow['current_pos'] = fleet_current_position($fleetRow);
+        $fleetsInSystem[] = $fleetRow;
+    }
+
+    $response = [
+        'galaxy'               => $g,
+        'system'               => $s,
+        'system_max'           => galaxy_system_limit(),
+        'star_system'          => $starSystem,
+        'planets'              => $mergedPlanets,
+        'planet_texture_manifest' => build_planet_texture_manifest($g, $s, $starSystem, $mergedPlanets),
+        'fleets_in_system'     => $fleetsInSystem,
+        'star_installations'   => $starOrbitInstallations,
+    ];
+
+    $baseRaw = json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (is_string($baseRaw)) {
+        gq_cache_set_raw('system_payload_base', $systemCacheParams, $baseRaw, CACHE_TTL_SYSTEM_PAYLOAD);
+    }
+}
+
+// Timestamp is request-local and should not be reused from cache.
+$response['server_ts_ms'] = (int)round(microtime(true) * 1000);
+
+$mergedPlanets = is_array($response['planets'] ?? null) ? $response['planets'] : [];
+$fleetsInSystem = is_array($response['fleets_in_system'] ?? null) ? $response['fleets_in_system'] : [];
+$starOrbitInstallations = is_array($response['star_installations'] ?? null) ? $response['star_installations'] : [];
+
+// ── Fog of War filtering ──────────────────────────────────────────────────────
+$currentUserId = current_user_id();
+if ($currentUserId !== null) {
+    $vis = resolve_system_visibility($db, $currentUserId, $g, $s);
+    $visLevel = $vis['level'];
+
+    // Does player own a colony here?
+    $hasOwnColony = false;
+    foreach ($mergedPlanets as $slot) {
+        $playerPlanet = $slot['player_planet'] ?? null;
+        if (is_array($playerPlanet) && (int)($playerPlanet['user_id'] ?? 0) === $currentUserId) {
+            $hasOwnColony = true;
             break;
         }
     }
-    $mergedPlanets[] = [
-        'position'         => $pos,
-        'player_planet'    => $playerSlots[$pos] ?? null,
-        'generated_planet' => $genPlanet,
-    ];
-}
+    if ($hasOwnColony) { $visLevel = 'own'; }
 
-$fleetStmt = $db->prepare(
-    'SELECT f.id, f.user_id, f.origin_colony_id, f.target_galaxy, f.target_system, f.target_position,
-            f.mission, f.ships_json, f.departure_time, f.arrival_time, f.return_time, f.returning,
-            f.origin_x_ly, f.origin_y_ly, f.origin_z_ly, f.target_x_ly, f.target_y_ly, f.target_z_ly,
-            p.galaxy AS origin_galaxy, p.`system` AS origin_system, p.position AS origin_position,
-            u.username AS owner
-     FROM fleets f
-     JOIN colonies c ON c.id = f.origin_colony_id
-     JOIN planets p ON p.id = c.planet_id
-     JOIN users u ON u.id = f.user_id
-     WHERE (p.galaxy = ? AND p.`system` = ?) OR (f.target_galaxy = ? AND f.target_system = ?)
-     ORDER BY f.arrival_time ASC'
-);
-$fleetStmt->execute([$g, $s, $g, $s]);
-$fleetsInSystem = [];
-foreach ($fleetStmt->fetchAll() as $fleetRow) {
-    $ships = json_decode((string)$fleetRow['ships_json'], true);
-    $fleetRow['ships'] = is_array($ships) ? $ships : [];
-    $fleetRow['vessels'] = vessel_manifest($fleetRow['ships']);
-    unset($fleetRow['ships_json']);
-    $fleetRow['current_pos'] = fleet_current_position($fleetRow);
-    $fleetsInSystem[] = $fleetRow;
+    if ($visLevel === 'own' || $visLevel === 'active') {
+        // Fresh intel snapshot stored for future stale views
+        $snap = build_intel_snapshot($mergedPlanets, $fleetsInSystem, $starOrbitInstallations);
+        touch_system_visibility($db, $currentUserId, $g, $s, $visLevel, null, $snap);
+        $response['visibility'] = ['level' => $visLevel, 'scouted_at' => date('c')];
+    } else {
+        // First-ever visit: record it (no snapshot yet)
+        if ($visLevel === 'unknown') {
+            touch_system_visibility($db, $currentUserId, $g, $s, 'stale', null, null);
+        }
+        $response = apply_fog_of_war($response, $visLevel, $vis['scouted_at'], $vis['intel_json']);
+    }
 }
-
-$response = [
-    'galaxy'      => $g,
-    'system'      => $s,
-    'system_max'  => galaxy_system_limit(),
-    'server_ts_ms'=> (int)round(microtime(true) * 1000),
-    'star_system' => $starSystem,
-    'planets'     => $mergedPlanets,
-    'planet_texture_manifest' => build_planet_texture_manifest($g, $s, $starSystem, $mergedPlanets),
-    'fleets_in_system' => $fleetsInSystem,
-];
 
 // Format selection: binary or JSON
 $format = strtolower((string)($_GET['format'] ?? 'json'));
@@ -298,6 +486,205 @@ if (in_array($format, ['bin', 'bin1', 'bin2', 'bin3'], true)) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 require_once __DIR__ . '/planet_helper.php';
+
+/**
+ * Compute spatial cluster summary from star data (mirrors JS computeClusterSummary).
+ * Groups stars into spatially connected components via 3-D cell BFS.
+ * Does NOT assign factions – that stays in the frontend where territory data lives.
+ */
+function compute_star_cluster_summary(array $stars, int $maxClusters = 18): array {
+    if (!$stars) return [];
+
+    $minX = INF; $minY = INF; $minZ = INF;
+    $maxX = -INF; $maxY = -INF; $maxZ = -INF;
+    foreach ($stars as $s) {
+        $x = (float)($s['x_ly'] ?? 0);
+        $y = (float)($s['y_ly'] ?? 0);
+        $z = (float)($s['z_ly'] ?? 0);
+        if ($x < $minX) $minX = $x; if ($x > $maxX) $maxX = $x;
+        if ($y < $minY) $minY = $y; if ($y > $maxY) $maxY = $y;
+        if ($z < $minZ) $minZ = $z; if ($z > $maxZ) $maxZ = $z;
+    }
+
+    $spanX = max(1.0, $maxX - $minX);
+    $spanY = max(1.0, $maxY - $minY);
+    $spanZ = max(1.0, $maxZ - $minZ);
+    $diagonal = sqrt($spanX * $spanX + $spanY * $spanY + $spanZ * $spanZ);
+    $cellSize = max(40.0, min(420.0, $diagonal / 16.0));
+
+    $cellMap = [];
+    foreach ($stars as $s) {
+        $cx = (int)floor(((float)($s['x_ly'] ?? 0) - $minX) / $cellSize);
+        $cy = (int)floor(((float)($s['y_ly'] ?? 0) - $minY) / $cellSize);
+        $cz = (int)floor(((float)($s['z_ly'] ?? 0) - $minZ) / $cellSize);
+        $cellMap["$cx|$cy|$cz"][] = $s;
+    }
+
+    // Pre-build neighbor offset list
+    $offsets = [];
+    for ($dx = -1; $dx <= 1; $dx++)
+        for ($dy = -1; $dy <= 1; $dy++)
+            for ($dz = -1; $dz <= 1; $dz++)
+                $offsets[] = [$dx, $dy, $dz];
+
+    $visited = [];
+    $components = [];
+    foreach (array_keys($cellMap) as $startKey) {
+        if (isset($visited[$startKey])) continue;
+        $queue = [$startKey];
+        $visited[$startKey] = true;
+        $cells = [];
+        while ($queue) {
+            $current = array_shift($queue);
+            $cells[] = $current;
+            [$cx, $cy, $cz] = array_map('intval', explode('|', $current));
+            foreach ($offsets as [$nx, $ny, $nz]) {
+                $next = ($cx + $nx) . '|' . ($cy + $ny) . '|' . ($cz + $nz);
+                if (!isset($visited[$next]) && isset($cellMap[$next])) {
+                    $visited[$next] = true;
+                    $queue[] = $next;
+                }
+            }
+        }
+        $comp = [];
+        foreach ($cells as $ck) $comp = array_merge($comp, $cellMap[$ck]);
+        if ($comp) $components[] = $comp;
+    }
+
+    usort($components, static fn($a, $b) => count($b) - count($a));
+    $components = array_slice($components, 0, $maxClusters);
+
+    $result = [];
+    foreach ($components as $idx => $comp) {
+        $sysNums = array_unique(array_map(static fn($s) => (int)($s['system_index'] ?? 0), $comp));
+        $sysNums = array_values(array_filter($sysNums, static fn($n) => $n > 0));
+        sort($sysNums);
+
+        $sumX = 0.0; $sumY = 0.0; $sumZ = 0.0;
+        foreach ($comp as $s) {
+            $sumX += (float)($s['x_ly'] ?? 0);
+            $sumY += (float)($s['y_ly'] ?? 0);
+            $sumZ += (float)($s['z_ly'] ?? 0);
+        }
+        $n = count($comp);
+        $from = $sysNums ? $sysNums[0] : 0;
+        $to   = $sysNums ? $sysNums[count($sysNums) - 1] : 0;
+
+        $result[] = [
+            'key'     => $sysNums ? "cluster-{$from}-{$to}-{$idx}" : "cluster-{$idx}",
+            'label'   => 'Cluster ' . ($idx + 1),
+            'from'    => $from,
+            'to'      => $to,
+            'systems' => $sysNums,
+            'stars'   => $n,
+            'center'  => [
+                'x_ly' => round($sumX / $n, 2),
+                'y_ly' => round($sumY / $n, 2),
+                'z_ly' => round($sumZ / $n, 2),
+            ],
+        ];
+    }
+    return $result;
+}
+
+/**
+ * Compute spatial cluster summary from star data (mirrors JS computeClusterSummary).
+ * Groups stars into spatially connected components via 3-D cell BFS.
+ * Does NOT assign factions — that stays in the frontend where territory data lives.
+ */
+function compute_star_cluster_summary(array $stars, int $maxClusters = 18): array {
+    if (!$stars) return [];
+
+    $minX = INF; $minY = INF; $minZ = INF;
+    $maxX = -INF; $maxY = -INF; $maxZ = -INF;
+    foreach ($stars as $s) {
+        $x = (float)($s['x_ly'] ?? 0);
+        $y = (float)($s['y_ly'] ?? 0);
+        $z = (float)($s['z_ly'] ?? 0);
+        if ($x < $minX) $minX = $x; if ($x > $maxX) $maxX = $x;
+        if ($y < $minY) $minY = $y; if ($y > $maxY) $maxY = $y;
+        if ($z < $minZ) $minZ = $z; if ($z > $maxZ) $maxZ = $z;
+    }
+
+    $spanX = max(1.0, $maxX - $minX);
+    $spanY = max(1.0, $maxY - $minY);
+    $spanZ = max(1.0, $maxZ - $minZ);
+    $diagonal = sqrt($spanX * $spanX + $spanY * $spanY + $spanZ * $spanZ);
+    $cellSize = max(40.0, min(420.0, $diagonal / 16.0));
+
+    $cellMap = [];
+    foreach ($stars as $s) {
+        $cx = (int)floor(((float)($s['x_ly'] ?? 0) - $minX) / $cellSize);
+        $cy = (int)floor(((float)($s['y_ly'] ?? 0) - $minY) / $cellSize);
+        $cz = (int)floor(((float)($s['z_ly'] ?? 0) - $minZ) / $cellSize);
+        $cellMap["$cx|$cy|$cz"][] = $s;
+    }
+
+    $offsets = [];
+    for ($dx = -1; $dx <= 1; $dx++)
+        for ($dy = -1; $dy <= 1; $dy++)
+            for ($dz = -1; $dz <= 1; $dz++)
+                $offsets[] = [$dx, $dy, $dz];
+
+    $visited = [];
+    $components = [];
+    foreach (array_keys($cellMap) as $startKey) {
+        if (isset($visited[$startKey])) continue;
+        $queue = [$startKey];
+        $visited[$startKey] = true;
+        $cells = [];
+        while ($queue) {
+            $current = array_shift($queue);
+            $cells[] = $current;
+            [$cx, $cy, $cz] = array_map('intval', explode('|', $current));
+            foreach ($offsets as [$nx, $ny, $nz]) {
+                $next = ($cx + $nx) . '|' . ($cy + $ny) . '|' . ($cz + $nz);
+                if (!isset($visited[$next]) && isset($cellMap[$next])) {
+                    $visited[$next] = true;
+                    $queue[] = $next;
+                }
+            }
+        }
+        $comp = [];
+        foreach ($cells as $ck) $comp = array_merge($comp, $cellMap[$ck]);
+        if ($comp) $components[] = $comp;
+    }
+
+    usort($components, static fn($a, $b) => count($b) - count($a));
+    $components = array_slice($components, 0, $maxClusters);
+
+    $result = [];
+    foreach ($components as $idx => $comp) {
+        $sysNums = array_unique(array_map(static fn($s) => (int)($s['system_index'] ?? 0), $comp));
+        $sysNums = array_values(array_filter($sysNums, static fn($n) => $n > 0));
+        sort($sysNums);
+
+        $sumX = 0.0; $sumY = 0.0; $sumZ = 0.0;
+        foreach ($comp as $s) {
+            $sumX += (float)($s['x_ly'] ?? 0);
+            $sumY += (float)($s['y_ly'] ?? 0);
+            $sumZ += (float)($s['z_ly'] ?? 0);
+        }
+        $n    = count($comp);
+        $from = $sysNums ? $sysNums[0] : 0;
+        $to   = $sysNums ? $sysNums[count($sysNums) - 1] : 0;
+
+        $result[] = [
+            'key'     => $sysNums ? "cluster-{$from}-{$to}-{$idx}" : "cluster-{$idx}",
+            'label'   => 'Cluster ' . ($idx + 1),
+            'from'    => $from,
+            'to'      => $to,
+            'systems' => $sysNums,
+            'stars'   => $n,
+            'center'  => [
+                'x_ly' => round($sumX / $n, 2),
+                'y_ly' => round($sumY / $n, 2),
+                'z_ly' => round($sumZ / $n, 2),
+            ],
+        ];
+    }
+    return $result;
+}
 
 /**
  * Return the star system row from DB, generating and inserting it first if needed.

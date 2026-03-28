@@ -5,6 +5,7 @@
  * POST /api/shipyard.php?action=build  body: {colony_id, type, count}
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
 
@@ -17,6 +18,11 @@ switch ($action) {
         $cid = (int)($_GET['colony_id'] ?? 0);
         $db  = get_db();
         verify_colony_ownership($db, $cid, $uid);
+        $cacheKeyParams = ['uid' => $uid, 'cid' => $cid];
+        $cached = gq_cache_get('shipyard_list', $cacheKeyParams);
+        if (is_array($cached) && isset($cached['ships'])) {
+            json_ok($cached);
+        }
 
         $rows = $db->prepare('SELECT type, count FROM ships WHERE colony_id = ?');
         $rows->execute([$cid]);
@@ -34,7 +40,9 @@ switch ($action) {
                 'speed' => ship_speed($type),
             ];
         }
-        json_ok(['ships' => $result]);
+        $payload = ['ships' => $result];
+        gq_cache_set('shipyard_list', $cacheKeyParams, $payload, CACHE_TTL_DEFAULT);
+        json_ok($payload);
         break;
 
     case 'build':
@@ -56,6 +64,17 @@ switch ($action) {
 
         update_colony_resources($db, $cid);
         $cost      = ship_cost($type);
+        
+        // Apply colony-type ship cost bonus (industrial colony −10%)
+        $colonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
+        $colonyStmt->execute([$cid]);
+        $colonyRow = $colonyStmt->fetch();
+        if ($colonyRow && $colonyRow['colony_type'] === 'industrial') {
+            $cost['metal']     = (int)round($cost['metal']     * 0.9);
+            $cost['crystal']   = (int)round($cost['crystal']   * 0.9);
+            $cost['deuterium'] = (int)round($cost['deuterium'] * 0.9);
+        }
+        
         $totalCost = [
             'metal'     => $cost['metal']     * $count,
             'crystal'   => $cost['crystal']   * $count,
@@ -80,6 +99,9 @@ switch ($action) {
             'INSERT INTO ships (colony_id, type, count) VALUES (?, ?, ?)
              ON DUPLICATE KEY UPDATE count = count + ?'
         )->execute([$cid, $type, $count, $count]);
+
+        gq_cache_delete('shipyard_list', ['uid' => $uid, 'cid' => $cid]);
+        gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
 
         json_ok(['built' => $count, 'type' => $type]);
         break;

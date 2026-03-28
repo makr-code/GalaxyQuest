@@ -6,12 +6,13 @@
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
+require_once __DIR__ . '/npc_llm_controller.php';
 
 /**
  * Run the NPC AI tick for a specific user.
  * Safe to call on every overview load (rate-limited internally via DB timestamps).
  */
-function npc_ai_tick(PDO $db, int $userId): void {
+function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
     // Only run once per 5 minutes per user (stored in user meta as last_npc_tick)
     $uRow = $db->prepare('SELECT last_npc_tick FROM users WHERE id=?');
     $uRow->execute([$userId]);
@@ -20,7 +21,7 @@ function npc_ai_tick(PDO $db, int $userId): void {
     if (!$u || !array_key_exists('last_npc_tick', $u)) return;
 
     $lastTick = $u['last_npc_tick'] ? strtotime($u['last_npc_tick']) : 0;
-    if (time() - $lastTick < 300) return; // 5-minute cooldown
+    if (!$force && (time() - $lastTick < 300)) return; // 5-minute cooldown
 
     $db->prepare('UPDATE users SET last_npc_tick=NOW() WHERE id=?')->execute([$userId]);
 
@@ -40,6 +41,12 @@ function npc_ai_tick(PDO $db, int $userId): void {
 
 function npc_faction_tick(PDO $db, int $userId, array $faction): void {
     $fid = (int)$faction['id'];
+
+    // Optional LLM steering path for PvE controller.
+    $llm = npc_pve_llm_controller_try($db, $userId, $faction);
+    if (!empty($llm['handled'])) {
+        return;
+    }
 
     // ── Generate trade offers if none active ─────────────────────────────
     if ((int)$faction['trade_willingness'] >= 30) {

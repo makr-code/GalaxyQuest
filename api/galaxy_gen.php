@@ -370,8 +370,7 @@ function pick_name_profile(int $galaxyIdx, int $systemIdx, string $spectralClass
         return ['key' => 'latin_soft', 'profile' => naming_default_config()['profiles']['latin_soft']];
     }
 
-    $arms = (int)(galaxy_config()['galaxy']['arms'] ?? GAL_ARMS);
-    $armCount = max(1, $arms);
+    $armCount = max(1, galaxy_arm_count($galaxyIdx));
     $armNumber = (($galaxyIdx - 1) % $armCount) + 1;
     $sClass = strtoupper(substr($spectralClass, 0, 1));
 
@@ -392,6 +391,35 @@ function pick_name_profile(int $galaxyIdx, int $systemIdx, string $spectralClass
     $pickedKey = weighted_pick($weighted, $galaxyIdx, $systemIdx, 44001);
     $picked = is_array($profiles[$pickedKey] ?? null) ? $profiles[$pickedKey] : reset($profiles);
     return ['key' => $pickedKey, 'profile' => $picked];
+}
+
+/**
+ * Determine arm count for a specific game-galaxy.
+ * Default mode is deterministic dynamic range 4..6 arms per galaxy.
+ *
+ * Optional config in galaxy_config()['galaxy']:
+ * - arm_mode = 'fixed' with 'arms' = N
+ * - arm_mode = 'dynamic_4_6' (default)
+ * - arm_min / arm_max to tune dynamic range
+ */
+function galaxy_arm_count(int $galaxyIdx): int
+{
+    $galCfg = galaxy_config()['galaxy'] ?? [];
+    $mode = strtolower((string)($galCfg['arm_mode'] ?? 'dynamic_4_6'));
+
+    if ($mode === 'fixed') {
+        return max(2, (int)($galCfg['arms'] ?? GAL_ARMS));
+    }
+
+    $armMin = max(2, (int)($galCfg['arm_min'] ?? 4));
+    $armMax = max($armMin, (int)($galCfg['arm_max'] ?? 6));
+    $span = $armMax - $armMin + 1;
+    if ($span <= 1) {
+        return $armMin;
+    }
+
+    $pick = (int)floor(gen_rand($galaxyIdx, $galaxyIdx, 7700) * $span);
+    return max($armMin, min($armMax, $armMin + $pick));
 }
 
 function generate_name_root(array $profile, int $galaxyIdx, int $systemIdx): string
@@ -828,11 +856,21 @@ function gen_rand_normal(float $mean, float $sigma, int ...$seeds): float
 /**
  * Compute a 3-D galactic position [x_ly, y_ly, z_ly] for a star system.
  *
- * The nine game-galaxy indices are mapped to radial bands of a four-armed
- * logarithmic spiral (pitch angle 14°), mirroring the Milky Way structure.
- * A small bulge fraction receives a Gaussian distribution near the centre.
+ * Generates a realistic barred spiral galaxy with 4-6 arms, central bar,
+ * bulge and interarm field stars.
  *
- * Logarithmic spiral equation:  r = r₀ · exp(b·θ),  b = tan(pitch_angle)
+ * BUG-FIX: arm assignment is now derived from (galaxyIdx, systemIdx) so
+ * that multiple arms are populated within a single game-galaxy rather than
+ * every system landing on the same arm.
+ *
+ * Structural components (fraction of all systems):
+ *   ~8%   bulge     — triaxial Gaussian near the core
+ *   ~4%   bar       — elongated along galactic x-axis
+ *   ~13%  field     — uniform thin-disk, interarm filler
+ *   ~75%  arm stars — distributed across all N logarithmic spiral arms
+ *
+ * Logarithmic spiral:  r = r₀ · exp(b·θ),  b = tan(pitch_angle)
+ * Inverse (for r→θ):   θ = ln(r/r₀) / b
  *
  * @return float[]  [x_ly, y_ly, z_ly]
  */
@@ -841,7 +879,7 @@ function galactic_position(int $galaxyIdx, int $systemIdx): array
     $cfg = galaxy_config();
     $galCfg = $cfg['galaxy'] ?? [];
 
-    $arms        = (int)($galCfg['arms'] ?? GAL_ARMS);
+    $arms        = galaxy_arm_count($galaxyIdx);
     $armStartLy  = (float)($galCfg['arm_start_ly'] ?? GAL_ARM_START_LY);
     $armEndLy    = (float)($galCfg['arm_end_ly'] ?? GAL_ARM_END_LY);
     $armWidthLy  = (float)($galCfg['arm_width_ly'] ?? GAL_ARM_WIDTH_LY);
@@ -852,7 +890,8 @@ function galactic_position(int $galaxyIdx, int $systemIdx): array
     $sysMaxCfg   = (int)($galCfg['systems_per_galaxy'] ?? (defined('SYSTEM_MAX') ? SYSTEM_MAX : 499));
     $sysMax      = max(2, $sysMaxCfg);
 
-    // Bulge stars (8 % of systems) drawn from a triaxial Gaussian
+    // ── 1. Bulge component (~8 % of systems) ──────────────────────────────────
+    // Triaxial Gaussian near the galactic core; K/G-dominated warm stars.
     if (gen_rand($galaxyIdx, $systemIdx, 9901) < $bulgeFrac) {
         $sx = $bulgeRadius * 0.40;
         $sy = $bulgeRadius * 0.40;
@@ -864,34 +903,61 @@ function galactic_position(int $galaxyIdx, int $systemIdx): array
         ];
     }
 
-    // Assign to one of 4 spiral arms based on game galaxy index
-    $armIndex = ($galaxyIdx - 1) % max(1, $arms);
+    // ── 2. Central bar component (~4 % of systems) ────────────────────────────
+    // Elongated along galactic X-axis, connects the two inner arm roots.
+    $barFrac   = 0.04;
+    $barLength = $armStartLy * 1.7;
+    if (gen_rand($galaxyIdx, $systemIdx, 9902) < $barFrac) {
+        $xBar = gen_rand_range(-$barLength, $barLength, $galaxyIdx, $systemIdx, 1);
+        $yBar = gen_rand_normal(0, $barLength * 0.11, $galaxyIdx, $systemIdx * 5 + 2, 2);
+        $zBar = gen_rand_normal(0, $diskHeight * 0.40, $galaxyIdx, $systemIdx * 5 + 3, 3);
+        return [round($xBar, 2), round($yBar, 2), round($zBar, 2)];
+    }
 
-    // Radial zone: split into non-overlapping annuli to avoid duplicated/flattened arm segments.
-    $zoneCount  = max(1, (int)ceil(9 / max(1, $arms))); // default: 3 zones for 9 game galaxies
-    $radialZone = min($zoneCount - 1, (int)(($galaxyIdx - 1) / max(1, $arms)));
-    $zoneWidth  = ($armEndLy - $armStartLy) / $zoneCount;
-    $rMin       = $armStartLy + $radialZone * $zoneWidth;
-    $rMax       = min($armEndLy, $rMin + $zoneWidth);
+    // ── 3. Interarm field stars (~13 % of disk stars) ─────────────────────────
+    // Uniform thin-disk population not associated with any particular arm.
+    $fieldFrac = 0.13;
+    if (gen_rand($galaxyIdx, $systemIdx, 9903) < $fieldFrac) {
+        $rField     = $armStartLy + gen_rand($galaxyIdx, $systemIdx * 7 + 1, 4501) * ($armEndLy - $armStartLy);
+        $thetaField = gen_rand($galaxyIdx, $systemIdx * 7 + 2, 4502) * 2.0 * M_PI;
+        $zField     = gen_rand_normal(0, $diskHeight * 1.3, $galaxyIdx, $systemIdx, 4503);
+        return [
+            round($rField * cos($thetaField), 2),
+            round($rField * sin($thetaField), 2),
+            round($zField, 2),
+        ];
+    }
 
-    // Position fraction along the arm (0..1)
+    // ── 4. Spiral arm component (~75 % of systems) ────────────────────────────
+    //
+    // CRITICAL FIX: arm is chosen per-system using both galaxyIdx and
+    // systemIdx, NOT from galaxyIdx alone.  The old code used
+    //   ($galaxyIdx - 1) % $arms
+    // which put every system in a given game-galaxy on the exact same arm.
+    //
+    $armRand  = gen_rand($galaxyIdx, $systemIdx, 7777);
+    $armIndex = (int)floor($armRand * $arms) % $arms;
+
+    // Per-galaxy global orientation offset — each game-galaxy rotates differently.
+    $galRotOffset = gen_rand($galaxyIdx, $galaxyIdx, 8888) * 2.0 * M_PI;
+
+    // Radial position: linear in systemIdx over the FULL arm span, plus jitter.
+    // (Old code restricted stars to a narrow annulus per galaxyIdx.)
     $t = ($sysMax > 1) ? ($systemIdx - 1) / ($sysMax - 1) : 0.5;
+    $tJitter = gen_rand($galaxyIdx, $systemIdx, 3131) * 0.18 - 0.09;
+    $t  = max(0.0, min(1.0, $t + $tJitter));
+    $r  = $armStartLy + $t * ($armEndLy - $armStartLy);
 
-    // Midline galactocentric radius
-    $r = $rMin + $t * ($rMax - $rMin);
-
-    // Winding angle from logarithmic spiral: θ = ln(r/r₀) / b
+    // Winding angle from logarithmic spiral: θ = ln(r/r₀) / tan(pitch)
     $b     = tan(deg2rad($pitchDeg));
-    $theta = log($r / max(1.0, $armStartLy)) / max(0.0001, $b);
+    $theta = log($r / max(1.0, $armStartLy)) / max(1e-6, $b);
 
-    // Add arm base offset (arms equally spaced by 90°)
-    $theta += $armIndex * (2.0 * M_PI / max(1, $arms));
+    // Add arm base angle (arms equally spaced) plus per-galaxy rotation offset.
+    $theta += $armIndex * (2.0 * M_PI / $arms) + $galRotOffset;
 
-    // Gaussian scatter around arm centreline
-    $scatterR = gen_rand_normal(0, $armWidthLy * 0.5,
-                                $galaxyIdx * 100 + $armIndex, $systemIdx, 4);
-    $scatterT = gen_rand_normal(0, 0.05,
-                                $galaxyIdx * 100 + $armIndex, $systemIdx, 5);
+    // Gaussian scatter around the arm centreline (perpendicular and angular).
+    $scatterR = gen_rand_normal(0, $armWidthLy * 0.5, $galaxyIdx * 100 + $armIndex, $systemIdx, 4001);
+    $scatterT = gen_rand_normal(0, 0.055,             $galaxyIdx * 100 + $armIndex, $systemIdx, 4002);
 
     $rFinal     = max($armStartLy, min($armEndLy, $r + $scatterR));
     $thetaFinal = $theta + $scatterT;
@@ -899,7 +965,7 @@ function galactic_position(int $galaxyIdx, int $systemIdx): array
     return [
         round($rFinal * cos($thetaFinal), 2),
         round($rFinal * sin($thetaFinal), 2),
-        round(gen_rand_normal(0, $diskHeight, $galaxyIdx, $systemIdx, 6), 2),
+        round(gen_rand_normal(0, $diskHeight, $galaxyIdx, $systemIdx, 4003), 2),
     ];
 }
 

@@ -231,6 +231,14 @@ function process_fleet_arrivals(PDO $db): void {
 function handle_fleet_arrival(PDO $db, array $fleet): void {
     $ships = json_decode($fleet['ships_json'], true) ?? [];
     if ($fleet['returning']) { return_fleet_to_origin($db, $fleet, $ships); return; }
+
+    $userId  = (int)$fleet['user_id'];
+    $tg      = (int)$fleet['target_galaxy'];
+    $ts      = (int)$fleet['target_system'];
+    // Estimate return time (same travel duration) for active-visibility window
+    $travelSec = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
+    $retTime   = date('Y-m-d H:i:s', time() + $travelSec);
+
     match ($fleet['mission']) {
         'transport' => deliver_resources($db, $fleet, $ships),
         'attack'    => resolve_battle($db, $fleet, $ships),
@@ -239,6 +247,10 @@ function handle_fleet_arrival(PDO $db, array $fleet): void {
         'harvest'   => harvest_resources($db, $fleet, $ships),
         default     => return_fleet_to_origin($db, $fleet, $ships),
     };
+
+    // FoW: record/extend active visibility for the target system.
+    // The ON DUPLICATE KEY logic in touch_system_visibility preserves 'own' if already set.
+    touch_system_visibility($db, $userId, $tg, $ts, 'active', $retTime, null);
 }
 
 function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
@@ -306,6 +318,15 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
         $atkHull   += ($s['hull']   ?? 0) * $cnt;
         $atkShield += (($s['shield'] ?? 0) * $cnt) * (1.0 + $atkShldLevel * 0.1);
     }
+    
+    // Apply attacker's colony-type military bonus (+10% attack, +5% shield)
+    $atkColonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
+    $atkColonyStmt->execute([(int)$fleet['origin_colony_id']]);
+    $atkCol = $atkColonyStmt->fetch();
+    if ($atkCol && $atkCol['colony_type'] === 'military') {
+        $atkAtk    *= 1.1;
+        $atkShield *= 1.05;
+    }
 
     // ── Defender stats — weapons + shielding tech ──────────────────────────
     $defWpnRow = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=\'weapons_tech\'');
@@ -325,6 +346,15 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
         $defAtk    += (($s['attack'] ?? 0) * $r['count']) * (1.0 + $defWpnLevel  * 0.1);
         $defHull   += ($s['hull']   ?? 0) * $r['count'];
         $defShield += (($s['shield'] ?? 0) * $r['count']) * (1.0 + $defShldLevel * 0.1);
+    }
+    
+    // Apply defender's colony-type military bonus (+10% attack, +5% shield)
+    $defColonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
+    $defColonyStmt->execute([(int)$target['id']]);
+    $defCol = $defColonyStmt->fetch();
+    if ($defCol && $defCol['colony_type'] === 'military') {
+        $defAtk    *= 1.1;
+        $defShield *= 1.05;
     }
 
     // ── Combat resolution ──────────────────────────────────────────────────
@@ -480,6 +510,8 @@ function colonize_planet(PDO $db, array $fleet, array $ships): void {
                "Colony established at [{$fleet['target_galaxy']}:{$fleet['target_system']}:{$fleet['target_position']}]! "
                . "Planet type: {$pClass}. Initial food: 200, population: 100."]);
         check_and_update_achievements($db, (int)$fleet['user_id']);
+        // FoW: permanent own-visibility for newly colonised system
+        touch_system_visibility($db, (int)$fleet['user_id'], (int)$fleet['target_galaxy'], (int)$fleet['target_system'], 'own', null, null);
     }
 
     // Return without colony ship

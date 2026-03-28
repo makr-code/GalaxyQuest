@@ -1,0 +1,92 @@
+{
+  "metadata": { "version": 4.6, "type": "Object", "generator": "GalaxyQuest Model Pipeline" },
+  "modelId": "transport_shuttle",
+  "label": "Transport Shuttle",
+  "version": 2,
+  "scale": 0.55,
+  "lod": { "segments_full": 8, "segments_low": 6 },
+  "images": [
+    { "uuid": "img_panel_grid", "url": "models/textures/panel_grid.svg" }
+  ],
+  "textures": [
+    { "uuid": "tex_panel_grid", "image": "img_panel_grid", "name": "panel-grid", "wrap": [1000, 1000], "repeat": [3, 1] }
+  ],
+  "geometries": [
+    { "uuid": "geo_hull", "type": "CylinderGeometry", "radiusTop": 0.18, "radiusBottom": 0.45, "height": 1.8, "radialSegments": 8 },
+    { "uuid": "geo_wing", "type": "BoxGeometry", "width": 1.9, "height": 0.12, "depth": 0.38 },
+    { "uuid": "geo_engine", "type": "SphereGeometry", "radius": 0.14, "widthSegments": 6, "heightSegments": 5 }
+  ],
+  "materials": [
+    { "uuid": "mat_hull", "type": "MeshStandardMaterial", "color": 7833753, "emissive": 3359829, "emissiveIntensity": 0.18, "roughness": 0.45, "metalness": 0.55 },
+    { "uuid": "mat_wing", "type": "MeshStandardMaterial", "color": 4493499, "emissive": 2245734, "emissiveIntensity": 0.3, "roughness": 0.3, "metalness": 0.7, "transparent": true, "opacity": 0.92, "map": "tex_panel_grid" },
+    { "uuid": "mat_engine", "type": "MeshStandardMaterial", "color": 16755251, "emissive": 16742144, "emissiveIntensity": 1.6, "roughness": 0.1, "metalness": 0.6 }
+  ],
+  "animations": [
+    {
+      "name": "idle_bob",
+      "duration": 2.4,
+      "tracks": [
+        {
+          "name": "transport_shuttle.position[y]",
+          "type": "number",
+          "times": [0, 1.2, 2.4],
+          "values": [0, 0.12, 0],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "active_roll",
+      "duration": 2.2,
+      "tracks": [
+        {
+          "name": "transport_shuttle.rotation[z]",
+          "type": "number",
+          "times": [0, 1.1, 2.2],
+          "values": [0, 0.2, 0],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "alert_engine_pulse",
+      "duration": 1.2,
+      "tracks": [
+        {
+          "name": "engine-glow.scale[x]",
+          "type": "number",
+          "times": [0, 0.6, 1.2],
+          "values": [1, 1.28, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "engine-glow.scale[y]",
+          "type": "number",
+          "times": [0, 0.6, 1.2],
+          "values": [1, 1.28, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "engine-glow.scale[z]",
+          "type": "number",
+          "times": [0, 0.6, 1.2],
+          "values": [1, 1.28, 1],
+          "interpolation": 2301
+        }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_shuttle_root",
+    "type": "Group",
+    "name": "transport_shuttle",
+    "userData": {
+      "gqAnimations": []
+    },
+    "children": [
+      { "uuid": "mesh_hull", "type": "Mesh", "name": "hull", "geometry": "geo_hull", "material": "mat_hull", "rotation": [1.5708, 0, 0], "userData": { "role": "hull" } },
+      { "uuid": "mesh_wing", "type": "Mesh", "name": "wing", "geometry": "geo_wing", "material": "mat_wing", "position": [0, 0.35, 0], "userData": { "role": "wing" } },
+      { "uuid": "mesh_engine", "type": "Mesh", "name": "engine-glow", "geometry": "geo_engine", "material": "mat_engine", "position": [0, 0, -1.1], "userData": { "role": "engine-glow" } }
+    ]
+  }
+}

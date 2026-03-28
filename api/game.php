@@ -10,6 +10,7 @@
  * GET  /api/game.php?action=leaderboard
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/buildings.php';   // verify_colony_ownership
@@ -24,6 +25,11 @@ switch ($action) {
     case 'overview':
         only_method('GET');
         $db = get_db();
+        $overviewCacheKey = ['uid' => $uid];
+        $cachedOverview = gq_cache_get('game_overview', $overviewCacheKey);
+        if (is_array($cachedOverview) && isset($cachedOverview['user_meta'])) {
+            json_ok($cachedOverview);
+        }
 
         $offlineBeforeStmt = $db->prepare(
             'SELECT id, name, last_update, metal, crystal, deuterium, rare_earth, food, population,
@@ -271,6 +277,11 @@ switch ($action) {
         require_once __DIR__ . '/npc_ai.php';
         try { npc_ai_tick($db, $uid); } catch (Throwable $e) { error_log('npc_ai_tick error: ' . $e->getMessage()); }
 
+        $politicsRuntime = [
+            'effects' => empire_dynamic_effects($db, $uid),
+            'pressure_events' => apply_faction_pressure_situations($db, $uid),
+        ];
+
         // User meta
         $metaStmt = $db->prepare(
             'SELECT dark_matter, rank_points, protection_until, vacation_mode, pvp_mode
@@ -369,14 +380,17 @@ switch ($action) {
             $battles[] = $b;
         }
 
-        json_ok([
+        $payload = [
             'user_meta'   => $meta,
             'offline_progress' => $offlineReport,
+            'politics' => $politicsRuntime,
             'colonies'    => $colonies,
             'fleets'      => $fleets,
             'battles'     => $battles,
             'unread_msgs' => (int)$unreadStmt->fetchColumn(),
-        ]);
+        ];
+        gq_cache_set('game_overview', $overviewCacheKey, $payload, CACHE_TTL_OVERVIEW);
+        json_ok($payload);
         break;
 
     // ── Colony resources refresh ───────────────────────────────────────────────
@@ -385,12 +399,19 @@ switch ($action) {
         $cid = (int)($_GET['colony_id'] ?? 0);
         $db  = get_db();
         verify_colony_ownership($db, $cid, $uid);
+        $resourceCacheKey = ['uid' => $uid, 'cid' => $cid];
+        $cachedResources = gq_cache_get('game_resources', $resourceCacheKey);
+        if (is_array($cachedResources) && isset($cachedResources['resources'])) {
+            json_ok($cachedResources);
+        }
         update_colony_resources($db, $cid);
         $row = $db->prepare('SELECT metal, crystal, deuterium, rare_earth, food, energy,
                                     population, max_population, happiness, public_services
                              FROM colonies WHERE id=?');
         $row->execute([$cid]);
-        json_ok(['resources' => $row->fetch()]);
+        $payload = ['resources' => $row->fetch()];
+        gq_cache_set('game_resources', $resourceCacheKey, $payload, CACHE_TTL_OVERVIEW);
+        json_ok($payload);
         break;
 
     // ── Foreign colony intel / sector overview ───────────────────────────────
@@ -509,6 +530,8 @@ switch ($action) {
         $db = get_db();
         verify_colony_ownership($db, $cid, $uid);
         $db->prepare('UPDATE colonies SET name=? WHERE id=?')->execute([$name, $cid]);
+        gq_cache_delete('game_overview', ['uid' => $uid]);
+        gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $cid]);
         json_ok(['name' => $name]);
         break;
 
@@ -524,6 +547,7 @@ switch ($action) {
         $db = get_db();
         verify_colony_ownership($db, $cid, $uid);
         $db->prepare('UPDATE colonies SET colony_type=? WHERE id=?')->execute([$type, $cid]);
+        gq_cache_delete('game_overview', ['uid' => $uid]);
         json_ok(['colony_type' => $type]);
         break;
 
@@ -540,6 +564,7 @@ switch ($action) {
         }
         $new = $u['pvp_mode'] ? 0 : 1;
         $db->prepare('UPDATE users SET pvp_mode=? WHERE id=?')->execute([$new, $uid]);
+        gq_cache_delete('game_overview', ['uid' => $uid]);
         json_ok(['pvp_mode' => $new]);
         break;
 

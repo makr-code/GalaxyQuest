@@ -1,6 +1,26 @@
 Options -Indexes
 RewriteEngine On
 
+# Serve compressed JavaScript artifacts (*.js.gz) with strict JS MIME + gzip.
+<IfModule mod_mime.c>
+	AddEncoding gzip .gz
+</IfModule>
+
+<IfModule mod_headers.c>
+	<FilesMatch "\.js\.gz$">
+		Header set Content-Type "application/javascript; charset=UTF-8"
+		Header set Content-Encoding "gzip"
+		Header set X-Content-Type-Options "nosniff"
+		Header append Vary "Accept-Encoding"
+	</FilesMatch>
+</IfModule>
+
+<IfModule mod_mime.c>
+	<FilesMatch "\.js\.gz$">
+		ForceType application/javascript
+	</FilesMatch>
+</IfModule>
+
 # Deny direct access to config files
 RewriteRule ^config/ - [F,L]
 

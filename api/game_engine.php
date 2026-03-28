@@ -61,6 +61,11 @@ function building_definitions(): array {
         'nanite_factory'   => ['category' => 'advanced',   'label' => 'Nanite Factory',   'icon' => '⚙', 'zone' => 'surface', 'footprint' => 3, 'class_key' => 'science'],
         'terraformer'      => ['category' => 'advanced',   'label' => 'Terraformer',      'icon' => '🌍', 'zone' => 'surface', 'footprint' => 4, 'class_key' => 'utility'],
         'colony_hq'        => ['category' => 'command',    'label' => 'Colony HQ',        'icon' => '🏛', 'zone' => 'surface', 'footprint' => 3, 'class_key' => 'civic'],
+        // ── Star-orbit installations (orbit the star, not a planet) ──────────────
+        'stargate'         => ['category' => 'infrastructure', 'label' => 'Stargate',      'icon' => '⭕', 'zone' => 'star_orbit', 'footprint' => 0, 'class_key' => 'orbital', 'min_level' => 1],
+        'jump_inhibitor'   => ['category' => 'defense',    'label' => 'Jump Inhibitor',   'icon' => '🛑', 'zone' => 'star_orbit', 'footprint' => 0, 'class_key' => 'orbital', 'min_level' => 1],
+        'relay_station'    => ['category' => 'infrastructure', 'label' => 'Relay Station', 'icon' => '📡', 'zone' => 'star_orbit', 'footprint' => 0, 'class_key' => 'orbital', 'min_level' => 1],
+        'deep_space_radar' => ['category' => 'surveillance','label' => 'Deep Space Radar','icon' => '📶', 'zone' => 'star_orbit', 'footprint' => 0, 'class_key' => 'orbital', 'min_level' => 1],
     ];
 }
 
@@ -141,6 +146,256 @@ function summarize_orbital_facilities(array $buildings, array $ships = []): arra
     return $facilities;
 }
 
+/**
+ * Collect star-orbit installations from a colony's buildings.
+ * These are returned separately as they orbit the star, not the planet.
+ *
+ * @param  array $buildings  Building rows for this colony
+ * @param  int   $colonyId   Colony ID (for origin tracking)
+ * @param  int   $position   Planet position in system (for orbit slot assignment)
+ * @return array<array>      Star-orbit facility descriptors
+ */
+function summarize_star_orbit_facilities(array $buildings, int $colonyId, int $position): array {
+    $defs = building_definitions();
+    $facilities = [];
+    foreach ($buildings as $building) {
+        $type = (string)($building['type'] ?? '');
+        $def = $defs[$type] ?? null;
+        if (!$def || ($def['zone'] ?? 'surface') !== 'star_orbit') {
+            continue;
+        }
+        $level = (int)($building['level'] ?? 0);
+        if ($level < ($def['min_level'] ?? 1)) {
+            continue;
+        }
+        $facilities[] = [
+            'type'       => $type,
+            'label'      => $def['label'],
+            'icon'       => $def['icon'],
+            'level'      => $level,
+            'category'   => $def['category'],
+            'colony_id'  => $colonyId,
+            'position'   => $position,
+        ];
+    }
+    return $facilities;
+}
+
+/**
+ * Return a deterministic empire color for a player based on their user_id.
+ * Uses a palette of 10 visually distinct hues suitable for faction auras.
+ */
+function user_empire_color(int $userId): string {
+    $palette = [
+        '#4af9ff', // cyan
+        '#ffa94a', // amber
+        '#ff4a7a', // rose
+        '#4affa0', // mint
+        '#d04aff', // violet
+        '#c8ff4a', // lime
+        '#4a7aff', // cobalt
+        '#ffef4a', // yellow
+        '#ff9c4a', // orange
+        '#4affd4', // teal
+    ];
+    return $palette[abs($userId) % count($palette)];
+}
+
+// ─── Fog of War ──────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the current visibility level for a player in a specific system.
+ *
+ * Returns one of:
+ *   'own'    – player has a colony here (full live data, permanent)
+ *   'active' – player fleet currently present (full live data, temporary)
+ *   'stale'  – previously visited but no forces present (returns intel snapshot)
+ *   'unknown'– never seen (returns no planet/fleet data)
+ *
+ * Also returns the intel_json snapshot and scouted_at timestamp.
+ *
+ * @return array{ level: string, scouted_at: ?string, intel_json: ?array }
+ */
+function resolve_system_visibility(PDO $db, int $userId, int $galaxy, int $system): array {
+    // Check persistent visibility record
+    $stmt = $db->prepare(
+        'SELECT level, scouted_at, expires_at, intel_json
+         FROM player_system_visibility
+         WHERE user_id = ? AND galaxy = ? AND `system` = ?'
+    );
+    $stmt->execute([$userId, $galaxy, $system]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // Check if player has a live fleet in this system right now
+    $fleetStmt = $db->prepare(
+        'SELECT f.id FROM fleets f
+         JOIN colonies c ON c.id = f.origin_colony_id
+         JOIN planets  p ON p.id = c.planet_id
+         WHERE f.user_id = ?
+           AND f.arrival_time <= NOW()
+           AND f.return_time  >  NOW()
+           AND (
+             (p.galaxy = ? AND p.`system` = ?)
+             OR (f.target_galaxy = ? AND f.target_system = ?)
+           )
+         LIMIT 1'
+    );
+    $fleetStmt->execute([$userId, $galaxy, $system, $galaxy, $system]);
+    $hasActiveFleet = (bool)$fleetStmt->fetchColumn();
+
+    if ($hasActiveFleet) {
+        return ['level' => 'active', 'scouted_at' => $row['scouted_at'] ?? null, 'intel_json' => null];
+    }
+
+    if (!$row) {
+        return ['level' => 'unknown', 'scouted_at' => null, 'intel_json' => null];
+    }
+
+    // Check expiry for temporary records
+    if ($row['expires_at'] !== null && strtotime($row['expires_at']) < time()) {
+        // Expired active entry → demote to stale (keep intel_json)
+        $db->prepare(
+            'UPDATE player_system_visibility SET level = \'stale\', expires_at = NULL WHERE user_id = ? AND galaxy = ? AND `system` = ?'
+        )->execute([$userId, $galaxy, $system]);
+        $row['level'] = 'stale';
+    }
+
+    $intel = isset($row['intel_json']) && $row['intel_json'] !== null
+        ? json_decode($row['intel_json'], true)
+        : null;
+
+    return [
+        'level'      => $row['level'],
+        'scouted_at' => $row['scouted_at'],
+        'intel_json' => $intel,
+    ];
+}
+
+/**
+ * Write or update a visibility record for a player.
+ * Calling this with level='own' or level='stale' (null expires) makes it permanent.
+ *
+ * @param array|null $intelSnapshot  Sanitised planet/fleet snapshot to store (optional)
+ */
+function touch_system_visibility(
+    PDO $db,
+    int $userId,
+    int $galaxy,
+    int $system,
+    string $level = 'stale',
+    ?string $expiresAt = null,
+    ?array $intelSnapshot = null
+): void {
+    $intelJson = $intelSnapshot !== null ? json_encode($intelSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
+    $db->prepare(
+        'INSERT INTO player_system_visibility (user_id, galaxy, `system`, level, scouted_at, expires_at, intel_json)
+         VALUES (?, ?, ?, ?, NOW(), ?, ?)
+         ON DUPLICATE KEY UPDATE
+           level      = IF(VALUES(level) = \'own\' OR level = \'own\', \'own\', VALUES(level)),
+           scouted_at = NOW(),
+           expires_at = VALUES(expires_at),
+           intel_json = COALESCE(VALUES(intel_json), intel_json)'
+    )->execute([$userId, $galaxy, $system, $level, $expiresAt, $intelJson]);
+}
+
+/**
+ * Build a sanitised intel snapshot from full system data.
+ * Removes sensitive information (production rates, exact resource counts)
+ * that the observing player should not see.
+ *
+ * Returns array suitable for storing in intel_json.
+ */
+function build_intel_snapshot(array $mergedPlanets, array $fleetsInSystem, array $starInstallations = []): array {
+    $planets = [];
+    foreach ($mergedPlanets as $slot) {
+        $pp = $slot['player_planet'] ?? null;
+        $gp = $slot['generated_planet'] ?? null;
+        if ($pp) {
+            // Keep structural data, strip production numbers
+            $planets[] = [
+                'position'          => $slot['position'],
+                'planet_class'      => $pp['planet_class'] ?? null,
+                'diameter'          => $pp['diameter'] ?? null,
+                'owner'             => $pp['owner'] ?? null,
+                'colony_name'       => $pp['name'] ?? null,
+                'owner_color'       => $pp['owner_color'] ?? null,
+                'orbital_facilities'=> $pp['orbital_facilities'] ?? [],
+            ];
+        } elseif ($gp) {
+            $planets[] = [
+                'position'    => $slot['position'],
+                'planet_class'=> $gp['planet_class'] ?? null,
+                'diameter'    => $gp['diameter'] ?? null,
+                'owner'       => null,
+            ];
+        }
+    }
+
+    // Fleets: only count and mission visible, not ship details
+    $fleets = [];
+    foreach ($fleetsInSystem as $f) {
+        $fleets[] = [
+            'owner'   => $f['owner'] ?? null,
+            'mission' => $f['mission'] ?? null,
+            'size'    => count($f['ships'] ?? []),
+        ];
+    }
+
+    return [
+        'snapshot_ts'        => date('c'),
+        'planets'            => $planets,
+        'fleets'             => $fleets,
+        'star_installations' => $starInstallations,
+    ];
+}
+
+/**
+ * Filter a full system response to what the player is allowed to see
+ * based on their visibility level.
+ *
+ * @param array  $response   Full response array (mutated in-place)
+ * @param string $level      'own'|'active'|'stale'|'unknown'
+ * @param array|null $intel  Intel snapshot for stale/unknown views
+ * @return array             Modified response with visibility metadata
+ */
+function apply_fog_of_war(array $response, string $level, ?string $scoutedAt, ?array $intel): array {
+    $response['visibility'] = [
+        'level'      => $level,
+        'scouted_at' => $scoutedAt,
+    ];
+
+    if ($level === 'own' || $level === 'active') {
+        // Full data - no filtering needed
+        return $response;
+    }
+
+    if ($level === 'stale' && $intel !== null) {
+        // Return frozen snapshot, strip live data
+        foreach ($response['planets'] as $idx => $slot) {
+            $pp     = $slot['player_planet'] ?? null;
+            $snapPl = null;
+            foreach ($intel['planets'] as $sp) {
+                if ((int)$sp['position'] === (int)$slot['position']) { $snapPl = $sp; break; }
+            }
+            if ($pp && $snapPl) {
+                // Replace live player_planet with snapshot (no resources)
+                $response['planets'][$idx]['player_planet'] = $snapPl + ['_stale' => true];
+            }
+        }
+        $response['fleets_in_system'] = $intel['fleets'] ?? [];
+        $response['star_installations'] = $intel['star_installations'] ?? [];
+        return $response;
+    }
+
+    // 'unknown' or stale with no intel: strip all player data
+    foreach ($response['planets'] as $idx => $slot) {
+        $response['planets'][$idx]['player_planet'] = null;
+    }
+    $response['fleets_in_system']   = [];
+    $response['star_installations'] = [];
+    return $response;
+}
+
 function vessel_manifest(array $ships, int $capPerType = 10): array {
     $manifest = [];
     foreach ($ships as $type => $count) {
@@ -192,6 +447,27 @@ function research_time(array $cost, int $labLevel): int {
     $hours = ($cost['metal'] + $cost['crystal'])
            / (1000 * (1 + $labLevel) * GAME_SPEED);
     return max(1, (int)round($hours * 3600));
+}
+
+function check_research_prereqs(PDO $db, int $uid, string $tech): array {
+    $prereqs = RESEARCH_PREREQS[$tech] ?? [];
+    if (empty($prereqs)) {
+        return ['can_research' => true, 'missing_prereqs' => []];
+    }
+    $missing = [];
+    foreach ($prereqs as [$reqTech, $reqLevel]) {
+        $stmt = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=?');
+        $stmt->execute([$uid, $reqTech]);
+        $res = $stmt->fetch();
+        $level = (int)($res['level'] ?? 0);
+        if ($level < $reqLevel) {
+            $missing[] = ['tech' => $reqTech, 'required_level' => $reqLevel, 'current_level' => $level];
+        }
+    }
+    return [
+        'can_research' => empty($missing),
+        'missing_prereqs' => $missing,
+    ];
 }
 
 // ─── Ship costs / stats ──────────────────────────────────────────────────────
@@ -504,9 +780,191 @@ function population_growth(int $population, int $maxPopulation, int $happiness, 
     return (int)round($base * $happinessF * max(0.0, $foodF));
 }
 
+/**
+ * Aggregate dynamic empire effects from species, government, civics and faction pressure.
+ * Safe fallback: if politics tables are missing, returns neutral values.
+ */
+function empire_dynamic_effects(PDO $db, int $userId): array {
+    static $cache = [];
+    if (isset($cache[$userId])) {
+        return $cache[$userId];
+    }
+
+    $effects = [
+        'resource_output_mult' => 0.0,
+        'food_output_mult' => 0.0,
+        'pop_growth_mult' => 0.0,
+        'happiness_flat' => 0.0,
+        'public_services_flat' => 0.0,
+        'research_speed_mult' => 0.0,
+        'fleet_readiness_mult' => 0.0,
+        'faction_pressure_mult' => 0.0,
+        'faction_pressure_score' => 0.0,
+        'unrest_active' => 0.0,
+        'unrest_severity' => 0.0,
+    ];
+
+    try {
+        $stmt = $db->prepare(
+            'SELECT ep.primary_species_key, ep.government_key,
+                    sp.effects_json AS species_effects,
+                    gf.effects_json AS government_effects
+             FROM user_empire_profile ep
+             LEFT JOIN species_profiles sp ON sp.species_key = ep.primary_species_key
+             LEFT JOIN government_forms gf ON gf.government_key = ep.government_key
+             WHERE ep.user_id = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        $profile = $stmt->fetch();
+        if ($profile) {
+            $effects = merge_effect_bundle($effects, json_decode((string)($profile['species_effects'] ?? '{}'), true));
+            $effects = merge_effect_bundle($effects, json_decode((string)($profile['government_effects'] ?? '{}'), true));
+        }
+    } catch (Throwable $e) {
+        // Politics migration not applied yet -> keep neutral values.
+    }
+
+    try {
+        $civicStmt = $db->prepare(
+            'SELECT gc.effects_json
+             FROM user_empire_civics uc
+             JOIN government_civics gc ON gc.civic_key = uc.civic_key
+             WHERE uc.user_id = ?'
+        );
+        $civicStmt->execute([$userId]);
+        foreach ($civicStmt->fetchAll() as $row) {
+            $effects = merge_effect_bundle($effects, json_decode((string)($row['effects_json'] ?? '{}'), true));
+        }
+    } catch (Throwable $e) {
+        // Optional until migration is applied.
+    }
+
+    try {
+        $fStmt = $db->prepare(
+            'SELECT faction_key, approval, support
+             FROM user_faction_state
+             WHERE user_id = ?'
+        );
+        $fStmt->execute([$userId]);
+        $rows = $fStmt->fetchAll();
+        if ($rows) {
+            $weighted = 0.0;
+            $weightSum = 0.0;
+            foreach ($rows as $row) {
+                $approval = (float)($row['approval'] ?? 50.0);
+                $support = max(1.0, (float)($row['support'] ?? 1.0));
+                $weighted += $approval * $support;
+                $weightSum += $support;
+
+                $key = (string)($row['faction_key'] ?? '');
+                if ($key === 'industrialists') {
+                    if ($approval >= 60) $effects['resource_output_mult'] += 0.07;
+                    if ($approval <= 40) $effects['resource_output_mult'] -= 0.05;
+                } elseif ($key === 'scientists') {
+                    if ($approval >= 60) $effects['research_speed_mult'] += 0.10;
+                    if ($approval <= 40) $effects['research_speed_mult'] -= 0.08;
+                } elseif ($key === 'civic_union') {
+                    if ($approval >= 60) $effects['pop_growth_mult'] += 0.06;
+                    if ($approval <= 45) $effects['pop_growth_mult'] -= 0.10;
+                } elseif ($key === 'security_bloc') {
+                    if ($approval >= 60) $effects['fleet_readiness_mult'] += 0.10;
+                    if ($approval <= 40) $effects['happiness_flat'] -= 3.0;
+                }
+            }
+
+            $pressure = $weightSum > 0 ? ($weighted / $weightSum) : 50.0;
+            $effects['faction_pressure_score'] = round($pressure, 2);
+
+            $pressureMult = max(-0.8, min(0.8, (float)$effects['faction_pressure_mult']));
+            if ($pressure < 45.0) {
+                $delta = min(18.0, (45.0 - $pressure) / 2.0);
+                $effects['happiness_flat'] -= $delta * (1.0 + $pressureMult);
+            } elseif ($pressure > 65.0) {
+                $delta = min(10.0, ($pressure - 65.0) / 3.0);
+                $effects['happiness_flat'] += $delta * (1.0 - $pressureMult);
+            }
+        }
+    } catch (Throwable $e) {
+        // Optional until migration is applied.
+    }
+
+    try {
+        $uStmt = $db->prepare(
+            'SELECT progress, stage, approach_key
+             FROM situation_states
+             WHERE user_id = ? AND situation_type = \'faction_unrest\' AND status = \'active\'
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $uStmt->execute([$userId]);
+        $unrest = $uStmt->fetch();
+        if ($unrest) {
+            $stage = max(1, min(4, (int)($unrest['stage'] ?? 1)));
+            $progress = max(0.0, min(100.0, (float)($unrest['progress'] ?? 0.0)));
+            $severity = max($stage / 4.0, $progress / 100.0);
+            $approach = strtolower(trim((string)($unrest['approach_key'] ?? 'conciliation')));
+
+            $effects['unrest_active'] = 1.0;
+            $effects['unrest_severity'] = round($severity, 4);
+
+            // Baseline unrest penalties to economy and welfare.
+            $effects['resource_output_mult'] -= 0.08 * $severity;
+            $effects['food_output_mult'] -= 0.05 * $severity;
+            $effects['happiness_flat'] -= 7.0 * $severity;
+            $effects['public_services_flat'] -= 4.0 * $severity;
+
+            // Approach-specific tradeoffs (Stellaris-like policy dilemma).
+            if ($approach === 'repression') {
+                $effects['fleet_readiness_mult'] += 0.06 * $severity;
+                $effects['happiness_flat'] -= 3.0 * $severity;
+            } elseif ($approach === 'reforms') {
+                $effects['happiness_flat'] += 2.5 * $severity;
+                $effects['resource_output_mult'] -= 0.04 * $severity;
+                $effects['pop_growth_mult'] += 0.03 * $severity;
+            } else { // conciliation/default
+                $effects['happiness_flat'] += 1.2 * $severity;
+                $effects['resource_output_mult'] -= 0.02 * $severity;
+            }
+        }
+    } catch (Throwable $e) {
+        // Optional until migration is applied.
+    }
+
+    $effects['resource_output_mult'] = max(-0.50, min(0.80, (float)$effects['resource_output_mult']));
+    $effects['food_output_mult'] = max(-0.50, min(0.80, (float)$effects['food_output_mult']));
+    $effects['pop_growth_mult'] = max(-0.50, min(0.80, (float)$effects['pop_growth_mult']));
+    $effects['happiness_flat'] = max(-30.0, min(30.0, (float)$effects['happiness_flat']));
+    $effects['public_services_flat'] = max(-25.0, min(25.0, (float)$effects['public_services_flat']));
+    $effects['research_speed_mult'] = max(-0.50, min(0.80, (float)$effects['research_speed_mult']));
+    $effects['fleet_readiness_mult'] = max(-0.50, min(0.80, (float)$effects['fleet_readiness_mult']));
+
+    $cache[$userId] = $effects;
+    return $effects;
+}
+
+function merge_effect_bundle(array $base, $bundle): array {
+    if (!is_array($bundle)) {
+        return $base;
+    }
+    foreach ($bundle as $key => $value) {
+        if (!array_key_exists($key, $base)) {
+            continue;
+        }
+        $base[$key] = (float)$base[$key] + (float)$value;
+    }
+    return $base;
+}
+
+function clamp_int_range(int $value, int $min, int $max): int {
+    if ($value < $min) return $min;
+    if ($value > $max) return $max;
+    return $value;
+}
+
 function update_colony_resources(PDO $db, int $colonyId): void {
     $stmt = $db->prepare(
-        'SELECT c.id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
+        'SELECT c.id, c.user_id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
                 c.energy, c.population, c.max_population, c.happiness,
                 c.public_services, c.last_update, c.colony_type,
                 p.temp_max, p.richness_metal, p.richness_crystal,
@@ -604,6 +1062,19 @@ function update_colony_resources(PDO $db, int $colonyId): void {
     // Agricultural colony type bonus
     $colonyType = $row['colony_type'] ?? 'balanced';
     if ($colonyType === 'agricultural') $foodProdPerH *= 1.5;
+
+    $userId = (int)($row['user_id'] ?? 0);
+    $dynamicEffects = $userId > 0 ? empire_dynamic_effects($db, $userId) : [
+        'resource_output_mult' => 0.0,
+        'food_output_mult' => 0.0,
+        'pop_growth_mult' => 0.0,
+        'happiness_flat' => 0.0,
+        'public_services_flat' => 0.0,
+    ];
+
+    $foodProdPerH *= (1.0 + (float)($dynamicEffects['food_output_mult'] ?? 0.0));
+    $foodProdPerH = max(0.0, $foodProdPerH);
+
     // Population consumes 1 food/h per 100 people
     $foodConsumedPerH = $population / 100.0;
     $foodCoverage     = $foodConsumedPerH > 0
@@ -612,7 +1083,8 @@ function update_colony_resources(PDO $db, int $colonyId): void {
     $foodCap          = food_storage_cap($fsL);
 
     // ── Raw-resource production (richness + efficiency + happiness productivity) ──
-    $prodMulti     = happiness_productivity($happiness) * $efficiency;
+    $resourceOutputMult = (float)($dynamicEffects['resource_output_mult'] ?? 0.0);
+    $prodMulti     = happiness_productivity($happiness) * $efficiency * (1.0 + $resourceOutputMult);
     $metalProdH    = metal_production($mmL)                               * $richM  * $prodMulti;
     $crystalProdH  = crystal_production($cmL)                             * $richC  * $prodMulti;
     $deutProdH     = deuterium_production($dsL, (int)($row['temp_max'] ?? 20)) * $richD  * $prodMulti;
@@ -627,15 +1099,26 @@ function update_colony_resources(PDO $db, int $colonyId): void {
     // ── Colony-type production bonuses ────────────────────────────────────
     switch ($colonyType) {
         case 'mining':
-            $metalProdH   *= 1.3;
-            $crystalProdH *= 1.3;
+            // +20% to all extractable resources
+            $metalProdH   *= 1.2;
+            $crystalProdH *= 1.2;
+            $deutProdH    *= 1.2;
+            $rareProdH    *= 1.2;
+            break;
+        case 'agricultural':
+            // +30% food (already applied above)
+            // Agricultural colonies also get +15% happiness bonus (applied below)
+            break;
+        case 'research':
+            // Research time bonus handled in research_time() function
             break;
         case 'industrial':
-        case 'research':
-            $metalProdH   *= 0.9;
-            $crystalProdH *= 0.9;
-            $deutProdH    *= 0.9;
+            // Industrial build time/cost bonus handled in building_time() / ship_cost() functions
             break;
+        case 'military':
+            // Military ship stat bonuses handled in ship combat calculations
+            break;
+        // balanced: no bonuses
     }
 
     // ── Colony manager bonus ──────────────────────────────────────────────
@@ -669,15 +1152,31 @@ function update_colony_resources(PDO $db, int $colonyId): void {
 
     // ── Public services index ─────────────────────────────────────────────
     $newPublicServices = compute_public_services($hoL, $scL, $seL, $population);
+    $newPublicServices = clamp_int_range(
+        $newPublicServices + (int)round((float)($dynamicEffects['public_services_flat'] ?? 0.0)),
+        0,
+        100
+    );
 
     // ── Happiness ────────────────────────────────────────────────────────
     $newHappiness = compute_happiness($foodCoverage, $energyBalance, $newPublicServices);
+    $newHappiness = clamp_int_range(
+        $newHappiness + (int)round((float)($dynamicEffects['happiness_flat'] ?? 0.0)),
+        0,
+        100
+    );
+    
+    // ── Colony-type happiness bonuses ─────────────────────────────────────
+    if ($colonyType === 'agricultural') {
+        $newHappiness = clamp_int_range($newHappiness + 15, 0, 100);
+    }
 
     // ── Population max (500 base + habitat buildings) ─────────────────────
     $newMaxPop = 500 + habitat_capacity($haL);
 
     // ── Population growth ─────────────────────────────────────────────────
     $growthPerH     = population_growth($population, $newMaxPop, $newHappiness, $foodCoverage);
+    $growthPerH     = (int)round($growthPerH * (1.0 + (float)($dynamicEffects['pop_growth_mult'] ?? 0.0)));
     $newPopulation  = max(1, min($newMaxPop, $population + (int)round($growthPerH * $deltaH)));
 
     // ── Persist ───────────────────────────────────────────────────────────
@@ -706,6 +1205,112 @@ function update_all_colonies(PDO $db, int $userId): void {
     foreach ($stmt->fetchAll() as $row) {
         update_colony_resources($db, (int)$row['id']);
     }
+}
+
+/**
+ * Start/resolve internal-politics situations from weighted faction approval.
+ */
+function apply_faction_pressure_situations(PDO $db, int $userId): array {
+    $result = [
+        'triggered' => false,
+        'resolved' => false,
+        'faction_pressure_score' => null,
+        'active_situation_id' => null,
+    ];
+
+    try {
+        $stmt = $db->prepare('SELECT approval, support FROM user_faction_state WHERE user_id = ?');
+        $stmt->execute([$userId]);
+        $rows = $stmt->fetchAll();
+        if (!$rows) {
+            return $result;
+        }
+
+        $weighted = 0.0;
+        $weightSum = 0.0;
+        foreach ($rows as $row) {
+            $approval = (float)($row['approval'] ?? 50.0);
+            $support = max(1.0, (float)($row['support'] ?? 1.0));
+            $weighted += $approval * $support;
+            $weightSum += $support;
+        }
+        $score = $weightSum > 0 ? ($weighted / $weightSum) : 50.0;
+        $result['faction_pressure_score'] = round($score, 2);
+
+        $check = $db->prepare(
+            'SELECT id, status
+             FROM situation_states
+             WHERE user_id = ? AND situation_type = \'faction_unrest\' AND status = \'active\'
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $check->execute([$userId]);
+        $active = $check->fetch();
+
+        $triggerThreshold = defined('POLITICS_UNREST_TRIGGER_APPROVAL')
+            ? (float)POLITICS_UNREST_TRIGGER_APPROVAL
+            : 45.0;
+        $recoverThreshold = defined('POLITICS_UNREST_RECOVERY_APPROVAL')
+            ? (float)POLITICS_UNREST_RECOVERY_APPROVAL
+            : 62.0;
+        $progressPerHour = defined('POLITICS_UNREST_PROGRESS_PER_HOUR')
+            ? (float)POLITICS_UNREST_PROGRESS_PER_HOUR
+            : 1.0;
+
+        if ($score < $triggerThreshold && !$active) {
+            $db->prepare(
+                'INSERT INTO situation_states (
+                    user_id, colony_id, target_type, target_id, situation_type, status,
+                    progress, stage, approach_key, approach_locked,
+                    payload_json, monthly_deltas_json,
+                    started_at, last_tick_at, ended_at
+                 )
+                 VALUES (
+                    ?, NULL, \'empire\', NULL, \'faction_unrest\', \'active\',
+                    5.0, 1, \'conciliation\', 0,
+                    ?, ?,
+                    NOW(), NOW(), NULL
+                 )'
+            )->execute([
+                $userId,
+                json_encode([
+                    'origin' => 'faction_pressure',
+                    'trigger_score' => round($score, 2),
+                ]),
+                json_encode([
+                    'progress_per_hour' => $progressPerHour,
+                    'approach_multipliers' => [
+                        'conciliation' => 0.85,
+                        'repression' => 1.35,
+                        'reforms' => 0.65,
+                    ],
+                ]),
+            ]);
+            $result['triggered'] = true;
+            $result['active_situation_id'] = (int)$db->lastInsertId();
+            return $result;
+        }
+
+        if ($active) {
+            $result['active_situation_id'] = (int)$active['id'];
+            if ($score >= $recoverThreshold) {
+                $db->prepare(
+                    'UPDATE situation_states
+                     SET status = \'resolved\',
+                         progress = LEAST(100, GREATEST(progress, 75)),
+                         stage = GREATEST(stage, 3),
+                         ended_at = NOW(),
+                         updated_at = NOW()
+                     WHERE id = ? AND user_id = ?'
+                )->execute([(int)$active['id'], $userId]);
+                $result['resolved'] = true;
+            }
+        }
+    } catch (Throwable $e) {
+        // Optional system until migrations are applied.
+    }
+
+    return $result;
 }
 
 /**
@@ -808,6 +1413,34 @@ const RESEARCH_BASE_COST = [
     'weapons_tech'            => ['metal' =>  800, 'crystal' =>  200, 'deuterium' =>    0],
     'shielding_tech'          => ['metal' =>  200, 'crystal' =>  600, 'deuterium' =>    0],
     'armor_tech'              => ['metal' =>  800, 'crystal' =>    0, 'deuterium' =>    0],
+];
+
+const RESEARCH_PREREQS = [
+    // Base techs (no prerequisites)
+    'energy_tech'        => [],
+    'computer_tech'      => [],
+    'weapons_tech'       => [],
+
+    // Tier 1: depend on base techs
+    'laser_tech'         => [['energy_tech', 1]],
+    'combustion_drive'   => [['energy_tech', 1]],
+    'espionage_tech'     => [['computer_tech', 1]],
+    'shielding_tech'     => [['energy_tech', 2], ['weapons_tech', 1]],
+    'armor_tech'         => [['weapons_tech', 2]],
+
+    // Tier 2: depend on Tier 1
+    'ion_tech'           => [['laser_tech', 2], ['energy_tech', 3]],
+    'impulse_drive'      => [['combustion_drive', 2], ['energy_tech', 3]],
+    'hyperspace_tech'    => [['impulse_drive', 2], ['computer_tech', 2]],
+    'plasma_tech'        => [['energy_tech', 4], ['ion_tech', 2], ['weapons_tech', 3]],
+
+    // Tier 3: depend on Tier 2
+    'astrophysics'       => [['hyperspace_tech', 2], ['impulse_drive', 3]],
+    'hyperspace_drive'   => [['impulse_drive', 5], ['hyperspace_tech', 3]],
+
+    // Tier 4: depend on Tier 3
+    'intergalactic_network' => [['astrophysics', 7], ['computer_tech', 10]],
+    'graviton_tech'         => [['intergalactic_network', 5], ['hyperspace_drive', 8]],
 ];
 
 const SHIP_STATS = [

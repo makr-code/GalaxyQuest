@@ -53,6 +53,14 @@
 
       this.scene = new THREE.Scene();
       this.scene.background = new THREE.Color(0x050a1a);
+      this.renderFrames = {
+        world: new THREE.Group(),
+        galaxy: new THREE.Group(),
+        system: new THREE.Group(),
+      };
+      this.scene.add(this.renderFrames.world);
+      this.renderFrames.world.add(this.renderFrames.galaxy);
+      this.renderFrames.world.add(this.renderFrames.system);
 
       const w = Math.max(320, container.clientWidth);
       const h = Math.max(220, container.clientHeight);
@@ -85,6 +93,8 @@
       this.raycaster = new THREE.Raycaster();
       this.raycaster.params.Points.threshold = 8;
       this.pointer = new THREE.Vector2();
+      this.pointerPx = new THREE.Vector2();
+      this.prevPointerPx = new THREE.Vector2();
       this.lodProfile = this._detectLodProfile();
       this.dynamicClusterLod = true;
       this.clusterDensityMode = 'auto';
@@ -104,6 +114,7 @@
       this.focusTarget = null;
       this.systemMode = false;
       this.systemSourceStar = null;
+      this.systemOrigin = new THREE.Vector3(0, 0, 0);
       this.systemPlanetEntries = [];
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
@@ -111,6 +122,11 @@
       this.systemCloudEntries = [];
       this.clusterAuraEntries = [];
       this.clusterSummaryData = [];
+      this.clusterColorPalette = {
+        player: '#5de0a0',
+        pve: '#ff7b72',
+        neutral: '#6a8cc9',
+      };
       this.clusterBoundsVisible = true;
       this.hoverClusterIndex = -1;
       this.selectedClusterIndex = -1;
@@ -127,6 +143,24 @@
       this.persistentHoverDistance = 220;
       this._persistentHoverCacheUntil = 0;
       this._persistentHoverIndex = -1;
+      this.hoverMagnetEnabled = true;
+      this.clickMagnetEnabled = true;
+      this.hoverMagnetStarPx = 24;
+      this.hoverMagnetPlanetPx = 30;
+      this.hoverMagnetClusterPx = 28;
+      this._pointerSpeedPxPerMs = 0;
+      this._lastPointerEventTs = performance.now();
+      try {
+        const rawHoverMagnet = window.localStorage?.getItem('gq:hover:magnet');
+        if (rawHoverMagnet) {
+          const cfg = JSON.parse(rawHoverMagnet);
+          if (typeof cfg?.enabled === 'boolean') this.hoverMagnetEnabled = cfg.enabled;
+          if (typeof cfg?.clickEnabled === 'boolean') this.clickMagnetEnabled = cfg.clickEnabled;
+          if (Number.isFinite(Number(cfg?.starPx))) this.hoverMagnetStarPx = THREE.MathUtils.clamp(Number(cfg.starPx), 8, 64);
+          if (Number.isFinite(Number(cfg?.planetPx))) this.hoverMagnetPlanetPx = THREE.MathUtils.clamp(Number(cfg.planetPx), 8, 72);
+          if (Number.isFinite(Number(cfg?.clusterPx))) this.hoverMagnetClusterPx = THREE.MathUtils.clamp(Number(cfg.clusterPx), 8, 72);
+        }
+      } catch (_) {}
       this.transitionStableSpeed = 22;
       this.transitionStableMinMs = 160;
       this._cameraStableSinceMs = performance.now();
@@ -184,33 +218,42 @@
       this.scene.add(fill);
 
       this.clusterAuraGroup = new THREE.Group();
-      this.scene.add(this.clusterAuraGroup);
+      this.renderFrames.galaxy.add(this.clusterAuraGroup);
 
       this.systemSkyGroup = new THREE.Group();
       this.systemSkyGroup.visible = false;
-      this.scene.add(this.systemSkyGroup);
+      this.renderFrames.system.add(this.systemSkyGroup);
 
       this.systemBackdrop = new THREE.Group();
       this.systemBackdrop.visible = false;
-      this.scene.add(this.systemBackdrop);
+      this.renderFrames.system.add(this.systemBackdrop);
 
       this.systemOrbitGroup = new THREE.Group();
       this.systemOrbitGroup.visible = false;
-      this.scene.add(this.systemOrbitGroup);
+      this.renderFrames.system.add(this.systemOrbitGroup);
 
       this.systemBodyGroup = new THREE.Group();
       this.systemBodyGroup.visible = false;
-      this.scene.add(this.systemBodyGroup);
+      this.renderFrames.system.add(this.systemBodyGroup);
 
       this.systemFacilityGroup = new THREE.Group();
       this.systemFacilityGroup.visible = false;
-      this.scene.add(this.systemFacilityGroup);
+      this.renderFrames.system.add(this.systemFacilityGroup);
 
       this.systemFleetGroup = new THREE.Group();
       this.systemFleetGroup.visible = false;
-      this.scene.add(this.systemFleetGroup);
+      this.renderFrames.system.add(this.systemFleetGroup);
+
+      this.systemStarInstallationGroup = new THREE.Group();
+      this.systemStarInstallationGroup.visible = false;
+      this.renderFrames.system.add(this.systemStarInstallationGroup);
+
+      this.systemTrafficGroup = new THREE.Group();
+      this.systemTrafficGroup.visible = false;
+      this.renderFrames.system.add(this.systemTrafficGroup);
 
       this._buildGalaxyCoreStars();
+      this._buildGalacticCore();
       this._buildHoverMarker();
     }
 
@@ -252,7 +295,199 @@
       });
     }
 
+    // Galactic center structure: black hole, lensing glow, accretion disk and jets.
+    _buildGalacticCore() {
+      this.galacticCoreGroup = new THREE.Group();
+      this.galacticCoreGroup.frustumCulled = false;
+      this.renderFrames.galaxy.add(this.galacticCoreGroup);
+
+            // ── Event horizon (perfect black sphere) ────────────────────────────────
+      const bhMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(4.2, 28, 28),
+        new THREE.MeshBasicMaterial({ color: 0x000000 }),
+      );
+      bhMesh.userData.kind = 'black-hole';
+      this.galacticCoreGroup.add(bhMesh);
+
+            // ── Photon sphere / gravitational lensing glow ───────────────────────────
+      const lensMat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide,
+        uniforms: {
+          uTime: { value: 0 },
+          uColor: { value: new THREE.Color(0xff8822) },
+        },
+        vertexShader: `
+                varying vec3 vNormal;
+                void main() {
+                  vNormal = normalize(normalMatrix * normal);
+                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }`,
+        fragmentShader: `
+                uniform vec3  uColor;
+                uniform float uTime;
+                varying vec3  vNormal;
+                void main() {
+                  float rim = 1.0 - abs(dot(vNormal, vec3(0.0, 0.0, 1.0)));
+                  rim = pow(rim, 3.2);
+                  float flicker = 0.88 + 0.12 * sin(uTime * 1.7 + vNormal.x * 4.2);
+                  gl_FragColor = vec4(uColor * flicker, rim * 0.72);
+                }`,
+      });
+      const lensGlow = new THREE.Mesh(new THREE.SphereGeometry(5.6, 22, 22), lensMat);
+      lensGlow.userData.kind = 'bh-lens';
+      this.galacticCoreGroup.add(lensGlow);
+
+            // ── Accretion disk ────────────────────────────────────────────────────────
+            // Thin torus ring; orange-white gradient via vertex shader.
+      const diskMat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        uniforms: {
+          uTime: { value: 0 },
+        },
+        vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                  vUv = uv;
+                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }`,
+        fragmentShader: `
+                uniform float uTime;
+                varying vec2 vUv;
+                void main() {
+                  float angle = atan(vUv.y - 0.5, vUv.x - 0.5);
+                  float swirl = sin(angle * 6.0 - uTime * 1.4) * 0.5 + 0.5;
+                  float fade  = smoothstep(0.0, 0.18, vUv.x) * smoothstep(1.0, 0.82, vUv.x);
+                  vec3  col   = mix(vec3(1.0, 0.55, 0.10), vec3(1.0, 0.92, 0.62), swirl);
+                  gl_FragColor = vec4(col, fade * (0.55 + swirl * 0.30));
+                }`,
+      });
+      const diskGeo = new THREE.RingGeometry(5.8, 18.0, 128, 4);
+      const disk = new THREE.Mesh(diskGeo, diskMat);
+      disk.rotation.x = Math.PI / 2;
+      disk.userData.kind = 'bh-disk';
+      this.galacticCoreGroup.add(disk);
+
+            // ── Relativistic jets (Hawking tribute) ───────────────────────────────────
+            // Bipolar particle streams along the galactic rotation axis (y in Three.js).
+            // Modelled after AGN relativistic jets — a consequence of the ergosphere
+            // spin-energy extraction mechanism that Hawking's thermodynamic framework
+            // helped explain. Each jet is an animated particle cloud.
+          this._buildJet(+1);  // north jet
+          this._buildJet(-1);  // south jet
+
+            // ── Central point-source label (for information overlay) ─────────────────
+      this.galacticCoreGroup.userData.isCoreGroup = true;
+    }
+
+    /**
+     * Build one relativistic jet (direction: ±1 along Y).
+     * Particles accelerate outward in a narrow cone, fading with distance.
+     * @param {number} dir +1 for north jet, -1 for south jet
+     */
+    _buildJet(dir) {
+      const JET_PARTICLES = 1800;
+      const JET_LENGTH = 300;   // max extent in sceneUnits (≈ 300 ly-scale)
+      const JET_HALF_ANGLE = 0.11; // cone half-angle in radians (~6.3°)
+
+      const positions = new Float32Array(JET_PARTICLES * 3);
+      const colors = new Float32Array(JET_PARTICLES * 3);
+      const sizes = new Float32Array(JET_PARTICLES);
+      const phases = new Float32Array(JET_PARTICLES);  // offset for animation
+
+      for (let i = 0; i < JET_PARTICLES; i++) {
+        // Uniform distribution along jet axis, squared to make inner region denser.
+        const t = Math.pow(Math.random(), 0.72);             // 0..1 → biased toward base
+        const yt = t * JET_LENGTH;
+        // Cone spread widens linearly.
+        const spread = yt * JET_HALF_ANGLE;
+        const phi = Math.random() * Math.PI * 2;
+        const rho = Math.random() * spread;
+
+        const p = i * 3;
+        positions[p + 0] = Math.cos(phi) * rho;
+        positions[p + 1] = dir * yt;
+        positions[p + 2] = Math.sin(phi) * rho;
+
+        // Colour: electric blue-white at base, fading cyan toward tip.
+        const heat = 1.0 - t * 0.82;
+        colors[p + 0] = heat * 0.50;
+        colors[p + 1] = heat * 0.80 + (1.0 - heat) * 0.40;
+        colors[p + 2] = 1.0;
+
+        sizes[i] = 1.8 + (1.0 - t) * 2.6;
+        phases[i] = Math.random();
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+      geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+      geo.setAttribute('aPhase', new THREE.BufferAttribute(phases, 1));
+
+      const mat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: {
+          uTime: { value: 0 },
+          uDir: { value: dir },
+          uJetLength: { value: JET_LENGTH },
+          uPointScale: { value: this.renderer.getPixelRatio() * 55.0 },
+        },
+        vertexShader: `
+                attribute vec3  aColor;
+                attribute float aSize;
+                attribute float aPhase;
+                varying   vec3  vColor;
+                varying   float vAlpha;
+                uniform   float uTime;
+                uniform   float uDir;
+                uniform   float uJetLength;
+                uniform   float uPointScale;
+
+                void main() {
+                  // Animate particles flowing outward; wrap via fract so they loop.
+                  float flow  = fract(aPhase + uTime * 0.055 * uDir);
+                  float dist  = flow * uJetLength;
+                  vec3  pos   = vec3(position.x, uDir * dist, position.z);
+
+                  vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                  float d = max(1.0, -mvPosition.z);
+                  gl_PointSize = max(0.8, aSize * uPointScale / d);
+                  gl_Position  = projectionMatrix * mvPosition;
+
+                  // Fade out toward tip
+                  float fade = 1.0 - flow * 0.88;
+                  vColor = aColor * fade;
+                  vAlpha = fade * 0.62;
+                }`,
+        fragmentShader: `
+                varying vec3  vColor;
+                varying float vAlpha;
+                void main() {
+                  vec2  uv = gl_PointCoord - vec2(0.5);
+                  float r2 = dot(uv, uv);
+                  if (r2 > 0.25) discard;
+                  float core = smoothstep(0.25, 0.0, r2);
+                  gl_FragColor = vec4(vColor, vAlpha * core);
+                }`,
+      });
+
+      const jet = new THREE.Points(geo, mat);
+      jet.frustumCulled = false;
+      jet.userData.kind = 'jet';
+      jet.userData.jetDir = dir;
+      this.galacticCoreGroup.add(jet);
+    }
+
     _buildGalaxyCoreStars() {
+
       const count = 3200;
       const positions = new Float32Array(count * 3);
       const colors = new Float32Array(count * 3);
@@ -329,7 +564,7 @@
 
       this.coreStars = new THREE.Points(geo, mat);
       this.coreStars.frustumCulled = false;
-      this.scene.add(this.coreStars);
+      this.renderFrames.galaxy.add(this.coreStars);
     }
 
     _buildHoverMarker() {
@@ -708,9 +943,50 @@
     }
 
     _clusterAuraColor(cluster) {
-      const color = String(cluster?.faction?.color || '#6a8cc9');
-      const value = Number.parseInt(color.replace('#', ''), 16);
-      return Number.isFinite(value) ? value : 0x6a8cc9;
+      const parseHexColor = (input, fallback) => {
+        const text = String(input || '').trim();
+        if (!text) return fallback;
+        const clean = text.startsWith('#') ? text.slice(1) : text;
+        if (!/^[0-9a-fA-F]{6}$/.test(clean)) return fallback;
+        const value = Number.parseInt(clean, 16);
+        return Number.isFinite(value) ? value : fallback;
+      };
+      const palette = this.clusterColorPalette || {};
+      const neutralColor = parseHexColor(palette.neutral, 0x6a8cc9);
+      const playerColor = parseHexColor(palette.player, neutralColor);
+      const pveColor = parseHexColor(palette.pve, 0xff7b72);
+      const faction = cluster?.faction || null;
+      const isPlayerFaction = !!(faction && (
+        faction.__isPlayer
+        || faction.is_player
+        || faction.isPlayer
+        || faction.player_controlled
+        || faction.controlled_by_player
+        || String(faction.role || '').toLowerCase() === 'player'
+      ));
+
+      if (isPlayerFaction) {
+        return parseHexColor(faction?.color, playerColor);
+      }
+      if (faction) {
+        return pveColor;
+      }
+      return neutralColor;
+    }
+
+    _toHexColor(colorValue, fallback = '#6a8cc9') {
+      const n = Number(colorValue);
+      if (!Number.isFinite(n)) return fallback;
+      return `#${(n >>> 0).toString(16).padStart(6, '0').slice(-6)}`;
+    }
+
+    setClusterColorPalette(palette = {}) {
+      this.clusterColorPalette = Object.assign({}, this.clusterColorPalette || {}, palette || {});
+      if (Array.isArray(this.clusterSummaryData) && this.clusterSummaryData.length) {
+        this._rebuildClusterAuras();
+        this.setClusterBoundsVisible(this.clusterBoundsVisible);
+      }
+      return Object.assign({}, this.clusterColorPalette);
     }
 
     setClusterAuras(clusters) {
@@ -776,18 +1052,19 @@
         this.clusterAuraGroup.visible = false;
         return;
       }
+      // Both clusterAuraGroup and starPoints are siblings under renderFrames.galaxy;
+      // their local transforms are already in the same coordinate space.
       this.clusterAuraGroup.visible = !!this.starPoints.visible;
-      this.clusterAuraGroup.position.copy(this.starPoints.position);
-      this.clusterAuraGroup.quaternion.copy(this.starPoints.quaternion);
-      this.clusterAuraGroup.scale.copy(this.starPoints.scale);
     }
 
     _clusterPayload(entry, index) {
       if (!entry) return null;
       const cluster = entry.cluster || {};
+      const resolvedColor = this._clusterAuraColor(cluster);
       return Object.assign({}, cluster, {
         __kind: 'cluster',
         __clusterIndex: index,
+        __clusterColor: this._toHexColor(resolvedColor, '#6a8cc9'),
         __clusterCenter: {
           x: Number(entry.center?.x || 0),
           y: Number(entry.center?.y || 0),
@@ -809,16 +1086,60 @@
     }
 
     _pickClusterBox() {
-      if (this.systemMode || !this.clusterBoundsVisible || !Array.isArray(this.clusterAuraEntries) || !this.clusterAuraEntries.length) return null;
+      if (this.systemMode || !this.clusterBoundsVisible || !Array.isArray(this.clusterAuraEntries) || !this.clusterAuraEntries.length) return -1;
       const targets = this.clusterAuraEntries
-        .map((entry) => entry?.hitMesh)
+        .flatMap((entry) => Array.isArray(entry?.wireMeshes)
+          ? entry.wireMeshes
+          : (entry?.wireMesh ? [entry.wireMesh] : []))
         .filter(Boolean);
-      if (!targets.length) return null;
+      if (!targets.length) return -1;
       this.raycaster.setFromCamera(this.pointer, this.camera);
+      // Edge-only picking: raise Line threshold so only the wireframe edges register hits
+      const prevLineThreshold = this.raycaster.params.Line?.threshold ?? 1;
+      if (this.raycaster.params.Line) this.raycaster.params.Line.threshold = 2.4;
       const hits = this.raycaster.intersectObjects(targets, false);
-      if (!hits.length) return null;
-      const hitObject = hits[0].object;
-      return this.clusterAuraEntries.findIndex((entry) => entry?.hitMesh === hitObject);
+      if (this.raycaster.params.Line) this.raycaster.params.Line.threshold = prevLineThreshold;
+      if (hits.length) {
+        let best = -1;
+        let bestD2 = Number.POSITIVE_INFINITY;
+        for (const hit of hits.slice(0, 16)) {
+          const hitObject = hit.object;
+          let idx = Number(hitObject?.userData?.clusterIndex);
+          if (!Number.isFinite(idx) || idx < 0) {
+            idx = this.clusterAuraEntries.findIndex((entry) => {
+              if (entry?.wireMesh === hitObject) return true;
+              return Array.isArray(entry?.wireMeshes) && entry.wireMeshes.includes(hitObject);
+            });
+          }
+          if (idx < 0) continue;
+          const entry = this.clusterAuraEntries[idx] || null;
+          const screenPos = this._clusterWorldScreenPosition(entry);
+          const radiusPx = this._clusterPickRadiusPx(entry);
+          if (!screenPos || !this._isWithinPickRadius(screenPos, radiusPx)) continue;
+          const d2 = this._pixelDistanceSq(screenPos, this.pointerPx);
+          if (d2 < bestD2) {
+            bestD2 = d2;
+            best = idx;
+          }
+        }
+        if (best >= 0) return best;
+      }
+
+      // Fallback: pure screen-space proximity to cluster centers when edge rays miss.
+      let fallbackIdx = -1;
+      let fallbackD2 = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < this.clusterAuraEntries.length; i++) {
+        const entry = this.clusterAuraEntries[i] || null;
+        const screenPos = this._clusterWorldScreenPosition(entry);
+        const radiusPx = this._clusterPickRadiusPx(entry);
+        if (!screenPos || !this._isWithinPickRadius(screenPos, radiusPx)) continue;
+        const d2 = this._pixelDistanceSq(screenPos, this.pointerPx);
+        if (d2 < fallbackD2) {
+          fallbackD2 = d2;
+          fallbackIdx = i;
+        }
+      }
+      return fallbackIdx;
     }
 
     _rebuildClusterAuras() {
@@ -859,8 +1180,16 @@
         const color = this._clusterAuraColor(cluster);
 
         // Echte Cluster-Netzstruktur: Nodes pro Sternsystem + Nachbarschaftssegmente.
+        // Stride-Sampling statt einfachem Slice: Gleichmäßig über die gesamte
+        // system_index-Reihenfolge (≈ radiale Ausdehnung) verteilt, damit Nodes
+        // den ganzen Cluster abdecken und nicht nur den inneren Teil.
         const maxNodes = 140;
-        const nodeStars = starsInRange.slice(0, maxNodes);
+        const nodeStars = starsInRange.length <= maxNodes
+          ? starsInRange
+          : (() => {
+              const stride = Math.ceil(starsInRange.length / maxNodes);
+              return starsInRange.filter((_, i) => i % stride === 0);
+            })();
         const nodes = nodeStars.map((star) => ({
           position: new THREE.Vector3(
             (Number(star.x_ly) || 0) * scale,
@@ -937,7 +1266,6 @@
           blending: THREE.AdditiveBlending,
         });
         const lineMesh = new THREE.LineSegments(lineGeo, lineMat);
-        this.clusterAuraGroup.add(lineMesh);
 
         const nodeMeshes = [];
         const clusterGroup = new THREE.Group();
@@ -967,11 +1295,44 @@
         bounds.max.addScalar(pad);
         const size = bounds.getSize(new THREE.Vector3());
         const center = bounds.getCenter(new THREE.Vector3());
-        const boxGeo = new THREE.BoxGeometry(
-          Math.max(2, size.x),
-          Math.max(2, size.y),
-          Math.max(2, size.z)
+        // Voxel stack: many smaller wire boxes (default 1x1x1 ly cells) instead of one large box.
+        const voxelLy = 1;
+        const voxelSize = new THREE.Vector3(
+          scale * voxelLy,
+          scale * voxelLy * 0.42,
+          scale * voxelLy
         );
+        const voxelMap = new Map();
+        let centroidXly = 0;
+        let centroidYly = 0;
+        let centroidZly = 0;
+        starsInRange.forEach((star) => {
+          const xLy = Number(star.x_ly || 0);
+          const yLy = Number(star.y_ly || 0);
+          const zLy = Number(star.z_ly || 0);
+          centroidXly += xLy;
+          centroidYly += yLy;
+          centroidZly += zLy;
+          const vx = Math.round(xLy / voxelLy);
+          const vy = Math.round(yLy / voxelLy);
+          const vz = Math.round(zLy / voxelLy);
+          const key = `${vx}|${vy}|${vz}`;
+          const slot = voxelMap.get(key) || { vx, vy, vz, count: 0 };
+          slot.count += 1;
+          voxelMap.set(key, slot);
+        });
+        const starCount = Math.max(1, starsInRange.length);
+        centroidXly /= starCount;
+        centroidYly /= starCount;
+        centroidZly /= starCount;
+        const voxelCells = [...voxelMap.values()]
+          .map((cell) => Object.assign(cell, {
+            d2: ((cell.vx - centroidXly) ** 2) + ((cell.vy - centroidYly) ** 2) + ((cell.vz - centroidZly) ** 2),
+          }))
+          .sort((a, b) => b.count - a.count || a.d2 - b.d2);
+        const maxVoxelBoxes = 560;
+        const clippedCells = voxelCells.slice(0, maxVoxelBoxes);
+        const boxGeo = new THREE.BoxGeometry(voxelSize.x, voxelSize.y, voxelSize.z);
         const wireGeo = new THREE.EdgesGeometry(boxGeo);
         const wireMat = new THREE.LineBasicMaterial({
           color,
@@ -980,23 +1341,19 @@
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         });
-        const wireMesh = new THREE.LineSegments(wireGeo, wireMat);
-        wireMesh.position.copy(center);
-        wireMesh.visible = !!this.clusterBoundsVisible;
-        clusterGroup.add(wireMesh);
-
-        const hitMesh = new THREE.Mesh(
-          boxGeo.clone(),
-          new THREE.MeshBasicMaterial({
-            color,
-            transparent: true,
-            opacity: 0,
-            depthWrite: false,
-          })
-        );
-        hitMesh.position.copy(center);
-        hitMesh.visible = !!this.clusterBoundsVisible;
-        clusterGroup.add(hitMesh);
+        const wireMeshes = clippedCells.map((cell) => {
+          const wireMesh = new THREE.LineSegments(wireGeo, wireMat);
+          wireMesh.position.set(
+            cell.vx * scale,
+            cell.vz * scale * 0.42,
+            cell.vy * scale
+          );
+          wireMesh.visible = !!this.clusterBoundsVisible;
+          wireMesh.userData = Object.assign({}, wireMesh.userData, { clusterIndex: index });
+          clusterGroup.add(wireMesh);
+          return wireMesh;
+        });
+        const wireMesh = wireMeshes[0] || null;
 
         const systemsForCluster = systems.length
           ? systems.slice()
@@ -1011,9 +1368,9 @@
           segmentCount,
           phase: index * 0.7,
           wireMesh,
+          wireMeshes,
           wireMat,
           wireGeo,
-          hitMesh,
           center,
           size,
           systems: systemsForCluster,
@@ -1065,6 +1422,446 @@
         entry,
         spin: 0.22 + index * 0.02,
       };
+    }
+
+    // ── Faction aura ──────────────────────────────────────────────────────────
+
+    /**
+     * Build a pulsating faction-color aura ring around a colonised planet mesh.
+     * @param {object} entry    systemPlanetEntry (must have .mesh and .body)
+     * @param {string} colorHex  "#rrggbb" owner empire color
+     */
+    _buildPlanetFactionAura(entry, colorHex) {
+      if (!entry?.mesh || !colorHex) return;
+      const planetRadius = entry.mesh.geometry?.parameters?.radius ?? 4;
+      const auraRadius   = planetRadius * 1.55;
+      const color        = new THREE.Color(colorHex);
+
+      const auraVert = `
+        varying vec3 vNormal;
+        varying vec3 vWorldPos;
+        void main() {
+          vNormal   = normalize(normalMatrix * normal);
+          vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `;
+      const auraFrag = `
+        uniform float uTime;
+        uniform vec3  uColor;
+        uniform float uOpacity;
+        varying vec3  vNormal;
+        varying vec3  vWorldPos;
+        void main() {
+          float rim  = 1.0 - abs(dot(normalize(vNormal), vec3(0.0, 0.0, 1.0)));
+          float pulse = 0.65 + 0.35 * sin(uTime * 1.6);
+          float alpha = pow(rim, 2.4) * uOpacity * pulse;
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `;
+      const uniforms = {
+        uTime:    { value: 0 },
+        uColor:   { value: color.clone() },
+        uOpacity: { value: 0.55 },
+      };
+      const mat = new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader:   auraVert,
+        fragmentShader: auraFrag,
+        transparent:    true,
+        depthWrite:     false,
+        blending:       THREE.AdditiveBlending,
+        side:           THREE.FrontSide,
+      });
+      const auraMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(auraRadius, 20, 16),
+        mat,
+      );
+      auraMesh.userData = { kind: 'faction-aura', color, uniforms };
+      entry.mesh.add(auraMesh);
+
+      // Register for per-frame uTime update
+      this.systemAtmosphereEntries.push({
+        mesh:           auraMesh,
+        uniforms,
+        baseOpacity:    0.55,
+        pulseSpeed:     1.6,
+        pulseAmplitude: 0,
+        phase:          0,
+        baseScale:      new THREE.Vector3(1, 1, 1),
+        scaleAmplitude: 0,
+      });
+    }
+
+    // ── Star-orbit installations ───────────────────────────────────────────────
+
+    /**
+     * Build visual nodes for star-orbit installations (stargates, relay stations, …).
+     * Each installation gets its own elliptical orbit around the star.
+     * @param {object} star     Star descriptor
+     * @param {object} payload  System payload (payload.star_installations)
+     */
+    _buildStarInstallations(star, payload) {
+      const installs = Array.isArray(payload.star_installations) ? payload.star_installations : [];
+      if (!installs.length) return;
+
+      // Assign evenly-spaced orbital radii so installations don't overlap
+      const baseOrbitRadius = 290;
+      const radiusStep      = 38;
+
+      installs.forEach((install, index) => {
+        const type       = String(install.type || 'relay_station');
+        const level      = Math.max(1, Number(install.level || 1));
+        const colorHex   = String(install.owner_color || '#4af9ff');
+        const orbitRadius = baseOrbitRadius + index * radiusStep;
+        const orbitMinor  = orbitRadius * 0.88;
+        const initAngle   = (index / Math.max(1, installs.length)) * Math.PI * 2;
+        const orbitSpeed  = 0.035 / Math.sqrt(orbitRadius / 290);
+        const animState   = this._modelAnimStateForType(type, level);
+
+        const mesh = this._buildInstallationMesh(type, level, colorHex, animState);
+        if (!mesh) return;
+        mesh.userData = Object.assign(mesh.userData || {}, {
+          kind:        'star-installation',
+          installType: type,
+          level,
+          colorHex,
+          animState,
+          orbitRadius,
+          orbitMinor,
+        });
+        this.systemStarInstallationGroup.add(mesh);
+
+        // Build a faint orbit ring for the installation
+        const orbitCurve = new THREE.EllipseCurve(0, 0, orbitRadius, orbitMinor, 0, Math.PI * 2, false, 0);
+        const orbitPoints = orbitCurve.getPoints(96).map((p) => new THREE.Vector3(p.x, 0, p.y));
+        const orbitLine = new THREE.LineLoop(
+          new THREE.BufferGeometry().setFromPoints(orbitPoints),
+          new THREE.LineBasicMaterial({ color: new THREE.Color(colorHex), transparent: true, opacity: 0.22 }),
+        );
+        this.systemStarInstallationGroup.add(orbitLine);
+
+        this.systemStarInstallationEntries.push({
+          mesh,
+          orbitRadius,
+          orbitMinor,
+          angle:       initAngle,
+          speed:       orbitSpeed,
+          install,
+          position:    Number(install.position || 0),
+          owner:       String(install.owner || ''),
+          animState,
+          modelAnims:  this._extractModelAnimations(type),
+          elapsed:     0,
+        });
+      });
+    }
+
+    /**
+     * Build a Three.js Group for a given installation type using the JSON model
+     * descriptor (synchronously from the registry cache, falling back to a
+     * procedural primitive when the descriptor is not yet loaded).
+     * @param  {string} type       Model type key
+     * @param  {number} level      Building level (influences scale)
+     * @param  {string} colorHex   Owner faction color for tinting
+     * @returns {THREE.Group}
+     */
+    _buildInstallationMesh(type, level, colorHex, animState = 'idle') {
+      const registry = window.__GQ_ModelRegistry;
+      if (registry?.hasCached(type)) {
+        const group = registry.instantiate(type, colorHex, animState);
+        const s = 1 + (level - 1) * 0.12;
+        group.scale.setScalar(s);
+        return group;
+      }
+      // Fallback: procedural primitive until the model is loaded
+      return this._buildInstallationMeshProcedural(type, level, colorHex);
+    }
+
+    _buildInstallationMeshProcedural(type, level, colorHex) {
+      const color = new THREE.Color(colorHex);
+      const group = new THREE.Group();
+      const scale = 1 + (level - 1) * 0.12;
+
+      if (type === 'stargate') {
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(3.2, 0.22, 14, 60),
+          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.7, roughness: 0.25, metalness: 0.75 }),
+        );
+        ring.rotation.x = Math.PI / 2;
+        group.add(ring);
+        const core = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.55),
+          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.4, roughness: 0.1, metalness: 0.85 }),
+        );
+        group.add(core);
+      } else if (type === 'relay_station') {
+        const hub = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.6, 0.6, 1.6, 10),
+          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.28, roughness: 0.55, metalness: 0.5 }),
+        );
+        group.add(hub);
+        const panel = new THREE.Mesh(
+          new THREE.BoxGeometry(2.6, 0.12, 0.55),
+          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.3, metalness: 0.65, transparent: true, opacity: 0.88 }),
+        );
+        group.add(panel);
+      } else if (type === 'jump_inhibitor') {
+        const core = new THREE.Mesh(
+          new THREE.OctahedronGeometry(1.0),
+          new THREE.MeshStandardMaterial({ color: 0xaa2222, emissive: 0x880000, emissiveIntensity: 0.55, roughness: 0.4, metalness: 0.65 }),
+        );
+        group.add(core);
+        [0, Math.PI / 2, Math.PI / 4].forEach((rotY) => {
+          const ring = new THREE.Mesh(
+            new THREE.TorusGeometry(2.0, 0.14, 10, 40),
+            new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0xcc0000, emissiveIntensity: 0.9, roughness: 0.2, metalness: 0.7, transparent: true, opacity: 0.82 }),
+          );
+          ring.rotation.y = rotY;
+          group.add(ring);
+        });
+      } else if (type === 'deep_space_radar') {
+        const base = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.3, 0.45, 1.8, 8),
+          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.2, roughness: 0.6, metalness: 0.5 }),
+        );
+        group.add(base);
+        const dish = new THREE.Mesh(
+          new THREE.RingGeometry(1.4, 1.8, 28),
+          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.65, roughness: 0.25, metalness: 0.65, transparent: true, opacity: 0.88 }),
+        );
+        dish.position.set(0, 2.8, 0);
+        dish.rotation.x = Math.PI / 2;
+        group.add(dish);
+      } else {
+        // Generic fallback: wireframe octahedron
+        group.add(new THREE.Mesh(
+          new THREE.OctahedronGeometry(1.5, 1),
+          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.4, roughness: 0.45, metalness: 0.55, wireframe: true }),
+        ));
+      }
+
+      group.scale.setScalar(scale);
+      return group;
+    }
+
+    _extractModelAnimations(type) {
+      const registry = window.__GQ_ModelRegistry;
+      if (!registry?.hasCached(type) || typeof registry.getAnimations !== 'function') {
+        return [];
+      }
+      return registry.getAnimations(type);
+    }
+
+    _modelAnimStateForType(type, level) {
+      const t = String(type || '').toLowerCase();
+      const l = Math.max(1, Number(level || 1));
+
+      if (t === 'jump_inhibitor') return 'alert';
+      if (t === 'deep_space_radar' || t === 'relay_station') return 'active';
+      if (t === 'stargate' || t === 'space_station') return l >= 3 ? 'active' : 'idle';
+      return 'idle';
+    }
+
+    _installationDynamicAnimState(entry) {
+      const baseState = this._modelAnimStateForType(entry?.install?.type, entry?.install?.level);
+      const sensitivity = this._installationThreatSensitivity(entry);
+      const threat = this._installationThreatProfile(entry, sensitivity);
+      if (threat.score >= sensitivity.alertThreshold) return 'alert';
+      if (threat.score >= sensitivity.activeThreshold && baseState !== 'alert') return 'active';
+
+      const hasTraffic = this._installationHasTraffic(entry);
+      if (hasTraffic && baseState === 'idle') return 'active';
+
+      return baseState;
+    }
+
+    _installationThreatSensitivity(entry) {
+      const type = String(entry?.install?.type || entry?.mesh?.userData?.installType || '').toLowerCase();
+      switch (type) {
+        case 'jump_inhibitor':
+          return {
+            activeThreshold: 1,
+            alertThreshold: 2,
+            attackWeight: 3,
+            spyWeight: 1,
+            colonizeWeight: 0,
+            attackPackBonus: 2,
+            reconPackBonus: 1,
+          };
+        case 'deep_space_radar':
+          return {
+            activeThreshold: 1,
+            alertThreshold: 3,
+            attackWeight: 3,
+            spyWeight: 1,
+            colonizeWeight: 1,
+            attackPackBonus: 1,
+            reconPackBonus: 1,
+          };
+        case 'space_station':
+          return {
+            activeThreshold: 2,
+            alertThreshold: 3,
+            attackWeight: 3,
+            spyWeight: 1,
+            colonizeWeight: 1,
+            attackPackBonus: 1,
+            reconPackBonus: 1,
+          };
+        case 'relay_station':
+          return {
+            activeThreshold: 2,
+            alertThreshold: 4,
+            attackWeight: 3,
+            spyWeight: 1,
+            colonizeWeight: 1,
+            attackPackBonus: 1,
+            reconPackBonus: 1,
+          };
+        case 'stargate':
+          return {
+            activeThreshold: 2,
+            alertThreshold: 4,
+            attackWeight: 3,
+            spyWeight: 1,
+            colonizeWeight: 1,
+            attackPackBonus: 1,
+            reconPackBonus: 1,
+          };
+        default:
+          return {
+            activeThreshold: 1,
+            alertThreshold: 3,
+            attackWeight: 3,
+            spyWeight: 1,
+            colonizeWeight: 1,
+            attackPackBonus: 1,
+            reconPackBonus: 1,
+          };
+      }
+    }
+
+    _installationHasTraffic(entry) {
+      const pos = Number(entry?.position || entry?.install?.position || 0);
+      if (!pos) return false;
+      return this.systemFleetEntries.some((fleetEntry) => {
+        const fleet = fleetEntry?.fleet || {};
+        const origin = Number(fleet.origin_position || 0);
+        const target = Number(fleet.target_position || 0);
+        return origin === pos || target === pos;
+      });
+    }
+
+    _installationThreatProfile(entry, sensitivity = null) {
+      const owner = String(entry?.owner || entry?.install?.owner || '');
+      const pos = Number(entry?.position || entry?.install?.position || 0);
+      const s = sensitivity || this._installationThreatSensitivity(entry);
+      let score = 0;
+      let attackCount = 0;
+      let reconCount = 0;
+
+      this.systemFleetEntries.forEach((fleetEntry) => {
+        const fleet = fleetEntry?.fleet || {};
+        const mission = String(fleet.mission || '').toLowerCase();
+        const missionWeight = this._fleetThreatWeight(mission, s);
+        if (missionWeight <= 0) return;
+
+        const fleetOwner = String(fleet.owner || '');
+        if (owner && fleetOwner && fleetOwner === owner) return;
+
+        const target = Number(fleet.target_position || 0);
+        const origin = Number(fleet.origin_position || 0);
+        const touchesInstallation = (pos > 0 && target > 0 && target === pos)
+          || (pos > 0 && origin > 0 && origin === pos);
+        if (!touchesInstallation && pos > 0) return;
+
+        if (mission === 'attack') attackCount += 1;
+        if (mission === 'spy') reconCount += 1;
+
+        score += missionWeight;
+      });
+
+      if (attackCount >= 2) score += Number(s.attackPackBonus || 0);
+      if (reconCount >= 2) score += Number(s.reconPackBonus || 0);
+
+      return { score, attackCount, reconCount };
+    }
+
+    _fleetThreatWeight(mission, sensitivity = null) {
+      const s = sensitivity || {};
+      const m = String(mission || '').toLowerCase();
+      if (m === 'attack') return Number(s.attackWeight ?? 3);
+      if (m === 'spy') return Number(s.spyWeight ?? 1);
+      if (m === 'colonize') return Number(s.colonizeWeight ?? 1);
+      return 0;
+    }
+
+    _syncInstallationAnimationStates() {
+      const registry = window.__GQ_ModelRegistry;
+      if (!registry || typeof registry.setAnimationState !== 'function') return;
+
+      this.systemStarInstallationEntries.forEach((entry) => {
+        if (!entry?.mesh) return;
+        const nextState = this._installationDynamicAnimState(entry);
+        const currentState = String(entry.animState || entry.mesh.userData?.animState || '');
+        if (nextState === currentState) return;
+
+        registry.setAnimationState(entry.mesh, nextState);
+        entry.animState = nextState;
+      });
+    }
+
+    // ── Ambient traffic ────────────────────────────────────────────────────────
+
+    /**
+     * Spawn ambient transport shuttles for colonies with a shipyard (level ≥ 2).
+     * Shuttles circle their home planet in a loose orbit.
+     */
+    _buildAmbientTraffic(payload) {
+      this.systemTrafficEntries = [];
+      const planets = Array.isArray(payload?.planets) ? payload.planets : [];
+
+      planets.forEach((slot) => {
+        const pp = slot.player_planet;
+        if (!pp) return;
+        const facilities = Array.isArray(pp.orbital_facilities) ? pp.orbital_facilities : [];
+        const shipyard   = facilities.find((f) => f.type === 'shipyard');
+        if (!shipyard || shipyard.level < 2) return;
+
+        const homeEntry = this.systemPlanetEntries.find((e) => Number(e.slot?.position) === Number(slot.position));
+        if (!homeEntry) return;
+
+        const numShuttles = Math.min(3, shipyard.level);
+        const colorHex    = String(pp.owner_color || '#b7d98c');
+        const color        = new THREE.Color(colorHex);
+
+        for (let i = 0; i < numShuttles; i++) {
+          const shuttle = new THREE.Group();
+          const hull = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.18, 0.45, 1.1, 7),
+            new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.22, roughness: 0.45, metalness: 0.55 }),
+          );
+          hull.rotation.z = Math.PI / 2;
+          shuttle.add(hull);
+          const glow = new THREE.Mesh(
+            new THREE.SphereGeometry(0.14, 6, 5),
+            new THREE.MeshStandardMaterial({ color: 0xff9900, emissive: 0xff7700, emissiveIntensity: 1.6, roughness: 0.1, metalness: 0.6 }),
+          );
+          glow.position.set(-0.7, 0, 0);
+          shuttle.add(glow);
+          this.systemTrafficGroup.add(shuttle);
+
+          this.systemTrafficEntries.push({
+            mesh:      shuttle,
+            homeEntry,
+            orbitPhase:  (i / numShuttles) * Math.PI * 2,
+            orbitRadius: (homeEntry.mesh.geometry?.parameters?.radius ?? 4) * 2.2 + i * 1.4,
+            orbitSpeed:  0.45 + i * 0.08,
+            tiltY:       (i % 2 === 0 ? 1 : -1) * (0.18 + i * 0.06),
+          });
+        }
+      });
     }
 
     _buildFleetFormationEntry(fleet, index) {
@@ -1297,6 +2094,112 @@
       });
     }
 
+    _buildSystemSkyDome(star) {
+      this._clearGroup(this.systemSkyGroup);
+      this._clearGroup(this.systemBackdrop);
+      this._buildSystemBackdrop(star);
+
+      const starColor = new THREE.Color(this._spectralColorHex(star?.spectral_class));
+
+      const nebulaVert = `
+        varying vec3 vWorldPos;
+        varying vec3 vNormal;
+        void main() {
+          vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+          vNormal = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `;
+      const nebulaFrag = `
+        uniform float uTime;
+        uniform vec3 uColorA;
+        uniform vec3 uColorB;
+        uniform float uOpacity;
+        varying vec3 vWorldPos;
+        varying vec3 vNormal;
+        float hash(float n) { return fract(sin(n) * 43758.5453); }
+        float noise3(vec3 p) {
+          vec3 i = floor(p); vec3 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float n = i.x + i.y * 157.0 + 113.0 * i.z;
+          return mix(
+            mix(mix(hash(n+0.0),hash(n+1.0),f.x),mix(hash(n+157.0),hash(n+158.0),f.x),f.y),
+            mix(mix(hash(n+113.0),hash(n+114.0),f.x),mix(hash(n+270.0),hash(n+271.0),f.x),f.y),
+            f.z);
+        }
+        void main() {
+          vec3 d = normalize(vWorldPos);
+          float t = uTime * 0.018;
+          float n1 = noise3(d * 2.4 + vec3(t, t * 0.72, t * 0.53));
+          float n2 = noise3(d * 5.1 + vec3(-t * 0.43, t * 0.91, t * 0.27));
+          float n3 = noise3(d * 11.3 + vec3(t * 0.67, -t * 0.38, t * 0.88));
+          float cloud = n1 * 0.50 + n2 * 0.32 + n3 * 0.18;
+          cloud = smoothstep(0.32, 0.75, cloud);
+          float rim = 1.0 - abs(dot(d, normalize(vNormal)));
+          float alpha = cloud * (0.55 + rim * 0.45) * uOpacity;
+          gl_FragColor = vec4(mix(uColorA, uColorB, cloud), alpha);
+        }
+      `;
+
+      const layers = [
+        {
+          kind: 'system-sky-nebula-blue',
+          colorA: starColor.clone().lerp(new THREE.Color(0x1a3a7c), 0.62),
+          colorB: new THREE.Color(0x6ea8e8),
+          baseOpacity: 0.13,
+          rotY: 0,
+          drift: { x: 0.00004, y: 0.00007, z: 0.000025 },
+        },
+        {
+          kind: 'system-sky-nebula-red',
+          colorA: new THREE.Color(0x5c1a0e),
+          colorB: starColor.clone().lerp(new THREE.Color(0xff4a1a), 0.55),
+          baseOpacity: 0.08,
+          rotY: Math.PI * 0.61,
+          drift: { x: -0.00003, y: 0.00005, z: -0.00002 },
+        },
+        {
+          kind: 'system-sky-nebula-mid',
+          colorA: new THREE.Color(0x0d1830),
+          colorB: starColor.clone().lerp(new THREE.Color(0xc8e0ff), 0.30),
+          baseOpacity: 0.09,
+          rotY: Math.PI * 1.22,
+          drift: { x: 0.00002, y: -0.000035, z: 0.00004 },
+        },
+      ];
+
+      layers.forEach((desc) => {
+        const uniforms = {
+          uTime: { value: 0 },
+          uColorA: { value: desc.colorA.clone() },
+          uColorB: { value: desc.colorB.clone() },
+          uOpacity: { value: desc.baseOpacity },
+        };
+        const mat = new THREE.ShaderMaterial({
+          uniforms,
+          vertexShader: nebulaVert,
+          fragmentShader: nebulaFrag,
+          transparent: true,
+          depthWrite: false,
+          depthTest: false,
+          blending: THREE.AdditiveBlending,
+          side: THREE.BackSide,
+        });
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), mat);
+        mesh.rotation.y = desc.rotY;
+        mesh.frustumCulled = false;
+        mesh.userData = {
+          kind: desc.kind,
+          colorA: desc.colorA.clone(),
+          colorB: desc.colorB.clone(),
+          baseOpacity: desc.baseOpacity,
+          drift: desc.drift,
+          align: 0,
+        };
+        this.systemSkyGroup.add(mesh);
+      });
+    }
+
     _buildSystemBackdrop(star) {
       if (!Array.isArray(this.stars) || !this.stars.length) return;
       const sx = Number(star.x_ly || 0);
@@ -1361,19 +2264,38 @@
       this.systemPlanetEntries = [];
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
+      this.systemStarInstallationEntries = [];
+      this.systemTrafficEntries = [];
       this.systemAtmosphereEntries = [];
       this.systemCloudEntries = [];
       this.systemHoverEntry = null;
       this.systemSelectedEntry = null;
+      if (this.renderFrames?.galaxy) this.renderFrames.galaxy.visible = true;
+      if (this.renderFrames?.system) {
+        this.renderFrames.system.visible = false;
+        this.renderFrames.system.position.set(0, 0, 0);
+      }
+      if (this.systemOrigin) this.systemOrigin.set(0, 0, 0);
       if (this.systemGroup) this.systemGroup.visible = false;
+      if (this.systemSkyGroup) this.systemSkyGroup.visible = false;
+      if (this.systemBackdrop) this.systemBackdrop.visible = false;
+      if (this.systemOrbitGroup) this.systemOrbitGroup.visible = false;
+      if (this.systemBodyGroup) this.systemBodyGroup.visible = false;
+      if (this.systemFacilityGroup) this.systemFacilityGroup.visible = false;
+      if (this.systemFleetGroup) this.systemFleetGroup.visible = false;
+      if (this.systemStarInstallationGroup) this.systemStarInstallationGroup.visible = false;
+      if (this.systemTrafficGroup) this.systemTrafficGroup.visible = false;
       this._clearGroup(this.systemSkyGroup);
       this._clearGroup(this.systemBackdrop);
       this._clearGroup(this.systemOrbitGroup);
       this._clearGroup(this.systemBodyGroup);
       this._clearGroup(this.systemFacilityGroup);
       this._clearGroup(this.systemFleetGroup);
+      this._clearGroup(this.systemStarInstallationGroup);
+      this._clearGroup(this.systemTrafficGroup);
       if (this.starPoints) this.starPoints.visible = true;
       if (this.coreStars) this.coreStars.visible = true;
+      if (this.galacticCoreGroup) this.galacticCoreGroup.visible = true;
       if (this.halo) this.halo.visible = true;
       if (this.grid) this.grid.visible = true;
       if (this.hoverMarker) this.hoverMarker.visible = false;
@@ -1393,15 +2315,30 @@
       this.exitSystemView(false);
       this.systemMode = true;
       this.systemSourceStar = star;
-      this.systemGroup.visible = true;
+      if (this.renderFrames?.galaxy) this.renderFrames.galaxy.visible = false;
+      if (this.renderFrames?.system) this.renderFrames.system.visible = true;
+      if (this.systemGroup) this.systemGroup.visible = true;
+      if (this.systemSkyGroup) this.systemSkyGroup.visible = true;
+      if (this.systemBackdrop) this.systemBackdrop.visible = true;
+      if (this.systemOrbitGroup) this.systemOrbitGroup.visible = true;
+      if (this.systemBodyGroup) this.systemBodyGroup.visible = true;
+      if (this.systemFacilityGroup) this.systemFacilityGroup.visible = true;
+      if (this.systemFleetGroup) this.systemFleetGroup.visible = true;
+      if (this.systemStarInstallationGroup) this.systemStarInstallationGroup.visible = true;
+      if (this.systemTrafficGroup) this.systemTrafficGroup.visible = true;
       this.autoFrameEnabled = false;
       if (this.starPoints) this.starPoints.visible = false;
       if (this.coreStars) this.coreStars.visible = false;
+      if (this.galacticCoreGroup) this.galacticCoreGroup.visible = false;
       if (this.halo) this.halo.visible = false;
       if (this.grid) this.grid.visible = false;
       if (this.hoverMarker) this.hoverMarker.visible = false;
       this._syncClusterAuraTransform();
-      this._buildSystemSkyDome(star);
+      if (typeof this._buildSystemSkyDome === 'function') {
+        this._buildSystemSkyDome(star);
+      } else {
+        console.warn('[GQ] _buildSystemSkyDome unavailable; continuing without sky dome');
+      }
 
       // Phase 0: Fast baseline (orbits + star + flat-color planets + fleets)
       this._buildSystemPhase0(star, payload);
@@ -1409,12 +2346,36 @@
       // Queue Phases 1-3: Progressive texture & visual refinement (per-planet)
       this._queueSystemRefinement(star, payload);
 
-      this.controls.target.set(0, 0, 0);
+      // Anchor the system frame at the star's current galaxy-rotated world position.
+      // This decouples system-view objects from any ongoing galaxy-frame rotation.
+      const systemOrigin = new THREE.Vector3();
+      const starIdx = this.visibleStars ? this.visibleStars.indexOf(star) : -1;
+      if (starIdx >= 0 && this._getStarWorldPosition) {
+        this._getStarWorldPosition(starIdx, systemOrigin);
+      } else {
+        const scale = 0.028;
+        const localFallback = new THREE.Vector3(
+          (Number(star.x_ly) || 0) * scale,
+          (Number(star.z_ly) || 0) * scale * 0.42,
+          (Number(star.y_ly) || 0) * scale,
+        );
+        if (this.renderFrames?.galaxy) {
+          systemOrigin.copy(this.renderFrames.galaxy.localToWorld(localFallback));
+        } else {
+          systemOrigin.copy(localFallback);
+        }
+      }
+      if (this.renderFrames?.system) {
+        this.renderFrames.system.position.copy(systemOrigin);
+      }
+      if (this.systemOrigin) this.systemOrigin.copy(systemOrigin);
+
+      this.controls.target.copy(systemOrigin);
       this.focusTarget = {
         fromTarget: this.controls.target.clone(),
-        toTarget: new THREE.Vector3(0, 0, 0),
+        toTarget: systemOrigin.clone(),
         fromPos: this.camera.position.clone(),
-        toPos: new THREE.Vector3(0, 132, 214),
+        toPos: systemOrigin.clone().add(new THREE.Vector3(0, 132, 214)),
         t: 0,
       };
     }
@@ -1520,6 +2481,18 @@
 
       this.systemFleetEntries = (Array.isArray(payload.fleets_in_system) ? payload.fleets_in_system : [])
         .map((fleet, index) => this._buildFleetFormationEntry(fleet, index));
+
+      // Faction auras for colonised planets
+      this.systemPlanetEntries.forEach((entry) => {
+        const ownerColor = entry.body?.owner_color ?? entry.slot?.player_planet?.owner_color ?? null;
+        if (ownerColor) this._buildPlanetFactionAura(entry, ownerColor);
+      });
+
+      // Star-orbit installations (stargates, relay stations, etc.)
+      this._buildStarInstallations(star, payload);
+
+      // Ambient shuttle traffic
+      this._buildAmbientTraffic(payload);
 
       this._buildSystemBackdrop(star);
       this._syncSystemSkyDome(0);
@@ -1813,6 +2786,8 @@
       if (!this.starPoints?.geometry?.boundingSphere) return;
       const bs = this.starPoints.geometry.boundingSphere;
       const center = bs.center.clone();
+      // Transform galaxy-local bounding sphere center to world space.
+      this.starPoints.localToWorld(center);
       const radius = Math.max(35, bs.radius);
       const fov = THREE.MathUtils.degToRad(this.camera.fov);
       const hFov = 2 * Math.atan(Math.tan(fov / 2) * this.camera.aspect);
@@ -1844,30 +2819,200 @@
     }
 
     _eventToNdc(e) {
+      const now = performance.now();
       const rect = this.renderer.domElement.getBoundingClientRect();
+      this.prevPointerPx.copy(this.pointerPx);
+      this.pointerPx.x = (e.clientX - rect.left);
+      this.pointerPx.y = (e.clientY - rect.top);
       this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      const dt = Math.max(1, now - Number(this._lastPointerEventTs || now));
+      const dx = this.pointerPx.x - this.prevPointerPx.x;
+      const dy = this.pointerPx.y - this.prevPointerPx.y;
+      const speed = Math.sqrt(dx * dx + dy * dy) / dt;
+      this._pointerSpeedPxPerMs = (this._pointerSpeedPxPerMs * 0.65) + (speed * 0.35);
+      this._lastPointerEventTs = now;
+    }
+
+    _pointerIsSlow() {
+      return Number(this._pointerSpeedPxPerMs || 0) <= 0.48;
+    }
+
+    _applyMagneticStarHover(currentIdx) {
+      if (!this.hoverMagnetEnabled || this.systemMode) return currentIdx;
+      if (this.selectedIndex < 0 || this.selectedIndex >= this.visibleStars.length) return currentIdx;
+      if (!this._pointerIsSlow()) return currentIdx;
+
+      const selectedScreen = this.getScreenPosition(this.selectedIndex);
+      if (!selectedScreen) return currentIdx;
+      const selectedRadius = this._starPickRadiusPx(this.selectedIndex) + this.hoverMagnetStarPx;
+      if (!this._isWithinPickRadius(selectedScreen, selectedRadius)) return currentIdx;
+      if (currentIdx < 0 || currentIdx === this.selectedIndex) return this.selectedIndex;
+
+      const currentScreen = this.getScreenPosition(currentIdx);
+      if (!currentScreen) return this.selectedIndex;
+      const dSel2 = this._pixelDistanceSq(selectedScreen, this.pointerPx);
+      const dCur2 = this._pixelDistanceSq(currentScreen, this.pointerPx);
+      return dSel2 <= (dCur2 * 1.15) ? this.selectedIndex : currentIdx;
+    }
+
+    _applyMagneticSystemHover(currentEntry) {
+      if (!this.hoverMagnetEnabled || !this.systemMode) return currentEntry;
+      if (!this.systemSelectedEntry || !this._pointerIsSlow()) return currentEntry;
+
+      const selectedWorld = this.systemSelectedEntry.mesh?.getWorldPosition(new THREE.Vector3());
+      const selectedScreen = selectedWorld ? this.getWorldScreenPosition(selectedWorld) : null;
+      if (!selectedScreen) return currentEntry;
+      const selectedRadius = this._planetPickRadiusPx(this.systemSelectedEntry) + this.hoverMagnetPlanetPx;
+      if (!this._isWithinPickRadius(selectedScreen, selectedRadius)) return currentEntry;
+      if (!currentEntry || currentEntry === this.systemSelectedEntry) return this.systemSelectedEntry;
+
+      const currentWorld = currentEntry.mesh?.getWorldPosition(new THREE.Vector3());
+      const currentScreen = currentWorld ? this.getWorldScreenPosition(currentWorld) : null;
+      if (!currentScreen) return this.systemSelectedEntry;
+
+      const dSel2 = this._pixelDistanceSq(selectedScreen, this.pointerPx);
+      const dCur2 = this._pixelDistanceSq(currentScreen, this.pointerPx);
+      return dSel2 <= (dCur2 * 1.18) ? this.systemSelectedEntry : currentEntry;
+    }
+
+    _applyMagneticClusterHover(currentIdx) {
+      if (!this.hoverMagnetEnabled || this.systemMode) return currentIdx;
+      if (!this.clusterBoundsVisible) return currentIdx;
+      if (this.selectedClusterIndex < 0 || !this._pointerIsSlow()) return currentIdx;
+
+      const selectedEntry = this.clusterAuraEntries?.[this.selectedClusterIndex] || null;
+      const selectedScreen = this._clusterWorldScreenPosition(selectedEntry);
+      if (!selectedScreen) return currentIdx;
+      const selectedRadius = this._clusterPickRadiusPx(selectedEntry) + this.hoverMagnetClusterPx;
+      if (!this._isWithinPickRadius(selectedScreen, selectedRadius)) return currentIdx;
+      if (currentIdx < 0 || currentIdx === this.selectedClusterIndex) return this.selectedClusterIndex;
+
+      const currentEntry = this.clusterAuraEntries?.[currentIdx] || null;
+      const currentScreen = this._clusterWorldScreenPosition(currentEntry);
+      if (!currentScreen) return this.selectedClusterIndex;
+      const dSel2 = this._pixelDistanceSq(selectedScreen, this.pointerPx);
+      const dCur2 = this._pixelDistanceSq(currentScreen, this.pointerPx);
+      return dSel2 <= (dCur2 * 1.16) ? this.selectedClusterIndex : currentIdx;
+    }
+
+    _pixelDistanceSq(a, b) {
+      const dx = (a.x || 0) - (b.x || 0);
+      const dy = (a.y || 0) - (b.y || 0);
+      return dx * dx + dy * dy;
+    }
+
+    _isWithinPickRadius(screenPos, radiusPx) {
+      if (!screenPos) return false;
+      const d2 = this._pixelDistanceSq(screenPos, this.pointerPx);
+      return d2 <= (radiusPx * radiusPx);
+    }
+
+    _starPickRadiusPx(index) {
+      if (!this.starPoints || index < 0) return 10;
+      const sizeAttr = this.starPoints.geometry?.getAttribute('aSize');
+      const local = new THREE.Vector3();
+      this._getStarWorldPosition(index, local);
+      const dist = Math.max(1, this.camera.position.distanceTo(local));
+      const baseSize = sizeAttr ? Number(sizeAttr.getX(index) || 0) : 6;
+      const pointScale = (this.renderer?.getPixelRatio?.() || 1) * 92.0;
+      const px = Math.max(2, (baseSize * pointScale) / dist);
+      return THREE.MathUtils.clamp((px * 0.9) + 7, 7, 26);
+    }
+
+    _planetPickRadiusPx(entry) {
+      if (!entry?.mesh) return 12;
+      const radius = Math.max(3, Number(entry.mesh.geometry?.parameters?.radius || 4));
+      const world = entry.mesh.getWorldPosition(new THREE.Vector3());
+      const dist = Math.max(1, this.camera.position.distanceTo(world));
+      const px = (radius * (this.renderer?.getPixelRatio?.() || 1) * 170) / dist;
+      return THREE.MathUtils.clamp(px + 10, 10, 34);
+    }
+
+    _clusterPickRadiusPx(entry) {
+      if (!entry?.group) return 18;
+      const centerWorld = entry.group.getWorldPosition(new THREE.Vector3());
+      const dist = Math.max(1, this.camera.position.distanceTo(centerWorld));
+      const sizeLen = Math.max(8, Number(entry.size?.length?.() || 18));
+      const px = (sizeLen * (this.renderer?.getPixelRatio?.() || 1) * 68) / dist;
+      return THREE.MathUtils.clamp(px + 14, 14, 64);
     }
 
     _pickStar() {
       if (this.systemMode) return -1;
       if (!this.starPoints) return -1;
+
       this.raycaster.setFromCamera(this.pointer, this.camera);
+      const prevThreshold = this.raycaster.params.Points?.threshold ?? 8;
+      const adaptiveThreshold = THREE.MathUtils.clamp(this._cameraDistance() * 0.018, 6, 32);
+      if (this.raycaster.params.Points) this.raycaster.params.Points.threshold = adaptiveThreshold;
       const hits = this.raycaster.intersectObject(this.starPoints);
+      if (this.raycaster.params.Points) this.raycaster.params.Points.threshold = prevThreshold;
       if (!hits.length) return -1;
-      return hits[0].index;
+
+      let bestIdx = -1;
+      let bestD2 = Number.POSITIVE_INFINITY;
+      const maxHits = Math.min(32, hits.length);
+      for (let i = 0; i < maxHits; i++) {
+        const idx = Number(hits[i]?.index ?? -1);
+        if (idx < 0 || idx >= this.visibleStars.length) continue;
+        const sp = this.getScreenPosition(idx);
+        if (!sp) continue;
+        const d2 = this._pixelDistanceSq(sp, this.pointerPx);
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          bestIdx = idx;
+        }
+      }
+      if (bestIdx < 0) return -1;
+
+      const starScreen = this.getScreenPosition(bestIdx);
+      const radiusPx = this._starPickRadiusPx(bestIdx);
+      return this._isWithinPickRadius(starScreen, radiusPx) ? bestIdx : -1;
     }
 
     _pickSystemPlanet() {
       if (!this.systemMode || !this.systemPlanetEntries.length) return null;
       this.raycaster.setFromCamera(this.pointer, this.camera);
       const hits = this.raycaster.intersectObjects(this.systemPlanetEntries.map((entry) => entry.mesh), true);
-      if (!hits.length) return null;
-      for (const hit of hits) {
-        const entry = this._resolveSystemPlanetEntryFromObject(hit.object);
-        if (entry) return entry;
+      if (hits.length) {
+        let bestEntry = null;
+        let bestD2 = Number.POSITIVE_INFINITY;
+        for (const hit of hits.slice(0, 24)) {
+          const entry = this._resolveSystemPlanetEntryFromObject(hit.object);
+          if (!entry) continue;
+          const screenPos = this.getWorldScreenPosition(entry.mesh.getWorldPosition(new THREE.Vector3()));
+          if (!screenPos) continue;
+          const d2 = this._pixelDistanceSq(screenPos, this.pointerPx);
+          if (d2 < bestD2) {
+            bestD2 = d2;
+            bestEntry = entry;
+          }
+        }
+        if (bestEntry) {
+          const screenPos = this.getWorldScreenPosition(bestEntry.mesh.getWorldPosition(new THREE.Vector3()));
+          const radiusPx = this._planetPickRadiusPx(bestEntry);
+          if (this._isWithinPickRadius(screenPos, radiusPx)) return bestEntry;
+        }
       }
-      return null;
+
+      // Fallback: pure projection selection for very small/edge-on bodies.
+      let bestEntry = null;
+      let bestD2 = Number.POSITIVE_INFINITY;
+      for (const entry of this.systemPlanetEntries) {
+        const screenPos = this.getWorldScreenPosition(entry.mesh.getWorldPosition(new THREE.Vector3()));
+        if (!screenPos) continue;
+        const d2 = this._pixelDistanceSq(screenPos, this.pointerPx);
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          bestEntry = entry;
+        }
+      }
+      if (!bestEntry) return null;
+      const bestScreen = this.getWorldScreenPosition(bestEntry.mesh.getWorldPosition(new THREE.Vector3()));
+      const bestRadius = this._planetPickRadiusPx(bestEntry);
+      return this._isWithinPickRadius(bestScreen, bestRadius) ? bestEntry : null;
     }
 
     _resolveSystemPlanetEntryFromObject(obj) {
@@ -1884,7 +3029,7 @@
     _handlePointerMove(e) {
       this._eventToNdc(e);
       if (this.systemMode) {
-        const entry = this._pickSystemPlanet();
+        const entry = this._applyMagneticSystemHover(this._pickSystemPlanet());
         if (entry === this.systemHoverEntry) return;
         this.systemHoverEntry = entry;
         this._updateHoverMarker();
@@ -1893,7 +3038,19 @@
         }
         return;
       }
-      const clusterIdx = this._pickClusterBox();
+      const idx = this._applyMagneticStarHover(this._pickStar());
+      if (idx >= 0) {
+        this.hoverClusterIndex = -1;
+        if (idx === this.hoverIndex) return;
+        this.hoverIndex = idx;
+        this._updateHoverMarker();
+        if (typeof this.opts.onHover === 'function') {
+          this.opts.onHover(this.visibleStars[idx], this.getScreenPosition(idx));
+        }
+        this._updateStarVisualState();
+        return;
+      }
+      const clusterIdx = this._applyMagneticClusterHover(this._pickClusterBox());
       if (clusterIdx >= 0) {
         this.hoverClusterIndex = clusterIdx;
         this.hoverIndex = -1;
@@ -1906,12 +3063,11 @@
         return;
       }
       this.hoverClusterIndex = -1;
-      const idx = this._pickStar();
-      if (idx === this.hoverIndex) return;
-      this.hoverIndex = idx;
+      if (this.hoverIndex === -1) return;
+      this.hoverIndex = -1;
       this._updateHoverMarker();
       if (typeof this.opts.onHover === 'function') {
-        this.opts.onHover(idx >= 0 ? this.visibleStars[idx] : null, this.getScreenPosition(idx));
+        this.opts.onHover(null, null);
       }
       this._updateStarVisualState();
     }
@@ -1919,8 +3075,16 @@
     _handleClick(e) {
       this._eventToNdc(e);
       if (this.systemMode) {
-        const entry = this._pickSystemPlanet();
-        if (!entry) return;
+        const entry = this.clickMagnetEnabled
+          ? this._applyMagneticSystemHover(this._pickSystemPlanet())
+          : this._pickSystemPlanet();
+        if (!entry) {
+          this.systemSelectedEntry = null;
+          this.systemHoverEntry = null;
+          this._updateHoverMarker();
+          if (typeof this.opts.onHover === 'function') this.opts.onHover(null, null);
+          return;
+        }
         this.systemSelectedEntry = entry;
         this._touchSelection('click-planet');
         this._updateHoverMarker();
@@ -1930,23 +3094,35 @@
         }
         return;
       }
-      const clusterIdx = this._pickClusterBox();
-      if (clusterIdx >= 0) {
-        const entry = this.clusterAuraEntries[clusterIdx] || null;
-        this.selectedClusterIndex = clusterIdx;
-        this.selectedIndex = -1;
-        this.hoverClusterIndex = clusterIdx;
-        this._touchSelection('click-cluster');
-        this._updateHoverMarker();
-        this.focusOnCluster(clusterIdx, true);
-        this._updateStarVisualState();
-        if (typeof this.opts.onClick === 'function') {
-          this.opts.onClick(this._clusterPayload(entry, clusterIdx), this._clusterWorldScreenPosition(entry));
+      const idx = this.clickMagnetEnabled
+        ? this._applyMagneticStarHover(this._pickStar())
+        : this._pickStar();
+      if (idx < 0) {
+        const clusterIdx = this.clickMagnetEnabled
+          ? this._applyMagneticClusterHover(this._pickClusterBox())
+          : this._pickClusterBox();
+        if (clusterIdx >= 0) {
+          const entry = this.clusterAuraEntries[clusterIdx] || null;
+          this.selectedClusterIndex = clusterIdx;
+          this.selectedIndex = -1;
+          this.hoverClusterIndex = clusterIdx;
+          this._touchSelection('click-cluster');
+          this._updateHoverMarker();
+          this.focusOnCluster(clusterIdx, true);
+          this._updateStarVisualState();
+          if (typeof this.opts.onClick === 'function') {
+            this.opts.onClick(this._clusterPayload(entry, clusterIdx), this._clusterWorldScreenPosition(entry));
+          }
+        } else {
+          this.selectedIndex = -1;
+          this.selectedClusterIndex = -1;
+          this.hoverClusterIndex = -1;
+          this._updateHoverMarker();
+          this._updateStarVisualState();
+          if (typeof this.opts.onHover === 'function') this.opts.onHover(null, null);
         }
         return;
       }
-      const idx = this._pickStar();
-      if (idx < 0) return;
       this.selectedClusterIndex = -1;
       this.hoverClusterIndex = -1;
       this.selectedIndex = idx;
@@ -1962,7 +3138,9 @@
     _handleDoubleClick(e) {
       this._eventToNdc(e);
       if (this.systemMode) {
-        const entry = this._pickSystemPlanet();
+        const entry = this.clickMagnetEnabled
+          ? this._applyMagneticSystemHover(this._pickSystemPlanet())
+          : this._pickSystemPlanet();
         if (!entry) return;
         this.systemSelectedEntry = entry;
         this._touchSelection('doubleclick-planet');
@@ -1972,23 +3150,28 @@
         }
         return;
       }
-      const idx = this._pickStar();
-      const clusterIdx = this._pickClusterBox();
-      if (clusterIdx >= 0) {
-        const entry = this.clusterAuraEntries[clusterIdx] || null;
-        this.selectedClusterIndex = clusterIdx;
-        this.selectedIndex = -1;
-        this.hoverClusterIndex = clusterIdx;
-        this._touchSelection('doubleclick-cluster');
-        this._updateHoverMarker();
-        this.focusOnCluster(clusterIdx, true, { close: true });
-        this._updateStarVisualState();
-        if (typeof this.opts.onDoubleClick === 'function') {
-          this.opts.onDoubleClick(this._clusterPayload(entry, clusterIdx), this._clusterWorldScreenPosition(entry));
+      const idx = this.clickMagnetEnabled
+        ? this._applyMagneticStarHover(this._pickStar())
+        : this._pickStar();
+      if (idx < 0) {
+        const clusterIdx = this.clickMagnetEnabled
+          ? this._applyMagneticClusterHover(this._pickClusterBox())
+          : this._pickClusterBox();
+        if (clusterIdx >= 0) {
+          const entry = this.clusterAuraEntries[clusterIdx] || null;
+          this.selectedClusterIndex = clusterIdx;
+          this.selectedIndex = -1;
+          this.hoverClusterIndex = clusterIdx;
+          this._touchSelection('doubleclick-cluster');
+          this._updateHoverMarker();
+          this.focusOnCluster(clusterIdx, true, { close: true });
+          this._updateStarVisualState();
+          if (typeof this.opts.onDoubleClick === 'function') {
+            this.opts.onDoubleClick(this._clusterPayload(entry, clusterIdx), this._clusterWorldScreenPosition(entry));
+          }
         }
         return;
       }
-      if (idx < 0) return;
       this.selectedClusterIndex = -1;
       this.hoverClusterIndex = -1;
       this.selectedIndex = idx;
@@ -2188,7 +3371,11 @@
       this.selectedIndex = -1;
 
       if (this.starPoints) {
-        this.scene.remove(this.starPoints);
+        if (this.renderFrames?.galaxy) {
+          this.renderFrames.galaxy.remove(this.starPoints);
+        } else {
+          this.scene.remove(this.starPoints);
+        }
         this.starPoints.geometry.dispose();
         this.starPoints.material.dispose();
         this.starPoints = null;
@@ -2250,9 +3437,23 @@
         positions[p + 2] = (Number(s.y_ly) || 0) * scale;
 
         const c = classColor[s.spectral_class] || [0.85, 0.88, 1.0];
-        colors[p + 0] = c[0];
-        colors[p + 1] = c[1];
-        colors[p + 2] = c[2];
+        // Fog of War: dim stars based on visibility level
+        const fowLevel = s.visibility_level || 'unknown';
+        // own/active → full brightness; stale → 50%; unknown → 18% grey-blue
+        if (fowLevel === 'own' || fowLevel === 'active') {
+          colors[p + 0] = c[0];
+          colors[p + 1] = c[1];
+          colors[p + 2] = c[2];
+        } else if (fowLevel === 'stale') {
+          colors[p + 0] = c[0] * 0.50;
+          colors[p + 1] = c[1] * 0.50;
+          colors[p + 2] = c[2] * 0.52;
+        } else {
+          // unknown — neutral grey-blue, barely perceptible
+          colors[p + 0] = 0.20;
+          colors[p + 1] = 0.21;
+          colors[p + 2] = 0.26;
+        }
 
         const relClass = { O: 2.4, B: 1.9, A: 1.5, F: 1.2, G: 1.0, K: 0.85, M: 0.72 };
         const clusterBoost = Math.min(2.2, 1 + Math.log2(Math.max(1, Number(s.cluster_size || 1))) * 0.24);
@@ -2328,7 +3529,7 @@
       });
 
       this.starPoints = new THREE.Points(geo, material);
-      this.scene.add(this.starPoints);
+      this.renderFrames.galaxy.add(this.starPoints);
 
       if (!preserveView) {
         const bs = geo.boundingSphere;
@@ -2454,10 +3655,11 @@
     _followTrackedSelection() {
       if (!this.followSelectionEnabled) return;
       const trackedWorldPos = this._getTrackedSelectionWorldPosition();
-      if (!trackedWorldPos) return;
-      const delta = trackedWorldPos.clone().sub(this.controls.target);
-      if (delta.lengthSq() <= 1e-8) return;
+      this._rebasePivotToWorldTarget(trackedWorldPos);
+    }
 
+    _applyPivotDelta(delta) {
+      if (!delta || delta.lengthSq() <= 1e-8) return;
       this.controls.target.add(delta);
       this.camera.position.add(delta);
 
@@ -2467,6 +3669,12 @@
         this.focusTarget.fromPos.add(delta);
         this.focusTarget.toPos.add(delta);
       }
+    }
+
+    _rebasePivotToWorldTarget(nextWorldTarget) {
+      if (!nextWorldTarget) return;
+      const delta = nextWorldTarget.clone().sub(this.controls.target);
+      this._applyPivotDelta(delta);
     }
 
     setFollowSelectionEnabled(enabled) {
@@ -2547,9 +3755,16 @@
     focusOnStar(star, smooth) {
       if (!star) return;
       const scale = 0.028;
-      const tx = (Number(star.x_ly) || 0) * scale;
-      const ty = (Number(star.z_ly) || 0) * scale * 0.42;
-      const tz = (Number(star.y_ly) || 0) * scale;
+      const localPos = new THREE.Vector3(
+        (Number(star.x_ly) || 0) * scale,
+        (Number(star.z_ly) || 0) * scale * 0.42,
+        (Number(star.y_ly) || 0) * scale,
+      );
+      // Transform galaxy-local star position to world space (accounts for galaxy frame rotation).
+      const worldPos = this.renderFrames?.galaxy
+        ? this.renderFrames.galaxy.localToWorld(localPos.clone())
+        : localPos.clone();
+      const { x: tx, y: ty, z: tz } = worldPos;
 
       if (!smooth) {
         this.controls.target.set(tx, ty, tz);
@@ -2570,7 +3785,10 @@
     focusOnCluster(clusterIndex, smooth = true, opts = {}) {
       const entry = this.clusterAuraEntries?.[clusterIndex] || null;
       if (!entry?.center || !entry?.size) return;
-      const center = entry.center.clone();
+      // Transform cluster center from clusterAuraGroup-local space to world space.
+      const center = this.clusterAuraGroup
+        ? this.clusterAuraGroup.localToWorld(entry.center.clone())
+        : entry.center.clone();
       const radius = Math.max(18, entry.size.length() * 0.75);
       const distance = (opts.close ? 1.35 : 1.75) * radius;
       const dir = this.camera.position.clone().sub(this.controls.target).normalize();
@@ -2594,8 +3812,12 @@
     setClusterBoundsVisible(enabled) {
       this.clusterBoundsVisible = !!enabled;
       (this.clusterAuraEntries || []).forEach((entry) => {
-        if (entry?.wireMesh) entry.wireMesh.visible = this.clusterBoundsVisible;
-        if (entry?.hitMesh) entry.hitMesh.visible = this.clusterBoundsVisible;
+        const wireMeshes = Array.isArray(entry?.wireMeshes)
+          ? entry.wireMeshes
+          : (entry?.wireMesh ? [entry.wireMesh] : []);
+        wireMeshes.forEach((mesh) => {
+          if (mesh) mesh.visible = this.clusterBoundsVisible;
+        });
         if (entry?.wireMat) entry.wireMat.opacity = this.clusterBoundsVisible ? Math.max(0.12, entry.wireMat.opacity || 0.26) : 0;
       });
       if (!this.clusterBoundsVisible) {
@@ -2611,6 +3833,53 @@
 
     areClusterBoundsVisible() {
       return !!this.clusterBoundsVisible;
+    }
+
+    enableMagneticHover(enabled) {
+      this.hoverMagnetEnabled = !!enabled;
+      this.persistHoverMagnetConfig();
+      return this.hoverMagnetEnabled;
+    }
+
+    enableMagneticClick(enabled) {
+      this.clickMagnetEnabled = !!enabled;
+      this.persistHoverMagnetConfig();
+      return this.clickMagnetEnabled;
+    }
+
+    setHoverMagnetConfig(cfg = {}) {
+      if (typeof cfg.enabled === 'boolean') this.hoverMagnetEnabled = cfg.enabled;
+      if (typeof cfg.clickEnabled === 'boolean') this.clickMagnetEnabled = cfg.clickEnabled;
+      if (cfg.starPx != null) {
+        const starPx = Number(cfg.starPx);
+        if (Number.isFinite(starPx)) this.hoverMagnetStarPx = THREE.MathUtils.clamp(starPx, 8, 64);
+      }
+      if (cfg.planetPx != null) {
+        const planetPx = Number(cfg.planetPx);
+        if (Number.isFinite(planetPx)) this.hoverMagnetPlanetPx = THREE.MathUtils.clamp(planetPx, 8, 72);
+      }
+      if (cfg.clusterPx != null) {
+        const clusterPx = Number(cfg.clusterPx);
+        if (Number.isFinite(clusterPx)) this.hoverMagnetClusterPx = THREE.MathUtils.clamp(clusterPx, 8, 72);
+      }
+      this.persistHoverMagnetConfig();
+      return this.getHoverMagnetConfig();
+    }
+
+    getHoverMagnetConfig() {
+      return {
+        enabled: !!this.hoverMagnetEnabled,
+        clickEnabled: !!this.clickMagnetEnabled,
+        starPx: Number(this.hoverMagnetStarPx || 0),
+        planetPx: Number(this.hoverMagnetPlanetPx || 0),
+        clusterPx: Number(this.hoverMagnetClusterPx || 0),
+      };
+    }
+
+    persistHoverMagnetConfig() {
+      try {
+        window.localStorage?.setItem('gq:hover:magnet', JSON.stringify(this.getHoverMagnetConfig()));
+      } catch (_) {}
     }
 
     // Explicit matrix chain for UI overlay projection: P * V * M * p
@@ -2744,11 +4013,14 @@
       if (kind === 'exit-planet') {
         this.autoTransitionArmed.planetExitToSystem = false;
         this.systemSelectedEntry = null;
+        const systemTarget = (this.systemOrigin && this.systemOrigin.isVector3)
+          ? this.systemOrigin.clone()
+          : new THREE.Vector3(0, 0, 0);
         this.focusTarget = {
           fromTarget: this.controls.target.clone(),
-          toTarget: new THREE.Vector3(0, 0, 0),
+          toTarget: systemTarget.clone(),
           fromPos: this.camera.position.clone(),
-          toPos: new THREE.Vector3(0, 132, 214),
+          toPos: systemTarget.clone().add(new THREE.Vector3(0, 132, 214)),
           t: 0,
         };
         if (typeof this.opts.onPlanetZoomOut === 'function') {
@@ -2867,7 +4139,16 @@
           }
         }
         const spin = this._galaxySpinSpeeds();
-        if (this.coreStars) this.coreStars.rotation.y += dt * spin.core;
+        if (this.renderFrames?.galaxy) this.renderFrames.galaxy.rotation.y += dt * spin.outer;
+        if (this.coreStars) this.coreStars.rotation.y += dt * Math.max(0, (spin.core - spin.outer));
+                // Animate: black hole accretion disk + jets
+                if (this.galacticCoreGroup) {
+                  this.galacticCoreGroup.traverse((child) => {
+                    if (child.material?.uniforms?.uTime !== undefined) {
+                      child.material.uniforms.uTime.value += dt;
+                    }
+                  });
+                }
         if (this.halo) this.halo.rotation.z += dt * spin.halo;
         this.heartbeatPhase += dt * 4.2;
         if (this.starPoints?.material?.uniforms?.uHeartbeatPhase) {
@@ -2903,23 +4184,21 @@
               ? THREE.MathUtils.clamp(baseOpacity + accentOpacity + beat * 0.08, 0, 0.88)
               : 0;
           }
-          if (entry.wireMesh) {
-            const scale = index === this.selectedClusterIndex
-              ? 1.05 + beat * 0.035
-              : index === this.hoverClusterIndex
-                ? 1.025 + beat * 0.02
-                : 1;
-            entry.wireMesh.scale.setScalar(scale);
-            entry.wireMesh.visible = !!this.clusterBoundsVisible;
-          }
-          if (entry.hitMesh) {
-            entry.hitMesh.visible = !!this.clusterBoundsVisible;
-          }
+          const scale = index === this.selectedClusterIndex
+            ? 1.05 + beat * 0.035
+            : index === this.hoverClusterIndex
+              ? 1.025 + beat * 0.02
+              : 1;
+          const wireMeshes = Array.isArray(entry?.wireMeshes)
+            ? entry.wireMeshes
+            : (entry?.wireMesh ? [entry.wireMesh] : []);
+          wireMeshes.forEach((mesh) => {
+            if (!mesh) return;
+            mesh.scale.setScalar(scale);
+            mesh.visible = !!this.clusterBoundsVisible;
+          });
         });
 
-        if (this.starPoints) {
-          this.starPoints.rotation.y += dt * spin.outer;
-        }
         this._syncClusterAuraTransform();
       } else {
         const elapsed = this.clock.elapsedTime;
@@ -2929,7 +4208,8 @@
           const x = Math.cos(entry.angle) * entry.orbitRadius;
           const z = Math.sin(entry.angle) * entry.orbitMinor;
           const orbitalPos = new THREE.Vector3(x, 0, z);
-          entry.mesh.position.copy(entry.orbitPivot.localToWorld(orbitalPos));
+          const orbitWorldPos = entry.orbitPivot.localToWorld(orbitalPos);
+          entry.mesh.position.copy(this.systemBodyGroup.worldToLocal(orbitWorldPos));
           entry.mesh.rotation.y += dt * (0.25 + index * 0.03);
         });
         this.systemFacilityEntries.forEach((facility, index) => {
@@ -2954,6 +4234,11 @@
           fleetEntry.group.position.copy(pos);
           fleetEntry.group.rotation.y += dt * 0.9;
         });
+        this._syncInstallationAnimationStates();
+        const registry = window.__GQ_ModelRegistry;
+        if (registry && typeof registry.tickAnimations === 'function') {
+          registry.tickAnimations(this.systemStarInstallationEntries, elapsed, dt);
+        }
         this.systemAtmosphereEntries.forEach((entry) => {
           const material = entry.mesh?.material;
           if (!entry.mesh || !material) return;

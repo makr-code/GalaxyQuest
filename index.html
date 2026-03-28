@@ -3,18 +3,130 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GalaxyQuest – Space Strategy MMO</title>
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>GalaxyQuest – Unified Command Shell</title>
   <link rel="stylesheet" href="css/style.css?v=20260327w" />
+  <style>
+    #boot-terminal {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      z-index: 99999;
+      border: 1px solid rgba(79, 151, 255, 0.5);
+      border-radius: 8px;
+      background: rgba(4, 14, 36, 0.94);
+      color: #d7e8ff;
+      font: 12px/1.4 Consolas, Menlo, Monaco, monospace;
+      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.45);
+      pointer-events: auto;
+    }
+    #boot-terminal.hidden {
+      display: none;
+    }
+    #boot-terminal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 7px 10px;
+      border-bottom: 1px solid rgba(79, 151, 255, 0.25);
+      color: #91c7ff;
+      background: rgba(9, 24, 62, 0.75);
+    }
+    .boot-terminal-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #boot-terminal-mode {
+      display: inline-block;
+      padding: 1px 6px;
+      border: 1px solid rgba(130, 184, 255, 0.38);
+      border-radius: 999px;
+      color: #b8daff;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    #boot-terminal-controls {
+      display: flex;
+      gap: 6px;
+    }
+    #boot-terminal-controls button {
+      border: 1px solid rgba(130, 184, 255, 0.42);
+      border-radius: 4px;
+      background: rgba(10, 28, 70, 0.9);
+      color: #b8daff;
+      padding: 2px 8px;
+      cursor: pointer;
+      font: 11px/1.2 Consolas, Menlo, Monaco, monospace;
+    }
+    #boot-terminal-controls button:hover {
+      background: rgba(17, 43, 105, 0.95);
+    }
+    #boot-terminal-log {
+      max-height: 180px;
+      overflow: auto;
+      padding: 8px 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #boot-terminal-restore {
+      position: fixed;
+      right: 14px;
+      bottom: 14px;
+      z-index: 100000;
+      border: 1px solid rgba(130, 184, 255, 0.42);
+      border-radius: 999px;
+      background: rgba(10, 28, 70, 0.95);
+      color: #b8daff;
+      padding: 5px 10px;
+      cursor: pointer;
+      font: 11px/1.2 Consolas, Menlo, Monaco, monospace;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    }
+    #boot-terminal-restore:hover {
+      background: rgba(17, 43, 105, 0.95);
+    }
+    #boot-terminal-restore.hidden {
+      display: none;
+    }
+    .boot-line {
+      margin: 0 0 3px;
+    }
+    .boot-line-info { color: #9fd0ff; }
+    .boot-line-warn { color: #ffd37f; }
+    .boot-line-error { color: #ff9f9f; }
+  </style>
 </head>
 <body class="auth-page">
   <!-- Starfield background -->
   <canvas id="starfield"></canvas>
 
-  <div class="auth-wrapper">
+  <section id="auth-section" class="auth-shell">
+  <div class="auth-wrapper" id="auth-wrapper">
     <div class="auth-logo">
       <div class="logo-icon">🌌</div>
       <h1 class="logo-title">GalaxyQuest</h1>
       <p class="logo-subtitle">Conquer the Stars</p>
+    </div>
+
+    <div id="auth-preload-panel" class="auth-preload-panel">
+      <div id="auth-preload-label" class="auth-preload-label">Systemcheck laeuft...</div>
+      <div class="auth-preload-track" aria-hidden="true">
+        <div id="auth-preload-bar" class="auth-preload-bar"></div>
+      </div>
+      <div id="auth-preload-meta" class="auth-preload-meta">0%</div>
+    </div>
+
+    <div id="auth-action-modal" class="auth-action-modal hidden" role="status" aria-live="polite" aria-busy="false">
+      <div class="auth-action-card">
+        <div id="auth-action-spinner" class="auth-action-spinner" aria-hidden="true"></div>
+        <h3 id="auth-action-title" class="auth-action-title">Bitte warten...</h3>
+        <p id="auth-action-text" class="auth-action-text">Anmeldung wird verarbeitet.</p>
+      </div>
     </div>
 
     <!-- Tab bar -->
@@ -24,7 +136,7 @@
     </div>
 
     <!-- Login form -->
-    <form id="login-form" class="auth-form" autocomplete="on">
+    <form id="login-form" class="auth-form" autocomplete="on" method="post" action="index.html">
       <div class="form-group">
         <label for="login-username">Commander Name</label>
         <input id="login-username" type="text" name="username" required
@@ -37,7 +149,7 @@
       </div>
       <div class="form-group">
         <label>
-          <input id="login-remember" type="checkbox" name="remember" value="1" />
+          <input id="login-remember" type="checkbox" name="remember" value="1" checked />
           Keep me signed in
         </label>
       </div>
@@ -61,7 +173,7 @@
     </div>
 
     <!-- Register form -->
-    <form id="register-form" class="auth-form hidden" autocomplete="on">
+    <form id="register-form" class="auth-form hidden" autocomplete="on" method="post" action="index.html">
       <div class="form-group">
         <label for="reg-username">Commander Name</label>
         <input id="reg-username" type="text" name="username" required
@@ -90,9 +202,531 @@
       <div id="register-error" class="form-error" aria-live="polite"></div>
     </form>
   </div>
+  </section>
 
-  <script src="js/terminal.js?v=20260328a"></script>
-  <script src="js/starfield.js"></script>
-  <script src="js/auth.js"></script>
+  <section id="game-section" class="hidden" aria-hidden="true">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="topbar-title-btn" class="topbar-brand-btn" type="button" title="Daten aktualisieren">🌌 GalaxyQuest</button>
+        <button id="topbar-home-btn" class="topbar-home-btn" type="button" title="Zum Heimatsystem springen">🏠 Home</button>
+        <span id="topbar-coords" class="coords-badge"></span>
+      </div>
+
+      <nav class="topbar-nav" aria-label="Open windows">
+        <button class="nav-btn" data-win="overview">Overview</button>
+        <button class="nav-btn" data-win="buildings">Buildings</button>
+        <button class="nav-btn" data-win="research">Research</button>
+        <button class="nav-btn" data-win="shipyard">Shipyard</button>
+        <button class="nav-btn" data-win="fleet">Fleet</button>
+        <button class="nav-btn" data-win="messages">
+          Messages <span id="msg-badge" class="msg-badge hidden">0</span>
+        </button>
+        <button class="nav-btn" data-win="intel">
+          🔍 Intel <span id="intel-badge" class="msg-badge hidden">0</span>
+        </button>
+        <button class="nav-btn" data-win="trade-routes">
+          🚀 Trade Routes
+        </button>
+        <button class="nav-btn" data-win="quests">
+          Quests <span id="quest-badge" class="msg-badge hidden">0</span>
+        </button>
+        <button class="nav-btn" data-win="factions">🌐 Factions</button>
+        <button class="nav-btn" data-win="leaders">👤 Leaders</button>
+        <button class="nav-btn" data-win="leaderboard">Leaderboard</button>
+        <button class="nav-btn" data-win="settings">⚙ Settings</button>
+        <button class="nav-btn" data-win="settings">🧠 LLM</button>
+      </nav>
+
+      <div class="topbar-right">
+        <div class="topbar-search-wrap" id="topbar-search-wrap">
+          <input id="topbar-search-input" class="topbar-search-input" type="search" placeholder="Sterne/Systeme suchen..." autocomplete="off" aria-label="Galaxy search" />
+          <div id="topbar-search-overlay" class="topbar-search-overlay hidden" role="listbox" aria-label="Search results"></div>
+        </div>
+        <div class="user-menu-wrap" id="user-menu-wrap">
+          <button id="commander-name" class="commander commander-btn" type="button" aria-expanded="false" aria-haspopup="menu"></button>
+          <div id="user-menu" class="user-menu hidden" role="menu" aria-label="Benutzermenu"></div>
+        </div>
+        <button id="audio-toggle-btn" class="btn btn-secondary btn-sm" type="button" title="Audio umschalten">🔊</button>
+        <button id="logout-btn" class="btn btn-danger btn-sm">Logout</button>
+      </div>
+    </header>
+
+    <section id="ui-console-panel" class="ui-console-panel hidden" aria-label="UI-Konsole">
+      <div class="ui-console-head">
+        <strong>UI Console</strong>
+        <div class="ui-console-actions">
+          <label for="ui-console-filter" class="ui-console-filter-label">Level</label>
+          <select id="ui-console-filter" class="ui-console-filter" title="Log-Level filtern">
+            <option value="all" selected>All</option>
+            <option value="abort">Abort</option>
+            <option value="error">Error</option>
+            <option value="warn">Warn</option>
+            <option value="info">Info</option>
+            <option value="log">Log</option>
+            <option value="debug">Debug</option>
+            <option value="system">System</option>
+          </select>
+          <button id="ui-console-copy" class="btn btn-secondary btn-sm" type="button">Copy</button>
+          <button id="ui-console-clear" class="btn btn-secondary btn-sm" type="button">Clear</button>
+          <button id="ui-console-close" class="btn btn-secondary btn-sm" type="button">Close</button>
+        </div>
+      </div>
+      <div id="ui-console-log" class="ui-console-log"></div>
+      <div class="ui-console-input-row">
+        <input id="ui-console-input" type="text" placeholder="help | refresh | home | open settings | transitions on/off | msg <user> <text>" />
+        <button id="ui-console-run" class="btn btn-primary btn-sm" type="button">Run</button>
+      </div>
+    </section>
+
+    <div class="resource-bar">
+      <div class="resource metal" title="Metal">
+        <span class="res-icon">⬡</span>
+        <span class="res-label">Metal</span>
+        <span id="res-metal" class="res-value">—</span>
+      </div>
+      <div class="resource crystal" title="Crystal">
+        <span class="res-icon">💎</span>
+        <span class="res-label">Crystal</span>
+        <span id="res-crystal" class="res-value">—</span>
+      </div>
+      <div class="resource deuterium" title="Deuterium">
+        <span class="res-icon">🔵</span>
+        <span class="res-label">Deuterium</span>
+        <span id="res-deuterium" class="res-value">—</span>
+      </div>
+      <div class="resource food" title="Food stockpile – needed to feed population">
+        <span class="res-icon">🌾</span>
+        <span class="res-label">Food</span>
+        <span id="res-food" class="res-value">—</span>
+      </div>
+      <div class="resource rare-earth" title="Rare Earth – advanced manufacturing resource">
+        <span class="res-icon">💜</span>
+        <span class="res-label">Rare Earth</span>
+        <span id="res-rare-earth" class="res-value">—</span>
+      </div>
+      <div class="resource population" title="Colony population">
+        <span class="res-icon">👥</span>
+        <span class="res-label">Pop</span>
+        <span id="res-population" class="res-value">—</span>
+      </div>
+      <div class="resource happiness" title="Happiness – affects worker productivity">
+        <span class="res-icon">😊</span>
+        <span class="res-label">Happy</span>
+        <span id="res-happiness" class="res-value">—</span>
+      </div>
+      <div class="resource energy" title="Energy">
+        <span class="res-icon">⚡</span>
+        <span class="res-label">Energy</span>
+        <span id="res-energy" class="res-value">—</span>
+      </div>
+      <div class="resource dark-matter" title="Dark Matter – prestige currency earned from quests">
+        <span class="res-icon">◆</span>
+        <span class="res-label">Dark Matter</span>
+        <span id="res-dark-matter" class="res-value">0</span>
+      </div>
+
+      <div class="planet-selector">
+        <label for="planet-select">Planet:</label>
+        <select id="planet-select"></select>
+      </div>
+    </div>
+
+    <div id="wm-desktop" class="wm-desktop" aria-label="Game desktop"></div>
+
+    <div id="wm-taskbar" class="wm-taskbar" aria-label="Open windows">
+      <span class="wm-taskbar-label">Windows:</span>
+      <div id="wm-taskbar-spacer" class="wm-taskbar-spacer"></div>
+      <div class="footer-actions" id="footer-actions">
+        <button id="footer-quicknav-btn" class="footer-action-btn" type="button" title="Quick Navigation &amp; Favoriten">
+          ⭐ QuickNav <span id="footer-quicknav-badge" class="footer-action-badge hidden">0</span>
+        </button>
+        <button id="footer-overview-btn" class="footer-action-btn" type="button" title="Overview-Fenster (Orb) ein-/ausblenden">🌍 Orb</button>
+        <button id="ui-console-toggle" class="footer-action-btn" type="button" title="UI-Konsole ein-/ausklappen">⌄ Con</button>
+      </div>
+      <div id="footer-load" class="footer-load hidden" role="status" aria-live="polite">
+        <span id="footer-load-label" class="footer-load-label">Lade Daten…</span>
+        <div class="footer-load-track" aria-hidden="true">
+          <div id="footer-load-bar" class="footer-load-bar"></div>
+        </div>
+        <span id="footer-load-queue" class="footer-load-queue">Q:0|F:0|C:0</span>
+        <span id="footer-network-status" class="footer-net footer-net-unknown">NET: ?</span>
+        <span id="footer-load-pct" class="footer-load-pct">0%</span>
+      </div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
+  <section id="boot-terminal" aria-live="polite" aria-label="Boot terminal">
+    <div id="boot-terminal-head">
+      <div class="boot-terminal-title">
+        <strong>Boot Terminal</strong>
+        <span id="boot-terminal-mode">Mode: Fallback</span>
+      </div>
+      <div id="boot-terminal-controls">
+        <button type="button" id="boot-terminal-copy">Copy</button>
+        <button type="button" id="boot-terminal-clear">Clear</button>
+        <button type="button" id="boot-terminal-toggle">Hide</button>
+      </div>
+    </div>
+    <div id="boot-terminal-log"></div>
+  </section>
+  <button type="button" id="boot-terminal-restore" class="hidden">Show Boot Terminal</button>
+
+  <script>
+    (function () {
+      const bootTerminal = document.getElementById('boot-terminal');
+      const bootLog = document.getElementById('boot-terminal-log');
+      const bootMode = document.getElementById('boot-terminal-mode');
+      const bootRestore = document.getElementById('boot-terminal-restore');
+      const bootLines = [];
+      const maxBootLines = 120;
+      const moduleTraceSeen = new Map();
+      let fallbackActive = true;
+
+      function safeText(v) {
+        return String(v || '').replace(/\s+/g, ' ').trim();
+      }
+
+      function setBootModeLabel(modeText) {
+        if (!bootMode) return;
+        bootMode.textContent = `Mode: ${safeText(modeText || 'Fallback')}`;
+      }
+
+      function updateBootRestoreButton() {
+        if (!bootRestore) return;
+        const hidden = Boolean(bootTerminal && bootTerminal.classList.contains('hidden'));
+        bootRestore.classList.toggle('hidden', !hidden || !fallbackActive);
+      }
+
+      function appendBootLine(level, message, detail, source) {
+        if (!bootLog) return;
+        const ts = new Date();
+        const hh = String(ts.getHours()).padStart(2, '0');
+        const mm = String(ts.getMinutes()).padStart(2, '0');
+        const ss = String(ts.getSeconds()).padStart(2, '0');
+        const lvl = safeText(level || 'info').toUpperCase();
+        const msg = safeText(message || '');
+        const det = safeText(detail || '');
+        const src = safeText(source || 'boot');
+        const lineText = `[${hh}:${mm}:${ss}] [${lvl}] [${src}] ${msg}${det ? ' | ' + det : ''}`;
+
+        bootLines.push({ level: lvl.toLowerCase(), text: lineText });
+        if (bootLines.length > maxBootLines) bootLines.shift();
+
+        bootLog.innerHTML = bootLines.map((line) => {
+          const cls = line.level === 'error'
+            ? 'boot-line-error'
+            : line.level === 'warn'
+              ? 'boot-line-warn'
+              : 'boot-line-info';
+          return `<div class="boot-line ${cls}">${line.text}</div>`;
+        }).join('');
+        bootLog.scrollTop = bootLog.scrollHeight;
+      }
+
+      function directProbe(message, level = 'info') {
+        appendBootLine(level, message, '', 'probe');
+      }
+
+      function normalizeModuleName(src) {
+        try {
+          const url = new URL(String(src || ''), window.location.href);
+          const file = String(url.pathname || '').split('/').pop() || String(src || 'unknown');
+          return file || 'unknown';
+        } catch (_) {
+          const raw = String(src || 'unknown');
+          const clean = raw.split('?')[0];
+          return clean.split('/').pop() || raw;
+        }
+      }
+
+      function traceModuleEvent(state, src, detail) {
+        const mod = normalizeModuleName(src);
+        const dedupeKey = `${state}:${mod}`;
+        const now = Date.now();
+        const lastSeen = Number(moduleTraceSeen.get(dedupeKey) || 0);
+        if ((now - lastSeen) < 1200) return;
+        moduleTraceSeen.set(dedupeKey, now);
+
+        const extra = safeText(detail || '');
+        let msg = '';
+        let lvl = 'info';
+        if (state === 'init') {
+          msg = `Init <${mod}> ...`;
+        } else if (state === 'done') {
+          msg = `Init <${mod}> done.`;
+        } else {
+          msg = `Init <${mod}> failed.`;
+          lvl = 'error';
+        }
+        const payload = extra ? `${msg} ${extra}` : msg;
+
+        if (window.GQLog && typeof window.GQLog[lvl] === 'function') {
+          window.GQLog[lvl](`[module] ${payload}`);
+        } else {
+          directProbe(payload, lvl);
+        }
+      }
+
+      function traceScriptElement(el) {
+        if (!el || el.tagName !== 'SCRIPT') return;
+        const src = String(el.getAttribute('src') || '');
+        if (!src) return;
+        if (el.__gqScriptTraceBound) return;
+        el.__gqScriptTraceBound = true;
+
+        traceModuleEvent('init', src);
+
+        el.addEventListener('load', function () {
+          traceModuleEvent('done', src);
+        }, { once: true });
+
+        el.addEventListener('error', function () {
+          traceModuleEvent('error', src, '(load error)');
+        }, { once: true });
+      }
+
+      function initScriptTraceObserver() {
+        if (window.__GQ_SCRIPT_TRACE_OBSERVER_READY) return;
+        window.__GQ_SCRIPT_TRACE_OBSERVER_READY = true;
+
+        document.querySelectorAll('script[src]').forEach((el) => traceScriptElement(el));
+
+        const observer = new MutationObserver(function (mutations) {
+          mutations.forEach((m) => {
+            m.addedNodes.forEach((n) => {
+              if (!n || n.nodeType !== 1) return;
+              if (n.tagName === 'SCRIPT') {
+                traceScriptElement(n);
+                return;
+              }
+              if (typeof n.querySelectorAll === 'function') {
+                n.querySelectorAll('script[src]').forEach((el) => traceScriptElement(el));
+              }
+            });
+          });
+        });
+        observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
+        window.__GQ_SCRIPT_TRACE_OBSERVER = observer;
+      }
+
+      function sendToTerminalLogger(level, message, detail, source = 'boot') {
+        const lvl = String(level || 'info').toLowerCase() === 'error'
+          ? 'error'
+          : String(level || 'info').toLowerCase() === 'warn'
+            ? 'warn'
+            : 'info';
+        const msg = safeText(message);
+        const det = safeText(detail);
+        const payload = det ? `${msg} | ${det}` : msg;
+
+        if (window.GQLog && typeof window.GQLog[lvl] === 'function') {
+          window.GQLog[lvl](`[${source}] ${payload}`);
+          return;
+        }
+        if (fallbackActive) appendBootLine(lvl, msg, det, source);
+      }
+
+      function reportBootIssue(kind, message, detail) {
+        try {
+          const label = document.getElementById('auth-preload-label');
+          const meta = document.getElementById('auth-preload-meta');
+          const panel = document.getElementById('auth-preload-panel');
+          const loginErr = document.getElementById('login-error');
+          const msg = safeText(message) || 'unknown error';
+          const det = safeText(detail);
+
+          if (panel) panel.classList.remove('hidden');
+          if (label) label.textContent = `Boot error (${safeText(kind) || 'runtime'})`;
+          if (meta) meta.textContent = det ? `${msg} | ${det}` : msg;
+          if (loginErr) loginErr.textContent = det ? `${msg} (${det})` : msg;
+          sendToTerminalLogger('error', `${safeText(kind) || 'runtime'}: ${msg}`, det, 'boot');
+        } catch (_) {
+          // Avoid recursive errors during emergency reporting.
+        }
+      }
+
+      appendBootLine('info', 'Boot terminal active', 'Fallback aktiv bis terminal.js uebernimmt', 'boot');
+      setBootModeLabel('Fallback');
+      initScriptTraceObserver();
+
+      function takeoverByTerminal(gqLogApi) {
+        if (!fallbackActive) return;
+        fallbackActive = false;
+        try {
+          window.removeEventListener('error', onWindowError);
+          window.removeEventListener('unhandledrejection', onUnhandledRejection);
+        } catch (_) {}
+
+        if (bootLog) {
+          bootLog.innerHTML = '';
+        }
+        bootLines.length = 0;
+
+        if (gqLogApi && typeof gqLogApi.bindBootTerminal === 'function') {
+          gqLogApi.bindBootTerminal();
+        }
+        if (bootRestore) {
+          bootRestore.classList.add('hidden');
+        }
+        setBootModeLabel('GQLog');
+        if (gqLogApi && typeof gqLogApi.info === 'function') {
+          gqLogApi.info('[boot] takeover complete: terminal.js steuert Boot-Terminal');
+        }
+      }
+
+      window.__GQ_BOOT_TERMINAL_ADAPTER = {
+        append(level, message, detail, source) {
+          if (!fallbackActive) return;
+          appendBootLine(level, message, detail, source);
+        },
+        report(kind, message, detail) {
+          reportBootIssue(kind, message, detail);
+        },
+        takeover: takeoverByTerminal,
+        isFallbackActive() {
+          return fallbackActive;
+        },
+      };
+
+      window.__GQ_BOOT_PROBE = {
+        log: directProbe,
+      };
+
+      window.__GQ_BOOT_DIAG = {
+        report: reportBootIssue,
+        log: function (level, message, detail) {
+          sendToTerminalLogger(level, message, detail, 'bootdiag');
+        },
+      };
+
+      const bootToggleBtn = document.getElementById('boot-terminal-toggle');
+      const bootClearBtn = document.getElementById('boot-terminal-clear');
+      const bootCopyBtn = document.getElementById('boot-terminal-copy');
+
+      bootToggleBtn?.addEventListener('click', function () {
+        if (!fallbackActive || !bootTerminal) return;
+        const hidden = bootTerminal.classList.contains('hidden');
+        bootTerminal.classList.toggle('hidden', !hidden);
+        bootToggleBtn.textContent = hidden ? 'Hide' : 'Show';
+        updateBootRestoreButton();
+      });
+
+      bootRestore?.addEventListener('click', function () {
+        if (!fallbackActive || !bootTerminal) return;
+        bootTerminal.classList.remove('hidden');
+        if (bootToggleBtn) bootToggleBtn.textContent = 'Hide';
+        updateBootRestoreButton();
+      });
+
+      bootClearBtn?.addEventListener('click', function () {
+        if (!fallbackActive) return;
+        bootLines.length = 0;
+        if (bootLog) bootLog.innerHTML = '';
+      });
+
+      bootCopyBtn?.addEventListener('click', async function () {
+        if (!fallbackActive) return;
+        const payload = bootLines.map((line) => String(line?.text || '')).join('\n');
+        if (!payload) return;
+        try {
+          if (navigator?.clipboard?.writeText) {
+            await navigator.clipboard.writeText(payload);
+          } else {
+            const ta = document.createElement('textarea');
+            ta.value = payload;
+            ta.setAttribute('readonly', 'readonly');
+            ta.style.position = 'fixed';
+            ta.style.left = '-10000px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+          directProbe('Boot terminal copied to clipboard');
+        } catch (_) {
+          directProbe('Boot terminal copy failed', 'error');
+        }
+      });
+
+      updateBootRestoreButton();
+
+      function onWindowError(ev) {
+        const msg = safeText(ev && ev.message);
+        const src = safeText(ev && ev.filename);
+        const line = Number((ev && ev.lineno) || 0);
+        const col = Number((ev && ev.colno) || 0);
+        const where = src ? `${src}${line > 0 ? ':' + line : ''}${col > 0 ? ':' + col : ''}` : '';
+        reportBootIssue('window.error', msg || 'script error', where);
+      }
+
+      function onUnhandledRejection(ev) {
+        const reason = ev && ev.reason;
+        const msg = safeText(reason && (reason.message || reason.error || reason.reason || reason)) || 'promise rejection';
+        reportBootIssue('unhandledrejection', msg, 'startup promise failed');
+      }
+
+      window.addEventListener('error', onWindowError);
+      window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+      window.addEventListener('load', function () {
+        directProbe('index load event reached');
+        const loginForm = document.getElementById('login-form');
+        if (loginForm && !loginForm.__gqProbeBound) {
+          loginForm.__gqProbeBound = true;
+          loginForm.addEventListener('submit', function () {
+            const st = window.__GQ_AUTH_READY || {};
+            const status = `authReady init=${!!st.initialized} loginBound=${!!st.loginBound} registerBound=${!!st.registerBound}`;
+            directProbe('login submit captured in index', 'warn');
+            directProbe(status, 'warn');
+          }, true);
+          directProbe('login submit probe bound');
+        } else if (!loginForm) {
+          directProbe('login-form missing in DOM', 'error');
+        }
+
+        if (window.GQLog && window.__GQ_BOOT_TERMINAL_ADAPTER && typeof window.__GQ_BOOT_TERMINAL_ADAPTER.takeover === 'function') {
+          window.__GQ_BOOT_TERMINAL_ADAPTER.takeover(window.GQLog);
+        }
+      });
+    })();
+
+    window.__GQ_BOOT = {
+      gameScripts: [
+        'js/wm.js?v=20260328warviz1',
+        'js/binary-decoder.js?v=20260328warviz1',
+        'js/binary-decoder-v2.js?v=20260328warviz1',
+        'js/binary-decoder-v3.js?v=20260328warviz1',
+        'js/api.js?v=20260328warviz1',
+        'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
+        'js/galaxy-model.js?v=20260328warviz1',
+        'js/galaxy-db.js?v=20260328warviz1',
+        'js/audio.js?v=20260328warviz1',
+        'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
+        'https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js',
+        'js/planet-textures.js?v=20260328warviz1',
+        'js/model_registry.js?v=20260328warviz1',
+        'js/galaxy3d.js?v=20260328warviz1',
+        'js/game.js?v=20260328warviz1'
+      ],
+      preloadAssets: [
+        'js/wm.js?v=20260328warviz1',
+        'js/binary-decoder.js?v=20260328warviz1',
+        'js/binary-decoder-v2.js?v=20260328warviz1',
+        'js/binary-decoder-v3.js?v=20260328warviz1',
+        'js/api.js?v=20260328warviz1',
+        'js/galaxy-model.js?v=20260328warviz1',
+        'js/galaxy-db.js?v=20260328warviz1',
+        'js/audio.js?v=20260328warviz1',
+        'js/planet-textures.js?v=20260328warviz1',
+        'js/model_registry.js?v=20260328warviz1',
+        'js/galaxy3d.js?v=20260328warviz1',
+        'js/game.js?v=20260328warviz1'
+      ]
+    };
+  </script>
+  <script src="js/terminal.js?v=20260328warviz1"></script>
+  <script src="js/starfield.js?v=20260328warviz1"></script>
+  <script src="js/auth.js?v=20260328warviz1"></script>
 </body>
 </html>

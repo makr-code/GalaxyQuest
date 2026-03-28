@@ -1,0 +1,94 @@
+{
+  "metadata": { "version": 4.6, "type": "Object", "generator": "GalaxyQuest Model Pipeline" },
+  "modelId": "stargate",
+  "label": "Stargate",
+  "version": 2,
+  "scale": 1,
+  "lod": { "segments_full": 72, "segments_low": 28 },
+  "geometries": [
+    { "uuid": "geo_ring_a", "type": "TorusGeometry", "radius": 3.2, "tube": 0.22, "radialSegments": 14, "tubularSegments": 72 },
+    { "uuid": "geo_ring_b", "type": "TorusGeometry", "radius": 3.2, "tube": 0.06, "radialSegments": 8, "tubularSegments": 72 },
+    { "uuid": "geo_strut", "type": "CylinderGeometry", "radiusTop": 0.14, "radiusBottom": 0.14, "height": 7, "radialSegments": 8 },
+    { "uuid": "geo_core", "type": "OctahedronGeometry", "radius": 0.55, "detail": 0 }
+  ],
+  "materials": [
+    { "uuid": "mat_ring", "type": "MeshStandardMaterial", "color": 3377407, "emissive": 1139916, "emissiveIntensity": 0.7, "roughness": 0.25, "metalness": 0.75 },
+    { "uuid": "mat_ring_glow", "type": "MeshStandardMaterial", "color": 8965375, "emissive": 8965375, "emissiveIntensity": 1.2, "roughness": 0.1, "metalness": 0.9, "transparent": true, "opacity": 0.6 },
+    { "uuid": "mat_strut", "type": "MeshStandardMaterial", "color": 2241348, "emissive": 1122867, "emissiveIntensity": 0.2, "roughness": 0.6, "metalness": 0.55 },
+    { "uuid": "mat_core", "type": "MeshStandardMaterial", "color": 4502271, "emissive": 2250461, "emissiveIntensity": 1.4, "roughness": 0.1, "metalness": 0.85 }
+  ],
+  "animations": [
+    {
+      "name": "idle_core_spin",
+      "duration": 4,
+      "tracks": [
+        {
+          "name": "core.rotation[y]",
+          "type": "number",
+          "times": [0, 4],
+          "values": [0, 6.2831853072],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "active_gate_spin",
+      "duration": 3,
+      "tracks": [
+        {
+          "name": "ring.rotation[z]",
+          "type": "number",
+          "times": [0, 3],
+          "values": [0, 6.2831853072],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "alert_core_pulse",
+      "duration": 2,
+      "tracks": [
+        {
+          "name": "core.scale[x]",
+          "type": "number",
+          "times": [0, 1, 2],
+          "values": [1, 1.14, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "core.scale[y]",
+          "type": "number",
+          "times": [0, 1, 2],
+          "values": [1, 1.14, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "core.scale[z]",
+          "type": "number",
+          "times": [0, 1, 2],
+          "values": [1, 1.14, 1],
+          "interpolation": 2301
+        }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_stargate_root",
+    "type": "Group",
+    "name": "stargate",
+    "userData": {
+      "gqAnimations": [
+        { "target": "root", "property": "rotation.z", "type": "linear", "speed": 0.28 },
+        { "target": "child:0", "property": "rotation.z", "type": "linear", "speed": 0.18 },
+        { "target": "child:4", "property": "rotation.y", "type": "linear", "speed": 1.1 }
+      ]
+    },
+    "children": [
+      { "uuid": "mesh_ring_a", "type": "Mesh", "name": "ring", "geometry": "geo_ring_a", "material": "mat_ring", "userData": { "role": "ring" } },
+      { "uuid": "mesh_ring_b", "type": "Mesh", "name": "glow-ring", "geometry": "geo_ring_b", "material": "mat_ring_glow", "userData": { "role": "glow-ring" } },
+      { "uuid": "mesh_strut_h", "type": "Mesh", "name": "strut-h", "geometry": "geo_strut", "material": "mat_strut", "rotation": [1.5708, 0, 0], "userData": { "role": "strut-h" } },
+      { "uuid": "mesh_strut_v", "type": "Mesh", "name": "strut-v", "geometry": "geo_strut", "material": "mat_strut", "rotation": [0, 0, 1.5708], "userData": { "role": "strut-v" } },
+      { "uuid": "mesh_core", "type": "Mesh", "name": "core", "geometry": "geo_core", "material": "mat_core", "userData": { "role": "core" } }
+    ]
+  }
+}

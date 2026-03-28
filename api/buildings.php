@@ -6,6 +6,7 @@
  * POST /api/buildings.php?action=finish   body: {colony_id}
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/achievements.php';
 
@@ -19,6 +20,11 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             $cid = (int)($_GET['colony_id'] ?? 0);
             $db  = get_db();
             verify_colony_ownership($db, $cid, $uid);
+            $cacheKeyParams = ['uid' => $uid, 'cid' => $cid];
+            $cached = gq_cache_get('buildings_list', $cacheKeyParams);
+            if (is_array($cached) && isset($cached['buildings'])) {
+                json_ok($cached);
+            }
             ensure_building_upgrade_queue_table($db);
             complete_upgrades($db, $cid);
             update_colony_resources($db, $cid);
@@ -89,13 +95,27 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 ];
             }
 
-            json_ok([
+            // Attach upgrade_start from running queue entry so frontend can render live progress
+            $runningByType = [];
+            foreach ($queueRows as $q) {
+                if ($q['status'] === 'running') {
+                    $runningByType[$q['type']] = $q['started_at'];
+                }
+            }
+            foreach ($buildings as &$b) {
+                $b['upgrade_start'] = $runningByType[$b['type']] ?? null;
+            }
+            unset($b);
+
+            $payload = [
                 'buildings' => $buildings,
                 'planet' => $planet,
                 'layout' => $layout,
                 'orbital_facilities' => summarize_orbital_facilities($buildings, $ships),
                 'upgrade_queue' => $queueRows,
-            ]);
+            ];
+            gq_cache_set('buildings_list', $cacheKeyParams, $payload, CACHE_TTL_DEFAULT);
+            json_ok($payload);
             break;
 
         case 'upgrade':
@@ -145,6 +165,14 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             if ($manager) {
                 $secs = leader_build_time($secs, (int)$manager['skill_construction']);
             }
+            
+            // Apply colony-type building time bonus (industrial colony −10%)
+            $colonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
+            $colonyStmt->execute([$cid]);
+            $colonyRow = $colonyStmt->fetch();
+            if ($colonyRow && $colonyRow['colony_type'] === 'industrial') {
+                $secs = max(1, (int)round($secs * 0.9));
+            }
 
             $db->prepare(
                 'UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?'
@@ -165,6 +193,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 $secs,
             ]);
             $queueId = (int)$db->lastInsertId();
+
+            gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
 
             start_next_building_upgrade($db, $cid);
 
@@ -208,6 +238,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             verify_colony_ownership($db, $cid, $uid);
             ensure_building_upgrade_queue_table($db);
             complete_upgrades($db, $cid);
+            gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
             json_ok();
             break;
 

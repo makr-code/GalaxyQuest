@@ -1,0 +1,101 @@
+{
+  "metadata": { "version": 4.6, "type": "Object", "generator": "GalaxyQuest Model Pipeline" },
+  "modelId": "relay_station",
+  "label": "Relay Station",
+  "version": 2,
+  "scale": 1,
+  "lod": { "segments_full": 10, "segments_low": 6 },
+  "images": [
+    { "uuid": "img_panel_grid", "url": "models/textures/panel_grid.svg" },
+    { "uuid": "img_panel_emissive", "url": "models/textures/emissive_lines.svg" }
+  ],
+  "textures": [
+    { "uuid": "tex_panel_grid", "image": "img_panel_grid", "name": "panel-grid", "wrap": [1000, 1000], "repeat": [2, 1] },
+    { "uuid": "tex_panel_emissive", "image": "img_panel_emissive", "name": "panel-emissive", "wrap": [1000, 1000], "repeat": [3, 1] }
+  ],
+  "geometries": [
+    { "uuid": "geo_hub", "type": "CylinderGeometry", "radiusTop": 0.6, "radiusBottom": 0.6, "height": 1.6, "radialSegments": 10 },
+    { "uuid": "geo_mast", "type": "CylinderGeometry", "radiusTop": 0.05, "radiusBottom": 0.05, "height": 3.8, "radialSegments": 6 },
+    { "uuid": "geo_tip", "type": "SphereGeometry", "radius": 0.28, "widthSegments": 10, "heightSegments": 8 },
+    { "uuid": "geo_panel", "type": "BoxGeometry", "width": 2.6, "height": 0.12, "depth": 0.55 }
+  ],
+  "materials": [
+    { "uuid": "mat_hub", "type": "MeshStandardMaterial", "color": 4478310, "emissive": 2241348, "emissiveIntensity": 0.25, "roughness": 0.55, "metalness": 0.5 },
+    { "uuid": "mat_mast", "type": "MeshStandardMaterial", "color": 3359829, "roughness": 0.65, "metalness": 0.45 },
+    { "uuid": "mat_tip", "type": "MeshStandardMaterial", "color": 4521932, "emissive": 2282905, "emissiveIntensity": 1, "roughness": 0.15, "metalness": 0.7 },
+    { "uuid": "mat_panel", "type": "MeshStandardMaterial", "color": 8952524, "emissive": 4482696, "emissiveIntensity": 0.35, "roughness": 0.3, "metalness": 0.65, "transparent": true, "opacity": 0.88, "map": "tex_panel_grid", "emissiveMap": "tex_panel_emissive" }
+  ],
+  "animations": [
+    {
+      "name": "idle_tip_spin",
+      "duration": 3,
+      "tracks": [
+        {
+          "name": "antenna-tip.rotation[y]",
+          "type": "number",
+          "times": [0, 3],
+          "values": [0, 6.2831853072],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "active_station_spin",
+      "duration": 4,
+      "tracks": [
+        {
+          "name": "relay_station.rotation[y]",
+          "type": "number",
+          "times": [0, 4],
+          "values": [0, 6.2831853072],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "alert_tip_pulse",
+      "duration": 1.8,
+      "tracks": [
+        {
+          "name": "antenna-tip.scale[x]",
+          "type": "number",
+          "times": [0, 0.9, 1.8],
+          "values": [1, 1.2, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "antenna-tip.scale[y]",
+          "type": "number",
+          "times": [0, 0.9, 1.8],
+          "values": [1, 1.2, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "antenna-tip.scale[z]",
+          "type": "number",
+          "times": [0, 0.9, 1.8],
+          "values": [1, 1.2, 1],
+          "interpolation": 2301
+        }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_relay_root",
+    "type": "Group",
+    "name": "relay_station",
+    "userData": {
+      "gqAnimations": [
+        { "target": "root", "property": "rotation.y", "type": "linear", "speed": 0.22 },
+        { "target": "child:2", "property": "rotation.y", "type": "linear", "speed": 0.9 }
+      ]
+    },
+    "children": [
+      { "uuid": "mesh_hub", "type": "Mesh", "name": "hub", "geometry": "geo_hub", "material": "mat_hub", "userData": { "role": "hub" } },
+      { "uuid": "mesh_mast", "type": "Mesh", "name": "mast", "geometry": "geo_mast", "material": "mat_mast", "userData": { "role": "mast" } },
+      { "uuid": "mesh_tip", "type": "Mesh", "name": "antenna-tip", "geometry": "geo_tip", "material": "mat_tip", "position": [0, 2.1, 0], "userData": { "role": "antenna-tip" } },
+      { "uuid": "mesh_panel_a", "type": "Mesh", "name": "solar-panel", "geometry": "geo_panel", "material": "mat_panel", "position": [0, 0.2, 0], "userData": { "role": "solar-panel" } },
+      { "uuid": "mesh_panel_b", "type": "Mesh", "name": "solar-panel-2", "geometry": "geo_panel", "material": "mat_panel", "position": [0, -0.2, 0], "rotation": [0, 1.5708, 0], "userData": { "role": "solar-panel-2" } }
+    ]
+  }
+}

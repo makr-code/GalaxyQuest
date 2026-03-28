@@ -44,7 +44,7 @@ switch ($action) {
         only_method('GET');
         $db   = get_db();
         $stmt = $db->prepare(
-            'SELECT m.id, m.subject, m.is_read, m.sent_at,
+            'SELECT m.id, m.subject, m.body, m.is_read, m.sent_at,
                     COALESCE(u.username, \'System\') AS sender
              FROM messages m
              LEFT JOIN users u ON u.id = m.sender_id

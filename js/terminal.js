@@ -61,10 +61,17 @@
 
   function shouldIgnoreLog(level, source, text) {
     const msg = String(text || '');
+    const lcMsg = msg.toLowerCase();
     if (!msg) return false;
 
     // Ignore repeated three.js deprecation warning in in-app console log stream.
-    if (source === 'console' && msg.includes('Scripts "build/three.js" and "build/three.min.js" are deprecated')) {
+    if (source === 'console' && /build\/three(\.min)?\.js/.test(lcMsg) && lcMsg.includes('deprecated')) {
+      return true;
+    }
+
+    // Ignore expected request abort chatter when switching views/home navigation.
+    if ((source === 'fetch' || source === 'trace' || source === 'console')
+      && /home navigation|view switch|aborterror: home navigation|aborterror: view switch/.test(lcMsg)) {
       return true;
     }
 
@@ -102,6 +109,348 @@
   }
 
   const entries = loadPersisted().slice(-MAX_ENTRIES);
+
+  const BOOT_MAX_LINES = 180;
+  const BOOT_STYLE_ID = 'gq-boot-terminal-style';
+  const UI_CONSOLE_PANEL_ID = 'ui-console-panel';
+  const UI_CONSOLE_LOG_ID = 'ui-console-log';
+  const UI_CONSOLE_TOGGLE_ID = 'ui-console-toggle';
+  let bootUi = null;
+  let uiConsoleTakeoverLogged = false;
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function directBootProbe(message, level = 'info') {
+    try {
+      const bootLog = document.getElementById('boot-terminal-log');
+      if (!bootLog) return;
+      const ts = new Date();
+      const hh = String(ts.getHours()).padStart(2, '0');
+      const mm = String(ts.getMinutes()).padStart(2, '0');
+      const ss = String(ts.getSeconds()).padStart(2, '0');
+      const lvl = String(level || 'info').toUpperCase();
+      const cls = lvl === 'ERROR' ? 'boot-line-error' : lvl === 'WARN' ? 'boot-line-warn' : 'boot-line-info';
+      const row = document.createElement('div');
+      row.className = `boot-line ${cls}`;
+      row.textContent = `[${hh}:${mm}:${ss}] [${lvl}] [probe] ${String(message || '')}`;
+      bootLog.appendChild(row);
+      bootLog.scrollTop = bootLog.scrollHeight;
+    } catch (_) {}
+  }
+
+  function ensureBootStyle() {
+    try {
+      if (document.getElementById(BOOT_STYLE_ID)) return;
+      const style = document.createElement('style');
+      style.id = BOOT_STYLE_ID;
+      style.textContent = `
+        #boot-terminal { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 99999; border: 1px solid rgba(79,151,255,0.5); border-radius: 8px; background: rgba(4,14,36,0.94); color: #d7e8ff; font: 12px/1.4 Consolas, Menlo, Monaco, monospace; box-shadow: 0 12px 26px rgba(0,0,0,0.45); pointer-events: auto; }
+        #boot-terminal.hidden { display: none; }
+        #boot-terminal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border-bottom: 1px solid rgba(79,151,255,0.25); color: #91c7ff; background: rgba(9,24,62,0.75); }
+        .boot-terminal-title { display: inline-flex; align-items: center; gap: 8px; }
+        #boot-terminal-mode { display: inline-block; padding: 1px 6px; border: 1px solid rgba(130,184,255,0.38); border-radius: 999px; color: #b8daff; font-size: 11px; line-height: 1.2; }
+        #boot-terminal-controls { display: flex; gap: 6px; }
+        #boot-terminal-controls button { border: 1px solid rgba(130,184,255,0.42); border-radius: 4px; background: rgba(10,28,70,0.9); color: #b8daff; padding: 2px 8px; cursor: pointer; font: 11px/1.2 Consolas, Menlo, Monaco, monospace; }
+        #boot-terminal-controls button:hover { background: rgba(17,43,105,0.95); }
+        #boot-terminal-log { max-height: 180px; overflow: auto; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
+        .boot-line { margin: 0 0 3px; }
+        .boot-line-info { color: #9fd0ff; }
+        .boot-line-warn { color: #ffd37f; }
+        .boot-line-error { color: #ff9f9f; }
+      `;
+      document.head?.appendChild(style);
+    } catch (_) {}
+  }
+
+  function ensureBootTerminalDom() {
+    if (typeof document === 'undefined') return null;
+
+    let root = document.getElementById('boot-terminal');
+    if (!root) {
+      root = document.createElement('section');
+      root.id = 'boot-terminal';
+      root.setAttribute('aria-live', 'polite');
+      root.setAttribute('aria-label', 'Boot terminal');
+      document.body?.appendChild(root);
+    }
+
+    let head = document.getElementById('boot-terminal-head');
+    if (!head) {
+      head = document.createElement('div');
+      head.id = 'boot-terminal-head';
+
+      const titleWrap = document.createElement('div');
+      titleWrap.className = 'boot-terminal-title';
+      const title = document.createElement('strong');
+      title.textContent = 'Boot Terminal';
+
+      const mode = document.createElement('span');
+      mode.id = 'boot-terminal-mode';
+      mode.textContent = 'Mode: GQLog';
+
+      titleWrap.appendChild(title);
+      titleWrap.appendChild(mode);
+      head.appendChild(titleWrap);
+
+      const controls = document.createElement('div');
+      controls.id = 'boot-terminal-controls';
+
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.id = 'boot-terminal-clear';
+      clearBtn.textContent = 'Clear';
+
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.id = 'boot-terminal-copy';
+      copyBtn.textContent = 'Copy';
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.id = 'boot-terminal-toggle';
+      toggleBtn.textContent = 'Hide';
+
+      controls.appendChild(copyBtn);
+      controls.appendChild(clearBtn);
+      controls.appendChild(toggleBtn);
+      head.appendChild(controls);
+      root.prepend(head);
+    }
+
+    let mode = document.getElementById('boot-terminal-mode');
+    if (!mode) {
+      const title = head.querySelector('strong');
+      let titleWrap = head.querySelector('.boot-terminal-title');
+      if (!titleWrap && title) {
+        titleWrap = document.createElement('div');
+        titleWrap.className = 'boot-terminal-title';
+        head.insertBefore(titleWrap, head.firstChild || null);
+        titleWrap.appendChild(title);
+      }
+      mode = document.createElement('span');
+      mode.id = 'boot-terminal-mode';
+      mode.textContent = 'Mode: GQLog';
+      if (titleWrap) {
+        titleWrap.appendChild(mode);
+      } else {
+        head.insertBefore(mode, head.firstChild || null);
+      }
+    }
+
+    let controls = document.getElementById('boot-terminal-controls');
+    if (!controls) {
+      controls = document.createElement('div');
+      controls.id = 'boot-terminal-controls';
+      head.appendChild(controls);
+    }
+
+    let clearBtn = document.getElementById('boot-terminal-clear');
+    if (!clearBtn) {
+      clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.id = 'boot-terminal-clear';
+      clearBtn.textContent = 'Clear';
+      controls.appendChild(clearBtn);
+    }
+
+    let copyBtn = document.getElementById('boot-terminal-copy');
+    if (!copyBtn) {
+      copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.id = 'boot-terminal-copy';
+      copyBtn.textContent = 'Copy';
+      controls.insertBefore(copyBtn, clearBtn || controls.firstChild || null);
+    }
+
+    let toggleBtn = document.getElementById('boot-terminal-toggle');
+    if (!toggleBtn) {
+      toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.id = 'boot-terminal-toggle';
+      toggleBtn.textContent = 'Hide';
+      controls.appendChild(toggleBtn);
+    }
+
+    let log = document.getElementById('boot-terminal-log');
+    if (!log) {
+      log = document.createElement('div');
+      log.id = 'boot-terminal-log';
+      root.appendChild(log);
+    }
+
+    root.setAttribute('data-gq-terminal-ready', '1');
+    return { root, log, clearBtn, copyBtn, toggleBtn, mode };
+  }
+
+  async function copyBootTerminalToClipboard() {
+    const lines = entries.map((e) => {
+      const ts = new Date(Number(e?.ts || Date.now())).toISOString();
+      const level = String(e?.level || 'info').toUpperCase();
+      const source = String(e?.source || 'app');
+      const text = String(e?.text || '');
+      return `[${ts}] [${level}] [${source}] ${text}`;
+    });
+    const payload = lines.join('\n');
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = payload;
+        ta.setAttribute('readonly', 'readonly');
+        ta.style.position = 'fixed';
+        ta.style.left = '-10000px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      append('info', ['Boot terminal copied to clipboard'], 'system');
+      return true;
+    } catch (err) {
+      append('error', ['Boot terminal copy failed', safeStringify(err)], 'system');
+      return false;
+    }
+  }
+
+  function setBootModeLabel(modeText) {
+    const mode = bootUi?.mode || document.getElementById('boot-terminal-mode');
+    if (!mode) return;
+    mode.textContent = `Mode: ${String(modeText || 'GQLog')}`;
+  }
+
+  function renderBootTerminal() {
+    if (!bootUi?.log) return;
+    const source = entries.slice(-BOOT_MAX_LINES);
+    bootUi.log.innerHTML = source.map((entry) => {
+      const ts = new Date(Number(entry?.ts || Date.now()));
+      const hh = String(ts.getHours()).padStart(2, '0');
+      const mm = String(ts.getMinutes()).padStart(2, '0');
+      const ss = String(ts.getSeconds()).padStart(2, '0');
+      const level = String(entry?.level || 'info').toLowerCase();
+      const levelLabel = level.toUpperCase();
+      const src = escapeHtml(entry?.source || 'app');
+      const text = escapeHtml(entry?.text || '');
+      const cls = level === 'error'
+        ? 'boot-line-error'
+        : level === 'warn'
+          ? 'boot-line-warn'
+          : 'boot-line-info';
+      return `<div class="boot-line ${cls}">[${hh}:${mm}:${ss}] [${levelLabel}] [${src}] ${text}</div>`;
+    }).join('');
+    bootUi.log.scrollTop = bootUi.log.scrollHeight;
+  }
+
+  function clearEntriesInternal() {
+    entries.length = 0;
+    persist(entries);
+    emit({ ts: Date.now(), level: 'info', source: 'api', text: 'Terminal log cleared' });
+  }
+
+  function bindBootTerminal() {
+    if (typeof document === 'undefined') return false;
+    ensureBootStyle();
+    bootUi = ensureBootTerminalDom();
+    if (!bootUi) return false;
+
+    if (!window.__gqBootTerminalLogListener) {
+      window.__gqBootTerminalLogListener = true;
+      window.addEventListener('gq:terminal-log', () => {
+        renderBootTerminal();
+      });
+    }
+
+    if (!bootUi.clearBtn.__gqBound) {
+      bootUi.clearBtn.__gqBound = true;
+      bootUi.clearBtn.addEventListener('click', () => {
+        clearEntriesInternal();
+        renderBootTerminal();
+      });
+    }
+
+    if (bootUi.copyBtn && !bootUi.copyBtn.__gqBound) {
+      bootUi.copyBtn.__gqBound = true;
+      bootUi.copyBtn.addEventListener('click', async () => {
+        await copyBootTerminalToClipboard();
+      });
+    }
+
+    if (!bootUi.toggleBtn.__gqBound) {
+      bootUi.toggleBtn.__gqBound = true;
+      bootUi.toggleBtn.addEventListener('click', () => {
+        const visible = !bootUi.root.classList.contains('hidden');
+        bootUi.root.classList.toggle('hidden', visible);
+        bootUi.toggleBtn.textContent = visible ? 'Show' : 'Hide';
+      });
+    }
+
+    setBootModeLabel('GQLog');
+    renderBootTerminal();
+    syncBootTerminalWithUiConsole();
+    directBootProbe('terminal.js bound boot terminal');
+    return true;
+  }
+
+  function isUiConsoleReady() {
+    if (window.__gqUiConsoleReady) return true;
+    if (typeof document === 'undefined') return false;
+    const panel = document.getElementById(UI_CONSOLE_PANEL_ID);
+    const log = document.getElementById(UI_CONSOLE_LOG_ID);
+    const toggle = document.getElementById(UI_CONSOLE_TOGGLE_ID);
+    if (!panel || !log || !toggle) return false;
+    return Boolean(window.__gqTerminalLogBound);
+  }
+
+  function syncBootTerminalWithUiConsole() {
+    const root = bootUi?.root || document.getElementById('boot-terminal');
+    if (!root) return;
+
+    if (isUiConsoleReady()) {
+      root.classList.add('hidden');
+      root.setAttribute('data-gq-terminal-replaced', 'ui-console');
+      setBootModeLabel('UI Console');
+      if (!uiConsoleTakeoverLogged) {
+        uiConsoleTakeoverLogged = true;
+        append('info', ['Boot terminal replaced by UI console'], 'system');
+      }
+      return;
+    }
+
+    root.removeAttribute('data-gq-terminal-replaced');
+  }
+
+  function scheduleUiConsoleTakeoverSync() {
+    syncBootTerminalWithUiConsole();
+    let attempts = 0;
+    const timer = setInterval(() => {
+      attempts += 1;
+      syncBootTerminalWithUiConsole();
+      if (isUiConsoleReady() || attempts >= 90) {
+        clearInterval(timer);
+      }
+    }, 1000);
+  }
+
+  function takeOverBootAdapter() {
+    const adapter = window.__GQ_BOOT_TERMINAL_ADAPTER;
+    if (!adapter || adapter.__gqTakenOver) return false;
+    if (typeof adapter.takeover !== 'function') return false;
+    try {
+      adapter.__gqTakenOver = true;
+      adapter.takeover(window.GQLog || null);
+      return true;
+    } catch (_) {
+      adapter.__gqTakenOver = false;
+      return false;
+    }
+  }
 
   function emit(entry) {
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
@@ -391,9 +740,8 @@
       callOriginal('debug', args);
     },
     clear() {
-      entries.length = 0;
-      persist(entries);
-      emit({ ts: Date.now(), level: 'info', source: 'api', text: 'Terminal log cleared' });
+      clearEntriesInternal();
+      renderBootTerminal();
     },
     getAll() {
       return entries.slice();
@@ -403,6 +751,9 @@
     },
     instrumentNow() {
       return installRuntimeInstrumentation();
+    },
+    bindBootTerminal() {
+      return bindBootTerminal();
     },
     download(fileName = '') {
       const name = fileName || `gq-terminal-${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
@@ -420,6 +771,32 @@
   };
 
   window.GQLog = api;
+  append('info', ['Terminal logger initialized'], 'system');
+  directBootProbe('terminal.js initialized');
+  takeOverBootAdapter();
+
+  function bindBootTerminalWhenReady() {
+    takeOverBootAdapter();
+    if (bindBootTerminal()) {
+      scheduleUiConsoleTakeoverSync();
+      return;
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        takeOverBootAdapter();
+        bindBootTerminal();
+        scheduleUiConsoleTakeoverSync();
+      }, { once: true });
+    } else {
+      setTimeout(() => {
+        takeOverBootAdapter();
+        bindBootTerminal();
+        scheduleUiConsoleTakeoverSync();
+      }, 0);
+    }
+  }
+
+  bindBootTerminalWhenReady();
 
   let instrumentRetries = 0;
   const instrumentTimer = setInterval(() => {
@@ -432,5 +809,16 @@
 
   window.addEventListener('load', () => {
     installRuntimeInstrumentation();
+    takeOverBootAdapter();
+    bindBootTerminal();
+    scheduleUiConsoleTakeoverSync();
+  });
+
+  window.addEventListener('gq:terminal-log', () => {
+    syncBootTerminalWithUiConsole();
+  });
+
+  window.addEventListener('gq:ui-console-ready', () => {
+    syncBootTerminalWithUiConsole();
   });
 })();

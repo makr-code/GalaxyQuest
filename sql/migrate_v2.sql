@@ -357,3 +357,106 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS last_npc_tick DATETIME DEFAULT NULL;
 -- ── Battle report indexes ─────────────────────────────────────────────────────
 ALTER TABLE battle_reports ADD KEY IF NOT EXISTS idx_attacker_time (attacker_id, created_at);
 ALTER TABLE battle_reports ADD KEY IF NOT EXISTS idx_defender_time  (defender_id, created_at);
+
+-- ── Research: add start timestamp for live progress bars ──────────────────────
+ALTER TABLE research ADD COLUMN IF NOT EXISTS research_start DATETIME DEFAULT NULL AFTER research_end;
+
+-- ── Trade routes system ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS trade_routes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    origin_colony_id INT NOT NULL,
+    target_colony_id INT NOT NULL,
+    cargo_metal DECIMAL(20,4) NOT NULL DEFAULT 0,
+    cargo_crystal DECIMAL(20,4) NOT NULL DEFAULT 0,
+    cargo_deuterium DECIMAL(20,4) NOT NULL DEFAULT 0,
+    interval_hours INT UNSIGNED NOT NULL DEFAULT 24,
+    last_dispatch DATETIME DEFAULT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (origin_colony_id) REFERENCES colonies(id) ON DELETE CASCADE,
+    FOREIGN KEY (target_colony_id) REFERENCES colonies(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_route (origin_colony_id, target_colony_id),
+    INDEX idx_dispatch_due (user_id, last_dispatch)
+) ENGINE=InnoDB;
+
+-- ── Alliance system ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS alliances (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(64) NOT NULL,
+    tag VARCHAR(4) NOT NULL UNIQUE,
+    leader_user_id INT NOT NULL,
+    description TEXT DEFAULT NULL,
+    treasury_metal DECIMAL(20,4) NOT NULL DEFAULT 0,
+    treasury_crystal DECIMAL(20,4) NOT NULL DEFAULT 0,
+    treasury_deuterium DECIMAL(20,4) NOT NULL DEFAULT 0,
+    treasury_dark_matter INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (leader_user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_leader (leader_user_id),
+    INDEX idx_tag (tag)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS alliance_members (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    alliance_id INT NOT NULL,
+    user_id INT NOT NULL,
+    role ENUM('leader','diplomat','officer','member') NOT NULL DEFAULT 'member',
+    joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    contributed_resources DECIMAL(20,4) NOT NULL DEFAULT 0,
+    FOREIGN KEY (alliance_id) REFERENCES alliances(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_membership (alliance_id, user_id),
+    INDEX idx_user_alliance (user_id, alliance_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS alliance_relations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    alliance_id INT NOT NULL,
+    other_alliance_id INT,
+    other_user_id INT,
+    relation_type ENUM('nap','alliance','war','enemy','neutral') NOT NULL DEFAULT 'neutral',
+    declared_by_user_id INT NOT NULL,
+    declared_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME DEFAULT NULL,
+    FOREIGN KEY (alliance_id) REFERENCES alliances(id) ON DELETE CASCADE,
+    FOREIGN KEY (other_alliance_id) REFERENCES alliances(id) ON DELETE SET NULL,
+    FOREIGN KEY (other_user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (declared_by_user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_alliance_relations (alliance_id, relation_type),
+    INDEX idx_other_relations (other_alliance_id, relation_type)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS alliance_messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    alliance_id INT NOT NULL,
+    author_id INT NOT NULL,
+    message_text TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (alliance_id) REFERENCES alliances(id) ON DELETE CASCADE,
+    FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_alliance_time (alliance_id, created_at DESC)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS trade_proposals (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    initiator_id INT NOT NULL,
+    target_id INT NOT NULL,
+    offer_metal      DECIMAL(20,4) NOT NULL DEFAULT 0,
+    offer_crystal    DECIMAL(20,4) NOT NULL DEFAULT 0,
+    offer_deuterium  DECIMAL(20,4) NOT NULL DEFAULT 0,
+    request_metal    DECIMAL(20,4) NOT NULL DEFAULT 0,
+    request_crystal  DECIMAL(20,4) NOT NULL DEFAULT 0,
+    request_deuterium DECIMAL(20,4) NOT NULL DEFAULT 0,
+    message VARCHAR(500) NOT NULL DEFAULT '',
+    status ENUM('pending','accepted','rejected','cancelled','expired') NOT NULL DEFAULT 'pending',
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (initiator_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_target_status  (target_id,    status),
+    INDEX idx_initiator_status (initiator_id, status)
+) ENGINE=InnoDB;

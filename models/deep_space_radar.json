@@ -1,0 +1,92 @@
+{
+  "metadata": { "version": 4.6, "type": "Object", "generator": "GalaxyQuest Model Pipeline" },
+  "modelId": "deep_space_radar",
+  "label": "Deep Space Radar",
+  "version": 2,
+  "scale": 1,
+  "lod": { "segments_full": 32, "segments_low": 16 },
+  "geometries": [
+    { "uuid": "geo_base", "type": "CylinderGeometry", "radiusTop": 0.3, "radiusBottom": 0.45, "height": 1.8, "radialSegments": 8 },
+    { "uuid": "geo_mast", "type": "CylinderGeometry", "radiusTop": 0.07, "radiusBottom": 0.07, "height": 2.4, "radialSegments": 6 },
+    { "uuid": "geo_dish", "type": "RingGeometry", "innerRadius": 1.4, "outerRadius": 1.8, "thetaSegments": 32 },
+    { "uuid": "geo_focus", "type": "SphereGeometry", "radius": 0.22, "widthSegments": 8, "heightSegments": 6 }
+  ],
+  "materials": [
+    { "uuid": "mat_base", "type": "MeshStandardMaterial", "color": 3359829, "emissive": 1712691, "emissiveIntensity": 0.2, "roughness": 0.6, "metalness": 0.5 },
+    { "uuid": "mat_mast", "type": "MeshStandardMaterial", "color": 4478310, "roughness": 0.55, "metalness": 0.5 },
+    { "uuid": "mat_dish", "type": "MeshStandardMaterial", "color": 5614301, "emissive": 2250410, "emissiveIntensity": 0.65, "roughness": 0.25, "metalness": 0.65, "transparent": true, "opacity": 0.88 },
+    { "uuid": "mat_focus", "type": "MeshStandardMaterial", "color": 16750848, "emissive": 13395456, "emissiveIntensity": 1.1, "roughness": 0.2, "metalness": 0.6 }
+  ],
+  "animations": [
+    {
+      "name": "idle_dish_scan",
+      "duration": 3.5,
+      "tracks": [
+        {
+          "name": "dish.rotation[z]",
+          "type": "number",
+          "times": [0, 1.75, 3.5],
+          "values": [-0.35, 0.35, -0.35],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "active_radar_spin",
+      "duration": 4.2,
+      "tracks": [
+        {
+          "name": "deep_space_radar.rotation[y]",
+          "type": "number",
+          "times": [0, 4.2],
+          "values": [0, 6.2831853072],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "alert_focus_pulse",
+      "duration": 1.6,
+      "tracks": [
+        {
+          "name": "focal-point.scale[x]",
+          "type": "number",
+          "times": [0, 0.8, 1.6],
+          "values": [1, 1.35, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "focal-point.scale[y]",
+          "type": "number",
+          "times": [0, 0.8, 1.6],
+          "values": [1, 1.35, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "focal-point.scale[z]",
+          "type": "number",
+          "times": [0, 0.8, 1.6],
+          "values": [1, 1.35, 1],
+          "interpolation": 2301
+        }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_radar_root",
+    "type": "Group",
+    "name": "deep_space_radar",
+    "userData": {
+      "gqAnimations": [
+        { "target": "root", "property": "rotation.y", "type": "linear", "speed": 0.14 },
+        { "target": "child:2", "property": "rotation.z", "type": "sine", "speed": 0.4, "amplitude": 0.35, "phase": 0 }
+      ]
+    },
+    "children": [
+      { "uuid": "mesh_base", "type": "Mesh", "name": "base", "geometry": "geo_base", "material": "mat_base", "userData": { "role": "base" } },
+      { "uuid": "mesh_mast", "type": "Mesh", "name": "mast", "geometry": "geo_mast", "material": "mat_mast", "position": [0, 1.6, 0], "userData": { "role": "mast" } },
+      { "uuid": "mesh_dish", "type": "Mesh", "name": "dish", "geometry": "geo_dish", "material": "mat_dish", "position": [0, 2.8, 0], "rotation": [1.5708, 0, 0], "userData": { "role": "dish" } },
+      { "uuid": "mesh_focus", "type": "Mesh", "name": "focal-point", "geometry": "geo_focus", "material": "mat_focus", "position": [0, 2.8, 0.35], "userData": { "role": "focal-point" } }
+    ]
+  }
+}

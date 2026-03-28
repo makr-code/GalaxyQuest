@@ -1,0 +1,90 @@
+{
+  "metadata": { "version": 4.6, "type": "Object", "generator": "GalaxyQuest Model Pipeline" },
+  "modelId": "jump_inhibitor",
+  "label": "Jump Inhibitor",
+  "version": 2,
+  "scale": 1,
+  "lod": { "segments_full": 48, "segments_low": 20 },
+  "geometries": [
+    { "uuid": "geo_core", "type": "OctahedronGeometry", "radius": 1, "detail": 0 },
+    { "uuid": "geo_ring", "type": "TorusGeometry", "radius": 2, "tube": 0.14, "radialSegments": 10, "tubularSegments": 48 }
+  ],
+  "materials": [
+    { "uuid": "mat_core", "type": "MeshStandardMaterial", "color": 11149858, "emissive": 8912896, "emissiveIntensity": 0.55, "roughness": 0.4, "metalness": 0.65 },
+    { "uuid": "mat_ring", "type": "MeshStandardMaterial", "color": 16724787, "emissive": 13369344, "emissiveIntensity": 0.9, "roughness": 0.2, "metalness": 0.7, "transparent": true, "opacity": 0.82 }
+  ],
+  "animations": [
+    {
+      "name": "idle_core_spin",
+      "duration": 4,
+      "tracks": [
+        {
+          "name": "core.rotation[y]",
+          "type": "number",
+          "times": [0, 4],
+          "values": [0, 6.2831853072],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "active_ring_spin",
+      "duration": 2.6,
+      "tracks": [
+        {
+          "name": "inhibitor-ring-1.rotation[z]",
+          "type": "number",
+          "times": [0, 2.6],
+          "values": [0, 6.2831853072],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "alert_core_pulse",
+      "duration": 1.4,
+      "tracks": [
+        {
+          "name": "core.scale[x]",
+          "type": "number",
+          "times": [0, 0.7, 1.4],
+          "values": [1, 1.3, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "core.scale[y]",
+          "type": "number",
+          "times": [0, 0.7, 1.4],
+          "values": [1, 1.3, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "core.scale[z]",
+          "type": "number",
+          "times": [0, 0.7, 1.4],
+          "values": [1, 1.3, 1],
+          "interpolation": 2301
+        }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_jump_root",
+    "type": "Group",
+    "name": "jump_inhibitor",
+    "userData": {
+      "gqAnimations": [
+        { "target": "child:1", "property": "rotation.x", "type": "linear", "speed": 0.55 },
+        { "target": "child:2", "property": "rotation.z", "type": "linear", "speed": -0.4 },
+        { "target": "child:3", "property": "rotation.y", "type": "linear", "speed": 0.35 },
+        { "target": "child:0", "property": "rotation.x", "type": "sine", "speed": 1.2, "amplitude": 0.08, "phase": 0 }
+      ]
+    },
+    "children": [
+      { "uuid": "mesh_core", "type": "Mesh", "name": "core", "geometry": "geo_core", "material": "mat_core", "userData": { "role": "core" } },
+      { "uuid": "mesh_ring_1", "type": "Mesh", "name": "inhibitor-ring-1", "geometry": "geo_ring", "material": "mat_ring", "rotation": [1.5708, 0, 0], "userData": { "role": "inhibitor-ring-1" } },
+      { "uuid": "mesh_ring_2", "type": "Mesh", "name": "inhibitor-ring-2", "geometry": "geo_ring", "material": "mat_ring", "rotation": [0, 0, 1.5708], "userData": { "role": "inhibitor-ring-2" } },
+      { "uuid": "mesh_ring_3", "type": "Mesh", "name": "inhibitor-ring-3", "geometry": "geo_ring", "material": "mat_ring", "userData": { "role": "inhibitor-ring-3" } }
+    ]
+  }
+}

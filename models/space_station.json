@@ -1,0 +1,96 @@
+{
+  "metadata": { "version": 4.6, "type": "Object", "generator": "GalaxyQuest Model Pipeline" },
+  "modelId": "space_station",
+  "label": "Space Station",
+  "version": 2,
+  "scale": 1,
+  "lod": { "segments_full": 52, "segments_low": 22 },
+  "images": [
+    { "uuid": "img_panel_grid", "url": "models/textures/panel_grid.svg" },
+    { "uuid": "img_panel_emissive", "url": "models/textures/emissive_lines.svg" }
+  ],
+  "textures": [
+    { "uuid": "tex_panel_grid", "image": "img_panel_grid", "name": "panel-grid", "wrap": [1000, 1000], "repeat": [2, 1] },
+    { "uuid": "tex_panel_emissive", "image": "img_panel_emissive", "name": "panel-emissive", "wrap": [1000, 1000], "repeat": [4, 1] }
+  ],
+  "geometries": [
+    { "uuid": "geo_hub", "type": "CylinderGeometry", "radiusTop": 1.1, "radiusBottom": 1.1, "height": 1, "radialSegments": 14 },
+    { "uuid": "geo_ring", "type": "TorusGeometry", "radius": 2.8, "tube": 0.35, "radialSegments": 12, "tubularSegments": 52 },
+    { "uuid": "geo_spoke", "type": "CylinderGeometry", "radiusTop": 0.12, "radiusBottom": 0.12, "height": 3.5, "radialSegments": 6 },
+    { "uuid": "geo_panel", "type": "BoxGeometry", "width": 5.5, "height": 0.12, "depth": 0.65 }
+  ],
+  "materials": [
+    { "uuid": "mat_hub", "type": "MeshStandardMaterial", "color": 4478327, "emissive": 2241365, "emissiveIntensity": 0.28, "roughness": 0.45, "metalness": 0.6 },
+    { "uuid": "mat_ring", "type": "MeshStandardMaterial", "color": 5592712, "emissive": 3359846, "emissiveIntensity": 0.22, "roughness": 0.4, "metalness": 0.65 },
+    { "uuid": "mat_spoke", "type": "MeshStandardMaterial", "color": 3359829, "roughness": 0.6, "metalness": 0.5 },
+    { "uuid": "mat_panel", "type": "MeshStandardMaterial", "color": 6719385, "emissive": 3359846, "emissiveIntensity": 0.3, "roughness": 0.3, "metalness": 0.7, "transparent": true, "opacity": 0.9, "map": "tex_panel_grid", "emissiveMap": "tex_panel_emissive" }
+  ],
+  "animations": [
+    {
+      "name": "idle_ring_spin",
+      "duration": 6,
+      "tracks": [
+        {
+          "name": "ring.rotation[y]",
+          "type": "number",
+          "times": [0, 6],
+          "values": [0, 6.2831853072],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "active_station_spin",
+      "duration": 4.6,
+      "tracks": [
+        {
+          "name": "space_station.rotation[y]",
+          "type": "number",
+          "times": [0, 4.6],
+          "values": [0, 6.2831853072],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "alert_panel_pulse",
+      "duration": 2.2,
+      "tracks": [
+        {
+          "name": "solar-array-1.scale[x]",
+          "type": "number",
+          "times": [0, 1.1, 2.2],
+          "values": [1, 1.16, 1],
+          "interpolation": 2301
+        },
+        {
+          "name": "solar-array-2.scale[x]",
+          "type": "number",
+          "times": [0, 1.1, 2.2],
+          "values": [1, 1.16, 1],
+          "interpolation": 2301
+        }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_station_root",
+    "type": "Group",
+    "name": "space_station",
+    "userData": {
+      "gqAnimations": [
+        { "target": "child:1", "property": "rotation.y", "type": "linear", "speed": 0.32 }
+      ]
+    },
+    "children": [
+      { "uuid": "mesh_hub", "type": "Mesh", "name": "hub", "geometry": "geo_hub", "material": "mat_hub", "userData": { "role": "hub" } },
+      { "uuid": "mesh_ring", "type": "Mesh", "name": "ring", "geometry": "geo_ring", "material": "mat_ring", "rotation": [1.5708, 0, 0], "userData": { "role": "ring" } },
+      { "uuid": "mesh_spoke_1", "type": "Mesh", "name": "spoke-1", "geometry": "geo_spoke", "material": "mat_spoke", "position": [2.8, 0, 0], "userData": { "role": "spoke-1" } },
+      { "uuid": "mesh_spoke_2", "type": "Mesh", "name": "spoke-2", "geometry": "geo_spoke", "material": "mat_spoke", "position": [-2.8, 0, 0], "userData": { "role": "spoke-2" } },
+      { "uuid": "mesh_spoke_3", "type": "Mesh", "name": "spoke-3", "geometry": "geo_spoke", "material": "mat_spoke", "position": [0, 0, 2.8], "rotation": [1.5708, 0, 0], "userData": { "role": "spoke-3" } },
+      { "uuid": "mesh_spoke_4", "type": "Mesh", "name": "spoke-4", "geometry": "geo_spoke", "material": "mat_spoke", "position": [0, 0, -2.8], "rotation": [1.5708, 0, 0], "userData": { "role": "spoke-4" } },
+      { "uuid": "mesh_panel_1", "type": "Mesh", "name": "solar-array-1", "geometry": "geo_panel", "material": "mat_panel", "position": [0, 0.65, 0], "userData": { "role": "solar-array-1" } },
+      { "uuid": "mesh_panel_2", "type": "Mesh", "name": "solar-array-2", "geometry": "geo_panel", "material": "mat_panel", "position": [0, -0.65, 0], "rotation": [0, 0.7854, 0], "userData": { "role": "solar-array-2" } }
+    ]
+  }
+}

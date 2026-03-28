@@ -47,8 +47,7 @@ Browser
 └────────────────┬───────────────────────┘
                  │
         ┌────────▼────────┐
-        │  index.html     │  login / register
-        │  game.html      │  game shell (WM desktop)
+        │  index.html     │  unified auth + game shell
         └────────┬────────┘
                  │ fetch() JSON calls
         ┌────────▼────────────────────────────────────┐
@@ -102,8 +101,7 @@ Every API endpoint returns either:
 
 ```
 /
-├── index.html              Auth shell (login/register form)
-├── game.html               Game shell (WM desktop, resource bar, nav)
+├── index.html              Unified shell (auth + game sections)
 │
 ├── config/
 │   ├── config.php          Global constants (DB creds, game parameters)

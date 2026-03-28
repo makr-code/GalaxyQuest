@@ -14,6 +14,10 @@ services:
       DB_USER: galaxyquest_user
       DB_PASS: galaxyquest_dev
       DB_CHARSET: utf8mb4
+      NPC_LLM_CONTROLLER_ENABLED: 1
+      NPC_LLM_CONTROLLER_TIMEOUT_SECONDS: 8
+      NPC_LLM_CONTROLLER_COOLDOWN_SECONDS: 900
+      NPC_LLM_CONTROLLER_MIN_CONFIDENCE: 0.55
       GAME_SPEED: 1
       SESSION_LIFETIME: 3600
       XDEBUG_MODE: develop,debug

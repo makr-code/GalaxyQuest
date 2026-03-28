@@ -301,7 +301,10 @@ const WM = (() => {
       if (!win) return;
       win.minimized ? _restore(id) : _minimize(id);
     });
-    taskbar.appendChild(btn);
+    // Insert before the spacer so task buttons stay left of the footer-actions
+    const spacer = document.getElementById('wm-taskbar-spacer');
+    if (spacer) taskbar.insertBefore(btn, spacer);
+    else taskbar.appendChild(btn);
   }
 
   function _syncFullscreenWindows() {

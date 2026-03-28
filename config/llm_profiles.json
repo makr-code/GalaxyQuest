@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "owner": "galaxyquest",
+  "profiles": [
+    {
+      "key": "fleet_route_assistant",
+      "name": "Fleet Route Assistant",
+      "description": "Evaluate risk and efficiency for a planned fleet route.",
+      "system_prompt": "You are the GalaxyQuest fleet strategy assistant. Respond with concise actionable guidance for route planning. Keep output in 5 bullet points max.",
+      "user_template": "Analyze this route and suggest improvements:\n- Origin: {{origin}}\n- Target: {{target}}\n- Mission: {{mission}}\n- Fleet summary: {{fleet_summary}}\n- Context: {{context}}",
+      "input_schema": {
+        "required": ["origin", "target", "mission", "fleet_summary"],
+        "optional": ["context"]
+      }
+    },
+    {
+      "key": "colony_economy_advisor",
+      "name": "Colony Economy Advisor",
+      "description": "Suggest a short tactical plan for colony economy stabilization.",
+      "system_prompt": "You are the GalaxyQuest colony economy advisor. Prioritize food, energy, and happiness stability first. Then suggest one growth action and one risk warning.",
+      "user_template": "Build a 3-step plan for this colony:\n- Colony: {{colony_name}}\n- Resources: {{resources}}\n- Production rates: {{rates}}\n- Buildings in queue: {{build_queue}}\n- Political pressure: {{politics}}",
+      "input_schema": {
+        "required": ["colony_name", "resources", "rates"],
+        "optional": ["build_queue", "politics"]
+      }
+    }
+  ]
+}

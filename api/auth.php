@@ -10,6 +10,7 @@
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/galaxy_seed.php';
+require_once __DIR__ . '/game_engine.php';
 
 $action = $_GET['action'] ?? '';
 
@@ -452,6 +453,9 @@ function create_homeworld(int $userId): int {
         (int)($population['public_services'] ?? 0),
     ]);
     $colonyId = (int)$db->lastInsertId();
+
+    // Homeworld is always fully visible for its owner
+    touch_system_visibility($db, $userId, $g, $s, 'own', null, null);
 
     // Seed default buildings on the colony
     $defaultBuildings = is_array($starter['buildings'] ?? null) ? $starter['buildings'] : [];

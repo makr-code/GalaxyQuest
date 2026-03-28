@@ -6,6 +6,7 @@
  * POST /api/research.php?action=finish
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
 require_once __DIR__ . '/achievements.php';
@@ -19,23 +20,34 @@ switch ($action) {
         $cid = (int)($_GET['colony_id'] ?? 0);
         $db  = get_db();
         verify_colony_ownership($db, $cid, $uid);
+        $cacheKeyParams = ['uid' => $uid, 'cid' => $cid];
+        $cached = gq_cache_get('research_list', $cacheKeyParams);
+        if (is_array($cached) && isset($cached['research'])) {
+            json_ok($cached);
+        }
 
         $rows = $db->prepare(
-            'SELECT type, level, research_end FROM research WHERE user_id = ? ORDER BY type'
+            'SELECT type, level, research_start, research_end FROM research WHERE user_id = ? ORDER BY type'
         );
         $rows->execute([$uid]);
         $list = [];
         foreach ($rows->fetchAll() as $r) {
             $next = $r['level'] + 1;
             $cost = research_cost($r['type'], $next);
+            $prereqCheck = check_research_prereqs($db, $uid, $r['type']);
             $list[] = [
-                'type'         => $r['type'],
-                'level'        => (int)$r['level'],
-                'research_end' => $r['research_end'],
-                'next_cost'    => $cost,
+                'type'              => $r['type'],
+                'level'             => (int)$r['level'],
+                'research_start'    => $r['research_start'],
+                'research_end'      => $r['research_end'],
+                'next_cost'         => $cost,
+                'can_research'      => $prereqCheck['can_research'],
+                'missing_prereqs'   => $prereqCheck['missing_prereqs'],
             ];
         }
-        json_ok(['research' => $list]);
+        $payload = ['research' => $list];
+        gq_cache_set('research_list', $cacheKeyParams, $payload, CACHE_TTL_DEFAULT);
+        json_ok($payload);
         break;
 
     case 'research':
@@ -61,10 +73,20 @@ switch ($action) {
         $res = $rRow->fetch();
         if (!$res) { json_error('Research type not found.'); }
 
+        // Check prerequisites
+        $prereqCheck = check_research_prereqs($db, $uid, $type);
+        if (!$prereqCheck['can_research']) {
+            $missing = $prereqCheck['missing_prereqs'];
+            $missing_str = implode('; ', array_map(function($m) {
+                return $m['tech'] . ' Lv' . $m['required_level'] . ' (have ' . $m['current_level'] . ')';
+            }, $missing));
+            json_error('Prerequisites not met: ' . $missing_str);
+        }
+
         $nextLevel = (int)$res['level'] + 1;
         $cost      = research_cost($type, $nextLevel);
 
-        $colony = $db->prepare('SELECT metal, crystal, deuterium FROM colonies WHERE id = ?');
+        $colony = $db->prepare('SELECT metal, crystal, deuterium, colony_type FROM colonies WHERE id = ?');
         $colony->execute([$cid]);
         $cRes = $colony->fetch();
 
@@ -82,6 +104,12 @@ switch ($action) {
             $secs = leader_research_time($secs, (int)$sciDir['skill_research']);
             $cost = leader_research_cost($cost, (int)$sciDir['skill_efficiency']);
         }
+        
+        // Apply colony-type research time bonus (research colony −15%)
+        $colonyType = $cRes['colony_type'] ?? 'balanced';
+        if ($colonyType === 'research') {
+            $secs = max(1, (int)round($secs * 0.85));
+        }
         $end      = date('Y-m-d H:i:s', time() + $secs);
 
         $db->prepare(
@@ -89,8 +117,10 @@ switch ($action) {
         )->execute([$cost['metal'], $cost['crystal'], $cost['deuterium'], $cid]);
 
         $db->prepare(
-            'UPDATE research SET research_end=? WHERE user_id=? AND type=?'
+            'UPDATE research SET research_start=NOW(), research_end=? WHERE user_id=? AND type=?'
         )->execute([$end, $uid, $type]);
+
+        gq_cache_flush('research_list');
 
         json_ok(['research_end' => $end, 'duration_secs' => $secs]);
         break;
@@ -111,6 +141,7 @@ switch ($action) {
                 'UPDATE research SET level=level+1, research_end=NULL WHERE user_id=? AND type=?'
             )->execute([$uid, $r['type']]);
         }
+        gq_cache_flush('research_list');
         check_and_update_achievements($db, $uid);
         json_ok(['completed' => $completed]);
         break;

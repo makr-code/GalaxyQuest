@@ -11,6 +11,7 @@
  * completing relevant actions.
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/cache.php';
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     $action = $_GET['action'] ?? '';
@@ -21,9 +22,16 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         case 'list':
             only_method('GET');
             $db = get_db();
+            $cacheKeyParams = ['uid' => $uid];
+            $cached = gq_cache_get('achievements_list', $cacheKeyParams);
+            if (is_array($cached) && isset($cached['achievements'])) {
+                json_ok($cached);
+            }
             // Auto-check before returning so the client always sees fresh state
             check_and_update_achievements($db, $uid);
-            json_ok(['achievements' => fetch_achievements_for_user($db, $uid)]);
+            $payload = ['achievements' => fetch_achievements_for_user($db, $uid)];
+            gq_cache_set('achievements_list', $cacheKeyParams, $payload, CACHE_TTL_DEFAULT);
+            json_ok($payload);
             break;
 
         // ── Claim the reward for one completed achievement ────────────────────────
@@ -57,6 +65,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             }
 
             grant_achievement_reward($db, $uid, $aid, $row);
+            gq_cache_delete('achievements_list', ['uid' => $uid]);
             json_ok(['message' => '🏆 Reward claimed for: ' . $row['title']]);
             break;
 
@@ -66,6 +75,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             verify_csrf();
             $db      = get_db();
             $newlyDone = check_and_update_achievements($db, $uid);
+            gq_cache_delete('achievements_list', ['uid' => $uid]);
             json_ok(['newly_completed' => $newlyDone]);
             break;
 

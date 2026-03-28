@@ -12,6 +12,7 @@
  * POST /api/factions.php?action=claim_quest   body: {user_quest_id}
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';   // verify_colony_ownership
 require_once __DIR__ . '/galaxy_seed.php';  // get_faction_government, get_faction_alliances
@@ -26,6 +27,11 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     case 'list':
         only_method('GET');
         $db = get_db();
+        $cacheKeyParams = ['uid' => $uid];
+        $cached = gq_cache_get('factions_list', $cacheKeyParams);
+        if (is_array($cached) && isset($cached['factions'])) {
+            json_ok($cached);
+        }
         ensure_diplomacy_rows($db, $uid);
         $stmt = $db->prepare(
             'SELECT f.*,
@@ -47,8 +53,10 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             $faction['alliances'] = get_faction_alliances($db, $fid);
         }
         unset($faction);
-        
-        json_ok(['factions' => $factions]);
+
+        $payload = ['factions' => $factions];
+        gq_cache_set('factions_list', $cacheKeyParams, $payload, CACHE_TTL_FACTIONS);
+        json_ok($payload);
         break;
 
     // ── Faction government form details & alliances ───────────────────────────
@@ -56,24 +64,32 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         only_method('GET');
         $fid = (int)($_GET['faction_id'] ?? 0);
         $db  = get_db();
-        
-        $faction = $db->prepare('SELECT * FROM npc_factions WHERE id = ?')
-                     ->execute([$fid])
-                     ->fetch();
+
+        $govCacheParams = ['uid' => $uid, 'fid' => $fid];
+        $cached = gq_cache_get('faction_government', $govCacheParams);
+        if (is_array($cached) && isset($cached['faction'])) {
+            json_ok($cached);
+        }
+
+        $factionStmt = $db->prepare('SELECT * FROM npc_factions WHERE id = ?');
+        $factionStmt->execute([$fid]);
+        $faction = $factionStmt->fetch();
         if (!$faction) {
             json_error('Faction not found.', 404);
         }
-        
+
         $government = get_faction_government($db, $fid);
         $alliances = get_faction_alliances($db, $fid);
         $standing = get_standing($db, $uid, $fid);
-        
-        json_ok([
+
+        $payload = [
             'faction' => $faction,
             'government' => $government,
             'alliances' => $alliances,
             'player_standing' => $standing,
-        ]);
+        ];
+        gq_cache_set('faction_government', $govCacheParams, $payload, CACHE_TTL_FACTIONS);
+        json_ok($payload);
         break;
 
     // ── Active trade offers from a faction ────────────────────────────────────
@@ -82,6 +98,11 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         $fid = (int)($_GET['faction_id'] ?? 0);
         $db  = get_db();
         $standing = get_standing($db, $uid, $fid);
+        $offersCacheParams = ['uid' => $uid, 'fid' => $fid, 'standing' => $standing];
+        $cached = gq_cache_get('faction_trade_offers', $offersCacheParams);
+        if (is_array($cached) && isset($cached['offers'])) {
+            json_ok($cached);
+        }
         $stmt = $db->prepare(
             'SELECT t.*, f.name AS faction_name, f.icon
              FROM trade_offers t JOIN npc_factions f ON f.id = t.faction_id
@@ -92,7 +113,9 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
              ORDER BY t.id DESC LIMIT 10'
         );
         $stmt->execute([$fid, $standing]);
-        json_ok(['offers' => $stmt->fetchAll(), 'standing' => $standing]);
+           $payload = ['offers' => $stmt->fetchAll(), 'standing' => $standing];
+           gq_cache_set('faction_trade_offers', $offersCacheParams, $payload, CACHE_TTL_DEFAULT);
+           json_ok($payload);
         break;
 
     // ── Accept a trade offer ──────────────────────────────────────────────────
@@ -149,6 +172,11 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
 
         // Improve diplomacy standing
         update_standing($db, $uid, (int)$offer['fid'], 5, 'trade', "Accepted trade offer #{$oid}");
+
+        // Invalidate player-facing faction caches touched by standing/trade counters.
+        gq_cache_delete('factions_list', ['uid' => $uid]);
+        gq_cache_delete('faction_government', ['uid' => $uid, 'fid' => (int)$offer['fid']]);
+        gq_cache_flush('faction_trade_offers');
 
         json_ok([
             'message'   => "Trade complete! Received {$offer['offer_amount']} {$offerRes}.",

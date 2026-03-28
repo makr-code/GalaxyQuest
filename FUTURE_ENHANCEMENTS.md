@@ -69,17 +69,22 @@ Buildings and research show a static "⏳ finishing at …" timestamp. They shou
 
 ### 2.3 Galaxy Map: 2D Sector View with Colony Markers
 **Priority:** 🎯  
+**Status:** ✅ Implemented  
 **Effort:** Medium
 
-The current galaxy window shows a raw JSON dump. Replace with:
-
-- A `<canvas>` 2D top-down projection of the current galaxy (use x/y from `star_systems`).
-- Each system drawn as a dot; dot colour = star spectral class; size = luminosity.
-- Player colonies highlighted; faction territory shaded; hovering shows system name.
-- Click to navigate to system detail (existing `renderGalaxyWindow` logic).
-- Mini-map inset for the full galaxy.
-
-**Design note:** star coordinates are already stored as `x_ly / y_ly / z_ly` in `star_systems`. For the 2D map, project to x/y and let the user toggle between x/y and x/z planes.
+✅ New `GalaxyMap2DController` class with full 2D canvas rendering.  
+✅ Features:
+   - Top-down x/y projection from `star_systems` coordinates
+   - Spectral class → color mapping: O(blue), B(violet), A(gray), F(white), G(yellow), K(orange), M(red)
+   - Star size based on luminosity (log scale)
+   - Player colonies highlighted with green rings
+   - Grid background for spatial reference
+   - Mini-map inset (top-right corner) showing full galaxy overview
+   - Hover cards showing system name & spectral class
+   - Click to navigate to system details / enter 3D view
+✅ Tab-based UI: Toggle between 3D View (existing WebGL renderer) and 2D Map  
+✅ Canvas auto-sizing and DPI-aware scaling  
+✅ Integrated into Galaxy window with smooth tab switching
 
 ### 2.4 Espionage: Spy Report UI Window
 **Priority:** 🎯  
@@ -93,14 +98,18 @@ Spy reports are stored in `spy_reports` but there is no dedicated UI window for 
 
 ### 2.5 Trade Route System (Player-to-Player)
 **Priority:** 💡  
+**Status:** ✅ Implemented  
 **Effort:** Medium
 
-Currently transport fleets are one-shot. A persistent trade route would automate recurring supply runs.
-
-- New `trade_routes` table: `origin_colony_id`, `target_colony_id`, `cargo_json`, `interval_hours`, `last_dispatch`.
-- `GET /api/trade.php?action=list` + `POST action=create/delete`.
-- On overview load: check routes where `last_dispatch + interval < NOW()` and auto-send a fleet.
-- UI: Trade Routes window showing active routes with pause/resume/delete buttons.
+✅ Trade routes table created: `origin_colony_id`, `target_colony_id`, `cargo_json`, `interval_hours`, `last_dispatch`, `is_active`.  
+✅ API endpoints:  
+   - `GET /api/trade.php?action=list` — list all user's trade routes with next dispatch time  
+   - `POST /api/trade.php?action=create` — create/update trade route  
+   - `POST /api/trade.php?action=delete` — delete route  
+   - `POST /api/trade.php?action=toggle` — pause/resume route  
+✅ Auto-dispatch logic: on every `/api/trade.php` call, checks routes where `last_dispatch + interval < NOW()` and auto-sends a fleet with cargo.  
+✅ UI: Trade Routes window showing active routes with pause/resume/delete buttons, next dispatch time.  
+✅ Route creation shows simple dialog with API command for manual creation (can be extended with UI form later).
 
 ### 2.6 Research Prerequisites
 **Priority:** 💡  
@@ -128,11 +137,10 @@ Currently all 16 technologies are available from level 0. A prerequisite tree ad
 
 ### 2.8 Recall Fleet: Return Cargo
 **Priority:** 💡  
+**Status:** ✅ Implemented  
 **Effort:** Tiny
 
-When a fleet is recalled mid-transport, its `cargo_*` columns hold resources that should be returned to the origin colony on arrival. Currently `recall_fleet` doesn't deliver cargo.
-
-- In `return_fleet_to_origin()`, check if `fleet.cargo_metal > 0` etc. and `UPDATE colonies SET metal = metal + ? …` for the origin colony.
+When a fleet is recalled mid-transport, its `cargo_*` columns are returned to the origin colony on arrival. The `return_fleet_to_origin()` function in `api/fleet.php` handles this.
 
 ---
 
@@ -153,9 +161,16 @@ _These require more design and affect multiple subsystems._
 
 ### 3.2 Real-time Push Notifications (Server-Sent Events)
 **Priority:** 💡  
+**Status:** ✅ Implemented  
 **Effort:** Medium
 
-Currently the client polls every 60 seconds. Replace with SSE for:
+✅ `api/events.php` streams events over long-lived HTTP connection.  
+✅ Events: `connected`, `new_messages`, `fleet_arrived`, `fleet_returning`, `incoming_attack`, `reconnect`.  
+✅ Client auto-reconnects with exponential backoff.  
+✅ Session lock released immediately (`session_write_close`) so other requests are not blocked.  
+✅ Background polling intervals reduced from 12/30 s to 30/60 s as fallback.
+
+_Original description:_ The client polls every 60 seconds. Replace with SSE for:
 - Fleet arrival notifications
 - Incoming attack warnings
 - New messages badge update

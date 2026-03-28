@@ -16,7 +16,248 @@ docker compose up --build
 
 Full installation notes: [→ Installation](#installation)
 
+Unified server setup (schema + migrations + bootstrap):
+
+```bash
+docker compose exec -T web php setup.php
+```
+
+If you changed galaxy generation and want a full regeneration of cached systems:
+
+```bash
+docker compose exec -T web php setup.php --regen-galaxy
+```
+
 For a non-Docker setup, see [Manual Installation](#manual-installation).
+
+Gameplay and systems design:
+- [Gameplay Data Model & Mechanics](GAMEPLAY_DATA_MODEL.md)
+
+### Local LLM (Ollama, Developer)
+
+GalaxyQuest now provides a central local LLM gateway so every module can use the same Ollama runtime.
+
+Separation-of-concerns extension (data model + backend + frontend):
+
+- Prompt profiles are defined in:
+  - `config/llm_profiles.yaml` (authoring)
+  - `config/llm_profiles.json` (runtime source)
+- SoC backend modules:
+  - `api/llm_soc/PromptCatalogRepository.php`
+  - `api/llm_soc/LlmPromptService.php`
+  - `api/llm_soc/LlmRequestLogRepository.php`
+- Orchestration endpoint:
+  - `api/llm.php`
+
+Apply LLM SoC migration:
+
+```bash
+docker compose exec -T db mysql -uroot -proot galaxyquest < sql/migrate_llm_soc_v1.sql
+```
+
+Environment variables:
+
+- `OLLAMA_ENABLED` (`1` in dev by default, `0` in production by default)
+- `OLLAMA_LOCAL_ONLY` (`1` by default, only allows localhost/127.0.0.1/::1)
+- `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`)
+- `OLLAMA_DEFAULT_MODEL` (default `llama3.1:8b`)
+- `OLLAMA_TIMEOUT_SECONDS` (default `45`)
+
+Backend endpoint:
+
+- `GET api/ollama.php?action=status`
+- `POST api/ollama.php?action=chat`
+- `POST api/ollama.php?action=generate`
+
+SoC profile endpoint:
+
+- `GET api/llm.php?action=catalog`
+- `POST api/llm.php?action=compose`
+- `POST api/llm.php?action=chat_profile`
+
+### NPC / PvE Controller (LLM-Integrated)
+
+GalaxyQuest can optionally steer non-player factions via an LLM-assisted PvE controller.
+
+Implementation:
+
+- Tick integration: `api/npc_ai.php`
+- LLM controller module: `api/npc_llm_controller.php`
+- Optional decision diagnostics table: `sql/migrate_npc_pve_controller_v1.sql`
+- Optional observability index migration: `sql/migrate_npc_pve_controller_v2.sql`
+
+Enable via environment:
+
+- `NPC_LLM_CONTROLLER_ENABLED` (`0` by default)
+- `NPC_LLM_CONTROLLER_TIMEOUT_SECONDS` (default `8`)
+- `NPC_LLM_CONTROLLER_COOLDOWN_SECONDS` (default `900`)
+- `NPC_LLM_CONTROLLER_MIN_CONFIDENCE` (default `0.55`)
+
+Apply optional diagnostics migration:
+
+```bash
+Get-Content -Raw sql/migrate_npc_pve_controller_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest
+```
+
+Apply optional observability index migration:
+
+```bash
+Get-Content -Raw sql/migrate_npc_pve_controller_v2.sql | docker compose exec -T db mysql -uroot -proot galaxyquest
+```
+
+Behavior:
+
+- If enabled, each NPC faction can emit one LLM decision per cooldown window.
+- Supported actions: `trade_offer`, `raid`, `diplomacy_shift`, `send_message`, `none`.
+- If LLM is disabled, times out, or returns invalid/low-confidence output, the classic deterministic NPC logic remains active.
+
+Diagnostics / control API:
+
+- `GET api/npc_controller.php?action=status`
+- `GET api/npc_controller.php?action=summary&hours=24&faction_id=0`
+- `GET api/npc_controller.php?action=decisions&limit=20&faction_id=0`
+- `POST api/npc_controller.php?action=run_once`
+
+Frontend usage (available globally):
+
+```javascript
+const status = await GQ_LLM.status();
+const answer = await GQ_LLM.chat({
+  system: 'You are the GalaxyQuest strategy assistant.',
+  prompt: 'Bewerte meine aktuelle Flottenroute kurz.',
+});
+console.log(answer.text);
+```
+
+Profile-based usage:
+
+```javascript
+const profiles = await GQ_LLM.profiles();
+const composed = await GQ_LLM.compose({
+  profile_key: 'fleet_route_assistant',
+  input_vars: {
+    origin: '[1:100:7]',
+    target: '[1:110:4]',
+    mission: 'attack',
+    fleet_summary: '8 cruisers, 12 heavy fighters',
+    context: 'Enemy anti-shield tech level 2',
+  },
+});
+
+const result = await GQ_LLM.chatProfile({
+  profile_key: 'fleet_route_assistant',
+  input_vars: {
+    origin: '[1:100:7]',
+    target: '[1:110:4]',
+    mission: 'attack',
+    fleet_summary: '8 cruisers, 12 heavy fighters',
+  },
+});
+console.log(result.text);
+```
+
+### Data Model Test (Generic Data)
+
+To test the gameplay data model with deterministic generic data:
+
+1. Apply migration
+
+```bash
+docker compose exec -T db mysql -uroot -proot galaxyquest < sql/migrate_gameplay_model_v1.sql
+```
+
+2. Seed generic test data
+
+```bash
+docker compose exec -T db mysql -uroot -proot galaxyquest < sql/test_gameplay_model_seed.sql
+```
+
+3. Run smoke checks
+
+```bash
+docker compose exec -T db mysql -uroot -proot galaxyquest < sql/test_gameplay_model_checks.sql
+```
+
+Expected: each check row returns `status = OK`.
+
+### Frontend JS Optimization (PHP, Uglify + Gzip)
+
+The project now uses a PHP-based optimization build focused on uglified + gzip-compressed JavaScript assets.
+
+Generate optimized runtime assets (default):
+
+```bash
+docker compose exec -T web php scripts/build_minified_js.php
+```
+
+Optional clean rebuild:
+
+```bash
+docker compose exec -T web php scripts/build_minified_js.php --clean
+```
+
+Optional variants:
+
+```bash
+# Keep uncompressed .ugl.js files as well
+docker compose exec -T web php scripts/build_minified_js.php --keep-uncompressed
+
+# Build extra variants (min + uglify + gzip/brotli when available)
+docker compose exec -T web php scripts/build_minified_js.php --all --clean
+```
+
+Result:
+
+- Runtime build generates `js/*.ugl.js.gz` artifacts.
+- `index.html` (unified shell) loads auth and game runtime assets.
+- Optional: Brotli artifacts (`*.br`) are generated when the PHP Brotli extension is available and enabled via CLI option.
+
+### Politics Model (Factions + Species + Government)
+
+Stellaris-inspired model with dynamic benefits/malus is available via:
+
+- species catalog (`species_profiles`)
+- government forms (`government_forms`)
+- civics (`government_civics`)
+- per-user profile (`user_empire_profile`, `user_empire_civics`)
+- dynamic runtime effects in colony tick (resource/food/growth/happiness/public services)
+
+Apply migration:
+
+```bash
+Get-Content -Raw sql/migrate_politics_model_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest
+```
+
+Optional tuning env vars:
+
+- POLITICS_MAX_CIVICS (default 2)
+- POLITICS_UNREST_TRIGGER_APPROVAL (default 45)
+- POLITICS_UNREST_RECOVERY_APPROVAL (default 62)
+- POLITICS_UNREST_PROGRESS_PER_HOUR (default 1.0)
+
+Seed generic politics test data:
+
+```bash
+Get-Content -Raw sql/test_politics_model_seed.sql | docker compose exec -T db mysql -uroot -proot galaxyquest
+```
+
+Run politics smoke checks:
+
+```bash
+Get-Content -Raw sql/test_politics_model_checks.sql | docker compose exec -T db mysql -uroot -proot galaxyquest
+```
+
+API endpoints:
+
+- `GET api/politics.php?action=catalog`
+- `GET api/politics.php?action=presets`
+- `GET api/politics.php?action=status`
+- `POST api/politics.php?action=configure`
+- `POST api/politics.php?action=apply_preset`
+
+Overview payload now includes a politics runtime snapshot:
+
+- `GET api/game.php?action=overview` includes `politics.effects` and `politics.pressure_events`.
 
 ---
 
@@ -56,7 +297,7 @@ For a non-Docker setup, see [Manual Installation](#manual-installation).
 The frontend is plain HTML5 + CSS3 + vanilla JS (ES2020). The backend is plain PHP 8 with PDO. This was a deliberate choice:
 
 - **Zero deploy friction** — copy files, create DB, done.
-- **No transpiler, bundler, or package manager** — `index.html` and `game.html` are self-contained.
+- **No transpiler, bundler, or package manager** — `index.html` is a unified self-contained shell.
 - **Full control** — every byte of the stack is readable without tooling.
 
 The only "framework" is a ~300-line home-grown **Window Manager** (`js/wm.js`) that gives the UI a desktop metaphor (draggable floating windows, taskbar, localStorage position persistence).
@@ -267,8 +508,7 @@ The config file also supports environment-variable overrides. That means the Doc
 
 ```
 /
-├── index.html              # Login / register page
-├── game.html               # Main game UI (window manager shell)
+├── index.html              # Unified auth + game shell (section based)
 ├── css/
 │   └── style.css           # Dark space-themed UI (~835 lines)
 ├── js/

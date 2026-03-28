@@ -6,6 +6,59 @@ require_once __DIR__ . '/../config/db.php';
 
 const REMEMBER_COOKIE_NAME = 'gq_remember';
 
+if (!defined('GQ_API_ERROR_HANDLERS_READY')) {
+    define('GQ_API_ERROR_HANDLERS_READY', true);
+
+    set_exception_handler(function (Throwable $e): void {
+        gq_api_handle_uncaught_throwable($e);
+    });
+
+    set_error_handler(function (int $severity, string $message, string $file = '', int $line = 0): bool {
+        if (!(error_reporting() & $severity)) {
+            return false;
+        }
+        throw new ErrorException($message, 0, $severity, $file, $line);
+    });
+
+    register_shutdown_function(function (): void {
+        $error = error_get_last();
+        if (!$error) {
+            return;
+        }
+
+        $fatalTypes = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR];
+        if (!in_array((int)($error['type'] ?? 0), $fatalTypes, true)) {
+            return;
+        }
+
+        $message = (string)($error['message'] ?? 'Fatal error');
+        $file = (string)($error['file'] ?? 'unknown');
+        $line = (int)($error['line'] ?? 0);
+        $exception = new ErrorException($message, 0, (int)$error['type'], $file, $line);
+        gq_api_handle_uncaught_throwable($exception);
+    });
+}
+
+function gq_api_handle_uncaught_throwable(Throwable $e): never {
+    $message = APP_ENV === 'production'
+        ? 'Internal server error'
+        : sprintf('%s: %s in %s:%d', get_class($e), $e->getMessage(), basename($e->getFile()), $e->getLine());
+
+    error_log('[GalaxyQuest API] ' . $message);
+
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+    }
+
+    echo json_encode([
+        'success' => false,
+        'error' => $message,
+        'code' => 'E_INTERNAL',
+    ]);
+    exit;
+}
+
 // ─── Session ────────────────────────────────────────────────────────────────
 function session_start_secure(): void {
     if (session_status() === PHP_SESSION_NONE) {
