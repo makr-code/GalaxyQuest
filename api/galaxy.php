@@ -38,6 +38,21 @@ ensure_galaxy_bootstrap_progress($db, true);
 $renderSchemaVersion = 1;
 $assetsManifestVersion = 1;
 
+function galaxy_users_has_empire_color(PDO $db): bool {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    try {
+        $stmt = $db->query("SHOW COLUMNS FROM users LIKE 'empire_color'");
+        $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : false;
+        $cache = is_array($row) && !empty($row);
+    } catch (Throwable $e) {
+        $cache = false;
+    }
+    return $cache;
+}
+
 if ($action === 'auth_stars') {
     $systemMax = galaxy_system_limit();
     $from = max(1, min($systemMax, (int)($_GET['from'] ?? 1)));
@@ -290,23 +305,8 @@ if ($action === 'stars') {
             }
         }
 
-        $stmt = $db->prepare(
-            'SELECT id, galaxy_index, system_index, name,
-                    COALESCE(NULLIF(catalog_name, ""), name) AS catalog_name,
-                    spectral_class, subtype, x_ly, y_ly, z_ly,
-                                        planet_count, hz_inner_au, hz_outer_au,
-                                        COALESCE(cm.colony_count, 0) AS colony_count,
-                                        COALESCE(cm.colony_population, 0) AS colony_population,
-                                COALESCE(cm.colony_owner_color, "") AS colony_owner_color,
-                                COALESCE(cm.colony_owner_user_id, 0) AS colony_owner_user_id,
-                                COALESCE(cm.colony_owner_name, "") AS colony_owner_name
-             FROM star_systems
-                         LEFT JOIN (
-                                 SELECT p.galaxy AS galaxy_index,
-                                                p.`system` AS system_index,
-                                                COUNT(DISTINCT c.id) AS colony_count,
-                                                COALESCE(SUM(c.population), 0) AS colony_population,
-                                                SUBSTRING_INDEX(
+        $ownerColorExpr = galaxy_users_has_empire_color($db)
+            ? 'SUBSTRING_INDEX(
                                                         GROUP_CONCAT(
                                                                 COALESCE(NULLIF(u.empire_color, ""), "#6a8cc9")
                                                                 ORDER BY COALESCE(c.population, 0) DESC, c.id ASC
@@ -314,7 +314,26 @@ if ($action === 'stars') {
                                                         ),
                                                         ",",
                                                         1
-                                                    ) AS colony_owner_color,
+                                                    )'
+            : '""';
+
+        $stmt = $db->prepare(sprintf(
+            'SELECT ss.id, ss.galaxy_index, ss.system_index, ss.name,
+                COALESCE(NULLIF(ss.catalog_name, ""), ss.name) AS catalog_name,
+                ss.spectral_class, ss.subtype, ss.x_ly, ss.y_ly, ss.z_ly,
+                        ss.planet_count, ss.hz_inner_au, ss.hz_outer_au,
+                                        COALESCE(cm.colony_count, 0) AS colony_count,
+                                        COALESCE(cm.colony_population, 0) AS colony_population,
+                                COALESCE(cm.colony_owner_color, "") AS colony_owner_color,
+                                COALESCE(cm.colony_owner_user_id, 0) AS colony_owner_user_id,
+                                COALESCE(cm.colony_owner_name, "") AS colony_owner_name
+             FROM star_systems ss
+                         LEFT JOIN (
+                                 SELECT p.galaxy AS galaxy_index,
+                                                p.`system` AS system_index,
+                                                COUNT(DISTINCT c.id) AS colony_count,
+                                                COALESCE(SUM(c.population), 0) AS colony_population,
+                                %s AS colony_owner_color,
                                                     SUBSTRING_INDEX(
                                                         GROUP_CONCAT(
                                                             CAST(c.user_id AS CHAR)
@@ -339,14 +358,15 @@ if ($action === 'stars') {
                                  WHERE p.galaxy = ?
                                      AND p.`system` BETWEEN ? AND ?
                                  GROUP BY p.galaxy, p.`system`
-                         ) cm
-                             ON cm.galaxy_index = star_systems.galaxy_index
-                            AND cm.system_index = star_systems.system_index
-             WHERE galaxy_index = ?
-               AND system_index BETWEEN ? AND ?
-               AND MOD(system_index - ?, ?) = 0
-             ORDER BY system_index ASC'
-        );
+                                                 ) cm
+                                                         ON cm.galaxy_index = ss.galaxy_index
+                                                        AND cm.system_index = ss.system_index
+                         WHERE ss.galaxy_index = ?
+                             AND ss.system_index BETWEEN ? AND ?
+                             AND MOD(ss.system_index - ?, ?) = 0
+                                                 ORDER BY ss.system_index ASC',
+                        $ownerColorExpr
+                ));
                 $stmt->execute([$g, $from, $to, $g, $from, $to, $from, $stride]);
         $stars = $stmt->fetchAll();
 
@@ -382,9 +402,12 @@ if ($action === 'stars') {
                 $star['visibility_level'] = 'own';
                 $star['colony_count'] = (int)($star['colony_count'] ?? 0);
                 $star['colony_population'] = (int)($star['colony_population'] ?? 0);
-                $star['colony_owner_color'] = (string)($star['colony_owner_color'] ?? '');
                 $star['colony_owner_user_id'] = (int)($star['colony_owner_user_id'] ?? 0);
                 $star['colony_owner_name'] = (string)($star['colony_owner_name'] ?? '');
+                $star['colony_owner_color'] = (string)($star['colony_owner_color'] ?? '');
+                if ($star['colony_owner_color'] === '' && $star['colony_owner_user_id'] > 0) {
+                    $star['colony_owner_color'] = user_empire_color((int)$star['colony_owner_user_id']);
+                }
                 $star['colony_is_player'] = $currentUserId !== null && (int)$star['colony_owner_user_id'] === (int)$currentUserId ? 1 : 0;
             }
             unset($star);
@@ -405,9 +428,12 @@ if ($action === 'stars') {
                 $star['visibility_level'] = $visMap[(int)$star['system_index']] ?? 'unknown';
                 $star['colony_count'] = (int)($star['colony_count'] ?? 0);
                 $star['colony_population'] = (int)($star['colony_population'] ?? 0);
-                $star['colony_owner_color'] = (string)($star['colony_owner_color'] ?? '');
                 $star['colony_owner_user_id'] = (int)($star['colony_owner_user_id'] ?? 0);
                 $star['colony_owner_name'] = (string)($star['colony_owner_name'] ?? '');
+                $star['colony_owner_color'] = (string)($star['colony_owner_color'] ?? '');
+                if ($star['colony_owner_color'] === '' && $star['colony_owner_user_id'] > 0) {
+                    $star['colony_owner_color'] = user_empire_color((int)$star['colony_owner_user_id']);
+                }
                 $star['colony_is_player'] = $currentUserId !== null && (int)$star['colony_owner_user_id'] === (int)$currentUserId ? 1 : 0;
             }
             unset($star);

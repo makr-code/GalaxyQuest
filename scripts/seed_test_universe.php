@@ -53,6 +53,8 @@ function default_research(): array {
         'plasma_tech', 'combustion_drive', 'impulse_drive', 'hyperspace_drive',
         'espionage_tech', 'computer_tech', 'astrophysics', 'intergalactic_network',
         'graviton_tech', 'weapons_tech', 'shielding_tech', 'armor_tech',
+        'nano_materials', 'genetic_engineering', 'quantum_computing',
+        'dark_energy_tap', 'wormhole_theory', 'terraforming_tech', 'stealth_tech',
     ];
 }
 

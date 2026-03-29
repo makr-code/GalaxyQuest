@@ -1,0 +1,13 @@
+{
+  "name": "galaxyquest-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Test tooling for GalaxyQuest frontend/unit tests",
+  "scripts": {
+    "test:unit:js": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0",
+    "vitest": "^2.1.8"
+  }
+}

@@ -275,6 +275,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         only_method('GET');
         $fid = (int)($_GET['faction_id'] ?? 0);
         $db  = get_db();
+        ensure_precursor_beacon_quest_seed($db);
         $standing = get_standing($db, $uid, $fid);
 
         // Already-active quest IDs for this user
@@ -308,6 +309,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         $body = get_json_body();
         $fqid = (int)($body['faction_quest_id'] ?? 0);
         $db   = get_db();
+        ensure_precursor_beacon_quest_seed($db);
 
         $qRow = $db->prepare('SELECT * FROM faction_quests WHERE id = ?');
         $qRow->execute([$fqid]);
@@ -334,8 +336,9 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         }
 
         $db->prepare(
-            'INSERT INTO user_faction_quests (user_id, faction_quest_id, status) VALUES (?, ?, \'active\')'
-        )->execute([$uid, $fqid]);
+            'INSERT INTO user_faction_quests (user_id, faction_quest_id, status, progress_json)
+             VALUES (?, ?, \'active\', ? )'
+        )->execute([$uid, $fqid, '{}']);
 
         json_ok(['message' => "Quest started: {$quest['title']}"]);
         break;
@@ -345,6 +348,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         only_method('POST');
         verify_csrf();
         $db      = get_db();
+        ensure_precursor_beacon_quest_seed($db);
         $results = check_faction_quests($db, $uid);
         json_ok(['completed' => $results]);
         break;
@@ -356,6 +360,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         $body = get_json_body();
         $uqid = (int)($body['user_quest_id'] ?? 0);
         $db   = get_db();
+        ensure_precursor_beacon_quest_seed($db);
 
         $uqRow = $db->prepare(
             'SELECT uq.*, fq.*,
@@ -390,6 +395,22 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Mark claimed
         $db->prepare('UPDATE user_faction_quests SET status=\'claimed\', completed_at=NOW() WHERE id=?')
            ->execute([$uqid]);
+
+        if (($row['code'] ?? '') === 'precursor_wormhole_beacon') {
+            $db->exec(
+                'CREATE TABLE IF NOT EXISTS user_wormhole_unlocks (
+                    user_id INT NOT NULL PRIMARY KEY,
+                    source_quest_code VARCHAR(64) DEFAULT NULL,
+                    unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB'
+            );
+            $db->prepare(
+                'INSERT INTO user_wormhole_unlocks (user_id, source_quest_code, unlocked_at)
+                 VALUES (?, ?, NOW())
+                 ON DUPLICATE KEY UPDATE source_quest_code = VALUES(source_quest_code), unlocked_at = VALUES(unlocked_at)'
+            )->execute([$uid, (string)$row['code']]);
+        }
 
         // Increment quests_completed in diplomacy
         $db->prepare(
@@ -524,6 +545,13 @@ function is_quest_complete(PDO $db, int $userId, string $type, array $req): bool
             return (int)$stmt->fetchColumn() >= (int)($req['spy_reports'] ?? 1);
 
         case 'research':
+            $requiredTech = trim((string)($req['tech'] ?? ''));
+            if ($requiredTech !== '') {
+                $level = max(1, (int)($req['level'] ?? 1));
+                $stmt = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=? LIMIT 1');
+                $stmt->execute([$userId, $requiredTech]);
+                return (int)($stmt->fetchColumn() ?: 0) >= $level;
+            }
             $level = (int)($req['research_level'] ?? 1);
             $stmt  = $db->prepare('SELECT MAX(level) FROM research WHERE user_id=?');
             $stmt->execute([$userId]);
@@ -545,6 +573,44 @@ function is_quest_complete(PDO $db, int $userId, string $type, array $req): bool
             return (int)$stmt->fetchColumn() >= (int)($req['count'] ?? 1);
     }
     return false;
+}
+
+function ensure_precursor_beacon_quest_seed(PDO $db): void {
+    try {
+        $precursorIdStmt = $db->prepare('SELECT id FROM npc_factions WHERE code = ? LIMIT 1');
+        $precursorIdStmt->execute(['precursors']);
+        $precursorId = (int)($precursorIdStmt->fetchColumn() ?: 0);
+        if ($precursorId <= 0) {
+            return;
+        }
+
+        $db->prepare(
+            'INSERT IGNORE INTO faction_quests
+                (faction_id, code, title, description, quest_type, requirements_json,
+                 reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+                 reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $precursorId,
+            'precursor_wormhole_beacon',
+            'Unlock the Ancient Beacon',
+            'Decode precursor harmonics and stabilize an ancient beacon lattice to unlock permanent wormhole corridors.',
+            'research',
+            '{"tech":"wormhole_theory","level":5}',
+            15000,
+            12000,
+            9000,
+            0,
+            500,
+            180,
+            18,
+            80,
+            'epic',
+            0,
+        ]);
+    } catch (Throwable $e) {
+        // Non-fatal: endpoint should continue even if seed backfill cannot run.
+    }
 }
 
 function faction_dialog_trim_text(string $text, int $maxLen = 280): string {

@@ -1298,6 +1298,15 @@ function update_colony_resources(PDO $db, int $colonyId): void {
         if ($evRow) $activeColonyEvent = $evRow['event_type'];
     } catch (Throwable $e) { /* table may not exist pre-migration */ }
 
+    // disease event is cleared early once hospital reaches level 3
+    if ($activeColonyEvent === 'disease' && $hoL >= 3) {
+        try {
+            $db->prepare('DELETE FROM colony_events WHERE colony_id = ? AND event_type = "disease"')
+               ->execute([$colonyId]);
+            $activeColonyEvent = null;
+        } catch (Throwable $e) { /* ignore pre-migration */ }
+    }
+
     // ── Planet richness multipliers ───────────────────────────────────────
     $richM  = max(0.1, (float)($row['richness_metal']      ?? 1.0));
     $richC  = max(0.1, (float)($row['richness_crystal']    ?? 1.0));
@@ -1310,8 +1319,29 @@ function update_colony_resources(PDO $db, int $colonyId): void {
     $depD  = (int)($row['deposit_deuterium']   ?? -1);
     $depRE = (int)($row['deposit_rare_earth']  ?? -1);
 
+    // ── Research-derived modifiers ───────────────────────────────────────
+    $researchLevels = [];
+    try {
+        $rStmt = $db->prepare(
+            'SELECT type, level FROM research
+             WHERE user_id = ?
+               AND type IN ("genetic_engineering", "dark_energy_tap", "terraforming_tech")'
+        );
+        $rStmt->execute([(int)($row['user_id'] ?? 0)]);
+        foreach ($rStmt->fetchAll(PDO::FETCH_ASSOC) as $rRow) {
+            $researchLevels[(string)$rRow['type']] = (int)$rRow['level'];
+        }
+    } catch (Throwable $e) { /* pre-migration */ }
+
+    $geneticLvl = (int)($researchLevels['genetic_engineering'] ?? 0);
+    $darkTapLvl = (int)($researchLevels['dark_energy_tap'] ?? 0);
+    $terraformLvl = (int)($researchLevels['terraforming_tech'] ?? 0);
+
     // ── Energy balance ────────────────────────────────────────────────────
     $energyProd = solar_energy($spL) + fusion_energy($frL);
+    if ($activeColonyEvent === 'solar_flare') {
+        $energyProd *= 0.70; // solar flare: energy output -30%
+    }
     $energyReq  = metal_production_energy($mmL)
                 + crystal_production_energy($cmL)
                 + deuterium_production_energy($dsL)
@@ -1322,6 +1352,9 @@ function update_colony_resources(PDO $db, int $colonyId): void {
 
     // ── Food system ───────────────────────────────────────────────────────
     $foodProdPerH   = food_production($hfL);
+    if ($geneticLvl >= 1) {
+        $foodProdPerH *= 1.25;
+    }
     // Agricultural colony type bonus
     $colonyType = $row['colony_type'] ?? 'balanced';
     if ($colonyType === 'agricultural') $foodProdPerH *= 1.5;
@@ -1347,14 +1380,14 @@ function update_colony_resources(PDO $db, int $colonyId): void {
 
     // ── Raw-resource production (richness + efficiency + happiness productivity) ──
     $resourceOutputMult = (float)($dynamicEffects['resource_output_mult'] ?? 0.0);
-    // solar_flare: all resource production −20 %
-    if ($activeColonyEvent === 'solar_flare') {
-        $resourceOutputMult -= 0.20;
-    }
     $prodMulti     = happiness_productivity($happiness) * $efficiency * (1.0 + $resourceOutputMult);
     $metalProdH    = metal_production($mmL)                               * $richM  * $prodMulti;
     $crystalProdH  = crystal_production($cmL)                             * $richC  * $prodMulti;
-    $deutProdH     = deuterium_production($dsL, (int)($row['temp_max'] ?? 20)) * $richD  * $prodMulti;
+    $effectiveTempMax = (int)($row['temp_max'] ?? 20);
+    if ($terraformLvl >= 1) {
+        $effectiveTempMax += 10;
+    }
+    $deutProdH     = deuterium_production($dsL, $effectiveTempMax) * $richD  * $prodMulti;
     $rareProdH     = rare_earth_production($reL)                           * $richRE * $prodMulti;
 
     // ── Deposit cap: limit production if deposit nearly exhausted ─────────
@@ -1399,9 +1432,9 @@ function update_colony_resources(PDO $db, int $colonyId): void {
         $foodProdPerH  = leader_production_bonus($foodProdPerH, $sk);
     }
 
-    // mineral_vein: metal production +30 %
+    // mineral_vein: metal production +20 %
     if ($activeColonyEvent === 'mineral_vein') {
-        $metalProdH *= 1.30;
+        $metalProdH *= 1.20;
     }
 
     // ── Storage caps ─────────────────────────────────────────────────────
@@ -1437,22 +1470,37 @@ function update_colony_resources(PDO $db, int $colonyId): void {
         0,
         100
     );
+
+    if ($activeColonyEvent === 'disease') {
+        $newHappiness = clamp_int_range($newHappiness - 25, 0, 100);
+    }
     
     // ── Colony-type happiness bonuses ─────────────────────────────────────
     if ($colonyType === 'agricultural') {
         $newHappiness = clamp_int_range($newHappiness + 15, 0, 100);
     }
 
+    // ── Hospital Ship orbit bonus (+8 happiness per ship, max 3 ships) ────
+    try {
+        $hsStmt = $db->prepare(
+            'SELECT COALESCE(SUM(count), 0) FROM ships WHERE colony_id = ? AND type = \'hospital_ship\''
+        );
+        $hsStmt->execute([$colonyId]);
+        $hospitalShips = min(3, (int)$hsStmt->fetchColumn());
+        if ($hospitalShips > 0) {
+            $newHappiness = clamp_int_range($newHappiness + $hospitalShips * 8, 0, 100);
+        }
+    } catch (Throwable $e) { /* ignore pre-migration */ }
+
     // ── Population max (500 base + habitat buildings) ─────────────────────
     $newMaxPop = 500 + habitat_capacity($haL);
+    if ($geneticLvl >= 1) {
+        $newMaxPop = (int)round($newMaxPop * 1.10);
+    }
 
     // ── Population growth ─────────────────────────────────────────────────
     $growthPerH     = population_growth($population, $newMaxPop, $newHappiness, $foodCoverage);
     $growthPerH     = (int)round($growthPerH * (1.0 + (float)($dynamicEffects['pop_growth_mult'] ?? 0.0)));
-    // disease: population growth −50 %
-    if ($activeColonyEvent === 'disease') {
-        $growthPerH = (int)round($growthPerH * 0.50);
-    }
     $newPopulation  = max(1, min($newMaxPop, $population + (int)round($growthPerH * $deltaH)));
 
     // ── Persist ───────────────────────────────────────────────────────────
@@ -1467,6 +1515,14 @@ function update_colony_resources(PDO $db, int $colonyId): void {
         $energyBalance, $newPopulation, $newMaxPop, $newHappiness,
         $newPublicServices, $now, $colonyId,
     ]);
+
+    if ($darkTapLvl >= 1 && $frL > 0 && $userId > 0) {
+        $darkGain = (int)floor(($energyProd * 0.005) * $deltaH);
+        if ($darkGain > 0) {
+            $db->prepare('UPDATE users SET dark_matter = dark_matter + ? WHERE id = ?')
+               ->execute([$darkGain, $userId]);
+        }
+    }
 
     // Deplete planet deposits (skip if unlimited = -1)
     if ($depM  > 0) $db->prepare('UPDATE planets SET deposit_metal=GREATEST(0,deposit_metal-?)       WHERE id=(SELECT planet_id FROM colonies WHERE id=?)')->execute([(int)$mined_metal,   $colonyId]);
@@ -1689,6 +1745,13 @@ const RESEARCH_BASE_COST = [
     'weapons_tech'            => ['metal' =>  800, 'crystal' =>  200, 'deuterium' =>    0],
     'shielding_tech'          => ['metal' =>  200, 'crystal' =>  600, 'deuterium' =>    0],
     'armor_tech'              => ['metal' =>  800, 'crystal' =>    0, 'deuterium' =>    0],
+    'nano_materials'          => ['metal' => 2000, 'crystal' => 6000, 'deuterium' => 2000],
+    'genetic_engineering'     => ['metal' => 3000, 'crystal' => 5000, 'deuterium' => 3000],
+    'quantum_computing'       => ['metal' => 8000, 'crystal' =>12000, 'deuterium' => 8000],
+    'dark_energy_tap'         => ['metal' =>12000, 'crystal' =>16000, 'deuterium' =>14000],
+    'wormhole_theory'         => ['metal' =>16000, 'crystal' =>22000, 'deuterium' =>18000],
+    'terraforming_tech'       => ['metal' => 5000, 'crystal' => 9000, 'deuterium' => 5000],
+    'stealth_tech'            => ['metal' => 7000, 'crystal' =>11000, 'deuterium' => 9000],
 ];
 
 const RESEARCH_PREREQS = [
@@ -1717,6 +1780,15 @@ const RESEARCH_PREREQS = [
     // Tier 4: depend on Tier 3
     'intergalactic_network' => [['astrophysics', 7], ['computer_tech', 10]],
     'graviton_tech'         => [['intergalactic_network', 5], ['hyperspace_drive', 8]],
+
+    // Extended tier (Phase 5.1)
+    'nano_materials'        => [['armor_tech', 3], ['computer_tech', 3]],
+    'genetic_engineering'   => [['energy_tech', 4], ['astrophysics', 2]],
+    'quantum_computing'     => [['computer_tech', 6], ['ion_tech', 4]],
+    'dark_energy_tap'       => [['plasma_tech', 5], ['energy_tech', 8]],
+    'wormhole_theory'       => [['hyperspace_drive', 6], ['astrophysics', 5]],
+    'terraforming_tech'     => [['astrophysics', 3], ['energy_tech', 5]],
+    'stealth_tech'          => [['espionage_tech', 6], ['hyperspace_tech', 4]],
 ];
 
 const SHIP_STATS = [
@@ -1736,4 +1808,10 @@ const SHIP_STATS = [
     'solar_satellite'  => ['cost' => ['metal' =>    0, 'crystal' =>  2000, 'deuterium' =>  500], 'cargo' =>     0, 'speed' =>     0, 'attack' =>   1, 'shield' =>   1, 'hull' =>  2000],
     'colony_ship'      => ['cost' => ['metal' =>10000, 'crystal' =>20000, 'deuterium' =>10000], 'cargo' =>  7500, 'speed' =>  2500, 'attack' =>  50, 'shield' => 100, 'hull' => 30000],
     'recycler'         => ['cost' => ['metal' =>10000, 'crystal' => 6000, 'deuterium' =>  2000], 'cargo' => 20000, 'speed' =>  2000, 'attack' =>   1, 'shield' =>  10, 'hull' => 16000],
+    // ── Phase 5.2 additions ──────────────────────────────────────────────────────────
+    'frigate'        => ['cost' => ['metal' =>  9000, 'crystal' =>  4000, 'deuterium' =>  1000], 'cargo' =>   200, 'speed' => 20000, 'attack' => 180, 'shield' =>  35, 'hull' => 10000],
+    'carrier'        => ['cost' => ['metal' => 80000, 'crystal' => 60000, 'deuterium' => 25000], 'cargo' =>   800, 'speed' =>  5000, 'attack' => 800, 'shield' =>1500, 'hull' =>250000, 'fighter_wing_slots' => 12],
+    'mining_drone'   => ['cost' => ['metal' => 12000, 'crystal' =>  2000, 'deuterium' =>  1500], 'cargo' => 55000, 'speed' =>   300, 'attack' =>   0, 'shield' =>   5, 'hull' =>  6000],
+    'hospital_ship'  => ['cost' => ['metal' => 20000, 'crystal' => 25000, 'deuterium' =>  8000], 'cargo' =>   200, 'speed' =>  4000, 'attack' =>   0, 'shield' => 150, 'hull' => 18000],
+    'science_vessel' => ['cost' => ['metal' => 25000, 'crystal' => 35000, 'deuterium' => 12000], 'cargo' =>   100, 'speed' =>  5000, 'attack' =>   0, 'shield' =>  80, 'hull' => 12000],
 ];

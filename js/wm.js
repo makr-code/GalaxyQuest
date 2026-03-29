@@ -27,7 +27,23 @@ const WM = (() => {
   let _nextX = 60;
   let _nextY = 60;
 
-  window.addEventListener('resize', () => _syncFullscreenWindows());
+  const WM_MOBILE_BREAKPOINT = 800;
+
+  function _isMobileMode() {
+    return (window.innerWidth || 0) < WM_MOBILE_BREAKPOINT;
+  }
+
+  function _syncResponsiveClass() {
+    const root = document.body || document.documentElement;
+    if (!root) return;
+    root.classList.toggle('wm-mobile', _isMobileMode());
+  }
+
+  window.addEventListener('resize', () => {
+    _syncResponsiveClass();
+    _syncFullscreenWindows();
+  });
+  _syncResponsiveClass();
 
   // ── Default window configurations ───────────────────────────────────────────
   const DEFAULTS = {
@@ -354,6 +370,7 @@ const WM = (() => {
     let dragging = false, ox = 0, oy = 0;
 
     bar.addEventListener('mousedown', e => {
+      if (_isMobileMode()) return;
       if (e.target.closest('.wm-controls')) return;
       dragging = true;
       ox = e.clientX - winEl.offsetLeft;
@@ -363,6 +380,7 @@ const WM = (() => {
     });
     // Touch support
     bar.addEventListener('touchstart', e => {
+      if (_isMobileMode()) return;
       if (e.target.closest('.wm-controls')) return;
       const t = e.touches[0];
       dragging = true;
@@ -402,6 +420,7 @@ const WM = (() => {
     let resizing = false, sx = 0, sy = 0, sw = 0, sh = 0;
 
     handle.addEventListener('mousedown', e => {
+      if (_isMobileMode()) return;
       resizing = true;
       sx = e.clientX; sy = e.clientY;
       sw = winEl.offsetWidth; sh = winEl.offsetHeight;

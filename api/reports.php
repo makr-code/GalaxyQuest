@@ -23,27 +23,53 @@ match ($action) {
 function action_spy_reports(int $uid): never {
     only_method('GET');
     $db = get_db();
-    
-    $stmt = $db->prepare(
-        'SELECT id, target_planet_id, report_json, created_at
-         FROM spy_reports
-         WHERE owner_id = ?
-         ORDER BY created_at DESC
-         LIMIT 100'
+
+    // Extend to alliance-shared intel when the user is an alliance member.
+    $allianceStmt = $db->prepare(
+        'SELECT alliance_id FROM alliance_members WHERE user_id = ? LIMIT 1'
     );
-    $stmt->execute([$uid]);
-    
+    $allianceStmt->execute([$uid]);
+    $allianceId = (int)($allianceStmt->fetchColumn() ?: 0);
+
+    if ($allianceId > 0) {
+        // Own reports + reports from all alliance members (newest 200 total).
+        $stmt = $db->prepare(
+            'SELECT sr.id, sr.owner_id, u.username AS owner_username,
+                    sr.target_planet_id, sr.report_json, sr.created_at,
+                    (sr.owner_id = ?) AS is_own
+             FROM spy_reports sr
+             JOIN alliance_members am ON am.user_id = sr.owner_id AND am.alliance_id = ?
+             JOIN users u ON u.id = sr.owner_id
+             ORDER BY sr.created_at DESC
+             LIMIT 200'
+        );
+        $stmt->execute([$uid, $allianceId]);
+    } else {
+        $stmt = $db->prepare(
+            'SELECT id, owner_id, NULL AS owner_username,
+                    target_planet_id, report_json, created_at, 1 AS is_own
+             FROM spy_reports
+             WHERE owner_id = ?
+             ORDER BY created_at DESC
+             LIMIT 100'
+        );
+        $stmt->execute([$uid]);
+    }
+
     $reports = [];
     foreach ($stmt->fetchAll() as $row) {
         $reports[] = [
-            'id'              => (int)$row['id'],
-            'target_planet_id'=> $row['target_planet_id'] ? (int)$row['target_planet_id'] : null,
-            'report'          => json_decode((string)($row['report_json'] ?? '{}'), true),
-            'created_at'      => $row['created_at'],
+            'id'               => (int)$row['id'],
+            'owner_id'         => (int)$row['owner_id'],
+            'owner_username'   => $row['owner_username'],
+            'is_own'           => (bool)$row['is_own'],
+            'target_planet_id' => $row['target_planet_id'] ? (int)$row['target_planet_id'] : null,
+            'report'           => json_decode((string)($row['report_json'] ?? '{}'), true),
+            'created_at'       => $row['created_at'],
         ];
     }
-    
-    json_ok(['spy_reports' => $reports]);
+
+    json_ok(['spy_reports' => $reports, 'alliance_shared' => $allianceId > 0]);
 }
 
 function action_battle_reports(int $uid): never {

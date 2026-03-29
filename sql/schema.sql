@@ -288,6 +288,30 @@ CREATE TABLE IF NOT EXISTS fleets (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- Wormhole network (Phase 5.3)
+CREATE TABLE IF NOT EXISTS wormholes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    endpoint_a_galaxy INT NOT NULL,
+    endpoint_a_system INT NOT NULL,
+    endpoint_b_galaxy INT NOT NULL,
+    endpoint_b_system INT NOT NULL,
+    stability INT NOT NULL DEFAULT 100,
+    cooldown_until DATETIME DEFAULT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    is_permanent TINYINT(1) NOT NULL DEFAULT 0,
+    label VARCHAR(80) DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_wormholes_a (endpoint_a_galaxy, endpoint_a_system),
+    INDEX idx_wormholes_b (endpoint_b_galaxy, endpoint_b_system)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS user_wormhole_unlocks (
+    user_id INT NOT NULL PRIMARY KEY,
+    source_quest_code VARCHAR(64) DEFAULT NULL,
+    unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- Leaders / Officers
 -- Each leader is a named character that can be assigned to a colony or fleet.
 -- When autonomy >= 2 the AI tick drives their decisions automatically.
@@ -538,6 +562,14 @@ SELECT f.id, 'prec_rare_earth_offering', 'The Ancient Toll',
     'The Precursors require 1 000 units of rare earth to open negotiations.',
     'deliver', '{"resource":"rare_earth","amount":1000}', 0,0,0,500,500,300,30,-100,'epic',0
 FROM npc_factions f WHERE f.code='precursors';
+INSERT IGNORE INTO faction_quests
+     (faction_id, code, title, description, quest_type, requirements_json,
+      reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+      reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+SELECT f.id, 'precursor_wormhole_beacon', 'Unlock the Ancient Beacon',
+    'Decode precursor harmonics and stabilize an ancient beacon lattice to unlock permanent wormhole corridors.',
+    'research', '{"tech":"wormhole_theory","level":5}', 15000,12000,9000,0,500,180,18,80,'epic',0
+FROM npc_factions f WHERE f.code='precursors';
 
 -- ─── Trade routes (automated recurring transport) ──────────────────────────────
 
@@ -650,11 +682,11 @@ CREATE TABLE IF NOT EXISTS user_achievements (
     UNIQUE KEY unique_user_achievement (user_id, achievement_id)
 ) ENGINE=InnoDB;
 
--- Planetary random events (solar flare, mineral vein, disease)
+-- Planetary random events (solar flare, mineral vein, disease, archaeological find)
 CREATE TABLE IF NOT EXISTS colony_events (
     id          INT AUTO_INCREMENT PRIMARY KEY,
     colony_id   INT NOT NULL,
-    event_type  ENUM('solar_flare','mineral_vein','disease') NOT NULL,
+    event_type  ENUM('solar_flare','mineral_vein','disease','archaeological_find') NOT NULL,
     started_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at  DATETIME NOT NULL,
     FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE CASCADE,

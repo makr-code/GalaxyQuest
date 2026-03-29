@@ -49,23 +49,21 @@ _Short-term: these add meaningful depth with contained scope._
 
 ### 2.1 Real-time Fleet Tracking
 **Priority:** 🎯  
+**Status:** ✅ Implemented  
 **Effort:** Small
 
-The fleet progress bar in the Overview window currently shows the static progress at render time. It should count down live without a page reload.
-
-- Add a `setInterval` in `renderOverview()` / the fleet list section that reads `_GQ_fleets` and recomputes `fleet_current_position()` client-side every second.
-- Display current 3D coordinates and ETA countdown ticking in real time.
-- On arrival (progress ≥ 1.0), trigger `loadOverview()` automatically.
+✅ Fleet progress bars update live every second via the countdown ticker.  
+✅ 3D current position (x/y/z ly) is rendered per fleet row.  
+✅ On arrival (progress ≥ 1.0), the ticker auto-calls `loadOverview()` + `WM.refresh('fleet')` (guarded per arr-timestamp to fire only once, as SSE fallback when the EventSource is unavailable).
 
 ### 2.2 Building & Research Queue Countdown Timers
 **Priority:** 🎯  
+**Status:** ✅ Implemented  
 **Effort:** Small
 
-Buildings and research show a static "⏳ finishing at …" timestamp. They should count down.
-
-- The `data-end` attributes are already emitted on busy cards.
-- Add a shared `startCountdownTimers()` function called after every render that queries `[data-end]` and updates innerHTML every second.
-- When a timer reaches zero, auto-call `renderBuildings()` / `renderResearch()`.
+✅ `[data-end]` spans update every second via the countdown ticker.  
+✅ `[data-start][data-end]` progress bars animate live (buildings, research, shipyard queue).  
+✅ When a timer hits `00:00:00`, the ticker calls `WM.refresh(windowId)` for the containing window (debounced 8 s per window to prevent flood on multiple simultaneous completions).
 
 ### 2.3 Galaxy Map: 2D Sector View with Colony Markers
 **Priority:** 🎯  
@@ -88,13 +86,12 @@ Buildings and research show a static "⏳ finishing at …" timestamp. They shou
 
 ### 2.4 Espionage: Spy Report UI Window
 **Priority:** 🎯  
+**Status:** ✅ Implemented  
 **Effort:** Small
 
-Spy reports are stored in `spy_reports` but there is no dedicated UI window for them.
-
-- Add `GET /api/fleet.php?action=spy_reports` endpoint listing the player's own reports.
-- Add a `🔍 Intel` nav button and WM window that lists reports newest-first.
-- Each report expands to show: resources, welfare bars, ships, leaders, deposits — formatted identically to the colony overview cards.
+✅ `GET /api/reports.php?action=spy_reports` endpoint listing the player's own reports (newest-first, limit 50).  
+✅ `🔍 Intel` WM window with `IntelController` class: full spy-report card rendering (resources, welfare bars, ships, leaders, deposits) + combat history + matchup-scan form.  
+✅ `API.spyReports()` in api.js with 10 s TTL cache.
 
 ### 2.5 Trade Route System (Player-to-Player)
 **Priority:** 💡  
@@ -113,27 +110,25 @@ Spy reports are stored in `spy_reports` but there is no dedicated UI window for 
 
 ### 2.6 Research Prerequisites
 **Priority:** 💡  
+**Status:** ✅ Implemented  
 **Effort:** Small
 
-Currently all 16 technologies are available from level 0. A prerequisite tree adds strategic depth.
-
-- Add a `RESEARCH_PREREQS` constant in `game_engine.php` (e.g., `hyperspace_drive` requires `impulse_drive` lv 5).
-- `api/research.php` checks prereqs before starting.
-- `renderResearch()` shows locked techs greyed out with the required prereq shown.
+✅ `RESEARCH_PREREQS` constant in `game_engine.php` defines a 4-tier dependency tree (16 techs, base → Tier 3).  
+✅ `check_research_prereqs()` validates user levels against prereqs; `api/research.php` enforces the check on `action=research`.  
+✅ API response includes `can_research` + `missing_prereqs`; `renderResearch()` shows locked techs greyed out with "Requires: …" hint.
 
 ### 2.7 Colony Specialisation Bonuses (Wire colony_type)
 **Priority:** 💡  
+**Status:** ✅ Implemented  
 **Effort:** Small
 
-`colonies.colony_type` (mining / industrial / research / agricultural / military / balanced) is stored but not yet applied to production formulas.
-
-- In `update_colony_resources()`, read `colony_type` and apply multipliers:
-  - `mining`: +20% metal/crystal/deuterium/rare_earth production
-  - `agricultural`: +30% food, +15% happiness
-  - `research`: −15% research time
-  - `industrial`: −10% build time, −10% ship build cost
-  - `military`: +10% ship attack, +5% shield
-  - `balanced`: no bonus, no penalty
+✅ All 6 colony types apply their bonuses:  
+- `mining`: +20% metal/crystal/deuterium/rare_earth (`update_colony_resources`)  
+- `agricultural`: +30% food production, +15% happiness (`update_colony_resources`)  
+- `research`: −15% research time (`api/research.php action=research`)  
+- `industrial`: −10% building time (`api/buildings.php`), −10% ship build cost (`api/shipyard.php`)  
+- `military`: +10% attack, +5% shield for fleets departing that colony (`api/fleet.php resolve_battle`)  
+- `balanced`: no bonus/penalty
 
 ### 2.8 Recall Fleet: Return Cargo
 **Priority:** 💡  
@@ -149,15 +144,18 @@ When a fleet is recalled mid-transport, its `cargo_*` columns are returned to th
 _These require more design and affect multiple subsystems._
 
 ### 3.1 Alliance System
-**Priority:** 💡  
+**Priority:** ✅ Done  
 **Effort:** Large
 
-- New tables: `alliances` (id, name, tag, leader_user_id, created_at), `alliance_members` (alliance_id, user_id, role, joined_at).
-- Alliance diplomacy: NAP · Alliance · War declarations stored in `alliance_relations`.
-- Alliance chat: shared message board.
-- Shared intel: spy reports visible to all alliance members.
-- `leaderboard` extended with alliance ranking.
-- **Design question ❓**: Should alliances share resource pools, or just information and non-aggression?
+✅ `alliances`, `alliance_members`, `alliance_relations`, `alliance_messages` tables created dynamically via `ensure_alliance_schema()` in `api/alliances.php`.  
+✅ Full membership lifecycle: create, join, leave, disband, remove_member, set_role (leader / diplomat / officer / member).  
+✅ Alliance treasury: contribute resources from homeworld, withdraw to leader's homeworld (officer+).  
+✅ Diplomacy: declare_war, declare_nap (with expiry), declare_alliance, revoke_relation, set_relation.  
+✅ War map: `action=war_map` returns colony positions colour-coded as own / war / neutral for the active alliance.  
+✅ Alliance chat: `get_messages` / `send_message` (last 100 messages, member-only).  
+✅ Shared intel: `api/reports.php?action=spy_reports` now includes all reports from alliance members when the requesting user is in an alliance; response includes `alliance_shared: true` flag.  
+✅ Leaderboard extended: `[TAG]` badge shown per player in the Leaderboard window (API joined to `alliances` via `alliance_members`).  
+✅ Frontend: full `AlliancesController` class in `game.js` — list, view, create, join, chat, contribute, diplomacy, member management dialogs.
 
 ### 3.2 Real-time Push Notifications (Server-Sent Events)
 **Priority:** 💡  
@@ -187,13 +185,15 @@ header('Cache-Control: no-cache');
 
 ### 3.3 Player-to-Player Trading
 **Priority:** 💡  
+**Status:** ✅ Implemented  
 **Effort:** Medium
 
-- `trade_proposals` table: initiator, target, offer_json, request_json, status, expires_at.
-- `POST /api/trade.php?action=propose` — send offer.
-- `POST /api/trade.php?action=accept|reject` — respond.
-- Atomic resource swap on accept (transaction).
-- UI: Trade Inbox in Messages window.
+✅ `trade_proposals` table with lifecycle states (`pending`, `accepted`, `rejected`, `cancelled`, `expired`).  
+✅ API endpoints implemented in `api/trade.php`:  
+   - `GET /api/trade.php?action=list_proposals`  
+   - `POST /api/trade.php?action=propose|accept|reject|cancel`  
+✅ Accept flow validates resources, creates transport fleets for offer/request legs, and finalizes atomically in one DB transaction.  
+✅ UI implemented via `TradeProposalsController` in `js/game.js` with Inbox/Outbox tabs and accept/reject/cancel actions.
 
 ### 3.4 War Declarations & Territory
 **Priority:** 🔭  
@@ -209,48 +209,57 @@ header('Cache-Control: no-cache');
 
 ### 4.1 NPC Player Accounts (Bots)
 **Priority:** 💡  
+**Status:** ✅ Implemented  
 **Effort:** Large
 
-`users.is_npc` column already exists. Extend `npc_ai.php` to run full player-side AI:
+✅ Global bot tick implemented in `npc_player_accounts_tick_global()` with app-state cooldown and bounded batch processing.  
+✅ Per-account strategy tick (`npc_player_account_tick`) performs building upgrades, research starts, ship production, and fleet actions.  
+✅ Colony-type-aware priorities are active (e.g. research/military/industrial focus trees).  
+✅ Fleet actions include expansion and logistics routines (colonization + balancing transports).  
+✅ Integrated into normal gameplay traffic via `npc_ai_tick()`.
 
-- `npc_ai_tick()` for NPC users: upgrade buildings, queue research, build ships, send fleets.
-- Difficulty tiers: Beginner bots use suboptimal strategies; Elite bots prioritise mining → research → fleet.
-- NPC accounts seeded with a homeworld colony on DB install.
-- Bots attack weak player colonies when standing < −50 with the Empire/Pirates faction.
-
-**Design note ❓**: NPC ticks should be global (not per-user-request). Consider a dedicated `/api/npc_tick.php` endpoint called by a cron job every 5–15 minutes.
+_Follow-up:_ A dedicated scheduler/cron endpoint can still be added later to decouple ticks from player traffic.
 
 ### 4.2 Fleet Commander Active Decisions
 **Priority:** 💡  
+**Status:** ✅ Implemented  
 **Effort:** Medium
 
-Currently fleet commanders only apply passive bonuses. With full autonomy they should:
-
-- Recall fleets when origin colony is under attack.
-- Auto-select best ships for mission type (fighters for attack, cargo ships for transport).
-- Route around hostile territory (requires faction war state awareness).
+✅ Passive commander combat/speed bonuses are active.  
+✅ `ai_fleet_commander_tick()` includes active autonomy actions:
+- Defensive recall when hostile attack fleets are inbound to the home colony.
+- Auto-intercept launch with fighter-heavy mission composition.
+- Auto-scout toward nearby stale/unseen systems with hostile-territory filtering.
+- Auto-logistics transport to weaker sibling colonies using cargo-heavy ship selection.
+- Early recall of returning empty fleets for faster reinforcement.
 
 ### 4.3 Dynamic Faction Events
 **Priority:** 💡  
+**Status:** ✅ Implemented  
 **Effort:** Medium
 
-Add time-limited galaxy-wide events driven by faction state:
+✅ Global timed events implemented in `faction_events_tick_global()` (`api/npc_ai.php`) with cooldown + duration handling.  
+✅ Event set implemented:
+- **Galactic War**
+- **Trade Boom**
+- **Pirate Surge**
+✅ Effects are applied/reverted on `npc_factions` stats and surfaced to players via in-game messages.  
+✅ Active event payload is exposed via `api/factions.php` (`active_event`) for UI rendering.
 
-- **Galactic War**: Empire vs. Precursors — players can side with either, PvP attacks on enemy side give standing bonus.
-- **Trade Boom**: Guild doubles trade offer values for 24 hours.
-- **Pirate Surge**: Pirate aggression ×2 for 12 hours; defending successfully gives large standing gain.
-
-Events stored in an `npc_events` table with `starts_at`, `ends_at`, `type`, `params_json`.
+_Note:_ Current implementation persists global event state via `app_state` keys (not an `npc_events` table).
 
 ### 4.4 Planetary Events & Anomalies
 **Priority:** 🔭  
+**Status:** ✅ Implemented  
 **Effort:** Medium
 
-Random (seeded by time + planet id) events that affect a specific colony:
+✅ Planetary events are generated globally via `colony_events_tick_global()` (`api/npc_ai.php`) and persisted in `colony_events`.  
+✅ Active event state is surfaced in overview payloads and rendered in the colony UI banner.  
+✅ Implemented event effects:
 
-- Solar flare: energy −30% for 2 hours
+- Solar flare: energy production −30% for 2 hours
 - Mineral vein found: +20% metal production for 6 hours
-- Disease outbreak: happiness −25 until hospital lv 3 built
+- Disease outbreak: happiness −25 until Hospital lv 3 (then auto-cleared)
 - Archaeological find: +500 dark matter one-time reward (requires Science Collective standing ≥ 20)
 
 ---
@@ -258,6 +267,7 @@ Random (seeded by time + planet id) events that affect a specific colony:
 ## Phase 5 — Content Expansion 🔭
 
 ### 5.1 Extended Research Tree
+**Status:** ✅ Done
 
 Current 16 technologies cover propulsion, weapons, and basic infrastructure. Planned additions:
 
@@ -271,23 +281,48 @@ Current 16 technologies cover propulsion, weapons, and basic infrastructure. Pla
 | `terraforming_tech` | Prerequisite for Terraformer building; increases temperature tolerance |
 | `stealth_tech` | Fleet invisible to spy probes below level 8 |
 
-### 5.2 Additional Ship Types
+✅ All new research types available in backend cost/prereq model and seeded for new/existing users.  
+✅ Gameplay hooks wired:
+   - `nano_materials`: building material costs −15%
+   - `genetic_engineering`: +25% food production, +10% max population
+   - `quantum_computing`: −20% research time
+   - `dark_energy_tap`: fusion reactor yields dark matter over time
+   - `terraforming_tech`: required for Terraformer, plus temperature tolerance uplift for deuterium output
+   - `stealth_tech`: fleet intel hidden in spy reports until attacker has espionage tech lv8
+   - `wormhole_theory`: fully integrated — gates wormhole jump eligibility in `api/fleet.php`, surfaced in wormhole UI via `wormhole_theory_level` field, seeded by auth/setup/NPC-AI; Phase 5.3 wormhole system is the runtime effect.
 
-| Ship | Role |
-|---|---|
-| Frigate | Fast scout; cheaper cruiser alternative |
-| Carrier | Carries fighters; adds fighter wing mechanic |
-| Mining Drone | Unmanned; carries only minerals; very slow |
-| Hospital Ship | Restores colony happiness passively when in orbit |
-| Science Vessel | Provides +10% research speed to assigned colony |
+### 5.2 Additional Ship Types
+**Status:** ✅ Done
+
+| Ship | Stats (cost / cargo / speed / attack–shield–hull) | Special |
+|---|---|---|
+| Frigate | 9k metal · 4k crystal · 1k deut / 200 / 20 000 / 180–35–10k | Fast mid-game scout; cheaper cruiser alternative |
+| Carrier | 80k metal · 60k crystal · 25k deut / 800 / 5 000 / 800–1500–250k | Capital ship; 12 `fighter_wing_slots` (future wing mechanic) |
+| Mining Drone | 12k metal · 2k crystal · 1.5k deut / 55 000 / 300 / 0–5–6k | High-cargo bulk freighter; essentially no combat ability |
+| Hospital Ship | 20k metal · 25k crystal · 8k deut / 200 / 4 000 / 0–150–18k | +8 happiness per ship docked at colony (max 3, +24 total) |
+| Science Vessel | 25k metal · 35k crystal · 12k deut / 100 / 5 000 / 0–80–12k | −10% research time per vessel docked (max 3, −30% total) |
+
+✅ All 5 ships added to `SHIP_STATS` in `api/game_engine.php` → automatically appear in shipyard list.  
+✅ Hospital Ship passive orbit effect wired in `update_colony_resources()` (happiness += 8 × ships, capped at 3).  
+✅ Science Vessel research time reduction wired in `api/research.php` `action=research` (−10% × vessels, capped at 3).
 
 ### 5.3 Wormhole Network
 **Priority:** 🔭
+**Status:** ✅ Implemented
 
 - `wormholes` table: two endpoints (galaxy+system), stability (0–100), cooldown.
 - Fleets with `wormhole_theory` lv 5 can use a wormhole to jump instantly between endpoints.
 - Stability decreases with use; regenerates over time.
 - Ancient Precursor quests unlock permanent wormhole beacons.
+
+Implemented in this phase:
+- ✅ `wormholes` schema + migration baseline created.
+- ✅ Fleet API supports wormhole route discovery (`action=wormholes`) and jump-enabled launch (`use_wormhole` in send payload).
+- ✅ Jump gating requires `wormhole_theory` lv5 + active route + stability/cooldown checks.
+- ✅ Using a wormhole applies stability drain and cooldown.
+- ✅ Global maintenance tick regenerates stability over time and clears expired cooldowns.
+- ✅ Dedicated Wormhole UI window is available (route status + one-click Fleet prefill for jump targets).
+- ✅ Quest-based permanent beacon unlock is wired via Precursor faction quest rewards.
 
 ### 5.4 Megastructures
 **Priority:** 🔭
@@ -306,44 +341,64 @@ Very late-game, alliance-level constructions:
 ## Phase 6 — Technical Quality
 
 ### 6.1 Security Hardening
-**Priority:** 🎯  
+**Priority:** ✅ Done  
 **Effort:** Small
 
-- Add `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options` headers in `.htaccess` / `helpers.php`.
-- Rate-limit auth endpoints (`/api/auth.php?action=login`) — track failed attempts in DB or APCu.
-- Account lockout after 10 consecutive failed logins (30-minute cooldown).
-- Validate that all `$_GET` / `$_POST` integers are actually positive integers (use a `positive_int()` helper).
+- ✅ `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` headers added via `send_security_headers()` in `api/helpers.php` — called automatically from `json_response()`.
+- ✅ Login rate-limiting in `handle_login()` (`api/auth.php`): tracks failed attempts per IP (SHA-256 hashed) in `login_attempts` DB table (`sql/migrate_security_v1.sql`, initdb `014`).
+- ✅ Account lockout after `LOGIN_MAX_ATTEMPTS` (10) consecutive failures — 30-minute cooldown (`LOGIN_LOCKOUT_SECONDS`); configurable via env vars.
+- ✅ `positive_int()` helper added to `api/helpers.php` — validates and casts `$_GET`/`$_POST` integers, rejects zero/negative values.
 
 ### 6.2 Test Coverage
-**Priority:** 💡  
+**Priority:** ✅ Done  
 **Effort:** Medium
 
-- Add PHPUnit tests for `game_engine.php` pure functions (resource production, build costs, population growth).
-- Add integration tests for key API actions using an in-memory SQLite test DB.
-- Add JS tests (Vitest or similar) for `wm.js` window lifecycle and `api.js` call wrappers.
+- ✅ PHPUnit baseline:
+   - `phpunit.xml` with `tests/bootstrap.php`
+   - unit suite `tests/Unit/GameEnginePureFunctionsTest.php`
+   - **14 tests / 63 assertions** — all green:
+     `metal_production`, `deuterium_production`, `building_cost`, `building_build_time`,
+     `research_time`, `colony_layout_profile`, `research_cost` (doubling + fallback),
+     `vessel_manifest` (zero-filter, sample cap), `user_empire_color` (hex validation),
+     `apply_fog_of_war` (unknown strips data, own passes through),
+     `building_definitions` (required keys + minimum count).
+- ✅ Integration smoke test: `scripts/test_auth_rate_limit.php`
+   - Exercises `POST /api/v1/auth.php?action=login` end-to-end (CSRF + session cookies)
+   - Verifies threshold behavior (`401` for first `LOGIN_MAX_ATTEMPTS`, then `429` lockout)
+   - Verifies lock row persistence and cleanup on successful login.
+- ✅ Integration smoke test: `scripts/test_admin_stats_endpoint.php`
+   - Logs in as temporary admin and validates `GET /api/v1/admin_stats.php`
+   - Checks success status and required payload shape (`users`, `colonies`, `fleets`, `npc_ticks`, `faction_event`, `config`).
+- ✅ JS unit tests:
+   - `package.json` + `vitest.config.mjs` → `npm run test:unit:js`
+   - `tests/js/wm.test.js`: window lifecycle (`register/open/body/isOpen/close`, `setTitle`)
+   - `tests/js/api.test.js`: endpoint versioning (`api/*` → `api/v1/*`, absolute URL passthrough)
+   - **4 tests — all green**.
 
 ### 6.3 API Versioning
-**Priority:** 🔭  
+**Priority:** ✅ Done  
 **Effort:** Small
 
-Prefix all API URLs with `/api/v1/` now to avoid breaking clients when the API evolves. Add a `config/api_version.php` that `helpers.php` validates.
+✅ Version config added in `config/api_version.php` (`API_VERSION`, `API_ALLOW_LEGACY`, `API_VERSION_PREFIX`) and loaded from `config/config.php`.  
+✅ Frontend request pipeline in `js/api.js` now rewrites logical `api/*.php` endpoints to canonical `/api/v1/*.php` at fetch time (centralized, zero call-site churn).  
+✅ Apache routing in `.htaccess` maps `/api/v1/*` to `/api/*` (`QSA,L`) for backward-compatible rollout.  
+✅ `api/helpers.php` validates incoming API route version (`gq_validate_api_version_request()`), emits migration headers for legacy paths, and can be hardened to strict-only by setting `API_ALLOW_LEGACY=0`.
 
 ### 6.4 Observability
-**Priority:** 💡  
+**Priority:** ✅ Done  
 **Effort:** Small
 
-- Log slow queries (> 500 ms) to `error_log`.
-- Add an `admin/stats.php` endpoint (admin-only) showing: active users, colonies, fleets in motion, NPC tick lag.
-- Optional: emit OpenTelemetry spans via a PHP SDK for production deployments.
+- ✅ Slow-query logging: `LoggingStatement extends PDOStatement` in `config/db.php` intercepts all `execute()` calls via `PDO::ATTR_STATEMENT_CLASS`; queries exceeding `SLOW_QUERY_THRESHOLD_MS` (default 500 ms, env-configurable) are written to `error_log` with timing and query text — zero call-site changes needed.
+- ✅ `GET /api/admin_stats.php` (admin-only): returns active users (15 min / 1 h windows), colony counts by type, fleets in motion / returning / pending resolve, NPC global tick lag, stalest NPC account tick age, active faction event (type, started at, ends in N seconds), and current config thresholds.
 
 ### 6.5 Mobile / Responsive Layout
-**Priority:** 💡  
+**Priority:** ✅ Done  
 **Effort:** Medium
 
-The WM desktop is not usable on small screens. Options:
-
-- **Progressive enhancement**: detect viewport < 800px; replace WM windows with a tab-based single-column layout.
-- The existing CSS custom properties make theming straightforward; the layout change requires a parallel render path in `game.js`.
+✅ Progressive enhancement added in `wm.js`: viewport detection at `< 800px` toggles a `wm-mobile` mode class on the document root.  
+✅ Mobile WM behavior in `style.css` (`@media (max-width: 800px)`): windows are rendered in a single-column stacked flow (`position: relative`, `width: 100%`, auto height), with scrollable desktop region.  
+✅ Touch ergonomics: drag and resize interactions are disabled in mobile mode (`wm.js`) and resize handle is hidden (`style.css`).  
+✅ Desktop behavior remains unchanged for wider viewports.
 
 ---
 

@@ -407,6 +407,7 @@
     galaxyOwnerFocusUserId: 0,
     galaxyOwnerFocusName: '',
     clusterBoundsVisible: true,
+    galaxyFleetVectorsVisible: true,
     galacticCoreFxAuto: true,
     galacticCoreFxEnabled: true,
     magnetPreset: 'balanced',
@@ -461,6 +462,44 @@
   const UI_SETTINGS_SESSION_KEY = 'gq_ui_settings_session';
   const UI_SETTINGS_COOKIE_KEY = 'gq_ui_settings';
   const UI_SETTINGS_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 180;
+  const GALAXY_FLEET_HINT_KEY = 'gq_hint_galaxy_fleet_colors_v1';
+  const GALAXY_FLEET_HINT_COOKIE_DAYS = 365;
+  let galaxyFleetHintShownInSession = false;
+  let galaxyFleetHintScheduledInSession = false;
+  let galaxyShortcutsHintShownInSession = false;
+
+  function readCookieValue(name) {
+    try {
+      const cookieText = String(document.cookie || '');
+      if (!cookieText) return '';
+      const safeName = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const match = cookieText.match(new RegExp(`(?:^|;\\s*)${safeName}=([^;]*)`));
+      return match?.[1] ? decodeURIComponent(match[1]) : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function writeCookieValue(name, value, maxAgeSec) {
+    try {
+      const safeAge = Math.max(60, Number(maxAgeSec || 0));
+      document.cookie = `${name}=${encodeURIComponent(String(value || ''))}; Max-Age=${safeAge}; Path=/; SameSite=Lax`;
+    } catch (_) {}
+  }
+
+  function hasSeenGalaxyFleetHint() {
+    try {
+      if (window.localStorage?.getItem(GALAXY_FLEET_HINT_KEY) === '1') return true;
+    } catch (_) {}
+    return readCookieValue(GALAXY_FLEET_HINT_KEY) === '1';
+  }
+
+  function markGalaxyFleetHintSeen() {
+    try {
+      window.localStorage?.setItem(GALAXY_FLEET_HINT_KEY, '1');
+    } catch (_) {}
+    writeCookieValue(GALAXY_FLEET_HINT_KEY, '1', GALAXY_FLEET_HINT_COOKIE_DAYS * 24 * 60 * 60);
+  }
 
   function readJsonFromCookie(name) {
     try {
@@ -1345,11 +1384,50 @@
 
   function showToast(msg, type = 'info') {
     const el = document.getElementById('toast');
+    if (!el) return;
     el.textContent = msg;
     el.className   = `toast ${type}`;
     el.classList.remove('hidden');
     clearTimeout(el._timeout);
     el._timeout = setTimeout(() => el.classList.add('hidden'), 3500);
+    if (audioManager) {
+      if (type === 'error' || type === 'warning') audioManager.playUiError();
+      else if (type === 'success') audioManager.playUiConfirm();
+      else audioManager.playUiNotify();
+    }
+  }
+
+  function showToastWithAction(msg, type = 'info', actionLabel = '', onAction = null, timeoutMs = 7000) {
+    const el = document.getElementById('toast');
+    if (!el) return;
+
+    el.innerHTML = '';
+    el.className = `toast ${type}`;
+
+    const textNode = document.createElement('span');
+    textNode.className = 'toast-message';
+    textNode.textContent = String(msg || '');
+    el.appendChild(textNode);
+
+    if (actionLabel) {
+      const actionBtn = document.createElement('button');
+      actionBtn.type = 'button';
+      actionBtn.className = 'toast-action-btn';
+      actionBtn.textContent = String(actionLabel);
+      actionBtn.addEventListener('click', () => {
+        try {
+          if (typeof onAction === 'function') onAction();
+        } finally {
+          el.classList.add('hidden');
+        }
+      });
+      el.appendChild(actionBtn);
+    }
+
+    el.classList.remove('hidden');
+    clearTimeout(el._timeout);
+    el._timeout = setTimeout(() => el.classList.add('hidden'), Math.max(1200, Number(timeoutMs || 7000)));
+
     if (audioManager) {
       if (type === 'error' || type === 'warning') audioManager.playUiError();
       else if (type === 'success') audioManager.playUiConfirm();
@@ -2104,6 +2182,7 @@
         ? persisted.galacticCoreFxAuto !== false
         : !(persisted && typeof persisted === 'object' && Object.prototype.hasOwnProperty.call(persisted, 'galacticCoreFxEnabled'));
       settingsState.galacticCoreFxEnabled = settingsState.galacticCoreFxEnabled !== false;
+      settingsState.galaxyFleetVectorsVisible = settingsState.galaxyFleetVectorsVisible !== false;
       settingsState.introFlightMode = ['off', 'fast', 'cinematic'].includes(String(settingsState.introFlightMode || 'cinematic').toLowerCase())
         ? String(settingsState.introFlightMode || 'cinematic').toLowerCase()
         : 'cinematic';
@@ -2359,6 +2438,9 @@
       }
       if (typeof galaxy3d.setClusterBoundsVisible === 'function') {
         galaxy3d.setClusterBoundsVisible(settingsState.clusterBoundsVisible !== false);
+      }
+      if (typeof galaxy3d.setGalaxyFleetVectorsVisible === 'function') {
+        galaxy3d.setGalaxyFleetVectorsVisible(settingsState.galaxyFleetVectorsVisible !== false);
       }
       if (typeof galaxy3d.setGalacticCoreFxEnabled === 'function') {
         const autoCoreFx = settingsState.galacticCoreFxAuto !== false;
@@ -2928,6 +3010,7 @@
         ['research', { title: '🔬 Research', w: 480, h: 560, defaultDock: 'right', defaultY: 58, onRender: () => renderResearch() }],
         ['shipyard', { title: '🚀 Shipyard', w: 500, h: 560, defaultDock: 'right', defaultY: 78, onRender: () => renderShipyard() }],
         ['fleet', { title: '⚡ Fleet', w: 500, h: 620, defaultDock: 'right', defaultY: 98, onRender: () => renderFleetForm() }],
+        ['wormholes', { title: '🌀 Wormholes', w: 520, h: 560, defaultDock: 'right', defaultY: 108, onRender: () => renderWormholes() }],
         ['galaxy', { title: '🌌 Galaxy Map', fullscreenDesktop: true, hideTaskButton: true, backgroundLayer: true, onRender: () => renderGalaxyWindow() }],
         ['messages', { title: '✉ Messages', w: 500, h: 520, defaultDock: 'right', defaultY: 118, onRender: () => renderMessages() }],
         ['intel', { title: '🔍 Intel', w: 520, h: 560, defaultDock: 'right', defaultY: 128, onRender: () => renderIntel() }],
@@ -3014,7 +3097,7 @@
       document.getElementById('topbar-title-btn')?.addEventListener('click', async () => {
         if (this.audio) this.audio.playNavigation();
         await loadOverview();
-        ['overview','colony','buildings','research','shipyard','fleet','messages','quests','leaders','factions','leaderboard'].forEach((id) => {
+        ['overview','colony','buildings','research','shipyard','fleet','wormholes','messages','quests','leaders','factions','leaderboard'].forEach((id) => {
           try { this.wm.refresh(id); } catch (_) {}
         });
         showToast('Daten aktualisiert.', 'success');
@@ -3369,6 +3452,7 @@
         target_system: parseInt(root.querySelector('#f-system').value, 10),
         target_position: parseInt(root.querySelector('#f-position').value, 10),
         mission: root.querySelector('input[name="mission"]:checked')?.value,
+        use_wormhole: !!root.querySelector('#f-use-wormhole')?.checked,
         ships,
         cargo: {
           metal: parseFloat(root.querySelector('#f-cargo-metal').value) || 0,
@@ -3413,6 +3497,13 @@
             <label>Position<input type="number" id="f-position" min="1" max="15"  value="1" /></label>
           </div>
 
+          <div class="form-info" id="fleet-wormhole-info" style="margin-top:0.4rem;">
+            <label style="display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer;">
+              <input type="checkbox" id="f-use-wormhole" />
+              Use Wormhole Jump (requires Wormhole Theory Lv5 and active route)
+            </label>
+          </div>
+
           <h3>4. Cargo (optional)</h3>
           <div class="cargo-inputs">
             <label>Metal    <input type="number" id="f-cargo-metal"   min="0" value="0" /></label>
@@ -3427,12 +3518,32 @@
         </form>`;
 
       try {
-        const data = await API.ships(currentColony.id);
+        const [data, wormholeData] = await Promise.all([
+          API.ships(currentColony.id),
+          API.wormholes(currentColony.id).catch(() => ({ success: false, wormholes: [], wormhole_theory_level: 0, can_jump: false })),
+        ]);
         const shipEl = root.querySelector('#fleet-ship-select-wm');
+        const wormholeEl = root.querySelector('#fleet-wormhole-info');
         if (!data.success) {
           shipEl.innerHTML = '<p class="text-red">Error.</p>';
           return;
         }
+
+        if (wormholeEl) {
+          const routeCount = Array.isArray(wormholeData?.wormholes) ? wormholeData.wormholes.filter((w) => !!w.available).length : 0;
+          const level = Number(wormholeData?.wormhole_theory_level || 0);
+          const canJump = !!wormholeData?.can_jump;
+          const cb = root.querySelector('#f-use-wormhole');
+          if (cb && (!canJump || routeCount <= 0)) {
+            cb.disabled = true;
+            cb.checked = false;
+          }
+          const reason = canJump
+            ? (routeCount > 0 ? `${routeCount} active route(s) from this colony.` : 'No active route currently available.')
+            : `Wormhole Theory Lv5 required (current Lv${level}).`;
+          wormholeEl.insertAdjacentHTML('beforeend', `<div class="text-muted small" style="margin-top:0.2rem;">${esc(reason)}</div>`);
+        }
+
         const avail = [...(data.ships || []), ...(data.blueprints || [])].filter((ship) => Number(ship.count || 0) > 0);
         if (!avail.length) {
           shipEl.innerHTML = '<p class="text-muted">No ships on this planet.</p>';
@@ -3486,7 +3597,163 @@
     fleetController.prefillTarget(coords, mission, defaults);
   }
 
+  class WormholeController {
+    resolveOriginCoords() {
+      const g = Number(currentColony?.galaxy || 0);
+      const s = Number(currentColony?.system || 0);
+      return { g, s };
+    }
+
+    resolveCounterpart(wormhole, origin) {
+      const a = wormhole?.a || {};
+      const b = wormhole?.b || {};
+      const originMatchesA = Number(a.galaxy || 0) === origin.g && Number(a.system || 0) === origin.s;
+      if (originMatchesA) return b;
+      const originMatchesB = Number(b.galaxy || 0) === origin.g && Number(b.system || 0) === origin.s;
+      if (originMatchesB) return a;
+      return b;
+    }
+
+    async openFleetWithWormholeTarget(endpoint) {
+      WM.open('fleet');
+      await waitFor(120);
+      const root = WM.body('fleet');
+      if (!root) return;
+
+      const gInput = root.querySelector('#f-galaxy');
+      const sInput = root.querySelector('#f-system');
+      const pInput = root.querySelector('#f-position');
+      const cb = root.querySelector('#f-use-wormhole');
+      const missionTransport = root.querySelector('input[name="mission"][value="transport"]');
+
+      if (gInput) gInput.value = String(Number(endpoint?.galaxy || 1));
+      if (sInput) sInput.value = String(Number(endpoint?.system || 1));
+      if (pInput) pInput.value = String(Number(pInput?.value || 1));
+      if (missionTransport) {
+        missionTransport.checked = true;
+        missionTransport.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      if (cb && !cb.disabled) cb.checked = true;
+      showToast('Fleet target prefilled for wormhole jump.', 'info');
+    }
+
+    buildCardsHtml(payload) {
+      const wormholes = Array.isArray(payload?.wormholes) ? payload.wormholes : [];
+      const canJump = !!payload?.can_jump;
+      const level = Number(payload?.wormhole_theory_level || 0);
+      const origin = this.resolveOriginCoords();
+
+      if (!wormholes.length) {
+        return uiKitEmptyStateHTML(
+          'No Wormhole Routes',
+          canJump
+            ? 'No active route starts at this colony system.'
+            : `Wormhole Theory Lv5 required (current Lv${level}).`
+        );
+      }
+
+      return `<div class="card-grid">${wormholes.map((w) => {
+        const to = this.resolveCounterpart(w, origin);
+        const available = !!w.available;
+        const isPermanent = !!w.is_permanent;
+        const unlocked = !!w.unlocked;
+        const statusCls = available ? 'resource-positive' : 'text-muted';
+        const cooldown = w.cooldown_until ? new Date(w.cooldown_until).toLocaleString() : 'ready';
+        const availabilityText = available
+          ? 'Available for jump'
+          : (isPermanent && !unlocked ? 'Requires Precursor beacon unlock quest' : 'Unavailable');
+        return `
+          <div class="item-card">
+            <div class="item-card-header">
+              <span class="item-name">${esc(String(w.label || `Route #${w.id}`))}</span>
+              <span class="item-level">Stability ${fmt(w.stability || 0)}</span>
+            </div>
+            ${isPermanent ? '<div class="system-row small">Permanent Beacon Route</div>' : ''}
+            <div class="system-row small">A: [${fmt(w.a?.galaxy || 0)}:${fmt(w.a?.system || 0)}] · B: [${fmt(w.b?.galaxy || 0)}:${fmt(w.b?.system || 0)}]</div>
+            <div class="system-row small">Jump target from here: [${fmt(to?.galaxy || 0)}:${fmt(to?.system || 0)}]</div>
+            <div class="system-row small">Cooldown: ${esc(cooldown)}</div>
+            <div class="system-row small ${statusCls}">${availabilityText}</div>
+            ${available
+              ? `<button class="btn btn-primary btn-sm wormhole-use-btn" data-target-g="${esc(String(to?.galaxy || 1))}" data-target-s="${esc(String(to?.system || 1))}">Use Wormhole (Fleet)</button>`
+              : `<button class="btn btn-secondary btn-sm" disabled>Unavailable</button>`}
+          </div>`;
+      }).join('')}</div>`;
+    }
+
+    bindActions(root) {
+      root.querySelectorAll('.wormhole-use-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const g = Number(btn.getAttribute('data-target-g') || 1);
+          const s = Number(btn.getAttribute('data-target-s') || 1);
+          await this.openFleetWithWormholeTarget({ galaxy: g, system: s });
+        });
+      });
+    }
+
+    async render() {
+      const root = WM.body('wormholes');
+      if (!root) return;
+      if (!currentColony) {
+        root.innerHTML = '<p class="text-muted">Select a colony first.</p>';
+        return;
+      }
+
+      root.innerHTML = uiKitSkeletonHTML();
+      try {
+        const data = await API.wormholes(currentColony.id);
+        if (!data?.success) {
+          root.innerHTML = '<p class="text-red">Failed to load wormholes.</p>';
+          return;
+        }
+        root.innerHTML = this.buildCardsHtml(data);
+        this.bindActions(root);
+      } catch (_) {
+        root.innerHTML = '<p class="text-red">Failed to load wormholes.</p>';
+      }
+    }
+  }
+
+  const wormholeController = new WormholeController();
+  window.GQWormholeController = wormholeController;
+
+  async function renderWormholes() {
+    await wormholeController.render();
+  }
+
   class GalaxyController {
+    showShortcutsHintOnce() {
+      if (galaxyShortcutsHintShownInSession) return;
+      showToast('Galaxy-Shortcuts: O Controls, I Info, L Follow, V Vectors.', 'info');
+      galaxyShortcutsHintShownInSession = true;
+    }
+
+    showFleetLegendHintOnce() {
+      if (galaxyFleetHintShownInSession) return;
+      if (hasSeenGalaxyFleetHint()) {
+        galaxyFleetHintShownInSession = true;
+        return;
+      }
+
+      showToastWithAction(
+        'Tipp: Fleet-Richtungsfarben und Marker findest du in Settings unter "Galaxy: Fleet-Marker und Fluglinien anzeigen".',
+        'info',
+        'Nicht mehr anzeigen',
+        () => {
+          markGalaxyFleetHintSeen();
+        },
+        8500
+      );
+      galaxyFleetHintShownInSession = true;
+    }
+
+    scheduleFleetLegendHint(delayMs = 1300) {
+      if (galaxyFleetHintShownInSession || galaxyFleetHintScheduledInSession) return;
+      galaxyFleetHintScheduledInSession = true;
+      window.setTimeout(() => {
+        this.showFleetLegendHintOnce();
+      }, Math.max(0, Number(delayMs || 0)));
+    }
+
     triggerNavAction(action, rootRef = null) {
       const root = rootRef || WM.body('galaxy');
       if (!galaxy3d && root) {
@@ -3850,6 +4117,7 @@
             <div id="galaxy-controls-overlay" class="galaxy-overlay-window hidden">
               <div class="galaxy-overlay-head">
                 <strong>Galaxy Controls</strong>
+                <span class="galaxy-overlay-hotkeys">O:Controls · I:Info · L:Follow · V:Vectors</span>
                 <button class="btn btn-sm" data-overlay-close="#galaxy-controls-overlay">Close</button>
               </div>
               <div class="galaxy-nav">
@@ -3875,6 +4143,7 @@
                 <button class="btn btn-secondary" id="gal-cluster-bounds-btn">Cluster Boxes: on</button>
                 <button class="btn btn-secondary" id="gal-colonies-only-btn">Nur Kolonien: aus</button>
                 <button class="btn btn-secondary" id="gal-core-fx-btn">Core FX: on</button>
+                <button class="btn btn-secondary" id="gal-fleet-vectors-btn">Fleet Vectors: on</button>
                 <button class="btn btn-secondary" id="gal-magnet-hover-toggle-btn">Magnet Hover: on</button>
                 <button class="btn btn-secondary" id="gal-magnet-click-toggle-btn">Magnet Click: on</button>
                 <div class="galaxy-nav-strip" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:0.25rem;">
@@ -3899,6 +4168,7 @@
                 <span id="gal-density-metrics" class="text-muted">Density: n/a</span>
                 <span id="gal-health-badge" class="text-muted">Health: checking...</span>
                 <button class="btn btn-secondary" id="gal-load-3d-btn">Load 3D Stars</button>
+                <button class="btn btn-secondary" id="gal-territory-btn">🗺 Territory Map</button>
                 <button class="btn btn-warning" id="gal-clear-cache-btn">Clear Cache</button>
               </div>
             </div>
@@ -3908,6 +4178,7 @@
                 <strong>System Details</strong>
                 <button class="btn btn-sm" data-overlay-close="#galaxy-info-overlay">Close</button>
               </div>
+              <div class="galaxy-overlay-shortcuts">Shortcuts: O Controls · I Info · L Follow · V Vectors</div>
               <div id="galaxy-system-details" class="text-muted">Overlay hidden. Press I to open details.</div>
               <div class="galaxy-colony-legend" aria-label="Kolonie-Ring-Legende">
                 <div class="galaxy-colony-legend-title">Kolonie-Ringe</div>
@@ -3961,6 +4232,14 @@
                 <button class="galaxy-nav-mini-btn" type="button" data-nav-action="home" title="Jump to home system">🏠 Home</button>
               </div>
             </div>
+
+            <div id="galaxy-territory-overlay" class="galaxy-overlay-window hidden" style="top:4rem;right:0.5rem;min-width:220px;max-width:320px;max-height:55vh;overflow-y:auto;">
+              <div class="galaxy-overlay-head">
+                <strong>🗺 Territory</strong>
+                <button class="btn btn-sm" data-overlay-close="#galaxy-territory-overlay">Close</button>
+              </div>
+              <div id="galaxy-territory-body" class="text-muted" style="padding:0.4rem 0.5rem;font-size:0.78rem;">Loading…</div>
+            </div>
           </div>
         `;
 
@@ -3977,9 +4256,7 @@
         makeGalaxyOverlayDraggable(root, '#galaxy-controls-overlay');
         makeGalaxyOverlayDraggable(root, '#galaxy-info-overlay');
         makeGalaxyOverlayDraggable(root, '#galaxy-nav-orb-overlay');
-        bindGalaxyNavOrb(root);
-
-        root.querySelector('#gal-load-3d-btn').addEventListener('click', () => this.loadStars3D(root));
+                makeGalaxyOverlayDraggable(root, '#galaxy-territory-overlay');
         root.querySelector('#gal-follow-toggle-btn').addEventListener('click', () => {
           if (!galaxy3d || typeof galaxy3d.toggleFollowSelection !== 'function') return;
           galaxy3d.toggleFollowSelection();
@@ -4017,6 +4294,16 @@
           this.updateCoreFxUi(root);
           saveUiSettings();
           showToast(`Galactic Core FX: ${settingsState.galacticCoreFxEnabled ? 'an' : 'aus'}`, 'info');
+        });
+        root.querySelector('#gal-fleet-vectors-btn')?.addEventListener('click', () => {
+          settingsState.galaxyFleetVectorsVisible = !(settingsState.galaxyFleetVectorsVisible !== false);
+          applyRuntimeSettings();
+          this.updateFleetVectorsUi(root);
+          if (root?.querySelector('#galaxy-system-details')) {
+            renderGalaxySystemDetails(root, pinnedStar || uiState.activeStar || null, !!galaxy3d?.systemMode);
+          }
+          saveUiSettings();
+          showToast(`Fleet-Vektoren: ${settingsState.galaxyFleetVectorsVisible ? 'an' : 'aus'}`, 'info');
         });
         root.querySelector('#gal-magnet-hover-toggle-btn')?.addEventListener('click', () => {
           settingsState.hoverMagnetEnabled = !(settingsState.hoverMagnetEnabled !== false);
@@ -4122,6 +4409,7 @@
         updateClusterBoundsUi(root);
         updateGalaxyColonyFilterUi(root);
         this.updateCoreFxUi(root);
+        this.updateFleetVectorsUi(root);
         this.updateMagnetUi(root);
         renderGalaxyDebugPanel(root);
       }
@@ -4138,11 +4426,15 @@
         this.loadStars3D(root);
       }
 
+      this.showShortcutsHintOnce();
+      this.scheduleFleetLegendHint(1300);
+
       refreshGalaxyDensityMetrics(root);
       updateGalaxyFollowUi(root);
       updateClusterBoundsUi(root);
       updateGalaxyColonyFilterUi(root);
       this.updateCoreFxUi(root);
+      this.updateFleetVectorsUi(root);
       this.updateMagnetUi(root);
     }
 
@@ -4238,6 +4530,9 @@
           const displayedStars = getDisplayedGalaxyStars(stars);
           const displayedClusterSummary = getDisplayedGalaxyClusterSummary(clusterSummary, displayedStars);
           galaxy3d.setStars(displayedStars, { preserveView });
+          if (typeof galaxy3d.setGalaxyFleets === 'function') {
+            galaxy3d.setGalaxyFleets(window._GQ_fleets || []);
+          }
           if (typeof galaxy3d.setClusterColorPalette === 'function') {
             galaxy3d.setClusterColorPalette(resolveClusterColorPalette(uiState.territory));
           }
@@ -4547,6 +4842,15 @@
       btn.classList.toggle('btn-warning', !enabled);
     }
 
+    updateFleetVectorsUi(root) {
+      const btn = root?.querySelector('#gal-fleet-vectors-btn');
+      if (!btn) return;
+      const enabled = settingsState.galaxyFleetVectorsVisible !== false;
+      btn.textContent = `Fleet Vectors: ${enabled ? 'on' : 'off'}`;
+      btn.classList.toggle('btn-secondary', enabled);
+      btn.classList.toggle('btn-warning', !enabled);
+    }
+
     updateFollowUi(root) {
       const btn = root?.querySelector('#gal-follow-toggle-btn');
       const enabled = !galaxy3d || typeof galaxy3d.isFollowingSelection !== 'function'
@@ -4843,6 +5147,10 @@
         window._GQ_meta = data.user_meta || {};
         window._GQ_fleets = data.fleets || [];
         window._GQ_offline = data.offline_progress || null;
+
+        if (galaxy3d && typeof galaxy3d.setGalaxyFleets === 'function') {
+          galaxy3d.setGalaxyFleets(window._GQ_fleets || []);
+        }
 
         this.populatePlanetSelect();
         this.updateResourceBar();
@@ -5367,9 +5675,10 @@
           const ev = currentColony.active_event;
           if (!ev) return '';
           const meta = {
-            solar_flare:  { icon: '☀️', label: 'Solar Flare',       cls: 'event-solar',   desc: 'Resource production −20%' },
-            mineral_vein: { icon: '⛏️', label: 'Mineral Vein',      cls: 'event-mineral',  desc: 'Metal production +30%' },
-            disease:      { icon: '🦠', label: 'Disease Outbreak',  cls: 'event-disease',  desc: 'Population growth −50%' },
+            solar_flare:        { icon: '☀️', label: 'Solar Flare',        cls: 'event-solar',   desc: 'Energy production −30%' },
+            mineral_vein:       { icon: '⛏️', label: 'Mineral Vein',       cls: 'event-mineral', desc: 'Metal production +20%' },
+            disease:            { icon: '🦠', label: 'Disease Outbreak',   cls: 'event-disease', desc: 'Happiness −25 (until Hospital Lv3)' },
+            archaeological_find:{ icon: '🏺', label: 'Archaeological Find', cls: 'event-unknown', desc: '+500 Dark Matter discovered' },
           }[ev.type] || { icon: '⚠️', label: ev.type, cls: 'event-unknown', desc: '' };
           const mins = Number(ev.ends_in_min || 0);
           const timeLeft = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
@@ -6519,6 +6828,18 @@
           : false;
         updateGalaxyFollowUi(root);
         showToast(`Selection follow ${enabled ? 'enabled' : 'disabled'} (L to toggle).`, 'info');
+      } else if (k === 'v' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        settingsState.galaxyFleetVectorsVisible = !(settingsState.galaxyFleetVectorsVisible !== false);
+        applyRuntimeSettings();
+        if (galaxyController && typeof galaxyController.updateFleetVectorsUi === 'function') {
+          galaxyController.updateFleetVectorsUi(root);
+        }
+        if (root?.querySelector('#galaxy-system-details')) {
+          renderGalaxySystemDetails(root, pinnedStar || uiState.activeStar || null, !!galaxy3d?.systemMode);
+        }
+        saveUiSettings();
+        showToast(`Fleet-Vektoren: ${settingsState.galaxyFleetVectorsVisible ? 'an' : 'aus'} (V zum Umschalten).`, 'info');
       }
     });
   }
@@ -6849,8 +7170,45 @@
       <div class="galaxy-detail-nav" aria-label="Schnellnavigation 3D">
         ${quickNavActions.map((entry) => `<button type="button" class="galaxy-detail-nav-btn ${esc(entry.className || '')}" data-nav-action="${esc(entry.action)}" title="${esc(entry.title)}">${esc(entry.label)}</button>`).join('')}
       </div>`;
+    const fleetVectorsOn = settingsState.galaxyFleetVectorsVisible !== false;
+    const visibleFleetCount = zoomed
+      ? Number(galaxy3d?.systemFleetEntries?.length || 0)
+      : Number(galaxy3d?.galaxyFleetEntries?.length || (window._GQ_fleets || []).length || 0);
+    const showFleetLegend = visibleFleetCount > 0;
+    const fleetLegendBodyHtml = !showFleetLegend
+      ? ''
+      : (fleetVectorsOn
+      ? (zoomed
+        ? `
+        <div class="galaxy-fleet-legend-title">Fleet-Richtungsfarben (kompakt)</div>
+        <div class="galaxy-fleet-legend-row galaxy-fleet-legend-row-compact">
+          <span class="galaxy-fleet-legend-line" style="--fleet-color:#ff4d3d"></span>Angriff
+          <span class="galaxy-fleet-legend-line" style="--fleet-color:#41d1ff"></span>Spionage
+        </div>
+        <div class="galaxy-fleet-legend-row galaxy-fleet-legend-row-compact">
+          <span class="galaxy-fleet-legend-line" style="--fleet-color:#86ff66"></span>Transport
+          <span class="galaxy-fleet-legend-line" style="--fleet-color:#5cf2a5"></span>Kolonisieren
+          <span class="galaxy-fleet-legend-line" style="--fleet-color:#ffd15c"></span>Ernten
+        </div>
+      `
+        : `
+        <div class="galaxy-fleet-legend-title">Fleet-Richtungsfarben</div>
+        <div class="galaxy-fleet-legend-row"><span class="galaxy-fleet-legend-line" style="--fleet-color:#ff4d3d"></span>Angriff</div>
+        <div class="galaxy-fleet-legend-row"><span class="galaxy-fleet-legend-line" style="--fleet-color:#41d1ff"></span>Spionage</div>
+        <div class="galaxy-fleet-legend-row"><span class="galaxy-fleet-legend-line" style="--fleet-color:#86ff66"></span>Transport</div>
+        <div class="galaxy-fleet-legend-row"><span class="galaxy-fleet-legend-line" style="--fleet-color:#5cf2a5"></span>Kolonisieren</div>
+        <div class="galaxy-fleet-legend-row"><span class="galaxy-fleet-legend-line" style="--fleet-color:#ffd15c"></span>Ernten</div>
+      `)
+      : `
+        <div class="galaxy-fleet-legend-title">Fleet-Richtungsfarben</div>
+        <div class="galaxy-fleet-legend-row text-muted">In Settings deaktiviert (Galaxy: Fleet-Marker und Fluglinien anzeigen).</div>
+      `);
+    const fleetLegendHtml = `
+      <div class="galaxy-fleet-legend ${showFleetLegend ? 'is-visible' : 'is-hidden'}" aria-label="Fleet-Richtungsfarben" aria-hidden="${showFleetLegend ? 'false' : 'true'}">
+        ${fleetLegendBodyHtml}
+      </div>`;
     if (!star) {
-      details.innerHTML = `${navButtons}<span class="text-muted">Press I for this overlay. Camera: mouse drag + wheel, keyboard WASD/QE + arrows, F fit, R reset, L follow ${followEnabled ? 'off' : 'on'}.</span>`;
+      details.innerHTML = `${navButtons}<span class="text-muted">Press I for this overlay. Camera: mouse drag + wheel, keyboard WASD/QE + arrows, F fit, R reset, L follow ${followEnabled ? 'off' : 'on'}.</span>${fleetLegendHtml}`;
       details.querySelectorAll('[data-nav-action]').forEach((button) => {
         button.addEventListener('click', () => triggerGalaxyNavAction(button.getAttribute('data-nav-action'), root));
       });
@@ -6871,6 +7229,7 @@
           <div class="system-row">Center: ${Number(star.__clusterCenter?.x || 0).toFixed(1)}, ${Number(star.__clusterCenter?.y || 0).toFixed(1)}, ${Number(star.__clusterCenter?.z || 0).toFixed(1)}</div>
           <div class="system-row">Cluster gebunden, rotiert mit der Sternwolke und ist per Mouse hover-/selektierbar.</div>
           <div class="system-row">Klick fokussiert die Box, Doppelklick zoomt clusterweise hinein.</div>
+          ${fleetLegendHtml}
           <div class="system-row" style="margin-top:0.45rem;">
             <button id="gal-load-cluster-range-btn" type="button" class="btn btn-secondary btn-sm">Cluster-Range laden</button>
           </div>
@@ -6918,6 +7277,7 @@
         ${fowHtml}
         <div class="system-row">Selection Follow: ${followEnabled ? 'locked' : 'free'} (L)</div>
         <div class="system-row">${zoomed ? 'System view active. Esc/F/R returns to galaxy overview.' : 'Double click to zoom into the system and show planets.'}</div>
+        ${fleetLegendHtml}
         <div class="system-row" style="margin-top:0.4rem">
           <button id="gal-quicknav-fav-btn" type="button" class="btn btn-secondary btn-sm${isFav ? ' active' : ''}">${isFav ? '★ Favorit entfernen' : '☆ Favorit hinzufügen'}</button>
         </div>
@@ -7473,6 +7833,9 @@
         if (galaxy3d) {
           const displayedStars = getDisplayedGalaxyStars(galaxyStars);
           galaxy3d.setStars(displayedStars, { preserveView: true });
+          if (typeof galaxy3d.setGalaxyFleets === 'function') {
+            galaxy3d.setGalaxyFleets(window._GQ_fleets || []);
+          }
           if (typeof galaxy3d.setClusterAuras === 'function') {
             galaxy3d.setClusterAuras(getDisplayedGalaxyClusterSummary(uiState.clusterSummary || [], galaxyStars));
           }
@@ -8382,6 +8745,10 @@
       return `
         <div class="system-card" style="margin-bottom:1rem">
           <div class="system-row"><strong>🔍 Spy Report: ${esc(r.owner || '?')}</strong></div>
+          <div class="system-row" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+            <strong>🔍 Spy Report: ${esc(r.owner || '?')}</strong>
+            ${!report.is_own && report.owner_username ? `<span class="lb-alliance-tag">via ${esc(report.owner_username)}</span>` : ''}
+          </div>
           <div class="system-row text-muted small">${createdAt}</div>
           
           <div class="system-row" style="margin-top:0.5rem"><strong>Resources</strong></div>
@@ -8409,6 +8776,11 @@
               <div class="bar-wrap"><div class="bar-fill bar-services" style="width:${r.welfare.public_services || 0}%"></div></div>
               <span style="font-size:0.7rem;min-width:28px">${r.welfare.public_services || 0}%</span>
             </div>
+          ` : ''}
+
+          ${r.stealth_masked ? `
+            <div class="system-row" style="margin-top:0.5rem"><strong>Stealth</strong></div>
+            <div class="system-row small text-muted">${esc(r.stealth_note || 'Fleet intel is hidden by active stealth technology.')}</div>
           ` : ''}
 
           ${r.ships && Object.keys(r.ships).length ? `
@@ -8786,7 +9158,8 @@
 
         let html = '<div>';
         html += this.renderMatchupScanPanel(fleets);
-        html += `<div class="system-card" style="margin-bottom:1rem"><div class="system-row"><strong>🔍 Spy Reports (${spyReports.length})</strong></div></div>`;
+        const sharedBadge = spyResponse.alliance_shared ? ' <span class="lb-alliance-tag">Alliance shared</span>' : '';
+        html += `<div class="system-card" style="margin-bottom:1rem"><div class="system-row"><strong>🔍 Spy Reports (${spyReports.length})</strong>${sharedBadge}</div></div>`;
         for (const report of spyReports) {
           html += this.renderSpyReportCard(report);
         }
@@ -10720,7 +11093,7 @@
         root.innerHTML = data.leaderboard.map((row, index) => `
           <div class="lb-row">
             <span class="lb-rank">${index + 1}</span>
-            <span class="lb-name">${esc(row.username)} ${row.username === currentUser.username ? '(You)' : ''}</span>
+            <span class="lb-name">${esc(row.username)} ${row.username === currentUser.username ? '(You)' : ''}${row.alliance_tag ? ` <span class="lb-alliance-tag">[${esc(row.alliance_tag)}]</span>` : ''}</span>
             <span class="lb-stat">★ ${fmt(row.rank_points)} RP</span>
             <span class="lb-stat">🌍 ${row.planet_count}</span>
             <span class="lb-stat">◆ ${fmt(row.dark_matter)}</span>
@@ -10774,6 +11147,10 @@
         <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
           <input type="checkbox" id="set-auto-transitions" ${settingsState.autoTransitions ? 'checked' : ''} />
           Auto-Transitions aktivieren
+        </label>
+        <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="checkbox" id="set-galaxy-fleet-vectors" ${settingsState.galaxyFleetVectorsVisible !== false ? 'checked' : ''} />
+          Galaxy: Fleet-Marker und Fluglinien anzeigen
         </label>
         <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
           <input type="checkbox" id="set-home-enter-system" ${settingsState.homeEnterSystem ? 'checked' : ''} />
@@ -10908,6 +11285,18 @@
       settingsState.autoTransitions = !!autoTransitions.checked;
       applyRuntimeSettings();
       saveUiSettings();
+    });
+
+    const fleetVectors = root.querySelector('#set-galaxy-fleet-vectors');
+    fleetVectors?.addEventListener('change', () => {
+      settingsState.galaxyFleetVectorsVisible = !!fleetVectors.checked;
+      applyRuntimeSettings();
+      saveUiSettings();
+      const galaxyRoot = WM.body('galaxy');
+      if (galaxyRoot?.querySelector('#galaxy-system-details')) {
+        const activeStar = pinnedStar || uiState.activeStar || null;
+        renderGalaxySystemDetails(galaxyRoot, activeStar, !!galaxy3d?.systemMode);
+      }
     });
 
     const homeEnterSystem = root.querySelector('#set-home-enter-system');
@@ -11676,13 +12065,32 @@
   })();
 
   // ── Countdown ticker ─────────────────────────────────────
+  // Guard sets – keyed by unique string to prevent repeated triggers
+  const _tickerFleetArrived     = new Set(); // arr-timestamp strings already triggered
+  const _tickerWindowRefreshed  = {};        // windowId -> last trigger ms (debounce 8 s)
+
   setInterval(() => {
-    // Countdown text spans only (elements with data-end but without data-start)
-    document.querySelectorAll('[data-end]:not([data-start])').forEach(el => {
-      el.textContent = countdown(el.dataset.end);
-    });
     const nowMs = Date.now();
-    // Live building / research progress bars (data-start + data-end)
+
+    // ── Countdown text spans (data-end only) ──
+    document.querySelectorAll('[data-end]:not([data-start])').forEach(el => {
+      const text = countdown(el.dataset.end);
+      el.textContent = text;
+      // When a building / research / shipyard timer hits zero, auto-refresh its window
+      if (text === '00:00:00') {
+        const win = el.closest('.wm-window[data-winid]');
+        if (win) {
+          const wid = win.dataset.winid;
+          const last = _tickerWindowRefreshed[wid] || 0;
+          if (nowMs - last > 8000) {
+            _tickerWindowRefreshed[wid] = nowMs;
+            WM.refresh(wid);
+          }
+        }
+      }
+    });
+
+    // ── Live building / research progress bars (data-start + data-end) ──
     document.querySelectorAll('.progress-bar[data-start][data-end]').forEach(bar => {
       const start = new Date(bar.dataset.start).getTime();
       const end   = new Date(bar.dataset.end).getTime();
@@ -11691,7 +12099,8 @@
       const pct = Math.max(0, Math.min(100, ((nowMs - start) / total) * 100));
       bar.style.width = pct.toFixed(1) + '%';
     });
-    // Live fleet progress bars
+
+    // ── Live fleet progress bars + auto-refresh on arrival ──
     document.querySelectorAll('.fleet-progress-bar[data-dep][data-arr]').forEach(bar => {
       const dep = new Date(bar.dataset.dep).getTime();
       const arr = new Date(bar.dataset.arr).getTime();
@@ -11699,6 +12108,13 @@
       if (!total || total <= 0) return;
       const pct = Math.max(0, Math.min(100, ((nowMs - dep) / total) * 100));
       bar.style.width = pct.toFixed(1) + '%';
+      // Trigger overview reload once when fleet has arrived and SSE might be unavailable
+      if (pct >= 100 && !_tickerFleetArrived.has(bar.dataset.arr)) {
+        _tickerFleetArrived.add(bar.dataset.arr);
+        loadOverview();
+        _invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
+        WM.refresh('fleet');
+      }
     });
   }, 1000);
 

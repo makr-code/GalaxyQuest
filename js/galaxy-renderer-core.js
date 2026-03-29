@@ -268,6 +268,7 @@
       this.systemPlanetEntries = [];
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
+      this.galaxyFleetEntries = [];
       this.systemAtmosphereEntries = [];
       this.systemCloudEntries = [];
       this.clusterAuraEntries = [];
@@ -288,6 +289,7 @@
       this.systemRefinementQueue = [];
       this.systemRefinementInProgress = false;
       this.systemRefinementTimeoutId = null;
+      this.galaxyFleetVectorsVisible = true;
       this.autoTransitionCooldownUntil = 0;
       this.transitionsEnabled = true;
       this.persistentHoverDistance = 220;
@@ -523,6 +525,10 @@
       this.systemFleetGroup = new THREE.Group();
       this.systemFleetGroup.visible = false;
       this.renderFrames.system.add(this.systemFleetGroup);
+
+      this.galaxyFleetGroup = new THREE.Group();
+      this.galaxyFleetGroup.visible = true;
+      this.renderFrames.galaxy.add(this.galaxyFleetGroup);
 
       this.systemStarInstallationGroup = new THREE.Group();
       this.systemStarInstallationGroup.visible = false;
@@ -1386,6 +1392,16 @@
       if (key === 'spy') return 0x7fd0ff;
       if (key === 'transport') return 0xb7d98c;
       if (key === 'colonize') return 0x8fe7b4;
+      return 0xd9d4a8;
+    }
+
+    _fleetDirectionColor(mission) {
+      const key = String(mission || '').toLowerCase();
+      if (key === 'attack') return 0xff4d3d;
+      if (key === 'spy') return 0x41d1ff;
+      if (key === 'transport') return 0x86ff66;
+      if (key === 'colonize') return 0x5cf2a5;
+      if (key === 'harvest') return 0xffd15c;
       return 0xd9d4a8;
     }
 
@@ -2459,12 +2475,139 @@
         );
         group.add(fallback);
       }
+
+      const headingMarker = new THREE.Group();
+      headingMarker.visible = !!this.galaxyFleetVectorsVisible;
+      const directionColor = this._fleetDirectionColor(fleet.mission);
+      const headingColor = new THREE.Color(directionColor);
+      const headingMat = new THREE.MeshStandardMaterial({
+        color: directionColor,
+        emissive: headingColor.clone().multiplyScalar(0.45),
+        emissiveIntensity: 0.2,
+        roughness: 0.42,
+        metalness: 0.52,
+      });
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.9, 14), headingMat);
+      cone.rotation.z = -Math.PI / 2;
+      cone.position.x = 0.95;
+      headingMarker.add(cone);
+
+      const headingLineGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(1, 0, 0),
+      ]);
+      const headingLineMat = new THREE.LineBasicMaterial({
+        color: directionColor,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const headingLine = new THREE.Line(headingLineGeo, headingLineMat);
+      headingLine.scale.x = 10;
+      headingMarker.add(headingLine);
+      group.add(headingMarker);
+
       this.systemFleetGroup.add(group);
       return {
         group,
         fleet,
         phase: index * 0.7,
+        headingMarker,
+        headingLine,
       };
+    }
+
+    _buildGalaxyFleetEntry(fleet, index) {
+      if (!fleet || !this.galaxyFleetGroup) return null;
+      const color = this._fleetColor(fleet.mission);
+      const directionColor = this._fleetDirectionColor(fleet.mission);
+      const pos = fleet.current_pos || {};
+      const scale = 0.028;
+
+      const current = new THREE.Vector3(
+        (Number(pos.x) || 0) * scale,
+        (Number(pos.z) || 0) * scale * 0.42,
+        (Number(pos.y) || 0) * scale
+      );
+      const origin = new THREE.Vector3(
+        (Number(fleet.origin_x_ly) || 0) * scale,
+        (Number(fleet.origin_z_ly) || 0) * scale * 0.42,
+        (Number(fleet.origin_y_ly) || 0) * scale
+      );
+      const target = new THREE.Vector3(
+        (Number(fleet.target_x_ly) || 0) * scale,
+        (Number(fleet.target_z_ly) || 0) * scale * 0.42,
+        (Number(fleet.target_y_ly) || 0) * scale
+      );
+
+      const group = new THREE.Group();
+      group.position.copy(current);
+
+      const marker = new THREE.Group();
+      marker.visible = !!this.galaxyFleetVectorsVisible;
+      const coneMat = new THREE.MeshStandardMaterial({
+        color: directionColor,
+        emissive: new THREE.Color(directionColor).multiplyScalar(0.48),
+        emissiveIntensity: 0.24,
+        roughness: 0.35,
+        metalness: 0.58,
+      });
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.55, 12), coneMat);
+      cone.rotation.z = -Math.PI / 2;
+      cone.position.x = 0.78;
+      marker.add(cone);
+
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(1, 0, 0),
+      ]);
+      const lineMat = new THREE.LineBasicMaterial({
+        color: directionColor,
+        transparent: true,
+        opacity: 0.82,
+      });
+      const line = new THREE.Line(lineGeo, lineMat);
+      line.scale.x = 12;
+      marker.add(line);
+
+      group.add(marker);
+      this.galaxyFleetGroup.add(group);
+
+      return {
+        group,
+        fleet,
+        phase: index * 0.51,
+        headingMarker: marker,
+        headingLine: line,
+        origin,
+        target,
+      };
+    }
+
+    setGalaxyFleets(fleets = []) {
+      if (!this.galaxyFleetGroup) return;
+      this._clearGroup(this.galaxyFleetGroup);
+      const source = Array.isArray(fleets) ? fleets : [];
+      this.galaxyFleetEntries = source
+        .map((fleet, index) => this._buildGalaxyFleetEntry(fleet, index))
+        .filter(Boolean);
+    }
+
+    setGalaxyFleetVectorsVisible(enabled) {
+      this.galaxyFleetVectorsVisible = enabled !== false;
+      if (this.galaxyFleetGroup) {
+        this.galaxyFleetGroup.visible = this.galaxyFleetVectorsVisible;
+      }
+      if (Array.isArray(this.galaxyFleetEntries)) {
+        this.galaxyFleetEntries.forEach((entry) => {
+          if (entry?.headingMarker) entry.headingMarker.visible = this.galaxyFleetVectorsVisible;
+        });
+      }
+      if (Array.isArray(this.systemFleetEntries)) {
+        this.systemFleetEntries.forEach((entry) => {
+          if (entry?.headingMarker) entry.headingMarker.visible = this.galaxyFleetVectorsVisible;
+        });
+      }
+      return this.galaxyFleetVectorsVisible;
     }
 
     _vesselSeed(fleet, vesselType, fleetIndex, cursor, sampleIndex) {
@@ -5011,6 +5154,44 @@
           });
         });
 
+        this.galaxyFleetEntries.forEach((fleetEntry, index) => {
+          if (!fleetEntry?.group || !fleetEntry?.fleet) return;
+          const fleet = fleetEntry.fleet;
+          const pos = fleet.current_pos || {};
+          const scale = 0.028;
+          const current = new THREE.Vector3(
+            (Number(pos.x) || 0) * scale,
+            (Number(pos.z) || 0) * scale * 0.42,
+            (Number(pos.y) || 0) * scale
+          );
+          fleetEntry.group.position.copy(current);
+
+          const destination = fleet.returning ? fleetEntry.origin : fleetEntry.target;
+          const dir = destination.clone().sub(current);
+          if (dir.lengthSq() < 1e-6) {
+            dir.set(1, 0, 0);
+          } else {
+            dir.normalize();
+          }
+          if (fleetEntry.headingMarker) {
+            fleetEntry.headingMarker.quaternion.setFromUnitVectors(
+              new THREE.Vector3(1, 0, 0),
+              dir
+            );
+            fleetEntry.headingMarker.rotation.x += Math.sin(this.clock.elapsedTime * 2.3 + fleetEntry.phase) * 0.01;
+          }
+
+          if (fleetEntry.headingLine) {
+            const dist = current.distanceTo(destination);
+            const pulse = 0.9 + 0.2 * Math.sin(this.clock.elapsedTime * 3.1 + fleetEntry.phase);
+            fleetEntry.headingLine.scale.x = THREE.MathUtils.clamp(4 + dist * 0.08, 4, 22) * pulse;
+            fleetEntry.headingLine.material.opacity = 0.52 + 0.38 * pulse;
+          }
+
+          const bob = Math.sin(this.clock.elapsedTime * 1.8 + index + fleetEntry.phase) * 0.22;
+          fleetEntry.group.position.y += bob;
+        });
+
         this._syncClusterAuraTransform();
       } else {
         const elapsed = this.clock.elapsedTime;
@@ -5044,7 +5225,26 @@
           const drift = new THREE.Vector3(Math.cos(fleetEntry.phase + dt + index), Math.sin(fleetEntry.phase + dt * 0.7) * 0.6, Math.sin(fleetEntry.phase + dt + index));
           pos.add(drift.multiplyScalar(2.8 + index * 0.15));
           fleetEntry.group.position.copy(pos);
-          fleetEntry.group.rotation.y += dt * 0.9;
+
+          const direction = localTo.clone().sub(localFrom);
+          if (direction.lengthSq() < 1e-6) {
+            direction.set(1, 0, 0);
+          } else {
+            direction.normalize();
+          }
+          if (fleetEntry.headingMarker) {
+            fleetEntry.headingMarker.quaternion.setFromUnitVectors(
+              new THREE.Vector3(1, 0, 0),
+              direction
+            );
+            fleetEntry.headingMarker.rotation.x += Math.sin(elapsed * 2.4 + fleetEntry.phase) * 0.013;
+          }
+          if (fleetEntry.headingLine) {
+            const legDist = localFrom.distanceTo(localTo);
+            const pulse = 0.84 + 0.2 * Math.sin(elapsed * 3 + fleetEntry.phase);
+            fleetEntry.headingLine.scale.x = THREE.MathUtils.clamp(3 + legDist * 0.055, 3, 24) * pulse;
+            fleetEntry.headingLine.material.opacity = 0.58 + 0.3 * pulse;
+          }
         });
         this._syncInstallationAnimationStates();
         const registry = window.__GQ_ModelRegistry;
@@ -5164,6 +5364,7 @@
         this.coreStars.material.dispose();
       }
       this._clearGroup(this.clusterAuraGroup);
+      this._clearGroup(this.galaxyFleetGroup);
       this._clearGroup(this.systemSkyGroup);
       this._clearGroup(this.systemBackdrop);
       this._clearGroup(this.systemOrbitGroup);

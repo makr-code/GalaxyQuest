@@ -59,6 +59,48 @@ function gq_api_handle_uncaught_throwable(Throwable $e): never {
     exit;
 }
 
+    function gq_validate_api_version_request(): void {
+        $requestUri = (string)($_SERVER['REQUEST_URI'] ?? '');
+        if ($requestUri === '') {
+            return;
+        }
+
+        $path = (string)(parse_url($requestUri, PHP_URL_PATH) ?? '');
+        if ($path === '' || strpos($path, '/api/') !== 0) {
+            return;
+        }
+
+        $versionPrefix = defined('API_VERSION_PREFIX')
+            ? (string)API_VERSION_PREFIX
+            : ('/api/' . (defined('API_VERSION') ? (string)API_VERSION : 'v1') . '/');
+
+        if (strpos($path, $versionPrefix) === 0) {
+            return;
+        }
+
+        // Keep legacy /api/*.php working while surfacing deprecation to callers.
+        if (defined('API_ALLOW_LEGACY') && API_ALLOW_LEGACY) {
+            if (!headers_sent()) {
+                header('X-API-Legacy-Route: 1');
+                header('X-API-Recommended-Prefix: ' . $versionPrefix);
+            }
+            return;
+        }
+
+        if (!headers_sent()) {
+            http_response_code(426);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode([
+            'success' => false,
+            'error' => 'Unsupported API version',
+            'required_prefix' => $versionPrefix,
+        ]);
+        exit;
+    }
+
+    gq_validate_api_version_request();
+
 // ─── Session ────────────────────────────────────────────────────────────────
 function session_start_secure(): void {
     if (session_status() === PHP_SESSION_NONE) {
@@ -252,8 +294,18 @@ function require_auth(): int {
     return $uid;
 }
 
+// ─── Security headers ────────────────────────────────────────────────────────
+function send_security_headers(): void {
+    if (headers_sent()) return;
+    header('X-Frame-Options: DENY');
+    header('X-Content-Type-Options: nosniff');
+    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'");
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+}
+
 // ─── Response helpers ────────────────────────────────────────────────────────
 function json_response(array $data, int $code = 200): never {
+    send_security_headers();
     http_response_code($code);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data);
@@ -295,4 +347,9 @@ function only_method(string ...$methods): void {
     if (!in_array($_SERVER['REQUEST_METHOD'], $methods, true)) {
         json_error('Method not allowed', 405);
     }
+}
+
+function positive_int(mixed $value, int $default = 0): int {
+    $i = filter_var($value, FILTER_VALIDATE_INT);
+    return ($i !== false && $i > 0) ? (int)$i : $default;
 }

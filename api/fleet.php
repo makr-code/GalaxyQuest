@@ -52,6 +52,11 @@ switch ($action) {
         send_fleet(get_db(), $uid, get_json_body());
         break;
 
+    case 'wormholes':
+        only_method('GET');
+        list_wormholes(get_db(), $uid, (int)($_GET['origin_colony_id'] ?? 0));
+        break;
+
     case 'recall':
         only_method('POST');
         verify_csrf();
@@ -91,8 +96,9 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     $mission   = $body['mission'] ?? 'transport';
     $ships     = $body['ships']   ?? [];
     $cargo     = $body['cargo']   ?? [];
+    $useWormhole = !empty($body['use_wormhole']);
 
-    if (!in_array($mission, ['attack','transport','colonize','harvest','spy'], true)) {
+    if (!in_array($mission, ['attack','transport','colonize','harvest','spy','blockade'], true)) {
         json_error('Invalid mission type.');
     }
     if ($tg < 1 || $tg > GALAXY_MAX || $ts < 1 || $ts > galaxy_system_limit()
@@ -111,8 +117,8 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     $origin = $colStmt->fetch();
     if (!$origin) { json_error('Colony not found.', 404); }
 
-    // PvP guard for attack missions
-    if ($mission === 'attack') {
+    // PvP guard for attack and blockade missions
+    if ($mission === 'attack' || $mission === 'blockade') {
         $atkRow = $db->prepare('SELECT pvp_mode, protection_until FROM users WHERE id = ?');
         $atkRow->execute([$uid]);
         $atkUser = $atkRow->fetch();
@@ -120,7 +126,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
             json_error('You are under newbie protection and cannot launch attacks.');
         }
         $tgtRow = $db->prepare(
-            'SELECT u.pvp_mode, u.protection_until, u.is_npc
+            'SELECT u.id AS target_user_id, u.pvp_mode, u.protection_until, u.is_npc
              FROM colonies c
              JOIN planets p ON p.id = c.planet_id
              JOIN users u ON u.id = c.user_id
@@ -129,16 +135,78 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         $tgtRow->execute([$tg, $ts, $tp]);
         $tgtUser = $tgtRow->fetch();
         if ($tgtUser && !$tgtUser['is_npc']) {
-            if (!$atkUser['pvp_mode']) {
-                json_error('Enable PvP mode to attack other players.');
-            }
-            if (!$tgtUser['pvp_mode']) {
-                json_error('Target player has PvP disabled.');
+            // Check if a formal war exists between attacker's alliance and target
+            $warExists = false;
+            try {
+                $warCheckStmt = $db->prepare(<<<SQL
+                    SELECT 1
+                    FROM alliance_members am_atk
+                    JOIN alliance_relations ar
+                        ON ar.alliance_id = am_atk.alliance_id
+                    LEFT JOIN alliance_members am_tgt
+                        ON am_tgt.user_id = ?
+                    WHERE am_atk.user_id = ?
+                      AND ar.relation_type = 'war'
+                      AND (ar.expires_at IS NULL OR ar.expires_at > NOW())
+                      AND (
+                          ar.other_alliance_id = am_tgt.alliance_id
+                          OR ar.other_user_id = ?
+                      )
+                    LIMIT 1
+                SQL);
+                $warCheckStmt->execute([(int)$tgtUser['target_user_id'], $uid, (int)$tgtUser['target_user_id']]);
+                $warExists = (bool)$warCheckStmt->fetchColumn();
+            } catch (Throwable $e) { /* alliance tables may not exist */ }
+
+            if (!$warExists) {
+                if (!$atkUser['pvp_mode']) {
+                    json_error('Enable PvP mode to attack other players (or declare war via your alliance).');
+                }
+                if (!$tgtUser['pvp_mode']) {
+                    json_error('Target player has PvP disabled and you have no active war declaration against them.');
+                }
             }
             if ($tgtUser['protection_until'] && strtotime($tgtUser['protection_until']) > time()) {
                 json_error('Target player is under newbie protection.');
             }
         }
+    }
+
+    // Blockade departure guard: cannot leave if a hostile fleet is blockading the origin
+    if ($mission !== 'blockade') {
+        try {
+            $blockStmt = $db->prepare(<<<SQL
+                SELECT f.id
+                FROM fleets f
+                JOIN colonies c ON c.id = f.origin_colony_id
+                JOIN planets p ON p.id = c.planet_id
+                JOIN users u ON u.id = f.user_id
+                LEFT JOIN alliance_members am_target ON am_target.user_id = f.user_id
+                LEFT JOIN alliance_relations ar
+                    ON ar.alliance_id = am_target.alliance_id
+                    AND ar.relation_type = 'war'
+                    AND (ar.expires_at IS NULL OR ar.expires_at > NOW())
+                    AND (
+                        ar.other_user_id = ?
+                        OR ar.other_alliance_id IN (SELECT alliance_id FROM alliance_members WHERE user_id = ?)
+                    )
+                WHERE f.mission = 'blockade'
+                  AND f.returning = 0
+                  AND f.arrival_time <= NOW()
+                  AND f.target_galaxy = ?
+                  AND f.target_system = ?
+                  AND f.target_position = (SELECT p2.position FROM colonies c2 JOIN planets p2 ON p2.id = c2.planet_id WHERE c2.id = ?)
+                  AND (
+                      ar.id IS NOT NULL          -- war declaration
+                      OR u.pvp_mode = 1          -- generic pvp blockade
+                  )
+                LIMIT 1
+            SQL);
+            $blockStmt->execute([$uid, $uid, (int)$origin['galaxy'], (int)$origin['system'], $originCid]);
+            if ($blockStmt->fetchColumn()) {
+                json_error('Your colony is under blockade — fleet departure is prevented.', 403);
+            }
+        } catch (Throwable $e) { /* alliance tables may not exist; skip blockade check */ }
     }
 
     update_colony_resources($db, $originCid);
@@ -189,6 +257,24 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     if ($distLy > 0) {
         $travel = fleet_travel_time_3d($distLy, $speedLyH);
     }
+
+    if ($useWormhole) {
+        $wormhole = resolve_wormhole_route(
+            $db,
+            $uid,
+            (int)$origin['galaxy'],
+            (int)$origin['system'],
+            $tg,
+            $ts
+        );
+        if (!$wormhole) {
+            json_error('No active wormhole route available for this jump.');
+        }
+        $travel = 30;
+        $distLy = 0.0;
+        $speedLyH = max($speedLyH, 999999.0);
+        consume_wormhole_jump($db, (int)$wormhole['id']);
+    }
     // ── end 3-D ────────────────────────────────────────────────────────────
 
     $now        = time();
@@ -218,6 +304,202 @@ function send_fleet(PDO $db, int $uid, array $body): never {
                 $departure, $arrival, $returnT]);
 
     json_ok(['fleet_id' => (int)$db->lastInsertId(), 'arrival_time' => $arrival]);
+}
+
+function list_wormholes(PDO $db, int $uid, int $originColonyId): never {
+    $db->exec(
+        'CREATE TABLE IF NOT EXISTS wormholes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            endpoint_a_galaxy INT NOT NULL,
+            endpoint_a_system INT NOT NULL,
+            endpoint_b_galaxy INT NOT NULL,
+            endpoint_b_system INT NOT NULL,
+            stability INT NOT NULL DEFAULT 100,
+            cooldown_until DATETIME DEFAULT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            is_permanent TINYINT(1) NOT NULL DEFAULT 0,
+            label VARCHAR(80) DEFAULT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_wormholes_a (endpoint_a_galaxy, endpoint_a_system),
+            INDEX idx_wormholes_b (endpoint_b_galaxy, endpoint_b_system)
+        ) ENGINE=InnoDB'
+    );
+    try {
+        $colCheck = $db->query(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'wormholes'
+               AND COLUMN_NAME = 'is_permanent'"
+        );
+        $hasPermanentCol = (int)($colCheck ? $colCheck->fetchColumn() : 0) > 0;
+        if (!$hasPermanentCol) {
+            $db->exec('ALTER TABLE wormholes ADD COLUMN is_permanent TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
+        }
+    } catch (Throwable $e) {
+        // ignore on restricted/legacy setups; query path will still work on modern MySQL
+    }
+
+    $db->exec(
+        'CREATE TABLE IF NOT EXISTS user_wormhole_unlocks (
+            user_id INT NOT NULL PRIMARY KEY,
+            source_quest_code VARCHAR(64) DEFAULT NULL,
+            unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB'
+    );
+
+    $origin = null;
+    if ($originColonyId > 0) {
+        $originStmt = $db->prepare(
+            'SELECT p.galaxy, p.`system`
+             FROM colonies c
+             JOIN planets p ON p.id = c.planet_id
+             WHERE c.id = ? AND c.user_id = ?'
+        );
+        $originStmt->execute([$originColonyId, $uid]);
+        $origin = $originStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    $theoryStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "wormhole_theory" LIMIT 1');
+    $theoryStmt->execute([$uid]);
+    $theoryLevel = (int)($theoryStmt->fetchColumn() ?: 0);
+
+    $unlockStmt = $db->prepare('SELECT 1 FROM user_wormhole_unlocks WHERE user_id = ? LIMIT 1');
+    $unlockStmt->execute([$uid]);
+    $hasPermanentUnlock = (bool)$unlockStmt->fetchColumn();
+
+    $stmt = $db->query(
+        'SELECT id, endpoint_a_galaxy, endpoint_a_system,
+                endpoint_b_galaxy, endpoint_b_system,
+                stability, cooldown_until, is_active, is_permanent, label
+         FROM wormholes
+         WHERE is_active = 1
+         ORDER BY id ASC
+         LIMIT 200'
+    );
+    $wormholes = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $isPermanent = (int)($row['is_permanent'] ?? 0) === 1;
+        $unlockOk = !$isPermanent || $hasPermanentUnlock;
+        $available = ((int)$row['stability'] >= 10)
+            && (!$row['cooldown_until'] || strtotime((string)$row['cooldown_until']) <= time())
+            && ($theoryLevel >= 5)
+            && $unlockOk;
+
+        if ($origin) {
+            $matchesOrigin = (
+                ((int)$row['endpoint_a_galaxy'] === (int)$origin['galaxy'] && (int)$row['endpoint_a_system'] === (int)$origin['system'])
+                || ((int)$row['endpoint_b_galaxy'] === (int)$origin['galaxy'] && (int)$row['endpoint_b_system'] === (int)$origin['system'])
+            );
+            if (!$matchesOrigin) {
+                continue;
+            }
+        }
+
+        $wormholes[] = [
+            'id' => (int)$row['id'],
+            'a' => ['galaxy' => (int)$row['endpoint_a_galaxy'], 'system' => (int)$row['endpoint_a_system']],
+            'b' => ['galaxy' => (int)$row['endpoint_b_galaxy'], 'system' => (int)$row['endpoint_b_system']],
+            'stability' => (int)$row['stability'],
+            'cooldown_until' => $row['cooldown_until'],
+            'label' => $row['label'],
+            'is_permanent' => $isPermanent,
+            'requires_unlock' => $isPermanent,
+            'unlocked' => !$isPermanent || $hasPermanentUnlock,
+            'available' => $available,
+        ];
+    }
+
+    json_ok([
+        'wormholes' => $wormholes,
+        'wormhole_theory_level' => $theoryLevel,
+        'permanent_unlock' => $hasPermanentUnlock,
+        'can_jump' => $theoryLevel >= 5,
+    ]);
+}
+
+function resolve_wormhole_route(PDO $db, int $uid, int $originGalaxy, int $originSystem, int $targetGalaxy, int $targetSystem): ?array {
+    try {
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS wormholes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                endpoint_a_galaxy INT NOT NULL,
+                endpoint_a_system INT NOT NULL,
+                endpoint_b_galaxy INT NOT NULL,
+                endpoint_b_system INT NOT NULL,
+                stability INT NOT NULL DEFAULT 100,
+                cooldown_until DATETIME DEFAULT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                is_permanent TINYINT(1) NOT NULL DEFAULT 0,
+                label VARCHAR(80) DEFAULT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_wormholes_a (endpoint_a_galaxy, endpoint_a_system),
+                INDEX idx_wormholes_b (endpoint_b_galaxy, endpoint_b_system)
+            ) ENGINE=InnoDB'
+        );
+        $colCheck = $db->query(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'wormholes'
+               AND COLUMN_NAME = 'is_permanent'"
+        );
+        $hasPermanentCol = (int)($colCheck ? $colCheck->fetchColumn() : 0) > 0;
+        if (!$hasPermanentCol) {
+            $db->exec('ALTER TABLE wormholes ADD COLUMN is_permanent TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
+        }
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS user_wormhole_unlocks (
+                user_id INT NOT NULL PRIMARY KEY,
+                source_quest_code VARCHAR(64) DEFAULT NULL,
+                unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB'
+        );
+    } catch (Throwable $e) {
+        return null;
+    }
+
+    $theoryStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "wormhole_theory" LIMIT 1');
+    $theoryStmt->execute([$uid]);
+    $theoryLevel = (int)($theoryStmt->fetchColumn() ?: 0);
+    if ($theoryLevel < 5) {
+        return null;
+    }
+
+    $unlockStmt = $db->prepare('SELECT 1 FROM user_wormhole_unlocks WHERE user_id = ? LIMIT 1');
+    $unlockStmt->execute([$uid]);
+    $hasPermanentUnlock = (bool)$unlockStmt->fetchColumn();
+
+    $stmt = $db->prepare(
+        'SELECT *
+         FROM wormholes
+                 WHERE is_active = 1
+           AND stability >= 10
+           AND (cooldown_until IS NULL OR cooldown_until <= NOW())
+                     AND (is_permanent = 0 OR ? = 1)
+           AND (
+                (endpoint_a_galaxy = ? AND endpoint_a_system = ? AND endpoint_b_galaxy = ? AND endpoint_b_system = ?)
+             OR (endpoint_b_galaxy = ? AND endpoint_b_system = ? AND endpoint_a_galaxy = ? AND endpoint_a_system = ?)
+           )
+         ORDER BY stability DESC, id ASC
+         LIMIT 1'
+    );
+    $stmt->execute([
+        $hasPermanentUnlock ? 1 : 0,
+        $originGalaxy, $originSystem, $targetGalaxy, $targetSystem,
+        $originGalaxy, $originSystem, $targetGalaxy, $targetSystem,
+    ]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function consume_wormhole_jump(PDO $db, int $wormholeId): void {
+    $db->prepare(
+        'UPDATE wormholes
+         SET stability = GREATEST(0, stability - 5),
+             cooldown_until = DATE_ADD(NOW(), INTERVAL 15 MINUTE)
+         WHERE id = ?'
+    )->execute([$wormholeId]);
 }
 
 // ─── Recall ───────────────────────────────────────────────────────────────────
@@ -261,6 +543,7 @@ function handle_fleet_arrival(PDO $db, array $fleet): void {
         'colonize'  => colonize_planet($db, $fleet, $ships),
         'spy'       => create_spy_report($db, $fleet, $ships),
         'harvest'   => harvest_resources($db, $fleet, $ships),
+        'blockade'  => maintain_blockade($db, $fleet, $ships),
         default     => return_fleet_to_origin($db, $fleet, $ships),
     };
 
@@ -278,6 +561,46 @@ function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
     $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
        ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $cid]);
     $db->prepare('DELETE FROM fleets WHERE id=?')->execute([$fleet['id']]);
+}
+
+function maintain_blockade(PDO $db, array $fleet, array $ships): void {
+    // A blockade fleet stays at the target until manually recalled.
+    // We simply leave the arrival_time in the past so it's found on next process cycle,
+    // but do NOT trigger arrival handling again — we mark it as "holding" by pushing
+    // arrival_time 1 hour into the future to prevent tight re-processing loops.
+    $db->prepare(
+        'UPDATE fleets SET arrival_time = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE id = ?'
+    )->execute([$fleet['id']]);
+
+    // Send a message to the blockaded colony owner, once per blockade (first arrival only)
+    try {
+        $tgtOwner = $db->prepare(
+            'SELECT c.user_id FROM colonies c JOIN planets p ON p.id = c.planet_id
+             WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?'
+        );
+        $tgtOwner->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
+        $ownerId = (int)($tgtOwner->fetchColumn() ?: 0);
+        if ($ownerId > 0 && $ownerId !== (int)$fleet['user_id']) {
+            $senderName = $db->prepare('SELECT username FROM users WHERE id = ?');
+            $senderName->execute([(int)$fleet['user_id']]);
+            $name = $senderName->fetchColumn() ?: 'An enemy';
+            // Only insert if no blockade-arrival message exists yet for this fleet
+            $existsStmt = $db->prepare(
+                "SELECT id FROM messages WHERE to_user_id=? AND subject='Blockade' AND body LIKE ? LIMIT 1"
+            );
+            $existsStmt->execute([$ownerId, '%fleet #' . $fleet['id'] . '%']);
+            if (!$existsStmt->fetchColumn()) {
+                $db->prepare(
+                    "INSERT INTO messages (from_user_id, to_user_id, subject, body, sent_at)
+                     VALUES (?, ?, 'Blockade', ?, NOW())"
+                )->execute([
+                    (int)$fleet['user_id'],
+                    $ownerId,
+                    "$name has established a blockade at your colony (fleet #{$fleet['id']}). Fleet departures from this colony are blocked.",
+                ]);
+            }
+        }
+    } catch (Throwable $e) { /* ignore */ }
 }
 
 function deliver_resources(PDO $db, array $fleet, array $ships): void {
@@ -1469,6 +1792,15 @@ function colonize_planet(PDO $db, array $fleet, array $ships): void {
 }
 
 function create_spy_report(PDO $db, array $fleet, array $ships): void {
+    $attackerEspionageLevel = 0;
+    try {
+        $atkEspStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "espionage_tech" LIMIT 1');
+        $atkEspStmt->execute([(int)$fleet['user_id']]);
+        $attackerEspionageLevel = (int)($atkEspStmt->fetchColumn() ?: 0);
+    } catch (Throwable $e) {
+        $attackerEspionageLevel = 0;
+    }
+
     $tgt = $db->prepare(
         'SELECT c.id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
                 c.population, c.max_population, c.happiness, c.public_services, c.energy,
@@ -1506,6 +1838,17 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
             'planet'       => $pData ?: null,
         ];
     } else {
+        $defenderStealthLevel = 0;
+        try {
+            $defStealthStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "stealth_tech" LIMIT 1');
+            $defStealthStmt->execute([(int)$target['user_id']]);
+            $defenderStealthLevel = (int)($defStealthStmt->fetchColumn() ?: 0);
+        } catch (Throwable $e) {
+            $defenderStealthLevel = 0;
+        }
+
+        $stealthMasked = ($defenderStealthLevel >= 1 && $attackerEspionageLevel < 8);
+
         // Fetch defender's assigned leaders
         $lRow = $db->prepare('SELECT name, role, level FROM leaders WHERE colony_id=?');
         $lRow->execute([$target['id']]);
@@ -1521,6 +1864,10 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
         $report = [
             'status'       => 'inhabited',
             'owner'        => $target['username'],
+            'stealth_masked' => $stealthMasked,
+            'stealth_note' => $stealthMasked
+                ? 'Stealth signature active: Fleet intel is hidden until Espionage Tech Lv8.'
+                : null,
             'resources'    => [
                 'metal'      => (float)$target['metal'],
                 'crystal'    => (float)$target['crystal'],
@@ -1555,8 +1902,8 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
                 'richness_metal'     => $target['richness_metal'],
                 'richness_crystal'   => $target['richness_crystal'],
             ],
-            'ships'        => $defShips,
-            'leaders'      => $leaders,
+            'ships'        => $stealthMasked ? [] : $defShips,
+            'leaders'      => $stealthMasked ? [] : $leaders,
         ];
     }
 

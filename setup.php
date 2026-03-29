@@ -488,6 +488,8 @@ function create_seed_npc_homeworld(PDO $db, int $userId, string $username): int
         'plasma_tech', 'combustion_drive', 'impulse_drive', 'hyperspace_drive',
         'espionage_tech', 'computer_tech', 'astrophysics', 'intergalactic_network',
         'graviton_tech', 'weapons_tech', 'shielding_tech', 'armor_tech',
+        'nano_materials', 'genetic_engineering', 'quantum_computing',
+        'dark_energy_tap', 'wormhole_theory', 'terraforming_tech', 'stealth_tech',
     ];
     $rIns = $db->prepare('INSERT IGNORE INTO research (user_id, type, level) VALUES (?, ?, 0)');
     foreach ($research as $type) {

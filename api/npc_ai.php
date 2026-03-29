@@ -60,6 +60,13 @@ function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
     } catch (Throwable $e) {
         error_log('colony_events_tick_global error: ' . $e->getMessage());
     }
+
+    // Wormhole network maintenance (stability regeneration + cooldown clear).
+    try {
+        wormhole_regeneration_tick_global($db);
+    } catch (Throwable $e) {
+        error_log('wormhole_regeneration_tick_global error: ' . $e->getMessage());
+    }
 }
 
 function npc_faction_tick(PDO $db, int $userId, array $faction): void {
@@ -357,6 +364,13 @@ function npc_try_start_research(PDO $db, int $npcUserId, int $colonyId, string $
         'shielding_tech',
         'armor_tech',
         'hyperspace_tech',
+        'nano_materials',
+        'genetic_engineering',
+        'quantum_computing',
+        'terraforming_tech',
+        'dark_energy_tap',
+        'wormhole_theory',
+        'stealth_tech',
     ];
     if ($colonyType === 'research') {
         $researchOrder = [
@@ -826,9 +840,10 @@ function npc_spend_colony_resources(PDO $db, int $colonyId, array &$resources, a
  * Each colony without an active event has a 10 % chance per tick to receive one.
  *
  * Event types & effects (applied in update_colony_resources):
- *   solar_flare   – 2 h  – all resource production −20 %
- *   mineral_vein  – 4 h  – metal production +30 %
- *   disease       – 3 h  – population growth −50 %
+ *   solar_flare         – 2 h  – energy production −30 %
+ *   mineral_vein        – 6 h  – metal production +20 %
+ *   disease             – until hospital lv3 – happiness −25
+ *   archaeological_find – 6 h  – one-time +500 dark matter (requires science standing >= 20)
  */
 function colony_events_tick_global(PDO $db): void {
     if (!function_exists('app_state_get_int') || !function_exists('app_state_set_int')) {
@@ -874,11 +889,13 @@ function colony_events_tick_global(PDO $db): void {
 
     $eventMeta = [
         'solar_flare'  => ['duration' => 7200,  'label' => 'Solar Flare',   'icon' => '☀️',
-                           'body' => 'A powerful solar flare is disrupting your colony\'s industrial output. All resource production reduced by 20 % for 2 hours.'],
-        'mineral_vein' => ['duration' => 14400, 'label' => 'Mineral Vein',  'icon' => '⛏️',
-                           'body' => 'Miners struck a rich mineral vein! Metal production is boosted by 30 % for 4 hours.'],
-        'disease'      => ['duration' => 10800, 'label' => 'Disease Outbreak', 'icon' => '🦠',
-                           'body' => 'An outbreak is sweeping through the population. Population growth reduced by 50 % for 3 hours.'],
+                           'body' => 'A powerful solar flare is disrupting reactor output. Colony energy production reduced by 30 % for 2 hours.'],
+        'mineral_vein' => ['duration' => 21600, 'label' => 'Mineral Vein',  'icon' => '⛏️',
+                           'body' => 'Miners struck a rich mineral vein! Metal production is boosted by 20 % for 6 hours.'],
+        'disease'      => ['duration' => 259200, 'label' => 'Disease Outbreak', 'icon' => '🦠',
+                           'body' => 'An outbreak is sweeping through the population. Happiness is reduced by 25 until your Hospital reaches level 3.'],
+        'archaeological_find' => ['duration' => 21600, 'label' => 'Archaeological Find', 'icon' => '🏺',
+                           'body' => 'A precursor dig site has been uncovered. You gained +500 Dark Matter.'],
     ];
     $eventKeys = array_keys($eventMeta);
 
@@ -891,6 +908,16 @@ function colony_events_tick_global(PDO $db): void {
          VALUES (NULL, ?, ?, ?, 1, NOW())'
     );
 
+    // Science Collective faction id for archaeological-find eligibility
+    $scienceFactionId = 0;
+    try {
+        $sf = $db->prepare('SELECT id FROM npc_factions WHERE faction_type = "science" ORDER BY id ASC LIMIT 1');
+        $sf->execute();
+        $scienceFactionId = (int)($sf->fetchColumn() ?: 0);
+    } catch (Throwable $e) {
+        $scienceFactionId = 0;
+    }
+
     foreach ($colonies as $col) {
         $cid = (int)$col['colony_id'];
         if (isset($activeSet[$cid])) {
@@ -900,14 +927,98 @@ function colony_events_tick_global(PDO $db): void {
             continue; // 10 % trigger chance
         }
 
-        $type   = $eventKeys[array_rand($eventKeys)];
+        $eligibleEventKeys = $eventKeys;
+        if ($scienceFactionId > 0) {
+            $st = $db->prepare('SELECT standing FROM diplomacy WHERE user_id = ? AND faction_id = ? LIMIT 1');
+            $st->execute([(int)$col['user_id'], $scienceFactionId]);
+            $scienceStanding = (int)($st->fetchColumn() ?: 0);
+            if ($scienceStanding < 20) {
+                $eligibleEventKeys = array_values(array_filter(
+                    $eligibleEventKeys,
+                    static fn(string $k): bool => $k !== 'archaeological_find'
+                ));
+            }
+        } else {
+            $eligibleEventKeys = array_values(array_filter(
+                $eligibleEventKeys,
+                static fn(string $k): bool => $k !== 'archaeological_find'
+            ));
+        }
+        if (empty($eligibleEventKeys)) {
+            continue;
+        }
+
+        $type   = $eligibleEventKeys[array_rand($eligibleEventKeys)];
         $meta   = $eventMeta[$type];
         $expiry = $now + $meta['duration'];
 
         $insertStmt->execute([$cid, $type, $expiry]);
 
+        if ($type === 'archaeological_find') {
+            $db->prepare('UPDATE users SET dark_matter = dark_matter + 500 WHERE id = ?')
+               ->execute([(int)$col['user_id']]);
+        }
+
         // Notify the player
         $subject = $meta['icon'] . ' ' . $meta['label'] . ' – ' . $col['colony_name'];
         $msgStmt->execute([(int)$col['user_id'], $subject, $meta['body']]);
     }
+}
+
+// ─── Phase 5.3 – Wormhole network maintenance ───────────────────────────────
+
+/**
+ * Regenerates wormhole stability over time and clears expired cooldown windows.
+ * Rate-limited to once every 10 minutes via app_state.
+ */
+function wormhole_regeneration_tick_global(PDO $db): void {
+    if (!function_exists('app_state_get_int') || !function_exists('app_state_set_int')) {
+        return;
+    }
+
+    $now = time();
+    $lastTick = app_state_get_int($db, 'wormholes:regen:last_tick', 0);
+    if (($now - $lastTick) < 600) {
+        return;
+    }
+    app_state_set_int($db, 'wormholes:regen:last_tick', $now);
+
+    try {
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS wormholes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                endpoint_a_galaxy INT NOT NULL,
+                endpoint_a_system INT NOT NULL,
+                endpoint_b_galaxy INT NOT NULL,
+                endpoint_b_system INT NOT NULL,
+                stability INT NOT NULL DEFAULT 100,
+                cooldown_until DATETIME DEFAULT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                label VARCHAR(80) DEFAULT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_wormholes_a (endpoint_a_galaxy, endpoint_a_system),
+                INDEX idx_wormholes_b (endpoint_b_galaxy, endpoint_b_system)
+            ) ENGINE=InnoDB'
+        );
+    } catch (Throwable $e) {
+        return;
+    }
+
+    $db->exec(
+        'UPDATE wormholes
+         SET
+            cooldown_until = CASE
+                WHEN cooldown_until IS NOT NULL AND cooldown_until <= NOW() THEN NULL
+                ELSE cooldown_until
+            END,
+            stability = LEAST(
+                100,
+                stability + CASE
+                    WHEN cooldown_until IS NULL OR cooldown_until <= NOW() THEN 2
+                    ELSE 0
+                END
+            )
+         WHERE is_active = 1
+           AND (stability < 100 OR cooldown_until IS NOT NULL)'
+    );
 }

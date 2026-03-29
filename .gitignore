@@ -1,0 +1,39 @@
+# Node / frontend dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# PHP / Composer
+vendor/
+composer.phar
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Build, test and coverage artifacts
+dist/
+build/
+coverage/
+.nyc_output/
+
+# PHP unit / runtime cache
+.phpunit.cache/
+.phpunit.result.cache
+
+# IDE / editor
+.vscode/*.log
+.idea/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Local temp/debug artifacts used in this repo
+.tmp-*.cookies.txt
+*.tmp
+*.swp
+*.swo

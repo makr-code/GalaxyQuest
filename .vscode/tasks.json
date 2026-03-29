@@ -87,6 +87,46 @@
       "problemMatcher": []
     },
     {
+      "label": "Test: Wormhole Beacon Unlock",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/test_wormhole_beacon_unlock.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: API Smoke Suite",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_full_regression.ps1 -ApiOnly",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Full Regression Suite",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_full_regression.ps1",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Fresh DB + Full Regression",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_full_regression.ps1 -FreshReset",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
       "label": "Test Data: Bulk Universe Seed",
       "type": "shell",
       "command": "docker compose exec -T web php scripts/seed_test_universe.php --users=100 --npcs=20 --profiles=0",
@@ -99,7 +139,7 @@
     {
       "label": "Test Data: Full Seed (One Click)",
       "type": "shell",
-      "command": "docker compose exec -T web php scripts/bootstrap_galaxy.php; docker compose exec -T web php scripts/backfill_star_system_metadata.php --all --batch=2000; Get-Content -Raw sql/migrate_gameplay_model_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v2.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v3.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v4.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; docker compose exec -T web php scripts/sync_faction_specs.php; Get-Content -Raw sql/test_gameplay_model_seed.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/test_gameplay_model_checks.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; docker compose exec -T web php scripts/seed_test_universe.php --users=100 --npcs=20 --profiles=0",
+      "command": "docker compose exec -T web php scripts/bootstrap_galaxy.php; docker compose exec -T web php scripts/backfill_star_system_metadata.php --all --batch=2000; Get-Content -Raw sql/migrate_gameplay_model_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v2.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v3.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v4.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v5.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v6_planetary_events.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v7_research_phase5.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v8_wormholes.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v9_wormhole_beacons.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; docker compose exec -T web php scripts/sync_faction_specs.php; Get-Content -Raw sql/test_gameplay_model_seed.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/test_gameplay_model_checks.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; docker compose exec -T web php scripts/seed_test_universe.php --users=100 --npcs=20 --profiles=0",
       "options": {
         "cwd": "${workspaceFolder}"
       },

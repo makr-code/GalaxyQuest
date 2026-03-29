@@ -134,14 +134,51 @@ function handle_login(): void {
         json_error('Username and password required.');
     }
 
-    $db   = get_db();
+    $db       = get_db();
+    $clientIp = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $ipHash   = hash('sha256', $clientIp);
+
+    // Expire stale attempt counters outside the rolling window.
+    $db->prepare(
+        'DELETE FROM login_attempts
+         WHERE ip_hash = ?
+           AND first_attempt_at < DATE_SUB(NOW(), INTERVAL ? SECOND)
+           AND (locked_until IS NULL OR locked_until <= NOW())'
+    )->execute([$ipHash, LOGIN_WINDOW_SECONDS]);
+
+    // Enforce active lockout.
+    $stmt = $db->prepare('SELECT attempt_count, locked_until FROM login_attempts WHERE ip_hash = ?');
+    $stmt->execute([$ipHash]);
+    $attempts = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($attempts && $attempts['locked_until'] !== null) {
+        $lockedUntil = strtotime($attempts['locked_until']);
+        if ($lockedUntil > time()) {
+            $minsLeft = (int)ceil(($lockedUntil - time()) / 60);
+            json_error("Too many failed login attempts. Try again in {$minsLeft} minute(s).", 429);
+        }
+    }
+
     $stmt = $db->prepare('SELECT id, username, password_hash, is_admin FROM users WHERE username = ?');
     $stmt->execute([$username]);
     $user = $stmt->fetch();
 
     if (!$user || !password_verify($password, $user['password_hash'])) {
+        // Record failed attempt; lock account after LOGIN_MAX_ATTEMPTS consecutive failures.
+        $newCount    = (int)($attempts['attempt_count'] ?? 0) + 1;
+        $lockedUntil = $newCount >= LOGIN_MAX_ATTEMPTS
+            ? date('Y-m-d H:i:s', time() + LOGIN_LOCKOUT_SECONDS)
+            : null;
+        $db->prepare(
+            'INSERT INTO login_attempts (ip_hash, attempt_count, first_attempt_at, locked_until)
+             VALUES (?, 1, NOW(), NULL)
+             ON DUPLICATE KEY UPDATE attempt_count = ?, locked_until = ?'
+        )->execute([$ipHash, $newCount, $lockedUntil]);
         json_error('Invalid username or password.', 401);
     }
+
+    // Successful login — clear any recorded failures for this IP.
+    $db->prepare('DELETE FROM login_attempts WHERE ip_hash = ?')->execute([$ipHash]);
 
     $db->prepare('UPDATE users SET last_login = NOW() WHERE id = ?')->execute([$user['id']]);
 
@@ -493,6 +530,8 @@ function create_homeworld(int $userId): int {
         'plasma_tech', 'combustion_drive', 'impulse_drive', 'hyperspace_drive',
         'espionage_tech', 'computer_tech', 'astrophysics', 'intergalactic_network',
         'graviton_tech', 'weapons_tech', 'shielding_tech', 'armor_tech',
+        'nano_materials', 'genetic_engineering', 'quantum_computing',
+        'dark_energy_tap', 'wormhole_theory', 'terraforming_tech', 'stealth_tech',
     ];
     $resIns = $db->prepare('INSERT IGNORE INTO research (user_id, type, level) VALUES (?, ?, 0)');
     foreach ($defaultResearch as $type) {

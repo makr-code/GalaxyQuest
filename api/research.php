@@ -110,6 +110,26 @@ switch ($action) {
         if ($colonyType === 'research') {
             $secs = max(1, (int)round($secs * 0.85));
         }
+
+        // Quantum Computing reduces research time by 20%
+        $qStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "quantum_computing" LIMIT 1');
+        $qStmt->execute([$uid]);
+        $quantumLevel = (int)($qStmt->fetchColumn() ?: 0);
+        if ($quantumLevel >= 1) {
+            $secs = max(1, (int)round($secs * 0.80));
+        }
+
+        // Science Vessel orbit bonus: −10% research time per vessel, max 3 vessels (−30%)
+        try {
+            $svStmt = $db->prepare(
+                'SELECT COALESCE(SUM(count), 0) FROM ships WHERE colony_id = ? AND type = \'science_vessel\''
+            );
+            $svStmt->execute([$cid]);
+            $sciVessels = min(3, (int)$svStmt->fetchColumn());
+            if ($sciVessels > 0) {
+                $secs = max(1, (int)round($secs * (1.0 - 0.10 * $sciVessels)));
+            }
+        } catch (Throwable $e) { /* ignore pre-migration */ }
         $end      = date('Y-m-d H:i:s', time() + $secs);
 
         $db->prepare(

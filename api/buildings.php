@@ -45,10 +45,18 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             );
             $rows->execute([$cid]);
             $buildings = [];
+            $nanoStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "nano_materials" LIMIT 1');
+            $nanoStmt->execute([$uid]);
+            $nanoLevel = (int)($nanoStmt->fetchColumn() ?: 0);
             $defs = building_definitions();
             foreach ($rows->fetchAll() as $r) {
                 $next = (int)$r['level'] + 1;
                 $cost = building_cost($r['type'], $next);
+                if ($nanoLevel >= 1) {
+                    $cost['metal'] = (int)round($cost['metal'] * 0.85);
+                    $cost['crystal'] = (int)round($cost['crystal'] * 0.85);
+                    $cost['deuterium'] = (int)round($cost['deuterium'] * 0.85);
+                }
                 $meta = $defs[(string)$r['type']] ?? ['category' => 'other', 'label' => fmt_name((string)$r['type']), 'icon' => '🏗', 'zone' => 'surface', 'footprint' => 1, 'class_key' => 'flex'];
                 $buildings[] = [
                     'type'        => $r['type'],
@@ -146,6 +154,26 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
 
             $nextLevel = (int)$building['level'] + $pendingCount + 1;
             $cost      = building_cost($type, $nextLevel);
+
+            // Terraformer requires terraforming_tech level >= 1
+            if ($type === 'terraformer') {
+                $tStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "terraforming_tech" LIMIT 1');
+                $tStmt->execute([$uid]);
+                $terraformLevel = (int)($tStmt->fetchColumn() ?: 0);
+                if ($terraformLevel < 1) {
+                    json_error('Terraformer requires Terraforming Tech Lv1.');
+                }
+            }
+
+            // Nano Materials reduces building material costs by 15%
+            $nanoStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "nano_materials" LIMIT 1');
+            $nanoStmt->execute([$uid]);
+            $nanoLevel = (int)($nanoStmt->fetchColumn() ?: 0);
+            if ($nanoLevel >= 1) {
+                $cost['metal'] = (int)round($cost['metal'] * 0.85);
+                $cost['crystal'] = (int)round($cost['crystal'] * 0.85);
+                $cost['deuterium'] = (int)round($cost['deuterium'] * 0.85);
+            }
 
             $colony = $db->prepare('SELECT metal, crystal, deuterium FROM colonies WHERE id = ?');
             $colony->execute([$cid]);

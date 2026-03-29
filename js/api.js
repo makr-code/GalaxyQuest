@@ -3,6 +3,7 @@
  * All requests automatically attach the CSRF token from the session.
  */
 const API = (() => {
+  const API_VERSION = 'v1';
   let _csrfToken = null;
   let _sessionExpired = false;   // set on first 401 to stop redirect storm
   const _getCache = new Map();
@@ -48,7 +49,8 @@ const API = (() => {
     { re: /api\/alliances\.php\?action=details/i, ttl: 6 * 1000 },
     { re: /api\/alliances\.php\?action=relations/i, ttl: 5 * 1000 },
     { re: /api\/alliances\.php\?action=get_messages/i, ttl: 5 * 1000 },
-    { re: /api\/alliances\.php\?action=war_map/i, ttl: 10 * 1000 },
+    { re: /api\/alliances\.php\?action=war_map/i,      ttl: 10 * 1000 },
+    { re: /api\/alliances\.php\?action=territory_map/i, ttl: 30 * 1000 },
     { re: /api\/galaxy\.php\?action=stars/i, ttl: 45 * 1000 },
     { re: /api\/galaxy\.php\?action=bootstrap/i, ttl: 20 * 1000 },
     { re: /api\/galaxy\.php\?/i, ttl: 15 * 1000 },
@@ -670,7 +672,7 @@ const API = (() => {
       task.started = true;
       _inflightTasks.set(task.id, task);
 
-      fetch(task.endpoint, task.init)
+      fetch(task.fetchEndpoint || task.endpoint, task.init)
         .then((resp) => task.resolve(resp))
         .catch((err) => task.reject(err))
         .finally(() => {
@@ -685,7 +687,7 @@ const API = (() => {
 
   function _queueFetch(endpoint, init = {}, options = {}) {
     const endpointText = String(endpoint || '');
-    const authMaintenance = /api\/auth\.php\?action=(me|csrf|logout|login)/i.test(endpointText);
+    const authMaintenance = /api\/(?:v1\/)?auth\.php\?action=(me|csrf|logout|login)/i.test(endpointText);
     if (_sessionExpired && !authMaintenance) {
       const blocked = new Error('Session redirect in progress');
       blocked.code = 'EAUTH_REDIRECT';
@@ -710,9 +712,11 @@ const API = (() => {
     }
 
     return new Promise((resolve, reject) => {
+      const fetchEndpoint = _versionEndpoint(endpointText);
       _requestQueue.push({
         id: taskId,
         endpoint,
+        fetchEndpoint,
         init: Object.assign({}, init, { signal }),
         resolve,
         reject,
@@ -778,6 +782,21 @@ const API = (() => {
     const base = 220;
     const jitter = Math.floor(Math.random() * 90);
     return Math.min(1800, (base * (2 ** attempt)) + jitter);
+  }
+
+  function _versionEndpoint(endpoint) {
+    const raw = String(endpoint || '').trim();
+    if (!raw) return raw;
+    if (/^(https?:)?\/\//i.test(raw)) return raw;
+
+    const normalized = raw.startsWith('/') ? raw.slice(1) : raw;
+    if (new RegExp(`^api/${API_VERSION}/`, 'i').test(normalized)) {
+      return normalized;
+    }
+    if (/^api\//i.test(normalized)) {
+      return normalized.replace(/^api\//i, `api/${API_VERSION}/`);
+    }
+    return normalized;
   }
 
   async function _fetchWithRetry(endpoint, init = {}, options = {}) {
@@ -959,7 +978,7 @@ const API = (() => {
     if (_sessionExpired) return;
     _sessionExpired = true;
     try {
-      _cancelPendingRequests('Session expired', (task) => !/api\/auth\.php\?action=(me|csrf|logout|login)/i.test(String(task?.endpoint || '')));
+      _cancelPendingRequests('Session expired', (task) => !/api\/(?:v1\/)?auth\.php\?action=(me|csrf|logout|login)/i.test(String(task?.endpoint || '')));
     } catch (_) {}
     window.location.href = 'index.html';
   }
@@ -1183,6 +1202,9 @@ const API = (() => {
 
   return {
     // Cache control
+    get: (endpoint, options = {}) => get(endpoint, options),
+    post: (endpoint, body = {}) => post(endpoint, body),
+    getBinary: (endpoint, options = {}) => getBinary(endpoint, options),
     invalidateCache: () => _invalidateGetCache(),
     cancelPendingRequests: (reason = 'View switch') =>
       _cancelPendingRequests(reason, (task) => String(task.method || 'GET').toUpperCase() !== 'POST'),
@@ -1239,6 +1261,7 @@ const API = (() => {
     // Fleet
     fleets:     ()        => get('api/fleet.php?action=list'),
     sendFleet:  (payload) => post('api/fleet.php?action=send', payload),
+    wormholes: (originColonyId) => get(`api/fleet.php?action=wormholes&origin_colony_id=${originColonyId}`),
     recallFleet:(id)      => post('api/fleet.php?action=recall', { fleet_id: id }),
     simulateBattle: (payload) => post('api/fleet.php?action=simulate_battle', payload),
     matchupScan: (payload) => post('api/fleet.php?action=matchup_scan', payload),
@@ -1401,6 +1424,7 @@ const API = (() => {
     withdrawAlliance: (data)   => post('api/alliances.php?action=withdraw', data),
     allianceRelations: (id)    => get(`api/alliances.php?action=relations&alliance_id=${id}`),
     allianceWarMap: (galaxy, from, to) => get(`api/alliances.php?action=war_map&galaxy=${galaxy}&from=${from}&to=${to}`),
+    allianceTerritoryMap: (galaxy, sectorSize = 50) => get(`api/alliances.php?action=territory_map&galaxy=${galaxy}&sector_size=${sectorSize}`),
     declareWar: (data)         => post('api/alliances.php?action=declare_war', data),
     declareNap: (data)         => post('api/alliances.php?action=declare_nap', data),
     declareAllianceDiplomacy: (data) => post('api/alliances.php?action=declare_alliance', data),

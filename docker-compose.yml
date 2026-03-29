@@ -53,6 +53,12 @@ services:
       - ./sql/migrate_vessel_blueprints_v2.sql:/docker-entrypoint-initdb.d/011-vessel-bp-v2.sql:ro
       - ./sql/migrate_vessel_blueprints_v3.sql:/docker-entrypoint-initdb.d/012-vessel-bp-v3.sql:ro
       - ./sql/migrate_vessel_blueprints_v4.sql:/docker-entrypoint-initdb.d/013-vessel-bp-v4.sql:ro
+      - ./sql/migrate_vessel_blueprints_v5.sql:/docker-entrypoint-initdb.d/014-vessel-bp-v5.sql:ro
+      - ./sql/migrate_vessel_blueprints_v6_planetary_events.sql:/docker-entrypoint-initdb.d/015-vessel-bp-v6.sql:ro
+      - ./sql/migrate_vessel_blueprints_v7_research_phase5.sql:/docker-entrypoint-initdb.d/016-vessel-bp-v7.sql:ro
+      - ./sql/migrate_vessel_blueprints_v8_wormholes.sql:/docker-entrypoint-initdb.d/017-vessel-bp-v8.sql:ro
+      - ./sql/migrate_vessel_blueprints_v9_wormhole_beacons.sql:/docker-entrypoint-initdb.d/018-vessel-bp-v9.sql:ro
+      - ./sql/migrate_security_v1.sql:/docker-entrypoint-initdb.d/019-security-v1.sql:ro
 
 volumes:
   galaxyquest-db-data:

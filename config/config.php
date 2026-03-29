@@ -52,7 +52,13 @@ define('POLITICS_UNREST_RECOVERY_APPROVAL', (float) env_value('POLITICS_UNREST_R
 define('POLITICS_UNREST_PROGRESS_PER_HOUR', (float) env_value('POLITICS_UNREST_PROGRESS_PER_HOUR', 1.0));
 
 // Session / security
-define('CSRF_TOKEN_LENGTH', (int) env_value('CSRF_TOKEN_LENGTH', 32));
+define('CSRF_TOKEN_LENGTH',     (int) env_value('CSRF_TOKEN_LENGTH',     32));
+define('LOGIN_MAX_ATTEMPTS',    (int) env_value('LOGIN_MAX_ATTEMPTS',    10));   // Consecutive failures before lockout
+define('LOGIN_LOCKOUT_SECONDS', (int) env_value('LOGIN_LOCKOUT_SECONDS', 1800)); // 30-minute lockout window
+define('LOGIN_WINDOW_SECONDS',  (int) env_value('LOGIN_WINDOW_SECONDS',  1800)); // Attempt-counter reset window
+define('SLOW_QUERY_THRESHOLD_MS', (int) env_value('SLOW_QUERY_THRESHOLD_MS', 500)); // Log DB queries slower than this
+
+require_once __DIR__ . '/api_version.php';
 
 // ── Cache ────────────────────────────────────────────────────────────────────
 // Verifikationsmaßstab: CACHE_VERSION in jeden Schlüssel eingebettet.

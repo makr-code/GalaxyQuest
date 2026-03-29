@@ -414,9 +414,11 @@ function run_ai_tick(PDO $db, int $uid): array {
  * Fleet commander AI (colony-assigned, autonomy=2).
  *
  * Actions (tried in order, at most one per call):
- *  1. Auto-scout – dispatch a spy probe to the nearest stale/unseen system.
- *  2. Auto-intercept – recall any of the user's returning-empty fleets early
- *     if the home colony has surplus fighters for defence.
+ *  1. Defensive recall when hostile attack fleets are inbound to home colony.
+ *  2. Auto-intercept launch against nearby hostile origin colonies (fighter-heavy).
+ *  3. Auto-scout – dispatch a spy probe to nearby stale/unseen non-hostile systems.
+ *  4. Auto-logistics transport to weakest sibling colony (cargo-heavy).
+ *  5. Auto-intercept – recall returning-empty fleets early for reinforcement.
  *
  * Rate-limited: at most one action per 15 minutes per leader.
  */
@@ -439,8 +441,11 @@ function ai_fleet_commander_tick(PDO $db, array $leader): ?string {
     $colony = $colStmt->fetch();
     if (!$colony) return null;
 
-    $action = fc_auto_scout($db, $leader, $colony, $uid)
-           ?? fc_auto_recall_empty($db, $leader, $uid);
+        $action = fc_auto_recall_under_attack($db, $leader, $colony, $uid)
+            ?? fc_auto_intercept_launch($db, $leader, $colony, $uid)
+            ?? fc_auto_scout($db, $leader, $colony, $uid)
+            ?? fc_auto_supply_transport($db, $leader, $colony, $uid)
+            ?? fc_auto_recall_empty($db, $leader, $uid);
 
     if ($action) {
         $db->prepare('UPDATE leaders SET last_action=?, last_action_at=NOW() WHERE id=?')
@@ -478,7 +483,7 @@ function fc_auto_scout(PDO $db, array $leader, array $colony, int $uid): ?string
     $activeStmt->execute([$uid, $cid]);
     if ((int)$activeStmt->fetchColumn() > 0) return null;
 
-    // Find nearest unscouted / stale system in the same galaxy.
+    // Find nearby unscouted/stale systems in the same galaxy and avoid hostile systems.
     $targetStmt = $db->prepare(
         'SELECT p.`system`, ABS(p.`system` - ?) AS dist
          FROM planets p
@@ -492,13 +497,23 @@ function fc_auto_scout(PDO $db, array $leader, array $colony, int $uid): ?string
            )
          GROUP BY p.`system`
          ORDER BY dist ASC
-         LIMIT 1'
+         LIMIT 16'
     );
     $targetStmt->execute([$s, $g, $s, $uid, $g]);
-    $target = $targetStmt->fetch();
-    if (!$target) return null;
+    $targetSystems = $targetStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$targetSystems) return null;
 
-    $ts = (int)$target['system'];
+    $ts = 0;
+    foreach ($targetSystems as $candidate) {
+        $candidateSystem = (int)($candidate['system'] ?? 0);
+        if ($candidateSystem <= 0) continue;
+        if (!fc_is_hostile_system_for_user($db, $uid, $g, $candidateSystem)) {
+            $ts = $candidateSystem;
+            break;
+        }
+    }
+    if ($ts <= 0) return null;
+
     $tp = random_int(1, POSITION_MAX);
 
     $launched = launch_fleet_for_user(
@@ -544,6 +559,320 @@ function fc_auto_recall_empty(PDO $db, array $leader, int $uid): ?string {
        ->execute([$fast, $fast, (int)$fleet['id']]);
 
     return "[{$leader['name']}] Recalled empty fleet #{$fleet['id']} early to reinforce base.";
+}
+
+/**
+ * If home colony is under imminent hostile attack, recall one outbound fleet early.
+ */
+function fc_auto_recall_under_attack(PDO $db, array $leader, array $colony, int $uid): ?string {
+    $cid = (int)$colony['id'];
+    $g = (int)$colony['galaxy'];
+    $s = (int)$colony['system'];
+    $p = (int)$colony['position'];
+
+    $threatStmt = $db->prepare(
+        'SELECT id
+         FROM fleets
+         WHERE user_id <> ?
+           AND returning = 0
+           AND mission = "attack"
+           AND target_galaxy = ?
+           AND target_system = ?
+           AND target_position = ?
+           AND arrival_time > NOW()
+           AND arrival_time <= DATE_ADD(NOW(), INTERVAL 45 MINUTE)
+         ORDER BY arrival_time ASC
+         LIMIT 1'
+    );
+    $threatStmt->execute([$uid, $g, $s, $p]);
+    $threat = $threatStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$threat) {
+        return null;
+    }
+
+    $ownFleetStmt = $db->prepare(
+        'SELECT id, departure_time
+         FROM fleets
+         WHERE user_id = ?
+           AND origin_colony_id = ?
+           AND returning = 0
+           AND mission IN ("attack", "transport", "harvest", "spy")
+           AND arrival_time > NOW()
+         ORDER BY arrival_time DESC
+         LIMIT 1'
+    );
+    $ownFleetStmt->execute([$uid, $cid]);
+    $fleet = $ownFleetStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$fleet) {
+        return null;
+    }
+
+    $elapsed = max(1, time() - strtotime((string)$fleet['departure_time']));
+    $returnTime = date('Y-m-d H:i:s', time() + $elapsed);
+    $db->prepare('UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ? WHERE id = ?')
+       ->execute([$returnTime, $returnTime, (int)$fleet['id']]);
+
+    return "[{$leader['name']}] Hostile incoming detected. Recalled fleet #{$fleet['id']} to defend home colony.";
+}
+
+/**
+ * Launches an autonomous interceptor strike with a fighter-heavy composition.
+ */
+function fc_auto_intercept_launch(PDO $db, array $leader, array $colony, int $uid): ?string {
+    $cid = (int)$colony['id'];
+    $g = (int)$colony['galaxy'];
+    $s = (int)$colony['system'];
+    $p = (int)$colony['position'];
+
+    $threatStmt = $db->prepare(
+        'SELECT f.user_id, oc.id AS origin_colony_id,
+                op.galaxy AS og, op.`system` AS os, op.position AS op
+         FROM fleets f
+         JOIN colonies oc ON oc.id = f.origin_colony_id
+         JOIN planets op ON op.id = oc.planet_id
+         WHERE f.user_id <> ?
+           AND f.returning = 0
+           AND f.mission = "attack"
+           AND f.target_galaxy = ?
+           AND f.target_system = ?
+           AND f.target_position = ?
+           AND f.arrival_time > NOW()
+           AND f.arrival_time <= DATE_ADD(NOW(), INTERVAL 60 MINUTE)
+         ORDER BY f.arrival_time ASC
+         LIMIT 1'
+    );
+    $threatStmt->execute([$uid, $g, $s, $p]);
+    $threat = $threatStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$threat) {
+        return null;
+    }
+
+    $tg = (int)($threat['og'] ?? 0);
+    $ts = (int)($threat['os'] ?? 0);
+    $tp = (int)($threat['op'] ?? 0);
+    if ($tg <= 0 || $ts <= 0 || $tp <= 0) {
+        return null;
+    }
+    $ships = fc_select_ships_for_mission($db, $cid, 'attack');
+    if (empty($ships)) {
+        return null;
+    }
+
+    $ok = launch_fleet_for_user($db, $uid, $cid, $tg, $ts, $tp, 'attack', $ships, []);
+    if (!$ok) {
+        return null;
+    }
+
+    return "[{$leader['name']}] Auto-intercept launched to [{$tg}:{$ts}:{$tp}] with a combat wing.";
+}
+
+/**
+ * Sends a small transport to the weakest sibling colony if resources are skewed.
+ */
+function fc_auto_supply_transport(PDO $db, array $leader, array $colony, int $uid): ?string {
+    $cid = (int)$colony['id'];
+
+    $targetStmt = $db->prepare(
+        'SELECT c.id, c.metal, c.crystal, c.deuterium, p.galaxy, p.`system`, p.position
+         FROM colonies c
+         JOIN planets p ON p.id = c.planet_id
+         WHERE c.user_id = ? AND c.id <> ?
+         ORDER BY (c.metal + c.crystal + c.deuterium) ASC
+         LIMIT 1'
+    );
+    $targetStmt->execute([$uid, $cid]);
+    $target = $targetStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$target) {
+        return null;
+    }
+
+    $originStmt = $db->prepare('SELECT metal, crystal, deuterium FROM colonies WHERE id = ? AND user_id = ?');
+    $originStmt->execute([$cid, $uid]);
+    $origin = $originStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$origin) {
+        return null;
+    }
+
+    $originTotal = (float)$origin['metal'] + (float)$origin['crystal'] + (float)$origin['deuterium'];
+    $targetTotal = (float)$target['metal'] + (float)$target['crystal'] + (float)$target['deuterium'];
+    if ($originTotal < ($targetTotal * 1.30 + 6000.0)) {
+        return null;
+    }
+
+    $ships = fc_select_ships_for_mission($db, $cid, 'transport');
+    if (empty($ships)) {
+        return null;
+    }
+
+    $capacity = 0.0;
+    foreach ($ships as $type => $cnt) {
+        $capacity += ship_cargo($type) * (int)$cnt;
+    }
+    if ($capacity < 500.0) {
+        return null;
+    }
+
+    $reserveMetal = 12000.0;
+    $reserveCrystal = 8000.0;
+    $reserveDeut = 5000.0;
+
+    $availMetal = max(0.0, (float)$origin['metal'] - $reserveMetal);
+    $availCrystal = max(0.0, (float)$origin['crystal'] - $reserveCrystal);
+    $availDeut = max(0.0, (float)$origin['deuterium'] - $reserveDeut);
+
+    $cargoMetal = min($availMetal, $capacity * 0.45);
+    $remaining = max(0.0, $capacity - $cargoMetal);
+    $cargoCrystal = min($availCrystal, $remaining * 0.55);
+    $remaining = max(0.0, $remaining - $cargoCrystal);
+    $cargoDeut = min($availDeut, $remaining);
+
+    if (($cargoMetal + $cargoCrystal + $cargoDeut) < 800.0) {
+        return null;
+    }
+
+    $tg = (int)($target['galaxy'] ?? 0);
+    $ts = (int)($target['system'] ?? 0);
+    $tp = (int)($target['position'] ?? 0);
+    if ($tg <= 0 || $ts <= 0 || $tp <= 0) {
+        return null;
+    }
+    if (fc_is_hostile_system_for_user($db, $uid, $tg, $ts)) {
+        return null;
+    }
+
+    $ok = launch_fleet_for_user(
+        $db,
+        $uid,
+        $cid,
+        $tg,
+        $ts,
+        $tp,
+        'transport',
+        $ships,
+        ['metal' => $cargoMetal, 'crystal' => $cargoCrystal, 'deuterium' => $cargoDeut]
+    );
+    if (!$ok) {
+        return null;
+    }
+
+    return "[{$leader['name']}] Auto-logistics sent relief cargo to colony #{$target['id']}.";
+}
+
+/**
+ * Mission-specific fleet composition helper.
+ */
+function fc_select_ships_for_mission(PDO $db, int $colonyId, string $mission): array {
+    $rowsStmt = $db->prepare('SELECT type, count FROM ships WHERE colony_id = ? AND count > 0');
+    $rowsStmt->execute([$colonyId]);
+    $available = [];
+    foreach ($rowsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $available[(string)$row['type']] = (int)$row['count'];
+    }
+
+    if ($mission === 'transport') {
+        $out = [];
+        $large = min(6, (int)($available['large_cargo'] ?? 0));
+        $small = min(8, (int)($available['small_cargo'] ?? 0));
+        if ($large > 0) $out['large_cargo'] = $large;
+        if ($small > 0) $out['small_cargo'] = $small;
+        return $out;
+    }
+
+    if ($mission === 'attack') {
+        $priority = ['battlecruiser', 'battleship', 'cruiser', 'heavy_fighter', 'light_fighter'];
+        $limits = [
+            'battlecruiser' => 12,
+            'battleship' => 16,
+            'cruiser' => 18,
+            'heavy_fighter' => 32,
+            'light_fighter' => 48,
+        ];
+        $out = [];
+        foreach ($priority as $type) {
+            $take = min((int)($limits[$type] ?? 10), (int)($available[$type] ?? 0));
+            if ($take > 0) {
+                $out[$type] = $take;
+            }
+            if (count($out) >= 3) {
+                break;
+            }
+        }
+        return $out;
+    }
+
+    return [];
+}
+
+/**
+ * Lightweight hostile-territory check using alliance war relations.
+ */
+function fc_is_hostile_system_for_user(PDO $db, int $uid, int $galaxy, int $system): bool {
+    try {
+        $allianceStmt = $db->prepare('SELECT alliance_id FROM alliance_members WHERE user_id = ? LIMIT 1');
+        $allianceStmt->execute([$uid]);
+        $myAllianceId = (int)($allianceStmt->fetchColumn() ?: 0);
+        if ($myAllianceId <= 0) {
+            return false;
+        }
+
+        $warStmt = $db->prepare(
+            'SELECT other_alliance_id, other_user_id
+             FROM alliance_relations
+             WHERE alliance_id = ?
+               AND relation_type = "war"
+               AND (expires_at IS NULL OR expires_at > NOW())'
+        );
+        $warStmt->execute([$myAllianceId]);
+        $warRows = $warStmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$warRows) {
+            return false;
+        }
+
+        $enemyAllianceIds = [];
+        $enemyUserIds = [];
+        foreach ($warRows as $row) {
+            $oa = (int)($row['other_alliance_id'] ?? 0);
+            $ou = (int)($row['other_user_id'] ?? 0);
+            if ($oa > 0) $enemyAllianceIds[] = $oa;
+            if ($ou > 0) $enemyUserIds[] = $ou;
+        }
+
+        if (!$enemyAllianceIds && !$enemyUserIds) {
+            return false;
+        }
+
+        $where = ['p.galaxy = ?', 'p.`system` = ?'];
+        $params = [$galaxy, $system];
+        $scope = [];
+
+        if ($enemyAllianceIds) {
+            $scope[] = 'am.alliance_id IN (' . implode(',', array_fill(0, count($enemyAllianceIds), '?')) . ')';
+            $params = array_merge($params, $enemyAllianceIds);
+        }
+        if ($enemyUserIds) {
+            $scope[] = 'c.user_id IN (' . implode(',', array_fill(0, count($enemyUserIds), '?')) . ')';
+            $params = array_merge($params, $enemyUserIds);
+        }
+        if (!$scope) {
+            return false;
+        }
+        $where[] = '(' . implode(' OR ', $scope) . ')';
+
+        $sql = sprintf(
+            'SELECT 1
+             FROM colonies c
+             JOIN planets p ON p.id = c.planet_id
+             LEFT JOIN alliance_members am ON am.user_id = c.user_id
+             WHERE %s
+             LIMIT 1',
+            implode(' AND ', $where)
+        );
+        $checkStmt = $db->prepare($sql);
+        $checkStmt->execute($params);
+        return (bool)$checkStmt->fetchColumn();
+    } catch (Throwable $e) {
+        return false;
+    }
 }
 
 function ai_colony_manager_tick(PDO $db, array $leader): ?string {

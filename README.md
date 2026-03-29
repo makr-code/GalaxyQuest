@@ -223,6 +223,63 @@ docker compose exec -T db mysql -uroot -proot galaxyquest < sql/test_gameplay_mo
 
 Expected: each check row returns `status = OK`.
 
+### Security + Observability API Smoke Tests
+
+Run auth lockout/rate-limit integration smoke test:
+
+```bash
+docker compose exec -T web php scripts/test_auth_rate_limit.php
+```
+
+Run admin stats endpoint integration smoke test:
+
+```bash
+docker compose exec -T web php scripts/test_admin_stats_endpoint.php
+```
+
+Run wormhole beacon unlock integration smoke test:
+
+```bash
+docker compose exec -T web php scripts/test_wormhole_beacon_unlock.php
+```
+
+Expected: all scripts print `RESULT: PASS` and exit with code `0`.
+
+### PHPUnit Unit Tests (Game Engine Pure Functions)
+
+One-time in container (download local runner):
+
+```bash
+docker compose exec -T web sh -lc "curl -fsSL https://phar.phpunit.de/phpunit-10.phar -o /var/www/html/tools/phpunit.phar"
+```
+
+Run unit tests:
+
+```bash
+docker compose exec -T web php /var/www/html/tools/phpunit.phar -c /var/www/html/phpunit.xml
+```
+
+Current suite: `tests/Unit/GameEnginePureFunctionsTest.php` (resource production, cost/time formulas, layout profile).
+
+### Frontend JavaScript Unit Tests (Vitest)
+
+Install dependencies (one-time):
+
+```bash
+npm install
+```
+
+Run JS unit tests:
+
+```bash
+npm run test:unit:js
+```
+
+Current suite:
+
+- `tests/js/wm.test.js` (WM window lifecycle)
+- `tests/js/api.test.js` (API call wrapper / versioned endpoint mapping)
+
 ### Frontend JS Optimization (PHP, Uglify + Gzip)
 
 The project now uses a PHP-based optimization build focused on uglified + gzip-compressed JavaScript assets.
@@ -491,6 +548,8 @@ Debugging in VS Code:
 
 Workspace helpers:
 - `.vscode/tasks.json` includes `Docker: Up`, `Docker: Down`, `Docker: Reset DB`, `Docker: Logs`, `Docker: Rebuild Web`, and `Docker: Bootstrap Galaxy`.
+- `.vscode/tasks.json` also includes test helpers: `Test: API Smoke Suite`, `Test: Full Regression Suite`, and `Test: Fresh DB + Full Regression`.
+- Test helpers are backed by `scripts/test_full_regression.ps1` (`-ApiOnly` or `-FreshReset`) so the flow is defined in one place.
 - `.vscode/extensions.json` recommends the PHP Debug and Docker extensions.
 
 Notes:

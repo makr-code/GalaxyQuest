@@ -26,6 +26,7 @@ match ($action) {
     'withdraw'          => action_withdraw($db, $uid),
     'relations'         => action_relations($db, $uid),
     'war_map'           => action_war_map($db, $uid),
+    'territory_map'     => action_territory_map($db, $uid),
     'declare_war'       => action_declare_war($db, $uid),
     'declare_nap'       => action_declare_nap($db, $uid),
     'declare_alliance'  => action_declare_alliance($db, $uid),
@@ -964,4 +965,120 @@ function action_send_message(PDO $db, int $uid): never {
     $msgId = (int)$db->lastInsertId();
 
     json_ok(['message_id' => $msgId]);
+}
+
+/**
+ * Territory map: shows which alliance dominates each galaxy sector.
+ * Sectors are groups of SECTOR_SIZE consecutive systems within a galaxy.
+ * Returns an array of sectors with the dominant alliance and all colony counts per alliance.
+ *
+ * GET /api/alliances.php?action=territory_map&galaxy=1&sector_size=50
+ */
+function action_territory_map(PDO $db, int $uid): never {
+    $galaxy     = max(1, (int)($_GET['galaxy'] ?? 1));
+    $sectorSize = max(10, min(500, (int)($_GET['sector_size'] ?? 50)));
+
+    // Colony counts per (system bucket, alliance)
+    $stmt = $db->prepare(<<<SQL
+        SELECT
+            FLOOR((p.system - 1) / :sz) AS sector_idx,
+            COALESCE(am.alliance_id, 0) AS alliance_id,
+            a.name   AS alliance_name,
+            a.tag    AS alliance_tag,
+            a.color  AS alliance_color,
+            COUNT(*) AS colony_count
+        FROM colonies c
+        JOIN planets p ON p.id = c.planet_id
+        LEFT JOIN alliance_members am ON am.user_id = c.user_id
+        LEFT JOIN alliances a ON a.id = am.alliance_id
+        WHERE p.galaxy = :galaxy
+        GROUP BY sector_idx, am.alliance_id
+        ORDER BY sector_idx ASC, colony_count DESC
+    SQL);
+    $stmt->execute([':sz' => $sectorSize, ':galaxy' => $galaxy]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Determine my alliance for "own" coloring
+    $myAllianceRow = $db->prepare('SELECT alliance_id FROM alliance_members WHERE user_id = ? LIMIT 1');
+    $myAllianceRow->execute([$uid]);
+    $myAllianceId = (int)($myAllianceRow->fetchColumn() ?: 0);
+
+    // Build sector map
+    $sectors = [];
+    foreach ($rows as $row) {
+        $idx = (int)$row['sector_idx'];
+        $aid = (int)$row['alliance_id'];
+        $cnt = (int)$row['colony_count'];
+
+        if (!isset($sectors[$idx])) {
+            $sectors[$idx] = [
+                'sector_idx'      => $idx,
+                'system_from'     => $idx * $sectorSize + 1,
+                'system_to'       => ($idx + 1) * $sectorSize,
+                'dominant_alliance_id'   => null,
+                'dominant_alliance_name' => null,
+                'dominant_alliance_tag'  => null,
+                'dominant_alliance_color'=> null,
+                'dominant_count'         => 0,
+                'total_colonies'         => 0,
+                'alliance_breakdown'     => [],
+                'relation'       => 'neutral',
+            ];
+        }
+
+        $sectors[$idx]['total_colonies'] += $cnt;
+        $sectors[$idx]['alliance_breakdown'][] = [
+            'alliance_id'   => $aid > 0 ? $aid   : null,
+            'alliance_name' => $aid > 0 ? $row['alliance_name'] : null,
+            'alliance_tag'  => $aid > 0 ? $row['alliance_tag']  : null,
+            'colony_count'  => $cnt,
+        ];
+
+        if ($cnt > $sectors[$idx]['dominant_count']) {
+            $sectors[$idx]['dominant_count']          = $cnt;
+            $sectors[$idx]['dominant_alliance_id']    = $aid > 0 ? $aid : null;
+            $sectors[$idx]['dominant_alliance_name']  = $aid > 0 ? $row['alliance_name'] : null;
+            $sectors[$idx]['dominant_alliance_tag']   = $aid > 0 ? $row['alliance_tag'] : null;
+            $sectors[$idx]['dominant_alliance_color'] = $aid > 0 ? $row['alliance_color'] : null;
+        }
+    }
+
+    // Fetch war relations for my alliance to compute "relation" field per sector
+    $warAllianceIds = [];
+    if ($myAllianceId > 0) {
+        try {
+            $warStmt = $db->prepare(<<<SQL
+                SELECT other_alliance_id FROM alliance_relations
+                WHERE alliance_id = ?
+                  AND relation_type = 'war'
+                  AND (expires_at IS NULL OR expires_at > NOW())
+                  AND other_alliance_id IS NOT NULL
+            SQL);
+            $warStmt->execute([$myAllianceId]);
+            foreach ($warStmt->fetchAll(PDO::FETCH_COLUMN) as $wid) {
+                $warAllianceIds[(int)$wid] = true;
+            }
+        } catch (Throwable $e) { /* ignore */ }
+    }
+
+    foreach ($sectors as &$sector) {
+        $dom = (int)($sector['dominant_alliance_id'] ?? 0);
+        if ($dom === 0) {
+            $sector['relation'] = 'unclaimed';
+        } elseif ($dom === $myAllianceId && $myAllianceId > 0) {
+            $sector['relation'] = 'own';
+        } elseif (isset($warAllianceIds[$dom])) {
+            $sector['relation'] = 'war';
+        } else {
+            $sector['relation'] = 'neutral';
+        }
+    }
+    unset($sector);
+
+    json_ok([
+        'galaxy'          => $galaxy,
+        'sector_size'     => $sectorSize,
+        'my_alliance_id'  => $myAllianceId > 0 ? $myAllianceId : null,
+        'sectors'         => array_values($sectors),
+    ]);
 }
