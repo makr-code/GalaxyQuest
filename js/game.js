@@ -4168,7 +4168,6 @@
                 <span id="gal-density-metrics" class="text-muted">Density: n/a</span>
                 <span id="gal-health-badge" class="text-muted">Health: checking...</span>
                 <button class="btn btn-secondary" id="gal-load-3d-btn">Load 3D Stars</button>
-                <button class="btn btn-secondary" id="gal-territory-btn">🗺 Territory Map</button>
                 <button class="btn btn-warning" id="gal-clear-cache-btn">Clear Cache</button>
               </div>
             </div>
@@ -4232,14 +4231,6 @@
                 <button class="galaxy-nav-mini-btn" type="button" data-nav-action="home" title="Jump to home system">🏠 Home</button>
               </div>
             </div>
-
-            <div id="galaxy-territory-overlay" class="galaxy-overlay-window hidden" style="top:4rem;right:0.5rem;min-width:220px;max-width:320px;max-height:55vh;overflow-y:auto;">
-              <div class="galaxy-overlay-head">
-                <strong>🗺 Territory</strong>
-                <button class="btn btn-sm" data-overlay-close="#galaxy-territory-overlay">Close</button>
-              </div>
-              <div id="galaxy-territory-body" class="text-muted" style="padding:0.4rem 0.5rem;font-size:0.78rem;">Loading…</div>
-            </div>
           </div>
         `;
 
@@ -4256,7 +4247,9 @@
         makeGalaxyOverlayDraggable(root, '#galaxy-controls-overlay');
         makeGalaxyOverlayDraggable(root, '#galaxy-info-overlay');
         makeGalaxyOverlayDraggable(root, '#galaxy-nav-orb-overlay');
-                makeGalaxyOverlayDraggable(root, '#galaxy-territory-overlay');
+        bindGalaxyNavOrb(root);
+
+        root.querySelector('#gal-load-3d-btn').addEventListener('click', () => this.loadStars3D(root));
         root.querySelector('#gal-follow-toggle-btn').addEventListener('click', () => {
           if (!galaxy3d || typeof galaxy3d.toggleFollowSelection !== 'function') return;
           galaxy3d.toggleFollowSelection();

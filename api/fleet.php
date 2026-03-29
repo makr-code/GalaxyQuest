@@ -98,7 +98,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     $cargo     = $body['cargo']   ?? [];
     $useWormhole = !empty($body['use_wormhole']);
 
-    if (!in_array($mission, ['attack','transport','colonize','harvest','spy','blockade'], true)) {
+    if (!in_array($mission, ['attack','transport','colonize','harvest','spy'], true)) {
         json_error('Invalid mission type.');
     }
     if ($tg < 1 || $tg > GALAXY_MAX || $ts < 1 || $ts > galaxy_system_limit()
@@ -117,8 +117,8 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     $origin = $colStmt->fetch();
     if (!$origin) { json_error('Colony not found.', 404); }
 
-    // PvP guard for attack and blockade missions
-    if ($mission === 'attack' || $mission === 'blockade') {
+    // PvP guard for attack missions
+    if ($mission === 'attack') {
         $atkRow = $db->prepare('SELECT pvp_mode, protection_until FROM users WHERE id = ?');
         $atkRow->execute([$uid]);
         $atkUser = $atkRow->fetch();
@@ -126,7 +126,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
             json_error('You are under newbie protection and cannot launch attacks.');
         }
         $tgtRow = $db->prepare(
-            'SELECT u.id AS target_user_id, u.pvp_mode, u.protection_until, u.is_npc
+            'SELECT u.pvp_mode, u.protection_until, u.is_npc
              FROM colonies c
              JOIN planets p ON p.id = c.planet_id
              JOIN users u ON u.id = c.user_id
@@ -135,78 +135,16 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         $tgtRow->execute([$tg, $ts, $tp]);
         $tgtUser = $tgtRow->fetch();
         if ($tgtUser && !$tgtUser['is_npc']) {
-            // Check if a formal war exists between attacker's alliance and target
-            $warExists = false;
-            try {
-                $warCheckStmt = $db->prepare(<<<SQL
-                    SELECT 1
-                    FROM alliance_members am_atk
-                    JOIN alliance_relations ar
-                        ON ar.alliance_id = am_atk.alliance_id
-                    LEFT JOIN alliance_members am_tgt
-                        ON am_tgt.user_id = ?
-                    WHERE am_atk.user_id = ?
-                      AND ar.relation_type = 'war'
-                      AND (ar.expires_at IS NULL OR ar.expires_at > NOW())
-                      AND (
-                          ar.other_alliance_id = am_tgt.alliance_id
-                          OR ar.other_user_id = ?
-                      )
-                    LIMIT 1
-                SQL);
-                $warCheckStmt->execute([(int)$tgtUser['target_user_id'], $uid, (int)$tgtUser['target_user_id']]);
-                $warExists = (bool)$warCheckStmt->fetchColumn();
-            } catch (Throwable $e) { /* alliance tables may not exist */ }
-
-            if (!$warExists) {
-                if (!$atkUser['pvp_mode']) {
-                    json_error('Enable PvP mode to attack other players (or declare war via your alliance).');
-                }
-                if (!$tgtUser['pvp_mode']) {
-                    json_error('Target player has PvP disabled and you have no active war declaration against them.');
-                }
+            if (!$atkUser['pvp_mode']) {
+                json_error('Enable PvP mode to attack other players.');
+            }
+            if (!$tgtUser['pvp_mode']) {
+                json_error('Target player has PvP disabled.');
             }
             if ($tgtUser['protection_until'] && strtotime($tgtUser['protection_until']) > time()) {
                 json_error('Target player is under newbie protection.');
             }
         }
-    }
-
-    // Blockade departure guard: cannot leave if a hostile fleet is blockading the origin
-    if ($mission !== 'blockade') {
-        try {
-            $blockStmt = $db->prepare(<<<SQL
-                SELECT f.id
-                FROM fleets f
-                JOIN colonies c ON c.id = f.origin_colony_id
-                JOIN planets p ON p.id = c.planet_id
-                JOIN users u ON u.id = f.user_id
-                LEFT JOIN alliance_members am_target ON am_target.user_id = f.user_id
-                LEFT JOIN alliance_relations ar
-                    ON ar.alliance_id = am_target.alliance_id
-                    AND ar.relation_type = 'war'
-                    AND (ar.expires_at IS NULL OR ar.expires_at > NOW())
-                    AND (
-                        ar.other_user_id = ?
-                        OR ar.other_alliance_id IN (SELECT alliance_id FROM alliance_members WHERE user_id = ?)
-                    )
-                WHERE f.mission = 'blockade'
-                  AND f.returning = 0
-                  AND f.arrival_time <= NOW()
-                  AND f.target_galaxy = ?
-                  AND f.target_system = ?
-                  AND f.target_position = (SELECT p2.position FROM colonies c2 JOIN planets p2 ON p2.id = c2.planet_id WHERE c2.id = ?)
-                  AND (
-                      ar.id IS NOT NULL          -- war declaration
-                      OR u.pvp_mode = 1          -- generic pvp blockade
-                  )
-                LIMIT 1
-            SQL);
-            $blockStmt->execute([$uid, $uid, (int)$origin['galaxy'], (int)$origin['system'], $originCid]);
-            if ($blockStmt->fetchColumn()) {
-                json_error('Your colony is under blockade — fleet departure is prevented.', 403);
-            }
-        } catch (Throwable $e) { /* alliance tables may not exist; skip blockade check */ }
     }
 
     update_colony_resources($db, $originCid);
@@ -543,7 +481,6 @@ function handle_fleet_arrival(PDO $db, array $fleet): void {
         'colonize'  => colonize_planet($db, $fleet, $ships),
         'spy'       => create_spy_report($db, $fleet, $ships),
         'harvest'   => harvest_resources($db, $fleet, $ships),
-        'blockade'  => maintain_blockade($db, $fleet, $ships),
         default     => return_fleet_to_origin($db, $fleet, $ships),
     };
 
@@ -561,46 +498,6 @@ function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
     $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
        ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $cid]);
     $db->prepare('DELETE FROM fleets WHERE id=?')->execute([$fleet['id']]);
-}
-
-function maintain_blockade(PDO $db, array $fleet, array $ships): void {
-    // A blockade fleet stays at the target until manually recalled.
-    // We simply leave the arrival_time in the past so it's found on next process cycle,
-    // but do NOT trigger arrival handling again — we mark it as "holding" by pushing
-    // arrival_time 1 hour into the future to prevent tight re-processing loops.
-    $db->prepare(
-        'UPDATE fleets SET arrival_time = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE id = ?'
-    )->execute([$fleet['id']]);
-
-    // Send a message to the blockaded colony owner, once per blockade (first arrival only)
-    try {
-        $tgtOwner = $db->prepare(
-            'SELECT c.user_id FROM colonies c JOIN planets p ON p.id = c.planet_id
-             WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?'
-        );
-        $tgtOwner->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
-        $ownerId = (int)($tgtOwner->fetchColumn() ?: 0);
-        if ($ownerId > 0 && $ownerId !== (int)$fleet['user_id']) {
-            $senderName = $db->prepare('SELECT username FROM users WHERE id = ?');
-            $senderName->execute([(int)$fleet['user_id']]);
-            $name = $senderName->fetchColumn() ?: 'An enemy';
-            // Only insert if no blockade-arrival message exists yet for this fleet
-            $existsStmt = $db->prepare(
-                "SELECT id FROM messages WHERE to_user_id=? AND subject='Blockade' AND body LIKE ? LIMIT 1"
-            );
-            $existsStmt->execute([$ownerId, '%fleet #' . $fleet['id'] . '%']);
-            if (!$existsStmt->fetchColumn()) {
-                $db->prepare(
-                    "INSERT INTO messages (from_user_id, to_user_id, subject, body, sent_at)
-                     VALUES (?, ?, 'Blockade', ?, NOW())"
-                )->execute([
-                    (int)$fleet['user_id'],
-                    $ownerId,
-                    "$name has established a blockade at your colony (fleet #{$fleet['id']}). Fleet departures from this colony are blocked.",
-                ]);
-            }
-        }
-    } catch (Throwable $e) { /* ignore */ }
 }
 
 function deliver_resources(PDO $db, array $fleet, array $ships): void {
