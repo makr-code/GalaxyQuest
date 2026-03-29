@@ -1,0 +1,52 @@
+{
+  "species_code": "syl_nar",
+  "display_name": "Syl'Nar",
+  "species_type": "Cephalopodische Mystiker",
+  "homeworld": "Oon'Vareth",
+  "faction_type": "spiritual",
+  "description": "Cephalopodische Energiewesen mit spiritueller, friedlicher Kultur. Kommunikation über Farbwechsel. Diplomatie und Kunst stehen im Mittelpunkt ihrer Gesellschaft.",
+  "society": {
+    "government": "Spirituell-Konsensual",
+    "culture": "Geistigkeit, Kunst, Frieden",
+    "gender_roles": "Gleichberechtigt, spirituelle Balance"
+  },
+  "biology": {
+    "type": "Cephalopodian",
+    "male": {
+      "appearance": "Pulsierende Biolumineszenz",
+      "color_primary": "#001a80",
+      "color_secondary": "#6b1b7f",
+      "color_accent": "#00ffff"
+    },
+    "female": {
+      "appearance": "Komplexe Muster",
+      "color_primary": "#4da8ff",
+      "color_secondary": "#ff69b4",
+      "color_accent": "#f0f8ff"
+    }
+  },
+  "portraiture": {
+    "base_prompt": "Photorealistic portrait photo of an alien lifeform, head and shoulders (bust portrait), clearly gendered appearance, ultra-detailed skin or material texture, realistic lighting, studio portrait photography style, soft key light, subtle rim light, shallow depth of field, sharp focus on the face, transparent background, PNG alpha, cinematic realism.",
+    "male_modifier": "Male cephalopod alien, strong tentacle ridges, pulsating bioluminescent patterns, wet translucent skin, deep-set alien eyes.",
+    "female_modifier": "Female cephalopod alien, softer facial contours, intricate bioluminescent markings, smooth translucent skin, expressive alien eyes.",
+    "material_description": "Translucent wet skin with pulsating bioluminescent patterns, organic tentacle-like ridges",
+    "silhouette_description": "Smooth rounded features, large expressive eyes, tentacle-adorned cranium, aquatic grace"
+  },
+  "logo": {
+    "prompt": "Spiritual circular mandala-style insignia for cephalopod alien species, deep blue and violet with cyan accents, featuring a stylized bioluminescent spiral symbol, soft glowing effect, peaceful and mystical aesthetic, isolated on transparent background",
+    "description": "Mandala spiral with bioluminescent glow"
+  },
+  "technology": {
+    "weapons": [
+      "Bio-Hologramme",
+      "Licht- und Wasserwaffen",
+      "Organische Städte"
+    ]
+  },
+  "important_npcs": [
+    {
+      "name": "Hohepriesterin Vela'Thii",
+      "description": "Spirituell, weise, kennt die Wahrheit über die Leerenbrut"
+    }
+  ]
+}

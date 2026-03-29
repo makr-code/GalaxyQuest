@@ -11,6 +11,7 @@ require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/galaxy_seed.php';
 require_once __DIR__ . '/game_engine.php';
+require_once __DIR__ . '/character_profile_generator.php';
 
 $action = $_GET['action'] ?? '';
 
@@ -91,6 +92,13 @@ function handle_register(): void {
     // Create homeworld
     $planet = create_homeworld($userId);
 
+    // Generate and persist initial character dossier + portrait assets.
+    try {
+        ensure_user_character_profile($db, $userId, false, $username);
+    } catch (Throwable $e) {
+        error_log('character profile generation failed for user ' . $userId . ': ' . $e->getMessage());
+    }
+
     // Seed achievement tracker if the optional achievements tables exist.
     try {
         ensure_user_achievements_seeded($db, $userId);
@@ -127,7 +135,7 @@ function handle_login(): void {
     }
 
     $db   = get_db();
-    $stmt = $db->prepare('SELECT id, username, password_hash FROM users WHERE username = ?');
+    $stmt = $db->prepare('SELECT id, username, password_hash, is_admin FROM users WHERE username = ?');
     $stmt->execute([$username]);
     $user = $stmt->fetch();
 
@@ -148,27 +156,26 @@ function handle_login(): void {
         revoke_remember_me_token_from_cookie();
     }
 
-    json_ok(['user' => ['id' => (int)$user['id'], 'username' => $user['username']]]);
+    json_ok(['user' => ['id' => (int)$user['id'], 'username' => $user['username'], 'is_admin' => (int)($user['is_admin'] ?? 0)]]);
 }
 
 function handle_logout(): void {
-    // Verify CSRF token for security
-    verify_csrf();
-    
-    // Clear remember-me token from DB and cookie
-    revoke_remember_me_token_from_cookie();
-    
-    // Start and clear session data
+    // Logout must remain resilient even when CSRF/session state is stale.
+    // We intentionally do not enforce CSRF here to prevent "stuck logged-in" states.
     session_start_secure();
+    $uid = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+
+    if ($uid > 0) {
+        revoke_all_remember_me_tokens_for_user($uid);
+    }
+    revoke_remember_me_token_from_cookie();
+
     $_SESSION = [];
-    
-    // Explicitly delete session cookie
+
     clear_session_cookies();
-    
-    // Destroy session on server
+
     session_destroy();
-    
-    // Confirm logout to client
+
     json_ok(['message' => 'Logged out successfully']);
 }
 
@@ -177,7 +184,7 @@ function handle_me(): void {
     $db   = get_db();
     $stmt = $db->prepare(
         'SELECT id, username, email, dark_matter, rank_points,
-                protection_until, vacation_mode, pvp_mode, created_at, last_login
+                protection_until, vacation_mode, pvp_mode, created_at, last_login, is_admin
          FROM users WHERE id = ?'
     );
     $stmt->execute([$uid]);

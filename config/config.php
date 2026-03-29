@@ -30,6 +30,15 @@ define('OLLAMA_BASE_URL', rtrim((string) env_value('OLLAMA_BASE_URL', 'http://12
 define('OLLAMA_DEFAULT_MODEL', (string) env_value('OLLAMA_DEFAULT_MODEL', 'llama3.1:8b'));
 define('OLLAMA_TIMEOUT_SECONDS', (int) env_value('OLLAMA_TIMEOUT_SECONDS', 45));
 
+// SwarmUI (local Stable Diffusion image generation)
+define('SWARMUI_ENABLED',         (int)    env_value('SWARMUI_ENABLED', 1));
+define('SWARMUI_BASE_URL',        (string) env_value('SWARMUI_BASE_URL', 'http://127.0.0.1:7801'));
+define('SWARMUI_DEFAULT_MODEL',   (string) env_value('SWARMUI_DEFAULT_MODEL', 'OfficialStableDiffusion/sd_xl_base_1.0.safetensors'));
+define('SWARMUI_TURBO_MODEL',     (string) env_value('SWARMUI_TURBO_MODEL', 'ZImage/SwarmUI_Z-Image-Turbo-FP8Mix.safetensors'));
+define('SWARMUI_TIMEOUT_SECONDS', (int)    env_value('SWARMUI_TIMEOUT_SECONDS', 180));
+define('SWARMUI_DEFAULT_STEPS',   (int)    env_value('SWARMUI_DEFAULT_STEPS', 30));
+define('SWARMUI_DEFAULT_CFG',     (float)  env_value('SWARMUI_DEFAULT_CFG', 7.5));
+
 // NPC / PvE controller (LLM-assisted, optional)
 define('NPC_LLM_CONTROLLER_ENABLED', (int) env_value('NPC_LLM_CONTROLLER_ENABLED', 0));
 define('NPC_LLM_CONTROLLER_TIMEOUT_SECONDS', (int) env_value('NPC_LLM_CONTROLLER_TIMEOUT_SECONDS', 8));

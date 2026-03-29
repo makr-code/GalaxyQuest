@@ -67,6 +67,7 @@ const WM = (() => {
     const cfg = _registry.get(id) || DEFAULTS[id] || { title: id, w: 600, h: 400 };
     const desktop = _desktop();
     if (!desktop) return;
+    const ds = _desktopSize(desktop);
 
     const { el, hostEl, adopted, hostManaged } = _resolveWindowElement(id, cfg, desktop);
     if (!el || !hostEl) return;
@@ -76,8 +77,8 @@ const WM = (() => {
     if (cfg.fullscreenDesktop) {
       el.style.left   = '0px';
       el.style.top    = '0px';
-      el.style.width  = desktop.offsetWidth + 'px';
-      el.style.height = desktop.offsetHeight + 'px';
+      el.style.width  = ds.w + 'px';
+      el.style.height = ds.h + 'px';
     } else if (!cfg.keepExistingGeometry) {
       // Position: restore saved or use cascaded default
       const saved = _loadPos(id);
@@ -88,7 +89,7 @@ const WM = (() => {
         if (cfg.defaultDock === 'right') {
           const margin = Number(cfg.defaultDockMargin ?? 12);
           const dockY = Number(cfg.defaultY ?? 12);
-          x = Math.max(0, desktop.offsetWidth - (cfg.w ?? 600) - margin);
+          x = Math.max(0, ds.w - (cfg.w ?? 600) - margin);
           y = Math.max(0, dockY);
         } else {
           if (Number.isFinite(Number(cfg.defaultX))) x = Number(cfg.defaultX);
@@ -97,13 +98,13 @@ const WM = (() => {
       }
 
       if (!saved) {
-        _nextX = (_nextX + 32) % Math.max(100, desktop.offsetWidth  - cfg.w  - 60);
-        _nextY = (_nextY + 32) % Math.max(100, desktop.offsetHeight - cfg.h  - 60);
+        _nextX = (_nextX + 32) % Math.max(100, ds.w - cfg.w - 60);
+        _nextY = (_nextY + 32) % Math.max(100, ds.h - cfg.h - 60);
       }
 
       // Clamp to desktop
-      x = Math.max(0, Math.min(x, Math.max(0, desktop.offsetWidth  - cfg.w)));
-      y = Math.max(0, Math.min(y, Math.max(0, desktop.offsetHeight - cfg.h)));
+      x = Math.max(0, Math.min(x, Math.max(0, ds.w - cfg.w)));
+      y = Math.max(0, Math.min(y, Math.max(0, ds.h - cfg.h)));
 
       el.style.left   = x + 'px';
       el.style.top    = y + 'px';
@@ -373,8 +374,9 @@ const WM = (() => {
     const onMove = (cx, cy) => {
       if (!dragging) return;
       const desktop = _desktop();
-      const x = Math.max(0, Math.min(cx - ox, desktop.offsetWidth  - winEl.offsetWidth));
-      const y = Math.max(0, Math.min(cy - oy, desktop.offsetHeight - winEl.offsetHeight));
+      const ds = _desktopSize(desktop);
+      const x = Math.max(0, Math.min(cx - ox, ds.w - winEl.offsetWidth));
+      const y = Math.max(0, Math.min(cy - oy, ds.h - winEl.offsetHeight));
       winEl.style.left = x + 'px';
       winEl.style.top  = y + 'px';
     };
@@ -446,12 +448,13 @@ const WM = (() => {
 
   function _syncFullscreenWindows() {
     const desktop = _desktop();
+    const ds = _desktopSize(desktop);
     _wins.forEach((win) => {
       if (!win.cfg?.fullscreenDesktop) return;
       win.el.style.left = '0px';
       win.el.style.top = '0px';
-      win.el.style.width = desktop.offsetWidth + 'px';
-      win.el.style.height = desktop.offsetHeight + 'px';
+      win.el.style.width = ds.w + 'px';
+      win.el.style.height = ds.h + 'px';
     });
   }
 
@@ -476,7 +479,21 @@ const WM = (() => {
 
   // ── Internal: desktop element reference ─────────────────────────────────────
   function _desktop() {
-    return document.getElementById('wm-windows-section') || document.getElementById('wm-desktop');
+    return document.body || document.documentElement;
+  }
+
+  function _desktopSize(desktop) {
+    if (!desktop) return { w: window.innerWidth || 1280, h: window.innerHeight || 720 };
+    if (desktop === document.body || desktop === document.documentElement) {
+      return {
+        w: Math.max(320, window.innerWidth || desktop.clientWidth || 1280),
+        h: Math.max(220, window.innerHeight || desktop.clientHeight || 720),
+      };
+    }
+    return {
+      w: Math.max(320, desktop.offsetWidth || desktop.clientWidth || window.innerWidth || 1280),
+      h: Math.max(220, desktop.offsetHeight || desktop.clientHeight || window.innerHeight || 720),
+    };
   }
 
   // ── Internal: minimal HTML escaping ─────────────────────────────────────────

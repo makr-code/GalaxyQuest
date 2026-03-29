@@ -1,0 +1,45 @@
+species_code: kryl_tha
+display_name: "Kryl'Tha"
+species_type: "Insektoide Kriegerkaste"
+homeworld: "Zyr'Mekar"
+faction_type: military
+description: "Insektoide Schwarmwesen mit schwarmorientierter Kultur. Brutkammern sind heilig. Weibchen sind oft Anführerinnen. Starke Kriegerkaste mit organischen Waffen."
+
+society:
+  government: "Schwarmorientiert-Brutkastenhierarchie"
+  culture: "Schwarm, Effizient, Brutkammern heilig"
+  gender_roles: "Weibchen oft Anführerinnen und Strategen"
+
+biology:
+  type: Insectoid
+  male:
+    appearance: "Dunkle Chitinplatten"
+    color_primary: "#1a1a1a"
+    color_secondary: "#2d5016"
+    color_accent: "#8b0000"
+  female:
+    appearance: "Helle Muster, elegante Segmente"
+    color_primary: "#ffd700"
+    color_secondary: "#00ffff"
+    color_accent: "#90ee90"
+
+portraiture:
+  base_prompt: "Photorealistic portrait photo of an alien lifeform, head and shoulders (bust portrait), clearly gendered appearance, ultra-detailed skin or material texture, realistic lighting, studio portrait photography style, soft key light, subtle rim light, shallow depth of field, sharp focus on the face, transparent background, PNG alpha, cinematic realism."
+  male_modifier: "Male insectoid alien, thick chitin armor plates, dark iridescent shell, strong mandibles, compound eyes, segmented masculine facial structure."
+  female_modifier: "Female insectoid alien, elegant segmented facial structure, bright iridescent shell patterns, refined mandibles, softly glowing compound eyes."
+  material_description: "Thick chitinous armor with segmented exoskeleton, mandible-enhanced facial structure, compound eyes with iridescent shine"
+  silhouette_description: "Segmented mandible-focused features, hexagonal compound eyes, sharp angular segments, warrior-like presence"
+
+logo:
+  prompt: "Insectoid swarm insignia with geometric hexagon pattern, gold and dark green with red accents, featuring stylized mandible or hive chamber symbol, biomechanical aesthetic, isolated on transparent background, vector art"
+  description: "Hexagonal swarm pattern with mandible motif"
+
+technology:
+  weapons:
+    - "Organische Waffen"
+    - "Selbstheilende Panzer"
+    - "Schwarmdrohnen"
+
+important_npcs:
+  - name: "Kommandantin Zha'Mira"
+    description: "Loyal, effizient, verlor ihre Brutkammer"

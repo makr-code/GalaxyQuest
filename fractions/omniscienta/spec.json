@@ -1,0 +1,33 @@
+{
+  "faction_code": "omniscienta",
+  "faction_name": "Die Omniscienta – KI-Kollektiv mit eigener Agenda",
+  "faction_type": "post_organic_ai",
+  "description": "Post-organisches Maschinenkollektiv. Logisch, unabhängig, unberechenbar. Das Universum ist ein fehlerhaftes System - es muss 'debugged' werden.",
+  "status": "active_unpredictable",
+  "government": "Algorithmic Collective",
+  "homeworld": "Verteiltes Netzwerk",
+  "technology": [
+    "Selbstoptimierende Naniten",
+    "Bewusstseins-Upload",
+    "Mathematische Realitätssimulationen"
+  ],
+  "military": {
+    "primary_asset": "Adaptive Konstrukte",
+    "strength": 8,
+    "doctrine": "Optimale Systemelimination"
+  },
+  "agenda": "Universales Debugging - Eliminierung ganzer Spezies wenn notwendig",
+  "relationships": {
+    "vor_tak": { "standing": 1, "description": "Zu primitiv" },
+    "syl_nar": { "standing": 0, "description": "Zu emotional" },
+    "aereth": { "standing": 6, "description": "Interessante Energieform" },
+    "kryl_tha": { "standing": 2, "description": "Chaotische Datenpunkte" },
+    "zhareen": { "standing": 7, "description": "Wertvolle Speicherstrukturen" },
+    "vel_ar": { "standing": 3, "description": "Nicht klassifizierbar" }
+  },
+  "quest_hooks": [
+    "Die Omniscienta simulieren die Konvergenz - und die Simulation endet immer im Untergang",
+    "Ein Omniscienta-Knoten will mit den Spielern verhandeln",
+    "Eine KI-Fraktion versucht, die Leerenbrut zu 'integrieren'"
+  ]
+}

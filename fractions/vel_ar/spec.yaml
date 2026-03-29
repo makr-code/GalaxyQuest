@@ -1,0 +1,45 @@
+species_code: vel_ar
+display_name: "Vel'Ar"
+species_type: "Gasförmige Intelligenzen"
+homeworld: "Nira'Voss"
+faction_type: espionage
+description: "Gasbasierte Bewusstseinswesen mit Spionagekultur. Geheimniskrämer. Identität über Biomasken definiert. Die Atmosphäre ist halb-sentient."
+
+society:
+  government: "Geheimnis-Konspirativ"
+  culture: "Geheimnisse, Spionage, Biomasken, Identität"
+  gender_roles: "Gender: Biomasken-Form"
+
+biology:
+  type: Gas Being
+  male:
+    appearance: "Kantige Biomasken"
+    color_primary: "#708090"
+    color_secondary: "#4a90e2"
+    color_accent: "#708090"
+  female:
+    appearance: "Runde, weiche Masken"
+    color_primary: "#f5f5f5"
+    color_secondary: "#b19cd9"
+    color_accent: "#00d9ff"
+
+portraiture:
+  base_prompt: "Photorealistic portrait photo of an alien lifeform, head and shoulders (bust portrait), clearly gendered appearance, ultra-detailed skin or material texture, realistic lighting, studio portrait photography style, soft key light, subtle rim light, shallow depth of field, sharp focus on the face, transparent background, PNG alpha, cinematic realism."
+  male_modifier: "Male gas-based alien with angular semi-solid biomask, swirling internal gas, glowing energy veins, sharp mask edges, suspended alien eyes."
+  female_modifier: "Female gas-based alien with smooth semi-solid biomask, gentle swirling gas patterns, soft glowing energy lines, rounded mask contours, expressive suspended eyes."
+  material_description: "Semi-solid biomask with swirling internal gas, glowing energy veins, ethereal translucent appearance, mask defines identity"
+  silhouette_description: "Biomask-defined features, suspended floating eyes, swirling nebulous interior, mysterious and elusive presence"
+
+logo:
+  prompt: "Espionage shroud insignia with smoky nebula pattern, silver and lavender with cyan accents, featuring stylized mask or veil symbol, mysterious and secretive aesthetic, isolated on transparent background, vector art"
+  description: "Shrouded mask with nebula pattern"
+
+technology:
+  weapons:
+    - "Tarnfelder"
+    - "Gas-Nanowolken"
+    - "Bewusstseinsmasken"
+
+important_npcs:
+  - name: "Shy'Nira"
+    description: "Spionin, kennt geheime Pläne der Menschen"

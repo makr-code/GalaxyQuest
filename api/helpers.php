@@ -175,6 +175,15 @@ function revoke_remember_me_token_from_cookie(): void {
     clear_remember_cookie();
 }
 
+function revoke_all_remember_me_tokens_for_user(int $userId): void {
+    if ($userId <= 0) return;
+    try {
+        get_db()->prepare('DELETE FROM remember_tokens WHERE user_id = ?')->execute([$userId]);
+    } catch (Throwable $e) {
+        // Ignore DB errors during logout cleanup.
+    }
+}
+
 function try_auto_login_from_cookie(): bool {
     if (isset($_SESSION['user_id'])) {
         return true;

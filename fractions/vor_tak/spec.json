@@ -1,0 +1,52 @@
+{
+  "species_code": "vor_tak",
+  "display_name": "Vor'Tak",
+  "species_type": "Reptiloide Krieger und Strategen",
+  "homeworld": "Drak'Thuun",
+  "faction_type": "military",
+  "description": "Reptiloide Strategen mit starker hierarchischer Struktur. Ehre, Disziplin und Stärke prägen ihre Kultur. Männer dominieren das Militär, während Frauen Diplomatie und Strategie lenken.",
+  "society": {
+    "government": "Hierarchisch-Militärisch",
+    "culture": "Ehre, Disziplin, Stärke",
+    "gender_roles": "Männer: Militär | Frauen: Diplomatie & Strategie"
+  },
+  "biology": {
+    "type": "Reptilian",
+    "male": {
+      "appearance": "Dunkle Schuppen, massive Knochenplatten",
+      "color_primary": "#1a4d2e",
+      "color_secondary": "#0d0d0d",
+      "color_accent": "#8b6914"
+    },
+    "female": {
+      "appearance": "Farbintensiv, leuchtende Muster",
+      "color_primary": "#27ae60",
+      "color_secondary": "#00ffff",
+      "color_accent": "#ffd700"
+    }
+  },
+  "portraiture": {
+    "base_prompt": "Photorealistic portrait photo of an alien lifeform, head and shoulders (bust portrait), clearly gendered appearance, ultra-detailed skin or material texture, realistic lighting, studio portrait photography style, soft key light, subtle rim light, shallow depth of field, sharp focus on the face, transparent background, PNG alpha, cinematic realism.",
+    "male_modifier": "Male reptilian alien, massive bone plates, dark green-black scales, broad masculine facial structure, battle scars, subtle bronze armor details.",
+    "female_modifier": "Female reptilian alien, sleek emerald scales, golden highlights, elegant feminine bone ridges, piercing yellow eyes, refined facial structure.",
+    "material_description": "Scaly reptilian skin with exposed bone plates, bronze undertones in armor plating",
+    "silhouette_description": "Broad-shouldered, angular jaw, prominent brow ridge, fierce predatory expression"
+  },
+  "logo": {
+    "prompt": "Hexagonal military insignia for reptilian alien species, dark green and bronze colors, featuring a stylized bone plate symbol, sharp angular lines, menacing and disciplined aesethetic, metallic finish, isolated on transparent background, vector art style",
+    "description": "Military hexagon with bone-plate symbol"
+  },
+  "technology": {
+    "weapons": [
+      "Organisch-metallische Panzerungen",
+      "Lebendes Metall",
+      "Schockwellen-Waffen"
+    ]
+  },
+  "important_npcs": [
+    {
+      "name": "General Drak'Mol",
+      "description": "Ehrenhaft, misstrauisch, militärischer Hardliner"
+    }
+  ]
+}

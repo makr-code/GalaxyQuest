@@ -7,6 +7,7 @@
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/npc_llm_controller.php';
+require_once __DIR__ . '/character_profile_generator.php';
 
 /**
  * Run the NPC AI tick for a specific user.
@@ -228,6 +229,12 @@ function npc_player_accounts_tick_global(PDO $db, bool $force = false): void {
  * Single NPC account tick: one build action, one research action, one ship action.
  */
 function npc_player_account_tick(PDO $db, int $npcUserId): void {
+    try {
+        ensure_user_character_profile($db, $npcUserId, true);
+    } catch (Throwable $e) {
+        error_log('npc character profile generation failed for user ' . $npcUserId . ': ' . $e->getMessage());
+    }
+
     // Finish due research first so progression can continue.
     $due = $db->prepare(
         'SELECT type FROM research

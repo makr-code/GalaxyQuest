@@ -18,11 +18,34 @@
   }
   updateCommanderButtonLabel();
 
+  function isCurrentUserAdmin() {
+    return Number(currentUser?.is_admin || 0) === 1;
+  }
+
+  function normalizeStarVisibility(star) {
+    if (!star || typeof star !== 'object' || !isCurrentUserAdmin()) return star;
+    return Object.assign({}, star, { visibility_level: 'own' });
+  }
+
+  function normalizeStarListVisibility(stars) {
+    if (!Array.isArray(stars)) return [];
+    if (!isCurrentUserAdmin()) return stars;
+    return stars.map((star) => normalizeStarVisibility(star));
+  }
+
+  function normalizeSystemPayloadVisibility(payload) {
+    if (!payload || typeof payload !== 'object' || !isCurrentUserAdmin()) return payload;
+    return Object.assign({}, payload, {
+      visibility: Object.assign({}, payload.visibility || {}, { level: 'own' }),
+    });
+  }
+
   // ── State ────────────────────────────────────────────────
   let colonies       = [];
   let currentColony  = null;
   let galaxySystemMax = 499;
   let galaxy3d = null;
+  let galaxy3dQualityState = null;
   let galaxy3dInitReason = '';
   const messageConsoleState = {
     maxLines: 140,
@@ -188,13 +211,115 @@
     activeSystem: 1,
     activeStar: null,
     activeRange: { from: 1, to: 499 },
+    assetsManifestVersion: Math.max(1, Number(window.GQ_ASSETS_MANIFEST_VERSION || 1)),
     colonyViewFocus: null,
     fleetPrefill: null,
     intelCache: new Map(),
     territory: [],
     rawClusters: [],
     clusterSummary: [],
+    resourceInsight: null,
   };
+  const RESOURCE_INSIGHT_CONFIG = Object.freeze({
+    metal: { key: 'metal', label: 'Metal', icon: '⬡', desc: 'Basismetall fuer Hulls, Industrie und Ausbau. Ueberschuesse eignen sich fuer Angebotstrades oder interne Transporte.', focusBuilding: 'metal_mine', rateKey: 'metal', tradeable: true, transportable: true },
+    crystal: { key: 'crystal', label: 'Crystal', icon: '💎', desc: 'Veredelte Hochtechnologieressource fuer Forschung, Scanner und Komponentenbau.', focusBuilding: 'crystal_mine', rateKey: 'crystal', tradeable: true, transportable: true },
+    deuterium: { key: 'deuterium', label: 'Deuterium', icon: '🔵', desc: 'Treibstoff und Spezialressource. Transporte, Flottenstarts und Handel ziehen Deuterium fuer Frachtsicherung und Flugzeit.', focusBuilding: 'deuterium_synth', rateKey: 'deuterium', tradeable: true, transportable: true },
+    food: { key: 'food', label: 'Food', icon: '🌾', desc: 'Versorgt die Bevoelkerung und stabilisiert Wachstum. Negative Raten wirken direkt auf Wohlfahrt und Ausbau.', focusBuilding: 'hydroponic_farm', rateKey: 'food', tradeable: false, transportable: false },
+    rare_earth: { key: 'rare_earth', label: 'Rare Earth', icon: '💜', desc: 'Seltene Fertigungsmetalle fuer fortgeschrittene Module. Im aktuellen Handelssystem nur strategisch beobachten, nicht direkt handeln.', focusBuilding: 'rare_earth_drill', rateKey: 'rare_earth', tradeable: false, transportable: false },
+    population: { key: 'population', label: 'Population', icon: '👥', desc: 'Arbeitskraefte und Wachstumspuffer der Kolonie. Engpaesse limitieren Produktion und Baugeschwindigkeit.', focusBuilding: 'habitat_dome', rateKey: 'population', tradeable: false, transportable: false },
+    happiness: { key: 'happiness', label: 'Happiness', icon: '😊', desc: 'Produktivitaets- und Stabilitaetsindikator. Sinkt Happiness, verlieren selbst volle Lager an Effizienz.', focusBuilding: 'hospital', rateKey: null, tradeable: false, transportable: false },
+    energy: { key: 'energy', label: 'Energy', icon: '⚡', desc: 'Versorgt Gebaeude und beeinflusst alle Produktionsketten. Defizite wirken sofort auf die Wirtschaft.', focusBuilding: 'solar_plant', rateKey: null, tradeable: false, transportable: false },
+    dark_matter: { key: 'dark_matter', label: 'Dark Matter', icon: '◆', desc: 'Prestigewaehrung aus Quests und Progression. Nicht ueber den normalen Rohstoffmarkt handelbar.', focusBuilding: '', rateKey: null, tradeable: false, transportable: false },
+  });
+
+  function getResourceInsightConfig(resourceKey) {
+    return RESOURCE_INSIGHT_CONFIG[String(resourceKey || '').toLowerCase()] || null;
+  }
+
+  function getResourceInsightValue(resourceKey, colony = currentColony, meta = window._GQ_meta || {}) {
+    const key = String(resourceKey || '');
+    if (key === 'dark_matter') return Number(meta?.dark_matter || 0);
+    if (!colony) return 0;
+    if (key === 'population') return Number(colony.population || 0);
+    if (key === 'happiness') return Number(colony.happiness || 0);
+    if (key === 'energy') return Number(colony.energy || 0);
+    return Number(colony[key] || 0);
+  }
+
+  function getResourceInsightTotal(resourceKey, meta = window._GQ_meta || {}) {
+    const key = String(resourceKey || '');
+    if (key === 'dark_matter') return Number(meta?.dark_matter || 0);
+    return colonies.reduce((sum, colony) => sum + getResourceInsightValue(key, colony, meta), 0);
+  }
+
+  function formatResourceInsightValue(resourceKey, value, colony = currentColony) {
+    const key = String(resourceKey || '');
+    const numeric = Number(value || 0);
+    if (key === 'population') {
+      const maxPopulation = Number(colony?.max_population || 0);
+      return maxPopulation > 0 ? `${fmt(numeric)}/${fmt(maxPopulation)}` : fmt(numeric);
+    }
+    if (key === 'happiness') return `${Math.round(numeric)}%`;
+    if (key === 'energy') return `${Math.round(numeric)}`;
+    return fmt(numeric);
+  }
+
+  function getSuggestedTradeAmount(resourceKey, mode = 'request') {
+    const key = String(resourceKey || '');
+    if (!['metal', 'crystal', 'deuterium'].includes(key)) return 0;
+    const currentValue = Math.max(0, getResourceInsightValue(key));
+    if (mode === 'offer') {
+      return Math.max(250, Math.min(5000, Math.round(currentValue * 0.08)));
+    }
+    return Math.max(1000, Math.min(5000, Math.round(currentValue * 0.15) || 1000));
+  }
+
+  function openResourceInsight(resourceKey) {
+    const config = getResourceInsightConfig(resourceKey);
+    if (!config) return;
+    uiState.resourceInsight = config.key;
+    WM.open('overview');
+    WM.refresh('overview');
+  }
+
+  function openTradeMarketplace(resourceKey, mode = 'request') {
+    const config = getResourceInsightConfig(resourceKey);
+    if (!config?.tradeable) {
+      showToast(`${config?.label || 'Ressource'} ist im aktuellen Markt nicht direkt handelbar.`, 'info');
+      return;
+    }
+    WM.open('trade');
+    window.setTimeout(() => {
+      window.GQTradeProposalsController?.showProposeDialog(0, '', {
+        resourceKey: config.key,
+        mode,
+      });
+    }, 0);
+  }
+
+  function openFleetTransportPlanner(resourceKey) {
+    const config = getResourceInsightConfig(resourceKey);
+    if (!config?.transportable) {
+      showToast(`${config?.label || 'Ressource'} nutzt aktuell keinen direkten Frachteinsatz.`, 'info');
+      return;
+    }
+    const cargo = { metal: 0, crystal: 0, deuterium: 0 };
+    cargo[config.key] = getSuggestedTradeAmount(config.key, 'offer');
+    uiState.fleetPrefill = {
+      galaxy: Number(currentColony?.galaxy || 1),
+      system: Number(currentColony?.system || 1),
+      position: Number(currentColony?.position || 1),
+      mission: 'transport',
+      owner: `${config.icon} ${config.label}`,
+      threatLevel: 'Frachtsicherung aktiv',
+      cargo,
+      ts: Date.now(),
+    };
+    WM.open('fleet');
+    WM.refresh('fleet');
+  }
+  const PERF_TELEMETRY_OPT_IN_KEY = 'gq_perf_telemetry_opt_in';
+  const PERF_TELEMETRY_INTERVAL_MS = 2 * 60 * 1000;
   const footerLoadUi = {
     root: document.getElementById('footer-load'),
     bar: document.getElementById('footer-load-bar'),
@@ -275,8 +400,14 @@
   const settingsState = {
     transitionPreset: 'balanced',
     autoTransitions: true,
+    renderQualityProfile: 'auto',
     clusterDensityMode: 'auto',
+    galaxyColonyFilterMode: 'all',
+    galaxyColoniesOnly: false,
+    galaxyOwnerFocusUserId: 0,
+    galaxyOwnerFocusName: '',
     clusterBoundsVisible: true,
+    galacticCoreFxAuto: true,
     galacticCoreFxEnabled: true,
     magnetPreset: 'balanced',
     hoverMagnetEnabled: true,
@@ -474,6 +605,26 @@
         topbarSelect.value = topbarCurrent;
       }
     }
+
+    renderTopbarTrackQuickList(topbarCurrent || settingsState.musicUrl || '');
+  }
+
+  function renderTopbarTrackQuickList(activeTrackUrl = '') {
+    const list = document.getElementById('topbar-player-track-list');
+    if (!list) return;
+
+    const active = String(activeTrackUrl || '').trim();
+    if (!Array.isArray(audioTrackOptions) || !audioTrackOptions.length) {
+      list.innerHTML = '<div class="topbar-player-track-empty">Keine Titel verfuegbar.</div>';
+      return;
+    }
+
+    list.innerHTML = audioTrackOptions.map((entry) => {
+      const value = String(entry?.value || '').trim();
+      const label = String(entry?.label || value || '-').trim() || '-';
+      const isActive = !!value && value === active;
+      return `<button type="button" class="topbar-player-track-item${isActive ? ' is-active' : ''}" data-track="${esc(value)}" role="option" aria-selected="${isActive ? 'true' : 'false'}" title="${esc(label)}">${esc(label)}</button>`;
+    }).join('');
   }
 
   function applyAudioPlaylistFromCatalog() {
@@ -1112,6 +1263,10 @@
   window.GQGalaxyModelStore = galaxyModel;
   window.GQGalaxyDBStore = galaxyDB;
 
+  setInterval(() => {
+    sendPerfTelemetrySnapshot('interval').catch(() => {});
+  }, PERF_TELEMETRY_INTERVAL_MS);
+
   // ── Utilities ────────────────────────────────────────────
   function fmt(n) {
     n = parseFloat(n);
@@ -1124,6 +1279,60 @@
 
   function fmtName(type) {
     return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function isPerfTelemetryOptIn() {
+    try {
+      return window.localStorage?.getItem(PERF_TELEMETRY_OPT_IN_KEY) === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function setPerfTelemetryOptIn(enabled) {
+    try {
+      window.localStorage?.setItem(PERF_TELEMETRY_OPT_IN_KEY, enabled ? '1' : '0');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function sendPerfTelemetrySnapshot(reason = 'interval') {
+    if (!isPerfTelemetryOptIn()) return false;
+    if (!API || typeof API.perfTelemetry !== 'function') return false;
+    if (!galaxy3d || typeof galaxy3d.getRenderStats !== 'function') return false;
+
+    const stats = galaxy3d.getRenderStats() || {};
+    const payload = {
+      opt_in: true,
+      source: 'galaxy',
+      reason: String(reason || 'interval'),
+      app_version: String(window.GQ_BOOT_CONFIG?.version || ''),
+      assets_manifest_version: Number(uiState.assetsManifestVersion || window.GQ_ASSETS_MANIFEST_VERSION || 1),
+      render_schema_version: Number(window.GQRenderDataAdapter?.renderSchemaVersion || 1),
+      metrics: {
+        rawStars: Number(stats.rawStars || 0),
+        visibleStars: Number(stats.visibleStars || 0),
+        clusterCount: Number(stats.clusterCount || 0),
+        targetPoints: Number(stats.targetPoints || 0),
+        densityRatio: Number(stats.densityRatio || 0),
+        densityMode: String(stats.densityMode || 'auto'),
+        lodProfile: String(stats.lodProfile || 'medium'),
+        qualityProfile: String(stats.qualityProfile || 'medium'),
+        pixelRatio: Number(stats.pixelRatio || 1),
+        cameraDistance: Number(stats.cameraDistance || 0),
+        instancingCandidates: Number(stats.instancingCandidates || 0),
+        lightRig: String(stats.lightRig || ''),
+      },
+    };
+
+    try {
+      const res = await API.perfTelemetry(payload);
+      return !!res?.success;
+    } catch (_) {
+      return false;
+    }
   }
 
   function countdown(endTime) {
@@ -1426,9 +1635,9 @@
   }
 
   function inspectGalaxyCanvasLayering() {
-    const stage = document.getElementById('galaxy-stage');
+    const stage = document.querySelector('.galaxy-3d-stage') || document.getElementById('galaxy-stage');
     const canvas = document.getElementById('starfield');
-    const desktop = document.getElementById('wm-windows-section') || document.getElementById('wm-desktop');
+    const desktop = document.body;
     const report = {
       ok: !!canvas,
       bodyClass: String(document.body.className || ''),
@@ -1502,9 +1711,10 @@
 
       const parts = input.split(/\s+/).filter(Boolean);
       const cmd = String(parts[0] || '').toLowerCase();
+      const normalizedInput = String(input || '').trim().toLowerCase();
 
       if (cmd === 'help' || cmd === '?') {
-        uiConsolePush('[help] refresh | home | galaxy | galdiag | galdebug | open <window> | transitions on/off/status | term debug on/off/status | term clear | term download | msg <user> <text> | copy | clear');
+        uiConsolePush('[help] refresh | home | galaxy | galdiag | galinspect | galdebug | galprobe [sec] | perftelemetry on/off/status/send | open <window> | transitions on/off/status | term debug on/off/status | term clear | term download | msg <user> <text> | copy | clear');
         return;
       }
       if (cmd === 'copy') {
@@ -1533,7 +1743,13 @@
         uiConsolePush('[ok] Galaxy window opened.');
         return;
       }
-      if (cmd === 'galdiag' || (cmd === 'galaxy' && String(parts[1] || '').toLowerCase() === 'diag')) {
+      if (
+        cmd === 'galdiag'
+        || cmd === 'galinspect'
+        || normalizedInput === 'gqgalaxycanvasdebug.inspect()'
+        || normalizedInput === 'gqgalaxycanvasdebug.inspect'
+        || (cmd === 'galaxy' && String(parts[1] || '').toLowerCase() === 'diag')
+      ) {
         const diag = inspectGalaxyCanvasLayering();
         uiConsolePush(`[diag] body=${diag.bodyClass || '(none)'}`);
         uiConsolePush(`[diag] stage z=${diag.stage?.zIndex || 'n/a'} display=${diag.stage?.display || 'n/a'} vis=${diag.stage?.visibility || 'n/a'} size=${diag.stage?.width || 0}x${diag.stage?.height || 0}`);
@@ -1574,6 +1790,123 @@
         }
         uiConsolePush(`[galdebug] camera position: ${galaxy3d.camera?.position?.x?.toFixed(1) || 'n/a'}, ${galaxy3d.camera?.position?.y?.toFixed(1) || 'n/a'}, ${galaxy3d.camera?.position?.z?.toFixed(1) || 'n/a'}`);
         try { console.log('[GQ][galdebug]', { galaxy3d, stats }); } catch (_) {}
+        return;
+      }
+      if (cmd === 'galprobe') {
+        const sec = Math.max(2, Math.min(20, Number(parts[1] || 6)));
+        const canvas = document.getElementById('starfield');
+        if (!(canvas instanceof HTMLCanvasElement)) {
+          uiConsolePush('[galprobe] canvas #starfield nicht gefunden.');
+          return;
+        }
+        const counters = {
+          mousemove: 0,
+          mousedown: 0,
+          mouseup: 0,
+          click: 0,
+          dblclick: 0,
+          wheel: 0,
+          contextmenu: 0,
+        };
+        const opts = { capture: true, passive: false };
+        const bump = (key) => (e) => {
+          counters[key] += 1;
+          if (key === 'wheel' || key === 'contextmenu') {
+            // Nur Telemetrie; Verhalten nicht veraendern.
+            void e;
+          }
+        };
+        const handlers = {
+          mousemove: bump('mousemove'),
+          mousedown: bump('mousedown'),
+          mouseup: bump('mouseup'),
+          click: bump('click'),
+          dblclick: bump('dblclick'),
+          wheel: bump('wheel'),
+          contextmenu: bump('contextmenu'),
+        };
+
+        Object.keys(handlers).forEach((type) => {
+          canvas.addEventListener(type, handlers[type], opts);
+        });
+
+        uiConsolePush(`[galprobe] Starte Event-Probe fuer ${sec}s auf #starfield ...`);
+        setTimeout(() => {
+          Object.keys(handlers).forEach((type) => {
+            canvas.removeEventListener(type, handlers[type], opts);
+          });
+          uiConsolePush('[galprobe] Ergebnis: '
+            + `move=${counters.mousemove}, down=${counters.mousedown}, up=${counters.mouseup}, `
+            + `click=${counters.click}, dbl=${counters.dblclick}, wheel=${counters.wheel}, ctx=${counters.contextmenu}`);
+          try { console.log('[GQ][galprobe]', counters); } catch (_) {}
+        }, Math.round(sec * 1000));
+        return;
+      }
+      if (cmd === 'perftelemetry') {
+        const arg = String(parts[1] || '').toLowerCase();
+        if (arg === 'status') {
+          uiConsolePush(`[state] perftelemetry=${isPerfTelemetryOptIn() ? 'on' : 'off'}`);
+          return;
+        }
+        if (arg === 'on' || arg === 'off') {
+          const ok = setPerfTelemetryOptIn(arg === 'on');
+          if (!ok) {
+            uiConsolePush('[error] Konnte Opt-In nicht speichern.');
+            return;
+          }
+          uiConsolePush(`[ok] perftelemetry=${arg}`);
+          return;
+        }
+        if (arg === 'send') {
+          const sent = await sendPerfTelemetrySnapshot('manual');
+          uiConsolePush(sent ? '[ok] Perf-Telemetrie gesendet.' : '[warn] Perf-Telemetrie nicht gesendet (Opt-In aus oder keine Renderer-Daten).');
+          return;
+        }
+        if (arg === 'summary') {
+          const mins = Math.max(5, Math.min(24 * 60, Number(parts[2] || 60)));
+          if (!API || typeof API.perfTelemetrySummary !== 'function') {
+            uiConsolePush('[error] Perf-Telemetrie-Summary API nicht verfuegbar.');
+            return;
+          }
+          const formatBytes = (input) => {
+            const bytes = Math.max(0, Number(input || 0));
+            if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let value = bytes;
+            let idx = 0;
+            while (value >= 1024 && idx < units.length - 1) {
+              value /= 1024;
+              idx += 1;
+            }
+            const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+            return `${value.toFixed(digits)} ${units[idx]}`;
+          };
+          try {
+            const res = await API.perfTelemetrySummary({ minutes: mins, source: 'galaxy' });
+            if (!res?.success) {
+              uiConsolePush(`[error] ${res?.error || 'summary failed'}`);
+              return;
+            }
+            const s = res.summary || {};
+            const storage = res.storage || {};
+            const today = storage.today || {};
+            const limits = storage.limits || {};
+            const fps = s.fps || {};
+            const ft = s.frame_time_ms || {};
+            const dc = s.draw_calls || {};
+            uiConsolePush(`[perf] summary ${mins}m events=${res.count || 0}`);
+            uiConsolePush(`[perf] fps avg=${fps.avg ?? 'n/a'} p95=${fps.p95 ?? 'n/a'} min=${fps.min ?? 'n/a'}`);
+            uiConsolePush(`[perf] frameMs avg=${ft.avg ?? 'n/a'} p95=${ft.p95 ?? 'n/a'} max=${ft.max ?? 'n/a'}`);
+            uiConsolePush(`[perf] drawCalls avg=${dc.avg ?? 'n/a'} p95=${dc.p95 ?? 'n/a'} max=${dc.max ?? 'n/a'}`);
+            uiConsolePush(`[perf] storage files=${storage.files_count ?? 0} total=${formatBytes(storage.total_bytes)} latest=${storage.latest_file || 'n/a'} (${formatBytes(storage.latest_size_bytes)})`);
+            uiConsolePush(`[perf] shards date=${today.date || 'n/a'} count=${today.shards ?? 0} maxShard=${today.max_shard ?? 0}`);
+            uiConsolePush(`[perf] rotation maxFile=${formatBytes(limits.max_file_bytes)} maxShards=${limits.max_shards ?? 'n/a'} retention=${limits.retention_days ?? 'n/a'}d`);
+          } catch (e) {
+            uiConsolePush(`[error] ${String(e?.message || e || 'summary failed')}`);
+          }
+          return;
+        }
+        uiConsolePush('[usage] perftelemetry on|off|status|send|summary [minutes]');
         return;
       }
       if (cmd === 'open') {
@@ -1703,7 +2036,9 @@
         if (topbarTrack) topbarTrack.disabled = true;
         if (topbarToggle) {
           topbarToggle.disabled = true;
-          topbarToggle.textContent = 'Play';
+          topbarToggle.textContent = '▶';
+          topbarToggle.title = 'Musik nicht verfuegbar';
+          topbarToggle.setAttribute('aria-label', 'Musik nicht verfuegbar');
         }
         if (topbarCurrent) {
           topbarCurrent.textContent = '-';
@@ -1713,6 +2048,7 @@
           topbarMode.textContent = 'N/A';
           topbarMode.title = 'Transition-Modus nicht verfuegbar';
         }
+        renderTopbarTrackQuickList('');
         return;
       }
       const state = audioManager.snapshot();
@@ -1728,6 +2064,8 @@
           topbarTrack.value = activeTrack;
         }
       }
+      const activeTrackForList = String(state.musicUrl || settingsState.musicUrl || '').trim();
+      renderTopbarTrackQuickList(activeTrackForList);
       if (topbarCurrent) {
         const activeTrack = String(state.musicUrl || settingsState.musicUrl || '').trim();
         const label = resolveAudioTrackLabel(activeTrack);
@@ -1736,7 +2074,10 @@
       }
       if (topbarToggle) {
         topbarToggle.disabled = false;
-        topbarToggle.textContent = state.musicPlaying ? 'Pause' : 'Play';
+        const playing = !!state.musicPlaying;
+        topbarToggle.textContent = playing ? '⏸' : '▶';
+        topbarToggle.title = playing ? 'Musik pausieren' : 'Musik starten';
+        topbarToggle.setAttribute('aria-label', playing ? 'Musik pausieren' : 'Musik starten');
       }
       if (topbarMode) {
         const mode = String(state.musicTransitionMode || settingsState.musicTransitionMode || 'fade').toLowerCase() === 'cut' ? 'cut' : 'fade';
@@ -1754,8 +2095,14 @@
       settingsState.magnetPreset = ['precise', 'balanced', 'sticky', 'custom'].includes(String(settingsState.magnetPreset || 'balanced'))
         ? String(settingsState.magnetPreset)
         : 'balanced';
+      settingsState.renderQualityProfile = ['auto', 'low', 'medium', 'high', 'ultra'].includes(String(settingsState.renderQualityProfile || 'auto').toLowerCase())
+        ? String(settingsState.renderQualityProfile || 'auto').toLowerCase()
+        : 'auto';
       settingsState.hoverMagnetEnabled = settingsState.hoverMagnetEnabled !== false;
       settingsState.clickMagnetEnabled = settingsState.clickMagnetEnabled !== false;
+      settingsState.galacticCoreFxAuto = persisted && typeof persisted === 'object' && Object.prototype.hasOwnProperty.call(persisted, 'galacticCoreFxAuto')
+        ? persisted.galacticCoreFxAuto !== false
+        : !(persisted && typeof persisted === 'object' && Object.prototype.hasOwnProperty.call(persisted, 'galacticCoreFxEnabled'));
       settingsState.galacticCoreFxEnabled = settingsState.galacticCoreFxEnabled !== false;
       settingsState.introFlightMode = ['off', 'fast', 'cinematic'].includes(String(settingsState.introFlightMode || 'cinematic').toLowerCase())
         ? String(settingsState.introFlightMode || 'cinematic').toLowerCase()
@@ -1763,6 +2110,8 @@
       settingsState.hoverMagnetStarPx = Math.max(8, Math.min(64, Number(settingsState.hoverMagnetStarPx || 24)));
       settingsState.hoverMagnetPlanetPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetPlanetPx || 30)));
       settingsState.hoverMagnetClusterPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetClusterPx || 28)));
+      settingsState.galaxyOwnerFocusUserId = Math.max(0, Number(settingsState.galaxyOwnerFocusUserId || 0));
+      settingsState.galaxyOwnerFocusName = String(settingsState.galaxyOwnerFocusName || '').trim();
       if (!settingsState.sceneTracks || typeof settingsState.sceneTracks !== 'object') {
         settingsState.sceneTracks = { galaxy: '', system: '', battle: '', ui: '' };
       }
@@ -1857,12 +2206,7 @@
     }
 
     closeUserMenu() {
-      const wrap = document.getElementById('user-menu-wrap');
-      const menu = document.getElementById('user-menu');
-      const btn = document.getElementById('commander-name');
-      if (menu) menu.classList.add('hidden');
-      if (wrap) wrap.classList.remove('open');
-      if (btn) btn.setAttribute('aria-expanded', 'false');
+      closeCommanderMenuPanel();
     }
 
     openUserMenu() {
@@ -1870,6 +2214,8 @@
       const menu = document.getElementById('user-menu');
       const btn = document.getElementById('commander-name');
       if (!menu || !btn) return;
+      closeTopbarSearchOverlay();
+      closeTopbarPlayerMenu();
       this.renderUserMenu();
       menu.classList.remove('hidden');
       if (wrap) wrap.classList.add('open');
@@ -2015,7 +2361,12 @@
         galaxy3d.setClusterBoundsVisible(settingsState.clusterBoundsVisible !== false);
       }
       if (typeof galaxy3d.setGalacticCoreFxEnabled === 'function') {
-        galaxy3d.setGalacticCoreFxEnabled(settingsState.galacticCoreFxEnabled !== false);
+        const autoCoreFx = settingsState.galacticCoreFxAuto !== false;
+        const recommendedCoreFx = galaxy3dQualityState?.features?.galacticCoreFx;
+        const shouldEnableCoreFx = autoCoreFx && recommendedCoreFx === false
+          ? false
+          : (settingsState.galacticCoreFxEnabled !== false);
+        galaxy3d.setGalacticCoreFxEnabled(shouldEnableCoreFx);
       }
     }
   }
@@ -2160,6 +2511,51 @@
     return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
   }
 
+  function canUsePhysicsFlightPath(target) {
+    return !!(
+      galaxy3d
+      && typeof galaxy3d.setCameraDriver === 'function'
+      && typeof galaxy3d.clearCameraDriver === 'function'
+      && window.GQSpaceCameraFlightDriver
+      && typeof window.GQSpaceCameraFlightDriver.create === 'function'
+      && Number.isFinite(Number(target?.x_ly))
+      && Number.isFinite(Number(target?.z_ly))
+    );
+  }
+
+  async function runPhysicsCinematicFlight(target, opts = {}) {
+    if (!canUsePhysicsFlightPath(target)) return { ok: false, reason: 'unavailable' };
+
+    const durationSec = Math.max(1.2, Number(opts.durationSec || 2.2));
+    const holdMs = Math.max(420, Number(opts.holdMs || Math.round(durationSec * 520)));
+    const label = String(opts.label || target?.name || target?.catalog_name || `System ${Number(target?.system_index || 0)}`);
+
+    try {
+      const driver = window.GQSpaceCameraFlightDriver.create({ three: window.THREE });
+      if (typeof driver.setRandomStars === 'function' && Array.isArray(galaxyStars) && galaxyStars.length) {
+        driver.setRandomStars(galaxyStars);
+      }
+      const accepted = driver.setTarget({
+        id: Number(target?.id || target?.system_index || 0) || 0,
+        x_ly: Number(target?.x_ly),
+        y_ly: Number(target?.y_ly || 0),
+        z_ly: Number(target?.z_ly),
+        label,
+      }, { durationSec });
+      if (!accepted) return { ok: false, reason: 'target-rejected' };
+
+      galaxy3d.setCameraDriver(driver, { consumeAutoNav: true, updateControls: true });
+      await waitMs(holdMs);
+      return { ok: true };
+    } catch (_) {
+      return { ok: false, reason: 'driver-error' };
+    } finally {
+      try {
+        galaxy3d?.clearCameraDriver?.();
+      } catch (_) {}
+    }
+  }
+
   function starSearchKey(star) {
     if (!star) return '';
     const g = Number(star.galaxy_index || star.galaxy || 1);
@@ -2208,14 +2604,38 @@
 
   function getTopbarSearchDom() {
     const wrap = document.getElementById('topbar-search-wrap');
+    const toggle = document.getElementById('topbar-search-toggle');
+    const menu = document.getElementById('topbar-search-menu');
     const input = document.getElementById('topbar-search-input');
     const overlay = document.getElementById('topbar-search-overlay');
-    return { wrap, input, overlay };
+    return { wrap, toggle, menu, input, overlay };
+  }
+
+  function closeCommanderMenuPanel() {
+    const wrap = document.getElementById('user-menu-wrap');
+    const menu = document.getElementById('user-menu');
+    const btn = document.getElementById('commander-name');
+    if (menu) menu.classList.add('hidden');
+    if (wrap) wrap.classList.remove('open');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  function closeTopbarPlayerMenu() {
+    const menuWrap = document.getElementById('topbar-player');
+    const menu = document.getElementById('topbar-player-menu');
+    const menuToggle = document.getElementById('topbar-player-menu-toggle');
+    if (menu) menu.classList.add('hidden');
+    if (menuWrap) menuWrap.classList.remove('open');
+    if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
   }
 
   function closeTopbarSearchOverlay() {
     topbarSearchStore.closeOverlay();
     renderTopbarSearchOverlay();
+    const { wrap, menu, toggle } = getTopbarSearchDom();
+    wrap?.classList.remove('open');
+    menu?.classList.add('hidden');
+    if (toggle) toggle.setAttribute('aria-expanded', 'false');
   }
 
   const TOPBAR_SEARCH_TEMPLATES = {
@@ -2272,6 +2692,7 @@
         const star = (index >= 0 && index < list.length) ? list[index] : null;
         if (!star) return;
         await jumpToSearchStar(star);
+        closeTopbarSearchOverlay();
       });
     });
   }
@@ -2321,14 +2742,33 @@
   }
 
   function initTopbarSearch() {
-    const { wrap, input, overlay } = getTopbarSearchDom();
-    if (!wrap || !input || !overlay) return;
+    const { wrap, toggle, menu, input, overlay } = getTopbarSearchDom();
+    if (!wrap || !input || !overlay || !menu || !toggle) return;
+
+    const openSearchMenu = () => {
+      closeCommanderMenuPanel();
+      closeTopbarPlayerMenu();
+      wrap.classList.add('open');
+      menu.classList.remove('hidden');
+      toggle.setAttribute('aria-expanded', 'true');
+    };
 
     input.addEventListener('input', () => runTopbarSearch(input.value));
     input.addEventListener('focus', () => {
       if (!String(input.value || '').trim()) return;
+      openSearchMenu();
       topbarSearchStore.openOverlay();
       renderTopbarSearchOverlay();
+    });
+
+    toggle.addEventListener('click', () => {
+      const willOpen = menu.classList.contains('hidden');
+      if (willOpen) {
+        openSearchMenu();
+        input.focus();
+      } else {
+        closeTopbarSearchOverlay();
+      }
     });
     input.addEventListener('keydown', async (e) => {
       if (e.key === 'Escape') {
@@ -2340,7 +2780,10 @@
       if (e.key === 'Enter') {
         e.preventDefault();
         const candidate = topbarSearchStore.firstCandidate();
-        if (candidate) await jumpToSearchStar(candidate);
+        if (candidate) {
+          await jumpToSearchStar(candidate);
+          closeTopbarSearchOverlay();
+        }
       }
     });
 
@@ -2355,6 +2798,7 @@
         const active = document.activeElement;
         if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) return;
         e.preventDefault();
+        openSearchMenu();
         input.focus();
       }
     });
@@ -2491,7 +2935,7 @@
           ['trade', { title: '💱 Trade', w: 540, h: 580, defaultDock: 'right', defaultY: 148, onRender: () => renderTradeProposals() }],
         ['quests', { title: '📋 Quests', w: 540, h: 620, defaultDock: 'right', defaultY: 28, onRender: () => renderQuests() }],
         ['leaderboard', { title: '🏆 Leaderboard', w: 420, h: 480, defaultDock: 'right', defaultY: 138, onRender: () => renderLeaderboard() }],
-        ['leaders', { title: '👤 Leaders', w: 540, h: 560, defaultDock: 'right', defaultY: 44, onRender: () => renderLeaders() }],
+        ['leaders', { title: '👤 Leaders & Marketplace', w: 700, h: 600, defaultDock: 'right', defaultY: 44, onRender: () => renderLeaders() }],
         ['factions', { title: '🌐 Factions', w: 560, h: 620, defaultDock: 'right', defaultY: 24, onRender: () => renderFactions() }],
         ['alliances', { title: '🤝 Alliances', w: 560, h: 620, defaultDock: 'right', defaultY: 54, onRender: () => renderAlliances() }],
         ['settings', { title: '⚙ Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12, onRender: () => renderSettings() }],
@@ -2586,6 +3030,13 @@
         if (!root) return;
         await focusHomeSystemInGalaxy(root);
       });
+
+      document.querySelectorAll('.resource-btn[data-resource]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (this.audio && typeof this.audio.playNavigation === 'function') this.audio.playNavigation();
+          openResourceInsight(String(btn.dataset.resource || ''));
+        });
+      });
     }
 
     bindAudioToggle() {
@@ -2602,10 +3053,41 @@
 
     bindTopbarPlayer() {
       const trackSelect = document.getElementById('topbar-player-track');
+      const trackList = document.getElementById('topbar-player-track-list');
       const prevBtn = document.getElementById('topbar-player-prev');
       const nextBtn = document.getElementById('topbar-player-next');
+      const nextQuickBtn = document.getElementById('topbar-player-next-quick');
       const toggleBtn = document.getElementById('topbar-player-toggle');
-      if (!trackSelect || !toggleBtn) return;
+      const menuWrap = document.getElementById('topbar-player');
+      const menuToggle = document.getElementById('topbar-player-menu-toggle');
+      const menu = document.getElementById('topbar-player-menu');
+      if (!trackSelect || !toggleBtn || !menuWrap || !menuToggle || !menu) return;
+
+      menuToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const willOpen = menu.classList.contains('hidden');
+        if (!willOpen) {
+          closeTopbarPlayerMenu();
+          return;
+        }
+        closeTopbarSearchOverlay();
+        closeCommanderMenuPanel();
+        menu.classList.remove('hidden');
+        menuWrap.classList.add('open');
+        menuToggle.setAttribute('aria-expanded', 'true');
+      });
+
+      document.addEventListener('click', (e) => {
+        const target = e.target;
+        if (!(target instanceof Node)) return;
+        if (menuWrap.contains(target)) return;
+        closeTopbarPlayerMenu();
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        closeTopbarPlayerMenu();
+      });
 
       const setActiveTrack = (url, autoplay = false) => {
         const next = String(url || '').trim();
@@ -2647,11 +3129,30 @@
         refreshAudioUi();
       });
 
+      trackList?.addEventListener('click', async (e) => {
+        const target = e.target;
+        const btn = (target instanceof Element) ? target.closest('.topbar-player-track-item') : null;
+        if (!(btn instanceof HTMLElement)) return;
+        const selected = String(btn.getAttribute('data-track') || '').trim();
+        if (!selected || !this.audio) return;
+        const wasPlaying = !!this.audio.snapshot()?.musicPlaying;
+        setActiveTrack(selected, wasPlaying);
+        if (wasPlaying && !this.audio.snapshot()?.musicPlaying) {
+          const ok = await this.audio.playMusic();
+          if (!ok) showToast('Track konnte nicht gestartet werden.', 'warning');
+        }
+        refreshAudioUi();
+      });
+
       prevBtn?.addEventListener('click', async () => {
         await shiftTrack(-1);
       });
 
       nextBtn?.addEventListener('click', async () => {
+        await shiftTrack(1);
+      });
+
+      nextQuickBtn?.addEventListener('click', async () => {
         await shiftTrack(1);
       });
 
@@ -2823,9 +3324,18 @@
           const ship = (avail || []).find((entry) => entry.type === type);
           return sum + (Number(ship?.cargo || 0) * Number(count || 0));
         }, 0);
-        const metal = Math.min(Number(currentColony.metal || 0), Math.round(cargoCap * 0.45));
-        const crystal = Math.min(Number(currentColony.crystal || 0), Math.round(cargoCap * 0.3));
-        const deut = Math.min(Number(currentColony.deuterium || 0), Math.round(cargoCap * 0.15));
+        const prefillCargo = fallbackPrefill.cargo && typeof fallbackPrefill.cargo === 'object'
+          ? fallbackPrefill.cargo
+          : null;
+        const metal = prefillCargo
+          ? Math.min(Number(currentColony.metal || 0), Math.max(0, Number(prefillCargo.metal || 0)), cargoCap)
+          : Math.min(Number(currentColony.metal || 0), Math.round(cargoCap * 0.45));
+        const crystal = prefillCargo
+          ? Math.min(Number(currentColony.crystal || 0), Math.max(0, Number(prefillCargo.crystal || 0)), cargoCap)
+          : Math.min(Number(currentColony.crystal || 0), Math.round(cargoCap * 0.3));
+        const deut = prefillCargo
+          ? Math.min(Number(currentColony.deuterium || 0), Math.max(0, Number(prefillCargo.deuterium || 0)), cargoCap)
+          : Math.min(Number(currentColony.deuterium || 0), Math.round(cargoCap * 0.15));
         if (cargoMetal) cargoMetal.value = String(Math.max(0, metal));
         if (cargoCrystal) cargoCrystal.value = String(Math.max(0, crystal));
         if (cargoDeut) cargoDeut.value = String(Math.max(0, deut));
@@ -2923,14 +3433,14 @@
           shipEl.innerHTML = '<p class="text-red">Error.</p>';
           return;
         }
-        const avail = data.ships.filter((ship) => ship.count > 0);
+        const avail = [...(data.ships || []), ...(data.blueprints || [])].filter((ship) => Number(ship.count || 0) > 0);
         if (!avail.length) {
           shipEl.innerHTML = '<p class="text-muted">No ships on this planet.</p>';
           return;
         }
         shipEl.innerHTML = `<div class="ship-selector-grid">${avail.map((ship) => `
           <div class="ship-selector-row">
-            <span>${fmtName(ship.type)} (${ship.count})</span>
+            <span>${esc(ship.name || fmtName(ship.type))}${ship.ship_class ? ` · ${esc(fmtName(ship.ship_class))}` : ''} (${ship.count})</span>
             <input type="number" class="fleet-ship-qty" data-type="${esc(ship.type)}"
                    min="0" max="${ship.count}" value="0" />
           </div>`).join('')}</div>`;
@@ -3055,8 +3565,13 @@
       pinnedStar = target;
       uiState.activeStar = target;
       setGalaxyContext(g, s, target);
+      const flight = await runPhysicsCinematicFlight(target, {
+        durationSec: 1.8,
+        holdMs: 760,
+        label: `${target.name || target.catalog_name || `System ${s}`} [${g}:${s}]`,
+      });
       if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
-        galaxy3d.focusOnStar(target, true);
+        galaxy3d.focusOnStar(target, !flight.ok);
       }
       toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
       renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
@@ -3111,9 +3626,17 @@
         if (details) {
           details.innerHTML = `<span class="text-muted">Warp-Lock: ${esc(label)} ...</span>`;
         }
+        const flight = await runPhysicsCinematicFlight(target, {
+          durationSec: 2.4,
+          holdMs: 1050,
+          label,
+        });
+        if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
+          galaxy3d.focusOnStar(target, !flight.ok);
+        }
       }
 
-      if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
+      if (!cinematic && galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
         galaxy3d.focusOnStar(target, true);
       }
 
@@ -3147,6 +3670,8 @@
 
     init3D(root) {
       const holder = document.getElementById('galaxy-3d-host');
+      const hostWrapper = document.getElementById('galaxy-host-wrapper');
+      const sharedCanvas = holder?.querySelector('#starfield');
       if (!holder) {
         galaxy3dInitReason = 'Missing #galaxy-3d-host container';
         root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D engine failed to load. Reason: ${esc(galaxy3dInitReason)}</span>`;
@@ -3165,18 +3690,44 @@
         galaxy3d = null;
       }
 
+      galaxyAutoFramedOnce = false;
+
       try {
-        if (window.GQStarfieldControl && typeof window.GQStarfieldControl.releaseCanvasForGame === 'function') {
-          window.GQStarfieldControl.releaseCanvasForGame();
+        const resolvedRendererQuality = window.GQGalaxyRendererConfig?.resolveQualityProfile?.({
+          requestedProfile: settingsState.renderQualityProfile || 'auto',
+        }) || null;
+        galaxy3dQualityState = resolvedRendererQuality;
+        const authBgControl = window.GQAuthGalaxyBackgroundControl || window.GQStarfieldControl;
+        if (authBgControl && typeof authBgControl.releaseCanvasForGame === 'function') {
+          authBgControl.releaseCanvasForGame();
         }
 
-        const stage = document.getElementById('galaxy-stage');
+        const stage = root?.querySelector('.galaxy-3d-stage') || document.getElementById('galaxy-stage');
         if (stage) {
           stage.style.pointerEvents = 'none';
           stage.style.zIndex = '1';
         }
+        if (hostWrapper) {
+          hostWrapper.style.display = 'block';
+          hostWrapper.style.visibility = 'visible';
+          hostWrapper.style.opacity = '1';
+        }
+        if (holder) {
+          holder.style.display = 'block';
+          holder.style.visibility = 'visible';
+          holder.style.opacity = '1';
+        }
+        if (sharedCanvas instanceof HTMLCanvasElement) {
+          sharedCanvas.style.display = 'block';
+          sharedCanvas.style.opacity = '1';
+          sharedCanvas.style.visibility = 'visible';
+          sharedCanvas.style.pointerEvents = 'auto';
+        }
 
         galaxy3d = new window.Galaxy3DRenderer(holder, {
+          externalCanvas: sharedCanvas instanceof HTMLCanvasElement ? sharedCanvas : null,
+          interactive: true,
+          qualityProfile: resolvedRendererQuality?.name || settingsState.renderQualityProfile || 'auto',
           onHover: (star, pos) => updateGalaxyHoverCard(root, star, pos, false),
           onClick: (star, pos) => {
             if (star?.__kind === 'planet') {
@@ -3235,7 +3786,7 @@
             pinnedStar = star || null;
             renderGalaxySystemDetails(root, star, false);
             const panel = root.querySelector('#galaxy-planets-panel');
-            if (panel && star) panel.innerHTML = '<p class="text-muted">Zur Galaxieansicht ausgezoomt. Für Systemdetails wieder hineinzoomen oder doppelklicken.</p>';
+            if (panel) renderGalaxyColonySummary(panel, galaxyStars, uiState.activeRange || null);
           },
           onPlanetZoomOut: (star) => {
             if (audioManager && typeof audioManager.setScene === 'function') {
@@ -3244,6 +3795,17 @@
             if (star) renderGalaxySystemDetails(root, star, true);
           },
         });
+
+        if (typeof galaxy3d.getQualityProfileState === 'function') {
+          galaxy3dQualityState = galaxy3d.getQualityProfileState();
+        }
+        if (settingsState.renderQualityProfile === 'auto' && galaxy3dQualityState?.name === 'low') {
+          showToast('Low-End-Rendering aktiv: Pixel Ratio, Cache-Größen und FX wurden reduziert.', 'warning');
+        }
+        if (galaxy3d?.renderer?.domElement) {
+          galaxy3d.renderer.domElement.style.pointerEvents = 'auto';
+        }
+        galaxy3dQualityState = null;
         // Window-manager transitions can report stale host bounds for a frame.
         // Trigger a few deferred resizes so the renderer matches the visible host.
         const kickResize = () => {
@@ -3276,6 +3838,12 @@
       const root = WM.body('galaxy');
       if (!root) return;
 
+      const galaxyWindow = root.closest('.wm-window[data-winid="galaxy"]');
+      if (galaxyWindow) {
+        galaxyWindow.style.pointerEvents = 'none';
+      }
+      root.style.pointerEvents = 'none';
+
       if (!root.querySelector('.galaxy-3d-stage')) {
         root.innerHTML = `
           <div class="galaxy-3d-stage galaxy-bg-stage">
@@ -3305,6 +3873,7 @@
                   </select>
                 </label>
                 <button class="btn btn-secondary" id="gal-cluster-bounds-btn">Cluster Boxes: on</button>
+                <button class="btn btn-secondary" id="gal-colonies-only-btn">Nur Kolonien: aus</button>
                 <button class="btn btn-secondary" id="gal-core-fx-btn">Core FX: on</button>
                 <button class="btn btn-secondary" id="gal-magnet-hover-toggle-btn">Magnet Hover: on</button>
                 <button class="btn btn-secondary" id="gal-magnet-click-toggle-btn">Magnet Click: on</button>
@@ -3340,6 +3909,12 @@
                 <button class="btn btn-sm" data-overlay-close="#galaxy-info-overlay">Close</button>
               </div>
               <div id="galaxy-system-details" class="text-muted">Overlay hidden. Press I to open details.</div>
+              <div class="galaxy-colony-legend" aria-label="Kolonie-Ring-Legende">
+                <div class="galaxy-colony-legend-title">Kolonie-Ringe</div>
+                <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-sm"></span><span>Außenposten</span></div>
+                <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-md"></span><span>Kolonie</span></div>
+                <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-lg"></span><span>Kernwelt</span></div>
+              </div>
               <div class="galaxy-debug-wrap">
                 <div class="galaxy-debug-headline">
                   <div class="galaxy-debug-title">Lade-/Render-Log</div>
@@ -3389,6 +3964,15 @@
           </div>
         `;
 
+
+      const stageEl = root.querySelector('.galaxy-3d-stage');
+      if (stageEl) {
+        stageEl.style.pointerEvents = 'none';
+        stageEl.style.zIndex = '1';
+      }
+      root.querySelectorAll('.galaxy-overlay-window').forEach((overlay) => {
+        overlay.style.pointerEvents = 'auto';
+      });
         bindGalaxyOverlayHotkeys();
         makeGalaxyOverlayDraggable(root, '#galaxy-controls-overlay');
         makeGalaxyOverlayDraggable(root, '#galaxy-info-overlay');
@@ -3409,7 +3993,25 @@
           saveUiSettings();
           showToast(`Cluster-Boxen: ${settingsState.clusterBoundsVisible ? 'an' : 'aus'}`, 'info');
         });
+        root.querySelector('#gal-colonies-only-btn')?.addEventListener('click', () => {
+          const modes = ['all', 'colonies', 'own', 'foreign'];
+          const currentIndex = modes.indexOf(getGalaxyColonyFilterMode());
+          settingsState.galaxyColonyFilterMode = modes[(currentIndex + 1 + modes.length) % modes.length];
+          settingsState.galaxyColoniesOnly = settingsState.galaxyColonyFilterMode !== 'all';
+          refreshGalaxyDensityMetrics(root);
+          updateGalaxyColonyFilterUi(root);
+          saveUiSettings();
+          this.loadStars3D(root);
+          const modeLabels = {
+            all: 'alle Systeme',
+            colonies: 'nur Kolonien',
+            own: 'nur eigene Kolonien',
+            foreign: 'nur fremde Kolonien',
+          };
+          showToast(`Galaxie-Filter: ${modeLabels[getGalaxyColonyFilterMode()] || 'alle Systeme'}`, 'info');
+        });
         root.querySelector('#gal-core-fx-btn')?.addEventListener('click', () => {
+          settingsState.galacticCoreFxAuto = false;
           settingsState.galacticCoreFxEnabled = !(settingsState.galacticCoreFxEnabled !== false);
           applyRuntimeSettings();
           this.updateCoreFxUi(root);
@@ -3518,6 +4120,7 @@
         refreshGalaxyDensityMetrics(root);
         updateGalaxyFollowUi(root);
         updateClusterBoundsUi(root);
+        updateGalaxyColonyFilterUi(root);
         this.updateCoreFxUi(root);
         this.updateMagnetUi(root);
         renderGalaxyDebugPanel(root);
@@ -3538,6 +4141,7 @@
       refreshGalaxyDensityMetrics(root);
       updateGalaxyFollowUi(root);
       updateClusterBoundsUi(root);
+      updateGalaxyColonyFilterUi(root);
       this.updateCoreFxUi(root);
       this.updateMagnetUi(root);
     }
@@ -3549,29 +4153,98 @@
         refreshPolicyUi(root);
       }
       const g = parseInt(root.querySelector('#gal-galaxy').value, 10) || 1;
-      const from = Math.max(1, parseInt(root.querySelector('#gal-from').value, 10) || 1);
-      const to = Math.max(from, parseInt(root.querySelector('#gal-to').value, 10) || from);
+      let from = Math.max(1, parseInt(root.querySelector('#gal-from').value, 10) || 1);
+      let to = Math.max(from, parseInt(root.querySelector('#gal-to').value, 10) || from);
       if (galaxyStars.length && Number(galaxyStars[0]?.galaxy_index || 0) !== g) {
         galaxyStars = [];
       }
       uiState.activeRange = { from, to };
       setGalaxyContext(g, uiState.activeSystem || from, uiState.activeStar);
       const starsPolicy = LEVEL_POLICIES.galaxy.stars;
+      let requestMaxPoints = Number(starsPolicy.maxPoints || 1500);
+      const densityMode = String(settingsState.clusterDensityMode || 'auto').toLowerCase();
+      const clusterPreset = densityMode === 'max'
+        ? 'ultra'
+        : (densityMode === 'high' ? 'high' : 'auto');
+      const renderDataAdapter = window.GQRenderDataAdapter || API;
 
       if (details) details.innerHTML = '<span class="text-muted">Loading star cloud...</span>';
+
+      if (typeof API.galaxyBootstrap === 'function') {
+        try {
+          const bootstrapRaw = await API.galaxyBootstrap(g, from, to, requestMaxPoints);
+          const bootstrapRes = (typeof renderDataAdapter?.adaptGalaxyBootstrap === 'function')
+            ? renderDataAdapter.adaptGalaxyBootstrap(bootstrapRaw, { galaxy: g, from, to, maxPoints: requestMaxPoints })
+            : { ok: true, data: bootstrapRaw };
+          if (bootstrapRes?.ok && bootstrapRes.data) {
+            const bootstrap = bootstrapRes.data;
+            const reportedSystemMax = Number(bootstrap.system_max || 0);
+            if (reportedSystemMax > 0) {
+              galaxySystemMax = Math.max(galaxySystemMax, reportedSystemMax);
+            }
+            const init = bootstrap.initial_range || {};
+            const recommendedTo = Math.max(from, Number(init.to || to));
+            if (to <= from && recommendedTo > to) {
+              to = recommendedTo;
+              uiState.activeRange = { from, to };
+              const toInput = root.querySelector('#gal-to');
+              if (toInput) {
+                toInput.value = String(to);
+              }
+            }
+            requestMaxPoints = Math.max(100, Math.min(50000, Number(init.max_points || requestMaxPoints)));
+            const assetsManifestVersion = Number(bootstrap.assets_manifest_version || 0);
+            if (assetsManifestVersion > 0) {
+              uiState.assetsManifestVersion = assetsManifestVersion;
+            }
+            if (bootstrap.assets_manifest_ok === false) {
+              console.warn('[GQ] loadGalaxyStars3D: assets manifest mismatch', {
+                expected: Number(window.GQ_ASSETS_MANIFEST_VERSION || 1),
+                received: assetsManifestVersion,
+              });
+              if (details) {
+                details.innerHTML = '<span class="text-yellow">Asset manifest mismatch; forcing fresh asset paths.</span>';
+              }
+            }
+            if (bootstrap.stale && details) {
+              details.innerHTML = '<span class="text-yellow">Bootstrap data is stale; refreshing live stars…</span>';
+            }
+          } else if (bootstrapRes?.errorType === 'schema') {
+            const issueList = Array.isArray(bootstrapRes.issues) ? bootstrapRes.issues.join(', ') : 'invalid payload';
+            console.warn('[GQ] loadGalaxyStars3D: bootstrap schema mismatch', issueList);
+            const cls = (typeof renderDataAdapter?.classifyRenderError === 'function')
+              ? renderDataAdapter.classifyRenderError(bootstrapRes)
+              : { type: 'schema' };
+            if (details && cls.type === 'schema') {
+              details.innerHTML = '<span class="text-yellow">Bootstrap schema mismatch; using fallback stars endpoint.</span>';
+            }
+          }
+        } catch (bootstrapErr) {
+          console.warn('[GQ] loadGalaxyStars3D: bootstrap request failed', bootstrapErr);
+          const cls = (typeof renderDataAdapter?.classifyRenderError === 'function')
+            ? renderDataAdapter.classifyRenderError(bootstrapErr)
+            : { type: 'network' };
+          if (details && cls.type === 'auth') {
+            details.innerHTML = '<span class="text-red">Session expired. Please log in again.</span>';
+          }
+        }
+      }
 
       const applyStarsToRenderer = (stars, clusterSummary, contextLabel = 'render') => {
         if (!galaxy3d) return true;
         try {
           const curGalaxy = galaxy3d.stars?.length > 0 ? Number(galaxy3d.stars[0]?.galaxy_index || 0) : 0;
           const preserveView = curGalaxy > 0 && curGalaxy === g;
-          galaxy3d.setStars(stars, { preserveView });
+          const displayedStars = getDisplayedGalaxyStars(stars);
+          const displayedClusterSummary = getDisplayedGalaxyClusterSummary(clusterSummary, displayedStars);
+          galaxy3d.setStars(displayedStars, { preserveView });
           if (typeof galaxy3d.setClusterColorPalette === 'function') {
             galaxy3d.setClusterColorPalette(resolveClusterColorPalette(uiState.territory));
           }
           if (typeof galaxy3d.setClusterAuras === 'function') {
-            galaxy3d.setClusterAuras(clusterSummary || []);
+            galaxy3d.setClusterAuras(displayedClusterSummary || []);
           }
+          applyGalaxyOwnerHighlightToRenderer(displayedStars);
           return true;
         } catch (err) {
           const msg = String(err?.message || err || 'renderer error');
@@ -3583,13 +4256,15 @@
 
       const emitRenderProbe = (sourceLabel, meta = {}) => {
         const rawStars = Array.isArray(galaxyStars) ? galaxyStars.length : 0;
+        const displayedStars = getDisplayedGalaxyStars(galaxyStars);
+        const filteredStars = Array.isArray(displayedStars) ? displayedStars.length : 0;
         const stats = (galaxy3d && typeof galaxy3d.getRenderStats === 'function')
           ? galaxy3d.getRenderStats()
           : null;
         const visibleStars = Number(stats?.visibleStars || 0);
         const targetPoints = Number(stats?.targetPoints || 0);
         const densityMode = String(stats?.densityMode || 'n/a');
-        uiConsolePush(`[galaxy] probe src=${sourceLabel} raw=${rawStars} visible=${visibleStars} target=${targetPoints} mode=${densityMode}`);
+        uiConsolePush(`[galaxy] probe src=${sourceLabel} raw=${rawStars} filtered=${filteredStars} visible=${visibleStars} target=${targetPoints} mode=${densityMode}`);
 
         if (meta && Object.keys(meta).length) {
           const extras = Object.entries(meta)
@@ -3598,13 +4273,13 @@
           uiConsolePush(`[galaxy] meta ${extras}`);
         }
 
-        if (rawStars > 0 && visibleStars <= 0) {
+        if (filteredStars > 0 && visibleStars <= 0) {
           const diag = inspectGalaxyCanvasLayering();
           const topInfo = (diag.topElementsAtCanvas || [])
             .map((p) => `${p.x},${p.y}->${p.topTag}${p.topId ? '#' + p.topId : ''}`)
             .join(' | ');
           uiConsolePush(`[galaxy][warn] stars loaded but not visible. top=${topInfo || 'n/a'}`);
-          pushGalaxyDebugError('galaxy-visible-zero', `raw=${rawStars} visible=${visibleStars}`, String(sourceLabel || 'unknown'));
+          pushGalaxyDebugError('galaxy-visible-zero', `raw=${rawStars} filtered=${filteredStars} visible=${visibleStars}`, String(sourceLabel || 'unknown'));
         }
       };
 
@@ -3621,20 +4296,20 @@
         }, 30);
       };
 
-      let cachedStars = galaxyModel ? galaxyModel.listStars(g, from, to) : [];
+      let cachedStars = normalizeStarListVisibility(galaxyModel ? galaxyModel.listStars(g, from, to) : []);
       const fullRangeInModel = galaxyModel
         ? galaxyModel.hasLoadedStarRange(g, from, to, starsPolicy.cacheMaxAgeMs)
         : false;
-      if ((!cachedStars || cachedStars.length === 0) && galaxyDB) {
+      if ((!cachedStars || cachedStars.length === 0) && galaxyDB && !isCurrentUserAdmin()) {
         try {
           const dbStars = await galaxyDB.getStars(g, from, to, { maxAgeMs: starsPolicy.cacheMaxAgeMs });
           if (dbStars.length && galaxyModel) {
-            cachedStars = galaxyModel.upsertStarBatch(g, dbStars);
+            cachedStars = normalizeStarListVisibility(galaxyModel.upsertStarBatch(g, dbStars));
             if (hasDenseSystemCoverage(dbStars, g, from, to)) {
               galaxyModel.addLoadedStarRange(g, from, to, Date.now());
             }
           } else {
-            cachedStars = dbStars;
+            cachedStars = normalizeStarListVisibility(dbStars);
           }
         } catch (dbErr) {
           console.warn('[GQ] loadGalaxyStars3D: DB cache read failed', dbErr);
@@ -3647,6 +4322,8 @@
         const rendered = applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'cache');
         if (!rendered) {
           renderGalaxyFallbackList(root, galaxyStars, from, to, '3D renderer unavailable (cache fallback)');
+        } else if (!galaxy3d?.systemMode) {
+          renderGalaxyColonySummary(root.querySelector('#galaxy-planets-panel'), galaxyStars, { from, to });
         }
         if (details) {
           details.innerHTML = `<span class="text-cyan">Cache: ${galaxyStars.length} stars loaded${fullRangeInModel ? ' (complete range)' : ''}. Syncing live data...</span>`;
@@ -3660,7 +4337,7 @@
         ensureInitialGalaxyFrame();
       }
 
-      const shouldRefreshNetwork = starsPolicy.alwaysRefreshNetwork || !fullRangeInModel;
+      const shouldRefreshNetwork = isCurrentUserAdmin() || starsPolicy.alwaysRefreshNetwork || !fullRangeInModel;
       if (!shouldRefreshNetwork && cachedStars && cachedStars.length) {
         if (details) {
           details.innerHTML = `<span class="text-cyan">Policy hit: fresh range from cache (${from}-${to}), network refresh skipped.</span>`;
@@ -3670,21 +4347,58 @@
       }
 
       try {
-        const data = (typeof API.galaxyStars === 'function')
-          ? await API.galaxyStars(g, from, to, starsPolicy.maxPoints)
+        const dataRaw = (typeof API.galaxyStars === 'function')
+          ? await API.galaxyStars(g, from, to, requestMaxPoints, {
+              streamPriority: 'critical',
+              requestPriority: 'critical',
+              prefetch: false,
+              chunkHint: requestMaxPoints,
+              clusterPreset,
+              includeClusterLod: false,
+            })
           : await API.galaxy(g, from);
-        if (!data.success) {
-          if (details) details.innerHTML = '<span class="text-red">Could not load stars.</span>';
+        const adapted = (typeof renderDataAdapter?.adaptGalaxyStars === 'function')
+          ? renderDataAdapter.adaptGalaxyStars(dataRaw, {
+              galaxy: g,
+              from,
+              to,
+              systemMax: galaxySystemMax,
+              assetsManifestVersion: uiState.assetsManifestVersion,
+            })
+          : { ok: true, data: dataRaw };
+        if (!adapted?.ok || !adapted.data?.success) {
+          const cls = (typeof renderDataAdapter?.classifyRenderError === 'function')
+            ? renderDataAdapter.classifyRenderError(adapted)
+            : { type: 'schema' };
+          if (details) {
+            if (cls.type === 'auth') {
+              details.innerHTML = '<span class="text-red">Session expired. Please log in again.</span>';
+            } else if (cls.type === 'schema') {
+              details.innerHTML = '<span class="text-red">Could not load stars (schema mismatch).</span>';
+            } else if (cls.type === 'stale') {
+              details.innerHTML = '<span class="text-yellow">Star data is stale.</span>';
+            } else {
+              details.innerHTML = '<span class="text-red">Could not load stars (network).</span>';
+            }
+          }
+          if (cls.type === 'schema') {
+            const issueList = Array.isArray(adapted?.issues) ? adapted.issues.join(', ') : 'invalid payload';
+            console.warn('[GQ] loadGalaxyStars3D: stars schema mismatch', issueList);
+          }
           return;
+        }
+        const data = adapted.data;
+        if (data.stale && details) {
+          details.innerHTML = '<span class="text-yellow">Loaded stale star data; resyncing…</span>';
         }
 
         if (Array.isArray(data.stars)) {
-          galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, data.stars, g);
+          galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, normalizeStarListVisibility(data.stars), g);
         } else if (data.star_system) {
-          const single = Object.assign({}, data.star_system, {
+          const single = normalizeStarVisibility(Object.assign({}, data.star_system, {
             galaxy_index: Number(data.galaxy || g),
             system_index: Number(data.system || from),
-          });
+          }));
           galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, [single], g);
         } else {
           galaxyStars = [];
@@ -3714,6 +4428,8 @@
         const rendered = applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'network');
         if (!galaxy3d || !rendered) {
           renderGalaxyFallbackList(root, galaxyStars, from, to, galaxy3dInitReason || 'renderer unavailable');
+        } else if (!galaxy3d.systemMode) {
+          renderGalaxyColonySummary(root.querySelector('#galaxy-planets-panel'), galaxyStars, { from, to });
         }
 
         if (details) {
@@ -3734,9 +4450,59 @@
         ensureInitialGalaxyFrame();
         hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch(() => {});
       } catch (err) {
-        pushGalaxyDebugError('galaxy-stars', String(err?.message || err || 'unknown error'), `${from}..${to}`);
-        if (details) details.innerHTML = `<span class="text-red">Failed to load stars: ${esc(String(err?.message || err || 'unknown error'))}</span>`;
-        renderGalaxyFallbackList(root, galaxyStars, from, to, String(err?.message || err || 'network error'));
+        const errMsg = String(err?.message || err || 'unknown error');
+        pushGalaxyDebugError('galaxy-stars', errMsg, `${from}..${to}`);
+
+        // Failure guard: keep galaxy navigation alive with the best available local data.
+        let fallbackStars = Array.isArray(cachedStars) ? cachedStars.slice() : [];
+
+        if (!fallbackStars.length) {
+          const scopedInMemory = (Array.isArray(galaxyStars) ? galaxyStars : [])
+            .filter((star) => Number(star?.galaxy_index || 0) === g);
+          if (scopedInMemory.length) fallbackStars = scopedInMemory;
+        }
+
+        if (!fallbackStars.length && galaxyModel) {
+          try {
+            fallbackStars = galaxyModel.listStars(g, 1, galaxySystemMax) || [];
+          } catch (_) {}
+        }
+
+        if (!fallbackStars.length && galaxyDB && !isCurrentUserAdmin()) {
+          try {
+            fallbackStars = await galaxyDB.getStars(g, 1, galaxySystemMax, { maxAgeMs: 7 * 24 * 60 * 60 * 1000 });
+            if (fallbackStars.length && galaxyModel) {
+              galaxyModel.upsertStarBatch(g, fallbackStars);
+            }
+          } catch (_) {}
+        }
+
+        fallbackStars = normalizeStarListVisibility(fallbackStars);
+
+        if (fallbackStars.length) {
+          galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, fallbackStars, g);
+          uiState.clusterSummary = assignClusterFactions(uiState.rawClusters || [], uiState.territory);
+          const rendered = applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'error-fallback');
+          if (!rendered) {
+            renderGalaxyFallbackList(root, galaxyStars, from, to, `network error (fallback): ${errMsg}`);
+          } else if (!galaxy3d?.systemMode) {
+            renderGalaxyColonySummary(root.querySelector('#galaxy-planets-panel'), galaxyStars, { from, to });
+          }
+          if (details) {
+            details.innerHTML = `<span class="text-yellow">Netzwerkfehler bei ${from}..${to}; nutze lokalen Fallback mit ${galaxyStars.length} Sternen.</span>`;
+          }
+          refreshGalaxyDensityMetrics(root);
+          emitRenderProbe('error-fallback', {
+            from,
+            to,
+            fallbackCount: fallbackStars.length,
+          });
+          ensureInitialGalaxyFrame();
+          return;
+        }
+
+        if (details) details.innerHTML = `<span class="text-red">Failed to load stars: ${esc(errMsg)}</span>`;
+        renderGalaxyFallbackList(root, galaxyStars, from, to, errMsg);
       }
     }
 
@@ -3755,7 +4521,7 @@
       const clusters = Number(stats.clusterCount || 0);
       const clusterLabel = stats.clusterBoundsVisible ? 'boxes on' : 'boxes off';
       const ratioPct = raw > 0 ? Math.max(0, Math.min(100, Math.round((visible / raw) * 100))) : 0;
-      label.textContent = `Density: ${visible}/${raw} (${ratioPct}%) · target ${target} · ${clusters} clusters · ${clusterLabel} · ${String(stats.densityMode || 'auto').toUpperCase()} · ${String(stats.lodProfile || 'n/a')}`;
+      label.textContent = `Density: ${visible}/${raw} (${ratioPct}%) · target ${target} · ${clusters} clusters · ${clusterLabel} · ${String(stats.densityMode || 'auto').toUpperCase()} · ${String(stats.lodProfile || 'n/a')} · q=${String(stats.qualityProfile || 'n/a')}`;
       label.className = ratioPct >= 70 ? 'text-green' : ratioPct >= 35 ? 'text-yellow' : 'text-muted';
     }
 
@@ -3776,7 +4542,7 @@
       const enabled = !galaxy3d || typeof galaxy3d.areGalacticCoreFxEnabled !== 'function'
         ? (settingsState.galacticCoreFxEnabled !== false)
         : galaxy3d.areGalacticCoreFxEnabled();
-      btn.textContent = `Core FX: ${enabled ? 'on' : 'off'}`;
+      btn.textContent = `Core FX: ${enabled ? 'on' : 'off'}${settingsState.galacticCoreFxAuto !== false ? ' (auto)' : ''}`;
       btn.classList.toggle('btn-secondary', enabled);
       btn.classList.toggle('btn-warning', !enabled);
     }
@@ -4224,6 +4990,59 @@
         </div>`;
     }
 
+    buildResourceInsightHtml(offline, meta) {
+      const config = getResourceInsightConfig(uiState.resourceInsight);
+      if (!config || !currentColony) return '';
+      const netRates = offline?.economy?.net_rates_per_hour || offline?.rates_per_hour || {};
+      const currentValue = getResourceInsightValue(config.key, currentColony, meta);
+      const totalValue = getResourceInsightTotal(config.key, meta);
+      const share = totalValue > 0 ? Math.min(100, Math.round((currentValue / totalValue) * 100)) : 0;
+      const perHour = config.rateKey ? Number(netRates?.[config.rateKey] || 0) : null;
+      const actions = [];
+      if (config.focusBuilding) {
+        actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-resource-action="focus-building" data-resource-focus="${esc(config.focusBuilding)}">🏗 Produktionsfokus</button>`);
+      }
+      if (config.transportable) {
+        actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-resource-action="transport" data-resource="${esc(config.key)}">🚚 Transport starten</button>`);
+      }
+      if (config.tradeable) {
+        actions.push(`<button type="button" class="btn btn-primary btn-sm" data-resource-action="market-sell" data-resource="${esc(config.key)}">🛒 Verkaufen</button>`);
+        actions.push(`<button type="button" class="btn btn-primary btn-sm" data-resource-action="market-buy" data-resource="${esc(config.key)}">🛒 Kaufen</button>`);
+      }
+      actions.push('<button type="button" class="btn btn-secondary btn-sm" data-resource-action="close-insight">Schliessen</button>');
+
+      return `
+        <section class="resource-insight-card">
+          <div class="resource-insight-head">
+            <div>
+              <div class="resource-insight-title">${esc(config.icon)} ${esc(config.label)} · ${esc(currentColony.name || 'Kolonie')}</div>
+              <div class="resource-insight-note">${esc(config.desc)}</div>
+            </div>
+            <span class="status-chip chip-neutral">[${esc(String(currentColony.galaxy || 0))}:${esc(String(currentColony.system || 0))}:${esc(String(currentColony.position || 0))}]</span>
+          </div>
+          <div class="resource-insight-meta">
+            <div class="resource-insight-stat">
+              <div class="resource-insight-stat-label">Aktueller Bestand</div>
+              <div class="resource-insight-stat-value">${esc(formatResourceInsightValue(config.key, currentValue, currentColony))}</div>
+            </div>
+            <div class="resource-insight-stat">
+              <div class="resource-insight-stat-label">Anteil an deinem Imperium</div>
+              <div class="resource-insight-stat-value">${esc(String(share))}%</div>
+            </div>
+            <div class="resource-insight-stat">
+              <div class="resource-insight-stat-label">Imperiumsbestand</div>
+              <div class="resource-insight-stat-value">${esc(formatResourceInsightValue(config.key, totalValue, currentColony))}</div>
+            </div>
+            <div class="resource-insight-stat">
+              <div class="resource-insight-stat-label">Nettofluss</div>
+              <div class="resource-insight-stat-value">${perHour === null ? 'Kontextwert' : `${perHour >= 0 ? '+' : ''}${fmt(Math.abs(perHour))}/h`}</div>
+            </div>
+          </div>
+          <div class="resource-insight-actions">${actions.join('')}</div>
+          <div class="resource-insight-note">Handelsangebote werden nach Annahme nicht mehr sofort verrechnet. Stattdessen starten Frachter von der bestversorgten Quelle, binden die Fracht an die Flugzeit und verbrauchen Deuterium fuer den Transport.</div>
+        </section>`;
+    }
+
     renderFleetList(root) {
       const fleetList = root.querySelector('#fleet-list-wm');
       const fleets = window._GQ_fleets || [];
@@ -4318,6 +5137,41 @@
 
       root.querySelector('#open-leaders-btn')?.addEventListener('click', () => WM.open('leaders'));
 
+      root.querySelectorAll('[data-resource-action="focus-building"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (!currentColony) return;
+          const focusBuilding = String(btn.getAttribute('data-resource-focus') || 'colony_hq');
+          focusColonyDevelopment(currentColony.id, {
+            source: 'resource-insight',
+            focusBuilding,
+          });
+          WM.open('buildings');
+          showToast(`Fokus gesetzt: ${fmtName(focusBuilding)}.`, 'info');
+        });
+      });
+
+      root.querySelectorAll('[data-resource-action="transport"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          openFleetTransportPlanner(String(btn.getAttribute('data-resource') || ''));
+          showToast('Transportplanung geoeffnet. Ziel und Eskorte im Fleet-Fenster setzen.', 'info');
+        });
+      });
+
+      root.querySelectorAll('[data-resource-action="market-buy"]').forEach((btn) => {
+        btn.addEventListener('click', () => openTradeMarketplace(String(btn.getAttribute('data-resource') || ''), 'request'));
+      });
+
+      root.querySelectorAll('[data-resource-action="market-sell"]').forEach((btn) => {
+        btn.addEventListener('click', () => openTradeMarketplace(String(btn.getAttribute('data-resource') || ''), 'offer'));
+      });
+
+      root.querySelectorAll('[data-resource-action="close-insight"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          uiState.resourceInsight = null;
+          this.render();
+        });
+      });
+
       root.querySelectorAll('[data-risk-action="focus"]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const cid = Number(btn.getAttribute('data-risk-cid') || 0);
@@ -4397,6 +5251,8 @@
         </div>
 
         ${this.buildOfflineSummaryHtml(offline)}
+
+        ${this.buildResourceInsightHtml(offline, meta)}
 
         <h3 style="margin:0.75rem 0 0.5rem">Your Colonies</h3>
         <div class="overview-grid">
@@ -4807,6 +5663,322 @@
   }
 
   class ShipyardController {
+    constructor() {
+      this.moduleCatalogCache = new Map();
+    }
+
+    renderSlotProfile(profile = {}) {
+      const entries = Object.entries(profile || {}).filter(([, count]) => Number(count || 0) > 0);
+      if (!entries.length) return '<span class="text-muted small">No slots</span>';
+      return entries.map(([group, count]) => `<span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.4rem;border:1px solid rgba(120,145,180,0.35);border-radius:999px;background:rgba(80,108,152,0.14);font-size:0.7rem;">${esc(fmtName(group))} ${fmt(count)}</span>`).join(' ');
+    }
+
+    computeSlotProfile(hull, layoutCode = 'default') {
+      const base = Object.assign({}, hull?.slot_profile || {});
+      const layout = hull?.slot_variations?.[layoutCode] || null;
+      const adjustments = layout?.slot_adjustments || {};
+      Object.entries(adjustments).forEach(([group, delta]) => {
+        base[group] = Math.max(0, Number(base[group] || 0) + Number(delta || 0));
+      });
+      return base;
+    }
+
+    moduleCatalogKey(hullCode, layoutCode) {
+      return `${String(hullCode || '')}|${String(layoutCode || 'default')}`;
+    }
+
+    async fetchModuleCatalog(colonyId, hullCode, layoutCode = 'default') {
+      const key = this.moduleCatalogKey(hullCode, layoutCode);
+      if (this.moduleCatalogCache.has(key)) {
+        return this.moduleCatalogCache.get(key);
+      }
+
+      const response = await API.shipyardModules(colonyId, hullCode, layoutCode);
+      if (!response?.success) {
+        throw new Error(response?.error || 'Failed to load module catalog.');
+      }
+      this.moduleCatalogCache.set(key, response);
+      return response;
+    }
+
+    renderAffinityChips(affinities = []) {
+      const list = Array.isArray(affinities) ? affinities.filter((a) => !!a) : [];
+      if (!list.length) return '';
+
+      return list.map((bonus) => {
+        const icon = esc(String(bonus.faction_icon || '◈'));
+        const name = esc(String(bonus.faction_name || bonus.faction_code || '?'));
+        const type = String(bonus.bonus_type || '');
+        const val = Number(bonus.bonus_value || 0);
+        const active = !!bonus.active;
+        const standing = Number(bonus.user_standing || 0);
+        const minStanding = Number(bonus.min_standing || 0);
+        const color = String(bonus.faction_color || (active ? '#5de0a0' : '#555'));
+
+        let bonusLabel = '';
+        if (type === 'cost_pct') bonusLabel = `Kosten ${val >= 0 ? '+' : ''}${val.toFixed(0)}%`;
+        else if (type === 'build_time_pct') bonusLabel = `Zeit ${val >= 0 ? '+' : ''}${val.toFixed(0)}%`;
+        else if (type === 'stat_mult') bonusLabel = `Stats ${val >= 0 ? '+' : ''}${(val * 100).toFixed(0)}%`;
+        else if (type === 'unlock_tier') bonusLabel = `+T${val.toFixed(0)} Freischalter`;
+        else bonusLabel = type;
+
+        const reqText = !active ? ` Stg.${minStanding}` : '';
+        const titleText = active
+          ? `${name}: ${bonusLabel} (aktiv · Standing ${standing}/${minStanding})`
+          : `${name}: ${bonusLabel} (inaktiv · benötigt Standing ${minStanding}, aktuell ${standing})`;
+
+        return `<span class="shipyard-affinity-chip${active ? ' is-active' : ' is-locked'}" title="${esc(titleText)}" style="--affinity-color:${esc(color)}">${icon} ${esc(bonusLabel)}${esc(reqText)}</span>`;
+      }).join('');
+    }
+
+    renderModuleSlotEditor(moduleCatalog) {
+      const groups = Array.isArray(moduleCatalog?.module_groups) ? moduleCatalog.module_groups : [];
+      if (!groups.length) {
+        return '<div class="text-muted small">No module groups available for this hull/layout.</div>';
+      }
+
+      const blocks = [];
+      groups.forEach((group) => {
+        const slotCount = Math.max(0, Number(group.slot_count || 0));
+        if (!slotCount) return;
+        const options = (Array.isArray(group.modules) ? group.modules : []).map((mod) => {
+          const statsLabel = Object.entries(mod.stats_delta || {}).map(([k, v]) => `${fmtName(k)} ${v >= 0 ? '+' : ''}${fmt(v)}`).join(', ');
+          const statsData = Object.entries(mod.stats_delta || {}).map(([k, v]) => `${k}:${v}`).join(',');
+          const blocker = Array.isArray(mod.blockers) && mod.blockers.length ? ` [LOCKED: ${mod.blockers.join(' / ')}]` : '';
+          return `<option value="${esc(mod.code || '')}" data-stats="${esc(statsData)}" data-tier="${Number(mod.tier || 1)}" ${mod.unlocked === false ? 'disabled' : ''}>${esc(mod.label || mod.code || 'Module')} (T${fmt(mod.tier || 1)})${statsLabel ? ` · ${esc(statsLabel)}` : ''}${esc(blocker)}</option>`;
+        }).join('');
+
+        const affinityChips = this.renderAffinityChips(group.affinities || []);
+
+        blocks.push(`
+          <div class="shipyard-slot-group" data-group-code="${esc(group.code || '')}">
+            <div class="small shipyard-slot-group-label">${esc(group.label || fmtName(group.code || 'group'))} · Slots ${fmt(slotCount)}${affinityChips ? `<span class="shipyard-affinity-chips">${affinityChips}</span>` : ''}</div>
+            <div class="shipyard-slot-rows">
+              ${Array.from({ length: slotCount }).map((_, idx) => `
+                <div class="shipyard-slot-row" data-group-code="${esc(group.code || '')}" data-slot-index="${idx}">
+                  <span class="shipyard-slot-label small">Slot ${idx + 1}</span>
+                  <select class="input shipyard-module-slot" data-group-code="${esc(group.code || '')}" data-slot-index="${idx}" ${options ? '' : 'disabled'}>
+                    <option value="">— empty —</option>
+                    ${options || ''}
+                  </select>
+                  <div class="shipyard-slot-arrows">
+                    <button type="button" class="btn shipyard-slot-up" data-group-code="${esc(group.code || '')}" data-slot-index="${idx}" title="Tauscht diesen Slot mit dem darüber" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                    <button type="button" class="btn shipyard-slot-down" data-group-code="${esc(group.code || '')}" data-slot-index="${idx}" title="Tauscht diesen Slot mit dem darunter" ${idx === slotCount - 1 ? 'disabled' : ''}>▼</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>`);
+      });
+
+      if (!blocks.length) {
+        return '<div class="text-muted small">No active slots for this layout.</div>';
+      }
+
+      return `<div class="shipyard-slot-editor">${blocks.join('')}</div>`;
+    }
+
+    renderAffinityChips(affinities) {
+      if (!Array.isArray(affinities) || !affinities.length) return '';
+      const fmt = (type, val) => {
+        const v = Number(val);
+        if (type === 'cost_pct') return `Kosten ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
+        if (type === 'build_time_pct') return `Bauzeit ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
+        if (type === 'stat_mult') return `Stats ${v >= 0 ? '+' : ''}${(v * 100).toFixed(0)}%`;
+        if (type === 'unlock_tier') return `Tier +${v.toFixed(0)}`;
+        return `${type} ${v}`;
+      };
+      const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+      return affinities.map((a) => {
+        const active = a.active;
+        const title = `${esc(a.faction_name || a.faction_code)}: ${esc(fmt(a.bonus_type, a.bonus_value))} · Benötigt Stand ${a.min_standing} · Aktuell ${a.user_standing ?? '?'}`;
+        return `<span class="shipyard-affinity-chip ${active ? 'affinity-active' : 'affinity-inactive'}" title="${title}">${esc(a.faction_icon || '⬡')} ${esc(fmt(a.bonus_type, a.bonus_value))}</span>`;
+      }).join('');
+    }
+
+    collectBlueprintModulesFromUI(root) {
+      const selects = Array.from(root.querySelectorAll('.shipyard-module-slot'));
+      if (!selects.length) {
+        return [];
+      }
+
+      const totals = new Map();
+      selects.forEach((el) => {
+        const code = String(el.value || '').trim();
+        if (!code) return;
+        totals.set(code, (totals.get(code) || 0) + 1);
+      });
+
+      return Array.from(totals.entries()).map(([code, quantity]) => ({ code, quantity }));
+    }
+
+    swapSlots(root, groupCode, idxA, idxB) {
+      const selA = root.querySelector(`.shipyard-module-slot[data-group-code="${groupCode}"][data-slot-index="${idxA}"]`);
+      const selB = root.querySelector(`.shipyard-module-slot[data-group-code="${groupCode}"][data-slot-index="${idxB}"]`);
+      if (!selA || !selB) return;
+      const tmp = selA.value;
+      selA.value = selB.value;
+      selB.value = tmp;
+      this.updateStatsPreview(root);
+    }
+
+    computeLiveStats(root, baseStats = {}) {
+      const slots = Array.from(root.querySelectorAll('.shipyard-module-slot'));
+      const totals = Object.assign({ attack: 0, shield: 0, hull: 0, cargo: 0, speed: 0 }, baseStats);
+      slots.forEach((sel) => {
+        if (!sel.value) return;
+        const opt = sel.options[sel.selectedIndex];
+        if (!opt) return;
+        const statsStr = String(opt.dataset.stats || '');
+        statsStr.split(',').forEach((part) => {
+          const [key, val] = part.split(':');
+          if (!key || val === undefined) return;
+          const k = key.trim();
+          if (k in totals) totals[k] = (totals[k] || 0) + Number(val);
+        });
+      });
+      return totals;
+    }
+
+    updateStatsPreview(root) {
+      const preview = root.querySelector('#shipyard-blueprint-stats-preview');
+      if (!preview) return;
+      const hullCode = String(root.querySelector('#shipyard-blueprint-hull')?.value || '');
+      const hullCard = root.querySelector(`.shipyard-hull-base[data-hull-code="${hullCode}"]`);
+      const baseStats = hullCard
+        ? {
+            attack: Number(hullCard.dataset.attack || 0),
+            shield: Number(hullCard.dataset.shield || 0),
+            hull:   Number(hullCard.dataset.hull   || 0),
+            cargo:  Number(hullCard.dataset.cargo  || 0),
+            speed:  Number(hullCard.dataset.speed  || 0),
+          }
+        : {};
+      const live = this.computeLiveStats(root, baseStats);
+      const hasMods = Array.from(root.querySelectorAll('.shipyard-module-slot')).some((s) => s.value);
+      if (!hasMods) {
+        preview.innerHTML = '<div class="shipyard-stats-preview-empty small text-muted">Wähle Module, um eine Vorschau zu erhalten.</div>';
+        return;
+      }
+      const sign = (v) => (v >= 0 ? `+${fmt(v)}` : fmt(v));
+      preview.innerHTML = `
+        <div class="shipyard-stats-preview">
+          <div class="shipyard-stats-preview-label">Kompilierte Statistiken (Vorschau)</div>
+          <div class="shipyard-stats-preview-grid">
+            <div class="shipyard-stats-chip chiptype-atk">⚔ ATK <strong>${fmt(live.attack)}</strong></div>
+            <div class="shipyard-stats-chip chiptype-shd">🛡 SHD <strong>${fmt(live.shield)}</strong></div>
+            <div class="shipyard-stats-chip chiptype-hll">🔩 HULL <strong>${fmt(live.hull)}</strong></div>
+            <div class="shipyard-stats-chip chiptype-cargo">📦 CARGO <strong>${fmt(live.cargo)}</strong></div>
+            <div class="shipyard-stats-chip chiptype-spd">⚡ SPD <strong>${fmt(live.speed)}</strong></div>
+          </div>
+        </div>`;
+    }
+
+    // ── Saved presets (localStorage) ────────────────────────
+    _presetKey() { return 'gq_shipyard_presets_v1'; }
+
+    loadPresetsFromStorage() {
+      try {
+        return JSON.parse(localStorage.getItem(this._presetKey()) || '[]');
+      } catch (_) { return []; }
+    }
+
+    savePresetToStorage(name, hull, layout, modules) {
+      const presets = this.loadPresetsFromStorage().filter((p) => p.name !== name);
+      presets.unshift({ name, hull, layout, modules, ts: Date.now() });
+      localStorage.setItem(this._presetKey(), JSON.stringify(presets.slice(0, 20)));
+    }
+
+    deletePresetFromStorage(name) {
+      const presets = this.loadPresetsFromStorage().filter((p) => p.name !== name);
+      localStorage.setItem(this._presetKey(), JSON.stringify(presets));
+    }
+
+    buildPresetToolbarHtml() {
+      const presets = this.loadPresetsFromStorage();
+      const options = presets.length
+        ? presets.map((p) => `<option value="${esc(p.name)}">${esc(p.name)} · ${esc(fmtName(p.hull))} / ${esc(fmtName(p.layout))}</option>`).join('')
+        : '<option value="" disabled>Keine Presets gespeichert</option>';
+      return `
+        <div class="shipyard-preset-toolbar">
+          <select id="shipyard-preset-select" class="input shipyard-preset-select" ${!presets.length ? 'disabled' : ''}>
+            <option value="">— Preset laden —</option>
+            ${options}
+          </select>
+          <button type="button" class="btn btn-secondary btn-sm" id="shipyard-preset-load" ${!presets.length ? 'disabled' : ''}>Laden</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="shipyard-preset-save">Speichern</button>
+          <button type="button" class="btn btn-warning btn-sm" id="shipyard-preset-delete" ${!presets.length ? 'disabled' : ''}>Löschen</button>
+        </div>`;
+    }
+
+    refreshPresetToolbar(root) {
+      const container = root.querySelector('#shipyard-preset-toolbar-wrap');
+      if (container) container.innerHTML = this.buildPresetToolbarHtml();
+      this.bindPresetActions(root);
+    }
+
+    applyPreset(root, preset, hulls) {
+      const hullSel = root.querySelector('#shipyard-blueprint-hull');
+      const layoutSel = root.querySelector('#shipyard-blueprint-layout');
+      if (hullSel) hullSel.value = preset.hull;
+      this.updateBlueprintLayoutOptions(root, hulls).then(() => {
+        if (layoutSel) layoutSel.value = preset.layout;
+        // restore module slots after layout is rendered
+        window.setTimeout(() => {
+          const groupMap = new Map();
+          (Array.isArray(preset.modules) ? preset.modules : []).forEach((m) => {
+            if (!groupMap.has(m.group)) groupMap.set(m.group, []);
+            for (let i = 0; i < (m.quantity || 1); i++) groupMap.get(m.group).push(m.code);
+          });
+          root.querySelectorAll('.shipyard-module-slot').forEach((sel) => {
+            const g = sel.dataset.groupCode;
+            const idx = Number(sel.dataset.slotIndex || 0);
+            const codes = groupMap.get(g) || [];
+            if (codes[idx] !== undefined) sel.value = codes[idx];
+          });
+          this.updateStatsPreview(root);
+        }, 80);
+      });
+    }
+
+    bindPresetActions(root) {
+      root.querySelector('#shipyard-preset-save')?.addEventListener('click', () => {
+        const hullCode = String(root.querySelector('#shipyard-blueprint-hull')?.value || '');
+        const layoutCode = String(root.querySelector('#shipyard-blueprint-layout')?.value || 'default');
+        if (!hullCode) { showToast('Kein Hull ausgewählt.', 'warning'); return; }
+        const nameDefault = `${fmtName(hullCode)}-${fmtName(layoutCode)}`;
+        const name = (window.prompt('Preset-Name:', nameDefault) || '').trim();
+        if (!name) return;
+        const slotModules = [];
+        root.querySelectorAll('.shipyard-module-slot').forEach((sel) => {
+          if (sel.value) slotModules.push({ group: sel.dataset.groupCode, code: sel.value, quantity: 1 });
+        });
+        this.savePresetToStorage(name, hullCode, layoutCode, slotModules);
+        this.refreshPresetToolbar(root);
+        showToast(`Preset gespeichert: ${name}`, 'success');
+      });
+
+      root.querySelector('#shipyard-preset-load')?.addEventListener('click', () => {
+        const sel = root.querySelector('#shipyard-preset-select');
+        const name = String(sel?.value || '').trim();
+        if (!name) { showToast('Kein Preset ausgewählt.', 'warning'); return; }
+        const preset = this.loadPresetsFromStorage().find((p) => p.name === name);
+        if (!preset) { showToast('Preset nicht gefunden.', 'error'); return; }
+        this._pendingHulls = this._pendingHulls || [];
+        this.applyPreset(root, preset, this._pendingHulls);
+        showToast(`Preset geladen: ${name}`, 'info');
+      });
+
+      root.querySelector('#shipyard-preset-delete')?.addEventListener('click', () => {
+        const sel = root.querySelector('#shipyard-preset-select');
+        const name = String(sel?.value || '').trim();
+        if (!name) { showToast('Kein Preset ausgewählt.', 'warning'); return; }
+        this.deletePresetFromStorage(name);
+        this.refreshPresetToolbar(root);
+        showToast(`Preset gelöscht: ${name}`, 'info');
+      });
+    }
+
     buildCardsHtml(ships) {
       return `<div class="card-grid">${ships.map((ship) => `
         <div class="item-card">
@@ -4814,6 +5986,9 @@
             <span class="item-name">${fmtName(ship.type)}</span>
             <span class="item-level">${ship.count} owned</span>
           </div>
+          ${(Number(ship.running_count || 0) > 0 || Number(ship.queued_count || 0) > 0)
+            ? `<div class="small text-muted" style="margin-bottom:0.35rem;">Queue: ${Number(ship.running_count || 0) > 0 ? `${fmt(ship.running_count)} running` : ''}${Number(ship.running_count || 0) > 0 && Number(ship.queued_count || 0) > 0 ? ' · ' : ''}${Number(ship.queued_count || 0) > 0 ? `${fmt(ship.queued_count)} queued` : ''}${ship.active_eta ? ` · ETA ${countdown(ship.active_eta)}` : ''}</div>`
+            : ''}
           <div class="item-cost">
             ${ship.cost.metal ? `<span class="cost-metal">⬡ ${fmt(ship.cost.metal)}</span>` : ''}
             ${ship.cost.crystal ? `<span class="cost-crystal">💎 ${fmt(ship.cost.crystal)}</span>` : ''}
@@ -4829,7 +6004,170 @@
         </div>`).join('')}</div>`;
     }
 
-    bindActions(root) {
+    buildBlueprintCardsHtml(blueprints) {
+      if (!Array.isArray(blueprints) || !blueprints.length) {
+        return '<p class="text-muted small">No blueprints created yet.</p>';
+      }
+
+      return `<div class="card-grid">${blueprints.map((bp) => `
+        <div class="item-card" style="border-color:rgba(94,133,189,0.45);background:linear-gradient(180deg, rgba(13,20,33,0.96), rgba(10,16,27,0.92));">
+          <div class="item-card-header">
+            <span class="item-name">${esc(bp.name || bp.type)}</span>
+            <span class="item-level">${fmt(bp.count || 0)} owned</span>
+          </div>
+          ${(Number(bp.running_count || 0) > 0 || Number(bp.queued_count || 0) > 0)
+            ? `<div class="small text-muted" style="margin-bottom:0.35rem;">Queue: ${Number(bp.running_count || 0) > 0 ? `${fmt(bp.running_count)} running` : ''}${Number(bp.running_count || 0) > 0 && Number(bp.queued_count || 0) > 0 ? ' · ' : ''}${Number(bp.queued_count || 0) > 0 ? `${fmt(bp.queued_count)} queued` : ''}${bp.active_eta ? ` · ETA ${countdown(bp.active_eta)}` : ''}</div>`
+            : ''}
+          <div class="small text-muted" style="margin-bottom:0.35rem;">${esc(fmtName(bp.ship_class || 'corvette'))} · ${esc(fmtName(bp.slot_layout_code || 'default'))}</div>
+          <div class="item-cost">
+            ${bp.cost?.metal ? `<span class="cost-metal">⬡ ${fmt(bp.cost.metal)}</span>` : ''}
+            ${bp.cost?.crystal ? `<span class="cost-crystal">💎 ${fmt(bp.cost.crystal)}</span>` : ''}
+            ${bp.cost?.deuterium ? `<span class="cost-deut">🔵 ${fmt(bp.cost.deuterium)}</span>` : ''}
+          </div>
+          <div style="font-size:0.75rem;color:var(--text-muted)">
+            ATK ${fmt(bp.stats?.attack || 0)} · SHD ${fmt(bp.stats?.shield || 0)} · HULL ${fmt(bp.stats?.hull || 0)}
+          </div>
+          <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">
+            CARGO ${fmt(bp.stats?.cargo || 0)} · SPD ${fmt(bp.stats?.speed || 0)}
+          </div>
+          <div style="margin-top:0.45rem; display:flex; flex-wrap:wrap; gap:0.3rem;">${this.renderSlotProfile(bp.slot_profile || {})}</div>
+          <div class="ship-build-row" style="margin-top:0.65rem;">
+            <input type="number" class="ship-qty" data-blueprint-id="${Number(bp.id || 0)}" min="1" value="1" />
+            <button class="btn btn-primary btn-sm build-blueprint-btn" data-blueprint-id="${Number(bp.id || 0)}" data-blueprint-type="${esc(bp.type || '')}" data-blueprint-name="${esc(bp.name || bp.type || 'Blueprint')}">Build</button>
+          </div>
+        </div>`).join('')}</div>`;
+    }
+
+    buildHullCatalogHtml(hulls) {
+      if (!Array.isArray(hulls) || !hulls.length) {
+        return '<p class="text-muted small">No hull catalog available.</p>';
+      }
+
+      return `<div class="card-grid">${hulls.map((hull) => {
+        const layouts = Object.keys(hull.slot_variations || {});
+        return `
+          <div class="item-card" style="border-color:rgba(137,117,70,0.45);">
+            <div class="item-card-header">
+              <span class="item-name">${esc(hull.label || hull.code)}</span>
+              <span class="item-level">${esc(fmtName(hull.ship_class || hull.role || 'hull'))}</span>
+            </div>
+            ${hull.unlocked === false ? `<div class="small text-red" style="margin-bottom:0.35rem;">Locked: ${esc((hull.blockers || []).join(' | '))}</div>` : '<div class="small" style="margin-bottom:0.35rem;color:#7ed7a1;">Unlocked</div>'}
+            <div class="small text-muted" style="margin-bottom:0.35rem;">Tier ${fmt(hull.tier || 1)} · ${esc(hull.code || '')}</div>
+            <div style="font-size:0.75rem;color:var(--text-muted)">
+              ATK ${fmt(hull.base_stats?.attack || 0)} · SHD ${fmt(hull.base_stats?.shield || 0)} · HULL ${fmt(hull.base_stats?.hull || 0)}
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">
+              CARGO ${fmt(hull.base_stats?.cargo || 0)} · SPD ${fmt(hull.base_stats?.speed || 0)}
+            </div>
+            <div style="margin-top:0.45rem; display:flex; flex-wrap:wrap; gap:0.3rem;">${this.renderSlotProfile(hull.slot_profile || {})}</div>
+            <div class="small text-muted" style="margin-top:0.45rem;">Layouts: ${layouts.length ? layouts.map((layout) => esc(fmtName(layout))).join(' · ') : 'default only'}</div>
+          </div>`;
+      }).join('')}</div>`;
+    }
+
+    buildBlueprintCreatorHtml(hulls) {
+      const options = (Array.isArray(hulls) ? hulls : []).map((hull) => `<option value="${esc(hull.code || '')}" data-attack="${Number(hull.base_stats?.attack || 0)}" data-shield="${Number(hull.base_stats?.shield || 0)}" data-hull="${Number(hull.base_stats?.hull || 0)}" data-cargo="${Number(hull.base_stats?.cargo || 0)}" data-speed="${Number(hull.base_stats?.speed || 0)}" ${hull.unlocked === false ? 'disabled' : ''}>${esc(hull.label || hull.code || 'Hull')} (${esc(fmtName(hull.ship_class || hull.role || 'hull'))})${hull.unlocked === false ? ' [locked]' : ''}</option>`).join('');
+      return `
+        <div class="system-card" style="margin-bottom:1rem;">
+          <div class="system-row"><strong>Blueprint Forge</strong></div>
+          <div class="small text-muted" style="margin-top:0.3rem;">Quick-create a starter blueprint from a hull class and one of its slot layouts.</div>
+          <div id="shipyard-preset-toolbar-wrap" style="margin-top:0.65rem;">${this.buildPresetToolbarHtml()}</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.6rem;margin-top:0.7rem;">
+            <label class="small" style="display:flex;flex-direction:column;gap:0.25rem;">
+              <span>Name</span>
+              <input id="shipyard-blueprint-name" class="input" placeholder="Aegis Frigate" />
+            </label>
+            <label class="small" style="display:flex;flex-direction:column;gap:0.25rem;">
+              <span>Hull</span>
+              <select id="shipyard-blueprint-hull" class="input">${options}</select>
+            </label>
+            <label class="small" style="display:flex;flex-direction:column;gap:0.25rem;">
+              <span>Layout</span>
+              <select id="shipyard-blueprint-layout" class="input"></select>
+            </label>
+          </div>
+          <div id="shipyard-blueprint-layout-preview" class="small text-muted" style="margin-top:0.55rem;"></div>
+          <div id="shipyard-blueprint-modules" style="margin-top:0.65rem;"></div>
+          <div id="shipyard-blueprint-stats-preview" style="margin-top:0.55rem;"></div>
+          <div style="margin-top:0.7rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button id="shipyard-create-blueprint" class="btn">Create Blueprint</button>
+          </div>
+        </div>`;
+    }
+
+    buildQueueHtml(queue) {
+      if (!Array.isArray(queue) || !queue.length) {
+        return '<p class="text-muted small">No ships in production.</p>';
+      }
+
+      return `<div style="display:grid;gap:0.55rem;">${queue.map((entry) => {
+        const running = String(entry.status || '') === 'running';
+        const label = String(entry.label || entry.ship_type || 'Ship');
+        const statusLabel = running ? 'Running' : `Queued #${Number(entry.position || 1)}`;
+        const timer = running && entry.eta
+          ? `<div class="item-timer">⏳ <span data-end="${esc(entry.eta)}">${countdown(entry.eta)}</span></div><div class="progress-bar-wrap"><div class="progress-bar" data-start="${esc(entry.started_at || '')}" data-end="${esc(entry.eta)}" style="width:0%"></div></div>`
+          : '<div class="small text-muted">Waiting for free shipyard slot.</div>';
+        return `
+          <div class="item-card" style="padding:0.8rem 0.9rem;">
+            <div class="item-card-header">
+              <span class="item-name">${esc(label)}</span>
+              <span class="item-level">${esc(statusLabel)}</span>
+            </div>
+            <div class="small text-muted" style="margin-bottom:0.35rem;">${fmt(Number(entry.quantity || 1))}x ${esc(fmtName(entry.ship_type || label))}</div>
+            ${timer}
+          </div>`;
+      }).join('')}</div>`;
+    }
+
+    async updateBlueprintLayoutOptions(root, hulls) {
+      const hullCode = String(root.querySelector('#shipyard-blueprint-hull')?.value || '');
+      const hull = (Array.isArray(hulls) ? hulls : []).find((entry) => String(entry.code || '') === hullCode);
+      const layoutSelect = root.querySelector('#shipyard-blueprint-layout');
+      const preview = root.querySelector('#shipyard-blueprint-layout-preview');
+      const modulesRoot = root.querySelector('#shipyard-blueprint-modules');
+      if (!layoutSelect || !hull) {
+        if (layoutSelect) layoutSelect.innerHTML = '<option value="default">Default</option>';
+        if (preview) preview.innerHTML = '';
+        if (modulesRoot) modulesRoot.innerHTML = '';
+        return;
+      }
+
+      const layouts = ['default', ...Object.keys(hull.slot_variations || {})];
+      layoutSelect.innerHTML = layouts.map((layoutCode) => {
+        const label = layoutCode === 'default'
+          ? 'Default'
+          : String(hull.slot_variations?.[layoutCode]?.label || fmtName(layoutCode));
+        return `<option value="${esc(layoutCode)}">${esc(label)}</option>`;
+      }).join('');
+
+      const selectedLayout = String(layoutSelect.value || 'default');
+      const profile = this.computeSlotProfile(hull, selectedLayout);
+      if (preview) {
+        const blockers = Array.isArray(hull.blockers) && hull.blockers.length
+          ? `<div class="text-red" style="margin-top:0.3rem;">Locked: ${esc(hull.blockers.join(' | '))}</div>`
+          : '';
+        preview.innerHTML = `Class: ${esc(fmtName(hull.ship_class || hull.role || 'hull'))} · Slots: ${this.renderSlotProfile(profile)}${blockers}`;
+      }
+
+      if (modulesRoot) {
+        modulesRoot.innerHTML = '<div class="text-muted small">Loading module options...</div>';
+      }
+      try {
+        const catalog = await this.fetchModuleCatalog(currentColony.id, hull.code, selectedLayout);
+        if (modulesRoot) {
+          const hullGate = catalog?.hull_unlocked === false && Array.isArray(catalog?.hull_blockers) && catalog.hull_blockers.length
+            ? `<div class="text-red small" style="margin-bottom:0.45rem;">Hull locked: ${esc(catalog.hull_blockers.join(' | '))}</div>`
+            : '';
+          modulesRoot.innerHTML = `${hullGate}${this.renderModuleSlotEditor(catalog)}`;
+        }
+      } catch (err) {
+        if (modulesRoot) {
+          modulesRoot.innerHTML = `<div class="text-red small">${esc(String(err?.message || 'Failed to load module options.'))}</div>`;
+        }
+      }
+    }
+
+    bindActions(root, hulls = []) {
       root.querySelectorAll('.build-btn').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const type = btn.dataset.type;
@@ -4837,8 +6175,8 @@
           btn.disabled = true;
           const res = await API.buildShip(currentColony.id, type, qty);
           if (res.success) {
-            showToast(`Built ${qty}× ${fmtName(type)}`, 'success');
-            if (audioManager && typeof audioManager.playBuildComplete === 'function') audioManager.playBuildComplete();
+            const queuePosition = Number(res.queue_position || 1);
+            showToast(`Queued ${qty}x ${fmtName(type)}${queuePosition > 1 ? ` (#${queuePosition})` : ''}`, 'success');
             const resources = await API.resources(currentColony.id);
             if (resources.success) Object.assign(currentColony, resources.resources);
             updateResourceBar();
@@ -4848,6 +6186,113 @@
             btn.disabled = false;
           }
         });
+      });
+
+      root.querySelectorAll('.build-blueprint-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const blueprintId = Number(btn.dataset.blueprintId || 0);
+          const type = String(btn.dataset.blueprintType || '');
+          const name = String(btn.dataset.blueprintName || 'Blueprint');
+          const qty = parseInt(root.querySelector(`.ship-qty[data-blueprint-id="${blueprintId}"]`)?.value || '1', 10) || 1;
+          btn.disabled = true;
+          const res = await API.buildShip(currentColony.id, type, qty, { blueprint_id: blueprintId });
+          if (res.success) {
+            const queuePosition = Number(res.queue_position || 1);
+            showToast(`Queued ${qty}x ${name}${queuePosition > 1 ? ` (#${queuePosition})` : ''}`, 'success');
+            const resources = await API.resources(currentColony.id);
+            if (resources.success) Object.assign(currentColony, resources.resources);
+            updateResourceBar();
+            await this.render();
+          } else {
+            showToast(res.error || 'Build failed', 'error');
+            btn.disabled = false;
+          }
+        });
+      });
+
+      root.querySelector('#shipyard-blueprint-hull')?.addEventListener('change', async () => {
+        await this.updateBlueprintLayoutOptions(root, hulls);
+      });
+      root.querySelector('#shipyard-blueprint-layout')?.addEventListener('change', async () => {
+        await this.updateBlueprintLayoutOptions(root, hulls);
+      });
+      root.querySelector('#shipyard-create-blueprint')?.addEventListener('click', async () => {
+        const hullCode = String(root.querySelector('#shipyard-blueprint-hull')?.value || '');
+        const layoutCode = String(root.querySelector('#shipyard-blueprint-layout')?.value || 'default');
+        const nameInput = root.querySelector('#shipyard-blueprint-name');
+        const hull = hulls.find((entry) => String(entry.code || '') === hullCode);
+        if (!hull) {
+          showToast('No hull selected.', 'warning');
+          return;
+        }
+
+        const modules = this.collectBlueprintModulesFromUI(root);
+        if (!modules.length) {
+          showToast('Select modules for at least one slot.', 'warning');
+          return;
+        }
+
+        const defaultName = `${fmtName(hull.ship_class || hull.role || 'Hull')} ${fmtName(layoutCode === 'default' ? hull.code : layoutCode)}`;
+        const payload = {
+          colony_id: currentColony.id,
+          name: String(nameInput?.value || '').trim() || defaultName,
+          hull_code: hullCode,
+          slot_layout_code: layoutCode,
+          doctrine_tag: layoutCode,
+          modules,
+        };
+
+        const createBtn = root.querySelector('#shipyard-create-blueprint');
+        if (createBtn) createBtn.disabled = true;
+        try {
+          const res = await API.createBlueprint(payload);
+          if (!res.success) {
+            throw new Error(res.error || 'Blueprint creation failed');
+          }
+          showToast(`Blueprint created: ${payload.name}`, 'success');
+          if (nameInput) nameInput.value = '';
+          await this.render();
+        } catch (err) {
+          showToast(String(err?.message || 'Blueprint creation failed'), 'error');
+          if (createBtn) createBtn.disabled = false;
+        }
+      });
+
+      this.updateBlueprintLayoutOptions(root, hulls).catch(() => {});
+
+      // ── Module slot events (delegated on modules container) ─
+      const modsContainer = root.querySelector('#shipyard-blueprint-modules');
+      if (modsContainer) {
+        modsContainer.addEventListener('change', (e) => {
+          if (e.target.classList.contains('shipyard-module-slot')) {
+            this.updateStatsPreview(root);
+          }
+        });
+        modsContainer.addEventListener('click', (e) => {
+          const upBtn = e.target.closest('.shipyard-slot-up');
+          const downBtn = e.target.closest('.shipyard-slot-down');
+          const btn = upBtn || downBtn;
+          if (!btn || btn.disabled) return;
+          const groupCode = String(btn.dataset.groupCode || '');
+          const idx = Number(btn.dataset.slotIndex || 0);
+          if (upBtn) this.swapSlots(root, groupCode, idx, idx - 1);
+          else this.swapSlots(root, groupCode, idx, idx + 1);
+        });
+      }
+
+      // ── Hull change: update base stats proxy element ─────────
+      root.querySelector('#shipyard-blueprint-hull')?.addEventListener('change', () => {
+        this.updateStatsPreview(root);
+      });
+
+      this.bindPresetActions(root);
+
+      // ── Decommission vessel buttons ──────────────────────
+      root.addEventListener('click', (e) => {
+        const btn = e.target.closest('.vessel-decommission-btn');
+        if (!btn) return;
+        const vid = Number(btn.dataset.vesselId);
+        if (vid > 0) this.decommissionVessel(vid, root);
       });
     }
 
@@ -4861,15 +6306,102 @@
       root.innerHTML = '<p class="text-muted">Loading…</p>';
 
       try {
-        const data = await API.ships(currentColony.id);
+        const [data, hullData, vesselData] = await Promise.all([
+          API.ships(currentColony.id),
+          API.shipyardHulls(currentColony.id),
+          API.shipyardVessels(currentColony.id).catch(() => ({ vessels: [] })),
+        ]);
         if (!data.success) {
           root.innerHTML = '<p class="text-red">Error.</p>';
           return;
         }
-        root.innerHTML = this.buildCardsHtml(data.ships || []);
-        this.bindActions(root);
+        const hulls   = Array.isArray(hullData?.hulls) ? hullData.hulls : [];
+        const vessels = Array.isArray(vesselData?.vessels) ? vesselData.vessels : [];
+        this._pendingHulls = hulls;
+        root.innerHTML = `
+          ${this.buildBlueprintCreatorHtml(hulls)}
+          <div class="system-card" style="margin-bottom:1rem;">
+            <div class="system-row"><strong>Build Queue</strong></div>
+            <div class="small text-muted" style="margin-top:0.3rem;">Ships now enter a real production queue with ETA.</div>
+            <div style="margin-top:0.7rem;">${this.buildQueueHtml(data.queue || [])}</div>
+          </div>
+          ${vessels.length ? `
+          <div class="system-card" style="margin-bottom:1rem;" id="shipyard-docked-vessels-card">
+            <div class="system-row"><strong>Docked Vessels</strong><span class="badge" style="margin-left:0.5rem;">${vessels.length}</span></div>
+            <div class="small text-muted" style="margin-top:0.3rem;">Individual blueprint vessels docked at this colony.</div>
+            <div style="margin-top:0.7rem;">${this.renderDockedVessels(vessels)}</div>
+          </div>` : ''}
+          <div class="system-card" style="margin-bottom:1rem;">
+            <div class="system-row"><strong>Hull Catalog</strong></div>
+            <div class="small text-muted" style="margin-top:0.3rem;">Ship classes and their slot-layout variations.</div>
+            <div style="margin-top:0.7rem;">${this.buildHullCatalogHtml(hulls)}</div>
+          </div>
+          <div class="system-card" style="margin-bottom:1rem;">
+            <div class="system-row"><strong>Blueprints</strong></div>
+            <div class="small text-muted" style="margin-top:0.3rem;">Compiled blueprints built as synthetic ship types.</div>
+            <div style="margin-top:0.7rem;">${this.buildBlueprintCardsHtml(data.blueprints || [])}</div>
+          </div>
+          <div class="system-card">
+            <div class="system-row"><strong>Legacy Ships</strong></div>
+            <div class="small text-muted" style="margin-top:0.3rem;">Fallback SHIP_STATS path remains available during migration.</div>
+            <div style="margin-top:0.7rem;">${this.buildCardsHtml(data.ships || [])}</div>
+          </div>`;
+        this.bindActions(root, hulls);
       } catch (_) {
         root.innerHTML = '<p class="text-red">Failed to load shipyard.</p>';
+      }
+    }
+
+    renderDockedVessels(vessels) {
+      if (!vessels.length) return '';
+      const esc  = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+      const fmt  = (n) => Number(n).toLocaleString();
+      const fmtName = (s) => String(s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+      return `<div class="vessel-list">
+        ${vessels.map((v) => {
+          const hp     = (v.hp_state?.hp    ?? v.stats?.hull ?? '?');
+          const maxHp  = (v.hp_state?.max_hp ?? v.stats?.hull ?? '?');
+          const hpPct  = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
+          const hpBar  = `<div class="vessel-hp-bar"><div class="vessel-hp-fill" style="width:${hpPct}%;"></div></div>`;
+          const statChips = ['attack','shield','hull','cargo','speed']
+            .filter((k) => v.stats?.[k] > 0)
+            .map((k) => `<span class="vessel-stat-chip chiptype-${k.slice(0,3)}">${fmtName(k)} ${fmt(v.stats[k])}</span>`)
+            .join('');
+          return `
+            <div class="vessel-card" data-vessel-id="${v.id}">
+              <div class="vessel-card-header">
+                <span class="vessel-card-name">${esc(v.bp_name || v.name || `Vessel #${v.id}`)}</span>
+                <span class="vessel-card-class badge">${esc(fmtName(v.hull_class || 'unknown'))} T${v.hull_tier ?? '?'}</span>
+                <span class="vessel-card-status vessel-status-${esc(v.status)}">${esc(v.status)}</span>
+              </div>
+              <div class="vessel-card-hull">${esc(v.hull_label || '')}</div>
+              ${hpBar}
+              <div class="vessel-stat-chips">${statChips}</div>
+              <div class="vessel-card-actions">
+                <button type="button" class="btn btn-sm btn-danger vessel-decommission-btn" data-vessel-id="${v.id}" title="Permanently decommission this vessel">Decommission</button>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    async decommissionVessel(vesselId, root) {
+      if (!confirm('Permanently decommission this vessel? This cannot be undone.')) return;
+      try {
+        const res = await API.decommissionVessel(vesselId);
+        if (res.success) {
+          const card = root?.querySelector(`.vessel-card[data-vessel-id="${vesselId}"]`);
+          card?.remove();
+          const listEl = root?.querySelector('.vessel-list');
+          if (listEl && !listEl.querySelector('.vessel-card')) {
+            root?.querySelector('#shipyard-docked-vessels-card')?.remove();
+          }
+        } else {
+          alert(res.error || 'Decommission failed.');
+        }
+      } catch (_) {
+        alert('Network error.');
       }
     }
   }
@@ -5066,6 +6598,22 @@
     galaxyController.updateClusterBoundsUi(root);
   }
 
+  function updateGalaxyColonyFilterUi(root) {
+    const btn = root?.querySelector?.('#gal-colonies-only-btn');
+    if (!btn) return;
+    const mode = getGalaxyColonyFilterMode();
+    const ownerFocus = getGalaxyColonyOwnerFocus();
+    const labels = {
+      all: 'Filter: alle',
+      colonies: 'Filter: Kolonien',
+      own: 'Filter: eigene',
+      foreign: 'Filter: fremde',
+    };
+    btn.textContent = labels[mode] || 'Filter: alle';
+    btn.classList.toggle('active', mode !== 'all');
+    btn.title = ownerFocus.name ? `Aktiver Besitzerfokus: ${ownerFocus.name}` : 'Kein Besitzerfokus aktiv';
+  }
+
   function flashGalaxyControlBtn(root, selector) {
     const btn = root?.querySelector(selector);
     if (!btn) return;
@@ -5139,6 +6687,39 @@
   }
 
   function updateGalaxyHoverCard(root, star, pos, pinned) {
+    const formatColonyPopulation = (value) => {
+      const population = Math.max(0, Number(value || 0));
+      if (!population) return '0';
+      if (population >= 1000000000) return `${(population / 1000000000).toFixed(1)}B`;
+      if (population >= 1000000) return `${(population / 1000000).toFixed(1)}M`;
+      if (population >= 1000) return `${(population / 1000).toFixed(1)}K`;
+      return String(Math.round(population));
+    };
+    const getColonyMarkerMeta = (target) => {
+      const colonyCount = Math.max(0, Number(target?.colony_count || 0));
+      if (colonyCount <= 0) return null;
+      const colonyPopulation = Math.max(0, Number(target?.colony_population || 0));
+      const colonyColor = String(target?.colony_owner_color || target?.owner_color || target?.faction_color || '#7db7ee');
+      const ownerName = String(target?.colony_owner_name || target?.owner || '').trim();
+      const isPlayer = Number(target?.colony_is_player || 0) === 1;
+      const countStrength = colonyCount > 0 ? Math.max(0, Math.min(1, (Math.log2(colonyCount + 1) - 0.3) / 3.2)) : 0;
+      const popStrength = colonyPopulation > 0 ? Math.max(0, Math.min(1, (Math.log10(colonyPopulation + 1) - 2.2) / 3.0)) : 0;
+      const strength = Math.max(countStrength, popStrength);
+      let label = 'Außenposten';
+      if (strength >= 0.75) label = 'Kernwelt';
+      else if (strength >= 0.4) label = 'Kolonie';
+      return {
+        count: colonyCount,
+        population: colonyPopulation,
+        populationShort: formatColonyPopulation(colonyPopulation),
+        color: colonyColor,
+        strength,
+        label: isPlayer ? `Eigene ${label}` : label,
+        ownerName,
+        isPlayer,
+      };
+    };
+
     const card = document.getElementById('galaxy-hover-card');
     if (!card) return;
     if (!star || !pos) {
@@ -5149,10 +6730,16 @@
       const sourceStar = star.__sourceStar || {};
       const title = star.name || fmtName(String(star.planet_class || 'planet'));
       const owner = star.owner ? ` · ${esc(star.owner)}` : '';
+      const ownColony = colonies.find((col) => Number(col.id || 0) === Number(star.colony_id || star.__slot?.player_planet?.colony_id || 0)) || null;
+      const ownerColor = String(star.owner_color || star.__slot?.player_planet?.owner_color || '#7db7ee');
+      const ownerBadge = star.owner
+        ? `<div class="hover-meta hover-meta-colony"><span class="hover-colony-swatch" style="background:${esc(ownerColor)};box-shadow:0 0 8px ${esc(ownerColor)};"></span>${esc(ownColony ? 'Eigene Kolonie' : 'Fremde Kolonie')}${star.owner ? ` · Besitzer: ${esc(star.owner)}` : ''}</div>`
+        : '';
       card.innerHTML = `
         <div class="hover-title hover-title-planet"><span class="hover-planet-icon">${planetIcon(star.planet_class)}</span>${esc(title)}</div>
         <div class="hover-meta">${esc(star.planet_class || 'Planet')} · slot ${esc(String(star.__slot?.position || star.position || '?'))}${owner}</div>
-        <div class="hover-meta">around ${esc(sourceStar.name || sourceStar.catalog_name || 'system star')}</div>`;
+        <div class="hover-meta">around ${esc(sourceStar.name || sourceStar.catalog_name || 'system star')}</div>
+        ${ownerBadge}`;
     } else if (star.__kind === 'cluster') {
       const systems = Array.isArray(star.__clusterSystems) ? star.__clusterSystems : [];
       const from = systems.length ? Math.min(...systems) : Number(star.from || 0);
@@ -5164,9 +6751,14 @@
         <div class="hover-meta">Hover/Klick selektiert · Doppelklick zoomt in die Bounding Box</div>`;
     } else {
       const starColor = starClassColor(star.spectral_class);
+      const colonyMeta = getColonyMarkerMeta(star);
+      const colonyLine = colonyMeta
+        ? `<div class="hover-meta hover-meta-colony"><span class="hover-colony-swatch" style="background:${esc(colonyMeta.color)};box-shadow:0 0 8px ${esc(colonyMeta.color)};"></span>${esc(colonyMeta.label)} · ${esc(String(colonyMeta.count))} Kolonien · Pop ${esc(colonyMeta.populationShort)}${colonyMeta.ownerName ? ` · ${esc(colonyMeta.isPlayer ? 'Besitzer: Du' : `Besitzer: ${colonyMeta.ownerName}`)}` : ''}</div>`
+        : '';
       card.innerHTML = `
         <div class="hover-title"><span class="hover-star-dot" style="background:${starColor};box-shadow:0 0 8px ${starColor};"></span>${esc(star.name)}</div>
-        <div class="hover-meta">${esc(star.spectral_class)}${esc(String(star.subtype ?? ''))} · ${star.galaxy_index}:${star.system_index}</div>`;
+        <div class="hover-meta">${esc(star.spectral_class)}${esc(String(star.subtype ?? ''))} · ${star.galaxy_index}:${star.system_index}</div>
+        ${colonyLine}`;
     }
 
     const _hostW = document.getElementById('galaxy-3d-host')?.clientWidth || window.innerWidth;
@@ -5205,6 +6797,34 @@
   function renderGalaxySystemDetails(root, star, zoomed) {
     const details = root.querySelector('#galaxy-system-details');
     if (!details) return;
+    const formatColonyPopulation = (value) => {
+      const population = Math.max(0, Number(value || 0));
+      if (!population) return '0';
+      return population.toLocaleString('de-DE');
+    };
+    const getColonyMarkerMeta = (target) => {
+      const colonyCount = Math.max(0, Number(target?.colony_count || 0));
+      if (colonyCount <= 0) return null;
+      const colonyPopulation = Math.max(0, Number(target?.colony_population || 0));
+      const colonyColor = String(target?.colony_owner_color || target?.owner_color || target?.faction_color || '#7db7ee');
+      const ownerName = String(target?.colony_owner_name || target?.owner || '').trim();
+      const isPlayer = Number(target?.colony_is_player || 0) === 1;
+      const countStrength = colonyCount > 0 ? Math.max(0, Math.min(1, (Math.log2(colonyCount + 1) - 0.3) / 3.2)) : 0;
+      const popStrength = colonyPopulation > 0 ? Math.max(0, Math.min(1, (Math.log10(colonyPopulation + 1) - 2.2) / 3.0)) : 0;
+      const strength = Math.max(countStrength, popStrength);
+      let label = 'Außenposten';
+      if (strength >= 0.75) label = 'Kernwelt';
+      else if (strength >= 0.4) label = 'Kolonie';
+      return {
+        count: colonyCount,
+        population: colonyPopulation,
+        populationFull: formatColonyPopulation(colonyPopulation),
+        color: colonyColor,
+        label: isPlayer ? `Eigene ${label}` : label,
+        ownerName,
+        isPlayer,
+      };
+    };
     const followEnabled = !galaxy3d || typeof galaxy3d.isFollowingSelection !== 'function'
       ? true
       : galaxy3d.isFollowingSelection();
@@ -5274,9 +6894,13 @@
       ? String(Math.round(countRaw))
       : '<span class="text-muted" title="legacy cache/no count">n/a</span>';
     const isFav = isFavoriteStar(star);
+    const colonyMeta = getColonyMarkerMeta(star);
+    const colonyHtml = colonyMeta
+      ? `<div class="system-row system-row-colony"><span class="system-colony-swatch" style="background:${esc(colonyMeta.color)};box-shadow:0 0 10px ${esc(colonyMeta.color)};"></span>${esc(colonyMeta.label)} · ${esc(String(colonyMeta.count))} Kolonien · Bevölkerung ${esc(colonyMeta.populationFull)}${colonyMeta.ownerName ? ` · ${esc(colonyMeta.isPlayer ? 'Dominanz: Du' : `Dominanz: ${colonyMeta.ownerName}`)}` : ''}</div>`
+      : '<div class="system-row text-muted">Keine bekannten Kolonien in diesem System.</div>';
 
     // FoW visibility indicator
-    const fowLevel = star.visibility_level || 'unknown';
+    const fowLevel = isCurrentUserAdmin() ? 'own' : (star.visibility_level || 'unknown');
     const fowLabels = { own: '🏠 Eigene Kolonie', active: '🛸 Flotte aktiv', stale: '⏳ Veraltete Aufklärung', unknown: '🌑 Unerforscht' };
     const fowHtml = `<div class="system-row ${fowLevel === 'unknown' ? 'fow-unknown-badge' : ''}" style="${fowLevel === 'stale' ? 'color:#e8c843' : ''}">${esc(fowLabels[fowLevel] || fowLevel)}</div>`;
 
@@ -5290,6 +6914,7 @@
         <div class="system-row">Coordinates: ${Number(star.x_ly || 0).toFixed(0)}, ${Number(star.y_ly || 0).toFixed(0)}, ${Number(star.z_ly || 0).toFixed(0)} ly</div>
         <div class="system-row">Habitable Zone: ${Number(star.hz_inner_au || 0).toFixed(2)} - ${Number(star.hz_outer_au || 0).toFixed(2)} AU</div>
         <div class="system-row">Planets: ${planetCountHtml}</div>
+        ${colonyHtml}
         ${fowHtml}
         <div class="system-row">Selection Follow: ${followEnabled ? 'locked' : 'free'} (L)</div>
         <div class="system-row">${zoomed ? 'System view active. Esc/F/R returns to galaxy overview.' : 'Double click to zoom into the system and show planets.'}</div>
@@ -5472,7 +7097,7 @@
     renderList();
 
     // ── Events ─────────────────────────────────────────────────────────────
-    const navigateToFav = (key) => {
+    const navigateToFav = async (key) => {
       const favs = getQuickNavFavorites();
       const fav  = favs.find((f) => f.key === key);
       if (!fav) return;
@@ -5487,7 +7112,12 @@
       };
       WM.open('galaxy');
       pinnedStar = starData;
-      if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') galaxy3d.focusOnStar(starData, true);
+      const flight = await runPhysicsCinematicFlight(starData, {
+        durationSec: 1.7,
+        holdMs: 720,
+        label: `${starData.name || starData.catalog_name || `System ${Number(starData.system_index || 0)}`} [${Number(starData.galaxy_index || 1)}:${Number(starData.system_index || 0)}]`,
+      });
+      if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') galaxy3d.focusOnStar(starData, !flight.ok);
       const galaxyRoot = WM.body('galaxy');
       if (galaxyRoot) renderGalaxySystemDetails(galaxyRoot, starData, false);
       if (audioManager && typeof audioManager.playNavigation === 'function') audioManager.playNavigation();
@@ -5508,7 +7138,10 @@
       const goBtn    = e.target.closest('.quicknav-item-btn.go');
       const removeBtn = e.target.closest('.quicknav-item-btn.remove');
       const itemRow  = e.target.closest('.quicknav-item');
-      if (goBtn) { navigateToFav(goBtn.dataset.favKey); return; }
+      if (goBtn) {
+        navigateToFav(goBtn.dataset.favKey).catch(() => {});
+        return;
+      }
       if (removeBtn) {
         removeFavorite(removeBtn.dataset.favKey);
         updateFooterQuickNavBadge();
@@ -5518,7 +7151,7 @@
         return;
       }
       if (itemRow && !e.target.closest('select') && !e.target.closest('button')) {
-        navigateToFav(itemRow.dataset.favKey);
+        navigateToFav(itemRow.dataset.favKey).catch(() => {});
       }
     });
 
@@ -5536,16 +7169,239 @@
     (Array.isArray(existingStars) ? existingStars : []).forEach((s) => {
       if (Number(s?.galaxy_index || 0) !== g) return;
       const key = Number(s?.system_index || 0);
-      if (key > 0) map.set(key, s);
+      if (key > 0) map.set(key, normalizeStarVisibility(s));
     });
     (Array.isArray(incomingStars) ? incomingStars : []).forEach((s) => {
       if (Number(s?.galaxy_index || g) !== g) return;
       const key = Number(s?.system_index || 0);
-      if (key > 0) map.set(key, s);
+      if (key > 0) map.set(key, normalizeStarVisibility(s));
     });
     return [...map.entries()]
       .sort((a, b) => a[0] - b[0])
       .map(([, value]) => value);
+  }
+
+  function getGalaxyColonyFilterMode() {
+    const mode = String(settingsState.galaxyColonyFilterMode || '').toLowerCase();
+    if (['all', 'colonies', 'own', 'foreign'].includes(mode)) return mode;
+    return settingsState.galaxyColoniesOnly === true ? 'colonies' : 'all';
+  }
+
+  function getGalaxyColonyOwnerMeta(star) {
+    const isPlayer = Number(star?.colony_is_player || 0) === 1;
+    const ownerName = String(star?.colony_owner_name || (isPlayer ? currentUser?.username || 'Du' : 'Unbekannt')).trim() || 'Unbekannt';
+    const ownerUserId = Math.max(0, Number(star?.colony_owner_user_id || (isPlayer ? currentUser?.id || 0 : 0)));
+    const color = String(star?.colony_owner_color || '#7db7ee');
+    return { ownerName, ownerUserId, color, isPlayer };
+  }
+
+  function getGalaxyColonyOwnerFocus() {
+    return {
+      userId: Math.max(0, Number(settingsState.galaxyOwnerFocusUserId || 0)),
+      name: String(settingsState.galaxyOwnerFocusName || '').trim(),
+    };
+  }
+
+  function getDisplayedGalaxyStars(stars) {
+    const rows = Array.isArray(stars) ? stars : [];
+    const mode = getGalaxyColonyFilterMode();
+    return rows.filter((star) => {
+      const colonyCount = Math.max(0, Number(star?.colony_count || 0));
+      const isPlayer = Number(star?.colony_is_player || 0) === 1;
+      const ownerMeta = getGalaxyColonyOwnerMeta(star);
+      const ownerFocus = getGalaxyColonyOwnerFocus();
+      if (ownerFocus.userId > 0 || ownerFocus.name) {
+        if (colonyCount <= 0) return false;
+        const matchesFocus = ownerFocus.userId > 0
+          ? ownerMeta.ownerUserId === ownerFocus.userId
+          : ownerMeta.ownerName.localeCompare(ownerFocus.name, 'de', { sensitivity: 'base' }) === 0;
+        if (!matchesFocus) return false;
+      }
+      if (mode === 'all') return true;
+      if (mode === 'colonies') return colonyCount > 0;
+      if (mode === 'own') return colonyCount > 0 && isPlayer;
+      if (mode === 'foreign') return colonyCount > 0 && !isPlayer;
+      return true;
+    });
+  }
+
+  function getDisplayedGalaxyClusterSummary(clusterSummary, stars) {
+    if (getGalaxyColonyFilterMode() === 'all') return Array.isArray(clusterSummary) ? clusterSummary : [];
+    const filteredStars = getDisplayedGalaxyStars(stars);
+    const allowedSystems = new Set(
+      filteredStars
+        .map((star) => Number(star?.system_index || 0))
+        .filter((systemIndex) => Number.isFinite(systemIndex) && systemIndex > 0)
+    );
+    if (!allowedSystems.size) return [];
+    return (Array.isArray(clusterSummary) ? clusterSummary : []).filter((cluster) => {
+      const systems = Array.isArray(cluster?.systems) ? cluster.systems : [];
+      return systems.some((systemIndex) => allowedSystems.has(Number(systemIndex || 0)));
+    });
+  }
+
+  function getGalaxyOwnerFocusHighlightedSystems(stars) {
+    const ownerFocus = getGalaxyColonyOwnerFocus();
+    if (!ownerFocus.name && ownerFocus.userId <= 0) return [];
+    return [...new Set(
+      getDisplayedGalaxyStars(stars)
+        .map((star) => Number(star?.system_index || 0))
+        .filter((systemIndex) => Number.isFinite(systemIndex) && systemIndex > 0)
+    )];
+  }
+
+  function applyGalaxyOwnerHighlightToRenderer(stars) {
+    if (!galaxy3d || typeof galaxy3d.setEmpireHeartbeatSystems !== 'function') return;
+    galaxy3d.setEmpireHeartbeatSystems(getGalaxyOwnerFocusHighlightedSystems(stars));
+  }
+
+  function renderGalaxyColonySummary(panel, stars, range = null) {
+    if (!panel) return;
+    const filteredStars = getDisplayedGalaxyStars(stars);
+    const ownerFocus = getGalaxyColonyOwnerFocus();
+    const highlightedSystems = getGalaxyOwnerFocusHighlightedSystems(stars);
+    const groups = new Map();
+    filteredStars.forEach((star) => {
+      const colonyCount = Math.max(0, Number(star?.colony_count || 0));
+      if (colonyCount <= 0) return;
+      const ownerMeta = getGalaxyColonyOwnerMeta(star);
+      const key = `${ownerMeta.ownerUserId}|${ownerMeta.ownerName}|${ownerMeta.color}|${ownerMeta.isPlayer ? 'own' : 'foreign'}`;
+      const slot = groups.get(key) || {
+        ownerName: ownerMeta.ownerName,
+        ownerUserId: ownerMeta.ownerUserId,
+        color: ownerMeta.color,
+        isPlayer: ownerMeta.isPlayer,
+        systems: 0,
+        colonies: 0,
+        population: 0,
+        minSystem: Number.POSITIVE_INFINITY,
+        maxSystem: 0,
+      };
+      const systemIndex = Math.max(0, Number(star?.system_index || 0));
+      slot.systems += 1;
+      slot.colonies += colonyCount;
+      slot.population += Math.max(0, Number(star?.colony_population || 0));
+      if (systemIndex > 0) {
+        slot.minSystem = Math.min(slot.minSystem, systemIndex);
+        slot.maxSystem = Math.max(slot.maxSystem, systemIndex);
+      }
+      groups.set(key, slot);
+    });
+
+    const rows = [...groups.values()].sort((a, b) => {
+      if (a.isPlayer !== b.isPlayer) return a.isPlayer ? -1 : 1;
+      return b.population - a.population || b.colonies - a.colonies || a.ownerName.localeCompare(b.ownerName);
+    });
+    const rangeText = range && Number.isFinite(Number(range.from)) && Number.isFinite(Number(range.to))
+      ? `${Number(range.from)}-${Number(range.to)}`
+      : 'aktuelle Range';
+    const modeLabelMap = {
+      all: 'Alle Systeme',
+      colonies: 'Nur Koloniesysteme',
+      own: 'Nur eigene Kolonien',
+      foreign: 'Nur fremde Kolonien',
+    };
+    const modeLabel = modeLabelMap[getGalaxyColonyFilterMode()] || 'Alle Systeme';
+    const focusText = ownerFocus.name ? `Besitzerfokus: ${ownerFocus.name}` : 'Besitzerfokus: keiner';
+    const quickFilterText = ownerFocus.name
+      ? `Schnellfilter aktiv: ${ownerFocus.name} · ${highlightedSystems.length} Systeme hervorgehoben`
+      : 'Schnellfilter: aus';
+
+    panel.innerHTML = `
+      <h4>Kolonie-Übersicht</h4>
+      <div class="planet-detail-3d galaxy-colony-summary-card">
+        <div class="planet-detail-row">Range: ${esc(rangeText)} · Filter: ${esc(modeLabel)}</div>
+        <div class="planet-detail-row galaxy-owner-focus-row${ownerFocus.name ? ' galaxy-owner-focus-row-active' : ''}"><span>${esc(focusText)}</span>${ownerFocus.name ? ' <button type="button" class="btn btn-secondary btn-sm galaxy-owner-focus-clear" data-owner-focus-clear="1">Fokus lösen</button>' : ''}</div>
+        <div class="planet-detail-row galaxy-owner-quickfilter-row${ownerFocus.name ? ' galaxy-owner-quickfilter-row-active' : ''}">${esc(quickFilterText)}</div>
+        ${rows.length ? rows.map((row) => `
+          <div class="galaxy-owner-summary-actions">
+            <button type="button" class="galaxy-owner-summary-row${row.isPlayer ? ' galaxy-owner-summary-row-own' : ''}${((ownerFocus.userId > 0 && row.ownerUserId === ownerFocus.userId) || (ownerFocus.userId <= 0 && ownerFocus.name && row.ownerName.localeCompare(ownerFocus.name, 'de', { sensitivity: 'base' }) === 0)) ? ' galaxy-owner-summary-row-active' : ''}" data-owner-focus-name="${esc(row.ownerName)}" data-owner-focus-user-id="${esc(String(row.ownerUserId || 0))}">
+              <span class="system-colony-swatch" style="background:${esc(row.color)};box-shadow:0 0 10px ${esc(row.color)};"></span>
+              <strong>${esc(row.isPlayer ? `${row.ownerName} (Du)` : row.ownerName)}</strong>
+              <span>${esc(String(row.systems))} Systeme</span>
+              <span>${esc(String(row.colonies))} Kolonien</span>
+              <span>Pop ${esc(Number(row.population || 0).toLocaleString('de-DE'))}</span>
+            </button>
+            ${Number.isFinite(row.minSystem) && row.minSystem > 0 && row.maxSystem >= row.minSystem ? `<button type="button" class="btn btn-secondary btn-sm galaxy-owner-range-btn" data-owner-range-name="${esc(row.ownerName)}" data-owner-range-user-id="${esc(String(row.ownerUserId || 0))}" data-owner-range-from="${esc(String(row.minSystem))}" data-owner-range-to="${esc(String(row.maxSystem))}">Range</button>` : ''}
+          </div>`).join('') : '<div class="planet-detail-row text-muted">Keine Kolonien in der aktuellen Auswahl.</div>'}
+      </div>`;
+
+    panel.querySelector('[data-owner-focus-clear="1"]')?.addEventListener('click', () => {
+      settingsState.galaxyOwnerFocusUserId = 0;
+      settingsState.galaxyOwnerFocusName = '';
+      saveUiSettings();
+      const root = WM.body('galaxy');
+      if (!root) return;
+      updateGalaxyColonyFilterUi(root);
+      loadGalaxyStars3D(root);
+      showToast('Besitzer-Schnellfilter gelöst.', 'info');
+    });
+
+    panel.querySelectorAll('[data-owner-focus-name]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const nextUserId = Math.max(0, Number(button.getAttribute('data-owner-focus-user-id') || 0));
+        const nextName = String(button.getAttribute('data-owner-focus-name') || '').trim();
+        const isSame = (ownerFocus.userId > 0 && ownerFocus.userId === nextUserId)
+          || (ownerFocus.userId <= 0 && ownerFocus.name && nextUserId <= 0 && ownerFocus.name.localeCompare(nextName, 'de', { sensitivity: 'base' }) === 0);
+        settingsState.galaxyOwnerFocusUserId = isSame ? 0 : nextUserId;
+        settingsState.galaxyOwnerFocusName = isSame ? '' : nextName;
+        saveUiSettings();
+        const root = WM.body('galaxy');
+        if (!root) return;
+        updateGalaxyColonyFilterUi(root);
+        loadGalaxyStars3D(root);
+        showToast(isSame ? 'Besitzer-Schnellfilter gelöst.' : `Besitzer-Schnellfilter: ${nextName}`, 'info');
+      });
+    });
+
+    panel.querySelectorAll('[data-owner-range-from]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const ownerName = String(button.getAttribute('data-owner-range-name') || '').trim() || 'Besitzer';
+        const ownerUserId = Math.max(0, Number(button.getAttribute('data-owner-range-user-id') || 0));
+        const rawFrom = Math.max(1, Number(button.getAttribute('data-owner-range-from') || 1));
+        const rawTo = Math.max(rawFrom, Number(button.getAttribute('data-owner-range-to') || rawFrom));
+        const root = WM.body('galaxy');
+        if (!root) return;
+        const from = Math.max(1, rawFrom - 12);
+        const to = Math.min(galaxySystemMax, rawTo + 12);
+        const fromInput = root.querySelector('#gal-from');
+        const toInput = root.querySelector('#gal-to');
+        settingsState.galaxyOwnerFocusUserId = ownerUserId;
+        settingsState.galaxyOwnerFocusName = ownerName;
+        saveUiSettings();
+        if (fromInput) fromInput.value = String(from);
+        if (toInput) toInput.value = String(to);
+        uiState.activeRange = { from, to };
+        updateGalaxyColonyFilterUi(root);
+        await loadGalaxyStars3D(root);
+
+        const displayedStars = getDisplayedGalaxyStars(galaxyStars);
+        const target = (Array.isArray(displayedStars) ? displayedStars : []).find((star) => {
+          const systemIndex = Number(star?.system_index || 0);
+          return systemIndex >= rawFrom && systemIndex <= rawTo;
+        }) || (Array.isArray(displayedStars) ? displayedStars[0] : null);
+
+        if (target) {
+          pinnedStar = target;
+          uiState.activeStar = target;
+          setGalaxyContext(Number(target.galaxy_index || uiState.activeGalaxy || 1), Number(target.system_index || from), target);
+          const flight = await runPhysicsCinematicFlight(target, {
+            durationSec: 1.45,
+            holdMs: 620,
+            label: `${ownerName} · ${target.name || target.catalog_name || `System ${Number(target.system_index || '?')}`}`,
+          });
+          if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
+            galaxy3d.focusOnStar(target, !flight.ok);
+          }
+          toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
+          renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
+          showToast(`Range auf ${ownerName}: ${from}-${to} · Fokus auf ${target.name || target.catalog_name || `System ${Number(target.system_index || '?')}`}`, 'info');
+          return;
+        }
+
+        showToast(`Range auf ${ownerName}: ${from}-${to}`, 'info');
+      });
+    });
   }
 
   function hasDenseSystemCoverage(stars, galaxyIndex, fromSystem, toSystem) {
@@ -5584,7 +7440,14 @@
 
       let data = null;
       try {
-        data = await API.galaxyStars(g, start, end, chunkSize);
+        data = await API.galaxyStars(g, start, end, chunkSize, {
+          streamPriority: 'background',
+          requestPriority: 'low',
+          prefetch: true,
+          chunkHint: chunkSize,
+          clusterPreset: 'low',
+          includeClusterLod: false,
+        });
       } catch (netErr) {
         console.warn('[GQ] hydrateGalaxyRangeInBackground: chunk request failed', { g, start, end, error: netErr });
         continue;
@@ -5592,30 +7455,35 @@
       if (!data?.success || !Array.isArray(data.stars)) continue;
 
       const responseTs = Number(data.server_ts_ms || Date.now());
-      galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, data.stars, g);
+      galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, normalizeStarListVisibility(data.stars), g);
       loadedChunks += 1;
       loadedSystems += data.stars.length;
 
       if (galaxyModel) {
-        galaxyModel.upsertStarBatch(g, data.stars);
+        galaxyModel.upsertStarBatch(g, normalizeStarListVisibility(data.stars));
         galaxyModel.addLoadedStarRange(g, start, end, responseTs);
       }
       if (galaxyDB) {
-        galaxyDB.upsertStars(data.stars, responseTs).catch(() => {});
+        galaxyDB.upsertStars(normalizeStarListVisibility(data.stars), responseTs).catch(() => {});
       }
 
       if (uiState.activeGalaxy === g) {
         if (Array.isArray(data.clusters)) uiState.rawClusters = data.clusters;
         uiState.clusterSummary = assignClusterFactions(uiState.rawClusters || [], uiState.territory);
         if (galaxy3d) {
-          galaxy3d.setStars(galaxyStars, { preserveView: true });
+          const displayedStars = getDisplayedGalaxyStars(galaxyStars);
+          galaxy3d.setStars(displayedStars, { preserveView: true });
           if (typeof galaxy3d.setClusterAuras === 'function') {
-            galaxy3d.setClusterAuras(uiState.clusterSummary || []);
+            galaxy3d.setClusterAuras(getDisplayedGalaxyClusterSummary(uiState.clusterSummary || [], galaxyStars));
           }
+          applyGalaxyOwnerHighlightToRenderer(displayedStars);
         }
         const details = root.querySelector('#galaxy-system-details');
         if (details) {
           details.innerHTML = `<span class="text-cyan">Lazy full-load: ${loadedSystems} Systeme nachgeladen (${start}-${end}/${to}, chunk ${loadedChunks}).</span>`;
+        }
+        if (!galaxy3d?.systemMode) {
+          renderGalaxyColonySummary(root.querySelector('#galaxy-planets-panel'), galaxyStars, { from, to });
         }
       }
     }
@@ -5748,7 +7616,7 @@
   async function ensureSystemPayloadLazy(galaxyIndex, systemIndex, opts = {}) {
     const g = Number(galaxyIndex || 1);
     const s = Number(systemIndex || 1);
-    const allowStaleFirst = !!opts.allowStaleFirst;
+    const allowStaleFirst = isCurrentUserAdmin() ? false : !!opts.allowStaleFirst;
     const maxAgeMs = Number(opts.maxAgeMs || SYSTEM_CACHE_MAX_AGE_MS);
     const onStaleData = typeof opts.onStaleData === 'function' ? opts.onStaleData : null;
 
@@ -5757,22 +7625,23 @@
     const alreadyLoaded = currentState && currentState.payload === 'loaded';
     const systemNode = galaxyModel ? galaxyModel.read('system', { galaxy_index: g, system_index: s }) : null;
 
-    if (alreadyLoaded && systemNode?.payload && hasPlanetTextureManifest(systemNode.payload)) {
-      return { source: 'model', payload: systemNode.payload, fresh: true };
+    if (!isCurrentUserAdmin() && alreadyLoaded && systemNode?.payload && hasPlanetTextureManifest(systemNode.payload)) {
+      return { source: 'model', payload: normalizeSystemPayloadVisibility(systemNode.payload), fresh: true };
     }
 
     if (allowStaleFirst && systemNode?.payload && onStaleData) {
       onStaleData(systemNode.payload);
     }
 
-    let staleFallbackPayload = systemNode?.payload || null;
+    let staleFallbackPayload = isCurrentUserAdmin() ? null : (systemNode?.payload || null);
 
-    if (galaxyDB) {
+    if (galaxyDB && !isCurrentUserAdmin()) {
       try {
         const dbPayload = await galaxyDB.getSystemPayload(g, s, { maxAgeMs });
         if (dbPayload && hasPlanetTextureManifest(dbPayload)) {
+          const normalizedDbPayload = normalizeSystemPayloadVisibility(dbPayload);
           if (galaxyModel) {
-            galaxyModel.attachSystemPayload(g, s, dbPayload);
+            galaxyModel.attachSystemPayload(g, s, normalizedDbPayload);
             galaxyModel.setSystemLoadState(g, s, {
               payload: 'loaded',
               planets: 'loaded',
@@ -5780,7 +7649,7 @@
               fetched_at: Date.now(),
             });
           }
-          return { source: 'db', payload: dbPayload, fresh: true };
+          return { source: 'db', payload: normalizedDbPayload, fresh: true };
         }
         if (dbPayload && !staleFallbackPayload) staleFallbackPayload = dbPayload;
       } catch (dbErr) {
@@ -5795,9 +7664,10 @@
         return staleFallbackPayload ? { source: 'stale', payload: staleFallbackPayload, fresh: false } : null;
       }
       const responseTs = Number(data.server_ts_ms || Date.now());
+      const normalizedData = normalizeSystemPayloadVisibility(data);
 
       if (galaxyModel) {
-        galaxyModel.attachSystemPayload(g, s, data);
+        galaxyModel.attachSystemPayload(g, s, normalizedData);
         galaxyModel.setSystemLoadState(g, s, {
           payload: 'loaded',
           planets: 'loaded',
@@ -5806,9 +7676,9 @@
         });
       }
       if (galaxyDB) {
-        galaxyDB.upsertSystemPayload(g, s, data, responseTs).catch(() => {});
+        galaxyDB.upsertSystemPayload(g, s, normalizedData, responseTs).catch(() => {});
       }
-      return { source: 'network', payload: data, fresh: true };
+      return { source: 'network', payload: normalizedData, fresh: true };
     } catch (netErr) {
       console.error('[GQ] ensureSystemPayloadLazy: network fetch failed for galaxy', g, 'system', s, netErr);
       return staleFallbackPayload ? { source: 'stale', payload: staleFallbackPayload, fresh: false } : null;
@@ -5869,13 +7739,14 @@
       const colonyId = Number(pp.colony_id || 0);
       const ownColony = colonies.find((col) => Number(col.id || 0) === colonyId) || null;
       const isOwnedColony = !!ownColony;
+      const ownerBadge = isOwnedColony ? 'Eigene Kolonie' : 'Fremde Kolonie';
       const targetGalaxy = Number(pp.galaxy || ownColony?.galaxy || uiState.activeGalaxy || 0);
       const targetSystem = Number(pp.system || ownColony?.system || uiState.activeSystem || 0);
       const targetPosition = Number(pp.position || ownColony?.position || pos || 0);
       detail.dataset.ownerName = String(pp.owner || '');
       detail.innerHTML = `
         <h5>Planet #${pos} - ${esc(pp.name)}</h5>
-        <div class="planet-detail-row">Owner: ${esc(pp.owner || 'Unknown')}</div>
+        <div class="planet-detail-row planet-detail-owner-row"><span class="planet-owner-badge ${isOwnedColony ? 'own' : 'foreign'}">${esc(ownerBadge)}</span>Owner: ${esc(pp.owner || 'Unknown')}</div>
         <div class="planet-detail-row">Class: ${esc(pp.planet_class || pp.type || '—')}</div>
         <div class="planet-detail-row">Colony ID: ${esc(String(pp.colony_id || '—'))}</div>
         <div class="planet-detail-row">Orbit: ${Number(pp.semi_major_axis_au || 0).toFixed(3)} AU</div>
@@ -5976,7 +7847,9 @@
   }
 
   function renderPlanetPanel(panel, star, data) {
-    const vis        = data?.visibility || {};
+    const vis        = isCurrentUserAdmin()
+      ? { level: 'own', scouted_at: data?.visibility?.scouted_at || null }
+      : (data?.visibility || {});
     const visLevel   = vis.level || 'unknown';
     const scoutedAt  = vis.scouted_at ? new Date(vis.scouted_at).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : null;
     const staleBanner = visLevel === 'stale'
@@ -5994,10 +7867,11 @@
           const gp = slot.generated_planet;
           if (pp) {
             const staleClass = pp._stale ? ' stale' : '';
-            return `<div class="planet-item own${staleClass}" data-pos="${slot.position}">
+            const isOwnedColony = colonies.some((col) => Number(col.id || 0) === Number(pp.colony_id || 0));
+            return `<div class="planet-item ${isOwnedColony ? 'own' : 'foreign'}${staleClass}" data-pos="${slot.position}">
               <span>#${slot.position}</span>
               <strong>${esc(pp.colony_name || pp.name || '?')}</strong>
-              <span>${esc(pp.owner || '?')}</span>
+              <span>${esc(pp.owner || '?')} · ${esc(isOwnedColony ? 'dein' : 'fremd')}</span>
             </div>`;
           }
           if (gp) {
@@ -6464,6 +8338,28 @@
   }
 
   class IntelController {
+    constructor() {
+      this.lastMatchupScan = null;
+      this.battleDetailCache = new Map();
+    }
+
+    renderCombatSummary(report) {
+      const ctx = report?.simulation_context || {};
+      const power = ctx.power_rating || {};
+      const winLabel = ctx.attacker_wins === null || typeof ctx.attacker_wins === 'undefined'
+        ? 'n/a'
+        : (ctx.attacker_wins ? 'Attacker victory' : 'Defender hold');
+      const diceVar = Number(ctx.dice_variance_index || 0);
+
+      return `
+        <div class="system-row small" style="margin-top:0.45rem; color:#b8c7d9;">
+          <span style="display:inline-block; margin-right:0.7rem;">Seed: ${esc(String(ctx.seed || 'n/a').slice(0, 12))}</span>
+          <span style="display:inline-block; margin-right:0.7rem;">Var: ${fmt(diceVar)}</span>
+          <span style="display:inline-block; margin-right:0.7rem;">PWR A/D: ${fmt(power.attacker || 0)} / ${fmt(power.defender || 0)}</span>
+          <span style="display:inline-block;">${esc(winLabel)}</span>
+        </div>`;
+    }
+
     renderSpyReportCard(report) {
       if (!report || !report.report) return '';
       const r = report.report;
@@ -6531,6 +8427,332 @@
         </div>`;
     }
 
+    renderBattleReportCard(report) {
+      if (!report || !report.report) return '';
+      const r = report.report || {};
+      const createdAt = new Date(report.created_at).toLocaleString();
+      const explain = Array.isArray(r.explainability?.top_factors) ? r.explainability.top_factors : [];
+      const loot = r.loot || {};
+      const attackerWins = !!r.attacker_wins;
+      const accent = attackerWins ? '#3e8f5a' : '#9a4b4b';
+
+      return `
+        <div class="system-card" style="margin-bottom:1rem; border-color:${accent};">
+          <div class="system-row"><strong>⚔ Battle Report #${report.id}</strong></div>
+          <div class="system-row text-muted small">${createdAt} · Role: ${esc(report.role || '?')}</div>
+          <div class="system-row" style="margin-top:0.35rem; color:${accent}; font-weight:700;">
+            ${attackerWins ? 'Attacker succeeded' : 'Defender held'}
+          </div>
+          ${this.renderCombatSummary(report)}
+          <div class="system-row small" style="margin-top:0.5rem;">
+            Loot: ⬡ ${fmt(loot.metal || 0)} · 💎 ${fmt(loot.crystal || 0)} · 🔵 ${fmt(loot.deuterium || 0)} · 🌟 ${fmt(loot.rare_earth || 0)}
+          </div>
+          ${explain.length ? `
+            <div class="system-row" style="margin-top:0.55rem;"><strong>Top Factors</strong></div>
+            <div class="system-row small" style="color:#d7dfef;">
+              ${explain.map((f) => `${esc(fmtName(String(f.factor || 'factor')))} ${fmt(Number(f.impact_pct || 0))}%`).join(' · ')}
+            </div>
+          ` : ''}
+          <div style="margin-top:0.65rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button class="btn btn-sm" data-battle-detail="${Number(report.id || 0)}">Open Detail</button>
+          </div>
+        </div>`;
+    }
+
+    renderBattleDetailBody(detailResponse) {
+      const battle = detailResponse?.battle_report || {};
+      const report = battle.report || {};
+      const meta = battle.meta || {};
+      const explain = Array.isArray(report.explainability?.top_factors) ? report.explainability.top_factors : [];
+      const rounds = Array.isArray(report.rounds) ? report.rounds : [];
+      const modifierBreakdown = report.modifier_breakdown || {};
+      const loot = report.loot || {};
+      const tech = report.tech || {};
+      const attackerLost = report.attacker_lost || {};
+      const defenderLost = report.defender_lost || {};
+      const renderModifierRows = (sideKey, label) => {
+        const buckets = modifierBreakdown?.[sideKey] || {};
+        const entries = Object.entries(buckets);
+        if (!entries.length) {
+          return `<div class="small">${label}: none</div>`;
+        }
+
+        return `
+          <div class="small" style="display:grid; gap:0.25rem;">
+            <div style="font-weight:700; color:#eef4ff;">${label}</div>
+            ${entries.map(([key, value]) => `
+              <div>
+                ${esc(fmtName(String(key || 'modifier')))}:
+                +${fmt(Number(value?.add_pct || 0) * 100)}% pct ·
+                +${fmt(Number(value?.add_flat || 0))} flat ·
+                x${fmt(Number(value?.mult || 1))}
+              </div>`).join('')}
+          </div>`;
+      };
+
+      return `
+        <div style="display:grid; gap:0.8rem; color:#dfe7f5;">
+          <div>
+            <div style="font-weight:700; font-size:1.05rem;">Battle Report #${fmt(battle.id || 0)}</div>
+            <div class="small text-muted">${esc(String(battle.created_at || ''))} · Role: ${esc(String(battle.role || '?'))}</div>
+          </div>
+          <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
+            <div><strong>Combat Meta</strong></div>
+            <div class="small" style="margin-top:0.35rem;">Seed: ${esc(String(meta.battle_seed || report.seed || 'n/a'))}</div>
+            <div class="small">Version: ${fmt(meta.report_version || report.version || 0)} · Dice Var: ${fmt(meta.dice_variance_index || report.dice_variance_index || 0)}</div>
+            <div class="small">Power A/D: ${fmt(meta.attacker_power_rating || report.power_rating?.attacker || 0)} / ${fmt(meta.defender_power_rating || report.power_rating?.defender || 0)}</div>
+          </div>
+          <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
+            <div><strong>Tech Snapshot</strong></div>
+            <div class="small" style="margin-top:0.35rem;">Atk Wpn/Shld: ${fmt(tech.atk_wpn || 0)} / ${fmt(tech.atk_shld || 0)}</div>
+            <div class="small">Def Wpn/Shld: ${fmt(tech.def_wpn || 0)} / ${fmt(tech.def_shld || 0)}</div>
+          </div>
+          ${(() => {
+            const ec = report.energy_context;
+            const dc = report.damage_channels;
+            if (!ec && !dc) return '';
+            const atkBudget = ec?.attacker || {};
+            const defBudget = ec?.defender || {};
+            const atkCh = dc?.attacker || {};
+            const defCh = dc?.defender || {};
+            return `
+              <div style="padding:0.65rem; border:1px solid #2a4563; border-radius:10px; background:#0d1824;">
+                <div><strong>⚡ Energy Economy</strong></div>
+                <div style="margin-top:0.45rem; display:grid; grid-template-columns:1fr 1fr; gap:0.55rem;">
+                  <div class="small">
+                    <div style="font-weight:700; color:#7ec8e3; margin-bottom:0.2rem;">Attacker</div>
+                    ${atkBudget.generated != null ? `<div>Generated: ${fmt(atkBudget.generated)}</div>` : ''}
+                    ${atkBudget.upkeep != null ? `<div>Upkeep: ${fmt(atkBudget.upkeep)}</div>` : ''}
+                    ${atkBudget.weapon_factor != null ? `<div>Wpn Factor: ${fmt(atkBudget.weapon_factor)}</div>` : ''}
+                    ${atkBudget.shield_factor != null ? `<div>Shld Factor: ${fmt(atkBudget.shield_factor)}</div>` : ''}
+                    ${atkBudget.weapon_efficiency != null ? `<div>Wpn Eff: ${fmt(atkBudget.weapon_efficiency)}</div>` : ''}
+                    ${atkBudget.shield_efficiency != null ? `<div>Shld Eff: ${fmt(atkBudget.shield_efficiency)}</div>` : ''}
+                    ${(atkCh.energy != null || atkCh.kinetic != null) ? `
+                      <div style="margin-top:0.2rem; border-top:1px solid #2a4060; padding-top:0.2rem;">
+                        <span style="color:#f09c30;">⚡ Energy: ${fmt(atkCh.energy || 0)}</span>
+                        &nbsp;·&nbsp;
+                        <span style="color:#c0c8d8;">💥 Kinetic: ${fmt(atkCh.kinetic || 0)}</span>
+                      </div>` : ''}
+                  </div>
+                  <div class="small">
+                    <div style="font-weight:700; color:#e38080; margin-bottom:0.2rem;">Defender</div>
+                    ${defBudget.generated != null ? `<div>Generated: ${fmt(defBudget.generated)}</div>` : ''}
+                    ${defBudget.upkeep != null ? `<div>Upkeep: ${fmt(defBudget.upkeep)}</div>` : ''}
+                    ${defBudget.weapon_factor != null ? `<div>Wpn Factor: ${fmt(defBudget.weapon_factor)}</div>` : ''}
+                    ${defBudget.shield_factor != null ? `<div>Shld Factor: ${fmt(defBudget.shield_factor)}</div>` : ''}
+                    ${defBudget.weapon_efficiency != null ? `<div>Wpn Eff: ${fmt(defBudget.weapon_efficiency)}</div>` : ''}
+                    ${defBudget.shield_efficiency != null ? `<div>Shld Eff: ${fmt(defBudget.shield_efficiency)}</div>` : ''}
+                    ${(defCh.energy != null || defCh.kinetic != null) ? `
+                      <div style="margin-top:0.2rem; border-top:1px solid #2a4060; padding-top:0.2rem;">
+                        <span style="color:#f09c30;">⚡ Energy: ${fmt(defCh.energy || 0)}</span>
+                        &nbsp;·&nbsp;
+                        <span style="color:#c0c8d8;">💥 Kinetic: ${fmt(defCh.kinetic || 0)}</span>
+                      </div>` : ''}
+                  </div>
+                </div>
+              </div>`;
+          })()}
+          <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
+            <div><strong>Losses</strong></div>
+            <div class="small" style="margin-top:0.35rem;">Attacker: ${Object.keys(attackerLost).length ? Object.entries(attackerLost).map(([k, v]) => `${esc(fmtName(k))} ${fmt(v)}`).join(' · ') : 'none'}</div>
+            <div class="small">Defender: ${Object.keys(defenderLost).length ? Object.entries(defenderLost).map(([k, v]) => `${esc(fmtName(k))} ${fmt(v)}`).join(' · ') : 'none'}</div>
+          </div>
+          <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
+            <div><strong>Loot</strong></div>
+            <div class="small" style="margin-top:0.35rem;">⬡ ${fmt(loot.metal || 0)} · 💎 ${fmt(loot.crystal || 0)} · 🔵 ${fmt(loot.deuterium || 0)} · 🌟 ${fmt(loot.rare_earth || 0)}</div>
+          </div>
+          <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
+            <div><strong>Modifier Breakdown</strong></div>
+            <div class="small" style="margin-top:0.35rem; display:grid; gap:0.55rem;">
+              ${renderModifierRows('attacker', 'Attacker')}
+              ${renderModifierRows('defender', 'Defender')}
+            </div>
+          </div>
+          ${rounds.length ? `
+            <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
+              <div><strong>Round Flow</strong></div>
+              <div class="small" style="margin-top:0.35rem; display:grid; gap:0.35rem;">
+                ${rounds.map((round) => `
+                  <div style="padding:0.45rem 0.55rem; border:1px solid #314154; border-radius:8px; background:#0d1420;">
+                    <div style="font-weight:700; color:#eef4ff;">Round ${fmt(round.round || 0)}${round.decisive ? ' · Decisive' : ''}</div>
+                    <div>Pressure A/D: ${fmt(round.attacker_pressure || 0)} / ${fmt(round.defender_pressure || 0)}</div>
+                    <div>Integrity A/D: ${fmt(round.attacker_integrity_remaining || 0)} / ${fmt(round.defender_integrity_remaining || 0)}</div>
+                    <div>Swing: ${esc(fmtName(String(round.swing || 'neutral')))}${round.outcome ? ' · Outcome: ' + esc(fmtName(String(round.outcome))) : ''}</div>
+                  </div>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+          ${explain.length ? `
+            <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
+              <div><strong>Explainability</strong></div>
+              <div class="small" style="margin-top:0.35rem; display:grid; gap:0.25rem;">
+                ${explain.map((item) => `<div>${esc(fmtName(String(item.factor || 'factor')))}: ${fmt(Number(item.impact_pct || 0))}%</div>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>`;
+    }
+
+    closeBattleDetailOverlay() {
+      document.getElementById('intel-battle-detail-overlay')?.remove();
+    }
+
+    async openBattleDetail(reportId) {
+      const id = Number(reportId || 0);
+      if (!id) return;
+
+      this.closeBattleDetailOverlay();
+
+      const overlay = document.createElement('div');
+      overlay.id = 'intel-battle-detail-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(5,8,14,0.76);z-index:10020;display:flex;align-items:center;justify-content:center;padding:20px;';
+      overlay.innerHTML = `
+        <div style="width:min(860px, 100%); max-height:88vh; overflow:auto; background:#0f1724; border:1px solid #4d6078; border-radius:14px; padding:18px; box-shadow:0 24px 80px rgba(0,0,0,0.45);">
+          <div style="display:flex; justify-content:space-between; gap:1rem; align-items:center; margin-bottom:0.9rem;">
+            <div style="font-weight:800; font-size:1.1rem; color:#eef4ff;">Battle Detail</div>
+            <button id="intel-battle-detail-close" class="btn btn-sm">Close</button>
+          </div>
+          <div id="intel-battle-detail-body" class="text-muted small">Loading battle detail...</div>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) {
+          this.closeBattleDetailOverlay();
+        }
+      });
+      overlay.querySelector('#intel-battle-detail-close')?.addEventListener('click', () => this.closeBattleDetailOverlay());
+
+      try {
+        let payload = this.battleDetailCache.get(id);
+        if (!payload) {
+          payload = await API.battleReportDetail(id);
+          if (payload?.success) {
+            this.battleDetailCache.set(id, payload);
+          }
+        }
+        if (!payload?.success) {
+          throw new Error(payload?.error || 'Failed to load battle detail.');
+        }
+        const body = overlay.querySelector('#intel-battle-detail-body');
+        if (body) {
+          body.innerHTML = this.renderBattleDetailBody(payload);
+        }
+      } catch (err) {
+        const body = overlay.querySelector('#intel-battle-detail-body');
+        if (body) {
+          body.innerHTML = `<div class="text-red">${esc(String(err?.message || 'Failed to load battle detail.'))}</div>`;
+        }
+        showToast(String(err?.message || 'Failed to load battle detail.'), 'error');
+      }
+    }
+
+    renderMatchupScanPanel(fleets = []) {
+      const options = fleets.length
+        ? fleets.map((fleet) => `<option value="${Number(fleet.id || 0)}">Fleet #${Number(fleet.id || 0)} · ${esc(String(fleet.mission || 'unknown'))}</option>`).join('')
+        : '<option value="">No fleets available</option>';
+      const last = this.lastMatchupScan;
+      let resultHtml = '<div class="text-muted small">Run a scan to estimate winrate and loss expectations against one or more target colonies.</div>';
+      if (last && Array.isArray(last.ranking)) {
+        resultHtml = `
+          <div class="system-row small" style="margin-top:0.45rem; color:#b8c7d9;">
+            Seed: ${esc(String(last.seed || '').slice(0, 12))} · Targets: ${fmt(last.targets_scanned || 0)} · Iterations: ${fmt(last.iterations || 0)}
+          </div>
+          <div style="margin-top:0.55rem; display:grid; gap:0.45rem;">
+            ${last.ranking.map((row) => `
+              <div style="padding:0.45rem 0.55rem; border:1px solid #45556d; border-radius:8px; background:#111927;">
+                <div style="font-weight:700;">Target Colony #${fmt(row.target_colony_id || 0)}</div>
+                <div class="small" style="color:#d7dfef; margin-top:0.2rem;">
+                  Winrate: ${fmt((Number(row.attacker_winrate_estimate || 0) * 100).toFixed(2))}% ·
+                  Dice Var: ${fmt(row.dice_variance_avg || 0)} ·
+                  Loss A/D: ${fmt((Number(row.expected_loss_fraction_avg?.attacker || 0) * 100).toFixed(2))}% / ${fmt((Number(row.expected_loss_fraction_avg?.defender || 0) * 100).toFixed(2))}%
+                </div>
+              </div>
+            `).join('')}
+          </div>`;
+      }
+
+      return `
+        <div class="system-card" style="margin-bottom:1rem;">
+          <div class="system-row"><strong>Combat Matchup Scan</strong></div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:0.6rem; margin-top:0.65rem;">
+            <label class="small" style="display:flex; flex-direction:column; gap:0.25rem;">
+              <span>Attacker Fleet</span>
+              <select id="intel-matchup-fleet" class="input">${options}</select>
+            </label>
+            <label class="small" style="display:flex; flex-direction:column; gap:0.25rem;">
+              <span>Target Colony IDs</span>
+              <input id="intel-matchup-targets" class="input" placeholder="195,196,197" />
+            </label>
+            <label class="small" style="display:flex; flex-direction:column; gap:0.25rem;">
+              <span>Iterations</span>
+              <input id="intel-matchup-iterations" class="input" type="number" min="1" max="2000" value="200" />
+            </label>
+            <label class="small" style="display:flex; flex-direction:column; gap:0.25rem;">
+              <span>Seed</span>
+              <input id="intel-matchup-seed" class="input" placeholder="scan_v1" />
+            </label>
+          </div>
+          <div style="margin-top:0.65rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button id="intel-run-matchup-scan" class="btn">Run Scan</button>
+            <button id="intel-clear-matchup-scan" class="btn btn-sm">Clear</button>
+          </div>
+          <div id="intel-matchup-results" style="margin-top:0.8rem;">${resultHtml}</div>
+        </div>`;
+    }
+
+    attachEventListeners(root) {
+      root.querySelectorAll('[data-battle-detail]').forEach((btn) => {
+        btn.addEventListener('click', async (event) => {
+          const reportId = Number(event.currentTarget?.dataset?.battleDetail || 0);
+          await this.openBattleDetail(reportId);
+        });
+      });
+
+      root.querySelector('#intel-run-matchup-scan')?.addEventListener('click', async () => {
+        const fleetId = Number(root.querySelector('#intel-matchup-fleet')?.value || 0);
+        const targetsRaw = String(root.querySelector('#intel-matchup-targets')?.value || '');
+        const iterations = Number(root.querySelector('#intel-matchup-iterations')?.value || 200);
+        const seed = String(root.querySelector('#intel-matchup-seed')?.value || '').trim();
+        const targetIds = targetsRaw.split(',').map((v) => Number(String(v).trim())).filter((v) => Number.isFinite(v) && v > 0);
+
+        if (!fleetId) {
+          showToast('Select an attacker fleet first.', 'warning');
+          return;
+        }
+        if (!targetIds.length) {
+          showToast('Enter at least one target colony id.', 'warning');
+          return;
+        }
+
+        const resultRoot = root.querySelector('#intel-matchup-results');
+        if (resultRoot) resultRoot.innerHTML = '<div class="text-muted small">Running scan...</div>';
+
+        try {
+          const response = await API.matchupScan({
+            attacker_fleet_id: fleetId,
+            target_colony_ids: targetIds,
+            iterations: Math.max(1, Math.min(2000, iterations || 200)),
+            deterministic_seed: seed || undefined,
+          });
+          if (!response.success || !response.scan) {
+            throw new Error(response.error || 'Matchup scan failed.');
+          }
+          this.lastMatchupScan = response.scan;
+          await this.render();
+          showToast('Combat matchup scan complete.', 'success');
+        } catch (err) {
+          if (resultRoot) resultRoot.innerHTML = '<div class="text-red small">Scan failed.</div>';
+          showToast(String(err?.message || 'Matchup scan failed.'), 'error');
+        }
+      });
+
+      root.querySelector('#intel-clear-matchup-scan')?.addEventListener('click', async () => {
+        this.lastMatchupScan = null;
+        await this.render();
+      });
+    }
+
     async render() {
       const root = WM.body('intel');
       if (!root) return;
@@ -6538,25 +8760,43 @@
       root.innerHTML = uiKitSkeletonHTML();
 
       try {
-        const response = await API.spyReports();
-        if (!response.success || !Array.isArray(response.spy_reports)) {
-          root.innerHTML = '<p class="text-red">Failed to load spy reports.</p>';
+        const [spyResponse, battleResponse, fleetsResponse] = await Promise.all([
+          API.spyReports(),
+          API.battleReports(),
+          API.fleets(),
+        ]);
+        if (!spyResponse.success || !Array.isArray(spyResponse.spy_reports)) {
+          root.innerHTML = '<p class="text-red">Failed to load intel reports.</p>';
           return;
         }
 
-        const reports = response.spy_reports;
-        if (!reports.length) {
-          root.innerHTML = uiKitEmptyStateHTML('No spy reports yet', 'Launch reconnaissance missions to collect fresh intel.');
+        const battleReports = battleResponse?.success && Array.isArray(battleResponse.battle_reports)
+          ? battleResponse.battle_reports
+          : [];
+        const fleets = fleetsResponse?.success && Array.isArray(fleetsResponse.fleets)
+          ? fleetsResponse.fleets
+          : [];
+
+        const spyReports = spyResponse.spy_reports;
+        if (!spyReports.length && !battleReports.length) {
+          root.innerHTML = this.renderMatchupScanPanel(fleets) + uiKitEmptyStateHTML('No intel reports yet', 'Launch reconnaissance or battle missions to collect fresh intel.');
+          this.attachEventListeners(root);
           return;
         }
 
         let html = '<div>';
-        html += `<div class="system-card" style="margin-bottom:1rem"><div class="system-row"><strong>🔍 Intel Reports (${reports.length})</strong></div></div>`;
-        for (const report of reports) {
+        html += this.renderMatchupScanPanel(fleets);
+        html += `<div class="system-card" style="margin-bottom:1rem"><div class="system-row"><strong>🔍 Spy Reports (${spyReports.length})</strong></div></div>`;
+        for (const report of spyReports) {
           html += this.renderSpyReportCard(report);
+        }
+        html += `<div class="system-card" style="margin:1rem 0"><div class="system-row"><strong>⚔ Battle Reports (${battleReports.length})</strong></div></div>`;
+        for (const report of battleReports) {
+          html += this.renderBattleReportCard(report);
         }
         html += '</div>';
         root.innerHTML = html;
+        this.attachEventListeners(root);
       } catch (e) {
         root.innerHTML = '<p class="text-red">Error: ' + esc(String(e.message || 'Unknown error')) + '</p>';
       }
@@ -6663,16 +8903,20 @@
       });
     }
 
-    showCreateDialog() {
-      // Simple dialog for creating a new trade route (simplified UI)
+    showCreateDialog(options = {}) {
+      const config = getResourceInsightConfig(options.resourceKey);
+      const focusedCargo = { metal: 0, crystal: 0, deuterium: 0 };
+      if (config?.tradeable) {
+        focusedCargo[config.key] = getSuggestedTradeAmount(config.key, 'offer');
+      }
       const dialog = document.createElement('div');
       dialog.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #222; border: 2px solid #777; border-radius: 4px; padding: 16px; z-index: 10000; width: 90%; max-width: 400px;';
       dialog.innerHTML = `
         <h3 style="margin-top: 0;">Create Trade Route</h3>
-        <p style="color: #aaa; font-size: 0.9em;">Select origin colony, target, and cargo amount from the Trade Routes panel or use the overlay UI.</p>
+        <p style="color: #aaa; font-size: 0.9em;">${config ? `${esc(config.icon)} ${esc(config.label)} fokussiert. ` : ''}Routen starten echte Frachter, binden Fracht an Flugzeit und verbrauchen Deuterium fuer den Transport.</p>
         <p style="color: #aaa; font-size: 0.85em;">This feature requires clicking on colonies to select. You can also use the command line API:</p>
         <code style="display: block; background: #1a1a1a; padding: 8px; border-radius: 2px; margin: 8px 0; font-size: 0.8em; word-break: break-all;">
-          await API.createTradeRoute({ origin_colony_id: 1, target_colony_id: 2, cargo_metal: 1000, cargo_crystal: 500, cargo_deuterium: 100, interval_hours: 24 })
+          await API.createTradeRoute({ origin_colony_id: ${Number(currentColony?.id || 1)}, target_colony_id: 2, cargo_metal: ${Math.round(focusedCargo.metal || 1000)}, cargo_crystal: ${Math.round(focusedCargo.crystal || 500)}, cargo_deuterium: ${Math.round(focusedCargo.deuterium || 100)}, interval_hours: 24 })
         </code>
         <button class="btn" onclick="this.closest('div').remove();" style="width: 100%;">Close</button>
       `;
@@ -7266,28 +9510,39 @@
           </div>`;
         }
 
-        showProposeDialog(targetId = 0, targetName = '') {
+        showProposeDialog(targetId = 0, targetName = '', options = {}) {
           const existing = document.getElementById('trade-propose-dialog');
           if (existing) existing.remove();
+
+          const config = getResourceInsightConfig(options.resourceKey);
+          const focusMode = String(options.mode || 'request');
+          const focusAmount = getSuggestedTradeAmount(config?.key || '', focusMode);
+          const offerDefaults = { metal: 0, crystal: 0, deuterium: 0 };
+          const requestDefaults = { metal: 0, crystal: 0, deuterium: 0 };
+          if (config?.tradeable && ['offer', 'request'].includes(focusMode)) {
+            if (focusMode === 'offer') offerDefaults[config.key] = focusAmount;
+            else requestDefaults[config.key] = focusAmount;
+          }
 
           const div = document.createElement('div');
           div.id = 'trade-propose-dialog';
           div.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:#1a1a2e;border:1px solid #444;border-radius:8px;padding:16px;min-width:320px;max-width:400px;';
           div.innerHTML = `
             <h3 style="margin:0 0 12px;">💱 New Trade Proposal</h3>
+            ${config?.tradeable ? `<div style="margin:-4px 0 10px;color:#9fb3d1;font-size:0.82em;">Fokus: ${esc(config.icon)} ${esc(config.label)} · Bei Annahme starten echte Transportflotten. Flugzeit und Deuterium-Frachtkosten werden sofort gebunden.</div>` : ''}
             <label class="system-row">Target Player (username)</label>
             <input id="tp-target-name" type="text" placeholder="username" value="${esc(targetName)}" style="width:100%;box-sizing:border-box;" />
             <div style="margin-top:10px;font-weight:bold;">You Offer</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:4px;">
-              <div><label style="font-size:0.8em;">⚙ Metal</label><input id="tp-om" type="number" min="0" value="0" style="width:100%;box-sizing:border-box;"/></div>
-              <div><label style="font-size:0.8em;">💎 Crystal</label><input id="tp-oc" type="number" min="0" value="0" style="width:100%;box-sizing:border-box;"/></div>
-              <div><label style="font-size:0.8em;">💧 Deuterium</label><input id="tp-od" type="number" min="0" value="0" style="width:100%;box-sizing:border-box;"/></div>
+              <div><label style="font-size:0.8em;">⚙ Metal</label><input id="tp-om" type="number" min="0" value="${Math.round(offerDefaults.metal)}" style="width:100%;box-sizing:border-box;"/></div>
+              <div><label style="font-size:0.8em;">💎 Crystal</label><input id="tp-oc" type="number" min="0" value="${Math.round(offerDefaults.crystal)}" style="width:100%;box-sizing:border-box;"/></div>
+              <div><label style="font-size:0.8em;">💧 Deuterium</label><input id="tp-od" type="number" min="0" value="${Math.round(offerDefaults.deuterium)}" style="width:100%;box-sizing:border-box;"/></div>
             </div>
             <div style="margin-top:10px;font-weight:bold;">You Want</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:4px;">
-              <div><label style="font-size:0.8em;">⚙ Metal</label><input id="tp-rm" type="number" min="0" value="0" style="width:100%;box-sizing:border-box;"/></div>
-              <div><label style="font-size:0.8em;">💎 Crystal</label><input id="tp-rc" type="number" min="0" value="0" style="width:100%;box-sizing:border-box;"/></div>
-              <div><label style="font-size:0.8em;">💧 Deuterium</label><input id="tp-rd" type="number" min="0" value="0" style="width:100%;box-sizing:border-box;"/></div>
+              <div><label style="font-size:0.8em;">⚙ Metal</label><input id="tp-rm" type="number" min="0" value="${Math.round(requestDefaults.metal)}" style="width:100%;box-sizing:border-box;"/></div>
+              <div><label style="font-size:0.8em;">💎 Crystal</label><input id="tp-rc" type="number" min="0" value="${Math.round(requestDefaults.crystal)}" style="width:100%;box-sizing:border-box;"/></div>
+              <div><label style="font-size:0.8em;">💧 Deuterium</label><input id="tp-rd" type="number" min="0" value="${Math.round(requestDefaults.deuterium)}" style="width:100%;box-sizing:border-box;"/></div>
             </div>
             <label class="system-row" style="margin-top:10px;">Message (optional)</label>
             <input id="tp-msg" type="text" maxlength="500" placeholder="…" style="width:100%;box-sizing:border-box;" />
@@ -7345,7 +9600,17 @@
 
         async doAccept(id) {
           try {
-            await API.acceptTrade(id);
+            const response = await API.acceptTrade(id);
+            const deliveries = Array.isArray(response?.deliveries) ? response.deliveries : [];
+            if (response?.success) {
+              const headline = deliveries.length
+                ? deliveries.map((entry) => `${entry.resource_label || 'Transport'} ETA ${new Date(entry.arrival_time).toLocaleTimeString()}`).join(' · ')
+                : 'Transportauftrag gestartet.';
+              showToast(headline, 'success');
+              if (audioManager) audioManager.playUiConfirm();
+              await loadOverview();
+              WM.refresh('fleet');
+            }
             this.render();
           } catch (e) {
             alert('Accept failed: ' + e.message);
@@ -7382,91 +9647,266 @@
 
   class LeadersController {
     constructor() {
+      this._tab = 'my_leaders'; // 'my_leaders' | 'marketplace'
       this.roleLabel = {
-        colony_manager: '🏗 Colony Manager',
-        fleet_commander: '⚔ Fleet Commander',
-        science_director: '🔬 Science Director',
+        colony_manager:    '🏗 Colony Manager',
+        fleet_commander:   '⚔ Fleet Commander',
+        science_director:  '🔬 Science Director',
+        diplomacy_officer: '🕊 Diplomacy Officer',
+        trade_director:    '💰 Trade Director',
+        advisor:           '🧙 Advisor',
       };
-      this.hireCost = {
-        colony_manager: '5k ⬡ 3k 💎 1k 🔵',
-        fleet_commander: '8k ⬡ 5k 💎 2k 🔵',
-        science_director: '4k ⬡ 8k 💎 4k 🔵',
+      this.rarityLabel = {
+        common:    'Common',
+        uncommon:  'Uncommon',
+        rare:      'Rare',
+        legendary: '✨ Legendary',
       };
+      this._styleInjected = false;
     }
 
-    renderTable(leaders) {
+    _injectCardStyles() {
+      if (this._styleInjected) return;
+      this._styleInjected = true;
+      const s = document.createElement('style');
+      s.textContent = `
+        .leader-tab-bar { display:flex; gap:0.5rem; margin-bottom:0.9rem; border-bottom:1px solid var(--border,#333); padding-bottom:0.4rem; }
+        .leader-tab-btn { background:none; border:none; color:var(--text-secondary,#aaa); cursor:pointer; padding:0.3rem 0.8rem; border-radius:4px 4px 0 0; font-size:0.85rem; }
+        .leader-tab-btn.active { background:var(--accent,#4a9eff22); color:var(--accent,#4a9eff); border-bottom:2px solid var(--accent,#4a9eff); }
+        .mkt-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:0.75rem; }
+        .leader-card { background:var(--panel-bg,#1a1a2e); border:1px solid var(--border,#333); border-radius:8px; padding:0.75rem; display:flex; flex-direction:column; gap:0.3rem; position:relative; }
+        .leader-card.rarity-uncommon { border-color:#4fc3f7; }
+        .leader-card.rarity-rare     { border-color:#a78bfa; }
+        .leader-card.rarity-legendary { border-color:#f59e0b; box-shadow:0 0 10px #f59e0b44; }
+        .leader-card.is-hired { opacity:0.55; }
+        .leader-portrait-lg { font-size:2.2rem; line-height:1; display:block; text-align:center; }
+        .rarity-badge { font-size:0.64rem; font-weight:700; text-transform:uppercase; padding:1px 5px; border-radius:3px; position:absolute; top:0.45rem; right:0.45rem; }
+        .rarity-badge.rarity-common    { background:#555; color:#ddd; }
+        .rarity-badge.rarity-uncommon  { background:#0c4a6e; color:#7dd3fc; }
+        .rarity-badge.rarity-rare      { background:#3b0764; color:#c4b5fd; }
+        .rarity-badge.rarity-legendary { background:#78350f; color:#fcd34d; }
+        .leader-card-name { font-weight:700; font-size:0.95rem; margin-top:0.2rem; }
+        .leader-card-role { font-size:0.72rem; color:var(--text-secondary,#aaa); }
+        .leader-card-tagline { font-size:0.74rem; font-style:italic; color:var(--accent,#4a9eff); margin-top:0.2rem; line-height:1.3; }
+        .leader-card-traits { display:flex; flex-wrap:wrap; gap:0.25rem; margin-top:0.25rem; }
+        .chip-trait { font-size:0.66rem; background:#333; color:#ccc; padding:1px 6px; border-radius:20px; }
+        .skill-bar-row { display:flex; align-items:center; gap:0.3rem; margin-bottom:0.1rem; }
+        .skill-bar-label { font-size:0.65rem; color:var(--text-secondary,#aaa); width:72px; flex-shrink:0; }
+        .skill-bar-track { flex:1; height:4px; background:#333; border-radius:2px; overflow:hidden; }
+        .skill-bar-fill  { height:100%; background:var(--accent,#4a9eff); border-radius:2px; transition:width 0.3s; }
+        .leader-card-cost { font-size:0.75rem; color:#ccc; margin-top:0.3rem; }
+        .leader-card-free { color:#4ade80; font-style:italic; }
+        .advisor-hint-card { background:var(--panel-bg,#1a1a2e); border-left:3px solid var(--accent,#4a9eff); border-radius:0 6px 6px 0; padding:0.6rem 0.75rem; margin-bottom:0.5rem; }
+        .advisor-hint-card.hint-warning  { border-left-color:#f59e0b; }
+        .advisor-hint-card.hint-quest_hint { border-left-color:#a78bfa; }
+        .advisor-hint-card.hint-action_required { border-left-color:#ef4444; }
+        .advisor-hint-title { font-weight:700; font-size:0.85rem; }
+        .advisor-hint-body  { font-size:0.78rem; color:var(--text-secondary,#aaa); margin-top:0.2rem; }
+        #advisor-widget { position:fixed; bottom:3.2rem; left:0.8rem; z-index:900; }
+        #advisor-bubble { background:var(--panel-bg,#1a1a2e); border:1px solid var(--accent,#4a9eff); border-radius:10px; padding:0.4rem 0.65rem; display:flex; align-items:center; gap:0.5rem; cursor:pointer; box-shadow:0 2px 12px #00000066; min-width:48px; }
+        #advisor-bubble:hover { border-color:#7dd3fc; }
+        #advisor-bubble-portrait { font-size:1.4rem; }
+        #advisor-bubble-info { display:flex; flex-direction:column; line-height:1.2; }
+        #advisor-bubble-name { font-size:0.7rem; font-weight:700; color:#ccc; }
+        #advisor-bubble-badge { font-size:0.65rem; color:var(--accent,#4a9eff); }
+      `;
+      document.head.appendChild(s);
+    }
+
+    renderTabs(active) {
+      return `<div class="leader-tab-bar">
+        <button class="leader-tab-btn ${active === 'my_leaders' ? 'active' : ''}" data-tab="my_leaders">👤 My Leaders</button>
+        <button class="leader-tab-btn ${active === 'marketplace' ? 'active' : ''}" data-tab="marketplace">🛒 Marketplace</button>
+      </div>`;
+    }
+
+    renderMyLeaders(leaders) {
+      const hasAdvisor = leaders.some((l) => l.role === 'advisor');
+      const nonAdvisors = leaders.filter((l) => l.role !== 'advisor');
+      const advisors    = leaders.filter((l) => l.role === 'advisor');
+
       return `
-        <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem">
-          ${Object.entries(this.roleLabel).map(([role, label]) => `
-            <div class="hire-panel">
-              <strong>${label}</strong>
-              <div style="font-size:0.78rem;color:var(--text-secondary)">Cost: ${this.hireCost[role]}</div>
-              ${role === 'fleet_commander'
-                ? `<div style="font-size:0.72rem;color:#aaa;margin-bottom:3px;">Assign to a colony (home base auto-scouts) or a fleet (speed+attack bonus).</div>`
-                : ''}
-              <input class="input-sm hire-name" data-role="${role}" placeholder="Leader name" maxlength="48" style="width:140px"/>
-              <button class="btn btn-primary btn-sm hire-btn" data-role="${role}">Hire</button>
+        ${!hasAdvisor ? `<div style="background:#1e3a2f;border:1px solid #4ade8066;border-radius:6px;padding:0.5rem 0.75rem;margin-bottom:0.75rem;font-size:0.8rem;">
+          🧙 <strong>No Advisor yet.</strong> Visit the <span style="color:var(--accent)">Marketplace</span> tab to hire a free Advisor who will guide you through the game.
+        </div>` : ''}
+
+        ${advisors.length ? `<div style="margin-bottom:0.75rem">
+          <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;text-transform:uppercase;letter-spacing:0.05em">Advisor</div>
+          ${advisors.map((l) => `
+            <div style="display:flex;align-items:center;gap:0.6rem;background:var(--panel-bg,#1a1a2e);border:1px solid var(--accent,#4a9eff);border-radius:7px;padding:0.5rem 0.75rem;">
+              <span style="font-size:1.6rem">${esc(l.portrait || '🧙')}</span>
+              <div style="flex:1">
+                <div style="font-weight:700">${esc(l.name)}</div>
+                <div style="font-size:0.72rem;color:var(--text-secondary)">${this.rarityLabel[l.rarity] || ''} · Lv ${l.level}</div>
+                ${l.tagline ? `<div style="font-size:0.73rem;font-style:italic;color:var(--accent)">${esc(l.tagline)}</div>` : ''}
+              </div>
+              <button class="btn btn-danger btn-sm dismiss-btn" data-lid="${l.id}" title="Dismiss">✕</button>
             </div>`).join('')}
-        </div>
-        <table class="data-table" style="width:100%">
+        </div>` : ''}
+
+        <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;text-transform:uppercase;letter-spacing:0.05em">Officers</div>
+        <table class="data-table" style="width:100%;font-size:0.8rem">
           <thead><tr>
-            <th>Name</th><th>Role</th><th>Lv</th><th>Assigned to</th>
-            <th>Autonomy</th><th>Last Action</th><th>Actions</th>
+            <th></th><th>Name</th><th>Role</th><th>Lv</th><th>Assignment</th>
+            <th>Autonomy</th><th>Last Action</th><th></th>
           </tr></thead>
           <tbody>
-          ${leaders.length ? leaders.map((leader) => `
+          ${nonAdvisors.length ? nonAdvisors.map((l) => `
             <tr>
-              <td>${esc(leader.name)}</td>
-              <td>${this.roleLabel[leader.role] ?? leader.role}</td>
-              <td>${leader.level}</td>
-              <td>${leader.colony_name
-                ? `${esc(leader.colony_name)} [${esc(leader.colony_coords || '?')}]`
-                : leader.fleet_id ? `Fleet #${leader.fleet_id}` : '<em>Unassigned</em>'}</td>
+              <td style="font-size:1.2rem;text-align:center">${esc(l.portrait || '👤')}</td>
               <td>
-                <select class="input-sm autonomy-sel" data-lid="${leader.id}">
-                  <option value="0" ${+leader.autonomy === 0 ? 'selected' : ''}>Off</option>
-                  <option value="1" ${+leader.autonomy === 1 ? 'selected' : ''}>Suggest</option>
-                  <option value="2" ${+leader.autonomy === 2 ? 'selected' : ''}>Full Auto</option>
+                ${esc(l.name)}
+                ${l.rarity && l.rarity !== 'common' ? `<span class="rarity-badge rarity-${l.rarity}" style="position:static;margin-left:4px">${this.rarityLabel[l.rarity]}</span>` : ''}
+              </td>
+              <td>${this.roleLabel[l.role] ?? l.role}</td>
+              <td>${l.level}</td>
+              <td>${l.colony_name
+                ? `${esc(l.colony_name)} [${esc(l.colony_coords || '?')}]`
+                : l.fleet_id ? `Fleet #${l.fleet_id}` : '<em>Unassigned</em>'}</td>
+              <td>
+                <select class="input-sm autonomy-sel" data-lid="${l.id}">
+                  <option value="0" ${+l.autonomy === 0 ? 'selected' : ''}>Off</option>
+                  <option value="1" ${+l.autonomy === 1 ? 'selected' : ''}>Suggest</option>
+                  <option value="2" ${+l.autonomy === 2 ? 'selected' : ''}>Full Auto</option>
                 </select>
               </td>
-              <td style="font-size:0.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis"
-                  title="${esc(leader.last_action || '')}">
-                ${leader.last_action ? esc(leader.last_action.substring(0, 60)) + '…' : '—'}
+              <td style="font-size:0.72rem;max-width:170px;overflow:hidden;text-overflow:ellipsis"
+                  title="${esc(l.last_action || '')}">
+                ${l.last_action ? esc(l.last_action.substring(0, 55)) + '…' : '—'}
               </td>
-              <td>
-                <select class="input-sm assign-col-sel" data-lid="${leader.id}">
+              <td style="white-space:nowrap">
+                <select class="input-sm assign-col-sel" data-lid="${l.id}">
                   <option value="">— Colony —</option>
-                  ${colonies.map((colony) => `<option value="${colony.id}">${esc(colony.name)}</option>`).join('')}
+                  ${colonies.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}
                 </select>
-                <button class="btn btn-secondary btn-sm assign-col-btn" data-lid="${leader.id}"
-                  title="${leader.role === 'fleet_commander' ? 'Assign as home base (enables auto-scouting)' : 'Assign to colony'}">Assign</button>
-                <button class="btn btn-danger btn-sm dismiss-btn" data-lid="${leader.id}">✕</button>
+                <button class="btn btn-secondary btn-sm assign-col-btn" data-lid="${l.id}">Assign</button>
+                <button class="btn btn-danger btn-sm dismiss-btn" data-lid="${l.id}">✕</button>
               </td>
             </tr>`).join('')
-          : '<tr><td colspan="7" class="text-muted">No leaders hired yet.</td></tr>'}
+          : '<tr><td colspan="8" class="text-muted">No officers hired yet — visit the Marketplace.</td></tr>'}
           </tbody>
         </table>
-        <div style="margin-top:0.75rem">
+        <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
           <button class="btn btn-secondary btn-sm" id="ai-tick-btn">▶ Run AI Tick</button>
         </div>`;
+    }
+
+    renderMarketplace(candidates) {
+      const available = candidates.filter((c) => !c.is_hired);
+      const hired     = candidates.filter((c) =>  c.is_hired);
+      const expiresAt = candidates[0]?.expires_at;
+
+      return `
+        <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.65rem">
+          🛒 <strong>Marketplace</strong> — ${available.length} candidate(s) available.
+          ${expiresAt ? `Refreshes at <strong>${String(expiresAt).substring(0, 16)}</strong>.` : ''}
+        </div>
+        ${available.length === 0 ? '<p class="text-muted">Marketplace is empty. Come back in 24 hours.</p>' : ''}
+        <div class="mkt-grid">
+          ${[...available, ...hired].map((c) => this.renderCard(c)).join('')}
+        </div>`;
+    }
+
+    renderCard(c) {
+      const isHired = !!+c.is_hired;
+      const skills  = this._skillsForRole(c.role, c);
+      const mt = +c.hire_metal, cr = +c.hire_crystal, dt = +c.hire_deuterium;
+      const free = mt === 0 && cr === 0 && dt === 0;
+      return `
+        <div class="leader-card rarity-${c.rarity} ${isHired ? 'is-hired' : ''}">
+          <span class="rarity-badge rarity-${c.rarity}">${this.rarityLabel[c.rarity]}</span>
+          <span class="leader-portrait-lg">${esc(c.portrait || '👤')}</span>
+          <div class="leader-card-name">${esc(c.name)}</div>
+          <div class="leader-card-role">${this.roleLabel[c.role] ?? c.role}</div>
+          <div class="leader-card-tagline">${esc(c.tagline)}</div>
+          <div class="leader-card-traits">
+            ${c.trait_1 ? `<span class="chip-trait">${esc(c.trait_1)}</span>` : ''}
+            ${c.trait_2 ? `<span class="chip-trait">${esc(c.trait_2)}</span>` : ''}
+          </div>
+          <div style="margin-top:0.3rem">
+            ${skills.map((s) => `
+              <div class="skill-bar-row">
+                <span class="skill-bar-label">${esc(s.label)}</span>
+                <div class="skill-bar-track"><div class="skill-bar-fill" style="width:${Math.round(+s.val / 10 * 100)}%"></div></div>
+                <span style="font-size:0.65rem;color:#aaa;width:16px;text-align:right">${s.val}</span>
+              </div>`).join('')}
+          </div>
+          <details style="margin-top:0.35rem">
+            <summary style="cursor:pointer;font-size:0.7rem;color:var(--text-secondary)">📖 Background</summary>
+            <p style="font-size:0.73rem;color:var(--text-secondary);margin-top:0.25rem;line-height:1.35">${esc(c.backstory)}</p>
+          </details>
+          <div class="leader-card-cost" style="margin-top:0.4rem">
+            ${free
+              ? '<span class="leader-card-free">Free</span>'
+              : [mt > 0 ? `${(mt/1000).toFixed(0)}k ⬡` : '',
+                 cr > 0 ? `${(cr/1000).toFixed(0)}k 💎` : '',
+                 dt > 0 ? `${(dt/1000).toFixed(0)}k 🔵` : ''].filter(Boolean).join(' ')}
+          </div>
+          ${isHired
+            ? `<button class="btn btn-secondary btn-sm" style="margin-top:0.4rem" disabled>✓ Hired</button>`
+            : `<button class="btn btn-primary btn-sm hire-candidate-btn" data-cid="${c.id}" style="margin-top:0.4rem">Hire</button>`
+          }
+        </div>`;
+    }
+
+    _skillsForRole(role, c) {
+      const map = {
+        colony_manager:    [{ label: 'Production',   val: c.skill_production   },
+                            { label: 'Construction', val: c.skill_construction }],
+        fleet_commander:   [{ label: 'Tactics',      val: c.skill_tactics      },
+                            { label: 'Navigation',   val: c.skill_navigation   }],
+        science_director:  [{ label: 'Research',     val: c.skill_research     },
+                            { label: 'Efficiency',   val: c.skill_efficiency   }],
+        diplomacy_officer: [{ label: 'Efficiency',   val: c.skill_efficiency   },
+                            { label: 'Guidance',     val: c.skill_guidance     }],
+        trade_director:    [{ label: 'Efficiency',   val: c.skill_efficiency   },
+                            { label: 'Production',   val: c.skill_production   }],
+        advisor:           [{ label: 'Guidance',     val: c.skill_guidance     },
+                            { label: 'Research',     val: c.skill_research     }],
+      };
+      return map[role] || [{ label: 'Skill', val: 1 }];
+    }
+
+    bindTabs(root) {
+      root.querySelectorAll('.leader-tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this._tab = btn.dataset.tab;
+          WM.refresh('leaders');
+        });
+      });
     }
 
     bindHireButtons(root) {
       root.querySelectorAll('.hire-btn').forEach((btn) => {
         btn.addEventListener('click', async () => {
-          const role = btn.dataset.role;
-          const nameEl = root.querySelector(`.hire-name[data-role="${role}"]`);
-          const name = nameEl?.value.trim();
-          if (!name) {
-            showToast('Enter a name first.', 'error');
-            return;
-          }
-          const response = await API.hireLeader(name, role);
-          if (response.success) {
-            showToast(response.message, 'success');
+          const role    = btn.dataset.role;
+          const nameEl  = root.querySelector(`.hire-name[data-role="${role}"]`);
+          const name    = nameEl?.value.trim();
+          if (!name) { showToast('Enter a name first.', 'error'); return; }
+          const res = await API.hireLeader(name, role);
+          if (res.success) {
+            showToast(res.message, 'success');
             WM.refresh('leaders');
           } else {
-            showToast(response.error || 'Failed', 'error');
+            showToast(res.error || 'Failed', 'error');
+          }
+        });
+      });
+    }
+
+    bindHireCandidateButtons(root) {
+      root.querySelectorAll('.hire-candidate-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const cid = parseInt(btn.dataset.cid, 10);
+          btn.disabled = true;
+          const res = await API.hireCandidate(cid);
+          if (res.success) {
+            showToast(res.message, 'success');
+            WM.refresh('leaders');
+            AdvisorWidget.maybeRefresh();
+          } else {
+            showToast(res.error || 'Hire failed.', 'error');
+            btn.disabled = false;
           }
         });
       });
@@ -7475,9 +9915,9 @@
     bindAutonomyControls(root) {
       root.querySelectorAll('.autonomy-sel').forEach((sel) => {
         sel.addEventListener('change', async () => {
-          const response = await API.setAutonomy(parseInt(sel.dataset.lid, 10), parseInt(sel.value, 10));
-          if (response.success) showToast(response.message, 'info');
-          else showToast(response.error, 'error');
+          const res = await API.setAutonomy(parseInt(sel.dataset.lid, 10), parseInt(sel.value, 10));
+          if (res.success) showToast(res.message, 'info');
+          else showToast(res.error, 'error');
         });
       });
     }
@@ -7488,12 +9928,12 @@
           const lid = parseInt(btn.dataset.lid, 10);
           const sel = root.querySelector(`.assign-col-sel[data-lid="${lid}"]`);
           const cid = sel?.value ? parseInt(sel.value, 10) : null;
-          const response = await API.assignLeader(lid, cid, null);
-          if (response.success) {
-            showToast(response.message, 'success');
+          const res = await API.assignLeader(lid, cid, null);
+          if (res.success) {
+            showToast(res.message, 'success');
             WM.refresh('leaders');
           } else {
-            showToast(response.error, 'error');
+            showToast(res.error, 'error');
           }
         });
       });
@@ -7503,12 +9943,13 @@
       root.querySelectorAll('.dismiss-btn').forEach((btn) => {
         btn.addEventListener('click', async () => {
           if (!confirm('Dismiss this leader?')) return;
-          const response = await API.dismissLeader(parseInt(btn.dataset.lid, 10));
-          if (response.success) {
-            showToast(response.message, 'success');
+          const res = await API.dismissLeader(parseInt(btn.dataset.lid, 10));
+          if (res.success) {
+            showToast(res.message, 'success');
             WM.refresh('leaders');
+            AdvisorWidget.maybeRefresh();
           } else {
-            showToast(response.error, 'error');
+            showToast(res.error, 'error');
           }
         });
       });
@@ -7516,10 +9957,10 @@
 
     bindAiTick(root) {
       root.querySelector('#ai-tick-btn')?.addEventListener('click', async () => {
-        const response = await API.aiTick();
-        if (response.success) {
-          const actions = response.actions || [];
-          showToast(actions.length ? `AI: ${actions[0]}` : 'AI: No actions taken.', 'info');
+        const res = await API.aiTick();
+        if (res.success) {
+          const acts = res.actions || [];
+          showToast(acts.length ? `AI: ${acts[0]}` : 'AI: No actions taken.', 'info');
           WM.refresh('leaders');
         }
       });
@@ -7536,16 +9977,22 @@
     async render() {
       const root = WM.body('leaders');
       if (!root) return;
-      root.innerHTML = '<p class="text-muted">Loading leaders…</p>';
+      this._injectCardStyles();
+      root.innerHTML = '<p class="text-muted">Loading…</p>';
       try {
-        const data = await API.leaders();
-        if (!data.success) {
-          root.innerHTML = '<p class="error">Failed to load leaders.</p>';
-          return;
+        if (this._tab === 'marketplace') {
+          const mkt = await API.leaderMarketplace();
+          if (!mkt.success) { root.innerHTML = '<p class="error">Marketplace unavailable.</p>'; return; }
+          root.innerHTML = this.renderTabs('marketplace') + this.renderMarketplace(mkt.candidates || []);
+          this.bindTabs(root);
+          this.bindHireCandidateButtons(root);
+        } else {
+          const data = await API.leaders();
+          if (!data.success) { root.innerHTML = '<p class="error">Failed to load leaders.</p>'; return; }
+          root.innerHTML = this.renderTabs('my_leaders') + this.renderMyLeaders(data.leaders || []);
+          this.bindTabs(root);
+          this.bindActions(root);
         }
-        const leaders = data.leaders || [];
-        root.innerHTML = this.renderTable(leaders);
-        this.bindActions(root);
       } catch (e) {
         root.innerHTML = `<p class="error">${esc(String(e))}</p>`;
       }
@@ -7555,12 +10002,157 @@
   const leadersController = new LeadersController();
   window.GQLeadersController = leadersController;
 
+  // ── Advisor Widget ────────────────────────────────────────
+  const AdvisorWidget = (() => {
+    let _advisor = null;
+    let _hints   = [];
+
+    function _init() {
+      const widget = document.createElement('div');
+      widget.id = 'advisor-widget';
+      widget.style.display = 'none';
+      widget.innerHTML = `<div id="advisor-bubble" title="Advisor — click for hints">
+        <span id="advisor-bubble-portrait">🧙</span>
+        <div id="advisor-bubble-info">
+          <span id="advisor-bubble-name">Advisor</span>
+          <span id="advisor-bubble-badge"></span>
+        </div>
+      </div>`;
+      document.body.appendChild(widget);
+      widget.querySelector('#advisor-bubble').addEventListener('click', () => {
+        WM.open('advisor-hints');
+      });
+    }
+
+    function _renderHintsWindow() {
+      const root = WM.body('advisor-hints');
+      if (!root) return;
+      leadersController._injectCardStyles();
+      if (!_advisor) {
+        root.innerHTML = '<p class="text-muted">No advisor assigned. Hire an Advisor from the Leaders Marketplace.</p>';
+        return;
+      }
+      if (_hints.length === 0) {
+        root.innerHTML = `
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
+            <span style="font-size:2rem">${esc(_advisor.portrait || '🧙')}</span>
+            <div><strong>${esc(_advisor.name)}</strong>
+              <div style="font-size:0.75rem;color:var(--text-secondary)">${esc(_advisor.tagline || '')}</div></div>
+          </div>
+          <p class="text-muted">✅ No active hints. Check back soon.</p>
+          <button class="btn btn-secondary btn-sm" id="advisor-refresh-btn" style="margin-top:0.5rem">🔄 Re-scan</button>`;
+      } else {
+        root.innerHTML = `
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
+            <span style="font-size:2rem">${esc(_advisor.portrait || '🧙')}</span>
+            <div><strong>${esc(_advisor.name)}</strong>
+              <div style="font-size:0.75rem;color:var(--text-secondary)">${esc(_advisor.tagline || '')}</div></div>
+          </div>
+          <div id="hints-list">
+            ${_hints.map((h) => `
+              <div class="advisor-hint-card hint-${h.hint_type}" data-hid="${h.id}">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                  <div class="advisor-hint-title">${esc(h.title)}</div>
+                  <button class="btn btn-secondary btn-sm dismiss-hint-btn" data-hid="${h.id}" style="padding:0 5px;font-size:0.7rem;margin-left:0.5rem">✕</button>
+                </div>
+                <div class="advisor-hint-body">${esc(h.body)}</div>
+                ${h.action_label && h.action_window ? `
+                  <button class="btn btn-primary btn-sm hint-action-btn" data-window="${h.action_window}" style="margin-top:0.4rem;font-size:0.75rem">
+                    ${esc(h.action_label)}
+                  </button>` : ''}
+              </div>`).join('')}
+          </div>
+          <button class="btn btn-secondary btn-sm" id="advisor-refresh-btn" style="margin-top:0.5rem">🔄 Re-scan</button>`;
+      }
+
+      root.querySelector('#advisor-refresh-btn')?.addEventListener('click', async () => {
+        const res = await API.advisorTick();
+        if (res.success) {
+          _hints   = res.hints   || [];
+          _advisor = res.advisor || _advisor;
+          _update();
+          _renderHintsWindow();
+        }
+      });
+
+      root.querySelectorAll('.dismiss-hint-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const hid = parseInt(btn.dataset.hid, 10);
+          await API.dismissHint(hid);
+          _hints = _hints.filter((h) => +h.id !== hid);
+          _update();
+          _renderHintsWindow();
+        });
+      });
+
+      root.querySelectorAll('.hint-action-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          WM.open(btn.dataset.window);
+        });
+      });
+    }
+
+    function _update() {
+      const widget = document.getElementById('advisor-widget');
+      if (!widget) return;
+      if (!_advisor) { widget.style.display = 'none'; return; }
+      widget.style.display = '';
+      document.getElementById('advisor-bubble-portrait').textContent = _advisor.portrait || '🧙';
+      document.getElementById('advisor-bubble-name').textContent     = _advisor.name     || 'Advisor';
+      const badge = document.getElementById('advisor-bubble-badge');
+      if (_hints.length > 0) {
+        badge.textContent = `${_hints.length} hint${_hints.length > 1 ? 's' : ''}`;
+        badge.style.color = _hints.some((h) => h.hint_type === 'warning' || h.hint_type === 'action_required') ? '#f59e0b' : 'var(--accent,#4a9eff)';
+      } else {
+        badge.textContent = 'All clear ✓';
+        badge.style.color = '#4ade80';
+      }
+      // Refresh the hints window if open
+      if (WM.body('advisor-hints')) _renderHintsWindow();
+    }
+
+    async function load() {
+      try {
+        const res = await API.advisorHints();
+        if (res.success) {
+          _advisor = res.advisor;
+          _hints   = res.hints || [];
+          _update();
+        }
+      } catch (_) { /* non-critical */ }
+    }
+
+    async function maybeRefresh() {
+      // Called after hiring/dismissing a leader
+      setTimeout(load, 800);
+    }
+
+    function register() {
+      _init();
+      WM.register('advisor-hints', {
+        title: '🧙 Advisor',
+        w: 420,
+        h: 520,
+        defaultDock: 'right',
+        defaultY: 44,
+        onRender: _renderHintsWindow,
+      });
+    }
+
+    return { load, maybeRefresh, register };
+  })();
+
   // ── Leaderboard window ────────────────────────────────────
   async function renderLeaders() {
     await leadersController.render();
   }
 
   class FactionsController {
+    constructor() {
+      this.conversations = new Map();
+      this.lastFactions = [];
+    }
+
     standingClass(value) {
       if (value >= 50) return 'chip-allied';
       if (value >= 10) return 'chip-friendly';
@@ -7662,11 +10254,11 @@
 
         <div class="factions-grid">
           ${factions.map((faction) => `
-            <div class="faction-card" style="border-color:${esc(faction.color)}">
+            <div class="faction-card" data-fid="${faction.id}" style="border-color:${esc(faction.color)}">
               <div class="faction-header">
                 <span class="faction-icon">${esc(faction.icon)}</span>
                 <span class="faction-name" style="color:${esc(faction.color)}">${esc(faction.name)}</span>
-                <span class="status-chip ${this.standingClass(faction.standing)}">
+                <span class="status-chip faction-standing-chip ${this.standingClass(faction.standing)}">
                   ${this.standingLabel(faction.standing)} (${faction.standing > 0 ? '+' : ''}${faction.standing})
                 </span>
               </div>
@@ -7678,10 +10270,11 @@
                 💰 Trade: ${faction.trade_willingness}/100 &nbsp;
                 ✅ Quests done: ${faction.quests_done}
               </div>
-              ${faction.last_event ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">${esc(faction.last_event)}</div>` : ''}
+              <div class="faction-last-event" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">${faction.last_event ? esc(faction.last_event) : ''}</div>
               <div class="faction-actions" style="margin-top:0.6rem;display:flex;gap:0.4rem">
                 <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="trade">💱 Trade</button>
                 <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="quests">📋 Quests</button>
+                <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="contact">🗨 Contact</button>
               </div>
             </div>`).join('')}
         </div>
@@ -7746,10 +10339,243 @@
       });
     }
 
+    getFactionById(fid) {
+      return (this.lastFactions || []).find((faction) => Number(faction?.id || 0) === Number(fid || 0)) || null;
+    }
+
+    getConversationState(fid) {
+      return this.conversations.get(Number(fid || 0)) || null;
+    }
+
+    setConversationState(fid, state) {
+      this.conversations.set(Number(fid || 0), Object.assign({
+        history: [],
+        suggestedReplies: [],
+        model: '',
+        fallback: false,
+        standingChange: null,
+        questHook: null,
+        loading: false,
+      }, state || {}));
+    }
+
+    updateFactionSnapshot(fid, patch = {}) {
+      const faction = this.getFactionById(fid);
+      if (!faction || !patch || typeof patch !== 'object') return;
+      Object.assign(faction, patch);
+    }
+
+    syncFactionCard(root, fid) {
+      const card = root?.querySelector(`.faction-card[data-fid="${Number(fid || 0)}"]`);
+      const faction = this.getFactionById(fid);
+      if (!card || !faction) return;
+
+      const chip = card.querySelector('.faction-standing-chip');
+      if (chip) {
+        chip.className = `status-chip faction-standing-chip ${this.standingClass(faction.standing)}`;
+        chip.textContent = `${this.standingLabel(faction.standing)} (${faction.standing > 0 ? '+' : ''}${faction.standing})`;
+      }
+
+      const lastEvent = card.querySelector('.faction-last-event');
+      if (lastEvent) {
+        lastEvent.textContent = String(faction.last_event || '');
+      }
+    }
+
+    buildConversationDetail(fid) {
+      const faction = this.getFactionById(fid);
+      const state = this.getConversationState(fid) || { history: [], suggestedReplies: [], model: '', fallback: false, standingChange: null, questHook: null, loading: true };
+      const factionName = faction?.name || `Faction ${fid}`;
+      const factionColor = faction?.color || '#88aaff';
+      const factionIcon = faction?.icon || '👾';
+      const standingChange = state.standingChange && typeof state.standingChange === 'object' ? state.standingChange : null;
+      const standingDelta = Number(standingChange?.delta || 0);
+      const questHook = state.questHook && typeof state.questHook === 'object' ? state.questHook : null;
+
+      const transcriptHtml = state.history.length
+        ? state.history.map((entry) => {
+            const isNpc = entry.speaker === 'npc';
+            const align = isNpc ? 'flex-start' : 'flex-end';
+            const bg = isNpc ? 'rgba(80,120,255,0.16)' : 'rgba(255,255,255,0.08)';
+            const border = isNpc ? factionColor : 'rgba(255,255,255,0.18)';
+            const label = isNpc ? `${factionIcon} ${factionName}` : 'You';
+            return `
+              <div style="display:flex;justify-content:${align};margin-bottom:0.55rem;">
+                <div style="max-width:85%;border:1px solid ${esc(border)};background:${bg};border-radius:10px;padding:0.55rem 0.7rem;">
+                  <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.22rem">${esc(label)}</div>
+                  <div style="line-height:1.4">${esc(entry.text)}</div>
+                </div>
+              </div>`;
+          }).join('')
+        : '<div class="text-muted">Opening channel…</div>';
+
+      const standingEffectHtml = standingChange
+        ? `
+          <div style="margin-bottom:0.7rem;border:1px solid ${standingDelta >= 0 ? 'rgba(90,200,140,0.45)' : 'rgba(220,110,110,0.45)'};background:${standingDelta >= 0 ? 'rgba(90,200,140,0.12)' : 'rgba(220,110,110,0.12)'};border-radius:10px;padding:0.6rem 0.75rem;">
+            <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.18rem">Diplomatic Shift</div>
+            <div style="font-weight:600">Standing ${standingDelta >= 0 ? '+' : ''}${standingDelta} → ${esc(String(standingChange.after ?? faction?.standing ?? ''))}</div>
+            <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.18rem">${esc(String(standingChange.reason || ''))}</div>
+          </div>`
+        : '';
+
+      const questHookHtml = questHook
+        ? `
+          <div style="margin-bottom:0.7rem;border:1px solid rgba(255,210,90,0.38);background:rgba(255,210,90,0.08);border-radius:10px;padding:0.7rem 0.75rem;display:flex;justify-content:space-between;gap:0.8rem;align-items:center;">
+            <div>
+              <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.18rem">Quest Hook</div>
+              <div style="font-weight:600">${esc(String(questHook.title || 'Available Assignment'))}</div>
+              <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.18rem">${esc(String(questHook.description || ''))}</div>
+              <div style="font-size:0.74rem;color:var(--text-muted);margin-top:0.18rem">${esc(String(questHook.hook_text || ''))}${Number(questHook.reward_standing || 0) ? ` Reward standing: +${esc(String(questHook.reward_standing))}` : ''}</div>
+            </div>
+            <button class="btn btn-primary btn-sm" id="faction-dialog-start-hook" data-fid="${fid}" data-fqid="${Number(questHook.quest_id || 0)}" type="button" ${questHook.started ? 'disabled' : ''}>${questHook.started ? 'Quest Started' : 'Start Quest'}</button>
+          </div>`
+        : '';
+
+      const suggestionsHtml = (state.suggestedReplies || []).map((reply, index) => `
+        <button class="btn btn-secondary btn-sm faction-dialog-suggestion" data-fid="${fid}" data-index="${index}" style="text-align:left;justify-content:flex-start">${esc(reply)}</button>
+      `).join('');
+
+      return `
+        <div class="system-card">
+          <div style="display:flex;justify-content:space-between;gap:0.8rem;align-items:center;margin-bottom:0.65rem">
+            <div>
+              <h4 style="margin:0">${esc(factionIcon)} Contact: ${esc(factionName)}</h4>
+              <div style="font-size:0.74rem;color:var(--text-muted)">NPC opens first. Then you get 3 RPG-style responses plus free input.${state.model ? ` Model: ${esc(state.model)}` : ''}${state.fallback ? ' · fallback reply' : ''}</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="faction-dialog-restart" data-fid="${fid}" type="button">Restart</button>
+          </div>
+          ${standingEffectHtml}
+          ${questHookHtml}
+          <div style="background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.75rem;max-height:360px;overflow:auto;margin-bottom:0.7rem">
+            ${transcriptHtml}
+          </div>
+          <div style="display:grid;gap:0.45rem;margin-bottom:0.7rem">
+            ${suggestionsHtml || '<div class="text-muted">No suggested replies available.</div>'}
+          </div>
+          <div style="display:flex;gap:0.45rem;align-items:center">
+            <input id="faction-dialog-input" type="text" maxlength="280" placeholder="Type your own response…" style="flex:1;padding:0.55rem 0.7rem;border:1px solid #666;background:#0a0a0a;color:#fff;border-radius:8px;" ${state.loading ? 'disabled' : ''} />
+            <button class="btn btn-primary btn-sm" id="faction-dialog-send" data-fid="${fid}" type="button" ${state.loading ? 'disabled' : ''}>Send</button>
+          </div>
+        </div>`;
+    }
+
+    bindConversationActions(root, fid) {
+      const detail = root.querySelector('#faction-detail');
+      if (!detail) return;
+
+      detail.querySelectorAll('.faction-dialog-suggestion').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const state = this.getConversationState(fid);
+          const index = Number(btn.getAttribute('data-index') || -1);
+          const reply = state?.suggestedReplies?.[index] || '';
+          if (!reply) return;
+          await this.advanceConversation(root, fid, reply, false);
+        });
+      });
+
+      detail.querySelector('#faction-dialog-send')?.addEventListener('click', async () => {
+        const input = detail.querySelector('#faction-dialog-input');
+        const value = String(input?.value || '').trim();
+        if (!value) return;
+        if (input) input.value = '';
+        await this.advanceConversation(root, fid, value, false);
+      });
+
+      detail.querySelector('#faction-dialog-input')?.addEventListener('keydown', async (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const input = event.currentTarget;
+        const value = String(input?.value || '').trim();
+        if (!value) return;
+        input.value = '';
+        await this.advanceConversation(root, fid, value, false);
+      });
+
+      detail.querySelector('#faction-dialog-restart')?.addEventListener('click', async () => {
+        await this.advanceConversation(root, fid, '', true);
+      });
+
+      detail.querySelector('#faction-dialog-start-hook')?.addEventListener('click', async (event) => {
+        const btn = event.currentTarget;
+        const fqid = Number(btn?.getAttribute('data-fqid') || 0);
+        if (!fqid) return;
+        btn.disabled = true;
+        const response = await API.startFactionQuest(fqid);
+        if (response?.success) {
+          const current = this.getConversationState(fid) || {};
+          const nextHook = current.questHook ? Object.assign({}, current.questHook, { started: true }) : null;
+          this.setConversationState(fid, Object.assign({}, current, { questHook: nextHook }));
+          detail.innerHTML = this.buildConversationDetail(fid);
+          this.bindConversationActions(root, fid);
+          showToast(response.message || 'Quest started.', 'success');
+        } else {
+          btn.disabled = false;
+          showToast(response?.error || 'Quest could not be started.', 'error');
+        }
+      });
+    }
+
+    async advanceConversation(root, fid, playerInput = '', reset = false) {
+      const detail = root.querySelector('#faction-detail');
+      if (!detail) return;
+
+      const current = reset ? null : this.getConversationState(fid);
+      const history = reset ? [] : (current?.history || []);
+      this.setConversationState(fid, Object.assign({}, current || {}, { loading: true, history }));
+      detail.innerHTML = this.buildConversationDetail(fid);
+
+      try {
+        const response = await API.factionDialogue({
+          faction_id: fid,
+          history,
+          player_input: reset ? '' : playerInput,
+        });
+
+        if (!response?.success) {
+          throw new Error(response?.error || 'Dialogue request failed.');
+        }
+
+        this.setConversationState(fid, {
+          history: Array.isArray(response.history) ? response.history : [],
+          suggestedReplies: Array.isArray(response.suggested_replies) ? response.suggested_replies : [],
+          model: String(response.model || ''),
+          fallback: !!response.fallback,
+          standingChange: response.standing_change && typeof response.standing_change === 'object' ? response.standing_change : null,
+          questHook: response.quest_hook && typeof response.quest_hook === 'object' ? Object.assign({ started: false }, response.quest_hook) : null,
+          loading: false,
+        });
+        if (response?.faction && Number.isFinite(Number(response.faction.standing))) {
+          const standingChange = response.standing_change && typeof response.standing_change === 'object' ? response.standing_change : null;
+          this.updateFactionSnapshot(fid, {
+            standing: Number(response.faction.standing),
+            last_event: standingChange?.reason ? `[dialogue] ${standingChange.reason}` : String(this.getFactionById(fid)?.last_event || ''),
+          });
+          this.syncFactionCard(root, fid);
+        }
+        detail.innerHTML = this.buildConversationDetail(fid);
+        this.bindConversationActions(root, fid);
+      } catch (err) {
+        this.setConversationState(fid, Object.assign({}, current || {}, { loading: false }));
+        detail.innerHTML = `<p class="error">${esc(String(err?.message || err || 'Dialogue failed.'))}</p>`;
+        showToast('Faction dialogue failed.', 'error');
+      }
+    }
+
     async renderDetail(root, fid, mode) {
       const detail = root.querySelector('#faction-detail');
       if (!detail) return;
       detail.innerHTML = '<p class="text-muted">Loading…</p>';
+
+      if (mode === 'contact') {
+        const existing = this.getConversationState(fid);
+        if (existing) {
+          detail.innerHTML = this.buildConversationDetail(fid);
+          this.bindConversationActions(root, fid);
+        } else {
+          await this.advanceConversation(root, fid, '', true);
+        }
+        return;
+      }
 
       if (mode === 'trade') {
         const data = await API.tradeOffers(fid);
@@ -7848,6 +10674,7 @@
           return;
         }
         const factions = factionsData.factions || [];
+        this.lastFactions = factions;
         const activeEvent = factionsData.active_event || null;
         const politicsProfile = politicsData?.profile || null;
         const dynamicEffects = politicsData?.dynamic_effects || window._GQ_politics?.effects || {};
@@ -8954,6 +11781,11 @@
 
   refreshAudioUi();
   loadAudioTrackCatalog().catch(() => {});
+
+  // Advisor widget: register WM window + mount floating bubble
+  AdvisorWidget.register();
+  AdvisorWidget.load().catch(() => {});
+
   await loadOverview();
 
   try {

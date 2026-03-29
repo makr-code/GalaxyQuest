@@ -1,0 +1,33 @@
+{
+  "faction_code": "ketzer_von_verath",
+  "faction_name": "Die Ketzer von Verath – Abtrünnige Syl'Nar",
+  "faction_type": "schismatic_spiritual",
+  "description": "Abtrünnige Syl'Nar, die die Konvergenz und ihre spirituellen Lehren ablehnen. Suchen Wahrheit außerhalb etablierter Hierarchien.",
+  "status": "active_antiauthority",
+  "government": "Decentralized Collective",
+  "homeworld": "Verath (verstecktes Kloster-Riff)",
+  "technology": [
+    "Uralte Syl'Nar-Biotech",
+    "Kristall-Kommunikation",
+    "Heilige Frequenzen-Waffen"
+  ],
+  "military": {
+    "primary_asset": "Biolumineszente Kampfgeschwader",
+    "strength": 4,
+    "doctrine": "Spirituelle Subversion"
+  },
+  "agenda": "Spirituelle Befreiung von Konvergenz-Dogma; Wahrheit über die Leerenbrut offenbaren",
+  "relationships": {
+    "vor_tak": { "standing": 2, "description": "Sehen sie als spirituell verloren" },
+    "syl_nar": { "standing": -5, "description": "Ketzer ihrer eigenen Spezies" },
+    "aereth": { "standing": 5, "description": "Respektieren ihre Forschungsfreiheit" },
+    "kryl_tha": { "standing": 3, "description": "Neutral, aber mysteriös" },
+    "zhareen": { "standing": 4, "description": "Teilen Archive von alternativen Wahrheiten" },
+    "vel_ar": { "standing": 6, "description": "Werben Spione an" }
+  },
+  "quest_hooks": [
+    "Die Ketzer besitzen Beweise, dass Vela'Thii Geheimnisse vor der Konvergenz verbirgt",
+    "Ein heiliges Riff wird durch die Leerenbrut bedroht - nur die Ketzer können es retten",
+    "Geheime Texte entlarven Sol'Kaar als Gefängnis-Wächter, nicht Forscher"
+  ]
+}

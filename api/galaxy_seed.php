@@ -112,6 +112,20 @@ function ensure_star_system_columns(PDO $db): void {
         }
     }
 
+    // White dwarfs are generated with spectral_class='WD'.
+    // Older schemas use ENUM('O','B','A','F','G','K','M') and would throw
+    // "Data truncated for column spectral_class" on insert.
+    $enumStmt = $db->prepare(
+        'SELECT COLUMN_TYPE
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+    );
+    $enumStmt->execute(['star_systems', 'spectral_class']);
+    $columnType = strtolower((string)$enumStmt->fetchColumn());
+    if ($columnType !== '' && strpos($columnType, "'wd'") === false) {
+        $db->exec("ALTER TABLE star_systems MODIFY COLUMN spectral_class ENUM('O','B','A','F','G','K','M','WD') NOT NULL DEFAULT 'G'");
+    }
+
     $done = true;
 }
 

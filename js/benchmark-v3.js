@@ -1,4 +1,8 @@
 /**
+ * @deprecated 2026-03-29 — Nicht in index.html oder benchmark.html eingebunden.
+ * Kann nach Pruefung entfernt werden.
+ */
+/**
  * BENCHMARK.JS - UPDATED V3 SUPPORT
  * 
  * Extension to js/benchmark.js to include Delta-Encoding V3

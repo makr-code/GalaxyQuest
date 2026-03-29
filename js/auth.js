@@ -41,6 +41,10 @@
     }
   }
 
+  function authUiLog(level, ...parts) {
+    authLog(level, '[login-ui]', ...parts);
+  }
+
   authLog('info', 'bootstrap start');
   authProbe('bootstrap start');
 
@@ -62,17 +66,61 @@
   const authActionSpinner = document.getElementById('auth-action-spinner');
   const authActionTitle = document.getElementById('auth-action-title');
   const authActionText = document.getElementById('auth-action-text');
+  const authLoginConfirmSection = document.getElementById('auth-login-confirm-section');
+  const authLoginConfirmTitle = document.getElementById('auth-login-confirm-title');
+  const authLoginConfirmText = document.getElementById('auth-login-confirm-text');
+  const authLoginConfirmBar = document.getElementById('auth-login-confirm-bar');
+  const authLoginConfirmMeta = document.getElementById('auth-login-confirm-meta');
   const loginRemember = document.getElementById('login-remember');
   const regRemember = document.getElementById('reg-remember');
+  const authFlightProfileSelect = document.getElementById('auth-flight-profile');
+  const AUTH_FLIGHT_PROFILE_KEY = 'gq_auth_flight_profile';
 
   let gameBootPromise = null;
   const scriptLoadPromises = new Map();
   let authDebugDetails = false;
   let authWindowIntegrationAttempted = false;
+  let preloadPanelSuppressed = false;
+  let lastPhaseBucket = -1;
 
   // Keep remember-me enabled by default on the auth shell.
   if (loginRemember) loginRemember.checked = true;
   if (regRemember) regRemember.checked = false;
+
+  function normalizeAuthFlightProfile(value) {
+    const v = String(value || '').trim().toLowerCase();
+    if (v === 'balanced' || v === 'slow') return v;
+    return 'cinematic';
+  }
+
+  function getStoredAuthFlightProfile() {
+    try {
+      return normalizeAuthFlightProfile(localStorage.getItem(AUTH_FLIGHT_PROFILE_KEY));
+    } catch (_) {
+      return 'cinematic';
+    }
+  }
+
+  function setStoredAuthFlightProfile(value) {
+    const normalized = normalizeAuthFlightProfile(value);
+    try {
+      localStorage.setItem(AUTH_FLIGHT_PROFILE_KEY, normalized);
+    } catch (_) {}
+    window.__GQ_AUTH_FLIGHT_PROFILE = normalized;
+    return normalized;
+  }
+
+  if (authFlightProfileSelect) {
+    const initialProfile = setStoredAuthFlightProfile(getStoredAuthFlightProfile());
+    authFlightProfileSelect.value = initialProfile;
+    authFlightProfileSelect.addEventListener('change', () => {
+      const saved = setStoredAuthFlightProfile(authFlightProfileSelect.value);
+      authFlightProfileSelect.value = saved;
+      authProbe(`auth flight profile -> ${saved}`);
+    });
+  } else {
+    setStoredAuthFlightProfile(getStoredAuthFlightProfile());
+  }
 
   try {
     const host = String(window.location?.hostname || '').toLowerCase();
@@ -107,7 +155,64 @@
     if (preloadLabel) preloadLabel.textContent = String(label || 'Loading...');
     if (preloadMeta) preloadMeta.textContent = `${clamped.toFixed(0)}%`;
     if (preloadBar) preloadBar.style.width = `${clamped}%`;
-    preloadPanel?.classList.remove('hidden');
+    if (!preloadPanelSuppressed) {
+      preloadPanel?.classList.remove('hidden');
+    }
+    if (authLoginConfirmBar) {
+      authLoginConfirmBar.style.width = `${clamped}%`;
+    }
+    if (authLoginConfirmSection) {
+      authLoginConfirmSection.classList.toggle('is-complete', clamped >= 100);
+    }
+    if (authLoginConfirmSection && !authLoginConfirmSection.classList.contains('hidden') && authLoginConfirmMeta) {
+      if (clamped >= 100) {
+        if (authLoginConfirmTitle) authLoginConfirmTitle.textContent = 'Command Bridge bereit';
+        if (authLoginConfirmText) authLoginConfirmText.textContent = 'Initialisierung abgeschlossen. Uebergang in die Einsatzansicht...';
+        authLoginConfirmMeta.textContent = '100% • Start abgeschlossen';
+      } else {
+        authLoginConfirmMeta.textContent = `${clamped.toFixed(0)}% • ${String(label || 'Loading...')}`;
+      }
+    }
+
+    // Log progress in coarse buckets to keep console readable.
+    const bucket = Math.floor(clamped / 25);
+    if (bucket !== lastPhaseBucket) {
+      lastPhaseBucket = bucket;
+      authUiLog('info', `boot progress ${clamped.toFixed(0)}%`, String(label || 'Loading...'));
+    }
+  }
+
+  function hidePreloadPanel(reset = false) {
+    preloadPanel?.classList.add('hidden');
+    authUiLog('info', `auth preload panel hidden${reset ? ' (reset)' : ''}`);
+    if (!reset) return;
+    if (preloadBar) preloadBar.style.width = '0%';
+    if (preloadLabel) preloadLabel.textContent = 'Systemcheck laeuft...';
+    if (preloadMeta) preloadMeta.textContent = '0%';
+  }
+
+  function showLoginConfirmSection(title, text, meta = '') {
+    if (authLoginConfirmTitle) authLoginConfirmTitle.textContent = String(title || 'Login erkannt');
+    if (authLoginConfirmText) authLoginConfirmText.textContent = String(text || 'Preloading laeuft.');
+    if (authLoginConfirmMeta) authLoginConfirmMeta.textContent = String(meta || 'Session wird vorbereitet');
+    if (authLoginConfirmBar) authLoginConfirmBar.style.width = '0%';
+    authLoginConfirmSection?.classList.remove('is-complete');
+    authLoginConfirmSection?.classList.remove('is-exiting');
+    authLoginConfirmSection?.classList.remove('hidden');
+    authUiLog('info', 'login confirm section shown', `${String(title || '')} | ${String(meta || '')}`);
+  }
+
+  async function hideLoginConfirmSection(options = {}) {
+    const animate = options?.animate === true;
+    if (animate && authLoginConfirmSection && !authLoginConfirmSection.classList.contains('hidden')) {
+      authLoginConfirmSection.classList.add('is-exiting');
+      await sleep(300);
+    }
+    authLoginConfirmSection?.classList.remove('is-complete');
+    authLoginConfirmSection?.classList.remove('is-exiting');
+    if (authLoginConfirmBar) authLoginConfirmBar.style.width = '0%';
+    authLoginConfirmSection?.classList.add('hidden');
+    authUiLog('info', `login confirm section hidden${animate ? ' (fade)' : ''}`);
   }
 
   function reportBootFailure(context, err) {
@@ -138,9 +243,27 @@
     }
   }
 
+  async function performLogoutCleanup() {
+    try {
+      await fetchWithTimeout('api/auth.php?action=logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        timeoutMs: 5000,
+        tag: 'logout-cleanup',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+    } catch (_) {
+      // Best effort only: auth screen should still be usable offline or on transient failures.
+    }
+  }
+
   function setAuthVisible() {
     document.body.classList.remove('game-page');
     document.body.classList.add('auth-page');
+    preloadPanelSuppressed = false;
+    hidePreloadPanel(true);
+    hideLoginConfirmSection();
     authSection?.classList.remove('hidden');
     authSection?.setAttribute('aria-hidden', 'false');
     gameSection?.classList.add('hidden');
@@ -175,6 +298,73 @@
         focusPlanet: true,
       }, payload || {});
     } catch (_) {}
+  }
+
+  function applyAuthFlightTarget(target) {
+    try {
+      const bridgeControl = window.GQGalaxyEngineBridge && typeof window.GQGalaxyEngineBridge.getAdapter === 'function'
+        ? (window.GQGalaxyEngineBridge.getAdapter('auth-background') || window.GQGalaxyEngineBridge.getAdapter('starfield'))
+        : null;
+      const control = bridgeControl || window.GQAuthGalaxyBackgroundControl || window.GQStarfieldControl;
+      if (control && typeof control.setNavigationTarget === 'function') {
+        control.setNavigationTarget(target);
+      }
+    } catch (_) {}
+  }
+
+  function releaseAuthBackgroundForGame() {
+    try {
+      const bridgeControl = window.GQGalaxyEngineBridge && typeof window.GQGalaxyEngineBridge.getAdapter === 'function'
+        ? (window.GQGalaxyEngineBridge.getAdapter('auth-background') || window.GQGalaxyEngineBridge.getAdapter('starfield'))
+        : null;
+      const control = bridgeControl || window.GQAuthGalaxyBackgroundControl || window.GQStarfieldControl;
+      if (control && typeof control.releaseCanvasForGame === 'function') {
+        control.releaseCanvasForGame();
+      }
+    } catch (_) {}
+  }
+
+  async function resolveHomeworldFlightTarget() {
+    const overviewRes = await fetchWithTimeout('api/game.php?action=overview', {
+      credentials: 'same-origin',
+      timeoutMs: 18000,
+      tag: 'overview-home-target',
+      cache: 'no-store',
+    });
+    const overviewData = await parseApiJson(overviewRes, 'overview-home-target');
+    const colonies = Array.isArray(overviewData?.colonies) ? overviewData.colonies : [];
+    const home = colonies.find((c) => Number(c?.is_homeworld || 0) === 1) || colonies[0] || null;
+    if (!home) return null;
+
+    const g = Number(home?.galaxy || 0);
+    const s = Number(home?.system || 0);
+    if (!Number.isFinite(g) || !Number.isFinite(s) || g <= 0 || s <= 0) return null;
+
+    const starInfoRes = await fetchWithTimeout(`api/galaxy.php?action=star_info&galaxy=${g}&system=${s}`, {
+      credentials: 'same-origin',
+      timeoutMs: 14000,
+      tag: 'star-info-home-target',
+      cache: 'no-store',
+    });
+    const starInfo = await parseApiJson(starInfoRes, 'star-info-home-target');
+    const xy = starInfo?.star?.xy || {};
+
+    const x = Number(xy.x_ly);
+    const y = Number(xy.y_ly || 0);
+    const z = Number(xy.z_ly);
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+
+    return {
+      id: Number(starInfo?.id || s) || s,
+      system_index: s,
+      galaxy_index: g,
+      x_ly: x,
+      y_ly: y,
+      z_ly: z,
+      label: String(home?.name || 'Homeworld'),
+      colony_id: Number(home?.id || 0) || 0,
+      planet_position: Number(home?.position || 0) || 0,
+    };
   }
 
   async function ensureAuthWindowManaged() {
@@ -488,34 +678,50 @@
   async function startGameShell() {
     authLog('info', 'startGameShell begin');
     authProbe('startGameShell begin', 'warn');
-    showActionModal('Login successful', 'Loading command bridge...', true);
-    setGameVisible();
-    await bootGameRuntime();
     hideActionModal();
+    showLoginConfirmSection(
+      'Login erkannt',
+      'Preloading laeuft. Dein Kommandostand wird vorbereitet.',
+      'Session validiert'
+    );
+    preloadPanelSuppressed = true;
+    authUiLog('info', 'preload panel suppressed for clean login UI');
+    hidePreloadPanel(true);
+    releaseAuthBackgroundForGame();
+    await bootGameRuntime();
+    await hideLoginConfirmSection({ animate: true });
+    hideActionModal();
+    setGameVisible();
     authLog('info', 'startGameShell complete');
     authProbe('startGameShell complete');
   }
 
   async function checkSessionAndBoot() {
+    preloadPanelSuppressed = false;
+    lastPhaseBucket = -1;
     setPhase('Checking session...', 2);
     try {
       const me = await fetch('api/auth.php?action=me', { credentials: 'same-origin' });
       if (!me.ok) {
+        authUiLog('info', 'no valid session detected (HTTP)');
         setAuthVisible();
-        setPhase('Please sign in', 0);
+        hidePreloadPanel(true);
         return false;
       }
       const data = await me.json();
       if (!data.success) {
+        authUiLog('info', 'no valid session detected (payload)');
         setAuthVisible();
-        setPhase('Please sign in', 0);
+        hidePreloadPanel(true);
         return false;
       }
+      authUiLog('info', 'valid session detected, booting game shell');
       await startGameShell();
       return true;
     } catch (_) {
+      authUiLog('warn', 'session check failed, staying on auth screen');
       setAuthVisible();
-      setPhase('Please sign in', 0);
+      hidePreloadPanel(true);
       return false;
     }
   }
@@ -780,6 +986,7 @@
     authLog('info', 'login submit fired');
     e.preventDefault();
     const errEl = document.getElementById('login-error');
+    if (errEl) errEl.className = 'form-error';
     errEl.textContent = '';
     const btn = loginForm.querySelector('button[type="submit"]');
     btn.disabled = true;
@@ -819,8 +1026,19 @@
       authProbe(`login response success=${!!data.success}`);
       authLog('info', `login response success=${!!data.success}`);
       if (data.success) {
-        queueHomeworldIntroFlight({ source: 'login' });
-        showActionModal('Login successful', 'Preparing your command center...', true);
+        let homeTarget = null;
+        try {
+          homeTarget = await resolveHomeworldFlightTarget();
+        } catch (targetErr) {
+          authLog('warn', 'homeworld target resolve failed (login)', String(targetErr?.message || targetErr || 'unknown'));
+        }
+        if (homeTarget) {
+          queueHomeworldIntroFlight({ source: 'login', targetStar: homeTarget });
+          applyAuthFlightTarget(homeTarget);
+          await sleep(700);
+        } else {
+          queueHomeworldIntroFlight({ source: 'login' });
+        }
         await startGameShell();
       } else {
         hideActionModal();
@@ -888,8 +1106,19 @@
         data = await submitRegister(true);
       }
       if (data.success) {
-        queueHomeworldIntroFlight({ source: 'register' });
-        showActionModal('Registration successful', 'Setting up your command center...', true);
+        let homeTarget = null;
+        try {
+          homeTarget = await resolveHomeworldFlightTarget();
+        } catch (targetErr) {
+          authLog('warn', 'homeworld target resolve failed (register)', String(targetErr?.message || targetErr || 'unknown'));
+        }
+        if (homeTarget) {
+          queueHomeworldIntroFlight({ source: 'register', targetStar: homeTarget });
+          applyAuthFlightTarget(homeTarget);
+          await sleep(700);
+        } else {
+          queueHomeworldIntroFlight({ source: 'register' });
+        }
         await startGameShell();
       } else {
         hideActionModal();
@@ -911,12 +1140,18 @@
     const bootUrl = new URL(window.location.href);
     const skipAutoBootAfterLogout = bootUrl.searchParams.get('logout') === '1';
     if (skipAutoBootAfterLogout) {
+      await performLogoutCleanup();
       bootUrl.searchParams.delete('logout');
       if (window.history?.replaceState) {
         window.history.replaceState({}, document.title, bootUrl.pathname + bootUrl.search + bootUrl.hash);
       }
       setAuthVisible();
       setPhase('Signed out. Please sign in again.', 0);
+      const loginErr = document.getElementById('login-error');
+      if (loginErr) {
+        loginErr.className = 'form-success';
+        loginErr.textContent = 'Du wurdest erfolgreich abgemeldet. Bitte melde dich erneut an.';
+      }
     }
 
     const hasSession = skipAutoBootAfterLogout ? false : await checkSessionAndBoot();

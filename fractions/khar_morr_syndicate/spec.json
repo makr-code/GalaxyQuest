@@ -1,0 +1,33 @@
+{
+  "faction_code": "khar_morr_syndicate",
+  "faction_name": "Die Khar'Morr-Syndikate – Piratenkönige der Randsektoren",
+  "faction_type": "pirate_multispecie",
+  "description": "Multispezies-Piratenföderation. Destabilisiert gezielt Regionen um Handel und Schutzgelder zu kontrollieren.",
+  "status": "active_hostile",
+  "government": "Warlord Confederation",
+  "homeworld": "Die Schattenzonen (nomadisch)",
+  "technology": [
+    "Tarnfelder aus gestohlenen Vel'Ar-Prototypen",
+    "Organisch-mechanische Hybridwaffen",
+    "Schwarzmärkte für genetische Modifikationen"
+  ],
+  "military": {
+    "primary_asset": "Schnelle Raubschiffe",
+    "strength": 6,
+    "doctrine": "Dislocation und Plünderung"
+  },
+  "agenda": "Profit, Chaos, Macht - Kontrolle durch Destabilisierung",
+  "relationships": {
+    "vor_tak": { "standing": 1, "description": "Erzfeinde" },
+    "syl_nar": { "standing": 0, "description": "Nutzen als 'Ware' (Tentakel-Biotech)" },
+    "aereth": { "standing": 1, "description": "Versuchen, Energiekerne zu stehlen" },
+    "kryl_tha": { "standing": 3, "description": "Respektieren Brutkammern - handeln aber mit Eiern" },
+    "zhareen": { "standing": 0, "description": "Rauben Kristallarchive" },
+    "vel_ar": { "standing": 4, "description": "Nutzen als Spione" }
+  },
+  "quest_hooks": [
+    "Ein Piratenlord besitzt ein Fragment der Leerenbrut",
+    "Die Syndikate haben eine Brutkammer der Kryl'Tha gestohlen",
+    "Ein Piratenkapitän bietet ein Bündnis an – gegen einen hohen Preis"
+  ]
+}

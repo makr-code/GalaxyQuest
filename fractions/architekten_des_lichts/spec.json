@@ -1,0 +1,33 @@
+{
+  "faction_code": "architekten_des_lichts",
+  "faction_name": "Die Architekten des Lichts – Aethernox-Kultwächter",
+  "faction_type": "elder_tech_cult",
+  "description": "Gläubige einer Vielzahl von Spezies, die Aethernox-Technologie anbeten als heilige Manifestation der kosmischen Ordnung.",
+  "status": "active_mystical",
+  "government": "Hierarchical Priesthood",
+  "homeworld": "Verschiedene heilige Monolithen",
+  "technology": [
+    "Nachgeahmte Aethernox-Gravimetrik",
+    "Heilige Datenknoten",
+    "Licht-Manipulation (pseudo-religiös)"
+  ],
+  "military": {
+    "primary_asset": "Geweihte Wächter und Priester",
+    "strength": 3,
+    "doctrine": "Kosmische Balance durch Glauben"
+  },
+  "agenda": "Wiederherstellung der Aethernox; Bewahrung heiliger Stätten; Rituales Gleichgewicht",
+  "relationships": {
+    "vor_tak": { "standing": 4, "description": "Respekt für kriegerische Disziplin" },
+    "syl_nar": { "standing": 8, "description": "Gehören zu den Besten des Ordens" },
+    "aereth": { "standing": 6, "description": "Energieboten - heilig aber verdächtig" },
+    "kryl_tha": { "standing": 2, "description": "Zu chaotisch für heilige Rituale" },
+    "zhareen": { "standing": 9, "description": "Kristall-Priester des Ordens" },
+    "vel_ar": { "standing": 1, "description": "Zu verborgen, zu unzuverlässig" }
+  },
+  "quest_hooks": [
+    "Die Architekten planen ein großes Ritual zur 'Wiedererweckung' der Aethernox",
+    "Ein monolithischer Tempel wird durch Leerenbrut-Ausbreitung bedroht",
+    "Kultmitglieder infiltrieren den Konvergenz-Rat um Agenda voranzutreiben"
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "faction_code": "helion_confederation",
+  "faction_name": "Die Helion-Konföderation – Händler, Diplomaten, Manipulatoren",
+  "faction_type": "trade_mercantile",
+  "description": "Handelszivilisation mit planetenübergreifenden Märkten. Neutralität durch Handel – aber nur wenn sie davon profitieren.",
+  "status": "active_neutral",
+  "government": "Economic Council",
+  "homeworld": "Helion Prime (Handelsdrehscheibe)",
+  "technology": [
+    "Hyperraum-Handelsrouten",
+    "Ökonomische KI-Modelle",
+    "Nanofabrikation"
+  ],
+  "military": {
+    "primary_asset": "Handelsflotte (rüstbar)",
+    "strength": 3,
+    "doctrine": "Wirtschaftliche Deterrence"
+  },
+  "agenda": "Stabilität durch Handel - Kontrolle durch ökonomische Abhängigkeit",
+  "relationships": {
+    "vor_tak": { "standing": 4, "description": "Liefern Waffen, misstrauen aber" },
+    "syl_nar": { "standing": 6, "description": "Handeln mit Biolumineszenz-Kunst" },
+    "aereth": { "standing": 7, "description": "Kaufen Energiekerne" },
+    "kryl_tha": { "standing": 5, "description": "Verkaufen 'Schwarmverstärker'" },
+    "zhareen": { "standing": 6, "description": "Handeln mit Kristallfragmenten" },
+    "vel_ar": { "standing": 5, "description": "Nutzen als Informationsbroker" }
+  },
+  "quest_hooks": [
+    "Ein Handelsvertrag könnte die Konvergenz retten – oder ruinieren",
+    "Die Helion haben eine Karte zu einem Aethernox-Tempel",
+    "Ein Helion-Magnat finanziert heimlich die Eisenflotte"
+  ]
+}

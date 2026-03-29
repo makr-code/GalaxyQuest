@@ -3,17 +3,25 @@
  * Leaders / Officers API
  *
  * GET  /api/leaders.php?action=list
- * POST /api/leaders.php?action=hire      body: {name, role}
- * POST /api/leaders.php?action=assign    body: {leader_id, colony_id|fleet_id|null}
- * POST /api/leaders.php?action=autonomy  body: {leader_id, autonomy}
- * POST /api/leaders.php?action=dismiss   body: {leader_id}
- * POST /api/leaders.php?action=ai_tick   (run autonomous actions for all auto leaders)
+ * POST /api/leaders.php?action=hire           body: {name, role}
+ * POST /api/leaders.php?action=assign         body: {leader_id, colony_id|fleet_id|null}
+ * POST /api/leaders.php?action=autonomy       body: {leader_id, autonomy}
+ * POST /api/leaders.php?action=dismiss        body: {leader_id}
+ * POST /api/leaders.php?action=ai_tick        (run autonomous actions for all auto leaders)
+ * GET  /api/leaders.php?action=marketplace    list marketplace candidates (auto-refresh daily)
+ * POST /api/leaders.php?action=hire_candidate body: {candidate_id}
+ * GET  /api/leaders.php?action=advisor_hints  list active advisor hints
+ * POST /api/leaders.php?action=advisor_tick   re-analyse game state, refresh hints
+ * POST /api/leaders.php?action=dismiss_hint   body: {hint_id}
  *
  * Leader roles
  * ────────────
  *  colony_manager   – Manages a colony: boosts production, auto-builds
  *  fleet_commander  – Commands a fleet: boosts speed + attack, auto-recalls if empty target
  *  science_director – Manages research: reduces time + cost, auto-starts research
+ *  diplomacy_officer – Improves faction relations over time
+ *  trade_director   – Generates steady brokerage income on assigned colony
+ *  advisor          – Guides the player: quest hints, tips, warnings, action reminders
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
@@ -27,6 +35,9 @@ const HIRE_COST = [
     'colony_manager'   => ['metal' => 5000,  'crystal' => 3000,  'deuterium' => 1000],
     'fleet_commander'  => ['metal' => 8000,  'crystal' => 5000,  'deuterium' => 2000],
     'science_director' => ['metal' => 4000,  'crystal' => 8000,  'deuterium' => 4000],
+    'diplomacy_officer'=> ['metal' => 4500,  'crystal' => 4500,  'deuterium' => 1500],
+    'trade_director'   => ['metal' => 6500,  'crystal' => 3500,  'deuterium' => 2500],
+    'advisor'          => ['metal' => 0,     'crystal' => 0,     'deuterium' => 0],
 ];
 
 // XP awarded per event
@@ -35,6 +46,8 @@ const LEADER_XP = [
     'research_complete' => 30,
     'fleet_arrived'     => 15,
     'fleet_won'         => 50,
+    'diplomacy_success' => 18,
+    'trade_profit'      => 16,
 ];
 
 switch ($action) {
@@ -120,8 +133,8 @@ switch ($action) {
         // Role-specific assignment validation
         // fleet_commanders may be assigned to a colony (acts as home-base for autonomous scouting)
         // or to a fleet (passive speed/attack bonus on that specific fleet).
-        if (in_array($leader['role'], ['colony_manager', 'science_director'], true) && $fleetId !== null) {
-            json_error('Colony managers and science directors can only be assigned to colonies.');
+        if (in_array($leader['role'], ['colony_manager', 'science_director', 'diplomacy_officer', 'trade_director'], true) && $fleetId !== null) {
+            json_error('This leader role can only be assigned to colonies.');
         }
 
         // Verify target ownership
@@ -152,9 +165,12 @@ switch ($action) {
         $autonomy = max(0, min(2, (int)($body['autonomy'] ?? 1)));
 
         $db = get_db();
+        $exists = $db->prepare('SELECT id FROM leaders WHERE id=? AND user_id=? LIMIT 1');
+        $exists->execute([$lid, $uid]);
+        if (!$exists->fetch()) { json_error('Leader not found.', 404); }
+
         $upd = $db->prepare('UPDATE leaders SET autonomy=? WHERE id=? AND user_id=?');
         $upd->execute([$autonomy, $lid, $uid]);
-        if (!$upd->rowCount()) { json_error('Leader not found.', 404); }
 
         $labels = ['0' => 'inactive', '1' => 'suggest', '2' => 'full auto'];
         json_ok(['message' => "Autonomy set to: " . ($labels[$autonomy] ?? $autonomy)]);
@@ -180,6 +196,157 @@ switch ($action) {
         $db      = get_db();
         $actions = run_ai_tick($db, $uid);
         json_ok(['actions' => $actions]);
+        break;
+
+    // ── Marketplace: list available candidates (auto-refresh daily) ───────────
+    case 'marketplace':
+        only_method('GET');
+        $db         = get_db();
+        $candidates = get_or_refresh_marketplace($db, $uid);
+        json_ok(['candidates' => $candidates]);
+        break;
+
+    // ── Hire a marketplace candidate ──────────────────────────────────────────
+    case 'hire_candidate':
+        only_method('POST');
+        verify_csrf();
+        $body = get_json_body();
+        $cid  = (int)($body['candidate_id'] ?? 0);
+        $db   = get_db();
+
+        // Load the candidate (must belong to this user and not yet hired)
+        $cRow = $db->prepare(
+            'SELECT * FROM leader_marketplace WHERE id=? AND user_id=? AND is_hired=0 AND expires_at > NOW()'
+        );
+        $cRow->execute([$cid, $uid]);
+        $candidate = $cRow->fetch();
+        if (!$candidate) {
+            json_error('Candidate not available (already hired or expired).', 404);
+        }
+
+        // Deduct hire cost from homeworld colony (cost is stored on the candidate row)
+        $hw = $db->prepare('SELECT id, metal, crystal, deuterium FROM colonies WHERE user_id=? AND is_homeworld=1 LIMIT 1');
+        $hw->execute([$uid]);
+        $homeworld = $hw->fetch();
+        if (!$homeworld) { json_error('No homeworld found.'); }
+
+        $cost = [
+            'metal'     => (int)$candidate['hire_metal'],
+            'crystal'   => (int)$candidate['hire_crystal'],
+            'deuterium' => (int)$candidate['hire_deuterium'],
+        ];
+        if ($homeworld['metal']     < $cost['metal']
+         || $homeworld['crystal']   < $cost['crystal']
+         || $homeworld['deuterium'] < $cost['deuterium']) {
+            json_error('Insufficient resources on homeworld.');
+        }
+
+        if ($cost['metal'] > 0 || $cost['crystal'] > 0 || $cost['deuterium'] > 0) {
+            $db->prepare('UPDATE colonies SET metal=metal-?,crystal=crystal-?,deuterium=deuterium-? WHERE id=?')
+               ->execute([$cost['metal'], $cost['crystal'], $cost['deuterium'], $homeworld['id']]);
+        }
+
+        // Create the leader record
+        $db->prepare(
+            'INSERT INTO leaders
+                (user_id, name, role, rarity, portrait, tagline, backstory, trait_1, trait_2,
+                 skill_production, skill_construction, skill_tactics, skill_navigation,
+                 skill_research, skill_efficiency, skill_guidance, marketplace_source_id)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        )->execute([
+            $uid,
+            $candidate['name'],
+            $candidate['role'],
+            $candidate['rarity'],
+            $candidate['portrait'],
+            $candidate['tagline'],
+            $candidate['backstory'],
+            $candidate['trait_1'],
+            $candidate['trait_2'],
+            $candidate['skill_production'],
+            $candidate['skill_construction'],
+            $candidate['skill_tactics'],
+            $candidate['skill_navigation'],
+            $candidate['skill_research'],
+            $candidate['skill_efficiency'],
+            $candidate['skill_guidance'],
+            $candidate['id'],
+        ]);
+        $newLid = (int)$db->lastInsertId();
+
+        // Mark candidate as hired
+        $db->prepare('UPDATE leader_marketplace SET is_hired=1, hired_at=NOW() WHERE id=?')
+           ->execute([$cid]);
+
+        $newLeader = $db->prepare('SELECT * FROM leaders WHERE id=?');
+        $newLeader->execute([$newLid]);
+        json_ok([
+            'leader'  => $newLeader->fetch(),
+            'message' => "{$candidate['name']} hired as " . str_replace('_', ' ', $candidate['role']) . '!',
+        ]);
+        break;
+
+    // ── Advisor hints: get active (undismissed) hints ─────────────────────────
+    case 'advisor_hints':
+        only_method('GET');
+        $db = get_db();
+
+        // Check if the user has an advisor leader, return empty if not
+        $adv = $db->prepare(
+            'SELECT id FROM leaders WHERE user_id=? AND role="advisor" ORDER BY level DESC LIMIT 1'
+        );
+        $adv->execute([$uid]);
+        $advisor = $adv->fetch();
+        if (!$advisor) {
+            json_ok(['hints' => [], 'advisor' => null]);
+            break;
+        }
+
+        $advFull = $db->prepare('SELECT * FROM leaders WHERE id=? LIMIT 1');
+        $advFull->execute([(int)$advisor['id']]);
+
+        $hints = $db->prepare(
+            'SELECT * FROM advisor_hints WHERE user_id=? AND dismissed=0 ORDER BY created_at DESC LIMIT 20'
+        );
+        $hints->execute([$uid]);
+        json_ok(['hints' => $hints->fetchAll(), 'advisor' => $advFull->fetch()]);
+        break;
+
+    // ── Advisor tick: re-analyse game state, refresh hints ───────────────────
+    case 'advisor_tick':
+        only_method('POST');
+        verify_csrf();
+        $db = get_db();
+
+        $adv = $db->prepare(
+            'SELECT * FROM leaders WHERE user_id=? AND role="advisor" ORDER BY level DESC LIMIT 1'
+        );
+        $adv->execute([$uid]);
+        $advisor = $adv->fetch();
+        if (!$advisor) {
+            json_ok(['hints' => [], 'message' => 'No advisor assigned.']);
+            break;
+        }
+
+        run_advisor_analysis($db, $uid, $advisor);
+
+        $hints = $db->prepare(
+            'SELECT * FROM advisor_hints WHERE user_id=? AND dismissed=0 ORDER BY created_at DESC LIMIT 20'
+        );
+        $hints->execute([$uid]);
+        json_ok(['hints' => $hints->fetchAll(), 'advisor' => $advisor]);
+        break;
+
+    // ── Dismiss a hint ────────────────────────────────────────────────────────
+    case 'dismiss_hint':
+        only_method('POST');
+        verify_csrf();
+        $body   = get_json_body();
+        $hintId = (int)($body['hint_id'] ?? 0);
+        $db     = get_db();
+        $db->prepare('UPDATE advisor_hints SET dismissed=1 WHERE id=? AND user_id=?')
+           ->execute([$hintId, $uid]);
+        json_ok(['message' => 'Hint dismissed.']);
         break;
 
     default:
@@ -217,6 +384,18 @@ function run_ai_tick(PDO $db, int $uid): array {
                 // When colony-assigned with autonomy=2: active scouting decisions.
                 if (!$leader['colony_id']) break;
                 $a = ai_fleet_commander_tick($db, $leader);
+                if ($a) { $actions[] = $a; }
+                break;
+
+            case 'diplomacy_officer':
+                if (!$leader['colony_id']) break;
+                $a = ai_diplomacy_officer_tick($db, $leader);
+                if ($a) { $actions[] = $a; }
+                break;
+
+            case 'trade_director':
+                if (!$leader['colony_id']) break;
+                $a = ai_trade_director_tick($db, $leader);
                 if ($a) { $actions[] = $a; }
                 break;
         }
@@ -487,4 +666,547 @@ function ai_science_director_tick(PDO $db, array $leader): ?string {
     }
 
     return null;
+}
+
+/**
+ * Diplomacy officer AI: improves one strained faction relation toward baseline.
+ * Rate-limited to one action per 15 minutes per leader.
+ */
+function ai_diplomacy_officer_tick(PDO $db, array $leader): ?string {
+    $uid = (int)$leader['user_id'];
+
+    if ($leader['last_action_at'] && (time() - strtotime($leader['last_action_at'])) < 900) {
+        return null;
+    }
+
+    $stmt = $db->prepare(
+        'SELECT d.faction_id, d.standing, f.base_diplomacy, f.name
+         FROM diplomacy d
+         JOIN npc_factions f ON f.id = d.faction_id
+         WHERE d.user_id = ? AND d.standing < f.base_diplomacy
+         ORDER BY (f.base_diplomacy - d.standing) DESC
+         LIMIT 1'
+    );
+    $stmt->execute([$uid]);
+    $target = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // Fallback: if nothing below baseline, reduce one negative standing by +1.
+    if (!$target) {
+        $fallback = $db->prepare(
+            'SELECT d.faction_id, d.standing, f.base_diplomacy, f.name
+             FROM diplomacy d
+             JOIN npc_factions f ON f.id = d.faction_id
+             WHERE d.user_id = ? AND d.standing < 0
+             ORDER BY d.standing ASC
+             LIMIT 1'
+        );
+        $fallback->execute([$uid]);
+        $target = $fallback->fetch(PDO::FETCH_ASSOC);
+        if (!$target) {
+            return null;
+        }
+    }
+
+    $newStanding = max(-100, min(100, (int)$target['standing'] + 1));
+    $eventText = sprintf('[diplomacy] %s opened backchannel talks (+1)', (string)$leader['name']);
+
+    $db->prepare(
+        'UPDATE diplomacy
+         SET standing = ?, last_event = ?, last_event_at = NOW()
+         WHERE user_id = ? AND faction_id = ?'
+    )->execute([$newStanding, $eventText, $uid, (int)$target['faction_id']]);
+
+    $msg = sprintf('[%s] Improved standing with %s to %d.', (string)$leader['name'], (string)$target['name'], $newStanding);
+    $db->prepare('UPDATE leaders SET last_action=?, last_action_at=NOW() WHERE id=?')
+       ->execute([$msg, (int)$leader['id']]);
+
+    leader_award_xp($db, (int)$leader['id'], LEADER_XP['diplomacy_success']);
+    return $msg;
+}
+
+/**
+ * Trade director AI: converts market access into passive resource brokerage.
+ * Rate-limited to one action per 15 minutes per leader.
+ */
+function ai_trade_director_tick(PDO $db, array $leader): ?string {
+    $cid = (int)$leader['colony_id'];
+
+    if ($leader['last_action_at'] && (time() - strtotime($leader['last_action_at'])) < 900) {
+        return null;
+    }
+
+    $cStmt = $db->prepare('SELECT id FROM colonies WHERE id=? AND user_id=? LIMIT 1');
+    $cStmt->execute([$cid, (int)$leader['user_id']]);
+    if (!$cStmt->fetch()) {
+        return null;
+    }
+
+    $scale = max(1, (int)$leader['level']);
+    $gainMetal = 300 * $scale;
+    $gainCrystal = 180 * $scale;
+    $gainDeuterium = 90 * $scale;
+
+    $db->prepare(
+        'UPDATE colonies
+         SET metal = metal + ?, crystal = crystal + ?, deuterium = deuterium + ?
+         WHERE id = ?'
+    )->execute([$gainMetal, $gainCrystal, $gainDeuterium, $cid]);
+
+    $msg = sprintf(
+        '[%s] Closed brokerage deals on colony #%d (+%d M, +%d C, +%d D).',
+        (string)$leader['name'],
+        $cid,
+        $gainMetal,
+        $gainCrystal,
+        $gainDeuterium
+    );
+    $db->prepare('UPDATE leaders SET last_action=?, last_action_at=NOW() WHERE id=?')
+       ->execute([$msg, (int)$leader['id']]);
+
+    leader_award_xp($db, (int)$leader['id'], LEADER_XP['trade_profit']);
+    return $msg;
+}
+
+// ─── Marketplace helpers ──────────────────────────────────────────────────────
+
+/**
+ * Static pool of candidate archetypes used to generate marketplace listings.
+ * Each entry: name, role, rarity, portrait, tagline, backstory, trait_1, trait_2,
+ *             plus skill weights per role (normalised 1-10).
+ */
+function marketplace_pool(): array {
+    return [
+        // ── Colony Managers ───────────────────────────────────────────────────
+        ['name'=>'Mira Solvan',        'role'=>'colony_manager','rarity'=>'common',    'portrait'=>'👷',
+         'tagline'=>'"Minerals don\'t lie. People do."',
+         'backstory'=>'Former mine supervisor on Kerath IV who transformed a failing dig into the system\'s largest metal exporter. Methodical, no-nonsense, always capped with dust.',
+         'trait_1'=>'Efficient Planner','trait_2'=>'Early Riser',
+         'skills'=>['prod'=>3,'constr'=>2,'tact'=>1,'nav'=>1,'res'=>1,'eff'=>1,'guid'=>1]],
+
+        ['name'=>'Kaer Dustfoot',      'role'=>'colony_manager','rarity'=>'uncommon',  'portrait'=>'🏗️',
+         'tagline'=>'"A colony is only as strong as its foundations."',
+         'backstory'=>'Built the first pressurised dome on Vel-Kaarn III using salvaged freighter hulls. Known for improvised solutions that somehow always hold.',
+         'trait_1'=>'Resourceful','trait_2'=>'Stubborn Optimist',
+         'skills'=>['prod'=>4,'constr'=>5,'tact'=>1,'nav'=>1,'res'=>2,'eff'=>2,'guid'=>1]],
+
+        ['name'=>'Dame Vorrix',        'role'=>'colony_manager','rarity'=>'rare',      'portrait'=>'🌱',
+         'tagline'=>'"I turned a desert into a garden. Twice."',
+         'backstory'=>'Director of the controversial Velkai Terraforming Project — she caused the crisis, then fixed it. Feared, respected, expensive.',
+         'trait_1'=>'Master Terraformer','trait_2'=>'Crisis Response',
+         'skills'=>['prod'=>6,'constr'=>7,'tact'=>1,'nav'=>1,'res'=>3,'eff'=>4,'guid'=>2]],
+
+        ['name'=>'The Iron Prefect',   'role'=>'colony_manager','rarity'=>'legendary', 'portrait'=>'🤖',
+         'tagline'=>'"Fourteen colonies. One directive: prosper."',
+         'backstory'=>'A semi-sentient administrative AI originally deployed to manage the outer rim\'s logistics network. Retired. Un-retired. Retired again. Currently available.',
+         'trait_1'=>'Parallel Administration','trait_2'=>'Zero Waste Protocol',
+         'skills'=>['prod'=>9,'constr'=>8,'tact'=>1,'nav'=>1,'res'=>4,'eff'=>9,'guid'=>3]],
+
+        // ── Fleet Commanders ──────────────────────────────────────────────────
+        ['name'=>'Sarik Blaze',        'role'=>'fleet_commander','rarity'=>'common',   'portrait'=>'⚓',
+         'tagline'=>'"Speed wins. Everything else is a footnote."',
+         'backstory'=>'Former deep-space freighter captain turned privateer. Has outrun three blockades and only lost two ships doing it.',
+         'trait_1'=>'Born Navigator','trait_2'=>'Risk Taker',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>2,'nav'=>4,'res'=>1,'eff'=>1,'guid'=>1]],
+
+        ['name'=>'Nyx Korrigan',       'role'=>'fleet_commander','rarity'=>'uncommon', 'portrait'=>'⚔️',
+         'tagline'=>'"Two fleets lost. Zero objectives missed."',
+         'backstory'=>'Decorated combat veteran with an unconventional tactical doctrine: absorb the first blow, exploit the chaos. Her crew either loves her or quits.',
+         'trait_1'=>'Counter-Assault Specialist','trait_2'=>'Iron Will',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>5,'nav'=>3,'res'=>1,'eff'=>1,'guid'=>1]],
+
+        ['name'=>'Admiral Thane Vel',  'role'=>'fleet_commander','rarity'=>'rare',     'portrait'=>'🚀',
+         'tagline'=>'"Battle is geometry. I draw the angles."',
+         'backstory'=>'Architect of the Rotating Assault Vector doctrine that broke the Syndicate blockade at Myr-7. Sought after by every warlord in three sectors.',
+         'trait_1'=>'Tactical Genius','trait_2'=>'Fleet Coordinator',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>7,'nav'=>6,'res'=>2,'eff'=>2,'guid'=>2]],
+
+        ['name'=>'The Void Witch',     'role'=>'fleet_commander','rarity'=>'legendary','portrait'=>'🌌',
+         'tagline'=>'"No one knows her name. She wins anyway."',
+         'backstory'=>'Unknown origin. Appears in registries under seventeen different names. Has never lost a fleet engagement. Refuses to explain her methods.',
+         'trait_1'=>'Void Instinct','trait_2'=>'Legendary Commander',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>10,'nav'=>9,'res'=>1,'eff'=>1,'guid'=>4]],
+
+        // ── Science Directors ─────────────────────────────────────────────────
+        ['name'=>'Prof. Aly Zhen',     'role'=>'science_director','rarity'=>'common',  'portrait'=>'🔬',
+         'tagline'=>'"Good science is slow science. Mostly."',
+         'backstory'=>'Tenured xenobiology professor who pivoted to applied physics after the university was destroyed. Solid fundamentals, reasonable pace.',
+         'trait_1'=>'Methodical Researcher','trait_2'=>'Broad Expertise',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>1,'nav'=>1,'res'=>3,'eff'=>2,'guid'=>1]],
+
+        ['name'=>'Dr. Ravan Tosk',     'role'=>'science_director','rarity'=>'uncommon','portrait'=>'⚗️',
+         'tagline'=>'"The probability of failure is inversely proportional to my interest."',
+         'backstory'=>'Quantum mechanics specialist with an appetite for high-stakes experimentation. Three lab explosions in his file, each resulting in a breakthrough.',
+         'trait_1'=>'Risk Researcher','trait_2'=>'Quantum Intuition',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>1,'nav'=>1,'res'=>5,'eff'=>4,'guid'=>1]],
+
+        ['name'=>'CASS-7',             'role'=>'science_director','rarity'=>'rare',    'portrait'=>'🤖',
+         'tagline'=>'"Hypothesis confirmed. As predicted."',
+         'backstory'=>'Originally a research coordination AI. Gained partial autonomy after the Tessian Singularity incident. Her research queue is never empty.',
+         'trait_1'=>'Parallel Processing','trait_2'=>'Efficiency Matrix',
+         'skills'=>['prod'=>2,'constr'=>1,'tact'=>1,'nav'=>1,'res'=>7,'eff'=>8,'guid'=>3]],
+
+        ['name'=>'Elara Novum',        'role'=>'science_director','rarity'=>'legendary','portrait'=>'💡',
+         'tagline'=>'"I solved the Tessian Equation at nineteen. What have you done?"',
+         'backstory'=>'Child prodigy, youngest ever Galactic Academy Fellow, and the most arrogant person in any room she enters. Results justify the attitude.',
+         'trait_1'=>'Theoretical Mastery','trait_2'=>'Research Accelerator',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>1,'nav'=>1,'res'=>10,'eff'=>9,'guid'=>2]],
+
+        // ── Diplomacy Officers ────────────────────────────────────────────────
+        ['name'=>'Sessa Kaan',         'role'=>'diplomacy_officer','rarity'=>'common', 'portrait'=>'🤝',
+         'tagline'=>'"Listening is 90% of diplomacy."',
+         'backstory'=>'Longtime trade mediator who gained a reputation by solving minor faction disputes before they escalated. Pleasant, patient, persistent.',
+         'trait_1'=>'Active Listener','trait_2'=>'Trust Builder',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>1,'nav'=>1,'res'=>1,'eff'=>2,'guid'=>2]],
+
+        ['name'=>'Ambassador Vreth',   'role'=>'diplomacy_officer','rarity'=>'rare',   'portrait'=>'🕊️',
+         'tagline'=>'"I ended three wars with one dinner party."',
+         'backstory'=>'Legendary envoy of the old Republic. Responsible for the Vreth Accords, the Khar-Morr Peace Treaty, and the Velkai Non-Aggression Pact. Retired. For now.',
+         'trait_1'=>'Master Negotiator','trait_2'=>'Political Architecture',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>1,'nav'=>1,'res'=>2,'eff'=>3,'guid'=>4]],
+
+        // ── Trade Directors ───────────────────────────────────────────────────
+        ['name'=>'Olex Brann',         'role'=>'trade_director','rarity'=>'common',    'portrait'=>'💰',
+         'tagline'=>'"Buy low. Sell when they\'re desperate."',
+         'backstory'=>'Market speculator turned empire advisor. Reads commodity fluctuations like others read faces. Reliable income, modest ambitions.',
+         'trait_1'=>'Market Reader','trait_2'=>'Steady Earner',
+         'skills'=>['prod'=>2,'constr'=>1,'tact'=>1,'nav'=>1,'res'=>1,'eff'=>3,'guid'=>1]],
+
+        ['name'=>'Rosa Mercanti',      'role'=>'trade_director','rarity'=>'uncommon',  'portrait'=>'🏪',
+         'tagline'=>'"Every colony is a hub waiting to happen."',
+         'backstory'=>'Turned three failing outer-rim settlements into profitable trade hubs within a year. Understands that logistics is power.',
+         'trait_1'=>'Hub Builder','trait_2'=>'Supply Chain Expert',
+         'skills'=>['prod'=>3,'constr'=>2,'tact'=>1,'nav'=>1,'res'=>1,'eff'=>5,'guid'=>1]],
+
+        ['name'=>'Silas Vorn',         'role'=>'trade_director','rarity'=>'rare',      'portrait'=>'📊',
+         'tagline'=>'"Information is the only commodity that appreciates by selling."',
+         'backstory'=>'Former intelligence analyst who discovered that economic leverage outlasts military force. Builds trading empires one data point at a time.',
+         'trait_1'=>'Information Broker','trait_2'=>'Strategic Investor',
+         'skills'=>['prod'=>4,'constr'=>2,'tact'=>2,'nav'=>2,'res'=>3,'eff'=>7,'guid'=>3]],
+
+        // ── Advisors ──────────────────────────────────────────────────────────
+        ['name'=>'Lumis',              'role'=>'advisor','rarity'=>'common',            'portrait'=>'🧙',
+         'tagline'=>'"Every great empire began with one good question."',
+         'backstory'=>'Wandering counselor of uncertain origin. Has advised frontier commanders, merchant princes, and at least one pirate king. Speaks little, observes everything.',
+         'trait_1'=>'Patient Guide','trait_2'=>'Broad Perspective',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>1,'nav'=>1,'res'=>2,'eff'=>1,'guid'=>4]],
+
+        ['name'=>'Protocol-9',         'role'=>'advisor','rarity'=>'uncommon',          'portrait'=>'🤖',
+         'tagline'=>'"My projections have a 94.7% success rate. The other 5.3% were instructive."',
+         'backstory'=>'Strategic advisory AI module decommissioned after the Velkai War. Reactivated with slightly fewer ethical constraints. Highly analytical, occasionally alarming.',
+         'trait_1'=>'Predictive Analytics','trait_2'=>'Cold Logic',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>2,'nav'=>1,'res'=>3,'eff'=>2,'guid'=>6]],
+
+        ['name'=>'High Seer Valara',   'role'=>'advisor','rarity'=>'rare',              'portrait'=>'🔮',
+         'tagline'=>'"Fortune-telling and calculated analysis are the same skill."',
+         'backstory'=>'Leader of the Omniscienta oracle conclave who abandoned mysticism for probability theory. Her "visions" are statistically rigorous extrapolations.',
+         'trait_1'=>'Strategic Foresight','trait_2'=>'Risk Assessment',
+         'skills'=>['prod'=>1,'constr'=>1,'tact'=>2,'nav'=>1,'res'=>4,'eff'=>2,'guid'=>8]],
+
+        ['name'=>'The Ancient',        'role'=>'advisor','rarity'=>'legendary',         'portrait'=>'👁️',
+         'tagline'=>'"I have advised 47 civilisations. 46 survived."',
+         'backstory'=>'Identity and species unknown. Claims to predate the current galactic age. Speaks in layers of meaning. Every piece of advice has three interpretations — all correct.',
+         'trait_1'=>'Civilisation Memory','trait_2'=>'Transcendent Guidance',
+         'skills'=>['prod'=>2,'constr'=>2,'tact'=>3,'nav'=>2,'res'=>5,'eff'=>3,'guid'=>10]],
+    ];
+}
+
+/**
+ * Get the user's active marketplace candidates, or generate a fresh batch.
+ * Batch expires after 24 hours; up to 10 candidates are shown at once.
+ */
+function get_or_refresh_marketplace(PDO $db, int $uid): array {
+    // Count active (non-expired, non-hired) candidates
+    $cnt = $db->prepare(
+        'SELECT COUNT(*) FROM leader_marketplace WHERE user_id=? AND is_hired=0 AND expires_at > NOW()'
+    );
+    $cnt->execute([$uid]);
+    $active = (int)$cnt->fetchColumn();
+
+    if ($active === 0) {
+        generate_marketplace_candidates($db, $uid);
+    }
+
+    $rows = $db->prepare(
+        'SELECT * FROM leader_marketplace WHERE user_id=? AND expires_at > NOW() ORDER BY is_hired ASC, rarity DESC, created_at ASC'
+    );
+    $rows->execute([$uid]);
+    return $rows->fetchAll();
+}
+
+/**
+ * Generate a fresh set of 10 marketplace candidates for the given user.
+ * Picks randomly from the static pool (weighted by rarity), with skill variance.
+ */
+function generate_marketplace_candidates(PDO $db, int $uid): void {
+    // Delete old expired candidates
+    $db->prepare('DELETE FROM leader_marketplace WHERE user_id=? AND expires_at < NOW() AND is_hired=0')
+       ->execute([$uid]);
+
+    $pool        = marketplace_pool();
+    $expires     = date('Y-m-d H:i:s', time() + 86400); // 24 h
+    $count       = 0;
+    $maxCandidates = 10;
+
+    // Shuffle so each refresh gives different results
+    shuffle($pool);
+
+    // Rarity distribution: ~5 common, 3 uncommon, 2 rare, 0-1 legendary
+    $rarityBudget = ['common' => 5, 'uncommon' => 3, 'rare' => 2, 'legendary' => 1];
+    $rarityCount  = ['common' => 0, 'uncommon' => 0, 'rare' => 0, 'legendary' => 0];
+
+    // Cost multiplier per rarity
+    $costMult = ['common' => 1.0, 'uncommon' => 1.5, 'rare' => 2.5, 'legendary' => 5.0];
+
+    // Base costs per role
+    $baseCost = [
+        'colony_manager'    => ['metal' => 5000,  'crystal' => 3000,  'deuterium' => 1000],
+        'fleet_commander'   => ['metal' => 8000,  'crystal' => 5000,  'deuterium' => 2000],
+        'science_director'  => ['metal' => 4000,  'crystal' => 8000,  'deuterium' => 4000],
+        'diplomacy_officer' => ['metal' => 4500,  'crystal' => 4500,  'deuterium' => 1500],
+        'trade_director'    => ['metal' => 6500,  'crystal' => 3500,  'deuterium' => 2500],
+        'advisor'           => ['metal' => 0,     'crystal' => 0,     'deuterium' => 0],
+    ];
+
+    foreach ($pool as $tmpl) {
+        if ($count >= $maxCandidates) break;
+
+        $rarity = $tmpl['rarity'];
+        if ($rarityCount[$rarity] >= $rarityBudget[$rarity]) continue;
+        $rarityCount[$rarity]++;
+        $count++;
+
+        // Skill variance: ±1 around template values (clamped 1-10)
+        $sv = function(int $base) use ($rarity): int {
+            $variance = $rarity === 'legendary' ? 0 : random_int(-1, 1);
+            return max(1, min(10, $base + $variance));
+        };
+
+        $bc  = $baseCost[$tmpl['role']];
+        $mult = $costMult[$rarity];
+        $db->prepare(
+            'INSERT INTO leader_marketplace
+                (user_id, name, role, rarity, portrait, tagline, backstory, trait_1, trait_2,
+                 skill_production, skill_construction, skill_tactics, skill_navigation,
+                 skill_research, skill_efficiency, skill_guidance,
+                 hire_metal, hire_crystal, hire_deuterium, expires_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        )->execute([
+            $uid,
+            $tmpl['name'],
+            $tmpl['role'],
+            $tmpl['rarity'],
+            $tmpl['portrait'],
+            $tmpl['tagline'],
+            $tmpl['backstory'],
+            $tmpl['trait_1'],
+            $tmpl['trait_2'],
+            $sv($tmpl['skills']['prod']),
+            $sv($tmpl['skills']['constr']),
+            $sv($tmpl['skills']['tact']),
+            $sv($tmpl['skills']['nav']),
+            $sv($tmpl['skills']['res']),
+            $sv($tmpl['skills']['eff']),
+            $sv($tmpl['skills']['guid']),
+            (int)round($bc['metal']     * $mult),
+            (int)round($bc['crystal']   * $mult),
+            (int)round($bc['deuterium'] * $mult),
+            $expires,
+        ]);
+    }
+}
+
+// ─── Advisor Analysis ─────────────────────────────────────────────────────────
+
+/**
+ * Examine the player's game state and emit/refresh advisor hints.
+ * Hints are identified by hint_code – existing codes are updated, new ones inserted.
+ */
+function run_advisor_analysis(PDO $db, int $uid, array $advisor): void {
+    $lid = (int)$advisor['id'];
+
+    $colonies = $db->prepare(
+        'SELECT c.*, p.galaxy, p.`system`, p.position FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE c.user_id=?'
+    );
+    $colonies->execute([$uid]);
+    $colonies = $colonies->fetchAll();
+
+    foreach ([
+        'check_storage_full'     => fn() => adv_check_storage_full($db, $uid, $lid, $colonies),
+        'check_no_research'      => fn() => adv_check_no_research($db, $uid, $lid),
+        'check_no_buildings'     => fn() => adv_check_no_buildings($db, $uid, $lid, $colonies),
+        'check_unassigned_leaders'=> fn()=> adv_check_unassigned_leaders($db, $uid, $lid),
+        'check_tutorial_progress'=> fn() => adv_check_tutorial_progress($db, $uid, $lid),
+        'check_no_fleet'         => fn() => adv_check_no_fleet($db, $uid, $lid),
+        'check_low_diplomacy'    => fn() => adv_check_low_diplomacy($db, $uid, $lid),
+        'check_incoming_fleet'   => fn() => adv_check_incoming_fleet($db, $uid, $lid),
+    ] as $code => $fn) {
+        try {
+            $fn();
+        } catch (\Throwable $e) {
+            // hints are optional; never crash the game
+        }
+    }
+}
+
+function adv_upsert(PDO $db, int $uid, int $lid, string $code, string $type,
+                    string $title, string $body,
+                    ?string $actionLabel = null, ?string $actionWindow = null): void {
+    // Dismiss any old version first, then insert fresh (keeps created_at current)
+    $db->prepare(
+        'INSERT INTO advisor_hints (user_id, leader_id, hint_code, hint_type, title, body, action_label, action_window)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            hint_type=VALUES(hint_type), title=VALUES(title), body=VALUES(body),
+            action_label=VALUES(action_label), action_window=VALUES(action_window),
+            dismissed=0, created_at=NOW()'
+    )->execute([$uid, $lid, $code, $type, $title, $body, $actionLabel, $actionWindow]);
+}
+
+function adv_resolve(PDO $db, int $uid, int $lid, string $code): void {
+    $db->prepare('UPDATE advisor_hints SET dismissed=1 WHERE user_id=? AND leader_id=? AND hint_code=?')
+       ->execute([$uid, $lid, $code]);
+}
+
+function adv_check_storage_full(PDO $db, int $uid, int $lid, array $colonies): void {
+    foreach ($colonies as $col) {
+        // Storage caps default to 500 000 (upgrade raises cap, but we use a simple heuristic)
+        $cap = 500000;
+        if ((float)$col['metal'] / $cap > 0.85 || (float)$col['crystal'] / $cap > 0.85) {
+            adv_upsert($db, $uid, $lid, 'storage_full_' . $col['id'], 'warning',
+                '⚠️ Storage Almost Full',
+                "Colony \"{$col['name']}\" [{$col['galaxy']}:{$col['system']}:{$col['position']}] is nearly full. Start a building upgrade or send resources to a colony with space.",
+                'Open Colony', 'colony');
+            return;
+        }
+    }
+    adv_resolve($db, $uid, $lid, 'storage_full_' . ($colonies[0]['id'] ?? 0));
+}
+
+function adv_check_no_research(PDO $db, int $uid, int $lid): void {
+    $active = $db->prepare('SELECT COUNT(*) FROM research WHERE user_id=? AND research_end IS NOT NULL');
+    $active->execute([$uid]);
+    if ((int)$active->fetchColumn() === 0) {
+        adv_upsert($db, $uid, $lid, 'no_research', 'tip',
+            '🔬 No Research Running',
+            'Your laboratories are idle. Open the Research tab and start a new technology to gain advantages.',
+            'Open Research', 'research');
+    } else {
+        adv_resolve($db, $uid, $lid, 'no_research');
+    }
+}
+
+function adv_check_no_buildings(PDO $db, int $uid, int $lid, array $colonies): void {
+    foreach ($colonies as $col) {
+        $busy = $db->prepare('SELECT COUNT(*) FROM buildings WHERE colony_id=? AND upgrade_end IS NOT NULL');
+        $busy->execute([$col['id']]);
+        if ((int)$busy->fetchColumn() === 0) {
+            adv_upsert($db, $uid, $lid, 'no_buildings_' . $col['id'], 'tip',
+                '🏗️ No Construction in Progress',
+                "Colony \"{$col['name']}\" has no active construction. Keep your builders busy — every level of Metal Mine, Crystal Mine and Solar Plant compounds over time.",
+                'Open Buildings', 'buildings');
+            return;
+        }
+    }
+    // All colonies have something building; resolve the hint
+    foreach ($colonies as $col) {
+        adv_resolve($db, $uid, $lid, 'no_buildings_' . $col['id']);
+    }
+}
+
+function adv_check_unassigned_leaders(PDO $db, int $uid, int $lid): void {
+    $unassigned = $db->prepare(
+        'SELECT COUNT(*) FROM leaders WHERE user_id=? AND role != "advisor" AND colony_id IS NULL AND fleet_id IS NULL'
+    );
+    $unassigned->execute([$uid]);
+    $n = (int)$unassigned->fetchColumn();
+    if ($n > 0) {
+        adv_upsert($db, $uid, $lid, 'unassigned_leaders', 'action_required',
+            '👤 Leaders Awaiting Assignment',
+            "You have $n leader(s) not yet assigned to a colony or fleet. Assigned leaders provide passive bonuses even at Autonomy: Off.",
+            'Open Leaders', 'leaders');
+    } else {
+        adv_resolve($db, $uid, $lid, 'unassigned_leaders');
+    }
+}
+
+function adv_check_tutorial_progress(PDO $db, int $uid, int $lid): void {
+    $pending = $db->prepare(
+        'SELECT a.title, a.description, a.code, a.reward_metal, a.reward_crystal, a.reward_deuterium
+         FROM user_achievements ua
+         JOIN achievements a ON a.id = ua.achievement_id
+         WHERE ua.user_id=? AND ua.completed=0 AND a.category="tutorial"
+         ORDER BY a.sort_order ASC LIMIT 1'
+    );
+    $pending->execute([$uid]);
+    $quest = $pending->fetch();
+    if ($quest) {
+        $reward = [];
+        if ($quest['reward_metal'])     $reward[] = number_format($quest['reward_metal']) . ' ⬡';
+        if ($quest['reward_crystal'])   $reward[] = number_format($quest['reward_crystal']) . ' 💎';
+        if ($quest['reward_deuterium']) $reward[] = number_format($quest['reward_deuterium']) . ' 🔵';
+        $rewardStr = $reward ? ' Reward: ' . implode(', ', $reward) . '.' : '';
+        adv_upsert($db, $uid, $lid, 'tutorial_' . $quest['code'], 'quest_hint',
+            '📋 Quest: ' . $quest['title'],
+            $quest['description'] . $rewardStr,
+            'Open Quests', 'quests');
+    } else {
+        // All tutorial quests done – emit a congratulations hint (once)
+        adv_upsert($db, $uid, $lid, 'tutorial_complete', 'tip',
+            '🏆 All Tutorial Quests Complete!',
+            'You\'ve finished every tutorial objective. The galaxy is yours to explore. Visit the Quests tab for faction quests and milestone challenges.',
+            'Open Quests', 'quests');
+    }
+}
+
+function adv_check_no_fleet(PDO $db, int $uid, int $lid): void {
+    $ships = $db->prepare(
+        'SELECT SUM(count) FROM ships s JOIN colonies c ON c.id=s.colony_id WHERE c.user_id=?'
+    );
+    $ships->execute([$uid]);
+    $total = (int)$ships->fetchColumn();
+    if ($total === 0) {
+        adv_upsert($db, $uid, $lid, 'no_fleet', 'tip',
+            '🚀 No Ships Built',
+            'Your shipyards are empty. Build fighters, scouts or spy probes to defend your colonies and explore the galaxy.',
+            'Open Shipyard', 'shipyard');
+    } else {
+        adv_resolve($db, $uid, $lid, 'no_fleet');
+    }
+}
+
+function adv_check_low_diplomacy(PDO $db, int $uid, int $lid): void {
+    $bad = $db->prepare(
+        'SELECT f.name, d.standing FROM diplomacy d JOIN npc_factions f ON f.id=d.faction_id
+         WHERE d.user_id=? AND d.standing < -30 ORDER BY d.standing ASC LIMIT 1'
+    );
+    $bad->execute([$uid]);
+    $faction = $bad->fetch();
+    if ($faction) {
+        adv_upsert($db, $uid, $lid, 'low_diplomacy', 'warning',
+            '⚠️ Hostile Faction',
+            "Your standing with {$faction['name']} has fallen to {$faction['standing']}. A Diplomacy Officer or peaceful trade can recover relations before they escalate to war.",
+            'Open Factions', 'factions');
+    } else {
+        adv_resolve($db, $uid, $lid, 'low_diplomacy');
+    }
+}
+
+function adv_check_incoming_fleet(PDO $db, int $uid, int $lid): void {
+    $incoming = $db->prepare(
+        'SELECT COUNT(*) FROM fleets f
+         JOIN planets p ON p.galaxy=f.target_galaxy AND p.system=f.target_system AND p.position=f.target_position
+         JOIN colonies c ON c.planet_id=p.id
+         WHERE c.user_id=? AND f.user_id != ? AND f.returning=0 AND f.mission IN ("attack","destroy")
+           AND f.arrival_time > NOW()'
+    );
+    $incoming->execute([$uid, $uid]);
+    $n = (int)$incoming->fetchColumn();
+    if ($n > 0) {
+        adv_upsert($db, $uid, $lid, 'incoming_attack', 'warning',
+            '🚨 Incoming Hostile Fleet!',
+            "$n hostile fleet(s) are approaching your colonies. Move your ships or deploy defenders immediately.",
+            'Open Fleet', 'fleet');
+    } else {
+        adv_resolve($db, $uid, $lid, 'incoming_attack');
+    }
 }

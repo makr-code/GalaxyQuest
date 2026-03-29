@@ -1,0 +1,52 @@
+{
+  "species_code": "aereth",
+  "display_name": "Aereth",
+  "species_type": "Humanoide Energiewesen",
+  "homeworld": "Sol'Ryaan",
+  "faction_type": "scientific",
+  "description": "Halb-materielle Energiewesen mit wissenschaftlichen Ambitionen. Energie ist heilig in ihrer Kultur. Die Geschlechter manifestieren sich als unterschiedliche energetische Muster.",
+  "society": {
+    "government": "Wissenschaftlich-Meritokratisch",
+    "culture": "Wissenschaft, Energie-Verehrung, Innovation",
+    "gender_roles": "Gender: energetische Muster-Ausprägung"
+  },
+  "biology": {
+    "type": "Energy Being",
+    "male": {
+      "appearance": "Kantige Lichtformen",
+      "color_primary": "#e6f3ff",
+      "color_secondary": "#c0e0ff",
+      "color_accent": "#c0c0c0"
+    },
+    "female": {
+      "appearance": "Fließende Lichtmuster",
+      "color_primary": "#ffd700",
+      "color_secondary": "#ffb347",
+      "color_accent": "#ffffff"
+    }
+  },
+  "portraiture": {
+    "base_prompt": "Photorealistic portrait photo of an alien lifeform, head and shoulders (bust portrait), clearly gendered appearance, ultra-detailed skin or material texture, realistic lighting, studio portrait photography style, soft key light, subtle rim light, shallow depth of field, sharp focus on the face, transparent background, PNG alpha, cinematic realism.",
+    "male_modifier": "Male humanoid energy-based alien, angular facial structure, intense glowing energy core, sharp light refractions, semi-transparent skin.",
+    "female_modifier": "Female humanoid energy-based alien, smooth facial contours, soft glowing energy patterns, gentle light diffusion, semi-transparent skin.",
+    "material_description": "Semi-transparent crystalline skin with internal energy luminescence, sharp light refractions at edges",
+    "silhouette_description": "Smooth angular features, luminous core, ethereal and otherworldly, glowing from within"
+  },
+  "logo": {
+    "prompt": "Modern geometric energy insignia for humanoid alien species, white and blue with silver accents, featuring a stylized energy core and radiating light beams, sleek technological aesthetic, isolated on transparent background, vector art",
+    "description": "Geometric energy core with radiating beams"
+  },
+  "technology": {
+    "weapons": [
+      "Dimensionsforschung",
+      "Energie-Manipulation",
+      "Phasenverschiebung"
+    ]
+  },
+  "important_npcs": [
+    {
+      "name": "Sol'Kaar",
+      "description": "Brilliant, besessen, erschuf die Leerenbrut"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+    "username": "gq_seed_npc_0003",
+    "is_npc": true,
+    "race": "Aereth",
+    "profession": "Galactic Diplomat",
+    "stance": "Neutral Ambassador for Peace",
+    "vita": "As a representative of the Aereth race in interstellar politics, I have dedicated my life to fostering peace and prosperity among star systems. My home planet thrives on trade and diplomacy rather than conflict.",
+    "portrait_prompt": "An alien bust portrait capturing an elegant Aereth with luminescent skin reflecting the hues of their twin sunsets, standing in a neutral pose holding out open hands as if offering peace.",
+    "generated_at": "2026-03-29T15:36:21+00:00"
+}

@@ -407,7 +407,7 @@ function vessel_manifest(array $ships, int $capPerType = 10): array {
             'type' => (string)$type,
             'count' => $count,
             'sample_count' => min($capPerType, $count),
-            'stats' => SHIP_STATS[(string)$type] ?? null,
+            'stats' => ship_runtime_definition((string)$type),
         ];
     }
     return $manifest;
@@ -472,16 +472,132 @@ function check_research_prereqs(PDO $db, int $uid, string $tech): array {
 
 // ─── Ship costs / stats ──────────────────────────────────────────────────────
 
+function blueprint_ship_type_code(int $blueprintId): string {
+    return 'bp_' . max(1, $blueprintId);
+}
+
+function blueprint_id_from_ship_type(string $type): ?int {
+    if (!preg_match('/^bp_(\d+)$/', $type, $matches)) {
+        return null;
+    }
+
+    $id = (int)($matches[1] ?? 0);
+    return $id > 0 ? $id : null;
+}
+
+function is_blueprint_ship_type(string $type): bool {
+    return blueprint_id_from_ship_type($type) !== null;
+}
+
+function vessel_blueprint_tables_exist(?PDO $db = null): bool {
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    $db ??= get_db();
+    $stmt = $db->prepare(
+        'SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME IN (\'vessel_hulls\', \'modules\', \'vessel_blueprints\', \'vessel_blueprint_modules\')'
+    );
+    $stmt->execute();
+    $cached = ((int)$stmt->fetchColumn() >= 4);
+    return $cached;
+}
+
+function ship_runtime_definition(string $type, ?PDO $db = null): ?array {
+    static $cache = [];
+
+    if (array_key_exists($type, $cache)) {
+        return $cache[$type];
+    }
+
+    if (isset(SHIP_STATS[$type])) {
+        $cache[$type] = SHIP_STATS[$type];
+        return $cache[$type];
+    }
+
+    $blueprintId = blueprint_id_from_ship_type($type);
+    if ($blueprintId === null) {
+        $cache[$type] = null;
+        return null;
+    }
+
+    $db ??= get_db();
+    if (!vessel_blueprint_tables_exist($db)) {
+        $cache[$type] = null;
+        return null;
+    }
+
+    $stmt = $db->prepare(
+        'SELECT vb.id, vb.name, vb.compiled_stats_json, vb.compiled_cost_json, vh.label AS hull_label
+         FROM vessel_blueprints vb
+         JOIN vessel_hulls vh ON vh.id = vb.hull_id
+         WHERE vb.id = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$blueprintId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        $cache[$type] = null;
+        return null;
+    }
+
+    $compiledStats = json_decode((string)($row['compiled_stats_json'] ?? '{}'), true);
+    $compiledCost = json_decode((string)($row['compiled_cost_json'] ?? '{}'), true);
+    $compiledStats = is_array($compiledStats) ? $compiledStats : [];
+    $compiledCost = is_array($compiledCost) ? $compiledCost : [];
+
+    $cache[$type] = [
+        'label' => (string)($row['name'] ?? $row['hull_label'] ?? $type),
+        'attack' => (int)round((float)($compiledStats['attack'] ?? 0)),
+        'shield' => (int)round((float)($compiledStats['shield'] ?? 0)),
+        'hull' => (int)round((float)($compiledStats['hull'] ?? 0)),
+        'cargo' => (int)round((float)($compiledStats['cargo'] ?? 0)),
+        'speed' => (int)round((float)($compiledStats['speed'] ?? 1000)),
+        'energy_output' => (float)($compiledStats['energy_output'] ?? 0.0),
+        'energy_capacity' => (float)($compiledStats['energy_capacity'] ?? 0.0),
+        'energy_upkeep' => (float)($compiledStats['energy_upkeep'] ?? 0.0),
+        'weapon_efficiency' => (float)($compiledStats['weapon_efficiency'] ?? 1.0),
+        'shield_efficiency' => (float)($compiledStats['shield_efficiency'] ?? 1.0),
+        'attack_energy_share' => (float)($compiledStats['attack_energy_share'] ?? 0.5),
+        'cost' => [
+            'metal' => (int)round((float)($compiledCost['metal'] ?? 0)),
+            'crystal' => (int)round((float)($compiledCost['crystal'] ?? 0)),
+            'deuterium' => (int)round((float)($compiledCost['deuterium'] ?? 0)),
+        ],
+        'blueprint_id' => (int)$row['id'],
+        'is_blueprint' => true,
+    ];
+
+    return $cache[$type];
+}
+
+function ship_exists_runtime(string $type, ?PDO $db = null): bool {
+    return ship_runtime_definition($type, $db) !== null;
+}
+
+function ship_stat_value(string $type, string $key, $default = 0, ?PDO $db = null) {
+    $def = ship_runtime_definition($type, $db);
+    if (!is_array($def) || !array_key_exists($key, $def)) {
+        return $default;
+    }
+
+    return $def[$key];
+}
+
 function ship_cost(string $type): array {
-    return SHIP_STATS[$type]['cost'] ?? ['metal' => 0, 'crystal' => 0, 'deuterium' => 0];
+    $cost = ship_stat_value($type, 'cost', ['metal' => 0, 'crystal' => 0, 'deuterium' => 0]);
+    return is_array($cost) ? $cost : ['metal' => 0, 'crystal' => 0, 'deuterium' => 0];
 }
 
 function ship_cargo(string $type): int {
-    return SHIP_STATS[$type]['cargo'] ?? 0;
+    return (int)ship_stat_value($type, 'cargo', 0);
 }
 
 function ship_speed(string $type): int {
-    return SHIP_STATS[$type]['speed'] ?? 1000;
+    return (int)ship_stat_value($type, 'speed', 1000);
 }
 
 function fleet_speed(array $ships): int {
@@ -745,7 +861,7 @@ function launch_fleet_for_user(
         $shipsToSend = [];
         foreach ($ships as $type => $count) {
             $count = (int)$count;
-            if ($count <= 0 || !isset(SHIP_STATS[$type])) continue;
+            if ($count <= 0 || !ship_exists_runtime($type, $db)) continue;
             $sStmt = $db->prepare('SELECT count FROM ships WHERE colony_id = ? AND type = ?');
             $sStmt->execute([$originColonyId, $type]);
             $available = (int)($sStmt->fetchColumn() ?: 0);

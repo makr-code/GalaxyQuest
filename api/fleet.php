@@ -5,6 +5,8 @@
  * POST /api/fleet.php?action=send   body: {origin_colony_id, target_galaxy, target_system, target_position, mission, ships:{type:count,...}, cargo:{metal,crystal,deuterium}}
  * POST /api/fleet.php?action=recall body: {fleet_id}
  * GET  /api/fleet.php?action=check  (process arrivals – called by client polling)
+ * POST /api/fleet.php?action=simulate_battle body: {attacker_fleet_id, target_colony_id?, deterministic_seed?, iterations?}
+ * POST /api/fleet.php?action=matchup_scan body: {attacker_fleet_id, target_colony_ids?, target_colony_id?, deterministic_seed?, iterations?}
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
@@ -12,6 +14,7 @@ require_once __DIR__ . '/buildings.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/planet_helper.php';
 require_once __DIR__ . '/galaxy_seed.php';
+require_once __DIR__ . '/shipyard_queue.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -60,6 +63,18 @@ switch ($action) {
         only_method('GET');
         process_fleet_arrivals(get_db());
         json_ok();
+        break;
+
+    case 'simulate_battle':
+        only_method('POST');
+        verify_csrf();
+        simulate_battle_preview(get_db(), $uid, get_json_body());
+        break;
+
+    case 'matchup_scan':
+        only_method('POST');
+        verify_csrf();
+        matchup_scan(get_db(), $uid, get_json_body());
         break;
 
     default:
@@ -127,12 +142,13 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     }
 
     update_colony_resources($db, $originCid);
+    complete_ship_build_queue($db, $originCid);
 
     // Validate & collect ships
     $shipsToSend = [];
     foreach ($ships as $type => $count) {
         $count = (int)$count;
-        if ($count <= 0 || !isset(SHIP_STATS[$type])) continue;
+        if ($count <= 0 || !ship_exists_runtime($type, $db)) continue;
         $row = $db->prepare('SELECT count FROM ships WHERE colony_id = ? AND type = ?');
         $row->execute([$originCid, $type]);
         $available = $row->fetch();
@@ -311,20 +327,21 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $cmdBonus = $cmd ? (1.0 + (int)$cmd['skill_attack'] * 0.02) : 1.0;
 
     $atkMulti = (1.0 + $atkWpnLevel * 0.1) * $cmdBonus;
-    $atkAtk   = 0; $atkHull = 0; $atkShield = 0;
-    foreach ($ships as $type => $cnt) {
-        $s = SHIP_STATS[$type] ?? [];
-        $atkAtk    += (($s['attack'] ?? 0) * $cnt) * $atkMulti;
-        $atkHull   += ($s['hull']   ?? 0) * $cnt;
-        $atkShield += (($s['shield'] ?? 0) * $cnt) * (1.0 + $atkShldLevel * 0.1);
-    }
+    $atkProfile = compute_energy_combat_profile($ships, $db);
+    $atkEnergy = $atkProfile['attack_energy'] * $atkMulti;
+    $atkKinetic = $atkProfile['attack_kinetic'] * $atkMulti;
+    $atkAtk = $atkEnergy + $atkKinetic;
+    $atkHull = $atkProfile['hull'];
+    $atkShield = $atkProfile['shield'] * (1.0 + $atkShldLevel * 0.1);
     
     // Apply attacker's colony-type military bonus (+10% attack, +5% shield)
     $atkColonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
     $atkColonyStmt->execute([(int)$fleet['origin_colony_id']]);
     $atkCol = $atkColonyStmt->fetch();
     if ($atkCol && $atkCol['colony_type'] === 'military') {
-        $atkAtk    *= 1.1;
+        $atkEnergy *= 1.1;
+        $atkKinetic *= 1.1;
+        $atkAtk = $atkEnergy + $atkKinetic;
         $atkShield *= 1.05;
     }
 
@@ -337,39 +354,111 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $defShldRow->execute([$target['user_id']]);
     $defShldLevel = (int)($defShldRow->fetchColumn() ?? 0);
 
+    complete_ship_build_queue($db, (int)$target['id']);
     $defShips = $db->prepare('SELECT type, count FROM ships WHERE colony_id=?');
     $defShips->execute([$target['id']]);
-    $defFleet = []; $defHull = 0; $defAtk = 0; $defShield = 0;
+    $defFleet = [];
     foreach ($defShips->fetchAll() as $r) {
         $defFleet[$r['type']] = (int)$r['count'];
-        $s = SHIP_STATS[$r['type']] ?? [];
-        $defAtk    += (($s['attack'] ?? 0) * $r['count']) * (1.0 + $defWpnLevel  * 0.1);
-        $defHull   += ($s['hull']   ?? 0) * $r['count'];
-        $defShield += (($s['shield'] ?? 0) * $r['count']) * (1.0 + $defShldLevel * 0.1);
     }
+    $defProfile = compute_energy_combat_profile($defFleet, $db);
+    $defEnergy = $defProfile['attack_energy'] * (1.0 + $defWpnLevel * 0.1);
+    $defKinetic = $defProfile['attack_kinetic'] * (1.0 + $defWpnLevel * 0.1);
+    $defAtk = $defEnergy + $defKinetic;
+    $defHull = $defProfile['hull'];
+    $defShield = $defProfile['shield'] * (1.0 + $defShldLevel * 0.1);
     
     // Apply defender's colony-type military bonus (+10% attack, +5% shield)
     $defColonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
     $defColonyStmt->execute([(int)$target['id']]);
     $defCol = $defColonyStmt->fetch();
     if ($defCol && $defCol['colony_type'] === 'military') {
-        $defAtk    *= 1.1;
+        $defEnergy *= 1.1;
+        $defKinetic *= 1.1;
+        $defAtk = $defEnergy + $defKinetic;
         $defShield *= 1.05;
     }
 
-    // ── Combat resolution ──────────────────────────────────────────────────
-    // Attacker must penetrate defender's shields then hull
-    $atkEffectiveDmg = max(0, $atkAtk - $defShield * 0.5);
-    $defEffectiveDmg = max(0, $defAtk - $atkShield * 0.5);
+    $combatMods = load_combat_modifier_totals($db, (int)$fleet['user_id'], (int)$target['user_id']);
 
-    // Multiple rounds (simplified): attacker wins if it deals > 50% of defender's HP
-    $attackerWins = $atkEffectiveDmg > ($defHull * 0.5 + $defShield * 0.2);
+    $atkDamageAll = combat_modifier_scalar($combatMods['attacker'], 'combat.damage.all');
+    $defDamageAll = combat_modifier_scalar($combatMods['defender'], 'combat.damage.all');
+    $atkEnergy = max(0.0, $atkEnergy * $atkDamageAll * combat_modifier_scalar($combatMods['attacker'], 'combat.damage.energy'));
+    $atkKinetic = max(0.0, $atkKinetic * $atkDamageAll * combat_modifier_scalar($combatMods['attacker'], 'combat.damage.kinetic'));
+    $defEnergy = max(0.0, $defEnergy * $defDamageAll * combat_modifier_scalar($combatMods['defender'], 'combat.damage.energy'));
+    $defKinetic = max(0.0, $defKinetic * $defDamageAll * combat_modifier_scalar($combatMods['defender'], 'combat.damage.kinetic'));
+    $atkAtk = $atkEnergy + $atkKinetic;
+    $defAtk = $defEnergy + $defKinetic;
+    $atkShield = max(0.0, $atkShield * combat_modifier_scalar($combatMods['attacker'], 'combat.shield.capacity'));
+    $defShield = max(0.0, $defShield * combat_modifier_scalar($combatMods['defender'], 'combat.shield.capacity'));
+    $atkHull   = max(0.0, $atkHull * combat_modifier_scalar($combatMods['attacker'], 'combat.hull.integrity'));
+    $defHull   = max(0.0, $defHull * combat_modifier_scalar($combatMods['defender'], 'combat.hull.integrity'));
+
+    $atkBudget = compute_energy_budget($atkProfile, $combatMods['attacker']);
+    $defBudget = compute_energy_budget($defProfile, $combatMods['defender']);
+
+    // ── Combat resolution ──────────────────────────────────────────────────
+    $battleSeed = hash('sha256', implode('|', [
+        'battle',
+        (int)$fleet['id'],
+        (int)$fleet['user_id'],
+        (int)$target['user_id'],
+        (int)$fleet['target_galaxy'],
+        (int)$fleet['target_system'],
+        (int)$fleet['target_position'],
+    ]));
+
+    $atkDiceMult = 0.9 + battle_rng_float($battleSeed, 'atk_dmg') * 0.2;
+    $defDiceMult = 0.9 + battle_rng_float($battleSeed, 'def_dmg') * 0.2;
+
+    $outcome = battle_preview_outcome(
+        $atkAtk,
+        $defAtk,
+        $atkShield,
+        $defShield,
+        $atkHull,
+        $defHull,
+        $battleSeed,
+        [
+            'atk_energy' => $atkEnergy,
+            'atk_kinetic' => $atkKinetic,
+            'def_energy' => $defEnergy,
+            'def_kinetic' => $defKinetic,
+            'atk_weapon_factor' => $atkBudget['weapon_factor'],
+            'def_weapon_factor' => $defBudget['weapon_factor'],
+            'atk_shield_factor' => $atkBudget['shield_factor'],
+            'def_shield_factor' => $defBudget['shield_factor'],
+        ]
+    );
+
+    $atkDiceMult = (float)$outcome['atk_dice_mult'];
+    $defDiceMult = (float)$outcome['def_dice_mult'];
+    $atkEffectiveDmg = (float)$outcome['atk_effective_dmg'];
+    $defEffectiveDmg = (float)$outcome['def_effective_dmg'];
+
+    $diceVarianceIndex = (float)round((abs($atkDiceMult - 1.0) + abs($defDiceMult - 1.0)) / 2.0, 4);
+
+    $attackerPowerRating = (int)round($atkAtk + $atkShield * 0.2 + $atkHull * 0.1);
+    $defenderPowerRating = (int)round($defAtk + $defShield * 0.2 + $defHull * 0.1);
+
+    $attackerWins = (bool)$outcome['attacker_wins'];
 
     // ── Losses ────────────────────────────────────────────────────────────
-    $atkLossFraction = $defEffectiveDmg > 0
-        ? min(0.9, $defEffectiveDmg / max(1, $atkHull + $atkShield))
-        : 0.0;
-    $defLossFraction = $attackerWins ? min(0.9, $atkEffectiveDmg / max(1, $defHull + $defShield)) : 0.3;
+    $atkLossFraction = (float)$outcome['atk_loss_fraction'];
+    $defLossFraction = (float)$outcome['def_loss_fraction'];
+    $battleRounds = build_battle_rounds_summary(
+        $atkAtk,
+        $defAtk,
+        $atkShield,
+        $defShield,
+        $atkHull,
+        $defHull,
+        $atkDiceMult,
+        $defDiceMult,
+        $attackerWins,
+        $atkLossFraction,
+        $defLossFraction
+    );
 
     $atkSurvivors = []; $atkLostShips = [];
     foreach ($ships as $type => $cnt) {
@@ -415,6 +504,21 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
 
     // ── Battle report ─────────────────────────────────────────────────────
     $report = [
+        'version'           => 1,
+        'seed'              => $battleSeed,
+        'dice_variance_index' => $diceVarianceIndex,
+        'power_rating'      => ['attacker' => $attackerPowerRating, 'defender' => $defenderPowerRating],
+        'energy_context'    => [
+            'attacker' => $atkBudget,
+            'defender' => $defBudget,
+        ],
+        'damage_channels'   => [
+            'attacker' => ['energy' => (float)round($atkEnergy, 2), 'kinetic' => (float)round($atkKinetic, 2)],
+            'defender' => ['energy' => (float)round($defEnergy, 2), 'kinetic' => (float)round($defKinetic, 2)],
+        ],
+        'combat_modifiers'  => $combatMods,
+        'modifier_breakdown'=> build_battle_modifier_breakdown($combatMods),
+        'rounds'            => $battleRounds,
         'attacker_ships'    => $ships,
         'attacker_survivors'=> $atkSurvivors,
         'attacker_lost'     => $atkLostShips,
@@ -424,10 +528,39 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
         'loot'              => ['metal'=>$lootM,'crystal'=>$lootC,'deuterium'=>$lootD,'rare_earth'=>$lootRE],
         'tech'              => ['atk_wpn'=>$atkWpnLevel,'atk_shld'=>$atkShldLevel,
                                 'def_wpn'=>$defWpnLevel,'def_shld'=>$defShldLevel],
+        'explainability'    => [
+            'top_factors' => [
+                ['factor' => 'attack_power_delta', 'impact_pct' => (float)round(compute_relative_impact($attackerPowerRating, $defenderPowerRating), 2)],
+                ['factor' => 'shield_pressure', 'impact_pct' => (float)round(compute_relative_impact($atkShield, $defShield), 2)],
+                ['factor' => 'dice_variance', 'impact_pct' => (float)round($diceVarianceIndex * 100.0, 2)],
+            ],
+        ],
     ];
-    $db->prepare('INSERT INTO battle_reports (attacker_id,defender_id,planet_id,report_json)
-                  VALUES (?,?,?,?)')
-       ->execute([$fleet['user_id'], $target['user_id'], $target['id'], json_encode($report)]);
+
+    $reportJson = json_encode($report);
+    if (battle_reports_has_combat_meta_columns($db)) {
+        $db->prepare(
+            'INSERT INTO battle_reports
+                (attacker_id, defender_id, planet_id, report_json, battle_seed, report_version,
+                 attacker_power_rating, defender_power_rating, dice_variance_index, explainability_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $fleet['user_id'],
+            $target['user_id'],
+            $target['id'],
+            $reportJson,
+            $battleSeed,
+            1,
+            $attackerPowerRating,
+            $defenderPowerRating,
+            $diceVarianceIndex,
+            json_encode($report['explainability']),
+        ]);
+    } else {
+        $db->prepare('INSERT INTO battle_reports (attacker_id,defender_id,planet_id,report_json)
+                      VALUES (?,?,?,?)')
+           ->execute([$fleet['user_id'], $target['user_id'], $target['id'], $reportJson]);
+    }
     check_and_update_achievements($db, (int)$fleet['user_id']);
 
     // ── Diplomacy impact: attacking a faction NPC degrades standing ────────
@@ -463,6 +596,819 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
                            cargo_metal=?, cargo_crystal=?, cargo_deuterium=?, ships_json=?
          WHERE id=?'
     )->execute([$retTime, $retTime, $lootM, $lootC, $lootD, json_encode($atkSurvivors), $fleet['id']]);
+}
+
+function simulate_battle_preview(PDO $db, int $uid, array $body): never {
+    $attackerFleetId = (int)($body['attacker_fleet_id'] ?? 0);
+    $targetColonyId  = (int)($body['target_colony_id'] ?? 0);
+    $iterations       = max(1, min(2000, (int)($body['iterations'] ?? 1)));
+    $deterministicSeed = trim((string)($body['deterministic_seed'] ?? ''));
+    if ($deterministicSeed !== '') {
+        $deterministicSeed = preg_replace('/[^a-zA-Z0-9_\-]/', '', $deterministicSeed) ?? '';
+        $deterministicSeed = substr($deterministicSeed, 0, 64);
+    }
+
+    if ($attackerFleetId <= 0) {
+        json_error('attacker_fleet_id is required.');
+    }
+
+    $fleetStmt = $db->prepare('SELECT * FROM fleets WHERE id = ? AND user_id = ? LIMIT 1');
+    $fleetStmt->execute([$attackerFleetId, $uid]);
+    $fleet = $fleetStmt->fetch();
+    if (!$fleet) {
+        json_error('Attacker fleet not found.', 404);
+    }
+
+    $ships = json_decode((string)($fleet['ships_json'] ?? '{}'), true) ?: [];
+    if (empty($ships)) {
+        json_error('Attacker fleet has no ships.');
+    }
+
+    if ($targetColonyId > 0) {
+        $targetStmt = $db->prepare('SELECT id, user_id, metal, crystal, deuterium, rare_earth FROM colonies WHERE id = ? LIMIT 1');
+        $targetStmt->execute([$targetColonyId]);
+    } else {
+        $targetStmt = $db->prepare(
+            'SELECT c.id, c.user_id, c.metal, c.crystal, c.deuterium, c.rare_earth
+             FROM colonies c JOIN planets p ON p.id=c.planet_id
+             WHERE p.galaxy=? AND p.`system`=? AND p.position=?
+             LIMIT 1'
+        );
+        $targetStmt->execute([(int)$fleet['target_galaxy'], (int)$fleet['target_system'], (int)$fleet['target_position']]);
+    }
+    $target = $targetStmt->fetch();
+
+    if (!$target) {
+        json_error('Target colony not found.', 404);
+    }
+    if ((int)$target['user_id'] === (int)$fleet['user_id']) {
+        json_error('Cannot simulate combat against own colony.');
+    }
+
+    $wpnRow = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=\'weapons_tech\'');
+    $wpnRow->execute([$fleet['user_id']]);
+    $atkWpnLevel = (int)($wpnRow->fetchColumn() ?? 0);
+
+    $atkShldRow = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=\'shielding_tech\'');
+    $atkShldRow->execute([$fleet['user_id']]);
+    $atkShldLevel = (int)($atkShldRow->fetchColumn() ?? 0);
+
+    $cmdRow = $db->prepare('SELECT skill_attack FROM leaders WHERE fleet_id=? AND role=\'fleet_commander\' LIMIT 1');
+    $cmdRow->execute([$fleet['id']]);
+    $cmd = $cmdRow->fetch();
+    $cmdBonus = $cmd ? (1.0 + (int)$cmd['skill_attack'] * 0.02) : 1.0;
+
+    $atkMulti = (1.0 + $atkWpnLevel * 0.1) * $cmdBonus;
+    $atkProfile = compute_energy_combat_profile($ships, $db);
+    $atkEnergy = $atkProfile['attack_energy'] * $atkMulti;
+    $atkKinetic = $atkProfile['attack_kinetic'] * $atkMulti;
+    $atkAtk = $atkEnergy + $atkKinetic;
+    $atkHull = $atkProfile['hull'];
+    $atkShield = $atkProfile['shield'] * (1.0 + $atkShldLevel * 0.1);
+
+    $atkColonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
+    $atkColonyStmt->execute([(int)$fleet['origin_colony_id']]);
+    $atkCol = $atkColonyStmt->fetch();
+    if ($atkCol && $atkCol['colony_type'] === 'military') {
+        $atkEnergy *= 1.1;
+        $atkKinetic *= 1.1;
+        $atkAtk = $atkEnergy + $atkKinetic;
+        $atkShield *= 1.05;
+    }
+
+    $defWpnRow = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=\'weapons_tech\'');
+    $defWpnRow->execute([$target['user_id']]);
+    $defWpnLevel = (int)($defWpnRow->fetchColumn() ?? 0);
+
+    $defShldRow = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=\'shielding_tech\'');
+    $defShldRow->execute([$target['user_id']]);
+    $defShldLevel = (int)($defShldRow->fetchColumn() ?? 0);
+
+    complete_ship_build_queue($db, (int)$target['id']);
+    $defShipsStmt = $db->prepare('SELECT type, count FROM ships WHERE colony_id=?');
+    $defShipsStmt->execute([$target['id']]);
+    $defFleet = [];
+    foreach ($defShipsStmt->fetchAll() as $r) {
+        $defFleet[$r['type']] = (int)$r['count'];
+    }
+    $defProfile = compute_energy_combat_profile($defFleet, $db);
+    $defEnergy = $defProfile['attack_energy'] * (1.0 + $defWpnLevel * 0.1);
+    $defKinetic = $defProfile['attack_kinetic'] * (1.0 + $defWpnLevel * 0.1);
+    $defAtk = $defEnergy + $defKinetic;
+    $defHull = $defProfile['hull'];
+    $defShield = $defProfile['shield'] * (1.0 + $defShldLevel * 0.1);
+
+    $defColonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
+    $defColonyStmt->execute([(int)$target['id']]);
+    $defCol = $defColonyStmt->fetch();
+    if ($defCol && $defCol['colony_type'] === 'military') {
+        $defEnergy *= 1.1;
+        $defKinetic *= 1.1;
+        $defAtk = $defEnergy + $defKinetic;
+        $defShield *= 1.05;
+    }
+
+    $combatMods = load_combat_modifier_totals($db, (int)$fleet['user_id'], (int)$target['user_id']);
+    $atkDamageAll = combat_modifier_scalar($combatMods['attacker'], 'combat.damage.all');
+    $defDamageAll = combat_modifier_scalar($combatMods['defender'], 'combat.damage.all');
+    $atkEnergy = max(0.0, $atkEnergy * $atkDamageAll * combat_modifier_scalar($combatMods['attacker'], 'combat.damage.energy'));
+    $atkKinetic = max(0.0, $atkKinetic * $atkDamageAll * combat_modifier_scalar($combatMods['attacker'], 'combat.damage.kinetic'));
+    $defEnergy = max(0.0, $defEnergy * $defDamageAll * combat_modifier_scalar($combatMods['defender'], 'combat.damage.energy'));
+    $defKinetic = max(0.0, $defKinetic * $defDamageAll * combat_modifier_scalar($combatMods['defender'], 'combat.damage.kinetic'));
+    $atkAtk = $atkEnergy + $atkKinetic;
+    $defAtk = $defEnergy + $defKinetic;
+    $atkShield = max(0.0, $atkShield * combat_modifier_scalar($combatMods['attacker'], 'combat.shield.capacity'));
+    $defShield = max(0.0, $defShield * combat_modifier_scalar($combatMods['defender'], 'combat.shield.capacity'));
+    $atkHull = max(0.0, $atkHull * combat_modifier_scalar($combatMods['attacker'], 'combat.hull.integrity'));
+    $defHull = max(0.0, $defHull * combat_modifier_scalar($combatMods['defender'], 'combat.hull.integrity'));
+
+    $atkBudget = compute_energy_budget($atkProfile, $combatMods['attacker']);
+    $defBudget = compute_energy_budget($defProfile, $combatMods['defender']);
+
+    $baseSeed = $deterministicSeed !== ''
+        ? hash('sha256', $deterministicSeed)
+        : hash('sha256', implode('|', [
+            'simulate',
+            (int)$fleet['id'],
+            (int)$fleet['user_id'],
+            (int)$target['user_id'],
+        ]));
+
+    $wins = 0;
+    $sumDiceVariance = 0.0;
+    $sumAtkLoss = 0.0;
+    $sumDefLoss = 0.0;
+    $firstOutcome = null;
+
+    for ($i = 1; $i <= $iterations; $i++) {
+        $iterSeed = hash('sha256', $baseSeed . '|iter|' . $i);
+        $outcome = battle_preview_outcome(
+            $atkAtk,
+            $defAtk,
+            $atkShield,
+            $defShield,
+            $atkHull,
+            $defHull,
+            $iterSeed,
+            [
+                'atk_energy' => $atkEnergy,
+                'atk_kinetic' => $atkKinetic,
+                'def_energy' => $defEnergy,
+                'def_kinetic' => $defKinetic,
+                'atk_weapon_factor' => $atkBudget['weapon_factor'],
+                'def_weapon_factor' => $defBudget['weapon_factor'],
+                'atk_shield_factor' => $atkBudget['shield_factor'],
+                'def_shield_factor' => $defBudget['shield_factor'],
+            ]
+        );
+        if ($firstOutcome === null) {
+            $firstOutcome = $outcome;
+        }
+        if (!empty($outcome['attacker_wins'])) {
+            $wins++;
+        }
+        $sumDiceVariance += (float)$outcome['dice_variance_index'];
+        $sumAtkLoss += (float)$outcome['atk_loss_fraction'];
+        $sumDefLoss += (float)$outcome['def_loss_fraction'];
+    }
+
+    $firstOutcome = $firstOutcome ?? battle_preview_outcome(
+        $atkAtk,
+        $defAtk,
+        $atkShield,
+        $defShield,
+        $atkHull,
+        $defHull,
+        $baseSeed,
+        [
+            'atk_energy' => $atkEnergy,
+            'atk_kinetic' => $atkKinetic,
+            'def_energy' => $defEnergy,
+            'def_kinetic' => $defKinetic,
+            'atk_weapon_factor' => $atkBudget['weapon_factor'],
+            'def_weapon_factor' => $defBudget['weapon_factor'],
+            'atk_shield_factor' => $atkBudget['shield_factor'],
+            'def_shield_factor' => $defBudget['shield_factor'],
+        ]
+    );
+
+    json_ok([
+        'simulation' => [
+            'seed' => $baseSeed,
+            'iterations' => $iterations,
+            'attacker_wins_estimate' => (bool)$firstOutcome['attacker_wins'],
+            'attacker_winrate_estimate' => (float)round($wins / max(1, $iterations), 4),
+            'dice_variance_index' => (float)round($firstOutcome['dice_variance_index'], 4),
+            'dice_variance_avg' => (float)round($sumDiceVariance / max(1, $iterations), 4),
+            'power_rating' => [
+                'attacker' => (int)round($atkAtk + $atkShield * 0.2 + $atkHull * 0.1),
+                'defender' => (int)round($defAtk + $defShield * 0.2 + $defHull * 0.1),
+            ],
+            'expected_loss_fraction' => [
+                'attacker' => (float)round($firstOutcome['atk_loss_fraction'], 4),
+                'defender' => (float)round($firstOutcome['def_loss_fraction'], 4),
+            ],
+            'expected_loss_fraction_avg' => [
+                'attacker' => (float)round($sumAtkLoss / max(1, $iterations), 4),
+                'defender' => (float)round($sumDefLoss / max(1, $iterations), 4),
+            ],
+            'combat_modifiers' => $combatMods,
+        ],
+    ]);
+}
+
+function matchup_scan(PDO $db, int $uid, array $body): never {
+    $attackerFleetId = (int)($body['attacker_fleet_id'] ?? 0);
+    $iterations = max(1, min(2000, (int)($body['iterations'] ?? 200)));
+    $deterministicSeed = trim((string)($body['deterministic_seed'] ?? ''));
+    if ($deterministicSeed !== '') {
+        $deterministicSeed = preg_replace('/[^a-zA-Z0-9_\-]/', '', $deterministicSeed) ?? '';
+        $deterministicSeed = substr($deterministicSeed, 0, 64);
+    }
+
+    if ($attackerFleetId <= 0) {
+        json_error('attacker_fleet_id is required.');
+    }
+
+    $fleetStmt = $db->prepare('SELECT * FROM fleets WHERE id = ? AND user_id = ? LIMIT 1');
+    $fleetStmt->execute([$attackerFleetId, $uid]);
+    $fleet = $fleetStmt->fetch();
+    if (!$fleet) {
+        json_error('Attacker fleet not found.', 404);
+    }
+
+    $ships = json_decode((string)($fleet['ships_json'] ?? '{}'), true) ?: [];
+    if (empty($ships)) {
+        json_error('Attacker fleet has no ships.');
+    }
+
+    $targetIds = [];
+    $targetIdsRaw = $body['target_colony_ids'] ?? [];
+    if (is_array($targetIdsRaw)) {
+        foreach ($targetIdsRaw as $tid) {
+            $id = (int)$tid;
+            if ($id > 0) {
+                $targetIds[] = $id;
+            }
+        }
+    }
+    $singleTarget = (int)($body['target_colony_id'] ?? 0);
+    if ($singleTarget > 0) {
+        $targetIds[] = $singleTarget;
+    }
+    $targetIds = array_values(array_unique($targetIds));
+
+    if (empty($targetIds)) {
+        $fallback = resolve_preview_target_colony($db, $fleet, 0);
+        if (!$fallback) {
+            json_error('No valid targets found for matchup scan.', 404);
+        }
+        $targetIds = [(int)$fallback['id']];
+    }
+
+    $attackerBase = compute_preview_attacker_stats($db, $fleet, $ships);
+    $baseSeed = $deterministicSeed !== ''
+        ? hash('sha256', $deterministicSeed)
+        : hash('sha256', implode('|', ['matchup_scan', (int)$fleet['id'], (int)$fleet['user_id']]));
+
+    $results = [];
+    foreach ($targetIds as $targetId) {
+        $target = resolve_preview_target_colony($db, $fleet, (int)$targetId);
+        if (!$target) {
+            $results[] = ['target_colony_id' => (int)$targetId, 'error' => 'target_not_found'];
+            continue;
+        }
+        if ((int)$target['user_id'] === (int)$fleet['user_id']) {
+            $results[] = ['target_colony_id' => (int)$target['id'], 'error' => 'own_colony_not_allowed'];
+            continue;
+        }
+
+        $defenderBase = compute_preview_defender_stats($db, $target);
+        $combatMods = load_combat_modifier_totals($db, (int)$fleet['user_id'], (int)$target['user_id']);
+
+        $atkDamageAll = combat_modifier_scalar($combatMods['attacker'], 'combat.damage.all');
+        $defDamageAll = combat_modifier_scalar($combatMods['defender'], 'combat.damage.all');
+        $atkEnergy = max(0.0, $attackerBase['attack_energy'] * $atkDamageAll * combat_modifier_scalar($combatMods['attacker'], 'combat.damage.energy'));
+        $atkKinetic = max(0.0, $attackerBase['attack_kinetic'] * $atkDamageAll * combat_modifier_scalar($combatMods['attacker'], 'combat.damage.kinetic'));
+        $defEnergy = max(0.0, $defenderBase['attack_energy'] * $defDamageAll * combat_modifier_scalar($combatMods['defender'], 'combat.damage.energy'));
+        $defKinetic = max(0.0, $defenderBase['attack_kinetic'] * $defDamageAll * combat_modifier_scalar($combatMods['defender'], 'combat.damage.kinetic'));
+        $atkAtk = $atkEnergy + $atkKinetic;
+        $defAtk = $defEnergy + $defKinetic;
+        $atkShield = max(0.0, $attackerBase['shield'] * combat_modifier_scalar($combatMods['attacker'], 'combat.shield.capacity'));
+        $defShield = max(0.0, $defenderBase['shield'] * combat_modifier_scalar($combatMods['defender'], 'combat.shield.capacity'));
+        $atkHull = max(0.0, $attackerBase['hull'] * combat_modifier_scalar($combatMods['attacker'], 'combat.hull.integrity'));
+        $defHull = max(0.0, $defenderBase['hull'] * combat_modifier_scalar($combatMods['defender'], 'combat.hull.integrity'));
+
+        $atkBudget = compute_energy_budget($attackerBase['energy_profile'] ?? [], $combatMods['attacker']);
+        $defBudget = compute_energy_budget($defenderBase['energy_profile'] ?? [], $combatMods['defender']);
+
+        $wins = 0;
+        $sumDiceVariance = 0.0;
+        $sumAtkLoss = 0.0;
+        $sumDefLoss = 0.0;
+
+        for ($i = 1; $i <= $iterations; $i++) {
+            $iterSeed = hash('sha256', $baseSeed . '|target|' . (int)$target['id'] . '|iter|' . $i);
+            $outcome = battle_preview_outcome(
+                $atkAtk,
+                $defAtk,
+                $atkShield,
+                $defShield,
+                $atkHull,
+                $defHull,
+                $iterSeed,
+                [
+                    'atk_energy' => $atkEnergy,
+                    'atk_kinetic' => $atkKinetic,
+                    'def_energy' => $defEnergy,
+                    'def_kinetic' => $defKinetic,
+                    'atk_weapon_factor' => $atkBudget['weapon_factor'],
+                    'def_weapon_factor' => $defBudget['weapon_factor'],
+                    'atk_shield_factor' => $atkBudget['shield_factor'],
+                    'def_shield_factor' => $defBudget['shield_factor'],
+                ]
+            );
+            if (!empty($outcome['attacker_wins'])) {
+                $wins++;
+            }
+            $sumDiceVariance += (float)$outcome['dice_variance_index'];
+            $sumAtkLoss += (float)$outcome['atk_loss_fraction'];
+            $sumDefLoss += (float)$outcome['def_loss_fraction'];
+        }
+
+        $results[] = [
+            'target_colony_id' => (int)$target['id'],
+            'target_user_id' => (int)$target['user_id'],
+            'iterations' => $iterations,
+            'attacker_winrate_estimate' => (float)round($wins / max(1, $iterations), 4),
+            'dice_variance_avg' => (float)round($sumDiceVariance / max(1, $iterations), 4),
+            'expected_loss_fraction_avg' => [
+                'attacker' => (float)round($sumAtkLoss / max(1, $iterations), 4),
+                'defender' => (float)round($sumDefLoss / max(1, $iterations), 4),
+            ],
+            'power_rating' => [
+                'attacker' => (int)round($atkAtk + $atkShield * 0.2 + $atkHull * 0.1),
+                'defender' => (int)round($defAtk + $defShield * 0.2 + $defHull * 0.1),
+            ],
+        ];
+    }
+
+    $ranking = array_values(array_filter($results, static fn(array $r): bool => isset($r['attacker_winrate_estimate'])));
+    usort($ranking, static fn(array $a, array $b): int => ($b['attacker_winrate_estimate'] <=> $a['attacker_winrate_estimate']));
+
+    json_ok([
+        'scan' => [
+            'fleet_id' => (int)$fleet['id'],
+            'iterations' => $iterations,
+            'seed' => $baseSeed,
+            'targets_scanned' => count($results),
+            'results' => $results,
+            'ranking' => $ranking,
+        ],
+    ]);
+}
+
+function resolve_preview_target_colony(PDO $db, array $fleet, int $targetColonyId): ?array {
+    if ($targetColonyId > 0) {
+        $stmt = $db->prepare('SELECT id, user_id, metal, crystal, deuterium, rare_earth FROM colonies WHERE id = ? LIMIT 1');
+        $stmt->execute([$targetColonyId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    $stmt = $db->prepare(
+        'SELECT c.id, c.user_id, c.metal, c.crystal, c.deuterium, c.rare_earth
+         FROM colonies c JOIN planets p ON p.id=c.planet_id
+         WHERE p.galaxy=? AND p.`system`=? AND p.position=?
+         LIMIT 1'
+    );
+    $stmt->execute([(int)$fleet['target_galaxy'], (int)$fleet['target_system'], (int)$fleet['target_position']]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function compute_preview_attacker_stats(PDO $db, array $fleet, array $ships): array {
+    $wpnRow = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=\'weapons_tech\'');
+    $wpnRow->execute([$fleet['user_id']]);
+    $atkWpnLevel = (int)($wpnRow->fetchColumn() ?? 0);
+
+    $atkShldRow = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=\'shielding_tech\'');
+    $atkShldRow->execute([$fleet['user_id']]);
+    $atkShldLevel = (int)($atkShldRow->fetchColumn() ?? 0);
+
+    $cmdRow = $db->prepare('SELECT skill_attack FROM leaders WHERE fleet_id=? AND role=\'fleet_commander\' LIMIT 1');
+    $cmdRow->execute([$fleet['id']]);
+    $cmd = $cmdRow->fetch();
+    $cmdBonus = $cmd ? (1.0 + (int)$cmd['skill_attack'] * 0.02) : 1.0;
+
+    $atkMulti = (1.0 + $atkWpnLevel * 0.1) * $cmdBonus;
+    $profile = compute_energy_combat_profile($ships, $db);
+    $atkEnergy = $profile['attack_energy'] * $atkMulti;
+    $atkKinetic = $profile['attack_kinetic'] * $atkMulti;
+    $atkAtk = $atkEnergy + $atkKinetic;
+    $atkHull = $profile['hull'];
+    $atkShield = $profile['shield'] * (1.0 + $atkShldLevel * 0.1);
+
+    $atkColonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
+    $atkColonyStmt->execute([(int)$fleet['origin_colony_id']]);
+    $atkCol = $atkColonyStmt->fetch();
+    if ($atkCol && $atkCol['colony_type'] === 'military') {
+        $atkEnergy *= 1.1;
+        $atkKinetic *= 1.1;
+        $atkAtk = $atkEnergy + $atkKinetic;
+        $atkShield *= 1.05;
+    }
+
+    return [
+        'atk' => $atkAtk,
+        'attack_energy' => $atkEnergy,
+        'attack_kinetic' => $atkKinetic,
+        'shield' => $atkShield,
+        'hull' => $atkHull,
+        'fleet' => $ships,
+        'energy_profile' => $profile,
+    ];
+}
+
+function compute_preview_defender_stats(PDO $db, array $target): array {
+    $defWpnRow = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=\'weapons_tech\'');
+    $defWpnRow->execute([$target['user_id']]);
+    $defWpnLevel = (int)($defWpnRow->fetchColumn() ?? 0);
+
+    $defShldRow = $db->prepare('SELECT level FROM research WHERE user_id=? AND type=\'shielding_tech\'');
+    $defShldRow->execute([$target['user_id']]);
+    $defShldLevel = (int)($defShldRow->fetchColumn() ?? 0);
+
+    complete_ship_build_queue($db, (int)$target['id']);
+    $defShipsStmt = $db->prepare('SELECT type, count FROM ships WHERE colony_id=?');
+    $defShipsStmt->execute([$target['id']]);
+    $defFleet = [];
+    foreach ($defShipsStmt->fetchAll() as $r) {
+        $defFleet[(string)$r['type']] = (int)$r['count'];
+    }
+    $profile = compute_energy_combat_profile($defFleet, $db);
+    $defEnergy = $profile['attack_energy'] * (1.0 + $defWpnLevel * 0.1);
+    $defKinetic = $profile['attack_kinetic'] * (1.0 + $defWpnLevel * 0.1);
+    $defAtk = $defEnergy + $defKinetic;
+    $defHull = $profile['hull'];
+    $defShield = $profile['shield'] * (1.0 + $defShldLevel * 0.1);
+
+    $defColonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
+    $defColonyStmt->execute([(int)$target['id']]);
+    $defCol = $defColonyStmt->fetch();
+    if ($defCol && $defCol['colony_type'] === 'military') {
+        $defEnergy *= 1.1;
+        $defKinetic *= 1.1;
+        $defAtk = $defEnergy + $defKinetic;
+        $defShield *= 1.05;
+    }
+
+    return [
+        'atk' => $defAtk,
+        'attack_energy' => $defEnergy,
+        'attack_kinetic' => $defKinetic,
+        'shield' => $defShield,
+        'hull' => $defHull,
+        'fleet' => $defFleet,
+        'energy_profile' => $profile,
+    ];
+}
+
+function battle_preview_outcome(
+    float $atkAtk,
+    float $defAtk,
+    float $atkShield,
+    float $defShield,
+    float $atkHull,
+    float $defHull,
+    string $battleSeed,
+    ?array $advanced = null
+): array {
+    $atkDiceMult = 0.9 + battle_rng_float($battleSeed, 'atk_dmg') * 0.2;
+    $defDiceMult = 0.9 + battle_rng_float($battleSeed, 'def_dmg') * 0.2;
+
+    if (is_array($advanced)) {
+        $atkEnergy = max(0.0, (float)($advanced['atk_energy'] ?? 0.0)) * max(0.0, (float)($advanced['atk_weapon_factor'] ?? 1.0));
+        $atkKinetic = max(0.0, (float)($advanced['atk_kinetic'] ?? 0.0)) * max(0.0, (float)($advanced['atk_weapon_factor'] ?? 1.0));
+        $defEnergy = max(0.0, (float)($advanced['def_energy'] ?? 0.0)) * max(0.0, (float)($advanced['def_weapon_factor'] ?? 1.0));
+        $defKinetic = max(0.0, (float)($advanced['def_kinetic'] ?? 0.0)) * max(0.0, (float)($advanced['def_weapon_factor'] ?? 1.0));
+
+        $atkShieldFactor = max(0.0, (float)($advanced['atk_shield_factor'] ?? 1.0));
+        $defShieldFactor = max(0.0, (float)($advanced['def_shield_factor'] ?? 1.0));
+
+        $atkEnergyRaw = $atkEnergy * $atkDiceMult;
+        $atkKineticRaw = $atkKinetic * $atkDiceMult;
+        $defEnergyRaw = $defEnergy * $defDiceMult;
+        $defKineticRaw = $defKinetic * $defDiceMult;
+
+        $defShieldVsEnergy = $defShield * 1.30 * $defShieldFactor;
+        $defShieldVsKinetic = $defShield * 0.75 * $defShieldFactor;
+        $atkShieldVsEnergy = $atkShield * 1.30 * $atkShieldFactor;
+        $atkShieldVsKinetic = $atkShield * 0.75 * $atkShieldFactor;
+
+        $atkLeakEnergy = max(0.0, $atkEnergyRaw - $defShieldVsEnergy);
+        $atkLeakKinetic = max(0.0, $atkKineticRaw - $defShieldVsKinetic);
+        $defLeakEnergy = max(0.0, $defEnergyRaw - $atkShieldVsEnergy);
+        $defLeakKinetic = max(0.0, $defKineticRaw - $atkShieldVsKinetic);
+
+        $atkEffectiveDmg = max(0.0, $atkLeakEnergy * 1.15 + $atkLeakKinetic * 1.20);
+        $defEffectiveDmg = max(0.0, $defLeakEnergy * 1.15 + $defLeakKinetic * 1.20);
+    } else {
+        $atkEffectiveDmg = max(0, ($atkAtk - $defShield * 0.5) * $atkDiceMult);
+        $defEffectiveDmg = max(0, ($defAtk - $atkShield * 0.5) * $defDiceMult);
+    }
+    $attackerWins = $atkEffectiveDmg > ($defHull * 0.5 + $defShield * 0.2);
+
+    $atkLossFraction = $defEffectiveDmg > 0
+        ? min(0.9, $defEffectiveDmg / max(1, $atkHull + $atkShield))
+        : 0.0;
+    $defLossFraction = $attackerWins ? min(0.9, $atkEffectiveDmg / max(1, $defHull + $defShield)) : 0.3;
+
+    return [
+        'attacker_wins' => $attackerWins,
+        'atk_loss_fraction' => (float)$atkLossFraction,
+        'def_loss_fraction' => (float)$defLossFraction,
+        'atk_effective_dmg' => (float)$atkEffectiveDmg,
+        'def_effective_dmg' => (float)$defEffectiveDmg,
+        'atk_dice_mult' => (float)$atkDiceMult,
+        'def_dice_mult' => (float)$defDiceMult,
+        'dice_variance_index' => (float)((abs($atkDiceMult - 1.0) + abs($defDiceMult - 1.0)) / 2.0),
+    ];
+}
+
+function compute_energy_combat_profile(array $fleetShips, PDO $db): array {
+    $profile = [
+        'attack_energy' => 0.0,
+        'attack_kinetic' => 0.0,
+        'shield' => 0.0,
+        'hull' => 0.0,
+        'reactor_output' => 0.0,
+        'capacitor_capacity' => 0.0,
+        'weapon_drain' => 0.0,
+        'shield_drain' => 0.0,
+        'upkeep' => 0.0,
+        'weapon_efficiency_base' => 1.0,
+        'shield_efficiency_base' => 1.0,
+    ];
+
+    $weightedWeaponEff = 0.0;
+    $weightedShieldEff = 0.0;
+    $weightSum = 0.0;
+
+    foreach ($fleetShips as $type => $countRaw) {
+        $count = max(0, (int)$countRaw);
+        if ($count <= 0) {
+            continue;
+        }
+        $ship = ship_runtime_definition((string)$type, $db) ?? [];
+        $attack = (float)($ship['attack'] ?? 0.0);
+        $shield = (float)($ship['shield'] ?? 0.0);
+        $hull = (float)($ship['hull'] ?? 0.0);
+
+        $energyShare = (float)($ship['attack_energy_share'] ?? 0.5);
+        $energyShare = clampf($energyShare, 0.1, 0.9);
+        $kineticShare = 1.0 - $energyShare;
+
+        $profile['attack_energy'] += $attack * $energyShare * $count;
+        $profile['attack_kinetic'] += $attack * $kineticShare * $count;
+        $profile['shield'] += $shield * $count;
+        $profile['hull'] += $hull * $count;
+
+        $profile['reactor_output'] += (float)($ship['reactor_output'] ?? max(8.0, ($attack + $shield) * 0.30)) * $count;
+        $profile['capacitor_capacity'] += (float)($ship['capacitor_capacity'] ?? max(4.0, $shield * 0.25)) * $count;
+        $profile['weapon_drain'] += (float)($ship['weapon_energy_drain'] ?? max(6.0, $attack * 0.22)) * $count;
+        $profile['shield_drain'] += (float)($ship['shield_energy_drain'] ?? max(4.0, $shield * 0.18)) * $count;
+        $profile['upkeep'] += (float)($ship['energy_upkeep'] ?? max(2.0, ($attack + $shield + $hull) * 0.03)) * $count;
+
+        $weight = max(1.0, $attack + $shield + $hull);
+        $weightedWeaponEff += (float)($ship['weapon_efficiency'] ?? 1.0) * $weight;
+        $weightedShieldEff += (float)($ship['shield_efficiency'] ?? 1.0) * $weight;
+        $weightSum += $weight;
+    }
+
+    if ($weightSum > 0.0) {
+        $profile['weapon_efficiency_base'] = $weightedWeaponEff / $weightSum;
+        $profile['shield_efficiency_base'] = $weightedShieldEff / $weightSum;
+    }
+
+    return $profile;
+}
+
+function compute_energy_budget(array $profile, array $sideMods): array {
+    $generationScalar = combat_modifier_scalar($sideMods, 'combat.energy.generation');
+    $upkeepScalar = combat_modifier_scalar($sideMods, 'combat.energy.upkeep');
+    $weaponEffScalar = combat_modifier_scalar($sideMods, 'combat.energy.weapon_efficiency');
+    $shieldEffScalar = combat_modifier_scalar($sideMods, 'combat.energy.shield_efficiency');
+    $shieldAllocScalar = combat_modifier_scalar($sideMods, 'combat.energy.shield_allocation_cap');
+
+    $reactor = max(0.0, (float)($profile['reactor_output'] ?? 0.0) * $generationScalar);
+    $capacitor = max(0.0, (float)($profile['capacitor_capacity'] ?? 0.0));
+    $upkeep = max(0.0, (float)($profile['upkeep'] ?? 0.0) * $upkeepScalar);
+
+    $weaponEff = clampf((float)($profile['weapon_efficiency_base'] ?? 1.0) * $weaponEffScalar, 0.60, 1.40);
+    $shieldEff = clampf((float)($profile['shield_efficiency_base'] ?? 1.0) * $shieldEffScalar, 0.60, 1.40);
+
+    $available = max(0.0, $reactor + 0.35 * $capacitor - $upkeep);
+    $shieldAllocCap = clampf(0.70 * $shieldAllocScalar, 0.30, 0.90);
+    $energyShield = min($available * $shieldAllocCap, $available * 0.45);
+    $energyWeapon = max(0.0, $available - $energyShield);
+
+    $weaponDrain = max(1.0, (float)($profile['weapon_drain'] ?? 1.0));
+    $shieldDrain = max(1.0, (float)($profile['shield_drain'] ?? 1.0));
+
+    $weaponFactor = clampf(($energyWeapon * $weaponEff) / $weaponDrain, 0.0, 1.0);
+    $shieldFactor = clampf(($energyShield * $shieldEff) / $shieldDrain, 0.0, 1.0);
+
+    return [
+        'available' => (float)round($available, 2),
+        'energy_weapon' => (float)round($energyWeapon, 2),
+        'energy_shield' => (float)round($energyShield, 2),
+        'weapon_efficiency' => (float)round($weaponEff, 4),
+        'shield_efficiency' => (float)round($shieldEff, 4),
+        'weapon_factor' => (float)round($weaponFactor, 4),
+        'shield_factor' => (float)round($shieldFactor, 4),
+    ];
+}
+
+function clampf(float $value, float $min, float $max): float {
+    return max($min, min($max, $value));
+}
+
+function battle_rng_float(string $seed, string $key): float {
+    $hash = hash('sha256', $seed . '|' . $key);
+    $num = hexdec(substr($hash, 0, 8));
+    return $num / 4294967295.0;
+}
+
+function compute_relative_impact(float $a, float $b): float {
+    $den = max(1.0, abs($a) + abs($b));
+    return abs($a - $b) / $den * 100.0;
+}
+
+function build_battle_rounds_summary(
+    float $attackerAttack,
+    float $defenderAttack,
+    float $attackerShield,
+    float $defenderShield,
+    float $attackerHull,
+    float $defenderHull,
+    float $attackerDiceMult,
+    float $defenderDiceMult,
+    bool $attackerWins,
+    float $attackerLossFraction,
+    float $defenderLossFraction
+): array {
+    $roundWeights = [0.42, 0.35, 0.23];
+    $remainingAttackerIntegrity = max(1.0, $attackerShield + $attackerHull);
+    $remainingDefenderIntegrity = max(1.0, $defenderShield + $defenderHull);
+    $rounds = [];
+
+    foreach ($roundWeights as $index => $weight) {
+        $attackerPressure = max(0.0, $attackerAttack * $attackerDiceMult * $weight);
+        $defenderPressure = max(0.0, $defenderAttack * $defenderDiceMult * $weight);
+
+        $remainingDefenderIntegrity = max(0.0, $remainingDefenderIntegrity - ($attackerPressure * (1.0 - $defenderLossFraction * 0.25)));
+        $remainingAttackerIntegrity = max(0.0, $remainingAttackerIntegrity - ($defenderPressure * (1.0 - $attackerLossFraction * 0.25)));
+
+        $rounds[] = [
+            'round' => $index + 1,
+            'attacker_pressure' => (float)round($attackerPressure, 2),
+            'defender_pressure' => (float)round($defenderPressure, 2),
+            'attacker_integrity_remaining' => (float)round($remainingAttackerIntegrity, 2),
+            'defender_integrity_remaining' => (float)round($remainingDefenderIntegrity, 2),
+            'swing' => $attackerPressure >= $defenderPressure ? 'attacker' : 'defender',
+        ];
+    }
+
+    if ($rounds) {
+        $lastIndex = count($rounds) - 1;
+        $rounds[$lastIndex]['decisive'] = true;
+        $rounds[$lastIndex]['outcome'] = $attackerWins ? 'attacker' : 'defender';
+    }
+
+    return $rounds;
+}
+
+function build_battle_modifier_breakdown(array $combatMods): array {
+    $result = ['attacker' => [], 'defender' => []];
+
+    foreach (['attacker', 'defender'] as $side) {
+        $sideMods = is_array($combatMods[$side] ?? null) ? $combatMods[$side] : [];
+        foreach ($sideMods as $key => $payload) {
+            $parts = explode('.', (string)$key);
+            $domain = implode('.', array_slice($parts, 0, 3));
+            if ($domain === '') {
+                $domain = 'combat.misc';
+            }
+
+            if (!isset($result[$side][$domain])) {
+                $result[$side][$domain] = ['add_flat' => 0.0, 'add_pct' => 0.0, 'mult' => 1.0];
+            }
+
+            $result[$side][$domain]['add_flat'] += (float)($payload['add_flat'] ?? 0.0);
+            $result[$side][$domain]['add_pct'] += (float)($payload['add_pct'] ?? 0.0);
+            $result[$side][$domain]['mult'] *= (float)($payload['mult'] ?? 1.0);
+        }
+
+        foreach ($result[$side] as $domain => $payload) {
+            $result[$side][$domain] = [
+                'add_flat' => (float)round((float)$payload['add_flat'], 4),
+                'add_pct' => (float)round((float)$payload['add_pct'], 4),
+                'mult' => (float)round((float)$payload['mult'], 4),
+            ];
+        }
+    }
+
+    return $result;
+}
+
+function battle_reports_has_combat_meta_columns(PDO $db): bool {
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    $stmt = $db->prepare(
+        'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+           AND COLUMN_NAME IN (\'battle_seed\', \'report_version\', \'attacker_power_rating\', \'defender_power_rating\', \'dice_variance_index\', \'explainability_json\')'
+    );
+    $stmt->execute(['battle_reports']);
+    $cached = ((int)$stmt->fetchColumn() >= 6);
+    return $cached;
+}
+
+function load_combat_modifier_totals(PDO $db, int $attackerUserId, int $defenderUserId): array {
+    if (!combat_modifiers_tables_exist($db)) {
+        return ['attacker' => [], 'defender' => []];
+    }
+
+    return [
+        'attacker' => load_user_combat_modifiers($db, $attackerUserId),
+        'defender' => load_user_combat_modifiers($db, $defenderUserId),
+    ];
+}
+
+function load_user_combat_modifiers(PDO $db, int $userId): array {
+    $stmt = $db->prepare(
+        'SELECT cm.modifier_key, cm.operation, cm.value
+         FROM user_combat_modifiers ucm
+         JOIN combat_modifiers cm ON cm.id = ucm.combat_modifier_id
+         WHERE ucm.user_id = ?
+           AND cm.active = 1
+           AND (cm.starts_at IS NULL OR cm.starts_at <= NOW())
+           AND (cm.expires_at IS NULL OR cm.expires_at >= NOW())'
+    );
+    $stmt->execute([$userId]);
+
+    $totals = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $key = (string)($row['modifier_key'] ?? '');
+        if ($key === '') {
+            continue;
+        }
+        $op = (string)($row['operation'] ?? 'add_pct');
+        $value = (float)($row['value'] ?? 0);
+
+        if (!isset($totals[$key])) {
+            $totals[$key] = ['add_flat' => 0.0, 'add_pct' => 0.0, 'mult' => 1.0];
+        }
+
+        if ($op === 'mult') {
+            $totals[$key]['mult'] *= $value;
+        } elseif ($op === 'add_flat') {
+            $totals[$key]['add_flat'] += $value;
+        } else {
+            $totals[$key]['add_pct'] += $value;
+        }
+    }
+
+    return $totals;
+}
+
+function combat_modifier_scalar(array $modTotals, string $prefix): float {
+    $key = $prefix . '.add_pct';
+    $multKey = $prefix . '.mult';
+
+    $addPct = isset($modTotals[$key]) ? (float)($modTotals[$key]['add_pct'] ?? 0.0) : 0.0;
+    $mult = isset($modTotals[$multKey]) ? (float)($modTotals[$multKey]['mult'] ?? 1.0) : 1.0;
+
+    return max(0.0, (1.0 + $addPct) * $mult);
+}
+
+function combat_modifiers_tables_exist(PDO $db): bool {
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    $stmt = $db->prepare(
+        'SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (\'combat_modifiers\', \'user_combat_modifiers\')'
+    );
+    $stmt->execute();
+    $cached = ((int)$stmt->fetchColumn() >= 2);
+    return $cached;
 }
 
 function colonize_planet(PDO $db, array $fleet, array $ships): void {
@@ -566,6 +1512,7 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
         $leaders = $lRow->fetchAll();
 
         // Fetch defender's ships
+        complete_ship_build_queue($db, (int)$target['id']);
         $sRow = $db->prepare('SELECT type, count FROM ships WHERE colony_id=? AND count > 0');
         $sRow->execute([$target['id']]);
         $defShips = [];

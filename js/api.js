@@ -50,6 +50,7 @@ const API = (() => {
     { re: /api\/alliances\.php\?action=get_messages/i, ttl: 5 * 1000 },
     { re: /api\/alliances\.php\?action=war_map/i, ttl: 10 * 1000 },
     { re: /api\/galaxy\.php\?action=stars/i, ttl: 45 * 1000 },
+    { re: /api\/galaxy\.php\?action=bootstrap/i, ttl: 20 * 1000 },
     { re: /api\/galaxy\.php\?/i, ttl: 15 * 1000 },
     { re: /api\/achievements\.php\?action=list/i, ttl: 15 * 1000 },
     { re: /api\/leaders\.php\?action=list/i, ttl: 15 * 1000 },
@@ -138,6 +139,161 @@ const API = (() => {
       e.name = 'AbortError';
       return e;
     }
+  }
+
+  const RENDER_SCHEMA_VERSION = 1;
+  const ASSETS_MANIFEST_VERSION = Math.max(1, Number(window.GQ_ASSETS_MANIFEST_VERSION || 1));
+  const RENDER_STALE_MAX_AGE_MS = 10 * 60 * 1000;
+
+  function _normalizeRenderSchemaVersion(payload) {
+    const n = Number(payload?.render_schema_version);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }
+
+  function _normalizeAssetsManifestVersion(payload, fallback = {}) {
+    const n = Number(payload?.assets_manifest_version || fallback?.assetsManifestVersion || 0);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }
+
+  function _buildSchemaError(kind, issues, payload) {
+    return {
+      ok: false,
+      errorType: 'schema',
+      kind,
+      issues: Array.isArray(issues) ? issues : [],
+      payload,
+    };
+  }
+
+  function classifyRenderLoadError(input) {
+    if (input?.errorType === 'schema') {
+      return { type: 'schema', message: 'Render schema mismatch', details: input.issues || [] };
+    }
+    if (input?.errorType === 'stale') {
+      return { type: 'stale', message: 'Render data is stale', details: input.issues || [] };
+    }
+
+    const status = Number(input?.status || input?.cause?.status || 0);
+    const text = String(input?.message || input?.error || input || '').toLowerCase();
+
+    if (status === 401 || status === 403 || /not authenticated|unauthorized|forbidden/.test(text)) {
+      return { type: 'auth', message: 'Authentication required', details: [status || 'auth'] };
+    }
+    if (/network|failed to fetch|timeout|offline|econn|abort/.test(text) || status >= 500 || status === 0) {
+      return { type: 'network', message: 'Network error', details: [status || 'transport'] };
+    }
+    return { type: 'network', message: 'Unknown transport error', details: [status || 'unknown'] };
+  }
+
+  function adaptGalaxyBootstrapPayload(payload, fallback = {}) {
+    if (!payload || payload.success !== true) {
+      return _buildSchemaError('bootstrap', ['payload.success !== true'], payload);
+    }
+
+    const galaxy = Math.max(1, Number(payload.galaxy || fallback.galaxy || 1));
+    const systemMax = Math.max(1, Number(payload.system_max || 0));
+    const initialRaw = payload.initial_range || {};
+    const from = Math.max(1, Number(initialRaw.from || fallback.from || 1));
+    const to = Math.max(from, Number(initialRaw.to || fallback.to || from));
+    const maxPoints = Math.max(100, Math.min(50000, Number(initialRaw.max_points || fallback.maxPoints || 1500)));
+    const schemaVersion = _normalizeRenderSchemaVersion(payload);
+    const assetsManifestVersion = _normalizeAssetsManifestVersion(payload, fallback);
+
+    const issues = [];
+    if (!systemMax) issues.push('system_max missing');
+    if (schemaVersion <= 0) issues.push('render_schema_version missing');
+    if (assetsManifestVersion <= 0) issues.push('assets_manifest_version missing');
+
+    if (issues.length > 0) {
+      return _buildSchemaError('bootstrap', issues, payload);
+    }
+
+    const serverTsMs = Number(payload.server_ts_ms || Date.now());
+    const isStale = (Date.now() - serverTsMs) > RENDER_STALE_MAX_AGE_MS;
+
+    return {
+      ok: true,
+      data: {
+        success: true,
+        action: 'bootstrap',
+        render_schema_version: schemaVersion,
+        schema_ok: schemaVersion === RENDER_SCHEMA_VERSION,
+        assets_manifest_version: assetsManifestVersion,
+        assets_manifest_ok: assetsManifestVersion === ASSETS_MANIFEST_VERSION,
+        stale: isStale,
+        galaxy,
+        system_max: systemMax,
+        server_ts_ms: serverTsMs,
+        initial_range: {
+          from,
+          to,
+          max_points: maxPoints,
+        },
+        endpoints: payload.endpoints || {},
+        capabilities: payload.capabilities || {},
+      },
+    };
+  }
+
+  function adaptGalaxyStarsPayload(payload, fallback = {}) {
+    if (!payload || payload.success !== true) {
+      return _buildSchemaError('stars', ['payload.success !== true'], payload);
+    }
+
+    const stars = Array.isArray(payload.stars) ? payload.stars : [];
+    const issues = [];
+    const schemaVersion = _normalizeRenderSchemaVersion(payload);
+    const assetsManifestVersion = _normalizeAssetsManifestVersion(payload, fallback);
+    if (schemaVersion <= 0) issues.push('render_schema_version missing');
+    if (assetsManifestVersion <= 0) issues.push('assets_manifest_version missing');
+    if (!Array.isArray(payload.stars)) issues.push('stars missing');
+
+    const galaxy = Math.max(1, Number(payload.galaxy || fallback.galaxy || 1));
+    const from = Math.max(1, Number(payload.from || fallback.from || 1));
+    const to = Math.max(from, Number(payload.to || fallback.to || from));
+    const stride = Math.max(1, Number(payload.stride || 1));
+    const systemMax = Math.max(1, Number(payload.system_max || fallback.systemMax || 1));
+
+    if (issues.length > 0) {
+      return _buildSchemaError('stars', issues, payload);
+    }
+
+    const serverTsMs = Number(payload.server_ts_ms || Date.now());
+    const isStale = (Date.now() - serverTsMs) > RENDER_STALE_MAX_AGE_MS;
+
+    return {
+      ok: true,
+      data: {
+        success: true,
+        action: 'stars',
+        render_schema_version: schemaVersion,
+        schema_ok: schemaVersion === RENDER_SCHEMA_VERSION,
+        assets_manifest_version: assetsManifestVersion,
+        assets_manifest_ok: assetsManifestVersion === ASSETS_MANIFEST_VERSION,
+        stale: isStale,
+        galaxy,
+        from,
+        to,
+        stride,
+        system_max: systemMax,
+        count: Number(payload.count || stars.length || 0),
+        server_ts_ms: serverTsMs,
+        cache_mode: String(payload.cache_mode || ''),
+        request: (payload.request && typeof payload.request === 'object') ? payload.request : {
+          priority: 'normal',
+          prefetch: false,
+          chunk_hint: Number(fallback.maxPoints || 1500),
+        },
+        cluster_preset_selected: String(payload.cluster_preset_selected || 'medium'),
+        prefetch: (payload.prefetch && typeof payload.prefetch === 'object') ? payload.prefetch : {
+          before: { from, to: Math.max(from, from - 1) },
+          after: { from: Math.min(systemMax, to + 1), to: Math.min(systemMax, to + 1) },
+        },
+        clusters_lod: (payload.clusters_lod && typeof payload.clusters_lod === 'object') ? payload.clusters_lod : null,
+        clusters: Array.isArray(payload.clusters) ? payload.clusters : [],
+        stars,
+      },
+    };
   }
 
   function _detectConcurrencyLimit() {
@@ -1043,6 +1199,9 @@ const API = (() => {
       return _maxConcurrentRequests;
     },
     networkHealth: (force = false) => _probeConnectivity(!!force),
+    adaptGalaxyBootstrap: (payload, fallback = {}) => adaptGalaxyBootstrapPayload(payload, fallback),
+    adaptGalaxyStars: (payload, fallback = {}) => adaptGalaxyStarsPayload(payload, fallback),
+    classifyRenderError: (input) => classifyRenderLoadError(input),
 
     // Auth
     me:     () => get('api/auth.php?action=me'),
@@ -1069,13 +1228,20 @@ const API = (() => {
     finishResearch:()           => post('api/research.php?action=finish', {}),
 
     // Shipyard
-    ships:    (cid)              => get(`api/shipyard.php?action=list&colony_id=${cid}`),
-    buildShip:(cid, type, count) => post('api/shipyard.php?action=build', { colony_id: cid, type, count }),
+    ships:    (cid)                        => get(`api/shipyard.php?action=list&colony_id=${cid}`),
+    shipyardHulls: (cid)                  => get(`api/shipyard.php?action=list_hulls&colony_id=${cid}`),
+    shipyardModules: (cid, hullCode, slotLayoutCode = 'default') => get(`api/shipyard.php?action=list_modules&colony_id=${cid}&hull_code=${encodeURIComponent(hullCode)}&slot_layout_code=${encodeURIComponent(slotLayoutCode)}`),
+    createBlueprint: (payload)            => post('api/shipyard.php?action=create_blueprint', payload),
+    buildShip:(cid, type, count, extra={}) => post('api/shipyard.php?action=build', Object.assign({ colony_id: cid, type, count }, extra)),
+    shipyardVessels: (cid)                => get(`api/shipyard.php?action=list_vessels&colony_id=${cid}`),
+    decommissionVessel: (vesselId)        => post('api/shipyard.php?action=decommission_vessel', { vessel_id: vesselId }),
 
     // Fleet
     fleets:     ()        => get('api/fleet.php?action=list'),
     sendFleet:  (payload) => post('api/fleet.php?action=send', payload),
     recallFleet:(id)      => post('api/fleet.php?action=recall', { fleet_id: id }),
+    simulateBattle: (payload) => post('api/fleet.php?action=simulate_battle', payload),
+    matchupScan: (payload) => post('api/fleet.php?action=matchup_scan', payload),
 
     // Galaxy
     galaxy: (g, s) => getBinary(`api/galaxy.php?galaxy=${g}&system=${s}&format=bin`, {
@@ -1083,10 +1249,67 @@ const API = (() => {
       retryCount: 1,
       timeoutMs: 12000,
     }),
-    galaxyStars: (g, from = 1, to = 25000, maxPoints = 1500) =>
-      get(`api/galaxy.php?action=stars&galaxy=${g}&from=${from}&to=${to}&max_points=${maxPoints}`, { priority: 'critical' }),
+    galaxyStars: (g, from = 1, to = 25000, maxPoints = 1500, opts = {}) => {
+      const gf = Math.max(1, Number(g || 1));
+      const rf = Math.max(1, Number(from || 1));
+      const rt = Math.max(rf, Number(to || rf));
+      const mp = Math.max(100, Math.min(50000, Number(maxPoints || 1500)));
+      const allowedStreamPriorities = new Set(['critical', 'high', 'normal', 'low', 'background']);
+      const streamPriorityRaw = String(opts.streamPriority || opts.priority || 'normal').toLowerCase();
+      const streamPriority = allowedStreamPriorities.has(streamPriorityRaw) ? streamPriorityRaw : 'normal';
+      const requestPriorityRaw = String(opts.requestPriority || (streamPriority === 'background' ? 'low' : 'critical')).toLowerCase();
+      const requestPriority = ['critical', 'high', 'normal', 'low'].includes(requestPriorityRaw) ? requestPriorityRaw : 'critical';
+      const prefetch = !!opts.prefetch;
+      const chunkHint = Math.max(100, Math.min(5000, Number(opts.chunkHint || mp)));
+      const clusterPresetRaw = String(opts.clusterPreset || 'auto').toLowerCase();
+      const clusterPreset = ['auto', 'low', 'medium', 'high', 'ultra'].includes(clusterPresetRaw)
+        ? clusterPresetRaw
+        : 'auto';
+      const includeClusterLod = !!opts.includeClusterLod;
+      const endpoint = `api/galaxy.php?action=stars&galaxy=${gf}&from=${rf}&to=${rt}&max_points=${mp}`
+        + `&priority=${encodeURIComponent(streamPriority)}`
+        + `&prefetch=${prefetch ? 1 : 0}`
+        + `&chunk_hint=${chunkHint}`
+        + `&cluster_preset=${encodeURIComponent(clusterPreset)}`
+        + `&cluster_lod=${includeClusterLod ? 1 : 0}`;
+      return get(endpoint, { priority: requestPriority });
+    },
+    galaxyBootstrap: (g, from = 1, to = null, maxPoints = 1500) => {
+      const gf = Math.max(1, Number(g || 1));
+      const rf = Math.max(1, Number(from || 1));
+      const hasTo = Number.isFinite(Number(to));
+      const rt = hasTo ? `&to=${Math.max(rf, Number(to))}` : '';
+      const mp = Math.max(100, Math.min(50000, Number(maxPoints || 1500)));
+      return get(`api/galaxy.php?action=bootstrap&galaxy=${gf}&from=${rf}${rt}&max_points=${mp}`, { priority: 'high' });
+    },
+    galaxyAssetMeta: (g, scope = 'render') => {
+      const gf = Math.max(1, Number(g || 1));
+      const scopeRaw = String(scope || 'render').toLowerCase();
+      const safeScope = ['render', 'planet_textures', 'clusters', 'ships'].includes(scopeRaw)
+        ? scopeRaw
+        : 'render';
+      return get(`api/galaxy.php?action=asset_meta&galaxy=${gf}&scope=${encodeURIComponent(safeScope)}`, { priority: 'high' });
+    },
     galaxySearch: (g, q, limit = 18) =>
       get(`api/galaxy.php?action=search&galaxy=${g}&q=${encodeURIComponent(String(q || ''))}&limit=${Math.max(1, Number(limit || 18))}`),
+    perfTelemetry: (payload = {}) =>
+      post('api/perf_telemetry.php?action=ingest', payload),
+    perfTelemetryRecent: ({ limit = 50, source = '', userId = 0 } = {}) => {
+      const lim = Math.max(1, Math.min(300, Number(limit || 50)));
+      const src = String(source || '').trim().toLowerCase();
+      const uid = Math.max(0, Number(userId || 0));
+      const srcPart = src ? `&source=${encodeURIComponent(src)}` : '';
+      const uidPart = uid > 0 ? `&user_id=${uid}` : '';
+      return get(`api/perf_telemetry.php?action=recent&limit=${lim}${srcPart}${uidPart}`, { priority: 'low' });
+    },
+    perfTelemetrySummary: ({ minutes = 60, source = '', userId = 0 } = {}) => {
+      const mins = Math.max(5, Math.min(24 * 60, Number(minutes || 60)));
+      const src = String(source || '').trim().toLowerCase();
+      const uid = Math.max(0, Number(userId || 0));
+      const srcPart = src ? `&source=${encodeURIComponent(src)}` : '';
+      const uidPart = uid > 0 ? `&user_id=${uid}` : '';
+      return get(`api/perf_telemetry.php?action=summary&minutes=${mins}${srcPart}${uidPart}`, { priority: 'low' });
+    },
 
     // Achievements / quests
     achievements:    ()    => get('api/achievements.php?action=list'),
@@ -1096,12 +1319,17 @@ const API = (() => {
     togglePvp: () => post('api/game.php?action=pvp_toggle', {}),
 
     // Leaders
-    leaders:        ()                      => get('api/leaders.php?action=list'),
-    hireLeader:     (name, role)            => post('api/leaders.php?action=hire',     { name, role }),
-    assignLeader:   (lid, cid, fid)         => post('api/leaders.php?action=assign',   { leader_id: lid, colony_id: cid ?? undefined, fleet_id: fid ?? undefined }),
-    setAutonomy:    (lid, autonomy)         => post('api/leaders.php?action=autonomy', { leader_id: lid, autonomy }),
-    dismissLeader:  (lid)                   => post('api/leaders.php?action=dismiss',  { leader_id: lid }),
-    aiTick:         ()                      => post('api/leaders.php?action=ai_tick',  {}),
+    leaders:             ()            => get('api/leaders.php?action=list'),
+    hireLeader:          (name, role)  => post('api/leaders.php?action=hire',           { name, role }),
+    assignLeader:        (lid, cid, fid) => post('api/leaders.php?action=assign',       { leader_id: lid, colony_id: cid ?? undefined, fleet_id: fid ?? undefined }),
+    setAutonomy:         (lid, autonomy) => post('api/leaders.php?action=autonomy',     { leader_id: lid, autonomy }),
+    dismissLeader:       (lid)         => post('api/leaders.php?action=dismiss',        { leader_id: lid }),
+    aiTick:              ()            => post('api/leaders.php?action=ai_tick',        {}),
+    leaderMarketplace:   ()            => get('api/leaders.php?action=marketplace'),
+    hireCandidate:       (cid)         => post('api/leaders.php?action=hire_candidate', { candidate_id: cid }),
+    advisorHints:        ()            => get('api/leaders.php?action=advisor_hints'),
+    advisorTick:         ()            => post('api/leaders.php?action=advisor_tick',   {}),
+    dismissHint:         (hid)         => post('api/leaders.php?action=dismiss_hint',   { hint_id: hid }),
 
     // Factions & diplomacy
     factions:        ()           => get('api/factions.php?action=list'),
@@ -1111,6 +1339,8 @@ const API = (() => {
     startFactionQuest:(fqid)      => post('api/factions.php?action=start_quest',   { faction_quest_id: fqid }),
     checkFactionQuests:()         => post('api/factions.php?action=check_quests',  {}),
     claimFactionQuest:(uqid)      => post('api/factions.php?action=claim_quest',   { user_quest_id: uqid }),
+    factionDialogue: ({ faction_id, history = [], player_input = '' } = {}) =>
+      post('api/factions.php?action=dialogue', { faction_id, history, player_input }),
 
     // NPC / PvE controller
     npcControllerStatus: () => get('api/npc_controller.php?action=status'),
@@ -1143,6 +1373,7 @@ const API = (() => {
     // Reports
     spyReports: ()             => get('api/reports.php?action=spy_reports'),
     battleReports: ()          => get('api/reports.php?action=battle_reports'),
+    battleReportDetail: (id)   => get(`api/reports.php?action=battle_detail&id=${id}`),
 
     // Trade Routes
     tradeRoutes: ()            => get('api/trade.php?action=list'),
@@ -1241,6 +1472,12 @@ const API = (() => {
 
 if (typeof window !== 'undefined') {
   window.API = API;
+  window.GQRenderDataAdapter = {
+    renderSchemaVersion: 1,
+    adaptGalaxyBootstrap: (payload, fallback = {}) => API.adaptGalaxyBootstrap(payload, fallback),
+    adaptGalaxyStars: (payload, fallback = {}) => API.adaptGalaxyStars(payload, fallback),
+    classifyRenderError: (input) => API.classifyRenderError(input),
+  };
   window.GQ_LLM = {
     status: () => API.llmStatus(),
     chat: (payload) => API.llmChat(payload),

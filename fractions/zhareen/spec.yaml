@@ -1,0 +1,45 @@
+species_code: zhareen
+display_name: "Zhareen"
+species_type: "Kristalline Empathen"
+homeworld: "Aeryth'Luun"
+faction_type: archival
+description: "Kristallorganische Lebensformen mit Archivierungsfunktion. Archivare und Bewahrer von Wissen. Perfektion durch Symmetrie. Emotionen werden in Kristallen gespeichert."
+
+society:
+  government: "Archivalistisch-Kollektiv"
+  culture: "Archivierung, Perfektion, Symmetrie, Wissensbewahrung"
+  gender_roles: "Gender: Kristallstruktur-Variation"
+
+biology:
+  type: Crystalline
+  male:
+    appearance: "Kantige Kristallformen"
+    color_primary: "#0047ab"
+    color_secondary: "#a9a9a9"
+    color_accent: "#a9a9a9"
+  female:
+    appearance: "Fließende Konturen"
+    color_primary: "#b76e79"
+    color_secondary: "#9966cc"
+    color_accent: "#f0f8ff"
+
+portraiture:
+  base_prompt: "Photorealistic portrait photo of an alien lifeform, head and shoulders (bust portrait), clearly gendered appearance, ultra-detailed skin or material texture, realistic lighting, studio portrait photography style, soft key light, subtle rim light, shallow depth of field, sharp focus on the face, transparent background, PNG alpha, cinematic realism."
+  male_modifier: "Male crystalline alien, angular crystal formations, sharp facets, cold internal glow, refracted light patterns across the face."
+  female_modifier: "Female crystalline alien, smooth crystal contours, warm internal glow, soft refracted light, flowing crystalline facial patterns."
+  material_description: "Crystalline structure with internal luminescence, geometric facets with light refraction, smooth or angular geometry depending on gender"
+  silhouette_description: "Geometric crystalline features, symmetrical patterns, glowing internal core, ethereal and precious appearance"
+
+logo:
+  prompt: "Crystalline archival insignia with geometric crystal lattice pattern, cobalt blue and rose gold with lavender accents, featuring stylized data storage or knowledge symbol, elegant mathematical aesthetic, isolated on transparent background, vector art"
+  description: "Crystalline lattice with knowledge symbol"
+
+technology:
+  weapons:
+    - "Kristall-Datenknoten"
+    - "Lichtbrechungswaffen"
+    - "Bewusstseinsspeicher"
+
+important_npcs:
+  - name: "Archivar Kaelor"
+    description: "Ruhig, analytisch, verlor seine Welt"

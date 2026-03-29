@@ -1,4 +1,8 @@
 /*
+ * @deprecated 2026-03-29 — Alter Renderer. Ersetzt durch galaxy-renderer-core.js.
+ * Nicht mehr in index.html geladen. Kann nach Migrationsperiode entfernt werden.
+ */
+/*
  * GalaxyQuest 3D galaxy renderer
  * Uses Three.js for scene management plus explicit MVP matrix projection for UI overlays.
  */
@@ -40,7 +44,9 @@
         onHover: null,
         onClick: null,
         onDoubleClick: null,
+        interactive: true,
       }, opts);
+      this.interactive = this.opts.interactive !== false;
       const hasExternalCanvas = typeof HTMLCanvasElement !== 'undefined'
         && this.opts.externalCanvas instanceof HTMLCanvasElement;
       this.externalCanvas = hasExternalCanvas ? this.opts.externalCanvas : null;
@@ -82,6 +88,16 @@
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       if (this.ownsRendererCanvas) {
         container.appendChild(this.renderer.domElement);
+      } else if (this.renderer.domElement) {
+        const canvas = this.renderer.domElement;
+        canvas.style.position = 'absolute';
+        canvas.style.left = '0';
+        canvas.style.top = '0';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.display = 'block';
+        canvas.style.pointerEvents = 'auto';
+        canvas.style.zIndex = '2';
       }
       this.texturePipeline = window.GQPlanetTexturePipeline
         ? new window.GQPlanetTexturePipeline({ size: 256, maxEntries: 128 })
@@ -2802,25 +2818,31 @@
     }
 
     _bindEvents() {
-      this._onMouseMove = (e) => this._handlePointerMove(e);
-      this._onClick = (e) => this._handleClick(e);
-      this._onDoubleClick = (e) => this._handleDoubleClick(e);
-      this._onMouseDown = (e) => this._handleMouseDown(e);
-      this._onMouseUp = () => this._handleMouseUp();
-      this._onWheel = (e) => this._handleWheel(e);
-      this._onKeyDown = (e) => this._handleKeyDown(e);
-      this._onKeyUp = (e) => this._handleKeyUp(e);
       this._onResizeBound = () => this._onResize();
-
-      this.renderer.domElement.addEventListener('mousemove', this._onMouseMove);
-      this.renderer.domElement.addEventListener('click', this._onClick);
-      this.renderer.domElement.addEventListener('dblclick', this._onDoubleClick);
-      this.renderer.domElement.addEventListener('mousedown', this._onMouseDown);
-      window.addEventListener('mouseup', this._onMouseUp);
-      this.renderer.domElement.addEventListener('wheel', this._onWheel, { passive: false });
-      window.addEventListener('keydown', this._onKeyDown);
-      window.addEventListener('keyup', this._onKeyUp);
       window.addEventListener('resize', this._onResizeBound);
+
+      if (this.interactive) {
+        this._onMouseMove = (e) => this._handlePointerMove(e);
+        this._onClick = (e) => this._handleClick(e);
+        this._onDoubleClick = (e) => this._handleDoubleClick(e);
+        this._onMouseDown = (e) => this._handleMouseDown(e);
+        this._onMouseUp = () => this._handleMouseUp();
+        this._onWheel = (e) => this._handleWheel(e);
+        this._onKeyDown = (e) => this._handleKeyDown(e);
+        this._onKeyUp = (e) => this._handleKeyUp(e);
+
+        this.renderer.domElement.addEventListener('mousemove', this._onMouseMove);
+        this.renderer.domElement.addEventListener('click', this._onClick);
+        this.renderer.domElement.addEventListener('dblclick', this._onDoubleClick);
+        this.renderer.domElement.addEventListener('mousedown', this._onMouseDown);
+        window.addEventListener('mouseup', this._onMouseUp);
+        this.renderer.domElement.addEventListener('wheel', this._onWheel, { passive: false });
+        window.addEventListener('keydown', this._onKeyDown);
+        window.addEventListener('keyup', this._onKeyUp);
+      } else {
+        this.renderer.domElement.style.pointerEvents = 'none';
+      }
+
       if (typeof ResizeObserver !== 'undefined') {
         try {
           this._containerResizeObserver = new ResizeObserver(() => {
@@ -4594,21 +4616,21 @@
 
     destroy() {
       this.destroyed = true;
-      window.removeEventListener('resize', this._onResizeBound);
+      if (this._onResizeBound) window.removeEventListener('resize', this._onResizeBound);
       if (this._containerResizeObserver) {
         try {
           this._containerResizeObserver.disconnect();
         } catch (_) {}
         this._containerResizeObserver = null;
       }
-      this.renderer.domElement.removeEventListener('mousemove', this._onMouseMove);
-      this.renderer.domElement.removeEventListener('click', this._onClick);
-      this.renderer.domElement.removeEventListener('dblclick', this._onDoubleClick);
-      this.renderer.domElement.removeEventListener('mousedown', this._onMouseDown);
-      window.removeEventListener('mouseup', this._onMouseUp);
-      this.renderer.domElement.removeEventListener('wheel', this._onWheel);
-      window.removeEventListener('keydown', this._onKeyDown);
-      window.removeEventListener('keyup', this._onKeyUp);
+      if (this._onMouseMove) this.renderer.domElement.removeEventListener('mousemove', this._onMouseMove);
+      if (this._onClick) this.renderer.domElement.removeEventListener('click', this._onClick);
+      if (this._onDoubleClick) this.renderer.domElement.removeEventListener('dblclick', this._onDoubleClick);
+      if (this._onMouseDown) this.renderer.domElement.removeEventListener('mousedown', this._onMouseDown);
+      if (this._onMouseUp) window.removeEventListener('mouseup', this._onMouseUp);
+      if (this._onWheel) this.renderer.domElement.removeEventListener('wheel', this._onWheel);
+      if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown);
+      if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp);
       this.controls.dispose();
       this.renderer.dispose();
       if (this.coreStars) {

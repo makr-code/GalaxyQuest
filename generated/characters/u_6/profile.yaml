@@ -1,0 +1,8 @@
+username: "default_user"
+is_npc: false
+race: "Galactarch"
+profession: "Emissary of Diplomacy and Trade"
+stance: "Neutral Mediator"
+vita: "As a representative for the Zhareen species, I've dedicated my life to bridging gaps between warring factions across star systems. My journey began on Zhareen homeworld where disputes often led to bloodshed."
+portrait_prompt: "A dignified Galactarch with an ethereal sheen of silver in their skin, standing at the heart of a bustling interstellar trade nexus; hands outstretched as if ready for negotin', eyes reflecting wisdom and empathy."
+generated_at: "2026-03-29T14:15:34+00:00"

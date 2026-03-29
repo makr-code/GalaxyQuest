@@ -1,0 +1,435 @@
+<?php
+/**
+ * Faction Relations & Diplomacy AI Engine
+ * 
+ * Loads FACTION_RELATIONS.yaml and provides:
+ * - Dynamic faction relationship calculations
+ * - Conflict/alliance prediction
+ * - Economic trade simulation
+ * - AI-driven event generation
+ * 
+ * GET  /api/faction_relations.php?action=standing     – player's standing with all factions
+ * GET  /api/faction_relations.php?action=relationships – faction-to-faction matrix
+ * GET  /api/faction_relations.php?action=trade_routes  – active trade network
+ * GET  /api/faction_relations.php?action=conflicts    – predicted conflicts
+ * POST /api/faction_relations.php?action=update_standing body: {faction_id, delta}
+ * GET  /api/faction_relations.php?action=diplomacy_events – AI-driven events
+ */
+
+require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/cache.php';
+require_once __DIR__ . '/game_engine.php';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// YAML Parsing (fallback to JSON if YAML not available)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function load_faction_relations_yaml() {
+    $yaml_path = dirname(__DIR__) . '/FACTION_RELATIONS.yaml';
+    
+    if (!file_exists($yaml_path)) {
+        return null;  // Will create minimal fallback
+    }
+    
+    // Try php-yaml if available
+    if (function_exists('yaml_parse_file')) {
+        return @yaml_parse_file($yaml_path);
+    }
+    
+    // Fallback: manual YAML parsing for our specific structure
+    return parse_faction_yaml_manual($yaml_path);
+}
+
+function parse_faction_yaml_manual($path) {
+    $content = file_get_contents($path);
+    if (!$content) return null;
+    
+    $result = [
+        'factions' => [],
+        'npc_factions' => [],
+        'relationships' => [],
+        'trade_routes' => [],
+        'conflict_triggers' => [],
+        'diplomatic_events' => [],
+        'dynamic_ai_events' => [],
+        'endgame_scenarios' => [],
+    ];
+    
+    // Parse main sections
+    $lines = explode("\n", $content);
+    $current_section = null;
+    $section_content = [];
+    
+    foreach ($lines as $line) {
+        $trimmed = trim($line);
+        
+        // Section header (e.g., "factions:")
+        if (preg_match('/^([a-z_]+):\s*$/', $trimmed, $m)) {
+            if ($current_section && $section_content) {
+                $result[$current_section] = parse_yaml_section($section_content);
+            }
+            $current_section = $m[1];
+            $section_content = [];
+        } elseif ($current_section) {
+            $section_content[] = $line;
+        }
+    }
+    
+    // Last section
+    if ($current_section && $section_content) {
+        $result[$current_section] = parse_yaml_section($section_content);
+    }
+    
+    return $result;
+}
+
+function parse_yaml_section($lines) {
+    $result = [];
+    $current_key = null;
+    $current_value = [];
+    $indent_level = 0;
+    
+    foreach ($lines as $line) {
+        if (trim($line) === '' || strpos(trim($line), '#') === 0) {
+            continue;
+        }
+        
+        // Measure indent
+        $spaces = strlen($line) - strlen(ltrim($line));
+        
+        // Top-level key
+        if ($spaces <= 2 && preg_match('/^(\w+):\s*(.*)$/', trim($line), $m)) {
+            if ($current_key && $current_value) {
+                $result[$current_key] = parse_yaml_value($current_value);
+            }
+            $current_key = $m[1];
+            $current_value = [];
+            if ($m[2]) {
+                $current_value[] = $m[2];
+            }
+        } elseif ($current_key) {
+            $current_value[] = $line;
+        }
+    }
+    
+    if ($current_key && $current_value) {
+        $result[$current_key] = parse_yaml_value($current_value);
+    }
+    
+    return $result;
+}
+
+function parse_yaml_value($lines) {
+    $text = implode("\n", $lines);
+    $text = trim($text);
+    
+    // Try numeric
+    if (is_numeric($text)) {
+        return (int)$text;
+    }
+    
+    // Try boolean
+    if ($text === 'true') return true;
+    if ($text === 'false') return false;
+    
+    // Try array notation [item1, item2]
+    if (strpos($text, '[') === 0) {
+        preg_match_all('/\[([^\]]+)\]/', $text, $m);
+        if ($m[1]) {
+            return array_map('trim', explode(',', $m[1][0]));
+        }
+    }
+    
+    return $text;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Get faction standing (player vs. faction)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function get_player_faction_standing($db, $uid, $faction_id) {
+    $stmt = $db->prepare('
+        SELECT standing FROM diplomacy 
+        WHERE user_id = ? AND faction_id = ?
+        LIMIT 1
+    ');
+    $stmt->execute([$uid, $faction_id]);
+    $row = $stmt->fetch();
+    return $row ? (int)$row['standing'] : 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Update faction standing (with historical tracking)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function update_faction_standing($db, $uid, $faction_id, $delta, $reason = 'player_action') {
+    if ($delta == 0) return;
+    
+    ensure_diplomacy_rows($db, $uid);
+    
+    $current = get_player_faction_standing($db, $uid, $faction_id);
+    $new_standing = max(-10, min(10, $current + $delta));  // Clamp to [-10, 10]
+    
+    $stmt = $db->prepare('
+        UPDATE diplomacy 
+        SET standing = ?, last_event = ?, last_event_at = NOW()
+        WHERE user_id = ? AND faction_id = ?
+    ');
+    $stmt->execute([$new_standing, $reason, $uid, $faction_id]);
+    
+    // Log to diplomacy_history for audit trail
+    if (function_exists('get_table_list') && in_array('diplomacy_history', get_table_list($db))) {
+        $hist = $db->prepare('
+            INSERT INTO diplomacy_history 
+            (user_id, faction_id, standing_delta, standing_before, standing_after, reason, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, NOW())
+        ');
+        $hist->execute([$uid, $faction_id, $delta, $current, $new_standing, $reason]);
+    }
+    
+    return $new_standing;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Calculate faction-to-faction relations (for NPC interactions)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function get_faction_to_faction_standing($relations_data, $faction_a, $faction_b) {
+    if (!isset($relations_data['relationships'][$faction_a])) {
+        return 0;
+    }
+    
+    $standing = $relations_data['relationships'][$faction_a][$faction_b] ?? 0;
+    return (int)$standing;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Predict conflicts based on standing divergence
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function predict_conflicts($db, $relations_data) {
+    $conflicts = [];
+    
+    // Check all faction pairs
+    foreach ($relations_data['relationships'] as $factionA => $relations) {
+        foreach ($relations as $factionB => $standing_AB) {
+            $standing_BA = $relations_data['relationships'][$factionB][$factionA] ?? 0;
+            $divergence = abs($standing_AB - $standing_BA);
+            
+            // High divergence indicates potential conflict
+            if ($divergence >= 10) {
+                $conflicts[] = [
+                    'faction_a' => $factionA,
+                    'faction_b' => $factionB,
+                    'standing_a_to_b' => (int)$standing_AB,
+                    'standing_b_to_a' => (int)$standing_BA,
+                    'divergence' => $divergence,
+                    'conflict_probability' => min(1.0, $divergence / 20),  // 0-1 scale
+                    'predicted_cause' => predict_conflict_cause($standing_AB, $standing_BA),
+                ];
+            }
+            
+            // Existential threats
+            if ($standing_AB <= -8 || $standing_BA <= -8) {
+                $conflicts[] = [
+                    'faction_a' => $factionA,
+                    'faction_b' => $factionB,
+                    'standing_a_to_b' => (int)$standing_AB,
+                    'standing_b_to_a' => (int)$standing_BA,
+                    'divergence' => $divergence,
+                    'conflict_probability' => 0.95,
+                    'predicted_cause' => 'existential_threat',
+                    'severity' => 'critical',
+                ];
+            }
+        }
+    }
+    
+    return $conflicts;
+}
+
+function predict_conflict_cause($standing_a, $standing_b) {
+    if ($standing_a < -5 || $standing_b < -5) {
+        return 'ideological_opposition';
+    }
+    if ($standing_a > 7 && $standing_b > 7) {
+        return 'resource_competition_between_allies';
+    }
+    if ($standing_a < 0 && $standing_b > 3) {
+        return 'asymmetric_hostility';
+    }
+    return 'escalating_tension';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Generate AI-driven diplomatic events
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function generate_diplomatic_event($db, $uid, $relations_data) {
+    // Weighted RNG based on standings and config
+    $player_standings = $db->prepare('
+        SELECT faction_id, standing FROM diplomacy WHERE user_id = ?
+    ');
+    $player_standings->execute([$uid]);
+    $standings = [];
+    while ($row = $player_standings->fetch()) {
+        $standings[(int)$row['faction_id']] = (int)$row['standing'];
+    }
+    
+    // Determine event type based on overall standing distribution
+    $avg_standing = count($standings) > 0 ? array_sum($standings) / count($standings) : 0;
+    
+    if ($avg_standing > 5) {
+        return [
+            'type' => 'alliance_proposal',
+            'title' => 'Fraktionen proklamieren Bündnis',
+            'description' => 'Mehrere wohlgesonnene Fraktionen einigen sich auf gemeinsame Verteidigung',
+            'player_choice' => ['join', 'decline', 'negotiate'],
+            'standing_impact' => [
+                'join' => [['all_allies', 2]],
+                'decline' => [['all_allies', -1]],
+            ],
+        ];
+    } elseif ($avg_standing < -3) {
+        return [
+            'type' => 'war_declaration',
+            'title' => 'Kriegserklärung eines Fraktionsundes',
+            'description' => 'Vereinigte Fraktionen erklären Krieg gegen Sie oder einen gemeinsamen Feind',
+            'player_choice' => ['join', 'stay_neutral', 'support_enemy'],
+            'standing_impact' => [
+                'join' => [['aggressors', 2], ['enemies', -2]],
+                'stay_neutral' => [['aggressors', -1]],
+                'support_enemy' => [['aggressors', -5]],
+            ],
+        ];
+    } else {
+        return [
+            'type' => 'trade_boom',
+            'title' => 'Großer Handelsbonus aktiviert',
+            'description' => 'Friedliche Bedingungen fördern wirtschaftliche Blüte',
+            'player_choice' => ['capitalize', 'invest_militarily', 'ignore'],
+            'standing_impact' => null,
+            'economic_impact' => ['profit_multiplier' => 1.5],
+        ];
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// API Dispatcher
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    $action = strtolower($_GET['action'] ?? 'standing');
+    $uid = require_auth();
+    $db = get_db();
+    
+    // Load relations data
+    $relations_data = load_faction_relations_yaml();
+    if (!$relations_data) {
+        $relations_data = ['relationships' => [], 'factions' => []];
+    }
+    
+    $cache_key = 'faction_relations_' . $action;
+    
+    switch ($action) {
+        // Player's standing with all factions
+        case 'standing':
+            only_method('GET');
+            ensure_diplomacy_rows($db, $uid);
+            
+            $standings = $db->prepare('
+                SELECT f.id, f.name, COALESCE(d.standing, 0) as standing
+                FROM npc_factions f
+                LEFT JOIN diplomacy d ON d.faction_id = f.id AND d.user_id = ?
+                ORDER BY f.id
+            ');
+            $standings->execute([$uid]);
+            
+            $result = [];
+            while ($row = $standings->fetch()) {
+                $result[] = [
+                    'faction_id' => (int)$row['id'],
+                    'faction_name' => $row['name'],
+                    'standing' => (int)$row['standing'],
+                ];
+            }
+            
+            json_ok(['standings' => $result]);
+            break;
+        
+        // Faction-to-faction relationship matrix
+        case 'relationships':
+            only_method('GET');
+            $cached = gq_cache_get($cache_key, ['uid' => $uid], CACHE_TTL_FACTIONS);
+            if ($cached) {
+                json_ok($cached);
+            }
+            
+            $payload = ['relationships' => $relations_data['relationships'] ?? []];
+            gq_cache_set($cache_key, ['uid' => $uid], $payload, CACHE_TTL_FACTIONS);
+            json_ok($payload);
+            break;
+        
+        // Predicted conflicts
+        case 'conflicts':
+            only_method('GET');
+            $cached = gq_cache_get($cache_key, ['uid' => $uid], CACHE_TTL_FACTIONS);
+            if ($cached) {
+                json_ok($cached);
+            }
+            
+            $conflicts = predict_conflicts($db, $relations_data);
+            $payload = ['conflicts' => $conflicts];
+            gq_cache_set($cache_key, ['uid' => $uid], $payload, CACHE_TTL_FACTIONS);
+            json_ok($payload);
+            break;
+        
+        // Trade routes
+        case 'trade_routes':
+            only_method('GET');
+            $payload = ['routes' => $relations_data['trade_routes'] ?? []];
+            json_ok($payload);
+            break;
+        
+        // Update player standing
+        case 'update_standing':
+            only_method('POST');
+            verify_csrf();
+            $body = get_json_body();
+            
+            $faction_id = (int)($body['faction_id'] ?? 0);
+            $delta = (int)($body['delta'] ?? 0);
+            $reason = trim($body['reason'] ?? 'unknown');
+            
+            if ($faction_id <= 0 || abs($delta) > 10) {
+                json_error('Invalid faction_id or delta', 400);
+            }
+            
+            $verify = $db->prepare('SELECT id FROM npc_factions WHERE id = ? LIMIT 1');
+            $verify->execute([$faction_id]);
+            if (!$verify->fetch()) {
+                json_error('Faction not found', 404);
+            }
+            
+            $new_standing = update_faction_standing($db, $uid, $faction_id, $delta, $reason);
+            gq_cache_delete('faction_relations_standing', ['uid' => $uid]);
+            
+            json_ok([
+                'faction_id' => $faction_id,
+                'standing_delta' => $delta,
+                'new_standing' => $new_standing,
+                'reason' => $reason,
+            ]);
+            break;
+        
+        // AI-driven diplomatic events
+        case 'diplomacy_events':
+            only_method('GET');
+            $event = generate_diplomatic_event($db, $uid, $relations_data);
+            json_ok(['event' => $event]);
+            break;
+        
+        default:
+            json_error("Unknown action: $action", 400);
+    }
+}

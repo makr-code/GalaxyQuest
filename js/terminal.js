@@ -366,6 +366,7 @@
     ensureBootStyle();
     bootUi = ensureBootTerminalDom();
     if (!bootUi) return false;
+    const localUi = bootUi;
 
     if (!window.__gqBootTerminalLogListener) {
       window.__gqBootTerminalLogListener = true;
@@ -374,27 +375,28 @@
       });
     }
 
-    if (!bootUi.clearBtn.__gqBound) {
-      bootUi.clearBtn.__gqBound = true;
-      bootUi.clearBtn.addEventListener('click', () => {
+    if (!localUi.clearBtn.__gqBound) {
+      localUi.clearBtn.__gqBound = true;
+      localUi.clearBtn.addEventListener('click', () => {
         clearEntriesInternal();
         renderBootTerminal();
       });
     }
 
-    if (bootUi.copyBtn && !bootUi.copyBtn.__gqBound) {
-      bootUi.copyBtn.__gqBound = true;
-      bootUi.copyBtn.addEventListener('click', async () => {
+    if (localUi.copyBtn && !localUi.copyBtn.__gqBound) {
+      localUi.copyBtn.__gqBound = true;
+      localUi.copyBtn.addEventListener('click', async () => {
         await copyBootTerminalToClipboard();
       });
     }
 
-    if (!bootUi.toggleBtn.__gqBound) {
-      bootUi.toggleBtn.__gqBound = true;
-      bootUi.toggleBtn.addEventListener('click', () => {
-        const visible = !bootUi.root.classList.contains('hidden');
-        bootUi.root.classList.toggle('hidden', visible);
-        bootUi.toggleBtn.textContent = visible ? 'Show' : 'Hide';
+    if (!localUi.toggleBtn.__gqBound) {
+      localUi.toggleBtn.__gqBound = true;
+      localUi.toggleBtn.addEventListener('click', () => {
+        if (!localUi.root) return;
+        const visible = !localUi.root.classList.contains('hidden');
+        localUi.root.classList.toggle('hidden', visible);
+        localUi.toggleBtn.textContent = visible ? 'Show' : 'Hide';
       });
     }
 

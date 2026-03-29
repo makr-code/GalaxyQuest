@@ -1,0 +1,8 @@
+username: "admin"
+is_npc: false
+race: "Galaxian"
+profession: "Emissary of Peace and Trade"
+stance: "Neutral Ambassador in interstellar relations"
+vita: "Born on the neutral planet Neutra, a Galaxian was raised amid diplomacy. As an Emissary, they've fostered peaceful alliances across star systems and facilitated prosperous trade routes among diverse species."
+portrait_prompt: "A poised figure with luminescent skin reflecting the neutral planet Neutra’thought to be a peacemaker. Their eyes, deep as nebulae, hold wisdom beyond their years."
+generated_at: "2026-03-29T13:26:09+00:00"

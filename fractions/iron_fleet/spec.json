@@ -1,0 +1,33 @@
+{
+  "faction_code": "iron_fleet",
+  "faction_name": "Die Eisenflotte der Menschen – Expansionistische Militärmacht",
+  "faction_type": "human_military",
+  "description": "Menschliche Militärdiktatur. Aggressiv, technologisch rückständig, aber zahlreich.",
+  "status": "active_hostile",
+  "government": "Military Dictatorship",
+  "homeworld": "Saturn-Kolonie",
+  "technology": [
+    "Massenschiffe",
+    "Kinetische Waffen",
+    "KI-gestützte Zielsysteme"
+  ],
+  "military": {
+    "primary_asset": "Massenflotten",
+    "strength": 7,
+    "doctrine": "Overwhelming Force"
+  },
+  "agenda": "Expansion, Kontrolle, Assimilation - Menschliche Dominanz im Sektor",
+  "relationships": {
+    "vor_tak": { "standing": 0, "description": "Feind aller - aber Bündnisse mit Abtrünnigen" },
+    "syl_nar": { "standing": 0, "description": "Feind" },
+    "aereth": { "standing": 0, "description": "Feind" },
+    "kryl_tha": { "standing": 0, "description": "Feind" },
+    "zhareen": { "standing": 0, "description": "Feind" },
+    "vel_ar": { "standing": 1, "description": "Spionage über Abtrünnige" }
+  },
+  "quest_hooks": [
+    "Die Eisenflotte plant eine Invasion von Drak'Thuun",
+    "Ein menschlicher Admiral will Frieden – aber niemand glaubt ihm",
+    "Menschen haben eine Waffe entwickelt, die die Leerenbrut anzieht"
+  ]
+}

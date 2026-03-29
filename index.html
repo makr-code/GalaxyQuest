@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>GalaxyQuest – Unified Command Shell</title>
-  <link rel="stylesheet" href="css/style.css?v=20260328p59" />
+  <link rel="stylesheet" href="css/style.css?v=20260329p79" />
   <style>
     #boot-terminal {
       position: fixed;
@@ -102,6 +102,7 @@
   </style>
 </head>
 <body class="auth-page">
+
   <!-- Shared galaxy background stage (auth + game) -->
   <!-- Galaxy background wrapper (fixed z-index: 1) -->
   <section id="wm-galaxy-section" class="auth-shell">
@@ -121,7 +122,7 @@
       <p class="logo-subtitle">Conquer the Stars</p>
     </div>
 
-    <div id="auth-preload-panel" class="auth-preload-panel">
+    <div id="auth-preload-panel" class="auth-preload-panel hidden">
       <div id="auth-preload-label" class="auth-preload-label">Systemcheck laeuft...</div>
       <div class="auth-preload-track" aria-hidden="true">
         <div id="auth-preload-bar" class="auth-preload-bar"></div>
@@ -160,6 +161,14 @@
           <input id="login-remember" type="checkbox" name="remember" value="1" checked />
           Keep me signed in
         </label>
+      </div>
+      <div class="form-group">
+        <label for="auth-flight-profile">Startseiten-Flugprofil</label>
+        <select id="auth-flight-profile" name="auth_flight_profile" aria-label="Startseiten-Flugprofil">
+          <option value="cinematic">Cinematic (realistisch)</option>
+          <option value="balanced">Balanced</option>
+          <option value="slow">Slow (sehr ruhig)</option>
+        </select>
       </div>
       <button type="submit" class="btn btn-primary btn-full">Enter the Galaxy</button>
       <div id="login-error" class="form-error" aria-live="polite"></div>
@@ -212,9 +221,19 @@
   </div>
   </section>
 
-  <section id="game-section" class="hidden" aria-hidden="true">
-    <section id="topbar-section" class="game-ui-section">
-        <header class="topbar">
+  <section id="auth-login-confirm-section" class="auth-login-confirm-section hidden" aria-live="polite" aria-atomic="true">
+    <div id="auth-login-confirm-card" class="auth-login-confirm-card">
+      <h3 id="auth-login-confirm-title" class="auth-login-confirm-title">Gueltiger Login erkannt</h3>
+      <p id="auth-login-confirm-text" class="auth-login-confirm-text">Preloading laeuft. Dein Kommandostand wird vorbereitet.</p>
+      <div class="auth-login-confirm-track" aria-hidden="true">
+        <div id="auth-login-confirm-bar" class="auth-login-confirm-bar"></div>
+      </div>
+      <div id="auth-login-confirm-meta" class="auth-login-confirm-meta">0% • Session wird geprueft</div>
+    </div>
+  </section>
+
+  <section id="topbar-section" class="game-ui-section">
+    <header class="topbar">
         <div class="topbar-left">
         <button id="topbar-title-btn" class="topbar-brand-btn" type="button" title="Daten aktualisieren">🌌 GalaxyQuest</button>
         <button id="topbar-home-btn" class="topbar-home-btn" type="button" title="Zum Heimatsystem springen">🏠 Home</button>
@@ -247,85 +266,97 @@
       </nav>
 
       <div class="topbar-right">
-        <div class="topbar-search-wrap" id="topbar-search-wrap">
-          <input id="topbar-search-input" class="topbar-search-input" type="search" placeholder="Sterne/Systeme suchen..." autocomplete="off" aria-label="Galaxy search" />
-          <div id="topbar-search-overlay" class="topbar-search-overlay hidden" role="listbox" aria-label="Search results"></div>
+        <div class="topbar-menu topbar-search-wrap" id="topbar-search-wrap">
+          <button id="topbar-search-toggle" class="topbar-icon-btn" type="button" title="Suche" aria-expanded="false" aria-haspopup="true" aria-controls="topbar-search-menu">🔍</button>
+          <div id="topbar-search-menu" class="topbar-menu-panel hidden" role="dialog" aria-label="Galaxy search">
+            <input id="topbar-search-input" class="topbar-search-input" type="search" placeholder="Sterne/Systeme suchen..." autocomplete="off" aria-label="Galaxy search" />
+            <div id="topbar-search-overlay" class="topbar-search-overlay hidden" role="listbox" aria-label="Search results"></div>
+          </div>
         </div>
-        <div class="topbar-player" id="topbar-player" aria-label="Musiksteuerung">
-          <select id="topbar-player-track" class="topbar-player-track" title="Track auswaehlen" aria-label="Track auswaehlen"></select>
-          <span id="topbar-player-current" class="topbar-player-current" title="Aktueller Track">-</span>
-          <span id="topbar-player-mode" class="topbar-player-mode" title="Transition-Modus">FADE</span>
-          <button id="topbar-player-prev" class="btn btn-secondary btn-sm" type="button" title="Vorheriger Track">◀</button>
-          <button id="topbar-player-toggle" class="btn btn-secondary btn-sm" type="button" title="Musik abspielen/pausieren">Play</button>
-          <button id="topbar-player-next" class="btn btn-secondary btn-sm" type="button" title="Naechster Track">▶</button>
+        <div class="topbar-player topbar-menu" id="topbar-player" aria-label="Musiksteuerung">
+          <button id="topbar-player-toggle" class="btn btn-secondary btn-sm" type="button" title="Musik starten" aria-label="Musik starten">▶</button>
+          <button id="topbar-player-next-quick" class="btn btn-secondary btn-sm" type="button" title="Naechster Titel" aria-label="Naechster Titel">⏭</button>
+          <button id="audio-toggle-btn" class="btn btn-secondary btn-sm" type="button" title="Audio stummschalten">🔊</button>
+          <button id="topbar-player-menu-toggle" class="topbar-icon-btn" type="button" title="Player-Menue" aria-expanded="false" aria-haspopup="true" aria-controls="topbar-player-menu">♪</button>
+          <div id="topbar-player-menu" class="topbar-menu-panel topbar-player-menu hidden" role="dialog" aria-label="Erweiterte Musiksteuerung">
+            <div class="topbar-player-menu-row">
+              <button id="topbar-player-prev" class="btn btn-secondary btn-sm" type="button" title="Vorheriger Track">◀</button>
+              <button id="topbar-player-next" class="btn btn-secondary btn-sm" type="button" title="Naechster Track">▶</button>
+            </div>
+            <select id="topbar-player-track" class="topbar-player-track" title="Track auswaehlen" aria-label="Track auswaehlen"></select>
+            <div id="topbar-player-track-list" class="topbar-player-track-list" role="listbox" aria-label="Verfuegbare Titel"></div>
+            <span id="topbar-player-current" class="topbar-player-current" title="Aktueller Track">-</span>
+            <span id="topbar-player-mode" class="topbar-player-mode" title="Transition-Modus">FADE</span>
+          </div>
         </div>
         <div class="user-menu-wrap" id="user-menu-wrap">
           <button id="commander-name" class="commander commander-btn" type="button" aria-expanded="false" aria-haspopup="menu"></button>
           <div id="user-menu" class="user-menu hidden" role="menu" aria-label="Benutzermenu"></div>
         </div>
-        <button id="audio-toggle-btn" class="btn btn-secondary btn-sm" type="button" title="Audio umschalten">🔊</button>
         <button id="logout-btn" class="btn btn-danger btn-sm">Logout</button>
       </div>
     </header>
-      </section>
+  </section>
 
   <section id="resource-section" class="">
     <div class="resource-bar">
 
-      <div class="resource metal" title="Metal">
+      <button class="resource resource-btn metal" type="button" data-resource="metal" title="Metal-Statistik und Handel oeffnen">
         <span class="res-icon">⬡</span>
         <span class="res-label">Metal</span>
         <span id="res-metal" class="res-value">—</span>
-      </div>
-      <div class="resource crystal" title="Crystal">
+      </button>
+      <button class="resource resource-btn crystal" type="button" data-resource="crystal" title="Crystal-Statistik und Handel oeffnen">
         <span class="res-icon">💎</span>
         <span class="res-label">Crystal</span>
         <span id="res-crystal" class="res-value">—</span>
-      </div>
-      <div class="resource deuterium" title="Deuterium">
+      </button>
+      <button class="resource resource-btn deuterium" type="button" data-resource="deuterium" title="Deuterium-Statistik und Handel oeffnen">
         <span class="res-icon">🔵</span>
         <span class="res-label">Deuterium</span>
         <span id="res-deuterium" class="res-value">—</span>
-      </div>
-      <div class="resource food" title="Food stockpile – needed to feed population">
+      </button>
+      <button class="resource resource-btn food" type="button" data-resource="food" title="Nahrungs-Statistik oeffnen">
         <span class="res-icon">🌾</span>
         <span class="res-label">Food</span>
         <span id="res-food" class="res-value">—</span>
-      </div>
-      <div class="resource rare-earth" title="Rare Earth – advanced manufacturing resource">
+      </button>
+      <button class="resource resource-btn rare-earth" type="button" data-resource="rare_earth" title="Rare-Earth-Statistik oeffnen">
         <span class="res-icon">💜</span>
         <span class="res-label">Rare Earth</span>
         <span id="res-rare-earth" class="res-value">—</span>
-      </div>
-      <div class="resource population" title="Colony population">
+      </button>
+      <button class="resource resource-btn population" type="button" data-resource="population" title="Bevoelkerungs-Statistik oeffnen">
         <span class="res-icon">👥</span>
         <span class="res-label">Pop</span>
         <span id="res-population" class="res-value">—</span>
-      </div>
-      <div class="resource happiness" title="Happiness – affects worker productivity">
+      </button>
+      <button class="resource resource-btn happiness" type="button" data-resource="happiness" title="Zufriedenheits-Statistik oeffnen">
         <span class="res-icon">😊</span>
         <span class="res-label">Happy</span>
         <span id="res-happiness" class="res-value">—</span>
-      </div>
-      <div class="resource energy" title="Energy">
+      </button>
+      <button class="resource resource-btn energy" type="button" data-resource="energy" title="Energie-Statistik oeffnen">
         <span class="res-icon">⚡</span>
         <span class="res-label">Energy</span>
         <span id="res-energy" class="res-value">—</span>
-      </div>
-      <div class="resource dark-matter" title="Dark Matter – prestige currency earned from quests">
+      </button>
+      <button class="resource resource-btn dark-matter" type="button" data-resource="dark_matter" title="Dark-Matter-Statistik oeffnen">
         <span class="res-icon">◆</span>
         <span class="res-label">Dark Matter</span>
         <span id="res-dark-matter" class="res-value">0</span>
-      </div>
+      </button>
     </div>
   </section>
 
-  <section id="wm-windows-section" class="wm-desktop" aria-label="Game desktop windows"></section>
+  <!-- WM windows are section-based. New window hosts are created as <section> directly under <body>. -->
+
   <section id="left_sidebar" class="wm-window-host" aria-label="Left Sidebar Host">
     <div class="wm-adaptable-window sidebar-panel sidebar-panel-left" data-wm-window="left-sidebar">
       <div class="sidebar-panel-content text-muted">Left Sidebar ready for WM adapt.</div>
     </div>
   </section>
+
   <section id="right_sidebar" class="wm-window-host" aria-label="Right Sidebar Host">
     <div class="wm-adaptable-window sidebar-panel sidebar-panel-right" data-wm-window="right-sidebar">
       <div class="sidebar-panel-content text-muted">Right Sidebar ready for WM adapt.</div>
@@ -357,7 +388,7 @@
 
   <section id="terminal-section" aria-live="assertive" aria-atomic="true">
     <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
-    <section id="boot-terminal" class="ui-console-panel" aria-live="polite" aria-label="Entwickler-Konsole">
+    <section id="boot-terminal" class="ui-console-panel hidden" aria-live="polite" aria-label="Entwickler-Konsole">
       <div id="boot-terminal-head" class="ui-console-head">
         <div class="boot-terminal-title">
           <strong>Console</strong>
@@ -429,6 +460,10 @@
             return `<div class="boot-line ${cls}">${line.text}</div>`;
           }).join('');
           bootLog.scrollTop = bootLog.scrollHeight;
+
+          if (String(lvl).toLowerCase() === 'error' && bootTerminal) {
+            bootTerminal.classList.remove('hidden');
+          }
         }
 
         function directProbe(message, level = 'info') {
@@ -683,43 +718,80 @@
         });
       })();
 
+      window.GQ_ASSETS_MANIFEST_VERSION = 1;
       window.__GQ_BOOT = {
+        assetsManifestVersion: 1,
         gameScripts: [
           'js/wm.js?v=20260328p54',
           'js/binary-decoder.js?v=20260328p49',
           'js/binary-decoder-v2.js?v=20260328p49',
           'js/binary-decoder-v3.js?v=20260328p49',
-          'js/api.js?v=20260328p52',
+          'js/api.js?v=20260329p58',
+          'js/api-contracts.js?v=20260329p1',
           'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
           'js/galaxy-model.js?v=20260328p49',
           'js/galaxy-db.js?v=20260328p49',
           'js/audio.js?v=20260328p53',
           'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
-          'js/three-EffectComposer.js?v=20260328p55',
-          'js/three-RenderPass.js?v=20260328p55',
-          'js/three-ShaderPass.js?v=20260328p55',
-          'js/three-CopyShader.js?v=20260328p55',
-          'js/three-UnrealBloomPass.js?v=20260328p55',
+          // Debug Phase 2: Postprocessing-Kette vorerst deaktiviert.
+          // 'js/three-EffectComposer.js?v=20260328p55',
+          // 'js/three-RenderPass.js?v=20260328p55',
+          // 'js/three-ShaderPass.js?v=20260328p55',
+          // 'js/three-CopyShader.js?v=20260328p55',
+          // 'js/three-UnrealBloomPass.js?v=20260328p55',
           'https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js',
           'js/planet-textures.js?v=20260328p49',
+          'js/texture-manager.js?v=20260329p1',
+          'js/geometry-manager.js?v=20260329p1',
+          'js/material-factory.js?v=20260329p1',
+          'js/light-rig-manager.js?v=20260329p1',
           'js/model_registry.js?v=20260328p49',
-          'js/post-effects.js?v=20260328p55',
-          'js/galaxy3d.js?v=20260328p59',
-          'js/game.js?v=20260328p59'
+          // 'js/post-effects.js?v=20260328p55',
+          'js/space-physics-engine.js?v=20260329p81',
+          'js/performance-budget.js?v=20260329p1',
+          'js/space-flight-telemetry-schema.js?v=20260329p1',
+          'js/trajectory-planner.js?v=20260329p5',
+          'js/space-camera-flight-driver.js?v=20260329p90',
+          'js/galaxy-renderer-config.js?v=20260329p76',
+          'js/galaxy-renderer-event-binding-shared.js?v=20260329p77',
+          'js/galaxy-renderer-events.js?v=20260329p76',
+          'js/galaxy-camera-controller.js?v=20260329p85',
+          'js/galaxy-renderer-core.js?v=20260329p97',
+          'js/starfield.js?v=20260329p100',
+          'js/flight-driver-integration-tests.js?v=20260329p1',
+            'js/regression-tests-lod-streaming.js?v=20260329p2',
+            'js/game.js?v=20260329p85'
         ],
         preloadAssets: [
           'js/wm.js?v=20260328p54',
           'js/binary-decoder.js?v=20260328p49',
           'js/binary-decoder-v2.js?v=20260328p49',
           'js/binary-decoder-v3.js?v=20260328p49',
-          'js/api.js?v=20260328p52',
+          'js/api.js?v=20260329p58',
+          'js/api-contracts.js?v=20260329p1',
           'js/galaxy-model.js?v=20260328p49',
           'js/galaxy-db.js?v=20260328p49',
           'js/audio.js?v=20260328p53',
-          'js/planet-textures.js?v=20260328p48',
-          'js/model_registry.js?v=20260328p48',
-          'js/galaxy3d.js?v=20260328p59',
-          'js/game.js?v=20260328p59'
+          'js/planet-textures.js?v=20260328p49',
+          'js/texture-manager.js?v=20260329p1',
+          'js/geometry-manager.js?v=20260329p1',
+          'js/material-factory.js?v=20260329p1',
+          'js/light-rig-manager.js?v=20260329p1',
+          'js/model_registry.js?v=20260328p49',
+          'js/space-physics-engine.js?v=20260329p81',
+          'js/performance-budget.js?v=20260329p1',
+          'js/space-flight-telemetry-schema.js?v=20260329p1',
+          'js/trajectory-planner.js?v=20260329p5',
+          'js/space-camera-flight-driver.js?v=20260329p90',
+          'js/galaxy-renderer-config.js?v=20260329p76',
+          'js/galaxy-renderer-event-binding-shared.js?v=20260329p77',
+          'js/galaxy-renderer-events.js?v=20260329p76',
+          'js/galaxy-camera-controller.js?v=20260329p85',
+          'js/galaxy-renderer-core.js?v=20260329p97',
+          'js/starfield.js?v=20260329p100',
+          'js/flight-driver-integration-tests.js?v=20260329p1',
+            'js/regression-tests-lod-streaming.js?v=20260329p2',
+            'js/game.js?v=20260329p85'
         ]
       };
     </script>
@@ -945,8 +1017,6 @@
 
   <section id="context_menu_container"></section>
 
-  <section id="wm-wrapper"></section>
-
   <script>
     (function () {
       function openDialogById(id) {
@@ -981,12 +1051,20 @@
   </script>
 
   <script src="js/terminal.js?v=20260328p49"></script>
-  <script src="js/starfield.js?v=20260328p59"></script>
-  <script src="js/auth.js?v=20260328p57"></script>
+  <script src="js/space-physics-engine.js?v=20260329p81"></script>
+  <script src="js/performance-budget.js?v=20260329p1"></script>
+  <script src="js/space-flight-telemetry-schema.js?v=20260329p1"></script>
+  <script src="js/trajectory-planner.js?v=20260329p5"></script>
+  <script src="js/space-camera-flight-driver.js?v=20260329p90"></script>
+  <script src="js/space-flight-hud-engine.js?v=20260329p81"></script>
+  <script src="js/galaxy-camera-controller.js?v=20260329p85"></script>
+  <script src="js/starfield.js?v=20260329p100"></script>
+  <script src="js/auth.js?v=20260329p72"></script>
   <script src="js/glossary.js?v=20260328p49"></script>
   <script src="js/ui-kit.js?v=20260329p60"></script>
   <script src="js/star-tooltip.js?v=20260328p49"></script>
   <script src="js/system-info-panel.js?v=20260328p49"></script>
   <script src="js/hr-diagram.js?v=20260328p49"></script>
+  
 </body>
 </html>

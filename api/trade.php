@@ -217,87 +217,156 @@ function dispatch_trade_fleet(PDO $db, array $route): void {
     $cargoCrystal = (float)$route['cargo_crystal'];
     $cargoDeuterium = (float)$route['cargo_deuterium'];
     $routeId = (int)$route['id'];
-    
-    // Fetch origin colony data
-    $stmt = $db->prepare(<<<SQL
-        SELECT c.id, c.planet_id, c.metal, c.crystal, c.deuterium,
+
+    $origin = load_trade_colony_node($db, $originColonyId, $uid);
+    $target = load_trade_colony_node($db, $targetColonyId, null);
+    if (!$origin || !$target) {
+        return;
+    }
+
+    $db->beginTransaction();
+    try {
+        launch_trade_transport_fleet(
+            $db,
+            $uid,
+            $origin,
+            $target,
+            [
+                'metal' => $cargoMetal,
+                'crystal' => $cargoCrystal,
+                'deuterium' => $cargoDeuterium,
+            ],
+            ['reason' => 'trade-route']
+        );
+        $stmt = $db->prepare('UPDATE trade_routes SET last_dispatch = NOW() WHERE id = ?');
+        $stmt->execute([$routeId]);
+        $db->commit();
+    } catch (Throwable $_) {
+        $db->rollBack();
+        return;
+    }
+}
+
+function load_trade_colony_node(PDO $db, int $colonyId, ?int $userId = null): ?array {
+    $sql = <<<SQL
+        SELECT c.id, c.user_id, c.name, c.metal, c.crystal, c.deuterium,
                p.galaxy, p.system, p.position,
-               s.x_ly AS origin_x, s.y_ly AS origin_y, s.z_ly AS origin_z
-        FROM colonies c
-        JOIN planets p ON p.id = c.planet_id
-        LEFT JOIN star_systems s ON s.galaxy_index = p.galaxy AND s.system_index = p.system
-        WHERE c.id = ? AND c.user_id = ?
-    SQL);
-    $stmt->execute([$originColonyId, $uid]);
-    $origin = $stmt->fetch();
-    
-    if (!$origin) {
-        return;  // Colony no longer exists
-    }
-    
-    // Check if origin has enough cargo resources
-    if ((float)$origin['metal'] < $cargoMetal
-        || (float)$origin['crystal'] < $cargoCrystal
-        || (float)$origin['deuterium'] < $cargoDeuterium
-    ) {
-        return;  // Not enough resources, skip dispatch
-    }
-    
-    // Fetch target colony/planet
-    $stmt = $db->prepare(<<<SQL
-        SELECT c.id, p.galaxy, p.system, p.position,
-               s.x_ly AS target_x, s.y_ly AS target_y, s.z_ly AS target_z
+               COALESCE(s.x_ly, 0) AS x_ly,
+               COALESCE(s.y_ly, 0) AS y_ly,
+               COALESCE(s.z_ly, 0) AS z_ly
         FROM colonies c
         JOIN planets p ON p.id = c.planet_id
         LEFT JOIN star_systems s ON s.galaxy_index = p.galaxy AND s.system_index = p.system
         WHERE c.id = ?
-    SQL);
-    $stmt->execute([$targetColonyId]);
-    $target = $stmt->fetch();
-    
-    if (!$target) {
-        return;  // Target colony no longer exists
+    SQL;
+    if ($userId !== null) {
+        $sql .= ' AND c.user_id = ?';
     }
-    
-    $targetGalaxy = (int)$target['galaxy'];
-    $targetSystem = (int)$target['system'];
-    $targetPos = (int)$target['position'];
-    
-    // Determine coordinates
-    $originX = $origin['origin_x'] ?? 0;
-    $originY = $origin['origin_y'] ?? 0;
-    $originZ = $origin['origin_z'] ?? 0;
-    $targetX = $target['target_x'] ?? 0;
-    $targetY = $target['target_y'] ?? 0;
-    $targetZ = $target['target_z'] ?? 0;
-    
-    // Calculate distance
-    $dx = $targetX - $originX;
-    $dy = $targetY - $originY;
-    $dz = $targetZ - $originZ;
-    $distance = sqrt($dx * $dx + $dy * $dy + $dz * $dz);
-    $distance = max(0.1, $distance);  // Avoid division by zero
-    
-    // Fleet speed: cargo ships travel at 2 ly/h (base speed)
+    $stmt = $db->prepare($sql);
+    $params = [$colonyId];
+    if ($userId !== null) {
+        $params[] = $userId;
+    }
+    $stmt->execute($params);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function pick_trade_target_colony(PDO $db, int $userId): ?array {
+    $stmt = $db->prepare(<<<SQL
+        SELECT c.id
+        FROM colonies c
+        WHERE c.user_id = ?
+        ORDER BY (c.metal + c.crystal + c.deuterium) DESC, c.id ASC
+        LIMIT 1
+    SQL);
+    $stmt->execute([$userId]);
+    $colonyId = (int)$stmt->fetchColumn();
+    if ($colonyId <= 0) {
+        return null;
+    }
+    return load_trade_colony_node($db, $colonyId, $userId);
+}
+
+function estimate_trade_transport_profile(array $origin, array $target, array $cargo): array {
+    $metal = max(0.0, (float)($cargo['metal'] ?? 0));
+    $crystal = max(0.0, (float)($cargo['crystal'] ?? 0));
+    $deuterium = max(0.0, (float)($cargo['deuterium'] ?? 0));
+    $totalCargo = $metal + $crystal + $deuterium;
+
+    $dx = (float)$target['x_ly'] - (float)$origin['x_ly'];
+    $dy = (float)$target['y_ly'] - (float)$origin['y_ly'];
+    $dz = (float)$target['z_ly'] - (float)$origin['z_ly'];
+    $distance = max(0.1, sqrt($dx * $dx + $dy * $dy + $dz * $dz));
     $speed = 2.0;
     $travelSecs = (int)ceil(($distance / $speed) * 3600);
-    
-    // Create fleet with single cargo ship type
-    // Use 'cargo_freighter' or similar; if not available, use generic 'transport'
-    $shipsJson = json_encode(['cargo_freighter' => 1]);
-    
+    $fuelCost = (float)max(5, ceil(($distance * 0.35) + ($totalCargo / 20000)));
+
+    return [
+        'distance_ly' => $distance,
+        'speed_ly_h' => $speed,
+        'travel_seconds' => $travelSecs,
+        'fuel_cost_deuterium' => $fuelCost,
+        'total_cargo' => $totalCargo,
+    ];
+}
+
+function pick_trade_source_for_target(PDO $db, int $userId, array $target, array $cargo): ?array {
+    $stmt = $db->prepare(<<<SQL
+        SELECT c.id
+        FROM colonies c
+        WHERE c.user_id = ?
+          AND c.metal >= ?
+          AND c.crystal >= ?
+          AND c.deuterium >= ?
+        ORDER BY (c.metal + c.crystal + c.deuterium) DESC, c.id ASC
+    SQL);
+    $stmt->execute([
+        $userId,
+        max(0.0, (float)($cargo['metal'] ?? 0)),
+        max(0.0, (float)($cargo['crystal'] ?? 0)),
+        max(0.0, (float)($cargo['deuterium'] ?? 0)),
+    ]);
+
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $colonyId) {
+        $origin = load_trade_colony_node($db, (int)$colonyId, $userId);
+        if (!$origin) {
+            continue;
+        }
+        $profile = estimate_trade_transport_profile($origin, $target, $cargo);
+        if ((float)$origin['deuterium'] >= max(0.0, (float)($cargo['deuterium'] ?? 0)) + (float)$profile['fuel_cost_deuterium']) {
+            return $origin;
+        }
+    }
+
+    return null;
+}
+
+function launch_trade_transport_fleet(PDO $db, int $userId, array $origin, array $target, array $cargo, array $options = []): array {
+    $metal = max(0.0, (float)($cargo['metal'] ?? 0));
+    $crystal = max(0.0, (float)($cargo['crystal'] ?? 0));
+    $deuterium = max(0.0, (float)($cargo['deuterium'] ?? 0));
+    $profile = estimate_trade_transport_profile($origin, $target, $cargo);
+    $fuelCost = (float)$profile['fuel_cost_deuterium'];
+
+    if ((float)$origin['metal'] < $metal
+        || (float)$origin['crystal'] < $crystal
+        || (float)$origin['deuterium'] < ($deuterium + $fuelCost)
+    ) {
+        throw new RuntimeException('Origin colony cannot cover cargo and freight fuel.');
+    }
+
     $depTime = date('Y-m-d H:i:s');
-    $arrTime = date('Y-m-d H:i:s', time() + $travelSecs);
-    
-    // Deduct cargo from origin colony
+    $arrTime = date('Y-m-d H:i:s', time() + (int)$profile['travel_seconds']);
+    $shipsJson = json_encode(['cargo_freighter' => 1], JSON_UNESCAPED_SLASHES);
+
     $stmt = $db->prepare(<<<SQL
         UPDATE colonies
         SET metal = metal - ?, crystal = crystal - ?, deuterium = deuterium - ?
         WHERE id = ?
     SQL);
-    $stmt->execute([$cargoMetal, $cargoCrystal, $cargoDeuterium, $originColonyId]);
-    
-    // Create fleet record
+    $stmt->execute([$metal, $crystal, $deuterium + $fuelCost, (int)$origin['id']]);
+
     $stmt = $db->prepare(<<<SQL
         INSERT INTO fleets
             (user_id, origin_colony_id, target_galaxy, target_system, target_position,
@@ -311,16 +380,45 @@ function dispatch_trade_fleet(PDO $db, array $route): void {
                 ?, ?, ?, ?)
     SQL);
     $stmt->execute([
-        $uid, $originColonyId, $targetGalaxy, $targetSystem, $targetPos,
-        'transport', $shipsJson, $cargoMetal, $cargoCrystal, $cargoDeuterium,
-        $originX, $originY, $originZ,
-        $targetX, $targetY, $targetZ,
-        $speed, $distance, $depTime, $arrTime,
+        $userId,
+        (int)$origin['id'],
+        (int)$target['galaxy'],
+        (int)$target['system'],
+        (int)$target['position'],
+        'transport',
+        $shipsJson,
+        $metal,
+        $crystal,
+        $deuterium,
+        (float)$origin['x_ly'],
+        (float)$origin['y_ly'],
+        (float)$origin['z_ly'],
+        (float)$target['x_ly'],
+        (float)$target['y_ly'],
+        (float)$target['z_ly'],
+        (float)$profile['speed_ly_h'],
+        (float)$profile['distance_ly'],
+        $depTime,
+        $arrTime,
     ]);
-    
-    // Mark dispatch time
-    $stmt = $db->prepare('UPDATE trade_routes SET last_dispatch = NOW() WHERE id = ?');
-    $stmt->execute([$routeId]);
+
+    $labelParts = [];
+    if ($metal > 0) $labelParts[] = 'Metal';
+    if ($crystal > 0) $labelParts[] = 'Crystal';
+    if ($deuterium > 0) $labelParts[] = 'Deuterium';
+
+    return [
+        'fleet_id' => (int)$db->lastInsertId(),
+        'origin_colony_id' => (int)$origin['id'],
+        'origin_name' => (string)($origin['name'] ?? ('Colony #' . $origin['id'])),
+        'target_colony_id' => (int)$target['id'],
+        'target_name' => (string)($target['name'] ?? ('Colony #' . $target['id'])),
+        'arrival_time' => $arrTime,
+        'distance_ly' => round((float)$profile['distance_ly'], 2),
+        'fuel_cost_deuterium' => $fuelCost,
+        'resource_label' => implode('/', $labelParts) ?: 'Transport',
+        'reason' => (string)($options['reason'] ?? 'trade'),
+    ];
 }
 
 // ─── Trade Proposal handlers ─────────────────────────────────────────────────
@@ -442,7 +540,6 @@ function action_accept(PDO $db, int $uid): never {
 
     $db->beginTransaction();
     try {
-        // Lock the row for update
         $stmt = $db->prepare(
             'SELECT * FROM trade_proposals WHERE id = ? AND target_id = ? AND status = \'pending\' FOR UPDATE'
         );
@@ -465,72 +562,74 @@ function action_accept(PDO $db, int $uid): never {
         $reqMetal    = (float)$p['request_metal'];
         $reqCrys     = (float)$p['request_crystal'];
         $reqDeut     = (float)$p['request_deuterium'];
+        $deliveries = [];
 
-        // Verify initiator still has enough (on best-funded colony)
         if ($offerMetal + $offerCrys + $offerDeut > 0) {
-            $stmt = $db->prepare('SELECT SUM(metal) AS tm, SUM(crystal) AS tc, SUM(deuterium) AS td FROM colonies WHERE user_id = ?');
-            $stmt->execute([$initId]);
-            $res = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ((float)$res['tm'] < $offerMetal || (float)$res['tc'] < $offerCrys || (float)$res['td'] < $offerDeut) {
+            $targetColony = pick_trade_target_colony($db, $uid);
+            if (!$targetColony) {
                 $db->rollBack();
-                json_error('Initiator no longer has enough resources.', 400);
+                json_error('Zielspieler hat keine empfangsbereite Kolonie.', 400);
             }
+            $sourceColony = pick_trade_source_for_target($db, $initId, $targetColony, [
+                'metal' => $offerMetal,
+                'crystal' => $offerCrys,
+                'deuterium' => $offerDeut,
+            ]);
+            if (!$sourceColony) {
+                $db->rollBack();
+                json_error('Initiator kann Angebot derzeit nicht per Transport absichern.', 400);
+            }
+            $deliveries[] = launch_trade_transport_fleet(
+                $db,
+                $initId,
+                $sourceColony,
+                $targetColony,
+                [
+                    'metal' => $offerMetal,
+                    'crystal' => $offerCrys,
+                    'deuterium' => $offerDeut,
+                ],
+                ['reason' => 'proposal-offer']
+            );
         }
-        // Verify acceptor (target) still has enough
+
         if ($reqMetal + $reqCrys + $reqDeut > 0) {
-            $stmt = $db->prepare('SELECT SUM(metal) AS tm, SUM(crystal) AS tc, SUM(deuterium) AS td FROM colonies WHERE user_id = ?');
-            $stmt->execute([$uid]);
-            $res = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ((float)$res['tm'] < $reqMetal || (float)$res['tc'] < $reqCrys || (float)$res['td'] < $reqDeut) {
+            $targetColony = pick_trade_target_colony($db, $initId);
+            if (!$targetColony) {
                 $db->rollBack();
-                json_error('You do not have enough resources to fulfil this proposal.', 400);
+                json_error('Initiator hat keine empfangsbereite Kolonie.', 400);
             }
+            $sourceColony = pick_trade_source_for_target($db, $uid, $targetColony, [
+                'metal' => $reqMetal,
+                'crystal' => $reqCrys,
+                'deuterium' => $reqDeut,
+            ]);
+            if (!$sourceColony) {
+                $db->rollBack();
+                json_error('Deine Seite kann die Gegenleistung derzeit nicht per Transport absichern.', 400);
+            }
+            $deliveries[] = launch_trade_transport_fleet(
+                $db,
+                $uid,
+                $sourceColony,
+                $targetColony,
+                [
+                    'metal' => $reqMetal,
+                    'crystal' => $reqCrys,
+                    'deuterium' => $reqDeut,
+                ],
+                ['reason' => 'proposal-request']
+            );
         }
-
-        // Helper: deduct from colonies of a user (largest colony first)
-        $deduct = function(PDO $db, int $userId, float $metal, float $crystal, float $deut): void {
-            if ($metal + $crystal + $deut <= 0) return;
-            $stmt = $db->prepare('SELECT id, metal, crystal, deuterium FROM colonies WHERE user_id = ? ORDER BY (metal+crystal+deuterium) DESC');
-            $stmt->execute([$userId]);
-            $upd = $db->prepare('UPDATE colonies SET metal=?, crystal=?, deuterium=? WHERE id=?');
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $col) {
-                if ($metal <= 0 && $crystal <= 0 && $deut <= 0) break;
-                $take_m = min($metal,   (float)$col['metal']);
-                $take_c = min($crystal, (float)$col['crystal']);
-                $take_d = min($deut,    (float)$col['deuterium']);
-                $upd->execute([
-                    (float)$col['metal']     - $take_m,
-                    (float)$col['crystal']   - $take_c,
-                    (float)$col['deuterium'] - $take_d,
-                    (int)$col['id'],
-                ]);
-                $metal    -= $take_m;
-                $crystal  -= $take_c;
-                $deut     -= $take_d;
-            }
-        };
-
-        // Helper: credit to main (largest) colony of a user
-        $credit = function(PDO $db, int $userId, float $metal, float $crystal, float $deut): void {
-            if ($metal + $crystal + $deut <= 0) return;
-            $stmt = $db->prepare('SELECT id FROM colonies WHERE user_id = ? ORDER BY (metal+crystal+deuterium) DESC LIMIT 1');
-            $stmt->execute([$userId]);
-            $colId = (int)$stmt->fetchColumn();
-            if (!$colId) return;
-            $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
-               ->execute([$metal, $crystal, $deut, $colId]);
-        };
-
-        // Execute the swap
-        $deduct($db, $initId, $offerMetal, $offerCrys,  $offerDeut);   // initiator gives offer
-        $deduct($db,   $uid,  $reqMetal,   $reqCrys,    $reqDeut);     // acceptor gives request
-        $credit($db,   $uid,  $offerMetal, $offerCrys,  $offerDeut);   // acceptor receives offer
-        $credit($db, $initId, $reqMetal,   $reqCrys,    $reqDeut);     // initiator receives request
 
         $db->prepare("UPDATE trade_proposals SET status='accepted' WHERE id=?")->execute([$proposalId]);
         $db->commit();
 
-        json_ok(['accepted' => true]);
+        json_ok([
+            'accepted' => true,
+            'deliveries' => $deliveries,
+            'message' => 'Trade accepted. Cargo fleets are now in transit.',
+        ]);
     } catch (Throwable $e) {
         $db->rollBack();
         json_error('Trade failed: ' . $e->getMessage(), 500);

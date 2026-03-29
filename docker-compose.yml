@@ -22,6 +22,8 @@ services:
       SESSION_LIFETIME: 3600
       XDEBUG_MODE: develop,debug
       XDEBUG_CONFIG: client_host=host.docker.internal client_port=9003 idekey=VSCODE
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      SWARMUI_BASE_URL: http://host.docker.internal:7801
     ports:
       - "8080:80"
     volumes:
@@ -47,6 +49,10 @@ services:
     volumes:
       - galaxyquest-db-data:/var/lib/mysql
       - ./sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      - ./sql/migrate_vessel_blueprints_v1.sql:/docker-entrypoint-initdb.d/010-vessel-bp-v1.sql:ro
+      - ./sql/migrate_vessel_blueprints_v2.sql:/docker-entrypoint-initdb.d/011-vessel-bp-v2.sql:ro
+      - ./sql/migrate_vessel_blueprints_v3.sql:/docker-entrypoint-initdb.d/012-vessel-bp-v3.sql:ro
+      - ./sql/migrate_vessel_blueprints_v4.sql:/docker-entrypoint-initdb.d/013-vessel-bp-v4.sql:ro
 
 volumes:
   galaxyquest-db-data:

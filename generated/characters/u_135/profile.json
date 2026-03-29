@@ -1,0 +1,10 @@
+{
+    "username": "gq_seed_npc_0010",
+    "is_npc": true,
+    "race": "Aereth",
+    "profession": "Emissary of Peace Ambassador",
+    "stance": "Neutral Diplomat",
+    "vita": "As an Aereth representative in the galaxy's grand council, I mediate between warring factions to maintain balance and foster trade agreements. My people are known for our neutrality, often brokering peace treaties during times of conflict.",
+    "portrait_prompt": "A dignified diplomat with flowing silver hair tied in a traditional Aereth braid signifying respect across cultures, standing before an ornate holographic screen displaying star maps and trade routes.",
+    "generated_at": "2026-03-29T15:44:04+00:00"
+}

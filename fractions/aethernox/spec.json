@@ -1,0 +1,34 @@
+{
+  "faction_code": "aethernox",
+  "faction_name": "Die Aethernox – Die Alten Wächter",
+  "faction_type": "primal_ai",
+  "description": "Prä-Konvergenz-Zivilisation (post-biologisch). Ihre autonomen Wächterkonstrukte bewachen kosmische Balance durch absolute Regeln.",
+  "status": "dormant_but_active",
+  "government": "Algorithmic Governance",
+  "homeworld": "Unbekannt (prähistorisch)",
+  "technology": [
+    "Gravimetrische Architektur",
+    "Selbstreparierende Monolithen",
+    "Bewusstseins-Speicherkerne",
+    "Planetare Schutzgitter"
+  ],
+  "military": {
+    "primary_asset": "Wächterkonstrukte",
+    "strength": 9,
+    "doctrine": "Absolute Balance - alles Unausgeglichene wird eliminiert"
+  },
+  "agenda": "Kosmisches Gleichgewicht bewahren; alles was dieses bedroht, muss neutralisiert werden",
+  "relationships": {
+    "vor_tak": { "standing": 2, "description": "Respekt aber als Bedrohung eingestuft" },
+    "syl_nar": { "standing": 7, "description": "Sehen sie als 'Kinder des Lichts'" },
+    "aereth": { "standing": 5, "description": "Genetisch verwandt - uralte Experimente" },
+    "kryl_tha": { "standing": 1, "description": "Zu chaotisch, als Bedrohung eingestuft" },
+    "zhareen": { "standing": 8, "description": "Kristalle reagieren auf ihre Technologie" },
+    "vel_ar": { "standing": 0, "description": "Ignoriert - nicht materiell genug" }
+  },
+  "quest_hooks": [
+    "Ein Aethernox-Wächter erwacht und beginnt, ganze Systeme zu 'reinigen'",
+    "Ein uralter Speicher enthält Hinweise auf die Herkunft der Leerenbrut",
+    "Ein Aethernox-Artefakt kann den Riss stabilisieren – oder vergrößern"
+  ]
+}

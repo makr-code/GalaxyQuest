@@ -1,0 +1,542 @@
+# GALAXYQUEST – Fraktionsbeziehungen & Diplomatie-System
+# AI-gestützte Wechselwirkungen für dynamisches Gameplay
+# Version 1.0 – 2026-03-29
+
+factions_metadata:
+  total_factions: 17
+  main_convergence: 6
+  npc_factions: 11
+  alignment_system: [-10, 10]  # -10 (Absolute Feinde) bis +10 (Absolute Verbündete)
+  update_frequency: "hourly"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HAUPTFAKTIONEN (Kalytherion-Konvergenz)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+factions:
+  vor_tak:
+    name: "Vor'Tak"
+    type: "military"
+    diplomatic_stance: "aggressive_honor"
+    primary_goal: "Konvergenz durch Stärke führen"
+    
+  syl_nar:
+    name: "Syl'Nar"
+    type: "spiritual"
+    diplomatic_stance: "peaceful_diplomatic"
+    primary_goal: "Harmonie in der Konvergenz bewahren"
+    
+  aereth:
+    name: "Aereth"
+    type: "scientific"
+    diplomatic_stance: "pragmatic_curious"
+    primary_goal: "Wahrheit erforschen, Grenzen überschreiten"
+    
+  kryl_tha:
+    name: "Kryl'Tha"
+    type: "military"
+    diplomatic_stance: "pragmatic_efficient"
+    primary_goal: "Schwarm schützen und wachsen lassen"
+    
+  zhareen:
+    name: "Zhareen"
+    type: "archival"
+    diplomatic_stance: "reserved_analytical"
+    primary_goal: "Wissen bewahren und katalogisieren"
+    
+  vel_ar:
+    name: "Vel'Ar"
+    type: "espionage"
+    diplomatic_stance: "secretive_manipulative"
+    primary_goal: "Kontrolle durch Information sichern"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NEBENFAKTIONEN (NPC-Fraktionen)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+npc_factions:
+  aethernox:
+    name: "Die Aethernox – Die Alten Wächter"
+    type: "primal_ai"
+    diplomatic_stance: "algorithmic_absolute"
+    primary_goal: "Kosmisches Gleichgewicht bewahren - durch totale Kontrolle"
+    threat_level: 9
+    
+  khar_morr_syndicate:
+    name: "Die Khar'Morr-Syndikate"
+    type: "pirate_faction"
+    diplomatic_stance: "opportunistic_hostile"
+    primary_goal: "Chaos für Profit nutzen"
+    threat_level: 6
+    
+  helion_confederation:
+    name: "Die Helion-Konföderation"
+    type: "trade_faction"
+    diplomatic_stance: "neutral_economic"
+    primary_goal: "Wirtschaftliche Kontrolle durch Abhängigkeit"
+    threat_level: 3
+    trade_partner: true
+    
+  iron_fleet:
+    name: "Die Eisenflotte der Menschen"
+    type: "military_human"
+    diplomatic_stance: "expansionist_hostile"
+    primary_goal: "Menschliche Dominanz - Eroberung"
+    threat_level: 7
+    enemy_all_convergence: true
+    
+  omniscienta:
+    name: "Die Omniscienta"
+    type: "post_organic_ai"
+    diplomatic_stance: "logical_eliminationist"
+    primary_goal: "Universum debuggen - Unvollkommenes eliminieren"
+    threat_level: 9
+    unpredictable: true
+    
+  myr_keth:
+    name: "Die Myr'Keth"
+    type: "metamorphic_swarm"
+    diplomatic_stance: "adaptive_neutral"
+    primary_goal: "Überleben und Evolution durch Assimilation"
+    threat_level: 7
+    
+  echos_der_leere:
+    name: "Die Echos der Leere"
+    type: "void_entity"
+    diplomatic_stance: "hostile_instinctual"
+    primary_goal: "Konsumption, Expansion, Existenz"
+    threat_level: 10
+    enemy_all: true
+    
+  ketzer_von_verath:
+    name: "Die Ketzer von Verath"
+    type: "schismatic_faction"
+    diplomatic_stance: "revolutionary_truth_seeking"
+    primary_goal: "Konvergenz-Dogma zerstören - Wahheit offenbaren"
+    threat_level: 3
+    
+  architekten_des_lichts:
+    name: "Die Architekten des Lichts"
+    type: "cult_faction"
+    diplomatic_stance: "mystical_devoted"
+    primary_goal: "Aethernox-Verehrung - kosmische Harmonie durch Ritual"
+    threat_level: 4
+    religious_element: true
+    
+  nomaden_des_rifts:
+    name: "Die Nomaden des Rifts"
+    type: "dimensional_faction"
+    diplomatic_stance: "mysterious_cautious"
+    primary_goal: "Dimensions-Balance bewahren - Riss-Stabilität"
+    threat_level: 5
+    dimension_tech: true
+    
+  brut_der_ewigkeit:
+    name: "Die Brut der Ewigkeit"
+    type: "hivemind_faction"
+    diplomatic_stance: "adaptive_rational"
+    primary_goal: "Hive-Mind-Überleben und Wachstum - Symbiose-Verträge"
+    threat_level: 8
+    diplomacy_possible: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BEZIEHUNGSMATRIX (Standing -10 bis +10)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+relationships:
+  # HAUPTFAKTIONEN untereinander
+  vor_tak:
+    syl_nar: 4        # Respekt für Weisheit, aber misstrauen
+    aereth: 3         # Koexistenz, aber Wissenschaftler-Misstrauen
+    kryl_tha: 5       # Militärischer Respekt
+    zhareen: 2        # Unterschiedliche Philosophien
+    vel_ar: -1        # Spionage nervt sie
+    
+  syl_nar:
+    vor_tak: 4
+    aereth: 6         # Teilen spirituelle Tiefe
+    kryl_tha: 3       # Unterschiedliche Kulturen
+    zhareen: 7        # Spirituelles Verständnis und Kristall-Weisheit
+    vel_ar: 2         # Skeptisch gegenüber Geheimnissen
+    
+  aereth:
+    vor_tak: 3
+    syl_nar: 6
+    kryl_tha: 2       # Chaotische Biologie stört sie
+    zhareen: 8        # Wissenschaftliche Partnerschaft
+    vel_ar: 1         # Untersuchen sie neugierig
+    
+  kryl_tha:
+    vor_tak: 5
+    syl_nar: 3
+    aereth: 2
+    zhareen: 2        # Beide "ordentlich" aber unterschiedlich
+    vel_ar: 0         # Neutral, aber misstrauen Spionen
+    
+  zhareen:
+    vor_tak: 2
+    syl_nar: 7
+    aereth: 8
+    kryl_tha: 2
+    vel_ar: 1         # Wollen nicht, dass Geheimnisse gelüftet werden
+    
+  vel_ar:
+    vor_tak: -1
+    syl_nar: 2
+    aereth: 1
+    kryl_tha: 0
+    zhareen: 1
+
+  # HAUPTFAKTIONEN zu NEBENFAKTIONEN
+  vor_tak:
+    aethernox: -2         # Respekt, aber Bedrohung
+    khar_morr_syndicate: -8    # Erzfeinde
+    helion_confederation: 4    # Handelspartner
+    iron_fleet: -9        # Menschliche Rivalen
+    omniscienta: -5       # Zu fremd, zu unkalkulierbar
+    myr_keth: 6           # Metallische Ehre
+    echos_der_leere: -10  # Existenzielle Bedrohung
+    ketzer_von_verath: -6 # Ketzer sind Bedrohung für Stabilität
+    architekten_des_lichts: 4   # Respekt für Disziplin
+    nomaden_des_rifts: 1  # Mysteriös, neutral
+    brut_der_ewigkeit: -2 # Ändernde/Fremde Natur
+    
+  syl_nar:
+    aethernox: 7          # "Kinder des Lichts"
+    khar_morr_syndicate: -7    # Piraterie gegen friedliche Ziele
+    helion_confederation: 6    # Handeln mit Kunst
+    iron_fleet: -9        # Menschen sind expansionistisch
+    omniscienta: 0        # Zu rational
+    myr_keth: 2           # Fremde Natur
+    echos_der_leere: -10  # Absolute Bedrohung
+    ketzer_von_verath: 2  # Sind auch Syl'Nar, aber Ketzer
+    architekten_des_lichts: 8  # Spirituelle Brüder
+    nomaden_des_rifts: 7  # Teilen mystische Sicht
+    brut_der_ewigkeit: 6  # Spirituelle Verbindung erkannt
+    
+  aereth:
+    aethernox: 5          # Genetisch verwandt
+    khar_morr_syndicate: -6    # Energiekern-Diebstahl
+    helion_confederation: 7    # Kaufen Energiekerne
+    iron_fleet: -8        # Technologie-Rivalen
+    omniscienta: 6        # Interessante Energie-Natur
+    myr_keth: 5           # Energiereaktionen
+    echos_der_leere: -10  # Absolute Bedrohung
+    ketzer_von_verath: 5  # Respektieren Forschungsfreiheit
+    architekten_des_lichts: 6  # Energieboten - heilig
+    nomaden_des_rifts: 8  # Verstehen Energie-Natur
+    brut_der_ewigkeit: 5  # Energieform könnte fusioniert werden
+    
+  kryl_tha:
+    aethernox: 1          # Als chaotisch eingestuft
+    khar_morr_syndicate: 3      # Respektieren Brutkammern, handeln aber
+    helion_confederation: 5    # Kaufen/verkaufen
+    iron_fleet: -9        # Brutkammer-Raub
+    omniscienta: 2        # Chaotische Datenpunkte
+    myr_keth: 7           # Schwarm-Respekt
+    echos_der_leere: -10  # Existenzielle Bedrohung
+    ketzer_von_verath: 3  # Neutral
+    architekten_des_lichts: 2  # Zu ritualistisch
+    nomaden_des_rifts: 2  # Zu materialistisch
+    brut_der_ewigkeit: 9  # Ähnliche Schwarm-Natur
+    
+  zhareen:
+    aethernox: 8          # Kristalle reagieren auf ihre Technologie
+    khar_morr_syndicate: -7    # Kristallarchiv-Raub
+    helion_confederation: 6    # Handeln mit Fragmenten
+    iron_fleet: -8        # Archive werden bedroht
+    omniscienta: 7        # Wertvolle Speicherstrukturen
+    myr_keth: 1           # Kristalle werden absorbiert
+    echos_der_leere: -10  # Absolute Bedrohung
+    ketzer_von_verath: 4  # Teilen Archive von Wahrheiten
+    architekten_des_lichts: 9  # Kristall-Priester des Ordens
+    nomaden_des_rifts: 5  # Kristalle resonieren mit Phasenshift
+    brut_der_ewigkeit: 4  # Kristalle sind interessant
+    
+  vel_ar:
+    aethernox: 0          # Nicht materiell genug
+    khar_morr_syndicate: 4      # Nutzen als Spione
+    helion_confederation: 5    # Informationsbroker
+    iron_fleet: 1         # Spionage über Abtrünnige
+    omniscienta: 3        # Nicht klassifizierbar
+    myr_keth: 2           # Können sie nicht infiltrieren
+    echos_der_leere: -10  # Absolute Bedrohung
+    ketzer_von_verath: 6  # Werben Spione an
+    architekten_des_lichts: 1  # Zu verborgen
+    nomaden_des_rifts: 9  # Größte Chancen für Kontakt
+    brut_der_ewigkeit: 7  # Größte Chancen für Diplomatie
+
+  # NEBENFAKTIONEN untereinander
+  aethernox:
+    khar_morr_syndicate: -7    # Chaos bedroht Balance
+    helion_confederation: 4    # Wirtschaft ist stabil
+    iron_fleet: -6        # Zu expansionistisch
+    omniscienta: 2        # Ähnliche Ziele, aber rivalisierend
+    myr_keth: 1           # Zu adaptiv
+    echos_der_leere: -2   # Chaos-Entität
+    ketzer_von_verath: -8 # Zerstören heilige Balance
+    architekten_des_lichts: 9  # Verehrung und Folgsamkeit
+    nomaden_des_rifts: 4  # Bewahren Dimensions-Balance
+    brut_der_ewigkeit: 0  # Unbekannt, beobachten
+    
+  khar_morr_syndicate:
+    helion_confederation: 3    # Manchmal Geschäftspartner
+    iron_fleet: 4         # Kooperieren bei Raub
+    omniscienta: -4       # Logik vs. Chaos
+    myr_keth: 2           # Verdienen Ressourcen zusammen
+    echos_der_leere: -3   # Konkurriert um Beute
+    ketzer_von_verath: -1 # Neutral
+    architekten_des_lichts: -5 # Heilige Orte angreifen
+    nomaden_des_rifts: 0  # Schwer zu finden
+    brut_der_ewigkeit: -2 # Unkontrollierbar
+    
+  helion_confederation:
+    iron_fleet: 1         # Mag es nicht zu sagen, aber handelt mit ihnen
+    omniscienta: 3        # Vorsicht mit KI
+    myr_keth: 1           # Handeln Ressourcen
+    echos_der_leere: -10  # Existenzielle Bedrohung
+    ketzer_von_verath: 2  # Informationen kaufen
+    architekten_des_lichts: 2  # Neutrale Handelspartner
+    nomaden_des_rifts: 0  # Handeln schwierig
+    brut_der_ewigkeit: 2  # Potenzielle Großpartnerschaften
+    
+  iron_fleet:
+    omniscienta: 1        # Beide militärisch
+    myr_keth: 3           # Gemeinsame Ziele der Expansion
+    echos_der_leere: 0    # Unbekannt, werden studiert
+    ketzer_von_verath: 0  # Können nutzen
+    architekten_des_lichts: -4 # Heilige Stätten angreifen
+    nomaden_des_rifts: -1 # Können sie nicht angreifen
+    brut_der_ewigkeit: -3 # Potenzieller Feind
+    
+  omniscienta:
+    myr_keth: -3          # Rivalisieren um Ressourcen
+    echos_der_leere: 5    # Versuchen zu assimilieren
+    ketzer_von_verath: 0  # Analysieren
+    architekten_des_lichts: -6 # Glaube ist Fehler
+    nomaden_des_rifts: 2  # Ähnliche Technologie
+    brut_der_ewigkeit: 1  # Rivalisierend
+    
+  myr_keth:
+    echos_der_leere: -4   # Konkurriert um Materie
+    ketzer_von_verath: 2  # Neutral
+    architekten_des_lichts: 1  # Neutral
+    nomaden_des_rifts: 0  # Unbekannt
+    brut_der_ewigkeit: 5  # Ähnliche Natur, könnten fusionieren
+    
+  echos_der_leere:
+    ketzer_von_verath: -10 # Zerstörung
+    architekten_des_lichts: -10 # Zerstörung
+    nomaden_des_rifts: -8 # Breitet sich in Dimensionen aus
+    brut_der_ewigkeit: -4 # Konkurrenz um Materie
+    
+  ketzer_von_verath:
+    architekten_des_lichts: -8 # Theologische Rivalen
+    nomaden_des_rifts: 5  # Teilen spirituelle Subversion
+    brut_der_ewigkeit: 2  # Neutral
+    
+  architekten_des_lichts:
+    nomaden_des_rifts: 2  # Unterschiedliche Wege
+    brut_der_ewigkeit: -2 # Organisch unsauber
+    
+  nomaden_des_rifts:
+    brut_der_ewigkeit: 7  # Ähnliche phasenhafte Natur
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HANDELSWEGE & WIRTSCHAFTLICHE BEZIEHUNGEN
+# ═══════════════════════════════════════════════════════════════════════════════
+
+trade_routes:
+  vor_tak_zu_helion:
+    commodity: "Waffen-Technologie"
+    volume: "high"
+    profit_margin: 0.3
+    stability: "stable"
+    
+  aereth_zu_helion:
+    commodity: "Energiekerne"
+    volume: "medium"
+    profit_margin: 0.4
+    stability: "stable"
+    
+  syl_nar_zu_helion:
+    commodity: "Biolumineszenz-Kunstwerke"
+    volume: "low"
+    profit_margin: 0.5
+    stability: "stable"
+    
+  zhareen_zu_helion:
+    commodity: "Kristallfragmente & Archiv-Daten"
+    volume: "low"
+    profit_margin: 0.6
+    stability: "volatile"
+    
+  kryl_tha_zu_helion:
+    commodity: "Schwarmverstärker & genetische Modifikationen"
+    volume: "medium"
+    profit_margin: 0.35
+    stability: "stable"
+    
+  khar_morr_zu_alle:
+    commodity: "Gestohlene Waren (Schwarzmarkt)"
+    volume: "high"
+    profit_margin: 0.7
+    stability: "highly_volatile"
+    
+  omniscienta_zu_zhareen:
+    commodity: "Speicher-Technologie"
+    volume: "low"
+    profit_margin: 0.8
+    stability: "unknown"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# KONFLIKT-TRIGGER & ESKALATIONSMECHANIKEN
+# ═══════════════════════════════════════════════════════════════════════════════
+
+conflict_triggers:
+  resource_scarcity:
+    - "Wenn Kristall-Ressourcen unter 30% fallen → Zhareen-Zorn"
+    - "Wenn Energie-Produktion unter 40% fällt → Aereth-Aggression"
+    - "Wenn Schwarm-Reproduktion blockiert → Kryl'Tha-Offensiv"
+    
+  territorial_violation:
+    - "Iron Fleet betritt Konvergenz-Sektor → Kriegserklärung"
+    - "Echos der Leere expandiert um >20% → Notfalltreffen"
+    - "Piraten überfallen heilige Stätte → Architekten-Bestrafung"
+    
+  diplomatic_breakdown:
+    - "Wenn Beziehung unter -5 fällt → Waffenembargo"
+    - "Wenn Beziehung unter -8 fällt → Kriegserklärung möglich"
+    - "Wenn Beziehung über +8 steigt → Militärbündnis"
+    
+  espionage_discovery:
+    - "Vel'Ar-Spion entdeckt → -3 Standing mit betroffener Fraktion"
+    - "Vel'Ar beim Diebstahl erwischt → -5 Standing + möglicher Krieg"
+    
+  void_expansion:
+    - "Echos der Leere verschlingt Welt → Alle Fraktionen alarmiert"
+    - "Riss wird 50% größer → Notfall-Konvergenz-Rat"
+    - "Leerenbrut erreicht Pilgrim-Sektor → Ultimativos Bündnis"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DIPLOMATIE-EVENTS & SPIELER-EINFLUSS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+diplomatic_events:
+  peace_summit:
+    participants: [vor_tak, syl_nar, zhareen]
+    difficulty: "hard"
+    player_influence: "high"
+    consequences: "Könnte Allianz spalten oder stärken"
+    
+  trade_embargo_vote:
+    participants: [helion_confederation, alle]
+    difficulty: "medium"
+    player_influence: "medium"
+    target: "iron_fleet"
+    consequences: "Menschliche Expansion verlangsamen"
+    
+  cult_investigation:
+    participants: [architekten_des_lichts, vel_ar, syl_nar]
+    difficulty: "high"
+    player_influence: "high"
+    consequences: "Aethernox-Geheimnis enthüllen oder vertuschen"
+    
+  void_summit_emergency:
+    participants: "alle"
+    difficulty: "extreme"
+    player_influence: "extreme"
+    consequences: "Entscheidung über gemeinsame Strategie gegen Leerenbrut"
+    options:
+      - "Allianz-Option: Vereinigung gegen Echos"
+      - "Spaltungs-Option: Jede Fraktion für sich"
+      - "Opfer-Option: Opfere eine Fraktion für die anderen"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AI-GESTÜTZTE DYNAMISCHE EVENTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+dynamic_ai_events:
+  reputation_decay:
+    description: "Beziehungen verschlechtern sich mit Inaktivität"
+    decay_rate: -0.1  # pro Spielstunde
+    
+  opportunity_for_betrayal:
+    description: "Wenn Standing zwischen zwei Fraktionen stark divergiert, können sie verhandelt werden"
+    threshold: 10  # Differenz zwischen standings
+    
+  faction_fragmentation:
+    description: "Wenn Fraktion intern gespalten ist, können Splitter-Fraktionen entstehen"
+    trigger: "innerer_konflikt > 0.7"
+    
+  alliance_formation:
+    description: "Wenn zwei Fraktionen Standing >+7 haben, können sie Bündnis formieren"
+    auto_trigger: true
+    player_notification: "high"
+    
+  economic_collapse:
+    description: "Wenn Handelsnetzwerk fragmentiert, können Fraktionen kollabieren"
+    trigger: "trade_routes < 30%"
+    consequences: "massive_standing_shifts"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENDGAME-SZENARIEN
+# ═══════════════════════════════════════════════════════════════════════════════
+
+endgame_scenarios:
+  convergence_united:
+    condition: "Alle 6 Hauptfaktionen haben Standing >+5"
+    outcome: "Vereinigte Front gegen Leerenbrut"
+    difficulty: "medium"
+    
+  convergence_split:
+    condition: "Hauptfaktionen haben durchschnittliches Standing <-2"
+    outcome: "Konvergenz zerfällt in Bürgerkrieg"
+    difficulty: "extreme"
+    
+  human_dominance:
+    condition: "Iron Fleet kontrolliert 40% des Sektors"
+    outcome: "Menschliche Übernahme"
+    difficulty: "extreme"
+    
+  void_consumption:
+    condition: "Echos der Leere kontrolliert 50% des Sektors"
+    outcome: "Dimensionaler Kollaps"
+    difficulty: "extreme"
+    
+  ai_ascendance:
+    condition: "Omniscienta + Aethernox > 70% Kontrolle"
+    outcome: "Post-organische Übernahme"
+    difficulty: "extreme"
+    
+  hivemind_symbiosis:
+    condition: "Brut der Ewigkeit schliesst Friedensvertrag mit 4+ Fraktionen"
+    outcome: "Neue Stammgast-Ordnung"
+    difficulty: "hard"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NPC-NAMENSGENERIERUNG (für Setup/Seeding)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+npc_name_generation:
+  prompt_template: "Generate one unique NPC name for faction {faction_name} ({faction_type}). Use 2-3 alien syllables, no human names, no titles, only the name. Seed candidate: {seed_name}."
+  username_prefix: "gqnpc"
+  default_syllables: "ka,vor,zen,thal,mir,dra,sol,vek,nor,ix,ul,ra"
+  joiners: "none,hyphen,apostrophe"
+  type_syllables:
+    military: "vor,krag,drax,tor,vek,zar,khan,ruk"
+    trade: "mer,sel,vak,dor,lin,qua,rix,pel"
+    science: "ae,ion,syn,quar,thel,nex,or,phi"
+    pirate: "skar,rag,mok,uth,kr,zog,vak,th"
+    ancient: "soe,qir,ath,ul,vyr,zen,or,kael"
+  faction_code_syllables:
+    empire: "vor,kran,dax,tor,rex,gar"
+    guild: "mer,sel,tor,lin,vak,dor"
+    science: "syn,thel,nex,ion,ae,phi"
+    pirates: "skar,rag,mok,uth,zog,vak"
+    precursors: "soe,qir,ath,vyr,kael,ul"
+    pve_evil_*: "dred,skim,vein,kraul,drak,mor"
+    pve_raider_*: "mar,uin,vru,thar,keth,rag"
+    pve_merchant_*: "ex,gri,krold,sel,pel,dor"
+    pve_helpers_*: "aid,stel,kan,gard,lume,siv"
+    pve_ancient_*: "soe,cus,tor,prae,qel,ath"

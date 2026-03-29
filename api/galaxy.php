@@ -21,22 +21,161 @@ require_once __DIR__ . '/galaxy_seed.php';
 require_once __DIR__ . '/game_engine.php';
 
 only_method('GET');
-require_auth();
+
+$action = (string)($_GET['action'] ?? 'system');
+if ($action !== 'auth_stars') {
+    require_auth();
+}
 
 // Enable gzip if supported
 enable_response_gzip();
 
-$action = (string)($_GET['action'] ?? 'system');
 $g = max(1, min(GALAXY_MAX, (int)($_GET['galaxy'] ?? 1)));
 $s = max(1, min(galaxy_system_limit(), (int)($_GET['system'] ?? 1)));
 
 $db = get_db();
 ensure_galaxy_bootstrap_progress($db, true);
+$renderSchemaVersion = 1;
+$assetsManifestVersion = 1;
+
+if ($action === 'auth_stars') {
+    $systemMax = galaxy_system_limit();
+    $from = max(1, min($systemMax, (int)($_GET['from'] ?? 1)));
+    $to = max($from, min($systemMax, (int)($_GET['to'] ?? $systemMax)));
+    $maxPoints = max(300, min(12000, (int)($_GET['max_points'] ?? 9000)));
+    $span = max(1, $to - $from + 1);
+    $stride = max(1, (int)ceil($span / $maxPoints));
+
+    ensure_star_system($db, $g, $from);
+    ensure_star_system($db, $g, $to);
+
+    $stmt = $db->prepare(
+        'SELECT ss.id, ss.galaxy_index, ss.system_index, ss.name,
+                COALESCE(NULLIF(ss.catalog_name, ""), ss.name) AS catalog_name,
+                ss.spectral_class, ss.subtype, ss.x_ly, ss.y_ly, ss.z_ly,
+                ss.planet_count, ss.hz_inner_au, ss.hz_outer_au,
+                COUNT(DISTINCT c.id) AS colony_count,
+                COALESCE(SUM(c.population), 0) AS colony_population
+         FROM star_systems ss
+         LEFT JOIN planets p
+                ON p.galaxy = ss.galaxy_index AND p.`system` = ss.system_index
+         LEFT JOIN colonies c ON c.planet_id = p.id
+         WHERE ss.galaxy_index = ?
+           AND ss.system_index BETWEEN ? AND ?
+           AND MOD(ss.system_index - ?, ?) = 0
+         GROUP BY ss.id, ss.galaxy_index, ss.system_index, ss.name, ss.catalog_name,
+                  ss.spectral_class, ss.subtype, ss.x_ly, ss.y_ly, ss.z_ly,
+                  ss.planet_count, ss.hz_inner_au, ss.hz_outer_au
+         ORDER BY ss.system_index ASC'
+    );
+    $stmt->execute([$g, $from, $to, $from, $stride]);
+    $stars = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $occupiedSystems = [];
+    foreach ($stars as &$star) {
+        $star['visibility_level'] = 'own';
+        $star['colony_count'] = (int)($star['colony_count'] ?? 0);
+        $star['colony_population'] = (int)($star['colony_population'] ?? 0);
+    }
+    unset($star);
+
+    $occupiedStmt = $db->prepare(
+        'SELECT DISTINCT p.`system` AS system_index
+         FROM colonies c
+         JOIN planets p ON p.id = c.planet_id
+         WHERE p.galaxy = ?
+           AND p.`system` BETWEEN ? AND ?'
+    );
+    $occupiedStmt->execute([$g, $from, $to]);
+    foreach ($occupiedStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $occupiedSystems[] = (int)($row['system_index'] ?? 0);
+    }
+
+    json_ok([
+        'action' => 'auth_stars',
+        'render_schema_version' => $renderSchemaVersion,
+        'assets_manifest_version' => $assetsManifestVersion,
+        'galaxy' => $g,
+        'system_max' => $systemMax,
+        'from' => $from,
+        'to' => $to,
+        'stride' => $stride,
+        'count' => count($stars),
+        'stars' => $stars,
+        'occupied_systems' => array_values(array_filter(array_unique($occupiedSystems), static fn($n): bool => $n > 0)),
+        'server_ts_ms' => (int)round(microtime(true) * 1000),
+    ]);
+    exit;
+}
+
+if ($action === 'bootstrap') {
+    $systemMax = galaxy_system_limit();
+    $from = max(1, min($systemMax, (int)($_GET['from'] ?? 1)));
+    $defaultSpan = max(120, min(4000, (int)($_GET['span'] ?? 1200)));
+    $toInput = isset($_GET['to']) ? (int)$_GET['to'] : ($from + $defaultSpan - 1);
+    $to = max($from, min($systemMax, $toInput));
+    $maxPoints = max(100, min(50000, (int)($_GET['max_points'] ?? 1500)));
+
+    json_ok([
+        'action' => 'bootstrap',
+        'render_schema_version' => $renderSchemaVersion,
+        'assets_manifest_version' => $assetsManifestVersion,
+        'galaxy' => $g,
+        'system_max' => $systemMax,
+        'server_ts' => gmdate('c'),
+        'server_ts_ms' => (int)round(microtime(true) * 1000),
+        'initial_range' => [
+            'from' => $from,
+            'to' => $to,
+            'max_points' => $maxPoints,
+        ],
+        'endpoints' => [
+            'stars' => 'api/galaxy.php?action=stars',
+            'system' => 'api/galaxy.php',
+            'search' => 'api/galaxy.php?action=search',
+            'star_info' => 'api/galaxy.php?action=star_info',
+            'asset_meta' => 'api/galaxy.php?action=asset_meta',
+        ],
+        'capabilities' => [
+            'clusters' => true,
+            'fog_of_war' => true,
+            'binary_formats' => ['bin', 'bin2', 'bin3'],
+            'chunk_streaming' => [
+                'priority' => true,
+                'prefetch' => true,
+                'chunk_hint' => true,
+            ],
+            'cluster_lod' => [
+                'server_precompute' => true,
+                'query_params' => ['cluster_preset', 'cluster_lod'],
+                'presets' => ['low', 'medium', 'high', 'ultra', 'auto'],
+            ],
+            'asset_metadata' => [
+                'endpoint' => 'api/galaxy.php?action=asset_meta',
+                'scopes' => ['render', 'planet_textures', 'clusters', 'ships'],
+            ],
+        ],
+    ]);
+    exit;
+}
 
 if ($action === 'stars') {
     $from      = max(1, min(galaxy_system_limit(), (int)($_GET['from'] ?? 1)));
     $to        = max($from, min(galaxy_system_limit(), (int)($_GET['to'] ?? galaxy_system_limit())));
     $maxPoints = max(100, min(50000, (int)($_GET['max_points'] ?? 1500)));
+    $chunkHint = max(100, min(5000, (int)($_GET['chunk_hint'] ?? $maxPoints)));
+    $priorityRaw = strtolower((string)($_GET['priority'] ?? 'normal'));
+    $requestPriority = in_array($priorityRaw, ['critical', 'high', 'normal', 'low', 'background'], true)
+        ? $priorityRaw
+        : 'normal';
+    $prefetchRaw = strtolower((string)($_GET['prefetch'] ?? '0'));
+    $prefetch = in_array($prefetchRaw, ['1', 'true', 'yes', 'on'], true);
+    $clusterPresetRaw = strtolower((string)($_GET['cluster_preset'] ?? 'auto'));
+    $clusterPreset = in_array($clusterPresetRaw, ['auto', 'low', 'medium', 'high', 'ultra'], true)
+        ? $clusterPresetRaw
+        : 'auto';
+    $includeClusterLodRaw = strtolower((string)($_GET['cluster_lod'] ?? '0'));
+    $includeClusterLod = in_array($includeClusterLodRaw, ['1', 'true', 'yes', 'on'], true);
 
     $span   = max(1, $to - $from + 1);
     $stride = max(1, (int)ceil($span / $maxPoints));
@@ -126,7 +265,14 @@ if ($action === 'stars') {
         // Full-density range requests (stride=1) are expensive on large spans.
         // Guard with a hard limit to avoid long blocking requests starving PHP workers.
         if ($stride === 1) {
-            $materializeLimit = max(50, (int)CACHE_STARS_FULL_MATERIALIZE_LIMIT);
+            $materializeLimitBase = max(50, (int)CACHE_STARS_FULL_MATERIALIZE_LIMIT);
+            if ($prefetch || $requestPriority === 'background' || $requestPriority === 'low') {
+                $materializeLimit = max(30, (int)floor($materializeLimitBase * 0.60));
+            } elseif ($requestPriority === 'critical') {
+                $materializeLimit = min($materializeLimitBase + 120, (int)floor($materializeLimitBase * 1.35));
+            } else {
+                $materializeLimit = $materializeLimitBase;
+            }
             $spanSystems = max(1, $to - $from + 1);
             if ($spanSystems <= $materializeLimit) {
                 for ($sys = $from; $sys <= $to; $sys++) {
@@ -148,14 +294,60 @@ if ($action === 'stars') {
             'SELECT id, galaxy_index, system_index, name,
                     COALESCE(NULLIF(catalog_name, ""), name) AS catalog_name,
                     spectral_class, subtype, x_ly, y_ly, z_ly,
-                    planet_count, hz_inner_au, hz_outer_au
+                                        planet_count, hz_inner_au, hz_outer_au,
+                                        COALESCE(cm.colony_count, 0) AS colony_count,
+                                        COALESCE(cm.colony_population, 0) AS colony_population,
+                                COALESCE(cm.colony_owner_color, "") AS colony_owner_color,
+                                COALESCE(cm.colony_owner_user_id, 0) AS colony_owner_user_id,
+                                COALESCE(cm.colony_owner_name, "") AS colony_owner_name
              FROM star_systems
+                         LEFT JOIN (
+                                 SELECT p.galaxy AS galaxy_index,
+                                                p.`system` AS system_index,
+                                                COUNT(DISTINCT c.id) AS colony_count,
+                                                COALESCE(SUM(c.population), 0) AS colony_population,
+                                                SUBSTRING_INDEX(
+                                                        GROUP_CONCAT(
+                                                                COALESCE(NULLIF(u.empire_color, ""), "#6a8cc9")
+                                                                ORDER BY COALESCE(c.population, 0) DESC, c.id ASC
+                                                                SEPARATOR ","
+                                                        ),
+                                                        ",",
+                                                        1
+                                                    ) AS colony_owner_color,
+                                                    SUBSTRING_INDEX(
+                                                        GROUP_CONCAT(
+                                                            CAST(c.user_id AS CHAR)
+                                                            ORDER BY COALESCE(c.population, 0) DESC, c.id ASC
+                                                            SEPARATOR ","
+                                                        ),
+                                                        ",",
+                                                        1
+                                                    ) AS colony_owner_user_id,
+                                                    SUBSTRING_INDEX(
+                                                        GROUP_CONCAT(
+                                                            COALESCE(u.username, "")
+                                                            ORDER BY COALESCE(c.population, 0) DESC, c.id ASC
+                                                            SEPARATOR ","
+                                                        ),
+                                                        ",",
+                                                        1
+                                                    ) AS colony_owner_name
+                                 FROM planets p
+                                 JOIN colonies c ON c.planet_id = p.id
+                                 LEFT JOIN users u ON u.id = c.user_id
+                                 WHERE p.galaxy = ?
+                                     AND p.`system` BETWEEN ? AND ?
+                                 GROUP BY p.galaxy, p.`system`
+                         ) cm
+                             ON cm.galaxy_index = star_systems.galaxy_index
+                            AND cm.system_index = star_systems.system_index
              WHERE galaxy_index = ?
                AND system_index BETWEEN ? AND ?
                AND MOD(system_index - ?, ?) = 0
              ORDER BY system_index ASC'
         );
-        $stmt->execute([$g, $from, $to, $from, $stride]);
+                $stmt->execute([$g, $from, $to, $g, $from, $to, $from, $stride]);
         $stars = $stmt->fetchAll();
 
         // Rohen JSON-String cachen (inkl. ID-Range-Metadaten für Overlap-Reuse).
@@ -174,6 +366,13 @@ if ($action === 'stars') {
         );
         $cacheMode = 'generated';
     }
+
+    $systemMax = galaxy_system_limit();
+    $prefetchAfterFrom = min($systemMax, $to + 1);
+    $prefetchAfterTo = min($systemMax, $prefetchAfterFrom + $chunkHint - 1);
+    $prefetchBeforeTo = max(1, $from - 1);
+    $prefetchBeforeFrom = max(1, $prefetchBeforeTo - $chunkHint + 1);
+
     // ── Fog of War: attach visibility level per system ─────────────────────────
     $currentUserId = current_user_id();
     if ($currentUserId !== null && count($stars) > 0) {
@@ -181,6 +380,12 @@ if ($action === 'stars') {
             // Admins bypass FOW — full visibility for all stars
             foreach ($stars as &$star) {
                 $star['visibility_level'] = 'own';
+                $star['colony_count'] = (int)($star['colony_count'] ?? 0);
+                $star['colony_population'] = (int)($star['colony_population'] ?? 0);
+                $star['colony_owner_color'] = (string)($star['colony_owner_color'] ?? '');
+                $star['colony_owner_user_id'] = (int)($star['colony_owner_user_id'] ?? 0);
+                $star['colony_owner_name'] = (string)($star['colony_owner_name'] ?? '');
+                $star['colony_is_player'] = $currentUserId !== null && (int)$star['colony_owner_user_id'] === (int)$currentUserId ? 1 : 0;
             }
             unset($star);
         } else {
@@ -198,15 +403,60 @@ if ($action === 'stars') {
             }
             foreach ($stars as &$star) {
                 $star['visibility_level'] = $visMap[(int)$star['system_index']] ?? 'unknown';
+                $star['colony_count'] = (int)($star['colony_count'] ?? 0);
+                $star['colony_population'] = (int)($star['colony_population'] ?? 0);
+                $star['colony_owner_color'] = (string)($star['colony_owner_color'] ?? '');
+                $star['colony_owner_user_id'] = (int)($star['colony_owner_user_id'] ?? 0);
+                $star['colony_owner_name'] = (string)($star['colony_owner_name'] ?? '');
+                $star['colony_is_player'] = $currentUserId !== null && (int)$star['colony_owner_user_id'] === (int)$currentUserId ? 1 : 0;
             }
             unset($star);
         }
     }
 
+    // Optional: serverseitige LOD-Cluster-Vorbereitung (B2).
+    $clusterMaxByPreset = [
+        'low' => 8,
+        'medium' => 14,
+        'high' => 20,
+        'ultra' => 28,
+    ];
+    $selectedClusterPreset = $clusterPreset;
+    if ($selectedClusterPreset === 'auto') {
+        if ($prefetch || $requestPriority === 'background' || $requestPriority === 'low') {
+            $selectedClusterPreset = 'low';
+        } elseif ($requestPriority === 'critical' || $requestPriority === 'high') {
+            $selectedClusterPreset = 'high';
+        } else {
+            $selectedClusterPreset = 'medium';
+        }
+    }
+    if (!isset($clusterMaxByPreset[$selectedClusterPreset])) {
+        $selectedClusterPreset = 'medium';
+    }
+
+    $clustersBase = compute_star_cluster_summary($stars, $clusterMaxByPreset['ultra']);
+    $clusters = array_slice($clustersBase, 0, $clusterMaxByPreset[$selectedClusterPreset]);
+    $clustersLod = null;
+    if ($includeClusterLod) {
+        $clustersLod = [
+            'selected' => $selectedClusterPreset,
+            'max_by_preset' => $clusterMaxByPreset,
+            'presets' => [
+                'low' => array_slice($clustersBase, 0, $clusterMaxByPreset['low']),
+                'medium' => array_slice($clustersBase, 0, $clusterMaxByPreset['medium']),
+                'high' => array_slice($clustersBase, 0, $clusterMaxByPreset['high']),
+                'ultra' => array_slice($clustersBase, 0, $clusterMaxByPreset['ultra']),
+            ],
+        ];
+    }
+
     json_ok([
         'action' => 'stars',
+        'render_schema_version' => $renderSchemaVersion,
+        'assets_manifest_version' => $assetsManifestVersion,
         'galaxy' => $g,
-        'system_max' => galaxy_system_limit(),
+        'system_max' => $systemMax,
         'from' => $from,
         'to' => $to,
         'stride' => $stride,
@@ -215,11 +465,53 @@ if ($action === 'stars') {
         'served_stride' => $servedStride,
         'cache_mode' => $cacheMode,
         'cache_overlap_policy' => $overlapPolicy,
+        'request' => [
+            'priority' => $requestPriority,
+            'prefetch' => $prefetch,
+            'chunk_hint' => $chunkHint,
+            'cluster_preset' => $clusterPreset,
+            'cluster_lod' => $includeClusterLod,
+        ],
+        'cluster_preset_selected' => $selectedClusterPreset,
+        'prefetch' => [
+            'before' => [
+                'from' => $prefetchBeforeFrom,
+                'to' => $prefetchBeforeTo,
+            ],
+            'after' => [
+                'from' => $prefetchAfterFrom,
+                'to' => $prefetchAfterTo,
+            ],
+        ],
         'count' => count($stars),
         'server_ts' => gmdate('c'),
         'server_ts_ms' => (int)round(microtime(true) * 1000),
         'stars' => $stars,
-        'clusters' => compute_star_cluster_summary($stars),
+        'clusters' => $clusters,
+        'clusters_lod' => $clustersLod,
+    ]);
+    exit;
+}
+
+if ($action === 'asset_meta') {
+    $scopeRaw = strtolower((string)($_GET['scope'] ?? 'render'));
+    $scope = in_array($scopeRaw, ['render', 'planet_textures', 'clusters', 'ships'], true)
+        ? $scopeRaw
+        : 'render';
+
+    $metaAll = build_asset_metadata_catalog($assetsManifestVersion, $renderSchemaVersion);
+    $scopedMeta = $scope === 'render'
+        ? $metaAll
+        : [$scope => $metaAll[$scope] ?? []];
+
+    json_ok([
+        'action' => 'asset_meta',
+        'scope' => $scope,
+        'render_schema_version' => $renderSchemaVersion,
+        'assets_manifest_version' => $assetsManifestVersion,
+        'server_ts' => gmdate('c'),
+        'server_ts_ms' => (int)round(microtime(true) * 1000),
+        'meta' => $scopedMeta,
     ]);
     exit;
 }
@@ -230,6 +522,8 @@ if ($action === 'search') {
         if (strlen($q) < 2) {
                 json_ok([
                         'action' => 'search',
+                    'render_schema_version' => $renderSchemaVersion,
+                    'assets_manifest_version' => $assetsManifestVersion,
                         'galaxy' => $g,
                         'query' => $q,
                         'count' => 0,
@@ -287,6 +581,8 @@ if ($action === 'search') {
 
         json_ok([
                 'action' => 'search',
+            'render_schema_version' => $renderSchemaVersion,
+            'assets_manifest_version' => $assetsManifestVersion,
                 'galaxy' => $g,
                 'query' => $q,
                 'count' => count($stars),
@@ -329,6 +625,8 @@ if ($action === 'star_info') {
     // Format response with scientific notation for values
     json_ok([
         'action' => 'star_info',
+        'render_schema_version' => $renderSchemaVersion,
+        'assets_manifest_version' => $assetsManifestVersion,
         'galaxy' => $g,
         'system' => $s,
         'id' => (int)$starRow['id'],
@@ -507,7 +805,7 @@ if (!is_array($response)) {
         'system_max'           => galaxy_system_limit(),
         'star_system'          => $starSystem,
         'planets'              => $mergedPlanets,
-        'planet_texture_manifest' => build_planet_texture_manifest($g, $s, $starSystem, $mergedPlanets),
+        'planet_texture_manifest' => build_planet_texture_manifest($g, $s, $starSystem, $mergedPlanets, $assetsManifestVersion),
         'fleets_in_system'     => $fleetsInSystem,
         'star_installations'   => $starOrbitInstallations,
     ];
@@ -519,6 +817,8 @@ if (!is_array($response)) {
 }
 
 // Timestamp is request-local and should not be reused from cache.
+$response['render_schema_version'] = $renderSchemaVersion;
+$response['assets_manifest_version'] = $assetsManifestVersion;
 $response['server_ts_ms'] = (int)round(microtime(true) * 1000);
 
 $mergedPlanets = is_array($response['planets'] ?? null) ? $response['planets'] : [];
@@ -584,6 +884,8 @@ if (in_array($format, ['bin', 'bin1', 'bin2', 'bin3'], true)) {
     header('Content-Length: ' . strlen($binary));
     header('X-GQ-Format: binary');
     header('X-GQ-Format-Version: ' . $version);
+    header('X-GQ-Render-Schema-Version: ' . $renderSchemaVersion);
+    header('X-GQ-Assets-Manifest-Version: ' . $assetsManifestVersion);
     echo $binary;
 } else {
     // JSON mode (default)
@@ -699,6 +1001,47 @@ function compute_star_cluster_summary(array $stars, int $maxClusters = 18): arra
     return $result;
 }
 
+function build_asset_metadata_catalog(int $assetsManifestVersion, int $renderSchemaVersion): array
+{
+    return [
+        'render' => [
+            'render_schema_version' => max(1, $renderSchemaVersion),
+            'assets_manifest_version' => max(1, $assetsManifestVersion),
+        ],
+        'planet_textures' => [
+            'variants' => ['rocky', 'gas', 'ice', 'ocean', 'lava', 'desert'],
+            'channels' => ['roughness', 'metalness', 'banding', 'clouds', 'craters', 'ice_caps', 'atmosphere', 'glow'],
+            'palette_keys' => ['base', 'secondary', 'accent', 'ice'],
+            'generator' => [
+                'seeded' => true,
+                'deterministic' => true,
+                'hash' => 'crc32',
+            ],
+        ],
+        'clusters' => [
+            'presets' => [
+                'low' => ['max_clusters' => 8],
+                'medium' => ['max_clusters' => 14],
+                'high' => ['max_clusters' => 20],
+                'ultra' => ['max_clusters' => 28],
+                'auto' => ['max_clusters' => 14],
+            ],
+            'default_preset' => 'auto',
+            'server_precompute' => true,
+        ],
+        'ships' => [
+            'manifest_source' => 'vessel_manifest',
+            'icons' => [
+                'fighter' => 'ship-fighter',
+                'transporter' => 'ship-transporter',
+                'cruiser' => 'ship-cruiser',
+                'bomber' => 'ship-bomber',
+                'destroyer' => 'ship-destroyer',
+            ],
+        ],
+    ];
+}
+
 /**
  * Return the star system row from DB, generating and inserting it first if needed.
  */
@@ -707,10 +1050,10 @@ function ensure_star_system(PDO $db, int $galaxyIdx, int $systemIdx): array
     return cache_generated_system($db, $galaxyIdx, $systemIdx, true);
 }
 
-function build_planet_texture_manifest(int $galaxyIdx, int $systemIdx, array $starSystem, array $mergedPlanets): array
+function build_planet_texture_manifest(int $galaxyIdx, int $systemIdx, array $starSystem, array $mergedPlanets, int $manifestVersion = 1): array
 {
     $manifest = [
-        'version' => 1,
+        'version' => max(1, $manifestVersion),
         'system_seed' => texture_seed_value([$galaxyIdx, $systemIdx, $starSystem['spectral_class'] ?? 'G', $starSystem['name'] ?? 'system']),
         'planets' => [],
     ];

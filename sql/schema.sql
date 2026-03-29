@@ -22,6 +22,28 @@ CREATE TABLE IF NOT EXISTS users (
     last_npc_tick DATETIME DEFAULT NULL
 ) ENGINE=InnoDB;
 
+-- Generated character dossier + portrait asset references (UID-linked)
+CREATE TABLE IF NOT EXISTS user_character_profiles (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    is_npc TINYINT(1) NOT NULL DEFAULT 0,
+    race VARCHAR(80) NOT NULL DEFAULT 'Unknown',
+    profession VARCHAR(80) NOT NULL DEFAULT 'Wanderer',
+    stance VARCHAR(80) NOT NULL DEFAULT 'Neutral',
+    vita TEXT NOT NULL,
+    profile_json LONGTEXT NOT NULL,
+    yaml_path VARCHAR(255) NOT NULL,
+    json_path VARCHAR(255) NOT NULL,
+    png_path VARCHAR(255) NOT NULL DEFAULT '',
+    storage_dir VARCHAR(255) NOT NULL,
+    generation_status VARCHAR(40) NOT NULL DEFAULT 'generated',
+    last_error TEXT DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_character_profile_user (user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- Persistent login tokens (remember-me cookies)
 CREATE TABLE IF NOT EXISTS remember_tokens (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -273,7 +295,7 @@ CREATE TABLE IF NOT EXISTS leaders (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     name VARCHAR(64) NOT NULL,
-    role ENUM('colony_manager','fleet_commander','science_director') NOT NULL,
+    role ENUM('colony_manager','fleet_commander','science_director','diplomacy_officer','trade_director') NOT NULL,
     -- Assignment (at most one active assignment at a time)
     colony_id INT DEFAULT NULL,
     fleet_id  INT DEFAULT NULL,

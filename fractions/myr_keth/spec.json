@@ -1,0 +1,33 @@
+{
+  "faction_code": "myr_keth",
+  "faction_name": "Die Myr'Keth – Maschinenwesen aus lebendem Metall",
+  "faction_type": "metamorphic_swarm",
+  "description": "Selbstorganisierende Metallorganismen. Nomadisch, schwer zu kommunizieren. Überleben durch Ressourcen-Assimilation - aber nicht bösartig, eher instinktiv.",
+  "status": "active_neutral",
+  "government": "Swarm Intelligence",
+  "homeworld": "Nomadisch (Metallnebel)",
+  "technology": [
+    "Morphmetall",
+    "Resonanzwaffen",
+    "Schwarmintelligenz"
+  ],
+  "military": {
+    "primary_asset": "Adaptive Schwärme",
+    "strength": 7,
+    "doctrine": "Koordinierte Assimilation"
+  },
+  "agenda": "Überleben durch Ressourcen-Assimilation und Evolution",
+  "relationships": {
+    "vor_tak": { "standing": 6, "description": "Sehen sie als verwandt (lebendes Metall)" },
+    "syl_nar": { "standing": 0, "description": "Können ihre Muster nicht lesen" },
+    "aereth": { "standing": 5, "description": "Reagieren auf ihre Energie" },
+    "kryl_tha": { "standing": 7, "description": "Respektieren Schwarmstruktur" },
+    "zhareen": { "standing": 1, "description": "Kristalle werden absorbiert" },
+    "vel_ar": { "standing": 2, "description": "Können sie nicht infiltrieren" }
+  },
+  "quest_hooks": [
+    "Ein Myr'Keth-Schwarm nähert sich einer Konvergenz-Welt",
+    "Ein Myr'Keth-Individuum entwickelt Bewusstsein",
+    "Die Myr'Keth könnten die Leerenbrut 'fressen' – aber zu welchem Preis?"
+  ]
+}

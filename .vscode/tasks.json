@@ -65,6 +65,46 @@
         "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
+    },
+    {
+      "label": "Test: Leader E2E",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_leader_e2e.ps1",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: NPC Avatar + Leader Smoke",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/test_npc_avatar_leader_system.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test Data: Bulk Universe Seed",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/seed_test_universe.php --users=100 --npcs=20 --profiles=0",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test Data: Full Seed (One Click)",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/bootstrap_galaxy.php; docker compose exec -T web php scripts/backfill_star_system_metadata.php --all --batch=2000; Get-Content -Raw sql/migrate_gameplay_model_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v2.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v3.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v4.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; docker compose exec -T web php scripts/sync_faction_specs.php; Get-Content -Raw sql/test_gameplay_model_seed.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/test_gameplay_model_checks.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; docker compose exec -T web php scripts/seed_test_universe.php --users=100 --npcs=20 --profiles=0",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
     }
   ]
 }

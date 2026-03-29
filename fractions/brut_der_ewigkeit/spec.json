@@ -1,0 +1,33 @@
+{
+  "faction_code": "brut_der_ewigkeit",
+  "faction_name": "Die Brut der Ewigkeit – Biologischer Hive-Mind",
+  "faction_type": "biomechanical_hivemind",
+  "description": "Eine biologische Hive-Mind-Entität unbekannter Herkunft. Überraschend rational und bereit zu handeln. Könnte Verbündeter oder Bedrohung sein.",
+  "status": "active_unpredictable",
+  "government": "Unified Organic Consciousness",
+  "homeworld": "Ein riesiger organisches Schiff/Körper",
+  "technology": [
+    "Bio-Technologie-Fusion",
+    "Organische Naniten",
+    "Lebende Waffen-Systeme"
+  ],
+  "military": {
+    "primary_asset": "Organische Invasionsflotten",
+    "strength": 8,
+    "doctrine": "Assimilation und Symbiose"
+  },
+  "agenda": "Überleben und Wachstum des Hive-Mind; Potenzielle Symbioseverträge mit anderen Spezies",
+  "relationships": {
+    "vor_tak": { "standing": 2, "description": "Fasziniert von Hierarchie und Krieg" },
+    "syl_nar": { "standing": 6, "description": "Spirituelle Verbindung erkannt" },
+    "aereth": { "standing": 5, "description": "Energieform könnte fusioniert werden" },
+    "kryl_tha": { "standing": 9, "description": "Ähnliche Schwarm-Natur; diskutieren Zusammenarbeit" },
+    "zhareen": { "standing": 4, "description": "Kristalle sind 'interessant' zum Absorbieren" },
+    "vel_ar": { "standing": 7, "description": "Größte Chancen für Kontakt und Diplomatie" }
+  },
+  "quest_hooks": [
+    "Die Brut sendet Friedens-Signale - ist dies echt oder ein Trick?",
+    "Ein Hive-Unterling könnte im Sektor landen - muss verhandelt oder bekämpft werden",
+    "Die Brut bietet an, die Leerenbrut zu 'absorbieren' - aber zu welchem Preis?"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+    "username": "gq_seed_npc_0007",
+    "is_npc": true,
+    "race": "Velarian",
+    "profession": "Emissary of Peace",
+    "stance": "Neutral Diplomat",
+    "vita": "As a Velarian emissary hailing from the neutral star system, I have dedicated my life to fostering understanding and cooperation among conflicting factions. My presence in various galactic territories has been instrumental in brokering peace treaties during times of strife.",
+    "portrait_prompt": "A Velarian emissary with serene azure skin, reflecting the neutrality of my species' home system and their role as mediators. The transparent background symbolizes our transparency in diplomacy.",
+    "generated_at": "2026-03-29T15:42:29+00:00"
+}

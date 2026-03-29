@@ -1,0 +1,29 @@
+{
+  "faction_code": "echos_der_leere",
+  "faction_name": "Die Echos der Leere – Halb-intelligente Leerenkreaturen",
+  "faction_type": "void_manifestation",
+  "description": "Fragmentarische Manifestationen der Leerenbrut. Feindlich, aber nicht bösartig - sie 'hungern' nur.",
+  "status": "active_hostile",
+  "government": "Gestalt-Instinkt",
+  "homeworld": "Der Riss",
+  "technology": [],
+  "military": {
+    "primary_asset": "Entropie-Manipulation",
+    "strength": 9,
+    "doctrine": "Konsumption und Expansion"
+  },
+  "agenda": "Existieren, konsumieren, expandieren - reine Energie-Entropie",
+  "relationships": {
+    "vor_tak": { "standing": -10, "description": "Existenzielle Bedrohung" },
+    "syl_nar": { "standing": -10, "description": "Existenzielle Bedrohung" },
+    "aereth": { "standing": -10, "description": "Existenzielle Bedrohung" },
+    "kryl_tha": { "standing": -10, "description": "Existenzielle Bedrohung" },
+    "zhareen": { "standing": -10, "description": "Existenzielle Bedrohung" },
+    "vel_ar": { "standing": -10, "description": "Existenzielle Bedrohung" }
+  },
+  "quest_hooks": [
+    "Ein Echo imitiert einen NPC – perfekt, aber ohne Emotionen",
+    "Ein Echo 'verschmilzt' mit einem Aereth-Wissenschaftler",
+    "Ein Echo zeigt Erinnerungen aus der Zukunft"
+  ]
+}

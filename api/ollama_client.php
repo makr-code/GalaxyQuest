@@ -27,7 +27,7 @@ function ollama_is_local_url(string $baseUrl): bool {
     }
 
     $host = strtolower((string) ($parts['host'] ?? ''));
-    return in_array($host, ['127.0.0.1', 'localhost', '::1'], true);
+    return in_array($host, ['127.0.0.1', 'localhost', '::1', 'host.docker.internal'], true);
 }
 
 function ollama_chat(array $messages, array $options = []): array {
@@ -41,6 +41,10 @@ function ollama_chat(array $messages, array $options = []): array {
         'messages' => $messages,
         'stream' => false,
     ];
+
+    if (array_key_exists('format', $options) && $options['format'] !== null) {
+        $payload['format'] = $options['format'];
+    }
 
     if (isset($options['temperature'])) {
         $payload['options'] = ['temperature' => (float) $options['temperature']];

@@ -1,4 +1,8 @@
 /**
+ * @deprecated 2026-03-29 — In gameScripts auskommentiert (Postprocessing-Kette deaktiviert).
+ * Kann reaktiviert oder nach Entscheidung entfernt werden.
+ */
+/**
  * Post-Processing Effects Manager
  * Centralizes EffectComposer + all post-pass effects
  * Bloom, Vignette, Chromatic Aberration, etc.

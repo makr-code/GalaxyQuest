@@ -1,0 +1,33 @@
+{
+  "faction_code": "nomaden_des_rifts",
+  "faction_name": "Die Nomaden des Rifts – Dimensionswanderer",
+  "faction_type": "dimensional_nomadic",
+  "description": "Unbekannte Wesen die zwischen Dimensionen pendeln. Alte Träger von Wissen über den Riss und die Leerenbrut.",
+  "status": "active_mysterious",
+  "government": "Fluid Traveling Assembly",
+  "homeworld": "Der Zwischenraum",
+  "technology": [
+    "Dimensions-Technologie",
+    "Phasenverschiebungs-Waffen",
+    "Wahrscheinlichkeits-Manipulation"
+  ],
+  "military": {
+    "primary_asset": "Phasing-Kampftruppen",
+    "strength": 5,
+    "doctrine": "Guerrilla-Phasenwechsel"
+  },
+  "agenda": "Überleben des Rifts; Schutz der Dimensionen-Balance; Wissen bewahren",
+  "relationships": {
+    "vor_tak": { "standing": 3, "description": "Soldaten respektieren ihre Taktik" },
+    "syl_nar": { "standing": 7, "description": "Teilen mystische Sicht auf Dimensionen" },
+    "aereth": { "standing": 8, "description": "Verstehen Energie-Natur der Nomaden" },
+    "kryl_tha": { "standing": 2, "description": "Zu materialistisch" },
+    "zhareen": { "standing": 5, "description": "Kristalle resonieren mit Phasenshift" },
+    "vel_ar": { "standing": 9, "description": "Ähnliche phasenartige Natur" }
+  },
+  "quest_hooks": [
+    "Nomaden bringen Warnung: Der Riss expandiert schneller als erwartet",
+    "Ein uralter Nomaden-Arkiv enthält Karten des Leerenkerns",
+    "Die Nomaden kämpfen gegen etwas im Zwischenraum - etwas das auch in unsere Welt eindringt"
+  ]
+}
