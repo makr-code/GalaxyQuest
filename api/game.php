@@ -332,7 +332,32 @@ switch ($action) {
         }
         unset($col);
 
-        // Fleets
+        // Active planetary events per colony
+        $colonyEventsByColony = [];
+        try {
+            $ceStmt = $db->prepare(
+                'SELECT colony_id, event_type, started_at, expires_at
+                 FROM colony_events
+                 WHERE colony_id IN (SELECT id FROM colonies WHERE user_id = ?)
+                   AND expires_at > NOW()'
+            );
+            $ceStmt->execute([$uid]);
+            foreach ($ceStmt->fetchAll() as $ce) {
+                $expiry = strtotime($ce['expires_at']);
+                $colonyEventsByColony[(int)$ce['colony_id']] = [
+                    'type'       => $ce['event_type'],
+                    'started_at' => $ce['started_at'],
+                    'expires_at' => $ce['expires_at'],
+                    'ends_in_min' => max(0, (int)round(($expiry - time()) / 60)),
+                ];
+            }
+        } catch (Throwable $e) { /* pre-migration: no table */ }
+        foreach ($colonies as &$col) {
+            $col['active_event'] = $colonyEventsByColony[(int)$col['id']] ?? null;
+        }
+        unset($col);
+
+
         $fleetStmt = $db->prepare(
             'SELECT f.id, f.mission, f.origin_colony_id,
                     f.target_galaxy, f.target_system, f.target_position,

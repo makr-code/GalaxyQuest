@@ -41,6 +41,10 @@
         onClick: null,
         onDoubleClick: null,
       }, opts);
+      const hasExternalCanvas = typeof HTMLCanvasElement !== 'undefined'
+        && this.opts.externalCanvas instanceof HTMLCanvasElement;
+      this.externalCanvas = hasExternalCanvas ? this.opts.externalCanvas : null;
+      this.ownsRendererCanvas = !this.externalCanvas;
       this.debugEnabled = false;
       this.debugThrottleMs = 420;
       this._debugLastByKey = new Map();
@@ -66,13 +70,19 @@
       const h = Math.max(220, container.clientHeight);
 
       this.camera = new THREE.PerspectiveCamera(58, w / h, 0.1, 5000);
-      this.camera.position.set(0, 220, 620);
+      this.camera.position.set(238, 240, 341);
 
-      this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      this.renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: false,
+        canvas: this.externalCanvas || undefined,
+      });
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       this.renderer.setSize(w, h);
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-      container.appendChild(this.renderer.domElement);
+      if (this.ownsRendererCanvas) {
+        container.appendChild(this.renderer.domElement);
+      }
       this.texturePipeline = window.GQPlanetTexturePipeline
         ? new window.GQPlanetTexturePipeline({ size: 256, maxEntries: 128 })
         : null;
@@ -89,6 +99,13 @@
       this.controls.minDistance = 40;
       this.controls.maxDistance = 2400;
       this.controls.target.set(0, 0, 0);
+
+      // ── Post-Processing Effects ────────────────────────────────────────────
+      if (typeof PostEffectsManager !== 'undefined') {
+        this.postEffects = new PostEffectsManager(this.renderer, this.scene, this.camera);
+      } else {
+        this.postEffects = null;
+      }
 
       this.raycaster = new THREE.Raycaster();
       this.raycaster.params.Points.threshold = 8;
@@ -182,6 +199,7 @@
         systemExitToGalaxy: true,
       };
       this.followSelectionEnabled = true;
+      this.galacticCoreFxEnabled = true;
       this.focusDamping = {
         galaxy: 1.65,
         system: 2.1,
@@ -254,6 +272,7 @@
 
       this._buildGalaxyCoreStars();
       this._buildGalacticCore();
+      this._buildGalaxyBackgroundGlow();
       this._buildHoverMarker();
     }
 
@@ -340,9 +359,105 @@
       lensGlow.userData.kind = 'bh-lens';
       this.galacticCoreGroup.add(lensGlow);
 
-            // ── Accretion disk ────────────────────────────────────────────────────────
-            // Thin torus ring; orange-white gradient via vertex shader.
+      // ── Accretion disk (animated hot/cool ring) ─────────────────────────────────
       const diskMat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        uniforms: {
+          uTime: { value: 0 },
+          uInner: { value: 6.2 },
+          uOuter: { value: 26.0 },
+          uHotColor: { value: new THREE.Color(1.0, 0.72, 0.28) },
+          uCoolColor: { value: new THREE.Color(0.42, 0.70, 1.0) },
+        },
+        vertexShader: `
+                varying vec3 vPos;
+                void main() {
+                  vPos = position;
+                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }`,
+        fragmentShader: `
+                uniform float uTime;
+                uniform float uInner;
+                uniform float uOuter;
+                uniform vec3  uHotColor;
+                uniform vec3  uCoolColor;
+                varying vec3  vPos;
+
+                void main() {
+                  vec2  p = vPos.xz;
+                  float r = length(p);
+                  float ringIn  = smoothstep(uInner, uInner + 2.2, r);
+                  float ringOut = 1.0 - smoothstep(uOuter - 3.4, uOuter, r);
+                  float ring = ringIn * ringOut;
+                  if (ring < 0.001) discard;
+
+                  float ang   = atan(p.y, p.x);
+                  float swirl = 0.55 + 0.45 * sin(ang * 18.0 - uTime * 3.3 + r * 0.28);
+                  float heat  = exp(-(r - uInner) * 0.16);
+                  vec3  col   = mix(uCoolColor, uHotColor, clamp(heat, 0.0, 1.0));
+                  float alpha = ring * (0.16 + 0.50 * swirl) * (0.35 + 0.65 * heat);
+                  gl_FragColor = vec4(col, alpha);
+                }`,
+      });
+      const accretionDisk = new THREE.Mesh(new THREE.RingGeometry(6.2, 26.0, 96, 1), diskMat);
+      accretionDisk.rotation.x = Math.PI / 2;
+      accretionDisk.userData.kind = 'bh-accretion-disk';
+      this.galacticCoreGroup.add(accretionDisk);
+
+      // ── Hawking flare (core pulse sprite) ───────────────────────────────────────
+      const flareCanvas = document.createElement('canvas');
+      flareCanvas.width = 128;
+      flareCanvas.height = 128;
+      const flareCtx = flareCanvas.getContext('2d');
+      const flareCenter = flareCanvas.width / 2;
+      const flareGrad = flareCtx.createRadialGradient(flareCenter, flareCenter, 0, flareCenter, flareCenter, flareCenter);
+      flareGrad.addColorStop(0.0, 'rgba(255,252,228,0.95)');
+      flareGrad.addColorStop(0.22, 'rgba(255,206,120,0.72)');
+      flareGrad.addColorStop(0.55, 'rgba(255,130,46,0.22)');
+      flareGrad.addColorStop(1.0, 'rgba(255,130,46,0.00)');
+      flareCtx.fillStyle = flareGrad;
+      flareCtx.fillRect(0, 0, flareCanvas.width, flareCanvas.height);
+      const flareTexture = new THREE.CanvasTexture(flareCanvas);
+      const flareMat = new THREE.SpriteMaterial({
+        map: flareTexture,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        opacity: 0.66,
+      });
+      const flareSprite = new THREE.Sprite(flareMat);
+      flareSprite.scale.setScalar(26);
+      flareSprite.userData.kind = 'hawking-flare';
+      flareSprite.userData.baseScale = 26;
+      flareSprite.userData.phase = Math.random() * Math.PI * 2;
+      this.galacticCoreGroup.add(flareSprite);
+
+      // ── Relativistic jets ─────────────────────────────────────────────────────────
+      this._buildJet(1);
+      this._buildJet(-1);
+
+            // ── Central point-source label (for information overlay) ─────────────────
+      this.galacticCoreGroup.userData.isCoreGroup = true;
+    }
+
+    /**
+     * Build the galaxy background glow: a large horizontal disk with a
+     * 4-arm logarithmic spiral shader (matching the PHP generator: 4 arms,
+     * pitch 14°) plus multi-layer centre-bulge sprites that simulate the
+     * warm overexposure seen in long-exposure Milky Way photographs.
+     */
+    _buildGalaxyBackgroundGlow() {
+      this.galaxyGlowGroup = new THREE.Group();
+      this.galaxyGlowGroup.frustumCulled = false;
+      this.renderFrames.galaxy.add(this.galaxyGlowGroup);
+
+      // ── 1. Spiral-disk glow plane ──────────────────────────────────────────
+      // A large circle in the XZ plane (rotated -90° on X) whose fragment
+      // shader evaluates the logarithmic spiral and bulge functions.
+      const diskGlowMat = new THREE.ShaderMaterial({
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
@@ -351,38 +466,102 @@
           uTime: { value: 0 },
         },
         vertexShader: `
-                varying vec2 vUv;
-                void main() {
-                  vUv = uv;
-                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }`,
+          varying vec2 vUV;
+          void main() {
+            vUV = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
         fragmentShader: `
-                uniform float uTime;
-                varying vec2 vUv;
-                void main() {
-                  float angle = atan(vUv.y - 0.5, vUv.x - 0.5);
-                  float swirl = sin(angle * 6.0 - uTime * 1.4) * 0.5 + 0.5;
-                  float fade  = smoothstep(0.0, 0.18, vUv.x) * smoothstep(1.0, 0.82, vUv.x);
-                  vec3  col   = mix(vec3(1.0, 0.55, 0.10), vec3(1.0, 0.92, 0.62), swirl);
-                  gl_FragColor = vec4(col, fade * (0.55 + swirl * 0.30));
-                }`,
+          uniform float uTime;
+          varying vec2  vUV;
+          void main() {
+            // Map UV [0,1]^2 → centred [-1,1]^2; r = 0 (centre) … 1 (edge)
+            vec2  uv    = vUV * 2.0 - 1.0;
+            float r     = length(uv);
+            if (r > 1.0) discard;
+            float theta = atan(uv.y, uv.x);   // -pi … +pi
+
+            // ── 4-arm log spiral (pitch 14°, b = tan 14° ≈ 0.2493) ─────────
+            // Phase = 4·(θ − ln(r)/b)  →  cos = 1 means "on an arm"
+            float b        = 0.2493;
+            float armPhase = 4.0 * theta - (4.0 / b) * log(max(r, 0.001));
+            float armNear  = pow(max(0.0, 0.5 + 0.5 * cos(armPhase)), 7.0);
+            // Arms only visible in the disk region (not bulge, not outer edge)
+            float armMask  = smoothstep(0.06, 0.15, r) * smoothstep(0.97, 0.52, r);
+            float armGlow  = armNear * armMask;
+
+            // ── Galactic bulge (warm overexposed nucleus) ───────────────────
+            float bulgeCore = exp(-r * 9.0);          // tight inner core
+            float bulgeWide = exp(-r * 3.0) * 0.48;   // extended warm haze
+            float bulge     = bulgeCore + bulgeWide;
+
+            // ── Faint outer disk haze ───────────────────────────────────────
+            float diskHaze  = smoothstep(1.0, 0.25, r) * 0.05;
+
+            // ── Colour palette ──────────────────────────────────────────────
+            vec3 cBulge = vec3(1.00, 0.72, 0.33);  // warm orange-yellow
+            vec3 cArm   = vec3(0.45, 0.66, 1.00);  // blue-white OB stars
+            vec3 cDisk  = vec3(0.20, 0.28, 0.58);  // faint interarm blue
+
+            vec3 color  = mix(cDisk, cArm, armGlow * 0.92);
+            color       = mix(color, cBulge, clamp(bulge * 1.5, 0.0, 1.0));
+
+            float intensity = bulge * 0.68 + armGlow * (1.0 - bulgeCore) * 0.44 + diskHaze;
+            float alpha     = clamp(intensity * 0.50, 0.0, 0.60);
+            if (alpha < 0.002) discard;
+
+            gl_FragColor = vec4(color * intensity, alpha);
+          }
+        `,
       });
-      const diskGeo = new THREE.RingGeometry(5.8, 18.0, 128, 4);
-      const disk = new THREE.Mesh(diskGeo, diskMat);
-      disk.rotation.x = Math.PI / 2;
-      disk.userData.kind = 'bh-disk';
-      this.galacticCoreGroup.add(disk);
 
-            // ── Relativistic jets (Hawking tribute) ───────────────────────────────────
-            // Bipolar particle streams along the galactic rotation axis (y in Three.js).
-            // Modelled after AGN relativistic jets — a consequence of the ergosphere
-            // spin-energy extraction mechanism that Hawking's thermodynamic framework
-            // helped explain. Each jet is an animated particle cloud.
-          this._buildJet(+1);  // north jet
-          this._buildJet(-1);  // south jet
+      const diskGeo  = new THREE.CircleGeometry(1390.0, 192);
+      const diskMesh = new THREE.Mesh(diskGeo, diskGlowMat);
+      diskMesh.rotation.x    = -Math.PI / 2;
+      diskMesh.renderOrder   = -2;
+      diskMesh.userData.kind = 'galaxy-disk-glow';
+      diskMesh.frustumCulled = false;
+      this.galaxyGlowGroup.add(diskMesh);
+      this.galaxyDiskGlow = diskMesh;
 
-            // ── Central point-source label (for information overlay) ─────────────────
-      this.galacticCoreGroup.userData.isCoreGroup = true;
+      // ── 2. Centre-bulge sprites (multi-layer soft glow) ───────────────────
+      // Layered canvas-texture sprites that simulate the warm diffraction glow
+      // of the galactic nucleus in long-exposure astrophotography.
+      const glowLayers = [
+        { sceneRadius: 590, rgb: [255, 228, 142], peakA: 0.09 },  // wide warm halo
+        { sceneRadius: 295, rgb: [255, 242, 182], peakA: 0.18 },  // mid glow
+        { sceneRadius: 122, rgb: [255, 252, 222], peakA: 0.35 },  // bright core
+        { sceneRadius:  38, rgb: [255, 255, 252], peakA: 0.64 },  // stellar nucleus
+      ];
+      this.galaxyCenterGlowSprites = [];
+      glowLayers.forEach((layer) => {
+        const sz  = 256;
+        const cvs = document.createElement('canvas');
+        cvs.width = sz; cvs.height = sz;
+        const ctx = cvs.getContext('2d');
+        const cx  = sz / 2;
+        const [r, g, b] = layer.rgb;
+        const grad = ctx.createRadialGradient(cx, cx, 0, cx, cx, cx);
+        grad.addColorStop(0,    `rgba(${r},${g},${b},${layer.peakA.toFixed(3)})`);
+        grad.addColorStop(0.30, `rgba(${r},${g},${b},${(layer.peakA * 0.36).toFixed(3)})`);
+        grad.addColorStop(0.65, `rgba(${r},${g},${b},${(layer.peakA * 0.07).toFixed(3)})`);
+        grad.addColorStop(1,    `rgba(${r},${g},${b},0)`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, sz, sz);
+        const tex = new THREE.CanvasTexture(cvs);
+        const mat = new THREE.SpriteMaterial({
+          map: tex, transparent: true,
+          depthWrite: false, blending: THREE.AdditiveBlending,
+        });
+        const sprite = new THREE.Sprite(mat);
+        sprite.scale.setScalar(layer.sceneRadius);
+        sprite.renderOrder   = -1;
+        sprite.frustumCulled = false;
+        sprite.userData.kind = 'galaxy-center-glow';
+        this.galaxyGlowGroup.add(sprite);
+        this.galaxyCenterGlowSprites.push(sprite);
+      });
     }
 
     /**
@@ -553,11 +732,14 @@
           varying vec3 vColor;
           varying float vAlpha;
           void main() {
-            vec2 uv = gl_PointCoord - vec2(0.5);
-            float r2 = dot(uv, uv);
+            vec2  uv   = gl_PointCoord - vec2(0.5);
+            float r2   = dot(uv, uv);
             if (r2 > 0.25) discard;
+            float r    = sqrt(r2);
             float core = smoothstep(0.24, 0.0, r2);
-            gl_FragColor = vec4(vColor * (0.52 + core * 0.68), vAlpha * core);
+            // Soft diffraction halo (simulates long-exposure star bloom)
+            float halo = exp(-r * 7.5) * 0.32;
+            gl_FragColor = vec4(vColor * (0.52 + core * 0.68 + halo * 0.45), vAlpha * (core + halo * 0.42));
           }
         `,
       });
@@ -2297,6 +2479,7 @@
       if (this.coreStars) this.coreStars.visible = true;
       if (this.galacticCoreGroup) this.galacticCoreGroup.visible = true;
       if (this.halo) this.halo.visible = true;
+      if (this.galaxyGlowGroup) this.galaxyGlowGroup.visible = true;
       if (this.grid) this.grid.visible = true;
       if (this.hoverMarker) this.hoverMarker.visible = false;
       this._syncClusterAuraTransform();
@@ -2331,6 +2514,7 @@
       if (this.coreStars) this.coreStars.visible = false;
       if (this.galacticCoreGroup) this.galacticCoreGroup.visible = false;
       if (this.halo) this.halo.visible = false;
+      if (this.galaxyGlowGroup) this.galaxyGlowGroup.visible = false;
       if (this.grid) this.grid.visible = false;
       if (this.hoverMarker) this.hoverMarker.visible = false;
       this._syncClusterAuraTransform();
@@ -2637,6 +2821,16 @@
       window.addEventListener('keydown', this._onKeyDown);
       window.addEventListener('keyup', this._onKeyUp);
       window.addEventListener('resize', this._onResizeBound);
+      if (typeof ResizeObserver !== 'undefined') {
+        try {
+          this._containerResizeObserver = new ResizeObserver(() => {
+            this._onResize();
+          });
+          this._containerResizeObserver.observe(this.container);
+        } catch (_) {
+          this._containerResizeObserver = null;
+        }
+      }
     }
 
     _handleMouseDown(e) {
@@ -2793,10 +2987,14 @@
       const hFov = 2 * Math.atan(Math.tan(fov / 2) * this.camera.aspect);
       const distV = radius / Math.tan(fov / 2);
       const distH = radius / Math.tan(hFov / 2);
-      const distance = Math.max(distV, distH) * 1.22;
+      // resetDirection (initial view): tighter zoom to center; free pan: keep full coverage
+      const distanceMult = resetDirection ? 0.72 : 1.22;
+      const distance = Math.max(distV, distH) * distanceMult;
 
       const dir = this.camera.position.clone().sub(this.controls.target);
-      const defaultViewDir = new THREE.Vector3(0.819, 1.0, 0.574).normalize();
+      // defaultViewDir: 30° elevation above the galactic plane, slight azimuth offset
+      // elevation=30° → y=sin30°=0.5, xz-factor=cos30°≈0.866; azimuth≈35° in XZ
+      const defaultViewDir = new THREE.Vector3(0.497, 0.500, 0.710).normalize();
       const n = resetDirection
         ? defaultViewDir
         : (dir.length() > 0.001 ? dir.normalize() : defaultViewDir);
@@ -3191,9 +3389,16 @@
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(w, h);
+      if (this.postEffects) {
+        this.postEffects.resize(w, h);
+      }
       if (this.autoFrameEnabled && this.starPoints) {
         this.fitCameraToStars(false);
       }
+    }
+
+    resize() {
+      this._onResize();
     }
 
     _clusterStars(stars, targetPoints = 6000) {
@@ -3437,27 +3642,27 @@
         positions[p + 2] = (Number(s.y_ly) || 0) * scale;
 
         const c = classColor[s.spectral_class] || [0.85, 0.88, 1.0];
-        // Fog of War: dim stars based on visibility level
-        const fowLevel = s.visibility_level || 'unknown';
-        // own/active → full brightness; stale → 50%; unknown → 18% grey-blue
-        if (fowLevel === 'own' || fowLevel === 'active') {
-          colors[p + 0] = c[0];
-          colors[p + 1] = c[1];
-          colors[p + 2] = c[2];
-        } else if (fowLevel === 'stale') {
-          colors[p + 0] = c[0] * 0.50;
-          colors[p + 1] = c[1] * 0.50;
-          colors[p + 2] = c[2] * 0.52;
-        } else {
-          // unknown — neutral grey-blue, barely perceptible
-          colors[p + 0] = 0.20;
-          colors[p + 1] = 0.21;
-          colors[p + 2] = 0.26;
-        }
+        // Fog of War: keep unknown/stale systems visibly present in the galactic map.
+        const fowLevel = String(s.visibility_level || 'unknown');
+        let fowMul = 0.62;
+        if (fowLevel === 'own' || fowLevel === 'active') fowMul = 1.0;
+        else if (fowLevel === 'stale') fowMul = 0.78;
+
+        const ambient = 0.16;
+        colors[p + 0] = Math.min(1, c[0] * fowMul + ambient);
+        colors[p + 1] = Math.min(1, c[1] * fowMul + ambient);
+        colors[p + 2] = Math.min(1, c[2] * fowMul + ambient * 1.08);
 
         const relClass = { O: 2.4, B: 1.9, A: 1.5, F: 1.2, G: 1.0, K: 0.85, M: 0.72 };
         const clusterBoost = Math.min(2.2, 1 + Math.log2(Math.max(1, Number(s.cluster_size || 1))) * 0.24);
-        sizes[i] = (3.1 * (relClass[s.spectral_class] || 1.0)) * clusterBoost;
+        const baseSize = (3.1 * (relClass[s.spectral_class] || 1.0)) * clusterBoost;
+        if (fowLevel === 'unknown') {
+          sizes[i] = Math.max(4.4, baseSize);
+        } else if (fowLevel === 'stale') {
+          sizes[i] = Math.max(3.8, baseSize);
+        } else {
+          sizes[i] = Math.max(3.2, baseSize);
+        }
       }
 
       const geo = new THREE.BufferGeometry();
@@ -3470,7 +3675,7 @@
 
       const material = new THREE.ShaderMaterial({
         transparent: true,
-        depthTest: true,
+        depthTest: false,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
         uniforms: {
@@ -3491,10 +3696,14 @@
           void main() {
             vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
             float dist = max(1.0, -mvPosition.z);
-            gl_PointSize = max(1.2, aSize * uPointScale / dist);
+            // Stars closer to galactic centre render slightly larger/brighter,
+            // mimicking the luminosity-density gradient of the bulge region.
+            float rScene      = length(position.xz);
+            float centerBoost = 1.0 + 0.85 * exp(-rScene * 0.016);
+            gl_PointSize = max(2.2, aSize * centerBoost * uPointScale / dist);
             gl_Position = projectionMatrix * mvPosition;
             vColor = aColor;
-            vAlpha = clamp(0.30 + (aSize / 12.0), 0.24, 0.76);
+            vAlpha = clamp((0.30 + (aSize / 12.0)) * (0.82 + centerBoost * 0.18), 0.24, 0.90);
             vEmpire = aEmpire;
           }
         `,
@@ -3521,15 +3730,69 @@
             float beat = 0.5 + 0.5 * sin(uHeartbeatPhase);
             float empirePulse = vEmpire * uHeartbeatStrength;
             vec3 pulseColor = mix(shifted, vec3(0.86, 0.95, 1.0), empirePulse * (0.35 + beat * 0.55));
-            float pulseAlpha = vAlpha * core + empirePulse * (0.10 + beat * 0.15);
+            // Soft bloom halo around each star (astrophoto diffraction ring)
+            float halo = exp(-sqrt(r2) * 9.0) * 0.24;
+            float pulseAlpha = vAlpha * (core + halo * 0.55) + empirePulse * (0.10 + beat * 0.15);
 
-            gl_FragColor = vec4(pulseColor * (0.50 + core * 0.52), pulseAlpha);
+            gl_FragColor = vec4(pulseColor * (0.50 + core * 0.52 + halo * 0.28), pulseAlpha);
           }
         `,
       });
 
       this.starPoints = new THREE.Points(geo, material);
+      try {
+        this.renderer.compile(this.starPoints, this.renderFrames.galaxy);
+      } catch (shaderErr) {
+        // Fallback: replace with simple PointsMaterial if shader compilation fails
+        try {
+          material.dispose();
+        } catch (_) {}
+        const fallbackMaterial = new THREE.PointsMaterial({
+          color: 0xffffff,
+          size: 2.0,
+          sizeAttenuation: true,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthTest: false,
+          depthWrite: false,
+        });
+        this.starPoints.material = fallbackMaterial;
+        try {
+          if (window.GQLog && typeof window.GQLog.warn === 'function') {
+            window.GQLog.warn('[galaxy] star shader compilation failed, using fallback PointsMaterial');
+          }
+        } catch (_) {}
+      }
+      this.starPoints.frustumCulled = false;
+      this.starPoints.renderOrder = 6;
+      
+      // Debug: check if starPoints is already in the scene
+      const beforeAdd = this.renderFrames.galaxy.children.includes(this.starPoints);
       this.renderFrames.galaxy.add(this.starPoints);
+      const afterAdd = this.renderFrames.galaxy.children.includes(this.starPoints);
+
+      const visibleCount = Array.isArray(this.visibleStars) ? this.visibleStars.length : 0;
+      try {
+        if (window.GQLog && typeof window.GQLog.info === 'function') {
+          window.GQLog.info(`[galaxy] stars rendered: ${visibleCount} visible points (${this.starPoints.material.constructor.name}) visible=${this.starPoints.visible} sceneHas=${afterAdd}`);
+        }
+      } catch (_) {}
+      
+      // Force visibility on starPoints
+      try {
+        this.starPoints.visible = true;
+        if (this.starPoints.material) {
+          this.starPoints.material.visible = true;
+          if (this.starPoints.material.uniforms) {
+            Object.values(this.starPoints.material.uniforms).forEach(u => {
+              if (u && typeof u === 'object') {
+                u.needsUpdate = true;
+              }
+            });
+          }
+        }
+        this.renderFrames.galaxy.visible = true;
+      } catch (_) {}
 
       if (!preserveView) {
         const bs = geo.boundingSphere;
@@ -3835,6 +4098,22 @@
       return !!this.clusterBoundsVisible;
     }
 
+    setGalacticCoreFxEnabled(enabled) {
+      this.galacticCoreFxEnabled = !!enabled;
+      if (!this.galacticCoreGroup) return this.galacticCoreFxEnabled;
+      this.galacticCoreGroup.traverse((child) => {
+        const kind = String(child.userData?.kind || '');
+        if (kind === 'bh-accretion-disk' || kind === 'hawking-flare' || kind === 'jet' || kind === 'bh-lens') {
+          child.visible = this.galacticCoreFxEnabled;
+        }
+      });
+      return this.galacticCoreFxEnabled;
+    }
+
+    areGalacticCoreFxEnabled() {
+      return !!this.galacticCoreFxEnabled;
+    }
+
     enableMagneticHover(enabled) {
       this.hoverMagnetEnabled = !!enabled;
       this.persistHoverMagnetConfig();
@@ -3940,7 +4219,8 @@
     _galaxySpinSpeeds() {
       const distance = this._cameraDistance();
       const t = THREE.MathUtils.clamp((distance - 95) / (860 - 95), 0, 1);
-      const outer = THREE.MathUtils.lerp(0.009, 0.021, t);
+      // Negative sign: rotate in the same visual direction as the wound spiral arms.
+      const outer = -THREE.MathUtils.lerp(0.009, 0.021, t);
       return {
         outer,
         core: outer * 1.55,
@@ -4147,9 +4427,20 @@
                     if (child.material?.uniforms?.uTime !== undefined) {
                       child.material.uniforms.uTime.value += dt;
                     }
+                    if (child.userData?.kind === 'hawking-flare' && child.material) {
+                      const phase = Number(child.userData.phase || 0);
+                      const baseScale = Number(child.userData.baseScale || 26);
+                      const pulse = 0.78 + 0.22 * Math.sin(this.clock.elapsedTime * 2.7 + phase);
+                      child.scale.setScalar(baseScale * pulse);
+                      child.material.opacity = 0.48 + 0.34 * pulse;
+                    }
                   });
                 }
         if (this.halo) this.halo.rotation.z += dt * spin.halo;
+        // Animate spiral-disk glow shader (slow drift for nebula effect)
+        if (this.galaxyDiskGlow?.material?.uniforms?.uTime) {
+          this.galaxyDiskGlow.material.uniforms.uTime.value = this.clock.elapsedTime;
+        }
         this.heartbeatPhase += dt * 4.2;
         if (this.starPoints?.material?.uniforms?.uHeartbeatPhase) {
           this.starPoints.material.uniforms.uHeartbeatPhase.value = this.heartbeatPhase;
@@ -4278,7 +4569,12 @@
       this._handleZoomThresholdTransitions();
       this._updateHoverMarker();
       this.controls.update();
-      this.renderer.render(this.scene, this.camera);
+      
+      if (this.postEffects) {
+        this.postEffects.render();
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
 
       if (!this.systemMode && typeof this.opts.onHover === 'function') {
         const activeClusterIndex = this.hoverClusterIndex >= 0 ? this.hoverClusterIndex : this.selectedClusterIndex;
@@ -4299,6 +4595,12 @@
     destroy() {
       this.destroyed = true;
       window.removeEventListener('resize', this._onResizeBound);
+      if (this._containerResizeObserver) {
+        try {
+          this._containerResizeObserver.disconnect();
+        } catch (_) {}
+        this._containerResizeObserver = null;
+      }
       this.renderer.domElement.removeEventListener('mousemove', this._onMouseMove);
       this.renderer.domElement.removeEventListener('click', this._onClick);
       this.renderer.domElement.removeEventListener('dblclick', this._onDoubleClick);
@@ -4334,7 +4636,7 @@
         this.hoverMarker.material.map?.dispose();
         this.hoverMarker.material.dispose();
       }
-      if (this.renderer.domElement.parentNode === this.container) {
+      if (this.ownsRendererCanvas && this.renderer.domElement.parentNode === this.container) {
         this.container.removeChild(this.renderer.domElement);
       }
     }

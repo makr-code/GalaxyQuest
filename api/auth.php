@@ -152,11 +152,24 @@ function handle_login(): void {
 }
 
 function handle_logout(): void {
+    // Verify CSRF token for security
+    verify_csrf();
+    
+    // Clear remember-me token from DB and cookie
     revoke_remember_me_token_from_cookie();
+    
+    // Start and clear session data
     session_start_secure();
     $_SESSION = [];
+    
+    // Explicitly delete session cookie
+    clear_session_cookies();
+    
+    // Destroy session on server
     session_destroy();
-    json_ok();
+    
+    // Confirm logout to client
+    json_ok(['message' => 'Logged out successfully']);
 }
 
 function handle_me(): void {

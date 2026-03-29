@@ -80,6 +80,22 @@ function ensure_star_system_columns(PDO $db): void {
     }
 
     $columns = [
+        'stellar_type' => "ALTER TABLE star_systems ADD COLUMN stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') NOT NULL DEFAULT 'main_sequence'",
+        'age_gyr' => "ALTER TABLE star_systems ADD COLUMN age_gyr DECIMAL(4,2) NOT NULL DEFAULT 5.0",
+        'metallicity_z' => "ALTER TABLE star_systems ADD COLUMN metallicity_z DECIMAL(6,4) NOT NULL DEFAULT 0.0200",
+        'is_binary' => "ALTER TABLE star_systems ADD COLUMN is_binary TINYINT(1) NOT NULL DEFAULT 0",
+        'is_circumbinary' => "ALTER TABLE star_systems ADD COLUMN is_circumbinary TINYINT(1) NOT NULL DEFAULT 0",
+        'companion_stellar_type' => "ALTER TABLE star_systems ADD COLUMN companion_stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') DEFAULT NULL",
+        'companion_spectral_class' => "ALTER TABLE star_systems ADD COLUMN companion_spectral_class VARCHAR(4) DEFAULT NULL",
+        'companion_subtype' => "ALTER TABLE star_systems ADD COLUMN companion_subtype TINYINT UNSIGNED DEFAULT NULL",
+        'companion_luminosity_class' => "ALTER TABLE star_systems ADD COLUMN companion_luminosity_class VARCHAR(4) DEFAULT NULL",
+        'companion_mass_solar' => "ALTER TABLE star_systems ADD COLUMN companion_mass_solar DOUBLE DEFAULT NULL",
+        'companion_radius_solar' => "ALTER TABLE star_systems ADD COLUMN companion_radius_solar DOUBLE DEFAULT NULL",
+        'companion_temperature_k' => "ALTER TABLE star_systems ADD COLUMN companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL",
+        'companion_luminosity_solar' => "ALTER TABLE star_systems ADD COLUMN companion_luminosity_solar DOUBLE DEFAULT NULL",
+        'companion_separation_au' => "ALTER TABLE star_systems ADD COLUMN companion_separation_au DOUBLE DEFAULT NULL",
+        'companion_eccentricity' => "ALTER TABLE star_systems ADD COLUMN companion_eccentricity DOUBLE DEFAULT NULL",
+        'stability_critical_au' => "ALTER TABLE star_systems ADD COLUMN stability_critical_au DOUBLE DEFAULT NULL",
         'catalog_name' => "ALTER TABLE star_systems ADD COLUMN catalog_name VARCHAR(32) NOT NULL DEFAULT ''",
         'planet_count' => "ALTER TABLE star_systems ADD COLUMN planet_count TINYINT UNSIGNED NOT NULL DEFAULT 0",
     ];
@@ -97,6 +113,91 @@ function ensure_star_system_columns(PDO $db): void {
     }
 
     $done = true;
+}
+
+function ensure_binary_systems_table(PDO $db): void {
+    static $done = false;
+    if ($done) {
+        return;
+    }
+
+    $db->exec(
+        "CREATE TABLE IF NOT EXISTS binary_systems (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            primary_star_system_id INT NOT NULL UNIQUE,
+            is_circumbinary TINYINT(1) NOT NULL DEFAULT 0,
+            companion_stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') DEFAULT NULL,
+            companion_spectral_class VARCHAR(4) DEFAULT NULL,
+            companion_subtype TINYINT UNSIGNED DEFAULT NULL,
+            companion_luminosity_class VARCHAR(4) DEFAULT NULL,
+            companion_mass_solar DOUBLE DEFAULT NULL,
+            companion_radius_solar DOUBLE DEFAULT NULL,
+            companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL,
+            companion_luminosity_solar DOUBLE DEFAULT NULL,
+            separation_au DOUBLE NOT NULL DEFAULT 1.0,
+            eccentricity DOUBLE NOT NULL DEFAULT 0.0,
+            stability_critical_au DOUBLE DEFAULT NULL,
+            mass_ratio DOUBLE DEFAULT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            FOREIGN KEY (primary_star_system_id) REFERENCES star_systems(id) ON DELETE CASCADE,
+            INDEX idx_binary_sep (separation_au),
+            INDEX idx_binary_type (companion_stellar_type)
+        ) ENGINE=InnoDB"
+    );
+
+    $done = true;
+}
+
+function upsert_binary_system_row(PDO $db, int $starSystemId, array $system): void {
+    $isBinary = !empty($system['is_binary']);
+    if (!$isBinary) {
+        $db->prepare('DELETE FROM binary_systems WHERE primary_star_system_id = ?')->execute([$starSystemId]);
+        return;
+    }
+
+    $m1 = max(0.08, (float)($system['mass_solar'] ?? 1.0));
+    $m2 = max(0.08, (float)($system['companion_mass_solar'] ?? 0.4));
+    $massRatio = round($m2 / max(0.16, $m1 + $m2), 6);
+
+    $db->prepare(
+        'INSERT INTO binary_systems
+             (primary_star_system_id, is_circumbinary,
+              companion_stellar_type, companion_spectral_class, companion_subtype, companion_luminosity_class,
+              companion_mass_solar, companion_radius_solar, companion_temperature_k, companion_luminosity_solar,
+              separation_au, eccentricity, stability_critical_au, mass_ratio)
+         VALUES (?,?,?,?,?, ?,?,?,?, ?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE
+             is_circumbinary = VALUES(is_circumbinary),
+             companion_stellar_type = VALUES(companion_stellar_type),
+             companion_spectral_class = VALUES(companion_spectral_class),
+             companion_subtype = VALUES(companion_subtype),
+             companion_luminosity_class = VALUES(companion_luminosity_class),
+             companion_mass_solar = VALUES(companion_mass_solar),
+             companion_radius_solar = VALUES(companion_radius_solar),
+             companion_temperature_k = VALUES(companion_temperature_k),
+             companion_luminosity_solar = VALUES(companion_luminosity_solar),
+             separation_au = VALUES(separation_au),
+             eccentricity = VALUES(eccentricity),
+             stability_critical_au = VALUES(stability_critical_au),
+             mass_ratio = VALUES(mass_ratio),
+             updated_at = CURRENT_TIMESTAMP'
+    )->execute([
+        $starSystemId,
+        !empty($system['is_circumbinary']) ? 1 : 0,
+        (string)($system['companion_stellar_type'] ?? ''),
+        (string)($system['companion_spectral_class'] ?? ''),
+        $system['companion_subtype'] !== null ? (int)$system['companion_subtype'] : null,
+        (string)($system['companion_luminosity_class'] ?? ''),
+        $system['companion_mass_solar'] !== null ? (float)$system['companion_mass_solar'] : null,
+        $system['companion_radius_solar'] !== null ? (float)$system['companion_radius_solar'] : null,
+        $system['companion_temperature_k'] !== null ? (int)$system['companion_temperature_k'] : null,
+        $system['companion_luminosity_solar'] !== null ? (float)$system['companion_luminosity_solar'] : null,
+        (float)($system['companion_separation_au'] ?? 1.0),
+        (float)($system['companion_eccentricity'] ?? 0.0),
+        $system['stability_critical_au'] !== null ? (float)$system['stability_critical_au'] : null,
+        $massRatio,
+    ]);
 }
 
 // ============================================================================
@@ -963,7 +1064,13 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
             'radius_solar' => (float)$row['radius_solar'],
             'temperature_k' => (int)$row['temperature_k'],
             'luminosity_solar' => (float)$row['luminosity_solar'],
-        ], $galaxyIdx, $systemIdx, (string)$row['name']);
+        ], $galaxyIdx, $systemIdx, (string)$row['name'], [
+            'is_binary' => !empty($row['is_binary']) ? 1 : 0,
+            'is_circumbinary' => !empty($row['is_circumbinary']) ? 1 : 0,
+            'companion_mass_solar' => $row['companion_mass_solar'] ?? null,
+            'companion_separation_au' => $row['companion_separation_au'] ?? null,
+            'companion_eccentricity' => $row['companion_eccentricity'] ?? null,
+        ]);
 
         $planetCount = count($system['planets']);
         if (!isset($system['catalog_name']) || (string)$system['catalog_name'] === '') {
@@ -987,6 +1094,7 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
         if ($seedPlanets) {
             upsert_generated_planets($db, $galaxyIdx, $systemIdx, (int)$row['id'], $system['planets']);
         }
+        upsert_binary_system_row($db, (int)$row['id'], $system);
         return $system;
     }
 
@@ -996,8 +1104,13 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
              (galaxy_index, system_index, x_ly, y_ly, z_ly,
               spectral_class, subtype, luminosity_class,
               mass_solar, radius_solar, temperature_k, luminosity_solar,
-                hz_inner_au, hz_outer_au, frost_line_au, name, catalog_name, planet_count)
-            VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?,?,?,?)
+              age_gyr, metallicity_z, stellar_type,
+                            is_binary, is_circumbinary,
+                            companion_stellar_type, companion_spectral_class, companion_subtype, companion_luminosity_class,
+                            companion_mass_solar, companion_radius_solar, companion_temperature_k, companion_luminosity_solar,
+                            companion_separation_au, companion_eccentricity, stability_critical_au,
+              hz_inner_au, hz_outer_au, frost_line_au, name, catalog_name, planet_count)
+                        VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?, ?,?, ?,?,?,?, ?,?,?,?, ?,?, ?,?,?,?,?,?,?)
          ON DUPLICATE KEY UPDATE
             x_ly = VALUES(x_ly),
             y_ly = VALUES(y_ly),
@@ -1009,6 +1122,22 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
             radius_solar = VALUES(radius_solar),
             temperature_k = VALUES(temperature_k),
             luminosity_solar = VALUES(luminosity_solar),
+            age_gyr = VALUES(age_gyr),
+            metallicity_z = VALUES(metallicity_z),
+            stellar_type = VALUES(stellar_type),
+            is_binary = VALUES(is_binary),
+            is_circumbinary = VALUES(is_circumbinary),
+            companion_stellar_type = VALUES(companion_stellar_type),
+            companion_spectral_class = VALUES(companion_spectral_class),
+            companion_subtype = VALUES(companion_subtype),
+            companion_luminosity_class = VALUES(companion_luminosity_class),
+            companion_mass_solar = VALUES(companion_mass_solar),
+            companion_radius_solar = VALUES(companion_radius_solar),
+            companion_temperature_k = VALUES(companion_temperature_k),
+            companion_luminosity_solar = VALUES(companion_luminosity_solar),
+            companion_separation_au = VALUES(companion_separation_au),
+            companion_eccentricity = VALUES(companion_eccentricity),
+            stability_critical_au = VALUES(stability_critical_au),
             hz_inner_au = VALUES(hz_inner_au),
             hz_outer_au = VALUES(hz_outer_au),
             frost_line_au = VALUES(frost_line_au),
@@ -1028,6 +1157,22 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
         $system['radius_solar'],
         $system['temperature_k'],
         $system['luminosity_solar'],
+        $system['age_gyr'] ?? 0.0,
+        $system['metallicity_z'] ?? 0.02,
+        $system['stellar_type'] ?? 'main_sequence',
+        !empty($system['is_binary']) ? 1 : 0,
+        !empty($system['is_circumbinary']) ? 1 : 0,
+        $system['companion_stellar_type'] ?? null,
+        $system['companion_spectral_class'] ?? null,
+        $system['companion_subtype'] ?? null,
+        $system['companion_luminosity_class'] ?? null,
+        $system['companion_mass_solar'] ?? null,
+        $system['companion_radius_solar'] ?? null,
+        $system['companion_temperature_k'] ?? null,
+        $system['companion_luminosity_solar'] ?? null,
+        $system['companion_separation_au'] ?? null,
+        $system['companion_eccentricity'] ?? null,
+        $system['stability_critical_au'] ?? null,
         $system['hz_inner_au'],
         $system['hz_outer_au'],
         $system['frost_line_au'],
@@ -1036,8 +1181,12 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
         count($system['planets'] ?? []),
     ]);
 
+    $systemId = fetch_star_system_row_id($db, $galaxyIdx, $systemIdx);
+    if ($systemId > 0) {
+        upsert_binary_system_row($db, $systemId, $system);
+    }
+
     if ($seedPlanets) {
-        $systemId = fetch_star_system_row_id($db, $galaxyIdx, $systemIdx);
         if ($systemId > 0) {
             upsert_generated_planets($db, $galaxyIdx, $systemIdx, $systemId, $system['planets']);
         }
@@ -1048,6 +1197,7 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
 
 function ensure_galaxy_bootstrap_progress(PDO $db, bool $forceComplete = false): array {
     ensure_star_system_columns($db);
+    ensure_binary_systems_table($db);
     ensure_pve_factions_seed($db);
     ensure_diplomacy_initialized($db);
 

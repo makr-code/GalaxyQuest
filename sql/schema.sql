@@ -61,10 +61,49 @@ CREATE TABLE IF NOT EXISTS star_systems (
     hz_inner_au DOUBLE NOT NULL DEFAULT 0.9506,
     hz_outer_au DOUBLE NOT NULL DEFAULT 1.6765,
     frost_line_au DOUBLE NOT NULL DEFAULT 2.68,
+    stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') NOT NULL DEFAULT 'main_sequence',
+    age_gyr DECIMAL(4,2) NOT NULL DEFAULT 5.0,
+    metallicity_z DECIMAL(6,4) NOT NULL DEFAULT 0.0200,
+    is_binary TINYINT(1) NOT NULL DEFAULT 0,
+    is_circumbinary TINYINT(1) NOT NULL DEFAULT 0,
+    companion_stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') DEFAULT NULL,
+    companion_spectral_class VARCHAR(4) DEFAULT NULL,
+    companion_subtype TINYINT UNSIGNED DEFAULT NULL,
+    companion_luminosity_class VARCHAR(4) DEFAULT NULL,
+    companion_mass_solar DOUBLE DEFAULT NULL,
+    companion_radius_solar DOUBLE DEFAULT NULL,
+    companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL,
+    companion_luminosity_solar DOUBLE DEFAULT NULL,
+    companion_separation_au DOUBLE DEFAULT NULL,
+    companion_eccentricity DOUBLE DEFAULT NULL,
+    stability_critical_au DOUBLE DEFAULT NULL,
     name VARCHAR(16) NOT NULL DEFAULT '',
     catalog_name VARCHAR(32) NOT NULL DEFAULT '',
     planet_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
     UNIQUE KEY unique_system (galaxy_index, system_index)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS binary_systems (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    primary_star_system_id INT NOT NULL UNIQUE,
+    is_circumbinary TINYINT(1) NOT NULL DEFAULT 0,
+    companion_stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') DEFAULT NULL,
+    companion_spectral_class VARCHAR(4) DEFAULT NULL,
+    companion_subtype TINYINT UNSIGNED DEFAULT NULL,
+    companion_luminosity_class VARCHAR(4) DEFAULT NULL,
+    companion_mass_solar DOUBLE DEFAULT NULL,
+    companion_radius_solar DOUBLE DEFAULT NULL,
+    companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL,
+    companion_luminosity_solar DOUBLE DEFAULT NULL,
+    separation_au DOUBLE NOT NULL DEFAULT 1.0,
+    eccentricity DOUBLE NOT NULL DEFAULT 0.0,
+    stability_critical_au DOUBLE DEFAULT NULL,
+    mass_ratio DOUBLE DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (primary_star_system_id) REFERENCES star_systems(id) ON DELETE CASCADE,
+    INDEX idx_binary_sep (separation_au),
+    INDEX idx_binary_type (companion_stellar_type)
 ) ENGINE=InnoDB;
 
 -- Planets (pure astronomical objects)
@@ -587,6 +626,17 @@ CREATE TABLE IF NOT EXISTS user_achievements (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (achievement_id) REFERENCES achievements(id) ON DELETE CASCADE,
     UNIQUE KEY unique_user_achievement (user_id, achievement_id)
+) ENGINE=InnoDB;
+
+-- Planetary random events (solar flare, mineral vein, disease)
+CREATE TABLE IF NOT EXISTS colony_events (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    colony_id   INT NOT NULL,
+    event_type  ENUM('solar_flare','mineral_vein','disease') NOT NULL,
+    started_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at  DATETIME NOT NULL,
+    FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_colony_event (colony_id)
 ) ENGINE=InnoDB;
 
 INSERT IGNORE INTO achievements

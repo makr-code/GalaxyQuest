@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>GalaxyQuest – Unified Command Shell</title>
-  <link rel="stylesheet" href="css/style.css?v=20260327w" />
+  <link rel="stylesheet" href="css/style.css?v=20260328p59" />
   <style>
     #boot-terminal {
       position: fixed;
@@ -102,9 +102,17 @@
   </style>
 </head>
 <body class="auth-page">
-  <!-- Starfield background -->
-  <canvas id="starfield"></canvas>
-
+  <!-- Shared galaxy background stage (auth + game) -->
+  <!-- Galaxy background wrapper (fixed z-index: 1) -->
+  <section id="wm-galaxy-section" class="auth-shell">
+    <div id="galaxy-bg-wrapper" aria-hidden="true">
+      <div id="galaxy-host-wrapper" >
+        <div id="galaxy-3d-host" class="galaxy-3d-canvas"><canvas id="starfield"></canvas></div>
+        <div id="galaxy-hover-card" class="galaxy-hover-card hidden"></div>
+      </div>
+    </div>
+  </section> 
+  
   <section id="auth-section" class="auth-shell">
   <div class="auth-wrapper" id="auth-wrapper">
     <div class="auth-logo">
@@ -205,8 +213,9 @@
   </section>
 
   <section id="game-section" class="hidden" aria-hidden="true">
-    <header class="topbar">
-      <div class="topbar-left">
+    <section id="topbar-section" class="game-ui-section">
+        <header class="topbar">
+        <div class="topbar-left">
         <button id="topbar-title-btn" class="topbar-brand-btn" type="button" title="Daten aktualisieren">🌌 GalaxyQuest</button>
         <button id="topbar-home-btn" class="topbar-home-btn" type="button" title="Zum Heimatsystem springen">🏠 Home</button>
         <span id="topbar-coords" class="coords-badge"></span>
@@ -242,6 +251,14 @@
           <input id="topbar-search-input" class="topbar-search-input" type="search" placeholder="Sterne/Systeme suchen..." autocomplete="off" aria-label="Galaxy search" />
           <div id="topbar-search-overlay" class="topbar-search-overlay hidden" role="listbox" aria-label="Search results"></div>
         </div>
+        <div class="topbar-player" id="topbar-player" aria-label="Musiksteuerung">
+          <select id="topbar-player-track" class="topbar-player-track" title="Track auswaehlen" aria-label="Track auswaehlen"></select>
+          <span id="topbar-player-current" class="topbar-player-current" title="Aktueller Track">-</span>
+          <span id="topbar-player-mode" class="topbar-player-mode" title="Transition-Modus">FADE</span>
+          <button id="topbar-player-prev" class="btn btn-secondary btn-sm" type="button" title="Vorheriger Track">◀</button>
+          <button id="topbar-player-toggle" class="btn btn-secondary btn-sm" type="button" title="Musik abspielen/pausieren">Play</button>
+          <button id="topbar-player-next" class="btn btn-secondary btn-sm" type="button" title="Naechster Track">▶</button>
+        </div>
         <div class="user-menu-wrap" id="user-menu-wrap">
           <button id="commander-name" class="commander commander-btn" type="button" aria-expanded="false" aria-haspopup="menu"></button>
           <div id="user-menu" class="user-menu hidden" role="menu" aria-label="Benutzermenu"></div>
@@ -250,35 +267,11 @@
         <button id="logout-btn" class="btn btn-danger btn-sm">Logout</button>
       </div>
     </header>
+      </section>
 
-    <section id="ui-console-panel" class="ui-console-panel hidden" aria-label="UI-Konsole">
-      <div class="ui-console-head">
-        <strong>UI Console</strong>
-        <div class="ui-console-actions">
-          <label for="ui-console-filter" class="ui-console-filter-label">Level</label>
-          <select id="ui-console-filter" class="ui-console-filter" title="Log-Level filtern">
-            <option value="all" selected>All</option>
-            <option value="abort">Abort</option>
-            <option value="error">Error</option>
-            <option value="warn">Warn</option>
-            <option value="info">Info</option>
-            <option value="log">Log</option>
-            <option value="debug">Debug</option>
-            <option value="system">System</option>
-          </select>
-          <button id="ui-console-copy" class="btn btn-secondary btn-sm" type="button">Copy</button>
-          <button id="ui-console-clear" class="btn btn-secondary btn-sm" type="button">Clear</button>
-          <button id="ui-console-close" class="btn btn-secondary btn-sm" type="button">Close</button>
-        </div>
-      </div>
-      <div id="ui-console-log" class="ui-console-log"></div>
-      <div class="ui-console-input-row">
-        <input id="ui-console-input" type="text" placeholder="help | refresh | home | open settings | transitions on/off | msg <user> <text>" />
-        <button id="ui-console-run" class="btn btn-primary btn-sm" type="button">Run</button>
-      </div>
-    </section>
-
+  <section id="resource-section" class="">
     <div class="resource-bar">
+
       <div class="resource metal" title="Metal">
         <span class="res-icon">⬡</span>
         <span class="res-label">Metal</span>
@@ -324,15 +317,22 @@
         <span class="res-label">Dark Matter</span>
         <span id="res-dark-matter" class="res-value">0</span>
       </div>
-
-      <div class="planet-selector">
-        <label for="planet-select">Planet:</label>
-        <select id="planet-select"></select>
-      </div>
     </div>
+  </section>
 
-    <div id="wm-desktop" class="wm-desktop" aria-label="Game desktop"></div>
+  <section id="wm-windows-section" class="wm-desktop" aria-label="Game desktop windows"></section>
+  <section id="left_sidebar" class="wm-window-host" aria-label="Left Sidebar Host">
+    <div class="wm-adaptable-window sidebar-panel sidebar-panel-left" data-wm-window="left-sidebar">
+      <div class="sidebar-panel-content text-muted">Left Sidebar ready for WM adapt.</div>
+    </div>
+  </section>
+  <section id="right_sidebar" class="wm-window-host" aria-label="Right Sidebar Host">
+    <div class="wm-adaptable-window sidebar-panel sidebar-panel-right" data-wm-window="right-sidebar">
+      <div class="sidebar-panel-content text-muted">Right Sidebar ready for WM adapt.</div>
+    </div>
+  </section>
 
+  <section id="taskbar-section" class="">
     <div id="wm-taskbar" class="wm-taskbar" aria-label="Open windows">
       <span class="wm-taskbar-label">Windows:</span>
       <div id="wm-taskbar-spacer" class="wm-taskbar-spacer"></div>
@@ -355,378 +355,638 @@
     </div>
   </section>
 
-  <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
-  <section id="boot-terminal" aria-live="polite" aria-label="Boot terminal">
-    <div id="boot-terminal-head">
-      <div class="boot-terminal-title">
-        <strong>Boot Terminal</strong>
-        <span id="boot-terminal-mode">Mode: Fallback</span>
+  <section id="terminal-section" aria-live="assertive" aria-atomic="true">
+    <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
+    <section id="boot-terminal" class="ui-console-panel" aria-live="polite" aria-label="Entwickler-Konsole">
+      <div id="boot-terminal-head" class="ui-console-head">
+        <div class="boot-terminal-title">
+          <strong>Console</strong>
+          <span id="boot-terminal-mode">Mode: Fallback</span>
+        </div>
+        <div class="ui-console-actions">
+          <label for="ui-console-filter" class="ui-console-filter-label">Level</label>
+          <select id="ui-console-filter" class="ui-console-filter" title="Log-Level filtern">
+            <option value="all" selected>All</option>
+            <option value="abort">Abort</option>
+            <option value="error">Error</option>
+            <option value="warn">Warn</option>
+            <option value="info">Info</option>
+            <option value="log">Log</option>
+            <option value="debug">Debug</option>
+            <option value="system">System</option>
+          </select>
+          <button id="ui-console-copy" class="btn btn-secondary btn-sm" type="button">Copy</button>
+          <button id="ui-console-clear" class="btn btn-secondary btn-sm" type="button">Clear</button>
+          <button id="ui-console-close" class="btn btn-secondary btn-sm" type="button">Close</button>
+        </div>
       </div>
-      <div id="boot-terminal-controls">
-        <button type="button" id="boot-terminal-copy">Copy</button>
-        <button type="button" id="boot-terminal-clear">Clear</button>
-        <button type="button" id="boot-terminal-toggle">Hide</button>
+      <div id="ui-console-log" class="ui-console-log"></div>
+      <div class="ui-console-input-row">
+        <input id="ui-console-input" type="text" placeholder="help | refresh | home | open settings | transitions on/off | msg &lt;user&gt; &lt;text&gt;" />
+        <button id="ui-console-run" class="btn btn-primary btn-sm" type="button">Run</button>
+      </div>
+    </section>
+    <script>
+      (function () {
+        const bootTerminal = document.getElementById('boot-terminal');
+        const bootLog = document.getElementById('ui-console-log');
+        const bootMode = document.getElementById('boot-terminal-mode');
+        const bootLines = [];
+        const maxBootLines = 120;
+        const moduleTraceSeen = new Map();
+        let fallbackActive = true;
+
+        function safeText(v) {
+          return String(v || '').replace(/\s+/g, ' ').trim();
+        }
+
+        function setBootModeLabel(modeText) {
+          if (!bootMode) return;
+          bootMode.textContent = `Mode: ${safeText(modeText || 'Fallback')}`;
+        }
+
+        function appendBootLine(level, message, detail, source) {
+          if (!bootLog) return;
+          const ts = new Date();
+          const hh = String(ts.getHours()).padStart(2, '0');
+          const mm = String(ts.getMinutes()).padStart(2, '0');
+          const ss = String(ts.getSeconds()).padStart(2, '0');
+          const lvl = safeText(level || 'info').toUpperCase();
+          const msg = safeText(message || '');
+          const det = safeText(detail || '');
+          const src = safeText(source || 'boot');
+          const lineText = `[${hh}:${mm}:${ss}] [${lvl}] [${src}] ${msg}${det ? ' | ' + det : ''}`;
+
+          bootLines.push({ level: lvl.toLowerCase(), text: lineText });
+          if (bootLines.length > maxBootLines) bootLines.shift();
+
+          bootLog.innerHTML = bootLines.map((line) => {
+            const cls = line.level === 'error'
+              ? 'boot-line-error'
+              : line.level === 'warn'
+                ? 'boot-line-warn'
+                : 'boot-line-info';
+            return `<div class="boot-line ${cls}">${line.text}</div>`;
+          }).join('');
+          bootLog.scrollTop = bootLog.scrollHeight;
+        }
+
+        function directProbe(message, level = 'info') {
+          appendBootLine(level, message, '', 'probe');
+        }
+
+        function normalizeModuleName(src) {
+          try {
+            const url = new URL(String(src || ''), window.location.href);
+            const file = String(url.pathname || '').split('/').pop() || String(src || 'unknown');
+            return file || 'unknown';
+          } catch (_) {
+            const raw = String(src || 'unknown');
+            const clean = raw.split('?')[0];
+            return clean.split('/').pop() || raw;
+          }
+        }
+
+        function traceModuleEvent(state, src, detail) {
+          const mod = normalizeModuleName(src);
+          const dedupeKey = `${state}:${mod}`;
+          const now = Date.now();
+          const lastSeen = Number(moduleTraceSeen.get(dedupeKey) || 0);
+          if ((now - lastSeen) < 1200) return;
+          moduleTraceSeen.set(dedupeKey, now);
+
+          const extra = safeText(detail || '');
+          let msg = '';
+          let lvl = 'info';
+          if (state === 'init') {
+            msg = `Init <${mod}> ...`;
+          } else if (state === 'done') {
+            msg = `Init <${mod}> done.`;
+          } else {
+            msg = `Init <${mod}> failed.`;
+            lvl = 'error';
+          }
+          const payload = extra ? `${msg} ${extra}` : msg;
+
+          if (window.GQLog && typeof window.GQLog[lvl] === 'function') {
+            window.GQLog[lvl](`[module] ${payload}`);
+          } else {
+            directProbe(payload, lvl);
+          }
+        }
+
+        function traceScriptElement(el) {
+          if (!el || el.tagName !== 'SCRIPT') return;
+          const src = String(el.getAttribute('src') || '');
+          if (!src) return;
+          if (el.__gqScriptTraceBound) return;
+          el.__gqScriptTraceBound = true;
+
+          traceModuleEvent('init', src);
+
+          el.addEventListener('load', function () {
+            traceModuleEvent('done', src);
+          }, { once: true });
+
+          el.addEventListener('error', function () {
+            traceModuleEvent('error', src, '(load error)');
+          }, { once: true });
+        }
+
+        function initScriptTraceObserver() {
+          if (window.__GQ_SCRIPT_TRACE_OBSERVER_READY) return;
+          window.__GQ_SCRIPT_TRACE_OBSERVER_READY = true;
+
+          document.querySelectorAll('script[src]').forEach((el) => traceScriptElement(el));
+
+          const observer = new MutationObserver(function (mutations) {
+            mutations.forEach((m) => {
+              m.addedNodes.forEach((n) => {
+                if (!n || n.nodeType !== 1) return;
+                if (n.tagName === 'SCRIPT') {
+                  traceScriptElement(n);
+                  return;
+                }
+                if (typeof n.querySelectorAll === 'function') {
+                  n.querySelectorAll('script[src]').forEach((el) => traceScriptElement(el));
+                }
+              });
+            });
+          });
+          observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
+          window.__GQ_SCRIPT_TRACE_OBSERVER = observer;
+        }
+
+        function sendToTerminalLogger(level, message, detail, source = 'boot') {
+          const lvl = String(level || 'info').toLowerCase() === 'error'
+            ? 'error'
+            : String(level || 'info').toLowerCase() === 'warn'
+              ? 'warn'
+              : 'info';
+          const msg = safeText(message);
+          const det = safeText(detail);
+          const payload = det ? `${msg} | ${det}` : msg;
+
+          if (window.GQLog && typeof window.GQLog[lvl] === 'function') {
+            window.GQLog[lvl](`[${source}] ${payload}`);
+            return;
+          }
+          if (fallbackActive) appendBootLine(lvl, msg, det, source);
+        }
+
+        function reportBootIssue(kind, message, detail) {
+          try {
+            const label = document.getElementById('auth-preload-label');
+            const meta = document.getElementById('auth-preload-meta');
+            const panel = document.getElementById('auth-preload-panel');
+            const loginErr = document.getElementById('login-error');
+            const msg = safeText(message) || 'unknown error';
+            const det = safeText(detail);
+
+            if (panel) panel.classList.remove('hidden');
+            if (label) label.textContent = `Boot error (${safeText(kind) || 'runtime'})`;
+            if (meta) meta.textContent = det ? `${msg} | ${det}` : msg;
+            if (loginErr) loginErr.textContent = det ? `${msg} (${det})` : msg;
+            sendToTerminalLogger('error', `${safeText(kind) || 'runtime'}: ${msg}`, det, 'boot');
+          } catch (_) {
+            // Avoid recursive errors during emergency reporting.
+          }
+        }
+
+        appendBootLine('info', 'Boot terminal active', 'Fallback aktiv bis terminal.js uebernimmt', 'boot');
+        setBootModeLabel('Fallback');
+        initScriptTraceObserver();
+
+        function takeoverByTerminal(gqLogApi) {
+          if (!fallbackActive) return;
+          fallbackActive = false;
+          try {
+            window.removeEventListener('error', onWindowError);
+            window.removeEventListener('unhandledrejection', onUnhandledRejection);
+          } catch (_) {}
+
+          if (bootLog) {
+            bootLog.innerHTML = '';
+          }
+          bootLines.length = 0;
+
+          if (gqLogApi && typeof gqLogApi.bindBootTerminal === 'function') {
+            gqLogApi.bindBootTerminal();
+          }
+          setBootModeLabel('GQLog');
+          if (gqLogApi && typeof gqLogApi.info === 'function') {
+            gqLogApi.info('[boot] takeover complete: terminal.js steuert Boot-Terminal');
+          }
+        }
+
+        window.__GQ_BOOT_TERMINAL_ADAPTER = {
+          append(level, message, detail, source) {
+            if (!fallbackActive) return;
+            appendBootLine(level, message, detail, source);
+          },
+          report(kind, message, detail) {
+            reportBootIssue(kind, message, detail);
+          },
+          takeover: takeoverByTerminal,
+          isFallbackActive() {
+            return fallbackActive;
+          },
+        };
+
+        window.__GQ_BOOT_PROBE = {
+          log: directProbe,
+        };
+
+        window.__GQ_BOOT_DIAG = {
+          report: reportBootIssue,
+          log: function (level, message, detail) {
+            sendToTerminalLogger(level, message, detail, 'bootdiag');
+          },
+        };
+
+        const bootToggleBtn = document.getElementById('ui-console-close');
+        const bootClearBtn = document.getElementById('ui-console-clear');
+        const bootCopyBtn = document.getElementById('ui-console-copy');
+
+        bootToggleBtn?.addEventListener('click', function () {
+          if (!bootTerminal) return;
+          bootTerminal.classList.add('hidden');
+        });
+
+        bootClearBtn?.addEventListener('click', function () {
+          if (!fallbackActive) return;
+          bootLines.length = 0;
+          if (bootLog) bootLog.innerHTML = '';
+        });
+
+        bootCopyBtn?.addEventListener('click', async function () {
+          if (!fallbackActive) return;
+          const payload = bootLines.map((line) => String(line?.text || '')).join('\n');
+          if (!payload) return;
+          try {
+            if (navigator?.clipboard?.writeText) {
+              await navigator.clipboard.writeText(payload);
+            } else {
+              const ta = document.createElement('textarea');
+              ta.value = payload;
+              ta.setAttribute('readonly', 'readonly');
+              ta.style.position = 'fixed';
+              ta.style.left = '-10000px';
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+            }
+            directProbe('Boot terminal copied to clipboard');
+          } catch (_) {
+            directProbe('Boot terminal copy failed', 'error');
+          }
+        });
+
+        function onWindowError(ev) {
+          const msg = safeText(ev && ev.message);
+          const src = safeText(ev && ev.filename);
+          const line = Number((ev && ev.lineno) || 0);
+          const col = Number((ev && ev.colno) || 0);
+          const where = src ? `${src}${line > 0 ? ':' + line : ''}${col > 0 ? ':' + col : ''}` : '';
+          reportBootIssue('window.error', msg || 'script error', where);
+        }
+
+        function onUnhandledRejection(ev) {
+          const reason = ev && ev.reason;
+          const msg = safeText(reason && (reason.message || reason.error || reason.reason || reason)) || 'promise rejection';
+          reportBootIssue('unhandledrejection', msg, 'startup promise failed');
+        }
+
+        window.addEventListener('error', onWindowError);
+        window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+        window.addEventListener('load', function () {
+          directProbe('index load event reached');
+          const loginForm = document.getElementById('login-form');
+          if (loginForm && !loginForm.__gqProbeBound) {
+            loginForm.__gqProbeBound = true;
+            loginForm.addEventListener('submit', function () {
+              const st = window.__GQ_AUTH_READY || {};
+              const status = `authReady init=${!!st.initialized} loginBound=${!!st.loginBound} registerBound=${!!st.registerBound}`;
+              directProbe('login submit captured in index', 'warn');
+              directProbe(status, 'warn');
+            }, true);
+            directProbe('login submit probe bound');
+          } else if (!loginForm) {
+            directProbe('login-form missing in DOM', 'error');
+          }
+
+          if (window.GQLog && window.__GQ_BOOT_TERMINAL_ADAPTER && typeof window.__GQ_BOOT_TERMINAL_ADAPTER.takeover === 'function') {
+            window.__GQ_BOOT_TERMINAL_ADAPTER.takeover(window.GQLog);
+          }
+        });
+      })();
+
+      window.__GQ_BOOT = {
+        gameScripts: [
+          'js/wm.js?v=20260328p54',
+          'js/binary-decoder.js?v=20260328p49',
+          'js/binary-decoder-v2.js?v=20260328p49',
+          'js/binary-decoder-v3.js?v=20260328p49',
+          'js/api.js?v=20260328p52',
+          'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
+          'js/galaxy-model.js?v=20260328p49',
+          'js/galaxy-db.js?v=20260328p49',
+          'js/audio.js?v=20260328p53',
+          'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
+          'js/three-EffectComposer.js?v=20260328p55',
+          'js/three-RenderPass.js?v=20260328p55',
+          'js/three-ShaderPass.js?v=20260328p55',
+          'js/three-CopyShader.js?v=20260328p55',
+          'js/three-UnrealBloomPass.js?v=20260328p55',
+          'https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js',
+          'js/planet-textures.js?v=20260328p49',
+          'js/model_registry.js?v=20260328p49',
+          'js/post-effects.js?v=20260328p55',
+          'js/galaxy3d.js?v=20260328p59',
+          'js/game.js?v=20260328p59'
+        ],
+        preloadAssets: [
+          'js/wm.js?v=20260328p54',
+          'js/binary-decoder.js?v=20260328p49',
+          'js/binary-decoder-v2.js?v=20260328p49',
+          'js/binary-decoder-v3.js?v=20260328p49',
+          'js/api.js?v=20260328p52',
+          'js/galaxy-model.js?v=20260328p49',
+          'js/galaxy-db.js?v=20260328p49',
+          'js/audio.js?v=20260328p53',
+          'js/planet-textures.js?v=20260328p48',
+          'js/model_registry.js?v=20260328p48',
+          'js/galaxy3d.js?v=20260328p59',
+          'js/game.js?v=20260328p59'
+        ]
+      };
+    </script>
+  </section>
+
+  <section id="modal_container">
+    <section id="dialog_test_section" class="wm-dialog-test" aria-label="Dialog Test Tools">
+      <strong>Dialog Test:</strong>
+      <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="tooltip_container">Tooltip</button>
+      <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_alert">Alert</button>
+      <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_confirm">Confirm</button>
+      <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_wizard">Wizard</button>
+      <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_form">Form</button>
+    </section>
+
+    <section id="dialog_alert" class="wm-modal" aria-modal="true" aria-label="Alert" role="dialog" hidden>
+      <div class="wm-modal-backdrop" data-wm-modal-close></div>
+      <div class="wm-modal-dialog wm-modal-alert">
+        <div class="wm-modal-header">
+          <span class="wm-modal-title">System Alert</span>
+          <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+        </div>
+        <div class="wm-modal-body">
+          <p class="tooltip-text">Incoming anomaly detected near the outer rim. Please confirm reconnaissance readiness.</p>
+        </div>
+        <div class="wm-modal-footer wm-modal-footer-end">
+          <button type="button" class="wm-modal-nav-btn" data-wm-modal-close>OK</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="dialog_confirm" class="wm-modal" aria-modal="true" aria-label="Confirm" role="dialog" hidden>
+      <div class="wm-modal-backdrop" data-wm-modal-close></div>
+      <div class="wm-modal-dialog wm-modal-confirm">
+        <div class="wm-modal-header">
+          <span class="wm-modal-title">Confirm Fleet Jump</span>
+          <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+        </div>
+        <div class="wm-modal-body">
+          <p class="tooltip-text">Jumping now consumes 230 Deuterium. Continue mission briefing and initiate jump?</p>
+        </div>
+        <div class="wm-modal-footer wm-modal-footer-end">
+          <button type="button" class="wm-modal-nav-btn" data-wm-modal-close data-wm-modal-action="cancel">Cancel</button>
+          <button type="button" class="wm-modal-nav-btn wm-modal-nav-btn-primary" data-wm-modal-close data-wm-modal-action="confirm">Confirm</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="dialog_wizard" class="wm-modal" aria-modal="true" aria-label="Wizard" role="dialog" hidden>
+      <div class="wm-modal-backdrop" data-wm-modal-close></div>
+      <div class="wm-modal-dialog wm-modal-wizard">
+        <div class="wm-modal-header">
+          <span class="wm-modal-title">Colony Setup Wizard</span>
+          <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+        </div>
+        <div class="wm-modal-body">
+          <div class="tooltip-section" data-wm-card="0">
+            <h4 class="tooltip-title">Step 1: Role</h4>
+            <p class="tooltip-text">Choose your initial focus to get a guided setup path.</p>
+          </div>
+          <div class="tooltip-section" data-wm-card="1" hidden>
+            <h4 class="tooltip-title">Step 2: Economy</h4>
+            <p class="tooltip-text">Balanced growth recommended: Metal 40%, Crystal 35%, Energy 25%.</p>
+          </div>
+          <div class="tooltip-section" data-wm-card="2" hidden>
+            <h4 class="tooltip-title">Step 3: Defense</h4>
+            <p class="tooltip-text">Activate perimeter drones and queue one scout frigate for intel.</p>
+          </div>
+        </div>
+        <div class="wm-modal-footer">
+          <span class="wm-modal-page-indicator" data-wm-modal-indicator>1 / 3</span>
+          <div class="wm-modal-nav">
+            <button type="button" class="wm-modal-nav-btn" data-wm-modal-prev disabled>&#8592; Back</button>
+            <button type="button" class="wm-modal-nav-btn" data-wm-modal-next>Next &#8594;</button>
+            <button type="button" class="wm-modal-nav-btn wm-modal-nav-btn-primary" data-wm-modal-close data-wm-modal-action="finish">Finish</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="dialog_form" class="wm-modal" aria-modal="true" aria-label="Form Dialog" role="dialog" hidden>
+      <div class="wm-modal-backdrop" data-wm-modal-close></div>
+      <div class="wm-modal-dialog wm-modal-form">
+        <div class="wm-modal-header">
+          <span class="wm-modal-title">Quick Message</span>
+          <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+        </div>
+        <div class="wm-modal-body">
+          <label class="wm-form-field">
+            <span>Target Commander</span>
+            <input id="dialog-form-target" type="text" placeholder="Commander ID">
+          </label>
+          <label class="wm-form-field">
+            <span>Message</span>
+            <textarea id="dialog-form-message" rows="4" placeholder="Your tactical note..."></textarea>
+          </label>
+        </div>
+        <div class="wm-modal-footer wm-modal-footer-end">
+          <button type="button" class="wm-modal-nav-btn" data-wm-modal-close>Cancel</button>
+          <button type="button" class="wm-modal-nav-btn wm-modal-nav-btn-primary" data-wm-modal-action="submit-message" data-wm-modal-close>Send</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="ui-kit-preview-panel" class="ui-kit-preview-panel" aria-label="UI Kit Preview">
+      <div class="ui-kit-preview-head">
+        <strong>UI Kit Preview</strong>
+        <div class="ui-kit-preview-actions">
+          <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="empty">Empty</button>
+          <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="skeleton">Skeleton</button>
+          <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="kpi">KPI</button>
+          <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="timeline">Timeline</button>
+          <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="clear">Clear</button>
+        </div>
+      </div>
+      <div id="ui-kit-preview-body" class="ui-kit-preview-body"></div>
+    </section>
+
+    <section id="ui-kit-templates" class="ui-kit-templates" aria-hidden="true">
+      <template id="tpl-ui-empty-state">
+        <section class="ui-empty-state">
+          <div class="ui-empty-icon">◎</div>
+          <h4 class="ui-empty-title">Noch keine Daten verfuegbar</h4>
+          <p class="ui-empty-text">Sobald neue Ereignisse eintreffen, erscheinen sie hier automatisch.</p>
+          <div class="ui-empty-actions">
+            <button class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="button">Jetzt synchronisieren</button>
+          </div>
+        </section>
+      </template>
+
+      <template id="tpl-ui-skeleton-list">
+        <section class="ui-skeleton-list" aria-label="Ladeplatzhalter">
+          <div class="ui-skeleton-row"></div>
+          <div class="ui-skeleton-row short"></div>
+          <div class="ui-skeleton-row"></div>
+          <div class="ui-skeleton-row tiny"></div>
+        </section>
+      </template>
+
+      <template id="tpl-ui-kpi-grid">
+        <section class="ui-kpi-grid">
+          <article class="ui-kpi-card">
+            <span class="ui-kpi-label">Fleet Readiness</span>
+            <strong class="ui-kpi-value">92%</strong>
+            <span class="ui-kpi-chip is-good">Stable</span>
+          </article>
+          <article class="ui-kpi-card">
+            <span class="ui-kpi-label">Trade Flux</span>
+            <strong class="ui-kpi-value">+14.8%</strong>
+            <span class="ui-kpi-chip is-up">Rising</span>
+          </article>
+          <article class="ui-kpi-card">
+            <span class="ui-kpi-label">Threat Level</span>
+            <strong class="ui-kpi-value">Medium</strong>
+            <span class="ui-kpi-chip is-warn">Watch</span>
+          </article>
+        </section>
+      </template>
+
+      <template id="tpl-ui-timeline">
+        <section class="ui-timeline">
+          <article class="ui-timeline-item">
+            <span class="ui-timeline-dot is-good"></span>
+            <div class="ui-timeline-content">
+              <strong>Docking sequence complete</strong>
+              <p>Frigate wing beta has arrived at Alpha Prime.</p>
+            </div>
+          </article>
+          <article class="ui-timeline-item">
+            <span class="ui-timeline-dot is-warn"></span>
+            <div class="ui-timeline-content">
+              <strong>Sensor anomaly</strong>
+              <p>Long-range scan detected unstable signal near route C-9.</p>
+            </div>
+          </article>
+          <article class="ui-timeline-item">
+            <span class="ui-timeline-dot is-up"></span>
+            <div class="ui-timeline-content">
+              <strong>Market update</strong>
+              <p>Rare Earth prices gained +6.2% in the last cycle.</p>
+            </div>
+          </article>
+        </section>
+      </template>
+    </section>
+  </section>
+
+  <section id="tooltip_container" class="wm-modal card-layout" aria-modal="true" aria-label="Tooltip Dialog" role="dialog" hidden>
+    <div class="wm-modal-backdrop" data-wm-modal-close></div>
+    <div class="wm-modal-dialog" id="tooltip-dialog">
+      <div class="wm-modal-header">
+        <span class="wm-modal-title" id="tooltip-modal-title">System Info</span>
+        <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" title="Close" data-wm-modal-close>&#x2715;</button>
+      </div>
+      <div id="tooltip-content" class="wm-modal-body tooltip-content">
+        <div id="tooltip-card1" class="tooltip-section tooltip-overview" data-tooltip-card="0">
+          <h4 class="tooltip-title">System Overview</h4>
+          <p class="tooltip-text">This system is a bustling hub of activity, with multiple colonies and a busy trade route. The star is a G-type main-sequence star, providing ample energy for the thriving civilizations orbiting it.</p>
+        </div>
+        <div id="tooltip-card2" class="tooltip-section tooltip-details" data-tooltip-card="1">
+          <h4 class="tooltip-title">System Details</h4>
+          <ul class="tooltip-list">
+            <li><strong>Star Type:</strong> G-type main-sequence</li>
+            <li><strong>Planets:</strong> 5 (2 habitable)</li>
+            <li><strong>Colonies:</strong> 3 (Alpha, Beta, Gamma)</li>
+            <li><strong>Trade Routes:</strong> 4 active routes</li>
+            <li><strong>Notable Features:</strong> Rich in rare minerals, frequent pirate activity</li>
+          </ul>
+        </div>
+      </div>
+      <div class="wm-modal-footer">
+        <label class="wm-modal-no-repeat">
+          <input type="checkbox" id="tooltip-no-repeat"> Don't show this again
+        </label>
+        <div class="wm-modal-nav">
+          <button id="tooltip-btn-prev" class="wm-modal-nav-btn" type="button" disabled>&#8592; Prev</button>
+          <span class="wm-modal-page-indicator" id="tooltip-page-indicator">1 / 2</span>
+          <button id="tooltip-btn-next" class="wm-modal-nav-btn" type="button">Next &#8594;</button>
+        </div>
       </div>
     </div>
-    <div id="boot-terminal-log"></div>
   </section>
-  <button type="button" id="boot-terminal-restore" class="hidden">Show Boot Terminal</button>
+
+  <section id="context_menu_container"></section>
+
+  <section id="wm-wrapper"></section>
 
   <script>
     (function () {
-      const bootTerminal = document.getElementById('boot-terminal');
-      const bootLog = document.getElementById('boot-terminal-log');
-      const bootMode = document.getElementById('boot-terminal-mode');
-      const bootRestore = document.getElementById('boot-terminal-restore');
-      const bootLines = [];
-      const maxBootLines = 120;
-      const moduleTraceSeen = new Map();
-      let fallbackActive = true;
-
-      function safeText(v) {
-        return String(v || '').replace(/\s+/g, ' ').trim();
+      function openDialogById(id) {
+        if (!id || !window.WM || typeof window.WM.modal !== 'function') return;
+        window.WM.modal(id);
       }
 
-      function setBootModeLabel(modeText) {
-        if (!bootMode) return;
-        bootMode.textContent = `Mode: ${safeText(modeText || 'Fallback')}`;
-      }
-
-      function updateBootRestoreButton() {
-        if (!bootRestore) return;
-        const hidden = Boolean(bootTerminal && bootTerminal.classList.contains('hidden'));
-        bootRestore.classList.toggle('hidden', !hidden || !fallbackActive);
-      }
-
-      function appendBootLine(level, message, detail, source) {
-        if (!bootLog) return;
-        const ts = new Date();
-        const hh = String(ts.getHours()).padStart(2, '0');
-        const mm = String(ts.getMinutes()).padStart(2, '0');
-        const ss = String(ts.getSeconds()).padStart(2, '0');
-        const lvl = safeText(level || 'info').toUpperCase();
-        const msg = safeText(message || '');
-        const det = safeText(detail || '');
-        const src = safeText(source || 'boot');
-        const lineText = `[${hh}:${mm}:${ss}] [${lvl}] [${src}] ${msg}${det ? ' | ' + det : ''}`;
-
-        bootLines.push({ level: lvl.toLowerCase(), text: lineText });
-        if (bootLines.length > maxBootLines) bootLines.shift();
-
-        bootLog.innerHTML = bootLines.map((line) => {
-          const cls = line.level === 'error'
-            ? 'boot-line-error'
-            : line.level === 'warn'
-              ? 'boot-line-warn'
-              : 'boot-line-info';
-          return `<div class="boot-line ${cls}">${line.text}</div>`;
-        }).join('');
-        bootLog.scrollTop = bootLog.scrollHeight;
-      }
-
-      function directProbe(message, level = 'info') {
-        appendBootLine(level, message, '', 'probe');
-      }
-
-      function normalizeModuleName(src) {
-        try {
-          const url = new URL(String(src || ''), window.location.href);
-          const file = String(url.pathname || '').split('/').pop() || String(src || 'unknown');
-          return file || 'unknown';
-        } catch (_) {
-          const raw = String(src || 'unknown');
-          const clean = raw.split('?')[0];
-          return clean.split('/').pop() || raw;
-        }
-      }
-
-      function traceModuleEvent(state, src, detail) {
-        const mod = normalizeModuleName(src);
-        const dedupeKey = `${state}:${mod}`;
-        const now = Date.now();
-        const lastSeen = Number(moduleTraceSeen.get(dedupeKey) || 0);
-        if ((now - lastSeen) < 1200) return;
-        moduleTraceSeen.set(dedupeKey, now);
-
-        const extra = safeText(detail || '');
-        let msg = '';
-        let lvl = 'info';
-        if (state === 'init') {
-          msg = `Init <${mod}> ...`;
-        } else if (state === 'done') {
-          msg = `Init <${mod}> done.`;
-        } else {
-          msg = `Init <${mod}> failed.`;
-          lvl = 'error';
-        }
-        const payload = extra ? `${msg} ${extra}` : msg;
-
-        if (window.GQLog && typeof window.GQLog[lvl] === 'function') {
-          window.GQLog[lvl](`[module] ${payload}`);
-        } else {
-          directProbe(payload, lvl);
-        }
-      }
-
-      function traceScriptElement(el) {
-        if (!el || el.tagName !== 'SCRIPT') return;
-        const src = String(el.getAttribute('src') || '');
-        if (!src) return;
-        if (el.__gqScriptTraceBound) return;
-        el.__gqScriptTraceBound = true;
-
-        traceModuleEvent('init', src);
-
-        el.addEventListener('load', function () {
-          traceModuleEvent('done', src);
-        }, { once: true });
-
-        el.addEventListener('error', function () {
-          traceModuleEvent('error', src, '(load error)');
-        }, { once: true });
-      }
-
-      function initScriptTraceObserver() {
-        if (window.__GQ_SCRIPT_TRACE_OBSERVER_READY) return;
-        window.__GQ_SCRIPT_TRACE_OBSERVER_READY = true;
-
-        document.querySelectorAll('script[src]').forEach((el) => traceScriptElement(el));
-
-        const observer = new MutationObserver(function (mutations) {
-          mutations.forEach((m) => {
-            m.addedNodes.forEach((n) => {
-              if (!n || n.nodeType !== 1) return;
-              if (n.tagName === 'SCRIPT') {
-                traceScriptElement(n);
-                return;
-              }
-              if (typeof n.querySelectorAll === 'function') {
-                n.querySelectorAll('script[src]').forEach((el) => traceScriptElement(el));
-              }
-            });
-          });
-        });
-        observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
-        window.__GQ_SCRIPT_TRACE_OBSERVER = observer;
-      }
-
-      function sendToTerminalLogger(level, message, detail, source = 'boot') {
-        const lvl = String(level || 'info').toLowerCase() === 'error'
-          ? 'error'
-          : String(level || 'info').toLowerCase() === 'warn'
-            ? 'warn'
-            : 'info';
-        const msg = safeText(message);
-        const det = safeText(detail);
-        const payload = det ? `${msg} | ${det}` : msg;
-
-        if (window.GQLog && typeof window.GQLog[lvl] === 'function') {
-          window.GQLog[lvl](`[${source}] ${payload}`);
-          return;
-        }
-        if (fallbackActive) appendBootLine(lvl, msg, det, source);
-      }
-
-      function reportBootIssue(kind, message, detail) {
-        try {
-          const label = document.getElementById('auth-preload-label');
-          const meta = document.getElementById('auth-preload-meta');
-          const panel = document.getElementById('auth-preload-panel');
-          const loginErr = document.getElementById('login-error');
-          const msg = safeText(message) || 'unknown error';
-          const det = safeText(detail);
-
-          if (panel) panel.classList.remove('hidden');
-          if (label) label.textContent = `Boot error (${safeText(kind) || 'runtime'})`;
-          if (meta) meta.textContent = det ? `${msg} | ${det}` : msg;
-          if (loginErr) loginErr.textContent = det ? `${msg} (${det})` : msg;
-          sendToTerminalLogger('error', `${safeText(kind) || 'runtime'}: ${msg}`, det, 'boot');
-        } catch (_) {
-          // Avoid recursive errors during emergency reporting.
-        }
-      }
-
-      appendBootLine('info', 'Boot terminal active', 'Fallback aktiv bis terminal.js uebernimmt', 'boot');
-      setBootModeLabel('Fallback');
-      initScriptTraceObserver();
-
-      function takeoverByTerminal(gqLogApi) {
-        if (!fallbackActive) return;
-        fallbackActive = false;
-        try {
-          window.removeEventListener('error', onWindowError);
-          window.removeEventListener('unhandledrejection', onUnhandledRejection);
-        } catch (_) {}
-
-        if (bootLog) {
-          bootLog.innerHTML = '';
-        }
-        bootLines.length = 0;
-
-        if (gqLogApi && typeof gqLogApi.bindBootTerminal === 'function') {
-          gqLogApi.bindBootTerminal();
-        }
-        if (bootRestore) {
-          bootRestore.classList.add('hidden');
-        }
-        setBootModeLabel('GQLog');
-        if (gqLogApi && typeof gqLogApi.info === 'function') {
-          gqLogApi.info('[boot] takeover complete: terminal.js steuert Boot-Terminal');
-        }
-      }
-
-      window.__GQ_BOOT_TERMINAL_ADAPTER = {
-        append(level, message, detail, source) {
-          if (!fallbackActive) return;
-          appendBootLine(level, message, detail, source);
-        },
-        report(kind, message, detail) {
-          reportBootIssue(kind, message, detail);
-        },
-        takeover: takeoverByTerminal,
-        isFallbackActive() {
-          return fallbackActive;
-        },
-      };
-
-      window.__GQ_BOOT_PROBE = {
-        log: directProbe,
-      };
-
-      window.__GQ_BOOT_DIAG = {
-        report: reportBootIssue,
-        log: function (level, message, detail) {
-          sendToTerminalLogger(level, message, detail, 'bootdiag');
-        },
-      };
-
-      const bootToggleBtn = document.getElementById('boot-terminal-toggle');
-      const bootClearBtn = document.getElementById('boot-terminal-clear');
-      const bootCopyBtn = document.getElementById('boot-terminal-copy');
-
-      bootToggleBtn?.addEventListener('click', function () {
-        if (!fallbackActive || !bootTerminal) return;
-        const hidden = bootTerminal.classList.contains('hidden');
-        bootTerminal.classList.toggle('hidden', !hidden);
-        bootToggleBtn.textContent = hidden ? 'Hide' : 'Show';
-        updateBootRestoreButton();
+      document.addEventListener('click', function (ev) {
+        const btn = ev.target && ev.target.closest ? ev.target.closest('[data-wm-open-modal]') : null;
+        if (!btn) return;
+        const targetId = btn.getAttribute('data-wm-open-modal');
+        openDialogById(targetId);
       });
 
-      bootRestore?.addEventListener('click', function () {
-        if (!fallbackActive || !bootTerminal) return;
-        bootTerminal.classList.remove('hidden');
-        if (bootToggleBtn) bootToggleBtn.textContent = 'Hide';
-        updateBootRestoreButton();
-      });
-
-      bootClearBtn?.addEventListener('click', function () {
-        if (!fallbackActive) return;
-        bootLines.length = 0;
-        if (bootLog) bootLog.innerHTML = '';
-      });
-
-      bootCopyBtn?.addEventListener('click', async function () {
-        if (!fallbackActive) return;
-        const payload = bootLines.map((line) => String(line?.text || '')).join('\n');
-        if (!payload) return;
-        try {
-          if (navigator?.clipboard?.writeText) {
-            await navigator.clipboard.writeText(payload);
-          } else {
-            const ta = document.createElement('textarea');
-            ta.value = payload;
-            ta.setAttribute('readonly', 'readonly');
-            ta.style.position = 'fixed';
-            ta.style.left = '-10000px';
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
+      window.addEventListener('wm:modal-action', function (ev) {
+        const d = ev && ev.detail ? ev.detail : {};
+        if (d.id === 'dialog_confirm' && d.action === 'confirm') {
+          if (window.GQLog && typeof window.GQLog.info === 'function') {
+            window.GQLog.info('[modal] Fleet jump confirmed');
           }
-          directProbe('Boot terminal copied to clipboard');
-        } catch (_) {
-          directProbe('Boot terminal copy failed', 'error');
         }
-      });
-
-      updateBootRestoreButton();
-
-      function onWindowError(ev) {
-        const msg = safeText(ev && ev.message);
-        const src = safeText(ev && ev.filename);
-        const line = Number((ev && ev.lineno) || 0);
-        const col = Number((ev && ev.colno) || 0);
-        const where = src ? `${src}${line > 0 ? ':' + line : ''}${col > 0 ? ':' + col : ''}` : '';
-        reportBootIssue('window.error', msg || 'script error', where);
-      }
-
-      function onUnhandledRejection(ev) {
-        const reason = ev && ev.reason;
-        const msg = safeText(reason && (reason.message || reason.error || reason.reason || reason)) || 'promise rejection';
-        reportBootIssue('unhandledrejection', msg, 'startup promise failed');
-      }
-
-      window.addEventListener('error', onWindowError);
-      window.addEventListener('unhandledrejection', onUnhandledRejection);
-
-      window.addEventListener('load', function () {
-        directProbe('index load event reached');
-        const loginForm = document.getElementById('login-form');
-        if (loginForm && !loginForm.__gqProbeBound) {
-          loginForm.__gqProbeBound = true;
-          loginForm.addEventListener('submit', function () {
-            const st = window.__GQ_AUTH_READY || {};
-            const status = `authReady init=${!!st.initialized} loginBound=${!!st.loginBound} registerBound=${!!st.registerBound}`;
-            directProbe('login submit captured in index', 'warn');
-            directProbe(status, 'warn');
-          }, true);
-          directProbe('login submit probe bound');
-        } else if (!loginForm) {
-          directProbe('login-form missing in DOM', 'error');
-        }
-
-        if (window.GQLog && window.__GQ_BOOT_TERMINAL_ADAPTER && typeof window.__GQ_BOOT_TERMINAL_ADAPTER.takeover === 'function') {
-          window.__GQ_BOOT_TERMINAL_ADAPTER.takeover(window.GQLog);
+        if (d.id === 'dialog_form' && d.action === 'submit-message') {
+          const target = document.getElementById('dialog-form-target');
+          const msg = document.getElementById('dialog-form-message');
+          const text = `[modal] Message queued to ${target?.value || 'unknown'}: ${msg?.value || ''}`;
+          if (window.GQLog && typeof window.GQLog.info === 'function') {
+            window.GQLog.info(text);
+          }
         }
       });
     })();
-
-    window.__GQ_BOOT = {
-      gameScripts: [
-        'js/wm.js?v=20260328p43',
-        'js/binary-decoder.js?v=20260328p43',
-        'js/binary-decoder-v2.js?v=20260328p43',
-        'js/binary-decoder-v3.js?v=20260328p43',
-        'js/api.js?v=20260328p43',
-        'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
-        'js/galaxy-model.js?v=20260328p43',
-        'js/galaxy-db.js?v=20260328p43',
-        'js/audio.js?v=20260328p43',
-        'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
-        'https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js',
-        'js/planet-textures.js?v=20260328p43',
-        'js/model_registry.js?v=20260328p43',
-        'js/galaxy3d.js?v=20260328p43',
-        'js/game.js?v=20260328p43'
-      ],
-      preloadAssets: [
-        'js/wm.js?v=20260328p43',
-        'js/binary-decoder.js?v=20260328p43',
-        'js/binary-decoder-v2.js?v=20260328p43',
-        'js/binary-decoder-v3.js?v=20260328p43',
-        'js/api.js?v=20260328p43',
-        'js/galaxy-model.js?v=20260328p43',
-        'js/galaxy-db.js?v=20260328p43',
-        'js/audio.js?v=20260328p43',
-        'js/planet-textures.js?v=20260328p43',
-        'js/model_registry.js?v=20260328p43',
-        'js/galaxy3d.js?v=20260328p43',
-        'js/game.js?v=20260328p43'
-      ]
-    };
   </script>
-  <script src="js/terminal.js?v=20260328p43"></script>
-  <script src="js/starfield.js?v=20260328p43"></script>
-  <script src="js/auth.js?v=20260328p43"></script>
+
+  <script src="js/terminal.js?v=20260328p49"></script>
+  <script src="js/starfield.js?v=20260328p59"></script>
+  <script src="js/auth.js?v=20260328p57"></script>
+  <script src="js/glossary.js?v=20260328p49"></script>
+  <script src="js/ui-kit.js?v=20260329p60"></script>
+  <script src="js/star-tooltip.js?v=20260328p49"></script>
+  <script src="js/system-info-panel.js?v=20260328p49"></script>
+  <script src="js/hr-diagram.js?v=20260328p49"></script>
 </body>
 </html>

@@ -103,6 +103,7 @@
   let galaxyHealthWarned = false;
   let galaxyOverlayHotkeysBound = false;
   let galaxyHydrationToken = 0;
+  let galaxyAutoFramedOnce = false;
   const galaxyDebugState = {
     maxEntries: 6,
     entries: [],
@@ -217,9 +218,12 @@
       window.location.href = target;
     }, 450);
   }
-  const AUDIO_TRACK_OPTIONS = [
+  const AUDIO_TRACK_OPTIONS_FALLBACK = [
     { value: 'music/Nebula_Overture.mp3', label: 'Nebula Overture' },
   ];
+  let audioTrackOptions = AUDIO_TRACK_OPTIONS_FALLBACK.slice();
+  let audioTrackCatalogLoaded = false;
+  let audioTrackCatalogPromise = null;
   const AUDIO_SFX_OPTIONS = [
     { value: 'sfx/mixkit-video-game-retro-click-237.wav', label: 'Retro Click' },
     { value: 'sfx/mixkit-quick-positive-video-game-notification-interface-265.wav', label: 'Positive Notification' },
@@ -273,6 +277,7 @@
     autoTransitions: true,
     clusterDensityMode: 'auto',
     clusterBoundsVisible: true,
+    galacticCoreFxEnabled: true,
     magnetPreset: 'balanced',
     hoverMagnetEnabled: true,
     clickMagnetEnabled: true,
@@ -282,12 +287,14 @@
     persistentHoverDistance: 220,
     transitionStableMinMs: 160,
     homeEnterSystem: false,
+    introFlightMode: 'cinematic',
     masterVolume: 0.8,
     musicVolume: 0.55,
     sfxVolume: 0.8,
     masterMuted: false,
     musicMuted: false,
     sfxMuted: false,
+    musicTransitionMode: 'fade',
     musicUrl: '',
     autoSceneMusic: true,
     sceneTracks: {
@@ -318,6 +325,226 @@
       fleetLaunch: 'sfx/mixkit-space-deploy-whizz-3003.wav',
     },
   };
+
+  const UI_SETTINGS_STORAGE_KEY = 'gq_ui_settings';
+  const UI_SETTINGS_SESSION_KEY = 'gq_ui_settings_session';
+  const UI_SETTINGS_COOKIE_KEY = 'gq_ui_settings';
+  const UI_SETTINGS_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 180;
+
+  function readJsonFromCookie(name) {
+    try {
+      const cookieText = String(document.cookie || '');
+      if (!cookieText) return null;
+      const safeName = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const match = cookieText.match(new RegExp(`(?:^|;\\s*)${safeName}=([^;]*)`));
+      if (!match || !match[1]) return null;
+      const raw = decodeURIComponent(match[1]);
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeJsonCookie(name, data, maxAgeSec = UI_SETTINGS_COOKIE_MAX_AGE_SEC) {
+    try {
+      const encoded = encodeURIComponent(JSON.stringify(data));
+      document.cookie = `${name}=${encoded}; Max-Age=${Math.max(60, Number(maxAgeSec || 0))}; Path=/; SameSite=Lax`;
+    } catch (_) {}
+  }
+
+  function loadPortableUiSettings() {
+    const merged = {};
+    try {
+      const raw = localStorage.getItem(UI_SETTINGS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') Object.assign(merged, parsed);
+      }
+    } catch (_) {}
+
+    const cookieState = readJsonFromCookie(UI_SETTINGS_COOKIE_KEY);
+    if (cookieState && typeof cookieState === 'object') Object.assign(merged, cookieState);
+
+    try {
+      const rawSession = sessionStorage.getItem(UI_SETTINGS_SESSION_KEY);
+      if (rawSession) {
+        const parsedSession = JSON.parse(rawSession);
+        if (parsedSession && typeof parsedSession === 'object') Object.assign(merged, parsedSession);
+      }
+    } catch (_) {}
+
+    return merged;
+  }
+
+  function savePortableUiSettings(data) {
+    try {
+      localStorage.setItem(UI_SETTINGS_STORAGE_KEY, JSON.stringify(data));
+    } catch (_) {}
+    try {
+      sessionStorage.setItem(UI_SETTINGS_SESSION_KEY, JSON.stringify(data));
+    } catch (_) {}
+    writeJsonCookie(UI_SETTINGS_COOKIE_KEY, data, UI_SETTINGS_COOKIE_MAX_AGE_SEC);
+  }
+
+  function normalizeAudioTrackCatalog(items) {
+    if (!Array.isArray(items)) return [];
+    const out = [];
+    const seen = new Set();
+
+    for (let i = 0; i < items.length; i += 1) {
+      const row = items[i] || {};
+      const value = String(row.value || '').trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      const label = String(row.label || row.file || value).trim() || value;
+      out.push({ value, label });
+    }
+
+    return out;
+  }
+
+  function resolveAudioTrackLabel(url) {
+    const value = String(url || '').trim();
+    if (!value) return '-';
+    const fromCatalog = audioTrackOptions.find((entry) => String(entry.value || '') === value);
+    if (fromCatalog && fromCatalog.label) return String(fromCatalog.label);
+    const parts = value.split('/');
+    const file = String(parts[parts.length - 1] || value);
+    return file.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim() || file;
+  }
+
+  function updateTopbarTrackTicker(label) {
+    const host = document.getElementById('topbar-player-current');
+    if (!host) return;
+
+    const text = String(label || '-').trim() || '-';
+    host.textContent = '';
+    const node = document.createElement('span');
+    node.className = 'topbar-player-current-text';
+    node.textContent = text;
+    host.appendChild(node);
+
+    host.classList.remove('is-overflow');
+    host.style.removeProperty('--marquee-shift');
+    host.style.removeProperty('--marquee-duration');
+
+    const checkOverflow = () => {
+      const overflow = node.scrollWidth - host.clientWidth;
+      if (overflow > 6) {
+        const shift = Math.ceil(overflow + 18);
+        const duration = Math.max(6, Math.min(18, shift / 18));
+        host.style.setProperty('--marquee-shift', `${shift}px`);
+        host.style.setProperty('--marquee-duration', `${duration.toFixed(2)}s`);
+        host.classList.add('is-overflow');
+      }
+    };
+
+    window.requestAnimationFrame(checkOverflow);
+  }
+
+  function refreshSettingsMusicPresetOptions() {
+    const select = document.querySelector('#set-music-preset');
+    const miniSelect = document.querySelector('#set-player-track');
+    const topbarSelect = document.querySelector('#topbar-player-track');
+    const current = select ? String(select.value || '') : '';
+    const miniCurrent = miniSelect ? String(miniSelect.value || '') : '';
+    const topbarCurrent = topbarSelect ? String(topbarSelect.value || '') : '';
+    const optionsHtml = audioTrackOptions
+      .map((entry) => `<option value="${esc(entry.value)}">${esc(entry.label)}</option>`)
+      .join('');
+
+    if (select) {
+      select.innerHTML = `<option value="">Keine Vorlage</option>${optionsHtml}`;
+      if (current && audioTrackOptions.some((entry) => String(entry.value) === current)) {
+        select.value = current;
+      }
+    }
+
+    if (miniSelect) {
+      miniSelect.innerHTML = optionsHtml;
+      if (miniCurrent && audioTrackOptions.some((entry) => String(entry.value) === miniCurrent)) {
+        miniSelect.value = miniCurrent;
+      }
+    }
+
+    if (topbarSelect) {
+      topbarSelect.innerHTML = optionsHtml;
+      if (topbarCurrent && audioTrackOptions.some((entry) => String(entry.value) === topbarCurrent)) {
+        topbarSelect.value = topbarCurrent;
+      }
+    }
+  }
+
+  function applyAudioPlaylistFromCatalog() {
+    if (!audioManager || typeof audioManager.setMusicPlaylist !== 'function') return;
+    const playlist = audioTrackOptions
+      .map((entry) => String(entry.value || '').trim())
+      .filter((value, idx, arr) => value && arr.indexOf(value) === idx);
+    audioManager.setMusicPlaylist(playlist, { mode: 'shuffle' });
+  }
+
+  async function loadAudioTrackCatalog(force = false) {
+    if (!force && audioTrackCatalogLoaded) return audioTrackOptions;
+    if (!force && audioTrackCatalogPromise) return audioTrackCatalogPromise;
+
+    audioTrackCatalogPromise = (async () => {
+      try {
+        if (!API || typeof API.audioTracks !== 'function') {
+          audioTrackCatalogLoaded = true;
+          return audioTrackOptions;
+        }
+        const data = await API.audioTracks();
+        const nextOptions = normalizeAudioTrackCatalog(data?.tracks);
+        if (nextOptions.length > 0) {
+          audioTrackOptions = nextOptions;
+          const firstTrack = String(nextOptions[0].value || '').trim();
+          const sceneTracks = settingsState.sceneTracks || {};
+          const hasSceneTrack = ['galaxy', 'system', 'battle', 'ui'].some((k) => String(sceneTracks[k] || '').trim() !== '');
+          const hasMusicUrl = String(settingsState.musicUrl || '').trim() !== '';
+
+          if (firstTrack && !hasMusicUrl && !hasSceneTrack) {
+            settingsState.musicUrl = firstTrack;
+            settingsState.sceneTracks = {
+              galaxy: firstTrack,
+              system: firstTrack,
+              battle: firstTrack,
+              ui: firstTrack,
+            };
+
+            if (audioManager) {
+              if (typeof audioManager.setMusicTrack === 'function') {
+                audioManager.setMusicTrack(firstTrack, false);
+              }
+              if (typeof audioManager.setSceneTrack === 'function') {
+                audioManager.setSceneTrack('galaxy', firstTrack);
+                audioManager.setSceneTrack('system', firstTrack);
+                audioManager.setSceneTrack('battle', firstTrack);
+                audioManager.setSceneTrack('ui', firstTrack);
+              }
+            }
+
+            saveUiSettings();
+          }
+        }
+        audioTrackCatalogLoaded = true;
+        applyAudioPlaylistFromCatalog();
+        refreshSettingsMusicPresetOptions();
+        refreshAudioUi();
+        return audioTrackOptions;
+      } catch (_) {
+        audioTrackCatalogLoaded = true;
+        applyAudioPlaylistFromCatalog();
+        refreshSettingsMusicPresetOptions();
+        refreshAudioUi();
+        return audioTrackOptions;
+      } finally {
+        audioTrackCatalogPromise = null;
+      }
+    })();
+
+    return audioTrackCatalogPromise;
+  }
   const BUILDING_UI_META = {
     metal_mine:       { cat:'Extraction', icon:'⬡', desc:'Mines metal from the planet crust. Output scales with richness.' },
     crystal_mine:     { cat:'Extraction', icon:'💎', desc:'Extracts crystal formations. Higher levels deplete deposits faster.' },
@@ -354,9 +581,17 @@
   };
   const galaxyModel = window.GQGalaxyModel ? new window.GQGalaxyModel() : null;
   const galaxyDB = window.GQGalaxyDB ? new window.GQGalaxyDB() : null;
-  const audioManager = window.GQAudioManager
-    ? new window.GQAudioManager({ storageKey: 'gq_audio_settings' })
-    : null;
+  const audioManager = (() => {
+    if (!window.GQAudioManager) return null;
+    if (window.__GQ_AUDIO_MANAGER) return window.__GQ_AUDIO_MANAGER;
+    try {
+      const manager = new window.GQAudioManager({ storageKey: 'gq_audio_settings' });
+      window.__GQ_AUDIO_MANAGER = manager;
+      return manager;
+    } catch (_) {
+      return null;
+    }
+  })();
   const STAR_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
   const SYSTEM_CACHE_MAX_AGE_MS = 20 * 60 * 1000;
   const POLICY_PROFILES = {
@@ -1117,7 +1352,7 @@
 
     init() {
       if (this.initialized) return true;
-      const panel = document.getElementById('ui-console-panel');
+      const panel = document.getElementById('ui-console-panel') || document.getElementById('boot-terminal');
       const toggleBtn = document.getElementById('ui-console-toggle');
       const closeBtn = document.getElementById('ui-console-close');
       const clearBtn = document.getElementById('ui-console-clear');
@@ -1156,12 +1391,13 @@
         await runUiConsoleCommand(cmd);
       });
 
-      this.setOpen(false, panel, toggleBtn, input);
+      // Sync toggle button text with current panel visibility (unified panel may already be visible)
+      if (toggleBtn) toggleBtn.textContent = panel.classList.contains('hidden') ? '⌄ Con' : '⌃ Con';
 
       window.__gqUiConsoleReady = true;
       if (typeof window.dispatchEvent === 'function') {
         window.dispatchEvent(new CustomEvent('gq:ui-console-ready', {
-          detail: { panelId: 'ui-console-panel', logId: 'ui-console-log' },
+          detail: { panelId: panel.id, logId: 'ui-console-log' },
         }));
       }
 
@@ -1189,6 +1425,75 @@
     uiConsoleController.render();
   }
 
+  function inspectGalaxyCanvasLayering() {
+    const stage = document.getElementById('galaxy-stage');
+    const canvas = document.getElementById('starfield');
+    const desktop = document.getElementById('wm-windows-section') || document.getElementById('wm-desktop');
+    const report = {
+      ok: !!canvas,
+      bodyClass: String(document.body.className || ''),
+      canvas: null,
+      stage: null,
+      desktop: null,
+      windows: [],
+      topElementsAtCanvas: [],
+    };
+
+    const styleOf = (el) => {
+      if (!el) return null;
+      const cs = window.getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return {
+        id: String(el.id || ''),
+        className: String(el.className || ''),
+        display: String(cs.display || ''),
+        visibility: String(cs.visibility || ''),
+        opacity: Number(cs.opacity || 0),
+        pointerEvents: String(cs.pointerEvents || ''),
+        position: String(cs.position || ''),
+        zIndex: String(cs.zIndex || ''),
+        width: Math.round(Number(r.width || 0)),
+        height: Math.round(Number(r.height || 0)),
+        top: Math.round(Number(r.top || 0)),
+        left: Math.round(Number(r.left || 0)),
+      };
+    };
+
+    report.canvas = styleOf(canvas);
+    report.stage = styleOf(stage);
+    report.desktop = styleOf(desktop);
+
+    document.querySelectorAll('.wm-window').forEach((el) => {
+      const item = styleOf(el);
+      if (item) report.windows.push(item);
+    });
+
+    if (canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const points = [
+        [Math.round(rect.left + rect.width * 0.5), Math.round(rect.top + rect.height * 0.5)],
+        [Math.round(rect.left + rect.width * 0.2), Math.round(rect.top + rect.height * 0.25)],
+        [Math.round(rect.left + rect.width * 0.8), Math.round(rect.top + rect.height * 0.75)],
+      ];
+      points.forEach(([x, y]) => {
+        const top = document.elementFromPoint(x, y);
+        report.topElementsAtCanvas.push({
+          x,
+          y,
+          topId: String(top?.id || ''),
+          topClass: String(top?.className || ''),
+          topTag: String(top?.tagName || ''),
+        });
+      });
+    }
+
+    return report;
+  }
+
+  window.GQGalaxyCanvasDebug = {
+    inspect: inspectGalaxyCanvasLayering,
+  };
+
   class UIConsoleCommandController {
     async execute(raw) {
       const input = String(raw || '').trim();
@@ -1199,7 +1504,7 @@
       const cmd = String(parts[0] || '').toLowerCase();
 
       if (cmd === 'help' || cmd === '?') {
-        uiConsolePush('[help] refresh | home | galaxy | open <window> | transitions on/off/status | term debug on/off/status | term clear | term download | msg <user> <text> | copy | clear');
+        uiConsolePush('[help] refresh | home | galaxy | galdiag | galdebug | open <window> | transitions on/off/status | term debug on/off/status | term clear | term download | msg <user> <text> | copy | clear');
         return;
       }
       if (cmd === 'copy') {
@@ -1226,6 +1531,49 @@
       if (cmd === 'galaxy') {
         WM.open('galaxy');
         uiConsolePush('[ok] Galaxy window opened.');
+        return;
+      }
+      if (cmd === 'galdiag' || (cmd === 'galaxy' && String(parts[1] || '').toLowerCase() === 'diag')) {
+        const diag = inspectGalaxyCanvasLayering();
+        uiConsolePush(`[diag] body=${diag.bodyClass || '(none)'}`);
+        uiConsolePush(`[diag] stage z=${diag.stage?.zIndex || 'n/a'} display=${diag.stage?.display || 'n/a'} vis=${diag.stage?.visibility || 'n/a'} size=${diag.stage?.width || 0}x${diag.stage?.height || 0}`);
+        uiConsolePush(`[diag] canvas z=${diag.canvas?.zIndex || 'n/a'} display=${diag.canvas?.display || 'n/a'} vis=${diag.canvas?.visibility || 'n/a'} op=${diag.canvas?.opacity ?? 'n/a'} size=${diag.canvas?.width || 0}x${diag.canvas?.height || 0}`);
+        uiConsolePush(`[diag] desktop z=${diag.desktop?.zIndex || 'n/a'} display=${diag.desktop?.display || 'n/a'} vis=${diag.desktop?.visibility || 'n/a'} size=${diag.desktop?.width || 0}x${diag.desktop?.height || 0}`);
+        const topInfo = (diag.topElementsAtCanvas || []).map((p) => `${p.x},${p.y}->${p.topTag}${p.topId ? '#' + p.topId : ''}`).join(' | ');
+        uiConsolePush(`[diag] elementFromPoint: ${topInfo || 'n/a'}`);
+        const visibleWindows = (diag.windows || []).filter((w) => w.display !== 'none' && w.visibility !== 'hidden' && (w.width > 0 && w.height > 0));
+        uiConsolePush(`[diag] wm windows visible=${visibleWindows.length}`);
+        visibleWindows.slice(0, 6).forEach((w) => {
+          uiConsolePush(`[diag] win ${w.id || '(no-id)'} z=${w.zIndex} pos=${w.left},${w.top} size=${w.width}x${w.height}`);
+        });
+        try { console.table(diag.windows || []); } catch (_) {}
+        try { console.log('[GQ][galdiag]', diag); } catch (_) {}
+        return;
+      }
+      if (cmd === 'galdebug') {
+        uiConsolePush('[galdebug] === Galaxy3D Renderer Status ===');
+        if (!galaxy3d) {
+          uiConsolePush('[galdebug] galaxy3d is NULL');
+          return;
+        }
+        const stats = (typeof galaxy3d.getRenderStats === 'function') ? galaxy3d.getRenderStats() : null;
+        uiConsolePush(`[galdebug] visible stars: ${stats?.visibleStars || 0}`);
+        uiConsolePush(`[galdebug] target points: ${stats?.targetPoints || 0}`);
+        uiConsolePush(`[galdebug] density mode: ${stats?.densityMode || 'n/a'}`);
+        uiConsolePush(`[galdebug] starPoints: ${galaxy3d.starPoints ? 'exists' : 'NULL'}`);
+        if (galaxy3d.starPoints) {
+          uiConsolePush(`[galdebug] starPoints.visible: ${galaxy3d.starPoints.visible}`);
+          uiConsolePush(`[galdebug] starPoints.material: ${galaxy3d.starPoints.material?.constructor?.name || 'unknown'}`);
+          uiConsolePush(`[galdebug] starPoints.geometry.attributes.position.count: ${galaxy3d.starPoints.geometry?.attributes?.position?.count || 0}`);
+        }
+        uiConsolePush(`[galdebug] renderFrames.galaxy.visible: ${galaxy3d.renderFrames?.galaxy?.visible ?? 'n/a'}`);
+        uiConsolePush(`[galdebug] renderFrames.galaxy children: ${galaxy3d.renderFrames?.galaxy?.children?.length || 0}`);
+        if (galaxy3d.renderFrames?.galaxy) {
+          const starPointsInScene = galaxy3d.renderFrames.galaxy.children.includes(galaxy3d.starPoints);
+          uiConsolePush(`[galdebug] starPoints in scene: ${starPointsInScene}`);
+        }
+        uiConsolePush(`[galdebug] camera position: ${galaxy3d.camera?.position?.x?.toFixed(1) || 'n/a'}, ${galaxy3d.camera?.position?.y?.toFixed(1) || 'n/a'}, ${galaxy3d.camera?.position?.z?.toFixed(1) || 'n/a'}`);
+        try { console.log('[GQ][galdebug]', { galaxy3d, stats }); } catch (_) {}
         return;
       }
       if (cmd === 'open') {
@@ -1343,11 +1691,28 @@
   class SettingsController {
     refreshAudioUi() {
       const btn = document.getElementById('audio-toggle-btn');
+      const topbarTrack = document.getElementById('topbar-player-track');
+      const topbarToggle = document.getElementById('topbar-player-toggle');
+      const topbarCurrent = document.getElementById('topbar-player-current');
+      const topbarMode = document.getElementById('topbar-player-mode');
       if (!btn) return;
       if (!audioManager) {
         btn.disabled = true;
         btn.textContent = '🔇';
         btn.title = 'Audio nicht verfuegbar';
+        if (topbarTrack) topbarTrack.disabled = true;
+        if (topbarToggle) {
+          topbarToggle.disabled = true;
+          topbarToggle.textContent = 'Play';
+        }
+        if (topbarCurrent) {
+          topbarCurrent.textContent = '-';
+          topbarCurrent.title = 'Kein aktiver Track';
+        }
+        if (topbarMode) {
+          topbarMode.textContent = 'N/A';
+          topbarMode.title = 'Transition-Modus nicht verfuegbar';
+        }
         return;
       }
       const state = audioManager.snapshot();
@@ -1355,22 +1720,46 @@
       btn.disabled = false;
       btn.textContent = muted ? '🔇' : '🔊';
       btn.title = muted ? 'Audio aktivieren' : 'Audio stummschalten';
+
+      if (topbarTrack) {
+        topbarTrack.disabled = false;
+        const activeTrack = String(state.musicUrl || settingsState.musicUrl || '').trim();
+        if (activeTrack && Array.isArray(audioTrackOptions) && audioTrackOptions.some((entry) => String(entry.value) === activeTrack)) {
+          topbarTrack.value = activeTrack;
+        }
+      }
+      if (topbarCurrent) {
+        const activeTrack = String(state.musicUrl || settingsState.musicUrl || '').trim();
+        const label = resolveAudioTrackLabel(activeTrack);
+        updateTopbarTrackTicker(label);
+        topbarCurrent.title = activeTrack ? `Aktueller Track: ${label}` : 'Kein aktiver Track';
+      }
+      if (topbarToggle) {
+        topbarToggle.disabled = false;
+        topbarToggle.textContent = state.musicPlaying ? 'Pause' : 'Play';
+      }
+      if (topbarMode) {
+        const mode = String(state.musicTransitionMode || settingsState.musicTransitionMode || 'fade').toLowerCase() === 'cut' ? 'cut' : 'fade';
+        topbarMode.textContent = mode.toUpperCase();
+        topbarMode.title = mode === 'fade' ? 'Transition-Modus: Fade (nahtlos)' : 'Transition-Modus: Cut (sofort)';
+      }
     }
 
     loadUiSettings() {
-      try {
-        const raw = localStorage.getItem('gq_ui_settings');
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return;
-        Object.assign(settingsState, parsed);
-      } catch (_) {}
+      const persisted = loadPortableUiSettings();
+      if (persisted && typeof persisted === 'object') {
+        Object.assign(settingsState, persisted);
+      }
       applyTransitionPreset(settingsState.transitionPreset);
       settingsState.magnetPreset = ['precise', 'balanced', 'sticky', 'custom'].includes(String(settingsState.magnetPreset || 'balanced'))
         ? String(settingsState.magnetPreset)
         : 'balanced';
       settingsState.hoverMagnetEnabled = settingsState.hoverMagnetEnabled !== false;
       settingsState.clickMagnetEnabled = settingsState.clickMagnetEnabled !== false;
+      settingsState.galacticCoreFxEnabled = settingsState.galacticCoreFxEnabled !== false;
+      settingsState.introFlightMode = ['off', 'fast', 'cinematic'].includes(String(settingsState.introFlightMode || 'cinematic').toLowerCase())
+        ? String(settingsState.introFlightMode || 'cinematic').toLowerCase()
+        : 'cinematic';
       settingsState.hoverMagnetStarPx = Math.max(8, Math.min(64, Number(settingsState.hoverMagnetStarPx || 24)));
       settingsState.hoverMagnetPlanetPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetPlanetPx || 30)));
       settingsState.hoverMagnetClusterPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetClusterPx || 28)));
@@ -1405,12 +1794,18 @@
         if (audioSnapshot?.sfxMap && typeof audioSnapshot.sfxMap === 'object') {
           settingsState.sfxMap = Object.assign({}, settingsState.sfxMap, audioSnapshot.sfxMap);
         }
+        if (audioSnapshot?.musicTransitionMode) {
+          settingsState.musicTransitionMode = String(audioSnapshot.musicTransitionMode || 'fade').toLowerCase() === 'cut' ? 'cut' : 'fade';
+        }
         audioManager.setMasterVolume(settingsState.masterVolume);
         audioManager.setMusicVolume(settingsState.musicVolume);
         audioManager.setSfxVolume(settingsState.sfxVolume);
         audioManager.setMasterMuted(settingsState.masterMuted);
         audioManager.setMusicMuted(settingsState.musicMuted);
         audioManager.setSfxMuted(settingsState.sfxMuted);
+        if (typeof audioManager.setMusicTransitionMode === 'function') {
+          audioManager.setMusicTransitionMode(settingsState.musicTransitionMode);
+        }
         if (typeof audioManager.setAutoSceneMusic === 'function') {
           audioManager.setAutoSceneMusic(!!settingsState.autoSceneMusic);
         }
@@ -1429,12 +1824,11 @@
         }
       }
       this.refreshAudioUi();
+      this.saveUiSettings();
     }
 
     saveUiSettings() {
-      try {
-        localStorage.setItem('gq_ui_settings', JSON.stringify(settingsState));
-      } catch (_) {}
+      savePortableUiSettings(settingsState);
     }
 
     renderUserMenu() {
@@ -1446,12 +1840,15 @@
       const masterMuted = !!audioSnap.masterMuted;
       const transitionPreset = String(settingsState.transitionPreset || 'balanced');
       const homeEnterSystem = !!settingsState.homeEnterSystem;
+      const introFlightMode = String(settingsState.introFlightMode || 'cinematic');
+      const introLabel = introFlightMode === 'off' ? 'Aus' : introFlightMode === 'fast' ? 'Schnell' : 'Cinematic';
 
       menu.innerHTML = `
         <button class="user-menu-item" type="button" data-user-action="open-settings" role="menuitem">⚙ Benutzereinstellungen öffnen</button>
         <button class="user-menu-item" type="button" data-user-action="toggle-master-mute" role="menuitem">${masterMuted ? '🔈 Ton aktivieren' : '🔇 Ton stummschalten'}</button>
         <button class="user-menu-item" type="button" data-user-action="cycle-transition" role="menuitem">🎬 Transition: ${esc(transitionPreset)}</button>
         <button class="user-menu-item" type="button" data-user-action="toggle-home-enter" role="menuitem">🏠 Home-Öffnung: ${homeEnterSystem ? 'Systemansicht' : 'Galaxieansicht'}</button>
+        <button class="user-menu-item" type="button" data-user-action="cycle-intro-flight" role="menuitem">🛸 Intro-Flight: ${esc(introLabel)}</button>
         <hr class="user-menu-sep" />
         <button class="user-menu-item" type="button" data-user-action="toggle-pvp" role="menuitem">⚔ PvP: ${pvpOn ? 'aktiv (klicken zum Deaktivieren)' : 'inaktiv (klicken zum Aktivieren)'}</button>
         <button class="user-menu-item" type="button" data-user-action="refresh-profile" role="menuitem">🔄 Profildaten neu laden</button>
@@ -1517,6 +1914,17 @@
         this.saveUiSettings();
         this.renderUserMenu();
         showToast(`Home-Navigation: ${settingsState.homeEnterSystem ? 'Systemansicht' : 'Galaxieansicht'}`, 'info');
+        return;
+      }
+      if (action === 'cycle-intro-flight') {
+        const order = ['off', 'fast', 'cinematic'];
+        const idx = Math.max(0, order.indexOf(String(settingsState.introFlightMode || 'cinematic')));
+        const next = order[(idx + 1) % order.length];
+        settingsState.introFlightMode = next;
+        this.saveUiSettings();
+        this.renderUserMenu();
+        const label = next === 'off' ? 'Aus' : next === 'fast' ? 'Schnell' : 'Cinematic';
+        showToast(`Intro-Flight: ${label}`, 'info');
         return;
       }
       if (action === 'toggle-pvp') {
@@ -1606,6 +2014,9 @@
       if (typeof galaxy3d.setClusterBoundsVisible === 'function') {
         galaxy3d.setClusterBoundsVisible(settingsState.clusterBoundsVisible !== false);
       }
+      if (typeof galaxy3d.setGalacticCoreFxEnabled === 'function') {
+        galaxy3d.setGalacticCoreFxEnabled(settingsState.galacticCoreFxEnabled !== false);
+      }
     }
   }
 
@@ -1633,6 +2044,10 @@
 
   window.addEventListener('gq:audio-event', (ev) => {
     updateLastAudioEventUi(ev?.detail || null);
+  });
+
+  window.addEventListener('gq:audio-state', () => {
+    refreshAudioUi();
   });
 
   function loadUiSettings() {
@@ -1711,6 +2126,38 @@
   function renderInlineTemplateList(template, rows) {
     const list = Array.isArray(rows) ? rows : [];
     return list.map((row) => renderInlineTemplate(template, row)).join('');
+  }
+
+  function uiKitTemplateHTML(templateId) {
+    try {
+      if (!(window.GQUIKit && typeof window.GQUIKit.cloneTemplate === 'function')) return '';
+      const frag = window.GQUIKit.cloneTemplate(templateId);
+      if (!frag) return '';
+      const wrap = document.createElement('div');
+      wrap.appendChild(frag);
+      return wrap.innerHTML;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function uiKitEmptyStateHTML(title, text) {
+    const fromTemplate = uiKitTemplateHTML('tpl-ui-empty-state');
+    if (fromTemplate) return fromTemplate;
+    return `
+      <section class="ui-empty-state">
+        <div class="ui-empty-icon">◎</div>
+        <h4 class="ui-empty-title">${esc(title || 'No data available')}</h4>
+        <p class="ui-empty-text">${esc(text || 'Content will appear here soon.')}</p>
+      </section>`;
+  }
+
+  function uiKitSkeletonHTML() {
+    return uiKitTemplateHTML('tpl-ui-skeleton-list') || '<p class="text-muted">Loading…</p>';
+  }
+
+  function waitMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
   }
 
   function starSearchKey(star) {
@@ -2037,7 +2484,7 @@
         ['research', { title: '🔬 Research', w: 480, h: 560, defaultDock: 'right', defaultY: 58, onRender: () => renderResearch() }],
         ['shipyard', { title: '🚀 Shipyard', w: 500, h: 560, defaultDock: 'right', defaultY: 78, onRender: () => renderShipyard() }],
         ['fleet', { title: '⚡ Fleet', w: 500, h: 620, defaultDock: 'right', defaultY: 98, onRender: () => renderFleetForm() }],
-        ['galaxy', { title: '🌌 Galaxy Map', fullscreenDesktop: true, hideTaskButton: true, onRender: () => renderGalaxyWindow() }],
+        ['galaxy', { title: '🌌 Galaxy Map', fullscreenDesktop: true, hideTaskButton: true, backgroundLayer: true, onRender: () => renderGalaxyWindow() }],
         ['messages', { title: '✉ Messages', w: 500, h: 520, defaultDock: 'right', defaultY: 118, onRender: () => renderMessages() }],
         ['intel', { title: '🔍 Intel', w: 520, h: 560, defaultDock: 'right', defaultY: 128, onRender: () => renderIntel() }],
         ['trade-routes', { title: '🚀 Trade Routes', w: 520, h: 560, defaultDock: 'right', defaultY: 138, onRender: () => renderTradeRoutes() }],
@@ -2049,6 +2496,34 @@
         ['alliances', { title: '🤝 Alliances', w: 560, h: 620, defaultDock: 'right', defaultY: 54, onRender: () => renderAlliances() }],
         ['settings', { title: '⚙ Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12, onRender: () => renderSettings() }],
         ['quicknav', { title: '⭐ QuickNav', w: 370, h: 520, defaultDock: 'left', defaultY: 12, onRender: () => renderQuickNav() }],
+        ['left-sidebar', {
+          title: '📌 Left Sidebar',
+          sectionId: 'left_sidebar',
+          prebuiltSelector: '.sidebar-panel-left',
+          adaptExisting: true,
+          defaultDock: 'left',
+          defaultY: 72,
+          w: 300,
+          h: 520,
+          onRender: (root) => {
+            if (!root) return;
+            if (!root.innerHTML.trim()) root.innerHTML = '<p class="text-muted">Left sidebar window.</p>';
+          },
+        }],
+        ['right-sidebar', {
+          title: '📍 Right Sidebar',
+          sectionId: 'right_sidebar',
+          prebuiltSelector: '.sidebar-panel-right',
+          adaptExisting: true,
+          defaultDock: 'right',
+          defaultY: 72,
+          w: 300,
+          h: 520,
+          onRender: (root) => {
+            if (!root) return;
+            if (!root.innerHTML.trim()) root.innerHTML = '<p class="text-muted">Right sidebar window.</p>';
+          },
+        }],
       ];
     }
 
@@ -2125,6 +2600,83 @@
       });
     }
 
+    bindTopbarPlayer() {
+      const trackSelect = document.getElementById('topbar-player-track');
+      const prevBtn = document.getElementById('topbar-player-prev');
+      const nextBtn = document.getElementById('topbar-player-next');
+      const toggleBtn = document.getElementById('topbar-player-toggle');
+      if (!trackSelect || !toggleBtn) return;
+
+      const setActiveTrack = (url, autoplay = false) => {
+        const next = String(url || '').trim();
+        if (!next || !this.audio) return;
+        settingsState.musicUrl = next;
+        this.audio.setMusicTrack(next, autoplay);
+        saveUiSettings();
+      };
+
+      const shiftTrack = async (dir) => {
+        if (!this.audio || !audioTrackOptions.length) return;
+        if (typeof this.audio.playNextInPlaylist === 'function') {
+          const ok = await this.audio.playNextInPlaylist(dir, true);
+          if (!ok) showToast('Track konnte nicht gestartet werden.', 'warning');
+          const snap = this.audio.snapshot ? this.audio.snapshot() : null;
+          const currentUrl = String(snap?.musicUrl || '').trim();
+          if (currentUrl) settingsState.musicUrl = currentUrl;
+          saveUiSettings();
+          refreshAudioUi();
+          return;
+        }
+
+        const currentUrl = String(trackSelect.value || settingsState.musicUrl || '').trim();
+        let idx = audioTrackOptions.findIndex((entry) => String(entry.value) === currentUrl);
+        if (idx < 0) idx = 0;
+        const nextIdx = (idx + dir + audioTrackOptions.length) % audioTrackOptions.length;
+        const nextTrack = String(audioTrackOptions[nextIdx]?.value || '').trim();
+        if (!nextTrack) return;
+        setActiveTrack(nextTrack, false);
+        const ok = await this.audio.playMusic();
+        if (!ok) showToast('Track konnte nicht gestartet werden.', 'warning');
+        refreshAudioUi();
+      };
+
+      trackSelect.addEventListener('change', () => {
+        const selected = String(trackSelect.value || '').trim();
+        if (!selected) return;
+        setActiveTrack(selected, false);
+        refreshAudioUi();
+      });
+
+      prevBtn?.addEventListener('click', async () => {
+        await shiftTrack(-1);
+      });
+
+      nextBtn?.addEventListener('click', async () => {
+        await shiftTrack(1);
+      });
+
+      toggleBtn.addEventListener('click', async () => {
+        if (!this.audio) return;
+        const hasTrack = String(trackSelect.value || settingsState.musicUrl || '').trim();
+        if (hasTrack && String(this.audio.snapshot()?.musicUrl || '').trim() !== hasTrack) {
+          setActiveTrack(hasTrack, false);
+        }
+
+        const isPlaying = !!this.audio.snapshot()?.musicPlaying;
+        if (isPlaying) {
+          if (typeof this.audio.pauseMusic === 'function') this.audio.pauseMusic(false);
+          else this.audio.stopMusic();
+        } else {
+          const ok = await this.audio.playMusic();
+          if (!ok) showToast('Musik konnte nicht gestartet werden.', 'warning');
+        }
+        refreshAudioUi();
+      });
+
+      loadAudioTrackCatalog().catch(() => {});
+      refreshAudioUi();
+    }
+
     bindColonySelector() {
       if (!this.planetSelect) return;
       this.planetSelect.addEventListener('change', () => {
@@ -2139,6 +2691,7 @@
       this.bindNavButtons();
       this.bindTopbarButtons();
       this.bindAudioToggle();
+      this.bindTopbarPlayer();
       this.bindColonySelector();
       this.bound = true;
     }
@@ -2158,7 +2711,7 @@
   function selectColonyById(cid, opts = {}) {
     const colonyId = Number(cid || 0);
     currentColony = colonies.find(c => c.id === colonyId) || null;
-    if (currentColony) planetSelect.value = String(currentColony.id);
+    if (currentColony && planetSelect) planetSelect.value = String(currentColony.id);
     if (opts.focusBuilding && currentColony) {
       setColonyViewFocus(currentColony.id, opts.focusBuilding, opts.focusSource || 'select-colony');
     }
@@ -2425,8 +2978,17 @@
 
   class GalaxyController {
     triggerNavAction(action, rootRef = null) {
-      if (!galaxy3d) return;
       const root = rootRef || WM.body('galaxy');
+      if (!galaxy3d && root) {
+        this.init3D(root);
+        if (galaxy3d) {
+          this.loadStars3D(root).catch(() => {});
+        }
+      }
+      if (!galaxy3d) {
+        showToast('3D-Renderer ist noch nicht bereit.', 'warning');
+        return;
+      }
       const normalized = String(action || '');
       if (audioManager) audioManager.playUiClick();
       if (normalized === 'zoom-in' && typeof galaxy3d.nudgeZoom === 'function') galaxy3d.nudgeZoom('in');
@@ -2501,40 +3063,24 @@
       showToast(`Navigation: ${target.name || target.catalog_name || `System ${s}`}`, 'info');
     }
 
-    async render2DMap(root) {
-      // Fetch stars from current gallery view or load defaults
-      const from = parseInt(root.querySelector('#gal-from')?.value || 1);
-      const to = parseInt(root.querySelector('#gal-to')?.value || 499);
-      const galaxy = parseInt(root.querySelector('#gal-galaxy')?.value || 1);
+    async focusHomeSystem(root, opts = {}) {
+      const silent = !!opts.silent;
+      const cinematic = !!opts.cinematic;
+      const shouldEnterSystem = (typeof opts.enterSystem === 'boolean')
+        ? !!opts.enterSystem
+        : !!settingsState.homeEnterSystem;
+      const shouldFocusPlanet = (typeof opts.focusPlanet === 'boolean')
+        ? !!opts.focusPlanet
+        : false;
 
-      try {
-        const stars = Array.isArray(galaxyStars) ? galaxyStars : [];
-        const canvas = root.querySelector('#galaxy-2d-map-canvas');
-        if (canvas) {
-          // Set canvas size to match container
-          const rect = canvas.parentElement?.getBoundingClientRect();
-          const dpr = window.devicePixelRatio || 1;
-          canvas.width = (rect?.width || 800) * dpr;
-          canvas.height = (rect?.height || 600) * dpr;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.scale(dpr, dpr);
-          }
-
-          await galaxy2dMap.initialize(canvas, stars, { galaxy, from, to });
-        }
-      } catch (e) {
-        console.warn('[GQ] render2DMap failed:', e);
-      }
-    }
-
-    async focusHomeSystem(root) {
-      if (!root || !currentColony) {
-        showToast('Kein Heimatplanet verfügbar.', 'warning');
+      const homeColony = colonies.find((c) => !!c?.is_homeworld) || currentColony || null;
+      if (!root || !homeColony) {
+        if (!silent) showToast('Kein Heimatplanet verfügbar.', 'warning');
         return;
       }
-      const g = Math.max(1, Number(currentColony.galaxy || 1));
-      const s = Math.max(1, Number(currentColony.system || 1));
+      const g = Math.max(1, Number(homeColony.galaxy || 1));
+      const s = Math.max(1, Number(homeColony.system || 1));
+      const p = Math.max(1, Number(homeColony.position || 1));
       const from = Math.max(1, s - 420);
       const to = Math.min(galaxySystemMax, s + 420);
 
@@ -2552,29 +3098,57 @@
         target = galaxyStars.slice().sort((a, b) => Math.abs(Number(a.system_index || 0) - s) - Math.abs(Number(b.system_index || 0) - s))[0] || null;
       }
       if (!target) {
-        showToast('Heimatsystem nicht im aktuellen Sternbereich gefunden.', 'warning');
+        if (!silent) showToast('Heimatsystem nicht im aktuellen Sternbereich gefunden.', 'warning');
         return;
       }
 
       pinnedStar = target;
       uiState.activeStar = target;
+
+      if (cinematic) {
+        const label = `${target.name || target.catalog_name || `System ${s}`} [${g}:${s}:${p}]`;
+        const details = root.querySelector('#galaxy-system-details');
+        if (details) {
+          details.innerHTML = `<span class="text-muted">Warp-Lock: ${esc(label)} ...</span>`;
+        }
+      }
+
       if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
         galaxy3d.focusOnStar(target, true);
       }
-      const shouldEnterSystem = !!settingsState.homeEnterSystem;
+
+      if (cinematic) {
+        toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
+        renderGalaxySystemDetails(root, target, false);
+        await waitMs(700);
+      }
+
       if (shouldEnterSystem && !galaxy3d?.systemMode) {
         renderGalaxySystemDetails(root, target, true);
         await loadStarSystemPlanets(root, target);
+        if (cinematic) {
+          await waitMs(450);
+        }
       } else {
         renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
       }
-      showToast(`Heimatnavigation: ${target.name || target.catalog_name || `System ${s}`}`, 'success');
+
+      if (shouldFocusPlanet && galaxy3d?.systemMode && typeof galaxy3d.focusOnSystemPlanet === 'function') {
+        galaxy3d.focusOnSystemPlanet({ position: p }, true);
+        if (cinematic) {
+          await waitMs(350);
+        }
+      }
+
+      if (!silent) {
+        showToast(`Heimatnavigation: ${target.name || target.catalog_name || `System ${s}`}`, 'success');
+      }
     }
 
     init3D(root) {
-      const holder = root.querySelector('#galaxy-3d-canvas');
+      const holder = document.getElementById('galaxy-3d-host');
       if (!holder) {
-        galaxy3dInitReason = 'Missing #galaxy-3d-canvas container';
+        galaxy3dInitReason = 'Missing #galaxy-3d-host container';
         root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D engine failed to load. Reason: ${esc(galaxy3dInitReason)}</span>`;
         toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
         return;
@@ -2592,6 +3166,16 @@
       }
 
       try {
+        if (window.GQStarfieldControl && typeof window.GQStarfieldControl.releaseCanvasForGame === 'function') {
+          window.GQStarfieldControl.releaseCanvasForGame();
+        }
+
+        const stage = document.getElementById('galaxy-stage');
+        if (stage) {
+          stage.style.pointerEvents = 'none';
+          stage.style.zIndex = '1';
+        }
+
         galaxy3d = new window.Galaxy3DRenderer(holder, {
           onHover: (star, pos) => updateGalaxyHoverCard(root, star, pos, false),
           onClick: (star, pos) => {
@@ -2660,6 +3244,16 @@
             if (star) renderGalaxySystemDetails(root, star, true);
           },
         });
+        // Window-manager transitions can report stale host bounds for a frame.
+        // Trigger a few deferred resizes so the renderer matches the visible host.
+        const kickResize = () => {
+          try {
+            if (galaxy3d && typeof galaxy3d.resize === 'function') galaxy3d.resize();
+          } catch (_) {}
+        };
+        kickResize();
+        setTimeout(kickResize, 60);
+        setTimeout(kickResize, 220);
         galaxy3dInitReason = '';
         if (typeof galaxy3d.setClusterColorPalette === 'function') {
           galaxy3d.setClusterColorPalette(resolveClusterColorPalette(uiState.territory));
@@ -2684,16 +3278,7 @@
 
       if (!root.querySelector('.galaxy-3d-stage')) {
         root.innerHTML = `
-          <div class="galaxy-tabs" style="display:flex;gap:0;border-bottom:1px solid #555;margin-bottom:4px;">
-            <button class="galaxy-tab-btn galaxy-tab-active" data-tab="3d" style="padding:6px 12px;background:#1a1a1a;border:none;border-bottom:2px solid #4488ff;color:#fff;cursor:pointer;">3D View</button>
-            <button class="galaxy-tab-btn" data-tab="2d" style="padding:6px 12px;background:#0a0a0a;border:none;color:#999;cursor:pointer;">2D Map</button>
-          </div>
-          <div class="galaxy-3d-stage galaxy-tab-content" data-tab-id="3d" style="display:block;">
-            <div class="galaxy-3d-wrap">
-              <div id="galaxy-3d-canvas" class="galaxy-3d-canvas"></div>
-              <div id="galaxy-hover-card" class="galaxy-hover-card hidden"></div>
-            </div>
-
+          <div class="galaxy-3d-stage galaxy-bg-stage">
             <div id="galaxy-controls-overlay" class="galaxy-overlay-window hidden">
               <div class="galaxy-overlay-head">
                 <strong>Galaxy Controls</strong>
@@ -2720,6 +3305,7 @@
                   </select>
                 </label>
                 <button class="btn btn-secondary" id="gal-cluster-bounds-btn">Cluster Boxes: on</button>
+                <button class="btn btn-secondary" id="gal-core-fx-btn">Core FX: on</button>
                 <button class="btn btn-secondary" id="gal-magnet-hover-toggle-btn">Magnet Hover: on</button>
                 <button class="btn btn-secondary" id="gal-magnet-click-toggle-btn">Magnet Click: on</button>
                 <div class="galaxy-nav-strip" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:0.25rem;">
@@ -2801,30 +3387,7 @@
               </div>
             </div>
           </div>
-          
-          <div class="galaxy-tab-content" data-tab-id="2d" style="display:none;width:100%;height:100%;overflow:hidden;">
-            <canvas id="galaxy-2d-map-canvas" style="display:block;width:100%;height:100%;background:#0a0a0a;"></canvas>
-          </div>
         `;
-
-        // Tab switching
-        root.querySelectorAll('.galaxy-tab-btn').forEach(btn => {
-          btn.addEventListener('click', (e) => {
-            const tabId = e.target.dataset.tab;
-            root.querySelectorAll('.galaxy-tab-btn').forEach(b => {
-              b.classList.toggle('galaxy-tab-active', b.dataset.tab === tabId);
-              b.style.borderBottom = b.dataset.tab === tabId ? '2px solid #4488ff' : 'none';
-              b.style.background = b.dataset.tab === tabId ? '#1a1a1a' : '#0a0a0a';
-              b.style.color = b.dataset.tab === tabId ? '#fff' : '#999';
-            });
-            root.querySelectorAll('.galaxy-tab-content').forEach(content => {
-              content.style.display = content.dataset.tabId === tabId ? 'block' : 'none';
-            });
-            if (tabId === '2d') {
-              this.render2DMap(root);
-            }
-          });
-        });
 
         bindGalaxyOverlayHotkeys();
         makeGalaxyOverlayDraggable(root, '#galaxy-controls-overlay');
@@ -2845,6 +3408,13 @@
           updateClusterBoundsUi(root);
           saveUiSettings();
           showToast(`Cluster-Boxen: ${settingsState.clusterBoundsVisible ? 'an' : 'aus'}`, 'info');
+        });
+        root.querySelector('#gal-core-fx-btn')?.addEventListener('click', () => {
+          settingsState.galacticCoreFxEnabled = !(settingsState.galacticCoreFxEnabled !== false);
+          applyRuntimeSettings();
+          this.updateCoreFxUi(root);
+          saveUiSettings();
+          showToast(`Galactic Core FX: ${settingsState.galacticCoreFxEnabled ? 'an' : 'aus'}`, 'info');
         });
         root.querySelector('#gal-magnet-hover-toggle-btn')?.addEventListener('click', () => {
           settingsState.hoverMagnetEnabled = !(settingsState.hoverMagnetEnabled !== false);
@@ -2948,6 +3518,7 @@
         refreshGalaxyDensityMetrics(root);
         updateGalaxyFollowUi(root);
         updateClusterBoundsUi(root);
+        this.updateCoreFxUi(root);
         this.updateMagnetUi(root);
         renderGalaxyDebugPanel(root);
       }
@@ -2956,7 +3527,10 @@
         refreshGalaxyHealth(root, false);
       }
 
-      if (!galaxy3d && root.querySelector('#galaxy-3d-canvas')) {
+      // Reconnect Nav Orb handlers if the galaxy DOM was recreated externally.
+      bindGalaxyNavOrb(root);
+
+      if (!galaxy3d && document.getElementById('galaxy-3d-host')) {
         this.init3D(root);
         this.loadStars3D(root);
       }
@@ -2964,6 +3538,7 @@
       refreshGalaxyDensityMetrics(root);
       updateGalaxyFollowUi(root);
       updateClusterBoundsUi(root);
+      this.updateCoreFxUi(root);
       this.updateMagnetUi(root);
     }
 
@@ -3006,6 +3581,46 @@
         }
       };
 
+      const emitRenderProbe = (sourceLabel, meta = {}) => {
+        const rawStars = Array.isArray(galaxyStars) ? galaxyStars.length : 0;
+        const stats = (galaxy3d && typeof galaxy3d.getRenderStats === 'function')
+          ? galaxy3d.getRenderStats()
+          : null;
+        const visibleStars = Number(stats?.visibleStars || 0);
+        const targetPoints = Number(stats?.targetPoints || 0);
+        const densityMode = String(stats?.densityMode || 'n/a');
+        uiConsolePush(`[galaxy] probe src=${sourceLabel} raw=${rawStars} visible=${visibleStars} target=${targetPoints} mode=${densityMode}`);
+
+        if (meta && Object.keys(meta).length) {
+          const extras = Object.entries(meta)
+            .map(([k, v]) => `${k}=${String(v)}`)
+            .join(' ');
+          uiConsolePush(`[galaxy] meta ${extras}`);
+        }
+
+        if (rawStars > 0 && visibleStars <= 0) {
+          const diag = inspectGalaxyCanvasLayering();
+          const topInfo = (diag.topElementsAtCanvas || [])
+            .map((p) => `${p.x},${p.y}->${p.topTag}${p.topId ? '#' + p.topId : ''}`)
+            .join(' | ');
+          uiConsolePush(`[galaxy][warn] stars loaded but not visible. top=${topInfo || 'n/a'}`);
+          pushGalaxyDebugError('galaxy-visible-zero', `raw=${rawStars} visible=${visibleStars}`, String(sourceLabel || 'unknown'));
+        }
+      };
+
+      const ensureInitialGalaxyFrame = () => {
+        if (galaxyAutoFramedOnce) return;
+        if (!galaxy3d || typeof galaxy3d.fitCameraToStars !== 'function') return;
+        const stats = (typeof galaxy3d.getRenderStats === 'function') ? galaxy3d.getRenderStats() : null;
+        if (Number(stats?.visibleStars || 0) <= 0) return;
+        galaxyAutoFramedOnce = true;
+        setTimeout(() => {
+          try {
+            galaxy3d.fitCameraToStars(true, true);
+          } catch (_) {}
+        }, 30);
+      };
+
       let cachedStars = galaxyModel ? galaxyModel.listStars(g, from, to) : [];
       const fullRangeInModel = galaxyModel
         ? galaxyModel.hasLoadedStarRange(g, from, to, starsPolicy.cacheMaxAgeMs)
@@ -3037,6 +3652,12 @@
           details.innerHTML = `<span class="text-cyan">Cache: ${galaxyStars.length} stars loaded${fullRangeInModel ? ' (complete range)' : ''}. Syncing live data...</span>`;
         }
         refreshGalaxyDensityMetrics(root);
+        emitRenderProbe('cache', {
+          fullRange: fullRangeInModel,
+          from,
+          to,
+        });
+        ensureInitialGalaxyFrame();
       }
 
       const shouldRefreshNetwork = starsPolicy.alwaysRefreshNetwork || !fullRangeInModel;
@@ -3103,6 +3724,14 @@
         if (toInput) toInput.max = String(galaxySystemMax);
         if (fromInput) fromInput.max = String(galaxySystemMax);
         refreshGalaxyDensityMetrics(root);
+        emitRenderProbe('network', {
+          from,
+          to,
+          stride: data.stride,
+          count: data.count,
+          cacheMode: data.cache_mode || 'n/a',
+        });
+        ensureInitialGalaxyFrame();
         hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch(() => {});
       } catch (err) {
         pushGalaxyDebugError('galaxy-stars', String(err?.message || err || 'unknown error'), `${from}..${to}`);
@@ -3137,6 +3766,17 @@
         : galaxy3d.areClusterBoundsVisible();
       if (!btn) return;
       btn.textContent = `Cluster Boxes: ${enabled ? 'on' : 'off'}`;
+      btn.classList.toggle('btn-secondary', enabled);
+      btn.classList.toggle('btn-warning', !enabled);
+    }
+
+    updateCoreFxUi(root) {
+      const btn = root?.querySelector('#gal-core-fx-btn');
+      if (!btn) return;
+      const enabled = !galaxy3d || typeof galaxy3d.areGalacticCoreFxEnabled !== 'function'
+        ? (settingsState.galacticCoreFxEnabled !== false)
+        : galaxy3d.areGalacticCoreFxEnabled();
+      btn.textContent = `Core FX: ${enabled ? 'on' : 'off'}`;
       btn.classList.toggle('btn-secondary', enabled);
       btn.classList.toggle('btn-warning', !enabled);
     }
@@ -3277,414 +3917,11 @@
     }
   }
 
-  // ─── Galaxy 2D Map Controller ─────────────────────────────────────────────
-
-  class GalaxyMap2DController {
-    constructor() {
-      this.stars = [];
-      this.playerColonies = new Map();
-      this.territoryClaimsBySystem = new Map();
-      this.territorySummary = { own: 0, war: 0 };
-      this.canvas = null;
-      this.ctx = null;
-      this.scale = 1;
-      this.panX = 0;
-      this.panY = 0;
-      this.hoverStar = null;
-      this.hoveredName = '';
-    }
-
-    // Spectral class → Color mapping
-    spectralClassToColor(spectralClass) {
-      const colors = {
-        'O': '#3366ff',  // Blue
-        'B': '#7744ff',  // Violet-blue
-        'A': '#ccccff',  // Gray-white
-        'F': '#ffffee',  // White
-        'G': '#ffff44',  // Yellow
-        'K': '#ffaa44',  // Orange
-        'M': '#ff4444',  // Red
-      };
-      return colors[String(spectralClass || 'G')[0]] || '#ffff44';
-    }
-
-    // Luminosity → star radius (visual)
-    luminosityToRadius(luminosity, baseRadius = 2) {
-      const lum = Number(luminosity || 1);
-      // Log scale: brightness ranges typically 0.01 to 100+
-      return Math.max(1, Math.min(8, baseRadius + Math.log10(Math.max(0.1, lum)) * 1.2));
-    }
-
-    // Setup canvas & load data
-    async initialize(canvas, stars, context = {}) {
-      this.canvas = canvas;
-      this.ctx = canvas.getContext('2d');
-      this.stars = stars || [];
-      this.territoryClaimsBySystem.clear();
-      this.territorySummary = { own: 0, war: 0 };
-
-      // Fetch player colonies to mark them
-      try {
-        const overview = await API.gameOverview();
-        this.playerColonies.clear();
-        if (Array.isArray(overview.overview?.colonies)) {
-          for (const col of overview.overview.colonies) {
-            const key = `${Number(col.galaxy || 0)},${Number(col.system || 0)},${Number(col.position || 0)}`;
-            this.playerColonies.set(key, col);
-          }
-        }
-      } catch (_) {
-        // Silent fail
-      }
-
-      // Fetch alliance war territory claims for current range
-      try {
-        const g = Number(context.galaxy || uiState.activeGalaxy || 1);
-        const from = Number(context.from || uiState.activeRange?.from || 1);
-        const to = Number(context.to || uiState.activeRange?.to || from);
-        const warMap = await API.allianceWarMap(g, from, to);
-        const claims = Array.isArray(warMap?.claims) ? warMap.claims : [];
-        for (const claim of claims) {
-          const key = `${Number(claim.galaxy || 0)},${Number(claim.system || 0)}`;
-          const prev = this.territoryClaimsBySystem.get(key);
-          const relation = String(claim.relation || 'neutral');
-          if (!prev || (prev.relation !== 'war' && relation === 'war')) {
-            this.territoryClaimsBySystem.set(key, {
-              relation,
-              allianceTag: claim.alliance_tag || '',
-              allianceName: claim.alliance_name || '',
-            });
-          }
-        }
-        this.territorySummary = {
-          own: claims.filter((c) => String(c.relation) === 'own').length,
-          war: claims.filter((c) => String(c.relation) === 'war').length,
-        };
-      } catch (_) {
-        // Silent fail when no alliance/war data is available
-      }
-
-      this.fitToView();
-      this.attachCanvasEvents();
-      this.render();
-    }
-
-    // Calculate bounds and fit to canvas
-    fitToView() {
-      if (!this.stars.length) return;
-
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const star of this.stars) {
-        if (typeof star.x_ly === 'number' && typeof star.y_ly === 'number') {
-          minX = Math.min(minX, star.x_ly);
-          maxX = Math.max(maxX, star.x_ly);
-          minY = Math.min(minY, star.y_ly);
-          maxY = Math.max(maxY, star.y_ly);
-        }
-      }
-
-      if (!isFinite(minX)) return;
-
-      const padding = 50;
-      const width = this.canvas.width - 2 * padding;
-      const height = this.canvas.height - 2 * padding;
-      const dataWidth = maxX - minX || 1;
-      const dataHeight = maxY - minY || 1;
-
-      this.scale = Math.min(width / dataWidth, height / dataHeight) * 0.95;
-      this.panX = padding - minX * this.scale + width / 2 - dataWidth / 2 * this.scale;
-      this.panY = padding - minY * this.scale + height / 2 - dataHeight / 2 * this.scale;
-    }
-
-    // Render map
-    render() {
-      if (!this.ctx || !this.canvas) return;
-
-      const w = this.canvas.width;
-      const h = this.canvas.height;
-
-      // Clear
-      this.ctx.fillStyle = '#0a0a0a';
-      this.ctx.fillRect(0, 0, w, h);
-
-      // Grid
-      this.drawGrid();
-
-      // Territory backdrop
-      this.drawTerritoryOverlay();
-
-      // Stars
-      for (const star of this.stars) {
-        this.drawStar(star);
-      }
-
-      // Hover card
-      if (this.hoverStar) {
-        this.drawHoverCard(this.hoverStar);
-      }
-
-      // Mini-map (top-right inset)
-      this.drawMinimap();
-
-      // Legend
-      this.drawTerritoryLegend();
-    }
-
-    drawTerritoryOverlay() {
-      if (!this.territoryClaimsBySystem.size) return;
-      for (const star of this.stars) {
-        if (typeof star.x_ly !== 'number' || typeof star.y_ly !== 'number') continue;
-        const key = `${Number(star.galaxy_index || 0)},${Number(star.system_index || 0)}`;
-        const claim = this.territoryClaimsBySystem.get(key);
-        if (!claim) continue;
-        const x = star.x_ly * this.scale + this.panX;
-        const y = star.y_ly * this.scale + this.panY;
-        if (x < -32 || x > this.canvas.width + 32 || y < -32 || y > this.canvas.height + 32) continue;
-        const relation = String(claim.relation || 'neutral');
-        if (relation !== 'own' && relation !== 'war') continue;
-        const color = relation === 'war' ? 'rgba(231,76,60,0.22)' : 'rgba(46,204,113,0.20)';
-        this.ctx.fillStyle = color;
-        this.ctx.beginPath();
-        this.ctx.arc(x, y, 18, 0, Math.PI * 2);
-        this.ctx.fill();
-      }
-    }
-
-    drawGrid() {
-      this.ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-      this.ctx.lineWidth = 1;
-
-      const gridSpacing = 50;
-      for (let x = 0; x < this.canvas.width; x += gridSpacing) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(x, 0);
-        this.ctx.lineTo(x, this.canvas.height);
-        this.ctx.stroke();
-      }
-      for (let y = 0; y < this.canvas.height; y += gridSpacing) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(0, y);
-        this.ctx.lineTo(this.canvas.width, y);
-        this.ctx.stroke();
-      }
-    }
-
-    drawStar(star) {
-      if (typeof star.x_ly !== 'number' || typeof star.y_ly !== 'number') return;
-
-      const x = star.x_ly * this.scale + this.panX;
-      const y = star.y_ly * this.scale + this.panY;
-
-      // Skip off-screen
-      if (x < -20 || x > this.canvas.width + 20 || y < -20 || y > this.canvas.height + 20) return;
-
-      const radius = this.luminosityToRadius(star.luminosity_solar);
-      const color = this.spectralClassToColor(star.spectral_class);
-
-      // Star glow
-      const glow = this.ctx.createRadialGradient(x, y, 0, x, y, radius * 1.5);
-      glow.addColorStop(0, color + 'cc');
-      glow.addColorStop(1, color + '00');
-      this.ctx.fillStyle = glow;
-      this.ctx.beginPath();
-      this.ctx.arc(x, y, radius * 1.5, 0, Math.PI * 2);
-      this.ctx.fill();
-
-      // Star core
-      this.ctx.fillStyle = color;
-      this.ctx.beginPath();
-      this.ctx.arc(x, y, radius, 0, Math.PI * 2);
-      this.ctx.fill();
-
-      // Player colony marker
-      const colKey = `${Number(star.galaxy_index || 0)},${Number(star.system_index || 0)},1`;
-      if (this.playerColonies.has(colKey)) {
-        this.ctx.strokeStyle = '#00ff00';
-        this.ctx.lineWidth = 2;
-        this.ctx.beginPath();
-        this.ctx.arc(x, y, radius + 4, 0, Math.PI * 2);
-        this.ctx.stroke();
-      }
-
-      // Alliance territory marker (own / war)
-      const claimKey = `${Number(star.galaxy_index || 0)},${Number(star.system_index || 0)}`;
-      const claim = this.territoryClaimsBySystem.get(claimKey);
-      if (claim && (claim.relation === 'own' || claim.relation === 'war')) {
-        this.ctx.strokeStyle = claim.relation === 'war' ? '#e74c3c' : '#2ecc71';
-        this.ctx.lineWidth = claim.relation === 'war' ? 2.2 : 1.8;
-        this.ctx.beginPath();
-        this.ctx.arc(x, y, radius + 7, 0, Math.PI * 2);
-        this.ctx.stroke();
-      }
-
-      // Store for hover
-      star._screenX = x;
-      star._screenY = y;
-      star._screenRadius = radius;
-    }
-
-    drawHoverCard(star) {
-      const x = star._screenX || 0;
-      const y = star._screenY || 0;
-      const padding = 8;
-      const lineHeight = 14;
-
-      const name = esc(star.name || star.catalog_name || `System ${star.system_index}`);
-      const spec = String(star.spectral_class || 'G') + String(star.subtype || 0);
-      const claimKey = `${Number(star.galaxy_index || 0)},${Number(star.system_index || 0)}`;
-      const claim = this.territoryClaimsBySystem.get(claimKey);
-      const relationTxt = claim?.relation === 'war'
-        ? ' [WAR]'
-        : (claim?.relation === 'own' ? ' [OWN]' : '');
-      const tagTxt = claim?.allianceTag ? ` <${esc(claim.allianceTag)}>` : '';
-      const text = `${name} (${spec})${relationTxt}${tagTxt}`;
-
-      this.ctx.font = '12px monospace';
-      const metrics = this.ctx.measureText(text);
-      const w = metrics.width + padding * 2;
-      const h = lineHeight + padding * 2;
-
-      const cardX = Math.min(x + 12, this.canvas.width - w - 4);
-      const cardY = Math.min(y - h - 4, this.canvas.height - h - 4);
-
-      // Card background
-      this.ctx.fillStyle = 'rgba(32,32,64,0.9)';
-      this.ctx.fillRect(cardX, cardY, w, h);
-      this.ctx.strokeStyle = '#4488ff';
-      this.ctx.lineWidth = 1;
-      this.ctx.strokeRect(cardX, cardY, w, h);
-
-      // Text
-      this.ctx.fillStyle = '#ffffff';
-      this.ctx.fillText(text, cardX + padding, cardY + padding + 10);
-    }
-
-    drawTerritoryLegend() {
-      const own = Number(this.territorySummary.own || 0);
-      const war = Number(this.territorySummary.war || 0);
-      if (own <= 0 && war <= 0) return;
-
-      const x = 10;
-      const y = this.canvas.height - 66;
-      const w = 210;
-      const h = 56;
-      this.ctx.fillStyle = 'rgba(22,22,32,0.82)';
-      this.ctx.fillRect(x, y, w, h);
-      this.ctx.strokeStyle = 'rgba(120,140,180,0.55)';
-      this.ctx.lineWidth = 1;
-      this.ctx.strokeRect(x, y, w, h);
-
-      this.ctx.font = '12px monospace';
-      this.ctx.fillStyle = '#9fd3ff';
-      this.ctx.fillText('Alliance Territory', x + 8, y + 14);
-      this.ctx.fillStyle = '#2ecc71';
-      this.ctx.fillText(`OWN claims: ${own}`, x + 8, y + 31);
-      this.ctx.fillStyle = '#e74c3c';
-      this.ctx.fillText(`WAR claims: ${war}`, x + 8, y + 47);
-    }
-
-    drawMinimap() {
-      const minimapW = 120;
-      const minimapH = 100;
-      const minimapX = this.canvas.width - minimapW - 8;
-      const minimapY = 8;
-
-      // Background
-      this.ctx.fillStyle = 'rgba(32,32,64,0.7)';
-      this.ctx.fillRect(minimapX, minimapY, minimapW, minimapH);
-      this.ctx.strokeStyle = '#4488ff';
-      this.ctx.lineWidth = 1;
-      this.ctx.strokeRect(minimapX, minimapY, minimapW, minimapH);
-
-      // Minimap stars (tiny dots)
-      for (const star of this.stars) {
-        if (!this.stars.length) continue;
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        for (const s of this.stars) {
-          if (typeof s.x_ly === 'number' && typeof s.y_ly === 'number') {
-            minX = Math.min(minX, s.x_ly);
-            maxX = Math.max(maxX, s.x_ly);
-            minY = Math.min(minY, s.y_ly);
-            maxY = Math.max(maxY, s.y_ly);
-          }
-        }
-        if (!isFinite(minX)) return;
-
-        const dataW = maxX - minX || 1;
-        const dataH = maxY - minY || 1;
-        const miniScale = Math.min(minimapW, minimapH) / Math.max(dataW, dataH) * 0.9;
-
-        const mmx = minimapX + (star.x_ly - minX) * miniScale + (minimapW - dataW * miniScale) / 2;
-        const mmy = minimapY + (star.y_ly - minY) * miniScale + (minimapH - dataH * miniScale) / 2;
-
-        this.ctx.fillStyle = this.spectralClassToColor(star.spectral_class);
-        this.ctx.beginPath();
-        this.ctx.arc(mmx, mmy, 1, 0, Math.PI * 2);
-        this.ctx.fill();
-
-        // Player colonies in minimap
-        const colKey = `${Number(star.galaxy_index || 0)},${Number(star.system_index || 0)},1`;
-        if (this.playerColonies.has(colKey)) {
-          this.ctx.strokeStyle = '#00ff00';
-          this.ctx.lineWidth = 1;
-          this.ctx.beginPath();
-          this.ctx.arc(mmx, mmy, 3, 0, Math.PI * 2);
-          this.ctx.stroke();
-        }
-      }
-    }
-
-    attachCanvasEvents() {
-      if (!this.canvas) return;
-
-      this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
-      this.canvas.addEventListener('mouseleave', () => this.onMouseLeave());
-      this.canvas.addEventListener('click', (e) => this.onClick(e));
-    }
-
-    onMouseMove(e) {
-      const rect = this.canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-
-      this.hoverStar = null;
-      for (const star of this.stars) {
-        if (!star._screenX) continue;
-        const dx = mx - star._screenX;
-        const dy = my - star._screenY;
-        const dist = Math.hypot(dx, dy);
-        if (dist <= star._screenRadius + 6) {
-          this.hoverStar = star;
-          this.canvas.style.cursor = 'pointer';
-          this.render();
-          return;
-        }
-      }
-      this.canvas.style.cursor = 'default';
-      this.render();
-    }
-
-    onMouseLeave() {
-      this.hoverStar = null;
-      this.render();
-    }
-
-    onClick(e) {
-      if (!this.hoverStar) return;
-      const g = Number(this.hoverStar.galaxy_index || 1);
-      const s = Number(this.hoverStar.system_index || 1);
-      galaxyController.jumpToSearchStar(this.hoverStar);
-    }
-  }
-
   const galaxyController = new GalaxyController();
   window.GQGalaxyController = galaxyController;
 
-  const galaxy2dMap = new GalaxyMap2DController();
-  window.GQGalaxy2DMap = galaxy2dMap;
-
-  async function focusHomeSystemInGalaxy(root) {
-    await galaxyController.focusHomeSystem(root);
+  async function focusHomeSystemInGalaxy(root, opts = {}) {
+    await galaxyController.focusHomeSystem(root, opts);
   }
 
   function pickFleetDefaultShips(mission, avail, intel) {
@@ -3766,9 +4003,11 @@
     }
 
     populatePlanetSelect() {
-      planetSelect.innerHTML = colonies.map((colony) =>
-        `<option value="${colony.id}">${esc(colony.name)} [${colony.galaxy}:${colony.system}:${colony.position}]</option>`
-      ).join('');
+      if (planetSelect) {
+        planetSelect.innerHTML = colonies.map((colony) =>
+          `<option value="${colony.id}">${esc(colony.name)} [${colony.galaxy}:${colony.system}:${colony.position}]</option>`
+        ).join('');
+      }
       if (!currentColony && colonies.length) {
         selectColonyById(colonies[0].id);
       }
@@ -4071,7 +4310,7 @@
         card.addEventListener('click', () => {
           const cid = parseInt(card.dataset.cid, 10);
           currentColony = colonies.find((c) => c.id === cid) || null;
-          planetSelect.value = String(cid);
+          if (planetSelect) planetSelect.value = String(cid);
           this.updateResourceBar();
           this.render();
         });
@@ -4130,7 +4369,7 @@
       const root = WM.body('overview');
       if (!root) return;
       if (!colonies.length) {
-        root.innerHTML = '<p class="text-muted">No colonies yet.</p>';
+        root.innerHTML = uiKitEmptyStateHTML('No colonies yet', 'Found your first colony to unlock strategic overview data.');
         return;
       }
 
@@ -4268,6 +4507,18 @@
           </div>
         </div>
         ${buildingFocus ? `<div class="build-focus-banner">Rasterfokus: ${esc(fmtName(buildingFocus))}${uiState.colonyViewFocus?.source ? ` · Quelle: ${esc(uiState.colonyViewFocus.source)}` : ''}</div>` : ''}
+        ${(() => {
+          const ev = currentColony.active_event;
+          if (!ev) return '';
+          const meta = {
+            solar_flare:  { icon: '☀️', label: 'Solar Flare',       cls: 'event-solar',   desc: 'Resource production −20%' },
+            mineral_vein: { icon: '⛏️', label: 'Mineral Vein',      cls: 'event-mineral',  desc: 'Metal production +30%' },
+            disease:      { icon: '🦠', label: 'Disease Outbreak',  cls: 'event-disease',  desc: 'Population growth −50%' },
+          }[ev.type] || { icon: '⚠️', label: ev.type, cls: 'event-unknown', desc: '' };
+          const mins = Number(ev.ends_in_min || 0);
+          const timeLeft = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+          return `<div class="colony-event-banner ${esc(meta.cls)}"><span class="ce-icon">${meta.icon}</span><span class="ce-label"><strong>${esc(meta.label)}</strong> — ${esc(meta.desc)}</span><span class="ce-timer">ends in ${esc(timeLeft)}</span></div>`;
+        })()}
         <div class="colony-capacity-row">${Object.entries(classCaps).map(([key, value]) => `<span class="colony-cap-chip">${esc(buildingZoneLabel(key))}: ${esc(String(value))}</span>`).join('')}</div>
         <div class="colony-grid" style="grid-template-columns:repeat(${grid.cols}, minmax(0, 1fr));">
           ${grid.cells.map((cell) => {
@@ -4727,7 +4978,7 @@
       } else if (k === 'escape') {
         toggleGalaxyOverlay(root, '#galaxy-controls-overlay', false);
         toggleGalaxyOverlay(root, '#galaxy-info-overlay', false);
-        const card = root.querySelector('#galaxy-hover-card');
+        const card = document.getElementById('galaxy-hover-card');
         if (card) card.classList.add('hidden');
       } else if (k === 'l') {
         e.preventDefault();
@@ -4851,7 +5102,7 @@
       rendererGlobal: typeof window.Galaxy3DRenderer,
       threeGlobal: typeof window.THREE,
       threeRevision: String(window.THREE?.REVISION || 'n/a'),
-      hasCanvas: !!root?.querySelector?.('#galaxy-3d-canvas'),
+      hasCanvas: !!document.getElementById('galaxy-3d-host'),
       webglSupport,
       reason: String(galaxy3dInitReason || '').trim() || 'n/a',
       time: new Date().toLocaleTimeString(),
@@ -4888,7 +5139,7 @@
   }
 
   function updateGalaxyHoverCard(root, star, pos, pinned) {
-    const card = root.querySelector('#galaxy-hover-card');
+    const card = document.getElementById('galaxy-hover-card');
     if (!card) return;
     if (!star || !pos) {
       if (!pinnedStar || !pinned) card.classList.add('hidden');
@@ -4918,7 +5169,8 @@
         <div class="hover-meta">${esc(star.spectral_class)}${esc(String(star.subtype ?? ''))} · ${star.galaxy_index}:${star.system_index}</div>`;
     }
 
-    card.style.left = `${Math.max(10, Math.min(pos.x, root.clientWidth - 10))}px`;
+    const _hostW = document.getElementById('galaxy-3d-host')?.clientWidth || window.innerWidth;
+    card.style.left = `${Math.max(10, Math.min(pos.x, _hostW - 10))}px`;
     card.style.top = `${Math.max(18, pos.y - 18)}px`;
     card.classList.remove('hidden');
     card.classList.toggle('pinned', !!pinned);
@@ -5810,7 +6062,7 @@
             <button class="btn btn-secondary btn-sm" id="msg-terminal-run">Run</button>
           </div>
         </div>`,
-        messagesList: '<div id="messages-list-wm"><p class="text-muted">Loading…</p></div>',
+        messagesList: `<div id="messages-list-wm">${uiKitTemplateHTML('tpl-ui-skeleton-list') || '<p class="text-muted">Loading…</p>'}</div>`,
         consoleLine: '<div>{{{line}}}</div>',
         userHintOption: '<option value="{{{value}}}"></option>',
         detail: `
@@ -5917,6 +6169,7 @@
     async loadMessagesList(root) {
       const el = root.querySelector('#messages-list-wm');
       if (!el) return;
+      el.innerHTML = uiKitTemplateHTML('tpl-ui-skeleton-list') || '<p class="text-muted">Loading…</p>';
       try {
         const data = await API.inbox();
         if (!data.success) {
@@ -5924,7 +6177,7 @@
           return;
         }
         if (!data.messages.length) {
-          el.innerHTML = '<p class="text-muted">Inbox empty.</p>';
+          el.innerHTML = uiKitEmptyStateHTML('Inbox empty', 'New diplomatic and tactical messages will appear here.');
           return;
         }
 
@@ -6282,7 +6535,7 @@
       const root = WM.body('intel');
       if (!root) return;
 
-      root.innerHTML = '<p class="text-muted">Loading…</p>';
+      root.innerHTML = uiKitSkeletonHTML();
 
       try {
         const response = await API.spyReports();
@@ -6293,7 +6546,7 @@
 
         const reports = response.spy_reports;
         if (!reports.length) {
-          root.innerHTML = '<p class="text-muted">No spy reports yet.</p>';
+          root.innerHTML = uiKitEmptyStateHTML('No spy reports yet', 'Launch reconnaissance missions to collect fresh intel.');
           return;
         }
 
@@ -6325,16 +6578,23 @@
     }
 
     async render() {
-      const data = await API.tradeRoutes();
-      this.routes = data.trade_routes || [];
-
       const root = WM.body('trade-routes');
       if (!root) return;
+      root.innerHTML = uiKitSkeletonHTML();
+
+      let data;
+      try {
+        data = await API.tradeRoutes();
+      } catch (_) {
+        root.innerHTML = '<p class="text-red">Failed to load trade routes.</p>';
+        return;
+      }
+      this.routes = data.trade_routes || [];
 
       let html = '<div class="trade-routes-list">';
 
       if (this.routes.length === 0) {
-        html += '<p style="padding: 10px; color: #999;">No trade routes yet.</p>';
+        html += uiKitEmptyStateHTML('No trade routes yet', 'Create your first automated route between two colonies.');
       } else {
         html += '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px;">';
         for (const route of this.routes) {
@@ -6440,7 +6700,7 @@
       const root = WM.body('alliances');
       if (!root) return;
 
-      root.innerHTML = '<div class="text-muted">Loading alliances...</div>';
+      root.innerHTML = uiKitSkeletonHTML();
 
       try {
         const data = await API.alliances();
@@ -6467,7 +6727,7 @@
         // List all alliances
         html += '<div style="margin-top: 12px; border-top: 1px solid #555; padding-top: 8px;"><strong>🌍 All Alliances</strong></div>';
         if (this.alliances.length === 0) {
-          html += '<div class="text-muted" style="padding:8px;">No alliances found.</div>';
+          html += uiKitEmptyStateHTML('No alliances found', 'Start a new alliance and invite trusted commanders.');
         } else {
           html += '<div style="display: grid; gap: 6px; margin-top: 6px;">';
           for (const alliance of this.alliances) {
@@ -7575,7 +7835,7 @@
     async render() {
       const root = WM.body('factions');
       if (!root) return;
-      root.innerHTML = '<p class="text-muted">Loading factions…</p>';
+      root.innerHTML = uiKitSkeletonHTML();
       try {
         const [factionsData, politicsData, presetsData, unrestData] = await Promise.all([
           API.factions(),
@@ -7594,6 +7854,12 @@
         const presets = Array.isArray(presetsData?.presets) ? presetsData.presets : [];
         const activeUnrest = (unrestData?.situations || []).find((s) => String(s?.situation_type || '') === 'faction_unrest') || null;
         root.innerHTML = this.buildMainView({ factions, politicsProfile, dynamicEffects, presets, activeUnrest, activeEvent });
+        if (!factions.length) {
+          const detail = root.querySelector('#faction-detail');
+          if (detail) {
+            detail.innerHTML = uiKitEmptyStateHTML('No factions available', 'Faction data is currently unavailable in this sector.');
+          }
+        }
         this.bindMainActions(root);
       } catch (e) {
         root.innerHTML = `<p class="error">${esc(String(e))}</p>`;
@@ -7612,7 +7878,7 @@
     async render() {
       const root = WM.body('leaderboard');
       if (!root) return;
-      root.innerHTML = '<p class="text-muted">Loading…</p>';
+      root.innerHTML = uiKitSkeletonHTML();
       try {
         const data = await API.leaderboard();
         if (!data.success) {
@@ -7620,7 +7886,7 @@
           return;
         }
         if (!data.leaderboard.length) {
-          root.innerHTML = '<p class="text-muted">No players yet.</p>';
+          root.innerHTML = uiKitEmptyStateHTML('No players yet', 'Leaderboard will populate as commanders expand their empires.');
           return;
         }
 
@@ -7650,7 +7916,7 @@
     if (!root) return;
     const audioState = audioManager ? audioManager.snapshot() : settingsState;
     settingsState.sfxMap = Object.assign({}, settingsState.sfxMap || {}, audioState.sfxMap || {});
-    const musicTrackOptions = AUDIO_TRACK_OPTIONS
+    const musicTrackOptions = audioTrackOptions
       .map((entry) => `<option value="${esc(entry.value)}">${esc(entry.label)}</option>`)
       .join('');
     const sfxOptionMarkup = AUDIO_SFX_OPTIONS
@@ -7716,6 +7982,18 @@
 
         <label class="system-row" style="margin-top:0.75rem;">Musik-URL (optional)</label>
         <input id="set-music-url" type="text" placeholder="music/Nebula_Overture.mp3" value="${esc(audioState.musicUrl || '')}" />
+        <label class="system-row">Track-Transition</label>
+        <select id="set-music-transition-mode">
+          <option value="fade" ${String(audioState.musicTransitionMode || settingsState.musicTransitionMode || 'fade') === 'fade' ? 'selected' : ''}>Fade (nahtlos)</option>
+          <option value="cut" ${String(audioState.musicTransitionMode || settingsState.musicTransitionMode || 'fade') === 'cut' ? 'selected' : ''}>Cut (sofort)</option>
+        </select>
+        <div class="system-row" style="margin-top:0.6rem;"><strong>Mini-Player</strong></div>
+        <div class="system-row" style="display:grid;grid-template-columns:1fr auto auto auto;gap:0.4rem;align-items:center;">
+          <select id="set-player-track">${musicTrackOptions}</select>
+          <button id="set-player-prev" class="btn btn-secondary btn-sm" type="button">◀</button>
+          <button id="set-player-toggle" class="btn btn-primary btn-sm" type="button">Play</button>
+          <button id="set-player-next" class="btn btn-secondary btn-sm" type="button">▶</button>
+        </div>
         <label class="system-row">Lokale Musik-Vorlage</label>
         <select id="set-music-preset">
           <option value="">Keine Vorlage</option>
@@ -7878,11 +8156,23 @@
       if (audioManager) audioManager.playUiConfirm();
     });
 
+    const transitionModeSelect = root.querySelector('#set-music-transition-mode');
+    transitionModeSelect?.addEventListener('change', () => {
+      const mode = String(transitionModeSelect.value || 'fade').toLowerCase() === 'cut' ? 'cut' : 'fade';
+      settingsState.musicTransitionMode = mode;
+      if (audioManager && typeof audioManager.setMusicTransitionMode === 'function') {
+        audioManager.setMusicTransitionMode(mode);
+      }
+      saveUiSettings();
+    });
+
     root.querySelector('#set-music-preset')?.addEventListener('change', () => {
       const preset = String(root.querySelector('#set-music-preset')?.value || '').trim();
       if (!preset) return;
       const urlInput = root.querySelector('#set-music-url');
       if (urlInput) urlInput.value = preset;
+      const playerSelect = root.querySelector('#set-player-track');
+      if (playerSelect) playerSelect.value = preset;
       ['galaxy', 'system', 'battle', 'ui'].forEach((sceneKey) => {
         const input = root.querySelector(`#set-scene-${sceneKey}`);
         if (input && !String(input.value || '').trim()) {
@@ -7890,6 +8180,107 @@
         }
       });
     });
+
+    const playerSelect = root.querySelector('#set-player-track');
+    const playerToggleBtn = root.querySelector('#set-player-toggle');
+    const playerPrevBtn = root.querySelector('#set-player-prev');
+    const playerNextBtn = root.querySelector('#set-player-next');
+
+    const setActiveTrack = (url, autoplay = false) => {
+      const next = String(url || '').trim();
+      if (!next) return;
+      settingsState.musicUrl = next;
+      const urlInput = root.querySelector('#set-music-url');
+      if (urlInput) urlInput.value = next;
+      if (playerSelect) playerSelect.value = next;
+      if (audioManager) {
+        audioManager.setMusicTrack(next, autoplay);
+      }
+      saveUiSettings();
+    };
+
+    const updatePlayerToggleLabel = () => {
+      if (!playerToggleBtn) return;
+      const isPlaying = !!(audioManager && audioManager.snapshot && audioManager.snapshot().musicPlaying);
+      playerToggleBtn.textContent = isPlaying ? 'Pause' : 'Play';
+    };
+
+    const shiftTrack = async (dir) => {
+      if (!audioTrackOptions.length) return;
+      if (audioManager && typeof audioManager.playNextInPlaylist === 'function') {
+        const ok = await audioManager.playNextInPlaylist(dir, true);
+        if (!ok) showToast('Track konnte nicht gestartet werden.', 'warning');
+        const snap = audioManager.snapshot ? audioManager.snapshot() : null;
+        const currentUrl = String(snap?.musicUrl || '').trim();
+        if (currentUrl) {
+          settingsState.musicUrl = currentUrl;
+          if (playerSelect) playerSelect.value = currentUrl;
+        }
+        saveUiSettings();
+        refreshAudioUi();
+        updatePlayerToggleLabel();
+        return;
+      }
+      const currentUrl = String(playerSelect?.value || settingsState.musicUrl || '').trim();
+      let idx = audioTrackOptions.findIndex((entry) => String(entry.value) === currentUrl);
+      if (idx < 0) idx = 0;
+      const nextIdx = (idx + dir + audioTrackOptions.length) % audioTrackOptions.length;
+      const nextTrack = String(audioTrackOptions[nextIdx]?.value || '').trim();
+      if (!nextTrack) return;
+      setActiveTrack(nextTrack, false);
+      if (audioManager) {
+        const ok = await audioManager.playMusic();
+        if (!ok) showToast('Track konnte nicht gestartet werden.', 'warning');
+      }
+      updatePlayerToggleLabel();
+    };
+
+    if (playerSelect) {
+      const preselect = String(audioState.musicUrl || settingsState.musicUrl || audioTrackOptions[0]?.value || '').trim();
+      if (preselect) playerSelect.value = preselect;
+      playerSelect.addEventListener('change', () => {
+        const selected = String(playerSelect.value || '').trim();
+        if (!selected) return;
+        setActiveTrack(selected, false);
+      });
+    }
+
+    playerPrevBtn?.addEventListener('click', async () => {
+      await shiftTrack(-1);
+    });
+
+    playerNextBtn?.addEventListener('click', async () => {
+      await shiftTrack(1);
+    });
+
+    playerToggleBtn?.addEventListener('click', async () => {
+      if (!audioManager) {
+        showToast('Audio-Manager nicht verfügbar.', 'warning');
+        return;
+      }
+
+      const hasTrack = String(playerSelect?.value || settingsState.musicUrl || '').trim();
+      if (hasTrack && String(audioManager.snapshot()?.musicUrl || '').trim() !== hasTrack) {
+        setActiveTrack(hasTrack, false);
+      }
+
+      const isPlaying = !!audioManager.snapshot()?.musicPlaying;
+      if (isPlaying) {
+        if (typeof audioManager.pauseMusic === 'function') {
+          audioManager.pauseMusic(false);
+        } else {
+          audioManager.stopMusic();
+        }
+      } else {
+        const ok = await audioManager.playMusic();
+        if (!ok) showToast('Musik konnte nicht gestartet werden.', 'warning');
+      }
+      updatePlayerToggleLabel();
+    });
+
+    updatePlayerToggleLabel();
+
+    loadAudioTrackCatalog();
 
     const autoSceneMusic = root.querySelector('#set-auto-scene-music');
     autoSceneMusic?.addEventListener('change', () => {
@@ -8340,8 +8731,32 @@
   // ── Logout ────────────────────────────────────────────────
   document.getElementById('logout-btn').addEventListener('click', async () => {
     if (audioManager) audioManager.playUiClick();
-    await API.logout();
-    window.location.href = 'index.html';
+    
+    // Attempt graceful logout
+    try {
+      const res = await API.logout();
+      if (res && res.success) {
+        // Clear session-related storage
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+        } catch (_) {}
+        
+        // Close EventSource if active
+        if (typeof window.__gqSSE !== 'undefined' && window.__gqSSE?.close) {
+          try { window.__gqSSE.close(); } catch (_) {}
+        }
+        
+        // Hard redirect after brief delay to ensure cookies are sent
+        setTimeout(() => {
+          window.location.href = 'index.html?logout=1&nocache=' + Date.now();
+        }, 200);
+        return;
+      }
+    } catch (_) {}
+    
+    // Fallback: redirect immediately if logout failed
+    window.location.href = 'index.html?logout=1&nocache=' + Date.now();
   });
 
   // ── Badge refresh (messages) ──────────────────────────────
@@ -8481,7 +8896,45 @@
   // ── Boot: keep galaxy fixed in main desktop area and preload overview data ──
   WM.open('galaxy');
   if (audioManager && typeof audioManager.setScene === 'function') {
-    audioManager.setScene('galaxy', { autoplay: false, transition: 'fast', force: true });
+    audioManager.setScene('galaxy', { autoplay: true, transition: 'fast', force: true });
+
+    if (!window.__GQ_AUDIO_UNLOCK_INSTALLED) {
+      window.__GQ_AUDIO_UNLOCK_INSTALLED = true;
+      let unlocked = false;
+      const listeners = [];
+
+      const clearListeners = () => {
+        listeners.forEach(({ type, handler, opts }) => {
+          try { window.removeEventListener(type, handler, opts); } catch (_) {}
+        });
+        listeners.length = 0;
+      };
+
+      const resumeOnInteract = async () => {
+        if (unlocked) return;
+        try {
+          const snap = audioManager.snapshot ? audioManager.snapshot() : null;
+          const muted = !!(snap?.masterMuted || snap?.musicMuted);
+          const hasTrack = String(snap?.musicUrl || '').trim() !== '';
+          if (muted || !hasTrack) return;
+          const ok = await audioManager.playMusic();
+          if (ok) {
+            unlocked = true;
+            clearListeners();
+          }
+        } catch (_) {}
+      };
+
+      const bind = (type, opts) => {
+        window.addEventListener(type, resumeOnInteract, opts);
+        listeners.push({ type, handler: resumeOnInteract, opts });
+      };
+
+      bind('pointerdown', { passive: true });
+      bind('click', { passive: true });
+      bind('touchstart', { passive: true });
+      bind('keydown', false);
+    }
   }
 
   // ── Footer actions init ───────────────────────────────────────────────────
@@ -8500,6 +8953,29 @@
   });
 
   refreshAudioUi();
+  loadAudioTrackCatalog().catch(() => {});
   await loadOverview();
+
+  try {
+    const bootHomeFlight = window.__GQ_BOOT_HOME_FLIGHT;
+    if (bootHomeFlight) {
+      const root = WM.body('galaxy');
+      if (root) {
+        const introMode = String(settingsState.introFlightMode || 'cinematic');
+        const shouldPlayIntro = introMode !== 'off';
+        await focusHomeSystemInGalaxy(root, {
+          silent: true,
+          cinematic: shouldPlayIntro && introMode === 'cinematic',
+          enterSystem: bootHomeFlight.enterSystem !== false,
+          focusPlanet: shouldPlayIntro && bootHomeFlight.focusPlanet !== false,
+        });
+      }
+    }
+  } catch (_) {
+    // Keep startup resilient if intro camera flight fails.
+  } finally {
+    try { window.__GQ_BOOT_HOME_FLIGHT = null; } catch (_) {}
+  }
+
   await loadBadge();
 })();

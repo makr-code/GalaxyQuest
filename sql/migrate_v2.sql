@@ -53,6 +53,22 @@ CREATE TABLE IF NOT EXISTS star_systems (
     hz_inner_au DOUBLE NOT NULL DEFAULT 0.9506,
     hz_outer_au DOUBLE NOT NULL DEFAULT 1.6765,
     frost_line_au DOUBLE NOT NULL DEFAULT 2.68,
+    stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') NOT NULL DEFAULT 'main_sequence',
+    age_gyr DECIMAL(4,2) NOT NULL DEFAULT 5.0,
+    metallicity_z DECIMAL(6,4) NOT NULL DEFAULT 0.0200,
+    is_binary TINYINT(1) NOT NULL DEFAULT 0,
+    is_circumbinary TINYINT(1) NOT NULL DEFAULT 0,
+    companion_stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') DEFAULT NULL,
+    companion_spectral_class VARCHAR(4) DEFAULT NULL,
+    companion_subtype TINYINT UNSIGNED DEFAULT NULL,
+    companion_luminosity_class VARCHAR(4) DEFAULT NULL,
+    companion_mass_solar DOUBLE DEFAULT NULL,
+    companion_radius_solar DOUBLE DEFAULT NULL,
+    companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL,
+    companion_luminosity_solar DOUBLE DEFAULT NULL,
+    companion_separation_au DOUBLE DEFAULT NULL,
+    companion_eccentricity DOUBLE DEFAULT NULL,
+    stability_critical_au DOUBLE DEFAULT NULL,
     name VARCHAR(16) NOT NULL DEFAULT '',
     catalog_name VARCHAR(32) NOT NULL DEFAULT '',
     planet_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
@@ -60,10 +76,65 @@ CREATE TABLE IF NOT EXISTS star_systems (
 ) ENGINE=InnoDB;
 
 ALTER TABLE star_systems
+    ADD COLUMN IF NOT EXISTS stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') NOT NULL DEFAULT 'main_sequence'
+        AFTER frost_line_au,
+    ADD COLUMN IF NOT EXISTS age_gyr DECIMAL(4,2) NOT NULL DEFAULT 5.0
+        AFTER stellar_type,
+    ADD COLUMN IF NOT EXISTS metallicity_z DECIMAL(6,4) NOT NULL DEFAULT 0.0200
+        AFTER age_gyr,
+    ADD COLUMN IF NOT EXISTS is_binary TINYINT(1) NOT NULL DEFAULT 0
+        AFTER metallicity_z,
+    ADD COLUMN IF NOT EXISTS is_circumbinary TINYINT(1) NOT NULL DEFAULT 0
+        AFTER is_binary,
+    ADD COLUMN IF NOT EXISTS companion_stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') DEFAULT NULL
+        AFTER is_circumbinary,
+    ADD COLUMN IF NOT EXISTS companion_spectral_class VARCHAR(4) DEFAULT NULL
+        AFTER companion_stellar_type,
+    ADD COLUMN IF NOT EXISTS companion_subtype TINYINT UNSIGNED DEFAULT NULL
+        AFTER companion_spectral_class,
+    ADD COLUMN IF NOT EXISTS companion_luminosity_class VARCHAR(4) DEFAULT NULL
+        AFTER companion_subtype,
+    ADD COLUMN IF NOT EXISTS companion_mass_solar DOUBLE DEFAULT NULL
+        AFTER companion_luminosity_class,
+    ADD COLUMN IF NOT EXISTS companion_radius_solar DOUBLE DEFAULT NULL
+        AFTER companion_mass_solar,
+    ADD COLUMN IF NOT EXISTS companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL
+        AFTER companion_radius_solar,
+    ADD COLUMN IF NOT EXISTS companion_luminosity_solar DOUBLE DEFAULT NULL
+        AFTER companion_temperature_k,
+    ADD COLUMN IF NOT EXISTS companion_separation_au DOUBLE DEFAULT NULL
+        AFTER companion_luminosity_solar,
+    ADD COLUMN IF NOT EXISTS companion_eccentricity DOUBLE DEFAULT NULL
+        AFTER companion_separation_au,
+    ADD COLUMN IF NOT EXISTS stability_critical_au DOUBLE DEFAULT NULL
+        AFTER companion_eccentricity,
     ADD COLUMN IF NOT EXISTS catalog_name VARCHAR(32) NOT NULL DEFAULT ''
         AFTER name,
     ADD COLUMN IF NOT EXISTS planet_count TINYINT UNSIGNED NOT NULL DEFAULT 0
         AFTER catalog_name;
+
+CREATE TABLE IF NOT EXISTS binary_systems (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    primary_star_system_id INT NOT NULL UNIQUE,
+    is_circumbinary TINYINT(1) NOT NULL DEFAULT 0,
+    companion_stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') DEFAULT NULL,
+    companion_spectral_class VARCHAR(4) DEFAULT NULL,
+    companion_subtype TINYINT UNSIGNED DEFAULT NULL,
+    companion_luminosity_class VARCHAR(4) DEFAULT NULL,
+    companion_mass_solar DOUBLE DEFAULT NULL,
+    companion_radius_solar DOUBLE DEFAULT NULL,
+    companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL,
+    companion_luminosity_solar DOUBLE DEFAULT NULL,
+    separation_au DOUBLE NOT NULL DEFAULT 1.0,
+    eccentricity DOUBLE NOT NULL DEFAULT 0.0,
+    stability_critical_au DOUBLE DEFAULT NULL,
+    mass_ratio DOUBLE DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (primary_star_system_id) REFERENCES star_systems(id) ON DELETE CASCADE,
+    INDEX idx_binary_sep (separation_au),
+    INDEX idx_binary_type (companion_stellar_type)
+) ENGINE=InnoDB;
 
 -- ─── Planets: add scientific columns ─────────────────────────────────────────
 
@@ -460,3 +531,23 @@ CREATE TABLE IF NOT EXISTS trade_proposals (
     INDEX idx_target_status  (target_id,    status),
     INDEX idx_initiator_status (initiator_id, status)
 ) ENGINE=InnoDB;
+
+-- ─── Phase 4.4 – Planetary random events ─────────────────────────────────────
+CREATE TABLE IF NOT EXISTS colony_events (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    colony_id   INT NOT NULL,
+    event_type  ENUM('solar_flare','mineral_vein','disease') NOT NULL,
+    started_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at  DATETIME NOT NULL,
+    FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_colony_event (colony_id)
+) ENGINE=InnoDB;
+
+-- ─── Phase 5.1 – Extended stellar diversity ──────────────────────────────────
+ALTER TABLE star_systems
+    ADD COLUMN IF NOT EXISTS stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') NOT NULL DEFAULT 'main_sequence'
+        AFTER frost_line_au,
+    ADD COLUMN IF NOT EXISTS age_gyr DECIMAL(4,2) NOT NULL DEFAULT 5.0
+        AFTER stellar_type,
+    ADD COLUMN IF NOT EXISTS metallicity_z DECIMAL(6,4) NOT NULL DEFAULT 0.0200
+        AFTER age_gyr;

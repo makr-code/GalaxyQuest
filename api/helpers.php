@@ -81,6 +81,13 @@ function current_user_id(): ?int {
     return isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
 }
 
+function is_admin_user(PDO $db, int $uid): bool {
+    $stmt = $db->prepare('SELECT is_admin FROM users WHERE id = ? LIMIT 1');
+    $stmt->execute([$uid]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row !== false && (int)$row['is_admin'] === 1;
+}
+
 function is_https_request(): bool {
     if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
         return true;
@@ -116,6 +123,21 @@ function clear_remember_cookie(): void {
         'samesite' => 'Lax',
     ]);
     unset($_COOKIE[REMEMBER_COOKIE_NAME]);
+}
+
+function clear_session_cookies(): void {
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', [
+            'expires'  => time() - 3600,
+            'path'     => $params['path'] ?? '/',
+            'domain'   => $params['domain'] ?? '',
+            'secure'   => (bool)($params['secure'] ?? false),
+            'httponly' => (bool)($params['httponly'] ?? true),
+            'samesite' => $params['samesite'] ?? 'Strict',
+        ]);
+        unset($_COOKIE[session_name()]);
+    }
 }
 
 function issue_remember_me_token(int $userId): void {

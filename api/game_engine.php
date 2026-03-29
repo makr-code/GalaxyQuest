@@ -1171,6 +1171,17 @@ function update_colony_resources(PDO $db, int $colonyId): void {
     $maxPopulation = max(500, (int)($row['max_population'] ?? 500));
     $happiness     = (int)($row['happiness']       ?? 70);
 
+    // ── Active planetary event ────────────────────────────────────────────
+    $activeColonyEvent = null;
+    try {
+        $evStmt = $db->prepare(
+            'SELECT event_type FROM colony_events WHERE colony_id = ? AND expires_at > NOW() LIMIT 1'
+        );
+        $evStmt->execute([$colonyId]);
+        $evRow = $evStmt->fetch(PDO::FETCH_ASSOC);
+        if ($evRow) $activeColonyEvent = $evRow['event_type'];
+    } catch (Throwable $e) { /* table may not exist pre-migration */ }
+
     // ── Planet richness multipliers ───────────────────────────────────────
     $richM  = max(0.1, (float)($row['richness_metal']      ?? 1.0));
     $richC  = max(0.1, (float)($row['richness_crystal']    ?? 1.0));
@@ -1220,6 +1231,10 @@ function update_colony_resources(PDO $db, int $colonyId): void {
 
     // ── Raw-resource production (richness + efficiency + happiness productivity) ──
     $resourceOutputMult = (float)($dynamicEffects['resource_output_mult'] ?? 0.0);
+    // solar_flare: all resource production −20 %
+    if ($activeColonyEvent === 'solar_flare') {
+        $resourceOutputMult -= 0.20;
+    }
     $prodMulti     = happiness_productivity($happiness) * $efficiency * (1.0 + $resourceOutputMult);
     $metalProdH    = metal_production($mmL)                               * $richM  * $prodMulti;
     $crystalProdH  = crystal_production($cmL)                             * $richC  * $prodMulti;
@@ -1268,6 +1283,11 @@ function update_colony_resources(PDO $db, int $colonyId): void {
         $foodProdPerH  = leader_production_bonus($foodProdPerH, $sk);
     }
 
+    // mineral_vein: metal production +30 %
+    if ($activeColonyEvent === 'mineral_vein') {
+        $metalProdH *= 1.30;
+    }
+
     // ── Storage caps ─────────────────────────────────────────────────────
     $metalCap    = storage_cap($msL);
     $crystalCap  = storage_cap($csL);
@@ -1313,6 +1333,10 @@ function update_colony_resources(PDO $db, int $colonyId): void {
     // ── Population growth ─────────────────────────────────────────────────
     $growthPerH     = population_growth($population, $newMaxPop, $newHappiness, $foodCoverage);
     $growthPerH     = (int)round($growthPerH * (1.0 + (float)($dynamicEffects['pop_growth_mult'] ?? 0.0)));
+    // disease: population growth −50 %
+    if ($activeColonyEvent === 'disease') {
+        $growthPerH = (int)round($growthPerH * 0.50);
+    }
     $newPopulation  = max(1, min($newMaxPop, $population + (int)round($growthPerH * $deltaH)));
 
     // ── Persist ───────────────────────────────────────────────────────────

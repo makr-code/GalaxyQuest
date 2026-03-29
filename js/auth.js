@@ -3,6 +3,18 @@
  * Handles auth section, game section, and progressive runtime loading.
  */
 (async function () {
+  const AUTH_AUDIO_SCRIPT = 'js/audio.js?v=20260328p53';
+  const AUTH_WM_SCRIPT = 'js/wm.js?v=20260328p54';
+  const AUTH_AUDIO_PRELOAD = [
+    'music/Nebula_Overture.mp3',
+    'sfx/mixkit-video-game-retro-click-237.wav',
+    'sfx/mixkit-quick-positive-video-game-notification-interface-265.wav',
+    'sfx/mixkit-negative-game-notification-249.wav',
+    'sfx/mixkit-sci-fi-positive-notification-266.wav',
+    'sfx/mixkit-sci-fi-warp-slide-3113.wav',
+  ];
+  const AUTH_LAST_TITLE_TRACK_KEY = 'gq_last_title_track';
+
   const authReady = window.__GQ_AUTH_READY = Object.assign(window.__GQ_AUTH_READY || {}, {
     initialized: true,
     loginBound: false,
@@ -54,7 +66,9 @@
   const regRemember = document.getElementById('reg-remember');
 
   let gameBootPromise = null;
+  const scriptLoadPromises = new Map();
   let authDebugDetails = false;
+  let authWindowIntegrationAttempted = false;
 
   // Keep remember-me enabled by default on the auth shell.
   if (loginRemember) loginRemember.checked = true;
@@ -131,6 +145,12 @@
     authSection?.setAttribute('aria-hidden', 'false');
     gameSection?.classList.add('hidden');
     gameSection?.setAttribute('aria-hidden', 'true');
+    // Try once UI is visible so prepared auth container can be adapted into a WM window.
+    Promise.resolve().then(() => {
+      try {
+        ensureAuthWindowManaged();
+      } catch (_) {}
+    });
   }
 
   function setGameVisible() {
@@ -140,10 +160,233 @@
     authSection?.setAttribute('aria-hidden', 'true');
     gameSection?.classList.remove('hidden');
     gameSection?.setAttribute('aria-hidden', 'false');
+    try {
+      if (window.WM && typeof window.WM.isOpen === 'function' && window.WM.isOpen('auth')) {
+        window.WM.close('auth');
+      }
+    } catch (_) {}
+  }
+
+  function queueHomeworldIntroFlight(payload = {}) {
+    try {
+      window.__GQ_BOOT_HOME_FLIGHT = Object.assign({
+        requestedAt: Date.now(),
+        enterSystem: true,
+        focusPlanet: true,
+      }, payload || {});
+    } catch (_) {}
+  }
+
+  async function ensureAuthWindowManaged() {
+    if (!authSection || authSection.classList.contains('hidden')) return;
+    if (!window.WM) {
+      try {
+        await loadScript(AUTH_WM_SCRIPT);
+      } catch (err) {
+        if (!authWindowIntegrationAttempted) {
+          authLog('warn', 'auth WM integration skipped', String(err?.message || err || 'unknown'));
+        }
+        authWindowIntegrationAttempted = true;
+        return;
+      }
+    }
+
+    if (!window.WM || typeof window.WM.adopt !== 'function') {
+      authWindowIntegrationAttempted = true;
+      return;
+    }
+
+    const desiredW = 440;
+    const desiredH = 580;
+    const defaultX = Math.max(18, Math.floor((window.innerWidth - desiredW) / 2));
+    const defaultY = Math.max(14, Math.floor((window.innerHeight - desiredH) / 2));
+
+    try {
+      if (!window.WM.isOpen('auth')) {
+        window.WM.adopt('auth', {
+          title: 'Commander Login',
+          sectionId: 'auth-section',
+          prebuiltSelector: '#auth-wrapper',
+          adaptExisting: true,
+          preserveOnClose: true,
+          hideTaskButton: true,
+          w: desiredW,
+          h: desiredH,
+          defaultX,
+          defaultY,
+        });
+      } else if (typeof window.WM.refresh === 'function') {
+        window.WM.refresh('auth');
+      }
+      authWindowIntegrationAttempted = true;
+    } catch (err) {
+      if (!authWindowIntegrationAttempted) {
+        authLog('warn', 'auth WM adopt failed', String(err?.message || err || 'unknown'));
+      }
+      authWindowIntegrationAttempted = true;
+    }
   }
 
   function scriptAlreadyLoaded(src) {
     return !!document.querySelector(`script[src="${src}"]`);
+  }
+
+  function ensureSharedAudioManager() {
+    if (window.__GQ_AUDIO_MANAGER) return window.__GQ_AUDIO_MANAGER;
+    if (!window.GQAudioManager) return null;
+    try {
+      const manager = new window.GQAudioManager({ storageKey: 'gq_audio_settings' });
+      window.__GQ_AUDIO_MANAGER = manager;
+      return manager;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function installAudioUnlock(manager) {
+    if (!manager) return;
+    if (window.__GQ_AUDIO_UNLOCK_INSTALLED) return;
+    window.__GQ_AUDIO_UNLOCK_INSTALLED = true;
+
+    let unlocked = false;
+    const listeners = [];
+
+    const clearListeners = () => {
+      listeners.forEach(({ type, handler, opts }) => {
+        try { window.removeEventListener(type, handler, opts); } catch (_) {}
+      });
+      listeners.length = 0;
+    };
+
+    const attemptResume = async () => {
+      if (unlocked) return;
+      try {
+        const snap = manager.snapshot ? manager.snapshot() : null;
+        const muted = !!(snap?.masterMuted || snap?.musicMuted);
+        const hasTrack = String(snap?.musicUrl || '').trim() !== '';
+        const pausedByUser = !!snap?.musicPaused;
+        if (muted || !hasTrack || pausedByUser) return;
+        const ok = await manager.playMusic();
+        if (ok) {
+          unlocked = true;
+          clearListeners();
+          authLog('info', 'audio resume after user interaction (ok)');
+        } else {
+          authLog('warn', 'audio resume blocked, waiting for next interaction');
+        }
+      } catch (err) {
+        authLog('warn', 'audio resume failed', String(err?.message || err || 'unknown'));
+      }
+    };
+
+    const bind = (type, opts) => {
+      window.addEventListener(type, attemptResume, opts);
+      listeners.push({ type, handler: attemptResume, opts });
+    };
+
+    bind('pointerdown', { passive: true });
+    bind('click', { passive: true });
+    bind('touchstart', { passive: true });
+    bind('keydown', false);
+  }
+
+  function warmAudioAssets() {
+    if (!Array.isArray(AUTH_AUDIO_PRELOAD) || !AUTH_AUDIO_PRELOAD.length) return;
+    AUTH_AUDIO_PRELOAD.forEach((url) => {
+      const href = String(url || '').trim();
+      if (!href) return;
+      try {
+        const existing = document.querySelector(`link[rel="preload"][as="audio"][href="${href}"]`);
+        if (existing) return;
+        const link = document.createElement('link');
+        link.rel = 'preload';
+        link.as = 'audio';
+        link.href = href;
+        document.head.appendChild(link);
+      } catch (_) {}
+    });
+  }
+
+  function pickRandomItem(list) {
+    const items = Array.isArray(list) ? list : [];
+    if (!items.length) return null;
+    const idx = Math.floor(Math.random() * items.length);
+    return items[idx] || null;
+  }
+
+  function pickRandomItemAvoiding(list, avoidedValue) {
+    const items = Array.isArray(list) ? list : [];
+    if (!items.length) return null;
+    const avoid = String(avoidedValue || '').trim();
+    if (!avoid) return pickRandomItem(items);
+    const filtered = items.filter((item) => String(item || '').trim() !== avoid);
+    if (!filtered.length) return pickRandomItem(items);
+    return pickRandomItem(filtered);
+  }
+
+  async function pickRandomTitleTrack() {
+    const fallback = String(AUTH_AUDIO_PRELOAD.find((entry) => String(entry || '').trim().startsWith('music/')) || 'music/Nebula_Overture.mp3').trim();
+    let previous = '';
+    try {
+      previous = String(localStorage.getItem(AUTH_LAST_TITLE_TRACK_KEY) || '').trim();
+    } catch (_) {}
+
+    try {
+      const res = await fetch('api/audio.php?action=list', {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        return pickRandomItemAvoiding([fallback], previous) || fallback;
+      }
+      const data = await res.json();
+      const tracks = Array.isArray(data?.tracks) ? data.tracks : [];
+      const urls = tracks
+        .map((entry) => String(entry?.value || '').trim())
+        .filter((value) => value.startsWith('music/'));
+      const selected = pickRandomItemAvoiding(urls, previous);
+      const chosen = selected || fallback;
+      try {
+        localStorage.setItem(AUTH_LAST_TITLE_TRACK_KEY, chosen);
+      } catch (_) {}
+      return chosen;
+    } catch (_) {
+      const selected = pickRandomItemAvoiding([fallback], previous) || fallback;
+      try {
+        localStorage.setItem(AUTH_LAST_TITLE_TRACK_KEY, selected);
+      } catch (_) {}
+      return selected;
+    }
+  }
+
+  async function primeAuthAudio() {
+    warmAudioAssets();
+    try {
+      await loadScript(AUTH_AUDIO_SCRIPT);
+    } catch (err) {
+      authLog('warn', 'audio lazy load failed', String(err?.message || err || 'unknown'));
+      authProbe('audio lazy load failed', 'warn');
+      return null;
+    }
+
+    const manager = ensureSharedAudioManager();
+    if (!manager) return null;
+
+    try {
+      const randomTitleTrack = await pickRandomTitleTrack();
+      // Keep autoplay restrictions intact; we only prime tracks and state.
+      manager.setScene('ui', { autoplay: false, force: true, minHoldMs: 0 });
+      if (typeof manager.setSceneTrack === 'function') {
+        manager.setSceneTrack('ui', randomTitleTrack);
+      }
+      manager.setMusicTrack(randomTitleTrack, false);
+      installAudioUnlock(manager);
+      authLog('info', 'audio primed (lazy), random title track selected', randomTitleTrack);
+      authProbe(`audio primed (lazy), random title track: ${randomTitleTrack}`);
+    } catch (_) {}
+
+    return manager;
   }
 
   function traceModule(state, src, detail = '') {
@@ -164,30 +407,43 @@
   }
 
   function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      if (scriptAlreadyLoaded(src)) {
-        traceModule('done', src, '(cached)');
+    const key = String(src || '').trim();
+    if (!key) return Promise.reject(new Error('script src missing'));
+
+    if (scriptLoadPromises.has(key)) {
+      return scriptLoadPromises.get(key);
+    }
+
+    const job = new Promise((resolve, reject) => {
+      if (scriptAlreadyLoaded(key)) {
+        traceModule('done', key, '(cached)');
         resolve();
         return;
       }
-      traceModule('init', src);
+      traceModule('init', key);
       const s = document.createElement('script');
-      s.src = src;
+      s.src = key;
       s.async = false;
       s.onload = () => {
-        traceModule('done', src);
+        traceModule('done', key);
         resolve();
       };
       s.onerror = () => {
-        const e = new Error(`script load failed: ${src}`);
-        traceModule('error', src, '(onerror)');
+        const e = new Error(`script load failed: ${key}`);
+        traceModule('error', key, '(onerror)');
         if (window.__GQ_BOOT_DIAG?.report) {
-          window.__GQ_BOOT_DIAG.report('script-load', e.message, src);
+          window.__GQ_BOOT_DIAG.report('script-load', e.message, key);
         }
         reject(e);
       };
       document.body.appendChild(s);
     });
+
+    const tracked = job.finally(() => {
+      scriptLoadPromises.delete(key);
+    });
+    scriptLoadPromises.set(key, tracked);
+    return tracked;
   }
 
   async function preloadAssets() {
@@ -514,6 +770,10 @@
     authProbe('login-form missing; submit handler not bound', 'error');
   }
   bindEnterSubmit(loginForm);
+
+  // Fire-and-forget: make music player and action SFX available during auth shell.
+  primeAuthAudio();
+
   loginForm?.addEventListener('submit', async (e) => {
     authReady.lastLoginSubmitAt = Date.now();
     authProbe('login submit handler entered', 'warn');
@@ -559,6 +819,7 @@
       authProbe(`login response success=${!!data.success}`);
       authLog('info', `login response success=${!!data.success}`);
       if (data.success) {
+        queueHomeworldIntroFlight({ source: 'login' });
         showActionModal('Login successful', 'Preparing your command center...', true);
         await startGameShell();
       } else {
@@ -627,6 +888,7 @@
         data = await submitRegister(true);
       }
       if (data.success) {
+        queueHomeworldIntroFlight({ source: 'register' });
         showActionModal('Registration successful', 'Setting up your command center...', true);
         await startGameShell();
       } else {
@@ -646,7 +908,18 @@
 
   try {
     await preloadAssets();
-    const hasSession = await checkSessionAndBoot();
+    const bootUrl = new URL(window.location.href);
+    const skipAutoBootAfterLogout = bootUrl.searchParams.get('logout') === '1';
+    if (skipAutoBootAfterLogout) {
+      bootUrl.searchParams.delete('logout');
+      if (window.history?.replaceState) {
+        window.history.replaceState({}, document.title, bootUrl.pathname + bootUrl.search + bootUrl.hash);
+      }
+      setAuthVisible();
+      setPhase('Signed out. Please sign in again.', 0);
+    }
+
+    const hasSession = skipAutoBootAfterLogout ? false : await checkSessionAndBoot();
     if (!hasSession) {
       getCsrf().catch(() => {});
     }

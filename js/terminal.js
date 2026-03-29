@@ -128,7 +128,7 @@
 
   function directBootProbe(message, level = 'info') {
     try {
-      const bootLog = document.getElementById('boot-terminal-log');
+      const bootLog = document.getElementById('boot-terminal-log') || document.getElementById('ui-console-log');
       if (!bootLog) return;
       const ts = new Date();
       const hh = String(ts.getHours()).padStart(2, '0');
@@ -146,6 +146,10 @@
 
   function ensureBootStyle() {
     try {
+      // Unified design: #boot-terminal has class ui-console-panel and is styled via CSS.
+      // Only inject boot-line color helpers, skip the positioning overrides.
+      const rootEl = document.getElementById('boot-terminal');
+      if (rootEl && rootEl.classList.contains('ui-console-panel')) return;
       if (document.getElementById(BOOT_STYLE_ID)) return;
       const style = document.createElement('style');
       style.id = BOOT_STYLE_ID;
@@ -250,7 +254,7 @@
       head.appendChild(controls);
     }
 
-    let clearBtn = document.getElementById('boot-terminal-clear');
+    let clearBtn = document.getElementById('boot-terminal-clear') || document.getElementById('ui-console-clear');
     if (!clearBtn) {
       clearBtn = document.createElement('button');
       clearBtn.type = 'button';
@@ -259,7 +263,7 @@
       controls.appendChild(clearBtn);
     }
 
-    let copyBtn = document.getElementById('boot-terminal-copy');
+    let copyBtn = document.getElementById('boot-terminal-copy') || document.getElementById('ui-console-copy');
     if (!copyBtn) {
       copyBtn = document.createElement('button');
       copyBtn.type = 'button';
@@ -268,7 +272,7 @@
       controls.insertBefore(copyBtn, clearBtn || controls.firstChild || null);
     }
 
-    let toggleBtn = document.getElementById('boot-terminal-toggle');
+    let toggleBtn = document.getElementById('boot-terminal-toggle') || document.getElementById('ui-console-close');
     if (!toggleBtn) {
       toggleBtn = document.createElement('button');
       toggleBtn.type = 'button';
@@ -277,7 +281,7 @@
       controls.appendChild(toggleBtn);
     }
 
-    let log = document.getElementById('boot-terminal-log');
+    let log = document.getElementById('boot-terminal-log') || document.getElementById('ui-console-log');
     if (!log) {
       log = document.createElement('div');
       log.id = 'boot-terminal-log';
@@ -356,6 +360,9 @@
 
   function bindBootTerminal() {
     if (typeof document === 'undefined') return false;
+    // After unified takeover, don't re-bind (would conflict with UIConsoleController)
+    const checkRoot = document.getElementById('boot-terminal');
+    if (checkRoot && checkRoot.getAttribute('data-gq-terminal-replaced') === 'ui-console') return false;
     ensureBootStyle();
     bootUi = ensureBootTerminalDom();
     if (!bootUi) return false;
@@ -413,13 +420,17 @@
     if (!root) return;
 
     if (isUiConsoleReady()) {
-      root.classList.add('hidden');
+      // Unified design: boot-terminal IS the ui-console panel, no need to hide it.
+      if (!root.classList.contains('ui-console-panel')) {
+        root.classList.add('hidden');
+      }
       root.setAttribute('data-gq-terminal-replaced', 'ui-console');
       setBootModeLabel('UI Console');
       if (!uiConsoleTakeoverLogged) {
         uiConsoleTakeoverLogged = true;
-        append('info', ['Boot terminal replaced by UI console'], 'system');
+        append('info', ['Boot terminal merged with UI console'], 'system');
       }
+      bootUi = null; // Prevent renderBootTerminal from conflicting with UIConsoleController
       return;
     }
 

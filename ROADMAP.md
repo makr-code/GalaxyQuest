@@ -48,13 +48,42 @@ Achievements · Leaderboard · Messaging · Floating WM UI
 | # | Item | Effort | Status |
 |---|---|---|---|
 | 4.1 | NPC bot player accounts (economy + basic fleet AI) | Large | ✅ |
-| 4.2 | Fleet commander active decisions (auto-scout, recall) | Medium | 🚧 |
-| 4.3 | Dynamic faction events (Galactic War, Trade Boom, Pirate Surge) | Large | 🔭 |
-| 4.4 | Planetary random events (solar flare, mineral vein, disease) | Medium | 🔭 |
+| 4.2 | Fleet commander active decisions (auto-scout, recall) | Medium | ✅ |
+| 4.3 | Dynamic faction events (Galactic War, Trade Boom, Pirate Surge) | Large | ✅ |
+| 4.4 | Planetary random events (solar flare, mineral vein, disease) | Medium | ✅ |
 
 ---
 
-## 🔭 Phase 5 — Content Expansion
+## 🌟 Phase 5 — Stellar Diversity (in progress)
+
+Extended stellar classification with White Dwarfs, Neutron Stars, Brown Dwarfs, Red Giants,
+and circumbinary systems. Scientific habitable zone recalculation. Age-dependent star cooling models.
+
+| # | Item | Effort | Status |
+|---|---|---|---|
+| 5.1 | White Dwarfs: 6% IMF branch, cooling model, detection | Medium | ✅ |
+| 5.2 | Circumbinary planets & orbital stability (Holman–Wiegert) | Large | 🎯 |
+| 5.3 | Neutron stars & pulsar wind systems | Medium | 🎯 |
+| 5.4 | Scientific stellar compendium (ArXiv references, data mining) | Medium | 🎯 |
+
+---
+
+## 📚 Phase E — Educational UI (in progress)
+
+Interactive scientific interfaces: Glossary, HR-Diagram, star classification system,
+discovery timeline, and deep links to Wikipedia/ArXiv research.
+
+| # | Item | Effort | Status |
+|---|---|---|---|
+| E.1 | Glossary modal: 20 scientific terms + Wikipedia links | Small | ✅ |
+| E.2 | Star info panel card & System Info tooltip | Small | ✅ |
+| E.3 | HR-Diagram (Hertzsprung-Russell visualization) | Medium | ✅ |
+| E.4 | Discovery timeline (exploration vs research journals) | Medium | 🎯 |
+| E.5 | Exoplanet compendium (searchable database of all found worlds) | Large | 🎯 |
+
+---
+
+## 🔭 Phase 6 — Content Expansion
 
 Extended research tree (+7 techs) ·
 New ship types (Frigate, Carrier, Mining Drone, Hospital Ship, Science Vessel) ·
@@ -63,7 +92,7 @@ Megastructures (Dyson Sphere, Ring World, Gravity Well, Ansible Array)
 
 ---
 
-## 🔭 Phase 6 — Technical Quality
+## 🔭 Phase 7 — Technical Quality
 
 Security hardening (CSP, rate-limiting, account lockout) ·
 PHPUnit + JS test coverage ·
@@ -73,4 +102,4 @@ Mobile / responsive layout
 
 ---
 
-*Last updated: 28 March 2026*
+*Last updated: 28 March 2026 – Phase 5.1 + E.1–E.3 complete*

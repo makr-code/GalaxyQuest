@@ -127,11 +127,20 @@ if ($action === 'stars') {
         // Guard with a hard limit to avoid long blocking requests starving PHP workers.
         if ($stride === 1) {
             $materializeLimit = max(50, (int)CACHE_STARS_FULL_MATERIALIZE_LIMIT);
-            $materializeTo = ($to - $from + 1) <= $materializeLimit
-                ? $to
-                : min($to, $from + $materializeLimit - 1);
-            for ($sys = $from; $sys <= $materializeTo; $sys++) {
-                ensure_star_system($db, $g, $sys);
+            $spanSystems = max(1, $to - $from + 1);
+            if ($spanSystems <= $materializeLimit) {
+                for ($sys = $from; $sys <= $to; $sys++) {
+                    ensure_star_system($db, $g, $sys);
+                }
+            } else {
+                // Seed systems across the full requested range instead of only the first N.
+                // This keeps the star cloud spatially representative even under hard generation caps.
+                $samples = max(2, $materializeLimit);
+                for ($i = 0; $i < $samples; $i++) {
+                    $ratio = $samples > 1 ? ($i / ($samples - 1)) : 0.0;
+                    $sys = $from + (int)floor($ratio * ($spanSystems - 1));
+                    ensure_star_system($db, $g, max($from, min($to, $sys)));
+                }
             }
         }
 
@@ -168,22 +177,30 @@ if ($action === 'stars') {
     // ── Fog of War: attach visibility level per system ─────────────────────────
     $currentUserId = current_user_id();
     if ($currentUserId !== null && count($stars) > 0) {
-        $systemIndices = array_column($stars, 'system_index');
-        $placeholders  = implode(',', array_fill(0, count($systemIndices), '?'));
-        $params        = array_merge([$currentUserId, $g], $systemIndices);
-        $visStmt = $db->prepare(
-            "SELECT `system`, level FROM player_system_visibility
-              WHERE user_id = ? AND galaxy = ? AND `system` IN ($placeholders)"
-        );
-        $visStmt->execute($params);
-        $visMap = [];
-        foreach ($visStmt->fetchAll(PDO::FETCH_ASSOC) as $vr) {
-            $visMap[(int)$vr['system']] = $vr['level'];
+        if (is_admin_user($db, $currentUserId)) {
+            // Admins bypass FOW — full visibility for all stars
+            foreach ($stars as &$star) {
+                $star['visibility_level'] = 'own';
+            }
+            unset($star);
+        } else {
+            $systemIndices = array_column($stars, 'system_index');
+            $placeholders  = implode(',', array_fill(0, count($systemIndices), '?'));
+            $params        = array_merge([$currentUserId, $g], $systemIndices);
+            $visStmt = $db->prepare(
+                "SELECT `system`, level FROM player_system_visibility
+                  WHERE user_id = ? AND galaxy = ? AND `system` IN ($placeholders)"
+            );
+            $visStmt->execute($params);
+            $visMap = [];
+            foreach ($visStmt->fetchAll(PDO::FETCH_ASSOC) as $vr) {
+                $visMap[(int)$vr['system']] = $vr['level'];
+            }
+            foreach ($stars as &$star) {
+                $star['visibility_level'] = $visMap[(int)$star['system_index']] ?? 'unknown';
+            }
+            unset($star);
         }
-        foreach ($stars as &$star) {
-            $star['visibility_level'] = $visMap[(int)$star['system_index']] ?? 'unknown';
-        }
-        unset($star);
     }
 
     json_ok([
@@ -276,6 +293,96 @@ if ($action === 'search') {
                 'stars' => $stars,
         ]);
         exit;
+}
+
+// ── Star Info: detailed scientific data for a single star system ──────────────
+if ($action === 'star_info') {
+    ensure_star_system($db, $g, $s);
+    
+    $stmt = $db->prepare(
+        'SELECT id, galaxy_index, system_index,
+                spectral_class, subtype, luminosity_class,
+                mass_solar, radius_solar, temperature_k, luminosity_solar,
+                age_gyr, metallicity_z, stellar_type,
+                is_binary, is_circumbinary,
+                companion_stellar_type, companion_spectral_class,
+                companion_subtype, companion_luminosity_class,
+                companion_mass_solar, companion_radius_solar,
+                companion_temperature_k, companion_luminosity_solar,
+                companion_separation_au, companion_eccentricity,
+                stability_critical_au,
+                x_ly, y_ly, z_ly,
+                hz_inner_au, hz_outer_au, frost_line_au,
+                name, catalog_name
+         FROM star_systems
+         WHERE galaxy_index = ? AND system_index = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$g, $s]);
+    $starRow = $stmt->fetch();
+    
+    if (!$starRow) {
+        json_error('Star system not found', 404);
+        exit;
+    }
+    
+    // Format response with scientific notation for values
+    json_ok([
+        'action' => 'star_info',
+        'galaxy' => $g,
+        'system' => $s,
+        'id' => (int)$starRow['id'],
+        'star' => [
+            'name' => (string)$starRow['name'],
+            'catalog_name' => (string)($starRow['catalog_name'] ?? $starRow['name']),
+            'xy' => [
+                'x_ly' => round((float)$starRow['x_ly'], 2),
+                'y_ly' => round((float)$starRow['y_ly'], 2),
+                'z_ly' => round((float)$starRow['z_ly'], 2),
+            ],
+            'classification' => [
+                'type' => (string)$starRow['stellar_type'],
+                'spectral_class' => (string)$starRow['spectral_class'],
+                'subtype' => (int)$starRow['subtype'],
+                'luminosity_class' => (string)$starRow['luminosity_class'],
+            ],
+            'physical_properties' => [
+                'mass_solar' => round((float)$starRow['mass_solar'], 4),
+                'radius_solar' => round((float)$starRow['radius_solar'], 5),
+                'temperature_k' => (int)$starRow['temperature_k'],
+                'luminosity_solar' => round((float)$starRow['luminosity_solar'], 6),
+            ],
+            'age_metallicity' => [
+                'age_gyr' => round((float)$starRow['age_gyr'], 2),
+                'metallicity_z' => round((float)$starRow['metallicity_z'], 4),
+            ],
+            'binary' => [
+                'is_binary' => !empty($starRow['is_binary']),
+                'is_circumbinary' => !empty($starRow['is_circumbinary']),
+                'stability_critical_au' => $starRow['stability_critical_au'] !== null
+                    ? round((float)$starRow['stability_critical_au'], 5)
+                    : null,
+                'companion' => [
+                    'stellar_type' => $starRow['companion_stellar_type'] !== null ? (string)$starRow['companion_stellar_type'] : null,
+                    'spectral_class' => $starRow['companion_spectral_class'] !== null ? (string)$starRow['companion_spectral_class'] : null,
+                    'subtype' => $starRow['companion_subtype'] !== null ? (int)$starRow['companion_subtype'] : null,
+                    'luminosity_class' => $starRow['companion_luminosity_class'] !== null ? (string)$starRow['companion_luminosity_class'] : null,
+                    'mass_solar' => $starRow['companion_mass_solar'] !== null ? round((float)$starRow['companion_mass_solar'], 4) : null,
+                    'radius_solar' => $starRow['companion_radius_solar'] !== null ? round((float)$starRow['companion_radius_solar'], 5) : null,
+                    'temperature_k' => $starRow['companion_temperature_k'] !== null ? (int)$starRow['companion_temperature_k'] : null,
+                    'luminosity_solar' => $starRow['companion_luminosity_solar'] !== null ? round((float)$starRow['companion_luminosity_solar'], 6) : null,
+                    'separation_au' => $starRow['companion_separation_au'] !== null ? round((float)$starRow['companion_separation_au'], 5) : null,
+                    'eccentricity' => $starRow['companion_eccentricity'] !== null ? round((float)$starRow['companion_eccentricity'], 5) : null,
+                ],
+            ],
+            'habitable_zone' => [
+                'hz_inner_au' => round((float)$starRow['hz_inner_au'], 5),
+                'hz_outer_au' => round((float)$starRow['hz_outer_au'], 5),
+                'frost_line_au' => round((float)$starRow['frost_line_au'], 5),
+            ],
+        ],
+    ]);
+    exit;
 }
 
 // ── 1. Ensure star system is generated and cached ─────────────────────────────
@@ -421,31 +528,36 @@ $starOrbitInstallations = is_array($response['star_installations'] ?? null) ? $r
 // ── Fog of War filtering ──────────────────────────────────────────────────────
 $currentUserId = current_user_id();
 if ($currentUserId !== null) {
-    $vis = resolve_system_visibility($db, $currentUserId, $g, $s);
-    $visLevel = $vis['level'];
-
-    // Does player own a colony here?
-    $hasOwnColony = false;
-    foreach ($mergedPlanets as $slot) {
-        $playerPlanet = $slot['player_planet'] ?? null;
-        if (is_array($playerPlanet) && (int)($playerPlanet['user_id'] ?? 0) === $currentUserId) {
-            $hasOwnColony = true;
-            break;
-        }
-    }
-    if ($hasOwnColony) { $visLevel = 'own'; }
-
-    if ($visLevel === 'own' || $visLevel === 'active') {
-        // Fresh intel snapshot stored for future stale views
-        $snap = build_intel_snapshot($mergedPlanets, $fleetsInSystem, $starOrbitInstallations);
-        touch_system_visibility($db, $currentUserId, $g, $s, $visLevel, null, $snap);
-        $response['visibility'] = ['level' => $visLevel, 'scouted_at' => date('c')];
+    // Admin bypasses Fog of War — sees everything at full detail
+    if (is_admin_user($db, $currentUserId)) {
+        $response['visibility'] = ['level' => 'own', 'scouted_at' => date('c')];
     } else {
-        // First-ever visit: record it (no snapshot yet)
-        if ($visLevel === 'unknown') {
-            touch_system_visibility($db, $currentUserId, $g, $s, 'stale', null, null);
+        $vis = resolve_system_visibility($db, $currentUserId, $g, $s);
+        $visLevel = $vis['level'];
+
+        // Does player own a colony here?
+        $hasOwnColony = false;
+        foreach ($mergedPlanets as $slot) {
+            $playerPlanet = $slot['player_planet'] ?? null;
+            if (is_array($playerPlanet) && (int)($playerPlanet['user_id'] ?? 0) === $currentUserId) {
+                $hasOwnColony = true;
+                break;
+            }
         }
-        $response = apply_fog_of_war($response, $visLevel, $vis['scouted_at'], $vis['intel_json']);
+        if ($hasOwnColony) { $visLevel = 'own'; }
+
+        if ($visLevel === 'own' || $visLevel === 'active') {
+            // Fresh intel snapshot stored for future stale views
+            $snap = build_intel_snapshot($mergedPlanets, $fleetsInSystem, $starOrbitInstallations);
+            touch_system_visibility($db, $currentUserId, $g, $s, $visLevel, null, $snap);
+            $response['visibility'] = ['level' => $visLevel, 'scouted_at' => date('c')];
+        } else {
+            // First-ever visit: record it (no snapshot yet)
+            if ($visLevel === 'unknown') {
+                touch_system_visibility($db, $currentUserId, $g, $s, 'stale', null, null);
+            }
+            $response = apply_fog_of_war($response, $visLevel, $vis['scouted_at'], $vis['intel_json']);
+        }
     }
 }
 

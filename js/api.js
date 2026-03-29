@@ -28,6 +28,7 @@ const API = (() => {
 
   // Short-lived cache tuned for frequently refreshed strategy-game data.
   const _defaultGetTtlMs = [
+    { re: /api\/audio\.php\?action=list/i, ttl: 60 * 1000 },
     { re: /api\/ollama\.php\?action=status/i, ttl: 5 * 1000 },
     { re: /api\/game\.php\?action=health/i, ttl: 5 * 1000 },
     { re: /api\/game\.php\?action=overview/i, ttl: 10 * 1000 },
@@ -527,6 +528,16 @@ const API = (() => {
   }
 
   function _queueFetch(endpoint, init = {}, options = {}) {
+    const endpointText = String(endpoint || '');
+    const authMaintenance = /api\/auth\.php\?action=(me|csrf|logout|login)/i.test(endpointText);
+    if (_sessionExpired && !authMaintenance) {
+      const blocked = new Error('Session redirect in progress');
+      blocked.code = 'EAUTH_REDIRECT';
+      blocked.status = 401;
+      blocked.endpoint = endpointText;
+      return Promise.reject(blocked);
+    }
+
     const priority = _resolveRequestPriority(endpoint, options.priority);
     const priorityValue = _priorityValue(priority);
     const method = String(init?.method || 'GET').toUpperCase();
@@ -788,6 +799,15 @@ const API = (() => {
     }
   }
 
+  function _triggerSessionExpiredRedirect() {
+    if (_sessionExpired) return;
+    _sessionExpired = true;
+    try {
+      _cancelPendingRequests('Session expired', (task) => !/api\/auth\.php\?action=(me|csrf|logout|login)/i.test(String(task?.endpoint || '')));
+    } catch (_) {}
+    window.location.href = 'index.html';
+  }
+
   async function _csrf() {
     if (!_csrfToken) {
       const r = await _fetchWithRetry('api/auth.php?action=csrf', {}, { priority: 'high', retryCount: 1 });
@@ -813,7 +833,10 @@ const API = (() => {
     try {
       _tickLoad(loadTicket, 0.25, loadTicket.label);
       const r = await _fetchWithRetry(endpoint, {}, { priority: options.priority, retryCount: options.retryCount });
-      if (r.status === 401) { if (!_sessionExpired) { _sessionExpired = true; window.location.href = 'index.html'; } throw new Error('Not authenticated'); }
+      if (r.status === 401) {
+        _triggerSessionExpiredRedirect();
+        throw new Error('Not authenticated');
+      }
       _tickLoad(loadTicket, 0.7, 'Verarbeite Antwort…');
       const data = await r.json();
       _tickLoad(loadTicket, 0.92, 'Fertigstelle Daten…');
@@ -847,14 +870,39 @@ const API = (() => {
   async function post(endpoint, body) {
     const loadTicket = _beginLoad(endpoint, 'Sende Daten…');
     try {
-      const csrf = await _csrf();
-      _tickLoad(loadTicket, 0.22, loadTicket.label);
-      const r = await _fetchWithRetry(endpoint, {
+      const sendWithCsrf = async (csrfToken) => _fetchWithRetry(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
         body: JSON.stringify(body),
       }, {});
-      if (r.status === 401) { if (!_sessionExpired) { _sessionExpired = true; window.location.href = 'index.html'; } throw new Error('Not authenticated'); }
+
+      let csrf = await _csrf();
+      _tickLoad(loadTicket, 0.22, loadTicket.label);
+      let r = await sendWithCsrf(csrf);
+
+      // Session rotation can invalidate a cached CSRF token (e.g. around auth transitions).
+      // Refresh once and retry transparently when the backend reports a CSRF mismatch.
+      if (r.status === 403) {
+        let isCsrfMismatch = false;
+        try {
+          const probe = await r.clone().json();
+          const msg = String(probe?.error || probe?.message || '').toLowerCase();
+          isCsrfMismatch = /csrf/.test(msg);
+        } catch (_) {
+          isCsrfMismatch = false;
+        }
+
+        if (isCsrfMismatch) {
+          _csrfToken = null;
+          csrf = await _csrf();
+          r = await sendWithCsrf(csrf);
+        }
+      }
+
+      if (r.status === 401) {
+        _triggerSessionExpiredRedirect();
+        throw new Error('Not authenticated');
+      }
       _tickLoad(loadTicket, 0.72, 'Verarbeite Serverantwort…');
       const data = await r.json();
       if (data && data.success !== false) {
@@ -890,7 +938,10 @@ const API = (() => {
         priority: options.priority || 'high',
         retryCount: options.retryCount,
       });
-      if (r.status === 401) { if (!_sessionExpired) { _sessionExpired = true; window.location.href = 'index.html'; } throw new Error('Not authenticated'); }
+      if (r.status === 401) {
+        _triggerSessionExpiredRedirect();
+        throw new Error('Not authenticated');
+      }
       _tickLoad(loadTicket, 0.52, 'Dekodiere Binärdaten…');
       
       // Check for binary format marker
@@ -996,6 +1047,7 @@ const API = (() => {
     // Auth
     me:     () => get('api/auth.php?action=me'),
     logout: () => post('api/auth.php?action=logout', {}),
+    audioTracks: () => get('api/audio.php?action=list'),
 
     // Game overview
     overview:    ()    => get('api/game.php?action=overview', { priority: 'high' }),

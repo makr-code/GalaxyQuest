@@ -13,10 +13,11 @@
  *   WM.isOpen(id)            – true if window exists and is not closed
  *   WM.setTitle(id, title)   – update a window's title bar text
  *   WM.register(id, cfg)     – register config without opening (called by game.js)
+ *   WM.adopt(id, cfg)        – register+open using an existing section/container
  */
 const WM = (() => {
   // ── Registry ────────────────────────────────────────────────────────────────
-  /** @type {Map<string, {el:HTMLElement, cfg:object, minimized:boolean}>} */
+  /** @type {Map<string, {el:HTMLElement, hostEl:HTMLElement, cfg:object, minimized:boolean, adopted:boolean, preserveOnClose:boolean, hostManaged:boolean}>} */
   const _wins = new Map();
   /** @type {Map<string, object>} */
   const _registry = new Map();
@@ -46,26 +47,38 @@ const WM = (() => {
     _registry.set(id, Object.assign({}, DEFAULTS[id] || {}, cfg));
   }
 
+  // ── Public: register and open an existing section/container as WM window ───
+  function adopt(id, cfg = {}) {
+    const nextCfg = Object.assign({ adaptExisting: true }, cfg || {});
+    register(id, nextCfg);
+    open(id);
+  }
+
   // ── Public: open or focus a window ──────────────────────────────────────────
   function open(id) {
     if (_wins.has(id)) {
       const win = _wins.get(id);
       if (win.minimized) _restore(id);
-      else               _focus(id);
+      else if (!win.cfg?.backgroundLayer) _focus(id);
       _callRender(id);
       return;
     }
 
     const cfg = _registry.get(id) || DEFAULTS[id] || { title: id, w: 600, h: 400 };
-    const el  = _buildEl(id, cfg);
     const desktop = _desktop();
+    if (!desktop) return;
+
+    const { el, hostEl, adopted, hostManaged } = _resolveWindowElement(id, cfg, desktop);
+    if (!el || !hostEl) return;
+
+    el.classList.remove('wm-closed');
 
     if (cfg.fullscreenDesktop) {
       el.style.left   = '0px';
       el.style.top    = '0px';
       el.style.width  = desktop.offsetWidth + 'px';
       el.style.height = desktop.offsetHeight + 'px';
-    } else {
+    } else if (!cfg.keepExistingGeometry) {
       // Position: restore saved or use cascaded default
       const saved = _loadPos(id);
       let x = saved ? saved.x : _nextX;
@@ -98,17 +111,37 @@ const WM = (() => {
       el.style.height = (saved?.h ?? cfg.h) + 'px';
     }
 
-    desktop.appendChild(el);
-    _wins.set(id, { el, cfg, minimized: false });
+    if (el.parentElement !== hostEl) hostEl.appendChild(el);
+    _wins.set(id, {
+      el,
+      hostEl,
+      cfg,
+      minimized: false,
+      adopted: !!adopted,
+      preserveOnClose: !!(adopted && cfg.preserveOnClose !== false),
+      hostManaged: !!hostManaged,
+    });
     if (!cfg.hideTaskButton) _addTaskBtn(id, cfg.title);
-    _focus(id);
+    if (cfg.backgroundLayer) {
+      el.style.zIndex = '1';
+    } else {
+      _focus(id);
+    }
     _callRender(id);
   }
 
   // ── Public: close a window ──────────────────────────────────────────────────
   function close(id) {
     if (!_wins.has(id)) return;
-    _wins.get(id).el.remove();
+    const win = _wins.get(id);
+    if (win?.preserveOnClose) {
+      win.el.classList.add('wm-closed');
+      win.el.classList.remove('wm-focused');
+      win.el.classList.remove('wm-minimized');
+    } else {
+      if (win?.el) win.el.remove();
+      if (win?.hostManaged && win?.hostEl) win.hostEl.remove();
+    }
     _wins.delete(id);
     document.getElementById('wm-task-' + id)?.remove();
   }
@@ -135,10 +168,111 @@ const WM = (() => {
     if (tb) tb.querySelector('.wm-task-label').textContent = title;
   }
 
+  // ── Internal: decide whether to build new window or adapt existing container
+  function _resolveWindowElement(id, cfg, desktop) {
+    const host = _resolveHostSection(id, cfg, desktop);
+    if (!host) return { el: null, hostEl: null, adopted: false, hostManaged: false };
+
+    let el = null;
+    if (cfg.adaptExisting !== false) {
+      el = _findAdaptableWindow(id, cfg, host);
+      if (el) {
+        _prepareAdaptedWindow(el, id, cfg);
+      }
+    }
+    if (!el) el = _buildEl(id, cfg);
+
+    _wireWindowInteractions(el, id, cfg);
+    return {
+      el,
+      hostEl: host,
+      adopted: !!cfg.adaptExisting && !!_isAdaptedWindow(el),
+      hostManaged: host.classList.contains('wm-window-host'),
+    };
+  }
+
+  function _resolveHostSection(id, cfg, desktop) {
+    if (cfg.sectionId) {
+      const explicit = document.getElementById(String(cfg.sectionId));
+      if (explicit) return explicit;
+    }
+    if (cfg.hostSectionId) {
+      const explicitHost = document.getElementById(String(cfg.hostSectionId));
+      if (explicitHost) return explicitHost;
+    }
+    return _ensureWindowHost(id, desktop);
+  }
+
+  function _findAdaptableWindow(id, cfg, host) {
+    const selectors = [];
+    if (cfg.prebuiltSelector) selectors.push(String(cfg.prebuiltSelector));
+    selectors.push(`[data-wm-window="${id}"]`, '.wm-window', '.wm-adaptable-window');
+    for (const sel of selectors) {
+      const found = host.querySelector(sel);
+      if (found) return found;
+    }
+    if (cfg.adaptSelf && host instanceof HTMLElement) return host;
+    if (cfg.adaptFirstChild && host.firstElementChild instanceof HTMLElement) {
+      return host.firstElementChild;
+    }
+    return null;
+  }
+
+  function _prepareAdaptedWindow(el, id, cfg) {
+    if (!(el instanceof HTMLElement)) return;
+    el.classList.add('wm-window', 'wm-window-adapted');
+    if (cfg.fullscreenDesktop) el.classList.add('wm-window-fullscreen');
+    if (cfg.backgroundLayer) el.classList.add('wm-window-background');
+    if (!el.id) el.id = 'wm-win-' + id;
+    el.setAttribute('data-winid', id);
+
+    let body = el.querySelector(':scope > .wm-body');
+    const titlebar = el.querySelector(':scope > .wm-titlebar');
+    const resizeHandle = el.querySelector(':scope > .wm-resize-handle');
+
+    if (!cfg.fullscreenDesktop && !titlebar) {
+      const head = document.createElement('div');
+      head.className = 'wm-titlebar';
+      head.innerHTML = `
+        <span class="wm-title">${_esc(cfg.title || id)}</span>
+        <div class="wm-controls">
+          <button class="wm-btn wm-btn-min" title="Minimise">&#8211;</button>
+          <button class="wm-btn wm-btn-close" title="Close">&#x2715;</button>
+        </div>`;
+      el.insertBefore(head, el.firstChild);
+    }
+
+    if (!body) {
+      body = document.createElement('div');
+      body.className = 'wm-body';
+      const moveNodes = Array.from(el.childNodes).filter((node) => {
+        if (!(node instanceof HTMLElement)) return true;
+        return !node.classList.contains('wm-titlebar') && !node.classList.contains('wm-resize-handle');
+      });
+      moveNodes.forEach((node) => body.appendChild(node));
+      const existingResize = el.querySelector(':scope > .wm-resize-handle');
+      if (existingResize) el.insertBefore(body, existingResize);
+      else el.appendChild(body);
+    }
+
+    if (!cfg.fullscreenDesktop && !resizeHandle) {
+      const handle = document.createElement('div');
+      handle.className = 'wm-resize-handle';
+      handle.title = 'Resize';
+      el.appendChild(handle);
+    }
+  }
+
+  function _isAdaptedWindow(el) {
+    return !!(el && el.classList && el.classList.contains('wm-window-adapted'));
+  }
+
   // ── Internal: build window DOM element ──────────────────────────────────────
   function _buildEl(id, cfg) {
-    const el = document.createElement('div');
-    el.className = 'wm-window' + (cfg.fullscreenDesktop ? ' wm-window-fullscreen' : '');
+    const el = document.createElement('section');
+    el.className = 'wm-window'
+      + (cfg.fullscreenDesktop ? ' wm-window-fullscreen' : '')
+      + (cfg.backgroundLayer ? ' wm-window-background' : '');
     el.id        = 'wm-win-' + id;
     el.setAttribute('data-winid', id);
     const titlebar = cfg.fullscreenDesktop ? '' : `
@@ -154,23 +288,26 @@ const WM = (() => {
       <div class="wm-body"></div>
       ${resizeHandle}`;
 
-    // Title-bar click → focus
-    el.addEventListener('mousedown', () => _focus(id), true);
+    return el;
+  }
 
-    // Buttons
+  function _wireWindowInteractions(el, id, cfg) {
+    if (!el || el.dataset.wmInteractiveBound === '1') return;
+    el.dataset.wmInteractiveBound = '1';
+
+    if (!cfg.backgroundLayer) {
+      el.addEventListener('mousedown', () => _focus(id), true);
+    }
+
     const minBtn = el.querySelector('.wm-btn-min');
     const closeBtn = el.querySelector('.wm-btn-close');
     if (minBtn) minBtn.addEventListener('click', e => { e.stopPropagation(); _minimize(id); });
     if (closeBtn) closeBtn.addEventListener('click', e => { e.stopPropagation(); close(id); });
 
     if (!cfg.fullscreenDesktop) {
-      // Drag
       _makeDraggable(el);
-      // Resize
       _makeResizable(el);
     }
-
-    return el;
   }
 
   // ── Internal: focus (bring to front) ────────────────────────────────────────
@@ -326,8 +463,21 @@ const WM = (() => {
     try { return JSON.parse(localStorage.getItem('gq_wpos_' + id)); } catch (_) { return null; }
   }
 
+  // ── Internal: create a dedicated host section for each window ──────────────
+  function _ensureWindowHost(id, desktop) {
+    let host = document.getElementById('wm-host-' + id);
+    if (host) return host;
+    host = document.createElement('section');
+    host.id = 'wm-host-' + id;
+    host.className = 'wm-window-host';
+    desktop.appendChild(host);
+    return host;
+  }
+
   // ── Internal: desktop element reference ─────────────────────────────────────
-  function _desktop() { return document.getElementById('wm-desktop'); }
+  function _desktop() {
+    return document.getElementById('wm-windows-section') || document.getElementById('wm-desktop');
+  }
 
   // ── Internal: minimal HTML escaping ─────────────────────────────────────────
   function _esc(s) {
@@ -336,7 +486,121 @@ const WM = (() => {
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { register, open, close, refresh, body, isOpen, setTitle };
+  // ── Public: show a <section class="wm-modal"> as a card-paging dialog ───────
+  /**
+   * WM.modal(sectionId, opts?)
+   *   sectionId  – id of the <section class="wm-modal"> element
+   *   opts.title – optional title override
+   *   opts.startCard – 0-based index of card to start on (default 0)
+   *   opts.onClose   – callback when dialog is dismissed
+   */
+  function modal(sectionId, opts = {}) {
+    const el = document.getElementById(sectionId);
+    if (!el || !el.classList.contains('wm-modal')) return;
+    _openModal(el, opts);
+  }
+
+  function _closeModal(el) {
+    if (!(el instanceof HTMLElement)) return;
+    const state = el.__wmModalState;
+    el.hidden = true;
+    el.classList.remove('wm-modal-open');
+    if (state && typeof state.onKey === 'function') {
+      document.removeEventListener('keydown', state.onKey);
+    }
+    const onClose = state && typeof state.onClose === 'function' ? state.onClose : null;
+    if (state) {
+      state.onClose = null;
+      state.onKey = null;
+    }
+    if (onClose) onClose();
+  }
+
+  function _openModal(el, opts = {}) {
+    // Title override
+    const titleEl = el.querySelector('.wm-modal-title');
+    if (titleEl && opts.title) titleEl.textContent = opts.title;
+
+    // Collect cards: new generic marker first, legacy tooltip marker as fallback
+    const cards = Array.from(el.querySelectorAll('[data-wm-card], [data-tooltip-card]'));
+    let current = Number.isFinite(Number(opts.startCard)) ? Number(opts.startCard) : 0;
+    current = Math.max(0, Math.min(current, Math.max(0, cards.length - 1)));
+
+    const prevBtn = el.querySelector('[data-wm-modal-prev]') || el.querySelector('#tooltip-btn-prev');
+    const nextBtn = el.querySelector('[data-wm-modal-next]') || el.querySelector('#tooltip-btn-next');
+    const indicator = el.querySelector('[data-wm-modal-indicator]') || el.querySelector('.wm-modal-page-indicator');
+
+    const state = el.__wmModalState || {};
+    state.current = current;
+    state.onClose = typeof opts.onClose === 'function' ? opts.onClose : null;
+    el.__wmModalState = state;
+
+    function showCard(idx) {
+      if (!cards.length) return;
+      state.current = Math.max(0, Math.min(idx, cards.length - 1));
+      cards.forEach((c, i) => { c.hidden = (i !== state.current); });
+      if (prevBtn) prevBtn.disabled = state.current === 0;
+      if (nextBtn) nextBtn.disabled = state.current === cards.length - 1;
+      if (indicator) indicator.textContent = `${state.current + 1} / ${cards.length}`;
+    }
+
+    // Wire nav buttons (guard against duplicate binding)
+    if (prevBtn && !prevBtn.__wmModalBound) {
+      prevBtn.__wmModalBound = true;
+      prevBtn.addEventListener('click', () => showCard((el.__wmModalState?.current ?? 0) - 1));
+    }
+    if (nextBtn && !nextBtn.__wmModalBound) {
+      nextBtn.__wmModalBound = true;
+      nextBtn.addEventListener('click', () => showCard((el.__wmModalState?.current ?? 0) + 1));
+    }
+
+    // Wire close targets (backdrop + close button)
+    el.querySelectorAll('[data-wm-modal-close]').forEach((btn) => {
+      if (!btn.__wmCloseBound) {
+        btn.__wmCloseBound = true;
+        btn.addEventListener('click', () => _closeModal(el));
+      }
+    });
+
+    // Wire action targets (optional)
+    el.querySelectorAll('[data-wm-modal-action]').forEach((btn) => {
+      if (!btn.__wmActionBound) {
+        btn.__wmActionBound = true;
+        btn.addEventListener('click', () => {
+          const action = String(btn.getAttribute('data-wm-modal-action') || 'action');
+          const value = btn.getAttribute('data-wm-modal-value');
+          window.dispatchEvent(new CustomEvent('wm:modal-action', {
+            detail: { id: el.id, action, value },
+          }));
+          if (btn.hasAttribute('data-wm-modal-close')) _closeModal(el);
+        });
+      }
+    });
+
+    if (state.onKey) {
+      document.removeEventListener('keydown', state.onKey);
+    }
+    state.onKey = function onKey(e) {
+      if (!el.classList.contains('wm-modal-open')) return;
+      if (e.key === 'Escape') _closeModal(el);
+      if (e.key === 'ArrowLeft') showCard((el.__wmModalState?.current ?? 0) - 1);
+      if (e.key === 'ArrowRight') showCard((el.__wmModalState?.current ?? 0) + 1);
+    };
+    document.addEventListener('keydown', state.onKey);
+
+    // Show at requested card
+    if (cards.length) showCard(current);
+    el.hidden = false;
+    el.classList.add('wm-modal-open');
+
+    // Focus first focusable element inside dialog
+    requestAnimationFrame(() => {
+      const focusable = el.querySelector('.wm-modal-dialog button, .wm-modal-dialog input, .wm-modal-dialog select, .wm-modal-dialog textarea');
+      focusable?.focus();
+    });
+  }
+
+  return { register, adopt, open, close, refresh, body, isOpen, setTitle, modal };
 })();
 
 if (typeof window !== 'undefined') {

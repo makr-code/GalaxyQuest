@@ -52,6 +52,13 @@ function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
     } catch (Throwable $e) {
         error_log('faction_events_tick_global error: ' . $e->getMessage());
     }
+
+    // Planetary random events (solar flare, mineral vein, disease).
+    try {
+        colony_events_tick_global($db);
+    } catch (Throwable $e) {
+        error_log('colony_events_tick_global error: ' . $e->getMessage());
+    }
 }
 
 function npc_faction_tick(PDO $db, int $userId, array $faction): void {
@@ -802,4 +809,98 @@ function npc_spend_colony_resources(PDO $db, int $colonyId, array &$resources, a
     $resources['metal'] = max(0.0, (float)($resources['metal'] ?? 0) - $m);
     $resources['crystal'] = max(0.0, (float)($resources['crystal'] ?? 0) - $c);
     $resources['deuterium'] = max(0.0, (float)($resources['deuterium'] ?? 0) - $d);
+}
+
+// ─── Phase 4.4 – Planetary random events ─────────────────────────────────────
+
+/**
+ * Per-colony random event tick.
+ * Rate-limited to once every 15 minutes (via app_state).
+ * Each colony without an active event has a 10 % chance per tick to receive one.
+ *
+ * Event types & effects (applied in update_colony_resources):
+ *   solar_flare   – 2 h  – all resource production −20 %
+ *   mineral_vein  – 4 h  – metal production +30 %
+ *   disease       – 3 h  – population growth −50 %
+ */
+function colony_events_tick_global(PDO $db): void {
+    if (!function_exists('app_state_get_int') || !function_exists('app_state_set_int')) {
+        return;
+    }
+
+    $now = time();
+
+    // Rate-limit: once per 15 minutes
+    $lastTick = app_state_get_int($db, 'colony_events:last_tick', 0);
+    if (($now - $lastTick) < 900) {
+        return;
+    }
+    app_state_set_int($db, 'colony_events:last_tick', $now);
+
+    // Clean up expired events
+    try {
+        $db->exec("DELETE FROM colony_events WHERE expires_at < NOW()");
+    } catch (Throwable $e) {
+        return; // table may not exist yet (pre-migration)
+    }
+
+    // Load all active colonies (non-NPC, verified ownership)
+    $stmt = $db->prepare(
+        'SELECT c.id AS colony_id, c.name AS colony_name, c.user_id
+         FROM colonies c
+         JOIN users u ON u.id = c.user_id
+         WHERE u.is_npc = 0
+         ORDER BY RAND()'
+    );
+    $stmt->execute();
+    $colonies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($colonies)) {
+        return;
+    }
+
+    // Load colony IDs that already have an active event
+    $activeStmt = $db->query('SELECT colony_id FROM colony_events WHERE expires_at > NOW()');
+    $activeSet  = array_flip(
+        array_column($activeStmt->fetchAll(PDO::FETCH_ASSOC), 'colony_id')
+    );
+
+    $eventMeta = [
+        'solar_flare'  => ['duration' => 7200,  'label' => 'Solar Flare',   'icon' => '☀️',
+                           'body' => 'A powerful solar flare is disrupting your colony\'s industrial output. All resource production reduced by 20 % for 2 hours.'],
+        'mineral_vein' => ['duration' => 14400, 'label' => 'Mineral Vein',  'icon' => '⛏️',
+                           'body' => 'Miners struck a rich mineral vein! Metal production is boosted by 30 % for 4 hours.'],
+        'disease'      => ['duration' => 10800, 'label' => 'Disease Outbreak', 'icon' => '🦠',
+                           'body' => 'An outbreak is sweeping through the population. Population growth reduced by 50 % for 3 hours.'],
+    ];
+    $eventKeys = array_keys($eventMeta);
+
+    $insertStmt = $db->prepare(
+        'INSERT IGNORE INTO colony_events (colony_id, event_type, started_at, expires_at)
+         VALUES (?, ?, NOW(), FROM_UNIXTIME(?))'
+    );
+    $msgStmt = $db->prepare(
+        'INSERT INTO messages (sender_id, receiver_id, subject, body, is_system, created_at)
+         VALUES (NULL, ?, ?, ?, 1, NOW())'
+    );
+
+    foreach ($colonies as $col) {
+        $cid = (int)$col['colony_id'];
+        if (isset($activeSet[$cid])) {
+            continue; // already has an active event
+        }
+        if (mt_rand(1, 100) > 10) {
+            continue; // 10 % trigger chance
+        }
+
+        $type   = $eventKeys[array_rand($eventKeys)];
+        $meta   = $eventMeta[$type];
+        $expiry = $now + $meta['duration'];
+
+        $insertStmt->execute([$cid, $type, $expiry]);
+
+        // Notify the player
+        $subject = $meta['icon'] . ' ' . $meta['label'] . ' – ' . $col['colony_name'];
+        $msgStmt->execute([(int)$col['user_id'], $subject, $meta['body']]);
+    }
 }

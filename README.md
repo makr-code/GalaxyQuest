@@ -33,6 +33,49 @@ For a non-Docker setup, see [Manual Installation](#manual-installation).
 Gameplay and systems design:
 - [Gameplay Data Model & Mechanics](GAMEPLAY_DATA_MODEL.md)
 
+### Scientific Glossary with LLM + Wikipedia RAG
+
+The in-game glossary now uses **Ollama LLM with Wikipedia as Retrieval-Augmented Generation (RAG)** context for dynamic, scientifically-enhanced definitions.
+
+**Features:**
+- 🤖 **AI-Enhanced Definitions** – Ollama generates contextual explanations from Wikipedia excerpts
+- 💾 **Smart Caching** – 5-day TTL for generated definitions (50ms cache hits)
+- 🔄 **Toggle UI** – Switch between Static ↔️ AI definitions in the modal
+- 📊 **Multi-Model Support** – Supports Mistral, Neural-Chat, Llama2, Phi
+
+**Getting Started:**
+```bash
+# Install & start Ollama
+ollama pull mistral
+ollama serve
+
+# GalaxyQuest detects Ollama on localhost:11434 automatically
+# Optional: Set environment variables
+export OLLAMA_URL=http://localhost:11434
+export OLLAMA_MODEL=mistral
+```
+
+Full setup guide: [→ OLLAMA_SETUP.md](OLLAMA_SETUP.md)
+
+**API Endpoint:**
+```bash
+GET /api/glossary.php?action=generate&term=white_dwarf
+
+# Response includes Wikipedia-contextualized definition
+{
+  "term": "White Dwarf",
+  "short": "...",
+  "full": "...",
+  "source": "ollama_rag",
+  "generated_at": "2026-03-28T..."
+}
+```
+
+**Fallback Behavior:**
+- Ollama unavailable → Uses static definitions (no delay)
+- Wikipedia unreachable → LLM works without RAG context
+- LLM timeout (>30s) → Shows cached or static definition
+
 ### Local LLM (Ollama, Developer)
 
 GalaxyQuest now provides a central local LLM gateway so every module can use the same Ollama runtime.

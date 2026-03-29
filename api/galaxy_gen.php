@@ -1023,6 +1023,52 @@ function interpolate_stellar_params(string $class, int $subtype, ?array $paramsT
     ];
 }
 
+// ─── White Dwarf Generation (Fontaine et al. 2001 cooling; ~6% of stars) ────
+
+/**
+ * Generate a white dwarf with age-dependent cooling.
+ *
+ * White dwarfs cool from ~150,000 K (progenitor max) down to ~8,000 K over ~14 Gy.
+ * Typical WD mass is 0.6 M☉ and radius is ~0.01 R☉ (Earth-sized).
+ *
+ * @return array{spectral_class:string, subtype:int, luminosity_class:string,
+ *               mass_solar:float, radius_solar:float, temperature_k:int,
+ *               luminosity_solar:float, age_gyr:float, stellar_type:string}
+ */
+function pick_white_dwarf(int $galaxyIdx, int $systemIdx): array
+{
+    // Age of WD: 8–14 Gyr (old remnants from earlier stellar generations)
+    $ageRoll = gen_rand($galaxyIdx, $systemIdx, 2001);
+    $age_gyr = 8.0 + $ageRoll * 6.0;  // 8.0 to 14.0
+
+    // Cooling model (simplified Fontaine et al.): T_cool(t) ≈ 150,000 - (119,000 * t/14)
+    // At t=0 (just formed): ~150 kK; at t=14 Gy: ~8 kK
+    $temp_k = max(8000, (int)(150000 - ($age_gyr / 14.0) * 142000));
+
+    // Radius: constant ~0.01 R☉ (degenerate matter)
+    $radius_solar = 0.0095;
+
+    // Mass: typically 0.55–0.65 M☉ (Chandrasekhar limit is 1.4 but rare)
+    $massRoll = gen_rand($galaxyIdx, $systemIdx, 2002);
+    $mass_solar = 0.55 + $massRoll * 0.10;  // 0.55 to 0.65
+
+    // Luminosity from Stefan-Boltzmann: L = 4π R² σ T⁴
+    // L_solar = (R_solar)² · (T_k / 5778)⁴
+    $luminosity_solar = pow($radius_solar, 2) * pow($temp_k / 5778.0, 4);
+
+    return [
+        'spectral_class'   => 'WD',
+        'subtype'          => 0,  // Not applicable for WD
+        'luminosity_class' => 'VIII',  // White dwarf luminosity class
+        'mass_solar'       => round($mass_solar, 4),
+        'radius_solar'     => round($radius_solar, 5),
+        'temperature_k'    => $temp_k,
+        'luminosity_solar' => round($luminosity_solar, 6),
+        'age_gyr'          => round($age_gyr, 2),
+        'stellar_type'     => 'white_dwarf',
+    ];
+}
+
 /**
  * Pick a spectral type and physical parameters from the Kroupa IMF CDF.
  *
@@ -1032,6 +1078,12 @@ function interpolate_stellar_params(string $class, int $subtype, ?array $paramsT
  */
 function pick_spectral_type(int $galaxyIdx, int $systemIdx): array
 {
+    // ~6% probability: white dwarf instead of main sequence
+    $wdRoll = gen_rand($galaxyIdx, $systemIdx, 1000);
+    if ($wdRoll < 0.06) {
+        return pick_white_dwarf($galaxyIdx, $systemIdx);
+    }
+
     $cfg = galaxy_config();
     $cdfTable = $cfg['stellar_types']['cdf'] ?? [];
     $paramsTable = $cfg['stellar_types']['main_sequence_params'] ?? STELLAR_PARAMS;
@@ -1063,6 +1115,11 @@ function pick_spectral_type(int $galaxyIdx, int $systemIdx): array
             $stLo + gen_rand($galaxyIdx, $systemIdx, 1002) * ($stHi - $stLo)
         );
         $params  = interpolate_stellar_params($class, $subtype, $paramsTable);
+        
+        // Age of main-sequence star: 0.5–12 Gyr
+        $ageRoll = gen_rand($galaxyIdx, $systemIdx, 2003);
+        $age_gyr = 0.5 + $ageRoll * 11.5;
+        
         return [
             'spectral_class'   => $class,
             'subtype'          => $subtype,
@@ -1071,15 +1128,81 @@ function pick_spectral_type(int $galaxyIdx, int $systemIdx): array
             'radius_solar'     => round($params[1], 4),
             'temperature_k'    => (int)round($params[2]),
             'luminosity_solar' => round($params[3], 6),
+            'age_gyr'          => round($age_gyr, 2),
+            'metallicity_z'    => 0.02,  // Solar metallicity default
+            'stellar_type'     => 'main_sequence',
         ];
     }
 
     // Fallback: G2V (solar twin)
+    $ageRoll = gen_rand($galaxyIdx, $systemIdx, 2003);
+    $age_gyr = 0.5 + $ageRoll * 11.5;
     return [
         'spectral_class' => 'G', 'subtype' => 2, 'luminosity_class' => 'V',
         'mass_solar' => 1.0, 'radius_solar' => 1.0,
         'temperature_k' => 5778, 'luminosity_solar' => 1.0,
+        'age_gyr' => round($age_gyr, 2),
+        'metallicity_z' => 0.02,
+        'stellar_type' => 'main_sequence',
     ];
+}
+
+/**
+ * Pick a secondary companion star for binary systems.
+ * Companion mass is constrained to <= primary mass for stable hierarchy.
+ *
+ * @return array{spectral_class:string, subtype:int, luminosity_class:string,
+ *               mass_solar:float, radius_solar:float, temperature_k:int,
+ *               luminosity_solar:float, age_gyr:float, metallicity_z:float,
+ *               stellar_type:string}
+ */
+function pick_binary_companion(array $primary, int $galaxyIdx, int $systemIdx): array
+{
+    $candidate = pick_spectral_type($galaxyIdx + 97, $systemIdx + 7919);
+    $primaryMass = max(0.08, (float)($primary['mass_solar'] ?? 1.0));
+    $candMass = max(0.08, (float)($candidate['mass_solar'] ?? 1.0));
+
+    if ($candMass <= $primaryMass) {
+        return $candidate;
+    }
+
+    // If the sampled companion is heavier than the primary, clamp using a
+    // deterministic mass ratio and recompute radius/luminosity by scaling laws.
+    $ratio = 0.35 + gen_rand($galaxyIdx, $systemIdx, 2081) * 0.60; // 0.35..0.95
+    $mass = max(0.08, min($primaryMass * $ratio, $primaryMass));
+    $temp = (int)max(2200, min(42000, round((float)($candidate['temperature_k'] ?? 5778) * pow($mass / $candMass, 0.48))));
+    $radius = max(0.08, round((float)($candidate['radius_solar'] ?? 1.0) * pow($mass / $candMass, 0.8), 5));
+    $lum = round(pow($radius, 2) * pow($temp / 5778.0, 4), 6);
+
+    $candidate['mass_solar'] = round($mass, 4);
+    $candidate['radius_solar'] = round($radius, 5);
+    $candidate['temperature_k'] = $temp;
+    $candidate['luminosity_solar'] = $lum;
+    return $candidate;
+}
+
+/**
+ * Holman-Wiegert style critical radius estimate for circumbinary stability.
+ *
+ * The base expression from the roadmap is transformed to a conservative
+ * circumbinary inner limit by using its inverse and clamping to realistic
+ * multi-star ranges.
+ */
+function circumbinary_critical_radius_au(float $binarySeparationAU, float $binaryEccentricity, float $mu): float
+{
+    $e = max(0.0, min(0.85, $binaryEccentricity));
+    $m = max(0.01, min(0.99, $mu));
+
+    $factor = 0.464
+        - 0.380 * $e
+        - 0.631 * $m
+        + 0.586 * $m * $e
+        + 0.150 * ($e ** 2)
+        - 0.198 * $m * ($e ** 2);
+
+    $factor = max(0.12, $factor);
+    $critical = $binarySeparationAU / $factor;
+    return max($binarySeparationAU * 1.8, min($binarySeparationAU * 9.5, $critical));
 }
 
 // ─── Habitable zone & frost line ──────────────────────────────────────────────
@@ -1249,7 +1372,7 @@ function surface_gravity(float $massEarth, int $diamKm): float
  * @param int   $systemIdx
  * @return array  Array of planet descriptors indexed by 'position' (1-N)
  */
-function generate_planets(array $star, int $galaxyIdx, int $systemIdx, ?string $starName = null): array
+function generate_planets(array $star, int $galaxyIdx, int $systemIdx, ?string $starName = null, ?array $binary = null): array
 {
     $cfg = galaxy_config();
     $posMax  = defined('POSITION_MAX') ? POSITION_MAX : 15;
@@ -1273,6 +1396,18 @@ function generate_planets(array $star, int $galaxyIdx, int $systemIdx, ?string $
     // Innermost orbital distance (AU), scaled with √L
     $a0 = max(0.04,
               gen_rand_normal(0.12, 0.05, $galaxyIdx, $systemIdx, 202)) * sqrt($lum);
+
+    // Circumbinary systems require planets outside the critical stability radius.
+    $criticalOrbitAU = null;
+    if (is_array($binary) && !empty($binary['is_binary']) && !empty($binary['is_circumbinary'])) {
+        $aBin = max(0.05, (float)($binary['companion_separation_au'] ?? 0.8));
+        $eBin = max(0.0, min(0.85, (float)($binary['companion_eccentricity'] ?? 0.2)));
+        $m1 = max(0.08, (float)($star['mass_solar'] ?? 1.0));
+        $m2 = max(0.08, (float)($binary['companion_mass_solar'] ?? 0.4));
+        $mu = $m2 / max(0.16, ($m1 + $m2));
+        $criticalOrbitAU = circumbinary_critical_radius_au($aBin, $eBin, $mu);
+        $a0 = max($a0, $criticalOrbitAU * 1.05);
+    }
 
     $planets    = [];
     $aCurrent   = $a0;
@@ -1353,6 +1488,7 @@ function generate_planets(array $star, int $galaxyIdx, int $systemIdx, ?string $
             'in_habitable_zone'    => (int)$inHz,
             'has_atmosphere'       => (int)($atmoType !== 'none'),
             'atmosphere_type'      => $atmoType,
+            'stability_critical_au'=> $criticalOrbitAU !== null ? round($criticalOrbitAU, 5) : null,
         ] + $environment + derive_planet_deposits($planetClass, $inHz, $massEarth);
     }
 
@@ -1448,13 +1584,42 @@ function generate_star_system(int $galaxyIdx, int $systemIdx): array
     [$x, $y, $z] = galactic_position($galaxyIdx, $systemIdx);
     $star        = pick_spectral_type($galaxyIdx, $systemIdx);
 
+    $binaryRoll = gen_rand($galaxyIdx, $systemIdx, 2080);
+    $isBinary = ($binaryRoll < 0.50);
+    $companion = null;
+    $companionSeparationAU = null;
+    $companionEccentricity = null;
+    $isCircumbinary = 0;
+    $criticalOrbitAU = null;
+    if ($isBinary) {
+        $companion = pick_binary_companion($star, $galaxyIdx, $systemIdx);
+        $companionSeparationAU = round(gen_rand_range(0.18, 2.6, $galaxyIdx, $systemIdx, 2082), 5);
+        $companionEccentricity = round(gen_rand_range(0.00, 0.58, $galaxyIdx, $systemIdx, 2083), 5);
+        $isCircumbinary = gen_rand($galaxyIdx, $systemIdx, 2084) < 0.65 ? 1 : 0;
+
+        if ($isCircumbinary) {
+            $mu = (float)$companion['mass_solar'] / max(0.16, ((float)$star['mass_solar'] + (float)$companion['mass_solar']));
+            $criticalOrbitAU = round(circumbinary_critical_radius_au(
+                (float)$companionSeparationAU,
+                (float)$companionEccentricity,
+                $mu
+            ), 5);
+        }
+    }
+
     $catalogName = sprintf('GQ-%d-%03d', $galaxyIdx, $systemIdx);
     $displayName = generate_star_name($galaxyIdx, $systemIdx, (string)$star['spectral_class']);
 
     [$hzIn, $hzOut] = habitable_zone_au($star['luminosity_solar']);
     $frostLine      = frost_line_au($star['luminosity_solar']);
 
-    $planets = generate_planets($star, $galaxyIdx, $systemIdx, $displayName);
+    $planets = generate_planets($star, $galaxyIdx, $systemIdx, $displayName, [
+        'is_binary' => $isBinary ? 1 : 0,
+        'is_circumbinary' => $isCircumbinary,
+        'companion_mass_solar' => $companion['mass_solar'] ?? null,
+        'companion_separation_au' => $companionSeparationAU,
+        'companion_eccentricity' => $companionEccentricity,
+    ]);
 
     return array_merge($star, [
         'galaxy_index'  => $galaxyIdx,
@@ -1467,6 +1632,19 @@ function generate_star_system(int $galaxyIdx, int $systemIdx): array
         'hz_inner_au'   => round($hzIn,      5),
         'hz_outer_au'   => round($hzOut,     5),
         'frost_line_au' => round($frostLine, 5),
+        'is_binary'     => $isBinary ? 1 : 0,
+        'is_circumbinary' => $isCircumbinary,
+        'companion_spectral_class' => $companion['spectral_class'] ?? null,
+        'companion_subtype' => $companion['subtype'] ?? null,
+        'companion_luminosity_class' => $companion['luminosity_class'] ?? null,
+        'companion_stellar_type' => $companion['stellar_type'] ?? null,
+        'companion_mass_solar' => $companion['mass_solar'] ?? null,
+        'companion_radius_solar' => $companion['radius_solar'] ?? null,
+        'companion_temperature_k' => $companion['temperature_k'] ?? null,
+        'companion_luminosity_solar' => $companion['luminosity_solar'] ?? null,
+        'companion_separation_au' => $companionSeparationAU,
+        'companion_eccentricity' => $companionEccentricity,
+        'stability_critical_au' => $criticalOrbitAU,
         'planets'       => $planets,
     ]);
 }
