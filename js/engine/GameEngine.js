@@ -60,6 +60,7 @@ function _req(modPath, globalName) {
 const { RendererFactory }    = _req('./core/RendererFactory.js',          'GQRendererFactory');
 const { SceneGraph, SceneNode } = _req('./scene/SceneGraph.js',           'GQSceneGraph');
 const { PerspectiveCamera }  = _req('./scene/Camera.js',                  'GQCamera');
+const { CameraManager }      = _req('./scene/CameraManager.js',           'GQCameraManager');
 const { EffectComposer }     = _req('./post-effects/EffectComposer.js',   'GQEffectComposer');
 const { GameLoop }           = _req('./GameLoop.js',                      'GQGameLoop');
 const { EventBus }           = _req('./EventBus.js',                      'GQEventBus');
@@ -67,6 +68,7 @@ const { SystemRegistry, SystemPriority } = _req('./SystemRegistry.js',   'GQSyst
 const { AssetRegistry }      = _req('./AssetRegistry.js',                 'GQAssetRegistry');
 const { PerformanceMonitor } = _req('./utils/PerformanceMonitor.js',      'GQPerformanceMonitor');
 const { ResourceTracker }    = _req('./utils/ResourceTracker.js',         'GQResourceTracker');
+const { ViewportManager }    = _req('./ViewportManager.js',               'GQViewportManager');
 
 // ---------------------------------------------------------------------------
 // GameEngine
@@ -81,6 +83,10 @@ class GameEngine {
     this.scene            = new SceneGraph();
     /** @type {import('./scene/Camera').Camera|null} */
     this.camera           = null;
+    /** Multi-camera manager (primary + follow cameras) */
+    this.cameras          = null;
+    /** PiP viewport manager */
+    this.viewports        = null;
     /** @type {EffectComposer|null} */
     this.postFx           = null;
     /** @type {GameLoop} */
@@ -195,6 +201,14 @@ class GameEngine {
     if (this.camera instanceof PerspectiveCamera) {
       this.camera.setAspect(width / height);
     }
+    // Update aspect for all secondary follow-cameras too
+    if (this.cameras) {
+      for (const { camera } of this.cameras.secondaryCameras) {
+        if (typeof camera.setAspect === 'function') {
+          camera.setAspect(width / height);
+        }
+      }
+    }
     this.events.emit('engine:resize', { width, height });
   }
 
@@ -204,6 +218,8 @@ class GameEngine {
   dispose() {
     this.stop();
     this.systems.list().forEach((s) => this.systems.remove(s.name));
+    this.viewports?.detach();
+    this.cameras?.dispose();
     this.postFx?.dispose();
     this.gpuPhysics?.dispose();
     this.resources.disposeAll();
@@ -231,6 +247,62 @@ class GameEngine {
    */
   addSystem(system) {
     this.systems.add(system);
+    return this;
+  }
+
+  /**
+   * Add a follow-camera PiP viewport.
+   *
+   * Creates a FollowCamera, registers it in CameraManager, and opens a PiP
+   * window via ViewportManager — all in one call.
+   *
+   * @param {string}  name      Unique identifier (e.g. 'ship-alpha', 'colony-ignis')
+   * @param {{ position:{x,y,z} }} target  Game object to follow
+   * @param {Object}  [opts]
+   * @param {string}  [opts.label]      Display label (defaults to name)
+   * @param {string}  [opts.mode]       FollowMode — 'fixed_offset'|'orbit'|'free'
+   * @param {number}  [opts.lag=0.1]    Smoothing lag [0=instant]
+   * @param {number}  [opts.distance]   Orbit distance
+   * @param {{x,y,z}} [opts.offset]    Fixed offset vector
+   * @param {number}  [opts.fov=60]     Camera FOV
+   * @param {number}  [opts.x]          PiP x position (px)
+   * @param {number}  [opts.y]          PiP y position (px)
+   * @param {number}  [opts.width=220]  PiP width (px)
+   * @param {number}  [opts.height=150] PiP height (px)
+   * @returns {this}
+   */
+  addFollowViewport(name, target, opts = {}) {
+    const { FollowCamera } = typeof require !== 'undefined'
+      ? require('./scene/FollowCamera.js')
+      : (window.GQFollowCamera ?? {});
+
+    if (!FollowCamera) {
+      console.warn('[GameEngine] FollowCamera not loaded — cannot add follow viewport');
+      return this;
+    }
+
+    const aspect = this.canvas.width > 0 && this.canvas.height > 0
+      ? this.canvas.width / this.canvas.height : 1;
+    const cam = new FollowCamera({ name: opts.label ?? name, fov: opts.fov ?? 60, aspect });
+    cam.setTarget(target, {
+      mode:     opts.mode,
+      lag:      opts.lag,
+      offset:   opts.offset,
+      distance: opts.distance,
+    });
+
+    this.cameras.add(name, cam, { targetId: target?.name ?? name });
+
+    if (this.viewports) {
+      this.viewports.add(name, {
+        label:  opts.label  ?? name,
+        x:      opts.x,
+        y:      opts.y,
+        width:  opts.width  ?? 220,
+        height: opts.height ?? 150,
+      });
+    }
+
     return this;
   }
 
@@ -272,9 +344,15 @@ class GameEngine {
     const aspect = canvas.width > 0 && canvas.height > 0
       ? canvas.width / canvas.height
       : 1;
-    this.camera = new PerspectiveCamera(opts.fov ?? 60, aspect, 0.1, 10000);
+    this.camera  = new PerspectiveCamera(opts.fov ?? 60, aspect, 0.1, 10000);
+    this.cameras = new CameraManager(this.camera);
 
-    // 3. Post-processing
+    // 3. Viewport manager (PiP windows) — only in browser context
+    if (typeof document !== 'undefined' && canvas.parentElement) {
+      this.viewports = new ViewportManager(canvas, this.renderer, this.cameras);
+    }
+
+    // 4. Post-processing
     if (opts.postFx !== false) {
       this.postFx = new EffectComposer(
         this.renderer,
@@ -375,8 +453,8 @@ class GameEngine {
   }
 
   _onUpdate(dt, alpha) {
-    // Camera + scene-graph update + AI systems
-    this.camera?.update?.();
+    // Update all cameras (primary + follow cameras) with smooth lag
+    this.cameras ? this.cameras.update(dt) : this.camera?.update?.();
     this.scene.update();
     this.events.emit('engine:update', { dt, alpha });
   }
@@ -386,11 +464,15 @@ class GameEngine {
 
     if (!this.renderer) return;
 
+    // Main render (primary camera)
     if (this.postFx && this.postFx._passes.length > 0) {
       this.postFx.render(null);
     } else {
-      this.renderer.render(this.scene, this.camera);
+      this.renderer.render(this.scene, this.cameras?.active ?? this.camera);
     }
+
+    // Secondary PiP viewports
+    this.viewports?.render(this.scene);
 
     this.events.emit('render:frame', {
       alpha,

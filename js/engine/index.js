@@ -64,6 +64,19 @@ const { EventBus, sharedBus }       = require('./EventBus');
 const { SystemRegistry, SystemPriority } = require('./SystemRegistry');
 const { AssetRegistry, AssetType }  = require('./AssetRegistry');
 
+// Scene — cameras
+const { FollowCamera, FollowMode }  = require('./scene/FollowCamera');
+const { CameraManager }             = require('./scene/CameraManager');
+
+// Viewport
+const { ViewportManager, PIP_DEFAULTS } = require('./ViewportManager');
+
+// Game systems (classics-inspired)
+const { EventSystem, EventType, EventStatus } = require('./game/EventSystem');
+const { ResearchTree, ResearchCategory }      = require('./game/ResearchTree');
+const { FleetFormation, Wing, FormationShape } = require('./game/FleetFormation');
+const { ColonySimulation, Colony, PopJob, BASE_YIELD } = require('./game/ColonySimulation');
+
 // Constants
 const constants                     = require('./constants');
 
@@ -80,9 +93,12 @@ module.exports = {
   WebGPUResourcePool, WebGPUPhysics,
   // Scene
   Camera, PerspectiveCamera, OrthographicCamera,
+  FollowCamera, FollowMode, CameraManager,
   Transform, Geometry, Material,
   Light, AmbientLight, DirectionalLight, PointLight,
   SceneNode, SceneGraph,
+  // Viewports
+  ViewportManager, PIP_DEFAULTS,
   // Post-effects
   EffectComposer, RenderPass, BloomPass, VignettePass, ChromaticPass, ComputePass,
   // Math
@@ -91,6 +107,11 @@ module.exports = {
   WebGPUCapabilities, ShaderCompiler, PerformanceMonitor, ResourceTracker,
   // Loaders
   TextureLoader, GeometryLoader, ShaderLoader,
+  // Game systems
+  EventSystem, EventType, EventStatus,
+  ResearchTree, ResearchCategory,
+  FleetFormation, Wing, FormationShape,
+  ColonySimulation, Colony, PopJob, BASE_YIELD,
   // Constants
   ...constants,
 };
