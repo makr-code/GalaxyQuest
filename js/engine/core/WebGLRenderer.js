@@ -29,6 +29,8 @@ class WebGLRenderer extends IGraphicsRenderer {
    *   THREE.WebGLRenderer is created synchronously in the constructor
    *   (useful for the Galaxy3DRenderer path where async init is not possible).
    *   Pass `null` or omit to use the async {@link initialize} path instead.
+   *   A `debug: true` key may be included in threeOptions to enable logging;
+   *   it is stripped before being forwarded to THREE.WebGLRenderer.
    */
   constructor(threeOptions = null) {
     super();
@@ -36,9 +38,40 @@ class WebGLRenderer extends IGraphicsRenderer {
     this._threeRenderer = null;
     /** @type {boolean} */
     this.ready = false;
+    /**
+     * Enable verbose debug logging.
+     * Set this flag before calling initialize() for the async path, or pass
+     * `debug: true` inside the threeOptions object for the sync path.
+     * @type {boolean}
+     */
+    this.debug = false;
 
     if (threeOptions !== null) {
-      this._initSync(threeOptions);
+      // Allow callers to embed a `debug` key in the options object.
+      // Strip it before forwarding to THREE.WebGLRenderer.
+      const { debug: dbg = false, ...opts } = threeOptions;
+      this.debug = !!dbg;
+      this._initSync(opts);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Debug logging helper
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Emit a debug-level log message when this.debug is true.
+   * Routes to window.GQLog when available, otherwise console.debug.
+   * @param {string} msg
+   * @param {...*}   args
+   */
+  _log(msg, ...args) {
+    if (!this.debug) return;
+    const gqLog = typeof window !== 'undefined' ? window.GQLog : undefined;
+    if (gqLog) {
+      gqLog.debug('[WebGLRenderer]', msg, ...args);
+    } else {
+      console.debug('[WebGLRenderer]', msg, ...args);
     }
   }
 
@@ -57,6 +90,7 @@ class WebGLRenderer extends IGraphicsRenderer {
     }
     this._threeRenderer = new THREE.WebGLRenderer(opts);
     this.ready = true;
+    this._log('_initSync: THREE.WebGLRenderer created (sync)');
   }
 
   // ---------------------------------------------------------------------------
@@ -68,6 +102,7 @@ class WebGLRenderer extends IGraphicsRenderer {
       throw new Error('WebGLRenderer requires Three.js — load three.min.js first');
     }
 
+    this._log('initialize: creating THREE.WebGLRenderer…');
     this._threeRenderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
@@ -81,6 +116,7 @@ class WebGLRenderer extends IGraphicsRenderer {
     this._threeRenderer.toneMappingExposure = 1.0;
 
     this.ready = true;
+    this._log('initialize: ready — caps:', this.getCapabilities());
   }
 
   getCapabilities() {
@@ -151,9 +187,11 @@ class WebGLRenderer extends IGraphicsRenderer {
   resize(width, height) {
     if (!this._threeRenderer) return;
     this._threeRenderer.setSize(width, height, false);
+    this._log(`resize(${width}, ${height})`);
   }
 
   dispose() {
+    this._log('dispose()');
     if (this._threeRenderer) {
       this._threeRenderer.dispose();
       this._threeRenderer = null;
