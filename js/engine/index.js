@@ -37,6 +37,7 @@ const { BloomPass }                 = require('./post-effects/passes/BloomPass')
 const { VignettePass }              = require('./post-effects/passes/VignettePass');
 const { ChromaticPass }             = require('./post-effects/passes/ChromaticPass');
 const { ComputePass }               = require('./post-effects/passes/ComputePass');
+const { SSAOPass, MAX_KERNEL_SIZE } = require('./post-effects/passes/SSAOPass');
 
 // Math
 const { Vector2 }                   = require('./math/Vector2');
@@ -79,6 +80,10 @@ const { CombatFX, WeaponType, ExplosionType, ShieldImpactType } = require('./fx/
 // Environment FX — debris, plasma clouds, nebulae, god rays, lens flares, EMP, etc.
 const { EnvironmentFX, DebrisType, CloudType, LightingFXType } = require('./fx/EnvironmentFX');
 
+// Advanced FX — Phase FX-6/7/8
+const { DebrisSimulator, FLOATS_PER_CHUNK }     = require('./fx/DebrisSimulator');
+const { VolumetricScatter, ScatterMedium }      = require('./fx/VolumetricScatter');
+
 // Game systems (classics-inspired)
 const { EventSystem, EventType, EventStatus, Journal, JournalStatus } = require('./game/EventSystem');
 const { ResearchTree, ResearchCategory, CivAffinity }      = require('./game/ResearchTree');
@@ -109,6 +114,7 @@ module.exports = {
   ViewportManager, PIP_DEFAULTS,
   // Post-effects
   EffectComposer, RenderPass, BloomPass, VignettePass, ChromaticPass, ComputePass,
+  SSAOPass, MAX_KERNEL_SIZE,
   // Math
   Vector2, Vector3, Vector4, Matrix4, Quaternion, MathUtils,
   // Utils
@@ -126,6 +132,9 @@ module.exports = {
   CombatFX, WeaponType, ExplosionType, ShieldImpactType,
   // Environment FX
   EnvironmentFX, DebrisType, CloudType, LightingFXType,
+  // Advanced FX — Phase FX-6/7/8
+  DebrisSimulator, FLOATS_PER_CHUNK,
+  VolumetricScatter, ScatterMedium,
   // Constants
   ...constants,
 };

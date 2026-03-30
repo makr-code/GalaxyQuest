@@ -40,9 +40,9 @@
  *   ✓ Gravitational lensing (Interstellar movie VFX, Star Citizen)
  *   ✓ Radiation zone hazard (X4: Foundations, Endless Space 2)
  *
- * TODO (Phase FX-6): GPU-driven debris simulation (WebGPUCompute)
- * TODO (Phase FX-7): volumetric scattering integration with shadow map
- * TODO (Phase FX-8): screen-space ambient occlusion (SSAO) pass
+ * Phase FX-6 (implemented): GPU-driven debris simulation — see DebrisSimulator.js / debris.wgsl
+ * Phase FX-7 (implemented): volumetric scattering — see VolumetricScatter.js / volscatter.wgsl
+ * Phase FX-8 (implemented): SSAO post-process — see SSAOPass.js / ssao.wgsl
  *
  * License: MIT — makr-code/GalaxyQuest
  */
