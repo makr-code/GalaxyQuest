@@ -37,6 +37,7 @@ const { BloomPass }                 = require('./post-effects/passes/BloomPass')
 const { VignettePass }              = require('./post-effects/passes/VignettePass');
 const { ChromaticPass }             = require('./post-effects/passes/ChromaticPass');
 const { ComputePass }               = require('./post-effects/passes/ComputePass');
+const { SSAOPass, MAX_KERNEL_SIZE } = require('./post-effects/passes/SSAOPass');
 const { PostFxController, PARAM_META: PostFxParamMeta } = require('./post-effects/PostFxController');
 
 // Math
@@ -72,6 +73,23 @@ const { CameraManager }             = require('./scene/CameraManager');
 // Viewport
 const { ViewportManager, PIP_DEFAULTS } = require('./ViewportManager');
 
+// Combat FX — particles, dynamic lights, weapon fire, explosions, shield impacts
+const { ParticleEmitter, EmitterMode }           = require('./fx/ParticleEmitter');
+const { ParticleSystem, DEFAULT_MAX_PARTICLES }  = require('./fx/ParticleSystem');
+const { CombatFX, WeaponType, ExplosionType, ShieldImpactType } = require('./fx/CombatFX');
+
+// Environment FX — debris, plasma clouds, nebulae, god rays, lens flares, EMP, etc.
+const { EnvironmentFX, DebrisType, CloudType, LightingFXType } = require('./fx/EnvironmentFX');
+
+// Advanced FX — Phase FX-6/7/8
+const { DebrisSimulator, FLOATS_PER_CHUNK }     = require('./fx/DebrisSimulator');
+const { VolumetricScatter, ScatterMedium }      = require('./fx/VolumetricScatter');
+
+// Combat FX — Phase FX-2/3/4/5
+const { GPUParticleSystem, FLOATS_PER_PARTICLE } = require('./fx/GPUParticleSystem');
+const { BeamEffect, FLOATS_PER_BEAM, DEFAULT_MAX_BEAMS } = require('./fx/BeamEffect');
+const { VoxelDebris, DEFAULT_MAX_CHUNKS, DEFAULT_CHUNKS_PER_EXPLOSION } = require('./fx/VoxelDebris');
+
 // Game systems (classics-inspired)
 const { EventSystem, EventType, EventStatus, Journal, JournalStatus } = require('./game/EventSystem');
 const { ResearchTree, ResearchCategory, CivAffinity }      = require('./game/ResearchTree');
@@ -102,6 +120,7 @@ module.exports = {
   ViewportManager, PIP_DEFAULTS,
   // Post-effects
   EffectComposer, RenderPass, BloomPass, VignettePass, ChromaticPass, ComputePass,
+  SSAOPass, MAX_KERNEL_SIZE,
   PostFxController, PostFxParamMeta,
   // Math
   Vector2, Vector3, Vector4, Matrix4, Quaternion, MathUtils,
@@ -114,6 +133,19 @@ module.exports = {
   ResearchTree, ResearchCategory, CivAffinity,
   FleetFormation, Wing, FormationShape, Maneuver, getSlotPositions,
   ColonySimulation, Colony, PopJob, BASE_YIELD, ColonyType, COLONY_TYPE_BONUS,
+  // Combat FX
+  ParticleEmitter, EmitterMode,
+  ParticleSystem, DEFAULT_MAX_PARTICLES,
+  CombatFX, WeaponType, ExplosionType, ShieldImpactType,
+  // Environment FX
+  EnvironmentFX, DebrisType, CloudType, LightingFXType,
+  // Advanced FX — Phase FX-6/7/8
+  DebrisSimulator, FLOATS_PER_CHUNK,
+  VolumetricScatter, ScatterMedium,
+  // Phase FX-2/3/4/5
+  GPUParticleSystem, FLOATS_PER_PARTICLE,
+  BeamEffect, FLOATS_PER_BEAM, DEFAULT_MAX_BEAMS,
+  VoxelDebris, DEFAULT_MAX_CHUNKS, DEFAULT_CHUNKS_PER_EXPLOSION,
   // Constants
   ...constants,
 };
