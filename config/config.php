@@ -73,6 +73,14 @@ define('PROJECTION_RETRY_BACKOFF_SECONDS', (int) env_value('PROJECTION_RETRY_BAC
 // Projector worker: max processing attempts before a queue entry is promoted to dead-letter (status=failed).
 define('PROJECTION_MAX_ATTEMPTS', (int) env_value('PROJECTION_MAX_ATTEMPTS', 10));
 
+// Phase 2: System-Snapshot Projection for galaxy/stars range reads.
+// Feature flag: when enabled, action=stars prefers snapshot reads and falls back to live query.
+define('PROJECTION_GALAXY_STARS_ENABLED', (bool)(int) env_value('PROJECTION_GALAXY_STARS_ENABLED', 0));
+// Max age (seconds) before a system snapshot is considered stale (fallback to live).
+define('PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS', (int) env_value('PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS', 300));
+// Projector worker: max system dirty-queue entries to process per batch run.
+define('PROJECTION_SYSTEM_BATCH_SIZE', (int) env_value('PROJECTION_SYSTEM_BATCH_SIZE', 200));
+
 // ── Cache ────────────────────────────────────────────────────────────────────
 // Verifikationsmaßstab: CACHE_VERSION in jeden Schlüssel eingebettet.
 // Increment → alle bestehenden Einträge sofort invalidiert (kein Flush nötig).
