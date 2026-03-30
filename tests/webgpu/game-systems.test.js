@@ -16,6 +16,7 @@ import {
   ColonySimulation, Colony, PopJob,
   BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
   HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
+  ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
 } from '../../js/engine/game/ColonySimulation.js';
 
 // ===========================================================================
@@ -1016,5 +1017,266 @@ describe('ColonySimulation – RULER governance bonus', () => {
     col.unrest = 0;
     col._applyUnrest();
     expect(col.unrest).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation – ColonyType & COLONY_TYPE_BONUS
+// ===========================================================================
+
+describe('ColonySimulation – ColonyType', () => {
+  it('ColonyType constants are frozen and have 6 values', () => {
+    expect(Object.isFrozen(ColonyType)).toBe(true);
+    expect(Object.keys(ColonyType).length).toBe(6);
+  });
+
+  it('COLONY_TYPE_BONUS is frozen and has an entry for every ColonyType', () => {
+    expect(Object.isFrozen(COLONY_TYPE_BONUS)).toBe(true);
+    for (const type of Object.values(ColonyType)) {
+      expect(COLONY_TYPE_BONUS[type]).toBeDefined();
+    }
+  });
+
+  it('STANDARD type has all multipliers equal to 1', () => {
+    const b = COLONY_TYPE_BONUS[ColonyType.STANDARD];
+    for (const v of Object.values(b)) expect(v).toBe(1.0);
+  });
+
+  it('AGRICULTURAL boosts food and penalises production', () => {
+    const b = COLONY_TYPE_BONUS[ColonyType.AGRICULTURAL];
+    expect(b.food).toBeGreaterThan(1);
+    expect(b.production).toBeLessThan(1);
+  });
+
+  it('INDUSTRIAL boosts production and penalises food', () => {
+    const b = COLONY_TYPE_BONUS[ColonyType.INDUSTRIAL];
+    expect(b.production).toBeGreaterThan(1);
+    expect(b.food).toBeLessThan(1);
+  });
+
+  it('RESEARCH boosts research and credits', () => {
+    const b = COLONY_TYPE_BONUS[ColonyType.RESEARCH];
+    expect(b.research).toBeGreaterThan(1);
+    expect(b.credits).toBeGreaterThan(1);
+  });
+
+  it('MILITARY boosts defence and slightly penalises production', () => {
+    const b = COLONY_TYPE_BONUS[ColonyType.MILITARY];
+    expect(b.defence).toBeGreaterThan(1);
+    expect(b.production).toBeLessThan(1);
+  });
+
+  it('MOON boosts defence and penalises food', () => {
+    const b = COLONY_TYPE_BONUS[ColonyType.MOON];
+    expect(b.defence).toBeGreaterThan(1);
+    expect(b.food).toBeLessThan(1);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation – Colony.setType()
+// ===========================================================================
+
+describe('ColonySimulation – Colony.setType', () => {
+  let col;
+
+  beforeEach(() => {
+    col = new Colony({ id: 'st1', name: 'TypeCol', size: 10, startingPops: 4 });
+    col.setJobs({ [PopJob.WORKER]: 4 });
+  });
+
+  it('default type is STANDARD', () => {
+    expect(col.type).toBe(ColonyType.STANDARD);
+  });
+
+  it('setType() updates the type property', () => {
+    col.setType(ColonyType.INDUSTRIAL);
+    expect(col.type).toBe(ColonyType.INDUSTRIAL);
+  });
+
+  it('INDUSTRIAL type multiplies production output', () => {
+    const base = col.computeYield();
+    col.setType(ColonyType.INDUSTRIAL);
+    const boosted = col.computeYield();
+    expect(boosted.production).toBeCloseTo(base.production * COLONY_TYPE_BONUS[ColonyType.INDUSTRIAL].production);
+  });
+
+  it('AGRICULTURAL type multiplies food output', () => {
+    col.setJobs({ [PopJob.FARMER]: 4 });
+    const base = col.computeYield().food;
+    col.setType(ColonyType.AGRICULTURAL);
+    const boosted = col.computeYield().food;
+    expect(boosted).toBeCloseTo(base * COLONY_TYPE_BONUS[ColonyType.AGRICULTURAL].food);
+  });
+
+  it('setType() throws for unknown type', () => {
+    expect(() => col.setType('unknown_type')).toThrow(/unknown colony type/i);
+  });
+
+  it('type survives serialize/deserialize', () => {
+    col.setType(ColonyType.RESEARCH);
+    const restored = Colony.deserialize(col.serialize());
+    expect(restored.type).toBe(ColonyType.RESEARCH);
+  });
+
+  it('type can be set via constructor def', () => {
+    const col2 = new Colony({ id: 'c2', name: 'C2', size: 10, startingPops: 1, type: ColonyType.MILITARY });
+    expect(col2.type).toBe(ColonyType.MILITARY);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation – Moon rules
+// ===========================================================================
+
+describe('ColonySimulation – Moon rules', () => {
+  it('MOON_MAX_SIZE constant equals 5', () => {
+    expect(MOON_MAX_SIZE).toBe(5);
+  });
+
+  it('MOON colony caps size at MOON_MAX_SIZE on construction', () => {
+    const moon = new Colony({ id: 'm1', name: 'Moon', size: 12, startingPops: 1, type: ColonyType.MOON });
+    expect(moon.size).toBe(MOON_MAX_SIZE);
+  });
+
+  it('setType(MOON) caps size at MOON_MAX_SIZE', () => {
+    const col = new Colony({ id: 'm2', name: 'M2', size: 12, startingPops: 1 });
+    col.setType(ColonyType.MOON);
+    expect(col.size).toBe(MOON_MAX_SIZE);
+  });
+
+  it('MOON colony blocks civilian buildings', () => {
+    const moon = new Colony({ id: 'm3', name: 'M3', size: 5, startingPops: 1, type: ColonyType.MOON });
+    moon.stockpile.production = 500;
+    const r = moon.enqueueBuilding(BuildingType.FARM);
+    expect(r.success).toBe(false);
+    expect(r.reason).toBe('not_allowed_on_moon');
+  });
+
+  it('MOON colony allows military buildings', () => {
+    const moon = new Colony({ id: 'm4', name: 'M4', size: 5, startingPops: 1, type: ColonyType.MOON });
+    moon.stockpile.production = 500;
+    moon.stockpile.credits    = 500;
+    const r = moon.enqueueBuilding(BuildingType.BARRACKS);
+    expect(r.success).toBe(true);
+  });
+
+  it('MOON_ALLOWED_BUILDINGS is a frozen Set', () => {
+    expect(MOON_ALLOWED_BUILDINGS).toBeInstanceOf(Set);
+    expect(Object.isFrozen(MOON_ALLOWED_BUILDINGS)).toBe(true);
+    expect(MOON_ALLOWED_BUILDINGS.has(BuildingType.BARRACKS)).toBe(true);
+    expect(MOON_ALLOWED_BUILDINGS.has(BuildingType.FARM)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation – Dark Matter Mine
+// ===========================================================================
+
+describe('ColonySimulation – Dark Matter Mine', () => {
+  let col;
+
+  beforeEach(() => {
+    col = new Colony({ id: 'dm1', name: 'DMCol', size: 10, startingPops: 2 });
+    col.stockpile.production = 500;
+    col.stockpile.credits    = 500;
+  });
+
+  it('DARK_MATTER_MINE is a key of BuildingType', () => {
+    expect(BuildingType.DARK_MATTER_MINE).toBeDefined();
+  });
+
+  it('BUILDING_COST has an entry for DARK_MATTER_MINE', () => {
+    expect(BUILDING_COST[BuildingType.DARK_MATTER_MINE]).toBeDefined();
+    expect(BUILDING_COST[BuildingType.DARK_MATTER_MINE].buildTime).toBeGreaterThan(0);
+  });
+
+  it('BUILDING_YIELD for DARK_MATTER_MINE yields darkMatter', () => {
+    expect(BUILDING_YIELD[BuildingType.DARK_MATTER_MINE]).toBeDefined();
+    expect(BUILDING_YIELD[BuildingType.DARK_MATTER_MINE].darkMatter).toBeGreaterThan(0);
+  });
+
+  it('darkMatter stockpile starts at 0', () => {
+    expect(col.stockpile.darkMatter).toBe(0);
+  });
+
+  it('enqueueBuilding(DARK_MATTER_MINE) succeeds when resources are sufficient', () => {
+    const r = col.enqueueBuilding(BuildingType.DARK_MATTER_MINE);
+    expect(r.success).toBe(true);
+  });
+
+  it('completed DARK_MATTER_MINE produces darkMatter each tick', () => {
+    const sim = new ColonySimulation();
+    const c   = sim.found({ id: 'dm2', name: 'DM2', size: 10, startingPops: 2 });
+    c.buildings[BuildingType.DARK_MATTER_MINE] = 1;
+    const before = c.stockpile.darkMatter;
+    sim.tick(1);
+    expect(c.stockpile.darkMatter).toBeGreaterThan(before);
+  });
+
+  it('MOON colony can build a DARK_MATTER_MINE', () => {
+    const moon = new Colony({ id: 'dm3', name: 'DMMoon', size: 5, startingPops: 1, type: ColonyType.MOON });
+    moon.stockpile.production = 500;
+    moon.stockpile.credits    = 500;
+    const r = moon.enqueueBuilding(BuildingType.DARK_MATTER_MINE);
+    expect(r.success).toBe(true);
+  });
+
+  it('darkMatter survives serialize/deserialize', () => {
+    col.stockpile.darkMatter = 7;
+    const restored = Colony.deserialize(col.serialize());
+    expect(restored.stockpile.darkMatter).toBe(7);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation – dissolve()
+// ===========================================================================
+
+describe('ColonySimulation – dissolve', () => {
+  let sim;
+
+  beforeEach(() => {
+    sim = new ColonySimulation();
+    sim.found({ id: 'dv1', name: 'DV1', size: 8, startingPops: 2 });
+    sim.found({ id: 'dv2', name: 'DV2', size: 6, startingPops: 1 });
+  });
+
+  it('dissolve() removes the colony from the simulation', () => {
+    sim.dissolve('dv1');
+    expect(sim.get('dv1')).toBeUndefined();
+    expect(sim.count).toBe(1);
+  });
+
+  it('dissolve() returns the dissolved colony', () => {
+    const dissolved = sim.dissolve('dv1');
+    expect(dissolved).toBeDefined();
+    expect(dissolved.id).toBe('dv1');
+  });
+
+  it('dissolve() returns undefined for unknown id', () => {
+    expect(sim.dissolve('nonexistent')).toBeUndefined();
+  });
+
+  it('dissolve() leaves other colonies intact', () => {
+    sim.dissolve('dv1');
+    expect(sim.get('dv2')).toBeDefined();
+  });
+
+  it('dissolve() emits colony:dissolved on the bus', () => {
+    const handler = vi.fn();
+    const bus = { emit: handler };
+    const sim2 = new ColonySimulation(bus);
+    sim2.found({ id: 'dv3', name: 'DV3', size: 4, startingPops: 1 });
+    sim2.dissolve('dv3');
+    expect(handler).toHaveBeenCalledWith('colony:dissolved', expect.objectContaining({ id: 'dv3' }));
+  });
+
+  it('dissolve() on unknown id does not emit event', () => {
+    const handler = vi.fn();
+    const bus = { emit: handler };
+    const sim3 = new ColonySimulation(bus);
+    sim3.dissolve('ghost');
+    expect(handler).not.toHaveBeenCalled();
   });
 });

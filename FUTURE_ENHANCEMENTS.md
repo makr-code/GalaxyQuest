@@ -425,8 +425,8 @@ Very late-game, alliance-level constructions:
 - [x] Colony rename history log
 - [ ] Fleet name / custom labels
 - [ ] Debris field mechanic (resources from destroyed ships, collectible by recycler)
-- [ ] Moon slots (1 per planet, smaller, no temperature bonus, military structures only)
-- [ ] Dark matter mine (requires graviton_tech lv 5, very slow production)
+- [x] Moon slots (1 per planet, smaller, no temperature bonus, military structures only)
+- [x] Dark matter mine (requires graviton_tech lv 5, very slow production)
 - [ ] Spy counter-intelligence (chance to detect and destroy incoming probes)
 - [ ] Battle simulator UI (preview expected outcome before sending fleet)
 - [x] Building demolish (refunds 50% of resources, frees up colony_hq capacity)

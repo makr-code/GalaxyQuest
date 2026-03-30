@@ -14,15 +14,20 @@
  *   - Pop growth formula (logistic + food surplus)
  *   - Colony happiness / stability affecting productivity
  *   - RULER governance: reduces unrest accumulation proportionally to ruler count
- *   - Building types: FARM, MINE, FACTORY, LAB, BARRACKS, SPACEPORT
+ *   - Colony types: STANDARD, AGRICULTURAL, INDUSTRIAL, RESEARCH, MILITARY, MOON
+ *       Each type applies per-resource yield multipliers via setType().
+ *       MOON colonies are restricted: max size 5, military buildings only.
+ *   - Building types: FARM, MINE, FACTORY, LAB, BARRACKS, SPACEPORT, DARK_MATTER_MINE
  *   - Build queue with resource costs and build-time ticks
  *   - demolishBuilding(type) — removes one building, refunds 50% of its costs
  *   - Resource trade chains: Ore → Metal → Ship Parts
  *   - Hunger/Unrest escalation levels (0–1) with consequence callbacks
  *   - rename(newName) with a nameHistory log (array of { name, index } entries)
  *   - serialize() / deserialize() for save-game persistence
+ *   - ColonySimulation.dissolve(id) — removes a colony, emits colony:dissolved
  *   - EventBus integration: emits 'colony:grow', 'colony:starve', 'colony:unrest',
- *       'colony:hunger:escalate', 'colony:unrest:escalate', 'colony:building:complete'
+ *       'colony:hunger:escalate', 'colony:unrest:escalate', 'colony:building:complete',
+ *       'colony:dissolved'
  *
  * Usage:
  *   const sim = new ColonySimulation(engine.events);
@@ -80,13 +85,53 @@ const BASE_YIELD = Object.freeze({
 
 /** @enum {string} Building types */
 const BuildingType = Object.freeze({
-  FARM:      'farm',
-  MINE:      'mine',
-  FACTORY:   'factory',
-  LAB:       'lab',
-  BARRACKS:  'barracks',
-  SPACEPORT: 'spaceport',
+  FARM:             'farm',
+  MINE:             'mine',
+  FACTORY:          'factory',
+  LAB:              'lab',
+  BARRACKS:         'barracks',
+  SPACEPORT:        'spaceport',
+  /**
+   * Dark Matter Mine — slow but steady dark-matter production.
+   * Construction requires graviton_tech level 5 (enforced by caller).
+   * @see BUILDING_COST.DARK_MATTER_MINE
+   */
+  DARK_MATTER_MINE: 'dark_matter_mine',
 });
+
+/** @enum {string} Colony specialisation types (Stellaris / ES2 inspiration) */
+const ColonyType = Object.freeze({
+  STANDARD:     'standard',     // balanced — no bonus or malus
+  AGRICULTURAL: 'agricultural', // food ×1.5, production ×0.8
+  INDUSTRIAL:   'industrial',   // production ×1.5, food ×0.8
+  RESEARCH:     'research',     // research ×1.5, credits ×1.2
+  MILITARY:     'military',     // defence ×2, production ×0.9
+  MOON:         'moon',         // special: max size 5, military buildings only, defence ×1.5
+});
+
+/**
+ * Per-resource yield multipliers for each colony type.
+ * Applied in Colony.setType() and computeYield().
+ * @type {Readonly<Record<string, Record<string, number>>>}
+ */
+const COLONY_TYPE_BONUS = Object.freeze({
+  [ColonyType.STANDARD]:     { food: 1.0, production: 1.0, research: 1.0, credits: 1.0, defence: 1.0 },
+  [ColonyType.AGRICULTURAL]: { food: 1.5, production: 0.8, research: 1.0, credits: 1.0, defence: 1.0 },
+  [ColonyType.INDUSTRIAL]:   { food: 0.8, production: 1.5, research: 1.0, credits: 1.0, defence: 1.0 },
+  [ColonyType.RESEARCH]:     { food: 1.0, production: 1.0, research: 1.5, credits: 1.2, defence: 1.0 },
+  [ColonyType.MILITARY]:     { food: 1.0, production: 0.9, research: 1.0, credits: 1.0, defence: 2.0 },
+  [ColonyType.MOON]:         { food: 0.5, production: 1.0, research: 1.0, credits: 1.0, defence: 1.5 },
+});
+
+/** Building types allowed on MOON colonies (military structures only). */
+const MOON_ALLOWED_BUILDINGS = Object.freeze(new Set([
+  BuildingType.BARRACKS,
+  BuildingType.SPACEPORT,
+  BuildingType.DARK_MATTER_MINE,
+]));
+
+/** Maximum pop slots for a MOON colony (smaller than a regular planet). */
+const MOON_MAX_SIZE = 5;
 
 /**
  * Build costs (resources deducted when enqueued) plus build-time in ticks.
@@ -99,6 +144,8 @@ const BUILDING_COST = Object.freeze({
   [BuildingType.LAB]:       { production: 40, credits: 20, buildTime: 5  },
   [BuildingType.BARRACKS]:  { production: 35, credits: 10, buildTime: 4  },
   [BuildingType.SPACEPORT]: { production: 80, metal: 20,   buildTime: 10 },
+  /** Requires graviton_tech level 5 — enforcement is the caller's responsibility */
+  [BuildingType.DARK_MATTER_MINE]: { production: 100, credits: 50, buildTime: 15 },
 });
 
 /**
@@ -111,6 +158,7 @@ const BUILDING_YIELD = Object.freeze({
   [BuildingType.LAB]:       { research: 5 },
   [BuildingType.BARRACKS]:  { defence: 4 },
   [BuildingType.SPACEPORT]: { credits: 8 },
+  [BuildingType.DARK_MATTER_MINE]: { darkMatter: 1 },
   // FACTORY and SPACEPORT also participate in trade chains (see TRADE_CHAIN)
 });
 
@@ -164,6 +212,7 @@ class Colony {
    * @param {number} [def.fertility=1]   Food yield multiplier
    * @param {number} [def.richness=1]    Production/mineral multiplier
    * @param {number} [def.startingPops=1]
+   * @param {string} [def.type]          One of ColonyType (default: STANDARD)
    */
   constructor(def) {
     this.id         = def.id;
@@ -171,6 +220,16 @@ class Colony {
     this.size       = def.size       ?? 10;
     this.fertility  = def.fertility  ?? 1.0;
     this.richness   = def.richness   ?? 1.0;
+
+    /** Colony specialisation type — affects per-resource yield multipliers. */
+    this.type       = def.type ?? ColonyType.STANDARD;
+    /** Cached per-resource multiplier derived from this.type. */
+    this._typeMult  = { ...(COLONY_TYPE_BONUS[this.type] ?? COLONY_TYPE_BONUS[ColonyType.STANDARD]) };
+
+    // MOON colonies have a hard size cap
+    if (this.type === ColonyType.MOON) {
+      this.size = Math.min(this.size, MOON_MAX_SIZE);
+    }
 
     /** Total population */
     this.pops       = Math.min(def.startingPops ?? 1, this.size);
@@ -187,8 +246,8 @@ class Colony {
       [PopJob.UNEMPLOYED]: def.startingPops ?? 1,
     };
 
-    /** Stored resources (includes ore, metal, shipParts for trade chains; defence from soldiers/barracks) */
-    this.stockpile = { food: 10, production: 0, research: 0, credits: 0, ore: 0, metal: 0, shipParts: 0, defence: 0 };
+    /** Stored resources (includes ore, metal, shipParts for trade chains; defence from soldiers/barracks; darkMatter from dark matter mines) */
+    this.stockpile = { food: 10, production: 0, research: 0, credits: 0, ore: 0, metal: 0, shipParts: 0, defence: 0, darkMatter: 0 };
 
     /** Colony happiness [0–1] — affects yields */
     this.happiness  = 0.7;
@@ -256,6 +315,11 @@ class Colony {
     const cost = BUILDING_COST[type];
     if (!cost) throw new TypeError(`[Colony] Unknown building type: '${type}'`);
 
+    // MOON colonies only allow military structures
+    if (this.type === ColonyType.MOON && !MOON_ALLOWED_BUILDINGS.has(type)) {
+      return { success: false, reason: 'not_allowed_on_moon' };
+    }
+
     // Check affordability
     for (const [res, amt] of Object.entries(cost)) {
       if (res === 'buildTime') continue;
@@ -317,16 +381,39 @@ class Colony {
     this.name = newName.trim();
   }
 
+  /**
+   * Change the colony's specialisation type.
+   * Updates the per-resource yield multiplier and enforces MOON size cap.
+   * @param {string} type  One of ColonyType
+   */
+  setType(type) {
+    if (!COLONY_TYPE_BONUS[type]) {
+      throw new TypeError(`[Colony] Unknown colony type: '${type}'`);
+    }
+    this.type      = type;
+    this._typeMult = { ...COLONY_TYPE_BONUS[type] };
+    if (type === ColonyType.MOON) {
+      this.size = Math.min(this.size, MOON_MAX_SIZE);
+      // Clamp pops to new size cap
+      if (this.pops > this.size) {
+        this.pops = this.size;
+        this.setJobs({});
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Production
   // ---------------------------------------------------------------------------
 
   /**
    * Compute total resource output for one turn (before stockpile update).
+   * Colony type multipliers (via _typeMult) are applied after pop calculations.
    * @returns {{ food, production, research, credits, defence }}
    */
   computeYield() {
     const stability  = this.stability;
+    const mult       = this._typeMult;
     const out        = { food: 0, production: 0, research: 0, credits: 0, defence: 0 };
 
     for (const [job, count] of Object.entries(this.jobs)) {
@@ -343,6 +430,13 @@ class Colony {
     out.production *= stability;
     out.research   *= stability;
     out.credits    *= stability;
+
+    // Colony type multipliers
+    out.food       *= (mult.food       ?? 1);
+    out.production *= (mult.production ?? 1);
+    out.research   *= (mult.research   ?? 1);
+    out.credits    *= (mult.credits    ?? 1);
+    out.defence    *= (mult.defence    ?? 1);
 
     return out;
   }
@@ -521,6 +615,7 @@ class Colony {
       buildQueue:   this.buildQueue.map(b => ({ ...b })),
       nameHistory:  this.nameHistory.map(e => ({ ...e })),
       _renameCount: this._renameCount,
+      type:         this.type,
     };
   }
 
@@ -537,6 +632,7 @@ class Colony {
       fertility:    json.fertility,
       richness:     json.richness,
       startingPops: 0,
+      type:         json.type ?? ColonyType.STANDARD,
     });
     colony.pops         = json.pops         ?? 1;
     colony._growthAcc   = json._growthAcc   ?? 0;
@@ -588,6 +684,21 @@ class ColonySimulation {
   all() { return [...this._colonies.values()]; }
 
   get count() { return this._colonies.size; }
+
+  /**
+   * Dissolve (remove) a colony from the simulation.
+   * The dissolved colony is returned so callers can inspect its final state.
+   * Emits `colony:dissolved` on the bus if the colony existed.
+   * @param {string} id
+   * @returns {Colony|undefined}  The removed colony, or undefined if not found.
+   */
+  dissolve(id) {
+    const colony = this._colonies.get(id);
+    if (!colony) return undefined;
+    this._colonies.delete(id);
+    this._bus?.emit('colony:dissolved', { colony, id });
+    return colony;
+  }
 
   /**
    * Simulate all colonies for dt turns.
@@ -660,11 +771,13 @@ if (typeof module !== 'undefined' && module.exports) {
     ColonySimulation, Colony, PopJob, BASE_YIELD,
     BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
     HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
+    ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
   };
 } else {
   window.GQColonySimulation = {
     ColonySimulation, Colony, PopJob, BASE_YIELD,
     BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
     HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
+    ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
   };
 }

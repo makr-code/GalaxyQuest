@@ -77,7 +77,8 @@ const { ResearchTree, ResearchCategory }      = require('./game/ResearchTree');
 const { FleetFormation, Wing, FormationShape } = require('./game/FleetFormation');
 const { ColonySimulation, Colony, PopJob, BASE_YIELD,
         BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
-        HUNGER_THRESHOLDS, UNREST_THRESHOLDS } = require('./game/ColonySimulation');
+        HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
+        ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE } = require('./game/ColonySimulation');
 
 // Constants
 const constants                     = require('./constants');
@@ -116,6 +117,7 @@ module.exports = {
   ColonySimulation, Colony, PopJob, BASE_YIELD,
   BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
   HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
+  ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
   // Constants
   ...constants,
 };
