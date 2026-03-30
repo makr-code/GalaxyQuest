@@ -75,6 +75,8 @@ const { ViewportManager, PIP_DEFAULTS } = require('./ViewportManager');
 const { EventSystem, EventType, EventStatus } = require('./game/EventSystem');
 const { ResearchTree, ResearchCategory }      = require('./game/ResearchTree');
 const { FleetFormation, Wing, FormationShape } = require('./game/FleetFormation');
+const { BattleSimulator, BattleFleet, BattleReport,
+        ShipClass, SHIP_STATS, SHIP_METAL_VALUE } = require('./game/BattleSimulator');
 const { ColonySimulation, Colony, PopJob, BASE_YIELD,
         BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
         HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
@@ -114,6 +116,8 @@ module.exports = {
   EventSystem, EventType, EventStatus,
   ResearchTree, ResearchCategory,
   FleetFormation, Wing, FormationShape,
+  BattleSimulator, BattleFleet, BattleReport,
+  ShipClass, SHIP_STATS, SHIP_METAL_VALUE,
   ColonySimulation, Colony, PopJob, BASE_YIELD,
   BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
   HUNGER_THRESHOLDS, UNREST_THRESHOLDS,

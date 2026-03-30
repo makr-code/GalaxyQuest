@@ -18,6 +18,10 @@ import {
   HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
   ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
 } from '../../js/engine/game/ColonySimulation.js';
+import {
+  BattleSimulator, BattleFleet, BattleReport,
+  ShipClass, SHIP_STATS, SHIP_METAL_VALUE,
+} from '../../js/engine/game/BattleSimulator.js';
 
 // ===========================================================================
 // EventSystem
@@ -1278,5 +1282,309 @@ describe('ColonySimulation – dissolve', () => {
     const sim3 = new ColonySimulation(bus);
     sim3.dissolve('ghost');
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// BattleSimulator — enums & constants
+// ===========================================================================
+
+describe('BattleSimulator – ShipClass & SHIP_STATS', () => {
+  it('ShipClass is frozen with 8 values', () => {
+    expect(Object.isFrozen(ShipClass)).toBe(true);
+    expect(Object.keys(ShipClass).length).toBe(8);
+  });
+
+  it('SHIP_STATS has an entry for every ShipClass', () => {
+    for (const type of Object.values(ShipClass)) {
+      expect(SHIP_STATS[type]).toBeDefined();
+    }
+  });
+
+  it('every SHIP_STATS entry has attack, shield, hull > 0', () => {
+    for (const [type, s] of Object.entries(SHIP_STATS)) {
+      expect(s.attack, `${type}.attack`).toBeGreaterThan(0);
+      expect(s.shield, `${type}.shield`).toBeGreaterThan(0);
+      expect(s.hull,   `${type}.hull`).toBeGreaterThan(0);
+    }
+  });
+
+  it('SHIP_STATS is frozen', () => {
+    expect(Object.isFrozen(SHIP_STATS)).toBe(true);
+  });
+
+  it('SHIP_METAL_VALUE is frozen and has an entry for every ShipClass', () => {
+    expect(Object.isFrozen(SHIP_METAL_VALUE)).toBe(true);
+    for (const type of Object.values(ShipClass)) {
+      expect(SHIP_METAL_VALUE[type]).toBeGreaterThan(0);
+    }
+  });
+
+  it('larger ships have higher hull than smaller ships', () => {
+    expect(SHIP_STATS[ShipClass.BATTLESHIP].hull).toBeGreaterThan(SHIP_STATS[ShipClass.FIGHTER].hull);
+    expect(SHIP_STATS[ShipClass.CARRIER].hull).toBeGreaterThan(SHIP_STATS[ShipClass.CORVETTE].hull);
+  });
+});
+
+// ===========================================================================
+// BattleSimulator — BattleFleet
+// ===========================================================================
+
+describe('BattleSimulator – BattleFleet', () => {
+  it('constructs from a ships map', () => {
+    const fleet = new BattleFleet({ [ShipClass.FIGHTER]: 10, [ShipClass.CRUISER]: 2 });
+    expect(fleet.countOf(ShipClass.FIGHTER)).toBe(10);
+    expect(fleet.countOf(ShipClass.CRUISER)).toBe(2);
+  });
+
+  it('totalCount sums all ship counts', () => {
+    const fleet = new BattleFleet({ [ShipClass.FIGHTER]: 5, [ShipClass.BOMBER]: 3 });
+    expect(fleet.totalCount).toBe(8);
+  });
+
+  it('isEmpty is true for empty fleet', () => {
+    expect(new BattleFleet().isEmpty).toBe(true);
+  });
+
+  it('isEmpty is false for non-empty fleet', () => {
+    expect(new BattleFleet({ [ShipClass.FIGHTER]: 1 }).isEmpty).toBe(false);
+  });
+
+  it('power is positive for non-empty fleet', () => {
+    const fleet = new BattleFleet({ [ShipClass.FIGHTER]: 100 });
+    expect(fleet.power).toBeGreaterThan(0);
+  });
+
+  it('larger fleets have higher power than smaller ones (same type)', () => {
+    const small = new BattleFleet({ [ShipClass.FIGHTER]: 10 });
+    const large = new BattleFleet({ [ShipClass.FIGHTER]: 100 });
+    expect(large.power).toBeGreaterThan(small.power);
+  });
+
+  it('more powerful ship types have higher power per unit', () => {
+    const fighters  = new BattleFleet({ [ShipClass.FIGHTER]:    10 });
+    const battleships = new BattleFleet({ [ShipClass.BATTLESHIP]: 10 });
+    expect(battleships.power).toBeGreaterThan(fighters.power);
+  });
+
+  it('throws for unknown ship type', () => {
+    expect(() => new BattleFleet({ alien_ship: 5 })).toThrow(/unknown ship type/i);
+  });
+
+  it('toPlainObject returns a plain copy', () => {
+    const ships = { [ShipClass.FIGHTER]: 3, [ShipClass.DESTROYER]: 1 };
+    const fleet = new BattleFleet(ships);
+    const plain = fleet.toPlainObject();
+    expect(plain).toEqual(ships);
+    expect(plain).not.toBe(fleet._ships);
+  });
+
+  it('filters out zero-count entries', () => {
+    const fleet = new BattleFleet({ [ShipClass.FIGHTER]: 0, [ShipClass.CRUISER]: 3 });
+    expect(fleet.countOf(ShipClass.FIGHTER)).toBe(0);
+    expect(fleet.totalCount).toBe(3);
+  });
+});
+
+// ===========================================================================
+// BattleSimulator — simulate() — basic outcomes
+// ===========================================================================
+
+describe('BattleSimulator – simulate() basic outcomes', () => {
+  it('throws when attacker fleet is empty', () => {
+    const def = new BattleFleet({ [ShipClass.FIGHTER]: 10 });
+    expect(() => BattleSimulator.simulate(new BattleFleet(), def)).toThrow(/empty/i);
+  });
+
+  it('throws when defender fleet is empty', () => {
+    const att = new BattleFleet({ [ShipClass.FIGHTER]: 10 });
+    expect(() => BattleSimulator.simulate(att, new BattleFleet())).toThrow(/empty/i);
+  });
+
+  it('returns a BattleReport', () => {
+    const att = new BattleFleet({ [ShipClass.FIGHTER]: 50 });
+    const def = new BattleFleet({ [ShipClass.FIGHTER]: 50 });
+    const report = BattleSimulator.simulate(att, def);
+    expect(report).toBeInstanceOf(BattleReport);
+  });
+
+  it('winner is attacker when attacker is vastly stronger', () => {
+    const att = new BattleFleet({ [ShipClass.BATTLESHIP]: 10 });
+    const def = new BattleFleet({ [ShipClass.FIGHTER]: 5 });
+    const report = BattleSimulator.simulate(att, def);
+    expect(report.winner).toBe('attacker');
+  });
+
+  it('winner is defender when defender is vastly stronger', () => {
+    const att = new BattleFleet({ [ShipClass.FIGHTER]: 3 });
+    const def = new BattleFleet({ [ShipClass.BATTLESHIP]: 10 });
+    const report = BattleSimulator.simulate(att, def);
+    expect(report.winner).toBe('defender');
+  });
+
+  it('rounds fought is between 1 and MAX_ROUNDS', () => {
+    const att = new BattleFleet({ [ShipClass.CRUISER]: 5 });
+    const def = new BattleFleet({ [ShipClass.CRUISER]: 5 });
+    const report = BattleSimulator.simulate(att, def);
+    expect(report.rounds).toBeGreaterThanOrEqual(1);
+    expect(report.rounds).toBeLessThanOrEqual(BattleSimulator.MAX_ROUNDS);
+  });
+
+  it('result is deterministic — same inputs produce same output', () => {
+    const att = new BattleFleet({ [ShipClass.DESTROYER]: 5, [ShipClass.FRIGATE]: 10 });
+    const def = new BattleFleet({ [ShipClass.CRUISER]: 3, [ShipClass.CORVETTE]: 8 });
+    const r1 = BattleSimulator.simulate(att, def);
+    const r2 = BattleSimulator.simulate(att, def);
+    expect(r1.winner).toBe(r2.winner);
+    expect(r1.rounds).toBe(r2.rounds);
+    expect(r1.loot).toBe(r2.loot);
+  });
+
+  it('respects custom maxRounds option', () => {
+    const att = new BattleFleet({ [ShipClass.FIGHTER]: 50 });
+    const def = new BattleFleet({ [ShipClass.FIGHTER]: 50 });
+    const report = BattleSimulator.simulate(att, def, { maxRounds: 2 });
+    expect(report.rounds).toBeLessThanOrEqual(2);
+  });
+});
+
+// ===========================================================================
+// BattleSimulator — BattleReport fields
+// ===========================================================================
+
+describe('BattleSimulator – BattleReport fields', () => {
+  let report;
+  const att = new BattleFleet({ [ShipClass.BATTLESHIP]: 5 });
+  const def = new BattleFleet({ [ShipClass.FIGHTER]: 20, [ShipClass.CORVETTE]: 5 });
+
+  beforeEach(() => {
+    report = BattleSimulator.simulate(att, def);
+  });
+
+  it('report.attackerStart equals original attacker fleet', () => {
+    expect(report.attackerStart).toBe(att);
+  });
+
+  it('report.defenderStart equals original defender fleet', () => {
+    expect(report.defenderStart).toBe(def);
+  });
+
+  it('attackerRemaining is a BattleFleet', () => {
+    expect(report.attackerRemaining).toBeInstanceOf(BattleFleet);
+  });
+
+  it('defenderRemaining is a BattleFleet', () => {
+    expect(report.defenderRemaining).toBeInstanceOf(BattleFleet);
+  });
+
+  it('attackerLosses is a plain object', () => {
+    expect(typeof report.attackerLosses).toBe('object');
+  });
+
+  it('losses never exceed starting count', () => {
+    for (const [type, lost] of Object.entries(report.attackerLosses)) {
+      expect(lost).toBeLessThanOrEqual(att.countOf(type));
+    }
+    for (const [type, lost] of Object.entries(report.defenderLosses)) {
+      expect(lost).toBeLessThanOrEqual(def.countOf(type));
+    }
+  });
+
+  it('loot is non-negative', () => {
+    expect(report.loot).toBeGreaterThanOrEqual(0);
+  });
+
+  it('loot is 0 when defender loses no ships', () => {
+    const tinyAtt = new BattleFleet({ [ShipClass.FIGHTER]: 1 });
+    const bigDef  = new BattleFleet({ [ShipClass.CARRIER]: 20 });
+    const r = BattleSimulator.simulate(tinyAtt, bigDef);
+    if (r.winner === 'defender') {
+      expect(r.loot).toBe(0);
+    }
+  });
+
+  it('loot is positive when defender loses ships', () => {
+    // attacker overwhelms defender
+    expect(report.loot).toBeGreaterThan(0);
+  });
+
+  it('serialize() returns a plain object with all keys', () => {
+    const s = report.serialize();
+    expect(s.winner).toBe(report.winner);
+    expect(s.rounds).toBe(report.rounds);
+    expect(s.loot).toBe(report.loot);
+    expect(typeof s.attackerStart).toBe('object');
+    expect(typeof s.defenderStart).toBe('object');
+    expect(typeof s.attackerLosses).toBe('object');
+    expect(typeof s.defenderLosses).toBe('object');
+  });
+});
+
+// ===========================================================================
+// BattleSimulator — rapid fire & shield mechanics
+// ===========================================================================
+
+describe('BattleSimulator – rapid fire & shield mechanics', () => {
+  it('fighters with rapid fire deal more damage to bombers than to battleships', () => {
+    // Proxy test: a fleet of fighters vs equal-size fleet of bombers should
+    // destroy more bombers-per-round than an equal fleet vs an equal number of battleships
+    const fighters = new BattleFleet({ [ShipClass.FIGHTER]: 100 });
+    const bombers  = new BattleFleet({ [ShipClass.BOMBER]:  100 });
+    const bships   = new BattleFleet({ [ShipClass.BATTLESHIP]: 100 });
+
+    const rBombers = BattleSimulator.simulate(fighters, bombers);
+    const rBships  = BattleSimulator.simulate(fighters, bships);
+
+    const bomberLost = rBombers.defenderLosses[ShipClass.BOMBER]  ?? 0;
+    const bshipLost  = rBships.defenderLosses[ShipClass.BATTLESHIP] ?? 0;
+
+    // Fighters have rapid fire vs bombers (×3), not vs battleships — so more bombers die
+    expect(bomberLost).toBeGreaterThan(bshipLost);
+  });
+
+  it('SHIP_STATS.fighter.rapidFire includes bomber', () => {
+    expect(SHIP_STATS[ShipClass.FIGHTER].rapidFire.bomber).toBeGreaterThan(1);
+  });
+
+  it('SHIP_STATS.bomber.rapidFire includes battleship', () => {
+    expect(SHIP_STATS[ShipClass.BOMBER].rapidFire.battleship).toBeGreaterThan(1);
+  });
+
+  it('shields reduce damage taken in first round', () => {
+    // A fleet with high shields should survive longer than one without
+    // Proxy: carrier (4000 shield) vs fighters; carrier should outlast corvette (100 shield)
+    const att = new BattleFleet({ [ShipClass.FIGHTER]: 500 });
+
+    const defCarrier  = new BattleFleet({ [ShipClass.CARRIER]:  1 });
+    const defCorvette = new BattleFleet({ [ShipClass.CORVETTE]: 1 });
+
+    const rCarrier  = BattleSimulator.simulate(att, defCarrier);
+    const rCorvette = BattleSimulator.simulate(att, defCorvette);
+
+    // Carrier has far more hull too, so it definitely survives at least as long
+    expect(rCarrier.rounds).toBeGreaterThanOrEqual(rCorvette.rounds);
+  });
+});
+
+// ===========================================================================
+// BattleSimulator — fleetPower()
+// ===========================================================================
+
+describe('BattleSimulator – fleetPower()', () => {
+  it('returns a positive number', () => {
+    const fleet = new BattleFleet({ [ShipClass.CRUISER]: 5 });
+    expect(BattleSimulator.fleetPower(fleet)).toBeGreaterThan(0);
+  });
+
+  it('equal fleets have equal power', () => {
+    const a = new BattleFleet({ [ShipClass.DESTROYER]: 10 });
+    const b = new BattleFleet({ [ShipClass.DESTROYER]: 10 });
+    expect(BattleSimulator.fleetPower(a)).toBe(BattleSimulator.fleetPower(b));
+  });
+
+  it('power scales linearly with count', () => {
+    const one  = new BattleFleet({ [ShipClass.FRIGATE]: 1 });
+    const ten  = new BattleFleet({ [ShipClass.FRIGATE]: 10 });
+    expect(BattleSimulator.fleetPower(ten)).toBeCloseTo(BattleSimulator.fleetPower(one) * 10);
   });
 });
