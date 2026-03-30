@@ -4,7 +4,7 @@
  */
 (async function () {
   const AUTH_AUDIO_SCRIPT = 'js/runtime/audio.js?v=20260328p53';
-  const AUTH_WM_SCRIPT = 'js/runtime/wm.js?v=20260328p54';
+  const AUTH_WM_SCRIPT = 'js/runtime/wm.js?v=20260330p55';
   const AUTH_AUDIO_PRELOAD = [
     'music/Nebula_Overture.mp3',
     'sfx/mixkit-video-game-retro-click-237.wav',

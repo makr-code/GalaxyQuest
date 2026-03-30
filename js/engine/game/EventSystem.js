@@ -134,47 +134,6 @@ class Journal {
 }
 
 // ---------------------------------------------------------------------------
-// Journal
-// ---------------------------------------------------------------------------
-
-/**
- * A Journal entry tracks a long-running in-game objective (Victoria 3 style).
- * It becomes 'complete' when its condition returns true during tickJournal().
- *
- * @typedef {Object} JournalDef
- * @property {string}   id
- * @property {string}   [title]
- * @property {string}   [body]
- * @property {Function} condition      (gameState) => boolean — completion test
- * @property {Function} [onComplete]   (gameState) => void   — called on completion
- */
-
-/** @enum {string} */
-const JournalStatus = Object.freeze({
-  ACTIVE:   'active',
-  COMPLETE: 'complete',
-});
-
-class Journal {
-  /**
-   * @param {JournalDef} def
-   */
-  constructor(def) {
-    if (!def.id)        throw new TypeError('[Journal] Entry must have an id');
-    if (!def.condition) throw new TypeError(`[Journal] Entry '${def.id}' must have a condition`);
-    this.id         = def.id;
-    this.title      = def.title     ?? def.id;
-    this.body       = def.body      ?? '';
-    this.condition  = def.condition;
-    this.onComplete = def.onComplete ?? null;
-    this.status     = JournalStatus.ACTIVE;
-  }
-
-  /** @returns {boolean} */
-  get isComplete() { return this.status === JournalStatus.COMPLETE; }
-}
-
-// ---------------------------------------------------------------------------
 // EventSystem
 // ---------------------------------------------------------------------------
 

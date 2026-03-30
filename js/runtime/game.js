@@ -1282,6 +1282,64 @@
     });
   }
 
+  function openColonySubview(colonyId, view, opts = {}) {
+    const colony = colonies.find((col) => Number(col.id || 0) === Number(colonyId || 0));
+    if (!colony) return false;
+
+    const targetView = String(view || '').toLowerCase();
+    const focusBuilding = String(opts.focusBuilding || getRecommendedBuildingFocus(colony));
+
+    selectColonyById(colony.id, {
+      openWindows: false,
+      focusBuilding: targetView === 'buildings' ? focusBuilding : '',
+      focusSource: opts.source || 'view-chain',
+    });
+
+    if (targetView === 'overview') {
+      WM.open('overview');
+      return true;
+    }
+    if (targetView === 'colony' || targetView === 'planet') {
+      WM.open('colony');
+      return true;
+    }
+    if (targetView === 'buildings') {
+      WM.open('buildings');
+      return true;
+    }
+    if (targetView === 'shipyard' || targetView === 'vessels' || targetView === 'ships') {
+      WM.open('shipyard');
+      if (targetView === 'vessels' || targetView === 'ships') {
+        showToast('Vessels werden im Shipyard verwaltet.', 'info');
+      }
+      return true;
+    }
+    if (targetView === 'orbitals' || targetView === 'orbital-installations') {
+      setColonyViewFocus(colony.id, 'solar_satellite', opts.source || 'view-chain');
+      WM.open('shipyard');
+      showToast('Orbital-Installationen werden im Shipyard verwaltet.', 'info');
+      return true;
+    }
+    if (targetView === 'wormholes' || targetView === 'gates' || targetView === 'gate-installations') {
+      WM.open('wormholes');
+      return true;
+    }
+    if (targetView === 'fleet') {
+      if (opts.prefillTarget) {
+        prefillFleetTarget(opts.prefillTarget, String(opts.mission || 'transport'), {
+          owner: opts.owner || '',
+          threatLevel: opts.threatLevel || '',
+          intel: opts.intel || null,
+        });
+      } else {
+        WM.open('fleet');
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   // Attaches faction data (from separate factions API) to backend-provided cluster objects.
   function assignClusterFactions(clusters, territory) {
     const claims = Array.isArray(territory) ? territory : [];
@@ -8761,6 +8819,12 @@
     const colonyHtml = colonyMeta
       ? `<div class="system-row system-row-colony"><span class="system-colony-swatch" style="background:${esc(colonyMeta.color)};box-shadow:0 0 10px ${esc(colonyMeta.color)};"></span>${esc(colonyMeta.label)} ┬À ${esc(String(colonyMeta.count))} Kolonien ┬À Bev├Âlkerung ${esc(colonyMeta.populationFull)}${colonyMeta.ownerName ? ` ┬À ${esc(colonyMeta.isPlayer ? 'Dominanz: Du' : `Dominanz: ${colonyMeta.ownerName}`)}` : ''}</div>`
       : '<div class="system-row text-muted">Keine bekannten Kolonien in diesem System.</div>';
+    const systemActionHtml = `
+      <div class="system-row" style="margin-top:0.42rem; display:flex; gap:0.36rem; flex-wrap:wrap;">
+        <button type="button" class="btn btn-secondary btn-sm" data-system-action="enter-system">Planet View</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-system-action="fleet">Fleet</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-system-action="gates">Gate Installations</button>
+      </div>`;
 
     // FoW visibility indicator
     const fowLevel = isCurrentUserAdmin() ? 'own' : (star.visibility_level || 'unknown');
@@ -8781,6 +8845,7 @@
         ${fowHtml}
         <div class="system-row">Selection Follow: ${followEnabled ? 'locked' : 'free'} (L)</div>
         <div class="system-row">${zoomed ? 'System view active. Esc/F/R returns to galaxy overview.' : 'Double click to zoom into the system and show planets.'}</div>
+        ${systemActionHtml}
         ${fleetLegendHtml}
         <div class="system-row" style="margin-top:0.4rem">
           <button id="gal-quicknav-fav-btn" type="button" class="btn btn-secondary btn-sm${isFav ? ' active' : ''}">${isFav ? 'Ôÿà Favorit entfernen' : 'Ôÿå Favorit hinzuf├╝gen'}</button>
@@ -8802,6 +8867,37 @@
       }
       updateFooterQuickNavBadge();
       WM.refresh('quicknav');
+    });
+    details.querySelectorAll('[data-system-action]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const action = String(button.getAttribute('data-system-action') || '').toLowerCase();
+        if (action === 'enter-system') {
+          if (zoomed) return;
+          triggerGalaxyNavAction('enter-system', root);
+          return;
+        }
+        if (action === 'fleet') {
+          prefillFleetTarget({
+            galaxy: Number(star.galaxy_index || uiState.activeGalaxy || 1),
+            system: Number(star.system_index || uiState.activeSystem || 1),
+            position: 1,
+          }, 'transport', {
+            owner: String(star.colony_owner_name || ''),
+          });
+          return;
+        }
+        if (action === 'gates') {
+          const colonyInSystem = colonies.find((col) =>
+            Number(col.galaxy || 0) === Number(star.galaxy_index || 0)
+            && Number(col.system || 0) === Number(star.system_index || 0)
+          );
+          if (!colonyInSystem) {
+            showToast('Keine eigene Kolonie in diesem System fuer Gate-Installationen.', 'warning');
+            return;
+          }
+          openColonySubview(colonyInSystem.id, 'gates', { source: 'system-view' });
+        }
+      });
     });
   }
 
@@ -9584,14 +9680,23 @@
     detail.querySelectorAll('[data-colony-action]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (!colonyId) return;
-        if (isOwnedColony && btn.dataset.colonyAction === 'open') {
+        const action = String(btn.dataset.colonyAction || '').toLowerCase();
+        if (!isOwnedColony) return;
+
+        if (action === 'open') {
           focusColonyDevelopment(colonyId, { source: 'detail-action' });
-        } else if (isOwnedColony) {
-          selectColonyById(colonyId, { openWindows: false });
+          return;
         }
-        if (btn.dataset.colonyAction === 'colony') WM.open('colony');
-        if (btn.dataset.colonyAction === 'overview') WM.open('overview');
-        if (btn.dataset.colonyAction === 'buildings') WM.open('buildings');
+
+        openColonySubview(colonyId, action, {
+          source: 'detail-action',
+          prefillTarget: {
+            galaxy: Number(btn.dataset.targetGalaxy || uiState.activeGalaxy || 1),
+            system: Number(btn.dataset.targetSystem || uiState.activeSystem || 1),
+            position: Number(btn.dataset.targetPosition || 1),
+          },
+          mission: String(btn.dataset.fleetMission || 'transport'),
+        });
       });
     });
     detail.querySelectorAll('[data-fleet-action]').forEach((btn) => {
@@ -9644,6 +9749,10 @@
             <button class="btn btn-secondary btn-sm" data-colony-action="overview">Overview</button>
             <button class="btn btn-secondary btn-sm" data-colony-action="colony">Colony</button>
             <button class="btn btn-secondary btn-sm" data-colony-action="buildings">Buildings</button>
+            <button class="btn btn-secondary btn-sm" data-colony-action="shipyard">Shipyard</button>
+            <button class="btn btn-secondary btn-sm" data-colony-action="fleet" data-fleet-mission="transport" data-target-galaxy="${targetGalaxy}" data-target-system="${targetSystem}" data-target-position="${targetPosition}">Fleet</button>
+            <button class="btn btn-secondary btn-sm" data-colony-action="gates">Gate Installations</button>
+            <button class="btn btn-secondary btn-sm" data-colony-action="orbitals">Orbital Installations</button>
             <button class="btn btn-primary btn-sm" data-colony-action="open">Build Focus</button>
           </div>
           <div class="planet-detail-extra text-muted">Loading colony dataÔÇª</div>` : `

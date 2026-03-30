@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const gqUiPath = path.resolve(process.cwd(), 'js/gq-ui.js');
-const wmPath   = path.resolve(process.cwd(), 'js/wm.js');
+const gqUiPath = path.resolve(process.cwd(), 'js/ui/gq-ui.js');
+const wmPath   = path.resolve(process.cwd(), 'js/runtime/wm.js');
 
 function loadWmScript() {
   delete window.GQUI;

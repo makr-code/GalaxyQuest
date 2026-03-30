@@ -322,37 +322,6 @@ function _escalationStage(value, thresholds) {
 }
 
 // ---------------------------------------------------------------------------
-// Colony types & bonuses
-// ---------------------------------------------------------------------------
-
-/**
- * Colony specialisation types.
- * Mirrors the backend `colony_type` column (see api/buildings.php, FUTURE_ENHANCEMENTS §2.7).
- * @enum {string}
- */
-const ColonyType = Object.freeze({
-  MINING:       'mining',       // +20% richness multiplier
-  AGRICULTURAL: 'agricultural', // +30% fertility, +0.15 happiness
-  RESEARCH:     'research',     // +25% research output
-  INDUSTRIAL:   'industrial',   // +20% production output
-  MILITARY:     'military',     // +20% defence output, +0.05 stability
-  BALANCED:     'balanced',     // no modifiers (default)
-});
-
-/**
- * Per-type additive/multiplicative bonuses applied by Colony.setType().
- * Each entry: { fertilityBonus, richnessBonus, researchMult, productionMult, defenceMult, happinessBonus, stabilityBonus }
- */
-const COLONY_TYPE_BONUS = Object.freeze({
-  [ColonyType.MINING]:       { fertilityBonus: 0,    richnessBonus: 0.20, researchMult: 1,    productionMult: 1,    defenceMult: 1,    happinessBonus: 0,    stabilityBonus: 0 },
-  [ColonyType.AGRICULTURAL]: { fertilityBonus: 0.30, richnessBonus: 0,    researchMult: 1,    productionMult: 1,    defenceMult: 1,    happinessBonus: 0.15, stabilityBonus: 0 },
-  [ColonyType.RESEARCH]:     { fertilityBonus: 0,    richnessBonus: 0,    researchMult: 1.25, productionMult: 1,    defenceMult: 1,    happinessBonus: 0,    stabilityBonus: 0 },
-  [ColonyType.INDUSTRIAL]:   { fertilityBonus: 0,    richnessBonus: 0,    researchMult: 1,    productionMult: 1.20, defenceMult: 1,    happinessBonus: 0,    stabilityBonus: 0 },
-  [ColonyType.MILITARY]:     { fertilityBonus: 0,    richnessBonus: 0,    researchMult: 1,    productionMult: 1,    defenceMult: 1.20, happinessBonus: 0,    stabilityBonus: 0.05 },
-  [ColonyType.BALANCED]:     { fertilityBonus: 0,    richnessBonus: 0,    researchMult: 1,    productionMult: 1,    defenceMult: 1,    happinessBonus: 0,    stabilityBonus: 0 },
-});
-
-// ---------------------------------------------------------------------------
 // Colony
 // ---------------------------------------------------------------------------
 
@@ -622,11 +591,6 @@ class Colony {
       out.credits    += (base.credits    ?? 0) * count;
       out.defence    += (base.defence    ?? 0) * count;
     }
-
-    // Colony-type multipliers
-    out.production *= tm.productionMult;
-    out.research   *= tm.researchMult;
-    out.defence    *= tm.defenceMult;
 
     // Stability modifier on all productive output
     out.production *= stability;
@@ -901,6 +865,95 @@ class ColonySimulation {
     if (!colony) return undefined;
     this._colonies.delete(id);
     this._bus?.emit('colony:dissolved', { colony, id });
+    return colony;
+  }
+
+  /**
+   * Resolve a ground invasion against a colony.
+   * @param {string} colonyId
+   * @param {number} attackerTroops
+   * @param {{ maxRounds?: number }} [opts]
+   * @returns {InvasionReport}
+   */
+  invade(colonyId, attackerTroops, opts = {}) {
+    const colony = this.get(colonyId);
+    if (!colony) throw new RangeError(`[ColonySimulation] Colony '${colonyId}' not found`);
+    if (!Number.isFinite(attackerTroops) || attackerTroops < 1) {
+      throw new RangeError('[ColonySimulation] attackerTroops must be ≥ 1');
+    }
+
+    const maxRounds = (Number.isFinite(opts.maxRounds) && opts.maxRounds >= 1)
+      ? Math.floor(opts.maxRounds)
+      : MAX_INVASION_ROUNDS;
+
+    const attackerBefore = Math.floor(attackerTroops);
+    const defenderBefore = Math.max(0, colony.defensePower);
+    let attacker = attackerBefore;
+    let defender = defenderBefore;
+    let rounds = 0;
+
+    while (rounds < maxRounds && attacker > 0 && defender > 0) {
+      rounds += 1;
+
+      const attackerDamage = attacker * TROOP_ATTACK_VALUE;
+      defender = Math.max(0, defender - attackerDamage);
+      if (defender <= 0) break;
+
+      const defenderDamage = Math.floor(defender * DEFENSE_DPS_FACTOR);
+      attacker = Math.max(0, attacker - defenderDamage);
+    }
+
+    let result;
+    if (defender <= 0) result = InvasionResult.SUCCESS;
+    else if (attacker <= 0) result = InvasionResult.REPELLED;
+    else result = InvasionResult.DRAW;
+
+    const loot = {};
+    if (result === InvasionResult.SUCCESS) {
+      for (const [res, amount] of Object.entries(colony.stockpile)) {
+        if (res === 'defence') continue;
+        if (!Number.isFinite(amount) || amount <= 0) continue;
+        const looted = amount * INVASION_LOOT_FRACTION;
+        if (looted <= 0) continue;
+        loot[res] = looted;
+        colony.stockpile[res] = amount - looted;
+      }
+      colony.stockpile.defence = 0;
+      colony.garrison = 0;
+      colony.happiness = Math.min(colony.happiness, INVASION_CONQUEST_PENALTIES.happiness);
+      colony.unrest = Math.max(colony.unrest, INVASION_CONQUEST_PENALTIES.unrest);
+      colony.stability = Math.min(colony.stability, INVASION_CONQUEST_PENALTIES.stability);
+    } else {
+      const consumed = Math.max(0, defenderBefore - defender);
+      const defenceFromStock = Math.min(colony.stockpile.defence, consumed);
+      colony.stockpile.defence -= defenceFromStock;
+      const remaining = consumed - defenceFromStock;
+      if (remaining > 0) {
+        const troopLosses = Math.ceil(remaining / TROOP_DEFENSE_VALUE);
+        colony.garrison = Math.max(0, colony.garrison - troopLosses);
+      }
+    }
+
+    const report = new InvasionReport({
+      result,
+      rounds,
+      attackerTroopsBefore: attackerBefore,
+      attackerTroopsAfter: attacker,
+      defenderPowerBefore: defenderBefore,
+      defenderPowerAfter: defender,
+      loot,
+      colonyId,
+    });
+
+    if (result === InvasionResult.SUCCESS) {
+      this._bus?.emit('colony:invaded', { colony, id: colonyId, report });
+    } else if (result === InvasionResult.REPELLED) {
+      this._bus?.emit('colony:defended', { colony, id: colonyId, report });
+    } else {
+      this._bus?.emit('colony:siege', { colony, id: colonyId, report });
+    }
+
+    return report;
   }
 
   /**

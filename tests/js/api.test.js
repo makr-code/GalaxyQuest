@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const apiPath = path.resolve(process.cwd(), 'js/api.js');
+const apiPath = path.resolve(process.cwd(), 'js/network/api.js');
 
 function loadApiScript() {
   delete window.API;

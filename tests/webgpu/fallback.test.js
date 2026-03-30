@@ -84,7 +84,7 @@ describe('GQEngineCompat', () => {
     // Reload script
     const fs   = require('fs');
     const path = require('path');
-    const src  = fs.readFileSync(path.resolve(process.cwd(), 'js/engine-compat.js'), 'utf8');
+    const src  = fs.readFileSync(path.resolve(process.cwd(), 'js/legacy/engine-compat.js'), 'utf8');
     window.eval(src); // eslint-disable-line no-eval
   });
 

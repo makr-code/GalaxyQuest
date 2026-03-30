@@ -70,7 +70,8 @@ final class ProjectionRuntimeTest extends TestCase
                 // Intentionally bypass PDO::__construct.
             }
 
-            public function prepare(string $sql, array $options = []): object
+            #[\ReturnTypeWillChange]
+            public function prepare(string $sql, array $options = [])
             {
                 $this->stmtStub->lastSql = $sql;
                 return $this->stmtStub;
@@ -133,6 +134,7 @@ final class ProjectionRuntimeTest extends TestCase
     {
         $pdoStub = new class extends PDO {
             public function __construct() {}
+            #[\ReturnTypeWillChange]
             public function prepare(string $sql, array $options = []): never
             {
                 throw new RuntimeException('Simulated DB error');
