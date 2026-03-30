@@ -57,10 +57,21 @@ const { TextureLoader }             = require('./loaders/TextureLoader');
 const { GeometryLoader }            = require('./loaders/GeometryLoader');
 const { ShaderLoader }              = require('./loaders/ShaderLoader');
 
+// Game engine layer
+const { GameEngine }                = require('./GameEngine');
+const { GameLoop }                  = require('./GameLoop');
+const { EventBus, sharedBus }       = require('./EventBus');
+const { SystemRegistry, SystemPriority } = require('./SystemRegistry');
+const { AssetRegistry, AssetType }  = require('./AssetRegistry');
+
 // Constants
 const constants                     = require('./constants');
 
 module.exports = {
+  // Game engine layer
+  GameEngine, GameLoop, EventBus, sharedBus,
+  SystemRegistry, SystemPriority,
+  AssetRegistry, AssetType,
   // Core
   IGraphicsRenderer, WebGPURenderer, WebGLRenderer, RendererFactory,
   // WebGPU
