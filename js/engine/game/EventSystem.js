@@ -256,11 +256,13 @@ class EventSystem {
   // ---------------------------------------------------------------------------
 
   _tryFireRandom(gameState, cycle) {
+    const busyIds = new Set([...this._queue, ...this._active].map((e) => e.id));
     const candidates = [];
     for (const def of this._library.values()) {
       if (def.type === EventType.SCRIPTED) continue;
       if ((cycle - def._lastFired) < def.cooldown) continue;
       if (def.condition && !def.condition(gameState)) continue;
+      if (busyIds.has(def.id)) continue;
       for (let w = 0; w < def.weight; w++) candidates.push(def.id);
     }
     if (candidates.length === 0) return;
