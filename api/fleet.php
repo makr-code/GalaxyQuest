@@ -72,6 +72,13 @@ switch ($action) {
         list_ftl_map(get_db(), $uid);
         break;
 
+    case 'reset_ftl_cooldown':
+        // Spend 50 DM to immediately reset the Vor'Tak K-F recharge cooldown.
+        only_method('POST');
+        verify_csrf();
+        reset_ftl_cooldown(get_db(), $uid);
+        break;
+
     case 'recall':
         only_method('POST');
         verify_csrf();
@@ -285,6 +292,8 @@ function send_fleet(PDO $db, int $uid, array $body): never {
 
             // ── Vel'Ar: Blind Quantum Jump ───────────────────────────────────
             // Instantaneous but arrival coordinates scatter by 0.5% of distance.
+            // OD-5: After scatter, snap to the nearest real star system (not just
+            //        raw coordinate shift) for cleaner gameplay resolution.
             // Stealth window: fleet invisible to enemies for 60 s after arrival.
             case 'vel_ar':
                 if ($distLy > 0.0) {
@@ -295,6 +304,27 @@ function send_fleet(PDO $db, int $uid, array $body): never {
                     $tx   += $scatter * sin($theta) * cos($phi);
                     $ty   += $scatter * sin($theta) * sin($phi);
                     $tz   += $scatter * cos($theta);
+
+                    // OD-5: snap to nearest star system within the same galaxy
+                    $snapStmt = $db->prepare(
+                        'SELECT galaxy_index, system_index, x_ly, y_ly, z_ly,
+                                SQRT(POW(x_ly-?,2)+POW(y_ly-?,2)+POW(z_ly-?,2)) AS dist
+                           FROM star_systems
+                          WHERE galaxy_index = ?
+                          ORDER BY dist ASC
+                          LIMIT 1'
+                    );
+                    $snapStmt->execute([$tx, $ty, $tz, $tg]);
+                    $snap = $snapStmt->fetch();
+                    if ($snap) {
+                        $tg = (int)$snap['galaxy_index'];
+                        $ts = (int)$snap['system_index'];
+                        $tx = (float)$snap['x_ly'];
+                        $ty = (float)$snap['y_ly'];
+                        $tz = (float)$snap['z_ly'];
+                        // Recompute target_position (planet 1 by default on scatter)
+                        $tp = 1;
+                    }
                 }
                 $travel     = 30;
                 $speedLyH   = 999999.0;
@@ -557,7 +587,37 @@ function list_ftl_status(PDO $db, int $uid): never {
 }
 
 /**
- * FTL map endpoint (GET action=ftl_map).
+ * Reset Vor'Tak FTL cooldown immediately by spending 50 Dark Matter.
+ * Safe for all drive types: non-Vor'Tak users just get an error.
+ */
+function reset_ftl_cooldown(PDO $db, int $uid): never {
+    $COOLDOWN_RESET_COST = 50;
+
+    $uRow = $db->prepare('SELECT ftl_drive_type, ftl_cooldown_until, dark_matter FROM users WHERE id = ? LIMIT 1');
+    $uRow->execute([$uid]);
+    $u = $uRow->fetch();
+    if (!$u) { json_error('User not found.'); }
+
+    if ($u['ftl_drive_type'] !== 'vor_tak') {
+        json_error('FTL cooldown reset is only available for Vor\'Tak K-F drives.');
+    }
+    if (!$u['ftl_cooldown_until'] || strtotime((string)$u['ftl_cooldown_until']) <= time()) {
+        json_error('FTL drive is not on cooldown.');
+    }
+    if ((int)$u['dark_matter'] < FTL_COOLDOWN_RESET_COST) {
+        json_error('Insufficient Dark Matter. Cost: ' . FTL_COOLDOWN_RESET_COST . ' DM, you have: ' . $u['dark_matter'] . ' DM.');
+    }
+
+    $db->prepare('UPDATE users SET ftl_cooldown_until = NULL, dark_matter = dark_matter - ? WHERE id = ?')
+       ->execute([FTL_COOLDOWN_RESET_COST, $uid]);
+
+    json_ok([
+        'message'  => 'FTL cooldown reset. Drive ready to jump.',
+        'dm_spent' => FTL_COOLDOWN_RESET_COST,
+    ]);
+}
+
+/**
  * Returns all FTL infrastructure visible to this player:
  *  - Their own gates with 3-D endpoint coordinates
  *  - Their own resonance nodes with 3-D coordinates

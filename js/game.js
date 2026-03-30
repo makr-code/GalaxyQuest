@@ -3586,7 +3586,33 @@
 
           ftlEl.innerHTML = `<span style="color:#88ccff;font-weight:600;">${esc(driveLabel)}</span>`
             + ` <span style="color:${ready ? '#88ff88' : '#ffcc44'}">${esc(cooldownStr)}</span>`
-            + `<span style="color:#aaa">${esc(extraInfo)}</span>`;
+            + `<span style="color:#aaa">${esc(extraInfo)}</span>`
+            + (!ready && driveType === 'vor_tak'
+              ? ` <button class="btn btn-sm" id="ftl-reset-cooldown-btn" style="margin-left:0.5rem;font-size:0.75rem;">Reset (50 ◆)</button>`
+              : '');
+          // Wire cooldown reset button
+          const resetBtn = ftlEl.querySelector('#ftl-reset-cooldown-btn');
+          if (resetBtn) {
+            resetBtn.addEventListener('click', async () => {
+              resetBtn.disabled = true;
+              resetBtn.textContent = '…';
+              try {
+                const res = await API.resetFtlCooldown();
+                if (res?.success) {
+                  showToast(res.message || 'FTL cooldown reset.', 'success');
+                  WM.refresh('fleet');
+                } else {
+                  showToast(res?.error || 'Reset failed.', 'error');
+                  resetBtn.disabled = false;
+                  resetBtn.textContent = 'Reset (50 ◆)';
+                }
+              } catch {
+                showToast('Reset failed.', 'error');
+                resetBtn.disabled = false;
+                resetBtn.textContent = 'Reset (50 ◆)';
+              }
+            });
+          }
         } else if (ftlEl) {
           ftlEl.innerHTML = '';
         }
@@ -11334,7 +11360,29 @@
         </div>
         <label class="system-row" style="margin-top:0.55rem;">NPC Decisions (letzte 10)</label>
         <textarea id="set-npc-decisions" rows="7" style="width:100%;resize:vertical;" readonly></textarea>
-      </div>`;
+      </div>
+
+      <div class="system-card" style="margin-top:1rem;">
+        <h3 style="margin-top:0">⚡ FTL Drive — Faction Selection</h3>
+        <p style="font-size:0.82rem;color:var(--text-muted);margin:0 0 0.6rem;">
+          Wähle den FTL-Antrieb deiner Fraktion. Erste Wahl ist kostenlos. Wechsel kostet <strong>200 ◆ Dark Matter</strong>.
+        </p>
+        <div id="set-ftl-current" style="margin-bottom:0.6rem;font-size:0.84rem;color:#88ccff;">Wird geladen…</div>
+        <div id="set-ftl-drive-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem 0.6rem;">
+          ${[
+            { id: 'aereth',  name: "Aereth — Alcubierre Warp",     desc: "+50% Kern · -30% Rand" },
+            { id: 'vor_tak', name: "Vor'Tak — K-F Jump Drive",     desc: "30 LY · 72h Cooldown · Carrier+30%" },
+            { id: 'syl_nar', name: "Syl'Nar — Resonance Gates",   desc: "Instant via Gate-Netz" },
+            { id: 'vel_ar',  name: "Vel'Ar — Blind Quantum Jump",  desc: "Instant · 0.5% Scatter · Stealth 60s" },
+            { id: 'zhareen', name: "Zhareen — Crystal Channel",   desc: "Survey-Nodes · 30min CD" },
+            { id: 'kryl_tha',name: "Kryl'Tha — Swarm Tunnel",     desc: "Max 50 Schiffe · -10% Hülle" },
+          ].map((d) => `<button class="btn btn-secondary set-ftl-drive-btn" data-drive="${esc(d.id)}"
+              style="text-align:left;padding:0.35rem 0.5rem;font-size:0.78rem;line-height:1.3;" type="button">
+              <strong>${esc(d.name)}</strong><br><span style="color:var(--text-muted)">${esc(d.desc)}</span>
+            </button>`).join('')}
+        </div>
+        <div id="set-ftl-result" style="margin-top:0.4rem;font-size:0.8rem;min-height:1rem;"></div>
+      </div>\`;
 
     const bindRange = (id, valueId, setter) => {
       const input = root.querySelector(id);
@@ -11921,6 +11969,60 @@
     });
     loadNpcDecisions().catch(() => {
       writeNpcDecisions('NPC decisions preload failed.');
+    });
+
+    // ── FTL Drive Selection ───────────────────────────────────────────────────
+    const ftlCurrentEl  = root.querySelector('#set-ftl-current');
+    const ftlResultEl   = root.querySelector('#set-ftl-result');
+    const ftlButtons    = root.querySelectorAll('.set-ftl-drive-btn');
+
+    // Load and display current FTL drive
+    API.ftlStatus().then((ftlData) => {
+      if (!ftlCurrentEl) return;
+      const driveType = ftlData?.ftl_drive_type || 'aereth';
+      const dm = window._GQ_meta?.dark_matter ?? '?';
+      const isDefault = driveType === 'aereth';
+      ftlCurrentEl.textContent = `Aktueller Antrieb: ${driveType}${isDefault ? ' (Standard — Auswahl kostenlos)' : ''} · ◆ ${fmt(dm)} DM`;
+      // Highlight current drive button
+      ftlButtons.forEach((btn) => {
+        const d = btn.getAttribute('data-drive');
+        btn.style.borderColor = d === driveType ? '#88ccff' : '';
+        btn.style.background  = d === driveType ? 'rgba(136,204,255,0.12)' : '';
+      });
+    }).catch(() => {
+      if (ftlCurrentEl) ftlCurrentEl.textContent = 'FTL-Status konnte nicht geladen werden.';
+    });
+
+    ftlButtons.forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const drive = btn.getAttribute('data-drive');
+        if (!drive) return;
+        ftlButtons.forEach((b) => { b.disabled = true; });
+        if (ftlResultEl) ftlResultEl.textContent = 'Wird gesetzt…';
+        try {
+          const res = await API.setFtlDrive(drive);
+          if (res?.success) {
+            if (ftlResultEl) ftlResultEl.innerHTML = `<span style="color:#88ff88">✓ ${esc(res.message || 'Drive gesetzt.')}</span>`;
+            // Update current label
+            if (ftlCurrentEl) ftlCurrentEl.textContent = `Aktueller Antrieb: ${drive}`;
+            ftlButtons.forEach((b) => {
+              const d = b.getAttribute('data-drive');
+              b.style.borderColor = d === drive ? '#88ccff' : '';
+              b.style.background  = d === drive ? 'rgba(136,204,255,0.12)' : '';
+            });
+            if (res.dm_spent > 0) showToast(`FTL Drive gewechselt. ${res.dm_spent} ◆ DM abgezogen.`, 'info');
+            else showToast(`FTL Drive auf ${drive} gesetzt.`, 'success');
+            WM.refresh('fleet');
+          } else {
+            if (ftlResultEl) ftlResultEl.innerHTML = `<span style="color:#ff6666">✗ ${esc(res?.error || 'Fehler')}</span>`;
+            showToast(res?.error || 'Drive-Wechsel fehlgeschlagen.', 'error');
+          }
+        } catch {
+          if (ftlResultEl) ftlResultEl.innerHTML = '<span style="color:#ff6666">✗ Netzwerkfehler</span>';
+          showToast('Drive-Wechsel fehlgeschlagen.', 'error');
+        }
+        ftlButtons.forEach((b) => { b.disabled = false; });
+      });
     });
   }
 

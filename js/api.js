@@ -1237,6 +1237,8 @@ const API = (() => {
     leaderboard: ()    => get('api/game.php?action=leaderboard'),
     renameColony:  (cid, name) => post('api/game.php?action=rename_colony',   { colony_id: cid, name }),
     setColonyType: (cid, type) => post('api/game.php?action=set_colony_type', { colony_id: cid, colony_type: type }),
+    setFtlDrive:   (driveType) => post('api/game.php?action=set_ftl_drive',   { ftl_drive_type: driveType }),
+    resetFtlCooldown: ()       => post('api/fleet.php?action=reset_ftl_cooldown', {}),
 
     // Buildings
     buildings:     (cid)        => get(`api/buildings.php?action=list&colony_id=${cid}`),

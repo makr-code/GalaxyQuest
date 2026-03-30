@@ -7,6 +7,7 @@
  * POST /api/game.php?action=pvp_toggle
  * POST /api/game.php?action=rename_colony   body: {colony_id, name}
  * POST /api/game.php?action=set_colony_type body: {colony_id, colony_type}
+ * POST /api/game.php?action=set_ftl_drive   body: {ftl_drive_type}
  * GET  /api/game.php?action=leaderboard
  */
 require_once __DIR__ . '/helpers.php';
@@ -613,6 +614,50 @@ switch ($action) {
         );
         $stmt->execute();
         json_ok(['leaderboard' => $stmt->fetchAll()]);
+        break;
+
+    // ── FTL Drive Selection ───────────────────────────────────────────────────
+    // First selection is free (when still on default 'aereth').
+    // Changing an already-chosen drive costs 200 DM.
+    case 'set_ftl_drive':
+        only_method('POST');
+        verify_csrf();
+        $body  = get_json_body();
+        $drive = $body['ftl_drive_type'] ?? '';
+        $validDrives = ['aereth', 'vor_tak', 'syl_nar', 'vel_ar', 'zhareen', 'kryl_tha'];
+        if (!in_array($drive, $validDrives, true)) {
+            json_error('Invalid FTL drive type.');
+        }
+        $db   = get_db();
+        $uRow = $db->prepare('SELECT ftl_drive_type, dark_matter FROM users WHERE id = ? LIMIT 1');
+        $uRow->execute([$uid]);
+        $u = $uRow->fetch();
+        if (!$u) { json_error('User not found.'); }
+        $current = $u['ftl_drive_type'];
+        if ($current === $drive) {
+            json_ok(['ftl_drive_type' => $drive, 'message' => 'Drive unchanged.']);
+            break;
+        }
+        $CHANGE_COST = 200; // DM cost to change after initial selection
+        $isInitial   = ($current === 'aereth'); // default → first real selection is free
+        if (!$isInitial) {
+            if ((int)$u['dark_matter'] < $CHANGE_COST) {
+                json_error("Changing FTL drive costs {$CHANGE_COST} Dark Matter. You have {$u['dark_matter']} DM.");
+            }
+            $db->prepare('UPDATE users SET dark_matter = dark_matter - ? WHERE id = ?')
+               ->execute([$CHANGE_COST, $uid]);
+        }
+        $db->prepare('UPDATE users SET ftl_drive_type = ?, ftl_cooldown_until = NULL WHERE id = ?')
+           ->execute([$drive, $uid]);
+        gq_cache_delete('game_overview', ['uid' => $uid]);
+        $dmSpent = $isInitial ? 0 : $CHANGE_COST;
+        json_ok([
+            'ftl_drive_type' => $drive,
+            'dm_spent'       => $dmSpent,
+            'message'        => $isInitial
+                ? "FTL drive set to {$drive}. Welcome to your faction!"
+                : "FTL drive changed to {$drive}. {$CHANGE_COST} DM spent.",
+        ]);
         break;
 
     default:
