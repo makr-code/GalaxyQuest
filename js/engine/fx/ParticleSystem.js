@@ -95,11 +95,15 @@ class ParticleSystem {
   /**
    * @param {object}  [opts]
    * @param {number}  [opts.maxParticles=4096] - Pool capacity
-   * @param {object}  [opts.gpuDevice]         - Optional WebGPUDevice (reserved for Phase FX-2)
+   * @param {object}  [opts.gpuDevice]         - Optional WebGPUDevice; currently unused.
+   *   Reserved for Phase FX-2 GPU compute path (particles.wgsl via WebGPUCompute).
+   *   Pass it now so callers do not need an API change when the GPU path is wired up.
    */
   constructor(opts = {}) {
     this._maxParticles = opts.maxParticles ?? DEFAULT_MAX_PARTICLES;
-    this._gpuDevice    = opts.gpuDevice ?? null; // TODO (Phase FX-2): GPU compute path
+    // Reserved for Phase FX-2: GPU particle simulation via WebGPUCompute + particles.wgsl.
+    // Accepted now so the constructor signature remains stable when the path is added.
+    this._gpuDevice    = opts.gpuDevice ?? null;
 
     /** @type {object[]} Flat particle pool */
     this._pool = Array.from({ length: this._maxParticles }, _makeParticle);
