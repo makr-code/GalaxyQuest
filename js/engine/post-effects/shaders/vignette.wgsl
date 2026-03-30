@@ -2,6 +2,8 @@
 // WebGPU Post-Processing: Vignette Effect
 //
 // Darkens screen edges using a smooth radial falloff.
+// The vignette centre is configurable via the params uniform so it can be
+// offset from the screen midpoint (e.g. to follow a subject's face).
 //
 // Inspired by Three.js VignetteShader (MIT) — https://github.com/mrdoob/three.js
 //
@@ -12,8 +14,10 @@
 @group(0) @binding(2) var<uniform> params : VignetteParams;
 
 struct VignetteParams {
-  darkness : f32,
-  falloff  : f32,
+  darkness : f32,   // maximum darkening at the outer edge [0, 1]
+  falloff  : f32,   // smoothstep range controlling gradient sharpness
+  centreX  : f32,   // UV x-coordinate of the vignette centre (default 0.5)
+  centreY  : f32,   // UV y-coordinate of the vignette centre (default 0.5)
 }
 
 struct VSOut {
@@ -41,9 +45,11 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VSOut {
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let col    = textureSample(inputTex, inputSmp, in.uv).rgb;
 
-  // Distance from centre in [0,1] space
-  let coord  = in.uv * 2.0 - vec2<f32>(1.0);
-  let dist   = length(coord);
+  // Distance from the configurable centre in [0,1] UV space.
+  // Scale by sqrt(2) so the corners (maximum distance from centre) reach dist=1.
+  let centre = vec2<f32>(params.centreX, params.centreY);
+  let coord  = in.uv - centre;
+  let dist   = length(coord) * sqrt(2.0);
   let factor = smoothstep(1.0 - params.falloff, 1.0, dist) * params.darkness;
 
   return vec4<f32>(col * (1.0 - factor), 1.0);
