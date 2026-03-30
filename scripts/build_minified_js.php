@@ -1,13 +1,18 @@
 <?php
 /**
- * Build optimized JavaScript assets from js/*.js.
+ * Build optimized JavaScript assets from all JS files under js/ (recursive).
  *
  * Usage:
  *   php scripts/build_minified_js.php
  *
  * Optional:
  *   php scripts/build_minified_js.php --source=js --clean
+ *   php scripts/build_minified_js.php --source=js --no-recursive
  *   php scripts/build_minified_js.php --minify
+ *   php scripts/build_minified_js.php --uglify --compress=gzip
+ *   php scripts/build_minified_js.php --package-boot --package-name=js/packages/game.boot.bundle.js
+ *   php scripts/build_minified_js.php --package-include='^(js\\/game|js\\/api)'
+ *   php scripts/build_minified_js.php --package-exclude='^js\\/engine\\/'
  *   php scripts/build_minified_js.php --compress=gzip
  *   php scripts/build_minified_js.php --keep-uncompressed
  */
@@ -37,7 +42,7 @@ if (!is_dir($sourceDir)) {
     exit(1);
 }
 
-$jsFiles = collect_js_files($sourceDir);
+$jsFiles = collect_js_files($sourceDir, (bool) $options['recursive']);
 if (!$jsFiles) {
     fwrite(STDOUT, "No source JS files found in {$sourceDir}.\n");
     exit(0);
@@ -79,7 +84,7 @@ foreach ($jsFiles as $file) {
         $builtTargets[] = build_asset($file, $src, 'min', minify_js_safe($src));
     }
     if ($options['uglify']) {
-        $builtTargets[] = build_asset($file, $src, 'ugl', uglify_js_aggressive($src));
+        $builtTargets[] = build_asset($file, $src, 'ugl', uglify_js_aggressive($src, $file));
     }
 
     foreach ($builtTargets as $built) {
@@ -128,6 +133,10 @@ foreach ($jsFiles as $file) {
     }
 }
 
+if (!empty($options['package_boot_bundle'])) {
+    build_boot_bundles_gzip($root, $options);
+}
+
 $overall = $totalComparableIn > 0 ? round((1 - ($totalOut / $totalComparableIn)) * 100, 2) : 0.0;
 fwrite(
     STDOUT,
@@ -140,8 +149,15 @@ fwrite(
         $overall
     )
 );
+$assetRatio = $totalComparableIn > 0 ? round($totalOut / $totalComparableIn, 4) : 0.0;
+fwrite(STDOUT, sprintf("Ratio assets (output/input): %0.4f\n", $assetRatio));
 if ($compressedWritten > 0) {
     fwrite(STDOUT, sprintf("Compressed artifacts: %d, total bytes: %d\n", $compressedWritten, $totalCompressedOut));
+
+    $compressedToAssetRatio = $totalOut > 0 ? round($totalCompressedOut / $totalOut, 4) : 0.0;
+    $compressedToInputRatio = $totalComparableIn > 0 ? round($totalCompressedOut / $totalComparableIn, 4) : 0.0;
+    fwrite(STDOUT, sprintf("Ratio compressed (gz/output): %0.4f\n", $compressedToAssetRatio));
+    fwrite(STDOUT, sprintf("Ratio compressed (gz/input): %0.4f\n", $compressedToInputRatio));
 }
 
 function parse_options(array $argv): array {
@@ -150,8 +166,15 @@ function parse_options(array $argv): array {
         'clean' => false,
         'minify' => false,
         'uglify' => true,
+        'recursive' => true,
         'compress' => 'gzip',
         'compressed_only' => true,
+        'package_boot_bundle' => false,
+        'package_name' => 'js/packages/game.boot.bundle.js',
+        'package_index' => 'index.html',
+        'package_chunk_files' => 12,
+        'package_include' => '',
+        'package_exclude' => '',
     ];
 
     foreach ($argv as $arg) {
@@ -171,6 +194,14 @@ function parse_options(array $argv): array {
             $opts['uglify'] = true;
             continue;
         }
+        if ($arg === '--recursive') {
+            $opts['recursive'] = true;
+            continue;
+        }
+        if ($arg === '--no-recursive') {
+            $opts['recursive'] = false;
+            continue;
+        }
         if ($arg === '--minify') {
             $opts['minify'] = true;
             continue;
@@ -183,7 +214,31 @@ function parse_options(array $argv): array {
             $opts['minify'] = true;
             $opts['uglify'] = true;
             $opts['compress'] = 'both';
-            $opts['compressed_only'] = false;
+            $opts['compressed_only'] = true;
+            continue;
+        }
+        if ($arg === '--package-boot') {
+            $opts['package_boot_bundle'] = true;
+            continue;
+        }
+        if (str_starts_with($arg, '--package-name=')) {
+            $opts['package_name'] = trim(substr($arg, 15));
+            continue;
+        }
+        if (str_starts_with($arg, '--package-index=')) {
+            $opts['package_index'] = trim(substr($arg, 16));
+            continue;
+        }
+        if (str_starts_with($arg, '--package-chunk-files=')) {
+            $opts['package_chunk_files'] = max(1, (int) trim(substr($arg, 22)));
+            continue;
+        }
+        if (str_starts_with($arg, '--package-include=')) {
+            $opts['package_include'] = trim(substr($arg, 18));
+            continue;
+        }
+        if (str_starts_with($arg, '--package-exclude=')) {
+            $opts['package_exclude'] = trim(substr($arg, 18));
             continue;
         }
         if ($arg === '--keep-uncompressed') {
@@ -206,11 +261,18 @@ function parse_options(array $argv): array {
     return $opts;
 }
 
-function collect_js_files(string $dir): array {
+function collect_js_files(string $dir, bool $recursive = true): array {
     $files = [];
-    $iter = new DirectoryIterator($dir);
+    if ($recursive) {
+        $iter = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)
+        );
+    } else {
+        $iter = new DirectoryIterator($dir);
+    }
+
     foreach ($iter as $entry) {
-        if ($entry->isDot() || !$entry->isFile()) {
+        if (!$entry->isFile()) {
             continue;
         }
         $name = $entry->getFilename();
@@ -328,8 +390,294 @@ function minify_js_safe(string $code): string {
  * Uglify mode currently uses the same semantics-preserving transform as minify.
  * Compression gains are achieved via gzip/brotli artifacts, not syntax rewriting.
  */
-function uglify_js_aggressive(string $code): string {
-    return minify_js_safe($code);
+function uglify_js_aggressive(string $code, ?string $sourceFile = null): string {
+    static $engine = null;
+    if ($engine === null) {
+        $engine = detect_esbuild_minifier();
+        if (!$engine['available']) {
+            fwrite(STDOUT, "[uglify] esbuild not available, using safe fallback (no syntax minification).\n");
+        }
+    }
+
+    if (!$engine['available']) {
+        return minify_js_safe($code);
+    }
+
+    $minified = run_esbuild_minify($code, $engine['command']);
+    if ($minified === null) {
+        $suffix = $sourceFile ? (' for ' . basename($sourceFile)) : '';
+        fwrite(STDOUT, "[uglify] esbuild transform failed{$suffix}, using safe fallback.\n");
+        return minify_js_safe($code);
+    }
+
+    return rtrim(str_replace(["\r\n", "\r"], "\n", $minified)) . "\n";
+}
+
+function detect_esbuild_minifier(): array {
+    $nullDevice = strtoupper(substr(PHP_OS_FAMILY, 0, 3)) === 'WIN' ? 'NUL' : '/dev/null';
+    $cmd = 'esbuild --version';
+    exec($cmd . ' 2>' . $nullDevice, $out, $exitCode);
+    if ($exitCode === 0 && !empty($out)) {
+        return ['available' => true, 'command' => 'esbuild'];
+    }
+    return ['available' => false, 'command' => null];
+}
+
+function run_esbuild_minify(string $code, ?string $esbuildCommand): ?string {
+    if (!$esbuildCommand) {
+        return null;
+    }
+
+    $descriptorSpec = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $process = proc_open($esbuildCommand . ' --minify --legal-comments=none --target=es2019 --loader=js', $descriptorSpec, $pipes);
+    if (!is_resource($process)) {
+        return null;
+    }
+
+    fwrite($pipes[0], $code);
+    fclose($pipes[0]);
+
+    $stdout = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[2]);
+
+    $exitCode = proc_close($process);
+    if ($exitCode !== 0) {
+        if (trim((string) $stderr) !== '') {
+            fwrite(STDOUT, "[uglify] " . trim((string) $stderr) . "\n");
+        }
+        return null;
+    }
+
+    return is_string($stdout) ? $stdout : null;
+}
+
+function build_boot_bundles_gzip(string $root, array $options): void {
+    $indexPath = $options['package_index'];
+    if (!str_starts_with($indexPath, DIRECTORY_SEPARATOR) && !preg_match('/^[A-Za-z]:\\\\/', $indexPath)) {
+        $indexPath = $root . DIRECTORY_SEPARATOR . $indexPath;
+    }
+
+    if (!is_file($indexPath)) {
+        fwrite(STDOUT, "[package] index not found: {$indexPath}\n");
+        return;
+    }
+
+    $index = file_get_contents($indexPath);
+    if ($index === false) {
+        fwrite(STDOUT, "[package] failed reading index: {$indexPath}\n");
+        return;
+    }
+
+    if (!preg_match_all('/\'(js\/[^\'\"]+\.js(?:\?[^\'\"]*)?)\'/i', $index, $matches)) {
+        fwrite(STDOUT, "[package] no boot JS references found in index.\n");
+        return;
+    }
+
+    $relPaths = [];
+    $includePattern = trim((string) ($options['package_include'] ?? ''));
+    $excludePattern = trim((string) ($options['package_exclude'] ?? ''));
+
+    foreach ($matches[1] as $raw) {
+        $path = preg_replace('/\\?.*$/', '', $raw);
+        if (!is_string($path) || $path === '' || preg_match('/\\.(min|ugl)\\.js$/i', $path)) {
+            continue;
+        }
+        if ($includePattern !== '' && @preg_match('/' . $includePattern . '/i', $path) !== 1) {
+            continue;
+        }
+        if ($excludePattern !== '' && @preg_match('/' . $excludePattern . '/i', $path) === 1) {
+            continue;
+        }
+        if (!in_array($path, $relPaths, true)) {
+            $relPaths[] = $path;
+        }
+    }
+
+    if (!$relPaths) {
+        fwrite(STDOUT, "[package] no source JS paths selected for bundle.\n");
+        return;
+    }
+
+    $themeGroups = [];
+    foreach ($relPaths as $relPath) {
+        $theme = determine_package_theme($relPath);
+        if (!isset($themeGroups[$theme])) {
+            $themeGroups[$theme] = [];
+        }
+        $themeGroups[$theme][] = $relPath;
+    }
+
+    if (!$themeGroups) {
+        fwrite(STDOUT, "[package] no thematic groups produced.\n");
+        return;
+    }
+
+    $packageName = (string) $options['package_name'];
+    $packagePath = $packageName;
+    if (!str_starts_with($packagePath, DIRECTORY_SEPARATOR) && !preg_match('/^[A-Za-z]:\\\\/', $packagePath)) {
+        $packagePath = $root . DIRECTORY_SEPARATOR . $packagePath;
+    }
+
+    $packageDir = dirname($packagePath);
+    if (!is_dir($packageDir)) {
+        @mkdir($packageDir, 0777, true);
+    }
+
+    $basePath = preg_replace('/\.js$/i', '', $packagePath) ?: $packagePath;
+    foreach (glob($basePath . '.*.js.gz') ?: [] as $oldBundle) {
+        if (is_file($oldBundle)) {
+            @unlink($oldBundle);
+        }
+    }
+    $themeOrder = ['engine-core', 'engine-game', 'runtime', 'network', 'rendering', 'telemetry', 'ui', 'tests', 'legacy', 'misc'];
+    $themeKeys = [];
+    foreach ($themeOrder as $key) {
+        if (!empty($themeGroups[$key])) {
+            $themeKeys[] = $key;
+        }
+    }
+    foreach (array_keys($themeGroups) as $key) {
+        if (!in_array($key, $themeKeys, true)) {
+            $themeKeys[] = $key;
+        }
+    }
+
+    $bundleCount = count($themeKeys);
+    $totalIncluded = 0;
+    $totalGzBytes = 0;
+
+    foreach ($themeKeys as $theme) {
+        $themePaths = $themeGroups[$theme] ?? [];
+        if (!$themePaths) {
+            continue;
+        }
+
+        $parts = [
+            "/* packaged boot bundle generated by scripts/build_minified_js.php */\n",
+            sprintf("/* theme: %s */\n", $theme),
+        ];
+
+        $included = 0;
+        foreach ($themePaths as $rel) {
+            $abs = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
+            if (!is_file($abs)) {
+                continue;
+            }
+            $content = file_get_contents($abs);
+            if ($content === false) {
+                continue;
+            }
+            $parts[] = "\n/* ---- {$rel} ---- */\n";
+            $parts[] = rtrim(str_replace(["\r\n", "\r"], "\n", $content)) . "\n";
+            $included++;
+        }
+
+        if ($included === 0) {
+            continue;
+        }
+
+        $bundleContent = implode('', $parts);
+        $gzip = gzencode($bundleContent, 9);
+        if ($gzip === false) {
+            fwrite(STDOUT, sprintf("[package] gzip encoding failed for theme %s.\n", $theme));
+            continue;
+        }
+
+        $gzipPath = $basePath . '.' . $theme . '.js.gz';
+        if (file_put_contents($gzipPath, $gzip) === false) {
+            fwrite(STDOUT, "[package] failed writing bundle: {$gzipPath}\n");
+            continue;
+        }
+
+        $totalIncluded += $included;
+        $totalGzBytes += strlen($gzip);
+        fwrite(STDOUT, sprintf("[package] wrote %s (%d files, %d bytes gz, theme=%s)\n", $gzipPath, $included, strlen($gzip), $theme));
+    }
+
+    fwrite(STDOUT, sprintf("[package] done: %d bundles, %d files total, %d bytes gz\n", $bundleCount, $totalIncluded, $totalGzBytes));
+}
+
+function determine_package_theme(string $relPath): string {
+    $path = strtolower(str_replace('\\\\', '/', trim($relPath)));
+    $base = basename($path);
+
+    if (str_starts_with($path, 'js/runtime/')) {
+        return 'runtime';
+    }
+    if (str_starts_with($path, 'js/network/')) {
+        return 'network';
+    }
+    if (str_starts_with($path, 'js/rendering/')) {
+        return 'rendering';
+    }
+    if (str_starts_with($path, 'js/telemetry/')) {
+        return 'telemetry';
+    }
+    if (str_starts_with($path, 'js/ui/')) {
+        return 'ui';
+    }
+    if (str_starts_with($path, 'js/tests/')) {
+        return 'tests';
+    }
+    if (str_starts_with($path, 'js/legacy/')) {
+        return 'legacy';
+    }
+
+    if (str_starts_with($path, 'js/engine/game/')) {
+        return 'engine-game';
+    }
+    if (str_starts_with($path, 'js/engine/')) {
+        return 'engine-core';
+    }
+
+    // Legacy / compatibility layers that should be isolated.
+    if ($base === 'engine-compat.js' || $base === 'galaxy3d.js' || $base === 'galaxy3d-webgpu.js') {
+        return 'legacy';
+    }
+
+    // Integration and regression test scripts should not be mixed into runtime bundles.
+    if (str_starts_with($base, 'regression-') || str_contains($base, 'integration-test') || str_starts_with($base, 'benchmark')) {
+        return 'tests';
+    }
+
+    // Telemetry / planning / simulation drivers used by runtime systems.
+    if (str_contains($base, 'telemetry') || str_contains($base, 'trajectory') || str_contains($base, 'physics') || str_contains($base, 'hud')) {
+        return 'telemetry';
+    }
+
+    // Visual rendering stack.
+    if (str_starts_with($base, 'galaxy') || str_starts_with($base, 'starfield') || str_starts_with($base, 'space-')
+        || str_starts_with($base, 'three-') || str_contains($base, 'renderer')
+        || str_contains($base, 'shader') || str_contains($base, 'texture') || str_contains($base, 'material') || str_contains($base, 'light')) {
+        return 'rendering';
+    }
+
+    // Core runtime orchestration.
+    if ($base === 'game.js' || str_starts_with($base, 'game-') || $base === 'wm.js' || $base === 'audio.js' || $base === 'model_registry.js'
+        || $base === 'galaxy-model.js' || $base === 'galaxy-db.js') {
+        return 'runtime';
+    }
+
+    // API / auth and protocol-facing files.
+    if (in_array($base, ['api.js', 'api-contracts.js', 'auth.js'], true)
+        || str_starts_with($base, 'auth-')
+        || str_starts_with($base, 'api-')) {
+        return 'network';
+    }
+
+    // UI-only helpers and overlays.
+    if (in_array($base, ['terminal.js', 'ui-kit.js', 'gq-ui.js', 'glossary.js', 'star-tooltip.js', 'system-info-panel.js', 'hr-diagram.js'], true)) {
+        return 'ui';
+    }
+
+    return 'misc';
 }
 
 /**

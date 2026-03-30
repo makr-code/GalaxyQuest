@@ -724,79 +724,97 @@
       window.GQ_ASSETS_MANIFEST_VERSION = 1;
       window.__GQ_BOOT = {
         assetsManifestVersion: 1,
+        packageBundles: [
+          'js/packages/game.boot.bundle.engine-core.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.runtime.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.network.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.rendering.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.telemetry.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.ui.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.tests.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.legacy.js.gz?v=20260330p2'
+        ],
         gameScripts: [
-          'js/wm.js?v=20260328p54',
-          'js/binary-decoder.js?v=20260328p49',
-          'js/binary-decoder-v2.js?v=20260328p49',
-          'js/binary-decoder-v3.js?v=20260328p49',
-          'js/api.js?v=20260329p58',
-          'js/api-contracts.js?v=20260329p1',
+          'js/runtime/wm.js?v=20260328p54',
+          'js/network/binary-decoder.js?v=20260328p49',
+          'js/network/binary-decoder-v2.js?v=20260328p49',
+          'js/network/binary-decoder-v3.js?v=20260328p49',
+          'js/network/api.js?v=20260329p58',
+          'js/network/api-contracts.js?v=20260329p1',
           'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
-          'js/galaxy-model.js?v=20260328p49',
-          'js/galaxy-db.js?v=20260328p49',
-          'js/audio.js?v=20260328p53',
+          'js/runtime/galaxy-model.js?v=20260328p49',
+          'js/runtime/galaxy-db.js?v=20260328p49',
+          'js/runtime/audio.js?v=20260328p53',
           'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
+          'js/engine/core/GraphicsContext.js?v=20260330p2',
+          'js/engine/core/WebGLRenderer.js?v=20260330p2',
           // Debug Phase 2: Postprocessing-Kette vorerst deaktiviert.
-          // 'js/three-EffectComposer.js?v=20260328p55',
-          // 'js/three-RenderPass.js?v=20260328p55',
-          // 'js/three-ShaderPass.js?v=20260328p55',
-          // 'js/three-CopyShader.js?v=20260328p55',
-          // 'js/three-UnrealBloomPass.js?v=20260328p55',
+          // 'js/rendering/three-EffectComposer.js?v=20260328p55',
+          // 'js/rendering/three-RenderPass.js?v=20260328p55',
+          // 'js/rendering/three-ShaderPass.js?v=20260328p55',
+          // 'js/rendering/three-CopyShader.js?v=20260328p55',
+          // 'js/rendering/three-UnrealBloomPass.js?v=20260328p55',
           'https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js',
-          'js/planet-textures.js?v=20260328p49',
-          'js/texture-manager.js?v=20260329p1',
-          'js/geometry-manager.js?v=20260329p1',
-          'js/material-factory.js?v=20260329p1',
-          'js/light-rig-manager.js?v=20260329p1',
-          'js/model_registry.js?v=20260328p49',
-          // 'js/post-effects.js?v=20260328p55',
-          'js/space-physics-engine.js?v=20260329p81',
-          'js/performance-budget.js?v=20260329p1',
-          'js/space-flight-telemetry-schema.js?v=20260329p1',
-          'js/trajectory-planner.js?v=20260329p5',
-          'js/space-camera-flight-driver.js?v=20260329p90',
-          'js/galaxy-renderer-config.js?v=20260329p76',
-          'js/galaxy-renderer-event-binding-shared.js?v=20260329p77',
-          'js/galaxy-renderer-events.js?v=20260329p76',
-          'js/galaxy-camera-controller.js?v=20260329p85',
-          'js/galaxy-renderer-core.js?v=20260329p97',
-          'js/starfield.js?v=20260329p100',
-          'js/flight-driver-integration-tests.js?v=20260329p1',
-            'js/regression-tests-lod-streaming.js?v=20260329p2',
-            'js/gq-ui.js?v=20260330p1',
-            'js/game.js?v=20260329p85'
+          'js/rendering/planet-textures.js?v=20260328p49',
+          'js/rendering/texture-manager.js?v=20260329p1',
+          'js/rendering/geometry-manager.js?v=20260329p1',
+          'js/rendering/material-factory.js?v=20260329p1',
+          'js/rendering/light-rig-manager.js?v=20260329p1',
+          'js/runtime/model_registry.js?v=20260328p49',
+          // 'js/rendering/post-effects.js?v=20260328p55',
+          'js/telemetry/space-physics-engine.js?v=20260329p81',
+          'js/telemetry/performance-budget.js?v=20260329p1',
+          'js/telemetry/space-flight-telemetry-schema.js?v=20260329p1',
+          'js/telemetry/trajectory-planner.js?v=20260329p5',
+          'js/telemetry/space-camera-flight-driver.js?v=20260329p90',
+          'js/rendering/galaxy-renderer-config.js?v=20260329p76',
+          'js/rendering/galaxy-renderer-event-binding-shared.js?v=20260329p77',
+          'js/rendering/galaxy-renderer-events.js?v=20260329p76',
+          'js/rendering/galaxy-camera-controller.js?v=20260329p85',
+          'js/rendering/galaxy-renderer-core.js?v=20260329p97',
+          'js/rendering/starfield-webgpu.js?v=20260330p2',
+          'js/legacy/galaxy3d-webgpu.js?v=20260330p2',
+          'js/rendering/starfield.js?v=20260329p100',
+          'js/tests/flight-driver-integration-tests.js?v=20260329p1',
+            'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
+            'js/ui/gq-ui.js?v=20260330p1',
+            'js/runtime/game.js?v=20260329p85'
         ],
         preloadAssets: [
-          'js/wm.js?v=20260328p54',
-          'js/binary-decoder.js?v=20260328p49',
-          'js/binary-decoder-v2.js?v=20260328p49',
-          'js/binary-decoder-v3.js?v=20260328p49',
-          'js/api.js?v=20260329p58',
-          'js/api-contracts.js?v=20260329p1',
-          'js/galaxy-model.js?v=20260328p49',
-          'js/galaxy-db.js?v=20260328p49',
-          'js/audio.js?v=20260328p53',
-          'js/planet-textures.js?v=20260328p49',
-          'js/texture-manager.js?v=20260329p1',
-          'js/geometry-manager.js?v=20260329p1',
-          'js/material-factory.js?v=20260329p1',
-          'js/light-rig-manager.js?v=20260329p1',
-          'js/model_registry.js?v=20260328p49',
-          'js/space-physics-engine.js?v=20260329p81',
-          'js/performance-budget.js?v=20260329p1',
-          'js/space-flight-telemetry-schema.js?v=20260329p1',
-          'js/trajectory-planner.js?v=20260329p5',
-          'js/space-camera-flight-driver.js?v=20260329p90',
-          'js/galaxy-renderer-config.js?v=20260329p76',
-          'js/galaxy-renderer-event-binding-shared.js?v=20260329p77',
-          'js/galaxy-renderer-events.js?v=20260329p76',
-          'js/galaxy-camera-controller.js?v=20260329p85',
-          'js/galaxy-renderer-core.js?v=20260329p97',
-          'js/starfield.js?v=20260329p100',
-          'js/flight-driver-integration-tests.js?v=20260329p1',
-            'js/regression-tests-lod-streaming.js?v=20260329p2',
-            'js/gq-ui.js?v=20260330p1',
-            'js/game.js?v=20260329p85'
+          'js/runtime/wm.js?v=20260328p54',
+          'js/network/binary-decoder.js?v=20260328p49',
+          'js/network/binary-decoder-v2.js?v=20260328p49',
+          'js/network/binary-decoder-v3.js?v=20260328p49',
+          'js/network/api.js?v=20260329p58',
+          'js/network/api-contracts.js?v=20260329p1',
+          'js/runtime/galaxy-model.js?v=20260328p49',
+          'js/runtime/galaxy-db.js?v=20260328p49',
+          'js/runtime/audio.js?v=20260328p53',
+          'js/engine/core/GraphicsContext.js?v=20260330p2',
+          'js/engine/core/WebGLRenderer.js?v=20260330p2',
+          'js/rendering/planet-textures.js?v=20260328p49',
+          'js/rendering/texture-manager.js?v=20260329p1',
+          'js/rendering/geometry-manager.js?v=20260329p1',
+          'js/rendering/material-factory.js?v=20260329p1',
+          'js/rendering/light-rig-manager.js?v=20260329p1',
+          'js/runtime/model_registry.js?v=20260328p49',
+          'js/telemetry/space-physics-engine.js?v=20260329p81',
+          'js/telemetry/performance-budget.js?v=20260329p1',
+          'js/telemetry/space-flight-telemetry-schema.js?v=20260329p1',
+          'js/telemetry/trajectory-planner.js?v=20260329p5',
+          'js/telemetry/space-camera-flight-driver.js?v=20260329p90',
+          'js/rendering/galaxy-renderer-config.js?v=20260329p76',
+          'js/rendering/galaxy-renderer-event-binding-shared.js?v=20260329p77',
+          'js/rendering/galaxy-renderer-events.js?v=20260329p76',
+          'js/rendering/galaxy-camera-controller.js?v=20260329p85',
+          'js/rendering/galaxy-renderer-core.js?v=20260329p97',
+          'js/rendering/starfield-webgpu.js?v=20260330p2',
+          'js/legacy/galaxy3d-webgpu.js?v=20260330p2',
+          'js/rendering/starfield.js?v=20260329p100',
+          'js/tests/flight-driver-integration-tests.js?v=20260329p1',
+            'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
+            'js/ui/gq-ui.js?v=20260330p1',
+            'js/runtime/game.js?v=20260329p85'
         ]
       };
     </script>
@@ -1055,22 +1073,22 @@
     })();
   </script>
 
-  <script src="js/terminal.js?v=20260328p49"></script>
-  <script src="js/space-physics-engine.js?v=20260329p81"></script>
-  <script src="js/performance-budget.js?v=20260329p1"></script>
-  <script src="js/space-flight-telemetry-schema.js?v=20260329p1"></script>
-  <script src="js/trajectory-planner.js?v=20260329p5"></script>
-  <script src="js/space-camera-flight-driver.js?v=20260329p90"></script>
-  <script src="js/space-flight-hud-engine.js?v=20260329p81"></script>
-  <script src="js/galaxy-camera-controller.js?v=20260329p85"></script>
-  <script src="js/starfield.js?v=20260329p100"></script>
-  <script src="js/auth.js?v=20260329p72"></script>
-  <script src="js/glossary.js?v=20260328p49"></script>
-  <script src="js/gq-ui.js?v=20260330p1"></script>
-  <script src="js/ui-kit.js?v=20260329p60"></script>
-  <script src="js/star-tooltip.js?v=20260328p49"></script>
-  <script src="js/system-info-panel.js?v=20260328p49"></script>
-  <script src="js/hr-diagram.js?v=20260328p49"></script>
+  <script src="js/ui/terminal.js?v=20260328p49"></script>
+  <script src="js/telemetry/space-physics-engine.js?v=20260329p81"></script>
+  <script src="js/telemetry/performance-budget.js?v=20260329p1"></script>
+  <script src="js/telemetry/space-flight-telemetry-schema.js?v=20260329p1"></script>
+  <script src="js/telemetry/trajectory-planner.js?v=20260329p5"></script>
+  <script src="js/telemetry/space-camera-flight-driver.js?v=20260329p90"></script>
+  <script src="js/telemetry/space-flight-hud-engine.js?v=20260329p81"></script>
+  <script src="js/rendering/galaxy-camera-controller.js?v=20260329p85"></script>
+  <script src="js/rendering/starfield.js?v=20260329p100"></script>
+  <script src="js/network/auth.js?v=20260329p72"></script>
+  <script src="js/ui/glossary.js?v=20260328p49"></script>
+  <script src="js/ui/gq-ui.js?v=20260330p1"></script>
+  <script src="js/ui/ui-kit.js?v=20260329p60"></script>
+  <script src="js/ui/star-tooltip.js?v=20260328p49"></script>
+  <script src="js/ui/system-info-panel.js?v=20260328p49"></script>
+  <script src="js/ui/hr-diagram.js?v=20260328p49"></script>
 
   <!-- =========================================================
     Post-FX Settings Panel
@@ -1172,5 +1190,14 @@
     </div>
   </section>
 
+  <section id="copyright" class="copyright">
+    <img
+    <p>build {{buildnr}} date {{build_date}}</p>
+    <p>© 2026 Galaxy Quest Interactive. All rights reserved.</p>
+  </section>
+
+  <section id="affilates">
+      <p>Galaxy Quest is a trademark of Galaxy Quest Interactive. All other trademarks are the property of their respective owners.</p>
+  </section>
 </body>
 </html>
