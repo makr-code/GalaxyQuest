@@ -1421,7 +1421,8 @@
     try {
       const res = await API.perfTelemetry(payload);
       return !!res?.success;
-    } catch (_) {
+    } catch (err) {
+      gameLog('info', 'Perf-Telemetrie API call fehlgeschlagen', err);
       return false;
     }
   }
@@ -3151,7 +3152,11 @@
         if (this.audio) this.audio.playNavigation();
         await loadOverview();
         ['overview','colony','buildings','research','shipyard','fleet','wormholes','messages','quests','leaders','factions','leaderboard'].forEach((id) => {
-          try { this.wm.refresh(id); } catch (_) {}
+          try {
+            this.wm.refresh(id);
+          } catch (err) {
+            gameLog('info', `WM refresh fehlgeschlagen (${id})`, err);
+          }
         });
         showToast('Daten aktualisiert.', 'success');
       });
@@ -3686,7 +3691,9 @@
           </div>`).join('')}</div>`;
         this.bindMissionDefaults(root, avail);
         this.applyMissionDefaults(root, avail, uiState.fleetPrefill);
-      } catch (_) {}
+      } catch (err) {
+        gameLog('info', 'Fleet mission defaults konnten nicht initialisiert werden', err);
+      }
 
       root.querySelector('#fleet-form-wm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -3710,7 +3717,8 @@
             resultEl.className = 'form-error';
             resultEl.textContent = response.error || 'Failed to send fleet.';
           }
-        } catch (_) {
+        } catch (err) {
+          gameLog('warn', 'Fleet send request fehlgeschlagen', err);
           resultEl.className = 'form-error';
           resultEl.textContent = 'Network error.';
         }
@@ -3836,7 +3844,8 @@
         }
         root.innerHTML = this.buildCardsHtml(data);
         this.bindActions(root);
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Wormhole view laden fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to load wormholes.</p>';
       }
     }
@@ -4209,7 +4218,9 @@
         const kickResize = () => {
           try {
             if (galaxy3d && typeof galaxy3d.resize === 'function') galaxy3d.resize();
-          } catch (_) {}
+          } catch (err) {
+            gameLog('info', 'Galaxy3D resize kick fehlgeschlagen', err);
+          }
         };
         kickResize();
         setTimeout(kickResize, 60);
@@ -4715,7 +4726,9 @@
         setTimeout(() => {
           try {
             galaxy3d.fitCameraToStars(true, true);
-          } catch (_) {}
+          } catch (err) {
+            gameLog('info', 'Galaxy3D fitCameraToStars fehlgeschlagen', err);
+          }
         }, 30);
       };
 
@@ -4894,7 +4907,9 @@
         if (!fallbackStars.length && galaxyModel) {
           try {
             fallbackStars = galaxyModel.listStars(g, 1, galaxySystemMax) || [];
-          } catch (_) {}
+          } catch (err) {
+            gameLog('info', 'Fallback listStars aus galaxyModel fehlgeschlagen', err);
+          }
         }
 
         if (!fallbackStars.length && galaxyDB && !isCurrentUserAdmin()) {
@@ -4903,7 +4918,9 @@
             if (fallbackStars.length && galaxyModel) {
               galaxyModel.upsertStarBatch(g, fallbackStars);
             }
-          } catch (_) {}
+          } catch (err) {
+            gameLog('info', 'Fallback listStars aus galaxyDB fehlgeschlagen', err);
+          }
         }
 
         fallbackStars = normalizeStarListVisibility(fallbackStars);
@@ -5092,7 +5109,8 @@
             galaxyHealthWarned = true;
           }
         }
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Health check (API) fehlgeschlagen', err);
         galaxyHealthLastCheckMs = Date.now();
         try {
           const net = (typeof API?.networkHealth === 'function') ? await API.networkHealth(false) : null;
@@ -5113,7 +5131,8 @@
             badge.textContent = 'Health: unavailable';
             badge.className = 'text-muted';
           }
-        } catch (_) {
+        } catch (netErr) {
+          gameLog('info', 'Health fallback network probe fehlgeschlagen', netErr);
           badge.textContent = 'Health: unavailable';
           badge.className = 'text-muted';
         }
@@ -5903,7 +5922,8 @@
         }
         root.innerHTML = this.buildViewHtml(data);
         this.bindActions(root);
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Colony view render fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to render colony view.</p>';
       }
     }
@@ -6034,7 +6054,8 @@
         html += this.buildCardsHtml(byCategory, buildingFocus);
         root.innerHTML = html;
         this.bindActions(root, buildingFocus);
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Buildings view laden fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to load buildings.</p>';
       }
     }
@@ -6117,7 +6138,8 @@
 
         root.innerHTML = this.buildCardsHtml(data.research || []);
         this.bindActions(root);
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Research view laden fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to load research.</p>';
       }
     }
@@ -6500,26 +6522,6 @@
       wrap.add(new GQUI.Div().setClass('shipyard-stats-preview-label').setTextContent('Kompilierte Statistiken (Vorschau)'));
       wrap.add(grid);
       preview.replaceChildren(wrap.dom);
-        GQUI.setStatus(preview, 'Wähle Module, um eine Vorschau zu erhalten.', 'shipyard-stats-preview-empty small text-muted');
-        return;
-      }
-      const wrap = GQUI.div('shipyard-stats-preview');
-      wrap.add(GQUI.div('shipyard-stats-preview-label').setText('Kompilierte Statistiken (Vorschau)'));
-      const grid = GQUI.div('shipyard-stats-preview-grid');
-      [
-        ['atk',   '⚔ ATK',   live.attack],
-        ['shd',   '🛡 SHD',   live.shield],
-        ['hll',   '🔩 HULL',  live.hull],
-        ['cargo', '📦 CARGO', live.cargo],
-        ['spd',   '⚡ SPD',   live.speed],
-      ].forEach(([type, label, value]) => {
-        const chip = GQUI.div(`shipyard-stats-chip chiptype-${type}`);
-        chip.dom.appendChild(document.createTextNode(`${label} `));
-        chip.add(GQUI.strong().setText(fmt(value)));
-        grid.add(chip);
-      });
-      wrap.add(grid);
-      GQUI.mount(preview, wrap);
     }
 
     // ── Saved presets (localStorage) ────────────────────────
@@ -6528,7 +6530,10 @@
     loadPresetsFromStorage() {
       try {
         return JSON.parse(localStorage.getItem(this._presetKey()) || '[]');
-      } catch (_) { return []; }
+      } catch (err) {
+        gameLog('info', 'Shipyard-Presets konnten nicht aus Storage geladen werden', err);
+        return [];
+      }
     }
 
     savePresetToStorage(name, hull, layout, modules) {
@@ -7601,7 +7606,8 @@
 
         root.replaceChildren(frag);
         this.bindActions(root, hulls);
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Shipyard view laden fehlgeschlagen (renderer v1)', err);
         gqStatusMsg(root, 'Failed to load shipyard.', 'red');
       }
     }
@@ -7697,7 +7703,8 @@
         GQUI.clearNode(root);
         root.appendChild(frag);
         this.bindActions(root, hulls);
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Shipyard view laden fehlgeschlagen (renderer v2)', err);
         GQUI.setStatus(root, 'Failed to load shipyard.', 'text-red');
       }
     }
@@ -7751,7 +7758,8 @@
         } else {
           alert(res.error || 'Decommission failed.');
         }
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Blueprint decommission fehlgeschlagen', err);
         alert('Network error.');
       }
     }
@@ -8006,7 +8014,8 @@
       const gl2 = testCanvas.getContext('webgl2');
       const gl1 = gl2 || testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl');
       webglSupport = gl2 ? 'webgl2' : (gl1 ? 'webgl1' : 'none');
-    } catch (_) {
+    } catch (err) {
+      gameLog('info', 'WebGL support detection fehlgeschlagen', err);
       webglSupport = 'error';
     }
     return {
@@ -9214,7 +9223,8 @@
             <div class="planet-detail-row">Top Buildings: ${buildings.length ? buildings.map((b) => `${esc(fmtName(b.type))} Lv ${esc(String(b.level || 0))}`).join(' · ') : 'No building data'}</div>
             <div class="planet-detail-row">Grid: ${esc(String(layout?.grid?.cols || 0))} × ${esc(String(layout?.grid?.rows || 0))} · Orbital slots: ${esc(String(layout?.grid?.orbital_slots || 0))}</div>
             <div class="planet-detail-row">Orbitals: ${orbitalFacilities.length ? orbitalFacilities.map((facility) => `${esc(facility.icon)} ${esc(facility.label)}`).join(' · ') : 'No orbital facilities online'}</div>`;
-        } catch (_) {
+        } catch (err) {
+          gameLog('info', 'Planet detail data load fehlgeschlagen', err);
           if (detail.dataset.detailToken === token && extra) {
             extra.innerHTML = '<div class="planet-detail-row">Colony detail data unavailable.</div>';
           }
@@ -9224,7 +9234,8 @@
           const intelPayload = await getPlanetIntel(targetGalaxy, targetSystem, targetPosition);
           detail.__planetIntel = intelPayload;
           renderForeignIntel(detail, intelPayload);
-        } catch (_) {
+        } catch (err) {
+          gameLog('info', 'Planet intel render fehlgeschlagen', err);
           const extra = detail.querySelector('.planet-detail-extra');
           if (extra) extra.innerHTML = '<div class="planet-detail-row">Intel-Daten derzeit nicht verfügbar.</div>';
         }
@@ -9439,7 +9450,8 @@
           : [];
         messageConsoleState.userHints = users;
         datalist.innerHTML = this.renderTemplateList('userHintOption', users.map((u) => ({ value: esc(u) })));
-      } catch (_) {
+      } catch (err) {
+        gameLog('info', 'Message user hints laden fehlgeschlagen', err);
         messageConsoleState.userHints = [];
         datalist.innerHTML = '';
       }
@@ -9516,7 +9528,8 @@
             }
           });
         });
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Messages view laden fehlgeschlagen', err);
         el.innerHTML = '<p class="text-red">Failed to load messages.</p>';
       }
     }
@@ -10258,7 +10271,8 @@
       let data;
       try {
         data = await API.tradeRoutes();
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Trade routes laden fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to load trade routes.</p>';
         return;
       }
@@ -12158,7 +12172,8 @@
             <span class="lb-stat">🌍 ${row.planet_count}</span>
             <span class="lb-stat">◆ ${fmt(row.dark_matter)}</span>
           </div>`).join('');
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Leaderboard laden fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to load leaderboard.</p>';
       }
     }
@@ -13340,7 +13355,9 @@
           if ((parseInt(data.new, 10) || 0) > 0) {
             showToast(`✉ ${data.new} new message${data.new > 1 ? 's' : ''}`, 'info');
           }
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'SSE new_messages handler fehlgeschlagen', err);
+        }
       });
 
       es.addEventListener('fleet_arrived', async (e) => {
@@ -13354,7 +13371,9 @@
           await loadOverview();
           _invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
           ['fleet', 'shipyard', 'buildings'].forEach(id => WM.refresh(id));
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'SSE fleet_arrived handler fehlgeschlagen', err);
+        }
       });
 
       es.addEventListener('fleet_returning', async (e) => {
@@ -13364,7 +13383,9 @@
           await loadOverview();
           _invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
           WM.refresh('fleet');
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'SSE fleet_returning handler fehlgeschlagen', err);
+        }
       });
 
       es.addEventListener('incoming_attack', (e) => {
@@ -13375,7 +13396,9 @@
             ? `🔍 Spy fleet from ${data.attacker} inbound → ${data.target} (${arrival})`
             : `⚠ INCOMING ATTACK from ${data.attacker} → ${data.target} at ${arrival}!`;
           showToast(msg, 'danger');
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'SSE incoming_attack handler fehlgeschlagen', err);
+        }
       });
 
       es.addEventListener('reconnect', () => {
@@ -13564,10 +13587,15 @@
         });
       }
     }
-  } catch (_) {
+  } catch (err) {
+    gameLog('info', 'Intro camera flight bootstrap fehlgeschlagen (non-blocking)', err);
     // Keep startup resilient if intro camera flight fails.
   } finally {
-    try { window.__GQ_BOOT_HOME_FLIGHT = null; } catch (_) {}
+    try {
+      window.__GQ_BOOT_HOME_FLIGHT = null;
+    } catch (err) {
+      gameLog('info', 'Konnte __GQ_BOOT_HOME_FLIGHT nicht zuruecksetzen', err);
+    }
   }
 
   await loadBadge();
