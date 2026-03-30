@@ -171,11 +171,15 @@
       this.camera = new THREE.PerspectiveCamera(58, w / h, 0.1, 5000);
       this.camera.position.set(238, 240, 341);
 
-      this.renderer = new THREE.WebGLRenderer({
+      const _GQWebGLRenderer = (typeof window !== 'undefined' && window.GQWebGLRenderer) || null;
+      const _threeOpts = {
         antialias: this.qualityProfile?.renderer?.antialias !== false,
         alpha: this.useAlphaCanvas,
         canvas: this.externalCanvas || undefined,
-      });
+      };
+      this.renderer = _GQWebGLRenderer
+        ? new _GQWebGLRenderer(_threeOpts)
+        : new THREE.WebGLRenderer(_threeOpts);
       this.renderer.setPixelRatio(Math.min(
         window.devicePixelRatio || 1,
         Math.max(1, Number(this.qualityProfile?.renderer?.maxPixelRatio || 2))

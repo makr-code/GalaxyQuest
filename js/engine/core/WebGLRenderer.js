@@ -24,12 +24,39 @@ const { IGraphicsRenderer } = typeof require !== 'undefined'
   : window.GQGraphicsContext;
 
 class WebGLRenderer extends IGraphicsRenderer {
-  constructor() {
+  /**
+   * @param {Object|null} [threeOptions]  When provided the underlying
+   *   THREE.WebGLRenderer is created synchronously in the constructor
+   *   (useful for the Galaxy3DRenderer path where async init is not possible).
+   *   Pass `null` or omit to use the async {@link initialize} path instead.
+   */
+  constructor(threeOptions = null) {
     super();
     /** @type {THREE.WebGLRenderer|null} */
     this._threeRenderer = null;
     /** @type {boolean} */
     this.ready = false;
+
+    if (threeOptions !== null) {
+      this._initSync(threeOptions);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Synchronous construction helper (Galaxy3DRenderer path)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Initialize the underlying THREE.WebGLRenderer synchronously.
+   * Called automatically when constructor options are provided.
+   * @param {Object} opts  Passed verbatim to `new THREE.WebGLRenderer(opts)`.
+   */
+  _initSync(opts) {
+    if (typeof THREE === 'undefined') {
+      throw new Error('WebGLRenderer requires Three.js — load three.min.js first');
+    }
+    this._threeRenderer = new THREE.WebGLRenderer(opts);
+    this.ready = true;
   }
 
   // ---------------------------------------------------------------------------
@@ -140,6 +167,65 @@ class WebGLRenderer extends IGraphicsRenderer {
 
   /** @returns {THREE.WebGLRenderer|null} */
   get threeRenderer() { return this._threeRenderer; }
+
+  // ---------------------------------------------------------------------------
+  // Three.js-compatible pass-through API
+  //
+  // These delegates expose the THREE.WebGLRenderer surface required by
+  // Galaxy3DRenderer so the adapter is a transparent drop-in replacement.
+  // ---------------------------------------------------------------------------
+
+  /** @returns {HTMLCanvasElement|null} */
+  get domElement() { return this._threeRenderer ? this._threeRenderer.domElement : null; }
+
+  /** @returns {string} */
+  get outputColorSpace() { return this._threeRenderer ? this._threeRenderer.outputColorSpace : ''; }
+  /** @param {string} v */
+  set outputColorSpace(v) { if (this._threeRenderer) this._threeRenderer.outputColorSpace = v; }
+
+  /**
+   * Set the device pixel ratio.
+   * @param {number} ratio
+   */
+  setPixelRatio(ratio) {
+    if (this._threeRenderer) this._threeRenderer.setPixelRatio(ratio);
+  }
+
+  /** @returns {number} */
+  getPixelRatio() {
+    return this._threeRenderer ? this._threeRenderer.getPixelRatio() : 1;
+  }
+
+  /**
+   * Set the clear color.
+   * @param {number|string|THREE.Color} color
+   * @param {number} [alpha]
+   */
+  setClearColor(color, alpha) {
+    if (this._threeRenderer) this._threeRenderer.setClearColor(color, alpha);
+  }
+
+  /**
+   * Resize the renderer output.
+   * Equivalent to IGraphicsRenderer#resize — provided here for the
+   * THREE.WebGLRenderer-compatible spelling used by Galaxy3DRenderer.
+   * @param {number} width
+   * @param {number} height
+   * @param {boolean} [updateStyle=true]
+   */
+  setSize(width, height, updateStyle = true) {
+    if (this._threeRenderer) this._threeRenderer.setSize(width, height, updateStyle);
+  }
+
+  /**
+   * Pre-compile shaders for a scene/camera pair.
+   * Delegates to THREE.WebGLRenderer#compile.
+   * @param {THREE.Object3D} scene
+   * @param {THREE.Camera}   camera
+   */
+  compile(scene, camera) {
+    if (this._threeRenderer) return this._threeRenderer.compile(scene, camera);
+  }
 }
 
 // ---------------------------------------------------------------------------
