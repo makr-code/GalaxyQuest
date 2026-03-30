@@ -2,7 +2,7 @@
  * GalaxyQuest – Window Manager (WM)
  *
  * Provides a desktop-style floating window system.
- * No dependencies – pure vanilla JS and CSS.
+ * Depends on: GQUI (js/gq-ui.js) for DOM construction.
  *
  * Public API
  * ----------
@@ -248,15 +248,15 @@ const WM = (() => {
     const resizeHandle = el.querySelector(':scope > .wm-resize-handle');
 
     if (!cfg.fullscreenDesktop && !titlebar) {
-      const head = document.createElement('div');
-      head.className = 'wm-titlebar';
-      head.innerHTML = `
-        <span class="wm-title">${_esc(cfg.title || id)}</span>
-        <div class="wm-controls">
-          <button class="wm-btn wm-btn-min" title="Minimise">&#8211;</button>
-          <button class="wm-btn wm-btn-close" title="Close">&#x2715;</button>
-        </div>`;
-      el.insertBefore(head, el.firstChild);
+      const minBtn   = new GQUI.Button('\u2013').setClass('wm-btn wm-btn-min');
+      minBtn.dom.title = 'Minimise';
+      const closeBtn = new GQUI.Button('\u2715').setClass('wm-btn wm-btn-close');
+      closeBtn.dom.title = 'Close';
+      const head = new GQUI.Div()
+        .setClass('wm-titlebar')
+        .add(new GQUI.Span().setClass('wm-title').setTextContent(cfg.title || id))
+        .add(new GQUI.Div().setClass('wm-controls').add(minBtn, closeBtn));
+      el.insertBefore(head.dom, el.firstChild);
     }
 
     if (!body) {
@@ -292,18 +292,23 @@ const WM = (() => {
       + (cfg.backgroundLayer ? ' wm-window-background' : '');
     el.id        = 'wm-win-' + id;
     el.setAttribute('data-winid', id);
-    const titlebar = cfg.fullscreenDesktop ? '' : `
-      <div class="wm-titlebar">
-        <span class="wm-title">${_esc(cfg.title)}</span>
-        <div class="wm-controls">
-          <button class="wm-btn wm-btn-min"   title="Minimise">&#8211;</button>
-          <button class="wm-btn wm-btn-close" title="Close">&#x2715;</button>
-        </div>
-      </div>`;
-    const resizeHandle = cfg.fullscreenDesktop ? '' : '<div class="wm-resize-handle" title="Resize"></div>';
-    el.innerHTML = `${titlebar}
-      <div class="wm-body"></div>
-      ${resizeHandle}`;
+    if (!cfg.fullscreenDesktop) {
+      const minBtn   = new GQUI.Button('\u2013').setClass('wm-btn wm-btn-min');
+      minBtn.dom.title = 'Minimise';
+      const closeBtn = new GQUI.Button('\u2715').setClass('wm-btn wm-btn-close');
+      closeBtn.dom.title = 'Close';
+      el.appendChild(new GQUI.Div()
+        .setClass('wm-titlebar')
+        .add(new GQUI.Span().setClass('wm-title').setTextContent(cfg.title))
+        .add(new GQUI.Div().setClass('wm-controls').add(minBtn, closeBtn))
+        .dom);
+    }
+    el.appendChild(new GQUI.Div().setClass('wm-body').dom);
+    if (!cfg.fullscreenDesktop) {
+      const handle = new GQUI.Div().setClass('wm-resize-handle');
+      handle.dom.title = 'Resize';
+      el.appendChild(handle.dom);
+    }
 
     return el;
   }
@@ -453,7 +458,7 @@ const WM = (() => {
     const btn = document.createElement('button');
     btn.className = 'wm-task-btn';
     btn.id        = 'wm-task-' + id;
-    btn.innerHTML = `<span class="wm-task-label">${_esc(title)}</span>`;
+    btn.appendChild(new GQUI.Span().setClass('wm-task-label').setTextContent(title).dom);
     btn.addEventListener('click', () => {
       const win = _wins.get(id);
       if (!win) return;
