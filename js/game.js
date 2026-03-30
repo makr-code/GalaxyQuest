@@ -3023,6 +3023,7 @@
         ['alliances', { title: '🤝 Alliances', w: 560, h: 620, defaultDock: 'right', defaultY: 54, onRender: () => renderAlliances() }],
         ['settings', { title: '⚙ Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12, onRender: () => renderSettings() }],
         ['quicknav', { title: '⭐ QuickNav', w: 370, h: 520, defaultDock: 'left', defaultY: 12, onRender: () => renderQuickNav() }],
+        ['minimap', { title: '🗺 Minimap', w: 290, h: 310, defaultDock: 'right', defaultY: 12, defaultDockMargin: 12, onRender: (root) => renderMinimap(root) }],
         ['left-sidebar', {
           title: '📌 Left Sidebar',
           sectionId: 'left_sidebar',
@@ -3488,6 +3489,7 @@
             <label><input type="radio" name="mission" value="spy" /> 🔭 Spy on colony</label>
             <label><input type="radio" name="mission" value="colonize" /> 🌍 Colonize planet</label>
             <label><input type="radio" name="mission" value="harvest" /> ⛏ Harvest deposits</label>
+            <label><input type="radio" name="mission" value="survey" /> 🗺️ Survey system (FTL infrastructure)</label>
           </div>
 
           <h3>3. Target Coordinates</h3>
@@ -3504,6 +3506,8 @@
             </label>
           </div>
 
+          <div id="fleet-ftl-status" style="margin-top:0.4rem;padding:0.4rem 0.6rem;border-radius:4px;background:rgba(0,0,0,0.15);font-size:0.82rem;"></div>
+
           <h3>4. Cargo (optional)</h3>
           <div class="cargo-inputs">
             <label>Metal    <input type="number" id="f-cargo-metal"   min="0" value="0" /></label>
@@ -3518,9 +3522,10 @@
         </form>`;
 
       try {
-        const [data, wormholeData] = await Promise.all([
+        const [data, wormholeData, ftlData] = await Promise.all([
           API.ships(currentColony.id),
           API.wormholes(currentColony.id).catch(() => ({ success: false, wormholes: [], wormhole_theory_level: 0, can_jump: false })),
+          API.ftlStatus().catch(() => null),
         ]);
         const shipEl = root.querySelector('#fleet-ship-select-wm');
         const wormholeEl = root.querySelector('#fleet-wormhole-info');
@@ -3543,6 +3548,76 @@
             : `Wormhole Theory Lv5 required (current Lv${level}).`;
           wormholeEl.insertAdjacentHTML('beforeend', `<div class="text-muted small" style="margin-top:0.2rem;">${esc(reason)}</div>`);
         }
+
+        // ── FTL drive status panel ────────────────────────────────────────────
+        const ftlEl = root.querySelector('#fleet-ftl-status');
+        if (ftlEl && ftlData?.success) {
+          const driveLabels = {
+            vor_tak:  "⚔️ Vor'Tak — K-F Jump Drive",
+            syl_nar:  "🐙 Syl'Nar — Resonance Gate Network",
+            vel_ar:   "🦅 Vel'Ar — Blind Quantum Jump",
+            zhareen:  "💎 Zhareen — Crystal Resonance Channel",
+            aereth:   "✦ Aereth — Alcubierre Warp",
+            kryl_tha: "🪲 Kryl'Tha — Swarm Tunnel",
+          };
+          const driveType = ftlData.ftl_drive_type || 'aereth';
+          const driveLabel = driveLabels[driveType] || driveType;
+          const ready = !!ftlData.ftl_ready;
+          const cooldownSec = Number(ftlData.ftl_cooldown_remaining_s || 0);
+          const cooldownStr = cooldownSec > 0
+            ? `Recharging: ${Math.floor(cooldownSec/3600)}h ${Math.floor((cooldownSec%3600)/60)}m remaining`
+            : '✅ Ready';
+
+          let extraInfo = '';
+          if (driveType === 'syl_nar') {
+            const gateCount = Array.isArray(ftlData.gates) ? ftlData.gates.filter((g) => g.is_active && g.health > 0).length : 0;
+            extraInfo = ` · ${gateCount} gate(s) active · Survey to build new gates`;
+          } else if (driveType === 'zhareen') {
+            const nodeCount = Array.isArray(ftlData.resonance_nodes) ? ftlData.resonance_nodes.length : 0;
+            extraInfo = ` · ${nodeCount} node(s) charted · Survey to chart new nodes`;
+          } else if (driveType === 'aereth') {
+            extraInfo = ' · Core bonus: +50% speed in galaxies ≤3, −30% in galaxies ≥7';
+          } else if (driveType === 'kryl_tha') {
+            extraInfo = ' · Max 50 ships per FTL jump · −10% hull after each jump';
+          } else if (driveType === 'vel_ar') {
+            extraInfo = ' · Arrival scatter: 0.5% of distance · 60s stealth on landing';
+          } else if (driveType === 'vor_tak') {
+            extraInfo = ' · Max 30 LY · 72h recharge · Carrier gives +30% cargo';
+          }
+
+          ftlEl.innerHTML = `<span style="color:#88ccff;font-weight:600;">${esc(driveLabel)}</span>`
+            + ` <span style="color:${ready ? '#88ff88' : '#ffcc44'}">${esc(cooldownStr)}</span>`
+            + `<span style="color:#aaa">${esc(extraInfo)}</span>`
+            + (!ready && driveType === 'vor_tak'
+              ? ` <button class="btn btn-sm" id="ftl-reset-cooldown-btn" style="margin-left:0.5rem;font-size:0.75rem;">Reset (50 ◆)</button>`
+              : '');
+          // Wire cooldown reset button
+          const resetBtn = ftlEl.querySelector('#ftl-reset-cooldown-btn');
+          if (resetBtn) {
+            resetBtn.addEventListener('click', async () => {
+              resetBtn.disabled = true;
+              resetBtn.textContent = '…';
+              try {
+                const res = await API.resetFtlCooldown();
+                if (res?.success) {
+                  showToast(res.message || 'FTL cooldown reset.', 'success');
+                  WM.refresh('fleet');
+                } else {
+                  showToast(res?.error || 'Reset failed.', 'error');
+                  resetBtn.disabled = false;
+                  resetBtn.textContent = 'Reset (50 ◆)';
+                }
+              } catch {
+                showToast('Reset failed.', 'error');
+                resetBtn.disabled = false;
+                resetBtn.textContent = 'Reset (50 ◆)';
+              }
+            });
+          }
+        } else if (ftlEl) {
+          ftlEl.innerHTML = '';
+        }
+        // ── end FTL panel ──────────────────────────────────────────────────────
 
         const avail = [...(data.ships || []), ...(data.blueprints || [])].filter((ship) => Number(ship.count || 0) > 0);
         if (!avail.length) {
@@ -4526,6 +4601,10 @@
           if (typeof galaxy3d.setGalaxyFleets === 'function') {
             galaxy3d.setGalaxyFleets(window._GQ_fleets || []);
           }
+          if (typeof galaxy3d.setFtlInfrastructure === 'function') {
+            const ftlMap = window._GQ_ftl_map;
+            galaxy3d.setFtlInfrastructure(ftlMap?.gates || [], ftlMap?.resonance_nodes || []);
+          }
           if (typeof galaxy3d.setClusterColorPalette === 'function') {
             galaxy3d.setClusterColorPalette(resolveClusterColorPalette(uiState.territory));
           }
@@ -5045,6 +5124,7 @@
             </div>
             {{{vesselListHtml}}}
             {{{returningBadgeHtml}}}
+            {{{ftlBadgesHtml}}}
             {{{recallButtonHtml}}}
           </div>`,
         battleRow: `
@@ -5145,10 +5225,21 @@
           galaxy3d.setGalaxyFleets(window._GQ_fleets || []);
         }
 
+        // Refresh FTL infrastructure overlay (lazy: only when galaxy3d is active)
+        if (galaxy3d && typeof galaxy3d.setFtlInfrastructure === 'function') {
+          API.ftlMap().then((ftlData) => {
+            if (ftlData?.success) {
+              window._GQ_ftl_map = ftlData;
+              galaxy3d.setFtlInfrastructure(ftlData.gates || [], ftlData.resonance_nodes || []);
+            }
+          }).catch(() => {});
+        }
+
         this.populatePlanetSelect();
         this.updateResourceBar();
         this.applyBadges(data);
         WM.refresh('overview');
+        WM.refresh('minimap');
       } catch (e) {
         const em = String(e?.message || e || '');
         if (/abort|cancel|navigation/i.test(em)) return;
@@ -5364,6 +5455,17 @@
           .join('');
         const vesselListHtml = vesselChips ? `<div class="fleet-vessel-list">${vesselChips}</div>` : '';
         const progressPct = ((pos.progress || 0) * 100).toFixed(0);
+
+        // FTL status badges
+        const stealthSec = Number(fleet.stealth_remaining_s || 0);
+        const stealthBadge = stealthSec > 0
+          ? `<span class="fleet-stealth-badge" title="Vel'Ar stealth: ${stealthSec}s remaining">👁️ Stealth ${stealthSec}s</span>`
+          : '';
+        const hullDmg = Number(fleet.hull_damage_pct || 0);
+        const hullBadge = hullDmg > 0
+          ? `<span class="fleet-hull-badge" title="Kryl'Tha hull damage: -${hullDmg}% attack">⚠ Hull ${hullDmg}%</span>`
+          : '';
+
         return {
           mission: esc(String(fleet.mission || '').toUpperCase()),
           targetGalaxy: esc(String(fleet.target_galaxy || '')),
@@ -5376,6 +5478,7 @@
           progressPct: esc(progressPct),
           vesselListHtml,
           returningBadgeHtml: fleet.returning ? '<span class="fleet-returning">↩ Returning</span>' : '',
+          ftlBadgesHtml: stealthBadge + hullBadge,
           recallButtonHtml: !fleet.returning
             ? `<button class="btn btn-warning btn-sm recall-btn" data-fid="${esc(String(fleet.id || ''))}">Recall</button>`
             : '',
@@ -7847,6 +7950,7 @@
 
   async function loadGalaxyStars3D(root) {
     await galaxyController.loadStars3D(root);
+    WM.refresh('minimap');
   }
 
   async function loadStarSystemPlanets(root, star) {
@@ -11104,6 +11208,191 @@
     await leaderboardController.render();
   }
 
+  // ── Minimap ───────────────────────────────────────────────────────────────
+  const MINIMAP_PAD = 14;           // canvas padding in px
+  const MINIMAP_GRID_DIVS = 5;     // number of grid lines per axis
+  const MINIMAP_CLICK_RADIUS = 18; // max click distance in px to select a star
+
+  function renderMinimap(root) {
+    if (!root) return;
+
+    // Ensure wrapper exists
+    let wrap = root.querySelector('.minimap-wrap');
+    if (!wrap) {
+      root.innerHTML = '';
+      wrap = document.createElement('div');
+      wrap.className = 'minimap-wrap';
+      root.appendChild(wrap);
+    }
+
+    // Ensure canvas exists
+    let canvas = wrap.querySelector('.minimap-canvas');
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.className = 'minimap-canvas';
+      wrap.appendChild(canvas);
+
+      // Click-to-navigate: find closest star and open galaxy map at it
+      canvas.addEventListener('click', (e) => {
+        const state = canvas.__minimapState;
+        if (!state || !state.stars.length) return;
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        let best = null;
+        let bestDist = Infinity;
+        for (const star of state.stars) {
+          const cx = state.offX + (Number(star.x_ly || 0) - state.minX) * state.scale;
+          const cy = state.offY + (Number(star.y_ly || 0) - state.minY) * state.scale;
+          const d = Math.hypot(mx - cx, my - cy);
+          if (d < bestDist) { bestDist = d; best = star; }
+        }
+        if (best && bestDist < MINIMAP_CLICK_RADIUS) {
+          WM.open('galaxy');
+          window.dispatchEvent(new CustomEvent('gq:minimap-navigate', {
+            detail: { galaxy: Number(best.galaxy_index || uiState.activeGalaxy || 1), system: Number(best.system_index || 0), star: best },
+          }));
+        }
+      });
+    }
+
+    // Size canvas to wrapper
+    const w = Math.max(100, wrap.clientWidth || 260);
+    const h = Math.max(100, wrap.clientHeight || 260);
+    canvas.width = w;
+    canvas.height = h;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Background
+    ctx.fillStyle = '#050d1e';
+    ctx.fillRect(0, 0, w, h);
+
+    const stars = Array.isArray(galaxyStars) ? galaxyStars.filter((s) => s.x_ly != null && s.y_ly != null) : [];
+
+    if (!stars.length) {
+      ctx.fillStyle = 'rgba(80, 140, 200, 0.6)';
+      ctx.font = '11px Consolas, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Galaxy data loading…', w / 2, h / 2);
+      canvas.__minimapState = null;
+      return;
+    }
+
+    // Compute bounds
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const s of stars) {
+      const sx = Number(s.x_ly);
+      const sy = Number(s.y_ly);
+      if (sx < minX) minX = sx;
+      if (sx > maxX) maxX = sx;
+      if (sy < minY) minY = sy;
+      if (sy > maxY) maxY = sy;
+    }
+
+    const rangeX = (maxX - minX) || 1;
+    const rangeY = (maxY - minY) || 1;
+    const scaleX = (w - MINIMAP_PAD * 2) / rangeX;
+    const scaleY = (h - MINIMAP_PAD * 2) / rangeY;
+    const scale = Math.min(scaleX, scaleY);
+    const offX = MINIMAP_PAD + ((w - MINIMAP_PAD * 2) - rangeX * scale) / 2;
+    const offY = MINIMAP_PAD + ((h - MINIMAP_PAD * 2) - rangeY * scale) / 2;
+
+    // Store transform state for click handler
+    canvas.__minimapState = { minX, minY, scale, offX, offY, stars };
+
+    // Subtle grid lines
+    ctx.strokeStyle = 'rgba(50, 90, 150, 0.22)';
+    ctx.lineWidth = 0.5;
+    const gridStepLy = Math.max(1, Math.round(rangeX / MINIMAP_GRID_DIVS));
+    for (let gx = Math.ceil(minX / gridStepLy) * gridStepLy; gx <= maxX; gx += gridStepLy) {
+      const cx = offX + (gx - minX) * scale;
+      ctx.beginPath();
+      ctx.moveTo(cx, MINIMAP_PAD);
+      ctx.lineTo(cx, h - MINIMAP_PAD);
+      ctx.stroke();
+    }
+    for (let gy = Math.ceil(minY / gridStepLy) * gridStepLy; gy <= maxY; gy += gridStepLy) {
+      const cy = offY + (gy - minY) * scale;
+      ctx.beginPath();
+      ctx.moveTo(MINIMAP_PAD, cy);
+      ctx.lineTo(w - MINIMAP_PAD, cy);
+      ctx.stroke();
+    }
+
+    // Build lookup sets for own colonies and current system
+    const ownColonySystems = new Set(
+      (Array.isArray(colonies) ? colonies : []).map((col) => Number(col.system || col.system_index || 0)).filter(Boolean)
+    );
+    const currentSysIdx = Number(currentColony?.system || currentColony?.system_index || 0);
+
+    // Draw stars
+    for (const star of stars) {
+      const sx = Number(star.x_ly);
+      const sy = Number(star.y_ly);
+      const cx = offX + (sx - minX) * scale;
+      const cy = offY + (sy - minY) * scale;
+      const sysIdx = Number(star.system_index || 0);
+      const isOwn = sysIdx > 0 && ownColonySystems.has(sysIdx);
+      const isCurrent = currentSysIdx > 0 && sysIdx === currentSysIdx;
+
+      if (isCurrent) {
+        // Current system: bright yellow with outer ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffe066';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx, cy, 6.5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 224, 102, 0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else if (isOwn) {
+        // Own colony: green dot
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#44ee88';
+        ctx.fill();
+      } else {
+        // Regular star: colour by spectral class
+        ctx.beginPath();
+        ctx.arc(cx, cy, 1, 0, Math.PI * 2);
+        ctx.fillStyle = starClassColor(star.spectral_class);
+        ctx.fill();
+      }
+    }
+
+    // Legend (bottom-left)
+    ctx.font = '9px Consolas, monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = 'rgba(100, 160, 220, 0.6)';
+    ctx.fillText(`${stars.length} stars`, 5, h - 5);
+  }
+
+  // Handle minimap click-to-navigate: open galaxy map and fly to the selected star.
+  // Guard against duplicate bindings if the module is ever re-evaluated.
+  if (!window.__gqMinimapNavBound) {
+    window.__gqMinimapNavBound = true;
+    window.addEventListener('gq:minimap-navigate', (ev) => {
+      const { galaxy: g, system: s, star } = ev.detail || {};
+      if (!g || !s) return;
+      const root = WM.body('galaxy');
+      if (!root) return;
+      const target = (Array.isArray(galaxyStars) ? galaxyStars : []).find(
+        (row) => Number(row.galaxy_index || 0) === g && Number(row.system_index || 0) === s
+      ) || Object.assign({}, star, { galaxy_index: g, system_index: s });
+      if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
+        galaxy3d.focusOnStar(target, true);
+      }
+      pinnedStar = target;
+      uiState.activeStar = target;
+      renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
+    });
+  }
+
   function renderSettings() {
     const root = WM.body('settings');
     if (!root) return;
@@ -11259,6 +11548,28 @@
         </div>
         <label class="system-row" style="margin-top:0.55rem;">NPC Decisions (letzte 10)</label>
         <textarea id="set-npc-decisions" rows="7" style="width:100%;resize:vertical;" readonly></textarea>
+      </div>
+
+      <div class="system-card" style="margin-top:1rem;">
+        <h3 style="margin-top:0">⚡ FTL Drive — Faction Selection</h3>
+        <p style="font-size:0.82rem;color:var(--text-muted);margin:0 0 0.6rem;">
+          Wähle den FTL-Antrieb deiner Fraktion. Erste Wahl ist kostenlos. Wechsel kostet <strong>200 ◆ Dark Matter</strong>.
+        </p>
+        <div id="set-ftl-current" style="margin-bottom:0.6rem;font-size:0.84rem;color:#88ccff;">Wird geladen…</div>
+        <div id="set-ftl-drive-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem 0.6rem;">
+          ${[
+            { id: 'aereth',  name: "Aereth — Alcubierre Warp",     desc: "+50% Kern · -30% Rand" },
+            { id: 'vor_tak', name: "Vor'Tak — K-F Jump Drive",     desc: "30 LY · 72h Cooldown · Carrier+30%" },
+            { id: 'syl_nar', name: "Syl'Nar — Resonance Gates",   desc: "Instant via Gate-Netz" },
+            { id: 'vel_ar',  name: "Vel'Ar — Blind Quantum Jump",  desc: "Instant · 0.5% Scatter · Stealth 60s" },
+            { id: 'zhareen', name: "Zhareen — Crystal Channel",   desc: "Survey-Nodes · 30min CD" },
+            { id: 'kryl_tha',name: "Kryl'Tha — Swarm Tunnel",     desc: "Max 50 Schiffe · -10% Hülle" },
+          ].map((d) => `<button class="btn btn-secondary set-ftl-drive-btn" data-drive="${esc(d.id)}"
+              style="text-align:left;padding:0.35rem 0.5rem;font-size:0.78rem;line-height:1.3;" type="button">
+              <strong>${esc(d.name)}</strong><br><span style="color:var(--text-muted)">${esc(d.desc)}</span>
+            </button>`).join('')}
+        </div>
+        <div id="set-ftl-result" style="margin-top:0.4rem;font-size:0.8rem;min-height:1rem;"></div>
       </div>`;
 
     const bindRange = (id, valueId, setter) => {
@@ -11847,6 +12158,60 @@
     loadNpcDecisions().catch(() => {
       writeNpcDecisions('NPC decisions preload failed.');
     });
+
+    // ── FTL Drive Selection ───────────────────────────────────────────────────
+    const ftlCurrentEl  = root.querySelector('#set-ftl-current');
+    const ftlResultEl   = root.querySelector('#set-ftl-result');
+    const ftlButtons    = root.querySelectorAll('.set-ftl-drive-btn');
+
+    // Load and display current FTL drive
+    API.ftlStatus().then((ftlData) => {
+      if (!ftlCurrentEl) return;
+      const driveType = ftlData?.ftl_drive_type || 'aereth';
+      const dm = window._GQ_meta?.dark_matter ?? '?';
+      const isDefault = driveType === 'aereth';
+      ftlCurrentEl.textContent = `Aktueller Antrieb: ${driveType}${isDefault ? ' (Standard — Auswahl kostenlos)' : ''} · ◆ ${fmt(dm)} DM`;
+      // Highlight current drive button
+      ftlButtons.forEach((btn) => {
+        const d = btn.getAttribute('data-drive');
+        btn.style.borderColor = d === driveType ? '#88ccff' : '';
+        btn.style.background  = d === driveType ? 'rgba(136,204,255,0.12)' : '';
+      });
+    }).catch(() => {
+      if (ftlCurrentEl) ftlCurrentEl.textContent = 'FTL-Status konnte nicht geladen werden.';
+    });
+
+    ftlButtons.forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const drive = btn.getAttribute('data-drive');
+        if (!drive) return;
+        ftlButtons.forEach((b) => { b.disabled = true; });
+        if (ftlResultEl) ftlResultEl.textContent = 'Wird gesetzt…';
+        try {
+          const res = await API.setFtlDrive(drive);
+          if (res?.success) {
+            if (ftlResultEl) ftlResultEl.innerHTML = `<span style="color:#88ff88">✓ ${esc(res.message || 'Drive gesetzt.')}</span>`;
+            // Update current label
+            if (ftlCurrentEl) ftlCurrentEl.textContent = `Aktueller Antrieb: ${drive}`;
+            ftlButtons.forEach((b) => {
+              const d = b.getAttribute('data-drive');
+              b.style.borderColor = d === drive ? '#88ccff' : '';
+              b.style.background  = d === drive ? 'rgba(136,204,255,0.12)' : '';
+            });
+            if (res.dm_spent > 0) showToast(`FTL Drive gewechselt. ${res.dm_spent} ◆ DM abgezogen.`, 'info');
+            else showToast(`FTL Drive auf ${drive} gesetzt.`, 'success');
+            WM.refresh('fleet');
+          } else {
+            if (ftlResultEl) ftlResultEl.innerHTML = `<span style="color:#ff6666">✗ ${esc(res?.error || 'Fehler')}</span>`;
+            showToast(res?.error || 'Drive-Wechsel fehlgeschlagen.', 'error');
+          }
+        } catch {
+          if (ftlResultEl) ftlResultEl.innerHTML = '<span style="color:#ff6666">✗ Netzwerkfehler</span>';
+          showToast('Drive-Wechsel fehlgeschlagen.', 'error');
+        }
+        ftlButtons.forEach((b) => { b.disabled = false; });
+      });
+    });
   }
 
   // ── Quests window ─────────────────────────────────────────
@@ -12186,6 +12551,12 @@
     if (WM.isOpen('overview')) WM.close('overview');
     else WM.open('overview');
     document.getElementById('footer-overview-btn')?.classList.toggle('active', WM.isOpen('overview'));
+  });
+
+  document.getElementById('footer-minimap-btn')?.addEventListener('click', () => {
+    if (WM.isOpen('minimap')) WM.close('minimap');
+    else WM.open('minimap');
+    document.getElementById('footer-minimap-btn')?.classList.toggle('active', WM.isOpen('minimap'));
   });
 
   refreshAudioUi();

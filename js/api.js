@@ -1237,6 +1237,8 @@ const API = (() => {
     leaderboard: ()    => get('api/game.php?action=leaderboard'),
     renameColony:  (cid, name) => post('api/game.php?action=rename_colony',   { colony_id: cid, name }),
     setColonyType: (cid, type) => post('api/game.php?action=set_colony_type', { colony_id: cid, colony_type: type }),
+    setFtlDrive:   (driveType) => post('api/game.php?action=set_ftl_drive',   { ftl_drive_type: driveType }),
+    resetFtlCooldown: ()       => post('api/fleet.php?action=reset_ftl_cooldown', {}),
 
     // Buildings
     buildings:     (cid)        => get(`api/buildings.php?action=list&colony_id=${cid}`),
@@ -1261,6 +1263,8 @@ const API = (() => {
     fleets:     ()        => get('api/fleet.php?action=list'),
     sendFleet:  (payload) => post('api/fleet.php?action=send', payload),
     wormholes: (originColonyId) => get(`api/fleet.php?action=wormholes&origin_colony_id=${originColonyId}`),
+    ftlStatus:  ()        => get('api/fleet.php?action=ftl_status'),
+    ftlMap:     ()        => get('api/fleet.php?action=ftl_map'),
     recallFleet:(id)      => post('api/fleet.php?action=recall', { fleet_id: id }),
     simulateBattle: (payload) => post('api/fleet.php?action=simulate_battle', payload),
     matchupScan: (payload) => post('api/fleet.php?action=matchup_scan', payload),

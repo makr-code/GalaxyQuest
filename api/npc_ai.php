@@ -242,6 +242,9 @@ function npc_player_account_tick(PDO $db, int $npcUserId): void {
         error_log('npc character profile generation failed for user ' . $npcUserId . ': ' . $e->getMessage());
     }
 
+    // OD-3: Assign faction-specific FTL drive if still on default 'aereth'
+    npc_assign_ftl_drive($db, $npcUserId);
+
     // Finish due research first so progression can continue.
     $due = $db->prepare(
         'SELECT type FROM research
@@ -1021,4 +1024,61 @@ function wormhole_regeneration_tick_global(PDO $db): void {
          WHERE is_active = 1
            AND (stability < 100 OR cooldown_until IS NOT NULL)'
     );
+}
+
+/**
+ * Assign a faction-specific FTL drive to an NPC user if they still have
+ * the default 'aereth' drive (OD-3: NPC factions get race-specific FTL).
+ *
+ * Mapping:
+ *  empire / pve_empire   → vor_tak   (strategic jump drives)
+ *  science / pve_science → zhareen   (resonance network)
+ *  pirates / pve_pirates → kryl_tha  (swarm tunnels)
+ *  precursors            → vel_ar    (stealth jumps)
+ *  guild / pve_guild     → syl_nar   (gate network)
+ *  collective / others   → aereth    (default Alcubierre)
+ */
+function npc_assign_ftl_drive(PDO $db, int $npcUserId): void {
+    $uRow = $db->prepare('SELECT ftl_drive_type FROM users WHERE id = ? LIMIT 1');
+    $uRow->execute([$npcUserId]);
+    $u = $uRow->fetch();
+    if (!$u || $u['ftl_drive_type'] !== 'aereth') {
+        return; // already assigned
+    }
+
+    // Determine which NPC faction this user is primarily affiliated with
+    // via faction_colonies (NPC factions seed colonies linked to NPC users)
+    try {
+        $fcStmt = $db->prepare(
+            'SELECT nf.code FROM faction_colonies fc
+               JOIN npc_factions nf ON nf.id = fc.faction_id
+               JOIN colonies c ON c.id = fc.colony_id
+              WHERE c.user_id = ? LIMIT 1'
+        );
+        $fcStmt->execute([$npcUserId]);
+        $fc = $fcStmt->fetch();
+    } catch (\Throwable) {
+        return; // table not yet migrated, skip silently
+    }
+
+    if (!$fc) return;
+
+    $code = strtolower((string)($fc['code'] ?? ''));
+    $driveMap = [
+        'empire'        => 'vor_tak',
+        'pve_empire'    => 'vor_tak',
+        'science'       => 'zhareen',
+        'pve_science'   => 'zhareen',
+        'pirates'       => 'kryl_tha',
+        'pve_pirates'   => 'kryl_tha',
+        'precursors'    => 'vel_ar',
+        'guild'         => 'syl_nar',
+        'pve_guild'     => 'syl_nar',
+    ];
+
+    $drive = $driveMap[$code] ?? 'aereth';
+    if ($drive === 'aereth') return; // no change needed
+
+    $db->prepare('UPDATE users SET ftl_drive_type = ? WHERE id = ?')
+       ->execute([$drive, $npcUserId]);
 }

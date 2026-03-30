@@ -73,10 +73,10 @@ const { CameraManager }             = require('./scene/CameraManager');
 const { ViewportManager, PIP_DEFAULTS } = require('./ViewportManager');
 
 // Game systems (classics-inspired)
-const { EventSystem, EventType, EventStatus } = require('./game/EventSystem');
-const { ResearchTree, ResearchCategory }      = require('./game/ResearchTree');
-const { FleetFormation, Wing, FormationShape } = require('./game/FleetFormation');
-const { ColonySimulation, Colony, PopJob, BASE_YIELD } = require('./game/ColonySimulation');
+const { EventSystem, EventType, EventStatus, Journal, JournalStatus } = require('./game/EventSystem');
+const { ResearchTree, ResearchCategory, CivAffinity }      = require('./game/ResearchTree');
+const { FleetFormation, Wing, FormationShape, Maneuver, getSlotPositions } = require('./game/FleetFormation');
+const { ColonySimulation, Colony, PopJob, BASE_YIELD, ColonyType, COLONY_TYPE_BONUS } = require('./game/ColonySimulation');
 
 // Constants
 const constants                     = require('./constants');
@@ -110,10 +110,10 @@ module.exports = {
   // Loaders
   TextureLoader, GeometryLoader, ShaderLoader,
   // Game systems
-  EventSystem, EventType, EventStatus,
-  ResearchTree, ResearchCategory,
-  FleetFormation, Wing, FormationShape,
-  ColonySimulation, Colony, PopJob, BASE_YIELD,
+  EventSystem, EventType, EventStatus, Journal, JournalStatus,
+  ResearchTree, ResearchCategory, CivAffinity,
+  FleetFormation, Wing, FormationShape, Maneuver, getSlotPositions,
+  ColonySimulation, Colony, PopJob, BASE_YIELD, ColonyType, COLONY_TYPE_BONUS,
   // Constants
   ...constants,
 };

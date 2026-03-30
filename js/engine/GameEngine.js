@@ -118,6 +118,29 @@ class GameEngine {
     this.initialized      = false;
     /** True while the loop is running */
     this.running          = false;
+    /** @type {boolean} Enable verbose debug logging (set via opts.debug) */
+    this._debugEnabled    = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Debug logging helper
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Emit a debug-level log message when opts.debug was set.
+   * Routes to window.GQLog (the in-game terminal logger) when available,
+   * otherwise falls back to console.debug so it always works in Node tests.
+   * @param {string} msg
+   * @param {...*}   args
+   */
+  _log(msg, ...args) {
+    if (!this._debugEnabled) return;
+    const gqLog = typeof window !== 'undefined' ? window.GQLog : undefined;
+    if (gqLog) {
+      gqLog.debug('[GameEngine]', msg, ...args);
+    } else {
+      console.debug('[GameEngine]', msg, ...args);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -178,18 +201,21 @@ class GameEngine {
     if (this.running) return;
     this.running = true;
     this.loop.start();
+    this._log('start() — game loop running');
     this.events.emit('engine:start', { engine: this });
   }
 
   /** Pause the loop — physics accumulator is frozen. */
   pause() {
     this.loop.pause();
+    this._log('pause()');
     this.events.emit('engine:pause', { engine: this });
   }
 
   /** Resume after pause(). */
   resume() {
     this.loop.resume();
+    this._log('resume()');
     this.events.emit('engine:resume', { engine: this });
   }
 
@@ -198,6 +224,7 @@ class GameEngine {
     if (!this.running) return;
     this.running = false;
     this.loop.stop();
+    this._log('stop()');
     this.events.emit('engine:stop', { engine: this });
   }
 
@@ -220,6 +247,7 @@ class GameEngine {
         }
       }
     }
+    this._log(`resize(${width}, ${height})`);
     this.events.emit('engine:resize', { width, height });
   }
 
@@ -227,6 +255,7 @@ class GameEngine {
    * Fully dispose all engine resources. The engine cannot be reused.
    */
   dispose() {
+    this._log('dispose() — releasing all resources');
     this.stop();
     this.systems.list().forEach((s) => this.systems.remove(s.name));
     this.viewports?.detach();
@@ -258,6 +287,7 @@ class GameEngine {
    */
   addSystem(system) {
     this.systems.add(system);
+    this._log(`addSystem: '${system.name}' (priority ${system.priority ?? 500})`);
     return this;
   }
 
@@ -314,6 +344,7 @@ class GameEngine {
       });
     }
 
+    this._log(`addFollowViewport: '${name}' targeting '${target?.name ?? '?'}'`);
     return this;
   }
 
@@ -367,27 +398,28 @@ class GameEngine {
   async _init(canvas, opts) {
     this.canvas = canvas;
     this.config = { ...opts };
+    this._debugEnabled = !!opts.debug;
 
-    const debugLog = opts.debug
-      ? (msg, ...a) => console.info('[GameEngine]', msg, ...a)
-      : () => {};
+    // Wire EventBus debug flag so every event emission is logged when enabled
+    this.events.debug = this._debugEnabled;
 
     // 1. Renderer
-    debugLog('Initialising renderer…');
+    this._log('Initialising renderer…');
     if (opts._rendererOverride) {
       this.renderer = opts._rendererOverride;
     } else {
       this.renderer = await RendererFactory.create(canvas, {
-        hint: opts.renderer ?? 'auto',
+        hint:  opts.renderer ?? 'auto',
+        debug: this._debugEnabled,
         onFallback: (reason) => {
-          debugLog('Renderer fallback:', reason);
+          this._log('Renderer fallback:', reason);
           this.events.emit('engine:rendererFallback', { reason });
         },
       });
     }
     this.assets = new AssetRegistry(this.renderer);
 
-    debugLog('Renderer ready — caps:', this.renderer.getCapabilities());
+    this._log('Renderer ready — caps:', this.renderer.getCapabilities());
 
     // 2. Default camera
     const aspect = canvas.width > 0 && canvas.height > 0
@@ -480,7 +512,7 @@ class GameEngine {
 
     this.initialized = true;
     this.events.emit('engine:initialized', { engine: this });
-    debugLog('Engine initialised.');
+    this._log('Engine initialised.');
   }
 
   async _initPhysics(opts) {
@@ -497,6 +529,7 @@ class GameEngine {
         maxAcceleration:       opts.maxAcceleration,
       });
       this.physicsBackend = 'cpu';
+      this._log('Physics: CPU backend ready');
     }
 
     // GPU physics — opt-in, requires WebGPU + compute shaders
@@ -517,6 +550,7 @@ class GameEngine {
         });
         this.gpuPhysics.init();
         this.physicsBackend = 'gpu';
+        this._log('Physics: GPU compute backend ready');
       } catch (err) {
         console.warn('[GameEngine] GPU physics init failed, using CPU:', err.message);
       }
@@ -567,6 +601,14 @@ class GameEngine {
 
     // Secondary PiP viewports
     this.viewports?.render(this.scene);
+
+    // Throttled render-loop diagnostics — every 300 frames (~5 s at 60 fps)
+    if (this._debugEnabled && this.loop.frame % 300 === 0) {
+      this._log(
+        `frame ${this.loop.frame} — fps ${this.perf.fps != null ? this.perf.fps.toFixed(1) : '?'}` +
+        ` — frameTime ${this.perf.frameTimeMs != null ? this.perf.frameTimeMs.toFixed(2) : '?'}ms`
+      );
+    }
 
     this.events.emit('render:frame', {
       alpha,

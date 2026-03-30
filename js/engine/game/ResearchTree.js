@@ -52,6 +52,18 @@ const ResearchCategory = Object.freeze({
   EXPLORATION: 'exploration',  // Survey range, anomalies    (Stellaris)
 });
 
+/**
+ * Civilization-level affinity buckets (Endless Space 2 — faction affinities).
+ * Maps a civ's strategic focus to a research speed bonus.
+ * @enum {string}
+ */
+const CivAffinity = Object.freeze({
+  MILITARY: 'military',  // Bonus to WEAPONS, SHIELDS
+  SCIENCE:  'science',   // Bonus to COMPUTING, ENERGY
+  ECONOMY:  'economy',   // Bonus to INDUSTRY, EXPLORATION
+  CULTURE:  'culture',   // Bonus to DIPLOMACY, BIOLOGY
+});
+
 // ---------------------------------------------------------------------------
 // ResearchTree
 // ---------------------------------------------------------------------------
@@ -80,10 +92,24 @@ class ResearchTree {
 
   /**
    * Define a technology node.
+   * Throws if the definition would introduce a cycle in the DAG.
    * @param {TechNode} def
    */
   define(def) {
     if (!def.id) throw new TypeError('[ResearchTree] TechNode must have an id');
+
+    // Cycle detection: for each prerequisite, check if def.id is already
+    // reachable from that prerequisite via the existing graph.  If so,
+    // adding this node would close a cycle.
+    for (const prereq of def.prerequisites ?? []) {
+      if (prereq === def.id) {
+        throw new Error(`[ResearchTree] Cyclic dependency: '${def.id}' lists itself as a prerequisite`);
+      }
+      if (this._isReachable(prereq, def.id)) {
+        throw new Error(`[ResearchTree] Cyclic dependency detected: adding '${def.id}' would create a cycle via '${prereq}'`);
+      }
+    }
+
     this._nodes.set(def.id, {
       era:           def.era           ?? 1,
       category:      def.category      ?? ResearchCategory.COMPUTING,
@@ -95,6 +121,27 @@ class ResearchTree {
       ...def,
     });
     return this;
+  }
+
+  /**
+   * Check whether `targetId` is reachable from `startId` by following
+   * prerequisite edges in the current graph.
+   *
+   * @param {string} startId
+   * @param {string} targetId
+   * @param {Set<string>} [visited]
+   * @returns {boolean}
+   */
+  _isReachable(startId, targetId, visited = new Set()) {
+    if (startId === targetId) return true;
+    if (visited.has(startId)) return false;
+    visited.add(startId);
+    const node = this._nodes.get(startId);
+    if (!node) return false;
+    for (const prereq of node.prerequisites) {
+      if (this._isReachable(prereq, targetId, visited)) return true;
+    }
+    return false;
   }
 
   /**
@@ -164,6 +211,7 @@ class ResearchTree {
 
   /**
    * All techs available to research right now (prerequisites met, not done).
+   * Uses the internal `_done` set.
    * @returns {TechNode[]}
    */
   available() {
@@ -175,6 +223,85 @@ class ResearchTree {
       }
     }
     return result;
+  }
+
+  /**
+   * DAG traversal with era-gating.
+   * A tech is available when:
+   *   1. Its prerequisites are all in `unlockedSet`.
+   *   2. If it belongs to era N+1, at least 60% of era-N techs are in `unlockedSet`.
+   *
+   * @param {Set<string>} unlockedSet  Set of already-unlocked tech IDs
+   * @returns {TechNode[]}
+   */
+  getAvailable(unlockedSet) {
+    // Tally per-era totals and unlocked counts
+    const eraTotal = new Map();
+    const eraDone  = new Map();
+    for (const [id, node] of this._nodes) {
+      const era = node.era;
+      eraTotal.set(era, (eraTotal.get(era) ?? 0) + 1);
+      if (unlockedSet.has(id)) {
+        eraDone.set(era, (eraDone.get(era) ?? 0) + 1);
+      }
+    }
+
+    const result = [];
+    for (const [id, node] of this._nodes) {
+      if (unlockedSet.has(id)) continue;
+      if (!node.prerequisites.every((p) => unlockedSet.has(p))) continue;
+
+      // Era-gating: tech of era N requires ≥60 % of era-(N-1) to be unlocked
+      const era = node.era;
+      if (era > 1) {
+        const prevEra  = era - 1;
+        const total    = eraTotal.get(prevEra) ?? 0;
+        const done     = eraDone.get(prevEra)  ?? 0;
+        if (total > 0 && done / total < 0.6) continue;
+      }
+
+      result.push(node);
+    }
+    return result;
+  }
+
+  /**
+   * Estimate how many research-points are needed to complete a tech,
+   * accounting for an affinity map.
+   *
+   * @param {string} techId
+   * @param {Object<string,number>} [affinityMap]  category → multiplier
+   * @returns {number}  Effective research-point cost (Infinity if unknown tech)
+   */
+  estimateResearchTime(techId, affinityMap = {}) {
+    const node = this._nodes.get(techId);
+    if (!node) return Infinity;
+    const multiplier = affinityMap[node.category] ?? this._affinity[node.category] ?? 1;
+    return node.cost / multiplier;
+  }
+
+  /**
+   * Return a snapshot of all currently unlocked tech IDs.
+   * @returns {Set<string>}
+   */
+  getUnlocked() {
+    return new Set(this._done);
+  }
+
+  /**
+   * Directly unlock a tech (persistence / save-load helper).
+   * Emits 'research:unlocked'.  No-ops if already unlocked or unknown.
+   *
+   * @param {string} id
+   * @returns {this}
+   */
+  unlock(id) {
+    const node = this._nodes.get(id);
+    if (!node) { console.warn(`[ResearchTree] Unknown tech: '${id}'`); return this; }
+    if (this._done.has(id)) return this;
+    this._done.add(id);
+    this._bus?.emit('research:unlocked', { id, node });
+    return this;
   }
 
   /** All completed TechNodes in completion order. */
@@ -214,7 +341,7 @@ class ResearchTree {
 // ---------------------------------------------------------------------------
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ResearchTree, ResearchCategory };
+  module.exports = { ResearchTree, ResearchCategory, CivAffinity };
 } else {
-  window.GQResearchTree = { ResearchTree, ResearchCategory };
+  window.GQResearchTree = { ResearchTree, ResearchCategory, CivAffinity };
 }

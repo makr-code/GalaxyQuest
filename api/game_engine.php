@@ -655,6 +655,52 @@ function fleet_travel_time_3d(float $distance_ly, float $speed_ly_h): int {
     return max(30, (int)round($distance_ly / $speed_ly_h * 3600));
 }
 
+// ─── Faction FTL Drive helpers ────────────────────────────────────────────────
+
+/**
+ * Return the FTL drive type for a given user.
+ * Defaults to 'aereth' (Alcubierre Warp) when not set.
+ * Valid values: aereth | vor_tak | syl_nar | vel_ar | zhareen | kryl_tha
+ *
+ * Note: no static cache — each PHP request is short-lived; caching across
+ * requests in long-running workers would risk returning stale data.
+ */
+function get_user_ftl_type(PDO $db, int $uid): string {
+    $stmt = $db->prepare('SELECT ftl_drive_type FROM users WHERE id = ? LIMIT 1');
+    $stmt->execute([$uid]);
+    return (string)($stmt->fetchColumn() ?: 'aereth');
+}
+
+/**
+ * Resolve an active Syl'Nar gate between two systems (bidirectional).
+ * Returns the gate row or null if no usable gate exists.
+ */
+function resolve_syl_nar_gate(PDO $db, int $uid, int $gA, int $sA, int $gB, int $sB): ?array {
+    $stmt = $db->prepare(
+        'SELECT id FROM ftl_gates
+          WHERE owner_user_id = ? AND is_active = 1 AND health > 0
+            AND ((galaxy_a=? AND system_a=? AND galaxy_b=? AND system_b=?)
+              OR (galaxy_b=? AND system_b=? AND galaxy_a=? AND system_a=?))
+          LIMIT 1'
+    );
+    $stmt->execute([$uid, $gA, $sA, $gB, $sB, $gA, $sA, $gB, $sB]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+/**
+ * Return a charted Zhareen resonance node at a target system, or null.
+ */
+function get_zhareen_node(PDO $db, int $uid, int $galaxy, int $system): ?array {
+    $stmt = $db->prepare(
+        'SELECT id, cooldown_until FROM ftl_resonance_nodes
+          WHERE owner_user_id = ? AND galaxy = ? AND `system` = ? LIMIT 1'
+    );
+    $stmt->execute([$uid, $galaxy, $system]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
 /**
  * Interpolate current 3-D fleet position based on elapsed time.
  * Returns ['x' => float, 'y' => float, 'z' => float, 'progress' => 0..1].
