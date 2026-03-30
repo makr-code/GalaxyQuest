@@ -8,42 +8,31 @@
  *  - write_user_overview_projection() Atomically persists a projection payload.
  *  - build_live_overview_payload()    Full live computation of the overview payload.
  *
+ * Since Phase 3 the queue write is handled by enqueue_projection_dirty() from
+ * lib/projection_runtime.php.  enqueue_dirty_user() is kept as a thin wrapper
+ * so all existing call-sites continue to work without modification.
+ *
  * Logging conventions (stderr-safe, visible in error_log):
  *  [projection] hit   user=<id>  age=<s>s
  *  [projection] miss  user=<id>  reason=<reason>
  *  [projection] write user=<id>  v=<version>
- *  [projection] enqueue user=<id>  reason=<reason>
+ *  [projection_runtime] enqueue  entity=user/<id>  reason=<reason>
  */
 
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/achievements.php';
+require_once __DIR__ . '/../lib/projection_runtime.php';
 
 /**
- * Enqueue a user into the dirty queue so the projector worker knows to
- * re-compute their overview projection.  The insert is idempotent: if the
- * user is already queued the existing row is kept but the reason is
- * updated and next_attempt_at is reset to NOW() so any scheduled backoff
- * is cancelled.
+ * Enqueue a user into the shared dirty queue so the projector worker knows to
+ * re-compute their overview projection.
+ *
+ * Thin wrapper around enqueue_projection_dirty() from lib/projection_runtime.php
+ * that fixes entity_type='user' for backward compatibility.
  */
 function enqueue_dirty_user(PDO $db, int $userId, string $reason = ''): void
 {
-    try {
-        $db->prepare(
-            'INSERT INTO projection_dirty_queue
-                 (entity_type, entity_id, reason, enqueued_at, attempts, next_attempt_at)
-             VALUES (\'user\', ?, ?, NOW(), 0, NOW())
-             ON DUPLICATE KEY UPDATE
-                 reason          = VALUES(reason),
-                 enqueued_at     = NOW(),
-                 attempts        = 0,
-                 last_error      = NULL,
-                 next_attempt_at = NOW()'
-        )->execute([$userId, $reason]);
-        error_log(sprintf('[projection] enqueue user=%d  reason=%s', $userId, $reason));
-    } catch (Throwable $e) {
-        // Non-fatal: dirty-queue failure must never break the write path.
-        error_log(sprintf('[projection] enqueue_error user=%d  err=%s', $userId, $e->getMessage()));
-    }
+    enqueue_projection_dirty($db, 'user', $userId, $reason);
 }
 
 /**

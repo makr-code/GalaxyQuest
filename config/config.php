@@ -70,6 +70,8 @@ define('PROJECTION_OVERVIEW_MAX_AGE_SECONDS', (int) env_value('PROJECTION_OVERVI
 define('PROJECTION_BATCH_SIZE', (int) env_value('PROJECTION_BATCH_SIZE', 50));
 // Projector worker: base retry delay (seconds) after a failed projection attempt.
 define('PROJECTION_RETRY_BACKOFF_SECONDS', (int) env_value('PROJECTION_RETRY_BACKOFF_SECONDS', 30));
+// Projector worker: max processing attempts before a queue entry is promoted to dead-letter (status=failed).
+define('PROJECTION_MAX_ATTEMPTS', (int) env_value('PROJECTION_MAX_ATTEMPTS', 10));
 
 // Phase 2: System-Snapshot Projection for galaxy/stars range reads.
 // Feature flag: when enabled, action=stars prefers snapshot reads and falls back to live query.

@@ -106,8 +106,11 @@ final class ProjectionUserOverviewTest extends TestCase
             $log[0]['sql'],
             'Query must be an INSERT … ON DUPLICATE KEY.'
         );
-        $this->assertSame(42, $log[0]['params'][0], 'First param must be the user ID.');
-        $this->assertSame('fleet_sent', $log[0]['params'][1], 'Second param must be the reason.');
+        // enqueue_dirty_user() delegates to enqueue_projection_dirty() whose
+        // parameter order is: entity_type, entity_id, event_type, reason, payload_json.
+        $this->assertSame('user', $log[0]['params'][0], 'First param must be entity_type=user.');
+        $this->assertSame(42, $log[0]['params'][1], 'Second param must be the user ID.');
+        $this->assertSame('fleet_sent', $log[0]['params'][3], 'Fourth param must be the reason.');
     }
 
     public function testEnqueueDirtyUserSilentlyHandlesDbError(): void
