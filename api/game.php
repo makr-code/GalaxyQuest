@@ -16,6 +16,7 @@ require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/buildings.php';   // verify_colony_ownership
 require_once __DIR__ . '/galaxy_seed.php';
+require_once __DIR__ . '/projection.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -26,396 +27,31 @@ switch ($action) {
     case 'overview':
         only_method('GET');
         $db = get_db();
+
+        // ── Projection read path (feature-flag guarded) ───────────────────────
+        if (defined('PROJECTION_OVERVIEW_ENABLED') && PROJECTION_OVERVIEW_ENABLED) {
+            $projPayload = read_user_overview_projection($db, $uid);
+            if (is_array($projPayload)) {
+                json_ok($projPayload);
+            }
+            // Projection miss → fall through to live computation below.
+        }
+
         $overviewCacheKey = ['uid' => $uid];
         $cachedOverview = gq_cache_get('game_overview', $overviewCacheKey);
         if (is_array($cachedOverview) && isset($cachedOverview['user_meta'])) {
             json_ok($cachedOverview);
         }
 
-        $offlineBeforeStmt = $db->prepare(
-            'SELECT id, name, last_update, metal, crystal, deuterium, rare_earth, food, population,
-                    energy, max_population, happiness, public_services
-             FROM colonies WHERE user_id = ? ORDER BY id ASC'
-        );
-        $offlineBeforeStmt->execute([$uid]);
-        $offlineBeforeRows = $offlineBeforeStmt->fetchAll();
-        $offlineBeforeById = [];
-        foreach ($offlineBeforeRows as $row) {
-            $offlineBeforeById[(int)$row['id']] = $row;
-        }
+        $payload = build_live_overview_payload($db, $uid, true);
 
-        update_all_colonies($db, $uid);
-
-        $offlineAfterStmt = $db->prepare(
-            'SELECT id, name, last_update, metal, crystal, deuterium, rare_earth, food, population,
-                    energy, max_population, happiness, public_services
-             FROM colonies WHERE user_id = ? ORDER BY id ASC'
-        );
-        $offlineAfterStmt->execute([$uid]);
-        $offlineAfterRows = $offlineAfterStmt->fetchAll();
-
-        $offlineEntries = [];
-        $offlineTotals = [
-            'metal' => 0.0,
-            'crystal' => 0.0,
-            'deuterium' => 0.0,
-            'rare_earth' => 0.0,
-            'food' => 0.0,
-            'population' => 0,
-        ];
-        $offlineMaxElapsed = 0;
-        $offlineRateTotals = [
-            'metal' => 0.0,
-            'crystal' => 0.0,
-            'deuterium' => 0.0,
-            'rare_earth' => 0.0,
-            'food' => 0.0,
-            'population' => 0.0,
-        ];
-        $economyStatusTotals = [
-            'stable' => 0,
-            'watch' => 0,
-            'strain' => 0,
-        ];
-        $riskThresholds = [
-            'food_rate_watch' => -12.0,
-            'food_rate_strain' => -28.0,
-            'food_per_capita_watch' => 1.35,
-            'food_per_capita_strain' => 0.95,
-            'energy_watch' => -8.0,
-            'energy_strain' => -22.0,
-            'welfare_watch' => 50.0,
-            'welfare_strain' => 38.0,
-        ];
-        $topRisks = [];
-        $economyAverages = [
-            'happiness_sum' => 0.0,
-            'services_sum' => 0.0,
-            'welfare_sum' => 0.0,
-            'count' => 0,
-        ];
-        foreach ($offlineAfterRows as $after) {
-            $cid = (int)$after['id'];
-            $before = $offlineBeforeById[$cid] ?? null;
-            if (!$before) {
-                continue;
-            }
-            $beforeTs = strtotime((string)($before['last_update'] ?? ''));
-            $elapsed = is_int($beforeTs) ? max(0, time() - $beforeTs) : 0;
-            if ($elapsed <= 0) {
-                continue;
-            }
-
-            $deltaMetal = (float)$after['metal'] - (float)$before['metal'];
-            $deltaCrystal = (float)$after['crystal'] - (float)$before['crystal'];
-            $deltaDeut = (float)$after['deuterium'] - (float)$before['deuterium'];
-            $deltaRare = (float)$after['rare_earth'] - (float)$before['rare_earth'];
-            $deltaFood = (float)$after['food'] - (float)$before['food'];
-            $deltaPopulation = (int)$after['population'] - (int)$before['population'];
-            $hourFactor = $elapsed > 0 ? (3600 / $elapsed) : 0;
-            $riskHourFactor = 3600 / max(1200, $elapsed);
-
-            $rateMetal = $deltaMetal * $hourFactor;
-            $rateCrystal = $deltaCrystal * $hourFactor;
-            $rateDeut = $deltaDeut * $hourFactor;
-            $rateRare = $deltaRare * $hourFactor;
-            $rateFood = $deltaFood * $hourFactor;
-            $ratePopulation = $deltaPopulation * $hourFactor;
-            $riskRateFood = $deltaFood * $riskHourFactor;
-
-            $populationNow = max(1, (int)($after['population'] ?? 0));
-            $foodNow = (float)($after['food'] ?? 0);
-            $energyNow = (float)($after['energy'] ?? 0);
-            $happinessNow = (float)($after['happiness'] ?? 0);
-            $servicesNow = (float)($after['public_services'] ?? 0);
-            $foodPerCapita = $foodNow / $populationNow;
-            $welfare = ($happinessNow + $servicesNow) / 2;
-
-            $riskFlags = [];
-            $riskScore = 0;
-            if ($riskRateFood <= $riskThresholds['food_rate_strain']) {
-                $riskFlags[] = 'food_decline';
-                $riskScore += 3;
-            } elseif ($riskRateFood <= $riskThresholds['food_rate_watch']) {
-                $riskFlags[] = 'food_decline';
-                $riskScore += 1;
-            }
-            if ($foodPerCapita <= $riskThresholds['food_per_capita_strain']) {
-                $riskFlags[] = 'low_food_buffer';
-                $riskScore += 3;
-            } elseif ($foodPerCapita <= $riskThresholds['food_per_capita_watch']) {
-                $riskFlags[] = 'low_food_buffer';
-                $riskScore += 1;
-            }
-            if ($energyNow <= $riskThresholds['energy_strain']) {
-                $riskFlags[] = 'energy_deficit';
-                $riskScore += 3;
-            } elseif ($energyNow <= $riskThresholds['energy_watch']) {
-                $riskFlags[] = 'energy_deficit';
-                $riskScore += 1;
-            }
-            if ($welfare <= $riskThresholds['welfare_strain']) {
-                $riskFlags[] = 'low_welfare';
-                $riskScore += 3;
-            } elseif ($welfare <= $riskThresholds['welfare_watch']) {
-                $riskFlags[] = 'low_welfare';
-                $riskScore += 1;
-            }
-
-            $statusCode = 'stable';
-            if ($riskScore >= 5) {
-                $statusCode = 'strain';
-            } elseif ($riskScore >= 1) {
-                $statusCode = 'watch';
-            }
-            $statusLabel = $statusCode === 'stable'
-                ? 'Stable'
-                : ($statusCode === 'strain' ? 'Strained' : 'Watch');
-
-            $offlineTotals['metal'] += $deltaMetal;
-            $offlineTotals['crystal'] += $deltaCrystal;
-            $offlineTotals['deuterium'] += $deltaDeut;
-            $offlineTotals['rare_earth'] += $deltaRare;
-            $offlineTotals['food'] += $deltaFood;
-            $offlineTotals['population'] += $deltaPopulation;
-            $offlineMaxElapsed = max($offlineMaxElapsed, $elapsed);
-            $offlineRateTotals['metal'] += $rateMetal;
-            $offlineRateTotals['crystal'] += $rateCrystal;
-            $offlineRateTotals['deuterium'] += $rateDeut;
-            $offlineRateTotals['rare_earth'] += $rateRare;
-            $offlineRateTotals['food'] += $rateFood;
-            $offlineRateTotals['population'] += $ratePopulation;
-            $economyStatusTotals[$statusCode] += 1;
-            $economyAverages['happiness_sum'] += $happinessNow;
-            $economyAverages['services_sum'] += $servicesNow;
-            $economyAverages['welfare_sum'] += $welfare;
-            $economyAverages['count'] += 1;
-            if ($riskScore > 0) {
-                $topRisks[] = [
-                    'colony_id' => $cid,
-                    'colony_name' => (string)($after['name'] ?? $before['name'] ?? ('Colony #' . $cid)),
-                    'status' => $statusCode,
-                    'risk_score' => $riskScore,
-                    'risk_flags' => $riskFlags,
-                    'welfare' => round($welfare, 1),
-                    'food_per_capita' => round($foodPerCapita, 2),
-                    'energy' => round($energyNow, 2),
-                    'food_rate_per_hour' => round($riskRateFood, 2),
-                ];
-            }
-
-            $offlineEntries[] = [
-                'colony_id' => $cid,
-                'colony_name' => (string)($after['name'] ?? $before['name'] ?? ('Colony #' . $cid)),
-                'elapsed_seconds' => $elapsed,
-                'delta' => [
-                    'metal' => round($deltaMetal, 2),
-                    'crystal' => round($deltaCrystal, 2),
-                    'deuterium' => round($deltaDeut, 2),
-                    'rare_earth' => round($deltaRare, 2),
-                    'food' => round($deltaFood, 2),
-                    'population' => $deltaPopulation,
-                ],
-                'rates_per_hour' => [
-                    'metal' => round($rateMetal, 2),
-                    'crystal' => round($rateCrystal, 2),
-                    'deuterium' => round($rateDeut, 2),
-                    'rare_earth' => round($rateRare, 2),
-                    'food' => round($rateFood, 2),
-                    'population' => round($ratePopulation, 2),
-                ],
-                'status' => [
-                    'code' => $statusCode,
-                    'label' => $statusLabel,
-                    'risk_flags' => $riskFlags,
-                    'welfare' => round($welfare, 1),
-                    'food_per_capita' => round($foodPerCapita, 2),
-                    'energy' => round($energyNow, 2),
-                ],
-            ];
-        }
-
-        $avgCount = max(1, (int)$economyAverages['count']);
-        usort($topRisks, static function (array $a, array $b): int {
-            return ($b['risk_score'] <=> $a['risk_score'])
-                ?: (($a['welfare'] ?? 100) <=> ($b['welfare'] ?? 100));
-        });
-        $economySnapshot = [
-            'status_counts' => $economyStatusTotals,
-            'avg_happiness' => round($economyAverages['happiness_sum'] / $avgCount, 1),
-            'avg_public_services' => round($economyAverages['services_sum'] / $avgCount, 1),
-            'avg_welfare' => round($economyAverages['welfare_sum'] / $avgCount, 1),
-            'risk_thresholds' => $riskThresholds,
-            'top_risks' => array_slice($topRisks, 0, 4),
-            'net_rates_per_hour' => [
-                'metal' => round($offlineRateTotals['metal'], 2),
-                'crystal' => round($offlineRateTotals['crystal'], 2),
-                'deuterium' => round($offlineRateTotals['deuterium'], 2),
-                'rare_earth' => round($offlineRateTotals['rare_earth'], 2),
-                'food' => round($offlineRateTotals['food'], 2),
-                'population' => round($offlineRateTotals['population'], 2),
-            ],
-        ];
-
-        $offlineReport = [
-            'had_offline_time' => !empty($offlineEntries),
-            'max_elapsed_seconds' => $offlineMaxElapsed,
-            'totals' => [
-                'metal' => round($offlineTotals['metal'], 2),
-                'crystal' => round($offlineTotals['crystal'], 2),
-                'deuterium' => round($offlineTotals['deuterium'], 2),
-                'rare_earth' => round($offlineTotals['rare_earth'], 2),
-                'food' => round($offlineTotals['food'], 2),
-                'population' => (int)$offlineTotals['population'],
-            ],
-            'rates_per_hour' => $economySnapshot['net_rates_per_hour'],
-            'economy' => $economySnapshot,
-            'colonies' => $offlineEntries,
-        ];
-
-        check_and_update_achievements($db, $uid);
-        // NPC AI tick (rate-limited internally to once per 5 minutes)
-        require_once __DIR__ . '/npc_ai.php';
-        try { npc_ai_tick($db, $uid); } catch (Throwable $e) { error_log('npc_ai_tick error: ' . $e->getMessage()); }
-
-        $politicsRuntime = [
-            'effects' => empire_dynamic_effects($db, $uid),
-            'pressure_events' => apply_faction_pressure_situations($db, $uid),
-        ];
-
-        // User meta
-        $metaStmt = $db->prepare(
-            'SELECT dark_matter, rank_points, protection_until, vacation_mode, pvp_mode
-             FROM users WHERE id = ?'
-        );
-        $metaStmt->execute([$uid]);
-        $meta = $metaStmt->fetch();
-
-        $badgeStmt = $db->prepare(
-            'SELECT COUNT(*) FROM user_achievements
-             WHERE user_id = ? AND completed = 1 AND reward_claimed = 0'
-        );
-        $badgeStmt->execute([$uid]);
-        $meta['unclaimed_quests'] = (int)$badgeStmt->fetchColumn();
-
-        // Colonies with their planet data
-        $colStmt = $db->prepare(
-            'SELECT c.id, c.name, c.colony_type, c.metal, c.crystal, c.deuterium,
-                    c.rare_earth, c.food, c.energy, c.population, c.max_population,
-                    c.happiness, c.public_services, c.is_homeworld, c.last_update,
-                    p.id AS planet_id, p.galaxy, p.`system`, p.position,
-                    p.type AS planet_type, p.planet_class, p.diameter,
-                    p.temp_min, p.temp_max, p.in_habitable_zone, p.semi_major_axis_au,
-                    p.orbital_period_days, p.surface_gravity_g, p.atmosphere_type,
-                    p.richness_metal, p.richness_crystal, p.richness_deuterium, p.richness_rare_earth,
-                    p.deposit_metal, p.deposit_crystal, p.deposit_deuterium, p.deposit_rare_earth
-             FROM colonies c
-             JOIN planets p ON p.id = c.planet_id
-             WHERE c.user_id = ?
-             ORDER BY c.is_homeworld DESC, c.id ASC'
-        );
-        $colStmt->execute([$uid]);
-        $colonies = $colStmt->fetchAll();
-
-        // Assigned leaders per colony
-        $leadStmt = $db->prepare(
-            'SELECT id, colony_id, name, role, level, autonomy, last_action
-             FROM leaders WHERE user_id = ? AND colony_id IS NOT NULL'
-        );
-        $leadStmt->execute([$uid]);
-        $leadersByColony = [];
-        foreach ($leadStmt->fetchAll() as $l) {
-            $leadersByColony[(int)$l['colony_id']][] = $l;
-        }
-        foreach ($colonies as &$col) {
-            $col['layout'] = colony_layout_profile($col);
-            $col['leaders'] = $leadersByColony[(int)$col['id']] ?? [];
-        }
-        unset($col);
-
-        // Active planetary events per colony
-        $colonyEventsByColony = [];
-        try {
-            $ceStmt = $db->prepare(
-                'SELECT colony_id, event_type, started_at, expires_at
-                 FROM colony_events
-                 WHERE colony_id IN (SELECT id FROM colonies WHERE user_id = ?)
-                   AND expires_at > NOW()'
-            );
-            $ceStmt->execute([$uid]);
-            foreach ($ceStmt->fetchAll() as $ce) {
-                $expiry = strtotime($ce['expires_at']);
-                $colonyEventsByColony[(int)$ce['colony_id']] = [
-                    'type'       => $ce['event_type'],
-                    'started_at' => $ce['started_at'],
-                    'expires_at' => $ce['expires_at'],
-                    'ends_in_min' => max(0, (int)round(($expiry - time()) / 60)),
-                ];
-            }
-        } catch (Throwable $e) { /* pre-migration: no table */ }
-        foreach ($colonies as &$col) {
-            $col['active_event'] = $colonyEventsByColony[(int)$col['id']] ?? null;
-        }
-        unset($col);
-
-
-        $fleetStmt = $db->prepare(
-            'SELECT f.id, f.mission, f.origin_colony_id,
-                    f.target_galaxy, f.target_system, f.target_position,
-                    f.ships_json,
-                    f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
-                    f.origin_x_ly, f.origin_y_ly, f.origin_z_ly,
-                    f.target_x_ly, f.target_y_ly, f.target_z_ly,
-                    f.speed_ly_h, f.distance_ly,
-                    f.departure_time, f.arrival_time, f.return_time, f.returning,
-                    p.galaxy AS origin_galaxy, p.`system` AS origin_system, p.position AS origin_position
-             FROM fleets f
-             JOIN colonies c ON c.id = f.origin_colony_id
-             JOIN planets  p ON p.id = c.planet_id
-             WHERE f.user_id = ? ORDER BY f.arrival_time ASC'
-        );
-        $fleetStmt->execute([$uid]);
-        $fleets = [];
-        foreach ($fleetStmt->fetchAll() as $f) {
-            $ships = json_decode((string)$f['ships_json'], true);
-            $f['ships'] = is_array($ships) ? $ships : [];
-            $f['vessels'] = vessel_manifest($f['ships']);
-            unset($f['ships_json']);
-            $f['current_pos'] = fleet_current_position($f);
-            $fleets[] = $f;
-        }
-
-        // Unread messages
-        $unreadStmt = $db->prepare('SELECT COUNT(*) FROM messages WHERE receiver_id=? AND is_read=0');
-        $unreadStmt->execute([$uid]);
-
-        // Recent battle reports (last 5)
-        $battleStmt = $db->prepare(
-            'SELECT br.id, br.created_at, br.report_json,
-                    u.username AS defender_name
-             FROM battle_reports br
-             JOIN users u ON u.id = br.defender_id
-             WHERE br.attacker_id = ?
-             ORDER BY br.created_at DESC LIMIT 5'
-        );
-        $battleStmt->execute([$uid]);
-        $battles = [];
-        foreach ($battleStmt->fetchAll() as $b) {
-            $b['report'] = json_decode($b['report_json'], true);
-            unset($b['report_json']);
-            $battles[] = $b;
-        }
-
-        $payload = [
-            'user_meta'   => $meta,
-            'offline_progress' => $offlineReport,
-            'politics' => $politicsRuntime,
-            'colonies'    => $colonies,
-            'fleets'      => $fleets,
-            'battles'     => $battles,
-            'unread_msgs' => (int)$unreadStmt->fetchColumn(),
-        ];
         gq_cache_set('game_overview', $overviewCacheKey, $payload, CACHE_TTL_OVERVIEW);
+
+        // Write fresh projection so the next request can be served from it.
+        if (defined('PROJECTION_OVERVIEW_ENABLED') && PROJECTION_OVERVIEW_ENABLED) {
+            write_user_overview_projection($db, $uid, $payload);
+        }
+
         json_ok($payload);
         break;
 
@@ -558,6 +194,7 @@ switch ($action) {
         $db->prepare('UPDATE colonies SET name=? WHERE id=?')->execute([$name, $cid]);
         gq_cache_delete('game_overview', ['uid' => $uid]);
         gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $cid]);
+        enqueue_dirty_user($db, $uid, 'colony_renamed');
         json_ok(['name' => $name]);
         break;
 
@@ -574,6 +211,7 @@ switch ($action) {
         verify_colony_ownership($db, $cid, $uid);
         $db->prepare('UPDATE colonies SET colony_type=? WHERE id=?')->execute([$type, $cid]);
         gq_cache_delete('game_overview', ['uid' => $uid]);
+        enqueue_dirty_user($db, $uid, 'colony_type_changed');
         json_ok(['colony_type' => $type]);
         break;
 
@@ -591,6 +229,7 @@ switch ($action) {
         $new = $u['pvp_mode'] ? 0 : 1;
         $db->prepare('UPDATE users SET pvp_mode=? WHERE id=?')->execute([$new, $uid]);
         gq_cache_delete('game_overview', ['uid' => $uid]);
+        enqueue_dirty_user($db, $uid, 'pvp_toggled');
         json_ok(['pvp_mode' => $new]);
         break;
 
@@ -651,6 +290,7 @@ switch ($action) {
            ->execute([$drive, $uid]);
         gq_cache_delete('game_overview', ['uid' => $uid]);
         $dmSpent = $isInitial ? 0 : $CHANGE_COST;
+        enqueue_dirty_user($db, $uid, 'ftl_drive_changed');
         json_ok([
             'ftl_drive_type' => $drive,
             'dm_spent'       => $dmSpent,
