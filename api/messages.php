@@ -7,6 +7,7 @@
  * POST /api/messages.php?action=delete body: {id}
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/projection.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -95,6 +96,7 @@ switch ($action) {
             'INSERT INTO messages (sender_id, receiver_id, subject, body) VALUES (?, ?, ?, ?)'
         )->execute([$uid, $receiver['id'], $subject, $msgBody]);
 
+        enqueue_dirty_user($db, (int)$receiver['id'], 'message_received');
         json_ok(['message_id' => (int)$db->lastInsertId()]);
         break;
 
