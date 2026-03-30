@@ -19,7 +19,11 @@ CREATE TABLE IF NOT EXISTS users (
     is_npc TINYINT(1) NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login DATETIME,
-    last_npc_tick DATETIME DEFAULT NULL
+    last_npc_tick DATETIME DEFAULT NULL,
+    ftl_drive_type VARCHAR(30) NOT NULL DEFAULT 'aereth'
+        COMMENT 'Faction FTL drive: aereth|vor_tak|syl_nar|vel_ar|zhareen|kryl_tha',
+    ftl_cooldown_until DATETIME DEFAULT NULL
+        COMMENT 'FTL drive cooldown expiry (Vor''Tak K-F recharge)'
 ) ENGINE=InnoDB;
 
 -- Generated character dossier + portrait asset references (UID-linked)
@@ -267,7 +271,7 @@ CREATE TABLE IF NOT EXISTS fleets (
     target_galaxy INT NOT NULL,
     target_system INT NOT NULL,
     target_position INT NOT NULL,
-    mission ENUM('attack','transport','colonize','harvest','spy','recall') NOT NULL DEFAULT 'transport',
+    mission ENUM('attack','transport','colonize','harvest','spy','recall','survey') NOT NULL DEFAULT 'transport',
     ships_json TEXT NOT NULL,
     cargo_metal DECIMAL(20,4) NOT NULL DEFAULT 0,
     cargo_crystal DECIMAL(20,4) NOT NULL DEFAULT 0,
@@ -310,6 +314,36 @@ CREATE TABLE IF NOT EXISTS user_wormhole_unlocks (
     source_quest_code VARCHAR(64) DEFAULT NULL,
     unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- FTL Drive: Syl'Nar gate network (buildable FTL infrastructure)
+CREATE TABLE IF NOT EXISTS ftl_gates (
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    owner_user_id INT NOT NULL,
+    galaxy_a      INT NOT NULL,
+    system_a      INT NOT NULL,
+    galaxy_b      INT NOT NULL,
+    system_b      INT NOT NULL,
+    is_active     TINYINT(1) NOT NULL DEFAULT 1,
+    health        INT NOT NULL DEFAULT 100
+                  COMMENT 'Gate health 0–100; destroyed at 0',
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_gates_a (galaxy_a, system_a),
+    INDEX idx_gates_b (galaxy_b, system_b)
+) ENGINE=InnoDB;
+
+-- FTL Drive: Zhareen resonance node registry (charted via survey mission)
+CREATE TABLE IF NOT EXISTS ftl_resonance_nodes (
+    id             INT AUTO_INCREMENT PRIMARY KEY,
+    owner_user_id  INT NOT NULL,
+    galaxy         INT NOT NULL,
+    `system`       INT NOT NULL,
+    discovered_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    cooldown_until DATETIME DEFAULT NULL
+                   COMMENT '30-min cooldown per node after use',
+    FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uniq_node (owner_user_id, galaxy, `system`)
 ) ENGINE=InnoDB;
 
 -- Leaders / Officers

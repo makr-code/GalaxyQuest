@@ -1261,6 +1261,7 @@ const API = (() => {
     fleets:     ()        => get('api/fleet.php?action=list'),
     sendFleet:  (payload) => post('api/fleet.php?action=send', payload),
     wormholes: (originColonyId) => get(`api/fleet.php?action=wormholes&origin_colony_id=${originColonyId}`),
+    ftlStatus:  ()        => get('api/fleet.php?action=ftl_status'),
     recallFleet:(id)      => post('api/fleet.php?action=recall', { fleet_id: id }),
     simulateBattle: (payload) => post('api/fleet.php?action=simulate_battle', payload),
     matchupScan: (payload) => post('api/fleet.php?action=matchup_scan', payload),

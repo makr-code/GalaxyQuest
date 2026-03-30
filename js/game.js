@@ -3488,6 +3488,7 @@
             <label><input type="radio" name="mission" value="spy" /> 🔭 Spy on colony</label>
             <label><input type="radio" name="mission" value="colonize" /> 🌍 Colonize planet</label>
             <label><input type="radio" name="mission" value="harvest" /> ⛏ Harvest deposits</label>
+            <label><input type="radio" name="mission" value="survey" /> 🗺️ Survey system (FTL node)</label>
           </div>
 
           <h3>3. Target Coordinates</h3>
@@ -3504,6 +3505,8 @@
             </label>
           </div>
 
+          <div id="fleet-ftl-status" style="margin-top:0.4rem;padding:0.4rem 0.6rem;border-radius:4px;background:rgba(0,0,0,0.15);font-size:0.82rem;"></div>
+
           <h3>4. Cargo (optional)</h3>
           <div class="cargo-inputs">
             <label>Metal    <input type="number" id="f-cargo-metal"   min="0" value="0" /></label>
@@ -3518,9 +3521,10 @@
         </form>`;
 
       try {
-        const [data, wormholeData] = await Promise.all([
+        const [data, wormholeData, ftlData] = await Promise.all([
           API.ships(currentColony.id),
           API.wormholes(currentColony.id).catch(() => ({ success: false, wormholes: [], wormhole_theory_level: 0, can_jump: false })),
+          API.ftlStatus().catch(() => null),
         ]);
         const shipEl = root.querySelector('#fleet-ship-select-wm');
         const wormholeEl = root.querySelector('#fleet-wormhole-info');
@@ -3543,6 +3547,48 @@
             : `Wormhole Theory Lv5 required (current Lv${level}).`;
           wormholeEl.insertAdjacentHTML('beforeend', `<div class="text-muted small" style="margin-top:0.2rem;">${esc(reason)}</div>`);
         }
+
+        // ── FTL drive status panel ────────────────────────────────────────────
+        const ftlEl = root.querySelector('#fleet-ftl-status');
+        if (ftlEl && ftlData?.success) {
+          const driveLabels = {
+            vor_tak:  "⚔️ Vor'Tak — K-F Jump Drive",
+            syl_nar:  "🐙 Syl'Nar — Resonance Gate Network",
+            vel_ar:   "🦅 Vel'Ar — Blind Quantum Jump",
+            zhareen:  "💎 Zhareen — Crystal Resonance Channel",
+            aereth:   "✦ Aereth — Alcubierre Warp",
+            kryl_tha: "🪲 Kryl'Tha — Swarm Tunnel",
+          };
+          const driveType = ftlData.ftl_drive_type || 'aereth';
+          const driveLabel = driveLabels[driveType] || driveType;
+          const ready = !!ftlData.ftl_ready;
+          const cooldownSec = Number(ftlData.ftl_cooldown_remaining_s || 0);
+          const cooldownStr = cooldownSec > 0
+            ? `Recharging: ${Math.floor(cooldownSec/3600)}h ${Math.floor((cooldownSec%3600)/60)}m remaining`
+            : '✅ Ready';
+
+          let extraInfo = '';
+          if (driveType === 'syl_nar') {
+            const gateCount = Array.isArray(ftlData.gates) ? ftlData.gates.filter((g) => g.is_active && g.health > 0).length : 0;
+            extraInfo = ` · ${gateCount} gate(s) active`;
+          } else if (driveType === 'zhareen') {
+            const nodeCount = Array.isArray(ftlData.resonance_nodes) ? ftlData.resonance_nodes.length : 0;
+            extraInfo = ` · ${nodeCount} node(s) charted`;
+          } else if (driveType === 'aereth') {
+            extraInfo = ' · Core bonus: +50% speed in galaxies ≤3, −30% in galaxies ≥7';
+          } else if (driveType === 'kryl_tha') {
+            extraInfo = ' · Max 50 ships per FTL jump';
+          } else if (driveType === 'vel_ar') {
+            extraInfo = ' · Arrival scatter: 0.5% of distance · 60s stealth on landing';
+          }
+
+          ftlEl.innerHTML = `<span style="color:#88ccff;font-weight:600;">${esc(driveLabel)}</span>`
+            + ` <span style="color:${ready ? '#88ff88' : '#ffcc44'}">${esc(cooldownStr)}</span>`
+            + `<span style="color:#aaa">${esc(extraInfo)}</span>`;
+        } else if (ftlEl) {
+          ftlEl.innerHTML = '';
+        }
+        // ── end FTL panel ──────────────────────────────────────────────────────
 
         const avail = [...(data.ships || []), ...(data.blueprints || [])].filter((ship) => Number(ship.count || 0) > 0);
         if (!avail.length) {
