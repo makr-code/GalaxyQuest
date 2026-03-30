@@ -76,6 +76,9 @@ const { ParticleEmitter, EmitterMode }           = require('./fx/ParticleEmitter
 const { ParticleSystem, DEFAULT_MAX_PARTICLES }  = require('./fx/ParticleSystem');
 const { CombatFX, WeaponType, ExplosionType, ShieldImpactType } = require('./fx/CombatFX');
 
+// Environment FX — debris, plasma clouds, nebulae, god rays, lens flares, EMP, etc.
+const { EnvironmentFX, DebrisType, CloudType, LightingFXType } = require('./fx/EnvironmentFX');
+
 // Game systems (classics-inspired)
 const { EventSystem, EventType, EventStatus, Journal, JournalStatus } = require('./game/EventSystem');
 const { ResearchTree, ResearchCategory, CivAffinity }      = require('./game/ResearchTree');
@@ -121,6 +124,8 @@ module.exports = {
   ParticleEmitter, EmitterMode,
   ParticleSystem, DEFAULT_MAX_PARTICLES,
   CombatFX, WeaponType, ExplosionType, ShieldImpactType,
+  // Environment FX
+  EnvironmentFX, DebrisType, CloudType, LightingFXType,
   // Constants
   ...constants,
 };
