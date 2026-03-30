@@ -1148,6 +1148,8 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     )->execute([$retTime, $retTime, $lootM, $lootC, $lootD, json_encode($atkSurvivors), $fleet['id']]);
     enqueue_dirty_user($db, (int)$fleet['user_id'], 'battle_resolved');
     enqueue_dirty_user($db, (int)$target['user_id'], 'colony_attacked');
+    // Phase 2: invalidate system snapshot for the battle target system.
+    enqueue_dirty_system($db, (int)$fleet['target_galaxy'], (int)$fleet['target_system'], 'battle_resolved');
 }
 
 function simulate_battle_preview(PDO $db, int $uid, array $body): never {
@@ -2010,6 +2012,8 @@ function colonize_planet(PDO $db, array $fleet, array $ships): void {
         check_and_update_achievements($db, (int)$fleet['user_id']);
         // FoW: permanent own-visibility for newly colonised system
         touch_system_visibility($db, (int)$fleet['user_id'], (int)$fleet['target_galaxy'], (int)$fleet['target_system'], 'own', null, null);
+        // Phase 2: invalidate system snapshot so the projector rebuilds it.
+        enqueue_dirty_system($db, (int)$fleet['target_galaxy'], (int)$fleet['target_system'], 'colony_established');
     }
 
     // Return without colony ship

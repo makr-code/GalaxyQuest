@@ -19,6 +19,7 @@ require_once __DIR__ . '/compression-v3.php';
 require_once __DIR__ . '/galaxy_gen.php';
 require_once __DIR__ . '/galaxy_seed.php';
 require_once __DIR__ . '/game_engine.php';
+require_once __DIR__ . '/projection.php';
 
 only_method('GET');
 
@@ -272,6 +273,10 @@ if ($action === 'stars') {
     $servedTo = $to;
     $servedStride = $stride;
     $cacheMode = $stars !== null ? 'exact' : 'miss';
+    // Snapshot observability counters (Phase 2).
+    $snapshotEnabled = defined('PROJECTION_GALAXY_STARS_ENABLED') && PROJECTION_GALAXY_STARS_ENABLED;
+    $snapshotHits    = 0;
+    $snapshotMisses  = 0;
     $overlapPolicyRaw = strtolower((string)(defined('CACHE_STARS_OVERLAP_POLICY') ? CACHE_STARS_OVERLAP_POLICY : 'smallest_superset'));
     $overlapPolicy = in_array($overlapPolicyRaw, ['smallest_superset', 'max_overlap'], true)
         ? $overlapPolicyRaw
@@ -339,6 +344,29 @@ if ($action === 'stars') {
                 $cacheMode = 'overlap';
             }
         }
+    }
+
+    // ── Snapshot read-path (Phase 2) ──────────────────────────────────────────
+    // When PROJECTION_GALAXY_STARS_ENABLED=true and the chunk cache missed,
+    // try loading pre-computed system snapshots for the range.  Snapshots that
+    // are absent or stale fall through to the live DB query below.
+
+    if ($stars === null && $snapshotEnabled) {
+        $snapshots = read_system_snapshot_range($db, $g, $from, $to, $stride);
+        $expectedCount = 0;
+        for ($si = $from; $si <= $to; $si += $stride) {
+            $expectedCount++;
+        }
+        $snapshotHits   = count($snapshots);
+        $snapshotMisses = $expectedCount - $snapshotHits;
+
+        if ($snapshotHits > 0 && $snapshotMisses === 0) {
+            // Full snapshot hit: all systems served from snapshots.
+            $stars = array_values($snapshots);
+            usort($stars, static fn($a, $b) => (int)$a['system_index'] <=> (int)$b['system_index']);
+            $cacheMode = 'snapshot';
+        }
+        // Partial hit: fall through to live query (simpler, avoids partial-merge complexity).
     }
 
     if ($stars === null) {
@@ -578,6 +606,14 @@ if ($action === 'stars') {
                 'to' => $prefetchAfterTo,
             ],
         ],
+        'snapshot' => $snapshotEnabled ? [
+            'enabled'    => true,
+            'hits'       => $snapshotHits,
+            'misses'     => $snapshotMisses,
+            'hit_rate'   => ($snapshotHits + $snapshotMisses) > 0
+                ? round($snapshotHits / ($snapshotHits + $snapshotMisses), 4)
+                : null,
+        ] : ['enabled' => false],
         'count' => count($stars),
         'server_ts' => gmdate('c'),
         'server_ts_ms' => (int)round(microtime(true) * 1000),
