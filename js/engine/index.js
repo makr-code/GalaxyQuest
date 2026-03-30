@@ -71,6 +71,11 @@ const { CameraManager }             = require('./scene/CameraManager');
 // Viewport
 const { ViewportManager, PIP_DEFAULTS } = require('./ViewportManager');
 
+// Combat FX — particles, dynamic lights, weapon fire, explosions, shield impacts
+const { ParticleEmitter, EmitterMode }           = require('./fx/ParticleEmitter');
+const { ParticleSystem, DEFAULT_MAX_PARTICLES }  = require('./fx/ParticleSystem');
+const { CombatFX, WeaponType, ExplosionType, ShieldImpactType } = require('./fx/CombatFX');
+
 // Game systems (classics-inspired)
 const { EventSystem, EventType, EventStatus, Journal, JournalStatus } = require('./game/EventSystem');
 const { ResearchTree, ResearchCategory, CivAffinity }      = require('./game/ResearchTree');
@@ -112,6 +117,10 @@ module.exports = {
   ResearchTree, ResearchCategory, CivAffinity,
   FleetFormation, Wing, FormationShape, Maneuver, getSlotPositions,
   ColonySimulation, Colony, PopJob, BASE_YIELD, ColonyType, COLONY_TYPE_BONUS,
+  // Combat FX
+  ParticleEmitter, EmitterMode,
+  ParticleSystem, DEFAULT_MAX_PARTICLES,
+  CombatFX, WeaponType, ExplosionType, ShieldImpactType,
   // Constants
   ...constants,
 };
