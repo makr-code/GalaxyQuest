@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { FollowCamera, FollowMode }  from '../../js/engine/scene/FollowCamera.js';
 import { CameraManager }             from '../../js/engine/scene/CameraManager.js';
-import { ViewportManager }           from '../../js/engine/ViewportManager.js';
+import { ViewportManager, PIP_DEFAULTS } from '../../js/engine/ViewportManager.js';
 import { PerspectiveCamera }         from '../../js/engine/scene/Camera.js';
 
 // ---------------------------------------------------------------------------
@@ -251,8 +251,248 @@ describe('CameraManager', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ViewportManager (DOM-less unit tests using mocked container)
+// ViewportManager — GPU sub-pass rendering
 // ---------------------------------------------------------------------------
+
+describe('ViewportManager — GPU subpass', () => {
+  const HEADER_H = PIP_DEFAULTS.headerHeight;
+
+  /** Build a minimal mock WebGPU renderer with spy-able GPU objects. */
+  function makeWebGPURenderer(canvasW = 800, canvasH = 600) {
+    const pass = {
+      setViewport:    vi.fn(),
+      setScissorRect: vi.fn(),
+      setPipeline:    vi.fn(),
+      setVertexBuffer: vi.fn(),
+      setIndexBuffer:  vi.fn(),
+      draw:            vi.fn(),
+      drawIndexed:     vi.fn(),
+      end:             vi.fn(),
+    };
+    const encoder = {
+      beginRenderPass: vi.fn(() => pass),
+      finish:          vi.fn(() => ({})),
+    };
+    const texture = { createView: vi.fn(() => ({})) };
+    const queue   = { submit: vi.fn() };
+
+    return {
+      device:   { createCommandEncoder: vi.fn(() => encoder), queue },
+      ready:    true,
+      context:  { getCurrentTexture: vi.fn(() => texture) },
+      _depthTexture: null,
+      canvas:   { width: canvasW, height: canvasH },
+      uploadMesh:           vi.fn(),
+      createRenderPipeline: vi.fn(),
+      getCapabilities:      () => ({ webgpu: true }),
+      // Expose internals for assertion
+      _mockPass:    pass,
+      _mockEncoder: encoder,
+    };
+  }
+
+  function makeVPMgpu(canvasW = 800, canvasH = 600) {
+    const mainCanvas = { width: canvasW, height: canvasH, parentElement: null };
+    const renderer   = makeWebGPURenderer(canvasW, canvasH);
+    const cameras    = makeDomlessCameraManager();
+    const vpm        = new ViewportManager(mainCanvas, renderer, cameras);
+    vpm._container = { appendChild: vi.fn(), remove: vi.fn() };
+    vpm._attached  = true;
+    cameras.add('gpu-cam', new FollowCamera({ name: 'GPU Test' }));
+    return { vpm, cameras, renderer };
+  }
+
+  function makeEntry(overrides = {}) {
+    return {
+      x: 10, y: 10, w: 200, h: 150,
+      enabled: true,
+      name: 'gpu-cam',
+      camera: null,
+      root: { classList: { contains: () => false, add: vi.fn() } },
+      canvas: {},
+      ...overrides,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // _isWebGPUReady
+  // -------------------------------------------------------------------------
+
+  it('_isWebGPUReady() returns true when renderer has device+ready+context', () => {
+    const { vpm } = makeVPMgpu();
+    expect(vpm._isWebGPUReady()).toBe(true);
+  });
+
+  it('_isWebGPUReady() returns false for a plain non-WebGPU mock renderer', () => {
+    const mainCanvas = { width: 800, height: 600, parentElement: null };
+    const vpm = new ViewportManager(mainCanvas, makeMockRenderer(), makeDomlessCameraManager());
+    expect(vpm._isWebGPUReady()).toBe(false);
+  });
+
+  it('_isWebGPUReady() returns false when renderer.ready is false', () => {
+    const { vpm, renderer } = makeVPMgpu();
+    renderer.ready = false;
+    expect(vpm._isWebGPUReady()).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // _toDeviceRect
+  // -------------------------------------------------------------------------
+
+  it('_toDeviceRect() converts CSS px to device px (dpr=1, no clamp)', () => {
+    const { vpm } = makeVPMgpu(800, 600);
+    const entry = { x: 10, y: 10, w: 200, h: 150 };
+    const rect  = vpm._toDeviceRect(entry);
+    expect(rect.x).toBe(10);
+    expect(rect.y).toBe(10 + HEADER_H);
+    expect(rect.w).toBe(200);
+    expect(rect.h).toBe(150 - HEADER_H);
+    expect(rect.valid).toBe(true);
+  });
+
+  it('_toDeviceRect() clamps width when viewport overflows canvas right edge', () => {
+    const { vpm } = makeVPMgpu(100, 100);
+    const entry = { x: 80, y: 0, w: 200, h: 100 };
+    const rect  = vpm._toDeviceRect(entry);
+    expect(rect.w).toBeLessThanOrEqual(100 - 80);
+    expect(rect.valid).toBe(true);
+  });
+
+  it('_toDeviceRect() returns valid=false when viewport is fully outside canvas', () => {
+    const { vpm } = makeVPMgpu(100, 100);
+    const entry = { x: 200, y: 200, w: 100, h: 60 };
+    const rect  = vpm._toDeviceRect(entry);
+    expect(rect.valid).toBe(false);
+  });
+
+  it('_toDeviceRect() returns valid=false when content height is zero (entry.h === HEADER_H)', () => {
+    const { vpm } = makeVPMgpu(800, 600);
+    const entry = { x: 0, y: 0, w: 100, h: HEADER_H };
+    const rect  = vpm._toDeviceRect(entry);
+    expect(rect.valid).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // _renderPip dispatch
+  // -------------------------------------------------------------------------
+
+  it('_renderPip() calls _renderPipGPU when WebGPU is ready', () => {
+    const { vpm } = makeVPMgpu();
+    const gpuSpy    = vi.spyOn(vpm, '_renderPipGPU').mockImplementation(() => {});
+    const canvasSpy = vi.spyOn(vpm, '_renderPipCanvas').mockImplementation(() => {});
+    vpm._renderPip(makeEntry(), null);
+    expect(gpuSpy).toHaveBeenCalledOnce();
+    expect(canvasSpy).not.toHaveBeenCalled();
+  });
+
+  it('_renderPip() falls back to _renderPipCanvas when no GPU', () => {
+    const mainCanvas = { width: 800, height: 600, parentElement: null };
+    const vpm = new ViewportManager(mainCanvas, makeMockRenderer(), makeDomlessCameraManager());
+    const canvasSpy = vi.spyOn(vpm, '_renderPipCanvas').mockImplementation(() => {});
+    vpm._renderPip(makeEntry(), null);
+    expect(canvasSpy).toHaveBeenCalledOnce();
+  });
+
+  // -------------------------------------------------------------------------
+  // _renderPipGPU
+  // -------------------------------------------------------------------------
+
+  it('_renderPipGPU() creates a command encoder and submits to the GPU queue', () => {
+    const { vpm, renderer } = makeVPMgpu(800, 600);
+    const mockScene = { update: vi.fn(() => []) };
+    vpm._renderPipGPU(makeEntry(), mockScene);
+    expect(renderer.device.createCommandEncoder).toHaveBeenCalled();
+    expect(renderer.device.queue.submit).toHaveBeenCalled();
+  });
+
+  it('_renderPipGPU() sets viewport and scissorRect on the render-pass encoder', () => {
+    const { vpm, renderer } = makeVPMgpu(800, 600);
+    const mockScene = { update: vi.fn(() => []) };
+    vpm._renderPipGPU(makeEntry(), mockScene);
+    expect(renderer._mockPass.setViewport).toHaveBeenCalled();
+    expect(renderer._mockPass.setScissorRect).toHaveBeenCalled();
+  });
+
+  it('_renderPipGPU() uses loadOp:"load" to preserve main-scene content', () => {
+    const { vpm, renderer } = makeVPMgpu(800, 600);
+    const mockScene = { update: vi.fn(() => []) };
+    vpm._renderPipGPU(makeEntry(), mockScene);
+    const passDesc = renderer._mockEncoder.beginRenderPass.mock.calls[0][0];
+    expect(passDesc.colorAttachments[0].loadOp).toBe('load');
+  });
+
+  it('_renderPipGPU() adds gq-viewport--gpu-render class to the root element', () => {
+    const { vpm } = makeVPMgpu(800, 600);
+    const addClass = vi.fn();
+    const entry = makeEntry({
+      root: { classList: { contains: () => false, add: addClass } },
+    });
+    vpm._renderPipGPU(entry, { update: () => [] });
+    expect(addClass).toHaveBeenCalledWith('gq-viewport--gpu-render');
+  });
+
+  it('_renderPipGPU() does not re-add the CSS class when already present', () => {
+    const { vpm } = makeVPMgpu(800, 600);
+    const addClass = vi.fn();
+    const entry = makeEntry({
+      root: { classList: { contains: () => true, add: addClass } },
+    });
+    vpm._renderPipGPU(entry, { update: () => [] });
+    expect(addClass).not.toHaveBeenCalled();
+  });
+
+  it('_renderPipGPU() skips rendering when rect is invalid (out of canvas)', () => {
+    const { vpm, renderer } = makeVPMgpu(100, 100);
+    // Position far outside the 100×100 canvas
+    const entry = makeEntry({ x: 500, y: 500, w: 200, h: 150 });
+    vpm._renderPipGPU(entry, { update: () => [] });
+    expect(renderer.device.createCommandEncoder).not.toHaveBeenCalled();
+  });
+
+  it('_renderPipGPU() renders mesh nodes present in the scene', () => {
+    const { vpm, renderer } = makeVPMgpu(800, 600);
+
+    const geometry = {
+      positions:   new Float32Array([0, 1, 0]),
+      _gpuBuffers: { positions: {}, normals: null, uvs: null, indices: null },
+    };
+    const material = { _pipeline: {}, needsUpdate: false };
+    const node = { data: { geometry, material } };
+    const mockScene = { update: vi.fn(() => [node]) };
+
+    vpm._renderPipGPU(makeEntry(), mockScene);
+
+    expect(renderer._mockPass.setPipeline).toHaveBeenCalledWith(material._pipeline);
+    expect(renderer._mockPass.setVertexBuffer).toHaveBeenCalledWith(0, geometry._gpuBuffers.positions);
+    expect(renderer._mockPass.draw).toHaveBeenCalled();
+  });
+
+  it('_renderPipGPU() uses drawIndexed when geometry has an index buffer', () => {
+    const { vpm, renderer } = makeVPMgpu(800, 600);
+
+    const geometry = {
+      positions:   new Float32Array([0, 1, 0]),
+      indices:     new Uint16Array([0, 1, 2]),
+      _gpuBuffers: { positions: {}, normals: null, uvs: null, indices: {} },
+    };
+    const material = { _pipeline: {}, needsUpdate: false };
+    const node = { data: { geometry, material } };
+
+    vpm._renderPipGPU(makeEntry(), { update: () => [node] });
+
+    expect(renderer._mockPass.setIndexBuffer).toHaveBeenCalled();
+    expect(renderer._mockPass.drawIndexed).toHaveBeenCalledWith(geometry.indices.length);
+  });
+
+  it('_renderPipGPU() attaches depth stencil when _depthTexture is present', () => {
+    const { vpm, renderer } = makeVPMgpu(800, 600);
+    renderer._depthTexture = { createView: vi.fn(() => ({})) };
+    const mockScene = { update: vi.fn(() => []) };
+    vpm._renderPipGPU(makeEntry(), mockScene);
+    const passDesc = renderer._mockEncoder.beginRenderPass.mock.calls[0][0];
+    expect(passDesc.depthStencilAttachment).toBeDefined();
+  });
+});
 
 describe('ViewportManager (headless)', () => {
   function makeMockContainer() {

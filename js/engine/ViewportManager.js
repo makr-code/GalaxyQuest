@@ -37,13 +37,14 @@
 // ---------------------------------------------------------------------------
 
 const PIP_DEFAULTS = Object.freeze({
-  width:     220,
-  height:    150,
-  minWidth:  120,
-  minHeight: 80,
-  padding:   8,       // gap from canvas edge on auto-place
-  gap:       8,       // gap between auto-placed viewports
-  opacity:   0.92,
+  width:        220,
+  height:       150,
+  minWidth:     120,
+  minHeight:    80,
+  padding:      8,        // gap from canvas edge on auto-place
+  gap:          8,        // gap between auto-placed viewports
+  opacity:      0.92,
+  headerHeight: 22,       // height of the title bar in CSS px
 });
 
 // ---------------------------------------------------------------------------
@@ -131,6 +132,7 @@ class ViewportManager {
    * @param {string}  name    Must match a key in CameraManager
    * @param {Object}  [opts]
    * @param {string}  [opts.label]         Display title (defaults to name)
+   * @param {string}  [opts.badge]         Badge type: 'ship'|'base'|'planet'|'colony'
    * @param {number}  [opts.x]             Left position in px (auto if omitted)
    * @param {number}  [opts.y]             Top position in px (auto if omitted)
    * @param {number}  [opts.width=220]
@@ -157,6 +159,7 @@ class ViewportManager {
     const { root, pipCanvas } = this._buildPipDOM({
       name,
       label:    opts.label    ?? name,
+      badge:    opts.badge,
       x, y, w, h,
       draggable: opts.draggable !== false,
       resizable: opts.resizable !== false,
@@ -235,7 +238,7 @@ class ViewportManager {
   // Private — DOM building
   // ---------------------------------------------------------------------------
 
-  _buildPipDOM({ name, label, x, y, w, h, draggable, resizable, closable }) {
+  _buildPipDOM({ name, label, badge, x, y, w, h, draggable, resizable, closable }) {
     const root = document.createElement('div');
     root.className   = 'gq-viewport';
     root.dataset.cam = name;
@@ -265,15 +268,23 @@ class ViewportManager {
       header.appendChild(closeBtn);
     }
 
-    // PiP canvas
+    // PiP canvas (used by the 2D-canvas fallback path)
     const pipCanvas = document.createElement('canvas');
     pipCanvas.className = 'gq-viewport__canvas';
     pipCanvas.width     = w;
-    pipCanvas.height    = h - 22; // subtract header height
+    pipCanvas.height    = h - PIP_DEFAULTS.headerHeight; // subtract header height
     pipCanvas.style.cssText = 'display:block;width:100%;height:100%;';
 
     root.appendChild(header);
     root.appendChild(pipCanvas);
+
+    // Optional status badge (ship / base / planet / colony)
+    if (badge) {
+      const badgeEl = document.createElement('span');
+      badgeEl.className   = `gq-viewport__badge gq-viewport__badge--${badge}`;
+      badgeEl.textContent = badge;
+      root.appendChild(badgeEl);
+    }
 
     // Drag behaviour
     if (draggable) this._makeDraggable(root, header, name);
@@ -340,7 +351,7 @@ class ViewportManager {
         root.style.width  = `${nw}px`;
         root.style.height = `${nh}px`;
         pipCanvas.width   = nw;
-        pipCanvas.height  = nh - 22;
+        pipCanvas.height  = nh - PIP_DEFAULTS.headerHeight;
         if (entry) { entry.w = nw; entry.h = nh; }
       };
       const onUp = () => {
@@ -377,9 +388,150 @@ class ViewportManager {
   }
 
   _renderPip(entry, scene) {
+    if (this._isWebGPUReady()) {
+      this._renderPipGPU(entry, scene);
+    } else {
+      this._renderPipCanvas(entry);
+    }
+  }
+
+  /**
+   * True when the renderer is a fully-initialised WebGPU backend.
+   * @private
+   */
+  _isWebGPUReady() {
+    const r = this._renderer;
+    return !!(r && r.device && r.ready && r.context);
+  }
+
+  /**
+   * Convert a viewport entry's CSS-pixel content area to device pixels,
+   * clamped to the main canvas device-pixel bounds.
+   *
+   * The content area starts below the {@link PIP_DEFAULTS.headerHeight} px header.
+   *
+   * @param {ViewportEntry} entry
+   * @returns {{ x:number, y:number, w:number, h:number, valid:boolean }}
+   * @private
+   */
+  _toDeviceRect(entry) {
+    const dpr    = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const HEADER = PIP_DEFAULTS.headerHeight;            // header height in CSS px
+    const cw     = this._renderer.canvas?.width  || 0;
+    const ch     = this._renderer.canvas?.height || 0;
+
+    const sx = Math.round(entry.x * dpr);
+    const sy = Math.round((entry.y + HEADER) * dpr);
+    const sw = Math.round(entry.w * dpr);
+    const sh = Math.round((entry.h - HEADER) * dpr);
+
+    // Clamp to actual canvas device-pixel dimensions
+    const ox = Math.max(0, Math.min(sx, cw));
+    const oy = Math.max(0, Math.min(sy, ch));
+    const ow = Math.min(sw, cw - ox);
+    const oh = Math.min(sh, ch - oy);
+
+    return { x: ox, y: oy, w: ow, h: oh, valid: ow > 0 && oh > 0 };
+  }
+
+  /**
+   * GPU sub-pass path: renders `scene` from `entry.camera` into the
+   * scissored region of the main WebGPU swap-chain texture that corresponds
+   * to this PiP window's position on screen.
+   *
+   * Each PiP gets its own GPUCommandEncoder so passes are independent.
+   * The swap-chain texture view is re-acquired from the context each time
+   * (WebGPU guarantees the same texture for the duration of an animation
+   * frame), and `loadOp: 'load'` preserves the main-scene rendering.
+   *
+   * @param {ViewportEntry}                              entry
+   * @param {import('./scene/SceneGraph').SceneGraph}    scene
+   * @private
+   */
+  _renderPipGPU(entry, scene) {
+    const rect = this._toDeviceRect(entry);
+    if (!rect.valid) return;
+
+    const renderer = this._renderer;
+
+    // Mark the DOM element so CSS can make its background transparent,
+    // allowing the GPU-rendered content in the main canvas to show through.
+    if (!entry.root.classList.contains('gq-viewport--gpu-render')) {
+      entry.root.classList.add('gq-viewport--gpu-render');
+    }
+
+    const colorView = renderer.context.getCurrentTexture().createView();
+    const depthView = renderer._depthTexture ? renderer._depthTexture.createView() : null;
+
+    const encoder = renderer.device.createCommandEncoder();
+
+    /** @type {GPURenderPassDescriptor} */
+    const desc = {
+      colorAttachments: [{
+        view:    colorView,
+        loadOp:  'load',   // preserve the main-scene render beneath
+        storeOp: 'store',
+      }],
+    };
+
+    if (depthView) {
+      desc.depthStencilAttachment = {
+        view:            depthView,
+        depthClearValue: 1.0,
+        depthLoadOp:     'clear',  // fresh depth for correct PiP occlusion
+        depthStoreOp:    'store',
+      };
+    }
+
+    const pass = encoder.beginRenderPass(desc);
+    pass.setViewport(rect.x, rect.y, rect.w, rect.h, 0.0, 1.0);
+    pass.setScissorRect(rect.x, rect.y, rect.w, rect.h);
+
+    // Draw all visible scene meshes from the PiP camera's perspective.
+    // scene.update() is idempotent within a frame (returns cached list when
+    // not dirty), so calling it here is safe and cheap.
+    const nodes = scene?.update ? scene.update() : [];
+    for (const node of nodes) {
+      const { geometry, material } = node.data ?? {};
+      if (!geometry || !material) continue;
+
+      if (!geometry._gpuBuffers?.positions) renderer.uploadMesh(geometry);
+      if (!material._pipeline || material.needsUpdate) renderer.createRenderPipeline(material);
+
+      const pipeline = material._pipeline;
+      if (!pipeline) continue;
+
+      pass.setPipeline(pipeline);
+      const bufs = geometry._gpuBuffers ?? {};
+      if (bufs.positions) pass.setVertexBuffer(0, bufs.positions);
+      if (bufs.normals)   pass.setVertexBuffer(1, bufs.normals);
+      if (bufs.uvs)       pass.setVertexBuffer(2, bufs.uvs);
+
+      if (bufs.indices) {
+        const fmt = geometry.indices instanceof Uint32Array ? 'uint32' : 'uint16';
+        pass.setIndexBuffer(bufs.indices, fmt);
+        pass.drawIndexed(geometry.indices.length);
+      } else if (geometry.positions) {
+        pass.draw(geometry.positions.length / 3);
+      }
+    }
+
+    pass.end();
+    renderer.device.queue.submit([encoder.finish()]);
+  }
+
+  /**
+   * 2D-canvas fallback path: paints a diagnostic placeholder into the
+   * per-PiP HTML canvas element.  Active when the renderer is WebGL2 or
+   * when WebGPU has not yet been initialised.
+   *
+   * @param {ViewportEntry} entry
+   * @private
+   */
+  _renderPipCanvas(entry) {
     const ctx = entry.canvas.getContext('2d');
     if (!ctx) return;
-    // Placeholder fill — Phase 4 will wire up real GPU sub-pass rendering
+    // Placeholder fill — replaced by the GPU subpass path when WebGPU is active
     ctx.fillStyle = '#0a0f1a';
     ctx.fillRect(0, 0, entry.canvas.width, entry.canvas.height);
 
