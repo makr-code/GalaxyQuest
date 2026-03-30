@@ -11382,7 +11382,7 @@
             </button>`).join('')}
         </div>
         <div id="set-ftl-result" style="margin-top:0.4rem;font-size:0.8rem;min-height:1rem;"></div>
-      </div>\`;
+      </div>`;
 
     const bindRange = (id, valueId, setter) => {
       const input = root.querySelector(id);

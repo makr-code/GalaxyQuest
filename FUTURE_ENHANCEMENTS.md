@@ -325,8 +325,8 @@ Implemented in this phase:
 - ✅ Quest-based permanent beacon unlock is wired via Precursor faction quest rewards.
 
 ### 5.4 Faction-Specific FTL Drive System
-**Priority:** ❓  
-**Status:** Design complete — see [FTL_DRIVE_DESIGN.md](FTL_DRIVE_DESIGN.md)
+**Priority:** ✅ Done  
+**Status:** ✅ Fully Implemented (Phase 1–5, 2026-03-30) — see [FTL_DRIVE_DESIGN.md](FTL_DRIVE_DESIGN.md)
 
 Each of the 6 main factions gets a unique FTL drive with distinct gameplay mechanics:
 
@@ -334,12 +334,21 @@ Each of the 6 main factions gets a unique FTL drive with distinct gameplay mecha
 |---|---|---|
 | Vor'Tak | Kearny-Fuchida Jump Drive (BattleTech) | Fixed jump points, 72h recharge cooldown, max 30 LY |
 | Syl'Nar | Resonance Gate Network | Buildable gates, instant travel, gates destructible |
-| Vel'Ar | Blind Quantum Jump | Instant but with arrival scatter, 60s stealth on arrival |
+| Vel'Ar | Blind Quantum Jump | Instant but with arrival scatter → snap to nearest system, 60s stealth on arrival |
 | Zhareen | Crystal Resonance Channel | Survey-charted nodes, mass-independent speed |
 | Aereth | Alcubierre Warp | Density-dependent speed bonus in galactic core |
-| Kryl'Tha | Swarm Tunnel | Fleet-size-dependent travel time, max 50 ships |
+| Kryl'Tha | Swarm Tunnel | Fleet-size-dependent travel time, max 50 ships, −10% hull on arrival |
 
-Implementation priority order and DB changes documented in [FTL_DRIVE_DESIGN.md](FTL_DRIVE_DESIGN.md).
+✅ Implemented:
+- All 6 drive behaviours in `api/fleet.php` (speed, cooldown, scatter, stealth, gates, resonance nodes, swarm scaling)
+- `users.ftl_drive_type` + `ftl_cooldown_until` columns; `ftl_gates`, `ftl_resonance_nodes` tables (migrations v10–v12)
+- FTL status API (`fleet.php?action=ftl_status`), map overlay API (`action=ftl_map`)
+- FTL selection API (`game.php?action=set_ftl_drive`) — first selection free, switch costs 200 DM
+- Settings-UI: 6-faction drive-selection panel with live cost feedback
+- Vor'Tak cooldown DM-reset: `fleet.php?action=reset_ftl_cooldown` (50 DM) + UI button in fleet panel
+- OD-5: Vel'Ar scatter now snaps to nearest real `star_system` via proximity SQL query
+- OD-3: NPC faction FTL assignment via migration v12 + `npc_assign_ftl_drive()` runtime in `npc_player_account_tick()`
+- 3D galaxy map overlay: gates and resonance nodes rendered via `setFtlInfrastructure()` in `galaxy-renderer-core.js`
 
 ### 5.5 Megastructures
 **Priority:** 🔭

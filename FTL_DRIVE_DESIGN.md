@@ -1,7 +1,7 @@
 # ⚡ GalaxyQuest — FTL Drive Design Document
 
-**Version:** 1.2  
-**Status:** Phase 1–4 implementiert (siehe `sql/migrate_vessel_blueprints_v10_ftl_drives.sql`, `v11_ftl_phase4.sql`)  
+**Version:** 1.3  
+**Status:** Phase 1–5 implementiert (siehe `sql/migrate_vessel_blueprints_v10_ftl_drives.sql`, `v11_ftl_phase4.sql`, `v12_npc_ftl.sql`)  
 **Erstellt:** 2026-03-30  
 **Basis-Docs:** [GAMEDESIGN.md](GAMEDESIGN.md) · [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) · [FUTURE_ENHANCEMENTS.md](FUTURE_ENHANCEMENTS.md)
 
@@ -612,9 +612,9 @@ WHERE u.ftl_drive_type = 'alcubierre';
 |---|---|---|---|
 | **OD-1** | Wann wählt der Spieler seine Fraktion/FTL? | a) Bei Registrierung, b) Nach Tutorial, c) Jederzeit änderbar | **b)** Nach Tutorial — Spieler versteht dann die Konsequenzen |
 | **OD-2** | Ist der FTL-Typ an die Rasse gebunden oder frei wählbar? | a) Rasse = FTL fest, b) Rasse und FTL unabhängig | **a)** Rasse = FTL für mehr Kohärenz |
-| **OD-3** | Wie werden NPC-Fraktionen FTL-typen zugewiesen? | a) Alle NPCs nutzen Aereth (Standard), b) NPCs haben Rassen-spezifisches FTL | **b)** mittelfristig für Immersion |
+| **OD-3** | Wie werden NPC-Fraktionen FTL-typen zugewiesen? | a) Alle NPCs nutzen Aereth (Standard), b) NPCs haben Rassen-spezifisches FTL | ✅ **Implementiert** — Migration v12 + `npc_assign_ftl_drive()` in `npc_ai.php` |
 | **OD-4** | Syl'Nar Gates: Werden sie auf der Karte sichtbar für andere Spieler? | a) Nur Besitzer sieht, b) Alle sehen (angreifbar), c) Scouting nötig | **c)** Scouting — bestes Balancing |
-| **OD-5** | Vel'Ar Scatter: Wird zufällig ein anderes System gewählt oder nur coords verschoben? | a) Nur Koordinaten, b) Nächstes System zur Scatter-Position | **b)** Nächstes System — sauberer für Gameplay |
+| **OD-5** | Vel'Ar Scatter: Wird zufällig ein anderes System gewählt oder nur coords verschoben? | a) Nur Koordinaten, b) Nächstes System zur Scatter-Position | ✅ **Implementiert** — snap via SQL `ORDER BY dist ASC LIMIT 1` in `fleet.php` |
 | **OD-6** | Kryl'Tha Hüllenmalus: Wie wird er technisch abgebildet? | a) Im Kampfresolver als Malus, b) Eigene `hull_damage_pct` Spalte | **a)** Kampfresolver-Ansatz — kein neues Schema nötig |
 | **OD-7** | Für Vor'Tak: Sind Sprungpunkte eine DB-Tabelle oder eine Berechnungsregel? | a) DB-Tabelle, b) Regel: alle Systeme mit star_type G/F/K | **b)** Berechnungsregel — einfacher zu implementieren |
 
@@ -654,6 +654,16 @@ WHERE u.ftl_drive_type = 'alcubierre';
 | P4.1 | Vor'Tak JumpShip-Carrier-Konzept (neuer Ship-Typ) | Sehr groß | Mittel |
 | P4.2 | Vel'Ar Stealth-Ankunft (UI + Radar-Unterdrückung) | Groß | Hoch |
 | P4.3 | Kartenvisualisierung (Gates, Sprungpunkte, Resonanzknoten) | Groß | Hoch |
+
+### Phase 5 — Zugänglichkeit & Polishing ✅ Implementiert (2026-03-30)
+
+| # | Feature | Status |
+|---|---|---|
+| P5.1 | FTL Drive Selection API (`POST game.php?action=set_ftl_drive`) — erste Wahl kostenlos, Wechsel 200 DM | ✅ |
+| P5.2 | Settings-UI: FTL-Drive-Auswahl-Panel mit 6 Fraktionskarten | ✅ |
+| P5.3 | OD-5: Vel'Ar Scatter → snap zur nächsten echten `star_system` statt nur Koordinatenversatz | ✅ |
+| P5.4 | OD-3: NPC FTL-Typen per Migration v12 + Runtime-Zuweisung in `npc_player_account_tick` | ✅ |
+| P5.5 | Dark-Matter-Ausgabe: Vor'Tak Cooldown-Reset via `fleet.php?action=reset_ftl_cooldown` (50 DM) + UI-Button | ✅ |
 
 ---
 
