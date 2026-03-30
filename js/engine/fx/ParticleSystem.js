@@ -7,10 +7,9 @@
  * weapon impacts.
  *
  * GPU compute path:
- *   When a WebGPUDevice is supplied the particle pool can be uploaded to a
- *   GPUBuffer and simulated via particles.wgsl (see WebGPUCompute).  The CPU
- *   path is always available as a fallback.
- *   TODO (Phase FX-2): wire up GPU simulation via WebGPUCompute + particles.wgsl.
+ *   When a WebGPUDevice is supplied, use GPUParticleSystem (Phase FX-2/5) for
+ *   fully GPU-accelerated particle simulation via WebGPUCompute + particles.wgsl.
+ *   The CPU path in this class is always available as a fallback.
  *
  * Inspired by:
  *   Unity ParticleSystem   — pool-based emission
@@ -95,14 +94,13 @@ class ParticleSystem {
   /**
    * @param {object}  [opts]
    * @param {number}  [opts.maxParticles=4096] - Pool capacity
-   * @param {object}  [opts.gpuDevice]         - Optional WebGPUDevice; currently unused.
-   *   Reserved for Phase FX-2 GPU compute path (particles.wgsl via WebGPUCompute).
-   *   Pass it now so callers do not need an API change when the GPU path is wired up.
+   * @param {object}  [opts.gpuDevice]         - Optional WebGPUDevice.
+   *   For GPU-accelerated simulation, use GPUParticleSystem (Phase FX-2/5).
+   *   Accepted here so the constructor signature is stable when switching.
    */
   constructor(opts = {}) {
     this._maxParticles = opts.maxParticles ?? DEFAULT_MAX_PARTICLES;
-    // Reserved for Phase FX-2: GPU particle simulation via WebGPUCompute + particles.wgsl.
-    // Accepted now so the constructor signature remains stable when the path is added.
+    // Use GPUParticleSystem (Phase FX-2/5) for the full GPU compute path.
     this._gpuDevice    = opts.gpuDevice ?? null;
 
     /** @type {object[]} Flat particle pool */

@@ -84,6 +84,11 @@ const { EnvironmentFX, DebrisType, CloudType, LightingFXType } = require('./fx/E
 const { DebrisSimulator, FLOATS_PER_CHUNK }     = require('./fx/DebrisSimulator');
 const { VolumetricScatter, ScatterMedium }      = require('./fx/VolumetricScatter');
 
+// Combat FX — Phase FX-2/3/4/5
+const { GPUParticleSystem, FLOATS_PER_PARTICLE } = require('./fx/GPUParticleSystem');
+const { BeamEffect, FLOATS_PER_BEAM, DEFAULT_MAX_BEAMS } = require('./fx/BeamEffect');
+const { VoxelDebris, DEFAULT_MAX_CHUNKS, DEFAULT_CHUNKS_PER_EXPLOSION } = require('./fx/VoxelDebris');
+
 // Game systems (classics-inspired)
 const { EventSystem, EventType, EventStatus, Journal, JournalStatus } = require('./game/EventSystem');
 const { ResearchTree, ResearchCategory, CivAffinity }      = require('./game/ResearchTree');
@@ -135,6 +140,10 @@ module.exports = {
   // Advanced FX — Phase FX-6/7/8
   DebrisSimulator, FLOATS_PER_CHUNK,
   VolumetricScatter, ScatterMedium,
+  // Phase FX-2/3/4/5
+  GPUParticleSystem, FLOATS_PER_PARTICLE,
+  BeamEffect, FLOATS_PER_BEAM, DEFAULT_MAX_BEAMS,
+  VoxelDebris, DEFAULT_MAX_CHUNKS, DEFAULT_CHUNKS_PER_EXPLOSION,
   // Constants
   ...constants,
 };

@@ -12,9 +12,9 @@
  * each frame.  Beam / shockwave effects are represented as lightweight data
  * records that the renderer maps to instanced quads or procedural geometry.
  *
- * TODO (Phase FX-3): integrate BeamEffect rendering (instanced capsule mesh)
- * TODO (Phase FX-4): voxel-debris chunks for SHIP_DESTRUCTION via a Geometry pool
- * TODO (Phase FX-5): GPU compute path for ParticleSystem (particles.wgsl)
+ * Phase FX-3 (implemented): instanced capsule beam renderer — see BeamEffect.js / beam.wgsl
+ * Phase FX-4 (implemented): voxel-debris chunks for SHIP_DESTRUCTION — see VoxelDebris.js
+ * Phase FX-5 (implemented): GPU compute path for particles — see GPUParticleSystem.js / particles.wgsl
  *
  * Inspired by:
  *   FreeSpace 2   (Volition, 1999)   — weapon bolt / beam / shockwave effects

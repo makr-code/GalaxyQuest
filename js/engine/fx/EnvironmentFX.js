@@ -40,6 +40,9 @@
  *   ✓ Gravitational lensing (Interstellar movie VFX, Star Citizen)
  *   ✓ Radiation zone hazard (X4: Foundations, Endless Space 2)
  *
+ * Phase FX-2/5 (implemented): GPU compute particle simulation — see GPUParticleSystem.js / particles.wgsl
+ * Phase FX-3 (implemented): instanced capsule beam renderer — see BeamEffect.js / beam.wgsl
+ * Phase FX-4 (implemented): voxel-debris chunk geometry pool — see VoxelDebris.js
  * Phase FX-6 (implemented): GPU-driven debris simulation — see DebrisSimulator.js / debris.wgsl
  * Phase FX-7 (implemented): volumetric scattering — see VolumetricScatter.js / volscatter.wgsl
  * Phase FX-8 (implemented): SSAO post-process — see SSAOPass.js / ssao.wgsl
