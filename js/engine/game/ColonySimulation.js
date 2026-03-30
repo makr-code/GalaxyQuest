@@ -13,7 +13,13 @@
  *   - Resource production per pop type per turn
  *   - Pop growth formula (logistic + food surplus)
  *   - Colony happiness / stability affecting productivity
- *   - EventBus integration: emits 'colony:grow', 'colony:starve', 'colony:unrest'
+ *   - Building types: FARM, MINE, FACTORY, LAB, BARRACKS, SPACEPORT
+ *   - Build queue with resource costs and build-time ticks
+ *   - Resource trade chains: Ore → Metal → Ship Parts
+ *   - Hunger/Unrest escalation levels (0–1) with consequence callbacks
+ *   - serialize() / deserialize() for save-game persistence
+ *   - EventBus integration: emits 'colony:grow', 'colony:starve', 'colony:unrest',
+ *       'colony:hunger:escalate', 'colony:unrest:escalate', 'colony:building:complete'
  *
  * Usage:
  *   const sim = new ColonySimulation(engine.events);
@@ -28,9 +34,14 @@
  *   });
  *
  *   ignis.setJobs({ FARMER: 1, WORKER: 1, SCIENTIST: 1 });
+ *   ignis.enqueueBuilding(BuildingType.MINE);
  *
  *   // Each game turn:
  *   sim.tick(1);
+ *
+ *   // Persistence:
+ *   const saved  = sim.serialize();
+ *   const loaded = ColonySimulation.deserialize(saved, engine.events);
  *
  * License: MIT — makr-code/GalaxyQuest
  */
@@ -63,6 +74,79 @@ const BASE_YIELD = Object.freeze({
   [PopJob.RULER]:      { food: 0,   production: 0, research: 1, credits: 3 },
   [PopJob.UNEMPLOYED]: { food: 0,   production: 0, research: 0, credits: 0 },
 });
+
+/** @enum {string} Building types */
+const BuildingType = Object.freeze({
+  FARM:      'farm',
+  MINE:      'mine',
+  FACTORY:   'factory',
+  LAB:       'lab',
+  BARRACKS:  'barracks',
+  SPACEPORT: 'spaceport',
+});
+
+/**
+ * Build costs (resources deducted when enqueued) plus build-time in ticks.
+ * @type {Readonly<Record<string, {buildTime: number, [resource: string]: number}>}
+ */
+const BUILDING_COST = Object.freeze({
+  [BuildingType.FARM]:      { production: 20,              buildTime: 3  },
+  [BuildingType.MINE]:      { production: 30,              buildTime: 4  },
+  [BuildingType.FACTORY]:   { production: 50, ore: 10,     buildTime: 6  },
+  [BuildingType.LAB]:       { production: 40, credits: 20, buildTime: 5  },
+  [BuildingType.BARRACKS]:  { production: 35, credits: 10, buildTime: 4  },
+  [BuildingType.SPACEPORT]: { production: 80, metal: 20,   buildTime: 10 },
+});
+
+/**
+ * Passive resource yield per building per tick.
+ * Applied in addition to pop-job yields.
+ */
+const BUILDING_YIELD = Object.freeze({
+  [BuildingType.FARM]:      { food: 5 },
+  [BuildingType.MINE]:      { ore: 4 },
+  [BuildingType.LAB]:       { research: 5 },
+  [BuildingType.BARRACKS]:  { defence: 4 },
+  [BuildingType.SPACEPORT]: { credits: 8 },
+  // FACTORY and SPACEPORT also participate in trade chains (see TRADE_CHAIN)
+});
+
+/**
+ * Resource trade chains processed each tick.
+ * Each entry converts `rate` units of `from` into `yieldAmt` units of `to`,
+ * once per building of `building` type (limited by available stockpile).
+ *
+ * Chain: Ore → Metal (Factory) → Ship Parts (Spaceport)
+ */
+const TRADE_CHAIN = Object.freeze([
+  { building: BuildingType.FACTORY,   from: 'ore',   rate: 2, to: 'metal',     yieldAmt: 1 },
+  { building: BuildingType.SPACEPORT, from: 'metal', rate: 3, to: 'shipParts', yieldAmt: 1 },
+]);
+
+/** Hunger escalation thresholds (0–1). Stages: 0=fed, 1=mild, 2=moderate, 3=severe, 4=critical */
+const HUNGER_THRESHOLDS = Object.freeze([0.25, 0.5, 0.75, 0.9]);
+
+/** Unrest escalation thresholds (0–1). Stages: 0=stable, 1=restless, 2=agitated, 3=rebellious, 4=revolt */
+const UNREST_THRESHOLDS = Object.freeze([0.25, 0.5, 0.75, 0.9]);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns which escalation stage [0..thresholds.length] a value falls into.
+ * @param {number} value
+ * @param {readonly number[]} thresholds  Ascending list of threshold values
+ * @returns {number}
+ */
+function _escalationStage(value, thresholds) {
+  let stage = 0;
+  for (const t of thresholds) {
+    if (value >= t) stage++;
+    else break;
+  }
+  return stage;
+}
 
 // ---------------------------------------------------------------------------
 // Colony
@@ -100,16 +184,32 @@ class Colony {
       [PopJob.UNEMPLOYED]: def.startingPops ?? 1,
     };
 
-    /** Stored resources */
-    this.stockpile = { food: 10, production: 0, research: 0, credits: 0 };
+    /** Stored resources (includes ore, metal, shipParts for trade chains) */
+    this.stockpile = { food: 10, production: 0, research: 0, credits: 0, ore: 0, metal: 0, shipParts: 0 };
 
     /** Colony happiness [0–1] — affects yields */
     this.happiness  = 0.7;
     /** Colony stability [0–1] — affects unrest */
     this.stability  = 0.8;
 
-    /** Accumulated unrest points */
+    /** Accumulated unrest points [0–1] */
     this.unrest     = 0;
+    /** Hunger level [0–1]; rises when food is scarce, falls when food is surplus */
+    this.hunger     = 0;
+
+    /** Internal escalation stage trackers (prevents repeated callbacks for same stage) */
+    this._unrestStage = 0;
+    this._hungerStage = 0;
+
+    /** Completed buildings map: { [BuildingType]: count } */
+    this.buildings  = Object.fromEntries(Object.values(BuildingType).map(t => [t, 0]));
+
+    /**
+     * Build queue: [{ type: BuildingType, remainingTicks: number }]
+     * Items are processed each tick and move to buildings on completion.
+     * @type {Array<{type: string, remainingTicks: number}>}
+     */
+    this.buildQueue = [];
   }
 
   // ---------------------------------------------------------------------------
@@ -129,6 +229,37 @@ class Colony {
     }
     this.jobs[PopJob.UNEMPLOYED] = Math.max(0, this.pops - assigned);
     return this;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Building queue
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Attempt to enqueue a building.  Deducts resource costs immediately.
+   * @param {string} type  One of BuildingType
+   * @returns {{ success: boolean, reason?: string }}
+   */
+  enqueueBuilding(type) {
+    const cost = BUILDING_COST[type];
+    if (!cost) throw new TypeError(`[Colony] Unknown building type: '${type}'`);
+
+    // Check affordability
+    for (const [res, amt] of Object.entries(cost)) {
+      if (res === 'buildTime') continue;
+      if ((this.stockpile[res] ?? 0) < amt) {
+        return { success: false, reason: `insufficient_${res}` };
+      }
+    }
+
+    // Deduct costs
+    for (const [res, amt] of Object.entries(cost)) {
+      if (res === 'buildTime') continue;
+      this.stockpile[res] = (this.stockpile[res] ?? 0) - amt;
+    }
+
+    this.buildQueue.push({ type, remainingTicks: cost.buildTime });
+    return { success: true };
   }
 
   // ---------------------------------------------------------------------------
@@ -173,6 +304,38 @@ class Colony {
     this.stockpile.credits    += y.credits    * dt;
   }
 
+  /** Apply passive resource yield from completed buildings. */
+  _applyBuildingYields(dt) {
+    for (const [type, count] of Object.entries(this.buildings)) {
+      if (count === 0) continue;
+      const yields = BUILDING_YIELD[type];
+      if (!yields) continue;
+      for (const [res, amt] of Object.entries(yields)) {
+        this.stockpile[res] = (this.stockpile[res] ?? 0) + amt * count * dt;
+      }
+    }
+  }
+
+  /**
+   * Process resource trade chains (Ore → Metal → Ship Parts).
+   * Each factory converts up to 2 ore → 1 metal per tick;
+   * each spaceport converts up to 3 metal → 1 ship part per tick.
+   */
+  _applyTradeChains(dt) {
+    for (const chain of TRADE_CHAIN) {
+      const count = this.buildings[chain.building] ?? 0;
+      if (count === 0) continue;
+
+      const inputNeeded = chain.rate * count * dt;
+      const inputAvail  = this.stockpile[chain.from] ?? 0;
+      const actual      = Math.min(inputNeeded, inputAvail);
+      if (actual <= 0) continue;
+
+      this.stockpile[chain.from] -= actual;
+      this.stockpile[chain.to]    = (this.stockpile[chain.to] ?? 0) + (actual / chain.rate) * chain.yieldAmt;
+    }
+  }
+
   _applyConsumption(dt) {
     // Each pop consumes 1 food per turn
     this.stockpile.food -= this.pops * dt;
@@ -206,12 +369,123 @@ class Colony {
     }
   }
 
-  _applyUnrest() {
+  /**
+   * Update hunger level (0–1) based on food stockpile.
+   * Fires escalation callback when crossing thresholds upward.
+   * @param {number} dt
+   * @param {function(Colony, string, number): void} [onEscalate]
+   */
+  _applyHunger(dt, onEscalate) {
+    if (this.stockpile.food < 0) {
+      this.hunger = Math.min(1, this.hunger + 0.05 * dt);
+    } else {
+      this.hunger = Math.max(0, this.hunger - 0.02 * dt);
+    }
+
+    const newStage = _escalationStage(this.hunger, HUNGER_THRESHOLDS);
+    if (newStage > this._hungerStage) {
+      onEscalate?.(this, 'hunger', newStage);
+    }
+    this._hungerStage = newStage;
+  }
+
+  /**
+   * Update unrest level (0–1) based on unemployment and stability.
+   * Fires escalation callback when crossing thresholds upward.
+   * @param {function(Colony, string, number): void} [onEscalate]
+   */
+  _applyUnrest(onEscalate) {
     const unemployedRatio = (this.jobs[PopJob.UNEMPLOYED] ?? 0) / Math.max(1, this.pops);
     this.unrest += unemployedRatio * 0.01 * (1 - this.stability);
     this.unrest  = Math.max(0, Math.min(1, this.unrest - 0.005 * this.happiness));
     if (this.unrest > 0.9) this.stability = Math.max(0, this.stability - 0.01);
     else this.stability = Math.min(1, this.stability + 0.001);
+
+    const newStage = _escalationStage(this.unrest, UNREST_THRESHOLDS);
+    if (newStage > this._unrestStage) {
+      onEscalate?.(this, 'unrest', newStage);
+    }
+    this._unrestStage = newStage;
+  }
+
+  /**
+   * Advance the build queue by dt ticks.  Completed buildings are added to
+   * this.buildings and returned as an array.
+   * @param {number} dt
+   * @returns {Array<{type: string, remainingTicks: number}>} Completed items
+   */
+  _processBuildQueue(dt) {
+    const completed = [];
+    for (const item of this.buildQueue) {
+      item.remainingTicks -= dt;
+      if (item.remainingTicks <= 0) {
+        completed.push(item);
+        this.buildings[item.type] = (this.buildings[item.type] ?? 0) + 1;
+      }
+    }
+    if (completed.length > 0) {
+      this.buildQueue = this.buildQueue.filter(b => b.remainingTicks > 0);
+    }
+    return completed;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Serialization
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Serialize this colony to a plain JSON-compatible object.
+   * @returns {Object}
+   */
+  serialize() {
+    return {
+      id:           this.id,
+      name:         this.name,
+      size:         this.size,
+      fertility:    this.fertility,
+      richness:     this.richness,
+      pops:         this.pops,
+      _growthAcc:   this._growthAcc,
+      jobs:         { ...this.jobs },
+      stockpile:    { ...this.stockpile },
+      happiness:    this.happiness,
+      stability:    this.stability,
+      unrest:       this.unrest,
+      hunger:       this.hunger,
+      _unrestStage: this._unrestStage,
+      _hungerStage: this._hungerStage,
+      buildings:    { ...this.buildings },
+      buildQueue:   this.buildQueue.map(b => ({ ...b })),
+    };
+  }
+
+  /**
+   * Reconstruct a Colony from a serialized object produced by serialize().
+   * @param {Object} json
+   * @returns {Colony}
+   */
+  static deserialize(json) {
+    const colony = new Colony({
+      id:           json.id,
+      name:         json.name,
+      size:         json.size,
+      fertility:    json.fertility,
+      richness:     json.richness,
+      startingPops: 0,
+    });
+    colony.pops         = json.pops         ?? 1;
+    colony._growthAcc   = json._growthAcc   ?? 0;
+    colony.jobs         = { ...json.jobs };
+    colony.stockpile    = { ...json.stockpile };
+    colony.happiness    = json.happiness    ?? 0.7;
+    colony.stability    = json.stability    ?? 0.8;
+    colony.unrest       = json.unrest       ?? 0;
+    colony.hunger       = json.hunger       ?? 0;
+    colony._unrestStage = json._unrestStage ?? 0;
+    colony._hungerStage = json._hungerStage ?? 0;
+    colony.buildings    = { ...json.buildings };
+    colony.buildQueue   = (json.buildQueue ?? []).map(b => ({ ...b }));
+    return colony;
   }
 }
 
@@ -255,17 +529,58 @@ class ColonySimulation {
   tick(dt = 1) {
     for (const colony of this._colonies.values()) {
       colony._applyYield(dt);
+      colony._applyBuildingYields(dt);
+      colony._applyTradeChains(dt);
       colony._applyConsumption(dt);
       colony._applyGrowth(
         dt,
         (c) => this._bus?.emit('colony:grow',   { colony: c, id: c.id }),
         (c) => this._bus?.emit('colony:starve',  { colony: c, id: c.id }),
       );
-      colony._applyUnrest();
+      colony._applyHunger(
+        dt,
+        (c, type, stage) => this._bus?.emit(`colony:${type}:escalate`, { colony: c, id: c.id, stage }),
+      );
+      colony._applyUnrest(
+        (c, type, stage) => this._bus?.emit(`colony:${type}:escalate`, { colony: c, id: c.id, stage }),
+      );
+      const completed = colony._processBuildQueue(dt);
+      for (const b of completed) {
+        this._bus?.emit('colony:building:complete', { colony, id: colony.id, building: b.type });
+      }
       if (colony.unrest > 0.75) {
         this._bus?.emit('colony:unrest', { colony, id: colony.id, unrest: colony.unrest });
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Serialization
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Serialize the full simulation state to a JSON-compatible object.
+   * @returns {Object}
+   */
+  serialize() {
+    return {
+      colonies: this.all().map(c => c.serialize()),
+    };
+  }
+
+  /**
+   * Reconstruct a ColonySimulation from a serialized snapshot.
+   * @param {Object} json
+   * @param {import('../EventBus').EventBus} [bus]
+   * @returns {ColonySimulation}
+   */
+  static deserialize(json, bus) {
+    const sim = new ColonySimulation(bus);
+    for (const colData of json.colonies) {
+      const colony = Colony.deserialize(colData);
+      sim._colonies.set(colony.id, colony);
+    }
+    return sim;
   }
 }
 
@@ -274,7 +589,15 @@ class ColonySimulation {
 // ---------------------------------------------------------------------------
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ColonySimulation, Colony, PopJob, BASE_YIELD };
+  module.exports = {
+    ColonySimulation, Colony, PopJob, BASE_YIELD,
+    BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
+    HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
+  };
 } else {
-  window.GQColonySimulation = { ColonySimulation, Colony, PopJob, BASE_YIELD };
+  window.GQColonySimulation = {
+    ColonySimulation, Colony, PopJob, BASE_YIELD,
+    BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
+    HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
+  };
 }

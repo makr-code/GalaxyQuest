@@ -8,13 +8,16 @@
  *
  * Provides:
  *   - A library of typed game events (anomaly, political, trade, fleet, random)
+ *   - Colony-specific events: PLAGUE, REVOLT, GOLDEN_AGE, RESOURCE_BOOM
  *   - Each event has a weight, conditions (guard function), and 1–4 choices
- *   - Each choice has effects (callbacks) applied to the game state
+ *   - Choices may have resource costs validated before applying effects
  *   - An EventQueue fires pending events once per in-game turn / cycle
+ *   - Cooldown tracking per event type using game-cycle numbers
+ *   - Seeded RNG for deterministic event selection (mulberry32)
  *   - EventBus integration: emits 'game:event:fired' and 'game:event:resolved'
  *
  * Usage:
- *   const evtSys = new EventSystem(engine.events);
+ *   const evtSys = new EventSystem(engine.events, /* seed *\/ 42);
  *
  *   evtSys.define({
  *     id:      'anomaly.derelict_ship',
@@ -24,13 +27,13 @@
  *     weight:  10,
  *     condition: (gs) => gs.scienceShips > 0,
  *     choices: [
- *       { label: 'Salvage',  effect: (gs) => { gs.credits += 500; } },
+ *       { label: 'Salvage',  cost: { credits: 50 }, effect: (gs) => { gs.credits += 500; } },
  *       { label: 'Ignore',   effect: () => {} },
  *     ],
  *   });
  *
  *   evtSys.schedule('anomaly.derelict_ship');   // queue immediately
- *   evtSys.tick(gameState);   // call each in-game cycle
+ *   evtSys.tick(gameState, cycle);   // call each in-game cycle
  *
  * License: MIT — makr-code/GalaxyQuest
  */
@@ -38,19 +41,44 @@
 'use strict';
 
 // ---------------------------------------------------------------------------
+// Seeded RNG
+// ---------------------------------------------------------------------------
+
+/**
+ * Mulberry32 seeded PRNG.  Returns a function that generates floats in [0, 1).
+ * Produces the same sequence for the same seed — used for deterministic events.
+ * @param {number} seed  32-bit unsigned integer seed
+ * @returns {function(): number}
+ */
+function _seededRng(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) >>> 0;
+    return ((t ^ (t >>> 14)) >>> 0) / 0x100000000;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
 
 /** @enum {string} */
 const EventType = Object.freeze({
-  ANOMALY:   'anomaly',    // Exploration anomaly (Stellaris)
-  POLITICAL: 'political',  // Internal politics (Victoria 3)
-  TRADE:     'trade',      // Trade route event
-  FLEET:     'fleet',      // Fleet encounter (Endless Space)
-  COLONY:    'colony',     // Colony milestone / disaster (Master of Orion)
-  RANDOM:    'random',     // Generic scripted random event
-  RESEARCH:  'research',   // Technology breakthrough
-  SCRIPTED:  'scripted',   // Manually triggered (story beat)
+  ANOMALY:       'anomaly',      // Exploration anomaly (Stellaris)
+  POLITICAL:     'political',    // Internal politics (Victoria 3)
+  TRADE:         'trade',        // Trade route event
+  FLEET:         'fleet',        // Fleet encounter (Endless Space)
+  COLONY:        'colony',       // Colony milestone / disaster (Master of Orion)
+  RANDOM:        'random',       // Generic scripted random event
+  RESEARCH:      'research',     // Technology breakthrough
+  SCRIPTED:      'scripted',     // Manually triggered (story beat)
+  // Colony-specific disaster / blessing events
+  PLAGUE:        'plague',       // Disease outbreak — reduces pop & happiness
+  REVOLT:        'revolt',       // Armed uprising — unrest surge, stability hit
+  GOLDEN_AGE:    'golden_age',   // Prosperity boom — production & happiness bonus
+  RESOURCE_BOOM: 'resource_boom',// Resource windfall — large stockpile injection
 });
 
 /** @enum {string} */
@@ -68,9 +96,13 @@ const EventStatus = Object.freeze({
 class EventSystem {
   /**
    * @param {import('../EventBus').EventBus} [bus]  Engine event bus for notifications
+   * @param {number} [seed]  Optional seed for deterministic RNG (mulberry32).
+   *   When omitted, Math.random() is used.
    */
-  constructor(bus) {
+  constructor(bus, seed) {
     this._bus     = bus ?? null;
+    /** Seeded RNG for deterministic event selection; falls back to Math.random() */
+    this._rng     = seed !== undefined ? _seededRng(seed) : () => Math.random();
     /** @type {Map<string, EventDefinition>} */
     this._library = new Map();
     /** @type {EventInstance[]} */
@@ -84,6 +116,8 @@ class EventSystem {
     this.maxActive = 3;
     /** Probability of a random event firing per tick (0–1) */
     this.randomEventChance = 0.05;
+    /** Current game cycle (updated by tick()) — used for cooldown tracking */
+    this._currentCycle = 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -135,8 +169,10 @@ class EventSystem {
    * @param {number} [cycle=0]  Current game cycle (for cooldown tracking)
    */
   tick(gameState, cycle = 0) {
+    this._currentCycle = cycle;
+
     // Maybe fire a random event
-    if (Math.random() < this.randomEventChance) {
+    if (this._rng() < this.randomEventChance) {
       this._tryFireRandom(gameState, cycle);
     }
 
@@ -156,6 +192,9 @@ class EventSystem {
 
   /**
    * Resolve an active event by choosing an option.
+   * If the chosen option has a `cost` map, the resources are deducted from
+   * gameState before the effect runs.  If gameState cannot afford the cost,
+   * a warning is logged and the resolve is aborted.
    *
    * @param {string} id          Event instance id
    * @param {number} choiceIndex 0-based index into def.choices
@@ -169,9 +208,24 @@ class EventSystem {
     const choice = inst.def.choices[choiceIndex];
     if (!choice) { console.warn(`[EventSystem] Invalid choice index ${choiceIndex} for '${id}'`); return; }
 
+    // Resource cost validation for branching choices
+    if (choice.cost) {
+      for (const [res, amt] of Object.entries(choice.cost)) {
+        if ((gameState[res] ?? 0) < amt) {
+          console.warn(`[EventSystem] Cannot afford choice ${choiceIndex} for '${id}': insufficient ${res}`);
+          return;
+        }
+      }
+      // Deduct costs
+      for (const [res, amt] of Object.entries(choice.cost)) {
+        gameState[res] -= amt;
+      }
+    }
+
     inst.choice = choiceIndex;
     inst.status = EventStatus.RESOLVED;
-    inst.def._lastFired = Date.now();
+    // Track last-fired using the current game cycle for correct cooldown comparison
+    inst.def._lastFired = this._currentCycle;
 
     try {
       choice.effect?.(gameState, inst.context);
@@ -210,7 +264,7 @@ class EventSystem {
       for (let w = 0; w < def.weight; w++) candidates.push(def.id);
     }
     if (candidates.length === 0) return;
-    const id = candidates[Math.floor(Math.random() * candidates.length)];
+    const id = candidates[Math.floor(this._rng() * candidates.length)];
     this.schedule(id);
   }
 }

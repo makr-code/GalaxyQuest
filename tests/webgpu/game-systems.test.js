@@ -12,7 +12,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventSystem, EventType, EventStatus }    from '../../js/engine/game/EventSystem.js';
 import { ResearchTree, ResearchCategory }         from '../../js/engine/game/ResearchTree.js';
 import { FleetFormation, FormationShape, Wing }   from '../../js/engine/game/FleetFormation.js';
-import { ColonySimulation, Colony, PopJob }       from '../../js/engine/game/ColonySimulation.js';
+import {
+  ColonySimulation, Colony, PopJob,
+  BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
+  HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
+} from '../../js/engine/game/ColonySimulation.js';
 
 // ===========================================================================
 // EventSystem
@@ -117,6 +121,92 @@ describe('EventSystem', () => {
 
   it('EventType constants are frozen', () => {
     expect(Object.isFrozen(EventType)).toBe(true);
+  });
+
+  it('colony event types exist on EventType', () => {
+    expect(EventType.PLAGUE).toBe('plague');
+    expect(EventType.REVOLT).toBe('revolt');
+    expect(EventType.GOLDEN_AGE).toBe('golden_age');
+    expect(EventType.RESOURCE_BOOM).toBe('resource_boom');
+  });
+
+  it('seeded RNG produces deterministic results', () => {
+    const sys1 = new EventSystem(null, 42);
+    const sys2 = new EventSystem(null, 42);
+    sys1.define({ id: 'rng.test', type: EventType.RANDOM, weight: 10, choices: [{ label: 'ok', effect: () => {} }] });
+    sys2.define({ id: 'rng.test', type: EventType.RANDOM, weight: 10, choices: [{ label: 'ok', effect: () => {} }] });
+    // Run many ticks and compare queue/active state
+    sys1.randomEventChance = 1; // always try to fire
+    sys2.randomEventChance = 1;
+    for (let i = 0; i < 5; i++) {
+      sys1.tick({}, i);
+      sys2.tick({}, i);
+    }
+    expect(sys1._queue.length).toBe(sys2._queue.length);
+    expect(sys1._active.length).toBe(sys2._active.length);
+  });
+
+  it('cooldown prevents re-firing within cycle window', () => {
+    const sys = new EventSystem(null, 7);
+    sys.define({
+      id: 'cooldown.test',
+      type: EventType.RANDOM,
+      weight: 100,
+      cooldown: 10,
+      choices: [{ label: 'ok', effect: () => {} }],
+    });
+    // Manually schedule + resolve to set _lastFired
+    sys.schedule('cooldown.test');
+    sys.tick({}, 0);
+    sys.resolve('cooldown.test', 0, {});
+    // At cycle 5 (within cooldown of 10), event should not fire
+    const fired = [];
+    for (let c = 1; c <= 5; c++) {
+      sys.randomEventChance = 1;
+      sys.tick({}, c);
+      if (sys._queue.length > 0 || sys._active.length > 0) fired.push(c);
+    }
+    expect(fired.length).toBe(0);
+    // At cycle 11 (outside cooldown), event is eligible
+    sys.randomEventChance = 1;
+    sys.tick({}, 11);
+    expect(sys._queue.length + sys._active.length).toBeGreaterThan(0);
+  });
+
+  it('resolve() deducts choice cost from gameState', () => {
+    const sys = new EventSystem();
+    sys.define({
+      id: 'cost.event',
+      choices: [
+        { label: 'Pay', cost: { credits: 100 }, effect: (gs) => { gs.value += 50; } },
+        { label: 'Pass', effect: () => {} },
+      ],
+    });
+    sys.schedule('cost.event');
+    sys.tick({});
+    const gs = { credits: 200, value: 0 };
+    sys.resolve('cost.event', 0, gs);
+    expect(gs.credits).toBe(100); // 200 - 100
+    expect(gs.value).toBe(50);
+  });
+
+  it('resolve() aborts when gameState cannot afford cost', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const sys = new EventSystem();
+    sys.define({
+      id: 'broke.event',
+      choices: [
+        { label: 'Expensive', cost: { credits: 500 }, effect: (gs) => { gs.value = 999; } },
+      ],
+    });
+    sys.schedule('broke.event');
+    sys.tick({});
+    const gs = { credits: 10, value: 0 };
+    sys.resolve('broke.event', 0, gs);
+    expect(gs.value).toBe(0);    // effect not applied
+    expect(gs.credits).toBe(10); // credits not deducted
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 
@@ -405,5 +495,330 @@ describe('ColonySimulation', () => {
     sim.found({ id: 'a', name: 'A', size: 5, startingPops: 1 });
     sim.found({ id: 'b', name: 'B', size: 5, startingPops: 1 });
     expect(sim.all().length).toBe(2);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation — Buildings & Build Queue
+// ===========================================================================
+
+describe('ColonySimulation – buildings', () => {
+  let sim, col;
+
+  beforeEach(() => {
+    sim = new ColonySimulation();
+    col = sim.found({ id: 'bld', name: 'BldTest', size: 20, startingPops: 2 });
+    col.stockpile.production = 200;
+    col.stockpile.credits    = 100;
+    col.stockpile.ore        = 50;
+    col.stockpile.metal      = 50;
+  });
+
+  it('BuildingType enum is frozen and has expected keys', () => {
+    expect(Object.isFrozen(BuildingType)).toBe(true);
+    expect(BuildingType.FARM).toBe('farm');
+    expect(BuildingType.MINE).toBe('mine');
+    expect(BuildingType.FACTORY).toBe('factory');
+    expect(BuildingType.LAB).toBe('lab');
+    expect(BuildingType.BARRACKS).toBe('barracks');
+    expect(BuildingType.SPACEPORT).toBe('spaceport');
+  });
+
+  it('BUILDING_COST has entries for all building types', () => {
+    for (const type of Object.values(BuildingType)) {
+      expect(BUILDING_COST[type]).toBeDefined();
+      expect(BUILDING_COST[type].buildTime).toBeGreaterThan(0);
+    }
+  });
+
+  it('enqueueBuilding() deducts costs and adds to queue', () => {
+    const prodBefore = col.stockpile.production;
+    const result = col.enqueueBuilding(BuildingType.FARM);
+    expect(result.success).toBe(true);
+    expect(col.buildQueue.length).toBe(1);
+    expect(col.buildQueue[0].type).toBe(BuildingType.FARM);
+    expect(col.stockpile.production).toBe(prodBefore - BUILDING_COST[BuildingType.FARM].production);
+  });
+
+  it('enqueueBuilding() returns failure when resources insufficient', () => {
+    col.stockpile.production = 0;
+    const result = col.enqueueBuilding(BuildingType.FARM);
+    expect(result.success).toBe(false);
+    expect(result.reason).toMatch(/insufficient/);
+    expect(col.buildQueue.length).toBe(0);
+  });
+
+  it('enqueueBuilding() throws for unknown type', () => {
+    expect(() => col.enqueueBuilding('unknown_building')).toThrow(/Unknown building type/);
+  });
+
+  it('_processBuildQueue() completes building after enough ticks', () => {
+    col.enqueueBuilding(BuildingType.FARM); // buildTime = 3
+    col._processBuildQueue(2);
+    expect(col.buildings[BuildingType.FARM]).toBe(0); // not done yet
+    col._processBuildQueue(1);
+    expect(col.buildings[BuildingType.FARM]).toBe(1); // now complete
+    expect(col.buildQueue.length).toBe(0);
+  });
+
+  it('sim.tick() emits colony:building:complete when building finishes', () => {
+    const mockBus = { emit: vi.fn() };
+    const s2 = new ColonySimulation(mockBus);
+    const c2 = s2.found({ id: 'bc', name: 'BC', size: 20, startingPops: 1 });
+    c2.stockpile.production = 200;
+    c2.enqueueBuilding(BuildingType.MINE); // buildTime = 4
+    for (let i = 0; i < 4; i++) s2.tick(1);
+    const calls = mockBus.emit.mock.calls.map(c => c[0]);
+    expect(calls).toContain('colony:building:complete');
+  });
+
+  it('_applyBuildingYields() adds building resource output each tick', () => {
+    col.buildings[BuildingType.FARM] = 2;
+    const foodBefore = col.stockpile.food;
+    col._applyBuildingYields(1);
+    // 2 FARMs × 5 food = +10
+    expect(col.stockpile.food).toBe(foodBefore + 10);
+  });
+
+  it('_applyBuildingYields() produces ore from mines', () => {
+    col.buildings[BuildingType.MINE] = 3;
+    col._applyBuildingYields(1);
+    // 3 MINEs × 4 ore = 12 (plus existing 50)
+    expect(col.stockpile.ore).toBe(62);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation — Trade Chains
+// ===========================================================================
+
+describe('ColonySimulation – trade chains', () => {
+  let col;
+
+  beforeEach(() => {
+    const sim = new ColonySimulation();
+    col = sim.found({ id: 'tc', name: 'TC', size: 20, startingPops: 1 });
+    col.stockpile.ore   = 20;
+    col.stockpile.metal = 10;
+  });
+
+  it('TRADE_CHAIN constant is frozen and non-empty', () => {
+    expect(Object.isFrozen(TRADE_CHAIN)).toBe(true);
+    expect(TRADE_CHAIN.length).toBeGreaterThan(0);
+  });
+
+  it('factory converts ore to metal', () => {
+    col.buildings[BuildingType.FACTORY] = 1;
+    col._applyTradeChains(1);
+    // 1 factory × rate 2 ore → 1 metal consumed, so ore drops by 2, metal +1
+    expect(col.stockpile.ore).toBe(18);
+    expect(col.stockpile.metal).toBe(11);
+  });
+
+  it('factory conversion is limited by available ore', () => {
+    col.buildings[BuildingType.FACTORY] = 5; // needs 10 ore, only 20 available
+    col.stockpile.ore = 3; // less than one full batch
+    col._applyTradeChains(1);
+    // Can only process 3/2 = 1.5 batches, each consuming 2 ore → 1 metal
+    expect(col.stockpile.ore).toBeCloseTo(0, 5);
+    expect(col.stockpile.metal).toBeGreaterThan(10);
+  });
+
+  it('spaceport converts metal to shipParts', () => {
+    col.buildings[BuildingType.SPACEPORT] = 1;
+    col._applyTradeChains(1);
+    // 1 spaceport × rate 3 metal → 1 shipPart; metal 10 - 3 = 7, shipParts 0 + 1 = 1
+    expect(col.stockpile.metal).toBe(7);
+    expect(col.stockpile.shipParts).toBeCloseTo(1);
+  });
+
+  it('full chain: mine → factory → spaceport', () => {
+    col.buildings[BuildingType.MINE]      = 2;
+    col.buildings[BuildingType.FACTORY]   = 1;
+    col.buildings[BuildingType.SPACEPORT] = 1;
+    col.stockpile.ore   = 0;
+    col.stockpile.metal = 0;
+    // After building yields, mine produces 8 ore
+    col._applyBuildingYields(1);
+    expect(col.stockpile.ore).toBe(8);
+    // Trade chains: factory converts ore → metal, spaceport converts metal → shipParts
+    col._applyTradeChains(1);
+    // Full chain ran: ore was consumed, shipParts were produced at the end
+    expect(col.stockpile.shipParts).toBeGreaterThan(0);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation — Hunger / Unrest Escalation (0–100)
+// ===========================================================================
+
+describe('ColonySimulation – hunger & unrest escalation', () => {
+  let sim, col;
+
+  beforeEach(() => {
+    sim = new ColonySimulation();
+    col = sim.found({ id: 'hu', name: 'HU', size: 10, startingPops: 3 });
+  });
+
+  it('HUNGER_THRESHOLDS and UNREST_THRESHOLDS are frozen', () => {
+    expect(Object.isFrozen(HUNGER_THRESHOLDS)).toBe(true);
+    expect(Object.isFrozen(UNREST_THRESHOLDS)).toBe(true);
+  });
+
+  it('unrest starts at 0 and is on 0–1 scale', () => {
+    expect(col.unrest).toBe(0);
+    // Run some ticks with unemployment to raise unrest
+    col.setJobs({ [PopJob.UNEMPLOYED]: 3 });
+    for (let i = 0; i < 10; i++) sim.tick(1);
+    expect(col.unrest).toBeGreaterThanOrEqual(0);
+    expect(col.unrest).toBeLessThanOrEqual(1);
+  });
+
+  it('hunger starts at 0 and rises when food is negative', () => {
+    expect(col.hunger).toBe(0);
+    col.stockpile.food = -10;
+    col._applyHunger(1, null);
+    expect(col.hunger).toBeGreaterThan(0);
+    expect(col.hunger).toBeLessThanOrEqual(1);
+  });
+
+  it('hunger falls when food stockpile is positive', () => {
+    col.hunger = 0.5;
+    col.stockpile.food = 20;
+    col._applyHunger(1, null);
+    expect(col.hunger).toBeLessThan(0.5);
+  });
+
+  it('hunger escalation callback fires when crossing threshold', () => {
+    col.hunger = 0.24;
+    col.stockpile.food = -10;
+    const onEscalate = vi.fn();
+    col._applyHunger(1, onEscalate);
+    // Should cross the 0.25 threshold (0.24 + 0.05 = 0.29)
+    expect(col.hunger).toBeGreaterThanOrEqual(0.25);
+    expect(onEscalate).toHaveBeenCalledWith(col, 'hunger', 1);
+  });
+
+  it('escalation callback does not re-fire for same stage', () => {
+    col.hunger = 0.30;
+    col._hungerStage = 1;
+    col.stockpile.food = -10;
+    const onEscalate = vi.fn();
+    col._applyHunger(1, onEscalate);
+    // Stage is still 1, no new escalation
+    expect(onEscalate).not.toHaveBeenCalled();
+  });
+
+  it('unrest escalation callback fires via sim.tick()', () => {
+    const mockBus = { emit: vi.fn() };
+    const s2 = new ColonySimulation(mockBus);
+    const c2 = s2.found({ id: 'ue', name: 'UE', size: 10, startingPops: 5 });
+    c2.setJobs({ [PopJob.UNEMPLOYED]: 5 });
+    // Set unrest just below the 0.25 threshold so one tick crosses it
+    c2.unrest       = 0.245;
+    c2._unrestStage = 0;
+    c2.stability    = 0.1; // low stability → faster unrest rise
+    c2.happiness    = 0.0;
+    s2.tick(1);
+    const calls = mockBus.emit.mock.calls.map(c => c[0]);
+    expect(calls.some(e => e.includes('escalate'))).toBe(true);
+  });
+
+  it('unrest > 0.75 emits colony:unrest event', () => {
+    const mockBus = { emit: vi.fn() };
+    const s2 = new ColonySimulation(mockBus);
+    const c2 = s2.found({ id: 'ue2', name: 'UE2', size: 10, startingPops: 2 });
+    c2.unrest = 0.8;  // already above threshold
+    c2._unrestStage = 3; // prevent escalation fires from interfering
+    s2.tick(1);
+    const calls = mockBus.emit.mock.calls.map(c => c[0]);
+    expect(calls).toContain('colony:unrest');
+  });
+});
+
+// ===========================================================================
+// ColonySimulation — Serialization / Deserialization
+// ===========================================================================
+
+describe('ColonySimulation – serialize / deserialize', () => {
+  let sim;
+
+  beforeEach(() => {
+    sim = new ColonySimulation();
+    const col = sim.found({
+      id: 'sg1', name: 'SaveGame1', size: 15,
+      fertility: 0.9, richness: 1.1, startingPops: 4,
+    });
+    col.setJobs({ [PopJob.FARMER]: 2, [PopJob.WORKER]: 1 });
+    col.stockpile.production = 80;
+    col.stockpile.credits    = 100;
+    col.stockpile.ore        = 20;
+    col.buildings[BuildingType.MINE]    = 1;
+    col.buildings[BuildingType.FACTORY] = 2;
+    col.stockpile.production = 50;
+    col.enqueueBuilding(BuildingType.LAB); // costs production:40 + credits:20
+    col.unrest     = 0.30;
+    col.hunger     = 0.10;
+    col.happiness  = 0.65;
+    col.stability  = 0.75;
+  });
+
+  it('Colony.serialize() returns a plain object with all fields', () => {
+    const col  = sim.get('sg1');
+    const json = col.serialize();
+    expect(json.id).toBe('sg1');
+    expect(json.pops).toBe(4);
+    expect(json.unrest).toBeCloseTo(0.30);
+    expect(json.hunger).toBeCloseTo(0.10);
+    expect(json.buildings[BuildingType.MINE]).toBe(1);
+    expect(json.buildQueue.length).toBe(1);
+    expect(json.stockpile.ore).toBe(20);
+  });
+
+  it('Colony.deserialize() restores equivalent state', () => {
+    const original = sim.get('sg1');
+    const json     = original.serialize();
+    const restored = Colony.deserialize(json);
+
+    expect(restored.id).toBe(original.id);
+    expect(restored.name).toBe(original.name);
+    expect(restored.pops).toBe(original.pops);
+    expect(restored.unrest).toBe(original.unrest);
+    expect(restored.hunger).toBe(original.hunger);
+    expect(restored.happiness).toBe(original.happiness);
+    expect(restored.stability).toBe(original.stability);
+    expect(restored.buildings[BuildingType.MINE]).toBe(original.buildings[BuildingType.MINE]);
+    expect(restored.buildQueue.length).toBe(original.buildQueue.length);
+    expect(restored.stockpile.ore).toBe(original.stockpile.ore);
+    expect(restored.jobs[PopJob.FARMER]).toBe(original.jobs[PopJob.FARMER]);
+  });
+
+  it('fromJSON(toJSON(colony)) produces an equivalent colony', () => {
+    const original = sim.get('sg1');
+    const clone    = Colony.deserialize(original.serialize());
+
+    // Both colonies should produce the same yield after one tick
+    original._applyYield(1);
+    clone._applyYield(1);
+    expect(clone.stockpile.food).toBeCloseTo(original.stockpile.food);
+    expect(clone.stockpile.research).toBeCloseTo(original.stockpile.research);
+  });
+
+  it('ColonySimulation.serialize() captures all colonies', () => {
+    sim.found({ id: 'sg2', name: 'SG2', size: 8, startingPops: 1 });
+    const snap = sim.serialize();
+    expect(snap.colonies.length).toBe(2);
+    expect(snap.colonies.map(c => c.id)).toContain('sg1');
+    expect(snap.colonies.map(c => c.id)).toContain('sg2');
+  });
+
+  it('ColonySimulation.deserialize() restores full simulation', () => {
+    sim.found({ id: 'sg2', name: 'SG2', size: 8, startingPops: 2 });
+    const snap    = sim.serialize();
+    const loaded  = ColonySimulation.deserialize(snap);
+    expect(loaded.count).toBe(2);
+    const c = loaded.get('sg1');
+    expect(c).not.toBeNull();
+    expect(c.buildings[BuildingType.MINE]).toBe(1);
   });
 });
