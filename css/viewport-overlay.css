@@ -11,6 +11,11 @@
  * License: MIT — makr-code/GalaxyQuest
  */
 
+/* PiP header height — keep in sync with PIP_DEFAULTS.headerHeight in ViewportManager.js */
+:root {
+  --gq-pip-header-h: 22px;
+}
+
 /* -----------------------------------------------------------------------
    Container — anchors PiPs over the game canvas
    ----------------------------------------------------------------------- */
@@ -60,7 +65,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 22px;
+  height: var(--gq-pip-header-h);
   padding: 0 6px;
   background: rgba(80, 180, 255, 0.08);
   border-bottom: 1px solid rgba(80, 180, 255, 0.25);
@@ -151,7 +156,7 @@
 
 .gq-viewport__badge {
   position: absolute;
-  top: 26px;
+  top: calc(var(--gq-pip-header-h) + 4px);
   right: 4px;
   font-family: 'Share Tech Mono', monospace;
   font-size: 8px;
@@ -160,12 +165,66 @@
   text-transform: uppercase;
   letter-spacing: 0.1em;
   pointer-events: none;
+  border: 1px solid transparent;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
-.gq-viewport__badge--ship     { background: rgba(80,  180, 255, 0.2); color: rgba(80, 180, 255, 0.9);  }
-.gq-viewport__badge--base     { background: rgba(80,  255, 160, 0.2); color: rgba(80, 255, 160, 0.9);  }
-.gq-viewport__badge--planet   { background: rgba(255, 180,  80, 0.2); color: rgba(255, 180, 80, 0.9);  }
-.gq-viewport__badge--colony   { background: rgba(200,  80, 255, 0.2); color: rgba(200, 80, 255, 0.9);  }
+.gq-viewport__badge--ship {
+  background: rgba(80, 180, 255, 0.2);
+  color: rgba(80, 180, 255, 0.9);
+  border-color: rgba(80, 180, 255, 0.35);
+}
+
+.gq-viewport__badge--base {
+  background: rgba(80, 255, 160, 0.2);
+  color: rgba(80, 255, 160, 0.9);
+  border-color: rgba(80, 255, 160, 0.35);
+}
+
+.gq-viewport__badge--planet {
+  background: rgba(255, 180, 80, 0.2);
+  color: rgba(255, 180, 80, 0.9);
+  border-color: rgba(255, 180, 80, 0.35);
+}
+
+.gq-viewport__badge--colony {
+  background: rgba(200, 80, 255, 0.2);
+  color: rgba(200, 80, 255, 0.9);
+  border-color: rgba(200, 80, 255, 0.35);
+}
+
+.gq-viewport:hover .gq-viewport__badge--ship {
+  box-shadow: 0 0 6px rgba(80, 180, 255, 0.4);
+  border-color: rgba(80, 180, 255, 0.6);
+}
+
+.gq-viewport:hover .gq-viewport__badge--base {
+  box-shadow: 0 0 6px rgba(80, 255, 160, 0.4);
+  border-color: rgba(80, 255, 160, 0.6);
+}
+
+.gq-viewport:hover .gq-viewport__badge--planet {
+  box-shadow: 0 0 6px rgba(255, 180, 80, 0.4);
+  border-color: rgba(255, 180, 80, 0.6);
+}
+
+.gq-viewport:hover .gq-viewport__badge--colony {
+  box-shadow: 0 0 6px rgba(200, 80, 255, 0.4);
+  border-color: rgba(200, 80, 255, 0.6);
+}
+
+/* -----------------------------------------------------------------------
+   GPU-render mode — content area is transparent so WebGPU output in the
+   main canvas shows through; the HTML canvas placeholder is hidden.
+   ----------------------------------------------------------------------- */
+
+.gq-viewport--gpu-render {
+  background: transparent;
+}
+
+.gq-viewport--gpu-render .gq-viewport__canvas {
+  display: none;
+}
 
 /* -----------------------------------------------------------------------
    Animation — fade in on creation
@@ -178,4 +237,60 @@
 
 .gq-viewport {
   animation: gq-pip-fadein 0.18s ease-out;
+}
+
+/* -----------------------------------------------------------------------
+   Responsive breakpoints — scale down PiPs on smaller viewports
+   ----------------------------------------------------------------------- */
+
+/* Tablet / small desktop (≤ 1024 px wide) */
+@media (max-width: 1024px) {
+  .gq-viewport {
+    min-width: 100px;
+    min-height: 68px;
+  }
+
+  .gq-viewport__label {
+    font-size: 9px;
+  }
+
+  .gq-viewport__badge {
+    font-size: 7px;
+    padding: 1px 3px;
+  }
+}
+
+/* Mobile landscape / narrow screens (≤ 600 px wide) */
+@media (max-width: 600px) {
+  .gq-viewport {
+    min-width: 80px;
+    min-height: 56px;
+    border-radius: 3px;
+  }
+
+  .gq-viewport__header {
+    height: 18px;
+    padding: 0 4px;
+  }
+
+  .gq-viewport__label {
+    font-size: 8px;
+  }
+
+  .gq-viewport__close {
+    width: 14px;
+    height: 14px;
+    font-size: 8px;
+  }
+
+  .gq-viewport__badge {
+    font-size: 6px;
+    padding: 1px 2px;
+    top: 22px;
+  }
+
+  .gq-viewport__resize {
+    width: 10px;
+    height: 10px;
+  }
 }
