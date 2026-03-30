@@ -19,11 +19,11 @@
 
 'use strict';
 
-const { IGraphicsRenderer } = typeof require !== 'undefined'
+const { IGraphicsRenderer: BaseGraphicsRenderer } = typeof require !== 'undefined'
   ? require('./GraphicsContext.js')
   : window.GQGraphicsContext;
 
-class WebGLRenderer extends IGraphicsRenderer {
+class WebGLRenderer extends BaseGraphicsRenderer {
   /**
    * @param {Object|null} [threeOptions]  When provided the underlying
    *   THREE.WebGLRenderer is created synchronously in the constructor

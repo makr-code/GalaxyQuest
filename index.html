@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>GalaxyQuest – Unified Command Shell</title>
-  <link rel="stylesheet" href="css/style.css?v=20260330p3" />
+  <link rel="stylesheet" href="css/style.css?v=20260330p5" />
   <style>
     #boot-terminal {
       position: fixed;
@@ -231,12 +231,12 @@
 
   <section id="auth-login-confirm-section" class="auth-login-confirm-section hidden" aria-live="polite" aria-atomic="true">
     <div id="auth-login-confirm-card" class="auth-login-confirm-card">
-      <h3 id="auth-login-confirm-title" class="auth-login-confirm-title">Gueltiger Login erkannt</h3>
-      <p id="auth-login-confirm-text" class="auth-login-confirm-text">Preloading laeuft. Dein Kommandostand wird vorbereitet.</p>
+      <h3 id="auth-login-confirm-title" class="auth-login-confirm-title">Login ok</h3>
+      <p id="auth-login-confirm-text" class="auth-login-confirm-text">Lade Kommandostand...</p>
       <div class="auth-login-confirm-track" aria-hidden="true">
         <div id="auth-login-confirm-bar" class="auth-login-confirm-bar"></div>
       </div>
-      <div id="auth-login-confirm-meta" class="auth-login-confirm-meta">0% • Session wird geprueft</div>
+      <div id="auth-login-confirm-meta" class="auth-login-confirm-meta">0% • Session ok</div>
     </div>
   </section>
 
@@ -438,6 +438,14 @@
         const moduleTraceSeen = new Map();
         let fallbackActive = true;
 
+        function ensureBootTerminalHostVisible() {
+          const host = document.getElementById('terminal-section');
+          if (!host) return;
+          host.style.display = 'block';
+          host.style.visibility = 'visible';
+          host.style.opacity = '1';
+        }
+
         function safeText(v) {
           return String(v || '').replace(/\s+/g, ' ').trim();
         }
@@ -473,6 +481,7 @@
           bootLog.scrollTop = bootLog.scrollHeight;
 
           if (String(lvl).toLowerCase() === 'error' && bootTerminal) {
+            ensureBootTerminalHostVisible();
             bootTerminal.classList.remove('hidden');
           }
         }
@@ -585,11 +594,18 @@
             const label = document.getElementById('auth-preload-label');
             const meta = document.getElementById('auth-preload-meta');
             const panel = document.getElementById('auth-preload-panel');
+            const authSection = document.getElementById('auth-section');
             const loginErr = document.getElementById('login-error');
             const msg = safeText(message) || 'unknown error';
             const det = safeText(detail);
+            const authVisible = !!(authSection && !authSection.classList.contains('hidden'));
 
-            if (panel) panel.classList.remove('hidden');
+            if (panel) {
+              panel.classList.toggle('hidden', authVisible);
+            }
+            if (!authVisible || (panel && !panel.classList.contains('hidden'))) {
+              ensureBootTerminalHostVisible();
+            }
             if (label) label.textContent = `Boot error (${safeText(kind) || 'runtime'})`;
             if (meta) meta.textContent = det ? `${msg} | ${det}` : msg;
             if (loginErr) loginErr.textContent = det ? `${msg} (${det})` : msg;
@@ -743,7 +759,7 @@
           'js/packages/game.boot.bundle.legacy.js.gz?v=20260330p2'
         ],
         gameScripts: [
-          'js/runtime/wm.js?v=20260328p54',
+          'js/runtime/wm.js?v=20260330p55',
           'js/network/binary-decoder.js?v=20260328p49',
           'js/network/binary-decoder-v2.js?v=20260328p49',
           'js/network/binary-decoder-v3.js?v=20260328p49',
@@ -755,7 +771,7 @@
           'js/runtime/audio.js?v=20260328p53',
           'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
           'js/engine/core/GraphicsContext.js?v=20260330p2',
-          'js/engine/core/WebGLRenderer.js?v=20260330p2',
+          'js/engine/core/WebGLRenderer.js?v=20260330p3',
           // Debug Phase 2: Postprocessing-Kette vorerst deaktiviert.
           // 'js/rendering/three-EffectComposer.js?v=20260328p55',
           // 'js/rendering/three-RenderPass.js?v=20260328p55',
@@ -786,10 +802,10 @@
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
             'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
             'js/ui/gq-ui.js?v=20260330p1',
-            'js/runtime/game.js?v=20260330p3'
+            'js/runtime/game.js?v=20260330p7'
         ],
         preloadAssets: [
-          'js/runtime/wm.js?v=20260328p54',
+          'js/runtime/wm.js?v=20260330p55',
           'js/network/binary-decoder.js?v=20260328p49',
           'js/network/binary-decoder-v2.js?v=20260328p49',
           'js/network/binary-decoder-v3.js?v=20260328p49',
@@ -799,7 +815,7 @@
           'js/runtime/galaxy-db.js?v=20260328p49',
           'js/runtime/audio.js?v=20260328p53',
           'js/engine/core/GraphicsContext.js?v=20260330p2',
-          'js/engine/core/WebGLRenderer.js?v=20260330p2',
+          'js/engine/core/WebGLRenderer.js?v=20260330p3',
           'js/rendering/planet-textures.js?v=20260328p49',
           'js/rendering/texture-manager.js?v=20260329p1',
           'js/rendering/geometry-manager.js?v=20260329p1',
@@ -822,7 +838,7 @@
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
             'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
             'js/ui/gq-ui.js?v=20260330p1',
-            'js/runtime/game.js?v=20260330p3'
+            'js/runtime/game.js?v=20260330p7'
         ]
       };
     </script>
@@ -1090,7 +1106,7 @@
   <script src="js/telemetry/space-flight-hud-engine.js?v=20260329p81"></script>
   <script src="js/rendering/galaxy-camera-controller.js?v=20260329p85"></script>
   <script src="js/rendering/starfield.js?v=20260329p100"></script>
-  <script src="js/network/auth.js?v=20260329p72"></script>
+  <script src="js/network/auth.js?v=20260330p78"></script>
   <script src="js/ui/glossary.js?v=20260328p49"></script>
   <script src="js/ui/gq-ui.js?v=20260330p1"></script>
   <script src="js/ui/ui-kit.js?v=20260329p60"></script>

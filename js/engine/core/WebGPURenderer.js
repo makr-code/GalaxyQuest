@@ -19,7 +19,7 @@
 
 'use strict';
 
-const { IGraphicsRenderer } = typeof require !== 'undefined'
+const { IGraphicsRenderer: BaseGraphicsRenderer } = typeof require !== 'undefined'
   ? require('./GraphicsContext.js')
   : window.GQGraphicsContext;
 
@@ -31,7 +31,7 @@ const WebGPUShader = typeof require !== 'undefined'
   ? require('../webgpu/WebGPUShader.js').WebGPUShader
   : window.GQWebGPUShader;
 
-class WebGPURenderer extends IGraphicsRenderer {
+class WebGPURenderer extends BaseGraphicsRenderer {
   constructor() {
     super();
     /** @type {GPUAdapter|null} */

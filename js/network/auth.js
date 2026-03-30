@@ -158,11 +158,14 @@
 
   function setPhase(label, pct) {
     const clamped = Math.max(0, Math.min(100, Number(pct || 0)));
+    const authVisible = !!(authSection && !authSection.classList.contains('hidden'));
     if (preloadLabel) preloadLabel.textContent = String(label || 'Loading...');
     if (preloadMeta) preloadMeta.textContent = `${clamped.toFixed(0)}%`;
     if (preloadBar) preloadBar.style.width = `${clamped}%`;
-    if (!preloadPanelSuppressed) {
+    if (!preloadPanelSuppressed && !authVisible) {
       preloadPanel?.classList.remove('hidden');
+    } else {
+      preloadPanel?.classList.add('hidden');
     }
     if (authLoginConfirmBar) {
       authLoginConfirmBar.style.width = `${clamped}%`;
@@ -172,9 +175,9 @@
     }
     if (authLoginConfirmSection && !authLoginConfirmSection.classList.contains('hidden') && authLoginConfirmMeta) {
       if (clamped >= 100) {
-        if (authLoginConfirmTitle) authLoginConfirmTitle.textContent = 'Command Bridge bereit';
-        if (authLoginConfirmText) authLoginConfirmText.textContent = 'Initialisierung abgeschlossen. Uebergang in die Einsatzansicht...';
-        authLoginConfirmMeta.textContent = '100% • Start abgeschlossen';
+        if (authLoginConfirmTitle) authLoginConfirmTitle.textContent = 'Bereit';
+        if (authLoginConfirmText) authLoginConfirmText.textContent = 'Uebergang in die Einsatzansicht...';
+        authLoginConfirmMeta.textContent = '100% • Start';
       } else {
         authLoginConfirmMeta.textContent = `${clamped.toFixed(0)}% • ${String(label || 'Loading...')}`;
       }
@@ -198,9 +201,9 @@
   }
 
   function showLoginConfirmSection(title, text, meta = '') {
-    if (authLoginConfirmTitle) authLoginConfirmTitle.textContent = String(title || 'Login erkannt');
-    if (authLoginConfirmText) authLoginConfirmText.textContent = String(text || 'Preloading laeuft.');
-    if (authLoginConfirmMeta) authLoginConfirmMeta.textContent = String(meta || 'Session wird vorbereitet');
+    if (authLoginConfirmTitle) authLoginConfirmTitle.textContent = String(title || 'Login ok');
+    if (authLoginConfirmText) authLoginConfirmText.textContent = String(text || 'Lade Kommandostand...');
+    if (authLoginConfirmMeta) authLoginConfirmMeta.textContent = String(meta || 'Session ok');
     if (authLoginConfirmBar) authLoginConfirmBar.style.width = '0%';
     authLoginConfirmSection?.classList.remove('is-complete');
     authLoginConfirmSection?.classList.remove('is-exiting');
@@ -265,6 +268,43 @@
     }
   }
 
+  function emitInitDiag(stage) {
+    try {
+      const bodyClass = String(document.body?.className || '');
+      const authVisible = !!(authSection && !authSection.classList.contains('hidden'));
+      const gameSectionExists = !!gameSection;
+      const gameVisible = !!(gameSection && !gameSection.classList.contains('hidden'));
+      const wmReady = !!(window.WM && typeof window.WM.open === 'function');
+      const registryReady = !!(window.GQWindowRegistry && window.GQWindowRegistry.registered);
+      const galaxyOpen = !!(wmReady && typeof window.WM.isOpen === 'function' && window.WM.isOpen('galaxy'));
+      const hasOrb = !!document.getElementById('galaxy-nav-orb-overlay');
+      const starfield = document.getElementById('starfield');
+      const starfieldReady = !!(starfield && Number(starfield.width || 0) > 0 && Number(starfield.height || 0) > 0);
+      const terminalReady = !!window.__gqUiConsoleReady;
+
+      const parts = [
+        `stage=${String(stage || 'unknown')}`,
+        `body=${bodyClass || '(none)'}`,
+        `authVisible=${authVisible}`,
+        `gameSectionExists=${gameSectionExists}`,
+        `gameVisible=${gameVisible}`,
+        `wmReady=${wmReady}`,
+        `registryReady=${registryReady}`,
+        `galaxyOpen=${galaxyOpen}`,
+        `orb=${hasOrb}`,
+        `starfieldReady=${starfieldReady}`,
+        `terminalReady=${terminalReady}`,
+      ];
+      const line = `[initdiag] ${parts.join(' ')}`;
+      authLog('info', line);
+      if (window.__GQ_BOOT_DIAG?.log) {
+        window.__GQ_BOOT_DIAG.log('info', line, 'auth-init');
+      }
+    } catch (err) {
+      authLog('warn', 'emitInitDiag failed', String(err?.message || err || 'unknown'));
+    }
+  }
+
   function setAuthVisible() {
     document.body.classList.remove('game-page');
     document.body.classList.add('auth-page');
@@ -283,6 +323,54 @@
         authLog('warn', 'ensureAuthWindowManaged failed', String(err?.message || err || 'unknown'));
       }
     });
+    emitInitDiag('setAuthVisible');
+  }
+
+  function ensureGalaxyUiMounted(attempt = 0) {
+    const maxAttempts = 8;
+    try {
+      const hostWrapper = document.getElementById('galaxy-host-wrapper');
+      const host = document.getElementById('galaxy-3d-host');
+      const starfield = document.getElementById('starfield');
+      const hasOrb = !!document.getElementById('galaxy-nav-orb-overlay');
+      const wm = window.WM;
+      const hasGameWindowRegistry = !!(window.GQWindowRegistry && window.GQWindowRegistry.registered);
+
+      if (hostWrapper) {
+        hostWrapper.style.display = 'block';
+        hostWrapper.style.visibility = 'visible';
+        hostWrapper.style.opacity = '1';
+      }
+      if (host) {
+        host.style.display = 'block';
+        host.style.visibility = 'visible';
+        host.style.opacity = '1';
+      }
+      if (starfield) {
+        starfield.style.display = 'block';
+        starfield.style.visibility = 'visible';
+        starfield.style.opacity = '1';
+      }
+
+      // Only open the WM galaxy window after game.js has registered the proper
+      // fullscreen/background config. Otherwise WM falls back to DEFAULTS and
+      // creates a normal draggable "Galaxy Map" window.
+      if (hasGameWindowRegistry && wm && typeof wm.open === 'function') {
+        const isGalaxyOpen = (typeof wm.isOpen === 'function') ? !!wm.isOpen('galaxy') : false;
+        if (!isGalaxyOpen) {
+          wm.open('galaxy');
+        }
+        if (!hasOrb && typeof wm.refresh === 'function') {
+          wm.refresh('galaxy');
+        }
+      }
+    } catch (err) {
+      authLog('warn', 'ensureGalaxyUiMounted failed', String(err?.message || err || 'unknown'));
+    }
+
+    if (attempt >= maxAttempts) return;
+    if (document.getElementById('galaxy-nav-orb-overlay')) return;
+    window.setTimeout(() => ensureGalaxyUiMounted(attempt + 1), 240);
   }
 
   function setGameVisible() {
@@ -299,6 +387,10 @@
     } catch (err) {
       authLog('warn', 'WM close(auth) failed', String(err?.message || err || 'unknown'));
     }
+
+    // Safety net: if the galaxy background/orb was not mounted yet, retry briefly.
+    Promise.resolve().then(() => ensureGalaxyUiMounted(0));
+    emitInitDiag('setGameVisible');
   }
 
   function queueHomeworldIntroFlight(payload = {}) {
@@ -793,17 +885,20 @@
     preloadPanelSuppressed = false;
     setPhase('Aktive Session erkannt. Lade Kommandostand...', 8);
     showLoginConfirmSection(
-      'Login erkannt',
-      'Preloading laeuft. Dein Kommandostand wird vorbereitet.',
-      'Session validiert'
+      'Login ok',
+      'Lade Kommandostand...',
+      'Session ok'
     );
     authUiLog('info', 'preload panel enabled for active session flow');
     releaseAuthBackgroundForGame();
+    emitInitDiag('startGameShell:beforeBootRuntime');
     await bootGameRuntime();
+    emitInitDiag('startGameShell:afterBootRuntime');
     hidePreloadPanel(true);
     await hideLoginConfirmSection({ animate: true });
     hideActionModal();
     setGameVisible();
+    emitInitDiag('startGameShell:complete');
     authLog('info', 'startGameShell complete');
     authProbe('startGameShell complete');
   }
@@ -811,7 +906,8 @@
   async function checkSessionAndBoot() {
     preloadPanelSuppressed = false;
     lastPhaseBucket = -1;
-    setPhase('Checking session...', 2);
+    authUiLog('info', 'checking session state');
+    hidePreloadPanel(true);
     try {
       const me = await fetch('api/auth.php?action=me', { credentials: 'same-origin' });
       if (!me.ok) {
@@ -1099,18 +1195,31 @@
     authLog('info', 'login submit fired');
     e.preventDefault();
     const errEl = document.getElementById('login-error');
-    if (errEl) errEl.className = 'form-error';
-    errEl.textContent = '';
+    if (errEl) {
+      errEl.className = 'form-error';
+      errEl.textContent = '';
+    } else {
+      authLog('warn', 'login-error element missing');
+    }
     const btn = loginForm.querySelector('button[type="submit"]');
-    btn.disabled = true;
-    btn.textContent = 'Launching...';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Launching...';
+    }
     showActionModal('Signing in...', 'Session and permissions are being verified.', true);
 
     try {
+      const usernameEl = document.getElementById('login-username');
+      const passwordEl = document.getElementById('login-password');
+      const rememberEl = document.getElementById('login-remember');
+      if (!usernameEl || !passwordEl || !rememberEl) {
+        throw new Error('Login form elements missing in DOM');
+      }
+
       const loginPayload = {
-        username: document.getElementById('login-username').value.trim(),
-        password: document.getElementById('login-password').value,
-        remember: document.getElementById('login-remember').checked,
+        username: usernameEl.value.trim(),
+        password: passwordEl.value,
+        remember: rememberEl.checked,
       };
 
       const submitLogin = async (forceCsrfRefresh = false) => {
@@ -1155,7 +1264,7 @@
         await startGameShell();
       } else {
         hideActionModal();
-        errEl.textContent = data.error || 'Login failed.';
+        if (errEl) errEl.textContent = data.error || 'Login failed.';
       }
     } catch (err) {
       authProbe('login submit catch (network/parse)', 'error');
@@ -1163,8 +1272,10 @@
       hideActionModal();
       setAuthError(errEl, err, userFacingAuthError(err));
     } finally {
-      btn.disabled = false;
-      btn.textContent = 'Enter the Galaxy';
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Enter the Galaxy';
+      }
     }
   });
   authReady.loginBound = !!loginForm;
@@ -1181,18 +1292,32 @@
     authLog('info', 'register submit fired');
     e.preventDefault();
     const errEl = document.getElementById('register-error');
-    errEl.textContent = '';
+    if (errEl) {
+      errEl.textContent = '';
+    } else {
+      authLog('warn', 'register-error element missing');
+    }
     const btn = registerForm.querySelector('button[type="submit"]');
-    btn.disabled = true;
-    btn.textContent = 'Creating empire...';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Creating empire...';
+    }
     showActionModal('Creating account...', 'Registering your empire profile.', true);
 
     try {
+      const regUserEl = document.getElementById('reg-username');
+      const regEmailEl = document.getElementById('reg-email');
+      const regPassEl = document.getElementById('reg-password');
+      const regRememberEl = document.getElementById('reg-remember');
+      if (!regUserEl || !regEmailEl || !regPassEl || !regRememberEl) {
+        throw new Error('Register form elements missing in DOM');
+      }
+
       const registerPayload = {
-        username: document.getElementById('reg-username').value.trim(),
-        email: document.getElementById('reg-email').value.trim(),
-        password: document.getElementById('reg-password').value,
-        remember: document.getElementById('reg-remember').checked,
+        username: regUserEl.value.trim(),
+        email: regEmailEl.value.trim(),
+        password: regPassEl.value,
+        remember: regRememberEl.checked,
       };
 
       const submitRegister = async (forceCsrfRefresh = false) => {
@@ -1235,14 +1360,16 @@
         await startGameShell();
       } else {
         hideActionModal();
-        errEl.textContent = data.error || 'Registration failed.';
+        if (errEl) errEl.textContent = data.error || 'Registration failed.';
       }
     } catch (err) {
       hideActionModal();
       setAuthError(errEl, err, userFacingAuthError(err));
     } finally {
-      btn.disabled = false;
-      btn.textContent = 'Launch into the Galaxy';
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Launch into the Galaxy';
+      }
     }
   });
   authReady.registerBound = !!registerForm;

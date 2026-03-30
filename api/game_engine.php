@@ -204,6 +204,26 @@ function user_empire_color(int $userId): string {
 // ─── Fog of War ──────────────────────────────────────────────────────────────
 
 /**
+ * Check whether Fog-of-War persistence table is available.
+ * Falls back to legacy behavior when migrations are not applied yet.
+ */
+function has_player_system_visibility_table(PDO $db): bool {
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    try {
+        $stmt = $db->query("SHOW TABLES LIKE 'player_system_visibility'");
+        $cached = (bool)$stmt->fetchColumn();
+    } catch (Throwable $e) {
+        $cached = false;
+    }
+
+    return $cached;
+}
+
+/**
  * Resolve the current visibility level for a player in a specific system.
  *
  * Returns one of:
@@ -217,6 +237,11 @@ function user_empire_color(int $userId): string {
  * @return array{ level: string, scouted_at: ?string, intel_json: ?array }
  */
 function resolve_system_visibility(PDO $db, int $userId, int $galaxy, int $system): array {
+    if (!has_player_system_visibility_table($db)) {
+        // Legacy fallback: without FoW table expose full system data.
+        return ['level' => 'own', 'scouted_at' => null, 'intel_json' => null];
+    }
+
     // Check persistent visibility record
     $stmt = $db->prepare(
         'SELECT level, scouted_at, expires_at, intel_json
@@ -286,6 +311,10 @@ function touch_system_visibility(
     ?string $expiresAt = null,
     ?array $intelSnapshot = null
 ): void {
+    if (!has_player_system_visibility_table($db)) {
+        return;
+    }
+
     $intelJson = $intelSnapshot !== null ? json_encode($intelSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
     $db->prepare(
         'INSERT INTO player_system_visibility (user_id, galaxy, `system`, level, scouted_at, expires_at, intel_json)

@@ -28,6 +28,7 @@ const WM = (() => {
   let _nextY = 60;
 
   const WM_MOBILE_BREAKPOINT = 800;
+  const WM_DOCK_STORAGE_PREFIX = 'gq_wdock_';
 
   function _isMobileMode() {
     return (window.innerWidth || 0) < WM_MOBILE_BREAKPOINT;
@@ -138,6 +139,14 @@ const WM = (() => {
       preserveOnClose: !!(adopted && cfg.preserveOnClose !== false),
       hostManaged: !!hostManaged,
     });
+
+    const savedDock = _loadDock(id);
+    if (savedDock?.side) {
+      _applyDockPosition(el, cfg, savedDock.side, false);
+    } else {
+      _setDockState(el, null);
+    }
+
     if (!cfg.hideTaskButton) _addTaskBtn(id, cfg.title);
     if (cfg.backgroundLayer) {
       el.style.zIndex = '1';
@@ -368,11 +377,128 @@ const WM = (() => {
     if (cfg?.onRender) cfg.onRender(body(id));
   }
 
+  function _getDockConfig(cfg = {}) {
+    const dockable = !!cfg.dockable || Array.isArray(cfg.dockableSides);
+    if (!dockable) return null;
+    const sides = Array.isArray(cfg.dockableSides) && cfg.dockableSides.length
+      ? cfg.dockableSides.map((side) => String(side || '').toLowerCase())
+      : ['left', 'right'];
+    return {
+      sides,
+      threshold: Math.max(18, Number(cfg.dockMagnetThreshold ?? 56)),
+      margin: Math.max(0, Number(cfg.dockMargin ?? 12)),
+      topInset: Math.max(0, Number(cfg.dockTopInset ?? 12)),
+    };
+  }
+
+  function _setDockPreview(side) {
+    const root = document.body || document.documentElement;
+    if (!root) return;
+    root.classList.remove('wm-dock-preview-left', 'wm-dock-preview-right');
+    if (side === 'left') root.classList.add('wm-dock-preview-left');
+    if (side === 'right') root.classList.add('wm-dock-preview-right');
+  }
+
+  function _clearDockPreview() {
+    _setDockPreview('');
+  }
+
+  function _setDockState(winEl, side) {
+    if (!winEl) return;
+    winEl.classList.remove('wm-docked', 'wm-docked-left', 'wm-docked-right');
+    if (side === 'left' || side === 'right') {
+      winEl.classList.add('wm-docked', side === 'left' ? 'wm-docked-left' : 'wm-docked-right');
+      winEl.dataset.wmDocked = side;
+    } else {
+      delete winEl.dataset.wmDocked;
+    }
+  }
+
+  function _saveDock(id, payload) {
+    try {
+      if (!id) return;
+      if (!payload || !payload.side) {
+        localStorage.removeItem(WM_DOCK_STORAGE_PREFIX + id);
+      } else {
+        localStorage.setItem(WM_DOCK_STORAGE_PREFIX + id, JSON.stringify({
+          side: String(payload.side),
+        }));
+      }
+    } catch (_) {}
+  }
+
+  function _loadDock(id) {
+    try {
+      const raw = localStorage.getItem(WM_DOCK_STORAGE_PREFIX + id);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || (parsed.side !== 'left' && parsed.side !== 'right')) return null;
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function _pickDockSide(cfg, cx) {
+    const dockCfg = _getDockConfig(cfg);
+    if (!dockCfg) return null;
+    const width = Math.max(320, window.innerWidth || document.documentElement?.clientWidth || 1280);
+    const nearLeft = cx <= dockCfg.threshold;
+    const nearRight = cx >= (width - dockCfg.threshold);
+    if (nearLeft && dockCfg.sides.includes('left')) return 'left';
+    if (nearRight && dockCfg.sides.includes('right')) return 'right';
+    return null;
+  }
+
+  function _applyDockPosition(winEl, cfg, side, persist = true) {
+    if (!winEl || (side !== 'left' && side !== 'right')) return false;
+    const dockCfg = _getDockConfig(cfg);
+    if (!dockCfg) return false;
+    if (!dockCfg.sides.includes(side)) return false;
+
+    const desktop = _desktop();
+    const ds = _desktopSize(desktop);
+    const width = Math.max(200, winEl.offsetWidth || parseInt(winEl.style.width, 10) || Number(cfg?.w || 360));
+    const height = Math.max(140, winEl.offsetHeight || parseInt(winEl.style.height, 10) || Number(cfg?.h || 320));
+    const x = side === 'left'
+      ? dockCfg.margin
+      : Math.max(dockCfg.margin, ds.w - width - dockCfg.margin);
+    const currentTop = parseInt(winEl.style.top, 10);
+    const fallbackTop = Number.isFinite(Number(cfg?.defaultY)) ? Number(cfg.defaultY) : dockCfg.topInset;
+    const maxTop = Math.max(dockCfg.topInset, ds.h - height - dockCfg.margin);
+    const y = Math.min(
+      maxTop,
+      Math.max(dockCfg.topInset, Number.isFinite(currentTop) ? currentTop : fallbackTop),
+    );
+
+    winEl.style.left = Math.max(0, x) + 'px';
+    winEl.style.top = Math.max(0, y) + 'px';
+    _setDockState(winEl, side);
+
+    if (persist) {
+      const id = String(winEl.dataset.winid || '');
+      _saveDock(id, { side });
+    }
+    return true;
+  }
+
   // ── Internal: drag-by-titlebar ───────────────────────────────────────────────
   function _makeDraggable(winEl) {
     const bar = winEl.querySelector('.wm-titlebar');
     if (!bar) return;
     let dragging = false, ox = 0, oy = 0;
+    let dockCandidate = null;
+
+    const getWindowConfig = () => {
+      const id = String(winEl.dataset.winid || '');
+      return _wins.get(id)?.cfg || _registry.get(id) || {};
+    };
+
+    const clearDockPersistence = () => {
+      const id = String(winEl.dataset.winid || '');
+      _saveDock(id, null);
+      _setDockState(winEl, null);
+    };
 
     bar.addEventListener('mousedown', e => {
       if (_isMobileMode()) return;
@@ -380,6 +506,9 @@ const WM = (() => {
       dragging = true;
       ox = e.clientX - winEl.offsetLeft;
       oy = e.clientY - winEl.offsetTop;
+      dockCandidate = null;
+      _clearDockPreview();
+      _setDockState(winEl, null);
       winEl.classList.add('wm-dragging');
       e.preventDefault();
     });
@@ -391,6 +520,9 @@ const WM = (() => {
       dragging = true;
       ox = t.clientX - winEl.offsetLeft;
       oy = t.clientY - winEl.offsetTop;
+      dockCandidate = null;
+      _clearDockPreview();
+      _setDockState(winEl, null);
       e.preventDefault();
     }, { passive: false });
 
@@ -398,18 +530,44 @@ const WM = (() => {
       if (!dragging) return;
       const desktop = _desktop();
       const ds = _desktopSize(desktop);
-      const x = Math.max(0, Math.min(cx - ox, ds.w - winEl.offsetWidth));
+      let x = Math.max(0, Math.min(cx - ox, ds.w - winEl.offsetWidth));
       const y = Math.max(0, Math.min(cy - oy, ds.h - winEl.offsetHeight));
+
+      const cfg = getWindowConfig();
+      const side = _pickDockSide(cfg, cx);
+      dockCandidate = side;
+      if (side) {
+        _setDockPreview(side);
+        const dockCfg = _getDockConfig(cfg);
+        if (dockCfg) {
+          x = side === 'left'
+            ? dockCfg.margin
+            : Math.max(0, ds.w - winEl.offsetWidth - dockCfg.margin);
+        }
+      } else {
+        _clearDockPreview();
+      }
+
       winEl.style.left = x + 'px';
       winEl.style.top  = y + 'px';
     };
     const onEnd = () => {
       if (!dragging) return;
       dragging = false;
+      _clearDockPreview();
       winEl.classList.remove('wm-dragging');
       const id = winEl.dataset.winid;
+
+      const cfg = getWindowConfig();
+      if (dockCandidate) {
+        _applyDockPosition(winEl, cfg, dockCandidate, true);
+      } else {
+        clearDockPersistence();
+      }
+
       _savePos(id, parseInt(winEl.style.left), parseInt(winEl.style.top),
                winEl.offsetWidth, winEl.offsetHeight);
+      dockCandidate = null;
     };
 
     document.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));

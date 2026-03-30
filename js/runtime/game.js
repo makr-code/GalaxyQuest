@@ -3095,7 +3095,7 @@
 
     buildDefinitions() {
       return [
-        ['overview', { title: '­ƒîì Overview', w: 460, h: 620, defaultDock: 'right', defaultY: 12, onRender: () => renderOverview() }],
+        ['overview', { title: '­ƒîì Overview', w: 460, h: 620, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderOverview() }],
         ['buildings', { title: '­ƒÅù Buildings', w: 480, h: 560, defaultDock: 'right', defaultY: 38, onRender: () => renderBuildings() }],
         ['colony', { title: '­ƒÅø Colony', w: 620, h: 620, defaultDock: 'right', defaultY: 24, onRender: () => renderColonyView() }],
         ['research', { title: '­ƒö¼ Research', w: 480, h: 560, defaultDock: 'right', defaultY: 58, onRender: () => renderResearch() }],
@@ -3114,7 +3114,7 @@
         ['alliances', { title: '­ƒñØ Alliances', w: 560, h: 620, defaultDock: 'right', defaultY: 54, onRender: () => renderAlliances() }],
         ['settings', { title: 'ÔÜÖ Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12, onRender: () => renderSettings() }],
         ['quicknav', { title: 'Ô¡É QuickNav', w: 370, h: 520, defaultDock: 'left', defaultY: 12, onRender: () => renderQuickNav() }],
-        ['minimap', { title: '­ƒù║ Minimap', w: 290, h: 310, defaultDock: 'right', defaultY: 12, defaultDockMargin: 12, onRender: (root) => renderMinimap(root) }],
+        ['minimap', { title: '­ƒù║ Minimap', w: 290, h: 310, defaultDock: 'right', defaultY: 12, defaultDockMargin: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: (root) => renderMinimap(root) }],
         ['left-sidebar', {
           title: '­ƒôî Left Sidebar',
           sectionId: 'left_sidebar',
@@ -3157,6 +3157,20 @@
   const windowRegistry = new WindowRegistry(WM);
   window.GQWindowRegistry = windowRegistry;
   windowRegistry.registerAll();
+
+  // If auth recovery opened "galaxy" before registerAll, WM may have created a
+  // regular window using DEFAULTS. Recreate it once with the registered
+  // background/fullscreen config.
+  try {
+    const staleGalaxyWindow = document.getElementById('wm-win-galaxy');
+    const hasBackgroundClass = !!(staleGalaxyWindow && staleGalaxyWindow.classList.contains('wm-window-background'));
+    if (staleGalaxyWindow && !hasBackgroundClass && WM.isOpen('galaxy')) {
+      WM.close('galaxy');
+      gameLog('info', 'Recreated stale galaxy window with registered background config');
+    }
+  } catch (err) {
+    gameLog('info', 'Galaxy window self-heal check failed', err);
+  }
 
   class NavigationController {
     constructor(options = {}) {
@@ -5368,10 +5382,14 @@
 
     updateResourceBar() {
       if (!currentColony) return;
-      document.getElementById('res-metal').textContent = fmt(currentColony.metal);
-      document.getElementById('res-crystal').textContent = fmt(currentColony.crystal);
-      document.getElementById('res-deuterium').textContent = fmt(currentColony.deuterium);
-      document.getElementById('res-energy').textContent = currentColony.energy ?? 'ÔÇö';
+      const resMetalEl = document.getElementById('res-metal');
+      if (resMetalEl) resMetalEl.textContent = fmt(currentColony.metal);
+      const resCrystalEl = document.getElementById('res-crystal');
+      if (resCrystalEl) resCrystalEl.textContent = fmt(currentColony.crystal);
+      const resDeuteriumEl = document.getElementById('res-deuterium');
+      if (resDeuteriumEl) resDeuteriumEl.textContent = fmt(currentColony.deuterium);
+      const resEnergyEl = document.getElementById('res-energy');
+      if (resEnergyEl) resEnergyEl.textContent = currentColony.energy ?? 'ÔÇö';
       const foodEl = document.getElementById('res-food');
       if (foodEl) foodEl.textContent = fmt(currentColony.food ?? 0);
       const reEl = document.getElementById('res-rare-earth');
@@ -5384,27 +5402,31 @@
         happEl.textContent = `${happiness}%`;
         happEl.style.color = happiness >= 70 ? '#2ecc71' : happiness >= 40 ? '#f1c40f' : '#e74c3c';
       }
-      document.getElementById('topbar-coords').textContent = `[${currentColony.galaxy}:${currentColony.system}:${currentColony.position}]`;
+      const topbarCoordsEl = document.getElementById('topbar-coords');
+      if (topbarCoordsEl) {
+        topbarCoordsEl.textContent = `[${currentColony.galaxy}:${currentColony.system}:${currentColony.position}]`;
+      }
       if (window._GQ_meta) {
-        document.getElementById('res-dark-matter').textContent = fmt(window._GQ_meta.dark_matter ?? 0);
+        const darkMatterEl = document.getElementById('res-dark-matter');
+        if (darkMatterEl) darkMatterEl.textContent = fmt(window._GQ_meta.dark_matter ?? 0);
       }
     }
 
     applyBadges(data) {
       const msgBadge = document.getElementById('msg-badge');
-      if (data.unread_msgs > 0) {
+      if (msgBadge && data.unread_msgs > 0) {
         msgBadge.textContent = data.unread_msgs;
         msgBadge.classList.remove('hidden');
-      } else {
+      } else if (msgBadge) {
         msgBadge.classList.add('hidden');
       }
 
       const qBadge = document.getElementById('quest-badge');
       const unclaimed = data.user_meta?.unclaimed_quests ?? 0;
-      if (unclaimed > 0) {
+      if (qBadge && unclaimed > 0) {
         qBadge.textContent = unclaimed;
         qBadge.classList.remove('hidden');
-      } else {
+      } else if (qBadge) {
         qBadge.classList.add('hidden');
       }
     }
@@ -7450,141 +7472,6 @@
         this.bindActions(root, hulls);
       } catch (err) {
         gameLog('warn', 'Shipyard view laden fehlgeschlagen (renderer v1)', err);
-        gqStatusMsg(root, 'Failed to load shipyard.', 'red');
-      }
-    }
-
-    renderDockedVesselsDom(vessels) {
-      if (!vessels.length) return null;
-      const list = new GQUI.Div().setClass('vessel-list');
-      vessels.forEach((v) => {
-        const hp    = v.hp_state?.hp    ?? v.stats?.hull ?? '?';
-        const maxHp = v.hp_state?.max_hp ?? v.stats?.hull ?? '?';
-        const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
-
-        const card = new GQUI.Div().setClass('vessel-card');
-        card.dom.dataset.vesselId = String(v.id);
-
-        const header = new GQUI.Div().setClass('vessel-card-header');
-        header.add(new GQUI.Span().setClass('vessel-card-name').setTextContent(String(v.bp_name || v.name || `Vessel #${v.id}`)));
-        header.add(new GQUI.Span().setClass('vessel-card-class badge').setTextContent(`${fmtName(v.hull_class || 'unknown')} T${v.hull_tier ?? '?'}`));
-        const statusSpan = new GQUI.Span().setClass('vessel-card-status vessel-status-' + String(v.status)).setTextContent(String(v.status));
-        header.add(statusSpan);
-        card.add(header);
-
-        const hullLbl = new GQUI.Div().setClass('vessel-card-hull').setTextContent(String(v.hull_label || ''));
-        card.add(hullLbl);
-
-        const hpBarWrap = new GQUI.Div().setClass('vessel-hp-bar');
-        const hpFill = new GQUI.Div().setClass('vessel-hp-fill');
-        hpFill.dom.style.width = hpPct + '%';
-        hpBarWrap.add(hpFill);
-        card.add(hpBarWrap);
-
-        const chipsDiv = new GQUI.Div().setClass('vessel-stat-chips');
-        ['attack', 'shield', 'hull', 'cargo', 'speed'].filter((k) => v.stats?.[k] > 0).forEach((k) => {
-          const chip = new GQUI.Span().setClass('vessel-stat-chip chiptype-' + k.slice(0, 3));
-          chip.dom.textContent = fmtName(k) + ' ' + fmt(v.stats[k]);
-          chipsDiv.add(chip);
-        });
-        card.add(chipsDiv);
-
-        const actionsDiv = new GQUI.Div().setClass('vessel-card-actions');
-        const decommBtn = new GQUI.Button('Decommission').setClass('btn btn-sm btn-danger vessel-decommission-btn');
-        decommBtn.dom.type = 'button';
-        decommBtn.dom.dataset.vesselId = String(v.id);
-        decommBtn.dom.title = 'Permanently decommission this vessel';
-        actionsDiv.add(decommBtn);
-        card.add(actionsDiv);
-
-        list.add(card);
-      });
-      return list.dom;
-          const vesselCard = GQUI.div('system-card').setStyle('marginBottom', '1rem').setId('shipyard-docked-vessels-card');
-          const vesselHeader = GQUI.div('system-row');
-          vesselHeader.add(
-            GQUI.strong().setText('Docked Vessels'),
-            GQUI.span('badge').setStyle('marginLeft', '0.5rem').setText(String(vessels.length)),
-          );
-          vesselCard.add(vesselHeader);
-          vesselCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
-            .setText('Individual blueprint vessels docked at this colony.'));
-          const vesselBody = GQUI.div().setStyle('marginTop', '0.7rem');
-          vesselBody.add(this.renderDockedVessels(vessels));
-          vesselCard.add(vesselBody);
-          frag.appendChild(vesselCard.dom);
-        }
-
-        const hullCard = GQUI.div('system-card').setStyle('marginBottom', '1rem');
-        hullCard.add(GQUI.div('system-row').add(GQUI.strong().setText('Hull Catalog')));
-        hullCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
-          .setText('Ship classes and their slot-layout variations.'));
-        const hullBody = GQUI.div().setStyle('marginTop', '0.7rem');
-        hullBody.add(this.buildHullCatalog(hulls));
-        hullCard.add(hullBody);
-        frag.appendChild(hullCard.dom);
-
-        const bpCard = GQUI.div('system-card').setStyle('marginBottom', '1rem');
-        bpCard.add(GQUI.div('system-row').add(GQUI.strong().setText('Blueprints')));
-        bpCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
-          .setText('Compiled blueprints built as synthetic ship types.'));
-        const bpBody = GQUI.div().setStyle('marginTop', '0.7rem');
-        bpBody.add(this.buildBlueprintCards(data.blueprints || []));
-        bpCard.add(bpBody);
-        frag.appendChild(bpCard.dom);
-
-        const legacyCard = GQUI.div('system-card');
-        legacyCard.add(GQUI.div('system-row').add(GQUI.strong().setText('Legacy Ships')));
-        legacyCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
-          .setText('Fallback SHIP_STATS path remains available during migration.'));
-        const legacyBody = GQUI.div().setStyle('marginTop', '0.7rem');
-        legacyBody.add(this.buildCards(data.ships || []));
-        legacyCard.add(legacyBody);
-        frag.appendChild(legacyCard.dom);
-
-        GQUI.clearNode(root);
-        root.appendChild(frag);
-        this.bindActions(root, hulls);
-      } catch (err) {
-        gameLog('warn', 'Shipyard view laden fehlgeschlagen (renderer v2)', err);
-        GQUI.setStatus(root, 'Failed to load shipyard.', 'text-red');
-      }
-    }
-
-    renderDockedVessels(vessels) {
-      if (!vessels.length) return GQUI.div();
-      const list = GQUI.div('vessel-list');
-      vessels.forEach((v) => {
-        const hp    = v.hp_state?.hp    ?? v.stats?.hull ?? 0;
-        const maxHp = v.hp_state?.max_hp ?? v.stats?.hull ?? 0;
-        const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
-        const card = GQUI.div('vessel-card').setData('vesselId', v.id);
-        const header = GQUI.div('vessel-card-header');
-        header.add(
-          GQUI.span('vessel-card-name').setText(String(v.bp_name || v.name || `Vessel #${v.id}`)),
-          GQUI.span('vessel-card-class badge').setText(`${fmtName(v.hull_class || 'unknown')} T${v.hull_tier ?? '?'}`),
-          GQUI.span(`vessel-card-status vessel-status-${String(v.status || '')}`).setText(String(v.status || '')),
-        );
-        card.add(header);
-        card.add(GQUI.div('vessel-card-hull').setText(String(v.hull_label || '')));
-        const hpBar = GQUI.div('vessel-hp-bar');
-        hpBar.add(GQUI.div('vessel-hp-fill').setStyle('width', `${hpPct}%`));
-        card.add(hpBar);
-        const chips = GQUI.div('vessel-stat-chips');
-        ['attack', 'shield', 'hull', 'cargo', 'speed'].forEach((k) => {
-          if (!(v.stats?.[k] > 0)) return;
-          chips.add(GQUI.span(`vessel-stat-chip chiptype-${k.slice(0, 3)}`).setText(`${fmtName(k)} ${fmt(v.stats[k])}`));
-        });
-        card.add(chips);
-        const actions = GQUI.div('vessel-card-actions');
-        actions.add(GQUI.btn('Decommission', 'btn', 'btn-sm', 'btn-danger', 'vessel-decommission-btn')
-          .setData('vesselId', v.id)
-          .setTitle('Permanently decommission this vessel'));
-        card.add(actions);
-        list.add(card);
-      });
-      return list;
-      } catch (_) {
         gqStatusMsg(root, 'Failed to load shipyard.', 'red');
       }
     }
@@ -11307,7 +11194,7 @@
       document.body.appendChild(dialog);
 
       // Show NAP days input only for NAP
-      document.getElementById('diplo-action').addEventListener('change', (e) => {
+      document.getElementById('diplo-action')?.addEventListener('change', (e) => {
         const napDaysDiv = document.getElementById('diplo-nap-days');
         if (napDaysDiv) {
           napDaysDiv.style.display = e.target.value === 'nap' ? 'block' : 'none';
@@ -11390,7 +11277,7 @@
       `;
       document.body.appendChild(dialog);
 
-      document.getElementById('member-action').addEventListener('change', (e) => {
+      document.getElementById('member-action')?.addEventListener('change', (e) => {
         const roleDiv = document.getElementById('member-role-div');
         if (roleDiv) {
           roleDiv.style.display = e.target.value === 'set_role' ? 'block' : 'none';
@@ -12109,9 +11996,12 @@
       if (!widget) return;
       if (!_advisor) { widget.style.display = 'none'; return; }
       widget.style.display = '';
-      document.getElementById('advisor-bubble-portrait').textContent = _advisor.portrait || '­ƒºÖ';
-      document.getElementById('advisor-bubble-name').textContent     = _advisor.name     || 'Advisor';
+      const portraitEl = document.getElementById('advisor-bubble-portrait');
+      if (portraitEl) portraitEl.textContent = _advisor.portrait || '­ƒºÖ';
+      const nameEl = document.getElementById('advisor-bubble-name');
+      if (nameEl) nameEl.textContent = _advisor.name || 'Advisor';
       const badge = document.getElementById('advisor-bubble-badge');
+      if (!badge) return;
       if (_hints.length > 0) {
         badge.textContent = `${_hints.length} hint${_hints.length > 1 ? 's' : ''}`;
         badge.style.color = _hints.some((h) => h.hint_type === 'warning' || h.hint_type === 'action_required') ? '#f59e0b' : 'var(--accent,#4a9eff)';
@@ -13846,7 +13736,7 @@
   }
 
   // ÔöÇÔöÇ Logout ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-  document.getElementById('logout-btn').addEventListener('click', async () => {
+  document.getElementById('logout-btn')?.addEventListener('click', async () => {
     if (audioManager) audioManager.playUiClick();
     
     // Attempt graceful logout
