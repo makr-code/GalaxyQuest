@@ -111,6 +111,21 @@ const API = (() => {
     return true;
   }
 
+  function _log(level, message, data = null) {
+    const lvl = String(level || 'info').toLowerCase();
+    const sink = window.GQLog && typeof window.GQLog[lvl] === 'function'
+      ? window.GQLog[lvl].bind(window.GQLog)
+      : null;
+    if (sink) {
+      if (data == null) sink('[api]', message);
+      else sink('[api]', message, data);
+      return;
+    }
+    const consoleMethod = (lvl === 'error' || lvl === 'warn' || lvl === 'info') ? lvl : 'log';
+    if (data == null) console[consoleMethod]('[GQ][API]', message);
+    else console[consoleMethod]('[GQ][API]', message, data);
+  }
+
   function _emitQueueStats(label = 'Queue aktiv') {
     const busy = _activeLoads > 0 || _activeNetworkRequests > 0 || _requestQueue.length > 0;
     _emitLoadProgress({
@@ -312,7 +327,8 @@ const API = (() => {
       if (effectiveType === '3g') return 3;
       if (cores >= 12 || mem >= 12) return 6;
       return 4;
-    } catch (_) {
+    } catch (err) {
+      _log('warn', 'Konnte Netzwerkprofil nicht bestimmen, verwende Default-Parallelisierung', err);
       return 4;
     }
   }
@@ -327,7 +343,9 @@ const API = (() => {
         _pumpRequestQueue();
       });
     }
-  } catch (_) {}
+  } catch (err) {
+    _log('warn', 'Netzwerk-Change-Listener konnte nicht registriert werden', err);
+  }
 
   function _reportLoadError(endpoint, err, context = '') {
     const message = _describeError(err, endpoint, context);
@@ -391,7 +409,8 @@ const API = (() => {
       } else {
         try {
           detail = JSON.stringify(err);
-        } catch (_) {
+        } catch (jsonErr) {
+          _log('info', 'Fehlerobjekt konnte nicht serialisiert werden', jsonErr);
           detail = String(err);
         }
       }
@@ -564,7 +583,8 @@ const API = (() => {
   function _contentTypeOf(response) {
     try {
       return String(response?.headers?.get('content-type') || '').toLowerCase();
-    } catch (_) {
+    } catch (err) {
+      _log('info', 'Content-Type konnte nicht gelesen werden', err);
       return '';
     }
   }
@@ -585,7 +605,12 @@ const API = (() => {
       const raw = await clone.text();
       const snippet = _sanitizeSnippet(raw, 300);
       if (snippet) err.responseSnippet = snippet;
-    } catch (_) {
+    } catch (err) {
+      _log('info', 'Fehlerantwort konnte nicht fuer Snippet gelesen werden', {
+        endpoint,
+        status,
+        error: err,
+      });
       // Ignore body read errors for diagnostics.
     }
 
@@ -763,7 +788,13 @@ const API = (() => {
         task.cancelReason = reason;
         task.controller.abort(_createAbortError(reason));
         cancelledInflight += 1;
-      } catch (_) {}
+      } catch (err) {
+        _log('warn', 'Abbruch einer Inflight-Anfrage fehlgeschlagen', {
+          reason,
+          endpoint: String(task?.endpoint || ''),
+          error: err,
+        });
+      }
     }
 
     if (cancelledQueued > 0 || cancelledInflight > 0) {
@@ -871,7 +902,11 @@ const API = (() => {
       const noQuery = path.split('?')[0] || path;
       const shortPath = noQuery.replace(/^\/+/, '');
       return shortPath ? `Lade ${shortPath}…` : fallback;
-    } catch (_) {
+    } catch (err) {
+      _log('info', 'Load-Label konnte nicht aus Endpoint extrahiert werden', {
+        endpoint,
+        error: err,
+      });
       return fallback;
     }
   }
@@ -943,7 +978,8 @@ const API = (() => {
     try {
       if (typeof structuredClone === 'function') return structuredClone(value);
       return JSON.parse(JSON.stringify(value));
-    } catch (_) {
+    } catch (err) {
+      _log('warn', 'Konnte Antwort nicht klonen, gebe Originalobjekt zurueck', err);
       return value;
     }
   }
@@ -978,7 +1014,9 @@ const API = (() => {
     _sessionExpired = true;
     try {
       _cancelPendingRequests('Session expired', (task) => !/api\/(?:v1\/)?auth\.php\?action=(me|csrf|logout|login)/i.test(String(task?.endpoint || '')));
-    } catch (_) {}
+    } catch (err) {
+      _log('warn', 'Konnte Pending-Requests nach Session-Ablauf nicht abbrechen', err);
+    }
     window.location.href = 'index.html';
   }
 
@@ -1062,7 +1100,8 @@ const API = (() => {
           const probe = await r.clone().json();
           const msg = String(probe?.error || probe?.message || '').toLowerCase();
           isCsrfMismatch = /csrf/.test(msg);
-        } catch (_) {
+        } catch (err) {
+          _log('info', 'CSRF-Fehlerprobe konnte nicht geparst werden', err);
           isCsrfMismatch = false;
         }
 
@@ -1139,7 +1178,8 @@ const API = (() => {
               data = BinaryDecoder.decode(buffer);
             }
           }
-        } catch (_) {
+        } catch (err) {
+          _log('warn', 'Binary-Header konnte nicht gelesen werden, Decoder-Fallback aktiv', err);
           data = null;
         }
 

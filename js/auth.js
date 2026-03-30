@@ -96,7 +96,8 @@
   function getStoredAuthFlightProfile() {
     try {
       return normalizeAuthFlightProfile(localStorage.getItem(AUTH_FLIGHT_PROFILE_KEY));
-    } catch (_) {
+    } catch (err) {
+      authLog('warn', 'auth flight profile read failed', String(err?.message || err || 'unknown'));
       return 'cinematic';
     }
   }
@@ -105,7 +106,9 @@
     const normalized = normalizeAuthFlightProfile(value);
     try {
       localStorage.setItem(AUTH_FLIGHT_PROFILE_KEY, normalized);
-    } catch (_) {}
+    } catch (err) {
+      authLog('warn', 'auth flight profile write failed', String(err?.message || err || 'unknown'));
+    }
     window.__GQ_AUTH_FLIGHT_PROFILE = normalized;
     return normalized;
   }
@@ -128,7 +131,9 @@
     const forceFlag = localStorage.getItem('gq_auth_debug') === '1';
     const queryFlag = new URLSearchParams(window.location.search || '').get('authDebug') === '1';
     authDebugDetails = isLocalHost || forceFlag || queryFlag;
-  } catch (_) {}
+  } catch (err) {
+    authLog('warn', 'auth debug mode detection failed', String(err?.message || err || 'unknown'));
+  }
 
   function bindEnterSubmit(form) {
     if (!form || form.__gqEnterSubmitBound) return;
@@ -253,7 +258,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       });
-    } catch (_) {
+    } catch (err) {
+      authLog('warn', 'logout cleanup failed (best effort)', String(err?.message || err || 'unknown'));
       // Best effort only: auth screen should still be usable offline or on transient failures.
     }
   }
@@ -272,7 +278,9 @@
     Promise.resolve().then(() => {
       try {
         ensureAuthWindowManaged();
-      } catch (_) {}
+      } catch (err) {
+        authLog('warn', 'ensureAuthWindowManaged failed', String(err?.message || err || 'unknown'));
+      }
     });
   }
 
@@ -287,7 +295,9 @@
       if (window.WM && typeof window.WM.isOpen === 'function' && window.WM.isOpen('auth')) {
         window.WM.close('auth');
       }
-    } catch (_) {}
+    } catch (err) {
+      authLog('warn', 'WM close(auth) failed', String(err?.message || err || 'unknown'));
+    }
   }
 
   function queueHomeworldIntroFlight(payload = {}) {
@@ -297,7 +307,9 @@
         enterSystem: true,
         focusPlanet: true,
       }, payload || {});
-    } catch (_) {}
+    } catch (err) {
+      authLog('warn', 'queueHomeworldIntroFlight failed', String(err?.message || err || 'unknown'));
+    }
   }
 
   function applyAuthFlightTarget(target) {
@@ -309,7 +321,9 @@
       if (control && typeof control.setNavigationTarget === 'function') {
         control.setNavigationTarget(target);
       }
-    } catch (_) {}
+    } catch (err) {
+      authLog('warn', 'applyAuthFlightTarget failed', String(err?.message || err || 'unknown'));
+    }
   }
 
   function releaseAuthBackgroundForGame() {
@@ -321,7 +335,9 @@
       if (control && typeof control.releaseCanvasForGame === 'function') {
         control.releaseCanvasForGame();
       }
-    } catch (_) {}
+    } catch (err) {
+      authLog('warn', 'releaseAuthBackgroundForGame failed', String(err?.message || err || 'unknown'));
+    }
   }
 
   async function resolveHomeworldFlightTarget() {
@@ -428,7 +444,8 @@
       const manager = new window.GQAudioManager({ storageKey: 'gq_audio_settings' });
       window.__GQ_AUDIO_MANAGER = manager;
       return manager;
-    } catch (_) {
+    } catch (err) {
+      authLog('warn', 'audio manager init failed', String(err?.message || err || 'unknown'));
       return null;
     }
   }
@@ -443,7 +460,11 @@
 
     const clearListeners = () => {
       listeners.forEach(({ type, handler, opts }) => {
-        try { window.removeEventListener(type, handler, opts); } catch (_) {}
+        try {
+          window.removeEventListener(type, handler, opts);
+        } catch (err) {
+          authLog('warn', `audio unlock listener remove failed (${type})`, String(err?.message || err || 'unknown'));
+        }
       });
       listeners.length = 0;
     };
@@ -493,7 +514,9 @@
         link.as = 'audio';
         link.href = href;
         document.head.appendChild(link);
-      } catch (_) {}
+      } catch (err) {
+        authLog('warn', 'audio preload link injection failed', `${href} | ${String(err?.message || err || 'unknown')}`);
+      }
     });
   }
 
@@ -519,7 +542,9 @@
     let previous = '';
     try {
       previous = String(localStorage.getItem(AUTH_LAST_TITLE_TRACK_KEY) || '').trim();
-    } catch (_) {}
+    } catch (err) {
+      authLog('warn', 'read last title track failed', String(err?.message || err || 'unknown'));
+    }
 
     try {
       const res = await fetch('api/audio.php?action=list', {
@@ -539,13 +564,18 @@
       const chosen = selected || fallback;
       try {
         localStorage.setItem(AUTH_LAST_TITLE_TRACK_KEY, chosen);
-      } catch (_) {}
+      } catch (err) {
+        authLog('warn', 'persist last title track failed', String(err?.message || err || 'unknown'));
+      }
       return chosen;
-    } catch (_) {
+    } catch (err) {
+      authLog('warn', 'audio list fetch failed, using fallback track', String(err?.message || err || 'unknown'));
       const selected = pickRandomItemAvoiding([fallback], previous) || fallback;
       try {
         localStorage.setItem(AUTH_LAST_TITLE_TRACK_KEY, selected);
-      } catch (_) {}
+      } catch (persistErr) {
+        authLog('warn', 'persist fallback title track failed', String(persistErr?.message || persistErr || 'unknown'));
+      }
       return selected;
     }
   }
@@ -574,7 +604,9 @@
       installAudioUnlock(manager);
       authLog('info', 'audio primed (lazy), random title track selected', randomTitleTrack);
       authProbe(`audio primed (lazy), random title track: ${randomTitleTrack}`);
-    } catch (_) {}
+    } catch (err) {
+      authLog('warn', 'audio priming failed', String(err?.message || err || 'unknown'));
+    }
 
     return manager;
   }
@@ -649,7 +681,8 @@
     await Promise.all(assets.map(async (url) => {
       try {
         await fetch(url, { cache: 'force-cache', credentials: 'same-origin' });
-      } catch (_) {
+      } catch (err) {
+        authLog('warn', 'asset prefetch failed', `${String(url || '')} | ${String(err?.message || err || 'unknown')}`);
         // Keep shell resilient if prefetch fails.
       } finally {
         done += 1;
@@ -932,7 +965,8 @@
         devTools.classList.remove('hidden');
         authDebugDetails = true;
       }
-    } catch (_) {
+    } catch (err) {
+      authLog('info', 'dev tools status unavailable', String(err?.message || err || 'unknown'));
       // Keep hidden on errors.
     }
   }
@@ -1156,7 +1190,9 @@
 
     const hasSession = skipAutoBootAfterLogout ? false : await checkSessionAndBoot();
     if (!hasSession) {
-      getCsrf().catch(() => {});
+      getCsrf().catch((err) => {
+        authLog('warn', 'background csrf warmup failed', String(err?.message || err || 'unknown'));
+      });
     }
     loadDevToolsStatus();
     authLog('info', 'bootstrap ready');
