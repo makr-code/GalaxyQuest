@@ -10,10 +10,12 @@
  * Provides:
  *   - A Colony data model with Pops (population units)
  *   - Pop job types: FARMER, WORKER, SCIENTIST, SOLDIER, RULER
+ *   - ColonyType enum with per-type yield/happiness bonuses
  *   - Resource production per pop type per turn
  *   - Pop growth formula (logistic + food surplus)
  *   - Colony happiness / stability affecting productivity
- *   - EventBus integration: emits 'colony:grow', 'colony:starve', 'colony:unrest'
+ *   - Serialise / restore (save-game support)
+ *   - EventBus integration: emits 'colony:grow', 'colony:starve', 'colony:unrest', 'colony:type_changed'
  *
  * Usage:
  *   const sim = new ColonySimulation(engine.events);
@@ -65,6 +67,37 @@ const BASE_YIELD = Object.freeze({
 });
 
 // ---------------------------------------------------------------------------
+// Colony types & bonuses
+// ---------------------------------------------------------------------------
+
+/**
+ * Colony specialisation types.
+ * Mirrors the backend `colony_type` column (see api/buildings.php, FUTURE_ENHANCEMENTS §2.7).
+ * @enum {string}
+ */
+const ColonyType = Object.freeze({
+  MINING:       'mining',       // +20% richness multiplier
+  AGRICULTURAL: 'agricultural', // +30% fertility, +0.15 happiness
+  RESEARCH:     'research',     // +25% research output
+  INDUSTRIAL:   'industrial',   // +20% production output
+  MILITARY:     'military',     // +20% defence output, +0.05 stability
+  BALANCED:     'balanced',     // no modifiers (default)
+});
+
+/**
+ * Per-type additive/multiplicative bonuses applied by Colony.setType().
+ * Each entry: { fertilityBonus, richnessBonus, researchMult, productionMult, defenceMult, happinessBonus, stabilityBonus }
+ */
+const COLONY_TYPE_BONUS = Object.freeze({
+  [ColonyType.MINING]:       { fertilityBonus: 0,    richnessBonus: 0.20, researchMult: 1,    productionMult: 1,    defenceMult: 1,    happinessBonus: 0,    stabilityBonus: 0 },
+  [ColonyType.AGRICULTURAL]: { fertilityBonus: 0.30, richnessBonus: 0,    researchMult: 1,    productionMult: 1,    defenceMult: 1,    happinessBonus: 0.15, stabilityBonus: 0 },
+  [ColonyType.RESEARCH]:     { fertilityBonus: 0,    richnessBonus: 0,    researchMult: 1.25, productionMult: 1,    defenceMult: 1,    happinessBonus: 0,    stabilityBonus: 0 },
+  [ColonyType.INDUSTRIAL]:   { fertilityBonus: 0,    richnessBonus: 0,    researchMult: 1,    productionMult: 1.20, defenceMult: 1,    happinessBonus: 0,    stabilityBonus: 0 },
+  [ColonyType.MILITARY]:     { fertilityBonus: 0,    richnessBonus: 0,    researchMult: 1,    productionMult: 1,    defenceMult: 1.20, happinessBonus: 0,    stabilityBonus: 0.05 },
+  [ColonyType.BALANCED]:     { fertilityBonus: 0,    richnessBonus: 0,    researchMult: 1,    productionMult: 1,    defenceMult: 1,    happinessBonus: 0,    stabilityBonus: 0 },
+});
+
+// ---------------------------------------------------------------------------
 // Colony
 // ---------------------------------------------------------------------------
 
@@ -77,6 +110,7 @@ class Colony {
    * @param {number} [def.fertility=1]   Food yield multiplier
    * @param {number} [def.richness=1]    Production/mineral multiplier
    * @param {number} [def.startingPops=1]
+   * @param {string} [def.type]          ColonyType (default BALANCED)
    */
   constructor(def) {
     this.id         = def.id;
@@ -110,6 +144,105 @@ class Colony {
 
     /** Accumulated unrest points */
     this.unrest     = 0;
+
+    /** Active colony type (@see ColonyType) */
+    this._type      = ColonyType.BALANCED;
+    /** Type-derived multipliers (recomputed by setType) */
+    this._typeMult  = { researchMult: 1, productionMult: 1, defenceMult: 1 };
+
+    if (def.type && def.type !== ColonyType.BALANCED) {
+      // Apply without bus (no bus available in constructor)
+      this._applyType(def.type);
+    }
+  }
+
+  /** @returns {string} ColonyType */
+  get type() { return this._type; }
+
+  // ---------------------------------------------------------------------------
+  // Colony type
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Change the colony specialisation, applying bonuses to fertility, richness,
+   * happiness and stability.  Emits 'colony:type_changed' on the provided bus.
+   *
+   * @param {string} type   ColonyType value
+   * @param {import('../EventBus').EventBus} [bus]
+   */
+  setType(type, bus) {
+    if (!COLONY_TYPE_BONUS[type]) {
+      console.warn(`[Colony] Unknown colony type: '${type}'`);
+      return this;
+    }
+    const prev = this._type;
+    this._applyType(type);
+    bus?.emit('colony:type_changed', { id: this.id, prev, type });
+    return this;
+  }
+
+  /** @private */
+  _applyType(type) {
+    const b = COLONY_TYPE_BONUS[type];
+    this.fertility  = Math.max(0, this.fertility  + b.fertilityBonus);
+    this.richness   = Math.max(0, this.richness   + b.richnessBonus);
+    this.happiness  = Math.min(1, this.happiness  + b.happinessBonus);
+    this.stability  = Math.min(1, this.stability  + b.stabilityBonus);
+    this._typeMult  = { researchMult: b.researchMult, productionMult: b.productionMult, defenceMult: b.defenceMult };
+    this._type      = type;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Save / restore
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Return a plain-object snapshot suitable for JSON serialisation.
+   * @returns {Object}
+   */
+  serialize() {
+    return {
+      id:         this.id,
+      name:       this.name,
+      size:       this.size,
+      fertility:  this.fertility,
+      richness:   this.richness,
+      pops:       this.pops,
+      _growthAcc: this._growthAcc,
+      jobs:       { ...this.jobs },
+      stockpile:  { ...this.stockpile },
+      happiness:  this.happiness,
+      stability:  this.stability,
+      unrest:     this.unrest,
+      type:       this._type,
+    };
+  }
+
+  /**
+   * Restore a Colony from a snapshot produced by `serialize()`.
+   * @param {Object} snap
+   * @returns {Colony}
+   */
+  static fromSnapshot(snap) {
+    const c         = new Colony({ id: snap.id, name: snap.name, size: snap.size,
+                                   fertility: snap.fertility, richness: snap.richness,
+                                   startingPops: snap.pops });
+    c.pops          = snap.pops;
+    c._growthAcc    = snap._growthAcc ?? 0;
+    c.jobs          = { ...snap.jobs };
+    c.stockpile     = { ...snap.stockpile };
+    c.happiness     = snap.happiness;
+    c.stability     = snap.stability;
+    c.unrest        = snap.unrest;
+    if (snap.type && snap.type !== ColonyType.BALANCED) {
+      // The snapshot already contains post-bonus fertility/richness/happiness/stability values.
+      // Restore only the yield multipliers (_typeMult) and type tag — do NOT call _applyType()
+      // again, which would stack the additive bonuses a second time.
+      const b = COLONY_TYPE_BONUS[snap.type];
+      c._typeMult = { researchMult: b.researchMult, productionMult: b.productionMult, defenceMult: b.defenceMult };
+      c._type     = snap.type;
+    }
+    return c;
   }
 
   // ---------------------------------------------------------------------------
@@ -141,6 +274,7 @@ class Colony {
    */
   computeYield() {
     const stability  = this.stability;
+    const tm         = this._typeMult;
     const out        = { food: 0, production: 0, research: 0, credits: 0, defence: 0 };
 
     for (const [job, count] of Object.entries(this.jobs)) {
@@ -152,6 +286,11 @@ class Colony {
       out.credits    += (base.credits    ?? 0) * count;
       out.defence    += (base.defence    ?? 0) * count;
     }
+
+    // Colony-type multipliers
+    out.production *= tm.productionMult;
+    out.research   *= tm.researchMult;
+    out.defence    *= tm.defenceMult;
 
     // Stability modifier on all productive output
     out.production *= stability;
@@ -249,6 +388,42 @@ class ColonySimulation {
   get count() { return this._colonies.size; }
 
   /**
+   * Remove and return a colony from the simulation.
+   * No-ops (returns undefined) if the id is unknown.
+   * @param {string} id
+   * @returns {Colony|undefined}
+   */
+  dissolve(id) {
+    const colony = this._colonies.get(id);
+    if (!colony) return undefined;
+    this._colonies.delete(id);
+    return colony;
+  }
+
+  /**
+   * Serialise all colonies to an array of plain objects.
+   * @returns {Object[]}
+   */
+  serialize() {
+    return [...this._colonies.values()].map((c) => c.serialize());
+  }
+
+  /**
+   * Restore a ColonySimulation from a snapshot array (e.g. loaded from disk).
+   * @param {Object[]} snapshots
+   * @param {import('../EventBus').EventBus} [bus]
+   * @returns {ColonySimulation}
+   */
+  static fromSnapshot(snapshots, bus) {
+    const sim = new ColonySimulation(bus);
+    for (const snap of snapshots) {
+      const colony = Colony.fromSnapshot(snap);
+      sim._colonies.set(colony.id, colony);
+    }
+    return sim;
+  }
+
+  /**
    * Simulate all colonies for dt turns.
    * @param {number} [dt=1]  In-game turns
    */
@@ -274,7 +449,7 @@ class ColonySimulation {
 // ---------------------------------------------------------------------------
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ColonySimulation, Colony, PopJob, BASE_YIELD };
+  module.exports = { ColonySimulation, Colony, PopJob, BASE_YIELD, ColonyType, COLONY_TYPE_BONUS };
 } else {
-  window.GQColonySimulation = { ColonySimulation, Colony, PopJob, BASE_YIELD };
+  window.GQColonySimulation = { ColonySimulation, Colony, PopJob, BASE_YIELD, ColonyType, COLONY_TYPE_BONUS };
 }

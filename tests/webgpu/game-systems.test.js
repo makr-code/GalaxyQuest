@@ -9,10 +9,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EventSystem, EventType, EventStatus }    from '../../js/engine/game/EventSystem.js';
+import { EventSystem, EventType, EventStatus, Journal, JournalStatus } from '../../js/engine/game/EventSystem.js';
 import { ResearchTree, ResearchCategory, CivAffinity }         from '../../js/engine/game/ResearchTree.js';
 import { FleetFormation, FormationShape, Wing, Maneuver, getSlotPositions }   from '../../js/engine/game/FleetFormation.js';
-import { ColonySimulation, Colony, PopJob }       from '../../js/engine/game/ColonySimulation.js';
+import { ColonySimulation, Colony, PopJob, ColonyType, COLONY_TYPE_BONUS } from '../../js/engine/game/ColonySimulation.js';
 
 // ===========================================================================
 // EventSystem
@@ -698,5 +698,308 @@ describe('ColonySimulation', () => {
     sim.found({ id: 'a', name: 'A', size: 5, startingPops: 1 });
     sim.found({ id: 'b', name: 'B', size: 5, startingPops: 1 });
     expect(sim.all().length).toBe(2);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation — ColonyType & bonuses
+// ===========================================================================
+
+describe('ColonyType', () => {
+  let sim;
+  beforeEach(() => { sim = new ColonySimulation(); });
+
+  it('ColonyType constants are frozen', () => {
+    expect(() => { ColonyType.MINING = 'x'; }).toThrow();
+    expect(Object.values(ColonyType).length).toBe(6);
+  });
+
+  it('COLONY_TYPE_BONUS has an entry for each ColonyType', () => {
+    for (const t of Object.values(ColonyType)) {
+      expect(COLONY_TYPE_BONUS[t]).toBeDefined();
+    }
+  });
+
+  it('setType(AGRICULTURAL) boosts fertility and happiness', () => {
+    const c = sim.found({ id: 'x', name: 'X', size: 10, startingPops: 2, fertility: 1.0 });
+    c.setType(ColonyType.AGRICULTURAL);
+    expect(c.fertility).toBeCloseTo(1.3);
+    expect(c.happiness).toBeGreaterThan(0.7);
+    expect(c.type).toBe(ColonyType.AGRICULTURAL);
+  });
+
+  it('setType(MINING) boosts richness', () => {
+    const c = sim.found({ id: 'x', name: 'X', size: 10, startingPops: 2, richness: 1.0 });
+    c.setType(ColonyType.MINING);
+    expect(c.richness).toBeCloseTo(1.2);
+  });
+
+  it('setType(RESEARCH) multiplies research yield', () => {
+    const c = sim.found({ id: 'x', name: 'X', size: 10, startingPops: 2 });
+    c.setJobs({ [PopJob.SCIENTIST]: 2 });
+    const base = c.computeYield().research;
+    c.setType(ColonyType.RESEARCH);
+    expect(c.computeYield().research).toBeCloseTo(base * 1.25);
+  });
+
+  it('setType(INDUSTRIAL) multiplies production yield', () => {
+    const c = sim.found({ id: 'x', name: 'X', size: 10, startingPops: 2, richness: 1.0 });
+    c.setJobs({ [PopJob.WORKER]: 2 });
+    const base = c.computeYield().production;
+    c.setType(ColonyType.INDUSTRIAL);
+    expect(c.computeYield().production).toBeCloseTo(base * 1.2);
+  });
+
+  it('setType(MILITARY) multiplies defence yield and boosts stability', () => {
+    const c = sim.found({ id: 'x', name: 'X', size: 10, startingPops: 2 });
+    c.setJobs({ [PopJob.SOLDIER]: 2 });
+    const base = c.computeYield().defence;
+    c.setType(ColonyType.MILITARY);
+    expect(c.computeYield().defence).toBeCloseTo(base * 1.2);
+    expect(c.stability).toBeGreaterThan(0.8);
+  });
+
+  it('setType(BALANCED) applies no modifiers', () => {
+    const c = sim.found({ id: 'x', name: 'X', size: 10, startingPops: 2, fertility: 1.0, richness: 1.0 });
+    c.setType(ColonyType.BALANCED);
+    expect(c.fertility).toBeCloseTo(1.0);
+    expect(c.richness).toBeCloseTo(1.0);
+  });
+
+  it('setType() warns for unknown type', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const c = sim.found({ id: 'x', name: 'X', size: 5, startingPops: 1 });
+    c.setType('nonexistent');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('setType() emits colony:type_changed via bus', () => {
+    const bus = { emit: vi.fn() };
+    const c = sim.found({ id: 'x', name: 'X', size: 5, startingPops: 1 });
+    c.setType(ColonyType.RESEARCH, bus);
+    expect(bus.emit).toHaveBeenCalledWith('colony:type_changed', expect.objectContaining({ type: ColonyType.RESEARCH }));
+  });
+
+  it('def.type in found() applies type bonus in constructor', () => {
+    const c = sim.found({ id: 'x', name: 'X', size: 10, startingPops: 2, fertility: 1.0, type: ColonyType.AGRICULTURAL });
+    expect(c.type).toBe(ColonyType.AGRICULTURAL);
+    expect(c.fertility).toBeCloseTo(1.3);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation — dissolve + serialize/fromSnapshot
+// ===========================================================================
+
+describe('ColonySimulation — dissolve & serialisation', () => {
+  let sim;
+  beforeEach(() => {
+    sim = new ColonySimulation();
+    sim.found({ id: 'alpha', name: 'Alpha', size: 10, startingPops: 3 });
+    sim.found({ id: 'beta',  name: 'Beta',  size: 8,  startingPops: 2 });
+  });
+
+  it('dissolve() removes the colony and returns it', () => {
+    const removed = sim.dissolve('alpha');
+    expect(removed).toBeDefined();
+    expect(removed.id).toBe('alpha');
+    expect(sim.count).toBe(1);
+    expect(sim.get('alpha')).toBeUndefined();
+  });
+
+  it('dissolve() returns undefined for unknown id', () => {
+    expect(sim.dissolve('nonexistent')).toBeUndefined();
+    expect(sim.count).toBe(2);
+  });
+
+  it('serialize() returns one plain object per colony', () => {
+    const snaps = sim.serialize();
+    expect(snaps.length).toBe(2);
+    expect(snaps[0].id).toBeDefined();
+    expect(snaps[0].pops).toBeDefined();
+    expect(snaps[0].stockpile).toBeDefined();
+  });
+
+  it('Colony.serialize() snapshot is JSON-safe', () => {
+    const snap = sim.get('alpha').serialize();
+    expect(() => JSON.stringify(snap)).not.toThrow();
+  });
+
+  it('fromSnapshot() restores colonies', () => {
+    const snaps = sim.serialize();
+    const restored = ColonySimulation.fromSnapshot(snaps);
+    expect(restored.count).toBe(2);
+    const alpha = restored.get('alpha');
+    expect(alpha.name).toBe('Alpha');
+    expect(alpha.pops).toBe(3);
+  });
+
+  it('fromSnapshot() preserves stockpile values', () => {
+    sim.tick(3);
+    const snaps = sim.serialize();
+    const restored = ColonySimulation.fromSnapshot(snaps);
+    const orig  = sim.get('alpha');
+    const rest  = restored.get('alpha');
+    expect(rest.stockpile.food).toBeCloseTo(orig.stockpile.food, 5);
+  });
+
+  it('fromSnapshot() preserves ColonyType without re-stacking bonuses', () => {
+    const c = sim.found({ id: 'gamma', name: 'Gamma', size: 10, startingPops: 1 });
+    c.setType(ColonyType.MINING);
+    const richnessBefore = c.richness;
+    const snaps = sim.serialize();
+    const restored = ColonySimulation.fromSnapshot(snaps);
+    const rg = restored.get('gamma');
+    expect(rg.type).toBe(ColonyType.MINING);
+    expect(rg.richness).toBeCloseTo(richnessBefore);
+  });
+});
+
+// ===========================================================================
+// EventSystem — dismiss + fireRandom + Journal
+// ===========================================================================
+
+describe('EventSystem — dismiss', () => {
+  let evtSys;
+  beforeEach(() => {
+    evtSys = new EventSystem();
+    evtSys.define({
+      id: 'ev.dismissable',
+      choices: [{ label: 'Act', effect: (gs) => { gs.acted = true; } }],
+    });
+    evtSys.schedule('ev.dismissable');
+    evtSys.tick({});
+  });
+
+  it('dismiss() removes the event from activeEvents', () => {
+    expect(evtSys.activeEvents.length).toBe(1);
+    evtSys.dismiss('ev.dismissable');
+    expect(evtSys.activeEvents.length).toBe(0);
+  });
+
+  it('dismiss() moves event to history with DISMISSED status', () => {
+    evtSys.dismiss('ev.dismissable');
+    const h = evtSys.history.find((e) => e.id === 'ev.dismissable');
+    expect(h).toBeDefined();
+    expect(h.status).toBe(EventStatus.DISMISSED);
+  });
+
+  it('dismiss() does NOT apply any choice effect', () => {
+    const gs = { acted: false };
+    evtSys.dismiss('ev.dismissable');
+    expect(gs.acted).toBe(false);
+  });
+
+  it('dismiss() emits game:event:dismissed', () => {
+    const bus = { emit: vi.fn() };
+    const sys = new EventSystem(bus);
+    sys.define({ id: 'ev.d', choices: [{ label: 'X', effect: () => {} }] });
+    sys.schedule('ev.d');
+    sys.tick({});
+    sys.dismiss('ev.d');
+    expect(bus.emit).toHaveBeenCalledWith('game:event:dismissed', expect.objectContaining({ event: expect.anything() }));
+  });
+
+  it('dismiss() warns if event is not active', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    evtSys.dismiss('unknown.event');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe('EventSystem — fireRandom', () => {
+  it('fireRandom() queues a matching event', () => {
+    const sys = new EventSystem();
+    sys.define({ id: 'rand.a', weight: 100, choices: [{ label: 'ok', effect: () => {} }] });
+    sys.fireRandom({});
+    expect(sys._queue.length).toBe(1);
+  });
+
+  it('fireRandom() does nothing when no candidates match condition', () => {
+    const sys = new EventSystem();
+    sys.define({
+      id: 'rand.b',
+      weight: 100,
+      condition: () => false,
+      choices: [{ label: 'ok', effect: () => {} }],
+    });
+    sys.fireRandom({});
+    expect(sys._queue.length).toBe(0);
+  });
+
+  it('fireRandom() skips SCRIPTED events', () => {
+    const sys = new EventSystem();
+    sys.define({ id: 'scripted.a', type: EventType.SCRIPTED, weight: 100, choices: [{ label: 'ok', effect: () => {} }] });
+    sys.fireRandom({});
+    expect(sys._queue.length).toBe(0);
+  });
+});
+
+describe('EventSystem — Journal entries', () => {
+  let sys;
+  beforeEach(() => { sys = new EventSystem(); });
+
+  it('defineJournalEntry() throws without id', () => {
+    expect(() => sys.defineJournalEntry({ condition: () => true, choices: [] })).toThrow(/id/);
+  });
+
+  it('defineJournalEntry() throws without condition', () => {
+    expect(() => sys.defineJournalEntry({ id: 'j.test' })).toThrow(/condition/);
+  });
+
+  it('defineJournalEntry() registers an entry', () => {
+    sys.defineJournalEntry({ id: 'j.growth', condition: (gs) => gs.pops >= 5 });
+    expect(sys.activeJournal().length).toBe(1);
+  });
+
+  it('activeJournal() excludes completed entries', () => {
+    sys.defineJournalEntry({ id: 'j.done', condition: () => true });
+    sys.tickJournal({});
+    expect(sys.activeJournal().length).toBe(0);
+  });
+
+  it('tickJournal() marks entry complete when condition passes', () => {
+    sys.defineJournalEntry({ id: 'j.ships', condition: (gs) => gs.ships >= 10 });
+    sys.tickJournal({ ships: 5 });
+    expect(sys.activeJournal().length).toBe(1); // not yet
+    sys.tickJournal({ ships: 10 });
+    expect(sys.activeJournal().length).toBe(0);
+  });
+
+  it('tickJournal() calls onComplete callback', () => {
+    const cb = vi.fn();
+    sys.defineJournalEntry({ id: 'j.cb', condition: () => true, onComplete: cb });
+    sys.tickJournal({ credits: 200 });
+    expect(cb).toHaveBeenCalledOnce();
+  });
+
+  it('tickJournal() does NOT re-fire onComplete after completion', () => {
+    const cb = vi.fn();
+    sys.defineJournalEntry({ id: 'j.once', condition: () => true, onComplete: cb });
+    sys.tickJournal({});
+    sys.tickJournal({});
+    expect(cb).toHaveBeenCalledOnce();
+  });
+
+  it('tickJournal() emits game:journal:complete via bus', () => {
+    const bus = { emit: vi.fn() };
+    const s = new EventSystem(bus);
+    s.defineJournalEntry({ id: 'j.bus', condition: () => true });
+    s.tickJournal({});
+    expect(bus.emit).toHaveBeenCalledWith('game:journal:complete', expect.objectContaining({ entry: expect.anything() }));
+  });
+
+  it('JournalStatus constants are frozen', () => {
+    expect(() => { JournalStatus.ACTIVE = 'x'; }).toThrow();
+    expect(Object.values(JournalStatus).length).toBe(2);
+  });
+
+  it('Journal isComplete getter reflects status', () => {
+    const j = new Journal({ id: 'j.x', condition: () => true });
+    expect(j.isComplete).toBe(false);
+    j.status = JournalStatus.COMPLETE;
+    expect(j.isComplete).toBe(true);
   });
 });
