@@ -61,6 +61,40 @@ class WebGPURenderPass {
   /** @returns {GPURenderPassEncoder} */
   get encoder() { return this._pass; }
 
+  /**
+   * Draw a mesh using its uploaded GPU buffers and a compiled pipeline.
+   *
+   * Expects:
+   *   geometry._gpuBuffers.positions — GPUBuffer (slot 0)
+   *   geometry._gpuBuffers.normals   — GPUBuffer (slot 1, optional)
+   *   geometry._gpuBuffers.uvs       — GPUBuffer (slot 2, optional)
+   *   geometry._gpuBuffers.indices   — GPUBuffer (optional; falls back to draw())
+   *   material._pipeline             — GPURenderPipeline
+   *
+   * @param {import('../scene/Geometry.js').Geometry} geometry
+   * @param {import('../scene/Material.js').Material} material
+   */
+  drawMesh(geometry, material) {
+    if (!this._pass) return;
+    const pipeline = material._pipeline;
+    if (!pipeline) return;
+
+    this._pass.setPipeline(pipeline);
+
+    const bufs = geometry._gpuBuffers ?? {};
+    if (bufs.positions) this._pass.setVertexBuffer(0, bufs.positions);
+    if (bufs.normals)   this._pass.setVertexBuffer(1, bufs.normals);
+    if (bufs.uvs)       this._pass.setVertexBuffer(2, bufs.uvs);
+
+    if (bufs.indices) {
+      const fmt = geometry.indices instanceof Uint32Array ? 'uint32' : 'uint16';
+      this._pass.setIndexBuffer(bufs.indices, fmt);
+      this._pass.drawIndexed(geometry.indices.length);
+    } else if (geometry.positions) {
+      this._pass.draw(geometry.positions.length / 3);
+    }
+  }
+
   /** End the render pass and submit to the GPU queue. */
   end() {
     if (!this._pass || !this._encoder) return;
