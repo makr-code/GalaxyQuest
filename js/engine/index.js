@@ -80,7 +80,11 @@ const { BattleSimulator, BattleFleet, BattleReport,
 const { ColonySimulation, Colony, PopJob, BASE_YIELD,
         BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
         HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
-        ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE } = require('./game/ColonySimulation');
+        ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
+        InvasionResult, InvasionReport,
+        TROOP_DEFENSE_VALUE, TROOP_ATTACK_VALUE, DEFENSE_DPS_FACTOR,
+        MAX_INVASION_ROUNDS, INVASION_LOOT_FRACTION, INVASION_CONQUEST_PENALTIES,
+      } = require('./game/ColonySimulation');
 
 // Constants
 const constants                     = require('./constants');
@@ -122,6 +126,9 @@ module.exports = {
   BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
   HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
   ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
+  InvasionResult, InvasionReport,
+  TROOP_DEFENSE_VALUE, TROOP_ATTACK_VALUE, DEFENSE_DPS_FACTOR,
+  MAX_INVASION_ROUNDS, INVASION_LOOT_FRACTION, INVASION_CONQUEST_PENALTIES,
   // Constants
   ...constants,
 };

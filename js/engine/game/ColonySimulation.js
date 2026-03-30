@@ -1,11 +1,12 @@
 /**
- * ColonySimulation.js  — Colony Pop & Resource Simulation
+ * ColonySimulation.js  — Colony Pop, Resource & Invasion Simulation
  *
  * Inspired by:
  *   Victoria 3        (Paradox, 2022)  — Pop growth, needs, jobs, goods
- *   Master of Orion   (SimTex, 1993)   — Farmer/Worker/Scientist allocation
- *   Stellaris         (Paradox, 2016)  — Planetary districts + pop jobs
+ *   Master of Orion   (SimTex, 1993)   — Farmer/Worker/Scientist allocation, ground combat
+ *   Stellaris         (Paradox, 2016)  — Planetary districts + pop jobs, occupation
  *   Endless Space 2   (Amplitude, 2017) — FIDS (Food, Industry, Dust, Science)
+ *   OGame             (Gameforge, 2002) — Ground troop invasion mechanics
  *
  * Provides:
  *   - A Colony data model with Pops (population units)
@@ -25,9 +26,17 @@
  *   - rename(newName) with a nameHistory log (array of { name, index } entries)
  *   - serialize() / deserialize() for save-game persistence
  *   - ColonySimulation.dissolve(id) — removes a colony, emits colony:dissolved
+ *   - Invasion & Defense system:
+ *       Colony.garrison — number of stationed ground troops (TROOP_DEFENSE_VALUE each)
+ *       Colony.defensePower — stockpile.defence + garrison × TROOP_DEFENSE_VALUE
+ *       Colony.garrisonTroops(n) / ungarrisonTroops(n)
+ *       ColonySimulation.invade(colonyId, attackerTroops, opts?) → InvasionReport
+ *         Outcomes: InvasionResult.SUCCESS / REPELLED / DRAW
+ *         Constants: TROOP_ATTACK_VALUE, TROOP_DEFENSE_VALUE, DEFENSE_DPS_FACTOR,
+ *                    MAX_INVASION_ROUNDS, INVASION_LOOT_FRACTION, INVASION_CONQUEST_PENALTIES
  *   - EventBus integration: emits 'colony:grow', 'colony:starve', 'colony:unrest',
  *       'colony:hunger:escalate', 'colony:unrest:escalate', 'colony:building:complete',
- *       'colony:dissolved'
+ *       'colony:dissolved', 'colony:invaded', 'colony:defended', 'colony:siege'
  *
  * Usage:
  *   const sim = new ColonySimulation(engine.events);
@@ -177,6 +186,119 @@ const TRADE_CHAIN = Object.freeze([
 /** Hunger escalation thresholds (0–1). Stages: 0=fed, 1=mild, 2=moderate, 3=severe, 4=critical */
 const HUNGER_THRESHOLDS = Object.freeze([0.25, 0.5, 0.75, 0.9]);
 
+// ---------------------------------------------------------------------------
+// Invasion & Defense constants / enums
+// ---------------------------------------------------------------------------
+
+/**
+ * Each garrisoned troop contributes this amount to the colony's defensePower.
+ * Troops are stationed ground forces (independent of SOLDIER pops).
+ */
+const TROOP_DEFENSE_VALUE = 50;
+
+/**
+ * Each attacking troop deals this amount of damage to the defender's defensePower
+ * per invasion round (before simultaneous counter-damage is applied).
+ */
+const TROOP_ATTACK_VALUE = 15;
+
+/**
+ * Fraction of the current defenderPower converted to attacking-troop kills per round.
+ * E.g. 0.20 means 20 % of the defender's strength kills attacking troops each round.
+ * Each troop has 1 HP, so we floor the result to get whole troop casualties.
+ */
+const DEFENSE_DPS_FACTOR = 0.20;
+
+/** Maximum invasion rounds before declaring a draw. */
+const MAX_INVASION_ROUNDS = 5;
+
+/**
+ * Fraction of each stockpile resource looted on a successful invasion.
+ * Defence stockpile is never looted (it is consumed defending).
+ */
+const INVASION_LOOT_FRACTION = 0.30;
+
+/**
+ * Post-invasion colony penalties applied to a conquered colony.
+ * These represent the shock of occupation on the civilian population.
+ */
+const INVASION_CONQUEST_PENALTIES = Object.freeze({
+  happiness:  0.3,   // happiness floors to this value
+  unrest:     0.7,   // unrest spikes to this value
+  stability:  0.4,   // stability floors to this value
+});
+
+/** @enum {string} Outcome of a ColonySimulation.invade() call. */
+const InvasionResult = Object.freeze({
+  SUCCESS:  'success',   // attacker captures the colony
+  REPELLED: 'repelled',  // defenders hold; all attacking troops are eliminated
+  DRAW:     'draw',      // neither side is eliminated within MAX_INVASION_ROUNDS
+});
+
+// ---------------------------------------------------------------------------
+// InvasionReport
+// ---------------------------------------------------------------------------
+
+/**
+ * Immutable result of a ColonySimulation.invade() call.
+ *
+ * Properties:
+ *   result               — one of InvasionResult
+ *   rounds               — number of rounds fought
+ *   attackerTroopsBefore — troops sent by the attacker
+ *   attackerTroopsAfter  — surviving attacker troops
+ *   defenderPowerBefore  — colony defensePower at start
+ *   defenderPowerAfter   — remaining defense power (0 on capture)
+ *   loot                 — plain-object of looted resources (only on SUCCESS)
+ */
+class InvasionReport {
+  /**
+   * @param {Object} params
+   * @param {string} params.result              InvasionResult
+   * @param {number} params.rounds
+   * @param {number} params.attackerTroopsBefore
+   * @param {number} params.attackerTroopsAfter
+   * @param {number} params.defenderPowerBefore
+   * @param {number} params.defenderPowerAfter
+   * @param {Object} params.loot                plain object { [resource]: amount }
+   * @param {string} params.colonyId
+   */
+  constructor({ result, rounds, attackerTroopsBefore, attackerTroopsAfter,
+                defenderPowerBefore, defenderPowerAfter, loot, colonyId }) {
+    this.result               = result;
+    this.rounds               = rounds;
+    this.attackerTroopsBefore = attackerTroopsBefore;
+    this.attackerTroopsAfter  = attackerTroopsAfter;
+    this.attackerCasualties   = attackerTroopsBefore - attackerTroopsAfter;
+    this.defenderPowerBefore  = defenderPowerBefore;
+    this.defenderPowerAfter   = defenderPowerAfter;
+    this.defenderPowerConsumed = defenderPowerBefore - defenderPowerAfter;
+    /** Resources looted from the colony (only populated on InvasionResult.SUCCESS). */
+    this.loot                 = loot;
+    this.colonyId             = colonyId;
+  }
+
+  /**
+   * Serialize to a plain JSON-compatible object.
+   * @returns {Object}
+   */
+  serialize() {
+    return {
+      result:               this.result,
+      rounds:               this.rounds,
+      attackerTroopsBefore: this.attackerTroopsBefore,
+      attackerTroopsAfter:  this.attackerTroopsAfter,
+      attackerCasualties:   this.attackerCasualties,
+      defenderPowerBefore:  this.defenderPowerBefore,
+      defenderPowerAfter:   this.defenderPowerAfter,
+      defenderPowerConsumed: this.defenderPowerConsumed,
+      loot:                 { ...this.loot },
+      colonyId:             this.colonyId,
+    };
+  }
+}
+
+
 /** Unrest escalation thresholds (0–1). Stages: 0=stable, 1=restless, 2=agitated, 3=rebellious, 4=revolt */
 const UNREST_THRESHOLDS = Object.freeze([0.25, 0.5, 0.75, 0.9]);
 
@@ -248,6 +370,13 @@ class Colony {
 
     /** Stored resources (includes ore, metal, shipParts for trade chains; defence from soldiers/barracks; darkMatter from dark matter mines) */
     this.stockpile = { food: 10, production: 0, research: 0, credits: 0, ore: 0, metal: 0, shipParts: 0, defence: 0, darkMatter: 0 };
+
+    /**
+     * Garrisoned ground troops — permanent stationed units protecting this colony.
+     * Independent of SOLDIER pops; each troop adds TROOP_DEFENSE_VALUE to defensePower.
+     * Managed via garrisonTroops() / ungarrisonTroops().
+     */
+    this.garrison   = def.garrison ?? 0;
 
     /** Colony happiness [0–1] — affects yields */
     this.happiness  = 0.7;
@@ -403,8 +532,45 @@ class Colony {
   }
 
   // ---------------------------------------------------------------------------
-  // Production
+  // Garrison & Defense
   // ---------------------------------------------------------------------------
+
+  /**
+   * Effective defense power of this colony.
+   * Combines accumulated defence stockpile (from SOLDIER pops + BARRACKS buildings)
+   * with stationed garrison troops (each worth TROOP_DEFENSE_VALUE).
+   * Colony type bonus (military/moon) is already baked into stockpile.defence via
+   * the colony type multiplier applied during computeYield().
+   * @returns {number}
+   */
+  get defensePower() {
+    return Math.max(0, this.stockpile.defence) + this.garrison * TROOP_DEFENSE_VALUE;
+  }
+
+  /**
+   * Station additional ground troops in this colony.
+   * Costs are managed by the caller (e.g. deduct from a fleet or resource pool).
+   * @param {number} n  Number of troops to add (must be ≥ 1)
+   * @returns {Colony}  this, for chaining
+   */
+  garrisonTroops(n) {
+    if (!Number.isFinite(n) || n < 1) throw new RangeError('[Colony] garrisonTroops() requires n ≥ 1');
+    this.garrison += Math.floor(n);
+    return this;
+  }
+
+  /**
+   * Withdraw ground troops from this colony.
+   * @param {number} n  Number of troops to remove
+   * @returns {number}  Actual number of troops removed (≤ n, capped by garrison size)
+   */
+  ungarrisonTroops(n) {
+    if (!Number.isFinite(n) || n < 1) throw new RangeError('[Colony] ungarrisonTroops() requires n ≥ 1');
+    const removed  = Math.min(this.garrison, Math.floor(n));
+    this.garrison -= removed;
+    return removed;
+  }
+
 
   /**
    * Compute total resource output for one turn (before stockpile update).
@@ -616,6 +782,7 @@ class Colony {
       nameHistory:  this.nameHistory.map(e => ({ ...e })),
       _renameCount: this._renameCount,
       type:         this.type,
+      garrison:     this.garrison,
     };
   }
 
@@ -648,6 +815,7 @@ class Colony {
     colony.buildQueue   = (json.buildQueue ?? []).map(b => ({ ...b }));
     colony.nameHistory  = (json.nameHistory ?? []).map(e => ({ ...e }));
     colony._renameCount = json._renameCount ?? 0;
+    colony.garrison     = json.garrison     ?? 0;
     return colony;
   }
 }
@@ -701,6 +869,133 @@ class ColonySimulation {
   }
 
   /**
+   * Attempt to invade a colony with a given number of attacking troops.
+   *
+   * Combat model (round-based, simultaneous fire — inspired by OGame ground combat):
+   *   Each round:
+   *     - Attacker deals  `currentTroops × TROOP_ATTACK_VALUE` damage to defenderPower.
+   *     - Defender deals  `floor(currentDefense × DEFENSE_DPS_FACTOR)` troop casualties.
+   *     - Both values are computed from round-start state (simultaneous fire).
+   *   Rounds continue until:
+   *     a) defenderPower ≤ 0 and troops > 0 → SUCCESS (colony captured)
+   *     b) troops ≤ 0 and defenderPower > 0 → REPELLED (defenders hold)
+   *     c) MAX_INVASION_ROUNDS reached with both sides surviving → DRAW
+   *
+   * On SUCCESS:
+   *   - INVASION_LOOT_FRACTION (30 %) of each stockpile resource is returned in the report.
+   *   - Colony garrison is reset to 0.
+   *   - Colony defence stockpile is set to 0.
+   *   - Colony happiness, unrest, stability are set to INVASION_CONQUEST_PENALTIES values.
+   *   - Emits `colony:invaded`.
+   *
+   * On REPELLED:
+   *   - Colony defence stockpile is reduced by the damage taken.
+   *   - Emits `colony:defended`.
+   *
+   * On DRAW:
+   *   - Colony defence stockpile is reduced by the damage taken.
+   *   - Emits `colony:siege`.
+   *
+   * @param {string} colonyId         Target colony id
+   * @param {number} attackerTroops   Number of ground troops (positive integer)
+   * @param {Object} [opts]
+   * @param {number} [opts.maxRounds]  Override MAX_INVASION_ROUNDS
+   * @returns {InvasionReport}
+   */
+  invade(colonyId, attackerTroops, opts = {}) {
+    const colony = this._colonies.get(colonyId);
+    if (!colony) throw new RangeError(`[ColonySimulation] Colony not found: '${colonyId}'`);
+
+    const troops = Math.floor(attackerTroops);
+    if (!Number.isFinite(troops) || troops < 1) {
+      throw new RangeError('[ColonySimulation] invade() requires attackerTroops ≥ 1');
+    }
+
+    const maxRounds = opts.maxRounds ?? MAX_INVASION_ROUNDS;
+
+    const defenderPowerBefore = colony.defensePower;
+    let currentTroops  = troops;
+    let currentDefense = defenderPowerBefore;
+    let rounds = 0;
+
+    // Round-based combat loop
+    while (rounds < maxRounds && currentTroops > 0 && currentDefense > 0) {
+      // Simultaneous fire: both sides use round-START values
+      const dmgToDefense = currentTroops * TROOP_ATTACK_VALUE;
+      const troopKills   = Math.floor(currentDefense * DEFENSE_DPS_FACTOR);
+
+      currentDefense = Math.max(0, currentDefense - dmgToDefense);
+      currentTroops  = Math.max(0, currentTroops  - troopKills);
+      rounds++;
+    }
+
+    const attackerTroopsAfter = currentTroops;
+    const defenderPowerAfter  = Math.max(0, currentDefense);
+
+    // Determine outcome
+    let result;
+    if (currentDefense <= 0 && currentTroops > 0) {
+      result = InvasionResult.SUCCESS;
+    } else if (currentTroops <= 0) {
+      result = InvasionResult.REPELLED;
+    } else {
+      result = InvasionResult.DRAW;
+    }
+
+    // Loot (only on success)
+    const loot = {};
+    if (result === InvasionResult.SUCCESS) {
+      const SKIP = new Set(['defence']);
+      for (const [res, amt] of Object.entries(colony.stockpile)) {
+        if (SKIP.has(res) || amt <= 0) continue;
+        const taken = amt * INVASION_LOOT_FRACTION;
+        loot[res] = taken;
+        colony.stockpile[res] -= taken;
+      }
+    }
+
+    // Apply colony state mutations
+    if (result === InvasionResult.SUCCESS) {
+      colony.garrison         = 0;
+      colony.stockpile.defence = 0;
+      colony.happiness        = Math.min(colony.happiness, INVASION_CONQUEST_PENALTIES.happiness);
+      colony.unrest           = Math.max(colony.unrest,   INVASION_CONQUEST_PENALTIES.unrest);
+      colony.stability        = Math.min(colony.stability, INVASION_CONQUEST_PENALTIES.stability);
+    } else {
+      // Partial defense damage regardless of outcome
+      const defenseConsumed = defenderPowerBefore - defenderPowerAfter;
+      // Reduce garrison first, then overflow into stockpile.defence
+      const garrisonDamage = Math.min(colony.garrison * TROOP_DEFENSE_VALUE, defenseConsumed);
+      const garrisonLost   = Math.min(colony.garrison, Math.ceil(garrisonDamage / TROOP_DEFENSE_VALUE));
+      colony.garrison     -= garrisonLost;
+      const stockpileDamage = defenseConsumed - garrisonLost * TROOP_DEFENSE_VALUE;
+      colony.stockpile.defence = Math.max(0, colony.stockpile.defence - stockpileDamage);
+    }
+
+    const report = new InvasionReport({
+      result,
+      rounds,
+      attackerTroopsBefore: troops,
+      attackerTroopsAfter,
+      defenderPowerBefore,
+      defenderPowerAfter,
+      loot,
+      colonyId,
+    });
+
+    // Emit event
+    if (result === InvasionResult.SUCCESS) {
+      this._bus?.emit('colony:invaded',  { colony, id: colonyId, report });
+    } else if (result === InvasionResult.REPELLED) {
+      this._bus?.emit('colony:defended', { colony, id: colonyId, report });
+    } else {
+      this._bus?.emit('colony:siege',    { colony, id: colonyId, report });
+    }
+
+    return report;
+  }
+
+  /**
    * Simulate all colonies for dt turns.
    * @param {number} [dt=1]  In-game turns
    */
@@ -709,6 +1004,7 @@ class ColonySimulation {
       colony._applyYield(dt);
       colony._applyBuildingYields(dt);
       colony._applyTradeChains(dt);
+
       colony._applyConsumption(dt);
       colony._applyGrowth(
         dt,
@@ -772,6 +1068,9 @@ if (typeof module !== 'undefined' && module.exports) {
     BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
     HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
     ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
+    InvasionResult, InvasionReport,
+    TROOP_DEFENSE_VALUE, TROOP_ATTACK_VALUE, DEFENSE_DPS_FACTOR,
+    MAX_INVASION_ROUNDS, INVASION_LOOT_FRACTION, INVASION_CONQUEST_PENALTIES,
   };
 } else {
   window.GQColonySimulation = {
@@ -779,5 +1078,8 @@ if (typeof module !== 'undefined' && module.exports) {
     BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
     HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
     ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
+    InvasionResult, InvasionReport,
+    TROOP_DEFENSE_VALUE, TROOP_ATTACK_VALUE, DEFENSE_DPS_FACTOR,
+    MAX_INVASION_ROUNDS, INVASION_LOOT_FRACTION, INVASION_CONQUEST_PENALTIES,
   };
 }

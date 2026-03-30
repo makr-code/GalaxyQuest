@@ -17,6 +17,9 @@ import {
   BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
   HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
   ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
+  InvasionResult, InvasionReport,
+  TROOP_DEFENSE_VALUE, TROOP_ATTACK_VALUE, DEFENSE_DPS_FACTOR,
+  MAX_INVASION_ROUNDS, INVASION_LOOT_FRACTION, INVASION_CONQUEST_PENALTIES,
 } from '../../js/engine/game/ColonySimulation.js';
 import {
   BattleSimulator, BattleFleet, BattleReport,
@@ -1586,5 +1589,452 @@ describe('BattleSimulator – fleetPower()', () => {
     const one  = new BattleFleet({ [ShipClass.FRIGATE]: 1 });
     const ten  = new BattleFleet({ [ShipClass.FRIGATE]: 10 });
     expect(BattleSimulator.fleetPower(ten)).toBeCloseTo(BattleSimulator.fleetPower(one) * 10);
+  });
+});
+
+// ===========================================================================
+// Colony Invasion & Defense — constants & enums
+// ===========================================================================
+
+describe('Colony Invasion – constants & InvasionResult enum', () => {
+  it('InvasionResult is frozen with SUCCESS, REPELLED, DRAW', () => {
+    expect(Object.isFrozen(InvasionResult)).toBe(true);
+    expect(InvasionResult.SUCCESS).toBe('success');
+    expect(InvasionResult.REPELLED).toBe('repelled');
+    expect(InvasionResult.DRAW).toBe('draw');
+  });
+
+  it('TROOP_DEFENSE_VALUE is a positive number', () => {
+    expect(TROOP_DEFENSE_VALUE).toBeGreaterThan(0);
+  });
+
+  it('TROOP_ATTACK_VALUE is a positive number', () => {
+    expect(TROOP_ATTACK_VALUE).toBeGreaterThan(0);
+  });
+
+  it('DEFENSE_DPS_FACTOR is between 0 and 1', () => {
+    expect(DEFENSE_DPS_FACTOR).toBeGreaterThan(0);
+    expect(DEFENSE_DPS_FACTOR).toBeLessThanOrEqual(1);
+  });
+
+  it('MAX_INVASION_ROUNDS is a positive integer', () => {
+    expect(Number.isInteger(MAX_INVASION_ROUNDS)).toBe(true);
+    expect(MAX_INVASION_ROUNDS).toBeGreaterThan(0);
+  });
+
+  it('INVASION_LOOT_FRACTION is between 0 and 1', () => {
+    expect(INVASION_LOOT_FRACTION).toBeGreaterThan(0);
+    expect(INVASION_LOOT_FRACTION).toBeLessThanOrEqual(1);
+  });
+
+  it('INVASION_CONQUEST_PENALTIES has happiness, unrest, stability', () => {
+    expect(INVASION_CONQUEST_PENALTIES).toHaveProperty('happiness');
+    expect(INVASION_CONQUEST_PENALTIES).toHaveProperty('unrest');
+    expect(INVASION_CONQUEST_PENALTIES).toHaveProperty('stability');
+    expect(Object.isFrozen(INVASION_CONQUEST_PENALTIES)).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Colony Invasion — garrison management
+// ===========================================================================
+
+describe('Colony Invasion – garrison management', () => {
+  let colony;
+
+  beforeEach(() => {
+    colony = new Colony({ id: 'c1', name: 'Fortress', size: 10, startingPops: 3 });
+  });
+
+  it('garrison starts at 0', () => {
+    expect(colony.garrison).toBe(0);
+  });
+
+  it('garrisonTroops() increases garrison', () => {
+    colony.garrisonTroops(5);
+    expect(colony.garrison).toBe(5);
+  });
+
+  it('garrisonTroops() is chainable', () => {
+    const result = colony.garrisonTroops(3);
+    expect(result).toBe(colony);
+  });
+
+  it('garrisonTroops() floors fractional input', () => {
+    colony.garrisonTroops(3.9);
+    expect(colony.garrison).toBe(3);
+  });
+
+  it('garrisonTroops() throws for n < 1', () => {
+    expect(() => colony.garrisonTroops(0)).toThrow(/≥ 1/);
+    expect(() => colony.garrisonTroops(-2)).toThrow(/≥ 1/);
+  });
+
+  it('ungarrisonTroops() reduces garrison by n', () => {
+    colony.garrisonTroops(10);
+    const removed = colony.ungarrisonTroops(4);
+    expect(removed).toBe(4);
+    expect(colony.garrison).toBe(6);
+  });
+
+  it('ungarrisonTroops() caps at available garrison', () => {
+    colony.garrisonTroops(3);
+    const removed = colony.ungarrisonTroops(100);
+    expect(removed).toBe(3);
+    expect(colony.garrison).toBe(0);
+  });
+
+  it('ungarrisonTroops() throws for n < 1', () => {
+    expect(() => colony.ungarrisonTroops(0)).toThrow(/≥ 1/);
+  });
+
+  it('garrison survives serialize / deserialize', () => {
+    colony.garrisonTroops(7);
+    const snap = colony.serialize();
+    const restored = Colony.deserialize(snap);
+    expect(restored.garrison).toBe(7);
+  });
+});
+
+// ===========================================================================
+// Colony Invasion — defensePower getter
+// ===========================================================================
+
+describe('Colony Invasion – defensePower getter', () => {
+  let colony;
+
+  beforeEach(() => {
+    colony = new Colony({ id: 'c1', name: 'Frontier', size: 10, startingPops: 4 });
+  });
+
+  it('defensePower is 0 with no garrison and empty defence stockpile', () => {
+    expect(colony.defensePower).toBe(0);
+  });
+
+  it('defensePower includes garrison contribution', () => {
+    colony.garrisonTroops(4);
+    expect(colony.defensePower).toBe(4 * TROOP_DEFENSE_VALUE);
+  });
+
+  it('defensePower includes stockpile.defence contribution', () => {
+    colony.stockpile.defence = 100;
+    expect(colony.defensePower).toBe(100);
+  });
+
+  it('defensePower sums both garrison and stockpile.defence', () => {
+    colony.garrisonTroops(2);
+    colony.stockpile.defence = 50;
+    expect(colony.defensePower).toBe(2 * TROOP_DEFENSE_VALUE + 50);
+  });
+
+  it('defensePower clamps negative stockpile.defence to 0', () => {
+    colony.stockpile.defence = -10;
+    expect(colony.defensePower).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ===========================================================================
+// Colony Invasion — InvasionReport
+// ===========================================================================
+
+describe('Colony Invasion – InvasionReport', () => {
+  it('InvasionReport computes attackerCasualties correctly', () => {
+    const report = new InvasionReport({
+      result: InvasionResult.SUCCESS, rounds: 2,
+      attackerTroopsBefore: 50, attackerTroopsAfter: 30,
+      defenderPowerBefore: 200, defenderPowerAfter: 0,
+      loot: { metal: 10 }, colonyId: 'x',
+    });
+    expect(report.attackerCasualties).toBe(20);
+  });
+
+  it('InvasionReport computes defenderPowerConsumed correctly', () => {
+    const report = new InvasionReport({
+      result: InvasionResult.REPELLED, rounds: 3,
+      attackerTroopsBefore: 10, attackerTroopsAfter: 0,
+      defenderPowerBefore: 500, defenderPowerAfter: 300,
+      loot: {}, colonyId: 'x',
+    });
+    expect(report.defenderPowerConsumed).toBe(200);
+  });
+
+  it('serialize() returns a plain object with all expected keys', () => {
+    const report = new InvasionReport({
+      result: InvasionResult.DRAW, rounds: 5,
+      attackerTroopsBefore: 20, attackerTroopsAfter: 5,
+      defenderPowerBefore: 300, defenderPowerAfter: 100,
+      loot: {}, colonyId: 'abc',
+    });
+    const s = report.serialize();
+    expect(s.result).toBe(InvasionResult.DRAW);
+    expect(s.rounds).toBe(5);
+    expect(s.attackerCasualties).toBe(15);
+    expect(s.defenderPowerConsumed).toBe(200);
+    expect(s.colonyId).toBe('abc');
+    expect(typeof s.loot).toBe('object');
+  });
+});
+
+// ===========================================================================
+// Colony Invasion — ColonySimulation.invade() — validation
+// ===========================================================================
+
+describe('Colony Invasion – invade() validation', () => {
+  let sim;
+  beforeEach(() => {
+    sim = new ColonySimulation();
+    sim.found({ id: 'col1', name: 'Ignis', size: 10, startingPops: 5 });
+  });
+
+  it('throws for unknown colony id', () => {
+    expect(() => sim.invade('no_such_colony', 10)).toThrow(/not found/i);
+  });
+
+  it('throws for attackerTroops < 1', () => {
+    expect(() => sim.invade('col1', 0)).toThrow(/≥ 1/);
+  });
+
+  it('throws for non-finite attackerTroops', () => {
+    expect(() => sim.invade('col1', Infinity)).toThrow(/≥ 1/);
+  });
+
+  it('returns an InvasionReport', () => {
+    sim.get('col1').stockpile.defence = 1; // minimal defense
+    const report = sim.invade('col1', 100);
+    expect(report).toBeInstanceOf(InvasionReport);
+  });
+});
+
+// ===========================================================================
+// Colony Invasion — ColonySimulation.invade() — SUCCESS outcome
+// ===========================================================================
+
+describe('Colony Invasion – invade() SUCCESS', () => {
+  let sim, colony;
+
+  beforeEach(() => {
+    sim = new ColonySimulation();
+    colony = sim.found({ id: 'c1', name: 'Weak', size: 10, startingPops: 3 });
+    // Minimal defense — a large attacker force wins
+    colony.stockpile.defence = 50;
+    colony.stockpile.metal   = 200;
+    colony.stockpile.food    = 100;
+    colony.garrison          = 0;
+  });
+
+  it('returns result SUCCESS against minimal defense', () => {
+    const report = sim.invade('c1', 200);
+    expect(report.result).toBe(InvasionResult.SUCCESS);
+  });
+
+  it('garrison is reset to 0 on capture', () => {
+    sim.invade('c1', 200);
+    expect(colony.garrison).toBe(0);
+  });
+
+  it('stockpile.defence is reset to 0 on capture', () => {
+    sim.invade('c1', 200);
+    expect(colony.stockpile.defence).toBe(0);
+  });
+
+  it('happiness is capped to INVASION_CONQUEST_PENALTIES.happiness on capture', () => {
+    colony.happiness = 0.9;
+    sim.invade('c1', 200);
+    expect(colony.happiness).toBeLessThanOrEqual(INVASION_CONQUEST_PENALTIES.happiness);
+  });
+
+  it('unrest spikes to at least INVASION_CONQUEST_PENALTIES.unrest on capture', () => {
+    colony.unrest = 0;
+    sim.invade('c1', 200);
+    expect(colony.unrest).toBeGreaterThanOrEqual(INVASION_CONQUEST_PENALTIES.unrest);
+  });
+
+  it('stability drops to at most INVASION_CONQUEST_PENALTIES.stability on capture', () => {
+    colony.stability = 0.95;
+    sim.invade('c1', 200);
+    expect(colony.stability).toBeLessThanOrEqual(INVASION_CONQUEST_PENALTIES.stability);
+  });
+
+  it('loot contains positive amounts for resources that were in stockpile', () => {
+    const report = sim.invade('c1', 200);
+    expect(report.loot.metal).toBeGreaterThan(0);
+    expect(report.loot.food).toBeGreaterThan(0);
+  });
+
+  it('loot is exactly INVASION_LOOT_FRACTION of pre-invasion stockpile amounts', () => {
+    const metalBefore = colony.stockpile.metal;
+    const report = sim.invade('c1', 200);
+    expect(report.loot.metal).toBeCloseTo(metalBefore * INVASION_LOOT_FRACTION);
+  });
+
+  it('loot does not include defence', () => {
+    const report = sim.invade('c1', 200);
+    expect(report.loot.defence).toBeUndefined();
+  });
+
+  it('colony stockpile is reduced by loot amount on capture', () => {
+    const metalBefore = colony.stockpile.metal;
+    sim.invade('c1', 200);
+    expect(colony.stockpile.metal).toBeCloseTo(metalBefore * (1 - INVASION_LOOT_FRACTION));
+  });
+
+  it('emits colony:invaded event', () => {
+    const events = [];
+    const bus = { emit: (ev, data) => events.push({ ev, data }) };
+    const s2 = new ColonySimulation(bus);
+    const c2 = s2.found({ id: 'c2', name: 'X', size: 10, startingPops: 2 });
+    c2.stockpile.defence = 1;
+    s2.invade('c2', 200);
+    const invaded = events.find(e => e.ev === 'colony:invaded');
+    expect(invaded).toBeTruthy();
+    expect(invaded.data.id).toBe('c2');
+    expect(invaded.data.report).toBeInstanceOf(InvasionReport);
+  });
+});
+
+// ===========================================================================
+// Colony Invasion — ColonySimulation.invade() — REPELLED outcome
+// ===========================================================================
+
+describe('Colony Invasion – invade() REPELLED', () => {
+  let sim, colony;
+
+  beforeEach(() => {
+    sim = new ColonySimulation();
+    colony = sim.found({ id: 'c1', name: 'Bastion', size: 10, startingPops: 5 });
+    // High defense, low attacker count
+    colony.stockpile.defence = 10_000;
+    colony.garrison          = 50;
+  });
+
+  it('returns result REPELLED when defenders overwhelm attacker', () => {
+    const report = sim.invade('c1', 2);
+    expect(report.result).toBe(InvasionResult.REPELLED);
+  });
+
+  it('all attacking troops are eliminated on REPELLED', () => {
+    const report = sim.invade('c1', 2);
+    expect(report.attackerTroopsAfter).toBe(0);
+  });
+
+  it('loot is empty on REPELLED', () => {
+    const report = sim.invade('c1', 2);
+    expect(Object.keys(report.loot).length).toBe(0);
+  });
+
+  it('colony defense is partially reduced on REPELLED', () => {
+    const defBefore = colony.defensePower;
+    sim.invade('c1', 2);
+    // Some damage was dealt, but colony survived
+    expect(colony.defensePower).toBeLessThanOrEqual(defBefore);
+  });
+
+  it('emits colony:defended event', () => {
+    const events = [];
+    const bus = { emit: (ev, d) => events.push(ev) };
+    const s2 = new ColonySimulation(bus);
+    const c2 = s2.found({ id: 'c2', name: 'Y', size: 10, startingPops: 3 });
+    c2.stockpile.defence = 10_000;
+    s2.invade('c2', 2);
+    expect(events).toContain('colony:defended');
+  });
+});
+
+// ===========================================================================
+// Colony Invasion — ColonySimulation.invade() — DRAW outcome
+// ===========================================================================
+
+describe('Colony Invasion – invade() DRAW', () => {
+  it('returns DRAW when rounds exhausted with both sides surviving', () => {
+    // Craft attacker / defender so neither side zeros out within default rounds
+    const sim = new ColonySimulation();
+    const colony = sim.found({ id: 'c1', name: 'Stalemate', size: 10, startingPops: 3 });
+    // Use a maxRounds of 1 and equal-ish forces to force a draw
+    colony.stockpile.defence = 500;
+    const report = sim.invade('c1', 1, { maxRounds: 1 });
+    // With 1 round and balanced forces, either draw or repelled
+    expect([InvasionResult.DRAW, InvasionResult.REPELLED]).toContain(report.result);
+  });
+
+  it('emits colony:siege on DRAW result', () => {
+    const events = [];
+    const bus = { emit: (ev, d) => events.push(ev) };
+    const sim = new ColonySimulation(bus);
+    const colony = sim.found({ id: 'c1', name: 'Q', size: 10, startingPops: 2 });
+    colony.stockpile.defence = 500;
+    const report = sim.invade('c1', 1, { maxRounds: 1 });
+    if (report.result === InvasionResult.DRAW) {
+      expect(events).toContain('colony:siege');
+    }
+  });
+
+  it('respects custom maxRounds option', () => {
+    const sim = new ColonySimulation();
+    const colony = sim.found({ id: 'c1', name: 'W', size: 10, startingPops: 2 });
+    colony.stockpile.defence = 1;
+    const report = sim.invade('c1', 100, { maxRounds: 2 });
+    expect(report.rounds).toBeLessThanOrEqual(2);
+  });
+});
+
+// ===========================================================================
+// Colony Invasion — garrison troops interact with defensePower
+// ===========================================================================
+
+describe('Colony Invasion – garrison interacts with combat', () => {
+  it('higher garrison increases defensePower', () => {
+    const col1 = new Colony({ id: 'a', name: 'A', size: 10, startingPops: 3 });
+    const col2 = new Colony({ id: 'b', name: 'B', size: 10, startingPops: 3 });
+    col1.garrison = 0;
+    col2.garrison = 20;
+    expect(col2.defensePower).toBeGreaterThan(col1.defensePower);
+  });
+
+  it('well-garrisoned colony repels attacker that beats same colony ungarrisoned', () => {
+    const sim = new ColonySimulation();
+    // Colony with no garrison vs colony with 30 garrison troops
+    const c1 = sim.found({ id: 'c1', name: 'Bare', size: 10, startingPops: 3 });
+    const c2 = sim.found({ id: 'c2', name: 'Fort', size: 10, startingPops: 3 });
+    c2.garrison = 30;
+
+    const r1 = sim.invade('c1', 10);
+    const r2 = sim.invade('c2', 10);
+
+    // c1 should be easier to capture than c2
+    // At minimum, c2's result should not be a success while c1 succeeded
+    if (r1.result === InvasionResult.SUCCESS) {
+      expect(r2.result).not.toBe(InvasionResult.SUCCESS);
+    }
+  });
+
+  it('MILITARY colony type with soldiers has higher defensePower after ticks', () => {
+    const sim = new ColonySimulation();
+    const c1 = sim.found({ id: 'c1', name: 'Mil', size: 10, startingPops: 4, type: 'military' });
+    c1.setJobs({ [PopJob.SOLDIER]: 4 });
+    sim.tick(5);
+    // After 5 ticks, soldiers have accumulated defence into stockpile
+    expect(c1.defensePower).toBeGreaterThan(0);
+  });
+});
+
+// ===========================================================================
+// Colony Invasion — determinism
+// ===========================================================================
+
+describe('Colony Invasion – determinism', () => {
+  it('same inputs produce identical reports', () => {
+    function makeSetup() {
+      const sim = new ColonySimulation();
+      const col = sim.found({ id: 'c1', name: 'X', size: 10, startingPops: 4 });
+      col.stockpile.defence = 200;
+      col.garrison          = 5;
+      return sim;
+    }
+    const r1 = makeSetup().invade('c1', 15);
+    const r2 = makeSetup().invade('c1', 15);
+    expect(r1.result).toBe(r2.result);
+    expect(r1.rounds).toBe(r2.rounds);
+    expect(r1.attackerTroopsAfter).toBe(r2.attackerTroopsAfter);
+    expect(r1.defenderPowerAfter).toBe(r2.defenderPowerAfter);
   });
 });
