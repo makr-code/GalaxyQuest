@@ -21,6 +21,15 @@
 
 'use strict';
 
+/**
+ * Module-level shader-module cache.
+ * WeakMap<GPUDevice, Map<string, GPUShaderModule>> keeps per-device caches
+ * and allows the device to be GC'd when no longer referenced.
+ *
+ * @type {WeakMap<object, Map<string, GPUShaderModule>>}
+ */
+const _shaderModuleCache = new WeakMap();
+
 class WebGPUShader {
   /**
    * @param {GPUDevice} device
@@ -31,6 +40,31 @@ class WebGPUShader {
     this._renderPipelines = new Map();
     /** @type {Map<string, GPUComputePipeline>} */
     this._computePipelines = new Map();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shader module compilation with cache
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Compile a WGSL source string into a GPUShaderModule, returning the cached
+   * module if the same source has already been compiled on this device.
+   *
+   * @param {GPUDevice} device
+   * @param {string}    wgslSource
+   * @returns {GPUShaderModule}
+   */
+  static compile(device, wgslSource) {
+    if (!_shaderModuleCache.has(device)) {
+      _shaderModuleCache.set(device, new Map());
+    }
+    const deviceCache = _shaderModuleCache.get(device);
+    const key = _hashSrc(wgslSource);
+    if (deviceCache.has(key)) return deviceCache.get(key);
+
+    const module = device.createShaderModule({ code: wgslSource, label: `gq:${key}` });
+    deviceCache.set(key, module);
+    return module;
   }
 
   // ---------------------------------------------------------------------------
