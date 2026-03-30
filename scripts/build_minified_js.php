@@ -13,6 +13,7 @@
  *   php scripts/build_minified_js.php --package-boot --package-name=js/packages/game.boot.bundle.js
  *   php scripts/build_minified_js.php --package-include='^(js\\/game|js\\/api)'
  *   php scripts/build_minified_js.php --package-exclude='^js\\/engine\\/'
+ *   php scripts/build_minified_js.php --package-extra='js/engine/fx/*.js,js/engine/post-effects/passes/*.js'
  *   php scripts/build_minified_js.php --compress=gzip
  *   php scripts/build_minified_js.php --keep-uncompressed
  */
@@ -175,6 +176,7 @@ function parse_options(array $argv): array {
         'package_chunk_files' => 12,
         'package_include' => '',
         'package_exclude' => '',
+        'package_extra' => 'js/engine/fx/*.js,js/engine/post-effects/passes/*.js',
     ];
 
     foreach ($argv as $arg) {
@@ -239,6 +241,10 @@ function parse_options(array $argv): array {
         }
         if (str_starts_with($arg, '--package-exclude=')) {
             $opts['package_exclude'] = trim(substr($arg, 18));
+            continue;
+        }
+        if (str_starts_with($arg, '--package-extra=')) {
+            $opts['package_extra'] = trim(substr($arg, 16));
             continue;
         }
         if ($arg === '--keep-uncompressed') {
@@ -497,6 +503,32 @@ function build_boot_bundles_gzip(string $root, array $options): void {
         }
         if (!in_array($path, $relPaths, true)) {
             $relPaths[] = $path;
+        }
+    }
+
+    // Keep selected engine artifacts anchored in bundles, even when they are
+    // not listed explicitly in index boot arrays.
+    $extraSpec = trim((string) ($options['package_extra'] ?? ''));
+    if ($extraSpec !== '') {
+        $patterns = array_filter(array_map('trim', explode(',', $extraSpec)), static fn ($v) => $v !== '');
+        foreach ($patterns as $pattern) {
+            $absolutePattern = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $pattern);
+            $found = glob($absolutePattern) ?: [];
+            foreach ($found as $absolutePath) {
+                if (!is_file($absolutePath)) {
+                    continue;
+                }
+                $relativePath = str_replace(DIRECTORY_SEPARATOR, '/', ltrim(str_replace($root, '', $absolutePath), DIRECTORY_SEPARATOR));
+                if ($includePattern !== '' && @preg_match('/' . $includePattern . '/i', $relativePath) !== 1) {
+                    continue;
+                }
+                if ($excludePattern !== '' && @preg_match('/' . $excludePattern . '/i', $relativePath) === 1) {
+                    continue;
+                }
+                if (!in_array($relativePath, $relPaths, true)) {
+                    $relPaths[] = $relativePath;
+                }
+            }
         }
     }
 

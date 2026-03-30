@@ -60,7 +60,21 @@
       out[(i * 2)] = Number(s.x_ly || s.x || 0) * scale;
       out[(i * 2) + 1] = Number(s.y_ly || s.y || 0) * scale;
     }
-    return out;
+    return { positions: out, scale, stars: list };
+  }
+
+  function toStarPosition(star) {
+    if (!star || typeof star !== 'object') return null;
+    if (star.position && typeof star.position === 'object') {
+      return {
+        x: Number(star.position.x || 0),
+        y: Number(star.position.y || 0),
+      };
+    }
+    return {
+      x: Number(star.x_ly || star.x || 0),
+      y: Number(star.y_ly || star.y || 0),
+    };
   }
 
   class StarfieldWebGPU {
@@ -77,8 +91,11 @@
       this._device = null;
       this._context = null;
       this._pipeline = null;
+      this._viewUniformBuffer = null;
+      this._viewBindGroup = null;
       this._starBuffer = null;
       this._starCount = 0;
+      this._starScale = 1;
       this._rafId = 0;
       this._frameTick = 0;
       this._lastRenderTs = 0;
@@ -99,6 +116,14 @@
       this.systemMode = false;
       this.transitionsEnabled = true;
       this.transitionStableMinMs = 220;
+      this._viewState = {
+        panX: 0,
+        panY: 0,
+        zoom: 1,
+        targetPanX: 0,
+        targetPanY: 0,
+        targetZoom: 1,
+      };
       this.starPoints = [];
       this.stars = [];
       this.renderFrames = {
@@ -156,8 +181,15 @@
       this._uploadStars(stars);
     }
 
-    setCameraTarget(target) { this._currentTarget = target || null; }
-    fitCameraToStars() {}
+    setCameraTarget(target) {
+      this._currentTarget = target || null;
+      this.focusOnStar(target, false);
+    }
+    fitCameraToStars() {
+      this._viewState.targetPanX = 0;
+      this._viewState.targetPanY = 0;
+      this._viewState.targetZoom = this.systemMode ? 2.25 : 1;
+    }
     setTransitionsEnabled(flag) { this.transitionsEnabled = !!flag; }
     setClusterBoundsVisible(flag) { this._clusterBoundsVisible = !!flag; }
     setGalacticCoreFxEnabled(flag) { this._galacticCoreFxEnabled = !!flag; }
@@ -171,11 +203,38 @@
     setGalaxyFleetVectorsVisible() {}
     setFtlInfrastructure() {}
     focusCurrentSelection() {}
-    focusOnStar(star) { this._currentTarget = star || null; }
-    focusOnSystemPlanet(target) { this._currentTarget = target || null; }
-    enterSystemView() { this.systemMode = true; }
-    exitSystemView() { this.systemMode = false; }
-    resetNavigationView() { this.systemMode = false; this._currentTarget = null; }
+    focusOnStar(star, immediate = false) {
+      this._currentTarget = star || null;
+      const pos = toStarPosition(star);
+      if (!pos) return;
+      const tx = -pos.x * this._starScale;
+      const ty = -pos.y * this._starScale;
+      if (Number.isFinite(tx)) this._viewState.targetPanX = tx;
+      if (Number.isFinite(ty)) this._viewState.targetPanY = ty;
+      if (immediate) {
+        this._viewState.panX = this._viewState.targetPanX;
+        this._viewState.panY = this._viewState.targetPanY;
+      }
+    }
+    focusOnSystemPlanet(target, immediate = false) {
+      this.focusOnStar(target, immediate);
+      this.enterSystemView();
+    }
+    enterSystemView() {
+      this.systemMode = true;
+      this._viewState.targetZoom = Math.max(this._viewState.targetZoom, 2.25);
+    }
+    exitSystemView() {
+      this.systemMode = false;
+      this._viewState.targetZoom = Math.min(this._viewState.targetZoom, 1.2);
+    }
+    resetNavigationView() {
+      this.systemMode = false;
+      this._currentTarget = null;
+      this._viewState.targetPanX = 0;
+      this._viewState.targetPanY = 0;
+      this._viewState.targetZoom = 1;
+    }
     toggleFollowSelection() { this._followSelection = !this._followSelection; return this._followSelection; }
     isFollowingSelection() { return !!this._followSelection; }
     setHoverMagnetConfig(cfg = {}) {
@@ -189,9 +248,19 @@
     }
     areClusterBoundsVisible() { return !!this._clusterBoundsVisible; }
     areGalacticCoreFxEnabled() { return !!this._galacticCoreFxEnabled; }
-    nudgeOrbit() {}
-    nudgePan() {}
-    nudgeZoom() {}
+    nudgeOrbit(dir = 1) {
+      const s = Number(dir || 1) >= 0 ? 1 : -1;
+      this._viewState.targetPanX += 0.012 * s;
+      this._viewState.targetPanY += 0.004 * s;
+    }
+    nudgePan(dx = 0, dy = 0) {
+      this._viewState.targetPanX += Number(dx || 0) * 0.02;
+      this._viewState.targetPanY += Number(dy || 0) * 0.02;
+    }
+    nudgeZoom(delta = 0) {
+      const next = this._viewState.targetZoom + (Number(delta || 0) * 0.12);
+      this._viewState.targetZoom = Math.max(0.45, Math.min(6, next));
+    }
     getQualityProfileState() {
       return {
         name: 'webgpu-experimental',
@@ -201,6 +270,9 @@
     getRenderStats() {
       return {
         backend: this._backend || 'unknown',
+        qualityProfile: 'webgpu-experimental',
+        pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+        cameraDistance: Number(1 / Math.max(0.0001, this._viewState.zoom || 1)),
         rawStars: this.stars.length,
         visibleStars: this._starCount,
         frameTick: this._frameTick,
@@ -239,6 +311,8 @@
         }
       } catch (_) {}
       this._pipeline = null;
+      this._viewUniformBuffer = null;
+      this._viewBindGroup = null;
       this._context = null;
       this._adapter = null;
       this._device = null;
@@ -268,6 +342,13 @@
 
       const shader = this._device.createShaderModule({
         code: `
+          struct ViewUniform {
+            pan : vec2<f32>,
+            zoom : f32,
+            pad : f32,
+          };
+          @group(0) @binding(0) var<uniform> uView : ViewUniform;
+
           struct VSOut {
             @builtin(position) pos : vec4<f32>,
           };
@@ -275,7 +356,8 @@
           @vertex
           fn vs_main(@location(0) inPos : vec2<f32>) -> VSOut {
             var out : VSOut;
-            out.pos = vec4<f32>(inPos.x, inPos.y, 0.0, 1.0);
+            let p = (inPos + uView.pan) * uView.zoom;
+            out.pos = vec4<f32>(p.x, p.y, 0.0, 1.0);
             return out;
           }
 
@@ -306,6 +388,15 @@
         },
       });
 
+      this._viewUniformBuffer = this._device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      this._viewBindGroup = this._device.createBindGroup({
+        layout: this._pipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: this._viewUniformBuffer } }],
+      });
+
       this._uploadStars(this._opts?.stars || []);
     }
 
@@ -325,7 +416,10 @@
     _uploadStars(stars) {
       if (!this._device) return;
       const normalized = normalizeStars(stars);
-      this._starCount = Math.floor(normalized.length / 2);
+      this._starScale = Number(normalized.scale || 1);
+      this.stars = Array.isArray(normalized.stars) ? normalized.stars.slice() : [];
+      this.starPoints = this.stars;
+      this._starCount = Math.floor(normalized.positions.length / 2);
       if (this._starBuffer) {
         this._starBuffer.destroy();
         this._starBuffer = null;
@@ -334,16 +428,35 @@
         return;
       }
       this._starBuffer = this._device.createBuffer({
-        size: normalized.byteLength,
+        size: normalized.positions.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
-      this._device.queue.writeBuffer(this._starBuffer, 0, normalized.buffer, normalized.byteOffset, normalized.byteLength);
+      this._device.queue.writeBuffer(this._starBuffer, 0, normalized.positions.buffer, normalized.positions.byteOffset, normalized.positions.byteLength);
     }
 
     _renderFrame() {
-      if (!this._device || !this._context || !this._pipeline || !this._starBuffer || this._starCount <= 0) {
+      if (!this._device || !this._context || !this._pipeline || !this._starBuffer || !this._viewUniformBuffer || !this._viewBindGroup || this._starCount <= 0) {
         return;
       }
+
+      const smooth = 0.14;
+      this._viewState.panX += (this._viewState.targetPanX - this._viewState.panX) * smooth;
+      this._viewState.panY += (this._viewState.targetPanY - this._viewState.panY) * smooth;
+      this._viewState.zoom += (this._viewState.targetZoom - this._viewState.zoom) * smooth;
+
+      const panClamp = 1.8;
+      this._viewState.panX = Math.max(-panClamp, Math.min(panClamp, this._viewState.panX));
+      this._viewState.panY = Math.max(-panClamp, Math.min(panClamp, this._viewState.panY));
+      this._viewState.zoom = Math.max(0.45, Math.min(6, this._viewState.zoom));
+
+      const viewUniform = new Float32Array([
+        this._viewState.panX,
+        this._viewState.panY,
+        this._viewState.zoom,
+        0,
+      ]);
+      this._device.queue.writeBuffer(this._viewUniformBuffer, 0, viewUniform.buffer, 0, viewUniform.byteLength);
+
       const encoder = this._device.createCommandEncoder();
       const view = this._context.getCurrentTexture().createView();
       const pass = encoder.beginRenderPass({
@@ -355,6 +468,7 @@
         }],
       });
       pass.setPipeline(this._pipeline);
+      pass.setBindGroup(0, this._viewBindGroup);
       pass.setVertexBuffer(0, this._starBuffer);
       pass.draw(this._starCount, 1, 0, 0);
       pass.end();
