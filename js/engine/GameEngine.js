@@ -62,6 +62,7 @@ const { SceneGraph, SceneNode } = _req('./scene/SceneGraph.js',           'GQSce
 const { PerspectiveCamera }  = _req('./scene/Camera.js',                  'GQCamera');
 const { CameraManager }      = _req('./scene/CameraManager.js',           'GQCameraManager');
 const { EffectComposer }     = _req('./post-effects/EffectComposer.js',   'GQEffectComposer');
+const { RenderPass }         = _req('./post-effects/passes/RenderPass.js','GQRenderPass');
 const { GameLoop }           = _req('./GameLoop.js',                      'GQGameLoop');
 const { EventBus }           = _req('./EventBus.js',                      'GQEventBus');
 const { SystemRegistry, SystemPriority } = _req('./SystemRegistry.js',   'GQSystemRegistry');
@@ -117,6 +118,29 @@ class GameEngine {
     this.initialized      = false;
     /** True while the loop is running */
     this.running          = false;
+    /** @type {boolean} Enable verbose debug logging (set via opts.debug) */
+    this._debugEnabled    = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Debug logging helper
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Emit a debug-level log message when opts.debug was set.
+   * Routes to window.GQLog (the in-game terminal logger) when available,
+   * otherwise falls back to console.debug so it always works in Node tests.
+   * @param {string} msg
+   * @param {...*}   args
+   */
+  _log(msg, ...args) {
+    if (!this._debugEnabled) return;
+    const gqLog = typeof window !== 'undefined' ? window.GQLog : undefined;
+    if (gqLog) {
+      gqLog.debug('[GameEngine]', msg, ...args);
+    } else {
+      console.debug('[GameEngine]', msg, ...args);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -134,6 +158,16 @@ class GameEngine {
    * @param {number}  [opts.maxDt=0.25]          Max frame delta (spiral-of-death guard)
    * @param {number}  [opts.fov=60]              Camera vertical FOV in degrees
    * @param {boolean} [opts.postFx=true]         Enable EffectComposer
+   * @param {Object|boolean} [opts.bloom]        Bloom pass options (false = disabled)
+   * @param {number}  [opts.bloom.threshold=0.8] Luminance threshold
+   * @param {number}  [opts.bloom.strength=1.2]  Bloom intensity
+   * @param {number}  [opts.bloom.radius=0.6]    Blur radius
+   * @param {Object|boolean} [opts.vignette]     Vignette pass options (false = disabled)
+   * @param {number}  [opts.vignette.darkness=0.5] Edge darkness (0–1)
+   * @param {number}  [opts.vignette.falloff=2.0]  Falloff exponent
+   * @param {Object|boolean} [opts.chromatic]    Chromatic-aberration pass options (false = disabled)
+   * @param {number}  [opts.chromatic.power=0.005] Shift magnitude
+   * @param {number}  [opts.chromatic.angle=0]     Shift direction (radians)
    * @param {boolean} [opts.debug=false]         Verbose logging
    * @returns {Promise<GameEngine>}
    */
@@ -167,18 +201,21 @@ class GameEngine {
     if (this.running) return;
     this.running = true;
     this.loop.start();
+    this._log('start() — game loop running');
     this.events.emit('engine:start', { engine: this });
   }
 
   /** Pause the loop — physics accumulator is frozen. */
   pause() {
     this.loop.pause();
+    this._log('pause()');
     this.events.emit('engine:pause', { engine: this });
   }
 
   /** Resume after pause(). */
   resume() {
     this.loop.resume();
+    this._log('resume()');
     this.events.emit('engine:resume', { engine: this });
   }
 
@@ -187,6 +224,7 @@ class GameEngine {
     if (!this.running) return;
     this.running = false;
     this.loop.stop();
+    this._log('stop()');
     this.events.emit('engine:stop', { engine: this });
   }
 
@@ -209,6 +247,7 @@ class GameEngine {
         }
       }
     }
+    this._log(`resize(${width}, ${height})`);
     this.events.emit('engine:resize', { width, height });
   }
 
@@ -216,6 +255,7 @@ class GameEngine {
    * Fully dispose all engine resources. The engine cannot be reused.
    */
   dispose() {
+    this._log('dispose() — releasing all resources');
     this.stop();
     this.systems.list().forEach((s) => this.systems.remove(s.name));
     this.viewports?.detach();
@@ -247,6 +287,7 @@ class GameEngine {
    */
   addSystem(system) {
     this.systems.add(system);
+    this._log(`addSystem: '${system.name}' (priority ${system.priority ?? 500})`);
     return this;
   }
 
@@ -303,12 +344,51 @@ class GameEngine {
       });
     }
 
+    this._log(`addFollowViewport: '${name}' targeting '${target?.name ?? '?'}'`);
     return this;
   }
 
   /** Shorthand: emit an event on the engine bus. */
   emit(event, payload) {
     this.events.emit(event, payload);
+  }
+
+  /**
+   * Update post-processing pass parameters at runtime.
+   *
+   * Any key present in `cfg` overrides the corresponding pass property.
+   * Pass a falsy value to keep the current setting unchanged.
+   *
+   * @param {Object} cfg
+   * @param {Object} [cfg.bloom]       Bloom params: { enabled, threshold, strength, radius }
+   * @param {Object} [cfg.vignette]    Vignette params: { enabled, darkness, falloff }
+   * @param {Object} [cfg.chromatic]   Chromatic params: { enabled, power, angle }
+   * @returns {this}
+   */
+  configurePostFx(cfg) {
+    if (!this.postFx || !cfg) return this;
+
+    const { bloom, vignette, chromatic } = cfg;
+
+    if (bloom && this._bloomPass) {
+      if (bloom.enabled  !== undefined) this._bloomPass.enabled   = !!bloom.enabled;
+      if (bloom.threshold !== undefined) this._bloomPass.threshold = bloom.threshold;
+      if (bloom.strength  !== undefined) this._bloomPass.strength  = bloom.strength;
+      if (bloom.radius    !== undefined) this._bloomPass.radius    = bloom.radius;
+    }
+    if (vignette && this._vignettePass) {
+      if (vignette.enabled  !== undefined) this._vignettePass.enabled  = !!vignette.enabled;
+      if (vignette.darkness !== undefined) this._vignettePass.darkness = vignette.darkness;
+      if (vignette.falloff  !== undefined) this._vignettePass.falloff  = vignette.falloff;
+    }
+    if (chromatic && this._chromaticPass) {
+      if (chromatic.enabled !== undefined) this._chromaticPass.enabled = !!chromatic.enabled;
+      if (chromatic.power   !== undefined) this._chromaticPass.power   = chromatic.power;
+      if (chromatic.angle   !== undefined) this._chromaticPass.angle   = chromatic.angle;
+    }
+
+    this.events.emit('postfx:configured', { cfg });
+    return this;
   }
 
   // ---------------------------------------------------------------------------
@@ -318,27 +398,28 @@ class GameEngine {
   async _init(canvas, opts) {
     this.canvas = canvas;
     this.config = { ...opts };
+    this._debugEnabled = !!opts.debug;
 
-    const debugLog = opts.debug
-      ? (msg, ...a) => console.info('[GameEngine]', msg, ...a)
-      : () => {};
+    // Wire EventBus debug flag so every event emission is logged when enabled
+    this.events.debug = this._debugEnabled;
 
     // 1. Renderer
-    debugLog('Initialising renderer…');
+    this._log('Initialising renderer…');
     if (opts._rendererOverride) {
       this.renderer = opts._rendererOverride;
     } else {
       this.renderer = await RendererFactory.create(canvas, {
-        hint: opts.renderer ?? 'auto',
+        hint:  opts.renderer ?? 'auto',
+        debug: this._debugEnabled,
         onFallback: (reason) => {
-          debugLog('Renderer fallback:', reason);
+          this._log('Renderer fallback:', reason);
           this.events.emit('engine:rendererFallback', { reason });
         },
       });
     }
     this.assets = new AssetRegistry(this.renderer);
 
-    debugLog('Renderer ready — caps:', this.renderer.getCapabilities());
+    this._log('Renderer ready — caps:', this.renderer.getCapabilities());
 
     // 2. Default camera
     const aspect = canvas.width > 0 && canvas.height > 0
@@ -359,6 +440,51 @@ class GameEngine {
         canvas.width  || 800,
         canvas.height || 600,
       );
+
+      // Always add the base RenderPass first
+      const renderPass = new RenderPass(this.scene, this.cameras?.active ?? this.camera);
+      this.postFx.addPass(renderPass);
+      this._renderPass = renderPass;
+
+      // Load the optional effect-pass constructors lazily via dynamic import()
+      // so that both this runtime code and ESM `import` statements in test files
+      // resolve to the same module instance (avoiding instanceof failures caused
+      // by the CJS-require / ESM-import dual-module-cache split).
+      const _g = typeof window !== 'undefined' ? window : globalThis;
+      let BloomPass, VignettePass, ChromaticPass;
+      if (typeof _g.GQBloomPass !== 'undefined') {
+        // Browser plain-script context: globals were set by <script> tags.
+        BloomPass    = _g.GQBloomPass;
+        VignettePass = _g.GQVignettePass;
+        ChromaticPass = _g.GQChromaticPass;
+      } else {
+        // Node.js / bundler / test context: dynamic import() shares the ESM
+        // module registry with static `import` statements, guaranteeing
+        // identical class constructors for `instanceof` checks.
+        ([{ BloomPass }, { VignettePass }, { ChromaticPass }] = await Promise.all([
+          import('./post-effects/passes/BloomPass.js'),
+          import('./post-effects/passes/VignettePass.js'),
+          import('./post-effects/passes/ChromaticPass.js'),
+        ]));
+      }
+
+      // Optional effect passes — enabled by default when postFx is on,
+      // unless explicitly set to false in opts
+      if (opts.bloom !== false) {
+        const bloomOpts = typeof opts.bloom === 'object' ? opts.bloom : {};
+        this._bloomPass = new BloomPass(bloomOpts);
+        this.postFx.addPass(this._bloomPass);
+      }
+      if (opts.vignette !== false) {
+        const vignetteOpts = typeof opts.vignette === 'object' ? opts.vignette : {};
+        this._vignettePass = new VignettePass(vignetteOpts);
+        this.postFx.addPass(this._vignettePass);
+      }
+      if (opts.chromatic !== false) {
+        const chromaticOpts = typeof opts.chromatic === 'object' ? opts.chromatic : {};
+        this._chromaticPass = new ChromaticPass(chromaticOpts);
+        this.postFx.addPass(this._chromaticPass);
+      }
     }
 
     // 4. Physics
@@ -386,7 +512,7 @@ class GameEngine {
 
     this.initialized = true;
     this.events.emit('engine:initialized', { engine: this });
-    debugLog('Engine initialised.');
+    this._log('Engine initialised.');
   }
 
   async _initPhysics(opts) {
@@ -403,6 +529,7 @@ class GameEngine {
         maxAcceleration:       opts.maxAcceleration,
       });
       this.physicsBackend = 'cpu';
+      this._log('Physics: CPU backend ready');
     }
 
     // GPU physics — opt-in, requires WebGPU + compute shaders
@@ -423,6 +550,7 @@ class GameEngine {
         });
         this.gpuPhysics.init();
         this.physicsBackend = 'gpu';
+        this._log('Physics: GPU compute backend ready');
       } catch (err) {
         console.warn('[GameEngine] GPU physics init failed, using CPU:', err.message);
       }
@@ -473,6 +601,14 @@ class GameEngine {
 
     // Secondary PiP viewports
     this.viewports?.render(this.scene);
+
+    // Throttled render-loop diagnostics — every 300 frames (~5 s at 60 fps)
+    if (this._debugEnabled && this.loop.frame % 300 === 0) {
+      this._log(
+        `frame ${this.loop.frame} — fps ${this.perf.fps != null ? this.perf.fps.toFixed(1) : '?'}` +
+        ` — frameTime ${this.perf.frameTimeMs != null ? this.perf.frameTimeMs.toFixed(2) : '?'}ms`
+      );
+    }
 
     this.events.emit('render:frame', {
       alpha,

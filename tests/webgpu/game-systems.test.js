@@ -9,9 +9,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EventSystem, EventType, EventStatus }    from '../../js/engine/game/EventSystem.js';
-import { ResearchTree, ResearchCategory }         from '../../js/engine/game/ResearchTree.js';
-import { FleetFormation, FormationShape, Wing }   from '../../js/engine/game/FleetFormation.js';
+import { EventSystem, EventType, EventStatus, Journal, JournalStatus } from '../../js/engine/game/EventSystem.js';
+import { ResearchTree, ResearchCategory, CivAffinity }         from '../../js/engine/game/ResearchTree.js';
+import { FleetFormation, FormationShape, Wing, Maneuver, getSlotPositions }   from '../../js/engine/game/FleetFormation.js';
 import {
   ColonySimulation, Colony, PopJob,
   BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
@@ -300,6 +300,126 @@ describe('ResearchTree', () => {
     t.addProgress(10);
     expect(mockBus.emit).toHaveBeenCalledWith('research:complete', expect.any(Object));
   });
+
+  // ---- New DAG / era-gating / persistence tests ----
+
+  it('CivAffinity constants are frozen', () => {
+    expect(Object.isFrozen(CivAffinity)).toBe(true);
+    expect(CivAffinity.MILITARY).toBe('military');
+    expect(CivAffinity.SCIENCE).toBe('science');
+    expect(CivAffinity.ECONOMY).toBe('economy');
+    expect(CivAffinity.CULTURE).toBe('culture');
+  });
+
+  it('define() throws on self-referencing prerequisite (cycle)', () => {
+    expect(() => tree.define({ id: 'loop', prerequisites: ['loop'] })).toThrow(/[Cc]ycl/);
+  });
+
+  it('define() throws when adding a node that closes a DAG cycle', () => {
+    // A → B (B requires A)
+    tree.define({ id: 'a', prerequisites: [] });
+    tree.define({ id: 'b', prerequisites: ['a'] });
+    // Now try to make A require B → cycle: A → B → A
+    expect(() => tree.define({ id: 'a', prerequisites: ['b'] })).toThrow(/[Cc]ycl/);
+  });
+
+  it('define() accepts a valid three-node chain without throwing', () => {
+    expect(() => {
+      tree.define({ id: 'chain.1', prerequisites: [] });
+      tree.define({ id: 'chain.2', prerequisites: ['chain.1'] });
+      tree.define({ id: 'chain.3', prerequisites: ['chain.2'] });
+    }).not.toThrow();
+  });
+
+  it('getAvailable() returns era-1 techs when nothing unlocked', () => {
+    const t = new ResearchTree();
+    t.define({ id: 'e1.a', era: 1, prerequisites: [] });
+    t.define({ id: 'e1.b', era: 1, prerequisites: [] });
+    t.define({ id: 'e2.a', era: 2, prerequisites: [] });
+    const avail = t.getAvailable(new Set()).map((n) => n.id);
+    expect(avail).toContain('e1.a');
+    expect(avail).toContain('e1.b');
+    expect(avail).not.toContain('e2.a'); // era-2 locked until 60% of era-1 done
+  });
+
+  it('getAvailable() unlocks era-2 when ≥60% of era-1 is done', () => {
+    const t = new ResearchTree();
+    // 5 era-1 techs; need ≥3 (60%) to unlock era-2
+    for (let i = 1; i <= 5; i++) t.define({ id: `e1.${i}`, era: 1, prerequisites: [] });
+    t.define({ id: 'e2.x', era: 2, prerequisites: [] });
+
+    const unlocked3 = new Set(['e1.1', 'e1.2', 'e1.3']); // exactly 60%
+    const avail = t.getAvailable(unlocked3).map((n) => n.id);
+    expect(avail).toContain('e2.x');
+  });
+
+  it('getAvailable() keeps era-2 locked when <60% of era-1 is done', () => {
+    const t = new ResearchTree();
+    for (let i = 1; i <= 5; i++) t.define({ id: `e1.${i}`, era: 1, prerequisites: [] });
+    t.define({ id: 'e2.x', era: 2, prerequisites: [] });
+
+    const unlocked2 = new Set(['e1.1', 'e1.2']); // only 40%
+    const avail = t.getAvailable(unlocked2).map((n) => n.id);
+    expect(avail).not.toContain('e2.x');
+  });
+
+  it('getAvailable() respects prerequisites within the same era', () => {
+    const t = new ResearchTree();
+    t.define({ id: 'base',    era: 1, prerequisites: [] });
+    t.define({ id: 'derived', era: 1, prerequisites: ['base'] });
+    const avail = t.getAvailable(new Set()).map((n) => n.id);
+    expect(avail).toContain('base');
+    expect(avail).not.toContain('derived');
+  });
+
+  it('estimateResearchTime() returns cost / multiplier', () => {
+    const t = new ResearchTree();
+    t.define({ id: 'w1', category: ResearchCategory.WEAPONS, cost: 200, prerequisites: [] });
+    // No affinity → cost unchanged
+    expect(t.estimateResearchTime('w1')).toBe(200);
+    // 2× affinity halves the time
+    expect(t.estimateResearchTime('w1', { [ResearchCategory.WEAPONS]: 2 })).toBe(100);
+  });
+
+  it('estimateResearchTime() returns Infinity for unknown tech', () => {
+    expect(tree.estimateResearchTime('nonexistent')).toBe(Infinity);
+  });
+
+  it('getUnlocked() returns snapshot of done set', () => {
+    tree.startResearch('prop.ion');
+    tree.addProgress(200);
+    const snap = tree.getUnlocked();
+    expect(snap instanceof Set).toBe(true);
+    expect(snap.has('prop.ion')).toBe(true);
+    // Snapshot is a copy — mutations don't affect tree
+    snap.delete('prop.ion');
+    expect(tree.isResearched('prop.ion')).toBe(true);
+  });
+
+  it('unlock() directly marks a tech as done and emits event', () => {
+    const mockBus = { emit: vi.fn() };
+    const t = new ResearchTree(mockBus);
+    t.define({ id: 'direct', cost: 999, prerequisites: [] });
+    t.unlock('direct');
+    expect(t.isResearched('direct')).toBe(true);
+    expect(mockBus.emit).toHaveBeenCalledWith('research:unlocked', expect.objectContaining({ id: 'direct' }));
+  });
+
+  it('unlock() is idempotent (no double-emit)', () => {
+    const mockBus = { emit: vi.fn() };
+    const t = new ResearchTree(mockBus);
+    t.define({ id: 'idem', cost: 10, prerequisites: [] });
+    t.unlock('idem');
+    t.unlock('idem');
+    expect(mockBus.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it('unlock() warns for unknown tech', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    tree.unlock('totally.unknown');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
 });
 
 // ===========================================================================
@@ -412,6 +532,179 @@ describe('FleetFormation', () => {
 
   it('FormationShape constants are frozen', () => {
     expect(Object.isFrozen(FormationShape)).toBe(true);
+  });
+
+  // ---- New: getSlotPositions pure function ----
+
+  it('getSlotPositions() returns correct slot count', () => {
+    for (const shape of Object.values(FormationShape).filter((s) => s !== FormationShape.CUSTOM)) {
+      const slots = getSlotPositions(shape, 5, 100);
+      expect(slots).toHaveLength(5);
+    }
+  });
+
+  it('getSlotPositions(LINE) offsets only on x-axis', () => {
+    const slots = getSlotPositions(FormationShape.LINE, 3, 100);
+    for (const s of slots) {
+      expect(s.y).toBe(0);
+      expect(s.z).toBe(0);
+      expect(s.x).toBeGreaterThan(0);
+    }
+  });
+
+  it('getSlotPositions(COLUMN) offsets only on z-axis', () => {
+    const slots = getSlotPositions(FormationShape.COLUMN, 3, 100);
+    for (const s of slots) {
+      expect(s.x).toBe(0);
+      expect(s.y).toBe(0);
+      expect(s.z).toBeGreaterThan(0);
+    }
+  });
+
+  it('getSlotPositions(WEDGE) alternates x sign', () => {
+    const slots = getSlotPositions(FormationShape.WEDGE, 4, 100);
+    expect(slots[0].x).toBeGreaterThan(0); // slot 0: right
+    expect(slots[1].x).toBeLessThan(0);    // slot 1: left
+    expect(slots[2].x).toBeGreaterThan(0); // slot 2: right
+    expect(slots[3].x).toBeLessThan(0);    // slot 3: left
+  });
+
+  it('getSlotPositions(DELTA) places ships in increasing rows', () => {
+    const slots = getSlotPositions(FormationShape.DELTA, 4, 100);
+    // All slots should have z >= 0 (behind leader)
+    for (const s of slots) expect(s.z).toBeGreaterThanOrEqual(0);
+  });
+
+  it('getSlotPositions(SPHERE) keeps all slots within radius', () => {
+    const slots = getSlotPositions(FormationShape.SPHERE, 8, 150);
+    for (const s of slots) {
+      const dist = Math.sqrt(s.x ** 2 + s.y ** 2 + s.z ** 2);
+      expect(dist).toBeLessThanOrEqual(155);
+    }
+  });
+
+  it('getSlotPositions(ESCORT) produces non-zero offsets', () => {
+    const slots = getSlotPositions(FormationShape.ESCORT, 4, 80);
+    for (const s of slots) {
+      const dist = Math.sqrt(s.x ** 2 + s.y ** 2 + s.z ** 2);
+      expect(dist).toBeGreaterThan(0);
+    }
+  });
+
+  // ---- New: spring-damper cohesion ----
+
+  it('cohesionStrength option is used (alias for cohesion)', () => {
+    const leader = makeShip(0, 0, 0);
+    const ship   = makeShip(0, 0, 0);
+    const wing   = formations.createWing('D', FormationShape.COLUMN, {
+      leader,
+      spacing:          100,
+      cohesionStrength: 0.8,
+      dampening:        0,
+    });
+    wing.add(ship);
+    expect(wing.cohesionStrength).toBe(0.8);
+    expect(wing.dampening).toBe(0);
+  });
+
+  it('dampening reduces velocity overshoot', () => {
+    const leader  = makeShip(0, 0, 0);
+    // Ship is already at slot position (0, 0, 100) but has high velocity
+    const ship    = makeShip(0, 0, 100);
+    ship.velocity = { x: 0, y: 0, z: 50 }; // moving away from leader
+
+    const wing = formations.createWing('D', FormationShape.COLUMN, {
+      leader,
+      spacing:          100,
+      cohesionStrength: 0,   // no spring — just damper
+      dampening:        0.5,
+    });
+    wing.add(ship);
+    wing.update(0.016);
+    // Velocity should be reduced by dampening
+    expect(Math.abs(ship.velocity.z)).toBeLessThan(50);
+  });
+
+  // ---- New: setFormation with transition ----
+
+  it('setFormation() changes shape', () => {
+    const wing = formations.createWing('T', FormationShape.LINE, { leader: makeShip() });
+    wing.setFormation(FormationShape.WEDGE);
+    expect(wing.shape).toBe(FormationShape.WEDGE);
+  });
+
+  it('setFormation() with transitionFrames stores fromOffsets', () => {
+    const leader = makeShip(0, 0, 0);
+    const wing   = formations.createWing('T', FormationShape.LINE, { leader, spacing: 100 });
+    wing.add(makeShip(100, 0, 0));
+    wing.setFormation(FormationShape.COLUMN, 10);
+    expect(wing._transitionFromOffsets).not.toBeNull();
+    expect(wing._transitionFramesTotal).toBe(10);
+  });
+
+  it('transition interpolates position during frames', () => {
+    const leader = makeShip(0, 0, 0);
+    const ship   = makeShip(100, 0, 0);
+    const wing   = formations.createWing('T', FormationShape.LINE, { leader, spacing: 100 });
+    wing.add(ship);
+    // Switch to COLUMN over 10 frames: slot goes from (100,0,0) to (0,0,100)
+    wing.setFormation(FormationShape.COLUMN, 10);
+    // After 5 frames the target should be roughly halfway
+    for (let i = 0; i < 5; i++) wing.update(0.016);
+    const slot5 = wing._slotPosition(0, leader.position, leader.velocity ?? { x:0,y:0,z:0 });
+    // After transition completes, slot must match COLUMN
+    for (let i = 5; i < 10; i++) wing.update(0.016);
+    const slotFinal = wing._slotPosition(0, leader.position, leader.velocity ?? { x:0,y:0,z:0 });
+    expect(slotFinal.x).toBeCloseTo(0);
+    expect(slotFinal.z).toBeCloseTo(100);
+    expect(wing._transitionFromOffsets).toBeNull(); // transition cleared
+  });
+
+  // ---- New: maneuver enum & startManeuver ----
+
+  it('Maneuver constants are frozen', () => {
+    expect(Object.isFrozen(Maneuver)).toBe(true);
+    expect(Maneuver.PINCER).toBe('pincer');
+    expect(Maneuver.RETREAT).toBe('retreat');
+    expect(Maneuver.FLANKING).toBe('flanking');
+  });
+
+  it('PINCER maneuver sequences through WEDGE → DELTA → ESCORT', () => {
+    const leader = makeShip(0, 0, 0);
+    const wing   = formations.createWing('P', FormationShape.LINE, { leader, spacing: 100 });
+    for (let i = 0; i < 3; i++) wing.add(makeShip());
+    wing.startManeuver(Maneuver.PINCER, 1); // 1 frame per step for speed
+    expect(wing.shape).toBe(FormationShape.WEDGE); // first step applied immediately
+    wing.update(0.016); // complete first transition (1 frame)
+    expect(wing.shape).toBe(FormationShape.DELTA);
+    wing.update(0.016); // complete second transition
+    expect(wing.shape).toBe(FormationShape.ESCORT);
+  });
+
+  it('RETREAT maneuver transitions to COLUMN', () => {
+    const leader = makeShip(0, 0, 0);
+    const wing   = formations.createWing('R', FormationShape.WEDGE, { leader, spacing: 100 });
+    for (let i = 0; i < 2; i++) wing.add(makeShip());
+    wing.startManeuver(Maneuver.RETREAT, 1);
+    expect(wing.shape).toBe(FormationShape.COLUMN);
+  });
+
+  it('FLANKING maneuver sequences through LINE → WEDGE', () => {
+    const leader = makeShip(0, 0, 0);
+    const wing   = formations.createWing('F', FormationShape.COLUMN, { leader, spacing: 100 });
+    for (let i = 0; i < 2; i++) wing.add(makeShip());
+    wing.startManeuver(Maneuver.FLANKING, 1);
+    expect(wing.shape).toBe(FormationShape.LINE);
+    wing.update(0.016);
+    expect(wing.shape).toBe(FormationShape.WEDGE);
+  });
+
+  it('startManeuver() warns on unknown maneuver', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const wing = formations.createWing('U', FormationShape.LINE, { leader: makeShip() });
+    wing.startManeuver('unknown_maneuver');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 
@@ -1263,6 +1556,7 @@ describe('ColonySimulation – dissolve', () => {
 
   it('dissolve() returns undefined for unknown id', () => {
     expect(sim.dissolve('nonexistent')).toBeUndefined();
+    expect(sim.count).toBe(2);
   });
 
   it('dissolve() leaves other colonies intact', () => {
@@ -2036,5 +2330,152 @@ describe('Colony Invasion – determinism', () => {
     expect(r1.rounds).toBe(r2.rounds);
     expect(r1.attackerTroopsAfter).toBe(r2.attackerTroopsAfter);
     expect(r1.defenderPowerAfter).toBe(r2.defenderPowerAfter);
+  });
+});
+
+// EventSystem — dismiss + fireRandom + Journal
+// ===========================================================================
+
+describe('EventSystem — dismiss', () => {
+  let evtSys;
+  beforeEach(() => {
+    evtSys = new EventSystem();
+    evtSys.define({
+      id: 'ev.dismissable',
+      choices: [{ label: 'Act', effect: (gs) => { gs.acted = true; } }],
+    });
+    evtSys.schedule('ev.dismissable');
+    evtSys.tick({});
+  });
+
+  it('dismiss() removes the event from activeEvents', () => {
+    expect(evtSys.activeEvents.length).toBe(1);
+    evtSys.dismiss('ev.dismissable');
+    expect(evtSys.activeEvents.length).toBe(0);
+  });
+
+  it('dismiss() moves event to history with DISMISSED status', () => {
+    evtSys.dismiss('ev.dismissable');
+    const h = evtSys.history.find((e) => e.id === 'ev.dismissable');
+    expect(h).toBeDefined();
+    expect(h.status).toBe(EventStatus.DISMISSED);
+  });
+
+  it('dismiss() does NOT apply any choice effect', () => {
+    const gs = { acted: false };
+    evtSys.dismiss('ev.dismissable');
+    expect(gs.acted).toBe(false);
+  });
+
+  it('dismiss() emits game:event:dismissed', () => {
+    const bus = { emit: vi.fn() };
+    const sys = new EventSystem(bus);
+    sys.define({ id: 'ev.d', choices: [{ label: 'X', effect: () => {} }] });
+    sys.schedule('ev.d');
+    sys.tick({});
+    sys.dismiss('ev.d');
+    expect(bus.emit).toHaveBeenCalledWith('game:event:dismissed', expect.objectContaining({ event: expect.anything() }));
+  });
+
+  it('dismiss() warns if event is not active', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    evtSys.dismiss('unknown.event');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe('EventSystem — fireRandom', () => {
+  it('fireRandom() queues a matching event', () => {
+    const sys = new EventSystem();
+    sys.define({ id: 'rand.a', weight: 100, choices: [{ label: 'ok', effect: () => {} }] });
+    sys.fireRandom({});
+    expect(sys._queue.length).toBe(1);
+  });
+
+  it('fireRandom() does nothing when no candidates match condition', () => {
+    const sys = new EventSystem();
+    sys.define({
+      id: 'rand.b',
+      weight: 100,
+      condition: () => false,
+      choices: [{ label: 'ok', effect: () => {} }],
+    });
+    sys.fireRandom({});
+    expect(sys._queue.length).toBe(0);
+  });
+
+  it('fireRandom() skips SCRIPTED events', () => {
+    const sys = new EventSystem();
+    sys.define({ id: 'scripted.a', type: EventType.SCRIPTED, weight: 100, choices: [{ label: 'ok', effect: () => {} }] });
+    sys.fireRandom({});
+    expect(sys._queue.length).toBe(0);
+  });
+});
+
+describe('EventSystem — Journal entries', () => {
+  let sys;
+  beforeEach(() => { sys = new EventSystem(); });
+
+  it('defineJournalEntry() throws without id', () => {
+    expect(() => sys.defineJournalEntry({ condition: () => true, choices: [] })).toThrow(/id/);
+  });
+
+  it('defineJournalEntry() throws without condition', () => {
+    expect(() => sys.defineJournalEntry({ id: 'j.test' })).toThrow(/condition/);
+  });
+
+  it('defineJournalEntry() registers an entry', () => {
+    sys.defineJournalEntry({ id: 'j.growth', condition: (gs) => gs.pops >= 5 });
+    expect(sys.activeJournal().length).toBe(1);
+  });
+
+  it('activeJournal() excludes completed entries', () => {
+    sys.defineJournalEntry({ id: 'j.done', condition: () => true });
+    sys.tickJournal({});
+    expect(sys.activeJournal().length).toBe(0);
+  });
+
+  it('tickJournal() marks entry complete when condition passes', () => {
+    sys.defineJournalEntry({ id: 'j.ships', condition: (gs) => gs.ships >= 10 });
+    sys.tickJournal({ ships: 5 });
+    expect(sys.activeJournal().length).toBe(1); // not yet
+    sys.tickJournal({ ships: 10 });
+    expect(sys.activeJournal().length).toBe(0);
+  });
+
+  it('tickJournal() calls onComplete callback', () => {
+    const cb = vi.fn();
+    sys.defineJournalEntry({ id: 'j.cb', condition: () => true, onComplete: cb });
+    sys.tickJournal({ credits: 200 });
+    expect(cb).toHaveBeenCalledOnce();
+  });
+
+  it('tickJournal() does NOT re-fire onComplete after completion', () => {
+    const cb = vi.fn();
+    sys.defineJournalEntry({ id: 'j.once', condition: () => true, onComplete: cb });
+    sys.tickJournal({});
+    sys.tickJournal({});
+    expect(cb).toHaveBeenCalledOnce();
+  });
+
+  it('tickJournal() emits game:journal:complete via bus', () => {
+    const bus = { emit: vi.fn() };
+    const s = new EventSystem(bus);
+    s.defineJournalEntry({ id: 'j.bus', condition: () => true });
+    s.tickJournal({});
+    expect(bus.emit).toHaveBeenCalledWith('game:journal:complete', expect.objectContaining({ entry: expect.anything() }));
+  });
+
+  it('JournalStatus constants are frozen', () => {
+    expect(() => { JournalStatus.ACTIVE = 'x'; }).toThrow();
+    expect(Object.values(JournalStatus).length).toBe(2);
+  });
+
+  it('Journal isComplete getter reflects status', () => {
+    const j = new Journal({ id: 'j.x', condition: () => true });
+    expect(j.isComplete).toBe(false);
+    j.status = JournalStatus.COMPLETE;
+    expect(j.isComplete).toBe(true);
   });
 });

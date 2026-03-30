@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const wmPath = path.resolve(process.cwd(), 'js/wm.js');
+const gqUiPath = path.resolve(process.cwd(), 'js/gq-ui.js');
+const wmPath   = path.resolve(process.cwd(), 'js/wm.js');
 
 function loadWmScript() {
+  delete window.GQUI;
   delete window.WM;
-  const source = fs.readFileSync(wmPath, 'utf8');
-  window.eval(source);
+  window.eval(fs.readFileSync(gqUiPath, 'utf8'));
+  window.eval(fs.readFileSync(wmPath,   'utf8'));
   return window.WM;
 }
 
@@ -55,5 +57,68 @@ describe('WM lifecycle', () => {
 
     const titleEl = document.querySelector('#wm-win-title_window .wm-title');
     expect(titleEl?.textContent).toBe('Updated Title');
+  });
+
+  it('minimap window registers and opens with canvas body', () => {
+    const WM = loadWmScript();
+
+    let renderRoot = null;
+    WM.register('minimap', {
+      title: '🗺 Minimap',
+      w: 290,
+      h: 310,
+      onRender: (root) => {
+        renderRoot = root;
+        if (!root) return;
+        let wrap = root.querySelector('.minimap-wrap');
+        if (!wrap) {
+          root.innerHTML = '';
+          wrap = document.createElement('div');
+          wrap.className = 'minimap-wrap';
+          root.appendChild(wrap);
+        }
+        let canvas = wrap.querySelector('.minimap-canvas');
+        if (!canvas) {
+          canvas = document.createElement('canvas');
+          canvas.className = 'minimap-canvas';
+          wrap.appendChild(canvas);
+        }
+      },
+    });
+
+    WM.open('minimap');
+
+    expect(WM.isOpen('minimap')).toBe(true);
+    expect(renderRoot).not.toBeNull();
+    expect(renderRoot.querySelector('.minimap-wrap')).not.toBeNull();
+    expect(renderRoot.querySelector('.minimap-canvas')).not.toBeNull();
+
+    WM.close('minimap');
+    expect(WM.isOpen('minimap')).toBe(false);
+  });
+
+  it('minimap window can be minimised and restored', () => {
+    const WM = loadWmScript();
+    WM.register('minimap', {
+      title: '🗺 Minimap',
+      w: 290,
+      h: 310,
+      onRender: () => {},
+    });
+
+    WM.open('minimap');
+    expect(WM.isOpen('minimap')).toBe(true);
+
+    // Simulate minimise via the button
+    const minBtn = document.querySelector('#wm-win-minimap .wm-btn-min');
+    expect(minBtn).not.toBeNull();
+    minBtn.click();
+
+    // After minimise the window element still exists but is not in focus
+    expect(document.getElementById('wm-win-minimap')).not.toBeNull();
+
+    // Re-opening restores it
+    WM.open('minimap');
+    expect(WM.isOpen('minimap')).toBe(true);
   });
 });

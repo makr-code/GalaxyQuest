@@ -37,6 +37,7 @@ const { BloomPass }                 = require('./post-effects/passes/BloomPass')
 const { VignettePass }              = require('./post-effects/passes/VignettePass');
 const { ChromaticPass }             = require('./post-effects/passes/ChromaticPass');
 const { ComputePass }               = require('./post-effects/passes/ComputePass');
+const { PostFxController, PARAM_META: PostFxParamMeta } = require('./post-effects/PostFxController');
 
 // Math
 const { Vector2 }                   = require('./math/Vector2');
@@ -72,9 +73,9 @@ const { CameraManager }             = require('./scene/CameraManager');
 const { ViewportManager, PIP_DEFAULTS } = require('./ViewportManager');
 
 // Game systems (classics-inspired)
-const { EventSystem, EventType, EventStatus } = require('./game/EventSystem');
-const { ResearchTree, ResearchCategory }      = require('./game/ResearchTree');
-const { FleetFormation, Wing, FormationShape } = require('./game/FleetFormation');
+const { EventSystem, EventType, EventStatus, Journal, JournalStatus } = require('./game/EventSystem');
+const { ResearchTree, ResearchCategory, CivAffinity }      = require('./game/ResearchTree');
+const { FleetFormation, Wing, FormationShape, Maneuver, getSlotPositions } = require('./game/FleetFormation');
 const { BattleSimulator, BattleFleet, BattleReport,
         ShipClass, SHIP_STATS, SHIP_METAL_VALUE } = require('./game/BattleSimulator');
 const { ColonySimulation, Colony, PopJob, BASE_YIELD,
@@ -110,6 +111,7 @@ module.exports = {
   ViewportManager, PIP_DEFAULTS,
   // Post-effects
   EffectComposer, RenderPass, BloomPass, VignettePass, ChromaticPass, ComputePass,
+  PostFxController, PostFxParamMeta,
   // Math
   Vector2, Vector3, Vector4, Matrix4, Quaternion, MathUtils,
   // Utils
@@ -117,9 +119,9 @@ module.exports = {
   // Loaders
   TextureLoader, GeometryLoader, ShaderLoader,
   // Game systems
-  EventSystem, EventType, EventStatus,
-  ResearchTree, ResearchCategory,
-  FleetFormation, Wing, FormationShape,
+  EventSystem, EventType, EventStatus, Journal, JournalStatus,
+  ResearchTree, ResearchCategory, CivAffinity,
+  FleetFormation, Wing, FormationShape, Maneuver, getSlotPositions,
   BattleSimulator, BattleFleet, BattleReport,
   ShipClass, SHIP_STATS, SHIP_METAL_VALUE,
   ColonySimulation, Colony, PopJob, BASE_YIELD,

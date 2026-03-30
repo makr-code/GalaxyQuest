@@ -23,6 +23,14 @@ const { IGraphicsRenderer } = typeof require !== 'undefined'
   ? require('./GraphicsContext.js')
   : window.GQGraphicsContext;
 
+const WebGPURenderPass = typeof require !== 'undefined'
+  ? require('../webgpu/WebGPURenderPass.js').WebGPURenderPass
+  : window.GQWebGPURenderPass;
+
+const WebGPUShader = typeof require !== 'undefined'
+  ? require('../webgpu/WebGPUShader.js').WebGPUShader
+  : window.GQWebGPUShader;
+
 class WebGPURenderer extends IGraphicsRenderer {
   constructor() {
     super();
@@ -44,6 +52,12 @@ class WebGPURenderer extends IGraphicsRenderer {
     this._textures = new Map();
     /** @type {Map<string,GPUShaderModule>} */
     this._shaders = new Map();
+    /** @type {GPUTexture|null} */
+    this._depthTexture = null;
+    /** @type {WebGPUShader|null} */
+    this._shaderMgr = null;
+    /** @type {WebGPURenderPass|null} */
+    this._framePass = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -107,6 +121,12 @@ class WebGPURenderer extends IGraphicsRenderer {
     if (typeof window !== 'undefined' && window.GQLog?.info) {
       window.GQLog.info('[WebGPURenderer] Initialised — adapter:', this.adapter.info?.description ?? 'unknown');
     }
+
+    // 5. Depth buffer (depth24plus) sized to canvas
+    this._createDepthBuffer(canvas.width || 300, canvas.height || 150);
+
+    // 6. Shader pipeline manager
+    this._shaderMgr = new WebGPUShader(this.device);
   }
 
   getCapabilities() {
@@ -185,32 +205,112 @@ class WebGPURenderer extends IGraphicsRenderer {
     return { ...config, _type: 'webgpu-render-pass' };
   }
 
+  // ---------------------------------------------------------------------------
+  // Phase 2 — render pipeline + depth buffer
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build (and cache) a GPURenderPipeline for the given Material.
+   * The result is stored in `material._pipeline` so subsequent frames reuse it.
+   *
+   * @param {import('../scene/Material.js').Material} material
+   * @returns {GPURenderPipeline}
+   */
+  createRenderPipeline(material) {
+    if (!this.device || !this._shaderMgr) throw new Error('WebGPURenderer not initialised');
+
+    material._pipeline = this._shaderMgr.compileRenderPipeline({
+      vertexSrc:     material.vertexSrc,
+      fragmentSrc:   material.fragmentSrc,
+      bufferLayouts: _defaultVertexBufferLayouts(),
+      targetFormat:  this.preferredFormat,
+      depthTest:     material.depthTest ?? true,
+      cacheKey:      material.vertexSrc + '|' + material.fragmentSrc,
+    });
+
+    material.needsUpdate = false;
+    return material._pipeline;
+  }
+
+  /**
+   * Upload a Geometry's CPU-side arrays to GPU buffers.
+   * Buffers are stored on `geometry._gpuBuffers` and reused on subsequent calls.
+   *
+   * @param {import('../scene/Geometry.js').Geometry} geometry
+   */
+  uploadMesh(geometry) {
+    if (!this.device) throw new Error('WebGPURenderer not initialised');
+
+    const bufs = geometry._gpuBuffers;
+    if (geometry.positions && !bufs.positions) {
+      bufs.positions = this.createBuffer('vertex', geometry.positions);
+    }
+    if (geometry.normals && !bufs.normals) {
+      bufs.normals = this.createBuffer('vertex', geometry.normals);
+    }
+    if (geometry.uvs && !bufs.uvs) {
+      bufs.uvs = this.createBuffer('vertex', geometry.uvs);
+    }
+    if (geometry.indices && !bufs.indices) {
+      bufs.indices = this.createBuffer('index', geometry.indices);
+    }
+  }
+
+  /**
+   * Begin a new GPU frame.  Creates a WebGPURenderPass backed by the current
+   * swap-chain texture and the depth buffer.
+   *
+   * Must be paired with endFrame().
+   *
+   * @returns {WebGPURenderPass|null}
+   */
+  beginFrame() {
+    if (!this.ready || !this.device || !this.context) return null;
+
+    const colorView = this.context.getCurrentTexture().createView();
+    const depthView = this._depthTexture ? this._depthTexture.createView() : null;
+
+    this._framePass = new WebGPURenderPass(this.device, colorView, depthView);
+    this._framePass.begin();
+    return this._framePass;
+  }
+
+  /**
+   * End the active GPU frame and submit all commands to the device queue.
+   */
+  endFrame() {
+    if (!this._framePass) return;
+    this._framePass.end();
+    this._framePass = null;
+  }
+
   render(scene, camera) {
     if (!this.ready || !this.device || !this.context) return;
 
-    const commandEncoder = this.device.createCommandEncoder();
-    const textureView = this.context.getCurrentTexture().createView();
+    const pass = this.beginFrame();
+    if (!pass) return;
 
-    const passDescriptor = {
-      colorAttachments: [{
-        view: textureView,
-        clearValue: { r: 0.02, g: 0.04, b: 0.1, a: 1.0 },
-        loadOp: 'clear',
-        storeOp: 'store',
-      }],
-    };
+    const nodes = scene?.update ? scene.update() : [];
+    for (const node of nodes) {
+      const { geometry, material } = node.data ?? {};
+      if (!geometry || !material) continue;
 
-    const pass = commandEncoder.beginRenderPass(passDescriptor);
-    // Phase 1+: iterate scene objects and issue draw calls
-    pass.end();
+      if (!geometry._gpuBuffers?.positions) this.uploadMesh(geometry);
+      if (!material._pipeline || material.needsUpdate) this.createRenderPipeline(material);
 
-    this.device.queue.submit([commandEncoder.finish()]);
+      pass.drawMesh(geometry, material);
+    }
+
+    this.endFrame();
   }
 
   resize(width, height) {
     if (!this.canvas) return;
     this.canvas.width = width;
     this.canvas.height = height;
+    if (this.ready && this.device) {
+      this._createDepthBuffer(width, height);
+    }
   }
 
   dispose() {
@@ -219,11 +319,43 @@ class WebGPURenderer extends IGraphicsRenderer {
     this._textures.forEach((t) => t.destroy());
     this._textures.clear();
     this._shaders.clear();
+    if (this._depthTexture) {
+      this._depthTexture.destroy();
+      this._depthTexture = null;
+    }
+    if (this._shaderMgr) {
+      this._shaderMgr.dispose();
+      this._shaderMgr = null;
+    }
+    this._framePass = null;
     if (this.device) {
       this.device.destroy();
       this.device = null;
     }
     this.ready = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * (Re-)create the depth buffer sized to the canvas.  Called during
+   * initialisation and whenever the canvas is resized.
+   *
+   * @param {number} width
+   * @param {number} height
+   */
+  _createDepthBuffer(width, height) {
+    if (this._depthTexture) {
+      this._depthTexture.destroy();
+      this._depthTexture = null;
+    }
+    this._depthTexture = this.device.createTexture({
+      size:   [Math.max(1, width), Math.max(1, height), 1],
+      format: 'depth24plus',
+      usage:  GPUTextureUsage.RENDER_ATTACHMENT,
+    });
   }
 }
 
@@ -246,6 +378,21 @@ function _bufferUsageFlags(type, usage) {
     return base | GPUBufferUsage.COPY_SRC;
   }
   return base;
+}
+
+/**
+ * Standard GQ vertex buffer layout — three separate slots for positions,
+ * normals, and UVs, matching the attributes in built-in WGSL shaders.
+ */
+function _defaultVertexBufferLayouts() {
+  return [
+    // slot 0: positions (vec3<f32>)
+    { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
+    // slot 1: normals (vec3<f32>)
+    { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
+    // slot 2: UVs (vec2<f32>)
+    { arrayStride:  8, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x2' }] },
+  ];
 }
 
 // ---------------------------------------------------------------------------

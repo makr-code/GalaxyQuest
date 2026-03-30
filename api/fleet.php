@@ -13,6 +13,7 @@ require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/planet_helper.php';
+require_once __DIR__ . '/projection.php';
 require_once __DIR__ . '/galaxy_seed.php';
 require_once __DIR__ . '/shipyard_queue.php';
 
@@ -29,6 +30,7 @@ switch ($action) {
                     f.target_galaxy, f.target_system, f.target_position,
                     f.ships_json, f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
                     f.departure_time, f.arrival_time, f.return_time, f.returning,
+                    f.stealth_until, f.hull_damage_pct,
                     p.galaxy AS origin_galaxy, p.`system` AS origin_system, p.position AS origin_position
              FROM fleets f
              JOIN colonies c ON c.id = f.origin_colony_id
@@ -41,6 +43,10 @@ switch ($action) {
             $f['ships']   = json_decode($f['ships_json'], true);
             unset($f['ships_json']);
             $f['current_pos'] = fleet_current_position($f);
+            // Compute remaining stealth seconds for frontend
+            $f['stealth_remaining_s'] = ($f['stealth_until'] && strtotime((string)$f['stealth_until']) > time())
+                ? strtotime((string)$f['stealth_until']) - time()
+                : 0;
             $fleets[] = $f;
         }
         json_ok(['fleets' => $fleets]);
@@ -55,6 +61,23 @@ switch ($action) {
     case 'wormholes':
         only_method('GET');
         list_wormholes(get_db(), $uid, (int)($_GET['origin_colony_id'] ?? 0));
+        break;
+
+    case 'ftl_status':
+        only_method('GET');
+        list_ftl_status(get_db(), $uid);
+        break;
+
+    case 'ftl_map':
+        only_method('GET');
+        list_ftl_map(get_db(), $uid);
+        break;
+
+    case 'reset_ftl_cooldown':
+        // Spend 50 DM to immediately reset the Vor'Tak K-F recharge cooldown.
+        only_method('POST');
+        verify_csrf();
+        reset_ftl_cooldown(get_db(), $uid);
         break;
 
     case 'recall':
@@ -98,7 +121,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     $cargo     = $body['cargo']   ?? [];
     $useWormhole = !empty($body['use_wormhole']);
 
-    if (!in_array($mission, ['attack','transport','colonize','harvest','spy'], true)) {
+    if (!in_array($mission, ['attack','transport','colonize','harvest','spy','survey'], true)) {
         json_error('Invalid mission type.');
     }
     if ($tg < 1 || $tg > GALAXY_MAX || $ts < 1 || $ts > galaxy_system_limit()
@@ -170,6 +193,13 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     $cCrys  = max(0.0, (float)($cargo['crystal']   ?? 0));
     $cDeut  = max(0.0, (float)($cargo['deuterium'] ?? 0));
     $cap    = array_sum(array_map(fn($t, $c) => ship_cargo($t) * $c, array_keys($shipsToSend), $shipsToSend));
+
+    // ── Vor'Tak Carrier bonus: +30% cargo capacity when carrier is in fleet ──
+    $ftlTypeEarly = get_user_ftl_type($db, $uid);
+    if ($ftlTypeEarly === 'vor_tak' && ($shipsToSend['carrier'] ?? 0) > 0) {
+        $cap = (int)($cap * 1.3);
+    }
+
     if ($cMetal + $cCrys + $cDeut > $cap) { json_error('Cargo exceeds fleet capacity.'); }
     if ($origin['metal'] < $cMetal || $origin['crystal'] < $cCrys || $origin['deuterium'] < $cDeut) {
         json_error('Insufficient resources for cargo.');
@@ -213,12 +243,160 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         $speedLyH = max($speedLyH, 999999.0);
         consume_wormhole_jump($db, (int)$wormhole['id']);
     }
+
+    // ── Faction FTL mechanics ────────────────────────────────────────────────
+    // Only apply when not already using a wormhole jump.
+    $stealthUntil   = null; // Set by Vel'Ar for stealth window
+    $hullDamagePct  = 0;    // Set by Kryl'Tha for hull degradation
+    if (!$useWormhole) {
+        $ftlType = get_user_ftl_type($db, $uid);
+
+        switch ($ftlType) {
+
+            // ── Vor'Tak: Kearny-Fuchida Jump Drive ───────────────────────────
+            // Max 30 LY per jump, 72h recharge cooldown, instantaneous transit.
+            case 'vor_tak':
+                $cooldownRow = $db->prepare('SELECT ftl_cooldown_until FROM users WHERE id = ? LIMIT 1');
+                $cooldownRow->execute([$uid]);
+                $cooldownUntil = $cooldownRow->fetchColumn();
+                if ($cooldownUntil && strtotime((string)$cooldownUntil) > time()) {
+                    json_error('K-F Drive recharging. Ready at: ' . $cooldownUntil);
+                }
+                if ($distLy > 30.0 && $distLy > 0.0) {
+                    json_error('K-F Drive range exceeded: max 30 LY per jump (distance: ' . round($distLy, 2) . ' LY).');
+                }
+                // Instantaneous jump: 30 s transit
+                $travel   = 30;
+                $speedLyH = 999999.0;
+                $distLy   = max($distLy, 0.0);
+                // Set 72h cooldown (scaled by GAME_SPEED so faster servers scale correctly)
+                $cooldownSec = max(60, (int)(72 * 3600 / GAME_SPEED));
+                $db->prepare('UPDATE users SET ftl_cooldown_until = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE id = ?')
+                   ->execute([$cooldownSec, $uid]);
+                break;
+
+            // ── Syl'Nar: Resonance Gate Network ─────────────────────────────
+            // Requires a pre-built gate between origin and target system.
+            case 'syl_nar':
+                $gate = resolve_syl_nar_gate(
+                    $db, $uid,
+                    (int)$origin['galaxy'], (int)$origin['system'],
+                    $tg, $ts
+                );
+                if (!$gate) {
+                    json_error("No active Syl'Nar gate on this route. Build one first (send a survey mission from origin to target system).");
+                }
+                $travel   = 10;
+                $speedLyH = 999999.0;
+                $distLy   = 0.0;
+                break;
+
+            // ── Vel'Ar: Blind Quantum Jump ───────────────────────────────────
+            // Instantaneous but arrival coordinates scatter by 0.5% of distance.
+            // OD-5: After scatter, snap to the nearest real star system (not just
+            //        raw coordinate shift) for cleaner gameplay resolution.
+            // Stealth window: fleet invisible to enemies for 60 s after arrival.
+            case 'vel_ar':
+                if ($distLy > 0.0) {
+                    $scatter = $distLy * 0.005; // 0.5% of distance
+                    // Apply random spherical scatter to target coordinates
+                    $phi   = lcg_value() * 2.0 * M_PI;
+                    $theta = acos(2.0 * lcg_value() - 1.0);
+                    $tx   += $scatter * sin($theta) * cos($phi);
+                    $ty   += $scatter * sin($theta) * sin($phi);
+                    $tz   += $scatter * cos($theta);
+
+                    // OD-5: snap to nearest star system within the same galaxy
+                    $snapStmt = $db->prepare(
+                        'SELECT galaxy_index, system_index, x_ly, y_ly, z_ly,
+                                SQRT(POW(x_ly-?,2)+POW(y_ly-?,2)+POW(z_ly-?,2)) AS dist
+                           FROM star_systems
+                          WHERE galaxy_index = ?
+                          ORDER BY dist ASC
+                          LIMIT 1'
+                    );
+                    $snapStmt->execute([$tx, $ty, $tz, $tg]);
+                    $snap = $snapStmt->fetch();
+                    if ($snap) {
+                        $tg = (int)$snap['galaxy_index'];
+                        $ts = (int)$snap['system_index'];
+                        $tx = (float)$snap['x_ly'];
+                        $ty = (float)$snap['y_ly'];
+                        $tz = (float)$snap['z_ly'];
+                        // Recompute target_position (planet 1 by default on scatter)
+                        $tp = 1;
+                    }
+                }
+                $travel     = 30;
+                $speedLyH   = 999999.0;
+                $distLy     = 0.0;
+                // Stealth: 60 s window starting at arrival (arrival = now + $travel)
+                // $stealthUntil is finalized after $arrival is computed below.
+                $stealthUntil = '__vel_ar__'; // placeholder; resolved after $arrival is set
+                break;
+
+            // ── Zhareen: Crystal Resonance Channel ───────────────────────────
+            // Requires a charted resonance node at the target system.
+            case 'zhareen':
+                $node = get_zhareen_node($db, $uid, $tg, $ts);
+                if (!$node) {
+                    json_error('No resonance node charted at target system. Send a survey mission first.');
+                }
+                if ($node['cooldown_until'] && strtotime((string)$node['cooldown_until']) > time()) {
+                    json_error('Resonance node cooling down. Ready at: ' . $node['cooldown_until']);
+                }
+                $travel   = 60;
+                $speedLyH = 999999.0;
+                $distLy   = 0.0;
+                // Apply 30-min node cooldown
+                $db->prepare('UPDATE ftl_resonance_nodes SET cooldown_until = DATE_ADD(NOW(), INTERVAL 30 MINUTE) WHERE id = ?')
+                   ->execute([$node['id']]);
+                break;
+
+            // ── Aereth: Alcubierre Warp ───────────────────────────────────────
+            // Density-dependent speed bonus: +50% in core galaxies, -30% in rim.
+            case 'aereth':
+            default:
+                if ($distLy > 0.0) {
+                    $originGalaxy = (int)$origin['galaxy'];
+                    if ($originGalaxy <= 3) {
+                        // Galactic core: dense plasma → speed bonus
+                        $speedLyH *= 1.5;
+                    } elseif ($originGalaxy >= 7) {
+                        // Galactic rim: sparse medium → speed penalty
+                        $speedLyH *= 0.7;
+                    }
+                    $travel = fleet_travel_time_3d($distLy, $speedLyH);
+                }
+                break;
+
+            // ── Kryl'Tha: Swarm Tunnel ────────────────────────────────────────
+            // Travel time scales with fleet size; hard cap at 50 ships per jump.
+            // Hull takes 10% damage after every swarm-tunnel jump.
+            case 'kryl_tha':
+                $totalShips = array_sum($shipsToSend);
+                if ($totalShips > 50) {
+                    json_error('Swarm Tunnel overloaded: maximum 50 ships per FTL jump (sent: ' . $totalShips . ').');
+                }
+                // sizeFactor: 1.0 at 1 ship → 1.5 at 50 ships
+                $sizeFactor    = 1.0 + ($totalShips - 1) / 100.0;
+                $travel        = max(30, (int)round($travel * $sizeFactor));
+                $hullDamagePct = 10; // 10% hull degradation per jump
+                break;
+        }
+    }
+    // ── end Faction FTL mechanics ────────────────────────────────────────────
     // ── end 3-D ────────────────────────────────────────────────────────────
 
     $now        = time();
     $arrival    = date('Y-m-d H:i:s', $now + $travel);
     $returnT    = date('Y-m-d H:i:s', $now + $travel * 2);
     $departure  = date('Y-m-d H:i:s', $now);
+
+    // Resolve Vel'Ar stealth: starts at arrival, lasts 60 s
+    if ($stealthUntil === '__vel_ar__') {
+        $stealthUntil = date('Y-m-d H:i:s', $now + $travel + 60);
+    }
 
     foreach ($shipsToSend as $type => $cnt) {
         $db->prepare('UPDATE ships SET count=count-? WHERE colony_id=? AND type=?')
@@ -234,13 +412,16 @@ function send_fleet(PDO $db, int $uid, array $body): never {
                              origin_x_ly, origin_y_ly, origin_z_ly,
                              target_x_ly, target_y_ly, target_z_ly,
                              speed_ly_h, distance_ly,
-                             departure_time, arrival_time, return_time)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                             departure_time, arrival_time, return_time,
+                             stealth_until, hull_damage_pct)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )->execute([$uid, $originCid, $tg, $ts, $tp, $mission,
                 json_encode($shipsToSend), $cMetal, $cCrys, $cDeut,
                 $ox, $oy, $oz, $tx, $ty, $tz, $speedLyH, $distLy,
-                $departure, $arrival, $returnT]);
+                $departure, $arrival, $returnT,
+                $stealthUntil, $hullDamagePct]);
 
+    enqueue_dirty_user($db, $uid, 'fleet_sent');
     json_ok(['fleet_id' => (int)$db->lastInsertId(), 'arrival_time' => $arrival]);
 }
 
@@ -354,6 +535,142 @@ function list_wormholes(PDO $db, int $uid, int $originColonyId): never {
         'permanent_unlock' => $hasPermanentUnlock,
         'can_jump' => $theoryLevel >= 5,
     ]);
+}
+
+function list_ftl_status(PDO $db, int $uid): never {
+    $ftlType = get_user_ftl_type($db, $uid);
+
+    // Vor'Tak cooldown
+    $cooldownRow = $db->prepare('SELECT ftl_cooldown_until FROM users WHERE id = ? LIMIT 1');
+    $cooldownRow->execute([$uid]);
+    $cooldownUntil = $cooldownRow->fetchColumn() ?: null;
+    $cooldownRemaining = 0;
+    if ($cooldownUntil && strtotime((string)$cooldownUntil) > time()) {
+        $cooldownRemaining = strtotime((string)$cooldownUntil) - time();
+    }
+
+    // Syl'Nar gates
+    $gates = [];
+    try {
+        $gateStmt = $db->prepare(
+            'SELECT id, galaxy_a, system_a, galaxy_b, system_b, is_active, health, created_at
+               FROM ftl_gates WHERE owner_user_id = ? ORDER BY created_at DESC'
+        );
+        $gateStmt->execute([$uid]);
+        $gates = $gateStmt->fetchAll();
+    } catch (\Throwable) { /* table not yet migrated */ }
+
+    // Zhareen resonance nodes
+    $nodes = [];
+    try {
+        $nodeStmt = $db->prepare(
+            'SELECT id, galaxy, `system`, discovered_at, cooldown_until
+               FROM ftl_resonance_nodes WHERE owner_user_id = ? ORDER BY discovered_at DESC'
+        );
+        $nodeStmt->execute([$uid]);
+        $rawNodes = $nodeStmt->fetchAll();
+        foreach ($rawNodes as $n) {
+            $nodeCooldownRem = 0;
+            if ($n['cooldown_until'] && strtotime($n['cooldown_until']) > time()) {
+                $nodeCooldownRem = strtotime($n['cooldown_until']) - time();
+            }
+            $nodes[] = array_merge($n, ['cooldown_remaining_s' => $nodeCooldownRem]);
+        }
+    } catch (\Throwable) { /* table not yet migrated */ }
+
+    json_ok([
+        'ftl_drive_type'        => $ftlType,
+        'ftl_cooldown_until'    => $cooldownUntil,
+        'ftl_cooldown_remaining_s' => $cooldownRemaining,
+        'ftl_ready'             => $cooldownRemaining === 0,
+        'gates'                 => $gates,
+        'resonance_nodes'       => $nodes,
+    ]);
+}
+
+/**
+ * Reset Vor'Tak FTL cooldown immediately by spending 50 Dark Matter.
+ * Safe for all drive types: non-Vor'Tak users just get an error.
+ */
+function reset_ftl_cooldown(PDO $db, int $uid): never {
+    $COOLDOWN_RESET_COST = 50;
+
+    $uRow = $db->prepare('SELECT ftl_drive_type, ftl_cooldown_until, dark_matter FROM users WHERE id = ? LIMIT 1');
+    $uRow->execute([$uid]);
+    $u = $uRow->fetch();
+    if (!$u) { json_error('User not found.'); }
+
+    if ($u['ftl_drive_type'] !== 'vor_tak') {
+        json_error('FTL cooldown reset is only available for Vor\'Tak K-F drives.');
+    }
+    if (!$u['ftl_cooldown_until'] || strtotime((string)$u['ftl_cooldown_until']) <= time()) {
+        json_error('FTL drive is not on cooldown.');
+    }
+    if ((int)$u['dark_matter'] < FTL_COOLDOWN_RESET_COST) {
+        json_error('Insufficient Dark Matter. Cost: ' . FTL_COOLDOWN_RESET_COST . ' DM, you have: ' . $u['dark_matter'] . ' DM.');
+    }
+
+    $db->prepare('UPDATE users SET ftl_cooldown_until = NULL, dark_matter = dark_matter - ? WHERE id = ?')
+       ->execute([FTL_COOLDOWN_RESET_COST, $uid]);
+
+    json_ok([
+        'message'  => 'FTL cooldown reset. Drive ready to jump.',
+        'dm_spent' => FTL_COOLDOWN_RESET_COST,
+    ]);
+}
+
+/**
+ * Returns all FTL infrastructure visible to this player:
+ *  - Their own gates with 3-D endpoint coordinates
+ *  - Their own resonance nodes with 3-D coordinates
+ * Used by the galaxy-window overlay to render FTL infrastructure markers.
+ */
+function list_ftl_map(PDO $db, int $uid): never {
+    $gates = [];
+    try {
+        $gateStmt = $db->prepare(
+            'SELECT id, galaxy_a, system_a, galaxy_b, system_b, is_active, health
+               FROM ftl_gates WHERE owner_user_id = ? AND is_active = 1 AND health > 0'
+        );
+        $gateStmt->execute([$uid]);
+        foreach ($gateStmt->fetchAll() as $g) {
+            [$ax, $ay, $az] = get_system_3d_coords($db, (int)$g['galaxy_a'], (int)$g['system_a']);
+            [$bx, $by, $bz] = get_system_3d_coords($db, (int)$g['galaxy_b'], (int)$g['system_b']);
+            $gates[] = [
+                'id'       => (int)$g['id'],
+                'galaxy_a' => (int)$g['galaxy_a'], 'system_a' => (int)$g['system_a'],
+                'galaxy_b' => (int)$g['galaxy_b'], 'system_b' => (int)$g['system_b'],
+                'health'   => (int)$g['health'],
+                'a'        => ['x' => $ax, 'y' => $ay, 'z' => $az],
+                'b'        => ['x' => $bx, 'y' => $by, 'z' => $bz],
+            ];
+        }
+    } catch (\Throwable) { /* table not yet migrated */ }
+
+    $nodes = [];
+    try {
+        $nodeStmt = $db->prepare(
+            'SELECT id, galaxy, `system`, cooldown_until
+               FROM ftl_resonance_nodes WHERE owner_user_id = ?'
+        );
+        $nodeStmt->execute([$uid]);
+        foreach ($nodeStmt->fetchAll() as $n) {
+            [$nx, $ny, $nz] = get_system_3d_coords($db, (int)$n['galaxy'], (int)$n['system']);
+            $cooldownRem = ($n['cooldown_until'] && strtotime((string)$n['cooldown_until']) > time())
+                ? strtotime((string)$n['cooldown_until']) - time()
+                : 0;
+            $nodes[] = [
+                'id'               => (int)$n['id'],
+                'galaxy'           => (int)$n['galaxy'],
+                'system'           => (int)$n['system'],
+                'cooldown_until'   => $n['cooldown_until'],
+                'cooldown_remaining_s' => $cooldownRem,
+                'pos'              => ['x' => $nx, 'y' => $ny, 'z' => $nz],
+            ];
+        }
+    } catch (\Throwable) { /* table not yet migrated */ }
+
+    json_ok(['gates' => $gates, 'resonance_nodes' => $nodes]);
 }
 
 function resolve_wormhole_route(PDO $db, int $uid, int $originGalaxy, int $originSystem, int $targetGalaxy, int $targetSystem): ?array {
@@ -481,6 +798,7 @@ function handle_fleet_arrival(PDO $db, array $fleet): void {
         'colonize'  => colonize_planet($db, $fleet, $ships),
         'spy'       => create_spy_report($db, $fleet, $ships),
         'harvest'   => harvest_resources($db, $fleet, $ships),
+        'survey'    => complete_survey_mission($db, $fleet, $ships),
         default     => return_fleet_to_origin($db, $fleet, $ships),
     };
 
@@ -498,20 +816,26 @@ function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
     $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
        ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $cid]);
     $db->prepare('DELETE FROM fleets WHERE id=?')->execute([$fleet['id']]);
+    enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_returned');
 }
 
 function deliver_resources(PDO $db, array $fleet, array $ships): void {
-    $tgt = $db->prepare('SELECT c.id FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE p.galaxy=? AND p.`system`=? AND p.position=?');
+    $tgt = $db->prepare('SELECT c.id, c.user_id FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE p.galaxy=? AND p.`system`=? AND p.position=?');
     $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $target = $tgt->fetch();
     if ($target) {
         $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
            ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $target['id']]);
+        // Mark the receiving user dirty (different user for inter-player transports)
+        if ((int)$target['user_id'] !== (int)$fleet['user_id']) {
+            enqueue_dirty_user($db, (int)$target['user_id'], 'resources_received');
+        }
     }
     $travel  = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
     $retTime = date('Y-m-d H:i:s', time() + $travel);
     $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=?, cargo_metal=0, cargo_crystal=0, cargo_deuterium=0 WHERE id=?')
        ->execute([$retTime, $retTime, $fleet['id']]);
+    enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_delivered');
 }
 
 function resolve_battle(PDO $db, array $fleet, array $ships): void {
@@ -547,6 +871,12 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $cmdBonus = $cmd ? (1.0 + (int)$cmd['skill_attack'] * 0.02) : 1.0;
 
     $atkMulti = (1.0 + $atkWpnLevel * 0.1) * $cmdBonus;
+
+    // Kryl'Tha hull damage penalty: directly reduces the attacker's attack multiplier
+    $hullMalus = max(0, min(100, (int)($fleet['hull_damage_pct'] ?? 0)));
+    if ($hullMalus > 0) {
+        $atkMulti *= (1.0 - $hullMalus / 100.0);
+    }
     $atkProfile = compute_energy_combat_profile($ships, $db);
     $atkEnergy = $atkProfile['attack_energy'] * $atkMulti;
     $atkKinetic = $atkProfile['attack_kinetic'] * $atkMulti;
@@ -816,6 +1146,8 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
                            cargo_metal=?, cargo_crystal=?, cargo_deuterium=?, ships_json=?
          WHERE id=?'
     )->execute([$retTime, $retTime, $lootM, $lootC, $lootD, json_encode($atkSurvivors), $fleet['id']]);
+    enqueue_dirty_user($db, (int)$fleet['user_id'], 'battle_resolved');
+    enqueue_dirty_user($db, (int)$target['user_id'], 'colony_attacked');
 }
 
 function simulate_battle_preview(PDO $db, int $uid, array $body): never {
@@ -1912,4 +2244,71 @@ function harvest_resources(PDO $db, array $fleet, array $ships): void {
          WHERE id=?'
     )->execute([$retTime, $retTime, $harvested['metal'], $harvested['crystal'],
                 $harvested['deuterium'], $fleet['id']]);
+}
+
+// ─── Survey mission (Zhareen FTL node discovery) ──────────────────────────────
+
+/**
+ * Survey mission: fleet travels to a target system and charts a Zhareen
+ * resonance node there (or any standard system survey for other factions).
+ * On arrival the node is registered; fleet returns normally.
+ */
+function complete_survey_mission(PDO $db, array $fleet, array $ships): void {
+    $uid = (int)$fleet['user_id'];
+    $tg  = (int)$fleet['target_galaxy'];
+    $ts  = (int)$fleet['target_system'];
+    $og  = 1; // default; resolved from origin colony below
+    $os  = 1;
+
+    // Derive origin system from origin_colony_id
+    $originRow = $db->prepare(
+        'SELECT p.galaxy, p.`system` FROM colonies c JOIN planets p ON p.id = c.planet_id WHERE c.id = ? LIMIT 1'
+    );
+    $originRow->execute([(int)$fleet['origin_colony_id']]);
+    $originPlanet = $originRow->fetch();
+    $og = $originPlanet ? (int)$originPlanet['galaxy'] : $og;
+    $os = $originPlanet ? (int)$originPlanet['system']  : $os;
+
+    $ftlType = get_user_ftl_type($db, $uid);
+
+    if ($ftlType === 'zhareen') {
+        // Zhareen: chart a resonance node at the target system
+        try {
+            $db->prepare(
+                'INSERT INTO ftl_resonance_nodes (owner_user_id, galaxy, `system`, discovered_at)
+                  VALUES (?, ?, ?, NOW())
+                  ON DUPLICATE KEY UPDATE discovered_at = NOW()'
+            )->execute([$uid, $tg, $ts]);
+            $nodeMsg = "Resonance node charted at [{$tg}:{$ts}]. Zhareen FTL channel now available.";
+        } catch (\Throwable $e) {
+            $nodeMsg = "Survey complete at [{$tg}:{$ts}]. (Node registration failed: " . $e->getMessage() . ')';
+        }
+    } elseif ($ftlType === 'syl_nar') {
+        // Syl'Nar: build a gate from origin system to target system
+        try {
+            // Only create if no active gate already exists on this route
+            $existing = resolve_syl_nar_gate($db, $uid, $og, $os, $tg, $ts);
+            if ($existing) {
+                $nodeMsg = "Syl'Nar Gate already active on route [{$og}:{$os}] ↔ [{$tg}:{$ts}].";
+            } else {
+                $db->prepare(
+                    'INSERT INTO ftl_gates (owner_user_id, galaxy_a, system_a, galaxy_b, system_b)
+                      VALUES (?, ?, ?, ?, ?)'
+                )->execute([$uid, $og, $os, $tg, $ts]);
+                $nodeMsg = "Syl'Nar Gate established: [{$og}:{$os}] ↔ [{$tg}:{$ts}]. FTL transit now available.";
+            }
+        } catch (\Throwable $e) {
+            $nodeMsg = "Survey complete at [{$tg}:{$ts}]. (Gate installation failed: " . $e->getMessage() . ')';
+        }
+    } else {
+        $nodeMsg = "Survey complete at [{$tg}:{$ts}]. No FTL infrastructure installed (drive: {$ftlType}).";
+    }
+
+    $db->prepare('INSERT INTO messages (receiver_id, subject, body) VALUES (?, ?, ?)')
+       ->execute([$uid, 'Survey Complete', $nodeMsg]);
+
+    $travel  = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
+    $retTime = date('Y-m-d H:i:s', time() + $travel);
+    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=? WHERE id=?')
+       ->execute([$retTime, $retTime, $fleet['id']]);
 }

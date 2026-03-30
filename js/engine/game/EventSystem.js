@@ -14,7 +14,9 @@
  *   - An EventQueue fires pending events once per in-game turn / cycle
  *   - Cooldown tracking per event type using game-cycle numbers
  *   - Seeded RNG for deterministic event selection (mulberry32)
- *   - EventBus integration: emits 'game:event:fired' and 'game:event:resolved'
+ *   - Journal entries: long-running objectives (Victoria 3 style)
+ *   - EventBus integration: emits 'game:event:fired', 'game:event:resolved',
+ *     'game:event:dismissed', 'game:journal:complete'
  *
  * Usage:
  *   const evtSys = new EventSystem(engine.events, /* seed *\/ 42);
@@ -83,11 +85,53 @@ const EventType = Object.freeze({
 
 /** @enum {string} */
 const EventStatus = Object.freeze({
-  PENDING:  'pending',
-  ACTIVE:   'active',    // Presented to player — awaiting choice
-  RESOLVED: 'resolved',
-  EXPIRED:  'expired',
+  PENDING:   'pending',
+  ACTIVE:    'active',    // Presented to player — awaiting choice
+  RESOLVED:  'resolved',
+  EXPIRED:   'expired',
+  DISMISSED: 'dismissed', // Player dismissed without resolving
 });
+
+// ---------------------------------------------------------------------------
+// Journal
+// ---------------------------------------------------------------------------
+
+/**
+ * A Journal entry tracks a long-running in-game objective (Victoria 3 style).
+ * It becomes 'complete' when its condition returns true during tickJournal().
+ *
+ * @typedef {Object} JournalDef
+ * @property {string}   id
+ * @property {string}   [title]
+ * @property {string}   [body]
+ * @property {Function} condition      (gameState) => boolean — completion test
+ * @property {Function} [onComplete]   (gameState) => void   — called on completion
+ */
+
+/** @enum {string} */
+const JournalStatus = Object.freeze({
+  ACTIVE:   'active',
+  COMPLETE: 'complete',
+});
+
+class Journal {
+  /**
+   * @param {JournalDef} def
+   */
+  constructor(def) {
+    if (!def.id)        throw new TypeError('[Journal] Entry must have an id');
+    if (!def.condition) throw new TypeError(`[Journal] Entry '${def.id}' must have a condition`);
+    this.id         = def.id;
+    this.title      = def.title     ?? def.id;
+    this.body       = def.body      ?? '';
+    this.condition  = def.condition;
+    this.onComplete = def.onComplete ?? null;
+    this.status     = JournalStatus.ACTIVE;
+  }
+
+  /** @returns {boolean} */
+  get isComplete() { return this.status === JournalStatus.COMPLETE; }
+}
 
 // ---------------------------------------------------------------------------
 // EventSystem
@@ -111,6 +155,9 @@ class EventSystem {
     this._active  = [];
     /** @type {EventInstance[]} */
     this._history = [];
+
+    /** @type {Map<string, Journal>} */
+    this._journal = new Map();
 
     /** Max events shown simultaneously (like Stellaris event cap) */
     this.maxActive = 3;
@@ -238,6 +285,80 @@ class EventSystem {
     this._bus?.emit('game:event:resolved', { event: inst, choiceIndex });
   }
 
+  /**
+   * Dismiss an active event without applying any choice effect.
+   * The event is moved to history with status DISMISSED.
+   * Emits 'game:event:dismissed'.
+   *
+   * @param {string} id  Event id
+   */
+  dismiss(id) {
+    const idx = this._active.findIndex((e) => e.id === id);
+    if (idx === -1) { console.warn(`[EventSystem] No active event to dismiss: '${id}'`); return; }
+    const inst   = this._active[idx];
+    inst.status  = EventStatus.DISMISSED;
+    this._active.splice(idx, 1);
+    this._history.push(inst);
+    this._bus?.emit('game:event:dismissed', { event: inst });
+  }
+
+  /**
+   * Publicly trigger the random-event selection logic once.
+   * Useful for testing or scripted event injection.
+   *
+   * @param {Object} gameState
+   * @param {number} [cycle=0]
+   */
+  fireRandom(gameState, cycle = 0) {
+    this._tryFireRandom(gameState, cycle);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Journal
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Register a journal entry.  Throws if id is missing or condition is absent.
+   * @param {JournalDef} def
+   * @returns {this}
+   */
+  defineJournalEntry(def) {
+    const entry = new Journal(def);
+    this._journal.set(def.id, entry);
+    return this;
+  }
+
+  /**
+   * Evaluate all active journal entries against the current game state.
+   * Entries whose condition returns true are marked complete; their onComplete
+   * callback is invoked and 'game:journal:complete' is emitted.
+   *
+   * @param {Object} gameState
+   */
+  tickJournal(gameState) {
+    for (const entry of this._journal.values()) {
+      if (entry.status === JournalStatus.COMPLETE) continue;
+      let met = false;
+      try { met = entry.condition(gameState); } catch (err) {
+        console.warn(`[EventSystem] Error evaluating journal condition for '${entry.id}':`, err);
+      }
+      if (!met) continue;
+      entry.status = JournalStatus.COMPLETE;
+      try { entry.onComplete?.(gameState); } catch (err) {
+        console.error(`[EventSystem] Error in journal onComplete for '${entry.id}':`, err);
+      }
+      this._bus?.emit('game:journal:complete', { entry });
+    }
+  }
+
+  /**
+   * Return all journal entries that have not yet been completed.
+   * @returns {Journal[]}
+   */
+  activeJournal() {
+    return [...this._journal.values()].filter((e) => !e.isComplete);
+  }
+
   // ---------------------------------------------------------------------------
   // Accessors
   // ---------------------------------------------------------------------------
@@ -245,7 +366,7 @@ class EventSystem {
   /** Currently presented events (awaiting player choice) */
   get activeEvents() { return [...this._active]; }
 
-  /** Full event history (resolved + expired) */
+  /** Full event history (resolved + expired + dismissed) */
   get history() { return [...this._history]; }
 
   /** Number of events in the library */
@@ -276,7 +397,7 @@ class EventSystem {
 // ---------------------------------------------------------------------------
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { EventSystem, EventType, EventStatus };
+  module.exports = { EventSystem, EventType, EventStatus, Journal, JournalStatus };
 } else {
-  window.GQEventSystem = { EventSystem, EventType, EventStatus };
+  window.GQEventSystem = { EventSystem, EventType, EventStatus, Journal, JournalStatus };
 }
