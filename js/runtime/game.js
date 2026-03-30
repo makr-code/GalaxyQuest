@@ -10,7 +10,11 @@
     const meData = await API.me();
     if (!meData.success) { window.location.href = 'index.html'; return; }
     currentUser = meData.user;
-  } catch (_) { window.location.href = 'index.html'; return; }
+  } catch (err) {
+    console.error('[GQ][game] Auth guard failed, redirecting to login', err);
+    window.location.href = 'index.html';
+    return;
+  }
 
   function updateCommanderButtonLabel() {
     const commanderBtn = document.getElementById('commander-name');
@@ -343,6 +347,22 @@
       window.location.href = target;
     }, 450);
   }
+
+  function gameLog(level, message, data = null) {
+    const lvl = String(level || 'info').toLowerCase();
+    const sink = window.GQLog && typeof window.GQLog[lvl] === 'function'
+      ? window.GQLog[lvl].bind(window.GQLog)
+      : null;
+    const prefix = '[game]';
+    if (sink) {
+      if (data == null) sink(prefix, message);
+      else sink(prefix, message, data);
+      return;
+    }
+    const method = (lvl === 'error' || lvl === 'warn' || lvl === 'info') ? lvl : 'log';
+    if (data == null) console[method]('[GQ][game]', message);
+    else console[method]('[GQ][game]', message, data);
+  }
   const AUDIO_TRACK_OPTIONS_FALLBACK = [
     { value: 'music/Nebula_Overture.mp3', label: 'Nebula Overture' },
   ];
@@ -475,7 +495,8 @@
       const safeName = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const match = cookieText.match(new RegExp(`(?:^|;\\s*)${safeName}=([^;]*)`));
       return match?.[1] ? decodeURIComponent(match[1]) : '';
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'Cookie konnte nicht gelesen werden', { name, error: err });
       return '';
     }
   }
@@ -484,20 +505,26 @@
     try {
       const safeAge = Math.max(60, Number(maxAgeSec || 0));
       document.cookie = `${name}=${encodeURIComponent(String(value || ''))}; Max-Age=${safeAge}; Path=/; SameSite=Lax`;
-    } catch (_) {}
+    } catch (err) {
+      gameLog('warn', 'Cookie konnte nicht geschrieben werden', { name, error: err });
+    }
   }
 
   function hasSeenGalaxyFleetHint() {
     try {
       if (window.localStorage?.getItem(GALAXY_FLEET_HINT_KEY) === '1') return true;
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'Fleet-Hint Status nicht aus localStorage lesbar', err);
+    }
     return readCookieValue(GALAXY_FLEET_HINT_KEY) === '1';
   }
 
   function markGalaxyFleetHintSeen() {
     try {
       window.localStorage?.setItem(GALAXY_FLEET_HINT_KEY, '1');
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'Fleet-Hint Status nicht in localStorage schreibbar', err);
+    }
     writeCookieValue(GALAXY_FLEET_HINT_KEY, '1', GALAXY_FLEET_HINT_COOKIE_DAYS * 24 * 60 * 60);
   }
 
@@ -511,7 +538,8 @@
       const raw = decodeURIComponent(match[1]);
       const parsed = JSON.parse(raw);
       return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'JSON-Cookie konnte nicht geparst werden', { name, error: err });
       return null;
     }
   }
@@ -520,7 +548,9 @@
     try {
       const encoded = encodeURIComponent(JSON.stringify(data));
       document.cookie = `${name}=${encoded}; Max-Age=${Math.max(60, Number(maxAgeSec || 0))}; Path=/; SameSite=Lax`;
-    } catch (_) {}
+    } catch (err) {
+      gameLog('warn', 'JSON-Cookie konnte nicht geschrieben werden', { name, error: err });
+    }
   }
 
   function loadPortableUiSettings() {
@@ -531,7 +561,9 @@
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') Object.assign(merged, parsed);
       }
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'UI-Settings localStorage read failed', err);
+    }
 
     const cookieState = readJsonFromCookie(UI_SETTINGS_COOKIE_KEY);
     if (cookieState && typeof cookieState === 'object') Object.assign(merged, cookieState);
@@ -542,7 +574,9 @@
         const parsedSession = JSON.parse(rawSession);
         if (parsedSession && typeof parsedSession === 'object') Object.assign(merged, parsedSession);
       }
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'UI-Settings sessionStorage read failed', err);
+    }
 
     return merged;
   }
@@ -550,10 +584,14 @@
   function savePortableUiSettings(data) {
     try {
       localStorage.setItem(UI_SETTINGS_STORAGE_KEY, JSON.stringify(data));
-    } catch (_) {}
+    } catch (err) {
+      gameLog('warn', 'UI-Settings localStorage write failed', err);
+    }
     try {
       sessionStorage.setItem(UI_SETTINGS_SESSION_KEY, JSON.stringify(data));
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'UI-Settings sessionStorage write failed', err);
+    }
     writeJsonCookie(UI_SETTINGS_COOKIE_KEY, data, UI_SETTINGS_COOKIE_MAX_AGE_SEC);
   }
 
@@ -723,6 +761,7 @@
         refreshAudioUi();
         return audioTrackOptions;
       } catch (_) {
+        gameLog('warn', 'Audio-Track-Katalog konnte nicht geladen werden, fallback aktiv');
         audioTrackCatalogLoaded = true;
         applyAudioPlaylistFromCatalog();
         refreshSettingsMusicPresetOptions();
@@ -778,7 +817,8 @@
       const manager = new window.GQAudioManager({ storageKey: 'gq_audio_settings' });
       window.__GQ_AUDIO_MANAGER = manager;
       return manager;
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'AudioManager Init fehlgeschlagen', err);
       return null;
     }
   })();
@@ -932,7 +972,8 @@
       const latencyMs = Number(health?.latencyMs || 0);
       const status = Number(health?.status || 0);
       setFooterNetworkStatus(kind, latencyMs, status);
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'Footer-Netzwerkstatus Probe fehlgeschlagen', err);
       setFooterNetworkStatus(navigator.onLine === false ? 'offline' : 'unknown');
     } finally {
       footerNetworkState.inFlight = false;
@@ -1096,7 +1137,7 @@
       galaxyDB.policies.systemMaxAgeMs = Number(profile.system.payload.cacheMaxAgeMs);
     }
     activePolicyProfile = profileName;
-    try { localStorage.setItem('gq_policy_profile', profileName); } catch (_) {}
+    try { localStorage.setItem('gq_policy_profile', profileName); } catch (err) { gameLog('info', 'Policy-Profil konnte nicht persistiert werden', err); }
   }
 
   function detectAutoPolicyProfile() {
@@ -1127,7 +1168,8 @@
         profile: 'balanced',
         reason: `Auto rule: mixed profile (cores=${cores || 'n/a'}, mem=${mem || 'n/a'}GB, net=${effectiveType || 'unknown'})`,
       };
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'Auto-Policy-Erkennung fehlgeschlagen, verwende balanced', err);
       return {
         profile: 'balanced',
         reason: 'Auto rule: fallback (device capabilities unavailable).',
@@ -1268,7 +1310,9 @@
       if (normalizedMode === 'manual' && POLICY_PROFILES[nextProfile]) {
         localStorage.setItem('gq_policy_profile_manual', nextProfile);
       }
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'Policy-Modus konnte nicht persistiert werden', err);
+    }
   }
 
   (() => {
@@ -1285,17 +1329,21 @@
         return;
       }
       applyPolicyMode('auto');
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'Policy-Init aus Storage fehlgeschlagen, fallback auto', err);
       applyPolicyMode('auto');
     }
   })();
 
   if (galaxyDB) {
-    galaxyDB.init().catch(() => {
+    galaxyDB.init().catch((err) => {
+      gameLog('warn', 'Browser DB Init fehlgeschlagen, fallback memory', err);
       showToast('Browser DB fallback active (memory only).', 'warning');
     });
     setInterval(() => {
-      galaxyDB.prune().catch(() => {});
+      galaxyDB.prune().catch((err) => {
+        gameLog('info', 'Browser DB prune fehlgeschlagen', err);
+      });
     }, 5 * 60 * 1000);
   }
 
@@ -1303,7 +1351,9 @@
   window.GQGalaxyDBStore = galaxyDB;
 
   setInterval(() => {
-    sendPerfTelemetrySnapshot('interval').catch(() => {});
+    sendPerfTelemetrySnapshot('interval').catch((err) => {
+      gameLog('info', 'Perf-Telemetrie Snapshot fehlgeschlagen', err);
+    });
   }, PERF_TELEMETRY_INTERVAL_MS);
 
   // ÔöÇÔöÇ Utilities ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
@@ -1323,7 +1373,8 @@
   function isPerfTelemetryOptIn() {
     try {
       return window.localStorage?.getItem(PERF_TELEMETRY_OPT_IN_KEY) === '1';
-    } catch (_) {
+    } catch (err) {
+      gameLog('info', 'Perf-Telemetrie Opt-In nicht lesbar', err);
       return false;
     }
   }
@@ -1332,7 +1383,8 @@
     try {
       window.localStorage?.setItem(PERF_TELEMETRY_OPT_IN_KEY, enabled ? '1' : '0');
       return true;
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'Perf-Telemetrie Opt-In nicht speicherbar', err);
       return false;
     }
   }
@@ -1369,7 +1421,8 @@
     try {
       const res = await API.perfTelemetry(payload);
       return !!res?.success;
-    } catch (_) {
+    } catch (err) {
+      gameLog('info', 'Perf-Telemetrie API call fehlgeschlagen', err);
       return false;
     }
   }
@@ -3146,7 +3199,11 @@
         if (this.audio) this.audio.playNavigation();
         await loadOverview();
         ['overview','colony','buildings','research','shipyard','fleet','wormholes','messages','quests','leaders','factions','leaderboard'].forEach((id) => {
-          try { this.wm.refresh(id); } catch (_) {}
+          try {
+            this.wm.refresh(id);
+          } catch (err) {
+            gameLog('info', `WM refresh fehlgeschlagen (${id})`, err);
+          }
         });
         showToast('Daten aktualisiert.', 'success');
       });
@@ -3305,7 +3362,9 @@
         refreshAudioUi();
       });
 
-      loadAudioTrackCatalog().catch(() => {});
+      loadAudioTrackCatalog().catch((err) => {
+        gameLog('info', 'Audio-Track-Katalog Laden in Settings fehlgeschlagen', err);
+      });
       refreshAudioUi();
     }
 
@@ -3706,7 +3765,9 @@
           </div>`).join('')}</div>`;
         this.bindMissionDefaults(root, avail);
         this.applyMissionDefaults(root, avail, uiState.fleetPrefill);
-      } catch (_) {}
+      } catch (err) {
+        gameLog('info', 'Fleet mission defaults konnten nicht initialisiert werden', err);
+      }
 
       root.querySelector('#fleet-form-wm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -3730,7 +3791,8 @@
             resultEl.className = 'form-error';
             resultEl.textContent = response.error || 'Failed to send fleet.';
           }
-        } catch (_) {
+        } catch (err) {
+          gameLog('warn', 'Fleet send request fehlgeschlagen', err);
           resultEl.className = 'form-error';
           resultEl.textContent = 'Network error.';
         }
@@ -3856,7 +3918,8 @@
         }
         root.innerHTML = this.buildCardsHtml(data);
         this.bindActions(root);
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Wormhole view laden fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to load wormholes.</p>';
       }
     }
@@ -3908,7 +3971,9 @@
       if (!galaxy3d && root) {
         this.init3D(root);
         if (galaxy3d) {
-          this.loadStars3D(root).catch(() => {});
+          this.loadStars3D(root).catch((err) => {
+            gameLog('warn', 'Galaxy 3D Sterneladen fehlgeschlagen', err);
+          });
         }
       }
       if (!galaxy3d) {
@@ -4261,7 +4326,9 @@
         const kickResize = () => {
           try {
             if (galaxy3d && typeof galaxy3d.resize === 'function') galaxy3d.resize();
-          } catch (_) {}
+          } catch (err) {
+            gameLog('info', 'Galaxy3D resize kick fehlgeschlagen', err);
+          }
         };
         kickResize();
         setTimeout(kickResize, 60);
@@ -4788,7 +4855,9 @@
         setTimeout(() => {
           try {
             galaxy3d.fitCameraToStars(true, true);
-          } catch (_) {}
+          } catch (err) {
+            gameLog('info', 'Galaxy3D fitCameraToStars fehlgeschlagen', err);
+          }
         }, 30);
       };
 
@@ -4838,7 +4907,9 @@
         if (details) {
           details.innerHTML = `<span class="text-cyan">Policy hit: fresh range from cache (${from}-${to}), network refresh skipped.</span>`;
         }
-        hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch(() => {});
+          hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch((err) => {
+            gameLog('info', 'Background-Hydration (initial) fehlgeschlagen', err);
+          });
         return;
       }
 
@@ -4918,7 +4989,9 @@
           }
         }
         if (galaxyDB) {
-          galaxyDB.upsertStars(galaxyStars, responseTs).catch(() => {});
+          galaxyDB.upsertStars(galaxyStars, responseTs).catch((err) => {
+            gameLog('info', 'DB upsertStars fehlgeschlagen', err);
+          });
         }
 
         const rendered = applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'network');
@@ -4944,7 +5017,9 @@
           cacheMode: data.cache_mode || 'n/a',
         });
         ensureInitialGalaxyFrame();
-        hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch(() => {});
+          hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch((err) => {
+            gameLog('info', 'Background-Hydration (post-load) fehlgeschlagen', err);
+          });
       } catch (err) {
         const errMsg = String(err?.message || err || 'unknown error');
         pushGalaxyDebugError('galaxy-stars', errMsg, `${from}..${to}`);
@@ -4961,7 +5036,9 @@
         if (!fallbackStars.length && galaxyModel) {
           try {
             fallbackStars = galaxyModel.listStars(g, 1, galaxySystemMax) || [];
-          } catch (_) {}
+          } catch (err) {
+            gameLog('info', 'Fallback listStars aus galaxyModel fehlgeschlagen', err);
+          }
         }
 
         if (!fallbackStars.length && galaxyDB && !isCurrentUserAdmin()) {
@@ -4970,7 +5047,9 @@
             if (fallbackStars.length && galaxyModel) {
               galaxyModel.upsertStarBatch(g, fallbackStars);
             }
-          } catch (_) {}
+          } catch (err) {
+            gameLog('info', 'Fallback listStars aus galaxyDB fehlgeschlagen', err);
+          }
         }
 
         fallbackStars = normalizeStarListVisibility(fallbackStars);
@@ -5159,7 +5238,8 @@
             galaxyHealthWarned = true;
           }
         }
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Health check (API) fehlgeschlagen', err);
         galaxyHealthLastCheckMs = Date.now();
         try {
           const net = (typeof API?.networkHealth === 'function') ? await API.networkHealth(false) : null;
@@ -5180,7 +5260,8 @@
             badge.textContent = 'Health: unavailable';
             badge.className = 'text-muted';
           }
-        } catch (_) {
+        } catch (netErr) {
+          gameLog('info', 'Health fallback network probe fehlgeschlagen', netErr);
           badge.textContent = 'Health: unavailable';
           badge.className = 'text-muted';
         }
@@ -5968,7 +6049,8 @@
         }
         root.innerHTML = this.buildViewHtml(data);
         this.bindActions(root);
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Colony view render fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to render colony view.</p>';
       }
     }
@@ -6099,7 +6181,8 @@
         html += this.buildCardsHtml(byCategory, buildingFocus);
         root.innerHTML = html;
         this.bindActions(root, buildingFocus);
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Buildings view laden fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to load buildings.</p>';
       }
     }
@@ -6182,7 +6265,8 @@
 
         root.innerHTML = this.buildCardsHtml(data.research || []);
         this.bindActions(root);
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Research view laden fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to load research.</p>';
       }
     }
@@ -6224,6 +6308,7 @@
       });
       return frag;
     }
+    // ── Pure data helpers ────────────────────────────────────
 
     computeSlotProfile(hull, layoutCode = 'default') {
       const base = Object.assign({}, hull?.slot_profile || {});
@@ -6244,7 +6329,6 @@
       if (this.moduleCatalogCache.has(key)) {
         return this.moduleCatalogCache.get(key);
       }
-
       const response = await API.shipyardModules(colonyId, hullCode, layoutCode);
       if (!response?.success) {
         throw new Error(response?.error || 'Failed to load module catalog.');
@@ -6367,17 +6451,13 @@
 
     collectBlueprintModulesFromUI(root) {
       const selects = Array.from(root.querySelectorAll('.shipyard-module-slot'));
-      if (!selects.length) {
-        return [];
-      }
-
+      if (!selects.length) return [];
       const totals = new Map();
       selects.forEach((el) => {
         const code = String(el.value || '').trim();
         if (!code) return;
         totals.set(code, (totals.get(code) || 0) + 1);
       });
-
       return Array.from(totals.entries()).map(([code, quantity]) => ({ code, quantity }));
     }
 
@@ -6407,6 +6487,124 @@
         });
       });
       return totals;
+    }
+
+    // ── DOM builders ─────────────────────────────────────────
+
+    /** Returns a DocumentFragment with slot-profile chip spans. */
+    renderSlotProfile(profile = {}) {
+      const entries = Object.entries(profile || {}).filter(([, count]) => Number(count || 0) > 0);
+      const frag = document.createDocumentFragment();
+      if (!entries.length) {
+        frag.appendChild(GQUI.span('text-muted', 'small').setText('No slots').dom);
+        return frag;
+      }
+      entries.forEach(([group, count], i) => {
+        if (i > 0) frag.appendChild(document.createTextNode(' '));
+        const chip = GQUI.span();
+        chip.dom.style.cssText = 'display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.4rem;border:1px solid rgba(120,145,180,0.35);border-radius:999px;background:rgba(80,108,152,0.14);font-size:0.7rem;';
+        chip.dom.textContent = `${fmtName(group)} ${fmt(count)}`;
+        frag.appendChild(chip.dom);
+      });
+      return frag;
+    }
+
+    /** Returns a DocumentFragment with affinity chip spans. */
+    renderAffinityChips(affinities = []) {
+      const list = Array.isArray(affinities) ? affinities.filter((a) => !!a) : [];
+      const frag = document.createDocumentFragment();
+      if (!list.length) return frag;
+      const fmtBonus = (type, val) => {
+        const v = Number(val);
+        if (type === 'cost_pct') return `Kosten ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
+        if (type === 'build_time_pct') return `Bauzeit ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
+        if (type === 'stat_mult') return `Stats ${v >= 0 ? '+' : ''}${(v * 100).toFixed(0)}%`;
+        if (type === 'unlock_tier') return `Tier +${v.toFixed(0)}`;
+        return `${type} ${v}`;
+      };
+      list.forEach((a) => {
+        const active = !!a.active;
+        const bonusText = fmtBonus(a.bonus_type, a.bonus_value);
+        const titleText = `${String(a.faction_name || a.faction_code || '?')}: ${bonusText} · Benötigt Stand ${a.min_standing} · Aktuell ${a.user_standing ?? '?'}`;
+        const chip = GQUI.span('shipyard-affinity-chip', active ? 'affinity-active' : 'affinity-inactive')
+          .setTitle(titleText)
+          .setText(`${String(a.faction_icon || '⬡')} ${bonusText}`);
+        frag.appendChild(chip.dom);
+      });
+      return frag;
+    }
+
+    /** Returns a GQUI UIElement with the full module-slot editor. */
+    renderModuleSlotEditor(moduleCatalog) {
+      const groups = Array.isArray(moduleCatalog?.module_groups) ? moduleCatalog.module_groups : [];
+      if (!groups.length) {
+        return GQUI.span('text-muted', 'small').setText('No module groups available for this hull/layout.');
+      }
+      const editor = GQUI.div('shipyard-slot-editor');
+      let hasGroups = false;
+      groups.forEach((group) => {
+        const slotCount = Math.max(0, Number(group.slot_count || 0));
+        if (!slotCount) return;
+        hasGroups = true;
+
+        const groupDiv = GQUI.div('shipyard-slot-group').setData('groupCode', group.code || '');
+        const labelDiv = GQUI.div('small', 'shipyard-slot-group-label');
+        labelDiv.setText(`${fmtName(group.label || group.code || 'group')} · Slots ${fmt(slotCount)}`);
+        const affinityFrag = this.renderAffinityChips(group.affinities || []);
+        if (affinityFrag.childNodes.length) {
+          const chipsWrap = GQUI.span('shipyard-affinity-chips');
+          chipsWrap.dom.appendChild(affinityFrag);
+          labelDiv.add(chipsWrap);
+        }
+
+        const rowsDiv = GQUI.div('shipyard-slot-rows');
+        for (let idx = 0; idx < slotCount; idx++) {
+          const rowDiv = GQUI.div('shipyard-slot-row')
+            .setData('groupCode', group.code || '')
+            .setData('slotIndex', idx);
+          const slotLabel = GQUI.span('shipyard-slot-label', 'small').setText(`Slot ${idx + 1}`);
+          const sel = GQUI.select('input', 'shipyard-module-slot')
+            .setData('groupCode', group.code || '')
+            .setData('slotIndex', idx);
+          const hasOpts = Array.isArray(group.modules) && group.modules.length > 0;
+          if (!hasOpts) sel.setDisabled(true);
+          sel.addOption('', '— empty —');
+          (Array.isArray(group.modules) ? group.modules : []).forEach((mod) => {
+            const statsLabel = Object.entries(mod.stats_delta || {})
+              .map(([k, v]) => `${fmtName(k)} ${v >= 0 ? '+' : ''}${fmt(v)}`).join(', ');
+            const statsData = Object.entries(mod.stats_delta || {})
+              .map(([k, v]) => `${k}:${v}`).join(',');
+            const blocker = Array.isArray(mod.blockers) && mod.blockers.length
+              ? ` [LOCKED: ${mod.blockers.join(' / ')}]` : '';
+            const optText = `${String(mod.label || mod.code || 'Module')} (T${fmt(mod.tier || 1)})${statsLabel ? ` · ${statsLabel}` : ''}${blocker}`;
+            sel.addOption(mod.code || '', optText, mod.unlocked === false, {
+              stats: statsData,
+              tier: String(Number(mod.tier || 1)),
+            });
+          });
+
+          const arrowsDiv = GQUI.div('shipyard-slot-arrows');
+          const upBtn = GQUI.btn('▲', 'btn', 'shipyard-slot-up')
+            .setData('groupCode', group.code || '')
+            .setData('slotIndex', idx)
+            .setTitle('Tauscht diesen Slot mit dem darüber')
+            .setDisabled(idx === 0);
+          const downBtn = GQUI.btn('▼', 'btn', 'shipyard-slot-down')
+            .setData('groupCode', group.code || '')
+            .setData('slotIndex', idx)
+            .setTitle('Tauscht diesen Slot mit dem darunter')
+            .setDisabled(idx === slotCount - 1);
+          arrowsDiv.add(upBtn, downBtn);
+          rowDiv.add(slotLabel, sel, arrowsDiv);
+          rowsDiv.add(rowDiv);
+        }
+        groupDiv.add(labelDiv, rowsDiv);
+        editor.add(groupDiv);
+      });
+      if (!hasGroups) {
+        return GQUI.span('text-muted', 'small').setText('No active slots for this layout.');
+      }
+      return editor;
     }
 
     updateStatsPreview(root) {
@@ -6459,7 +6657,10 @@
     loadPresetsFromStorage() {
       try {
         return JSON.parse(localStorage.getItem(this._presetKey()) || '[]');
-      } catch (_) { return []; }
+      } catch (err) {
+        gameLog('info', 'Shipyard-Presets konnten nicht aus Storage geladen werden', err);
+        return [];
+      }
     }
 
     savePresetToStorage(name, hull, layout, modules) {
@@ -6516,6 +6717,7 @@
       toolbar.dom.appendChild(sel);
       toolbar.add(loadBtn, saveBtn, delBtn);
       return toolbar.dom;
+
     }
 
     refreshPresetToolbar(root) {
@@ -7059,17 +7261,9 @@
         const layoutCode = String(root.querySelector('#shipyard-blueprint-layout')?.value || 'default');
         const nameInput = root.querySelector('#shipyard-blueprint-name');
         const hull = hulls.find((entry) => String(entry.code || '') === hullCode);
-        if (!hull) {
-          showToast('No hull selected.', 'warning');
-          return;
-        }
-
+        if (!hull) { showToast('No hull selected.', 'warning'); return; }
         const modules = this.collectBlueprintModulesFromUI(root);
-        if (!modules.length) {
-          showToast('Select modules for at least one slot.', 'warning');
-          return;
-        }
-
+        if (!modules.length) { showToast('Select modules for at least one slot.', 'warning'); return; }
         const defaultName = `${fmtName(hull.ship_class || hull.role || 'Hull')} ${fmtName(layoutCode === 'default' ? hull.code : layoutCode)}`;
         const payload = {
           colony_id: currentColony.id,
@@ -7079,14 +7273,11 @@
           doctrine_tag: layoutCode,
           modules,
         };
-
         const createBtn = root.querySelector('#shipyard-create-blueprint');
         if (createBtn) createBtn.disabled = true;
         try {
           const res = await API.createBlueprint(payload);
-          if (!res.success) {
-            throw new Error(res.error || 'Blueprint creation failed');
-          }
+          if (!res.success) throw new Error(res.error || 'Blueprint creation failed');
           showToast(`Blueprint created: ${payload.name}`, 'success');
           if (nameInput) nameInput.value = '';
           await this.render();
@@ -7096,15 +7287,15 @@
         }
       });
 
-      this.updateBlueprintLayoutOptions(root, hulls).catch(() => {});
+      this.updateBlueprintLayoutOptions(root, hulls).catch((err) => {
+        gameLog('info', 'Blueprint Layout-Optionen Update fehlgeschlagen', err);
+      });
 
       // ÔöÇÔöÇ Module slot events (delegated on modules container) ÔöÇ
       const modsContainer = root.querySelector('#shipyard-blueprint-modules');
       if (modsContainer) {
         modsContainer.addEventListener('change', (e) => {
-          if (e.target.classList.contains('shipyard-module-slot')) {
-            this.updateStatsPreview(root);
-          }
+          if (e.target.classList.contains('shipyard-module-slot')) this.updateStatsPreview(root);
         });
         modsContainer.addEventListener('click', (e) => {
           const upBtn = e.target.closest('.shipyard-slot-up');
@@ -7257,6 +7448,142 @@
 
         root.replaceChildren(frag);
         this.bindActions(root, hulls);
+      } catch (err) {
+        gameLog('warn', 'Shipyard view laden fehlgeschlagen (renderer v1)', err);
+        gqStatusMsg(root, 'Failed to load shipyard.', 'red');
+      }
+    }
+
+    renderDockedVesselsDom(vessels) {
+      if (!vessels.length) return null;
+      const list = new GQUI.Div().setClass('vessel-list');
+      vessels.forEach((v) => {
+        const hp    = v.hp_state?.hp    ?? v.stats?.hull ?? '?';
+        const maxHp = v.hp_state?.max_hp ?? v.stats?.hull ?? '?';
+        const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
+
+        const card = new GQUI.Div().setClass('vessel-card');
+        card.dom.dataset.vesselId = String(v.id);
+
+        const header = new GQUI.Div().setClass('vessel-card-header');
+        header.add(new GQUI.Span().setClass('vessel-card-name').setTextContent(String(v.bp_name || v.name || `Vessel #${v.id}`)));
+        header.add(new GQUI.Span().setClass('vessel-card-class badge').setTextContent(`${fmtName(v.hull_class || 'unknown')} T${v.hull_tier ?? '?'}`));
+        const statusSpan = new GQUI.Span().setClass('vessel-card-status vessel-status-' + String(v.status)).setTextContent(String(v.status));
+        header.add(statusSpan);
+        card.add(header);
+
+        const hullLbl = new GQUI.Div().setClass('vessel-card-hull').setTextContent(String(v.hull_label || ''));
+        card.add(hullLbl);
+
+        const hpBarWrap = new GQUI.Div().setClass('vessel-hp-bar');
+        const hpFill = new GQUI.Div().setClass('vessel-hp-fill');
+        hpFill.dom.style.width = hpPct + '%';
+        hpBarWrap.add(hpFill);
+        card.add(hpBarWrap);
+
+        const chipsDiv = new GQUI.Div().setClass('vessel-stat-chips');
+        ['attack', 'shield', 'hull', 'cargo', 'speed'].filter((k) => v.stats?.[k] > 0).forEach((k) => {
+          const chip = new GQUI.Span().setClass('vessel-stat-chip chiptype-' + k.slice(0, 3));
+          chip.dom.textContent = fmtName(k) + ' ' + fmt(v.stats[k]);
+          chipsDiv.add(chip);
+        });
+        card.add(chipsDiv);
+
+        const actionsDiv = new GQUI.Div().setClass('vessel-card-actions');
+        const decommBtn = new GQUI.Button('Decommission').setClass('btn btn-sm btn-danger vessel-decommission-btn');
+        decommBtn.dom.type = 'button';
+        decommBtn.dom.dataset.vesselId = String(v.id);
+        decommBtn.dom.title = 'Permanently decommission this vessel';
+        actionsDiv.add(decommBtn);
+        card.add(actionsDiv);
+
+        list.add(card);
+      });
+      return list.dom;
+          const vesselCard = GQUI.div('system-card').setStyle('marginBottom', '1rem').setId('shipyard-docked-vessels-card');
+          const vesselHeader = GQUI.div('system-row');
+          vesselHeader.add(
+            GQUI.strong().setText('Docked Vessels'),
+            GQUI.span('badge').setStyle('marginLeft', '0.5rem').setText(String(vessels.length)),
+          );
+          vesselCard.add(vesselHeader);
+          vesselCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
+            .setText('Individual blueprint vessels docked at this colony.'));
+          const vesselBody = GQUI.div().setStyle('marginTop', '0.7rem');
+          vesselBody.add(this.renderDockedVessels(vessels));
+          vesselCard.add(vesselBody);
+          frag.appendChild(vesselCard.dom);
+        }
+
+        const hullCard = GQUI.div('system-card').setStyle('marginBottom', '1rem');
+        hullCard.add(GQUI.div('system-row').add(GQUI.strong().setText('Hull Catalog')));
+        hullCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
+          .setText('Ship classes and their slot-layout variations.'));
+        const hullBody = GQUI.div().setStyle('marginTop', '0.7rem');
+        hullBody.add(this.buildHullCatalog(hulls));
+        hullCard.add(hullBody);
+        frag.appendChild(hullCard.dom);
+
+        const bpCard = GQUI.div('system-card').setStyle('marginBottom', '1rem');
+        bpCard.add(GQUI.div('system-row').add(GQUI.strong().setText('Blueprints')));
+        bpCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
+          .setText('Compiled blueprints built as synthetic ship types.'));
+        const bpBody = GQUI.div().setStyle('marginTop', '0.7rem');
+        bpBody.add(this.buildBlueprintCards(data.blueprints || []));
+        bpCard.add(bpBody);
+        frag.appendChild(bpCard.dom);
+
+        const legacyCard = GQUI.div('system-card');
+        legacyCard.add(GQUI.div('system-row').add(GQUI.strong().setText('Legacy Ships')));
+        legacyCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
+          .setText('Fallback SHIP_STATS path remains available during migration.'));
+        const legacyBody = GQUI.div().setStyle('marginTop', '0.7rem');
+        legacyBody.add(this.buildCards(data.ships || []));
+        legacyCard.add(legacyBody);
+        frag.appendChild(legacyCard.dom);
+
+        GQUI.clearNode(root);
+        root.appendChild(frag);
+        this.bindActions(root, hulls);
+      } catch (err) {
+        gameLog('warn', 'Shipyard view laden fehlgeschlagen (renderer v2)', err);
+        GQUI.setStatus(root, 'Failed to load shipyard.', 'text-red');
+      }
+    }
+
+    renderDockedVessels(vessels) {
+      if (!vessels.length) return GQUI.div();
+      const list = GQUI.div('vessel-list');
+      vessels.forEach((v) => {
+        const hp    = v.hp_state?.hp    ?? v.stats?.hull ?? 0;
+        const maxHp = v.hp_state?.max_hp ?? v.stats?.hull ?? 0;
+        const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
+        const card = GQUI.div('vessel-card').setData('vesselId', v.id);
+        const header = GQUI.div('vessel-card-header');
+        header.add(
+          GQUI.span('vessel-card-name').setText(String(v.bp_name || v.name || `Vessel #${v.id}`)),
+          GQUI.span('vessel-card-class badge').setText(`${fmtName(v.hull_class || 'unknown')} T${v.hull_tier ?? '?'}`),
+          GQUI.span(`vessel-card-status vessel-status-${String(v.status || '')}`).setText(String(v.status || '')),
+        );
+        card.add(header);
+        card.add(GQUI.div('vessel-card-hull').setText(String(v.hull_label || '')));
+        const hpBar = GQUI.div('vessel-hp-bar');
+        hpBar.add(GQUI.div('vessel-hp-fill').setStyle('width', `${hpPct}%`));
+        card.add(hpBar);
+        const chips = GQUI.div('vessel-stat-chips');
+        ['attack', 'shield', 'hull', 'cargo', 'speed'].forEach((k) => {
+          if (!(v.stats?.[k] > 0)) return;
+          chips.add(GQUI.span(`vessel-stat-chip chiptype-${k.slice(0, 3)}`).setText(`${fmtName(k)} ${fmt(v.stats[k])}`));
+        });
+        card.add(chips);
+        const actions = GQUI.div('vessel-card-actions');
+        actions.add(GQUI.btn('Decommission', 'btn', 'btn-sm', 'btn-danger', 'vessel-decommission-btn')
+          .setData('vesselId', v.id)
+          .setTitle('Permanently decommission this vessel'));
+        card.add(actions);
+        list.add(card);
+      });
+      return list;
       } catch (_) {
         gqStatusMsg(root, 'Failed to load shipyard.', 'red');
       }
@@ -7324,7 +7651,8 @@
         } else {
           alert(res.error || 'Decommission failed.');
         }
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Blueprint decommission fehlgeschlagen', err);
         alert('Network error.');
       }
     }
@@ -8247,7 +8575,8 @@
       const gl2 = testCanvas.getContext('webgl2');
       const gl1 = gl2 || testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl');
       webglSupport = gl2 ? 'webgl2' : (gl1 ? 'webgl1' : 'none');
-    } catch (_) {
+    } catch (err) {
+      gameLog('info', 'WebGL support detection fehlgeschlagen', err);
       webglSupport = 'error';
     }
     const telemetry = Array.isArray(window.__GQ_RENDER_TELEMETRY) ? window.__GQ_RENDER_TELEMETRY : [];
@@ -8600,10 +8929,19 @@
   ];
 
   function loadQuickNavData() {
-    try { return JSON.parse(localStorage.getItem(QUICKNAV_KEY) || '{}'); } catch (_) { return {}; }
+    try {
+      return JSON.parse(localStorage.getItem(QUICKNAV_KEY) || '{}');
+    } catch (err) {
+      gameLog('info', 'QuickNav Daten konnten nicht geladen werden, fallback leer', err);
+      return {};
+    }
   }
   function saveQuickNavData(data) {
-    try { localStorage.setItem(QUICKNAV_KEY, JSON.stringify(data)); } catch (_) {}
+    try {
+      localStorage.setItem(QUICKNAV_KEY, JSON.stringify(data));
+    } catch (err) {
+      gameLog('info', 'QuickNav Daten konnten nicht gespeichert werden', err);
+    }
   }
   function getQuickNavFavorites() {
     return Array.isArray(loadQuickNavData().favorites) ? loadQuickNavData().favorites : [];
@@ -8787,7 +9125,9 @@
       const removeBtn = e.target.closest('.quicknav-item-btn.remove');
       const itemRow  = e.target.closest('.quicknav-item');
       if (goBtn) {
-        navigateToFav(goBtn.dataset.favKey).catch(() => {});
+          navigateToFav(goBtn.dataset.favKey).catch((err) => {
+            gameLog('info', 'QuickNav Navigation (Button) fehlgeschlagen', err);
+          });
         return;
       }
       if (removeBtn) {
@@ -8799,7 +9139,9 @@
         return;
       }
       if (itemRow && !e.target.closest('select') && !e.target.closest('button')) {
-        navigateToFav(itemRow.dataset.favKey).catch(() => {});
+            navigateToFav(itemRow.dataset.favKey).catch((err) => {
+              gameLog('info', 'QuickNav Navigation (Item) fehlgeschlagen', err);
+            });
       }
     });
 
@@ -9112,7 +9454,9 @@
         galaxyModel.addLoadedStarRange(g, start, end, responseTs);
       }
       if (galaxyDB) {
-        galaxyDB.upsertStars(normalizeStarListVisibility(data.stars), responseTs).catch(() => {});
+            galaxyDB.upsertStars(normalizeStarListVisibility(data.stars), responseTs).catch((err) => {
+              gameLog('info', 'DB upsertStars (lazy load) fehlgeschlagen', err);
+            });
       }
 
       if (uiState.activeGalaxy === g) {
@@ -9328,7 +9672,9 @@
         });
       }
       if (galaxyDB) {
-        galaxyDB.upsertSystemPayload(g, s, normalizedData, responseTs).catch(() => {});
+            galaxyDB.upsertSystemPayload(g, s, normalizedData, responseTs).catch((err) => {
+              gameLog('info', 'DB upsertSystemPayload fehlgeschlagen', err);
+            });
       }
       return { source: 'network', payload: normalizedData, fresh: true };
     } catch (netErr) {
@@ -9453,7 +9799,8 @@
           const intelPayload = await getPlanetIntel(targetGalaxy, targetSystem, targetPosition);
           detail.__planetIntel = intelPayload;
           renderForeignIntel(detail, intelPayload);
-        } catch (_) {
+        } catch (err) {
+          gameLog('info', 'Planet intel render fehlgeschlagen', err);
           const extra = detail.querySelector('.planet-detail-extra');
           if (extra) extra.innerHTML = '<div class="planet-detail-row">Intel-Daten derzeit nicht verf├╝gbar.</div>';
         }
@@ -9668,7 +10015,8 @@
           : [];
         messageConsoleState.userHints = users;
         datalist.innerHTML = this.renderTemplateList('userHintOption', users.map((u) => ({ value: esc(u) })));
-      } catch (_) {
+      } catch (err) {
+        gameLog('info', 'Message user hints laden fehlgeschlagen', err);
         messageConsoleState.userHints = [];
         datalist.innerHTML = '';
       }
@@ -9745,7 +10093,8 @@
             }
           });
         });
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Messages view laden fehlgeschlagen', err);
         el.innerHTML = '<p class="text-red">Failed to load messages.</p>';
       }
     }
@@ -10487,7 +10836,8 @@
       let data;
       try {
         data = await API.tradeRoutes();
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Trade routes laden fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to load trade routes.</p>';
         return;
       }
@@ -12387,7 +12737,8 @@
             <span class="lb-stat">­ƒîì ${row.planet_count}</span>
             <span class="lb-stat">Ôùå ${fmt(row.dark_matter)}</span>
           </div>`).join('');
-      } catch (_) {
+      } catch (err) {
+        gameLog('warn', 'Leaderboard laden fehlgeschlagen', err);
         root.innerHTML = '<p class="text-red">Failed to load leaderboard.</p>';
       }
     }
@@ -13506,11 +13857,17 @@
         try {
           localStorage.clear();
           sessionStorage.clear();
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'Session-Storage cleanup im Logout fehlgeschlagen', err);
+        }
         
         // Close EventSource if active
         if (typeof window.__gqSSE !== 'undefined' && window.__gqSSE?.close) {
-          try { window.__gqSSE.close(); } catch (_) {}
+          try {
+            window.__gqSSE.close();
+          } catch (err) {
+            gameLog('info', 'SSE close im Logout-Cleanup fehlgeschlagen', err);
+          }
         }
         
         // Hard redirect after brief delay to ensure cookies are sent
@@ -13519,7 +13876,9 @@
         }, 200);
         return;
       }
-    } catch (_) {}
+    } catch (err) {
+      gameLog('warn', 'API logout fehlgeschlagen, fallback redirect aktiv', err);
+    }
     
     // Fallback: redirect immediately if logout failed
     window.location.href = 'index.html?logout=1&nocache=' + Date.now();
@@ -13561,7 +13920,9 @@
           if ((parseInt(data.new, 10) || 0) > 0) {
             showToast(`Ô£ë ${data.new} new message${data.new > 1 ? 's' : ''}`, 'info');
           }
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'SSE new_messages handler fehlgeschlagen', err);
+        }
       });
 
       es.addEventListener('fleet_arrived', async (e) => {
@@ -13575,7 +13936,9 @@
           await loadOverview();
           _invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
           ['fleet', 'shipyard', 'buildings'].forEach(id => WM.refresh(id));
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'SSE fleet_arrived handler fehlgeschlagen', err);
+        }
       });
 
       es.addEventListener('fleet_returning', async (e) => {
@@ -13585,7 +13948,9 @@
           await loadOverview();
           _invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
           WM.refresh('fleet');
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'SSE fleet_returning handler fehlgeschlagen', err);
+        }
       });
 
       es.addEventListener('incoming_attack', (e) => {
@@ -13596,7 +13961,9 @@
             ? `­ƒöì Spy fleet from ${data.attacker} inbound ÔåÆ ${data.target} (${arrival})`
             : `ÔÜá INCOMING ATTACK from ${data.attacker} ÔåÆ ${data.target} at ${arrival}!`;
           showToast(msg, 'danger');
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'SSE incoming_attack handler fehlgeschlagen', err);
+        }
       });
 
       es.addEventListener('reconnect', () => {
@@ -13698,7 +14065,11 @@
 
       const clearListeners = () => {
         listeners.forEach(({ type, handler, opts }) => {
-          try { window.removeEventListener(type, handler, opts); } catch (_) {}
+          try {
+            window.removeEventListener(type, handler, opts);
+          } catch (err) {
+            gameLog('info', `Audio-Unlock Listener-Entfernung fehlgeschlagen (${type})`, err);
+          }
         });
         listeners.length = 0;
       };
@@ -13715,7 +14086,9 @@
             unlocked = true;
             clearListeners();
           }
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'Audio resume on interaction fehlgeschlagen', err);
+        }
       };
 
       const bind = (type, opts) => {
@@ -13752,11 +14125,15 @@
   });
 
   refreshAudioUi();
-  loadAudioTrackCatalog().catch(() => {});
+  loadAudioTrackCatalog().catch((err) => {
+    gameLog('info', 'Initiales Laden des Audio-Track-Katalogs fehlgeschlagen', err);
+  });
 
   // Advisor widget: register WM window + mount floating bubble
   AdvisorWidget.register();
-  AdvisorWidget.load().catch(() => {});
+  AdvisorWidget.load().catch((err) => {
+    gameLog('info', 'AdvisorWidget Load fehlgeschlagen', err);
+  });
 
   await loadOverview();
 
@@ -13775,10 +14152,15 @@
         });
       }
     }
-  } catch (_) {
+  } catch (err) {
+    gameLog('info', 'Intro camera flight bootstrap fehlgeschlagen (non-blocking)', err);
     // Keep startup resilient if intro camera flight fails.
   } finally {
-    try { window.__GQ_BOOT_HOME_FLIGHT = null; } catch (_) {}
+    try {
+      window.__GQ_BOOT_HOME_FLIGHT = null;
+    } catch (err) {
+      gameLog('info', 'Konnte __GQ_BOOT_HOME_FLIGHT nicht zuruecksetzen', err);
+    }
   }
 
   await loadBadge();

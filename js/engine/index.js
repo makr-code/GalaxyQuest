@@ -37,63 +37,7 @@ const { BloomPass }                 = require('./post-effects/passes/BloomPass')
 const { VignettePass }              = require('./post-effects/passes/VignettePass');
 const { ChromaticPass }             = require('./post-effects/passes/ChromaticPass');
 const { ComputePass }               = require('./post-effects/passes/ComputePass');
-const { SSAOPass, MAX_KERNEL_SIZE } = require('./post-effects/passes/SSAOPass');
-const { PostFxController, PARAM_META: PostFxParamMeta } = require('./post-effects/PostFxController');
-
-// Math
-const { Vector2 }                   = require('./math/Vector2');
-const { Vector3 }                   = require('./math/Vector3');
-const { Vector4 }                   = require('./math/Vector4');
-const { Matrix4 }                   = require('./math/Matrix4');
-const { Quaternion }                = require('./math/Quaternion');
-const { MathUtils }                 = require('./math/MathUtils');
-
-// Utils
-const { WebGPUCapabilities }        = require('./utils/WebGPUCapabilities');
-const { ShaderCompiler }            = require('./utils/ShaderCompiler');
-const { PerformanceMonitor }        = require('./utils/PerformanceMonitor');
-const { ResourceTracker }           = require('./utils/ResourceTracker');
-
-// Loaders
-const { TextureLoader }             = require('./loaders/TextureLoader');
-const { GeometryLoader }            = require('./loaders/GeometryLoader');
-const { ShaderLoader }              = require('./loaders/ShaderLoader');
-
-// Game engine layer
-const { GameEngine }                = require('./GameEngine');
-const { GameLoop }                  = require('./GameLoop');
-const { EventBus, sharedBus }       = require('./EventBus');
-const { SystemRegistry, SystemPriority } = require('./SystemRegistry');
-const { AssetRegistry, AssetType }  = require('./AssetRegistry');
-
-// Scene — cameras
-const { FollowCamera, FollowMode }  = require('./scene/FollowCamera');
-const { CameraManager }             = require('./scene/CameraManager');
-
-// Viewport
-const { ViewportManager, PIP_DEFAULTS } = require('./ViewportManager');
-
-// Combat FX — particles, dynamic lights, weapon fire, explosions, shield impacts
-const { ParticleEmitter, EmitterMode }           = require('./fx/ParticleEmitter');
-const { ParticleSystem, DEFAULT_MAX_PARTICLES }  = require('./fx/ParticleSystem');
-const { CombatFX, WeaponType, ExplosionType, ShieldImpactType } = require('./fx/CombatFX');
-
-// Environment FX — debris, plasma clouds, nebulae, god rays, lens flares, EMP, etc.
-const { EnvironmentFX, DebrisType, CloudType, LightingFXType } = require('./fx/EnvironmentFX');
-
-// Advanced FX — Phase FX-6/7/8
-const { DebrisSimulator, FLOATS_PER_CHUNK }     = require('./fx/DebrisSimulator');
-const { VolumetricScatter, ScatterMedium }      = require('./fx/VolumetricScatter');
-
-// Combat FX — Phase FX-2/3/4/5
-const { GPUParticleSystem, FLOATS_PER_PARTICLE } = require('./fx/GPUParticleSystem');
-const { BeamEffect, FLOATS_PER_BEAM, DEFAULT_MAX_BEAMS } = require('./fx/BeamEffect');
-const { VoxelDebris, DEFAULT_MAX_CHUNKS, DEFAULT_CHUNKS_PER_EXPLOSION } = require('./fx/VoxelDebris');
-
-// Game systems (classics-inspired)
-const { EventSystem, EventType, EventStatus, Journal, JournalStatus } = require('./game/EventSystem');
-const { ResearchTree, ResearchCategory, CivAffinity }      = require('./game/ResearchTree');
-const { FleetFormation, Wing, FormationShape, Maneuver, getSlotPositions } = require('./game/FleetFormation');
+const { SSAOPass, MAX_KERNEL_SIZE }  = require('./post-effects/passes/SSAOPass');
 const { ColonySimulation, Colony, PopJob, BASE_YIELD, ColonyType, COLONY_TYPE_BONUS } = require('./game/ColonySimulation');
 
 // Constants
@@ -132,20 +76,15 @@ module.exports = {
   EventSystem, EventType, EventStatus, Journal, JournalStatus,
   ResearchTree, ResearchCategory, CivAffinity,
   FleetFormation, Wing, FormationShape, Maneuver, getSlotPositions,
-  ColonySimulation, Colony, PopJob, BASE_YIELD, ColonyType, COLONY_TYPE_BONUS,
-  // Combat FX
-  ParticleEmitter, EmitterMode,
-  ParticleSystem, DEFAULT_MAX_PARTICLES,
-  CombatFX, WeaponType, ExplosionType, ShieldImpactType,
-  // Environment FX
-  EnvironmentFX, DebrisType, CloudType, LightingFXType,
-  // Advanced FX — Phase FX-6/7/8
-  DebrisSimulator, FLOATS_PER_CHUNK,
-  VolumetricScatter, ScatterMedium,
-  // Phase FX-2/3/4/5
-  GPUParticleSystem, FLOATS_PER_PARTICLE,
-  BeamEffect, FLOATS_PER_BEAM, DEFAULT_MAX_BEAMS,
-  VoxelDebris, DEFAULT_MAX_CHUNKS, DEFAULT_CHUNKS_PER_EXPLOSION,
+  BattleSimulator, BattleFleet, BattleReport,
+  ShipClass, SHIP_STATS, SHIP_METAL_VALUE,
+  ColonySimulation, Colony, PopJob, BASE_YIELD,
+  BuildingType, BUILDING_COST, BUILDING_YIELD, TRADE_CHAIN,
+  HUNGER_THRESHOLDS, UNREST_THRESHOLDS,
+  ColonyType, COLONY_TYPE_BONUS, MOON_ALLOWED_BUILDINGS, MOON_MAX_SIZE,
+  InvasionResult, InvasionReport,
+  TROOP_DEFENSE_VALUE, TROOP_ATTACK_VALUE, DEFENSE_DPS_FACTOR,
+  MAX_INVASION_ROUNDS, INVASION_LOOT_FRACTION, INVASION_CONQUEST_PENALTIES,
   // Constants
   ...constants,
 };

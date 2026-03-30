@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const wmPath = path.resolve(process.cwd(), 'js/wm.js');
+const gqUiPath = path.resolve(process.cwd(), 'js/gq-ui.js');
+const wmPath   = path.resolve(process.cwd(), 'js/wm.js');
 
 function loadWmScript() {
+  delete window.GQUI;
   delete window.WM;
-  const source = fs.readFileSync(wmPath, 'utf8');
-  window.eval(source);
+  window.eval(fs.readFileSync(gqUiPath, 'utf8'));
+  window.eval(fs.readFileSync(wmPath,   'utf8'));
   return window.WM;
 }
 
