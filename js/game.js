@@ -3488,7 +3488,7 @@
             <label><input type="radio" name="mission" value="spy" /> 🔭 Spy on colony</label>
             <label><input type="radio" name="mission" value="colonize" /> 🌍 Colonize planet</label>
             <label><input type="radio" name="mission" value="harvest" /> ⛏ Harvest deposits</label>
-            <label><input type="radio" name="mission" value="survey" /> 🗺️ Survey system (FTL node)</label>
+            <label><input type="radio" name="mission" value="survey" /> 🗺️ Survey system (FTL infrastructure)</label>
           </div>
 
           <h3>3. Target Coordinates</h3>
@@ -3570,16 +3570,18 @@
           let extraInfo = '';
           if (driveType === 'syl_nar') {
             const gateCount = Array.isArray(ftlData.gates) ? ftlData.gates.filter((g) => g.is_active && g.health > 0).length : 0;
-            extraInfo = ` · ${gateCount} gate(s) active`;
+            extraInfo = ` · ${gateCount} gate(s) active · Survey to build new gates`;
           } else if (driveType === 'zhareen') {
             const nodeCount = Array.isArray(ftlData.resonance_nodes) ? ftlData.resonance_nodes.length : 0;
-            extraInfo = ` · ${nodeCount} node(s) charted`;
+            extraInfo = ` · ${nodeCount} node(s) charted · Survey to chart new nodes`;
           } else if (driveType === 'aereth') {
             extraInfo = ' · Core bonus: +50% speed in galaxies ≤3, −30% in galaxies ≥7';
           } else if (driveType === 'kryl_tha') {
-            extraInfo = ' · Max 50 ships per FTL jump';
+            extraInfo = ' · Max 50 ships per FTL jump · −10% hull after each jump';
           } else if (driveType === 'vel_ar') {
             extraInfo = ' · Arrival scatter: 0.5% of distance · 60s stealth on landing';
+          } else if (driveType === 'vor_tak') {
+            extraInfo = ' · Max 30 LY · 72h recharge · Carrier gives +30% cargo';
           }
 
           ftlEl.innerHTML = `<span style="color:#88ccff;font-weight:600;">${esc(driveLabel)}</span>`
@@ -4572,6 +4574,10 @@
           if (typeof galaxy3d.setGalaxyFleets === 'function') {
             galaxy3d.setGalaxyFleets(window._GQ_fleets || []);
           }
+          if (typeof galaxy3d.setFtlInfrastructure === 'function') {
+            const ftlMap = window._GQ_ftl_map;
+            galaxy3d.setFtlInfrastructure(ftlMap?.gates || [], ftlMap?.resonance_nodes || []);
+          }
           if (typeof galaxy3d.setClusterColorPalette === 'function') {
             galaxy3d.setClusterColorPalette(resolveClusterColorPalette(uiState.territory));
           }
@@ -5091,6 +5097,7 @@
             </div>
             {{{vesselListHtml}}}
             {{{returningBadgeHtml}}}
+            {{{ftlBadgesHtml}}}
             {{{recallButtonHtml}}}
           </div>`,
         battleRow: `
@@ -5189,6 +5196,16 @@
 
         if (galaxy3d && typeof galaxy3d.setGalaxyFleets === 'function') {
           galaxy3d.setGalaxyFleets(window._GQ_fleets || []);
+        }
+
+        // Refresh FTL infrastructure overlay (lazy: only when galaxy3d is active)
+        if (galaxy3d && typeof galaxy3d.setFtlInfrastructure === 'function') {
+          API.ftlMap().then((ftlData) => {
+            if (ftlData?.success) {
+              window._GQ_ftl_map = ftlData;
+              galaxy3d.setFtlInfrastructure(ftlData.gates || [], ftlData.resonance_nodes || []);
+            }
+          }).catch(() => {});
         }
 
         this.populatePlanetSelect();
@@ -5410,6 +5427,17 @@
           .join('');
         const vesselListHtml = vesselChips ? `<div class="fleet-vessel-list">${vesselChips}</div>` : '';
         const progressPct = ((pos.progress || 0) * 100).toFixed(0);
+
+        // FTL status badges
+        const stealthSec = Number(fleet.stealth_remaining_s || 0);
+        const stealthBadge = stealthSec > 0
+          ? `<span class="fleet-stealth-badge" title="Vel'Ar stealth: ${stealthSec}s remaining">👁️ Stealth ${stealthSec}s</span>`
+          : '';
+        const hullDmg = Number(fleet.hull_damage_pct || 0);
+        const hullBadge = hullDmg > 0
+          ? `<span class="fleet-hull-badge" title="Kryl'Tha hull damage: -${hullDmg}% attack">⚠ Hull ${hullDmg}%</span>`
+          : '';
+
         return {
           mission: esc(String(fleet.mission || '').toUpperCase()),
           targetGalaxy: esc(String(fleet.target_galaxy || '')),
@@ -5422,6 +5450,7 @@
           progressPct: esc(progressPct),
           vesselListHtml,
           returningBadgeHtml: fleet.returning ? '<span class="fleet-returning">↩ Returning</span>' : '',
+          ftlBadgesHtml: stealthBadge + hullBadge,
           recallButtonHtml: !fleet.returning
             ? `<button class="btn btn-warning btn-sm recall-btn" data-fid="${esc(String(fleet.id || ''))}">Recall</button>`
             : '',

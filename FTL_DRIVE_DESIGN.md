@@ -1,7 +1,7 @@
 # ⚡ GalaxyQuest — FTL Drive Design Document
 
-**Version:** 1.0  
-**Status:** Design-Entwurf — bereit für Implementierungs-Entscheidung  
+**Version:** 1.2  
+**Status:** Phase 1–4 implementiert (siehe `sql/migrate_vessel_blueprints_v10_ftl_drives.sql`, `v11_ftl_phase4.sql`)  
 **Erstellt:** 2026-03-30  
 **Basis-Docs:** [GAMEDESIGN.md](GAMEDESIGN.md) · [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) · [FUTURE_ENHANCEMENTS.md](FUTURE_ENHANCEMENTS.md)
 

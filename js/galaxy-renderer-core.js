@@ -530,6 +530,11 @@
       this.galaxyFleetGroup.visible = true;
       this.renderFrames.galaxy.add(this.galaxyFleetGroup);
 
+      // FTL infrastructure overlay (gates = colored lines, nodes = glowing dots)
+      this.galaxyFtlGroup = new THREE.Group();
+      this.galaxyFtlGroup.visible = true;
+      this.renderFrames.galaxy.add(this.galaxyFtlGroup);
+
       this.systemStarInstallationGroup = new THREE.Group();
       this.systemStarInstallationGroup.visible = false;
       this.renderFrames.system.add(this.systemStarInstallationGroup);
@@ -2590,6 +2595,56 @@
       this.galaxyFleetEntries = source
         .map((fleet, index) => this._buildGalaxyFleetEntry(fleet, index))
         .filter(Boolean);
+    }
+
+    /**
+     * Render FTL infrastructure overlays on the galaxy map.
+     * Gates: rendered as colored line segments (cyan) between endpoint systems.
+     * Resonance nodes: rendered as small glowing spheres (magenta).
+     * @param {Array} gates    - Array of gate objects from API.ftlMap()
+     * @param {Array} nodes    - Array of resonance node objects from API.ftlMap()
+     */
+    setFtlInfrastructure(gates = [], nodes = []) {
+      if (!this.galaxyFtlGroup) return;
+      this._clearGroup(this.galaxyFtlGroup);
+
+      // ── Gate lines ─────────────────────────────────────────────────────────
+      // Shared geometry/material for gate endpoint markers (no clone duplication)
+      const gateMat = new THREE.LineBasicMaterial({ color: 0x00e5ff, opacity: 0.75, transparent: true });
+      const gateMarkerGeo = new THREE.SphereGeometry(1.2, 8, 8);
+      const gateMarkerMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
+      for (const gate of (Array.isArray(gates) ? gates : [])) {
+        const a = gate?.a;
+        const b = gate?.b;
+        if (!a || !b) continue;
+        const pts = [
+          new THREE.Vector3(Number(a.x) || 0, Number(a.y) || 0, Number(a.z) || 0),
+          new THREE.Vector3(Number(b.x) || 0, Number(b.y) || 0, Number(b.z) || 0),
+        ];
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const line = new THREE.Line(geo, gateMat);
+        line.userData = { ftlType: 'gate', id: gate.id };
+        this.galaxyFtlGroup.add(line);
+
+        // Small endpoint markers (shared geometry + material, individual positions)
+        const mA = new THREE.Mesh(gateMarkerGeo, gateMarkerMat);
+        mA.position.set(Number(a.x) || 0, Number(a.y) || 0, Number(a.z) || 0);
+        const mB = new THREE.Mesh(gateMarkerGeo, gateMarkerMat);
+        mB.position.set(Number(b.x) || 0, Number(b.y) || 0, Number(b.z) || 0);
+        this.galaxyFtlGroup.add(mA, mB);
+      }
+
+      // ── Resonance nodes ───────────────────────────────────────────────────
+      const nodeMat = new THREE.MeshBasicMaterial({ color: 0xff00cc });
+      for (const node of (Array.isArray(nodes) ? nodes : [])) {
+        const p = node?.pos;
+        if (!p) continue;
+        const geo = new THREE.SphereGeometry(1.5, 8, 8);
+        const mesh = new THREE.Mesh(geo, nodeMat);
+        mesh.position.set(Number(p.x) || 0, Number(p.y) || 0, Number(p.z) || 0);
+        mesh.userData = { ftlType: 'node', id: node.id, cooldown: node.cooldown_remaining_s || 0 };
+        this.galaxyFtlGroup.add(mesh);
+      }
     }
 
     setGalaxyFleetVectorsVisible(enabled) {
