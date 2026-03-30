@@ -60,6 +60,17 @@ define('SLOW_QUERY_THRESHOLD_MS', (int) env_value('SLOW_QUERY_THRESHOLD_MS', 500
 
 require_once __DIR__ . '/api_version.php';
 
+// ── Projection / Read-Model ───────────────────────────────────────────────────
+// Feature flag: when enabled the overview endpoint reads from projection_user_overview
+// first and falls back to live computation only when the projection is absent/stale.
+define('PROJECTION_OVERVIEW_ENABLED', (bool)(int) env_value('PROJECTION_OVERVIEW_ENABLED', 0));
+// Max age (seconds) before a projection is considered stale and the fallback is used.
+define('PROJECTION_OVERVIEW_MAX_AGE_SECONDS', (int) env_value('PROJECTION_OVERVIEW_MAX_AGE_SECONDS', 120));
+// Projector worker: max dirty-queue entries to process per batch run.
+define('PROJECTION_BATCH_SIZE', (int) env_value('PROJECTION_BATCH_SIZE', 50));
+// Projector worker: base retry delay (seconds) after a failed projection attempt.
+define('PROJECTION_RETRY_BACKOFF_SECONDS', (int) env_value('PROJECTION_RETRY_BACKOFF_SECONDS', 30));
+
 // ── Cache ────────────────────────────────────────────────────────────────────
 // Verifikationsmaßstab: CACHE_VERSION in jeden Schlüssel eingebettet.
 // Increment → alle bestehenden Einträge sofort invalidiert (kein Flush nötig).
