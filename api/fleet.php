@@ -13,6 +13,7 @@ require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/planet_helper.php';
+require_once __DIR__ . '/projection.php';
 require_once __DIR__ . '/galaxy_seed.php';
 require_once __DIR__ . '/shipyard_queue.php';
 
@@ -420,6 +421,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
                 $departure, $arrival, $returnT,
                 $stealthUntil, $hullDamagePct]);
 
+    enqueue_dirty_user($db, $uid, 'fleet_sent');
     json_ok(['fleet_id' => (int)$db->lastInsertId(), 'arrival_time' => $arrival]);
 }
 
@@ -814,20 +816,26 @@ function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
     $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
        ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $cid]);
     $db->prepare('DELETE FROM fleets WHERE id=?')->execute([$fleet['id']]);
+    enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_returned');
 }
 
 function deliver_resources(PDO $db, array $fleet, array $ships): void {
-    $tgt = $db->prepare('SELECT c.id FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE p.galaxy=? AND p.`system`=? AND p.position=?');
+    $tgt = $db->prepare('SELECT c.id, c.user_id FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE p.galaxy=? AND p.`system`=? AND p.position=?');
     $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $target = $tgt->fetch();
     if ($target) {
         $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
            ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $target['id']]);
+        // Mark the receiving user dirty (different user for inter-player transports)
+        if ((int)$target['user_id'] !== (int)$fleet['user_id']) {
+            enqueue_dirty_user($db, (int)$target['user_id'], 'resources_received');
+        }
     }
     $travel  = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
     $retTime = date('Y-m-d H:i:s', time() + $travel);
     $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=?, cargo_metal=0, cargo_crystal=0, cargo_deuterium=0 WHERE id=?')
        ->execute([$retTime, $retTime, $fleet['id']]);
+    enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_delivered');
 }
 
 function resolve_battle(PDO $db, array $fleet, array $ships): void {
@@ -1138,6 +1146,8 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
                            cargo_metal=?, cargo_crystal=?, cargo_deuterium=?, ships_json=?
          WHERE id=?'
     )->execute([$retTime, $retTime, $lootM, $lootC, $lootD, json_encode($atkSurvivors), $fleet['id']]);
+    enqueue_dirty_user($db, (int)$fleet['user_id'], 'battle_resolved');
+    enqueue_dirty_user($db, (int)$target['user_id'], 'colony_attacked');
 }
 
 function simulate_battle_preview(PDO $db, int $uid, array $body): never {

@@ -42,10 +42,10 @@ class RendererFactory {
    * @returns {Promise<import('./GraphicsContext').IGraphicsRenderer>}
    */
   static async create(canvas, opts = {}) {
-    const { hint = 'auto', onFallback } = opts;
+    const { hint = 'auto', onFallback, debug = false } = opts;
 
     if (hint === 'webgl2') {
-      return RendererFactory._createWebGL(canvas);
+      return RendererFactory._createWebGL(canvas, onFallback, debug);
     }
 
     if (hint === 'webgpu' || hint === 'auto') {
@@ -64,7 +64,7 @@ class RendererFactory {
       }
     }
 
-    return RendererFactory._createWebGL(canvas, onFallback);
+    return RendererFactory._createWebGL(canvas, onFallback, debug);
   }
 
   /**
@@ -87,11 +87,12 @@ class RendererFactory {
   // Internal helpers
   // ---------------------------------------------------------------------------
 
-  static async _createWebGL(canvas, onFallback) {
+  static async _createWebGL(canvas, onFallback, debug = false) {
     if (typeof onFallback === 'function') {
       onFallback('using-webgl2', null);
     }
     const r = new WebGLRenderer();
+    r.debug = debug;
     await r.initialize(canvas);
     return r;
   }

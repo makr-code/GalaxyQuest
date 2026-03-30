@@ -38,6 +38,7 @@ const { VignettePass }              = require('./post-effects/passes/VignettePas
 const { ChromaticPass }             = require('./post-effects/passes/ChromaticPass');
 const { ComputePass }               = require('./post-effects/passes/ComputePass');
 const { SSAOPass, MAX_KERNEL_SIZE } = require('./post-effects/passes/SSAOPass');
+const { PostFxController, PARAM_META: PostFxParamMeta } = require('./post-effects/PostFxController');
 
 // Math
 const { Vector2 }                   = require('./math/Vector2');
@@ -120,6 +121,7 @@ module.exports = {
   // Post-effects
   EffectComposer, RenderPass, BloomPass, VignettePass, ChromaticPass, ComputePass,
   SSAOPass, MAX_KERNEL_SIZE,
+  PostFxController, PostFxParamMeta,
   // Math
   Vector2, Vector3, Vector4, Matrix4, Quaternion, MathUtils,
   // Utils

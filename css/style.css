@@ -4862,6 +4862,57 @@ input:focus, select:focus, textarea:focus {
 }
 
 
+/* ==========================================================================
+   Post-FX Settings Panel  (#gfx-postfx-panel)
+   ========================================================================== */
+
+.postfx-group {
+  border: 1px solid rgba(79, 151, 255, 0.22);
+  border-radius: 6px;
+  padding: 10px 14px 12px;
+  margin-bottom: 12px;
+}
+.postfx-group:last-child { margin-bottom: 0; }
+
+.postfx-legend {
+  padding: 0 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary, #91c7ff);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.postfx-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.postfx-controls { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+
+.postfx-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  cursor: default;
+}
+
+.postfx-label { color: var(--text-secondary, #91c7ff); }
+
+.postfx-row input[type="range"] {
+  width: 100%;
+  accent-color: #4f97ff;
+}
+
+.postfx-val {
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--text-muted, #6a8cc0);
+  font-variant-numeric: tabular-nums;
 /* ── Minimap window ───────────────────────────────────────────────────────── */
 .minimap-wrap {
   width: 100%;

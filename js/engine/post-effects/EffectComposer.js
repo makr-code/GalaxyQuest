@@ -5,7 +5,7 @@
  * Manages ping-pong render targets and routes each pass via the
  * abstract IGraphicsRenderer interface.
  *
- * Existing WebGL PostEffectsManager (js/post-effects.js) can delegate to
+ * Existing WebGL PostEffectsManager (js/rendering/post-effects.js) can delegate to
  * this class when WebGPU is available.
  *
  * Inspiration:
