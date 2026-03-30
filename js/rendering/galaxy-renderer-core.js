@@ -3,6 +3,24 @@
  * Shared Three.js render engine for auth background and in-game galaxy/system views.
  */
 (function () {
+  function emitRenderTelemetry(type, payload) {
+    const detail = Object.assign({
+      type,
+      ts: Date.now(),
+      source: 'galaxy-renderer-core',
+    }, payload || {});
+    try {
+      if (!Array.isArray(window.__GQ_RENDER_TELEMETRY)) {
+        window.__GQ_RENDER_TELEMETRY = [];
+      }
+      window.__GQ_RENDER_TELEMETRY.push(detail);
+      if (window.__GQ_RENDER_TELEMETRY.length > 300) {
+        window.__GQ_RENDER_TELEMETRY.splice(0, window.__GQ_RENDER_TELEMETRY.length - 300);
+      }
+      window.dispatchEvent(new CustomEvent('gq:render-telemetry', { detail }));
+    } catch (_) {}
+  }
+
   function ensureGalaxyEngineBridge() {
     const existing = window.GQGalaxyEngineBridge;
     if (existing
@@ -177,9 +195,26 @@
         alpha: this.useAlphaCanvas,
         canvas: this.externalCanvas || undefined,
       };
-      this.renderer = _GQWebGLRenderer
-        ? new _GQWebGLRenderer(_threeOpts)
-        : new THREE.WebGLRenderer(_threeOpts);
+      this.rendererBackend = 'three-webgl';
+      if (_GQWebGLRenderer) {
+        try {
+          this.renderer = new _GQWebGLRenderer(Object.assign({}, _threeOpts, { debug: this.debugEnabled }));
+          this.rendererBackend = 'engine-webgl';
+          emitRenderTelemetry('backend-active', { backend: this.rendererBackend });
+        } catch (err) {
+          console.warn('[Galaxy3DRenderer] GQWebGLRenderer init failed; falling back to THREE.WebGLRenderer:', err?.message || err);
+          emitRenderTelemetry('fallback', {
+            from: 'engine-webgl',
+            to: 'three-webgl',
+            reason: String(err?.message || err || 'engine-webgl-init-failed'),
+          });
+          this.renderer = new THREE.WebGLRenderer(_threeOpts);
+        }
+      } else {
+        this.renderer = new THREE.WebGLRenderer(_threeOpts);
+        emitRenderTelemetry('backend-active', { backend: 'three-webgl' });
+      }
+      window.__GQ_ACTIVE_RENDERER_BACKEND = this.rendererBackend;
       this.renderer.setPixelRatio(Math.min(
         window.devicePixelRatio || 1,
         Math.max(1, Number(this.qualityProfile?.renderer?.maxPixelRatio || 2))

@@ -1397,6 +1397,38 @@
     }
   }
 
+  let renderTelemetryHookInstalled = false;
+  let renderTelemetryLastToastMs = 0;
+  function installRenderTelemetryHook() {
+    if (renderTelemetryHookInstalled || typeof window === 'undefined') {
+      return;
+    }
+    renderTelemetryHookInstalled = true;
+    window.addEventListener('gq:render-telemetry', (ev) => {
+      const detail = ev?.detail || {};
+      const type = String(detail.type || '').toLowerCase();
+      if (type === 'backend-active') {
+        const backend = String(detail.backend || 'unknown');
+        window.__GQ_ACTIVE_RENDERER_BACKEND = backend;
+        console.info('[render-telemetry] backend-active:', backend, detail);
+        return;
+      }
+      if (type === 'fallback') {
+        const from = String(detail.from || 'unknown');
+        const to = String(detail.to || 'unknown');
+        const reason = String(detail.reason || 'n/a');
+        console.warn('[render-telemetry] fallback:', { from, to, reason, detail });
+        const now = Date.now();
+        if ((now - renderTelemetryLastToastMs) > 2500) {
+          renderTelemetryLastToastMs = now;
+          showToast(`Renderer-Fallback: ${from} -> ${to} (${reason})`, 'warning');
+        }
+      }
+    });
+  }
+
+  installRenderTelemetryHook();
+
   function showToastWithAction(msg, type = 'info', actionLabel = '', onAction = null, timeoutMs = 7000) {
     const el = document.getElementById('toast');
     if (!el) return;
@@ -4020,7 +4052,8 @@
         toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
         return;
       }
-      if (!window.Galaxy3DRenderer) {
+      const GalaxyRendererCtor = window.Galaxy3DRendererWebGPU || window.Galaxy3DRenderer;
+      if (!GalaxyRendererCtor) {
         galaxy3dInitReason = 'window.Galaxy3DRenderer unavailable';
         root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D engine failed to load. Reason: ${esc(galaxy3dInitReason)}</span>`;
         toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
@@ -4066,7 +4099,7 @@
           sharedCanvas.style.pointerEvents = 'auto';
         }
 
-        galaxy3d = new window.Galaxy3DRenderer(holder, {
+        galaxy3d = new GalaxyRendererCtor(holder, {
           externalCanvas: sharedCanvas instanceof HTMLCanvasElement ? sharedCanvas : null,
           interactive: true,
           qualityProfile: resolvedRendererQuality?.name || settingsState.renderQualityProfile || 'auto',
@@ -4137,6 +4170,15 @@
             if (star) renderGalaxySystemDetails(root, star, true);
           },
         });
+
+        if (galaxy3d && typeof galaxy3d.init === 'function') {
+          Promise.resolve(galaxy3d.init()).catch((err) => {
+            console.warn('[GQ] Galaxy3DRendererWebGPU init fallback:', err?.message || err);
+          });
+        }
+        if (galaxy3d && galaxy3d.backendType) {
+          window.__GQ_ACTIVE_RENDERER_BACKEND = galaxy3d.backendType;
+        }
 
         if (typeof galaxy3d.getQualityProfileState === 'function') {
           galaxy3dQualityState = galaxy3d.getQualityProfileState();
@@ -7453,12 +7495,16 @@
     } catch (_) {
       webglSupport = 'error';
     }
+    const telemetry = Array.isArray(window.__GQ_RENDER_TELEMETRY) ? window.__GQ_RENDER_TELEMETRY : [];
+    const lastRenderTelemetry = telemetry.length ? telemetry[telemetry.length - 1] : null;
     return {
       rendererGlobal: typeof window.Galaxy3DRenderer,
       threeGlobal: typeof window.THREE,
       threeRevision: String(window.THREE?.REVISION || 'n/a'),
       hasCanvas: !!document.getElementById('galaxy-3d-host'),
       webglSupport,
+      activeBackend: String(window.__GQ_ACTIVE_RENDERER_BACKEND || 'unknown'),
+      fallbackReason: String(lastRenderTelemetry?.reason || 'n/a'),
       reason: String(galaxy3dInitReason || '').trim() || 'n/a',
       time: new Date().toLocaleTimeString(),
     };
@@ -7479,7 +7525,8 @@
         <div class="planet-detail-row" style="margin:0.25rem 0;padding:0.35rem 0.4rem;border:1px solid rgba(180,120,120,0.35);border-radius:6px;background:rgba(32,10,10,0.2)">
           <strong>Render Diagnostics</strong><br/>
           Galaxy3DRenderer: ${esc(diag.rendererGlobal)} ┬À THREE: ${esc(diag.threeGlobal)} (${esc(diag.threeRevision)})<br/>
-          Canvas: ${diag.hasCanvas ? 'yes' : 'no'} ┬À WebGL: ${esc(diag.webglSupport)} ┬À Last reason: ${esc(diag.reason)} ┬À ${esc(diag.time)}
+          Canvas: ${diag.hasCanvas ? 'yes' : 'no'} ┬À WebGL: ${esc(diag.webglSupport)} ┬À Backend: ${esc(diag.activeBackend)}<br/>
+          Last fallback: ${esc(diag.fallbackReason)} ┬À Last reason: ${esc(diag.reason)} ┬À ${esc(diag.time)}
           <div style="margin-top:0.35rem"><button id="galaxy-retry-3d-btn" class="btn btn-secondary btn-sm" type="button">Retry 3D Init</button></div>
         </div>
         <div class="planet-detail-row">Range ${from}..${to}</div>

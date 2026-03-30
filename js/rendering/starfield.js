@@ -925,15 +925,24 @@
       ? authStars.occupiedSystems
       : [];
 
-    runtime.renderer = new window.Galaxy3DRenderer(host, {
+    const RendererCtor = window.Galaxy3DRendererWebGPU || window.Galaxy3DRenderer;
+    runtime.renderer = new RendererCtor(host, {
       externalCanvas: canvas,
       alpha: true,
       interactive: false,
+      initialStars: runtime.stars,
       onHover: null,
       onClick: null,
       onDoubleClick: null,
       transitionMs: 0,
     });
+
+    if (runtime.renderer && typeof runtime.renderer.init === 'function') {
+      await runtime.renderer.init();
+    }
+    if (runtime.renderer && runtime.renderer.backendType) {
+      window.__GQ_ACTIVE_RENDERER_BACKEND = runtime.renderer.backendType;
+    }
 
     canvas.style.opacity = '1';
     canvas.style.visibility = 'visible';

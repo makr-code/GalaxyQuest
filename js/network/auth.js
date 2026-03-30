@@ -78,6 +78,7 @@
 
   let gameBootPromise = null;
   const scriptLoadPromises = new Map();
+  const packageLoadPromises = new Map();
   let authDebugDetails = false;
   let authWindowIntegrationAttempted = false;
   let preloadPanelSuppressed = false;
@@ -668,6 +669,65 @@
     return tracked;
   }
 
+  function supportsGzipDecompressionStream() {
+    return typeof DecompressionStream !== 'undefined';
+  }
+
+  async function loadGzipPackage(src) {
+    const key = String(src || '').trim();
+    if (!key) return Promise.reject(new Error('package src missing'));
+
+    if (packageLoadPromises.has(key)) {
+      return packageLoadPromises.get(key);
+    }
+
+    const job = (async () => {
+      traceModule('init', key);
+      if (!supportsGzipDecompressionStream()) {
+        throw new Error('DecompressionStream(gzip) is not available in this browser');
+      }
+
+      const response = await fetch(key, { cache: 'no-store', credentials: 'same-origin' });
+      if (!response.ok || !response.body) {
+        throw new Error(`package fetch failed: ${key} (status ${response.status || 0})`);
+      }
+
+      const decompressed = response.body.pipeThrough(new DecompressionStream('gzip'));
+      const code = await new Response(decompressed).text();
+      if (!String(code || '').trim()) {
+        throw new Error(`package payload is empty: ${key}`);
+      }
+
+      const inline = document.createElement('script');
+      inline.type = 'text/javascript';
+      inline.setAttribute('data-gq-package', key);
+      inline.text = `${code}\n//# sourceURL=${key}`;
+      document.body.appendChild(inline);
+      traceModule('done', key);
+    })();
+
+    const tracked = job.catch((err) => {
+      traceModule('error', key, `(${String(err?.message || err || 'unknown')})`);
+      if (window.__GQ_BOOT_DIAG?.report) {
+        window.__GQ_BOOT_DIAG.report('package-load', String(err?.message || err || 'unknown'), key);
+      }
+      throw err;
+    }).finally(() => {
+      packageLoadPromises.delete(key);
+    });
+
+    packageLoadPromises.set(key, tracked);
+    return tracked;
+  }
+
+  function loadBootAsset(src) {
+    const key = String(src || '').trim();
+    if (/\.js\.gz(?:\?|$)/i.test(key)) {
+      return loadGzipPackage(key);
+    }
+    return loadScript(key);
+  }
+
   async function preloadAssets() {
     const assets = Array.isArray(window.__GQ_BOOT?.preloadAssets) ? window.__GQ_BOOT.preloadAssets : [];
     authLog('info', `preload assets: ${assets.length}`);
@@ -694,13 +754,31 @@
   async function bootGameRuntime() {
     if (gameBootPromise) return gameBootPromise;
     gameBootPromise = (async () => {
+      const packageBundles = Array.isArray(window.__GQ_BOOT?.packageBundles)
+        ? window.__GQ_BOOT.packageBundles.filter((v) => String(v || '').trim() !== '')
+        : [];
       const scripts = Array.isArray(window.__GQ_BOOT?.gameScripts) ? window.__GQ_BOOT.gameScripts : [];
-      authLog('info', `boot runtime scripts: ${scripts.length}`);
+      authLog('info', `boot runtime scripts: ${scripts.length}, packages: ${packageBundles.length}`);
       if (!scripts.length) throw new Error('No game scripts configured.');
+
+      if (packageBundles.length) {
+        try {
+          setPhase('Loading package bundles...', 52);
+          for (let i = 0; i < packageBundles.length; i += 1) {
+            await loadBootAsset(packageBundles[i]);
+            setPhase('Loading package bundles...', 52 + ((i + 1) / packageBundles.length) * 48);
+          }
+          authLog('info', `package bootstrap complete (${packageBundles.length} bundles)`);
+          setPhase('Boot complete', 100);
+          return;
+        } catch (packageErr) {
+          authLog('warn', 'package bootstrap failed, falling back to single scripts', String(packageErr?.message || packageErr || 'unknown'));
+        }
+      }
 
       setPhase('Loading game modules...', 52);
       for (let i = 0; i < scripts.length; i += 1) {
-        await loadScript(scripts[i]);
+        await loadBootAsset(scripts[i]);
         setPhase('Loading game modules...', 52 + ((i + 1) / scripts.length) * 48);
       }
       setPhase('Boot complete', 100);

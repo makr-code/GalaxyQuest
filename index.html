@@ -724,6 +724,16 @@
       window.GQ_ASSETS_MANIFEST_VERSION = 1;
       window.__GQ_BOOT = {
         assetsManifestVersion: 1,
+        packageBundles: [
+          'js/packages/game.boot.bundle.engine-core.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.runtime.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.network.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.rendering.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.telemetry.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.ui.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.tests.js.gz?v=20260330p2',
+          'js/packages/game.boot.bundle.legacy.js.gz?v=20260330p2'
+        ],
         gameScripts: [
           'js/runtime/wm.js?v=20260328p54',
           'js/network/binary-decoder.js?v=20260328p49',
@@ -736,6 +746,8 @@
           'js/runtime/galaxy-db.js?v=20260328p49',
           'js/runtime/audio.js?v=20260328p53',
           'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
+          'js/engine/core/GraphicsContext.js?v=20260330p2',
+          'js/engine/core/WebGLRenderer.js?v=20260330p2',
           // Debug Phase 2: Postprocessing-Kette vorerst deaktiviert.
           // 'js/rendering/three-EffectComposer.js?v=20260328p55',
           // 'js/rendering/three-RenderPass.js?v=20260328p55',
@@ -760,6 +772,8 @@
           'js/rendering/galaxy-renderer-events.js?v=20260329p76',
           'js/rendering/galaxy-camera-controller.js?v=20260329p85',
           'js/rendering/galaxy-renderer-core.js?v=20260329p97',
+          'js/rendering/starfield-webgpu.js?v=20260330p2',
+          'js/legacy/galaxy3d-webgpu.js?v=20260330p2',
           'js/rendering/starfield.js?v=20260329p100',
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
             'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
@@ -776,6 +790,8 @@
           'js/runtime/galaxy-model.js?v=20260328p49',
           'js/runtime/galaxy-db.js?v=20260328p49',
           'js/runtime/audio.js?v=20260328p53',
+          'js/engine/core/GraphicsContext.js?v=20260330p2',
+          'js/engine/core/WebGLRenderer.js?v=20260330p2',
           'js/rendering/planet-textures.js?v=20260328p49',
           'js/rendering/texture-manager.js?v=20260329p1',
           'js/rendering/geometry-manager.js?v=20260329p1',
@@ -792,6 +808,8 @@
           'js/rendering/galaxy-renderer-events.js?v=20260329p76',
           'js/rendering/galaxy-camera-controller.js?v=20260329p85',
           'js/rendering/galaxy-renderer-core.js?v=20260329p97',
+          'js/rendering/starfield-webgpu.js?v=20260330p2',
+          'js/legacy/galaxy3d-webgpu.js?v=20260330p2',
           'js/rendering/starfield.js?v=20260329p100',
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
             'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
@@ -1172,5 +1190,15 @@
     </div>
   </section>
 
+  <section id="copyright" class="copyright">
+    <img
+    <p>build {{buildnr}} date {{build_date}}</p>
+    <p>© 2026 Galaxy Quest Interactive. All rights reserved.</p>
+  </section>
+
+  <section id="affilates">
+      <p>Galaxy Quest is a trademark of Galaxy Quest Interactive. All other trademarks are the property of their respective owners.</p>
+  </section>
+  
 </body>
 </html>
