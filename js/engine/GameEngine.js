@@ -63,9 +63,6 @@ const { PerspectiveCamera }  = _req('./scene/Camera.js',                  'GQCam
 const { CameraManager }      = _req('./scene/CameraManager.js',           'GQCameraManager');
 const { EffectComposer }     = _req('./post-effects/EffectComposer.js',   'GQEffectComposer');
 const { RenderPass }         = _req('./post-effects/passes/RenderPass.js','GQRenderPass');
-const { BloomPass }          = _req('./post-effects/passes/BloomPass.js', 'GQBloomPass');
-const { VignettePass }       = _req('./post-effects/passes/VignettePass.js','GQVignettePass');
-const { ChromaticPass }      = _req('./post-effects/passes/ChromaticPass.js','GQChromaticPass');
 const { GameLoop }           = _req('./GameLoop.js',                      'GQGameLoop');
 const { EventBus }           = _req('./EventBus.js',                      'GQEventBus');
 const { SystemRegistry, SystemPriority } = _req('./SystemRegistry.js',   'GQSystemRegistry');
@@ -416,6 +413,28 @@ class GameEngine {
       const renderPass = new RenderPass(this.scene, this.cameras?.active ?? this.camera);
       this.postFx.addPass(renderPass);
       this._renderPass = renderPass;
+
+      // Load the optional effect-pass constructors lazily via dynamic import()
+      // so that both this runtime code and ESM `import` statements in test files
+      // resolve to the same module instance (avoiding instanceof failures caused
+      // by the CJS-require / ESM-import dual-module-cache split).
+      const _g = typeof window !== 'undefined' ? window : globalThis;
+      let BloomPass, VignettePass, ChromaticPass;
+      if (typeof _g.GQBloomPass !== 'undefined') {
+        // Browser plain-script context: globals were set by <script> tags.
+        BloomPass    = _g.GQBloomPass;
+        VignettePass = _g.GQVignettePass;
+        ChromaticPass = _g.GQChromaticPass;
+      } else {
+        // Node.js / bundler / test context: dynamic import() shares the ESM
+        // module registry with static `import` statements, guaranteeing
+        // identical class constructors for `instanceof` checks.
+        ([{ BloomPass }, { VignettePass }, { ChromaticPass }] = await Promise.all([
+          import('./post-effects/passes/BloomPass.js'),
+          import('./post-effects/passes/VignettePass.js'),
+          import('./post-effects/passes/ChromaticPass.js'),
+        ]));
+      }
 
       // Optional effect passes — enabled by default when postFx is on,
       // unless explicitly set to false in opts
