@@ -324,7 +324,24 @@ Implemented in this phase:
 - ✅ Dedicated Wormhole UI window is available (route status + one-click Fleet prefill for jump targets).
 - ✅ Quest-based permanent beacon unlock is wired via Precursor faction quest rewards.
 
-### 5.4 Megastructures
+### 5.4 Faction-Specific FTL Drive System
+**Priority:** ❓  
+**Status:** Design complete — see [FTL_DRIVE_DESIGN.md](FTL_DRIVE_DESIGN.md)
+
+Each of the 6 main factions gets a unique FTL drive with distinct gameplay mechanics:
+
+| Faction | Drive | Key Mechanic |
+|---|---|---|
+| Vor'Tak | Kearny-Fuchida Jump Drive (BattleTech) | Fixed jump points, 72h recharge cooldown, max 30 LY |
+| Syl'Nar | Resonance Gate Network | Buildable gates, instant travel, gates destructible |
+| Vel'Ar | Blind Quantum Jump | Instant but with arrival scatter, 60s stealth on arrival |
+| Zhareen | Crystal Resonance Channel | Survey-charted nodes, mass-independent speed |
+| Aereth | Alcubierre Warp | Density-dependent speed bonus in galactic core |
+| Kryl'Tha | Swarm Tunnel | Fleet-size-dependent travel time, max 50 ships |
+
+Implementation priority order and DB changes documented in [FTL_DRIVE_DESIGN.md](FTL_DRIVE_DESIGN.md).
+
+### 5.5 Megastructures
 **Priority:** 🔭
 
 Very late-game, alliance-level constructions:
