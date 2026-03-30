@@ -6067,6 +6067,13 @@
     await researchController.render();
   }
 
+  function gqStatusMsg(el, msg, type) {
+    const p = document.createElement('p');
+    p.className = 'text-' + type;
+    p.textContent = msg;
+    el.replaceChildren(p);
+  }
+
   class ShipyardController {
     constructor() {
       this.moduleCatalogCache = new Map();
@@ -6074,9 +6081,21 @@
 
     renderSlotProfile(profile = {}) {
       const entries = Object.entries(profile || {}).filter(([, count]) => Number(count || 0) > 0);
-      if (!entries.length) return '<span class="text-muted small">No slots</span>';
-      return entries.map(([group, count]) => `<span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.4rem;border:1px solid rgba(120,145,180,0.35);border-radius:999px;background:rgba(80,108,152,0.14);font-size:0.7rem;">${esc(fmtName(group))} ${fmt(count)}</span>`).join(' ');
+      const frag = document.createDocumentFragment();
+      if (!entries.length) {
+        const s = new GQUI.Span().setClass('text-muted small').setTextContent('No slots');
+        frag.appendChild(s.dom);
+        return frag;
+      }
+      entries.forEach(([group, count]) => {
+        const s = document.createElement('span');
+        s.style.cssText = 'display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.4rem;border:1px solid rgba(120,145,180,0.35);border-radius:999px;background:rgba(80,108,152,0.14);font-size:0.7rem;';
+        s.textContent = fmtName(group) + ' ' + fmt(count);
+        frag.appendChild(s);
+      });
+      return frag;
     }
+    // ── Pure data helpers ────────────────────────────────────
 
     computeSlotProfile(hull, layoutCode = 'default') {
       const base = Object.assign({}, hull?.slot_profile || {});
@@ -6097,7 +6116,6 @@
       if (this.moduleCatalogCache.has(key)) {
         return this.moduleCatalogCache.get(key);
       }
-
       const response = await API.shipyardModules(colonyId, hullCode, layoutCode);
       if (!response?.success) {
         throw new Error(response?.error || 'Failed to load module catalog.');
@@ -6106,86 +6124,9 @@
       return response;
     }
 
-    renderAffinityChips(affinities = []) {
-      const list = Array.isArray(affinities) ? affinities.filter((a) => !!a) : [];
-      if (!list.length) return '';
-
-      return list.map((bonus) => {
-        const icon = esc(String(bonus.faction_icon || '◈'));
-        const name = esc(String(bonus.faction_name || bonus.faction_code || '?'));
-        const type = String(bonus.bonus_type || '');
-        const val = Number(bonus.bonus_value || 0);
-        const active = !!bonus.active;
-        const standing = Number(bonus.user_standing || 0);
-        const minStanding = Number(bonus.min_standing || 0);
-        const color = String(bonus.faction_color || (active ? '#5de0a0' : '#555'));
-
-        let bonusLabel = '';
-        if (type === 'cost_pct') bonusLabel = `Kosten ${val >= 0 ? '+' : ''}${val.toFixed(0)}%`;
-        else if (type === 'build_time_pct') bonusLabel = `Zeit ${val >= 0 ? '+' : ''}${val.toFixed(0)}%`;
-        else if (type === 'stat_mult') bonusLabel = `Stats ${val >= 0 ? '+' : ''}${(val * 100).toFixed(0)}%`;
-        else if (type === 'unlock_tier') bonusLabel = `+T${val.toFixed(0)} Freischalter`;
-        else bonusLabel = type;
-
-        const reqText = !active ? ` Stg.${minStanding}` : '';
-        const titleText = active
-          ? `${name}: ${bonusLabel} (aktiv · Standing ${standing}/${minStanding})`
-          : `${name}: ${bonusLabel} (inaktiv · benötigt Standing ${minStanding}, aktuell ${standing})`;
-
-        return `<span class="shipyard-affinity-chip${active ? ' is-active' : ' is-locked'}" title="${esc(titleText)}" style="--affinity-color:${esc(color)}">${icon} ${esc(bonusLabel)}${esc(reqText)}</span>`;
-      }).join('');
-    }
-
-    renderModuleSlotEditor(moduleCatalog) {
-      const groups = Array.isArray(moduleCatalog?.module_groups) ? moduleCatalog.module_groups : [];
-      if (!groups.length) {
-        return '<div class="text-muted small">No module groups available for this hull/layout.</div>';
-      }
-
-      const blocks = [];
-      groups.forEach((group) => {
-        const slotCount = Math.max(0, Number(group.slot_count || 0));
-        if (!slotCount) return;
-        const options = (Array.isArray(group.modules) ? group.modules : []).map((mod) => {
-          const statsLabel = Object.entries(mod.stats_delta || {}).map(([k, v]) => `${fmtName(k)} ${v >= 0 ? '+' : ''}${fmt(v)}`).join(', ');
-          const statsData = Object.entries(mod.stats_delta || {}).map(([k, v]) => `${k}:${v}`).join(',');
-          const blocker = Array.isArray(mod.blockers) && mod.blockers.length ? ` [LOCKED: ${mod.blockers.join(' / ')}]` : '';
-          return `<option value="${esc(mod.code || '')}" data-stats="${esc(statsData)}" data-tier="${Number(mod.tier || 1)}" ${mod.unlocked === false ? 'disabled' : ''}>${esc(mod.label || mod.code || 'Module')} (T${fmt(mod.tier || 1)})${statsLabel ? ` · ${esc(statsLabel)}` : ''}${esc(blocker)}</option>`;
-        }).join('');
-
-        const affinityChips = this.renderAffinityChips(group.affinities || []);
-
-        blocks.push(`
-          <div class="shipyard-slot-group" data-group-code="${esc(group.code || '')}">
-            <div class="small shipyard-slot-group-label">${esc(group.label || fmtName(group.code || 'group'))} · Slots ${fmt(slotCount)}${affinityChips ? `<span class="shipyard-affinity-chips">${affinityChips}</span>` : ''}</div>
-            <div class="shipyard-slot-rows">
-              ${Array.from({ length: slotCount }).map((_, idx) => `
-                <div class="shipyard-slot-row" data-group-code="${esc(group.code || '')}" data-slot-index="${idx}">
-                  <span class="shipyard-slot-label small">Slot ${idx + 1}</span>
-                  <select class="input shipyard-module-slot" data-group-code="${esc(group.code || '')}" data-slot-index="${idx}" ${options ? '' : 'disabled'}>
-                    <option value="">— empty —</option>
-                    ${options || ''}
-                  </select>
-                  <div class="shipyard-slot-arrows">
-                    <button type="button" class="btn shipyard-slot-up" data-group-code="${esc(group.code || '')}" data-slot-index="${idx}" title="Tauscht diesen Slot mit dem darüber" ${idx === 0 ? 'disabled' : ''}>▲</button>
-                    <button type="button" class="btn shipyard-slot-down" data-group-code="${esc(group.code || '')}" data-slot-index="${idx}" title="Tauscht diesen Slot mit dem darunter" ${idx === slotCount - 1 ? 'disabled' : ''}>▼</button>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-          </div>`);
-      });
-
-      if (!blocks.length) {
-        return '<div class="text-muted small">No active slots for this layout.</div>';
-      }
-
-      return `<div class="shipyard-slot-editor">${blocks.join('')}</div>`;
-    }
-
     renderAffinityChips(affinities) {
-      if (!Array.isArray(affinities) || !affinities.length) return '';
-      const fmt = (type, val) => {
+      if (!Array.isArray(affinities) || !affinities.length) return null;
+      const fmtBonus = (type, val) => {
         const v = Number(val);
         if (type === 'cost_pct') return `Kosten ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
         if (type === 'build_time_pct') return `Bauzeit ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
@@ -6193,27 +6134,117 @@
         if (type === 'unlock_tier') return `Tier +${v.toFixed(0)}`;
         return `${type} ${v}`;
       };
-      const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-      return affinities.map((a) => {
-        const active = a.active;
-        const title = `${esc(a.faction_name || a.faction_code)}: ${esc(fmt(a.bonus_type, a.bonus_value))} · Benötigt Stand ${a.min_standing} · Aktuell ${a.user_standing ?? '?'}`;
-        return `<span class="shipyard-affinity-chip ${active ? 'affinity-active' : 'affinity-inactive'}" title="${title}">${esc(a.faction_icon || '⬡')} ${esc(fmt(a.bonus_type, a.bonus_value))}</span>`;
-      }).join('');
+      const frag = document.createDocumentFragment();
+      affinities.forEach((a) => {
+        const label = fmtBonus(a.bonus_type, a.bonus_value);
+        const titleText = `${String(a.faction_name || a.faction_code || '')}: ${label} · Benötigt Stand ${a.min_standing} · Aktuell ${a.user_standing ?? '?'}`;
+        const chip = new GQUI.Span().setClass('shipyard-affinity-chip ' + (a.active ? 'affinity-active' : 'affinity-inactive'));
+        chip.dom.title = titleText;
+        chip.dom.textContent = String(a.faction_icon || '⬡') + ' ' + label;
+        frag.appendChild(chip.dom);
+      });
+      return frag;
+    }
+
+    renderModuleSlotEditor(moduleCatalog) {
+      const groups = Array.isArray(moduleCatalog?.module_groups) ? moduleCatalog.module_groups : [];
+      if (!groups.length) {
+        return new GQUI.Div().setClass('text-muted small')
+          .setTextContent('No module groups available for this hull/layout.').dom;
+      }
+
+      const editor = new GQUI.Div().setClass('shipyard-slot-editor');
+      groups.forEach((group) => {
+        const slotCount = Math.max(0, Number(group.slot_count || 0));
+        if (!slotCount) return;
+
+        const groupDiv = new GQUI.Div().setClass('shipyard-slot-group');
+        groupDiv.dom.dataset.groupCode = String(group.code || '');
+
+        const labelDiv = new GQUI.Div().setClass('small shipyard-slot-group-label');
+        labelDiv.dom.textContent = `${fmtName(group.label || group.code || 'group')} · Slots ${fmt(slotCount)}`;
+        const affFrag = this.renderAffinityChips(group.affinities || []);
+        if (affFrag) {
+          const chipsWrap = new GQUI.Span().setClass('shipyard-affinity-chips');
+          chipsWrap.dom.appendChild(affFrag);
+          labelDiv.dom.appendChild(chipsWrap.dom);
+        }
+        groupDiv.add(labelDiv);
+
+        const rowsDiv = new GQUI.Div().setClass('shipyard-slot-rows');
+        for (let idx = 0; idx < slotCount; idx++) {
+          const slotRow = new GQUI.Div().setClass('shipyard-slot-row');
+          slotRow.dom.dataset.groupCode = String(group.code || '');
+          slotRow.dom.dataset.slotIndex = String(idx);
+
+          const lbl = new GQUI.Span().setClass('shipyard-slot-label small')
+            .setTextContent('Slot ' + (idx + 1));
+          slotRow.add(lbl);
+
+          const sel = document.createElement('select');
+          sel.className = 'input shipyard-module-slot';
+          sel.dataset.groupCode = String(group.code || '');
+          sel.dataset.slotIndex = String(idx);
+          const emptyOpt = document.createElement('option');
+          emptyOpt.value = '';
+          emptyOpt.textContent = '— empty —';
+          sel.appendChild(emptyOpt);
+          (Array.isArray(group.modules) ? group.modules : []).forEach((mod) => {
+            const statsLabel = Object.entries(mod.stats_delta || {})
+              .map(([k, v]) => `${fmtName(k)} ${v >= 0 ? '+' : ''}${fmt(v)}`).join(', ');
+            const statsData = Object.entries(mod.stats_delta || {})
+              .map(([k, v]) => `${k}:${v}`).join(',');
+            const blocker = Array.isArray(mod.blockers) && mod.blockers.length
+              ? ` [LOCKED: ${mod.blockers.join(' / ')}]` : '';
+            const opt = document.createElement('option');
+            opt.value = String(mod.code || '');
+            opt.dataset.stats = statsData;
+            opt.dataset.tier = String(Number(mod.tier || 1));
+            if (mod.unlocked === false) opt.disabled = true;
+            opt.textContent = `${String(mod.label || mod.code || 'Module')} (T${fmt(mod.tier || 1)})${statsLabel ? ' · ' + statsLabel : ''}${blocker}`;
+            sel.appendChild(opt);
+          });
+          if (!group.modules?.length) sel.disabled = true;
+          slotRow.dom.appendChild(sel);
+
+          const arrowsDiv = new GQUI.Div().setClass('shipyard-slot-arrows');
+          const upBtn = new GQUI.Button('▲').setClass('btn shipyard-slot-up');
+          upBtn.dom.type = 'button';
+          upBtn.dom.dataset.groupCode = String(group.code || '');
+          upBtn.dom.dataset.slotIndex = String(idx);
+          upBtn.dom.title = 'Tauscht diesen Slot mit dem darüber';
+          if (idx === 0) upBtn.dom.disabled = true;
+          const downBtn = new GQUI.Button('▼').setClass('btn shipyard-slot-down');
+          downBtn.dom.type = 'button';
+          downBtn.dom.dataset.groupCode = String(group.code || '');
+          downBtn.dom.dataset.slotIndex = String(idx);
+          downBtn.dom.title = 'Tauscht diesen Slot mit dem darunter';
+          if (idx === slotCount - 1) downBtn.dom.disabled = true;
+          arrowsDiv.add(upBtn, downBtn);
+          slotRow.add(arrowsDiv);
+
+          rowsDiv.add(slotRow);
+        }
+        groupDiv.add(rowsDiv);
+        editor.add(groupDiv);
+      });
+
+      if (!editor.dom.children.length) {
+        return new GQUI.Div().setClass('text-muted small')
+          .setTextContent('No active slots for this layout.').dom;
+      }
+      return editor.dom;
     }
 
     collectBlueprintModulesFromUI(root) {
       const selects = Array.from(root.querySelectorAll('.shipyard-module-slot'));
-      if (!selects.length) {
-        return [];
-      }
-
+      if (!selects.length) return [];
       const totals = new Map();
       selects.forEach((el) => {
         const code = String(el.value || '').trim();
         if (!code) return;
         totals.set(code, (totals.get(code) || 0) + 1);
       });
-
       return Array.from(totals.entries()).map(([code, quantity]) => ({ code, quantity }));
     }
 
@@ -6245,6 +6276,124 @@
       return totals;
     }
 
+    // ── DOM builders ─────────────────────────────────────────
+
+    /** Returns a DocumentFragment with slot-profile chip spans. */
+    renderSlotProfile(profile = {}) {
+      const entries = Object.entries(profile || {}).filter(([, count]) => Number(count || 0) > 0);
+      const frag = document.createDocumentFragment();
+      if (!entries.length) {
+        frag.appendChild(GQUI.span('text-muted', 'small').setText('No slots').dom);
+        return frag;
+      }
+      entries.forEach(([group, count], i) => {
+        if (i > 0) frag.appendChild(document.createTextNode(' '));
+        const chip = GQUI.span();
+        chip.dom.style.cssText = 'display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.4rem;border:1px solid rgba(120,145,180,0.35);border-radius:999px;background:rgba(80,108,152,0.14);font-size:0.7rem;';
+        chip.dom.textContent = `${fmtName(group)} ${fmt(count)}`;
+        frag.appendChild(chip.dom);
+      });
+      return frag;
+    }
+
+    /** Returns a DocumentFragment with affinity chip spans. */
+    renderAffinityChips(affinities = []) {
+      const list = Array.isArray(affinities) ? affinities.filter((a) => !!a) : [];
+      const frag = document.createDocumentFragment();
+      if (!list.length) return frag;
+      const fmtBonus = (type, val) => {
+        const v = Number(val);
+        if (type === 'cost_pct') return `Kosten ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
+        if (type === 'build_time_pct') return `Bauzeit ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
+        if (type === 'stat_mult') return `Stats ${v >= 0 ? '+' : ''}${(v * 100).toFixed(0)}%`;
+        if (type === 'unlock_tier') return `Tier +${v.toFixed(0)}`;
+        return `${type} ${v}`;
+      };
+      list.forEach((a) => {
+        const active = !!a.active;
+        const bonusText = fmtBonus(a.bonus_type, a.bonus_value);
+        const titleText = `${String(a.faction_name || a.faction_code || '?')}: ${bonusText} · Benötigt Stand ${a.min_standing} · Aktuell ${a.user_standing ?? '?'}`;
+        const chip = GQUI.span('shipyard-affinity-chip', active ? 'affinity-active' : 'affinity-inactive')
+          .setTitle(titleText)
+          .setText(`${String(a.faction_icon || '⬡')} ${bonusText}`);
+        frag.appendChild(chip.dom);
+      });
+      return frag;
+    }
+
+    /** Returns a GQUI UIElement with the full module-slot editor. */
+    renderModuleSlotEditor(moduleCatalog) {
+      const groups = Array.isArray(moduleCatalog?.module_groups) ? moduleCatalog.module_groups : [];
+      if (!groups.length) {
+        return GQUI.span('text-muted', 'small').setText('No module groups available for this hull/layout.');
+      }
+      const editor = GQUI.div('shipyard-slot-editor');
+      let hasGroups = false;
+      groups.forEach((group) => {
+        const slotCount = Math.max(0, Number(group.slot_count || 0));
+        if (!slotCount) return;
+        hasGroups = true;
+
+        const groupDiv = GQUI.div('shipyard-slot-group').setData('groupCode', group.code || '');
+        const labelDiv = GQUI.div('small', 'shipyard-slot-group-label');
+        labelDiv.setText(`${fmtName(group.label || group.code || 'group')} · Slots ${fmt(slotCount)}`);
+        const affinityFrag = this.renderAffinityChips(group.affinities || []);
+        if (affinityFrag.childNodes.length) {
+          const chipsWrap = GQUI.span('shipyard-affinity-chips');
+          chipsWrap.dom.appendChild(affinityFrag);
+          labelDiv.add(chipsWrap);
+        }
+
+        const rowsDiv = GQUI.div('shipyard-slot-rows');
+        for (let idx = 0; idx < slotCount; idx++) {
+          const rowDiv = GQUI.div('shipyard-slot-row')
+            .setData('groupCode', group.code || '')
+            .setData('slotIndex', idx);
+          const slotLabel = GQUI.span('shipyard-slot-label', 'small').setText(`Slot ${idx + 1}`);
+          const sel = GQUI.select('input', 'shipyard-module-slot')
+            .setData('groupCode', group.code || '')
+            .setData('slotIndex', idx);
+          const hasOpts = Array.isArray(group.modules) && group.modules.length > 0;
+          if (!hasOpts) sel.setDisabled(true);
+          sel.addOption('', '— empty —');
+          (Array.isArray(group.modules) ? group.modules : []).forEach((mod) => {
+            const statsLabel = Object.entries(mod.stats_delta || {})
+              .map(([k, v]) => `${fmtName(k)} ${v >= 0 ? '+' : ''}${fmt(v)}`).join(', ');
+            const statsData = Object.entries(mod.stats_delta || {})
+              .map(([k, v]) => `${k}:${v}`).join(',');
+            const blocker = Array.isArray(mod.blockers) && mod.blockers.length
+              ? ` [LOCKED: ${mod.blockers.join(' / ')}]` : '';
+            const optText = `${String(mod.label || mod.code || 'Module')} (T${fmt(mod.tier || 1)})${statsLabel ? ` · ${statsLabel}` : ''}${blocker}`;
+            sel.addOption(mod.code || '', optText, mod.unlocked === false, {
+              stats: statsData,
+              tier: String(Number(mod.tier || 1)),
+            });
+          });
+
+          const arrowsDiv = GQUI.div('shipyard-slot-arrows');
+          const upBtn = GQUI.btn('▲', 'btn', 'shipyard-slot-up')
+            .setData('groupCode', group.code || '')
+            .setData('slotIndex', idx)
+            .setTitle('Tauscht diesen Slot mit dem darüber')
+            .setDisabled(idx === 0);
+          const downBtn = GQUI.btn('▼', 'btn', 'shipyard-slot-down')
+            .setData('groupCode', group.code || '')
+            .setData('slotIndex', idx)
+            .setTitle('Tauscht diesen Slot mit dem darunter')
+            .setDisabled(idx === slotCount - 1);
+          arrowsDiv.add(upBtn, downBtn);
+          rowDiv.add(slotLabel, sel, arrowsDiv);
+          rowsDiv.add(rowDiv);
+        }
+        groupDiv.add(labelDiv, rowsDiv);
+        editor.add(groupDiv);
+      });
+      if (!hasGroups) {
+        return GQUI.span('text-muted', 'small').setText('No active slots for this layout.');
+      }
+      return editor;
+    }
+
     updateStatsPreview(root) {
       const preview = root.querySelector('#shipyard-blueprint-stats-preview');
       if (!preview) return;
@@ -6262,21 +6411,51 @@
       const live = this.computeLiveStats(root, baseStats);
       const hasMods = Array.from(root.querySelectorAll('.shipyard-module-slot')).some((s) => s.value);
       if (!hasMods) {
-        preview.innerHTML = '<div class="shipyard-stats-preview-empty small text-muted">Wähle Module, um eine Vorschau zu erhalten.</div>';
+        const empty = new GQUI.Div().setClass('shipyard-stats-preview-empty small text-muted')
+          .setTextContent('Wähle Module, um eine Vorschau zu erhalten.');
+        preview.replaceChildren(empty.dom);
         return;
       }
-      const sign = (v) => (v >= 0 ? `+${fmt(v)}` : fmt(v));
-      preview.innerHTML = `
-        <div class="shipyard-stats-preview">
-          <div class="shipyard-stats-preview-label">Kompilierte Statistiken (Vorschau)</div>
-          <div class="shipyard-stats-preview-grid">
-            <div class="shipyard-stats-chip chiptype-atk">⚔ ATK <strong>${fmt(live.attack)}</strong></div>
-            <div class="shipyard-stats-chip chiptype-shd">🛡 SHD <strong>${fmt(live.shield)}</strong></div>
-            <div class="shipyard-stats-chip chiptype-hll">🔩 HULL <strong>${fmt(live.hull)}</strong></div>
-            <div class="shipyard-stats-chip chiptype-cargo">📦 CARGO <strong>${fmt(live.cargo)}</strong></div>
-            <div class="shipyard-stats-chip chiptype-spd">⚡ SPD <strong>${fmt(live.speed)}</strong></div>
-          </div>
-        </div>`;
+      const chipDefs = [
+        { cls: 'chiptype-atk',   icon: '⚔',  key: 'ATK',   val: live.attack },
+        { cls: 'chiptype-shd',   icon: '🛡', key: 'SHD',   val: live.shield },
+        { cls: 'chiptype-hll',   icon: '🔩', key: 'HULL',  val: live.hull   },
+        { cls: 'chiptype-cargo', icon: '📦', key: 'CARGO', val: live.cargo  },
+        { cls: 'chiptype-spd',   icon: '⚡', key: 'SPD',   val: live.speed  },
+      ];
+      const grid = new GQUI.Div().setClass('shipyard-stats-preview-grid');
+      chipDefs.forEach(({ cls, icon, key, val }) => {
+        const chip = new GQUI.Div().setClass('shipyard-stats-chip ' + cls);
+        chip.dom.textContent = icon + ' ' + key + ' ';
+        const strong = document.createElement('strong');
+        strong.textContent = fmt(val);
+        chip.dom.appendChild(strong);
+        grid.add(chip);
+      });
+      const wrap = new GQUI.Div().setClass('shipyard-stats-preview');
+      wrap.add(new GQUI.Div().setClass('shipyard-stats-preview-label').setTextContent('Kompilierte Statistiken (Vorschau)'));
+      wrap.add(grid);
+      preview.replaceChildren(wrap.dom);
+        GQUI.setStatus(preview, 'Wähle Module, um eine Vorschau zu erhalten.', 'shipyard-stats-preview-empty small text-muted');
+        return;
+      }
+      const wrap = GQUI.div('shipyard-stats-preview');
+      wrap.add(GQUI.div('shipyard-stats-preview-label').setText('Kompilierte Statistiken (Vorschau)'));
+      const grid = GQUI.div('shipyard-stats-preview-grid');
+      [
+        ['atk',   '⚔ ATK',   live.attack],
+        ['shd',   '🛡 SHD',   live.shield],
+        ['hll',   '🔩 HULL',  live.hull],
+        ['cargo', '📦 CARGO', live.cargo],
+        ['spd',   '⚡ SPD',   live.speed],
+      ].forEach(([type, label, value]) => {
+        const chip = GQUI.div(`shipyard-stats-chip chiptype-${type}`);
+        chip.dom.appendChild(document.createTextNode(`${label} `));
+        chip.add(GQUI.strong().setText(fmt(value)));
+        grid.add(chip);
+      });
+      wrap.add(grid);
+      GQUI.mount(preview, wrap);
     }
 
     // ── Saved presets (localStorage) ────────────────────────
@@ -6299,26 +6478,75 @@
       localStorage.setItem(this._presetKey(), JSON.stringify(presets));
     }
 
-    buildPresetToolbarHtml() {
+    buildPresetToolbarDom() {
       const presets = this.loadPresetsFromStorage();
-      const options = presets.length
-        ? presets.map((p) => `<option value="${esc(p.name)}">${esc(p.name)} · ${esc(fmtName(p.hull))} / ${esc(fmtName(p.layout))}</option>`).join('')
-        : '<option value="" disabled>Keine Presets gespeichert</option>';
-      return `
-        <div class="shipyard-preset-toolbar">
-          <select id="shipyard-preset-select" class="input shipyard-preset-select" ${!presets.length ? 'disabled' : ''}>
-            <option value="">— Preset laden —</option>
-            ${options}
-          </select>
-          <button type="button" class="btn btn-secondary btn-sm" id="shipyard-preset-load" ${!presets.length ? 'disabled' : ''}>Laden</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="shipyard-preset-save">Speichern</button>
-          <button type="button" class="btn btn-warning btn-sm" id="shipyard-preset-delete" ${!presets.length ? 'disabled' : ''}>Löschen</button>
-        </div>`;
+      const sel = document.createElement('select');
+      sel.id = 'shipyard-preset-select';
+      sel.className = 'input shipyard-preset-select';
+      if (!presets.length) sel.disabled = true;
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '— Preset laden —';
+      sel.appendChild(placeholder);
+      if (presets.length) {
+        presets.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = String(p.name);
+          opt.textContent = `${p.name} · ${fmtName(p.hull)} / ${fmtName(p.layout)}`;
+          sel.appendChild(opt);
+        });
+      } else {
+        const noOpt = document.createElement('option');
+        noOpt.value = '';
+        noOpt.disabled = true;
+        noOpt.textContent = 'Keine Presets gespeichert';
+        sel.appendChild(noOpt);
+      }
+
+      const loadBtn = new GQUI.Button('Laden').setClass('btn btn-secondary btn-sm');
+      loadBtn.dom.id = 'shipyard-preset-load';
+      loadBtn.dom.type = 'button';
+      if (!presets.length) loadBtn.dom.disabled = true;
+
+      const saveBtn = new GQUI.Button('Speichern').setClass('btn btn-secondary btn-sm');
+      saveBtn.dom.id = 'shipyard-preset-save';
+      saveBtn.dom.type = 'button';
+
+      const delBtn = new GQUI.Button('Löschen').setClass('btn btn-warning btn-sm');
+      delBtn.dom.id = 'shipyard-preset-delete';
+      delBtn.dom.type = 'button';
+      if (!presets.length) delBtn.dom.disabled = true;
+
+      const toolbar = new GQUI.Div().setClass('shipyard-preset-toolbar');
+      toolbar.dom.appendChild(sel);
+      toolbar.add(loadBtn, saveBtn, delBtn);
+      return toolbar.dom;
+    buildPresetToolbar() {
+      const presets = this.loadPresetsFromStorage();
+      const toolbar = GQUI.div('shipyard-preset-toolbar');
+      const sel = GQUI.select('input', 'shipyard-preset-select')
+        .setId('shipyard-preset-select')
+        .setDisabled(!presets.length);
+      sel.addOption('', '— Preset laden —');
+      if (presets.length) {
+        presets.forEach((p) => sel.addOption(p.name, `${p.name} · ${fmtName(p.hull)} / ${fmtName(p.layout)}`));
+      } else {
+        sel.addOption('', 'Keine Presets gespeichert', true);
+      }
+      const loadBtn = GQUI.btn('Laden', 'btn', 'btn-secondary', 'btn-sm')
+        .setId('shipyard-preset-load').setDisabled(!presets.length);
+      const saveBtn = GQUI.btn('Speichern', 'btn', 'btn-secondary', 'btn-sm')
+        .setId('shipyard-preset-save');
+      const delBtn = GQUI.btn('Löschen', 'btn', 'btn-warning', 'btn-sm')
+        .setId('shipyard-preset-delete').setDisabled(!presets.length);
+      toolbar.add(sel, loadBtn, saveBtn, delBtn);
+      return toolbar;
     }
 
     refreshPresetToolbar(root) {
       const container = root.querySelector('#shipyard-preset-toolbar-wrap');
-      if (container) container.innerHTML = this.buildPresetToolbarHtml();
+      if (container) container.replaceChildren(this.buildPresetToolbarDom());
+      if (container) GQUI.mount(container, this.buildPresetToolbar());
       this.bindPresetActions(root);
     }
 
@@ -6384,144 +6612,565 @@
       });
     }
 
-    buildCardsHtml(ships) {
-      return `<div class="card-grid">${ships.map((ship) => `
-        <div class="item-card">
-          <div class="item-card-header">
-            <span class="item-name">${fmtName(ship.type)}</span>
-            <span class="item-level">${ship.count} owned</span>
-          </div>
-          ${(Number(ship.running_count || 0) > 0 || Number(ship.queued_count || 0) > 0)
-            ? `<div class="small text-muted" style="margin-bottom:0.35rem;">Queue: ${Number(ship.running_count || 0) > 0 ? `${fmt(ship.running_count)} running` : ''}${Number(ship.running_count || 0) > 0 && Number(ship.queued_count || 0) > 0 ? ' · ' : ''}${Number(ship.queued_count || 0) > 0 ? `${fmt(ship.queued_count)} queued` : ''}${ship.active_eta ? ` · ETA ${countdown(ship.active_eta)}` : ''}</div>`
-            : ''}
-          <div class="item-cost">
-            ${ship.cost.metal ? `<span class="cost-metal">⬡ ${fmt(ship.cost.metal)}</span>` : ''}
-            ${ship.cost.crystal ? `<span class="cost-crystal">💎 ${fmt(ship.cost.crystal)}</span>` : ''}
-            ${ship.cost.deuterium ? `<span class="cost-deut">🔵 ${fmt(ship.cost.deuterium)}</span>` : ''}
-          </div>
-          <div style="font-size:0.75rem;color:var(--text-muted)">
-            �� ${fmt(ship.cargo)} &nbsp; ⚡ ${fmt(ship.speed)}
-          </div>
-          <div class="ship-build-row">
-            <input type="number" class="ship-qty" data-type="${esc(ship.type)}" min="1" value="1" />
-            <button class="btn btn-primary btn-sm build-btn" data-type="${esc(ship.type)}">Build</button>
-          </div>
-        </div>`).join('')}</div>`;
+    buildCardsDom(ships) {
+      const grid = new GQUI.Div().setClass('card-grid');
+      ships.forEach((ship) => {
+        const card = new GQUI.Div().setClass('item-card');
+
+        const header = new GQUI.Div().setClass('item-card-header');
+        header.add(new GQUI.Span().setClass('item-name').setTextContent(fmtName(ship.type)));
+        header.add(new GQUI.Span().setClass('item-level').setTextContent(ship.count + ' owned'));
+        card.add(header);
+
+        const runningCount = Number(ship.running_count || 0);
+        const queuedCount  = Number(ship.queued_count  || 0);
+        if (runningCount > 0 || queuedCount > 0) {
+          const qDiv = new GQUI.Div().setClass('small text-muted');
+          qDiv.dom.style.marginBottom = '0.35rem';
+          let qText = 'Queue: ';
+          if (runningCount > 0) qText += `${fmt(runningCount)} running`;
+          if (runningCount > 0 && queuedCount > 0) qText += ' · ';
+          if (queuedCount > 0) qText += `${fmt(queuedCount)} queued`;
+          if (ship.active_eta) qText += ` · ETA ${countdown(ship.active_eta)}`;
+          qDiv.dom.textContent = qText;
+          card.add(qDiv);
+        }
+
+        const costDiv = new GQUI.Div().setClass('item-cost');
+        if (ship.cost.metal)     { const s = new GQUI.Span().setClass('cost-metal').setTextContent(`⬡ ${fmt(ship.cost.metal)}`); costDiv.add(s); }
+        if (ship.cost.crystal)   { const s = new GQUI.Span().setClass('cost-crystal').setTextContent(`💎 ${fmt(ship.cost.crystal)}`); costDiv.add(s); }
+        if (ship.cost.deuterium) { const s = new GQUI.Span().setClass('cost-deut').setTextContent(`🔵 ${fmt(ship.cost.deuterium)}`); costDiv.add(s); }
+        card.add(costDiv);
+
+        const statsDiv = new GQUI.Div();
+        statsDiv.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted)';
+        statsDiv.dom.textContent = `📦 ${fmt(ship.cargo)}   ⚡ ${fmt(ship.speed)}`;
+        card.add(statsDiv);
+
+        const buildRow = new GQUI.Div().setClass('ship-build-row');
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'number';
+        qtyInput.className = 'ship-qty';
+        qtyInput.dataset.type = String(ship.type);
+        qtyInput.min = '1';
+        qtyInput.value = '1';
+        buildRow.dom.appendChild(qtyInput);
+        const buildBtn = new GQUI.Button('Build').setClass('btn btn-primary btn-sm build-btn');
+        buildBtn.dom.dataset.type = String(ship.type);
+        buildRow.add(buildBtn);
+        card.add(buildRow);
+
+        grid.add(card);
+      });
+      return grid.dom;
     }
 
-    buildBlueprintCardsHtml(blueprints) {
+    buildBlueprintCardsDom(blueprints) {
       if (!Array.isArray(blueprints) || !blueprints.length) {
-        return '<p class="text-muted small">No blueprints created yet.</p>';
+        const p = document.createElement('p');
+        p.className = 'text-muted small';
+        p.textContent = 'No blueprints created yet.';
+        return p;
       }
+      const grid = new GQUI.Div().setClass('card-grid');
+      blueprints.forEach((bp) => {
+        const card = new GQUI.Div().setClass('item-card');
+        card.dom.style.cssText = 'border-color:rgba(94,133,189,0.45);background:linear-gradient(180deg, rgba(13,20,33,0.96), rgba(10,16,27,0.92));';
 
-      return `<div class="card-grid">${blueprints.map((bp) => `
-        <div class="item-card" style="border-color:rgba(94,133,189,0.45);background:linear-gradient(180deg, rgba(13,20,33,0.96), rgba(10,16,27,0.92));">
-          <div class="item-card-header">
-            <span class="item-name">${esc(bp.name || bp.type)}</span>
-            <span class="item-level">${fmt(bp.count || 0)} owned</span>
-          </div>
-          ${(Number(bp.running_count || 0) > 0 || Number(bp.queued_count || 0) > 0)
-            ? `<div class="small text-muted" style="margin-bottom:0.35rem;">Queue: ${Number(bp.running_count || 0) > 0 ? `${fmt(bp.running_count)} running` : ''}${Number(bp.running_count || 0) > 0 && Number(bp.queued_count || 0) > 0 ? ' · ' : ''}${Number(bp.queued_count || 0) > 0 ? `${fmt(bp.queued_count)} queued` : ''}${bp.active_eta ? ` · ETA ${countdown(bp.active_eta)}` : ''}</div>`
-            : ''}
-          <div class="small text-muted" style="margin-bottom:0.35rem;">${esc(fmtName(bp.ship_class || 'corvette'))} · ${esc(fmtName(bp.slot_layout_code || 'default'))}</div>
-          <div class="item-cost">
-            ${bp.cost?.metal ? `<span class="cost-metal">⬡ ${fmt(bp.cost.metal)}</span>` : ''}
-            ${bp.cost?.crystal ? `<span class="cost-crystal">💎 ${fmt(bp.cost.crystal)}</span>` : ''}
-            ${bp.cost?.deuterium ? `<span class="cost-deut">🔵 ${fmt(bp.cost.deuterium)}</span>` : ''}
-          </div>
-          <div style="font-size:0.75rem;color:var(--text-muted)">
-            ATK ${fmt(bp.stats?.attack || 0)} · SHD ${fmt(bp.stats?.shield || 0)} · HULL ${fmt(bp.stats?.hull || 0)}
-          </div>
-          <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">
-            CARGO ${fmt(bp.stats?.cargo || 0)} · SPD ${fmt(bp.stats?.speed || 0)}
-          </div>
-          <div style="margin-top:0.45rem; display:flex; flex-wrap:wrap; gap:0.3rem;">${this.renderSlotProfile(bp.slot_profile || {})}</div>
-          <div class="ship-build-row" style="margin-top:0.65rem;">
-            <input type="number" class="ship-qty" data-blueprint-id="${Number(bp.id || 0)}" min="1" value="1" />
-            <button class="btn btn-primary btn-sm build-blueprint-btn" data-blueprint-id="${Number(bp.id || 0)}" data-blueprint-type="${esc(bp.type || '')}" data-blueprint-name="${esc(bp.name || bp.type || 'Blueprint')}">Build</button>
-          </div>
-        </div>`).join('')}</div>`;
+        const header = new GQUI.Div().setClass('item-card-header');
+        header.add(new GQUI.Span().setClass('item-name').setTextContent(String(bp.name || bp.type)));
+        header.add(new GQUI.Span().setClass('item-level').setTextContent(`${fmt(bp.count || 0)} owned`));
+        card.add(header);
+
+        const runningCount = Number(bp.running_count || 0);
+        const queuedCount  = Number(bp.queued_count  || 0);
+        if (runningCount > 0 || queuedCount > 0) {
+          const qDiv = new GQUI.Div().setClass('small text-muted');
+          qDiv.dom.style.marginBottom = '0.35rem';
+          let qText = 'Queue: ';
+          if (runningCount > 0) qText += `${fmt(runningCount)} running`;
+          if (runningCount > 0 && queuedCount > 0) qText += ' · ';
+          if (queuedCount > 0) qText += `${fmt(queuedCount)} queued`;
+          if (bp.active_eta) qText += ` · ETA ${countdown(bp.active_eta)}`;
+          qDiv.dom.textContent = qText;
+          card.add(qDiv);
+        }
+
+        const classDiv = new GQUI.Div().setClass('small text-muted');
+        classDiv.dom.style.marginBottom = '0.35rem';
+        classDiv.dom.textContent = `${fmtName(bp.ship_class || 'corvette')} · ${fmtName(bp.slot_layout_code || 'default')}`;
+        card.add(classDiv);
+
+        const costDiv = new GQUI.Div().setClass('item-cost');
+        if (bp.cost?.metal)     { const s = new GQUI.Span().setClass('cost-metal').setTextContent(`⬡ ${fmt(bp.cost.metal)}`); costDiv.add(s); }
+        if (bp.cost?.crystal)   { const s = new GQUI.Span().setClass('cost-crystal').setTextContent(`💎 ${fmt(bp.cost.crystal)}`); costDiv.add(s); }
+        if (bp.cost?.deuterium) { const s = new GQUI.Span().setClass('cost-deut').setTextContent(`🔵 ${fmt(bp.cost.deuterium)}`); costDiv.add(s); }
+        card.add(costDiv);
+
+        const stats1 = new GQUI.Div();
+        stats1.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted)';
+        stats1.dom.textContent = `ATK ${fmt(bp.stats?.attack || 0)} · SHD ${fmt(bp.stats?.shield || 0)} · HULL ${fmt(bp.stats?.hull || 0)}`;
+        card.add(stats1);
+
+        const stats2 = new GQUI.Div();
+        stats2.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;';
+        stats2.dom.textContent = `CARGO ${fmt(bp.stats?.cargo || 0)} · SPD ${fmt(bp.stats?.speed || 0)}`;
+        card.add(stats2);
+
+        const slotWrap = new GQUI.Div();
+        slotWrap.dom.style.cssText = 'margin-top:0.45rem; display:flex; flex-wrap:wrap; gap:0.3rem;';
+        slotWrap.dom.appendChild(this.renderSlotProfile(bp.slot_profile || {}));
+        card.add(slotWrap);
+
+        const buildRow = new GQUI.Div().setClass('ship-build-row');
+        buildRow.dom.style.marginTop = '0.65rem';
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'number';
+        qtyInput.className = 'ship-qty';
+        qtyInput.dataset.blueprintId = String(Number(bp.id || 0));
+        qtyInput.min = '1';
+        qtyInput.value = '1';
+        buildRow.dom.appendChild(qtyInput);
+        const buildBtn = new GQUI.Button('Build').setClass('btn btn-primary btn-sm build-blueprint-btn');
+        buildBtn.dom.dataset.blueprintId = String(Number(bp.id || 0));
+        buildBtn.dom.dataset.blueprintType = String(bp.type || '');
+        buildBtn.dom.dataset.blueprintName = String(bp.name || bp.type || 'Blueprint');
+        buildRow.add(buildBtn);
+        card.add(buildRow);
+
+        grid.add(card);
+      });
+      return grid.dom;
     }
 
-    buildHullCatalogHtml(hulls) {
+    buildHullCatalogDom(hulls) {
       if (!Array.isArray(hulls) || !hulls.length) {
-        return '<p class="text-muted small">No hull catalog available.</p>';
+        const p = document.createElement('p');
+        p.className = 'text-muted small';
+        p.textContent = 'No hull catalog available.';
+        return p;
       }
-
-      return `<div class="card-grid">${hulls.map((hull) => {
+      const grid = new GQUI.Div().setClass('card-grid');
+      hulls.forEach((hull) => {
         const layouts = Object.keys(hull.slot_variations || {});
-        return `
-          <div class="item-card" style="border-color:rgba(137,117,70,0.45);">
-            <div class="item-card-header">
-              <span class="item-name">${esc(hull.label || hull.code)}</span>
-              <span class="item-level">${esc(fmtName(hull.ship_class || hull.role || 'hull'))}</span>
-            </div>
-            ${hull.unlocked === false ? `<div class="small text-red" style="margin-bottom:0.35rem;">Locked: ${esc((hull.blockers || []).join(' | '))}</div>` : '<div class="small" style="margin-bottom:0.35rem;color:#7ed7a1;">Unlocked</div>'}
-            <div class="small text-muted" style="margin-bottom:0.35rem;">Tier ${fmt(hull.tier || 1)} · ${esc(hull.code || '')}</div>
-            <div style="font-size:0.75rem;color:var(--text-muted)">
-              ATK ${fmt(hull.base_stats?.attack || 0)} · SHD ${fmt(hull.base_stats?.shield || 0)} · HULL ${fmt(hull.base_stats?.hull || 0)}
-            </div>
-            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">
-              CARGO ${fmt(hull.base_stats?.cargo || 0)} · SPD ${fmt(hull.base_stats?.speed || 0)}
-            </div>
-            <div style="margin-top:0.45rem; display:flex; flex-wrap:wrap; gap:0.3rem;">${this.renderSlotProfile(hull.slot_profile || {})}</div>
-            <div class="small text-muted" style="margin-top:0.45rem;">Layouts: ${layouts.length ? layouts.map((layout) => esc(fmtName(layout))).join(' · ') : 'default only'}</div>
-          </div>`;
-      }).join('')}</div>`;
+        const card = new GQUI.Div().setClass('item-card');
+        card.dom.style.cssText = 'border-color:rgba(137,117,70,0.45);';
+
+        const header = new GQUI.Div().setClass('item-card-header');
+        header.add(new GQUI.Span().setClass('item-name').setTextContent(String(hull.label || hull.code)));
+        header.add(new GQUI.Span().setClass('item-level').setTextContent(fmtName(hull.ship_class || hull.role || 'hull')));
+        card.add(header);
+
+        if (hull.unlocked === false) {
+          const lockDiv = new GQUI.Div().setClass('small text-red');
+          lockDiv.dom.style.marginBottom = '0.35rem';
+          lockDiv.dom.textContent = 'Locked: ' + (hull.blockers || []).join(' | ');
+          card.add(lockDiv);
+        } else {
+          const unlockDiv = new GQUI.Div().setClass('small');
+          unlockDiv.dom.style.cssText = 'margin-bottom:0.35rem;color:#7ed7a1;';
+          unlockDiv.dom.textContent = 'Unlocked';
+          card.add(unlockDiv);
+        }
+
+        const tierDiv = new GQUI.Div().setClass('small text-muted');
+        tierDiv.dom.style.marginBottom = '0.35rem';
+        tierDiv.dom.textContent = `Tier ${fmt(hull.tier || 1)} · ${String(hull.code || '')}`;
+        card.add(tierDiv);
+
+        const stats1 = new GQUI.Div();
+        stats1.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted)';
+        stats1.dom.textContent = `ATK ${fmt(hull.base_stats?.attack || 0)} · SHD ${fmt(hull.base_stats?.shield || 0)} · HULL ${fmt(hull.base_stats?.hull || 0)}`;
+        card.add(stats1);
+
+        const stats2 = new GQUI.Div();
+        stats2.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;';
+        stats2.dom.textContent = `CARGO ${fmt(hull.base_stats?.cargo || 0)} · SPD ${fmt(hull.base_stats?.speed || 0)}`;
+        card.add(stats2);
+
+        const slotWrap = new GQUI.Div();
+        slotWrap.dom.style.cssText = 'margin-top:0.45rem; display:flex; flex-wrap:wrap; gap:0.3rem;';
+        slotWrap.dom.appendChild(this.renderSlotProfile(hull.slot_profile || {}));
+        card.add(slotWrap);
+
+        const layoutsDiv = new GQUI.Div().setClass('small text-muted');
+        layoutsDiv.dom.style.marginTop = '0.45rem';
+        layoutsDiv.dom.textContent = 'Layouts: ' + (layouts.length
+          ? layouts.map((layout) => fmtName(layout)).join(' · ')
+          : 'default only');
+        card.add(layoutsDiv);
+
+        grid.add(card);
+      });
+      return grid.dom;
     }
 
-    buildBlueprintCreatorHtml(hulls) {
-      const options = (Array.isArray(hulls) ? hulls : []).map((hull) => `<option value="${esc(hull.code || '')}" data-attack="${Number(hull.base_stats?.attack || 0)}" data-shield="${Number(hull.base_stats?.shield || 0)}" data-hull="${Number(hull.base_stats?.hull || 0)}" data-cargo="${Number(hull.base_stats?.cargo || 0)}" data-speed="${Number(hull.base_stats?.speed || 0)}" ${hull.unlocked === false ? 'disabled' : ''}>${esc(hull.label || hull.code || 'Hull')} (${esc(fmtName(hull.ship_class || hull.role || 'hull'))})${hull.unlocked === false ? ' [locked]' : ''}</option>`).join('');
-      return `
-        <div class="system-card" style="margin-bottom:1rem;">
-          <div class="system-row"><strong>Blueprint Forge</strong></div>
-          <div class="small text-muted" style="margin-top:0.3rem;">Quick-create a starter blueprint from a hull class and one of its slot layouts.</div>
-          <div id="shipyard-preset-toolbar-wrap" style="margin-top:0.65rem;">${this.buildPresetToolbarHtml()}</div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.6rem;margin-top:0.7rem;">
-            <label class="small" style="display:flex;flex-direction:column;gap:0.25rem;">
-              <span>Name</span>
-              <input id="shipyard-blueprint-name" class="input" placeholder="Aegis Frigate" />
-            </label>
-            <label class="small" style="display:flex;flex-direction:column;gap:0.25rem;">
-              <span>Hull</span>
-              <select id="shipyard-blueprint-hull" class="input">${options}</select>
-            </label>
-            <label class="small" style="display:flex;flex-direction:column;gap:0.25rem;">
-              <span>Layout</span>
-              <select id="shipyard-blueprint-layout" class="input"></select>
-            </label>
-          </div>
-          <div id="shipyard-blueprint-layout-preview" class="small text-muted" style="margin-top:0.55rem;"></div>
-          <div id="shipyard-blueprint-modules" style="margin-top:0.65rem;"></div>
-          <div id="shipyard-blueprint-stats-preview" style="margin-top:0.55rem;"></div>
-          <div style="margin-top:0.7rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
-            <button id="shipyard-create-blueprint" class="btn">Create Blueprint</button>
-          </div>
-        </div>`;
+    buildBlueprintCreatorDom(hulls) {
+      const card = new GQUI.Div().setClass('system-card');
+      card.dom.style.marginBottom = '1rem';
+
+      const titleRow = new GQUI.Div().setClass('system-row');
+      const titleStrong = document.createElement('strong');
+      titleStrong.textContent = 'Blueprint Forge';
+      titleRow.dom.appendChild(titleStrong);
+      card.add(titleRow);
+
+      const desc = new GQUI.Div().setClass('small text-muted');
+      desc.dom.style.marginTop = '0.3rem';
+      desc.dom.textContent = 'Quick-create a starter blueprint from a hull class and one of its slot layouts.';
+      card.add(desc);
+
+      const presetWrap = new GQUI.Div();
+      presetWrap.dom.id = 'shipyard-preset-toolbar-wrap';
+      presetWrap.dom.style.marginTop = '0.65rem';
+      presetWrap.dom.appendChild(this.buildPresetToolbarDom());
+      card.add(presetWrap);
+
+      const grid = new GQUI.Div();
+      grid.dom.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.6rem;margin-top:0.7rem;';
+
+      const nameLbl = document.createElement('label');
+      nameLbl.className = 'small';
+      nameLbl.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = 'Name';
+      const nameInput = document.createElement('input');
+      nameInput.id = 'shipyard-blueprint-name';
+      nameInput.className = 'input';
+      nameInput.placeholder = 'Aegis Frigate';
+      nameLbl.appendChild(nameSpan);
+      nameLbl.appendChild(nameInput);
+      grid.dom.appendChild(nameLbl);
+
+      const hullLbl = document.createElement('label');
+      hullLbl.className = 'small';
+      hullLbl.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
+      const hullSpan = document.createElement('span');
+      hullSpan.textContent = 'Hull';
+      const hullSel = document.createElement('select');
+      hullSel.id = 'shipyard-blueprint-hull';
+      hullSel.className = 'input';
+      (Array.isArray(hulls) ? hulls : []).forEach((hull) => {
+        const opt = document.createElement('option');
+        opt.value = String(hull.code || '');
+        opt.dataset.attack = String(Number(hull.base_stats?.attack || 0));
+        opt.dataset.shield = String(Number(hull.base_stats?.shield || 0));
+        opt.dataset.hull   = String(Number(hull.base_stats?.hull   || 0));
+        opt.dataset.cargo  = String(Number(hull.base_stats?.cargo  || 0));
+        opt.dataset.speed  = String(Number(hull.base_stats?.speed  || 0));
+        if (hull.unlocked === false) opt.disabled = true;
+        opt.textContent = `${String(hull.label || hull.code || 'Hull')} (${fmtName(hull.ship_class || hull.role || 'hull')})${hull.unlocked === false ? ' [locked]' : ''}`;
+        hullSel.appendChild(opt);
+      });
+      hullLbl.appendChild(hullSpan);
+      hullLbl.appendChild(hullSel);
+      grid.dom.appendChild(hullLbl);
+
+      const layoutLbl = document.createElement('label');
+      layoutLbl.className = 'small';
+      layoutLbl.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
+      const layoutSpan = document.createElement('span');
+      layoutSpan.textContent = 'Layout';
+      const layoutSel = document.createElement('select');
+      layoutSel.id = 'shipyard-blueprint-layout';
+      layoutSel.className = 'input';
+      layoutLbl.appendChild(layoutSpan);
+      layoutLbl.appendChild(layoutSel);
+      grid.dom.appendChild(layoutLbl);
+
+      card.add(grid);
+
+      const layoutPreview = new GQUI.Div().setClass('small text-muted');
+      layoutPreview.dom.id = 'shipyard-blueprint-layout-preview';
+      layoutPreview.dom.style.marginTop = '0.55rem';
+      card.add(layoutPreview);
+
+      const modulesDiv = new GQUI.Div();
+      modulesDiv.dom.id = 'shipyard-blueprint-modules';
+      modulesDiv.dom.style.marginTop = '0.65rem';
+      card.add(modulesDiv);
+
+      const statsPreview = new GQUI.Div();
+      statsPreview.dom.id = 'shipyard-blueprint-stats-preview';
+      statsPreview.dom.style.marginTop = '0.55rem';
+      card.add(statsPreview);
+
+      const actionsDiv = new GQUI.Div();
+      actionsDiv.dom.style.cssText = 'margin-top:0.7rem; display:flex; gap:0.5rem; flex-wrap:wrap;';
+      const createBtn = new GQUI.Button('Create Blueprint').setClass('btn');
+      createBtn.dom.id = 'shipyard-create-blueprint';
+      actionsDiv.add(createBtn);
+      card.add(actionsDiv);
+
+      return card.dom;
     }
 
-    buildQueueHtml(queue) {
+    buildQueueDom(queue) {
       if (!Array.isArray(queue) || !queue.length) {
-        return '<p class="text-muted small">No ships in production.</p>';
+        return new GQUI.El(document.createElement('p')).setClass('text-muted small')
+          .setTextContent('No ships in production.').dom;
       }
+      const wrap = new GQUI.Div();
+    // ── Card / section builders ───────────────────────────────
 
-      return `<div style="display:grid;gap:0.55rem;">${queue.map((entry) => {
+    buildCards(ships) {
+      const grid = GQUI.div('card-grid');
+      ships.forEach((ship) => {
+        const card = GQUI.div('item-card');
+        const header = GQUI.div('item-card-header');
+        header.add(
+          GQUI.span('item-name').setText(fmtName(ship.type)),
+          GQUI.span('item-level').setText(`${ship.count} owned`),
+        );
+        card.add(header);
+        const rc = Number(ship.running_count || 0);
+        const qc = Number(ship.queued_count || 0);
+        if (rc > 0 || qc > 0) {
+          const parts = [];
+          if (rc > 0) parts.push(`${fmt(rc)} running`);
+          if (qc > 0) parts.push(`${fmt(qc)} queued`);
+          if (ship.active_eta) parts.push(`ETA ${countdown(ship.active_eta)}`);
+          card.add(GQUI.div('small', 'text-muted').setStyle('marginBottom', '0.35rem').setText(`Queue: ${parts.join(' · ')}`));
+        }
+        const cost = GQUI.div('item-cost');
+        if (ship.cost.metal)     cost.add(GQUI.span('cost-metal').setText(`⬡ ${fmt(ship.cost.metal)}`));
+        if (ship.cost.crystal)   cost.add(GQUI.span('cost-crystal').setText(`💎 ${fmt(ship.cost.crystal)}`));
+        if (ship.cost.deuterium) cost.add(GQUI.span('cost-deut').setText(`🔵 ${fmt(ship.cost.deuterium)}`));
+        card.add(cost);
+        const statsRow = GQUI.div().setStyle('fontSize', '0.75rem').setStyle('color', 'var(--text-muted)');
+        statsRow.setText(`📦 ${fmt(ship.cargo)}   ⚡ ${fmt(ship.speed)}`);
+        card.add(statsRow);
+        const buildRow = GQUI.div('ship-build-row');
+        buildRow.add(
+          GQUI.input('number', 'ship-qty').setData('type', ship.type).setMin(1).setValue(1),
+          GQUI.btn('Build', 'btn', 'btn-primary', 'btn-sm', 'build-btn').setData('type', ship.type),
+        );
+        card.add(buildRow);
+        grid.add(card);
+      });
+      return grid;
+    }
+
+    buildBlueprintCards(blueprints) {
+      if (!Array.isArray(blueprints) || !blueprints.length) {
+        return GQUI.span('text-muted', 'small').setText('No blueprints created yet.');
+      }
+      const grid = GQUI.div('card-grid');
+      blueprints.forEach((bp) => {
+        const card = GQUI.div('item-card');
+        card.dom.style.cssText = 'border-color:rgba(94,133,189,0.45);background:linear-gradient(180deg, rgba(13,20,33,0.96), rgba(10,16,27,0.92));';
+        const header = GQUI.div('item-card-header');
+        header.add(
+          GQUI.span('item-name').setText(String(bp.name || bp.type || '')),
+          GQUI.span('item-level').setText(`${fmt(bp.count || 0)} owned`),
+        );
+        card.add(header);
+        const rc = Number(bp.running_count || 0);
+        const qc = Number(bp.queued_count || 0);
+        if (rc > 0 || qc > 0) {
+          const parts = [];
+          if (rc > 0) parts.push(`${fmt(rc)} running`);
+          if (qc > 0) parts.push(`${fmt(qc)} queued`);
+          if (bp.active_eta) parts.push(`ETA ${countdown(bp.active_eta)}`);
+          card.add(GQUI.div('small', 'text-muted').setStyle('marginBottom', '0.35rem').setText(`Queue: ${parts.join(' · ')}`));
+        }
+        card.add(GQUI.div('small', 'text-muted').setStyle('marginBottom', '0.35rem')
+          .setText(`${fmtName(bp.ship_class || 'corvette')} · ${fmtName(bp.slot_layout_code || 'default')}`));
+        const cost = GQUI.div('item-cost');
+        if (bp.cost?.metal)     cost.add(GQUI.span('cost-metal').setText(`⬡ ${fmt(bp.cost.metal)}`));
+        if (bp.cost?.crystal)   cost.add(GQUI.span('cost-crystal').setText(`💎 ${fmt(bp.cost.crystal)}`));
+        if (bp.cost?.deuterium) cost.add(GQUI.span('cost-deut').setText(`🔵 ${fmt(bp.cost.deuterium)}`));
+        card.add(cost);
+        card.add(GQUI.div().setStyle('fontSize', '0.75rem').setStyle('color', 'var(--text-muted)')
+          .setText(`ATK ${fmt(bp.stats?.attack || 0)} · SHD ${fmt(bp.stats?.shield || 0)} · HULL ${fmt(bp.stats?.hull || 0)}`));
+        card.add(GQUI.div().setStyle('fontSize', '0.75rem').setStyle('color', 'var(--text-muted)').setStyle('marginTop', '0.2rem')
+          .setText(`CARGO ${fmt(bp.stats?.cargo || 0)} · SPD ${fmt(bp.stats?.speed || 0)}`));
+        const slotRow = GQUI.div().setStyle('marginTop', '0.45rem').setStyle('display', 'flex').setStyle('flexWrap', 'wrap').setStyle('gap', '0.3rem');
+        slotRow.dom.appendChild(this.renderSlotProfile(bp.slot_profile || {}));
+        card.add(slotRow);
+        const buildRow = GQUI.div('ship-build-row').setStyle('marginTop', '0.65rem');
+        buildRow.add(
+          GQUI.input('number', 'ship-qty').setData('blueprintId', Number(bp.id || 0)).setMin(1).setValue(1),
+          GQUI.btn('Build', 'btn', 'btn-primary', 'btn-sm', 'build-blueprint-btn')
+            .setData('blueprintId', Number(bp.id || 0))
+            .setData('blueprintType', String(bp.type || ''))
+            .setData('blueprintName', String(bp.name || bp.type || 'Blueprint')),
+        );
+        card.add(buildRow);
+        grid.add(card);
+      });
+      return grid;
+    }
+
+    buildHullCatalog(hulls) {
+      if (!Array.isArray(hulls) || !hulls.length) {
+        return GQUI.span('text-muted', 'small').setText('No hull catalog available.');
+      }
+      const grid = GQUI.div('card-grid');
+      hulls.forEach((hull) => {
+        const card = GQUI.div('item-card');
+        card.dom.style.borderColor = 'rgba(137,117,70,0.45)';
+        const header = GQUI.div('item-card-header');
+        header.add(
+          GQUI.span('item-name').setText(String(hull.label || hull.code || '')),
+          GQUI.span('item-level').setText(fmtName(hull.ship_class || hull.role || 'hull')),
+        );
+        card.add(header);
+        if (hull.unlocked === false) {
+          card.add(GQUI.div('small', 'text-red').setStyle('marginBottom', '0.35rem')
+            .setText(`Locked: ${(hull.blockers || []).join(' | ')}`));
+        } else {
+          card.add(GQUI.div('small').setStyle('marginBottom', '0.35rem').setStyle('color', '#7ed7a1').setText('Unlocked'));
+        }
+        card.add(GQUI.div('small', 'text-muted').setStyle('marginBottom', '0.35rem')
+          .setText(`Tier ${fmt(hull.tier || 1)} · ${String(hull.code || '')}`));
+        card.add(GQUI.div().setStyle('fontSize', '0.75rem').setStyle('color', 'var(--text-muted)')
+          .setText(`ATK ${fmt(hull.base_stats?.attack || 0)} · SHD ${fmt(hull.base_stats?.shield || 0)} · HULL ${fmt(hull.base_stats?.hull || 0)}`));
+        card.add(GQUI.div().setStyle('fontSize', '0.75rem').setStyle('color', 'var(--text-muted)').setStyle('marginTop', '0.2rem')
+          .setText(`CARGO ${fmt(hull.base_stats?.cargo || 0)} · SPD ${fmt(hull.base_stats?.speed || 0)}`));
+        const slotRow = GQUI.div().setStyle('marginTop', '0.45rem').setStyle('display', 'flex').setStyle('flexWrap', 'wrap').setStyle('gap', '0.3rem');
+        slotRow.dom.appendChild(this.renderSlotProfile(hull.slot_profile || {}));
+        card.add(slotRow);
+        const layouts = Object.keys(hull.slot_variations || {});
+        card.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.45rem')
+          .setText(`Layouts: ${layouts.length ? layouts.map((l) => fmtName(l)).join(' · ') : 'default only'}`));
+        grid.add(card);
+      });
+      return grid;
+    }
+
+    buildBlueprintCreator(hulls) {
+      const card = GQUI.div('system-card').setStyle('marginBottom', '1rem');
+      card.add(GQUI.div('system-row').add(GQUI.strong().setText('Blueprint Forge')));
+      card.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
+        .setText('Quick-create a starter blueprint from a hull class and one of its slot layouts.'));
+
+      const toolbarWrap = GQUI.div().setId('shipyard-preset-toolbar-wrap').setStyle('marginTop', '0.65rem');
+      toolbarWrap.add(this.buildPresetToolbar());
+      card.add(toolbarWrap);
+
+      const fieldsGrid = GQUI.div();
+      fieldsGrid.dom.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.6rem;margin-top:0.7rem;';
+
+      const nameLabel = GQUI.label('small');
+      nameLabel.dom.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
+      nameLabel.add(
+        GQUI.span().setText('Name'),
+        GQUI.input('text', 'input').setId('shipyard-blueprint-name').setPlaceholder('Aegis Frigate'),
+      );
+
+      const hullLabel = GQUI.label('small');
+      hullLabel.dom.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
+      const hullSel = GQUI.select('input').setId('shipyard-blueprint-hull');
+      (Array.isArray(hulls) ? hulls : []).forEach((hull) => {
+        const text = `${String(hull.label || hull.code || 'Hull')} (${fmtName(hull.ship_class || hull.role || 'hull')})${hull.unlocked === false ? ' [locked]' : ''}`;
+        hullSel.addOption(hull.code || '', text, hull.unlocked === false, {
+          attack: Number(hull.base_stats?.attack || 0),
+          shield: Number(hull.base_stats?.shield || 0),
+          hull:   Number(hull.base_stats?.hull   || 0),
+          cargo:  Number(hull.base_stats?.cargo  || 0),
+          speed:  Number(hull.base_stats?.speed  || 0),
+        });
+      });
+      hullLabel.add(GQUI.span().setText('Hull'), hullSel);
+
+      const layoutLabel = GQUI.label('small');
+      layoutLabel.dom.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
+      layoutLabel.add(
+        GQUI.span().setText('Layout'),
+        GQUI.select('input').setId('shipyard-blueprint-layout'),
+      );
+
+      fieldsGrid.add(nameLabel, hullLabel, layoutLabel);
+      card.add(fieldsGrid);
+      card.add(GQUI.div('small', 'text-muted').setId('shipyard-blueprint-layout-preview').setStyle('marginTop', '0.55rem'));
+      card.add(GQUI.div().setId('shipyard-blueprint-modules').setStyle('marginTop', '0.65rem'));
+      card.add(GQUI.div().setId('shipyard-blueprint-stats-preview').setStyle('marginTop', '0.55rem'));
+      const actionsRow = GQUI.div().setStyle('marginTop', '0.7rem').setStyle('display', 'flex').setStyle('gap', '0.5rem').setStyle('flexWrap', 'wrap');
+      actionsRow.add(GQUI.btn('Create Blueprint', 'btn').setId('shipyard-create-blueprint'));
+      card.add(actionsRow);
+      return card;
+    }
+
+    buildQueue(queue) {
+      if (!Array.isArray(queue) || !queue.length) {
+        return GQUI.span('text-muted', 'small').setText('No ships in production.');
+      }
+      const wrap = GQUI.div();
+      wrap.dom.style.cssText = 'display:grid;gap:0.55rem;';
+      queue.forEach((entry) => {
         const running = String(entry.status || '') === 'running';
         const label = String(entry.label || entry.ship_type || 'Ship');
         const statusLabel = running ? 'Running' : `Queued #${Number(entry.position || 1)}`;
-        const timer = running && entry.eta
-          ? `<div class="item-timer">⏳ <span data-end="${esc(entry.eta)}">${countdown(entry.eta)}</span></div><div class="progress-bar-wrap"><div class="progress-bar" data-start="${esc(entry.started_at || '')}" data-end="${esc(entry.eta)}" style="width:0%"></div></div>`
-          : '<div class="small text-muted">Waiting for free shipyard slot.</div>';
-        return `
-          <div class="item-card" style="padding:0.8rem 0.9rem;">
-            <div class="item-card-header">
-              <span class="item-name">${esc(label)}</span>
-              <span class="item-level">${esc(statusLabel)}</span>
-            </div>
-            <div class="small text-muted" style="margin-bottom:0.35rem;">${fmt(Number(entry.quantity || 1))}x ${esc(fmtName(entry.ship_type || label))}</div>
-            ${timer}
-          </div>`;
-      }).join('')}</div>`;
+
+        const card = new GQUI.Div().setClass('item-card');
+        card.dom.style.cssText = 'padding:0.8rem 0.9rem;';
+
+        const header = new GQUI.Div().setClass('item-card-header');
+        const nameSpan = new GQUI.Span().setClass('item-name').setTextContent(label);
+        const statusSpan = new GQUI.Span().setClass('item-level').setTextContent(statusLabel);
+        header.add(nameSpan, statusSpan);
+        card.add(header);
+
+        const qtyDiv = new GQUI.Div().setClass('small text-muted');
+        qtyDiv.dom.style.marginBottom = '0.35rem';
+        qtyDiv.dom.textContent = `${fmt(Number(entry.quantity || 1))}x ${fmtName(entry.ship_type || label)}`;
+        card.add(qtyDiv);
+
+        if (running && entry.eta) {
+          const timerDiv = new GQUI.Div().setClass('item-timer');
+          timerDiv.dom.textContent = '⏳ ';
+          const etaSpan = document.createElement('span');
+          etaSpan.dataset.end = String(entry.eta);
+          etaSpan.textContent = countdown(entry.eta);
+          timerDiv.dom.appendChild(etaSpan);
+          card.add(timerDiv);
+
+          const pbWrap = new GQUI.Div().setClass('progress-bar-wrap');
+          const pb = new GQUI.Div().setClass('progress-bar');
+          pb.dom.dataset.start = String(entry.started_at || '');
+          pb.dom.dataset.end = String(entry.eta);
+          pb.dom.style.width = '0%';
+          pbWrap.add(pb);
+          card.add(pbWrap);
+        } else {
+          const waitDiv = new GQUI.Div().setClass('small text-muted')
+            .setTextContent('Waiting for free shipyard slot.');
+          card.add(waitDiv);
+        }
+        wrap.add(card);
+      });
+      return wrap.dom;
+        const card = GQUI.div('item-card');
+        card.dom.style.cssText = 'padding:0.8rem 0.9rem;';
+        const header = GQUI.div('item-card-header');
+        header.add(
+          GQUI.span('item-name').setText(label),
+          GQUI.span('item-level').setText(statusLabel),
+        );
+        card.add(header);
+        card.add(GQUI.div('small', 'text-muted').setStyle('marginBottom', '0.35rem')
+          .setText(`${fmt(Number(entry.quantity || 1))}x ${fmtName(entry.ship_type || label)}`));
+        if (running && entry.eta) {
+          const timerDiv = GQUI.div('item-timer');
+          const countdownSpan = GQUI.span().setAttribute('data-end', entry.eta).setText(countdown(entry.eta));
+          timerDiv.dom.appendChild(document.createTextNode('⏳ '));
+          timerDiv.add(countdownSpan);
+          card.add(timerDiv);
+          const barWrap = GQUI.div('progress-bar-wrap');
+          barWrap.add(
+            GQUI.div('progress-bar')
+              .setAttribute('data-start', entry.started_at || '')
+              .setAttribute('data-end', entry.eta)
+              .setStyle('width', '0%'),
+          );
+          card.add(barWrap);
+        } else {
+          card.add(GQUI.div('small', 'text-muted').setText('Waiting for free shipyard slot.'));
+        }
+        wrap.add(card);
+      });
+      return wrap;
     }
 
     async updateBlueprintLayoutOptions(root, hulls) {
@@ -6531,43 +7180,105 @@
       const preview = root.querySelector('#shipyard-blueprint-layout-preview');
       const modulesRoot = root.querySelector('#shipyard-blueprint-modules');
       if (!layoutSelect || !hull) {
-        if (layoutSelect) layoutSelect.innerHTML = '<option value="default">Default</option>';
-        if (preview) preview.innerHTML = '';
-        if (modulesRoot) modulesRoot.innerHTML = '';
+        if (layoutSelect) {
+          const defOpt = document.createElement('option');
+          defOpt.value = 'default';
+          defOpt.textContent = 'Default';
+          layoutSelect.replaceChildren(defOpt);
+        }
+        if (preview) preview.replaceChildren();
+        if (modulesRoot) modulesRoot.replaceChildren();
+          GQUI.clearNode(layoutSelect);
+          const opt = document.createElement('option');
+          opt.value = 'default';
+          opt.textContent = 'Default';
+          layoutSelect.appendChild(opt);
+        }
+        if (preview) GQUI.clearNode(preview);
+        if (modulesRoot) GQUI.clearNode(modulesRoot);
         return;
       }
 
       const layouts = ['default', ...Object.keys(hull.slot_variations || {})];
-      layoutSelect.innerHTML = layouts.map((layoutCode) => {
+      const newOpts = layouts.map((layoutCode) => {
+      GQUI.clearNode(layoutSelect);
+      layouts.forEach((layoutCode) => {
         const label = layoutCode === 'default'
           ? 'Default'
           : String(hull.slot_variations?.[layoutCode]?.label || fmtName(layoutCode));
-        return `<option value="${esc(layoutCode)}">${esc(label)}</option>`;
-      }).join('');
+        const opt = document.createElement('option');
+        opt.value = layoutCode;
+        opt.textContent = label;
+        return opt;
+      });
+      layoutSelect.replaceChildren(...newOpts);
+        layoutSelect.appendChild(opt);
+      });
 
       const selectedLayout = String(layoutSelect.value || 'default');
       const profile = this.computeSlotProfile(hull, selectedLayout);
       if (preview) {
-        const blockers = Array.isArray(hull.blockers) && hull.blockers.length
-          ? `<div class="text-red" style="margin-top:0.3rem;">Locked: ${esc(hull.blockers.join(' | '))}</div>`
-          : '';
-        preview.innerHTML = `Class: ${esc(fmtName(hull.ship_class || hull.role || 'hull'))} · Slots: ${this.renderSlotProfile(profile)}${blockers}`;
+        const previewFrag = document.createDocumentFragment();
+        const classSpan = document.createTextNode(
+          `Class: ${fmtName(hull.ship_class || hull.role || 'hull')} · Slots: `
+        );
+        previewFrag.appendChild(classSpan);
+        previewFrag.appendChild(this.renderSlotProfile(profile));
+        if (Array.isArray(hull.blockers) && hull.blockers.length) {
+          const lockDiv = new GQUI.Div().setClass('text-red');
+          lockDiv.dom.style.marginTop = '0.3rem';
+          lockDiv.dom.textContent = 'Locked: ' + hull.blockers.join(' | ');
+          previewFrag.appendChild(lockDiv.dom);
+        }
+        preview.replaceChildren(previewFrag);
       }
 
       if (modulesRoot) {
-        modulesRoot.innerHTML = '<div class="text-muted small">Loading module options...</div>';
+        const loadingDiv = new GQUI.Div().setClass('text-muted small')
+          .setTextContent('Loading module options...');
+        modulesRoot.replaceChildren(loadingDiv.dom);
+        GQUI.clearNode(preview);
+        preview.appendChild(document.createTextNode(`Class: ${fmtName(hull.ship_class || hull.role || 'hull')} · Slots: `));
+        preview.appendChild(this.renderSlotProfile(profile));
+        if (Array.isArray(hull.blockers) && hull.blockers.length) {
+          preview.appendChild(
+            GQUI.div('text-red').setStyle('marginTop', '0.3rem').setText(`Locked: ${hull.blockers.join(' | ')}`).dom,
+          );
+        }
+      }
+
+      if (modulesRoot) {
+        GQUI.setStatus(modulesRoot, 'Loading module options...', 'text-muted small');
       }
       try {
         const catalog = await this.fetchModuleCatalog(currentColony.id, hull.code, selectedLayout);
         if (modulesRoot) {
-          const hullGate = catalog?.hull_unlocked === false && Array.isArray(catalog?.hull_blockers) && catalog.hull_blockers.length
-            ? `<div class="text-red small" style="margin-bottom:0.45rem;">Hull locked: ${esc(catalog.hull_blockers.join(' | '))}</div>`
-            : '';
-          modulesRoot.innerHTML = `${hullGate}${this.renderModuleSlotEditor(catalog)}`;
+          modulesRoot.replaceChildren();
+          if (catalog?.hull_unlocked === false && Array.isArray(catalog?.hull_blockers) && catalog.hull_blockers.length) {
+            const gateDiv = new GQUI.Div().setClass('text-red small');
+            gateDiv.dom.style.marginBottom = '0.45rem';
+            gateDiv.dom.textContent = 'Hull locked: ' + catalog.hull_blockers.join(' | ');
+            modulesRoot.appendChild(gateDiv.dom);
+          }
+          modulesRoot.appendChild(this.renderModuleSlotEditor(catalog));
         }
       } catch (err) {
         if (modulesRoot) {
-          modulesRoot.innerHTML = `<div class="text-red small">${esc(String(err?.message || 'Failed to load module options.'))}</div>`;
+          const errDiv = new GQUI.Div().setClass('text-red small');
+          errDiv.dom.textContent = String(err?.message || 'Failed to load module options.');
+          modulesRoot.replaceChildren(errDiv.dom);
+          GQUI.clearNode(modulesRoot);
+          if (catalog?.hull_unlocked === false && Array.isArray(catalog?.hull_blockers) && catalog.hull_blockers.length) {
+            modulesRoot.appendChild(
+              GQUI.div('text-red', 'small').setStyle('marginBottom', '0.45rem').setText(`Hull locked: ${catalog.hull_blockers.join(' | ')}`).dom,
+            );
+          }
+          const editorEl = this.renderModuleSlotEditor(catalog);
+          modulesRoot.appendChild(editorEl instanceof GQUI.UIElement ? editorEl.dom : editorEl);
+        }
+      } catch (err) {
+        if (modulesRoot) {
+          GQUI.setStatus(modulesRoot, String(err?.message || 'Failed to load module options.'), 'text-red small');
         }
       }
     }
@@ -6626,17 +7337,9 @@
         const layoutCode = String(root.querySelector('#shipyard-blueprint-layout')?.value || 'default');
         const nameInput = root.querySelector('#shipyard-blueprint-name');
         const hull = hulls.find((entry) => String(entry.code || '') === hullCode);
-        if (!hull) {
-          showToast('No hull selected.', 'warning');
-          return;
-        }
-
+        if (!hull) { showToast('No hull selected.', 'warning'); return; }
         const modules = this.collectBlueprintModulesFromUI(root);
-        if (!modules.length) {
-          showToast('Select modules for at least one slot.', 'warning');
-          return;
-        }
-
+        if (!modules.length) { showToast('Select modules for at least one slot.', 'warning'); return; }
         const defaultName = `${fmtName(hull.ship_class || hull.role || 'Hull')} ${fmtName(layoutCode === 'default' ? hull.code : layoutCode)}`;
         const payload = {
           colony_id: currentColony.id,
@@ -6646,14 +7349,11 @@
           doctrine_tag: layoutCode,
           modules,
         };
-
         const createBtn = root.querySelector('#shipyard-create-blueprint');
         if (createBtn) createBtn.disabled = true;
         try {
           const res = await API.createBlueprint(payload);
-          if (!res.success) {
-            throw new Error(res.error || 'Blueprint creation failed');
-          }
+          if (!res.success) throw new Error(res.error || 'Blueprint creation failed');
           showToast(`Blueprint created: ${payload.name}`, 'success');
           if (nameInput) nameInput.value = '';
           await this.render();
@@ -6669,9 +7369,7 @@
       const modsContainer = root.querySelector('#shipyard-blueprint-modules');
       if (modsContainer) {
         modsContainer.addEventListener('change', (e) => {
-          if (e.target.classList.contains('shipyard-module-slot')) {
-            this.updateStatsPreview(root);
-          }
+          if (e.target.classList.contains('shipyard-module-slot')) this.updateStatsPreview(root);
         });
         modsContainer.addEventListener('click', (e) => {
           const upBtn = e.target.closest('.shipyard-slot-up');
@@ -6705,10 +7403,14 @@
       const root = WM.body('shipyard');
       if (!root) return;
       if (!currentColony) {
-        root.innerHTML = '<p class="text-muted">Select a colony first.</p>';
+        gqStatusMsg(root, 'Select a colony first.', 'muted');
         return;
       }
-      root.innerHTML = '<p class="text-muted">Loading…</p>';
+      gqStatusMsg(root, 'Loading\u2026', 'muted');
+        GQUI.setStatus(root, 'Select a colony first.');
+        return;
+      }
+      GQUI.setStatus(root, 'Loading\u2026');
 
       try {
         const [data, hullData, vesselData] = await Promise.all([
@@ -6717,78 +7419,256 @@
           API.shipyardVessels(currentColony.id).catch(() => ({ vessels: [] })),
         ]);
         if (!data.success) {
-          root.innerHTML = '<p class="text-red">Error.</p>';
+          gqStatusMsg(root, 'Error.', 'red');
+          GQUI.setStatus(root, 'Error.', 'text-red');
           return;
         }
-        const hulls   = Array.isArray(hullData?.hulls) ? hullData.hulls : [];
-        const vessels = Array.isArray(vesselData?.vessels) ? vesselData.vessels : [];
+        const hulls   = Array.isArray(hullData?.hulls)       ? hullData.hulls       : [];
+        const vessels = Array.isArray(vesselData?.vessels)    ? vesselData.vessels   : [];
         this._pendingHulls = hulls;
-        root.innerHTML = `
-          ${this.buildBlueprintCreatorHtml(hulls)}
-          <div class="system-card" style="margin-bottom:1rem;">
-            <div class="system-row"><strong>Build Queue</strong></div>
-            <div class="small text-muted" style="margin-top:0.3rem;">Ships now enter a real production queue with ETA.</div>
-            <div style="margin-top:0.7rem;">${this.buildQueueHtml(data.queue || [])}</div>
-          </div>
-          ${vessels.length ? `
-          <div class="system-card" style="margin-bottom:1rem;" id="shipyard-docked-vessels-card">
-            <div class="system-row"><strong>Docked Vessels</strong><span class="badge" style="margin-left:0.5rem;">${vessels.length}</span></div>
-            <div class="small text-muted" style="margin-top:0.3rem;">Individual blueprint vessels docked at this colony.</div>
-            <div style="margin-top:0.7rem;">${this.renderDockedVessels(vessels)}</div>
-          </div>` : ''}
-          <div class="system-card" style="margin-bottom:1rem;">
-            <div class="system-row"><strong>Hull Catalog</strong></div>
-            <div class="small text-muted" style="margin-top:0.3rem;">Ship classes and their slot-layout variations.</div>
-            <div style="margin-top:0.7rem;">${this.buildHullCatalogHtml(hulls)}</div>
-          </div>
-          <div class="system-card" style="margin-bottom:1rem;">
-            <div class="system-row"><strong>Blueprints</strong></div>
-            <div class="small text-muted" style="margin-top:0.3rem;">Compiled blueprints built as synthetic ship types.</div>
-            <div style="margin-top:0.7rem;">${this.buildBlueprintCardsHtml(data.blueprints || [])}</div>
-          </div>
-          <div class="system-card">
-            <div class="system-row"><strong>Legacy Ships</strong></div>
-            <div class="small text-muted" style="margin-top:0.3rem;">Fallback SHIP_STATS path remains available during migration.</div>
-            <div style="margin-top:0.7rem;">${this.buildCardsHtml(data.ships || [])}</div>
-          </div>`;
+
+        const frag = document.createDocumentFragment();
+
+        frag.appendChild(this.buildBlueprintCreatorDom(hulls));
+
+        const queueCard = new GQUI.Div().setClass('system-card');
+        queueCard.dom.style.marginBottom = '1rem';
+        const queueTitle = new GQUI.Div().setClass('system-row');
+        const queueStrong = document.createElement('strong');
+        queueStrong.textContent = 'Build Queue';
+        queueTitle.dom.appendChild(queueStrong);
+        queueCard.add(queueTitle);
+        const queueDesc = new GQUI.Div().setClass('small text-muted');
+        queueDesc.dom.style.marginTop = '0.3rem';
+        queueDesc.dom.textContent = 'Ships now enter a real production queue with ETA.';
+        queueCard.add(queueDesc);
+        const queueBody = new GQUI.Div();
+        queueBody.dom.style.marginTop = '0.7rem';
+        queueBody.dom.appendChild(this.buildQueueDom(data.queue || []));
+        frag.appendChild(this.buildBlueprintCreator(hulls).dom);
+
+        const queueCard = GQUI.div('system-card').setStyle('marginBottom', '1rem');
+        queueCard.add(GQUI.div('system-row').add(GQUI.strong().setText('Build Queue')));
+        queueCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
+          .setText('Ships now enter a real production queue with ETA.'));
+        const queueBody = GQUI.div().setStyle('marginTop', '0.7rem');
+        queueBody.add(this.buildQueue(data.queue || []));
+        queueCard.add(queueBody);
+        frag.appendChild(queueCard.dom);
+
+        if (vessels.length) {
+          const vesselsDom = this.renderDockedVesselsDom(vessels);
+          if (vesselsDom) {
+            const vesselCard = new GQUI.Div().setClass('system-card');
+            vesselCard.dom.id = 'shipyard-docked-vessels-card';
+            vesselCard.dom.style.marginBottom = '1rem';
+            const vesselTitle = new GQUI.Div().setClass('system-row');
+            const vesselStrong = document.createElement('strong');
+            vesselStrong.textContent = 'Docked Vessels';
+            vesselTitle.dom.appendChild(vesselStrong);
+            const badge = new GQUI.Span().setClass('badge');
+            badge.dom.style.marginLeft = '0.5rem';
+            badge.dom.textContent = String(vessels.length);
+            vesselTitle.add(badge);
+            vesselCard.add(vesselTitle);
+            const vesselDesc = new GQUI.Div().setClass('small text-muted');
+            vesselDesc.dom.style.marginTop = '0.3rem';
+            vesselDesc.dom.textContent = 'Individual blueprint vessels docked at this colony.';
+            vesselCard.add(vesselDesc);
+            const vesselBody = new GQUI.Div();
+            vesselBody.dom.style.marginTop = '0.7rem';
+            vesselBody.dom.appendChild(vesselsDom);
+            vesselCard.add(vesselBody);
+            frag.appendChild(vesselCard.dom);
+          }
+        }
+
+        const hullCard = new GQUI.Div().setClass('system-card');
+        hullCard.dom.style.marginBottom = '1rem';
+        const hullTitle = new GQUI.Div().setClass('system-row');
+        const hullStrong = document.createElement('strong');
+        hullStrong.textContent = 'Hull Catalog';
+        hullTitle.dom.appendChild(hullStrong);
+        hullCard.add(hullTitle);
+        const hullDesc = new GQUI.Div().setClass('small text-muted');
+        hullDesc.dom.style.marginTop = '0.3rem';
+        hullDesc.dom.textContent = 'Ship classes and their slot-layout variations.';
+        hullCard.add(hullDesc);
+        const hullBody = new GQUI.Div();
+        hullBody.dom.style.marginTop = '0.7rem';
+        hullBody.dom.appendChild(this.buildHullCatalogDom(hulls));
+        hullCard.add(hullBody);
+        frag.appendChild(hullCard.dom);
+
+        const bpCard = new GQUI.Div().setClass('system-card');
+        bpCard.dom.style.marginBottom = '1rem';
+        const bpTitle = new GQUI.Div().setClass('system-row');
+        const bpStrong = document.createElement('strong');
+        bpStrong.textContent = 'Blueprints';
+        bpTitle.dom.appendChild(bpStrong);
+        bpCard.add(bpTitle);
+        const bpDesc = new GQUI.Div().setClass('small text-muted');
+        bpDesc.dom.style.marginTop = '0.3rem';
+        bpDesc.dom.textContent = 'Compiled blueprints built as synthetic ship types.';
+        bpCard.add(bpDesc);
+        const bpBody = new GQUI.Div();
+        bpBody.dom.style.marginTop = '0.7rem';
+        bpBody.dom.appendChild(this.buildBlueprintCardsDom(data.blueprints || []));
+        bpCard.add(bpBody);
+        frag.appendChild(bpCard.dom);
+
+        const legacyCard = new GQUI.Div().setClass('system-card');
+        const legacyTitle = new GQUI.Div().setClass('system-row');
+        const legacyStrong = document.createElement('strong');
+        legacyStrong.textContent = 'Legacy Ships';
+        legacyTitle.dom.appendChild(legacyStrong);
+        legacyCard.add(legacyTitle);
+        const legacyDesc = new GQUI.Div().setClass('small text-muted');
+        legacyDesc.dom.style.marginTop = '0.3rem';
+        legacyDesc.dom.textContent = 'Fallback SHIP_STATS path remains available during migration.';
+        legacyCard.add(legacyDesc);
+        const legacyBody = new GQUI.Div();
+        legacyBody.dom.style.marginTop = '0.7rem';
+        legacyBody.dom.appendChild(this.buildCardsDom(data.ships || []));
+        legacyCard.add(legacyBody);
+        frag.appendChild(legacyCard.dom);
+
+        root.replaceChildren(frag);
         this.bindActions(root, hulls);
       } catch (_) {
-        root.innerHTML = '<p class="text-red">Failed to load shipyard.</p>';
+        gqStatusMsg(root, 'Failed to load shipyard.', 'red');
+      }
+    }
+
+    renderDockedVesselsDom(vessels) {
+      if (!vessels.length) return null;
+      const list = new GQUI.Div().setClass('vessel-list');
+      vessels.forEach((v) => {
+        const hp    = v.hp_state?.hp    ?? v.stats?.hull ?? '?';
+        const maxHp = v.hp_state?.max_hp ?? v.stats?.hull ?? '?';
+        const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
+
+        const card = new GQUI.Div().setClass('vessel-card');
+        card.dom.dataset.vesselId = String(v.id);
+
+        const header = new GQUI.Div().setClass('vessel-card-header');
+        header.add(new GQUI.Span().setClass('vessel-card-name').setTextContent(String(v.bp_name || v.name || `Vessel #${v.id}`)));
+        header.add(new GQUI.Span().setClass('vessel-card-class badge').setTextContent(`${fmtName(v.hull_class || 'unknown')} T${v.hull_tier ?? '?'}`));
+        const statusSpan = new GQUI.Span().setClass('vessel-card-status vessel-status-' + String(v.status)).setTextContent(String(v.status));
+        header.add(statusSpan);
+        card.add(header);
+
+        const hullLbl = new GQUI.Div().setClass('vessel-card-hull').setTextContent(String(v.hull_label || ''));
+        card.add(hullLbl);
+
+        const hpBarWrap = new GQUI.Div().setClass('vessel-hp-bar');
+        const hpFill = new GQUI.Div().setClass('vessel-hp-fill');
+        hpFill.dom.style.width = hpPct + '%';
+        hpBarWrap.add(hpFill);
+        card.add(hpBarWrap);
+
+        const chipsDiv = new GQUI.Div().setClass('vessel-stat-chips');
+        ['attack', 'shield', 'hull', 'cargo', 'speed'].filter((k) => v.stats?.[k] > 0).forEach((k) => {
+          const chip = new GQUI.Span().setClass('vessel-stat-chip chiptype-' + k.slice(0, 3));
+          chip.dom.textContent = fmtName(k) + ' ' + fmt(v.stats[k]);
+          chipsDiv.add(chip);
+        });
+        card.add(chipsDiv);
+
+        const actionsDiv = new GQUI.Div().setClass('vessel-card-actions');
+        const decommBtn = new GQUI.Button('Decommission').setClass('btn btn-sm btn-danger vessel-decommission-btn');
+        decommBtn.dom.type = 'button';
+        decommBtn.dom.dataset.vesselId = String(v.id);
+        decommBtn.dom.title = 'Permanently decommission this vessel';
+        actionsDiv.add(decommBtn);
+        card.add(actionsDiv);
+
+        list.add(card);
+      });
+      return list.dom;
+          const vesselCard = GQUI.div('system-card').setStyle('marginBottom', '1rem').setId('shipyard-docked-vessels-card');
+          const vesselHeader = GQUI.div('system-row');
+          vesselHeader.add(
+            GQUI.strong().setText('Docked Vessels'),
+            GQUI.span('badge').setStyle('marginLeft', '0.5rem').setText(String(vessels.length)),
+          );
+          vesselCard.add(vesselHeader);
+          vesselCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
+            .setText('Individual blueprint vessels docked at this colony.'));
+          const vesselBody = GQUI.div().setStyle('marginTop', '0.7rem');
+          vesselBody.add(this.renderDockedVessels(vessels));
+          vesselCard.add(vesselBody);
+          frag.appendChild(vesselCard.dom);
+        }
+
+        const hullCard = GQUI.div('system-card').setStyle('marginBottom', '1rem');
+        hullCard.add(GQUI.div('system-row').add(GQUI.strong().setText('Hull Catalog')));
+        hullCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
+          .setText('Ship classes and their slot-layout variations.'));
+        const hullBody = GQUI.div().setStyle('marginTop', '0.7rem');
+        hullBody.add(this.buildHullCatalog(hulls));
+        hullCard.add(hullBody);
+        frag.appendChild(hullCard.dom);
+
+        const bpCard = GQUI.div('system-card').setStyle('marginBottom', '1rem');
+        bpCard.add(GQUI.div('system-row').add(GQUI.strong().setText('Blueprints')));
+        bpCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
+          .setText('Compiled blueprints built as synthetic ship types.'));
+        const bpBody = GQUI.div().setStyle('marginTop', '0.7rem');
+        bpBody.add(this.buildBlueprintCards(data.blueprints || []));
+        bpCard.add(bpBody);
+        frag.appendChild(bpCard.dom);
+
+        const legacyCard = GQUI.div('system-card');
+        legacyCard.add(GQUI.div('system-row').add(GQUI.strong().setText('Legacy Ships')));
+        legacyCard.add(GQUI.div('small', 'text-muted').setStyle('marginTop', '0.3rem')
+          .setText('Fallback SHIP_STATS path remains available during migration.'));
+        const legacyBody = GQUI.div().setStyle('marginTop', '0.7rem');
+        legacyBody.add(this.buildCards(data.ships || []));
+        legacyCard.add(legacyBody);
+        frag.appendChild(legacyCard.dom);
+
+        GQUI.clearNode(root);
+        root.appendChild(frag);
+        this.bindActions(root, hulls);
+      } catch (_) {
+        GQUI.setStatus(root, 'Failed to load shipyard.', 'text-red');
       }
     }
 
     renderDockedVessels(vessels) {
-      if (!vessels.length) return '';
-      const esc  = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-      const fmt  = (n) => Number(n).toLocaleString();
-      const fmtName = (s) => String(s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-
-      return `<div class="vessel-list">
-        ${vessels.map((v) => {
-          const hp     = (v.hp_state?.hp    ?? v.stats?.hull ?? '?');
-          const maxHp  = (v.hp_state?.max_hp ?? v.stats?.hull ?? '?');
-          const hpPct  = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
-          const hpBar  = `<div class="vessel-hp-bar"><div class="vessel-hp-fill" style="width:${hpPct}%;"></div></div>`;
-          const statChips = ['attack','shield','hull','cargo','speed']
-            .filter((k) => v.stats?.[k] > 0)
-            .map((k) => `<span class="vessel-stat-chip chiptype-${k.slice(0,3)}">${fmtName(k)} ${fmt(v.stats[k])}</span>`)
-            .join('');
-          return `
-            <div class="vessel-card" data-vessel-id="${v.id}">
-              <div class="vessel-card-header">
-                <span class="vessel-card-name">${esc(v.bp_name || v.name || `Vessel #${v.id}`)}</span>
-                <span class="vessel-card-class badge">${esc(fmtName(v.hull_class || 'unknown'))} T${v.hull_tier ?? '?'}</span>
-                <span class="vessel-card-status vessel-status-${esc(v.status)}">${esc(v.status)}</span>
-              </div>
-              <div class="vessel-card-hull">${esc(v.hull_label || '')}</div>
-              ${hpBar}
-              <div class="vessel-stat-chips">${statChips}</div>
-              <div class="vessel-card-actions">
-                <button type="button" class="btn btn-sm btn-danger vessel-decommission-btn" data-vessel-id="${v.id}" title="Permanently decommission this vessel">Decommission</button>
-              </div>
-            </div>`;
-        }).join('')}
-      </div>`;
+      if (!vessels.length) return GQUI.div();
+      const list = GQUI.div('vessel-list');
+      vessels.forEach((v) => {
+        const hp    = v.hp_state?.hp    ?? v.stats?.hull ?? 0;
+        const maxHp = v.hp_state?.max_hp ?? v.stats?.hull ?? 0;
+        const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
+        const card = GQUI.div('vessel-card').setData('vesselId', v.id);
+        const header = GQUI.div('vessel-card-header');
+        header.add(
+          GQUI.span('vessel-card-name').setText(String(v.bp_name || v.name || `Vessel #${v.id}`)),
+          GQUI.span('vessel-card-class badge').setText(`${fmtName(v.hull_class || 'unknown')} T${v.hull_tier ?? '?'}`),
+          GQUI.span(`vessel-card-status vessel-status-${String(v.status || '')}`).setText(String(v.status || '')),
+        );
+        card.add(header);
+        card.add(GQUI.div('vessel-card-hull').setText(String(v.hull_label || '')));
+        const hpBar = GQUI.div('vessel-hp-bar');
+        hpBar.add(GQUI.div('vessel-hp-fill').setStyle('width', `${hpPct}%`));
+        card.add(hpBar);
+        const chips = GQUI.div('vessel-stat-chips');
+        ['attack', 'shield', 'hull', 'cargo', 'speed'].forEach((k) => {
+          if (!(v.stats?.[k] > 0)) return;
+          chips.add(GQUI.span(`vessel-stat-chip chiptype-${k.slice(0, 3)}`).setText(`${fmtName(k)} ${fmt(v.stats[k])}`));
+        });
+        card.add(chips);
+        const actions = GQUI.div('vessel-card-actions');
+        actions.add(GQUI.btn('Decommission', 'btn', 'btn-sm', 'btn-danger', 'vessel-decommission-btn')
+          .setData('vesselId', v.id)
+          .setTitle('Permanently decommission this vessel'));
+        card.add(actions);
+        list.add(card);
+      });
+      return list;
     }
 
     async decommissionVessel(vesselId, root) {
