@@ -3,7 +3,7 @@
  *
  * GPU-accelerated Space Physics via WebGPU Compute Shaders.
  *
- * Adapts the existing SpacePhysicsEngine (js/space-physics-engine.js) to run
+ * Adapts the existing SpacePhysicsEngine (js/telemetry/space-physics-engine.js) to run
  * the expensive O(N²) N-body gravity integration entirely on the GPU, then
  * asynchronously reads results back to JS for game-logic consumption.
  *
