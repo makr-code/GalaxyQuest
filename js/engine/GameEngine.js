@@ -62,6 +62,10 @@ const { SceneGraph, SceneNode } = _req('./scene/SceneGraph.js',           'GQSce
 const { PerspectiveCamera }  = _req('./scene/Camera.js',                  'GQCamera');
 const { CameraManager }      = _req('./scene/CameraManager.js',           'GQCameraManager');
 const { EffectComposer }     = _req('./post-effects/EffectComposer.js',   'GQEffectComposer');
+const { RenderPass }         = _req('./post-effects/passes/RenderPass.js','GQRenderPass');
+const { BloomPass }          = _req('./post-effects/passes/BloomPass.js', 'GQBloomPass');
+const { VignettePass }       = _req('./post-effects/passes/VignettePass.js','GQVignettePass');
+const { ChromaticPass }      = _req('./post-effects/passes/ChromaticPass.js','GQChromaticPass');
 const { GameLoop }           = _req('./GameLoop.js',                      'GQGameLoop');
 const { EventBus }           = _req('./EventBus.js',                      'GQEventBus');
 const { SystemRegistry, SystemPriority } = _req('./SystemRegistry.js',   'GQSystemRegistry');
@@ -134,6 +138,16 @@ class GameEngine {
    * @param {number}  [opts.maxDt=0.25]          Max frame delta (spiral-of-death guard)
    * @param {number}  [opts.fov=60]              Camera vertical FOV in degrees
    * @param {boolean} [opts.postFx=true]         Enable EffectComposer
+   * @param {Object|boolean} [opts.bloom]        Bloom pass options (false = disabled)
+   * @param {number}  [opts.bloom.threshold=0.8] Luminance threshold
+   * @param {number}  [opts.bloom.strength=1.2]  Bloom intensity
+   * @param {number}  [opts.bloom.radius=0.6]    Blur radius
+   * @param {Object|boolean} [opts.vignette]     Vignette pass options (false = disabled)
+   * @param {number}  [opts.vignette.darkness=0.5] Edge darkness (0–1)
+   * @param {number}  [opts.vignette.falloff=2.0]  Falloff exponent
+   * @param {Object|boolean} [opts.chromatic]    Chromatic-aberration pass options (false = disabled)
+   * @param {number}  [opts.chromatic.power=0.005] Shift magnitude
+   * @param {number}  [opts.chromatic.angle=0]     Shift direction (radians)
    * @param {boolean} [opts.debug=false]         Verbose logging
    * @returns {Promise<GameEngine>}
    */
@@ -311,6 +325,44 @@ class GameEngine {
     this.events.emit(event, payload);
   }
 
+  /**
+   * Update post-processing pass parameters at runtime.
+   *
+   * Any key present in `cfg` overrides the corresponding pass property.
+   * Pass a falsy value to keep the current setting unchanged.
+   *
+   * @param {Object} cfg
+   * @param {Object} [cfg.bloom]       Bloom params: { enabled, threshold, strength, radius }
+   * @param {Object} [cfg.vignette]    Vignette params: { enabled, darkness, falloff }
+   * @param {Object} [cfg.chromatic]   Chromatic params: { enabled, power, angle }
+   * @returns {this}
+   */
+  configurePostFx(cfg) {
+    if (!this.postFx || !cfg) return this;
+
+    const { bloom, vignette, chromatic } = cfg;
+
+    if (bloom && this._bloomPass) {
+      if (bloom.enabled  !== undefined) this._bloomPass.enabled   = !!bloom.enabled;
+      if (bloom.threshold !== undefined) this._bloomPass.threshold = bloom.threshold;
+      if (bloom.strength  !== undefined) this._bloomPass.strength  = bloom.strength;
+      if (bloom.radius    !== undefined) this._bloomPass.radius    = bloom.radius;
+    }
+    if (vignette && this._vignettePass) {
+      if (vignette.enabled  !== undefined) this._vignettePass.enabled  = !!vignette.enabled;
+      if (vignette.darkness !== undefined) this._vignettePass.darkness = vignette.darkness;
+      if (vignette.falloff  !== undefined) this._vignettePass.falloff  = vignette.falloff;
+    }
+    if (chromatic && this._chromaticPass) {
+      if (chromatic.enabled !== undefined) this._chromaticPass.enabled = !!chromatic.enabled;
+      if (chromatic.power   !== undefined) this._chromaticPass.power   = chromatic.power;
+      if (chromatic.angle   !== undefined) this._chromaticPass.angle   = chromatic.angle;
+    }
+
+    this.events.emit('postfx:configured', { cfg });
+    return this;
+  }
+
   // ---------------------------------------------------------------------------
   // Private init
   // ---------------------------------------------------------------------------
@@ -359,6 +411,29 @@ class GameEngine {
         canvas.width  || 800,
         canvas.height || 600,
       );
+
+      // Always add the base RenderPass first
+      const renderPass = new RenderPass(this.scene, this.cameras?.active ?? this.camera);
+      this.postFx.addPass(renderPass);
+      this._renderPass = renderPass;
+
+      // Optional effect passes — enabled by default when postFx is on,
+      // unless explicitly set to false in opts
+      if (opts.bloom !== false) {
+        const bloomOpts = typeof opts.bloom === 'object' ? opts.bloom : {};
+        this._bloomPass = new BloomPass(bloomOpts);
+        this.postFx.addPass(this._bloomPass);
+      }
+      if (opts.vignette !== false) {
+        const vignetteOpts = typeof opts.vignette === 'object' ? opts.vignette : {};
+        this._vignettePass = new VignettePass(vignetteOpts);
+        this.postFx.addPass(this._vignettePass);
+      }
+      if (opts.chromatic !== false) {
+        const chromaticOpts = typeof opts.chromatic === 'object' ? opts.chromatic : {};
+        this._chromaticPass = new ChromaticPass(chromaticOpts);
+        this.postFx.addPass(this._chromaticPass);
+      }
     }
 
     // 4. Physics
