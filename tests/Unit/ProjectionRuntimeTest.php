@@ -31,7 +31,7 @@ final class ProjectionRuntimeTest extends TestCase
         $log = [];
 
         $stmtStub = new class ($log, $fetchAllReturn) {
-            /** @param array<int,array{sql:string,params:array<mixed>}> $log */
+            /** @param array<int,array{sql:string,params:array<mixed>}> &$log  Populated by reference. */
             public function __construct(
                 private array &$log,
                 private mixed $fetchAllReturn,
