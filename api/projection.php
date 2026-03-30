@@ -8,42 +8,31 @@
  *  - write_user_overview_projection() Atomically persists a projection payload.
  *  - build_live_overview_payload()    Full live computation of the overview payload.
  *
+ * Since Phase 3 the queue write is handled by enqueue_projection_dirty() from
+ * lib/projection_runtime.php.  enqueue_dirty_user() is kept as a thin wrapper
+ * so all existing call-sites continue to work without modification.
+ *
  * Logging conventions (stderr-safe, visible in error_log):
  *  [projection] hit   user=<id>  age=<s>s
  *  [projection] miss  user=<id>  reason=<reason>
  *  [projection] write user=<id>  v=<version>
- *  [projection] enqueue user=<id>  reason=<reason>
+ *  [projection_runtime] enqueue  entity=user/<id>  reason=<reason>
  */
 
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/achievements.php';
+require_once __DIR__ . '/../lib/projection_runtime.php';
 
 /**
- * Enqueue a user into the dirty queue so the projector worker knows to
- * re-compute their overview projection.  The insert is idempotent: if the
- * user is already queued the existing row is kept but the reason is
- * updated and next_attempt_at is reset to NOW() so any scheduled backoff
- * is cancelled.
+ * Enqueue a user into the shared dirty queue so the projector worker knows to
+ * re-compute their overview projection.
+ *
+ * Thin wrapper around enqueue_projection_dirty() from lib/projection_runtime.php
+ * that fixes entity_type='user' for backward compatibility.
  */
 function enqueue_dirty_user(PDO $db, int $userId, string $reason = ''): void
 {
-    try {
-        $db->prepare(
-            'INSERT INTO projection_dirty_queue
-                 (entity_type, entity_id, reason, enqueued_at, attempts, next_attempt_at)
-             VALUES (\'user\', ?, ?, NOW(), 0, NOW())
-             ON DUPLICATE KEY UPDATE
-                 reason          = VALUES(reason),
-                 enqueued_at     = NOW(),
-                 attempts        = 0,
-                 last_error      = NULL,
-                 next_attempt_at = NOW()'
-        )->execute([$userId, $reason]);
-        error_log(sprintf('[projection] enqueue user=%d  reason=%s', $userId, $reason));
-    } catch (Throwable $e) {
-        // Non-fatal: dirty-queue failure must never break the write path.
-        error_log(sprintf('[projection] enqueue_error user=%d  err=%s', $userId, $e->getMessage()));
-    }
+    enqueue_projection_dirty($db, 'user', $userId, $reason);
 }
 
 /**
@@ -510,4 +499,355 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
         'battles'          => $battles,
         'unread_msgs'      => (int)$unreadStmt->fetchColumn(),
     ];
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Phase 2 – System-Snapshot Projection
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Encode a (galaxy, system_index) pair into a single integer for use as
+ * entity_id in the dirty queue.
+ *
+ * Encoding: galaxy * 100_000 + system_index
+ * Safe for GALAXY_MAX=9, SYSTEM_MAX=25000 (max value = 925 000, fits INT).
+ */
+function system_dirty_entity_id(int $galaxy, int $systemIndex): int
+{
+    return $galaxy * 100_000 + $systemIndex;
+}
+
+/**
+ * Decode a system entity_id back into [galaxy, system_index].
+ *
+ * @return array{galaxy:int,system_index:int}
+ */
+function system_dirty_decode(int $entityId): array
+{
+    return [
+        'galaxy'       => intdiv($entityId, 100_000),
+        'system_index' => $entityId % 100_000,
+    ];
+}
+
+/**
+ * Idempotently enqueue a (galaxy, system_index) pair into the dirty queue.
+ *
+ * Duplicate entries are coalesced via ON DUPLICATE KEY UPDATE so that rapid
+ * successive writes produce exactly one queue entry with a refreshed
+ * enqueued_at and zeroed attempts counter.
+ *
+ * Errors are swallowed – dirty-queue failures must never interrupt a write path.
+ */
+function enqueue_dirty_system(PDO $db, int $galaxy, int $systemIndex, string $reason = ''): void
+{
+    $entityId = system_dirty_entity_id($galaxy, $systemIndex);
+    try {
+        $db->prepare(
+            'INSERT INTO projection_dirty_queue
+                 (entity_type, entity_id, reason, enqueued_at, attempts, next_attempt_at)
+             VALUES (\'system\', ?, ?, NOW(), 0, NOW())
+             ON DUPLICATE KEY UPDATE
+                 reason          = VALUES(reason),
+                 enqueued_at     = NOW(),
+                 attempts        = 0,
+                 last_error      = NULL,
+                 next_attempt_at = NOW()'
+        )->execute([$entityId, $reason]);
+        error_log(sprintf('[projection] enqueue system=%d:%d  reason=%s', $galaxy, $systemIndex, $reason));
+    } catch (Throwable $e) {
+        error_log(sprintf(
+            '[projection] enqueue_system_error galaxy=%d system=%d  err=%s',
+            $galaxy, $systemIndex, $e->getMessage()
+        ));
+    }
+}
+
+/**
+ * Read a stored system snapshot.
+ *
+ * Returns the decoded payload array on a cache-hit (snapshot present,
+ * stale_flag = 0, age ≤ PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS).
+ * Returns null on any miss so the caller falls back to the live query.
+ */
+function read_system_snapshot(PDO $db, int $galaxy, int $systemIndex): ?array
+{
+    $maxAge = defined('PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS')
+        ? (int)PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS
+        : 300;
+
+    try {
+        $stmt = $db->prepare(
+            'SELECT payload_json, stale_flag, updated_at
+             FROM projection_system_snapshot
+             WHERE galaxy = ? AND system_index = ?'
+        );
+        $stmt->execute([$galaxy, $systemIndex]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        error_log(sprintf(
+            '[projection] read_system_error galaxy=%d system=%d  err=%s',
+            $galaxy, $systemIndex, $e->getMessage()
+        ));
+        return null;
+    }
+
+    if (!$row) {
+        error_log(sprintf('[projection] system_miss galaxy=%d system=%d  reason=not_found', $galaxy, $systemIndex));
+        return null;
+    }
+    if ((int)$row['stale_flag'] !== 0) {
+        error_log(sprintf('[projection] system_miss galaxy=%d system=%d  reason=stale_flag', $galaxy, $systemIndex));
+        return null;
+    }
+
+    $ageSeconds = max(0, time() - strtotime((string)$row['updated_at']));
+    if ($ageSeconds > $maxAge) {
+        error_log(sprintf(
+            '[projection] system_miss galaxy=%d system=%d  reason=too_old  age=%ds',
+            $galaxy, $systemIndex, $ageSeconds
+        ));
+        return null;
+    }
+
+    $payload = json_decode((string)$row['payload_json'], true);
+    if (!is_array($payload)) {
+        error_log(sprintf(
+            '[projection] system_miss galaxy=%d system=%d  reason=json_corrupt',
+            $galaxy, $systemIndex
+        ));
+        return null;
+    }
+
+    error_log(sprintf('[projection] system_hit galaxy=%d system=%d  age=%ds', $galaxy, $systemIndex, $ageSeconds));
+    return $payload;
+}
+
+/**
+ * Read system snapshots for a range of system indices in a single query.
+ *
+ * Returns an associative array keyed by system_index.  Missing, stale, or
+ * expired entries are omitted so the caller can detect misses per-system.
+ *
+ * @return array<int,array<string,mixed>>  Keyed by system_index.
+ */
+function read_system_snapshot_range(PDO $db, int $galaxy, int $fromSystem, int $toSystem, int $stride = 1): array
+{
+    $maxAge = defined('PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS')
+        ? (int)PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS
+        : 300;
+
+    $cutoff = date('Y-m-d H:i:s', time() - $maxAge);
+
+    try {
+        $stmt = $db->prepare(
+            'SELECT system_index, payload_json
+             FROM projection_system_snapshot
+             WHERE galaxy = ?
+               AND system_index BETWEEN ? AND ?
+               AND MOD(system_index - ?, ?) = 0
+               AND stale_flag = 0
+               AND updated_at >= ?'
+        );
+        $stmt->execute([$galaxy, $fromSystem, $toSystem, $fromSystem, $stride, $cutoff]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        error_log(sprintf(
+            '[projection] read_system_range_error galaxy=%d from=%d to=%d  err=%s',
+            $galaxy, $fromSystem, $toSystem, $e->getMessage()
+        ));
+        return [];
+    }
+
+    $result = [];
+    foreach ($rows as $row) {
+        $payload = json_decode((string)$row['payload_json'], true);
+        if (is_array($payload)) {
+            $result[(int)$row['system_index']] = $payload;
+        }
+    }
+    return $result;
+}
+
+/**
+ * Atomically write (insert or replace) a system snapshot.
+ *
+ * Increments the version counter and records the current unix timestamp as
+ * source_tick.  Also clears stale_flag.
+ *
+ * @param array<string,mixed> $payload
+ */
+function write_system_snapshot(PDO $db, int $galaxy, int $systemIndex, array $payload): void
+{
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $tick = time();
+    $ownerUserId     = (int)($payload['colony_owner_user_id'] ?? 0);
+    $colonyCount     = (int)($payload['colony_count'] ?? 0);
+    $colonyPop       = (int)($payload['colony_population'] ?? 0);
+
+    try {
+        $db->prepare(
+            'INSERT INTO projection_system_snapshot
+                 (galaxy, system_index, payload_json, owner_user_id, colony_count, colony_population,
+                  version, updated_at, source_tick, stale_flag)
+             VALUES (?, ?, ?, ?, ?, ?, 1, NOW(), ?, 0)
+             ON DUPLICATE KEY UPDATE
+                 payload_json      = VALUES(payload_json),
+                 owner_user_id     = VALUES(owner_user_id),
+                 colony_count      = VALUES(colony_count),
+                 colony_population = VALUES(colony_population),
+                 version           = version + 1,
+                 updated_at        = NOW(),
+                 source_tick       = VALUES(source_tick),
+                 stale_flag        = 0'
+        )->execute([$galaxy, $systemIndex, $json, $ownerUserId, $colonyCount, $colonyPop, $tick]);
+        error_log(sprintf('[projection] system_write galaxy=%d system=%d', $galaxy, $systemIndex));
+    } catch (Throwable $e) {
+        error_log(sprintf(
+            '[projection] system_write_error galaxy=%d system=%d  err=%s',
+            $galaxy, $systemIndex, $e->getMessage()
+        ));
+    }
+}
+
+/**
+ * Mark a system snapshot as stale without deleting it.
+ *
+ * The snapshot remains readable until the worker refreshes it; the stale_flag
+ * causes read_system_snapshot() to treat it as a miss (forcing live fallback).
+ */
+function mark_system_snapshot_stale(PDO $db, int $galaxy, int $systemIndex): void
+{
+    try {
+        $db->prepare(
+            'UPDATE projection_system_snapshot SET stale_flag = 1
+             WHERE galaxy = ? AND system_index = ?'
+        )->execute([$galaxy, $systemIndex]);
+    } catch (Throwable $e) {
+        error_log(sprintf(
+            '[projection] system_stale_error galaxy=%d system=%d  err=%s',
+            $galaxy, $systemIndex, $e->getMessage()
+        ));
+    }
+}
+
+/**
+ * Compute the snapshot payload for one system.
+ *
+ * Returns an array with the same fields the action=stars live query produces
+ * for a single star row (minus user-specific FOW data, which is applied per
+ * request on top of the snapshot).
+ *
+ * Returns null if the star_systems row does not yet exist for the requested
+ * (galaxy, system_index).
+ *
+ * @return array<string,mixed>|null
+ */
+function build_system_snapshot_payload(PDO $db, int $galaxy, int $systemIndex): ?array
+{
+    // Star descriptor (required – snapshot is pointless without it).
+    try {
+        $starStmt = $db->prepare(
+            'SELECT ss.id, ss.galaxy_index, ss.system_index, ss.name,
+                    COALESCE(NULLIF(ss.catalog_name, ""), ss.name) AS catalog_name,
+                    ss.spectral_class, ss.subtype,
+                    ss.x_ly, ss.y_ly, ss.z_ly,
+                    ss.planet_count, ss.hz_inner_au, ss.hz_outer_au
+             FROM star_systems ss
+             WHERE ss.galaxy_index = ? AND ss.system_index = ?
+             LIMIT 1'
+        );
+        $starStmt->execute([$galaxy, $systemIndex]);
+        $star = $starStmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        error_log(sprintf(
+            '[projection] build_snapshot_error galaxy=%d system=%d  err=%s',
+            $galaxy, $systemIndex, $e->getMessage()
+        ));
+        return null;
+    }
+
+    if (!is_array($star) || empty($star)) {
+        return null;
+    }
+
+    // Colony aggregate (optional – system may be unoccupied).
+    try {
+        $colStmt = $db->prepare(
+            'SELECT COUNT(DISTINCT c.id) AS colony_count,
+                    COALESCE(SUM(c.population), 0) AS colony_population,
+                    SUBSTRING_INDEX(
+                        GROUP_CONCAT(
+                            CAST(c.user_id AS CHAR)
+                            ORDER BY COALESCE(c.population, 0) DESC, c.id ASC
+                            SEPARATOR ","
+                        ), ",", 1
+                    ) AS colony_owner_user_id,
+                    SUBSTRING_INDEX(
+                        GROUP_CONCAT(
+                            COALESCE(u.username, "")
+                            ORDER BY COALESCE(c.population, 0) DESC, c.id ASC
+                            SEPARATOR ","
+                        ), ",", 1
+                    ) AS colony_owner_name,
+                    SUBSTRING_INDEX(
+                        GROUP_CONCAT(
+                            COALESCE(NULLIF(u.empire_color, ""), "#6a8cc9")
+                            ORDER BY COALESCE(c.population, 0) DESC, c.id ASC
+                            SEPARATOR ","
+                        ), ",", 1
+                    ) AS colony_owner_color
+             FROM planets p
+             JOIN colonies c ON c.planet_id = p.id
+             LEFT JOIN users u ON u.id = c.user_id
+             WHERE p.galaxy = ? AND p.`system` = ?'
+        );
+        $colStmt->execute([$galaxy, $systemIndex]);
+        $col = $colStmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        // users table may not have empire_color yet; fall back to simpler query.
+        try {
+            $colStmt2 = $db->prepare(
+                'SELECT COUNT(DISTINCT c.id) AS colony_count,
+                        COALESCE(SUM(c.population), 0) AS colony_population,
+                        SUBSTRING_INDEX(
+                            GROUP_CONCAT(
+                                CAST(c.user_id AS CHAR)
+                                ORDER BY COALESCE(c.population, 0) DESC, c.id ASC
+                                SEPARATOR ","
+                            ), ",", 1
+                        ) AS colony_owner_user_id,
+                        SUBSTRING_INDEX(
+                            GROUP_CONCAT(
+                                COALESCE(u.username, "")
+                                ORDER BY COALESCE(c.population, 0) DESC, c.id ASC
+                                SEPARATOR ","
+                            ), ",", 1
+                        ) AS colony_owner_name,
+                        "" AS colony_owner_color
+                 FROM planets p
+                 JOIN colonies c ON c.planet_id = p.id
+                 LEFT JOIN users u ON u.id = c.user_id
+                 WHERE p.galaxy = ? AND p.`system` = ?'
+            );
+            $colStmt2->execute([$galaxy, $systemIndex]);
+            $col = $colStmt2->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable $e2) {
+            $col = false;
+        }
+    }
+
+    $colonyCount     = is_array($col) ? (int)($col['colony_count'] ?? 0)     : 0;
+    $colonyPop       = is_array($col) ? (int)($col['colony_population'] ?? 0) : 0;
+    $ownerUserId     = is_array($col) ? (int)($col['colony_owner_user_id'] ?? 0)  : 0;
+    $ownerName       = is_array($col) ? (string)($col['colony_owner_name'] ?? '')  : '';
+    $ownerColor      = is_array($col) ? (string)($col['colony_owner_color'] ?? '') : '';
+
+    return array_merge($star, [
+        'colony_count'          => $colonyCount,
+        'colony_population'     => $colonyPop,
+        'colony_owner_user_id'  => $ownerUserId,
+        'colony_owner_name'     => $ownerName,
+        'colony_owner_color'    => $ownerColor,
+    ]);
 }
