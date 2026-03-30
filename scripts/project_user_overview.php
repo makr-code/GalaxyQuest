@@ -3,9 +3,12 @@
 /**
  * Projector Worker – User-Overview Projection (Phase 1)
  *
- * Reads fällige entries from projection_dirty_queue, re-computes the overview
- * payload for each affected user and persists the result atomically in
- * projection_user_overview.
+ * Reads due entries from projection_dirty_queue (entity_type='user'), re-computes
+ * the overview payload for each affected user and persists the result atomically
+ * in projection_user_overview.
+ *
+ * Uses the shared Projector Runtime from lib/projection_runtime.php for batch
+ * claiming, retry/backoff and dead-letter handling.
  *
  * Designed to run as a cron job or a supervised loop, e.g.:
  *   # Every 30 seconds via cron (approximate):
@@ -15,21 +18,16 @@
  *   # Or as a supervised loop:
  *   while true; do php scripts/project_user_overview.php; sleep 30; done
  *
+ * CLI options (all optional):
+ *   --batch=N          Max dirty-queue entries to process per run (default 50).
+ *   --max-seconds=N    Soft wall-clock limit; stop claiming after N seconds (default 0 = no limit).
+ *   --max-items=N      Stop after projecting N users total (default 0 = no limit).
+ *   --dry-run          Claim batch and log intent but skip all writes.
+ *
  * Exit codes:
  *   0 – ran successfully (batch may have been empty)
  *   1 – fatal bootstrap error
- *
- * Environment / config variables (from config/config.php):
- *   PROJECTION_BATCH_SIZE            Max users to process per run (default 50)
- *   PROJECTION_RETRY_BACKOFF_SECONDS Base back-off seconds after a failure (default 30)
- *
- * Observability (written to error_log / stderr):
- *   [projector] start  batch_size=<n>
- *   [projector] processing  user=<id>  attempt=<n>
- *   [projector] done    user=<id>  duration_ms=<ms>
- *   [projector] error   user=<id>  err=<msg>  next_attempt=<datetime>
- *   [projector] finish  processed=<n>  errors=<n>  duration_ms=<total_ms>
- *   [projector] empty   (nothing in queue)
+ *   2 – partial success: at least one item failed
  */
 
 declare(strict_types=1);
@@ -45,20 +43,33 @@ require_once $repoRoot . '/config/db.php';
 require_once $repoRoot . '/api/game_engine.php';
 require_once $repoRoot . '/api/achievements.php';
 require_once $repoRoot . '/api/projection.php';
+// projection.php already requires lib/projection_runtime.php
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
+$workerArgs   = parse_worker_args($argv);
 $batchSize    = defined('PROJECTION_BATCH_SIZE')            ? (int)PROJECTION_BATCH_SIZE            : 50;
 $retryBackoff = defined('PROJECTION_RETRY_BACKOFF_SECONDS') ? (int)PROJECTION_RETRY_BACKOFF_SECONDS : 30;
 
+// CLI flags override config defaults.
+if ($workerArgs['batch'] !== 50) {
+    $batchSize = $workerArgs['batch'];
+}
+$maxSeconds = $workerArgs['max-seconds'];
+$maxItems   = $workerArgs['max-items'];
+$dryRun     = $workerArgs['dry-run'];
+
 $workerStart = microtime(true);
 
-error_log(sprintf('[projector] start  batch_size=%d', $batchSize));
+error_log(sprintf(
+    '[projector:user] start  batch_size=%d  max_seconds=%d  max_items=%d  dry_run=%s',
+    $batchSize, $maxSeconds, $maxItems, $dryRun ? 'yes' : 'no',
+));
 
 try {
     $db = get_db();
 } catch (Throwable $e) {
-    fwrite(STDERR, '[projector] FATAL: cannot connect to DB: ' . $e->getMessage() . "\n");
+    fwrite(STDERR, '[projector:user] FATAL: cannot connect to DB: ' . $e->getMessage() . "\n");
     exit(1);
 }
 
@@ -69,15 +80,22 @@ try {
             id              BIGINT        NOT NULL AUTO_INCREMENT,
             entity_type     VARCHAR(40)   NOT NULL DEFAULT \'user\',
             entity_id       INT           NOT NULL,
+            event_type      VARCHAR(60)   NOT NULL DEFAULT \'\',
             reason          VARCHAR(120)  NOT NULL DEFAULT \'\',
+            payload_json    TEXT          DEFAULT NULL,
+            status          ENUM(\'queued\',\'processing\',\'done\',\'failed\') NOT NULL DEFAULT \'queued\',
             enqueued_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
             attempts        SMALLINT      NOT NULL DEFAULT 0,
             last_error      TEXT          DEFAULT NULL,
             next_attempt_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            processed_at    DATETIME      DEFAULT NULL,
             PRIMARY KEY (id),
-            UNIQUE KEY uniq_dirty_entity  (entity_type, entity_id),
-            INDEX idx_dirty_next_attempt  (next_attempt_at),
-            INDEX idx_dirty_entity_id     (entity_id)
+            UNIQUE KEY uniq_dirty_entity    (entity_type, entity_id),
+            INDEX idx_dirty_status_next     (status, next_attempt_at),
+            INDEX idx_dirty_entity_id       (entity_id),
+            INDEX idx_dirty_event_created   (event_type, created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
     $db->exec(
@@ -96,38 +114,50 @@ try {
     );
 } catch (Throwable $e) {
     // Non-fatal: tables may already exist; the real migration creates them.
-    error_log('[projector] table_ensure_warning: ' . $e->getMessage());
+    error_log('[projector:user] table_ensure_warning: ' . $e->getMessage());
 }
 
-// ── Fetch due dirty-queue entries ─────────────────────────────────────────────
+// ── Claim and process batches ─────────────────────────────────────────────────
 
-$dueStmt = $db->prepare(
-    'SELECT id, entity_id, attempts
-     FROM projection_dirty_queue
-     WHERE entity_type = \'user\'
-       AND next_attempt_at <= NOW()
-     ORDER BY next_attempt_at ASC
-     LIMIT ' . $batchSize
-);
-$dueStmt->execute();
-$dueRows = $dueStmt->fetchAll(PDO::FETCH_ASSOC);
+$processed  = 0;
+$errors     = 0;
+$totalItems = 0;
+
+try {
+    $dueRows = claim_batch($db, 'user', $batchSize);
+} catch (Throwable $e) {
+    fwrite(STDERR, '[projector:user] FATAL: claim_batch failed: ' . $e->getMessage() . "\n");
+    exit(1);
+}
 
 if (empty($dueRows)) {
-    error_log('[projector] empty');
+    error_log('[projector:user] empty');
     exit(0);
 }
 
 // ── Process each dirty user ───────────────────────────────────────────────────
 
-$processed = 0;
-$errors    = 0;
-
 foreach ($dueRows as $row) {
+    // Respect soft limits.
+    if ($maxItems > 0 && $totalItems >= $maxItems) {
+        break;
+    }
+    if ($maxSeconds > 0 && (microtime(true) - $workerStart) >= $maxSeconds) {
+        break;
+    }
+
     $queueId = (int)$row['id'];
     $userId  = (int)$row['entity_id'];
     $attempt = (int)$row['attempts'] + 1;
+    $totalItems++;
 
-    error_log(sprintf('[projector] processing  user=%d  attempt=%d', $userId, $attempt));
+    error_log(sprintf('[projector:user] processing  user=%d  attempt=%d', $userId, $attempt));
+
+    if ($dryRun) {
+        error_log(sprintf('[projector:user] dry_run  user=%d  (skipping write)', $userId));
+        $processed++;
+        continue;
+    }
 
     $userStart = microtime(true);
 
@@ -139,30 +169,16 @@ foreach ($dueRows as $row) {
         write_user_overview_projection($db, $userId, $payload);
 
         // Remove from dirty queue on success.
-        $db->prepare('DELETE FROM projection_dirty_queue WHERE id = ?')->execute([$queueId]);
+        mark_done($db, $queueId);
 
         $durationMs = (int)round((microtime(true) - $userStart) * 1000);
-        error_log(sprintf('[projector] done    user=%d  duration_ms=%d', $userId, $durationMs));
+        error_log(sprintf('[projector:user] done  user=%d  duration_ms=%d', $userId, $durationMs));
         $processed++;
 
     } catch (Throwable $e) {
         $errors++;
-        $errMsg     = $e->getMessage();
-        $backoffSec = $retryBackoff * (1 << min($attempt - 1, 6)); // exponential cap at ~32× base
-        $nextAttempt = date('Y-m-d H:i:s', time() + $backoffSec);
-
-        $db->prepare(
-            'UPDATE projection_dirty_queue
-             SET attempts        = ?,
-                 last_error      = ?,
-                 next_attempt_at = ?
-             WHERE id = ?'
-        )->execute([$attempt, $errMsg, $nextAttempt, $queueId]);
-
-        error_log(sprintf(
-            '[projector] error   user=%d  err=%s  next_attempt=%s',
-            $userId, $errMsg, $nextAttempt
-        ));
+        mark_failed($db, $queueId, $attempt, $e->getMessage(), $retryBackoff);
+        error_log(sprintf('[projector:user] error  user=%d  err=%s', $userId, $e->getMessage()));
     }
 }
 
@@ -170,8 +186,8 @@ foreach ($dueRows as $row) {
 
 $totalMs = (int)round((microtime(true) - $workerStart) * 1000);
 error_log(sprintf(
-    '[projector] finish  processed=%d  errors=%d  duration_ms=%d',
-    $processed, $errors, $totalMs
+    '[projector:user] finish  processed=%d  errors=%d  duration_ms=%d',
+    $processed, $errors, $totalMs,
 ));
 
 exit($errors > 0 ? 2 : 0);
