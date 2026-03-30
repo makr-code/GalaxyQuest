@@ -822,3 +822,199 @@ describe('ColonySimulation – serialize / deserialize', () => {
     expect(c.buildings[BuildingType.MINE]).toBe(1);
   });
 });
+
+// ===========================================================================
+// ColonySimulation – demolishBuilding
+// ===========================================================================
+
+describe('ColonySimulation – demolishBuilding', () => {
+  let col;
+
+  beforeEach(() => {
+    col = new Colony({ id: 'demo1', name: 'DemoCol', size: 10, startingPops: 2 });
+    col.stockpile.production = 200;
+    col.stockpile.ore        = 50;
+    col.stockpile.credits    = 100;
+    col.buildings[BuildingType.MINE]    = 2;
+    col.buildings[BuildingType.FACTORY] = 1;
+  });
+
+  it('demolishBuilding() removes one instance of the building', () => {
+    col.demolishBuilding(BuildingType.MINE);
+    expect(col.buildings[BuildingType.MINE]).toBe(1);
+  });
+
+  it('demolishBuilding() refunds 50% of resource costs', () => {
+    const prodBefore = col.stockpile.production;
+    const result = col.demolishBuilding(BuildingType.MINE);
+    expect(result.success).toBe(true);
+    // MINE costs production:30 → refund floor(15) = 15
+    expect(col.stockpile.production).toBe(prodBefore + 15);
+    expect(result.refund.production).toBe(15);
+  });
+
+  it('demolishBuilding() refunds multi-resource buildings', () => {
+    const prodBefore = col.stockpile.production;
+    const oreBefore  = col.stockpile.ore;
+    // FACTORY costs production:50, ore:10 → refund 25 prod, 5 ore
+    const result = col.demolishBuilding(BuildingType.FACTORY);
+    expect(result.success).toBe(true);
+    expect(col.stockpile.production).toBe(prodBefore + 25);
+    expect(col.stockpile.ore).toBe(oreBefore + 5);
+    expect(result.refund.production).toBe(25);
+    expect(result.refund.ore).toBe(5);
+  });
+
+  it('demolishBuilding() returns failure when building count is 0', () => {
+    const result = col.demolishBuilding(BuildingType.LAB);
+    expect(result.success).toBe(false);
+    expect(result.reason).toBe('no_building');
+  });
+
+  it('demolishBuilding() throws for unknown building type', () => {
+    expect(() => col.demolishBuilding('unknown_building')).toThrow(/unknown building type/i);
+  });
+
+  it('demolishBuilding() does not refund buildTime', () => {
+    const result = col.demolishBuilding(BuildingType.MINE);
+    expect(result.refund.buildTime).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// ColonySimulation – rename history
+// ===========================================================================
+
+describe('ColonySimulation – rename', () => {
+  let col;
+
+  beforeEach(() => {
+    col = new Colony({ id: 'ren1', name: 'OldName', size: 10, startingPops: 1 });
+  });
+
+  it('rename() updates the colony name', () => {
+    col.rename('NewName');
+    expect(col.name).toBe('NewName');
+  });
+
+  it('rename() stores the previous name in nameHistory', () => {
+    col.rename('NewName');
+    expect(col.nameHistory.length).toBe(1);
+    expect(col.nameHistory[0].name).toBe('OldName');
+    expect(col.nameHistory[0].index).toBe(0);
+  });
+
+  it('rename() logs multiple renames in order', () => {
+    col.rename('NewName');
+    col.rename('FinalName');
+    expect(col.nameHistory.length).toBe(2);
+    expect(col.nameHistory[0].name).toBe('OldName');
+    expect(col.nameHistory[0].index).toBe(0);
+    expect(col.nameHistory[1].name).toBe('NewName');
+    expect(col.nameHistory[1].index).toBe(1);
+    expect(col.name).toBe('FinalName');
+  });
+
+  it('rename() trims whitespace from the new name', () => {
+    col.rename('  Trimmed  ');
+    expect(col.name).toBe('Trimmed');
+  });
+
+  it('rename() throws for empty string', () => {
+    expect(() => col.rename('')).toThrow(/non-empty/i);
+  });
+
+  it('rename() throws for whitespace-only string', () => {
+    expect(() => col.rename('   ')).toThrow(/non-empty/i);
+  });
+
+  it('nameHistory and _renameCount survive serialize/deserialize', () => {
+    col.rename('MidName');
+    col.rename('FinalName');
+    const restored = Colony.deserialize(col.serialize());
+    expect(restored.name).toBe('FinalName');
+    expect(restored.nameHistory.length).toBe(2);
+    expect(restored.nameHistory[0].name).toBe('OldName');
+    expect(restored._renameCount).toBe(2);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation – defence stockpile
+// ===========================================================================
+
+describe('ColonySimulation – defence stockpile', () => {
+  let sim, col;
+
+  beforeEach(() => {
+    sim = new ColonySimulation();
+    col = sim.found({ id: 'def1', name: 'DefCol', size: 10, startingPops: 4 });
+    col.setJobs({ [PopJob.SOLDIER]: 2, [PopJob.FARMER]: 2 });
+  });
+
+  it('defence starts at 0', () => {
+    expect(col.stockpile.defence).toBe(0);
+  });
+
+  it('computeYield() includes soldier defence', () => {
+    const y = col.computeYield();
+    // 2 soldiers × base defence 3 = 6
+    expect(y.defence).toBe(6);
+  });
+
+  it('tick() accumulates defence from soldiers', () => {
+    sim.tick(1);
+    // 2 soldiers × 3 = 6 defence per tick
+    expect(col.stockpile.defence).toBeGreaterThan(0);
+  });
+
+  it('tick() accumulates defence from barracks buildings', () => {
+    col.buildings[BuildingType.BARRACKS] = 2;
+    col.setJobs({ [PopJob.FARMER]: 4 });
+    sim.tick(1);
+    // 2 barracks × 4 defence each = 8
+    expect(col.stockpile.defence).toBeGreaterThanOrEqual(8);
+  });
+
+  it('defence survives serialize/deserialize', () => {
+    sim.tick(2);
+    const restored = Colony.deserialize(col.serialize());
+    expect(restored.stockpile.defence).toBeCloseTo(col.stockpile.defence);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation – RULER governance bonus
+// ===========================================================================
+
+describe('ColonySimulation – RULER governance bonus', () => {
+  it('rulers reduce unrest accumulation vs no rulers', () => {
+    // Colony with unemployed pops and no rulers
+    const colNoRulers = new Colony({ id: 'r1', name: 'NoRulers', size: 10, startingPops: 4 });
+    colNoRulers.stability = 0.5;
+    colNoRulers.happiness = 0;
+    colNoRulers.setJobs({ [PopJob.UNEMPLOYED]: 4 });
+    const unrestBefore = colNoRulers.unrest;
+    colNoRulers._applyUnrest();
+    const unrestNoRulers = colNoRulers.unrest - unrestBefore;
+
+    // Same colony but with 1 ruler
+    const colWithRuler = new Colony({ id: 'r2', name: 'WithRuler', size: 10, startingPops: 4 });
+    colWithRuler.stability = 0.5;
+    colWithRuler.happiness = 0;
+    colWithRuler.setJobs({ [PopJob.RULER]: 1, [PopJob.UNEMPLOYED]: 3 });
+    const unrestBefore2 = colWithRuler.unrest;
+    colWithRuler._applyUnrest();
+    const unrestWithRuler = colWithRuler.unrest - unrestBefore2;
+
+    expect(unrestWithRuler).toBeLessThan(unrestNoRulers);
+  });
+
+  it('rulers do not reduce unrest below 0', () => {
+    const col = new Colony({ id: 'r3', name: 'RulerCol', size: 10, startingPops: 4 });
+    col.setJobs({ [PopJob.RULER]: 4 });
+    col.unrest = 0;
+    col._applyUnrest();
+    expect(col.unrest).toBeGreaterThanOrEqual(0);
+  });
+});

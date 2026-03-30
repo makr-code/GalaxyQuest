@@ -10,13 +10,16 @@
  * Provides:
  *   - A Colony data model with Pops (population units)
  *   - Pop job types: FARMER, WORKER, SCIENTIST, SOLDIER, RULER
- *   - Resource production per pop type per turn
+ *   - Resource production per pop type per turn (including accumulated defence)
  *   - Pop growth formula (logistic + food surplus)
  *   - Colony happiness / stability affecting productivity
+ *   - RULER governance: reduces unrest accumulation proportionally to ruler count
  *   - Building types: FARM, MINE, FACTORY, LAB, BARRACKS, SPACEPORT
  *   - Build queue with resource costs and build-time ticks
+ *   - demolishBuilding(type) — removes one building, refunds 50% of its costs
  *   - Resource trade chains: Ore → Metal → Ship Parts
  *   - Hunger/Unrest escalation levels (0–1) with consequence callbacks
+ *   - rename(newName) with a nameHistory log (array of { name, index } entries)
  *   - serialize() / deserialize() for save-game persistence
  *   - EventBus integration: emits 'colony:grow', 'colony:starve', 'colony:unrest',
  *       'colony:hunger:escalate', 'colony:unrest:escalate', 'colony:building:complete'
@@ -184,8 +187,8 @@ class Colony {
       [PopJob.UNEMPLOYED]: def.startingPops ?? 1,
     };
 
-    /** Stored resources (includes ore, metal, shipParts for trade chains) */
-    this.stockpile = { food: 10, production: 0, research: 0, credits: 0, ore: 0, metal: 0, shipParts: 0 };
+    /** Stored resources (includes ore, metal, shipParts for trade chains; defence from soldiers/barracks) */
+    this.stockpile = { food: 10, production: 0, research: 0, credits: 0, ore: 0, metal: 0, shipParts: 0, defence: 0 };
 
     /** Colony happiness [0–1] — affects yields */
     this.happiness  = 0.7;
@@ -210,6 +213,15 @@ class Colony {
      * @type {Array<{type: string, remainingTicks: number}>}
      */
     this.buildQueue = [];
+
+    /**
+     * History of past colony names.  Each rename prepends an entry.
+     * Entries: { name: string, index: number } where index is 0-based rename count.
+     * @type {Array<{name: string, index: number}>}
+     */
+    this.nameHistory = [];
+    /** Running rename counter — incremented on each rename(). */
+    this._renameCount = 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -262,6 +274,49 @@ class Colony {
     return { success: true };
   }
 
+  /**
+   * Demolish one building of the given type.
+   * Refunds 50% of its construction costs back to the stockpile.
+   * @param {string} type  One of BuildingType
+   * @returns {{ success: boolean, reason?: string, refund?: Object }}
+   */
+  demolishBuilding(type) {
+    const cost = BUILDING_COST[type];
+    if (!cost) throw new TypeError(`[Colony] Unknown building type: '${type}'`);
+
+    if ((this.buildings[type] ?? 0) === 0) {
+      return { success: false, reason: 'no_building' };
+    }
+
+    this.buildings[type]--;
+
+    // Refund 50% of resource costs (excluding buildTime)
+    const refund = {};
+    for (const [res, amt] of Object.entries(cost)) {
+      if (res === 'buildTime') continue;
+      const returned = Math.floor(amt * 0.5);
+      if (returned > 0) {
+        this.stockpile[res] = (this.stockpile[res] ?? 0) + returned;
+        refund[res] = returned;
+      }
+    }
+
+    return { success: true, refund };
+  }
+
+  /**
+   * Rename this colony, logging the previous name in nameHistory.
+   * @param {string} newName
+   */
+  rename(newName) {
+    if (typeof newName !== 'string' || newName.trim() === '') {
+      throw new TypeError('[Colony] rename() requires a non-empty string');
+    }
+    this.nameHistory.push({ name: this.name, index: this._renameCount });
+    this._renameCount++;
+    this.name = newName.trim();
+  }
+
   // ---------------------------------------------------------------------------
   // Production
   // ---------------------------------------------------------------------------
@@ -302,6 +357,7 @@ class Colony {
     this.stockpile.production += y.production * dt;
     this.stockpile.research   += y.research   * dt;
     this.stockpile.credits    += y.credits    * dt;
+    this.stockpile.defence    += y.defence    * dt;
   }
 
   /** Apply passive resource yield from completed buildings. */
@@ -391,12 +447,19 @@ class Colony {
 
   /**
    * Update unrest level (0–1) based on unemployment and stability.
+   * RULER pops provide a governance bonus that reduces unrest accumulation
+   * proportionally to their share of the population.
    * Fires escalation callback when crossing thresholds upward.
    * @param {function(Colony, string, number): void} [onEscalate]
    */
   _applyUnrest(onEscalate) {
     const unemployedRatio = (this.jobs[PopJob.UNEMPLOYED] ?? 0) / Math.max(1, this.pops);
-    this.unrest += unemployedRatio * 0.01 * (1 - this.stability);
+    // Rulers dampen unrest accumulation (governance bonus).
+    // At 15%+ ruler population (rulerRatio ≥ 0.15), rulers provide the maximum 75% reduction.
+    // The multiplier of 5 maps: rulerRatio * 5 reaches 0.75 at rulerRatio = 0.15.
+    const rulerRatio = (this.jobs[PopJob.RULER] ?? 0) / Math.max(1, this.pops);
+    const governanceBonus = 1 - Math.min(0.75, rulerRatio * 5);
+    this.unrest += unemployedRatio * 0.01 * (1 - this.stability) * governanceBonus;
     this.unrest  = Math.max(0, Math.min(1, this.unrest - 0.005 * this.happiness));
     if (this.unrest > 0.9) this.stability = Math.max(0, this.stability - 0.01);
     else this.stability = Math.min(1, this.stability + 0.001);
@@ -456,6 +519,8 @@ class Colony {
       _hungerStage: this._hungerStage,
       buildings:    { ...this.buildings },
       buildQueue:   this.buildQueue.map(b => ({ ...b })),
+      nameHistory:  this.nameHistory.map(e => ({ ...e })),
+      _renameCount: this._renameCount,
     };
   }
 
@@ -485,6 +550,8 @@ class Colony {
     colony._hungerStage = json._hungerStage ?? 0;
     colony.buildings    = { ...json.buildings };
     colony.buildQueue   = (json.buildQueue ?? []).map(b => ({ ...b }));
+    colony.nameHistory  = (json.nameHistory ?? []).map(e => ({ ...e }));
+    colony._renameCount = json._renameCount ?? 0;
     return colony;
   }
 }
