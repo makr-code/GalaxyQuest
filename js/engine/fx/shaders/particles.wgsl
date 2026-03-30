@@ -8,7 +8,9 @@
 //   binding 0 → storage buffer  (read_write) — particle pool
 //   binding 1 → uniform buffer              — SimParams
 //
-// Dispatch: ceil(MAX_PARTICLES / 64) workgroups along X.
+// Dispatch: ceil(particleCount / 64) workgroups along X.
+// The shader uses arrayLength(&particles) to guard each invocation, so
+// the host should supply the exact particle buffer length — not a fixed MAX_PARTICLES.
 //
 // Inspired by:
 //   WebGPU Samples (Apache 2.0) — https://github.com/webgpu/webgpu-samples

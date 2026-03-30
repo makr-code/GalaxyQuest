@@ -403,12 +403,8 @@ class CombatFX {
     }
 
     // Muzzle emitter for railgun
-    if (preset.muzzle && type === WeaponType.RAILGUN && to) {
-      emitters.push(this._ps.addEmitter(new ParticleEmitter({
-        ...preset.impact, ...overrides.impact,
-        mode: EmitterMode.BURST, position: to,
-      })));
-    }
+    // NOTE: The general muzzle + impact blocks above already handle railgun muzzle
+    // and target sparks.  The shockwave is added below — no duplicate emitter needed.
 
     // Beam record (laser only)
     if (preset.beam && to) {

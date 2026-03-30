@@ -27,7 +27,10 @@
 // ---------------------------------------------------------------------------
 
 struct GodRayParams {
-  // 2-D screen-space position of the light source, in [0,1] UV space
+  // 2-D screen-space position of the light source, in [0,1] UV space.
+  // Positions outside [0,1] are allowed (light off-screen or behind camera);
+  // the radial march will simply step away from the viewport edge.
+  // Host code should pass a clamped or estimated UV for lights behind the camera.
   lightScreenPos : vec2<f32>,
 
   // Quality / appearance controls

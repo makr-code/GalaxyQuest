@@ -227,7 +227,7 @@ class EnvironmentFX {
    *
    * @param {{x,y,z}}  position
    * @param {number}   [radius=30]   - Cloud radius
-   * @param {object}   [opts]        - Overrides: `colorStart`, `colorEnd`, `count`, `lifetime`, `duration`
+   * @param {object}   [opts]        - Overrides: `colorStart`, `colorEnd`, `count`, `rate` (smoke particles/s), `lifetime`, `duration`
    * @returns {{emitters: ParticleEmitter[], cloud: CloudVolumeRecord}}
    */
   spawnDebrisCloud(position, radius = 30, opts = {}) {
@@ -253,7 +253,7 @@ class EnvironmentFX {
     emitters.push(this._ps.addEmitter(new ParticleEmitter({
       mode:             EmitterMode.CONTINUOUS,
       position:         { ...position },
-      count:            opts.ratePerSec  ?? 20,
+      count:            opts.rate  ?? 20,
       lifetime:         3.0,
       lifetimeVariance: 1.0,
       speed:            2,
@@ -292,7 +292,7 @@ class EnvironmentFX {
     emitters.push(this._ps.addEmitter(new ParticleEmitter({
       mode:             EmitterMode.CONTINUOUS,
       position:         { ...position },
-      count:            opts.ratePerSec ?? 30,
+      count:            opts.rate ?? 30,
       lifetime:         2.5,
       lifetimeVariance: 1.0,
       speed:            1.5,
@@ -356,7 +356,7 @@ class EnvironmentFX {
     emitters.push(this._ps.addEmitter(new ParticleEmitter({
       mode:             EmitterMode.CONTINUOUS,
       position:         { ...position },
-      count:            opts.ratePerSec ?? 15,
+      count:            opts.rate ?? 15,
       lifetime:         8.0,
       lifetimeVariance: 3.0,
       speed:            0.3,
@@ -624,7 +624,7 @@ class EnvironmentFX {
       mode:             EmitterMode.CONTINUOUS,
       position:         { ...from },
       direction:        dir,
-      count:            opts.ratePerSec ?? 40,
+      count:            opts.rate ?? 40,
       lifetime:         len / (opts.speed ?? 20),
       lifetimeVariance: 0.1,
       speed:            opts.speed ?? 20,
@@ -771,7 +771,7 @@ class EnvironmentFX {
     for (const r of this._coronas) {
       if (!r.active) continue;
       r.elapsed += dt;
-      r.opacity  = 1.0 - r.pulseAmplitude * Math.sin(2 * Math.PI * r.pulseFrequency * r.elapsed);
+      r.opacity  = Math.max(0, Math.min(1, 1.0 - r.pulseAmplitude * Math.sin(2 * Math.PI * r.pulseFrequency * r.elapsed)));
       if (r.duration > 0 && r.elapsed >= r.duration) { r.active = false; }
     }
 

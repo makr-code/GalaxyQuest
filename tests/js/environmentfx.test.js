@@ -58,10 +58,13 @@ describe('EnvironmentFX — DebrisField', () => {
   });
 
   it('chunks appear within the scatter radius', () => {
+    const center = O;
     const radius = 40;
-    const chunks = fx.spawnDebrisField(O, DebrisType.ICE_CRYSTAL, 30, radius);
+    const chunks = fx.spawnDebrisField(center, DebrisType.ICE_CRYSTAL, 30, radius);
     for (const c of chunks) {
-      const d = Math.sqrt(c.px ** 2 + c.py ** 2 + c.pz ** 2);
+      const d = Math.sqrt(
+        (c.px - center.x) ** 2 + (c.py - center.y) ** 2 + (c.pz - center.z) ** 2,
+      );
       expect(d).toBeLessThanOrEqual(radius + 0.001); // tiny float tolerance
     }
   });

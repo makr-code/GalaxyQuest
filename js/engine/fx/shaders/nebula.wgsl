@@ -41,8 +41,8 @@ struct NebulaParams {
   colorOuter    : vec4<f32>,
 
   // Camera / projection helpers
-  invProjMat    : mat4x4<f32>,    // inverse projection matrix
-  viewMat       : mat4x4<f32>,    // view matrix
+  invProjMat    : mat4x4<f32>,    // inverse projection matrix: transforms NDC → view space
+  viewMat       : mat4x4<f32>,    // view matrix (reserved for world-space variant)
 
   // Misc
   time          : f32,   // elapsed time (seconds) — used for slow drift animation
