@@ -10,7 +10,11 @@
     const meData = await API.me();
     if (!meData.success) { window.location.href = 'index.html'; return; }
     currentUser = meData.user;
-  } catch (_) { window.location.href = 'index.html'; return; }
+  } catch (err) {
+    console.error('[GQ][game] Auth guard failed, redirecting to login', err);
+    window.location.href = 'index.html';
+    return;
+  }
 
   function updateCommanderButtonLabel() {
     const commanderBtn = document.getElementById('commander-name');
@@ -343,6 +347,22 @@
       window.location.href = target;
     }, 450);
   }
+
+  function gameLog(level, message, data = null) {
+    const lvl = String(level || 'info').toLowerCase();
+    const sink = window.GQLog && typeof window.GQLog[lvl] === 'function'
+      ? window.GQLog[lvl].bind(window.GQLog)
+      : null;
+    const prefix = '[game]';
+    if (sink) {
+      if (data == null) sink(prefix, message);
+      else sink(prefix, message, data);
+      return;
+    }
+    const method = (lvl === 'error' || lvl === 'warn' || lvl === 'info') ? lvl : 'log';
+    if (data == null) console[method]('[GQ][game]', message);
+    else console[method]('[GQ][game]', message, data);
+  }
   const AUDIO_TRACK_OPTIONS_FALLBACK = [
     { value: 'music/Nebula_Overture.mp3', label: 'Nebula Overture' },
   ];
@@ -475,7 +495,8 @@
       const safeName = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const match = cookieText.match(new RegExp(`(?:^|;\\s*)${safeName}=([^;]*)`));
       return match?.[1] ? decodeURIComponent(match[1]) : '';
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'Cookie konnte nicht gelesen werden', { name, error: err });
       return '';
     }
   }
@@ -484,20 +505,26 @@
     try {
       const safeAge = Math.max(60, Number(maxAgeSec || 0));
       document.cookie = `${name}=${encodeURIComponent(String(value || ''))}; Max-Age=${safeAge}; Path=/; SameSite=Lax`;
-    } catch (_) {}
+    } catch (err) {
+      gameLog('warn', 'Cookie konnte nicht geschrieben werden', { name, error: err });
+    }
   }
 
   function hasSeenGalaxyFleetHint() {
     try {
       if (window.localStorage?.getItem(GALAXY_FLEET_HINT_KEY) === '1') return true;
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'Fleet-Hint Status nicht aus localStorage lesbar', err);
+    }
     return readCookieValue(GALAXY_FLEET_HINT_KEY) === '1';
   }
 
   function markGalaxyFleetHintSeen() {
     try {
       window.localStorage?.setItem(GALAXY_FLEET_HINT_KEY, '1');
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'Fleet-Hint Status nicht in localStorage schreibbar', err);
+    }
     writeCookieValue(GALAXY_FLEET_HINT_KEY, '1', GALAXY_FLEET_HINT_COOKIE_DAYS * 24 * 60 * 60);
   }
 
@@ -511,7 +538,8 @@
       const raw = decodeURIComponent(match[1]);
       const parsed = JSON.parse(raw);
       return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'JSON-Cookie konnte nicht geparst werden', { name, error: err });
       return null;
     }
   }
@@ -520,7 +548,9 @@
     try {
       const encoded = encodeURIComponent(JSON.stringify(data));
       document.cookie = `${name}=${encoded}; Max-Age=${Math.max(60, Number(maxAgeSec || 0))}; Path=/; SameSite=Lax`;
-    } catch (_) {}
+    } catch (err) {
+      gameLog('warn', 'JSON-Cookie konnte nicht geschrieben werden', { name, error: err });
+    }
   }
 
   function loadPortableUiSettings() {
@@ -531,7 +561,9 @@
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') Object.assign(merged, parsed);
       }
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'UI-Settings localStorage read failed', err);
+    }
 
     const cookieState = readJsonFromCookie(UI_SETTINGS_COOKIE_KEY);
     if (cookieState && typeof cookieState === 'object') Object.assign(merged, cookieState);
@@ -542,7 +574,9 @@
         const parsedSession = JSON.parse(rawSession);
         if (parsedSession && typeof parsedSession === 'object') Object.assign(merged, parsedSession);
       }
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'UI-Settings sessionStorage read failed', err);
+    }
 
     return merged;
   }
@@ -550,10 +584,14 @@
   function savePortableUiSettings(data) {
     try {
       localStorage.setItem(UI_SETTINGS_STORAGE_KEY, JSON.stringify(data));
-    } catch (_) {}
+    } catch (err) {
+      gameLog('warn', 'UI-Settings localStorage write failed', err);
+    }
     try {
       sessionStorage.setItem(UI_SETTINGS_SESSION_KEY, JSON.stringify(data));
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'UI-Settings sessionStorage write failed', err);
+    }
     writeJsonCookie(UI_SETTINGS_COOKIE_KEY, data, UI_SETTINGS_COOKIE_MAX_AGE_SEC);
   }
 
@@ -723,6 +761,7 @@
         refreshAudioUi();
         return audioTrackOptions;
       } catch (_) {
+        gameLog('warn', 'Audio-Track-Katalog konnte nicht geladen werden, fallback aktiv');
         audioTrackCatalogLoaded = true;
         applyAudioPlaylistFromCatalog();
         refreshSettingsMusicPresetOptions();
@@ -778,7 +817,8 @@
       const manager = new window.GQAudioManager({ storageKey: 'gq_audio_settings' });
       window.__GQ_AUDIO_MANAGER = manager;
       return manager;
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'AudioManager Init fehlgeschlagen', err);
       return null;
     }
   })();
@@ -932,7 +972,8 @@
       const latencyMs = Number(health?.latencyMs || 0);
       const status = Number(health?.status || 0);
       setFooterNetworkStatus(kind, latencyMs, status);
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'Footer-Netzwerkstatus Probe fehlgeschlagen', err);
       setFooterNetworkStatus(navigator.onLine === false ? 'offline' : 'unknown');
     } finally {
       footerNetworkState.inFlight = false;
@@ -1096,7 +1137,7 @@
       galaxyDB.policies.systemMaxAgeMs = Number(profile.system.payload.cacheMaxAgeMs);
     }
     activePolicyProfile = profileName;
-    try { localStorage.setItem('gq_policy_profile', profileName); } catch (_) {}
+    try { localStorage.setItem('gq_policy_profile', profileName); } catch (err) { gameLog('info', 'Policy-Profil konnte nicht persistiert werden', err); }
   }
 
   function detectAutoPolicyProfile() {
@@ -1127,7 +1168,8 @@
         profile: 'balanced',
         reason: `Auto rule: mixed profile (cores=${cores || 'n/a'}, mem=${mem || 'n/a'}GB, net=${effectiveType || 'unknown'})`,
       };
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'Auto-Policy-Erkennung fehlgeschlagen, verwende balanced', err);
       return {
         profile: 'balanced',
         reason: 'Auto rule: fallback (device capabilities unavailable).',
@@ -1268,7 +1310,9 @@
       if (normalizedMode === 'manual' && POLICY_PROFILES[nextProfile]) {
         localStorage.setItem('gq_policy_profile_manual', nextProfile);
       }
-    } catch (_) {}
+    } catch (err) {
+      gameLog('info', 'Policy-Modus konnte nicht persistiert werden', err);
+    }
   }
 
   (() => {
@@ -1285,17 +1329,21 @@
         return;
       }
       applyPolicyMode('auto');
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'Policy-Init aus Storage fehlgeschlagen, fallback auto', err);
       applyPolicyMode('auto');
     }
   })();
 
   if (galaxyDB) {
-    galaxyDB.init().catch(() => {
+    galaxyDB.init().catch((err) => {
+      gameLog('warn', 'Browser DB Init fehlgeschlagen, fallback memory', err);
       showToast('Browser DB fallback active (memory only).', 'warning');
     });
     setInterval(() => {
-      galaxyDB.prune().catch(() => {});
+      galaxyDB.prune().catch((err) => {
+        gameLog('info', 'Browser DB prune fehlgeschlagen', err);
+      });
     }, 5 * 60 * 1000);
   }
 
@@ -1303,7 +1351,9 @@
   window.GQGalaxyDBStore = galaxyDB;
 
   setInterval(() => {
-    sendPerfTelemetrySnapshot('interval').catch(() => {});
+    sendPerfTelemetrySnapshot('interval').catch((err) => {
+      gameLog('info', 'Perf-Telemetrie Snapshot fehlgeschlagen', err);
+    });
   }, PERF_TELEMETRY_INTERVAL_MS);
 
   // ── Utilities ────────────────────────────────────────────
@@ -1323,7 +1373,8 @@
   function isPerfTelemetryOptIn() {
     try {
       return window.localStorage?.getItem(PERF_TELEMETRY_OPT_IN_KEY) === '1';
-    } catch (_) {
+    } catch (err) {
+      gameLog('info', 'Perf-Telemetrie Opt-In nicht lesbar', err);
       return false;
     }
   }
@@ -1332,7 +1383,8 @@
     try {
       window.localStorage?.setItem(PERF_TELEMETRY_OPT_IN_KEY, enabled ? '1' : '0');
       return true;
-    } catch (_) {
+    } catch (err) {
+      gameLog('warn', 'Perf-Telemetrie Opt-In nicht speicherbar', err);
       return false;
     }
   }
@@ -3258,7 +3310,9 @@
         refreshAudioUi();
       });
 
-      loadAudioTrackCatalog().catch(() => {});
+      loadAudioTrackCatalog().catch((err) => {
+        gameLog('info', 'Audio-Track-Katalog Laden in Settings fehlgeschlagen', err);
+      });
       refreshAudioUi();
     }
 
@@ -3834,7 +3888,9 @@
       if (!galaxy3d && root) {
         this.init3D(root);
         if (galaxy3d) {
-          this.loadStars3D(root).catch(() => {});
+          this.loadStars3D(root).catch((err) => {
+            gameLog('warn', 'Galaxy 3D Sterneladen fehlgeschlagen', err);
+          });
         }
       }
       if (!galaxy3d) {
@@ -4709,7 +4765,9 @@
         if (details) {
           details.innerHTML = `<span class="text-cyan">Policy hit: fresh range from cache (${from}-${to}), network refresh skipped.</span>`;
         }
-        hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch(() => {});
+          hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch((err) => {
+            gameLog('info', 'Background-Hydration (initial) fehlgeschlagen', err);
+          });
         return;
       }
 
@@ -4789,7 +4847,9 @@
           }
         }
         if (galaxyDB) {
-          galaxyDB.upsertStars(galaxyStars, responseTs).catch(() => {});
+          galaxyDB.upsertStars(galaxyStars, responseTs).catch((err) => {
+            gameLog('info', 'DB upsertStars fehlgeschlagen', err);
+          });
         }
 
         const rendered = applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'network');
@@ -4815,7 +4875,9 @@
           cacheMode: data.cache_mode || 'n/a',
         });
         ensureInitialGalaxyFrame();
-        hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch(() => {});
+          hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch((err) => {
+            gameLog('info', 'Background-Hydration (post-load) fehlgeschlagen', err);
+          });
       } catch (err) {
         const errMsg = String(err?.message || err || 'unknown error');
         pushGalaxyDebugError('galaxy-stars', errMsg, `${from}..${to}`);
@@ -5232,7 +5294,9 @@
               window._GQ_ftl_map = ftlData;
               galaxy3d.setFtlInfrastructure(ftlData.gates || [], ftlData.resonance_nodes || []);
             }
-          }).catch(() => {});
+          }).catch((err) => {
+            gameLog('info', 'Topbar Search background request fehlgeschlagen', err);
+          });
         }
 
         this.populatePlanetSelect();
@@ -7363,7 +7427,9 @@
         }
       });
 
-      this.updateBlueprintLayoutOptions(root, hulls).catch(() => {});
+      this.updateBlueprintLayoutOptions(root, hulls).catch((err) => {
+        gameLog('info', 'Blueprint Layout-Optionen Update fehlgeschlagen', err);
+      });
 
       // ── Module slot events (delegated on modules container) ─
       const modsContainer = root.querySelector('#shipyard-blueprint-modules');
@@ -8288,10 +8354,19 @@
   ];
 
   function loadQuickNavData() {
-    try { return JSON.parse(localStorage.getItem(QUICKNAV_KEY) || '{}'); } catch (_) { return {}; }
+    try {
+      return JSON.parse(localStorage.getItem(QUICKNAV_KEY) || '{}');
+    } catch (err) {
+      gameLog('info', 'QuickNav Daten konnten nicht geladen werden, fallback leer', err);
+      return {};
+    }
   }
   function saveQuickNavData(data) {
-    try { localStorage.setItem(QUICKNAV_KEY, JSON.stringify(data)); } catch (_) {}
+    try {
+      localStorage.setItem(QUICKNAV_KEY, JSON.stringify(data));
+    } catch (err) {
+      gameLog('info', 'QuickNav Daten konnten nicht gespeichert werden', err);
+    }
   }
   function getQuickNavFavorites() {
     return Array.isArray(loadQuickNavData().favorites) ? loadQuickNavData().favorites : [];
@@ -8475,7 +8550,9 @@
       const removeBtn = e.target.closest('.quicknav-item-btn.remove');
       const itemRow  = e.target.closest('.quicknav-item');
       if (goBtn) {
-        navigateToFav(goBtn.dataset.favKey).catch(() => {});
+          navigateToFav(goBtn.dataset.favKey).catch((err) => {
+            gameLog('info', 'QuickNav Navigation (Button) fehlgeschlagen', err);
+          });
         return;
       }
       if (removeBtn) {
@@ -8487,7 +8564,9 @@
         return;
       }
       if (itemRow && !e.target.closest('select') && !e.target.closest('button')) {
-        navigateToFav(itemRow.dataset.favKey).catch(() => {});
+            navigateToFav(itemRow.dataset.favKey).catch((err) => {
+              gameLog('info', 'QuickNav Navigation (Item) fehlgeschlagen', err);
+            });
       }
     });
 
@@ -8800,7 +8879,9 @@
         galaxyModel.addLoadedStarRange(g, start, end, responseTs);
       }
       if (galaxyDB) {
-        galaxyDB.upsertStars(normalizeStarListVisibility(data.stars), responseTs).catch(() => {});
+            galaxyDB.upsertStars(normalizeStarListVisibility(data.stars), responseTs).catch((err) => {
+              gameLog('info', 'DB upsertStars (lazy load) fehlgeschlagen', err);
+            });
       }
 
       if (uiState.activeGalaxy === g) {
@@ -9016,7 +9097,9 @@
         });
       }
       if (galaxyDB) {
-        galaxyDB.upsertSystemPayload(g, s, normalizedData, responseTs).catch(() => {});
+            galaxyDB.upsertSystemPayload(g, s, normalizedData, responseTs).catch((err) => {
+              gameLog('info', 'DB upsertSystemPayload fehlgeschlagen', err);
+            });
       }
       return { source: 'network', payload: normalizedData, fresh: true };
     } catch (netErr) {
@@ -13194,11 +13277,17 @@
         try {
           localStorage.clear();
           sessionStorage.clear();
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'Session-Storage cleanup im Logout fehlgeschlagen', err);
+        }
         
         // Close EventSource if active
         if (typeof window.__gqSSE !== 'undefined' && window.__gqSSE?.close) {
-          try { window.__gqSSE.close(); } catch (_) {}
+          try {
+            window.__gqSSE.close();
+          } catch (err) {
+            gameLog('info', 'SSE close im Logout-Cleanup fehlgeschlagen', err);
+          }
         }
         
         // Hard redirect after brief delay to ensure cookies are sent
@@ -13207,7 +13296,9 @@
         }, 200);
         return;
       }
-    } catch (_) {}
+    } catch (err) {
+      gameLog('warn', 'API logout fehlgeschlagen, fallback redirect aktiv', err);
+    }
     
     // Fallback: redirect immediately if logout failed
     window.location.href = 'index.html?logout=1&nocache=' + Date.now();
@@ -13386,7 +13477,11 @@
 
       const clearListeners = () => {
         listeners.forEach(({ type, handler, opts }) => {
-          try { window.removeEventListener(type, handler, opts); } catch (_) {}
+          try {
+            window.removeEventListener(type, handler, opts);
+          } catch (err) {
+            gameLog('info', `Audio-Unlock Listener-Entfernung fehlgeschlagen (${type})`, err);
+          }
         });
         listeners.length = 0;
       };
@@ -13403,7 +13498,9 @@
             unlocked = true;
             clearListeners();
           }
-        } catch (_) {}
+        } catch (err) {
+          gameLog('info', 'Audio resume on interaction fehlgeschlagen', err);
+        }
       };
 
       const bind = (type, opts) => {
@@ -13440,11 +13537,15 @@
   });
 
   refreshAudioUi();
-  loadAudioTrackCatalog().catch(() => {});
+  loadAudioTrackCatalog().catch((err) => {
+    gameLog('info', 'Initiales Laden des Audio-Track-Katalogs fehlgeschlagen', err);
+  });
 
   // Advisor widget: register WM window + mount floating bubble
   AdvisorWidget.register();
-  AdvisorWidget.load().catch(() => {});
+  AdvisorWidget.load().catch((err) => {
+    gameLog('info', 'AdvisorWidget Load fehlgeschlagen', err);
+  });
 
   await loadOverview();
 
