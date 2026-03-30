@@ -3023,6 +3023,7 @@
         ['alliances', { title: '🤝 Alliances', w: 560, h: 620, defaultDock: 'right', defaultY: 54, onRender: () => renderAlliances() }],
         ['settings', { title: '⚙ Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12, onRender: () => renderSettings() }],
         ['quicknav', { title: '⭐ QuickNav', w: 370, h: 520, defaultDock: 'left', defaultY: 12, onRender: () => renderQuickNav() }],
+        ['minimap', { title: '🗺 Minimap', w: 290, h: 310, defaultDock: 'right', defaultY: 12, defaultDockMargin: 12, onRender: (root) => renderMinimap(root) }],
         ['left-sidebar', {
           title: '📌 Left Sidebar',
           sectionId: 'left_sidebar',
@@ -5149,6 +5150,7 @@
         this.updateResourceBar();
         this.applyBadges(data);
         WM.refresh('overview');
+        WM.refresh('minimap');
       } catch (e) {
         const em = String(e?.message || e || '');
         if (/abort|cancel|navigation/i.test(em)) return;
@@ -7847,6 +7849,7 @@
 
   async function loadGalaxyStars3D(root) {
     await galaxyController.loadStars3D(root);
+    WM.refresh('minimap');
   }
 
   async function loadStarSystemPlanets(root, star) {
@@ -11104,6 +11107,191 @@
     await leaderboardController.render();
   }
 
+  // ── Minimap ───────────────────────────────────────────────────────────────
+  const MINIMAP_PAD = 14;           // canvas padding in px
+  const MINIMAP_GRID_DIVS = 5;     // number of grid lines per axis
+  const MINIMAP_CLICK_RADIUS = 18; // max click distance in px to select a star
+
+  function renderMinimap(root) {
+    if (!root) return;
+
+    // Ensure wrapper exists
+    let wrap = root.querySelector('.minimap-wrap');
+    if (!wrap) {
+      root.innerHTML = '';
+      wrap = document.createElement('div');
+      wrap.className = 'minimap-wrap';
+      root.appendChild(wrap);
+    }
+
+    // Ensure canvas exists
+    let canvas = wrap.querySelector('.minimap-canvas');
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.className = 'minimap-canvas';
+      wrap.appendChild(canvas);
+
+      // Click-to-navigate: find closest star and open galaxy map at it
+      canvas.addEventListener('click', (e) => {
+        const state = canvas.__minimapState;
+        if (!state || !state.stars.length) return;
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        let best = null;
+        let bestDist = Infinity;
+        for (const star of state.stars) {
+          const cx = state.offX + (Number(star.x_ly || 0) - state.minX) * state.scale;
+          const cy = state.offY + (Number(star.y_ly || 0) - state.minY) * state.scale;
+          const d = Math.hypot(mx - cx, my - cy);
+          if (d < bestDist) { bestDist = d; best = star; }
+        }
+        if (best && bestDist < MINIMAP_CLICK_RADIUS) {
+          WM.open('galaxy');
+          window.dispatchEvent(new CustomEvent('gq:minimap-navigate', {
+            detail: { galaxy: Number(best.galaxy_index || uiState.activeGalaxy || 1), system: Number(best.system_index || 0), star: best },
+          }));
+        }
+      });
+    }
+
+    // Size canvas to wrapper
+    const w = Math.max(100, wrap.clientWidth || 260);
+    const h = Math.max(100, wrap.clientHeight || 260);
+    canvas.width = w;
+    canvas.height = h;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Background
+    ctx.fillStyle = '#050d1e';
+    ctx.fillRect(0, 0, w, h);
+
+    const stars = Array.isArray(galaxyStars) ? galaxyStars.filter((s) => s.x_ly != null && s.y_ly != null) : [];
+
+    if (!stars.length) {
+      ctx.fillStyle = 'rgba(80, 140, 200, 0.6)';
+      ctx.font = '11px Consolas, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Galaxy data loading…', w / 2, h / 2);
+      canvas.__minimapState = null;
+      return;
+    }
+
+    // Compute bounds
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const s of stars) {
+      const sx = Number(s.x_ly);
+      const sy = Number(s.y_ly);
+      if (sx < minX) minX = sx;
+      if (sx > maxX) maxX = sx;
+      if (sy < minY) minY = sy;
+      if (sy > maxY) maxY = sy;
+    }
+
+    const rangeX = (maxX - minX) || 1;
+    const rangeY = (maxY - minY) || 1;
+    const scaleX = (w - MINIMAP_PAD * 2) / rangeX;
+    const scaleY = (h - MINIMAP_PAD * 2) / rangeY;
+    const scale = Math.min(scaleX, scaleY);
+    const offX = MINIMAP_PAD + ((w - MINIMAP_PAD * 2) - rangeX * scale) / 2;
+    const offY = MINIMAP_PAD + ((h - MINIMAP_PAD * 2) - rangeY * scale) / 2;
+
+    // Store transform state for click handler
+    canvas.__minimapState = { minX, minY, scale, offX, offY, stars };
+
+    // Subtle grid lines
+    ctx.strokeStyle = 'rgba(50, 90, 150, 0.22)';
+    ctx.lineWidth = 0.5;
+    const gridStepLy = Math.max(1, Math.round(rangeX / MINIMAP_GRID_DIVS));
+    for (let gx = Math.ceil(minX / gridStepLy) * gridStepLy; gx <= maxX; gx += gridStepLy) {
+      const cx = offX + (gx - minX) * scale;
+      ctx.beginPath();
+      ctx.moveTo(cx, MINIMAP_PAD);
+      ctx.lineTo(cx, h - MINIMAP_PAD);
+      ctx.stroke();
+    }
+    for (let gy = Math.ceil(minY / gridStepLy) * gridStepLy; gy <= maxY; gy += gridStepLy) {
+      const cy = offY + (gy - minY) * scale;
+      ctx.beginPath();
+      ctx.moveTo(MINIMAP_PAD, cy);
+      ctx.lineTo(w - MINIMAP_PAD, cy);
+      ctx.stroke();
+    }
+
+    // Build lookup sets for own colonies and current system
+    const ownColonySystems = new Set(
+      (Array.isArray(colonies) ? colonies : []).map((col) => Number(col.system || col.system_index || 0)).filter(Boolean)
+    );
+    const currentSysIdx = Number(currentColony?.system || currentColony?.system_index || 0);
+
+    // Draw stars
+    for (const star of stars) {
+      const sx = Number(star.x_ly);
+      const sy = Number(star.y_ly);
+      const cx = offX + (sx - minX) * scale;
+      const cy = offY + (sy - minY) * scale;
+      const sysIdx = Number(star.system_index || 0);
+      const isOwn = sysIdx > 0 && ownColonySystems.has(sysIdx);
+      const isCurrent = currentSysIdx > 0 && sysIdx === currentSysIdx;
+
+      if (isCurrent) {
+        // Current system: bright yellow with outer ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffe066';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx, cy, 6.5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 224, 102, 0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else if (isOwn) {
+        // Own colony: green dot
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#44ee88';
+        ctx.fill();
+      } else {
+        // Regular star: colour by spectral class
+        ctx.beginPath();
+        ctx.arc(cx, cy, 1, 0, Math.PI * 2);
+        ctx.fillStyle = starClassColor(star.spectral_class);
+        ctx.fill();
+      }
+    }
+
+    // Legend (bottom-left)
+    ctx.font = '9px Consolas, monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = 'rgba(100, 160, 220, 0.6)';
+    ctx.fillText(`${stars.length} stars`, 5, h - 5);
+  }
+
+  // Handle minimap click-to-navigate: open galaxy map and fly to the selected star.
+  // Guard against duplicate bindings if the module is ever re-evaluated.
+  if (!window.__gqMinimapNavBound) {
+    window.__gqMinimapNavBound = true;
+    window.addEventListener('gq:minimap-navigate', (ev) => {
+      const { galaxy: g, system: s, star } = ev.detail || {};
+      if (!g || !s) return;
+      const root = WM.body('galaxy');
+      if (!root) return;
+      const target = (Array.isArray(galaxyStars) ? galaxyStars : []).find(
+        (row) => Number(row.galaxy_index || 0) === g && Number(row.system_index || 0) === s
+      ) || Object.assign({}, star, { galaxy_index: g, system_index: s });
+      if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
+        galaxy3d.focusOnStar(target, true);
+      }
+      pinnedStar = target;
+      uiState.activeStar = target;
+      renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
+    });
+  }
+
   function renderSettings() {
     const root = WM.body('settings');
     if (!root) return;
@@ -12186,6 +12374,12 @@
     if (WM.isOpen('overview')) WM.close('overview');
     else WM.open('overview');
     document.getElementById('footer-overview-btn')?.classList.toggle('active', WM.isOpen('overview'));
+  });
+
+  document.getElementById('footer-minimap-btn')?.addEventListener('click', () => {
+    if (WM.isOpen('minimap')) WM.close('minimap');
+    else WM.open('minimap');
+    document.getElementById('footer-minimap-btn')?.classList.toggle('active', WM.isOpen('minimap'));
   });
 
   refreshAudioUi();

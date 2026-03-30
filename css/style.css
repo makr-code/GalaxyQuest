@@ -4861,3 +4861,23 @@ input:focus, select:focus, textarea:focus {
   flex-shrink: 0;
 }
 
+
+/* ── Minimap window ───────────────────────────────────────────────────────── */
+.minimap-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  background: #050d1e;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+}
+
+.minimap-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  image-rendering: pixelated;
+}
