@@ -73,8 +73,8 @@ const { ViewportManager, PIP_DEFAULTS } = require('./ViewportManager');
 
 // Game systems (classics-inspired)
 const { EventSystem, EventType, EventStatus } = require('./game/EventSystem');
-const { ResearchTree, ResearchCategory }      = require('./game/ResearchTree');
-const { FleetFormation, Wing, FormationShape } = require('./game/FleetFormation');
+const { ResearchTree, ResearchCategory, CivAffinity }      = require('./game/ResearchTree');
+const { FleetFormation, Wing, FormationShape, Maneuver, getSlotPositions } = require('./game/FleetFormation');
 const { ColonySimulation, Colony, PopJob, BASE_YIELD } = require('./game/ColonySimulation');
 
 // Constants
@@ -109,8 +109,8 @@ module.exports = {
   TextureLoader, GeometryLoader, ShaderLoader,
   // Game systems
   EventSystem, EventType, EventStatus,
-  ResearchTree, ResearchCategory,
-  FleetFormation, Wing, FormationShape,
+  ResearchTree, ResearchCategory, CivAffinity,
+  FleetFormation, Wing, FormationShape, Maneuver, getSlotPositions,
   ColonySimulation, Colony, PopJob, BASE_YIELD,
   // Constants
   ...constants,
