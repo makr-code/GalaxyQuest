@@ -118,6 +118,8 @@ SoC profile endpoint:
 - `POST api/llm.php?action=compose`
 - `POST api/llm.php?action=chat_profile`
 
+<img width="1920" height="1020" alt="Screenshot 2026-03-30 213139" src="https://github.com/user-attachments/assets/e5ad5350-8da8-4999-b597-e5344b49ce98" />
+
 ### NPC / PvE Controller (LLM-Integrated)
 
 GalaxyQuest can optionally steer non-player factions via an LLM-assisted PvE controller.
@@ -312,6 +314,8 @@ Result:
 - `index.html` (unified shell) loads auth and game runtime assets.
 - Optional: Brotli artifacts (`*.br`) are generated when the PHP Brotli extension is available and enabled via CLI option.
 
+<img width="1920" height="1020" alt="Screenshot 2026-03-30 213050" src="https://github.com/user-attachments/assets/fd60806d-42aa-4976-b446-c072ee0663b1" />
+
 ### Politics Model (Factions + Species + Government)
 
 Stellaris-inspired model with dynamic benefits/malus is available via:
@@ -360,6 +364,8 @@ Overview payload now includes a politics runtime snapshot:
 - `GET api/game.php?action=overview` includes `politics.effects` and `politics.pressure_events`.
 
 ---
+
+<img width="1920" height="1020" alt="Screenshot 2026-03-30 212958" src="https://github.com/user-attachments/assets/96a05ced-d333-4779-9ac8-b93d793a5121" />
 
 ## Feature Overview
 
