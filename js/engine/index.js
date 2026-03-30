@@ -37,6 +37,7 @@ const { BloomPass }                 = require('./post-effects/passes/BloomPass')
 const { VignettePass }              = require('./post-effects/passes/VignettePass');
 const { ChromaticPass }             = require('./post-effects/passes/ChromaticPass');
 const { ComputePass }               = require('./post-effects/passes/ComputePass');
+const { PostFxController, PARAM_META: PostFxParamMeta } = require('./post-effects/PostFxController');
 
 // Math
 const { Vector2 }                   = require('./math/Vector2');
@@ -101,6 +102,7 @@ module.exports = {
   ViewportManager, PIP_DEFAULTS,
   // Post-effects
   EffectComposer, RenderPass, BloomPass, VignettePass, ChromaticPass, ComputePass,
+  PostFxController, PostFxParamMeta,
   // Math
   Vector2, Vector3, Vector4, Matrix4, Quaternion, MathUtils,
   // Utils
