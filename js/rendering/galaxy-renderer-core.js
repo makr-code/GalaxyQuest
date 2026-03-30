@@ -294,6 +294,18 @@
       this._selectionTouchedMs = 0;
 
       this.clock = new THREE.Clock();
+      
+      // ── Galaxy metadata (from API: galaxy_meta endpoint) ─────────────────────
+      // These drive the spiral shader parameters and visualization physics
+      this.galaxyMetadata = {
+        armCount: 4,
+        pitchTangent: 0.249328,        // tan(14°)
+        rotationDirectionCcw: 1,       // 1 = counter-clockwise from north pole, 0 = clockwise
+        escapeVelocityCenterKms: 8000.0,
+        escapeVelocitySunKms: 500.0,
+        orbitalVelocityKms: 220.0,
+      };
+      
       this.stars = [];
       this.visibleStars = [];
       this.visibleToRawIndex = [];
@@ -757,9 +769,12 @@
 
     /**
      * Build the galaxy background glow: a large horizontal disk with a
-     * 4-arm logarithmic spiral shader (matching the PHP generator: 4 arms,
-     * pitch 14°) plus multi-layer centre-bulge sprites that simulate the
-     * warm overexposure seen in long-exposure Milky Way photographs.
+     * 4-arm logarithmic spiral shader (matching the PHP generator)
+     * plus multi-layer centre-bulge sprites that simulate the warm overexposure 
+     * seen in long-exposure Milky Way photographs.
+     * 
+     * Uses spiral parameters from this.galaxyMetadata (armCount, pitchTangent,
+     * rotationDirectionCcw) to correctly orient the arms and rotation direction.
      */
     _buildGalaxyBackgroundGlow() {
       this.galaxyGlowGroup = new THREE.Group();
@@ -769,6 +784,13 @@
       // ── 1. Spiral-disk glow plane ──────────────────────────────────────────
       // A large circle in the XZ plane (rotated -90° on X) whose fragment
       // shader evaluates the logarithmic spiral and bulge functions.
+      
+      // Get metadata with fallback to defaults
+      const meta = this.galaxyMetadata || {};
+      const armCount = meta.armCount ?? 4;
+      const pitchTangent = meta.pitchTangent ?? 0.249328;  // tan(14°)
+      const rotationCcwSign = (meta.rotationDirectionCcw ?? 1) ? 1.0 : -1.0;
+      
       const diskGlowMat = new THREE.ShaderMaterial({
         transparent: true,
         depthWrite: false,
@@ -776,6 +798,9 @@
         side: THREE.DoubleSide,
         uniforms: {
           uTime: { value: 0 },
+          uArmCount: { value: armCount },
+          uPitchTangent: { value: pitchTangent },
+          uRotationCcwSign: { value: rotationCcwSign },
         },
         vertexShader: `
           varying vec2 vUV;
@@ -786,6 +811,9 @@
         `,
         fragmentShader: `
           uniform float uTime;
+          uniform float uArmCount;
+          uniform float uPitchTangent;
+          uniform float uRotationCcwSign;
           varying vec2  vUV;
           void main() {
             // Map UV [0,1]^2 → centred [-1,1]^2; r = 0 (centre) … 1 (edge)
@@ -794,10 +822,13 @@
             if (r > 1.0) discard;
             float theta = atan(uv.y, uv.x);   // -pi … +pi
 
-            // ── 4-arm log spiral (pitch 14°, b = tan 14° ≈ 0.2493) ─────────
-            // Phase = 4·(θ − ln(r)/b)  →  cos = 1 means "on an arm"
-            float b        = 0.2493;
-            float armPhase = 4.0 * theta - (4.0 / b) * log(max(r, 0.001));
+            // ── N-arm log spiral with variable pitch and rotation direction ─
+            // Phase = N·(θ − ln(r)/b) where b = tan(pitch_angle)
+            // rotationCcwSign: +1 for counter-clockwise, -1 for clockwise
+            float b        = uPitchTangent;
+            float logTerm  = log(max(r, 0.001)) / b;
+            // Rotation direction controlled by rotationCcwSign
+            float armPhase = uRotationCcwSign * uArmCount * (theta - logTerm);
             float armNear  = pow(max(0.0, 0.5 + 0.5 * cos(armPhase)), 7.0);
             // Arms only visible in the disk region (not bulge, not outer edge)
             float armMask  = smoothstep(0.06, 0.15, r) * smoothstep(0.97, 0.52, r);
@@ -3566,6 +3597,57 @@
       this.controls.update();
     }
 
+    nudgeRoll(direction = 'cw', stepRad = 0.05) {
+      if (!this.camera || !this.controls) return;
+      this.autoFrameEnabled = false;
+      const viewDir = this.controls.target.clone().sub(this.camera.position);
+      if (viewDir.lengthSq() < 1e-6) return;
+      viewDir.normalize();
+      const step = Math.max(0.005, Math.min(0.35, Number(stepRad || 0.05)));
+      const delta = direction === 'ccw' ? -step : step;
+      this.camera.up.applyAxisAngle(viewDir, delta).normalize();
+      this.controls.update();
+    }
+
+    getZoomNorm() {
+      if (!this.camera || !this.controls) return 0;
+      const minD = Math.max(1, Number(this.controls.minDistance || 1));
+      const maxD = Math.max(minD + 1, Number(this.controls.maxDistance || (minD + 1)));
+      const dist = this.camera.position.distanceTo(this.controls.target);
+      const t = (maxD - dist) / (maxD - minD);
+      return THREE.MathUtils.clamp(t, 0, 1);
+    }
+
+    setZoomNorm(value) {
+      if (!this.camera || !this.controls) return;
+      this.autoFrameEnabled = false;
+      const t = THREE.MathUtils.clamp(Number(value || 0), 0, 1);
+      const minD = Math.max(1, Number(this.controls.minDistance || 1));
+      const maxD = Math.max(minD + 1, Number(this.controls.maxDistance || (minD + 1)));
+      const targetDist = maxD - t * (maxD - minD);
+      const offset = this.camera.position.clone().sub(this.controls.target);
+      if (offset.lengthSq() < 1e-6) {
+        offset.set(0, targetDist * 0.5, targetDist);
+      } else {
+        offset.setLength(targetDist);
+      }
+      this.camera.position.copy(this.controls.target.clone().add(offset));
+      this.controls.update();
+    }
+
+    getFov() {
+      return Number(this.camera?.fov || 60);
+    }
+
+    setFov(degrees) {
+      if (!this.camera) return;
+      this.autoFrameEnabled = false;
+      const next = THREE.MathUtils.clamp(Number(degrees || 60), 25, 100);
+      this.camera.fov = next;
+      this.camera.updateProjectionMatrix();
+      this.controls?.update?.();
+    }
+
     resetNavigationView() {
       this.autoFrameEnabled = true;
       if (this.systemMode) this.exitSystemView(false);
@@ -4243,6 +4325,36 @@
         galacticCoreFxEnabled: !!this.galacticCoreFxEnabled,
         dynamicClusterLod: !!this.dynamicClusterLod,
       });
+    }
+
+    setGalaxyMetadata(rawMeta = {}) {
+      const source = (rawMeta && typeof rawMeta === 'object' && rawMeta.metadata && typeof rawMeta.metadata === 'object')
+        ? rawMeta.metadata
+        : (rawMeta && typeof rawMeta === 'object' ? rawMeta : {});
+      const armCount = Number(source.arm_count ?? source.armCount);
+      const pitchTangent = Number(source.pitch_tangent ?? source.pitchTangent);
+      const rotationDirectionCcw = Number(source.rotation_direction_ccw ?? source.rotationDirectionCcw);
+      const escapeVelocityCenterKms = Number(source.escape_velocity_center_kms ?? source.escapeVelocityCenterKms);
+      const escapeVelocitySunKms = Number(source.escape_velocity_sun_kms ?? source.escapeVelocitySunKms);
+      const orbitalVelocityKms = Number(source.orbital_velocity_kms ?? source.orbitalVelocityKms);
+
+      this.galaxyMetadata = Object.assign({}, this.galaxyMetadata || {}, {
+        armCount: Number.isFinite(armCount) && armCount > 0 ? armCount : Number(this.galaxyMetadata?.armCount || 4),
+        pitchTangent: Number.isFinite(pitchTangent) && pitchTangent > 0 ? pitchTangent : Number(this.galaxyMetadata?.pitchTangent || 0.249328),
+        rotationDirectionCcw: Number.isFinite(rotationDirectionCcw) ? (rotationDirectionCcw ? 1 : 0) : Number(this.galaxyMetadata?.rotationDirectionCcw ?? 1),
+        escapeVelocityCenterKms: Number.isFinite(escapeVelocityCenterKms) ? escapeVelocityCenterKms : Number(this.galaxyMetadata?.escapeVelocityCenterKms || 8000),
+        escapeVelocitySunKms: Number.isFinite(escapeVelocitySunKms) ? escapeVelocitySunKms : Number(this.galaxyMetadata?.escapeVelocitySunKms || 500),
+        orbitalVelocityKms: Number.isFinite(orbitalVelocityKms) ? orbitalVelocityKms : Number(this.galaxyMetadata?.orbitalVelocityKms || 220),
+      });
+
+      const uniforms = this.galaxyDiskGlow?.material?.uniforms;
+      if (uniforms) {
+        if (uniforms.uArmCount) uniforms.uArmCount.value = Number(this.galaxyMetadata.armCount || 4);
+        if (uniforms.uPitchTangent) uniforms.uPitchTangent.value = Number(this.galaxyMetadata.pitchTangent || 0.249328);
+        if (uniforms.uRotationCcwSign) uniforms.uRotationCcwSign.value = this.galaxyMetadata.rotationDirectionCcw ? 1.0 : -1.0;
+      }
+
+      return Object.assign({}, this.galaxyMetadata);
     }
 
     setStars(stars, opts = {}) {
@@ -5483,6 +5595,31 @@
       if (this.ownsRendererCanvas && this.renderer.domElement.parentNode === this.container) {
         this.container.removeChild(this.renderer.domElement);
       }
+    }
+
+    getSystemPlanetsById() {
+      if (!this.systemMode) return {};
+      const result = {};
+      if (!Array.isArray(this.systemPlanetEntries)) return result;
+
+      this.systemPlanetEntries.forEach((entry) => {
+        const positionId = Number(entry?.slot?.position || entry?.body?.position || 0);
+        if (!Number.isFinite(positionId) || positionId <= 0) return;
+
+        result[positionId] = {
+          position: positionId,
+          body: entry.body || {},
+          slot: entry.slot || {},
+          mesh: entry.mesh,
+          mesh_visible: entry.mesh ? entry.mesh.visible : false,
+          refinement_phase: Number(entry.mesh?.userData?.refinementPhase || 0),
+          planet_class: String(entry.body?.planet_class || ''),
+          has_player_colony: !!(entry.body?.owner_color || entry.slot?.player_planet?.owner_color),
+          owner_color: entry.body?.owner_color || entry.slot?.player_planet?.owner_color || '',
+        };
+      });
+
+      return result;
     }
   }
 

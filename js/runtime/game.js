@@ -1713,6 +1713,12 @@
       // Sync toggle button text with current panel visibility (unified panel may already be visible)
       if (toggleBtn) toggleBtn.textContent = panel.classList.contains('hidden') ? 'Ôîä Con' : 'Ôîâ Con';
 
+      // Bind auth-console-toggle button to the same toggle mechanism
+      const authConsoleToggleBtn = document.getElementById('auth-console-toggle');
+      if (authConsoleToggleBtn) {
+        authConsoleToggleBtn.addEventListener('click', () => this.setOpen(panel.classList.contains('hidden'), panel, toggleBtn, input));
+      }
+
       window.__gqUiConsoleReady = true;
       if (typeof window.dispatchEvent === 'function') {
         window.dispatchEvent(new CustomEvent('gq:ui-console-ready', {
@@ -3113,6 +3119,15 @@
         btn.addEventListener('click', () => {
           if (this.audio && typeof this.audio.playNavigation === 'function') this.audio.playNavigation();
           const win = String(btn.dataset.win || '');
+          
+          // Special handling for settings modal
+          if (win === 'settings') {
+            if (this.wm && typeof this.wm.modal === 'function') {
+              this.wm.modal('settings-modal');
+            }
+            return;
+          }
+          
           if (this.api && typeof this.api.cancelPendingRequests === 'function') {
             this.api.cancelPendingRequests(`View switch to ${win || 'unknown'}`);
           }
@@ -3324,6 +3339,33 @@
   });
   window.GQNavigationController = navigationController;
   navigationController.init();
+
+  // Initialize Settings Panel with 2FA support
+  if (typeof window.GQSettingsPanel !== 'undefined' && typeof window.GQSettingsPanel.init === 'function') {
+    window.GQSettingsPanel.init({
+      gameState: settingsState,
+      onSave: (changes) => {
+        console.log('[Game] Settings saved:', changes);
+        // Propagate volume changes to audio system
+        if (audioManager && changes.hasOwnProperty('masterVolume')) {
+          if (typeof audioManager.setMasterVolume === 'function') {
+            audioManager.setMasterVolume(changes.masterVolume);
+          }
+        }
+      },
+      onCommit2FA: (changes, callback) => {
+        // Trigger 2FA authentication flow
+        console.log('[Game] 2FA commit requested for:', changes);
+        // Show 2FA challenge modal
+        // For now, simulate with a simple confirm dialog
+        const verified = window.confirm('Bestätigen Sie die Änderungen mit 2FA?');
+        if (typeof callback === 'function') {
+          callback(verified);
+        }
+      },
+    });
+    console.log('[Game] Settings Panel initialized');
+  }
 
   function selectColonyById(cid, opts = {}) {
     const colonyId = Number(cid || 0);
@@ -3889,6 +3931,30 @@
       else if (normalized === 'pan-up-right' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('up-right');
       else if (normalized === 'pan-down-left' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('down-left');
       else if (normalized === 'pan-down-right' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('down-right');
+      else if (normalized === 'translate-x-plus' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('right');
+      else if (normalized === 'translate-x-minus' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('left');
+      else if (normalized === 'translate-y-plus' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('up');
+      else if (normalized === 'translate-y-minus' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('down');
+      else if (normalized === 'translate-z-plus' && typeof galaxy3d.nudgeZoom === 'function') galaxy3d.nudgeZoom('in');
+      else if (normalized === 'translate-z-minus' && typeof galaxy3d.nudgeZoom === 'function') galaxy3d.nudgeZoom('out');
+      else if (normalized === 'rotate-u-plus' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('left');
+      else if (normalized === 'rotate-u-minus' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('right');
+      else if (normalized === 'rotate-v-plus' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('up');
+      else if (normalized === 'rotate-v-minus' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('down');
+      else if (normalized === 'rotate-w-plus' && typeof galaxy3d.nudgeRoll === 'function') galaxy3d.nudgeRoll('cw', Number(uiState?.navOrbTuning?.rollStepRad || 0.05));
+      else if (normalized === 'rotate-w-minus' && typeof galaxy3d.nudgeRoll === 'function') galaxy3d.nudgeRoll('ccw', Number(uiState?.navOrbTuning?.rollStepRad || 0.05));
+      else if (normalized === 'toggle-vectors') {
+        settingsState.galaxyFleetVectorsVisible = !(settingsState.galaxyFleetVectorsVisible !== false);
+        applyRuntimeSettings();
+        if (root) updateGalaxyFollowUi(root);
+      }
+      else if (normalized === 'optimize-view' && root) {
+        settingsState.clusterDensityMode = 'auto';
+        settingsState.renderQualityProfile = 'auto';
+        applyRuntimeSettings();
+        refreshGalaxyDensityMetrics(root);
+        showToast('Darstellung optimiert (Auto-Profil).', 'info');
+      }
       else if (normalized === 'reset' && typeof galaxy3d.resetNavigationView === 'function') galaxy3d.resetNavigationView();
       else if (normalized === 'focus' && typeof galaxy3d.focusCurrentSelection === 'function') galaxy3d.focusCurrentSelection();
       else if (normalized === 'home' && root) this.focusHomeSystem(root);
@@ -4318,34 +4384,37 @@
 
             <div id="galaxy-nav-orb-overlay" class="galaxy-overlay-window galaxy-nav-orb-overlay">
               <div class="galaxy-overlay-head galaxy-nav-orb-head">
-                <strong>Nav Orb</strong>
+                <strong>Nav Canvas</strong>
+                <span id="galaxy-nav-mode-badge" class="galaxy-nav-mode-badge is-galaxy">GALAXY</span>
               </div>
-              <div class="galaxy-nav-orb-body">
-                <button class="galaxy-nav-btn zoom" type="button" data-nav-action="zoom-in" title="Zoom in">+</button>
-                <div class="galaxy-nav-orb-pad" aria-label="Orbit controls">
-                  <button class="galaxy-nav-btn" type="button" data-nav-action="rotate-up" title="Rotate up">Ôû▓</button>
-                  <div class="galaxy-nav-orb-row">
-                    <button class="galaxy-nav-btn" type="button" data-nav-action="rotate-left" title="Rotate left">ÔùÇ</button>
-                    <button class="galaxy-nav-btn galaxy-nav-btn-center" type="button" data-nav-action="focus" title="Focus selection">ÔùÄ</button>
-                    <button class="galaxy-nav-btn" type="button" data-nav-action="rotate-right" title="Rotate right">ÔûÂ</button>
-                  </div>
-                  <button class="galaxy-nav-btn" type="button" data-nav-action="rotate-down" title="Rotate down">Ôû╝</button>
+              <div class="galaxy-nav-gizmo-wrap">
+                <canvas id="galaxy-nav-gizmo" class="galaxy-nav-gizmo-canvas" width="250" height="250" aria-label="Navigation gizmo" title="X/Y/Z Translation und U/V/W Rotation"></canvas>
+                <div class="galaxy-nav-gizmo-legend">
+                  <span class="axis axis-x">X</span>
+                  <span class="axis axis-y">Y</span>
+                  <span class="axis axis-z">Z</span>
+                  <span class="ring ring-u">U</span>
+                  <span class="ring ring-v">V</span>
+                  <span class="ring ring-w">W</span>
                 </div>
-                <button class="galaxy-nav-btn zoom" type="button" data-nav-action="zoom-out" title="Zoom out">ÔêÆ</button>
               </div>
               <div class="galaxy-nav-strip">
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="pan-up-left" title="Pan up-left">Ôåû</button>
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="pan-up" title="Pan up">Ôåæ</button>
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="pan-up-right" title="Pan up-right">Ôåù</button>
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="pan-left" title="Pan left">ÔåÉ</button>
-                <button class="galaxy-nav-mini-btn galaxy-nav-mini-btn-center galaxy-nav-reset-btn" type="button" data-nav-action="reset" title="Reset view">Reset</button>
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="pan-right" title="Pan right">ÔåÆ</button>
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="pan-down-left" title="Pan down-left">ÔåÖ</button>
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="pan-down" title="Pan down">Ôåô</button>
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="pan-down-right" title="Pan down-right">Ôåÿ</button>
+                <label class="galaxy-nav-slider-row" for="gal-nav-zoom-slider">
+                  <span>Zoom</span>
+                  <input id="gal-nav-zoom-slider" type="range" min="0" max="100" step="1" value="55" />
+                  <span id="gal-nav-zoom-value" class="text-muted">55%</span>
+                </label>
+                <label class="galaxy-nav-slider-row" for="gal-nav-fov-slider">
+                  <span>FOV</span>
+                  <input id="gal-nav-fov-slider" type="range" min="25" max="100" step="1" value="60" />
+                  <span id="gal-nav-fov-value" class="text-muted">60°</span>
+                </label>
               </div>
-              <div class="galaxy-nav-strip" style="margin-top:0.3rem;grid-template-columns:1fr;">
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="home" title="Jump to home system">­ƒÅá Home</button>
+              <div class="galaxy-nav-strip" style="margin-top:0.15rem;grid-template-columns:repeat(4,minmax(0,1fr));">
+                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="focus" title="Auf Auswahl zentrieren">Center</button>
+                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="enter-system" title="Ins System zoomen">System</button>
+                <button class="galaxy-nav-mini-btn galaxy-nav-mini-btn-center galaxy-nav-reset-btn" type="button" data-nav-action="reset" title="Reset view">Reset</button>
+                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="home" title="Jump to home system">Home</button>
               </div>
             </div>
           </div>
@@ -4564,6 +4633,7 @@
       setGalaxyContext(g, uiState.activeSystem || from, uiState.activeStar);
       const starsPolicy = LEVEL_POLICIES.galaxy.stars;
       let requestMaxPoints = Number(starsPolicy.maxPoints || 1500);
+      let galaxyMeta = null;
       const densityMode = String(settingsState.clusterDensityMode || 'auto').toLowerCase();
       const clusterPreset = densityMode === 'max'
         ? 'ultra'
@@ -4637,6 +4707,9 @@
         try {
           const curGalaxy = galaxy3d.stars?.length > 0 ? Number(galaxy3d.stars[0]?.galaxy_index || 0) : 0;
           const preserveView = curGalaxy > 0 && curGalaxy === g;
+          if (galaxyMeta && typeof galaxy3d.setGalaxyMetadata === 'function') {
+            galaxy3d.setGalaxyMetadata(galaxyMeta);
+          }
           const displayedStars = getDisplayedGalaxyStars(stars);
           const displayedClusterSummary = getDisplayedGalaxyClusterSummary(clusterSummary, displayedStars);
           galaxy3d.setStars(displayedStars, { preserveView });
@@ -4662,6 +4735,20 @@
           return false;
         }
       };
+
+      if (typeof API.galaxyMeta === 'function') {
+        try {
+          const metaPayload = await API.galaxyMeta(g);
+          if (metaPayload && metaPayload.success === true && metaPayload.metadata && typeof metaPayload.metadata === 'object') {
+            galaxyMeta = metaPayload.metadata;
+            if (galaxy3d && typeof galaxy3d.setGalaxyMetadata === 'function') {
+              galaxy3d.setGalaxyMetadata(galaxyMeta);
+            }
+          }
+        } catch (metaErr) {
+          console.warn('[GQ] loadGalaxyStars3D: metadata request failed', metaErr);
+        }
+      }
 
       const emitRenderProbe = (sourceLabel, meta = {}) => {
         const rawStars = Array.isArray(galaxyStars) ? galaxyStars.length : 0;
@@ -7433,6 +7520,674 @@
     };
 
     overlay.querySelectorAll('[data-nav-action]').forEach(bindRepeat);
+
+    const canvas = overlay.querySelector('#galaxy-nav-gizmo');
+    const modeBadge = overlay.querySelector('#galaxy-nav-mode-badge');
+    const zoomSlider = overlay.querySelector('#gal-nav-zoom-slider');
+    const zoomValue = overlay.querySelector('#gal-nav-zoom-value');
+    const fovSlider = overlay.querySelector('#gal-nav-fov-slider');
+    const fovValue = overlay.querySelector('#gal-nav-fov-value');
+    const debugToggle = overlay.querySelector('#gal-nav-debug-toggle');
+    const snapToggle = overlay.querySelector('#gal-nav-snap-toggle');
+    const holdRateSlider = overlay.querySelector('#gal-nav-hold-rate-slider');
+    const holdRateValue = overlay.querySelector('#gal-nav-hold-rate-value');
+    const rollSpeedSlider = overlay.querySelector('#gal-nav-roll-speed-slider');
+    const rollSpeedValue = overlay.querySelector('#gal-nav-roll-speed-value');
+    const zoomCurveSlider = overlay.querySelector('#gal-nav-zoom-curve-slider');
+    const zoomCurveValue = overlay.querySelector('#gal-nav-zoom-curve-value');
+    const fovCurveSlider = overlay.querySelector('#gal-nav-fov-curve-slider');
+    const fovCurveValue = overlay.querySelector('#gal-nav-fov-curve-value');
+    const presetButtons = Array.from(overlay.querySelectorAll('[data-nav-preset]'));
+
+    const navOrbTuning = uiState.navOrbTuning || (uiState.navOrbTuning = {
+      debugHitZones: false,
+      snapOnDoubleClick: true,
+      holdRateMs: 100,
+      holdDelayMs: 170,
+      rollStepRad: 0.052,
+      zoomCurveExp: 1,
+      fovCurveExp: 1,
+      preset: 'balanced',
+    });
+
+    const NAV_ORB_PRESETS = {
+      precise: {
+        holdRateMs: 145,
+        holdDelayMs: 220,
+        rollStepRad: 0.03,
+        zoomCurveExp: 1.35,
+        fovCurveExp: 1.2,
+      },
+      balanced: {
+        holdRateMs: 100,
+        holdDelayMs: 170,
+        rollStepRad: 0.052,
+        zoomCurveExp: 1,
+        fovCurveExp: 1,
+      },
+      cinematic: {
+        holdRateMs: 132,
+        holdDelayMs: 210,
+        rollStepRad: 0.038,
+        zoomCurveExp: 1.6,
+        fovCurveExp: 1.45,
+      },
+      fast: {
+        holdRateMs: 62,
+        holdDelayMs: 110,
+        rollStepRad: 0.085,
+        zoomCurveExp: 0.8,
+        fovCurveExp: 0.82,
+      },
+      planet_inspect: {
+        holdRateMs: 152,
+        holdDelayMs: 230,
+        rollStepRad: 0.024,
+        zoomCurveExp: 1.85,
+        fovCurveExp: 1.72,
+      },
+      galaxy_sweep: {
+        holdRateMs: 56,
+        holdDelayMs: 90,
+        rollStepRad: 0.102,
+        zoomCurveExp: 0.68,
+        fovCurveExp: 0.7,
+      },
+    };
+
+    const NAV_ORB_PRESET_LABELS = {
+      precise: 'Precise',
+      balanced: 'Balanced',
+      cinematic: 'Cinematic',
+      fast: 'Fast',
+      planet_inspect: 'Planet Inspect',
+      galaxy_sweep: 'Galaxy Sweep',
+      custom: 'Custom',
+    };
+
+    let hoverAction = null;
+
+    const readMode = () => {
+      const inSystem = !!galaxy3d?.systemMode;
+      const hasPlanet = !!(galaxy3d?.systemSelectedEntry || uiState?.activePlanet);
+      const hasInfra = !!window?._GQ_ftl_map?.success;
+      const shipsOn = settingsState.galaxyFleetVectorsVisible !== false;
+      if (hasPlanet) return { key: 'planet', label: 'PLANET' };
+      if (inSystem && hasInfra && shipsOn) return { key: 'system-plus', label: 'SYSTEM+' };
+      if (inSystem) return { key: 'system', label: 'SYSTEM' };
+      if (hasInfra && shipsOn) return { key: 'infrastructure', label: 'INFRA+SHIPS' };
+      if (hasInfra) return { key: 'infrastructure', label: 'INFRA' };
+      if (shipsOn) return { key: 'ships', label: 'SHIPS' };
+      return { key: 'galaxy', label: 'GALAXY' };
+    };
+
+    const applyModeStyle = () => {
+      const mode = readMode();
+      overlay.dataset.navMode = mode.key;
+      if (modeBadge) {
+        modeBadge.textContent = mode.label;
+        modeBadge.className = `galaxy-nav-mode-badge is-${mode.key}`;
+      }
+    };
+
+    const getCameraBasis = () => {
+      const cam = galaxy3d?.camera;
+      const three = window.THREE;
+      if (!cam || !cam.quaternion || !three?.Vector3) {
+        return null;
+      }
+      const right = new three.Vector3(1, 0, 0).applyQuaternion(cam.quaternion).normalize();
+      const up = new three.Vector3(0, 1, 0).applyQuaternion(cam.quaternion).normalize();
+      const forward = new three.Vector3(0, 0, -1).applyQuaternion(cam.quaternion).normalize();
+      return { right, up, forward };
+    };
+
+    const projectWorldAxis = (axis, basis) => {
+      if (!basis || !axis || typeof axis.dot !== 'function') {
+        return { x: 0, y: 0, depth: 0 };
+      }
+      return {
+        x: axis.dot(basis.right),
+        y: axis.dot(basis.up),
+        depth: axis.dot(basis.forward),
+      };
+    };
+
+    const NAV_RING_RADIUS = 58;
+    const NAV_RING_SAMPLES = 72;
+    const NAV_RING_HIT_TOLERANCE = 9;
+
+    const buildPlaneRingPoints = (normalVec, basis, cx, cy, radius, samples = NAV_RING_SAMPLES) => {
+      const three = window.THREE;
+      if (!three?.Vector3 || !basis || !normalVec) {
+        const fallback = [];
+        for (let i = 0; i <= samples; i += 1) {
+          const t = (i / samples) * Math.PI * 2;
+          fallback.push({ x: cx + Math.cos(t) * radius, y: cy + Math.sin(t) * radius });
+        }
+        return fallback;
+      }
+
+      const n = normalVec.clone().normalize();
+      const ref = Math.abs(n.z) < 0.9 ? new three.Vector3(0, 0, 1) : new three.Vector3(0, 1, 0);
+      const u = new three.Vector3().crossVectors(n, ref).normalize();
+      const v = new three.Vector3().crossVectors(n, u).normalize();
+      const points = [];
+
+      for (let i = 0; i <= samples; i += 1) {
+        const t = (i / samples) * Math.PI * 2;
+        const p = u.clone().multiplyScalar(Math.cos(t)).add(v.clone().multiplyScalar(Math.sin(t)));
+        points.push({
+          x: cx + (p.dot(basis.right) * radius),
+          y: cy - (p.dot(basis.up) * radius),
+        });
+      }
+
+      return points;
+    };
+
+    const drawPolyline = (ctx, points) => {
+      if (!Array.isArray(points) || !points.length) return;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.stroke();
+    };
+
+    const pointSegmentDistance = (px, py, ax, ay, bx, by) => {
+      const abx = bx - ax;
+      const aby = by - ay;
+      const apx = px - ax;
+      const apy = py - ay;
+      const abLenSq = (abx * abx) + (aby * aby);
+      if (abLenSq <= 1e-6) return Math.hypot(px - ax, py - ay);
+      const t = Math.max(0, Math.min(1, ((apx * abx) + (apy * aby)) / abLenSq));
+      const cx = ax + (abx * t);
+      const cy = ay + (aby * t);
+      return Math.hypot(px - cx, py - cy);
+    };
+
+    const ringHitDistance = (px, py, points) => {
+      if (!Array.isArray(points) || points.length < 2) return Number.POSITIVE_INFINITY;
+      let minDist = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < points.length - 1; i += 1) {
+        const a = points[i];
+        const b = points[i + 1];
+        minDist = Math.min(minDist, pointSegmentDistance(px, py, a.x, a.y, b.x, b.y));
+      }
+      return minDist;
+    };
+
+    const nearestPointIndex = (px, py, points) => {
+      if (!Array.isArray(points) || !points.length) return -1;
+      let idx = -1;
+      let minDist = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < points.length; i += 1) {
+        const p = points[i];
+        const d = Math.hypot(px - p.x, py - p.y);
+        if (d < minDist) {
+          minDist = d;
+          idx = i;
+        }
+      }
+      return idx;
+    };
+
+    const drawGizmo = (nowMs = (window.performance?.now?.() || 0)) => {
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const w = canvas.width;
+      const h = canvas.height;
+      const cx = w * 0.5;
+      const cy = h * 0.5;
+
+      const mode = readMode();
+      const pulse = 0.72 + (Math.sin(nowMs * 0.0034) * 0.28);
+      const modeGlow = {
+        galaxy: 'rgba(52, 104, 170, 0.24)',
+        system: 'rgba(90, 170, 225, 0.24)',
+        'system-plus': 'rgba(72, 204, 171, 0.24)',
+        planet: 'rgba(122, 211, 140, 0.24)',
+        infrastructure: 'rgba(230, 172, 90, 0.24)',
+        ships: 'rgba(214, 130, 232, 0.24)',
+      }[mode.key] || 'rgba(52, 104, 170, 0.24)';
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = 'rgba(9, 20, 38, 0.95)';
+      ctx.fillRect(0, 0, w, h);
+      const g = ctx.createRadialGradient(cx, cy, 16, cx, cy, 130);
+      g.addColorStop(0, modeGlow);
+      g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+
+      const basis = getCameraBasis();
+      const three = window.THREE;
+      const axes = three?.Vector3
+        ? {
+            X: projectWorldAxis(new three.Vector3(1, 0, 0), basis),
+            Y: projectWorldAxis(new three.Vector3(0, 1, 0), basis),
+            Z: projectWorldAxis(new three.Vector3(0, 0, 1), basis),
+          }
+        : {
+            X: { x: 1, y: 0, depth: 0 },
+            Y: { x: 0, y: 1, depth: 0 },
+            Z: { x: -0.78, y: -0.62, depth: 0 },
+          };
+
+      // Translation arrows: X(red), Y(green), Z(blue)
+      const drawArrow = (x1, y1, x2, y2, color, label, depth = 0) => {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.max(1, Math.hypot(dx, dy));
+        const ux = dx / len;
+        const uy = dy / len;
+        const hx = x2 - ux * 10;
+        const hy = y2 - uy * 10;
+        const nx = -uy;
+        const ny = ux;
+
+        const alpha = Math.max(0.42, Math.min(1, 0.72 + depth * 0.42));
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = hoverAction && hoverAction.includes(`translate-${label.toLowerCase()}`) ? 4 : 3;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(hx + nx * 6, hy + ny * 6);
+        ctx.lineTo(hx - nx * 6, hy - ny * 6);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.font = '12px Consolas, Menlo, Monaco, monospace';
+        ctx.fillText(label, x2 + nx * 10, y2 + ny * 10);
+        ctx.globalAlpha = 1;
+      };
+
+      const arrowLen = 76;
+      const ex = axes.X;
+      const ey = axes.Y;
+      const ez = axes.Z;
+      drawArrow(cx, cy, cx + ex.x * arrowLen, cy - ex.y * arrowLen, '#ff6262', 'X', ex.depth);
+      drawArrow(cx, cy, cx + ey.x * arrowLen, cy - ey.y * arrowLen, '#6dff99', 'Y', ey.depth);
+      drawArrow(cx, cy, cx + ez.x * arrowLen, cy - ez.y * arrowLen, '#69b5ff', 'Z', ez.depth);
+
+      // Rotation rings centered in XY, XZ and YZ planes (same radius -> intersection at center)
+      const ringDefs = (three?.Vector3 && basis)
+        ? [
+            { key: 'u', label: 'U', color: 'rgba(255, 200, 120, 0.95)', normal: new three.Vector3(0, 0, 1), axisProj: ez }, // XY
+            { key: 'v', label: 'V', color: 'rgba(130, 255, 225, 0.95)', normal: new three.Vector3(0, 1, 0), axisProj: ey }, // XZ
+            { key: 'w', label: 'W', color: 'rgba(222, 160, 255, 0.95)', normal: new three.Vector3(1, 0, 0), axisProj: ex }, // YZ
+          ]
+        : [];
+
+      ringDefs.forEach((ring, idx) => {
+        const pts = buildPlaneRingPoints(ring.normal, basis, cx, cy, NAV_RING_RADIUS, NAV_RING_SAMPLES);
+        const highlight = hoverAction && hoverAction.startsWith(`rotate-${ring.key}`);
+        const facing = Number(basis ? ring.normal.dot(basis.forward) : 0);
+        const plusIdx = Math.max(0, Math.min(pts.length - 1, facing < 0 ? Math.floor((pts.length - 1) * 0.5) : 0));
+        const minusIdx = Math.max(0, Math.min(pts.length - 1, facing < 0 ? 0 : Math.floor((pts.length - 1) * 0.5)));
+        ctx.strokeStyle = ring.color;
+        ctx.globalAlpha = 0.5 + (pulse * 0.22);
+        ctx.lineWidth = highlight ? 3.4 : 2.2;
+        drawPolyline(ctx, pts);
+
+        const labelIdx = Math.floor(((idx + 1) / 4) * (pts.length - 1));
+        const lp = pts[Math.max(0, Math.min(pts.length - 1, labelIdx))];
+        ctx.globalAlpha = highlight ? 1 : (0.82 + pulse * 0.1);
+        ctx.fillStyle = ring.color;
+        ctx.font = '12px Consolas, Menlo, Monaco, monospace';
+        const tx = (lp?.x || cx) + ((ring.axisProj?.x || 0) * 8);
+        const ty = (lp?.y || cy) - ((ring.axisProj?.y || 0) * 8);
+        ctx.fillText(ring.label, tx, ty);
+
+        // Direction cues: show where + / - are mapped for this ring.
+        const pPlus = pts[plusIdx] || { x: cx, y: cy };
+        const pMinus = pts[minusIdx] || { x: cx, y: cy };
+        ctx.globalAlpha = highlight ? 1 : 0.88;
+        ctx.fillStyle = 'rgba(214, 242, 255, 0.95)';
+        ctx.font = '10px Consolas, Menlo, Monaco, monospace';
+        ctx.fillText('+', pPlus.x + 3, pPlus.y - 3);
+        ctx.fillText('-', pMinus.x + 3, pMinus.y - 3);
+        ctx.globalAlpha = 1;
+      });
+
+      if (navOrbTuning.debugHitZones) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 10; i += 1) {
+          const p = Math.round((w / 10) * i) + 0.5;
+          ctx.beginPath();
+          ctx.moveTo(p, 0);
+          ctx.lineTo(p, h);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(0, p);
+          ctx.lineTo(w, p);
+          ctx.stroke();
+        }
+
+        if (three?.Vector3 && basis) {
+          [
+            new three.Vector3(0, 0, 1),
+            new three.Vector3(0, 1, 0),
+            new three.Vector3(1, 0, 0),
+          ].forEach((normal) => {
+            const pts = buildPlaneRingPoints(normal, basis, cx, cy, NAV_RING_RADIUS, NAV_RING_SAMPLES);
+            ctx.strokeStyle = 'rgba(255,255,255,0.34)';
+            ctx.lineWidth = 1;
+            drawPolyline(ctx, pts);
+          });
+        }
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.beginPath();
+        ctx.moveTo(cx, 0);
+        ctx.lineTo(cx, h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, cy);
+        ctx.lineTo(w, cy);
+        ctx.stroke();
+
+        if (hoverAction) {
+          ctx.fillStyle = 'rgba(0,0,0,0.62)';
+          ctx.fillRect(8, 8, 165, 18);
+          ctx.fillStyle = 'rgba(196, 232, 255, 0.98)';
+          ctx.font = '11px Consolas, Menlo, Monaco, monospace';
+          ctx.fillText(`Zone: ${hoverAction}`, 12, 20);
+        }
+      }
+
+      ctx.fillStyle = 'rgba(220, 235, 255, 0.95)';
+      ctx.font = '11px Consolas, Menlo, Monaco, monospace';
+      ctx.fillText('Klick + ziehen: Translation / Rotation', 10, h - 16);
+    };
+
+    const getActionFromCanvasPoint = (x, y) => {
+      if (!canvas) return null;
+      const cx = canvas.width * 0.5;
+      const cy = canvas.height * 0.5;
+      const dx = x - cx;
+      const dy = y - cy;
+      const r = Math.hypot(dx, dy);
+      const ax = Math.abs(dx);
+      const ay = Math.abs(dy);
+      const basis = getCameraBasis();
+      const three = window.THREE;
+
+      // Rings first (U/V/W on XY/XZ/YZ planes with shared center/radius)
+      if (three?.Vector3 && basis) {
+        const ringDefs = [
+          { key: 'u', normal: new three.Vector3(0, 0, 1) },
+          { key: 'v', normal: new three.Vector3(0, 1, 0) },
+          { key: 'w', normal: new three.Vector3(1, 0, 0) },
+        ];
+
+        let best = null;
+        ringDefs.forEach((ring) => {
+          const pts = buildPlaneRingPoints(ring.normal, basis, cx, cy, NAV_RING_RADIUS, NAV_RING_SAMPLES);
+          const dist = ringHitDistance(x, y, pts);
+          if (!best || dist < best.dist) {
+            best = { key: ring.key, normal: ring.normal, points: pts, dist };
+          }
+        });
+
+        if (best && best.dist <= NAV_RING_HIT_TOLERANCE) {
+          const idx = nearestPointIndex(x, y, best.points);
+          const segCount = Math.max(1, best.points.length - 1);
+          const phase = idx >= 0 ? ((idx / segCount) * Math.PI * 2) : 0;
+          let plus = Math.cos(phase) >= 0;
+          const facing = Number(best.normal?.dot?.(basis.forward) || 0);
+          if (facing < 0) plus = !plus;
+          return `rotate-${best.key}-${plus ? 'plus' : 'minus'}`;
+        }
+      }
+
+      // Arrows / axis zones
+      if (ax > ay * 1.2) return dx >= 0 ? 'translate-x-plus' : 'translate-x-minus';
+      if (ay > ax * 1.2) return dy <= 0 ? 'translate-y-plus' : 'translate-y-minus';
+      return dy <= 0 ? 'translate-z-plus' : 'translate-z-minus';
+    };
+
+    if (canvas) {
+      drawGizmo();
+      let holdTimer = null;
+      let holdStartTimer = null;
+      let activeAction = null;
+
+      const stopCanvasHold = () => {
+        if (holdStartTimer) {
+          window.clearTimeout(holdStartTimer);
+          holdStartTimer = null;
+        }
+        if (holdTimer) {
+          window.clearInterval(holdTimer);
+          holdTimer = null;
+        }
+        activeAction = null;
+        canvas?.classList?.remove('is-hovering');
+      };
+
+      const eventPos = (ev) => {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: ((ev.clientX - rect.left) / Math.max(1, rect.width)) * canvas.width,
+          y: ((ev.clientY - rect.top) / Math.max(1, rect.height)) * canvas.height,
+        };
+      };
+
+      const startCanvasHold = (action) => {
+        if (!action) return;
+        activeAction = action;
+        triggerGalaxyNavAction(action, root);
+        if (holdTimer) window.clearInterval(holdTimer);
+        holdTimer = window.setInterval(() => {
+          if (!activeAction) return;
+          triggerGalaxyNavAction(activeAction, root);
+        }, Math.max(35, Number(navOrbTuning.holdRateMs || 100)));
+      };
+
+      canvas.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        canvas.setPointerCapture?.(ev.pointerId);
+        const pos = eventPos(ev);
+        const action = getActionFromCanvasPoint(pos.x, pos.y);
+        hoverAction = action;
+        canvas.classList.add('is-hovering');
+        drawGizmo();
+        if (holdStartTimer) window.clearTimeout(holdStartTimer);
+        holdStartTimer = window.setTimeout(() => {
+          holdStartTimer = null;
+          startCanvasHold(action);
+        }, Math.max(0, Number(navOrbTuning.holdDelayMs || 170)));
+      });
+
+      canvas.addEventListener('pointermove', (ev) => {
+        const pos = eventPos(ev);
+        const nextAction = getActionFromCanvasPoint(pos.x, pos.y);
+        hoverAction = nextAction;
+        if (activeAction) activeAction = nextAction || activeAction;
+        if (navOrbTuning.debugHitZones) drawGizmo();
+      });
+
+      canvas.addEventListener('dblclick', (ev) => {
+        ev.preventDefault();
+        if (!navOrbTuning.snapOnDoubleClick) return;
+        triggerGalaxyNavAction('reset', root);
+      });
+
+      canvas.addEventListener('pointerup', stopCanvasHold);
+      canvas.addEventListener('pointercancel', stopCanvasHold);
+      canvas.addEventListener('lostpointercapture', stopCanvasHold);
+      canvas.addEventListener('pointerleave', () => {
+        hoverAction = null;
+        canvas.classList.remove('is-hovering');
+        if (navOrbTuning.debugHitZones) drawGizmo();
+      });
+    }
+
+    const syncSlidersFromRenderer = () => {
+      const renderer = galaxy3d || null;
+      applyModeStyle();
+      if (!renderer) return;
+      const zoomNorm = typeof renderer.getZoomNorm === 'function' ? Number(renderer.getZoomNorm()) : null;
+      const fovDeg = typeof renderer.getFov === 'function' ? Number(renderer.getFov()) : null;
+      const zCurve = Math.max(0.25, Number(navOrbTuning.zoomCurveExp || 1));
+      const fCurve = Math.max(0.25, Number(navOrbTuning.fovCurveExp || 1));
+
+      if (zoomSlider && Number.isFinite(zoomNorm)) {
+        const linearT = Math.pow(Math.max(0, Math.min(1, zoomNorm)), 1 / zCurve);
+        const pct = Math.round(linearT * 100);
+        zoomSlider.value = String(pct);
+        if (zoomValue) zoomValue.textContent = `${pct}%`;
+      }
+      if (fovSlider && Number.isFinite(fovDeg)) {
+        const minFov = 25;
+        const maxFov = 100;
+        const fovT = (Math.max(minFov, Math.min(maxFov, fovDeg)) - minFov) / (maxFov - minFov);
+        const linearT = Math.pow(Math.max(0, Math.min(1, fovT)), 1 / fCurve);
+        const degLinear = Math.round(minFov + linearT * (maxFov - minFov));
+        fovSlider.value = String(degLinear);
+        if (fovValue) fovValue.textContent = `${Math.round(fovDeg)}°`;
+      }
+    };
+
+    const syncTuningUi = () => {
+      if (debugToggle) debugToggle.checked = !!navOrbTuning.debugHitZones;
+      if (snapToggle) snapToggle.checked = !!navOrbTuning.snapOnDoubleClick;
+      if (holdRateSlider) holdRateSlider.value = String(Math.round(Math.max(40, Math.min(220, Number(navOrbTuning.holdRateMs || 100)))));
+      if (holdRateValue) holdRateValue.textContent = `${Math.round(Math.max(40, Math.min(220, Number(navOrbTuning.holdRateMs || 100))))}ms`;
+      const rollDeg = Math.max(1, Math.min(12, Math.round((Number(navOrbTuning.rollStepRad || 0.052) * 180) / Math.PI)));
+      if (rollSpeedSlider) rollSpeedSlider.value = String(rollDeg);
+      if (rollSpeedValue) rollSpeedValue.textContent = `${rollDeg}°`;
+      const zCurveUi = Math.max(50, Math.min(240, Math.round(Number(navOrbTuning.zoomCurveExp || 1) * 100)));
+      const fCurveUi = Math.max(50, Math.min(240, Math.round(Number(navOrbTuning.fovCurveExp || 1) * 100)));
+      if (zoomCurveSlider) zoomCurveSlider.value = String(zCurveUi);
+      if (zoomCurveValue) zoomCurveValue.textContent = `${(zCurveUi / 100).toFixed(2)}`;
+      if (fovCurveSlider) fovCurveSlider.value = String(fCurveUi);
+      if (fovCurveValue) fovCurveValue.textContent = `${(fCurveUi / 100).toFixed(2)}`;
+      presetButtons.forEach((btn) => {
+        const key = String(btn.getAttribute('data-nav-preset') || '');
+        btn.classList.toggle('active', key === String(navOrbTuning.preset || 'balanced'));
+      });
+    };
+
+    const applyPreset = (presetKey) => {
+      const key = String(presetKey || 'balanced').toLowerCase();
+      const preset = NAV_ORB_PRESETS[key];
+      if (!preset) return;
+      navOrbTuning.preset = key;
+      navOrbTuning.holdRateMs = preset.holdRateMs;
+      navOrbTuning.holdDelayMs = preset.holdDelayMs;
+      navOrbTuning.rollStepRad = preset.rollStepRad;
+      navOrbTuning.zoomCurveExp = preset.zoomCurveExp;
+      navOrbTuning.fovCurveExp = preset.fovCurveExp;
+      syncTuningUi();
+      syncSlidersFromRenderer();
+      showToast(`Nav-Preset: ${NAV_ORB_PRESET_LABELS[key] || key}`, 'info');
+    };
+
+    debugToggle?.addEventListener('change', () => {
+      navOrbTuning.debugHitZones = !!debugToggle.checked;
+      drawGizmo();
+    });
+
+    snapToggle?.addEventListener('change', () => {
+      navOrbTuning.snapOnDoubleClick = !!snapToggle.checked;
+    });
+
+    holdRateSlider?.addEventListener('input', () => {
+      const ms = Math.max(40, Math.min(220, Number(holdRateSlider.value || 100)));
+      navOrbTuning.holdRateMs = ms;
+      navOrbTuning.preset = 'custom';
+      if (holdRateValue) holdRateValue.textContent = `${Math.round(ms)}ms`;
+      syncTuningUi();
+    });
+
+    rollSpeedSlider?.addEventListener('input', () => {
+      const deg = Math.max(1, Math.min(12, Number(rollSpeedSlider.value || 3)));
+      navOrbTuning.rollStepRad = (deg * Math.PI) / 180;
+      navOrbTuning.preset = 'custom';
+      if (rollSpeedValue) rollSpeedValue.textContent = `${Math.round(deg)}°`;
+      syncTuningUi();
+    });
+
+    zoomCurveSlider?.addEventListener('input', () => {
+      const curve = Math.max(0.5, Math.min(2.4, Number(zoomCurveSlider.value || 100) / 100));
+      navOrbTuning.zoomCurveExp = curve;
+      navOrbTuning.preset = 'custom';
+      if (zoomCurveValue) zoomCurveValue.textContent = curve.toFixed(2);
+      syncSlidersFromRenderer();
+      syncTuningUi();
+    });
+
+    fovCurveSlider?.addEventListener('input', () => {
+      const curve = Math.max(0.5, Math.min(2.4, Number(fovCurveSlider.value || 100) / 100));
+      navOrbTuning.fovCurveExp = curve;
+      navOrbTuning.preset = 'custom';
+      if (fovCurveValue) fovCurveValue.textContent = curve.toFixed(2);
+      syncSlidersFromRenderer();
+      syncTuningUi();
+    });
+
+    presetButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        applyPreset(String(btn.getAttribute('data-nav-preset') || 'balanced'));
+      });
+    });
+
+    zoomSlider?.addEventListener('input', () => {
+      const pct = Math.max(0, Math.min(100, Number(zoomSlider.value || 0)));
+      if (zoomValue) zoomValue.textContent = `${Math.round(pct)}%`;
+      const renderer = galaxy3d || null;
+      if (!renderer) return;
+      if (typeof renderer.setZoomNorm === 'function') {
+        const curve = Math.max(0.25, Number(navOrbTuning.zoomCurveExp || 1));
+        const curved = Math.pow(pct / 100, curve);
+        renderer.setZoomNorm(curved);
+      }
+    });
+
+    fovSlider?.addEventListener('input', () => {
+      const deg = Math.max(25, Math.min(100, Number(fovSlider.value || 60)));
+      const curve = Math.max(0.25, Number(navOrbTuning.fovCurveExp || 1));
+      const minFov = 25;
+      const maxFov = 100;
+      const linearT = (deg - minFov) / (maxFov - minFov);
+      const curvedDeg = minFov + Math.pow(Math.max(0, Math.min(1, linearT)), curve) * (maxFov - minFov);
+      if (fovValue) fovValue.textContent = `${Math.round(curvedDeg)}°`;
+      const renderer = galaxy3d || null;
+      if (!renderer) return;
+      if (typeof renderer.setFov === 'function') {
+        renderer.setFov(curvedDeg);
+      }
+    });
+
+    syncTuningUi();
+    applyModeStyle();
+    drawGizmo();
+    syncSlidersFromRenderer();
+    let navRaf = 0;
+    const animateNavOrb = () => {
+      if (!document.body.contains(overlay)) {
+        if (navRaf) window.cancelAnimationFrame(navRaf);
+        return;
+      }
+      applyModeStyle();
+      drawGizmo(window.performance?.now?.() || 0);
+      navRaf = window.requestAnimationFrame(animateNavOrb);
+    };
+    navRaf = window.requestAnimationFrame(animateNavOrb);
   }
 
   function renderGalaxyWindow() {

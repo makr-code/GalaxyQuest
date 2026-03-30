@@ -790,16 +790,17 @@
     authLog('info', 'startGameShell begin');
     authProbe('startGameShell begin', 'warn');
     hideActionModal();
+    preloadPanelSuppressed = false;
+    setPhase('Aktive Session erkannt. Lade Kommandostand...', 8);
     showLoginConfirmSection(
       'Login erkannt',
       'Preloading laeuft. Dein Kommandostand wird vorbereitet.',
       'Session validiert'
     );
-    preloadPanelSuppressed = true;
-    authUiLog('info', 'preload panel suppressed for clean login UI');
-    hidePreloadPanel(true);
+    authUiLog('info', 'preload panel enabled for active session flow');
     releaseAuthBackgroundForGame();
     await bootGameRuntime();
+    hidePreloadPanel(true);
     await hideLoginConfirmSection({ animate: true });
     hideActionModal();
     setGameVisible();

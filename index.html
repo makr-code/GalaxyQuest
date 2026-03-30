@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>GalaxyQuest – Unified Command Shell</title>
-  <link rel="stylesheet" href="css/style.css?v=20260329p79" />
+  <link rel="stylesheet" href="css/style.css?v=20260330p3" />
   <style>
     #boot-terminal {
       position: fixed;
@@ -116,26 +116,14 @@
   
   <section id="auth-section" class="auth-shell">
   <div class="auth-wrapper" id="auth-wrapper">
+    <div class="auth-toolbar">
+      <button id="auth-console-toggle" class="auth-toolbar-btn" type="button" title="Toggle Developer Console" aria-label="Developer Console">⌄ Console</button>
+    </div>
+    
     <div class="auth-logo">
       <div class="logo-icon">🌌</div>
       <h1 class="logo-title">GalaxyQuest</h1>
       <p class="logo-subtitle">Conquer the Stars</p>
-    </div>
-
-    <div id="auth-preload-panel" class="auth-preload-panel hidden">
-      <div id="auth-preload-label" class="auth-preload-label">Systemcheck laeuft...</div>
-      <div class="auth-preload-track" aria-hidden="true">
-        <div id="auth-preload-bar" class="auth-preload-bar"></div>
-      </div>
-      <div id="auth-preload-meta" class="auth-preload-meta">0%</div>
-    </div>
-
-    <div id="auth-action-modal" class="auth-action-modal hidden" role="status" aria-live="polite" aria-busy="false">
-      <div class="auth-action-card">
-        <div id="auth-action-spinner" class="auth-action-spinner" aria-hidden="true"></div>
-        <h3 id="auth-action-title" class="auth-action-title">Bitte warten...</h3>
-        <p id="auth-action-text" class="auth-action-text">Anmeldung wird verarbeitet.</p>
-      </div>
     </div>
 
     <!-- Tab bar -->
@@ -219,6 +207,26 @@
       <div id="register-error" class="form-error" aria-live="polite"></div>
     </form>
   </div>
+  </section>
+
+  <section id="auth-preload-section" class="auth-preload-shell" aria-live="polite" aria-atomic="true">
+    <div id="auth-preload-panel" class="auth-preload-panel hidden" role="status">
+      <div id="auth-preload-label" class="auth-preload-label">Systemcheck laeuft...</div>
+      <div class="auth-preload-track" aria-hidden="true">
+        <div id="auth-preload-bar" class="auth-preload-bar"></div>
+      </div>
+      <div id="auth-preload-meta" class="auth-preload-meta">0%</div>
+    </div>
+  </section>
+
+  <section id="auth-action-section" class="auth-action-shell" aria-live="polite" aria-atomic="true">
+    <div id="auth-action-modal" class="auth-action-modal hidden" role="status" aria-live="polite" aria-busy="false">
+      <div class="auth-action-card">
+        <div id="auth-action-spinner" class="auth-action-spinner" aria-hidden="true"></div>
+        <h3 id="auth-action-title" class="auth-action-title">Bitte warten...</h3>
+        <p id="auth-action-text" class="auth-action-text">Anmeldung wird verarbeitet.</p>
+      </div>
+    </div>
   </section>
 
   <section id="auth-login-confirm-section" class="auth-login-confirm-section hidden" aria-live="polite" aria-atomic="true">
@@ -778,7 +786,7 @@
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
             'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
             'js/ui/gq-ui.js?v=20260330p1',
-            'js/runtime/game.js?v=20260329p85'
+            'js/runtime/game.js?v=20260330p3'
         ],
         preloadAssets: [
           'js/runtime/wm.js?v=20260328p54',
@@ -814,7 +822,7 @@
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
             'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
             'js/ui/gq-ui.js?v=20260330p1',
-            'js/runtime/game.js?v=20260329p85'
+            'js/runtime/game.js?v=20260330p3'
         ]
       };
     </script>
@@ -1089,6 +1097,7 @@
   <script src="js/ui/star-tooltip.js?v=20260328p49"></script>
   <script src="js/ui/system-info-panel.js?v=20260328p49"></script>
   <script src="js/ui/hr-diagram.js?v=20260328p49"></script>
+  <script src="js/ui/settings-panel.js?v=20260330p1"></script>
 
   <!-- =========================================================
     Post-FX Settings Panel
@@ -1190,14 +1199,220 @@
     </div>
   </section>
 
-  <section id="copyright" class="copyright">
-    <img
-    <p>build {{buildnr}} date {{build_date}}</p>
-    <p>© 2026 Galaxy Quest Interactive. All rights reserved.</p>
+  <!-- =========================================================
+    Settings Dialog with Tabs
+    Audio, Graphics, Gameplay, Account/2FA Settings
+    Opened via: WM.open('settings') nav button
+  ========================================================== -->
+  <section id="settings-modal" class="wm-modal" aria-modal="true" aria-label="Game Settings" role="dialog" hidden>
+    <div class="wm-modal-backdrop" data-wm-modal-close></div>
+    <div class="wm-modal-dialog settings-dialog">
+      <div class="wm-modal-header">
+        <span class="wm-modal-title">⚙ Game Settings</span>
+        <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+      </div>
+
+      <!-- Settings Tabs Navigation -->
+      <div class="settings-tab-nav">
+        <button class="settings-tab-btn active" data-tab="audio" type="button">🔊 Audio</button>
+        <button class="settings-tab-btn" data-tab="graphics" type="button">🎨 Graphics</button>
+        <button class="settings-tab-btn" data-tab="gameplay" type="button">🎮 Gameplay</button>
+        <button class="settings-tab-btn" data-tab="account" type="button">👤 Account</button>
+      </div>
+
+      <!-- Settings Contents -->
+      <div class="wm-modal-body settings-body">
+
+        <!-- Audio Tab -->
+        <div class="settings-tab-content active" data-tab="audio">
+          <fieldset class="settings-group">
+            <legend>Volume Control</legend>
+            <label class="settings-row">
+              <span class="settings-label">Master Volume</span>
+              <input type="range" class="settings-range" data-setting="masterVolume" min="0" max="1" step="0.05" value="0.8" />
+              <span class="settings-value">0.8</span>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Music Volume</span>
+              <input type="range" class="settings-range" data-setting="musicVolume" min="0" max="1" step="0.05" value="0.55" />
+              <span class="settings-value">0.55</span>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">SFX Volume</span>
+              <input type="range" class="settings-range" data-setting="sfxVolume" min="0" max="1" step="0.05" value="0.8" />
+              <span class="settings-value">0.8</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Audio Options</legend>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="masterMuted" />
+              <span>Mute Master</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="musicMuted" />
+              <span>Mute Music</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="sfxMuted" />
+              <span>Mute Sound Effects</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="autoSceneMusic" checked />
+              <span>Auto Scene Music</span>
+            </label>
+          </fieldset>
+        </div>
+
+        <!-- Graphics Tab -->
+        <div class="settings-tab-content" data-tab="graphics">
+          <fieldset class="settings-group">
+            <legend>Rendering Quality</legend>
+            <label class="settings-row">
+              <span class="settings-label">Quality Profile</span>
+              <select class="settings-select" data-setting="renderQualityProfile">
+                <option value="auto">Auto (Recommended)</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="ultra">Ultra</option>
+              </select>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Cluster Density</span>
+              <select class="settings-select" data-setting="clusterDensityMode">
+                <option value="auto">Auto</option>
+                <option value="sparse">Sparse</option>
+                <option value="normal">Normal</option>
+                <option value="dense">Dense</option>
+              </select>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Visual Effects</legend>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="clusterBoundsVisible" checked />
+              <span>Cluster Bounds</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="galaxyFleetVectorsVisible" checked />
+              <span>Fleet Vectors</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="galacticCoreFxEnabled" checked />
+              <span>Core Effects</span>
+            </label>
+          </fieldset>
+        </div>
+
+        <!-- Gameplay Tab -->
+        <div class="settings-tab-content" data-tab="gameplay">
+          <fieldset class="settings-group">
+            <legend>Transition Settings</legend>
+            <label class="settings-row">
+              <span class="settings-label">Transition Preset</span>
+              <select class="settings-select" data-setting="transitionPreset">
+                <option value="cinematic">Cinematic</option>
+                <option value="balanced">Balanced</option>
+                <option value="fast">Fast</option>
+                <option value="instant">Instant</option>
+              </select>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Min Stable Time (ms)</span>
+              <input type="number" class="settings-number" data-setting="transitionStableMinMs" min="0" max="500" step="10" value="160" />
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Gameplay Options</legend>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="autoTransitions" checked />
+              <span>Auto Transitions</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="hoverMagnetEnabled" checked />
+              <span>Hover Magnet</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="clickMagnetEnabled" checked />
+              <span>Click Magnet</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Galaxy Filters</legend>
+            <label class="settings-row">
+              <span class="settings-label">Colony Filter Mode</span>
+              <select class="settings-select" data-setting="galaxyColonyFilterMode">
+                <option value="all">All</option>
+                <option value="owned">Owned Only</option>
+                <option value="allied">Allied Only</option>
+              </select>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="galaxyColoniesOnly" />
+              <span>Show Colonies Only</span>
+            </label>
+          </fieldset>
+        </div>
+
+        <!-- Account/2FA Tab -->
+        <div class="settings-tab-content" data-tab="account">
+          <fieldset class="settings-group">
+            <legend>Account Settings</legend>
+            <label class="settings-row">
+              <span class="settings-label">Username</span>
+              <input type="text" class="settings-text-readonly" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Last Login</span>
+              <input type="text" class="settings-text-readonly" readonly />
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Two-Factor Authentication</legend>
+            <p class="settings-help-text">Require authentication to commit significant setting changes.</p>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="require2faCommit" />
+              <span>Enable 2FA for Settings Commit</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="require2faForStateChanges" />
+              <span>Require 2FA for Gameplay Changes</span>
+            </label>
+          </fieldset>
+        </div>
+
+      </div><!-- /.settings-body -->
+
+      <!-- Settings Footer with Apply/Commit Buttons -->
+      <div class="wm-modal-footer settings-footer">
+        <button type="button" class="wm-modal-nav-btn settings-btn-reset" id="settings-reset-btn">Reset to Defaults</button>
+        <div class="settings-footer-spacer"></div>
+        <button type="button" class="wm-modal-nav-btn" data-wm-modal-close>Cancel</button>
+        <button type="button" class="wm-modal-nav-btn wm-btn-primary settings-btn-apply" id="settings-apply-btn">Apply Settings</button>
+        <button type="button" class="wm-modal-nav-btn wm-btn-primary settings-btn-commit" id="settings-commit-btn" style="display:none;">Commit with 2FA</button>
+      </div>
+    </div>
   </section>
 
-  <section id="affilates">
+  <section id="copyright" class="copyright">
+    <div class="copyright-container">
+      <div class="copyright-info">
+        <p class="copyright-main">© 2026 Galaxy Quest Interactive. All rights reserved.</p>
+        <p class="copyright-build">build {{buildnr}} — {{build_date}}</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="affilates" class="affiliates">
+    <div class="affiliates-container">
       <p>Galaxy Quest is a trademark of Galaxy Quest Interactive. All other trademarks are the property of their respective owners.</p>
+    </div>
   </section>
   
 </body>

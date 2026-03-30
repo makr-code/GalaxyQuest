@@ -1,5 +1,6 @@
 Options -Indexes
 RewriteEngine On
+DirectoryIndex index.php index.html
 
 # Serve compressed JavaScript artifacts (*.js.gz) with strict JS MIME + gzip.
 <IfModule mod_mime.c>
@@ -28,8 +29,8 @@ RewriteRule ^config/ - [F,L]
 RewriteRule ^api/v1/(.*)$ /api/$1 [QSA,L]
 
 # PHP files in api/ are served normally
-# Everything else (non-existing files/dirs) falls back to index.html
+# Everything else (non-existing files/dirs) falls back to index.php for template processing
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteCond %{REQUEST_URI} !^/api/
-RewriteRule ^(.*)$ /index.html [L]
+RewriteRule ^(.*)$ /index.php [L]

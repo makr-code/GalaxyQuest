@@ -34,7 +34,10 @@ $g = max(1, min(GALAXY_MAX, (int)($_GET['galaxy'] ?? 1)));
 $s = max(1, min(galaxy_system_limit(), (int)($_GET['system'] ?? 1)));
 
 $db = get_db();
-ensure_galaxy_bootstrap_progress($db, true);
+$needsBlockingBootstrap = !in_array($action, ['auth_stars', 'stars', 'bootstrap'], true);
+if ($needsBlockingBootstrap) {
+    ensure_galaxy_bootstrap_progress($db, false);
+}
 $renderSchemaVersion = 1;
 $assetsManifestVersion = 1;
 
@@ -61,8 +64,8 @@ if ($action === 'auth_stars') {
     $span = max(1, $to - $from + 1);
     $stride = max(1, (int)ceil($span / $maxPoints));
 
-    ensure_star_system($db, $g, $from);
-    ensure_star_system($db, $g, $to);
+    ensure_star_system($db, $g, $from, false);
+    ensure_star_system($db, $g, $to, false);
 
     $stmt = $db->prepare(
         'SELECT ss.id, ss.galaxy_index, ss.system_index, ss.name,
@@ -123,6 +126,71 @@ if ($action === 'auth_stars') {
     exit;
 }
 
+if ($action === 'galaxy_meta') {
+    // Return procedural galaxy metadata: geometric parameters + physical properties
+    // Used by shaders to render correct spiral geometry and rotation direction
+    $stmt = $db->prepare(
+        'SELECT id, name, arm_count, pitch_angle_deg, pitch_tangent,
+                radius_ly, arm_start_ly, arm_end_ly, arm_width_ly, disk_height_ly,
+                bulge_radius_ly, bulge_fraction,
+                rotation_direction_ccw, rotation_period_myr, galactic_radius_ly,
+                orbital_velocity_kms, escape_velocity_center_kms, escape_velocity_sun_kms,
+                smbh_mass_solar, smbh_tidal_radius_ly
+         FROM galaxies WHERE id = ?'
+    );
+    $stmt->execute([$g]);
+    $meta = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!is_array($meta)) {
+        // Fallback to hardcoded defaults if DB not yet migrated
+        $meta = [
+            'id' => $g,
+            'name' => 'Milky Way Core',
+            'arm_count' => 4,
+            'pitch_angle_deg' => 14.00,
+            'pitch_tangent' => 0.249328,
+            'radius_ly' => 50000.0,
+            'arm_start_ly' => 3500.0,
+            'arm_end_ly' => 45000.0,
+            'arm_width_ly' => 1500.0,
+            'disk_height_ly' => 300.0,
+            'bulge_radius_ly' => 4500.0,
+            'bulge_fraction' => 0.080,
+            'rotation_direction_ccw' => 1,
+            'rotation_period_myr' => 230.0,
+            'galactic_radius_ly' => 26000.0,
+            'orbital_velocity_kms' => 220.0,
+            'escape_velocity_center_kms' => 8000.0,
+            'escape_velocity_sun_kms' => 500.0,
+            'smbh_mass_solar' => 4100000.0,
+            'smbh_tidal_radius_ly' => 0.15,
+        ];
+    }
+    
+    // Cast numeric fields to proper types
+    foreach (['id', 'arm_count'] as $field) {
+        $meta[$field] = (int)($meta[$field] ?? 0);
+    }
+    foreach (['pitch_angle_deg', 'pitch_tangent', 'radius_ly', 'arm_start_ly', 'arm_end_ly',
+              'arm_width_ly', 'disk_height_ly', 'bulge_radius_ly', 'bulge_fraction',
+              'rotation_period_myr', 'galactic_radius_ly', 'orbital_velocity_kms',
+              'escape_velocity_center_kms', 'escape_velocity_sun_kms', 
+              'smbh_mass_solar', 'smbh_tidal_radius_ly'] as $field) {
+        $meta[$field] = (float)($meta[$field] ?? 0.0);
+    }
+    $meta['rotation_direction_ccw'] = (int)($meta['rotation_direction_ccw'] ?? 1);
+    
+    json_ok([
+        'action' => 'galaxy_meta',
+        'render_schema_version' => $renderSchemaVersion,
+        'assets_manifest_version' => $assetsManifestVersion,
+        'galaxy' => $g,
+        'metadata' => $meta,
+        'server_ts_ms' => (int)round(microtime(true) * 1000),
+    ]);
+    exit;
+}
+
 if ($action === 'bootstrap') {
     $systemMax = galaxy_system_limit();
     $from = max(1, min($systemMax, (int)($_GET['from'] ?? 1)));
@@ -145,6 +213,7 @@ if ($action === 'bootstrap') {
             'max_points' => $maxPoints,
         ],
         'endpoints' => [
+            'galaxy_meta' => 'api/galaxy.php?action=galaxy_meta',
             'stars' => 'api/galaxy.php?action=stars',
             'system' => 'api/galaxy.php',
             'search' => 'api/galaxy.php?action=search',
@@ -274,8 +343,8 @@ if ($action === 'stars') {
 
     if ($stars === null) {
         // Make sure the requested range is generated and cached.
-        ensure_star_system($db, $g, $from);
-        ensure_star_system($db, $g, $to);
+        ensure_star_system($db, $g, $from, false);
+        ensure_star_system($db, $g, $to, false);
 
         // Full-density range requests (stride=1) are expensive on large spans.
         // Guard with a hard limit to avoid long blocking requests starving PHP workers.
@@ -291,7 +360,7 @@ if ($action === 'stars') {
             $spanSystems = max(1, $to - $from + 1);
             if ($spanSystems <= $materializeLimit) {
                 for ($sys = $from; $sys <= $to; $sys++) {
-                    ensure_star_system($db, $g, $sys);
+                    ensure_star_system($db, $g, $sys, false);
                 }
             } else {
                 // Seed systems across the full requested range instead of only the first N.
@@ -300,7 +369,7 @@ if ($action === 'stars') {
                 for ($i = 0; $i < $samples; $i++) {
                     $ratio = $samples > 1 ? ($i / ($samples - 1)) : 0.0;
                     $sys = $from + (int)floor($ratio * ($spanSystems - 1));
-                    ensure_star_system($db, $g, max($from, min($to, $sys)));
+                    ensure_star_system($db, $g, max($from, min($to, $sys)), false);
                 }
             }
         }
@@ -1071,9 +1140,9 @@ function build_asset_metadata_catalog(int $assetsManifestVersion, int $renderSch
 /**
  * Return the star system row from DB, generating and inserting it first if needed.
  */
-function ensure_star_system(PDO $db, int $galaxyIdx, int $systemIdx): array
+function ensure_star_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $seedPlanets = true): array
 {
-    return cache_generated_system($db, $galaxyIdx, $systemIdx, true);
+    return cache_generated_system($db, $galaxyIdx, $systemIdx, $seedPlanets);
 }
 
 function build_planet_texture_manifest(int $galaxyIdx, int $systemIdx, array $starSystem, array $mergedPlanets, int $manifestVersion = 1): array

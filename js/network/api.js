@@ -1356,6 +1356,10 @@ const API = (() => {
         : 'render';
       return get(`api/galaxy.php?action=asset_meta&galaxy=${gf}&scope=${encodeURIComponent(safeScope)}`, { priority: 'high' });
     },
+    galaxyMeta: (g) => {
+      const gf = Math.max(1, Number(g || 1));
+      return get(`api/galaxy.php?action=galaxy_meta&galaxy=${gf}`, { priority: 'high' });
+    },
     galaxySearch: (g, q, limit = 18) =>
       get(`api/galaxy.php?action=search&galaxy=${g}&q=${encodeURIComponent(String(q || ''))}&limit=${Math.max(1, Number(limit || 18))}`),
     perfTelemetry: (payload = {}) =>

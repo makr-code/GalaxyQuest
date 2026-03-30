@@ -1226,8 +1226,8 @@ function ensure_galaxy_bootstrap_progress(PDO $db, bool $forceComplete = false):
     $stateKey = galaxy_bootstrap_state_key($galaxyIdx);
     $lastSeeded = app_state_get_int($db, $stateKey, -1);
     if ($lastSeeded < 0) {
-        // First-ever run: force full bootstrap so the whole star catalog is available.
-        $forceComplete = true;
+        // First-ever run: initialize progress from existing contiguous cache.
+        // Full bootstrap should only happen when explicitly requested.
         $lastSeeded = detect_last_contiguous_seeded_system($db, $galaxyIdx, $targetSystems);
         app_state_set_int($db, $stateKey, $lastSeeded);
     }
