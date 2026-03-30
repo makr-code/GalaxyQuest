@@ -6067,11 +6067,34 @@
     await researchController.render();
   }
 
+  function gqStatusMsg(el, msg, type) {
+    const p = document.createElement('p');
+    p.className = 'text-' + type;
+    p.textContent = msg;
+    el.replaceChildren(p);
+  }
+
   class ShipyardController {
     constructor() {
       this.moduleCatalogCache = new Map();
     }
 
+    renderSlotProfile(profile = {}) {
+      const entries = Object.entries(profile || {}).filter(([, count]) => Number(count || 0) > 0);
+      const frag = document.createDocumentFragment();
+      if (!entries.length) {
+        const s = new GQUI.Span().setClass('text-muted small').setTextContent('No slots');
+        frag.appendChild(s.dom);
+        return frag;
+      }
+      entries.forEach(([group, count]) => {
+        const s = document.createElement('span');
+        s.style.cssText = 'display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.4rem;border:1px solid rgba(120,145,180,0.35);border-radius:999px;background:rgba(80,108,152,0.14);font-size:0.7rem;';
+        s.textContent = fmtName(group) + ' ' + fmt(count);
+        frag.appendChild(s);
+      });
+      return frag;
+    }
     // ── Pure data helpers ────────────────────────────────────
 
     computeSlotProfile(hull, layoutCode = 'default') {
@@ -6099,6 +6122,118 @@
       }
       this.moduleCatalogCache.set(key, response);
       return response;
+    }
+
+    renderAffinityChips(affinities) {
+      if (!Array.isArray(affinities) || !affinities.length) return null;
+      const fmtBonus = (type, val) => {
+        const v = Number(val);
+        if (type === 'cost_pct') return `Kosten ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
+        if (type === 'build_time_pct') return `Bauzeit ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
+        if (type === 'stat_mult') return `Stats ${v >= 0 ? '+' : ''}${(v * 100).toFixed(0)}%`;
+        if (type === 'unlock_tier') return `Tier +${v.toFixed(0)}`;
+        return `${type} ${v}`;
+      };
+      const frag = document.createDocumentFragment();
+      affinities.forEach((a) => {
+        const label = fmtBonus(a.bonus_type, a.bonus_value);
+        const titleText = `${String(a.faction_name || a.faction_code || '')}: ${label} · Benötigt Stand ${a.min_standing} · Aktuell ${a.user_standing ?? '?'}`;
+        const chip = new GQUI.Span().setClass('shipyard-affinity-chip ' + (a.active ? 'affinity-active' : 'affinity-inactive'));
+        chip.dom.title = titleText;
+        chip.dom.textContent = String(a.faction_icon || '⬡') + ' ' + label;
+        frag.appendChild(chip.dom);
+      });
+      return frag;
+    }
+
+    renderModuleSlotEditor(moduleCatalog) {
+      const groups = Array.isArray(moduleCatalog?.module_groups) ? moduleCatalog.module_groups : [];
+      if (!groups.length) {
+        return new GQUI.Div().setClass('text-muted small')
+          .setTextContent('No module groups available for this hull/layout.').dom;
+      }
+
+      const editor = new GQUI.Div().setClass('shipyard-slot-editor');
+      groups.forEach((group) => {
+        const slotCount = Math.max(0, Number(group.slot_count || 0));
+        if (!slotCount) return;
+
+        const groupDiv = new GQUI.Div().setClass('shipyard-slot-group');
+        groupDiv.dom.dataset.groupCode = String(group.code || '');
+
+        const labelDiv = new GQUI.Div().setClass('small shipyard-slot-group-label');
+        labelDiv.dom.textContent = `${fmtName(group.label || group.code || 'group')} · Slots ${fmt(slotCount)}`;
+        const affFrag = this.renderAffinityChips(group.affinities || []);
+        if (affFrag) {
+          const chipsWrap = new GQUI.Span().setClass('shipyard-affinity-chips');
+          chipsWrap.dom.appendChild(affFrag);
+          labelDiv.dom.appendChild(chipsWrap.dom);
+        }
+        groupDiv.add(labelDiv);
+
+        const rowsDiv = new GQUI.Div().setClass('shipyard-slot-rows');
+        for (let idx = 0; idx < slotCount; idx++) {
+          const slotRow = new GQUI.Div().setClass('shipyard-slot-row');
+          slotRow.dom.dataset.groupCode = String(group.code || '');
+          slotRow.dom.dataset.slotIndex = String(idx);
+
+          const lbl = new GQUI.Span().setClass('shipyard-slot-label small')
+            .setTextContent('Slot ' + (idx + 1));
+          slotRow.add(lbl);
+
+          const sel = document.createElement('select');
+          sel.className = 'input shipyard-module-slot';
+          sel.dataset.groupCode = String(group.code || '');
+          sel.dataset.slotIndex = String(idx);
+          const emptyOpt = document.createElement('option');
+          emptyOpt.value = '';
+          emptyOpt.textContent = '— empty —';
+          sel.appendChild(emptyOpt);
+          (Array.isArray(group.modules) ? group.modules : []).forEach((mod) => {
+            const statsLabel = Object.entries(mod.stats_delta || {})
+              .map(([k, v]) => `${fmtName(k)} ${v >= 0 ? '+' : ''}${fmt(v)}`).join(', ');
+            const statsData = Object.entries(mod.stats_delta || {})
+              .map(([k, v]) => `${k}:${v}`).join(',');
+            const blocker = Array.isArray(mod.blockers) && mod.blockers.length
+              ? ` [LOCKED: ${mod.blockers.join(' / ')}]` : '';
+            const opt = document.createElement('option');
+            opt.value = String(mod.code || '');
+            opt.dataset.stats = statsData;
+            opt.dataset.tier = String(Number(mod.tier || 1));
+            if (mod.unlocked === false) opt.disabled = true;
+            opt.textContent = `${String(mod.label || mod.code || 'Module')} (T${fmt(mod.tier || 1)})${statsLabel ? ' · ' + statsLabel : ''}${blocker}`;
+            sel.appendChild(opt);
+          });
+          if (!group.modules?.length) sel.disabled = true;
+          slotRow.dom.appendChild(sel);
+
+          const arrowsDiv = new GQUI.Div().setClass('shipyard-slot-arrows');
+          const upBtn = new GQUI.Button('▲').setClass('btn shipyard-slot-up');
+          upBtn.dom.type = 'button';
+          upBtn.dom.dataset.groupCode = String(group.code || '');
+          upBtn.dom.dataset.slotIndex = String(idx);
+          upBtn.dom.title = 'Tauscht diesen Slot mit dem darüber';
+          if (idx === 0) upBtn.dom.disabled = true;
+          const downBtn = new GQUI.Button('▼').setClass('btn shipyard-slot-down');
+          downBtn.dom.type = 'button';
+          downBtn.dom.dataset.groupCode = String(group.code || '');
+          downBtn.dom.dataset.slotIndex = String(idx);
+          downBtn.dom.title = 'Tauscht diesen Slot mit dem darunter';
+          if (idx === slotCount - 1) downBtn.dom.disabled = true;
+          arrowsDiv.add(upBtn, downBtn);
+          slotRow.add(arrowsDiv);
+
+          rowsDiv.add(slotRow);
+        }
+        groupDiv.add(rowsDiv);
+        editor.add(groupDiv);
+      });
+
+      if (!editor.dom.children.length) {
+        return new GQUI.Div().setClass('text-muted small')
+          .setTextContent('No active slots for this layout.').dom;
+      }
+      return editor.dom;
     }
 
     collectBlueprintModulesFromUI(root) {
@@ -6276,6 +6411,31 @@
       const live = this.computeLiveStats(root, baseStats);
       const hasMods = Array.from(root.querySelectorAll('.shipyard-module-slot')).some((s) => s.value);
       if (!hasMods) {
+        const empty = new GQUI.Div().setClass('shipyard-stats-preview-empty small text-muted')
+          .setTextContent('Wähle Module, um eine Vorschau zu erhalten.');
+        preview.replaceChildren(empty.dom);
+        return;
+      }
+      const chipDefs = [
+        { cls: 'chiptype-atk',   icon: '⚔',  key: 'ATK',   val: live.attack },
+        { cls: 'chiptype-shd',   icon: '🛡', key: 'SHD',   val: live.shield },
+        { cls: 'chiptype-hll',   icon: '🔩', key: 'HULL',  val: live.hull   },
+        { cls: 'chiptype-cargo', icon: '📦', key: 'CARGO', val: live.cargo  },
+        { cls: 'chiptype-spd',   icon: '⚡', key: 'SPD',   val: live.speed  },
+      ];
+      const grid = new GQUI.Div().setClass('shipyard-stats-preview-grid');
+      chipDefs.forEach(({ cls, icon, key, val }) => {
+        const chip = new GQUI.Div().setClass('shipyard-stats-chip ' + cls);
+        chip.dom.textContent = icon + ' ' + key + ' ';
+        const strong = document.createElement('strong');
+        strong.textContent = fmt(val);
+        chip.dom.appendChild(strong);
+        grid.add(chip);
+      });
+      const wrap = new GQUI.Div().setClass('shipyard-stats-preview');
+      wrap.add(new GQUI.Div().setClass('shipyard-stats-preview-label').setTextContent('Kompilierte Statistiken (Vorschau)'));
+      wrap.add(grid);
+      preview.replaceChildren(wrap.dom);
         GQUI.setStatus(preview, 'Wähle Module, um eine Vorschau zu erhalten.', 'shipyard-stats-preview-empty small text-muted');
         return;
       }
@@ -6318,6 +6478,49 @@
       localStorage.setItem(this._presetKey(), JSON.stringify(presets));
     }
 
+    buildPresetToolbarDom() {
+      const presets = this.loadPresetsFromStorage();
+      const sel = document.createElement('select');
+      sel.id = 'shipyard-preset-select';
+      sel.className = 'input shipyard-preset-select';
+      if (!presets.length) sel.disabled = true;
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '— Preset laden —';
+      sel.appendChild(placeholder);
+      if (presets.length) {
+        presets.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = String(p.name);
+          opt.textContent = `${p.name} · ${fmtName(p.hull)} / ${fmtName(p.layout)}`;
+          sel.appendChild(opt);
+        });
+      } else {
+        const noOpt = document.createElement('option');
+        noOpt.value = '';
+        noOpt.disabled = true;
+        noOpt.textContent = 'Keine Presets gespeichert';
+        sel.appendChild(noOpt);
+      }
+
+      const loadBtn = new GQUI.Button('Laden').setClass('btn btn-secondary btn-sm');
+      loadBtn.dom.id = 'shipyard-preset-load';
+      loadBtn.dom.type = 'button';
+      if (!presets.length) loadBtn.dom.disabled = true;
+
+      const saveBtn = new GQUI.Button('Speichern').setClass('btn btn-secondary btn-sm');
+      saveBtn.dom.id = 'shipyard-preset-save';
+      saveBtn.dom.type = 'button';
+
+      const delBtn = new GQUI.Button('Löschen').setClass('btn btn-warning btn-sm');
+      delBtn.dom.id = 'shipyard-preset-delete';
+      delBtn.dom.type = 'button';
+      if (!presets.length) delBtn.dom.disabled = true;
+
+      const toolbar = new GQUI.Div().setClass('shipyard-preset-toolbar');
+      toolbar.dom.appendChild(sel);
+      toolbar.add(loadBtn, saveBtn, delBtn);
+      return toolbar.dom;
     buildPresetToolbar() {
       const presets = this.loadPresetsFromStorage();
       const toolbar = GQUI.div('shipyard-preset-toolbar');
@@ -6342,6 +6545,7 @@
 
     refreshPresetToolbar(root) {
       const container = root.querySelector('#shipyard-preset-toolbar-wrap');
+      if (container) container.replaceChildren(this.buildPresetToolbarDom());
       if (container) GQUI.mount(container, this.buildPresetToolbar());
       this.bindPresetActions(root);
     }
@@ -6408,6 +6612,305 @@
       });
     }
 
+    buildCardsDom(ships) {
+      const grid = new GQUI.Div().setClass('card-grid');
+      ships.forEach((ship) => {
+        const card = new GQUI.Div().setClass('item-card');
+
+        const header = new GQUI.Div().setClass('item-card-header');
+        header.add(new GQUI.Span().setClass('item-name').setTextContent(fmtName(ship.type)));
+        header.add(new GQUI.Span().setClass('item-level').setTextContent(ship.count + ' owned'));
+        card.add(header);
+
+        const runningCount = Number(ship.running_count || 0);
+        const queuedCount  = Number(ship.queued_count  || 0);
+        if (runningCount > 0 || queuedCount > 0) {
+          const qDiv = new GQUI.Div().setClass('small text-muted');
+          qDiv.dom.style.marginBottom = '0.35rem';
+          let qText = 'Queue: ';
+          if (runningCount > 0) qText += `${fmt(runningCount)} running`;
+          if (runningCount > 0 && queuedCount > 0) qText += ' · ';
+          if (queuedCount > 0) qText += `${fmt(queuedCount)} queued`;
+          if (ship.active_eta) qText += ` · ETA ${countdown(ship.active_eta)}`;
+          qDiv.dom.textContent = qText;
+          card.add(qDiv);
+        }
+
+        const costDiv = new GQUI.Div().setClass('item-cost');
+        if (ship.cost.metal)     { const s = new GQUI.Span().setClass('cost-metal').setTextContent(`⬡ ${fmt(ship.cost.metal)}`); costDiv.add(s); }
+        if (ship.cost.crystal)   { const s = new GQUI.Span().setClass('cost-crystal').setTextContent(`💎 ${fmt(ship.cost.crystal)}`); costDiv.add(s); }
+        if (ship.cost.deuterium) { const s = new GQUI.Span().setClass('cost-deut').setTextContent(`🔵 ${fmt(ship.cost.deuterium)}`); costDiv.add(s); }
+        card.add(costDiv);
+
+        const statsDiv = new GQUI.Div();
+        statsDiv.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted)';
+        statsDiv.dom.textContent = `📦 ${fmt(ship.cargo)}   ⚡ ${fmt(ship.speed)}`;
+        card.add(statsDiv);
+
+        const buildRow = new GQUI.Div().setClass('ship-build-row');
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'number';
+        qtyInput.className = 'ship-qty';
+        qtyInput.dataset.type = String(ship.type);
+        qtyInput.min = '1';
+        qtyInput.value = '1';
+        buildRow.dom.appendChild(qtyInput);
+        const buildBtn = new GQUI.Button('Build').setClass('btn btn-primary btn-sm build-btn');
+        buildBtn.dom.dataset.type = String(ship.type);
+        buildRow.add(buildBtn);
+        card.add(buildRow);
+
+        grid.add(card);
+      });
+      return grid.dom;
+    }
+
+    buildBlueprintCardsDom(blueprints) {
+      if (!Array.isArray(blueprints) || !blueprints.length) {
+        const p = document.createElement('p');
+        p.className = 'text-muted small';
+        p.textContent = 'No blueprints created yet.';
+        return p;
+      }
+      const grid = new GQUI.Div().setClass('card-grid');
+      blueprints.forEach((bp) => {
+        const card = new GQUI.Div().setClass('item-card');
+        card.dom.style.cssText = 'border-color:rgba(94,133,189,0.45);background:linear-gradient(180deg, rgba(13,20,33,0.96), rgba(10,16,27,0.92));';
+
+        const header = new GQUI.Div().setClass('item-card-header');
+        header.add(new GQUI.Span().setClass('item-name').setTextContent(String(bp.name || bp.type)));
+        header.add(new GQUI.Span().setClass('item-level').setTextContent(`${fmt(bp.count || 0)} owned`));
+        card.add(header);
+
+        const runningCount = Number(bp.running_count || 0);
+        const queuedCount  = Number(bp.queued_count  || 0);
+        if (runningCount > 0 || queuedCount > 0) {
+          const qDiv = new GQUI.Div().setClass('small text-muted');
+          qDiv.dom.style.marginBottom = '0.35rem';
+          let qText = 'Queue: ';
+          if (runningCount > 0) qText += `${fmt(runningCount)} running`;
+          if (runningCount > 0 && queuedCount > 0) qText += ' · ';
+          if (queuedCount > 0) qText += `${fmt(queuedCount)} queued`;
+          if (bp.active_eta) qText += ` · ETA ${countdown(bp.active_eta)}`;
+          qDiv.dom.textContent = qText;
+          card.add(qDiv);
+        }
+
+        const classDiv = new GQUI.Div().setClass('small text-muted');
+        classDiv.dom.style.marginBottom = '0.35rem';
+        classDiv.dom.textContent = `${fmtName(bp.ship_class || 'corvette')} · ${fmtName(bp.slot_layout_code || 'default')}`;
+        card.add(classDiv);
+
+        const costDiv = new GQUI.Div().setClass('item-cost');
+        if (bp.cost?.metal)     { const s = new GQUI.Span().setClass('cost-metal').setTextContent(`⬡ ${fmt(bp.cost.metal)}`); costDiv.add(s); }
+        if (bp.cost?.crystal)   { const s = new GQUI.Span().setClass('cost-crystal').setTextContent(`💎 ${fmt(bp.cost.crystal)}`); costDiv.add(s); }
+        if (bp.cost?.deuterium) { const s = new GQUI.Span().setClass('cost-deut').setTextContent(`🔵 ${fmt(bp.cost.deuterium)}`); costDiv.add(s); }
+        card.add(costDiv);
+
+        const stats1 = new GQUI.Div();
+        stats1.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted)';
+        stats1.dom.textContent = `ATK ${fmt(bp.stats?.attack || 0)} · SHD ${fmt(bp.stats?.shield || 0)} · HULL ${fmt(bp.stats?.hull || 0)}`;
+        card.add(stats1);
+
+        const stats2 = new GQUI.Div();
+        stats2.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;';
+        stats2.dom.textContent = `CARGO ${fmt(bp.stats?.cargo || 0)} · SPD ${fmt(bp.stats?.speed || 0)}`;
+        card.add(stats2);
+
+        const slotWrap = new GQUI.Div();
+        slotWrap.dom.style.cssText = 'margin-top:0.45rem; display:flex; flex-wrap:wrap; gap:0.3rem;';
+        slotWrap.dom.appendChild(this.renderSlotProfile(bp.slot_profile || {}));
+        card.add(slotWrap);
+
+        const buildRow = new GQUI.Div().setClass('ship-build-row');
+        buildRow.dom.style.marginTop = '0.65rem';
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'number';
+        qtyInput.className = 'ship-qty';
+        qtyInput.dataset.blueprintId = String(Number(bp.id || 0));
+        qtyInput.min = '1';
+        qtyInput.value = '1';
+        buildRow.dom.appendChild(qtyInput);
+        const buildBtn = new GQUI.Button('Build').setClass('btn btn-primary btn-sm build-blueprint-btn');
+        buildBtn.dom.dataset.blueprintId = String(Number(bp.id || 0));
+        buildBtn.dom.dataset.blueprintType = String(bp.type || '');
+        buildBtn.dom.dataset.blueprintName = String(bp.name || bp.type || 'Blueprint');
+        buildRow.add(buildBtn);
+        card.add(buildRow);
+
+        grid.add(card);
+      });
+      return grid.dom;
+    }
+
+    buildHullCatalogDom(hulls) {
+      if (!Array.isArray(hulls) || !hulls.length) {
+        const p = document.createElement('p');
+        p.className = 'text-muted small';
+        p.textContent = 'No hull catalog available.';
+        return p;
+      }
+      const grid = new GQUI.Div().setClass('card-grid');
+      hulls.forEach((hull) => {
+        const layouts = Object.keys(hull.slot_variations || {});
+        const card = new GQUI.Div().setClass('item-card');
+        card.dom.style.cssText = 'border-color:rgba(137,117,70,0.45);';
+
+        const header = new GQUI.Div().setClass('item-card-header');
+        header.add(new GQUI.Span().setClass('item-name').setTextContent(String(hull.label || hull.code)));
+        header.add(new GQUI.Span().setClass('item-level').setTextContent(fmtName(hull.ship_class || hull.role || 'hull')));
+        card.add(header);
+
+        if (hull.unlocked === false) {
+          const lockDiv = new GQUI.Div().setClass('small text-red');
+          lockDiv.dom.style.marginBottom = '0.35rem';
+          lockDiv.dom.textContent = 'Locked: ' + (hull.blockers || []).join(' | ');
+          card.add(lockDiv);
+        } else {
+          const unlockDiv = new GQUI.Div().setClass('small');
+          unlockDiv.dom.style.cssText = 'margin-bottom:0.35rem;color:#7ed7a1;';
+          unlockDiv.dom.textContent = 'Unlocked';
+          card.add(unlockDiv);
+        }
+
+        const tierDiv = new GQUI.Div().setClass('small text-muted');
+        tierDiv.dom.style.marginBottom = '0.35rem';
+        tierDiv.dom.textContent = `Tier ${fmt(hull.tier || 1)} · ${String(hull.code || '')}`;
+        card.add(tierDiv);
+
+        const stats1 = new GQUI.Div();
+        stats1.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted)';
+        stats1.dom.textContent = `ATK ${fmt(hull.base_stats?.attack || 0)} · SHD ${fmt(hull.base_stats?.shield || 0)} · HULL ${fmt(hull.base_stats?.hull || 0)}`;
+        card.add(stats1);
+
+        const stats2 = new GQUI.Div();
+        stats2.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;';
+        stats2.dom.textContent = `CARGO ${fmt(hull.base_stats?.cargo || 0)} · SPD ${fmt(hull.base_stats?.speed || 0)}`;
+        card.add(stats2);
+
+        const slotWrap = new GQUI.Div();
+        slotWrap.dom.style.cssText = 'margin-top:0.45rem; display:flex; flex-wrap:wrap; gap:0.3rem;';
+        slotWrap.dom.appendChild(this.renderSlotProfile(hull.slot_profile || {}));
+        card.add(slotWrap);
+
+        const layoutsDiv = new GQUI.Div().setClass('small text-muted');
+        layoutsDiv.dom.style.marginTop = '0.45rem';
+        layoutsDiv.dom.textContent = 'Layouts: ' + (layouts.length
+          ? layouts.map((layout) => fmtName(layout)).join(' · ')
+          : 'default only');
+        card.add(layoutsDiv);
+
+        grid.add(card);
+      });
+      return grid.dom;
+    }
+
+    buildBlueprintCreatorDom(hulls) {
+      const card = new GQUI.Div().setClass('system-card');
+      card.dom.style.marginBottom = '1rem';
+
+      const titleRow = new GQUI.Div().setClass('system-row');
+      const titleStrong = document.createElement('strong');
+      titleStrong.textContent = 'Blueprint Forge';
+      titleRow.dom.appendChild(titleStrong);
+      card.add(titleRow);
+
+      const desc = new GQUI.Div().setClass('small text-muted');
+      desc.dom.style.marginTop = '0.3rem';
+      desc.dom.textContent = 'Quick-create a starter blueprint from a hull class and one of its slot layouts.';
+      card.add(desc);
+
+      const presetWrap = new GQUI.Div();
+      presetWrap.dom.id = 'shipyard-preset-toolbar-wrap';
+      presetWrap.dom.style.marginTop = '0.65rem';
+      presetWrap.dom.appendChild(this.buildPresetToolbarDom());
+      card.add(presetWrap);
+
+      const grid = new GQUI.Div();
+      grid.dom.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.6rem;margin-top:0.7rem;';
+
+      const nameLbl = document.createElement('label');
+      nameLbl.className = 'small';
+      nameLbl.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = 'Name';
+      const nameInput = document.createElement('input');
+      nameInput.id = 'shipyard-blueprint-name';
+      nameInput.className = 'input';
+      nameInput.placeholder = 'Aegis Frigate';
+      nameLbl.appendChild(nameSpan);
+      nameLbl.appendChild(nameInput);
+      grid.dom.appendChild(nameLbl);
+
+      const hullLbl = document.createElement('label');
+      hullLbl.className = 'small';
+      hullLbl.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
+      const hullSpan = document.createElement('span');
+      hullSpan.textContent = 'Hull';
+      const hullSel = document.createElement('select');
+      hullSel.id = 'shipyard-blueprint-hull';
+      hullSel.className = 'input';
+      (Array.isArray(hulls) ? hulls : []).forEach((hull) => {
+        const opt = document.createElement('option');
+        opt.value = String(hull.code || '');
+        opt.dataset.attack = String(Number(hull.base_stats?.attack || 0));
+        opt.dataset.shield = String(Number(hull.base_stats?.shield || 0));
+        opt.dataset.hull   = String(Number(hull.base_stats?.hull   || 0));
+        opt.dataset.cargo  = String(Number(hull.base_stats?.cargo  || 0));
+        opt.dataset.speed  = String(Number(hull.base_stats?.speed  || 0));
+        if (hull.unlocked === false) opt.disabled = true;
+        opt.textContent = `${String(hull.label || hull.code || 'Hull')} (${fmtName(hull.ship_class || hull.role || 'hull')})${hull.unlocked === false ? ' [locked]' : ''}`;
+        hullSel.appendChild(opt);
+      });
+      hullLbl.appendChild(hullSpan);
+      hullLbl.appendChild(hullSel);
+      grid.dom.appendChild(hullLbl);
+
+      const layoutLbl = document.createElement('label');
+      layoutLbl.className = 'small';
+      layoutLbl.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
+      const layoutSpan = document.createElement('span');
+      layoutSpan.textContent = 'Layout';
+      const layoutSel = document.createElement('select');
+      layoutSel.id = 'shipyard-blueprint-layout';
+      layoutSel.className = 'input';
+      layoutLbl.appendChild(layoutSpan);
+      layoutLbl.appendChild(layoutSel);
+      grid.dom.appendChild(layoutLbl);
+
+      card.add(grid);
+
+      const layoutPreview = new GQUI.Div().setClass('small text-muted');
+      layoutPreview.dom.id = 'shipyard-blueprint-layout-preview';
+      layoutPreview.dom.style.marginTop = '0.55rem';
+      card.add(layoutPreview);
+
+      const modulesDiv = new GQUI.Div();
+      modulesDiv.dom.id = 'shipyard-blueprint-modules';
+      modulesDiv.dom.style.marginTop = '0.65rem';
+      card.add(modulesDiv);
+
+      const statsPreview = new GQUI.Div();
+      statsPreview.dom.id = 'shipyard-blueprint-stats-preview';
+      statsPreview.dom.style.marginTop = '0.55rem';
+      card.add(statsPreview);
+
+      const actionsDiv = new GQUI.Div();
+      actionsDiv.dom.style.cssText = 'margin-top:0.7rem; display:flex; gap:0.5rem; flex-wrap:wrap;';
+      const createBtn = new GQUI.Button('Create Blueprint').setClass('btn');
+      createBtn.dom.id = 'shipyard-create-blueprint';
+      actionsDiv.add(createBtn);
+      card.add(actionsDiv);
+
+      return card.dom;
+    }
+
+    buildQueueDom(queue) {
+      if (!Array.isArray(queue) || !queue.length) {
+        return new GQUI.El(document.createElement('p')).setClass('text-muted small')
+          .setTextContent('No ships in production.').dom;
+      }
+      const wrap = new GQUI.Div();
     // ── Card / section builders ───────────────────────────────
 
     buildCards(ships) {
@@ -6599,6 +7102,45 @@
         const running = String(entry.status || '') === 'running';
         const label = String(entry.label || entry.ship_type || 'Ship');
         const statusLabel = running ? 'Running' : `Queued #${Number(entry.position || 1)}`;
+
+        const card = new GQUI.Div().setClass('item-card');
+        card.dom.style.cssText = 'padding:0.8rem 0.9rem;';
+
+        const header = new GQUI.Div().setClass('item-card-header');
+        const nameSpan = new GQUI.Span().setClass('item-name').setTextContent(label);
+        const statusSpan = new GQUI.Span().setClass('item-level').setTextContent(statusLabel);
+        header.add(nameSpan, statusSpan);
+        card.add(header);
+
+        const qtyDiv = new GQUI.Div().setClass('small text-muted');
+        qtyDiv.dom.style.marginBottom = '0.35rem';
+        qtyDiv.dom.textContent = `${fmt(Number(entry.quantity || 1))}x ${fmtName(entry.ship_type || label)}`;
+        card.add(qtyDiv);
+
+        if (running && entry.eta) {
+          const timerDiv = new GQUI.Div().setClass('item-timer');
+          timerDiv.dom.textContent = '⏳ ';
+          const etaSpan = document.createElement('span');
+          etaSpan.dataset.end = String(entry.eta);
+          etaSpan.textContent = countdown(entry.eta);
+          timerDiv.dom.appendChild(etaSpan);
+          card.add(timerDiv);
+
+          const pbWrap = new GQUI.Div().setClass('progress-bar-wrap');
+          const pb = new GQUI.Div().setClass('progress-bar');
+          pb.dom.dataset.start = String(entry.started_at || '');
+          pb.dom.dataset.end = String(entry.eta);
+          pb.dom.style.width = '0%';
+          pbWrap.add(pb);
+          card.add(pbWrap);
+        } else {
+          const waitDiv = new GQUI.Div().setClass('small text-muted')
+            .setTextContent('Waiting for free shipyard slot.');
+          card.add(waitDiv);
+        }
+        wrap.add(card);
+      });
+      return wrap.dom;
         const card = GQUI.div('item-card');
         card.dom.style.cssText = 'padding:0.8rem 0.9rem;';
         const header = GQUI.div('item-card-header');
@@ -6639,6 +7181,13 @@
       const modulesRoot = root.querySelector('#shipyard-blueprint-modules');
       if (!layoutSelect || !hull) {
         if (layoutSelect) {
+          const defOpt = document.createElement('option');
+          defOpt.value = 'default';
+          defOpt.textContent = 'Default';
+          layoutSelect.replaceChildren(defOpt);
+        }
+        if (preview) preview.replaceChildren();
+        if (modulesRoot) modulesRoot.replaceChildren();
           GQUI.clearNode(layoutSelect);
           const opt = document.createElement('option');
           opt.value = 'default';
@@ -6651,6 +7200,7 @@
       }
 
       const layouts = ['default', ...Object.keys(hull.slot_variations || {})];
+      const newOpts = layouts.map((layoutCode) => {
       GQUI.clearNode(layoutSelect);
       layouts.forEach((layoutCode) => {
         const label = layoutCode === 'default'
@@ -6659,12 +7209,34 @@
         const opt = document.createElement('option');
         opt.value = layoutCode;
         opt.textContent = label;
+        return opt;
+      });
+      layoutSelect.replaceChildren(...newOpts);
         layoutSelect.appendChild(opt);
       });
 
       const selectedLayout = String(layoutSelect.value || 'default');
       const profile = this.computeSlotProfile(hull, selectedLayout);
       if (preview) {
+        const previewFrag = document.createDocumentFragment();
+        const classSpan = document.createTextNode(
+          `Class: ${fmtName(hull.ship_class || hull.role || 'hull')} · Slots: `
+        );
+        previewFrag.appendChild(classSpan);
+        previewFrag.appendChild(this.renderSlotProfile(profile));
+        if (Array.isArray(hull.blockers) && hull.blockers.length) {
+          const lockDiv = new GQUI.Div().setClass('text-red');
+          lockDiv.dom.style.marginTop = '0.3rem';
+          lockDiv.dom.textContent = 'Locked: ' + hull.blockers.join(' | ');
+          previewFrag.appendChild(lockDiv.dom);
+        }
+        preview.replaceChildren(previewFrag);
+      }
+
+      if (modulesRoot) {
+        const loadingDiv = new GQUI.Div().setClass('text-muted small')
+          .setTextContent('Loading module options...');
+        modulesRoot.replaceChildren(loadingDiv.dom);
         GQUI.clearNode(preview);
         preview.appendChild(document.createTextNode(`Class: ${fmtName(hull.ship_class || hull.role || 'hull')} · Slots: `));
         preview.appendChild(this.renderSlotProfile(profile));
@@ -6681,6 +7253,20 @@
       try {
         const catalog = await this.fetchModuleCatalog(currentColony.id, hull.code, selectedLayout);
         if (modulesRoot) {
+          modulesRoot.replaceChildren();
+          if (catalog?.hull_unlocked === false && Array.isArray(catalog?.hull_blockers) && catalog.hull_blockers.length) {
+            const gateDiv = new GQUI.Div().setClass('text-red small');
+            gateDiv.dom.style.marginBottom = '0.45rem';
+            gateDiv.dom.textContent = 'Hull locked: ' + catalog.hull_blockers.join(' | ');
+            modulesRoot.appendChild(gateDiv.dom);
+          }
+          modulesRoot.appendChild(this.renderModuleSlotEditor(catalog));
+        }
+      } catch (err) {
+        if (modulesRoot) {
+          const errDiv = new GQUI.Div().setClass('text-red small');
+          errDiv.dom.textContent = String(err?.message || 'Failed to load module options.');
+          modulesRoot.replaceChildren(errDiv.dom);
           GQUI.clearNode(modulesRoot);
           if (catalog?.hull_unlocked === false && Array.isArray(catalog?.hull_blockers) && catalog.hull_blockers.length) {
             modulesRoot.appendChild(
@@ -6817,6 +7403,10 @@
       const root = WM.body('shipyard');
       if (!root) return;
       if (!currentColony) {
+        gqStatusMsg(root, 'Select a colony first.', 'muted');
+        return;
+      }
+      gqStatusMsg(root, 'Loading\u2026', 'muted');
         GQUI.setStatus(root, 'Select a colony first.');
         return;
       }
@@ -6829,15 +7419,32 @@
           API.shipyardVessels(currentColony.id).catch(() => ({ vessels: [] })),
         ]);
         if (!data.success) {
+          gqStatusMsg(root, 'Error.', 'red');
           GQUI.setStatus(root, 'Error.', 'text-red');
           return;
         }
-        const hulls   = Array.isArray(hullData?.hulls) ? hullData.hulls : [];
-        const vessels = Array.isArray(vesselData?.vessels) ? vesselData.vessels : [];
+        const hulls   = Array.isArray(hullData?.hulls)       ? hullData.hulls       : [];
+        const vessels = Array.isArray(vesselData?.vessels)    ? vesselData.vessels   : [];
         this._pendingHulls = hulls;
 
         const frag = document.createDocumentFragment();
 
+        frag.appendChild(this.buildBlueprintCreatorDom(hulls));
+
+        const queueCard = new GQUI.Div().setClass('system-card');
+        queueCard.dom.style.marginBottom = '1rem';
+        const queueTitle = new GQUI.Div().setClass('system-row');
+        const queueStrong = document.createElement('strong');
+        queueStrong.textContent = 'Build Queue';
+        queueTitle.dom.appendChild(queueStrong);
+        queueCard.add(queueTitle);
+        const queueDesc = new GQUI.Div().setClass('small text-muted');
+        queueDesc.dom.style.marginTop = '0.3rem';
+        queueDesc.dom.textContent = 'Ships now enter a real production queue with ETA.';
+        queueCard.add(queueDesc);
+        const queueBody = new GQUI.Div();
+        queueBody.dom.style.marginTop = '0.7rem';
+        queueBody.dom.appendChild(this.buildQueueDom(data.queue || []));
         frag.appendChild(this.buildBlueprintCreator(hulls).dom);
 
         const queueCard = GQUI.div('system-card').setStyle('marginBottom', '1rem');
@@ -6850,6 +7457,135 @@
         frag.appendChild(queueCard.dom);
 
         if (vessels.length) {
+          const vesselsDom = this.renderDockedVesselsDom(vessels);
+          if (vesselsDom) {
+            const vesselCard = new GQUI.Div().setClass('system-card');
+            vesselCard.dom.id = 'shipyard-docked-vessels-card';
+            vesselCard.dom.style.marginBottom = '1rem';
+            const vesselTitle = new GQUI.Div().setClass('system-row');
+            const vesselStrong = document.createElement('strong');
+            vesselStrong.textContent = 'Docked Vessels';
+            vesselTitle.dom.appendChild(vesselStrong);
+            const badge = new GQUI.Span().setClass('badge');
+            badge.dom.style.marginLeft = '0.5rem';
+            badge.dom.textContent = String(vessels.length);
+            vesselTitle.add(badge);
+            vesselCard.add(vesselTitle);
+            const vesselDesc = new GQUI.Div().setClass('small text-muted');
+            vesselDesc.dom.style.marginTop = '0.3rem';
+            vesselDesc.dom.textContent = 'Individual blueprint vessels docked at this colony.';
+            vesselCard.add(vesselDesc);
+            const vesselBody = new GQUI.Div();
+            vesselBody.dom.style.marginTop = '0.7rem';
+            vesselBody.dom.appendChild(vesselsDom);
+            vesselCard.add(vesselBody);
+            frag.appendChild(vesselCard.dom);
+          }
+        }
+
+        const hullCard = new GQUI.Div().setClass('system-card');
+        hullCard.dom.style.marginBottom = '1rem';
+        const hullTitle = new GQUI.Div().setClass('system-row');
+        const hullStrong = document.createElement('strong');
+        hullStrong.textContent = 'Hull Catalog';
+        hullTitle.dom.appendChild(hullStrong);
+        hullCard.add(hullTitle);
+        const hullDesc = new GQUI.Div().setClass('small text-muted');
+        hullDesc.dom.style.marginTop = '0.3rem';
+        hullDesc.dom.textContent = 'Ship classes and their slot-layout variations.';
+        hullCard.add(hullDesc);
+        const hullBody = new GQUI.Div();
+        hullBody.dom.style.marginTop = '0.7rem';
+        hullBody.dom.appendChild(this.buildHullCatalogDom(hulls));
+        hullCard.add(hullBody);
+        frag.appendChild(hullCard.dom);
+
+        const bpCard = new GQUI.Div().setClass('system-card');
+        bpCard.dom.style.marginBottom = '1rem';
+        const bpTitle = new GQUI.Div().setClass('system-row');
+        const bpStrong = document.createElement('strong');
+        bpStrong.textContent = 'Blueprints';
+        bpTitle.dom.appendChild(bpStrong);
+        bpCard.add(bpTitle);
+        const bpDesc = new GQUI.Div().setClass('small text-muted');
+        bpDesc.dom.style.marginTop = '0.3rem';
+        bpDesc.dom.textContent = 'Compiled blueprints built as synthetic ship types.';
+        bpCard.add(bpDesc);
+        const bpBody = new GQUI.Div();
+        bpBody.dom.style.marginTop = '0.7rem';
+        bpBody.dom.appendChild(this.buildBlueprintCardsDom(data.blueprints || []));
+        bpCard.add(bpBody);
+        frag.appendChild(bpCard.dom);
+
+        const legacyCard = new GQUI.Div().setClass('system-card');
+        const legacyTitle = new GQUI.Div().setClass('system-row');
+        const legacyStrong = document.createElement('strong');
+        legacyStrong.textContent = 'Legacy Ships';
+        legacyTitle.dom.appendChild(legacyStrong);
+        legacyCard.add(legacyTitle);
+        const legacyDesc = new GQUI.Div().setClass('small text-muted');
+        legacyDesc.dom.style.marginTop = '0.3rem';
+        legacyDesc.dom.textContent = 'Fallback SHIP_STATS path remains available during migration.';
+        legacyCard.add(legacyDesc);
+        const legacyBody = new GQUI.Div();
+        legacyBody.dom.style.marginTop = '0.7rem';
+        legacyBody.dom.appendChild(this.buildCardsDom(data.ships || []));
+        legacyCard.add(legacyBody);
+        frag.appendChild(legacyCard.dom);
+
+        root.replaceChildren(frag);
+        this.bindActions(root, hulls);
+      } catch (_) {
+        gqStatusMsg(root, 'Failed to load shipyard.', 'red');
+      }
+    }
+
+    renderDockedVesselsDom(vessels) {
+      if (!vessels.length) return null;
+      const list = new GQUI.Div().setClass('vessel-list');
+      vessels.forEach((v) => {
+        const hp    = v.hp_state?.hp    ?? v.stats?.hull ?? '?';
+        const maxHp = v.hp_state?.max_hp ?? v.stats?.hull ?? '?';
+        const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
+
+        const card = new GQUI.Div().setClass('vessel-card');
+        card.dom.dataset.vesselId = String(v.id);
+
+        const header = new GQUI.Div().setClass('vessel-card-header');
+        header.add(new GQUI.Span().setClass('vessel-card-name').setTextContent(String(v.bp_name || v.name || `Vessel #${v.id}`)));
+        header.add(new GQUI.Span().setClass('vessel-card-class badge').setTextContent(`${fmtName(v.hull_class || 'unknown')} T${v.hull_tier ?? '?'}`));
+        const statusSpan = new GQUI.Span().setClass('vessel-card-status vessel-status-' + String(v.status)).setTextContent(String(v.status));
+        header.add(statusSpan);
+        card.add(header);
+
+        const hullLbl = new GQUI.Div().setClass('vessel-card-hull').setTextContent(String(v.hull_label || ''));
+        card.add(hullLbl);
+
+        const hpBarWrap = new GQUI.Div().setClass('vessel-hp-bar');
+        const hpFill = new GQUI.Div().setClass('vessel-hp-fill');
+        hpFill.dom.style.width = hpPct + '%';
+        hpBarWrap.add(hpFill);
+        card.add(hpBarWrap);
+
+        const chipsDiv = new GQUI.Div().setClass('vessel-stat-chips');
+        ['attack', 'shield', 'hull', 'cargo', 'speed'].filter((k) => v.stats?.[k] > 0).forEach((k) => {
+          const chip = new GQUI.Span().setClass('vessel-stat-chip chiptype-' + k.slice(0, 3));
+          chip.dom.textContent = fmtName(k) + ' ' + fmt(v.stats[k]);
+          chipsDiv.add(chip);
+        });
+        card.add(chipsDiv);
+
+        const actionsDiv = new GQUI.Div().setClass('vessel-card-actions');
+        const decommBtn = new GQUI.Button('Decommission').setClass('btn btn-sm btn-danger vessel-decommission-btn');
+        decommBtn.dom.type = 'button';
+        decommBtn.dom.dataset.vesselId = String(v.id);
+        decommBtn.dom.title = 'Permanently decommission this vessel';
+        actionsDiv.add(decommBtn);
+        card.add(actionsDiv);
+
+        list.add(card);
+      });
+      return list.dom;
           const vesselCard = GQUI.div('system-card').setStyle('marginBottom', '1rem').setId('shipyard-docked-vessels-card');
           const vesselHeader = GQUI.div('system-row');
           vesselHeader.add(
