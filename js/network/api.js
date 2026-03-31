@@ -26,6 +26,7 @@ const API = (() => {
     binary: 2,
     mutation: 2,
   };
+  const _preferBinaryGalaxySystem = false;
 
   // Short-lived cache tuned for frequently refreshed strategy-game data.
   const _defaultGetTtlMs = [
@@ -442,6 +443,7 @@ const API = (() => {
     const statusText = String(err?.statusText || err?.cause?.statusText || '').trim();
     const rawMessage = String(err?.message || err?.cause?.message || err || '').toLowerCase();
     const offline = typeof navigator !== 'undefined' && navigator && navigator.onLine === false;
+    const authByMessage = /not authenticated|unauthorized|forbidden|http\s*401|http\s*403/.test(rawMessage);
 
     if (offline) {
       return {
@@ -466,6 +468,15 @@ const API = (() => {
         reachable: true,
         status,
         message: `HTTP ${status}${statusText ? ` ${statusText}` : ''}`,
+      };
+    }
+
+    if (authByMessage) {
+      return {
+        kind: 'auth',
+        reachable: true,
+        status: 401,
+        message: 'Auth-Fehler (Session nicht authentifiziert)',
       };
     }
 
@@ -1047,7 +1058,10 @@ const API = (() => {
       const r = await _fetchWithRetry(endpoint, {}, { priority: options.priority, retryCount: options.retryCount });
       if (r.status === 401) {
         _triggerSessionExpiredRedirect();
-        throw new Error('Not authenticated');
+        const authErr = new Error('Not authenticated');
+        authErr.status = 401;
+        authErr.statusText = r.statusText || 'Unauthorized';
+        throw authErr;
       }
       _tickLoad(loadTicket, 0.7, 'Verarbeite Antwort…');
       const data = await r.json();
@@ -1114,7 +1128,10 @@ const API = (() => {
 
       if (r.status === 401) {
         _triggerSessionExpiredRedirect();
-        throw new Error('Not authenticated');
+        const authErr = new Error('Not authenticated');
+        authErr.status = 401;
+        authErr.statusText = r.statusText || 'Unauthorized';
+        throw authErr;
       }
       _tickLoad(loadTicket, 0.72, 'Verarbeite Serverantwort…');
       const data = await r.json();
@@ -1153,7 +1170,10 @@ const API = (() => {
       });
       if (r.status === 401) {
         _triggerSessionExpiredRedirect();
-        throw new Error('Not authenticated');
+        const authErr = new Error('Not authenticated');
+        authErr.status = 401;
+        authErr.statusText = r.statusText || 'Unauthorized';
+        throw authErr;
       }
       _tickLoad(loadTicket, 0.52, 'Dekodiere Binärdaten…');
       
@@ -1244,7 +1264,7 @@ const API = (() => {
     get: (endpoint, options = {}) => get(endpoint, options),
     post: (endpoint, body = {}) => post(endpoint, body),
     getBinary: (endpoint, options = {}) => getBinary(endpoint, options),
-    invalidateCache: () => _invalidateGetCache(),
+    invalidateCache: (patterns) => _invalidateGetCache(patterns),
     cancelPendingRequests: (reason = 'View switch') =>
       _cancelPendingRequests(reason, (task) => String(task.method || 'GET').toUpperCase() !== 'POST'),
     getQueueStats: () => ({
@@ -1313,8 +1333,15 @@ const API = (() => {
     galaxy: async (g, s) => {
       const gf = Math.max(1, Number(g || 1));
       const sf = Math.max(1, Number(s || 1));
-      const binEndpoint = `api/galaxy.php?galaxy=${gf}&system=${sf}&format=bin`;
-      const jsonEndpoint = `api/galaxy.php?galaxy=${gf}&system=${sf}`;
+      const binEndpoint = `api/v1/galaxy.php?galaxy=${gf}&system=${sf}&format=bin`;
+      const jsonEndpoint = `api/v1/galaxy.php?galaxy=${gf}&system=${sf}`;
+      if (!_preferBinaryGalaxySystem) {
+        return get(jsonEndpoint, {
+          priority: 'high',
+          retryCount: 2,
+          cacheMode: 'stale-if-error',
+        });
+      }
       try {
         return await getBinary(binEndpoint, {
           priority: 'high',

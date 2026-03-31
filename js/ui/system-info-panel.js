@@ -344,8 +344,14 @@ function _openDetachedSystemInfoWindow(kind, sourcePanel) {
 
     const closeBtn = detached.querySelector('.system-info-detached-close');
     if (closeBtn instanceof HTMLElement) {
-        closeBtn.addEventListener('click', () => detached.remove());
+        closeBtn.addEventListener('click', () => {
+            detached.remove();
+            _saveDetachedWindowsState();
+        });
     }
+    
+    // Persist state when window opens
+    _saveDetachedWindowsState();
 }
 
 function _getStarTypeLabel(type) {
@@ -360,6 +366,55 @@ function _getStarTypeLabel(type) {
         'supergiant': { label: 'Supergiant', iconText: 'SG', class: 'supergiant' },
     };
     return labels[type] || { label: 'Unknown', iconText: '??', class: 'unknown' };
+}
+
+// ── Detached Window Persistence ─────────────────────────────────────────────
+const SYSTEM_DETACHED_COOKIE_NAME = 'gq_system_info_detached_v1';
+const SYSTEM_DETACHED_DAYS = 7;
+
+function _saveDetachedWindowsState() {
+    try {
+        const types = [];
+        document.querySelectorAll('.system-info-detached[data-system-detached]').forEach((el) => {
+            const kind = el.getAttribute('data-system-detached');
+            if (kind) types.push(String(kind).trim());
+        });
+        
+        if (!types.length) {
+            document.cookie = `${SYSTEM_DETACHED_COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax`;
+            return;
+        }
+        
+        const payload = JSON.stringify(types);
+        const encoded = encodeURIComponent(payload);
+        const expires = new Date(Date.now() + SYSTEM_DETACHED_DAYS * 24 * 60 * 60 * 1000).toUTCString();
+        document.cookie = `${SYSTEM_DETACHED_COOKIE_NAME}=${encoded}; expires=${expires}; path=/; SameSite=Lax`;
+    } catch (e) {
+        console.warn('Failed to save detached window state:', e);
+    }
+}
+
+function _loadDetachedWindowsState() {
+    try {
+        const cookie = String(document.cookie || '');
+        const prefix = `${SYSTEM_DETACHED_COOKIE_NAME}=`;
+        const chunk = cookie.split(';').map((s) => s.trim()).find((s) => s.startsWith(prefix));
+        if (!chunk) return [];
+        const encoded = chunk.slice(prefix.length);
+        const decoded = decodeURIComponent(encoded);
+        const types = JSON.parse(decoded);
+        return Array.isArray(types) ? types.map((t) => String(t).trim()).filter((t) => !!t) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function restoreDetachedSystemInfoWindows() {
+    const types = _loadDetachedWindowsState();
+    if (!types.length) return;
+    // Note: This will only visually restore the windows
+    // The actual data will need to be fetched from context or cached
+    // For now, we store intention but full restoration requires the parent modal to be open
 }
 
 // Attach to global scope for event handling

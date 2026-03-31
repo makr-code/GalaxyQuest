@@ -38,6 +38,9 @@
     // Initialize tabs
     setupTabNavigation(modal);
 
+    // Load profile data (user info)
+    loadProfileData(modal);
+
     // Load current settings into form
     loadSettingsIntoForm(modal, gameState);
 
@@ -129,6 +132,46 @@
         console.log('[Settings] Switched to tab:', tabName);
       }
     });
+  }
+
+  function loadProfileData(modal) {
+    const meta = window._GQ_meta || {};
+    const now = new Date();
+    
+    // Populate read-only profile fields
+    const fields = {
+      'profile-username': meta.username || '—',
+      'profile-email': meta.email || '—',
+      'profile-rank-points': meta.rank_points !== undefined ? meta.rank_points.toLocaleString() : '—',
+      'profile-dark-matter': meta.dark_matter !== undefined ? meta.dark_matter.toLocaleString() : '—',
+      'profile-created-at': meta.created_at ? new Date(meta.created_at).toLocaleDateString() : '—',
+      'profile-last-login': meta.last_login ? new Date(meta.last_login).toLocaleString() : '—',
+      'profile-protection-until': meta.protection_until ? new Date(meta.protection_until).toLocaleString() : 'No protection active',
+    };
+
+    Object.entries(fields).forEach(([id, value]) => {
+      const el = modal.querySelector(`#${id}`);
+      if (el && el.type !== 'checkbox') {
+        el.value = value;
+      }
+    });
+
+    // Set checkboxes
+    const pvpEl = modal.querySelector('#profile-pvp-mode');
+    const vacationEl = modal.querySelector('#profile-vacation-mode');
+    if (pvpEl) pvpEl.checked = !!parseInt(meta.pvp_mode, 10);
+    if (vacationEl) vacationEl.checked = !!parseInt(meta.vacation_mode, 10);
+
+    // Status message
+    const statusMsg = modal.querySelector('#profile-status-message');
+    if (statusMsg) {
+      let msg = '';
+      if (meta.vacation_mode) msg += '🏖️ Vacation mode active. ';
+      if (meta.protection_until && new Date(meta.protection_until) > now) {
+        msg += '🛡️ Account protection active. ';
+      }
+      statusMsg.textContent = msg || '✅ Account active and secure.';
+    }
   }
 
   function loadSettingsIntoForm(modal, state) {

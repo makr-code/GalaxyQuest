@@ -935,8 +935,7 @@
             setPhase('Loading package bundles...', 52 + ((i + 1) / packageBundles.length) * 48);
           }
           authLog('info', `package bootstrap complete (${packageBundles.length} bundles)`);
-          setPhase('Boot complete', 100);
-          return;
+          authLog('info', 'loading latest single scripts after bundles to override stale package code');
         } catch (packageErr) {
           authLog('warn', 'package bootstrap failed, falling back to single scripts', String(packageErr?.message || packageErr || 'unknown'));
         }

@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>GalaxyQuest – Unified Command Shell</title>
-  <link rel="stylesheet" href="css/style.css?v=20260331p24" />
+  <link rel="stylesheet" href="css/style.css?v=20260331p26" />
   <style>
     #boot-terminal {
       position: fixed;
@@ -334,19 +334,6 @@
           </div>
         </div>
 
-        <!-- System group -->
-        <div class="nav-split-group" id="nav-group-system">
-            <button class="nav-btn nav-split-primary" data-win="settings" title="Settings"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/settings.svg#icon-settings"></use></svg>System</button>
-          <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
-              aria-controls="nav-drop-system" data-nav-drop="system" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/chevron-down.svg#icon-chevron-down"></use></svg></button>
-          <div id="nav-drop-system" class="nav-dropdown hidden" role="menu">
-              <button class="nav-drop-item" data-win="settings" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/settings.svg#icon-settings"></use></svg>Settings</button>
-              <button class="nav-drop-item" data-win="llm" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/llm.svg#icon-llm"></use></svg>LLM</button>
-            <button class="nav-drop-item admin-only-nav" data-win="admin-users"
-                id="nav-btn-admin-users" role="menuitem" style="display:none"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/admin.svg#icon-admin"></use></svg>Users</button>
-          </div>
-        </div>
-
       </nav>
 
       <div class="topbar-right">
@@ -394,9 +381,14 @@
 
         <!-- User menu -->
         <div class="user-menu-wrap" id="user-menu-wrap">
-          <button id="commander-name" class="commander commander-btn" type="button"
-                  aria-expanded="false" aria-haspopup="menu"></button>
-          <div id="user-menu" class="user-menu hidden" role="menu" aria-label="Benutzermenu"></div>
+          <div class="commander-split" role="group" aria-label="Commander menu">
+            <button id="commander-name" class="commander commander-btn" type="button"
+                    aria-haspopup="dialog" title="Einstellungen oeffnen"></button>
+            <button id="commander-menu-arrow" class="commander commander-arrow-btn" type="button"
+                    aria-haspopup="menu" aria-expanded="false" title="Commander-Menue oeffnen">
+              <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/chevron-down.svg#icon-chevron-down"></use></svg>
+            </button>
+          </div>
         </div>
 
         <button id="logout-btn" class="btn btn-danger btn-sm" title="Logout" aria-label="Logout">
@@ -865,7 +857,7 @@
           'js/network/binary-decoder.js?v=20260328p49',
           'js/network/binary-decoder-v2.js?v=20260328p49',
           'js/network/binary-decoder-v3.js?v=20260328p49',
-          'js/network/api.js?v=20260329p58',
+          'js/network/api.js?v=20260331p61',
           'js/network/api-contracts.js?v=20260329p1',
           'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
           'js/runtime/galaxy-model.js?v=20260328p49',
@@ -904,14 +896,14 @@
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
             'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
             'js/ui/gq-ui.js?v=20260330p1',
-                'js/runtime/game.js?v=20260331p32'
+                'js/runtime/game.js?v=20260331p26'
         ],
         preloadAssets: [
           'js/runtime/wm.js?v=20260331p56',
           'js/network/binary-decoder.js?v=20260328p49',
           'js/network/binary-decoder-v2.js?v=20260328p49',
           'js/network/binary-decoder-v3.js?v=20260328p49',
-          'js/network/api.js?v=20260329p58',
+          'js/network/api.js?v=20260331p61',
           'js/network/api-contracts.js?v=20260329p1',
           'js/runtime/galaxy-model.js?v=20260328p49',
           'js/runtime/galaxy-db.js?v=20260328p49',
@@ -940,7 +932,7 @@
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
           'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
           'js/ui/gq-ui.js?v=20260330p1',
-          'js/runtime/game.js?v=20260331p32'
+          'js/runtime/game.js?v=20260331p26'
         ]
       };
     </script>
@@ -1366,14 +1358,14 @@
   <script src="js/telemetry/space-flight-hud-engine.js?v=20260329p81"></script>
   <script src="js/rendering/galaxy-camera-controller.js?v=20260329p85"></script>
   <script src="js/rendering/starfield.js?v=20260329p100"></script>
-  <script src="js/network/auth.js?v=20260331p79"></script>
+  <script src="js/network/auth.js?v=20260331p80"></script>
   <script src="js/ui/glossary.js?v=20260331p50"></script>
   <script src="js/ui/gq-ui.js?v=20260330p1"></script>
   <script src="js/ui/ui-kit.js?v=20260331p62"></script>
   <script src="js/ui/star-tooltip.js?v=20260331p50"></script>
-  <script src="js/ui/system-info-panel.js?v=20260331p52"></script>
+  <script src="js/ui/system-info-panel.js?v=20260331p53"></script>
   <script src="js/ui/hr-diagram.js?v=20260328p49"></script>
-  <script src="js/ui/settings-panel.js?v=20260331p6"></script>
+  <script src="js/ui/settings-panel.js?v=20260331p7"></script>
   <script src="js/ui/settings-2fa.js?v=20260331p2"></script>
   <script src="js/ui/admin-users.js?v=20260331p1"></script>
 
@@ -1479,31 +1471,80 @@
 
   <!-- =========================================================
     Settings Dialog with Tabs
-    Audio, Graphics, Gameplay, Account/2FA Settings
-    Opened via: WM.open('settings') nav button
+    Profile, Audio, Graphics, Gameplay, Account/2FA Settings
+    Opened via: WM.open('settings') nav button or user menu
   ========================================================== -->
-  <section id="settings-modal" class="wm-modal" aria-modal="true" aria-label="Game Settings" role="dialog" hidden>
+  <section id="settings-modal" class="wm-modal" aria-modal="true" aria-label="Settings" role="dialog" hidden>
     <div class="wm-modal-backdrop" data-wm-modal-close></div>
     <div class="wm-modal-dialog settings-dialog">
       <div class="wm-modal-header">
-        <span class="wm-modal-title"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/settings.svg#icon-settings"></use></svg>Game Settings</span>
+        <span class="wm-modal-title"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/settings.svg#icon-settings"></use></svg>Settings</span>
         <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
       </div>
 
       <!-- Settings Tabs Navigation -->
-      <section id="settings-tabs" class="ui-tabs settings-tabs" data-ui-tabs data-ui-active-tab="audio">
-        <div class="ui-tab-list settings-tab-nav" role="tablist" aria-label="Game Settings Tabs">
-          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="audio" type="button" role="tab" aria-selected="true"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/volume.svg#icon-volume"></use></svg>Audio</button>
+      <section id="settings-tabs" class="ui-tabs settings-tabs" data-ui-tabs data-ui-active-tab="profile">
+        <div class="ui-tab-list settings-tab-nav" role="tablist" aria-label="Settings Tabs">
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="profile" type="button" role="tab" aria-selected="true"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/user.svg#icon-user"></use></svg>Profile</button>
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="audio" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/volume.svg#icon-volume"></use></svg>Audio</button>
           <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="graphics" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/graphics.svg#icon-graphics"></use></svg>Graphics</button>
           <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="gameplay" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/gameplay.svg#icon-gameplay"></use></svg>Gameplay</button>
-          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="account" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/user.svg#icon-user"></use></svg>Account</button>
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="account" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/lock.svg#icon-lock"></use></svg>Security</button>
         </div>
 
       <!-- Settings Contents -->
       <div class="wm-modal-body settings-body">
 
+        <!-- Profile Tab -->
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="profile" data-tab="profile">
+          <fieldset class="settings-group">
+            <legend>Account Information</legend>
+            <label class="settings-row">
+              <span class="settings-label">Username</span>
+              <input type="text" class="settings-text-readonly" id="profile-username" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Email</span>
+              <input type="email" class="settings-text-readonly" id="profile-email" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Rank Points</span>
+              <input type="text" class="settings-text-readonly" id="profile-rank-points" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Dark Matter</span>
+              <input type="text" class="settings-text-readonly" id="profile-dark-matter" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Member Since</span>
+              <input type="text" class="settings-text-readonly" id="profile-created-at" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Last Login</span>
+              <input type="text" class="settings-text-readonly" id="profile-last-login" readonly />
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Account Status</legend>
+            <label class="settings-checkbox">
+              <input type="checkbox" id="profile-pvp-mode" />
+              <span>PvP Mode Active</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" id="profile-vacation-mode" />
+              <span>Vacation Mode</span>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Account Protection Until</span>
+              <input type="text" class="settings-text-readonly" id="profile-protection-until" readonly />
+            </label>
+            <p class="settings-help-text" id="profile-status-message"></p>
+          </fieldset>
+        </div>
+
         <!-- Audio Tab -->
-        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="audio" data-tab="audio">
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="audio" data-tab="audio" hidden>
           <fieldset class="settings-group">
             <legend>Volume Control</legend>
             <label class="settings-row">
@@ -1711,20 +1752,8 @@
           </fieldset>
         </div>
 
-        <!-- Account/2FA Tab -->
+        <!-- Security/2FA Tab -->
         <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="account" data-tab="account" hidden>
-          <fieldset class="settings-group">
-            <legend>Account Settings</legend>
-            <label class="settings-row">
-              <span class="settings-label">Username</span>
-              <input type="text" class="settings-text-readonly" readonly />
-            </label>
-            <label class="settings-row">
-              <span class="settings-label">Last Login</span>
-              <input type="text" class="settings-text-readonly" readonly />
-            </label>
-          </fieldset>
-
           <fieldset class="settings-group" id="settings-2fa-group">
             <legend>Zwei-Faktor-Authentifizierung (TOTP)</legend>
             <p class="settings-help-text">Kompatibel mit Microsoft Authenticator, Google Authenticator, Authy u.&nbsp;a.</p>

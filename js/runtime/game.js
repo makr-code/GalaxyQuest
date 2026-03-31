@@ -22,6 +22,18 @@
   }
   updateCommanderButtonLabel();
 
+  // Backward-compat helper: legacy callers in this file still invoke
+  // _invalidateGetCache(...). Route those calls to API.invalidateCache(...).
+  function _invalidateGetCache(patterns) {
+    try {
+      if (API && typeof API.invalidateCache === 'function') {
+        API.invalidateCache(patterns);
+      }
+    } catch (err) {
+      console.warn('[GQ][game] Cache-Invalidierung fehlgeschlagen', err);
+    }
+  }
+
   if (Number(currentUser?.is_admin || 0) === 1 && window.AdminUsers && typeof window.AdminUsers.init === 'function') {
     window.AdminUsers.init();
   }
@@ -214,6 +226,7 @@
   });
   let lastLoadErrorToastAt = 0;
   let authRedirectScheduled = false;
+  const GALAXY_FILTERS_ENABLED = false;
   const uiState = {
     activeGalaxy: 1,
     activeSystem: 1,
@@ -1400,6 +1413,31 @@
   window.addEventListener('gq:load-progress', (ev) => {
     setFooterLoadProgress(ev?.detail || {});
   });
+
+  function shouldRedirectOnAuthLoadError(endpoint = '', context = '') {
+    const ep = String(endpoint || '').toLowerCase();
+    const cx = String(context || '').toLowerCase();
+    if (!ep && !cx) return true;
+
+    const coreEndpointPatterns = [
+      /api\/(v1\/)?auth\.php\?action=me/i,
+      /api\/(v1\/)?game\.php\?/i,
+      /api\/(v1\/)?galaxy\.php\?/i,
+    ];
+    if (coreEndpointPatterns.some((re) => re.test(ep))) {
+      return true;
+    }
+
+    const coreContextPatterns = [
+      /auth|session|bootstrap|overview|galaxy/i,
+    ];
+    if (coreContextPatterns.some((re) => re.test(cx))) {
+      return true;
+    }
+
+    return false;
+  }
+
   window.addEventListener('gq:load-error', (ev) => {
     const detail = ev?.detail || {};
     const endpoint = String(detail.endpoint || 'unbekannt');
@@ -1416,7 +1454,11 @@
       if (kind === 'offline') suffix = ' (Offline)';
       else if (kind === 'unreachable') suffix = ' (API nicht erreichbar)';
       else if (kind === 'timeout') suffix = ' (Timeout)';
-      showToast(`Laden fehlgeschlagen (${context}${suffix}): ${message}`, 'error');
+      if (kind === 'auth') {
+        showToast('Session abgelaufen. Bitte neu einloggen.', 'warning');
+      } else {
+        showToast(`Laden fehlgeschlagen (${context}${suffix}): ${message}`, 'error');
+      }
       lastLoadErrorToastAt = now;
     }
 
@@ -1425,7 +1467,14 @@
     }
 
     if (kind === 'auth') {
-      redirectToLogin('load-error-auth');
+      if (shouldRedirectOnAuthLoadError(endpoint, context)) {
+        redirectToLogin('load-error-auth');
+      } else {
+        console.info('[GQ][LoadError] Auth-Fehler bei Nebenendpoint ignoriert (kein Redirect).', {
+          endpoint,
+          context,
+        });
+      }
     }
   });
 
@@ -1823,6 +1872,9 @@
 
   let renderTelemetryHookInstalled = false;
   let renderTelemetryLastToastMs = 0;
+  const expectedRenderFallbackReasons = new Set([
+    'interactive-galaxy-uses-three-path',
+  ]);
   function installRenderTelemetryHook() {
     if (renderTelemetryHookInstalled || typeof window === 'undefined') {
       return;
@@ -1841,6 +1893,11 @@
         const from = String(detail.from || 'unknown');
         const to = String(detail.to || 'unknown');
         const reason = String(detail.reason || 'n/a');
+        const isExpected = expectedRenderFallbackReasons.has(reason);
+        if (isExpected) {
+          console.info('[render-telemetry] fallback(expected):', { from, to, reason, detail });
+          return;
+        }
         console.warn('[render-telemetry] fallback:', { from, to, reason, detail });
         const now = Date.now();
         if ((now - renderTelemetryLastToastMs) > 2500) {
@@ -2678,6 +2735,12 @@
       settingsState.hoverMagnetClusterPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetClusterPx || 28)));
       settingsState.galaxyOwnerFocusUserId = Math.max(0, Number(settingsState.galaxyOwnerFocusUserId || 0));
       settingsState.galaxyOwnerFocusName = String(settingsState.galaxyOwnerFocusName || '').trim();
+      if (!GALAXY_FILTERS_ENABLED) {
+        settingsState.galaxyColonyFilterMode = 'all';
+        settingsState.galaxyColoniesOnly = false;
+        settingsState.galaxyOwnerFocusUserId = 0;
+        settingsState.galaxyOwnerFocusName = '';
+      }
       settingsState.uiThemeMode = UI_THEME_MODE_VALUES.has(String(settingsState.uiThemeMode || '').toLowerCase())
         ? String(settingsState.uiThemeMode || '').toLowerCase()
         : 'auto';
@@ -2889,61 +2952,126 @@
     }
 
     renderUserMenu() {
-      const menu = document.getElementById('user-menu');
-      if (!menu) return;
-      const meta = window._GQ_meta || {};
-      const pvpOn = !!parseInt(meta.pvp_mode, 10);
-      const audioSnap = audioManager ? audioManager.snapshot() : settingsState;
-      const masterMuted = !!audioSnap.masterMuted;
-      const transitionPreset = String(settingsState.transitionPreset || 'balanced');
-      const homeEnterSystem = !!settingsState.homeEnterSystem;
-      const introFlightMode = String(settingsState.introFlightMode || 'cinematic');
-      const introLabel = introFlightMode === 'off' ? 'Aus' : introFlightMode === 'fast' ? 'Schnell' : 'Cinematic';
-
-      menu.innerHTML = `
-        <button class="user-menu-item" type="button" data-user-action="open-settings" role="menuitem">Benutzereinstellungen oeffnen</button>
-        <button class="user-menu-item" type="button" data-user-action="toggle-master-mute" role="menuitem">${masterMuted ? 'Ton aktivieren' : 'Ton stummschalten'}</button>
-        <button class="user-menu-item" type="button" data-user-action="cycle-transition" role="menuitem">Transition: ${esc(transitionPreset)}</button>
-        <button class="user-menu-item" type="button" data-user-action="toggle-home-enter" role="menuitem">Home-Oeffnung: ${homeEnterSystem ? 'Systemansicht' : 'Galaxieansicht'}</button>
-        <button class="user-menu-item" type="button" data-user-action="cycle-intro-flight" role="menuitem">Intro-Flight: ${esc(introLabel)}</button>
-        <hr class="user-menu-sep" />
-        <button class="user-menu-item" type="button" data-user-action="toggle-pvp" role="menuitem">PvP: ${pvpOn ? 'aktiv (klicken zum Deaktivieren)' : 'inaktiv (klicken zum Aktivieren)'}</button>
-        <button class="user-menu-item" type="button" data-user-action="refresh-profile" role="menuitem">Profildaten neu laden</button>
-        <hr class="user-menu-sep" />
-        <button class="user-menu-item user-menu-item-danger" type="button" data-user-action="logout" role="menuitem">Logout</button>`;
+      // Splitbutton menu is generated on-demand via WM.contextMenu.
     }
 
     closeUserMenu() {
-      closeCommanderMenuPanel();
+      const wrap = document.getElementById('user-menu-wrap');
+      const btn = document.getElementById('commander-name');
+      const arrow = document.getElementById('commander-menu-arrow');
+      if (WM && typeof WM.closeContextMenu === 'function') WM.closeContextMenu();
+      if (wrap) wrap.classList.remove('open');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+      if (arrow) arrow.setAttribute('aria-expanded', 'false');
     }
 
     openUserMenu() {
       const wrap = document.getElementById('user-menu-wrap');
-      const menu = document.getElementById('user-menu');
       const btn = document.getElementById('commander-name');
-      if (!menu || !btn) return;
+      const arrow = document.getElementById('commander-menu-arrow');
+      if (!btn || !arrow || !WM || typeof WM.contextMenu !== 'function') return;
       closeTopbarSearchOverlay();
       closeTopbarPlayerMenu();
-      this.renderUserMenu();
-      menu.classList.remove('hidden');
+
+      const meta = window._GQ_meta || {};
+      const username = String(meta.username || btn.textContent || 'Commander').trim() || 'Commander';
+      const isAdmin = Number(meta.is_admin || 0) === 1;
+
+      const items = [
+        {
+          label: 'Einstellungen',
+          onSelect: () => {
+            this.closeUserMenu();
+            if (WM && typeof WM.modal === 'function') WM.modal('settings-modal');
+          },
+        },
+        {
+          label: settingsState.masterMuted ? 'Ton aktivieren' : 'Ton stummschalten',
+          onSelect: () => {
+            this.closeUserMenu();
+            this.handleUserMenuAction('toggle-master-mute');
+          },
+        },
+        {
+          label: 'Transition-Preset wechseln',
+          onSelect: () => {
+            this.closeUserMenu();
+            this.handleUserMenuAction('cycle-transition');
+          },
+        },
+        {
+          label: 'Home-Navigation wechseln',
+          onSelect: () => {
+            this.closeUserMenu();
+            this.handleUserMenuAction('toggle-home-enter');
+          },
+        },
+        {
+          label: 'Intro-Flight wechseln',
+          onSelect: () => {
+            this.closeUserMenu();
+            this.handleUserMenuAction('cycle-intro-flight');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'PvP umschalten',
+          onSelect: () => {
+            this.closeUserMenu();
+            this.handleUserMenuAction('toggle-pvp');
+          },
+        },
+        {
+          label: 'Profildaten neu laden',
+          onSelect: () => {
+            this.closeUserMenu();
+            this.handleUserMenuAction('refresh-profile');
+          },
+        },
+      ];
+
+      if (isAdmin) {
+        items.push({
+          label: 'Users (Admin)',
+          onSelect: () => {
+            this.closeUserMenu();
+            if (WM && typeof WM.open === 'function') WM.open('admin-users');
+          },
+        });
+      }
+
+      items.push({ type: 'separator' });
+      items.push({
+        label: 'Logout',
+        danger: true,
+        onSelect: () => {
+          this.closeUserMenu();
+          this.handleUserMenuAction('logout');
+        },
+      });
+
+      const rect = arrow.getBoundingClientRect();
+      WM.contextMenu(items, {
+        title: username,
+        x: Math.max(8, Number(rect.right || rect.left || 0) - 8),
+        y: Math.max(8, Number(rect.bottom || rect.top || 0) + 6),
+      });
+
       if (wrap) wrap.classList.add('open');
       btn.setAttribute('aria-expanded', 'true');
+      arrow.setAttribute('aria-expanded', 'true');
     }
 
     toggleUserMenu() {
-      const menu = document.getElementById('user-menu');
-      if (!menu) return;
-      if (menu.classList.contains('hidden')) this.openUserMenu();
-      else this.closeUserMenu();
+      const arrow = document.getElementById('commander-menu-arrow');
+      if (!arrow) return;
+      if (arrow.getAttribute('aria-expanded') === 'true') this.closeUserMenu();
+      else this.openUserMenu();
     }
 
     async handleUserMenuAction(action) {
       if (audioManager) audioManager.playNavigation();
-      if (action === 'open-settings') {
-        WM.open('settings');
-        this.closeUserMenu();
-        return;
-      }
+      // Note: 'open-settings' action no longer needed as settings are directly in the panel
       if (action === 'toggle-master-mute') {
         settingsState.masterMuted = !settingsState.masterMuted;
         if (audioManager) audioManager.setMasterMuted(settingsState.masterMuted);
@@ -3008,28 +3136,34 @@
     initUserMenu() {
       const wrap = document.getElementById('user-menu-wrap');
       const btn = document.getElementById('commander-name');
-      const menu = document.getElementById('user-menu');
-      if (!wrap || !btn || !menu) return;
+      const arrow = document.getElementById('commander-menu-arrow');
+      if (!wrap || !btn || !arrow) return;
+
+      if (wrap.__gqCommanderSplitBound) return;
+      wrap.__gqCommanderSplitBound = true;
 
       btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeUserMenu();
+        if (WM && typeof WM.modal === 'function') WM.modal('settings-modal');
+      });
+
+      arrow.addEventListener('click', (e) => {
         e.stopPropagation();
         this.toggleUserMenu();
       });
 
-      menu.addEventListener('click', async (e) => {
-        const target = e.target;
-        if (!(target instanceof HTMLElement)) return;
-        const action = String(target.getAttribute('data-user-action') || '');
-        if (!action) return;
-        await this.handleUserMenuAction(action);
-      });
-
+      // Close on outside click
       document.addEventListener('click', (e) => {
         const target = e.target;
         if (!(target instanceof Node)) return;
-        if (!wrap.contains(target)) this.closeUserMenu();
+        if (!wrap.contains(target)) {
+          this.closeUserMenu();
+          return;
+        }
       });
 
+      // Close on Escape
       window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') this.closeUserMenu();
       });
@@ -3552,11 +3686,12 @@
 
   function closeCommanderMenuPanel() {
     const wrap = document.getElementById('user-menu-wrap');
-    const menu = document.getElementById('user-menu');
     const btn = document.getElementById('commander-name');
-    if (menu) menu.classList.add('hidden');
+    const arrow = document.getElementById('commander-menu-arrow');
+    if (WM && typeof WM.closeContextMenu === 'function') WM.closeContextMenu();
     if (wrap) wrap.classList.remove('open');
     if (btn) btn.setAttribute('aria-expanded', 'false');
+    if (arrow) arrow.setAttribute('aria-expanded', 'false');
   }
 
   function closeTopbarPlayerMenu() {
@@ -5371,6 +5506,10 @@
           showToast(`Cluster-Boxen: ${settingsState.clusterBoundsVisible ? 'an' : 'aus'}`, 'info');
         });
         root.querySelector('#gal-colonies-only-btn')?.addEventListener('click', () => {
+          if (!GALAXY_FILTERS_ENABLED) {
+            showToast('Galaxie-Filter ist derzeit deaktiviert.', 'info');
+            return;
+          }
           const modes = ['all', 'colonies', 'own', 'foreign'];
           const currentIndex = modes.indexOf(getGalaxyColonyFilterMode());
           settingsState.galaxyColonyFilterMode = modes[(currentIndex + 1 + modes.length) % modes.length];
@@ -5631,7 +5770,13 @@
           if (galaxyMeta && typeof galaxy3d.setGalaxyMetadata === 'function') {
             galaxy3d.setGalaxyMetadata(galaxyMeta);
           }
-          const displayedStars = getDisplayedGalaxyStars(stars);
+          const filteredStars = getDisplayedGalaxyStars(stars);
+          const displayedStars = (Array.isArray(filteredStars) && filteredStars.length === 0 && Array.isArray(stars) && stars.length > 0)
+            ? stars
+            : filteredStars;
+          if (Array.isArray(filteredStars) && filteredStars.length === 0 && Array.isArray(stars) && stars.length > 0) {
+            uiConsolePush('[galaxy] filter produced 0 stars; fallback to raw star payload.');
+          }
           const displayedClusterSummary = getDisplayedGalaxyClusterSummary(clusterSummary, displayedStars);
           galaxy3d.setStars(displayedStars, { preserveView });
           if (typeof galaxy3d.setGalaxyFleets === 'function') {
@@ -5703,8 +5848,8 @@
       const ensureInitialGalaxyFrame = () => {
         if (galaxyAutoFramedOnce) return;
         if (!galaxy3d || typeof galaxy3d.fitCameraToStars !== 'function') return;
-        const stats = (typeof galaxy3d.getRenderStats === 'function') ? galaxy3d.getRenderStats() : null;
-        if (Number(stats?.visibleStars || 0) <= 0) return;
+        const hasStars = Array.isArray(galaxyStars) && galaxyStars.length > 0;
+        if (!hasStars) return;
         galaxyAutoFramedOnce = true;
         setTimeout(() => {
           try {
@@ -6286,7 +6431,11 @@
         if (!data.success) {
           console.error('Overview API error:', data.error);
           if (/not authenticated|unauthorized|401/i.test(String(data.error || ''))) {
-            redirectToLogin('overview-not-authenticated');
+            if (shouldRedirectOnAuthLoadError('api/game.php?action=overview', 'overview')) {
+              redirectToLogin('overview-not-authenticated');
+            } else {
+              console.info('[overview] Auth-Fehler erkannt, Redirect unterdrueckt (policy).');
+            }
             return;
           }
           showToast(data.error || 'Overview konnte nicht geladen werden.', 'error');
@@ -6325,7 +6474,11 @@
         const em = String(e?.message || e || '');
         if (/abort|cancel|navigation/i.test(em)) return;
         if (/not authenticated|unauthorized|http\s*401|\b401\b/i.test(em)) {
-          redirectToLogin('overview-401');
+          if (shouldRedirectOnAuthLoadError('api/game.php?action=overview', 'overview')) {
+            redirectToLogin('overview-401');
+          } else {
+            console.info('[overview] 401 erkannt, Redirect unterdrueckt (policy).');
+          }
           return;
         }
         console.error('Overview load failed', e);
@@ -9360,6 +9513,11 @@
   function updateGalaxyColonyFilterUi(root) {
     const btn = root?.querySelector?.('#gal-colonies-only-btn');
     if (!btn) return;
+    if (!GALAXY_FILTERS_ENABLED) {
+      btn.classList.add('hidden');
+      return;
+    }
+    btn.classList.remove('hidden');
     const mode = getGalaxyColonyFilterMode();
     const ownerFocus = getGalaxyColonyOwnerFocus();
     const labels = {
@@ -10037,6 +10195,7 @@
   }
 
   function getGalaxyColonyFilterMode() {
+    if (!GALAXY_FILTERS_ENABLED) return 'all';
     const mode = String(settingsState.galaxyColonyFilterMode || '').toLowerCase();
     if (['all', 'colonies', 'own', 'foreign'].includes(mode)) return mode;
     return settingsState.galaxyColoniesOnly === true ? 'colonies' : 'all';
@@ -10051,6 +10210,12 @@
   }
 
   function getGalaxyColonyOwnerFocus() {
+    if (!GALAXY_FILTERS_ENABLED) {
+      return {
+        userId: 0,
+        name: '',
+      };
+    }
     return {
       userId: Math.max(0, Number(settingsState.galaxyOwnerFocusUserId || 0)),
       name: String(settingsState.galaxyOwnerFocusName || '').trim(),
@@ -10060,7 +10225,11 @@
   function getDisplayedGalaxyStars(stars) {
     const rows = Array.isArray(stars) ? stars : [];
     const mode = getGalaxyColonyFilterMode();
-    return rows.filter((star) => {
+    if (mode === 'all' && !getGalaxyColonyOwnerFocus().userId && !getGalaxyColonyOwnerFocus().name) {
+      return rows;
+    }
+
+    const filtered = rows.filter((star) => {
       const colonyCount = Math.max(0, Number(star?.colony_count || 0));
       const isPlayer = Number(star?.colony_is_player || 0) === 1;
       const ownerMeta = getGalaxyColonyOwnerMeta(star);
@@ -10078,6 +10247,14 @@
       if (mode === 'foreign') return colonyCount > 0 && !isPlayer;
       return true;
     });
+
+    // Safety net: never allow an empty galaxy view when raw star data exists.
+    // This prevents stale filter/focus settings from making navigation appear broken.
+    if (rows.length > 0 && filtered.length === 0) {
+      return rows;
+    }
+
+    return filtered;
   }
 
   function getDisplayedGalaxyClusterSummary(clusterSummary, stars) {

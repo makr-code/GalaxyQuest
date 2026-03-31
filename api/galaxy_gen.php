@@ -1679,7 +1679,8 @@ function generate_planets(array $star, int $galaxyIdx, int $systemIdx, ?string $
     $meanByClass = $cfg['stellar_types']['mean_planets_by_class'] ?? [];
     $meanPlanets = (float)($meanByClass[$star['spectral_class']] ?? $meanByClass['default'] ?? 5.0);
 
-    $nPlanets = (int)max(1, min($posMax - 1,
+    $planetCap = min(10, $posMax - 1);
+    $nPlanets = (int)max(1, min($planetCap,
         round($meanPlanets
               + gen_rand_normal(0, 1.5, $galaxyIdx, $systemIdx, 201))));
 

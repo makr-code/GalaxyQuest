@@ -1103,10 +1103,19 @@ input:focus, select:focus, textarea:focus {
 }
 .commander { color: var(--accent-cyan); font-size: 0.85rem; font-weight: 600; }
 .user-menu-wrap { position: relative; }
-.commander-btn {
-  background: rgba(16, 34, 58, 0.45);
+.commander-split {
+  display: inline-flex;
+  align-items: stretch;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 9px;
+  overflow: hidden;
+  background: rgba(16, 34, 58, 0.45);
+  transition: var(--transition);
+}
+.commander-btn {
+  background: transparent;
+  border: 0;
+  border-right: 1px solid rgba(67, 118, 171, 0.48);
   padding: 0.28rem 0.55rem;
   max-width: 170px;
   white-space: nowrap;
@@ -1115,49 +1124,24 @@ input:focus, select:focus, textarea:focus {
   cursor: pointer;
   transition: var(--transition);
 }
-.commander-btn:hover,
-.user-menu-wrap.open .commander-btn {
+.commander-arrow-btn {
+  background: transparent;
+  border: 0;
+  width: 30px;
+  min-width: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--accent-cyan);
+  transition: var(--transition);
+}
+.commander-split:hover,
+.user-menu-wrap.open .commander-split {
   background: var(--bg-hover);
   border-color: var(--border-lit);
 }
-.user-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  min-width: 270px;
-  z-index: 220;
-  background: linear-gradient(180deg, rgba(9, 18, 34, 0.98), rgba(7, 14, 26, 0.98));
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
-  padding: 0.45rem;
-}
-.user-menu-item {
-  width: 100%;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-primary);
-  text-align: left;
-  border-radius: 7px;
-  padding: 0.42rem 0.5rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: var(--transition);
-}
-.user-menu-item:hover {
-  background: rgba(42, 100, 150, 0.2);
-  border-color: rgba(42, 100, 150, 0.35);
-}
-.user-menu-item-danger { color: #ff9b9b; }
-.user-menu-item-danger:hover {
-  background: rgba(180, 60, 60, 0.2);
-  border-color: rgba(180, 60, 60, 0.38);
-}
-.user-menu-sep {
-  border: 0;
-  border-top: 1px solid rgba(70, 108, 148, 0.35);
-  margin: 0.35rem 0;
-}
+
 
 .ui-console-panel {
   position: relative;
