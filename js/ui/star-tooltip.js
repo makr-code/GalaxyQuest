@@ -47,7 +47,7 @@ class StarTooltip {
         try {
             // Fetch star info from API
             const response = await fetch(
-                `/api/galaxy.php?action=star_info&galaxy=${galaxyIdx}&system=${systemIdx}`,
+                `/api/v1/galaxy.php?action=star_info&galaxy=${galaxyIdx}&system=${systemIdx}`,
                 { credentials: 'include' }
             );
 

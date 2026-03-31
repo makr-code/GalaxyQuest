@@ -1,9 +1,10 @@
 /**
  * galaxy3d-webgpu.js
  *
- * WebGPU compatibility layer for the Galaxy3D renderer.
+ * WebGPU compatibility layer for the Galaxy3D view facade.
  *
- * When WebGPU is available this module registers as the preferred renderer.
+ * The gameplay/runtime layer talks to the Galaxy3D view facade.
+ * This module only selects the pure render backend underneath.
  * When WebGPU is NOT available it delegates to the existing
  * galaxy-renderer-core.js (Three.js based) transparently.
  *
@@ -148,55 +149,103 @@
       }
     }
 
+    _callNative(method, args) {
+      const target = this._native;
+      if (target && typeof target[method] === 'function') {
+        return target[method](...args);
+      }
+      return undefined;
+    }
+
+    _callDelegate(method, args) {
+      const target = this._delegate;
+      if (target && typeof target[method] === 'function') {
+        return target[method](...args);
+      }
+      return undefined;
+    }
+
     // -------------------------------------------------------------------------
-    // Public API — mirrors Galaxy3DRenderer surface so callers need no changes
+    // Public API — mirrors the Galaxy3D view surface so callers need no changes
+    // while backend selection stays internal to this facade.
     // -------------------------------------------------------------------------
 
     setStars(stars, opts) {
-      if (this._native && typeof this._native.setStars === 'function') {
-        this._native.setStars(stars, opts);
-      }
-      return this._delegate?.setStars?.(stars, opts);
+      this._callNative('setStars', [stars, opts]);
+      return this._callDelegate('setStars', [stars, opts]);
     }
-    setEmpires(empires) { return this._delegate?.setEmpires?.(empires); }
-    setSelectedStar(star) { return this._delegate?.setSelectedStar?.(star); }
+    setEmpires(empires) { return this._callDelegate('setEmpires', [empires]); }
+    setSelectedStar(star) { return this._callDelegate('setSelectedStar', [star]); }
     setCameraTarget(target) {
-      if (this._native && typeof this._native.setCameraTarget === 'function') {
-        this._native.setCameraTarget(target);
-      }
-      return this._delegate?.setCameraTarget?.(target);
+      this._callNative('setCameraTarget', [target]);
+      return this._callDelegate('setCameraTarget', [target]);
     }
     setTransitionsEnabled(flag) {
-      if (this._native && typeof this._native.setTransitionsEnabled === 'function') {
-        this._native.setTransitionsEnabled(flag);
-      }
-      return this._delegate?.setTransitionsEnabled?.(flag);
+      this._callNative('setTransitionsEnabled', [flag]);
+      return this._callDelegate('setTransitionsEnabled', [flag]);
     }
-    setClusterBoundsVisible(flag) { return this._delegate?.setClusterBoundsVisible?.(flag); }
-    setGalacticCoreFxEnabled(flag) { return this._delegate?.setGalacticCoreFxEnabled?.(flag); }
+    setClusterBoundsVisible(flag) { return this._callDelegate('setClusterBoundsVisible', [flag]); }
+    areClusterBoundsVisible() { return this._callDelegate('areClusterBoundsVisible', []); }
+    setGalacticCoreFxEnabled(flag) { return this._callDelegate('setGalacticCoreFxEnabled', [flag]); }
+    areGalacticCoreFxEnabled() { return this._callDelegate('areGalacticCoreFxEnabled', []); }
+    setClusterColorPalette(palette) { return this._callDelegate('setClusterColorPalette', [palette]); }
+    setClusterAuras(clusters) { return this._callDelegate('setClusterAuras', [clusters]); }
+    setGalaxyMetadata(meta) { return this._callDelegate('setGalaxyMetadata', [meta]); }
+    setGalaxyFleets(fleets) { return this._callDelegate('setGalaxyFleets', [fleets]); }
+    setFtlInfrastructure(gates, nodes) { return this._callDelegate('setFtlInfrastructure', [gates, nodes]); }
+    setGalaxyFleetVectorsVisible(enabled) { return this._callDelegate('setGalaxyFleetVectorsVisible', [enabled]); }
+    setSystemOrbitPathsVisible(enabled) { return this._callDelegate('setSystemOrbitPathsVisible', [enabled]); }
+    setSystemOrbitMarkersVisible(enabled) { return this._callDelegate('setSystemOrbitMarkersVisible', [enabled]); }
+    setSystemOrbitFocusOnly(enabled) { return this._callDelegate('setSystemOrbitFocusOnly', [enabled]); }
+    setHoverMagnetConfig(cfg) { return this._callDelegate('setHoverMagnetConfig', [cfg]); }
+    setClusterDensityMode(mode, opts) { return this._callDelegate('setClusterDensityMode', [mode, opts]); }
+    setOrbitSimulationMode(mode) { return this._callDelegate('setOrbitSimulationMode', [mode]); }
     setEmpireHeartbeatSystems(list) {
-      if (this._native && typeof this._native.setEmpireHeartbeatSystems === 'function') {
-        this._native.setEmpireHeartbeatSystems(list);
-      }
-      return this._delegate?.setEmpireHeartbeatSystems?.(list);
+      this._callNative('setEmpireHeartbeatSystems', [list]);
+      return this._callDelegate('setEmpireHeartbeatSystems', [list]);
     }
     fitCameraToStars(force, immediate) {
-      if (this._native && typeof this._native.fitCameraToStars === 'function') {
-        this._native.fitCameraToStars(force, immediate);
-      }
-      return this._delegate?.fitCameraToStars?.(force, immediate);
+      this._callNative('fitCameraToStars', [force, immediate]);
+      return this._callDelegate('fitCameraToStars', [force, immediate]);
     }
     setCameraDriver(driver, opts) {
-      if (this._native && typeof this._native.setCameraDriver === 'function') {
-        this._native.setCameraDriver(driver, opts);
-      }
-      return this._delegate?.setCameraDriver?.(driver, opts);
+      this._callNative('setCameraDriver', [driver, opts]);
+      return this._callDelegate('setCameraDriver', [driver, opts]);
     }
     clearCameraDriver() {
-      if (this._native && typeof this._native.clearCameraDriver === 'function') {
-        this._native.clearCameraDriver();
-      }
-      return this._delegate?.clearCameraDriver?.();
+      this._callNative('clearCameraDriver', []);
+      return this._callDelegate('clearCameraDriver', []);
+    }
+    focusOnStar(star, smooth) { return this._callDelegate('focusOnStar', [star, smooth]); }
+    focusOnSystemPlanet(planetLike, smooth) { return this._callDelegate('focusOnSystemPlanet', [planetLike, smooth]); }
+    nudgeZoom(direction) { return this._callDelegate('nudgeZoom', [direction]); }
+    nudgeOrbit(direction) { return this._callDelegate('nudgeOrbit', [direction]); }
+    nudgePan(direction) { return this._callDelegate('nudgePan', [direction]); }
+    nudgeRoll(direction, stepRad) { return this._callDelegate('nudgeRoll', [direction, stepRad]); }
+    resetNavigationView() { return this._callDelegate('resetNavigationView', []); }
+    focusCurrentSelection() { return this._callDelegate('focusCurrentSelection', []); }
+    toggleFollowSelection() { return this._callDelegate('toggleFollowSelection', []); }
+    isFollowingSelection() { return this._callDelegate('isFollowingSelection', []); }
+    enterSystemView(star, payload) {
+      return this._callDelegate('enterSystemView', [star, payload]);
+    }
+    exitSystemView(restoreGalaxy) {
+      return this._callDelegate('exitSystemView', [restoreGalaxy]);
+    }
+    getQualityProfileState() {
+      return this._callDelegate('getQualityProfileState', []);
+    }
+    getRenderStats() {
+      return this._callDelegate('getRenderStats', [])
+        || this._callNative('getRenderStats', [])
+        || {
+          instanceId: String(this.instanceId || ''),
+          systemMode: !!this.systemMode,
+          backend: String(this._backend || ''),
+        };
+    }
+    toggleScientificScale() {
+      return this._callDelegate('toggleScientificScale', []);
     }
     destroy() {
       if (this._native && typeof this._native.dispose === 'function') {
@@ -218,9 +267,16 @@
     }
 
     get renderer()   { return this._delegate?.renderer ?? this._native?.renderer ?? null; }
-    get scene()      { return this._delegate?.scene      ?? null; }
-    get camera()     { return this._delegate?.camera     ?? null; }
-    get backendType() { return this._backend; }
+    get scene()      { return this._delegate?.scene ?? this._native?.scene ?? null; }
+    get camera()     { return this._delegate?.camera ?? this._native?.camera ?? null; }
+    get renderFrames() { return this._delegate?.renderFrames ?? this._native?.renderFrames ?? null; }
+    get starPoints() { return this._delegate?.starPoints ?? this._native?.starPoints ?? null; }
+    get stars() { return this._delegate?.stars ?? this._native?.stars ?? []; }
+    get backendType() { return this._delegate?.rendererBackend ?? this._delegate?.backendType ?? this._native?.backendType ?? this._backend; }
+    get instanceId() { return this._delegate?.instanceId ?? this._native?.instanceId ?? ''; }
+    get systemMode() { return !!(this._delegate?.systemMode ?? this._native?.systemMode ?? false); }
+    get visibleStars() { return this._delegate?.visibleStars ?? this._native?.visibleStars ?? []; }
+    get selectedIndex() { return Number(this._delegate?.selectedIndex ?? this._native?.selectedIndex ?? -1); }
   }
 
   // ---------------------------------------------------------------------------
@@ -230,7 +286,8 @@
     try { return (await navigator.gpu.requestAdapter()) !== null; } catch { return false; }
   }
 
-  // Expose both the new class and preserve the old name for zero-change compat
+  // Expose both the view-facade alias and the legacy constructor name.
+  window.Galaxy3DView = Galaxy3DRendererWebGPU;
   window.Galaxy3DRendererWebGPU = Galaxy3DRendererWebGPU;
 
 })();

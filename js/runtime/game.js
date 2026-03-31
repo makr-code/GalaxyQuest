@@ -38,6 +38,38 @@
     window.AdminUsers.init();
   }
 
+  // Breadcrumb Navigation für System-Bodies
+  function initSystemBreadcrumb() {
+    if (window.SystemBreadcrumbIntegration) {
+      try {
+        systemBreadcrumbIntegration = new window.SystemBreadcrumbIntegration();
+        console.log('[GQ] SystemBreadcrumb initialized');
+      } catch (err) {
+        console.warn('[GQ] Failed to initialize SystemBreadcrumb:', err);
+      }
+    }
+  }
+
+  function triggerSystemBreadcrumbEnter(payload, renderer) {
+    if (systemBreadcrumbIntegration && typeof systemBreadcrumbIntegration.onSystemEnter === 'function') {
+      try {
+        systemBreadcrumbIntegration.onSystemEnter(payload, renderer);
+      } catch (err) {
+        console.warn('[GQ] SystemBreadcrumb.onSystemEnter failed:', err);
+      }
+    }
+  }
+
+  function triggerSystemBreadcrumbExit() {
+    if (systemBreadcrumbIntegration && typeof systemBreadcrumbIntegration.onSystemExit === 'function') {
+      try {
+        systemBreadcrumbIntegration.onSystemExit();
+      } catch (err) {
+        console.warn('[GQ] SystemBreadcrumb.onSystemExit failed:', err);
+      }
+    }
+  }
+
   function isCurrentUserAdmin() {
     return Number(currentUser?.is_admin || 0) === 1;
   }
@@ -67,6 +99,7 @@
   let galaxy3d = null;
   let galaxy3dQualityState = null;
   let galaxy3dInitReason = '';
+  let systemBreadcrumbIntegration = null;
   const messageConsoleState = {
     maxLines: 140,
     userHints: [],
@@ -4999,6 +5032,8 @@
         const activeStar = pinnedStar || uiState.activeStar || null;
         if (galaxy3d.systemMode && typeof galaxy3d.exitSystemView === 'function') {
           galaxy3d.exitSystemView(true);
+          // Trigger Breadcrumb Exit
+          triggerSystemBreadcrumbExit();
         }
         if (root) {
           renderGalaxySystemDetails(root, activeStar, false);
@@ -5172,9 +5207,9 @@
         toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
         return;
       }
-      const GalaxyRendererCtor = window.Galaxy3DRendererWebGPU || window.Galaxy3DRenderer;
-      if (!GalaxyRendererCtor) {
-        galaxy3dInitReason = 'window.Galaxy3DRenderer unavailable';
+      const GalaxyViewCtor = window.Galaxy3DView || window.Galaxy3DRendererWebGPU || window.Galaxy3DRenderer;
+      if (!GalaxyViewCtor) {
+        galaxy3dInitReason = 'window.Galaxy3DView unavailable';
         root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D engine failed to load. Reason: ${esc(galaxy3dInitReason)}</span>`;
         toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
         return;
@@ -5219,7 +5254,7 @@
           sharedCanvas.style.pointerEvents = 'auto';
         }
 
-        galaxy3d = new GalaxyRendererCtor(holder, {
+        galaxy3d = new GalaxyViewCtor(holder, {
           externalCanvas: sharedCanvas instanceof HTMLCanvasElement ? sharedCanvas : null,
           interactive: true,
           qualityProfile: resolvedRendererQuality?.name || settingsState.renderQualityProfile || 'auto',
@@ -5245,6 +5280,16 @@
             renderGalaxySystemDetails(root, star, false);
           },
           onDoubleClick: async (star, pos) => {
+            logEnterSystemPipeline('renderer:onDoubleClick', {
+              rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+              rendererBackend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
+              rendererHasEnterSystemView: typeof galaxy3d?.enterSystemView === 'function',
+              kind: String(star?.__kind || 'star'),
+              galaxy: Number(star?.galaxy_index || star?.__sourceStar?.galaxy_index || 0),
+              system: Number(star?.system_index || star?.__sourceStar?.system_index || 0),
+              starName: String(star?.name || star?.catalog_name || star?.__sourceStar?.name || ''),
+              pos: pos ? { x: Number(pos.x || 0), y: Number(pos.y || 0) } : null,
+            });
             if (star?.__kind === 'planet') {
               focusPlanetDetailsInOverlay(root, star, true, true);
               updateGalaxyHoverCard(root, star, pos, true);
@@ -5277,6 +5322,8 @@
             }
             if (galaxy3d && typeof galaxy3d.exitSystemView === 'function') {
               galaxy3d.exitSystemView(true);
+              // Trigger Breadcrumb Exit
+              triggerSystemBreadcrumbExit();
             }
             pinnedStar = star || null;
             renderGalaxySystemDetails(root, star, false);
@@ -5826,7 +5873,9 @@
         const visibleStars = Number(stats?.visibleStars || 0);
         const targetPoints = Number(stats?.targetPoints || 0);
         const densityMode = String(stats?.densityMode || 'n/a');
-        uiConsolePush(`[galaxy] probe src=${sourceLabel} raw=${rawStars} filtered=${filteredStars} visible=${visibleStars} target=${targetPoints} mode=${densityMode}`);
+        const instanceId = String(stats?.instanceId || galaxy3d?.instanceId || 'n/a');
+        const viewMode = stats?.systemMode ? 'system' : 'galaxy';
+        uiConsolePush(`[galaxy] probe src=${sourceLabel} inst=${instanceId} raw=${rawStars} filtered=${filteredStars} visible=${visibleStars} target=${targetPoints} mode=${densityMode} view=${viewMode}`);
 
         if (meta && Object.keys(meta).length) {
           const extras = Object.entries(meta)
@@ -9859,11 +9908,14 @@
     const colonyHtml = colonyMeta
       ? `<div class="system-row system-row-colony"><span class="system-colony-swatch" style="background:${esc(colonyMeta.color)};box-shadow:0 0 10px ${esc(colonyMeta.color)};"></span>${esc(colonyMeta.label)} | ${esc(String(colonyMeta.count))} Kolonien | Bevoelkerung ${esc(colonyMeta.populationFull)}${colonyMeta.ownerName ? ` | ${esc(colonyMeta.isPlayer ? 'Dominanz: Du' : `Dominanz: ${colonyMeta.ownerName}`)}` : ''}</div>`
       : '<div class="system-row text-muted">Keine bekannten Kolonien in diesem System.</div>';
+    const scientificScaleEnabled = galaxy3d?.getRenderStats?.()?.scientificScaleEnabled === true;
+    const scaleButtonHtml = zoomed ? `<button type="button" class="btn btn-secondary btn-sm${scientificScaleEnabled ? ' active' : ''}" data-system-action="scientific-scale" title="Toggle between game scale and scientific proportions">${scientificScaleEnabled ? 'Spielmodus' : 'Wissenschaft'}</button>` : '';
     const systemActionHtml = `
       <div class="system-row" style="margin-top:0.42rem; display:flex; gap:0.36rem; flex-wrap:wrap;">
         <button type="button" class="btn btn-secondary btn-sm" data-system-action="enter-system">Planet View</button>
         <button type="button" class="btn btn-secondary btn-sm" data-system-action="fleet">Fleet</button>
         <button type="button" class="btn btn-secondary btn-sm" data-system-action="gates">Gate Installations</button>
+        ${scaleButtonHtml}
       </div>`;
 
     // FoW visibility indicator
@@ -9936,6 +9988,18 @@
             return;
           }
           openColonySubview(colonyInSystem.id, 'gates', { source: 'system-view' });
+          return;
+        }
+        if (action === 'scientific-scale') {
+          if (galaxy3d && typeof galaxy3d.toggleScientificScale === 'function') {
+            const newState = galaxy3d.toggleScientificScale();
+            const msg = newState ? 'Wissenschaftliche Skalierung: Relative Planetengrößen korrekt' : 'Spielmodus: Alle Planeten gleichzeitig sichtbar';
+            showToast(msg, 'info');
+            renderGalaxySystemDetails(root, star, !!galaxy3d?.systemMode);
+          } else {
+            showToast('Wissenschaftliche Skalierung ist derzeit nicht verfügbar.', 'warning');
+          }
+          return;
         }
       });
     });
@@ -10531,6 +10595,67 @@
     WM.refresh('minimap');
   }
 
+  function summarizeSystemPayloadMeta(payload, fallbackGalaxy = 0, fallbackSystem = 0) {
+    const input = (payload && typeof payload === 'object') ? payload : {};
+    const starSystem = (input.star_system && typeof input.star_system === 'object') ? input.star_system : {};
+    const planets = Array.isArray(input.planets) ? input.planets : [];
+    const bodies = Array.isArray(input.bodies) ? input.bodies : [];
+    const freeComets = Array.isArray(input.free_comets) ? input.free_comets : [];
+    const roguePlanets = Array.isArray(input.rogue_planets) ? input.rogue_planets : [];
+    const starInstallations = Array.isArray(input.star_installations) ? input.star_installations : [];
+    const fleets = Array.isArray(input.fleets_in_system) ? input.fleets_in_system : [];
+    const textureEntries = (input.planet_texture_manifest && input.planet_texture_manifest.planets && typeof input.planet_texture_manifest.planets === 'object')
+      ? Object.keys(input.planet_texture_manifest.planets).length
+      : 0;
+    const generatedPlanets = planets.filter((planet) => !!planet?.generated_planet).length;
+    const playerPlanets = planets.filter((planet) => !!planet?.player_planet).length;
+    const moonCount = planets.reduce((sum, planet) => {
+      const generatedMoons = Array.isArray(planet?.generated_planet?.moons) ? planet.generated_planet.moons.length : 0;
+      const playerMoons = Array.isArray(planet?.player_planet?.moons) ? planet.player_planet.moons.length : 0;
+      return sum + generatedMoons + playerMoons;
+    }, 0);
+    return {
+      galaxy: Number(input.galaxy || starSystem.galaxy_index || fallbackGalaxy || 0),
+      system: Number(input.system || starSystem.system_index || fallbackSystem || 0),
+      starName: String(starSystem.name || ''),
+      planets: planets.length,
+      generatedPlanets,
+      playerPlanets,
+      moons: moonCount,
+      bodies: bodies.length,
+      freeComets: freeComets.length,
+      roguePlanets: roguePlanets.length,
+      starInstallations: starInstallations.length,
+      fleets: fleets.length,
+      textureEntries,
+    };
+  }
+
+  function traceSystemQueryPipeline(stage, meta = {}) {
+    try {
+      if (!(window.GQLog && typeof window.GQLog.traceEnabled === 'function' && window.GQLog.traceEnabled())) {
+        return;
+      }
+      if (window.GQLog && typeof window.GQLog.info === 'function') {
+        window.GQLog.info(`[system-query] ${stage}`, meta);
+      } else {
+        console.info('[GQ][system-query]', stage, meta);
+      }
+    } catch (_) {}
+  }
+
+  function logEnterSystemPipeline(stage, meta = {}, level = 'info') {
+    try {
+      const payload = Object.assign({ stage: String(stage || ''), ts: Date.now() }, meta || {});
+      if (window.GQLog && typeof window.GQLog[level] === 'function') {
+        window.GQLog[level](`[enter-system-pipeline] ${stage}`, payload);
+      } else {
+        const method = (level === 'warn' || level === 'error' || level === 'info') ? level : 'log';
+        console[method]('[GQ][enter-system-pipeline]', stage, payload);
+      }
+    } catch (_) {}
+  }
+
   async function loadStarSystemPlanets(root, star) {
     const panel = root.querySelector('#galaxy-planets-panel');
     if (!panel || !star) return;
@@ -10539,13 +10664,28 @@
 
     const g = Number(star.galaxy_index || 1);
     const s = Number(star.system_index || 1);
+    logEnterSystemPipeline('loadStarSystemPlanets:start', {
+      rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+      rendererBackend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
+      rendererHasEnterSystemView: typeof galaxy3d?.enterSystemView === 'function',
+      rendererHasExitSystemView: typeof galaxy3d?.exitSystemView === 'function',
+      galaxy: g,
+      system: s,
+      starName: String(star?.name || star?.catalog_name || ''),
+      rendererSystemModeBefore: !!galaxy3d?.systemMode,
+    });
 
     const buildSafeSystemPayload = (rawPayload) => {
       const input = (rawPayload && typeof rawPayload === 'object') ? rawPayload : {};
+      traceSystemQueryPipeline('buildSafeSystemPayload:input', summarizeSystemPayloadMeta(input, g, s));
       const safeStar = (input.star_system && typeof input.star_system === 'object')
         ? input.star_system
         : {};
       const safePlanets = Array.isArray(input.planets) ? input.planets : [];
+      const safeBodies = Array.isArray(input.bodies) ? input.bodies : [];
+      const safeFreeComets = Array.isArray(input.free_comets) ? input.free_comets : [];
+      const safeRoguePlanets = Array.isArray(input.rogue_planets) ? input.rogue_planets : [];
+      const safeStarInstallations = Array.isArray(input.star_installations) ? input.star_installations : [];
       const safeFleets = Array.isArray(input.fleets_in_system) ? input.fleets_in_system : [];
       const safeManifest = (input.planet_texture_manifest && typeof input.planet_texture_manifest === 'object')
         ? input.planet_texture_manifest
@@ -10555,7 +10695,7 @@
         safeManifest.planets = {};
       }
 
-      return {
+      const safePayload = {
         galaxy: Number(input.galaxy || g),
         system: Number(input.system || s),
         star_system: {
@@ -10569,9 +10709,15 @@
           z_ly: Number(safeStar.z_ly ?? star.z_ly ?? 0),
         },
         planets: safePlanets,
+        bodies: safeBodies,
+        free_comets: safeFreeComets,
+        rogue_planets: safeRoguePlanets,
+        star_installations: safeStarInstallations,
         fleets_in_system: safeFleets,
         planet_texture_manifest: safeManifest,
       };
+      traceSystemQueryPipeline('buildSafeSystemPayload:output', summarizeSystemPayloadMeta(safePayload, g, s));
+      return safePayload;
     };
 
     setGalaxyContext(g, s, star);
@@ -10583,11 +10729,24 @@
         allowStaleFirst: systemPolicy.allowStaleFirst,
         maxAgeMs: systemPolicy.cacheMaxAgeMs,
         onStaleData: (payload) => {
+          logEnterSystemPipeline('loadStarSystemPlanets:onStaleData', Object.assign({
+            rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+          }, summarizeSystemPayloadMeta(payload, g, s)));
           renderPlanetPanel(panel, star, payload);
           if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
             galaxy3d.enterSystemView(star, payload);
+            logEnterSystemPipeline('loadStarSystemPlanets:onStaleData:enterSystemView', {
+              rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+              rendererSystemModeAfter: !!galaxy3d?.systemMode,
+              renderStats: galaxy3d?.getRenderStats?.() || null,
+            });
           }
         },
+      });
+      traceSystemQueryPipeline('loadStarSystemPlanets:loadResult', {
+        source: String(loadResult?.source || 'none'),
+        fresh: !!loadResult?.fresh,
+        meta: summarizeSystemPayloadMeta(loadResult?.payload, g, s),
       });
     } catch (err) {
       console.error('[GQ] loadStarSystemPlanets: unexpected error during payload fetch', err);
@@ -10597,9 +10756,21 @@
 
     if (!loadResult || !loadResult.payload) {
       const fallbackPayload = buildSafeSystemPayload(null);
+      logEnterSystemPipeline('loadStarSystemPlanets:fallback-payload', summarizeSystemPayloadMeta(fallbackPayload, g, s), 'warn');
       try {
         if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
           galaxy3d.enterSystemView(star, fallbackPayload);
+          logEnterSystemPipeline('loadStarSystemPlanets:fallback-enterSystemView', {
+            rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+            rendererSystemModeAfter: !!galaxy3d?.systemMode,
+            renderStats: galaxy3d?.getRenderStats?.() || null,
+          }, 'warn');
+        } else {
+          logEnterSystemPipeline('loadStarSystemPlanets:fallback-enterSystemView:missing', {
+            rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+            rendererBackend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
+            hasRenderer: !!galaxy3d,
+          }, 'warn');
         }
       } catch (e3d) {
         console.error('[GQ] enterSystemView (fallback) failed:', e3d);
@@ -10617,10 +10788,24 @@
     }
 
     const safePayload = buildSafeSystemPayload(loadResult.payload);
+    logEnterSystemPipeline('loadStarSystemPlanets:safePayload', summarizeSystemPayloadMeta(safePayload, g, s));
     renderPlanetPanel(panel, star, safePayload);
     try {
       if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
         galaxy3d.enterSystemView(star, safePayload);
+        // Trigger Breadcrumb Update
+        triggerSystemBreadcrumbEnter(safePayload, galaxy3d);
+        logEnterSystemPipeline('loadStarSystemPlanets:enterSystemView:done', {
+          rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+          rendererSystemModeAfter: !!galaxy3d?.systemMode,
+          renderStats: galaxy3d?.getRenderStats?.() || null,
+        });
+      } else {
+        logEnterSystemPipeline('loadStarSystemPlanets:enterSystemView:missing', {
+          rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+          rendererBackend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
+          hasRenderer: !!galaxy3d,
+        }, 'warn');
       }
     } catch (e3d) {
       console.error('[GQ] enterSystemView failed:', e3d);
@@ -10664,7 +10849,12 @@
     const systemNode = galaxyModel ? galaxyModel.read('system', { galaxy_index: g, system_index: s }) : null;
 
     if (!isCurrentUserAdmin() && alreadyLoaded && systemNode?.payload && hasPlanetTextureManifest(systemNode.payload)) {
-      return { source: 'model', payload: normalizeSystemPayloadVisibility(systemNode.payload), fresh: true };
+      const payload = normalizeSystemPayloadVisibility(systemNode.payload);
+      traceSystemQueryPipeline('ensureSystemPayloadLazy:model-hit', {
+        source: 'model',
+        meta: summarizeSystemPayloadMeta(payload, g, s),
+      });
+      return { source: 'model', payload, fresh: true };
     }
 
     if (allowStaleFirst && systemNode?.payload && onStaleData) {
@@ -10678,6 +10868,10 @@
         const dbPayload = await galaxyDB.getSystemPayload(g, s, { maxAgeMs });
         if (dbPayload && hasPlanetTextureManifest(dbPayload)) {
           const normalizedDbPayload = normalizeSystemPayloadVisibility(dbPayload);
+          traceSystemQueryPipeline('ensureSystemPayloadLazy:db-hit', {
+            source: 'db',
+            meta: summarizeSystemPayloadMeta(normalizedDbPayload, g, s),
+          });
           if (galaxyModel) {
             galaxyModel.attachSystemPayload(g, s, normalizedDbPayload);
             galaxyModel.setSystemLoadState(g, s, {
@@ -10703,6 +10897,10 @@
       }
       const responseTs = Number(data.server_ts_ms || Date.now());
       const normalizedData = normalizeSystemPayloadVisibility(data);
+      traceSystemQueryPipeline('ensureSystemPayloadLazy:network', {
+        source: 'network',
+        meta: summarizeSystemPayloadMeta(normalizedData, g, s),
+      });
 
       if (galaxyModel) {
         galaxyModel.attachSystemPayload(g, s, normalizedData);
@@ -10906,6 +11104,14 @@
       : (data?.visibility || {});
     const visLevel   = vis.level || 'unknown';
     const scoutedAt  = vis.scouted_at ? new Date(vis.scouted_at).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : null;
+    const planets = Array.isArray(data?.planets) ? data.planets : [];
+    const fleetsInSystem = Array.isArray(data?.fleets_in_system) ? data.fleets_in_system : [];
+    const starInstallations = Array.isArray(data?.star_installations) ? data.star_installations : [];
+    const totalMoons = planets.reduce((sum, slot) => {
+      const playerMoons = Array.isArray(slot?.player_planet?.moons) ? slot.player_planet.moons.length : 0;
+      const generatedMoons = Array.isArray(slot?.generated_planet?.moons) ? slot.generated_planet.moons.length : 0;
+      return sum + playerMoons + generatedMoons;
+    }, 0);
     const staleBanner = visLevel === 'stale'
       ? `<div class="fow-stale-banner">Veraltete Aufkl├ñrung${scoutedAt ? ` ┬À Stand: ${esc(scoutedAt)}` : ''} ┬À Daten k├Ânnen veraltet sein.</div>`
       : '';
@@ -10915,24 +11121,32 @@
     panel.innerHTML = `
       <h4>${esc(star.name)} Planets</h4>
       ${staleBanner}${unknownBadge}
+      <div class="text-muted" style="margin:0.35rem 0 0.65rem">
+        Planeten: ${planets.filter((slot) => !!(slot?.player_planet || slot?.generated_planet)).length}
+        · Monde: ${totalMoons}
+        · Flotten: ${fleetsInSystem.length}
+        · Installationen: ${starInstallations.length}
+      </div>
       <div class="planet-list-3d">
-        ${(data.planets || []).map(slot => {
+        ${planets.map(slot => {
           const pp = slot.player_planet;
           const gp = slot.generated_planet;
+          const moonCount = (Array.isArray(pp?.moons) ? pp.moons.length : 0) + (Array.isArray(gp?.moons) ? gp.moons.length : 0);
+          const moonMeta = moonCount > 0 ? ` · ${moonCount} Mond${moonCount === 1 ? '' : 'e'}` : '';
           if (pp) {
             const staleClass = pp._stale ? ' stale' : '';
             const isOwnedColony = colonies.some((col) => Number(col.id || 0) === Number(pp.colony_id || 0));
             return `<div class="planet-item ${isOwnedColony ? 'own' : 'foreign'}${staleClass}" data-pos="${slot.position}">
               <span>#${slot.position}</span>
               <strong>${esc(pp.colony_name || pp.name || '?')}</strong>
-              <span>${esc(pp.owner || '?')} ┬À ${esc(isOwnedColony ? 'dein' : 'fremd')}</span>
+              <span>${esc(pp.owner || '?')} ┬À ${esc(isOwnedColony ? 'dein' : 'fremd')}${esc(moonMeta)}</span>
             </div>`;
           }
           if (gp) {
             return `<div class="planet-item" data-pos="${slot.position}">
               <span>#${slot.position}</span>
               <strong>${esc(gp.name || fmtName(gp.planet_class))}</strong>
-              <span>${esc(gp.planet_class)}</span>
+              <span>${esc(gp.planet_class)}${esc(moonMeta)}</span>
             </div>`;
           }
           return `<div class="planet-item empty" data-pos="${slot.position}"><span>#${slot.position}</span><strong>Empty slot</strong></div>`;
@@ -10945,7 +11159,7 @@
       list.querySelectorAll('.planet-item').forEach((item) => {
         item.addEventListener('click', () => {
           const pos = Number(item.dataset.pos || 0);
-          const slot = (data.planets || []).find((p) => Number(p.position || 0) === pos);
+          const slot = planets.find((p) => Number(p.position || 0) === pos);
           if (!slot) return;
           setActivePlanetListItem(panel, pos);
           const detail = ensurePlanetDetailPanel(panel);
@@ -15260,6 +15474,9 @@
   AdvisorWidget.load().catch((err) => {
     gameLog('info', 'AdvisorWidget Load fehlgeschlagen', err);
   });
+
+  // Initialize Breadcrumb Navigation for System Bodies
+  initSystemBreadcrumb();
 
   await loadOverview();
 

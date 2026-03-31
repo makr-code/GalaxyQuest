@@ -4,7 +4,7 @@
  */
 (async function () {
   const AUTH_AUDIO_SCRIPT = 'js/runtime/audio.js?v=20260328p53';
-  const AUTH_WM_SCRIPT = 'js/runtime/wm.js?v=20260330p55';
+  const AUTH_WM_SCRIPT = 'js/runtime/wm.js?v=20260331p56';
   const AUTH_AUDIO_PRELOAD = [
     'music/Nebula_Overture.mp3',
     'sfx/mixkit-video-game-retro-click-237.wav',
@@ -494,7 +494,7 @@
       const s = Number(home?.system || 0);
       if (!Number.isFinite(g) || !Number.isFinite(s) || g <= 0 || s <= 0) return null;
 
-      const starInfoRes = await fetchWithTimeoutRetry(`api/galaxy.php?action=star_info&galaxy=${g}&system=${s}`, {
+      const starInfoRes = await fetchWithTimeoutRetry(`api/v1/galaxy.php?action=star_info&galaxy=${g}&system=${s}`, {
         credentials: 'same-origin',
         timeoutMs: 16000,
         tag: 'star-info-home-target',
@@ -583,8 +583,24 @@
     }
   }
 
+  function canonicalScriptKey(src) {
+    const raw = String(src || '').trim();
+    if (!raw) return '';
+    try {
+      const url = new URL(raw, window.location.href);
+      return `${url.origin}${url.pathname}`;
+    } catch (_) {
+      return raw.split('#')[0].split('?')[0];
+    }
+  }
+
   function scriptAlreadyLoaded(src) {
-    return !!document.querySelector(`script[src="${src}"]`);
+    const key = canonicalScriptKey(src);
+    if (!key) return false;
+    return Array.from(document.scripts || []).some((script) => {
+      const scriptSrc = script.getAttribute('src') || script.src || '';
+      return canonicalScriptKey(script.dataset?.gqScriptKey || scriptSrc) === key;
+    });
   }
 
   function ensureSharedAudioManager() {
@@ -796,32 +812,34 @@
   }
 
   function loadScript(src) {
-    const key = String(src || '').trim();
-    if (!key) return Promise.reject(new Error('script src missing'));
+    const rawSrc = String(src || '').trim();
+    const key = canonicalScriptKey(rawSrc);
+    if (!rawSrc || !key) return Promise.reject(new Error('script src missing'));
 
     if (scriptLoadPromises.has(key)) {
       return scriptLoadPromises.get(key);
     }
 
     const job = new Promise((resolve, reject) => {
-      if (scriptAlreadyLoaded(key)) {
-        traceModule('done', key, '(cached)');
+      if (scriptAlreadyLoaded(rawSrc)) {
+        traceModule('done', rawSrc, '(cached)');
         resolve();
         return;
       }
-      traceModule('init', key);
+      traceModule('init', rawSrc);
       const s = document.createElement('script');
-      s.src = key;
+      s.src = rawSrc;
+      s.dataset.gqScriptKey = key;
       s.async = false;
       s.onload = () => {
-        traceModule('done', key);
+        traceModule('done', rawSrc);
         resolve();
       };
       s.onerror = () => {
-        const e = new Error(`script load failed: ${key}`);
-        traceModule('error', key, '(onerror)');
+        const e = new Error(`script load failed: ${rawSrc}`);
+        traceModule('error', rawSrc, '(onerror)');
         if (window.__GQ_BOOT_DIAG?.report) {
-          window.__GQ_BOOT_DIAG.report('script-load', e.message, key);
+          window.__GQ_BOOT_DIAG.report('script-load', e.message, rawSrc);
         }
         reject(e);
       };

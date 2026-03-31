@@ -102,7 +102,8 @@
 
       runtime.stars = window.GQAuthGalaxyAnimationProfile.generateStars(8200, 5600);
 
-      const renderer = new window.Galaxy3DRenderer(host, {
+      const GalaxyViewCtor = window.Galaxy3DView || window.Galaxy3DRenderer;
+      const renderer = new GalaxyViewCtor(host, {
         externalCanvas: canvas,
         interactive: false,
         onHover: null,

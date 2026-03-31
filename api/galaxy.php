@@ -40,7 +40,7 @@ if ($needsBlockingBootstrap) {
     ensure_galaxy_bootstrap_progress($db, false);
 }
 $renderSchemaVersion = 1;
-$assetsManifestVersion = 1;
+$assetsManifestVersion = 2;
 
 function galaxy_users_has_empire_color(PDO $db): bool {
     static $cache = null;

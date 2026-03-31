@@ -147,6 +147,10 @@ Ziel: Serverseitige Vorverarbeitung und Streaming verbessern.
 
 ## Fortschrittsprotokoll
 
+- 2026-03-31: View-Fassade in js/legacy/galaxy3d-webgpu.js erweitert.
+  Fehlende Runtime-Delegationen fuer Cluster, FTL, Orbit-Toggles, Fokus/Navigation und Fleet-Overlay freigeschaltet.
+- 2026-03-31: Kurzfristige Arbeitslinie in diese Datei integriert.
+  Aktive Arbeitspakete sind A1 Galaxy Render Pipeline, A2 Mond-Rendering und A3 Fleet View.
 - 2026-03-29: Roadmap als operative Engine-Version angelegt.
 - 2026-03-29: P0.1 done — preloadAssets planet-textures/model_registry p48→p49; dynamische Loader galaxy-renderer-core p76→p83.
 - 2026-03-29: P0.2 done — Camera-Driver-Fehler (onAttach/onDetach/update/invalid-driver) loggen via GQLog.

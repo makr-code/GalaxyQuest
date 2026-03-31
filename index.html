@@ -396,6 +396,8 @@
         </button>
       </div>
     </header>
+    <!-- System Bodies Breadcrumb Navigation -->
+    <div id="system-breadcrumb-nav" aria-label="System bodies breadcrumb" role="navigation"></div>
   </section>
 
   <section id="resource-section" class="">
@@ -839,25 +841,17 @@
         });
       })();
 
-      window.GQ_ASSETS_MANIFEST_VERSION = 1;
+      window.GQ_ASSETS_MANIFEST_VERSION = 2;
       window.__GQ_BOOT = {
-        assetsManifestVersion: 1,
-        packageBundles: [
-          'js/packages/game.boot.bundle.engine-core.js.gz?v=20260330p2',
-          'js/packages/game.boot.bundle.runtime.js.gz?v=20260330p2',
-          'js/packages/game.boot.bundle.network.js.gz?v=20260330p2',
-          'js/packages/game.boot.bundle.rendering.js.gz?v=20260330p2',
-          'js/packages/game.boot.bundle.telemetry.js.gz?v=20260330p2',
-          'js/packages/game.boot.bundle.ui.js.gz?v=20260330p2',
-          'js/packages/game.boot.bundle.tests.js.gz?v=20260330p2',
-          'js/packages/game.boot.bundle.legacy.js.gz?v=20260330p2'
-        ],
+        assetsManifestVersion: 2,
+        // Disabled intentionally: stale bundled code can override newer hotfixes.
+        packageBundles: [],
         gameScripts: [
           'js/runtime/wm.js?v=20260331p56',
           'js/network/binary-decoder.js?v=20260328p49',
           'js/network/binary-decoder-v2.js?v=20260328p49',
           'js/network/binary-decoder-v3.js?v=20260328p49',
-          'js/network/api.js?v=20260331p61',
+          'js/network/api.js?v=20260331p64',
           'js/network/api-contracts.js?v=20260329p1',
           'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
           'js/runtime/galaxy-model.js?v=20260328p49',
@@ -889,21 +883,21 @@
           'js/rendering/galaxy-renderer-event-binding-shared.js?v=20260329p77',
           'js/rendering/galaxy-renderer-events.js?v=20260329p76',
           'js/rendering/galaxy-camera-controller.js?v=20260329p85',
-          'js/rendering/galaxy-renderer-core.js?v=20260331p108',
+          'js/rendering/galaxy-renderer-core.js?v=20260331p112',
           'js/rendering/starfield-webgpu.js?v=20260330p2',
-          'js/legacy/galaxy3d-webgpu.js?v=20260330p2',
-          'js/rendering/starfield.js?v=20260329p100',
+          'js/legacy/galaxy3d-webgpu.js?v=20260331p3',
+          'js/rendering/starfield.js?v=20260331p101',
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
             'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
             'js/ui/gq-ui.js?v=20260330p1',
-                'js/runtime/game.js?v=20260331p26'
+                'js/runtime/game.js?v=20260331p28'
         ],
         preloadAssets: [
           'js/runtime/wm.js?v=20260331p56',
           'js/network/binary-decoder.js?v=20260328p49',
           'js/network/binary-decoder-v2.js?v=20260328p49',
           'js/network/binary-decoder-v3.js?v=20260328p49',
-          'js/network/api.js?v=20260331p61',
+          'js/network/api.js?v=20260331p64',
           'js/network/api-contracts.js?v=20260329p1',
           'js/runtime/galaxy-model.js?v=20260328p49',
           'js/runtime/galaxy-db.js?v=20260328p49',
@@ -925,14 +919,14 @@
           'js/rendering/galaxy-renderer-event-binding-shared.js?v=20260329p77',
           'js/rendering/galaxy-renderer-events.js?v=20260329p76',
           'js/rendering/galaxy-camera-controller.js?v=20260329p85',
-          'js/rendering/galaxy-renderer-core.js?v=20260331p108',
+          'js/rendering/galaxy-renderer-core.js?v=20260331p112',
           'js/rendering/starfield-webgpu.js?v=20260330p2',
-          'js/legacy/galaxy3d-webgpu.js?v=20260330p2',
-          'js/rendering/starfield.js?v=20260329p100',
+          'js/legacy/galaxy3d-webgpu.js?v=20260331p3',
+          'js/rendering/starfield.js?v=20260331p101',
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
           'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
           'js/ui/gq-ui.js?v=20260330p1',
-          'js/runtime/game.js?v=20260331p26'
+          'js/runtime/game.js?v=20260331p28'
         ]
       };
     </script>
@@ -1357,17 +1351,18 @@
   <script src="js/telemetry/space-camera-flight-driver.js?v=20260329p90"></script>
   <script src="js/telemetry/space-flight-hud-engine.js?v=20260329p81"></script>
   <script src="js/rendering/galaxy-camera-controller.js?v=20260329p85"></script>
-  <script src="js/rendering/starfield.js?v=20260329p100"></script>
-  <script src="js/network/auth.js?v=20260331p80"></script>
+  <script src="js/rendering/starfield.js?v=20260331p101"></script>
+  <script src="js/network/auth.js?v=20260331p82"></script>
   <script src="js/ui/glossary.js?v=20260331p50"></script>
-  <script src="js/ui/gq-ui.js?v=20260330p1"></script>
   <script src="js/ui/ui-kit.js?v=20260331p62"></script>
-  <script src="js/ui/star-tooltip.js?v=20260331p50"></script>
-  <script src="js/ui/system-info-panel.js?v=20260331p53"></script>
+  <script src="js/ui/star-tooltip.js?v=20260331p51"></script>
+  <script src="js/ui/system-info-panel.js?v=20260331p54"></script>
   <script src="js/ui/hr-diagram.js?v=20260328p49"></script>
   <script src="js/ui/settings-panel.js?v=20260331p7"></script>
   <script src="js/ui/settings-2fa.js?v=20260331p2"></script>
   <script src="js/ui/admin-users.js?v=20260331p1"></script>
+  <script src="js/ui/system-bodies-breadcrumb.js?v=20260331p1"></script>
+  <script src="js/ui/system-breadcrumb-integration.js?v=20260331p1"></script>
 
   <!-- =========================================================
     Post-FX Settings Panel

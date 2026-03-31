@@ -9,7 +9,7 @@ async function openSystemInfoPanel(galaxyIdx, systemIdx) {
     try {
         // Fetch detailed star info from API
         const response = await fetch(
-            `/api/galaxy.php?action=star_info&galaxy=${galaxyIdx}&system=${systemIdx}`,
+            `/api/v1/galaxy.php?action=star_info&galaxy=${galaxyIdx}&system=${systemIdx}`,
             { credentials: 'include' }
         );
 

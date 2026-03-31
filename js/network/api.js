@@ -127,6 +127,50 @@ const API = (() => {
     else console[consoleMethod]('[GQ][API]', message, data);
   }
 
+  function _isTraceEnabled() {
+    try {
+      return !!(window.GQLog && typeof window.GQLog.traceEnabled === 'function' && window.GQLog.traceEnabled());
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function _summarizeSystemPayloadMeta(payload) {
+    const input = (payload && typeof payload === 'object') ? payload : {};
+    const planets = Array.isArray(input.planets) ? input.planets : [];
+    const fleets = Array.isArray(input.fleets_in_system) ? input.fleets_in_system : [];
+    const textureManifest = (input.planet_texture_manifest && typeof input.planet_texture_manifest === 'object')
+      ? input.planet_texture_manifest
+      : null;
+    const textureEntries = textureManifest && textureManifest.planets && typeof textureManifest.planets === 'object'
+      ? Object.keys(textureManifest.planets).length
+      : 0;
+    const generatedPlanets = planets.filter((planet) => !!planet?.generated_planet).length;
+    const playerPlanets = planets.filter((planet) => !!planet?.player_planet).length;
+    const moonCount = planets.reduce((sum, planet) => {
+      const generatedMoons = Array.isArray(planet?.generated_planet?.moons) ? planet.generated_planet.moons.length : 0;
+      const playerMoons = Array.isArray(planet?.player_planet?.moons) ? planet.player_planet.moons.length : 0;
+      return sum + generatedMoons + playerMoons;
+    }, 0);
+    return {
+      galaxy: Number(input.galaxy || input.star_system?.galaxy_index || 0),
+      system: Number(input.system || input.star_system?.system_index || 0),
+      starName: String(input.star_system?.name || ''),
+      planets: planets.length,
+      generatedPlanets,
+      playerPlanets,
+      moons: moonCount,
+      fleets: fleets.length,
+      textureEntries,
+      success: input.success !== false,
+    };
+  }
+
+  function _traceSystemQuery(stage, meta = {}) {
+    if (!_isTraceEnabled()) return;
+    _log('info', `[query-pipeline] ${stage}`, meta);
+  }
+
   function _emitQueueStats(label = 'Queue aktiv') {
     const busy = _activeLoads > 0 || _activeNetworkRequests > 0 || _requestQueue.length > 0;
     _emitLoadProgress({
@@ -692,6 +736,52 @@ const API = (() => {
     return null;
   }
 
+  function _isUnreachableFetchError(err) {
+    const msg = String(err?.message || err || '').toLowerCase();
+    return msg.includes('failed to fetch')
+      || msg.includes('networkerror')
+      || msg.includes('network error')
+      || msg.includes('load failed');
+  }
+
+  function _toDevPortEndpoint(endpoint) {
+    const raw = String(endpoint || '').trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    if (raw.startsWith('/')) return `http://localhost:8080${raw}`;
+    return `http://localhost:8080/${raw.replace(/^\.\//, '')}`;
+  }
+
+  function _canRetryViaDevPort(task, err) {
+    if (!_isUnreachableFetchError(err)) return false;
+    if (task?.init?.signal?.aborted) return false;
+    if (typeof window === 'undefined' || !window.location) return false;
+    const host = String(window.location.hostname || '').toLowerCase();
+    if (host !== 'localhost' && host !== '127.0.0.1') return false;
+    const port = String(window.location.port || '').trim();
+    if (port === '8080') return false;
+    const endpoint = String(task?.fetchEndpoint || task?.endpoint || '');
+    return endpoint.startsWith('api/') || endpoint.startsWith('/api/');
+  }
+
+  function _fetchTask(task) {
+    const primaryEndpoint = task.fetchEndpoint || task.endpoint;
+    return fetch(primaryEndpoint, task.init).catch((err) => {
+      if (!_canRetryViaDevPort(task, err)) {
+        throw err;
+      }
+      const fallbackEndpoint = _toDevPortEndpoint(primaryEndpoint);
+      if (!fallbackEndpoint || fallbackEndpoint === primaryEndpoint) {
+        throw err;
+      }
+      _log('warn', 'Netzwerk-Fallback aktiv: Retry ueber localhost:8080', {
+        endpoint: primaryEndpoint,
+        fallbackEndpoint,
+      });
+      return fetch(fallbackEndpoint, task.init);
+    });
+  }
+
   function _pumpRequestQueue() {
     while (_activeNetworkRequests < _maxConcurrentRequests && _requestQueue.length > 0) {
       const task = _pickNextQueuedTask();
@@ -707,7 +797,7 @@ const API = (() => {
       task.started = true;
       _inflightTasks.set(task.id, task);
 
-      fetch(task.fetchEndpoint || task.endpoint, task.init)
+      _fetchTask(task)
         .then((resp) => task.resolve(resp))
         .catch((err) => task.reject(err))
         .finally(() => {
@@ -1183,12 +1273,14 @@ const API = (() => {
         // Binary mode
         const buffer = await r.arrayBuffer();
         let data = null;
+        let decoderVersion = 0;
 
         // Version is stored after magic as u16 (offset 4..5).
         try {
           const view = new DataView(buffer);
           const magic = view.getUint32(0, false);
           const version = view.getUint16(4, false);
+          decoderVersion = version;
           if (magic === 0xDEADBEEF) {
             if (version === 3 && typeof BinaryDecoderV3 !== 'undefined' && BinaryDecoderV3?.decode) {
               data = BinaryDecoderV3.decode(buffer);
@@ -1222,6 +1314,13 @@ const API = (() => {
         // Add metadata
         data.success = true;
         data.server_ts_ms = data.server_ts_ms || Date.now();
+        _traceSystemQuery('binary-response', {
+          endpoint,
+          contentType,
+          byteLength: Number(buffer.byteLength || 0),
+          decoderVersion,
+          meta: _summarizeSystemPayloadMeta(data),
+        });
         
         if (cacheMode !== 'no-store' && ttlMs > 0) {
           _getCache.set(endpoint, {
@@ -1235,6 +1334,11 @@ const API = (() => {
         // Fallback to JSON
         _tickLoad(loadTicket, 0.7, 'Verarbeite JSON-Fallback…');
         const data = await r.json();
+        _traceSystemQuery('json-response-via-getBinary', {
+          endpoint,
+          contentType,
+          meta: _summarizeSystemPayloadMeta(data),
+        });
         if (cacheMode !== 'no-store' && ttlMs > 0 && data && data.success !== false) {
           _getCache.set(endpoint, {
             data: _clone(data),
@@ -1335,30 +1439,52 @@ const API = (() => {
       const sf = Math.max(1, Number(s || 1));
       const binEndpoint = `api/v1/galaxy.php?galaxy=${gf}&system=${sf}&format=bin`;
       const jsonEndpoint = `api/v1/galaxy.php?galaxy=${gf}&system=${sf}`;
+      _traceSystemQuery('request', {
+        galaxy: gf,
+        system: sf,
+        preferBinary: !!_preferBinaryGalaxySystem,
+        binEndpoint,
+        jsonEndpoint,
+      });
       if (!_preferBinaryGalaxySystem) {
-        return get(jsonEndpoint, {
+        const data = await get(jsonEndpoint, {
           priority: 'high',
           retryCount: 2,
           cacheMode: 'stale-if-error',
         });
+        _traceSystemQuery('json-response', {
+          endpoint: jsonEndpoint,
+          meta: _summarizeSystemPayloadMeta(data),
+        });
+        return data;
       }
       try {
-        return await getBinary(binEndpoint, {
+        const data = await getBinary(binEndpoint, {
           priority: 'high',
           retryCount: 1,
           timeoutMs: 12000,
           cacheMode: 'stale-if-error',
         });
+        _traceSystemQuery('binary-success', {
+          endpoint: binEndpoint,
+          meta: _summarizeSystemPayloadMeta(data),
+        });
+        return data;
       } catch (err) {
         _log('warn', 'Galaxy BIN request failed, fallback to JSON', {
           endpoint: binEndpoint,
           error: _describeError(err, binEndpoint, 'galaxy-bin-fallback'),
         });
-        return get(jsonEndpoint, {
+        const data = await get(jsonEndpoint, {
           priority: 'high',
           retryCount: 1,
           cacheMode: 'stale-if-error',
         });
+        _traceSystemQuery('json-fallback-response', {
+          endpoint: jsonEndpoint,
+          meta: _summarizeSystemPayloadMeta(data),
+        });
+        return data;
       }
     },
     galaxyStars: (g, from = 1, to = 25000, maxPoints = 1500, opts = {}) => {
@@ -1378,7 +1504,7 @@ const API = (() => {
         ? clusterPresetRaw
         : 'auto';
       const includeClusterLod = !!opts.includeClusterLod;
-      const endpoint = `api/galaxy.php?action=stars&galaxy=${gf}&from=${rf}&to=${rt}&max_points=${mp}`
+      const endpoint = `api/v1/galaxy.php?action=stars&galaxy=${gf}&from=${rf}&to=${rt}&max_points=${mp}`
         + `&priority=${encodeURIComponent(streamPriority)}`
         + `&prefetch=${prefetch ? 1 : 0}`
         + `&chunk_hint=${chunkHint}`
@@ -1392,7 +1518,7 @@ const API = (() => {
       const hasTo = Number.isFinite(Number(to));
       const rt = hasTo ? `&to=${Math.max(rf, Number(to))}` : '';
       const mp = Math.max(100, Math.min(50000, Number(maxPoints || 1500)));
-      return get(`api/galaxy.php?action=bootstrap&galaxy=${gf}&from=${rf}${rt}&max_points=${mp}`, { priority: 'high' });
+      return get(`api/v1/galaxy.php?action=bootstrap&galaxy=${gf}&from=${rf}${rt}&max_points=${mp}`, { priority: 'high' });
     },
     galaxyAssetMeta: (g, scope = 'render') => {
       const gf = Math.max(1, Number(g || 1));
@@ -1400,14 +1526,14 @@ const API = (() => {
       const safeScope = ['render', 'planet_textures', 'clusters', 'ships'].includes(scopeRaw)
         ? scopeRaw
         : 'render';
-      return get(`api/galaxy.php?action=asset_meta&galaxy=${gf}&scope=${encodeURIComponent(safeScope)}`, { priority: 'high' });
+      return get(`api/v1/galaxy.php?action=asset_meta&galaxy=${gf}&scope=${encodeURIComponent(safeScope)}`, { priority: 'high' });
     },
     galaxyMeta: (g) => {
       const gf = Math.max(1, Number(g || 1));
-      return get(`api/galaxy.php?action=galaxy_meta&galaxy=${gf}`, { priority: 'high' });
+      return get(`api/v1/galaxy.php?action=galaxy_meta&galaxy=${gf}`, { priority: 'high' });
     },
     galaxySearch: (g, q, limit = 18) =>
-      get(`api/galaxy.php?action=search&galaxy=${g}&q=${encodeURIComponent(String(q || ''))}&limit=${Math.max(1, Number(limit || 18))}`),
+      get(`api/v1/galaxy.php?action=search&galaxy=${g}&q=${encodeURIComponent(String(q || ''))}&limit=${Math.max(1, Number(limit || 18))}`),
     perfTelemetry: (payload = {}) =>
       post('api/perf_telemetry.php?action=ingest', payload),
     perfTelemetryRecent: ({ limit = 50, source = '', userId = 0 } = {}) => {

@@ -119,7 +119,7 @@
   }
 
   async function fetchAuthStars() {
-    const endpoint = 'api/galaxy.php?action=auth_stars&galaxy=1&from=1&max_points=9000';
+    const endpoint = 'api/v1/galaxy.php?action=auth_stars&galaxy=1&from=1&max_points=9000';
     try {
       const res = await fetch(endpoint, {
         method: 'GET',
@@ -925,8 +925,8 @@
       ? authStars.occupiedSystems
       : [];
 
-    const RendererCtor = window.Galaxy3DRendererWebGPU || window.Galaxy3DRenderer;
-    runtime.renderer = new RendererCtor(host, {
+    const GalaxyViewCtor = window.Galaxy3DView || window.Galaxy3DRendererWebGPU || window.Galaxy3DRenderer;
+    runtime.renderer = new GalaxyViewCtor(host, {
       externalCanvas: canvas,
       alpha: true,
       interactive: false,

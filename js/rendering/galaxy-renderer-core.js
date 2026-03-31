@@ -105,6 +105,66 @@
     };
   }
 
+  function summarizeSystemRenderPayloadMeta(star, payload) {
+    const sourceStar = (star && typeof star === 'object') ? star : {};
+    const input = (payload && typeof payload === 'object') ? payload : {};
+    const planets = Array.isArray(input.planets) ? input.planets : [];
+    const bodies = Array.isArray(input.bodies) ? input.bodies : [];
+    const freeComets = Array.isArray(input.free_comets) ? input.free_comets : [];
+    const roguePlanets = Array.isArray(input.rogue_planets) ? input.rogue_planets : [];
+    const starInstallations = Array.isArray(input.star_installations) ? input.star_installations : [];
+    const fleets = Array.isArray(input.fleets_in_system) ? input.fleets_in_system : [];
+    const generatedPlanets = planets.filter((planet) => !!planet?.generated_planet).length;
+    const playerPlanets = planets.filter((planet) => !!planet?.player_planet).length;
+    const moonCount = planets.reduce((sum, planet) => {
+      const generatedMoons = Array.isArray(planet?.generated_planet?.moons) ? planet.generated_planet.moons.length : 0;
+      const playerMoons = Array.isArray(planet?.player_planet?.moons) ? planet.player_planet.moons.length : 0;
+      return sum + generatedMoons + playerMoons;
+    }, 0);
+    return {
+      galaxy: Number(input.galaxy || input.star_system?.galaxy_index || sourceStar.galaxy_index || 0),
+      system: Number(input.system || input.star_system?.system_index || sourceStar.system_index || 0),
+      starName: String(input.star_system?.name || sourceStar.name || sourceStar.catalog_name || ''),
+      planets: planets.length,
+      generatedPlanets,
+      playerPlanets,
+      moons: moonCount,
+      bodies: bodies.length,
+      freeComets: freeComets.length,
+      roguePlanets: roguePlanets.length,
+      starInstallations: starInstallations.length,
+      fleets: fleets.length,
+    };
+  }
+
+  function traceSystemRender(stage, meta = {}) {
+    try {
+      if (!(window.GQLog && typeof window.GQLog.traceEnabled === 'function' && window.GQLog.traceEnabled())) {
+        return;
+      }
+      if (typeof window.GQLog.info === 'function') {
+        window.GQLog.info(`[system-render] ${stage}`, meta);
+      } else {
+        console.info('[GQ][system-render]', stage, meta);
+      }
+    } catch (_) {}
+  }
+
+  function logEnterSystemDebug(stage, meta = {}, level = 'info') {
+    try {
+      const payload = Object.assign({ stage: String(stage || ''), ts: Date.now() }, meta || {});
+      const sink = window.GQLog && typeof window.GQLog[level] === 'function'
+        ? window.GQLog[level].bind(window.GQLog)
+        : null;
+      if (sink) {
+        sink(`[enter-system] ${stage}`, payload);
+      } else {
+        const method = (level === 'warn' || level === 'error' || level === 'info') ? level : 'log';
+        console[method]('[GQ][enter-system]', stage, payload);
+      }
+    } catch (_) {}
+  }
+
   class BasicOrbitControls {
     constructor(camera) {
       this.camera = camera;
@@ -138,6 +198,8 @@
       if (!window.THREE) throw new Error('Galaxy3DRenderer: THREE not loaded');
 
       this.container = container;
+      window.__GQ_RENDERER_INSTANCE_SEQ = Number(window.__GQ_RENDERER_INSTANCE_SEQ || 0) + 1;
+      this.instanceId = `g3d-${window.__GQ_RENDERER_INSTANCE_SEQ}`;
       this.rendererConfig = resolveRendererConfig();
       this.rendererEvents = resolveRendererEvents();
       const optionDefaults = typeof this.rendererConfig.getOptionDefaults === 'function'
@@ -317,6 +379,7 @@
       this.systemSourceStar = null;
       this.systemOrigin = new THREE.Vector3(0, 0, 0);
       this.systemPlanetEntries = [];
+      this.systemMoonEntries = [];
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
       this.galaxyFleetEntries = [];
@@ -380,6 +443,15 @@
       this.transitionStableMinMs = 160;
       this._cameraStableSinceMs = performance.now();
       this.cameraMotionSpeed = 0;
+      this.systemEntryFov = 50;
+      this.minVisualOrbitPeriodSeconds = Math.max(20, Number(this.opts.minVisualOrbitPeriodSeconds || 60));
+      this.visualOrbitTimeScale = THREE.MathUtils.clamp(Number(this.opts.visualOrbitTimeScale ?? 1.0), 0.01, 1);
+      this.visualPlanetSpinScale = THREE.MathUtils.clamp(Number(this.opts.visualPlanetSpinScale ?? 0.2), 0.03, 1);
+      this.visualMoonSpinScale = THREE.MathUtils.clamp(Number(this.opts.visualMoonSpinScale ?? 0.16), 0.03, 1);
+      this.useScientificScale = false;
+      this.scientificScaleZoomFactor = 0.76; // FOV adjustment when enabling scientific mode
+      this._lastZoomOutInputMs = 0;
+      this._preSystemFov = Number(this.camera?.fov || 58);
       const runtimeTuning = typeof this.rendererConfig.getRuntimeTuning === 'function'
         ? this.rendererConfig.getRuntimeTuning()
         : {};
@@ -431,6 +503,13 @@
       });
       this._initDebugOverlay();
       this._animate();
+      logEnterSystemDebug('renderer-init', {
+        instanceId: this.instanceId,
+        interactive: !!this.interactive,
+        hostId: String(this.container?.id || ''),
+        canvasId: String(this.renderer?.domElement?.id || this.externalCanvas?.id || ''),
+        backend: String(this.rendererBackend || 'unknown'),
+      });
 
     }
 
@@ -1535,17 +1614,26 @@
       };
     }
 
-    _planetSize(body, fallbackIndex) {
+    _planetSize(body, fallbackIndex, orbitRadius = 0) {
       const diameter = Number(body?.diameter || 0);
       const cls = String(body?.planet_class || '').toLowerCase();
+      let baseSize = 0;
       if (diameter > 0) {
         const scale = cls.includes('gas') ? 7000 : 10500;
         const max = cls.includes('gas') ? 14.5 : 10.8;
-        return THREE.MathUtils.clamp(2.6 + diameter / scale, 2.6, max);
+        baseSize = THREE.MathUtils.clamp(2.6 + diameter / scale, 2.6, max);
+      } else {
+        if (cls.includes('gas')) baseSize = 8.6 + (fallbackIndex % 3) * 1.1;
+        else if (cls.includes('ice')) baseSize = 5.4 + (fallbackIndex % 2) * 0.7;
+        else baseSize = 3 + (fallbackIndex % 4) * 0.85;
       }
-      if (cls.includes('gas')) return 8.6 + (fallbackIndex % 3) * 1.1;
-      if (cls.includes('ice')) return 5.4 + (fallbackIndex % 2) * 0.7;
-      return 3 + (fallbackIndex % 4) * 0.85;
+      // Scientific scaling: Scale planet size proportionally to orbital distance
+      if (this.useScientificScale && orbitRadius > 0) {
+        const referenceOrbit = 50; // Base orbit where game-scale applies
+        const orbitFactor = Math.max(0.3, Math.min(1.8, orbitRadius / referenceOrbit));
+        baseSize *= orbitFactor;
+      }
+      return baseSize;
     }
 
     _facilityColor(category) {
@@ -1798,7 +1886,7 @@
 
     _syncClusterAuraTransform() {
       if (!this.clusterAuraGroup) return;
-      if (!this.starPoints || this.systemMode) {
+      if (!this.starPoints) {
         this.clusterAuraGroup.visible = false;
         return;
       }
@@ -3208,6 +3296,7 @@
       this.setLightRig('galaxy');
       this.systemSourceStar = null;
       this.systemPlanetEntries = [];
+      this.systemMoonEntries = [];
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
       this.systemStarInstallationEntries = [];
@@ -3253,21 +3342,40 @@
       this._syncClusterAuraTransform();
       if (restoreGalaxy && this.starPoints) {
         this.autoFrameEnabled = true;
+        this.camera.up.set(0, 1, 0);
         if (this.selectedIndex >= 0 && this.selectedIndex < this.visibleStars.length) {
           this.focusOnStar(this.visibleStars[this.selectedIndex], true);
         } else {
           this.fitCameraToStars(true, true);
         }
+        const restoreFov = THREE.MathUtils.clamp(Number(this._preSystemFov || 58), 25, 100);
+        this.camera.fov = restoreFov;
+        this.camera.updateProjectionMatrix();
       }
     }
 
     enterSystemView(star, payload) {
-      if (!star || !payload) return;
+      if (!star || !payload) {
+        logEnterSystemDebug('enterSystemView:skip', {
+          instanceId: this.instanceId,
+          hasStar: !!star,
+          hasPayload: !!payload,
+        }, 'warn');
+        return;
+      }
+      traceSystemRender('enterSystemView:input', summarizeSystemRenderPayloadMeta(star, payload));
+      logEnterSystemDebug('enterSystemView:input', Object.assign({
+        instanceId: this.instanceId,
+        systemModeBefore: !!this.systemMode,
+        selectedIndex: Number(this.selectedIndex || -1),
+        visibleStars: Array.isArray(this.visibleStars) ? this.visibleStars.length : 0,
+      }, summarizeSystemRenderPayloadMeta(star, payload)));
+      const wasSystemMode = !!this.systemMode;
       this.exitSystemView(false);
       this.systemMode = true;
       this.setLightRig('system');
       this.systemSourceStar = star;
-      if (this.renderFrames?.galaxy) this.renderFrames.galaxy.visible = false;
+      if (this.renderFrames?.galaxy) this.renderFrames.galaxy.visible = true;
       if (this.renderFrames?.system) this.renderFrames.system.visible = true;
       if (this.systemGroup) this.systemGroup.visible = true;
       if (this.systemSkyGroup) this.systemSkyGroup.visible = true;
@@ -3279,12 +3387,12 @@
       if (this.systemStarInstallationGroup) this.systemStarInstallationGroup.visible = true;
       if (this.systemTrafficGroup) this.systemTrafficGroup.visible = true;
       this.autoFrameEnabled = false;
-      if (this.starPoints) this.starPoints.visible = false;
-      if (this.coreStars) this.coreStars.visible = false;
-      if (this.galacticCoreGroup) this.galacticCoreGroup.visible = false;
-      if (this.halo) this.halo.visible = false;
-      if (this.galaxyGlowGroup) this.galaxyGlowGroup.visible = false;
-      if (this.grid) this.grid.visible = false;
+      if (this.starPoints) this.starPoints.visible = true;
+      if (this.coreStars) this.coreStars.visible = true;
+      if (this.galacticCoreGroup) this.galacticCoreGroup.visible = true;
+      if (this.halo) this.halo.visible = true;
+      if (this.galaxyGlowGroup) this.galaxyGlowGroup.visible = true;
+      if (this.grid) this.grid.visible = true;
       if (this.hoverMarker) this.hoverMarker.visible = false;
       this._syncClusterAuraTransform();
       if (typeof this._buildSystemSkyDome === 'function') {
@@ -3323,14 +3431,107 @@
       }
       if (this.systemOrigin) this.systemOrigin.copy(systemOrigin);
 
-      this.controls.target.copy(systemOrigin);
+      if (!wasSystemMode) {
+        this._preSystemFov = Number(this.camera?.fov || this._preSystemFov || 58);
+      }
+
+      const fromTarget = this.controls.target.clone();
+      const fromPos = this.camera.position.clone();
+      const fromUp = this.camera.up.clone();
+      const entryPose = this._buildSystemEntryCameraPose(systemOrigin, payload, fromTarget, fromPos);
+
+      // Camera-only handoff: keep world stable and smoothly reframe the viewer.
       this.focusTarget = {
-        fromTarget: this.controls.target.clone(),
-        toTarget: systemOrigin.clone(),
-        fromPos: this.camera.position.clone(),
-        toPos: systemOrigin.clone().add(new THREE.Vector3(0, 132, 214)),
+        fromTarget,
+        toTarget: entryPose.toTarget,
+        fromPos,
+        toPos: entryPose.toPos,
+        fromUp,
+        toUp: entryPose.toUp,
+        fromFov: Number(this.camera?.fov || 58),
+        toFov: Number(entryPose.toFov),
         t: 0,
       };
+      logEnterSystemDebug('enterSystemView:armed', {
+        instanceId: this.instanceId,
+        systemModeAfter: !!this.systemMode,
+        focusTargetActive: !!this.focusTarget,
+        systemOrigin: {
+          x: Number(systemOrigin.x.toFixed(2)),
+          y: Number(systemOrigin.y.toFixed(2)),
+          z: Number(systemOrigin.z.toFixed(2)),
+        },
+        planetsBuilt: Array.isArray(this.systemPlanetEntries) ? this.systemPlanetEntries.length : 0,
+        moonsBuilt: Array.isArray(this.systemMoonEntries) ? this.systemMoonEntries.length : 0,
+        fleetsBuilt: Array.isArray(this.systemFleetEntries) ? this.systemFleetEntries.length : 0,
+      });
+    }
+
+    _buildSystemEntryCameraPose(systemOrigin, payload, fromTarget, fromPos) {
+      const target = systemOrigin.clone();
+      const fromOffset = fromPos.clone().sub(fromTarget);
+      const fromDistance = Math.max(1, fromOffset.length());
+      const maxOrbitRadius = Math.max(46, ...((this.systemPlanetEntries || []).map((entry) => Number(entry?.orbitRadius || 0))));
+      const desiredDistance = THREE.MathUtils.clamp(maxOrbitRadius * 1.55, 130, 390);
+      const blendedDistance = THREE.MathUtils.clamp((fromDistance * 0.4) + (desiredDistance * 0.6), 120, 420);
+
+      const planeNormal = this._estimateSystemPlaneNormal();
+      if (planeNormal.dot(this.camera?.up || new THREE.Vector3(0, 1, 0)) < 0) planeNormal.multiplyScalar(-1);
+      const fallbackForward = new THREE.Vector3(0.73, 0, 0.68).normalize();
+      const currentForward = fromOffset.lengthSq() > 1e-6
+        ? fromOffset.clone().normalize()
+        : fallbackForward.clone();
+      let planarForward = currentForward.clone().projectOnPlane(planeNormal);
+      if (planarForward.lengthSq() < 1e-6) {
+        planarForward = fallbackForward.clone().projectOnPlane(planeNormal);
+      }
+      planarForward.normalize();
+
+      const verticalBias = THREE.MathUtils.clamp(0.3 + Math.min(0.18, maxOrbitRadius / 520), 0.28, 0.5);
+      const toOffset = planarForward
+        .multiplyScalar(blendedDistance)
+        .add(planeNormal.clone().multiplyScalar(blendedDistance * verticalBias));
+
+      const toTarget = target.clone();
+      const toPos = target.clone().add(toOffset);
+      const payloadPlanets = Array.isArray(payload?.planets) ? payload.planets.length : 0;
+      const targetFov = THREE.MathUtils.clamp(
+        this.systemEntryFov + Math.min(8, payloadPlanets * 0.22),
+        42,
+        64,
+      );
+
+      return {
+        toTarget,
+        toPos,
+        toUp: planeNormal,
+        toFov: targetFov,
+      };
+    }
+
+    _estimateSystemPlaneNormal() {
+      const fallback = new THREE.Vector3(0, 1, 0);
+      if (!Array.isArray(this.systemPlanetEntries) || !this.systemPlanetEntries.length) return fallback;
+      const normal = new THREE.Vector3();
+      const q = new THREE.Quaternion();
+      const samples = Math.min(6, this.systemPlanetEntries.length);
+      for (let i = 0; i < samples; i += 1) {
+        const pivot = this.systemPlanetEntries[i]?.orbitPivot;
+        if (!pivot || typeof pivot.getWorldQuaternion !== 'function') continue;
+        pivot.getWorldQuaternion(q);
+        normal.add(new THREE.Vector3(0, 1, 0).applyQuaternion(q));
+      }
+      if (normal.lengthSq() < 1e-6) return fallback;
+      return normal.normalize();
+    }
+
+    _visualOrbitAngularSpeed(periodMetric, minMetric) {
+      const safePeriodMetric = Math.max(0.01, Number(periodMetric || minMetric || 1));
+      const safeMinMetric = Math.max(0.01, Number(minMetric || 1));
+      const relativePeriod = Math.max(1, safePeriodMetric / safeMinMetric);
+      const minPeriodSeconds = Math.max(20, Number(this.minVisualOrbitPeriodSeconds || 60));
+      const innerAngularSpeed = (Math.PI * 2) / minPeriodSeconds;
+      return THREE.MathUtils.clamp(innerAngularSpeed / relativePeriod, 0.004, innerAngularSpeed);
     }
 
     _buildSystemPhase0(star, payload) {
@@ -3369,7 +3570,19 @@
         }))
         .filter((entry) => entry.body);
       const orbitBodies = bodies.slice().sort((a, b) => Number(a.body.semi_major_axis_au || 0) - Number(b.body.semi_major_axis_au || 0));
+      traceSystemRender('buildSystemPhase0:orbitBodies', {
+        starName: String(star?.name || star?.catalog_name || ''),
+        payloadPlanets: Array.isArray(payload?.planets) ? payload.planets.length : 0,
+        orbitBodies: orbitBodies.length,
+      });
       const maxAu = Math.max(0.35, ...orbitBodies.map((entry, index) => Number(entry.body.semi_major_axis_au || (0.35 + index * 0.22))));
+      const periodMetrics = orbitBodies.map((entry, index) => {
+        const body = entry.body || {};
+        const semiMajor = Number(body.semi_major_axis_au || (0.35 + index * 0.22));
+        const periodDays = Number(body.orbital_period_days || 0);
+        return periodDays > 0 ? periodDays : Math.pow(Math.max(0.12, semiMajor), 1.5);
+      });
+      const minPeriodMetric = Math.max(0.01, Math.min(...periodMetrics));
 
       this.systemPlanetEntries = orbitBodies.map((entry, index) => {
         const body = entry.body;
@@ -3379,7 +3592,7 @@
         const eccentricity = THREE.MathUtils.clamp(Number(body.orbital_eccentricity ?? (0.03 + index * 0.012)), 0.0, 0.92);
         const orbitMinor = orbitRadius * Math.sqrt(1 - eccentricity * eccentricity);
         const phase = Number(body.polar_theta_rad);
-        const angularVelocity = Math.abs(Number(body.angular_velocity_rad_day || 0));
+        const periodMetric = Number(periodMetrics[index] || semiMajor || 1);
         const orbitPoints = this._buildOrbitCurvePoints(orbitRadius, orbitMinor, eccentricity);
         const orbitLine = new THREE.LineLoop(
           new THREE.BufferGeometry().setFromPoints(orbitPoints),
@@ -3397,7 +3610,7 @@
         orbitPivot.add(orbitLeadMarker);
         this.systemOrbitGroup.add(orbitPivot);
 
-        const planetSize = this._planetSize(body, index);
+        const planetSize = this._planetSize(body, index, orbitRadius);
         const planetGeometry = new THREE.SphereGeometry(planetSize, 18, 18);
         const proxyMaterial = new THREE.MeshBasicMaterial({
           transparent: true,
@@ -3454,10 +3667,16 @@
           currentLocalPosition: new THREE.Vector3(),
           currentWorldPosition: new THREE.Vector3(),
           angle: Number.isFinite(phase) ? phase : (index / Math.max(1, orbitBodies.length)) * Math.PI * 2,
-          speed: angularVelocity > 0
-            ? angularVelocity * 18
-            : 0.18 / Math.max(0.35, Math.sqrt(Number(body.orbital_period_days || 80) / 40)),
+          speed: this._visualOrbitAngularSpeed(periodMetric, minPeriodMetric),
         };
+      });
+
+      this.systemMoonEntries = this._buildSystemMoonEntries();
+      traceSystemRender('buildSystemPhase0:complete', {
+        planetsBuilt: Array.isArray(this.systemPlanetEntries) ? this.systemPlanetEntries.length : 0,
+        moonsBuilt: Array.isArray(this.systemMoonEntries) ? this.systemMoonEntries.length : 0,
+        facilitiesBuilt: Array.isArray(this.systemFacilityEntries) ? this.systemFacilityEntries.length : 0,
+        fleetsBuilt: Array.isArray(payload?.fleets_in_system) ? payload.fleets_in_system.length : 0,
       });
 
       this._rebuildOrbitSimulationBuffer();
@@ -3489,6 +3708,100 @@
 
       this._buildSystemBackdrop(star);
       this._syncSystemSkyDome(0);
+    }
+
+    _buildSystemMoonEntries() {
+      if (!Array.isArray(this.systemPlanetEntries) || !this.systemPlanetEntries.length) return [];
+
+      const moonEntries = [];
+      this.systemPlanetEntries.forEach((parentEntry, planetIndex) => {
+        const moons = Array.isArray(parentEntry.body?.moons) ? parentEntry.body.moons.filter(Boolean) : [];
+        if (!moons.length) return;
+
+        const parentRadius = Number(
+          parentEntry.renderMesh?.geometry?.parameters?.radius
+          || parentEntry.mesh?.geometry?.parameters?.radius
+          || this._planetSize(parentEntry.body, planetIndex)
+        );
+
+        const moonPeriodMetrics = moons.map((moon, moonIndex) => {
+          const periodDays = Number(moon?.orbital_period_days || 0);
+          const axisParentR = Math.max(0.8, Number(moon?.semi_major_axis_parent_r || moon?.semi_major_axis || (2 + moonIndex * 1.35)));
+          return periodDays > 0 ? periodDays : Math.pow(axisParentR, 1.5);
+        });
+        const minMoonPeriodMetric = Math.max(0.01, Math.min(...moonPeriodMetrics));
+
+        moons.forEach((moon, moonIndex) => {
+          const moonDiameter = Number(moon?.diameter || 0);
+          const moonSize = moonDiameter > 0
+            ? THREE.MathUtils.clamp(0.75 + moonDiameter / 4200, 0.85, Math.max(1.9, parentRadius * 0.55))
+            : THREE.MathUtils.clamp(parentRadius * (0.24 + moonIndex * 0.04), 0.9, Math.max(1.8, parentRadius * 0.5));
+          const axisParentR = Math.max(0.8, Number(moon?.semi_major_axis_parent_r || moon?.semi_major_axis || (2 + moonIndex * 1.35)));
+          const orbitRadius = THREE.MathUtils.clamp(
+            parentRadius * (1.7 + axisParentR * 0.36),
+            parentRadius * 1.8 + moonSize * 1.8,
+            Math.max(parentRadius * 6.8, parentRadius * 2.4 + 12)
+          );
+          const eccentricity = THREE.MathUtils.clamp(Number(moon?.orbital_eccentricity ?? (0.02 + moonIndex * 0.01)), 0, 0.92);
+          const orbitMinor = orbitRadius * Math.sqrt(1 - eccentricity * eccentricity);
+          const phase = Number(moon?.polar_theta_rad);
+          const periodMetric = Number(moonPeriodMetrics[moonIndex] || 1);
+          const orbitPoints = this._buildOrbitCurvePoints(orbitRadius, orbitMinor, eccentricity);
+          const orbitLine = new THREE.LineLoop(
+            new THREE.BufferGeometry().setFromPoints(orbitPoints),
+            new THREE.LineBasicMaterial({ color: 0x6f87aa, transparent: true, opacity: 0.32 })
+          );
+          const orbitLeadMarker = new THREE.Mesh(
+            new THREE.SphereGeometry(Math.max(0.35, moonSize * 0.18), 8, 8),
+            new THREE.MeshBasicMaterial({ color: 0xbfd8ff, transparent: true, opacity: 0.58 })
+          );
+          const orbitPivot = new THREE.Group();
+          orbitPivot.rotation.x = Math.PI / 2;
+          orbitPivot.rotation.z = (moonIndex % 3 - 1) * 0.12;
+          orbitPivot.rotation.y = planetIndex * 0.22 + moonIndex * 0.68;
+          orbitPivot.add(orbitLine);
+          orbitPivot.add(orbitLeadMarker);
+          this.systemBodyGroup.add(orbitPivot);
+
+          const moonGeometry = new THREE.SphereGeometry(moonSize, 14, 14);
+          const moonMaterial = new THREE.MeshStandardMaterial({
+            color: this._planetColor(moon?.planet_class || moon?.body_type || 'moon'),
+            roughness: 0.88,
+            metalness: 0.03,
+          });
+          const mesh = new THREE.Mesh(moonGeometry, moonMaterial);
+          mesh.userData = {
+            kind: 'moon',
+            body: moon,
+            parentEntry,
+            moonIndex,
+          };
+          orbitPivot.add(mesh);
+
+          moonEntries.push({
+            mesh,
+            renderMesh: mesh,
+            body: moon,
+            parentEntry,
+            orbitPivot,
+            orbitLine,
+            orbitLeadMarker,
+            orbitRadius,
+            orbitMinor,
+            eccentricity,
+            currentLocalPosition: new THREE.Vector3(),
+            currentWorldPosition: new THREE.Vector3(),
+            angle: Number.isFinite(phase) ? phase : (moonIndex / Math.max(1, moons.length)) * Math.PI * 2,
+            speed: this._visualOrbitAngularSpeed(periodMetric, minMoonPeriodMetric),
+          });
+        });
+      });
+
+      traceSystemRender('buildSystemMoonEntries:complete', {
+        parentPlanets: this.systemPlanetEntries.length,
+        moonsBuilt: moonEntries.length,
+      });
+      return moonEntries;
     }
 
     _queueSystemRefinement(star, payload) {
@@ -3681,6 +3994,7 @@
       this.autoFrameEnabled = false;
       this._lastZoomInputMs = performance.now();
       const zoomIn = e.deltaY < 0;
+      if (!zoomIn) this._lastZoomOutInputMs = this._lastZoomInputMs;
       this._zoomTowardsTarget(zoomIn ? 0.88 : 1.14);
     }
 
@@ -3748,6 +4062,7 @@
 
     _zoomTowardsTarget(factor) {
       this._lastZoomInputMs = performance.now();
+      if (Number(factor || 1) > 1.001) this._lastZoomOutInputMs = this._lastZoomInputMs;
       const offset = this.camera.position.clone().sub(this.controls.target).multiplyScalar(factor);
       const dist = offset.length();
       if (dist < this.controls.minDistance) offset.setLength(this.controls.minDistance);
@@ -4522,6 +4837,15 @@
       this.hoverClusterIndex = -1;
       this.selectedIndex = idx;
       this._touchSelection('click-star');
+      logEnterSystemDebug('click-star', {
+        instanceId: this.instanceId,
+        index: idx,
+        galaxy: Number(this.visibleStars[idx]?.galaxy_index || 0),
+        system: Number(this.visibleStars[idx]?.system_index || 0),
+        starName: String(this.visibleStars[idx]?.name || this.visibleStars[idx]?.catalog_name || ''),
+        cameraDistance: Number(this._cameraDistance().toFixed(2)),
+        visibleStars: Array.isArray(this.visibleStars) ? this.visibleStars.length : 0,
+      });
       this._updateHoverMarker();
       this.focusOnStar(this.visibleStars[idx], true);
       this._updateStarVisualState();
@@ -4532,6 +4856,17 @@
 
     _handleDoubleClick(e) {
       this._eventToNdc(e);
+      logEnterSystemDebug('doubleclick:received', {
+        instanceId: this.instanceId,
+        systemMode: !!this.systemMode,
+        selectedIndex: Number(this.selectedIndex || -1),
+        hoverIndex: Number(this.hoverIndex || -1),
+        visibleStars: Array.isArray(this.visibleStars) ? this.visibleStars.length : 0,
+        pointerPx: {
+          x: Number(this.pointerPx?.x || 0),
+          y: Number(this.pointerPx?.y || 0),
+        },
+      });
       if (this.systemMode) {
         const entry = this.clickMagnetEnabled
           ? this._applyMagneticSystemHover(this._pickSystemPlanet())
@@ -4543,6 +4878,11 @@
           this._touchSelection('doubleclick-planet');
           this._updateHoverMarker();
           if (typeof this.opts.onDoubleClick === 'function') {
+            logEnterSystemDebug('doubleclick:planet-hit', {
+              instanceId: this.instanceId,
+              slot: Number(entry?.slot?.position || 0),
+              sourceSystem: Number(this.systemSourceStar?.system_index || 0),
+            });
             this.opts.onDoubleClick(Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }), this._getSystemPlanetScreenPosition(entry));
           }
           return;
@@ -4559,6 +4899,10 @@
         this._updateHoverMarker();
         this._focusOnSelection(dyn, true);
         if (typeof this.opts.onDoubleClick === 'function') {
+          logEnterSystemDebug('doubleclick:system-object-hit', {
+            instanceId: this.instanceId,
+            kind: String(dyn.kind || ''),
+          });
           this.opts.onDoubleClick(this._selectionPayload(dyn), this._selectionScreenPosition(dyn));
         }
         return;
@@ -4580,6 +4924,10 @@
           this._updateStarVisualState();
           this._focusOnSelection(dynamicSelection, true);
           if (typeof this.opts.onDoubleClick === 'function') {
+            logEnterSystemDebug('doubleclick:galaxy-object-hit', {
+              instanceId: this.instanceId,
+              kind: String(dynamicSelection.kind || ''),
+            });
             this.opts.onDoubleClick(this._selectionPayload(dynamicSelection), this._selectionScreenPosition(dynamicSelection));
           }
           return;
@@ -4599,9 +4947,20 @@
           this.focusOnCluster(clusterIdx, true, { close: true });
           this._updateStarVisualState();
           if (typeof this.opts.onDoubleClick === 'function') {
+            logEnterSystemDebug('doubleclick:cluster-hit', {
+              instanceId: this.instanceId,
+              clusterIndex: clusterIdx,
+            });
             this.opts.onDoubleClick(this._clusterPayload(entry, clusterIdx), this._clusterWorldScreenPosition(entry));
           }
         }
+        logEnterSystemDebug('doubleclick:miss', {
+          instanceId: this.instanceId,
+          reason: 'no-star-cluster-or-dynamic-selection',
+          selectedIndex: Number(this.selectedIndex || -1),
+          hoverIndex: Number(this.hoverIndex || -1),
+          cameraDistance: Number(this._cameraDistance().toFixed(2)),
+        }, 'warn');
         return;
       }
       this.galaxySelectedObject = null;
@@ -4610,6 +4969,14 @@
       this.hoverClusterIndex = -1;
       this.selectedIndex = idx;
       this._touchSelection('doubleclick-star');
+      logEnterSystemDebug('doubleclick:star-hit', {
+        instanceId: this.instanceId,
+        index: idx,
+        galaxy: Number(this.visibleStars[idx]?.galaxy_index || 0),
+        system: Number(this.visibleStars[idx]?.system_index || 0),
+        starName: String(this.visibleStars[idx]?.name || this.visibleStars[idx]?.catalog_name || ''),
+        cameraDistance: Number(this._cameraDistance().toFixed(2)),
+      });
       this._updateHoverMarker();
       this.focusOnStar(this.visibleStars[idx], true);
       this._updateStarVisualState();
@@ -4843,6 +5210,7 @@
         ? this.geometryManager.getInstancingCandidates(4).length
         : 0;
       return {
+        instanceId: String(this.instanceId || ''),
         rawStars: raw,
         visibleStars: visible,
         clusterCount: Array.isArray(this.clusterAuraEntries) ? this.clusterAuraEntries.length : 0,
@@ -4861,7 +5229,69 @@
         cameraDistance: Number(this._cameraDistance() || 0),
         instancingCandidates,
         lightRig: this.getLightRig(),
+        systemMode: !!this.systemMode,
+        selectedIndex: Number(this.selectedIndex || -1),
+        hoverIndex: Number(this.hoverIndex || -1),
+        domAttached: !!this.renderer?.domElement?.isConnected,
+        canvasId: String(this.renderer?.domElement?.id || this.externalCanvas?.id || ''),
+        scientificScaleEnabled: !!this.useScientificScale,
       };
+    }
+
+    toggleScientificScale() {
+      if (!this.systemMode) {
+        console.warn('[GQ] Scientific scale toggle only available in system view');
+        return false;
+      }
+      this.useScientificScale = !this.useScientificScale;
+      
+      // Rescale all planet meshes
+      if (Array.isArray(this.systemPlanetEntries)) {
+        this.systemPlanetEntries.forEach((entry) => {
+          if (entry.renderMesh && entry.orbitRadius) {
+            const currentScale = entry.renderMesh.scale.x;
+            const baseSize = this._planetSize(entry.body, entry.orbitIndex);
+            const scientificSize = this._planetSize(entry.body, entry.orbitIndex, entry.orbitRadius);
+            const newScale = scientificSize / baseSize;
+            entry.renderMesh.scale.set(newScale, newScale, newScale);
+            
+            // Update proxy mesh scale too
+            if (entry.mesh) {
+              entry.mesh.scale.copy(entry.renderMesh.scale);
+            }
+          }
+        });
+      }
+      
+      // Rescale all moon meshes
+      if (Array.isArray(this.systemMoonEntries)) {
+        this.systemMoonEntries.forEach((entry) => {
+          if (entry.mesh && entry.parentEntry) {
+            const parentRadius = entry.parentEntry.renderMesh?.geometry?.parameters?.radius || 4;
+            const moonDiameter = Number(entry.body?.diameter || 0);
+            const baseMoonSize = moonDiameter > 0
+              ? THREE.MathUtils.clamp(0.75 + moonDiameter / 4200, 0.85, Math.max(1.9, parentRadius * 0.55))
+              : THREE.MathUtils.clamp(parentRadius * (0.24 + entry.orbitIndex * 0.04), 0.9, Math.max(1.8, parentRadius * 0.5));
+            const scaleFactor = this.useScientificScale ? 
+              (entry.parentEntry.renderMesh.scale.x > 1 ? entry.parentEntry.renderMesh.scale.x * 0.6 : 1) : 1;
+            entry.mesh.scale.set(scaleFactor, scaleFactor, scaleFactor);
+          }
+        });
+      }
+      
+      // Adjust camera FOV to accommodate new scale
+      const targetFov = this.useScientificScale 
+        ? Math.max(20, Number(this.camera?.fov || 50) * this.scientificScaleZoomFactor)
+        : (this.focusTarget?.toFov || this.systemEntryFov || 50);
+      
+      if (this.camera && this.focusTarget) {
+        this.focusTarget.toFov = targetFov;
+      } else if (this.camera) {
+        this.camera.fov = targetFov;
+        this.camera.updateProjectionMatrix();
+      }
+      
+      return this.useScientificScale;
     }
 
     getQualityProfileState() {
@@ -4916,6 +5346,11 @@
       this.visibleToRawIndex = [];
       this.hoverIndex = -1;
       this.selectedIndex = -1;
+      logEnterSystemDebug('setStars:reset', {
+        instanceId: this.instanceId,
+        rawStarsIncoming: this.stars.length,
+        preserveView,
+      });
 
       if (this.starPoints) {
         if (this.renderFrames?.galaxy) {
@@ -4942,6 +5377,13 @@
       this.visibleStars = clustered.stars;
       this.visibleToRawIndex = clustered.map;
       this._debugLog('set-stars', {
+        rawStars: this.stars.length,
+        visibleStars: this.visibleStars.length,
+        targetPoints,
+        preserveView,
+      });
+      logEnterSystemDebug('setStars:applied', {
+        instanceId: this.instanceId,
         rawStars: this.stars.length,
         visibleStars: this.visibleStars.length,
         targetPoints,
@@ -5489,6 +5931,12 @@ ${shader.vertexShader}`;
       visit(entry.renderMesh);
     }
 
+    _allSystemOrbitEntries() {
+      const planets = Array.isArray(this.systemPlanetEntries) ? this.systemPlanetEntries : [];
+      const moons = Array.isArray(this.systemMoonEntries) ? this.systemMoonEntries : [];
+      return moons.length ? planets.concat(moons) : planets;
+    }
+
     _systemOrbitVisibilityFactor() {
       if (!this.systemMode || this.systemOrbitPathsVisible === false) return 0;
       const distance = Number(this._cameraDistance?.() || 0);
@@ -5499,13 +5947,14 @@ ${shader.vertexShader}`;
     }
 
     _updateSystemOrbitLineStates() {
-      if (!Array.isArray(this.systemPlanetEntries)) return;
+      const orbitEntries = this._allSystemOrbitEntries();
+      if (!orbitEntries.length) return;
       const hover = this.systemHoverEntry;
       const sel = this.systemSelectedEntry;
       const focusOnly = this.systemOrbitFocusOnly === true;
       const hasFocusTarget = !!(hover || sel);
       const zoomVisibility = this._systemOrbitVisibilityFactor();
-      this.systemPlanetEntries.forEach((entry) => {
+      orbitEntries.forEach((entry) => {
         const mat = entry.orbitLine?.material;
         const markerMat = entry.orbitLeadMarker?.material;
         if (!mat && !markerMat) return;
@@ -5599,7 +6048,7 @@ ${shader.vertexShader}`;
     _resolveOrbitSimulationMode() {
       const requestedMode = this._normalizeOrbitSimulationMode(this.orbitSimulationMode);
       if (requestedMode !== 'auto') return requestedMode;
-      const bodyCount = Array.isArray(this.systemPlanetEntries) ? this.systemPlanetEntries.length : 0;
+      const bodyCount = this._allSystemOrbitEntries().length;
       return bodyCount > 14 ? 'simple' : 'complex';
     }
 
@@ -5676,13 +6125,16 @@ ${shader.vertexShader}`;
 
     _updateSystemOrbitTransforms(dt) {
       if (!Array.isArray(this.systemPlanetEntries) || !this.systemPlanetEntries.length) return;
+      const orbitDt = dt * Number(this.visualOrbitTimeScale || 1);
+      const planetSpinDt = dt * Number(this.visualPlanetSpinScale || 1);
+      const moonSpinDt = dt * Number(this.visualMoonSpinScale || 1);
       const orbitMode = this._resolveOrbitSimulationMode();
       // GPU visuals are active for all orbit modes.
       // simple → parametric angle; complex → CPU-solved position passed as direct offset.
       const useDirectOffset = orbitMode === 'complex';
       this.activeOrbitSimulationMode = orbitMode;
       this.activeGpuOrbitVisuals = true;
-      this._stepOrbitSimulationBuffer(dt);
+      this._stepOrbitSimulationBuffer(orbitDt);
       this.systemPlanetEntries.forEach((entry, index) => {
         this._readOrbitSimulationEntry(entry);
         const orbitalPos = this._computeOrbitPosition(entry, orbitMode, this._orbitScratchLocal);
@@ -5703,13 +6155,35 @@ ${shader.vertexShader}`;
         }
         this._setEntryGpuOrbitVisualState(entry, true, useDirectOffset);
         const visibleMesh = entry.renderMesh || entry.mesh;
-        visibleMesh.rotation.y += dt * (0.25 + index * 0.03);
+        visibleMesh.rotation.y += planetSpinDt * (0.25 + index * 0.03);
         visibleMesh.children.forEach((child) => {
           if (!child || child.userData?.kind !== 'planet-ring') return;
-          child.rotation.z += dt * Number(child.userData?.rotationSpeed || 0.01);
-          child.rotation.y += dt * Number(child.userData?.precessionSpeed || 0.001);
+          child.rotation.z += planetSpinDt * Number(child.userData?.rotationSpeed || 0.01);
+          child.rotation.y += planetSpinDt * Number(child.userData?.precessionSpeed || 0.001);
         });
       });
+
+      if (Array.isArray(this.systemMoonEntries) && this.systemMoonEntries.length) {
+        this.systemMoonEntries.forEach((entry, index) => {
+          const parentMesh = entry.parentEntry?.mesh;
+          if (!parentMesh) return;
+          entry.orbitPivot.position.copy(parentMesh.position);
+          entry.angle += orbitDt * Number(entry.speed || 0);
+          const orbitalPos = this._computeOrbitPosition(entry, orbitMode, this._orbitScratchLocal);
+          entry.currentLocalPosition.copy(orbitalPos);
+          entry.mesh.position.copy(orbitalPos);
+          if (entry.orbitLeadMarker) {
+            const leadAngle = Number(entry.angle || 0) + Math.max(0.08, Math.min(0.38, Math.abs(Number(entry.speed || 0)) * 0.12));
+            const leadEntry = Object.assign({}, entry, { angle: leadAngle });
+            const leadPos = this._computeOrbitPosition(leadEntry, orbitMode, this._orbitScratchWorld);
+            entry.orbitLeadMarker.position.copy(leadPos);
+            entry.orbitLeadMarker.visible = this.systemOrbitPathsVisible !== false && this.systemOrbitMarkersVisible !== false;
+          }
+          entry.mesh.getWorldPosition(entry.currentWorldPosition);
+          entry.renderMesh.rotation.y += moonSpinDt * (0.32 + index * 0.025);
+        });
+      }
+
       this._updateSystemOrbitLineStates();
     }
 
@@ -5978,6 +6452,17 @@ ${shader.vertexShader}`;
 
       this.controls.target.lerpVectors(this.focusTarget.fromTarget, this.focusTarget.toTarget, k);
       this.camera.position.lerpVectors(this.focusTarget.fromPos, this.focusTarget.toPos, k);
+      const fromUp = this.focusTarget.fromUp;
+      const toUp = this.focusTarget.toUp;
+      if (fromUp?.isVector3 && toUp?.isVector3) {
+        this.camera.up.lerpVectors(fromUp, toUp, k).normalize();
+      }
+      const fromFov = Number(this.focusTarget.fromFov);
+      const toFov = Number(this.focusTarget.toFov);
+      if (Number.isFinite(fromFov) && Number.isFinite(toFov)) {
+        this.camera.fov = THREE.MathUtils.lerp(fromFov, toFov, k);
+        this.camera.updateProjectionMatrix();
+      }
       if (t >= 1) this.focusTarget = null;
     }
 
@@ -6046,6 +6531,16 @@ ${shader.vertexShader}`;
         distance: Number(this._cameraDistance().toFixed(2)),
         selectedIndex: this.selectedIndex,
         hasSystemSelection: !!this.systemSelectedEntry,
+      });
+      logEnterSystemDebug('auto-transition', {
+        instanceId: this.instanceId,
+        kind,
+        distance: Number(this._cameraDistance().toFixed(2)),
+        selectedIndex: Number(this.selectedIndex || -1),
+        hoverIndex: Number(this.hoverIndex || -1),
+        hasSystemSelection: !!this.systemSelectedEntry,
+        payloadSystem: Number(payload?.system_index || payload?.system || payload?.__sourceStar?.system_index || 0),
+        payloadKind: String(payload?.__kind || 'star'),
       });
       if (kind === 'enter-system') {
         this.autoTransitionArmed.galaxyEnterSystem = false;
@@ -6149,9 +6644,17 @@ ${shader.vertexShader}`;
       }
 
       const allowSystemExit = motionStable || distance >= this.zoomThresholds.systemExitToGalaxy * 1.08;
-      if (!this.systemSelectedEntry && allowSystemExit && distance >= this.zoomThresholds.systemExitToGalaxy && this.autoTransitionArmed.systemExitToGalaxy) {
+      const zoomOutIntentRecent = (performance.now() - Number(this._lastZoomOutInputMs || 0)) <= 1400;
+      if (!this.systemSelectedEntry && allowSystemExit && distance >= this.zoomThresholds.systemExitToGalaxy && this.autoTransitionArmed.systemExitToGalaxy && zoomOutIntentRecent) {
         this._triggerAutoTransition('exit-system');
         return;
+      }
+      if (!zoomOutIntentRecent && distance >= this.zoomThresholds.systemExitToGalaxy && this.autoTransitionArmed.systemExitToGalaxy) {
+        this._debugLogThrottled('guard-system-exit-intent', 'transition-guarded', {
+          kind: 'exit-system',
+          reason: 'missing-zoom-out-intent',
+          distance: Number(distance.toFixed(2)),
+        });
       }
       if (distance <= this.zoomThresholds.systemResetExit) {
         this.autoTransitionArmed.systemExitToGalaxy = true;
@@ -6520,4 +7023,7 @@ ${shader.vertexShader}`;
 
   window.Galaxy3DRenderer = Galaxy3DRenderer;
   window.GalaxyRendererCore = Galaxy3DRenderer;
+  if (!window.Galaxy3DView) {
+    window.Galaxy3DView = Galaxy3DRenderer;
+  }
 })();
