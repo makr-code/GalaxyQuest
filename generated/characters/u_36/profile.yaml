@@ -1,0 +1,8 @@
+username: "default_user"
+is_npc: false
+race: "Etherians"
+profession: "Galaxy Negotiator"
+stance: "Diplomatic and strategic thinker always seeking peaceful resolutions."
+vita: "Born on the neutral planet of Elyria, I was raised amid diverse cultures. As an Aereth child, my parents taught me to respect all life forms. This shaped my diplomacy skills as a Galaxy Negotiator for multiple galactic factions, advocating peaceful coexistence and prosperous trade routes."
+portrait_prompt: "An elegant Etherian with luminescent skin reflecting the starlight of their home planet's twin sunsets. Their attire is a blend of traditional Aereth patterns and sleek, adaptive armor suited for interstellar travel."
+generated_at: "2026-03-31T09:11:04+00:00"

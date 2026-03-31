@@ -523,12 +523,12 @@ function is_quest_complete(PDO $db, int $userId, string $type, array $req): bool
         case 'kill':
             if (isset($req['faction'])) {
                 // Count battle wins against that faction's NPC users
-                $stmt = $db->prepare(
-                    'SELECT COUNT(*) FROM battle_reports br
-                     JOIN users u ON u.id = br.defender_id
-                     WHERE br.attacker_id = ? AND u.is_npc = 1
-                       AND JSON_EXTRACT(br.report_json,\'$.attacker_wins\') = true'
-                );
+                                $stmt = $db->prepare(
+                                        'SELECT COUNT(*) FROM battle_reports br
+                                         JOIN users u ON u.id = br.defender_id
+                                         WHERE br.attacker_id = ? AND u.control_type = \'npc_engine\'
+                                             AND JSON_EXTRACT(br.report_json,\'$.attacker_wins\') = true'
+                                );
                 $stmt->execute([$userId]);
                 return (int)$stmt->fetchColumn() >= (int)($req['count'] ?? 1);
             }

@@ -83,6 +83,11 @@
   let authWindowIntegrationAttempted = false;
   let preloadPanelSuppressed = false;
   let lastPhaseBucket = -1;
+  let homeworldTargetInflight = null;
+  let homeworldTargetCache = null;
+  let homeworldTargetCacheAt = 0;
+
+  const HOMEWORLD_TARGET_CACHE_TTL_MS = 30000;
 
   // Keep remember-me enabled by default on the auth shell.
   if (loginRemember) loginRemember.checked = true;
@@ -433,47 +438,99 @@
     }
   }
 
+  function isTimeoutError(err) {
+    const code = String(err?.code || '').toUpperCase();
+    const msg = String(err?.message || '').toLowerCase();
+    return code === 'ETIMEOUT' || msg.includes('timeout');
+  }
+
+  async function fetchWithTimeoutRetry(url, opts = {}) {
+    const retries = Math.max(0, Number(opts.retries || 0));
+    const retryDelayMs = Math.max(0, Number(opts.retryDelayMs || 300));
+    const baseOpts = { ...opts };
+    delete baseOpts.retries;
+    delete baseOpts.retryDelayMs;
+
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        return await fetchWithTimeout(url, baseOpts);
+      } catch (err) {
+        const lastAttempt = attempt >= retries;
+        const shouldRetry = !lastAttempt && isTimeoutError(err);
+        if (!shouldRetry) throw err;
+        const tag = String(baseOpts.tag || 'fetch');
+        authLog('warn', `${tag} timeout retry ${attempt + 1}/${retries}`);
+        await sleep(retryDelayMs);
+      }
+    }
+
+    throw new Error('fetchWithTimeoutRetry reached unreachable branch');
+  }
+
   async function resolveHomeworldFlightTarget() {
-    const overviewRes = await fetchWithTimeout('api/game.php?action=overview', {
-      credentials: 'same-origin',
-      timeoutMs: 18000,
-      tag: 'overview-home-target',
-      cache: 'no-store',
-    });
-    const overviewData = await parseApiJson(overviewRes, 'overview-home-target');
-    const colonies = Array.isArray(overviewData?.colonies) ? overviewData.colonies : [];
-    const home = colonies.find((c) => Number(c?.is_homeworld || 0) === 1) || colonies[0] || null;
-    if (!home) return null;
+    const now = Date.now();
+    if (homeworldTargetCache && (now - homeworldTargetCacheAt) < HOMEWORLD_TARGET_CACHE_TTL_MS) {
+      return homeworldTargetCache;
+    }
+    if (homeworldTargetInflight) {
+      return homeworldTargetInflight;
+    }
 
-    const g = Number(home?.galaxy || 0);
-    const s = Number(home?.system || 0);
-    if (!Number.isFinite(g) || !Number.isFinite(s) || g <= 0 || s <= 0) return null;
+    homeworldTargetInflight = (async () => {
+      const overviewRes = await fetchWithTimeoutRetry('api/game.php?action=overview', {
+        credentials: 'same-origin',
+        timeoutMs: 26000,
+        tag: 'overview-home-target',
+        cache: 'no-store',
+        retries: 1,
+        retryDelayMs: 450,
+      });
+      const overviewData = await parseApiJson(overviewRes, 'overview-home-target');
+      const colonies = Array.isArray(overviewData?.colonies) ? overviewData.colonies : [];
+      const home = colonies.find((c) => Number(c?.is_homeworld || 0) === 1) || colonies[0] || null;
+      if (!home) return null;
 
-    const starInfoRes = await fetchWithTimeout(`api/galaxy.php?action=star_info&galaxy=${g}&system=${s}`, {
-      credentials: 'same-origin',
-      timeoutMs: 14000,
-      tag: 'star-info-home-target',
-      cache: 'no-store',
-    });
-    const starInfo = await parseApiJson(starInfoRes, 'star-info-home-target');
-    const xy = starInfo?.star?.xy || {};
+      const g = Number(home?.galaxy || 0);
+      const s = Number(home?.system || 0);
+      if (!Number.isFinite(g) || !Number.isFinite(s) || g <= 0 || s <= 0) return null;
 
-    const x = Number(xy.x_ly);
-    const y = Number(xy.y_ly || 0);
-    const z = Number(xy.z_ly);
-    if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+      const starInfoRes = await fetchWithTimeoutRetry(`api/galaxy.php?action=star_info&galaxy=${g}&system=${s}`, {
+        credentials: 'same-origin',
+        timeoutMs: 16000,
+        tag: 'star-info-home-target',
+        cache: 'no-store',
+        retries: 1,
+        retryDelayMs: 350,
+      });
+      const starInfo = await parseApiJson(starInfoRes, 'star-info-home-target');
+      const xy = starInfo?.star?.xy || {};
 
-    return {
-      id: Number(starInfo?.id || s) || s,
-      system_index: s,
-      galaxy_index: g,
-      x_ly: x,
-      y_ly: y,
-      z_ly: z,
-      label: String(home?.name || 'Homeworld'),
-      colony_id: Number(home?.id || 0) || 0,
-      planet_position: Number(home?.position || 0) || 0,
-    };
+      const x = Number(xy.x_ly);
+      const y = Number(xy.y_ly || 0);
+      const z = Number(xy.z_ly);
+      if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+
+      return {
+        id: Number(starInfo?.id || s) || s,
+        system_index: s,
+        galaxy_index: g,
+        x_ly: x,
+        y_ly: y,
+        z_ly: z,
+        label: String(home?.name || 'Homeworld'),
+        colony_id: Number(home?.id || 0) || 0,
+        planet_position: Number(home?.position || 0) || 0,
+      };
+    })();
+
+    try {
+      const target = await homeworldTargetInflight;
+      homeworldTargetCache = target;
+      homeworldTargetCacheAt = Date.now();
+      return target;
+    } finally {
+      homeworldTargetInflight = null;
+    }
   }
 
   async function ensureAuthWindowManaged() {
@@ -939,8 +996,14 @@
       tabs.forEach((t) => t.classList.remove('active'));
       btn.classList.add('active');
       const tab = btn.dataset.tab;
-      loginForm.classList.toggle('hidden', tab !== 'login');
-      registerForm.classList.toggle('hidden', tab !== 'register');
+      // Hide 2FA panel and restore login form whenever user switches tabs.
+      const panel2fa = document.getElementById('auth-2fa-panel');
+      if (panel2fa && !panel2fa.classList.contains('hidden')) {
+        panel2fa.classList.add('hidden');
+        loginForm?.classList.remove('hidden');
+      }
+      loginForm?.classList.toggle('hidden', tab !== 'login');
+      registerForm?.classList.toggle('hidden', tab !== 'register');
     });
   });
 
@@ -1248,17 +1311,27 @@
       authProbe(`login response success=${!!data.success}`);
       authLog('info', `login response success=${!!data.success}`);
       if (data.success) {
-        let homeTarget = null;
-        try {
-          homeTarget = await resolveHomeworldFlightTarget();
-        } catch (targetErr) {
-          authLog('warn', 'homeworld target resolve failed (login)', String(targetErr?.message || targetErr || 'unknown'));
+        // ── TOTP 2FA challenge ─────────────────────────────────────────────
+        if (data.requires_2fa) {
+          hideActionModal();
+          show2FAChallenge(data.totp_session, loginPayload.remember, errEl);
+          return; // btn will be re-enabled by 2FA flow or cancel
         }
+        // ── Normal login – proceed to game ────────────────────────────────
+        const homeTargetTask = resolveHomeworldFlightTarget().catch((targetErr) => {
+          authLog('warn', 'homeworld target resolve failed (login)', String(targetErr?.message || targetErr || 'unknown'));
+          return null;
+        });
+        const homeTarget = await Promise.race([
+          homeTargetTask,
+          sleep(2200).then(() => null),
+        ]);
         if (homeTarget) {
           queueHomeworldIntroFlight({ source: 'login', targetStar: homeTarget });
           applyAuthFlightTarget(homeTarget);
           await sleep(700);
         } else {
+          authLog('warn', 'homeworld target skipped (login)', 'best-effort budget exceeded');
           queueHomeworldIntroFlight({ source: 'login' });
         }
         await startGameShell();
@@ -1280,6 +1353,142 @@
   });
   authReady.loginBound = !!loginForm;
   authProbe(`login handler bound=${authReady.loginBound}`);
+
+  // ── TOTP 2FA challenge helper ──────────────────────────────────────────────
+  /**
+   * Show the inline 2FA code input box, handle submission and re-enable the
+   * login button once the challenge is resolved (success or cancel).
+   *
+   * @param {string}  totpSession  Half-auth token returned by the login endpoint.
+   * @param {boolean} remember     Whether "keep me signed in" was checked.
+   * @param {Element} errEl        The login error display element.
+   */
+  function show2FAChallenge(totpSession, remember, errEl) {
+    const loginBtn = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
+    const panel = document.getElementById('auth-2fa-panel');
+    const codeInput = document.getElementById('auth-2fa-code');
+    const submitBtn = document.getElementById('auth-2fa-submit');
+    const cancelBtn = document.getElementById('auth-2fa-cancel');
+    const panelErr = document.getElementById('auth-2fa-error');
+
+    if (!panel || !codeInput || !submitBtn) {
+      // Fallback: prompt() if the DOM panel is missing (should not happen).
+      authLog('warn', '2FA panel elements missing; using fallback prompt');
+      const code = window.prompt('Authenticator-Code eingeben (6 Ziffern):');
+      if (!code || !/^\d{6}$/.test(code.trim())) {
+        if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = 'Enter the Galaxy'; }
+        return;
+      }
+      doTotpChallenge(totpSession, code.trim(), remember, errEl, loginBtn);
+      return;
+    }
+
+    // Show the panel, focus the input.
+    loginForm?.classList.add('hidden');
+    panel.classList.remove('hidden');
+    if (panelErr) panelErr.textContent = '';
+    codeInput.value = '';
+    codeInput.focus();
+
+    function cleanup() {
+      panel.classList.add('hidden');
+      loginForm?.classList.remove('hidden');
+      if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = 'Enter the Galaxy'; }
+      submitBtn.removeEventListener('click', onSubmit);
+      cancelBtn?.removeEventListener('click', onCancel);
+      panel.removeEventListener('keydown', onKeydown);
+    }
+
+    async function onSubmit() {
+      const code = codeInput.value.trim();
+      if (!/^\d{6}$/.test(code)) {
+        if (panelErr) panelErr.textContent = 'Bitte einen 6-stelligen Code eingeben.';
+        codeInput.focus();
+        return;
+      }
+      submitBtn.disabled = true;
+      if (panelErr) panelErr.textContent = '';
+      await doTotpChallenge(totpSession, code, remember, errEl, loginBtn, cleanup);
+      submitBtn.disabled = false;
+    }
+
+    function onCancel() {
+      authLog('info', '2FA challenge cancelled by user');
+      cleanup();
+    }
+
+    function onKeydown(ev) {
+      if (ev.key === 'Enter' && !ev.shiftKey && !ev.ctrlKey && !ev.altKey) {
+        ev.preventDefault();
+        onSubmit();
+      }
+    }
+
+    submitBtn.addEventListener('click', onSubmit);
+    cancelBtn?.addEventListener('click', onCancel);
+    panel.addEventListener('keydown', onKeydown);
+  }
+
+  /**
+   * POST the TOTP code + half-auth token to the server and on success
+   * boot the game shell; on failure display an error and return.
+   */
+  async function doTotpChallenge(totpSession, code, remember, errEl, loginBtn, cleanup) {
+    showActionModal('Bestätigen...', '2FA-Code wird geprüft.', true);
+    try {
+      const doChallenge = async (forceCsrf = false) => {
+        const csrf = await getCsrf({ force: forceCsrf });
+        const res = await fetchWithTimeout('api/auth.php?action=totp_login_challenge', {
+          method: 'POST',
+          credentials: 'same-origin',
+          timeoutMs: 15000,
+          tag: 'totp-challenge',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+          body: JSON.stringify({ totp_session: totpSession, code, remember }),
+        });
+        return parseApiJson(res, 'totp-challenge');
+      };
+
+      let data;
+      try {
+        data = await doChallenge(false);
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        const msg = String(err?.message || '').toLowerCase();
+        if (status === 403 && /csrf/.test(msg)) {
+          data = await doChallenge(true);
+        } else {
+          throw err;
+        }
+      }
+
+      if (data.success) {
+        if (cleanup) cleanup();
+        const homeTargetTask = resolveHomeworldFlightTarget().catch(() => null);
+        const homeTarget = await Promise.race([homeTargetTask, sleep(2200).then(() => null)]);
+        if (homeTarget) {
+          queueHomeworldIntroFlight({ source: 'login-2fa', targetStar: homeTarget });
+          applyAuthFlightTarget(homeTarget);
+          await sleep(700);
+        } else {
+          queueHomeworldIntroFlight({ source: 'login-2fa' });
+        }
+        await startGameShell();
+      } else {
+        hideActionModal();
+        const panel2faErr = document.getElementById('auth-2fa-error');
+        if (panel2faErr) panel2faErr.textContent = data.error || 'Ungültiger Code.';
+        else if (errEl) errEl.textContent = data.error || 'Ungültiger Code.';
+      }
+    } catch (err) {
+      hideActionModal();
+      const panel2faErr = document.getElementById('auth-2fa-error');
+      const msg = userFacingAuthError(err);
+      if (panel2faErr) panel2faErr.textContent = msg;
+      else if (errEl) errEl.textContent = msg;
+      authLog('error', 'totp challenge error', String(err?.message || err || 'unknown'));
+    }
+  }
 
   if (!registerForm) {
     authLog('error', 'register-form missing; submit handler not bound');
@@ -1344,17 +1553,20 @@
         data = await submitRegister(true);
       }
       if (data.success) {
-        let homeTarget = null;
-        try {
-          homeTarget = await resolveHomeworldFlightTarget();
-        } catch (targetErr) {
+        const homeTargetTask = resolveHomeworldFlightTarget().catch((targetErr) => {
           authLog('warn', 'homeworld target resolve failed (register)', String(targetErr?.message || targetErr || 'unknown'));
-        }
+          return null;
+        });
+        const homeTarget = await Promise.race([
+          homeTargetTask,
+          sleep(2200).then(() => null),
+        ]);
         if (homeTarget) {
           queueHomeworldIntroFlight({ source: 'register', targetStar: homeTarget });
           applyAuthFlightTarget(homeTarget);
           await sleep(700);
         } else {
+          authLog('warn', 'homeworld target skipped (register)', 'best-effort budget exceeded');
           queueHomeworldIntroFlight({ source: 'register' });
         }
         await startGameShell();

@@ -33,7 +33,7 @@ const V3_FIELD_PLANET_KIND = 21;      // 1=player, 2=generated
 const V3_FIELD_PLANET_NAME = 22;
 const V3_FIELD_PLANET_CLASS = 23;
 const V3_FIELD_PLANET_OWNER = 24;
-const V3_FIELD_PLANET_ID = 25;
+const V3_FIELD_BODY_ID = 25; // wire-compat: field number unchanged
 const V3_FIELD_PLANET_IN_HZ = 26;
 const V3_FIELD_PLANET_SMA = 27;
 const V3_FIELD_PLANET_DIAMETER = 28;
@@ -241,7 +241,7 @@ function encode_system_payload_binary_v3(array $payload): string
         if ($player) {
             $w->field(V3_FIELD_PLANET_KIND, V3_TYPE_U8);
             $w->u8(1);
-            v3_write_pool_ref($w, $pool, V3_FIELD_PLANET_ID, (string)($player['id'] ?? ''));
+            v3_write_pool_ref($w, $pool, V3_FIELD_BODY_ID, (string)($player['id'] ?? ''));
             v3_write_pool_ref($w, $pool, V3_FIELD_PLANET_NAME, (string)($player['name'] ?? ''));
             v3_write_pool_ref($w, $pool, V3_FIELD_PLANET_OWNER, (string)($player['owner'] ?? ''));
             v3_write_pool_ref($w, $pool, V3_FIELD_PLANET_CLASS, (string)($player['planet_class'] ?? 'rocky'));

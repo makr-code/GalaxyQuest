@@ -606,7 +606,7 @@ input:focus, select:focus, textarea:focus {
   color: var(--accent-blue);
 }
 
-.topbar-nav { display: flex; gap: 2px; flex: 1; justify-content: center; flex-wrap: wrap; }
+.topbar-nav { display: flex; gap: 2px; flex: 1; justify-content: center; flex-wrap: wrap; align-items: center; }
 .nav-btn {
   background: none;
   border: none;
@@ -617,9 +617,72 @@ input:focus, select:focus, textarea:focus {
   font-size: 0.82rem;
   transition: var(--transition);
   position: relative;
+  white-space: nowrap;
 }
 .nav-btn:hover  { background: var(--bg-hover); color: var(--text-primary); }
 .nav-btn.active { background: var(--bg-panel2); color: var(--accent-blue); }
+
+/* ── Splitbutton groups ─────────────────────────────────────────────────── */
+.nav-split-group {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+.nav-split-group .nav-split-primary {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  padding-right: 0.4rem;
+}
+.nav-split-group .nav-split-arrow {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 0.5rem 0.35rem;
+  font-size: 0.65rem;
+  border-left: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-secondary);
+  min-width: 18px;
+}
+.nav-split-group .nav-split-arrow[aria-expanded="true"],
+.nav-split-group:focus-within .nav-split-arrow {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ── Nav dropdown panel ─────────────────────────────────────────────────── */
+.nav-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 160px;
+  background: var(--bg-panel, rgba(9,20,36,0.97));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+  z-index: 9000;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+.nav-dropdown.hidden { display: none; }
+.nav-drop-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 0.45rem 1rem;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+.nav-drop-item:hover,
+.nav-drop-item:focus {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  outline: none;
+}
+.nav-drop-item + .nav-drop-item { border-top: 1px solid rgba(255,255,255,0.05); }
 
 .msg-badge {
   display: inline-block;

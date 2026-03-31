@@ -64,14 +64,28 @@ VALUES (
 ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id);
 SET @gq_test_planet_id := LAST_INSERT_ID();
 
+INSERT INTO celestial_bodies (
+    body_uid, galaxy_index, system_index, position,
+    body_type, parent_body_type, name, planet_class,
+    can_colonize, payload_json
+)
+VALUES (
+    CONCAT('legacy-p-', 1, '-', 24999, '-', 1),
+    1, 24999, 1,
+    'planet', 'star', 'Model Test Prime', 'terrestrial',
+    1, JSON_OBJECT('legacy_planet_id', @gq_test_planet_id)
+)
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id);
+SET @gq_test_body_id := LAST_INSERT_ID();
+
 INSERT INTO colonies (
-    planet_id, user_id, name, colony_type,
+    planet_id, body_id, user_id, name, colony_type,
     metal, crystal, deuterium, rare_earth, food,
     energy, population, max_population,
     happiness, public_services, is_homeworld
 )
 VALUES (
-    @gq_test_planet_id, @gq_test_user_id, 'Model Test Prime', 'balanced',
+    @gq_test_planet_id, @gq_test_body_id, @gq_test_user_id, 'Model Test Prime', 'balanced',
     2000, 1500, 900, 120, 800,
     220, 1200, 3600,
     72, 64, 0

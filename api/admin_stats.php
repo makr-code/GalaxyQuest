@@ -28,10 +28,10 @@ if (!is_admin_user($db, $uid)) {
 $userCounts = $db->query(
     "SELECT
         COUNT(*)                                                      AS total,
-        SUM(is_npc = 1)                                               AS npc,
-        SUM(is_npc = 0)                                               AS human,
-        SUM(is_npc = 0 AND last_login >= NOW() - INTERVAL 15 MINUTE) AS active_15m,
-        SUM(is_npc = 0 AND last_login >= NOW() - INTERVAL 1 HOUR)    AS active_1h
+        SUM(control_type = 'npc_engine')                              AS npc,
+        SUM(control_type = 'human')                                   AS human,
+        SUM(control_type = 'human' AND auth_enabled = 1 AND last_login >= NOW() - INTERVAL 15 MINUTE) AS active_15m,
+        SUM(control_type = 'human' AND auth_enabled = 1 AND last_login >= NOW() - INTERVAL 1 HOUR)    AS active_1h
      FROM users"
 )->fetch(PDO::FETCH_ASSOC);
 
@@ -78,7 +78,7 @@ $factionEventActiveSince = (int)($db->query(
 $oldestNpcTickRow = $db->query(
     "SELECT id, username, last_npc_tick
      FROM users
-     WHERE is_npc = 1 AND last_npc_tick IS NOT NULL
+    WHERE control_type = 'npc_engine' AND last_npc_tick IS NOT NULL
      ORDER BY last_npc_tick ASC
      LIMIT 1"
 )->fetch(PDO::FETCH_ASSOC);

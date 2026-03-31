@@ -5,14 +5,14 @@
 INSERT INTO player_system_visibility (user_id, galaxy, `system`, level, scouted_at, expires_at, intel_json)
 SELECT
     c.user_id,
-    p.galaxy,
-    p.`system`,
+    cb.galaxy_index,
+    cb.system_index,
     'own',
     NOW(),
     NULL,
     NULL
 FROM colonies c
-JOIN planets p ON p.id = c.planet_id
+JOIN celestial_bodies cb ON cb.id = c.body_id
 WHERE c.is_homeworld = 1
 ON DUPLICATE KEY UPDATE
     level      = IF(VALUES(level) = 'own' OR level = 'own', 'own', VALUES(level)),

@@ -612,7 +612,7 @@ function action_war_map(PDO $db, int $uid): never {
     $enemyAllianceList = array_keys($enemyAllianceIds);
     $enemyUserList = array_keys($enemyUserIds);
 
-    $where = ['p.galaxy = ?', 'p.system BETWEEN ? AND ?'];
+    $where = ['cb.galaxy_index = ?', 'cb.system_index BETWEEN ? AND ?'];
     $params = [$galaxy, $from, $to];
 
     $scope = ['am.alliance_id = ?'];
@@ -629,18 +629,18 @@ function action_war_map(PDO $db, int $uid): never {
     $where[] = '(' . implode(' OR ', $scope) . ')';
 
     $sql = <<<SQL
-        SELECT p.galaxy, p.system, p.position,
+        SELECT cb.galaxy_index AS galaxy, cb.system_index AS system, cb.position,
                c.user_id, u.username,
                am.alliance_id,
                a.name AS alliance_name,
                a.tag AS alliance_tag
         FROM colonies c
-        JOIN planets p ON p.id = c.planet_id
+        JOIN celestial_bodies cb ON cb.id = c.body_id
         JOIN users u ON u.id = c.user_id
         LEFT JOIN alliance_members am ON am.user_id = c.user_id
         LEFT JOIN alliances a ON a.id = am.alliance_id
         WHERE %s
-        ORDER BY p.system ASC, p.position ASC
+        ORDER BY cb.system_index ASC, cb.position ASC
     SQL;
 
     $stmt = $db->prepare(sprintf($sql, implode(' AND ', $where)));

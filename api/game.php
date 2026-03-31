@@ -85,15 +85,17 @@ switch ($action) {
         $db = get_db();
 
         $stmt = $db->prepare(
-            'SELECT p.id, p.galaxy, p.`system`, p.position, p.planet_class,
+            'SELECT cb.id AS body_id, cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position,
+                p.id AS planet_id, p.planet_class,
                     p.habitability_score, p.life_friendliness,
                     c.id AS colony_id, c.name AS colony_name, c.colony_type,
                     c.population, c.max_population, c.happiness, c.public_services, c.energy,
                     u.id AS owner_id, u.username AS owner_name
-             FROM planets p
-             LEFT JOIN colonies c ON c.planet_id = p.id
+             FROM celestial_bodies cb
+             LEFT JOIN colonies c ON c.body_id = cb.id
+             LEFT JOIN planets p ON p.id = c.planet_id
              LEFT JOIN users u ON u.id = c.user_id
-             WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?
+             WHERE cb.galaxy_index = ? AND cb.system_index = ? AND cb.position = ?
              LIMIT 1'
         );
         $stmt->execute([$g, $s, $p]);
@@ -108,15 +110,15 @@ switch ($action) {
         }
 
         $latestScan = null;
-        if (!empty($planet['id'])) {
+        if (!empty($planet['body_id'])) {
             $scanStmt = $db->prepare(
                 'SELECT id, created_at, report_json
                  FROM spy_reports
-                 WHERE owner_id = ? AND target_planet_id = ?
+                 WHERE owner_id = ? AND target_body_id = ?
                  ORDER BY created_at DESC, id DESC
                  LIMIT 1'
             );
-            $scanStmt->execute([$uid, (int)$planet['id']]);
+            $scanStmt->execute([$uid, (int)$planet['body_id']]);
             $latestScan = $scanStmt->fetch();
         }
 
@@ -133,7 +135,8 @@ switch ($action) {
 
         json_ok([
             'intel' => [
-                'planet_id' => (int)($planet['id'] ?? 0),
+                'body_id' => (int)($planet['body_id'] ?? 0),
+                'planet_id' => (int)($planet['planet_id'] ?? 0),
                 'colony_id' => (int)($planet['colony_id'] ?? 0),
                 'owner_id' => (int)($planet['owner_id'] ?? 0),
                 'owner_name' => $planet['owner_name'] ?? null,
@@ -246,7 +249,7 @@ switch ($action) {
              LEFT JOIN colonies c ON c.user_id = u.id
              LEFT JOIN alliance_members am ON am.user_id = u.id
              LEFT JOIN alliances a ON a.id = am.alliance_id
-             WHERE u.is_npc = 0
+             WHERE u.control_type = 'human' AND u.auth_enabled = 1 AND u.deleted_at IS NULL
              GROUP BY u.id, u.username, u.rank_points, u.dark_matter, a.tag, a.name
              ORDER BY u.rank_points DESC, planet_count DESC
              LIMIT 50'

@@ -442,14 +442,29 @@ function create_seed_npc_homeworld(PDO $db, int $userId, string $username): int
         $planetId = (int)$db->lastInsertId();
     }
 
+    $bodyUid = sprintf('legacy-p-%d-%d-%d', $g, $s, $p);
+    $bodyStmt = $db->prepare('SELECT id FROM celestial_bodies WHERE body_uid = ? LIMIT 1');
+    $bodyStmt->execute([$bodyUid]);
+    $bodyId = (int)($bodyStmt->fetchColumn() ?: 0);
+    if ($bodyId <= 0) {
+        $db->prepare(
+            'INSERT INTO celestial_bodies
+                (body_uid, galaxy_index, system_index, position, body_type, parent_body_type,
+                 name, planet_class, can_colonize, payload_json)
+             VALUES (?, ?, ?, ?, \'planet\', \'star\', ?, \'terrestrial\', 1, JSON_OBJECT(\'legacy_planet_id\', ?))'
+        )->execute([$bodyUid, $g, $s, $p, 'Planet ' . $p, $planetId]);
+        $bodyId = (int)$db->lastInsertId();
+    }
+
     $db->prepare(
         'INSERT INTO colonies
-            (planet_id, user_id, name, colony_type, is_homeworld,
+            (planet_id, body_id, user_id, name, colony_type, is_homeworld,
              metal, crystal, deuterium, rare_earth, food, energy,
              population, max_population, happiness, public_services, last_update)
-         VALUES (?, ?, ?, ?, 1, 1200, 800, 500, 0, 500, 30, 220, 850, 68, 30, NOW())'
+         VALUES (?, ?, ?, ?, ?, 1, 1200, 800, 500, 0, 500, 30, 220, 850, 68, 30, NOW())'
     )->execute([
         $planetId,
+        $bodyId,
         $userId,
         $username,
         'industrial',
@@ -518,8 +533,8 @@ function find_free_position_for_seed(PDO $db): array
     $systemLimit = galaxy_system_limit();
     $check = $db->prepare(
         'SELECT c.id FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
-         WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?'
+            JOIN celestial_bodies cb ON cb.id = c.body_id
+            WHERE cb.galaxy_index = ? AND cb.system_index = ? AND cb.position = ?'
     );
 
     for ($attempt = 0; $attempt < 120; $attempt++) {

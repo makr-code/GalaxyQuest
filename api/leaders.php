@@ -59,10 +59,10 @@ switch ($action) {
         $stmt = $db->prepare(
             'SELECT l.*,
                     c.name AS colony_name,
-                    CONCAT(p.galaxy,\':\',p.`system`,\':\',p.position) AS colony_coords
+                    CONCAT(cb.galaxy_index,\':\',cb.system_index,\':\',cb.position) AS colony_coords
              FROM leaders l
              LEFT JOIN colonies c ON c.id = l.colony_id
-             LEFT JOIN planets  p ON p.id = c.planet_id
+               LEFT JOIN celestial_bodies cb ON cb.id = c.body_id
              WHERE l.user_id = ?
              ORDER BY l.role, l.name'
         );
@@ -432,9 +432,9 @@ function ai_fleet_commander_tick(PDO $db, array $leader): ?string {
     }
 
     $colStmt = $db->prepare(
-        'SELECT c.id, p.galaxy, p.`system`, p.position
+           'SELECT c.id, cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
          FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
+            JOIN celestial_bodies cb ON cb.id = c.body_id
          WHERE c.id = ? AND c.user_id = ?'
     );
     $colStmt->execute([$cid, $uid]);
@@ -485,17 +485,18 @@ function fc_auto_scout(PDO $db, array $leader, array $colony, int $uid): ?string
 
     // Find nearby unscouted/stale systems in the same galaxy and avoid hostile systems.
     $targetStmt = $db->prepare(
-        'SELECT p.`system`, ABS(p.`system` - ?) AS dist
-         FROM planets p
-         WHERE p.galaxy = ?
-           AND p.`system` != ?
+                'SELECT cb.system_index AS `system`, ABS(cb.system_index - ?) AS dist
+                 FROM celestial_bodies cb
+                 WHERE cb.galaxy_index = ?
+                     AND cb.system_index != ?
+                     AND cb.body_type = "planet"
            AND NOT EXISTS (
                SELECT 1 FROM player_system_visibility v
-               WHERE v.user_id = ? AND v.galaxy = ? AND v.`system` = p.`system`
+                             WHERE v.user_id = ? AND v.galaxy = ? AND v.`system` = cb.system_index
                  AND v.level IN ("own","active")
                  AND (v.expires_at IS NULL OR v.expires_at > NOW())
            )
-         GROUP BY p.`system`
+                 GROUP BY cb.system_index
          ORDER BY dist ASC
          LIMIT 16'
     );
@@ -626,10 +627,10 @@ function fc_auto_intercept_launch(PDO $db, array $leader, array $colony, int $ui
 
     $threatStmt = $db->prepare(
         'SELECT f.user_id, oc.id AS origin_colony_id,
-                op.galaxy AS og, op.`system` AS os, op.position AS op
+              ob.galaxy_index AS og, ob.system_index AS os, ob.position AS op
          FROM fleets f
          JOIN colonies oc ON oc.id = f.origin_colony_id
-         JOIN planets op ON op.id = oc.planet_id
+          JOIN celestial_bodies ob ON ob.id = oc.body_id
          WHERE f.user_id <> ?
            AND f.returning = 0
            AND f.mission = "attack"
@@ -673,9 +674,10 @@ function fc_auto_supply_transport(PDO $db, array $leader, array $colony, int $ui
     $cid = (int)$colony['id'];
 
     $targetStmt = $db->prepare(
-        'SELECT c.id, c.metal, c.crystal, c.deuterium, p.galaxy, p.`system`, p.position
+        'SELECT c.id, c.metal, c.crystal, c.deuterium,
+            cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
          FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
+         JOIN celestial_bodies cb ON cb.id = c.body_id
          WHERE c.user_id = ? AND c.id <> ?
          ORDER BY (c.metal + c.crystal + c.deuterium) ASC
          LIMIT 1'
@@ -841,7 +843,7 @@ function fc_is_hostile_system_for_user(PDO $db, int $uid, int $galaxy, int $syst
             return false;
         }
 
-        $where = ['p.galaxy = ?', 'p.`system` = ?'];
+        $where = ['cb.galaxy_index = ?', 'cb.system_index = ?'];
         $params = [$galaxy, $system];
         $scope = [];
 
@@ -861,7 +863,7 @@ function fc_is_hostile_system_for_user(PDO $db, int $uid, int $galaxy, int $syst
         $sql = sprintf(
             'SELECT 1
              FROM colonies c
-             JOIN planets p ON p.id = c.planet_id
+             JOIN celestial_bodies cb ON cb.id = c.body_id
              LEFT JOIN alliance_members am ON am.user_id = c.user_id
              WHERE %s
              LIMIT 1',
@@ -1354,7 +1356,10 @@ function run_advisor_analysis(PDO $db, int $uid, array $advisor): void {
     $lid = (int)$advisor['id'];
 
     $colonies = $db->prepare(
-        'SELECT c.*, p.galaxy, p.`system`, p.position FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE c.user_id=?'
+        'SELECT c.*, cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
+         FROM colonies c
+         JOIN celestial_bodies cb ON cb.id = c.body_id
+         WHERE c.user_id=?'
     );
     $colonies->execute([$uid]);
     $colonies = $colonies->fetchAll();
@@ -1523,8 +1528,8 @@ function adv_check_low_diplomacy(PDO $db, int $uid, int $lid): void {
 function adv_check_incoming_fleet(PDO $db, int $uid, int $lid): void {
     $incoming = $db->prepare(
         'SELECT COUNT(*) FROM fleets f
-         JOIN planets p ON p.galaxy=f.target_galaxy AND p.system=f.target_system AND p.position=f.target_position
-         JOIN colonies c ON c.planet_id=p.id
+                 JOIN celestial_bodies cb ON cb.galaxy_index=f.target_galaxy AND cb.system_index=f.target_system AND cb.position=f.target_position
+                 JOIN colonies c ON c.body_id=cb.id
          WHERE c.user_id=? AND f.user_id != ? AND f.returning=0 AND f.mission IN ("attack","destroy")
            AND f.arrival_time > NOW()'
     );

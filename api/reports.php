@@ -35,7 +35,7 @@ function action_spy_reports(int $uid): never {
         // Own reports + reports from all alliance members (newest 200 total).
         $stmt = $db->prepare(
             'SELECT sr.id, sr.owner_id, u.username AS owner_username,
-                    sr.target_planet_id, sr.report_json, sr.created_at,
+                    sr.target_body_id, sr.report_json, sr.created_at,
                     (sr.owner_id = ?) AS is_own
              FROM spy_reports sr
              JOIN alliance_members am ON am.user_id = sr.owner_id AND am.alliance_id = ?
@@ -47,7 +47,7 @@ function action_spy_reports(int $uid): never {
     } else {
         $stmt = $db->prepare(
             'SELECT id, owner_id, NULL AS owner_username,
-                    target_planet_id, report_json, created_at, 1 AS is_own
+                    target_body_id, report_json, created_at, 1 AS is_own
              FROM spy_reports
              WHERE owner_id = ?
              ORDER BY created_at DESC
@@ -63,7 +63,7 @@ function action_spy_reports(int $uid): never {
             'owner_id'         => (int)$row['owner_id'],
             'owner_username'   => $row['owner_username'],
             'is_own'           => (bool)$row['is_own'],
-            'target_planet_id' => $row['target_planet_id'] ? (int)$row['target_planet_id'] : null,
+            'target_body_id' => $row['target_body_id'] ? (int)$row['target_body_id'] : null,
             'report'           => json_decode((string)($row['report_json'] ?? '{}'), true),
             'created_at'       => $row['created_at'],
         ];
@@ -78,7 +78,7 @@ function action_battle_reports(int $uid): never {
 
     if (battle_reports_has_combat_meta_columns($db)) {
         $stmt = $db->prepare(
-            'SELECT id, planet_id, report_json, created_at, battle_seed, report_version,
+            'SELECT id, body_id, report_json, created_at, battle_seed, report_version,
                     attacker_power_rating, defender_power_rating, dice_variance_index,
                     CASE WHEN attacker_id = ? THEN \'attacker\' ELSE \'defender\' END AS role
              FROM battle_reports
@@ -89,7 +89,7 @@ function action_battle_reports(int $uid): never {
         $stmt->execute([$uid, $uid, $uid]);
     } else {
         $stmt = $db->prepare(
-            'SELECT id, planet_id, report_json, created_at,
+            'SELECT id, body_id, report_json, created_at,
                     CASE WHEN attacker_id = ? THEN \'attacker\' ELSE \'defender\' END AS role
              FROM battle_reports
              WHERE attacker_id = ? OR defender_id = ?
@@ -105,7 +105,7 @@ function action_battle_reports(int $uid): never {
         $meta = normalize_battle_report_meta($row);
         $reports[] = [
             'id'        => (int)$row['id'],
-            'planet_id' => $row['planet_id'] ? (int)$row['planet_id'] : null,
+            'body_id' => $row['body_id'] ? (int)$row['body_id'] : null,
             'role'      => $row['role'],
             'report'    => $decodedReport,
             'meta'      => $meta,
@@ -128,7 +128,7 @@ function action_battle_detail(int $uid): never {
 
     if (battle_reports_has_combat_meta_columns($db)) {
         $stmt = $db->prepare(
-            'SELECT id, attacker_id, defender_id, planet_id, report_json, created_at,
+            'SELECT id, attacker_id, defender_id, body_id, report_json, created_at,
                     battle_seed, report_version, attacker_power_rating, defender_power_rating,
                     dice_variance_index, explainability_json,
                     CASE WHEN attacker_id = ? THEN \'attacker\' ELSE \'defender\' END AS role
@@ -139,7 +139,7 @@ function action_battle_detail(int $uid): never {
         $stmt->execute([$uid, $reportId, $uid, $uid]);
     } else {
         $stmt = $db->prepare(
-            'SELECT id, attacker_id, defender_id, planet_id, report_json, created_at,
+            'SELECT id, attacker_id, defender_id, body_id, report_json, created_at,
                     CASE WHEN attacker_id = ? THEN \'attacker\' ELSE \'defender\' END AS role
              FROM battle_reports
              WHERE id = ? AND (attacker_id = ? OR defender_id = ?)
@@ -161,7 +161,7 @@ function action_battle_detail(int $uid): never {
             'id' => (int)$row['id'],
             'attacker_id' => (int)$row['attacker_id'],
             'defender_id' => (int)$row['defender_id'],
-            'planet_id' => $row['planet_id'] ? (int)$row['planet_id'] : null,
+            'body_id' => $row['body_id'] ? (int)$row['body_id'] : null,
             'role' => (string)$row['role'],
             'report' => $decodedReport,
             'meta' => $meta,

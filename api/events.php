@@ -258,10 +258,10 @@ while (true) {
              FROM fleets f
              JOIN users u ON u.id = f.user_id
              JOIN colonies c ON c.user_id = ?
-             JOIN planets p ON p.id = c.planet_id
-               AND p.galaxy     = f.target_galaxy
-               AND p.`system`   = f.target_system
-               AND p.position   = f.target_position
+                         JOIN celestial_bodies cb ON cb.id = c.body_id
+                             AND cb.galaxy_index = f.target_galaxy
+                             AND cb.system_index = f.target_system
+                             AND cb.position     = f.target_position
              WHERE f.user_id <> ?
                AND f.mission IN ('attack','spy')
                AND f.arrival_time > NOW()

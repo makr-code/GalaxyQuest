@@ -221,7 +221,7 @@ function npc_player_accounts_tick_global(PDO $db, bool $force = false): void {
         app_state_set_int($db, $stateKey, $now);
     }
 
-    $stmt = $db->query('SELECT id FROM users WHERE is_npc = 1 ORDER BY id ASC LIMIT 64');
+    $stmt = $db->query("SELECT id FROM users WHERE control_type = 'npc_engine' ORDER BY id ASC LIMIT 64");
     $npcIds = $stmt ? $stmt->fetchAll(PDO::FETCH_COLUMN) : [];
     foreach ($npcIds as $npcIdRaw) {
         $npcId = (int)$npcIdRaw;
@@ -504,9 +504,9 @@ function npc_try_launch_colonization_mission(PDO $db, int $npcUserId): bool {
     }
 
     $originStmt = $db->prepare(
-        'SELECT c.id, p.galaxy, p.`system`, p.position
+        'SELECT c.id, cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
          FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
+         JOIN celestial_bodies cb ON cb.id = c.body_id
          JOIN ships s ON s.colony_id = c.id AND s.type = "colony_ship" AND s.count > 0
          WHERE c.user_id = ?
          ORDER BY c.is_homeworld DESC, s.count DESC, c.id ASC
@@ -521,13 +521,15 @@ function npc_try_launch_colonization_mission(PDO $db, int $npcUserId): bool {
     $g = (int)$origin['galaxy'];
     $s = (int)$origin['system'];
     $nearStmt = $db->prepare(
-        'SELECT p.galaxy, p.`system`, p.position
-         FROM planets p
-         LEFT JOIN colonies c ON c.planet_id = p.id
+                'SELECT cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
+                 FROM celestial_bodies cb
+                 LEFT JOIN colonies c ON c.body_id = cb.id
          WHERE c.id IS NULL
-           AND p.galaxy = ?
-           AND p.`system` BETWEEN ? AND ?
-         ORDER BY ABS(p.`system` - ?) ASC, RAND()
+                     AND cb.body_type = "planet"
+                     AND cb.can_colonize = 1
+                     AND cb.galaxy_index = ?
+                     AND cb.system_index BETWEEN ? AND ?
+                 ORDER BY ABS(cb.system_index - ?) ASC, RAND()
          LIMIT 1'
     );
     $nearStmt->execute([$g, max(1, $s - 8), min(galaxy_system_limit(), $s + 8), $s]);
@@ -535,10 +537,13 @@ function npc_try_launch_colonization_mission(PDO $db, int $npcUserId): bool {
 
     if (!$target) {
         $fallbackStmt = $db->prepare(
-            'SELECT p.galaxy, p.`system`, p.position
-             FROM planets p
-             LEFT JOIN colonies c ON c.planet_id = p.id
-             WHERE c.id IS NULL AND p.galaxy = ?
+                        'SELECT cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
+                         FROM celestial_bodies cb
+                         LEFT JOIN colonies c ON c.body_id = cb.id
+                         WHERE c.id IS NULL
+                             AND cb.body_type = "planet"
+                             AND cb.can_colonize = 1
+                             AND cb.galaxy_index = ?
              ORDER BY RAND()
              LIMIT 1'
         );
@@ -564,9 +569,10 @@ function npc_try_launch_colonization_mission(PDO $db, int $npcUserId): bool {
 
 function npc_try_balance_transport_mission(PDO $db, int $npcUserId): bool {
     $colsStmt = $db->prepare(
-        'SELECT c.id, c.metal, c.crystal, c.deuterium, p.galaxy, p.`system`, p.position
+        'SELECT c.id, c.metal, c.crystal, c.deuterium,
+            cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
          FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
+         JOIN celestial_bodies cb ON cb.id = c.body_id
          WHERE c.user_id = ?'
     );
     $colsStmt->execute([$npcUserId]);
@@ -750,7 +756,9 @@ function faction_events_tick_global(PDO $db): void {
     $db->prepare(
         'INSERT INTO messages (receiver_id, subject, body)
          SELECT id, ?, ? FROM users
-         WHERE is_npc = 0 AND last_login > DATE_SUB(NOW(), INTERVAL 7 DAY)'
+         WHERE control_type = \'human\' AND auth_enabled = 1
+           AND deleted_at IS NULL
+           AND last_login > DATE_SUB(NOW(), INTERVAL 7 DAY)'
     )->execute([$subject, $body]);
 }
 
@@ -869,12 +877,12 @@ function colony_events_tick_global(PDO $db): void {
         return; // table may not exist yet (pre-migration)
     }
 
-    // Load all active colonies (non-NPC, verified ownership)
+        // Load all active colonies owned by login-enabled human actors.
     $stmt = $db->prepare(
         'SELECT c.id AS colony_id, c.name AS colony_name, c.user_id
          FROM colonies c
          JOIN users u ON u.id = c.user_id
-         WHERE u.is_npc = 0
+            WHERE u.control_type = \'human\' AND u.auth_enabled = 1 AND u.deleted_at IS NULL
          ORDER BY RAND()'
     );
     $stmt->execute();

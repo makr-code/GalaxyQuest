@@ -387,14 +387,16 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
         'SELECT c.id, c.name, c.colony_type, c.metal, c.crystal, c.deuterium,
                 c.rare_earth, c.food, c.energy, c.population, c.max_population,
                 c.happiness, c.public_services, c.is_homeworld, c.last_update,
-                p.id AS planet_id, p.galaxy, p.`system`, p.position,
+                 c.body_id, p.id AS planet_id,
+                 cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position,
                 p.type AS planet_type, p.planet_class, p.diameter,
                 p.temp_min, p.temp_max, p.in_habitable_zone, p.semi_major_axis_au,
                 p.orbital_period_days, p.surface_gravity_g, p.atmosphere_type,
                 p.richness_metal, p.richness_crystal, p.richness_deuterium, p.richness_rare_earth,
                 p.deposit_metal, p.deposit_crystal, p.deposit_deuterium, p.deposit_rare_earth
          FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
+            JOIN celestial_bodies cb ON cb.id = c.body_id
+            LEFT JOIN planets p ON p.id = c.planet_id
          WHERE c.user_id = ?
          ORDER BY c.is_homeworld DESC, c.id ASC'
     );
@@ -452,10 +454,10 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
                 f.target_x_ly, f.target_y_ly, f.target_z_ly,
                 f.speed_ly_h, f.distance_ly,
                 f.departure_time, f.arrival_time, f.return_time, f.returning,
-                p.galaxy AS origin_galaxy, p.`system` AS origin_system, p.position AS origin_position
+                  cb.galaxy_index AS origin_galaxy, cb.system_index AS origin_system, cb.position AS origin_position
          FROM fleets f
          JOIN colonies c ON c.id = f.origin_colony_id
-         JOIN planets  p ON p.id = c.planet_id
+              JOIN celestial_bodies cb ON cb.id = c.body_id
          WHERE f.user_id = ? ORDER BY f.arrival_time ASC'
     );
     $fleetStmt->execute([$uid]);
@@ -797,10 +799,10 @@ function build_system_snapshot_payload(PDO $db, int $galaxy, int $systemIndex): 
                             SEPARATOR ","
                         ), ",", 1
                     ) AS colony_owner_color
-             FROM planets p
-             JOIN colonies c ON c.planet_id = p.id
+               FROM celestial_bodies p
+               JOIN colonies c ON c.body_id = p.id
              LEFT JOIN users u ON u.id = c.user_id
-             WHERE p.galaxy = ? AND p.`system` = ?'
+               WHERE p.galaxy_index = ? AND p.system_index = ?'
         );
         $colStmt->execute([$galaxy, $systemIndex]);
         $col = $colStmt->fetch(PDO::FETCH_ASSOC);
@@ -825,10 +827,10 @@ function build_system_snapshot_payload(PDO $db, int $galaxy, int $systemIndex): 
                             ), ",", 1
                         ) AS colony_owner_name,
                         "" AS colony_owner_color
-                 FROM planets p
-                 JOIN colonies c ON c.planet_id = p.id
+                  FROM celestial_bodies p
+                  JOIN colonies c ON c.body_id = p.id
                  LEFT JOIN users u ON u.id = c.user_id
-                 WHERE p.galaxy = ? AND p.`system` = ?'
+                  WHERE p.galaxy_index = ? AND p.system_index = ?'
             );
             $colStmt2->execute([$galaxy, $systemIndex]);
             $col = $colStmt2->fetch(PDO::FETCH_ASSOC);

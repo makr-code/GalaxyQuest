@@ -183,6 +183,7 @@
     // Define which settings are "significant" (gameplay/account changes)
     const significantKeys = [
       'transitionPreset',
+      'orbitSimulationMode',
       'clusterDensityMode',
       'galaxyColonyFilterMode',
       'homeEnterSystem',
@@ -220,6 +221,7 @@
   function getDefaultSettings() {
     return {
       transitionPreset: 'balanced',
+      orbitSimulationMode: 'auto',
       autoTransitions: true,
       renderQualityProfile: 'auto',
       clusterDensityMode: 'auto',

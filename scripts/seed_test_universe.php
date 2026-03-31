@@ -79,8 +79,8 @@ function find_free_position_seed(PDO $db): array {
     $systemLimit = galaxy_system_limit();
     $check = $db->prepare(
         'SELECT c.id FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
-         WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?'
+         JOIN celestial_bodies cb ON cb.id = c.body_id
+         WHERE cb.galaxy_index = ? AND cb.system_index = ? AND cb.position = ?'
     );
 
     for ($attempt = 0; $attempt < 120; $attempt++) {
@@ -107,6 +107,23 @@ function find_free_position_seed(PDO $db): array {
     throw new RuntimeException('Galaxy is full.');
 }
 
+function ensure_planet_body_seed(PDO $db, int $g, int $s, int $p, int $planetId): int {
+    $bodyUid = sprintf('legacy-p-%d-%d-%d', $g, $s, $p);
+    $stmt = $db->prepare('SELECT id FROM celestial_bodies WHERE body_uid = ? LIMIT 1');
+    $stmt->execute([$bodyUid]);
+    $bodyId = (int)($stmt->fetchColumn() ?: 0);
+    if ($bodyId > 0) {
+        return $bodyId;
+    }
+    $db->prepare(
+        'INSERT INTO celestial_bodies
+            (body_uid, galaxy_index, system_index, position, body_type, parent_body_type,
+             name, planet_class, can_colonize, payload_json)
+         VALUES (?, ?, ?, ?, \'planet\', \'star\', ?, \'terrestrial\', 1, JSON_OBJECT(\'legacy_planet_id\', ?))'
+    )->execute([$bodyUid, $g, $s, $p, 'Planet ' . $p, $planetId]);
+    return (int)$db->lastInsertId();
+}
+
 function create_seed_homeworld(PDO $db, int $userId, string $username, bool $isNpc): int {
     ensure_galaxy_bootstrap_progress($db, true);
 
@@ -123,18 +140,20 @@ function create_seed_homeworld(PDO $db, int $userId, string $username, bool $isN
            ->execute([$g, $s, $p]);
         $planetId = (int)$db->lastInsertId();
     }
+    $bodyId = ensure_planet_body_seed($db, $g, $s, $p, $planetId);
 
     $colonyName = $username . ($isNpc ? ' Nexus' : "'s Homeworld");
     $colonyType = $isNpc ? 'industrial' : 'balanced';
 
     $db->prepare(
         'INSERT INTO colonies
-            (planet_id, user_id, name, colony_type, is_homeworld,
+            (planet_id, body_id, user_id, name, colony_type, is_homeworld,
              metal, crystal, deuterium, rare_earth, food, energy,
              population, max_population, happiness, public_services, last_update)
-         VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
     )->execute([
         $planetId,
+        $bodyId,
         $userId,
         $colonyName,
         $colonyType,
@@ -179,7 +198,7 @@ function create_seed_homeworld(PDO $db, int $userId, string $username, bool $isN
 }
 
 function ensure_seed_user(PDO $db, string $username, string $email, bool $isNpc, bool $withProfile): array {
-    $sel = $db->prepare('SELECT id, username, is_npc FROM users WHERE username = ? LIMIT 1');
+    $sel = $db->prepare('SELECT id, username, is_npc, control_type, auth_enabled, deleted_at FROM users WHERE username = ? LIMIT 1');
     $sel->execute([$username]);
     $user = $sel->fetch(PDO::FETCH_ASSOC);
 
@@ -188,9 +207,9 @@ function ensure_seed_user(PDO $db, string $username, string $email, bool $isNpc,
         $hash = password_hash(bin2hex(random_bytes(10)), PASSWORD_BCRYPT);
         try {
             $db->prepare(
-                'INSERT INTO users (username, email, password_hash, is_npc, protection_until, created_at)
-                 VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())'
-            )->execute([$username, $email, $hash, $isNpc ? 1 : 0]);
+                'INSERT INTO users (username, email, password_hash, is_npc, control_type, auth_enabled, protection_until, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())'
+            )->execute([$username, $email, $hash, $isNpc ? 1 : 0, $isNpc ? 'npc_engine' : 'human', $isNpc ? 0 : 1]);
             $userId = (int)$db->lastInsertId();
             $created = true;
         } catch (PDOException $e) {
@@ -209,8 +228,16 @@ function ensure_seed_user(PDO $db, string $username, string $email, bool $isNpc,
         }
     } else {
         $userId = (int)$user['id'];
-        if ((int)$user['is_npc'] !== ($isNpc ? 1 : 0)) {
-            $db->prepare('UPDATE users SET is_npc = ? WHERE id = ?')->execute([$isNpc ? 1 : 0, $userId]);
+        $expectedControlType = $isNpc ? 'npc_engine' : 'human';
+        $expectedAuthEnabled = $isNpc ? 0 : 1;
+        if (
+            (int)$user['is_npc'] !== ($isNpc ? 1 : 0)
+            || (string)($user['control_type'] ?? '') !== $expectedControlType
+            || (int)($user['auth_enabled'] ?? -1) !== $expectedAuthEnabled
+            || $user['deleted_at'] !== null
+        ) {
+            $db->prepare('UPDATE users SET is_npc = ?, control_type = ?, auth_enabled = ?, deleted_at = NULL WHERE id = ?')
+                ->execute([$isNpc ? 1 : 0, $expectedControlType, $expectedAuthEnabled, $userId]);
         }
     }
 
@@ -283,7 +310,7 @@ try {
 
     $counts = [
         'users_total' => (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn(),
-        'npc_total' => (int)$db->query('SELECT COUNT(*) FROM users WHERE is_npc = 1')->fetchColumn(),
+        'npc_total' => (int)$db->query("SELECT COUNT(*) FROM users WHERE control_type = 'npc_engine'")->fetchColumn(),
         'colonies_total' => (int)$db->query('SELECT COUNT(*) FROM colonies')->fetchColumn(),
         'systems_total' => (int)$db->query('SELECT COUNT(*) FROM star_systems')->fetchColumn(),
     ];

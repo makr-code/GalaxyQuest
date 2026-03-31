@@ -72,18 +72,20 @@ if ($action === 'auth_stars') {
         'SELECT ss.id, ss.galaxy_index, ss.system_index, ss.name,
                 COALESCE(NULLIF(ss.catalog_name, ""), ss.name) AS catalog_name,
                 ss.spectral_class, ss.subtype, ss.x_ly, ss.y_ly, ss.z_ly,
+                ss.galactic_radius_ly, ss.galactic_theta_rad, ss.galactic_height_ly,
                 ss.planet_count, ss.hz_inner_au, ss.hz_outer_au,
                 COUNT(DISTINCT c.id) AS colony_count,
                 COALESCE(SUM(c.population), 0) AS colony_population
          FROM star_systems ss
-         LEFT JOIN planets p
-                ON p.galaxy = ss.galaxy_index AND p.`system` = ss.system_index
-         LEFT JOIN colonies c ON c.planet_id = p.id
+          LEFT JOIN celestial_bodies cb
+              ON cb.galaxy_index = ss.galaxy_index AND cb.system_index = ss.system_index
+          LEFT JOIN colonies c ON c.body_id = cb.id
          WHERE ss.galaxy_index = ?
            AND ss.system_index BETWEEN ? AND ?
            AND MOD(ss.system_index - ?, ?) = 0
          GROUP BY ss.id, ss.galaxy_index, ss.system_index, ss.name, ss.catalog_name,
-                  ss.spectral_class, ss.subtype, ss.x_ly, ss.y_ly, ss.z_ly,
+                   ss.spectral_class, ss.subtype, ss.x_ly, ss.y_ly, ss.z_ly,
+                   ss.galactic_radius_ly, ss.galactic_theta_rad, ss.galactic_height_ly,
                   ss.planet_count, ss.hz_inner_au, ss.hz_outer_au
          ORDER BY ss.system_index ASC'
     );
@@ -99,11 +101,11 @@ if ($action === 'auth_stars') {
     unset($star);
 
     $occupiedStmt = $db->prepare(
-        'SELECT DISTINCT p.`system` AS system_index
+                'SELECT DISTINCT cb.system_index
          FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
-         WHERE p.galaxy = ?
-           AND p.`system` BETWEEN ? AND ?'
+                 JOIN celestial_bodies cb ON cb.id = c.body_id
+                 WHERE cb.galaxy_index = ?
+                     AND cb.system_index BETWEEN ? AND ?'
     );
     $occupiedStmt->execute([$g, $from, $to]);
     foreach ($occupiedStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -418,6 +420,7 @@ if ($action === 'stars') {
             'SELECT ss.id, ss.galaxy_index, ss.system_index, ss.name,
                 COALESCE(NULLIF(ss.catalog_name, ""), ss.name) AS catalog_name,
                 ss.spectral_class, ss.subtype, ss.x_ly, ss.y_ly, ss.z_ly,
+                    ss.galactic_radius_ly, ss.galactic_theta_rad, ss.galactic_height_ly,
                         ss.planet_count, ss.hz_inner_au, ss.hz_outer_au,
                                         COALESCE(cm.colony_count, 0) AS colony_count,
                                         COALESCE(cm.colony_population, 0) AS colony_population,
@@ -426,8 +429,8 @@ if ($action === 'stars') {
                                 COALESCE(cm.colony_owner_name, "") AS colony_owner_name
              FROM star_systems ss
                          LEFT JOIN (
-                                 SELECT p.galaxy AS galaxy_index,
-                                                p.`system` AS system_index,
+                                 SELECT p.galaxy_index,
+                                                p.system_index,
                                                 COUNT(DISTINCT c.id) AS colony_count,
                                                 COALESCE(SUM(c.population), 0) AS colony_population,
                                 %s AS colony_owner_color,
@@ -449,12 +452,12 @@ if ($action === 'stars') {
                                                         ",",
                                                         1
                                                     ) AS colony_owner_name
-                                 FROM planets p
-                                 JOIN colonies c ON c.planet_id = p.id
+                                 FROM celestial_bodies p
+                                 JOIN colonies c ON c.body_id = p.id
                                  LEFT JOIN users u ON u.id = c.user_id
-                                 WHERE p.galaxy = ?
-                                     AND p.`system` BETWEEN ? AND ?
-                                 GROUP BY p.galaxy, p.`system`
+                                 WHERE p.galaxy_index = ?
+                                     AND p.system_index BETWEEN ? AND ?
+                                 GROUP BY p.galaxy_index, p.system_index
                                                  ) cm
                                                          ON cm.galaxy_index = ss.galaxy_index
                                                         AND cm.system_index = ss.system_index
@@ -509,20 +512,24 @@ if ($action === 'stars') {
             }
             unset($star);
         } else {
-            $systemIndices = array_column($stars, 'system_index');
-            $placeholders  = implode(',', array_fill(0, count($systemIndices), '?'));
-            $params        = array_merge([$currentUserId, $g], $systemIndices);
-            $visStmt = $db->prepare(
-                "SELECT `system`, level FROM player_system_visibility
-                  WHERE user_id = ? AND galaxy = ? AND `system` IN ($placeholders)"
-            );
-            $visStmt->execute($params);
             $visMap = [];
-            foreach ($visStmt->fetchAll(PDO::FETCH_ASSOC) as $vr) {
-                $visMap[(int)$vr['system']] = $vr['level'];
+            if (has_player_system_visibility_table($db)) {
+                $systemIndices = array_column($stars, 'system_index');
+                if (count($systemIndices) > 0) {
+                    $placeholders  = implode(',', array_fill(0, count($systemIndices), '?'));
+                    $params        = array_merge([$currentUserId, $g], $systemIndices);
+                    $visStmt = $db->prepare(
+                        "SELECT `system`, level FROM player_system_visibility
+                          WHERE user_id = ? AND galaxy = ? AND `system` IN ($placeholders)"
+                    );
+                    $visStmt->execute($params);
+                    foreach ($visStmt->fetchAll(PDO::FETCH_ASSOC) as $vr) {
+                        $visMap[(int)$vr['system']] = $vr['level'];
+                    }
+                }
             }
             foreach ($stars as &$star) {
-                $star['visibility_level'] = $visMap[(int)$star['system_index']] ?? 'unknown';
+                $star['visibility_level'] = $visMap[(int)$star['system_index']] ?? (has_player_system_visibility_table($db) ? 'unknown' : 'own');
                 $star['colony_count'] = (int)($star['colony_count'] ?? 0);
                 $star['colony_population'] = (int)($star['colony_population'] ?? 0);
                 $star['colony_owner_user_id'] = (int)($star['colony_owner_user_id'] ?? 0);
@@ -833,7 +840,7 @@ if (is_string($cachedBaseRaw) && $cachedBaseRaw !== '') {
 
 if (!is_array($response)) {
     $stmt = $db->prepare(
-        'SELECT p.id, p.position, p.type, p.planet_class, p.diameter,
+        'SELECT p.id AS planet_id, cb.position, p.type, p.planet_class, p.diameter,
                 p.temp_min, p.temp_max, p.in_habitable_zone,
                 p.semi_major_axis_au, p.orbital_period_days,
                 p.surface_gravity_g, p.atmosphere_type,
@@ -841,13 +848,14 @@ if (!is_array($response)) {
                 p.surface_pressure_bar, p.water_state, p.methane_state,
                 p.ammonia_state, p.dominant_surface_liquid, p.radiation_level,
                 p.habitability_score, p.life_friendliness, p.species_affinity_json,
-                c.name, c.id AS colony_id, c.user_id,
+                 c.name, c.id AS colony_id, c.user_id, c.body_id, c.body_id AS id,
                 u.username AS owner
          FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
+            JOIN celestial_bodies cb ON cb.id = c.body_id
+            LEFT JOIN planets p ON p.id = c.planet_id
          JOIN users u   ON u.id = c.user_id
-        WHERE p.galaxy = ? AND p.`system` = ?
-         ORDER BY p.position ASC'
+           WHERE cb.galaxy_index = ? AND cb.system_index = ?
+            ORDER BY cb.position ASC'
     );
     $stmt->execute([$g, $s]);
     $rows = $stmt->fetchAll();
@@ -909,14 +917,15 @@ if (!is_array($response)) {
     $fleetStmt = $db->prepare(
         'SELECT f.id, f.user_id, f.origin_colony_id, f.target_galaxy, f.target_system, f.target_position,
                 f.mission, f.ships_json, f.departure_time, f.arrival_time, f.return_time, f.returning,
-                f.origin_x_ly, f.origin_y_ly, f.origin_z_ly, f.target_x_ly, f.target_y_ly, f.target_z_ly,
-                p.galaxy AS origin_galaxy, p.`system` AS origin_system, p.position AS origin_position,
+            f.origin_x_ly, f.origin_y_ly, f.origin_z_ly, f.origin_radius_ly, f.origin_theta_rad, f.origin_height_ly,
+            f.target_x_ly, f.target_y_ly, f.target_z_ly, f.target_radius_ly, f.target_theta_rad, f.target_height_ly,
+                 cb.galaxy_index AS origin_galaxy, cb.system_index AS origin_system, cb.position AS origin_position,
                 u.username AS owner
          FROM fleets f
          JOIN colonies c ON c.id = f.origin_colony_id
-         JOIN planets p ON p.id = c.planet_id
+            JOIN celestial_bodies cb ON cb.id = c.body_id
          JOIN users u ON u.id = f.user_id
-         WHERE (p.galaxy = ? AND p.`system` = ?) OR (f.target_galaxy = ? AND f.target_system = ?)
+            WHERE (cb.galaxy_index = ? AND cb.system_index = ?) OR (f.target_galaxy = ? AND f.target_system = ?)
          ORDER BY f.arrival_time ASC'
     );
     $fleetStmt->execute([$g, $s, $g, $s]);
@@ -935,6 +944,9 @@ if (!is_array($response)) {
         'system'               => $s,
         'system_max'           => galaxy_system_limit(),
         'star_system'          => $starSystem,
+        'bodies'               => is_array($starSystem['bodies'] ?? null) ? $starSystem['bodies'] : [],
+        'free_comets'          => is_array($starSystem['free_comets'] ?? null) ? $starSystem['free_comets'] : [],
+        'rogue_planets'        => is_array($starSystem['rogue_planets'] ?? null) ? $starSystem['rogue_planets'] : [],
         'planets'              => $mergedPlanets,
         'planet_texture_manifest' => build_planet_texture_manifest($g, $s, $starSystem, $mergedPlanets, $assetsManifestVersion),
         'fleets_in_system'     => $fleetsInSystem,

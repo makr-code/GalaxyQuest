@@ -1310,11 +1310,30 @@ const API = (() => {
     matchupScan: (payload) => post('api/fleet.php?action=matchup_scan', payload),
 
     // Galaxy
-    galaxy: (g, s) => getBinary(`api/galaxy.php?galaxy=${g}&system=${s}&format=bin`, {
-      priority: 'high',
-      retryCount: 1,
-      timeoutMs: 12000,
-    }),
+    galaxy: async (g, s) => {
+      const gf = Math.max(1, Number(g || 1));
+      const sf = Math.max(1, Number(s || 1));
+      const binEndpoint = `api/galaxy.php?galaxy=${gf}&system=${sf}&format=bin`;
+      const jsonEndpoint = `api/galaxy.php?galaxy=${gf}&system=${sf}`;
+      try {
+        return await getBinary(binEndpoint, {
+          priority: 'high',
+          retryCount: 1,
+          timeoutMs: 12000,
+          cacheMode: 'stale-if-error',
+        });
+      } catch (err) {
+        _log('warn', 'Galaxy BIN request failed, fallback to JSON', {
+          endpoint: binEndpoint,
+          error: _describeError(err, binEndpoint, 'galaxy-bin-fallback'),
+        });
+        return get(jsonEndpoint, {
+          priority: 'high',
+          retryCount: 1,
+          cacheMode: 'stale-if-error',
+        });
+      }
+    },
     galaxyStars: (g, from = 1, to = 25000, maxPoints = 1500, opts = {}) => {
       const gf = Math.max(1, Number(g || 1));
       const rf = Math.max(1, Number(from || 1));

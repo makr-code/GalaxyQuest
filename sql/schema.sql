@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS users (
     vacation_mode TINYINT(1) NOT NULL DEFAULT 0,
     pvp_mode TINYINT(1) NOT NULL DEFAULT 0,
     is_npc TINYINT(1) NOT NULL DEFAULT 0,
+    control_type VARCHAR(24) NOT NULL DEFAULT 'human'
+        COMMENT 'human|npc_engine - who controls this actor',
+    auth_enabled TINYINT(1) NOT NULL DEFAULT 1
+        COMMENT '1 for login-capable humans, 0 for engine-controlled actors',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login DATETIME,
     last_npc_tick DATETIME DEFAULT NULL,
@@ -77,6 +81,9 @@ CREATE TABLE IF NOT EXISTS star_systems (
     x_ly DOUBLE NOT NULL DEFAULT 0,
     y_ly DOUBLE NOT NULL DEFAULT 0,
     z_ly DOUBLE NOT NULL DEFAULT 0,
+    galactic_radius_ly DOUBLE DEFAULT NULL,
+    galactic_theta_rad DOUBLE DEFAULT NULL,
+    galactic_height_ly DOUBLE DEFAULT NULL,
     spectral_class ENUM('O','B','A','F','G','K','M') NOT NULL DEFAULT 'G',
     subtype TINYINT UNSIGNED NOT NULL DEFAULT 2,
     luminosity_class VARCHAR(4) NOT NULL DEFAULT 'V',
@@ -187,7 +194,8 @@ CREATE TABLE IF NOT EXISTS planets (
 -- Colonies (player bases on planets)
 CREATE TABLE IF NOT EXISTS colonies (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    planet_id INT NOT NULL,
+    planet_id INT DEFAULT NULL,
+    body_id BIGINT UNSIGNED NOT NULL,
     user_id INT NOT NULL,
     name VARCHAR(64) NOT NULL DEFAULT 'Colony',
     colony_type ENUM('balanced','mining','industrial','research','agricultural','military') NOT NULL DEFAULT 'balanced',
@@ -207,9 +215,11 @@ CREATE TABLE IF NOT EXISTS colonies (
     public_services TINYINT UNSIGNED NOT NULL DEFAULT 0,
     is_homeworld  TINYINT(1) NOT NULL DEFAULT 0,
     last_update   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (planet_id) REFERENCES planets(id) ON DELETE CASCADE,
+    FOREIGN KEY (planet_id) REFERENCES planets(id) ON DELETE SET NULL,
+    FOREIGN KEY (body_id) REFERENCES celestial_bodies(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_colony (planet_id)
+    UNIQUE KEY unique_colony_body (body_id),
+    KEY idx_colonies_body_id (body_id)
 ) ENGINE=InnoDB;
 
 -- Buildings on colonies
@@ -280,9 +290,15 @@ CREATE TABLE IF NOT EXISTS fleets (
     origin_x_ly DOUBLE NOT NULL DEFAULT 0,
     origin_y_ly DOUBLE NOT NULL DEFAULT 0,
     origin_z_ly DOUBLE NOT NULL DEFAULT 0,
+    origin_radius_ly DOUBLE DEFAULT NULL,
+    origin_theta_rad DOUBLE DEFAULT NULL,
+    origin_height_ly DOUBLE DEFAULT NULL,
     target_x_ly DOUBLE NOT NULL DEFAULT 0,
     target_y_ly DOUBLE NOT NULL DEFAULT 0,
     target_z_ly DOUBLE NOT NULL DEFAULT 0,
+    target_radius_ly DOUBLE DEFAULT NULL,
+    target_theta_rad DOUBLE DEFAULT NULL,
+    target_height_ly DOUBLE DEFAULT NULL,
     speed_ly_h  DOUBLE NOT NULL DEFAULT 1.0,   -- fleet speed in ly/h
     distance_ly DOUBLE NOT NULL DEFAULT 0,     -- pre-computed 3-D Euclidean distance
     departure_time DATETIME NOT NULL,
@@ -293,6 +309,53 @@ CREATE TABLE IF NOT EXISTS fleets (
         COMMENT 'Vel''Ar FTL: fleet hidden from enemies until this timestamp',
     hull_damage_pct TINYINT UNSIGNED NOT NULL DEFAULT 0
         COMMENT 'Kryl''Tha FTL: hull degradation after swarm-tunnel jump (0-100 %)',
+-- Unified celestial body catalog (planet, moon, comet, rogue planet, etc.)
+CREATE TABLE IF NOT EXISTS celestial_bodies (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    body_uid VARCHAR(64) NOT NULL,
+    galaxy_index INT UNSIGNED NOT NULL,
+    system_index INT UNSIGNED NOT NULL,
+    position SMALLINT UNSIGNED DEFAULT NULL,
+    parent_body_id BIGINT UNSIGNED DEFAULT NULL,
+    body_type ENUM('planet','moon','comet','rogue_planet','ring_system') NOT NULL,
+    parent_body_type ENUM('star','planet','moon','none') NOT NULL DEFAULT 'star',
+    name VARCHAR(96) NOT NULL,
+    planet_class VARCHAR(32) DEFAULT NULL,
+    can_colonize TINYINT(1) NOT NULL DEFAULT 0,
+    orbit_ref_au DOUBLE DEFAULT NULL,
+    semi_major_axis_au DOUBLE DEFAULT NULL,
+    semi_major_axis_parent_r DOUBLE DEFAULT NULL,
+    local_x DOUBLE DEFAULT NULL,
+    local_y DOUBLE DEFAULT NULL,
+    local_z DOUBLE DEFAULT NULL,
+    polar_radius DOUBLE DEFAULT NULL,
+    polar_theta_rad DOUBLE DEFAULT NULL,
+    polar_height DOUBLE DEFAULT NULL,
+    angular_velocity_rad_day DOUBLE DEFAULT NULL,
+    orbital_period_days DOUBLE DEFAULT NULL,
+    orbital_eccentricity DOUBLE DEFAULT NULL,
+    mass_earth DOUBLE DEFAULT NULL,
+    diameter_km INT UNSIGNED DEFAULT NULL,
+    surface_gravity_g DOUBLE DEFAULT NULL,
+    eq_temp_k DOUBLE DEFAULT NULL,
+    atmosphere_type VARCHAR(32) DEFAULT NULL,
+    ring_inner_radius_planet_r DOUBLE DEFAULT NULL,
+    ring_outer_radius_planet_r DOUBLE DEFAULT NULL,
+    ring_optical_depth DOUBLE DEFAULT NULL,
+    ring_tilt_deg DOUBLE DEFAULT NULL,
+    ring_composition VARCHAR(32) DEFAULT NULL,
+    payload_json JSON DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_body_uid (body_uid),
+    KEY idx_body_system (galaxy_index, system_index),
+    KEY idx_body_type (body_type),
+    KEY idx_parent_body_id (parent_body_id),
+    CONSTRAINT fk_celestial_parent
+      FOREIGN KEY (parent_body_id) REFERENCES celestial_bodies(id)
+      ON DELETE SET NULL
+) ENGINE=InnoDB;
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -399,11 +462,12 @@ CREATE TABLE IF NOT EXISTS battle_reports (
     id INT AUTO_INCREMENT PRIMARY KEY,
     attacker_id INT NOT NULL,
     defender_id INT NOT NULL,
-    planet_id INT NOT NULL,
+    body_id BIGINT UNSIGNED NOT NULL,
     report_json TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (attacker_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (defender_id) REFERENCES users(id) ON DELETE CASCADE,
+    KEY idx_battle_body_id (body_id),
     KEY idx_attacker_time (attacker_id, created_at),
     KEY idx_defender_time (defender_id, created_at)
 ) ENGINE=InnoDB;
@@ -413,9 +477,10 @@ CREATE TABLE IF NOT EXISTS spy_reports (
     id INT AUTO_INCREMENT PRIMARY KEY,
     owner_id INT NOT NULL,
     target_user_id INT DEFAULT NULL,
-    target_planet_id INT DEFAULT NULL,
+    target_body_id BIGINT UNSIGNED DEFAULT NULL,
     report_json TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_spy_target_body (target_body_id),
     FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 

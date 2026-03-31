@@ -30,9 +30,9 @@ function ensure_user(PDO $db, string $username, bool $isNpc): int {
     $email = $username . '@fixture.local';
     $password = password_hash(bin2hex(random_bytes(10)), PASSWORD_BCRYPT);
     $db->prepare(
-        'INSERT INTO users (username, email, password_hash, is_npc, created_at)
-         VALUES (?, ?, ?, ?, NOW())'
-    )->execute([$username, $email, $password, $isNpc ? 1 : 0]);
+           'INSERT INTO users (username, email, password_hash, is_npc, control_type, auth_enabled, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, NOW())'
+        )->execute([$username, $email, $password, $isNpc ? 1 : 0, $isNpc ? 'npc_engine' : 'human', $isNpc ? 0 : 1]);
 
     return (int)$db->lastInsertId();
 }
@@ -41,8 +41,8 @@ function find_free_position(PDO $db): array {
     $check = $db->prepare(
         'SELECT c.id
          FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
-         WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?
+         JOIN celestial_bodies cb ON cb.id = c.body_id
+         WHERE cb.galaxy_index = ? AND cb.system_index = ? AND cb.position = ?
          LIMIT 1'
     );
 
@@ -72,6 +72,23 @@ function find_free_position(PDO $db): array {
     throw new RuntimeException('No free planet position found.');
 }
 
+function ensure_planet_body_fixture(PDO $db, int $g, int $s, int $p, int $planetId): int {
+    $bodyUid = sprintf('legacy-p-%d-%d-%d', $g, $s, $p);
+    $stmt = $db->prepare('SELECT id FROM celestial_bodies WHERE body_uid = ? LIMIT 1');
+    $stmt->execute([$bodyUid]);
+    $bodyId = (int)($stmt->fetchColumn() ?: 0);
+    if ($bodyId > 0) {
+        return $bodyId;
+    }
+    $db->prepare(
+        'INSERT INTO celestial_bodies
+            (body_uid, galaxy_index, system_index, position, body_type, parent_body_type,
+             name, planet_class, can_colonize, payload_json)
+         VALUES (?, ?, ?, ?, \'planet\', \'star\', ?, \'terrestrial\', 1, JSON_OBJECT(\'legacy_planet_id\', ?))'
+    )->execute([$bodyUid, $g, $s, $p, 'Planet ' . $p, $planetId]);
+    return (int)$db->lastInsertId();
+}
+
 function ensure_colony_with_ships(PDO $db, int $userId, string $name, array $ships, string $colonyType = 'balanced'): int {
     $stmt = $db->prepare('SELECT id FROM colonies WHERE user_id = ? ORDER BY id ASC LIMIT 1');
     $stmt->execute([$userId]);
@@ -80,14 +97,15 @@ function ensure_colony_with_ships(PDO $db, int $userId, string $name, array $shi
     if ($colonyId === false) {
         [$g, $s, $p] = find_free_position($db);
         $planetId = ensure_planet($db, $g, $s, $p);
+        $bodyId = ensure_planet_body_fixture($db, $g, $s, $p, $planetId);
 
         $db->prepare(
             'INSERT INTO colonies
-                (planet_id, user_id, name, colony_type, is_homeworld,
+                (planet_id, body_id, user_id, name, colony_type, is_homeworld,
                  metal, crystal, deuterium, rare_earth, food, energy,
                  population, max_population, happiness, public_services, last_update)
-             VALUES (?, ?, ?, ?, 1, 5000, 5000, 3000, 50, 500, 100, 500, 1500, 75, 40, NOW())'
-        )->execute([$planetId, $userId, $name, $colonyType]);
+             VALUES (?, ?, ?, ?, ?, 1, 5000, 5000, 3000, 50, 500, 100, 500, 1500, 75, 40, NOW())'
+        )->execute([$planetId, $bodyId, $userId, $name, $colonyType]);
         $colonyId = (int)$db->lastInsertId();
 
         $buildings = [
@@ -125,9 +143,9 @@ function ensure_colony_with_ships(PDO $db, int $userId, string $name, array $shi
 
 function get_colony_coords(PDO $db, int $colonyId): array {
     $stmt = $db->prepare(
-        'SELECT p.galaxy, p.`system`, p.position
+        'SELECT cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
          FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
+         JOIN celestial_bodies cb ON cb.id = c.body_id
          WHERE c.id = ?
          LIMIT 1'
     );

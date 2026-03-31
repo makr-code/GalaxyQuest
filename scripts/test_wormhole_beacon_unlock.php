@@ -166,10 +166,24 @@ try {
     )->execute([$pos]);
     $planetId = (int)$db->lastInsertId();
 
+    $bodyUid = sprintf('legacy-p-%d-%d-%d', 1, 120, $pos);
+    $bodyStmt = $db->prepare('SELECT id FROM celestial_bodies WHERE body_uid = ? LIMIT 1');
+    $bodyStmt->execute([$bodyUid]);
+    $bodyId = (int)($bodyStmt->fetchColumn() ?: 0);
+    if ($bodyId <= 0) {
+        $db->prepare(
+            'INSERT INTO celestial_bodies
+                (body_uid, galaxy_index, system_index, position, body_type, parent_body_type,
+                 name, planet_class, can_colonize, payload_json)
+             VALUES (?, 1, 120, ?, \'planet\', \'star\', ?, \'rocky\', 1, JSON_OBJECT(\'legacy_planet_id\', ?))'
+        )->execute([$bodyUid, $pos, 'Planet ' . $pos, $planetId]);
+        $bodyId = (int)$db->lastInsertId();
+    }
+
     $db->prepare(
-        'INSERT INTO colonies (planet_id, user_id, name, is_homeworld)
-         VALUES (?, ?, "Beacon Test Colony", 1)'
-    )->execute([$planetId, $uid]);
+        'INSERT INTO colonies (planet_id, body_id, user_id, name, is_homeworld)
+         VALUES (?, ?, ?, "Beacon Test Colony", 1)'
+    )->execute([$planetId, $bodyId, $uid]);
     $colonyId = (int)$db->lastInsertId();
 
     $db->prepare('INSERT INTO research (user_id, type, level) VALUES (?, "wormhole_theory", 5) ON DUPLICATE KEY UPDATE level=VALUES(level)')

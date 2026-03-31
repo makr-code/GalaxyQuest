@@ -31,10 +31,10 @@ switch ($action) {
                     f.ships_json, f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
                     f.departure_time, f.arrival_time, f.return_time, f.returning,
                     f.stealth_until, f.hull_damage_pct,
-                    p.galaxy AS origin_galaxy, p.`system` AS origin_system, p.position AS origin_position
+                    cb.galaxy_index AS origin_galaxy, cb.system_index AS origin_system, cb.position AS origin_position
              FROM fleets f
              JOIN colonies c ON c.id = f.origin_colony_id
-             JOIN planets  p ON p.id = c.planet_id
+               JOIN celestial_bodies cb ON cb.id = c.body_id
              WHERE f.user_id = ? ORDER BY f.arrival_time ASC'
         );
         $stmt->execute([$uid]);
@@ -132,8 +132,9 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     // Verify colony ownership and get coordinates
     $colStmt = $db->prepare(
         'SELECT c.id, c.metal, c.crystal, c.deuterium, c.user_id,
-                p.galaxy, p.`system`, p.position
-         FROM colonies c JOIN planets p ON p.id = c.planet_id
+                 cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
+            FROM colonies c
+            JOIN celestial_bodies cb ON cb.id = c.body_id
          WHERE c.id = ? AND c.user_id = ?'
     );
     $colStmt->execute([$originCid, $uid]);
@@ -149,15 +150,15 @@ function send_fleet(PDO $db, int $uid, array $body): never {
             json_error('You are under newbie protection and cannot launch attacks.');
         }
         $tgtRow = $db->prepare(
-            'SELECT u.pvp_mode, u.protection_until, u.is_npc
+            "SELECT u.pvp_mode, u.protection_until, u.control_type
              FROM colonies c
-             JOIN planets p ON p.id = c.planet_id
+                         JOIN celestial_bodies cb ON cb.id = c.body_id
              JOIN users u ON u.id = c.user_id
-               WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?'
+                             WHERE cb.galaxy_index = ? AND cb.system_index = ? AND cb.position = ?'
         );
         $tgtRow->execute([$tg, $ts, $tp]);
         $tgtUser = $tgtRow->fetch();
-        if ($tgtUser && !$tgtUser['is_npc']) {
+        if ($tgtUser && (string)($tgtUser['control_type'] ?? 'human') === 'human') {
             if (!$atkUser['pvp_mode']) {
                 json_error('Enable PvP mode to attack other players.');
             }
@@ -405,19 +406,28 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     $db->prepare('UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?')
        ->execute([$cMetal, $cCrys, $cDeut, $originCid]);
 
+    $originPolar = galactic_polar_from_cartesian($ox, $oy, $oz);
+    $targetPolar = galactic_polar_from_cartesian($tx, $ty, $tz);
+
     $db->prepare(
         'INSERT INTO fleets (user_id, origin_colony_id, target_galaxy, target_system,
                              target_position, mission, ships_json,
                              cargo_metal, cargo_crystal, cargo_deuterium,
                              origin_x_ly, origin_y_ly, origin_z_ly,
+                             origin_radius_ly, origin_theta_rad, origin_height_ly,
                              target_x_ly, target_y_ly, target_z_ly,
+                             target_radius_ly, target_theta_rad, target_height_ly,
                              speed_ly_h, distance_ly,
                              departure_time, arrival_time, return_time,
                              stealth_until, hull_damage_pct)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )->execute([$uid, $originCid, $tg, $ts, $tp, $mission,
                 json_encode($shipsToSend), $cMetal, $cCrys, $cDeut,
-                $ox, $oy, $oz, $tx, $ty, $tz, $speedLyH, $distLy,
+                $ox, $oy, $oz,
+                $originPolar['radius_ly'], $originPolar['theta_rad'], $originPolar['height_ly'],
+                $tx, $ty, $tz,
+                $targetPolar['radius_ly'], $targetPolar['theta_rad'], $targetPolar['height_ly'],
+                $speedLyH, $distLy,
                 $departure, $arrival, $returnT,
                 $stealthUntil, $hullDamagePct]);
 
@@ -470,9 +480,9 @@ function list_wormholes(PDO $db, int $uid, int $originColonyId): never {
     $origin = null;
     if ($originColonyId > 0) {
         $originStmt = $db->prepare(
-            'SELECT p.galaxy, p.`system`
+              'SELECT cb.galaxy_index AS galaxy, cb.system_index AS `system`
              FROM colonies c
-             JOIN planets p ON p.id = c.planet_id
+               JOIN celestial_bodies cb ON cb.id = c.body_id
              WHERE c.id = ? AND c.user_id = ?'
         );
         $originStmt->execute([$originColonyId, $uid]);
@@ -820,7 +830,7 @@ function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
 }
 
 function deliver_resources(PDO $db, array $fleet, array $ships): void {
-    $tgt = $db->prepare('SELECT c.id, c.user_id FROM colonies c JOIN planets p ON p.id=c.planet_id WHERE p.galaxy=? AND p.`system`=? AND p.position=?');
+    $tgt = $db->prepare('SELECT c.id, c.user_id FROM colonies c JOIN celestial_bodies cb ON cb.id=c.body_id WHERE cb.galaxy_index=? AND cb.system_index=? AND cb.position=?');
     $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $target = $tgt->fetch();
     if ($target) {
@@ -840,9 +850,9 @@ function deliver_resources(PDO $db, array $fleet, array $ships): void {
 
 function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $tgt = $db->prepare(
-        'SELECT c.id, c.user_id, c.metal, c.crystal, c.deuterium, c.rare_earth
-         FROM colonies c JOIN planets p ON p.id=c.planet_id
-            WHERE p.galaxy=? AND p.`system`=? AND p.position=?'
+        'SELECT c.id, c.body_id, c.user_id, c.metal, c.crystal, c.deuterium, c.rare_earth
+         FROM colonies c JOIN celestial_bodies cb ON cb.id=c.body_id
+            WHERE cb.galaxy_index=? AND cb.system_index=? AND cb.position=?'
     );
     $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $target = $tgt->fetch();
@@ -1091,13 +1101,13 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     if (battle_reports_has_combat_meta_columns($db)) {
         $db->prepare(
             'INSERT INTO battle_reports
-                (attacker_id, defender_id, planet_id, report_json, battle_seed, report_version,
+                (attacker_id, defender_id, body_id, report_json, battle_seed, report_version,
                  attacker_power_rating, defender_power_rating, dice_variance_index, explainability_json)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         )->execute([
             $fleet['user_id'],
             $target['user_id'],
-            $target['id'],
+            $target['body_id'],
             $reportJson,
             $battleSeed,
             1,
@@ -1107,17 +1117,17 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
             json_encode($report['explainability']),
         ]);
     } else {
-        $db->prepare('INSERT INTO battle_reports (attacker_id,defender_id,planet_id,report_json)
+         $db->prepare('INSERT INTO battle_reports (attacker_id,defender_id,body_id,report_json)
                       VALUES (?,?,?,?)')
-           ->execute([$fleet['user_id'], $target['user_id'], $target['id'], $reportJson]);
+            ->execute([$fleet['user_id'], $target['user_id'], $target['body_id'], $reportJson]);
     }
     check_and_update_achievements($db, (int)$fleet['user_id']);
 
     // ── Diplomacy impact: attacking a faction NPC degrades standing ────────
-    $defNpc = $db->prepare('SELECT is_npc FROM users WHERE id=?');
+    $defNpc = $db->prepare("SELECT control_type FROM users WHERE id=?");
     $defNpc->execute([$target['user_id']]);
     $defUser = $defNpc->fetch();
-    if ($defUser && $defUser['is_npc']) {
+    if ($defUser && (string)($defUser['control_type'] ?? 'human') === 'npc_engine') {
         // Find which faction this NPC belongs to (look up by faction colonies)
         // Simplified: just degrade pirate standing if attacking NPC
         require_once __DIR__ . '/factions.php';
@@ -1184,8 +1194,8 @@ function simulate_battle_preview(PDO $db, int $uid, array $body): never {
     } else {
         $targetStmt = $db->prepare(
             'SELECT c.id, c.user_id, c.metal, c.crystal, c.deuterium, c.rare_earth
-             FROM colonies c JOIN planets p ON p.id=c.planet_id
-             WHERE p.galaxy=? AND p.`system`=? AND p.position=?
+               FROM colonies c JOIN celestial_bodies cb ON cb.id=c.body_id
+               WHERE cb.galaxy_index=? AND cb.system_index=? AND cb.position=?
              LIMIT 1'
         );
         $targetStmt->execute([(int)$fleet['target_galaxy'], (int)$fleet['target_system'], (int)$fleet['target_position']]);
@@ -1532,8 +1542,8 @@ function resolve_preview_target_colony(PDO $db, array $fleet, int $targetColonyI
 
     $stmt = $db->prepare(
         'SELECT c.id, c.user_id, c.metal, c.crystal, c.deuterium, c.rare_earth
-         FROM colonies c JOIN planets p ON p.id=c.planet_id
-         WHERE p.galaxy=? AND p.`system`=? AND p.position=?
+            FROM colonies c JOIN celestial_bodies cb ON cb.id=c.body_id
+            WHERE cb.galaxy_index=? AND cb.system_index=? AND cb.position=?
          LIMIT 1'
     );
     $stmt->execute([(int)$fleet['target_galaxy'], (int)$fleet['target_system'], (int)$fleet['target_position']]);
@@ -1968,10 +1978,30 @@ function combat_modifiers_tables_exist(PDO $db): bool {
 function colonize_planet(PDO $db, array $fleet, array $ships): void {
     $planetId = ensure_planet($db, (int)$fleet['target_galaxy'],
                               (int)$fleet['target_system'], (int)$fleet['target_position']);
+    $bodyUid = sprintf('legacy-p-%d-%d-%d', (int)$fleet['target_galaxy'], (int)$fleet['target_system'], (int)$fleet['target_position']);
+    $bodyLookup = $db->prepare('SELECT id FROM celestial_bodies WHERE body_uid = ? LIMIT 1');
+    $bodyLookup->execute([$bodyUid]);
+    $bodyId = (int)($bodyLookup->fetchColumn() ?: 0);
+    if ($bodyId <= 0) {
+        $db->prepare(
+            'INSERT INTO celestial_bodies
+                (body_uid, galaxy_index, system_index, position, body_type, parent_body_type,
+                 name, planet_class, can_colonize, payload_json)
+             VALUES (?, ?, ?, ?, \'planet\', \'star\', ?, \'terrestrial\', 1, JSON_OBJECT(\'legacy_planet_id\', ?))'
+        )->execute([
+            $bodyUid,
+            (int)$fleet['target_galaxy'],
+            (int)$fleet['target_system'],
+            (int)$fleet['target_position'],
+            'Planet ' . (int)$fleet['target_position'],
+            $planetId,
+        ]);
+        $bodyId = (int)$db->lastInsertId();
+    }
 
     // Check if already colonised
-    $cRow = $db->prepare('SELECT id FROM colonies WHERE planet_id=?');
-    $cRow->execute([$planetId]);
+    $cRow = $db->prepare('SELECT id FROM colonies WHERE body_id=?');
+    $cRow->execute([$bodyId]);
     if ($cRow->fetch()) {
         $db->prepare('INSERT INTO messages (receiver_id,subject,body) VALUES (?,?,?)')
            ->execute([$fleet['user_id'], 'Colonisation Failed', 'Position already occupied.']);
@@ -1982,11 +2012,11 @@ function colonize_planet(PDO $db, array $fleet, array $ships): void {
         $pData = $pInfo->fetch();
 
         $db->prepare(
-            'INSERT INTO colonies (planet_id, user_id, name, metal, crystal, deuterium,
+            'INSERT INTO colonies (planet_id, body_id, user_id, name, metal, crystal, deuterium,
                                    food, population, max_population, happiness, last_update)
-             VALUES (?, ?, ?, 500, 300, 100, 200, 100, 500, 70, NOW())'
+             VALUES (?, ?, ?, ?, 500, 300, 100, 200, 100, 500, 70, NOW())'
         )->execute([
-            $planetId, $fleet['user_id'],
+            $planetId, $bodyId, $fleet['user_id'],
             'Colony ['.$fleet['target_galaxy'].':'.$fleet['target_system'].':'.$fleet['target_position'].']',
         ]);
         $colonyId = (int)$db->lastInsertId();
@@ -2035,7 +2065,7 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
     }
 
     $tgt = $db->prepare(
-        'SELECT c.id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
+        'SELECT c.id, c.body_id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
                 c.population, c.max_population, c.happiness, c.public_services, c.energy,
                 p.planet_class, p.diameter, p.in_habitable_zone,
             p.composition_family, p.dominant_surface_material, p.surface_pressure_bar,
@@ -2045,9 +2075,10 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
                 p.richness_metal, p.richness_crystal,
                 u.username
          FROM colonies c
-         JOIN planets  p ON p.id = c.planet_id
+         JOIN celestial_bodies cb ON cb.id = c.body_id
+         LEFT JOIN planets  p ON p.id = c.planet_id
          JOIN users    u ON u.id = c.user_id
-            WHERE p.galaxy=? AND p.`system`=? AND p.position=?'
+            WHERE cb.galaxy_index=? AND cb.system_index=? AND cb.position=?'
     );
     $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $target = $tgt->fetch();
@@ -2140,8 +2171,8 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
         ];
     }
 
-    $db->prepare('INSERT INTO spy_reports (owner_id, target_planet_id, report_json) VALUES (?,?,?)')
-       ->execute([$fleet['user_id'], $target['id'] ?? null, json_encode($report)]);
+     $db->prepare('INSERT INTO spy_reports (owner_id, target_body_id, report_json) VALUES (?,?,?)')
+         ->execute([$fleet['user_id'], $target['body_id'] ?? null, json_encode($report)]);
     check_and_update_achievements($db, (int)$fleet['user_id']);
 
     $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
@@ -2182,8 +2213,12 @@ function harvest_resources(PDO $db, array $fleet, array $ships): void {
     }
 
     // Is it colonised?
-    $colonised = $db->prepare('SELECT id FROM colonies WHERE planet_id=?');
-    $colonised->execute([$planet['id']]);
+    $bodyUid = sprintf('legacy-p-%d-%d-%d', (int)$fleet['target_galaxy'], (int)$fleet['target_system'], (int)$fleet['target_position']);
+    $bodyLookup = $db->prepare('SELECT id FROM celestial_bodies WHERE body_uid = ? LIMIT 1');
+    $bodyLookup->execute([$bodyUid]);
+    $targetBodyId = (int)($bodyLookup->fetchColumn() ?: 0);
+    $colonised = $db->prepare('SELECT id FROM colonies WHERE body_id=?');
+    $colonised->execute([$targetBodyId]);
     if ($colonised->fetch()) {
         $db->prepare('INSERT INTO messages (receiver_id,subject,body) VALUES (?,?,?)')
            ->execute([$fleet['user_id'], 'Harvest Failed', 'Target planet is already colonised — use transport instead.']);
@@ -2266,7 +2301,10 @@ function complete_survey_mission(PDO $db, array $fleet, array $ships): void {
 
     // Derive origin system from origin_colony_id
     $originRow = $db->prepare(
-        'SELECT p.galaxy, p.`system` FROM colonies c JOIN planets p ON p.id = c.planet_id WHERE c.id = ? LIMIT 1'
+        'SELECT cb.galaxy_index AS galaxy, cb.system_index AS `system`
+         FROM colonies c
+         JOIN celestial_bodies cb ON cb.id = c.body_id
+         WHERE c.id = ? LIMIT 1'
     );
     $originRow->execute([(int)$fleet['origin_colony_id']]);
     $originPlanet = $originRow->fetch();

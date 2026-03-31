@@ -1116,6 +1116,7 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
     $db->prepare(
         'INSERT INTO star_systems
              (galaxy_index, system_index, x_ly, y_ly, z_ly,
+              galactic_radius_ly, galactic_theta_rad, galactic_height_ly,
               spectral_class, subtype, luminosity_class,
               mass_solar, radius_solar, temperature_k, luminosity_solar,
               age_gyr, metallicity_z, stellar_type,
@@ -1124,11 +1125,14 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
                             companion_mass_solar, companion_radius_solar, companion_temperature_k, companion_luminosity_solar,
                             companion_separation_au, companion_eccentricity, stability_critical_au,
               hz_inner_au, hz_outer_au, frost_line_au, name, catalog_name, planet_count)
-                        VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?, ?,?, ?,?,?,?, ?,?,?,?, ?,?, ?,?,?,?,?,?,?)
+                        VALUES (?,?,?,?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?, ?,?, ?,?,?,?, ?,?,?,?, ?,?, ?,?,?,?,?,?,?,?)
          ON DUPLICATE KEY UPDATE
             x_ly = VALUES(x_ly),
             y_ly = VALUES(y_ly),
             z_ly = VALUES(z_ly),
+            galactic_radius_ly = VALUES(galactic_radius_ly),
+            galactic_theta_rad = VALUES(galactic_theta_rad),
+            galactic_height_ly = VALUES(galactic_height_ly),
             spectral_class = VALUES(spectral_class),
             subtype = VALUES(subtype),
             luminosity_class = VALUES(luminosity_class),
@@ -1164,6 +1168,9 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
         $system['x_ly'],
         $system['y_ly'],
         $system['z_ly'],
+        $system['galactic_radius_ly'] ?? null,
+        $system['galactic_theta_rad'] ?? null,
+        $system['galactic_height_ly'] ?? null,
         $system['spectral_class'],
         $system['subtype'],
         $system['luminosity_class'],

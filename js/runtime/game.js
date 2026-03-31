@@ -22,6 +22,10 @@
   }
   updateCommanderButtonLabel();
 
+  if (Number(currentUser?.is_admin || 0) === 1 && window.AdminUsers && typeof window.AdminUsers.init === 'function') {
+    window.AdminUsers.init();
+  }
+
   function isCurrentUserAdmin() {
     return Number(currentUser?.is_admin || 0) === 1;
   }
@@ -419,6 +423,7 @@
   ];
   const settingsState = {
     transitionPreset: 'balanced',
+    orbitSimulationMode: 'auto',
     autoTransitions: true,
     renderQualityProfile: 'auto',
     clusterDensityMode: 'auto',
@@ -2325,6 +2330,9 @@
       settingsState.renderQualityProfile = ['auto', 'low', 'medium', 'high', 'ultra'].includes(String(settingsState.renderQualityProfile || 'auto').toLowerCase())
         ? String(settingsState.renderQualityProfile || 'auto').toLowerCase()
         : 'auto';
+      settingsState.orbitSimulationMode = ['auto', 'simple', 'complex'].includes(String(settingsState.orbitSimulationMode || 'auto').toLowerCase())
+        ? String(settingsState.orbitSimulationMode || 'auto').toLowerCase()
+        : 'auto';
       settingsState.hoverMagnetEnabled = settingsState.hoverMagnetEnabled !== false;
       settingsState.clickMagnetEnabled = settingsState.clickMagnetEnabled !== false;
       settingsState.galacticCoreFxAuto = persisted && typeof persisted === 'object' && Object.prototype.hasOwnProperty.call(persisted, 'galacticCoreFxAuto')
@@ -2584,6 +2592,9 @@
           recluster: true,
           preserveView: true,
         });
+      }
+      if (typeof galaxy3d.setOrbitSimulationMode === 'function') {
+        galaxy3d.setOrbitSimulationMode(settingsState.orbitSimulationMode || 'auto');
       }
       if (typeof galaxy3d.setClusterBoundsVisible === 'function') {
         galaxy3d.setClusterBoundsVisible(settingsState.clusterBoundsVisible !== false);
@@ -3477,6 +3488,7 @@
       gameState: settingsState,
       onSave: (changes) => {
         console.log('[Game] Settings saved:', changes);
+        applyRuntimeSettings();
         // Propagate volume changes to audio system
         if (audioManager && changes.hasOwnProperty('masterVolume')) {
           if (typeof audioManager.setMasterVolume === 'function') {
@@ -4190,7 +4202,31 @@
         target = galaxyStars.slice().sort((a, b) => Math.abs(Number(a.system_index || 0) - s) - Math.abs(Number(b.system_index || 0) - s))[0] || null;
       }
       if (!target) {
+        let recovered = false;
+        try {
+          selectColonyById(homeColony.id, {
+            openWindows: false,
+            focusSource: 'home-visible-zero',
+          });
+          if (shouldEnterSystem) {
+            WM.open('colony');
+            recovered = true;
+          }
+          if (shouldFocusPlanet) {
+            WM.open('buildings');
+            recovered = true;
+          }
+        } catch (err) {
+          gameLog('warn', 'Home fallback navigation fehlgeschlagen', err);
+        }
         if (!silent) showToast('Heimatsystem nicht im aktuellen Sternbereich gefunden.', 'warning');
+        if (recovered) {
+          gameLog('warn', 'Heimatsystem nicht sichtbar, native Kolonie-Recovery aktiv', {
+            galaxy: g,
+            system: s,
+            position: p,
+          });
+        }
         return;
       }
 
@@ -5339,6 +5375,9 @@
         }
       }
     }
+
+    /** Debug getter — exposes the live Galaxy3D renderer instance for E2E testing. */
+    get _debugRenderer() { return galaxy3d; }
   }
 
   const galaxyController = new GalaxyController();

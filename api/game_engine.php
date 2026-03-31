@@ -5,6 +5,29 @@
 
 require_once __DIR__ . '/galaxy_seed.php';
 
+if (!function_exists('normalize_angle_rad')) {
+    function normalize_angle_rad(float $angle): float {
+        $twoPi = 2.0 * M_PI;
+        $angle = fmod($angle, $twoPi);
+        if ($angle < 0) {
+            $angle += $twoPi;
+        }
+        return $angle;
+    }
+}
+
+if (!function_exists('galactic_polar_from_cartesian')) {
+    function galactic_polar_from_cartesian(float $x, float $y, float $z): array {
+        $radius = hypot($x, $y);
+        $theta = $radius > 0.0 ? normalize_angle_rad(atan2($y, $x)) : 0.0;
+        return [
+            'radius_ly' => round($radius, 2),
+            'theta_rad' => round($theta, 6),
+            'height_ly' => round($z, 2),
+        ];
+    }
+}
+
 // ─── Resource production (per hour) ─────────────────────────────────────────
 
 function metal_production(int $level): float {
@@ -255,12 +278,12 @@ function resolve_system_visibility(PDO $db, int $userId, int $galaxy, int $syste
     $fleetStmt = $db->prepare(
         'SELECT f.id FROM fleets f
          JOIN colonies c ON c.id = f.origin_colony_id
-         JOIN planets  p ON p.id = c.planet_id
+                 JOIN celestial_bodies cb ON cb.id = c.body_id
          WHERE f.user_id = ?
            AND f.arrival_time <= NOW()
            AND f.return_time  >  NOW()
            AND (
-             (p.galaxy = ? AND p.`system` = ?)
+                         (cb.galaxy_index = ? AND cb.system_index = ?)
              OR (f.target_galaxy = ? AND f.target_system = ?)
            )
          LIMIT 1'
@@ -749,10 +772,18 @@ function fleet_current_position(array $fleet, ?int $now = null): array {
     $ty = (float)($fleet['target_y_ly'] ?? 0);
     $tz = (float)($fleet['target_z_ly'] ?? 0);
 
+    $x = $ox + ($tx - $ox) * $t;
+    $y = $oy + ($ty - $oy) * $t;
+    $z = $oz + ($tz - $oz) * $t;
+    $polar = galactic_polar_from_cartesian($x, $y, $z);
+
     return [
-        'x'        => round($ox + ($tx - $ox) * $t, 2),
-        'y'        => round($oy + ($ty - $oy) * $t, 2),
-        'z'        => round($oz + ($tz - $oz) * $t, 2),
+        'x'        => round($x, 2),
+        'y'        => round($y, 2),
+        'z'        => round($z, 2),
+        'radius_ly' => $polar['radius_ly'],
+        'theta_rad' => $polar['theta_rad'],
+        'height_ly' => $polar['height_ly'],
         'progress' => round($t, 4),
     ];
 }
@@ -921,9 +952,9 @@ function launch_fleet_for_user(
 
         $originStmt = $db->prepare(
             'SELECT c.id, c.metal, c.crystal, c.deuterium,
-                    p.galaxy, p.`system`, p.position
+                    cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
              FROM colonies c
-             JOIN planets p ON p.id = c.planet_id
+               JOIN celestial_bodies cb ON cb.id = c.body_id
              WHERE c.id = ? AND c.user_id = ?'
         );
         $originStmt->execute([$originColonyId, $userId]);
@@ -996,21 +1027,29 @@ function launch_fleet_for_user(
         $db->prepare('UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?')
            ->execute([$cMetal, $cCrystal, $cDeut, $originColonyId]);
 
+        $originPolar = galactic_polar_from_cartesian($ox, $oy, $oz);
+        $targetPolar = galactic_polar_from_cartesian($tx, $ty, $tz);
+
         $db->prepare(
             'INSERT INTO fleets (user_id, origin_colony_id, target_galaxy, target_system,
                                  target_position, mission, ships_json,
                                  cargo_metal, cargo_crystal, cargo_deuterium,
                                  origin_x_ly, origin_y_ly, origin_z_ly,
+                                 origin_radius_ly, origin_theta_rad, origin_height_ly,
                                  target_x_ly, target_y_ly, target_z_ly,
+                                 target_radius_ly, target_theta_rad, target_height_ly,
                                  speed_ly_h, distance_ly,
                                  departure_time, arrival_time, return_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         )->execute([
             $userId, $originColonyId,
             $targetGalaxy, $targetSystem, $targetPosition,
             $mission, json_encode($shipsToSend),
             $cMetal, $cCrystal, $cDeut,
-            $ox, $oy, $oz, $tx, $ty, $tz,
+            $ox, $oy, $oz,
+            $originPolar['radius_ly'], $originPolar['theta_rad'], $originPolar['height_ly'],
+            $tx, $ty, $tz,
+            $targetPolar['radius_ly'], $targetPolar['theta_rad'], $targetPolar['height_ly'],
             $speedLyH, $distLy,
             $departure, $arrival, $returnT,
         ]);
@@ -1314,7 +1353,7 @@ function update_colony_resources(PDO $db, int $colonyId): void {
                 b_sc.level  AS school_level,
                 b_se.level  AS security_post_level
          FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
+         LEFT JOIN planets p ON p.id = c.planet_id
          LEFT JOIN buildings b_mm ON b_mm.colony_id = c.id AND b_mm.type = \'metal_mine\'
          LEFT JOIN buildings b_cm ON b_cm.colony_id = c.id AND b_cm.type = \'crystal_mine\'
          LEFT JOIN buildings b_ds ON b_ds.colony_id = c.id AND b_ds.type = \'deuterium_synth\'
@@ -1651,9 +1690,6 @@ function apply_faction_pressure_situations(PDO $db, int $userId): array {
              ORDER BY id DESC
              LIMIT 1'
         );
-        $check->execute([$userId]);
-        $active = $check->fetch();
-
         $triggerThreshold = defined('POLITICS_UNREST_TRIGGER_APPROVAL')
             ? (float)POLITICS_UNREST_TRIGGER_APPROVAL
             : 45.0;

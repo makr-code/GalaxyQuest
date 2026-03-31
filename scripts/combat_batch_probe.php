@@ -92,8 +92,9 @@ function resolve_target_colony(PDO $db, array $fleet, int $targetColonyId): ?arr
 
     $stmt = $db->prepare(
         'SELECT c.id, c.user_id
-         FROM colonies c JOIN planets p ON p.id = c.planet_id
-         WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?
+            FROM colonies c
+            JOIN celestial_bodies cb ON cb.id = c.body_id
+            WHERE cb.galaxy_index = ? AND cb.system_index = ? AND cb.position = ?
          LIMIT 1'
     );
     $stmt->execute([(int)$fleet['target_galaxy'], (int)$fleet['target_system'], (int)$fleet['target_position']]);

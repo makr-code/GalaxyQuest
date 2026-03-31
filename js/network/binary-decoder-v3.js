@@ -29,7 +29,7 @@ const BinaryDecoderV3 = (() => {
   const FIELD_PLANET_NAME = 22;
   const FIELD_PLANET_CLASS = 23;
   const FIELD_PLANET_OWNER = 24;
-  const FIELD_PLANET_ID = 25;
+  const FIELD_BODY_ID = 25; // wire-compat: field number unchanged
   const FIELD_PLANET_IN_HZ = 26;
   const FIELD_PLANET_SMA = 27;
   const FIELD_PLANET_DIAMETER = 28;
@@ -201,7 +201,11 @@ const BinaryDecoderV3 = (() => {
             ? (currentSlot.player_planet || (currentSlot.player_planet = {}))
             : (currentSlot.generated_planet || (currentSlot.generated_planet = {}));
 
-          if (fieldId === FIELD_PLANET_ID) target.id = String(value || '');
+          if (fieldId === FIELD_BODY_ID) {
+            const bodyId = String(value || '');
+            target.id = bodyId; // legacy consumer compatibility
+            target.body_id = bodyId;
+          }
           else if (fieldId === FIELD_PLANET_NAME) target.name = String(value || '');
           else if (fieldId === FIELD_PLANET_CLASS) target.planet_class = String(value || 'rocky');
           else if (fieldId === FIELD_PLANET_OWNER) target.owner = String(value || '');

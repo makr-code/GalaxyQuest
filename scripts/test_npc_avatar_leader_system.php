@@ -33,7 +33,7 @@ function info(string $label): void {
 }
 
 function ensure_npc_test_user(PDO $db): array {
-    $stmt = $db->query('SELECT id, username FROM users WHERE is_npc = 1 ORDER BY id DESC LIMIT 1');
+    $stmt = $db->query("SELECT id, username FROM users WHERE control_type = 'npc_engine' ORDER BY id DESC LIMIT 1");
     $npc = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : false;
     if ($npc) {
         return $npc;
@@ -45,8 +45,8 @@ function ensure_npc_test_user(PDO $db): array {
     $passwordHash = password_hash(bin2hex(random_bytes(12)), PASSWORD_BCRYPT);
 
     $ins = $db->prepare(
-        'INSERT INTO users (username, email, password_hash, is_npc, created_at)
-         VALUES (?, ?, ?, 1, NOW())'
+           "INSERT INTO users (username, email, password_hash, is_npc, control_type, auth_enabled, created_at)
+            VALUES (?, ?, ?, 1, 'npc_engine', 0, NOW())"
     );
     $ins->execute([$username, $email, $passwordHash]);
 

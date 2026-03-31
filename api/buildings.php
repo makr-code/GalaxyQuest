@@ -30,11 +30,13 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             update_colony_resources($db, $cid);
 
             $planetStmt = $db->prepare(
-                'SELECT p.galaxy, p.`system`, p.position, p.type, p.planet_class, p.diameter,
+                'SELECT cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position,
+                    p.type, p.planet_class, p.diameter,
                         p.in_habitable_zone, p.temp_min, p.temp_max,
                         c.colony_type, c.name
                  FROM colonies c
-                 JOIN planets p ON p.id = c.planet_id
+                 JOIN celestial_bodies cb ON cb.id = c.body_id
+                 LEFT JOIN planets p ON p.id = c.planet_id
                  WHERE c.id = ? LIMIT 1'
             );
             $planetStmt->execute([$cid]);

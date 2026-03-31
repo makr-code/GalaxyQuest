@@ -59,6 +59,9 @@ services:
       - ./sql/migrate_vessel_blueprints_v8_wormholes.sql:/docker-entrypoint-initdb.d/017-vessel-bp-v8.sql:ro
       - ./sql/migrate_vessel_blueprints_v9_wormhole_beacons.sql:/docker-entrypoint-initdb.d/018-vessel-bp-v9.sql:ro
       - ./sql/migrate_security_v1.sql:/docker-entrypoint-initdb.d/019-security-v1.sql:ro
+      - ./sql/migrate_security_v2_totp.sql:/docker-entrypoint-initdb.d/020-security-v2-totp.sql:ro
+      - ./sql/migrate_admin_user_crud_v1.sql:/docker-entrypoint-initdb.d/021-admin-user-crud-v1.sql:ro
+      - ./sql/migrate_actor_model_v1.sql:/docker-entrypoint-initdb.d/022-actor-model-v1.sql:ro
 
 volumes:
   galaxyquest-db-data:

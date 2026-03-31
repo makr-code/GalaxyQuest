@@ -36,13 +36,13 @@ function action_list(PDO $db, int $uid): never {
             tr.created_at, tr.updated_at,
             oc.name AS origin_name, oc.user_id,
             tc.name AS target_name, tc.user_id AS target_user_id,
-            op.galaxy AS origin_galaxy, op.system AS origin_system, op.position AS origin_pos,
-            tp.galaxy AS target_galaxy, tp.system AS target_system, tp.position AS target_pos
+            ob.galaxy_index AS origin_galaxy, ob.system_index AS origin_system, ob.position AS origin_pos,
+            tb.galaxy_index AS target_galaxy, tb.system_index AS target_system, tb.position AS target_pos
         FROM trade_routes tr
         JOIN colonies oc ON oc.id = tr.origin_colony_id
         JOIN colonies tc ON tc.id = tr.target_colony_id
-        JOIN planets op ON op.id = oc.planet_id
-        JOIN planets tp ON tp.id = tc.planet_id
+        JOIN celestial_bodies ob ON ob.id = oc.body_id
+        JOIN celestial_bodies tb ON tb.id = tc.body_id
         WHERE tr.user_id = ?
         ORDER BY tr.created_at DESC
     SQL);
@@ -250,13 +250,13 @@ function dispatch_trade_fleet(PDO $db, array $route): void {
 function load_trade_colony_node(PDO $db, int $colonyId, ?int $userId = null): ?array {
     $sql = <<<SQL
         SELECT c.id, c.user_id, c.name, c.metal, c.crystal, c.deuterium,
-               p.galaxy, p.system, p.position,
+             cb.galaxy_index AS galaxy, cb.system_index AS system, cb.position,
                COALESCE(s.x_ly, 0) AS x_ly,
                COALESCE(s.y_ly, 0) AS y_ly,
                COALESCE(s.z_ly, 0) AS z_ly
         FROM colonies c
-        JOIN planets p ON p.id = c.planet_id
-        LEFT JOIN star_systems s ON s.galaxy_index = p.galaxy AND s.system_index = p.system
+         JOIN celestial_bodies cb ON cb.id = c.body_id
+         LEFT JOIN star_systems s ON s.galaxy_index = cb.galaxy_index AND s.system_index = cb.system_index
         WHERE c.id = ?
     SQL;
     if ($userId !== null) {
@@ -367,17 +367,24 @@ function launch_trade_transport_fleet(PDO $db, int $userId, array $origin, array
     SQL);
     $stmt->execute([$metal, $crystal, $deuterium + $fuelCost, (int)$origin['id']]);
 
+    $originPolar = galactic_polar_from_cartesian((float)$origin['x_ly'], (float)$origin['y_ly'], (float)$origin['z_ly']);
+    $targetPolar = galactic_polar_from_cartesian((float)$target['x_ly'], (float)$target['y_ly'], (float)$target['z_ly']);
+
     $stmt = $db->prepare(<<<SQL
         INSERT INTO fleets
             (user_id, origin_colony_id, target_galaxy, target_system, target_position,
              mission, ships_json, cargo_metal, cargo_crystal, cargo_deuterium,
              origin_x_ly, origin_y_ly, origin_z_ly,
+             origin_radius_ly, origin_theta_rad, origin_height_ly,
              target_x_ly, target_y_ly, target_z_ly,
+             target_radius_ly, target_theta_rad, target_height_ly,
              speed_ly_h, distance_ly, departure_time, arrival_time)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?,
-                ?, ?, ?, ?)
+                ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?, ?)
     SQL);
     $stmt->execute([
         $userId,
@@ -393,9 +400,15 @@ function launch_trade_transport_fleet(PDO $db, int $userId, array $origin, array
         (float)$origin['x_ly'],
         (float)$origin['y_ly'],
         (float)$origin['z_ly'],
+        $originPolar['radius_ly'],
+        $originPolar['theta_rad'],
+        $originPolar['height_ly'],
         (float)$target['x_ly'],
         (float)$target['y_ly'],
         (float)$target['z_ly'],
+        $targetPolar['radius_ly'],
+        $targetPolar['theta_rad'],
+        $targetPolar['height_ly'],
         (float)$profile['speed_ly_h'],
         (float)$profile['distance_ly'],
         $depTime,

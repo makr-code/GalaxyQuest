@@ -4,9 +4,14 @@
   "version": "1.0.0",
   "description": "Test tooling for GalaxyQuest frontend/unit tests",
   "scripts": {
-    "test:unit:js": "vitest run"
+    "test:unit:js": "vitest run",
+    "test:e2e:viewflow": "playwright test tests/e2e/view-flow.spec.js --reporter=line",
+    "test:e2e:viewflow:seeded": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"docker compose exec -T web php scripts/ensure_default_e2e_user.php --username=default_user --password=User!23456 --email=default_user@local.test; playwright test tests/e2e/view-flow.spec.js --reporter=line\"",
+    "test:e2e:viewflow:seeded:native": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"$env:GQ_VIEWFLOW_NATIVE_ONLY='1'; docker compose exec -T web php scripts/ensure_default_e2e_user.php --username=default_user --password=User!23456 --email=default_user@local.test; playwright test tests/e2e/view-flow.spec.js --reporter=line\"",
+    "test:e2e:galaxy-rotation:seeded": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"docker compose exec -T web php scripts/ensure_default_e2e_user.php --username=default_user --password=User!23456 --email=default_user@local.test; playwright test tests/e2e/galaxy-rotation.spec.js --reporter=line\""
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "jsdom": "^24.1.0",
     "vitest": "^2.1.8"
   }

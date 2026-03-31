@@ -6,12 +6,20 @@
  * POST /api/auth.php?action=logout
  * GET  /api/auth.php?action=me
  * GET  /api/auth.php?action=csrf
+ *
+ * TOTP 2FA:
+ * GET  /api/auth.php?action=totp_status
+ * GET  /api/auth.php?action=totp_begin_setup
+ * POST /api/auth.php?action=totp_confirm_setup
+ * POST /api/auth.php?action=totp_disable
+ * POST /api/auth.php?action=totp_login_challenge
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/galaxy_seed.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/character_profile_generator.php';
+require_once __DIR__ . '/totp.php';
 
 $action = $_GET['action'] ?? '';
 
@@ -51,6 +59,32 @@ switch ($action) {
         handle_dev_reset_password();
         break;
 
+    // ── TOTP 2FA ────────────────────────────────────────────────────────────
+    case 'totp_status':
+        only_method('GET');
+        handle_totp_status();
+        break;
+
+    case 'totp_begin_setup':
+        only_method('POST');
+        handle_totp_begin_setup();
+        break;
+
+    case 'totp_confirm_setup':
+        only_method('POST');
+        handle_totp_confirm_setup();
+        break;
+
+    case 'totp_disable':
+        only_method('POST');
+        handle_totp_disable();
+        break;
+
+    case 'totp_login_challenge':
+        only_method('POST');
+        handle_totp_login_challenge();
+        break;
+
     default:
         json_error('Unknown action');
 }
@@ -84,9 +118,9 @@ function handle_register(): void {
 
     $hash = password_hash($password, PASSWORD_BCRYPT);
     $db->prepare(
-        'INSERT INTO users (username, email, password_hash, protection_until)
-         VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY))'
-    )->execute([$username, $email, $hash]);
+        'INSERT INTO users (username, email, password_hash, protection_until, control_type, auth_enabled)
+         VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), ?, 1)'
+    )->execute([$username, $email, $hash, 'human']);
     $userId = (int)$db->lastInsertId();
 
     // Create homeworld
@@ -159,7 +193,7 @@ function handle_login(): void {
         }
     }
 
-    $stmt = $db->prepare('SELECT id, username, password_hash, is_admin FROM users WHERE username = ?');
+    $stmt = $db->prepare('SELECT id, username, password_hash, is_admin, COALESCE(totp_enabled, 0) AS totp_enabled, deleted_at, control_type, auth_enabled FROM users WHERE username = ?');
     $stmt->execute([$username]);
     $user = $stmt->fetch();
 
@@ -179,6 +213,36 @@ function handle_login(): void {
 
     // Successful login — clear any recorded failures for this IP.
     $db->prepare('DELETE FROM login_attempts WHERE ip_hash = ?')->execute([$ipHash]);
+
+    // Refuse non-auth actors and deleted accounts.
+    if ($user['deleted_at'] !== null || (int)($user['auth_enabled'] ?? 0) !== 1 || (string)($user['control_type'] ?? 'human') !== 'human') {
+        json_error('Invalid username or password.', 401);
+    }
+
+    // ── TOTP 2FA challenge ────────────────────────────────────────────────────
+    $totpEnabled = (int)($user['totp_enabled'] ?? 0);
+
+    if ($totpEnabled === 1) {
+        // Issue a short-lived half-auth token instead of a full session.
+        $halfToken = bin2hex(random_bytes(32));
+        $db->prepare(
+            'DELETE FROM totp_pending_sessions WHERE user_id = ?'
+        )->execute([(int)$user['id']]);
+        $db->prepare(
+            'INSERT INTO totp_pending_sessions (token, user_id, expires_at, remember_me)
+             VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), ?)'
+        )->execute([$halfToken, (int)$user['id'], $remember ? 1 : 0]);
+
+        json_ok([
+            'requires_2fa'  => true,
+            'totp_session'  => $halfToken,
+            'user'          => [
+                'id'       => (int)$user['id'],
+                'username' => $user['username'],
+            ],
+        ]);
+    }
+    // ── Full login (no 2FA) ─────────────────────────────────────────────────
 
     $db->prepare('UPDATE users SET last_login = NOW() WHERE id = ?')->execute([$user['id']]);
 
@@ -299,6 +363,193 @@ function enforce_dev_reset_rate_limit(): void {
 
     $attempts[] = $now;
     $_SESSION['dev_reset_attempts'] = $attempts;
+}
+
+// ─── TOTP Handlers ───────────────────────────────────────────────────────────
+
+/** GET /api/auth.php?action=totp_status  (requires active session) */
+function handle_totp_status(): void {
+    $uid = require_auth();
+    $db  = get_db();
+    $row = $db->prepare('SELECT totp_enabled FROM users WHERE id = ?');
+    $row->execute([$uid]);
+    $data = $row->fetch(PDO::FETCH_ASSOC);
+    json_ok(['enabled' => (bool)(int)($data['totp_enabled'] ?? 0)]);
+}
+
+/**
+ * GET /api/auth.php?action=totp_begin_setup  (requires active session)
+ *
+ * Generates a new random secret, stores it as PENDING (not yet activated)
+ * and returns the otpauth:// URI so the frontend can render a QR code.
+ */
+function handle_totp_begin_setup(): void {
+    verify_csrf();
+    $uid      = require_auth();
+    $db       = get_db();
+    $secret   = totp_generate_secret();
+
+    // Store the pending secret; it becomes active only after totp_confirm_setup.
+    $db->prepare('UPDATE users SET totp_pending_secret = ? WHERE id = ?')
+        ->execute([$secret, $uid]);
+
+    $usernameRow = $db->prepare('SELECT username FROM users WHERE id = ?');
+    $usernameRow->execute([$uid]);
+    $username = $usernameRow->fetchColumn() ?: 'Commander';
+
+    json_ok([
+        'uri'    => totp_uri($secret, $username),
+        'secret' => $secret, // shown as manual entry key in the frontend
+    ]);
+}
+
+/**
+ * POST /api/auth.php?action=totp_confirm_setup  (requires active session)
+ *
+ * Verifies that the user successfully scanned the QR code by confirming
+ * the first TOTP code. Activates 2FA on success.
+ *
+ * Body: { code: "123456", csrf: ... }
+ */
+function handle_totp_confirm_setup(): void {
+    verify_csrf();
+    $uid  = require_auth();
+    $body = get_json_body();
+    $code = trim($body['code'] ?? '');
+
+    $db  = get_db();
+    $row = $db->prepare('SELECT totp_pending_secret FROM users WHERE id = ?');
+    $row->execute([$uid]);
+    $pendingSecret = $row->fetchColumn();
+
+    if (!$pendingSecret) {
+        json_error('No pending 2FA setup found. Please start setup again.', 400);
+    }
+
+    if (!totp_verify($pendingSecret, $code)) {
+        json_error('Invalid code. Please try again.', 422);
+    }
+
+    // Activate 2FA.
+    $db->prepare(
+        'UPDATE users SET totp_enabled = 1, totp_secret = ?, totp_pending_secret = NULL WHERE id = ?'
+    )->execute([$pendingSecret, $uid]);
+
+    json_ok(['message' => '2FA successfully enabled.']);
+}
+
+/**
+ * POST /api/auth.php?action=totp_disable  (requires active session + valid TOTP)
+ *
+ * Body: { code: "123456", csrf: ... }
+ */
+function handle_totp_disable(): void {
+    verify_csrf();
+    $uid  = require_auth();
+    $body = get_json_body();
+    $code = trim($body['code'] ?? '');
+
+    $db  = get_db();
+    $row = $db->prepare('SELECT totp_secret FROM users WHERE id = ? AND totp_enabled = 1');
+    $row->execute([$uid]);
+    $secret = $row->fetchColumn();
+
+    if (!$secret) {
+        json_error('2FA is not currently enabled for this account.', 400);
+    }
+
+    if (!totp_verify($secret, $code)) {
+        json_error('Invalid code. 2FA remains active.', 422);
+    }
+
+    $db->prepare(
+        'UPDATE users SET totp_enabled = 0, totp_secret = NULL, totp_pending_secret = NULL WHERE id = ?'
+    )->execute([$uid]);
+
+    json_ok(['message' => '2FA successfully disabled.']);
+}
+
+/**
+ * POST /api/auth.php?action=totp_login_challenge  (no session required yet)
+ *
+ * Second step of the login flow when 2FA is active.
+ * Validates the half-auth token and the TOTP code, then creates a full session.
+ *
+ * Body: { totp_session: "hex…", code: "123456", csrf: ... }
+ */
+function handle_totp_login_challenge(): void {
+    verify_csrf();
+    $body        = get_json_body();
+    $halfToken   = trim($body['totp_session'] ?? '');
+    $code        = trim($body['code'] ?? '');
+
+    if ($halfToken === '' || strlen($halfToken) !== 64) {
+        json_error('Invalid 2FA session.', 400);
+    }
+
+    $db = get_db();
+
+    // Clean up expired pending sessions.
+    $db->prepare('DELETE FROM totp_pending_sessions WHERE expires_at <= NOW()')->execute();
+
+    $row = $db->prepare(
+        'SELECT user_id, attempts, remember_me FROM totp_pending_sessions WHERE token = ?'
+    );
+    $row->execute([$halfToken]);
+    $pending = $row->fetch(PDO::FETCH_ASSOC);
+
+    if (!$pending) {
+        json_error('2FA session expired or not found. Please log in again.', 401);
+    }
+
+    // Rate-limit TOTP brute-force: max 5 attempts per pending session.
+    if ((int)$pending['attempts'] >= 5) {
+        $db->prepare('DELETE FROM totp_pending_sessions WHERE token = ?')->execute([$halfToken]);
+        json_error('Too many incorrect codes. Please log in again.', 429);
+    }
+
+    $uid     = (int)$pending['user_id'];
+    $userRow = $db->prepare('SELECT id, username, is_admin, totp_secret FROM users WHERE id = ?');
+    $userRow->execute([$uid]);
+    $user = $userRow->fetch(PDO::FETCH_ASSOC);
+
+    if (!$user || !$user['totp_secret']) {
+        $db->prepare('DELETE FROM totp_pending_sessions WHERE token = ?')->execute([$halfToken]);
+        json_error('Account data error. Please contact support.', 500);
+    }
+
+    if (!totp_verify($user['totp_secret'], $code)) {
+        // Increment attempt counter.
+        $db->prepare(
+            'UPDATE totp_pending_sessions SET attempts = attempts + 1 WHERE token = ?'
+        )->execute([$halfToken]);
+        json_error('Invalid code. Please try again.', 422);
+    }
+
+    // TOTP verified – promote to full session.
+    $db->prepare('DELETE FROM totp_pending_sessions WHERE token = ?')->execute([$halfToken]);
+    $db->prepare('UPDATE users SET last_login = NOW() WHERE id = ?')->execute([$uid]);
+
+    session_start_secure();
+    session_regenerate_id(true);
+    $_SESSION['user_id']  = $uid;
+    $_SESSION['username'] = $user['username'];
+
+    // Honour the remember-me preference passed through the half-auth token.
+    $remember = (int)($pending['remember_me'] ?? 0) === 1;
+    if ($remember) {
+        issue_remember_me_token($uid);
+    } else {
+        revoke_remember_me_token_from_cookie();
+    }
+
+    json_ok([
+        'user' => [
+            'id'       => $uid,
+            'username' => $user['username'],
+            'is_admin' => (int)($user['is_admin'] ?? 0),
+        ],
+    ]);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -483,18 +734,41 @@ function create_homeworld(int $userId): int {
         $planetId = (int)$db->lastInsertId();
     }
 
+    // Hard migration path: colony identity is anchored on celestial_bodies.id.
+    $bodyUid = sprintf('legacy-p-%d-%d-%d', $g, $s, $p);
+    $bodyStmt = $db->prepare('SELECT id FROM celestial_bodies WHERE body_uid = ? LIMIT 1');
+    $bodyStmt->execute([$bodyUid]);
+    $bodyId = (int)($bodyStmt->fetchColumn() ?: 0);
+    if ($bodyId <= 0) {
+        $db->prepare(
+            'INSERT INTO celestial_bodies
+                (body_uid, galaxy_index, system_index, position, body_type, parent_body_type,
+                 name, planet_class, can_colonize, payload_json)
+             VALUES (?, ?, ?, ?, \'planet\', \'star\', ?, \'terrestrial\', 1, JSON_OBJECT(\'legacy_planet_id\', ?))'
+        )->execute([
+            $bodyUid,
+            $g,
+            $s,
+            $p,
+            'Planet ' . $p,
+            $planetId,
+        ]);
+        $bodyId = (int)$db->lastInsertId();
+    }
+
     $resources = $starter['resources'] ?? [];
     $population = $starter['population'] ?? [];
 
     // Create the homeworld colony with configurable starter values.
     $db->prepare(
         'INSERT INTO colonies
-            (planet_id, user_id, name, colony_type, is_homeworld,
+            (planet_id, body_id, user_id, name, colony_type, is_homeworld,
              metal, crystal, deuterium, rare_earth, food, energy,
              population, max_population, happiness, public_services, last_update)
-         VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
     )->execute([
         $planetId,
+        $bodyId,
         $userId,
         $colonyName,
         $colonyType,
@@ -563,9 +837,10 @@ function find_free_position(PDO $db): array {
     $systemLimit = galaxy_system_limit();
     // Check whether a position has a colony on it
     $check = $db->prepare(
-        'SELECT c.id FROM colonies c
-         JOIN planets p ON p.id = c.planet_id
-            WHERE p.galaxy = ? AND p.`system` = ? AND p.position = ?'
+        'SELECT c.id
+         FROM colonies c
+         JOIN celestial_bodies cb ON cb.id = c.body_id
+         WHERE cb.galaxy_index = ? AND cb.system_index = ? AND cb.position = ?'
     );
     // Random tries first
     for ($attempt = 0; $attempt < 100; $attempt++) {

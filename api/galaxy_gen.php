@@ -40,6 +40,16 @@ const GEN_G_SI       = 6.674e-11;
 const GAL_RADIUS_LY        = 50000.0;
 /** Number of main spiral arms */
 const GAL_ARMS             = 4;
+if (!function_exists('normalize_angle_rad')) {
+    function normalize_angle_rad(float $angle): float {
+        $twoPi = 2.0 * M_PI;
+        $angle = fmod($angle, $twoPi);
+        if ($angle < 0) {
+            $angle += $twoPi;
+        }
+        return $angle;
+    }
+}
 /** Logarithmic spiral pitch angle in degrees (Milky Way ≈ 12–14°) */
 const GAL_PITCH_ANGLE_DEG  = 14.0;
 /** Inner arm edge in ly (where arms emerge from the bar) */
@@ -420,6 +430,59 @@ function galaxy_arm_count(int $galaxyIdx): int
 
     $pick = (int)floor(gen_rand($galaxyIdx, $galaxyIdx, 7700) * $span);
     return max($armMin, min($armMax, $armMin + $pick));
+}
+
+if (!function_exists('normalize_angle_rad')) {
+    function normalize_angle_rad(float $angle): float {
+        $twoPi = 2.0 * M_PI;
+        $angle = fmod($angle, $twoPi);
+        if ($angle < 0) {
+            $angle += $twoPi;
+        }
+        return $angle;
+    }
+}
+
+if (!function_exists('galactic_polar_from_cartesian')) {
+    function galactic_polar_from_cartesian(float $x, float $y, float $z): array {
+        $radius = hypot($x, $y);
+        $theta = $radius > 0.0 ? normalize_angle_rad(atan2($y, $x)) : 0.0;
+        return [
+            'radius_ly' => round($radius, 2),
+            'theta_rad' => round($theta, 6),
+            'height_ly' => round($z, 2),
+        ];
+    }
+}
+
+function body_local_state_from_orbit(float $baseRadius, float $eccentricity, float $periodDays, int ...$seeds): array {
+    $phase = normalize_angle_rad(gen_rand(...$seeds) * 2.0 * M_PI);
+    $radius = max(0.0, $baseRadius);
+    if ($radius > 0.0 && $eccentricity > 0.0) {
+        $radius = ($baseRadius * (1.0 - $eccentricity * $eccentricity)) / max(0.05, 1.0 + $eccentricity * cos($phase));
+    }
+    return [
+        'local_x' => round($radius * cos($phase), 5),
+        'local_y' => round($radius * sin($phase), 5),
+        'local_z' => 0.0,
+        'polar_radius' => round($radius, 5),
+        'polar_theta_rad' => round($phase, 6),
+        'polar_height' => 0.0,
+        'angular_velocity_rad_day' => $periodDays > 0.0 ? round((2.0 * M_PI) / $periodDays, 8) : 0.0,
+    ];
+}
+
+function body_local_state_from_static_polar(float $radius, int ...$seeds): array {
+    $phase = normalize_angle_rad(gen_rand(...$seeds) * 2.0 * M_PI);
+    return [
+        'local_x' => round($radius * cos($phase), 5),
+        'local_y' => round($radius * sin($phase), 5),
+        'local_z' => 0.0,
+        'polar_radius' => round($radius, 5),
+        'polar_theta_rad' => round($phase, 6),
+        'polar_height' => 0.0,
+        'angular_velocity_rad_day' => 0.0,
+    ];
 }
 
 function generate_name_root(array $profile, int $galaxyIdx, int $systemIdx): string
@@ -1358,6 +1421,236 @@ function surface_gravity(float $massEarth, int $diamKm): float
     return round($massEarth / ($radiusEarth ** 2), 3);
 }
 
+/**
+ * Body capability switch for unified data model.
+ */
+function body_can_colonize(string $bodyType, string $planetClass, float $surfaceTempK, float $massEarth): bool
+{
+    $type = strtolower($bodyType);
+    $cls = strtolower($planetClass);
+    $tempC = $surfaceTempK - 273.15;
+
+    if ($type === 'ring_system') {
+        return false;
+    }
+    if ($type === 'comet') {
+        // Sci-Fi concession: sparse outpost domes on large dormant nuclei.
+        return $massEarth >= 0.02 && $massEarth <= 0.25 && $tempC > -230 && $tempC < -40;
+    }
+    if ($type === 'rogue_planet') {
+        return in_array($cls, [PC_ROCKY, PC_SUPER_EARTH, PC_ICE_DWARF], true);
+    }
+    if ($type === 'moon') {
+        if (in_array($cls, [PC_GAS_GIANT, PC_HOT_JUPITER, PC_COMET_BELT], true)) return false;
+        return $massEarth >= 0.03 && $tempC > -170 && $tempC < 75;
+    }
+
+    if (in_array($cls, [PC_GAS_GIANT, PC_HOT_JUPITER, PC_COMET_BELT], true)) {
+        return false;
+    }
+    return $massEarth >= 0.05 && $tempC > -140 && $tempC < 85;
+}
+
+/**
+ * Probabilistic ring profile based on class and Roche-limit style scaling.
+ */
+function generate_ring_system_for_planet(array $planet, int $galaxyIdx, int $systemIdx, int $slot): ?array
+{
+    $cls = strtolower((string)($planet['planet_class'] ?? ''));
+    $massEarth = max(0.01, (float)($planet['mass_earth'] ?? 1.0));
+
+    $baseChance = match ($cls) {
+        PC_GAS_GIANT => 0.78,
+        PC_ICE_GIANT => 0.62,
+        PC_HOT_JUPITER => 0.45,
+        PC_SUPER_EARTH => 0.14,
+        default => 0.05,
+    };
+    $chance = min(0.92, $baseChance + min(0.12, log(max(1.0, $massEarth)) * 0.05));
+    if (gen_rand($galaxyIdx, $systemIdx, 8701 + $slot * 13) > $chance) {
+        return null;
+    }
+
+    $innerR = match ($cls) {
+        PC_GAS_GIANT, PC_ICE_GIANT => gen_rand_range(1.45, 2.25, $galaxyIdx, $systemIdx, 8711 + $slot),
+        PC_HOT_JUPITER => gen_rand_range(1.35, 1.95, $galaxyIdx, $systemIdx, 8711 + $slot),
+        default => gen_rand_range(1.25, 1.70, $galaxyIdx, $systemIdx, 8711 + $slot),
+    };
+    $outerR = $innerR + gen_rand_range(0.45, 2.95, $galaxyIdx, $systemIdx, 8721 + $slot);
+    $optDepth = round(gen_rand_range(0.12, 0.85, $galaxyIdx, $systemIdx, 8731 + $slot), 3);
+    $tiltDeg = round(gen_rand_range(-28.0, 28.0, $galaxyIdx, $systemIdx, 8741 + $slot), 2);
+    $composition = match (true) {
+        in_array($cls, [PC_ICE_GIANT, PC_ICE_DWARF], true) => 'water_ice',
+        in_array($cls, [PC_GAS_GIANT, PC_HOT_JUPITER], true) => (gen_rand($galaxyIdx, $systemIdx, 8751 + $slot) < 0.5 ? 'silicate_dust' : 'mixed_ice_dust'),
+        default => 'silicate_dust',
+    };
+
+    return [
+        'body_type' => 'ring_system',
+        'parent_body_type' => 'planet',
+        'inner_radius_planet_r' => round($innerR, 3),
+        'outer_radius_planet_r' => round($outerR, 3),
+        'optical_depth' => $optDepth,
+        'tilt_deg' => $tiltDeg,
+        'composition' => $composition,
+        'can_colonize' => 0,
+    ];
+}
+
+/**
+ * Generate deterministic natural moons around a parent planet.
+ */
+function generate_moons_for_planet(array $planet, int $galaxyIdx, int $systemIdx, int $slot): array
+{
+    $cls = strtolower((string)($planet['planet_class'] ?? ''));
+    $massEarth = max(0.01, (float)($planet['mass_earth'] ?? 1.0));
+    $parentName = (string)($planet['name'] ?? ('Planet ' . $slot));
+
+    $maxMoons = match ($cls) {
+        PC_GAS_GIANT => 18,
+        PC_ICE_GIANT => 12,
+        PC_HOT_JUPITER => 4,
+        PC_SUPER_EARTH => 3,
+        PC_ROCKY, PC_OCEAN => 2,
+        default => 1,
+    };
+    $mean = match ($cls) {
+        PC_GAS_GIANT => 8.5,
+        PC_ICE_GIANT => 5.5,
+        PC_HOT_JUPITER => 1.1,
+        PC_SUPER_EARTH => 1.2,
+        default => 0.4,
+    };
+    $moonCount = (int)max(0, min($maxMoons, round(gen_rand_normal($mean, max(0.25, $mean * 0.4), $galaxyIdx, $systemIdx, 8801 + $slot))));
+
+    $moons = [];
+    for ($m = 1; $m <= $moonCount; $m++) {
+        $moonMass = round(max(0.001, min($massEarth * 0.08, pow(10.0, gen_rand_normal(-1.2, 0.55, $galaxyIdx, $systemIdx, 8811 + $slot * 37 + $m)))), 4);
+        $moonClass = $moonMass > 0.18
+            ? (gen_rand($galaxyIdx, $systemIdx, 8821 + $slot * 41 + $m) < 0.3 ? PC_OCEAN : PC_ROCKY)
+            : (gen_rand($galaxyIdx, $systemIdx, 8831 + $slot * 43 + $m) < 0.65 ? PC_ICE_DWARF : PC_ROCKY);
+        $moonDiamKm = planet_diameter_km($moonMass);
+        $moonSemiMajorPlanetR = round(gen_rand_range(4.0 + $m * 0.6, 11.0 + $m * 1.35, $galaxyIdx, $systemIdx, 8841 + $slot * 47 + $m), 3);
+        $moonEccentricity = round(gen_rand_range(0.0, 0.08, $galaxyIdx, $systemIdx, 8846 + $slot * 49 + $m), 4);
+        $moonPeriodDays = round(max(0.3, pow($moonSemiMajorPlanetR, 1.5) * gen_rand_range(0.18, 0.42, $galaxyIdx, $systemIdx, 8851 + $slot * 53 + $m)), 3);
+        $moonTempK = max(40.0, (float)($planet['eq_temp_k'] ?? 180) - gen_rand_range(3.0, 22.0, $galaxyIdx, $systemIdx, 8861 + $slot * 59 + $m));
+        $localState = body_local_state_from_orbit($moonSemiMajorPlanetR, $moonEccentricity, $moonPeriodDays, $galaxyIdx, $systemIdx, 8867 + $slot * 61 + $m);
+
+        $moon = [
+            'body_type' => 'moon',
+            'parent_body_type' => 'planet',
+            'parent_position' => $slot,
+            'moon_index' => $m,
+            'name' => $parentName . '-' . $m,
+            'planet_class' => $moonClass,
+            'mass_earth' => $moonMass,
+            'diameter_km' => $moonDiamKm,
+            'surface_gravity_g' => surface_gravity($moonMass, $moonDiamKm),
+            'semi_major_axis_planet_r' => $moonSemiMajorPlanetR,
+            'semi_major_axis_parent_r' => $moonSemiMajorPlanetR,
+            'orbital_eccentricity' => $moonEccentricity,
+            'orbital_period_days' => $moonPeriodDays,
+            'eq_temp_k' => round($moonTempK, 2),
+            'can_colonize' => body_can_colonize('moon', $moonClass, $moonTempK, $moonMass) ? 1 : 0,
+        ] + $localState;
+
+        $moon['body_id'] = sprintf('g%d-s%d-p%d-m%d', $galaxyIdx, $systemIdx, $slot, $m);
+        $moon['parent_body_id'] = sprintf('g%d-s%d-p%d', $galaxyIdx, $systemIdx, $slot);
+        $moons[] = $moon;
+    }
+    return $moons;
+}
+
+function generate_free_comets_for_system(int $galaxyIdx, int $systemIdx): array
+{
+    $count = (int)max(0, min(6, round(gen_rand_normal(2.2, 1.4, $galaxyIdx, $systemIdx, 8901))));
+    $comets = [];
+    for ($i = 1; $i <= $count; $i++) {
+        $semiMajor = round(gen_rand_range(20.0, 220.0, $galaxyIdx, $systemIdx, 8911 + $i * 11), 3);
+        $ecc = round(gen_rand_range(0.58, 0.98, $galaxyIdx, $systemIdx, 8921 + $i * 13), 4);
+        $massEarth = round(gen_rand_range(0.002, 0.08, $galaxyIdx, $systemIdx, 8931 + $i * 17), 4);
+        $tempK = round(gen_rand_range(38.0, 140.0, $galaxyIdx, $systemIdx, 8941 + $i * 19), 2);
+        $periodDays = round(pow($semiMajor, 1.5) * 365.25, 2);
+        $localState = body_local_state_from_orbit($semiMajor, $ecc, $periodDays, $galaxyIdx, $systemIdx, 8951 + $i * 23);
+        $comets[] = [
+            'body_id' => sprintf('g%d-s%d-c%d', $galaxyIdx, $systemIdx, $i),
+            'parent_body_id' => null,
+            'body_type' => 'comet',
+            'name' => sprintf('Comet %d-%d-%d', $galaxyIdx, $systemIdx, $i),
+            'planet_class' => PC_ICE_DWARF,
+            'mass_earth' => $massEarth,
+            'diameter_km' => planet_diameter_km($massEarth),
+            'semi_major_axis_au' => $semiMajor,
+            'orbital_eccentricity' => $ecc,
+            'orbital_period_days' => $periodDays,
+            'eq_temp_k' => $tempK,
+            'can_colonize' => body_can_colonize('comet', PC_ICE_DWARF, $tempK, $massEarth) ? 1 : 0,
+        ] + $localState;
+    }
+    return $comets;
+}
+
+function generate_rogue_planets_for_system(int $galaxyIdx, int $systemIdx): array
+{
+    if (gen_rand($galaxyIdx, $systemIdx, 9001) > 0.12) return [];
+    $count = gen_rand($galaxyIdx, $systemIdx, 9002) < 0.2 ? 2 : 1;
+    $rogues = [];
+    for ($i = 1; $i <= $count; $i++) {
+        $massEarth = round(max(0.08, pow(10.0, gen_rand_normal(0.2, 0.65, $galaxyIdx, $systemIdx, 9011 + $i))), 3);
+        $diam = planet_diameter_km($massEarth);
+        $tempK = round(gen_rand_range(22.0, 70.0, $galaxyIdx, $systemIdx, 9021 + $i), 2);
+        $cls = $massEarth > 4.0 ? PC_SUPER_EARTH : PC_ICE_DWARF;
+        $localState = body_local_state_from_static_polar(round(gen_rand_range(35.0, 180.0, $galaxyIdx, $systemIdx, 9031 + $i), 3), $galaxyIdx, $systemIdx, 9041 + $i);
+        $rogues[] = [
+            'body_id' => sprintf('g%d-s%d-r%d', $galaxyIdx, $systemIdx, $i),
+            'parent_body_id' => null,
+            'body_type' => 'rogue_planet',
+            'name' => sprintf('Rogue %d-%d-%d', $galaxyIdx, $systemIdx, $i),
+            'planet_class' => $cls,
+            'mass_earth' => $massEarth,
+            'diameter_km' => $diam,
+            'surface_gravity_g' => surface_gravity($massEarth, $diam),
+            'semi_major_axis_au' => null,
+            'orbital_period_days' => null,
+            'orbital_eccentricity' => null,
+            'eq_temp_k' => $tempK,
+            'can_colonize' => body_can_colonize('rogue_planet', $cls, $tempK, $massEarth) ? 1 : 0,
+        ] + $localState;
+    }
+    return $rogues;
+}
+
+/**
+ * Flatten all bodies into one unified model with a body_type switch.
+ */
+function build_system_body_catalog(array $planets, array $freeComets, array $roguePlanets): array
+{
+    $all = [];
+    foreach ($planets as $p) {
+        $all[] = $p;
+        foreach (($p['moons'] ?? []) as $moon) {
+            $all[] = $moon;
+        }
+        if (is_array($p['ring_system'] ?? null)) {
+            $all[] = ($p['ring_system'] + [
+                'body_id' => (string)$p['body_id'] . '-ring',
+                'parent_body_id' => $p['body_id'] ?? null,
+                'name' => ($p['name'] ?? 'Planet') . ' Ring',
+                'local_x' => $p['local_x'] ?? 0.0,
+                'local_y' => $p['local_y'] ?? 0.0,
+                'local_z' => $p['local_z'] ?? 0.0,
+                'polar_radius' => $p['polar_radius'] ?? 0.0,
+                'polar_theta_rad' => $p['polar_theta_rad'] ?? 0.0,
+                'polar_height' => $p['polar_height'] ?? 0.0,
+                'angular_velocity_rad_day' => $p['angular_velocity_rad_day'] ?? 0.0,
+            ]);
+        }
+    }
+    foreach ($freeComets as $c) $all[] = $c;
+    foreach ($roguePlanets as $r) $all[] = $r;
+    return $all;
+}
+
 // ─── Planetary system generator ───────────────────────────────────────────────
 
 /**
@@ -1472,7 +1765,9 @@ function generate_planets(array $star, int $galaxyIdx, int $systemIdx, ?string $
 
         $planetStarName = $starName ?: sprintf('GQ-%d-%03d', $galaxyIdx, $systemIdx);
 
-        $planets[] = [
+        $localState = body_local_state_from_orbit((float)$a_AU, (float)$ecc, (float)$period, $galaxyIdx, $systemIdx, 2411 + $slot);
+
+        $planet = [
             'position'             => $slot,
             'name'                 => generate_planet_name($planetStarName, $slot),
             'planet_class'         => $planetClass,
@@ -1489,7 +1784,17 @@ function generate_planets(array $star, int $galaxyIdx, int $systemIdx, ?string $
             'has_atmosphere'       => (int)($atmoType !== 'none'),
             'atmosphere_type'      => $atmoType,
             'stability_critical_au'=> $criticalOrbitAU !== null ? round($criticalOrbitAU, 5) : null,
-        ] + $environment + derive_planet_deposits($planetClass, $inHz, $massEarth);
+        ] + $localState + $environment + derive_planet_deposits($planetClass, $inHz, $massEarth);
+
+        $planet['body_id'] = sprintf('g%d-s%d-p%d', $galaxyIdx, $systemIdx, $slot);
+        $planet['parent_body_id'] = null;
+        $planet['body_type'] = 'planet';
+        $planet['can_colonize'] = body_can_colonize('planet', $planetClass, $surfTempK, $massEarth) ? 1 : 0;
+        $planet['ring_system'] = generate_ring_system_for_planet($planet, $galaxyIdx, $systemIdx, $slot);
+        $planet['rings'] = $planet['ring_system'];
+        $planet['moons'] = generate_moons_for_planet($planet, $galaxyIdx, $systemIdx, $slot);
+
+        $planets[] = $planet;
     }
 
     return $planets;
@@ -1582,6 +1887,7 @@ function derive_planet_deposits(string $planetClass, bool $inHz, float $massEart
 function generate_star_system(int $galaxyIdx, int $systemIdx): array
 {
     [$x, $y, $z] = galactic_position($galaxyIdx, $systemIdx);
+    $galacticPolar = galactic_polar_from_cartesian((float)$x, (float)$y, (float)$z);
     $star        = pick_spectral_type($galaxyIdx, $systemIdx);
 
     $binaryRoll = gen_rand($galaxyIdx, $systemIdx, 2080);
@@ -1621,6 +1927,10 @@ function generate_star_system(int $galaxyIdx, int $systemIdx): array
         'companion_eccentricity' => $companionEccentricity,
     ]);
 
+    $freeComets = generate_free_comets_for_system($galaxyIdx, $systemIdx);
+    $roguePlanets = generate_rogue_planets_for_system($galaxyIdx, $systemIdx);
+    $bodies = build_system_body_catalog($planets, $freeComets, $roguePlanets);
+
     return array_merge($star, [
         'galaxy_index'  => $galaxyIdx,
         'system_index'  => $systemIdx,
@@ -1629,6 +1939,9 @@ function generate_star_system(int $galaxyIdx, int $systemIdx): array
         'x_ly'          => $x,
         'y_ly'          => $y,
         'z_ly'          => $z,
+        'galactic_radius_ly' => $galacticPolar['radius_ly'],
+        'galactic_theta_rad' => $galacticPolar['theta_rad'],
+        'galactic_height_ly' => $galacticPolar['height_ly'],
         'hz_inner_au'   => round($hzIn,      5),
         'hz_outer_au'   => round($hzOut,     5),
         'frost_line_au' => round($frostLine, 5),
@@ -1646,5 +1959,8 @@ function generate_star_system(int $galaxyIdx, int $systemIdx): array
         'companion_eccentricity' => $companionEccentricity,
         'stability_critical_au' => $criticalOrbitAU,
         'planets'       => $planets,
+        'free_comets'   => $freeComets,
+        'rogue_planets' => $roguePlanets,
+        'bodies'        => $bodies,
     ]);
 }

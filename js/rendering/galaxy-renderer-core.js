@@ -343,6 +343,8 @@
       this.galaxyFleetVectorsVisible = true;
       this.autoTransitionCooldownUntil = 0;
       this.transitionsEnabled = true;
+      this.orbitSimulationMode = 'auto';
+      this.activeOrbitSimulationMode = 'complex';
       this.persistentHoverDistance = 220;
       this._persistentHoverCacheUntil = 0;
       this._persistentHoverIndex = -1;
@@ -1242,6 +1244,86 @@
         rotationSpeed: config.rotationSpeed,
       };
       return shell;
+    }
+
+    _buildRingAlphaMap(seed = 0) {
+      const size = 256;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      const center = size / 2;
+      const maxR = center - 2;
+      const rand = (n) => {
+        const x = Math.sin((seed + n * 13.137) * 12.9898) * 43758.5453;
+        return x - Math.floor(x);
+      };
+
+      ctx.clearRect(0, 0, size, size);
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          const dx = x - center;
+          const dy = y - center;
+          const r = Math.sqrt(dx * dx + dy * dy) / maxR;
+          const band = 0.52 + 0.48 * Math.sin((r * 160.0) + rand(r * 31.0) * 3.0);
+          const noise = 0.72 + rand((x + y) * 0.17) * 0.28;
+          const alpha = Math.max(0, Math.min(1, band * noise));
+          const a = Math.floor(alpha * 255);
+          ctx.fillStyle = `rgba(255,255,255,${a / 255})`;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.ClampToEdgeWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.minFilter = THREE.LinearMipMapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    _planetRingMesh(body, planetRadius, index = 0) {
+      const ring = body?.ring_system || body?.rings || null;
+      if (!ring || typeof ring !== 'object') return null;
+
+      const innerFactor = THREE.MathUtils.clamp(Number(ring.inner_radius_planet_r || 1.6), 1.1, 6.5);
+      const outerFactor = THREE.MathUtils.clamp(Number(ring.outer_radius_planet_r || (innerFactor + 0.9)), innerFactor + 0.15, 8.5);
+      const opticalDepth = THREE.MathUtils.clamp(Number(ring.optical_depth || 0.35), 0.08, 0.95);
+      const tiltDeg = Number(ring.tilt_deg || 0);
+
+      const composition = String(ring.composition || 'mixed_ice_dust').toLowerCase();
+      const ringColor = composition.includes('water_ice')
+        ? 0xd5e7ff
+        : composition.includes('silicate')
+          ? 0xc7b28b
+          : 0xd9d2bf;
+      const alphaMap = this._buildRingAlphaMap((index + 1) * 97);
+
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(planetRadius * innerFactor, planetRadius * outerFactor, 96),
+        new THREE.MeshStandardMaterial({
+          color: ringColor,
+          alphaMap,
+          transparent: true,
+          opacity: THREE.MathUtils.clamp(0.18 + opticalDepth * 0.42, 0.18, 0.7),
+          roughness: 0.92,
+          metalness: 0.01,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        })
+      );
+
+      mesh.rotation.x = Math.PI / 2 + THREE.MathUtils.degToRad(tiltDeg);
+      mesh.rotation.z = (index % 2 === 0 ? 1 : -1) * 0.06;
+      mesh.userData = {
+        kind: 'planet-ring',
+        rotationSpeed: 0.012 + index * 0.0018,
+        precessionSpeed: 0.0012 + index * 0.0002,
+      };
+      return mesh;
     }
 
     _buildStarAtmosphereShells(colorHex, radius) {
@@ -3232,10 +3314,11 @@
         const slot = entry.slot;
         const semiMajor = Number(body.semi_major_axis_au || (0.35 + index * 0.22));
         const orbitRadius = 34 + (semiMajor / maxAu) * 165;
-        const eccentricity = THREE.MathUtils.clamp(0.03 + index * 0.012, 0.03, 0.22);
+        const eccentricity = THREE.MathUtils.clamp(Number(body.orbital_eccentricity ?? (0.03 + index * 0.012)), 0.0, 0.92);
         const orbitMinor = orbitRadius * Math.sqrt(1 - eccentricity * eccentricity);
-        const orbitCurve = new THREE.EllipseCurve(0, 0, orbitRadius, orbitMinor, 0, Math.PI * 2, false, 0);
-        const orbitPoints = orbitCurve.getPoints(96).map((p) => new THREE.Vector3(p.x, 0, p.y));
+        const phase = Number(body.polar_theta_rad);
+        const angularVelocity = Math.abs(Number(body.angular_velocity_rad_day || 0));
+        const orbitPoints = this._buildOrbitCurvePoints(orbitRadius, orbitMinor, eccentricity);
         const orbitLine = new THREE.LineLoop(
           new THREE.BufferGeometry().setFromPoints(orbitPoints),
           new THREE.LineBasicMaterial({ color: 0x31567c, transparent: true, opacity: 0.5 })
@@ -3270,6 +3353,12 @@
           index,
           refinementPhase: 0, // Track which phase this planet is at
         };
+
+        const ringMesh = this._planetRingMesh(body, planetSize, index);
+        if (ringMesh) {
+          mesh.add(ringMesh);
+        }
+
         return {
           mesh,
           slot,
@@ -3278,10 +3367,14 @@
           orbitMinor,
           orbitPivot,
           eccentricity,
-          angle: (index / Math.max(1, orbitBodies.length)) * Math.PI * 2,
-          speed: 0.18 / Math.max(0.35, Math.sqrt(Number(body.orbital_period_days || 80) / 40)),
+          angle: Number.isFinite(phase) ? phase : (index / Math.max(1, orbitBodies.length)) * Math.PI * 2,
+          speed: angularVelocity > 0
+            ? angularVelocity * 18
+            : 0.18 / Math.max(0.35, Math.sqrt(Number(body.orbital_period_days || 80) / 40)),
         };
       });
+
+      this.activeOrbitSimulationMode = this._resolveOrbitSimulationMode();
 
       // Phase 0: Add fleets now (not deferred)
       this.systemFacilityEntries = this.systemPlanetEntries
@@ -4309,6 +4402,8 @@
         densityRatio: ratio,
         targetPoints: Number(this._appliedClusterTargetPoints || 0),
         densityMode: String(this.clusterDensityMode || 'auto'),
+        orbitSimulationMode: String(this.orbitSimulationMode || 'auto'),
+        activeOrbitSimulationMode: String(this.activeOrbitSimulationMode || 'complex'),
         lodProfile: String(this.lodProfile || 'medium'),
         qualityProfile: String(this.qualityProfile?.name || 'medium'),
         qualityReason: String(this.qualityProfile?.reason || ''),
@@ -4826,6 +4921,75 @@
       return this.transitionsEnabled;
     }
 
+    _normalizeOrbitSimulationMode(mode) {
+      const normalized = String(mode || 'auto').trim().toLowerCase();
+      return ['auto', 'simple', 'complex'].includes(normalized) ? normalized : 'auto';
+    }
+
+    setOrbitSimulationMode(mode) {
+      this.orbitSimulationMode = this._normalizeOrbitSimulationMode(mode);
+      this.activeOrbitSimulationMode = this._resolveOrbitSimulationMode();
+      return this.orbitSimulationMode;
+    }
+
+    _resolveOrbitSimulationMode() {
+      const requestedMode = this._normalizeOrbitSimulationMode(this.orbitSimulationMode);
+      if (requestedMode !== 'auto') return requestedMode;
+      const bodyCount = Array.isArray(this.systemPlanetEntries) ? this.systemPlanetEntries.length : 0;
+      return bodyCount > 14 ? 'simple' : 'complex';
+    }
+
+    _solveEccentricAnomaly(meanAnomaly, eccentricity) {
+      const e = THREE.MathUtils.clamp(Number(eccentricity || 0), 0, 0.92);
+      let anomaly = Number.isFinite(meanAnomaly) ? meanAnomaly : 0;
+      for (let i = 0; i < 5; i += 1) {
+        const f = anomaly - e * Math.sin(anomaly) - meanAnomaly;
+        const fp = 1 - e * Math.cos(anomaly);
+        if (Math.abs(fp) < 1e-6) break;
+        anomaly -= f / fp;
+      }
+      return anomaly;
+    }
+
+    _computeSimpleOrbitPosition(entry) {
+      return new THREE.Vector3(
+        Math.cos(entry.angle) * entry.orbitRadius,
+        0,
+        Math.sin(entry.angle) * entry.orbitMinor
+      );
+    }
+
+    _computeComplexOrbitPosition(entry) {
+      const eccentricity = THREE.MathUtils.clamp(Number(entry.eccentricity || 0), 0, 0.92);
+      const eccentricAnomaly = this._solveEccentricAnomaly(entry.angle, eccentricity);
+      return new THREE.Vector3(
+        entry.orbitRadius * (Math.cos(eccentricAnomaly) - eccentricity),
+        0,
+        entry.orbitMinor * Math.sin(eccentricAnomaly)
+      );
+    }
+
+    _computeOrbitPosition(entry, mode) {
+      if (!entry) return new THREE.Vector3(0, 0, 0);
+      return mode === 'complex'
+        ? this._computeComplexOrbitPosition(entry)
+        : this._computeSimpleOrbitPosition(entry);
+    }
+
+    _buildOrbitCurvePoints(orbitRadius, orbitMinor, eccentricity) {
+      const points = [];
+      const e = THREE.MathUtils.clamp(Number(eccentricity || 0), 0, 0.92);
+      for (let i = 0; i <= 96; i += 1) {
+        const t = (i / 96) * Math.PI * 2;
+        points.push(new THREE.Vector3(
+          orbitRadius * (Math.cos(t) - e),
+          0,
+          orbitMinor * Math.sin(t)
+        ));
+      }
+      return points;
+    }
+
     _updateDoppler(dt) {
       if (!this.starPoints || !this.starPoints.material?.uniforms) return;
       const delta = this.camera.position.clone().sub(this.prevCamPos);
@@ -5087,8 +5251,10 @@
     _galaxySpinSpeeds() {
       const distance = this._cameraDistance();
       const t = THREE.MathUtils.clamp((distance - 95) / (860 - 95), 0, 1);
-      // Negative sign: rotate in the same visual direction as the wound spiral arms.
-      const outer = -THREE.MathUtils.lerp(0.009, 0.021, t);
+      // Negative for CCW (counter-clockwise from north pole) to match wound spiral arms.
+      // Direction driven by galaxy metadata so CW galaxies flip sign automatically.
+      const ccwSign = (this.galaxyMetadata?.rotationDirectionCcw ?? 1) ? -1 : 1;
+      const outer = ccwSign * THREE.MathUtils.lerp(0.009, 0.021, t);
       return {
         outer,
         core: outer * 1.55,
@@ -5402,14 +5568,19 @@
       } else {
         const elapsed = this.clock.elapsedTime;
         this._syncSystemSkyDome(dt);
+        const orbitMode = this._resolveOrbitSimulationMode();
+        this.activeOrbitSimulationMode = orbitMode;
         this.systemPlanetEntries.forEach((entry, index) => {
           entry.angle += dt * entry.speed;
-          const x = Math.cos(entry.angle) * entry.orbitRadius;
-          const z = Math.sin(entry.angle) * entry.orbitMinor;
-          const orbitalPos = new THREE.Vector3(x, 0, z);
+          const orbitalPos = this._computeOrbitPosition(entry, orbitMode);
           const orbitWorldPos = entry.orbitPivot.localToWorld(orbitalPos);
           entry.mesh.position.copy(this.systemBodyGroup.worldToLocal(orbitWorldPos));
           entry.mesh.rotation.y += dt * (0.25 + index * 0.03);
+          entry.mesh.children.forEach((child) => {
+            if (!child || child.userData?.kind !== 'planet-ring') return;
+            child.rotation.z += dt * Number(child.userData?.rotationSpeed || 0.01);
+            child.rotation.y += dt * Number(child.userData?.precessionSpeed || 0.001);
+          });
         });
         this.systemFacilityEntries.forEach((facility, index) => {
           if (!facility?.group) return;
