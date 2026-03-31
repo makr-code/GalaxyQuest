@@ -1,10 +1,10 @@
 {
-    "username": "gq_seed_npc_0019",
+    "username": "gq_seed_npc_0005",
     "is_npc": true,
-    "race": "Etheri",
-    "profession": "Emissary of Peace and Trade Negotiator",
-    "stance": "Neutral Ambassador seeking to mediate disputes between conflicting factions for ",
-    "vita": "Born in the neutral space station Elysium IV, I was raised amid diverse cultures. Fluent in seven galactic languages and skilled diplomatically, my mission is to foster peaceful trade relations across star systems while respecting each culture's unique customs.",
-    "portrait_prompt": "A dignified Etheri standing poised with a universal signet ring on their right hand; translucent skin revealing veins of shimmering, bioluminescent colors that reflect the myriad cultures I represent. Their eyes are intelligent and compassionate orbs set in an almond-shinning shell casing.",
-    "generated_at": "2026-03-29T15:50:47+00:00"
+    "race": "Syl'nar",
+    "profession": "Emissary of Peace",
+    "stance": "Diplomat and Peacemaker",
+    "vita": "As a representative for the Syl'Nar, I have dedicated my life to fostering harmony among star systems. My journey began on distant Zypheron IV where disputes often escalate into warfare due to misunderstandin'. With empathetic nature and sharp wit honed in political arenas of Galaxia Prime, I've mediated countless conflicts through dialogue rather than destruction.",
+    "portrait_prompt": "A Syl'nar diplomat with translucent skin reflecting the hues of their homeworld’s twin sunsets. Wearing traditional peace-symbolic garb adorned with intricate, bioluminescent patterns that shimmer in various colors under starlight.",
+    "generated_at": "2026-03-31T13:47:15+00:00"
 }

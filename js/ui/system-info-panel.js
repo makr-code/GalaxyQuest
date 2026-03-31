@@ -35,6 +35,7 @@ async function openSystemInfoPanel(galaxyIdx, systemIdx) {
         const modal = document.createElement('div');
         modal.className = 'system-info-modal';
         modal.innerHTML = panel;
+        modal.addEventListener('click', (ev) => ev.stopPropagation());
         
         backdrop.appendChild(modal);
         document.body.appendChild(backdrop);
@@ -44,9 +45,18 @@ async function openSystemInfoPanel(galaxyIdx, systemIdx) {
         if (closeBtn) {
             closeBtn.addEventListener('click', () => backdrop.remove());
         }
+
+        _initSystemInfoTabs(modal);
     } catch (error) {
         console.error('Failed to open system info panel:', error);
     }
+}
+
+function _monoIcon(symbolId, extraClass = 'gq-icon-inline') {
+    const iconId = String(symbolId || '').trim();
+    if (!iconId) return '';
+    const iconFile = iconId.replace(/^icon-/, '');
+    return `<svg class="gq-icon ${extraClass}" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/${iconFile}.svg#${iconId}"></use></svg>`;
 }
 
 function _buildSystemInfoPanel(star, galaxyIdx, systemIdx) {
@@ -57,10 +67,10 @@ function _buildSystemInfoPanel(star, galaxyIdx, systemIdx) {
     const companion = hasBinary ? (star.binary.companion || {}) : null;
     const companionType = companion && companion.stellar_type
         ? _getStarTypeLabel(companion.stellar_type)
-        : { label: 'Unknown', icon: '❓', class: 'unknown' };
+        : { label: 'Unknown', iconText: '??', class: 'unknown' };
     const binarySection = hasBinary ? `
             <section class="system-section">
-                <h3 class="system-section-title">👥 Binary Dynamics</h3>
+                <h3 class="system-section-title">${_monoIcon('icon-factions')}Binary Dynamics</h3>
                 <div class="system-grid">
                     <div class="system-info-row">
                         <span class="system-label">Configuration</span>
@@ -71,7 +81,7 @@ function _buildSystemInfoPanel(star, galaxyIdx, systemIdx) {
                     <div class="system-info-row">
                         <span class="system-label">Companion Type</span>
                         <span class="system-value">
-                            <span class="star-type-badge ${companionType.class}">${companionType.icon} ${companionType.label}</span>
+                            <span class="star-type-badge ${companionType.class}">${companionType.iconText} ${companionType.label}</span>
                         </span>
                     </div>
                     <div class="system-info-row">
@@ -104,145 +114,252 @@ function _buildSystemInfoPanel(star, galaxyIdx, systemIdx) {
             <button class="system-info-close">&times;</button>
         </div>
 
+        <nav class="system-info-tabs" aria-label="System info Bereiche">
+            <button type="button" class="system-info-tab is-active" data-system-tab="overview" aria-selected="true">Overview</button>
+            <button type="button" class="system-info-tab" data-system-tab="orbit" aria-selected="false">Orbit</button>
+            <button type="button" class="system-info-tab" data-system-tab="references" aria-selected="false">Referenzen</button>
+        </nav>
+
         <div class="system-info-content">
-            
-            <section class="system-section">
-                <h3 class="system-section-title">⭐ Stellar Classification</h3>
-                <div class="system-grid">
-                    <div class="system-info-row">
-                        <span class="system-label">Star Type</span>
-                        <span class="system-value">
-                            <span class="star-type-badge ${typeLabel.class}">${typeLabel.icon} ${typeLabel.label}</span>
-                        </span>
+            <div class="system-tab-panel is-active" data-system-panel="overview">
+                <section class="system-section">
+                    <h3 class="system-section-title">${_monoIcon('icon-galaxy')}Stellar Classification</h3>
+                    <div class="system-grid">
+                        <div class="system-info-row">
+                            <span class="system-label">Star Type</span>
+                            <span class="system-value">
+                                <span class="star-type-badge ${typeLabel.class}">${typeLabel.iconText} ${typeLabel.label}</span>
+                            </span>
+                        </div>
+                        <div class="system-info-row">
+                            <span class="system-label">Spectral Class</span>
+                            <span class="system-value">${star.classification.spectral_class}${star.classification.subtype}</span>
+                        </div>
+                        <div class="system-info-row">
+                            <span class="system-label">Luminosity Class</span>
+                            <span class="system-value roman">${star.classification.luminosity_class}</span>
+                        </div>
                     </div>
-                    <div class="system-info-row">
-                        <span class="system-label">Spectral Class</span>
-                        <span class="system-value">${star.classification.spectral_class}${star.classification.subtype}</span>
-                    </div>
-                    <div class="system-info-row">
-                        <span class="system-label">Luminosity Class</span>
-                        <span class="system-value roman">${star.classification.luminosity_class}</span>
-                    </div>
-                </div>
-            </section>
+                </section>
 
-            <section class="system-section">
-                <h3 class="system-section-title">📊 Physical Properties</h3>
-                <div class="system-grid">
-                    <div class="system-info-row">
-                        <span class="system-label">Surface Temperature</span>
-                        <span class="system-value">${star.physical_properties.temperature_k.toLocaleString()} K</span>
+                <section class="system-section">
+                    <h3 class="system-section-title">${_monoIcon('icon-graphics')}Physical Properties</h3>
+                    <div class="system-grid">
+                        <div class="system-info-row">
+                            <span class="system-label">Surface Temperature</span>
+                            <span class="system-value">${star.physical_properties.temperature_k.toLocaleString()} K</span>
+                        </div>
+                        <div class="system-info-row">
+                            <span class="system-label">Luminosity</span>
+                            <span class="system-value">${star.physical_properties.luminosity_solar.toFixed(6)} L☉</span>
+                        </div>
+                        <div class="system-info-row">
+                            <span class="system-label">Mass</span>
+                            <span class="system-value">${star.physical_properties.mass_solar.toFixed(4)} M☉</span>
+                        </div>
+                        <div class="system-info-row">
+                            <span class="system-label">Radius</span>
+                            <span class="system-value">${star.physical_properties.radius_solar.toFixed(5)} R☉</span>
+                        </div>
                     </div>
-                    <div class="system-info-row">
-                        <span class="system-label">Luminosity</span>
-                        <span class="system-value">${star.physical_properties.luminosity_solar.toFixed(6)} L☉</span>
-                    </div>
-                    <div class="system-info-row">
-                        <span class="system-label">Mass</span>
-                        <span class="system-value">${star.physical_properties.mass_solar.toFixed(4)} M☉</span>
-                    </div>
-                    <div class="system-info-row">
-                        <span class="system-label">Radius</span>
-                        <span class="system-value">${star.physical_properties.radius_solar.toFixed(5)} R☉</span>
-                    </div>
-                </div>
-            </section>
+                </section>
 
-            <section class="system-section">
-                <h3 class="system-section-title">🕰️ Age & Composition</h3>
-                <div class="system-grid">
-                    <div class="system-info-row">
-                        <span class="system-label">Stellar Age</span>
-                        <span class="system-value">${star.age_metallicity.age_gyr.toFixed(2)} billion years</span>
+                <section class="system-section">
+                    <h3 class="system-section-title">${_monoIcon('icon-quests')}Age & Composition</h3>
+                    <div class="system-grid">
+                        <div class="system-info-row">
+                            <span class="system-label">Stellar Age</span>
+                            <span class="system-value">${star.age_metallicity.age_gyr.toFixed(2)} billion years</span>
+                        </div>
+                        <div class="system-info-row">
+                            <span class="system-label">Metallicity [Z]</span>
+                            <span class="system-value">${star.age_metallicity.metallicity_z.toFixed(4)}</span>
+                        </div>
                     </div>
-                    <div class="system-info-row">
-                        <span class="system-label">Metallicity [Z]</span>
-                        <span class="system-value">${star.age_metallicity.metallicity_z.toFixed(4)}</span>
-                    </div>
-                </div>
-            </section>
+                </section>
+            </div>
 
-            <section class="system-section">
-                <h3 class="system-section-title">🌍 Orbital Zones</h3>
-                <div class="system-grid">
-                    <div class="system-info-row">
-                        <span class="system-label">Habitable Zone (inner)</span>
-                        <span class="system-value">
-                            ${star.habitable_zone.hz_inner_au.toFixed(5)} AU
-                            <span class="system-sub">${habZoneKm} km</span>
-                        </span>
-                    </div>
-                    <div class="system-info-row">
-                        <span class="system-label">Habitable Zone (outer)</span>
-                        <span class="system-value">
-                            ${star.habitable_zone.hz_outer_au.toFixed(5)} AU
-                            <span class="system-sub">${(star.habitable_zone.hz_outer_au * 149597870.7).toFixed(0)} km</span>
-                        </span>
-                    </div>
-                    <div class="system-info-row">
-                        <span class="system-label">Frost Line</span>
-                        <span class="system-value">
-                            ${star.habitable_zone.frost_line_au.toFixed(5)} AU
-                            <span class="system-sub">${frostLineKm} km</span>
-                        </span>
-                    </div>
-                </div>
-            </section>
-
-            ${binarySection}
-
-            <section class="system-section">
-                <h3 class="system-section-title">📍 Position</h3>
-                <div class="system-grid">
-                    <div class="system-info-row">
-                        <span class="system-label">X</span>
-                        <span class="system-value">${star.xy.x_ly.toFixed(2)} ly</span>
-                    </div>
-                    <div class="system-info-row">
-                        <span class="system-label">Y</span>
-                        <span class="system-value">${star.xy.y_ly.toFixed(2)} ly</span>
-                    </div>
-                    <div class="system-info-row">
-                        <span class="system-label">Z</span>
-                        <span class="system-value">${star.xy.z_ly.toFixed(2)} ly</span>
-                    </div>
-                </div>
-            </section>
-
-            <section class="system-section">
-                <h3 class="system-section-title">📚 References</h3>
-                <div class="system-references">
-                    <button class="system-ref-btn" onclick="window.openGlossaryModal()">
-                        📖 Open Glossary
+            <div class="system-tab-panel" data-system-panel="orbit" hidden>
+                <div class="system-panel-actions">
+                    <button type="button" class="system-ref-btn system-ref-btn-detach" data-system-detach="orbit">
+                        ${_monoIcon('icon-map')}Orbit in eigenem Fenster
                     </button>
-                    <button class="system-ref-btn" onclick="window.openHRDiagram('${star.classification.type}')">
-                        📊 View HR-Diagram
-                    </button>
-                    <a href="https://en.wikipedia.org/wiki/Stellar_classification" target="_blank" rel="noopener" class="system-ref-btn">
-                        🌐 Stellar Classification (Wikipedia)
-                    </a>
-                    <a href="https://arxiv.org/abs/1301.6674" target="_blank" rel="noopener" class="system-ref-btn">
-                        📄 Habitable Zone Research (ArXiv)
-                    </a>
                 </div>
-            </section>
+
+                <section class="system-section">
+                    <h3 class="system-section-title">${_monoIcon('icon-orb')}Orbital Zones</h3>
+                    <div class="system-grid">
+                        <div class="system-info-row">
+                            <span class="system-label">Habitable Zone (inner)</span>
+                            <span class="system-value">
+                                ${star.habitable_zone.hz_inner_au.toFixed(5)} AU
+                                <span class="system-sub">${habZoneKm} km</span>
+                            </span>
+                        </div>
+                        <div class="system-info-row">
+                            <span class="system-label">Habitable Zone (outer)</span>
+                            <span class="system-value">
+                                ${star.habitable_zone.hz_outer_au.toFixed(5)} AU
+                                <span class="system-sub">${(star.habitable_zone.hz_outer_au * 149597870.7).toFixed(0)} km</span>
+                            </span>
+                        </div>
+                        <div class="system-info-row">
+                            <span class="system-label">Frost Line</span>
+                            <span class="system-value">
+                                ${star.habitable_zone.frost_line_au.toFixed(5)} AU
+                                <span class="system-sub">${frostLineKm} km</span>
+                            </span>
+                        </div>
+                    </div>
+                </section>
+
+                ${binarySection}
+
+                <section class="system-section">
+                    <h3 class="system-section-title">${_monoIcon('icon-map')}Position</h3>
+                    <div class="system-grid">
+                        <div class="system-info-row">
+                            <span class="system-label">X</span>
+                            <span class="system-value">${star.xy.x_ly.toFixed(2)} ly</span>
+                        </div>
+                        <div class="system-info-row">
+                            <span class="system-label">Y</span>
+                            <span class="system-value">${star.xy.y_ly.toFixed(2)} ly</span>
+                        </div>
+                        <div class="system-info-row">
+                            <span class="system-label">Z</span>
+                            <span class="system-value">${star.xy.z_ly.toFixed(2)} ly</span>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="system-tab-panel" data-system-panel="references" hidden>
+                <div class="system-panel-actions">
+                    <button type="button" class="system-ref-btn system-ref-btn-detach" data-system-detach="references">
+                        ${_monoIcon('icon-intel')}Referenzen in eigenem Fenster
+                    </button>
+                </div>
+
+                <section class="system-section">
+                    <h3 class="system-section-title">${_monoIcon('icon-intel')}References</h3>
+                    <div class="system-references">
+                        <button class="system-ref-btn" onclick="window.openGlossaryModal()">
+                            ${_monoIcon('icon-intel')}Open Glossary
+                        </button>
+                        <button class="system-ref-btn" onclick="window.openHRDiagram('${star.classification.type}')">
+                            ${_monoIcon('icon-graphics')}View HR-Diagram
+                        </button>
+                        <a href="https://en.wikipedia.org/wiki/Stellar_classification" target="_blank" rel="noopener" class="system-ref-btn">
+                            ${_monoIcon('icon-factions')}Stellar Classification (Wikipedia)
+                        </a>
+                        <a href="https://arxiv.org/abs/1301.6674" target="_blank" rel="noopener" class="system-ref-btn">
+                            ${_monoIcon('icon-research')}Habitable Zone Research (ArXiv)
+                        </a>
+                    </div>
+                </section>
+            </div>
 
         </div>
     `;
 }
 
+function _initSystemInfoTabs(modal) {
+    if (!(modal instanceof HTMLElement)) return;
+
+    const tabs = Array.from(modal.querySelectorAll('[data-system-tab]'));
+    const panels = Array.from(modal.querySelectorAll('[data-system-panel]'));
+    if (!tabs.length || !panels.length) return;
+
+    const activateTab = (tabName) => {
+        const selected = String(tabName || 'overview');
+        tabs.forEach((tab) => {
+            const active = tab.getAttribute('data-system-tab') === selected;
+            tab.classList.toggle('is-active', active);
+            tab.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        panels.forEach((panel) => {
+            const active = panel.getAttribute('data-system-panel') === selected;
+            panel.classList.toggle('is-active', active);
+            panel.hidden = !active;
+        });
+    };
+
+    tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+            activateTab(tab.getAttribute('data-system-tab'));
+        });
+    });
+
+    const detachButtons = Array.from(modal.querySelectorAll('[data-system-detach]'));
+    detachButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const kind = String(btn.getAttribute('data-system-detach') || '');
+            const panel = btn.closest('[data-system-panel]');
+            _openDetachedSystemInfoWindow(kind, panel);
+        });
+    });
+
+    activateTab('overview');
+}
+
+function _openDetachedSystemInfoWindow(kind, sourcePanel) {
+    if (!(sourcePanel instanceof HTMLElement)) return;
+
+    const panelKind = String(kind || '').trim().toLowerCase();
+    if (!panelKind) return;
+
+    const titleMap = {
+        orbit: 'Orbit-Details',
+        references: 'Referenzen',
+    };
+
+    const existing = document.querySelector(`.system-info-detached[data-system-detached="${panelKind}"]`);
+    if (existing instanceof HTMLElement) existing.remove();
+
+    const detached = document.createElement('section');
+    detached.className = 'system-info-detached';
+    detached.setAttribute('data-system-detached', panelKind);
+    detached.setAttribute('role', 'dialog');
+    detached.setAttribute('aria-label', titleMap[panelKind] || 'Systemdetails');
+
+    const header = document.createElement('div');
+    header.className = 'system-info-detached-head';
+    header.innerHTML = `
+        <strong>${titleMap[panelKind] || 'Systemdetails'}</strong>
+        <button type="button" class="system-info-detached-close" aria-label="Fenster schließen">&times;</button>
+    `;
+
+    const body = document.createElement('div');
+    body.className = 'system-info-detached-body';
+    const clone = sourcePanel.cloneNode(true);
+    clone.querySelectorAll('[data-system-detach]').forEach((node) => node.remove());
+    clone.hidden = false;
+    clone.classList.add('is-active');
+    body.appendChild(clone);
+
+    detached.appendChild(header);
+    detached.appendChild(body);
+    document.body.appendChild(detached);
+
+    const closeBtn = detached.querySelector('.system-info-detached-close');
+    if (closeBtn instanceof HTMLElement) {
+        closeBtn.addEventListener('click', () => detached.remove());
+    }
+}
+
 function _getStarTypeLabel(type) {
     const labels = {
-        'white_dwarf': { label: 'White Dwarf', icon: '⚪', class: 'white-dwarf' },
-        'main_sequence': { label: 'Main Sequence', icon: '🟡', class: 'main-sequence' },
-        'neutron_star': { label: 'Neutron Star', icon: '🟣', class: 'neutron-star' },
-        'brown_dwarf': { label: 'Brown Dwarf', icon: '🔴', class: 'brown-dwarf' },
-        'giant': { label: 'Giant Star', icon: '🟠', class: 'red-giant' },
-        'subdwarf': { label: 'Subdwarf', icon: '🔹', class: 'main-sequence' },
-        'red_giant': { label: 'Red Giant', icon: '🔴', class: 'red-giant' },
-        'supergiant': { label: 'Supergiant', icon: '🔵', class: 'supergiant' },
+        'white_dwarf': { label: 'White Dwarf', iconText: 'WD', class: 'white-dwarf' },
+        'main_sequence': { label: 'Main Sequence', iconText: 'MS', class: 'main-sequence' },
+        'neutron_star': { label: 'Neutron Star', iconText: 'NS', class: 'neutron-star' },
+        'brown_dwarf': { label: 'Brown Dwarf', iconText: 'BD', class: 'brown-dwarf' },
+        'giant': { label: 'Giant Star', iconText: 'GS', class: 'red-giant' },
+        'subdwarf': { label: 'Subdwarf', iconText: 'SD', class: 'main-sequence' },
+        'red_giant': { label: 'Red Giant', iconText: 'RG', class: 'red-giant' },
+        'supergiant': { label: 'Supergiant', iconText: 'SG', class: 'supergiant' },
     };
-    return labels[type] || { label: 'Unknown', icon: '❓', class: 'unknown' };
+    return labels[type] || { label: 'Unknown', iconText: '??', class: 'unknown' };
 }
 
 // Attach to global scope for event handling

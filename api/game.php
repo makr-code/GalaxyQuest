@@ -241,10 +241,10 @@ switch ($action) {
         only_method('GET');
         $db   = get_db();
         $stmt = $db->prepare(
-            'SELECT u.id, u.username, u.rank_points, u.dark_matter,
-                    COUNT(DISTINCT c.id) AS planet_count,
-                    COALESCE(SUM(c.metal + c.crystal + c.deuterium), 0) AS total_resources,
-                    a.tag AS alliance_tag, a.name AS alliance_name
+            "SELECT u.id, u.username, u.rank_points, u.dark_matter,
+                COUNT(DISTINCT c.id) AS planet_count,
+                COALESCE(SUM(c.metal + c.crystal + c.deuterium), 0) AS total_resources,
+                a.tag AS alliance_tag, a.name AS alliance_name
              FROM users u
              LEFT JOIN colonies c ON c.user_id = u.id
              LEFT JOIN alliance_members am ON am.user_id = u.id
@@ -252,7 +252,7 @@ switch ($action) {
              WHERE u.control_type = 'human' AND u.auth_enabled = 1 AND u.deleted_at IS NULL
              GROUP BY u.id, u.username, u.rank_points, u.dark_matter, a.tag, a.name
              ORDER BY u.rank_points DESC, planet_count DESC
-             LIMIT 50'
+             LIMIT 50"
         );
         $stmt->execute();
         json_ok(['leaderboard' => $stmt->fetchAll()]);

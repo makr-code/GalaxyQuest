@@ -1,10 +1,10 @@
 /**
- * GalaxyQuest ÔÇô Main game UI controller
+ * GalaxyQuest - Main game UI controller
  * All views are rendered as floating windows via the WM (window manager).
  */
 (async function () {
 
-  // ÔöÇÔöÇ Auth guard ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // Auth guard
   let currentUser;
   try {
     const meData = await API.me();
@@ -18,7 +18,7 @@
 
   function updateCommanderButtonLabel() {
     const commanderBtn = document.getElementById('commander-name');
-    if (commanderBtn) commanderBtn.textContent = `ÔÜÖ ${currentUser.username} Ôû¥`;
+    if (commanderBtn) commanderBtn.textContent = `${currentUser.username}`;
   }
   updateCommanderButtonLabel();
 
@@ -48,7 +48,7 @@
     });
   }
 
-  // ÔöÇÔöÇ State ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // State
   let colonies       = [];
   let currentColony  = null;
   let galaxySystemMax = 499;
@@ -229,15 +229,15 @@
     resourceInsight: null,
   };
   const RESOURCE_INSIGHT_CONFIG = Object.freeze({
-    metal: { key: 'metal', label: 'Metal', icon: 'Ô¼í', desc: 'Basismetall fuer Hulls, Industrie und Ausbau. Ueberschuesse eignen sich fuer Angebotstrades oder interne Transporte.', focusBuilding: 'metal_mine', rateKey: 'metal', tradeable: true, transportable: true },
-    crystal: { key: 'crystal', label: 'Crystal', icon: '­ƒÆÄ', desc: 'Veredelte Hochtechnologieressource fuer Forschung, Scanner und Komponentenbau.', focusBuilding: 'crystal_mine', rateKey: 'crystal', tradeable: true, transportable: true },
-    deuterium: { key: 'deuterium', label: 'Deuterium', icon: '­ƒöÁ', desc: 'Treibstoff und Spezialressource. Transporte, Flottenstarts und Handel ziehen Deuterium fuer Frachtsicherung und Flugzeit.', focusBuilding: 'deuterium_synth', rateKey: 'deuterium', tradeable: true, transportable: true },
-    food: { key: 'food', label: 'Food', icon: '­ƒî¥', desc: 'Versorgt die Bevoelkerung und stabilisiert Wachstum. Negative Raten wirken direkt auf Wohlfahrt und Ausbau.', focusBuilding: 'hydroponic_farm', rateKey: 'food', tradeable: false, transportable: false },
-    rare_earth: { key: 'rare_earth', label: 'Rare Earth', icon: '­ƒÆ£', desc: 'Seltene Fertigungsmetalle fuer fortgeschrittene Module. Im aktuellen Handelssystem nur strategisch beobachten, nicht direkt handeln.', focusBuilding: 'rare_earth_drill', rateKey: 'rare_earth', tradeable: false, transportable: false },
-    population: { key: 'population', label: 'Population', icon: '­ƒæÑ', desc: 'Arbeitskraefte und Wachstumspuffer der Kolonie. Engpaesse limitieren Produktion und Baugeschwindigkeit.', focusBuilding: 'habitat_dome', rateKey: 'population', tradeable: false, transportable: false },
-    happiness: { key: 'happiness', label: 'Happiness', icon: '­ƒÿè', desc: 'Produktivitaets- und Stabilitaetsindikator. Sinkt Happiness, verlieren selbst volle Lager an Effizienz.', focusBuilding: 'hospital', rateKey: null, tradeable: false, transportable: false },
-    energy: { key: 'energy', label: 'Energy', icon: 'ÔÜí', desc: 'Versorgt Gebaeude und beeinflusst alle Produktionsketten. Defizite wirken sofort auf die Wirtschaft.', focusBuilding: 'solar_plant', rateKey: null, tradeable: false, transportable: false },
-    dark_matter: { key: 'dark_matter', label: 'Dark Matter', icon: 'Ôùå', desc: 'Prestigewaehrung aus Quests und Progression. Nicht ueber den normalen Rohstoffmarkt handelbar.', focusBuilding: '', rateKey: null, tradeable: false, transportable: false },
+    metal: { key: 'metal', label: 'Metal', icon: 'MET', desc: 'Basismetall fuer Hulls, Industrie und Ausbau. Ueberschuesse eignen sich fuer Angebotstrades oder interne Transporte.', focusBuilding: 'metal_mine', rateKey: 'metal', tradeable: true, transportable: true },
+    crystal: { key: 'crystal', label: 'Crystal', icon: 'CRY', desc: 'Veredelte Hochtechnologieressource fuer Forschung, Scanner und Komponentenbau.', focusBuilding: 'crystal_mine', rateKey: 'crystal', tradeable: true, transportable: true },
+    deuterium: { key: 'deuterium', label: 'Deuterium', icon: 'DEU', desc: 'Treibstoff und Spezialressource. Transporte, Flottenstarts und Handel ziehen Deuterium fuer Frachtsicherung und Flugzeit.', focusBuilding: 'deuterium_synth', rateKey: 'deuterium', tradeable: true, transportable: true },
+    food: { key: 'food', label: 'Food', icon: 'FOD', desc: 'Versorgt die Bevoelkerung und stabilisiert Wachstum. Negative Raten wirken direkt auf Wohlfahrt und Ausbau.', focusBuilding: 'hydroponic_farm', rateKey: 'food', tradeable: false, transportable: false },
+    rare_earth: { key: 'rare_earth', label: 'Rare Earth', icon: 'RRE', desc: 'Seltene Fertigungsmetalle fuer fortgeschrittene Module. Im aktuellen Handelssystem nur strategisch beobachten, nicht direkt handeln.', focusBuilding: 'rare_earth_drill', rateKey: 'rare_earth', tradeable: false, transportable: false },
+    population: { key: 'population', label: 'Population', icon: 'POP', desc: 'Arbeitskraefte und Wachstumspuffer der Kolonie. Engpaesse limitieren Produktion und Baugeschwindigkeit.', focusBuilding: 'habitat_dome', rateKey: 'population', tradeable: false, transportable: false },
+    happiness: { key: 'happiness', label: 'Happiness', icon: 'HAP', desc: 'Produktivitaets- und Stabilitaetsindikator. Sinkt Happiness, verlieren selbst volle Lager an Effizienz.', focusBuilding: 'hospital', rateKey: null, tradeable: false, transportable: false },
+    energy: { key: 'energy', label: 'Energy', icon: 'ENG', desc: 'Versorgt Gebaeude und beeinflusst alle Produktionsketten. Defizite wirken sofort auf die Wirtschaft.', focusBuilding: 'solar_plant', rateKey: null, tradeable: false, transportable: false },
+    dark_matter: { key: 'dark_matter', label: 'Dark Matter', icon: 'DM', desc: 'Prestigewaehrung aus Quests und Progression. Nicht ueber den normalen Rohstoffmarkt handelbar.', focusBuilding: '', rateKey: null, tradeable: false, transportable: false },
   });
 
   function getResourceInsightConfig(resourceKey) {
@@ -346,7 +346,7 @@
     authRedirectScheduled = true;
     const target = `index.html?reason=${encodeURIComponent(String(reason || 'auth'))}`;
     uiConsolePush(`[system] Session abgelaufen (${reason}). Redirect -> ${target}`);
-    showToast('Session abgelaufen. Weiterleitung zum LoginÔÇª', 'warning');
+    showToast('Session abgelaufen. Weiterleitung zum Login...', 'warning');
     window.setTimeout(() => {
       window.location.href = target;
     }, 450);
@@ -424,6 +424,9 @@
   const settingsState = {
     transitionPreset: 'balanced',
     orbitSimulationMode: 'auto',
+    systemOrbitPathsVisible: true,
+    systemOrbitMarkersVisible: true,
+    systemOrbitFocusOnly: false,
     autoTransitions: true,
     renderQualityProfile: 'auto',
     clusterDensityMode: 'auto',
@@ -481,17 +484,322 @@
       buildComplete: 'sfx/mixkit-bonus-earned-in-video-game-2058.wav',
       fleetLaunch: 'sfx/mixkit-space-deploy-whizz-3003.wav',
     },
+    uiThemeMode: 'auto',
+    uiThemeCustomAccent: '#3aa0ff',
+    uiThemeFactionId: 0,
+    factionThemeCache: {},
   };
+
+  const UI_THEME_MODE_VALUES = new Set(['auto', 'faction', 'custom']);
+  const UI_THEME_DEFAULT_ACCENT = '#3aa0ff';
+  const UI_THEME_DYNAMIC_VARS = [
+    '--accent-blue',
+    '--accent-cyan',
+    '--accent-purple',
+    '--border-lit',
+    '--theme-accent',
+    '--theme-accent-soft',
+    '--theme-accent-strong',
+    '--theme-complement',
+    '--theme-complement-soft',
+  ];
 
   const UI_SETTINGS_STORAGE_KEY = 'gq_ui_settings';
   const UI_SETTINGS_SESSION_KEY = 'gq_ui_settings_session';
   const UI_SETTINGS_COOKIE_KEY = 'gq_ui_settings';
   const UI_SETTINGS_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 180;
   const GALAXY_FLEET_HINT_KEY = 'gq_hint_galaxy_fleet_colors_v1';
+  const ORBIT_BADGE_HINT_SESSION_KEY = 'gq_hint_orbit_badge_v1';
   const GALAXY_FLEET_HINT_COOKIE_DAYS = 365;
   let galaxyFleetHintShownInSession = false;
   let galaxyFleetHintScheduledInSession = false;
   let galaxyShortcutsHintShownInSession = false;
+
+  function clamp01(value) {
+    return Math.max(0, Math.min(1, Number(value || 0)));
+  }
+
+  function clampByte(value) {
+    return Math.max(0, Math.min(255, Math.round(Number(value || 0))));
+  }
+
+  function normalizeHexColor(value, fallback = UI_THEME_DEFAULT_ACCENT) {
+    const raw = String(value || '').trim();
+    const match = raw.match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!match) return String(fallback || UI_THEME_DEFAULT_ACCENT);
+    const hex = String(match[1] || '').toLowerCase();
+    if (hex.length === 3) {
+      return `#${hex.split('').map((c) => c + c).join('')}`;
+    }
+    return `#${hex}`;
+  }
+
+  function hexToRgb(hex) {
+    const safeHex = normalizeHexColor(hex, UI_THEME_DEFAULT_ACCENT);
+    const body = safeHex.slice(1);
+    return {
+      r: parseInt(body.slice(0, 2), 16),
+      g: parseInt(body.slice(2, 4), 16),
+      b: parseInt(body.slice(4, 6), 16),
+    };
+  }
+
+  function rgbToHex(r, g, b) {
+    const toHex = (value) => clampByte(value).toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  function rgbToHsl(r, g, b) {
+    const rn = clampByte(r) / 255;
+    const gn = clampByte(g) / 255;
+    const bn = clampByte(b) / 255;
+    const max = Math.max(rn, gn, bn);
+    const min = Math.min(rn, gn, bn);
+    const d = max - min;
+    let h = 0;
+    const l = (max + min) / 2;
+    const s = d === 0 ? 0 : d / (1 - Math.abs((2 * l) - 1));
+    if (d !== 0) {
+      if (max === rn) h = ((gn - bn) / d) % 6;
+      else if (max === gn) h = ((bn - rn) / d) + 2;
+      else h = ((rn - gn) / d) + 4;
+    }
+    return {
+      h: (h * 60 + 360) % 360,
+      s,
+      l,
+    };
+  }
+
+  function hueToRgb(p, q, t) {
+    let x = t;
+    if (x < 0) x += 1;
+    if (x > 1) x -= 1;
+    if (x < 1 / 6) return p + (q - p) * 6 * x;
+    if (x < 1 / 2) return q;
+    if (x < 2 / 3) return p + (q - p) * ((2 / 3) - x) * 6;
+    return p;
+  }
+
+  function hslToRgb(h, s, l) {
+    const hn = ((Number(h || 0) % 360) + 360) % 360;
+    const sn = clamp01(s);
+    const ln = clamp01(l);
+    if (sn === 0) {
+      const gray = Math.round(ln * 255);
+      return { r: gray, g: gray, b: gray };
+    }
+    const q = ln < 0.5 ? ln * (1 + sn) : ln + sn - (ln * sn);
+    const p = 2 * ln - q;
+    const hk = hn / 360;
+    return {
+      r: Math.round(hueToRgb(p, q, hk + (1 / 3)) * 255),
+      g: Math.round(hueToRgb(p, q, hk) * 255),
+      b: Math.round(hueToRgb(p, q, hk - (1 / 3)) * 255),
+    };
+  }
+
+  function shiftHueHex(hex, hueShiftDeg = 0, satMul = 1, lightMul = 1) {
+    const rgb = hexToRgb(hex);
+    const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+    const shifted = hslToRgb(
+      (hsl.h + Number(hueShiftDeg || 0) + 360) % 360,
+      clamp01(hsl.s * Number(satMul || 1)),
+      clamp01(hsl.l * Number(lightMul || 1))
+    );
+    return rgbToHex(shifted.r, shifted.g, shifted.b);
+  }
+
+  function mixHex(a, b, ratio = 0.5) {
+    const pa = hexToRgb(a);
+    const pb = hexToRgb(b);
+    const t = clamp01(ratio);
+    return rgbToHex(
+      Math.round(pa.r + (pb.r - pa.r) * t),
+      Math.round(pa.g + (pb.g - pa.g) * t),
+      Math.round(pa.b + (pb.b - pa.b) * t)
+    );
+  }
+
+  function hexToRgba(hex, alpha = 1) {
+    const rgb = hexToRgb(hex);
+    return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${clamp01(alpha)})`;
+  }
+
+  function createThemePaletteFromAccent(accentHex) {
+    const accent = normalizeHexColor(accentHex, UI_THEME_DEFAULT_ACCENT);
+    const complement = shiftHueHex(accent, 180, 0.94, 1.02);
+    const accentStrong = mixHex(accent, '#ffffff', 0.2);
+    const accentSoft = mixHex(accent, '#0b1526', 0.52);
+    const complementSoft = mixHex(complement, '#0b1526', 0.5);
+    const borderLit = mixHex(accent, '#d8ebff', 0.34);
+    return {
+      accent,
+      accentStrong,
+      accentSoft,
+      complement,
+      complementSoft,
+      borderLit,
+    };
+  }
+
+  function getRootStyle() {
+    return document.documentElement ? document.documentElement.style : null;
+  }
+
+  function applyThemePaletteToCss(palette) {
+    const style = getRootStyle();
+    if (!style || !palette) return;
+    style.setProperty('--accent-blue', palette.accent);
+    style.setProperty('--accent-cyan', palette.complement);
+    style.setProperty('--accent-purple', palette.complementSoft);
+    style.setProperty('--border-lit', palette.borderLit);
+    style.setProperty('--theme-accent', palette.accent);
+    style.setProperty('--theme-accent-soft', hexToRgba(palette.accentSoft, 0.78));
+    style.setProperty('--theme-accent-strong', palette.accentStrong);
+    style.setProperty('--theme-complement', palette.complement);
+    style.setProperty('--theme-complement-soft', hexToRgba(palette.complementSoft, 0.7));
+  }
+
+  function clearThemePaletteCssOverrides() {
+    const style = getRootStyle();
+    if (!style) return;
+    UI_THEME_DYNAMIC_VARS.forEach((name) => style.removeProperty(name));
+  }
+
+  function resolvePlayerFactionThemeSeed() {
+    const currentUserCandidates = [
+      { id: currentUser?.faction_id, color: currentUser?.faction_color },
+      { id: currentUser?.home_faction_id, color: currentUser?.home_faction_color },
+      { id: currentUser?.primary_faction_id, color: currentUser?.primary_faction_color },
+      { id: currentUser?.faction?.id, color: currentUser?.faction?.color },
+    ];
+    for (const row of currentUserCandidates) {
+      const id = Number(row?.id || 0);
+      const color = normalizeHexColor(row?.color || '', '');
+      if (id > 0 && color) return { factionId: id, color };
+    }
+
+    const playerClaim = (Array.isArray(uiState.territory) ? uiState.territory : []).find((f) => f?.__isPlayer);
+    if (playerClaim) {
+      const id = Number(playerClaim?.id || playerClaim?.faction_id || 0);
+      const color = normalizeHexColor(playerClaim?.color || '', '');
+      if (id > 0 && color) return { factionId: id, color };
+    }
+    return { factionId: 0, color: '' };
+  }
+
+  function findFactionColorById(factionId) {
+    const targetId = Number(factionId || 0);
+    if (targetId <= 0) return '';
+
+    const currentUserCandidates = [
+      { id: currentUser?.faction_id, color: currentUser?.faction_color },
+      { id: currentUser?.home_faction_id, color: currentUser?.home_faction_color },
+      { id: currentUser?.primary_faction_id, color: currentUser?.primary_faction_color },
+      { id: currentUser?.faction?.id, color: currentUser?.faction?.color },
+    ];
+    for (const row of currentUserCandidates) {
+      const id = Number(row?.id || 0);
+      const color = normalizeHexColor(row?.color || '', '');
+      if (id === targetId && color) return color;
+    }
+
+    const fromTerritory = (Array.isArray(uiState.territory) ? uiState.territory : []).find((f) => Number(f?.id || f?.faction_id || 0) === targetId);
+    const territoryColor = normalizeHexColor(fromTerritory?.color || '', '');
+    if (territoryColor) return territoryColor;
+
+    const cached = settingsState.factionThemeCache?.[String(targetId)];
+    const cachedColor = normalizeHexColor(cached?.base || '', '');
+    return cachedColor || '';
+  }
+
+  function ensureFactionThemeCacheEntry(factionId, baseColor) {
+    const id = Number(factionId || 0);
+    const color = normalizeHexColor(baseColor || '', '');
+    if (id <= 0 || !color) return null;
+    if (!settingsState.factionThemeCache || typeof settingsState.factionThemeCache !== 'object') {
+      settingsState.factionThemeCache = {};
+    }
+    const key = String(id);
+    const existing = settingsState.factionThemeCache[key];
+    if (existing && String(existing.base || '').toLowerCase() === color.toLowerCase()) {
+      return existing;
+    }
+    const palette = createThemePaletteFromAccent(color);
+    const next = Object.assign({
+      factionId: id,
+      base: color,
+      generatedAt: Date.now(),
+    }, palette);
+    settingsState.factionThemeCache[key] = next;
+    return next;
+  }
+
+  function warmFactionThemeCacheFromTerritory(territoryList) {
+    if (!Array.isArray(territoryList) || !territoryList.length) return false;
+    let changed = false;
+    territoryList.forEach((faction) => {
+      const id = Number(faction?.id || faction?.faction_id || 0);
+      const color = normalizeHexColor(faction?.color || '', '');
+      if (id <= 0 || !color) return;
+      const before = settingsState.factionThemeCache?.[String(id)]?.base || '';
+      const after = ensureFactionThemeCacheEntry(id, color)?.base || '';
+      if (before !== after) changed = true;
+    });
+    return changed;
+  }
+
+  function resolveThemePaletteForSelection(modeInput, customAccentInput, factionIdInput) {
+    const mode = UI_THEME_MODE_VALUES.has(String(modeInput || '').toLowerCase())
+      ? String(modeInput || '').toLowerCase()
+      : 'auto';
+    const customAccent = normalizeHexColor(customAccentInput || '', UI_THEME_DEFAULT_ACCENT);
+    if (mode === 'custom') {
+      return Object.assign({ source: 'custom', factionId: 0 }, createThemePaletteFromAccent(customAccent));
+    }
+
+    const preferredFactionId = Math.max(0, Number(factionIdInput || 0));
+    const selectedFactionSeed = preferredFactionId > 0
+      ? { factionId: preferredFactionId, color: findFactionColorById(preferredFactionId) }
+      : null;
+    const factionSeed = mode === 'faction'
+      ? (selectedFactionSeed && selectedFactionSeed.color ? selectedFactionSeed : resolvePlayerFactionThemeSeed())
+      : resolvePlayerFactionThemeSeed();
+    if (factionSeed.factionId > 0 && factionSeed.color) {
+      const cached = ensureFactionThemeCacheEntry(factionSeed.factionId, factionSeed.color);
+      if (cached) return Object.assign({ source: 'faction', factionId: factionSeed.factionId }, cached);
+    }
+
+    return Object.assign({ source: 'fallback', factionId: 0 }, createThemePaletteFromAccent(UI_THEME_DEFAULT_ACCENT));
+  }
+
+  function resolveActiveThemePalette() {
+    return resolveThemePaletteForSelection(
+      settingsState.uiThemeMode,
+      settingsState.uiThemeCustomAccent,
+      settingsState.uiThemeFactionId
+    );
+  }
+
+  function applyUiTheme(reason = 'runtime') {
+    const palette = resolveActiveThemePalette();
+    if (!palette) {
+      clearThemePaletteCssOverrides();
+      return;
+    }
+    applyThemePaletteToCss(palette);
+    settingsState.uiThemeLastSource = String(palette.source || 'fallback');
+    settingsState.uiThemeLastFactionId = Number(palette.factionId || 0);
+    if (reason === 'user-change') {
+      const root = document.documentElement;
+      root.classList.remove('is-theme-changing');
+      void root.offsetHeight;
+      root.classList.add('is-theme-changing');
+      setTimeout(() => root.classList.remove('is-theme-changing'), 420);
+      showToast(`UI Theme aktiv: ${settingsState.uiThemeLastSource === 'faction' ? 'Fraktion' : settingsState.uiThemeLastSource === 'custom' ? 'Benutzerdefiniert' : 'Standard'}`, 'info');
+    }
+  }
 
   function readCookieValue(name) {
     try {
@@ -780,29 +1088,29 @@
     return audioTrackCatalogPromise;
   }
   const BUILDING_UI_META = {
-    metal_mine:       { cat:'Extraction', icon:'Ô¼í', desc:'Mines metal from the planet crust. Output scales with richness.' },
-    crystal_mine:     { cat:'Extraction', icon:'­ƒÆÄ', desc:'Extracts crystal formations. Higher levels deplete deposits faster.' },
-    deuterium_synth:  { cat:'Extraction', icon:'­ƒöÁ', desc:'Synthesises deuterium from surface water or atmosphere.' },
-    rare_earth_drill: { cat:'Extraction', icon:'­ƒÆ£', desc:'Extracts rare earth elements ÔÇö finite deposit, high value.' },
-    solar_plant:      { cat:'Energy', icon:'ÔÿÇ', desc:'Converts sunlight to energy. Output depends on star type.' },
-    fusion_reactor:   { cat:'Energy', icon:'­ƒöå', desc:'High-output fusion reactor. Consumes deuterium.' },
-    hydroponic_farm:  { cat:'Life Support', icon:'­ƒî¥', desc:'Grows food for the population. Required to prevent starvation.' },
-    food_silo:        { cat:'Life Support', icon:'­ƒÅÜ', desc:'Increases food storage capacity.' },
-    habitat:          { cat:'Population', icon:'­ƒÅá', desc:'+200 max population per level.' },
-    hospital:         { cat:'Population', icon:'­ƒÅÑ', desc:'Improves healthcare. Raises happiness and public services index.' },
-    school:           { cat:'Population', icon:'­ƒÄô', desc:'Education facility. Improves public services and colony productivity.' },
-    security_post:    { cat:'Population', icon:'­ƒöÆ', desc:'Maintains order. Reduces unrest and deters pirate raids.' },
-    robotics_factory: { cat:'Industry', icon:'­ƒñû', desc:'Reduces building construction time.' },
-    shipyard:         { cat:'Industry', icon:'­ƒÜÇ', desc:'Required to build spacecraft.' },
-    metal_storage:    { cat:'Storage', icon:'­ƒôª', desc:'Increases metal storage cap.' },
-    crystal_storage:  { cat:'Storage', icon:'­ƒôª', desc:'Increases crystal storage cap.' },
-    deuterium_tank:   { cat:'Storage', icon:'­ƒôª', desc:'Increases deuterium storage cap.' },
-    research_lab:     { cat:'Science', icon:'­ƒö¼', desc:'Enables and accelerates research.' },
-    missile_silo:     { cat:'Military', icon:'­ƒÜÇ', desc:'Launches defensive missiles.' },
-    nanite_factory:   { cat:'Advanced', icon:'ÔÜÖ', desc:'Nano-assemblers that dramatically cut build times.' },
-    terraformer:      { cat:'Advanced', icon:'­ƒîì', desc:'Reshapes planetary geology to expand available tiles.' },
-    colony_hq:        { cat:'Advanced', icon:'­ƒÅø', desc:'Colony administration. Raises colony level cap.' },
-    solar_satellite:  { cat:'Orbital', icon:'­ƒø░', desc:'Orbital solar collectors supporting planetary energy output.' },
+    metal_mine:       { cat:'Extraction', icon:'MET', desc:'Mines metal from the planet crust. Output scales with richness.' },
+    crystal_mine:     { cat:'Extraction', icon:'CRY', desc:'Extracts crystal formations. Higher levels deplete deposits faster.' },
+    deuterium_synth:  { cat:'Extraction', icon:'DEU', desc:'Synthesises deuterium from surface water or atmosphere.' },
+    rare_earth_drill: { cat:'Extraction', icon:'RRE', desc:'Extracts rare earth elements - finite deposit, high value.' },
+    solar_plant:      { cat:'Energy', icon:'SOL', desc:'Converts sunlight to energy. Output depends on star type.' },
+    fusion_reactor:   { cat:'Energy', icon:'FUS', desc:'High-output fusion reactor. Consumes deuterium.' },
+    hydroponic_farm:  { cat:'Life Support', icon:'FOD', desc:'Grows food for the population. Required to prevent starvation.' },
+    food_silo:        { cat:'Life Support', icon:'SILO', desc:'Increases food storage capacity.' },
+    habitat:          { cat:'Population', icon:'HAB', desc:'+200 max population per level.' },
+    hospital:         { cat:'Population', icon:'MED', desc:'Improves healthcare. Raises happiness and public services index.' },
+    school:           { cat:'Population', icon:'EDU', desc:'Education facility. Improves public services and colony productivity.' },
+    security_post:    { cat:'Population', icon:'SEC', desc:'Maintains order. Reduces unrest and deters pirate raids.' },
+    robotics_factory: { cat:'Industry', icon:'ROB', desc:'Reduces building construction time.' },
+    shipyard:         { cat:'Industry', icon:'YRD', desc:'Required to build spacecraft.' },
+    metal_storage:    { cat:'Storage', icon:'STO', desc:'Increases metal storage cap.' },
+    crystal_storage:  { cat:'Storage', icon:'STO', desc:'Increases crystal storage cap.' },
+    deuterium_tank:   { cat:'Storage', icon:'STO', desc:'Increases deuterium storage cap.' },
+    research_lab:     { cat:'Science', icon:'LAB', desc:'Enables and accelerates research.' },
+    missile_silo:     { cat:'Military', icon:'MSL', desc:'Launches defensive missiles.' },
+    nanite_factory:   { cat:'Advanced', icon:'NAN', desc:'Nano-assemblers that dramatically cut build times.' },
+    terraformer:      { cat:'Advanced', icon:'TER', desc:'Reshapes planetary geology to expand available tiles.' },
+    colony_hq:        { cat:'Advanced', icon:'HQ', desc:'Colony administration. Raises colony level cap.' },
+    solar_satellite:  { cat:'Orbital', icon:'SAT', desc:'Orbital solar collectors supporting planetary energy output.' },
   };
   const BUILDING_ZONE_PRIORITY = {
     industrial: ['metal_mine', 'crystal_mine', 'deuterium_synth', 'robotics_factory'],
@@ -909,7 +1217,7 @@
     queue.textContent = `Q:${queued}|F:${inFlight}|C:${concurrency}`;
     label.textContent = detail.label
       ? String(detail.label)
-      : (pending > 1 ? `Lade Daten (${pending})ÔÇª` : 'Lade DatenÔÇª');
+      : (pending > 1 ? `Lade Daten (${pending})...` : 'Lade Daten...');
 
     refreshFooterNetworkStatus(false);
   }
@@ -1264,7 +1572,7 @@
   }
 
   function getBuildingUiMeta(type) {
-    return BUILDING_UI_META[String(type || '')] || { cat:'Other', icon:'­ƒÅù', desc:'' };
+    return BUILDING_UI_META[String(type || '')] || { cat:'Other', icon:'BLD', desc:'' };
   }
 
   function pickZoneBuildFocus(zone, colony, buildings = []) {
@@ -1419,7 +1727,7 @@
     });
   }, PERF_TELEMETRY_INTERVAL_MS);
 
-  // ÔöÇÔöÇ Utilities ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // Utilities
   function fmt(n) {
     n = parseFloat(n);
     if (isNaN(n)) return '0';
@@ -1778,7 +2086,7 @@
 
     setOpen(open, panel, toggleBtn, input) {
       panel.classList.toggle('hidden', !open);
-      toggleBtn.textContent = open ? 'Ôîâ Console' : 'Ôîä Console';
+      toggleBtn.textContent = open ? 'Hide Console' : 'Show Console';
       if (open) {
         this.render();
         input.focus();
@@ -1827,7 +2135,7 @@
       });
 
       // Sync toggle button text with current panel visibility (unified panel may already be visible)
-      if (toggleBtn) toggleBtn.textContent = panel.classList.contains('hidden') ? 'Ôîä Con' : 'Ôîâ Con';
+      if (toggleBtn) toggleBtn.textContent = panel.classList.contains('hidden') ? 'Show Con' : 'Hide Con';
 
       // Bind auth-console-toggle button to the same toggle mechanism
       const authConsoleToggleBtn = document.getElementById('auth-console-toggle');
@@ -2249,6 +2557,21 @@
     await uiConsoleCommandController.execute(raw);
   }
 
+  function renderMonoIconButton(button, symbolId, label) {
+    if (!(button instanceof HTMLElement)) return;
+    const iconId = String(symbolId || '').trim();
+    if (!iconId) return;
+    const iconFile = iconId.replace(/^icon-/, '');
+    const safeLabel = String(label || '').trim();
+    if (safeLabel) {
+      button.setAttribute('aria-label', safeLabel);
+      button.title = safeLabel;
+    }
+    button.innerHTML =
+      `<svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/${iconFile}.svg#${iconId}"></use></svg>` +
+      (safeLabel ? `<span class="sr-only">${safeLabel}</span>` : '');
+  }
+
   function initUiConsole() {
     uiConsoleController.init();
   }
@@ -2263,14 +2586,16 @@
       if (!btn) return;
       if (!audioManager) {
         btn.disabled = true;
-        btn.textContent = '­ƒöç';
+        btn.textContent = 'M';
         btn.title = 'Audio nicht verfuegbar';
+        renderMonoIconButton(btn, 'icon-volume-muted', 'Audio nicht verfuegbar');
         if (topbarTrack) topbarTrack.disabled = true;
         if (topbarToggle) {
           topbarToggle.disabled = true;
-          topbarToggle.textContent = 'ÔûÂ';
+          topbarToggle.textContent = 'Play';
           topbarToggle.title = 'Musik nicht verfuegbar';
           topbarToggle.setAttribute('aria-label', 'Musik nicht verfuegbar');
+          renderMonoIconButton(topbarToggle, 'icon-play', 'Musik nicht verfuegbar');
         }
         if (topbarCurrent) {
           topbarCurrent.textContent = '-';
@@ -2286,8 +2611,9 @@
       const state = audioManager.snapshot();
       const muted = !!state.masterMuted;
       btn.disabled = false;
-      btn.textContent = muted ? '­ƒöç' : '­ƒöè';
+      btn.textContent = muted ? 'M' : 'S';
       btn.title = muted ? 'Audio aktivieren' : 'Audio stummschalten';
+      renderMonoIconButton(btn, muted ? 'icon-volume-muted' : 'icon-volume', muted ? 'Audio aktivieren' : 'Audio stummschalten');
 
       if (topbarTrack) {
         topbarTrack.disabled = false;
@@ -2307,9 +2633,10 @@
       if (topbarToggle) {
         topbarToggle.disabled = false;
         const playing = !!state.musicPlaying;
-        topbarToggle.textContent = playing ? 'ÔÅ©' : 'ÔûÂ';
+        topbarToggle.textContent = playing ? 'Pause' : 'Play';
         topbarToggle.title = playing ? 'Musik pausieren' : 'Musik starten';
         topbarToggle.setAttribute('aria-label', playing ? 'Musik pausieren' : 'Musik starten');
+        renderMonoIconButton(topbarToggle, playing ? 'icon-pause' : 'icon-play', playing ? 'Musik pausieren' : 'Musik starten');
       }
       if (topbarMode) {
         const mode = String(state.musicTransitionMode || settingsState.musicTransitionMode || 'fade').toLowerCase() === 'cut' ? 'cut' : 'fade';
@@ -2340,6 +2667,9 @@
         : !(persisted && typeof persisted === 'object' && Object.prototype.hasOwnProperty.call(persisted, 'galacticCoreFxEnabled'));
       settingsState.galacticCoreFxEnabled = settingsState.galacticCoreFxEnabled !== false;
       settingsState.galaxyFleetVectorsVisible = settingsState.galaxyFleetVectorsVisible !== false;
+      settingsState.systemOrbitPathsVisible = settingsState.systemOrbitPathsVisible !== false;
+      settingsState.systemOrbitMarkersVisible = settingsState.systemOrbitMarkersVisible !== false;
+      settingsState.systemOrbitFocusOnly = settingsState.systemOrbitFocusOnly === true;
       settingsState.introFlightMode = ['off', 'fast', 'cinematic'].includes(String(settingsState.introFlightMode || 'cinematic').toLowerCase())
         ? String(settingsState.introFlightMode || 'cinematic').toLowerCase()
         : 'cinematic';
@@ -2348,6 +2678,14 @@
       settingsState.hoverMagnetClusterPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetClusterPx || 28)));
       settingsState.galaxyOwnerFocusUserId = Math.max(0, Number(settingsState.galaxyOwnerFocusUserId || 0));
       settingsState.galaxyOwnerFocusName = String(settingsState.galaxyOwnerFocusName || '').trim();
+      settingsState.uiThemeMode = UI_THEME_MODE_VALUES.has(String(settingsState.uiThemeMode || '').toLowerCase())
+        ? String(settingsState.uiThemeMode || '').toLowerCase()
+        : 'auto';
+      settingsState.uiThemeCustomAccent = normalizeHexColor(settingsState.uiThemeCustomAccent || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT);
+      settingsState.uiThemeFactionId = Math.max(0, Number(settingsState.uiThemeFactionId || 0));
+      if (!settingsState.factionThemeCache || typeof settingsState.factionThemeCache !== 'object') {
+        settingsState.factionThemeCache = {};
+      }
       if (!settingsState.sceneTracks || typeof settingsState.sceneTracks !== 'object') {
         settingsState.sceneTracks = { galaxy: '', system: '', battle: '', ui: '' };
       }
@@ -2408,8 +2746,142 @@
           audioManager.setMusicTrack(settingsState.musicUrl, false);
         }
       }
+      applyUiTheme('load-ui-settings');
       this.refreshAudioUi();
+      this.refreshThemeSettingsUi();
       this.saveUiSettings();
+    }
+
+    refreshThemeSettingsUi() {
+      const modal = document.getElementById('settings-modal');
+      if (!modal) return;
+      const modeSelect = modal.querySelector('[data-setting="uiThemeMode"]');
+      const factionSelect = modal.querySelector('[data-setting="uiThemeFactionId"]');
+      const customAccentInput = modal.querySelector('[data-setting="uiThemeCustomAccent"]');
+      if (!modeSelect || !factionSelect || !customAccentInput) return;
+
+      const options = [];
+      const seen = new Set();
+
+      const pushFactionOption = (id, name, isPlayer = false) => {
+        const factionId = Math.max(0, Number(id || 0));
+        if (factionId <= 0 || seen.has(factionId)) return;
+        seen.add(factionId);
+        const label = String(name || `Faction #${factionId}`).trim() || `Faction #${factionId}`;
+        options.push({
+          id: factionId,
+          label: isPlayer ? `${label} (Player)` : label,
+        });
+      };
+
+      const playerSeed = resolvePlayerFactionThemeSeed();
+      if (playerSeed.factionId > 0) {
+        const playerName = String(currentUser?.faction?.name || currentUser?.faction_name || `Faction #${playerSeed.factionId}`);
+        pushFactionOption(playerSeed.factionId, playerName, true);
+      }
+
+      (Array.isArray(uiState.territory) ? uiState.territory : []).forEach((f) => {
+        pushFactionOption(f?.id || f?.faction_id, f?.name || f?.faction_name, !!f?.__isPlayer);
+      });
+
+      Object.keys(settingsState.factionThemeCache || {}).forEach((key) => {
+        pushFactionOption(Number(key || 0), `Faction #${key}`);
+      });
+
+      options.sort((a, b) => String(a.label).localeCompare(String(b.label), 'en', { sensitivity: 'base' }));
+
+      const selectedFactionId = Math.max(0, Number(settingsState.uiThemeFactionId || 0));
+      const html = [`<option value="0">Player faction (auto)</option>`]
+        .concat(options.map((row) => `<option value="${row.id}">${esc(row.label)}</option>`))
+        .join('');
+      factionSelect.innerHTML = html;
+      factionSelect.value = String(selectedFactionId);
+
+      const mode = String(modeSelect.value || settingsState.uiThemeMode || 'auto').toLowerCase();
+      const enableFactionSelect = mode === 'faction';
+      factionSelect.disabled = !enableFactionSelect;
+      factionSelect.title = enableFactionSelect
+        ? 'Select which faction palette should drive the UI theme.'
+        : 'Available when Theme Source is set to Faction Theme.';
+
+      const enableCustomAccent = mode === 'custom';
+      customAccentInput.disabled = !enableCustomAccent;
+      customAccentInput.title = enableCustomAccent
+        ? 'Select a custom accent color for the UI theme.'
+        : 'Available when Theme Source is set to Custom Accent.';
+
+      if (!modeSelect.__gqThemePreviewBound) {
+        modeSelect.__gqThemePreviewBound = true;
+        modeSelect.addEventListener('change', () => {
+          this.refreshThemeSettingsUi();
+          this.renderThemePreviewUi();
+        });
+      }
+      if (!factionSelect.__gqThemePreviewBound) {
+        factionSelect.__gqThemePreviewBound = true;
+        factionSelect.addEventListener('change', () => {
+          this.renderThemePreviewUi();
+        });
+      }
+      if (!customAccentInput.__gqThemePreviewBound) {
+        customAccentInput.__gqThemePreviewBound = true;
+        customAccentInput.addEventListener('input', () => {
+          this.renderThemePreviewUi();
+        });
+        customAccentInput.addEventListener('change', () => {
+          this.renderThemePreviewUi();
+        });
+      }
+
+      this.renderThemePreviewUi();
+    }
+
+    renderThemePreviewUi() {
+      const modal = document.getElementById('settings-modal');
+      if (!modal) return;
+      const modeSelect = modal.querySelector('[data-setting="uiThemeMode"]');
+      const factionSelect = modal.querySelector('[data-setting="uiThemeFactionId"]');
+      const customAccentInput = modal.querySelector('[data-setting="uiThemeCustomAccent"]');
+      const sourceMeta = modal.querySelector('[data-theme-preview-source]');
+      const detailMeta = modal.querySelector('[data-theme-preview-detail]');
+      if (!modeSelect || !factionSelect || !customAccentInput || !sourceMeta || !detailMeta) return;
+
+      const mode = String(modeSelect.value || settingsState.uiThemeMode || 'auto').toLowerCase();
+      const customAccent = normalizeHexColor(customAccentInput.value || settingsState.uiThemeCustomAccent || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT);
+      const factionId = Math.max(0, Number(factionSelect.value || settingsState.uiThemeFactionId || 0));
+      const palette = resolveThemePaletteForSelection(mode, customAccent, factionId);
+      if (!palette) return;
+
+      // Reflect the resolved accent back into the (disabled) color input so the
+      // user always sees the exact color the current mode produces.
+      if (mode !== 'custom') {
+        const resolvedAccent = normalizeHexColor(palette.accent, UI_THEME_DEFAULT_ACCENT);
+        if (resolvedAccent && customAccentInput.value !== resolvedAccent) {
+          customAccentInput.value = resolvedAccent;
+        }
+      }
+
+      const sourceLabel = palette.source === 'faction'
+        ? `Faction${palette.factionId > 0 ? ` #${palette.factionId}` : ''}`
+        : palette.source === 'custom'
+          ? 'Custom'
+          : 'Fallback';
+      sourceMeta.textContent = `Source: ${sourceLabel}`;
+      detailMeta.textContent = `Accent ${String(palette.accent || '').toUpperCase()} | Complement ${String(palette.complement || '').toUpperCase()}`;
+
+      const swatchMap = {
+        accent: normalizeHexColor(palette.accent || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT),
+        accentSoft: normalizeHexColor(palette.accentSoft || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT),
+        complement: normalizeHexColor(palette.complement || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT),
+        complementSoft: normalizeHexColor(palette.complementSoft || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT),
+      };
+      modal.querySelectorAll('[data-theme-swatch]').forEach((node) => {
+        const key = String(node.getAttribute('data-theme-swatch') || '').trim();
+        const color = swatchMap[key];
+        if (!color) return;
+        node.style.background = color;
+        node.setAttribute('title', `${key}: ${color}`);
+      });
     }
 
     saveUiSettings() {
@@ -2429,16 +2901,16 @@
       const introLabel = introFlightMode === 'off' ? 'Aus' : introFlightMode === 'fast' ? 'Schnell' : 'Cinematic';
 
       menu.innerHTML = `
-        <button class="user-menu-item" type="button" data-user-action="open-settings" role="menuitem">ÔÜÖ Benutzereinstellungen ├Âffnen</button>
-        <button class="user-menu-item" type="button" data-user-action="toggle-master-mute" role="menuitem">${masterMuted ? '­ƒöê Ton aktivieren' : '­ƒöç Ton stummschalten'}</button>
-        <button class="user-menu-item" type="button" data-user-action="cycle-transition" role="menuitem">­ƒÄ¼ Transition: ${esc(transitionPreset)}</button>
-        <button class="user-menu-item" type="button" data-user-action="toggle-home-enter" role="menuitem">­ƒÅá Home-├ûffnung: ${homeEnterSystem ? 'Systemansicht' : 'Galaxieansicht'}</button>
-        <button class="user-menu-item" type="button" data-user-action="cycle-intro-flight" role="menuitem">­ƒø© Intro-Flight: ${esc(introLabel)}</button>
+        <button class="user-menu-item" type="button" data-user-action="open-settings" role="menuitem">Benutzereinstellungen oeffnen</button>
+        <button class="user-menu-item" type="button" data-user-action="toggle-master-mute" role="menuitem">${masterMuted ? 'Ton aktivieren' : 'Ton stummschalten'}</button>
+        <button class="user-menu-item" type="button" data-user-action="cycle-transition" role="menuitem">Transition: ${esc(transitionPreset)}</button>
+        <button class="user-menu-item" type="button" data-user-action="toggle-home-enter" role="menuitem">Home-Oeffnung: ${homeEnterSystem ? 'Systemansicht' : 'Galaxieansicht'}</button>
+        <button class="user-menu-item" type="button" data-user-action="cycle-intro-flight" role="menuitem">Intro-Flight: ${esc(introLabel)}</button>
         <hr class="user-menu-sep" />
-        <button class="user-menu-item" type="button" data-user-action="toggle-pvp" role="menuitem">ÔÜö PvP: ${pvpOn ? 'aktiv (klicken zum Deaktivieren)' : 'inaktiv (klicken zum Aktivieren)'}</button>
-        <button class="user-menu-item" type="button" data-user-action="refresh-profile" role="menuitem">­ƒöä Profildaten neu laden</button>
+        <button class="user-menu-item" type="button" data-user-action="toggle-pvp" role="menuitem">PvP: ${pvpOn ? 'aktiv (klicken zum Deaktivieren)' : 'inaktiv (klicken zum Aktivieren)'}</button>
+        <button class="user-menu-item" type="button" data-user-action="refresh-profile" role="menuitem">Profildaten neu laden</button>
         <hr class="user-menu-sep" />
-        <button class="user-menu-item user-menu-item-danger" type="button" data-user-action="logout" role="menuitem">ÔÄï Logout</button>`;
+        <button class="user-menu-item user-menu-item-danger" type="button" data-user-action="logout" role="menuitem">Logout</button>`;
     }
 
     closeUserMenu() {
@@ -2513,11 +2985,11 @@
         const response = await API.togglePvp();
         if (response.success) {
           if (audioManager && typeof audioManager.playPvpToggle === 'function') audioManager.playPvpToggle();
-          showToast(response.pvp_mode ? 'ÔÜö PvP enabled!' : '­ƒøí PvP disabled.', 'info');
+          showToast(response.pvp_mode ? 'PvP enabled!' : 'PvP disabled.', 'info');
           await loadOverview();
           this.renderUserMenu();
         } else {
-          showToast(response.error || 'PvP konnte nicht ge├ñndert werden.', 'error');
+          showToast(response.error || 'PvP konnte nicht geaendert werden.', 'error');
         }
         return;
       }
@@ -2564,6 +3036,7 @@
     }
 
     applyRuntimeSettings() {
+      applyUiTheme('apply-runtime');
       if (!galaxy3d) return;
       if (typeof galaxy3d.setTransitionsEnabled === 'function') {
         galaxy3d.setTransitionsEnabled(!!settingsState.autoTransitions);
@@ -2601,6 +3074,15 @@
       }
       if (typeof galaxy3d.setGalaxyFleetVectorsVisible === 'function') {
         galaxy3d.setGalaxyFleetVectorsVisible(settingsState.galaxyFleetVectorsVisible !== false);
+      }
+      if (typeof galaxy3d.setSystemOrbitPathsVisible === 'function') {
+        galaxy3d.setSystemOrbitPathsVisible(settingsState.systemOrbitPathsVisible !== false);
+      }
+      if (typeof galaxy3d.setSystemOrbitMarkersVisible === 'function') {
+        galaxy3d.setSystemOrbitMarkersVisible(settingsState.systemOrbitMarkersVisible !== false);
+      }
+      if (typeof galaxy3d.setSystemOrbitFocusOnly === 'function') {
+        galaxy3d.setSystemOrbitFocusOnly(settingsState.systemOrbitFocusOnly === true);
       }
       if (typeof galaxy3d.setGalacticCoreFxEnabled === 'function') {
         const autoCoreFx = settingsState.galacticCoreFxAuto !== false;
@@ -2689,7 +3171,7 @@
   }
 
   function hasPlanetTextureManifest(payload) {
-    // Accept any payload that has a star_system or a non-empty planets array ÔÇö
+    // Accept any payload that has a star_system or a non-empty planets array -
     // a missing/empty texture manifest is harmless (planets render with fallback colors).
     if (!payload) return false;
     if (Array.isArray(payload.planets) && payload.planets.length > 0) return true;
@@ -2739,14 +3221,14 @@
     if (fromTemplate) return fromTemplate;
     return `
       <section class="ui-empty-state">
-        <div class="ui-empty-icon">ÔùÄ</div>
+        <div class="ui-empty-icon">i</div>
         <h4 class="ui-empty-title">${esc(title || 'No data available')}</h4>
         <p class="ui-empty-text">${esc(text || 'Content will appear here soon.')}</p>
       </section>`;
   }
 
   function uiKitSkeletonHTML() {
-    return uiKitTemplateHTML('tpl-ui-skeleton-list') || '<p class="text-muted">LoadingÔÇª</p>';
+    return uiKitTemplateHTML('tpl-ui-skeleton-list') || '<p class="text-muted">Loading...</p>';
   }
 
   function waitMs(ms) {
@@ -2853,6 +3335,221 @@
     return { wrap, toggle, menu, input, overlay };
   }
 
+  const topbarMenuFocusTrapState = {
+    container: null,
+    returnEl: null,
+  };
+
+  let topbarDebugIndicatorNode = null;
+
+  const TOPBAR_A11Y_BACKGROUND_IDS = [
+    'resource-section',
+    'left_sidebar',
+    'right_sidebar',
+    'taskbar-section',
+    'terminal-section',
+    'modal_container',
+    'context_menu_container',
+  ];
+
+  function isTopbarBottomSheetMode() {
+    try {
+      return window.matchMedia('(max-width: 560px) and (hover: none) and (pointer: coarse)').matches;
+    } catch (_) {
+      const smallScreen = window.innerWidth <= 560;
+      const coarsePointer = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+      return smallScreen && coarsePointer;
+    }
+  }
+
+  function isTopbarSheetDebugEnabled() {
+    try {
+      const qs = new URLSearchParams(window.location.search || '');
+      if (qs.get('debugTopbarSheet') === '1') return true;
+    } catch (_) {
+      // Ignore query parse failures.
+    }
+
+    try {
+      return localStorage.getItem('gq.debug.topbarSheet') === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function ensureTopbarDebugIndicator() {
+    if (!isTopbarSheetDebugEnabled()) return null;
+    if (topbarDebugIndicatorNode instanceof HTMLElement && document.body?.contains(topbarDebugIndicatorNode)) {
+      return topbarDebugIndicatorNode;
+    }
+
+    const node = document.createElement('aside');
+    node.className = 'gq-topbar-debug-indicator';
+    node.setAttribute('aria-live', 'polite');
+    node.setAttribute('aria-label', 'Topbar Bottom Sheet Debug');
+    node.innerHTML = '<strong>Topbar Debug</strong><div class="gq-topbar-debug-indicator-body"></div>';
+    document.body?.appendChild(node);
+    topbarDebugIndicatorNode = node;
+    return node;
+  }
+
+  function updateTopbarDebugIndicator(state = null) {
+    const node = ensureTopbarDebugIndicator();
+    if (!(node instanceof HTMLElement)) return;
+
+    const body = document.body;
+    const data = state || {};
+    const inBottomSheetMode = !!data.inBottomSheetMode;
+    const searchOpen = !!data.searchOpen;
+    const playerOpen = !!data.playerOpen;
+    const scrollLock = !!(body && body.classList.contains('gq-mobile-sheet-open'));
+    const trappedId = topbarMenuFocusTrapState.container?.id || '-';
+    const activeEl = document.activeElement;
+    const activeLabel = activeEl instanceof HTMLElement
+      ? (activeEl.id ? `#${activeEl.id}` : activeEl.tagName.toLowerCase())
+      : '-';
+
+    const bodyEl = node.querySelector('.gq-topbar-debug-indicator-body');
+    if (!(bodyEl instanceof HTMLElement)) return;
+    bodyEl.textContent = `mode:${inBottomSheetMode ? 'bottom-sheet' : 'normal'} | search:${searchOpen ? 'open' : 'closed'} | player:${playerOpen ? 'open' : 'closed'} | lock:${scrollLock ? 'on' : 'off'} | trap:${trappedId} | focus:${activeLabel}`;
+  }
+
+  function focusFirstInTopbarMenu(container, preferredSelector = '') {
+    if (!(container instanceof HTMLElement)) return;
+    const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    let target = null;
+    if (preferredSelector) {
+      target = container.querySelector(preferredSelector);
+    }
+    if (!(target instanceof HTMLElement)) {
+      target = container.querySelector(focusableSelector);
+    }
+    if (target instanceof HTMLElement && typeof target.focus === 'function') {
+      target.focus();
+    }
+  }
+
+  function syncTopbarBottomSheetState() {
+    const body = document.body;
+    if (!body || !body.classList.contains('game-page')) return;
+
+    const searchMenu = document.getElementById('topbar-search-menu');
+    const playerMenu = document.getElementById('topbar-player-menu');
+    const searchOpen = !!(searchMenu && !searchMenu.classList.contains('hidden'));
+    const playerOpen = !!(playerMenu && !playerMenu.classList.contains('hidden'));
+    const inBottomSheetMode = isTopbarBottomSheetMode();
+    const shouldLock = inBottomSheetMode && (searchOpen || playerOpen);
+
+    syncTopbarBottomSheetA11y({
+      inBottomSheetMode,
+      searchOpen,
+      playerOpen,
+      searchMenu,
+      playerMenu,
+    });
+
+    body.classList.toggle('gq-mobile-sheet-open', shouldLock);
+    updateTopbarDebugIndicator({ inBottomSheetMode, searchOpen, playerOpen });
+  }
+
+  function applyTopbarBackgroundInert(enabled) {
+    TOPBAR_A11Y_BACKGROUND_IDS.forEach((id) => {
+      const node = document.getElementById(id);
+      if (!(node instanceof HTMLElement)) return;
+
+      if (enabled) {
+        if (!node.hasAttribute('data-gq-prev-aria-hidden')) {
+          const prevAriaHidden = node.getAttribute('aria-hidden');
+          node.setAttribute('data-gq-prev-aria-hidden', prevAriaHidden === null ? '__none__' : prevAriaHidden);
+        }
+        node.setAttribute('aria-hidden', 'true');
+        node.setAttribute('inert', '');
+        return;
+      }
+
+      if (node.hasAttribute('data-gq-prev-aria-hidden')) {
+        const prev = node.getAttribute('data-gq-prev-aria-hidden');
+        if (prev === '__none__') node.removeAttribute('aria-hidden');
+        else if (prev !== null) node.setAttribute('aria-hidden', prev);
+        node.removeAttribute('data-gq-prev-aria-hidden');
+      } else {
+        node.removeAttribute('aria-hidden');
+      }
+      node.removeAttribute('inert');
+    });
+  }
+
+  function syncTopbarBottomSheetA11y(state) {
+    const inBottomSheetMode = !!state?.inBottomSheetMode;
+    const searchOpen = !!state?.searchOpen;
+    const playerOpen = !!state?.playerOpen;
+    const searchMenu = state?.searchMenu;
+    const playerMenu = state?.playerMenu;
+    const anyOpen = searchOpen || playerOpen;
+
+    if (searchMenu instanceof HTMLElement) {
+      if (inBottomSheetMode && searchOpen) searchMenu.setAttribute('aria-modal', 'true');
+      else searchMenu.removeAttribute('aria-modal');
+    }
+
+    if (playerMenu instanceof HTMLElement) {
+      if (inBottomSheetMode && playerOpen) playerMenu.setAttribute('aria-modal', 'true');
+      else playerMenu.removeAttribute('aria-modal');
+    }
+
+    applyTopbarBackgroundInert(inBottomSheetMode && anyOpen);
+  }
+
+  function setTopbarMenuFocusTrap(container, returnEl) {
+    if (!(container instanceof HTMLElement)) return;
+    topbarMenuFocusTrapState.container = container;
+    topbarMenuFocusTrapState.returnEl = returnEl instanceof HTMLElement ? returnEl : null;
+    updateTopbarDebugIndicator();
+  }
+
+  function clearTopbarMenuFocusTrap({ restoreFocus = false } = {}) {
+    const returnEl = topbarMenuFocusTrapState.returnEl;
+    topbarMenuFocusTrapState.container = null;
+    topbarMenuFocusTrapState.returnEl = null;
+    if (restoreFocus && returnEl && typeof returnEl.focus === 'function') {
+      returnEl.focus();
+    }
+    updateTopbarDebugIndicator();
+  }
+
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Tab') return;
+    const container = topbarMenuFocusTrapState.container;
+    if (!(container instanceof HTMLElement) || container.classList.contains('hidden')) {
+      clearTopbarMenuFocusTrap();
+      return;
+    }
+
+    const focusable = container.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    if (!focusable.length) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+
+    if (ev.shiftKey && active === first) {
+      ev.preventDefault();
+      if (last instanceof HTMLElement) last.focus();
+      return;
+    }
+
+    if (!ev.shiftKey && active === last) {
+      ev.preventDefault();
+      if (first instanceof HTMLElement) first.focus();
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    syncTopbarBottomSheetState();
+  });
+
   function closeCommanderMenuPanel() {
     const wrap = document.getElementById('user-menu-wrap');
     const menu = document.getElementById('user-menu');
@@ -2869,6 +3566,10 @@
     if (menu) menu.classList.add('hidden');
     if (menuWrap) menuWrap.classList.remove('open');
     if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
+    if (topbarMenuFocusTrapState.container === menu) {
+      clearTopbarMenuFocusTrap({ restoreFocus: true });
+    }
+    syncTopbarBottomSheetState();
   }
 
   function closeTopbarSearchOverlay() {
@@ -2878,10 +3579,14 @@
     wrap?.classList.remove('open');
     menu?.classList.add('hidden');
     if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    if (topbarMenuFocusTrapState.container === menu) {
+      clearTopbarMenuFocusTrap({ restoreFocus: true });
+    }
+    syncTopbarBottomSheetState();
   }
 
   const TOPBAR_SEARCH_TEMPLATES = {
-    item: '<button type="button" class="topbar-search-item" data-search-source="{{{source}}}" data-search-index="{{{index}}}" role="option"><div class="topbar-search-title">{{{name}}}</div><div class="topbar-search-meta">{{{coords}}} ┬À {{{starClass}}} ┬À {{{origin}}}</div></button>',
+    item: '<button type="button" class="topbar-search-item" data-search-source="{{{source}}}" data-search-index="{{{index}}}" role="option"><div class="topbar-search-title">{{{name}}}</div><div class="topbar-search-meta">{{{coords}}} | {{{starClass}}} | {{{origin}}}</div></button>',
     sections: '<div class="topbar-search-section"><div class="topbar-search-head">Lokal (Three)</div>{{{localHtml}}}</div><div class="topbar-search-section"><div class="topbar-search-head">Server-Erweiterung</div>{{{serverHtml}}}</div>',
   };
 
@@ -2915,10 +3620,10 @@
       ? localRows.map((star, idx) => renderRow(star, 'local', idx)).join('')
       : '<div class="topbar-search-empty">Keine lokalen Treffer im aktuell geladenen 3D-Sternfeld.</div>';
     const serverHtml = topbarSearchStore.serverPending
-      ? '<div class="topbar-search-empty">Server-Suche l├ñuft...</div>'
+      ? '<div class="topbar-search-empty">Server-Suche laeuft...</div>'
       : (serverRows.length
         ? serverRows.map((star, idx) => renderRow(star, 'server', idx)).join('')
-        : '<div class="topbar-search-empty">Keine zus├ñtzlichen Server-Treffer.</div>');
+        : '<div class="topbar-search-empty">Keine zusaetzlichen Server-Treffer.</div>');
 
     overlay.innerHTML = renderInlineTemplate(TOPBAR_SEARCH_TEMPLATES.sections, {
       localHtml,
@@ -2993,6 +3698,9 @@
       wrap.classList.add('open');
       menu.classList.remove('hidden');
       toggle.setAttribute('aria-expanded', 'true');
+      setTopbarMenuFocusTrap(menu, toggle);
+      syncTopbarBottomSheetState();
+      focusFirstInTopbarMenu(menu, '#topbar-search-input');
     };
 
     input.addEventListener('input', () => runTopbarSearch(input.value));
@@ -3007,7 +3715,6 @@
       const willOpen = menu.classList.contains('hidden');
       if (willOpen) {
         openSearchMenu();
-        input.focus();
       } else {
         closeTopbarSearchOverlay();
       }
@@ -3062,14 +3769,14 @@
 
   function planetIcon(planetClass) {
     const cls = String(planetClass || '').toLowerCase();
-    if (cls.includes('gas')) return '­ƒ¬É';
-    if (cls.includes('ice') || cls.includes('frozen')) return '­ƒºè';
-    if (cls.includes('lava') || cls.includes('volcan')) return '­ƒîï';
-    if (cls.includes('ocean')) return '­ƒîè';
-    if (cls.includes('desert')) return '­ƒÅ£';
-    if (cls.includes('terra') || cls.includes('hab')) return '­ƒîì';
-    if (cls.includes('toxic')) return 'Ôÿú';
-    return 'ÔùÅ';
+    if (cls.includes('gas')) return 'GAS';
+    if (cls.includes('ice') || cls.includes('frozen')) return 'ICE';
+    if (cls.includes('lava') || cls.includes('volcan')) return 'LAV';
+    if (cls.includes('ocean')) return 'OCN';
+    if (cls.includes('desert')) return 'DES';
+    if (cls.includes('terra') || cls.includes('hab')) return 'TER';
+    if (cls.includes('toxic')) return 'TOX';
+    return 'PLN';
   }
 
   function buildingZoneLabel(zone) {
@@ -3164,28 +3871,28 @@
 
     buildDefinitions() {
       return [
-        ['overview', { title: '­ƒîì Overview', w: 460, h: 620, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderOverview() }],
-        ['buildings', { title: '­ƒÅù Buildings', w: 480, h: 560, defaultDock: 'right', defaultY: 38, onRender: () => renderBuildings() }],
-        ['colony', { title: '­ƒÅø Colony', w: 620, h: 620, defaultDock: 'right', defaultY: 24, onRender: () => renderColonyView() }],
-        ['research', { title: '­ƒö¼ Research', w: 480, h: 560, defaultDock: 'right', defaultY: 58, onRender: () => renderResearch() }],
-        ['shipyard', { title: '­ƒÜÇ Shipyard', w: 500, h: 560, defaultDock: 'right', defaultY: 78, onRender: () => renderShipyard() }],
-        ['fleet', { title: 'ÔÜí Fleet', w: 500, h: 620, defaultDock: 'right', defaultY: 98, onRender: () => renderFleetForm() }],
-        ['wormholes', { title: '­ƒîÇ Wormholes', w: 520, h: 560, defaultDock: 'right', defaultY: 108, onRender: () => renderWormholes() }],
-        ['galaxy', { title: '­ƒîî Galaxy Map', fullscreenDesktop: true, hideTaskButton: true, backgroundLayer: true, onRender: () => renderGalaxyWindow() }],
-        ['messages', { title: 'Ô£ë Messages', w: 500, h: 520, defaultDock: 'right', defaultY: 118, onRender: () => renderMessages() }],
-        ['intel', { title: '­ƒöì Intel', w: 520, h: 560, defaultDock: 'right', defaultY: 128, onRender: () => renderIntel() }],
-        ['trade-routes', { title: '­ƒÜÇ Trade Routes', w: 520, h: 560, defaultDock: 'right', defaultY: 138, onRender: () => renderTradeRoutes() }],
-          ['trade', { title: '­ƒÆ▒ Trade', w: 540, h: 580, defaultDock: 'right', defaultY: 148, onRender: () => renderTradeProposals() }],
-        ['quests', { title: '­ƒôï Quests', w: 540, h: 620, defaultDock: 'right', defaultY: 28, onRender: () => renderQuests() }],
-        ['leaderboard', { title: '­ƒÅå Leaderboard', w: 420, h: 480, defaultDock: 'right', defaultY: 138, onRender: () => renderLeaderboard() }],
-        ['leaders', { title: '­ƒæñ Leaders & Marketplace', w: 700, h: 600, defaultDock: 'right', defaultY: 44, onRender: () => renderLeaders() }],
-        ['factions', { title: '­ƒîÉ Factions', w: 560, h: 620, defaultDock: 'right', defaultY: 24, onRender: () => renderFactions() }],
-        ['alliances', { title: '­ƒñØ Alliances', w: 560, h: 620, defaultDock: 'right', defaultY: 54, onRender: () => renderAlliances() }],
-        ['settings', { title: 'ÔÜÖ Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12, onRender: () => renderSettings() }],
-        ['quicknav', { title: 'Ô¡É QuickNav', w: 370, h: 520, defaultDock: 'left', defaultY: 12, onRender: () => renderQuickNav() }],
-        ['minimap', { title: '­ƒù║ Minimap', w: 290, h: 310, defaultDock: 'right', defaultY: 12, defaultDockMargin: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: (root) => renderMinimap(root) }],
+        ['overview', { title: 'Overview', w: 460, h: 620, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderOverview() }],
+        ['buildings', { title: 'Buildings', w: 480, h: 560, defaultDock: 'right', defaultY: 38, onRender: () => renderBuildings() }],
+        ['colony', { title: 'Colony', w: 620, h: 620, defaultDock: 'right', defaultY: 24, onRender: () => renderColonyView() }],
+        ['research', { title: 'Research', w: 480, h: 560, defaultDock: 'right', defaultY: 58, onRender: () => renderResearch() }],
+        ['shipyard', { title: 'Shipyard', w: 500, h: 560, defaultDock: 'right', defaultY: 78, onRender: () => renderShipyard() }],
+        ['fleet', { title: 'Fleet', w: 500, h: 620, defaultDock: 'right', defaultY: 98, onRender: () => renderFleetForm() }],
+        ['wormholes', { title: 'Wormholes', w: 520, h: 560, defaultDock: 'right', defaultY: 108, onRender: () => renderWormholes() }],
+        ['galaxy', { title: 'Galaxy Map', fullscreenDesktop: true, hideTaskButton: true, backgroundLayer: true, onRender: () => renderGalaxyWindow() }],
+        ['messages', { title: 'Messages', w: 500, h: 520, defaultDock: 'right', defaultY: 118, onRender: () => renderMessages() }],
+        ['intel', { title: 'Intel', w: 520, h: 560, defaultDock: 'right', defaultY: 128, onRender: () => renderIntel() }],
+        ['trade-routes', { title: 'Trade Routes', w: 520, h: 560, defaultDock: 'right', defaultY: 138, onRender: () => renderTradeRoutes() }],
+          ['trade', { title: 'Trade', w: 540, h: 580, defaultDock: 'right', defaultY: 148, onRender: () => renderTradeProposals() }],
+        ['quests', { title: 'Quests', w: 540, h: 620, defaultDock: 'right', defaultY: 28, onRender: () => renderQuests() }],
+        ['leaderboard', { title: 'Leaderboard', w: 420, h: 480, defaultDock: 'right', defaultY: 138, onRender: () => renderLeaderboard() }],
+        ['leaders', { title: 'Leaders & Marketplace', w: 700, h: 600, defaultDock: 'right', defaultY: 44, onRender: () => renderLeaders() }],
+        ['factions', { title: 'Factions', w: 560, h: 620, defaultDock: 'right', defaultY: 24, onRender: () => renderFactions() }],
+        ['alliances', { title: 'Alliances', w: 560, h: 620, defaultDock: 'right', defaultY: 54, onRender: () => renderAlliances() }],
+        ['settings', { title: 'Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12, onRender: () => renderSettings() }],
+        ['quicknav', { title: 'QuickNav', w: 370, h: 520, defaultDock: 'left', defaultY: 12, onRender: () => renderQuickNav() }],
+        ['minimap', { title: 'Minimap', w: 290, h: 310, defaultDock: 'right', defaultY: 12, defaultDockMargin: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: (root) => renderMinimap(root) }],
         ['left-sidebar', {
-          title: '­ƒôî Left Sidebar',
+          title: 'Left Sidebar',
           sectionId: 'left_sidebar',
           prebuiltSelector: '.sidebar-panel-left',
           adaptExisting: true,
@@ -3199,7 +3906,7 @@
           },
         }],
         ['right-sidebar', {
-          title: '­ƒôì Right Sidebar',
+          title: 'Right Sidebar',
           sectionId: 'right_sidebar',
           prebuiltSelector: '.sidebar-panel-right',
           adaptExisting: true,
@@ -3226,6 +3933,9 @@
   const windowRegistry = new WindowRegistry(WM);
   window.GQWindowRegistry = windowRegistry;
   windowRegistry.registerAll();
+  if (WM && typeof WM.restorePersistedState === 'function') {
+    WM.restorePersistedState();
+  }
 
   // If auth recovery opened "galaxy" before registerAll, WM may have created a
   // regular window using DEFAULTS. Recreate it once with the registered
@@ -3302,6 +4012,39 @@
         await focusHomeSystemInGalaxy(root);
       });
 
+      const cycleOrbitMode = () => {
+        try {
+          if (!window.sessionStorage.getItem(ORBIT_BADGE_HINT_SESSION_KEY)) {
+            showToast('Orbit-Badge: Klick/Enter/Space wechselt AUTO -> SIMPLE -> COMPLEX.', 'info');
+            window.sessionStorage.setItem(ORBIT_BADGE_HINT_SESSION_KEY, '1');
+          }
+        } catch (_) {
+          // Session storage can be unavailable in restricted contexts.
+        }
+
+        const order = ['auto', 'simple', 'complex'];
+        const currentMode = String(settingsState.orbitSimulationMode || 'auto').toLowerCase();
+        const currentIndex = Math.max(0, order.indexOf(currentMode));
+        const nextMode = order[(currentIndex + 1) % order.length];
+        settingsState.orbitSimulationMode = nextMode;
+        settingsController.applyRuntimeSettings();
+        saveUiSettings();
+        updateTopbarOrbitBadge();
+        showToast(`Orbit-Simulation: ${nextMode.toUpperCase()}`, 'info');
+      };
+
+      document.getElementById('topbar-orbit-mode')?.addEventListener('click', () => {
+        if (this.audio) this.audio.playNavigation();
+        cycleOrbitMode();
+      });
+
+      document.getElementById('topbar-orbit-mode')?.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        ev.preventDefault();
+        if (this.audio) this.audio.playNavigation();
+        cycleOrbitMode();
+      });
+
       document.querySelectorAll('.resource-btn[data-resource]').forEach((btn) => {
         btn.addEventListener('click', () => {
           if (this.audio && typeof this.audio.playNavigation === 'function') this.audio.playNavigation();
@@ -3346,6 +4089,9 @@
         menu.classList.remove('hidden');
         menuWrap.classList.add('open');
         menuToggle.setAttribute('aria-expanded', 'true');
+        setTopbarMenuFocusTrap(menu, menuToggle);
+        syncTopbarBottomSheetState();
+        focusFirstInTopbarMenu(menu, '#topbar-player-prev');
       });
 
       document.addEventListener('click', (e) => {
@@ -3649,11 +4395,11 @@
       const hint = root.querySelector('#fleet-default-hint');
       if (hint) {
         const owner = fallbackPrefill.owner ? `Ziel: ${esc(fallbackPrefill.owner)}` : 'Freies Zielprofil';
-        const threat = fallbackPrefill.threatLevel ? ` ┬À Bedrohung: ${esc(fallbackPrefill.threatLevel)}` : '';
+        const threat = fallbackPrefill.threatLevel ? ` | Bedrohung: ${esc(fallbackPrefill.threatLevel)}` : '';
         const scan = fallbackPrefill.intel?.intel?.latest_scan_at
-          ? ` ┬À Scan: ${esc(new Date(fallbackPrefill.intel.intel.latest_scan_at).toLocaleString())}`
+          ? ` | Scan: ${esc(new Date(fallbackPrefill.intel.intel.latest_scan_at).toLocaleString())}`
           : '';
-        hint.innerHTML = `${owner}${threat}${scan} ┬À Missionsdefaults gesetzt.`;
+        hint.innerHTML = `${owner}${threat}${scan} | Missionsdefaults gesetzt.`;
       }
     }
 
@@ -3697,16 +4443,16 @@
       root.innerHTML = `
         <form id="fleet-form-wm" autocomplete="off">
           <h3>1. Select Ships</h3>
-          <div id="fleet-ship-select-wm"><p class="text-muted">Loading shipsÔÇª</p></div>
+          <div id="fleet-ship-select-wm"><p class="text-muted">Loading ships...</p></div>
 
           <h3>2. Select Mission</h3>
           <div class="mission-grid">
-            <label><input type="radio" name="mission" value="attack" /> ÔÜö´©Å Attack colony</label>
-            <label><input type="radio" name="mission" value="transport" checked /> ­ƒôª Transport resources</label>
-            <label><input type="radio" name="mission" value="spy" /> ­ƒö¡ Spy on colony</label>
-            <label><input type="radio" name="mission" value="colonize" /> ­ƒîì Colonize planet</label>
-            <label><input type="radio" name="mission" value="harvest" /> ÔøÅ Harvest deposits</label>
-            <label><input type="radio" name="mission" value="survey" /> ­ƒù║´©Å Survey system (FTL infrastructure)</label>
+            <label><input type="radio" name="mission" value="attack" /> Attack colony</label>
+            <label><input type="radio" name="mission" value="transport" checked /> Transport resources</label>
+            <label><input type="radio" name="mission" value="spy" /> Spy on colony</label>
+            <label><input type="radio" name="mission" value="colonize" /> Colonize planet</label>
+            <label><input type="radio" name="mission" value="harvest" /> Harvest deposits</label>
+            <label><input type="radio" name="mission" value="survey" /> Survey system (FTL infrastructure)</label>
           </div>
 
           <h3>3. Target Coordinates</h3>
@@ -3734,7 +4480,7 @@
 
           <div id="fleet-default-hint" class="form-info"></div>
 
-          <button type="submit" class="btn btn-primary">­ƒÜÇ Launch Fleet</button>
+          <button type="submit" class="btn btn-primary">Launch Fleet</button>
           <div id="fleet-send-result-wm" class="form-info" aria-live="polite"></div>
         </form>`;
 
@@ -3766,16 +4512,16 @@
           wormholeEl.insertAdjacentHTML('beforeend', `<div class="text-muted small" style="margin-top:0.2rem;">${esc(reason)}</div>`);
         }
 
-        // ÔöÇÔöÇ FTL drive status panel ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+        // FTL drive status panel
         const ftlEl = root.querySelector('#fleet-ftl-status');
         if (ftlEl && ftlData?.success) {
           const driveLabels = {
-            vor_tak:  "ÔÜö´©Å Vor'Tak ÔÇö K-F Jump Drive",
-            syl_nar:  "­ƒÉÖ Syl'Nar ÔÇö Resonance Gate Network",
-            vel_ar:   "­ƒªà Vel'Ar ÔÇö Blind Quantum Jump",
-            zhareen:  "­ƒÆÄ Zhareen ÔÇö Crystal Resonance Channel",
-            aereth:   "Ô£ª Aereth ÔÇö Alcubierre Warp",
-            kryl_tha: "­ƒ¬▓ Kryl'Tha ÔÇö Swarm Tunnel",
+            vor_tak:  "Vor'Tak - K-F Jump Drive",
+            syl_nar:  "Syl'Nar - Resonance Gate Network",
+            vel_ar:   "Vel'Ar - Blind Quantum Jump",
+            zhareen:  "Zhareen - Crystal Resonance Channel",
+            aereth:   "Aereth - Alcubierre Warp",
+            kryl_tha: "Kryl'Tha - Swarm Tunnel",
           };
           const driveType = ftlData.ftl_drive_type || 'aereth';
           const driveLabel = driveLabels[driveType] || driveType;
@@ -3783,37 +4529,37 @@
           const cooldownSec = Number(ftlData.ftl_cooldown_remaining_s || 0);
           const cooldownStr = cooldownSec > 0
             ? `Recharging: ${Math.floor(cooldownSec/3600)}h ${Math.floor((cooldownSec%3600)/60)}m remaining`
-            : 'Ô£à Ready';
+            : 'Ready';
 
           let extraInfo = '';
           if (driveType === 'syl_nar') {
             const gateCount = Array.isArray(ftlData.gates) ? ftlData.gates.filter((g) => g.is_active && g.health > 0).length : 0;
-            extraInfo = ` ┬À ${gateCount} gate(s) active ┬À Survey to build new gates`;
+            extraInfo = ` | ${gateCount} gate(s) active | Survey to build new gates`;
           } else if (driveType === 'zhareen') {
             const nodeCount = Array.isArray(ftlData.resonance_nodes) ? ftlData.resonance_nodes.length : 0;
-            extraInfo = ` ┬À ${nodeCount} node(s) charted ┬À Survey to chart new nodes`;
+            extraInfo = ` | ${nodeCount} node(s) charted | Survey to chart new nodes`;
           } else if (driveType === 'aereth') {
-            extraInfo = ' ┬À Core bonus: +50% speed in galaxies Ôëñ3, ÔêÆ30% in galaxies ÔëÑ7';
+            extraInfo = ' | Core bonus: +50% speed in galaxies <=3, +30% in galaxies >=7';
           } else if (driveType === 'kryl_tha') {
-            extraInfo = ' ┬À Max 50 ships per FTL jump ┬À ÔêÆ10% hull after each jump';
+            extraInfo = ' | Max 50 ships per FTL jump | -10% hull after each jump';
           } else if (driveType === 'vel_ar') {
-            extraInfo = ' ┬À Arrival scatter: 0.5% of distance ┬À 60s stealth on landing';
+            extraInfo = ' | Arrival scatter: 0.5% of distance | 60s stealth on landing';
           } else if (driveType === 'vor_tak') {
-            extraInfo = ' ┬À Max 30 LY ┬À 72h recharge ┬À Carrier gives +30% cargo';
+            extraInfo = ' | Max 30 LY | 72h recharge | Carrier gives +30% cargo';
           }
 
           ftlEl.innerHTML = `<span style="color:#88ccff;font-weight:600;">${esc(driveLabel)}</span>`
             + ` <span style="color:${ready ? '#88ff88' : '#ffcc44'}">${esc(cooldownStr)}</span>`
             + `<span style="color:#aaa">${esc(extraInfo)}</span>`
             + (!ready && driveType === 'vor_tak'
-              ? ` <button class="btn btn-sm" id="ftl-reset-cooldown-btn" style="margin-left:0.5rem;font-size:0.75rem;">Reset (50 Ôùå)</button>`
+              ? ` <button class="btn btn-sm" id="ftl-reset-cooldown-btn" style="margin-left:0.5rem;font-size:0.75rem;">Reset (50 Dark Matter)</button>`
               : '');
           // Wire cooldown reset button
           const resetBtn = ftlEl.querySelector('#ftl-reset-cooldown-btn');
           if (resetBtn) {
             resetBtn.addEventListener('click', async () => {
               resetBtn.disabled = true;
-              resetBtn.textContent = 'ÔÇª';
+              resetBtn.textContent = '...';
               try {
                 const res = await API.resetFtlCooldown();
                 if (res?.success) {
@@ -3822,19 +4568,19 @@
                 } else {
                   showToast(res?.error || 'Reset failed.', 'error');
                   resetBtn.disabled = false;
-                  resetBtn.textContent = 'Reset (50 Ôùå)';
+                  resetBtn.textContent = 'Reset (50 Dark Matter)';
                 }
               } catch {
                 showToast('Reset failed.', 'error');
                 resetBtn.disabled = false;
-                resetBtn.textContent = 'Reset (50 Ôùå)';
+                resetBtn.textContent = 'Reset (50 Dark Matter)';
               }
             });
           }
         } else if (ftlEl) {
           ftlEl.innerHTML = '';
         }
-        // ÔöÇÔöÇ end FTL panel ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+        // end FTL panel
 
         const avail = [...(data.ships || []), ...(data.blueprints || [])].filter((ship) => Number(ship.count || 0) > 0);
         if (!avail.length) {
@@ -3843,7 +4589,7 @@
         }
         shipEl.innerHTML = `<div class="ship-selector-grid">${avail.map((ship) => `
           <div class="ship-selector-row">
-            <span>${esc(ship.name || fmtName(ship.type))}${ship.ship_class ? ` ┬À ${esc(fmtName(ship.ship_class))}` : ''} (${ship.count})</span>
+            <span>${esc(ship.name || fmtName(ship.type))}${ship.ship_class ? ` | ${esc(fmtName(ship.ship_class))}` : ''} (${ship.count})</span>
             <input type="number" class="fleet-ship-qty" data-type="${esc(ship.type)}"
                    min="0" max="${ship.count}" value="0" />
           </div>`).join('')}</div>`;
@@ -3867,7 +4613,7 @@
           if (response.success) {
             resultEl.className = 'form-info';
             resultEl.textContent = `Fleet launched! ETA: ${new Date(response.arrival_time).toLocaleString()}`;
-            showToast('­ƒÜÇ Fleet launched!', 'success');
+            showToast('Fleet launched!', 'success');
             if (audioManager && typeof audioManager.playFleetMission === 'function') audioManager.playFleetMission(mission);
             else if (audioManager && typeof audioManager.playFleetLaunch === 'function') audioManager.playFleetLaunch();
             await loadOverview();
@@ -3964,7 +4710,7 @@
               <span class="item-level">Stability ${fmt(w.stability || 0)}</span>
             </div>
             ${isPermanent ? '<div class="system-row small">Permanent Beacon Route</div>' : ''}
-            <div class="system-row small">A: [${fmt(w.a?.galaxy || 0)}:${fmt(w.a?.system || 0)}] ┬À B: [${fmt(w.b?.galaxy || 0)}:${fmt(w.b?.system || 0)}]</div>
+            <div class="system-row small">A: [${fmt(w.a?.galaxy || 0)}:${fmt(w.a?.system || 0)}] | B: [${fmt(w.b?.galaxy || 0)}:${fmt(w.b?.system || 0)}]</div>
             <div class="system-row small">Jump target from here: [${fmt(to?.galaxy || 0)}:${fmt(to?.system || 0)}]</div>
             <div class="system-row small">Cooldown: ${esc(cooldown)}</div>
             <div class="system-row small ${statusCls}">${availabilityText}</div>
@@ -4179,7 +4925,7 @@
 
       const homeColony = colonies.find((c) => !!c?.is_homeworld) || currentColony || null;
       if (!root || !homeColony) {
-        if (!silent) showToast('Kein Heimatplanet verf├╝gbar.', 'warning');
+        if (!silent) showToast('Kein Heimatplanet verfuegbar.', 'warning');
         return;
       }
       const g = Math.max(1, Number(homeColony.galaxy || 1));
@@ -4423,7 +5169,7 @@
           galaxy3dQualityState = galaxy3d.getQualityProfileState();
         }
         if (settingsState.renderQualityProfile === 'auto' && galaxy3dQualityState?.name === 'low') {
-          showToast('Low-End-Rendering aktiv: Pixel Ratio, Cache-Gr├Â├ƒen und FX wurden reduziert.', 'warning');
+          showToast('Low-End-Rendering aktiv: Pixel Ratio, Cache-Groessen und FX wurden reduziert.', 'warning');
         }
         if (galaxy3d?.renderer?.domElement) {
           galaxy3d.renderer.domElement.style.pointerEvents = 'auto';
@@ -4475,7 +5221,7 @@
             <div id="galaxy-controls-overlay" class="galaxy-overlay-window hidden">
               <div class="galaxy-overlay-head">
                 <strong>Galaxy Controls</strong>
-                <span class="galaxy-overlay-hotkeys">O:Controls ┬À I:Info ┬À L:Follow ┬À V:Vectors</span>
+                <span class="galaxy-overlay-hotkeys">O:Controls | I:Info | L:Follow | V:Vectors</span>
                 <button class="btn btn-sm" data-overlay-close="#galaxy-controls-overlay">Close</button>
               </div>
               <div class="galaxy-nav">
@@ -4535,11 +5281,11 @@
                 <strong>System Details</strong>
                 <button class="btn btn-sm" data-overlay-close="#galaxy-info-overlay">Close</button>
               </div>
-              <div class="galaxy-overlay-shortcuts">Shortcuts: O Controls ┬À I Info ┬À L Follow ┬À V Vectors</div>
+              <div class="galaxy-overlay-shortcuts">Shortcuts: O Controls | I Info | L Follow | V Vectors</div>
               <div id="galaxy-system-details" class="text-muted">Overlay hidden. Press I to open details.</div>
               <div class="galaxy-colony-legend" aria-label="Kolonie-Ring-Legende">
                 <div class="galaxy-colony-legend-title">Kolonie-Ringe</div>
-                <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-sm"></span><span>Au├ƒenposten</span></div>
+                <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-sm"></span><span>Aussenposten</span></div>
                 <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-md"></span><span>Kolonie</span></div>
                 <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-lg"></span><span>Kernwelt</span></div>
               </div>
@@ -4854,7 +5600,7 @@
               }
             }
             if (bootstrap.stale && details) {
-              details.innerHTML = '<span class="text-yellow">Bootstrap data is stale; refreshing live starsÔÇª</span>';
+              details.innerHTML = '<span class="text-yellow">Bootstrap data is stale; refreshing live stars...</span>';
             }
           } else if (bootstrapRes?.errorType === 'schema') {
             const issueList = Array.isArray(bootstrapRes.issues) ? bootstrapRes.issues.join(', ') : 'invalid payload';
@@ -5064,7 +5810,7 @@
         }
         const data = adapted.data;
         if (data.stale && details) {
-          details.innerHTML = '<span class="text-yellow">Loaded stale star data; resyncingÔÇª</span>';
+          details.innerHTML = '<span class="text-yellow">Loaded stale star data; resyncing...</span>';
         }
 
         if (Array.isArray(data.stars)) {
@@ -5086,6 +5832,12 @@
         uiState.territory = territoryData?.success
           ? mapTerritoryFactionsForPlayer((territoryData.factions || []).filter((f) => g >= Number(f.home_galaxy_min || 1) && g <= Number(f.home_galaxy_max || 0)))
           : [];
+        const themeCacheChanged = warmFactionThemeCacheFromTerritory(uiState.territory);
+        applyUiTheme('territory-update');
+        settingsController.refreshThemeSettingsUi();
+        if (themeCacheChanged) {
+          savePortableUiSettings(settingsState);
+        }
         uiState.rawClusters = Array.isArray(data.clusters) ? data.clusters : [];
         uiState.clusterSummary = assignClusterFactions(uiState.rawClusters, uiState.territory);
         const responseTs = Number(data.server_ts_ms || Date.now());
@@ -5204,7 +5956,7 @@
       const clusters = Number(stats.clusterCount || 0);
       const clusterLabel = stats.clusterBoundsVisible ? 'boxes on' : 'boxes off';
       const ratioPct = raw > 0 ? Math.max(0, Math.min(100, Math.round((visible / raw) * 100))) : 0;
-      label.textContent = `Density: ${visible}/${raw} (${ratioPct}%) ┬À target ${target} ┬À ${clusters} clusters ┬À ${clusterLabel} ┬À ${String(stats.densityMode || 'auto').toUpperCase()} ┬À ${String(stats.lodProfile || 'n/a')} ┬À q=${String(stats.qualityProfile || 'n/a')}`;
+      label.textContent = `Density: ${visible}/${raw} (${ratioPct}%) | target ${target} | ${clusters} clusters | ${clusterLabel} | ${String(stats.densityMode || 'auto').toUpperCase()} | ${String(stats.lodProfile || 'n/a')} | q=${String(stats.qualityProfile || 'n/a')}`;
       label.className = ratioPct >= 70 ? 'text-green' : ratioPct >= 35 ? 'text-yellow' : 'text-muted';
     }
 
@@ -5421,14 +6173,14 @@
     }
     const scan = intel.latest_scan;
     extra.innerHTML = `
-      <div class="planet-detail-row">Bedrohungsgrad: <span class="threat-chip threat-${esc(intel.threat.level)}">${esc(intel.threat.label)} ┬À ${esc(String(intel.threat.score))}</span></div>
+      <div class="planet-detail-row">Bedrohungsgrad: <span class="threat-chip threat-${esc(intel.threat.level)}">${esc(intel.threat.label)} | ${esc(String(intel.threat.score))}</span></div>
       <div class="planet-detail-row">Letzter Scan: ${intel.latest_scan_at ? esc(new Date(intel.latest_scan_at).toLocaleString()) : 'Kein Scan vorhanden'}</div>
-      <div class="planet-detail-row">Scanlage: ${scan ? `${esc(String(scan.ship_count))} Schiffe ┬À Kampfkraft ${esc(String(scan.combat_power_estimate))} ┬À Leader ${esc(String(scan.leader_count))}` : 'Erstspionage empfohlen'}</div>
-      <div class="planet-detail-row">Diplomatie: ${esc(payload.diplomacy_hint || 'Keine Einsch├ñtzung verf├╝gbar.')}</div>
+      <div class="planet-detail-row">Scanlage: ${scan ? `${esc(String(scan.ship_count))} Schiffe | Kampfkraft ${esc(String(scan.combat_power_estimate))} | Leader ${esc(String(scan.leader_count))}` : 'Erstspionage empfohlen'}</div>
+      <div class="planet-detail-row">Diplomatie: ${esc(payload.diplomacy_hint || 'Keine Einschaetzung verfuegbar.')}</div>
       <div class="territory-mini-list">${territory.slice(0, 3).map((f) => `
-        <span class="territory-chip" style="--territory-color:${esc(f.color)}">${esc(f.icon)} ${esc(f.name)} ┬À ${esc(f.government?.icon || '­ƒÅ│')} ${esc(f.government?.label || 'Herrschaft')}</span>`).join('') || '<span class="text-muted">Keine Sektoranspr├╝che</span>'}
+        <span class="territory-chip" style="--territory-color:${esc(f.color)}">${esc(f.icon)} ${esc(f.name)} | ${esc(f.government?.icon || 'GOV')} ${esc(f.government?.label || 'Herrschaft')}</span>`).join('') || '<span class="text-muted">Keine Sektoransprueche</span>'}
       </div>
-      ${clusters.length ? `<div class="planet-detail-row">Cluster: ${clusters.slice(0, 2).map((cluster) => `${esc(cluster.label)} ${esc(String(cluster.from))}-${esc(String(cluster.to))}`).join(' ┬À ')}</div>` : ''}`;
+      ${clusters.length ? `<div class="planet-detail-row">Cluster: ${clusters.slice(0, 2).map((cluster) => `${esc(cluster.label)} ${esc(String(cluster.from))}-${esc(String(cluster.to))}`).join(' | ')}</div>` : ''}`;
   }
 
   class OverviewController {
@@ -5437,7 +6189,7 @@
         fleetRow: `
           <div class="fleet-row">
             <span class="fleet-mission">{{{mission}}}</span>
-            <span class="fleet-target">ÔåÆ [{{{targetGalaxy}}}:{{{targetSystem}}}:{{{targetPosition}}}]</span>
+            <span class="fleet-target">-> [{{{targetGalaxy}}}:{{{targetSystem}}}:{{{targetPosition}}}]</span>
             {{{positionHtml}}}
             <span class="fleet-timer" data-end="{{{arrivalTimeRaw}}}">{{{arrivalCountdown}}}</span>
             <div class="progress-bar-wrap fleet-progress-wrap" style="width:80px">
@@ -5486,7 +6238,7 @@
       const resDeuteriumEl = document.getElementById('res-deuterium');
       if (resDeuteriumEl) resDeuteriumEl.textContent = fmt(currentColony.deuterium);
       const resEnergyEl = document.getElementById('res-energy');
-      if (resEnergyEl) resEnergyEl.textContent = currentColony.energy ?? 'ÔÇö';
+      if (resEnergyEl) resEnergyEl.textContent = currentColony.energy ?? '-';
       const foodEl = document.getElementById('res-food');
       if (foodEl) foodEl.textContent = fmt(currentColony.food ?? 0);
       const reEl = document.getElementById('res-rare-earth');
@@ -5539,7 +6291,7 @@
           }
           showToast(data.error || 'Overview konnte nicht geladen werden.', 'error');
           const root = WM.body('overview');
-          if (root) root.innerHTML = `<p class="text-muted" style="color:#e74c3c">ÔÜá ${data.error || 'Nicht eingeloggt. Bitte neu laden.'}</p>`;
+          if (root) root.innerHTML = `<p class="text-muted" style="color:#e74c3c">Error: ${data.error || 'Nicht eingeloggt. Bitte neu laden.'}</p>`;
           return;
         }
 
@@ -5580,7 +6332,7 @@
         showToast('Overview konnte nicht geladen werden. Bitte Seite neu laden.', 'error');
         const root = WM.body('overview');
         if (root && !root.innerHTML.trim()) {
-          root.innerHTML = `<p class="text-muted" style="color:#e74c3c">ÔÜá Fehler beim Laden: ${e.message || e}</p>`;
+          root.innerHTML = `<p class="text-muted" style="color:#e74c3c">Fehler beim Laden: ${e.message || e}</p>`;
         }
       }
     }
@@ -5692,20 +6444,20 @@
               const flags = Array.isArray(risk.risk_flags) ? risk.risk_flags.join(', ') : '';
               const cid = Number(risk.colony_id || 0);
               const focus = this.riskFocusFromFlags(risk.risk_flags);
-              return `ÔÜá ${esc(String(risk.colony_name || 'Colony'))}: ${this.riskLabel(risk.status)} ┬À Score ${esc(String(risk.risk_score || 0))} ┬À ­ƒî¥ ${esc(String(risk.food_rate_per_hour || 0))}/h ┬À ÔÜí ${esc(String(risk.energy || 0))}${flags ? ` ┬À ${esc(flags)}` : ''} <button type="button" class="btn btn-secondary btn-sm" data-risk-action="focus" data-risk-cid="${cid}" data-risk-focus="${esc(focus)}" style="margin-left:0.35rem;padding:0.2rem 0.45rem;font-size:0.7rem">Fix</button><button type="button" class="btn btn-primary btn-sm" data-risk-action="auto" data-risk-cid="${cid}" data-risk-focus="${esc(focus)}" style="margin-left:0.25rem;padding:0.2rem 0.45rem;font-size:0.7rem">Auto +1</button>`;
+              return `Risk ${esc(String(risk.colony_name || 'Colony'))}: ${this.riskLabel(risk.status)} | Score ${esc(String(risk.risk_score || 0))} | Food ${esc(String(risk.food_rate_per_hour || 0))}/h | Energy ${esc(String(risk.energy || 0))}${flags ? ` | ${esc(flags)}` : ''} <button type="button" class="btn btn-secondary btn-sm" data-risk-action="focus" data-risk-cid="${cid}" data-risk-focus="${esc(focus)}" style="margin-left:0.35rem;padding:0.2rem 0.45rem;font-size:0.7rem">Fix</button><button type="button" class="btn btn-primary btn-sm" data-risk-action="auto" data-risk-cid="${cid}" data-risk-focus="${esc(focus)}" style="margin-left:0.25rem;padding:0.2rem 0.45rem;font-size:0.7rem">Auto +1</button>`;
             }).join('<br>')}
           </div>`
         : '<div class="system-row text-cyan" style="font-size:0.8rem">Keine akuten Wirtschaftsrisiken erkannt.</div>';
 
       return `
         <div class="system-card" style="margin:0.75rem 0 0.6rem">
-          <div class="system-row"><strong>├ûkonomie-Snapshot</strong>${hadOfflineTime ? ` ┬À Offline-Zeit: ${Math.max(1, Math.round((Number(offline?.max_elapsed_seconds || 0) / 60)))} min` : ''}</div>
+          <div class="system-row"><strong>Oekonomie-Snapshot</strong>${hadOfflineTime ? ` | Offline-Zeit: ${Math.max(1, Math.round((Number(offline?.max_elapsed_seconds || 0) / 60)))} min` : ''}</div>
           <div class="system-row" style="font-size:0.8rem;color:var(--text-secondary)">
-            Ô¼í ${this.signed(netRates?.metal, 1)}/h ┬À ­ƒÆÄ ${this.signed(netRates?.crystal, 1)}/h ┬À ­ƒöÁ ${this.signed(netRates?.deuterium, 1)}/h ┬À ­ƒî¥ ${this.signed(netRates?.food, 1)}/h ┬À ­ƒæÑ ${this.signed(netRates?.population, 2)}/h
+            Metal ${this.signed(netRates?.metal, 1)}/h | Crystal ${this.signed(netRates?.crystal, 1)}/h | Deuterium ${this.signed(netRates?.deuterium, 1)}/h | Food ${this.signed(netRates?.food, 1)}/h | Population ${this.signed(netRates?.population, 2)}/h
           </div>
           <div class="system-row" style="font-size:0.8rem;color:var(--text-secondary)">
-            Stabil: ${statusCounts.stable || 0} ┬À Beobachten: ${statusCounts.watch || 0} ┬À Kritisch: ${statusCounts.strain || 0}
-            ${economy ? ` ┬À Wohlfahrt ├ÿ ${(Number(economy.avg_welfare || 0)).toFixed(1)}%` : ''}
+            Stabil: ${statusCounts.stable || 0} | Beobachten: ${statusCounts.watch || 0} | Kritisch: ${statusCounts.strain || 0}
+            ${economy ? ` | Wohlfahrt >= ${(Number(economy.avg_welfare || 0)).toFixed(1)}%` : ''}
           </div>
           ${topRiskHtml}
         </div>`;
@@ -5721,14 +6473,14 @@
       const perHour = config.rateKey ? Number(netRates?.[config.rateKey] || 0) : null;
       const actions = [];
       if (config.focusBuilding) {
-        actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-resource-action="focus-building" data-resource-focus="${esc(config.focusBuilding)}">­ƒÅù Produktionsfokus</button>`);
+        actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-resource-action="focus-building" data-resource-focus="${esc(config.focusBuilding)}">Produktionsfokus</button>`);
       }
       if (config.transportable) {
-        actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-resource-action="transport" data-resource="${esc(config.key)}">­ƒÜÜ Transport starten</button>`);
+        actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-resource-action="transport" data-resource="${esc(config.key)}">Transport starten</button>`);
       }
       if (config.tradeable) {
-        actions.push(`<button type="button" class="btn btn-primary btn-sm" data-resource-action="market-sell" data-resource="${esc(config.key)}">­ƒøÆ Verkaufen</button>`);
-        actions.push(`<button type="button" class="btn btn-primary btn-sm" data-resource-action="market-buy" data-resource="${esc(config.key)}">­ƒøÆ Kaufen</button>`);
+        actions.push(`<button type="button" class="btn btn-primary btn-sm" data-resource-action="market-sell" data-resource="${esc(config.key)}">Verkaufen</button>`);
+        actions.push(`<button type="button" class="btn btn-primary btn-sm" data-resource-action="market-buy" data-resource="${esc(config.key)}">Kaufen</button>`);
       }
       actions.push('<button type="button" class="btn btn-secondary btn-sm" data-resource-action="close-insight">Schliessen</button>');
 
@@ -5736,7 +6488,7 @@
         <section class="resource-insight-card">
           <div class="resource-insight-head">
             <div>
-              <div class="resource-insight-title">${esc(config.icon)} ${esc(config.label)} ┬À ${esc(currentColony.name || 'Kolonie')}</div>
+              <div class="resource-insight-title">${esc(config.icon)} ${esc(config.label)} | ${esc(currentColony.name || 'Kolonie')}</div>
               <div class="resource-insight-note">${esc(config.desc)}</div>
             </div>
             <span class="status-chip chip-neutral">[${esc(String(currentColony.galaxy || 0))}:${esc(String(currentColony.system || 0))}:${esc(String(currentColony.position || 0))}]</span>
@@ -5776,7 +6528,7 @@
       fleetList.innerHTML = this.renderTemplateList('fleetRow', fleets.map((fleet) => {
         const pos = fleet.current_pos || {};
         const positionHtml = (pos.x !== undefined)
-          ? `<span class="fleet-pos" title="3D position">­ƒôì ${esc(String(pos.x.toFixed(0)))}, ${esc(String(pos.y.toFixed(0)))}, ${esc(String(pos.z.toFixed(0)))} ly</span>`
+          ? `<span class="fleet-pos" title="3D position">POS ${esc(String(pos.x.toFixed(0)))}, ${esc(String(pos.y.toFixed(0)))}, ${esc(String(pos.z.toFixed(0)))} ly</span>`
           : '';
         const vesselChips = (fleet.vessels || [])
           .slice(0, 5)
@@ -5788,11 +6540,11 @@
         // FTL status badges
         const stealthSec = Number(fleet.stealth_remaining_s || 0);
         const stealthBadge = stealthSec > 0
-          ? `<span class="fleet-stealth-badge" title="Vel'Ar stealth: ${stealthSec}s remaining">­ƒæü´©Å Stealth ${stealthSec}s</span>`
+          ? `<span class="fleet-stealth-badge" title="Vel'Ar stealth: ${stealthSec}s remaining">Stealth ${stealthSec}s</span>`
           : '';
         const hullDmg = Number(fleet.hull_damage_pct || 0);
         const hullBadge = hullDmg > 0
-          ? `<span class="fleet-hull-badge" title="Kryl'Tha hull damage: -${hullDmg}% attack">ÔÜá Hull ${hullDmg}%</span>`
+          ? `<span class="fleet-hull-badge" title="Kryl'Tha hull damage: -${hullDmg}% attack">Hull ${hullDmg}%</span>`
           : '';
 
         return {
@@ -5806,7 +6558,7 @@
           arrivalCountdown: esc(countdown(fleet.arrival_time)),
           progressPct: esc(progressPct),
           vesselListHtml,
-          returningBadgeHtml: fleet.returning ? '<span class="fleet-returning">Ôå® Returning</span>' : '',
+          returningBadgeHtml: fleet.returning ? '<span class="fleet-returning">Returning</span>' : '',
           ftlBadgesHtml: stealthBadge + hullBadge,
           recallButtonHtml: !fleet.returning
             ? `<button class="btn btn-warning btn-sm recall-btn" data-fid="${esc(String(fleet.id || ''))}">Recall</button>`
@@ -5842,14 +6594,14 @@
         const won = report.attacker_wins;
         const loot = report.loot || {};
         const lootStr = [
-          loot.metal > 0 ? `Ô¼í${fmt(loot.metal)}` : '',
-          loot.crystal > 0 ? `­ƒÆÄ${fmt(loot.crystal)}` : '',
-          loot.deuterium > 0 ? `­ƒöÁ${fmt(loot.deuterium)}` : '',
-          loot.rare_earth > 0 ? `­ƒÆ£${fmt(loot.rare_earth)}` : '',
+          loot.metal > 0 ? `MET ${fmt(loot.metal)}` : '',
+          loot.crystal > 0 ? `CRY ${fmt(loot.crystal)}` : '',
+          loot.deuterium > 0 ? `DEU ${fmt(loot.deuterium)}` : '',
+          loot.rare_earth > 0 ? `RRE ${fmt(loot.rare_earth)}` : '',
         ].filter(Boolean).join(' ');
         return {
           battleClass: won ? 'battle-win' : 'battle-loss',
-          resultLabel: won ? 'ÔÜö Victory' : '­ƒÆÇ Defeat',
+          resultLabel: won ? 'Victory' : 'Defeat',
           defenderName: esc(battle.defender_name),
           createdAt: esc(new Date(battle.created_at).toLocaleString()),
           lootHtml: won && lootStr ? `<span class="battle-loot">${esc(lootStr)}</span>` : '',
@@ -5944,7 +6696,7 @@
         const response = await API.togglePvp();
         if (response.success) {
           if (audioManager && typeof audioManager.playPvpToggle === 'function') audioManager.playPvpToggle();
-          showToast(response.pvp_mode ? 'ÔÜö PvP enabled!' : '­ƒøí PvP disabled.', 'info');
+          showToast(response.pvp_mode ? 'PvP enabled!' : 'PvP disabled.', 'info');
           await this.load();
         } else {
           showToast(response.error || 'Could not toggle PvP.', 'error');
@@ -5964,23 +6716,23 @@
       const protUntil = meta.protection_until ? new Date(meta.protection_until) : null;
       const protected_ = protUntil && protUntil > Date.now();
       const pvpOn = !!parseInt(meta.pvp_mode, 10);
-      const protText = protected_ ? `­ƒøí Newbie protection until ${protUntil.toLocaleDateString()}` : '­ƒøí No protection';
+      const protText = protected_ ? `Newbie protection until ${protUntil.toLocaleDateString()}` : 'No protection';
       const colonyTypeLabels = {
-        balanced: 'ÔÜû Balanced', mining: 'ÔøÅ Mining', industrial: '­ƒÅ¡ Industrial',
-        research: '­ƒö¼ Research', agricultural: '­ƒî¥ Agricultural', military: 'ÔÜö Military'
+        balanced: 'Balanced', mining: 'Mining', industrial: 'Industrial',
+        research: 'Research', agricultural: 'Agricultural', military: 'Military'
       };
       const offline = window._GQ_offline || null;
 
       root.innerHTML = `
         <div class="status-bar">
           <span class="status-chip ${protected_ ? 'chip-shield' : 'chip-neutral'}">${protText}</span>
-          <span class="status-chip ${pvpOn ? 'chip-pvp-on' : 'chip-pvp-off'}">ÔÜö PvP: ${pvpOn ? 'ON' : 'OFF'}</span>
+          <span class="status-chip ${pvpOn ? 'chip-pvp-on' : 'chip-pvp-off'}">PvP: ${pvpOn ? 'ON' : 'OFF'}</span>
           <button id="pvp-toggle-btn" class="btn btn-sm ${pvpOn ? 'btn-warning' : 'btn-secondary'}" ${protected_ ? 'disabled' : ''}>
             ${pvpOn ? 'Disable PvP' : 'Enable PvP'}
           </button>
-          <span class="status-chip chip-rank">Ôÿà ${fmt(meta.rank_points ?? 0)} RP</span>
-          <span class="status-chip chip-dm">Ôùå ${fmt(meta.dark_matter ?? 0)} DM</span>
-          <button class="btn btn-secondary btn-sm" id="open-leaders-btn">­ƒæñ Leaders</button>
+          <span class="status-chip chip-rank">Rank ${fmt(meta.rank_points ?? 0)} RP</span>
+          <span class="status-chip chip-dm">DM ${fmt(meta.dark_matter ?? 0)} DM</span>
+          <button class="btn btn-secondary btn-sm" id="open-leaders-btn">Leaders</button>
         </div>
 
         ${this.buildOfflineSummaryHtml(offline)}
@@ -5991,14 +6743,14 @@
         <div class="overview-grid">
           ${colonies.map((colony) => {
             const leaderChips = (colony.leaders || []).map((leader) =>
-              `<span class="leader-chip" title="${esc(leader.role)} Lv${leader.level} ÔÇô ${leader.last_action || 'idle'}">
-                 ${leader.role === 'colony_manager' ? '­ƒÅù' : leader.role === 'science_director' ? '­ƒö¼' : 'ÔÜö'} ${esc(leader.name)}
+              `<span class="leader-chip" title="${esc(leader.role)} Lv${leader.level} - ${leader.last_action || 'idle'}">
+                 ${leader.role === 'colony_manager' ? 'MGR' : leader.role === 'science_director' ? 'SCI' : 'MIL'} ${esc(leader.name)}
                </span>`
             ).join('');
             return `
             <div class="planet-card ${currentColony && colony.id === currentColony.id ? 'selected' : ''}" data-cid="${colony.id}">
               <div class="planet-card-name">${esc(colony.name)}
-                ${colony.is_homeworld ? '<span class="hw-badge">­ƒÅá</span>' : ''}
+                ${colony.is_homeworld ? '<span class="hw-badge">HW</span>' : ''}
               </div>
               <div class="planet-card-coords">[${colony.galaxy}:${colony.system}:${colony.position}]</div>
               <div class="planet-card-type">
@@ -8506,8 +9258,99 @@
     galaxyController.renderWindow();
   }
 
+  function updateTopbarOrbitBadge() {
+    const badge = document.getElementById('topbar-orbit-mode');
+    const diagEl = document.getElementById('settings-orbit-diag');
+    const nextEl = document.getElementById('settings-orbit-next');
+    const visibilityEl = document.getElementById('settings-orbit-visibility');
+    if (!badge && !diagEl && !nextEl && !visibilityEl) return;
+    const orbitOrder = ['auto', 'simple', 'complex'];
+    const toUpperMode = (value, fallback = 'AUTO') => {
+      const normalized = String(value || '').toLowerCase();
+      return orbitOrder.includes(normalized) ? normalized.toUpperCase() : fallback;
+    };
+    const nextModeUpper = (value) => {
+      const normalized = String(value || 'auto').toLowerCase();
+      const index = Math.max(0, orbitOrder.indexOf(normalized));
+      return orbitOrder[(index + 1) % orbitOrder.length].toUpperCase();
+    };
+    if (!galaxy3d || typeof galaxy3d.getRenderStats !== 'function' || !galaxy3d.systemMode) {
+      if (badge) {
+        badge.classList.add('hidden');
+        badge.textContent = '';
+        badge.title = '';
+        badge.removeAttribute('aria-label');
+        badge.classList.remove('is-gpu', 'is-cpu', 'is-complex');
+      }
+      if (diagEl) {
+        diagEl.textContent = '—';
+        diagEl.classList.remove('is-gpu', 'is-cpu', 'is-complex');
+      }
+      if (nextEl) {
+        nextEl.textContent = '—';
+        nextEl.title = '';
+        nextEl.classList.remove('is-gpu', 'is-cpu', 'is-complex');
+      }
+      if (visibilityEl) {
+        visibilityEl.textContent = '—';
+        visibilityEl.title = '';
+        visibilityEl.classList.remove('is-gpu', 'is-cpu', 'is-complex');
+      }
+      return;
+    }
+
+    const stats = galaxy3d.getRenderStats() || {};
+    const requestedMode = toUpperMode(stats.orbitSimulationMode || settingsState.orbitSimulationMode || 'auto');
+    const activeMode = toUpperMode(stats.activeOrbitSimulationMode || 'complex', 'COMPLEX');
+    const nextMode = nextModeUpper(stats.orbitSimulationMode || settingsState.orbitSimulationMode || 'auto');
+    const gpuActive = !!stats.activeGpuOrbitVisuals;
+    const isComplex = activeMode === 'COMPLEX';
+    const rawVisibilityFactor = Number(stats.orbitPathVisibilityFactor);
+    const visibilityFactor = Number.isFinite(rawVisibilityFactor)
+      ? Math.max(0, Math.min(1, rawVisibilityFactor))
+      : (settingsState.systemOrbitPathsVisible === false ? 0 : 1);
+
+    if (badge) {
+      const label = gpuActive ? `ORB GPU ${activeMode}` : `ORB CPU ${activeMode}`;
+      badge.textContent = label;
+      badge.title = `Orbit-Simulation\nGewuenscht: ${requestedMode}\nAktiv: ${activeMode}\nVisualisierung: ${gpuActive ? 'GPU' : 'CPU'}\nKlick/Enter/Space: naechster Modus ${nextMode}`;
+      badge.setAttribute('aria-label', `Orbit-Simulation. Gewuenscht ${requestedMode}. Aktiv ${activeMode}. Visualisierung ${gpuActive ? 'GPU' : 'CPU'}. Naechster Modus ${nextMode}.`);
+      badge.classList.remove('hidden', 'is-gpu', 'is-cpu', 'is-complex');
+      badge.classList.add(gpuActive ? 'is-gpu' : 'is-cpu');
+      if (isComplex) badge.classList.add('is-complex');
+    }
+
+    if (diagEl) {
+      const gpuLabel = gpuActive ? 'GPU ✓' : 'CPU';
+      diagEl.textContent = `${requestedMode} → ${activeMode} · ${gpuLabel}`;
+      diagEl.title = `Requested: ${requestedMode}  Active: ${activeMode}  Visuals: ${gpuActive ? 'GPU (shader)' : 'CPU (position)'}`;
+      diagEl.classList.remove('is-gpu', 'is-cpu', 'is-complex');
+      diagEl.classList.add(gpuActive ? 'is-gpu' : 'is-cpu');
+      if (isComplex) diagEl.classList.add('is-complex');
+    }
+
+    if (nextEl) {
+      nextEl.textContent = nextMode;
+      nextEl.title = `Naechster Orbit-Modus bei Umschaltung: ${nextMode}`;
+      nextEl.classList.remove('is-gpu', 'is-cpu', 'is-complex', 'is-next-auto', 'is-next-simple', 'is-next-complex');
+      if (nextMode === 'AUTO') nextEl.classList.add('is-next-auto');
+      else if (nextMode === 'SIMPLE') nextEl.classList.add('is-next-simple');
+      else if (nextMode === 'COMPLEX') nextEl.classList.add('is-next-complex');
+    }
+
+    if (visibilityEl) {
+      const percent = Math.round(visibilityFactor * 100);
+      visibilityEl.textContent = `${percent}%`;
+      visibilityEl.title = `Orbitpfad-Sichtbarkeit (kameraabhaengig): ${percent}%`;
+      visibilityEl.classList.remove('is-gpu', 'is-cpu', 'is-complex');
+      visibilityEl.classList.add(gpuActive ? 'is-gpu' : 'is-cpu');
+      if (isComplex) visibilityEl.classList.add('is-complex');
+    }
+  }
+
   function refreshGalaxyDensityMetrics(root) {
     galaxyController.refreshDensityMetrics(root);
+    updateTopbarOrbitBadge();
   }
 
   function updateClusterBoundsUi(root) {
@@ -8627,7 +9470,7 @@
       const countStrength = colonyCount > 0 ? Math.max(0, Math.min(1, (Math.log2(colonyCount + 1) - 0.3) / 3.2)) : 0;
       const popStrength = colonyPopulation > 0 ? Math.max(0, Math.min(1, (Math.log10(colonyPopulation + 1) - 2.2) / 3.0)) : 0;
       const strength = Math.max(countStrength, popStrength);
-      let label = 'Au├ƒenposten';
+      let label = 'Aussenposten';
       if (strength >= 0.75) label = 'Kernwelt';
       else if (strength >= 0.4) label = 'Kolonie';
       return {
@@ -8751,14 +9594,14 @@
       ? true
       : galaxy3d.isFollowingSelection();
     const quickNavActions = [
-      { action: 'home', label: '­ƒÅá', title: 'Jump to home system' },
+      { action: 'home', label: 'Home', title: 'Jump to home system' },
       { action: 'zoom-in', label: '+', title: 'Zoom in' },
-      { action: 'zoom-out', label: 'ÔêÆ', title: 'Zoom out' },
-      { action: 'rotate-left', label: 'ÔùÇ', title: 'Rotate left' },
-      { action: 'rotate-right', label: 'ÔûÂ', title: 'Rotate right' },
-      { action: 'rotate-up', label: 'Ôû▓', title: 'Rotate up' },
-      { action: 'rotate-down', label: 'Ôû╝', title: 'Rotate down' },
-      { action: 'focus', label: 'ÔùÄ', title: 'Focus selection' },
+      { action: 'zoom-out', label: '-', title: 'Zoom out' },
+      { action: 'rotate-left', label: 'Left', title: 'Rotate left' },
+      { action: 'rotate-right', label: 'Right', title: 'Rotate right' },
+      { action: 'rotate-up', label: 'Up', title: 'Rotate up' },
+      { action: 'rotate-down', label: 'Down', title: 'Rotate down' },
+      { action: 'focus', label: 'Focus', title: 'Focus selection' },
     ];
     if (star && !zoomed) {
       quickNavActions.unshift({ action: 'enter-system', label: 'System', title: 'Enter selected system', className: 'galaxy-detail-nav-btn-mode' });
@@ -8820,13 +9663,13 @@
       const systems = Array.isArray(star.__clusterSystems) ? star.__clusterSystems : [];
       const from = systems.length ? Math.min(...systems) : Number(star.from || 0);
       const to = systems.length ? Math.max(...systems) : Number(star.to || 0);
-      const factionName = star?.faction?.name ? ` ┬À ${esc(star.faction.name)}` : '';
+      const factionName = star?.faction?.name ? ` | ${esc(star.faction.name)}` : '';
       details.innerHTML = `
         <div class="system-card">
           <div class="system-title">${esc(star.label || `Cluster ${Number(star.__clusterIndex || 0) + 1}`)}</div>
           ${navButtons}
           <div class="system-row">Clusterbereich: ${esc(String(from || '?'))} - ${esc(String(to || '?'))}${factionName}</div>
-          <div class="system-row">Bounding Box: ${Number(star.__clusterSize?.x || 0).toFixed(1)} ├ù ${Number(star.__clusterSize?.y || 0).toFixed(1)} ├ù ${Number(star.__clusterSize?.z || 0).toFixed(1)}</div>
+          <div class="system-row">Bounding Box: ${Number(star.__clusterSize?.x || 0).toFixed(1)} x ${Number(star.__clusterSize?.y || 0).toFixed(1)} x ${Number(star.__clusterSize?.z || 0).toFixed(1)}</div>
           <div class="system-row">Center: ${Number(star.__clusterCenter?.x || 0).toFixed(1)}, ${Number(star.__clusterCenter?.y || 0).toFixed(1)}, ${Number(star.__clusterCenter?.z || 0).toFixed(1)}</div>
           <div class="system-row">Cluster gebunden, rotiert mit der Sternwolke und ist per Mouse hover-/selektierbar.</div>
           <div class="system-row">Klick fokussiert die Box, Doppelklick zoomt clusterweise hinein.</div>
@@ -8856,7 +9699,7 @@
     const isFav = isFavoriteStar(star);
     const colonyMeta = getColonyMarkerMeta(star);
     const colonyHtml = colonyMeta
-      ? `<div class="system-row system-row-colony"><span class="system-colony-swatch" style="background:${esc(colonyMeta.color)};box-shadow:0 0 10px ${esc(colonyMeta.color)};"></span>${esc(colonyMeta.label)} ┬À ${esc(String(colonyMeta.count))} Kolonien ┬À Bev├Âlkerung ${esc(colonyMeta.populationFull)}${colonyMeta.ownerName ? ` ┬À ${esc(colonyMeta.isPlayer ? 'Dominanz: Du' : `Dominanz: ${colonyMeta.ownerName}`)}` : ''}</div>`
+      ? `<div class="system-row system-row-colony"><span class="system-colony-swatch" style="background:${esc(colonyMeta.color)};box-shadow:0 0 10px ${esc(colonyMeta.color)};"></span>${esc(colonyMeta.label)} | ${esc(String(colonyMeta.count))} Kolonien | Bevoelkerung ${esc(colonyMeta.populationFull)}${colonyMeta.ownerName ? ` | ${esc(colonyMeta.isPlayer ? 'Dominanz: Du' : `Dominanz: ${colonyMeta.ownerName}`)}` : ''}</div>`
       : '<div class="system-row text-muted">Keine bekannten Kolonien in diesem System.</div>';
     const systemActionHtml = `
       <div class="system-row" style="margin-top:0.42rem; display:flex; gap:0.36rem; flex-wrap:wrap;">
@@ -8867,14 +9710,14 @@
 
     // FoW visibility indicator
     const fowLevel = isCurrentUserAdmin() ? 'own' : (star.visibility_level || 'unknown');
-    const fowLabels = { own: '­ƒÅá Eigene Kolonie', active: '­ƒø© Flotte aktiv', stale: 'ÔÅ│ Veraltete Aufkl├ñrung', unknown: '­ƒîæ Unerforscht' };
+    const fowLabels = { own: 'Eigene Kolonie', active: 'Flotte aktiv', stale: 'Veraltete Aufklaerung', unknown: 'Unerforscht' };
     const fowHtml = `<div class="system-row ${fowLevel === 'unknown' ? 'fow-unknown-badge' : ''}" style="${fowLevel === 'stale' ? 'color:#e8c843' : ''}">${esc(fowLabels[fowLevel] || fowLevel)}</div>`;
 
     details.innerHTML = `
       <div class="system-card">
         <div class="system-title">${esc(star.name)}</div>
         ${navButtons}
-        <div class="system-row">Catalog: ${esc(star.catalog_name || 'ÔÇö')}</div>
+        <div class="system-row">Catalog: ${esc(star.catalog_name || '-')}</div>
         <div class="system-row">Galaxy/System: ${star.galaxy_index}:${star.system_index}</div>
         <div class="system-row">Class: ${esc(star.spectral_class)}${esc(String(star.subtype ?? ''))}</div>
         <div class="system-row">Coordinates: ${Number(star.x_ly || 0).toFixed(0)}, ${Number(star.y_ly || 0).toFixed(0)}, ${Number(star.z_ly || 0).toFixed(0)} ly</div>
@@ -8887,7 +9730,7 @@
         ${systemActionHtml}
         ${fleetLegendHtml}
         <div class="system-row" style="margin-top:0.4rem">
-          <button id="gal-quicknav-fav-btn" type="button" class="btn btn-secondary btn-sm${isFav ? ' active' : ''}">${isFav ? 'Ôÿà Favorit entfernen' : 'Ôÿå Favorit hinzuf├╝gen'}</button>
+          <button id="gal-quicknav-fav-btn" type="button" class="btn btn-secondary btn-sm${isFav ? ' active' : ''}">${isFav ? 'Favorit entfernen' : 'Favorit hinzufuegen'}</button>
         </div>
       </div>`;
     details.querySelectorAll('[data-nav-action]').forEach((button) => {
@@ -8897,11 +9740,11 @@
       const btn = details.querySelector('#gal-quicknav-fav-btn');
       if (isFavoriteStar(star)) {
         removeFavorite(`${Number(star.galaxy_index)}:${Number(star.system_index)}`);
-        if (btn) { btn.textContent = 'Ôÿå Favorit hinzuf├╝gen'; btn.classList.remove('active'); }
+        if (btn) { btn.textContent = 'Favorit hinzufuegen'; btn.classList.remove('active'); }
         showToast(`${star.name} aus Favoriten entfernt.`, 'info');
       } else {
         addFavorite(star);
-        if (btn) { btn.textContent = 'Ôÿà Favorit entfernen'; btn.classList.add('active'); }
+        if (btn) { btn.textContent = 'Favorit entfernen'; btn.classList.add('active'); }
         showToast(`${star.name} als Favorit gespeichert.`, 'success');
       }
       updateFooterQuickNavBadge();
@@ -8944,10 +9787,10 @@
   const QUICKNAV_KEY = 'gq_quicknav';
   const QUICKNAV_RIBBONS = [
     { id: '', label: 'Keine' },
-    { id: 'home',   label: '­ƒÅá Home'   },
-    { id: 'colony', label: '­ƒîì Kolonie' },
-    { id: 'combat', label: 'ÔÜö Kampf'   },
-    { id: 'watch',  label: '­ƒæü Beobachten' },
+    { id: 'home',   label: 'Home' },
+    { id: 'colony', label: 'Kolonie' },
+    { id: 'combat', label: 'Kampf' },
+    { id: 'watch',  label: 'Beobachten' },
   ];
 
   function loadQuickNavData() {
@@ -9030,21 +9873,21 @@
     const ribbonOptions = QUICKNAV_RIBBONS.map((r) => `<option value="${esc(r.id)}">${esc(r.label)}</option>`).join('');
     root.innerHTML = `<div class="quicknav-wrap">
       <div class="quicknav-toolbar">
-        <input id="qn-search" class="quicknav-search" type="search" placeholder="Name oder Koordinate suchenÔÇª" value="${esc(prevSearch)}" autocomplete="off" />
+        <input id="qn-search" class="quicknav-search" type="search" placeholder="Name oder Koordinate suchen..." value="${esc(prevSearch)}" autocomplete="off" />
         <select id="qn-sort" class="quicknav-sort" title="Sortierung">
-          <option value="recent"   ${prevSort === 'recent'   ? 'selected' : ''}>Ôåô Hinzugef├╝gt</option>
-          <option value="name"     ${prevSort === 'name'     ? 'selected' : ''}>AÔÇôZ Name</option>
-          <option value="name-z"   ${prevSort === 'name-z'   ? 'selected' : ''}>ZÔÇôA Name</option>
+          <option value="recent"   ${prevSort === 'recent'   ? 'selected' : ''}>Hinzugefuegt</option>
+          <option value="name"     ${prevSort === 'name'     ? 'selected' : ''}>A-Z Name</option>
+          <option value="name-z"   ${prevSort === 'name-z'   ? 'selected' : ''}>Z-A Name</option>
           <option value="system"   ${prevSort === 'system'   ? 'selected' : ''}>System-Nr.</option>
           <option value="ribbon"   ${prevSort === 'ribbon'   ? 'selected' : ''}>Ribbon</option>
         </select>
         <div class="quicknav-ribbon-filter">
           <button class="quicknav-ribbon-pill${prevRibbon === 'all' ? ' active' : ''}" data-ribbon="all">Alle</button>
-          <button class="quicknav-ribbon-pill${prevRibbon === 'home' ? ' active' : ''}" data-ribbon="home">­ƒÅá</button>
-          <button class="quicknav-ribbon-pill${prevRibbon === 'colony' ? ' active' : ''}" data-ribbon="colony">­ƒîì</button>
-          <button class="quicknav-ribbon-pill${prevRibbon === 'combat' ? ' active' : ''}" data-ribbon="combat">ÔÜö</button>
-          <button class="quicknav-ribbon-pill${prevRibbon === 'watch' ? ' active' : ''}" data-ribbon="watch">­ƒæü</button>
-          <button class="quicknav-ribbon-pill${prevRibbon === '' ? ' active' : ''}" data-ribbon="">Ôùî</button>
+          <button class="quicknav-ribbon-pill${prevRibbon === 'home' ? ' active' : ''}" data-ribbon="home">Home</button>
+          <button class="quicknav-ribbon-pill${prevRibbon === 'colony' ? ' active' : ''}" data-ribbon="colony">Kolonie</button>
+          <button class="quicknav-ribbon-pill${prevRibbon === 'combat' ? ' active' : ''}" data-ribbon="combat">Kampf</button>
+          <button class="quicknav-ribbon-pill${prevRibbon === 'watch' ? ' active' : ''}" data-ribbon="watch">Watch</button>
+          <button class="quicknav-ribbon-pill${prevRibbon === '' ? ' active' : ''}" data-ribbon="">Keine</button>
         </div>
       </div>
       <div class="quicknav-list" id="qn-list"></div>
@@ -9077,8 +9920,8 @@
 
       if (!favorites.length) {
         listEl.innerHTML = `<div class="quicknav-empty">
-          Keine Favoriten${ribbon !== 'all' || search ? ' f├╝r diese Auswahl' : ''}.<br/>
-          <span style="font-size:0.77rem">Stern im Galaxy-Detail-Panel mit <strong>Ôÿå Favorit</strong> markieren.</span>
+          Keine Favoriten${ribbon !== 'all' || search ? ' fuer diese Auswahl' : ''}.<br/>
+          <span style="font-size:0.77rem">Stern im Galaxy-Detail-Panel mit <strong>Favorit</strong> markieren.</span>
         </div>`;
         return;
       }
@@ -9095,8 +9938,8 @@
             <select class="quicknav-ribbon-select" data-fav-key="${esc(fav.key)}" title="Ribbon">
               ${QUICKNAV_RIBBONS.map((rb) => `<option value="${esc(rb.id)}"${(fav.ribbon || '') === rb.id ? ' selected' : ''}>${esc(rb.label)}</option>`).join('')}
             </select>
-            <button class="quicknav-item-btn go" data-fav-key="${esc(fav.key)}" title="Ansteuern">ÔåÆ</button>
-            <button class="quicknav-item-btn remove" data-fav-key="${esc(fav.key)}" title="Aus Favoriten entfernen">Ô£ò</button>
+            <button class="quicknav-item-btn go" data-fav-key="${esc(fav.key)}" title="Ansteuern">Go</button>
+            <button class="quicknav-item-btn remove" data-fav-key="${esc(fav.key)}" title="Aus Favoriten entfernen">Del</button>
           </div>
         </div>`;
       }).join('');
@@ -10405,11 +11248,11 @@
       if (status === 'uninhabited') {
         return `
           <div class="system-card" style="margin-bottom:1rem">
-            <div class="system-row"><strong>­ƒöì Uninhabited Planet</strong></div>
+            <div class="system-row"><strong>Uninhabited Planet</strong></div>
             <div class="system-row text-muted small">${createdAt}</div>
             ${r.planet ? `<div class="system-row">Class: ${esc(r.planet.planet_class || '?')}</div>` : ''}
-            ${r.planet && r.planet.deposit_metal ? `<div class="system-row">Ô¼í Metal: ${esc(r.planet.richness_metal || '?')}</div>` : ''}
-            ${r.planet && r.planet.deposit_crystal ? `<div class="system-row">­ƒÆÄ Crystal: ${esc(r.planet.richness_crystal || '?')}</div>` : ''}
+            ${r.planet && r.planet.deposit_metal ? `<div class="system-row">Metal: ${esc(r.planet.richness_metal || '?')}</div>` : ''}
+            ${r.planet && r.planet.deposit_crystal ? `<div class="system-row">Crystal: ${esc(r.planet.richness_crystal || '?')}</div>` : ''}
           </div>`;
       }
 
@@ -10417,9 +11260,9 @@
 
       return `
         <div class="system-card" style="margin-bottom:1rem">
-          <div class="system-row"><strong>­ƒöì Spy Report: ${esc(r.owner || '?')}</strong></div>
+          <div class="system-row"><strong>Spy Report: ${esc(r.owner || '?')}</strong></div>
           <div class="system-row" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-            <strong>­ƒöì Spy Report: ${esc(r.owner || '?')}</strong>
+            <strong>Spy Report: ${esc(r.owner || '?')}</strong>
             ${!report.is_own && report.owner_username ? `<span class="lb-alliance-tag">via ${esc(report.owner_username)}</span>` : ''}
           </div>
           <div class="system-row text-muted small">${createdAt}</div>
@@ -10427,25 +11270,25 @@
           <div class="system-row" style="margin-top:0.5rem"><strong>Resources</strong></div>
           ${r.resources ? `
             <div class="system-row small">
-              Ô¼í ${fmt(r.resources.metal || 0)} ┬À ­ƒÆÄ ${fmt(r.resources.crystal || 0)} ┬À 
-              ­ƒöÁ ${fmt(r.resources.deuterium || 0)} ┬À ­ƒîƒ ${fmt(r.resources.rare_earth || 0)}
+              Metal ${fmt(r.resources.metal || 0)} | Crystal ${fmt(r.resources.crystal || 0)} |
+              Deuterium ${fmt(r.resources.deuterium || 0)} | Rare Earth ${fmt(r.resources.rare_earth || 0)}
             </div>
           ` : ''}
           
           <div class="system-row" style="margin-top:0.5rem"><strong>Welfare</strong></div>
           ${r.welfare ? `
             <div class="welfare-bar" style="margin-top:0.3rem">
-              <span title="Happiness ${r.welfare.happiness || 0}%">­ƒÿè</span>
+              <span title="Happiness ${r.welfare.happiness || 0}%">HAP</span>
               <div class="bar-wrap"><div class="bar-fill bar-happiness" style="width:${r.welfare.happiness || 0}%"></div></div>
               <span style="font-size:0.7rem;min-width:28px">${r.welfare.happiness || 0}%</span>
             </div>
             <div class="welfare-bar">
-              <span title="Population">­ƒæÑ</span>
+              <span title="Population">POP</span>
               <div class="bar-wrap"><div class="bar-fill bar-population" style="width:${Math.min(100, Math.round((r.welfare.population || 0) / (r.welfare.max_population || 500) * 100))}%"></div></div>
               <span style="font-size:0.7rem;min-width:38px">${fmt(r.welfare.population || 0)}</span>
             </div>
             <div class="welfare-bar">
-              <span title="Public Services">­ƒÅÑ</span>
+              <span title="Public Services">SRV</span>
               <div class="bar-wrap"><div class="bar-fill bar-services" style="width:${r.welfare.public_services || 0}%"></div></div>
               <span style="font-size:0.7rem;min-width:28px">${r.welfare.public_services || 0}%</span>
             </div>
@@ -10459,14 +11302,14 @@
           ${r.ships && Object.keys(r.ships).length ? `
             <div class="system-row" style="margin-top:0.5rem"><strong>Ships</strong></div>
             <div class="system-row small">
-              ${Object.entries(r.ships).map(([ship, count]) => esc(fmtName(ship)) + ': ' + fmt(count)).join(' ┬À ')}
+              ${Object.entries(r.ships).map(([ship, count]) => esc(fmtName(ship)) + ': ' + fmt(count)).join(' | ')}
             </div>
           ` : ''}
 
           ${r.leaders && r.leaders.length ? `
             <div class="system-row" style="margin-top:0.5rem"><strong>Leaders</strong></div>
             <div class="system-row small">
-              ${r.leaders.map((l) => esc(l.name || '?') + ' (' + esc(l.role || '?') + ') Lv' + (l.level || 0)).join(' ┬À ')}
+              ${r.leaders.map((l) => esc(l.name || '?') + ' (' + esc(l.role || '?') + ') Lv' + (l.level || 0)).join(' | ')}
             </div>
           ` : ''}
         </div>`;
@@ -10483,19 +11326,19 @@
 
       return `
         <div class="system-card" style="margin-bottom:1rem; border-color:${accent};">
-          <div class="system-row"><strong>ÔÜö Battle Report #${report.id}</strong></div>
-          <div class="system-row text-muted small">${createdAt} ┬À Role: ${esc(report.role || '?')}</div>
+          <div class="system-row"><strong>Battle Report #${report.id}</strong></div>
+          <div class="system-row text-muted small">${createdAt} | Role: ${esc(report.role || '?')}</div>
           <div class="system-row" style="margin-top:0.35rem; color:${accent}; font-weight:700;">
             ${attackerWins ? 'Attacker succeeded' : 'Defender held'}
           </div>
           ${this.renderCombatSummary(report)}
           <div class="system-row small" style="margin-top:0.5rem;">
-            Loot: Ô¼í ${fmt(loot.metal || 0)} ┬À ­ƒÆÄ ${fmt(loot.crystal || 0)} ┬À ­ƒöÁ ${fmt(loot.deuterium || 0)} ┬À ­ƒîƒ ${fmt(loot.rare_earth || 0)}
+            Loot: Metal ${fmt(loot.metal || 0)} | Crystal ${fmt(loot.crystal || 0)} | Deuterium ${fmt(loot.deuterium || 0)} | Rare Earth ${fmt(loot.rare_earth || 0)}
           </div>
           ${explain.length ? `
             <div class="system-row" style="margin-top:0.55rem;"><strong>Top Factors</strong></div>
             <div class="system-row small" style="color:#d7dfef;">
-              ${explain.map((f) => `${esc(fmtName(String(f.factor || 'factor')))} ${fmt(Number(f.impact_pct || 0))}%`).join(' ┬À ')}
+              ${explain.map((f) => `${esc(fmtName(String(f.factor || 'factor')))} ${fmt(Number(f.impact_pct || 0))}%`).join(' | ')}
             </div>
           ` : ''}
           <div style="margin-top:0.65rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
@@ -10528,8 +11371,8 @@
             ${entries.map(([key, value]) => `
               <div>
                 ${esc(fmtName(String(key || 'modifier')))}:
-                +${fmt(Number(value?.add_pct || 0) * 100)}% pct ┬À
-                +${fmt(Number(value?.add_flat || 0))} flat ┬À
+                +${fmt(Number(value?.add_pct || 0) * 100)}% pct |
+                +${fmt(Number(value?.add_flat || 0))} flat |
                 x${fmt(Number(value?.mult || 1))}
               </div>`).join('')}
           </div>`;
@@ -10539,12 +11382,12 @@
         <div style="display:grid; gap:0.8rem; color:#dfe7f5;">
           <div>
             <div style="font-weight:700; font-size:1.05rem;">Battle Report #${fmt(battle.id || 0)}</div>
-            <div class="small text-muted">${esc(String(battle.created_at || ''))} ┬À Role: ${esc(String(battle.role || '?'))}</div>
+            <div class="small text-muted">${esc(String(battle.created_at || ''))} | Role: ${esc(String(battle.role || '?'))}</div>
           </div>
           <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
             <div><strong>Combat Meta</strong></div>
             <div class="small" style="margin-top:0.35rem;">Seed: ${esc(String(meta.battle_seed || report.seed || 'n/a'))}</div>
-            <div class="small">Version: ${fmt(meta.report_version || report.version || 0)} ┬À Dice Var: ${fmt(meta.dice_variance_index || report.dice_variance_index || 0)}</div>
+            <div class="small">Version: ${fmt(meta.report_version || report.version || 0)} | Dice Var: ${fmt(meta.dice_variance_index || report.dice_variance_index || 0)}</div>
             <div class="small">Power A/D: ${fmt(meta.attacker_power_rating || report.power_rating?.attacker || 0)} / ${fmt(meta.defender_power_rating || report.power_rating?.defender || 0)}</div>
           </div>
           <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
@@ -10562,7 +11405,7 @@
             const defCh = dc?.defender || {};
             return `
               <div style="padding:0.65rem; border:1px solid #2a4563; border-radius:10px; background:#0d1824;">
-                <div><strong>ÔÜí Energy Economy</strong></div>
+                <div><strong>Energy Economy</strong></div>
                 <div style="margin-top:0.45rem; display:grid; grid-template-columns:1fr 1fr; gap:0.55rem;">
                   <div class="small">
                     <div style="font-weight:700; color:#7ec8e3; margin-bottom:0.2rem;">Attacker</div>
@@ -10574,9 +11417,9 @@
                     ${atkBudget.shield_efficiency != null ? `<div>Shld Eff: ${fmt(atkBudget.shield_efficiency)}</div>` : ''}
                     ${(atkCh.energy != null || atkCh.kinetic != null) ? `
                       <div style="margin-top:0.2rem; border-top:1px solid #2a4060; padding-top:0.2rem;">
-                        <span style="color:#f09c30;">ÔÜí Energy: ${fmt(atkCh.energy || 0)}</span>
-                        &nbsp;┬À&nbsp;
-                        <span style="color:#c0c8d8;">­ƒÆÑ Kinetic: ${fmt(atkCh.kinetic || 0)}</span>
+                        <span style="color:#f09c30;">Energy: ${fmt(atkCh.energy || 0)}</span>
+                        &nbsp;|&nbsp;
+                        <span style="color:#c0c8d8;">Kinetic: ${fmt(atkCh.kinetic || 0)}</span>
                       </div>` : ''}
                   </div>
                   <div class="small">
@@ -10589,9 +11432,9 @@
                     ${defBudget.shield_efficiency != null ? `<div>Shld Eff: ${fmt(defBudget.shield_efficiency)}</div>` : ''}
                     ${(defCh.energy != null || defCh.kinetic != null) ? `
                       <div style="margin-top:0.2rem; border-top:1px solid #2a4060; padding-top:0.2rem;">
-                        <span style="color:#f09c30;">ÔÜí Energy: ${fmt(defCh.energy || 0)}</span>
-                        &nbsp;┬À&nbsp;
-                        <span style="color:#c0c8d8;">­ƒÆÑ Kinetic: ${fmt(defCh.kinetic || 0)}</span>
+                        <span style="color:#f09c30;">Energy: ${fmt(defCh.energy || 0)}</span>
+                        &nbsp;|&nbsp;
+                        <span style="color:#c0c8d8;">Kinetic: ${fmt(defCh.kinetic || 0)}</span>
                       </div>` : ''}
                   </div>
                 </div>
@@ -10599,12 +11442,12 @@
           })()}
           <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
             <div><strong>Losses</strong></div>
-            <div class="small" style="margin-top:0.35rem;">Attacker: ${Object.keys(attackerLost).length ? Object.entries(attackerLost).map(([k, v]) => `${esc(fmtName(k))} ${fmt(v)}`).join(' ┬À ') : 'none'}</div>
-            <div class="small">Defender: ${Object.keys(defenderLost).length ? Object.entries(defenderLost).map(([k, v]) => `${esc(fmtName(k))} ${fmt(v)}`).join(' ┬À ') : 'none'}</div>
+            <div class="small" style="margin-top:0.35rem;">Attacker: ${Object.keys(attackerLost).length ? Object.entries(attackerLost).map(([k, v]) => `${esc(fmtName(k))} ${fmt(v)}`).join(' | ') : 'none'}</div>
+            <div class="small">Defender: ${Object.keys(defenderLost).length ? Object.entries(defenderLost).map(([k, v]) => `${esc(fmtName(k))} ${fmt(v)}`).join(' | ') : 'none'}</div>
           </div>
           <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
             <div><strong>Loot</strong></div>
-            <div class="small" style="margin-top:0.35rem;">Ô¼í ${fmt(loot.metal || 0)} ┬À ­ƒÆÄ ${fmt(loot.crystal || 0)} ┬À ­ƒöÁ ${fmt(loot.deuterium || 0)} ┬À ­ƒîƒ ${fmt(loot.rare_earth || 0)}</div>
+            <div class="small" style="margin-top:0.35rem;">Metal ${fmt(loot.metal || 0)} | Crystal ${fmt(loot.crystal || 0)} | Deuterium ${fmt(loot.deuterium || 0)} | Rare Earth ${fmt(loot.rare_earth || 0)}</div>
           </div>
           <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
             <div><strong>Modifier Breakdown</strong></div>
@@ -10619,10 +11462,10 @@
               <div class="small" style="margin-top:0.35rem; display:grid; gap:0.35rem;">
                 ${rounds.map((round) => `
                   <div style="padding:0.45rem 0.55rem; border:1px solid #314154; border-radius:8px; background:#0d1420;">
-                    <div style="font-weight:700; color:#eef4ff;">Round ${fmt(round.round || 0)}${round.decisive ? ' ┬À Decisive' : ''}</div>
+                    <div style="font-weight:700; color:#eef4ff;">Round ${fmt(round.round || 0)}${round.decisive ? ' | Decisive' : ''}</div>
                     <div>Pressure A/D: ${fmt(round.attacker_pressure || 0)} / ${fmt(round.defender_pressure || 0)}</div>
                     <div>Integrity A/D: ${fmt(round.attacker_integrity_remaining || 0)} / ${fmt(round.defender_integrity_remaining || 0)}</div>
-                    <div>Swing: ${esc(fmtName(String(round.swing || 'neutral')))}${round.outcome ? ' ┬À Outcome: ' + esc(fmtName(String(round.outcome))) : ''}</div>
+                    <div>Swing: ${esc(fmtName(String(round.swing || 'neutral')))}${round.outcome ? ' | Outcome: ' + esc(fmtName(String(round.outcome))) : ''}</div>
                   </div>`).join('')}
               </div>
             </div>
@@ -10694,22 +11537,22 @@
 
     renderMatchupScanPanel(fleets = []) {
       const options = fleets.length
-        ? fleets.map((fleet) => `<option value="${Number(fleet.id || 0)}">Fleet #${Number(fleet.id || 0)} ┬À ${esc(String(fleet.mission || 'unknown'))}</option>`).join('')
+        ? fleets.map((fleet) => `<option value="${Number(fleet.id || 0)}">Fleet #${Number(fleet.id || 0)} | ${esc(String(fleet.mission || 'unknown'))}</option>`).join('')
         : '<option value="">No fleets available</option>';
       const last = this.lastMatchupScan;
       let resultHtml = '<div class="text-muted small">Run a scan to estimate winrate and loss expectations against one or more target colonies.</div>';
       if (last && Array.isArray(last.ranking)) {
         resultHtml = `
           <div class="system-row small" style="margin-top:0.45rem; color:#b8c7d9;">
-            Seed: ${esc(String(last.seed || '').slice(0, 12))} ┬À Targets: ${fmt(last.targets_scanned || 0)} ┬À Iterations: ${fmt(last.iterations || 0)}
+            Seed: ${esc(String(last.seed || '').slice(0, 12))} | Targets: ${fmt(last.targets_scanned || 0)} | Iterations: ${fmt(last.iterations || 0)}
           </div>
           <div style="margin-top:0.55rem; display:grid; gap:0.45rem;">
             ${last.ranking.map((row) => `
               <div style="padding:0.45rem 0.55rem; border:1px solid #45556d; border-radius:8px; background:#111927;">
                 <div style="font-weight:700;">Target Colony #${fmt(row.target_colony_id || 0)}</div>
                 <div class="small" style="color:#d7dfef; margin-top:0.2rem;">
-                  Winrate: ${fmt((Number(row.attacker_winrate_estimate || 0) * 100).toFixed(2))}% ┬À
-                  Dice Var: ${fmt(row.dice_variance_avg || 0)} ┬À
+                  Winrate: ${fmt((Number(row.attacker_winrate_estimate || 0) * 100).toFixed(2))}% |
+                  Dice Var: ${fmt(row.dice_variance_avg || 0)} |
                   Loss A/D: ${fmt((Number(row.expected_loss_fraction_avg?.attacker || 0) * 100).toFixed(2))}% / ${fmt((Number(row.expected_loss_fraction_avg?.defender || 0) * 100).toFixed(2))}%
                 </div>
               </div>
@@ -10832,11 +11675,11 @@
         let html = '<div>';
         html += this.renderMatchupScanPanel(fleets);
         const sharedBadge = spyResponse.alliance_shared ? ' <span class="lb-alliance-tag">Alliance shared</span>' : '';
-        html += `<div class="system-card" style="margin-bottom:1rem"><div class="system-row"><strong>­ƒöì Spy Reports (${spyReports.length})</strong>${sharedBadge}</div></div>`;
+        html += `<div class="system-card" style="margin-bottom:1rem"><div class="system-row"><strong>Spy Reports (${spyReports.length})</strong>${sharedBadge}</div></div>`;
         for (const report of spyReports) {
           html += this.renderSpyReportCard(report);
         }
-        html += `<div class="system-card" style="margin:1rem 0"><div class="system-row"><strong>ÔÜö Battle Reports (${battleReports.length})</strong></div></div>`;
+        html += `<div class="system-card" style="margin:1rem 0"><div class="system-row"><strong>Battle Reports (${battleReports.length})</strong></div></div>`;
         for (const report of battleReports) {
           html += this.renderBattleReportCard(report);
         }
@@ -10891,7 +11734,7 @@
       }
 
       html += '<div style="margin-top: 12px; padding: 8px; border-top: 1px solid #555;">';
-      html += '<button id="btn-create-route" class="btn" style="width: 100%;">Ô×ò New Trade Route</button>';
+      html += '<button id="btn-create-route" class="btn" style="width: 100%;">New Trade Route</button>';
       html += '</div>';
       html += '</div>';
 
@@ -10904,7 +11747,7 @@
       const html = `
         <div class="route-card" style="padding: 8px; border: 1px solid #777; border-radius: 4px; background: #1a1a1a;">
           <div style="font-weight: bold; margin-bottom: 4px;">
-            ${esc(route.origin_name)} ÔåÆ ${esc(route.target_name)}
+            ${esc(route.origin_name)} -> ${esc(route.target_name)}
           </div>
           <div style="font-size: 0.85em; color: #ccc; margin-bottom: 4px;">
             <span style="color: #ffa500;">${(route.cargo.metal || 0).toLocaleString()}</span> M
@@ -10918,9 +11761,9 @@
           </div>
           <div style="display: flex; gap: 4px;">
             <button data-toggle-route="${routeId}" class="btn" style="flex: 1; padding: 4px;">
-              ${route.is_active ? 'ÔÅ©' : 'ÔûÂ'}
+              ${route.is_active ? 'Pause' : 'Resume'}
             </button>
-            <button data-delete-route="${routeId}" class="btn" style="flex: 1; padding: 4px; color: #f55;">­ƒùæ</button>
+            <button data-delete-route="${routeId}" class="btn" style="flex: 1; padding: 4px; color: #f55;">Delete</button>
           </div>
         </div>
       `;
@@ -11003,20 +11846,18 @@
         if (this.userAlliance) {
           // Show user's alliance details
           html += `<div style="margin-bottom: 12px; padding: 8px; background: #1a3a2a; border: 1px solid #4a8;border-radius:4px;">
-            <button class="btn" onclick="GQAlliancesController.showAllianceDetails(${this.userAlliance})" style="width:100%;text-align:left;">
-              ­ƒæÑ View My Alliance
-            </button>
+            <button class="btn" onclick="GQAlliancesController.showAllianceDetails(${this.userAlliance})" style="width:100%;text-align:left;">View My Alliance</button>
             <button class="btn btn-sm" style="margin-top:4px;width:100%;background:#8b4444;" onclick="GQAlliancesController.showLeaveDialog();">Leave Alliance</button>
           </div>`;
         } else {
           // Show create alliance button
           html += `<div style="margin-bottom: 12px;">
-            <button class="btn" onclick="GQAlliancesController.showCreateDialog()" style="width:100%;">Ô×ò Create Alliance</button>
+            <button class="btn" onclick="GQAlliancesController.showCreateDialog()" style="width:100%;">Create Alliance</button>
           </div>`;
         }
 
         // List all alliances
-        html += '<div style="margin-top: 12px; border-top: 1px solid #555; padding-top: 8px;"><strong>­ƒîì All Alliances</strong></div>';
+        html += '<div style="margin-top: 12px; border-top: 1px solid #555; padding-top: 8px;"><strong>All Alliances</strong></div>';
         if (this.alliances.length === 0) {
           html += uiKitEmptyStateHTML('No alliances found', 'Start a new alliance and invite trusted commanders.');
         } else {
@@ -11039,7 +11880,7 @@
       return `
         <div style="padding:8px;border:1px solid #666;border-radius:4px;background:#0a0a0a;">
           <div style="font-weight:bold;">[${esc(alliance.tag)}] ${esc(alliance.name)}</div>
-          <div style="font-size:0.85em;color:#bbb;margin:4px 0;">­ƒæñ ${esc(alliance.leader_name)} ┬À ­ƒæÑ ${alliance.member_count} members</div>
+          <div style="font-size:0.85em;color:#bbb;margin:4px 0;">Leader ${esc(alliance.leader_name)} | ${alliance.member_count} members</div>
           ${alliance.description ? `<div style="font-size:0.8em;color:#aaa;margin:4px 0;max-height:2.5em;overflow:hidden;">${esc(alliance.description)}</div>` : ''}
           <div style="display:flex;gap:4px;margin-top:6px;">
             <button class="btn btn-sm" onclick="GQAlliancesController.showAllianceDetails(${alliance.id})" style="flex:1;">View</button>
@@ -11075,24 +11916,24 @@
             </div>
             ${alliance.description ? `<div style="color:#bbb;margin-bottom:8px;">${esc(alliance.description)}</div>` : ''}
             <div style="border-bottom:1px solid #555;padding-bottom:8px;margin-bottom:8px;font-size:0.85em;color:#aaa;">
-              ­ƒæñ Leader: ID ${alliance.leader_id} ┬À Founded: ${new Date(alliance.created_at).toLocaleDateString()}
+              Leader: ID ${alliance.leader_id} | Founded: ${new Date(alliance.created_at).toLocaleDateString()}
             </div>
             
             ${isMember ? `
               <div style="background:#1a3a2a;padding:6px;border-radius:4px;margin-bottom:8px;font-size:0.85em;">
-                <div style="font-weight:bold;color:#4f8;">Ô£ô Member (${esc(data.user_role)})</div>
+                <div style="font-weight:bold;color:#4f8;">Member (${esc(data.user_role)})</div>
               </div>
             ` : ''}
 
             <div style="margin-bottom:8px;">
-              <strong>­ƒÆ╝ Treasury</strong>
+              <strong>Treasury</strong>
               <div style="font-size:0.8em;color:#bbb;margin-top:4px;">
-                Ô¼í ${fmt(alliance.treasury.metal)} ┬À ­ƒÆÄ ${fmt(alliance.treasury.crystal)} ┬À ­ƒöÁ ${fmt(alliance.treasury.deuterium)} ┬À Ô¡É ${fmt(alliance.treasury.dark_matter)}
+                Metal ${fmt(alliance.treasury.metal)} | Crystal ${fmt(alliance.treasury.crystal)} | Deuterium ${fmt(alliance.treasury.deuterium)} | Dark Matter ${fmt(alliance.treasury.dark_matter)}
               </div>
             </div>
 
             <div style="margin-bottom:8px;">
-              <strong>­ƒæÑ Members (${members.length})</strong>
+              <strong>Members (${members.length})</strong>
               <div style="background:#0a0a0a;border:1px solid #555;border-radius:4px;max-height:120px;overflow-y:auto;margin-top:4px;font-size:0.8em;">
                 ${members.map(m => `
                   <div style="padding:3px 6px;border-bottom:1px solid #333;">
@@ -11105,15 +11946,15 @@
 
             ${relations.length > 0 ? `
               <div style="margin-bottom:8px;">
-                <strong>­ƒñØ Diplomacy Relations</strong>
+                <strong>Diplomacy Relations</strong>
                 <div style="background:#0a0a0a;border:1px solid #555;border-radius:4px;max-height:120px;overflow-y:auto;margin-top:4px;font-size:0.8em;">
                   ${relations.map(r => {
                     const icon = {
-                      'war': 'ÔÜö',
-                      'enemy': '­ƒÆÇ',
-                      'alliance': 'Ô£ª',
-                      'nap': 'Ô£ï',
-                      'neutral': 'ÔÇô'
+                      'war': 'WAR',
+                      'enemy': 'ENEMY',
+                      'alliance': 'ALLY',
+                      'nap': 'NAP',
+                      'neutral': 'NEUTRAL'
                     }[r.relation_type] || '?';
                     const color = {
                       'war': '#f44',
@@ -11131,19 +11972,19 @@
 
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:12px;font-size:0.85em;">
               ${isMember ? `
-                <button class="btn btn-sm" onclick="GQAlliancesController.showChatDialog(${allianceId})" style="background:#448;">­ƒÆ¼</button>
-                <button class="btn btn-sm" onclick="GQAlliancesController.showContributeDialog(${allianceId})" style="background:#484;">­ƒÆ░</button>
+                <button class="btn btn-sm" onclick="GQAlliancesController.showChatDialog(${allianceId})" style="background:#448;">Chat</button>
+                <button class="btn btn-sm" onclick="GQAlliancesController.showContributeDialog(${allianceId})" style="background:#484;">Contribute</button>
               ` : ''}
               ${isLeader ? `
-                <button class="btn btn-sm" onclick="GQAlliancesController.showDiplomacyDialog(${allianceId})" style="background:#844;">ÔÜö</button>
-                <button class="btn btn-sm" onclick="GQAlliancesController.showManageMembersDialog(${allianceId})" style="background:#448;">­ƒæÑ</button>
+                <button class="btn btn-sm" onclick="GQAlliancesController.showDiplomacyDialog(${allianceId})" style="background:#844;">Diplomacy</button>
+                <button class="btn btn-sm" onclick="GQAlliancesController.showManageMembersDialog(${allianceId})" style="background:#448;">Members</button>
               ` : ''}
               ${isMember ? `
-                <button class="btn btn-sm" onclick="GQAlliancesController.showLeaveDialog()" style="background:#844;">Ô£ò Leave</button>
+                <button class="btn btn-sm" onclick="GQAlliancesController.showLeaveDialog()" style="background:#844;">Leave</button>
               ` : `
                 <button class="btn btn-sm" onclick="GQAlliancesController.joinAlliance(${allianceId})" style="background:#3a4;">Join</button>
               `}
-              <button class="btn btn-sm" onclick="GQAlliancesController.render()" style="background:#555;">ÔåÉ Back</button>
+              <button class="btn btn-sm" onclick="GQAlliancesController.render()" style="background:#555;">Back</button>
             </div>
           </div>
         `;
@@ -11173,8 +12014,8 @@
           <textarea id="alliance-desc-input" placeholder="Optional..." style="width:100%;margin-top:4px;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;height:80px;resize:none;" maxlength="500"></textarea>
         </label>
         <div style="display:flex;gap:8px;">
-          <button class="btn" onclick="GQAlliancesController.doCreateAlliance()" style="flex:1;">Ô£ô Create</button>
-          <button class="btn btn-sm" onclick="this.closest('div').remove();" style="flex:1;">Ô£ò Cancel</button>
+          <button class="btn" onclick="GQAlliancesController.doCreateAlliance()" style="flex:1;">Create</button>
+          <button class="btn btn-sm" onclick="this.closest('div').remove();" style="flex:1;">Cancel</button>
         </div>
       `;
       document.body.appendChild(dialog);
@@ -14161,6 +15002,76 @@
     else WM.open('minimap');
     document.getElementById('footer-minimap-btn')?.classList.toggle('active', WM.isOpen('minimap'));
   });
+
+  const UI_KIT_PANEL_MODE_KEY = 'gq.uiKitPreview.mode';
+  const uiKitPanel = document.getElementById('ui-kit-preview-panel');
+  const uiKitToggleBtn = document.getElementById('ui-kit-preview-expand-btn');
+  const uiKitFooterBtn = document.getElementById('footer-uikit-btn');
+  const setUiKitPanelVisible = (visible) => {
+    if (!uiKitPanel) return;
+    uiKitPanel.hidden = !visible;
+    uiKitFooterBtn?.classList.toggle('active', !!visible);
+    uiKitFooterBtn?.setAttribute('aria-expanded', String(!!visible));
+  };
+  const readUiKitPanelCompactMode = () => {
+    try {
+      return localStorage.getItem(UI_KIT_PANEL_MODE_KEY) !== 'expanded';
+    } catch (_) {
+      return true;
+    }
+  };
+  const writeUiKitPanelCompactMode = (isCompact) => {
+    try {
+      localStorage.setItem(UI_KIT_PANEL_MODE_KEY, isCompact ? 'compact' : 'expanded');
+    } catch (_) {
+      // Non-blocking: localStorage might be unavailable.
+    }
+  };
+  const applyUiKitPanelCompactMode = (isCompact) => {
+    if (!uiKitPanel || !uiKitToggleBtn) return;
+    uiKitPanel.classList.toggle('is-compact', !!isCompact);
+    uiKitToggleBtn.setAttribute('aria-expanded', String(!isCompact));
+    uiKitToggleBtn.textContent = isCompact ? 'Mehr' : 'Weniger';
+    uiKitToggleBtn.title = isCompact ? 'Panel erweitern' : 'Panel reduzieren';
+  };
+
+  applyUiKitPanelCompactMode(readUiKitPanelCompactMode());
+  uiKitToggleBtn?.addEventListener('click', () => {
+    const isCompact = !(uiKitPanel && uiKitPanel.classList.contains('is-compact'));
+    applyUiKitPanelCompactMode(isCompact);
+    writeUiKitPanelCompactMode(isCompact);
+  });
+
+  uiKitFooterBtn?.addEventListener('click', () => {
+    const isNowVisible = !!(uiKitPanel && !uiKitPanel.hidden);
+    const nextVisible = !isNowVisible;
+    setUiKitPanelVisible(nextVisible);
+    if (nextVisible) {
+      const previewBody = document.getElementById('ui-kit-preview-body');
+      const isEmpty = !previewBody || previewBody.childElementCount === 0;
+      if (isEmpty && window.GQUIKit && typeof window.GQUIKit.renderDemo === 'function') {
+        window.GQUIKit.renderDemo('buttons');
+      }
+    }
+  });
+
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    if (uiKitPanel && !uiKitPanel.hidden) {
+      setUiKitPanelVisible(false);
+    }
+  });
+
+  document.addEventListener('click', (ev) => {
+    if (!uiKitPanel || uiKitPanel.hidden) return;
+    const target = ev.target;
+    if (!(target instanceof Element)) return;
+    if (uiKitPanel.contains(target)) return;
+    if (uiKitFooterBtn && uiKitFooterBtn.contains(target)) return;
+    setUiKitPanelVisible(false);
+  });
+
+  setUiKitPanelVisible(false);
 
   refreshAudioUi();
   loadAudioTrackCatalog().catch((err) => {

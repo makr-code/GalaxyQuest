@@ -203,18 +203,17 @@ function handle_create(PDO $db): void
     }
 
     $hash = password_hash($effectivePassword, PASSWORD_BCRYPT);
-    $isNpc = $controlType === 'npc_engine' ? 1 : 0;
 
     $db->prepare(
-        'INSERT INTO users (username, email, password_hash, is_admin, protection_until, is_npc, control_type, auth_enabled)
-         VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), ?, ?, ?)'
-    )->execute([$username, $email, $hash, $isAdmin, $isNpc, $controlType, $authEnabled]);
+        'INSERT INTO users (username, email, password_hash, is_admin, protection_until, control_type, auth_enabled)
+         VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), ?, ?)'
+    )->execute([$username, $email, $hash, $isAdmin, $controlType, $authEnabled]);
 
     $userId = (int)$db->lastInsertId();
     $planet = create_homeworld($userId);
 
     try {
-        ensure_user_character_profile($db, $userId, $isNpc === 1, $username);
+        ensure_user_character_profile($db, $userId, $controlType === 'npc_engine', $username);
     } catch (Throwable $e) {
         error_log('character profile generation failed for admin-created user ' . $userId . ': ' . $e->getMessage());
     }
@@ -314,8 +313,6 @@ function handle_update(PDO $db, int $adminUid): void
         }
         $setClauses[] = 'control_type = ?';
         $bindings[]   = $controlType;
-        $setClauses[] = 'is_npc = ?';
-        $bindings[]   = $controlType === 'npc_engine' ? 1 : 0;
 
         if ($controlType !== 'human') {
             $setClauses[] = 'auth_enabled = 0';
@@ -451,7 +448,6 @@ function handle_delete(PDO $db, int $adminUid): void
             username            = ?,
             email               = ?,
             password_hash       = '',
-            is_npc              = 1,
             control_type        = 'npc_engine',
             auth_enabled        = 0,
             is_admin            = 0,

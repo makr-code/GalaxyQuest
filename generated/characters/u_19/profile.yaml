@@ -1,8 +1,8 @@
-username: "profile_user_1774791463"
-is_npc: false
-race: "Cephalid Synapsekin"
+username: "dev_npc_trader_08"
+is_npc: true
+race: "Crystalline Asterite"
 profession: "Xeno-Archaeologist"
-stance: "Diplomatic"
-vita: "profile_user_1774791463 emerged from a newly commissioned colony command and built a reputation as a xeno-archaeologist. Their diplomatic outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources."
-portrait_prompt: "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Cephalid Synapsekin, role: Xeno-Archaeologist, attitude: Diplomatic, player commander, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism"
-generated_at: "2026-03-29T13:38:35+00:00"
+stance: "Skeptical"
+vita: "dev_npc_trader_08 emerged from an autonomous sector protocol and built a reputation as a xeno-archaeologist. Their skeptical outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources."
+portrait_prompt: "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Crystalline Asterite, role: Xeno-Archaeologist, attitude: Skeptical, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism"
+generated_at: "2026-03-31T13:06:43+00:00"

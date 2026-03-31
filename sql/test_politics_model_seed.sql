@@ -8,13 +8,14 @@ SET @gq_test_user_id := (
 );
 
 -- Fallback user creation when gameplay-model seed has not been run yet.
-INSERT INTO users (username, email, password_hash, is_admin, is_npc)
+INSERT INTO users (username, email, password_hash, is_admin, control_type, auth_enabled)
 SELECT
     'gq_model_test_user',
     'gq_model_test_user@example.local',
     '$2y$10$7Q9QBtX4a7rQ6epLqGh2NO9okmD1mJkQG1tQfFQbAkM6M8Xk6r9b2',
     0,
-    0
+    'human',
+    1
 FROM DUAL
 WHERE @gq_test_user_id IS NULL;
 

@@ -21,14 +21,22 @@ if ($opts['help']) {
 $db = get_db();
 
 $defaultMigrations = [
-    __DIR__ . '/sql/schema.sql',
     __DIR__ . '/sql/migrate_gameplay_model_v1.sql',
     __DIR__ . '/sql/migrate_politics_model_v1.sql',
     __DIR__ . '/sql/migrate_llm_soc_v1.sql',
+    __DIR__ . '/sql/migrate_security_v1.sql',
+    __DIR__ . '/sql/migrate_security_v2_totp.sql',
+    __DIR__ . '/sql/migrate_admin_user_crud_v1.sql',
+    __DIR__ . '/sql/migrate_rbac_v1.sql',
     __DIR__ . '/sql/migrate_npc_pve_controller_v1.sql',
     __DIR__ . '/sql/migrate_npc_pve_controller_v2.sql',
     __DIR__ . '/sql/migrate_fog_of_war.sql',
+    __DIR__ . '/sql/migrate_galaxies_metadata.sql',
 ];
+
+if (!is_existing_runtime_schema($db)) {
+    array_unshift($defaultMigrations, __DIR__ . '/sql/schema.sql');
+}
 
 // Legacy upgrade path: migrate_v2 contains MySQL-version-sensitive ALTER syntax
 // and should only run when v2 markers are actually missing.
@@ -42,6 +50,7 @@ if ($opts['regenGalaxy']) {
 
 $totalStatements = 0;
 $migrationsRun = [];
+$defaultIdentityResult = null;
 $bootstrapResult = null;
 $npcSeedResult = null;
 
@@ -55,6 +64,8 @@ try {
                 'statements' => $count,
             ];
         }
+
+        $defaultIdentityResult = ensure_default_identities_after_rbac($db, $opts['dryRun']);
     }
 
     if (!$opts['skipBootstrap']) {
@@ -86,7 +97,7 @@ try {
     exit(1);
 }
 
-print_summary($migrationsRun, $totalStatements, $bootstrapResult, $npcSeedResult, $opts);
+print_summary($migrationsRun, $totalStatements, $defaultIdentityResult, $bootstrapResult, $npcSeedResult, $opts);
 exit(0);
 
 function parse_setup_options(array $argv): array
@@ -284,7 +295,7 @@ function split_sql_statements(string $sql): array
     return $parts;
 }
 
-function print_summary(array $migrationsRun, int $totalStatements, ?array $bootstrapResult, ?array $npcSeedResult, array $opts): void
+function print_summary(array $migrationsRun, int $totalStatements, ?array $defaultIdentityResult, ?array $bootstrapResult, ?array $npcSeedResult, array $opts): void
 {
     echo "\n[setup] Summary\n";
 
@@ -295,6 +306,19 @@ function print_summary(array $migrationsRun, int $totalStatements, ?array $boots
         foreach ($migrationsRun as $entry) {
             echo '  - ' . $entry['file'] . ': ' . $entry['statements'] . "\n";
         }
+    }
+
+    if ($defaultIdentityResult === null) {
+        echo "- RBAC default identities: skipped\n";
+    } elseif (($defaultIdentityResult['dry_run'] ?? false) === true) {
+        echo "- RBAC default identities: dry-run\n";
+    } else {
+        echo "- RBAC default identities: created=" . (int)($defaultIdentityResult['created'] ?? 0)
+            . ", updated=" . (int)($defaultIdentityResult['updated'] ?? 0)
+            . ", group_links=" . (int)($defaultIdentityResult['group_links'] ?? 0)
+            . ", homeworlds_created=" . (int)($defaultIdentityResult['homeworlds_created'] ?? 0)
+            . ", auto_assigned_existing=" . (int)($defaultIdentityResult['auto_assigned_existing'] ?? 0)
+            . "\n";
     }
 
     if ($bootstrapResult === null) {
@@ -330,12 +354,165 @@ function print_summary(array $migrationsRun, int $totalStatements, ?array $boots
     }
 }
 
+function ensure_default_identities_after_rbac(PDO $db, bool $dryRun): array
+{
+    if ($dryRun) {
+        return [
+            'dry_run' => true,
+            'defaults' => ['administrator', 'default_user'],
+        ];
+    }
+
+    $requiredTables = ['rbac_groups', 'rbac_profiles', 'rbac_group_profiles', 'rbac_user_groups'];
+    foreach ($requiredTables as $table) {
+        if (!table_exists($db, $table)) {
+            throw new RuntimeException('RBAC setup incomplete: missing table ' . $table);
+        }
+    }
+
+    $groupIdByKey = [];
+    $groupStmt = $db->query('SELECT id, group_key FROM rbac_groups');
+    foreach ($groupStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $groupIdByKey[(string)$row['group_key']] = (int)$row['id'];
+    }
+
+    $mustGroups = ['root', 'users', 'service'];
+    foreach ($mustGroups as $groupKey) {
+        if (!isset($groupIdByKey[$groupKey])) {
+            throw new RuntimeException('RBAC setup incomplete: missing standard group ' . $groupKey);
+        }
+    }
+
+    $created = 0;
+    $updated = 0;
+    $groupLinks = 0;
+    $homeworldsCreated = 0;
+    $autoAssignedExisting = 0;
+
+    $defaults = [
+        [
+            'username' => 'administrator',
+            'email' => 'administrator@local.dev',
+            'password' => 'Admin!23456',
+            'is_admin' => 1,
+            'control_type' => 'human',
+            'auth_enabled' => 1,
+            'groups' => ['root', 'users'],
+        ],
+        [
+            'username' => 'default_user',
+            'email' => 'default_user@local.dev',
+            'password' => 'User!23456',
+            'is_admin' => 0,
+            'control_type' => 'human',
+            'auth_enabled' => 1,
+            'groups' => ['users'],
+        ],
+    ];
+
+    $selectUser = $db->prepare('SELECT id FROM users WHERE username = ? LIMIT 1');
+    $insertUser = $db->prepare(
+        'INSERT INTO users (username, email, password_hash, is_admin, control_type, auth_enabled, protection_until, deleted_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), NULL, NOW())'
+    );
+    $updateUser = $db->prepare(
+        'UPDATE users
+            SET email = ?,
+                password_hash = ?,
+                is_admin = ?,
+                control_type = ?,
+                auth_enabled = ?,
+                deleted_at = NULL,
+                deleted_by = NULL,
+                protection_until = COALESCE(protection_until, DATE_ADD(NOW(), INTERVAL 7 DAY))
+          WHERE id = ?'
+    );
+    $insertUserGroup = $db->prepare(
+        'INSERT IGNORE INTO rbac_user_groups (user_id, group_id, assigned_by, assigned_reason)
+         VALUES (?, ?, NULL, ?)'
+    );
+    $homeworldCheck = $db->prepare('SELECT id FROM colonies WHERE user_id = ? AND is_homeworld = 1 LIMIT 1');
+
+    foreach ($defaults as $spec) {
+        $selectUser->execute([$spec['username']]);
+        $row = $selectUser->fetch(PDO::FETCH_ASSOC);
+        $hash = password_hash((string)$spec['password'], PASSWORD_BCRYPT);
+
+        if (!$row) {
+            $insertUser->execute([
+                $spec['username'],
+                $spec['email'],
+                $hash,
+                (int)$spec['is_admin'],
+                $spec['control_type'],
+                (int)$spec['auth_enabled'],
+            ]);
+            $userId = (int)$db->lastInsertId();
+            $created++;
+        } else {
+            $userId = (int)$row['id'];
+            $updateUser->execute([
+                $spec['email'],
+                $hash,
+                (int)$spec['is_admin'],
+                $spec['control_type'],
+                (int)$spec['auth_enabled'],
+                $userId,
+            ]);
+            $updated++;
+        }
+
+        foreach ($spec['groups'] as $groupKey) {
+            $insertUserGroup->execute([$userId, (int)$groupIdByKey[$groupKey], 'setup-default']);
+            $groupLinks += $insertUserGroup->rowCount();
+        }
+
+        $homeworldCheck->execute([$userId]);
+        if (!$homeworldCheck->fetch(PDO::FETCH_ASSOC)) {
+            create_seed_npc_homeworld($db, $userId, $spec['username'] . ' Home');
+            $homeworldsCreated++;
+        }
+    }
+
+    $missingMembershipStmt = $db->query(
+        'SELECT u.id, u.control_type
+           FROM users u
+      LEFT JOIN rbac_user_groups ug ON ug.user_id = u.id
+          WHERE u.deleted_at IS NULL
+            AND ug.user_id IS NULL'
+    );
+    foreach ($missingMembershipStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $uid = (int)$row['id'];
+        $isHuman = ((string)($row['control_type'] ?? 'human') === 'human');
+        $groupKey = $isHuman ? 'users' : 'service';
+        $insertUserGroup->execute([$uid, (int)$groupIdByKey[$groupKey], 'setup-auto-assign']);
+        $delta = $insertUserGroup->rowCount();
+        $groupLinks += $delta;
+        $autoAssignedExisting += $delta;
+    }
+
+    return [
+        'created' => $created,
+        'updated' => $updated,
+        'group_links' => $groupLinks,
+        'homeworlds_created' => $homeworldsCreated,
+        'auto_assigned_existing' => $autoAssignedExisting,
+    ];
+}
+
 function has_v2_schema_markers(PDO $db): bool
 {
     return table_exists($db, 'remember_tokens')
         && table_exists($db, 'star_systems')
         && column_exists($db, 'users', 'dark_matter')
         && column_exists($db, 'users', 'rank_points');
+}
+
+function is_existing_runtime_schema(PDO $db): bool
+{
+    return table_exists($db, 'users')
+        && table_exists($db, 'colonies')
+        && table_exists($db, 'celestial_bodies');
 }
 
 function table_exists(PDO $db, string $table): bool

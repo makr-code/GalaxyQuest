@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="icon-copy" viewBox="0 0 24 24">
+<rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="#9fd0ff" stroke-width="1.7"/>
+    <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" fill="none" stroke="#9fd0ff" stroke-width="1.7" stroke-linecap="round"/>
+  </symbol>
+</svg>

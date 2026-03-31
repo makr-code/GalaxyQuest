@@ -1,0 +1,8 @@
+username: "dev_npc_trader_02"
+is_npc: true
+race: "Zhareen"
+profession: "Trader"
+stance: "Neutral Diplomat"
+vita: "Born in the bustling spaceport city of Zentor on Zhareen homeworld, I learned to navigate diverse cultures and negotiate deals from a young age. With an innate talent for languages inherited through generations, my skill set revolves around trade diplomacy between interstellar factions."
+portrait_prompt: "Zhareen Trader with holographic Zhareen-style markings on iridescent skin and a translucent cloak reflecting the colors of multiple galaxies. The backdrop is an expansive view of distant nebulae as I stand in my office, surrounded by star maps and communication devices."
+generated_at: "2026-03-31T13:03:48+00:00"

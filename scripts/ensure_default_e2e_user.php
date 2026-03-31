@@ -213,12 +213,12 @@ try {
     $userCreated = false;
     if ($row) {
         $userId = (int)$row['id'];
-        $db->prepare('UPDATE users SET is_npc = 0, control_type = ?, auth_enabled = 1, deleted_at = NULL, password_hash = ? WHERE id = ?')
+        $db->prepare('UPDATE users SET control_type = ?, auth_enabled = 1, deleted_at = NULL, password_hash = ? WHERE id = ?')
            ->execute(['human', password_hash($password, PASSWORD_BCRYPT), $userId]);
     } else {
         $db->prepare(
-            'INSERT INTO users (username, email, password_hash, is_npc, control_type, auth_enabled, protection_until, created_at)
-             VALUES (?, ?, ?, 0, ?, 1, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())'
+            'INSERT INTO users (username, email, password_hash, control_type, auth_enabled, protection_until, created_at)
+             VALUES (?, ?, ?, ?, 1, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())'
         )->execute([$username, $email, password_hash($password, PASSWORD_BCRYPT), 'human']);
         $userId = (int)$db->lastInsertId();
         $userCreated = true;

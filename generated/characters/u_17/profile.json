@@ -1,0 +1,10 @@
+{
+    "username": "dev_npc_trader_06",
+    "is_npc": true,
+    "race": "Synthetic Helion",
+    "profession": "Recon Analyst",
+    "stance": "Pragmatic",
+    "vita": "dev_npc_trader_06 emerged from an autonomous sector protocol and built a reputation as a recon analyst. Their pragmatic outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
+    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Synthetic Helion, role: Recon Analyst, attitude: Pragmatic, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
+    "generated_at": "2026-03-31T13:05:42+00:00"
+}

@@ -1,0 +1,8 @@
+username: "dev_npc_pirate_05"
+is_npc: true
+race: "Synthetic Helion"
+profession: "Fleet Logistician"
+stance: "Diplomatic"
+vita: "dev_npc_pirate_05 emerged from an autonomous sector protocol and built a reputation as a fleet logistician. Their diplomatic outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources."
+portrait_prompt: "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Synthetic Helion, role: Fleet Logistician, attitude: Diplomatic, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism"
+generated_at: "2026-03-31T13:09:48+00:00"

@@ -30,9 +30,9 @@ function ensure_user(PDO $db, string $username, bool $isNpc): int {
     $email = $username . '@fixture.local';
     $password = password_hash(bin2hex(random_bytes(10)), PASSWORD_BCRYPT);
     $db->prepare(
-           'INSERT INTO users (username, email, password_hash, is_npc, control_type, auth_enabled, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, NOW())'
-        )->execute([$username, $email, $password, $isNpc ? 1 : 0, $isNpc ? 'npc_engine' : 'human', $isNpc ? 0 : 1]);
+           'INSERT INTO users (username, email, password_hash, control_type, auth_enabled, created_at)
+            VALUES (?, ?, ?, ?, ?, NOW())'
+        )->execute([$username, $email, $password, $isNpc ? 'npc_engine' : 'human', $isNpc ? 0 : 1]);
 
     return (int)$db->lastInsertId();
 }

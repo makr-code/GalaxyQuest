@@ -1,0 +1,10 @@
+{
+    "username": "dev_npc_colonist_10",
+    "is_npc": true,
+    "race": "Insectoid Varkh",
+    "profession": "Trade Envoy",
+    "stance": "Pragmatic",
+    "vita": "dev_npc_colonist_10 emerged from an autonomous sector protocol and built a reputation as a trade envoy. Their pragmatic outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
+    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Insectoid Varkh, role: Trade Envoy, attitude: Pragmatic, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
+    "generated_at": "2026-03-31T13:16:35+00:00"
+}

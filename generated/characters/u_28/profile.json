@@ -1,10 +1,10 @@
 {
-    "username": "gq_seed_npc_0001",
+    "username": "dev_npc_pirate_07",
     "is_npc": true,
-    "race": "Etherians",
-    "profession": "Emissary of Peace and Diplomacy",
-    "stance": "Neutral Ambassador",
-    "vita": "An Etherian born in the neutral space between two warring factions, I strive to broker peace through dialogue. My life's work is dedicated to fostering understanding among conflicting parties and promoting trade alliances for mutual prosperity.",
-    "portrait_prompt": "A dignified Etherian Ambassador with flowing silver hair, reflective eyes of wisdom that hint at a deep knowledge in diplomacy. Standing tall amidst the backdrop of war-torn planets and neutral zones, I am an embodiment of hope for peaceful resolutions.",
-    "generated_at": "2026-03-29T15:16:58+00:00"
+    "race": "Zhareen",
+    "profession": "Pirate Captain",
+    "stance": "Independent Trader",
+    "vita": "A Zhareen pirate captain who has roamed the star systems, negotiating trade deals and navigating alliances between warring factions. Known for their cunning diplomacy and fearless leadership on high seas.",
+    "portrait_prompt": "Photorealistic portrait of a Zhareen pirate captain with an imposing figure standing at the helm, gaze fixed forward amidst stormy skies reflected in eyes that show wisdom beyond their years. The backdrop is transparent space-time fabric showing glimpses of distant nebulae and swirling galaxies.",
+    "generated_at": "2026-03-31T13:10:40+00:00"
 }

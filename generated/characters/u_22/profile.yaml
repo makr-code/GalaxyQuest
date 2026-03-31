@@ -1,0 +1,8 @@
+username: "dev_npc_pirate_01"
+is_npc: true
+race: "Twi'lek"
+profession: "Pirate Captain"
+stance: "Trader and Diplomat"
+vita: "Dev_npc_pirate_01 hails from the bustling spaceport city of Vel'Ar, once a hub for interstellar commerce but now known more for its piracy rings. As captain of one such ring, Dev has made fortunes trading in stolen tech and rare cosmic artifacts across various factions while playing both sides to maintain neutrality."
+portrait_prompt: "A Twi'lek pirate captain with a weathered face showing years at sea. His eyes are sharp as the stars, reflective of his cunning mindset honed by countless negotiations and battles alike."
+generated_at: "2026-03-31T13:07:59+00:00"

@@ -1,10 +1,10 @@
 {
-    "username": "gqnpc_pveevi_004_veindred",
+    "username": "gq_seed_npc_0015",
     "is_npc": true,
     "race": "Syl'nar",
-    "profession": "Emissary of Peace among the Stars",
-    "stance": "Diplomat and Trader",
-    "vita": "Born on distant planet Syl'Nar, I was raised to understand different cultures. My people value harmony above all else.",
-    "portrait_prompt": "A dignified Syl'nar diplomat with a serene expression stands in the center of an interstellar trading station, surrounded by diverse alien species from across galaxies, each representing various factions and interests.",
-    "generated_at": "2026-03-29T16:07:14+00:00"
+    "profession": "Emissary of Peace and Trade",
+    "stance": "Diplomat at heart but a skilled negotiator in times of war.",
+    "vita": "As an Emissary, I represent the Syl'Nar race across galaxies. Born into diplomacy, my role is to maintain peaceful relations among diverse species and ensure prosperous trade agreements for our people.",
+    "portrait_prompt": "A striking figure with luminescent azure skin reflecting calm wisdom under a translucent holographic banner emblazoned with the Syl'Nar emblem, standing in front of an interstellar council chamber. My eyes are intelligently gazing forward as I hold up my hands to signify peace and trade.",
+    "generated_at": "2026-03-31T13:51:39+00:00"
 }

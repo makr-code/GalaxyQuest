@@ -342,7 +342,7 @@ function seed_npc_cohort(PDO $db, bool $verbose): array {
 
             if ($existing) {
                 // Tags in payload für spätere Identifikation
-                     $db->prepare("UPDATE users SET is_npc=1, control_type='npc_engine', auth_enabled=0, last_npc_tick=NULL WHERE id=?")
+                                         $db->prepare("UPDATE users SET control_type='npc_engine', auth_enabled=0, last_npc_tick=NULL WHERE id=?")
                    ->execute([(int)$existing['id']]);
                 $stats['reused']++;
                 continue;
@@ -350,8 +350,8 @@ function seed_npc_cohort(PDO $db, bool $verbose): array {
 
             $hash = password_hash('NpcPass!' . $i, PASSWORD_BCRYPT);
             $db->prepare(
-                "INSERT INTO users (username, email, password_hash, is_npc, control_type, auth_enabled, protection_until, created_at)
-                 VALUES (?, ?, ?, 1, 'npc_engine', 0, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())"
+                 "INSERT INTO users (username, email, password_hash, control_type, auth_enabled, protection_until, created_at)
+                  VALUES (?, ?, ?, 'npc_engine', 0, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())"
             )->execute([$username, $email, $hash]);
             $userId = (int)$db->lastInsertId();
 

@@ -34,6 +34,7 @@ describe('EventSystem', () => {
   let evtSys;
   beforeEach(() => {
     evtSys = new EventSystem();
+    evtSys.randomEventChance = 0;
     evtSys.define({
       id:      'test.basic',
       type:    EventType.RANDOM,

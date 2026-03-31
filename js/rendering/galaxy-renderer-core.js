@@ -337,14 +337,24 @@
       this.heartbeatPhase = 0;
       this.systemHoverEntry = null;
       this.systemSelectedEntry = null;
+      this.systemHoverObject = null;
+      this.systemSelectedObject = null;
+      this.galaxyHoverObject = null;
+      this.galaxySelectedObject = null;
+      this.galaxyFtlEntries = [];
       this.systemRefinementQueue = [];
       this.systemRefinementInProgress = false;
       this.systemRefinementTimeoutId = null;
+      this.systemOrbitSimulationBuffer = null;
+      this.systemOrbitSimulationStride = 5;
+      this._orbitScratchLocal = new THREE.Vector3();
+      this._orbitScratchWorld = new THREE.Vector3();
       this.galaxyFleetVectorsVisible = true;
       this.autoTransitionCooldownUntil = 0;
       this.transitionsEnabled = true;
       this.orbitSimulationMode = 'auto';
       this.activeOrbitSimulationMode = 'complex';
+      this.activeGpuOrbitVisuals = false;
       this.persistentHoverDistance = 220;
       this._persistentHoverCacheUntil = 0;
       this._persistentHoverIndex = -1;
@@ -565,6 +575,9 @@
 
       this.systemOrbitGroup = new THREE.Group();
       this.systemOrbitGroup.visible = false;
+      this.systemOrbitPathsVisible = true;
+      this.systemOrbitMarkersVisible = true;
+      this.systemOrbitFocusOnly = false;
       this.renderFrames.system.add(this.systemOrbitGroup);
 
       this.systemBodyGroup = new THREE.Group();
@@ -2155,7 +2168,10 @@
         group.add(module);
       });
 
-      entry.mesh.add(group);
+      const hostMesh = entry.renderMesh || entry.mesh;
+      hostMesh.add(group);
+      this._prepareGpuOrbitMaterials(group);
+      this._setEntryGpuOrbitVisualState(entry, this.activeGpuOrbitVisuals === true);
       return {
         group,
         ring,
@@ -2173,6 +2189,7 @@
      */
     _buildPlanetFactionAura(entry, colorHex) {
       if (!entry?.mesh || !colorHex) return;
+      const hostMesh = entry.renderMesh || entry.mesh;
       const planetRadius = entry.mesh.geometry?.parameters?.radius ?? 4;
       const ringRadius = planetRadius * 1.55;
       const tubeRadius = Math.max(0.16, planetRadius * 0.085);
@@ -2191,7 +2208,9 @@
       auraMesh.rotation.x = Math.PI / 2;
       auraMesh.rotation.z = Math.PI * 0.14;
       auraMesh.userData = { kind: 'faction-aura-ring', color };
-      entry.mesh.add(auraMesh);
+      hostMesh.add(auraMesh);
+      this._prepareGpuOrbitMaterials(auraMesh);
+      this._setEntryGpuOrbitVisualState(entry, this.activeGpuOrbitVisuals === true);
 
       this.systemAtmosphereEntries.push({
         mesh: auraMesh,
@@ -2759,6 +2778,7 @@
     setFtlInfrastructure(gates = [], nodes = []) {
       if (!this.galaxyFtlGroup) return;
       this._clearGroup(this.galaxyFtlGroup);
+      this.galaxyFtlEntries = [];
 
       // ── Gate lines ─────────────────────────────────────────────────────────
       // Shared geometry/material for gate endpoint markers (no clone duplication)
@@ -2777,13 +2797,29 @@
         const line = new THREE.Line(geo, gateMat);
         line.userData = { ftlType: 'gate', id: gate.id };
         this.galaxyFtlGroup.add(line);
+        this.galaxyFtlEntries.push({
+          kind: 'ftl-gate',
+          object: line,
+          gate,
+          center: new THREE.Vector3(
+            ((Number(a.x) || 0) + (Number(b.x) || 0)) * 0.5,
+            ((Number(a.y) || 0) + (Number(b.y) || 0)) * 0.5,
+            ((Number(a.z) || 0) + (Number(b.z) || 0)) * 0.5
+          ),
+        });
 
         // Small endpoint markers (shared geometry + material, individual positions)
         const mA = new THREE.Mesh(gateMarkerGeo, gateMarkerMat);
         mA.position.set(Number(a.x) || 0, Number(a.y) || 0, Number(a.z) || 0);
+        mA.userData = Object.assign({}, mA.userData, { ftlType: 'gate-endpoint', id: gate.id, endpoint: 'a' });
         const mB = new THREE.Mesh(gateMarkerGeo, gateMarkerMat);
         mB.position.set(Number(b.x) || 0, Number(b.y) || 0, Number(b.z) || 0);
+        mB.userData = Object.assign({}, mB.userData, { ftlType: 'gate-endpoint', id: gate.id, endpoint: 'b' });
         this.galaxyFtlGroup.add(mA, mB);
+        this.galaxyFtlEntries.push(
+          { kind: 'ftl-gate-endpoint', object: mA, gate, endpoint: 'a' },
+          { kind: 'ftl-gate-endpoint', object: mB, gate, endpoint: 'b' }
+        );
       }
 
       // ── Resonance nodes ───────────────────────────────────────────────────
@@ -2796,6 +2832,7 @@
         mesh.position.set(Number(p.x) || 0, Number(p.y) || 0, Number(p.z) || 0);
         mesh.userData = { ftlType: 'node', id: node.id, cooldown: node.cooldown_remaining_s || 0 };
         this.galaxyFtlGroup.add(mesh);
+        this.galaxyFtlEntries.push({ kind: 'ftl-node', object: mesh, node });
       }
     }
 
@@ -2815,6 +2852,27 @@
         });
       }
       return this.galaxyFleetVectorsVisible;
+    }
+
+    setSystemOrbitPathsVisible(enabled) {
+      this.systemOrbitPathsVisible = enabled !== false;
+      if (this.systemOrbitGroup && this.systemMode) {
+        this.systemOrbitGroup.visible = this.systemOrbitPathsVisible;
+      }
+      this._updateSystemOrbitLineStates();
+      return this.systemOrbitPathsVisible;
+    }
+
+    setSystemOrbitMarkersVisible(enabled) {
+      this.systemOrbitMarkersVisible = enabled !== false;
+      this._updateSystemOrbitLineStates();
+      return this.systemOrbitMarkersVisible;
+    }
+
+    setSystemOrbitFocusOnly(enabled) {
+      this.systemOrbitFocusOnly = enabled === true;
+      this._updateSystemOrbitLineStates();
+      return this.systemOrbitFocusOnly;
     }
 
     _vesselSeed(fleet, vesselType, fleetIndex, cursor, sampleIndex) {
@@ -3158,6 +3216,10 @@
       this.systemCloudEntries = [];
       this.systemHoverEntry = null;
       this.systemSelectedEntry = null;
+      this.systemHoverObject = null;
+      this.systemSelectedObject = null;
+      this.systemOrbitSimulationBuffer = null;
+      this.activeGpuOrbitVisuals = false;
       if (this.renderFrames?.galaxy) this.renderFrames.galaxy.visible = true;
       if (this.renderFrames?.system) {
         this.renderFrames.system.visible = false;
@@ -3210,7 +3272,7 @@
       if (this.systemGroup) this.systemGroup.visible = true;
       if (this.systemSkyGroup) this.systemSkyGroup.visible = true;
       if (this.systemBackdrop) this.systemBackdrop.visible = true;
-      if (this.systemOrbitGroup) this.systemOrbitGroup.visible = true;
+      if (this.systemOrbitGroup) this.systemOrbitGroup.visible = this.systemOrbitPathsVisible !== false;
       if (this.systemBodyGroup) this.systemBodyGroup.visible = true;
       if (this.systemFacilityGroup) this.systemFacilityGroup.visible = true;
       if (this.systemFleetGroup) this.systemFleetGroup.visible = true;
@@ -3323,25 +3385,40 @@
           new THREE.BufferGeometry().setFromPoints(orbitPoints),
           new THREE.LineBasicMaterial({ color: 0x31567c, transparent: true, opacity: 0.5 })
         );
+        const orbitLeadMarker = new THREE.Mesh(
+          new THREE.SphereGeometry(Math.max(0.9, 1.2 + index * 0.04), 10, 10),
+          new THREE.MeshBasicMaterial({ color: 0x7ab8ee, transparent: true, opacity: 0.7 })
+        );
         const orbitPivot = new THREE.Group();
         orbitPivot.rotation.x = Math.PI / 2 + ((index % 2 === 0 ? 1 : -1) * (0.05 + index * 0.012));
         orbitPivot.rotation.z = (index % 3 - 1) * (0.08 + index * 0.01);
         orbitPivot.rotation.y = index * 0.34;
         orbitPivot.add(orbitLine);
+        orbitPivot.add(orbitLeadMarker);
         this.systemOrbitGroup.add(orbitPivot);
 
         const planetSize = this._planetSize(body, index);
+        const planetGeometry = new THREE.SphereGeometry(planetSize, 18, 18);
+        const proxyMaterial = new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        });
+        proxyMaterial.colorWrite = false;
+        const mesh = new THREE.Mesh(planetGeometry, proxyMaterial);
+        this.systemBodyGroup.add(mesh);
+
+        const renderRoot = new THREE.Group();
+        orbitPivot.add(renderRoot);
+
         // Phase 0: Use flat-color base material (no texture yet)
         const baseMaterial = new THREE.MeshStandardMaterial({
           color: this._planetColor(body?.planet_class),
           roughness: 0.82,
           metalness: 0.04,
         });
-        const mesh = new THREE.Mesh(
-          new THREE.SphereGeometry(planetSize, 18, 18),
-          baseMaterial
-        );
-        this.systemBodyGroup.add(mesh);
+        const renderMesh = new THREE.Mesh(planetGeometry, baseMaterial);
+        renderRoot.add(renderMesh);
         mesh.userData = {
           kind: 'planet',
           sourceStar: star,
@@ -3356,17 +3433,26 @@
 
         const ringMesh = this._planetRingMesh(body, planetSize, index);
         if (ringMesh) {
-          mesh.add(ringMesh);
+          renderMesh.add(ringMesh);
         }
+
+        this._prepareGpuOrbitMaterials(renderMesh);
 
         return {
           mesh,
+          renderMesh,
+          renderRoot,
           slot,
           body,
+          orbitIndex: index,
           orbitRadius,
           orbitMinor,
           orbitPivot,
+          orbitLine,
+          orbitLeadMarker,
           eccentricity,
+          currentLocalPosition: new THREE.Vector3(),
+          currentWorldPosition: new THREE.Vector3(),
           angle: Number.isFinite(phase) ? phase : (index / Math.max(1, orbitBodies.length)) * Math.PI * 2,
           speed: angularVelocity > 0
             ? angularVelocity * 18
@@ -3374,6 +3460,8 @@
         };
       });
 
+      this._rebuildOrbitSimulationBuffer();
+      this._updateSystemOrbitTransforms(0);
       this.activeOrbitSimulationMode = this._resolveOrbitSimulationMode();
 
       // Phase 0: Add fleets now (not deferred)
@@ -3389,6 +3477,9 @@
         const ownerColor = entry.body?.owner_color ?? entry.slot?.player_planet?.owner_color ?? null;
         if (ownerColor) this._buildPlanetFactionAura(entry, ownerColor);
       });
+
+      // Initial orbit-line tinting (faction colour applied where available)
+      this._updateSystemOrbitLineStates();
 
       // Star-orbit installations (stargates, relay stations, etc.)
       this._buildStarInstallations(star, payload);
@@ -3412,7 +3503,7 @@
         payload,
         slot: entry.slot,
         body: entry.body,
-        mesh: entry.mesh,
+        mesh: entry.renderMesh || entry.mesh,
         delayMs: index * 50, // Stagger: planet 0 @ 0ms, planet 1 @ 50ms, etc.
       }));
 
@@ -3437,6 +3528,7 @@
             const material = this.textureManager.getPlanetMaterial(task.body, descriptor, fallbackColor);
             if (task.mesh && material) {
               task.mesh.material = material;
+              this._prepareGpuOrbitMaterials(task.mesh);
               task.mesh.userData.refinementPhase = 1;
             }
           }
@@ -3446,6 +3538,7 @@
           const atmosphereShell = this._planetAtmosphereShell(task.payload, task.slot, task.body, task.entryIndex, planetSize);
           if (atmosphereShell && task.mesh) {
             task.mesh.add(atmosphereShell);
+            this._prepareGpuOrbitMaterials(atmosphereShell);
             this._registerAnimatedAtmosphere(atmosphereShell, {
               baseOpacity: atmosphereShell.material?.opacity ?? 0.12,
               pulseAmplitude: 0.02,
@@ -3460,6 +3553,7 @@
           const cloudShell = this._planetCloudShell(task.payload, task.slot, task.body, task.entryIndex, planetSize);
           if (cloudShell && task.mesh) {
             task.mesh.add(cloudShell);
+            this._prepareGpuOrbitMaterials(cloudShell);
             this._registerAnimatedCloud(cloudShell, {
               baseOpacity: cloudShell.userData?.baseOpacity ?? cloudShell.material?.opacity ?? 0.18,
               rotationSpeed: cloudShell.userData?.rotationSpeed ?? (0.03 + task.entryIndex * 0.01),
@@ -3467,6 +3561,8 @@
             });
             task.mesh.userData.refinementPhase = 3;
           }
+
+          this._setEntryGpuOrbitVisualState(task.entry, this.activeGpuOrbitVisuals === true);
 
           this.systemRefinementInProgress = false;
 
@@ -3499,7 +3595,7 @@
       this._touchSelection('focus-system-planet');
       this._updateHoverMarker();
 
-      const worldPos = entry.mesh.getWorldPosition(new THREE.Vector3());
+      const worldPos = this._getSystemPlanetWorldPosition(entry, new THREE.Vector3());
       const radius = Math.max(4, entry.mesh.geometry?.parameters?.radius || 4);
       const offset = new THREE.Vector3(radius * 3.2, radius * 1.6, radius * 4.6);
 
@@ -3847,14 +3943,14 @@
       if (!this.hoverMagnetEnabled || !this.systemMode) return currentEntry;
       if (!this.systemSelectedEntry || !this._pointerIsSlow()) return currentEntry;
 
-      const selectedWorld = this.systemSelectedEntry.mesh?.getWorldPosition(new THREE.Vector3());
+      const selectedWorld = this._getSystemPlanetWorldPosition(this.systemSelectedEntry, new THREE.Vector3());
       const selectedScreen = selectedWorld ? this.getWorldScreenPosition(selectedWorld) : null;
       if (!selectedScreen) return currentEntry;
       const selectedRadius = this._planetPickRadiusPx(this.systemSelectedEntry) + this.hoverMagnetPlanetPx;
       if (!this._isWithinPickRadius(selectedScreen, selectedRadius)) return currentEntry;
       if (!currentEntry || currentEntry === this.systemSelectedEntry) return this.systemSelectedEntry;
 
-      const currentWorld = currentEntry.mesh?.getWorldPosition(new THREE.Vector3());
+      const currentWorld = this._getSystemPlanetWorldPosition(currentEntry, new THREE.Vector3());
       const currentScreen = currentWorld ? this.getWorldScreenPosition(currentWorld) : null;
       if (!currentScreen) return this.systemSelectedEntry;
 
@@ -3881,6 +3977,210 @@
       const dSel2 = this._pixelDistanceSq(selectedScreen, this.pointerPx);
       const dCur2 = this._pixelDistanceSq(currentScreen, this.pointerPx);
       return dSel2 <= (dCur2 * 1.16) ? this.selectedClusterIndex : currentIdx;
+    }
+
+    _resolveEntryByAnchor(entries, anchor, key = 'group') {
+      if (!Array.isArray(entries) || !anchor) return null;
+      let current = anchor;
+      while (current) {
+        const found = entries.find((entry) => entry && entry[key] === current);
+        if (found) return found;
+        current = current.parent || null;
+      }
+      return null;
+    }
+
+    _getSelectionWorldPosition(selection, out = new THREE.Vector3()) {
+      if (!selection?.kind) return null;
+      if (selection.kind === 'system-fleet') return selection.entry?.group?.getWorldPosition?.(out) || null;
+      if (selection.kind === 'orbital-facility') return selection.entry?.group?.getWorldPosition?.(out) || null;
+      if (selection.kind === 'star-installation') return selection.entry?.mesh?.getWorldPosition?.(out) || null;
+      if (selection.kind === 'system-traffic') return selection.entry?.mesh?.getWorldPosition?.(out) || null;
+      if (selection.kind === 'galaxy-fleet') return selection.entry?.group?.getWorldPosition?.(out) || null;
+      if (selection.kind === 'ftl-node' || selection.kind === 'ftl-gate-endpoint') {
+        return selection.entry?.object?.getWorldPosition?.(out) || null;
+      }
+      if (selection.kind === 'ftl-gate') {
+        if (selection.entry?.center && this.galaxyFtlGroup?.localToWorld) {
+          return this.galaxyFtlGroup.localToWorld(out.copy(selection.entry.center));
+        }
+      }
+      return null;
+    }
+
+    _selectionPayload(selection) {
+      if (!selection?.kind) return null;
+      if (selection.kind === 'system-fleet') {
+        return Object.assign({ __kind: 'system_fleet' }, selection.entry?.fleet || {});
+      }
+      if (selection.kind === 'orbital-facility') {
+        const slot = selection.entry?.entry?.slot || null;
+        return {
+          __kind: 'orbital_facility',
+          __slot: slot,
+          __sourceStar: this.systemSourceStar,
+          count: Number(selection.entry?.entry?.slot?.player_planet?.orbital_facilities?.length || 0),
+        };
+      }
+      if (selection.kind === 'star-installation') {
+        const install = selection.entry?.install || {};
+        return Object.assign({ __kind: 'star_installation' }, install);
+      }
+      if (selection.kind === 'system-traffic') {
+        return {
+          __kind: 'system_traffic',
+          orbitRadius: Number(selection.entry?.orbitRadius || 0),
+          orbitSpeed: Number(selection.entry?.orbitSpeed || 0),
+        };
+      }
+      if (selection.kind === 'galaxy-fleet') {
+        return Object.assign({ __kind: 'galaxy_fleet' }, selection.entry?.fleet || {});
+      }
+      if (selection.kind === 'ftl-node') {
+        return Object.assign({ __kind: 'ftl_node' }, selection.entry?.node || {});
+      }
+      if (selection.kind === 'ftl-gate' || selection.kind === 'ftl-gate-endpoint') {
+        return Object.assign({ __kind: 'ftl_gate', __endpoint: selection.entry?.endpoint || '' }, selection.entry?.gate || {});
+      }
+      return null;
+    }
+
+    _selectionPickRadiusPx(selection) {
+      if (!selection?.kind) return 16;
+      if (selection.kind === 'system-fleet' || selection.kind === 'galaxy-fleet') return 24;
+      if (selection.kind === 'orbital-facility' || selection.kind === 'star-installation') return 22;
+      if (selection.kind === 'system-traffic') return 18;
+      if (selection.kind === 'ftl-node' || selection.kind === 'ftl-gate-endpoint') return 20;
+      if (selection.kind === 'ftl-gate') return 16;
+      return 16;
+    }
+
+    _selectionScreenPosition(selection) {
+      const worldPos = this._getSelectionWorldPosition(selection, new THREE.Vector3());
+      if (!worldPos) return null;
+      return this.getWorldScreenPosition(worldPos);
+    }
+
+    _pickSystemDynamicObject() {
+      if (!this.systemMode) return null;
+      const targets = [];
+      (this.systemFleetEntries || []).forEach((entry) => {
+        if (entry?.group) targets.push(entry.group);
+      });
+      (this.systemFacilityEntries || []).forEach((entry) => {
+        if (entry?.group) targets.push(entry.group);
+      });
+      (this.systemStarInstallationEntries || []).forEach((entry) => {
+        if (entry?.mesh) targets.push(entry.mesh);
+      });
+      (this.systemTrafficEntries || []).forEach((entry) => {
+        if (entry?.mesh) targets.push(entry.mesh);
+      });
+      if (!targets.length) return null;
+
+      this.raycaster.setFromCamera(this.pointer, this.camera);
+      const hits = this.raycaster.intersectObjects(targets, true);
+      let best = null;
+      let bestD2 = Number.POSITIVE_INFINITY;
+      for (const hit of hits.slice(0, 32)) {
+        const obj = hit?.object;
+        if (!obj) continue;
+        const fleetEntry = this._resolveEntryByAnchor(this.systemFleetEntries, obj, 'group');
+        const facilityEntry = fleetEntry ? null : this._resolveEntryByAnchor(this.systemFacilityEntries, obj, 'group');
+        const installEntry = (fleetEntry || facilityEntry) ? null : this._resolveEntryByAnchor(this.systemStarInstallationEntries, obj, 'mesh');
+        const trafficEntry = (fleetEntry || facilityEntry || installEntry) ? null : this._resolveEntryByAnchor(this.systemTrafficEntries, obj, 'mesh');
+        const selection = fleetEntry
+          ? { kind: 'system-fleet', scope: 'system', entry: fleetEntry }
+          : facilityEntry
+            ? { kind: 'orbital-facility', scope: 'system', entry: facilityEntry }
+            : installEntry
+              ? { kind: 'star-installation', scope: 'system', entry: installEntry }
+              : trafficEntry
+                ? { kind: 'system-traffic', scope: 'system', entry: trafficEntry }
+              : null;
+        if (!selection) continue;
+        const screenPos = this._selectionScreenPosition(selection);
+        const radiusPx = this._selectionPickRadiusPx(selection);
+        if (!screenPos || !this._isWithinPickRadius(screenPos, radiusPx)) continue;
+        const d2 = this._pixelDistanceSq(screenPos, this.pointerPx);
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          best = selection;
+        }
+      }
+      return best;
+    }
+
+    _pickGalaxyDynamicObject() {
+      if (this.systemMode) return null;
+      const targets = [];
+      (this.galaxyFleetEntries || []).forEach((entry) => {
+        if (entry?.group) targets.push(entry.group);
+      });
+      (this.galaxyFtlEntries || []).forEach((entry) => {
+        if (entry?.object) targets.push(entry.object);
+      });
+      if (!targets.length) return null;
+
+      this.raycaster.setFromCamera(this.pointer, this.camera);
+      const prevLineThreshold = this.raycaster.params.Line?.threshold ?? 1;
+      if (this.raycaster.params.Line) this.raycaster.params.Line.threshold = 2.4;
+      const hits = this.raycaster.intersectObjects(targets, true);
+      if (this.raycaster.params.Line) this.raycaster.params.Line.threshold = prevLineThreshold;
+
+      let best = null;
+      let bestD2 = Number.POSITIVE_INFINITY;
+      for (const hit of hits.slice(0, 32)) {
+        const obj = hit?.object;
+        if (!obj) continue;
+        const fleetEntry = this._resolveEntryByAnchor(this.galaxyFleetEntries, obj, 'group');
+        const ftlEntry = fleetEntry ? null : this._resolveEntryByAnchor(this.galaxyFtlEntries, obj, 'object');
+        const selection = fleetEntry
+          ? { kind: 'galaxy-fleet', scope: 'galaxy', entry: fleetEntry }
+          : ftlEntry
+            ? { kind: String(ftlEntry.kind || 'ftl-node'), scope: 'galaxy', entry: ftlEntry }
+            : null;
+        if (!selection) continue;
+        const screenPos = this._selectionScreenPosition(selection);
+        const radiusPx = this._selectionPickRadiusPx(selection);
+        if (!screenPos || !this._isWithinPickRadius(screenPos, radiusPx)) continue;
+        const d2 = this._pixelDistanceSq(screenPos, this.pointerPx);
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          best = selection;
+        }
+      }
+      return best;
+    }
+
+    _applyMagneticSystemObjectHover(currentSelection) {
+      if (!this.hoverMagnetEnabled || !this.systemMode) return currentSelection;
+      if (!this.systemSelectedObject || !this._pointerIsSlow()) return currentSelection;
+      const selected = this.systemSelectedObject;
+      const selectedScreen = this._selectionScreenPosition(selected);
+      const selectedRadius = this._selectionPickRadiusPx(selected) + this.hoverMagnetPlanetPx;
+      if (!selectedScreen || !this._isWithinPickRadius(selectedScreen, selectedRadius)) return currentSelection;
+      if (!currentSelection) return selected;
+      const currentScreen = this._selectionScreenPosition(currentSelection);
+      if (!currentScreen) return selected;
+      const dSel2 = this._pixelDistanceSq(selectedScreen, this.pointerPx);
+      const dCur2 = this._pixelDistanceSq(currentScreen, this.pointerPx);
+      return dSel2 <= (dCur2 * 1.16) ? selected : currentSelection;
+    }
+
+    _applyMagneticGalaxyObjectHover(currentSelection) {
+      if (!this.hoverMagnetEnabled || this.systemMode) return currentSelection;
+      if (!this.galaxySelectedObject || !this._pointerIsSlow()) return currentSelection;
+      const selected = this.galaxySelectedObject;
+      const selectedScreen = this._selectionScreenPosition(selected);
+      const selectedRadius = this._selectionPickRadiusPx(selected) + this.hoverMagnetStarPx;
+      if (!selectedScreen || !this._isWithinPickRadius(selectedScreen, selectedRadius)) return currentSelection;
+      if (!currentSelection) return selected;
+      const currentScreen = this._selectionScreenPosition(currentSelection);
+      if (!currentScreen) return selected;
+      const dSel2 = this._pixelDistanceSq(selectedScreen, this.pointerPx);
+      const dCur2 = this._pixelDistanceSq(currentScreen, this.pointerPx);
+      return dSel2 <= (dCur2 * 1.15) ? selected : currentSelection;
     }
 
     _pixelDistanceSq(a, b) {
@@ -3910,10 +4210,15 @@
     _planetPickRadiusPx(entry) {
       if (!entry?.mesh) return 12;
       const radius = Math.max(3, Number(entry.mesh.geometry?.parameters?.radius || 4));
-      const world = entry.mesh.getWorldPosition(new THREE.Vector3());
+      const world = this._getSystemPlanetWorldPosition(entry, new THREE.Vector3());
       const dist = Math.max(1, this.camera.position.distanceTo(world));
       const px = (radius * (this.renderer?.getPixelRatio?.() || 1) * 170) / dist;
       return THREE.MathUtils.clamp(px + 10, 10, 34);
+    }
+
+    _getSystemPlanetScreenPosition(entry) {
+      if (!entry) return null;
+      return this.getWorldScreenPosition(this._getSystemPlanetWorldPosition(entry, new THREE.Vector3()));
     }
 
     _clusterPickRadiusPx(entry) {
@@ -3968,7 +4273,7 @@
         for (const hit of hits.slice(0, 24)) {
           const entry = this._resolveSystemPlanetEntryFromObject(hit.object);
           if (!entry) continue;
-          const screenPos = this.getWorldScreenPosition(entry.mesh.getWorldPosition(new THREE.Vector3()));
+          const screenPos = this._getSystemPlanetScreenPosition(entry);
           if (!screenPos) continue;
           const d2 = this._pixelDistanceSq(screenPos, this.pointerPx);
           if (d2 < bestD2) {
@@ -3977,7 +4282,7 @@
           }
         }
         if (bestEntry) {
-          const screenPos = this.getWorldScreenPosition(bestEntry.mesh.getWorldPosition(new THREE.Vector3()));
+          const screenPos = this._getSystemPlanetScreenPosition(bestEntry);
           const radiusPx = this._planetPickRadiusPx(bestEntry);
           if (this._isWithinPickRadius(screenPos, radiusPx)) return bestEntry;
         }
@@ -3987,7 +4292,7 @@
       let bestEntry = null;
       let bestD2 = Number.POSITIVE_INFINITY;
       for (const entry of this.systemPlanetEntries) {
-        const screenPos = this.getWorldScreenPosition(entry.mesh.getWorldPosition(new THREE.Vector3()));
+        const screenPos = this._getSystemPlanetScreenPosition(entry);
         if (!screenPos) continue;
         const d2 = this._pixelDistanceSq(screenPos, this.pointerPx);
         if (d2 < bestD2) {
@@ -3996,7 +4301,7 @@
         }
       }
       if (!bestEntry) return null;
-      const bestScreen = this.getWorldScreenPosition(bestEntry.mesh.getWorldPosition(new THREE.Vector3()));
+      const bestScreen = this._getSystemPlanetScreenPosition(bestEntry);
       const bestRadius = this._planetPickRadiusPx(bestEntry);
       return this._isWithinPickRadius(bestScreen, bestRadius) ? bestEntry : null;
     }
@@ -4012,20 +4317,66 @@
       return null;
     }
 
+    _focusOnSelection(selection, smooth = true) {
+      const worldPos = this._getSelectionWorldPosition(selection, new THREE.Vector3());
+      if (!worldPos) return;
+      const baseDist = this.systemMode ? 34 : 78;
+      const dirRaw = this.camera.position.clone().sub(this.controls.target);
+      const dir = dirRaw.lengthSq() > 1e-6 ? dirRaw.normalize() : new THREE.Vector3(0.7, 0.45, 1).normalize();
+      const targetPos = worldPos.clone().add(dir.multiplyScalar(baseDist));
+
+      if (!smooth) {
+        this.controls.target.copy(worldPos);
+        this.camera.position.copy(targetPos);
+        this.controls.update();
+        return;
+      }
+
+      this.focusTarget = {
+        fromTarget: this.controls.target.clone(),
+        toTarget: worldPos.clone(),
+        fromPos: this.camera.position.clone(),
+        toPos: targetPos,
+        t: 0,
+      };
+    }
+
     _handlePointerMove(e) {
       this._eventToNdc(e);
       if (this.systemMode) {
         const entry = this._applyMagneticSystemHover(this._pickSystemPlanet());
-        if (entry === this.systemHoverEntry) return;
-        this.systemHoverEntry = entry;
+        if (entry) {
+          this.systemHoverObject = null;
+          if (entry === this.systemHoverEntry) return;
+          this.systemHoverEntry = entry;
+          this._updateHoverMarker();
+          if (typeof this.opts.onHover === 'function') {
+            this.opts.onHover(entry ? Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }) : null, entry ? this._getSystemPlanetScreenPosition(entry) : null);
+          }
+          return;
+        }
+        const dyn = this._applyMagneticSystemObjectHover(this._pickSystemDynamicObject());
+        if (dyn?.entry || this.systemHoverObject) {
+          this.systemHoverEntry = null;
+          this.systemHoverObject = dyn || null;
+          this._updateHoverMarker();
+          if (typeof this.opts.onHover === 'function') {
+            this.opts.onHover(dyn ? this._selectionPayload(dyn) : null, dyn ? this._selectionScreenPosition(dyn) : null);
+          }
+          return;
+        }
+        if (!this.systemHoverEntry && !this.systemHoverObject) return;
+        this.systemHoverEntry = null;
+        this.systemHoverObject = null;
         this._updateHoverMarker();
         if (typeof this.opts.onHover === 'function') {
-          this.opts.onHover(entry ? Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }) : null, entry ? this.getWorldScreenPosition(entry.mesh.getWorldPosition(new THREE.Vector3())) : null);
+          this.opts.onHover(null, null);
         }
         return;
       }
       const idx = this._applyMagneticStarHover(this._pickStar());
       if (idx >= 0) {
+        this.galaxyHoverObject = null;
         this.hoverClusterIndex = -1;
         if (idx === this.hoverIndex) return;
         this.hoverIndex = idx;
@@ -4036,8 +4387,21 @@
         this._updateStarVisualState();
         return;
       }
+      const dynamicSelection = this._applyMagneticGalaxyObjectHover(this._pickGalaxyDynamicObject());
+      if (dynamicSelection) {
+        this.hoverClusterIndex = -1;
+        this.hoverIndex = -1;
+        this.galaxyHoverObject = dynamicSelection;
+        this._updateHoverMarker();
+        this._updateStarVisualState();
+        if (typeof this.opts.onHover === 'function') {
+          this.opts.onHover(this._selectionPayload(dynamicSelection), this._selectionScreenPosition(dynamicSelection));
+        }
+        return;
+      }
       const clusterIdx = this._applyMagneticClusterHover(this._pickClusterBox());
       if (clusterIdx >= 0) {
+        this.galaxyHoverObject = null;
         this.hoverClusterIndex = clusterIdx;
         this.hoverIndex = -1;
         this._updateHoverMarker();
@@ -4048,8 +4412,10 @@
         }
         return;
       }
+      const hadHover = this.hoverIndex >= 0 || this.hoverClusterIndex >= 0 || !!this.galaxyHoverObject;
       this.hoverClusterIndex = -1;
-      if (this.hoverIndex === -1) return;
+      this.galaxyHoverObject = null;
+      if (!hadHover) return;
       this.hoverIndex = -1;
       this._updateHoverMarker();
       if (typeof this.opts.onHover === 'function') {
@@ -4064,30 +4430,70 @@
         const entry = this.clickMagnetEnabled
           ? this._applyMagneticSystemHover(this._pickSystemPlanet())
           : this._pickSystemPlanet();
-        if (!entry) {
-          this.systemSelectedEntry = null;
-          this.systemHoverEntry = null;
+        if (entry) {
+          this.systemHoverObject = null;
+          this.systemSelectedObject = null;
+          this.systemSelectedEntry = entry;
+          this._touchSelection('click-planet');
           this._updateHoverMarker();
-          if (typeof this.opts.onHover === 'function') this.opts.onHover(null, null);
+          this.focusOnSystemPlanet(this._planetPayload(entry), true);
+          if (typeof this.opts.onClick === 'function') {
+            this.opts.onClick(Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }), this._getSystemPlanetScreenPosition(entry));
+          }
           return;
         }
-        this.systemSelectedEntry = entry;
-        this._touchSelection('click-planet');
-        this._updateHoverMarker();
-        this.focusOnSystemPlanet(this._planetPayload(entry), true);
-        if (typeof this.opts.onClick === 'function') {
-          this.opts.onClick(Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }), this.getWorldScreenPosition(entry.mesh.getWorldPosition(new THREE.Vector3())));
+        const dyn = this.clickMagnetEnabled
+          ? this._applyMagneticSystemObjectHover(this._pickSystemDynamicObject())
+          : this._pickSystemDynamicObject();
+        if (dyn) {
+          this.systemSelectedEntry = null;
+          this.systemHoverEntry = null;
+          this.systemSelectedObject = dyn;
+          this.systemHoverObject = dyn;
+          this._touchSelection(`click-${dyn.kind}`);
+          this._updateHoverMarker();
+          this._focusOnSelection(dyn, true);
+          if (typeof this.opts.onClick === 'function') {
+            this.opts.onClick(this._selectionPayload(dyn), this._selectionScreenPosition(dyn));
+          }
+          return;
         }
+        this.systemSelectedEntry = null;
+        this.systemSelectedObject = null;
+        this.systemHoverEntry = null;
+        this.systemHoverObject = null;
+        this._updateHoverMarker();
+        if (typeof this.opts.onHover === 'function') this.opts.onHover(null, null);
         return;
       }
       const idx = this.clickMagnetEnabled
         ? this._applyMagneticStarHover(this._pickStar())
         : this._pickStar();
       if (idx < 0) {
+        const dynamicSelection = this.clickMagnetEnabled
+          ? this._applyMagneticGalaxyObjectHover(this._pickGalaxyDynamicObject())
+          : this._pickGalaxyDynamicObject();
+        if (dynamicSelection) {
+          this.selectedClusterIndex = -1;
+          this.hoverClusterIndex = -1;
+          this.selectedIndex = -1;
+          this.galaxySelectedObject = dynamicSelection;
+          this.galaxyHoverObject = dynamicSelection;
+          this._touchSelection(`click-${dynamicSelection.kind}`);
+          this._updateHoverMarker();
+          this._updateStarVisualState();
+          this._focusOnSelection(dynamicSelection, true);
+          if (typeof this.opts.onClick === 'function') {
+            this.opts.onClick(this._selectionPayload(dynamicSelection), this._selectionScreenPosition(dynamicSelection));
+          }
+          return;
+        }
         const clusterIdx = this.clickMagnetEnabled
           ? this._applyMagneticClusterHover(this._pickClusterBox())
           : this._pickClusterBox();
         if (clusterIdx >= 0) {
+          this.galaxySelectedObject = null;
+          this.galaxyHoverObject = null;
           const entry = this.clusterAuraEntries[clusterIdx] || null;
           this.selectedClusterIndex = clusterIdx;
           this.selectedIndex = -1;
@@ -4100,6 +4506,7 @@
             this.opts.onClick(this._clusterPayload(entry, clusterIdx), this._clusterWorldScreenPosition(entry));
           }
         } else {
+          this.galaxySelectedObject = null;
           this.selectedIndex = -1;
           this.selectedClusterIndex = -1;
           this.hoverClusterIndex = -1;
@@ -4109,6 +4516,8 @@
         }
         return;
       }
+      this.galaxySelectedObject = null;
+      this.galaxyHoverObject = null;
       this.selectedClusterIndex = -1;
       this.hoverClusterIndex = -1;
       this.selectedIndex = idx;
@@ -4127,12 +4536,30 @@
         const entry = this.clickMagnetEnabled
           ? this._applyMagneticSystemHover(this._pickSystemPlanet())
           : this._pickSystemPlanet();
-        if (!entry) return;
-        this.systemSelectedEntry = entry;
-        this._touchSelection('doubleclick-planet');
+        if (entry) {
+          this.systemHoverObject = null;
+          this.systemSelectedObject = null;
+          this.systemSelectedEntry = entry;
+          this._touchSelection('doubleclick-planet');
+          this._updateHoverMarker();
+          if (typeof this.opts.onDoubleClick === 'function') {
+            this.opts.onDoubleClick(Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }), this._getSystemPlanetScreenPosition(entry));
+          }
+          return;
+        }
+        const dyn = this.clickMagnetEnabled
+          ? this._applyMagneticSystemObjectHover(this._pickSystemDynamicObject())
+          : this._pickSystemDynamicObject();
+        if (!dyn) return;
+        this.systemSelectedEntry = null;
+        this.systemHoverEntry = null;
+        this.systemSelectedObject = dyn;
+        this.systemHoverObject = dyn;
+        this._touchSelection(`doubleclick-${dyn.kind}`);
         this._updateHoverMarker();
+        this._focusOnSelection(dyn, true);
         if (typeof this.opts.onDoubleClick === 'function') {
-          this.opts.onDoubleClick(Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }), this.getWorldScreenPosition(entry.mesh.getWorldPosition(new THREE.Vector3())));
+          this.opts.onDoubleClick(this._selectionPayload(dyn), this._selectionScreenPosition(dyn));
         }
         return;
       }
@@ -4140,10 +4567,29 @@
         ? this._applyMagneticStarHover(this._pickStar())
         : this._pickStar();
       if (idx < 0) {
+        const dynamicSelection = this.clickMagnetEnabled
+          ? this._applyMagneticGalaxyObjectHover(this._pickGalaxyDynamicObject())
+          : this._pickGalaxyDynamicObject();
+        if (dynamicSelection) {
+          this.selectedClusterIndex = -1;
+          this.selectedIndex = -1;
+          this.galaxySelectedObject = dynamicSelection;
+          this.galaxyHoverObject = dynamicSelection;
+          this._touchSelection(`doubleclick-${dynamicSelection.kind}`);
+          this._updateHoverMarker();
+          this._updateStarVisualState();
+          this._focusOnSelection(dynamicSelection, true);
+          if (typeof this.opts.onDoubleClick === 'function') {
+            this.opts.onDoubleClick(this._selectionPayload(dynamicSelection), this._selectionScreenPosition(dynamicSelection));
+          }
+          return;
+        }
         const clusterIdx = this.clickMagnetEnabled
           ? this._applyMagneticClusterHover(this._pickClusterBox())
           : this._pickClusterBox();
         if (clusterIdx >= 0) {
+          this.galaxySelectedObject = null;
+          this.galaxyHoverObject = null;
           const entry = this.clusterAuraEntries[clusterIdx] || null;
           this.selectedClusterIndex = clusterIdx;
           this.selectedIndex = -1;
@@ -4158,6 +4604,8 @@
         }
         return;
       }
+      this.galaxySelectedObject = null;
+      this.galaxyHoverObject = null;
       this.selectedClusterIndex = -1;
       this.hoverClusterIndex = -1;
       this.selectedIndex = idx;
@@ -4404,6 +4852,8 @@
         densityMode: String(this.clusterDensityMode || 'auto'),
         orbitSimulationMode: String(this.orbitSimulationMode || 'auto'),
         activeOrbitSimulationMode: String(this.activeOrbitSimulationMode || 'complex'),
+        activeGpuOrbitVisuals: !!this.activeGpuOrbitVisuals,
+        orbitPathVisibilityFactor: Number(this._systemOrbitVisibilityFactor?.() || 0),
         lodProfile: String(this.lodProfile || 'medium'),
         qualityProfile: String(this.qualityProfile?.name || 'medium'),
         qualityReason: String(this.qualityProfile?.reason || ''),
@@ -4799,22 +5249,44 @@
       if (!this.hoverMarker) return;
       if (this.systemMode) {
         const entry = this.systemHoverEntry || this.systemSelectedEntry;
-        if (!entry) {
-          this.hoverMarker.visible = false;
+        if (entry) {
+          const worldPos = this._getSystemPlanetWorldPosition(entry, new THREE.Vector3());
+          const baseSize = Math.max(4.5, entry.mesh.geometry?.parameters?.radius || 4.5);
+          this.hoverMarker.position.copy(worldPos);
+          this.hoverMarker.scale.setScalar(baseSize * (this.systemHoverEntry ? 3.2 : 2.7));
+          this.hoverMarker.visible = true;
           return;
         }
-        const worldPos = entry.mesh.getWorldPosition(new THREE.Vector3());
-        const baseSize = Math.max(4.5, entry.mesh.geometry?.parameters?.radius || 4.5);
-        this.hoverMarker.position.copy(worldPos);
-        this.hoverMarker.scale.setScalar(baseSize * (this.systemHoverEntry ? 3.2 : 2.7));
-        this.hoverMarker.visible = true;
+        const dynamicSelection = this.systemHoverObject || this.systemSelectedObject;
+        if (dynamicSelection) {
+          const worldPos = this._getSelectionWorldPosition(dynamicSelection, new THREE.Vector3());
+          if (worldPos) {
+            this.hoverMarker.position.copy(worldPos);
+            this.hoverMarker.scale.setScalar(this._selectionPickRadiusPx(dynamicSelection) * 0.18);
+            this.hoverMarker.visible = true;
+            return;
+          }
+        }
+        this.hoverMarker.visible = false;
+        this._updateSystemOrbitLineStates();
         return;
+      }
+      const dynamicSelection = this.galaxyHoverObject || this.galaxySelectedObject;
+      if (dynamicSelection) {
+        const worldPos = this._getSelectionWorldPosition(dynamicSelection, new THREE.Vector3());
+        if (worldPos) {
+          this.hoverMarker.position.copy(worldPos);
+          this.hoverMarker.scale.setScalar(this._selectionPickRadiusPx(dynamicSelection) * 0.18);
+          this.hoverMarker.visible = true;
+          return;
+        }
       }
       const clusterMarkerIndex = this.hoverClusterIndex >= 0 ? this.hoverClusterIndex : this.selectedClusterIndex;
       if (clusterMarkerIndex >= 0) {
         const clusterEntry = this.clusterAuraEntries?.[clusterMarkerIndex] || null;
         if (!clusterEntry?.center || !clusterEntry?.size) {
           this.hoverMarker.visible = false;
+          this._updateSystemOrbitLineStates();
           return;
         }
         const worldPos = this.clusterAuraGroup.localToWorld(clusterEntry.center.clone());
@@ -4870,10 +5342,16 @@
 
     _getTrackedSelectionWorldPosition() {
       if (this.systemMode && this.systemSelectedEntry?.mesh) {
-        return this.systemSelectedEntry.mesh.getWorldPosition(new THREE.Vector3());
+        return this._getSystemPlanetWorldPosition(this.systemSelectedEntry, new THREE.Vector3());
+      }
+      if (this.systemMode && this.systemSelectedObject) {
+        return this._getSelectionWorldPosition(this.systemSelectedObject, new THREE.Vector3());
       }
       if (!this.systemMode && this.selectedIndex >= 0) {
         return this._getStarWorldPosition(this.selectedIndex, new THREE.Vector3());
+      }
+      if (!this.systemMode && this.galaxySelectedObject) {
+        return this._getSelectionWorldPosition(this.galaxySelectedObject, new THREE.Vector3());
       }
       return null;
     }
@@ -4921,9 +5399,195 @@
       return this.transitionsEnabled;
     }
 
+    _ensureGpuOrbitMaterial(material) {
+      if (!material || material.userData?.gqOrbitGpuPatched) return material;
+
+      const orbitUniforms = {
+        gqOrbitGpuEnabled: { value: 0 },
+        gqOrbitRadius: { value: 0 },
+        gqOrbitMinor: { value: 0 },
+        gqOrbitAngle: { value: 0 },
+        gqOrbitPivotMatrixWorld: { value: new THREE.Matrix4() },
+        gqOrbitUseDirectOffset: { value: 0 },
+        gqOrbitDirectOffset: { value: new THREE.Vector3() },
+      };
+      const prevOnBeforeCompile = material.onBeforeCompile;
+      const prevCacheKey = typeof material.customProgramCacheKey === 'function'
+        ? material.customProgramCacheKey.bind(material)
+        : null;
+
+      material.userData = Object.assign({}, material.userData, {
+        gqOrbitGpuPatched: true,
+        gqOrbitGpuUniforms: orbitUniforms,
+      });
+
+      material.onBeforeCompile = (shader) => {
+        Object.assign(shader.uniforms, orbitUniforms);
+        shader.vertexShader = `
+uniform float gqOrbitGpuEnabled;
+uniform float gqOrbitRadius;
+uniform float gqOrbitMinor;
+uniform float gqOrbitAngle;
+uniform mat4 gqOrbitPivotMatrixWorld;
+uniform float gqOrbitUseDirectOffset;
+uniform vec3 gqOrbitDirectOffset;
+${shader.vertexShader}`;
+        shader.vertexShader = shader.vertexShader.replace(
+          'mvPosition = modelViewMatrix * mvPosition;',
+          `mvPosition = modelViewMatrix * mvPosition;
+          if (gqOrbitGpuEnabled > 0.5) {
+            vec3 gqParamOffset = vec3(cos(gqOrbitAngle) * gqOrbitRadius, 0.0, sin(gqOrbitAngle) * gqOrbitMinor);
+            vec3 gqOrbitLocalOffset = mix(gqParamOffset, gqOrbitDirectOffset, gqOrbitUseDirectOffset);
+            mvPosition.xyz += (viewMatrix * gqOrbitPivotMatrixWorld * vec4(gqOrbitLocalOffset, 0.0)).xyz;
+          }`
+        );
+        if (typeof prevOnBeforeCompile === 'function') prevOnBeforeCompile(shader);
+      };
+      material.customProgramCacheKey = () => `${prevCacheKey ? prevCacheKey() : 'base'}|gq-orbit-gpu-v2`;
+      material.needsUpdate = true;
+      return material;
+    }
+
+    _prepareGpuOrbitMaterials(root) {
+      if (!root) return;
+      const visit = (obj) => {
+        if (obj?.isMesh) {
+          obj.frustumCulled = false;
+          if (Array.isArray(obj.material)) obj.material.forEach((material) => this._ensureGpuOrbitMaterial(material));
+          else this._ensureGpuOrbitMaterial(obj.material);
+        }
+        if (Array.isArray(obj?.children)) obj.children.forEach((child) => visit(child));
+      };
+      visit(root);
+    }
+
+    _syncGpuOrbitMaterial(material, entry, enabled, useDirectOffset = false) {
+      if (!material) return;
+      const uniforms = material.userData?.gqOrbitGpuUniforms || null;
+      if (!uniforms) return;
+      entry?.orbitPivot?.updateWorldMatrix?.(true, false);
+      uniforms.gqOrbitGpuEnabled.value = enabled ? 1 : 0;
+      uniforms.gqOrbitRadius.value = Number(entry?.orbitRadius || 0);
+      uniforms.gqOrbitMinor.value = Number(entry?.orbitMinor || 0);
+      uniforms.gqOrbitAngle.value = Number(entry?.angle || 0);
+      if (entry?.orbitPivot?.matrixWorld) uniforms.gqOrbitPivotMatrixWorld.value.copy(entry.orbitPivot.matrixWorld);
+      if (uniforms.gqOrbitUseDirectOffset) uniforms.gqOrbitUseDirectOffset.value = useDirectOffset ? 1 : 0;
+      if (uniforms.gqOrbitDirectOffset && useDirectOffset && entry?.currentLocalPosition) {
+        uniforms.gqOrbitDirectOffset.value.copy(entry.currentLocalPosition);
+      }
+    }
+
+    _setEntryGpuOrbitVisualState(entry, enabled, useDirectOffset = false) {
+      if (!entry?.renderMesh) return;
+      const visit = (obj) => {
+        if (obj?.isMesh) {
+          if (Array.isArray(obj.material)) obj.material.forEach((material) => this._syncGpuOrbitMaterial(material, entry, enabled, useDirectOffset));
+          else this._syncGpuOrbitMaterial(obj.material, entry, enabled, useDirectOffset);
+        }
+        if (Array.isArray(obj?.children)) obj.children.forEach((child) => visit(child));
+      };
+      visit(entry.renderMesh);
+    }
+
+    _systemOrbitVisibilityFactor() {
+      if (!this.systemMode || this.systemOrbitPathsVisible === false) return 0;
+      const distance = Number(this._cameraDistance?.() || 0);
+      const fadeStart = 230;
+      const fadeEnd = 410;
+      const t = THREE.MathUtils.clamp((distance - fadeStart) / Math.max(1, fadeEnd - fadeStart), 0, 1);
+      return 1 - t;
+    }
+
+    _updateSystemOrbitLineStates() {
+      if (!Array.isArray(this.systemPlanetEntries)) return;
+      const hover = this.systemHoverEntry;
+      const sel = this.systemSelectedEntry;
+      const focusOnly = this.systemOrbitFocusOnly === true;
+      const hasFocusTarget = !!(hover || sel);
+      const zoomVisibility = this._systemOrbitVisibilityFactor();
+      this.systemPlanetEntries.forEach((entry) => {
+        const mat = entry.orbitLine?.material;
+        const markerMat = entry.orbitLeadMarker?.material;
+        if (!mat && !markerMat) return;
+        const rawColor = entry.body?.owner_color ?? entry.slot?.player_planet?.owner_color ?? null;
+        let baseColor = new THREE.Color(0x31567c);
+        if (rawColor) {
+          try { baseColor = new THREE.Color(rawColor); } catch (_) {}
+        }
+
+        let orbitColor = baseColor.clone();
+        let orbitOpacity = sel ? 0.18 : 0.35;
+        let markerOpacity = 0.35;
+        let markerScale = 1.0;
+        let visible = this.systemOrbitPathsVisible !== false;
+        const isFocused = entry === hover || entry === sel;
+
+        if (focusOnly && hasFocusTarget && entry !== hover && entry !== sel) {
+          visible = false;
+        }
+
+        if (entry === sel) {
+          orbitColor = baseColor.clone();
+          if (!rawColor) orbitColor.setHex(0x5de0c0);
+          orbitOpacity = 0.95;
+          markerOpacity = 0.95;
+          markerScale = 1.55;
+        } else if (entry === hover) {
+          orbitColor = rawColor ? baseColor.clone().offsetHSL(0, 0, 0.22) : new THREE.Color(0x7ab8ee);
+          orbitOpacity = 0.75;
+          markerOpacity = 0.82;
+          markerScale = 1.3;
+        }
+
+        if (!isFocused) {
+          orbitOpacity *= zoomVisibility;
+          markerOpacity *= Math.max(0.15, zoomVisibility);
+          if (zoomVisibility <= 0.04) visible = false;
+        }
+
+        if (mat) {
+          entry.orbitLine.visible = visible;
+          mat.color.copy(orbitColor);
+          mat.opacity = orbitOpacity;
+          mat.needsUpdate = true;
+        }
+        const markerVisible = visible && this.systemOrbitMarkersVisible !== false;
+        if (markerMat) {
+          markerMat.color.copy(orbitColor);
+          markerMat.opacity = orbitOpacity > 0.2 ? markerOpacity : 0.18;
+          markerMat.needsUpdate = true;
+        }
+        if (entry.orbitLeadMarker) {
+          entry.orbitLeadMarker.scale.setScalar(markerScale);
+          entry.orbitLeadMarker.visible = markerVisible;
+        }
+      });
+    }
+
     _normalizeOrbitSimulationMode(mode) {
       const normalized = String(mode || 'auto').trim().toLowerCase();
       return ['auto', 'simple', 'complex'].includes(normalized) ? normalized : 'auto';
+    }
+
+    _rebuildOrbitSimulationBuffer() {
+      if (!Array.isArray(this.systemPlanetEntries) || !this.systemPlanetEntries.length) {
+        this.systemOrbitSimulationBuffer = null;
+        return null;
+      }
+
+      const stride = Number(this.systemOrbitSimulationStride || 5);
+      const buffer = new Float32Array(this.systemPlanetEntries.length * stride);
+      this.systemPlanetEntries.forEach((entry, index) => {
+        const offset = index * stride;
+        buffer[offset + 0] = Number(entry.orbitRadius || 0);
+        buffer[offset + 1] = Number(entry.orbitMinor || 0);
+        buffer[offset + 2] = Number(entry.eccentricity || 0);
+        buffer[offset + 3] = Number(entry.angle || 0);
+        buffer[offset + 4] = Number(entry.speed || 0);
+        entry.orbitIndex = index;
+      });
+      this.systemOrbitSimulationBuffer = buffer;
+      return buffer;
     }
 
     setOrbitSimulationMode(mode) {
@@ -4951,29 +5615,102 @@
       return anomaly;
     }
 
-    _computeSimpleOrbitPosition(entry) {
-      return new THREE.Vector3(
+    _computeSimpleOrbitPosition(entry, target = null) {
+      const out = target || new THREE.Vector3();
+      out.set(
         Math.cos(entry.angle) * entry.orbitRadius,
         0,
         Math.sin(entry.angle) * entry.orbitMinor
       );
+      return out;
     }
 
-    _computeComplexOrbitPosition(entry) {
+    _computeComplexOrbitPosition(entry, target = null) {
+      const out = target || new THREE.Vector3();
       const eccentricity = THREE.MathUtils.clamp(Number(entry.eccentricity || 0), 0, 0.92);
       const eccentricAnomaly = this._solveEccentricAnomaly(entry.angle, eccentricity);
-      return new THREE.Vector3(
+      out.set(
         entry.orbitRadius * (Math.cos(eccentricAnomaly) - eccentricity),
         0,
         entry.orbitMinor * Math.sin(eccentricAnomaly)
       );
+      return out;
     }
 
-    _computeOrbitPosition(entry, mode) {
-      if (!entry) return new THREE.Vector3(0, 0, 0);
+    _computeOrbitPosition(entry, mode, target = null) {
+      if (!entry) return (target || new THREE.Vector3()).set(0, 0, 0);
       return mode === 'complex'
-        ? this._computeComplexOrbitPosition(entry)
-        : this._computeSimpleOrbitPosition(entry);
+        ? this._computeComplexOrbitPosition(entry, target)
+        : this._computeSimpleOrbitPosition(entry, target);
+    }
+
+    _readOrbitSimulationEntry(entry) {
+      const stride = Number(this.systemOrbitSimulationStride || 5);
+      const idx = Number(entry?.orbitIndex ?? -1);
+      const buffer = this.systemOrbitSimulationBuffer;
+      if (!buffer || idx < 0) return entry;
+      const offset = idx * stride;
+      entry.orbitRadius = Number(buffer[offset + 0] || 0);
+      entry.orbitMinor = Number(buffer[offset + 1] || 0);
+      entry.eccentricity = Number(buffer[offset + 2] || 0);
+      entry.angle = Number(buffer[offset + 3] || 0);
+      entry.speed = Number(buffer[offset + 4] || 0);
+      return entry;
+    }
+
+    _stepOrbitSimulationBuffer(dt) {
+      const stride = Number(this.systemOrbitSimulationStride || 5);
+      const buffer = this.systemOrbitSimulationBuffer;
+      if (!buffer || !Number.isFinite(dt) || dt === 0) return;
+      for (let offset = 0; offset < buffer.length; offset += stride) {
+        buffer[offset + 3] += dt * buffer[offset + 4];
+      }
+    }
+
+    _getSystemPlanetWorldPosition(entry, target = null) {
+      const out = target || new THREE.Vector3();
+      if (entry?.currentWorldPosition) return out.copy(entry.currentWorldPosition);
+      if (entry?.mesh?.getWorldPosition) return entry.mesh.getWorldPosition(out);
+      return out.set(0, 0, 0);
+    }
+
+    _updateSystemOrbitTransforms(dt) {
+      if (!Array.isArray(this.systemPlanetEntries) || !this.systemPlanetEntries.length) return;
+      const orbitMode = this._resolveOrbitSimulationMode();
+      // GPU visuals are active for all orbit modes.
+      // simple → parametric angle; complex → CPU-solved position passed as direct offset.
+      const useDirectOffset = orbitMode === 'complex';
+      this.activeOrbitSimulationMode = orbitMode;
+      this.activeGpuOrbitVisuals = true;
+      this._stepOrbitSimulationBuffer(dt);
+      this.systemPlanetEntries.forEach((entry, index) => {
+        this._readOrbitSimulationEntry(entry);
+        const orbitalPos = this._computeOrbitPosition(entry, orbitMode, this._orbitScratchLocal);
+        entry.currentLocalPosition.copy(orbitalPos);
+        if (entry.orbitLeadMarker) {
+          const leadAngle = Number(entry.angle || 0) + Math.max(0.08, Math.min(0.4, Math.abs(Number(entry.speed || 0)) * 0.14));
+          const leadEntry = Object.assign({}, entry, { angle: leadAngle });
+          const leadPos = this._computeOrbitPosition(leadEntry, orbitMode, this._orbitScratchWorld);
+          entry.orbitLeadMarker.position.copy(leadPos);
+          entry.orbitLeadMarker.visible = this.systemOrbitPathsVisible !== false && this.systemOrbitMarkersVisible !== false;
+        }
+        const orbitWorldPos = entry.orbitPivot.localToWorld(this._orbitScratchWorld.copy(orbitalPos));
+        entry.currentWorldPosition.copy(orbitWorldPos);
+        entry.mesh.position.copy(this.systemBodyGroup.worldToLocal(orbitWorldPos.clone()));
+        if (entry.renderRoot) {
+          // renderRoot always at origin — GPU shader applies the orbital offset.
+          entry.renderRoot.position.set(0, 0, 0);
+        }
+        this._setEntryGpuOrbitVisualState(entry, true, useDirectOffset);
+        const visibleMesh = entry.renderMesh || entry.mesh;
+        visibleMesh.rotation.y += dt * (0.25 + index * 0.03);
+        visibleMesh.children.forEach((child) => {
+          if (!child || child.userData?.kind !== 'planet-ring') return;
+          child.rotation.z += dt * Number(child.userData?.rotationSpeed || 0.01);
+          child.rotation.y += dt * Number(child.userData?.precessionSpeed || 0.001);
+        });
+      });
+      this._updateSystemOrbitLineStates();
     }
 
     _buildOrbitCurvePoints(orbitRadius, orbitMinor, eccentricity) {
@@ -5395,7 +6132,7 @@
       }
       if (activeEntry && allowSelection && allowPlanetEnter && distance <= this.zoomThresholds.systemEnterPlanet && this.autoTransitionArmed.systemEnterPlanet) {
         this.systemSelectedEntry = activeEntry;
-        this._triggerAutoTransition('enter-planet', this._planetPayload(activeEntry), this.getWorldScreenPosition(activeEntry.mesh.getWorldPosition(new THREE.Vector3())));
+        this._triggerAutoTransition('enter-planet', this._planetPayload(activeEntry), this._getSystemPlanetScreenPosition(activeEntry));
         return;
       }
       if (distance >= this.zoomThresholds.systemResetPlanet) {
@@ -5568,20 +6305,7 @@
       } else {
         const elapsed = this.clock.elapsedTime;
         this._syncSystemSkyDome(dt);
-        const orbitMode = this._resolveOrbitSimulationMode();
-        this.activeOrbitSimulationMode = orbitMode;
-        this.systemPlanetEntries.forEach((entry, index) => {
-          entry.angle += dt * entry.speed;
-          const orbitalPos = this._computeOrbitPosition(entry, orbitMode);
-          const orbitWorldPos = entry.orbitPivot.localToWorld(orbitalPos);
-          entry.mesh.position.copy(this.systemBodyGroup.worldToLocal(orbitWorldPos));
-          entry.mesh.rotation.y += dt * (0.25 + index * 0.03);
-          entry.mesh.children.forEach((child) => {
-            if (!child || child.userData?.kind !== 'planet-ring') return;
-            child.rotation.z += dt * Number(child.userData?.rotationSpeed || 0.01);
-            child.rotation.y += dt * Number(child.userData?.precessionSpeed || 0.001);
-          });
-        });
+        this._updateSystemOrbitTransforms(dt);
         this.systemFacilityEntries.forEach((facility, index) => {
           if (!facility?.group) return;
           facility.group.rotation.y += dt * facility.spin;
@@ -5592,8 +6316,8 @@
           const fleet = fleetEntry.fleet || {};
           const originEntry = this.systemPlanetEntries.find((entry) => Number(entry.slot?.position || 0) === Number(fleet.origin_position || 0)) || null;
           const targetEntry = this.systemPlanetEntries.find((entry) => Number(entry.slot?.position || 0) === Number(fleet.target_position || 0)) || null;
-          const fromWorld = originEntry?.mesh?.getWorldPosition(new THREE.Vector3()) || new THREE.Vector3(0, 0, 0);
-          const toWorld = targetEntry?.mesh?.getWorldPosition(new THREE.Vector3()) || new THREE.Vector3(0, 0, 0);
+          const fromWorld = this._getSystemPlanetWorldPosition(originEntry, new THREE.Vector3());
+          const toWorld = this._getSystemPlanetWorldPosition(targetEntry, new THREE.Vector3());
           const tRaw = Number(fleet.current_pos?.progress || 0.5);
           const t = fleet.returning ? 1 - THREE.MathUtils.clamp(tRaw, 0, 1) : THREE.MathUtils.clamp(tRaw, 0, 1);
           const localFrom = this.systemFleetGroup.worldToLocal(fromWorld.clone());
@@ -5781,9 +6505,9 @@
           position: positionId,
           body: entry.body || {},
           slot: entry.slot || {},
-          mesh: entry.mesh,
-          mesh_visible: entry.mesh ? entry.mesh.visible : false,
-          refinement_phase: Number(entry.mesh?.userData?.refinementPhase || 0),
+          mesh: entry.renderMesh || entry.mesh,
+          mesh_visible: entry.renderMesh ? entry.renderMesh.visible : !!entry.mesh,
+          refinement_phase: Number((entry.renderMesh || entry.mesh)?.userData?.refinementPhase || 0),
           planet_class: String(entry.body?.planet_class || ''),
           has_player_colony: !!(entry.body?.owner_color || entry.slot?.player_planet?.owner_color),
           owner_color: entry.body?.owner_color || entry.slot?.player_planet?.owner_color || '',

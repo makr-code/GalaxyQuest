@@ -1,10 +1,10 @@
 {
-    "username": "gqnpc_pveanc_005_cusprae",
+    "username": "gq_seed_npc_0016",
     "is_npc": true,
-    "race": "Cuspidian",
-    "profession": "Emissary of Peace",
-    "stance": "Neutral Ambassador",
-    "vita": "Born on the neutral planet Cusprae to diplomats from various star systems, I was raised amid diverse cultures and languages. My parents' work in interstellar relations shaped my worldview towards harmony among stars.",
-    "portrait_prompt": "A dignified Aereth with a translucent skin tone reflecting the neutrality of Cusprae’s culture, wearing traditional diplomatic robes that symbolize unity. The backdrop is an ethereal cosmic landscape showing distant galaxies and nebulae.",
-    "generated_at": "2026-03-29T16:07:45+00:00"
+    "race": "Human Frontierborn",
+    "profession": "Recon Analyst",
+    "stance": "Skeptical",
+    "vita": "gq_seed_npc_0016 emerged from an autonomous sector protocol and built a reputation as a recon analyst. Their skeptical outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
+    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Human Frontierborn, role: Recon Analyst, attitude: Skeptical, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
+    "generated_at": "2026-03-31T13:52:09+00:00"
 }

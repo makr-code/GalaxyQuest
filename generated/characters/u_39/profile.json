@@ -1,0 +1,10 @@
+{
+    "username": "dev_npc_colonist_08",
+    "is_npc": true,
+    "race": "Vor'Tak",
+    "profession": "Colonist Commander",
+    "stance": "Diplomatic and Trade Advocate",
+    "vita": "I am a respected leader among the Vor'Tak, born to navigate the complexities of interstellar diplomacy with ease. My upbringing in diverse cultures across galaxies has honed my skills as an adept communicator and negotiator.",
+    "portrait_prompt": "A dignified human-like figure stands poised on a floating platform, gazing at the starry cosmos through transparent alien eyes. The Vor'Tak’s unique biology allows for transparency in their irises which reflect an array of colors from nebulae and distant suns.",
+    "generated_at": "2026-03-31T13:15:34+00:00"
+}

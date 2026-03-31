@@ -1,0 +1,10 @@
+{
+    "username": "dev_npc_colonist_03",
+    "is_npc": true,
+    "race": "Syl'Nar",
+    "profession": "Colonist and Diplomat",
+    "stance": "Neutral Trader with a penchant for peaceful resolutions but firm in defense of t",
+    "vita": "As a Syl'nar, I have been born into the interstellar colonies established by my people across various planets. My life has revolved around fostering trade and diplomacy among different galactic factions to ensure prosperity for our species while maintaining peaceful relations amidst constant conflict.",
+    "portrait_prompt": "A tall, slender Syl'Nar with luminescent skin that glows faintly in the dim light of their habitat. Their eyes are a deep violet shade reflective of wisdom and diplomacy, set against an angular face marked by delicate scars from past skirmishes but untouched by age.",
+    "generated_at": "2026-03-31T13:13:22+00:00"
+}

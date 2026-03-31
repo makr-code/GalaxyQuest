@@ -606,6 +606,9 @@
     window.__GQ_AUDIO_UNLOCK_INSTALLED = true;
 
     let unlocked = false;
+    let resumeInFlight = false;
+    let lastBlockedLogAt = 0;
+    let lastAttemptAt = 0;
     const listeners = [];
 
     const clearListeners = () => {
@@ -621,7 +624,13 @@
 
     const attemptResume = async () => {
       if (unlocked) return;
+      if (resumeInFlight) return;
+      const now = Date.now();
+      // Multiple DOM events can fire for one user gesture; debounce to avoid log spam.
+      if ((now - lastAttemptAt) < 240) return;
+      lastAttemptAt = now;
       try {
+        resumeInFlight = true;
         const snap = manager.snapshot ? manager.snapshot() : null;
         const muted = !!(snap?.masterMuted || snap?.musicMuted);
         const hasTrack = String(snap?.musicUrl || '').trim() !== '';
@@ -633,10 +642,18 @@
           clearListeners();
           authLog('info', 'audio resume after user interaction (ok)');
         } else {
-          authLog('warn', 'audio resume blocked, waiting for next interaction');
+          if ((now - lastBlockedLogAt) > 1200) {
+            lastBlockedLogAt = now;
+            authLog('warn', 'audio resume blocked, waiting for next interaction');
+          }
         }
       } catch (err) {
-        authLog('warn', 'audio resume failed', String(err?.message || err || 'unknown'));
+        if ((now - lastBlockedLogAt) > 1200) {
+          lastBlockedLogAt = now;
+          authLog('warn', 'audio resume failed', String(err?.message || err || 'unknown'));
+        }
+      } finally {
+        resumeInFlight = false;
       }
     };
 
@@ -1013,6 +1030,12 @@
     inflight: null,
   };
 
+  const authReachabilityState = {
+    ok: false,
+    checkedAt: 0,
+    inflight: null,
+  };
+
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
   }
@@ -1025,6 +1048,58 @@
       || code === 'EPARSE'
       || status >= 500
       || /failed to fetch|networkerror|network error|timeout/.test(msg);
+  }
+
+  async function ensureAuthApiReachable(options = {}) {
+    const force = !!options.force;
+    const now = Date.now();
+    const cacheTtlMs = 15000;
+
+    if (!force && authReachabilityState.ok && (now - authReachabilityState.checkedAt) < cacheTtlMs) {
+      return true;
+    }
+    if (!force && authReachabilityState.inflight) {
+      return authReachabilityState.inflight;
+    }
+
+    const run = async () => {
+      try {
+        await fetchWithTimeout('api/auth.php?action=me', {
+          method: 'GET',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          timeoutMs: 7000,
+          tag: 'auth-health',
+        });
+        authReachabilityState.ok = true;
+        authReachabilityState.checkedAt = Date.now();
+        return true;
+      } catch (err) {
+        authReachabilityState.ok = false;
+        const code = String(err?.code || '').toUpperCase();
+        const msg = String(err?.message || '').toLowerCase();
+        const status = Number(err?.status || 0);
+        const isNetwork = code === 'ETIMEOUT'
+          || status === 0
+          || /failed to fetch|networkerror|network error|timeout/.test(msg);
+        if (!isNetwork) {
+          return true;
+        }
+        const reachabilityErr = new Error('auth api unreachable');
+        reachabilityErr.code = 'EUNREACH';
+        reachabilityErr.status = 0;
+        reachabilityErr.endpoint = 'api/auth.php?action=me';
+        reachabilityErr.cause = err;
+        throw reachabilityErr;
+      }
+    };
+
+    authReachabilityState.inflight = run();
+    try {
+      return await authReachabilityState.inflight;
+    } finally {
+      authReachabilityState.inflight = null;
+    }
   }
 
   async function getCsrf(options = {}) {
@@ -1117,6 +1192,9 @@
     const status = Number(err?.status || 0);
     const msg = String(err?.message || '').trim();
 
+    if (code === 'EUNREACH') {
+      return 'Server derzeit nicht erreichbar. Bitte Verbindung pruefen und erneut versuchen.';
+    }
     if (code === 'ETIMEOUT') {
       return 'Zeitueberschreitung beim Server. Bitte erneut versuchen.';
     }
@@ -1285,6 +1363,8 @@
         remember: rememberEl.checked,
       };
 
+      await ensureAuthApiReachable();
+
       const submitLogin = async (forceCsrfRefresh = false) => {
         const csrf = await getCsrf({ force: forceCsrfRefresh });
         const res = await fetchWithTimeout('api/auth.php?action=login', {
@@ -1340,8 +1420,20 @@
         if (errEl) errEl.textContent = data.error || 'Login failed.';
       }
     } catch (err) {
-      authProbe('login submit catch (network/parse)', 'error');
-      authLog('error', 'login submit network/parse error', String(err?.message || err || 'unknown'));
+      const status = Number(err?.status || 0);
+      const code = String(err?.code || '').toUpperCase();
+      const isAuthFailure = code === 'EAUTH' || status === 401 || status === 403;
+      const isReachabilityFailure = code === 'EUNREACH' || code === 'ETIMEOUT';
+      if (isAuthFailure) {
+        authProbe('login submit auth failure', 'warn');
+        authLog('warn', 'login submit auth failure', String(err?.message || err || 'unknown'));
+      } else if (isReachabilityFailure) {
+        authProbe('login submit reachability failure', 'warn');
+        authLog('warn', 'login submit reachability failure', String(err?.message || err || 'unknown'));
+      } else {
+        authProbe('login submit catch (network/parse)', 'error');
+        authLog('error', 'login submit network/parse error', String(err?.message || err || 'unknown'));
+      }
       hideActionModal();
       setAuthError(errEl, err, userFacingAuthError(err));
     } finally {

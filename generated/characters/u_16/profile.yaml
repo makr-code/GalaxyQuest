@@ -1,0 +1,8 @@
+username: "dev_npc_trader_05"
+is_npc: true
+race: "Velarian"
+profession: "Trader"
+stance: "Neutral Entrepreneur"
+vita: "As a Velarian Trader hailing from the bustling trade hub of Zyphus Prime, I've built my reputation on fair deals and respected negotiations. My ship 'The Serenity Star', adorned with symbols representing peace among star systems, sails through space-lanes carrying exotic goods that bridge worlds together."
+portrait_prompt: "A photorealistic alien bust portrait of a Velarian Trader stands on transparent background; the figure wears traditional attire indicative of their neutral stance and wealth, with intricate patterns reflecting both elegance and diversity. The eyes are intelligent and welcoming, suggesting an open mind towards all species."
+generated_at: "2026-03-31T13:05:12+00:00"

@@ -36,14 +36,34 @@ function Wait-DbReady {
     throw 'DB not ready within timeout.'
 }
 
+function Wait-WebDbReady {
+    param(
+        [int]$TimeoutSeconds = 120
+    )
+
+    $deadline = (Get-Date).AddSeconds([Math]::Max(10, $TimeoutSeconds))
+    do {
+        docker compose exec -T web php -r "require '/var/www/html/config/db.php'; get_db(); echo 'WEB_DB_OK';" > $null 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host 'Web DB access is ready.'
+            return
+        }
+        Start-Sleep -Seconds 2
+    } while ((Get-Date) -lt $deadline)
+
+    throw 'Web DB access not ready within timeout.'
+}
+
 Push-Location (Resolve-Path "$PSScriptRoot\..")
 try {
     if ($FreshReset) {
         Invoke-Step 'Docker: down -v' { docker compose down -v }
         Invoke-Step 'Docker: up -d --build' { docker compose up -d --build }
         Wait-DbReady -TimeoutSeconds 240
+        Wait-WebDbReady -TimeoutSeconds 240
     } else {
         Wait-DbReady -TimeoutSeconds 120
+        Wait-WebDbReady -TimeoutSeconds 120
     }
 
     Invoke-Step 'API smoke: auth rate limit' { docker compose exec -T web php scripts/test_auth_rate_limit.php }

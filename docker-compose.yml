@@ -62,6 +62,8 @@ services:
       - ./sql/migrate_security_v2_totp.sql:/docker-entrypoint-initdb.d/020-security-v2-totp.sql:ro
       - ./sql/migrate_admin_user_crud_v1.sql:/docker-entrypoint-initdb.d/021-admin-user-crud-v1.sql:ro
       - ./sql/migrate_actor_model_v1.sql:/docker-entrypoint-initdb.d/022-actor-model-v1.sql:ro
+      - ./sql/migrate_faction_species_v1.sql:/docker-entrypoint-initdb.d/023-faction-species-v1.sql:ro
+      - ./sql/migrate_actor_model_v2_drop_is_npc.sql:/docker-entrypoint-initdb.d/024-actor-model-v2-drop-is-npc.sql:ro
 
 volumes:
   galaxyquest-db-data:

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="icon-military" viewBox="0 0 24 24">
+    <path d="M12 3l7 3v4c0 4.7-2.8 8.4-7 10.8C7.8 18.4 5 14.7 5 10V6z" fill="none" stroke="#9fd0ff" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M9 12.2l2.1 2.1 4-4" fill="none" stroke="#9fd0ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+</svg>

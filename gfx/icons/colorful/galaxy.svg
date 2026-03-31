@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="icon-galaxy" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="1.2" fill="#a78bfa"/>
+    <ellipse cx="12" cy="12" rx="8.6" ry="3.2" fill="none" stroke="#60a5fa" stroke-width="1.5" transform="rotate(-18 12 12)"/>
+    <ellipse cx="12" cy="12" rx="7.8" ry="2.8" fill="none" stroke="#60a5fa" stroke-width="1.5" transform="rotate(20 12 12)"/>
+    <circle cx="17.6" cy="8" r="1" fill="#a78bfa"/>
+  </symbol>
+</svg>

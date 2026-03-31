@@ -1,10 +1,10 @@
 {
-    "username": "gqnpc_pvehel_002_synthel",
+    "username": "gq_seed_npc_0011",
     "is_npc": true,
-    "race": "Kryl'Tha",
-    "profession": "Emissary of Diplomacy and Trade",
-    "stance": "Neutral Ambassador with a Flair for Conflict Resolution",
-    "vita": "Born in the neutral space station Delta-9, I was raised among various alien species to understand different cultures. My upbrinjnging as an Emissary of Diplomacy and Trade has honed my skills at bridging gaps between conflicting parties for peaceful resolutions.",
-    "portrait_prompt": "A tall Kryl'Tha with luminescent silver skin, dressed in a sleek diplomatic uniform adorned with the sigil of neutrality. Standing confidently amidst an interstellar conference room backdrop; my eyes reflect wisdom and experience as I prepare to mediate another dispute.",
-    "generated_at": "2026-03-29T16:05:05+00:00"
+    "race": "Silurian",
+    "profession": "Envoy Ambassador",
+    "stance": "Diplomatic and astute negotiator with a penchant for peaceful resolutions.",
+    "vita": "Born on the lush planet of Syl'Nar Prime, I was groomed to serve as an ambassador. My upbrinions in diplomacy have led me across countless star systems where diverse cultures and species coexist. As a Silurian with tentacles for hands that enable intricate gestures conveying respect and understanding, my role is pivotal in maintaining interstellar harmony.",
+    "portrait_prompt": "A dignified Sylurian ambassador stands poised; one eye on the holographic display of a star map while delicately touching tentacles to his heart. A translucent, ethereal glow envelops him as if bathed in light from distant suns.",
+    "generated_at": "2026-03-31T13:50:01+00:00"
 }

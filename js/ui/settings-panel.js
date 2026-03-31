@@ -116,24 +116,18 @@
   }
 
   function setupTabNavigation(modal) {
-    const tabBtns = modal.querySelectorAll('.settings-tab-btn');
-    const tabContents = modal.querySelectorAll('.settings-tab-content');
+    const tabHost = modal.querySelector('[data-ui-tabs]');
+    if (!tabHost || !window.GQUIKit || typeof window.GQUIKit.initTabs !== 'function') return;
 
-    tabBtns.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const tabName = btn.dataset.tab;
+    window.GQUIKit.initTabs(modal);
 
-        // Deactivate all tabs
-        tabBtns.forEach((b) => b.classList.remove('active'));
-        tabContents.forEach((tc) => tc.classList.remove('active'));
-
-        // Activate selected tab
-        btn.classList.add('active');
-        const targetContent = modal.querySelector(`.settings-tab-content[data-tab="${tabName}"]`);
-        if (targetContent) targetContent.classList.add('active');
-
+    if (tabHost.__gqSettingsTabsBound) return;
+    tabHost.__gqSettingsTabsBound = true;
+    tabHost.addEventListener('gq:ui-tab-change', (ev) => {
+      const tabName = ev?.detail?.tabId || '';
+      if (tabName) {
         console.log('[Settings] Switched to tab:', tabName);
-      });
+      }
     });
   }
 
@@ -184,10 +178,16 @@
     const significantKeys = [
       'transitionPreset',
       'orbitSimulationMode',
+      'systemOrbitPathsVisible',
+      'systemOrbitMarkersVisible',
+      'systemOrbitFocusOnly',
       'clusterDensityMode',
       'galaxyColonyFilterMode',
       'homeEnterSystem',
       'introFlightMode',
+      'uiThemeMode',
+      'uiThemeFactionId',
+      'uiThemeCustomAccent',
     ];
 
     return significantKeys.some((key) => {
@@ -222,6 +222,9 @@
     return {
       transitionPreset: 'balanced',
       orbitSimulationMode: 'auto',
+      systemOrbitPathsVisible: true,
+      systemOrbitMarkersVisible: true,
+      systemOrbitFocusOnly: false,
       autoTransitions: true,
       renderQualityProfile: 'auto',
       clusterDensityMode: 'auto',
@@ -242,6 +245,9 @@
       sfxMuted: false,
       musicTransitionMode: 'fade',
       autoSceneMusic: true,
+      uiThemeMode: 'auto',
+      uiThemeFactionId: 0,
+      uiThemeCustomAccent: '#3aa0ff',
       require2faCommit: false,
       require2faForStateChanges: false,
     };

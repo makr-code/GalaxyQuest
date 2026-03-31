@@ -1,0 +1,8 @@
+username: "dev_npc_pirate_06"
+is_npc: true
+race: "Human"
+profession: "Pirate Captain"
+stance: "Independent Trader with a Neutral Stance towards Galactic Factions"
+vita: "As the captain of an interstellar pirate ship, I've navigated through countless star systems and established trade routes that cut across different territories. My crew respects me for my fairness in dealings but also fears my ruthless efficiency when dealing with hostile entities."
+portrait_prompt: "An imposing human pirate captain standing on the bridge of a sleek, black-hulled starship amidst swirling nebulas and distant galaxies. My eyes reflect determination under an unbroken eye patch that has seen too many suns rise and set; my uniform is adorned with various emblems from across conquered territories."
+generated_at: "2026-03-31T13:10:15+00:00"

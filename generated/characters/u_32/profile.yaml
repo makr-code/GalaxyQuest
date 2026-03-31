@@ -1,0 +1,8 @@
+username: "dev_npc_colonist_01"
+is_npc: true
+race: "Vel'Ar"
+profession: "Colonist and Trader"
+stance: "Diplomatic yet pragmatic negotiator with a keen interest in expanding their infl"
+vita: "Dev_npc_colonist_01, born on Vel'Ar Prime but raised among diverse cultures and species. Skilled at navigating complex interstellar politics to secure favorable trade deals for my people while maintaining peaceful relations with various galactic factions."
+portrait_prompt: "A dignified Vel'Ar colonist, dressed in traditional attire that reflects their dual role as a trader and diplomat. Skin tone is metallic silver under the translucent bio-armor revealing intricate circuitry beneath - an emblem of advanced technology melded with culture."
+generated_at: "2026-03-31T13:12:24+00:00"

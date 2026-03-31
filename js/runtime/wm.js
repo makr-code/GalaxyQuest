@@ -26,9 +26,16 @@ const WM = (() => {
   // Cascade offset for newly opened windows
   let _nextX = 60;
   let _nextY = 60;
+  let _contextMenuState = null;
+  let _restoreAttempted = false;
+  let _isRestoringState = false;
+  let _recentClosed = [];
 
   const WM_MOBILE_BREAKPOINT = 800;
   const WM_DOCK_STORAGE_PREFIX = 'gq_wdock_';
+  const WM_STATE_COOKIE_KEY = 'gq_wm_state_v1';
+  const WM_STATE_COOKIE_DAYS = 60;
+  const WM_RECENT_CLOSED_LIMIT = 10;
 
   function _isMobileMode() {
     return (window.innerWidth || 0) < WM_MOBILE_BREAKPOINT;
@@ -48,15 +55,15 @@ const WM = (() => {
 
   // ── Default window configurations ───────────────────────────────────────────
   const DEFAULTS = {
-    overview:    { title: '🌍 Overview',       w: 860, h: 540 },
-    buildings:   { title: '🏗 Buildings',      w: 680, h: 540 },
-    research:    { title: '🔬 Research',       w: 680, h: 540 },
-    shipyard:    { title: '🚀 Shipyard',       w: 740, h: 540 },
-    fleet:       { title: '⚡ Fleet',          w: 640, h: 640 },
-    galaxy:      { title: '🌌 Galaxy Map',     w: 860, h: 540 },
-    messages:    { title: '✉ Messages',        w: 640, h: 520 },
-    quests:      { title: '📋 Quests',         w: 860, h: 620 },
-    leaderboard: { title: '🏆 Leaderboard',    w: 540, h: 480 },
+    overview:    { title: 'Overview',          w: 860, h: 540 },
+    buildings:   { title: 'Buildings',         w: 680, h: 540 },
+    research:    { title: 'Research',          w: 680, h: 540 },
+    shipyard:    { title: 'Shipyard',          w: 740, h: 540 },
+    fleet:       { title: 'Fleet',             w: 640, h: 640 },
+    galaxy:      { title: 'Galaxy Map',        w: 860, h: 540 },
+    messages:    { title: 'Messages',          w: 640, h: 520 },
+    quests:      { title: 'Quests',            w: 860, h: 620 },
+    leaderboard: { title: 'Leaderboard',       w: 540, h: 480 },
   };
 
   // ── Public: register a window with a render callback ────────────────────────
@@ -140,6 +147,8 @@ const WM = (() => {
       hostManaged: !!hostManaged,
     });
 
+    _removeFromRecentClosed(id);
+
     const savedDock = _loadDock(id);
     if (savedDock?.side) {
       _applyDockPosition(el, cfg, savedDock.side, false);
@@ -154,12 +163,14 @@ const WM = (() => {
       _focus(id);
     }
     _callRender(id);
+    _persistWindowStateCookie();
   }
 
   // ── Public: close a window ──────────────────────────────────────────────────
   function close(id) {
     if (!_wins.has(id)) return;
     const win = _wins.get(id);
+    const cfg = win?.cfg || _registry.get(id) || DEFAULTS[id] || {};
     if (win?.preserveOnClose) {
       win.el.classList.add('wm-closed');
       win.el.classList.remove('wm-focused');
@@ -170,6 +181,8 @@ const WM = (() => {
     }
     _wins.delete(id);
     document.getElementById('wm-task-' + id)?.remove();
+    _pushRecentClosed(id, cfg?.title || id);
+    _persistWindowStateCookie();
   }
 
   // ── Public: re-render contents of an open window ────────────────────────────
@@ -335,6 +348,21 @@ const WM = (() => {
     if (minBtn) minBtn.addEventListener('click', e => { e.stopPropagation(); _minimize(id); });
     if (closeBtn) closeBtn.addEventListener('click', e => { e.stopPropagation(); close(id); });
 
+    const titlebar = el.querySelector('.wm-titlebar');
+    if (titlebar && titlebar.dataset.wmContextBound !== '1') {
+      titlebar.dataset.wmContextBound = '1';
+      titlebar.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        _focus(id);
+        contextMenu(_buildWindowContextMenuItems(id), {
+          x: e.clientX,
+          y: e.clientY,
+          title: cfg.title || id,
+        });
+      });
+    }
+
     if (!cfg.fullscreenDesktop) {
       _makeDraggable(el);
       _makeResizable(el);
@@ -357,18 +385,418 @@ const WM = (() => {
   function _minimize(id) {
     const win = _wins.get(id);
     if (!win || win.minimized) return;
+    _closeContextMenu();
     win.minimized = true;
     win.el.classList.add('wm-minimized');
     document.getElementById('wm-task-' + id)?.classList.remove('wm-task-active');
+    _persistWindowStateCookie();
   }
 
   // ── Internal: restore from minimised ────────────────────────────────────────
   function _restore(id) {
     const win = _wins.get(id);
     if (!win || !win.minimized) return;
+    _closeContextMenu();
     win.minimized = false;
     win.el.classList.remove('wm-minimized');
     _focus(id);
+    _persistWindowStateCookie();
+  }
+
+  function _removeFromRecentClosed(id) {
+    const key = String(id || '').trim();
+    if (!key) return;
+    _recentClosed = _recentClosed.filter((entry) => String(entry?.id || '') !== key);
+    _refreshTaskbarSplitButtonState();
+  }
+
+  function _pushRecentClosed(id, title) {
+    const key = String(id || '').trim();
+    if (!key) return;
+    const item = {
+      id: key,
+      title: String(title || key),
+      ts: Date.now(),
+    };
+    _recentClosed = [item].concat(_recentClosed.filter((entry) => String(entry?.id || '') !== key));
+    _recentClosed = _recentClosed.slice(0, WM_RECENT_CLOSED_LIMIT);
+    _refreshTaskbarSplitButtonState();
+  }
+
+  function _parseCookiePayload(raw) {
+    try {
+      if (!raw) return null;
+      const decoded = decodeURIComponent(String(raw));
+      const parsed = JSON.parse(decoded);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function _readStateCookie() {
+    try {
+      const cookie = String(document.cookie || '');
+      const prefix = `${WM_STATE_COOKIE_KEY}=`;
+      const chunk = cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix));
+      if (!chunk) return null;
+      return _parseCookiePayload(chunk.slice(prefix.length));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function _writeStateCookie(payload) {
+    try {
+      const expires = new Date(Date.now() + (WM_STATE_COOKIE_DAYS * 24 * 60 * 60 * 1000)).toUTCString();
+      const value = encodeURIComponent(JSON.stringify(payload || {}));
+      document.cookie = `${WM_STATE_COOKIE_KEY}=${value}; expires=${expires}; path=/; SameSite=Lax`;
+    } catch (_) {}
+  }
+
+  function _collectPersistableWindows() {
+    const open = [];
+    _wins.forEach((win, id) => {
+      if (!win || !id) return;
+      const cfg = win.cfg || _registry.get(id) || DEFAULTS[id] || {};
+      if (cfg.persistState === false) return;
+      if (cfg.backgroundLayer) return;
+      open.push({
+        id: String(id),
+        minimized: !!win.minimized,
+      });
+    });
+    return open;
+  }
+
+  function _persistWindowStateCookie() {
+    if (_isRestoringState) return;
+    const payload = {
+      open: _collectPersistableWindows(),
+      recentClosed: _recentClosed.slice(0, WM_RECENT_CLOSED_LIMIT).map((entry) => ({
+        id: String(entry?.id || ''),
+        title: String(entry?.title || entry?.id || ''),
+        ts: Number(entry?.ts || 0),
+      })).filter((entry) => !!entry.id),
+      ts: Date.now(),
+    };
+    _writeStateCookie(payload);
+  }
+
+  function _restoreRecentClosedFromState(state) {
+    const rows = Array.isArray(state?.recentClosed) ? state.recentClosed : [];
+    _recentClosed = rows
+      .map((entry) => ({
+        id: String(entry?.id || '').trim(),
+        title: String(entry?.title || entry?.id || '').trim(),
+        ts: Number(entry?.ts || 0),
+      }))
+      .filter((entry) => !!entry.id)
+      .slice(0, WM_RECENT_CLOSED_LIMIT);
+    _refreshTaskbarSplitButtonState();
+  }
+
+  function restorePersistedState() {
+    if (_restoreAttempted) return;
+    _restoreAttempted = true;
+    _ensureTaskbarSplitButton();
+
+    const state = _readStateCookie();
+    if (!state) {
+      _refreshTaskbarSplitButtonState();
+      return;
+    }
+
+    _restoreRecentClosedFromState(state);
+    const openRows = Array.isArray(state.open) ? state.open : [];
+    _isRestoringState = true;
+    try {
+      openRows.forEach((row) => {
+        const id = String(row?.id || '').trim();
+        if (!id) return;
+        if (!_registry.has(id) && !DEFAULTS[id]) return;
+        if (!_wins.has(id)) open(id);
+        if (row?.minimized) _minimize(id);
+      });
+    } finally {
+      _isRestoringState = false;
+      _persistWindowStateCookie();
+      _refreshTaskbarSplitButtonState();
+    }
+  }
+
+  function _buildRecentClosedMenuItems() {
+    const items = [];
+    const candidates = _recentClosed
+      .filter((entry) => {
+        const id = String(entry?.id || '');
+        return !!id && (_registry.has(id) || !!DEFAULTS[id]);
+      })
+      .slice(0, WM_RECENT_CLOSED_LIMIT);
+
+    if (!candidates.length) {
+      items.push({
+        label: 'Keine zuletzt geschlossenen Fenster',
+        disabled: true,
+      });
+      return items;
+    }
+
+    candidates.forEach((entry) => {
+      const id = String(entry.id || '');
+      const title = String(entry.title || id || 'Window');
+      items.push({
+        label: title,
+        meta: id,
+        onSelect: () => open(id),
+      });
+    });
+
+    items.push({ type: 'separator' });
+    items.push({
+      label: 'Liste leeren',
+      danger: true,
+      onSelect: () => {
+        _recentClosed = [];
+        _persistWindowStateCookie();
+        _refreshTaskbarSplitButtonState();
+      },
+    });
+
+    return items;
+  }
+
+  function _showRecentClosedMenu(anchorEl) {
+    if (!(anchorEl instanceof HTMLElement)) return;
+    const rect = anchorEl.getBoundingClientRect();
+    contextMenu(_buildRecentClosedMenuItems(), {
+      x: Math.round(rect.left),
+      y: Math.round(rect.bottom + 6),
+      title: 'Zuletzt geschlossen',
+    });
+  }
+
+  function _refreshTaskbarSplitButtonState() {
+    const btn = document.getElementById('wm-taskbar-menu-btn');
+    const arrow = document.getElementById('wm-taskbar-menu-arrow');
+    if (!btn && !arrow) return;
+    const enabled = _recentClosed.length > 0;
+    if (btn) {
+      btn.classList.toggle('has-recent', enabled);
+      btn.title = enabled ? 'Zuletzt geschlossene Fenster anzeigen' : 'Keine zuletzt geschlossenen Fenster';
+    }
+    if (arrow) arrow.disabled = !enabled;
+  }
+
+  function _ensureTaskbarSplitButton() {
+    const taskbar = document.getElementById('wm-taskbar');
+    if (!taskbar) return;
+
+    const splitWrap = document.getElementById('wm-taskbar-split');
+    if (!splitWrap) return;
+    if (splitWrap.dataset.wmBound === '1') {
+      _refreshTaskbarSplitButtonState();
+      return;
+    }
+
+    const mainBtn = document.getElementById('wm-taskbar-menu-btn');
+    const arrowBtn = document.getElementById('wm-taskbar-menu-arrow');
+    if (mainBtn) {
+      mainBtn.addEventListener('click', () => {
+        _showRecentClosedMenu(mainBtn);
+      });
+    }
+    if (arrowBtn) {
+      arrowBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        _showRecentClosedMenu(arrowBtn);
+      });
+    }
+
+    splitWrap.dataset.wmBound = '1';
+    _refreshTaskbarSplitButtonState();
+  }
+
+  function _resetWindowGeometry(id) {
+    const win = _wins.get(id);
+    if (!win) return;
+    const cfg = win.cfg || _registry.get(id) || DEFAULTS[id] || { w: 600, h: 400 };
+    const desktop = _desktop();
+    const ds = _desktopSize(desktop);
+
+    _saveDock(id, null);
+    _savePos(id, null, null, null, null);
+    _setDockState(win.el, null);
+
+    const width = Math.max(280, Number(cfg.w || win.el.offsetWidth || 600));
+    const height = Math.max(180, Number(cfg.h || win.el.offsetHeight || 400));
+    let x = Number.isFinite(Number(cfg.defaultX)) ? Number(cfg.defaultX) : 48;
+    let y = Number.isFinite(Number(cfg.defaultY)) ? Number(cfg.defaultY) : 48;
+
+    if (cfg.defaultDock === 'right') {
+      const margin = Number(cfg.defaultDockMargin ?? 12);
+      x = Math.max(0, ds.w - width - margin);
+      y = Math.max(0, Number(cfg.defaultY ?? 12));
+    }
+
+    x = Math.max(0, Math.min(x, Math.max(0, ds.w - width)));
+    y = Math.max(0, Math.min(y, Math.max(0, ds.h - height)));
+
+    win.el.style.left = x + 'px';
+    win.el.style.top = y + 'px';
+    win.el.style.width = width + 'px';
+    win.el.style.height = height + 'px';
+    _savePos(id, x, y, width, height);
+    _focus(id);
+  }
+
+  function _getContextMenuRoot() {
+    let root = document.getElementById('wm-context-menu-root');
+    if (root) return root;
+    const host = document.getElementById('context_menu_container') || document.body;
+    if (!host) return null;
+    root = document.createElement('div');
+    root.id = 'wm-context-menu-root';
+    root.className = 'wm-context-menu-root';
+    host.appendChild(root);
+    return root;
+  }
+
+  function _closeContextMenu() {
+    const root = document.getElementById('wm-context-menu-root');
+    if (root) root.innerHTML = '';
+    if (_contextMenuState?.onPointerDown) {
+      document.removeEventListener('mousedown', _contextMenuState.onPointerDown, true);
+      document.removeEventListener('contextmenu', _contextMenuState.onPointerDown, true);
+    }
+    if (_contextMenuState?.onKey) {
+      document.removeEventListener('keydown', _contextMenuState.onKey, true);
+    }
+    _contextMenuState = null;
+  }
+
+  function _positionContextMenu(menuEl, x, y) {
+    if (!menuEl) return;
+    const margin = 8;
+    const width = Math.max(180, menuEl.offsetWidth || 220);
+    const height = Math.max(40, menuEl.offsetHeight || 100);
+    const maxX = Math.max(margin, (window.innerWidth || 1280) - width - margin);
+    const maxY = Math.max(margin, (window.innerHeight || 720) - height - margin);
+    menuEl.style.left = Math.max(margin, Math.min(Number(x || 0), maxX)) + 'px';
+    menuEl.style.top = Math.max(margin, Math.min(Number(y || 0), maxY)) + 'px';
+  }
+
+  function contextMenu(items = [], opts = {}) {
+    const rows = Array.isArray(items) ? items : [];
+    if (!rows.length) {
+      _closeContextMenu();
+      return;
+    }
+
+    const root = _getContextMenuRoot();
+    if (!root) return;
+    _closeContextMenu();
+
+    const menu = document.createElement('section');
+    menu.className = 'wm-context-menu';
+    menu.setAttribute('role', 'menu');
+    menu.tabIndex = -1;
+
+    if (opts.title) {
+      const title = document.createElement('div');
+      title.className = 'wm-context-menu-title';
+      title.textContent = String(opts.title || 'Menu');
+      menu.appendChild(title);
+    }
+
+    rows.forEach((item) => {
+      if (!item || item.type === 'separator') {
+        const sep = document.createElement('div');
+        sep.className = 'wm-context-menu-separator';
+        menu.appendChild(sep);
+        return;
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'wm-context-menu-item' + (item.danger ? ' is-danger' : '') + (item.checked ? ' is-checked' : '');
+      btn.setAttribute('role', 'menuitem');
+      btn.disabled = !!item.disabled;
+      btn.innerHTML = `
+        <span class="wm-context-menu-item-main">${_esc(String(item.label || 'Action'))}</span>
+        ${item.meta ? `<span class="wm-context-menu-item-meta">${_esc(String(item.meta || ''))}</span>` : ''}`;
+      btn.addEventListener('click', () => {
+        _closeContextMenu();
+        if (typeof item.onSelect === 'function' && !item.disabled) item.onSelect();
+      });
+      menu.appendChild(btn);
+    });
+
+    root.appendChild(menu);
+    _positionContextMenu(menu, opts.x, opts.y);
+
+    const onPointerDown = (ev) => {
+      if (menu.contains(ev.target)) return;
+      _closeContextMenu();
+    };
+    const onKey = (ev) => {
+      if (ev.key === 'Escape') _closeContextMenu();
+    };
+
+    _contextMenuState = { onPointerDown, onKey };
+    document.addEventListener('mousedown', onPointerDown, true);
+    document.addEventListener('contextmenu', onPointerDown, true);
+    document.addEventListener('keydown', onKey, true);
+
+    requestAnimationFrame(() => {
+      _positionContextMenu(menu, opts.x, opts.y);
+      menu.focus();
+    });
+  }
+
+  function _buildWindowContextMenuItems(id) {
+    const win = _wins.get(id);
+    if (!win) return [];
+    const cfg = win.cfg || {};
+    const items = [
+      {
+        label: win.minimized ? 'Wiederherstellen' : 'Fokussieren',
+        onSelect: () => {
+          if (win.minimized) _restore(id);
+          else _focus(id);
+        },
+      },
+      {
+        label: 'Minimieren',
+        disabled: win.minimized,
+        onSelect: () => _minimize(id),
+      },
+    ];
+
+    if (!cfg.fullscreenDesktop && _getDockConfig(cfg)) {
+      items.push({ type: 'separator' });
+      items.push({
+        label: 'Links andocken',
+        checked: win.el.dataset.wmDocked === 'left',
+        onSelect: () => _applyDockPosition(win.el, cfg, 'left', true),
+      });
+      items.push({
+        label: 'Rechts andocken',
+        checked: win.el.dataset.wmDocked === 'right',
+        onSelect: () => _applyDockPosition(win.el, cfg, 'right', true),
+      });
+      items.push({
+        label: 'Position zuruecksetzen',
+        onSelect: () => _resetWindowGeometry(id),
+      });
+    }
+
+    items.push({ type: 'separator' });
+    items.push({
+      label: 'Schliessen',
+      danger: true,
+      onSelect: () => close(id),
+    });
+    return items;
   }
 
   // ── Internal: call the registered render callback ────────────────────────────
@@ -613,6 +1041,7 @@ const WM = (() => {
   function _addTaskBtn(id, title) {
     const taskbar = document.getElementById('wm-taskbar');
     if (!taskbar) return;
+    _ensureTaskbarSplitButton();
     const btn = document.createElement('button');
     btn.className = 'wm-task-btn';
     btn.id        = 'wm-task-' + id;
@@ -621,6 +1050,15 @@ const WM = (() => {
       const win = _wins.get(id);
       if (!win) return;
       win.minimized ? _restore(id) : _minimize(id);
+    });
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      contextMenu(_buildWindowContextMenuItems(id), {
+        x: e.clientX,
+        y: e.clientY,
+        title: title || id,
+      });
     });
     // Insert before the spacer so task buttons stay left of the footer-actions
     const spacer = document.getElementById('wm-taskbar-spacer');
@@ -642,7 +1080,13 @@ const WM = (() => {
 
   // ── Internal: localStorage position persistence ───────────────────────────────
   function _savePos(id, x, y, w, h) {
-    try { localStorage.setItem('gq_wpos_' + id, JSON.stringify({ x, y, w, h })); } catch (_) {}
+    try {
+      if ([x, y, w, h].some((value) => value == null || !Number.isFinite(Number(value)))) {
+        localStorage.removeItem('gq_wpos_' + id);
+        return;
+      }
+      localStorage.setItem('gq_wpos_' + id, JSON.stringify({ x, y, w, h }));
+    } catch (_) {}
   }
   function _loadPos(id) {
     try { return JSON.parse(localStorage.getItem('gq_wpos_' + id)); } catch (_) { return null; }
@@ -799,7 +1243,7 @@ const WM = (() => {
     });
   }
 
-  return { register, adopt, open, close, refresh, body, isOpen, setTitle, modal };
+  return { register, adopt, open, close, refresh, body, isOpen, setTitle, modal, contextMenu, closeContextMenu: _closeContextMenu };
 })();
 
 if (typeof window !== 'undefined') {

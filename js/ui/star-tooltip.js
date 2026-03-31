@@ -13,6 +13,13 @@ class StarTooltip {
         this.fadeTimeout = null;
     }
 
+    _monoIcon(symbolId, extraClass = 'gq-icon-inline') {
+        const iconId = String(symbolId || '').trim();
+        if (!iconId) return '';
+        const iconFile = iconId.replace(/^icon-/, '');
+        return `<svg class="gq-icon ${extraClass}" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/${iconFile}.svg#${iconId}"></use></svg>`;
+    }
+
     /**
      * Initialize tooltip UI
      */
@@ -64,7 +71,7 @@ class StarTooltip {
                 <div class="star-tooltip-content">
                     <div class="star-tooltip-header">
                         <h3>${star.name}</h3>
-                        <span class="star-type-badge ${typeLabel.class}">${typeLabel.icon} ${typeLabel.label}</span>
+                        <span class="star-type-badge ${typeLabel.class}">${typeLabel.iconText} ${typeLabel.label}</span>
                     </div>
                     <div class="star-tooltip-row">
                         <span class="star-tooltip-label">Spectral Class:</span>
@@ -88,10 +95,10 @@ class StarTooltip {
                     </div>
                     <div class="star-tooltip-footer">
                         <button class="star-tooltip-btn" onclick="window.openSystemInfoPanel(${galaxyIdx}, ${systemIdx})">
-                            📊 View Full Details
+                            ${this._monoIcon('icon-graphics')}View Full Details
                         </button>
                         <button class="star-tooltip-btn-secondary" onclick="window.openGlossaryModal()">
-                            📖 Glossary
+                            ${this._monoIcon('icon-intel')}Glossary
                         </button>
                     </div>
                 </div>
@@ -143,14 +150,14 @@ class StarTooltip {
      */
     _getStarTypeLabel(type) {
         const labels = {
-            'white_dwarf': { label: 'White Dwarf', icon: '⚪', class: 'white-dwarf' },
-            'main_sequence': { label: 'Main Sequence', icon: '🟡', class: 'main-sequence' },
-            'neutron_star': { label: 'Neutron Star', icon: '🟣', class: 'neutron-star' },
-            'brown_dwarf': { label: 'Brown Dwarf', icon: '🔴', class: 'brown-dwarf' },
-            'red_giant': { label: 'Red Giant', icon: '🔴', class: 'red-giant' },
-            'supergiant': { label: 'Supergiant', icon: '🔵', class: 'supergiant' },
+            'white_dwarf': { label: 'White Dwarf', iconText: 'WD', class: 'white-dwarf' },
+            'main_sequence': { label: 'Main Sequence', iconText: 'MS', class: 'main-sequence' },
+            'neutron_star': { label: 'Neutron Star', iconText: 'NS', class: 'neutron-star' },
+            'brown_dwarf': { label: 'Brown Dwarf', iconText: 'BD', class: 'brown-dwarf' },
+            'red_giant': { label: 'Red Giant', iconText: 'RG', class: 'red-giant' },
+            'supergiant': { label: 'Supergiant', iconText: 'SG', class: 'supergiant' },
         };
-        return labels[type] || { label: 'Unknown', icon: '❓', class: 'unknown' };
+        return labels[type] || { label: 'Unknown', iconText: '??', class: 'unknown' };
     }
 }
 

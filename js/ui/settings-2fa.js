@@ -80,14 +80,14 @@
   function show(...ids) {
     ids.forEach((id) => {
       const el = document.getElementById(id);
-      if (el) el.style.display = '';
+      if (el) el.hidden = false;
     });
   }
 
   function hide(...ids) {
     ids.forEach((id) => {
       const el = document.getElementById(id);
-      if (el) el.style.display = 'none';
+      if (el) el.hidden = true;
     });
   }
 
@@ -242,18 +242,17 @@
   window.addEventListener('wm:modal-opened', (ev) => {
     if ((ev?.detail?.id || '') !== 'settings-modal') return;
     // Check if the account tab is already active.
-    const active = document.querySelector('#settings-modal .settings-tab-content.active[data-tab]');
-    if (active?.getAttribute('data-tab') === 'account') {
+    const active = document.querySelector('#settings-modal [data-ui-tab-panel].is-active[data-ui-tab-panel]');
+    if (active?.getAttribute('data-ui-tab-panel') === 'account') {
       wire();
       loadStatus();
     }
   });
 
-  // Intercept tab button clicks inside #settings-modal.
-  document.addEventListener('click', (ev) => {
-    const btn = ev.target?.closest?.('#settings-modal .settings-tab-btn');
-    if (!btn) return;
-    const tab = btn.getAttribute('data-tab');
+  document.addEventListener('gq:ui-tab-change', (ev) => {
+    const host = ev?.target;
+    if (!host || host.id !== 'settings-tabs') return;
+    const tab = ev?.detail?.tabId || '';
     if (tab) onSettingsTabChange(tab);
   });
 })();

@@ -198,7 +198,7 @@ function create_seed_homeworld(PDO $db, int $userId, string $username, bool $isN
 }
 
 function ensure_seed_user(PDO $db, string $username, string $email, bool $isNpc, bool $withProfile): array {
-    $sel = $db->prepare('SELECT id, username, is_npc, control_type, auth_enabled, deleted_at FROM users WHERE username = ? LIMIT 1');
+    $sel = $db->prepare('SELECT id, username, control_type, auth_enabled, deleted_at FROM users WHERE username = ? LIMIT 1');
     $sel->execute([$username]);
     $user = $sel->fetch(PDO::FETCH_ASSOC);
 
@@ -207,9 +207,9 @@ function ensure_seed_user(PDO $db, string $username, string $email, bool $isNpc,
         $hash = password_hash(bin2hex(random_bytes(10)), PASSWORD_BCRYPT);
         try {
             $db->prepare(
-                'INSERT INTO users (username, email, password_hash, is_npc, control_type, auth_enabled, protection_until, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())'
-            )->execute([$username, $email, $hash, $isNpc ? 1 : 0, $isNpc ? 'npc_engine' : 'human', $isNpc ? 0 : 1]);
+                'INSERT INTO users (username, email, password_hash, control_type, auth_enabled, protection_until, created_at)
+                 VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())'
+            )->execute([$username, $email, $hash, $isNpc ? 'npc_engine' : 'human', $isNpc ? 0 : 1]);
             $userId = (int)$db->lastInsertId();
             $created = true;
         } catch (PDOException $e) {
@@ -231,13 +231,12 @@ function ensure_seed_user(PDO $db, string $username, string $email, bool $isNpc,
         $expectedControlType = $isNpc ? 'npc_engine' : 'human';
         $expectedAuthEnabled = $isNpc ? 0 : 1;
         if (
-            (int)$user['is_npc'] !== ($isNpc ? 1 : 0)
-            || (string)($user['control_type'] ?? '') !== $expectedControlType
+            (string)($user['control_type'] ?? '') !== $expectedControlType
             || (int)($user['auth_enabled'] ?? -1) !== $expectedAuthEnabled
             || $user['deleted_at'] !== null
         ) {
-            $db->prepare('UPDATE users SET is_npc = ?, control_type = ?, auth_enabled = ?, deleted_at = NULL WHERE id = ?')
-                ->execute([$isNpc ? 1 : 0, $expectedControlType, $expectedAuthEnabled, $userId]);
+            $db->prepare('UPDATE users SET control_type = ?, auth_enabled = ?, deleted_at = NULL WHERE id = ?')
+                ->execute([$expectedControlType, $expectedAuthEnabled, $userId]);
         }
     }
 

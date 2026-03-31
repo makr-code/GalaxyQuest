@@ -9,8 +9,24 @@ SET @col_check = (
     SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = @dbname AND TABLE_NAME = 'users' AND COLUMN_NAME = 'control_type'
 );
+SET @has_is_npc = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @dbname AND TABLE_NAME = 'users' AND COLUMN_NAME = 'is_npc'
+);
 SET @sql = IF(@col_check = 0,
-    'ALTER TABLE users ADD COLUMN control_type VARCHAR(24) NOT NULL DEFAULT ''human'' AFTER is_npc, ADD INDEX idx_users_control_type (control_type)',
+    CONCAT(
+        'ALTER TABLE users ADD COLUMN control_type VARCHAR(24) NOT NULL DEFAULT ''human'' AFTER ',
+        IF(@has_is_npc = 1, 'is_npc', 'pvp_mode')
+    ),
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_check = (
+    SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = @dbname AND TABLE_NAME = 'users' AND INDEX_NAME = 'idx_users_control_type'
+);
+SET @sql = IF(@idx_check = 0,
+    'ALTER TABLE users ADD INDEX idx_users_control_type (control_type)',
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
@@ -23,27 +39,44 @@ SET @sql = IF(@col_check = 0,
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-UPDATE users
-SET control_type = CASE
-    WHEN deleted_at IS NOT NULL THEN 'npc_engine'
-    WHEN is_npc = 1 THEN 'npc_engine'
-    ELSE 'human'
-    END,
-    auth_enabled = CASE
-        WHEN deleted_at IS NOT NULL THEN 0
-        WHEN is_npc = 1 THEN 0
-        ELSE 1
-    END
-WHERE control_type IS NULL
-   OR control_type = ''
-   OR auth_enabled IS NULL
-   OR control_type <> CASE
-       WHEN deleted_at IS NOT NULL THEN 'npc_engine'
-       WHEN is_npc = 1 THEN 'npc_engine'
-       ELSE 'human'
-    END
-   OR auth_enabled <> CASE
-        WHEN deleted_at IS NOT NULL THEN 0
-        WHEN is_npc = 1 THEN 0
-        ELSE 1
-    END;
+SET @sql = IF(@has_is_npc = 1,
+    "UPDATE users
+     SET control_type = CASE
+         WHEN deleted_at IS NOT NULL THEN 'npc_engine'
+         WHEN is_npc = 1 THEN 'npc_engine'
+         ELSE 'human'
+         END,
+         auth_enabled = CASE
+             WHEN deleted_at IS NOT NULL THEN 0
+             WHEN is_npc = 1 THEN 0
+             ELSE 1
+         END
+     WHERE control_type IS NULL
+        OR control_type = ''
+        OR auth_enabled IS NULL
+        OR control_type <> CASE
+            WHEN deleted_at IS NOT NULL THEN 'npc_engine'
+            WHEN is_npc = 1 THEN 'npc_engine'
+            ELSE 'human'
+         END
+        OR auth_enabled <> CASE
+             WHEN deleted_at IS NOT NULL THEN 0
+             WHEN is_npc = 1 THEN 0
+             ELSE 1
+         END",
+    "UPDATE users
+     SET control_type = CASE
+         WHEN deleted_at IS NOT NULL THEN 'npc_engine'
+         ELSE COALESCE(NULLIF(control_type, ''), 'human')
+         END,
+         auth_enabled = CASE
+             WHEN deleted_at IS NOT NULL THEN 0
+             WHEN COALESCE(NULLIF(control_type, ''), 'human') = 'human' THEN COALESCE(auth_enabled, 1)
+             ELSE 0
+         END
+     WHERE control_type IS NULL
+        OR control_type = ''
+        OR auth_enabled IS NULL
+        OR (deleted_at IS NOT NULL AND (control_type <> 'npc_engine' OR auth_enabled <> 0))"
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

@@ -45,8 +45,8 @@ function ensure_npc_test_user(PDO $db): array {
     $passwordHash = password_hash(bin2hex(random_bytes(12)), PASSWORD_BCRYPT);
 
     $ins = $db->prepare(
-           "INSERT INTO users (username, email, password_hash, is_npc, control_type, auth_enabled, created_at)
-            VALUES (?, ?, ?, 1, 'npc_engine', 0, NOW())"
+           "INSERT INTO users (username, email, password_hash, control_type, auth_enabled, created_at)
+            VALUES (?, ?, ?, 'npc_engine', 0, NOW())"
     );
     $ins->execute([$username, $email, $passwordHash]);
 

@@ -152,9 +152,9 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         $tgtRow = $db->prepare(
             "SELECT u.pvp_mode, u.protection_until, u.control_type
              FROM colonies c
-                         JOIN celestial_bodies cb ON cb.id = c.body_id
+             JOIN celestial_bodies cb ON cb.id = c.body_id
              JOIN users u ON u.id = c.user_id
-                             WHERE cb.galaxy_index = ? AND cb.system_index = ? AND cb.position = ?'
+             WHERE cb.galaxy_index = ? AND cb.system_index = ? AND cb.position = ?"
         );
         $tgtRow->execute([$tg, $ts, $tp]);
         $tgtUser = $tgtRow->fetch();

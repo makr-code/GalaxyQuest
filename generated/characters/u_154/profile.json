@@ -1,10 +1,10 @@
 {
-    "username": "gqnpc_pvehel_002_aidlume",
+    "username": "gq_seed_npc_0013",
     "is_npc": true,
-    "race": "Vor'Tak",
-    "profession": "Emissary of Peace",
-    "stance": "Diplomatic and Trade Advocate",
-    "vita": "As an Emissary for the Vor'Tak, I have dedicated my life to fostering peaceful relations among star systems. My journey began in a humble home on the bustling trade hub of Zypheron Prime where commerce thrives and cultures intersect. With innate skills honed from years navigating complex negotiations within diverse marketpries, I have become an expert advocate for fair dealings across galaxies.",
-    "portrait_prompt": "A dignified Vor'Tak Emissary of Peace with a translucent skin that glimmers like the bioluminescent markets they adore; eyes reflecting wisdom and empathy, standing amidst an interstellar backdrop. The subtle hues of their attire mirror Zypheron Prime's vibrant trade colors.",
-    "generated_at": "2026-03-29T16:06:15+00:00"
+    "race": "Vel'Ar",
+    "profession": "Galactic Trader",
+    "stance": "Neutral Merchant",
+    "vita": "As a Vel'Ar born into the bustling trade hub of Zyphus Prime, I have navigated through countless star systems to become an influential trader. My family lineage is steeped in commerce and negotin', with ancestors who forged alliances that shaped interstellar politics.",
+    "portrait_prompt": "A tall Vel'Ar standing at the helm of a sleek trade vessel, its hull adorned with symbols from across known space. The transparent background reveals bustling markets and star maps through which I gaze outwardly as if looking into an endless sea of opportunity.",
+    "generated_at": "2026-03-31T13:50:44+00:00"
 }

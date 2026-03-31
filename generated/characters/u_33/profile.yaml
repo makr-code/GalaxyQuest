@@ -1,0 +1,8 @@
+username: "dev_npc_colonist_02"
+is_npc: true
+race: "Syl'nar"
+profession: "Colonist and Trader"
+stance: "Diplomatic yet pragmatic negotiator with a keen eye for profit."
+vita: "Born on the trade-rich planet of Cynthia Prime, I grew up amid bustling markets. My family's wealth and influence have granted me access to various galactic factions. Despite my privileged background, I always valued fairness in dealings."
+portrait_prompt: "A Syl'nar colonist with glowing azure skin reflective of their home planet’thin silver hair that shimmers like starlight and eyes as deep black orbs resembling the night sky. Their attire consists of a lightweight, breathable fabric blend designed for interstellar travel."
+generated_at: "2026-03-31T13:12:54+00:00"

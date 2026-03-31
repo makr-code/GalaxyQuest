@@ -176,6 +176,13 @@ const GLOSSARY_TERMS = {
     }
 };
 
+function glossaryMonoIcon(symbolId, extraClass = 'gq-icon-inline') {
+    const iconId = String(symbolId || '').trim();
+    if (!iconId) return '';
+    const iconFile = iconId.replace(/^icon-/, '');
+    return `<svg class="gq-icon ${extraClass}" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/${iconFile}.svg#${iconId}"></use></svg>`;
+}
+
 /**
  * Opens the glossary modal with RAG-enhanced LLM definitions
  */
@@ -194,7 +201,7 @@ function openGlossaryModal() {
         </div>
         <div class="glossary-search">
             <input type="text" id="glossary-search-input" placeholder="Search terms..." />
-            <span class="glossary-info-icon" title="Definitions enhanced by Ollama LLM + Wikipedia RAG">🤖</span>
+            <span class="glossary-info-icon" title="Definitions enhanced by Ollama LLM + Wikipedia RAG">${glossaryMonoIcon('icon-llm')}</span>
         </div>
         <div class="glossary-content">
     `;
@@ -206,15 +213,15 @@ function openGlossaryModal() {
                 <div class="glossary-entry-header">
                     <h3>${entry.term}</h3>
                     <span class="glossary-category">${entry.category}</span>
-                    <span class="glossary-loading" style="display:none;">✨ Loading AI...</span>
+                    <span class="glossary-loading" style="display:none;">AI Loading...</span>
                 </div>
                 <p class="glossary-short">${entry.short}</p>
                 <p class="glossary-full glossary-full-static">${entry.full}</p>
                 <p class="glossary-full glossary-full-ai" style="display:none; color: #00d4ff; font-style: italic;"></p>
                 <div class="glossary-links">
-                    <a href="${entry.wikipedia}" target="_blank" rel="noopener">📖 Wikipedia</a>
-                    ${entry.arxiv ? `<a href="${entry.arxiv}" target="_blank" rel="noopener">📄 ArXiv Paper</a>` : ''}
-                    <button class="glossary-btn-ai" data-term="${key}">🤖 AI Enhanced</button>
+                    <a href="${entry.wikipedia}" target="_blank" rel="noopener">${glossaryMonoIcon('icon-intel')}Wikipedia</a>
+                    ${entry.arxiv ? `<a href="${entry.arxiv}" target="_blank" rel="noopener">${glossaryMonoIcon('icon-research')}ArXiv Paper</a>` : ''}
+                    <button class="glossary-btn-ai" data-term="${key}">${glossaryMonoIcon('icon-llm')}AI Enhanced</button>
                 </div>
             </div>
         `;
@@ -284,7 +291,7 @@ async function loadLLMDefinition(entry, termKey) {
 
     try {
         loading.style.display = 'inline-block';
-        loading.textContent = '✨ Loading AI...';
+        loading.textContent = 'AI Loading...';
         
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);  // 30s timeout
@@ -323,11 +330,11 @@ async function loadLLMDefinition(entry, termKey) {
         }
     } catch (error) {
         if (error.name === 'AbortError') {
-            loading.textContent = '⏱️ Timeout (30s)';
+            loading.textContent = 'Timeout (30s)';
             loading.style.color = '#ff9944';
             console.warn(`LLM generation timeout for ${termKey}`);
         } else {
-            loading.textContent = '🔌 Offline';
+            loading.textContent = 'Offline';
             loading.style.color = '#ff6666';
             console.warn(`Failed to load AI definition for ${termKey}:`, error);
         }

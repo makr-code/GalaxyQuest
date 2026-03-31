@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS users (
     protection_until DATETIME DEFAULT NULL,
     vacation_mode TINYINT(1) NOT NULL DEFAULT 0,
     pvp_mode TINYINT(1) NOT NULL DEFAULT 0,
-    is_npc TINYINT(1) NOT NULL DEFAULT 0,
     control_type VARCHAR(24) NOT NULL DEFAULT 'human'
         COMMENT 'human|npc_engine - who controls this actor',
     auth_enabled TINYINT(1) NOT NULL DEFAULT 1
@@ -27,7 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
     ftl_drive_type VARCHAR(30) NOT NULL DEFAULT 'aereth'
         COMMENT 'Faction FTL drive: aereth|vor_tak|syl_nar|vel_ar|zhareen|kryl_tha',
     ftl_cooldown_until DATETIME DEFAULT NULL
-        COMMENT 'FTL drive cooldown expiry (Vor''Tak K-F recharge)'
+        COMMENT 'FTL drive cooldown expiry (Vor''Tak K-F recharge)',
+    KEY idx_users_control_type (control_type)
 ) ENGINE=InnoDB;
 
 -- Generated character dossier + portrait asset references (UID-linked)
@@ -216,7 +216,6 @@ CREATE TABLE IF NOT EXISTS colonies (
     is_homeworld  TINYINT(1) NOT NULL DEFAULT 0,
     last_update   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (planet_id) REFERENCES planets(id) ON DELETE SET NULL,
-    FOREIGN KEY (body_id) REFERENCES celestial_bodies(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE KEY unique_colony_body (body_id),
     KEY idx_colonies_body_id (body_id)
@@ -309,6 +308,10 @@ CREATE TABLE IF NOT EXISTS fleets (
         COMMENT 'Vel''Ar FTL: fleet hidden from enemies until this timestamp',
     hull_damage_pct TINYINT UNSIGNED NOT NULL DEFAULT 0
         COMMENT 'Kryl''Tha FTL: hull degradation after swarm-tunnel jump (0-100 %)',
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (origin_colony_id) REFERENCES colonies(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- Unified celestial body catalog (planet, moon, comet, rogue planet, etc.)
 CREATE TABLE IF NOT EXISTS celestial_bodies (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -356,8 +359,10 @@ CREATE TABLE IF NOT EXISTS celestial_bodies (
       FOREIGN KEY (parent_body_id) REFERENCES celestial_bodies(id)
       ON DELETE SET NULL
 ) ENGINE=InnoDB;
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+
+ALTER TABLE colonies
+    ADD CONSTRAINT fk_colonies_body_id
+    FOREIGN KEY (body_id) REFERENCES celestial_bodies(id) ON DELETE CASCADE;
 
 -- Wormhole network (Phase 5.3)
 CREATE TABLE IF NOT EXISTS wormholes (

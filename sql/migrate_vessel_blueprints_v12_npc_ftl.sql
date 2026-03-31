@@ -3,7 +3,7 @@
 -- npc_faction affiliation (empire→vor_tak, guild→aereth, science→zhareen,
 -- pirates→kryl_tha, precursors→vel_ar, pve_*→aereth default).
 --
--- NPC users are identified by is_npc = 1.
+-- NPC users are identified by control_type = 'npc_engine'.
 -- This migration uses a best-effort approach: NPC users are matched via
 -- the faction_colonies join (npc_factions → faction_colonies → colonies → users).
 
@@ -12,7 +12,7 @@ USE galaxyquest;
 -- ── Empire faction → Vor'Tak (disciplined jump drives, strategic planning) ──
 UPDATE users u
    SET u.ftl_drive_type = 'vor_tak'
- WHERE u.is_npc = 1
+ WHERE u.control_type = 'npc_engine'
    AND u.ftl_drive_type = 'aereth'
    AND EXISTS (
        SELECT 1 FROM faction_colonies fc
@@ -26,7 +26,7 @@ UPDATE users u
 -- ── Science faction → Zhareen (resonance nodes, survey-based network) ──────
 UPDATE users u
    SET u.ftl_drive_type = 'zhareen'
- WHERE u.is_npc = 1
+ WHERE u.control_type = 'npc_engine'
    AND u.ftl_drive_type = 'aereth'
    AND EXISTS (
        SELECT 1 FROM faction_colonies fc
@@ -40,7 +40,7 @@ UPDATE users u
 -- ── Pirates faction → Kryl'Tha (swarm tactics, fast small raids) ────────────
 UPDATE users u
    SET u.ftl_drive_type = 'kryl_tha'
- WHERE u.is_npc = 1
+ WHERE u.control_type = 'npc_engine'
    AND u.ftl_drive_type = 'aereth'
    AND EXISTS (
        SELECT 1 FROM faction_colonies fc
@@ -54,7 +54,7 @@ UPDATE users u
 -- ── Precursors faction → Vel'Ar (ancient stealth tech, blind jumps) ─────────
 UPDATE users u
    SET u.ftl_drive_type = 'vel_ar'
- WHERE u.is_npc = 1
+ WHERE u.control_type = 'npc_engine'
    AND u.ftl_drive_type = 'aereth'
    AND EXISTS (
        SELECT 1 FROM faction_colonies fc
@@ -68,7 +68,7 @@ UPDATE users u
 -- ── Guild faction → Syl'Nar (trade-route gate network) ──────────────────────
 UPDATE users u
    SET u.ftl_drive_type = 'syl_nar'
- WHERE u.is_npc = 1
+ WHERE u.control_type = 'npc_engine'
    AND u.ftl_drive_type = 'aereth'
    AND EXISTS (
        SELECT 1 FROM faction_colonies fc

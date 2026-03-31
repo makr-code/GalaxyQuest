@@ -1,10 +1,10 @@
 {
-    "username": "profile_user_1774790202",
-    "is_npc": false,
-    "race": "Celestial Nomad",
-    "profession": "Galaxy Trader",
-    "stance": "Neutral Merchant",
-    "vita": "Born on the trading frigate 'Star Voyager', I've spent my life navigating between star systems, bartering goods and knowledge. My parents were renowned diplomats who taught me to respect all cultures.",
-    "portrait_prompt": "A tall figure with a slender build stands in front of the sleek hull of 'Star Voyager', reflective surfaces catch light from distant stars, hinting at my neutral stance and interstellar trade background. My eyes are like twin black holes absorbing every detail around me.",
-    "generated_at": "2026-03-29T13:20:54+00:00"
+    "username": "dev_npc_trader_04",
+    "is_npc": true,
+    "race": "Cephalid Synapsekin",
+    "profession": "Trade Envoy",
+    "stance": "Diplomatic",
+    "vita": "dev_npc_trader_04 emerged from an autonomous sector protocol and built a reputation as a trade envoy. Their diplomatic outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
+    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Cephalid Synapsekin, role: Trade Envoy, attitude: Diplomatic, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
+    "generated_at": "2026-03-31T13:04:48+00:00"
 }

@@ -1,0 +1,10 @@
+{
+    "username": "dev_npc_pirate_04",
+    "is_npc": true,
+    "race": "Vor'Tak",
+    "profession": "Pirate Navigator",
+    "stance": "Neutral Trader with a penchant for neutrality in conflicts and equal respect tow",
+    "vita": "A seasoned pirate navigator, I have traversed the cosmos on countless starships. My life has been one of adventure and exploration rather than conquest or domination; my crew and me seek only to survive and prosper through trade in a galaxy rife with factions vying for power.",
+    "portrait_prompt": "A ruggedly handsome Vor'Tak, adorned with traditional pirate attire from his homeworld of Tarken Prime. His eyes reflect wisdom beyond years despite the youthful appearance and a hint of mischief in his smile.",
+    "generated_at": "2026-03-31T13:09:18+00:00"
+}

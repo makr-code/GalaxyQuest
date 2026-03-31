@@ -1,0 +1,10 @@
+{
+    "username": "dev_npc_colonist_07",
+    "is_npc": true,
+    "race": "Human",
+    "profession": "Colonist and Diplomat",
+    "stance": "Neutral Trader with a focus on peaceful expansion across star systems.",
+    "vita": "As an inhabitant of the human colony worlds, I've dedicated my life to building bridges between disparate cultures. My work often takes me from one galactic faction to another, fostering understanding and cooperation for mutual benefit. Avoiding unnecessary conflict whenever possible has been a core principle in my career.",
+    "portrait_prompt": "A human colonist with silver hair and sharp eyes gazing into the starlit void of space through an observation portal - attire reflective of their neutrality, featuring sleek business-like clothing that blends earthly fashion with a hint of futuristic design.",
+    "generated_at": "2026-03-31T13:15:12+00:00"
+}

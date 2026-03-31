@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>GalaxyQuest – Unified Command Shell</title>
-  <link rel="stylesheet" href="css/style.css?v=20260330p5" />
+  <link rel="stylesheet" href="css/style.css?v=20260331p24" />
   <style>
     #boot-terminal {
       position: fixed;
@@ -117,11 +117,11 @@
   <section id="auth-section" class="auth-shell">
   <div class="auth-wrapper" id="auth-wrapper">
     <div class="auth-toolbar">
-      <button id="auth-console-toggle" class="auth-toolbar-btn" type="button" title="Toggle Developer Console" aria-label="Developer Console">⌄ Console</button>
+      <button id="auth-console-toggle" class="auth-toolbar-btn" type="button" title="Toggle Developer Console" aria-label="Developer Console"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/terminal.svg#icon-terminal"></use></svg>Console</button>
     </div>
     
     <div class="auth-logo">
-      <div class="logo-icon">🌌</div>
+      <div class="logo-icon"><svg class="gq-icon" aria-hidden="true" focusable="false" style="width:1.9rem;height:1.9rem"><use href="gfx/icons/mono/galaxy.svg#icon-galaxy"></use></svg></div>
       <h1 class="logo-title">GalaxyQuest</h1>
       <p class="logo-subtitle">Conquer the Stars</p>
     </div>
@@ -165,7 +165,7 @@
     <!-- ── TOTP 2FA challenge panel (shown instead of login form when 2FA active) ── -->
     <div id="auth-2fa-panel" class="auth-form hidden" role="region" aria-label="Zwei-Faktor-Authentifizierung" aria-live="polite">
       <div class="auth-logo" style="margin-bottom:0.5rem">
-        <div class="logo-icon" style="font-size:1.6rem">🔐</div>
+        <div class="logo-icon" style="font-size:1.6rem"><svg class="gq-icon" aria-hidden="true" focusable="false" style="width:1.6rem;height:1.6rem"><use href="gfx/icons/mono/lock.svg#icon-lock"></use></svg></div>
         <h2 class="logo-title" style="font-size:1.2rem">Zwei-Faktor-Code</h2>
         <p class="logo-subtitle">Gib den 6-stelligen Code aus deiner Authenticator-App ein.</p>
       </div>
@@ -178,7 +178,7 @@
       <div id="auth-2fa-error" class="form-error" aria-live="polite"></div>
       <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
         <button id="auth-2fa-submit" type="button" class="btn btn-primary" style="flex:1">Bestätigen</button>
-        <button id="auth-2fa-cancel" type="button" class="btn btn-secondary">↩ Zurück</button>
+        <button id="auth-2fa-cancel" type="button" class="btn btn-secondary"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/back.svg#icon-back"></use></svg>Zurück</button>
       </div>
     </div>
 
@@ -263,82 +263,87 @@
   <section id="topbar-section" class="game-ui-section">
     <header class="topbar">
       <div class="topbar-left">
-        <button id="topbar-title-btn" class="topbar-brand-btn" type="button" title="Daten aktualisieren">🌌</button>
-        <button id="topbar-home-btn" class="topbar-home-btn" type="button" title="Zum Heimatsystem springen">🏠</button>
+        <button id="topbar-title-btn" class="topbar-brand-btn" type="button" title="Daten aktualisieren" aria-label="Daten aktualisieren">
+          <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/galaxy.svg#icon-galaxy"></use></svg>
+        </button>
+        <button id="topbar-home-btn" class="topbar-home-btn" type="button" title="Zum Heimatsystem springen" aria-label="Zum Heimatsystem springen">
+          <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/home.svg#icon-home"></use></svg>
+        </button>
         <span id="topbar-coords" class="coords-badge"></span>
+        <span id="topbar-orbit-mode" class="coords-badge orbit-mode-badge hidden" aria-live="polite" role="button" tabindex="0" title="Orbit-Simulation umschalten (AUTO → SIMPLE → COMPLEX)"></span>
       </div>
 
       <nav class="topbar-nav" aria-label="Open windows">
 
         <!-- Colony group: direct action + dropdown for sub-items -->
         <div class="nav-split-group" id="nav-group-colony">
-          <button class="nav-btn nav-split-primary" data-win="overview" title="Colony Overview">🌍 Colony</button>
+          <button class="nav-btn nav-split-primary" data-win="overview" title="Colony Overview"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/colony.svg#icon-colony"></use></svg>Colony</button>
           <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
-                  aria-controls="nav-drop-colony" data-nav-drop="colony" type="button">▾</button>
+                  aria-controls="nav-drop-colony" data-nav-drop="colony" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/chevron-down.svg#icon-chevron-down"></use></svg></button>
           <div id="nav-drop-colony" class="nav-dropdown hidden" role="menu">
-            <button class="nav-drop-item" data-win="overview" role="menuitem">🌍 Overview</button>
-            <button class="nav-drop-item" data-win="buildings" role="menuitem">🏗 Buildings</button>
-            <button class="nav-drop-item" data-win="research" role="menuitem">🔬 Research</button>
+            <button class="nav-drop-item" data-win="overview" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/colony.svg#icon-colony"></use></svg>Overview</button>
+            <button class="nav-drop-item" data-win="buildings" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/buildings.svg#icon-buildings"></use></svg>Buildings</button>
+            <button class="nav-drop-item" data-win="research" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/research.svg#icon-research"></use></svg>Research</button>
           </div>
         </div>
 
         <!-- Military group -->
         <div class="nav-split-group" id="nav-group-military">
-          <button class="nav-btn nav-split-primary" data-win="fleet" title="Fleet">⚔ Military</button>
+          <button class="nav-btn nav-split-primary" data-win="fleet" title="Fleet"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/military.svg#icon-military"></use></svg>Military</button>
           <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
-                  aria-controls="nav-drop-military" data-nav-drop="military" type="button">▾</button>
+                  aria-controls="nav-drop-military" data-nav-drop="military" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/chevron-down.svg#icon-chevron-down"></use></svg></button>
           <div id="nav-drop-military" class="nav-dropdown hidden" role="menu">
-            <button class="nav-drop-item" data-win="shipyard" role="menuitem">🚀 Shipyard</button>
-            <button class="nav-drop-item" data-win="fleet" role="menuitem">⚔ Fleet</button>
-            <button class="nav-drop-item" data-win="wormholes" role="menuitem">🌀 Wormholes</button>
+            <button class="nav-drop-item" data-win="shipyard" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/shipyard.svg#icon-shipyard"></use></svg>Shipyard</button>
+            <button class="nav-drop-item" data-win="fleet" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/fleet.svg#icon-fleet"></use></svg>Fleet</button>
+            <button class="nav-drop-item" data-win="wormholes" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/wormhole.svg#icon-wormhole"></use></svg>Wormholes</button>
           </div>
         </div>
 
         <!-- Comms group: shows combined badge on primary button -->
         <div class="nav-split-group" id="nav-group-comms">
           <button class="nav-btn nav-split-primary" data-win="messages" title="Messages">
-            📨 Comms
+            <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/mail.svg#icon-mail"></use></svg>Comms
             <span id="comms-badge" class="msg-badge hidden">0</span>
           </button>
           <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
-                  aria-controls="nav-drop-comms" data-nav-drop="comms" type="button">▾</button>
+                  aria-controls="nav-drop-comms" data-nav-drop="comms" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/chevron-down.svg#icon-chevron-down"></use></svg></button>
           <div id="nav-drop-comms" class="nav-dropdown hidden" role="menu">
             <button class="nav-drop-item" data-win="messages" role="menuitem">
-              ✉ Messages <span id="msg-badge" class="msg-badge hidden">0</span>
+              <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/mail.svg#icon-mail"></use></svg>Messages <span id="msg-badge" class="msg-badge hidden">0</span>
             </button>
             <button class="nav-drop-item" data-win="intel" role="menuitem">
-              🔍 Intel <span id="intel-badge" class="msg-badge hidden">0</span>
+              <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/intel.svg#icon-intel"></use></svg>Intel <span id="intel-badge" class="msg-badge hidden">0</span>
             </button>
-            <button class="nav-drop-item" data-win="trade-routes" role="menuitem">🚚 Trade Routes</button>
+            <button class="nav-drop-item" data-win="trade-routes" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/trade.svg#icon-trade"></use></svg>Trade Routes</button>
             <button class="nav-drop-item" data-win="quests" role="menuitem">
-              📋 Quests <span id="quest-badge" class="msg-badge hidden">0</span>
+              <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/quests.svg#icon-quests"></use></svg>Quests <span id="quest-badge" class="msg-badge hidden">0</span>
             </button>
           </div>
         </div>
 
         <!-- Galaxy group -->
         <div class="nav-split-group" id="nav-group-galaxy">
-          <button class="nav-btn nav-split-primary" data-win="factions" title="Galaxy">🌐 Galaxy</button>
+          <button class="nav-btn nav-split-primary" data-win="factions" title="Galaxy"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/galaxy.svg#icon-galaxy"></use></svg>Galaxy</button>
           <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
-                  aria-controls="nav-drop-galaxy" data-nav-drop="galaxy" type="button">▾</button>
+                  aria-controls="nav-drop-galaxy" data-nav-drop="galaxy" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/chevron-down.svg#icon-chevron-down"></use></svg></button>
           <div id="nav-drop-galaxy" class="nav-dropdown hidden" role="menu">
-            <button class="nav-drop-item" data-win="factions" role="menuitem">🌐 Factions</button>
-            <button class="nav-drop-item" data-win="leaders" role="menuitem">👤 Leaders</button>
-            <button class="nav-drop-item" data-win="leaderboard" role="menuitem">🏆 Leaderboard</button>
-            <button class="nav-drop-item" data-win="minimap" role="menuitem">🗺 Minimap</button>
+            <button class="nav-drop-item" data-win="factions" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/factions.svg#icon-factions"></use></svg>Factions</button>
+            <button class="nav-drop-item" data-win="leaders" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/user.svg#icon-user"></use></svg>Leaders</button>
+            <button class="nav-drop-item" data-win="leaderboard" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/leaderboard.svg#icon-leaderboard"></use></svg>Leaderboard</button>
+            <button class="nav-drop-item" data-win="minimap" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/map.svg#icon-map"></use></svg>Minimap</button>
           </div>
         </div>
 
         <!-- System group -->
         <div class="nav-split-group" id="nav-group-system">
-          <button class="nav-btn nav-split-primary" data-win="settings" title="Settings">⚙ System</button>
+            <button class="nav-btn nav-split-primary" data-win="settings" title="Settings"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/settings.svg#icon-settings"></use></svg>System</button>
           <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
-                  aria-controls="nav-drop-system" data-nav-drop="system" type="button">▾</button>
+              aria-controls="nav-drop-system" data-nav-drop="system" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/chevron-down.svg#icon-chevron-down"></use></svg></button>
           <div id="nav-drop-system" class="nav-dropdown hidden" role="menu">
-            <button class="nav-drop-item" data-win="settings" role="menuitem">⚙ Settings</button>
-            <button class="nav-drop-item" data-win="llm" role="menuitem">🧠 LLM</button>
+              <button class="nav-drop-item" data-win="settings" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/settings.svg#icon-settings"></use></svg>Settings</button>
+              <button class="nav-drop-item" data-win="llm" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/llm.svg#icon-llm"></use></svg>LLM</button>
             <button class="nav-drop-item admin-only-nav" data-win="admin-users"
-                    id="nav-btn-admin-users" role="menuitem" style="display:none">🛡 Users</button>
+                id="nav-btn-admin-users" role="menuitem" style="display:none"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/admin.svg#icon-admin"></use></svg>Users</button>
           </div>
         </div>
 
@@ -348,7 +353,9 @@
         <!-- Search -->
         <div class="topbar-menu topbar-search-wrap" id="topbar-search-wrap">
           <button id="topbar-search-toggle" class="topbar-icon-btn" type="button" title="Suche"
-                  aria-expanded="false" aria-haspopup="true" aria-controls="topbar-search-menu">🔍</button>
+                  aria-label="Suche" aria-expanded="false" aria-haspopup="true" aria-controls="topbar-search-menu">
+            <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/search.svg#icon-search"></use></svg>
+          </button>
           <div id="topbar-search-menu" class="topbar-menu-panel hidden" role="dialog" aria-label="Galaxy search">
             <input id="topbar-search-input" class="topbar-search-input" type="search"
                    placeholder="Sterne/Systeme suchen..." autocomplete="off" aria-label="Galaxy search" />
@@ -360,17 +367,23 @@
         <!-- Audio: icon-only quick controls + expand -->
         <div class="topbar-player topbar-menu" id="topbar-player" aria-label="Musiksteuerung">
           <button id="topbar-player-toggle" class="topbar-icon-btn" type="button"
-                  title="Musik starten" aria-label="Musik starten">▶</button>
+            title="Musik starten" aria-label="Musik starten">
+            <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/play.svg#icon-play"></use></svg>
+          </button>
           <button id="audio-toggle-btn" class="topbar-icon-btn" type="button"
-                  title="Audio stummschalten">🔊</button>
+            title="Audio stummschalten" aria-label="Audio stummschalten">
+            <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/volume.svg#icon-volume"></use></svg>
+          </button>
           <button id="topbar-player-menu-toggle" class="topbar-icon-btn" type="button"
                   title="Player-Menü" aria-expanded="false" aria-haspopup="true"
-                  aria-controls="topbar-player-menu">♪</button>
+            aria-label="Player-Menü" aria-controls="topbar-player-menu">
+            <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/music.svg#icon-music"></use></svg>
+          </button>
           <div id="topbar-player-menu" class="topbar-menu-panel topbar-player-menu hidden"
                role="dialog" aria-label="Erweiterte Musiksteuerung">
             <div class="topbar-player-menu-row">
-              <button id="topbar-player-prev" class="btn btn-secondary btn-sm" type="button" title="Vorheriger Track">◀</button>
-              <button id="topbar-player-next-quick" class="btn btn-secondary btn-sm" type="button" title="Nächster Track">▶</button>
+              <button id="topbar-player-prev" class="btn btn-secondary btn-sm" type="button" title="Vorheriger Track"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/prev.svg#icon-prev"></use></svg><span class="sr-only">Vorheriger Track</span></button>
+              <button id="topbar-player-next-quick" class="btn btn-secondary btn-sm" type="button" title="Nächster Track"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/next.svg#icon-next"></use></svg><span class="sr-only">Nächster Track</span></button>
             </div>
             <select id="topbar-player-track" class="topbar-player-track" title="Track auswählen" aria-label="Track auswählen"></select>
             <div id="topbar-player-track-list" class="topbar-player-track-list" role="listbox" aria-label="Verfügbare Titel"></div>
@@ -386,7 +399,9 @@
           <div id="user-menu" class="user-menu hidden" role="menu" aria-label="Benutzermenu"></div>
         </div>
 
-        <button id="logout-btn" class="btn btn-danger btn-sm" title="Logout">⏻</button>
+        <button id="logout-btn" class="btn btn-danger btn-sm" title="Logout" aria-label="Logout">
+          <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/logout.svg#icon-logout"></use></svg>
+        </button>
       </div>
     </header>
   </section>
@@ -395,47 +410,47 @@
     <div class="resource-bar">
 
       <button class="resource resource-btn metal" type="button" data-resource="metal" title="Metal-Statistik und Handel oeffnen">
-        <span class="res-icon">⬡</span>
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/metal.svg#icon-metal"></use></svg></span>
         <span class="res-label">Metal</span>
         <span id="res-metal" class="res-value">—</span>
       </button>
       <button class="resource resource-btn crystal" type="button" data-resource="crystal" title="Crystal-Statistik und Handel oeffnen">
-        <span class="res-icon">💎</span>
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/crystal.svg#icon-crystal"></use></svg></span>
         <span class="res-label">Crystal</span>
         <span id="res-crystal" class="res-value">—</span>
       </button>
       <button class="resource resource-btn deuterium" type="button" data-resource="deuterium" title="Deuterium-Statistik und Handel oeffnen">
-        <span class="res-icon">🔵</span>
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/deuterium.svg#icon-deuterium"></use></svg></span>
         <span class="res-label">Deuterium</span>
         <span id="res-deuterium" class="res-value">—</span>
       </button>
       <button class="resource resource-btn food" type="button" data-resource="food" title="Nahrungs-Statistik oeffnen">
-        <span class="res-icon">🌾</span>
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/food.svg#icon-food"></use></svg></span>
         <span class="res-label">Food</span>
         <span id="res-food" class="res-value">—</span>
       </button>
       <button class="resource resource-btn rare-earth" type="button" data-resource="rare_earth" title="Rare-Earth-Statistik oeffnen">
-        <span class="res-icon">💜</span>
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/rare-earth.svg#icon-rare-earth"></use></svg></span>
         <span class="res-label">Rare Earth</span>
         <span id="res-rare-earth" class="res-value">—</span>
       </button>
       <button class="resource resource-btn population" type="button" data-resource="population" title="Bevoelkerungs-Statistik oeffnen">
-        <span class="res-icon">👥</span>
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/population.svg#icon-population"></use></svg></span>
         <span class="res-label">Pop</span>
         <span id="res-population" class="res-value">—</span>
       </button>
       <button class="resource resource-btn happiness" type="button" data-resource="happiness" title="Zufriedenheits-Statistik oeffnen">
-        <span class="res-icon">😊</span>
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/happiness.svg#icon-happiness"></use></svg></span>
         <span class="res-label">Happy</span>
         <span id="res-happiness" class="res-value">—</span>
       </button>
       <button class="resource resource-btn energy" type="button" data-resource="energy" title="Energie-Statistik oeffnen">
-        <span class="res-icon">⚡</span>
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/energy.svg#icon-energy"></use></svg></span>
         <span class="res-label">Energy</span>
         <span id="res-energy" class="res-value">—</span>
       </button>
       <button class="resource resource-btn dark-matter" type="button" data-resource="dark_matter" title="Dark-Matter-Statistik oeffnen">
-        <span class="res-icon">◆</span>
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/dark-matter.svg#icon-dark-matter"></use></svg></span>
         <span class="res-label">Dark Matter</span>
         <span id="res-dark-matter" class="res-value">0</span>
       </button>
@@ -458,15 +473,19 @@
 
   <section id="taskbar-section" class="">
     <div id="wm-taskbar" class="wm-taskbar" aria-label="Open windows">
-      <span class="wm-taskbar-label">Windows:</span>
+      <div id="wm-taskbar-split" class="wm-taskbar-split" role="group" aria-label="Windows-Menü">
+        <button id="wm-taskbar-menu-btn" class="wm-taskbar-menu-btn" type="button" title="Zuletzt geschlossene Fenster anzeigen">Windows</button>
+        <button id="wm-taskbar-menu-arrow" class="wm-taskbar-menu-arrow" type="button" aria-label="Windows-Menü öffnen" title="Menü öffnen">▾</button>
+      </div>
       <div id="wm-taskbar-spacer" class="wm-taskbar-spacer"></div>
       <div class="footer-actions" id="footer-actions">
         <button id="footer-quicknav-btn" class="footer-action-btn" type="button" title="Quick Navigation &amp; Favoriten">
-          ⭐ QuickNav <span id="footer-quicknav-badge" class="footer-action-badge hidden">0</span>
+          <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/star.svg#icon-star"></use></svg>QuickNav <span id="footer-quicknav-badge" class="footer-action-badge hidden">0</span>
         </button>
-        <button id="footer-overview-btn" class="footer-action-btn" type="button" title="Overview-Fenster (Orb) ein-/ausblenden">🌍 Orb</button>
-        <button id="footer-minimap-btn" class="footer-action-btn" type="button" title="Minikarte ein-/ausblenden">🗺 Map</button>
-        <button id="ui-console-toggle" class="footer-action-btn" type="button" title="UI-Konsole ein-/ausklappen">⌄ Con</button>
+        <button id="footer-overview-btn" class="footer-action-btn" type="button" title="Overview-Fenster (Orb) ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/orb.svg#icon-orb"></use></svg>Orb</button>
+        <button id="footer-minimap-btn" class="footer-action-btn" type="button" title="Minikarte ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/map.svg#icon-map"></use></svg>Map</button>
+        <button id="ui-console-toggle" class="footer-action-btn" type="button" title="UI-Konsole ein-/ausklappen"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/terminal.svg#icon-terminal"></use></svg>Con</button>
+        <button id="footer-uikit-btn" class="footer-action-btn" type="button" title="UI Kit Preview &amp; Modal-Demos ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/gameplay.svg#icon-gameplay"></use></svg>Kit</button>
       </div>
       <div id="footer-load" class="footer-load hidden" role="status" aria-live="polite">
         <span id="footer-load-label" class="footer-load-label">Lade Daten…</span>
@@ -842,7 +861,7 @@
           'js/packages/game.boot.bundle.legacy.js.gz?v=20260330p2'
         ],
         gameScripts: [
-          'js/runtime/wm.js?v=20260330p55',
+          'js/runtime/wm.js?v=20260331p56',
           'js/network/binary-decoder.js?v=20260328p49',
           'js/network/binary-decoder-v2.js?v=20260328p49',
           'js/network/binary-decoder-v3.js?v=20260328p49',
@@ -878,17 +897,17 @@
           'js/rendering/galaxy-renderer-event-binding-shared.js?v=20260329p77',
           'js/rendering/galaxy-renderer-events.js?v=20260329p76',
           'js/rendering/galaxy-camera-controller.js?v=20260329p85',
-          'js/rendering/galaxy-renderer-core.js?v=20260331p98',
+          'js/rendering/galaxy-renderer-core.js?v=20260331p108',
           'js/rendering/starfield-webgpu.js?v=20260330p2',
           'js/legacy/galaxy3d-webgpu.js?v=20260330p2',
           'js/rendering/starfield.js?v=20260329p100',
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
             'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
             'js/ui/gq-ui.js?v=20260330p1',
-            'js/runtime/game.js?v=20260331p8'
+                'js/runtime/game.js?v=20260331p32'
         ],
         preloadAssets: [
-          'js/runtime/wm.js?v=20260330p55',
+          'js/runtime/wm.js?v=20260331p56',
           'js/network/binary-decoder.js?v=20260328p49',
           'js/network/binary-decoder-v2.js?v=20260328p49',
           'js/network/binary-decoder-v3.js?v=20260328p49',
@@ -914,28 +933,20 @@
           'js/rendering/galaxy-renderer-event-binding-shared.js?v=20260329p77',
           'js/rendering/galaxy-renderer-events.js?v=20260329p76',
           'js/rendering/galaxy-camera-controller.js?v=20260329p85',
-          'js/rendering/galaxy-renderer-core.js?v=20260331p98',
+          'js/rendering/galaxy-renderer-core.js?v=20260331p108',
           'js/rendering/starfield-webgpu.js?v=20260330p2',
           'js/legacy/galaxy3d-webgpu.js?v=20260330p2',
           'js/rendering/starfield.js?v=20260329p100',
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
-            'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
-            'js/ui/gq-ui.js?v=20260330p1',
-            'js/runtime/game.js?v=20260331p8'
+          'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
+          'js/ui/gq-ui.js?v=20260330p1',
+          'js/runtime/game.js?v=20260331p32'
         ]
       };
     </script>
   </section>
 
   <section id="modal_container">
-    <section id="dialog_test_section" class="wm-dialog-test" aria-label="Dialog Test Tools">
-      <strong>Dialog Test:</strong>
-      <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="tooltip_container">Tooltip</button>
-      <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_alert">Alert</button>
-      <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_confirm">Confirm</button>
-      <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_wizard">Wizard</button>
-      <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_form">Form</button>
-    </section>
 
     <section id="dialog_alert" class="wm-modal" aria-modal="true" aria-label="Alert" role="dialog" hidden>
       <div class="wm-modal-backdrop" data-wm-modal-close></div>
@@ -1026,24 +1037,110 @@
       </div>
     </section>
 
-    <section id="ui-kit-preview-panel" class="ui-kit-preview-panel" aria-label="UI Kit Preview">
+    <section id="ui-kit-preview-panel" class="ui-kit-preview-panel" aria-label="UI Kit Preview" hidden>
       <div class="ui-kit-preview-head">
-        <strong>UI Kit Preview</strong>
-        <div class="ui-kit-preview-actions">
-          <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="empty">Empty</button>
-          <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="skeleton">Skeleton</button>
-          <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="kpi">KPI</button>
-          <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="timeline">Timeline</button>
-          <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="clear">Clear</button>
+        <strong>UI Kit + Modal Preview</strong>
+        <button id="ui-kit-preview-expand-btn" class="wm-dialog-test-btn ui-kit-preview-toggle" type="button" aria-expanded="false" aria-controls="ui-kit-preview-body" title="Panel erweitern">Mehr</button>
+      </div>
+      <div class="ui-kit-preview-actions-wrap">
+        <div class="ui-kit-preview-group" aria-label="Modal Demos">
+          <span class="ui-kit-preview-group-title">Modal Demos</span>
+          <div class="ui-kit-preview-actions">
+            <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="tooltip_container">Tooltip</button>
+            <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_alert">Alert</button>
+            <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_confirm">Confirm</button>
+            <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_wizard">Wizard</button>
+            <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_form">Form</button>
+          </div>
+        </div>
+        <div class="ui-kit-preview-group" aria-label="UI Kit Demos">
+          <span class="ui-kit-preview-group-title">UI Kit Demos</span>
+          <div class="ui-kit-preview-actions">
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="buttons">Buttons</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="grid">Grid</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="tabs">Tabs</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="contextmenu">Menu</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="empty">Empty</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="skeleton">Skeleton</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="kpi">KPI</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="timeline">Timeline</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="clear">Clear</button>
+          </div>
         </div>
       </div>
       <div id="ui-kit-preview-body" class="ui-kit-preview-body"></div>
     </section>
 
     <section id="ui-kit-templates" class="ui-kit-templates" aria-hidden="true">
+      <template id="tpl-ui-button-row">
+        <section class="ui-button-stack">
+          <div class="ui-button-row">
+            <button class="btn btn-primary" type="button">Primary</button>
+            <button class="btn btn-secondary" type="button">Secondary</button>
+            <button class="btn btn-success" type="button">Success</button>
+            <button class="btn btn-danger" type="button">Danger</button>
+          </div>
+          <div class="ui-button-row">
+            <button class="btn btn-secondary btn-sm" type="button">Small</button>
+            <button class="btn btn-quiet btn-sm" type="button">Quiet</button>
+            <button class="btn btn-secondary btn-xs" type="button">XS</button>
+            <button class="btn btn-primary btn-xs" type="button">Compact Action</button>
+          </div>
+        </section>
+      </template>
+
+      <template id="tpl-ui-grid-demo">
+        <section class="ui-grid ui-grid-auto">
+          <article class="ui-grid-card">
+            <strong>Adaptive Cards</strong>
+            <p>Auto-fit grid cells scale from narrow to wide layouts without custom per-view CSS.</p>
+          </article>
+          <article class="ui-grid-card">
+            <strong>Readable Density</strong>
+            <p>Cards keep spacing and alignment stable while the viewport changes.</p>
+          </article>
+          <article class="ui-grid-card">
+            <strong>Reusable Primitive</strong>
+            <p>Can be used for inspectors, stats panels, compact dashboards and tool layouts.</p>
+          </article>
+        </section>
+      </template>
+
+      <template id="tpl-ui-tabs-demo">
+        <section class="ui-tabs" data-ui-tabs data-ui-active-tab="ops">
+          <div class="ui-tab-list" role="tablist" aria-label="UI Demo Tabs">
+            <button class="ui-tab-btn" type="button" role="tab" data-ui-tab-target="ops" aria-selected="true">Operations</button>
+            <button class="ui-tab-btn" type="button" role="tab" data-ui-tab-target="intel" aria-selected="false">Intel</button>
+            <button class="ui-tab-btn" type="button" role="tab" data-ui-tab-target="logistics" aria-selected="false">Logistics</button>
+          </div>
+          <section class="ui-tab-panel" role="tabpanel" data-ui-tab-panel="ops">
+            <strong class="ui-tab-panel-title">Operations Overview</strong>
+            <p>Tabs switch inline content without extra modal layers and support keyboard navigation.</p>
+          </section>
+          <section class="ui-tab-panel" role="tabpanel" data-ui-tab-panel="intel" hidden>
+            <strong class="ui-tab-panel-title">Intel Briefing</strong>
+            <p>Use tabs for dense dashboards where related data should stay in one focused surface.</p>
+          </section>
+          <section class="ui-tab-panel" role="tabpanel" data-ui-tab-panel="logistics" hidden>
+            <strong class="ui-tab-panel-title">Logistics</strong>
+            <p>Works well for settings, inspectors, split panels and progressive detail blocks.</p>
+          </section>
+        </section>
+      </template>
+
+      <template id="tpl-ui-contextmenu">
+        <section class="ui-context-demo">
+          <p class="ui-context-demo-note">Das WM-Kontextmenü ist jetzt als zentrale Infrastruktur verfuegbar. Rechtsklick auf Fenstertitel oder Taskbar-Button oeffnet es ebenfalls.</p>
+          <div class="ui-button-row">
+            <button class="btn btn-secondary btn-sm" type="button" data-ui-open-menu>Menu öffnen</button>
+            <button class="btn btn-quiet btn-xs" type="button">Context Target</button>
+          </div>
+        </section>
+      </template>
+
       <template id="tpl-ui-empty-state">
         <section class="ui-empty-state">
-          <div class="ui-empty-icon">◎</div>
+          <div class="ui-empty-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/orb.svg#icon-orb"></use></svg></div>
           <h4 class="ui-empty-title">Noch keine Daten verfuegbar</h4>
           <p class="ui-empty-text">Sobald neue Ereignisse eintreffen, erscheinen sie hier automatisch.</p>
           <div class="ui-empty-actions">
@@ -1269,15 +1366,15 @@
   <script src="js/telemetry/space-flight-hud-engine.js?v=20260329p81"></script>
   <script src="js/rendering/galaxy-camera-controller.js?v=20260329p85"></script>
   <script src="js/rendering/starfield.js?v=20260329p100"></script>
-  <script src="js/network/auth.js?v=20260330p78"></script>
-  <script src="js/ui/glossary.js?v=20260328p49"></script>
+  <script src="js/network/auth.js?v=20260331p79"></script>
+  <script src="js/ui/glossary.js?v=20260331p50"></script>
   <script src="js/ui/gq-ui.js?v=20260330p1"></script>
-  <script src="js/ui/ui-kit.js?v=20260329p60"></script>
-  <script src="js/ui/star-tooltip.js?v=20260328p49"></script>
-  <script src="js/ui/system-info-panel.js?v=20260328p49"></script>
+  <script src="js/ui/ui-kit.js?v=20260331p62"></script>
+  <script src="js/ui/star-tooltip.js?v=20260331p50"></script>
+  <script src="js/ui/system-info-panel.js?v=20260331p52"></script>
   <script src="js/ui/hr-diagram.js?v=20260328p49"></script>
-  <script src="js/ui/settings-panel.js?v=20260331p2"></script>
-  <script src="js/ui/settings-2fa.js?v=20260331p1"></script>
+  <script src="js/ui/settings-panel.js?v=20260331p6"></script>
+  <script src="js/ui/settings-2fa.js?v=20260331p2"></script>
   <script src="js/ui/admin-users.js?v=20260331p1"></script>
 
   <!-- =========================================================
@@ -1290,7 +1387,7 @@
     <div class="wm-modal-backdrop" data-wm-modal-close></div>
     <div class="wm-modal-dialog">
       <div class="wm-modal-header">
-        <span class="wm-modal-title">🎨 Post-Processing Effects</span>
+        <span class="wm-modal-title"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/graphics.svg#icon-graphics"></use></svg>Post-Processing Effects</span>
         <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
       </div>
       <div class="wm-modal-body" id="gfx-postfx-panel">
@@ -1389,23 +1486,24 @@
     <div class="wm-modal-backdrop" data-wm-modal-close></div>
     <div class="wm-modal-dialog settings-dialog">
       <div class="wm-modal-header">
-        <span class="wm-modal-title">⚙ Game Settings</span>
+        <span class="wm-modal-title"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/settings.svg#icon-settings"></use></svg>Game Settings</span>
         <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
       </div>
 
       <!-- Settings Tabs Navigation -->
-      <div class="settings-tab-nav">
-        <button class="settings-tab-btn active" data-tab="audio" type="button">🔊 Audio</button>
-        <button class="settings-tab-btn" data-tab="graphics" type="button">🎨 Graphics</button>
-        <button class="settings-tab-btn" data-tab="gameplay" type="button">🎮 Gameplay</button>
-        <button class="settings-tab-btn" data-tab="account" type="button">👤 Account</button>
-      </div>
+      <section id="settings-tabs" class="ui-tabs settings-tabs" data-ui-tabs data-ui-active-tab="audio">
+        <div class="ui-tab-list settings-tab-nav" role="tablist" aria-label="Game Settings Tabs">
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="audio" type="button" role="tab" aria-selected="true"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/volume.svg#icon-volume"></use></svg>Audio</button>
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="graphics" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/graphics.svg#icon-graphics"></use></svg>Graphics</button>
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="gameplay" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/gameplay.svg#icon-gameplay"></use></svg>Gameplay</button>
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="account" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/user.svg#icon-user"></use></svg>Account</button>
+        </div>
 
       <!-- Settings Contents -->
       <div class="wm-modal-body settings-body">
 
         <!-- Audio Tab -->
-        <div class="settings-tab-content active" data-tab="audio">
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="audio" data-tab="audio">
           <fieldset class="settings-group">
             <legend>Volume Control</legend>
             <label class="settings-row">
@@ -1447,7 +1545,7 @@
         </div>
 
         <!-- Graphics Tab -->
-        <div class="settings-tab-content" data-tab="graphics">
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="graphics" data-tab="graphics" hidden>
           <fieldset class="settings-group">
             <legend>Rendering Quality</legend>
             <label class="settings-row">
@@ -1486,10 +1584,46 @@
               <span>Core Effects</span>
             </label>
           </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Interface Theme</legend>
+            <label class="settings-row">
+              <span class="settings-label">Theme Source</span>
+              <select class="settings-select" data-setting="uiThemeMode">
+                <option value="auto">Auto (Faction if available)</option>
+                <option value="faction">Faction Theme</option>
+                <option value="custom">Custom Accent</option>
+              </select>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Theme Faction</span>
+              <select class="settings-select" data-setting="uiThemeFactionId">
+                <option value="0">Player faction (auto)</option>
+              </select>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Custom Accent</span>
+              <input type="color" class="settings-color" data-setting="uiThemeCustomAccent" value="#3aa0ff" />
+            </label>
+            <div class="settings-theme-preview" aria-live="polite">
+              <div class="settings-theme-preview-head">
+                <span class="settings-theme-preview-title">Theme Preview</span>
+                <span class="settings-theme-preview-meta" data-theme-preview-source>Source: -</span>
+              </div>
+              <div class="settings-theme-preview-swatches">
+                <span class="settings-theme-swatch" data-theme-swatch="accent" title="Accent"></span>
+                <span class="settings-theme-swatch" data-theme-swatch="accentSoft" title="Accent Soft"></span>
+                <span class="settings-theme-swatch" data-theme-swatch="complement" title="Complement"></span>
+                <span class="settings-theme-swatch" data-theme-swatch="complementSoft" title="Complement Soft"></span>
+              </div>
+              <div class="settings-theme-preview-meta" data-theme-preview-detail>Palette: -</div>
+            </div>
+            <p class="settings-help-text">Faction colors are converted into complementary UI palettes and cached locally for fast reuse.</p>
+          </fieldset>
         </div>
 
         <!-- Gameplay Tab -->
-        <div class="settings-tab-content" data-tab="gameplay">
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="gameplay" data-tab="gameplay" hidden>
           <fieldset class="settings-group">
             <legend>Transition Settings</legend>
             <label class="settings-row">
@@ -1516,6 +1650,35 @@
                 <option value="simple">Simple</option>
                 <option value="complex">Complex</option>
               </select>
+            </label>
+            <div class="settings-row">
+              <span class="settings-label">Active Mode</span>
+              <span id="settings-orbit-diag" class="settings-orbit-diag" aria-live="polite">—</span>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Next Mode</span>
+              <span id="settings-orbit-next" class="settings-orbit-diag" aria-live="polite">—</span>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Path Visibility</span>
+              <span id="settings-orbit-visibility" class="settings-orbit-diag" aria-live="polite">—</span>
+            </div>
+            <div class="settings-help-text settings-orbit-legend" aria-hidden="true">
+              <span class="settings-orbit-legend-item"><span class="settings-orbit-dot is-auto"></span>AUTO</span>
+              <span class="settings-orbit-legend-item"><span class="settings-orbit-dot is-simple"></span>SIMPLE</span>
+              <span class="settings-orbit-legend-item"><span class="settings-orbit-dot is-complex"></span>COMPLEX</span>
+            </div>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="systemOrbitPathsVisible" checked />
+              <span>Show Orbit Paths</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="systemOrbitMarkersVisible" checked />
+              <span>Show Orbit Direction Markers</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="systemOrbitFocusOnly" />
+              <span>Focus Orbit Paths Only</span>
             </label>
             <label class="settings-checkbox">
               <input type="checkbox" data-setting="autoTransitions" checked />
@@ -1549,7 +1712,7 @@
         </div>
 
         <!-- Account/2FA Tab -->
-        <div class="settings-tab-content" data-tab="account">
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="account" data-tab="account" hidden>
           <fieldset class="settings-group">
             <legend>Account Settings</legend>
             <label class="settings-row">
@@ -1567,53 +1730,53 @@
             <p class="settings-help-text">Kompatibel mit Microsoft Authenticator, Google Authenticator, Authy u.&nbsp;a.</p>
 
             <!-- Status row (filled by JS) -->
-            <div id="2fa-status-row" class="settings-help-text" style="margin-bottom:0.6rem">Lade 2FA-Status…</div>
+            <div id="2fa-status-row" class="settings-help-text settings-stack-gap-sm">Lade 2FA-Status…</div>
 
             <!-- Enabled state -->
-            <div id="2fa-enabled-ui" style="display:none">
+            <div id="2fa-enabled-ui" class="settings-inline-panel" hidden>
               <p class="settings-help-text">✅ 2FA ist <strong>aktiviert</strong>.</p>
               <button type="button" class="wm-modal-nav-btn" id="2fa-disable-open-btn">2FA deaktivieren…</button>
             </div>
 
             <!-- Disabled state -->
-            <div id="2fa-disabled-ui" style="display:none">
+            <div id="2fa-disabled-ui" class="settings-inline-panel" hidden>
               <p class="settings-help-text">2FA ist aktuell <strong>deaktiviert</strong>.</p>
               <button type="button" class="wm-modal-nav-btn wm-btn-primary" id="2fa-enable-open-btn">2FA einrichten…</button>
             </div>
 
             <!-- Setup panel (scan QR → confirm code) -->
-            <div id="2fa-setup-panel" style="display:none; margin-top:0.8rem">
+            <div id="2fa-setup-panel" class="settings-inline-panel settings-stack-gap" hidden>
               <p class="settings-help-text">Scanne den QR-Code mit deiner Authenticator-App:</p>
-              <div id="2fa-qr-container" style="text-align:center; margin:10px 0; min-height:210px; background:rgba(255,255,255,0.05); border-radius:6px; display:flex; align-items:center; justify-content:center">
+              <div id="2fa-qr-container" class="settings-qr-container">
                 <span class="settings-help-text">QR wird geladen…</span>
               </div>
-              <p class="settings-help-text" style="word-break:break-all">
-                Manueller Schlüssel: <code id="2fa-secret-display" style="user-select:all"></code>
+              <p class="settings-help-text settings-code-row">
+                Manueller Schlüssel: <code id="2fa-secret-display" class="settings-select-all"></code>
               </p>
-              <label class="settings-row" style="margin-top:0.4rem">
+              <label class="settings-row settings-stack-gap-sm">
                 <span class="settings-label">Code bestätigen</span>
                 <input id="2fa-setup-code" type="text" inputmode="numeric" maxlength="6"
                        pattern="\d{6}" placeholder="000000" autocomplete="one-time-code"
-                       style="width:120px; letter-spacing:0.2em; text-align:center" />
+                       class="settings-token-input" />
               </label>
               <div id="2fa-setup-error" class="form-error" aria-live="polite"></div>
-              <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
+              <div class="ui-button-row settings-actions-row">
                 <button type="button" class="wm-modal-nav-btn wm-btn-primary" id="2fa-setup-confirm-btn">Aktivieren</button>
                 <button type="button" class="wm-modal-nav-btn" id="2fa-setup-cancel-btn">Abbrechen</button>
               </div>
             </div>
 
             <!-- Disable-confirm panel -->
-            <div id="2fa-disable-panel" style="display:none; margin-top:0.8rem">
+            <div id="2fa-disable-panel" class="settings-inline-panel settings-stack-gap" hidden>
               <p class="settings-help-text">Gib einen aktuellen Authenticator-Code ein, um 2FA zu deaktivieren:</p>
               <label class="settings-row">
                 <span class="settings-label">TOTP-Code</span>
                 <input id="2fa-disable-code" type="text" inputmode="numeric" maxlength="6"
                        pattern="\d{6}" placeholder="000000" autocomplete="one-time-code"
-                       style="width:120px; letter-spacing:0.2em; text-align:center" />
+                       class="settings-token-input" />
               </label>
               <div id="2fa-disable-error" class="form-error" aria-live="polite"></div>
-              <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
+              <div class="ui-button-row settings-actions-row">
                 <button type="button" class="wm-modal-nav-btn" id="2fa-disable-confirm-btn">Deaktivieren</button>
                 <button type="button" class="wm-modal-nav-btn" id="2fa-disable-cancel-btn">Abbrechen</button>
               </div>
@@ -1622,6 +1785,7 @@
         </div>
 
       </div><!-- /.settings-body -->
+      </section>
 
       <!-- Settings Footer with Apply/Commit Buttons -->
       <div class="wm-modal-footer settings-footer">
@@ -1656,57 +1820,57 @@
   ========================================================== -->
   <section id="admin-users-modal" class="wm-modal" aria-modal="true" aria-label="User Management" role="dialog" hidden>
     <div class="wm-modal-backdrop" data-wm-modal-close></div>
-    <div class="wm-modal-dialog" style="max-width:900px;width:98vw">
+    <div class="wm-modal-dialog admin-users-dialog">
       <div class="wm-modal-header">
-        <span class="wm-modal-title">🛡 User Management</span>
+        <span class="wm-modal-title"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/admin.svg#icon-admin"></use></svg>User Management</span>
         <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
       </div>
 
       <!-- Toolbar: search + create -->
-      <div class="wm-modal-body" style="padding-bottom:0">
-        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem">
+      <div class="wm-modal-body admin-users-body">
+        <div class="ui-grid ui-grid-auto admin-users-toolbar">
           <input id="admin-users-search" type="search" placeholder="Search username / email…"
-                 style="flex:1;min-width:160px" autocomplete="off" />
-          <label style="display:flex;align-items:center;gap:0.3rem;white-space:nowrap">
+                 class="admin-users-search" autocomplete="off" />
+          <label class="admin-users-toggle">
             <input type="checkbox" id="admin-users-show-deleted" />
             Show deleted
           </label>
-          <button id="admin-users-reload" class="wm-modal-nav-btn" type="button">↺ Reload</button>
+          <button id="admin-users-reload" class="wm-modal-nav-btn" type="button"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/refresh.svg#icon-refresh"></use></svg>Reload</button>
           <button id="admin-users-create-btn" class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="button">+ New User</button>
         </div>
 
         <!-- User table -->
-        <div style="overflow-x:auto">
-          <table id="admin-users-table" style="width:100%;border-collapse:collapse;font-size:0.85rem">
+        <div class="admin-users-table-wrap">
+          <table id="admin-users-table" class="admin-users-table">
             <thead>
-              <tr style="text-align:left;border-bottom:1px solid rgba(255,255,255,0.15)">
-                <th style="padding:0.4rem 0.5rem">ID</th>
-                <th style="padding:0.4rem 0.5rem">Username</th>
-                <th style="padding:0.4rem 0.5rem">Email</th>
-                <th style="padding:0.4rem 0.5rem">Type</th>
-                <th style="padding:0.4rem 0.5rem">Auth</th>
-                <th style="padding:0.4rem 0.5rem">Admin</th>
-                <th style="padding:0.4rem 0.5rem">Colonies</th>
-                <th style="padding:0.4rem 0.5rem">Rank</th>
-                <th style="padding:0.4rem 0.5rem">Last Login</th>
-                <th style="padding:0.4rem 0.5rem">Status</th>
-                <th style="padding:0.4rem 0.5rem">Actions</th>
+              <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Email</th>
+                <th>Type</th>
+                <th>Auth</th>
+                <th>Admin</th>
+                <th>Colonies</th>
+                <th>Rank</th>
+                <th>Last Login</th>
+                <th>Status</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="admin-users-tbody">
-              <tr><td colspan="11" style="padding:1rem;text-align:center;opacity:.6">Loading…</td></tr>
+              <tr><td colspan="11" class="admin-users-empty">Loading…</td></tr>
             </tbody>
           </table>
         </div>
 
         <!-- Pagination -->
-        <div id="admin-users-pagination" style="display:flex;gap:0.5rem;align-items:center;justify-content:flex-end;padding:0.5rem 0 0.25rem">
+        <div id="admin-users-pagination" class="admin-users-pagination">
           <button id="admin-users-prev" class="wm-modal-nav-btn" type="button" disabled>&#8592; Prev</button>
-          <span id="admin-users-page-info" style="font-size:0.8rem;opacity:.7"></span>
+          <span id="admin-users-page-info" class="admin-users-page-info"></span>
           <button id="admin-users-next" class="wm-modal-nav-btn" type="button" disabled>Next &#8594;</button>
         </div>
 
-        <div id="admin-users-error" class="form-error" aria-live="polite" style="margin-top:0.25rem"></div>
+        <div id="admin-users-error" class="form-error admin-users-error" aria-live="polite"></div>
       </div>
 
       <div class="wm-modal-footer wm-modal-footer-end">
@@ -1718,7 +1882,7 @@
   <!-- Admin: Edit/Create User sub-dialog -->
   <section id="admin-user-edit-modal" class="wm-modal" aria-modal="true" aria-label="Edit User" role="dialog" hidden>
     <div class="wm-modal-backdrop"></div>
-    <div class="wm-modal-dialog" style="max-width:480px">
+    <div class="wm-modal-dialog admin-user-edit-dialog">
       <div class="wm-modal-header">
         <span class="wm-modal-title" id="admin-user-edit-title">Edit User</span>
         <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" id="admin-user-edit-close">&#x2715;</button>
@@ -1742,7 +1906,7 @@
           </select>
         </div>
         <div class="form-group">
-          <label style="display:flex;align-items:center;gap:0.5rem">
+          <label class="admin-user-check-row">
             <input type="checkbox" id="admin-user-edit-auth-enabled" checked />
             Login enabled
           </label>
@@ -1752,7 +1916,7 @@
           <input id="admin-user-edit-password" type="password" minlength="8" autocomplete="new-password" />
         </div>
         <div class="form-group">
-          <label style="display:flex;align-items:center;gap:0.5rem">
+          <label class="admin-user-check-row">
             <input type="checkbox" id="admin-user-edit-is-admin" />
             Administrator
           </label>
@@ -1769,9 +1933,9 @@
   <!-- Admin: Delete confirmation sub-dialog -->
   <section id="admin-user-delete-modal" class="wm-modal" aria-modal="true" aria-label="Confirm Deletion" role="dialog" hidden>
     <div class="wm-modal-backdrop"></div>
-    <div class="wm-modal-dialog" style="max-width:420px">
+    <div class="wm-modal-dialog admin-user-delete-dialog">
       <div class="wm-modal-header">
-        <span class="wm-modal-title">⚠ Delete User</span>
+        <span class="wm-modal-title"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/warning.svg#icon-warning"></use></svg>Delete User</span>
         <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" id="admin-user-delete-close">&#x2715;</button>
       </div>
       <div class="wm-modal-body">
