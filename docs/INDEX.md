@@ -77,6 +77,7 @@
 | [gamedesign/FTL_DRIVE_DESIGN.md](gamedesign/FTL_DRIVE_DESIGN.md) | FTL drive system — faction designs and balancing |
 | [gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md](gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md) | Vessel blueprint and module system |
 | [gamedesign/GAME_CLASSICS_INSPIRATION.md](gamedesign/GAME_CLASSICS_INSPIRATION.md) | Classic game inspirations and adopted mechanics |
+| [gamedesign/COLONIZATION_SYSTEM_DESIGN.md](gamedesign/COLONIZATION_SYSTEM_DESIGN.md) | Colonization system — Empire Sprawl, sectors, governors, buildings |
 
 ---
 
