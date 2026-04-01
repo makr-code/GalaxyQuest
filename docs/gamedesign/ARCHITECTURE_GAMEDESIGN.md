@@ -12,18 +12,24 @@ GalaxyQuest (Universum)
 │  │  ├─ 1 Flaggschiff: Kalytherion Ascendant
 │  │  └─ 4 innere Fraktionen (Schildzirkel, Lichtbund, Kernrat, Schattenzirkel)
 │  │
-│  └─ 7 Externe Fraktionen (unabhängige Mächte)
+│  └─ 13 Externe NPC-Fraktionen (unabhängige Mächte)
 │     ├─ Aethernox-Wächter (prä-biologisch)
 │     ├─ Khar'Morr-Piraten (Chaos)
 │     ├─ Helion-Konföderation (Handel)
 │     ├─ Eisenflotte (Menschen + Expansion)
 │     ├─ Omniscienta-KI (logisch, amoral)
 │     ├─ Myr'Keth-Schwärme (Metallorganismen)
-│     └─ Echos der Leere (Leerenbrutsfragmente)
+│     ├─ Echos der Leere (Leerenbrutsfragmente)
+│     ├─ Ketzer von Verath (Schismatiker)
+│     ├─ Architekten des Lichts (Kult)
+│     ├─ Nomaden des Rifts (Wandervolk)
+│     ├─ Brut der Ewigkeit (Urschwarm)
+│     ├─ Schattenkompakt (Spionagenetzwerk) ← neu
+│     └─ Genesis-Kollektiv (Post-Biologisch) ← neu
 │
 ├─ 👥 CHARAKTERE (NPCs mit Tiefe)
 │  ├─ 6 zentrale NPCs der Konvergenz
-│  ├─ 7 Anführer der externen Fraktionen
+│  ├─ 13 Anführer der externen Fraktionen
 │  └─ Dutzende Nebencharaktere (Soldaten, Händler, Spione)
 │
 ├─ 📖 KAMPAGNE (6-Akte Story)
@@ -59,8 +65,10 @@ GalaxyQuest (Universum)
 | [`README_GAMEDESIGN.md`](README_GAMEDESIGN.md) | 3 KB | 📋 Übersicht | ✅ Live |
 | [`FTL_DRIVE_DESIGN.md`](FTL_DRIVE_DESIGN.md) | ~28 KB | ⚡ FTL-Antriebe: Fraktions-Design + Balancing + Implementierungsplan | ✅ Live |
 | [`ECONOMY_DESIGN.md`](ECONOMY_DESIGN.md) | ~40 KB | 💹 Wirtschaftssystem: Produktionsketten, Markt, Pop-Klassensystem (Anno-Prinzip), Roadmap | ✅ Live |
-| [`gamedesign_fractions_backup.md`](../lore/gamedesign_fractions_backup.md) | 170 KB | 🗂️ Archiv (alt) | 📦 Referenz |
-| `gamedesign_fractions.md` | 5200 Zeilen | ⚠️ Deprecated | 🚫 Ersetzen |
+| [`FACTION_INTRODUCTION.md`](FACTION_INTRODUCTION.md) | ~30 KB | 🌌 Spielerstart (Rassenwahl), Fraktionspfade, Isolationspfad (vollständig §11.3) | ✅ Live |
+| [`BONUS_MALUS_DESIGN.md`](BONUS_MALUS_DESIGN.md) | ~100 KB | 🎖️ Bonus/Malus-System: alle 13 NPC-Fraktionen, Tier-Modifier, Backend-Spec | ✅ Live |
+| [`gamedesign_fractions_backup.md`](../lore/gamedesign_fractions_backup.md) | 170 KB | 🗂️ Vollarchiv (Original, unverändert) | 📦 Archiv |
+| [`../lore/gamedesign_fractions.md`](../lore/gamedesign_fractions.md) | — | ⚠️ Tombstone | 🚫 Deprecated – Tombstone lesen |
 
 ---
 

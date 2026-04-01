@@ -23,7 +23,7 @@
 12. [Balancing-Richtlinien](#12-balancing-richtlinien)
 13. [Implementierungs-Phasen](#13-implementierungs-phasen)
 14. [Offene Fragen & Ausblick](#14-offene-fragen--ausblick)
-15. [NPC-Fraktions-Modifier-Tabellen](#15-npc-fraktions-modifier-tabellen-alle-11-fraktionen)
+15. [NPC-Fraktions-Modifier-Tabellen](#15-npc-fraktions-modifier-tabellen-alle-13-fraktionen)
 16. [Fraktions-Quer-Effekte](#16-fraktions-quer-effekte)
 17. [Quest-Katalog pro Fraktion und Tier](#17-quest-katalog-pro-fraktion-und-tier)
 18. [Wirtschaftsintegration (ColonySimulation)](#18-wirtschaftsintegration-colonysimulation)
@@ -119,7 +119,7 @@ Eine neue Hilfsfunktion `get_reputation_tier(standing)` berechnet den Tier-Index
  −40 … −11  →  Tier 1: KALT          (Cold)
  −10 … +20  →  Tier 2: NEUTRAL       (Neutral)   ← Standardzustand
   +21 … +60  →  Tier 3: VERBÜNDET     (Allied)
-  +61 … +100 →  Tier 4: STRATEGISCHER_PARTNER (Strategic Partner)
+  +61 … +100 →  Tier 4: ERSTER_BERATER (First Advisor) ← max. erreichbar für Spieler
 ```
 
 ### Tier-Eigenschaften
@@ -130,7 +130,12 @@ Eine neue Hilfsfunktion `get_reputation_tier(standing)` berechnet den Tier-Index
 | 1 | KALT | Orange `#e67e22` | ❄ |
 | 2 | NEUTRAL | Grau `#95a5a6` | ◇ |
 | 3 | VERBÜNDET | Grün `#27ae60` | ✦ |
-| 4 | STRATEGISCHER_PARTNER | Gold `#f1c40f` | ★ |
+| 4 | ERSTER_BERATER | Gold `#f1c40f` | ★ |
+
+> **Kanonische Grenze:** Tier 4 bedeutet, dass der Spieler der *Erste Berater* der Fraktion ist –
+> kein Mitglied, kein Anführer. Er kann Entscheidungen *einflüstern* (Beratungs-Mandate, §12
+> FACTION_INTRODUCTION.md), aber die NPC-Fraktion entscheidet eigenständig. Die Gewichtung seiner
+> Empfehlung hängt vom Staatsgebilde (`npc_factions.government_type`) und `advisor_trust` ab.
 
 ### Tier-Wechsel-Benachrichtigung
 
@@ -403,6 +408,11 @@ nun direkt Stehungen verschieben und dadurch Tier-Wechsel auslösen:
 | `pirate_surge` | Khar'Morr-Syndikate | −10 |
 | `ancient_awakening` | Aethernox, Omniscienta | −8 (alle) |
 | `diplomatic_summit` | alle Fraktionen | +3 |
+| `faction_unchecked_action` *(neu)* | NPC-Fraktion + betroffene Spieler-Cluster | −0.05 `fleet_readiness_mult` / 48h |
+| `faction_advisor_success` *(neu)* | NPC-Fraktion + betroffene Spieler-Cluster | +0.05 `trade_income_mult` / 72h |
+
+> **Neue Ereignistypen** entstehen durch das Beratungs-Mandat-System (FACTION_INTRODUCTION.md §12.9).
+> Sie werden in der neuen Tabelle `galactic_events` gespeichert und vom `npc_ai`-Tick verteilt.
 
 ### 8.3 Diplomatische Ereignisse (neue Event-Kategorie)
 
@@ -694,7 +704,7 @@ und 5.3.
 GET /api/factions.php?action=tier_modifiers
 ```
 
-Rückgabe für alle 17 Fraktionen: `faction_id`, `current_tier`, `tier_label`,
+Rückgabe für alle 19 Fraktionen (6 Hauptfraktionen + 13 NPC-Fraktionen): `faction_id`, `current_tier`, `tier_label`,
 `active_modifiers[]`, `net_faction_pressure`, `pressure_label`.
 
 ---
@@ -789,6 +799,21 @@ Vertrauen ihrem Charakter widerspricht.
 - [ ] Tier-0-Aktionen (Blockade, Propagandafeldzug)
 - [ ] Balancing-Pass & Playtesting
 
+### Phase 6 – Zuckerbrot & Peitsche: Mandats-System *(FACTION_INTRODUCTION.md §12)*
+
+- [ ] Migration `faction_mandates`-Tabelle (erweitert mit `mandate_class`, `advice_*`, `ripple_event_fired`) + `diplomacy`-Spalten `influence_tier` / `neglect_count` / `advisor_accepted` / `advisor_trust` / `advisor_anonymous` (§12.7)
+- [ ] Migration `npc_factions.government_type` + `advisor_weight_min/max` (§12.1a)
+- [ ] Migration `galactic_events`-Tabelle (§12.9.1)
+- [ ] `npc_ai.php`: Mandats-Generierung (`resource` für Tier 3, `advisory` für Tier 4) + `advisor_accepted`-Trigger (§12.1)
+- [ ] Berater-Gewichtungs-Formel in `game_engine.php`: `effective_weight` aus `government_type` + `advisor_trust` (§12.1a)
+- [ ] Staatsgebilde-Multiplikatoren für Zuckerbrot/Peitsche in `game_engine.php` (§12.3 / §12.4.2)
+- [ ] Multiplayer-Ripple: `ripple_event_fired`-Logik + `galactic_events`-INSERT + Modifier-Verteilung in `npc_ai.php` (§12.9)
+- [ ] Grace-Period-Logik + Ripple-Unterdrückung im `npc_ai`-Tick (§12.4.5)
+- [ ] `api/factions.php`: `list_mandates` + `resolve_mandate` (mit `advice_choice`) + `mandate_history` + `advisor_status` (§12.7)
+- [ ] `EventSystem.js`: Journal-Events für Mandatseingang / Ablauf / Berater-Ernennung / Berater-Verlust / Ripple-Ankündigung (§12.9.3)
+- [ ] `js/game.js`: Mandats-Panel (Liste, Countdown, Empfehlungs-UI A/B/C für Advisory, `advisor_trust`-Anzeige, `effective_weight`-Indikator)
+- [ ] `config/config.php`: Balancing-Konstanten §12.6 + Tuning-Pass
+
 ---
 
 ## 14. Offene Fragen & Ausblick
@@ -801,6 +826,12 @@ Vertrauen ihrem Charakter widerspricht.
 | **Achievements** | Soll es Achievements für alle 6 Hauptfraktionen auf Tier 4 geben? | Ja: „Kalytherion-Einheit"-Achievement |
 | **Tier-Rückkehr** | Was passiert wenn Tier 4 verloren geht (Stehung unter Schwelle)? | Einmaliger Grace-Period-Event „Vertrauensverlust" (+24h Stabilisierungsfenster) |
 | **Mobile UI** | Wie wird die Druckanzeige auf kleinen Screens dargestellt? | Kompakter Indikator-Balken ohne Detailaufschlüsselung |
+| **Mandats-Konflikt** | Was wenn zwei Fraktionen gleichzeitig Mandate stellen, die sich widersprechen? | Spieler wählt eine; abgelehnte Fraktion erhält −5 Standing ohne neglect_count-Anstieg (explizite Ablehnung); vollständige Spezifikation siehe FACTION_INTRODUCTION.md §12 |
+| **Mandat + Isolation** | Erhalten Spieler auf dem Isolationspfad (§11.3) Mandate von Hauptfraktionen? | Nein: Sobald `isolation_path_active = 1`, senden Hauptfraktionen keine neuen Mandate; laufende Mandate werden EXPIRED ohne Peitsche |
+| **Staatsgebilde-Wechsel** | Kann eine NPC-Fraktion ihr Staatsgebilde ändern (z.B. durch Spieler-Handlung)? | Ja, als seltenes galaktisches Ereignis; `government_type`-Änderung invalidiert laufenden `effective_weight`; Spieler wird benachrichtigt |
+| **Berater + Multiplayer** | Wenn Spieler A Erster Berater ist und Spieler B ebenfalls Stufe 4 hat – wer ist der „echte" Berater? | Beide sind Berater; NPC gewichtet beide Empfehlungen; bei Konflikt gewinnt höherer `advisor_trust`; bei Gleichstand: Zufallsentscheid mit 50/50 |
+| **Ripple-Fairness** | Können Spieler missbräuchlich Ripple-Events durch andere Spieler auslösen? | Ripple nur bei `neglect_count ≥ 3` + EXPIRED Beratungsmandat; 1/24h-Cap pro Fraktion; kein aktives Missbrauchs-Werkzeug |
+| **Autokratie + Berater** | Was passiert wenn ein Autokrat-Anführer stirbt/ersetzt wird? | `advisor_accepted` → 0; neuer Anführer muss Berater neu bestätigen (automatisches Beratungs-Mandat: „Loyalitätstest") |
 
 ---
 
@@ -814,19 +845,43 @@ migrate_bonus_malus_v1.sql (neu)        │
     └─► faction_tier_modifiers          │
     └─► diplomacy.current_tier ─────────┤
                                         │
+migrate_npc_factions_hardreplace_v1.sql │
+    └─► npc_factions (code-Rename)      │
+    └─► npc_factions.government_type ───┤  ← §12.1a Staatsgebilde
+    └─► diplomacy.influence_tier ───────┤
+    └─► diplomacy.neglect_count         │
+    └─► diplomacy.advisor_accepted      │
+    └─► diplomacy.advisor_trust ────────┤  ← §12.3 effective_weight-Bonus
+    └─► diplomacy.advisor_anonymous     │
+    └─► faction_mandates ───────────────┤
+    └─► galactic_events ────────────────┤  ← §12.9 Multiplayer-Ripple
+                                        │
 npc_ai.php (tick)                       │
-    └─► sync_faction_tier_modifiers() ──┘
+    └─► sync_faction_tier_modifiers() ──┤
+    └─► generate_faction_mandates() ────┤
+    └─► expire_pending_mandates() ──────┤
+    └─► compute_npc_decision() ─────────┤  ← government_type + advisor_trust
+    └─► fire_ripple_event() ────────────┤  ← galactic_events INSERT
             └─► user_empire_modifiers (INSERT/DELETE)
 
-factions.php (list/claim_quest/accept_trade)
+factions.php (list/claim_quest/accept_trade/resolve_mandate/advisor_status)
     └─► sync_faction_tier_modifiers()
+    └─► apply_mandate_reward() / apply_mandate_penalty()
+    └─► compute_effective_weight()          ← government_type + advisor_trust
 
 EventSystem.js (Frontend)
     └─► defineJournalEntry() für Tier-Wechsel-Events
+    └─► defineJournalEntry() für Mandats-Events (eingang/ablauf/loyalität/berater-ernennung)
+    └─► defineJournalEntry() für Ripple-Ankündigungen (§12.9.3)
 
 js/game.js (FactionPanel)
     └─► GET /api/factions.php?action=tier_modifiers
+    └─► GET /api/factions.php?action=list_mandates
+    └─► GET /api/factions.php?action=advisor_status
+    └─► POST /api/factions.php?action=resolve_mandate
     └─► Tier-Badge, Progressbar, Toast, Modal
+    └─► Mandats-Panel (Resource: Accept/Decline/Partial)
+    └─► Advisory-Panel (A/B/C Empfehlung, effective_weight-Anzeige, advisor_trust-Balken)
 ```
 
 ---
@@ -836,12 +891,16 @@ js/game.js (FactionPanel)
 
 ---
 
-## 15. NPC-Fraktions-Modifier-Tabellen (alle 11 Fraktionen)
+## 15. NPC-Fraktions-Modifier-Tabellen (alle 13 Fraktionen)
 
 Die 6 Hauptfraktionen werden in Kapitel 5.2/5.3 behandelt. Hier folgen die
-**spezifischen Tier-Modifier** für alle 11 NPC-Fraktionen. Jede Tabelle zeigt
+**spezifischen Tier-Modifier** für alle 13 NPC-Fraktionen. Jede Tabelle zeigt
 nur die **Abweichungen vom Standard** (Kapitel 5.2); Basis-Modifier gelten
 ergänzend.
+
+> **Kanonische Fraktionszahl (Stand 2026-04-01):** 11 ursprüngliche + 2 neu hinzugefügte = **13 NPC-Fraktionen**.
+> Fraktionen 12 und 13 (Schattenkompakt, Genesis-Kollektiv) werden via Migration
+> `migrate_npc_factions_hardreplace_v1.sql` eingefügt (Hard-Replace, siehe FACTION_INTRODUCTION.md §11.3.6).
 
 ---
 
@@ -1096,6 +1155,57 @@ Bieten einmalige FTL-Boni und Dimensionskenntnis.
 > **Besonderheit:** Tier 4 schaltet die **Terraforming-Kooperation** frei:
 > Koloniegründung auf ungünstigen Planetentypen dauert 25% kürzer.
 > Synergieeffekt mit Myr'Keth: Wenn beide auf Tier 3+, `pop_growth_mult` +0.04 zusätzlich.
+
+---
+
+### 15.12 Das Schattenkompakt *(Fraktion 12 – neu)*
+
+**Typ:** `espionage` | **threat_level:** 5 | **Max. Tier:** 4  
+**Beschreibung:** Ein galaktisches Netzwerk aus Informationsbrokern, Agenten und Doppelspionen.
+Kein Territorium, keine Flotte – nur Wissen als Währung. Beziehungen sind immer ambivalent.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `spy_detection_flat` | −25 | Kompakt sabotiert Abwehrnetzwerke |
+| **0** | `espionage_ops_cost_mult` | +0.30 | Gegensabotage aller Operationen |
+| **1 – Kalt** | `spy_detection_flat` | −10 | Passive Informationsblockade |
+| **2 – Neutral** | *(Basis-Modifier)* | — | — |
+| **3 – Verbündet** | `spy_detection_flat` | +20 | Zugang zum Kompakt-Netzwerk |
+| **3** | `espionage_ops_cost_mult` | −0.15 | Geteilte Operationsinfrastruktur |
+| **4 – Strategisch** | `spy_detection_flat` | +35 | Vollständige Netzwerkintegration |
+| **4** | `espionage_ops_cost_mult` | −0.25 | Kompakt übernimmt Operationslogistik |
+| **4** | `dark_matter_income_flat` | +8 | Informationshandel mit DM-Vergütung |
+
+> **Besonderheit:** Tier 3 mit Schattenkompakt schaltet die exklusive Aktion
+> `espionage.php?action=shadow_broker` frei — einmalige Enthüllung aller aktiven
+> Spionagenetze anderer Spieler in einer Region.
+> Bei Tier 0: Eigene Agenten haben 30% Chance, als Doppelspion enttarnt zu werden.
+
+---
+
+### 15.13 Das Genesis-Kollektiv *(Fraktion 13 – neu)*
+
+**Typ:** `metamorphic` | **threat_level:** 6 | **Max. Tier:** 4  
+**Beschreibung:** Eine post-biologische Gemeinschaft aus Wesen, die ihren Körper als
+designbare Schnittstelle begreifen. Technologie und Biologie sind für sie untrennbar.
+Handelspartner, aber unberechenbar in Krisenzeiten.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `research_speed_mult` | −0.10 | Technologie-Embargo |
+| **0** | `pop_growth_mult` | −0.05 | Bio-Kontamination durch feindliche Nanostrukturen |
+| **1 – Kalt** | `research_speed_mult` | −0.04 | Passive Wissensblockade |
+| **2 – Neutral** | *(Basis-Modifier)* | — | — |
+| **3 – Verbündet** | `research_speed_mult` | +0.10 | Zugang zu metamorphischer Biotechnologie |
+| **3** | `pop_growth_mult` | +0.06 | Genesis-Wachstumsprotokolle |
+| **4 – Strategisch** | `research_speed_mult` | +0.18 | Vollständige Technologieintegration |
+| **4** | `pop_growth_mult` | +0.10 | Metamorphe Kolonieoptimierung |
+| **4** | `colony_stability_flat` | +4 | Biologische Stabilitätsanker |
+| **4** | `food_output_mult` | +0.08 | Synthetische Nahrungsproduktion |
+
+> **Besonderheit:** Tier 4 schaltet den einzigartigen Hull-Typ `genesis_carrier` frei —
+> ein organisch-mechanischer Trägerschiff-Hybrid mit passivem Schild-Regen-Bonus.
+> Synergieeffekt mit Brut der Ewigkeit (§15.11): Wenn beide auf Tier 3+, `food_output_mult` +0.05 zusätzlich.
 
 ---
 
