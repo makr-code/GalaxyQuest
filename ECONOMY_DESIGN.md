@@ -103,8 +103,8 @@ Jede Kolonie hat begrenzte Lagerkapazität. Überschuss wird automatisch zum gal
 
 ```
 Lager-Kapazität = Basis-Kapazität × (1 + 0.1 × Lager-Gebäude-Level)
-Basis: Metal/Crystal/Deuterium = 50.000, Rare Earth = 10.000
-Zwischenprodukte: 5.000 pro Typ, Fertigwaren: 2.000 pro Typ
+Basis: Metal/Crystal/Deuterium = 50,000, Rare Earth = 10,000
+Zwischenprodukte: 5,000 pro Typ, Fertigwaren: 2,000 pro Typ
 ```
 
 ---
@@ -546,7 +546,7 @@ CREATE TABLE processed_goods (
     colony_id    INT NOT NULL,
     good_type    ENUM(
         'steel_alloy', 'focus_crystals', 'reactor_fuel',
-        'biocompost', 'electronics',
+        'biocompost', 'electronics_components',
         'consumer_goods', 'luxury_goods', 'military_equipment',
         'research_kits', 'colonization_packs'
     ) NOT NULL,
@@ -704,19 +704,32 @@ CREATE TABLE faction_trade_contracts (
 #### `api/game_engine.php` — Erweiterungen
 
 ```php
-// Neue Funktion: Verarbeitungsgebäude-Tick
+/**
+ * Verarbeitungsgebäude-Tick: verarbeitet Rohstoffe zu Zwischenprodukten.
+ *
+ * @param PDO $db       Datenbankverbindung
+ * @param int $colonyId ID der zu verarbeitenden Kolonie
+ * @return void
+ * @throws RuntimeException bei fehlendem Eintrag in processed_goods
+ */
 function process_manufacturing_tick(PDO $db, int $colonyId): void {
-    // Liest Produktionsmethoden
-    // Verbraucht Primär-/Zwischenprodukte
+    // Liest Produktionsmethoden aus production_methods
+    // Verbraucht Primär-/Zwischenprodukte aus colonies / processed_goods
     // Schreibt Output in processed_goods
-    // Berücksichtigt Energie-Balance
+    // Berücksichtigt Energie-Balance der Kolonie
 }
 
-// Neue Funktion: Marktpreis-Update
+/**
+ * Marktpreis-Update: berechnet aktuelle Preise aus Angebot und Nachfrage.
+ *
+ * @param PDO    $db    Datenbankverbindung
+ * @param string $scope Marktebene: 'global' | 'sector' | 'system'
+ * @return void
+ */
 function update_market_prices(PDO $db, string $scope = 'global'): void {
-    // Aggregiert Angebot aus allen Kolonien
-    // Berechnet Nachfrage aus Pop-Bedarf + Schiffbau + Forschung
-    // Berechnet neuen Preis per Formel
+    // Aggregiert Angebot aus allen Kolonien (processed_goods + colonies)
+    // Berechnet Nachfrage aus Pop-Bedarf + Schiffbau-Queue + Forschungs-Queue
+    // Berechnet neuen Preis per Preismultiplikator-Formel
     // Schreibt in market_prices
 }
 ```
