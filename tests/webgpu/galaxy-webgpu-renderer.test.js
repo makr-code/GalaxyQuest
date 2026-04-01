@@ -311,6 +311,20 @@ describe('Galaxy3DRendererWebGPU — native WebGPU path (mocked GPU)', () => {
     const state = r.getQualityProfileState();
     expect(state.name).toBe('webgpu-native');
   });
+
+  it('dispose detaches interaction listeners', async () => {
+    const removeCanvasSpy = vi.spyOn(HTMLCanvasElement.prototype, 'removeEventListener');
+    const removeWindowSpy = vi.spyOn(window, 'removeEventListener');
+    const r = new Ctor(container, {});
+    await r.init();
+    r.dispose();
+    expect(removeCanvasSpy).toHaveBeenCalledWith('mousemove', expect.any(Function));
+    expect(removeCanvasSpy).toHaveBeenCalledWith('mousedown', expect.any(Function));
+    expect(removeCanvasSpy).toHaveBeenCalledWith('wheel', expect.any(Function));
+    expect(removeCanvasSpy).toHaveBeenCalledWith('click', expect.any(Function));
+    expect(removeCanvasSpy).toHaveBeenCalledWith('dblclick', expect.any(Function));
+    expect(removeWindowSpy).toHaveBeenCalledWith('mouseup', expect.any(Function));
+  });
 });
 
 // ---------------------------------------------------------------------------

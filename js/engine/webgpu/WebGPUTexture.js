@@ -53,7 +53,7 @@ class WebGPUTexture {
 
     let usage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST;
     if (renderTarget) usage |= GPUTextureUsage.RENDER_ATTACHMENT;
-    if (mipMaps)      usage |= GPUTextureUsage.COPY_SRC; // for mip generation
+    if (mipMaps)      usage |= GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT;
 
     this._texture = device.createTexture({
       label,
@@ -143,10 +143,15 @@ class WebGPUTexture {
 
     // Lazily build the mip-gen pipeline once per device.
     // Store on the device object to share across textures.
-    if (!device.__gqMipPipeline) {
-      device.__gqMipPipeline = _buildMipGenPipeline(device);
+    if (!device.__gqMipPipelines) {
+      device.__gqMipPipelines = new Map();
     }
-    const { pipeline, sampler } = device.__gqMipPipeline;
+    let mipResources = device.__gqMipPipelines.get(this.format);
+    if (!mipResources) {
+      mipResources = _buildMipGenPipeline(device, this.format);
+      device.__gqMipPipelines.set(this.format, mipResources);
+    }
+    const { pipeline, sampler } = mipResources;
 
     for (let srcMip = 0; srcMip < mipCount - 1; srcMip++) {
       const srcView = this._texture.createView({
@@ -219,7 +224,7 @@ const MIP_GEN_WGSL = /* wgsl */`
   }
 `;
 
-function _buildMipGenPipeline(device) {
+function _buildMipGenPipeline(device, format) {
   const shader = device.createShaderModule({ code: MIP_GEN_WGSL, label: 'gq:mipgen' });
   const pipeline = device.createRenderPipeline({
     layout: 'auto',
@@ -227,7 +232,7 @@ function _buildMipGenPipeline(device) {
     fragment: {
       module: shader,
       entryPoint: 'fs_main',
-      targets: [{ format: 'rgba8unorm' }],
+      targets: [{ format }],
     },
     primitive: { topology: 'triangle-list' },
   });

@@ -71,6 +71,7 @@
       this._native    = null;   // StarfieldWebGPU for non-interactive path
       this._canvas    = opts.externalCanvas ?? null;
       this.ready      = false;
+      this._delegateInitDone = false;
 
       this._interactiveExperiment = isInteractiveWebGPUExperimentEnabled();
 
@@ -111,6 +112,13 @@
      * @returns {Promise<void>}
      */
     async init() {
+      if (this._delegate && typeof this._delegate.init === 'function' && !this._delegateInitDone) {
+        await this._delegate.init();
+        this._delegateInitDone = true;
+        this.ready = true;
+        return;
+      }
+
       if (this.ready && this._delegate) {
         return;
       }
@@ -151,6 +159,10 @@
       }
       if (!this._delegate) {
         this._delegate = new window.Galaxy3DRenderer(this._container, this._opts);
+      }
+      if (this._delegate && typeof this._delegate.init === 'function' && !this._delegateInitDone) {
+        await this._delegate.init();
+        this._delegateInitDone = true;
       }
       this.ready     = true;
       window.__GQ_ACTIVE_RENDERER_BACKEND = this._backend;

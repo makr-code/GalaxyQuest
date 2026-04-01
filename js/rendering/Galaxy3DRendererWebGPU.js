@@ -242,6 +242,8 @@
       this._lastClickTs   = 0;
       this._followSelection = true;
       this._cameraDriver    = null;
+      this._eventHandlers   = null;
+      this._resizeHandler   = null;
 
       // Flags
       this._clusterBoundsVisible   = false;
@@ -517,9 +519,10 @@
     // ── Mouse / touch interaction ───────────────────────────────────────────
 
     _attachInteraction(canvas) {
+      if (this._eventHandlers) return;
       const self = this;
 
-      canvas.addEventListener('mousemove', (e) => {
+      const onMouseMove = (e) => {
         if (!self._rawStars.length) return;
         const ndc = self._canvasToNdc(canvas, e.clientX, e.clientY);
         const magPx = self.hoverMagnetStarPx || 24;
@@ -539,9 +542,9 @@
           self._view.targetPanX = self._dragPanX + dx / self._view.zoom;
           self._view.targetPanY = self._dragPanY - dy / self._view.zoom;
         }
-      });
+      };
 
-      canvas.addEventListener('mousedown', (e) => {
+      const onMouseDown = (e) => {
         if (e.button === 1 || e.button === 2) {
           self._isDragging  = true;
           self._dragStartX  = e.clientX;
@@ -550,18 +553,18 @@
           self._dragPanY    = self._view.targetPanY;
           e.preventDefault();
         }
-      });
+      };
 
-      window.addEventListener('mouseup', () => { self._isDragging = false; });
+      const onWindowMouseUp = () => { self._isDragging = false; };
 
-      canvas.addEventListener('wheel', (e) => {
+      const onWheel = (e) => {
         e.preventDefault();
         const delta = e.deltaY > 0 ? -0.15 : 0.15;
         const nextZ = Math.max(0.45, Math.min(6, self._view.targetZoom + delta * self._view.targetZoom));
         self._view.targetZoom = nextZ;
-      }, { passive: false });
+      };
 
-      canvas.addEventListener('click', (e) => {
+      const onClick = (e) => {
         const ndc = self._canvasToNdc(canvas, e.clientX, e.clientY);
         const magPx = self.clickMagnetEnabled ? (self.hoverMagnetStarPx || 24) : 8;
         const thresh = (magPx / Math.max(1, canvas.clientWidth)) * 2;
@@ -583,9 +586,9 @@
         if (star && typeof self._opts.onClick === 'function') {
           self._opts.onClick(star, self._starToScreenPos(canvas, star));
         }
-      });
+      };
 
-      canvas.addEventListener('dblclick', (e) => {
+      const onDblClick = (e) => {
         const ndc = self._canvasToNdc(canvas, e.clientX, e.clientY);
         const thresh = ((self.hoverMagnetStarPx || 24) / Math.max(1, canvas.clientWidth)) * 2;
         const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
@@ -593,7 +596,23 @@
         if (star && typeof self._opts.onDoubleClick === 'function') {
           self._opts.onDoubleClick(star, self._starToScreenPos(canvas, star));
         }
-      });
+      };
+
+      canvas.addEventListener('mousemove', onMouseMove);
+      canvas.addEventListener('mousedown', onMouseDown);
+      window.addEventListener('mouseup', onWindowMouseUp);
+      canvas.addEventListener('wheel', onWheel, { passive: false });
+      canvas.addEventListener('click', onClick);
+      canvas.addEventListener('dblclick', onDblClick);
+
+      this._eventHandlers = {
+        onMouseMove,
+        onMouseDown,
+        onWindowMouseUp,
+        onWheel,
+        onClick,
+        onDblClick,
+      };
 
       // Resize observer
       if (typeof ResizeObserver !== 'undefined') {
@@ -601,7 +620,26 @@
         ro.observe(self.container);
         self._resizeObserver = ro;
       } else {
-        window.addEventListener('resize', () => self.resize());
+        const onResize = () => self.resize();
+        this._resizeHandler = onResize;
+        window.addEventListener('resize', onResize);
+      }
+    }
+
+    _detachInteraction() {
+      if (this._canvas && this._eventHandlers) {
+        this._canvas.removeEventListener('mousemove', this._eventHandlers.onMouseMove);
+        this._canvas.removeEventListener('mousedown', this._eventHandlers.onMouseDown);
+        this._canvas.removeEventListener('wheel', this._eventHandlers.onWheel);
+        this._canvas.removeEventListener('click', this._eventHandlers.onClick);
+        this._canvas.removeEventListener('dblclick', this._eventHandlers.onDblClick);
+        window.removeEventListener('mouseup', this._eventHandlers.onWindowMouseUp);
+      }
+      this._eventHandlers = null;
+
+      if (this._resizeHandler) {
+        window.removeEventListener('resize', this._resizeHandler);
+        this._resizeHandler = null;
       }
     }
 
@@ -905,6 +943,7 @@
         try { this._resizeObserver.disconnect(); } catch (_) {}
         this._resizeObserver = null;
       }
+      this._detachInteraction();
       try { this._starBuf?.destroy();  } catch (_) {}
       try { this._indexBuf?.destroy(); } catch (_) {}
       try { this._uniformBuf?.destroy(); } catch (_) {}
