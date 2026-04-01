@@ -419,9 +419,13 @@
     });
 
     document.getElementById('prolog-next3')?.addEventListener('click', () => {
-      // Skip the credentials form when the colony was pre-seeded via show()
-      // (i.e. there is no API-issued prolog token – test/bypass mode).
-      showPhase(_prologToken ? 4 : 5);
+      // In normal flow: go to credentials form (phase 4).
+      // In bypass/pre-seed mode (username already set via show()): skip directly to transition (phase 5).
+      if (_username) {
+        showPhase(5);
+      } else {
+        showPhase(4);
+      }
     });
 
     document.getElementById('prolog-name-regen')?.addEventListener('click', () => {
@@ -518,12 +522,20 @@
    * Faction confirmed: show phase 3 (loading state) immediately, then fire
    * register_prepare in the background.  The story is revealed once the API
    * returns and the colony name is known from the database.
+   *
+   * In pre-seed / bypass mode (_colonyName already set via show()) the API
+   * call is skipped and the story is revealed immediately.
    */
   function onConfirmFaction() {
     if (!_selectedFaction) return;
     document.getElementById('prolog-confirm')?.classList.remove('is-visible');
-    showPhase(3);                             // synchronous – loading overlay shown immediately
-    registerPrepare(_selectedFaction.id);    // async, fire-and-forget
+    showPhase(3);
+    if (_colonyName) {
+      // Bypass mode (test / pre-seeded): reveal story without an API round-trip.
+      revealFactionStory();
+    } else {
+      registerPrepare(_selectedFaction.id);    // async, fire-and-forget
+    }
   }
 
   // ─── Phase 3 – Loading / faction story ────────────────────────────────────
@@ -688,17 +700,18 @@
    * @param {object}   opts
    * @param {Function} opts.onComplete  Called after the player clicks "Zur Lageübersicht"
    *
-   * Note: username and colonyName are no longer accepted as parameters.
-   * Both are obtained from the API calls made inside the prolog so they
-   * always reflect the actual database values.
+   * Optional pre-seed parameters (used for testing / bypass mode):
+   *   opts.colonyName – skip register_prepare; story shown immediately
+   *   opts.username   – skip register_complete; used directly in transition
+   * When these are absent the prolog fires the real API calls instead.
    */
   function show(opts) {
     opts = opts || {};
     _onComplete      = typeof opts.onComplete === 'function' ? opts.onComplete : null;
     _selectedFaction = null;
     _prologToken     = '';
-    _colonyName      = '';
-    _username        = '';
+    _colonyName      = typeof opts.colonyName === 'string' ? opts.colonyName : '';
+    _username        = typeof opts.username   === 'string' ? opts.username   : '';
 
     const section = getSection();
     if (!section) {

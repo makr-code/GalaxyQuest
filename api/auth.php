@@ -9,7 +9,7 @@
  *
  * Two-step narrative registration:
  * POST /api/auth.php?action=register_prepare   body: {faction_id}
- * POST /api/auth.php?action=register_complete  body: {prolog_token,username,email,password,remember}
+ * POST /api/auth.php?action=register_complete  body: {prolog_token,username,email,remember}
  *
  * TOTP 2FA:
  * GET  /api/auth.php?action=totp_status
@@ -1038,8 +1038,9 @@ function handle_register_prepare(): void {
  *
  * Step 2 of the two-step narrative registration.
  * Finalises the provisional account with the player's chosen credentials.
+ * Registration is passwordless – a one-time login link is sent by e-mail.
  *
- * Body:     { prolog_token: "…", username: "…", email: "…", password: "…", remember: bool }
+ * Body:     { prolog_token: "…", username: "…", email: "…", remember: bool }
  * Response: { success: true, user: { id, username }, colony_name: "…" }
  */
 function handle_register_complete(): void {
@@ -1048,7 +1049,6 @@ function handle_register_complete(): void {
     $token    = trim($body['prolog_token'] ?? '');
     $username = trim($body['username']     ?? '');
     $email    = trim($body['email']        ?? '');
-    $password = $body['password']          ?? '';
     $remember = !empty($body['remember']);
 
     if (strlen($token) !== 64 || !ctype_xdigit($token)) {
@@ -1059,9 +1059,6 @@ function handle_register_complete(): void {
     }
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         json_error('Ungültige E-Mail-Adresse.');
-    }
-    if (strlen($password) < 8) {
-        json_error('Passwort muss mindestens 8 Zeichen lang sein.');
     }
 
     $db = get_db();
@@ -1089,12 +1086,11 @@ function handle_register_complete(): void {
         json_error('Benutzername oder E-Mail bereits vergeben.');
     }
 
-    $hash = password_hash($password, PASSWORD_BCRYPT);
-
-    // Upgrade provisional account to a real account.
+    // Upgrade provisional account to a real account (password_hash stays empty;
+    // login is handled via the one-time e-mail link flow).
     $db->prepare(
-        'UPDATE users SET username = ?, email = ?, password_hash = ?, auth_enabled = 1 WHERE id = ?'
-    )->execute([$username, $email, $hash, $provisionalUid]);
+        'UPDATE users SET username = ?, email = ?, auth_enabled = 1 WHERE id = ? AND auth_enabled = 0'
+    )->execute([$username, $email, $provisionalUid]);
 
     // Replace provisional welcome messages with ones using the real commander name.
     try {
