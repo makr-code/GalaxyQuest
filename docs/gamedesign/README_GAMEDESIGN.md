@@ -49,7 +49,7 @@ Sie wurde **neu strukturiert und konsolidiert**:
    - Gameplay-Mechanics (Reputation, Quests, Combat)
    - Art-Production (Portraits, Concepts, UI)
 
-3. **Backup verfügbar** – [`gamedesign_fractions_backup.md`](gamedesign_fractions_backup.md)
+3. **Backup verfügbar** – [`gamedesign_fractions_backup.md`](../lore/gamedesign_fractions_backup.md)
 
 ---
 
