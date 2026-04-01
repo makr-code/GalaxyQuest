@@ -31,7 +31,7 @@ docker compose exec -T web php setup.php --regen-galaxy
 For a non-Docker setup, see [Manual Installation](#manual-installation).
 
 Gameplay and systems design:
-- [Gameplay Data Model & Mechanics](docs/GAMEPLAY_DATA_MODEL.md)
+- [Gameplay Data Model & Mechanics](docs/gamedesign/GAMEPLAY_DATA_MODEL.md)
 
 ### Scientific Glossary with LLM + Wikipedia RAG
 
@@ -55,7 +55,7 @@ export OLLAMA_URL=http://localhost:11434
 export OLLAMA_MODEL=mistral
 ```
 
-Full setup guide: [→ OLLAMA_SETUP.md](docs/OLLAMA_SETUP.md)
+Full setup guide: [→ OLLAMA_SETUP.md](docs/technical/OLLAMA_SETUP.md)
 
 **API Endpoint:**
 ```bash

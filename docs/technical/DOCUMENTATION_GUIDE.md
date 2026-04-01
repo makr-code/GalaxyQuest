@@ -8,10 +8,10 @@ This guide explains how the documentation is organised and how to navigate it ef
 
 | Goal | Document |
 |---|---|
-| **Install the project** | [../README.md](../README.md) — Docker setup, Quick Start |
+| **Install the project** | [../README.md](../../README.md) — Docker setup, Quick Start |
 | **Understand the architecture** | [ARCHITECTURE.md](ARCHITECTURE.md) — technical reference |
-| **Understand game mechanics** | [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) |
-| **See all docs at a glance** | [INDEX.md](INDEX.md) — full documentation index |
+| **Understand game mechanics** | [GAMEPLAY_DATA_MODEL.md](../gamedesign/GAMEPLAY_DATA_MODEL.md) |
+| **See all docs at a glance** | [INDEX.md](../INDEX.md) — full documentation index |
 
 ---
 
@@ -21,17 +21,27 @@ All documentation (except the project README) lives in `docs/`.
 
 ```
 docs/
-├── INDEX.md                   ← Navigation index for all docs
-├── ARCHITECTURE.md            ← Technical architecture reference
-├── DOCUMENTATION_GUIDE.md     ← This file
-├── GAMEPLAY_DATA_MODEL.md     ← Game mechanics and data model
-├── GAMEDESIGN.md              ← Full game design document
-├── webgpu_architecture.md     ← WebGPU engine architecture
-├── FTL_DRIVE_DESIGN.md        ← FTL drive system design
-├── VESSEL_MODULE_BLUEPRINT_DESIGN.md ← Vessel blueprint system
-├── ROADMAP.md                 ← Development roadmap
-├── FUTURE_ENHANCEMENTS.md     ← Planned features
-└── …
+├── INDEX.md                        ← Navigation index for all docs
+│
+├── technical/                      ← Implementation & engineering docs
+│   ├── ARCHITECTURE.md             ← Technical architecture reference
+│   ├── DOCUMENTATION_GUIDE.md      ← This file
+│   ├── webgpu_architecture.md      ← WebGPU engine architecture
+│   ├── ROADMAP.md                  ← Engine & feature roadmap
+│   ├── FUTURE_ENHANCEMENTS.md      ← Planned features
+│   └── …
+│
+├── gamedesign/                     ← Game Design docs
+│   ├── GAMEDESIGN.md               ← Full game design document
+│   ├── GAMEPLAY_DATA_MODEL.md      ← Game mechanics and data model
+│   ├── FTL_DRIVE_DESIGN.md         ← FTL drive system design
+│   ├── VESSEL_MODULE_BLUEPRINT_DESIGN.md ← Vessel blueprint system
+│   └── …
+│
+└── lore/                           ← Narrative, LORA & art docs
+    ├── ART_PROMPTS_SDXL.md         ← SDXL prompts for art generation
+    ├── gamedesign_fractions.md     ← Faction species lore
+    └── …
 ```
 
 ---
@@ -42,17 +52,17 @@ docs/
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — The main technical reference covering:
   backend (PHP), frontend (JS), WebGPU engine, database schema, security, testing, and extension points.
-- **[GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md)** — Game formulas, resource model, and mechanics.
+- **[GAMEPLAY_DATA_MODEL.md](../gamedesign/GAMEPLAY_DATA_MODEL.md)** — Game formulas, resource model, and mechanics.
 - **[PROJECTION_RUNBOOK.md](PROJECTION_RUNBOOK.md)** — Operations guide for the projection runtime.
 - **[MIGRATION_STRATEGY_OOP.md](MIGRATION_STRATEGY_OOP.md)** — Refactoring conventions.
 - **[webgpu_architecture.md](webgpu_architecture.md)** — Engine internals.
 
 ### 🎮 Game Design Docs
 
-- **[GAMEDESIGN.md](GAMEDESIGN.md)** — The definitive game design document.
-- **[ARCHITECTURE_GAMEDESIGN.md](ARCHITECTURE_GAMEDESIGN.md)** — How the design docs are structured.
-- **[FTL_DRIVE_DESIGN.md](FTL_DRIVE_DESIGN.md)** — FTL drive mechanics and balancing.
-- **[VESSEL_MODULE_BLUEPRINT_DESIGN.md](VESSEL_MODULE_BLUEPRINT_DESIGN.md)** — Ship building system.
+- **[GAMEDESIGN.md](../gamedesign/GAMEDESIGN.md)** — The definitive game design document.
+- **[ARCHITECTURE_GAMEDESIGN.md](../gamedesign/ARCHITECTURE_GAMEDESIGN.md)** — How the design docs are structured.
+- **[FTL_DRIVE_DESIGN.md](../gamedesign/FTL_DRIVE_DESIGN.md)** — FTL drive mechanics and balancing.
+- **[VESSEL_MODULE_BLUEPRINT_DESIGN.md](../gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md)** — Ship building system.
 
 ### ⚡ Performance & Encoding
 
@@ -120,5 +130,5 @@ npx playwright test
 ## Getting Help
 
 - Open an issue on GitHub
-- Check [START_HERE.md](START_HERE.md) for orientation
+- Check [START_HERE.md](../gamedesign/START_HERE.md) for orientation
 - Check [DEV_USERS.md](DEV_USERS.md) for pre-seeded dev accounts

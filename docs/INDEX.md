@@ -1,7 +1,13 @@
 # GalaxyQuest — Documentation Index
 
 > Navigation index for all project documentation.  
-> Start here to find the right document for your task.
+> Documentation is divided into three strictly separate areas:
+>
+> | Folder | Content |
+> |---|---|
+> | [`technical/`](technical/) | Implementation, architecture, engineering |
+> | [`gamedesign/`](gamedesign/) | Game design, mechanics, balancing |
+> | [`lore/`](lore/) | Narrative, factions, LORA / art generation |
 
 ---
 
@@ -10,93 +16,76 @@
 | Document | Content | Time |
 |---|---|---|
 | [../README.md](../README.md) | Installation, Docker setup, Quick Start | 5 min |
-| [START_HERE.md](START_HERE.md) | Orientation guide for new contributors | 5 min |
-| [DEV_USERS.md](DEV_USERS.md) | Pre-seeded dev accounts and login info | 2 min |
+| [technical/DEV_USERS.md](technical/DEV_USERS.md) | Pre-seeded dev accounts | 2 min |
+| [gamedesign/START_HERE.md](gamedesign/START_HERE.md) | Game design orientation | 5 min |
 
 ---
 
-## 🏗️ Technical Architecture
+## 🏗️ Technical — Implementation & Engineering
+
+> Everything about the code, infrastructure, and system architecture.
 
 | Document | Content |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | **Main technical reference** — backend, frontend, engine, database, security |
-| [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) | Game mechanics, formulas, resource model |
-| [MIGRATION_STRATEGY_OOP.md](MIGRATION_STRATEGY_OOP.md) | OOP refactoring roadmap and conventions |
-| [PROJECTION_RUNBOOK.md](PROJECTION_RUNBOOK.md) | Projection runtime operations guide |
+| [technical/ARCHITECTURE.md](technical/ARCHITECTURE.md) | **Main technical reference** — backend, frontend, engine, DB, security |
+| [technical/DOCUMENTATION_GUIDE.md](technical/DOCUMENTATION_GUIDE.md) | How to navigate and contribute to docs |
+| [technical/MIGRATION_STRATEGY_OOP.md](technical/MIGRATION_STRATEGY_OOP.md) | OOP refactoring roadmap and conventions |
+| [technical/PROJECTION_RUNBOOK.md](technical/PROJECTION_RUNBOOK.md) | Projection runtime operations guide |
+| [technical/OLLAMA_SETUP.md](technical/OLLAMA_SETUP.md) | Ollama local LLM setup and configuration |
+| [technical/DEV_USERS.md](technical/DEV_USERS.md) | Pre-seeded development accounts |
+| [technical/ROADMAP.md](technical/ROADMAP.md) | Engine & feature development roadmap |
+| [technical/FUTURE_ENHANCEMENTS.md](technical/FUTURE_ENHANCEMENTS.md) | Planned features and extension points |
+
+### WebGPU Engine
+
+| Document | Content |
+|---|---|
+| [technical/webgpu_architecture.md](technical/webgpu_architecture.md) | Engine architecture overview |
+| [technical/webgpu_implementation_guide.md](technical/webgpu_implementation_guide.md) | Implementation guide and usage |
+| [technical/webgpu_api_reference.md](technical/webgpu_api_reference.md) | Engine API reference |
+| [technical/webgpu_migration_roadmap.md](technical/webgpu_migration_roadmap.md) | WebGL → WebGPU migration plan |
+| [technical/webgl_engine_analysis.md](technical/webgl_engine_analysis.md) | Legacy WebGL engine analysis |
+| [technical/WEBGPU_ENGINE_ATTRIBUTION.md](technical/WEBGPU_ENGINE_ATTRIBUTION.md) | Third-party attributions and licenses |
+| [technical/GALAXY_POSTPROCESS_ROADMAP.md](technical/GALAXY_POSTPROCESS_ROADMAP.md) | Post-processing pipeline roadmap |
+
+### Performance & Data Encoding
+
+| Document | Content |
+|---|---|
+| [technical/PERFORMANCE_BASELINE.md](technical/PERFORMANCE_BASELINE.md) | Performance baselines and QA gates |
+| [technical/BENCHMARK_RESULTS.md](technical/BENCHMARK_RESULTS.md) | Benchmark analysis |
+| [technical/BENCHMARK_QUICKSTART.md](technical/BENCHMARK_QUICKSTART.md) | How to run benchmarks |
+| [technical/BINARY_ENCODING_V2.md](technical/BINARY_ENCODING_V2.md) | Binary protocol V2 specification |
+| [technical/DELTA_ENCODING_V3.md](technical/DELTA_ENCODING_V3.md) | Delta encoding V3 specification |
+| [technical/COMPRESSION.md](technical/COMPRESSION.md) | Gzip + trimming compression overview |
+| [technical/SCIENTIFIC_REFERENCES.md](technical/SCIENTIFIC_REFERENCES.md) | Academic references for compression algorithms |
 
 ---
 
-## 🎮 Game Design
+## 🎮 Game Design — Mechanics & Balancing
+
+> Everything about what the game does: rules, mechanics, systems, and balance.
 
 | Document | Content |
 |---|---|
-| [GAMEDESIGN.md](GAMEDESIGN.md) | Definitive game design document (~1 100 lines) |
-| [README_GAMEDESIGN.md](README_GAMEDESIGN.md) | 5-minute game design overview |
-| [ARCHITECTURE_GAMEDESIGN.md](ARCHITECTURE_GAMEDESIGN.md) | Design document structure and navigation |
-| [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) | Data model, mechanics, balancing |
-| [gamedesign_fractions.md](gamedesign_fractions.md) | Faction species — detailed design |
-| [VESSEL_MODULE_BLUEPRINT_DESIGN.md](VESSEL_MODULE_BLUEPRINT_DESIGN.md) | Vessel blueprint and module system |
-| [FTL_DRIVE_DESIGN.md](FTL_DRIVE_DESIGN.md) | FTL drive system — faction designs and balancing |
+| [gamedesign/GAMEDESIGN.md](gamedesign/GAMEDESIGN.md) | **Definitive game design document** (~1 100 lines) |
+| [gamedesign/README_GAMEDESIGN.md](gamedesign/README_GAMEDESIGN.md) | 5-minute game design overview |
+| [gamedesign/ARCHITECTURE_GAMEDESIGN.md](gamedesign/ARCHITECTURE_GAMEDESIGN.md) | Design document structure and navigation |
+| [gamedesign/START_HERE.md](gamedesign/START_HERE.md) | Orientation guide for game design contributors |
+| [gamedesign/GAMEPLAY_DATA_MODEL.md](gamedesign/GAMEPLAY_DATA_MODEL.md) | Data model, mechanics, balancing formulas |
+| [gamedesign/FTL_DRIVE_DESIGN.md](gamedesign/FTL_DRIVE_DESIGN.md) | FTL drive system — faction designs and balancing |
+| [gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md](gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md) | Vessel blueprint and module system |
+| [gamedesign/GAME_CLASSICS_INSPIRATION.md](gamedesign/GAME_CLASSICS_INSPIRATION.md) | Classic game inspirations and adopted mechanics |
 
 ---
 
-## 🔭 WebGPU Engine
+## 📖 Lore — Narrative, Factions & Art
+
+> Story, world-building, faction lore, and LORA / image generation assets.
 
 | Document | Content |
 |---|---|
-| [webgpu_architecture.md](webgpu_architecture.md) | Engine architecture overview (Phase 0) |
-| [webgpu_implementation_guide.md](webgpu_implementation_guide.md) | Implementation guide and usage |
-| [webgpu_api_reference.md](webgpu_api_reference.md) | Engine API reference |
-| [webgpu_migration_roadmap.md](webgpu_migration_roadmap.md) | WebGL → WebGPU migration plan |
-| [webgl_engine_analysis.md](webgl_engine_analysis.md) | Legacy WebGL engine analysis |
-| [WEBGPU_ENGINE_ATTRIBUTION.md](WEBGPU_ENGINE_ATTRIBUTION.md) | Third-party attributions and licenses |
-| [GALAXY_POSTPROCESS_ROADMAP.md](GALAXY_POSTPROCESS_ROADMAP.md) | Post-processing pipeline roadmap |
-
----
-
-## ⚡ Performance & Data Transfer
-
-| Document | Content |
-|---|---|
-| [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md) | Performance baselines and QA gates |
-| [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) | Benchmark analysis |
-| [BENCHMARK_QUICKSTART.md](BENCHMARK_QUICKSTART.md) | How to run benchmarks |
-| [BINARY_ENCODING_V2.md](BINARY_ENCODING_V2.md) | Binary protocol V2 specification |
-| [DELTA_ENCODING_V3.md](DELTA_ENCODING_V3.md) | Delta encoding V3 specification |
-| [COMPRESSION.md](COMPRESSION.md) | Gzip + trimming compression overview |
-
----
-
-## 🤖 AI / LLM Integration
-
-| Document | Content |
-|---|---|
-| [OLLAMA_SETUP.md](OLLAMA_SETUP.md) | Ollama local LLM setup and configuration |
-
----
-
-## 🎨 Art & Media
-
-| Document | Content |
-|---|---|
-| [ART_PROMPTS_SDXL.md](ART_PROMPTS_SDXL.md) | SDXL image generation prompts |
-| [ART_QUICKSTART.md](ART_QUICKSTART.md) | Art generation quick start |
-| [SCIENTIFIC_REFERENCES.md](SCIENTIFIC_REFERENCES.md) | Scientific references used in world-building |
-| [GAME_CLASSICS_INSPIRATION.md](GAME_CLASSICS_INSPIRATION.md) | Classic games that inspired GalaxyQuest |
-
----
-
-## 🗺️ Roadmap
-
-| Document | Content |
-|---|---|
-| [ROADMAP.md](ROADMAP.md) | Development roadmap with phases |
-| [FUTURE_ENHANCEMENTS.md](FUTURE_ENHANCEMENTS.md) | Planned features and extension points |
-
----
-
-## 📖 Documentation Meta
-
-| Document | Content |
-|---|---|
-| [DOCUMENTATION_GUIDE.md](DOCUMENTATION_GUIDE.md) | How to navigate and contribute to docs |
+| [lore/gamedesign_fractions.md](lore/gamedesign_fractions.md) | Faction species — detailed lore and world-building |
+| [lore/gamedesign_fractions_backup.md](lore/gamedesign_fractions_backup.md) | Faction lore — backup / previous version |
+| [lore/ART_PROMPTS_SDXL.md](lore/ART_PROMPTS_SDXL.md) | SDXL image generation prompts (portraits, environments) |
+| [lore/ART_QUICKSTART.md](lore/ART_QUICKSTART.md) | Art generation quick start guide (SwarmUI / ComfyUI) |

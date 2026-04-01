@@ -1,7 +1,7 @@
 # GalaxyQuest — Architecture
 
 > A technical reference for contributors and maintainers.  
-> For the high-level "what", see [README.md](../README.md).  
+> For the high-level "what", see [README.md](../../README.md).  
 > For the "what's next", see [FUTURE_ENHANCEMENTS.md](FUTURE_ENHANCEMENTS.md).  
 > For the game engine specifically, see [webgpu_architecture.md](webgpu_architecture.md).
 
@@ -521,7 +521,7 @@ Key tables: `ftl_gates`, `ftl_resonance_nodes`, `users.ftl_drive_type`, `users.f
 Player APIs: `game.php?action=set_ftl_drive` (free or 200 DM),
 `fleet.php?action=reset_ftl_cooldown` (50 DM).
 
-See [FTL_DRIVE_DESIGN.md](FTL_DRIVE_DESIGN.md) for the full design specification.
+See [FTL_DRIVE_DESIGN.md](../gamedesign/FTL_DRIVE_DESIGN.md) for the full design specification.
 
 ### 4.12 Politics & Empire Profile
 
@@ -975,7 +975,7 @@ Core tables:
 | `ships` | `colony_id`, `type`, `count` | `UNIQUE(colony_id, type)` |
 | `fleets` | `user_id`, origin/target 3D coords, `mission`, `ships_json`, cargo, timestamps | `ships_json = {"light_fighter":10}` |
 
-Vessel blueprint tables (see [VESSEL_MODULE_BLUEPRINT_DESIGN.md](VESSEL_MODULE_BLUEPRINT_DESIGN.md)):
+Vessel blueprint tables (see [VESSEL_MODULE_BLUEPRINT_DESIGN.md](../gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md)):
 
 | Table | Notes |
 |---|---|

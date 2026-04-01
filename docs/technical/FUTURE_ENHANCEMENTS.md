@@ -326,7 +326,7 @@ Implemented in this phase:
 
 ### 5.4 Faction-Specific FTL Drive System
 **Priority:** ✅ Done  
-**Status:** ✅ Fully Implemented (Phase 1–5, 2026-03-30) — see [FTL_DRIVE_DESIGN.md](FTL_DRIVE_DESIGN.md)
+**Status:** ✅ Fully Implemented (Phase 1–5, 2026-03-30) — see [FTL_DRIVE_DESIGN.md](../gamedesign/FTL_DRIVE_DESIGN.md)
 
 Each of the 6 main factions gets a unique FTL drive with distinct gameplay mechanics:
 

@@ -58,7 +58,7 @@ GalaxyQuest (Universum)
 | [`GAMEDESIGN.md`](GAMEDESIGN.md) | 38 KB | 📘 Hauptdokumentation | ✅ Live |
 | [`README_GAMEDESIGN.md`](README_GAMEDESIGN.md) | 3 KB | 📋 Übersicht | ✅ Live |
 | [`FTL_DRIVE_DESIGN.md`](FTL_DRIVE_DESIGN.md) | ~28 KB | ⚡ FTL-Antriebe: Fraktions-Design + Balancing + Implementierungsplan | ✅ Live |
-| [`gamedesign_fractions_backup.md`](gamedesign_fractions_backup.md) | 170 KB | 🗂️ Archiv (alt) | 📦 Referenz |
+| [`gamedesign_fractions_backup.md`](../lore/gamedesign_fractions_backup.md) | 170 KB | 🗂️ Archiv (alt) | 📦 Referenz |
 | `gamedesign_fractions.md` | 5200 Zeilen | ⚠️ Deprecated | 🚫 Ersetzen |
 
 ---
