@@ -371,13 +371,13 @@ Overview payload now includes a politics runtime snapshot:
 
 | Area | Status |
 |---|---|
-| 🔐 Auth (register / login / CSRF / session) | ✅ |
+| 🔐 Auth (register / login / CSRF / session / 2FA TOTP / RBAC) | ✅ |
 | 🌌 Procedural spiral galaxy (deterministic, configurable, default 25,000 systems in galaxy 1) | ✅ |
-| 🌍 Scientific planet generation (Kopparapu HZ, Kepler periods, IMF star types) | ✅ |
+| 🌍 Scientific planet generation (Kopparapu HZ, Kepler periods, IMF star types, binary stars) | ✅ |
 | 🏗 Colony hierarchy: Galaxy → System → Planet → Colony → Buildings | ✅ |
-| ⛏ 22 building types across 8 categories | ✅ |
+| ⛏ 22 building types across 8 categories (async upgrade queue) | ✅ |
 | 🔬 16 research technologies | ✅ |
-| 🚀 16 ship types | ✅ |
+| 🚀 16 ship types (vessel blueprints + module system) | ✅ |
 | 🛸 Fleet dispatch: Attack · Transport · Colonize · Spy · Harvest | ✅ |
 | 🧮 3D Newtonian fleet movement (x/y/z light-year coords, speed_ly/h) | ✅ |
 | ⚔ Combat with tech/commander bonuses, shield penetration, per-side casualties | ✅ |
@@ -393,6 +393,21 @@ Overview payload now includes a politics runtime snapshot:
 | 🏆 Achievements (15, auto-detected) | ✅ |
 | 📨 In-game messaging | ✅ |
 | 🖥 Floating window manager (drag · resize · minimize · persist position) | ✅ |
+| 🚄 FTL Drive System (5 faction drives: Vor'Tak / Vel'Ar / Syl'Nar / Kryl'Tha / OD-5, FTL gates, resonance nodes) | ✅ |
+| 🌀 Wormholes (stable/unstable pairs, per-user beacon unlocks) | ✅ |
+| 🏙 Colonization system (Empire Sprawl, sectors + governors, 6 colony types, invasion & defense) | ✅ |
+| 💹 Advanced Economy (T2–T5 goods, 18 good types, pop classes COLONIST→TRANSCENDENT, galactic market) | ✅ |
+| 🛣 Trade routes (permanent inter-colony routes) | ✅ |
+| 🤝 Alliance system (membership, inter-alliance relations, alliance messaging) | ✅ |
+| 🗺 Politics model (species profiles, government forms, civics, dynamic colony effects) | ✅ |
+| 🌫 Fog of war (visibility per user, homeworld reveal on registration) | ✅ |
+| 🎇 Planetary & colony events (event log, journal system, random event firing) | ✅ |
+| 🖼 WebGPU rendering engine (SceneGraph, GameLoop, EventBus, WebGPU abstraction layer) | ✅ |
+| 🔭 3D galaxy renderer (spiral arms, HR diagram, FTL overlay, system camera) | ✅ |
+| ✨ Post-processing pipeline (Bloom, Vignette, Chromatic Aberration, SSAO, ping-pong RT) | ✅ |
+| 💥 Combat FX (GPU particle system, beam effects, voxel debris, environment FX) | ✅ |
+| 📡 Projection runtime (async dirty-queue workers for user overview + system snapshots) | ✅ |
+| 📊 Performance telemetry (PerformanceMonitor, ResourceTracker, ShaderCompiler metrics) | ✅ |
 
 ---
 
@@ -616,63 +631,137 @@ The config file also supports environment-variable overrides. That means the Doc
 
 ```
 /
-├── index.html              # Unified auth + game shell (section based)
+├── index.html                  # Unified auth + game shell (section based)
 ├── css/
-│   └── style.css           # Dark space-themed UI (~835 lines)
+│   └── style.css               # Dark space-themed UI
 ├── js/
-│   ├── wm.js               # Floating window manager
-│   ├── starfield.js        # Animated star background (canvas)
-│   ├── auth.js             # Login / register
-│   ├── api.js              # All API calls in one place
-│   └── game.js             # Game UI: all window renderers (~1 300 lines)
-├── api/
-│   ├── helpers.php         # Shared request/response, auth, CSRF
-│   ├── game_engine.php     # Formulas, constants, colony tick (~700 lines)
-│   ├── planet_helper.php   # ensure_planet(), DEPOSIT_UNLIMITED
-│   ├── galaxy_gen.php      # Deterministic galaxy generator (~710 lines)
-│   ├── auth.php            # Register / login / logout
-│   ├── game.php            # Overview, resources, rename, leaderboard
-│   ├── buildings.php       # List / upgrade / finish buildings
-│   ├── research.php        # List / start / finish research
-│   ├── shipyard.php        # List ships / build
-│   ├── fleet.php           # Send / list / recall; battle/spy/colonize/harvest
-│   ├── galaxy.php          # Galaxy map, system view, star system cache
-│   ├── factions.php        # Faction list, trade, quests, diplomacy
-│   ├── leaders.php         # Hire / assign / autonomy / AI tick
-│   ├── npc_ai.php          # NPC faction tick (trade gen, raids, decay)
-│   ├── achievements.php    # Achievement detection and rewards
-│   └── messages.php        # In-game messaging
+│   ├── game.js                 # Game UI layer (window controllers)
+│   ├── api.js                  # All API calls in one place
+│   ├── wm.js                   # Floating window manager
+│   ├── auth.js                 # Login / register
+│   ├── gq-ui.js                # Fluent DOM builder (GQUI)
+│   ├── boot-loader.js          # Engine module bootstrapper
+│   ├── engine/                 # WebGPU game engine
+│   │   ├── GameEngine.js       # Engine entry point
+│   │   ├── GameLoop.js         # Render + update loop
+│   │   ├── EventBus.js         # Global event bus
+│   │   ├── ViewportManager.js  # PiP viewport management
+│   │   ├── game/               # Simulation systems (pure JS, no GPU)
+│   │   │   ├── BattleSimulator.js      # Round-based fleet combat
+│   │   │   ├── ColonySimulation.js     # Colony economy + invasion
+│   │   │   ├── EconomySimulation.js    # T2–T5 goods, pop classes, market
+│   │   │   ├── EventSystem.js          # Events + journal
+│   │   │   ├── FleetFormation.js       # Fleet formation patterns
+│   │   │   └── ResearchTree.js         # Tech tree
+│   │   ├── fx/                 # Visual effects
+│   │   │   ├── CombatFX.js / GPUParticleSystem.js / BeamEffect.js / VoxelDebris.js
+│   │   │   ├── EnvironmentFX.js        # Nebulae, god rays, plasma clouds
+│   │   │   └── shaders/        # WGSL shader source files
+│   │   ├── post-effects/       # Post-processing pipeline
+│   │   │   ├── EffectComposer.js       # Ping-pong render target composer
+│   │   │   └── passes/         # BloomPass, VignettePass, ChromaticPass, SSAOPass
+│   │   ├── webgpu/             # WebGPU abstraction layer
+│   │   │   ├── WebGPUDevice.js / WebGPURenderer.js / WebGPUBuffer.js …
+│   │   ├── scene/              # SceneGraph, Camera, Geometry, Material, Light
+│   │   ├── math/               # Vector2/3/4, Matrix4, Quaternion
+│   │   └── loaders/            # GeometryLoader, ShaderLoader, TextureLoader
+│   ├── rendering/              # Galaxy 3D renderer
+│   │   ├── galaxy-renderer-core.js     # Main galaxy render loop + FTL overlay
+│   │   ├── galaxy-renderer-config.js   # Renderer settings
+│   │   └── post-effects.js             # Post-processing integration
+│   ├── ui/                     # Standalone UI components
+│   │   ├── settings-panel.js   # Settings + FTL panel
+│   │   ├── glossary.js         # Scientific glossary modal
+│   │   ├── terminal.js         # In-game terminal
+│   │   └── system-info-panel.js
+│   ├── network/                # API contracts + binary decoders (v2/v3)
+│   ├── runtime/                # Space physics engine, flight HUD, trajectory planner
+│   └── telemetry/              # PerformanceMonitor, ResourceTracker, ShaderCompiler
+├── api/                        # PHP REST endpoints (30+ files)
+│   ├── helpers.php             # Shared request/response, auth, CSRF
+│   ├── game_engine.php         # Formulas, constants, colony tick
+│   ├── galaxy_gen.php          # Deterministic galaxy generator
+│   ├── auth.php                # Register / login / logout / TOTP 2FA
+│   ├── game.php                # Overview, resources, rename, leaderboard, FTL drive
+│   ├── fleet.php               # Fleets, FTL cooldown, combat, colonize, harvest
+│   ├── economy.php             # Advanced economy simulation
+│   ├── market.php              # Galactic market
+│   ├── colonization.php        # Empire Sprawl, sectors, governors (14 endpoints)
+│   ├── politics.php            # Species, government forms, civics
+│   ├── alliances.php           # Alliance management
+│   ├── trade.php               # Trade routes
+│   ├── events.php              # Planetary / colony events
+│   ├── projection.php          # Projection queue API
+│   ├── ollama.php              # Ollama LLM gateway
+│   ├── llm.php                 # LLM SoC prompt catalog
+│   ├── npc_ai.php              # NPC faction tick (trade gen, raids, decay)
+│   ├── npc_controller.php      # NPC/PvE diagnostics + control API
+│   └── …                       # buildings, research, shipyard, factions, leaders …
+├── lib/
+│   └── projection_runtime.php  # Projection queue + worker helpers
 ├── config/
-│   ├── config.php          # Game constants and DB credentials
-│   └── db.php              # PDO singleton factory
-└── sql/
-    ├── schema.sql          # Full schema (19 tables) — use for fresh install
-    └── migrate_v2.sql      # ALTER TABLE migrations — use for upgrade
+│   ├── config.php              # Game constants and DB credentials
+│   ├── db.php                  # PDO singleton factory
+│   ├── galaxy_config.json      # Per-galaxy system counts
+│   ├── llm_profiles.yaml       # LLM prompt profile authoring
+│   └── llm_profiles.json       # LLM prompt profile runtime source
+├── sql/
+│   ├── schema.sql              # Full schema (35 tables) — use for fresh install
+│   ├── migrate_v2.sql          # Base ALTER TABLE migrations
+│   └── migrate_*.sql           # Incremental feature migrations (v3–v12+)
+├── scripts/                    # CLI utilities, seeding scripts, build helpers
+├── tests/
+│   ├── Unit/                   # PHPUnit tests (pure PHP game-engine functions)
+│   ├── js/                     # Vitest unit tests (engine systems, 300+ tests)
+│   └── e2e/                    # Playwright end-to-end tests
+└── docs/                       # All project documentation
+    ├── INDEX.md                # Documentation navigation index
+    ├── technical/              # Architecture, WebGPU engine, performance, roadmap
+    ├── gamedesign/             # Game design documents and balancing
+    └── lore/                   # Faction lore, art prompts, LORA training
 ```
+
+→ Full documentation index: [docs/INDEX.md](docs/INDEX.md)
 
 ---
 
-## Database Schema (19 tables)
+## Database Schema (35 tables)
 
 ```
-users               – accounts, rank, dark matter, protection, NPC flag
-star_systems        – cached star properties + 3D coords (ly)
-planets             – astronomical data, richness × 4, deposits × 4
-colonies            – player base: resources × 5, food, population, happiness
-buildings           – type + level per colony
-research            – type + level per user
-ships               – type + count per colony
-fleets              – 3D origin/target coords, mission, cargo, ships_json
-leaders             – role, skills, autonomy, colony/fleet assignment
-messages            – inbox
-battle_reports      – attacker/defender/loot/tech JSON + composite indexes
-spy_reports         – target resources/welfare/ships/leaders JSON
-npc_factions        – 5 seeded factions with archetype parameters
-diplomacy           – per-user standing (−100 → +100) per faction
-trade_offers        – AI-generated, timed, per-faction
-faction_quests      – 8 seeded quests (kill/deliver/explore/build/research/spy)
-user_faction_quests – active/completed quest instances per user
-achievements        – 15 milestone definitions
-user_achievements   – completion + reward-claimed state per user
+users                  – accounts, rank, dark matter, protection, TOTP secret, RBAC role
+user_character_profiles – AI-generated character portrait URLs and biography text
+remember_tokens        – persistent "remember me" login tokens
+app_state              – key/value game-state store (server-side flags)
+star_systems           – cached star properties + 3D coords (ly), orbital polar coords
+binary_systems         – binary star pair definitions
+planets                – astronomical data, richness × 4, finite deposits × 4
+colonies               – player base: resources × 5, food, population, happiness, colony type
+buildings              – type + level per colony
+building_upgrade_queue – async upgrade queue with scheduled finish timestamps
+research               – type + level per user
+ships                  – type + count per colony
+fleets                 – 3D origin/target coords, mission, cargo, ships_json, FTL state
+celestial_bodies       – moons, asteroids, unified body catalog
+wormholes              – wormhole pairs + stability, traversal cooldown
+user_wormhole_unlocks  – per-user beacon unlock state
+ftl_gates              – player-built FTL gate locations
+ftl_resonance_nodes    – FTL resonance network nodes
+leaders                – role, skills, autonomy, colony/fleet assignment
+messages               – inbox (player ↔ player + system messages)
+battle_reports         – attacker/defender/loot/tech JSON + composite indexes
+spy_reports            – target resources/welfare/ships/leaders JSON
+npc_factions           – 5 seeded factions with archetype parameters
+diplomacy              – per-user standing (−100 war ↔ +100 allied) per faction
+trade_offers           – AI-generated, timed, per-faction trade proposals
+faction_quests         – 8 seeded quests (kill/deliver/explore/build/research/spy)
+user_faction_quests    – active/completed quest instances per user
+trade_routes           – permanent player trade routes between colonies
+alliances              – player alliance entities
+alliance_members       – per-player alliance membership + role
+alliance_relations     – inter-alliance diplomatic standing
+alliance_messages      – alliance-internal messaging
+achievements           – 15 milestone definitions
+user_achievements      – completion + reward-claimed state per user
+colony_events          – active planetary / colony event log
 ```
 
