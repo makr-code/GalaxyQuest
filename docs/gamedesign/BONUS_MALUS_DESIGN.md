@@ -119,7 +119,7 @@ Eine neue Hilfsfunktion `get_reputation_tier(standing)` berechnet den Tier-Index
  −40 … −11  →  Tier 1: KALT          (Cold)
  −10 … +20  →  Tier 2: NEUTRAL       (Neutral)   ← Standardzustand
   +21 … +60  →  Tier 3: VERBÜNDET     (Allied)
-  +61 … +100 →  Tier 4: STRATEGISCHER_PARTNER (Strategic Partner)
+  +61 … +100 →  Tier 4: ERSTER_BERATER (First Advisor) ← max. erreichbar für Spieler
 ```
 
 ### Tier-Eigenschaften
@@ -130,7 +130,12 @@ Eine neue Hilfsfunktion `get_reputation_tier(standing)` berechnet den Tier-Index
 | 1 | KALT | Orange `#e67e22` | ❄ |
 | 2 | NEUTRAL | Grau `#95a5a6` | ◇ |
 | 3 | VERBÜNDET | Grün `#27ae60` | ✦ |
-| 4 | STRATEGISCHER_PARTNER | Gold `#f1c40f` | ★ |
+| 4 | ERSTER_BERATER | Gold `#f1c40f` | ★ |
+
+> **Kanonische Grenze:** Tier 4 bedeutet, dass der Spieler der *Erste Berater* der Fraktion ist –
+> kein Mitglied, kein Anführer. Er kann Entscheidungen *einflüstern* (Beratungs-Mandate, §12
+> FACTION_INTRODUCTION.md), aber die NPC-Fraktion entscheidet eigenständig. Die Gewichtung seiner
+> Empfehlung hängt vom Staatsgebilde (`npc_factions.government_type`) und `advisor_trust` ab.
 
 ### Tier-Wechsel-Benachrichtigung
 
@@ -403,6 +408,11 @@ nun direkt Stehungen verschieben und dadurch Tier-Wechsel auslösen:
 | `pirate_surge` | Khar'Morr-Syndikate | −10 |
 | `ancient_awakening` | Aethernox, Omniscienta | −8 (alle) |
 | `diplomatic_summit` | alle Fraktionen | +3 |
+| `faction_unchecked_action` *(neu)* | NPC-Fraktion + betroffene Spieler-Cluster | −0.05 `fleet_readiness_mult` / 48h |
+| `faction_advisor_success` *(neu)* | NPC-Fraktion + betroffene Spieler-Cluster | +0.05 `trade_income_mult` / 72h |
+
+> **Neue Ereignistypen** entstehen durch das Beratungs-Mandat-System (FACTION_INTRODUCTION.md §12.9).
+> Sie werden in der neuen Tabelle `galactic_events` gespeichert und vom `npc_ai`-Tick verteilt.
 
 ### 8.3 Diplomatische Ereignisse (neue Event-Kategorie)
 
@@ -791,15 +801,18 @@ Vertrauen ihrem Charakter widerspricht.
 
 ### Phase 6 – Zuckerbrot & Peitsche: Mandats-System *(FACTION_INTRODUCTION.md §12)*
 
-- [ ] Migration `faction_mandates`-Tabelle + `diplomacy`-Spalten `influence_tier` / `neglect_count` (§12.7)
-- [ ] `npc_ai.php`: Mandats-Generierung pro Fraktion abhängig von `influence_tier` (§12.1/12.5)
-- [ ] `api/factions.php`: `list_mandates` + `resolve_mandate` + `mandate_history` (§12.7)
-- [ ] Zuckerbrot: Modifier-Anwendung + Loyalitäts-Streak-Event in `game_engine.php` (§12.3)
-- [ ] Peitsche: `neglect_count`-Hochzählung + Fraktionsstrafmechanismen in `game_engine.php` (§12.4.2)
-- [ ] Grace-Period-Logik im `npc_ai`-Tick (§12.4.3)
-- [ ] `EventSystem.js`: Journal-Events für Mandatseingang / Ablauf / Loyalitätsbonus
-- [ ] `js/game.js`: Mandats-Panel (Liste, Countdown-Timer, Accept/Decline/Partial-Buttons)
-- [ ] `config/config.php`: Balancing-Konstanten (§12.6)
+- [ ] Migration `faction_mandates`-Tabelle (erweitert mit `mandate_class`, `advice_*`, `ripple_event_fired`) + `diplomacy`-Spalten `influence_tier` / `neglect_count` / `advisor_accepted` / `advisor_trust` / `advisor_anonymous` (§12.7)
+- [ ] Migration `npc_factions.government_type` + `advisor_weight_min/max` (§12.1a)
+- [ ] Migration `galactic_events`-Tabelle (§12.9.1)
+- [ ] `npc_ai.php`: Mandats-Generierung (`resource` für Tier 3, `advisory` für Tier 4) + `advisor_accepted`-Trigger (§12.1)
+- [ ] Berater-Gewichtungs-Formel in `game_engine.php`: `effective_weight` aus `government_type` + `advisor_trust` (§12.1a)
+- [ ] Staatsgebilde-Multiplikatoren für Zuckerbrot/Peitsche in `game_engine.php` (§12.3 / §12.4.2)
+- [ ] Multiplayer-Ripple: `ripple_event_fired`-Logik + `galactic_events`-INSERT + Modifier-Verteilung in `npc_ai.php` (§12.9)
+- [ ] Grace-Period-Logik + Ripple-Unterdrückung im `npc_ai`-Tick (§12.4.5)
+- [ ] `api/factions.php`: `list_mandates` + `resolve_mandate` (mit `advice_choice`) + `mandate_history` + `advisor_status` (§12.7)
+- [ ] `EventSystem.js`: Journal-Events für Mandatseingang / Ablauf / Berater-Ernennung / Berater-Verlust / Ripple-Ankündigung (§12.9.3)
+- [ ] `js/game.js`: Mandats-Panel (Liste, Countdown, Empfehlungs-UI A/B/C für Advisory, `advisor_trust`-Anzeige, `effective_weight`-Indikator)
+- [ ] `config/config.php`: Balancing-Konstanten §12.6 + Tuning-Pass
 
 ---
 
@@ -815,6 +828,10 @@ Vertrauen ihrem Charakter widerspricht.
 | **Mobile UI** | Wie wird die Druckanzeige auf kleinen Screens dargestellt? | Kompakter Indikator-Balken ohne Detailaufschlüsselung |
 | **Mandats-Konflikt** | Was wenn zwei Fraktionen gleichzeitig Mandate stellen, die sich widersprechen? | Spieler wählt eine; abgelehnte Fraktion erhält −5 Standing ohne neglect_count-Anstieg (explizite Ablehnung); vollständige Spezifikation siehe FACTION_INTRODUCTION.md §12 |
 | **Mandat + Isolation** | Erhalten Spieler auf dem Isolationspfad (§11.3) Mandate von Hauptfraktionen? | Nein: Sobald `isolation_path_active = 1`, senden Hauptfraktionen keine neuen Mandate; laufende Mandate werden EXPIRED ohne Peitsche |
+| **Staatsgebilde-Wechsel** | Kann eine NPC-Fraktion ihr Staatsgebilde ändern (z.B. durch Spieler-Handlung)? | Ja, als seltenes galaktisches Ereignis; `government_type`-Änderung invalidiert laufenden `effective_weight`; Spieler wird benachrichtigt |
+| **Berater + Multiplayer** | Wenn Spieler A Erster Berater ist und Spieler B ebenfalls Stufe 4 hat – wer ist der „echte" Berater? | Beide sind Berater; NPC gewichtet beide Empfehlungen; bei Konflikt gewinnt höherer `advisor_trust`; bei Gleichstand: Zufallsentscheid mit 50/50 |
+| **Ripple-Fairness** | Können Spieler missbräuchlich Ripple-Events durch andere Spieler auslösen? | Ripple nur bei `neglect_count ≥ 3` + EXPIRED Beratungsmandat; 1/24h-Cap pro Fraktion; kein aktives Missbrauchs-Werkzeug |
+| **Autokratie + Berater** | Was passiert wenn ein Autokrat-Anführer stirbt/ersetzt wird? | `advisor_accepted` → 0; neuer Anführer muss Berater neu bestätigen (automatisches Beratungs-Mandat: „Loyalitätstest") |
 
 ---
 
@@ -830,29 +847,41 @@ migrate_bonus_malus_v1.sql (neu)        │
                                         │
 migrate_npc_factions_hardreplace_v1.sql │
     └─► npc_factions (code-Rename)      │
+    └─► npc_factions.government_type ───┤  ← §12.1a Staatsgebilde
     └─► diplomacy.influence_tier ───────┤
     └─► diplomacy.neglect_count         │
+    └─► diplomacy.advisor_accepted      │
+    └─► diplomacy.advisor_trust ────────┤  ← §12.3 effective_weight-Bonus
+    └─► diplomacy.advisor_anonymous     │
     └─► faction_mandates ───────────────┤
+    └─► galactic_events ────────────────┤  ← §12.9 Multiplayer-Ripple
                                         │
 npc_ai.php (tick)                       │
     └─► sync_faction_tier_modifiers() ──┤
     └─► generate_faction_mandates() ────┤
     └─► expire_pending_mandates() ──────┤
+    └─► compute_npc_decision() ─────────┤  ← government_type + advisor_trust
+    └─► fire_ripple_event() ────────────┤  ← galactic_events INSERT
             └─► user_empire_modifiers (INSERT/DELETE)
 
-factions.php (list/claim_quest/accept_trade/resolve_mandate)
+factions.php (list/claim_quest/accept_trade/resolve_mandate/advisor_status)
     └─► sync_faction_tier_modifiers()
     └─► apply_mandate_reward() / apply_mandate_penalty()
+    └─► compute_effective_weight()          ← government_type + advisor_trust
 
 EventSystem.js (Frontend)
     └─► defineJournalEntry() für Tier-Wechsel-Events
-    └─► defineJournalEntry() für Mandats-Events (eingang/ablauf/loyalität)
+    └─► defineJournalEntry() für Mandats-Events (eingang/ablauf/loyalität/berater-ernennung)
+    └─► defineJournalEntry() für Ripple-Ankündigungen (§12.9.3)
 
 js/game.js (FactionPanel)
     └─► GET /api/factions.php?action=tier_modifiers
     └─► GET /api/factions.php?action=list_mandates
+    └─► GET /api/factions.php?action=advisor_status
     └─► POST /api/factions.php?action=resolve_mandate
-    └─► Tier-Badge, Progressbar, Toast, Modal, Mandats-Panel
+    └─► Tier-Badge, Progressbar, Toast, Modal
+    └─► Mandats-Panel (Resource: Accept/Decline/Partial)
+    └─► Advisory-Panel (A/B/C Empfehlung, effective_weight-Anzeige, advisor_trust-Balken)
 ```
 
 ---

@@ -33,14 +33,16 @@
       - 11.3.5 Endgame-Bedingung
       - 11.3.6 Hard-Replace: Legacy NPC-Fraktionen in DB
 12. [Zuckerbrot & Peitsche: Hoher Einfluss verpflichtet](#12-zuckerbrot--peitsche-hoher-einfluss-verpflichtet)
-    - 12.1 Einfluss-Schwellen und Einbindungsstufen
-    - 12.2 Fraktionsmandat: Entscheidungen unter Druck
-    - 12.3 Zuckerbrot: Belohnungen für aktive Beteiligung
-    - 12.4 Peitsche: Konsequenzen des Nicht-Entscheidens
+    - 12.1 Einfluss-Schwellen und Einbindungsstufen (Tier 4 = Erster Berater)
+    - 12.1a Staatsgebilde: Demokratie/Autokratie/Oligarchie/Theokratie/Meritokratie/Netzwerk
+    - 12.2 Fraktionsmandat: Ressourcen-Mandat vs. Beratungs-Mandat (Einflüstern)
+    - 12.3 Zuckerbrot: Belohnungen (inkl. Staatsgebilde-Multiplikator + advisor_trust)
+    - 12.4 Peitsche: neglect_count, Staatsgebilde-Modifikator, Multiplayer-Ripple, Grace-Period
     - 12.5 Mandats-Typen nach Fraktionscharakter
-    - 12.6 Balancing-Parameter
-    - 12.7 DB-Schema & API
-    - 12.8 Implementierungs-Phasen
+    - 12.6 Balancing-Parameter (revidiert)
+    - 12.7 DB-Schema & API (erweitert: advisory-Felder, galactic_events)
+    - 12.8 Implementierungs-Phasen (revidiert)
+    - 12.9 Multiplayer-Ripple: Spezifikation
 
 ---
 
@@ -918,23 +920,84 @@ INSERT IGNORE INTO npc_factions (code, name, type, power_level, aggression, trad
 > Hoher Einfluss ist keine passive Statuszahl – er ist eine *Bringschuld*. Die Fraktion investiert
 > in den Spieler, weil sie eine Gegenleistung erwartet. Wer dauerhaft nicht liefert, verliert
 > beides: Ruf und die Früchte des Einflusses.
+>
+> **Kanonische Grenze (2026-04-01):** Der Spieler wird **niemals zum Anführer oder Mitglied** einer
+> NPC-Fraktion. Die höchste erreichbare Position ist **Erster Berater** – ein externer Vertrauensträger,
+> der Entscheidungen *einflüstert*, aber nie selbst trifft. Die NPC-Fraktion entscheidet eigenständig;
+> der Einfluss des Spielers bestimmt, wie stark seine Empfehlung gewichtet wird.
 
 ---
 
 ### 12.1 Einfluss-Schwellen und Einbindungsstufen
 
 Ab bestimmten **Ruf-Stufen** (§6) wird der Spieler aktiv in Fraktionsangelegenheiten eingebunden.
-Der Übergang ist graduell: zuerst Einladungen, dann Erwartungen, schließlich offener Druck.
+Der Übergang ist graduell: zuerst Einladungen, dann Erwartungen, schließlich die Rolle des Beraters.
 
-| Ruf-Stufe | Einbindungsstufe | Was passiert? |
-|---|---|---|
-| Stufe 0–1 | **Unbeteiligt** | Fraktion sendet gelegentlich Anfragen; Ablehnung folgenlos |
-| Stufe 2 | **Beachtet** | Fraktion zieht Spieler in Kenntnis gesetzter Ereignisse ein; Anfragen häufiger |
-| Stufe 3 | **Eingebunden** | Fraktion übersendet regelmäßige **Mandate** (§12.2); Nicht-Entscheiden kostet Ruf |
-| Stufe 4 | **Strategischer Partner** | Fraktion erwartet proaktives Handeln; Mandate sind dringlicher und folgenreicher |
+| Ruf-Stufe | Einbindungsstufe | Titel (intern) | Was passiert? |
+|---|---|---|---|
+| Stufe 0–1 | **Unbeteiligt** | — | Fraktion sendet gelegentlich Anfragen; Ablehnung folgenlos |
+| Stufe 2 | **Beachtet** | Kontaktperson | Fraktion informiert den Spieler über Ereignisse; Anfragen häufiger |
+| Stufe 3 | **Eingebunden** | Vertrauensträger | Fraktion übersendet regelmäßige **Mandate** (§12.2); Nicht-Entscheiden kostet Ruf |
+| Stufe 4 | **Erster Berater** | *Erster Berater* | Spieler „flüstert ein": erhält Zugang zu internen Fraktionsentscheidungen und kann *Empfehlungen* abgeben; NPC-KI entscheidet eigenständig, gewichtet Empfehlung aber stark |
+
+> **Warum keine höhere Stufe?** NPC-Fraktionen sind eigenständige politische Entitäten mit
+> Hunderttausenden von Mitgliedern, langer Geschichte und einer internen Machtstruktur.
+> Ein externer Gouverneur einer Randwelt *kann* kein Anführer werden – das wäre narrativ
+> unglaubwürdig und spielmechanisch übermächtig. Die Berater-Rolle ist die authentische Grenze:
+> man ist wichtig genug, dass man gehört wird, aber nie so wichtig, dass die Fraktion sich
+> blind ergibt.
 
 **Technische Abbildung:** `diplomacy.influence_tier TINYINT` (0–4, parallel zu `current_tier`).
-Wird jede Stunde im `npc_ai`-Tick auf Basis von `standing` + kumulierter Interaktionshistorie berechnet.
+Wird jede Stunde im `npc_ai`-Tick auf Basis von `standing` + kumulierter Interaktionshistorie
+berechnet. **Zusätzlich:** `diplomacy.advisor_accepted TINYINT(1) DEFAULT 0` – Fraktion muss
+den Berater-Status formal akzeptieren (Trigger: 3. ACCEPTED-Mandat auf Stufe 3 = Einberufung).
+
+---
+
+### 12.1a Staatsgebilde: Wie Regierungsform das Einflüstern modifiziert
+
+Jede NPC-Fraktion hat ein `npc_factions.government_type` — dieses bestimmt, **wie stark**
+eine Empfehlung des Ersten Beraters tatsächlich umgesetzt wird und **wie oft** Mandate gesendet
+werden.
+
+| Staatsgebilde | `government_type` | Berater-Gewichtung | Mandatsverhalten |
+|---|---|---|---|
+| 🗳️ **Demokratie** | `democracy` | 40–60% | Mandat braucht Mehrheit im Rat; Spieler-Empfehlung = 1 Stimme von mehreren. Ablehnung durch Rat möglich trotz Empfehlung | 
+| 👑 **Autokratie** | `autocracy` | 70–90% | Anführer entscheidet allein; Empfehlung des Beraters hat direkten Einfluss. Mandate sind dringlicher, Ablehnung hat härtere Konsequenzen |
+| 🏛️ **Oligarchie** | `oligarchy` | 50–70% | Kleine Elite entscheidet; Spieler muss Mehrheit unter den Elitevertretern gewinnen. Mandate von mehreren Eliten gleichzeitig möglich |
+| ✝️ **Theokratie** | `theocracy` | 30–50% | Dogma begrenzt Empfehlungen stark. Empfehlungen, die dem Dogma widersprechen, werden immer abgelehnt; Konformität mit Glaubenssätzen erhöht die Gewichtung |
+| 🔬 **Meritokratie** | `meritocracy` | 60–80% | Empfehlung wird an konkreten Ergebnissen gemessen. Nachgewiesene Erfolge (abgeschlossene Quests, Handelsergebnisse) erhöhen die Gewichtung dauerhaft |
+| 🕸️ **Netzwerk** | `network` | 25–45% | Dezentrale Struktur (z.B. Schattenkompakt, Nomaden). Keine Einzelentscheidung; Empfehlung verbreitet sich als Konsens – oder nicht. Sehr unvorhersehbar |
+
+**DB-Erweiterung:**
+```sql
+ALTER TABLE npc_factions
+    ADD COLUMN IF NOT EXISTS government_type ENUM(
+        'democracy','autocracy','oligarchy',
+        'theocracy','meritocracy','network'
+    ) NOT NULL DEFAULT 'democracy',
+    ADD COLUMN IF NOT EXISTS advisor_weight_min TINYINT UNSIGNED NOT NULL DEFAULT 40
+        COMMENT 'Minimale Empfehlungsgewichtung in %',
+    ADD COLUMN IF NOT EXISTS advisor_weight_max TINYINT UNSIGNED NOT NULL DEFAULT 60
+        COMMENT 'Maximale Empfehlungsgewichtung in %';
+```
+
+**Berater-Gewichtungs-Formel:**
+```
+effective_weight = advisor_weight_min
+    + ROUND((advisor_weight_max - advisor_weight_min)
+        × (standing - 61) / 39)          -- standing 61–100 → linearer Skalierung
+    × government_conformity_bonus         -- +0.1 wenn Empfehlung zum Staatsgebilde passt
+    × neglect_penalty                     -- ×0.7 wenn neglect_count ≥ 3
+```
+
+**Konsequenz für Gameplay:**
+- In einer Demokratie (40–60%) kann der Spieler eine Empfehlung abgeben und trotzdem verlieren
+  → Frustration UND Spannung gleichzeitig (echter politischer Betrieb)
+- In einer Autokratie (70–90%) ist die Empfehlung fast sicher umgesetzt
+  → Schneller, direkter, aber auch mehr Verantwortung (Scheitern fällt auf den Spieler zurück)
+- Regierende dürfen Berater entlassen: Bei `neglect_count ≥ 5` verliert der Spieler den
+  Berater-Status und muss ihn neu erarbeiten (`advisor_accepted` → 0)
 
 ---
 
@@ -943,84 +1006,208 @@ Wird jede Stunde im `npc_ai`-Tick auf Basis von `standing` + kumulierter Interak
 Ein **Mandat** ist eine zeitlich befristete Anfrage einer Fraktion an den Spieler.
 Es erscheint als Journal-Event mit Countdown-Timer.
 
-**Anatomie eines Mandats:**
+**Zwei Mandat-Typen:**
+- **Ressourcen-Mandat** (Stufe 3): direkte Anfrage an den Spieler, eine Ressource bereitzustellen oder eine Aktion auszuführen
+- **Beratungs-Mandat** (Stufe 4 / Erster Berater): Spieler erhält Einblick in eine interne Fraktionsentscheidung und soll eine *Empfehlung* abgeben – die Fraktion entscheidet danach eigenständig
+
+**Anatomie eines Ressourcen-Mandats (Stufe 3):**
 
 ```
 Mandat: „Syl'Nar – Handelsprimat im Dreifach-Korridor"
 ─────────────────────────────────────────────────────────
-Fraktion:       Syl'Nar (Ruf-Stufe 3 / Eingebunden)
+Typ:            Ressourcen-Mandat
+Fraktion:       Syl'Nar (Ruf-Stufe 3 / Vertrauensträger)
 Forderung:      Genehmige exklusiven Syl'Nar-Handelsvertrag für Vethisit-Routen
 Frist:          72 Stunden Echtzeit
 Belohnung:      +8 Standing, +15% trade_income_mult (30 Tage), 500 DM
 Konsequenz:     −12 Standing, Mandat zählt als „ignoriert" (Peitsche-Zähler +1)
 Gegner-Info:    Vor'Tak beobachtet – Zustimmung kostet −5 Vor'Tak-Standing
+Multiplayer:    Alle Spieler im selben Sternensystem-Cluster erhalten +3% Vethisit-Marktpreis
+                falls ACCEPTED (oder −5% falls EXPIRED, wegen Marktverunsicherung)
+```
+
+**Anatomie eines Beratungs-Mandats (Stufe 4 – Erster Berater):**
+
+```
+Beratungs-Mandat: „Syl'Nar – Expansionsentscheidung Sektor Korridor-7"
+──────────────────────────────────────────────────────────────────────────
+Typ:            Beratungs-Mandat (Erster Berater)
+Fraktion:       Syl'Nar (Ruf-Stufe 4 / Erster Berater)
+Interne Frage:  Syl'Nar erwägt, Sektor Korridor-7 militärisch zu sichern.
+                Anführerin Tael'Mii bittet um Empfehlung des Beraters.
+Empfehlungen:   A) „Sichern – die Ressourcen sind es wert"
+                B) „Abwarten – Provokation anderer Mächte vermeiden"
+                C) „Verhandeln – Neutralitätspakt mit Vor'Tak vorschlagen"
+Frist:          48 Stunden Echtzeit
+Effektive Gewichtung: 55% (Demokratie; steht in UI sichtbar)
+Ergebnis:       NPC-KI trifft eigenständige Entscheidung; Empfehlung A/B/C wird mit
+                55% Gewicht berücksichtigt; Zufallselement ±15% (interne Fraktionsdynamik)
+Multiplayer-Auswirkung:
+  → WENN Syl'Nar sichert (Ergebnis A): Flottenpräsenz in Korridor-7 steigt;
+    alle Spieler dort spüren +10% Piratenschutz aber −5 Standing bei Vor'Tak
+  → WENN Syl'Nar abwartet (Ergebnis B): Korridor-7 bleibt neutral; keine Effekte
+  → WENN Syl'Nar verhandelt (Ergebnis C): Handelsboom +8% für alle Spieler 30 Tage
+Berater-Belohnung (wenn Empfehlung übernommen):
+  +15 Standing, exklusive Lore-Information über interne Syl'Nar-Struktur
+Berater-Belohnung (wenn Empfehlung NICHT übernommen):
+  +5 Standing (Prozess-Belohnung), keine Lore-Info
+Konsequenz (Nicht-Entscheiden):
+  −15 Standing, neglect_count +1; Fraktion fragt sich ob Berater noch geeignet ist
 ```
 
 **Mandats-Status-Maschine:**
 
 ```
-PENDING ──[Zustimmen]──► ACCEPTED  → Zuckerbrot sofort
-        ──[Ablehnen]───► DECLINED  → Ruf −5, begründbare Ablehnung (kein Peitsche-Zähler)
-        ──[Ablaufen]───► EXPIRED   → Peitsche-Zähler +1, Ruf −12 nach Grace-Period
-        ──[Teilerfüllt]► PARTIAL   → Ruf +3, Zuckerbrot abgeschwächt (50%)
+PENDING ──[Zustimmen/Empfehlen]──► ACCEPTED   → Zuckerbrot sofort; bei Beratungsmandat: NPC entscheidet
+        ──[Ablehnen]─────────────► DECLINED   → Ruf −5, begründbare Ablehnung (kein Peitsche-Zähler)
+        ──[Ablaufen]─────────────► EXPIRED    → Peitsche-Zähler +1, Ruf −12 nach Grace-Period
+        ──[Teilerfüllt]──────────► PARTIAL    → Ruf +3, Zuckerbrot abgeschwächt (50%)
 ```
 
-**DB-Feld für Status:** `faction_mandates.status ENUM('pending','accepted','declined','expired','partial')`
+**DB-Feld für Typ und Status:**
+```sql
+faction_mandates.mandate_class ENUM('resource','advisory') NOT NULL DEFAULT 'resource'
+faction_mandates.status        ENUM('pending','accepted','declined','expired','partial')
+faction_mandates.advice_choice TINYINT        -- Gewählte Empfehlung (A=1, B=2, C=3)
+faction_mandates.npc_decision  TINYINT        -- Tatsächliche NPC-Entscheidung (nach Gewichtung)
+faction_mandates.advice_weight DECIMAL(5,2)   -- Effektive Gewichtung zum Zeitpunkt der Empfehlung
+```
 
 ---
 
 ### 12.3 Zuckerbrot: Belohnungen für aktive Beteiligung
 
-Aktive Beteiligung (ACCEPTED, PARTIAL) bringt gestaffelte Belohnungen:
+Aktive Beteiligung (ACCEPTED, PARTIAL) bringt gestaffelte Belohnungen. **Beratungs-Mandate**
+(Stufe 4) haben zwei Belohnungsspuren: eine für die Empfehlung selbst (Prozess) und eine davon
+unabhängige für das tatsächliche Ergebnis der NPC-Entscheidung.
+
+**Ressourcen-Mandat (Stufe 3):**
 
 | Kategorie | Belohnungsart | Beispiel |
 |---|---|---|
 | **Sofort-Bonus** | Standing-Gewinn | +8 Standing |
 | **Temp-Modifier** | Zeitlich begrenzte Empire-Modifier | +15% `trade_income_mult` für 30 Tage |
 | **Ressourcen** | Dark Matter, Metalleinheiten, Flottenverstärkung | 500 DM oder 2 Zerstörer-Leihschiffe (14 Tage) |
-| **Langzeit-Bonus** | Permanente Freischaltung ab 5× ACCEPTED bei einer Fraktion | Exklusiver Schiffshull, einzigartiger Koloniegebäude-Slot |
 | **Erzählung** | LORE-Fortschritt, neue NPC-Dialoge, Aktzugang | Vel'Ar teilt Syl'Nar-Geheimnis (Akt-2-Info) |
+
+**Beratungs-Mandat (Stufe 4 – Erster Berater):**
+
+| Bedingung | Belohnung |
+|---|---|
+| Empfehlung abgegeben (egal ob übernommen) | +5 Standing (Prozess-Bonus); gilt immer |
+| Empfehlung übernommen (NPC folgt Rat) | +15 Standing + exklusive Lore-Info + `advisor_trust` +1 |
+| Empfehlung nicht übernommen, Ergebnis trotzdem gut | +8 Standing (Fraktion dankt für Beitrag) |
+| Empfehlung nicht übernommen, Ergebnis schlecht | +5 Standing; Fraktion denkt über Berater-Qualität nach |
+
+**Multiplikator-Mechanik durch Staatsgebilde:**
+
+| Staatsgebilde | Bonus wenn Empfehlung übernommen | Malus wenn Ergebnis schlecht |
+|---|---|---|
+| `democracy` | ×1.0 (Standardbelohnung) | Öffentliche Kritik: −3 `happiness_flat` (7 Tage) |
+| `autocracy` | ×1.3 (Anführer belohnt Loyalität großzügig) | Anführer-Enttäuschung: −10 Standing zusätzlich |
+| `oligarchy` | ×1.1 (Elite teilt Belohnung) | Elite-Misstrauen: `neglect_count` +0.5 extra |
+| `theocracy` | ×0.8 (spirituell, kein Materialismus) | Dogma-Verletzung: Mandat-Frequenz −50% für 30 Tage |
+| `meritocracy` | ×1.5 (Leistung wird stark belohnt) | Leistungs-Dossier: `advisor_trust` −2 |
+| `network` | ×0.7 (diffuse Belohnungsstruktur) | Raunen im Netz: zufällige Effekte |
 
 **Zuckerbrot-Kumulationsbonus:** Werden 3 Mandate in Folge akzeptiert (ohne Ablehnung dazwischen),
 erhält der Spieler einen **Loyalitätsbonus**: einmaliger +5 Standing-Aufwuchs und eine seltene Belohnung
 (z.B. Prototyp-Modul, exklusive Quest). Dieser Bonus erscheint als Journal-Event `faction_loyalty_streak`.
+
+**Langzeit-Freischaltung** (ab 5× ACCEPTED bei einer Fraktion, Stufe 3+):
+- Exklusiver Schiffshull dieser Fraktion (nur baubar, solange `influence_tier ≥ 3`)
+- Einzigartiger Koloniegebäude-Slot (passiver Ertrag, nur für diese Fraktion)
+
+**`advisor_trust`-Wert:** Ein neuer Unterparameter (0–10) in `diplomacy.advisor_trust`.
+Steigt mit jeder überommenen Empfehlung. Bestimmt: Wie wahrscheinlich ist es, dass die
+Fraktion dem Berater beim nächsten Mal folgt (±5% auf `effective_weight` pro Punkt).
 
 ---
 
 ### 12.4 Peitsche: Konsequenzen des Nicht-Entscheidens
 
 Läuft ein Mandat ab (`EXPIRED`), ohne dass der Spieler reagiert hat, greift ein gestuftes Strafsystem.
+Die Stärke der Konsequenzen hängt zusätzlich vom Staatsgebilde der Fraktion ab.
 
 #### 12.4.1 Peitsche-Zähler (`neglect_count`)
 
 Pro Fraktion wird `diplomacy.neglect_count INT` verwaltet.
 Jedes EXPIRED-Mandat erhöht den Zähler um 1. Jedes ACCEPTED-Mandat reduziert ihn um 1 (Mindest: 0).
 
-| neglect_count | Konsequenz |
-|---|---|
-| **1** | Standing −12 (sofort) + Journal-Event „[Fraktion] zeigt Enttäuschung" |
-| **2** | Standing −12 + `influence_tier` −1 + temporärer Modifier-Malus (−5% auf Hauptbonus dieser Fraktion, 7 Tage) |
-| **3** | Standing −20 + `influence_tier` −1 + Fraktion sendet formale **Warnung** (Mandat mit sehr kurzer Frist) |
-| **4** | Standing −20 + `influence_tier` −2 + aktiver Strafmechanismus abhängig vom Fraktionstyp (§12.4.2) |
-| **5+** | Jedes weitere EXPIRED: −25 Standing; Fraktion betrachtet Spieler als „unzuverlässig" → keine neuen Tier-4-Mandate bis neglect_count < 3 |
+| neglect_count | Basiskonsequenz (alle Staatsgebilde) | Berater-Spezifisch (Stufe 4) |
+|---|---|---|
+| **1** | Standing −10 + Journal-Event „[Fraktion] zeigt Enttäuschung" | `advisor_trust` −1 |
+| **2** | Standing −10 + `influence_tier` −1 + Modifier-Malus (−5% Hauptbonus, 7 Tage) | `advisor_trust` −2; Fraktion fragt sich öffentlich, ob Berater noch aktiv ist |
+| **3** | Standing −18 + `influence_tier` −1 + formale **Warnung** | `advisor_trust` −3; Gerücht im Mehrspielersystem (§12.4.4) |
+| **4** | Standing −18 + `influence_tier` −2 + fraktionsspezifischer Strafmechanismus (§12.4.2) | Berater-Status auf Bewährung: NPC bewertet nächste Empfehlung mit −20% Gewichtung |
+| **5+** | Jedes weitere: −22 Standing; keine neuen Stufe-4-Mandate bis neglect_count < 3 | `advisor_accepted` → 0: Berater-Status entzogen; Neustart nötig |
 
-#### 12.4.2 Fraktionsspezifische Strafmechanismen (neglect_count ≥ 4)
+> **Balancing-Anmerkung:** Die Strafen sind gegenüber der ersten Version leicht reduziert (−12→−10,
+> −20→−18), weil der Spieler als Berater *nicht* das letzte Wort hat. Es wäre unfair, ihn hart zu
+> bestrafen wenn die NPC-KI eine andere Entscheidung trifft als empfohlen.
 
-| Fraktion | Strafe bei 4× Ignorieren |
-|---|---|
-| 🦎 **Vor'Tak** | Entzug einer Flottenhilfe-Option; nächste Militär-Quest schwerer (Gegner-Verstärkung +20%) |
-| 🐙 **Syl'Nar** | Handelsroute nach Syl'Nar-Raum gesperrt (3 Tage); Market-Preis für Vethisit sinkt −15% |
-| 🔥 **Aereth** | Laufende Forschungs-Kooperation pausiert; `research_speed_mult` −0.08 für 14 Tage |
-| 🦗 **Kryl'Tha** | Kryl'Tha-Außenposten (sofern vorhanden) „wird inaktiv"; Pop-Wachstum −0.05 für 7 Tage |
-| 💎 **Zhareen** | Archivzugang entzogen; Technologie-Sharing gesperrt; laufende Zhareen-Quests +50% Zeitaufwand |
-| 🌫️ **Vel'Ar** | Vel'Ar-Informationsnetz schließt Spieler aus; `spy_detection_flat` −15 für 14 Tage; aktive Vel'Ar-Agenten abgezogen |
+#### 12.4.2 Staatsgebilde-Modifikator auf Peitsche
 
-#### 12.4.3 Grace-Period
+Das Staatsgebilde beeinflusst Stil und Intensität der Konsequenzen:
+
+| Staatsgebilde | Peitsche-Modifikator | Charakteristik |
+|---|---|---|
+| `democracy` | ×0.85 auf Standing-Abzug | Öffentliche Debatte puffert; aber Ruf-Verlust ist *öffentlich* sichtbar für andere Spieler |
+| `autocracy` | ×1.30 auf Standing-Abzug | Anführer verzeiht nicht; Strafen schneller und härter |
+| `oligarchy` | ×1.10 auf Standing-Abzug | Elite-Netzwerk merkt sich alles; zusätzliche Handelseinschränkungen |
+| `theocracy` | ×0.90 auf Standing-Abzug | Religiöse Geduld; aber ab neglect_count = 3 öffentlicher Bannfluch (globaler Malus) |
+| `meritocracy` | ×1.20 auf Standing-Abzug | Leistung zählt; Fehler werden statistisch dokumentiert und gegen Belohnungen verrechnet |
+| `network` | ×0.70 auf Standing-Abzug | Diffuse Struktur; dafür sind Konsequenzen unvorhersehbar (zufälliger Effekt aus Malus-Pool) |
+
+#### 12.4.3 Fraktionsspezifische Strafmechanismen (neglect_count ≥ 4)
+
+| Fraktion | Staatsgebilde | Strafe bei 4× Ignorieren |
+|---|---|---|
+| 🦎 **Vor'Tak** | `autocracy` | Entzug einer Flottenhilfe-Option; Gegner-Verstärkung +20% in nächster Militär-Quest |
+| 🐙 **Syl'Nar** | `theocracy` | Handelsroute gesperrt (3 Tage); Vethisit-Marktpreis sinkt −15% |
+| 🔥 **Aereth** | `meritocracy` | Forschungs-Kooperation pausiert; `research_speed_mult` −0.08 für 14 Tage |
+| 🦗 **Kryl'Tha** | `network` | Kryl'Tha-Außenposten inaktiv; Pop-Wachstum −0.05 für 7 Tage |
+| 💎 **Zhareen** | `oligarchy` | Archivzugang entzogen; laufende Quests +50% Zeitaufwand |
+| 🌫️ **Vel'Ar** | `network` | Informationsnetz schließt aus; `spy_detection_flat` −15 für 14 Tage; Agenten abgezogen |
+
+#### 12.4.4 Multiplayer-Peitsche: Reputationsripple
+
+**Neu:** Konsequenzen des Nicht-Entscheidens können auf andere Spieler ausstrahlen.
+Das simuliert, dass NPC-Entscheidungen (die der Berater hätte beeinflussen können) das
+galaktische Gleichgewicht verändern.
+
+**Mechanismus:**
+```
+Wenn neglect_count ≥ 3 UND Beratungs-Mandat EXPIRED:
+  → NPC-Fraktion trifft eine Zufalls-Entscheidung (ohne Berater-Input)
+  → Diese Entscheidung hat eine chance_of_world_event = 40%
+  → Falls world_event: Alle Spieler im betroffenen Sternensystem-Cluster
+    erhalten galactic_event = 'faction_unchecked_action' mit zufälligem
+    positiven oder negativen Modifier für 48h
+```
+
+**Beispiel:**
+Spieler A ist Erster Berater bei Vor'Tak und ignoriert 3 Mandate über Grenzkonflikt.
+Vor'Tak entscheidet allein → startet militärische Expansion.
+Alle Spieler in den betroffenen Systemen bekommen: `fleet_readiness_mult` −0.05 (48h),
+weil Transitrouten blockiert. Spieler A erhält −18 Standing. Andere Spieler sehen im Journal:
+*„Vor'Tak-Expansion – ein Berater hat versagt"* (Spieler-A-Reputation wird öffentlich).
+
+**Privacy-Option:** Spieler können in den Einstellungen `advisor_anonymous = 1` setzen —
+dann erscheint ihr Name in solchen Events nicht öffentlich, aber der Malus bleibt.
+
+```sql
+ALTER TABLE diplomacy
+    ADD COLUMN IF NOT EXISTS advisor_anonymous TINYINT(1) NOT NULL DEFAULT 0;
+```
+
+#### 12.4.5 Grace-Period
 
 Zwischen EXPIRED-Status und Peitsche-Aktivierung gibt es **6 Stunden Grace-Period**.
 In dieser Zeit kann der Spieler das Mandat nachträglich als PARTIAL erfüllen:
 - Strafe wird auf 50% reduziert
 - `neglect_count` erhöht sich nur um 0.5 (gerundet auf 1 wenn ≥ 0.5)
+- Kein Multiplayer-Ripple-Event (§12.4.4) wird ausgelöst
 
 ```sql
 -- Grace-Period-Check im npc_ai-Tick:
@@ -1056,26 +1243,34 @@ und verstärkt die LORE-Identität der Fraktionen:
 
 ---
 
-### 12.6 Balancing-Parameter
+### 12.6 Balancing-Parameter *(revidiert)*
 
-Diese Werte sind in `config/config.php` als Konstanten zu definieren:
+Diese Werte sind in `config/config.php` als Konstanten zu definieren.
+Gegenüber der Erstversion reduzierte Strafen (Spieler ist Berater, nicht Entscheider):
 
-| Konstante | Standardwert | Beschreibung |
-|---|---|---|
-| `MANDATE_BASE_DURATION_H` | 72 | Standardlaufzeit eines Mandats in Stunden |
-| `MANDATE_GRACE_PERIOD_H` | 6 | Grace-Period nach Ablauf bis Strafe greift |
-| `MANDATE_NEGLECT_STANDING_1` | −12 | Standing-Abzug bei neglect_count = 1 |
-| `MANDATE_NEGLECT_STANDING_2` | −12 | Standing-Abzug bei neglect_count = 2 |
-| `MANDATE_NEGLECT_STANDING_3` | −20 | Standing-Abzug bei neglect_count = 3 |
-| `MANDATE_NEGLECT_STANDING_4` | −20 | Standing-Abzug bei neglect_count = 4+ |
-| `MANDATE_NEGLECT_STANDING_5PLUS` | −25 | Standing-Abzug bei neglect_count ≥ 5 |
-| `MANDATE_LOYALTY_STREAK` | 3 | Anzahl ACCEPTED in Folge für Loyalitätsbonus |
-| `MANDATE_INFLUENCE_TIER3_INTERVAL_H` | 48 | Mandats-Frequenz bei Tier 3 |
-| `MANDATE_INFLUENCE_TIER4_INTERVAL_H` | 24 | Mandats-Frequenz bei Tier 4 |
+| Konstante | Standardwert | Änderung | Begründung |
+|---|---|---|---|
+| `MANDATE_BASE_DURATION_H` | 72 | = | Standardlaufzeit |
+| `MANDATE_ADVISORY_DURATION_H` | 48 | **neu** | Beratungs-Mandate sind dringlicher |
+| `MANDATE_GRACE_PERIOD_H` | 6 | = | Grace-Period |
+| `MANDATE_NEGLECT_STANDING_1` | −10 | **−12→−10** | Berater-Fairness |
+| `MANDATE_NEGLECT_STANDING_2` | −10 | **−12→−10** | Berater-Fairness |
+| `MANDATE_NEGLECT_STANDING_3` | −18 | **−20→−18** | Berater-Fairness |
+| `MANDATE_NEGLECT_STANDING_4` | −18 | **−20→−18** | Berater-Fairness |
+| `MANDATE_NEGLECT_STANDING_5PLUS` | −22 | **−25→−22** | Berater-Fairness |
+| `MANDATE_LOYALTY_STREAK` | 3 | = | Anzahl ACCEPTED in Folge für Loyalitätsbonus |
+| `MANDATE_INFLUENCE_TIER3_INTERVAL_H` | 48 | = | Ressourcen-Mandats-Frequenz |
+| `MANDATE_INFLUENCE_TIER4_INTERVAL_H` | 48 | **24→48** | Beratungs-Mandate sind komplexer; weniger ist mehr |
+| `MANDATE_ADVISOR_BASE_WEIGHT_DELTA` | 5 | **neu** | `advisor_trust` × 5% = Bonus auf `effective_weight` |
+| `MANDATE_RIPPLE_CHANCE` | 40 | **neu** | Wahrscheinlichkeit (%) für Multiplayer-Ripple-Event bei neglect_count ≥ 3 |
+| `MANDATE_RIPPLE_DURATION_H` | 48 | **neu** | Dauer des Ripple-Effekts auf andere Spieler |
 
 **Anti-Overwhelm-Regel:** Pro Fraktion kann maximal **1 Mandat gleichzeitig PENDING** sein.
 Über alle Fraktionen hinweg können maximal **4 Mandate gleichzeitig PENDING** sein.
 Neue Mandate werden erst erzeugt, wenn alte abgehandelt wurden. Dies verhindert Entscheidungs-Paralyse.
+
+**Staatsgebilde-Puffer:** Demokratien dürfen nie mehr als **2 Mandate gleichzeitig** haben
+(Ratsverfahren dauern). Autokratien können bis zu **3 gleichzeitig** senden.
 
 ---
 
@@ -1085,24 +1280,33 @@ Neue Mandate werden erst erzeugt, wenn alte abgehandelt wurden. Dies verhindert 
 
 ```sql
 CREATE TABLE IF NOT EXISTS faction_mandates (
-    id                    INT AUTO_INCREMENT PRIMARY KEY,
-    user_id               INT NOT NULL,
-    faction_id            INT NOT NULL,
-    mandate_type          VARCHAR(64) NOT NULL
-        COMMENT 'z.B. military_deployment, trade_concession, research_share',
-    title                 VARCHAR(128) NOT NULL,
-    description           TEXT,
-    reward_standing       TINYINT NOT NULL DEFAULT 8,
-    reward_modifier_key   VARCHAR(64),
-    reward_modifier_value DECIMAL(9,4),
-    reward_modifier_days  TINYINT,
-    reward_dm             SMALLINT NOT NULL DEFAULT 0,
-    penalty_standing      TINYINT NOT NULL DEFAULT 12,
-    status                ENUM('pending','accepted','declined','expired','partial')
-                          NOT NULL DEFAULT 'pending',
-    issued_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deadline_at           DATETIME NOT NULL,
-    resolved_at           DATETIME,
+    id                      INT AUTO_INCREMENT PRIMARY KEY,
+    user_id                 INT NOT NULL,
+    faction_id              INT NOT NULL,
+    mandate_class           ENUM('resource','advisory') NOT NULL DEFAULT 'resource',
+    mandate_type            VARCHAR(64) NOT NULL
+        COMMENT 'z.B. military_deployment, trade_concession, research_share, advisory_expansion',
+    title                   VARCHAR(128) NOT NULL,
+    description             TEXT,
+    -- Ressourcen-Mandat-Felder
+    reward_standing         TINYINT NOT NULL DEFAULT 8,
+    reward_modifier_key     VARCHAR(64),
+    reward_modifier_value   DECIMAL(9,4),
+    reward_modifier_days    TINYINT,
+    reward_dm               SMALLINT NOT NULL DEFAULT 0,
+    penalty_standing        TINYINT NOT NULL DEFAULT 10,
+    -- Beratungs-Mandat-Felder
+    advice_options_json     JSON COMMENT 'Array mit A/B/C Empfehlungen + Folgeeffekten',
+    advice_choice           TINYINT COMMENT 'Gewählte Empfehlung (1=A, 2=B, 3=C)',
+    npc_decision            TINYINT COMMENT 'Tatsächliche NPC-Entscheidung nach Gewichtung',
+    advice_weight           DECIMAL(5,2) COMMENT 'Effektive Gewichtung zum Empfehlungszeitpunkt',
+    ripple_event_fired      TINYINT(1) NOT NULL DEFAULT 0,
+    -- Status
+    status                  ENUM('pending','accepted','declined','expired','partial')
+                            NOT NULL DEFAULT 'pending',
+    issued_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deadline_at             DATETIME NOT NULL,
+    resolved_at             DATETIME,
     grace_partial_submitted TINYINT(1) NOT NULL DEFAULT 0,
     INDEX idx_fm_user_faction (user_id, faction_id),
     INDEX idx_fm_status_deadline (status, deadline_at),
@@ -1115,43 +1319,106 @@ CREATE TABLE IF NOT EXISTS faction_mandates (
 
 ```sql
 ALTER TABLE diplomacy
-    ADD COLUMN IF NOT EXISTS influence_tier  TINYINT UNSIGNED NOT NULL DEFAULT 0
-        COMMENT '0=unbeteiligt … 4=strategischer_partner',
-    ADD COLUMN IF NOT EXISTS neglect_count   TINYINT UNSIGNED NOT NULL DEFAULT 0
-        COMMENT 'Anzahl abgelaufener Mandate ohne Reaktion';
+    ADD COLUMN IF NOT EXISTS influence_tier    TINYINT UNSIGNED NOT NULL DEFAULT 0
+        COMMENT '0=unbeteiligt … 4=erster_berater',
+    ADD COLUMN IF NOT EXISTS neglect_count     TINYINT UNSIGNED NOT NULL DEFAULT 0
+        COMMENT 'Anzahl abgelaufener Mandate ohne Reaktion',
+    ADD COLUMN IF NOT EXISTS advisor_accepted  TINYINT(1) NOT NULL DEFAULT 0
+        COMMENT '1 = Fraktion hat Berater-Status formal akzeptiert',
+    ADD COLUMN IF NOT EXISTS advisor_trust     TINYINT UNSIGNED NOT NULL DEFAULT 0
+        COMMENT '0–10; steigt mit übernommenen Empfehlungen; bestimmt effective_weight-Bonus',
+    ADD COLUMN IF NOT EXISTS advisor_anonymous TINYINT(1) NOT NULL DEFAULT 0
+        COMMENT '1 = Berater-Name erscheint nicht in öffentlichen Ripple-Events';
 ```
 
 #### API-Endpunkte (`api/factions.php`)
 
 ```
 GET  factions.php?action=list_mandates
-     → Alle PENDING-Mandate des Spielers; inkl. Fraktionsname, Deadline, Reward, Penalty
+     → Alle PENDING-Mandate; inkl. Fraktionsname, Deadline, Typ (resource/advisory),
+       Reward, Penalty, advice_options (für Beratungs-Mandate), aktueller advisor_trust
 
 POST factions.php?action=resolve_mandate
-     → { mandate_id, resolution: 'accept'|'decline'|'partial' }
-     → Führt Belohnung oder Peitsche aus, updated diplomacy.standing + neglect_count
+     → { mandate_id, resolution: 'accept'|'decline'|'partial', advice_choice: 1|2|3 }
+     → Führt Belohnung oder Peitsche aus; bei advisory: speichert advice_choice,
+       berechnet npc_decision, feuert ggf. ripple_event
 
 GET  factions.php?action=mandate_history
-     → Letzten 30 abgeschlossenen Mandate mit Status + Auswirkung
+     → Letzten 30 abgeschlossenen Mandate mit Status + Auswirkung + NPC-Entscheidung
+
+GET  factions.php?action=advisor_status
+     → { faction_id, influence_tier, advisor_accepted, advisor_trust,
+         effective_weight, government_type, neglect_count }
 ```
 
 ---
 
-### 12.8 Implementierungs-Phasen
+### 12.8 Implementierungs-Phasen *(revidiert)*
 
 | Phase | Inhalt | Aufwand |
 |---|---|---|
-| **Pre** | Migration `faction_mandates`-Tabelle + `diplomacy`-Spalten | Klein |
-| **1** | `npc_ai.php`: Mandats-Generierung pro Fraktion nach `influence_tier`-Check | Mittel |
-| **2** | `api/factions.php`: `list_mandates` + `resolve_mandate` | Mittel |
-| **3** | `EventSystem.js`: Journal-Events für Mandatseingang, Ablauf, Loyalitätsbonus | Klein |
-| **4** | `js/game.js`: Mandats-Panel (Liste, Countdown, Entscheidungs-Buttons) | Groß |
-| **5** | Fraktionsspezifische Strafmechanismen §12.4.2 in `game_engine.php` | Mittel |
-| **6** | `config/config.php`: Balancing-Konstanten §12.6 + Tuning-Pass | Klein |
+| **Pre** | Migration: `faction_mandates` (erweitert), `diplomacy`-Spalten, `npc_factions.government_type` | Klein |
+| **1** | `npc_ai.php`: Mandats-Generierung (`resource` für Tier 3, `advisory` für Tier 4) + `advisor_accepted`-Logik | Mittel |
+| **2** | `api/factions.php`: `list_mandates` + `resolve_mandate` + `mandate_history` + `advisor_status` | Mittel |
+| **3** | Berater-Gewichtungs-Formel in `game_engine.php`: `effective_weight` aus `government_type` + `advisor_trust` | Mittel |
+| **4** | Zuckerbrot/Peitsche-Staatsgebilde-Modifikatoren in `game_engine.php` | Mittel |
+| **5** | Multiplayer-Ripple: `faction_mandates.ripple_event_fired` + `galactic_event`-Tabelle + Verteiler in `npc_ai.php` | Groß |
+| **6** | `EventSystem.js`: Journal-Events für Mandatseingang / Ablauf / Berater-Ernennung / Berater-Verlust / Ripple | Klein |
+| **7** | `js/game.js`: Mandats-Panel (Liste, Countdown, Accept/Decline/Partial, Empfehlungs-UI, advisor_trust-Anzeige) | Groß |
+| **8** | `config/config.php`: Balancing-Konstanten §12.6 + Tuning-Pass nach erstem Playtesting | Klein |
 
 ---
 
-## Anhang A: LORE-Fragment – „Das erste Jahr der Gesandten"
+### 12.9 Multiplayer-Ripple: Spezifikation
+
+Beratungs-Mandate auf Stufe 4 haben potenzielle galaktische Auswirkungen. Wenn ein Erster
+Berater ein Mandat ignoriert, trifft die NPC-Fraktion eine unkontrollierte Entscheidung –
+und die Konsequenzen davon breiten sich im Mehrspielersystem aus.
+
+#### 12.9.1 Galaktisches Ereignis (`galactic_event`-Tabelle)
+
+```sql
+CREATE TABLE IF NOT EXISTS galactic_events (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    event_type      VARCHAR(64) NOT NULL
+        COMMENT 'z.B. faction_unchecked_action, faction_advisor_success',
+    faction_id      INT NOT NULL,
+    source_user_id  INT COMMENT 'Berater, der ausgelöst hat (NULL wenn anonym)',
+    description     TEXT,
+    modifier_key    VARCHAR(64),
+    modifier_value  DECIMAL(9,4),
+    affected_scope  ENUM('cluster','sector','galaxy') NOT NULL DEFAULT 'cluster',
+    starts_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ends_at         DATETIME NOT NULL,
+    is_visible      TINYINT(1) NOT NULL DEFAULT 1,
+    INDEX idx_ge_faction (faction_id),
+    INDEX idx_ge_scope_time (affected_scope, ends_at),
+    FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+```
+
+#### 12.9.2 Ripple-Ereignistypen
+
+| Ereignis | Auslöser | Betroffene Spieler | Modifier |
+|---|---|---|---|
+| `faction_unchecked_expansion` | EXPIRED bei militärischem Beratungsmandat | Alle Spieler im Cluster | `fleet_readiness_mult` −0.05 / 48h |
+| `faction_trade_disruption` | EXPIRED bei Handels-Beratungsmandat | Alle Spieler auf betroffenen Routen | `trade_income_mult` −0.08 / 24h |
+| `faction_research_lockout` | EXPIRED bei Forschungs-Beratungsmandat | Alle Spieler mit dieser Fraktion auf Tier 2+ | `research_speed_mult` −0.05 / 24h |
+| `faction_advisor_success` | ACCEPTED + Empfehlung übernommen + gutes Ergebnis | Alle Spieler im Cluster | `trade_income_mult` +0.05 / 72h |
+| `faction_diplomatic_breakthrough` | ACCEPTED + Empfehlung C (Verhandeln) übernommen | Alle Spieler mit NPC-Kontakt | `colony_stability_flat` +3 / 48h |
+
+#### 12.9.3 Sichtbarkeit und Fairness
+
+- **Ankündigung:** 30 Minuten vor Aktivierung erscheint im Journal aller betroffenen Spieler
+  ein Vorab-Hinweis: *„Diplomatische Lage verändert sich"* (ohne Schuldigen zu nennen)
+- **Anonymität:** Wenn `advisor_anonymous = 1`, wird der Spieler in der Ereignisbeschreibung
+  nicht namentlich erwähnt; andere Spieler sehen nur die Fraktion
+- **Frequenz-Cap:** Maximal 1 Ripple-Event pro Fraktion pro 24h — verhindert Spam bei
+  wiederholten Ignorierungen
+- **Spieler-Schutz für Rookies:** Ripple-Events treffen nie Spieler, die weniger als 48h
+  im Spiel sind (`users.created_at > NOW() - INTERVAL 48 HOUR`)
+
+---## Anhang A: LORE-Fragment – „Das erste Jahr der Gesandten"
 
 *Aus dem nicht-klassifizierten Teil der Zhareen-Archive, Eintrag 7.441.330:*
 
