@@ -246,21 +246,15 @@ describe('speakSequence()', () => {
     const GQTTS = loadTtsScript();
     const played = [];
 
-    // Make Audio mock emit 'ended' immediately so the sequence doesn't hang
-    vi.stubGlobal('Audio', vi.fn().mockImplementation(() => {
-      const el = {
-        volume: 1,
-        play: vi.fn().mockImplementation(() => {
-          // dispatch 'ended' synchronously so the await in speakSequence resolves
-          el._endedCb?.({ type: 'ended' });
-          return Promise.resolve();
-        }),
-        addEventListener: vi.fn((evt, cb) => {
-          if (evt === 'ended') el._endedCb = cb;
-        }),
-      };
-      played.push(el);
-      return el;
+    // When speakSequence calls el.addEventListener('ended', resolve), fire the
+    // callback synchronously so the awaited promise resolves immediately.
+    vi.stubGlobal('Audio', vi.fn(function AudioSeqMock() {
+      this.volume = 1;
+      this.play = vi.fn().mockResolvedValue(undefined);
+      this.addEventListener = vi.fn((evt, cb) => {
+        if (evt === 'ended') cb({ type: 'ended' });
+      });
+      played.push(this);
     }));
 
     await GQTTS.speakSequence(['Line one', 'Line two', 'Line three'], { gapMs: 0 });
@@ -271,11 +265,11 @@ describe('speakSequence()', () => {
 
   it('accepts mixed string / object entries', async () => {
     const GQTTS = loadTtsScript();
-    vi.stubGlobal('Audio', vi.fn().mockImplementation(() => ({
-      volume: 1,
-      play: vi.fn().mockResolvedValue(undefined),
-      addEventListener: vi.fn((evt, cb) => { if (evt === 'ended') cb({}); }),
-    })));
+    vi.stubGlobal('Audio', vi.fn(function AudioMixedMock() {
+      this.volume = 1;
+      this.play = vi.fn().mockResolvedValue(undefined);
+      this.addEventListener = vi.fn((evt, cb) => { if (evt === 'ended') cb({}); });
+    }));
 
     await GQTTS.speakSequence(
       [

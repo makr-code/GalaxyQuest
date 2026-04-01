@@ -15213,6 +15213,9 @@
           const icons = { attack: 'ÔÜö', transport: '­ƒôª', colonize: '­ƒÅø', spy: '­ƒöì', harvest: 'ÔøÅ', recall: 'Ôå®' };
           const icon = icons[mission] || 'ÔÜí';
           showToast(`${icon} Fleet arrived at ${target} (${mission})`, mission === 'attack' ? 'success' : 'info');
+          if (window.GQTTS && window.GQTTS.isAutoVoiceEnabled()) {
+            window.GQTTS.speak(`Flotte hat ${target} erreicht.`).catch(() => {});
+          }
           await loadOverview();
           _invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
           ['fleet', 'shipyard', 'buildings'].forEach(id => WM.refresh(id));
@@ -15225,6 +15228,9 @@
         try {
           const data = JSON.parse(e.data);
           showToast(`Ôå® Fleet returned home (${data.mission || ''})`, 'info');
+          if (window.GQTTS && window.GQTTS.isAutoVoiceEnabled()) {
+            window.GQTTS.speak('Flotte ist heimgekehrt.').catch(() => {});
+          }
           await loadOverview();
           _invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
           WM.refresh('fleet');
@@ -15241,6 +15247,12 @@
             ? `­ƒöì Spy fleet from ${data.attacker} inbound ÔåÆ ${data.target} (${arrival})`
             : `ÔÜá INCOMING ATTACK from ${data.attacker} ÔåÆ ${data.target} at ${arrival}!`;
           showToast(msg, 'danger');
+          if (window.GQTTS && window.GQTTS.isAutoVoiceEnabled()) {
+            const ttsText = data.mission === 'spy'
+              ? `Achtung! Spionageflotte von ${data.attacker} im Anflug.`
+              : `Warnung! Angriff von ${data.attacker} auf ${data.target} um ${arrival}!`;
+            window.GQTTS.speak(ttsText).catch(() => {});
+          }
         } catch (err) {
           gameLog('info', 'SSE incoming_attack handler fehlgeschlagen', err);
         }
