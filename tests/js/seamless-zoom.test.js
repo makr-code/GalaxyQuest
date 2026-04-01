@@ -10,11 +10,17 @@
  *     • zoomTo() calls enter() on the new level
  *     • double-zoomTo() during a running transition is ignored (guard)
  *     • ZOOM_LEVEL.PLANET_APPROACH triggers CameraFlightPath.flyTo()
+ *     • ZOOM_LEVEL.OBJECT_APPROACH triggers CameraFlightPath.flyTo()
  *     • other levels do NOT trigger CameraFlightPath.flyTo()
  *   CameraFlightPath
  *     • flyTo() returns a Promise that resolves when t reaches 1
  *     • tick() returns t progressing from 0 toward 1
  *     • implements the camera-driver interface (has update(ctx) method)
+ *   ApproachTargetType
+ *     • enum contains all 5 expected target types
+ *     • ObjectApproachLevelThreeJS — enter() records targetType from payload
+ *     • ObjectApproachLevelWebGPU  — enter() records targetType from payload
+ *     • meshDescriptorFor() returns correct shape per type
  *
  * Uses a MockRenderer — no real GPU or DOM required.
  */
@@ -28,9 +34,13 @@ const require = createRequire(import.meta.url);
 const root    = path.resolve(fileURLToPath(import.meta.url), '../../..');
 
 const { RendererRegistry }         = require(path.join(root, 'js/rendering/RendererRegistry.js'));
-const { SeamlessZoomOrchestrator, ZOOM_LEVEL } =
+const { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType } =
   require(path.join(root, 'js/rendering/SeamlessZoomOrchestrator.js'));
 const { CameraFlightPath }         = require(path.join(root, 'js/rendering/CameraFlightPath.js'));
+const { ObjectApproachLevelThreeJS } =
+  require(path.join(root, 'js/rendering/levels/ObjectApproachLevelThreeJS.js'));
+const { ObjectApproachLevelWebGPU, meshDescriptorFor } =
+  require(path.join(root, 'js/rendering/levels/ObjectApproachLevelWebGPU.js'));
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -328,5 +338,273 @@ describe('CameraFlightPath — driver interface', () => {
       cam.position.y !== 0 ||
       cam.position.z !== 100;
     expect(moved).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ApproachTargetType — enum completeness
+// ---------------------------------------------------------------------------
+
+describe('ApproachTargetType — enum values', () => {
+  it('exports all 5 expected target-type constants', () => {
+    expect(ApproachTargetType).toBeDefined();
+    expect(ApproachTargetType.FLEET).toBe('FLEET');
+    expect(ApproachTargetType.VESSEL).toBe('VESSEL');
+    expect(ApproachTargetType.VAGABOND).toBe('VAGABOND');
+    expect(ApproachTargetType.SOLAR_INSTALLATION_SHIPYARD).toBe('SOLAR_INSTALLATION_SHIPYARD');
+    expect(ApproachTargetType.SOLAR_INSTALLATION_STARGATE).toBe('SOLAR_INSTALLATION_STARGATE');
+  });
+
+  it('is frozen (immutable)', () => {
+    expect(Object.isFrozen(ApproachTargetType)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ZOOM_LEVEL — includes OBJECT_APPROACH
+// ---------------------------------------------------------------------------
+
+describe('ZOOM_LEVEL — OBJECT_APPROACH constant', () => {
+  it('is defined and equals 4', () => {
+    expect(ZOOM_LEVEL.OBJECT_APPROACH).toBe(4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ObjectApproachLevelThreeJS
+// ---------------------------------------------------------------------------
+
+describe('ObjectApproachLevelThreeJS — interface compliance', () => {
+  it('is constructable without arguments', () => {
+    expect(() => new ObjectApproachLevelThreeJS()).not.toThrow();
+  });
+
+  it('implements all IZoomLevelRenderer methods', () => {
+    const lvl = new ObjectApproachLevelThreeJS();
+    expect(typeof lvl.initialize).toBe('function');
+    expect(typeof lvl.setSceneData).toBe('function');
+    expect(typeof lvl.render).toBe('function');
+    expect(typeof lvl.enter).toBe('function');
+    expect(typeof lvl.exit).toBe('function');
+    expect(typeof lvl.dispose).toBe('function');
+  });
+
+  it('initialize() resolves without a real canvas/backend (no-op path)', async () => {
+    const lvl = new ObjectApproachLevelThreeJS();
+    await expect(lvl.initialize(null, null)).resolves.toBeUndefined();
+  });
+
+  it('enter() records the targetType from the payload', async () => {
+    const lvl = new ObjectApproachLevelThreeJS();
+    await lvl.initialize(null, null);
+    await lvl.enter(null, { targetType: ApproachTargetType.FLEET });
+    expect(lvl._targetType).toBe(ApproachTargetType.FLEET);
+  });
+
+  it('enter() handles missing payload gracefully', async () => {
+    const lvl = new ObjectApproachLevelThreeJS();
+    await lvl.initialize(null, null);
+    await expect(lvl.enter(null, null)).resolves.toBeUndefined();
+    expect(lvl._targetType).toBeNull();
+  });
+
+  it('exit() resolves without throwing', async () => {
+    const lvl = new ObjectApproachLevelThreeJS();
+    await lvl.initialize(null, null);
+    await expect(lvl.exit(null)).resolves.toBeUndefined();
+  });
+
+  it('dispose() is safe to call multiple times', () => {
+    const lvl = new ObjectApproachLevelThreeJS();
+    expect(() => { lvl.dispose(); lvl.dispose(); }).not.toThrow();
+  });
+
+  it('render() is a no-op without an initialised renderer', () => {
+    const lvl = new ObjectApproachLevelThreeJS();
+    expect(() => lvl.render(16, null)).not.toThrow();
+  });
+
+  it('setSceneData() stores data without throwing', () => {
+    const lvl = new ObjectApproachLevelThreeJS();
+    expect(() => lvl.setSceneData({ fleet: { id: 1 } })).not.toThrow();
+    expect(lvl._sceneData).toEqual({ fleet: { id: 1 } });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ObjectApproachLevelWebGPU
+// ---------------------------------------------------------------------------
+
+describe('ObjectApproachLevelWebGPU — interface compliance', () => {
+  it('is constructable without arguments', () => {
+    expect(() => new ObjectApproachLevelWebGPU()).not.toThrow();
+  });
+
+  it('implements all IZoomLevelRenderer methods', () => {
+    const lvl = new ObjectApproachLevelWebGPU();
+    expect(typeof lvl.initialize).toBe('function');
+    expect(typeof lvl.setSceneData).toBe('function');
+    expect(typeof lvl.render).toBe('function');
+    expect(typeof lvl.enter).toBe('function');
+    expect(typeof lvl.exit).toBe('function');
+    expect(typeof lvl.dispose).toBe('function');
+  });
+
+  it('initialize() resolves without a real backend (stores refs)', async () => {
+    const lvl = new ObjectApproachLevelWebGPU();
+    const fakeBackend = {};
+    await expect(lvl.initialize(null, fakeBackend)).resolves.toBeUndefined();
+    expect(lvl._backend).toBe(fakeBackend);
+  });
+
+  it('enter() records targetType from payload', async () => {
+    const lvl = new ObjectApproachLevelWebGPU();
+    await lvl.initialize(null, null);
+    await lvl.enter(null, { targetType: ApproachTargetType.SOLAR_INSTALLATION_STARGATE });
+    expect(lvl._targetType).toBe(ApproachTargetType.SOLAR_INSTALLATION_STARGATE);
+  });
+
+  it('enter() calls backend.createMesh() when available', async () => {
+    const fakeHandle = Symbol('mesh');
+    const backend = { createMesh: vi.fn().mockResolvedValue(fakeHandle) };
+    const lvl = new ObjectApproachLevelWebGPU();
+    await lvl.initialize(null, backend);
+    await lvl.enter(null, { targetType: ApproachTargetType.VESSEL });
+    expect(backend.createMesh).toHaveBeenCalledOnce();
+    expect(lvl._meshHandle).toBe(fakeHandle);
+  });
+
+  it('exit() calls backend.destroyMesh() when a handle exists', async () => {
+    const fakeHandle = Symbol('mesh');
+    const backend = {
+      createMesh:  vi.fn().mockResolvedValue(fakeHandle),
+      destroyMesh: vi.fn(),
+    };
+    const lvl = new ObjectApproachLevelWebGPU();
+    await lvl.initialize(null, backend);
+    await lvl.enter(null, { targetType: ApproachTargetType.FLEET });
+    await lvl.exit(null);
+    expect(backend.destroyMesh).toHaveBeenCalledWith(fakeHandle);
+    expect(lvl._meshHandle).toBeNull();
+  });
+
+  it('dispose() is safe to call without a backend', () => {
+    const lvl = new ObjectApproachLevelWebGPU();
+    expect(() => { lvl.dispose(); lvl.dispose(); }).not.toThrow();
+  });
+
+  it('render() is a no-op without a backend', () => {
+    const lvl = new ObjectApproachLevelWebGPU();
+    expect(() => lvl.render(16, null)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// meshDescriptorFor — shape mapping
+// ---------------------------------------------------------------------------
+
+describe('meshDescriptorFor — shape per ApproachTargetType', () => {
+  const cases = [
+    [ApproachTargetType.FLEET,                        'box'],
+    [ApproachTargetType.VESSEL,                       'cylinder'],
+    [ApproachTargetType.VAGABOND,                     'dodecahedron'],
+    [ApproachTargetType.SOLAR_INSTALLATION_SHIPYARD,  'torus'],
+    [ApproachTargetType.SOLAR_INSTALLATION_STARGATE,  'torus_large'],
+  ];
+
+  for (const [type, expectedShape] of cases) {
+    it(`returns shape="${expectedShape}" for ${type}`, () => {
+      const desc = meshDescriptorFor(type);
+      expect(desc.shape).toBe(expectedShape);
+      // All descriptors must include colour (3-element [0,1] float array),
+      // metalness and roughness.
+      expect(Array.isArray(desc.color)).toBe(true);
+      expect(desc.color).toHaveLength(3);
+      for (const c of desc.color) {
+        expect(c).toBeGreaterThanOrEqual(0);
+        expect(c).toBeLessThanOrEqual(1);
+      }
+      expect(typeof desc.metalness).toBe('number');
+      expect(typeof desc.roughness).toBe('number');
+    });
+  }
+
+  it('returns a fallback shape for unknown target types', () => {
+    const desc = meshDescriptorFor('UNKNOWN_TYPE');
+    expect(desc.shape).toBe('octahedron');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SeamlessZoomOrchestrator — OBJECT_APPROACH triggers CameraFlightPath.flyTo()
+// ---------------------------------------------------------------------------
+
+describe('SeamlessZoomOrchestrator — OBJECT_APPROACH triggers flyTo()', () => {
+  it('calls CameraFlightPath.flyTo() for OBJECT_APPROACH', async () => {
+    const mockBackend = makeMockBackend('webgl2');
+    const orch = new SeamlessZoomOrchestrator(null, { _backend: mockBackend });
+
+    const galaxyLevel = makeMockLevel();
+    const objectLevel = makeMockLevel();
+    const GalaxyClass = makeLevelClass(galaxyLevel);
+    const ObjectClass = makeLevelClass(objectLevel);
+
+    orch.register(ZOOM_LEVEL.GALAXY,          { webgpu: GalaxyClass, threejs: GalaxyClass });
+    orch.register(ZOOM_LEVEL.OBJECT_APPROACH, { webgpu: ObjectClass, threejs: ObjectClass });
+
+    const flyToSpy = vi.spyOn(orch._flight, 'flyTo').mockResolvedValue(undefined);
+
+    // GALAXY should not trigger flyTo.
+    await orch.zoomTo(ZOOM_LEVEL.GALAXY, null);
+    expect(flyToSpy).not.toHaveBeenCalled();
+
+    // OBJECT_APPROACH should trigger flyTo.
+    await orch.zoomTo(ZOOM_LEVEL.OBJECT_APPROACH, {
+      targetType: ApproachTargetType.FLEET,
+      target: { id: 1 },
+    });
+    expect(flyToSpy).toHaveBeenCalledOnce();
+  });
+
+  it('passes the payload (including targetType) to enter() on OBJECT_APPROACH', async () => {
+    const mockBackend = makeMockBackend('webgl2');
+    const orch = new SeamlessZoomOrchestrator(null, { _backend: mockBackend });
+
+    const objectLevel = makeMockLevel();
+    const ObjectClass = makeLevelClass(objectLevel);
+    orch.register(ZOOM_LEVEL.OBJECT_APPROACH, { webgpu: ObjectClass, threejs: ObjectClass });
+
+    vi.spyOn(orch._flight, 'flyTo').mockResolvedValue(undefined);
+
+    const payload = { targetType: ApproachTargetType.VESSEL, target: { id: 99 } };
+    await orch.zoomTo(ZOOM_LEVEL.OBJECT_APPROACH, payload);
+
+    expect(objectLevel.enter.mock.calls[0][1]).toBe(payload);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SeamlessZoomOrchestrator._requiresCameraFlight — static helper
+// ---------------------------------------------------------------------------
+
+describe('SeamlessZoomOrchestrator._requiresCameraFlight()', () => {
+  it('returns true for PLANET_APPROACH', () => {
+    expect(SeamlessZoomOrchestrator._requiresCameraFlight(ZOOM_LEVEL.PLANET_APPROACH)).toBe(true);
+  });
+
+  it('returns true for OBJECT_APPROACH', () => {
+    expect(SeamlessZoomOrchestrator._requiresCameraFlight(ZOOM_LEVEL.OBJECT_APPROACH)).toBe(true);
+  });
+
+  it('returns false for GALAXY', () => {
+    expect(SeamlessZoomOrchestrator._requiresCameraFlight(ZOOM_LEVEL.GALAXY)).toBe(false);
+  });
+
+  it('returns false for SYSTEM', () => {
+    expect(SeamlessZoomOrchestrator._requiresCameraFlight(ZOOM_LEVEL.SYSTEM)).toBe(false);
+  });
+
+  it('returns false for COLONY_SURFACE', () => {
+    expect(SeamlessZoomOrchestrator._requiresCameraFlight(ZOOM_LEVEL.COLONY_SURFACE)).toBe(false);
   });
 });

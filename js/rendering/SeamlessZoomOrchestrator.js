@@ -64,6 +64,22 @@ const ZOOM_LEVEL = Object.freeze({
   SYSTEM:          1,
   PLANET_APPROACH: 2,
   COLONY_SURFACE:  3,
+  OBJECT_APPROACH: 4,
+});
+
+/**
+ * Target-object types for the OBJECT_APPROACH zoom level.
+ * Pass `{ targetType: ApproachTargetType.FLEET, target: fleetObj }` as the
+ * zoomTo() payload when entering ZOOM_LEVEL.OBJECT_APPROACH.
+ *
+ * @enum {string}
+ */
+const ApproachTargetType = Object.freeze({
+  FLEET:                       'FLEET',
+  VESSEL:                      'VESSEL',
+  VAGABOND:                    'VAGABOND',
+  SOLAR_INSTALLATION_SHIPYARD: 'SOLAR_INSTALLATION_SHIPYARD',
+  SOLAR_INSTALLATION_STARGATE: 'SOLAR_INSTALLATION_STARGATE',
 });
 
 // ---------------------------------------------------------------------------
@@ -142,10 +158,11 @@ class SeamlessZoomOrchestrator {
    * at a time).
    *
    * @param {number} level
-   * @param {*}      [payload]   — e.g. { planet, colony, star }
+   * @param {*}      [payload]   — e.g. { planet, colony, star } or
+   *                               { targetType: ApproachTargetType.FLEET, target: fleetObj }
    * @param {object} [opts]
-   * @param {THREE.Vector3|{x,y,z}} [opts.cameraFrom]  required for Level-2
-   * @param {THREE.Vector3|{x,y,z}} [opts.cameraTo]    required for Level-2
+   * @param {THREE.Vector3|{x,y,z}} [opts.cameraFrom]  required for Level-2 / Level-4
+   * @param {THREE.Vector3|{x,y,z}} [opts.cameraTo]    required for Level-2 / Level-4
    * @param {number}                [opts.flyDuration]  default 2500 ms
    * @returns {Promise<void>}
    */
@@ -168,8 +185,9 @@ class SeamlessZoomOrchestrator {
         this._emit('exitLevel', this._activeLevel);
       }
 
-      // Planet-Approach: trigger the Bezier fly-in before entering the level.
-      if (level === ZOOM_LEVEL.PLANET_APPROACH) {
+      // Planet-Approach or Object-Approach: trigger the Bezier fly-in before
+      // entering the level.
+      if (SeamlessZoomOrchestrator._requiresCameraFlight(level)) {
         const from = opts.cameraFrom || { x: 0, y: 0, z: 100 };
         const to   = opts.cameraTo   || { x: 0, y: 0, z: 15 };
         const dur  = opts.flyDuration != null ? opts.flyDuration : 2500;
@@ -253,6 +271,20 @@ class SeamlessZoomOrchestrator {
   _getFallbackCameraState() {
     return { position: { x: 0, y: 0, z: 500 }, target: { x: 0, y: 0, z: 0 }, roll: 0, t: 0 };
   }
+
+  /**
+   * Returns true for zoom levels that require a Bezier camera fly-in
+   * animation before the level renderer receives `enter()`.
+   *
+   * Centralising this check in a single helper makes it easy to add or
+   * remove levels from the fly-in list without touching the main zoomTo() body.
+   *
+   * @param {number} level
+   * @returns {boolean}
+   */
+  static _requiresCameraFlight(level) {
+    return level === ZOOM_LEVEL.PLANET_APPROACH || level === ZOOM_LEVEL.OBJECT_APPROACH;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +292,7 @@ class SeamlessZoomOrchestrator {
 // ---------------------------------------------------------------------------
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { SeamlessZoomOrchestrator, ZOOM_LEVEL };
+  module.exports = { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType };
 } else {
-  window.GQSeamlessZoomOrchestrator = { SeamlessZoomOrchestrator, ZOOM_LEVEL };
+  window.GQSeamlessZoomOrchestrator = { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType };
 }
