@@ -5294,6 +5294,11 @@
             if (star?.__kind === 'planet') {
               focusPlanetDetailsInOverlay(root, star, true, true);
               updateGalaxyHoverCard(root, star, pos, true);
+              if (zoomOrchestrator && SPATIAL_DEPTH) {
+                zoomOrchestrator.zoomToTarget(
+                  Object.assign({ spatialDepth: SPATIAL_DEPTH.STELLAR_VICINITY }, star),
+                ).catch(() => {});
+              }
               return;
             }
             if (star?.__kind === 'cluster') {
@@ -5316,6 +5321,11 @@
             updateGalaxyHoverCard(root, star, pos, true);
             renderGalaxySystemDetails(root, star, true);
             await loadStarSystemPlanets(root, star);
+            if (zoomOrchestrator && SPATIAL_DEPTH && star) {
+              zoomOrchestrator.zoomToTarget(
+                Object.assign({ spatialDepth: SPATIAL_DEPTH.STAR_SYSTEM }, star),
+              ).catch(() => {});
+            }
           },
           onSystemZoomOut: (star) => {
             if (audioManager && typeof audioManager.setScene === 'function') {
@@ -5330,12 +5340,18 @@
             renderGalaxySystemDetails(root, star, false);
             const panel = root.querySelector('#galaxy-planets-panel');
             if (panel) renderGalaxyColonySummary(panel, galaxyStars, uiState.activeRange || null);
+            if (zoomOrchestrator && ZOOM_LEVEL) {
+              zoomOrchestrator.zoomTo(ZOOM_LEVEL.GALAXY, null).catch(() => {});
+            }
           },
           onPlanetZoomOut: (star) => {
             if (audioManager && typeof audioManager.setScene === 'function') {
               audioManager.setScene('system', { autoplay: true, transition: 'normal', minHoldMs: 500 });
             }
             if (star) renderGalaxySystemDetails(root, star, true);
+            if (zoomOrchestrator && ZOOM_LEVEL) {
+              zoomOrchestrator.zoomTo(ZOOM_LEVEL.SYSTEM, star || null).catch(() => {});
+            }
           },
         });
 
@@ -5397,7 +5413,8 @@
           objectThreeJS:       (window.GQObjectApproachLevelThreeJS || {}).ObjectApproachLevelThreeJS,
           objectWebGPU:        (window.GQObjectApproachLevelWebGPU  || {}).ObjectApproachLevelWebGPU,
         };
-        const ZOOM_LEVEL = gqZoom.ZOOM_LEVEL;
+        const ZOOM_LEVEL     = gqZoom.ZOOM_LEVEL;
+        const SPATIAL_DEPTH  = gqZoom.SPATIAL_DEPTH;
         const SeamlessZoomOrchestrator = gqZoom.SeamlessZoomOrchestrator;
 
         if (
