@@ -16,6 +16,7 @@ Die fraktionierte Gamedesign-Dokumentation wurde **konsolidiert, reorganisiert u
 | **Allgemeiner Kontext** | [`GAMEDESIGN.md` ToC](GAMEDESIGN.md#inhaltsverzeichnis) | 15 min | Navigation |
 | **Projekt-Architektur** | [`ARCHITECTURE_GAMEDESIGN.md`](ARCHITECTURE_GAMEDESIGN.md) | 10 min | Struktur, Nutzung |
 | **Deep-Dive Universum** | [GAMEDESIGN.md](GAMEDESIGN.md) | 1-2h | Vollständiges Lesen |
+| **Bonus/Malus-System** | [`BONUS_MALUS_DESIGN.md`](BONUS_MALUS_DESIGN.md) | 30 min | NPC/Fraktions-Modifier |
 
 ---
 
@@ -84,12 +85,13 @@ Die fraktionierte Gamedesign-Dokumentation wurde **konsolidiert, reorganisiert u
 1. Lese GAMEDESIGN.md:
    - "Politik und Fraktionen" (Reputation-Systeme)
    - "Kampagne" (Entscheidungs-Konsequenzen)
-2. Definiere:
+2. Lese BONUS_MALUS_DESIGN.md für das Fraktions-Modifier-System
+3. Definiere:
    - Fraktions-Reputation-Systeme
    - Dialogue-Tree-Strukturen
    - Konsequenzen-Mapping
    - Item/Waffen-Stats
-3. Speichere in: docs/mechanics/[System-Name].md
+4. Speichere in: docs/mechanics/[System-Name].md
 ```
 
 ---
