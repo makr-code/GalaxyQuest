@@ -6,6 +6,11 @@ Stand: 28.03.2026
 
 ---
 
+> **Ergänzung:** Die sieben Empire-Kategorien (Wirtschaft, Militär, Forschung, Wachstum,
+> Stabilität, Diplomatie, Spionage) werden in
+> [`EMPIRE_CATEGORIES.md`](EMPIRE_CATEGORIES.md) vollständig definiert – inklusive
+> Score-Formeln, Eingabefaktoren, Spieleffekten und Spionage-Mechanik.
+
 ## 1. Ziel des Dokuments
 
 Dieses Dokument definiert ein belastbares Zielmodell fuer:
@@ -493,6 +498,17 @@ Konkrete Runtime-Folge bei aktivem `faction_unrest`:
 - `repression`: bessere fleet_readiness, staerkere Happiness-Strafe
 - `reforms`: weniger soziale Strafe, aber staerkerer Output-Verlust
 - `conciliation`: mittlere Variante
+
+---
+
+## 6.8 Spionage
+
+Spionage ist als eigenstaendige Empire-Kategorie definiert.
+Vollstaendige Mechanik, Datenmodell (neue Tabellen `espionage_networks`,
+`espionage_operations`, `espionage_detections`), Operationstypen und
+Vel'Ar-Fraktionsintegration:
+
+Siehe [`EMPIRE_CATEGORIES.md` §8](EMPIRE_CATEGORIES.md#8-spionage-espionage).
 
 ---
 

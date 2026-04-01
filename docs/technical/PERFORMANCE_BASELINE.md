@@ -213,7 +213,7 @@ Dokumentation der Baseline-Metriken und Performance-Budgets für GalaxyQuest (20
 
 ### Related Files
 
-- [ROADMAP.md](./ROADMAP.md) — Phase 5 QA gates
+- [ROADMAP.md](ROADMAP.md) — Phase 5 QA gates
 - [js/performance-budget.js](./js/performance-budget.js) — Monitor implementation
 - [js/galaxy-renderer-core.js](./js/galaxy-renderer-core.js) — Debug overlay (FPS display)
 - [js/space-camera-flight-driver.js](./js/space-camera-flight-driver.js) — Flight telemetry source

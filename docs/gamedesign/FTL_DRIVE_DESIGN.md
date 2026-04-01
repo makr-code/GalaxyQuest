@@ -3,7 +3,7 @@
 **Version:** 1.3  
 **Status:** Phase 1–5 implementiert (siehe `sql/migrate_vessel_blueprints_v10_ftl_drives.sql`, `v11_ftl_phase4.sql`, `v12_npc_ftl.sql`)  
 **Erstellt:** 2026-03-30  
-**Basis-Docs:** [GAMEDESIGN.md](GAMEDESIGN.md) · [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) · [FUTURE_ENHANCEMENTS.md](FUTURE_ENHANCEMENTS.md)
+**Basis-Docs:** [GAMEDESIGN.md](GAMEDESIGN.md) · [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) · [FUTURE_ENHANCEMENTS.md](../technical/FUTURE_ENHANCEMENTS.md)
 
 ---
 
@@ -286,7 +286,7 @@ Jede Fraktion soll in einem 100-Punkte-System auf ca. **100 Punkte** kommen:
 | Calabi-Yau Extradimensionen | String-Theorie, M-Theorie (Witten, 1995) | Zhareen |
 | Bussard Ramjet | Robert Bussard (1960), Interstellarer Wasserstoffsscoop | Aereth (Dichte-Bonus) |
 
-Detaillierte wissenschaftliche Referenzen: [SCIENTIFIC_REFERENCES.md](SCIENTIFIC_REFERENCES.md)
+Detaillierte wissenschaftliche Referenzen: [SCIENTIFIC_REFERENCES.md](../technical/SCIENTIFIC_REFERENCES.md)
 
 ---
 
