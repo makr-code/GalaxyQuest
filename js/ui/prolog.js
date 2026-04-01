@@ -1,21 +1,25 @@
 /**
- * GalaxyQuest – Narrative Registration Prologue
+ * GalaxyQuest – Narrative Registration Prologue  (two-step flow)
  *
- * Guides a newly registered player through a cinematic onboarding sequence:
+ * New player onboarding sequence:
  *   Phase 1 – Cinematic intro text (typewriter reveal)
  *   Phase 2 – Faction selection (six herald cards + confirmation)
- *   Phase 3 – Faction-specific prolog story
- *   Phase 4 – Transition text with dynamic colony name → calls onComplete()
+ *   Phase 3 – Colony generation loading → faction story reveal
+ *              (api/auth.php?action=register_prepare creates the provisional
+ *               account + homeworld; colony name comes from the database)
+ *   Phase 4 – Commander credentials form (username / e-mail / password)
+ *   Phase 5 – Transition text (colony name + commander name) → launch
+ *              (api/auth.php?action=register_complete finalises the account,
+ *               then onComplete() starts the game)
  *
- * Usage (from auth.js after successful registration):
+ * Usage (from auth.js when the "Begin" button is clicked):
  *   window.GQProlog.show({
- *     username:   'Commander',
- *     colonyName: data.colony_name,   // from API – never hardcoded
  *     onComplete: async () => { await startGameShell(); },
  *   });
  *
- * The colony name comes from the database (colonies.name), so it reflects
- * whatever name was generated for this player's homeworld.
+ * username and colonyName are NOT passed in – they are obtained from API
+ * calls made inside the prolog so the colony name always reflects the
+ * actual DB value for the generated homeworld.
  */
 (function () {
   'use strict';
@@ -157,9 +161,11 @@
 
   // ─── Module state ──────────────────────────────────────────────────────────
 
-  let _username = 'Commander';
-  let _colonyName = '';
-  let _onComplete = null;
+  let _prologToken     = '';  // set by register_prepare response
+  let _colonyName      = '';  // set by register_prepare response (from DB)
+  let _username        = '';  // set by register_complete response
+  let _email           = '';  // set by phase 4 credentials form
+  let _onComplete      = null;
   let _selectedFaction = null;
 
   // ─── Utility helpers ──────────────────────────────────────────────────────
@@ -171,10 +177,6 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#x27;');
-  }
-
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   function prologLog(msg) {
@@ -197,20 +199,66 @@
     }
   }
 
-  async function saveFactionChoice(factionId) {
+  /**
+   * Step 1: create provisional account + homeworld via the API.
+   * Sets _prologToken and _colonyName on success.
+   * Called fire-and-forget from onConfirmFaction(); phase 3 shows the loading
+   * overlay immediately, and revealFactionStory() is called when done.
+   */
+  async function registerPrepare(factionId) {
     try {
       const csrf = await fetchCsrf();
-      const r = await fetch('api/game.php?action=set_ftl_drive', {
+      const r = await fetch('api/auth.php?action=register_prepare', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-        body: JSON.stringify({ ftl_drive_type: factionId }),
+        body: JSON.stringify({ faction_id: factionId }),
       });
       const d = await r.json();
-      prologLog('faction saved: ' + factionId + ' → ' + String(d && d.message ? d.message : ''));
+      if (!d.success) throw new Error(d.error || 'Koloniengenerierung fehlgeschlagen.');
+      _prologToken = String(d.prolog_token || '');
+      _colonyName  = String(d.colony_name  || '');
+      revealFactionStory();
     } catch (err) {
-      prologLog('faction save failed (non-fatal): ' + String(err && err.message ? err.message : err));
+      showPhase3Error(String(err && err.message ? err.message : err));
     }
+  }
+
+  /**
+   * Step 2: finalise the account with the commander's real credentials.
+   * Sets _username on success and resolves with the API response data.
+   * Password is NOT part of registration – a one-time login code is sent by email.
+   */
+  async function registerComplete(username, email, remember) {
+    const csrf = await fetchCsrf();
+    const r = await fetch('api/auth.php?action=register_complete', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({ prolog_token: _prologToken, username, email, remember }),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Registrierung fehlgeschlagen.');
+    _username = String((d.user && d.user.username) ? d.user.username : username);
+    return d;
+  }
+
+  // ─── Commander name suggestion ───────────────────────────────────────────
+
+  const _NAME_POOLS = {
+    vor_tak:  ['Keth', 'Sarr', 'Dur', 'Vor', 'Ash', 'Rakh'],
+    syl_nar:  ['Lun', 'Mera', 'Vel', 'Thar', 'Sol', 'Nael'],
+    aereth:   ['Flux', 'Arc', 'Kir', 'Sol', 'Node', 'Data'],
+    kryl_tha: ['Zhaa', 'Hive', 'Swarm', 'Brood', 'Kyr'],
+    zhareen:  ['Zha', 'Kron', 'Lore', 'Vault', 'Arc'],
+    vel_ar:   ['Nira', 'Veil', 'Shadow', 'Dark', 'Null'],
+  };
+
+  /** Generate a faction-themed commander name suggestion. */
+  function suggestCommanderName() {
+    const pool = _selectedFaction ? (_NAME_POOLS[_selectedFaction.id] || ['Cmdr']) : ['Star'];
+    const prefix = pool[Math.floor(Math.random() * pool.length)];
+    return prefix + '_' + (Math.floor(1000 + Math.random() * 9000));
   }
 
   // ─── DOM building ─────────────────────────────────────────────────────────
@@ -219,10 +267,6 @@
     return document.getElementById('prolog-section');
   }
 
-  /**
-   * Inject all phase HTML into #prolog-section and wire up event listeners.
-   * Called once per show() invocation so state is always fresh.
-   */
   function buildDOM() {
     const section = getSection();
     if (!section) return;
@@ -232,15 +276,15 @@
       '<div id="prolog-p1" class="prolog-phase" role="region" aria-label="Einleitung" hidden>',
         '<div class="prolog-cinematic">',
           '<div id="prolog-lines" class="prolog-typewriter" aria-live="polite" aria-atomic="false"></div>',
-          '<button id="prolog-next1" class="prolog-next hidden" type="button">→ Beginne deine Geschichte</button>',
+          '<button id="prolog-next1" class="prolog-next hidden" type="button">\u2192 Beginne deine Geschichte</button>',
         '</div>',
-        '<button id="prolog-skip" class="prolog-skip" type="button">Überspringen</button>',
+        '<button id="prolog-skip" class="prolog-skip" type="button">\u00dcberspringen</button>',
       '</div>',
 
       // ── Phase 2: Faction selection ────────────────────────────────────────
       '<div id="prolog-p2" class="prolog-phase" role="region" aria-label="Fraktionswahl" hidden>',
         '<div class="prolog-phase2-inner">',
-          '<p class="prolog-headline">SECHS GESANDTE STEHEN VOR DEINER TÜR</p>',
+          '<p class="prolog-headline">SECHS GESANDTE STEHEN VOR DEINER T\u00dcR</p>',
           '<p class="prolog-intro-quote">',
             'Noch bevor du deinen ersten Befehl erteilen kannst, wartet jeder von ihnen auf dich.',
             ' Sie alle wissen genau, was deine Welt bedeutet.',
@@ -251,25 +295,79 @@
           '<p id="prolog-confirm-quote" class="prolog-confirm-quote"></p>',
           '<div class="prolog-confirm-btns">',
             '<button id="prolog-confirm-yes" class="btn btn-primary" type="button">Ich nehme seine Hand.</button>',
-            '<button id="prolog-confirm-back" class="btn btn-secondary" type="button">Zurück</button>',
+            '<button id="prolog-confirm-back" class="btn btn-secondary" type="button">Zur\u00fcck</button>',
           '</div>',
         '</div>',
       '</div>',
 
-      // ── Phase 3: Faction-specific prolog ─────────────────────────────────
+      // ── Phase 3: Loading overlay then faction story ───────────────────────
       '<div id="prolog-p3" class="prolog-phase" role="region" aria-label="Fraktionsprolog" hidden>',
-        '<div class="prolog-phase3-inner">',
+        '<div id="prolog-generating" class="prolog-generating">',
+          '<div class="prolog-spinner" aria-hidden="true"></div>',
+          '<p class="prolog-generating-text" aria-live="polite">Heimatwelt wird generiert\u2026</p>',
+          '<p id="prolog-generating-error" class="prolog-generating-error hidden" role="alert"></p>',
+          '<button id="prolog-generating-retry" class="btn btn-secondary btn-sm hidden" type="button">',
+            '\u2190 Zur\u00fcck zur Fraktionswahl',
+          '</button>',
+        '</div>',
+        '<div id="prolog-story-inner" class="prolog-phase3-inner hidden">',
           '<div id="prolog-story" class="prolog-story" aria-live="polite"></div>',
           '<p id="prolog-mission" class="prolog-first-mission"></p>',
-          '<button id="prolog-next3" class="prolog-next" type="button" style="margin-top:1.5rem">Weiter →</button>',
+          '<button id="prolog-next3" class="prolog-next" type="button" style="margin-top:1.5rem">Weiter \u2192</button>',
         '</div>',
       '</div>',
 
-      // ── Phase 4: Transition ───────────────────────────────────────────────
-      '<div id="prolog-p4" class="prolog-phase" role="region" aria-label="Übergang" hidden>',
-        '<div class="prolog-phase4-inner">',
+      // ── Phase 4: Commander credentials (email + optional name, no password) ─
+      '<div id="prolog-p4" class="prolog-phase" role="region" aria-label="Kommandant" hidden>',
+        '<div class="prolog-credentials-inner">',
+          '<p class="prolog-headline">KOMMANDANTENIDENTIT\u00c4T FESTLEGEN</p>',
+          '<p class="prolog-credentials-intro">',
+            'Hinterlasse deine Koordinaten.',
+            ' Ein Einmal-Zugang folgt per E-Mail.',
+          '</p>',
+          '<div class="form-group">',
+            '<label for="prolog-username">',
+              'Kommandantenname ',
+              '<span class="prolog-optional">(optional \u2013 wird automatisch generiert)</span>',
+            '</label>',
+            '<div class="prolog-name-row">',
+              '<input id="prolog-username" type="text" autocomplete="username"',
+              '       pattern="[A-Za-z0-9_]{3,32}" maxlength="32"',
+              '       placeholder="Wird automatisch generiert" />',
+              '<button id="prolog-name-regen" type="button"',
+              '        class="prolog-regen-btn" title="Neuen Namen w\u00fcrfeln"',
+              '        aria-label="Neuen Namen w\u00fcffeln">\ud83c\udfb2</button>',
+            '</div>',
+          '</div>',
+          '<div class="form-group">',
+            '<label for="prolog-email">E-Mail-Adresse</label>',
+            '<input id="prolog-email" type="email" autocomplete="email"',
+            '       placeholder="ihr@beispiel.de" />',
+          '</div>',
+          '<div class="form-group">',
+            '<label class="prolog-remember-row">',
+              '<input id="prolog-remember" type="checkbox" checked />',
+              ' Angemeldet bleiben',
+            '</label>',
+          '</div>',
+          '<button id="prolog-credentials-submit" type="button" class="prolog-next">',
+            '\u2192 Identit\u00e4t best\u00e4tigen',
+          '</button>',
+          '<div id="prolog-credentials-error" class="form-error" aria-live="polite"></div>',
+          '<div id="prolog-credentials-loading" class="prolog-credentials-loading hidden" aria-live="polite">',
+            '<div class="prolog-spinner" aria-hidden="true"></div>',
+            '<span>Registrierung l\u00e4uft\u2026</span>',
+          '</div>',
+        '</div>',
+      '</div>',
+
+      // ── Phase 5: Transition ───────────────────────────────────────────────
+      '<div id="prolog-p5" class="prolog-phase" role="region" aria-label="\u00dcbergang" hidden>',
+        '<div class="prolog-phase5-inner">',
           '<div id="prolog-transition-text" class="prolog-transition-text" aria-live="polite"></div>',
-          '<button id="prolog-launch" class="btn btn-primary prolog-launch" type="button">→ Zur Lageübersicht</button>',
+          '<button id="prolog-launch" class="btn btn-primary prolog-launch" type="button">',
+            '\u2192 Zur Lage\u00fcbersicht',
+          '</button>',
         '</div>',
       '</div>',
     ].join('');
@@ -287,12 +385,12 @@
       ' data-faction-id="' + esc(f.id) + '"',
       ' style="--card-color:' + esc(f.color) + '"',
       ' type="button"',
-      ' aria-label="Fraktion ' + esc(f.name) + ' wählen"',
+      ' aria-label="Fraktion ' + esc(f.name) + ' w\u00e4hlen"',
       '>',
         '<div class="prolog-card-icon" aria-hidden="true">' + f.emoji + '</div>',
         '<div class="prolog-card-name">' + esc(f.name) + '</div>',
         '<div class="prolog-card-subtitle">' + esc(f.subtitle) + '</div>',
-        '<div class="prolog-card-herald">' + esc(f.herald) + ' · ' + esc(f.heraldRole) + '</div>',
+        '<div class="prolog-card-herald">' + esc(f.herald) + ' \u00b7 ' + esc(f.heraldRole) + '</div>',
         '<div class="prolog-card-promise">' + esc(f.promise) + '</div>',
         '<div class="prolog-card-demand">' + esc(f.demand) + '</div>',
       '</button>',
@@ -306,18 +404,45 @@
   function wireListeners() {
     document.getElementById('prolog-skip')?.addEventListener('click', () => showPhase(2));
     document.getElementById('prolog-next1')?.addEventListener('click', () => showPhase(2));
+
     document.getElementById('prolog-confirm-yes')?.addEventListener('click', onConfirmFaction);
     document.getElementById('prolog-confirm-back')?.addEventListener('click', () => {
       document.getElementById('prolog-confirm')?.classList.remove('is-visible');
       _selectedFaction = null;
     });
+
+    document.getElementById('prolog-generating-retry')?.addEventListener('click', () => {
+      _selectedFaction = null;
+      _prologToken = '';
+      _colonyName  = '';
+      resetPhase3Loading();
+      showPhase(2);
+    });
+
     document.getElementById('prolog-next3')?.addEventListener('click', () => showPhase(4));
+
+    document.getElementById('prolog-name-regen')?.addEventListener('click', () => {
+      const nameEl = document.getElementById('prolog-username');
+      if (nameEl) nameEl.value = suggestCommanderName();
+    });
+
+    document.getElementById('prolog-credentials-submit')?.addEventListener('click', () => {
+      submitCredentials();
+    });
+
+    // Allow Enter key to submit from the email input.
+    ['prolog-username', 'prolog-email'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); submitCredentials(); }
+      });
+    });
+
     document.getElementById('prolog-launch')?.addEventListener('click', completeProlog);
   }
 
   // ─── Phase transitions ────────────────────────────────────────────────────
 
-  const PHASE_IDS = ['prolog-p1', 'prolog-p2', 'prolog-p3', 'prolog-p4'];
+  const PHASE_IDS = ['prolog-p1', 'prolog-p2', 'prolog-p3', 'prolog-p4', 'prolog-p5'];
 
   function showPhase(n) {
     PHASE_IDS.forEach((id) => {
@@ -333,14 +458,13 @@
     if (!target) return;
 
     target.hidden = false;
-    // Force reflow so the CSS animation fires even on re-entry.
-    void target.offsetWidth;
+    void target.offsetWidth; // force reflow for CSS animation
     target.classList.add('is-active');
     prologLog('phase ' + n);
 
     if (n === 1) startCinematic();
-    else if (n === 3) populateFactionProlog();
-    else if (n === 4) populateTransition();
+    if (n === 4) prefillCommanderName();
+    if (n === 5) populateTransition();
   }
 
   // ─── Phase 1 – Cinematic ──────────────────────────────────────────────────
@@ -358,7 +482,7 @@
       return span;
     });
 
-    const BASE_DELAY_MS = 400;
+    const BASE_DELAY_MS    = 400;
     const LINE_INTERVAL_MS = 950;
     lineEls.forEach((el, i) => {
       setTimeout(() => el.classList.add('is-visible'), BASE_DELAY_MS + i * LINE_INTERVAL_MS);
@@ -373,7 +497,7 @@
   // ─── Phase 2 – Faction selection ──────────────────────────────────────────
 
   function onFactionCardClick(e) {
-    const btn = e.currentTarget;
+    const btn     = e.currentTarget;
     const factionId = btn.dataset.factionId;
     const faction = FACTIONS.find((f) => f.id === factionId);
     if (!faction) return;
@@ -387,19 +511,60 @@
     document.getElementById('prolog-confirm-yes')?.focus();
   }
 
-  async function onConfirmFaction() {
+  /**
+   * Faction confirmed: show phase 3 (loading state) immediately, then fire
+   * register_prepare in the background.  The story is revealed once the API
+   * returns and the colony name is known from the database.
+   */
+  function onConfirmFaction() {
     if (!_selectedFaction) return;
-
     document.getElementById('prolog-confirm')?.classList.remove('is-visible');
-
-    // Save faction choice – fire-and-forget: the player advances to phase 3
-    // immediately while the API call completes in the background.
-    saveFactionChoice(_selectedFaction.id);
-
-    showPhase(3);
+    showPhase(3);                             // synchronous – loading overlay shown immediately
+    registerPrepare(_selectedFaction.id);    // async, fire-and-forget
   }
 
-  // ─── Phase 3 – Faction prolog ──────────────────────────────────────────────
+  // ─── Phase 3 – Loading / faction story ────────────────────────────────────
+
+  function resetPhase3Loading() {
+    const errEl    = document.getElementById('prolog-generating-error');
+    const retryBtn = document.getElementById('prolog-generating-retry');
+    const spinner  = document.querySelector('#prolog-generating .prolog-spinner');
+    const textEl   = document.querySelector('.prolog-generating-text');
+    const inner    = document.getElementById('prolog-story-inner');
+    const gen      = document.getElementById('prolog-generating');
+
+    if (errEl)    { errEl.textContent = ''; errEl.classList.add('hidden'); }
+    if (retryBtn) retryBtn.classList.add('hidden');
+    if (spinner)  spinner.classList.remove('hidden');
+    if (textEl)   textEl.textContent = 'Heimatwelt wird generiert\u2026';
+    if (inner)    inner.classList.add('hidden');
+    if (gen)      gen.classList.remove('hidden');
+  }
+
+  /** Called by registerPrepare() on success: hide loading, show story. */
+  function revealFactionStory() {
+    const generating = document.getElementById('prolog-generating');
+    const inner      = document.getElementById('prolog-story-inner');
+    if (generating) generating.classList.add('hidden');
+    if (inner) {
+      inner.classList.remove('hidden');
+      populateFactionProlog();
+    }
+  }
+
+  /** Called by registerPrepare() on error: show message + retry button. */
+  function showPhase3Error(msg) {
+    const errEl    = document.getElementById('prolog-generating-error');
+    const retryBtn = document.getElementById('prolog-generating-retry');
+    const spinner  = document.querySelector('#prolog-generating .prolog-spinner');
+    const textEl   = document.querySelector('.prolog-generating-text');
+
+    if (spinner) spinner.classList.add('hidden');
+    if (textEl)  textEl.textContent = 'Fehler bei der Generierung.';
+    if (errEl)   { errEl.textContent = msg; errEl.classList.remove('hidden'); }
+    if (retryBtn) retryBtn.classList.remove('hidden');
+    prologLog('register_prepare error: ' + msg);
+  }
 
   function populateFactionProlog() {
     if (!_selectedFaction) return;
@@ -413,26 +578,79 @@
 
     const missionEl = document.getElementById('prolog-mission');
     if (missionEl) {
-      missionEl.textContent = '⚡ Erster Auftrag: ' + _selectedFaction.mission;
+      missionEl.textContent = '\u26a1 Erster Auftrag: ' + _selectedFaction.mission;
     }
   }
 
-  // ─── Phase 4 – Transition ─────────────────────────────────────────────────
+  // ─── Phase 4 – Commander credentials ─────────────────────────────────────
+
+  async function submitCredentials() {
+    const usernameEl = document.getElementById('prolog-username');
+    const emailEl    = document.getElementById('prolog-email');
+    const passwordEl = document.getElementById('prolog-password');
+    const rememberEl = document.getElementById('prolog-remember');
+    const errEl      = document.getElementById('prolog-credentials-error');
+    const loadingEl  = document.getElementById('prolog-credentials-loading');
+    const submitBtn  = document.getElementById('prolog-credentials-submit');
+
+    if (errEl) errEl.textContent = '';
+
+    const username = String(usernameEl ? usernameEl.value : '').trim();
+    const email    = String(emailEl    ? emailEl.value    : '').trim();
+    const password = String(passwordEl ? passwordEl.value : '');
+    const remember = !!(rememberEl && rememberEl.checked);
+
+    if (!/^[A-Za-z0-9_]{3,32}$/.test(username)) {
+      if (errEl) errEl.textContent = 'Kommandantenname: 3\u201332 alphanumerische Zeichen oder Unterstriche.';
+      return;
+    }
+    if (!email.includes('@') || !email.includes('.')) {
+      if (errEl) errEl.textContent = 'Bitte gib eine g\u00fcltige E-Mail-Adresse ein.';
+      return;
+    }
+    if (password.length < 8) {
+      if (errEl) errEl.textContent = 'Passwort muss mindestens 8 Zeichen lang sein.';
+      return;
+    }
+    if (!_prologToken) {
+      if (errEl) errEl.textContent = 'Session abgelaufen. Bitte w\u00e4hle erneut deine Fraktion.';
+      return;
+    }
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (loadingEl) loadingEl.classList.remove('hidden');
+
+    try {
+      await registerComplete(username, email, password, remember);
+      showPhase(5); // transition text uses _username (set inside registerComplete)
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : err);
+      if (errEl) errEl.textContent = msg;
+      prologLog('register_complete error: ' + msg);
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+      if (loadingEl) loadingEl.classList.add('hidden');
+    }
+  }
+
+  // ─── Phase 5 – Transition ─────────────────────────────────────────────────
 
   function populateTransition() {
-    // _colonyName comes from the database (colonies.name) – never hardcoded.
-    const colony = _colonyName || 'deine Welt';
+    // _colonyName comes from the DB (register_prepare response) – never hardcoded.
+    // _username  comes from the register_complete response.
+    const colony      = _colonyName || 'deine Welt';
     const factionName = _selectedFaction ? _selectedFaction.name : 'der Gesandte';
+    const commander   = _username || 'Gouverneur';
 
     const lines = [
       factionName + ' ist gegangen.',
-      'Du stehst am Fenster des Gouverneursgebäudes und siehst '
+      'Du stehst am Fenster des Gouverneursgeb\u00e4udes und siehst '
         + colony
         + ' zum ersten Mal wirklich: die Siedlung unter dir, die Patrouillenkorvetten im niedrigen Orbit, die Berge am Horizont.',
-      'Irgendwo hinter diesem Horizont lauern Piraten. Irgendwo dort oben beobachten fünf weitere Gesandte deine Entscheidung.',
-      'Dein Terminal blinkt. Eine Nachricht: „'
-        + _username
-        + ' – die wöchentliche Lageübersicht steht bereit. Ihr erster Tag beginnt."',
+      'Irgendwo hinter diesem Horizont lauern Piraten. Irgendwo dort oben beobachten f\u00fcnf weitere Gesandte deine Entscheidung.',
+      'Dein Terminal blinkt. Eine Nachricht: \u201e'
+        + commander
+        + ' \u2013 die w\u00f6chentliche Lage\u00fcbersicht steht bereit. Ihr erster Tag beginnt.\u201c',
     ];
 
     const el = document.getElementById('prolog-transition-text');
@@ -463,42 +681,44 @@
    * Show the narrative registration prologue.
    *
    * @param {object}   opts
-   * @param {string}   opts.username    - Commander name (from registration response)
-   * @param {string}   opts.colonyName  - Colony name from colonies.name in the DB
-   * @param {Function} opts.onComplete  - Called after the player clicks "Zur Lageübersicht"
+   * @param {Function} opts.onComplete  Called after the player clicks "Zur Lageübersicht"
+   *
+   * Note: username and colonyName are no longer accepted as parameters.
+   * Both are obtained from the API calls made inside the prolog so they
+   * always reflect the actual database values.
    */
   function show(opts) {
     opts = opts || {};
-    _username = String(opts.username || 'Commander');
-    _colonyName = String(opts.colonyName || '');
-    _onComplete = typeof opts.onComplete === 'function' ? opts.onComplete : null;
+    _onComplete      = typeof opts.onComplete === 'function' ? opts.onComplete : null;
     _selectedFaction = null;
+    _prologToken     = '';
+    _colonyName      = '';
+    _username        = '';
 
     const section = getSection();
     if (!section) {
-      prologLog('prolog-section not found – calling onComplete directly');
+      prologLog('prolog-section not found \u2013 calling onComplete directly');
       if (_onComplete) _onComplete();
       return;
     }
 
-    prologLog('show username=' + _username + ' colony=' + (_colonyName || '(empty)'));
+    prologLog('show');
     buildDOM();
     section.classList.remove('hidden');
     section.setAttribute('aria-hidden', 'false');
     showPhase(1);
   }
 
-  // Expose the public API; also expose internals under _test for unit tests.
   window.GQProlog = {
     show,
-    // Internal helpers exposed for testing only – not part of the public API.
     _test: {
       FACTIONS,
       INTRO_LINES,
       esc,
-      getFactionById: (id) => FACTIONS.find((f) => f.id === id),
-      getColonyName: () => _colonyName,
-      getUsername: () => _username,
+      getFactionById:     (id) => FACTIONS.find((f) => f.id === id),
+      getColonyName:      () => _colonyName,
+      getUsername:        () => _username,
+      getPrologToken:     () => _prologToken,
       getSelectedFaction: () => _selectedFaction,
     },
   };
