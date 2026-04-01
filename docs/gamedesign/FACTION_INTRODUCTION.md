@@ -1,9 +1,9 @@
 # 🌌 Fraktionseinführung – Spielerstart & Aufstieg in der Kalytherion-Konvergenz
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Status:** Konzept & LORE – Blaupause für Spieldesign & Erzählung  
 **Zugehörig zu:** [GAMEDESIGN.md](GAMEDESIGN.md) → [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md)  
-**Entscheidungen (kanonisch):** Rasse bei Spielstart wählen · Isolationspfad vollständig spezifiziert · Legacy-NPC-Fraktionen Hard-Replace (ALTER + UPDATE)
+**Entscheidungen (kanonisch):** Rasse bei Spielstart wählen · Isolationspfad vollständig spezifiziert · Legacy-NPC-Fraktionen Hard-Replace (ALTER + UPDATE) · Spieler-Startmitgliedschaft · Gilde-Gründung möglich (Spieler-eigene Organisationen)
 
 ---
 
@@ -43,6 +43,15 @@
     - 12.7 DB-Schema & API (erweitert: advisory-Felder, galactic_events)
     - 12.8 Implementierungs-Phasen (revidiert)
     - 12.9 Multiplayer-Ripple: Spezifikation
+13. [Spieler-Fraktionszugehörigkeit & Gilden](#13-spieler-fraktionszugehörigkeit--gilden)
+    - 13.1 Konzept: Mitgliedschaft vs. Ruf (Abgrenzung zu §6/§12)
+    - 13.2 Startmitgliedschaft: Rasse → interne Fraktionsstelle
+    - 13.3 Was Mitgliedschaft bedeutet (Boni, Pflichten, interne Quests)
+    - 13.4 Fraktionswechsel via Quest & Diplomatie
+    - 13.5 Eintreten und Austreten
+    - 13.6 Eigene Gilde gründen
+    - 13.7 DB-Schema & API
+    - 13.8 Implementierungsphasen
 
 ---
 
@@ -122,7 +131,7 @@ Vor zwei Standardjahren entdeckten lokale Bergarbeiter tiefe Vorkommen eines bis
 
 ### 3.1 Rasse bei Spielstart wählen *(kanonische Entscheidung)*
 
-**Entscheidung:** Der Spieler wählt **bei der Kontoerstellung** eine der sechs Hauptrassen der Kalytherion-Konvergenz. Die Wahl ist **dauerhaft** und prägt Startwerte, FTL-Antrieb, passive Boni sowie die initiale Fraktionsneigung.
+**Entscheidung:** Der Spieler wählt **bei der Kontoerstellung** eine der sechs Hauptrassen der Kalytherion-Konvergenz. Die Wahl ist **dauerhaft** und prägt Startwerte, FTL-Antrieb, passive Boni sowie die **initiale Fraktionsmitgliedschaft**.
 
 > **Designbegründung (OD-1 aus FTL_DRIVE_DESIGN.md §8):** Rasse ≡ FTL-Antrieb für mehr Kohärenz. Wahl *nach* dem Tutorial verwässert die First-Impressions; eine frühe Entscheidung erzeugt stärkere Identifikation mit der Spielwelt.
 
@@ -131,20 +140,22 @@ Vor zwei Standardjahren entdeckten lokale Bergarbeiter tiefe Vorkommen eines bis
 Registrierung → Benutzername/Passwort → [Rasse wählen – 6 Karten mit Lore-Blurb + FTL-Vorschau] → Startkolonie-Generierung
 ```
 
-**Rassenboni und FTL-Startwerte:**
+**Rassenboni und Startmitgliedschaft:**
 
-| Rasse | Passiver Startbonus | FTL-Antrieb | Fraktionsneigung (Start) |
+| Rasse | Passiver Startbonus | FTL-Antrieb | Startmitgliedschaft |
 |---|---|---|---|
-| 🦎 **Vor'Tak** | `military_readiness` +10 | Kearny-Fuchida Sprung | Vor'Tak +10 |
-| 🐙 **Syl'Nar** | `trade_income_mult` +0.08 | Resonanz-Gate-Netz | Syl'Nar +10 |
-| 🔥 **Aereth** | `research_speed_mult` +0.08 | Alcubierre-Warp | Aereth +10 |
-| 🦗 **Kryl'Tha** | `pop_growth_mult` +0.06 | Schwarmtunnel | Kryl'Tha +10 |
-| 💎 **Zhareen** | `colony_stability_flat` +5 | Kristall-Resonanz | Zhareen +10 |
-| 🌫️ **Vel'Ar** | `spy_detection_flat` +8 | Blinder Quantensprung | Vel'Ar +10 |
+| 🦎 **Vor'Tak** | `military_readiness` +10 | Kearny-Fuchida Sprung | Vor'Tak (Rang: *Neubürger*) |
+| 🐙 **Syl'Nar** | `trade_income_mult` +0.08 | Resonanz-Gate-Netz | Syl'Nar (Rang: *Neubürger*) |
+| 🔥 **Aereth** | `research_speed_mult` +0.08 | Alcubierre-Warp | Aereth (Rang: *Neubürger*) |
+| 🦗 **Kryl'Tha** | `pop_growth_mult` +0.06 | Schwarmtunnel | Kryl'Tha (Rang: *Neubürger*) |
+| 💎 **Zhareen** | `colony_stability_flat` +5 | Kristall-Resonanz | Zhareen (Rang: *Neubürger*) |
+| 🌫️ **Vel'Ar** | `spy_detection_flat` +8 | Blinder Quantensprung | Vel'Ar (Rang: *Neubürger*) |
 
 **DB-Abbildung:** `users.race ENUM('vortak','sylnar','aereth','kryltha','zhareen','velar') NOT NULL` — Hard-Replace der bisherigen Nullwerte via Migration (siehe §11.4).
 
-**Neutraler Modus entfällt:** Es gibt keine „keine Rasse"-Option mehr. Wer den Isolationspfad spielen will, startet trotzdem mit einer Rasse – er nutzt dann nur bewusst *nicht* die Fraktionsbindung (siehe §11.3).
+**Mitgliedschaft ≠ Ruf:** Die Startmitgliedschaft setzt `user_faction_membership.status = 'member'` für die Heimatfraktion und gibt +10 Standing als Startwert. Mitgliedschaft und Ruf sind zwei *parallele* Systeme (→ §13 für vollständige Spezifikation).
+
+**Neutraler Modus entfällt:** Es gibt keine „keine Rasse"-Option mehr. Wer den Isolationspfad spielen will, startet trotzdem mit einer Rasse und Mitgliedschaft – er löst die Mitgliedschaft dann aktiv auf (→ §13.5) und nutzt bewusst *nicht* die Fraktionsbindung (→ §11.3).
 
 ---
 
@@ -152,7 +163,7 @@ Registrierung → Benutzername/Passwort → [Rasse wählen – 6 Karten mit Lore
 
 Der Spieler übernimmt die Rolle des **neu gewählten Gouverneurs von Khal'Vethis** – eines Angehörigen seiner gewählten Rasse, der entweder aus der Kolonie selbst stammt (jemand, dem die Gemeinschaft vertraut) oder kürzlich von der Konvergenz als Verwaltungspersönlichkeit entsandt wurde.
 
-**Wichtig für das Spielgefühl:** Trotz Rassenbindung repräsentiert der Spieler *nicht automatisch* eine der sechs Hauptfraktionen. Die Rasse ist der *kulturelle Hintergrund*, die Fraktion ist die *politische Entscheidung*. Die sechs Fraktionen betrachten ihn als Rohstoff: unkultiviert, formbar, bedeutsam.
+**Wichtig für das Spielgefühl:** Die Rasse ist der *kulturelle Hintergrund*, die Fraktionsmitgliedschaft ist die *politische Herkunft*, und die *politische Gegenwart* ist das, was der Spieler daraus macht. Als Mitglied der Heimatfraktion hat er interne Loyalitätspflichten – aber er kann die Mitgliedschaft kündigen, wechseln oder eine eigene Gilde aufbauen (→ §13). Das gibt dem Spieler eine echte Entscheidung: *Heimatfraktion vertiefen, wechseln, oder ganz eigenständig werden?*
 
 ### Ausgangswerte
 
@@ -162,6 +173,7 @@ Der Spieler übernimmt die Rolle des **neu gewählten Gouverneurs von Khal'Vethi
 | Wirtschaftsstufe | Subsistenz (kein Handelsüberschuss) |
 | Flottenstärke | 2 ältere Patrouillen-Corvetten, 1 Frachter |
 | Ruf bei Heimatfraktion | Stufe 1 – *„Bekannt"* (Startbonus durch Rasse) |
+| Mitgliedschaft | Heimatfraktion: Rang *Neubürger* (`member`, Rang 1/5) |
 | Ruf bei den anderen 5 Fraktionen | Stufe 0 – *„Unbekannt"* |
 | Vethisit-Produktion | Gering, aber wachstumsfähig |
 | Besonderheit | Lage im Dreifach-Korridor + Vethisit-Vorkommen |
@@ -170,8 +182,9 @@ Der Spieler übernimmt die Rolle des **neu gewählten Gouverneurs von Khal'Vethi
 
 Khal'Vethis hat *Potenzial*, aber keine *Macht*. Der Gouverneur muss entscheiden:
 
-- Ob er die Bindung zur Heimatfraktion vertieft oder überwindet
-- Welchen Fraktionen er sich nähert
+- Ob er die Mitgliedschaft in der Heimatfraktion vertieft, zu einer anderen wechselt oder austritt
+- Ob er eine eigene Gilde aufbaut (→ §13.6)
+- Welchen Fraktionen er sich nähert und welche er als Erster Berater berät (→ §12)
 - Womit er sich bezahlt macht
 - Welchen Preis er bereit ist zu zahlen
 - Wem er vertraut – und wem nicht
@@ -1418,7 +1431,360 @@ CREATE TABLE IF NOT EXISTS galactic_events (
 - **Spieler-Schutz für Rookies:** Ripple-Events treffen nie Spieler, die weniger als 48h
   im Spiel sind (`users.created_at > NOW() - INTERVAL 48 HOUR`)
 
----## Anhang A: LORE-Fragment – „Das erste Jahr der Gesandten"
+---
+
+## 13. Spieler-Fraktionszugehörigkeit & Gilden
+
+> **Designprinzip:** Der Spieler ist kein freier Agent – er kommt von irgendwoher. Die Rasse
+> gibt ihm eine Heimat, aber keine Kette. Er kann diese Heimat tief erkunden, verlassen, wechseln,
+> oder eine eigene Organisation aufbauen. Die Bewegungsfreiheit zwischen Fraktionen und die
+> Möglichkeit, eine eigene Gilde zu gründen, ist der soziale Motor des Mehrspielersystems.
+
+> **Abgrenzung zu §12 (Erster Berater):** Mitgliedschaft und Ruf sind *parallele* Systeme.
+> Ein Spieler kann gleichzeitig Mitglied von Fraktion A *und* Erster Berater von Fraktion B
+> (extern-diplomatisch) sein. Die Erster-Berater-Rolle (§12) ist die externe diplomatische
+> Spitze; die Fraktionsmitgliedschaft ist die interne organisatorische Zugehörigkeit.
+
+---
+
+### 13.1 Konzept: Mitgliedschaft vs. Ruf
+
+| Aspekt | Ruf (§6 / §12) | Mitgliedschaft (§13) |
+|---|---|---|
+| **Was es ist** | Externe diplomatische Beziehung (Skala 0–5, Tier 0–4) | Interne Organisationszugehörigkeit (Member/Kein Member/Rang) |
+| **Wo gespeichert** | `diplomacy.standing` / `influence_tier` | `user_faction_membership.faction_id` / `rank` |
+| **Wie erreicht** | Quests, Handel, Mandate, Diplomatie | Bewerbung + Aufnahmeritual; automatisch durch Rasse beim Start |
+| **Gleichzeitig mehrere?** | Ja – Ruf bei allen 6 Fraktionen parallel | Nein – maximal 1 NPC-Fraktion gleichzeitig (+ ggf. 1 eigene Gilde) |
+| **Höchste Stufe** | Tier 4 = Erster Berater (externer Berater) | Rang 5 = Leutnant der Fraktion (interne Rolle) |
+| **Verlierbar?** | Ja (Standing sinkt durch Neglect / Feindschaft) | Ja (Ausschluss bei Verrat, freiwilliger Austritt, Wechsel) |
+| **Isolationspfad** | Ruf verfällt langsam | Mitgliedschaft wird explizit aufgelöst (→ §13.5) |
+
+**Zusammenspiel:** Hoher Ruf bei der eigenen Fraktion entsperrt höhere **interne Ränge** (Aufstieg von Rang 1 auf 5). Hoher Ruf bei einer *fremden* Fraktion entsperrt die Möglichkeit, **dieser Fraktion beizutreten** (Einladung ab Standing ≥ +30) oder den Erster-Berater-Status (ab Tier 4).
+
+---
+
+### 13.2 Startmitgliedschaft: Rasse → interne Fraktionsstelle
+
+Der Spieler beginnt als **Neubürger (Rang 1)** seiner Heimatfraktion. Diese Startmitgliedschaft
+ist automatisch und bedarf keiner Quest-Aktivierung.
+
+**Mitglieds-Ränge (interne Hierarchie):**
+
+| Rang | Titel | Standing-Schwelle | Aktiv seit |
+|---|---|---|---|
+| 1 | Neubürger | Start (Rasse) | Spielstart |
+| 2 | Bekannter | Standing ≥ +20 | Quest-Kette Tier I |
+| 3 | Vertrauensperson | Standing ≥ +40 | Quest-Kette Tier II |
+| 4 | Innerer Kreis | Standing ≥ +55 | Quest-Kette Tier III + Einladung |
+| 5 | Leutnant | Standing ≥ +70 | Quest-Kette Tier IV + Fraktion bestätigt |
+
+> **Abgrenzung Leutnant vs. Erster Berater:** Rang 5 (Leutnant) ist eine *interne* Rolle –
+> der Spieler sitzt in internen Meetings, bekommt interne Quests und hat Stimme in Innenangelegenheiten.
+> Erster Berater (§12) ist eine *externe* Beraterfunktion bei einer Fraktion, der man ggf.
+> nicht angehört. Beides gleichzeitig bei der gleichen Fraktion ist unmöglich: ein Leutnant
+> wird nicht als externer Berater behandelt.
+
+**DB-Abbildung:** Neuer Eintrag in `user_faction_membership` bei Spielstart (→ §13.7).
+
+---
+
+### 13.3 Was Mitgliedschaft bedeutet
+
+**Mitglieds-Boni (kumulativ mit steigendem Rang):**
+
+| Rang | Bonus |
+|---|---|
+| 1 Neubürger | +10 Starting Standing; Zugang zu internen Handelspreisen (−5%) |
+| 2 Bekannter | Interne Missionen (höherer Lohn als externe Quests); Fraktions-Schutzpatrouillen |
+| 3 Vertrauensperson | Frühwarnung bei Fraktionsereignissen (Journal 6h vor anderen); Zugang zu Fraktionsschiffen (Leih) |
+| 4 Innerer Kreis | Interner Rat-Chat; Einsicht in Fraktionsstrategie (Verhaltenshinweis für nächste 48h) |
+| 5 Leutnant | Stimmrecht in internen Abstimmungen; Zugang zu Leutnants-Quests; einzigartiges Cosmetic-Item |
+
+**Mitglieds-Pflichten:**
+
+| Pflicht | Konsequenz bei Verstoß |
+|---|---|
+| Keine aktive Mitgliedschaft bei einer Feind-Fraktion | Automatischer Ausschluss |
+| Keine Quests gegen eigene Fraktion annehmen | Standing −20 + Verwarnung; Rang-Abstieg um 1 |
+| Mandate (§12) der eigenen Fraktion vorrangig behandeln | Neglect-Zähler steigt (§12.4); Rang-Abstieg bei neglect_count ≥ 3 |
+| Keine offene Feindschaft mit Fraktionsführung | Ausschluss-Prozess bei schweren Vertrauensbrüchen |
+
+**Interne Quests (nur für Mitglieder):**
+
+Jede Fraktion hat eine **Quest-Kette** von Rang 1 → 5, die tiefe Einblicke in die interne
+Fraktionsstruktur und LORE gibt. Diese Quests sind nicht von Externen erreichbar.
+
+| Fraktion | Rang-Ketten-Thema |
+|---|---|
+| 🦎 Vor'Tak | Militärische Bewährung: Grenzpatrouillen → Strategiemeetings → Kriegsrat |
+| 🐙 Syl'Nar | Spirituelle Initiation: Handelspilger → Lichtpriester → Innerer Zirkel des Lichtbunds |
+| 🔥 Aereth | Wissenschaftliche Überprüfung: Datenpraktikant → Projektleiter → Kernrats-Laborberater |
+| 🦗 Kryl'Tha | Schwarm-Integration: Außenposten → Brutkoordinator → Schwarmoberst |
+| 💎 Zhareen | Archivprüfung: Leser → Hüter → Archon des Gedächtnisses |
+| 🌫️ Vel'Ar | Geheimdienstliche Loyalität: Informant → Schatten-Kurier → Innerer Schatten |
+
+---
+
+### 13.4 Fraktionswechsel via Quest & Diplomatie
+
+Der Spieler kann seine Mitgliedschaft wechseln – das ist narrativ gravierend und mechanisch
+kostspielig, aber möglich.
+
+**Wechsel-Voraussetzungen:**
+
+```
+1. Aktuelles Standing bei Zielfraktion ≥ +30 (Tier 3 = VERBÜNDET)
+2. Abschluss eines Übertritts-Ereignisses (Quest oder diplomatischer Akt)
+3. Bestätigung durch die Zielfraktion (NPC-Entscheidung; bei Demokratie: Ratsvoting)
+4. Cooldown-Periode verstrichen (kein Wechsel in den letzten 30 Echtzeit-Tagen)
+```
+
+**Wechselkosten:**
+
+| Effekt | Wert |
+|---|---|
+| Standing bei alter Fraktion | −25 (sofort); weiterer Verfall über 14 Tage (−1/Tag) |
+| Mitglieds-Rang in alter Fraktion | Auf 0 gesetzt; alle Rang-Boni verloren |
+| Mitglieds-Rang in neuer Fraktion | Startet bei Rang 1 (Neubürger) — keine Mitnahme |
+| Erster-Berater-Status bei alter Fraktion | `advisor_accepted` → 0; Neuaufbau nötig |
+| Interne Quests der alten Fraktion | Alle PENDING-Quests abgebrochen (keine Strafe, aber kein Lohn) |
+
+**Überläufer-Stigma:** Fraktionen mit `government_type = autocracy` oder `theocracy` vergeben
+nie den Rang 4+ an ehemalige Mitglieder anderer Fraktionen. Demokratien und Meritokratien
+sind offener (Rang 3 erreichbar ohne Zusatzbedingung).
+
+**Spezialfall – Diplomatischer Übertritt:** Wenn der Wechsel durch eine fraktionsübergreifende
+Quest-Kette ausgelöst wird (z.B. „Doppelter Agent"), kann das Standing bei der alten Fraktion
+auf −10 begrenzt werden (Quest-Schutz). Der Spieler behält diplomatischen Zugang.
+
+---
+
+### 13.5 Eintreten und Austreten
+
+#### 13.5.1 Eintreten (Aufnahme in eine fremde Fraktion)
+
+Voraussetzungen für den Beitritt zu einer Fraktion, der man **nicht** durch Rasse angehört:
+
+```
+Standing ≥ +30 bei Zielfraktion
+→ Fraktion sendet Einladung (Journal-Event)
+→ Spieler akzeptiert → Aufnahme-Quest (fraktionsspezifisch, Rang-1-Kette)
+→ Abschluss → Mitglied (Rang 1)
+```
+
+**Offen für Beitritt ohne Einladung?** Nein: Alle 6 NPC-Fraktionen verlangen eine Einladung
+(Standing-Schwelle + Quest). Es gibt keine „Walk-in"-Mitgliedschaft.
+
+**Einschränkung:** Solange eine bestehende Mitgliedschaft aktiv ist, kann keine neue
+beigetreten werden. Der Spieler muss zuerst austreten (→ §13.5.2) oder die alte Mitgliedschaft
+endet durch Ausschluss.
+
+#### 13.5.2 Freiwilliger Austritt
+
+Der Spieler kann jederzeit aus seiner Fraktion austreten:
+
+| Effekt | Wert |
+|---|---|
+| Standing-Verlust | −10 (freundliche Trennung möglich) |
+| Mitgliedschaft | `status = 'left'`; Rang auf 0 |
+| Cooldown | 14 Tage kein erneuter Beitritt zur selben Fraktion |
+| Interne Quests | PENDING-Quests abgebrochen |
+| Erster-Berater | `advisor_accepted` bleibt — externe Beraterfunktion ist unabhängig von Mitgliedschaft |
+
+**Fraktionslos (Freischaffender):** Wer ausgetreten ist und keiner neuen Fraktion beitritt,
+verliert die Mitglieds-Boni. Erhält dafür: +5% auf alle Handelspreise (kein Fraktionsbias)
+und Zugang zu Söldner-Quests (keine Fraktionsverpflichtungen).
+
+#### 13.5.3 Ausschluss (erzwungener Austritt)
+
+Die Fraktion kann den Spieler ausschließen:
+
+| Ausschluss-Trigger | Konsequenz |
+|---|---|
+| Aktiv gegen Fraktion gehandelt (Verrat-Quest) | Standing −40 + Ausschluss; 90-Tage-Sperrfrist für Wiederbeitritt |
+| neglect_count ≥ 5 (§12.4) | Berater-Status entzogen + Rang-Abstieg auf 1; kein Ausschluss, aber Warnung |
+| Mitglied einer Feind-Fraktion geworden | Automatischer Ausschluss; −20 Standing |
+| Wiederholte Mandatsverletzungen (neglect_count ≥ 7) | Ausschluss-Verfahren: Fraktion sendet formale Kündigung via Journal-Event |
+
+---
+
+### 13.6 Eigene Gilde gründen
+
+> **Kanonische Grenze (§12 + §13):** Der Spieler kann kein Anführer einer der sechs
+> NPC-Hauptfraktionen werden. Er kann aber **eine eigene Gilde** gründen – eine kleinere,
+> spielergeführte Organisation ohne NPC-Fraktionsstatus, aber mit echter politischer Wirkung.
+
+**Was ist eine Gilde?**
+- Eine Spieler-gegründete Organisation (1 Gründer + 1–49 Mitglieder)
+- Keine NPC-Kontrollstruktur; Spieler führen sie vollständig
+- Kann mit NPC-Fraktionen diplomieren (eigene `diplomacy`-Einträge)
+- Kann Mandate von NPC-Fraktionen erhalten (kollektiv)
+- Ersetzt nicht die NPC-Fraktionen und hat keine Ratssitz-Berechtigung
+
+#### 13.6.1 Gilde gründen – Voraussetzungen
+
+```
+Spieler ist fraktionslos (kein aktives NPC-Fraktionsmitglied) ODER
+    hat Rang 3+ in einer NPC-Fraktion UND Fraktion gewährt Erlaubnis (Quest)
+Mindestressourcen: 2.000 DM + 500 Metalleinheiten
+Kein laufendes Gründungs-Cooldown (kein Gründer einer anderen Gilde in den letzten 60 Tagen)
+```
+
+**Gründer-Privileg:** Der Gründer ist der einzige Spieler in GalaxyQuest, der eine interne
+Führungsrolle trägt (`guild_rank = 'founder'`). Dies ist die Antwort auf die Frage nach der
+„höchsten erreichbaren Spielerstellung": NPC-Fraktion max = Erster Berater (§12);
+Gilde = echter Anführer. Die eigene Gilde ist der einzige Ort, wo ein Spieler
+vollständige Entscheidungsautonomie hat.
+
+#### 13.6.2 Gildentypen
+
+| Typ | `guild_type` | Spezialisierung | NPC-Fraktion: bevorzugt |
+|---|---|---|---|
+| ⚔️ **Kriegskompanie** | `military` | Flottenstärke, Söldnerverträge | Vor'Tak |
+| 🏪 **Handelskonsortium** | `trade` | Handelsrouten, Marktpreise, Marktplatz-Boni | Syl'Nar |
+| 🔬 **Forscherkollektiv** | `research` | Forschungsgeschwindigkeit, Wissensaustausch | Aereth, Zhareen |
+| 🕵️ **Schattennetz** | `intelligence` | Spionage, Information, Geheimdienstquests | Vel'Ar |
+| 🌱 **Siedlerbund** | `colonization` | Kolonieentwicklung, Pop-Wachstum | Kryl'Tha |
+| ⚖️ **Freier Rat** | `diplomatic` | Neutrale Mediation, multi-fraktionale Quests | Alle |
+
+#### 13.6.3 Gilde & NPC-Fraktionen – Interaktionen
+
+Gilden sind keine Fraktionen, aber sie können in das galaktische Machtgefüge eintreten:
+
+**Diplomatische Anerkennung:**
+```
+Gilde erreicht Mitgliederzahl ≥ 5 UND Ressourcenmacht (Schiffe ≥ 10)
+→ NPC-Fraktionen erkennen Gilde als "externer Akteur" an
+→ Gilde erhält eigene diplomacy-Einträge (Standing 0 zu jeder NPC-Fraktion)
+→ Gilde kann Mandate erhalten (gesendet an Gründer)
+```
+
+**Gilde als kollektiver Erster Berater:**
+```
+Gilde-Standing bei einer NPC-Fraktion ≥ +61 UND Gilde-Typ passt zu Fraktion
+→ Fraktion bietet der Gilde (nicht nur dem Gründer) Erster-Berater-Status
+→ Beratungs-Mandate gehen an Gründer; interne Abstimmung innerhalb der Gilde möglich
+```
+
+**Gilden-Rivalitäten:**
+Wenn zwei Gilden unterschiedliche NPC-Fraktionen als Hauptpartner haben und dieselben
+Handelssysteme kontrollieren, entsteht automatisch eine Rivalität (→ PvP-Event-Trigger).
+
+#### 13.6.4 Gilde verlassen / auflösen
+
+- **Mitglied verlässt:** 3-Tage-Cooldown; Standing innerhalb der Gilde verloren
+- **Gründer verlässt:** Gründer muss einen Nachfolger ernennen ODER Gilde auflösen
+- **Auflösung:** Gilde-Ressourcen werden 50/50 unter Gründer und Mitglieder aufgeteilt;
+  Gilde-Standing bei NPC-Fraktionen wird in individuelles Standing umgerechnet (÷ 2)
+- **Natürlicher Tod:** Gilde mit 0 aktiven Mitgliedern (>14 Tage) wird automatisch aufgelöst
+
+---
+
+### 13.7 DB-Schema & API
+
+#### Neue Tabelle: `user_faction_membership`
+
+```sql
+CREATE TABLE IF NOT EXISTS user_faction_membership (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    user_id         INT NOT NULL,
+    faction_id      INT NOT NULL          COMMENT 'NULL wenn Gilde',
+    guild_id        INT                   COMMENT 'NULL wenn NPC-Fraktion',
+    membership_type ENUM('npc_faction','guild') NOT NULL DEFAULT 'npc_faction',
+    status          ENUM('member','left','expelled','pending_invite') NOT NULL DEFAULT 'member',
+    rank            TINYINT UNSIGNED NOT NULL DEFAULT 1
+        COMMENT '1=Neubürger … 5=Leutnant; für Gilden: 1=Mitglied, 10=Gründer',
+    guild_rank      ENUM('member','officer','founder') DEFAULT NULL,
+    joined_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    left_at         DATETIME,
+    rejoin_blocked_until DATETIME         COMMENT 'Cooldown nach Austritt/Ausschluss',
+    UNIQUE KEY uq_ufm_user_npc (user_id, faction_id),
+    INDEX idx_ufm_user (user_id),
+    INDEX idx_ufm_faction (faction_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+```
+
+#### Neue Tabelle: `guilds`
+
+```sql
+CREATE TABLE IF NOT EXISTS guilds (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    name            VARCHAR(64) NOT NULL UNIQUE,
+    tag             VARCHAR(8) NOT NULL UNIQUE    COMMENT 'Kurzname [GLD]',
+    guild_type      ENUM('military','trade','research','intelligence','colonization','diplomatic')
+                    NOT NULL DEFAULT 'diplomatic',
+    founder_user_id INT NOT NULL,
+    description     TEXT,
+    member_count    SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    founded_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    dissolved_at    DATETIME,
+    is_active       TINYINT(1) NOT NULL DEFAULT 1,
+    INDEX idx_guilds_founder (founder_user_id),
+    FOREIGN KEY (founder_user_id) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB;
+```
+
+#### Erweiterung `diplomacy` für Gilden
+
+```sql
+ALTER TABLE diplomacy
+    ADD COLUMN IF NOT EXISTS guild_id INT DEFAULT NULL
+        COMMENT 'NULL = Spieler-Diplomatie; gesetzt = Gilde-Diplomatie',
+    ADD INDEX IF NOT EXISTS idx_diplomacy_guild (guild_id);
+```
+
+#### API-Endpunkte (`api/factions.php`)
+
+```
+GET  factions.php?action=my_membership
+     → { faction_id, faction_name, membership_type, status, rank, guild_rank,
+         rank_title, rank_benefits[], joined_at }
+
+POST factions.php?action=leave_faction
+     → { faction_id } → Führt Austritt aus; applied standing penalty; sets cooldown
+
+POST factions.php?action=accept_invite
+     → { faction_id } → Nimmt Einladung an; startet Aufnahme-Quest
+
+GET  factions.php?action=list_guilds
+     → Paginierte Gildenliste mit name/tag/type/member_count/standing_summary
+
+POST factions.php?action=found_guild
+     → { name, tag, guild_type, description } → Prüft Voraussetzungen; INSERT guilds;
+       INSERT user_faction_membership (guild)
+
+POST factions.php?action=join_guild
+     → { guild_id } → Beitrittsantrag; Gründer muss annehmen
+
+POST factions.php?action=leave_guild
+     → { guild_id } → Austritt; bei Gründer: Nachfolger-Prüfung
+
+GET  factions.php?action=guild_detail
+     → { guild_id } → Mitglieder, Standing, Typ, aktive Mandate
+```
+
+---
+
+### 13.8 Implementierungsphasen
+
+| Phase | Inhalt | Aufwand |
+|---|---|---|
+| **Pre** | Migration: `user_faction_membership` (NPC + Gilde) + `guilds` + `diplomacy.guild_id` | Klein |
+| **1** | Startmitgliedschaft: Bei Registrierung INSERT in `user_faction_membership` (Rang 1, NPC, Rasse) | Klein |
+| **2** | `api/factions.php`: `my_membership` + `leave_faction` + `accept_invite` | Mittel |
+| **3** | Rang-Aufstiegs-Logik: Standing-Check → Rang-Update in `npc_ai`-Tick oder Quest-Trigger | Mittel |
+| **4** | Fraktionswechsel-Quest-Kette (1 pro Fraktion; Überläufer-Mechanik) | Groß |
+| **5** | Gilde-Gründung: `found_guild` + `join_guild` + `leave_guild` API | Mittel |
+| **6** | Gilde-Diplomatie: `diplomacy`-Einträge für Gilden; NPC-Anerkennung ab 5 Mitglieder | Mittel |
+| **7** | `js/game.js`: Mitgliedschafts-Panel (Rang, Boni, Austritts-Button, Einladungs-Overlay) | Groß |
+| **8** | `js/game.js`: Gilden-Panel (Gründen, Beitreten, Mitglieder, Gilde-Standing) | Groß |
+| **9** | `config/config.php`: Balancing-Konstanten (Wechsel-Cooldown, Austritts-Standing, etc.) | Klein |
+
+---
+
+## Anhang A: LORE-Fragment – „Das erste Jahr der Gesandten"
 
 *Aus dem nicht-klassifizierten Teil der Zhareen-Archive, Eintrag 7.441.330:*
 
