@@ -1,0 +1,2 @@
+# This file keeps the cache/tts/ directory tracked by git.
+# Audio files generated at runtime are excluded via .gitignore.
