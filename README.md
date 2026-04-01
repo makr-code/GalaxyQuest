@@ -631,7 +631,7 @@ The config file also supports environment-variable overrides. That means the Doc
 
 ```
 /
-├── index.html                  # Unified auth + game shell (section based)
+├── index.html                  # Unified auth + game shell (single-page app, section-based routing)
 ├── css/
 │   └── style.css               # Dark space-themed UI
 ├── js/
@@ -654,7 +654,10 @@ The config file also supports environment-variable overrides. That means the Doc
 │   │   │   ├── FleetFormation.js       # Fleet formation patterns
 │   │   │   └── ResearchTree.js         # Tech tree
 │   │   ├── fx/                 # Visual effects
-│   │   │   ├── CombatFX.js / GPUParticleSystem.js / BeamEffect.js / VoxelDebris.js
+│   │   │   ├── CombatFX.js             # Weapon/explosion/shield-impact presets
+│   │   │   ├── GPUParticleSystem.js    # GPU compute particles + CPU fallback
+│   │   │   ├── BeamEffect.js           # Instanced capsule beam rendering
+│   │   │   ├── VoxelDebris.js          # Box-chunk debris pool (ship destruction)
 │   │   │   ├── EnvironmentFX.js        # Nebulae, god rays, plasma clouds
 │   │   │   └── shaders/        # WGSL shader source files
 │   │   ├── post-effects/       # Post-processing pipeline
@@ -696,7 +699,7 @@ The config file also supports environment-variable overrides. That means the Doc
 │   ├── llm.php                 # LLM SoC prompt catalog
 │   ├── npc_ai.php              # NPC faction tick (trade gen, raids, decay)
 │   ├── npc_controller.php      # NPC/PvE diagnostics + control API
-│   └── …                       # buildings, research, shipyard, factions, leaders …
+│   └── (+ buildings, research, shipyard, factions, leaders, achievements, messages, …)
 ├── lib/
 │   └── projection_runtime.php  # Projection queue + worker helpers
 ├── config/
