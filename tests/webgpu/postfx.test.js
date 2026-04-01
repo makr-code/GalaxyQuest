@@ -189,3 +189,90 @@ describe('GameEngine.configurePostFx', () => {
     engine.dispose();
   });
 });
+
+// ===========================================================================
+// FPS performance gate (Phase 3)
+// ===========================================================================
+
+describe('GameEngine FPS performance gate', () => {
+  function makeCanvas(w = 800, h = 600) {
+    return { width: w, height: h, parentElement: null };
+  }
+
+  function makeMockRenderer() {
+    return {
+      getCapabilities: () => ({ webgpu: false, webgl2: true, computeShaders: false, maxTextureSize: 4096 }),
+      initialize:    vi.fn(async () => {}),
+      createTexture: vi.fn(() => ({})),
+      render:        vi.fn(),
+      resize:        vi.fn(),
+      dispose:       vi.fn(),
+    };
+  }
+
+  it('calls postFx.render() when FPS is above 45 threshold', async () => {
+    const renderer = makeMockRenderer();
+    const engine   = await GameEngine.createWithRenderer(renderer, makeCanvas());
+
+    // Stub the postFx.render
+    const postFxRender = vi.fn();
+    engine.postFx.render = postFxRender;
+    // Simulate high FPS
+    engine.perf.fps = 60;
+
+    engine._onRender(0);
+    expect(postFxRender).toHaveBeenCalledOnce();
+    engine.dispose();
+  });
+
+  it('falls back to renderer.render() when FPS is below 45', async () => {
+    const renderer = makeMockRenderer();
+    const engine   = await GameEngine.createWithRenderer(renderer, makeCanvas());
+
+    const postFxRender  = vi.fn();
+    engine.postFx.render = postFxRender;
+    // Simulate low FPS
+    engine.perf.fps = 20;
+
+    engine._onRender(0);
+    expect(postFxRender).not.toHaveBeenCalled();
+    expect(renderer.render).toHaveBeenCalledOnce();
+    engine.dispose();
+  });
+
+  it('calls postFx.render() when FPS is exactly 45', async () => {
+    const renderer = makeMockRenderer();
+    const engine   = await GameEngine.createWithRenderer(renderer, makeCanvas());
+
+    const postFxRender = vi.fn();
+    engine.postFx.render = postFxRender;
+    engine.perf.fps = 45;
+
+    engine._onRender(0);
+    expect(postFxRender).toHaveBeenCalledOnce();
+    engine.dispose();
+  });
+
+  it('calls postFx.render() when FPS is 0 (not yet measured)', async () => {
+    const renderer = makeMockRenderer();
+    const engine   = await GameEngine.createWithRenderer(renderer, makeCanvas());
+
+    const postFxRender = vi.fn();
+    engine.postFx.render = postFxRender;
+    engine.perf.fps = 0;
+
+    engine._onRender(0);
+    expect(postFxRender).toHaveBeenCalledOnce();
+    engine.dispose();
+  });
+
+  it('calls renderer.render() directly when postFx is null', async () => {
+    const renderer = makeMockRenderer();
+    const engine   = await GameEngine.createWithRenderer(renderer, makeCanvas(), { postFx: false });
+    engine.perf.fps = 30;
+
+    engine._onRender(0);
+    expect(renderer.render).toHaveBeenCalledOnce();
+    engine.dispose();
+  });
+});

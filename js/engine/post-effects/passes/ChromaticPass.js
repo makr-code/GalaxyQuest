@@ -75,11 +75,12 @@ class ChromaticPass {
    */
   render(srcTex, dstTex, renderer) {
     if (!this.enabled) return;
-    // Renderer dispatch (wired up when WebGPU device is available):
-    //   renderer.runChromaticPass(this, srcTex, dstTex)
+    // Dispatch to the renderer's fullscreen chromatic aberration pass.
     // The renderer binds buildParamBlock() into @group(0) @binding(2)
     // and dispatches a fullscreen quad using chromatic.wgsl.
-    void srcTex; void dstTex; void renderer;
+    if (typeof renderer?.runChromaticPass === 'function') {
+      renderer.runChromaticPass(this, srcTex, dstTex);
+    }
   }
 
   dispose() {

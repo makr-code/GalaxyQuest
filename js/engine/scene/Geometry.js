@@ -48,6 +48,35 @@ class Geometry {
     return g;
   }
 
+  /**
+   * Upload all available vertex / index arrays to the GPU.
+   *
+   * Creates WebGPUBuffer instances for each attribute that is present and
+   * stores the underlying `GPUBuffer` handles in `this._gpuBuffers`.
+   * Existing GPU buffers are replaced (the caller is responsible for
+   * destroying old buffers via a ResourceTracker when needed).
+   *
+   * @param {GPUDevice} device
+   * @param {{ WebGPUBuffer: typeof import('../webgpu/WebGPUBuffer').WebGPUBuffer,
+   *           BufferType:   typeof import('../webgpu/WebGPUBuffer').BufferType }} deps
+   * @returns {this}
+   */
+  uploadToGPU(device, { WebGPUBuffer, BufferType }) {
+    if (this.positions) {
+      this._gpuBuffers.positions = new WebGPUBuffer(device, BufferType.VERTEX, this.positions).gpuBuffer;
+    }
+    if (this.normals) {
+      this._gpuBuffers.normals = new WebGPUBuffer(device, BufferType.VERTEX, this.normals).gpuBuffer;
+    }
+    if (this.uvs) {
+      this._gpuBuffers.uvs = new WebGPUBuffer(device, BufferType.VERTEX, this.uvs).gpuBuffer;
+    }
+    if (this.indices) {
+      this._gpuBuffers.indices = new WebGPUBuffer(device, BufferType.INDEX, this.indices).gpuBuffer;
+    }
+    return this;
+  }
+
   dispose() {
     // GPU buffers are destroyed by ResourceTracker or renderer
     this._gpuBuffers = {};
