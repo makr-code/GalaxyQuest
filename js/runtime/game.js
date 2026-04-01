@@ -99,6 +99,7 @@
   let galaxy3d = null;
   let galaxy3dQualityState = null;
   let galaxy3dInitReason = '';
+  let zoomOrchestrator = null;
   let systemBreadcrumbIntegration = null;
   const messageConsoleState = {
     maxLines: 140,
@@ -5293,6 +5294,11 @@
             if (star?.__kind === 'planet') {
               focusPlanetDetailsInOverlay(root, star, true, true);
               updateGalaxyHoverCard(root, star, pos, true);
+              if (zoomOrchestrator && SPATIAL_DEPTH) {
+                zoomOrchestrator.zoomToTarget(
+                  Object.assign({ spatialDepth: SPATIAL_DEPTH.STELLAR_VICINITY }, star),
+                ).catch(() => {});
+              }
               return;
             }
             if (star?.__kind === 'cluster') {
@@ -5315,6 +5321,11 @@
             updateGalaxyHoverCard(root, star, pos, true);
             renderGalaxySystemDetails(root, star, true);
             await loadStarSystemPlanets(root, star);
+            if (zoomOrchestrator && SPATIAL_DEPTH && star) {
+              zoomOrchestrator.zoomToTarget(
+                Object.assign({ spatialDepth: SPATIAL_DEPTH.STAR_SYSTEM }, star),
+              ).catch(() => {});
+            }
           },
           onSystemZoomOut: (star) => {
             if (audioManager && typeof audioManager.setScene === 'function') {
@@ -5329,12 +5340,18 @@
             renderGalaxySystemDetails(root, star, false);
             const panel = root.querySelector('#galaxy-planets-panel');
             if (panel) renderGalaxyColonySummary(panel, galaxyStars, uiState.activeRange || null);
+            if (zoomOrchestrator && ZOOM_LEVEL) {
+              zoomOrchestrator.zoomTo(ZOOM_LEVEL.GALAXY, null).catch(() => {});
+            }
           },
           onPlanetZoomOut: (star) => {
             if (audioManager && typeof audioManager.setScene === 'function') {
               audioManager.setScene('system', { autoplay: true, transition: 'normal', minHoldMs: 500 });
             }
             if (star) renderGalaxySystemDetails(root, star, true);
+            if (zoomOrchestrator && ZOOM_LEVEL) {
+              zoomOrchestrator.zoomTo(ZOOM_LEVEL.SYSTEM, star || null).catch(() => {});
+            }
           },
         });
 
@@ -5377,6 +5394,75 @@
         refreshGalaxyDensityMetrics(root);
         updateGalaxyFollowUi(root);
         updateClusterBoundsUi(root);
+
+        // ── SeamlessZoomOrchestrator bootstrap ──────────────────────────────
+        // Wire the orchestrator alongside the legacy galaxy3d renderer so the
+        // zoom engine is available for future seamless transitions.  The
+        // orchestrator is intentionally initialised asynchronously so it never
+        // blocks the synchronous init3D() path.
+        const gqZoom   = window.GQSeamlessZoomOrchestrator || {};
+        const gqLevels = {
+          galaxyThreeJS:       (window.GQGalaxyLevelThreeJS       || {}).GalaxyLevelThreeJS,
+          galaxyWebGPU:        (window.GQGalaxyLevelWebGPU        || {}).GalaxyLevelWebGPU,
+          systemThreeJS:       (window.GQSystemLevelThreeJS        || {}).SystemLevelThreeJS,
+          systemWebGPU:        (window.GQSystemLevelWebGPU         || {}).SystemLevelWebGPU,
+          planetThreeJS:       (window.GQPlanetApproachLevelThreeJS || {}).PlanetApproachLevelThreeJS,
+          planetWebGPU:        (window.GQPlanetApproachLevelWebGPU  || {}).PlanetApproachLevelWebGPU,
+          colonyThreeJS:       (window.GQColonySurfaceLevelThreeJS  || {}).ColonySurfaceLevelThreeJS,
+          colonyWebGPU:        (window.GQColonySurfaceLevelWebGPU   || {}).ColonySurfaceLevelWebGPU,
+          objectThreeJS:       (window.GQObjectApproachLevelThreeJS || {}).ObjectApproachLevelThreeJS,
+          objectWebGPU:        (window.GQObjectApproachLevelWebGPU  || {}).ObjectApproachLevelWebGPU,
+        };
+        const ZOOM_LEVEL     = gqZoom.ZOOM_LEVEL;
+        const SPATIAL_DEPTH  = gqZoom.SPATIAL_DEPTH;
+        const SeamlessZoomOrchestrator = gqZoom.SeamlessZoomOrchestrator;
+
+        if (
+          SeamlessZoomOrchestrator && ZOOM_LEVEL &&
+          sharedCanvas instanceof HTMLCanvasElement &&
+          gqLevels.galaxyThreeJS && gqLevels.galaxyWebGPU
+        ) {
+          if (zoomOrchestrator) {
+            try { zoomOrchestrator.dispose(); } catch (disposeErr) {
+              console.warn('[GQ] SeamlessZoomOrchestrator dispose error (non-fatal):', disposeErr?.message || disposeErr);
+            }
+          }
+          zoomOrchestrator = new SeamlessZoomOrchestrator(sharedCanvas, {
+            rendererHint: settingsState.renderQualityProfile === 'webgpu' ? 'webgpu' : 'auto',
+          });
+          zoomOrchestrator.register(ZOOM_LEVEL.GALAXY, {
+            webgpu:  gqLevels.galaxyWebGPU,
+            threejs: gqLevels.galaxyThreeJS,
+          });
+          if (gqLevels.systemThreeJS && gqLevels.systemWebGPU) {
+            zoomOrchestrator.register(ZOOM_LEVEL.SYSTEM, {
+              webgpu:  gqLevels.systemWebGPU,
+              threejs: gqLevels.systemThreeJS,
+            });
+          }
+          if (gqLevels.planetThreeJS && gqLevels.planetWebGPU) {
+            zoomOrchestrator.register(ZOOM_LEVEL.PLANET_APPROACH, {
+              webgpu:  gqLevels.planetWebGPU,
+              threejs: gqLevels.planetThreeJS,
+            });
+          }
+          if (gqLevels.colonyThreeJS && gqLevels.colonyWebGPU) {
+            zoomOrchestrator.register(ZOOM_LEVEL.COLONY_SURFACE, {
+              webgpu:  gqLevels.colonyWebGPU,
+              threejs: gqLevels.colonyThreeJS,
+            });
+          }
+          if (gqLevels.objectThreeJS && gqLevels.objectWebGPU) {
+            zoomOrchestrator.register(ZOOM_LEVEL.OBJECT_APPROACH, {
+              webgpu:  gqLevels.objectWebGPU,
+              threejs: gqLevels.objectThreeJS,
+            });
+          }
+          zoomOrchestrator.initialize().catch((err) => {
+            console.warn('[GQ] SeamlessZoomOrchestrator init failed:', err?.message || err, err?.stack || '');
+            zoomOrchestrator = null;
+          });
+        }
       } catch (err) {
         galaxy3d = null;
         console.error('Galaxy3D init failed:', err);
