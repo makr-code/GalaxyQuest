@@ -164,7 +164,6 @@
   let _prologToken     = '';  // set by register_prepare response
   let _colonyName      = '';  // set by register_prepare response (from DB)
   let _username        = '';  // set by register_complete response
-  let _email           = '';  // set by phase 4 credentials form
   let _onComplete      = null;
   let _selectedFaction = null;
 
@@ -225,9 +224,9 @@
   }
 
   /**
-   * Step 2: finalise the account with the commander's real credentials.
+   * Step 2: finalise the account with the commander's chosen credentials.
    * Sets _username on success and resolves with the API response data.
-   * Password is NOT part of registration – a one-time login code is sent by email.
+   * Registration is passwordless – a one-time login link is sent by e-mail.
    */
   async function registerComplete(username, email, remember) {
     const csrf = await fetchCsrf();
@@ -419,7 +418,11 @@
       showPhase(2);
     });
 
-    document.getElementById('prolog-next3')?.addEventListener('click', () => showPhase(4));
+    document.getElementById('prolog-next3')?.addEventListener('click', () => {
+      // Skip the credentials form when the colony was pre-seeded via show()
+      // (i.e. there is no API-issued prolog token – test/bypass mode).
+      showPhase(_prologToken ? 4 : 5);
+    });
 
     document.getElementById('prolog-name-regen')?.addEventListener('click', () => {
       const nameEl = document.getElementById('prolog-username');
@@ -584,10 +587,17 @@
 
   // ─── Phase 4 – Commander credentials ─────────────────────────────────────
 
+  /** Pre-fill the commander-name input with a faction-themed suggestion. */
+  function prefillCommanderName() {
+    const nameEl = document.getElementById('prolog-username');
+    if (nameEl && !nameEl.value) {
+      nameEl.value = suggestCommanderName();
+    }
+  }
+
   async function submitCredentials() {
     const usernameEl = document.getElementById('prolog-username');
     const emailEl    = document.getElementById('prolog-email');
-    const passwordEl = document.getElementById('prolog-password');
     const rememberEl = document.getElementById('prolog-remember');
     const errEl      = document.getElementById('prolog-credentials-error');
     const loadingEl  = document.getElementById('prolog-credentials-loading');
@@ -597,7 +607,6 @@
 
     const username = String(usernameEl ? usernameEl.value : '').trim();
     const email    = String(emailEl    ? emailEl.value    : '').trim();
-    const password = String(passwordEl ? passwordEl.value : '');
     const remember = !!(rememberEl && rememberEl.checked);
 
     if (!/^[A-Za-z0-9_]{3,32}$/.test(username)) {
@@ -606,10 +615,6 @@
     }
     if (!email.includes('@') || !email.includes('.')) {
       if (errEl) errEl.textContent = 'Bitte gib eine g\u00fcltige E-Mail-Adresse ein.';
-      return;
-    }
-    if (password.length < 8) {
-      if (errEl) errEl.textContent = 'Passwort muss mindestens 8 Zeichen lang sein.';
       return;
     }
     if (!_prologToken) {
@@ -621,7 +626,7 @@
     if (loadingEl) loadingEl.classList.remove('hidden');
 
     try {
-      await registerComplete(username, email, password, remember);
+      await registerComplete(username, email, remember);
       showPhase(5); // transition text uses _username (set inside registerComplete)
     } catch (err) {
       const msg = String(err && err.message ? err.message : err);
