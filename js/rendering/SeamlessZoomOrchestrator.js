@@ -82,6 +82,56 @@ const ApproachTargetType = Object.freeze({
   SOLAR_INSTALLATION_STARGATE: 'SOLAR_INSTALLATION_STARGATE',
 });
 
+/**
+ * Spatial-hierarchy depth constants.
+ *
+ * Every node in the game's spatial scene-graph has a depth that equals the
+ * ZOOM_LEVEL used to render a close approach to it.  The zoom level is
+ * therefore fully determined by *where* an object sits in the parent → child
+ * tree — the object *type* is irrelevant for level selection.
+ *
+ * Scene-graph structure
+ * ─────────────────────
+ *   Galaxy [0]
+ *     └── GalaxyRegion [1]          star-systems visible as dots
+ *           ├── Fleet (in transit)  [2]   fleet travelling between systems;
+ *           │                             depth equals StarSystem depth because
+ *           │                             both share the same visual scale
+ *           └── StarSystem          [2]   the solar system as a scene node
+ *                 ├── Fleet         [3]   fleet operating inside a system
+ *                 ├── Stargate      [3]   stationary at the system rim
+ *                 └── Planet / Moon [3]
+ *                       ├── Fleet   [4]   fleet in planet orbit
+ *                       └── Shipyard[4]   installation orbiting a body
+ *
+ * Note: a fleet in transit between systems shares STAR_SYSTEM depth (2) because
+ * the renderer for that level covers both "deep-system approach" and
+ * "interstellar close-up" — the zoom distance is the same regardless of whether
+ * the fleet is just leaving a system or halfway to the next one.
+ *
+ * Usage
+ * ─────
+ *   // game objects carry their depth:
+ *   fleet.spatialDepth = SPATIAL_DEPTH.STELLAR_VICINITY;
+ *
+ *   // orchestrator selects the right zoom level automatically:
+ *   orchestrator.zoomToTarget(fleet, { cameraFrom, cameraTo });
+ *
+ * @enum {number}
+ */
+const SPATIAL_DEPTH = Object.freeze({
+  /** Root galaxy map — star-systems rendered as distant dots. */
+  GALAXY:            0,
+  /** Galaxy-region / interstellar space — a cluster of systems is visible. */
+  GALAXY_REGION:     1,
+  /** Star-system interior or fleet in transit between systems. */
+  STAR_SYSTEM:       2,
+  /** Near a star, planet, moon, or system-rim installation (e.g. Stargate). */
+  STELLAR_VICINITY:  3,
+  /** In orbit around a body or docked to an installation (e.g. Shipyard). */
+  ORBITAL_SHELL:     4,
+});
+
 // ---------------------------------------------------------------------------
 // SeamlessZoomOrchestrator
 // ---------------------------------------------------------------------------
@@ -210,6 +260,32 @@ class SeamlessZoomOrchestrator {
   }
 
   /**
+   * High-level API: transition to the zoom level that matches the target
+   * object's position in the spatial hierarchy.
+   *
+   * The zoom level is read directly from `target.spatialDepth` — a number 0–4
+   * that equals the node's depth in the Galaxy → … → OrbitalShell tree (see
+   * `SPATIAL_DEPTH`).  The object *type* has no bearing on level selection;
+   * only the parent-child position matters.
+   *
+   * @param {{ spatialDepth: number, [key: string]: * }} target
+   *   Any game object that carries a `spatialDepth` property (integer 0–4).
+   * @param {object} [opts]  Forwarded verbatim to `zoomTo()`.
+   * @returns {Promise<void>}
+   * @throws {TypeError} when `target` is null/undefined, lacks `spatialDepth`,
+   *   or `spatialDepth` is not a number in the range [0, 4].
+   */
+  zoomToTarget(target, opts = {}) {
+    if (target == null || typeof target.spatialDepth !== 'number' ||
+        target.spatialDepth < 0 || target.spatialDepth > 4) {
+      throw new TypeError(
+        'zoomToTarget: target must be a non-null object with a spatialDepth property (number 0–4)',
+      );
+    }
+    return this.zoomTo(target.spatialDepth, target, opts);
+  }
+
+  /**
    * Main render loop — call this every animation frame.
    *
    * @param {number} dt — delta time in seconds (or ms — CameraFlightPath
@@ -292,7 +368,7 @@ class SeamlessZoomOrchestrator {
 // ---------------------------------------------------------------------------
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType };
+  module.exports = { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType, SPATIAL_DEPTH };
 } else {
-  window.GQSeamlessZoomOrchestrator = { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType };
+  window.GQSeamlessZoomOrchestrator = { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType, SPATIAL_DEPTH };
 }

@@ -34,7 +34,7 @@ const require = createRequire(import.meta.url);
 const root    = path.resolve(fileURLToPath(import.meta.url), '../../..');
 
 const { RendererRegistry }         = require(path.join(root, 'js/rendering/RendererRegistry.js'));
-const { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType } =
+const { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType, SPATIAL_DEPTH } =
   require(path.join(root, 'js/rendering/SeamlessZoomOrchestrator.js'));
 const { CameraFlightPath }         = require(path.join(root, 'js/rendering/CameraFlightPath.js'));
 const { ObjectApproachLevelThreeJS } =
@@ -606,5 +606,158 @@ describe('SeamlessZoomOrchestrator._requiresCameraFlight()', () => {
 
   it('returns false for COLONY_SURFACE', () => {
     expect(SeamlessZoomOrchestrator._requiresCameraFlight(ZOOM_LEVEL.COLONY_SURFACE)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SPATIAL_DEPTH — enum completeness and values
+// ---------------------------------------------------------------------------
+
+describe('SPATIAL_DEPTH — enum completeness', () => {
+  it('exports all 5 depth constants', () => {
+    expect(SPATIAL_DEPTH).toBeDefined();
+    expect(SPATIAL_DEPTH.GALAXY).toBe(0);
+    expect(SPATIAL_DEPTH.GALAXY_REGION).toBe(1);
+    expect(SPATIAL_DEPTH.STAR_SYSTEM).toBe(2);
+    expect(SPATIAL_DEPTH.STELLAR_VICINITY).toBe(3);
+    expect(SPATIAL_DEPTH.ORBITAL_SHELL).toBe(4);
+  });
+
+  it('is frozen (immutable)', () => {
+    expect(Object.isFrozen(SPATIAL_DEPTH)).toBe(true);
+  });
+
+  it('depth values equal the corresponding ZOOM_LEVEL values', () => {
+    expect(SPATIAL_DEPTH.GALAXY).toBe(ZOOM_LEVEL.GALAXY);
+    expect(SPATIAL_DEPTH.GALAXY_REGION).toBe(ZOOM_LEVEL.SYSTEM);
+    expect(SPATIAL_DEPTH.STAR_SYSTEM).toBe(ZOOM_LEVEL.PLANET_APPROACH);
+    expect(SPATIAL_DEPTH.STELLAR_VICINITY).toBe(ZOOM_LEVEL.COLONY_SURFACE);
+    expect(SPATIAL_DEPTH.ORBITAL_SHELL).toBe(ZOOM_LEVEL.OBJECT_APPROACH);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// zoomToTarget() — hierarchy-depth routing
+// ---------------------------------------------------------------------------
+
+describe('zoomToTarget() — depth-based routing', () => {
+  let orch;
+  let mockBackend;
+
+  beforeEach(() => {
+    mockBackend = makeMockBackend('webgl2');
+    orch = new SeamlessZoomOrchestrator(null, { _backend: mockBackend });
+
+    // Register a level class for every depth (0–4).
+    for (let depth = 0; depth <= 4; depth++) {
+      const lvl = makeMockLevel();
+      const Cls = makeLevelClass(lvl);
+      orch.register(depth, { webgpu: Cls, threejs: Cls });
+    }
+  });
+
+  it('routes to ZOOM_LEVEL.GALAXY (0) for a target with spatialDepth=0', async () => {
+    const zoomSpy = vi.spyOn(orch, 'zoomTo');
+    await orch.zoomToTarget({ spatialDepth: SPATIAL_DEPTH.GALAXY });
+    expect(zoomSpy).toHaveBeenCalledWith(SPATIAL_DEPTH.GALAXY, expect.objectContaining({ spatialDepth: 0 }), {});
+  });
+
+  it('routes fleet-in-transit (STAR_SYSTEM depth=2) correctly', async () => {
+    const fleet = { spatialDepth: SPATIAL_DEPTH.STAR_SYSTEM, type: 'Fleet', id: 1 };
+    const zoomSpy = vi.spyOn(orch, 'zoomTo');
+    vi.spyOn(orch._flight, 'flyTo').mockResolvedValue(undefined);
+    await orch.zoomToTarget(fleet);
+    expect(zoomSpy).toHaveBeenCalledWith(ZOOM_LEVEL.PLANET_APPROACH, fleet, {});
+  });
+
+  it('routes Stargate (STELLAR_VICINITY depth=3) correctly', async () => {
+    const stargate = { spatialDepth: SPATIAL_DEPTH.STELLAR_VICINITY, type: 'Stargate', id: 2 };
+    const zoomSpy = vi.spyOn(orch, 'zoomTo');
+    await orch.zoomToTarget(stargate);
+    expect(zoomSpy).toHaveBeenCalledWith(ZOOM_LEVEL.COLONY_SURFACE, stargate, {});
+  });
+
+  it('routes fleet-in-orbit (STELLAR_VICINITY depth=3) correctly', async () => {
+    const fleet = { spatialDepth: SPATIAL_DEPTH.STELLAR_VICINITY, type: 'Fleet', id: 3 };
+    const zoomSpy = vi.spyOn(orch, 'zoomTo');
+    await orch.zoomToTarget(fleet);
+    expect(zoomSpy).toHaveBeenCalledWith(ZOOM_LEVEL.COLONY_SURFACE, fleet, {});
+  });
+
+  it('routes Shipyard (ORBITAL_SHELL depth=4) correctly', async () => {
+    const shipyard = { spatialDepth: SPATIAL_DEPTH.ORBITAL_SHELL, type: 'Shipyard', id: 4 };
+    const zoomSpy = vi.spyOn(orch, 'zoomTo');
+    vi.spyOn(orch._flight, 'flyTo').mockResolvedValue(undefined);
+    await orch.zoomToTarget(shipyard);
+    expect(zoomSpy).toHaveBeenCalledWith(ZOOM_LEVEL.OBJECT_APPROACH, shipyard, {});
+  });
+
+  it('forwards opts to zoomTo()', async () => {
+    const target = { spatialDepth: SPATIAL_DEPTH.ORBITAL_SHELL };
+    const opts = { cameraFrom: { x: 0, y: 0, z: 200 }, flyDuration: 1000 };
+    const zoomSpy = vi.spyOn(orch, 'zoomTo');
+    vi.spyOn(orch._flight, 'flyTo').mockResolvedValue(undefined);
+    await orch.zoomToTarget(target, opts);
+    expect(zoomSpy).toHaveBeenCalledWith(SPATIAL_DEPTH.ORBITAL_SHELL, target, opts);
+  });
+
+  it('object type is irrelevant — same spatialDepth always maps to same zoom level', async () => {
+    // A Fleet and a Stargate at the same STELLAR_VICINITY depth must both land at ZOOM_LEVEL 3.
+    const fleet   = { spatialDepth: SPATIAL_DEPTH.STELLAR_VICINITY, type: 'Fleet' };
+    const stargate = { spatialDepth: SPATIAL_DEPTH.STELLAR_VICINITY, type: 'Stargate' };
+
+    const zoomSpy = vi.spyOn(orch, 'zoomTo');
+    await orch.zoomToTarget(fleet);
+    await orch.zoomToTarget(stargate);
+
+    expect(zoomSpy.mock.calls[0][0]).toBe(ZOOM_LEVEL.COLONY_SURFACE);
+    expect(zoomSpy.mock.calls[1][0]).toBe(ZOOM_LEVEL.COLONY_SURFACE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// zoomToTarget() — error handling
+// ---------------------------------------------------------------------------
+
+describe('zoomToTarget() — error handling', () => {
+  let orch;
+
+  beforeEach(() => {
+    orch = new SeamlessZoomOrchestrator(null, { _backend: makeMockBackend('webgl2') });
+    // Register level 0 so the valid-depth test can complete.
+    const lvl = makeMockLevel();
+    orch.register(0, { webgpu: makeLevelClass(lvl), threejs: makeLevelClass(lvl) });
+  });
+
+  it('throws TypeError when target is null', () => {
+    expect(() => orch.zoomToTarget(null)).toThrow(TypeError);
+  });
+
+  it('throws TypeError when target is undefined', () => {
+    expect(() => orch.zoomToTarget(undefined)).toThrow(TypeError);
+  });
+
+  it('throws TypeError when target has no spatialDepth property', () => {
+    expect(() => orch.zoomToTarget({ type: 'Fleet' })).toThrow(TypeError);
+  });
+
+  it('error message mentions spatialDepth', () => {
+    expect(() => orch.zoomToTarget({})).toThrow(/spatialDepth/);
+  });
+
+  it('throws TypeError when spatialDepth is out of range (> 4)', () => {
+    expect(() => orch.zoomToTarget({ spatialDepth: 5 })).toThrow(TypeError);
+  });
+
+  it('throws TypeError when spatialDepth is negative', () => {
+    expect(() => orch.zoomToTarget({ spatialDepth: -1 })).toThrow(TypeError);
+  });
+
+  it('throws TypeError when spatialDepth is not a number (string)', () => {
+    expect(() => orch.zoomToTarget({ spatialDepth: '2' })).toThrow(TypeError);
+  });
+
+  it('does NOT throw for spatialDepth=0 (valid boundary)', async () => {
+    await expect(orch.zoomToTarget({ spatialDepth: 0 })).resolves.toBeUndefined();
   });
 });
