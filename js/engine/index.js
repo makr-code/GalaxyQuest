@@ -49,6 +49,10 @@ const {
   CLASS_NEED_HAPPINESS, ADVANCEMENT_TICKS_REQUIRED, DESCENT_TICKS_REQUIRED,
 } = require('./game/EconomySimulation');
 
+// FX systems
+const { StarfieldFX, StarfieldLayerType } = require('./fx/StarfieldFX');
+const { WarpFX, WarpPhase, PlasmaFlowType } = require('./fx/WarpFX');
+
 // Constants
 const constants                     = require('./constants');
 
@@ -102,6 +106,9 @@ module.exports = {
   MARKET_EVENT_TEMPLATES, PRICE_MULT_MIN, PRICE_MULT_MAX, PRICE_ELASTICITY,
   PopClass, POP_CLASS_ORDER, POP_CLASS_NEEDS, POP_CLASS_YIELD, POP_CLASS_MAX_FRACTION,
   CLASS_NEED_HAPPINESS, ADVANCEMENT_TICKS_REQUIRED, DESCENT_TICKS_REQUIRED,
+  // FX systems
+  StarfieldFX, StarfieldLayerType,
+  WarpFX, WarpPhase, PlasmaFlowType,
   // Constants
   ...constants,
 };
