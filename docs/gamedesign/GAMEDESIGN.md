@@ -22,6 +22,7 @@
 11. [Unabhängige Fraktionen](#unabhängige-fraktionen)
 12. [Art- und Prompt-Guidelines](#art--und-prompt-guidelines)
 13. [Entwicklungs-Roadmap](#entwicklungs-roadmap)
+14. [Spielereinführung & Fraktionsruf → FACTION_INTRODUCTION.md](FACTION_INTRODUCTION.md)
 
 ---
 
