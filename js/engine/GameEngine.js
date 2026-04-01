@@ -45,6 +45,9 @@
 
 'use strict';
 
+/** Minimum sustained FPS below which post-processing is suspended. */
+const POST_FX_MIN_FPS = 45;
+
 // ---------------------------------------------------------------------------
 // Dependency loading (browser-global + CommonJS dual-mode)
 // ---------------------------------------------------------------------------
@@ -594,7 +597,14 @@ class GameEngine {
 
     // Main render (primary camera)
     if (this.postFx && this.postFx._passes.length > 0) {
-      this.postFx.render(null);
+      // Performance gate: suspend post-effects when FPS drops below threshold.
+      // fps===0 means not yet measured; always allow the first frames through.
+      const fpsOk = this.perf.fps === 0 || this.perf.fps >= POST_FX_MIN_FPS;
+      if (fpsOk) {
+        this.postFx.render(null);
+      } else {
+        this.renderer.render(this.scene, this.cameras?.active ?? this.camera);
+      }
     } else {
       this.renderer.render(this.scene, this.cameras?.active ?? this.camera);
     }

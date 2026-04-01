@@ -755,3 +755,66 @@ describe('EffectComposer — integration: Bloom + Vignette chain', () => {
     expect(radii).toEqual([1, 2, 4, 8]);
   });
 });
+
+// ===========================================================================
+// Pass render() — renderer dispatch (Phase 3)
+// ===========================================================================
+
+describe('BloomPass — render dispatches to renderer when enabled', () => {
+  it('calls renderer.runBloomPass(pass, srcTex, dstTex) when enabled', () => {
+    const p   = new BloomPass();
+    let capturedArgs = null;
+    const renderer = { runBloomPass: (...args) => { capturedArgs = args; } };
+    p.render('src', 'dst', renderer);
+    expect(capturedArgs).not.toBeNull();
+    expect(capturedArgs[0]).toBe(p);
+    expect(capturedArgs[1]).toBe('src');
+    expect(capturedArgs[2]).toBe('dst');
+  });
+
+  it('is a no-op when renderer has no runBloomPass method', () => {
+    const p = new BloomPass();
+    expect(() => p.render('src', 'dst', {})).not.toThrow();
+  });
+
+  it('is a no-op when renderer is null', () => {
+    const p = new BloomPass();
+    expect(() => p.render('src', 'dst', null)).not.toThrow();
+  });
+});
+
+describe('VignettePass — render dispatches to renderer when enabled', () => {
+  it('calls renderer.runVignettePass(pass, srcTex, dstTex) when enabled', () => {
+    const p   = new VignettePass();
+    let capturedArgs = null;
+    const renderer = { runVignettePass: (...args) => { capturedArgs = args; } };
+    p.render('src', 'dst', renderer);
+    expect(capturedArgs).not.toBeNull();
+    expect(capturedArgs[0]).toBe(p);
+    expect(capturedArgs[1]).toBe('src');
+    expect(capturedArgs[2]).toBe('dst');
+  });
+
+  it('is a no-op when renderer has no runVignettePass method', () => {
+    const p = new VignettePass();
+    expect(() => p.render('src', 'dst', {})).not.toThrow();
+  });
+});
+
+describe('ChromaticPass — render dispatches to renderer when enabled', () => {
+  it('calls renderer.runChromaticPass(pass, srcTex, dstTex) when enabled', () => {
+    const p   = new ChromaticPass();
+    let capturedArgs = null;
+    const renderer = { runChromaticPass: (...args) => { capturedArgs = args; } };
+    p.render('src', 'dst', renderer);
+    expect(capturedArgs).not.toBeNull();
+    expect(capturedArgs[0]).toBe(p);
+    expect(capturedArgs[1]).toBe('src');
+    expect(capturedArgs[2]).toBe('dst');
+  });
+
+  it('is a no-op when renderer has no runChromaticPass method', () => {
+    const p = new ChromaticPass();
+    expect(() => p.render('src', 'dst', {})).not.toThrow();
+  });
+});

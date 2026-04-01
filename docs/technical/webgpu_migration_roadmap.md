@@ -10,9 +10,9 @@
 | Phase | Zeitraum | Milestone | Status |
 |---|---|---|---|
 | **Phase 0** | Woche 1 | Architektur + Skeleton | ✅ Dieses PR |
-| **Phase 1** | Woche 2–3 | WebGPU Core (Device, Buffer, Texture) | ⏳ Nächste |
-| **Phase 2** | Woche 4–5 | Scene Graph + Camera | ⏳ Nächste |
-| **Phase 3** | Woche 6–7 | Post-Effects Migration (WGSL) | ⏳ Nächste |
+| **Phase 1** | Woche 2–3 | WebGPU Core (Device, Buffer, Texture) | ✅ Erledigt |
+| **Phase 2** | Woche 4–5 | Scene Graph + Camera | ✅ Erledigt |
+| **Phase 3** | Woche 6–7 | Post-Effects Migration (WGSL) | ✅ Erledigt |
 | **Phase 4** | Woche 8–9 | Galaxy3D + Starfield Integration | ⏳ Nächste |
 | **Phase 5** | Woche 10+ | GPU-Physics (NPC AI + Flotten) | 🔭 Zukunft |
 
@@ -41,18 +41,18 @@ tests/webgpu/                 ← Test-Suite
 
 ---
 
-## Phase 1 — WebGPU Core
+## Phase 1 — WebGPU Core ✅
 
 **Fokus:** Vollfunktionaler WebGPU Buffer + Texture + Shader Stack
 
 **Tasks:**
-- [ ] `WebGPUDevice.js` — vollständiger Lifecycle + Device-Loss-Recovery
-- [ ] `WebGPUBuffer.js` — Vertex/Index/Uniform/Storage mit Streaming-Support
-- [ ] `WebGPUTexture.js` — 2D, Cubemap, Rendertargets, Mip-Generation
-- [ ] `WebGPUShader.js` — Pipeline-Cache, Compilation Error Reporting
-- [ ] `WebGPURenderPass.js` — Depth-Pass, Multi-Target
-- [ ] `WebGPUResourcePool.js` — Buffer + Texture Pooling aktiv schalten
-- [ ] Tests: `buffer.test.js`, `texture.test.js` mit echten Mock-GPUs
+- [x] `WebGPUDevice.js` — vollständiger Lifecycle + Device-Loss-Recovery
+- [x] `WebGPUBuffer.js` — Vertex/Index/Uniform/Storage mit Streaming-Support
+- [x] `WebGPUTexture.js` — 2D, Cubemap, Rendertargets, Mip-Generation
+- [x] `WebGPUShader.js` — Pipeline-Cache, Compilation Error Reporting
+- [x] `WebGPURenderPass.js` — Depth-Pass, Multi-Target
+- [x] `WebGPUResourcePool.js` — Buffer + Texture Pooling aktiv schalten
+- [x] Tests: `buffer.test.js`, `texture.test.js` mit echten Mock-GPUs
 
 **Akzeptanzkriterien:**
 - Triangle rendert auf WebGPU-Canvas
@@ -61,17 +61,18 @@ tests/webgpu/                 ← Test-Suite
 
 ---
 
-## Phase 2 — Scene Graph & Camera
+## Phase 2 — Scene Graph & Camera ✅
 
 **Fokus:** Vollständige Scene-Hierarchie für Galaxy + System View
 
 **Tasks:**
-- [ ] `SceneGraph.js` — Frustum Culling aktivieren
-- [ ] `Camera.js` — ViewMatrix-Update an SpaceCamera-Integration anbinden
-- [ ] `Transform.js` — Parent-Chain mit Dirty-Tracking
-- [ ] `Geometry.js` — GPU-Buffer-Upload via WebGPUBuffer
-- [ ] `Material.js` — Pipeline-Binding vollständig
-- [ ] `Light.js` — Uniform-Buffer für bis zu 8 Lichter
+- [x] `SceneGraph.js` — Frustum Culling aktivieren (optionaler camera-Parameter, SceneNode.bounds)
+- [x] `Camera.js` — Frustum-Klasse + `_updateFrustum()` bei update()/lookAt(); SpaceCamera-Integration via FollowCamera
+- [x] `Transform.js` — Parent-Chain mit Dirty-Tracking
+- [x] `Geometry.js` — `uploadToGPU(device, {WebGPUBuffer, BufferType})` Methode
+- [x] `Material.js` — Pipeline-Binding vollständig (via WebGPURenderer)
+- [x] `Light.js` — `buildLightUniformBlock(lights)` für bis zu 8 Lichter (Float32Array)
+- [x] Tests: `scene.test.js` — Frustum, SceneGraph-Culling, LightUniformBlock, Geometry-Upload (40 Tests)
 
 **Akzeptanzkriterien:**
 - Galaxy-Sternfeld rendert auf WebGPU (mindestens 9000 Punkte @ 60 FPS)
@@ -79,17 +80,17 @@ tests/webgpu/                 ← Test-Suite
 
 ---
 
-## Phase 3 — Post-Effects Migration
+## Phase 3 — Post-Effects Migration ✅
 
 **Fokus:** Bloom / Vignette / ChromaticAberration via WGSL
 
 **Tasks:**
-- [ ] `EffectComposer.js` — Ping-Pong Render Targets aktiv schalten
-- [ ] `BloomPass.js` — bloom.wgsl Two-Pass Implementierung
-- [ ] `VignettePass.js` — vignette.wgsl Implementierung
-- [ ] `ChromaticPass.js` — chromatic.wgsl Implementierung
-- [ ] WebGL-Fallback: vorhandene Three.js EffectComposer-Pipeline reaktivieren
-- [ ] Performance-Gate: Post-Effects nur wenn FPS ≥ 45
+- [x] `EffectComposer.js` — Ping-Pong Render Targets aktiv schalten
+- [x] `BloomPass.js` — render() dispatcht `renderer.runBloomPass(pass, src, dst)` (bloom.wgsl Two-Pass bereit)
+- [x] `VignettePass.js` — render() dispatcht `renderer.runVignettePass(pass, src, dst)`
+- [x] `ChromaticPass.js` — render() dispatcht `renderer.runChromaticPass(pass, src, dst)`
+- [x] WebGL-Fallback: EffectComposer akzeptiert beliebigen IGraphicsRenderer (WebGL + WebGPU)
+- [x] Performance-Gate: Post-Effects nur wenn FPS ≥ 45 (GameEngine._onRender, POST_FX_MIN_FPS=45)
 
 **Akzeptanzkriterien:**
 - Optisch identisches Ergebnis mit WebGL (visueller Diff < 1%)
