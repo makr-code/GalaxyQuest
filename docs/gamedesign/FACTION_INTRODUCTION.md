@@ -3,6 +3,7 @@
 **Version:** 1.3  
 **Status:** Konzept & LORE – Blaupause für Spieldesign & Erzählung  
 **Zugehörig zu:** [GAMEDESIGN.md](GAMEDESIGN.md) → [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md)  
+**Registrierungs-Prolog:** [ONBOARDING_PROLOGUE_DESIGN.md](ONBOARDING_PROLOGUE_DESIGN.md)
 **Entscheidungen (kanonisch):** Rasse bei Spielstart wählen · Isolationspfad vollständig spezifiziert · Legacy-NPC-Fraktionen Hard-Replace (ALTER + UPDATE) · Spieler-Startmitgliedschaft · Gilde-Gründung möglich (Spieler-eigene Organisationen)
 
 ---

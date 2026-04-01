@@ -1678,7 +1678,20 @@
           authLog('warn', 'homeworld target skipped (register)', 'best-effort budget exceeded');
           queueHomeworldIntroFlight({ source: 'register' });
         }
-        await startGameShell();
+
+        // Show narrative prologue for new registrations; fall back to direct launch
+        // when GQProlog is unavailable (e.g. script failed to load).
+        if (window.GQProlog && typeof window.GQProlog.show === 'function') {
+          hideActionModal();
+          authSection?.classList.add('hidden');
+          window.GQProlog.show({
+            username: String(registerPayload.username || ''),
+            colonyName: String(data.colony_name || ''),
+            onComplete: async () => { await startGameShell(); },
+          });
+        } else {
+          await startGameShell();
+        }
       } else {
         hideActionModal();
         if (errEl) errEl.textContent = data.error || 'Registration failed.';

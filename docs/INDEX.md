@@ -79,6 +79,8 @@
 | [gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md](gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md) | Vessel blueprint and module system |
 | [gamedesign/GAME_CLASSICS_INSPIRATION.md](gamedesign/GAME_CLASSICS_INSPIRATION.md) | Classic game inspirations and adopted mechanics |
 | [gamedesign/COLONIZATION_SYSTEM_DESIGN.md](gamedesign/COLONIZATION_SYSTEM_DESIGN.md) | Colonization system — Empire Sprawl, sectors, governors, buildings |
+| [gamedesign/FACTION_INTRODUCTION.md](gamedesign/FACTION_INTRODUCTION.md) | **Spielerstart & Fraktionsaufstieg** — Herolde, Reputationssystem, Tutorial-Klimax |
+| [gamedesign/ONBOARDING_PROLOGUE_DESIGN.md](gamedesign/ONBOARDING_PROLOGUE_DESIGN.md) | **Narrativer Registrierungsprolog** — 5-stufiger Onboarding-Flow, fraktionsspezifische Prologe |
 
 ---
 

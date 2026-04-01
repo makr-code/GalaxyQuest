@@ -1,0 +1,348 @@
+/* =========================================================
+   GalaxyQuest – Narrative Registration Prologue
+   Overlays the full viewport during new-user onboarding.
+   ========================================================= */
+
+/* ── Section container ────────────────────────────────── */
+.prolog-section {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 8, 18, 0.97);
+  overflow: hidden;
+}
+
+.prolog-section.hidden {
+  display: none;
+}
+
+/* ── Phase base ───────────────────────────────────────── */
+.prolog-phase {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  opacity: 0;
+  pointer-events: none;
+  /* no animation by default; added by .is-active */
+}
+
+.prolog-phase.is-active {
+  opacity: 1;
+  pointer-events: auto;
+  animation: prolog-fadein 0.45s ease both;
+}
+
+@keyframes prolog-fadein {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Skip button (phase 1) ────────────────────────────── */
+.prolog-skip {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  background: transparent;
+  border: 1px solid rgba(79, 151, 255, 0.28);
+  border-radius: 4px;
+  color: rgba(145, 200, 255, 0.55);
+  font-size: 0.75rem;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  z-index: 5;
+}
+
+.prolog-skip:hover {
+  border-color: rgba(79, 151, 255, 0.55);
+  color: rgba(145, 200, 255, 0.95);
+  background: rgba(10, 28, 70, 0.45);
+}
+
+/* ── Shared "next" button ─────────────────────────────── */
+.prolog-next {
+  margin-top: 2rem;
+  background: linear-gradient(135deg, #1a6fd4, #0e4e9e);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding: 0.65rem 1.5rem;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.1s;
+}
+
+.prolog-next:hover  { filter: brightness(1.18); }
+.prolog-next:active { transform: scale(0.97); }
+.prolog-next.hidden { display: none; }
+
+/* ── Phase 1 – Cinematic intro ─────────────────────────── */
+.prolog-cinematic {
+  max-width: 520px;
+  text-align: center;
+}
+
+.prolog-typewriter {
+  font-size: 1.05rem;
+  line-height: 1.9;
+  color: #bdd6f4;
+  font-style: italic;
+  min-height: 4.5rem;
+}
+
+.prolog-typewriter-line {
+  display: block;
+  opacity: 0;
+  transform: translateY(5px);
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+
+.prolog-typewriter-line.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Phase 2 – Faction selection ──────────────────────── */
+.prolog-phase2-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 860px;
+}
+
+.prolog-headline {
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: rgba(145, 200, 255, 0.55);
+  text-transform: uppercase;
+  margin-bottom: 0.35rem;
+}
+
+.prolog-intro-quote {
+  text-align: center;
+  font-size: 0.85rem;
+  color: rgba(145, 200, 255, 0.65);
+  font-style: italic;
+  margin-bottom: 1.6rem;
+  max-width: 500px;
+  line-height: 1.6;
+}
+
+/* Faction card grid */
+.prolog-faction-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem;
+  width: 100%;
+}
+
+@media (max-width: 680px) {
+  .prolog-faction-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 420px) {
+  .prolog-faction-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Individual faction card */
+.prolog-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(var(--card-rgb, 79, 151, 255), 0.28);
+  border-radius: 10px;
+  background: rgba(8, 18, 38, 0.88);
+  padding: 1rem 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s, transform 0.13s, background 0.18s;
+  color: inherit;
+  font: inherit;
+}
+
+.prolog-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--card-color, rgba(58, 160, 255, 0.1));
+  opacity: 0;
+  transition: opacity 0.18s;
+  pointer-events: none;
+}
+
+.prolog-card:hover {
+  border-color: var(--card-color, rgba(79, 151, 255, 0.65));
+  transform: translateY(-2px);
+}
+
+.prolog-card:hover::before {
+  opacity: 0.07;
+}
+
+.prolog-card:focus-visible {
+  outline: 2px solid var(--card-color, #3aa0ff);
+  outline-offset: 2px;
+}
+
+.prolog-card-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+  margin-bottom: 0.4rem;
+}
+
+.prolog-card-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--card-color, #7ec8ff);
+  margin-bottom: 0.1rem;
+}
+
+.prolog-card-subtitle {
+  font-size: 0.72rem;
+  color: rgba(145, 200, 255, 0.5);
+  margin-bottom: 0.4rem;
+}
+
+.prolog-card-herald {
+  font-size: 0.75rem;
+  color: rgba(200, 224, 255, 0.7);
+  margin-bottom: 0.5rem;
+}
+
+.prolog-card-promise {
+  font-size: 0.78rem;
+  color: #c8e0ff;
+  font-style: italic;
+  margin-bottom: 0.22rem;
+}
+
+.prolog-card-demand {
+  font-size: 0.74rem;
+  color: rgba(180, 210, 255, 0.48);
+}
+
+/* Confirmation overlay inside phase 2 */
+.prolog-confirm {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 8, 18, 0.93);
+  padding: 2rem 1.5rem;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+  z-index: 2;
+}
+
+.prolog-confirm.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.prolog-confirm-quote {
+  font-size: 1rem;
+  color: #c8e0ff;
+  font-style: italic;
+  max-width: 480px;
+  margin-bottom: 1.8rem;
+  line-height: 1.75;
+}
+
+.prolog-confirm-btns {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ── Phase 3 – Faction story text ─────────────────────── */
+.prolog-phase3-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 580px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.prolog-story {
+  width: 100%;
+  color: #c8e0ff;
+  font-size: 0.94rem;
+  line-height: 1.82;
+  padding: 1.2rem 1.4rem;
+  border-left: 3px solid var(--faction-accent, #3aa0ff);
+  background: rgba(8, 18, 38, 0.55);
+  border-radius: 0 10px 10px 0;
+  margin-bottom: 1.2rem;
+}
+
+.prolog-story p {
+  margin: 0 0 0.9em;
+}
+
+.prolog-story p:last-child {
+  margin: 0;
+}
+
+.prolog-first-mission {
+  width: 100%;
+  font-size: 0.8rem;
+  color: rgba(145, 200, 255, 0.7);
+  font-style: italic;
+  text-align: center;
+  padding: 0.6rem 1rem;
+  border: 1px solid rgba(58, 160, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(8, 24, 46, 0.5);
+}
+
+/* ── Phase 4 – Transition ──────────────────────────────── */
+.prolog-phase4-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 520px;
+  width: 100%;
+  text-align: center;
+}
+
+.prolog-transition-text {
+  color: #c8e0ff;
+  font-size: 0.96rem;
+  line-height: 1.82;
+  font-style: italic;
+  margin-bottom: 2rem;
+}
+
+.prolog-transition-text p {
+  margin: 0 0 0.9em;
+}
+
+.prolog-transition-text p:last-child {
+  margin: 0;
+}
+
+.prolog-launch {
+  font-size: 1rem;
+  padding: 0.75rem 2rem;
+}
