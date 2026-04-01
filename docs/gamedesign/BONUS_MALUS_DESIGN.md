@@ -28,6 +28,7 @@
 17. [Quest-Katalog pro Fraktion und Tier](#17-quest-katalog-pro-fraktion-und-tier)
 18. [Wirtschaftsintegration (ColonySimulation)](#18-wirtschaftsintegration-colonysimulation)
 19. [Spieler-Progressionspfad](#19-spieler-progressionspfad)
+20. [Lokale Bonus/Malus-Systeme (Kolonie-, Flotten- und Diplomatie-Ebene)](#20-lokale-bonusmalus-systeme-kolonie--flotten-und-diplomatie-ebene)
 
 ---
 
@@ -1337,6 +1338,490 @@ Schwierig:  Vel'Ar (Spionage-Quests nötig, Quer-Effekte beachten)
 - Konvergenz-Einheit (Tier 3+ alle 6) → Convergence United Szenario
 - Aethernox Tier 4 + Architekten Tier 4 → Kosmische Harmonie
 - Nomaden Tier 4 + Vel'Ar Tier 4 → Maximaler FTL-Vorteil
+
+---
+
+## 20. Lokale Bonus/Malus-Systeme (Kolonie-, Flotten- und Diplomatie-Ebene)
+
+### Problemstellung
+
+Die bisher beschriebenen Modifikatoren (`user_empire_modifiers`) wirken
+**global** auf das gesamte Imperium. Ein erfahrener Koloniegouverneur, der
+nur auf Kolonie X eingesetzt ist, soll aber **ausschließlich** diese Kolonie
+beeinflussen — nicht alle anderen. Ebenso gilt:
+
+- Ein Flottenpilot mit hohem `skill_tactics` soll nur **seine** Flotte stärker machen
+- Ein Diplomatie-Offizier, der auf die Vor'Tak spezialisiert ist, soll nur
+  **diese Fraktionsbeziehung** verbessern, nicht alle gleichzeitig
+- Gebäude-Boni (z. B. Barracken +Verteidigung) sollen kolonielokal bleiben
+
+Dies erfordert ein **Scope-System** für Modifikatoren.
+
+---
+
+### 20.1 Scope-Konzept
+
+Jeder Modifier erhält einen **Anwendungsbereich** (`scope`):
+
+```
+scope_type  scope_id   Bedeutung
+──────────  ─────────  ─────────────────────────────────────────────────────
+'empire'    NULL       Globaler Imperiums-Modifier (bisheriges System)
+'colony'    colony_id  Nur für diese eine Kolonie wirksam
+'fleet'     fleet_id   Nur für diese eine Flotte wirksam
+'faction'   faction_id Nur für diese eine Fraktionsbeziehung wirksam
+```
+
+**Schichtungsregel:**
+
+```
+Effektiver Wert = Basis × (1 + empire_mult) × (1 + local_mult)
+                          └─ global ─────────┘  └─ lokal ──────┘
+```
+
+Globale und lokale Modifier **stapeln sich multiplikativ** — sie überschreiben
+einander nicht. Ein Kolonie-Verwalter auf Kolonie X verbessert die Produktion
+**zusätzlich** zu einem eventuell aktiven Fraktions-Handelsbonus.
+
+---
+
+### 20.2 Datenbankschema: `local_entity_modifiers`
+
+Eine neue, scopebewusste Tabelle parallel zu `user_empire_modifiers`:
+
+```sql
+CREATE TABLE IF NOT EXISTS local_entity_modifiers (
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id       INT NOT NULL,
+
+    -- Quelle des Modifiers
+    source_type   ENUM(
+                    'leader',       -- Von einem zugewiesenen Leader/Verwalter
+                    'building',     -- Von einem Gebäude auf der Kolonie
+                    'trait',        -- Von einem Verwalter-Trait
+                    'faction_deal', -- Von einem spezifischen Fraktionsabkommen
+                    'event',        -- Von einem Event (temporär)
+                    'technology'    -- Von einem Technologiefortschritt
+                  ) NOT NULL,
+    source_key    VARCHAR(64) NOT NULL,  -- z.B. 'leader_42', 'barracks_lv3', 'trait_iron_fist'
+
+    -- Geltungsbereich
+    scope_type    ENUM('colony','fleet','faction') NOT NULL,
+    scope_id      INT NOT NULL,          -- colony_id, fleet_id oder faction_id
+
+    -- Modifier-Inhalt
+    modifier_key  VARCHAR(64) NOT NULL,  -- Gleiche Schlüssel wie user_empire_modifiers
+    modifier_value DECIMAL(9,4) NOT NULL,
+
+    -- Gültigkeit
+    starts_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at    DATETIME DEFAULT NULL,  -- NULL = permanent (solange Zuweisung aktiv)
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_lem_user_scope    (user_id, scope_type, scope_id),
+    INDEX idx_lem_source        (source_type, source_key),
+    INDEX idx_lem_key           (modifier_key),
+    INDEX idx_lem_expires       (expires_at)
+) ENGINE=InnoDB;
+```
+
+**Warum eine separate Tabelle und kein scope in `user_empire_modifiers`?**
+
+| Kriterium | Separate Tabelle | Spalten erweitern |
+|-----------|-----------------|-------------------|
+| Abwärtskompatibilität | ✅ Keine Änderung bestehender Queries | ❌ Alle empire_modifiers-Queries anpassen |
+| Performance | ✅ Kleines, gezieltes SELECT per scope | ❌ Alle Rows laden, dann filtern |
+| Migrations-Aufwand | ✅ `CREATE TABLE` reicht | ❌ `ALTER TABLE` + Index-Umbau |
+| Klarheit der API | ✅ Zwei konzeptuell getrennte Systeme | ❌ Gemischtes Modell |
+
+---
+
+### 20.3 Leader-Skills als lokale Modifier
+
+#### Bestehende Leader-Rollen und ihre lokalen Modifier-Schlüssel
+
+Wenn ein Leader zugewiesen wird (`leaders.colony_id` oder `leaders.fleet_id`),
+erzeugt `sync_leader_local_modifiers()` automatisch Einträge in
+`local_entity_modifiers`:
+
+| Leader-Rolle | Skill | scope_type | Modifier-Schlüssel | Formel (pro Skilllevel) |
+|-------------|-------|-----------|-------------------|------------------------|
+| `colony_manager` | `skill_production` | `colony` | `resource_output_mult` | +0.03 × level |
+| `colony_manager` | `skill_production` | `colony` | `food_output_mult` | +0.03 × level |
+| `colony_manager` | `skill_construction` | `colony` | `build_time_mult` | −0.02 × level |
+| `colony_manager` | `skill_efficiency` | `colony` | `colony_stability_flat` | +0.5 × level |
+| `fleet_commander` | `skill_tactics` | `fleet` | `attack_mult` | +0.03 × level |
+| `fleet_commander` | `skill_navigation` | `fleet` | `speed_mult` | +0.02 × level |
+| `fleet_commander` | `skill_efficiency` | `fleet` | `fuel_consumption_mult` | −0.02 × level |
+| `fleet_commander` | `skill_tactics` | `fleet` | `defense_mult` | +0.015 × level |
+| `science_director` | `skill_research` | `colony` | `research_speed_mult` | +0.03 × level |
+| `science_director` | `skill_efficiency` | `colony` | `research_cost_mult` | −0.02 × level |
+| `diplomacy_officer` | `skill_efficiency` | `faction` | `standing_gain_mult` | +0.05 × level |
+| `diplomacy_officer` | `skill_efficiency` | `faction` | `standing_decay_mult` | −0.03 × level |
+| `diplomacy_officer` | `skill_efficiency` | `faction` | `quest_reward_mult` | +0.04 × level |
+| `trade_director` | `skill_production` | `colony` | `trade_income_mult` | +0.04 × level |
+| `trade_director` | `skill_efficiency` | `colony` | `trade_income_mult` | +0.02 × level |
+
+**Beispiel:** Koloniegouverneur auf Kolonie 7 mit `skill_production = 8`:
+```
+local_entity_modifiers:
+  source_type  = 'leader'
+  source_key   = 'leader_42'
+  scope_type   = 'colony'
+  scope_id     = 7
+  modifier_key = 'resource_output_mult'
+  modifier_value = 0.24  (= 0.03 × 8)
+```
+
+→ Kolonie 7 produziert 24% mehr Ressourcen.
+→ Alle anderen Kolonien: **keine Änderung**.
+
+---
+
+### 20.4 Diplomatie-Offizier: Fraktionslokale Modifikatoren
+
+#### Problem mit der aktuellen Implementierung
+
+`ai_diplomacy_officer_tick()` wählt **global** die schlechteste Fraktion und
+verbessert diese um +1. Das ist kein gezielter Einsatz.
+
+#### Neues Design: Faction-Scope mit Ziel-Zuweisung
+
+Der `diplomacy_officer` erhält ein neues Feld `faction_id` zur Zuweisung
+(neben `colony_id` und `fleet_id`):
+
+```sql
+ALTER TABLE leaders
+    ADD COLUMN IF NOT EXISTS faction_id INT DEFAULT NULL
+        COMMENT 'Assigned target faction (for diplomacy_officer role)',
+    ADD FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE SET NULL;
+```
+
+Wenn `faction_id` gesetzt ist, arbeitet `ai_diplomacy_officer_tick()` **ausschließlich**
+auf diese Fraktion:
+
+```php
+// Neue Logik (vereinfacht):
+if ($leader['faction_id']) {
+    // Gezielter Einsatz: nur diese Fraktion bearbeiten
+    $targetFactionId = (int)$leader['faction_id'];
+    $gainMult = 1.0 + get_local_modifier_value($db, $uid, 'faction', $targetFactionId, 'standing_gain_mult');
+    $delta = round(1 * $gainMult * (1 + $skillBonus));
+    update_standing($db, $uid, $targetFactionId, $delta, 'leader_diplomacy', $msg);
+} else {
+    // Ungezielte Fallback-Logik (bisheriges Verhalten)
+    // ... wählt schlechteste Fraktion
+}
+```
+
+**Lokale Modifier für den Diplomatie-Offizier (faction-scope):**
+
+| Modifier-Schlüssel | Quelle | Beschreibung |
+|--------------------|--------|-------------|
+| `standing_gain_mult` | Leader-Skill | Prozentualer Bonus auf jeden Standing-Gewinn |
+| `standing_decay_mult` | Leader-Skill | Verlangsamte Stehungs-Erosion (negativer Wert) |
+| `quest_reward_mult` | Leader-Trait | Erhöhte Quest-Belohnungen von dieser Fraktion |
+| `trade_income_mult` | Leader-Skill | Erhöhte Handelseinnahmen von dieser Fraktion |
+| `dialogue_bonus_flat` | Leader-Trait | Bonus auf LLM-Dialogergebnisse |
+
+**Beispiel:** Diplomatie-Offizier Level 5 auf Vor'Tak:
+```
+Nормal standing_gain = +1 pro Tick
+Mit skill_efficiency=6: standing_gain_mult = +0.30
+Effektiver Gain:        +1.3 pro Tick → auf 100 gerundet = +1 oder +2
+```
+
+---
+
+### 20.5 Trait-System für Verwalter
+
+Leader aus dem Marketplace haben `trait_1` und `trait_2`. Diese Traits
+übersetzen sich direkt in lokale Modifier-Einträge:
+
+#### Trait-Katalog (Verwalter-Eigenschaften)
+
+| Trait-Key | Anzeigename | Rolle | Lokaler Modifier |
+|-----------|------------|-------|-----------------|
+| `iron_fist` | Eiserne Faust | colony_manager | `colony_stability_flat` +3, `happiness_flat` −2 |
+| `green_thumb` | Grüner Daumen | colony_manager | `food_output_mult` +0.12 |
+| `architect` | Baumeister | colony_manager | `build_time_mult` −0.15 |
+| `slave_driver` | Antreiber | colony_manager | `resource_output_mult` +0.10, `happiness_flat` −4 |
+| `guardian` | Hüter | colony_manager | `colony_stability_flat` +6, `pop_growth_mult` +0.05 |
+| `tactician` | Taktiker | fleet_commander | `attack_mult` +0.08, `defense_mult` +0.05 |
+| `berserker` | Berserker | fleet_commander | `attack_mult` +0.20, `defense_mult` −0.10 |
+| `navigator` | Navigator | fleet_commander | `speed_mult` +0.15, `fuel_consumption_mult` −0.08 |
+| `ghost` | Geist | fleet_commander | Stealth +1 (Vel'Ar FTL: unsichtbar bei Scan) |
+| `linguist` | Sprachgenie | diplomacy_officer | `standing_gain_mult` +0.20 |
+| `manipulator` | Manipulator | diplomacy_officer | `standing_decay_mult` −0.15, `standing_gain_mult` +0.10 |
+| `merchant_prince` | Handelsfürst | trade_director | `trade_income_mult` +0.20 |
+| `smuggler` | Schmuggler | trade_director | `trade_income_mult` +0.15, Piratenfraktions-Standing +2 |
+
+**Rarität → Trait-Qualität:**
+
+| Rarität | Trait-Wert | Anzahl Traits |
+|---------|-----------|---------------|
+| common | 70% der Basis-Werte | 1 Trait |
+| uncommon | 100% der Basis-Werte | 1 Trait |
+| rare | 130% der Basis-Werte | 2 Traits |
+| legendary | 160% der Basis-Werte | 2 Traits + Sonder-Effekt |
+
+---
+
+### 20.6 Gebäude als kolonielokal wirkende Modifier
+
+Gebäude wirken bereits heute auf einzelne Kolonien. Im neuen System werden
+sie als `local_entity_modifiers` mit `source_type = 'building'` verwaltet,
+damit sie in einer einheitlichen Abfrage mit Leader-Modifiern zusammengeführt
+werden können:
+
+| Gebäude | Level-Schwelle | Lokaler Modifier | Wert |
+|---------|---------------|-----------------|------|
+| `barracks` | ≥ 3 | `colony_stability_flat` | +2 |
+| `barracks` | ≥ 6 | `colony_stability_flat` | +4 |
+| `barracks` | ≥ 10 | `invasion_penalty_mult` | −0.10 |
+| `spaceport` | ≥ 3 | `trade_income_mult` | +0.08 |
+| `spaceport` | ≥ 8 | `trade_income_mult` | +0.15 |
+| `lab` | ≥ 5 | `research_speed_mult` | +0.05 |
+| `dark_matter_mine` | ≥ 1 | `dark_matter_income_flat` | +5/Level |
+| `farm` | ≥ 5 | `food_output_mult` | +0.06 |
+
+> Diese Einträge werden einmalig beim Gebäude-Levelup gesetzt und
+> beim Abreißen gelöscht (permanente Modifier ohne `expires_at`).
+
+---
+
+### 20.7 PHP-Hilfsfunktionen (Backend)
+
+```php
+/**
+ * Erzeugt/aktualisiert alle lokalen Modifier-Einträge eines Leaders
+ * basierend auf seinen Skills und Traits.
+ * Wird bei Zuweisung (assign) und Skill-Upgrade aufgerufen.
+ */
+function sync_leader_local_modifiers(PDO $db, int $leaderId): void;
+
+/**
+ * Entfernt alle lokalen Modifier-Einträge eines Leaders.
+ * Wird bei Entlassung (dismiss) oder Entfernung (unassign) aufgerufen.
+ */
+function remove_leader_local_modifiers(PDO $db, int $leaderId): void;
+
+/**
+ * Gibt alle lokalen Modifier für einen bestimmten Scope zurück.
+ * Filtert abgelaufene Modifier automatisch heraus.
+ *
+ * @param string $scopeType  'colony' | 'fleet' | 'faction'
+ * @param int    $scopeId    colony_id | fleet_id | faction_id
+ * @return array ['modifier_key' => float, ...]  (aggregiert/summiert)
+ */
+function get_local_modifiers(PDO $db, int $userId, string $scopeType, int $scopeId): array;
+
+/**
+ * Gibt einen einzelnen aggregierten lokalen Modifier-Wert zurück.
+ */
+function get_local_modifier_value(
+    PDO $db, int $userId, string $scopeType, int $scopeId, string $key
+): float;
+
+/**
+ * Synchronisiert Gebäude-Modifier für eine Kolonie nach Gebäude-Levelup.
+ */
+function sync_building_local_modifiers(PDO $db, int $userId, int $colonyId): void;
+```
+
+---
+
+### 20.8 Integration in bestehende Systeme
+
+#### ColonySimulation-Integration (Frontend)
+
+Das Frontend lädt lokale Modifier über eine erweiterte API-Antwort:
+
+```json
+// GET /api/colonies.php?action=detail&colony_id=7
+{
+  "colony": { ... },
+  "local_modifiers": {
+    "resource_output_mult": 0.24,
+    "build_time_mult": -0.10,
+    "colony_stability_flat": 3.5,
+    "food_output_mult": 0.12
+  },
+  "local_modifier_sources": [
+    { "key": "resource_output_mult", "value": 0.24, "source": "Koloniegouverneur Mira Solvan (Skill 8)" },
+    { "key": "food_output_mult",     "value": 0.12, "source": "Trait: Grüner Daumen" },
+    { "key": "colony_stability_flat","value": 3.5,  "source": "Kaserne Level 6 (+2) + Mira Solvan (+1.5)" }
+  ]
+}
+```
+
+In `ColonySimulation._applyYield()`:
+
+```javascript
+// globalMods aus empire_dynamic_effects() (empire-scope)
+// localMods aus colonial detail-API  (colony-scope)
+
+const totalResourceMult = (1 + (globalMods['resource_output_mult'] ?? 0))
+                        * (1 + (localMods['resource_output_mult'] ?? 0));
+
+baseYield.production *= totalResourceMult;
+```
+
+#### BattleSimulator-Integration (Frontend)
+
+```javascript
+// BattleSimulator.simulate() erhält fleet-scope Modifier:
+const fleetMods = await api.getLocalModifiers('fleet', fleetId);
+
+fleet.ships.forEach(ship => {
+    ship.attack  *= (1 + (fleetMods['attack_mult']  ?? 0));
+    ship.defense *= (1 + (fleetMods['defense_mult'] ?? 0));
+    ship.speed   *= (1 + (fleetMods['speed_mult']   ?? 0));
+});
+```
+
+#### Fraktions-Stehungs-Integration (Backend)
+
+```php
+// In update_standing() (game_engine.php):
+function update_standing(PDO $db, int $userId, int $factionId, int $delta, ...): void {
+    $gainMult = get_local_modifier_value($db, $userId, 'faction', $factionId, 'standing_gain_mult');
+    $decayMult = get_local_modifier_value($db, $userId, 'faction', $factionId, 'standing_decay_mult');
+
+    if ($delta > 0) {
+        $delta = (int) round($delta * (1.0 + $gainMult));
+    } else {
+        $delta = (int) round($delta * (1.0 + $decayMult)); // decayMult ist negativ → verlangsamt Erosion
+    }
+    // ... UPDATE diplomacy SET standing = standing + $delta ...
+}
+```
+
+---
+
+### 20.9 API-Erweiterungen
+
+| Endpunkt | Neue Parameter/Felder |
+|---------|----------------------|
+| `colonies.php?action=detail` | + `local_modifiers`, `local_modifier_sources` |
+| `leaders.php?action=assign` | + `faction_id` für `diplomacy_officer` |
+| `leaders.php?action=list` | + `active_local_modifiers[]` pro Leader |
+| `fleet.php?action=fleet_status` | + `local_modifiers` für zugewiesene Flotte |
+| `factions.php?action=list` | + `local_modifiers` pro Fraktion (faction-scope) |
+
+---
+
+### 20.10 Frontend-Darstellung
+
+#### Kolonie-Panel: Lokale Modifier-Sektion
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Kolonie: Neue Hoffnung VII          [Kolonie-Typ: FARM] │
+│                                                          │
+│  LOKALE MODIFIKATOREN                          [▾]       │
+│  ──────────────────────────────────────────────          │
+│  👷 Mira Solvan (colony_manager, Lv.4)                   │
+│     • Ressourcen          +12%  (skill_production=4)     │
+│     • Bauzeit             −8%   (skill_construction=4)   │
+│     • Trait: Grüner Daumen → Nahrung +12%               │
+│                                                          │
+│  🏗️ Kaserne Lv.6                                         │
+│     • Stabilität          +4 Pkt                         │
+│                                                          │
+│  NETTO LOKAL:   Ressourcen +12%   Nahrung +12%           │
+│                 Bauzeit −8%       Stabilität +4           │
+│  NETTO GLOBAL:  Handel +8%        (Fraktions-Boni)       │
+│  EFFEKTIV:      Ressourcen +21.5% (= 1.12 × 1.085)      │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Flotten-Panel: Commander-Modifier
+
+```
+┌────────────────────────────────────────────────────────┐
+│  Flotte: Sturmgreif IV         [12 Schiffe]            │
+│                                                         │
+│  ⚔ Admiral Thane Vel (fleet_commander, Lv.6, RARE)    │
+│     • Angriff         +18%  (skill_tactics=6)          │
+│     • Verteidigung    +9%   (skill_tactics)             │
+│     • Geschwindigkeit +12%  (skill_navigation=6)       │
+│     • Trait: Taktiker → Angriff +8%, Verteidigung +5%  │
+│                                                         │
+│  EFFEKTIVER FLOTTENWERT:  ████████████████ +26%        │
+└────────────────────────────────────────────────────────┘
+```
+
+#### Fraktions-Panel: Diplomatie-Offizier
+
+```
+┌────────────────────────────────────────────────────────┐
+│  [✦ VERBÜNDET]  Vor'Tak       Standing: 48 / 100       │
+│                                                         │
+│  🤝 Sessa Kaan (diplomacy_officer, Lv.3)               │
+│     • Stehungsgewinn  +15%  (skill_efficiency=3)       │
+│     • Erosionsbremse  −9%   (standing_decay_mult)      │
+│     • Trait: Linguist → Gewinn +20%                    │
+│                                                         │
+│  EFFEKTIV: +1 Standing/Tick → +1.35/Tick (gerundet +1) │
+│  TÄGLICH ca.: +32 Standing (ungehinderter Aufbau)      │
+└────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 20.11 Implementierungs-Phasen (Lokales BMS)
+
+| Phase | Aufgaben | Abhängigkeit |
+|-------|---------|-------------|
+| **L1 – DB** | `local_entity_modifiers` Tabelle erstellen; `leaders.faction_id` hinzufügen | — |
+| **L2 – Backend** | `sync_leader_local_modifiers()`, `remove_leader_local_modifiers()`, `get_local_modifiers()` implementieren | L1 |
+| **L3 – Leaders API** | `assign`-Action: `sync_leader_local_modifiers()` aufrufen; `faction_id` für `diplomacy_officer` | L2 |
+| **L4 – Colony API** | `colonies.php?action=detail` um lokale Modifier erweitern | L2 |
+| **L5 – Fleet API** | `fleet.php?action=fleet_status` um lokale Modifier erweitern | L2 |
+| **L6 – Diplomacy** | `update_standing()` mit lokalem `standing_gain/decay_mult` erweitern | L2 |
+| **L7 – Frontend** | Lokale Modifier-Sektionen in Colony-Panel, Fleet-Panel, Faction-Panel | L4/L5 |
+| **L8 – ColonySimulation** | Lokale Modifier in `_applyYield()` integrieren | L4 |
+| **L9 – BattleSimulator** | Fleet-Modifier in `simulate()` integrieren | L5 |
+| **L10 – Balancing** | Trait-Werte und Caps für lokale Modifier festlegen | L7 |
+
+---
+
+### 20.12 Balancing: Caps für lokale Modifier
+
+Lokale Modifier haben **eigene Obergrenzen**, unabhängig von den globalen Caps
+(Kapitel 12.1):
+
+| Modifier-Schlüssel | Lokales Max | Globales Max | Kombiniertes Max |
+|--------------------|------------|-------------|-----------------|
+| `resource_output_mult` | +0.40 (Kolonie) | +0.50 (Empire) | +0.90 gesamt |
+| `food_output_mult` | +0.40 | +0.30 | +0.70 |
+| `build_time_mult` | −0.40 | — | −0.40 |
+| `research_speed_mult` | +0.30 (Kolonie) | +0.25 (Empire) | +0.55 |
+| `attack_mult` | +0.40 (Flotte) | — | +0.40 |
+| `defense_mult` | +0.30 (Flotte) | — | +0.30 |
+| `speed_mult` | +0.30 (Flotte) | — | +0.30 |
+| `standing_gain_mult` | +0.50 (Fraktion) | — | +0.50 |
+| `standing_decay_mult` | −0.40 (Fraktion) | — | −0.40 |
+| `trade_income_mult` | +0.30 (Kolonie/Fraktion) | +0.50 (Empire) | +0.80 |
+
+> **Philosophie:** Lokale Boni sollen eine einzelne Einheit spürbar stärker
+> machen, aber keine Einheit absolut dominant werden lassen.
+> Ein vollständig ausgebauter Legendary-Verwalter mit perfekten Skills auf
+> einer Spezialkolonie bleibt +40% unter dem globalen Cap.
+
+---
+
+### 20.13 Abgrenzung: Global vs. Lokal
+
+| Kriterium | Globaler Modifier (`user_empire_modifiers`) | Lokaler Modifier (`local_entity_modifiers`) |
+|-----------|---------------------------------------------|---------------------------------------------|
+| Geltungsbereich | Gesamtes Imperium | Eine Kolonie / Flotte / Fraktionsbeziehung |
+| Quelle | Fraktions-Tier, Spezies, Regierung, Civics, Events | Leader, Traits, Gebäude, Fraktionsabkommen |
+| Lebensdauer | Solange Tier/Regierung aktiv oder Event läuft | Solange Leader zugewiesen oder Gebäude gebaut |
+| UI-Ort | Empire-Statistik-Panel, Fraktions-Druckanzeige | Koloniedetail, Flottendetail, Fraktionspanel |
+| Beispiel | Vor'Tak Tier 4 → +25% Handel überall | Handelsdirektor auf Kolonie 7 → +16% nur dort |
 
 ---
 
