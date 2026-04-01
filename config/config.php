@@ -106,3 +106,19 @@ define('CACHE_TTL_DEFAULT',  (int)       env_value('CACHE_TTL_DEFAULT',   60)); 
 define('CACHE_STARS_FULL_MATERIALIZE_LIMIT', (int) env_value('CACHE_STARS_FULL_MATERIALIZE_LIMIT', 800));
 // Stars-Chunk-Overlap-Auswahl: 'smallest_superset' oder 'max_overlap'
 define('CACHE_STARS_OVERLAP_POLICY', (string) env_value('CACHE_STARS_OVERLAP_POLICY', 'smallest_superset'));
+
+// ── TTS (Text-to-Speech) ─────────────────────────────────────────────────────
+// Feature flag: set to 1 to enable the TTS API endpoint.
+define('TTS_ENABLED',         (int)    env_value('TTS_ENABLED', 0));
+// Base URL of the Python TTS microservice (tts_service/).
+define('TTS_SERVICE_URL',     (string) env_value('TTS_SERVICE_URL', 'http://localhost:5500'));
+// Shared secret sent as X-Tts-Key header; empty string = no auth.
+define('TTS_SECRET',          (string) env_value('TTS_SECRET', ''));
+// Default voice name (Piper: e.g. de_DE-thorsten-high, XTTS: language code).
+define('TTS_DEFAULT_VOICE',   (string) env_value('TTS_DEFAULT_VOICE', 'de_DE-thorsten-high'));
+// Request timeout for the TTS microservice in seconds.
+define('TTS_TIMEOUT_SECONDS', (int)    env_value('TTS_TIMEOUT_SECONDS', 30));
+// Maximum allowed input characters (anti-abuse guard).
+define('TTS_MAX_CHARS',       (int)    env_value('TTS_MAX_CHARS', 2000));
+// Cache TTL for synthesised audio files (seconds); 0 = permanent.
+define('TTS_CACHE_TTL',       (int)    env_value('TTS_CACHE_TTL', 0));

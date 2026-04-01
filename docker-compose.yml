@@ -7,6 +7,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      tts:
+        condition: service_started
     environment:
       DB_HOST: db
       DB_PORT: 3306
@@ -24,6 +26,8 @@ services:
       XDEBUG_CONFIG: client_host=host.docker.internal client_port=9003 idekey=VSCODE
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       SWARMUI_BASE_URL: http://host.docker.internal:7801
+      TTS_ENABLED: 1
+      TTS_SERVICE_URL: http://tts:5500
     ports:
       - "8080:80"
     volumes:
@@ -64,6 +68,25 @@ services:
       - ./sql/migrate_actor_model_v1.sql:/docker-entrypoint-initdb.d/022-actor-model-v1.sql:ro
       - ./sql/migrate_faction_species_v1.sql:/docker-entrypoint-initdb.d/023-faction-species-v1.sql:ro
       - ./sql/migrate_actor_model_v2_drop_is_npc.sql:/docker-entrypoint-initdb.d/024-actor-model-v2-drop-is-npc.sql:ro
+      - ./sql/migrate_tts_v1.sql:/docker-entrypoint-initdb.d/025-tts-v1.sql:ro
+
+  tts:
+    build:
+      context: ./tts_service
+      dockerfile: Dockerfile
+    container_name: galaxyquest-tts
+    environment:
+      TTS_ENGINE: piper
+      TTS_DEFAULT_VOICE: de_DE-thorsten-high
+      TTS_MAX_CHARS: 2000
+      # TTS_SECRET: change_me_in_production
+    ports:
+      - "5500:5500"
+    volumes:
+      - galaxyquest-tts-voice-cache:/app/voice_cache
+      - galaxyquest-tts-audio-cache:/app/audio_cache
 
 volumes:
   galaxyquest-db-data:
+  galaxyquest-tts-voice-cache:
+  galaxyquest-tts-audio-cache:

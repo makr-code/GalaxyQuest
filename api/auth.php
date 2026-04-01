@@ -7,6 +7,10 @@
  * GET  /api/auth.php?action=me
  * GET  /api/auth.php?action=csrf
  *
+ * Two-step narrative registration:
+ * POST /api/auth.php?action=register_prepare   body: {faction_id}
+ * POST /api/auth.php?action=register_complete  body: {prolog_token,username,email,remember}
+ *
  * TOTP 2FA:
  * GET  /api/auth.php?action=totp_status
  * GET  /api/auth.php?action=totp_begin_setup
@@ -37,6 +41,16 @@ switch ($action) {
     case 'register':
         only_method('POST');
         handle_register();
+        break;
+
+    case 'register_prepare':
+        only_method('POST');
+        handle_register_prepare();
+        break;
+
+    case 'register_complete':
+        only_method('POST');
+        handle_register_complete();
         break;
 
     case 'login':
@@ -152,9 +166,28 @@ function handle_register(): void {
     }
 
     json_ok([
-        'user'               => ['id' => $userId, 'username' => $username],
+        'user'                => ['id' => $userId, 'username' => $username],
         'homeworld_colony_id' => $planet,
+        'colony_name'         => fetch_colony_name($db, $planet, $username),
     ]);
+}
+
+/**
+ * Read the actual colony name from the database after homeworld creation.
+ * Falls back to the username-based default so the response is always populated.
+ */
+function fetch_colony_name(PDO $db, int $colonyId, string $username): string {
+    try {
+        $stmt = $db->prepare('SELECT name FROM colonies WHERE id = ? LIMIT 1');
+        $stmt->execute([$colonyId]);
+        $name = $stmt->fetchColumn();
+        if ($name !== false && $name !== '') {
+            return (string)$name;
+        }
+    } catch (Throwable $e) {
+        // Non-fatal: fall through to default.
+    }
+    return $username . "'s Homeworld";
 }
 
 function handle_login(): void {
@@ -864,4 +897,243 @@ function find_free_position(PDO $db): array {
         }
     }
     json_error('Galaxy is full!', 503);
+}
+
+// ─── Two-step narrative registration ─────────────────────────────────────────
+
+/**
+ * Ensure the prolog_sessions table exists (lazy migration).
+ */
+function ensure_prolog_sessions_table(PDO $db): void {
+    $db->exec(
+        'CREATE TABLE IF NOT EXISTS prolog_sessions (
+            token           CHAR(64)     NOT NULL PRIMARY KEY,
+            provisional_uid INT          NOT NULL,
+            colony_id       INT          NOT NULL,
+            colony_name     VARCHAR(255) NOT NULL DEFAULT \'\',
+            faction_id      VARCHAR(30)  NOT NULL DEFAULT \'\',
+            expires_at      DATETIME     NOT NULL,
+            created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (provisional_uid) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB'
+    );
+}
+
+/**
+ * Delete expired prolog sessions and their orphaned provisional accounts.
+ * Provisional accounts are identified by auth_enabled = 0.
+ */
+function cleanup_expired_prolog_sessions(PDO $db): void {
+    try {
+        $expiredStmt = $db->prepare(
+            'SELECT provisional_uid FROM prolog_sessions WHERE expires_at <= NOW()'
+        );
+        $expiredStmt->execute();
+        $uids = $expiredStmt->fetchAll(PDO::FETCH_COLUMN);
+
+        $db->prepare('DELETE FROM prolog_sessions WHERE expires_at <= NOW()')->execute();
+
+        if (!empty($uids)) {
+            $in = implode(',', array_map('intval', $uids));
+            // Remove associated data before removing the provisional user rows.
+            $db->exec("DELETE FROM colonies WHERE user_id IN ($in)");
+            $db->exec("DELETE FROM research WHERE user_id IN ($in)");
+            $db->exec("DELETE FROM messages WHERE receiver_id IN ($in) AND sender_id IS NULL");
+            $db->exec("DELETE FROM users WHERE id IN ($in) AND auth_enabled = 0");
+        }
+    } catch (Throwable $e) {
+        error_log('cleanup_expired_prolog_sessions: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Return a faction-themed homeworld name derived deterministically from position.
+ * Does not depend on the player's username.
+ */
+function generate_faction_homeworld_name(string $factionId, int $g, int $s, int $p): string {
+    $pools = [
+        'vor_tak'  => ["Keth'ar Bastion", "Sarr'Vel Stronghold", "Dur'Khal Citadel", "Vor'Sep Keep", "Ash'Tar Fortress"],
+        'syl_nar'  => ["Lun'Tara Eden", "Mera'Syl Garden", "Vel'Nar Haven", "Thar'Mii Sanctuary", "Sol'Nar Bloom"],
+        'aereth'   => ['Aereth Station Prime', 'Kir-Data Node', 'Sol-Arc Relay', 'Flux Terminal Theta', 'Core Nexus Omicron'],
+        'kryl_tha' => ["Zhaa'Kirr Nesting Ground", 'Hive Expansion Delta', 'Brood Nest Sigma', 'Spawn Complex Zeta', 'Colony Cluster Iota'],
+        'zhareen'  => ['Memory Archive Epsilon', "Zha'Reth Repository", 'Chronicle Vault Theta', 'Lore Sanctum Kappa', 'Ancient Depository Mu'],
+        'vel_ar'   => ['Shadow Station Null', 'Nira Observation Post', 'Silent Crossing Delta', 'Veil Relay Sigma', 'Dark Transit Omega'],
+    ];
+    $pool = $pools[$factionId] ?? ['Uncharted Colony'];
+    return $pool[($g * 97 + $s * 31 + $p) % count($pool)];
+}
+
+/**
+ * POST /api/auth.php?action=register_prepare
+ *
+ * Step 1 of the two-step narrative registration.
+ * Creates a provisional (non-loginable) account and its homeworld so the
+ * faction-specific colony name is available before the player has chosen
+ * their commander name.
+ *
+ * Body:     { faction_id: "vor_tak" }
+ * Response: { success: true, prolog_token: "…", colony_name: "…" }
+ */
+function handle_register_prepare(): void {
+    verify_csrf();
+    $body      = get_json_body();
+    $factionId = trim($body['faction_id'] ?? '');
+
+    $validFactions = ['aereth', 'vor_tak', 'syl_nar', 'vel_ar', 'zhareen', 'kryl_tha'];
+    if (!in_array($factionId, $validFactions, true)) {
+        json_error('Ungültige Fraktion.');
+    }
+
+    $db = get_db();
+    ensure_prolog_sessions_table($db);
+    cleanup_expired_prolog_sessions($db);
+
+    // Provisional credentials: unique but not yet user-chosen.
+    $rnd          = bin2hex(random_bytes(8));   // 16 hex chars
+    $provUsername = '_p_' . $rnd;               // max 19 chars, within 32-char limit
+    $provEmail    = '_p_' . $rnd . '@provisional.invalid';
+
+    $db->prepare(
+        'INSERT INTO users
+             (username, email, password_hash, protection_until, control_type, auth_enabled, ftl_drive_type)
+         VALUES (?, ?, \'\', DATE_ADD(NOW(), INTERVAL 7 DAY), \'human\', 0, ?)'
+    )->execute([$provUsername, $provEmail, $factionId]);
+    $provisionalUid = (int)$db->lastInsertId();
+
+    // Create the homeworld (uses provisional username for initial name; overridden below).
+    $colonyId = create_homeworld($provisionalUid);
+
+    // Read the galaxy position so we can derive a faction-specific colony name.
+    $posRow = $db->prepare(
+        'SELECT cb.galaxy_index, cb.system_index, cb.position
+           FROM colonies c
+           JOIN celestial_bodies cb ON cb.id = c.body_id
+          WHERE c.id = ? LIMIT 1'
+    );
+    $posRow->execute([$colonyId]);
+    $pos = $posRow->fetch(PDO::FETCH_ASSOC);
+    $g   = (int)($pos['galaxy_index'] ?? 1);
+    $s   = (int)($pos['system_index'] ?? 1);
+    $p   = (int)($pos['position']     ?? 1);
+
+    // Override the template-generated name with a faction-themed one.
+    $colonyName = generate_faction_homeworld_name($factionId, $g, $s, $p);
+    $db->prepare('UPDATE colonies SET name = ? WHERE id = ?')->execute([$colonyName, $colonyId]);
+
+    gq_cache_delete('game_overview', ['uid' => $provisionalUid]);
+
+    // Create a short-lived prolog session (2-hour window to complete registration).
+    $token = bin2hex(random_bytes(32));  // 64 hex chars
+    $db->prepare(
+        'INSERT INTO prolog_sessions
+             (token, provisional_uid, colony_id, colony_name, faction_id, expires_at)
+         VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 2 HOUR))'
+    )->execute([$token, $provisionalUid, $colonyId, $colonyName, $factionId]);
+
+    json_ok(['prolog_token' => $token, 'colony_name' => $colonyName]);
+}
+
+/**
+ * POST /api/auth.php?action=register_complete
+ *
+ * Step 2 of the two-step narrative registration.
+ * Finalises the provisional account with the player's chosen credentials.
+ * Registration is passwordless – a one-time login link is sent by e-mail.
+ *
+ * Body:     { prolog_token: "…", username: "…", email: "…", remember: bool }
+ * Response: { success: true, user: { id, username }, colony_name: "…" }
+ */
+function handle_register_complete(): void {
+    verify_csrf();
+    $body     = get_json_body();
+    $token    = trim($body['prolog_token'] ?? '');
+    $username = trim($body['username']     ?? '');
+    $email    = trim($body['email']        ?? '');
+    $remember = !empty($body['remember']);
+
+    if (strlen($token) !== 64 || !ctype_xdigit($token)) {
+        json_error('Ungültige Prolog-Session. Bitte von vorne beginnen.', 400);
+    }
+    if (!preg_match('/^[A-Za-z0-9_]{3,32}$/', $username)) {
+        json_error('Kommandantenname: 3–32 alphanumerische Zeichen oder Unterstriche.');
+    }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        json_error('Ungültige E-Mail-Adresse.');
+    }
+
+    $db = get_db();
+    ensure_prolog_sessions_table($db);
+    cleanup_expired_prolog_sessions($db);
+
+    // Look up the prolog session.
+    $sessStmt = $db->prepare('SELECT * FROM prolog_sessions WHERE token = ? LIMIT 1');
+    $sessStmt->execute([$token]);
+    $session = $sessStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$session) {
+        json_error('Prolog-Session abgelaufen oder ungültig. Bitte wähle erneut deine Fraktion.', 410);
+    }
+
+    $provisionalUid = (int)$session['provisional_uid'];
+    $colonyName     = (string)$session['colony_name'];
+
+    // Ensure the chosen username and email are not taken by an active account.
+    $conflict = $db->prepare(
+        'SELECT id FROM users
+          WHERE (username = ? OR email = ?) AND id != ? AND auth_enabled = 1'
+    );
+    $conflict->execute([$username, $email, $provisionalUid]);
+    if ($conflict->fetch()) {
+        json_error('Benutzername oder E-Mail bereits vergeben.');
+    }
+
+    // Upgrade provisional account to a real account (password_hash stays empty;
+    // login is handled via the one-time e-mail link flow).
+    $db->prepare(
+        'UPDATE users SET username = ?, email = ?, auth_enabled = 1 WHERE id = ? AND auth_enabled = 0'
+    )->execute([$username, $email, $provisionalUid]);
+
+    // Replace provisional welcome messages with ones using the real commander name.
+    try {
+        $db->prepare(
+            'DELETE FROM messages WHERE receiver_id = ? AND sender_id IS NULL'
+        )->execute([$provisionalUid]);
+        $starter = starter_homeworld_config($username);
+        $story   = is_array($starter['story'] ?? null) ? $starter['story'] : [];
+        seed_homeworld_story($db, $provisionalUid, $username, $colonyName, $story);
+    } catch (Throwable $e) {
+        error_log('re-seed story failed for uid ' . $provisionalUid . ': ' . $e->getMessage());
+    }
+
+    // Generate character profile and seed achievements.
+    try {
+        ensure_user_character_profile($db, $provisionalUid, false, $username);
+    } catch (Throwable $e) {
+        error_log('character profile failed for uid ' . $provisionalUid . ': ' . $e->getMessage());
+    }
+    try {
+        ensure_user_achievements_seeded($db, $provisionalUid);
+    } catch (Throwable $e) {
+        // Non-fatal.
+    }
+
+    // Consume the prolog session.
+    $db->prepare('DELETE FROM prolog_sessions WHERE token = ?')->execute([$token]);
+    gq_cache_delete('game_overview', ['uid' => $provisionalUid]);
+
+    // Create the authenticated session.
+    session_start_secure();
+    session_regenerate_id(true);
+    $_SESSION['user_id']  = $provisionalUid;
+    $_SESSION['username'] = $username;
+
+    if ($remember) {
+        issue_remember_me_token($provisionalUid);
+    } else {
+        revoke_remember_me_token_from_cookie();
+    }
+
+    json_ok([
+        'user'        => ['id' => $provisionalUid, 'username' => $username],
+        'colony_name' => $colonyName,
+    ]);
 }

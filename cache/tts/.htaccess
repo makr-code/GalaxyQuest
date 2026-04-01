@@ -1,0 +1,2 @@
+# Block directory listing; individual .mp3 files are allowed by the root .htaccess
+Options -Indexes

@@ -8,6 +8,7 @@
   <meta http-equiv="Expires" content="0" />
   <title>GalaxyQuest – Unified Command Shell</title>
   <link rel="stylesheet" href="css/style.css?v=20260331p26" />
+  <link rel="stylesheet" href="css/prolog.css?v=1" />
   <style>
     #boot-terminal {
       position: fixed;
@@ -228,6 +229,9 @@
     </form>
   </div>
   </section>
+
+  <!-- Narrative registration prologue (shown once after successful registration) -->
+  <section id="prolog-section" class="prolog-section hidden" aria-hidden="true" aria-live="polite"></section>
 
   <section id="auth-preload-section" class="auth-preload-shell" aria-live="polite" aria-atomic="true">
     <div id="auth-preload-panel" class="auth-preload-panel hidden" role="status">
@@ -1354,6 +1358,7 @@
   <script src="js/telemetry/space-flight-hud-engine.js?v=20260329p81"></script>
   <script src="js/rendering/galaxy-camera-controller.js?v=20260329p85"></script>
   <script src="js/rendering/starfield.js?v=20260331p101"></script>
+  <script src="js/ui/prolog.js?v=1"></script>
   <script src="js/network/auth.js?v=20260331p82"></script>
   <script src="js/ui/glossary.js?v=20260331p50"></script>
   <script src="js/ui/ui-kit.js?v=20260331p62"></script>
@@ -1578,6 +1583,14 @@
             <label class="settings-checkbox">
               <input type="checkbox" data-setting="autoSceneMusic" checked />
               <span>Auto Scene Music</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>NPC Voice (TTS)</legend>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="ttsAutoVoice" id="settings-tts-auto-voice" checked />
+              <span>Auto-Voice NPC dialogue</span>
             </label>
           </fieldset>
         </div>
