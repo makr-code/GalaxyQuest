@@ -23,7 +23,7 @@
 12. [Balancing-Richtlinien](#12-balancing-richtlinien)
 13. [Implementierungs-Phasen](#13-implementierungs-phasen)
 14. [Offene Fragen & Ausblick](#14-offene-fragen--ausblick)
-15. [NPC-Fraktions-Modifier-Tabellen](#15-npc-fraktions-modifier-tabellen-alle-11-fraktionen)
+15. [NPC-Fraktions-Modifier-Tabellen](#15-npc-fraktions-modifier-tabellen-alle-13-fraktionen)
 16. [Fraktions-Quer-Effekte](#16-fraktions-quer-effekte)
 17. [Quest-Katalog pro Fraktion und Tier](#17-quest-katalog-pro-fraktion-und-tier)
 18. [Wirtschaftsintegration (ColonySimulation)](#18-wirtschaftsintegration-colonysimulation)
@@ -694,7 +694,7 @@ und 5.3.
 GET /api/factions.php?action=tier_modifiers
 ```
 
-Rückgabe für alle 17 Fraktionen: `faction_id`, `current_tier`, `tier_label`,
+Rückgabe für alle 19 Fraktionen (6 Hauptfraktionen + 13 NPC-Fraktionen): `faction_id`, `current_tier`, `tier_label`,
 `active_modifiers[]`, `net_faction_pressure`, `pressure_label`.
 
 ---
@@ -836,12 +836,16 @@ js/game.js (FactionPanel)
 
 ---
 
-## 15. NPC-Fraktions-Modifier-Tabellen (alle 11 Fraktionen)
+## 15. NPC-Fraktions-Modifier-Tabellen (alle 13 Fraktionen)
 
 Die 6 Hauptfraktionen werden in Kapitel 5.2/5.3 behandelt. Hier folgen die
-**spezifischen Tier-Modifier** für alle 11 NPC-Fraktionen. Jede Tabelle zeigt
+**spezifischen Tier-Modifier** für alle 13 NPC-Fraktionen. Jede Tabelle zeigt
 nur die **Abweichungen vom Standard** (Kapitel 5.2); Basis-Modifier gelten
 ergänzend.
+
+> **Kanonische Fraktionszahl (Stand 2026-04-01):** 11 ursprüngliche + 2 neu hinzugefügte = **13 NPC-Fraktionen**.
+> Fraktionen 12 und 13 (Schattenkompakt, Genesis-Kollektiv) werden via Migration
+> `migrate_npc_factions_hardreplace_v1.sql` eingefügt (Hard-Replace, siehe FACTION_INTRODUCTION.md §11.3.6).
 
 ---
 
@@ -1096,6 +1100,57 @@ Bieten einmalige FTL-Boni und Dimensionskenntnis.
 > **Besonderheit:** Tier 4 schaltet die **Terraforming-Kooperation** frei:
 > Koloniegründung auf ungünstigen Planetentypen dauert 25% kürzer.
 > Synergieeffekt mit Myr'Keth: Wenn beide auf Tier 3+, `pop_growth_mult` +0.04 zusätzlich.
+
+---
+
+### 15.12 Das Schattenkompakt *(Fraktion 12 – neu)*
+
+**Typ:** `espionage` | **threat_level:** 5 | **Max. Tier:** 4  
+**Beschreibung:** Ein galaktisches Netzwerk aus Informationsbrokern, Agenten und Doppelspionen.
+Kein Territorium, keine Flotte – nur Wissen als Währung. Beziehungen sind immer ambivalent.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `spy_detection_flat` | −25 | Kompakt sabotiert Abwehrnetzwerke |
+| **0** | `espionage_ops_cost_mult` | +0.30 | Gegensabotage aller Operationen |
+| **1 – Kalt** | `spy_detection_flat` | −10 | Passive Informationsblockade |
+| **2 – Neutral** | *(Basis-Modifier)* | — | — |
+| **3 – Verbündet** | `spy_detection_flat` | +20 | Zugang zum Kompakt-Netzwerk |
+| **3** | `espionage_ops_cost_mult` | −0.15 | Geteilte Operationsinfrastruktur |
+| **4 – Strategisch** | `spy_detection_flat` | +35 | Vollständige Netzwerkintegration |
+| **4** | `espionage_ops_cost_mult` | −0.25 | Kompakt übernimmt Operationslogistik |
+| **4** | `dark_matter_income_flat` | +8 | Informationshandel mit DM-Vergütung |
+
+> **Besonderheit:** Tier 3 mit Schattenkompakt schaltet die exklusive Aktion
+> `espionage.php?action=shadow_broker` frei — einmalige Enthüllung aller aktiven
+> Spionagenetze anderer Spieler in einer Region.
+> Bei Tier 0: Eigene Agenten haben 30% Chance, als Doppelspion enttarnt zu werden.
+
+---
+
+### 15.13 Das Genesis-Kollektiv *(Fraktion 13 – neu)*
+
+**Typ:** `metamorphic` | **threat_level:** 6 | **Max. Tier:** 4  
+**Beschreibung:** Eine post-biologische Gemeinschaft aus Wesen, die ihren Körper als
+designbare Schnittstelle begreifen. Technologie und Biologie sind für sie untrennbar.
+Handelspartner, aber unberechenbar in Krisenzeiten.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `research_speed_mult` | −0.10 | Technologie-Embargo |
+| **0** | `pop_growth_mult` | −0.05 | Bio-Kontamination durch feindliche Nanostrukturen |
+| **1 – Kalt** | `research_speed_mult` | −0.04 | Passive Wissensblockade |
+| **2 – Neutral** | *(Basis-Modifier)* | — | — |
+| **3 – Verbündet** | `research_speed_mult` | +0.10 | Zugang zu metamorphischer Biotechnologie |
+| **3** | `pop_growth_mult` | +0.06 | Genesis-Wachstumsprotokolle |
+| **4 – Strategisch** | `research_speed_mult` | +0.18 | Vollständige Technologieintegration |
+| **4** | `pop_growth_mult` | +0.10 | Metamorphe Kolonieoptimierung |
+| **4** | `colony_stability_flat` | +4 | Biologische Stabilitätsanker |
+| **4** | `food_output_mult` | +0.08 | Synthetische Nahrungsproduktion |
+
+> **Besonderheit:** Tier 4 schaltet den einzigartigen Hull-Typ `genesis_carrier` frei —
+> ein organisch-mechanischer Trägerschiff-Hybrid mit passivem Schild-Regen-Bonus.
+> Synergieeffekt mit Brut der Ewigkeit (§15.11): Wenn beide auf Tier 3+, `food_output_mult` +0.05 zusätzlich.
 
 ---
 

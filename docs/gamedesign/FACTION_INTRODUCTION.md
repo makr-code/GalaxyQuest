@@ -1,8 +1,9 @@
 # 🌌 Fraktionseinführung – Spielerstart & Aufstieg in der Kalytherion-Konvergenz
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Status:** Konzept & LORE – Blaupause für Spieldesign & Erzählung  
-**Zugehörig zu:** [GAMEDESIGN.md](GAMEDESIGN.md) → [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md)
+**Zugehörig zu:** [GAMEDESIGN.md](GAMEDESIGN.md) → [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md)  
+**Entscheidungen (kanonisch):** Rasse bei Spielstart wählen · Isolationspfad vollständig spezifiziert · Legacy-NPC-Fraktionen Hard-Replace (ALTER + UPDATE)
 
 ---
 
@@ -24,7 +25,13 @@
 11. [Alternative Systemmodelle: Die Abkehr vom Rufpfad](#11-alternative-systemmodelle-die-abkehr-vom-rufpfad)
     - 11.1 Die eigene Bevölkerung als siebte Fraktion
     - 11.2 Einfluss statt Ruf: Das Schuldensystem
-    - 11.3 Der Isolationspfad: Khal'Vethis als Freistaat
+    - 11.3 Der Isolationspfad: Khal'Vethis als Freistaat (vollständig)
+      - 11.3.1 Aktivierungsbedingungen
+      - 11.3.2 Souveränitäts-Score
+      - 11.3.3 Spielphasen-Verlauf
+      - 11.3.4 Exklusive Mechaniken
+      - 11.3.5 Endgame-Bedingung
+      - 11.3.6 Hard-Replace: Legacy NPC-Fraktionen in DB
 
 ---
 
@@ -102,11 +109,39 @@ Vor zwei Standardjahren entdeckten lokale Bergarbeiter tiefe Vorkommen eines bis
 
 ## 3. Der Spielercharakter: Gouverneur der Randwelt
 
-### Wer spielt der Spieler?
+### 3.1 Rasse bei Spielstart wählen *(kanonische Entscheidung)*
 
-Der Spieler übernimmt die Rolle des **neu gewählten Gouverneurs von Khal'Vethis** – einer Person, die entweder aus der Kolonie selbst stammt (jemand, dem die Gemeinschaft vertraut) oder kürzlich von der Konvergenz als neutrale Verwaltungspersönlichkeit eingesetzt wurde.
+**Entscheidung:** Der Spieler wählt **bei der Kontoerstellung** eine der sechs Hauptrassen der Kalytherion-Konvergenz. Die Wahl ist **dauerhaft** und prägt Startwerte, FTL-Antrieb, passive Boni sowie die initiale Fraktionsneigung.
 
-**Wichtig für das Spielgefühl:** Der Spieler repräsentiert *keine* der sechs Fraktionen. Er ist ein **freier Akteur** – weder vollständig neutral noch mit fester Loyalität. Die sechs Fraktionen betrachten ihn als Rohstoff: unkultiviert, formbar, bedeutsam.
+> **Designbegründung (OD-1 aus FTL_DRIVE_DESIGN.md §8):** Rasse ≡ FTL-Antrieb für mehr Kohärenz. Wahl *nach* dem Tutorial verwässert die First-Impressions; eine frühe Entscheidung erzeugt stärkere Identifikation mit der Spielwelt.
+
+**UI-Flow:**
+```
+Registrierung → Benutzername/Passwort → [Rasse wählen – 6 Karten mit Lore-Blurb + FTL-Vorschau] → Startkolonie-Generierung
+```
+
+**Rassenboni und FTL-Startwerte:**
+
+| Rasse | Passiver Startbonus | FTL-Antrieb | Fraktionsneigung (Start) |
+|---|---|---|---|
+| 🦎 **Vor'Tak** | `military_readiness` +10 | Kearny-Fuchida Sprung | Vor'Tak +10 |
+| 🐙 **Syl'Nar** | `trade_income_mult` +0.08 | Resonanz-Gate-Netz | Syl'Nar +10 |
+| 🔥 **Aereth** | `research_speed_mult` +0.08 | Alcubierre-Warp | Aereth +10 |
+| 🦗 **Kryl'Tha** | `pop_growth_mult` +0.06 | Schwarmtunnel | Kryl'Tha +10 |
+| 💎 **Zhareen** | `colony_stability_flat` +5 | Kristall-Resonanz | Zhareen +10 |
+| 🌫️ **Vel'Ar** | `spy_detection_flat` +8 | Blinder Quantensprung | Vel'Ar +10 |
+
+**DB-Abbildung:** `users.race ENUM('vortak','sylnar','aereth','kryltha','zhareen','velar') NOT NULL` — Hard-Replace der bisherigen Nullwerte via Migration (siehe §11.4).
+
+**Neutraler Modus entfällt:** Es gibt keine „keine Rasse"-Option mehr. Wer den Isolationspfad spielen will, startet trotzdem mit einer Rasse – er nutzt dann nur bewusst *nicht* die Fraktionsbindung (siehe §11.3).
+
+---
+
+### 3.2 Wer spielt der Spieler?
+
+Der Spieler übernimmt die Rolle des **neu gewählten Gouverneurs von Khal'Vethis** – eines Angehörigen seiner gewählten Rasse, der entweder aus der Kolonie selbst stammt (jemand, dem die Gemeinschaft vertraut) oder kürzlich von der Konvergenz als Verwaltungspersönlichkeit entsandt wurde.
+
+**Wichtig für das Spielgefühl:** Trotz Rassenbindung repräsentiert der Spieler *nicht automatisch* eine der sechs Hauptfraktionen. Die Rasse ist der *kulturelle Hintergrund*, die Fraktion ist die *politische Entscheidung*. Die sechs Fraktionen betrachten ihn als Rohstoff: unkultiviert, formbar, bedeutsam.
 
 ### Ausgangswerte
 
@@ -115,7 +150,8 @@ Der Spieler übernimmt die Rolle des **neu gewählten Gouverneurs von Khal'Vethi
 | Koloniegröße | Klein (4.200 Einwohner) |
 | Wirtschaftsstufe | Subsistenz (kein Handelsüberschuss) |
 | Flottenstärke | 2 ältere Patrouillen-Corvetten, 1 Frachter |
-| Ruf bei allen 6 Fraktionen | Stufe 0 – *„Unbekannt"* |
+| Ruf bei Heimatfraktion | Stufe 1 – *„Bekannt"* (Startbonus durch Rasse) |
+| Ruf bei den anderen 5 Fraktionen | Stufe 0 – *„Unbekannt"* |
 | Vethisit-Produktion | Gering, aber wachstumsfähig |
 | Besonderheit | Lage im Dreifach-Korridor + Vethisit-Vorkommen |
 
@@ -123,7 +159,8 @@ Der Spieler übernimmt die Rolle des **neu gewählten Gouverneurs von Khal'Vethi
 
 Khal'Vethis hat *Potenzial*, aber keine *Macht*. Der Gouverneur muss entscheiden:
 
-- Welcher Fraktion er sich nähert
+- Ob er die Bindung zur Heimatfraktion vertieft oder überwindet
+- Welchen Fraktionen er sich nähert
 - Womit er sich bezahlt macht
 - Welchen Preis er bereit ist zu zahlen
 - Wem er vertraut – und wem nicht
@@ -700,23 +737,152 @@ Die folgenden drei Modelle brechen dieses Paradigma auf unterschiedliche Weise a
 
 ---
 
-### 11.3 🌑 Der Isolationspfad: Khal'Vethis als Freistaat
+### 11.3 🌑 Der Isolationspfad: Khal'Vethis als Freistaat *(vollständig spezifiziert)*
 
-**Kernidee:** Was, wenn der Spieler bewusst *allen* Hauptfraktionen den Rücken kehrt? Anstatt sich in das Rufmeter-System einzufügen, baut der Spieler Khal'Vethis als eigenständige Macht auf.
+**Kernidee:** Was, wenn der Spieler bewusst *allen* Hauptfraktionen den Rücken kehrt? Anstatt sich in das Rufmeter-System einzufügen, baut der Spieler Khal'Vethis als eigenständige Macht auf. Der Isolationspfad ist kein Scheitern – er ist ein eigener, vollwertiger Siegpfad.
 
-**Bedingungen:**
-- Kein Ruf über Stufe 2 bei einer der sechs Hauptfraktionen (kein aktives Bündnis)
-- Aufbau alternativer Handelsbeziehungen: Helion-Konföderation, Nomaden des Rifts, fraktionslose Randwelten
-- Vethisit bleibt *vollständig unter lokaler Kontrolle* – keine Exklusivverträge
+---
 
-**Konsequenzen:**
-- Kurzfristig: weniger externe Hilfe, höhere Verwundbarkeit
-- Mittelfristig: andere unterdrückte Randwelten schließen sich an → Khal'Vethis als Keimzelle einer unabhängigen Bewegung
-- Langfristig: die sechs Hauptfraktionen beginnen, Khal'Vethis als *Bedrohung* wahrzunehmen und hören auf, den Gouverneur als formbaren Rohstoff zu behandeln
+#### 11.3.1 Aktivierungsbedingungen
 
-**Endgame-Pfad:** Khal'Vethis als eigenständiges Ratsmitglied, das keiner der sechs Hauptmächte verpflichtet ist. Einziger Pfad, auf dem der Spieler ohne Fraktionsloyalität Einfluss im Konvergenzrat erlangt.
+Der Pfad gilt als **aktiv**, wenn gleichzeitig gilt:
+
+| Bedingung | Konkrete Schwelle |
+|---|---|
+| Kein aktives Bündnis mit einer Hauptfraktion | Ruf ≤ Stufe 2 bei *allen* sechs Hauptfraktionen |
+| Eigenständige Handelsrouten | ≥ 3 aktive Handelsrouten zu Helion-Konföderation, Nomaden des Rifts oder fraktionslosen Randwelten |
+| Vethisit-Kontrolle | Kein aktiver Exklusivvertrag mit einer Hauptfraktion (`vethisit_contract = NULL`) |
+| Souveränitäts-Score | `sovereignty_score ≥ 40` (siehe §11.3.2) |
+
+Das System prüft diese Bedingungen einmal pro Stunde im `npc_ai`-Tick. Bei Aktivierung wird `users.isolation_path_active = 1` gesetzt und das Journal-Event `isolation_path_activated` gefeuert.
+
+---
+
+#### 11.3.2 Souveränitäts-Score (`sovereignty_score`)
+
+Ein neuer Empire-Score (0–100), der ausschließlich durch den Isolationspfad relevant ist:
+
+```
+sovereignty_score = CLAMP(
+    (unabhängige_handelsrouten × 8)
+  + (verbündete_randwelten × 12)
+  + (vethisit_export_selbstvermarktung_anteil × 30)
+  + (turns_ohne_hauptfraktionskontakt × 0.05)
+  − (hauptfraktions_quests_abgeschlossen × 5)
+  , 0, 100
+)
+```
+
+| Score-Band | Bedeutung | Effekt |
+|---|---|---|
+| 0–39 | Abhängig | Kein Isolationspfad |
+| 40–59 | Eigenständig | Pfad aktiv; erste Randwelten schließen sich an |
+| 60–79 | Bewegung | Khal'Vethis gilt als Anführer; Druckkampagnen der Hauptfraktionen beginnen |
+| 80–99 | Freistaat | Handelsembargo-Versuche der Hauptfraktionen; starke Synergieboni |
+| 100 | Konvergenz-Faktor | Endgame-Bedingung erfüllt (siehe §11.3.5) |
+
+**DB-Feld:** `users.sovereignty_score TINYINT UNSIGNED NOT NULL DEFAULT 0` – wird via `scripts/project_user_overview.php` jede Stunde neu berechnet.
+
+---
+
+#### 11.3.3 Spielphasen-Verlauf
+
+**Phase 1 – Stille Abkehr (Stunden 1–15)**
+- Spieler lehnt Angebote der Hauptfraktionen ab oder ignoriert sie
+- Keine unmittelbaren Konsequenzen; `sovereignty_score` steigt langsam
+- *Journal-Events:* „Gerüchte über Khal'Vethis' Unabhängigkeitswillen" (Fraktionen informieren sich)
+
+**Phase 2 – Erste Konsequenzen (Stunden 15–35)**
+- Hauptfraktionen senden Drohbotschaften und reduzierten Handelszugang
+- Erste Randwelten nehmen Kontakt auf (`isolation_path_ally_request`-Event)
+- Spieler kann Allianzen mit bis zu 8 Randwelten eingehen (eigenes Netz)
+- *Journal-Events:* „Khal'Vethis als Hoffnungsträger", „Vor'Tak verhängt Transitsperre"
+
+**Phase 3 – Aktive Bedrohung (Stunden 35–60)**
+- Mindestens zwei Hauptfraktionen deklarieren `status = 'hostile'`
+- Militärische Überfälle möglich (gesteuert via `npc_ai`-Angriffswahrscheinlichkeit × `sovereignty_score / 100`)
+- Khal'Vethis erhält Zugang zu exklusiven Randwelt-Technologien (Forschungsboni)
+- *Journal-Events:* „Die Konvergenz diskutiert Khal'Vethis im Rat", „Dreieinigkeit der Randwelten"
+
+**Phase 4 – Freistaat-Etablierung (Stunden 60–100)**
+- `sovereignty_score ≥ 80`
+- Khal'Vethis hat ein eigenes diplomatisches Netz aus ≥ 5 Randwelten
+- Alle sechs Hauptfraktionen reagieren mit Druck (Handelsembargo, Spionage)
+- Spieler kann einen **Randwelt-Rat** gründen: eigene politische Fraktion
+
+**Phase 5 – Endgame (ab Stunde 100+)**
+- `sovereignty_score = 100` aktiviert den Siegpfad (§11.3.5)
+
+---
+
+#### 11.3.4 Exklusive Mechaniken des Isolationspfads
+
+| Mechanik | Beschreibung | DB / Code |
+|---|---|---|
+| **Randwelt-Allianz** | Bündnisse mit fraktionslosen Systemen; jedes gibt +12 `sovereignty_score` | `isolation_allies`-Tabelle |
+| **Vethisit-Selbstvermarktung** | Spieler steuert Export-Preis direkt am Galaktischen Markt (+20% Marge) | `GalacticMarket.setDirectExport()` |
+| **Technologie-Sharing** | Randwelt-Verbündete teilen einzigartige Schiffshull-Varianten frei | `vessel_hulls.source = 'isolation_network'` |
+| **Konvergenz-Ratsstimme** | Ab `sovereignty_score ≥ 60`: 1 permanente neutrale Stimme im Rat (blockiert einseitige Entscheidungen gegen Randwelten) | `council_votes`-Tabelle |
+| **Informationsnetz** | Randwelt-Spionagenetz (ohne eigene Agenten) – passive Bedrohungsvorwarnung | `intel_feed`-Tabelle |
+
+---
+
+#### 11.3.5 Endgame-Bedingung: „Khal'Vethis – Siebter Ratssitz"
+
+**Aktivierung:** `sovereignty_score = 100` + mind. 5 Randwelt-Verbündete + Vethisit unter lokaler Kontrolle
+
+**Spielmechanisch:**
+1. Khal'Vethis bewirbt sich um einen Ratssitz im Konvergenzrat (Quest: *„Die Stimme der Vergessenen"*)
+2. Die sechs Hauptfraktionen stimmen ab — Ergebnis hängt vom Standing und von Schulden ab
+3. **Erfolgsbedingung:** mind. 3 Stimmen (kann durch Schuldensystem aus §11.2 beeinflusst werden)
+4. **Bei Erfolg:** Spieler hält den einzigen neutralen Ratssitz — permanente Vetomacht gegen Beschlüsse, die Randwelten schaden
 
 **Thematische Bedeutung:** Der Isolationspfad kehrt die Tutorial-Prämisse um. Der Spieler wird eingeführt als jemand, den die sechs Fraktionen formen wollen – doch wer das System erkennt und sich entzieht, schreibt eine fundamental andere Geschichte. Khal'Vethis war als Werkzeug geplant; es wird stattdessen zum Spiegel.
+
+---
+
+#### 11.3.6 Hard-Replace: Legacy NPC-Fraktionen in DB *(kanonische Entscheidung)*
+
+**Entscheidung: ALTER + UPDATE (Hard-Replace, kein Soft-Rename).**
+
+Begründung: Soft-Rename würde `ENUM`-Werte und `type`-Spalten inkonsistent lassen. Hard-Replace via Migration ist sauberer und vermeidet doppelte Code-Pfade.
+
+```sql
+-- Migration: migrate_npc_factions_hardreplace_v1.sql
+
+-- 1. Neue Spalten hinzufügen (neue kanonische Namen)
+ALTER TABLE npc_factions
+    MODIFY COLUMN type ENUM(
+        'military','trade','science','pirate','ancient',
+        'spiritual','espionage','archival','metamorphic',
+        'primal_ai','post_organic_ai','void_entity',
+        'schismatic','cult','military_human','eternal_brood',
+        'default'
+    ) NOT NULL DEFAULT 'default';
+
+-- 2. Legacy-Code-Werte auf kanonische Werte umschreiben
+UPDATE npc_factions SET code = 'aethernox'       WHERE code IN ('ancient_watchers','alte_waechter');
+UPDATE npc_factions SET code = 'kharmorr'        WHERE code IN ('pirate_syndicate','piratensyndikate');
+UPDATE npc_factions SET code = 'helion'          WHERE code IN ('trade_confed','handelskonfoed');
+UPDATE npc_factions SET code = 'iron_fleet'      WHERE code IN ('human_fleet','eisenflotte_alt');
+UPDATE npc_factions SET code = 'omniscienta'     WHERE code IN ('ai_collective','ki_kollektiv');
+UPDATE npc_factions SET code = 'myrketh'         WHERE code IN ('metal_swarm','metallschwarm');
+UPDATE npc_factions SET code = 'void_echoes'     WHERE code IN ('void_fragments','leerenbrut_fragmente');
+UPDATE npc_factions SET code = 'verath_heretics' WHERE code IN ('schismatics','ketzer_alt');
+UPDATE npc_factions SET code = 'light_architects'WHERE code IN ('light_cult','lichtarchitekten_alt');
+UPDATE npc_factions SET code = 'rift_nomads'     WHERE code IN ('nomads','nomaden_alt');
+UPDATE npc_factions SET code = 'eternal_brood'   WHERE code IN ('brood_eternal','brut_alt');
+-- Neue Fraktionen 12 + 13 (Hard-Insert falls nicht vorhanden)
+INSERT IGNORE INTO npc_factions (code, name, type, power_level, aggression, trade_willingness)
+    VALUES
+    ('shadow_compact', 'Das Schattenkompakt', 'espionage', 5, 4, 3),
+    ('genesis_collective', 'Das Genesis-Kollektiv', 'metamorphic', 6, 2, 7);
+```
+
+**Referenz-Entscheidung:** Hard-Replace statt Soft-Rename, weil:
+- Keine aktiven Produktionsdaten betroffen (Pre-Launch)
+- `ENUM`-Sauberkeit wichtiger als Migrationseinfachheit
+- Code-Pfade in `api/factions.php` und `npc_ai.php` nutzen `code`-Werte direkt
 
 ---
 
@@ -730,7 +896,9 @@ Die folgenden drei Modelle brechen dieses Paradigma auf unterschiedliche Weise a
 | 🕵️ Information & Nachrichtendienst (5.6) | Phase 2 – Informationsdaten-System | Mittel |
 | 🌐 Mediation (5.7) | Phase 2 – Event-basiert | Mittel |
 | 💸 Schuldensystem (11.2) | Phase 3 – paralleles System | Mittel |
-| 🌑 Isolationspfad (11.3) | Phase 3 – Late-Game-Pfad | Mittel |
+| 🌑 Isolationspfad §11.3.1–11.3.4 | Phase 3 – Sovereignty-Score + Randwelt-Allianzen | Mittel |
+| 🏆 Isolationspfad §11.3.5 Endgame | Phase 4 – Ratsstimme + Siegpfad | Niedrig |
+| 🗄️ Hard-Replace §11.3.6 Migration | Pre-Phase-1 – vor erstem Produktionsdaten | Hoch |
 
 ---
 

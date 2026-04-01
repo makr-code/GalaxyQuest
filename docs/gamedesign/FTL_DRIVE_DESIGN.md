@@ -610,7 +610,7 @@ WHERE u.ftl_drive_type = 'alcubierre';
 
 | # | Frage | Optionen | Empfehlung |
 |---|---|---|---|
-| **OD-1** | Wann wählt der Spieler seine Fraktion/FTL? | a) Bei Registrierung, b) Nach Tutorial, c) Jederzeit änderbar | **b)** Nach Tutorial — Spieler versteht dann die Konsequenzen |
+| **OD-1** | Wann wählt der Spieler seine Fraktion/FTL? | a) Bei Registrierung, b) Nach Tutorial, c) Jederzeit änderbar | ✅ **Implementiert** — **a)** Bei Registrierung: Rasse (= FTL) wird bei Kontoerstellung gewählt. Erste Wahl kostenlos, Wechsel 200 DM (bereits via `set_ftl_drive`). Siehe FACTION_INTRODUCTION.md §3.1 |
 | **OD-2** | Ist der FTL-Typ an die Rasse gebunden oder frei wählbar? | a) Rasse = FTL fest, b) Rasse und FTL unabhängig | **a)** Rasse = FTL für mehr Kohärenz |
 | **OD-3** | Wie werden NPC-Fraktionen FTL-typen zugewiesen? | a) Alle NPCs nutzen Aereth (Standard), b) NPCs haben Rassen-spezifisches FTL | ✅ **Implementiert** — Migration v12 + `npc_assign_ftl_drive()` in `npc_ai.php` |
 | **OD-4** | Syl'Nar Gates: Werden sie auf der Karte sichtbar für andere Spieler? | a) Nur Besitzer sieht, b) Alle sehen (angreifbar), c) Scouting nötig | **c)** Scouting — bestes Balancing |
