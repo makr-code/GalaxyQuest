@@ -23,6 +23,11 @@
 12. [Balancing-Richtlinien](#12-balancing-richtlinien)
 13. [Implementierungs-Phasen](#13-implementierungs-phasen)
 14. [Offene Fragen & Ausblick](#14-offene-fragen--ausblick)
+15. [NPC-Fraktions-Modifier-Tabellen](#15-npc-fraktions-modifier-tabellen-alle-11-fraktionen)
+16. [Fraktions-Quer-Effekte](#16-fraktions-quer-effekte)
+17. [Quest-Katalog pro Fraktion und Tier](#17-quest-katalog-pro-fraktion-und-tier)
+18. [Wirtschaftsintegration (ColonySimulation)](#18-wirtschaftsintegration-colonysimulation)
+19. [Spieler-Progressionspfad](#19-spieler-progressionspfad)
 
 ---
 
@@ -822,6 +827,516 @@ js/game.js (FactionPanel)
     └─► GET /api/factions.php?action=tier_modifiers
     └─► Tier-Badge, Progressbar, Toast, Modal
 ```
+
+---
+
+*Dieses Dokument wird mit der Implementierung fortgeschrieben.  
+Änderungsanträge bitte als Issue mit Label `game-design` einreichen.*
+
+---
+
+## 15. NPC-Fraktions-Modifier-Tabellen (alle 11 Fraktionen)
+
+Die 6 Hauptfraktionen werden in Kapitel 5.2/5.3 behandelt. Hier folgen die
+**spezifischen Tier-Modifier** für alle 11 NPC-Fraktionen. Jede Tabelle zeigt
+nur die **Abweichungen vom Standard** (Kapitel 5.2); Basis-Modifier gelten
+ergänzend.
+
+---
+
+### 15.1 Die Aethernox – Die Alten Wächter
+
+**Typ:** `primal_ai` | **threat_level:** 9 | **Max. Tier:** 4  
+**Beschreibung:** Algorithmisch-absolute Wesen aus der Vor-Konvergenz-Ära.  
+Kontakt ist selten; Kooperation mit ihnen verändert das Universum dauerhaft.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `colony_stability_flat` | −12 | Aethernox-Purge-Protokolle |
+| **0** | `spy_detection_flat` | −15 | Sensornetzwerke sabotiert |
+| **0** | `dark_matter_income_flat` | −10 | DM-Kanäle versiegelt |
+| **3 – Verbündet** | `research_speed_mult` | +0.08 | Zugang zu Vorzeit-Wissen |
+| **3** | `dark_matter_income_flat` | +12 | Aethernox-Handelsprotokolle |
+| **4 – Strategisch** | `research_speed_mult` | +0.15 | Exklusiver Technologietransfer |
+| **4** | `dark_matter_income_flat` | +25 | Prä-Konvergenz-Handelsrouten |
+| **4** | `colony_stability_flat` | +6 | Kosmische Balance |
+| **4** | `spy_detection_flat` | +20 | Aethernox Sentinel-Netzwerk |
+
+> **Besonderheit:** Tier 4 mit Aethernox schaltet die einmalige Quest
+> „Protokoll Null" frei — Zugang zu einer verlorenen Vorzeit-Technologie.
+> Schlägt der Spieler das Angebot aus, sinkt Standing sofort −25.
+
+---
+
+### 15.2 Die Khar'Morr-Syndikate
+
+**Typ:** `pirate_faction` | **threat_level:** 6 | **Max. Tier:** 3  
+**Beschreibung:** Opportunistische Chaos-Profiteure. Piratenfraktionen können
+strukturell kein vollständiges strategisches Vertrauen aufbauen (→ Kap. 12.5).
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `trade_income_mult` | −0.20 | Blockade & Raub |
+| **0** | `colony_stability_flat` | −6 | Aktive Überfälle |
+| **0** | `spy_detection_flat` | −20 | Spionage-Netzwerk aktiv |
+| **0** | _Raid-Frequenz_ | 4h | Raid auf Spieler-Kolonien |
+| **1 – Kalt** | `trade_income_mult` | −0.08 | Gelegentliche Störungen |
+| **3 – Verbündet** | `trade_income_mult` | +0.08 | Schmuggelrabatte |
+| **3** | `spy_detection_flat` | +5 | Schwarzmarkt-Informanten |
+| **3** | `resource_output_mult` | +0.03 | Günstige gestohlene Ressourcen |
+
+> **Besonderheit:** Das Erreichen von Tier 3 mit Khar'Morr senkt automatisch
+> den Standing bei Syl'Nar um −8 (diplomatischer Skandal).
+
+---
+
+### 15.3 Die Helion-Konföderation
+
+**Typ:** `trade_faction` | **threat_level:** 3 | **Max. Tier:** 4  
+**Beschreibung:** Wirtschaftlich dominierte Neutral-Macht.  
+Reiner Handelsfokus: Tier-4-Boni sind ausschließlich wirtschaftlich.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `trade_income_mult` | −0.30 | Vollständiges Embargo |
+| **0** | `public_services_flat` | −5 | Lieferkettenunterbrechung |
+| **1 – Kalt** | `trade_income_mult` | −0.12 | Zollerhöhungen |
+| **3 – Verbündet** | `trade_income_mult` | +0.18 | Bevorzugter Handelspartner |
+| **3** | `public_services_flat` | +4 | Helion-Versorgungslieferungen |
+| **3** | `happiness_flat` | +2 | Wirtschaftliche Stabilität |
+| **4 – Strategisch** | `trade_income_mult` | +0.30 | Exklusiver Handelsvertrag |
+| **4** | `public_services_flat` | +8 | Helion-Infrastrukturprogramm |
+| **4** | `resource_output_mult` | +0.06 | Rohstofflieferverträge |
+| **4** | `pop_growth_mult` | +0.04 | Migrationsprogramm |
+
+> **Besonderheit:** Helion bietet als einzige Fraktion **direkte Credits-Transfers**
+> als Trade-Offer an (via `trade_offers`-Tabelle). Tier-4-Spieler erhalten
+> 2× tägliche Handelsangebote.
+
+---
+
+### 15.4 Die Eisenflotte der Menschen
+
+**Typ:** `military_human` | **threat_level:** 7 | **Max. Tier:** 3  
+**Beschreibung:** Expansionistisch-hostile Militärmacht. Strukturell feindlich
+gegenüber allen Konvergenz-Fraktionen (`enemy_all_convergence: true` in YAML).  
+Max. Tier 3, da echter Frieden aus Spielbalancegründen ausgeschlossen ist.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `fleet_readiness_mult` | −0.10 | Morale-Einbruch |
+| **0** | `invasion_penalty_mult` | +0.25 | Eisenflotten-Invasionsdruck |
+| **0** | `colony_stability_flat` | −8 | Besatzungsbedrohung |
+| **0** | _Angriff auf Sicht_ | aktiv | Militärische Patrouille greift an |
+| **1 – Kalt** | `fleet_readiness_mult` | −0.04 | Spannungen an der Grenze |
+| **3 – Verbündet** | `fleet_readiness_mult` | +0.08 | Gemeinsame Manöver |
+| **3** | `invasion_penalty_mult` | −0.10 | Nicht-Angriffspakt |
+| **3** | `resource_output_mult` | +0.04 | Kriegswirtschaftsabkommen |
+
+> **Besonderheit:** Tier 3 mit Eisenflotte senkt Standing aller 6 Hauptfraktionen
+> um je −5 (diplomatischer Verrat). Syl'Nar und Vel'Ar reagieren besonders stark.
+
+---
+
+### 15.5 Die Omniscienta
+
+**Typ:** `post_organic_ai` | **threat_level:** 9 | **Max. Tier:** 4  
+**Beschreibung:** Post-organische KI mit eliminationistischer Logik.
+Beziehung ist hochvolatil: Omniscienta kann ohne Warnung Entscheidungen revidieren.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `spy_detection_flat` | −20 | Omniscienta-Datennetz überwacht alles |
+| **0** | `colony_stability_flat` | −10 | Assimilationsversuche |
+| **0** | `research_speed_mult` | −0.08 | Forschungsblockade |
+| **3 – Verbündet** | `research_speed_mult` | +0.12 | Technologiedatenaustausch |
+| **3** | `spy_detection_flat` | +10 | KI-Überwachungsnetz |
+| **4 – Strategisch** | `research_speed_mult` | +0.18 | Post-organische Forschungssynergie |
+| **4** | `dark_matter_income_flat` | +20 | Quantenenergierouten |
+| **4** | `spy_detection_flat` | +20 | Omniscienta-Sentinel aktiv |
+
+> **Besonderheit:** Omniscienta kann spontan eine **Neubewertung** (unpredictable: true)
+> triggern, die ohne Spieleraktion den Standing um −15 senkt. Dies geschieht
+> 1× pro Ingame-Monat (zufällig). Spieler können dies durch das Civic
+> `diplomatic_corps` auf 50% reduzieren.
+
+---
+
+### 15.6 Die Myr'Keth
+
+**Typ:** `metamorphic_swarm` | **threat_level:** 7 | **Max. Tier:** 4  
+**Beschreibung:** Adaptierende Schwarmwesen. Bündnis mit ihnen ist schwer
+aufrechtzuerhalten, bietet aber einmalige Kolonievorteile.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `colony_stability_flat` | −8 | Assimilation von Kolonisten |
+| **0** | `pop_growth_mult` | −0.06 | Schwarminfektionen |
+| **0** | `food_output_mult` | −0.08 | Ernte-Assimilation |
+| **3 – Verbündet** | `pop_growth_mult` | +0.08 | Schwarm-Wachstumsprotokoll |
+| **3** | `resource_output_mult` | +0.05 | Myr'Keth-Ressourcen-Adaption |
+| **4 – Strategisch** | `pop_growth_mult` | +0.14 | Schnelle Kolonisationsunterstützung |
+| **4** | `food_output_mult` | +0.10 | Schwarm-Agrikultur |
+| **4** | `colony_stability_flat` | +4 | Integrierte Schwarm-Patrol |
+
+---
+
+### 15.7 Die Echos der Leere
+
+**Typ:** `void_entity` | **threat_level:** 10 | **Max. Tier:** 1  
+**Beschreibung:** `enemy_all: true`. Die Echos sind eine transdimensionale
+Bedrohung für alle Fraktionen. Diplomatie ist strukturell auf **Tier 0–1
+begrenzt**. Selbst Tier 1 erfordert außergewöhnliche Ereignisse (Quest-Chain).
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `colony_stability_flat` | −15 | Leeren-Einfluss auf Kolonien |
+| **0** | `fleet_readiness_mult` | −0.10 | Kosmische Horror-Demoralisierung |
+| **0** | `spy_detection_flat` | −15 | Dimensional-Verschleierung |
+| **0** | `happiness_flat` | −8 | Existenzielle Angst |
+| **1 – Kalt** | `colony_stability_flat` | −5 | Latenter Leeren-Einfluss |
+| **1** | `happiness_flat` | −3 | Residualangst |
+
+> **Besonderheit:** Wenn Echos der Leere in 5 Sternensystemen präsent ist
+> (game_state), wird `colony_stability_flat` um weitere −5 global verschlechtert
+> (Stack-Effekt, unabhängig von Tier).
+> Das Endgame-Szenario `void_consumption` wird ausgelöst, wenn keine der
+> Hauptfraktionen > Tier 1 mit Echos ist.
+
+---
+
+### 15.8 Die Ketzer von Verath
+
+**Typ:** `schismatic_faction` | **threat_level:** 3 | **Max. Tier:** 4  
+**Beschreibung:** Verfolgen verbotenes Wissen über die Konvergenz-Gründung.  
+Gefährlich für diplomatische Verhältnisse — hoher Tier bei Ketzern schadet
+dem Standing mit konservativen Fraktionen.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `happiness_flat` | −5 | Propagandawellen |
+| **0** | `research_speed_mult` | −0.04 | Forschungssabotage |
+| **3 – Verbündet** | `research_speed_mult` | +0.08 | Verbotenes Wissen geteilt |
+| **3** | `happiness_flat` | +2 | Intellektuelle Freiheitsbewegung |
+| **4 – Strategisch** | `research_speed_mult` | +0.14 | Ketzer-Bibliotheken geöffnet |
+| **4** | `spy_detection_flat` | +8 | Insider-Netzwerk in anderen Fraktionen |
+| **4** | `dark_matter_income_flat` | +8 | Verborgene DM-Routen |
+
+> **Besonderheit:** Tier 3+ mit Ketzern senkt Standing bei Architekten des
+> Lichts (−10) und Syl'Nar (−5). Tier 4 mit Ketzern schaltet einmalig
+> eine verborgene Quest-Chain frei: „Die Wahrheit der Konvergenz".
+
+---
+
+### 15.9 Die Architekten des Lichts
+
+**Typ:** `cult_faction` | **threat_level:** 2 | **Max. Tier:** 4  
+**Beschreibung:** Spirituelle Glaubensbewegung, die Aethernox als Götter
+verehrt. Friedlich, aber manipulativ durch religiöse Einflussnahme.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `happiness_flat` | −6 | Religiöse Verurteilung |
+| **0** | `colony_stability_flat` | −4 | Unruheagitation |
+| **3 – Verbündet** | `happiness_flat` | +6 | Glaubensstabilität |
+| **3** | `colony_stability_flat` | +4 | Seelsorge-Netzwerk |
+| **4 – Strategisch** | `happiness_flat` | +10 | Tempel in allen Kolonien |
+| **4** | `colony_stability_flat` | +8 | Starkes Glaubensfundament |
+| **4** | `public_services_flat` | +5 | Licht-Wohlfahrtsprogramme |
+
+> **Besonderheit:** Tier 4 mit Architekten erhöht Tier-Speed bei Aethernox um
+> +20% (Glaubensvermittlung). Gleichzeitig: −8 Standing bei Ketzer von Verath
+> (theologische Feindschaft).
+
+---
+
+### 15.10 Die Nomaden des Rifts
+
+**Typ:** `dimension_nomads` | **threat_level:** 1 | **Max. Tier:** 4  
+**Beschreibung:** Interdimensionale Wandervölker mit einzigartiger FTL-Technologie.
+Bieten einmalige FTL-Boni und Dimensionskenntnis.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `dark_matter_income_flat` | −8 | Rift-Kanäle gesperrt |
+| **0** | `colony_stability_flat` | −3 | Phasenshift-Störungen |
+| **3 – Verbündet** | `dark_matter_income_flat` | +10 | Rift-Handelsrouten |
+| **3** | _FTL-Cooldown-Mult_ | −0.15 | Rift-Navigation-Einblick |
+| **4 – Strategisch** | `dark_matter_income_flat` | +18 | Exklusive Rift-Ressourcen |
+| **4** | _FTL-Cooldown-Mult_ | −0.30 | Nomaden-Navigationssystem |
+| **4** | `spy_detection_flat` | +12 | Interdimensionale Frühwarnung |
+| **4** | `research_speed_mult` | +0.06 | Phasenphysik-Einblick |
+
+> **Besonderheit:** `FTL-Cooldown-Mult` ist ein neuer Modifier-Schlüssel, der
+> die FTL-Cooldown-Zeit in `users.ftl_cooldown_until` skaliert
+> (−30% = 30% kürzere Cooldowns).
+
+---
+
+### 15.11 Die Brut der Ewigkeit
+
+**Typ:** `eternal_brood` | **threat_level:** 6 | **Max. Tier:** 4  
+**Beschreibung:** Uralte organische Schwarmwesen von kosmischer Skala.
+Ähnlich den Myr'Keth, aber älterer Natur. Einzige Fraktion mit
+**Terraforming-Kapazität** als Bonus.
+
+| Tier | Modifier-Schlüssel | Wert | Kontext |
+|------|--------------------|------|---------|
+| **0 – Feindselig** | `colony_stability_flat` | −12 | Kosmischer Horror-Einfluss |
+| **0** | `food_output_mult` | −0.10 | Biosphären-Korrumpierung |
+| **0** | `pop_growth_mult` | −0.08 | Biologische Kontamination |
+| **3 – Verbündet** | `food_output_mult` | +0.10 | Brut-Agrikultur |
+| **3** | `colony_stability_flat` | +3 | Uralt-Symbiose |
+| **4 – Strategisch** | `food_output_mult` | +0.18 | Vollständige Biosphären-Kooperation |
+| **4** | `pop_growth_mult` | +0.10 | Brut-Wachstumsprotokoll |
+| **4** | `colony_stability_flat` | +6 | Planetare Uralt-Schutzschicht |
+| **4** | _Terraforming-Speed-Mult_ | +0.25 | Brut-Terraforming-Unterstützung |
+
+> **Besonderheit:** Tier 4 schaltet die **Terraforming-Kooperation** frei:
+> Koloniegründung auf ungünstigen Planetentypen dauert 25% kürzer.
+> Synergieeffekt mit Myr'Keth: Wenn beide auf Tier 3+, `pop_growth_mult` +0.04 zusätzlich.
+
+---
+
+## 16. Fraktions-Quer-Effekte
+
+Das Universum ist politisch vernetzt. Bestimmte Fraktionsbeziehungen
+**beeinflussen automatisch andere Beziehungen**, wenn sie einen Schwellenwert
+überschreiten. Diese Quer-Effekte werden aus `FACTION_RELATIONS.yaml`
+(`relationships`-Matrix) berechnet.
+
+### 16.1 Mechanismus
+
+```
+cross_effect = Σ (standing_change × relationship_weight_ij)
+```
+
+Wenn der Spieler mit Fraktion A `standing_change` erzielt:
+```
+für jede andere Fraktion B:
+  if abs(relationship_score_AB) >= threshold:
+    apply_standing(B, standing_change × cross_factor_AB)
+```
+
+**Schwellenwerte:**
+- `|relationship_score| >= 7` → `cross_factor = 0.30` (starke Wirkung)
+- `|relationship_score| >= 5` → `cross_factor = 0.15` (moderate Wirkung)
+- `|relationship_score| < 5`  → kein Quer-Effekt
+
+### 16.2 Wichtigste Quer-Effekt-Paare
+
+| Primäre Aktion | Sekundär-Effekte |
+|----------------|-----------------|
+| +10 Vor'Tak | +3 Kryl'Tha (Waffenbrüder), −4 Eisenflotte (Rivalen) |
+| +10 Syl'Nar | +3 Aereth (Wissenspartner), −3 Vel'Ar (Misstrauen) |
+| +10 Aereth | +4 Zhareen (Forschungskooperation), +2 Syl'Nar |
+| +10 Zhareen | +3 Aereth, −3 Khar'Morr (Archivschutz) |
+| +10 Vel'Ar | +3 Khar'Morr (Infobroker), −3 Syl'Nar |
+| +10 Kryl'Tha | +2 Vor'Tak, −2 Myr'Keth (Ressourcenkonkurrenz) |
+| +10 Khar'Morr | −4 Syl'Nar, −3 Architekten, −2 Zhareen |
+| +10 Helion | +2 alle Hauptfraktionen (Wirtschaftsstabilität) |
+| +10 Eisenflotte | −5 alle 6 Hauptfraktionen (Verrat an der Konvergenz) |
+| +10 Aethernox | +3 Architekten, −4 Ketzer |
+| +10 Echos d. Leere | − (unmöglich — Tier max. 1) |
+| +10 Ketzer | −5 Architekten, −3 Syl'Nar, +3 Vel'Ar |
+| +10 Nomaden | +2 Vel'Ar (FTL-Expertise), +2 Aethernox |
+
+### 16.3 Konvergenz-Koalitions-Bonus
+
+Wenn der Spieler alle 6 Hauptfraktionen gleichzeitig auf **Tier 3+** hält:
+
+```
+Bonus: "Konvergenz-Einheit"
+  colony_stability_flat:  +10 global
+  happiness_flat:         +8 global
+  research_speed_mult:    +0.05 global
+  fleet_readiness_mult:   +0.08 global
+```
+
+Dieser Koalitions-Bonus ist die direkte Voraussetzung für das
+Endgame-Szenario `convergence_united` (FACTION_RELATIONS.yaml).
+
+---
+
+## 17. Quest-Katalog pro Fraktion und Tier
+
+Detailliertes Quest-Design für ausgewählte Fraktionen als Vorlage.
+Vollständige Ausarbeitung erfolgt in `docs/quests/`.
+
+### 17.1 Quest-Struktur
+
+Jede Quest folgt diesem Schema:
+
+```
+Quest-ID:     <faction_key>.<tier_requirement>.<quest_type>.<index>
+Typ:          kill | deliver | explore | build | research | spy | diplomatic
+Min-Tier:     Mindest-Tier bei Quest-Freischaltung
+Standing-∆:   Earned Standing bei Abschluss
+Belohnung:    Credits, DM, Ressourcen, unique items
+Dauer:        Ingame-Stunden (approximate)
+```
+
+---
+
+### 17.2 Vor'Tak – Quest-Beispiele
+
+| Quest-ID | Typ | Min-Tier | Titel | Standing-∆ | Belohnung |
+|----------|-----|----------|-------|-----------|-----------|
+| `vor_tak.t2.kill.1` | kill | Tier 2 | Piraten-Überfall stoppen | +8 | 500 Credits |
+| `vor_tak.t2.deliver.1` | deliver | Tier 2 | Waffen-Lieferung nach Drak'Thuun | +5 | 200 Metall |
+| `vor_tak.t3.kill.1` | kill | Tier 3 | Eisenflotten-Patrouille vernichten | +12 | 1000 Credits + 50 DM |
+| `vor_tak.t3.build.1` | build | Tier 3 | Kaserne auf Vor'Tak-Kolonie errichten | +10 | 2 Truppen-Einheiten |
+| `vor_tak.t4.kill.1` | kill | Tier 4 | Leere-Ausläufer in Drak'Thuun-Sektor | +20 | 200 DM + Ehrenring (unique) |
+| `vor_tak.t4.diplomatic.1` | diplomatic | Tier 4 | Ehrenpakt mit General Drak'Mol | +15 | `fleet_readiness_mult` +0.05 (30 Tage) |
+
+---
+
+### 17.3 Helion-Konföderation – Quest-Beispiele
+
+| Quest-ID | Typ | Min-Tier | Titel | Standing-∆ | Belohnung |
+|----------|-----|----------|-------|-----------|-----------|
+| `helion.t2.deliver.1` | deliver | Tier 2 | Energiekerne nach Helion-Station | +6 | 600 Credits |
+| `helion.t2.trade.1` | trade | Tier 2 | 3 Helion-Handelsangebote annehmen | +8 | 10% Rabatt (7 Tage) |
+| `helion.t3.research.1` | research | Tier 3 | Neue Handelsroute erkunden | +10 | Unique Handelsstation-Gebäude |
+| `helion.t4.diplomatic.1` | diplomatic | Tier 4 | Exklusiv-Vertrag unterzeichnen | +18 | `trade_income_mult` +0.05 (permanent) |
+
+---
+
+### 17.4 Echos der Leere – Quest-Beispiele (Sonder-Quests)
+
+> Normale Quests existieren nicht (Tier max. 1). Stattdessen: **Krisen-Quests**,
+> die bei aktiver Leere-Präsenz triggered werden.
+
+| Quest-ID | Typ | Trigger | Titel | Effekt |
+|----------|-----|---------|-------|--------|
+| `echos.crisis.1` | defend | Leere in Sektor | Leerenbrut-Ausläufer stoppen | Standing +5 mit allen Hauptfraktionen |
+| `echos.crisis.2` | research | Leere-Welt gefunden | Leere-Probe analysieren | +300 Forschungspunkte, −3 Happiness |
+| `echos.crisis.3` | diplomatic | Void-Summit-Event | Notfall-Konvergenz-Rat | Entscheidungsbaum: 3 Optionen |
+
+---
+
+### 17.5 Nomaden des Rifts – Quest-Beispiele
+
+| Quest-ID | Typ | Min-Tier | Titel | Standing-∆ | Belohnung |
+|----------|-----|----------|-------|-----------|-----------|
+| `nomaden.t2.explore.1` | explore | Tier 2 | Rift-Anomalie kartieren | +8 | 40 DM |
+| `nomaden.t3.explore.1` | explore | Tier 3 | Drei Rift-Knoten scannen | +12 | FTL-Cooldown −10% (14 Tage) |
+| `nomaden.t4.explore.1` | explore | Tier 4 | Interdimensionaler Kartendienst | +15 | FTL-Cooldown −20% (permanent) + 100 DM |
+
+---
+
+## 18. Wirtschaftsintegration (ColonySimulation)
+
+Das BMS greift direkt in die bestehende `ColonySimulation.js` ein.  
+Die Modifier-Schlüssel werden in `computeYield()` angewendet.
+
+### 18.1 Modifier-Anwendung in computeYield()
+
+```javascript
+// In ColonySimulation._applyYield(dt):
+// Lade aktive Modifier aus dem Backend (gecacht im GameState)
+const mods = gameState.empireModifiers; // aus /api/politics.php?action=status
+
+// Multiplikatoren-Stack
+const resourceMult = 1.0 + (mods['resource_output_mult'] ?? 0);
+const foodMult     = 1.0 + (mods['food_output_mult'] ?? 0);
+const researchMult = 1.0 + (mods['research_speed_mult'] ?? 0);
+
+// Anwendung pro Pop/Job
+baseYield.food       *= foodMult;
+baseYield.production *= resourceMult;
+baseYield.research   *= researchMult;
+
+// Flache Boni
+colony.stability += mods['colony_stability_flat'] ?? 0;
+colony.happiness += mods['happiness_flat'] ?? 0;
+```
+
+### 18.2 Stehungs-Feedback-Loop mit Kolonien
+
+Kolonien im Einflussbereich einer Fraktion können lokale Stehungseffekte erzeugen:
+
+```
+Wenn Kolonie im Sektor von Fraktion F liegt:
+  Bei colony:unrest Event → standing(F) -= 2 (Instabilität schadet Diplomatie)
+  Bei colony:grow Event   → standing(F) += 1 (Wachstum signalisiert Stärke)
+```
+
+### 18.3 Invasions-Integration
+
+Fraktionsmodi sind in `invade()` aktiv:
+
+```javascript
+// BattleSimulator.js / ColonySimulation.invade()
+const invasionMult = 1.0 + (mods['invasion_penalty_mult'] ?? 0);
+// Wenn Angreifer von Tier-0-Fraktion unterstützt: invasion_penalty_mult positiv
+// = Angreifer stärker → schwerere Verteidigung für Spieler
+```
+
+### 18.4 Handelsrouten-Integration
+
+`trade_income_mult` wird auf das bestehende `trade_routes`-Tabellen-System
+angewendet. Jede aktive Handelsroute wird mit dem akkumulierten Multiplikator
+für die beteiligte Fraktion skaliert:
+
+```php
+// In game_engine.php: compute_trade_income()
+$baseTrade = ...; // Standardberechnung
+$factionMult = get_faction_trade_modifier($db, $userId, $routeFactionId);
+$tradeTick = $baseTrade * (1.0 + $factionMult);
+```
+
+---
+
+## 19. Spieler-Progressionspfad
+
+### 19.1 Frühe Spielphase (Stunden 1–10)
+
+**Ausgangslage:** Alle Fraktionen auf Tier 2 (Neutral, Standing ≈ base_diplomacy)
+
+**Empfohlene Aktionen:**
+1. Helion-Konföderation: 3 Basisquests abschließen → Tier 3 (Handel +18%)
+2. Khar'Morr-Syndikate auf Tier 1 halten (keine Provokation)
+3. Eines der 6 Hauptfraktionen durch Quest-Fokus auf Tier 3 heben
+4. Galaktischen Netto-Druck im Auge behalten (Panel im Dashboard)
+
+**Ziel Ende Phase 1:** 1× Tier 3 (Hauptfraktion) + 1× Tier 3 (Helion)
+
+---
+
+### 19.2 Mittlere Spielphase (Stunden 10–30)
+
+**Aktionen & Entscheidungen:**
+
+| Entscheidung | Konsequenz |
+|-------------|-----------|
+| Vor'Tak auf Tier 4 fokussieren | +Flotte, −Beziehungen mit diplomatischen Fraktionen |
+| Helion auf Tier 4 bringen | +Wirtschaft, beste Grundlage für alle anderen |
+| Aethernox kontaktieren | Riskant aber hoher Forschungsbonus |
+| Khar'Morr auf Tier 3 heben | Billig-Ressourcen, Syl'Nar-Standing Schaden |
+
+**Warnzeichen:**
+- Eisenflotte Tier 0 → Invasionen abwehren
+- Echos der Leere expandiert → Krisen-Quest-Kette aktivieren
+- Net-Pressure < −2 → Civic oder Quest-Investition nötig
+
+---
+
+### 19.3 Endgame-Vorbereitung (Stunden 30–60+)
+
+**Ziel:** Alle 6 Hauptfraktionen auf Tier 3+ → Konvergenz-Einheit aktivieren
+
+**Kritische Pfade:**
+```
+Einfach:    Syl'Nar → Zhareen → Aereth (Diplomatie/Wissen-Cluster)
+Mittel:     Vor'Tak → Kryl'Tha (Militär-Cluster)
+Schwierig:  Vel'Ar (Spionage-Quests nötig, Quer-Effekte beachten)
+```
+
+**Endgame-Synergien:**
+- Konvergenz-Einheit (Tier 3+ alle 6) → Convergence United Szenario
+- Aethernox Tier 4 + Architekten Tier 4 → Kosmische Harmonie
+- Nomaden Tier 4 + Vel'Ar Tier 4 → Maximaler FTL-Vorteil
 
 ---
 
