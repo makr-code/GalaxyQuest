@@ -29,6 +29,7 @@
 |---|---|
 | [technical/ARCHITECTURE.md](technical/ARCHITECTURE.md) | **Main technical reference** — backend, frontend, engine, DB, security |
 | [technical/DOCUMENTATION_GUIDE.md](technical/DOCUMENTATION_GUIDE.md) | How to navigate and contribute to docs |
+| [technical/TEMPLATE_SYSTEM_DESIGN.md](technical/TEMPLATE_SYSTEM_DESIGN.md) | **Template system design** — Mustache in PHP, JS & CSS: Vorgaben, Vor-/Nachteile, Migrationsplan |
 | [technical/MIGRATION_STRATEGY_OOP.md](technical/MIGRATION_STRATEGY_OOP.md) | OOP refactoring roadmap and conventions |
 | [technical/PROJECTION_RUNBOOK.md](technical/PROJECTION_RUNBOOK.md) | Projection runtime operations guide |
 | [technical/OLLAMA_SETUP.md](technical/OLLAMA_SETUP.md) | Ollama local LLM setup and configuration |
