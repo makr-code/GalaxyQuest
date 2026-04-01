@@ -408,6 +408,75 @@ Overview payload now includes a politics runtime snapshot:
 | 💥 Combat FX (GPU particle system, beam effects, voxel debris, environment FX) | ✅ |
 | 📡 Projection runtime (async dirty-queue workers for user overview + system snapshots) | ✅ |
 | 📊 Performance telemetry (PerformanceMonitor, ResourceTracker, ShaderCompiler metrics) | ✅ |
+| 🚀 WebGPU interactive galaxy renderer (Galaxy3DRendererWebGPU, WGSL shaders, fallback chain) | ✅ |
+
+---
+
+## WebGPU Renderer
+
+GalaxyQuest uses **WebGPU as the primary rendering backend** for the interactive galaxy and system views, with an automatic fallback to WebGL2 (via Three.js) for unsupported browsers.
+
+### Browser Support
+
+| Browser | WebGPU | Fallback |
+|---|---|---|
+| Chrome 113+ | ✅ WebGPU native | – |
+| Edge 113+ | ✅ WebGPU native | – |
+| Firefox 119+ (`dom.webgpu.enabled=true`) | ✅ WebGPU native | – |
+| Safari 17.4+ (experimental) | 🔬 WebGPU experimental | WebGL2 |
+| All other browsers | ❌ | ✅ WebGL2 via Three.js |
+
+### Feature Detection & Error Handling
+
+The renderer automatically detects WebGPU support at startup:
+
+- **WebGPU available** → `Galaxy3DRendererWebGPU` initialises with full interactive star-point rendering, mouse interaction, zoom/pan/orbit, camera animation, and a WGSL shader pipeline.
+- **WebGPU unavailable** → Falls back silently to the Three.js WebGL2 renderer (`Galaxy3DRenderer`), which provides the same game features on older browsers.
+- **Neither available** → A user-friendly warning is logged to the browser console with upgrade guidance.
+
+### Renderer Hint (Developer Override)
+
+You can force a specific backend via `localStorage`:
+
+```javascript
+localStorage.setItem('gq:rendererHint', 'webgpu');   // Force WebGPU
+localStorage.setItem('gq:rendererHint', 'webgl2');   // Force WebGL2
+localStorage.setItem('gq:rendererHint', 'auto');     // Auto-detect (default)
+```
+
+### Architecture
+
+```
+Galaxy3DRendererWebGPU      ← Interactive WebGPU renderer (primary)
+  └─ WGSL star-point shader (vs_main + fs_main)
+  └─ Hover/click/dblclick star hit-testing (CPU-side, NDC space)
+  └─ Smooth camera with pan/zoom animation
+  └─ device.lost recovery path
+
+galaxy3d-webgpu.js (facade) ← Selects backend at runtime
+  ├─ Galaxy3DRendererWebGPU (WebGPU path, interactive)
+  ├─ StarfieldWebGPU         (WebGPU path, non-interactive auth screen)
+  └─ Galaxy3DRenderer        (Three.js WebGL2 fallback)
+
+engine-compat.js            ← Low-level RendererFactory bridge
+  ├─ WebGPURenderer          (js/engine/core/)
+  └─ WebGLRenderer           (js/engine/core/)
+```
+
+### Local Development
+
+Verify WebGPU is active by opening the browser console and looking for:
+
+```
+[gq:render-telemetry] { type: "backend-active", backend: "webgpu", ... }
+```
+
+Or check the renderer hint stored in localStorage:
+
+```javascript
+window.__GQ_ACTIVE_RENDERER_BACKEND  // → "webgpu" | "webgl2"
+window.__GQ_RENDER_TELEMETRY         // → array of render events
+```
 
 ---
 
@@ -669,7 +738,9 @@ The config file also supports environment-variable overrides. That means the Doc
 │   │   ├── math/               # Vector2/3/4, Matrix4, Quaternion
 │   │   └── loaders/            # GeometryLoader, ShaderLoader, TextureLoader
 │   ├── rendering/              # Galaxy 3D renderer
-│   │   ├── galaxy-renderer-core.js     # Main galaxy render loop + FTL overlay
+│   │   ├── Galaxy3DRendererWebGPU.js   # Interactive WebGPU galaxy renderer (primary)
+│   │   ├── galaxy-renderer-core.js     # Three.js WebGL2 galaxy renderer (fallback)
+│   │   ├── starfield-webgpu.js         # WebGPU non-interactive auth-screen starfield
 │   │   ├── galaxy-renderer-config.js   # Renderer settings
 │   │   └── post-effects.js             # Post-processing integration
 │   ├── ui/                     # Standalone UI components

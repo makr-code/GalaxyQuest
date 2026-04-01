@@ -36,6 +36,13 @@ class SceneNode {
     this.children  = [];
     /** @type {SceneNode|null} */
     this.parent    = null;
+    /**
+     * Optional bounding sphere for frustum culling.
+     * Set to `{ center: Vector3, radius: number }` to enable per-node culling.
+     * When null, the node is always considered visible.
+     * @type {{ center: import('../math/Vector3').Vector3, radius: number }|null}
+     */
+    this.bounds    = null;
   }
 
   add(child) {
@@ -82,22 +89,37 @@ class SceneGraph {
   }
 
   /**
-   * Traverse all nodes, update matrices and rebuild the sorted render list.
+   * Traverse all nodes, update matrices, apply optional frustum culling and
+   * rebuild the sorted render list.
+   *
+   * @param {import('../scene/Camera').Camera|null} [camera]
+   *   When provided and the camera has a `_frustum` property, nodes with a
+   *   bounding sphere entirely outside the frustum are excluded from the
+   *   render list.  Nodes without a `bounds` property are always included.
+   * @returns {SceneNode[]}
    */
-  update() {
+  update(camera = null) {
     if (!this._dirty) return this._renderList;
     this._renderList = [];
-    this._traverse(this.root, this._renderList);
+    const frustum = camera?._frustum ?? null;
+    this._traverse(this.root, this._renderList, frustum);
     this._renderList.sort((a, b) => a.renderOrder - b.renderOrder);
     this._dirty = false;
     return this._renderList;
   }
 
-  _traverse(node, out) {
+  _traverse(node, out, frustum) {
     if (!node.visible) return;
     node.transform.updateMatrices();
+
+    // Frustum culling: skip node (and its subtree) if bounding sphere is
+    // fully outside the camera frustum.
+    if (frustum && node.bounds) {
+      if (!frustum.containsSphere(node.bounds.center, node.bounds.radius)) return;
+    }
+
     if (node !== this.root) out.push(node);
-    for (const child of node.children) this._traverse(child, out);
+    for (const child of node.children) this._traverse(child, out, frustum);
   }
 
   /** Find a node by name (depth-first). */
