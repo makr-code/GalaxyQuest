@@ -116,9 +116,123 @@ class WebGPUTexture {
     );
   }
 
+  /**
+   * Generate all mip levels for this texture using a blit-chain render pass.
+   *
+   * The texture must have been created with mipMaps=true (which sets
+   * mipLevelCount>1 and adds COPY_SRC | RENDER_ATTACHMENT usage).
+   *
+   * The WGSL blit shader samples mip N and writes to mip N+1 via a
+   * fullscreen triangle draw.  This matches the approach used by
+   * Babylon.js WebGPUTextureManager.generateMipmaps (Apache 2.0).
+   */
+  generateMipmaps() {
+    if (this.isCubemap) {
+      for (let layer = 0; layer < 6; layer++) {
+        this._generateMipmapForLayer(layer);
+      }
+    } else {
+      this._generateMipmapForLayer(0);
+    }
+  }
+
+  _generateMipmapForLayer(layer) {
+    const device = this._device;
+    const mipCount = this._texture.mipLevelCount ?? 1;
+    if (mipCount <= 1) return;
+
+    // Lazily build the mip-gen pipeline once per device.
+    // Store on the device object to share across textures.
+    if (!device.__gqMipPipeline) {
+      device.__gqMipPipeline = _buildMipGenPipeline(device);
+    }
+    const { pipeline, sampler } = device.__gqMipPipeline;
+
+    for (let srcMip = 0; srcMip < mipCount - 1; srcMip++) {
+      const srcView = this._texture.createView({
+        dimension: '2d',
+        baseMipLevel: srcMip,
+        mipLevelCount: 1,
+        baseArrayLayer: layer,
+        arrayLayerCount: 1,
+      });
+      const dstView = this._texture.createView({
+        dimension: '2d',
+        baseMipLevel: srcMip + 1,
+        mipLevelCount: 1,
+        baseArrayLayer: layer,
+        arrayLayerCount: 1,
+      });
+
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: srcView },
+        ],
+      });
+
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: dstView,
+          loadOp: 'clear',
+          storeOp: 'store',
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        }],
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.draw(3); // fullscreen triangle
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+    }
+  }
+
   destroy() {
     this._texture.destroy();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Mip-gen pipeline builder
+// ---------------------------------------------------------------------------
+
+const MIP_GEN_WGSL = /* wgsl */`
+  @group(0) @binding(0) var uSampler  : sampler;
+  @group(0) @binding(1) var uTexture  : texture_2d<f32>;
+
+  struct VSOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
+
+  @vertex
+  fn vs_main(@builtin(vertex_index) vi: u32) -> VSOut {
+    let uv = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
+    var out: VSOut;
+    out.pos = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+    out.uv  = vec2<f32>(uv.x, 1.0 - uv.y);
+    return out;
+  }
+
+  @fragment
+  fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+    return textureSample(uTexture, uSampler, in.uv);
+  }
+`;
+
+function _buildMipGenPipeline(device) {
+  const shader = device.createShaderModule({ code: MIP_GEN_WGSL, label: 'gq:mipgen' });
+  const pipeline = device.createRenderPipeline({
+    layout: 'auto',
+    vertex:   { module: shader, entryPoint: 'vs_main' },
+    fragment: {
+      module: shader,
+      entryPoint: 'fs_main',
+      targets: [{ format: 'rgba8unorm' }],
+    },
+    primitive: { topology: 'triangle-list' },
+  });
+  const sampler = device.createSampler({ minFilter: 'linear', magFilter: 'linear' });
+  return { pipeline, sampler };
 }
 
 // ---------------------------------------------------------------------------
