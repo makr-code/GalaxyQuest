@@ -166,7 +166,7 @@ function tts_request(
     $headers = ['Content-Type: application/json', 'Accept: */*'];
     $secret  = (string) TTS_SECRET;
     if ($secret !== '') {
-        $headers[] = 'X-Tts-Key: ' . $secret;
+        $headers[] = 'X-TTS-Key: ' . $secret;
     }
 
     $body = null;

@@ -88,7 +88,7 @@ Audio files are cached as `<sha256(engine|voice|text)>.mp3` under
 **Security**
 
 Set `TTS_SECRET` (env var) to a shared secret.  The service then requires an
-`X-Tts-Key: <secret>` header on every request.  The PHP client sends this header
+`X-TTS-Key: <secret>` header on every request.  The PHP client sends this header
 automatically when `TTS_SECRET` is defined in `config/config.php`.
 
 ---

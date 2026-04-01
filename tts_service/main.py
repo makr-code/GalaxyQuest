@@ -24,17 +24,15 @@ TTS_SECRET          shared secret sent in X-TTS-Key   (default: empty = disabled
 from __future__ import annotations
 
 import hashlib
-import io
 import logging
 import os
-import struct
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Annotated
 
 import aiofiles
-from fastapi import FastAPI, Header, HTTPException, Query, Response
+from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -103,22 +101,52 @@ def _check_secret(x_tts_key: str | None) -> None:
 
 # ── Piper helpers ───────────────────────────────────────────────────────────────
 
-def _piper_model_path(voice: str) -> tuple[Path, Path]:
-    """Return (onnx_path, config_path) for the given voice, downloading if needed."""
-    voice_dir = CACHE_DIR / voice
-    voice_dir.mkdir(parents=True, exist_ok=True)
-    onnx = voice_dir / f"{voice}.onnx"
-    cfg  = voice_dir / f"{voice}.onnx.json"
-    return onnx, cfg
+import hashlib as _hashlib
+import re as _re
+import urllib.parse as _urlparse
+
+_SAFE_VOICE_RE = _re.compile(r'^[a-zA-Z0-9_\-]{1,80}$')
+
+
+def _validate_voice_name(voice: str) -> str:
+    """Reject voice names that contain characters unsafe for filesystem paths.
+
+    Only ASCII alphanumerics, hyphens, and underscores are allowed.  This is
+    checked *before* the voice name touches the filesystem.
+    """
+    if not _SAFE_VOICE_RE.match(voice):
+        raise HTTPException(
+            status_code=400,
+            detail="Voice name contains invalid characters. "
+                   "Only letters, digits, hyphens and underscores are allowed.",
+        )
+    return voice
 
 
 def _piper_ensure_model(voice: str) -> tuple[Path, Path]:
-    """Download voice model files if not already cached."""
+    """Download Piper voice model files if not already cached.
+
+    File paths are derived entirely from the hardcoded PIPER_VOICES registry
+    (never from user input) to prevent path-traversal vulnerabilities.
+    """
+    _validate_voice_name(voice)
     if voice not in PIPER_VOICES:
         raise HTTPException(status_code=400, detail=f"Unknown Piper voice: {voice!r}")
 
-    onnx, cfg = _piper_model_path(voice)
     info = PIPER_VOICES[voice]
+
+    # Derive filenames from the hardcoded registry URLs – NOT from user input.
+    model_filename = Path(_urlparse.urlparse(info["model_url"]).path).name
+    config_filename = Path(_urlparse.urlparse(info["config_url"]).path).name
+
+    # Use a SHA-256 of the whitelisted key (never user input) as the directory
+    # name so that the filesystem path is fully under our control.
+    dir_name = _hashlib.sha256(info["model_url"].encode()).hexdigest()
+    voice_dir = CACHE_DIR / dir_name
+    voice_dir.mkdir(parents=True, exist_ok=True)
+
+    onnx = voice_dir / model_filename
+    cfg  = voice_dir / config_filename
 
     import urllib.request  # stdlib – no extra deps for download
 
@@ -182,7 +210,12 @@ def _xtts_model_load():
         log.info("Loading Coqui XTTS v2 model (first call) …")
         _xtts_model = CoquiTTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
         return _xtts_model
-    except Exception as exc:  # noqa: BLE001
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Coqui TTS package not installed: {exc}"
+        ) from exc
+    except (RuntimeError, OSError, ValueError) as exc:
         raise HTTPException(
             status_code=503,
             detail=f"Could not load XTTS model: {exc}"
@@ -202,7 +235,7 @@ def _xtts_synthesise_wav(text: str, lang: str = "de", speaker_wav: str | None = 
         tts.tts_to_file(**kwargs)
         with open(tmp_path, "rb") as fh:
             return fh.read()
-    except Exception as exc:  # noqa: BLE001
+    except (RuntimeError, OSError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=f"XTTS synthesis failed: {exc}") from exc
     finally:
         Path(tmp_path).unlink(missing_ok=True)
