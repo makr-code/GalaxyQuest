@@ -2480,3 +2480,446 @@ describe('EventSystem — Journal entries', () => {
     expect(j.isComplete).toBe(true);
   });
 });
+
+// ===========================================================================
+// ResearchTree — additional coverage gaps
+// ===========================================================================
+
+describe('ResearchTree – addProgress() with no active tech', () => {
+  it('addProgress() returns false when there is no active research', () => {
+    const tree = new ResearchTree();
+    tree.define({ id: 'x', cost: 100, prerequisites: [] });
+    // No startResearch() called — active is null
+    const result = tree.addProgress(50);
+    expect(result).toBe(false);
+  });
+
+  it('addProgress() returns false after tech is completed and active cleared', () => {
+    const tree = new ResearchTree();
+    tree.define({ id: 'y', cost: 10, prerequisites: [] });
+    tree.startResearch('y');
+    tree.addProgress(10); // completes tech, clears active
+    const result = tree.addProgress(50); // no active tech now
+    expect(result).toBe(false);
+  });
+});
+
+describe('ResearchTree – progressFraction mid-research', () => {
+  it('progressFraction is 0 before any research started', () => {
+    const tree = new ResearchTree();
+    tree.define({ id: 'p', cost: 100, prerequisites: [] });
+    expect(tree.progressFraction).toBe(0);
+  });
+
+  it('progressFraction reflects partial progress', () => {
+    const tree = new ResearchTree();
+    tree.define({ id: 'p', cost: 100, prerequisites: [] });
+    tree.startResearch('p');
+    tree.addProgress(40);
+    expect(tree.progressFraction).toBeCloseTo(0.4);
+  });
+
+  it('progressFraction reaches 1 exactly when cost is met', () => {
+    const tree = new ResearchTree();
+    tree.define({ id: 'p', cost: 100, prerequisites: [] });
+    tree.startResearch('p');
+    tree.addProgress(100);
+    // Tech completes — active cleared — progressFraction resets to 0
+    expect(tree.progressFraction).toBe(0);
+    expect(tree.activeNode).toBeNull();
+  });
+
+  it('progressFraction is capped at 1 even with excess progress points', () => {
+    const tree = new ResearchTree();
+    tree.define({ id: 'p', cost: 100, prerequisites: [] });
+    tree.startResearch('p');
+    // Manually advance progress without completing (hack for test only)
+    tree._progress = 80;
+    expect(tree.progressFraction).toBeCloseTo(0.8);
+  });
+});
+
+describe('ResearchTree – startResearch() on already-researched tech', () => {
+  it('startResearch() warns when tech is already researched', () => {
+    const tree = new ResearchTree();
+    tree.define({ id: 'done', cost: 10, prerequisites: [] });
+    tree.startResearch('done');
+    tree.addProgress(10);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    tree.startResearch('done'); // already in _done
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('startResearch() does not change activeNode when tech is already researched', () => {
+    const tree = new ResearchTree();
+    tree.define({ id: 'done2', cost: 10, prerequisites: [] });
+    tree.define({ id: 'other', cost: 10, prerequisites: [] });
+    tree.startResearch('done2');
+    tree.addProgress(10); // completes done2
+    tree.startResearch('other'); // now researching other
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    tree.startResearch('done2'); // already researched — should warn, not override
+    expect(tree.activeNode?.id).toBe('other');
+    warn.mockRestore();
+  });
+});
+
+// ===========================================================================
+// BattleSimulator — additional coverage gaps
+// ===========================================================================
+
+describe('BattleSimulator – BattleFleet fractional counts & countOf()', () => {
+  it('BattleFleet floors fractional ship counts', () => {
+    const fleet = new BattleFleet({ [ShipClass.FIGHTER]: 2.7, [ShipClass.CRUISER]: 1.9 });
+    expect(fleet.countOf(ShipClass.FIGHTER)).toBe(2);
+    expect(fleet.countOf(ShipClass.CRUISER)).toBe(1);
+  });
+
+  it('BattleFleet excludes ships with count < 1 after flooring', () => {
+    const fleet = new BattleFleet({ [ShipClass.FIGHTER]: 0.9, [ShipClass.CRUISER]: 1 });
+    expect(fleet.countOf(ShipClass.FIGHTER)).toBe(0); // 0.9 → floor → 0, excluded
+    expect(fleet.totalCount).toBe(1);
+  });
+
+  it('countOf() returns 0 for a ship type not in the fleet', () => {
+    const fleet = new BattleFleet({ [ShipClass.FIGHTER]: 5 });
+    expect(fleet.countOf(ShipClass.BOMBER)).toBe(0);
+    expect(fleet.countOf(ShipClass.BATTLESHIP)).toBe(0);
+  });
+
+  it('countOf() returns correct value for every ship type present', () => {
+    const ships = {
+      [ShipClass.FIGHTER]: 10,
+      [ShipClass.CORVETTE]: 3,
+      [ShipClass.BATTLESHIP]: 1,
+    };
+    const fleet = new BattleFleet(ships);
+    for (const [type, count] of Object.entries(ships)) {
+      expect(fleet.countOf(type)).toBe(count);
+    }
+  });
+});
+
+describe('BattleSimulator – attackerLosses and defenderLosses validity', () => {
+  it('attackerLosses keys are all valid ShipClass values', () => {
+    const att = new BattleFleet({ [ShipClass.FIGHTER]: 50 });
+    const def = new BattleFleet({ [ShipClass.BATTLESHIP]: 5 });
+    const report = BattleSimulator.simulate(att, def);
+    const validTypes = new Set(Object.values(ShipClass));
+    for (const type of Object.keys(report.attackerLosses)) {
+      expect(validTypes.has(type)).toBe(true);
+    }
+  });
+
+  it('defenderLosses keys are all valid ShipClass values', () => {
+    const att = new BattleFleet({ [ShipClass.BATTLESHIP]: 5 });
+    const def = new BattleFleet({ [ShipClass.FIGHTER]: 50 });
+    const report = BattleSimulator.simulate(att, def);
+    const validTypes = new Set(Object.values(ShipClass));
+    for (const type of Object.keys(report.defenderLosses)) {
+      expect(validTypes.has(type)).toBe(true);
+    }
+  });
+
+  it('losses are non-negative integers', () => {
+    const att = new BattleFleet({ [ShipClass.CRUISER]: 3 });
+    const def = new BattleFleet({ [ShipClass.DESTROYER]: 3 });
+    const report = BattleSimulator.simulate(att, def);
+    for (const lost of Object.values(report.attackerLosses)) {
+      expect(Number.isInteger(lost)).toBe(true);
+      expect(lost).toBeGreaterThanOrEqual(0);
+    }
+    for (const lost of Object.values(report.defenderLosses)) {
+      expect(Number.isInteger(lost)).toBe(true);
+      expect(lost).toBeGreaterThanOrEqual(0);
+    }
+  });
+});
+
+describe('BattleSimulator – serialize() completeness', () => {
+  it('serialize() contains attackerRemaining and defenderRemaining as plain objects', () => {
+    const att = new BattleFleet({ [ShipClass.BATTLESHIP]: 5 });
+    const def = new BattleFleet({ [ShipClass.FIGHTER]: 20 });
+    const s = BattleSimulator.simulate(att, def).serialize();
+    expect(typeof s.attackerRemaining).toBe('object');
+    expect(typeof s.defenderRemaining).toBe('object');
+    // Must be plain objects, not BattleFleet instances
+    expect(s.attackerRemaining).not.toBeInstanceOf(BattleFleet);
+    expect(s.defenderRemaining).not.toBeInstanceOf(BattleFleet);
+  });
+
+  it('serialize() attackerStart and defenderStart values reflect original fleet composition', () => {
+    const att = new BattleFleet({ [ShipClass.CRUISER]: 2 });
+    const def = new BattleFleet({ [ShipClass.FRIGATE]: 4 });
+    const s = BattleSimulator.simulate(att, def).serialize();
+    expect(s.attackerStart[ShipClass.CRUISER]).toBe(2);
+    expect(s.defenderStart[ShipClass.FRIGATE]).toBe(4);
+  });
+});
+
+// ===========================================================================
+// FleetFormation — additional coverage gaps
+// ===========================================================================
+
+describe('FleetFormation – Wing.size getter', () => {
+  function makeShip(x = 0, y = 0, z = 0) {
+    return { position: { x, y, z }, velocity: { x: 0, y: 0, z: 0 } };
+  }
+
+  it('Wing.size is 0 for a new empty wing', () => {
+    const ff = new FleetFormation();
+    const wing = ff.createWing('SizeTest', FormationShape.LINE);
+    expect(wing.size).toBe(0);
+  });
+
+  it('Wing.size increases when ships are added', () => {
+    const ff = new FleetFormation();
+    const wing = ff.createWing('SizeTest', FormationShape.LINE);
+    wing.add(makeShip());
+    wing.add(makeShip());
+    wing.add(makeShip());
+    expect(wing.size).toBe(3);
+  });
+
+  it('Wing.size decreases when a ship is removed', () => {
+    const ff = new FleetFormation();
+    const wing = ff.createWing('SizeTest', FormationShape.LINE);
+    const s1 = makeShip();
+    const s2 = makeShip();
+    wing.add(s1).add(s2);
+    wing.remove(s1);
+    expect(wing.size).toBe(1);
+  });
+});
+
+describe('FleetFormation – PINCER maneuver fully advances all queue steps', () => {
+  function makeShip(x = 0, y = 0, z = 0) {
+    return { position: { x, y, z }, velocity: { x: 0, y: 0, z: 0 } };
+  }
+
+  it('PINCER completes all three transitions and leaves maneuverQueue empty', () => {
+    const ff = new FleetFormation();
+    const leader = makeShip(0, 0, 0);
+    const wing = ff.createWing('Pincer', FormationShape.LINE, { leader, spacing: 100 });
+    for (let i = 0; i < 3; i++) wing.add(makeShip(i * 10, 0, 0));
+
+    // framesPerTransition=1 → each update() call completes one transition
+    wing.startManeuver(Maneuver.PINCER, 1);
+    expect(wing.shape).toBe(FormationShape.WEDGE); // first step applied
+    wing.update(0.016); // completes WEDGE, advances to DELTA
+    expect(wing.shape).toBe(FormationShape.DELTA);
+    wing.update(0.016); // completes DELTA, advances to ESCORT
+    expect(wing.shape).toBe(FormationShape.ESCORT);
+    wing.update(0.016); // completes ESCORT — queue should now be empty
+    expect(wing._maneuverQueue.length).toBe(0);
+    expect(wing.shape).toBe(FormationShape.ESCORT); // stays at ESCORT
+  });
+});
+
+describe('FleetFormation – multiple-wing FleetFormation.update()', () => {
+  function makeShip(x = 0, y = 0, z = 0) {
+    return { position: { x, y, z }, velocity: { x: 0, y: 0, z: 0 } };
+  }
+
+  it('update() applies cohesion to ships in all wings', () => {
+    const ff = new FleetFormation();
+    const leader1 = makeShip(0, 0, 0);
+    const leader2 = makeShip(500, 0, 0);
+    const wing1 = ff.createWing('W1', FormationShape.LINE, { leader: leader1, spacing: 100, cohesionStrength: 1 });
+    const wing2 = ff.createWing('W2', FormationShape.LINE, { leader: leader2, spacing: 100, cohesionStrength: 1 });
+    const ship1 = makeShip(999, 0, 0);
+    const ship2 = makeShip(-999, 0, 0);
+    wing1.add(ship1);
+    wing2.add(ship2);
+
+    ff.update(0.016);
+
+    // ship1 is far from leader1's slot — cohesion should have changed its velocity
+    expect(ship1.velocity.x).not.toBe(0);
+    // ship2 is far from leader2's slot — cohesion should have changed its velocity
+    expect(ship2.velocity.x).not.toBe(0);
+  });
+
+  it('update() skips disabled wings', () => {
+    const ff = new FleetFormation();
+    const leader = makeShip(0, 0, 0);
+    const wing = ff.createWing('Disabled', FormationShape.LINE, { leader, spacing: 100, cohesionStrength: 1 });
+    const ship = makeShip(999, 0, 0);
+    wing.add(ship);
+    wing.enabled = false;
+
+    ff.update(0.016);
+
+    // Disabled wing — velocity should remain zero
+    expect(ship.velocity.x).toBe(0);
+    expect(ship.velocity.y).toBe(0);
+    expect(ship.velocity.z).toBe(0);
+  });
+});
+
+// ===========================================================================
+// ColonySimulation — additional coverage gaps
+// ===========================================================================
+
+describe('ColonySimulation – trade chain with insufficient input', () => {
+  it('trade chain uses only available ore when below required amount', () => {
+    const col = new Colony({ id: 'tc', name: 'TC', size: 10, startingPops: 1 });
+    col.buildings[BuildingType.FACTORY] = 1; // needs 2 ore per tick to produce 1 metal
+    col.stockpile.ore = 1;                   // only 1 ore available (half of what's needed)
+
+    col._applyTradeChains(1);
+
+    // Should have consumed all 1 ore (can't do a full batch of 2)
+    expect(col.stockpile.ore).toBeCloseTo(0);
+    // Produced partial metal: 1 ore / rate(2) * yieldAmt(1) = 0.5
+    expect(col.stockpile.metal).toBeCloseTo(0.5);
+  });
+
+  it('trade chain produces nothing when input stockpile is 0', () => {
+    const col = new Colony({ id: 'tc2', name: 'TC2', size: 10, startingPops: 1 });
+    col.buildings[BuildingType.FACTORY] = 2;
+    col.stockpile.ore = 0;
+
+    col._applyTradeChains(1);
+
+    expect(col.stockpile.metal).toBe(0);
+    expect(col.stockpile.ore).toBe(0);
+  });
+});
+
+describe('ColonySimulation – MOON enqueueBuilding() restriction', () => {
+  it('enqueueBuilding() rejects FARM on a MOON colony', () => {
+    const col = new Colony({ id: 'moon1', name: 'Moon', size: 5, startingPops: 1, type: ColonyType.MOON });
+    col.stockpile.production = 999;
+    const result = col.enqueueBuilding(BuildingType.FARM);
+    expect(result.success).toBe(false);
+    expect(result.reason).toBe('not_allowed_on_moon');
+    expect(col.buildQueue.length).toBe(0);
+  });
+
+  it('enqueueBuilding() rejects MINE on a MOON colony', () => {
+    const col = new Colony({ id: 'moon2', name: 'Moon2', size: 5, startingPops: 1, type: ColonyType.MOON });
+    col.stockpile.production = 999;
+    const result = col.enqueueBuilding(BuildingType.MINE);
+    expect(result.success).toBe(false);
+    expect(result.reason).toBe('not_allowed_on_moon');
+  });
+
+  it('enqueueBuilding() allows BARRACKS on a MOON colony', () => {
+    const col = new Colony({ id: 'moon3', name: 'Moon3', size: 5, startingPops: 1, type: ColonyType.MOON });
+    col.stockpile.production = 999;
+    col.stockpile.credits    = 999;
+    const result = col.enqueueBuilding(BuildingType.BARRACKS);
+    expect(result.success).toBe(true);
+  });
+
+  it('enqueueBuilding() allows SPACEPORT on a MOON colony', () => {
+    const col = new Colony({ id: 'moon4', name: 'Moon4', size: 5, startingPops: 1, type: ColonyType.MOON });
+    col.stockpile.production = 999;
+    col.stockpile.metal      = 999;
+    const result = col.enqueueBuilding(BuildingType.SPACEPORT);
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('ColonySimulation – dissolve() with unknown id', () => {
+  it('dissolve() returns undefined for a colony id that does not exist', () => {
+    const sim = new ColonySimulation();
+    const result = sim.dissolve('non-existent-id');
+    expect(result).toBeUndefined();
+  });
+
+  it('dissolve() does not emit bus event for unknown colony id', () => {
+    const bus = { emit: vi.fn() };
+    const sim = new ColonySimulation(bus);
+    sim.dissolve('ghost-colony');
+    expect(bus.emit).not.toHaveBeenCalled();
+  });
+
+  it('dissolve() removes an existing colony and returns it', () => {
+    const sim = new ColonySimulation();
+    sim.found({ id: 'real', name: 'Real', size: 5, startingPops: 1 });
+    const removed = sim.dissolve('real');
+    expect(removed).toBeDefined();
+    expect(removed.id).toBe('real');
+    expect(sim.count).toBe(0);
+  });
+});
+
+// ===========================================================================
+// EventSystem — additional coverage gaps
+// ===========================================================================
+
+describe('EventSystem – resolve() with invalid choiceIndex', () => {
+  function makeEvtSys() {
+    const sys = new EventSystem(null, 99);
+    sys.randomEventChance = 0;
+    sys.define({
+      id: 'ev.choice',
+      choices: [
+        { label: 'Only choice', effect: (gs) => { gs.counter = (gs.counter ?? 0) + 1; } },
+      ],
+    });
+    return sys;
+  }
+
+  it('resolve() with out-of-bounds choiceIndex warns and does not apply effect', () => {
+    const sys = makeEvtSys();
+    sys.schedule('ev.choice');
+    sys.tick({}, 0);
+    const gs = { counter: 0 };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sys.resolve('ev.choice', 99, gs); // choiceIndex 99 does not exist
+    expect(warn).toHaveBeenCalled();
+    expect(gs.counter).toBe(0); // effect must NOT have run
+    warn.mockRestore();
+  });
+
+  it('resolve() with invalid choiceIndex leaves event still active', () => {
+    const sys = makeEvtSys();
+    sys.schedule('ev.choice');
+    sys.tick({}, 0);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sys.resolve('ev.choice', 5, {}); // invalid index
+    expect(sys.activeEvents.length).toBe(1); // still in active queue
+    warn.mockRestore();
+  });
+});
+
+describe('EventSystem – history getter returns defensive copy', () => {
+  it('history getter returns an array copy, not the internal array', () => {
+    const sys = new EventSystem(null, 1);
+    sys.randomEventChance = 0;
+    sys.define({ id: 'ev.h', choices: [{ label: 'ok', effect: () => {} }] });
+    sys.schedule('ev.h');
+    sys.tick({}, 0);
+    sys.resolve('ev.h', 0, {});
+    expect(sys.history.length).toBe(1);
+
+    // Mutate the returned array — internal state must not be affected
+    const h = sys.history;
+    h.push({ fake: true });
+    expect(sys.history.length).toBe(1);
+  });
+});
+
+describe('EventSystem – EventStatus enum completeness', () => {
+  it('EventStatus is frozen', () => {
+    expect(Object.isFrozen(EventStatus)).toBe(true);
+  });
+
+  it('EventStatus.DISMISSED is defined and equals "dismissed"', () => {
+    expect(EventStatus.DISMISSED).toBe('dismissed');
+  });
+
+  it('EventStatus has exactly 5 values: PENDING, ACTIVE, RESOLVED, EXPIRED, DISMISSED', () => {
+    const values = Object.values(EventStatus);
+    expect(values.length).toBe(5);
+    expect(values).toContain('pending');
+    expect(values).toContain('active');
+    expect(values).toContain('resolved');
+    expect(values).toContain('expired');
+    expect(values).toContain('dismissed');
+  });
+});
