@@ -36,6 +36,14 @@ const {
   MARKET_EVENT_TEMPLATES,
   PRICE_MULT_MIN,
   PRICE_MULT_MAX,
+  PopClass,
+  POP_CLASS_ORDER,
+  POP_CLASS_NEEDS,
+  POP_CLASS_YIELD,
+  POP_CLASS_MAX_FRACTION,
+  CLASS_NEED_HAPPINESS,
+  ADVANCEMENT_TICKS_REQUIRED,
+  DESCENT_TICKS_REQUIRED,
 } = require(path.join(root, 'js/engine/game/EconomySimulation.js'));
 
 // ---------------------------------------------------------------------------
@@ -463,10 +471,16 @@ describe('EconomySimulation — Tier-3 production', () => {
     expect(result.produced[GoodType.CONSUMER_GOODS] ?? 0).toBeGreaterThan(0);
   });
 
-  it('consumer factory does NOT produce without Tier-2 inputs', () => {
-    // Do not seed stock → consumer factory has nothing to work with
-    const result = eco.tick(1);
-    // First tick may produce Tier-2, but NOT Tier-3 in same tick from empty
+  it('consumer factory does NOT produce without Tier-2 inputs (no T2 factories)', () => {
+    // Only consumer factory registered, no T2 factories → no T2 inputs → 0 T3 output
+    const ecoOnly = new EconomySimulation();
+    ecoOnly.unlockTech('economy.basic_manufacturing');
+    ecoOnly.registerColony('only', {
+      buildings: { [ProcessingBuilding.CONSUMER_FACTORY]: 1 },
+      stockpile: { metal: 5000, crystal: 5000, rare_earth: 2000 },
+      population: 0,
+    });
+    const result = ecoOnly.tick(1);
     expect(result.produced[GoodType.CONSUMER_GOODS] ?? 0).toBe(0);
   });
 });
@@ -491,8 +505,9 @@ describe('EconomySimulation — pop consumption', () => {
     expect(node.stock.get(GoodType.CONSUMER_GOODS)).toBeLessThan(100);
   });
 
-  it('happiness modifier is positive when consumer_goods are fully supplied', () => {
-    // Supply enough for full coverage
+  it('happiness modifier is positive when all class needs are fully supplied', () => {
+    // COLONIST class needs food (primary) + consumer_goods — supply both
+    node.stockpile.food = 10000;
     node.stock.add(GoodType.CONSUMER_GOODS, 1000);
     node.stock.add(GoodType.LUXURY_GOODS, 1000);
     eco.tick(1);
@@ -510,11 +525,13 @@ describe('EconomySimulation — pop consumption', () => {
     expect(result.shortages).toContain(GoodType.CONSUMER_GOODS);
   });
 
-  it('luxury goods shortage adds no penalty', () => {
-    // Only add consumer goods so luxury shortage exists
+  it('luxury goods shortage does not cause negative happiness when food and consumer_goods are met', () => {
+    // COLONIST class: food + consumer_goods → both satisfied → positive happiness
+    // Luxury goods are a CITIZEN need, not COLONIST → no effect on COLONIST happiness
+    node.stockpile.food = 10000;
     node.stock.add(GoodType.CONSUMER_GOODS, 1000);
+    // No luxury goods — pops are COLONIST so luxury is not in their needs
     eco.tick(1);
-    // happiness should be positive (consumer goods bonus) even with luxury shortage
     expect(node.happinessMod).toBeGreaterThan(0);
   });
 });
@@ -634,6 +651,270 @@ describe('PROCESSING_RECIPES — structural integrity', () => {
         }
       }
     }
+  });
+
+  it('Tier-5 recipes reference only Tier-4 goods or lower as inputs', () => {
+    const tier5 = [
+      GoodType.VOID_CRYSTALS, GoodType.SYNTHETIC_CONSCIOUSNESS, GoodType.TEMPORAL_LUXURIES,
+    ];
+    const primaryResources = new Set(['metal', 'crystal', 'deuterium', 'rare_earth', 'food', 'energy', 'dark_matter']);
+    const processedGoods   = new Set(Object.values(GoodType));
+
+    for (const good of tier5) {
+      for (const [method, recipe] of Object.entries(PROCESSING_RECIPES[good])) {
+        for (const inputKey of Object.keys(recipe.inputs)) {
+          const valid = primaryResources.has(inputKey) || processedGoods.has(inputKey);
+          expect(valid, `${good}.${method} input '${inputKey}' is unknown`).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PopClass system (Anno principle)
+// ---------------------------------------------------------------------------
+
+describe('PopClass — enum and ordering', () => {
+  it('POP_CLASS_ORDER has 5 entries in ascending order', () => {
+    expect(POP_CLASS_ORDER.length).toBe(5);
+    expect(POP_CLASS_ORDER[0]).toBe(PopClass.COLONIST);
+    expect(POP_CLASS_ORDER[4]).toBe(PopClass.TRANSCENDENT);
+  });
+
+  it('every class has POP_CLASS_NEEDS defined', () => {
+    for (const cls of POP_CLASS_ORDER) {
+      expect(POP_CLASS_NEEDS[cls]).toBeDefined();
+      expect(Object.keys(POP_CLASS_NEEDS[cls]).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('every class has POP_CLASS_YIELD defined with positive multipliers', () => {
+    for (const cls of POP_CLASS_ORDER) {
+      const y = POP_CLASS_YIELD[cls];
+      expect(y).toBeDefined();
+      expect(y.production).toBeGreaterThan(0);
+      expect(y.research).toBeGreaterThan(0);
+      expect(y.credits).toBeGreaterThan(0);
+    }
+  });
+
+  it('higher classes have higher yield multipliers', () => {
+    const classes = POP_CLASS_ORDER;
+    for (let i = 0; i < classes.length - 1; i++) {
+      const lower  = POP_CLASS_YIELD[classes[i]];
+      const higher = POP_CLASS_YIELD[classes[i + 1]];
+      // At least one yield dimension increases
+      expect(higher.production + higher.research + higher.credits)
+        .toBeGreaterThan(lower.production + lower.research + lower.credits);
+    }
+  });
+
+  it('higher classes have lower max fraction cap (rarity principle)', () => {
+    const classes = POP_CLASS_ORDER;
+    for (let i = 0; i < classes.length - 1; i++) {
+      expect(POP_CLASS_MAX_FRACTION[classes[i + 1]])
+        .toBeLessThanOrEqual(POP_CLASS_MAX_FRACTION[classes[i]]);
+    }
+  });
+
+  it('CLASS_NEED_HAPPINESS bonus increases with class tier', () => {
+    const classes = POP_CLASS_ORDER;
+    for (let i = 0; i < classes.length - 1; i++) {
+      expect(CLASS_NEED_HAPPINESS[classes[i + 1]].bonus)
+        .toBeGreaterThan(CLASS_NEED_HAPPINESS[classes[i]].bonus);
+    }
+  });
+});
+
+describe('PopClass — needs require escalating Tier goods', () => {
+  it('COLONIST needs include food and at most Tier-3 goods', () => {
+    const allowed = new Set(['food', ...Object.values(GoodType).filter(g => GOOD_TIER[g] <= 3)]);
+    for (const good of Object.keys(POP_CLASS_NEEDS[PopClass.COLONIST])) {
+      expect(allowed.has(good), `COLONIST should not need ${good}`).toBe(true);
+    }
+  });
+
+  it('SPECIALIST needs include at least one Tier-4 good', () => {
+    const has4 = Object.keys(POP_CLASS_NEEDS[PopClass.SPECIALIST]).some(g => GOOD_TIER[g] === 4);
+    expect(has4).toBe(true);
+  });
+
+  it('TRANSCENDENT needs include at least one Tier-5 good', () => {
+    const has5 = Object.keys(POP_CLASS_NEEDS[PopClass.TRANSCENDENT]).some(g => GOOD_TIER[g] === 5);
+    expect(has5).toBe(true);
+  });
+});
+
+describe('ColonyEconomyNode — pop class initialization', () => {
+  it('new colony starts with all pops as COLONIST', () => {
+    const eco  = new EconomySimulation();
+    const node = eco.registerColony('c1', { buildings: {}, stockpile: {}, population: 10 });
+    expect(node.popClasses[PopClass.COLONIST]).toBe(10);
+    expect(node.popClasses[PopClass.CITIZEN]      ?? 0).toBe(0);
+    expect(node.popClasses[PopClass.TRANSCENDENT] ?? 0).toBe(0);
+  });
+
+  it('accepts explicit popClasses on registration', () => {
+    const eco  = new EconomySimulation();
+    const node = eco.registerColony('c1', {
+      buildings: {}, stockpile: {}, population: 10,
+      popClasses: { [PopClass.COLONIST]: 8, [PopClass.CITIZEN]: 2 },
+    });
+    expect(node.popClasses[PopClass.COLONIST]).toBe(8);
+    expect(node.popClasses[PopClass.CITIZEN]).toBe(2);
+  });
+});
+
+describe('ColonyEconomyNode — pop advancement (Anno principle)', () => {
+  let eco, node;
+
+  beforeEach(() => {
+    eco  = new EconomySimulation();
+    node = eco.registerColony('c1', {
+      buildings:  {},
+      stockpile:  { food: 999999 },
+      population: 20,
+    });
+  });
+
+  it('pops advance to CITIZEN after ADVANCEMENT_TICKS_REQUIRED satisfied ticks', () => {
+    // Supply all COLONIST needs every tick
+    for (let i = 0; i < ADVANCEMENT_TICKS_REQUIRED; i++) {
+      node.stockpile.food  = 999999;
+      node.stock.add(GoodType.CONSUMER_GOODS, 9999);
+      node.consumeTick(1);
+    }
+    const result = node.advancePops();
+    expect(result.advancements.length).toBeGreaterThan(0);
+    expect(result.advancements[0].to).toBe(PopClass.CITIZEN);
+    expect(node.popClasses[PopClass.CITIZEN]).toBeGreaterThan(0);
+    expect(node.popClasses[PopClass.COLONIST]).toBeLessThan(20);
+  });
+
+  it('does not advance if satisfaction ticks < threshold', () => {
+    for (let i = 0; i < ADVANCEMENT_TICKS_REQUIRED - 1; i++) {
+      node.stockpile.food = 999999;
+      node.stock.add(GoodType.CONSUMER_GOODS, 9999);
+      node.consumeTick(1);
+    }
+    const result = node.advancePops();
+    expect(result.advancements.length).toBe(0);
+    expect(node.popClasses[PopClass.CITIZEN] ?? 0).toBe(0);
+  });
+
+  it('pops descend after DESCENT_TICKS_REQUIRED shortage ticks', () => {
+    // Start with a CITIZEN pop
+    node.popClasses[PopClass.COLONIST] = 19;
+    node.popClasses[PopClass.CITIZEN]  = 1;
+    node._satisfactionTicks = {};
+
+    // CITIZEN needs consumer_goods + biocompost + luxury — give nothing
+    for (let i = 0; i < DESCENT_TICKS_REQUIRED; i++) {
+      node.consumeTick(1); // no stock → shortage
+    }
+    const result = node.advancePops();
+    expect(result.descents.length).toBeGreaterThan(0);
+    expect(result.descents[0].from).toBe(PopClass.CITIZEN);
+    expect(result.descents[0].to).toBe(PopClass.COLONIST);
+  });
+
+  it('advancement respects POP_CLASS_MAX_FRACTION cap', () => {
+    // 20 pops, CITIZEN cap is 80% = 16 pops max
+    // Pre-fill CITIZEN to max
+    node.popClasses[PopClass.COLONIST] = 4;
+    node.popClasses[PopClass.CITIZEN]  = 16;
+    // Force satisfaction ticks
+    node._satisfactionTicks[PopClass.COLONIST] = ADVANCEMENT_TICKS_REQUIRED;
+
+    const result = node.advancePops();
+    // Max is 16, already at 16 → no advancement
+    expect(result.advancements.length).toBe(0);
+  });
+
+  it('satisfaction ticks reset after advancement', () => {
+    for (let i = 0; i < ADVANCEMENT_TICKS_REQUIRED; i++) {
+      node.stockpile.food = 999999;
+      node.stock.add(GoodType.CONSUMER_GOODS, 9999);
+      node.consumeTick(1);
+    }
+    node.advancePops();
+    expect(node._satisfactionTicks[PopClass.COLONIST] ?? 0).toBe(0);
+  });
+});
+
+describe('ColonyEconomyNode — computeClassYield()', () => {
+  it('all-COLONIST colony returns yield 1.0 for all dimensions', () => {
+    const eco  = new EconomySimulation();
+    const node = eco.registerColony('c1', { buildings: {}, stockpile: {}, population: 10 });
+    const y = node.computeClassYield();
+    expect(y.production).toBeCloseTo(1.0, 5);
+    expect(y.research).toBeCloseTo(1.0, 5);
+    expect(y.credits).toBeCloseTo(1.0, 5);
+  });
+
+  it('mixed population yields weighted average', () => {
+    const eco  = new EconomySimulation();
+    const node = eco.registerColony('c1', {
+      buildings: {}, stockpile: {}, population: 10,
+      popClasses: { [PopClass.COLONIST]: 5, [PopClass.CITIZEN]: 5 },
+    });
+    const y = node.computeClassYield();
+    const expected = (POP_CLASS_YIELD[PopClass.COLONIST].production * 5
+                    + POP_CLASS_YIELD[PopClass.CITIZEN].production  * 5) / 10;
+    expect(y.production).toBeCloseTo(expected, 5);
+  });
+
+  it('higher-class colony has greater overall yield', () => {
+    const eco = new EconomySimulation();
+    const n1  = eco.registerColony('c1', {
+      buildings: {}, stockpile: {}, population: 10,
+      popClasses: { [PopClass.COLONIST]: 10 },
+    });
+    const n2  = eco.registerColony('c2', {
+      buildings: {}, stockpile: {}, population: 10,
+      popClasses: { [PopClass.ELITE]: 10 },
+    });
+    const y1 = n1.computeClassYield();
+    const y2 = n2.computeClassYield();
+    expect(y2.credits).toBeGreaterThan(y1.credits);
+    expect(y2.research).toBeGreaterThan(y1.research);
+  });
+});
+
+describe('EconomySimulation — summary includes popClassTotals', () => {
+  it('summary reports aggregate pop class counts', () => {
+    const eco = new EconomySimulation();
+    eco.registerColony('c1', {
+      buildings: {}, stockpile: {}, population: 10,
+      popClasses: { [PopClass.COLONIST]: 8, [PopClass.CITIZEN]: 2 },
+    });
+    eco.registerColony('c2', {
+      buildings: {}, stockpile: {}, population: 5,
+      popClasses: { [PopClass.COLONIST]: 5 },
+    });
+    const s = eco.summary();
+    expect(s.popClassTotals[PopClass.COLONIST]).toBe(13);
+    expect(s.popClassTotals[PopClass.CITIZEN]).toBe(2);
+  });
+});
+
+describe('EconomySimulation — serialize/deserialize preserves popClasses', () => {
+  it('round-trips popClasses and advancement ticks', () => {
+    const eco  = new EconomySimulation();
+    const node = eco.registerColony('c1', {
+      buildings:  {},
+      stockpile:  { food: 999999 },
+      population: 10,
+      popClasses: { [PopClass.COLONIST]: 8, [PopClass.CITIZEN]: 2 },
+    });
+    node._satisfactionTicks[PopClass.CITIZEN] = 7;
+
+    const eco2  = EconomySimulation.deserialize(eco.serialize(), null, { c1: { food: 0 } });
+    const node2 = eco2.getColony('c1');
+    expect(node2.popClasses[PopClass.COLONIST]).toBe(8);
+    expect(node2.popClasses[PopClass.CITIZEN]).toBe(2);
+    expect(node2._satisfactionTicks[PopClass.CITIZEN]).toBe(7);
   });
 });
 

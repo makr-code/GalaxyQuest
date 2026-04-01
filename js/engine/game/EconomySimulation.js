@@ -9,18 +9,28 @@
  *   Stellaris         (Paradox, 2016)  — Planetary districts, faction economy
  *
  * Provides:
- *   - GoodType enum: Tier-2 intermediates (steel_alloy, focus_crystals, …) and
- *       Tier-3 finished goods (consumer_goods, luxury_goods, …)
+ *   - GoodType enum: Tier-2 intermediates (steel_alloy, focus_crystals, …),
+ *       Tier-3 finished goods (consumer_goods, luxury_goods, …),
+ *       Tier-4 advanced goods (neural_implants, quantum_circuits, …),
+ *       Tier-5 prestige goods (void_crystals, synthetic_consciousness, …)
  *   - ProcessingMethod enum: standard | efficient | premium per processing building
  *   - PROCESSING_RECIPES: input→output recipes per GoodType and ProcessingMethod
  *   - GOOD_BASE_PRICE: base market prices per GoodType and primary resource
- *   - POP_CONSUMPTION_RATE: per-pop-per-tick consumption of T3 goods
+ *   - POP_CONSUMPTION_RATE: per-pop-per-tick consumption for Colonist-class pops (legacy)
+ *   - PopClass enum: COLONIST → CITIZEN → SPECIALIST → ELITE → TRANSCENDENT (Anno principle)
+ *   - POP_CLASS_NEEDS: per-class consumption needs (drives endless progression)
+ *   - POP_CLASS_YIELD: productivity bonuses per pop class
+ *   - POP_CLASS_MAX_FRACTION: max fraction of total pops per class
+ *   - ADVANCEMENT_TICKS_REQUIRED / DESCENT_TICKS_REQUIRED: thresholds for class change
+ *   - CLASS_NEED_HAPPINESS: happiness bonus/penalty when class needs are (not) met
  *   - GoodStock: per-colony inventory of processed goods
  *   - GalacticMarket: dynamic price model (supply/demand), buy/sell, market events
  *   - EconomyPolicy: tax rates and global economic policy per player
- *   - EconomySimulation: tick-based processing, pop consumption, market interaction
+ *   - EconomySimulation: tick-based processing, pop consumption, market interaction,
+ *       pop-class advancement (advancePops per colony node)
  *       Emits: 'economy:produced', 'economy:consumed', 'economy:shortage',
- *              'economy:market:price_change', 'economy:policy:changed'
+ *              'economy:market:price_change', 'economy:policy:changed',
+ *              'economy:pop:advance', 'economy:pop:descend', 'economy:pop:changed'
  *
  * Usage:
  *   const eco = new EconomySimulation(engine.events);
@@ -74,6 +84,18 @@ const GoodType = Object.freeze({
   MILITARY_EQUIPMENT:  'military_equipment',    // 2 steel + 1 focus_crystals → 1
   RESEARCH_KITS:       'research_kits',         // 1 focus_crystals + 1 electronics → 1
   COLONIZATION_PACKS:  'colonization_packs',    // 1 steel + 1 biocompost + 1 reactor_fuel → 1
+
+  // ── Tier 4 — Advanced Goods (Specialist-class needs; Anno: Artisan/Engineer tier) ──
+  NEURAL_IMPLANTS:     'neural_implants',       // 1 focus_crystals + 1 electronics → augments
+  QUANTUM_CIRCUITS:    'quantum_circuits',       // 1 electronics + 1 reactor_fuel → computing
+  BIO_SUPPLEMENTS:     'bio_supplements',        // 1 biocompost + 1 focus_crystals → health
+  STELLAR_ART:         'stellar_art',            // 1 luxury_goods + 1 focus_crystals → culture
+  ADVANCED_PROPULSION: 'advanced_propulsion',   // 1 reactor_fuel + 1 steel_alloy → FTL module
+
+  // ── Tier 5 — Prestige Goods (Elite + Transcendent needs; Anno: Investor/Noble tier) ─
+  VOID_CRYSTALS:            'void_crystals',            // 1 quantum_circuits + 1 focus_crystals + dark_matter
+  SYNTHETIC_CONSCIOUSNESS:  'synthetic_consciousness',  // 1 neural_implants + 1 quantum_circuits
+  TEMPORAL_LUXURIES:        'temporal_luxuries',        // 1 stellar_art + 1 void_crystals
 });
 
 /** Tier designation for each GoodType. */
@@ -88,6 +110,14 @@ const GOOD_TIER = Object.freeze({
   [GoodType.MILITARY_EQUIPMENT]:     3,
   [GoodType.RESEARCH_KITS]:          3,
   [GoodType.COLONIZATION_PACKS]:     3,
+  [GoodType.NEURAL_IMPLANTS]:        4,
+  [GoodType.QUANTUM_CIRCUITS]:       4,
+  [GoodType.BIO_SUPPLEMENTS]:        4,
+  [GoodType.STELLAR_ART]:            4,
+  [GoodType.ADVANCED_PROPULSION]:    4,
+  [GoodType.VOID_CRYSTALS]:          5,
+  [GoodType.SYNTHETIC_CONSCIOUSNESS]:5,
+  [GoodType.TEMPORAL_LUXURIES]:      5,
 });
 
 /**
@@ -107,16 +137,28 @@ const ProcessingMethod = Object.freeze({
  * @enum {string}
  */
 const ProcessingBuilding = Object.freeze({
+  // Tier 2
   METALLURGY:       'metallurgy',        // produces STEEL_ALLOY
   CRYSTAL_GRINDER:  'crystal_grinder',   // produces FOCUS_CRYSTALS
   REFINERY:         'refinery',          // produces REACTOR_FUEL
   BIOREACTOR:       'bioreactor',        // produces BIOCOMPOST
   ELECTRONICS_FAB:  'electronics_fab',   // produces ELECTRONICS_COMPONENTS
+  // Tier 3
   CONSUMER_FACTORY: 'consumer_factory',  // produces CONSUMER_GOODS
   LUXURY_WORKSHOP:  'luxury_workshop',   // produces LUXURY_GOODS
   ARMS_FACTORY:     'arms_factory',      // produces MILITARY_EQUIPMENT
   RESEARCH_LAB_ADV: 'research_lab_adv',  // produces RESEARCH_KITS
   COLONY_SUPPLIES:  'colony_supplies',   // produces COLONIZATION_PACKS
+  // Tier 4 (unlocked by Era-3/4 research)
+  NEURAL_FABRICATOR: 'neural_fabricator', // produces NEURAL_IMPLANTS
+  QUANTUM_LAB:       'quantum_lab',       // produces QUANTUM_CIRCUITS
+  BIO_PHARMA:        'bio_pharma',        // produces BIO_SUPPLEMENTS
+  CULTURAL_CENTER:   'cultural_center',   // produces STELLAR_ART
+  PROPULSION_WORKS:  'propulsion_works',  // produces ADVANCED_PROPULSION
+  // Tier 5 (unlocked by Era-5 research)
+  VOID_REFINERY:             'void_refinery',             // produces VOID_CRYSTALS
+  CONSCIOUSNESS_INSTITUTE:   'consciousness_institute',   // produces SYNTHETIC_CONSCIOUSNESS
+  TEMPORAL_ATELIER:          'temporal_atelier',          // produces TEMPORAL_LUXURIES
 });
 
 /**
@@ -213,6 +255,58 @@ const PROCESSING_RECIPES = Object.freeze({
     [ProcessingMethod.EFFICIENT]: { building: ProcessingBuilding.COLONY_SUPPLIES,  inputs: { steel_alloy: 1.2, biocompost: 1, reactor_fuel: 1 }, outputs: 1.3, energyCost: 2.8, researchPrereq: 'economy.logistics_network' },
     [ProcessingMethod.PREMIUM]:   { building: ProcessingBuilding.COLONY_SUPPLIES,  inputs: { steel_alloy: 0.8, biocompost: 0.8, reactor_fuel: 0.8 }, outputs: 1.2, energyCost: 2.0, researchPrereq: 'economy.post_scarcity' },
   },
+
+  // ── Tier 4 — Advanced Goods (Specialist needs; Anno: Artisan/Engineer) ─────
+
+  [GoodType.NEURAL_IMPLANTS]: {
+    [ProcessingMethod.STANDARD]:  { building: ProcessingBuilding.NEURAL_FABRICATOR, inputs: { focus_crystals: 1, electronics_components: 1 }, outputs: 1,   energyCost: 2.0, researchPrereq: 'economy.neurotechnology'   },
+    [ProcessingMethod.EFFICIENT]: { building: ProcessingBuilding.NEURAL_FABRICATOR, inputs: { focus_crystals: 1.2, electronics_components: 1 }, outputs: 1.4, energyCost: 2.2, researchPrereq: 'economy.neurotechnology'   },
+    [ProcessingMethod.PREMIUM]:   { building: ProcessingBuilding.NEURAL_FABRICATOR, inputs: { focus_crystals: 1, electronics_components: 0.8 }, outputs: 1.8, energyCost: 2.5, researchPrereq: 'economy.advanced_neuromechanics' },
+  },
+
+  [GoodType.QUANTUM_CIRCUITS]: {
+    [ProcessingMethod.STANDARD]:  { building: ProcessingBuilding.QUANTUM_LAB,       inputs: { electronics_components: 1, reactor_fuel: 1 }, outputs: 1,   energyCost: 3.0, researchPrereq: 'economy.quantum_computing'  },
+    [ProcessingMethod.EFFICIENT]: { building: ProcessingBuilding.QUANTUM_LAB,       inputs: { electronics_components: 1.2, reactor_fuel: 1 }, outputs: 1.3, energyCost: 3.2, researchPrereq: 'economy.quantum_computing'  },
+    [ProcessingMethod.PREMIUM]:   { building: ProcessingBuilding.QUANTUM_LAB,       inputs: { electronics_components: 1, reactor_fuel: 0.8 }, outputs: 1.7, energyCost: 3.5, researchPrereq: 'economy.entangled_logic'   },
+  },
+
+  [GoodType.BIO_SUPPLEMENTS]: {
+    [ProcessingMethod.STANDARD]:  { building: ProcessingBuilding.BIO_PHARMA,        inputs: { biocompost: 1, focus_crystals: 0.5 }, outputs: 1,   energyCost: 1.2, researchPrereq: 'economy.xenobiology'       },
+    [ProcessingMethod.EFFICIENT]: { building: ProcessingBuilding.BIO_PHARMA,        inputs: { biocompost: 1.2, focus_crystals: 0.5 }, outputs: 1.4, energyCost: 1.4, researchPrereq: 'economy.xenobiology'       },
+    [ProcessingMethod.PREMIUM]:   { building: ProcessingBuilding.BIO_PHARMA,        inputs: { biocompost: 1, focus_crystals: 0.4 }, outputs: 1.8, energyCost: 1.6, researchPrereq: 'economy.lifespan_extension' },
+  },
+
+  [GoodType.STELLAR_ART]: {
+    [ProcessingMethod.STANDARD]:  { building: ProcessingBuilding.CULTURAL_CENTER,   inputs: { luxury_goods: 1, focus_crystals: 1 }, outputs: 1,   energyCost: 0.8, researchPrereq: 'economy.cultural_renaissance' },
+    [ProcessingMethod.EFFICIENT]: { building: ProcessingBuilding.CULTURAL_CENTER,   inputs: { luxury_goods: 1.2, focus_crystals: 1 }, outputs: 1.3, energyCost: 1.0, researchPrereq: 'economy.cultural_renaissance' },
+    [ProcessingMethod.PREMIUM]:   { building: ProcessingBuilding.CULTURAL_CENTER,   inputs: { luxury_goods: 1, focus_crystals: 0.8 }, outputs: 1.6, energyCost: 1.2, researchPrereq: 'economy.galactic_heritage'    },
+  },
+
+  [GoodType.ADVANCED_PROPULSION]: {
+    [ProcessingMethod.STANDARD]:  { building: ProcessingBuilding.PROPULSION_WORKS,  inputs: { reactor_fuel: 1, steel_alloy: 1 }, outputs: 1,   energyCost: 3.5, researchPrereq: 'economy.advanced_propulsion_tech' },
+    [ProcessingMethod.EFFICIENT]: { building: ProcessingBuilding.PROPULSION_WORKS,  inputs: { reactor_fuel: 1.2, steel_alloy: 1 }, outputs: 1.4, energyCost: 3.8, researchPrereq: 'economy.advanced_propulsion_tech' },
+    [ProcessingMethod.PREMIUM]:   { building: ProcessingBuilding.PROPULSION_WORKS,  inputs: { reactor_fuel: 1, steel_alloy: 0.8 }, outputs: 1.7, energyCost: 4.0, researchPrereq: 'economy.singularity_drives'      },
+  },
+
+  // ── Tier 5 — Prestige Goods (Elite + Transcendent; Anno: Investor/Aristocrat) ─
+
+  [GoodType.VOID_CRYSTALS]: {
+    [ProcessingMethod.STANDARD]:  { building: ProcessingBuilding.VOID_REFINERY,             inputs: { quantum_circuits: 1, focus_crystals: 1, dark_matter: 0.5 }, outputs: 1,   energyCost: 5.0, researchPrereq: 'economy.void_resonance'      },
+    [ProcessingMethod.EFFICIENT]: { building: ProcessingBuilding.VOID_REFINERY,             inputs: { quantum_circuits: 1.2, focus_crystals: 1, dark_matter: 0.5 }, outputs: 1.3, energyCost: 5.5, researchPrereq: 'economy.void_resonance'      },
+    [ProcessingMethod.PREMIUM]:   { building: ProcessingBuilding.VOID_REFINERY,             inputs: { quantum_circuits: 1, focus_crystals: 0.8, dark_matter: 0.3 }, outputs: 1.6, energyCost: 6.0, researchPrereq: 'economy.dimensional_refining'  },
+  },
+
+  [GoodType.SYNTHETIC_CONSCIOUSNESS]: {
+    [ProcessingMethod.STANDARD]:  { building: ProcessingBuilding.CONSCIOUSNESS_INSTITUTE,   inputs: { neural_implants: 1, quantum_circuits: 1 }, outputs: 1,   energyCost: 6.0, researchPrereq: 'economy.consciousness_transfer' },
+    [ProcessingMethod.EFFICIENT]: { building: ProcessingBuilding.CONSCIOUSNESS_INSTITUTE,   inputs: { neural_implants: 1.2, quantum_circuits: 1 }, outputs: 1.3, energyCost: 6.5, researchPrereq: 'economy.consciousness_transfer' },
+    [ProcessingMethod.PREMIUM]:   { building: ProcessingBuilding.CONSCIOUSNESS_INSTITUTE,   inputs: { neural_implants: 1, quantum_circuits: 0.8 }, outputs: 1.6, energyCost: 7.0, researchPrereq: 'economy.digital_ascension'       },
+  },
+
+  [GoodType.TEMPORAL_LUXURIES]: {
+    [ProcessingMethod.STANDARD]:  { building: ProcessingBuilding.TEMPORAL_ATELIER,          inputs: { stellar_art: 1, void_crystals: 1 }, outputs: 1,   energyCost: 4.0, researchPrereq: 'economy.temporal_mastery' },
+    [ProcessingMethod.EFFICIENT]: { building: ProcessingBuilding.TEMPORAL_ATELIER,          inputs: { stellar_art: 1.2, void_crystals: 1 }, outputs: 1.3, energyCost: 4.2, researchPrereq: 'economy.temporal_mastery' },
+    [ProcessingMethod.PREMIUM]:   { building: ProcessingBuilding.TEMPORAL_ATELIER,          inputs: { stellar_art: 1, void_crystals: 0.8 }, outputs: 1.6, energyCost: 4.5, researchPrereq: 'economy.post_scarcity'    },
+  },
 });
 
 // ---------------------------------------------------------------------------
@@ -245,6 +339,18 @@ const GOOD_BASE_PRICE = Object.freeze({
   [GoodType.MILITARY_EQUIPMENT]:   150,
   [GoodType.RESEARCH_KITS]:        130,
   [GoodType.COLONIZATION_PACKS]:   250,
+
+  // Tier 4
+  [GoodType.NEURAL_IMPLANTS]:      400,
+  [GoodType.QUANTUM_CIRCUITS]:     550,
+  [GoodType.BIO_SUPPLEMENTS]:      350,
+  [GoodType.STELLAR_ART]:          600,
+  [GoodType.ADVANCED_PROPULSION]:  800,
+
+  // Tier 5
+  [GoodType.VOID_CRYSTALS]:             2500,
+  [GoodType.SYNTHETIC_CONSCIOUSNESS]:   4000,
+  [GoodType.TEMPORAL_LUXURIES]:         5000,
 });
 
 /** Minimum price multiplier — price can fall at most to 30% of base. */
@@ -259,9 +365,8 @@ const PRICE_ELASTICITY = 0.4;
 // ---------------------------------------------------------------------------
 
 /**
- * Per-pop-per-tick consumption of Tier-3 goods.
- * These represent the living standard needs of a colony's population.
- * Victoria 3 inspiration: needs pyramid (basic → comfort → luxury).
+ * Per-pop-per-tick consumption of Tier-3 goods for COLONIST-class pops.
+ * Legacy fallback used when no popClasses are defined on a colony.
  * @type {Readonly<Record<string, number>>}
  */
 const POP_CONSUMPTION_RATE = Object.freeze({
@@ -270,7 +375,7 @@ const POP_CONSUMPTION_RATE = Object.freeze({
 });
 
 /**
- * Happiness modifiers applied when pop consumption targets are (not) met.
+ * Happiness modifiers for the legacy POP_CONSUMPTION_RATE (Colonist pops).
  * @type {Readonly<Record<string, {bonus: number, penalty: number}>>}
  */
 const CONSUMPTION_HAPPINESS = Object.freeze({
@@ -279,10 +384,146 @@ const CONSUMPTION_HAPPINESS = Object.freeze({
 });
 
 /**
- * Credits production modifier when consumer_goods are missing (Victoria 3: lack of
- * consumer goods reduces workforce output).
+ * Credits production modifier when consumer_goods are missing.
  */
 const CONSUMER_GOODS_SHORTAGE_CREDIT_MULT = 0.80; // −20% credits
+
+// ---------------------------------------------------------------------------
+// Pop-Class System (Anno Principle — endless progression)
+// ---------------------------------------------------------------------------
+
+/**
+ * Population classes representing the living standard ladder.
+ *
+ * Inspired by:
+ *   Anno 1800   — Farmers → Workers → Artisans → Engineers → Investors
+ *   Victoria 3  — lower strata → middle strata → upper strata
+ *
+ * Each class has:
+ *   - Specific consumption needs (POP_CLASS_NEEDS)
+ *   - Productivity bonuses (POP_CLASS_YIELD)
+ *   - A maximum population fraction (POP_CLASS_MAX_FRACTION)
+ *   - Advancement conditions (satisfaction for ADVANCEMENT_TICKS_REQUIRED ticks)
+ *   - Descent conditions (shortage for DESCENT_TICKS_REQUIRED ticks)
+ *
+ * The progression is ENDLESS: there is always a higher class to work toward,
+ * requiring ever more complex Tier-4 and Tier-5 goods.
+ *
+ * @enum {string}
+ */
+const PopClass = Object.freeze({
+  COLONIST:     'colonist',     // Siedler — survival: food + basic consumer goods
+  CITIZEN:      'citizen',      // Bürger  — comfort: consumer goods + biocompost
+  SPECIALIST:   'specialist',   // Fachleute — advanced: luxury + neural implants + bio supplements
+  ELITE:        'elite',        // Eliten — prestige: stellar art + quantum circuits + luxury
+  TRANSCENDENT: 'transcendent', // Transzendierer — post-scarcity: void crystals + synthetic consciousness
+});
+
+/**
+ * Ordered array of pop classes from lowest to highest.
+ * Used for advancement/descent logic.
+ */
+const POP_CLASS_ORDER = Object.freeze([
+  PopClass.COLONIST, PopClass.CITIZEN, PopClass.SPECIALIST,
+  PopClass.ELITE, PopClass.TRANSCENDENT,
+]);
+
+/**
+ * Per-class consumption needs per pop per tick.
+ * Each entry lists what goods/resources one pop unit of that class consumes.
+ * Primary resource 'food' is consumed from the colony primary stockpile.
+ * All others are consumed from GoodStock.
+ *
+ * Design rule: Each class's needs are STRICTLY MORE COMPLEX than the previous,
+ * requiring a higher tier good that itself requires a longer production chain.
+ * This creates the endless progression loop.
+ *
+ * @type {Readonly<Record<string, Record<string, number>>>}
+ */
+const POP_CLASS_NEEDS = Object.freeze({
+  [PopClass.COLONIST]:     {
+    food:                              1.0,
+    [GoodType.CONSUMER_GOODS]:         0.10,
+  },
+  [PopClass.CITIZEN]:      {
+    [GoodType.CONSUMER_GOODS]:         0.20,
+    [GoodType.BIOCOMPOST]:             0.05,
+    [GoodType.LUXURY_GOODS]:           0.05,
+  },
+  [PopClass.SPECIALIST]:   {
+    [GoodType.LUXURY_GOODS]:           0.10,
+    [GoodType.NEURAL_IMPLANTS]:        0.05,
+    [GoodType.BIO_SUPPLEMENTS]:        0.04,
+    [GoodType.RESEARCH_KITS]:          0.02,
+  },
+  [PopClass.ELITE]:        {
+    [GoodType.LUXURY_GOODS]:           0.05,
+    [GoodType.STELLAR_ART]:            0.04,
+    [GoodType.QUANTUM_CIRCUITS]:       0.02,
+    [GoodType.NEURAL_IMPLANTS]:        0.02,
+  },
+  [PopClass.TRANSCENDENT]: {
+    [GoodType.STELLAR_ART]:            0.03,
+    [GoodType.VOID_CRYSTALS]:          0.02,
+    [GoodType.SYNTHETIC_CONSCIOUSNESS]: 0.01,
+    [GoodType.TEMPORAL_LUXURIES]:      0.01,
+  },
+});
+
+/**
+ * Productivity multipliers granted by each pop class (over Colonist baseline = 1.0).
+ * Higher classes produce more per pop, but demand more complex goods.
+ * This is the core economic trade-off driving progression.
+ *
+ * @type {Readonly<Record<string, {production: number, research: number, credits: number}>>}
+ */
+const POP_CLASS_YIELD = Object.freeze({
+  [PopClass.COLONIST]:     { production: 1.0, research: 1.0, credits: 1.0 },
+  [PopClass.CITIZEN]:      { production: 1.3, research: 1.1, credits: 1.2 },
+  [PopClass.SPECIALIST]:   { production: 1.6, research: 1.5, credits: 1.8 },
+  [PopClass.ELITE]:        { production: 1.8, research: 2.0, credits: 2.5 },
+  [PopClass.TRANSCENDENT]: { production: 2.0, research: 5.0, credits: 4.0 },
+});
+
+/**
+ * Maximum fraction of total colony population that can be in each class.
+ * Prevents trivial 100% Transcendent colonies — higher classes are rare.
+ * Enforced during advancePops().
+ * @type {Readonly<Record<string, number>>}
+ */
+const POP_CLASS_MAX_FRACTION = Object.freeze({
+  [PopClass.COLONIST]:     1.00,  // no cap
+  [PopClass.CITIZEN]:      0.80,  // up to 80% of total pops
+  [PopClass.SPECIALIST]:   0.50,  // up to 50%
+  [PopClass.ELITE]:        0.20,  // up to 20%
+  [PopClass.TRANSCENDENT]: 0.05,  // up to 5% — very rare, very powerful
+});
+
+/**
+ * Happiness bonus/penalty per class depending on whether ALL class needs are met.
+ * Higher classes provide larger bonuses (satisfaction of elevated lifestyle)
+ * but smaller penalties (they have savings/resilience).
+ * @type {Readonly<Record<string, {bonus: number, penalty: number}>>}
+ */
+const CLASS_NEED_HAPPINESS = Object.freeze({
+  [PopClass.COLONIST]:     { bonus:  5, penalty: -15 },
+  [PopClass.CITIZEN]:      { bonus: 10, penalty: -10 },
+  [PopClass.SPECIALIST]:   { bonus: 15, penalty:  -5 },
+  [PopClass.ELITE]:        { bonus: 20, penalty:  -3 },
+  [PopClass.TRANSCENDENT]: { bonus: 25, penalty:  -1 },
+});
+
+/**
+ * Number of consecutive "all needs fully met" ticks required for a pop to advance
+ * to the next class (if the max-fraction cap allows it).
+ */
+const ADVANCEMENT_TICKS_REQUIRED = 10;
+
+/**
+ * Number of consecutive "shortage" ticks (at least one need < 50% coverage)
+ * required before a pop descends to the previous class.
+ */
+const DESCENT_TICKS_REQUIRED = 5;
 
 // ---------------------------------------------------------------------------
 // Economic policy constants
@@ -351,7 +592,8 @@ class GoodStock {
     this._capacity = new Map();
 
     for (const good of Object.values(GoodType)) {
-      const defaultCap = GOOD_TIER[good] === 2 ? 5000 : 2000;
+      const tier       = GOOD_TIER[good] ?? 3;
+      const defaultCap = tier === 2 ? 5000 : tier === 3 ? 2000 : tier === 4 ? 1000 : 500;
       this._capacity.set(good, capacities[good] ?? defaultCap);
       this._stock.set(good, Math.min(initialStock[good] ?? 0, this._capacity.get(good)));
     }
@@ -806,6 +1048,7 @@ class EconomyPolicy {
  *   - which ProcessingMethod is active per building
  *   - its GoodStock inventory
  *   - a reference to the primary-resource stockpile (external, mutable)
+ *   - pop class distribution (Anno principle) with advancement tracking
  *
  * This class is internal to EconomySimulation and not exported directly.
  */
@@ -816,13 +1059,14 @@ class ColonyEconomyNode {
    * @param {Object} opts.buildings       { [ProcessingBuilding]: count }
    * @param {Object} opts.stockpile       Mutable primary-resource object
    *                                      { metal, crystal, deuterium, rare_earth, food, energy }
-   * @param {number} opts.population      Current pop count (for consumption)
+   * @param {number} opts.population      Current total pop count
+   * @param {Object} [opts.popClasses]    { [PopClass]: count } — defaults to all COLONIST
    * @param {GoodStock} [opts.goodStock]  Pre-existing stock (for deserialization)
    */
-  constructor(colonyId, { buildings = {}, stockpile = {}, population = 0, goodStock } = {}) {
+  constructor(colonyId, { buildings = {}, stockpile = {}, population = 0, popClasses, goodStock } = {}) {
     this.id         = colonyId;
-    this.buildings  = { ...buildings };   // { [ProcessingBuilding]: number (count) }
-    this.stockpile  = stockpile;          // live reference to primary-resource stockpile
+    this.buildings  = { ...buildings };
+    this.stockpile  = stockpile;
     this.population = population;
     this.stock      = goodStock ?? new GoodStock();
     /** @type {Object}  Active method per building: { [ProcessingBuilding]: ProcessingMethod } */
@@ -830,6 +1074,28 @@ class ColonyEconomyNode {
     for (const b of Object.keys(buildings)) {
       this.methods[b] = ProcessingMethod.STANDARD;
     }
+    /**
+     * Pop class distribution (Anno principle).
+     * All pops start as COLONIST; they advance as needs are met over time.
+     * @type {Object}  { [PopClass]: number }
+     */
+    this.popClasses = popClasses ?? { [PopClass.COLONIST]: population };
+    // Ensure all class keys exist
+    for (const cls of POP_CLASS_ORDER) {
+      if (this.popClasses[cls] === undefined) this.popClasses[cls] = 0;
+    }
+    /**
+     * Consecutive ticks where ALL needs of a class were fully met (≥99% coverage).
+     * When this reaches ADVANCEMENT_TICKS_REQUIRED, one pop can advance.
+     * @type {Object}  { [PopClass]: number }
+     */
+    this._satisfactionTicks = {};
+    /**
+     * Consecutive ticks where at least one class need was in shortage (<50% coverage).
+     * When this reaches DESCENT_TICKS_REQUIRED, one pop descends.
+     * @type {Object}  { [PopClass]: number }
+     */
+    this._shortageTicks = {};
     /** Happiness modifier accumulated this tick (applied externally). */
     this.happinessMod = 0;
     /** Credits delta accumulated this tick (applied externally). */
@@ -935,8 +1201,14 @@ class ColonyEconomyNode {
 
   /**
    * Run pop-consumption tick for this colony.
-   * Pops consume Tier-3 goods (consumer_goods, luxury_goods).
-   * Calculates happiness and credits delta from consumption levels.
+   *
+   * Uses the per-class needs system (Anno principle):
+   *   - Each pop class consumes its specific POP_CLASS_NEEDS goods per tick.
+   *   - Tracks satisfaction/shortage ticks for advancement (see advancePops).
+   *   - Returns aggregate happiness and credits delta across all classes.
+   *
+   * Falls back to legacy POP_CONSUMPTION_RATE behaviour when popClasses are
+   * absent (all population treated as COLONIST).
    *
    * @param {number} [dt=1]
    * @returns {{happinessMod: number, creditsDelta: number,
@@ -948,30 +1220,54 @@ class ColonyEconomyNode {
     const consumed    = {};
     const shortages   = [];
 
-    for (const [good, ratePerPop] of Object.entries(POP_CONSUMPTION_RATE)) {
-      const needed     = ratePerPop * this.population * dt;
-      const actual     = this.stock.consume(good, needed);
-      consumed[good]   = actual;
-      const coverage   = needed > 0 ? actual / needed : 1;
-      const hapEff     = CONSUMPTION_HAPPINESS[good];
+    for (const cls of POP_CLASS_ORDER) {
+      const count = this.popClasses[cls] ?? 0;
+      if (!count) continue;
 
-      if (coverage >= 0.99) {
-        // Full satisfaction
-        happinessMod += hapEff.bonus;
-      } else if (coverage < 0.01) {
-        // Complete shortage
-        happinessMod += hapEff.penalty;
-        shortages.push(good);
-      } else {
-        // Partial — linear interpolation
-        const partialBonus = hapEff.bonus * coverage + hapEff.penalty * (1 - coverage);
-        happinessMod += partialBonus;
-        if (coverage < 0.5) shortages.push(good);
+      const needs   = POP_CLASS_NEEDS[cls];
+      const hapEff  = CLASS_NEED_HAPPINESS[cls];
+      const needKeys = Object.keys(needs);
+      let   allMetThisTick = true;
+
+      for (const [good, ratePerPop] of Object.entries(needs)) {
+        const needed = ratePerPop * count * dt;
+        let   actual;
+        if (good === 'food') {
+          // Food comes from primary stockpile
+          actual = Math.min(needed, this.stockpile.food ?? 0);
+          this.stockpile.food = Math.max(0, (this.stockpile.food ?? 0) - actual);
+        } else {
+          actual = this.stock.consume(good, needed);
+        }
+        consumed[good] = (consumed[good] ?? 0) + actual;
+
+        const coverage = needed > 0 ? actual / needed : 1;
+        // Spread happiness over all needs of this class (equal weight)
+        if (coverage >= 0.99) {
+          happinessMod += hapEff.bonus / needKeys.length;
+        } else if (coverage < 0.01) {
+          happinessMod += hapEff.penalty / needKeys.length;
+          shortages.push(good);
+          allMetThisTick = false;
+        } else {
+          happinessMod += (hapEff.bonus * coverage + hapEff.penalty * (1 - coverage)) / needKeys.length;
+          if (coverage < 0.5) { shortages.push(good); allMetThisTick = false; }
+        }
+        // Consumer goods shortage → credits penalty (Victoria 3: reduced workforce)
+        if (good === GoodType.CONSUMER_GOODS && coverage < 0.99) {
+          creditsDelta -= count * (1 - coverage) * 2;
+        }
       }
 
-      // Credit penalty for consumer goods shortage (Victoria 3: workforce suffers)
-      if (good === GoodType.CONSUMER_GOODS && coverage < 0.99) {
-        creditsDelta -= this.population * (1 - coverage) * 2;
+      // Track consecutive satisfaction / shortage ticks for advancement
+      if (!this._satisfactionTicks[cls]) this._satisfactionTicks[cls] = 0;
+      if (!this._shortageTicks[cls])     this._shortageTicks[cls]     = 0;
+      if (allMetThisTick) {
+        this._satisfactionTicks[cls]++;
+        this._shortageTicks[cls] = 0;
+      } else {
+        this._shortageTicks[cls]++;
+        this._satisfactionTicks[cls] = 0;
       }
     }
 
@@ -980,14 +1276,103 @@ class ColonyEconomyNode {
     return { happinessMod, creditsDelta, consumed, shortages };
   }
 
+  /**
+   * Advance or descend pop classes based on accumulated satisfaction/shortage ticks.
+   *
+   * Advancement (Anno principle — endless progression):
+   *   - A class advances ONE pop unit to the next class if:
+   *     a) Its satisfactionTicks >= ADVANCEMENT_TICKS_REQUIRED
+   *     b) The next class is below its POP_CLASS_MAX_FRACTION cap
+   *
+   * Descent (safety valve):
+   *   - A class descends ONE pop to the previous class if:
+   *     a) Its shortageTicks >= DESCENT_TICKS_REQUIRED
+   *     b) There is a previous class to fall back to
+   *
+   * Always processes from TRANSCENDENT down to avoid double-counting.
+   *
+   * @param {import('../EventBus').EventBus} [bus]
+   * @returns {{advancements: Array, descents: Array}}
+   */
+  advancePops(bus) {
+    const advancements = [];
+    const descents     = [];
+    const total        = POP_CLASS_ORDER.reduce((s, c) => s + (this.popClasses[c] ?? 0), 0);
+    if (!total) return { advancements, descents };
+
+    // Process descents first (high → low) to avoid interference with advancements
+    for (let i = POP_CLASS_ORDER.length - 1; i > 0; i--) {
+      const cls  = POP_CLASS_ORDER[i];
+      const prev = POP_CLASS_ORDER[i - 1];
+      const count = this.popClasses[cls] ?? 0;
+      if (!count) continue;
+      if ((this._shortageTicks[cls] ?? 0) >= DESCENT_TICKS_REQUIRED) {
+        const descend = 1; // descend one pop unit at a time
+        this.popClasses[cls]  = count - descend;
+        this.popClasses[prev] = (this.popClasses[prev] ?? 0) + descend;
+        this._shortageTicks[cls] = 0;
+        descents.push({ from: cls, to: prev, count: descend });
+        bus?.emit('economy:pop:descend', { colonyId: this.id, from: cls, to: prev, count: descend });
+      }
+    }
+
+    // Process advancements (low → high)
+    for (let i = 0; i < POP_CLASS_ORDER.length - 1; i++) {
+      const cls  = POP_CLASS_ORDER[i];
+      const next = POP_CLASS_ORDER[i + 1];
+      const count = this.popClasses[cls] ?? 0;
+      if (!count) continue;
+      if ((this._satisfactionTicks[cls] ?? 0) >= ADVANCEMENT_TICKS_REQUIRED) {
+        const maxNextCount    = Math.floor(total * (POP_CLASS_MAX_FRACTION[next] ?? 0));
+        const currentNext     = this.popClasses[next] ?? 0;
+        if (currentNext < maxNextCount) {
+          const advance = 1; // advance one pop unit at a time (smooth progression)
+          this.popClasses[cls]  = count - advance;
+          this.popClasses[next] = currentNext + advance;
+          this._satisfactionTicks[cls] = 0;
+          advancements.push({ from: cls, to: next, count: advance });
+          bus?.emit('economy:pop:advance', { colonyId: this.id, from: cls, to: next, count: advance });
+        }
+      }
+    }
+
+    return { advancements, descents };
+  }
+
+  /**
+   * Compute the aggregate productivity yield of this colony's pop class distribution.
+   * Returns weighted average of POP_CLASS_YIELD across all classes.
+   * @returns {{production: number, research: number, credits: number}}
+   */
+  computeClassYield() {
+    const total = POP_CLASS_ORDER.reduce((s, c) => s + (this.popClasses[c] ?? 0), 0);
+    if (!total) return { production: 1.0, research: 1.0, credits: 1.0 };
+    let production = 0, research = 0, credits = 0;
+    for (const cls of POP_CLASS_ORDER) {
+      const n   = this.popClasses[cls] ?? 0;
+      const yld = POP_CLASS_YIELD[cls];
+      production += yld.production * n;
+      research   += yld.research   * n;
+      credits    += yld.credits    * n;
+    }
+    return {
+      production: production / total,
+      research:   research   / total,
+      credits:    credits    / total,
+    };
+  }
+
   /** @returns {Object} */
   serialize() {
     return {
-      id:         this.id,
-      buildings:  { ...this.buildings },
-      methods:    { ...this.methods },
-      population: this.population,
-      stock:      this.stock.serialize(),
+      id:                  this.id,
+      buildings:           { ...this.buildings },
+      methods:             { ...this.methods },
+      population:          this.population,
+      stock:               this.stock.serialize(),
+      popClasses:          { ...this.popClasses },
+      _satisfactionTicks:  { ...this._satisfactionTicks },
+      _shortageTicks:      { ...this._shortageTicks },
     };
   }
 
@@ -1002,9 +1387,12 @@ class ColonyEconomyNode {
       buildings:  json.buildings  ?? {},
       stockpile,
       population: json.population ?? 0,
+      popClasses: json.popClasses ?? undefined,
       goodStock:  GoodStock.deserialize(json.stock ?? {}),
     });
-    node.methods = { ...json.methods };
+    node.methods             = { ...json.methods };
+    node._satisfactionTicks  = { ...(json._satisfactionTicks ?? {}) };
+    node._shortageTicks      = { ...(json._shortageTicks      ?? {}) };
     return node;
   }
 }
@@ -1054,29 +1442,28 @@ class EconomySimulation {
 
   /**
    * Register a colony with the economy simulation.
-   * If the colony is already registered, its processing buildings and population
-   * are updated without resetting the good stock.
+   * If the colony is already registered, buildings and population are updated
+   * without resetting the good stock or pop class distribution.
    *
    * @param {string} colonyId
    * @param {Object} opts
    * @param {Object} opts.buildings   { [ProcessingBuilding]: count }
    * @param {Object} opts.stockpile   Live primary-resource object
-   * @param {number} opts.population  Current pop count
+   * @param {number} opts.population  Current total pop count
+   * @param {Object} [opts.popClasses] { [PopClass]: count } — optional initial distribution
    * @returns {ColonyEconomyNode}
    */
-  registerColony(colonyId, { buildings = {}, stockpile = {}, population = 0 } = {}) {
+  registerColony(colonyId, { buildings = {}, stockpile = {}, population = 0, popClasses } = {}) {
     let node = this._nodes.get(colonyId);
     if (node) {
-      // Update buildings and pop count, keep existing stock
       node.buildings  = { ...buildings };
       node.population = population;
       node.stockpile  = stockpile;
-      // Ensure methods exist for any new buildings
       for (const b of Object.keys(buildings)) {
         if (!(b in node.methods)) node.methods[b] = ProcessingMethod.STANDARD;
       }
     } else {
-      node = new ColonyEconomyNode(colonyId, { buildings, stockpile, population });
+      node = new ColonyEconomyNode(colonyId, { buildings, stockpile, population, popClasses });
       this._nodes.set(colonyId, node);
     }
     return node;
@@ -1152,7 +1539,7 @@ class EconomySimulation {
         }
       }
 
-      // 2. Consumption
+      // 2. Consumption (class-based Anno needs)
       const { happinessMod, creditsDelta, consumed, shortages } = node.consumeTick(dt);
       if (Object.keys(consumed).length > 0) {
         this._bus?.emit('economy:consumed', {
@@ -1160,12 +1547,18 @@ class EconomySimulation {
         });
         for (const [good, amt] of Object.entries(consumed)) {
           allConsumed[good] = (allConsumed[good] ?? 0) + amt;
-          this.market.updateSupplyDemand(good, { demand: amt * 0.05 }); // 5% demand signal
+          this.market.updateSupplyDemand(good, { demand: amt * 0.05 });
         }
       }
       for (const good of shortages) {
         allShortages.push(good);
         this._bus?.emit('economy:shortage', { colonyId: node.id, good });
+      }
+
+      // 3. Pop-class advancement (Anno principle — endless progression)
+      const advResult = node.advancePops(this._bus);
+      if (advResult.advancements.length > 0 || advResult.descents.length > 0) {
+        this._bus?.emit('economy:pop:changed', { colonyId: node.id, ...advResult });
       }
     }
 
@@ -1196,17 +1589,24 @@ class EconomySimulation {
     for (const good of Object.values(GoodType)) {
       goods[good] = { stock: 0, price: this.market.getPrice(good) };
     }
+    const popClassTotals = {};
+    for (const cls of POP_CLASS_ORDER) popClassTotals[cls] = 0;
+
     for (const node of this._nodes.values()) {
       for (const good of Object.values(GoodType)) {
         goods[good].stock += node.stock.get(good);
       }
+      for (const [cls, count] of Object.entries(node.popClasses)) {
+        popClassTotals[cls] = (popClassTotals[cls] ?? 0) + count;
+      }
     }
     return {
-      tick:         this._tick,
-      colonies:     this._nodes.size,
+      tick:          this._tick,
+      colonies:      this._nodes.size,
       goods,
-      policy:       this.policy.getEffects(),
-      activeEvents: this.market.activeEvents,
+      popClassTotals,
+      policy:        this.policy.getEffects(),
+      activeEvents:  this.market.activeEvents,
     };
   }
 
@@ -1265,6 +1665,9 @@ if (typeof module !== 'undefined' && module.exports) {
     CONSUMER_GOODS_SHORTAGE_CREDIT_MULT, POLICY_EFFECTS, DEFAULT_TAX_RATES,
     MARKET_EVENT_TEMPLATES,
     PRICE_MULT_MIN, PRICE_MULT_MAX, PRICE_ELASTICITY,
+    // Anno-Prinzip Pop-Class system
+    PopClass, POP_CLASS_ORDER, POP_CLASS_NEEDS, POP_CLASS_YIELD, POP_CLASS_MAX_FRACTION,
+    CLASS_NEED_HAPPINESS, ADVANCEMENT_TICKS_REQUIRED, DESCENT_TICKS_REQUIRED,
   };
 } else {
   window.GQEconomy = {
@@ -1274,5 +1677,7 @@ if (typeof module !== 'undefined' && module.exports) {
     CONSUMER_GOODS_SHORTAGE_CREDIT_MULT, POLICY_EFFECTS, DEFAULT_TAX_RATES,
     MARKET_EVENT_TEMPLATES,
     PRICE_MULT_MIN, PRICE_MULT_MAX, PRICE_ELASTICITY,
+    PopClass, POP_CLASS_ORDER, POP_CLASS_NEEDS, POP_CLASS_YIELD, POP_CLASS_MAX_FRACTION,
+    CLASS_NEED_HAPPINESS, ADVANCEMENT_TICKS_REQUIRED, DESCENT_TICKS_REQUIRED,
   };
 }

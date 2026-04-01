@@ -1,9 +1,9 @@
 # 💹 GalaxyQuest — Wirtschaftssystem Design Document
 
-**Version:** 1.0  
-**Status:** Outline / Blaupause für Implementierung  
+**Version:** 2.0  
+**Status:** Implementiert (Phase E1) — aktiv in Entwicklung  
 **Letztes Update:** 2026-04-01  
-**Inspirationsquellen:** Victoria 3 (Paradox, 2022) · X4: Foundations (Egosoft, 2018)
+**Inspirationsquellen:** Victoria 3 (Paradox, 2022) · X4: Foundations (Egosoft, 2018) · Anno 1800 (Blue Byte, 2019)
 
 ---
 
@@ -13,16 +13,17 @@
 2. [Ressourcen-Hierarchie](#2-ressourcen-hierarchie)
 3. [Produktionsketten (Supply Chains)](#3-produktionsketten-supply-chains)
 4. [Galaktischer Markt & Preisbildung](#4-galaktischer-markt--preisbildung)
-5. [Pop-Wirtschaft (Lebensstandard & Konsum)](#5-pop-wirtschaft-lebensstandard--konsum)
-6. [Fraktions-Wirtschaft & NPC-Ökonomie](#6-fraktions-wirtschaft--npc-ökonomie)
-7. [Handelsrouten & Logistik](#7-handelsrouten--logistik)
-8. [Wirtschaftspolitik](#8-wirtschaftspolitik)
-9. [Technologie-Integration](#9-technologie-integration)
-10. [UI/UX-Spezifikation (Frontend)](#10-uiux-spezifikation-frontend)
-11. [Backend-API & Datenbankschema](#11-backend-api--datenbankschema)
-12. [Implementierungs-Roadmap](#12-implementierungs-roadmap)
-13. [Balancing-Grundsätze](#13-balancing-grundsätze)
-14. [Offene Design-Fragen](#14-offene-design-fragen)
+5. [Pop-Klassensystem & Anno-Prinzip — Endlose Progression](#5-pop-klassensystem--anno-prinzip--endlose-progression) ⬅ **NEU**
+6. [Pop-Wirtschaft (Lebensstandard & Konsum)](#6-pop-wirtschaft-lebensstandard--konsum)
+7. [Fraktions-Wirtschaft & NPC-Ökonomie](#7-fraktions-wirtschaft--npc-ökonomie)
+8. [Handelsrouten & Logistik](#8-handelsrouten--logistik)
+9. [Wirtschaftspolitik](#9-wirtschaftspolitik)
+10. [Technologie-Integration](#10-technologie-integration)
+11. [UI/UX-Spezifikation (Frontend)](#11-uiux-spezifikation-frontend)
+12. [Backend-API & Datenbankschema](#12-backend-api--datenbankschema)
+13. [Implementierungs-Roadmap](#13-implementierungs-roadmap)
+14. [Balancing-Grundsätze](#14-balancing-grundsätze)
+15. [Offene Design-Fragen](#15-offene-design-fragen)
 
 ---
 
@@ -38,6 +39,7 @@ Das GalaxyQuest-Wirtschaftssystem soll ein **lebendes, reaktives Marktökosystem
 |---|---|
 | **Victoria 3** | Pop-Konsum-Bedürfnisse · Warenmarkt mit dynamischen Preisen · Produktionsmethoden · Wirtschaftspolitik-Gesetze |
 | **X4: Foundations** | Modulare Stationen als Wirtschaftsknoten · Angebot/Nachfrage-Preisbildung · Waren-Transportlogistik · NPC-Händler |
+| **Anno 1800** | **Pop-Klassensystem** · Aufstiegsprinzip · tierstufige Bedürfnisse · endlose Progression ohne Endgame |
 | **Stellaris** | Planetare Distrikte · Pop-Jobs · Fraktions-Wirtschaft |
 | **Master of Orion** | Farmer/Worker/Scientist-Allokation |
 
@@ -45,15 +47,16 @@ Das GalaxyQuest-Wirtschaftssystem soll ein **lebendes, reaktives Marktökosystem
 
 1. **Tiefe ohne Überwältigung:** Komplexe Interdependenzen, aber intuitive Darstellung
 2. **Reaktive Wirtschaft:** Preise und Nachfrage reagieren auf Spielerentscheidungen und Weltgeschehen
-3. **Fraktions-Integration:** NPC-Fraktionen nehmen am Markt teil, schaffen Wettbewerb und Kooperationsmöglichkeiten
-4. **Colony-Spezialisierung sinnvoll machen:** Wirtschaftliche Vorteile, die echte strategische Entscheidungen erzwingen
-5. **Rückwärtskompatibilität:** Aufbauend auf bestehenden Ressourcen (metal, crystal, deuterium, rare_earth, food, dark_matter)
+3. **Endlose Progression (Anno-Prinzip):** Kein Endgame — immer eine höhere Pop-Klasse zu erreichen, die komplexere Güter benötigt und mehr produziert
+4. **Fraktions-Integration:** NPC-Fraktionen nehmen am Markt teil, schaffen Wettbewerb und Kooperationsmöglichkeiten
+5. **Colony-Spezialisierung sinnvoll machen:** Wirtschaftliche Vorteile, die echte strategische Entscheidungen erzwingen
+6. **Rückwärtskompatibilität:** Aufbauend auf bestehenden Ressourcen (metal, crystal, deuterium, rare_earth, food, dark_matter)
 
 ### Nicht-Ziele
 
 - Kein Echtzeit-Börsensimulator (zuviel Micromanagement)
 - Keine vollständige Planwirtschaft (kein Befehlssystem à la Totalwar)
-- Kein primärer Wirtschaftsfokus — Wirtschaft ist Mittel zum Zweck (Schiffsbau, Forschung, Expansion)
+- **Kein klassisches „Endgame"** — der Spieler soll nie das Gefühl haben, „fertig" zu sein
 
 ---
 
@@ -97,14 +100,37 @@ Fertigwaren entstehen durch Kombination von Zwischenprodukten und verleihen Pops
 | **Forschungs-Kits** | 🔬 | 1× Fokus-Kristalle + 1× Elektronik-Bauteile | Forschungs-Output +15% auf Kolonie |
 | **Kolonisierungs-Pakete** | 🏗 | 1× Stahl-Legierung + 1× Biokompost + 1× Reaktorbrennstoff | Kolonie-Wachstum +25% für 10 Ticks |
 
-### 2.4 Ressourcen-Lager
+### 2.4 Tier 4 — Fortschrittsgüter ✨ (Fachleute-Klasse; Anno: Artisan/Engineer-Tier)
+
+Tier-4-Güter werden von **Fachleute-Pops** konsumiert. Ihre Herstellung erfordert Tier-2-Zwischen­produkte und era-3/4-Forschung. Sie sind teuer, selten und treiben den wirtschaftlichen Fortschritt voran.
+
+| Ware | Symbol | Eingaben | Klasse | Effekt |
+|---|---|---|---|---|
+| **Neuronale Implantate** | 🧠 | 1× Fokus-Kristalle + 1× Elektronik-Bauteile | Fachleute | Forschungs-Yield ×1.5, Gesundheit +10% |
+| **Quanten-Schaltkreise** | ⚛ | 1× Elektronik-Bauteile + 1× Reaktorbrennstoff | Fachleute | KI-Module, Flotten-Kommando +15% |
+| **Bio-Supplemente** | 💊 | 1× Biokompost + 0.5× Fokus-Kristalle | Fachleute | Pop-Wachstum +5%, Einheiten-Moral +10% |
+| **Sternbild-Kunst** | 🎨 | 1× Luxusgüter + 1× Fokus-Kristalle | Eliten | Kulturelle Einfluss-Strahlung, Loyalität +15% |
+| **Fortschrittlicher Antrieb** | 🚀 | 1× Reaktorbrennstoff + 1× Stahl-Legierung | Fachleute | FTL-Geschwindigkeit +20%, Flotten-Reichweite +15% |
+
+### 2.5 Tier 5 — Prestigegüter 👑 (Eliten + Transzendierer; Anno: Investor/Aristokrat-Tier)
+
+Tier-5-Güter sind die seltensten und wertvollsten Waren der Galaxie. Ihre Produktion erfordert Tier-4-Eingaben, Dunkle Materie (Tier 1, selten) und era-5-Forschung. Sie sind der wirtschaftliche Beweis einer technologisch überlegenen Zivilisation.
+
+| Ware | Symbol | Eingaben | Klasse | Effekt |
+|---|---|---|---|---|
+| **Void-Kristalle** | 🌌 | 1× Quanten-Schaltkreise + 1× Fokus-Kristalle + 0.5× Dunkle Materie | Eliten | Ultimativer Rohstoff, Waffensystem-Boost |
+| **Synthetisches Bewusstsein** | 🤖 | 1× Neuronale Implantate + 1× Quanten-Schaltkreise | Transzendierer | KI-Gouverneure, Forschung ×5.0 |
+| **Temporale Luxuswaren** | ⏳ | 1× Sternbild-Kunst + 1× Void-Kristalle | Transzendierer | Ultimativer Prestige-Status, Credits ×4.0 |
+
+### 2.6 Ressourcen-Lager
 
 Jede Kolonie hat begrenzte Lagerkapazität. Überschuss wird automatisch zum galaktischen Markt angeboten.
 
 ```
-Lager-Kapazität = Basis-Kapazität × (1 + 0.1 × Lager-Gebäude-Level)
-Basis: Metal/Crystal/Deuterium = 50,000, Rare Earth = 10,000
-Zwischenprodukte: 5,000 pro Typ, Fertigwaren: 2,000 pro Typ
+Tier-2-Zwischenprodukte:   5,000 Einheiten/Typ
+Tier-3-Fertigwaren:        2,000 Einheiten/Typ
+Tier-4-Fortschrittsgüter:  1,000 Einheiten/Typ
+Tier-5-Prestigegüter:        500 Einheiten/Typ (extrem selten!)
 ```
 
 ---
@@ -242,7 +268,96 @@ Regelmäßige Ereignisse beeinflussen die Preise:
 
 ---
 
-## 5. Pop-Wirtschaft (Lebensstandard & Konsum)
+## 5. Pop-Klassensystem & Anno-Prinzip — Endlose Progression
+
+> **Kerngedanke:** GalaxyQuest ist ein Endlosspiel ohne Endgame. Das Pop-Klassensystem nach Anno-Vorbild sorgt dafür, dass der Spieler immer ein neues Ziel vor sich hat: die nächsthöhere Pop-Klasse zu erreichen, die komplexere Güter benötigt, aber erheblich produktiver ist.
+
+### 5.1 Die fünf Pop-Klassen
+
+Inspiriert von Anno 1800 (Farmers → Workers → Artisans → Engineers → Investors), angepasst an das Science-Fiction-Setting von GalaxyQuest:
+
+| Klasse | Analogie Anno | Bedürfnisse | Produktivitäts-Bonus | Max. Anteil |
+|---|---|---|---|---|
+| 🏕 **Kolonisten** | Farmer | Nahrung + Konsumgüter (Tier 3) | 1× Basis | 100% |
+| 🏙 **Bürger** | Workers | Konsumgüter + Biokompost + Luxusgüter | 1.3× Produktion, 1.2× Credits | 80% |
+| 🔬 **Fachleute** | Artisans | Luxusgüter + Neuronale Implantate + Bio-Supplemente | 1.6× Produktion, 1.5× Forschung, 1.8× Credits | 50% |
+| 👑 **Eliten** | Engineers | Luxusgüter + Sternbild-Kunst + Quanten-Schaltkreise | 1.8× Produktion, 2.0× Forschung, 2.5× Credits | 20% |
+| ✨ **Transzendierer** | Investors | Sternbild-Kunst + Void-Kristalle + Synthetisches Bewusstsein | 2.0× Produktion, **5.0× Forschung**, 4.0× Credits | 5% |
+
+### 5.2 Aufstiegsmechanik (Anno-Prinzip)
+
+**Aufstieg** (Pop steigt eine Klasse höher):
+1. Alle Bedürfnisse der aktuellen Klasse für **10 aufeinanderfolgende Ticks** ≥ 99% erfüllt  
+2. Die nächste Klasse ist noch **unter ihrer Maximalquote**  
+3. → Exakt **1 Pop-Einheit** steigt auf (bewusstes Drosselventil, verhindert Sprunganstieg)
+
+**Abstieg** (Pop fällt zurück):
+1. Mindestens ein Bedürfnis für **5 aufeinanderfolgende Ticks** < 50% erfüllt  
+2. → Exakt 1 Pop-Einheit fällt zurück (zur Stabilität)
+
+```
+satisfactionTicks[cls]++ bei jeder Runde alle Bedürfnisse ≥ 99%
+→ wenn satisfactionTicks >= 10: pop fördert aufstieg
+shortageTicks[cls]++   bei jeder Runde mind. 1 Bedürfnis < 50%
+→ wenn shortageTicks >= 5: pop steigt ab
+```
+
+### 5.3 Endlosigkeits-Schleife
+
+Die Schleife, die das Spiel endlos macht:
+
+```
+Höhere Pop-Klasse
+    → mehr Produktivität (Credits, Forschung)
+    → kann komplexere Gebäude/Flotten finanzieren
+    → erschließt neue Forschung
+    → schaltet Tier-4/5-Gebäude frei
+        → produziert Tier-4/5-Güter
+            → erfüllt Bedürfnisse höherer Klassen
+                → noch mehr Transzendierer
+                    → noch mehr Forschung & Credits
+                        → [repeat endlos]
+```
+
+> Es gibt kein „fertig" — nur einen nächsten Meilenstein: 1% Transzendierer → 3% → 5% → und wenn das erreicht ist, beginnt die Expansion in neue Galaxie-Cluster.
+
+### 5.4 Verbrauchsraten pro Klasse pro Pop pro Tick
+
+| Klasse | Gut | Rate/Pop/Tick | Quelle |
+|---|---|---|---|
+| Kolonisten | Nahrung | 1.00 | Primär-Lager |
+| Kolonisten | Konsumgüter | 0.10 | GoodStock |
+| Bürger | Konsumgüter | 0.20 | GoodStock |
+| Bürger | Biokompost | 0.05 | GoodStock |
+| Bürger | Luxusgüter | 0.05 | GoodStock |
+| Fachleute | Luxusgüter | 0.10 | GoodStock |
+| Fachleute | Neuronale Implantate | 0.05 | GoodStock |
+| Fachleute | Bio-Supplemente | 0.04 | GoodStock |
+| Fachleute | Forschungs-Kits | 0.02 | GoodStock |
+| Eliten | Luxusgüter | 0.05 | GoodStock |
+| Eliten | Sternbild-Kunst | 0.04 | GoodStock |
+| Eliten | Quanten-Schaltkreise | 0.02 | GoodStock |
+| Eliten | Neuronale Implantate | 0.02 | GoodStock |
+| Transzendierer | Sternbild-Kunst | 0.03 | GoodStock |
+| Transzendierer | Void-Kristalle | 0.02 | GoodStock |
+| Transzendierer | Synthetisches Bewusstsein | 0.01 | GoodStock |
+| Transzendierer | Temporale Luxuswaren | 0.01 | GoodStock |
+
+### 5.5 Happiness-Effekte pro Klasse
+
+| Klasse | Alle Bedürfnisse erfüllt | Kritische Lücke |
+|---|---|---|
+| Kolonisten | +5 Happiness | −15 Happiness |
+| Bürger | +10 Happiness | −10 Happiness |
+| Fachleute | +15 Happiness | −5 Happiness |
+| Eliten | +20 Happiness | −3 Happiness |
+| Transzendierer | +25 Happiness | −1 Happiness |
+
+> **Design-Note:** Höhere Klassen haben kleinere Strafen, weil sie „Puffer" haben (Ersparnisse, Netzwerke). Aber die Bedürfnisse sind so komplex, dass Mangel trotzdem eine Herausforderung darstellt.
+
+---
+
+## 6. Pop-Wirtschaft (Lebensstandard & Konsum)
 
 ### 5.1 Pop-Bedürfnispyramide (Victoria 3 inspiriert)
 
