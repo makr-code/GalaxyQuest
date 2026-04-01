@@ -68,6 +68,7 @@ services:
       - ./sql/migrate_actor_model_v1.sql:/docker-entrypoint-initdb.d/022-actor-model-v1.sql:ro
       - ./sql/migrate_faction_species_v1.sql:/docker-entrypoint-initdb.d/023-faction-species-v1.sql:ro
       - ./sql/migrate_actor_model_v2_drop_is_npc.sql:/docker-entrypoint-initdb.d/024-actor-model-v2-drop-is-npc.sql:ro
+      - ./sql/migrate_tts_v1.sql:/docker-entrypoint-initdb.d/025-tts-v1.sql:ro
 
   tts:
     build:

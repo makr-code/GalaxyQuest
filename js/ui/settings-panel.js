@@ -175,6 +175,11 @@
   }
 
   function loadSettingsIntoForm(modal, state) {
+    // Sync ttsAutoVoice from GQTTS localStorage (single source of truth)
+    if (!state.hasOwnProperty('ttsAutoVoice') && window.GQTTS && typeof window.GQTTS.isAutoVoiceEnabled === 'function') {
+      state.ttsAutoVoice = window.GQTTS.isAutoVoiceEnabled();
+    }
+
     modal.querySelectorAll('[data-setting]').forEach((el) => {
       const key = el.dataset.setting;
       const value = state[key];
@@ -258,6 +263,11 @@
       window.GQ_GAME_STATE = Object.assign({}, gameState);
     }
 
+    // Propagate TTS auto-voice preference to GQTTS module
+    if (changes.hasOwnProperty('ttsAutoVoice') && window.GQTTS && typeof window.GQTTS.setAutoVoice === 'function') {
+      window.GQTTS.setAutoVoice(!!changes.ttsAutoVoice);
+    }
+
     console.log('[Settings] Applied:', changes);
   }
 
@@ -288,6 +298,7 @@
       sfxMuted: false,
       musicTransitionMode: 'fade',
       autoSceneMusic: true,
+      ttsAutoVoice: true,
       uiThemeMode: 'auto',
       uiThemeFactionId: 0,
       uiThemeCustomAccent: '#3aa0ff',

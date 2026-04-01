@@ -226,9 +226,64 @@
     return el;
   }
 
+  // ── Auto-Voice preference ───────────────────────────────────────────────────
+  // Persisted in localStorage so the player's choice survives page reloads.
+  const AUTO_VOICE_KEY = 'gq_tts_auto_voice';
+
+  /**
+   * Returns true when TTS auto-voice is enabled (default: true).
+   * Players can toggle this via the Settings → Audio panel.
+   * @returns {boolean}
+   */
+  function isAutoVoiceEnabled() {
+    try {
+      const v = localStorage.getItem(AUTO_VOICE_KEY);
+      // Default ON when key is absent
+      return v === null ? true : v === '1';
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /**
+   * Enable or disable TTS auto-voice and persist the preference.
+   * @param {boolean} enabled
+   */
+  function setAutoVoice(enabled) {
+    try {
+      localStorage.setItem(AUTO_VOICE_KEY, enabled ? '1' : '0');
+    } catch (_) {}
+  }
+
+  /**
+   * Play a pre-rendered audio URL directly (bypasses the /api/tts.php round-trip).
+   * Falls back gracefully to speak() when the URL is absent.
+   *
+   * @param {string|null} audioUrl  Server-rendered MP3 URL (may be null)
+   * @param {string} text           Fallback text to synthesise if audioUrl is absent
+   * @param {{ voice?: string, volume?: number }} [opts]
+   * @returns {Promise<HTMLAudioElement|null>}
+   */
+  async function playOrSpeak(audioUrl, text, opts = {}) {
+    if (!isAutoVoiceEnabled()) return null;
+    if (audioUrl) {
+      return _playAudio(audioUrl, opts);
+    }
+    return speak(text, opts);
+  }
+
   // ── Public API ──────────────────────────────────────────────────────────────
 
-  const GQTTS = { speak, preload, speakSequence, status, voices };
+  const GQTTS = {
+    speak,
+    preload,
+    speakSequence,
+    playOrSpeak,
+    status,
+    voices,
+    isAutoVoiceEnabled,
+    setAutoVoice,
+  };
 
   window.GQTTS = GQTTS;
 })();

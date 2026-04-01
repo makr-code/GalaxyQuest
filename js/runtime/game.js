@@ -13836,6 +13836,16 @@
         }
         detail.innerHTML = this.buildConversationDetail(fid);
         this.bindConversationActions(root, fid);
+
+        // ── Auto-voice: play NPC audio if TTS is available ────────────────
+        const npcMsg = String(response.npc_message || '').trim();
+        if (npcMsg && window.GQTTS && typeof window.GQTTS.playOrSpeak === 'function') {
+          window.GQTTS.playOrSpeak(
+            response.tts_audio_url || null,
+            npcMsg,
+            { voice: response.tts_voice || '' }
+          ).catch(() => {});
+        }
       } catch (err) {
         this.setConversationState(fid, Object.assign({}, current || {}, { loading: false }));
         detail.innerHTML = `<p class="error">${esc(String(err?.message || err || 'Dialogue failed.'))}</p>`;
