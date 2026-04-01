@@ -47,6 +47,7 @@
     - 13.1 Konzept: Mitgliedschaft vs. Ruf (Abgrenzung zu §6/§12)
     - 13.2 Startmitgliedschaft: Rasse → interne Fraktionsstelle
     - 13.3 Was Mitgliedschaft bedeutet (Boni, Pflichten, interne Quests)
+    - 13.3a Fraktions-Rückendeckung & PvP-Eskalationsleiter (Welpenschutz + Kriegsbremse)
     - 13.4 Fraktionswechsel via Quest & Diplomatie
     - 13.5 Eintreten und Austreten
     - 13.6 Eigene Gilde gründen
@@ -1428,8 +1429,10 @@ CREATE TABLE IF NOT EXISTS galactic_events (
   nicht namentlich erwähnt; andere Spieler sehen nur die Fraktion
 - **Frequenz-Cap:** Maximal 1 Ripple-Event pro Fraktion pro 24h — verhindert Spam bei
   wiederholten Ignorierungen
-- **Spieler-Schutz für Rookies:** Ripple-Events treffen nie Spieler, die weniger als 48h
-  im Spiel sind (`users.created_at > NOW() - INTERVAL 48 HOUR`)
+- **Spieler-Schutz für Rookies:** Ripple-Events treffen keine Spieler im Rang 1 (Neubürger)
+  ihrer Fraktion, solange ihr Konto jünger als 30 Tage ist. Der Schutz ergibt sich aus der
+  **Fraktions-Rückendeckung** (→ §13.3a): Die Fraktion *muss* sich vor ihre Neumitglieder
+  stellen — auch gegenüber galaktischen Ereignissen, die sie nicht selbst ausgelöst haben.
 
 ---
 
@@ -1525,7 +1528,158 @@ Fraktionsstruktur und LORE gibt. Diese Quests sind nicht von Externen erreichbar
 
 ---
 
-### 13.4 Fraktionswechsel via Quest & Diplomatie
+### 13.3a Fraktions-Rückendeckung & PvP-Eskalationsleiter
+
+> **Designprinzip:** Wer einer Fraktion angehört, steht nicht allein. Die Fraktion *muss*
+> sich vor ihre Mitglieder stellen – das ist keine Kulisse, sondern politische Zwangsläufigkeit.
+> Kleine Kämpfe bleiben Privatsache zweier Spieler. Aber Vernichtungsfeldzüge und große Kriege
+> erfordern die Zustimmung der NPC-Fraktionsführer – und die geben sie nicht leichtfertig.
+
+Das PvP-System hat **vier Eskalationsstufen**. Die Mitgliedschaft bestimmt, ab welcher Stufe
+die NPC-Fraktion eingreift und wer eine Kriegserklärung überhaupt genehmigen kann.
+
+#### Eskalationsstufen
+
+| Stufe | Name | Charakteristik | Genehmigung nötig? | Fraktions-Reaktion |
+|---|---|---|---|---|
+| **1** | Scharmützel | 1–5 Schiffe; einmaliger Angriff; keine Kolonieübernahme | ✗ Immer erlaubt | Standing-Abzug für Angreifer bei Opfer-Fraktion (−5) |
+| **2** | Konflikt | Wiederholte Angriffe auf denselben Spieler (≥ 3 in 72h) | ✗ Erlaubt, aber eskalierend | Fraktion des Opfers sendet formale Beschwerde an Angreifer-Fraktion; −10 Standing |
+| **3** | Fehde | Anhaltender Konflikt; beide Spieler flaggen sich gegenseitig; Kolonie-Belagerungen möglich | ✗ Einvernehmlich erlaubt | Beide Fraktionen werden informiert; Vermittlungsmandat möglich; Fraktion *kann* Schutztruppen entsenden |
+| **4** | Krieg | Großangriffsoperationen; Annexion; Flottenvernichtung; Systemkontrolle | ✅ **NPC-Führung beider Seiten muss zustimmen** | Fraktion ist Kriegspartei; galaktische Konsequenzen; andere Fraktionen reagieren |
+
+**Stufe 1–3** sind reine Spielerangelegenheiten — die Fraktion beobachtet, kostet den Angreifer
+Standing, aber greift nicht aktiv in den Kampf ein.
+
+**Stufe 4** ist eine politische Entscheidung. Kein Spieler kann allein einen Großkrieg erklären.
+
+---
+
+#### Kriegserklärung (Stufe 4): Genehmigungsprozess
+
+```
+Spieler A will Spieler B vollständig vernichten / Großkrieg führen
+  → Spieler A stellt Kriegsantrag an NPC-Fraktionsführer seiner Fraktion
+  → Fraktionsführer prüft (NPC-KI, government_type-abhängig):
+      • Ist Spieler B Mitglied einer feindlichen Fraktion?
+      • Welchen Schaden hätte ein Krieg für die eigene Fraktion (Handelsrouten, Verbündete)?
+      • Welche galaktischen Koalitionen bilden sich?
+  → Parallele Benachrichtigung: Fraktion von Spieler B erhält Kriegswarnung
+  → Fraktion von Spieler B kann Gegenmaßnahmen einleiten (Defensiv-Bündnis, Vermittlung)
+  → NPC entscheidet: GENEHMIGT / ABGELEHNT / GEGENVORSCHLAG (z.B. nur Fehde erlaubt)
+```
+
+**Was passiert ohne Genehmigung?**
+Technisch kann Spieler A trotzdem massiv angreifen – aber:
+- Standing bei eigener Fraktion: −40 (Eigenmächtigkeit)
+- Möglicher Fraktionsausschluss (neglect-analog, §13.5.3)
+- Alle anderen Fraktionen erhalten Journal-Event „Unkontrollierter Aggressor"
+- Globaler `fleet_readiness_mult` −0.1 für Spieler A (72h) — galaktische Isolation
+- Fraktion des Opfers *muss* reagieren (politische Pflicht; →  „Fraktions-Muss-Reaktion" unten)
+
+---
+
+#### Staatsgebilde-Matrix: Kriegsgenehmigung
+
+Wie schnell und unter welchen Bedingungen ein Fraktionsführer Krieg genehmigt, hängt vom
+`government_type` ab:
+
+| Staatsgebilde | Genehmigungsverhalten | Typische Bedingung |
+|---|---|---|
+| 👑 `autocracy` | Schnell, unilateral, unberechenbar | Angreifer muss Gefallen schulden oder hohen Rang haben; Führerfigur entscheidet allein |
+| 🗳️ `democracy` | Langsam (72h Abstimmung), kann scheitern | Ratsmehrheit; öffentliche Debatte; hohe Hürde gegen Aggression |
+| 🏛️ `oligarchy` | Mittel; Elitenkonsens nötig | Krieg nur wenn Wirtschaftsvorteil erkennbar; Elite muss zustimmen |
+| ✝️ `theocracy` | Genehmigt nur „gerechten Krieg" | Opfer muss als religiöse Bedrohung gelten; hohe narrative Hürde |
+| 🔬 `meritocracy` | Rational-kalkulierend | Kosten-Nutzen-Analyse; nur bei klar gewinnbarem Konflikt |
+| 🕸️ `network` | Unvorhersehbar; Konsens diffus | Genehmigung entsteht organisch oder gar nicht; Spieler hat wenig Einfluss |
+
+---
+
+#### Die Fraktions-Muss-Reaktion: Welpenschutz durch politische Pflicht
+
+Wird ein Fraktionsmitglied angegriffen, **muss** die Fraktion politisch reagieren – das ist
+keine Option, sondern eine organisatorische Selbstverständlichkeit. Ignoriert die Fraktion
+einen Angriff auf eigene Mitglieder, verliert sie intern Ansehen (`faction_internal_pressure`
+steigt).
+
+**Schutzstärke nach Rang:**
+
+| Rang des Opfers | Schutzpflicht der Fraktion | Konsequenz für Angreifer |
+|---|---|---|
+| **1 – Neubürger** | Stärkste Pflicht: Neumitglied ist das Gesicht der Fraktion nach außen | Standing −15 sofort; bei Wiederholung Stufe-2-Eskalation automatisch |
+| **2 – Bekannter** | Hohe Pflicht | Standing −10; Schutzpatrouille entsandt (§13.3 Rang-2-Bonus) |
+| **3 – Vertrauensperson** | Mittlere Pflicht: Spieler ist erfahren genug um sich zu wehren | Standing −8; Fraktion bietet Mediation an |
+| **4/5 – Innerer Kreis / Leutnant** | Geringe Pflicht: Erfahrene Spieler kämpfen auf eigenes Risiko | Standing −5; Fraktion respektiert Eigenverantwortung |
+
+**Welpenschutz-Spezialregel:**
+```
+IF opfer.rank = 1                          -- Neubürger
+   AND opfer.account_age_days < 30         -- Konto jünger als 30 Tage
+THEN
+   Kriegserklärung (Stufe 4) gegen diesen Spieler:
+     → NPC-Führung verweigert Genehmigung IMMER (unabhängig von government_type)
+     → Begründung: „Wir erklären keinen Krieg gegen Kinder" (Autokratie) /
+                   „Der Rat stimmt nicht für Angriffe auf Schutzbefohlene" (Demokratie)
+   Konflikte Stufe 2–3:
+     → Standing-Kosten für Angreifer sind ×2
+     → Fraktion entsendet automatisch 2 Schutzschiffe (14-Tage-Leihgabe)
+```
+
+> **Designnotiz:** Der Welpenschutz ergibt sich nicht aus einer technischen Sperrung
+> (kein unsichtbarer Schild), sondern aus der politischen Realität: Keine Fraktion will
+> für die Vernichtung von Neulingen bekannt sein. Das schafft authentischen Schutz mit
+> Substanz statt einer aufgesetzten Mechanik.
+
+---
+
+#### Gilden und der Kriegsmechanismus
+
+Spieler in einer **eigenen Gilde** (§13.6) unterliegen demselben Eskalationssystem,
+aber mit einer Besonderheit:
+
+- Gilde hat keine NPC-Fraktionsführung → Stufe-4-Kriegsgenehmigung kommt von der
+  **NPC-Partnerfraktion der Gilde** (sofern diplomatische Anerkennung besteht, §13.6.3)
+- Ohne anerkannte NPC-Partnerfraktion: Gilde kann keinen Stufe-4-Krieg führen
+  (nur Stufe 1–3)
+- **Gilde als Schutzgeber:** Mitglieder einer Gilde genießen Gilde-Rückendeckung
+  (Gründer entscheidet über Stufe-2/3-Eskalation); kein automatischer Welpenschutz
+  für neue Gildenmitglieder (Gilde = freiwilliger Zusammenschluss Erfahrener)
+
+---
+
+#### DB-Erweiterungen
+
+```sql
+-- Konflikt-Tracking zwischen Spielern
+CREATE TABLE IF NOT EXISTS pvp_conflicts (
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    attacker_user_id    INT NOT NULL,
+    defender_user_id    INT NOT NULL,
+    escalation_level    TINYINT UNSIGNED NOT NULL DEFAULT 1
+        COMMENT '1=Scharmützel 2=Konflikt 3=Fehde 4=Krieg',
+    attacker_faction_id INT COMMENT 'Fraktion des Angreifers zum Zeitpunkt des Konflikts',
+    defender_faction_id INT COMMENT 'Fraktion des Opfers',
+    war_approval_status ENUM('not_requested','pending','approved','denied','counter')
+        DEFAULT NULL    COMMENT 'Nur relevant für Stufe 4',
+    war_approved_by_npc INT DEFAULT NULL
+        COMMENT 'NPC-Fraktionsführer-ID, der genehmigt hat',
+    attack_count        SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    first_attack_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_attack_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolved_at         DATETIME,
+    INDEX idx_pvp_attacker (attacker_user_id),
+    INDEX idx_pvp_defender (defender_user_id),
+    INDEX idx_pvp_escalation (escalation_level, last_attack_at),
+    FOREIGN KEY (attacker_user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (defender_user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Fraktionsinterner Druck (Muss-Reaktion)
+ALTER TABLE diplomacy
+    ADD COLUMN IF NOT EXISTS faction_internal_pressure TINYINT UNSIGNED NOT NULL DEFAULT 0
+        COMMENT 'Steigt wenn Fraktion Angriffe auf eigene Mitglieder ignoriert; senkt faction_pressure_mult';
+```
+
+---
 
 Der Spieler kann seine Mitgliedschaft wechseln – das ist narrativ gravierend und mechanisch
 kostspielig, aber möglich.
@@ -1763,6 +1917,18 @@ POST factions.php?action=leave_guild
 
 GET  factions.php?action=guild_detail
      → { guild_id } → Mitglieder, Standing, Typ, aktive Mandate
+
+-- PvP-Konflikt & Kriegsgenehmigung (§13.3a)
+GET  factions.php?action=conflict_status
+     → { conflicts: [{ defender/attacker, escalation_level, attack_count,
+         war_approval_status, last_attack_at }] }
+
+POST factions.php?action=request_war_approval
+     → { defender_user_id } → Stufe-4-Antrag an eigene NPC-Fraktion;
+       erstellt pvp_conflicts-Eintrag; sendet Beratungs-Mandat an Ersten Berater
+
+GET  factions.php?action=war_approval_result
+     → { conflict_id, status, npc_decision, reason } → Ergebnis der NPC-Kriegsentscheidung
 ```
 
 ---
@@ -1771,16 +1937,20 @@ GET  factions.php?action=guild_detail
 
 | Phase | Inhalt | Aufwand |
 |---|---|---|
-| **Pre** | Migration: `user_faction_membership` (NPC + Gilde) + `guilds` + `diplomacy.guild_id` | Klein |
+| **Pre** | Migration: `user_faction_membership` (NPC + Gilde) + `guilds` + `diplomacy.guild_id` + `pvp_conflicts` + `diplomacy.faction_internal_pressure` | Klein |
 | **1** | Startmitgliedschaft: Bei Registrierung INSERT in `user_faction_membership` (Rang 1, NPC, Rasse) | Klein |
 | **2** | `api/factions.php`: `my_membership` + `leave_faction` + `accept_invite` | Mittel |
 | **3** | Rang-Aufstiegs-Logik: Standing-Check → Rang-Update in `npc_ai`-Tick oder Quest-Trigger | Mittel |
-| **4** | Fraktionswechsel-Quest-Kette (1 pro Fraktion; Überläufer-Mechanik) | Groß |
-| **5** | Gilde-Gründung: `found_guild` + `join_guild` + `leave_guild` API | Mittel |
-| **6** | Gilde-Diplomatie: `diplomacy`-Einträge für Gilden; NPC-Anerkennung ab 5 Mitglieder | Mittel |
-| **7** | `js/game.js`: Mitgliedschafts-Panel (Rang, Boni, Austritts-Button, Einladungs-Overlay) | Groß |
-| **8** | `js/game.js`: Gilden-Panel (Gründen, Beitreten, Mitglieder, Gilde-Standing) | Groß |
-| **9** | `config/config.php`: Balancing-Konstanten (Wechsel-Cooldown, Austritts-Standing, etc.) | Klein |
+| **4** | PvP-Eskalation: `pvp_conflicts`-Tracking in `api/battle.php`; Stufe-1/2-Standing-Abzug automatisch | Mittel |
+| **5** | Welpenschutz-Prüfung in `npc_ai.php`: rank=1 + account_age<30d → Kriegsgenehmigung verweigert | Klein |
+| **6** | Stufe-4-Kriegsgenehmigung: `request_war_approval` → Beratungs-Mandat an Ersten Berater der Angreifer-Fraktion; `compute_npc_decision()` | Groß |
+| **7** | Fraktions-Muss-Reaktion: `faction_internal_pressure`-Logik in `npc_ai`-Tick; Schutzpatrouillen-Spawning | Mittel |
+| **8** | Fraktionswechsel-Quest-Kette (1 pro Fraktion; Überläufer-Mechanik) | Groß |
+| **9** | Gilde-Gründung: `found_guild` + `join_guild` + `leave_guild` API | Mittel |
+| **10** | Gilde-Diplomatie: `diplomacy`-Einträge für Gilden; NPC-Anerkennung ab 5 Mitglieder | Mittel |
+| **11** | `js/game.js`: Mitgliedschafts-Panel (Rang, Boni, Austritts-Button, Einladungs-Overlay) | Groß |
+| **12** | `js/game.js`: Gilden-Panel + Konflikt-Panel (Eskalationsstufe, Kriegsantrag-UI) | Groß |
+| **13** | `config/config.php`: Balancing-Konstanten (Wechsel-Cooldown, Austritts-Standing, Welpenschutz-Tage, etc.) | Klein |
 
 ---
 
