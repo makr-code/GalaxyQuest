@@ -73,6 +73,7 @@
 | [gamedesign/ARCHITECTURE_GAMEDESIGN.md](gamedesign/ARCHITECTURE_GAMEDESIGN.md) | Design document structure and navigation |
 | [gamedesign/START_HERE.md](gamedesign/START_HERE.md) | Orientation guide for game design contributors |
 | [gamedesign/GAMEPLAY_DATA_MODEL.md](gamedesign/GAMEPLAY_DATA_MODEL.md) | Data model, mechanics, balancing formulas |
+| [gamedesign/EMPIRE_CATEGORIES.md](gamedesign/EMPIRE_CATEGORIES.md) | **Empire categories** — Wirtschaft, Militär, Forschung, Wachstum, Stabilität, Diplomatie, Spionage |
 | [gamedesign/FTL_DRIVE_DESIGN.md](gamedesign/FTL_DRIVE_DESIGN.md) | FTL drive system — faction designs and balancing |
 | [gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md](gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md) | Vessel blueprint and module system |
 | [gamedesign/GAME_CLASSICS_INSPIRATION.md](gamedesign/GAME_CLASSICS_INSPIRATION.md) | Classic game inspirations and adopted mechanics |
