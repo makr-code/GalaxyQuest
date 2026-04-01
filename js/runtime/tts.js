@@ -204,9 +204,7 @@
 
   function _playAudio(url, opts = {}) {
     // Duck background music while the TTS line plays if GQAudioManager present
-    const mgr = window.GQAudioManager
-      ? (window._gqAudioInstance || null)
-      : null;
+    const mgr = window.__GQ_AUDIO_MANAGER || null;
 
     const vol = typeof opts.volume === 'number'
       ? Math.max(0, Math.min(1, opts.volume))

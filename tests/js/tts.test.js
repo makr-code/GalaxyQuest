@@ -169,6 +169,15 @@ describe('speak()', () => {
     await GQTTS.speak('NoCache text', { noCache: true });
     expect(global.fetch.mock.calls.length).toBeGreaterThan(count1);
   });
+
+  it('calls duckMusic() on window.__GQ_AUDIO_MANAGER when present', async () => {
+    const duckMusic = vi.fn();
+    vi.stubGlobal('__GQ_AUDIO_MANAGER', { duckMusic });
+    const GQTTS = loadTtsScript();
+    await GQTTS.speak('Duck the music');
+    expect(duckMusic).toHaveBeenCalled();
+    delete window.__GQ_AUDIO_MANAGER;
+  });
 });
 
 // ── preload() ────────────────────────────────────────────────────────────────
