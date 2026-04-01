@@ -121,7 +121,7 @@ Konsequenz:
 
 ## 4. Datenmodell (Soll)
 
-## 4.1 Stammdaten
+### 4.1 Stammdaten
 
 1. vessel_hulls
 - id
