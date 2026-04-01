@@ -789,6 +789,18 @@ Vertrauen ihrem Charakter widerspricht.
 - [ ] Tier-0-Aktionen (Blockade, Propagandafeldzug)
 - [ ] Balancing-Pass & Playtesting
 
+### Phase 6 – Zuckerbrot & Peitsche: Mandats-System *(FACTION_INTRODUCTION.md §12)*
+
+- [ ] Migration `faction_mandates`-Tabelle + `diplomacy`-Spalten `influence_tier` / `neglect_count` (§12.7)
+- [ ] `npc_ai.php`: Mandats-Generierung pro Fraktion abhängig von `influence_tier` (§12.1/12.5)
+- [ ] `api/factions.php`: `list_mandates` + `resolve_mandate` + `mandate_history` (§12.7)
+- [ ] Zuckerbrot: Modifier-Anwendung + Loyalitäts-Streak-Event in `game_engine.php` (§12.3)
+- [ ] Peitsche: `neglect_count`-Hochzählung + Fraktionsstrafmechanismen in `game_engine.php` (§12.4.2)
+- [ ] Grace-Period-Logik im `npc_ai`-Tick (§12.4.3)
+- [ ] `EventSystem.js`: Journal-Events für Mandatseingang / Ablauf / Loyalitätsbonus
+- [ ] `js/game.js`: Mandats-Panel (Liste, Countdown-Timer, Accept/Decline/Partial-Buttons)
+- [ ] `config/config.php`: Balancing-Konstanten (§12.6)
+
 ---
 
 ## 14. Offene Fragen & Ausblick
@@ -801,6 +813,8 @@ Vertrauen ihrem Charakter widerspricht.
 | **Achievements** | Soll es Achievements für alle 6 Hauptfraktionen auf Tier 4 geben? | Ja: „Kalytherion-Einheit"-Achievement |
 | **Tier-Rückkehr** | Was passiert wenn Tier 4 verloren geht (Stehung unter Schwelle)? | Einmaliger Grace-Period-Event „Vertrauensverlust" (+24h Stabilisierungsfenster) |
 | **Mobile UI** | Wie wird die Druckanzeige auf kleinen Screens dargestellt? | Kompakter Indikator-Balken ohne Detailaufschlüsselung |
+| **Mandats-Konflikt** | Was wenn zwei Fraktionen gleichzeitig Mandate stellen, die sich widersprechen? | Spieler wählt eine; abgelehnte Fraktion erhält −5 Standing ohne neglect_count-Anstieg (explizite Ablehnung); vollständige Spezifikation siehe FACTION_INTRODUCTION.md §12 |
+| **Mandat + Isolation** | Erhalten Spieler auf dem Isolationspfad (§11.3) Mandate von Hauptfraktionen? | Nein: Sobald `isolation_path_active = 1`, senden Hauptfraktionen keine neuen Mandate; laufende Mandate werden EXPIRED ohne Peitsche |
 
 ---
 
@@ -814,19 +828,31 @@ migrate_bonus_malus_v1.sql (neu)        │
     └─► faction_tier_modifiers          │
     └─► diplomacy.current_tier ─────────┤
                                         │
+migrate_npc_factions_hardreplace_v1.sql │
+    └─► npc_factions (code-Rename)      │
+    └─► diplomacy.influence_tier ───────┤
+    └─► diplomacy.neglect_count         │
+    └─► faction_mandates ───────────────┤
+                                        │
 npc_ai.php (tick)                       │
-    └─► sync_faction_tier_modifiers() ──┘
+    └─► sync_faction_tier_modifiers() ──┤
+    └─► generate_faction_mandates() ────┤
+    └─► expire_pending_mandates() ──────┤
             └─► user_empire_modifiers (INSERT/DELETE)
 
-factions.php (list/claim_quest/accept_trade)
+factions.php (list/claim_quest/accept_trade/resolve_mandate)
     └─► sync_faction_tier_modifiers()
+    └─► apply_mandate_reward() / apply_mandate_penalty()
 
 EventSystem.js (Frontend)
     └─► defineJournalEntry() für Tier-Wechsel-Events
+    └─► defineJournalEntry() für Mandats-Events (eingang/ablauf/loyalität)
 
 js/game.js (FactionPanel)
     └─► GET /api/factions.php?action=tier_modifiers
-    └─► Tier-Badge, Progressbar, Toast, Modal
+    └─► GET /api/factions.php?action=list_mandates
+    └─► POST /api/factions.php?action=resolve_mandate
+    └─► Tier-Badge, Progressbar, Toast, Modal, Mandats-Panel
 ```
 
 ---

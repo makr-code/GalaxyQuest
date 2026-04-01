@@ -32,6 +32,15 @@
       - 11.3.4 Exklusive Mechaniken
       - 11.3.5 Endgame-Bedingung
       - 11.3.6 Hard-Replace: Legacy NPC-Fraktionen in DB
+12. [Zuckerbrot & Peitsche: Hoher Einfluss verpflichtet](#12-zuckerbrot--peitsche-hoher-einfluss-verpflichtet)
+    - 12.1 Einfluss-Schwellen und Einbindungsstufen
+    - 12.2 Fraktionsmandat: Entscheidungen unter Druck
+    - 12.3 Zuckerbrot: Belohnungen für aktive Beteiligung
+    - 12.4 Peitsche: Konsequenzen des Nicht-Entscheidens
+    - 12.5 Mandats-Typen nach Fraktionscharakter
+    - 12.6 Balancing-Parameter
+    - 12.7 DB-Schema & API
+    - 12.8 Implementierungs-Phasen
 
 ---
 
@@ -899,6 +908,246 @@ INSERT IGNORE INTO npc_factions (code, name, type, power_level, aggression, trad
 | 🌑 Isolationspfad §11.3.1–11.3.4 | Phase 3 – Sovereignty-Score + Randwelt-Allianzen | Mittel |
 | 🏆 Isolationspfad §11.3.5 Endgame | Phase 4 – Ratsstimme + Siegpfad | Niedrig |
 | 🗄️ Hard-Replace §11.3.6 Migration | Pre-Phase-1 – vor erstem Produktionsdaten | Hoch |
+| 🥕 Zuckerbrot & Peitsche §12 – Mandats-System | Phase 2 – parallel zu BONUS_MALUS §13 Phase 4–5 | Hoch |
+
+---
+
+## 12. Zuckerbrot & Peitsche: Hoher Einfluss verpflichtet
+
+> **Designprinzip:** Wer viel von einer Fraktion genommen hat, dem nimmt die Fraktion auch etwas.
+> Hoher Einfluss ist keine passive Statuszahl – er ist eine *Bringschuld*. Die Fraktion investiert
+> in den Spieler, weil sie eine Gegenleistung erwartet. Wer dauerhaft nicht liefert, verliert
+> beides: Ruf und die Früchte des Einflusses.
+
+---
+
+### 12.1 Einfluss-Schwellen und Einbindungsstufen
+
+Ab bestimmten **Ruf-Stufen** (§6) wird der Spieler aktiv in Fraktionsangelegenheiten eingebunden.
+Der Übergang ist graduell: zuerst Einladungen, dann Erwartungen, schließlich offener Druck.
+
+| Ruf-Stufe | Einbindungsstufe | Was passiert? |
+|---|---|---|
+| Stufe 0–1 | **Unbeteiligt** | Fraktion sendet gelegentlich Anfragen; Ablehnung folgenlos |
+| Stufe 2 | **Beachtet** | Fraktion zieht Spieler in Kenntnis gesetzter Ereignisse ein; Anfragen häufiger |
+| Stufe 3 | **Eingebunden** | Fraktion übersendet regelmäßige **Mandate** (§12.2); Nicht-Entscheiden kostet Ruf |
+| Stufe 4 | **Strategischer Partner** | Fraktion erwartet proaktives Handeln; Mandate sind dringlicher und folgenreicher |
+
+**Technische Abbildung:** `diplomacy.influence_tier TINYINT` (0–4, parallel zu `current_tier`).
+Wird jede Stunde im `npc_ai`-Tick auf Basis von `standing` + kumulierter Interaktionshistorie berechnet.
+
+---
+
+### 12.2 Fraktionsmandat: Entscheidungen unter Druck
+
+Ein **Mandat** ist eine zeitlich befristete Anfrage einer Fraktion an den Spieler.
+Es erscheint als Journal-Event mit Countdown-Timer.
+
+**Anatomie eines Mandats:**
+
+```
+Mandat: „Syl'Nar – Handelsprimat im Dreifach-Korridor"
+─────────────────────────────────────────────────────────
+Fraktion:       Syl'Nar (Ruf-Stufe 3 / Eingebunden)
+Forderung:      Genehmige exklusiven Syl'Nar-Handelsvertrag für Vethisit-Routen
+Frist:          72 Stunden Echtzeit
+Belohnung:      +8 Standing, +15% trade_income_mult (30 Tage), 500 DM
+Konsequenz:     −12 Standing, Mandat zählt als „ignoriert" (Peitsche-Zähler +1)
+Gegner-Info:    Vor'Tak beobachtet – Zustimmung kostet −5 Vor'Tak-Standing
+```
+
+**Mandats-Status-Maschine:**
+
+```
+PENDING ──[Zustimmen]──► ACCEPTED  → Zuckerbrot sofort
+        ──[Ablehnen]───► DECLINED  → Ruf −5, begründbare Ablehnung (kein Peitsche-Zähler)
+        ──[Ablaufen]───► EXPIRED   → Peitsche-Zähler +1, Ruf −12 nach Grace-Period
+        ──[Teilerfüllt]► PARTIAL   → Ruf +3, Zuckerbrot abgeschwächt (50%)
+```
+
+**DB-Feld für Status:** `faction_mandates.status ENUM('pending','accepted','declined','expired','partial')`
+
+---
+
+### 12.3 Zuckerbrot: Belohnungen für aktive Beteiligung
+
+Aktive Beteiligung (ACCEPTED, PARTIAL) bringt gestaffelte Belohnungen:
+
+| Kategorie | Belohnungsart | Beispiel |
+|---|---|---|
+| **Sofort-Bonus** | Standing-Gewinn | +8 Standing |
+| **Temp-Modifier** | Zeitlich begrenzte Empire-Modifier | +15% `trade_income_mult` für 30 Tage |
+| **Ressourcen** | Dark Matter, Metalleinheiten, Flottenverstärkung | 500 DM oder 2 Zerstörer-Leihschiffe (14 Tage) |
+| **Langzeit-Bonus** | Permanente Freischaltung ab 5× ACCEPTED bei einer Fraktion | Exklusiver Schiffshull, einzigartiger Koloniegebäude-Slot |
+| **Erzählung** | LORE-Fortschritt, neue NPC-Dialoge, Aktzugang | Vel'Ar teilt Syl'Nar-Geheimnis (Akt-2-Info) |
+
+**Zuckerbrot-Kumulationsbonus:** Werden 3 Mandate in Folge akzeptiert (ohne Ablehnung dazwischen),
+erhält der Spieler einen **Loyalitätsbonus**: einmaliger +5 Standing-Aufwuchs und eine seltene Belohnung
+(z.B. Prototyp-Modul, exklusive Quest). Dieser Bonus erscheint als Journal-Event `faction_loyalty_streak`.
+
+---
+
+### 12.4 Peitsche: Konsequenzen des Nicht-Entscheidens
+
+Läuft ein Mandat ab (`EXPIRED`), ohne dass der Spieler reagiert hat, greift ein gestuftes Strafsystem.
+
+#### 12.4.1 Peitsche-Zähler (`neglect_count`)
+
+Pro Fraktion wird `diplomacy.neglect_count INT` verwaltet.
+Jedes EXPIRED-Mandat erhöht den Zähler um 1. Jedes ACCEPTED-Mandat reduziert ihn um 1 (Mindest: 0).
+
+| neglect_count | Konsequenz |
+|---|---|
+| **1** | Standing −12 (sofort) + Journal-Event „[Fraktion] zeigt Enttäuschung" |
+| **2** | Standing −12 + `influence_tier` −1 + temporärer Modifier-Malus (−5% auf Hauptbonus dieser Fraktion, 7 Tage) |
+| **3** | Standing −20 + `influence_tier` −1 + Fraktion sendet formale **Warnung** (Mandat mit sehr kurzer Frist) |
+| **4** | Standing −20 + `influence_tier` −2 + aktiver Strafmechanismus abhängig vom Fraktionstyp (§12.4.2) |
+| **5+** | Jedes weitere EXPIRED: −25 Standing; Fraktion betrachtet Spieler als „unzuverlässig" → keine neuen Tier-4-Mandate bis neglect_count < 3 |
+
+#### 12.4.2 Fraktionsspezifische Strafmechanismen (neglect_count ≥ 4)
+
+| Fraktion | Strafe bei 4× Ignorieren |
+|---|---|
+| 🦎 **Vor'Tak** | Entzug einer Flottenhilfe-Option; nächste Militär-Quest schwerer (Gegner-Verstärkung +20%) |
+| 🐙 **Syl'Nar** | Handelsroute nach Syl'Nar-Raum gesperrt (3 Tage); Market-Preis für Vethisit sinkt −15% |
+| 🔥 **Aereth** | Laufende Forschungs-Kooperation pausiert; `research_speed_mult` −0.08 für 14 Tage |
+| 🦗 **Kryl'Tha** | Kryl'Tha-Außenposten (sofern vorhanden) „wird inaktiv"; Pop-Wachstum −0.05 für 7 Tage |
+| 💎 **Zhareen** | Archivzugang entzogen; Technologie-Sharing gesperrt; laufende Zhareen-Quests +50% Zeitaufwand |
+| 🌫️ **Vel'Ar** | Vel'Ar-Informationsnetz schließt Spieler aus; `spy_detection_flat` −15 für 14 Tage; aktive Vel'Ar-Agenten abgezogen |
+
+#### 12.4.3 Grace-Period
+
+Zwischen EXPIRED-Status und Peitsche-Aktivierung gibt es **6 Stunden Grace-Period**.
+In dieser Zeit kann der Spieler das Mandat nachträglich als PARTIAL erfüllen:
+- Strafe wird auf 50% reduziert
+- `neglect_count` erhöht sich nur um 0.5 (gerundet auf 1 wenn ≥ 0.5)
+
+```sql
+-- Grace-Period-Check im npc_ai-Tick:
+SELECT id FROM faction_mandates
+WHERE status = 'expired'
+  AND expired_at > NOW() - INTERVAL 6 HOUR
+  AND grace_partial_submitted = 0;
+```
+
+---
+
+### 12.5 Mandats-Typen nach Fraktionscharakter
+
+Jede Fraktion stellt **charakteristisch unterschiedliche** Mandate. Das verhindert Eintönigkeit
+und verstärkt die LORE-Identität der Fraktionen:
+
+| Fraktion | Typische Mandats-Kategorie | Beispiel-Mandat |
+|---|---|---|
+| 🦎 **Vor'Tak** | Militärisch / Territorialverteidigung | „Stationiere 5 Kampfschiffe im Dreifach-Korridor für 48h" |
+| 🐙 **Syl'Nar** | Handel / Spiritualität | „Gewähre Syl'Nar-Händlern zollfreien Vethisit-Transit" |
+| 🔥 **Aereth** | Forschung / Experiment | „Teile Khal'Vethis-Bodendaten für Sol'Kaars Projekt" |
+| 🦗 **Kryl'Tha** | Expansion / Logistik | „Erlaube Kryl'Tha temporären Brutposten auf Randmond" |
+| 💎 **Zhareen** | Archivierung / Schutz | „Übergib Vethisit-Artefakte an Zhareen-Forscher (nicht zerstören)" |
+| 🌫️ **Vel'Ar** | Geheimdienstlich / Informationsfluss | „Übermittle Bewegungsdaten einer fremden Flotte im Korridor" |
+
+**Mandats-Frequenz** (abhängig von `influence_tier`):
+
+| influence_tier | Durchschnittliche Frequenz |
+|---|---|
+| 2 (Beachtet) | 1 Mandat / 96h |
+| 3 (Eingebunden) | 1 Mandat / 48h |
+| 4 (Strategischer Partner) | 1–2 Mandate / 48h (teils dringlich) |
+
+---
+
+### 12.6 Balancing-Parameter
+
+Diese Werte sind in `config/config.php` als Konstanten zu definieren:
+
+| Konstante | Standardwert | Beschreibung |
+|---|---|---|
+| `MANDATE_BASE_DURATION_H` | 72 | Standardlaufzeit eines Mandats in Stunden |
+| `MANDATE_GRACE_PERIOD_H` | 6 | Grace-Period nach Ablauf bis Strafe greift |
+| `MANDATE_NEGLECT_STANDING_1` | −12 | Standing-Abzug bei neglect_count = 1 |
+| `MANDATE_NEGLECT_STANDING_2` | −12 | Standing-Abzug bei neglect_count = 2 |
+| `MANDATE_NEGLECT_STANDING_3` | −20 | Standing-Abzug bei neglect_count = 3 |
+| `MANDATE_NEGLECT_STANDING_4` | −20 | Standing-Abzug bei neglect_count = 4+ |
+| `MANDATE_NEGLECT_STANDING_5PLUS` | −25 | Standing-Abzug bei neglect_count ≥ 5 |
+| `MANDATE_LOYALTY_STREAK` | 3 | Anzahl ACCEPTED in Folge für Loyalitätsbonus |
+| `MANDATE_INFLUENCE_TIER3_INTERVAL_H` | 48 | Mandats-Frequenz bei Tier 3 |
+| `MANDATE_INFLUENCE_TIER4_INTERVAL_H` | 24 | Mandats-Frequenz bei Tier 4 |
+
+**Anti-Overwhelm-Regel:** Pro Fraktion kann maximal **1 Mandat gleichzeitig PENDING** sein.
+Über alle Fraktionen hinweg können maximal **4 Mandate gleichzeitig PENDING** sein.
+Neue Mandate werden erst erzeugt, wenn alte abgehandelt wurden. Dies verhindert Entscheidungs-Paralyse.
+
+---
+
+### 12.7 DB-Schema & API
+
+#### Neue Tabelle: `faction_mandates`
+
+```sql
+CREATE TABLE IF NOT EXISTS faction_mandates (
+    id                    INT AUTO_INCREMENT PRIMARY KEY,
+    user_id               INT NOT NULL,
+    faction_id            INT NOT NULL,
+    mandate_type          VARCHAR(64) NOT NULL
+        COMMENT 'z.B. military_deployment, trade_concession, research_share',
+    title                 VARCHAR(128) NOT NULL,
+    description           TEXT,
+    reward_standing       TINYINT NOT NULL DEFAULT 8,
+    reward_modifier_key   VARCHAR(64),
+    reward_modifier_value DECIMAL(9,4),
+    reward_modifier_days  TINYINT,
+    reward_dm             SMALLINT NOT NULL DEFAULT 0,
+    penalty_standing      TINYINT NOT NULL DEFAULT 12,
+    status                ENUM('pending','accepted','declined','expired','partial')
+                          NOT NULL DEFAULT 'pending',
+    issued_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deadline_at           DATETIME NOT NULL,
+    resolved_at           DATETIME,
+    grace_partial_submitted TINYINT(1) NOT NULL DEFAULT 0,
+    INDEX idx_fm_user_faction (user_id, faction_id),
+    INDEX idx_fm_status_deadline (status, deadline_at),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+```
+
+#### Erweiterung `diplomacy`
+
+```sql
+ALTER TABLE diplomacy
+    ADD COLUMN IF NOT EXISTS influence_tier  TINYINT UNSIGNED NOT NULL DEFAULT 0
+        COMMENT '0=unbeteiligt … 4=strategischer_partner',
+    ADD COLUMN IF NOT EXISTS neglect_count   TINYINT UNSIGNED NOT NULL DEFAULT 0
+        COMMENT 'Anzahl abgelaufener Mandate ohne Reaktion';
+```
+
+#### API-Endpunkte (`api/factions.php`)
+
+```
+GET  factions.php?action=list_mandates
+     → Alle PENDING-Mandate des Spielers; inkl. Fraktionsname, Deadline, Reward, Penalty
+
+POST factions.php?action=resolve_mandate
+     → { mandate_id, resolution: 'accept'|'decline'|'partial' }
+     → Führt Belohnung oder Peitsche aus, updated diplomacy.standing + neglect_count
+
+GET  factions.php?action=mandate_history
+     → Letzten 30 abgeschlossenen Mandate mit Status + Auswirkung
+```
+
+---
+
+### 12.8 Implementierungs-Phasen
+
+| Phase | Inhalt | Aufwand |
+|---|---|---|
+| **Pre** | Migration `faction_mandates`-Tabelle + `diplomacy`-Spalten | Klein |
+| **1** | `npc_ai.php`: Mandats-Generierung pro Fraktion nach `influence_tier`-Check | Mittel |
+| **2** | `api/factions.php`: `list_mandates` + `resolve_mandate` | Mittel |
+| **3** | `EventSystem.js`: Journal-Events für Mandatseingang, Ablauf, Loyalitätsbonus | Klein |
+| **4** | `js/game.js`: Mandats-Panel (Liste, Countdown, Entscheidungs-Buttons) | Groß |
+| **5** | Fraktionsspezifische Strafmechanismen §12.4.2 in `game_engine.php` | Mittel |
+| **6** | `config/config.php`: Balancing-Konstanten §12.6 + Tuning-Pass | Klein |
 
 ---
 
