@@ -152,9 +152,28 @@ function handle_register(): void {
     }
 
     json_ok([
-        'user'               => ['id' => $userId, 'username' => $username],
+        'user'                => ['id' => $userId, 'username' => $username],
         'homeworld_colony_id' => $planet,
+        'colony_name'         => fetch_colony_name($db, $planet, $username),
     ]);
+}
+
+/**
+ * Read the actual colony name from the database after homeworld creation.
+ * Falls back to the username-based default so the response is always populated.
+ */
+function fetch_colony_name(PDO $db, int $colonyId, string $username): string {
+    try {
+        $stmt = $db->prepare('SELECT name FROM colonies WHERE id = ? LIMIT 1');
+        $stmt->execute([$colonyId]);
+        $name = $stmt->fetchColumn();
+        if ($name !== false && $name !== '') {
+            return (string)$name;
+        }
+    } catch (Throwable $e) {
+        // Non-fatal: fall through to default.
+    }
+    return $username . "'s Homeworld";
 }
 
 function handle_login(): void {
