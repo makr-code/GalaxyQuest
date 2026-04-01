@@ -39,6 +39,17 @@ define('SWARMUI_TIMEOUT_SECONDS', (int)    env_value('SWARMUI_TIMEOUT_SECONDS', 
 define('SWARMUI_DEFAULT_STEPS',   (int)    env_value('SWARMUI_DEFAULT_STEPS', 30));
 define('SWARMUI_DEFAULT_CFG',     (float)  env_value('SWARMUI_DEFAULT_CFG', 7.5));
 
+// LoRA adapters for GalaxyQuest NPC portrait generation
+// Path prefix relative to SwarmUI's Models/Lora/ directory
+define('SWARMUI_LORA_PATH',   (string) env_value('SWARMUI_LORA_PATH', 'gq/'));
+// Default LoRA weights per race (0.0–1.0)
+define('LORA_WEIGHT_VORTAK',  (float)  env_value('LORA_WEIGHT_VORTAK',  0.85));
+define('LORA_WEIGHT_SYLNAR',  (float)  env_value('LORA_WEIGHT_SYLNAR',  0.80));
+define('LORA_WEIGHT_AERETH',  (float)  env_value('LORA_WEIGHT_AERETH',  0.80));
+define('LORA_WEIGHT_KRYLTHA', (float)  env_value('LORA_WEIGHT_KRYLTHA', 0.90));
+define('LORA_WEIGHT_ZHAREEN', (float)  env_value('LORA_WEIGHT_ZHAREEN', 0.85));
+define('LORA_WEIGHT_VELAR',   (float)  env_value('LORA_WEIGHT_VELAR',   0.75));
+
 // NPC / PvE controller (LLM-assisted, optional)
 define('NPC_LLM_CONTROLLER_ENABLED', (int) env_value('NPC_LLM_CONTROLLER_ENABLED', 0));
 define('NPC_LLM_CONTROLLER_TIMEOUT_SECONDS', (int) env_value('NPC_LLM_CONTROLLER_TIMEOUT_SECONDS', 8));
