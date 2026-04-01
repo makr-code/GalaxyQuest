@@ -1,6 +1,6 @@
 # 🌌 Fraktionseinführung – Spielerstart & Aufstieg in der Kalytherion-Konvergenz
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Status:** Konzept & LORE – Blaupause für Spieldesign & Erzählung  
 **Zugehörig zu:** [GAMEDESIGN.md](GAMEDESIGN.md) → [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md)
 
@@ -12,12 +12,19 @@
 2. [LORE-Prolog: Das Erwachen von Khal'Vethis](#2-lore-prolog-das-erwachen-von-khalvethis)
 3. [Der Spielercharakter: Gouverneur der Randwelt](#3-der-spielercharakter-gouverneur-der-randwelt)
 4. [Das Erstkontakt-Ereignis: Die Sechs Herolde](#4-das-erstkontakt-ereignis-die-sechs-herolde)
-5. [Die vier Säulen des Aufstiegs](#5-die-vier-säulen-des-aufstiegs)
+5. [Die Säulen des Aufstiegs](#5-die-säulen-des-aufstiegs)
+   - 5.1 Agitieren · 5.2 Handeln · 5.3 Wirtschaft · 5.4 Militärische Macht
+   - 5.5 Wissen & Forschung · 5.6 Information & Nachrichtendienst
+   - 5.7 Kulturelle Brücke & Mediation · 5.8 Bevölkerungspolitik & Migration
 6. [Das Fraktionsruf-System: Stufenaufstieg](#6-das-fraktionsruf-system-stufenaufstieg)
 7. [Fraktionsspezifische Wege & Belohnungen](#7-fraktionsspezifische-wege--belohnungen)
 8. [Spannungsfelder: Wenn Fraktionen sich widersprechen](#8-spannungsfelder-wenn-fraktionen-sich-widersprechen)
 9. [Die Tutorial-Klimax: Die Erste Krise von Khal'Vethis](#9-die-tutorial-klimax-die-erste-krise-von-khalvethis)
 10. [Langzeit-Einfluss: Macht im Konvergenzrat](#10-langzeit-einfluss-macht-im-konvergenzrat)
+11. [Alternative Systemmodelle: Die Abkehr vom Rufpfad](#11-alternative-systemmodelle-die-abkehr-vom-rufpfad)
+    - 11.1 Die eigene Bevölkerung als siebte Fraktion
+    - 11.2 Einfluss statt Ruf: Das Schuldensystem
+    - 11.3 Der Isolationspfad: Khal'Vethis als Freistaat
 
 ---
 
@@ -189,9 +196,9 @@ Dies ist das **Tutorial-Einführungsereignis** des Spiels. Jeder Herold stellt s
 
 ---
 
-## 5. Die vier Säulen des Aufstiegs
+## 5. Die Säulen des Aufstiegs
 
-Der Ruf bei den Fraktionen wächst nicht automatisch – der Spieler muss aktiv Entscheidungen treffen. Es gibt **vier Grundmechanismen**, durch die Ruf erworben werden kann.
+Der Ruf bei den Fraktionen wächst nicht automatisch – der Spieler muss aktiv Entscheidungen treffen. Es gibt **acht Grundmechanismen**, durch die Ruf erworben werden kann. Die ersten vier (5.1–5.4) sind ressourcenbasiert; die vier weiteren (5.5–5.8) beruhen auf anderen Machtlogiken und eröffnen alternative Spielidentitäten.
 
 ---
 
@@ -282,6 +289,111 @@ Der Ruf bei den Fraktionen wächst nicht automatisch – der Spieler muss aktiv 
 | Eigene Flotte demonstrieren (Parade) ohne Anlass | +Schildzirkel, misstrauisch: Vel'Ar |
 | Eisenflotten-Schiff abfangen und zerstören | ++alle (starker Ruf-Boost für alle) |
 | Verbündeter Kryl'Tha-Angriff auf unklaren Feind | ++Kryl'Tha, −Syl'Nar, diplomatischer Druck |
+
+---
+
+### 5.5 🔬 Wissen & Forschung
+
+**Definition:** Aktive Erforschung der Welt, ihrer Anomalien, des Vethisits und der galaktischen Geschichte – und gezielte Weitergabe dieser Erkenntnisse.
+
+**Abgrenzung zu „Wirtschaft" (5.3):** Wirtschaft misst *was du baust*; Wissen misst *was du entdeckst und an wen du es weitergibst*.
+
+**Funktionsweise im Spiel:**
+- Expeditionen auf Khal'Vethis und in den Dreifach-Korridor fördern Forschungsergebnisse zutage
+- Jede Entdeckung (Vethisit-Datensatz, Raumanomalie, historisches Artefakt) kann nur *einmal* exklusiv geteilt werden
+- Der Empfänger entscheidet anschließend: bleibt die Entdeckung vertraulich, oder wird sie publiziert?
+- Besonders wirksam bei: **Aereth** (Wissenschaft), **Zhareen** (Archivierung); beim Zurückhalten: **Vel'Ar** (Informationsmonopol)
+
+**Beispiel-Aktionen:**
+
+| Aktion | Ergebnis |
+|---|---|
+| Vethisit-Resonanzanalyse exklusiv an Aereth übergeben | ++Kernrat, −Zhareen (wollen selbst forschen) |
+| Ergebnisse frei veröffentlichen | +moderat alle, kein Exklusivbonus |
+| Anomalie-Daten geheim halten | +Vel'Ar (Informationsasymmetrie), −Aereth |
+| Khal'Vethis-Gründungsartefakt sichern und archivieren | ++Zhareen, +Syl'Nar |
+| Forschungsdaten nachträglich an rivalisierende Fraktion weitergeben | −Aereth (Exklusivitätsbruch), +Zhareen |
+
+**Spielmechanische Besonderheit:** Forschungsergebnisse sind *nicht reproduzierbar*. Derselbe Datensatz kann nicht zweimal exklusiv weitergegeben werden. Dies erzeugt echte Opportunitätskosten – ein fundamentaler Unterschied zu den ressourcenbasierten Säulen.
+
+---
+
+### 5.6 🕵️ Information & Nachrichtendienst
+
+**Definition:** Systematische Sammlung, Auswertung und selektive Weitergabe von Informationen über Fraktionsbewegungen, Schiffsverkehr und persönliche Geheimnisse.
+
+**Abgrenzung zu „Agitieren" (5.1):** Agitation ist *was du öffentlich sagst*; Information ist *was du heimlich weißt und wann du es teilst*.
+
+**Funktionsweise im Spiel:**
+- Khal'Vethis als Transitknoten registriert automatisch Schiffsbewegungen und Kommunikation
+- Der Spieler entscheidet, wer Zugang zu diesen Daten bekommt
+- Informationen können auch *zurückgehalten* werden – Passivität als Machtinstrument
+- Vel'Ar schätzt jeden Austausch; andere Fraktionen schätzen nur für sie relevante Informationen
+- **Einzige Säule ohne Ressourcenkosten:** Ruf kann durch das entstehen, was man *nicht* tut
+
+**Beispiel-Aktionen:**
+
+| Aktion | Ergebnis |
+|---|---|
+| Vor'Tak-Flottenbewegungen an Vel'Ar weitergeben | ++Vel'Ar, −Vor'Tak (bei Entdeckung) |
+| Khar'Morr-Syndikat-Routen an alle teilen | +moderat alle (Gemeinschaftsnutzen) |
+| Wissen, wer der Verräter ist – und schweigen | +Vel'Ar, Zeitgewinn zum Manövrieren |
+| Syl'Nar-Geheimmission enttarnen – und Syl'Nar warnen | ++Syl'Nar, −Vel'Ar (Geheimhaltungsbruch) |
+| Doppelspiel: zwei Fraktionen widersprüchliche Infos geben | ++Vel'Ar kurzfristig, drastische Folgen bei Entdeckung |
+
+**Spielmechanische Besonderheit:** Information ist die einzige Säule, die **Ruf durch Passivität** aufbaut. Wer Informationen sammelt und zurückhält, wird für andere Akteure unberechenbar – und Unberechenbarkeit ist Vel'Ars wichtigste Währung.
+
+---
+
+### 5.7 🌐 Kulturelle Brücke & Mediation
+
+**Definition:** Khal'Vethis als neutraler Ort für Fraktionsgipfel, Kulturveranstaltungen, Konfliktschlichtung und interplanetaren Austausch.
+
+**Abgrenzung zu „Agitieren" (5.1):** Agitation bedeutet, *für eine Seite Position zu beziehen*; Mediation bedeutet, *zwischen Seiten zu vermitteln, ohne eigene Position*.
+
+**Funktionsweise im Spiel:**
+- Der Spieler kann Konferenzen, Ausstellungen und Kulturfestivals ausrichten
+- Jedes Mediations-Event erhöht den Ruf bei *allen beteiligten Fraktionen* moderat
+- Echter Bonus nur, wenn der Spieler tatsächlich neutral bleibt: bestehende einseitige Allianzen (Stufe 4+) untergraben die Glaubwürdigkeit als Mediator
+- Besonders relevant für den **Isolationspfad** (siehe Abschnitt 11.3)
+
+**Beispiel-Aktionen:**
+
+| Aktion | Ergebnis |
+|---|---|
+| Vor'Tak–Syl'Nar-Gipfel auf Khal'Vethis ausrichten | +beide, Khal'Vethis als anerkannter Begegnungsort |
+| Interkulturelles Fest (alle 6 Fraktionen eingeladen) | +moderat alle, +Kolonial-Ruf |
+| Kryl'Tha–Aereth-Forschungskonflikt schlichten | ++beide, spezifischer Quest-Fortschritt |
+| Als Mediator positionieren, aber heimlich Vor'Tak bevorzugen | +Vor'Tak, Glaubwürdigkeitsverlust bei Entdeckung |
+
+**Spielmechanische Besonderheit:** Mediation ist der einzige **Anti-Optimierungs-Pfad**. Je ausgewogener die Rufwerte bei allen Fraktionen bleiben, desto stärker wirkt diese Säule. Wer einseitig min-maxiert, verliert die Mediationsboni. Belohnt Spieler, die bewusst auf Exklusiv-Allianzen verzichten.
+
+---
+
+### 5.8 🌱 Bevölkerungspolitik & Migration
+
+**Definition:** Aktive oder passive Steuerung, wer auf Khal'Vethis siedelt – und damit, welche Fraktionskultur organisch in die Kolonie einwächst.
+
+**Abgrenzung zu allen anderen Säulen:** Andere Säulen basieren auf aktiven Entscheidungen; diese Säule akkumuliert *langsam und passiv* aus Migrationsentscheidungen über viele Spielzyklen.
+
+**Funktionsweise im Spiel:**
+- Jede Fraktions-Einwanderungswelle verändert die demografische Zusammensetzung der Kolonie
+- Bevölkerungsgruppen bringen passiven Ruf bei ihrer Heimatfraktion ein, aber auch interne Spannungen
+- Bevölkerungsstruktur ist schwer umzukehren – Entscheidungen früher Spielphasen haben dauerhaften Einfluss
+- Die eigene Bevölkerung wird zu einem eigenständigen Machtfaktor (Vorschau auf Abschnitt 11.1)
+
+**Migrationsentscheidungen und Fraktionsaffinitäten:**
+
+| Einwanderer-Gruppe | Passiver Ruf | Koloniale Konsequenz |
+|---|---|---|
+| Vor'Tak-Veteranen | +Vor'Tak/Zyklus | Militärische Stärke, interne Disziplin |
+| Syl'Nar-Händler | +Syl'Nar/Zyklus | Wirtschaftswachstum, Spiritualität steigt |
+| Aereth-Forscher | +Aereth/Zyklus | Forschungsboni, hohe Ressourcenanforderungen |
+| Kryl'Tha-Familien | +Kryl'Tha/Zyklus | Sicherheit, kulturelle Spannungen mit anderen Gruppen |
+| Vel'Ar-Flüchtlinge | +Vel'Ar (Diskretion) | Schattenwirtschaft entsteht, schwer kontrollierbar |
+| Fraktionslose Siedler | +Kolonial-Ruf | Loyalität zum Gouverneur, keine Fraktion profitiert extern |
+
+**Spielmechanische Besonderheit:** Migration ist die einzige **völlig passive Säule** – keine aktiven Aktionen erforderlich. Die Kolonie entwickelt sich demografisch aufgrund früher Migrationspolitik. Dies erzeugt einen echten Langzeit-Gedächtniseffekt: Die Kolonie *erinnert sich* an die Entscheidungen des Gouverneurs.
 
 ---
 
@@ -542,6 +654,83 @@ Der Ruf-Stand bei Fraktionen verändert die Optionen in den **6 Hauptakten der K
 
 > Die Welt, auf der niemand beginnen wollte, wird zur Welt, auf der alles entschieden wird.  
 > Nicht weil Khal'Vethis besonders war – sondern weil du daraus etwas besonderes gemacht hast.
+
+---
+
+## 11. Alternative Systemmodelle: Die Abkehr vom Rufpfad
+
+### Strukturelles Problem der Aufstiegssäulen
+
+Die acht Säulen (Abschnitte 5.1–5.8) teilen ein gemeinsames Paradigma: Alle sind im Kern *Investitionen* – der Spieler gibt Ressourcen, Zeit oder politisches Kapital aus und erhält Ruf zurück. Das System ist transparent und planbar, kann bei konsequenter Optimierung jedoch mechanisch wirken.
+
+Die folgenden drei Modelle brechen dieses Paradigma auf unterschiedliche Weise auf. Sie können als eigenständige Hauptpfade, als ergänzende Layer über dem Rufmeter oder als emergente Late-Game-Optionen implementiert werden.
+
+---
+
+### 11.1 🏛️ Die eigene Bevölkerung als siebte Fraktion
+
+**Kernidee:** Die 4.200 Siedler von Khal'Vethis sind keine Kulisse – sie sind eine eigenständige Machtbasis. Neben dem *externen* Fraktionsruf (gegenüber den sechs Hauptfraktionen) existiert ein **Kolonialruf**: Wie sehr vertrauen die eigenen Leute dem Gouverneur?
+
+**Mechanik:**
+- **Hoher Kolonialruf:** Die Bevölkerung folgt dem Gouverneur, verweigert Fraktionsforderungen, die gegen lokale Interessen gehen → echte Autonomie
+- **Niedriger Kolonialruf:** Bevölkerungsgruppen orientieren sich an den Fraktionsgesandten → der Gouverneur verliert die eigene Basis
+- **Strukturelle Spannung:** Was Fraktionen wollen, schadet oft der Kolonie. Vor'Tak-Militarisierung macht die Zivilbevölkerung unglücklich; Syl'Nar-Offenheit bringt Vel'Ar-Misstrauen. Es gibt keine Lösung, die beides maximiert.
+
+**Spielmechanisch:** Der Kolonialruf verändert, *was möglich ist*. Bei hohem Kolonialruf kann der Gouverneur Fraktionsforderungen ablehnen, ohne Krisen auszulösen. Bei niedrigem Kolonialruf verliert er schrittweise die Kontrolle – Fraktionsagenten beginnen, direkt mit der Bevölkerung zu kommunizieren.
+
+**Warum es das System bereichert:** Es gibt dem Spieler ein Eigeninteresse, das *nicht* von den sechs Fraktionen definiert wird. „Gouverneur der Bevölkerung" versus „Klient der Mächtigen" wird zur echten Spielidentitätsfrage.
+
+---
+
+### 11.2 💸 Einfluss statt Ruf: Das Schuldensystem
+
+**Kernidee:** Statt Ruf als numerische Skala (0–5) wird *gegenseitige Abhängigkeit* gemessen – wer schuldet wem was?
+
+**Mechanik:**
+- Jede Fraktion führt intern eine Liste: *Was hat der Gouverneur für uns getan? Was haben wir gegeben? Was schulden wir? Was schuldet er uns?*
+- Ein Gefallen in der Not wiegt schwerer als zehn routinemäßige Handelslieferungen
+- **Schulden können auch negativ eingesetzt werden:** „Du schuldest uns noch – oder wir machen das öffentlich."
+- Ruf entsteht nicht durch Bar-Meter, sondern durch narrative Ereignisse und Erinnerungen
+
+**Verhältnis zum bestehenden Rufmeter:** Das Schuldensystem läuft *parallel* zum Rufmeter – das Rufmeter ist die sichtbare, spielerseitige Vereinfachung; das Schuldensystem ist die komplexere Realität dahinter. Fraktionen mit hohem Rufmeter, aber negativem Schuldensaldo (der Spieler hat viel genommen, wenig gegeben), werden irgendwann Rückzahlung fordern.
+
+**Spielmechanisch:** Weniger explizit als der Rufbalken – informiert Dialoge, Ereignisse, Angebotskonditionen. Für den Spieler erst sichtbar, wenn Fraktionen Schulden einfordern.
+
+**Warum es das System bereichert:** Es entfernt die Gamification-Schicht an kritischen Momenten. Fraktionen verhalten sich wie echte politische Akteure, die Gefallen tracken – nicht wie Reputations-Dispensarien.
+
+---
+
+### 11.3 🌑 Der Isolationspfad: Khal'Vethis als Freistaat
+
+**Kernidee:** Was, wenn der Spieler bewusst *allen* Hauptfraktionen den Rücken kehrt? Anstatt sich in das Rufmeter-System einzufügen, baut der Spieler Khal'Vethis als eigenständige Macht auf.
+
+**Bedingungen:**
+- Kein Ruf über Stufe 2 bei einer der sechs Hauptfraktionen (kein aktives Bündnis)
+- Aufbau alternativer Handelsbeziehungen: Helion-Konföderation, Nomaden des Rifts, fraktionslose Randwelten
+- Vethisit bleibt *vollständig unter lokaler Kontrolle* – keine Exklusivverträge
+
+**Konsequenzen:**
+- Kurzfristig: weniger externe Hilfe, höhere Verwundbarkeit
+- Mittelfristig: andere unterdrückte Randwelten schließen sich an → Khal'Vethis als Keimzelle einer unabhängigen Bewegung
+- Langfristig: die sechs Hauptfraktionen beginnen, Khal'Vethis als *Bedrohung* wahrzunehmen und hören auf, den Gouverneur als formbaren Rohstoff zu behandeln
+
+**Endgame-Pfad:** Khal'Vethis als eigenständiges Ratsmitglied, das keiner der sechs Hauptmächte verpflichtet ist. Einziger Pfad, auf dem der Spieler ohne Fraktionsloyalität Einfluss im Konvergenzrat erlangt.
+
+**Thematische Bedeutung:** Der Isolationspfad kehrt die Tutorial-Prämisse um. Der Spieler wird eingeführt als jemand, den die sechs Fraktionen formen wollen – doch wer das System erkennt und sich entzieht, schreibt eine fundamental andere Geschichte. Khal'Vethis war als Werkzeug geplant; es wird stattdessen zum Spiegel.
+
+---
+
+### Implementierungsempfehlung
+
+| Systemelement | Implementierungsphase | Priorität |
+|---|---|---|
+| 🌱 Bevölkerungspolitik (5.8) | Phase 1 – passives System, wenig Aufwand | Hoch |
+| 🔬 Wissen & Forschung (5.5) | Phase 1 – Expeditions-Quest-Layer | Hoch |
+| 🏛️ Kolonialruf als 7. Fraktion (11.1) | Phase 2 – eigene Ruf-Skala | Hoch |
+| 🕵️ Information & Nachrichtendienst (5.6) | Phase 2 – Informationsdaten-System | Mittel |
+| 🌐 Mediation (5.7) | Phase 2 – Event-basiert | Mittel |
+| 💸 Schuldensystem (11.2) | Phase 3 – paralleles System | Mittel |
+| 🌑 Isolationspfad (11.3) | Phase 3 – Late-Game-Pfad | Mittel |
 
 ---
 
