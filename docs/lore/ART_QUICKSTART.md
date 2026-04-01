@@ -196,13 +196,36 @@ git commit -m "Add: NPC portraits generated with SD-XL"
 
 ---
 
+## 9️⃣ LoRA-Adapters – Konsistente Portraits (Empfohlen)
+
+Für **konsistente Charakter-Portraits** über mehrere Sessions hinweg — trainiere einmalig
+LoRA-Adapter für jede Rasse. Danach genügen wenige Keywords.
+
+### Kurzüberblick
+```
+1. Basis-Portraits generieren (15–20 pro Rasse mit Paketen 1–12)
+2. LoRA trainieren (Kohya SS oder OneTrainer — ~30 min pro Rasse)
+3. LoRA in SwarmUI laden → konsistente Charakter-Portraits in Sekunden
+```
+
+> 📖 **Vollständiger Guide:** `LORA_TRAINING_GUIDE.md`
+
+### Schnell-Integration (wenn LoRA fertig)
+```
+SwarmUI → Extra Networks Tab → LoRA auswählen
+oder inline: <lora:vortak_lora:0.85> am Anfang des Prompts
+```
+
+---
+
 ## ✅ Checkliste zum Starten
 
 - [ ] SwarmUI installiert & Models downloaded
 - [ ] `gfx/portraits/` Folder erstellt
-- [ ] `ART_PROMPTS_SDXL.md` geöffnet
+- [ ] `ART_PROMPTS_SDXL.md` geöffnet (alle 12 Pakete vollständig)
 - [ ] Erste Prompt (Sol'Kaar) zum Copy-Pasten bereit
 - [ ] Settings in SwarmUI konfiguriert
+- [ ] Optional: LoRA-Guide gelesen (`LORA_TRAINING_GUIDE.md`)
 - [ ] Ready to Generate! 🚀
 
 ---

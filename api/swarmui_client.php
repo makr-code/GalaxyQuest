@@ -52,6 +52,8 @@ function swarmui_get_session(bool $force = false): string
  * Options:
  *   model      string  – safetensors path (default: SWARMUI_DEFAULT_MODEL)
  *   turbo      bool    – use SWARMUI_TURBO_MODEL instead
+ *   loras      array   – LoRA adapters to apply, e.g. ['vortak_lora:0.85', 'style_lora:0.5']
+ *                        Each entry is "filename:weight" or just "filename" (weight defaults to 1.0)
  *   width      int     – image width  (default: 720)
  *   height     int     – image height (default: 1024)
  *   steps      int     – sampling steps (default: SWARMUI_DEFAULT_STEPS)
@@ -92,6 +94,26 @@ function swarmui_generate(string $prompt, array $options = []): array
 
     if (!empty($options['negativeprompt'])) {
         $payload['negativeprompt'] = (string) $options['negativeprompt'];
+    }
+
+    // LoRA adapters: each entry is "filename:weight" or just "filename"
+    if (!empty($options['loras']) && is_array($options['loras'])) {
+        $loraWeights = [];
+        foreach ($options['loras'] as $lora) {
+            $lora = (string) $lora;
+            if ($lora === '') {
+                continue;
+            }
+            $parts  = explode(':', $lora, 2);
+            $name   = trim($parts[0]);
+            $weight = isset($parts[1]) ? (float) $parts[1] : 1.0;
+            if ($name !== '') {
+                $loraWeights[] = ['model' => $name, 'weight' => $weight];
+            }
+        }
+        if (!empty($loraWeights)) {
+            $payload['loraweights'] = $loraWeights;
+        }
     }
 
     $timeout = (int) ($options['timeout'] ?? SWARMUI_TIMEOUT_SECONDS);

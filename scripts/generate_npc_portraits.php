@@ -1,12 +1,14 @@
 <?php
 /**
- * Generate NPC portrait images for all 6 main GalaxyQuest characters via SwarmUI.
+ * Generate NPC portrait images for all 12 main GalaxyQuest characters via SwarmUI.
  *
  * Usage:
  *   docker compose exec -T web php scripts/generate_npc_portraits.php
  *   docker compose exec -T web php scripts/generate_npc_portraits.php --npc=sol_kaar
  *   docker compose exec -T web php scripts/generate_npc_portraits.php --turbo
  *   docker compose exec -T web php scripts/generate_npc_portraits.php --steps=20 --npc=vela_thii
+ *   docker compose exec -T web php scripts/generate_npc_portraits.php --lora           # use LoRA adapters
+ *   docker compose exec -T web php scripts/generate_npc_portraits.php --lora --npc=drak_mol
  *
  * Output: gfx/portraits/<race>_<name>_<gender>.png
  */
@@ -14,10 +16,11 @@
 require_once __DIR__ . '/../api/swarmui_client.php';
 
 // ── CLI options ───────────────────────────────────────────────────────────────
-$opts    = getopt('', ['npc:', 'turbo', 'steps:', 'width:', 'height:', 'dry-run']);
+$opts    = getopt('', ['npc:', 'turbo', 'steps:', 'width:', 'height:', 'dry-run', 'lora']);
 $filter  = isset($opts['npc'])    ? strtolower((string) $opts['npc']) : null;
 $turbo   = isset($opts['turbo']);
 $dryRun  = isset($opts['dry-run']);
+$useLora = isset($opts['lora']);
 $steps   = isset($opts['steps'])  ? (int) $opts['steps']  : ($turbo ? 8 : (int) SWARMUI_DEFAULT_STEPS);
 $width   = isset($opts['width'])  ? (int) $opts['width']  : 720;
 $height  = isset($opts['height']) ? (int) $opts['height'] : 1024;
@@ -34,6 +37,16 @@ const BASE_PROMPT = 'Photorealistic portrait photo of an alien lifeform, '
 
 const NEGATIVE_PROMPT = 'human, earth, realistic human face, ugly, deformed, '
     . 'blurry, low quality, background, props, watermark, text, logo.';
+
+// LoRA adapter names per race (filename without .safetensors, relative to SwarmUI Models/Lora/)
+const RACE_LORAS = [
+    'Vor\'Tak'  => ['lora' => 'vortak_lora_v1',  'trigger' => 'vortak_race'],
+    'Syl\'Nar'  => ['lora' => 'sylnar_lora_v1',  'trigger' => 'sylnar_race'],
+    'Aereth'    => ['lora' => 'aereth_lora_v1',  'trigger' => 'aereth_race'],
+    'Kryl\'Tha' => ['lora' => 'kryltha_lora_v1', 'trigger' => 'kryltha_race'],
+    'Zhareen'   => ['lora' => 'zhareen_lora_v1', 'trigger' => 'zhareen_race'],
+    'Vel\'Ar'   => ['lora' => 'velar_lora_v1',   'trigger' => 'velar_race'],
+];
 
 // ── NPC Definitions ───────────────────────────────────────────────────────────
 const NPCS = [
@@ -104,6 +117,73 @@ const NPCS = [
             . 'ethereal form, expressive suspended alien eyes with mystery and hidden intelligence, '
             . 'delicate biomask, enigmatic presence.',
     ],
+    // ── Second six NPCs ──────────────────────────────────────────────────────────
+    't_asha' => [
+        'name'   => "Stratega T'Asha",
+        'race'   => 'Vor\'Tak',
+        'gender' => 'w',
+        'file'   => 'VorTak_TAsha_w.png',
+        'prompt' => 'clearly female, mature female reptilian alien, sleek emerald-green scales with '
+            . 'golden bioluminescent highlights, elegant refined facial structure with smaller horn '
+            . 'ridges, intricate turquoise and gold patterns across skin, piercing intelligent yellow '
+            . 'eyes with complex iris patterns radiating authority and cunning, graceful neck and '
+            . 'shoulders, subtle high-rank ceremonial armor detailing integrated into scales.',
+    ],
+    'asha_vor' => [
+        'name'   => "Licht-Diplomat Asha'Vor",
+        'race'   => 'Syl\'Nar',
+        'gender' => 'm',
+        'file'   => 'SylNar_AshaVor_m.png',
+        'prompt' => 'clearly male, strong male cephalopod alien, powerful tentacle ridges and broad '
+            . 'cephalopod musculature, deep pulsating bioluminescent patterns in neon cyan and electric '
+            . 'violet, wet glossy semi-transparent skin with inner light, deep-set commanding alien eyes '
+            . 'with spiraling cosmic swirls of deep indigo, thick flowing tentacle-hair, spiritual '
+            . 'authority and diplomatic gravitas.',
+    ],
+    'lyra_tehn' => [
+        'name'   => "Forscherin Lyra'Tehn",
+        'race'   => 'Aereth',
+        'gender' => 'w',
+        'file'   => 'Aereth_LyraTern_w.png',
+        'prompt' => 'clearly female, elegant female humanoid energy-based alien, smooth graceful facial '
+            . 'contours with luminous golden-white energy patterns flowing beneath semi-transparent skin, '
+            . 'warm gentle amber and gold energy coloration radiating curiosity, soft diffused internal '
+            . 'light creating a halo-like radiance, large expressive glowing eyes filled with wonder, '
+            . 'serene confident expression of scientific discovery.',
+    ],
+    'ka_threx' => [
+        'name'   => "Schwarm-Ältester Ka'Threx",
+        'race'   => 'Kryl\'Tha',
+        'gender' => 'm',
+        'file'   => 'KrylTha_KaThrex_m.png',
+        'prompt' => 'clearly male, ancient weathered male insectoid alien, thick battle-worn chitin '
+            . 'armor plates, dark iridescent shell with deep oil-slick reflections in black-green-rust '
+            . 'tones, heavy massive mandibles and pronounced jaw showing age and dominance, large '
+            . 'compound eyes with amber-red facets glowing with ancient wisdom, ceremonial clan markings '
+            . 'etched into chitin, imposing elder presence.',
+    ],
+    'myr_tal' => [
+        'name'   => "Kristall-Bewahrerin Myr'Tal",
+        'race'   => 'Zhareen',
+        'gender' => 'w',
+        'file'   => 'Zhareen_MyrTal_w.png',
+        'prompt' => 'clearly female, serene female crystalline alien, smooth flowing crystal contours '
+            . 'with warm rosy-gold and deep amethyst internal illumination, soft prismatic rainbow light '
+            . 'refracting gracefully, perlmut iridescence cascading across surfaces, warm welcoming '
+            . 'radiance, large compassionate eyes glowing with amber-rose light and profound empathy, '
+            . 'refined crystalline beauty with ancient spiritual depth.',
+    ],
+    'val_kesh' => [
+        'name'   => 'Geheimrat Val\'Kesh',
+        'race'   => 'Vel\'Ar',
+        'gender' => 'm',
+        'file'   => 'VelAr_ValKesh_m.png',
+        'prompt' => 'clearly male, imposing male gas-based alien with angular sharp semi-solid biomask, '
+            . 'strong pointed geometric mask contours projecting authority and inscrutability, internal '
+            . 'swirling gas in deep smoke-grey and cold ice-blue hues, pulsing energy veins of pale blue '
+            . 'light, suspended alien eyes radiating cold calculation and hidden power, hard angular '
+            . 'edges suggesting concealed threat, ethereal gravitas.',
+    ],
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -144,11 +224,12 @@ log_ok('Connected. Available models: ' . implode(', ', $modelNames));
 
 $model = $turbo ? (string) SWARMUI_TURBO_MODEL : (string) SWARMUI_DEFAULT_MODEL;
 log_info(sprintf(
-    'Settings: model=%s  steps=%d  %dx%d  %s',
+    'Settings: model=%s  steps=%d  %dx%d  lora=%s  %s',
     basename($model, '.safetensors'),
     $steps,
     $width,
     $height,
+    $useLora ? 'enabled' : 'disabled',
     $dryRun ? '[DRY-RUN]' : ''
 ));
 echo "\n";
@@ -163,8 +244,20 @@ foreach (NPCS as $key => $npc) {
     }
 
     $total++;
-    $destPath = $outDir . '/' . $npc['file'];
-    $fullPrompt = BASE_PROMPT . ' ' . $npc['prompt'];
+    $destPath   = $outDir . '/' . $npc['file'];
+    $loraConfig = RACE_LORAS[$npc['race']] ?? null;
+
+    // Build prompt: optionally prepend LoRA inline tag + trigger word
+    $promptPrefix = '';
+    $loraOptions  = [];
+    if ($useLora && $loraConfig !== null) {
+        $loraName      = SWARMUI_LORA_PATH . $loraConfig['lora'];
+        $constName     = 'LORA_WEIGHT_' . strtoupper(str_replace(["'", ' '], '', $npc['race']));
+        $loraWeight    = defined($constName) ? (float) constant($constName) : 0.80;
+        $promptPrefix  = "<lora:{$loraName}:{$loraWeight}> {$loraConfig['trigger']}, ";
+        $loraOptions   = ["{$loraName}:{$loraWeight}"];
+    }
+    $fullPrompt = $promptPrefix . BASE_PROMPT . ' ' . $npc['prompt'];
 
     log_info(sprintf("Generating %-30s  (%s %s, %s) …", $npc['name'], $npc['race'], $npc['gender'] === 'm' ? '♂' : '♀', basename($destPath)));
 
@@ -184,6 +277,7 @@ foreach (NPCS as $key => $npc) {
         'width'          => $width,
         'height'         => $height,
         'negativeprompt' => NEGATIVE_PROMPT,
+        'loras'          => $loraOptions,
         'timeout'        => (int) SWARMUI_TIMEOUT_SECONDS,
     ]);
 
