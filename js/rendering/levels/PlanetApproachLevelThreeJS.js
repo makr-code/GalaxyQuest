@@ -18,7 +18,7 @@
 
 'use strict';
 
-const { IZoomLevelRenderer } = typeof require !== 'undefined'
+var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
@@ -27,7 +27,7 @@ function THREE() {
   return (typeof window !== 'undefined' && window.THREE) || null;
 }
 
-class PlanetApproachLevelThreeJS extends IZoomLevelRenderer {
+class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
   constructor() {
     super();
     this._canvas     = null;

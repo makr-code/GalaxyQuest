@@ -172,6 +172,25 @@ describe('SeamlessZoomOrchestrator — zoomTo() lifecycle', () => {
   });
 });
 
+describe('SeamlessZoomOrchestrator — setSceneData()', () => {
+  it('lazily initialises target level and forwards scene data', async () => {
+    const backend = makeMockBackend('webgl2');
+    const orch = new SeamlessZoomOrchestrator(null, { _backend: backend });
+
+    const level = makeMockLevel();
+    const LevelClass = makeLevelClass(level);
+    orch.register(ZOOM_LEVEL.GALAXY, { webgpu: LevelClass, threejs: LevelClass });
+
+    const payload = { stars: [{ id: 1 }] };
+    const ok = await orch.setSceneData(ZOOM_LEVEL.GALAXY, payload);
+
+    expect(ok).toBe(true);
+    expect(level.initialize).toHaveBeenCalledTimes(1);
+    expect(level.setSceneData).toHaveBeenCalledTimes(1);
+    expect(level.setSceneData.mock.calls[0][0]).toBe(payload);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // SeamlessZoomOrchestrator — double-zoomTo guard
 // ---------------------------------------------------------------------------

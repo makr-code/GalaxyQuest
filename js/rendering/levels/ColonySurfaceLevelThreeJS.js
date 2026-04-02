@@ -13,7 +13,7 @@
 
 'use strict';
 
-const { IZoomLevelRenderer } = typeof require !== 'undefined'
+var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
@@ -25,7 +25,7 @@ function THREE() {
 /** Maximum buildings rendered at once. */
 const MAX_BUILDINGS = 512;
 
-class ColonySurfaceLevelThreeJS extends IZoomLevelRenderer {
+class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
   constructor() {
     super();
     this._canvas    = null;

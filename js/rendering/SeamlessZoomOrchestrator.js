@@ -39,16 +39,16 @@
 // Dependency resolution — works in both Node.js (CommonJS) and the browser.
 // ---------------------------------------------------------------------------
 
-let RendererRegistry, RendererFactory, CameraFlightPath;
+let RendererRegistryCtor, RendererFactoryApi, CameraFlightPathCtor;
 
 if (typeof require !== 'undefined') {
-  ({ RendererRegistry } = require('./RendererRegistry.js'));
-  ({ RendererFactory }  = require('../engine/core/RendererFactory.js'));
-  ({ CameraFlightPath } = require('./CameraFlightPath.js'));
+  ({ RendererRegistry: RendererRegistryCtor } = require('./RendererRegistry.js'));
+  ({ RendererFactory: RendererFactoryApi }  = require('../engine/core/RendererFactory.js'));
+  ({ CameraFlightPath: CameraFlightPathCtor } = require('./CameraFlightPath.js'));
 } else {
-  ({ RendererRegistry } = window.GQRendererRegistry   || {});
-  RendererFactory       = window.GQRendererFactory;
-  ({ CameraFlightPath } = window.GQCameraFlightPath   || {});
+  ({ RendererRegistry: RendererRegistryCtor } = window.GQRendererRegistry   || {});
+  RendererFactoryApi       = window.GQRendererFactory;
+  ({ CameraFlightPath: CameraFlightPathCtor } = window.GQCameraFlightPath   || {});
 }
 
 // ---------------------------------------------------------------------------
@@ -149,12 +149,15 @@ class SeamlessZoomOrchestrator {
   constructor(canvas, opts = {}) {
     this._canvas     = canvas;
     this._opts       = opts || {};
-    this._registry   = new RendererRegistry();
+    this._registry   = new RendererRegistryCtor();
     this._backend    = null;   // IGraphicsRenderer — set after initialize()
-    this._flight     = new CameraFlightPath();
+    this._flight     = new CameraFlightPathCtor();
     this._active     = null;   // currently active IZoomLevelRenderer
     this._activeLevel = null;
     this._transition = false;  // guard flag
+    this._rafId      = 0;
+    this._running    = false;
+    this._lastTs     = 0;
 
     /** @type {Map<string, Function[]>} */
     this._listeners  = new Map();
@@ -178,12 +181,14 @@ class SeamlessZoomOrchestrator {
     if (this._opts._backend) {
       // Allow test injection without touching RendererFactory.
       this._backend = this._opts._backend;
+      this._startLoop();
       return;
     }
-    this._backend = await RendererFactory.create(
+    this._backend = await RendererFactoryApi.create(
       this._canvas,
       { hint: this._opts.rendererHint || 'auto' },
     );
+    this._startLoop();
   }
 
   // ── Registry delegation ───────────────────────────────────────────────────
@@ -196,6 +201,39 @@ class SeamlessZoomOrchestrator {
    */
   register(level, classes) {
     this._registry.register(level, classes);
+  }
+
+  /**
+   * Push scene data to a registered level renderer without forcing a level
+   * transition. If the level renderer was not initialised yet, it is lazily
+   * initialised first.
+   *
+   * @param {number} level
+   * @param {*} data
+   * @returns {Promise<boolean>} true if scene data was accepted
+   */
+  async setSceneData(level, data) {
+    const backend = this._backend || this._opts?._backend || null;
+    if (!backend) return false;
+
+    let target = null;
+    if (this._active && this._activeLevel === level) {
+      target = this._active;
+    } else {
+      target = this._registry.resolve(level, backend);
+    }
+    if (!target) return false;
+
+    if (!target._initialised) {
+      await target.initialize(this._canvas, backend);
+      target._initialised = true;
+    }
+
+    if (typeof target.setSceneData === 'function') {
+      target.setSceneData(data);
+      return true;
+    }
+    return false;
   }
 
   // ── Main API ──────────────────────────────────────────────────────────────
@@ -325,6 +363,11 @@ class SeamlessZoomOrchestrator {
   // ── Disposal ──────────────────────────────────────────────────────────────
 
   dispose() {
+    this._running = false;
+    if (this._rafId) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = 0;
+    }
     if (this._active) {
       try { this._active.dispose(); } catch (_) {}
       this._active = null;
@@ -346,6 +389,22 @@ class SeamlessZoomOrchestrator {
   /** Minimal fallback camera state when no flight is active. */
   _getFallbackCameraState() {
     return { position: { x: 0, y: 0, z: 500 }, target: { x: 0, y: 0, z: 0 }, roll: 0, t: 0 };
+  }
+
+  _startLoop() {
+    if (this._running || typeof requestAnimationFrame !== 'function') return;
+    this._running = true;
+    this._lastTs = 0;
+    const frame = (ts) => {
+      if (!this._running) return;
+      const dtMs = this._lastTs ? Math.max(0, ts - this._lastTs) : 16.67;
+      this._lastTs = ts;
+      try {
+        this.tick(dtMs / 1000);
+      } catch (_) {}
+      this._rafId = requestAnimationFrame(frame);
+    };
+    this._rafId = requestAnimationFrame(frame);
   }
 
   /**

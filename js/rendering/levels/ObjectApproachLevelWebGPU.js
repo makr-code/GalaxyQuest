@@ -28,7 +28,7 @@
 
 'use strict';
 
-const { IZoomLevelRenderer } = typeof require !== 'undefined'
+var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
@@ -65,7 +65,7 @@ function meshDescriptorFor(targetType) {
 // ObjectApproachLevelWebGPU
 // ---------------------------------------------------------------------------
 
-class ObjectApproachLevelWebGPU extends IZoomLevelRenderer {
+class ObjectApproachLevelWebGPU extends ZoomLevelRendererBase {
   constructor() {
     super();
     this._canvas      = null;

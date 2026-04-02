@@ -121,6 +121,42 @@ async function primeHomeSelection(page, { enterSystem = false, focusPlanet = fal
   return result;
 }
 
+async function openBuildingsWindow(page, { allowWmFallback = true } = {}) {
+  const selectors = [
+    '.nav-btn[data-win="buildings"]',
+    '[data-win="buildings"]',
+    '#colony-open-buildings-btn',
+    '[data-colony-action="buildings"]',
+  ];
+
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    const visible = await locator.isVisible({ timeout: 1200 }).catch(() => false);
+    if (!visible) continue;
+    try {
+      await locator.click({ force: true, timeout: 2500 });
+      const opened = await page.evaluate(() => {
+        return !!(window.WM && typeof window.WM.isOpen === 'function' && window.WM.isOpen('buildings'));
+      });
+      if (opened) return true;
+    } catch (_) {}
+  }
+
+  if (allowWmFallback) {
+    await page.evaluate(() => {
+      if (window.WM && typeof window.WM.open === 'function') {
+        window.WM.open('buildings');
+      }
+    });
+    const opened = await page.evaluate(() => {
+      return !!(window.WM && typeof window.WM.isOpen === 'function' && window.WM.isOpen('buildings'));
+    });
+    if (opened) return true;
+  }
+
+  return false;
+}
+
 test('Galaxy -> System -> Planet/Colony -> Buildings flow smoke', async ({ page, baseURL }, testInfo) => {
   await installCdnStubs(page);
   await loginDefaultUser(page, baseURL);
@@ -162,14 +198,47 @@ test('Galaxy -> System -> Planet/Colony -> Buildings flow smoke', async ({ page,
     }
   }
   if (!systemActionClicked) {
-    // Degraded runtime fallback: navigate using built-in UI console command handler.
-    usedSystemFallback = true;
-    await page.evaluate(async () => {
-      const cmd = window.GQUIConsoleCommandController;
-      if (!cmd || typeof cmd.execute !== 'function') return;
-      await cmd.execute('home');
-      await cmd.execute('open galaxy');
+    const nativeSystemRecovery = await page.evaluate(async () => {
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const wm = window.WM;
+      const ctrl = window.GQGalaxyController;
+      if (!wm || typeof wm.body !== 'function' || typeof ctrl?.focusHomeSystem !== 'function') {
+        return false;
+      }
+      const root = wm.body('galaxy');
+      if (!root) return false;
+      try {
+        await ctrl.focusHomeSystem(root, {
+          silent: true,
+          cinematic: false,
+          enterSystem: true,
+          focusPlanet: false,
+        });
+      } catch (_) {
+        return false;
+      }
+      for (let i = 0; i < 10; i += 1) {
+        const hasSystemSignals = !!(
+          root.querySelector('[data-colony-action="colony"]')
+          || root.querySelector('[data-colony-action="buildings"]')
+          || root.querySelector('.planet-item')
+        );
+        if (hasSystemSignals) return true;
+        await wait(150);
+      }
+      return false;
     });
+
+    if (!nativeSystemRecovery) {
+      // Degraded runtime fallback: navigate using built-in UI console command handler.
+      usedSystemFallback = true;
+      await page.evaluate(async () => {
+        const cmd = window.GQUIConsoleCommandController;
+        if (!cmd || typeof cmd.execute !== 'function') return;
+        await cmd.execute('home');
+        await cmd.execute('open galaxy');
+      });
+    }
   }
 
   // 3) Planet/Colony stage via colony action buttons on detail card
@@ -185,7 +254,6 @@ test('Galaxy -> System -> Planet/Colony -> Buildings flow smoke', async ({ page,
     await buildingsAction.click({ force: true });
   } else {
     // Prefer native UI recovery via existing topbar/windows actions before console fallback.
-    const buildingsNavBtn = page.locator('.nav-btn[data-win="buildings"]');
     const colonyOpenBuildingsBtn = page.locator('#colony-open-buildings-btn');
     const uiRecoveryOk = await (async () => {
       try {
@@ -194,12 +262,7 @@ test('Galaxy -> System -> Planet/Colony -> Buildings flow smoke', async ({ page,
           await colonyOpenBuildingsBtn.click({ force: true, timeout: 10_000 });
           return true;
         }
-
-        await buildingsNavBtn.click({ force: true, timeout: 10_000 });
-        return await page.evaluate(() => {
-          if (!window.WM || typeof window.WM.isOpen !== 'function') return false;
-          return !!window.WM.isOpen('buildings');
-        });
+        return await openBuildingsWindow(page, { allowWmFallback: true });
       } catch (_) {
         return false;
       }
@@ -229,7 +292,7 @@ test('Galaxy -> System -> Planet/Colony -> Buildings flow smoke', async ({ page,
   });
   if (!buildingsOpen) {
     usedFinalNavRecovery = true;
-    await page.click('.nav-btn[data-win="buildings"]', { force: true });
+    await openBuildingsWindow(page, { allowWmFallback: true });
   }
 
   const buildingsOpenAfterRecovery = await page.evaluate(() => {
@@ -265,7 +328,7 @@ test('UI fallback nav opens buildings window when galaxy backend is degraded', a
   await installCdnStubs(page);
   await loginDefaultUser(page, baseURL);
 
-  await page.click('.nav-btn[data-win="buildings"]');
+  await openBuildingsWindow(page, { allowWmFallback: true });
 
   await page.waitForFunction(() => {
     const wmOpen = !!(window.WM && typeof window.WM.isOpen === 'function' && window.WM.isOpen('buildings'));

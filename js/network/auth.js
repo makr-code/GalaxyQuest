@@ -50,10 +50,13 @@
 
   const authSection = document.getElementById('auth-section');
   const gameSection = document.getElementById('game-section');
-  const tabs = document.querySelectorAll('.tab-btn');
+  const tabs = authSection
+    ? authSection.querySelectorAll('.auth-tabs .tab-btn')
+    : document.querySelectorAll('.auth-tabs .tab-btn');
   const loginForm = document.getElementById('login-form');
   const registerForm = document.getElementById('register-form');
   const devTools = document.getElementById('dev-auth-tools');
+  const devTabButton = document.getElementById('auth-dev-tab');
   const devResetBtn = document.getElementById('dev-reset-btn');
   const devResetUser = document.getElementById('dev-reset-username');
   const devResetPass = document.getElementById('dev-reset-password');
@@ -73,8 +76,8 @@
   const authLoginConfirmMeta = document.getElementById('auth-login-confirm-meta');
   const loginRemember = document.getElementById('login-remember');
   const regRemember = document.getElementById('reg-remember');
-  const authFlightProfileSelect = document.getElementById('auth-flight-profile');
   const AUTH_FLIGHT_PROFILE_KEY = 'gq_auth_flight_profile';
+  const AUTH_DEFAULT_FLIGHT_PROFILE = 'cinematic';
 
   let gameBootPromise = null;
   const scriptLoadPromises = new Map();
@@ -93,43 +96,12 @@
   if (loginRemember) loginRemember.checked = true;
   if (regRemember) regRemember.checked = false;
 
-  function normalizeAuthFlightProfile(value) {
-    const v = String(value || '').trim().toLowerCase();
-    if (v === 'balanced' || v === 'slow') return v;
-    return 'cinematic';
+  try {
+    localStorage.setItem(AUTH_FLIGHT_PROFILE_KEY, AUTH_DEFAULT_FLIGHT_PROFILE);
+  } catch (err) {
+    authLog('warn', 'auth flight profile write failed', String(err?.message || err || 'unknown'));
   }
-
-  function getStoredAuthFlightProfile() {
-    try {
-      return normalizeAuthFlightProfile(localStorage.getItem(AUTH_FLIGHT_PROFILE_KEY));
-    } catch (err) {
-      authLog('warn', 'auth flight profile read failed', String(err?.message || err || 'unknown'));
-      return 'cinematic';
-    }
-  }
-
-  function setStoredAuthFlightProfile(value) {
-    const normalized = normalizeAuthFlightProfile(value);
-    try {
-      localStorage.setItem(AUTH_FLIGHT_PROFILE_KEY, normalized);
-    } catch (err) {
-      authLog('warn', 'auth flight profile write failed', String(err?.message || err || 'unknown'));
-    }
-    window.__GQ_AUTH_FLIGHT_PROFILE = normalized;
-    return normalized;
-  }
-
-  if (authFlightProfileSelect) {
-    const initialProfile = setStoredAuthFlightProfile(getStoredAuthFlightProfile());
-    authFlightProfileSelect.value = initialProfile;
-    authFlightProfileSelect.addEventListener('change', () => {
-      const saved = setStoredAuthFlightProfile(authFlightProfileSelect.value);
-      authFlightProfileSelect.value = saved;
-      authProbe(`auth flight profile -> ${saved}`);
-    });
-  } else {
-    setStoredAuthFlightProfile(getStoredAuthFlightProfile());
-  }
+  window.__GQ_AUTH_FLIGHT_PROFILE = AUTH_DEFAULT_FLIGHT_PROFILE;
 
   try {
     const host = String(window.location?.hostname || '').toLowerCase();
@@ -1025,21 +997,39 @@
     }
   }
 
-  tabs.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      tabs.forEach((t) => t.classList.remove('active'));
-      btn.classList.add('active');
-      const tab = btn.dataset.tab;
-      // Hide 2FA panel and restore login form whenever user switches tabs.
-      const panel2fa = document.getElementById('auth-2fa-panel');
-      if (panel2fa && !panel2fa.classList.contains('hidden')) {
-        panel2fa.classList.add('hidden');
-        loginForm?.classList.remove('hidden');
+  function activateAuthTab(tab) {
+    tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+    // Hide 2FA panel and restore normal forms whenever user switches tabs.
+    const panel2fa = document.getElementById('auth-2fa-panel');
+    if (panel2fa && !panel2fa.classList.contains('hidden')) {
+      panel2fa.classList.add('hidden');
+      panel2fa.setAttribute('hidden', 'hidden');
+    }
+
+    const setVisible = (el, visible) => {
+      if (!el) return;
+      el.classList.toggle('hidden', !visible);
+      if (visible) {
+        el.removeAttribute('hidden');
+      } else {
+        el.setAttribute('hidden', 'hidden');
       }
-      loginForm?.classList.toggle('hidden', tab !== 'login');
-      registerForm?.classList.toggle('hidden', tab !== 'register');
+    };
+
+    setVisible(loginForm, tab === 'login');
+    setVisible(registerForm, tab === 'register');
+    setVisible(devTools, tab === 'dev');
+  }
+
+  tabs.forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      activateAuthTab(btn.dataset.tab || 'login');
     });
   });
+
+  const initiallyActiveTab = Array.from(tabs).find((btn) => btn.classList.contains('active'))?.dataset.tab || 'login';
+  activateAuthTab(initiallyActiveTab);
 
   const csrfState = {
     token: '',
@@ -1295,7 +1285,7 @@
       const r = await fetch('api/auth.php?action=dev_tools_status');
       const d = await r.json();
       if (d.success && d.enabled) {
-        devTools.classList.remove('hidden');
+        devTabButton?.classList.remove('hidden');
         authDebugDetails = true;
       }
     } catch (err) {

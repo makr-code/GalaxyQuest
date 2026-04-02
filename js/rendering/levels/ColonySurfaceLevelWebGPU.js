@@ -16,14 +16,14 @@
 
 'use strict';
 
-const { IZoomLevelRenderer } = typeof require !== 'undefined'
+var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
 /** Instance buffer layout: 64 bytes = 16 × f32 per slot (see COLONY_BUILDING_WEBGPU_DESIGN.md) */
 const BYTES_PER_SLOT = 64;
 
-class ColonySurfaceLevelWebGPU extends IZoomLevelRenderer {
+class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   constructor() {
     super();
     this._canvas         = null;

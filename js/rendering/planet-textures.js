@@ -5,6 +5,60 @@
       this.cache = new Map();
       this.cacheOrder = [];
       this.maxEntries = Math.max(24, Number(opts.maxEntries || 96));
+      this.serverTexturesEnabled = opts.serverTexturesEnabled !== false;
+      this.serverTextureEndpoint = String(opts.serverTextureEndpoint || 'api/textures.php');
+      this.serverTextureAlgoVersion = String(opts.serverTextureAlgoVersion || 'v1');
+      this._textureLoader = null;
+    }
+
+    _encodeDescriptor(descriptor) {
+      try {
+        return btoa(JSON.stringify(descriptor || {}));
+      } catch (_) {
+        return '';
+      }
+    }
+
+    _serverTextureUrl(descriptor, map, size) {
+      if (!this.serverTexturesEnabled) return '';
+      if (!descriptor || typeof descriptor !== 'object') return '';
+      const encoded = this._encodeDescriptor(descriptor);
+      if (!encoded) return '';
+      const endpoint = String(this.serverTextureEndpoint || '').trim();
+      if (!endpoint) return '';
+      return `${endpoint}?action=planet_map&map=${encodeURIComponent(map)}&size=${Number(size || this.size)}&algo=${encodeURIComponent(this.serverTextureAlgoVersion)}&d=${encodeURIComponent(encoded)}`;
+    }
+
+    _applyTextureSampling(texture, map) {
+      if (!texture) return;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = map === 'cloud' ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+      texture.anisotropy = map === 'albedo' ? 4 : 2;
+      if (map === 'albedo') {
+        texture.colorSpace = THREE.SRGBColorSpace;
+      }
+      texture.needsUpdate = true;
+    }
+
+    _attachServerTexture(fallbackTexture, descriptor, map, size) {
+      const url = this._serverTextureUrl(descriptor, map, size);
+      if (!url || !fallbackTexture || !THREE?.TextureLoader) return fallbackTexture;
+      this._textureLoader = this._textureLoader || new THREE.TextureLoader();
+      this._textureLoader.load(
+        url,
+        (loaded) => {
+          try {
+            fallbackTexture.image = loaded.image;
+            this._applyTextureSampling(fallbackTexture, map);
+            loaded.dispose?.();
+          } catch (_) {}
+        },
+        undefined,
+        () => {
+          // Keep local procedural fallback when server texture fetch fails.
+        }
+      );
+      return fallbackTexture;
     }
 
     _hexToRgb(hex, fallback = { r: 160, g: 176, b: 198 }) {
@@ -281,29 +335,21 @@
       cloudCtx.putImageData(cloudImage, 0, 0);
 
       const map = new THREE.CanvasTexture(colorCanvas);
-      map.colorSpace = THREE.SRGBColorSpace;
-      map.wrapS = THREE.RepeatWrapping;
-      map.wrapT = THREE.ClampToEdgeWrapping;
-      map.anisotropy = 4;
-      map.needsUpdate = true;
+      this._applyTextureSampling(map, 'albedo');
 
       const bumpMap = new THREE.CanvasTexture(bumpCanvas);
-      bumpMap.wrapS = THREE.RepeatWrapping;
-      bumpMap.wrapT = THREE.ClampToEdgeWrapping;
-      bumpMap.anisotropy = 2;
-      bumpMap.needsUpdate = true;
+      this._applyTextureSampling(bumpMap, 'bump');
 
       const emissiveMap = new THREE.CanvasTexture(emissiveCanvas);
-      emissiveMap.wrapS = THREE.RepeatWrapping;
-      emissiveMap.wrapT = THREE.ClampToEdgeWrapping;
-      emissiveMap.anisotropy = 2;
-      emissiveMap.needsUpdate = true;
+      this._applyTextureSampling(emissiveMap, 'emissive');
 
       const cloudAlphaMap = new THREE.CanvasTexture(cloudCanvas);
-      cloudAlphaMap.wrapS = THREE.RepeatWrapping;
-      cloudAlphaMap.wrapT = THREE.RepeatWrapping;
-      cloudAlphaMap.anisotropy = 2;
-      cloudAlphaMap.needsUpdate = true;
+      this._applyTextureSampling(cloudAlphaMap, 'cloud');
+
+      this._attachServerTexture(map, descriptor, 'albedo', width);
+      this._attachServerTexture(bumpMap, descriptor, 'bump', width);
+      this._attachServerTexture(emissiveMap, descriptor, 'emissive', width);
+      this._attachServerTexture(cloudAlphaMap, descriptor, 'cloud', width);
 
       return { map, bumpMap, emissiveMap, cloudAlphaMap };
     }

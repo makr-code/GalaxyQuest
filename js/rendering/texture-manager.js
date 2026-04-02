@@ -12,6 +12,9 @@
         ? new window.GQPlanetTexturePipeline({
             size: Math.max(128, Number(opts.planetTextureSize || 256)),
             maxEntries: Math.max(24, Number(opts.planetMaxEntries || 128)),
+            serverTexturesEnabled: opts.serverTexturesEnabled !== false,
+            serverTextureEndpoint: String(opts.serverTextureEndpoint || 'api/textures.php'),
+            serverTextureAlgoVersion: String(opts.serverTextureAlgoVersion || 'v1'),
           })
         : null;
       this.proceduralMaxEntries = Math.max(24, Number(opts.proceduralMaxEntries || 128));

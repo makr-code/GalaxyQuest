@@ -10,11 +10,11 @@
 
 'use strict';
 
-const { IZoomLevelRenderer } = typeof require !== 'undefined'
+var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
-class GalaxyLevelWebGPU extends IZoomLevelRenderer {
+class GalaxyLevelWebGPU extends ZoomLevelRendererBase {
   constructor() {
     super();
     this._canvas   = null;
@@ -27,13 +27,25 @@ class GalaxyLevelWebGPU extends IZoomLevelRenderer {
     this._canvas  = canvas;
     this._backend = backend;
 
-    // StarfieldWebGPU is registered as a browser global; in Node tests it may
-    // be absent — guard accordingly.
-    const StarfieldCtor = (typeof window !== 'undefined' && window.StarfieldWebGPU)
-      || null;
-    if (StarfieldCtor) {
-      this._starfield = new StarfieldCtor(canvas, {});
-      await this._starfield.init();
+    const GalaxyCtor = (typeof window !== 'undefined' && (window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU)) || null;
+    const runtimeOptions = (typeof window !== 'undefined' && window.__GQ_LEVEL_RENDERER_OPTIONS && typeof window.__GQ_LEVEL_RENDERER_OPTIONS === 'object')
+      ? window.__GQ_LEVEL_RENDERER_OPTIONS
+      : {};
+    const container = canvas?.parentElement || null;
+    if (GalaxyCtor && container) {
+      const shared = window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU;
+      if (shared) {
+        this._starfield = shared;
+        if (this._starfield._opts && typeof this._starfield._opts === 'object') {
+          Object.assign(this._starfield._opts, runtimeOptions);
+        }
+      } else {
+        this._starfield = new GalaxyCtor(container, Object.assign({}, runtimeOptions, { externalCanvas: canvas, interactive: true }));
+        if (typeof this._starfield.init === 'function') {
+          await this._starfield.init();
+        }
+        window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = this._starfield;
+      }
     }
   }
 

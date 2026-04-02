@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>GalaxyQuest – Unified Command Shell</title>
-  <link rel="stylesheet" href="css/style.css?v=20260331p26" />
+  <link rel="stylesheet" href="css/style.css?v=20260331p27" />
   <link rel="stylesheet" href="css/prolog.css?v=1" />
   <style>
     #boot-terminal {
@@ -117,10 +117,6 @@
   
   <section id="auth-section" class="auth-shell">
   <div class="auth-wrapper" id="auth-wrapper">
-    <div class="auth-toolbar">
-      <button id="auth-console-toggle" class="auth-toolbar-btn" type="button" title="Toggle Developer Console" aria-label="Developer Console"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/terminal.svg#icon-terminal"></use></svg>Console</button>
-    </div>
-    
     <div class="auth-logo">
       <div class="logo-icon"><svg class="gq-icon" aria-hidden="true" focusable="false" style="width:1.9rem;height:1.9rem"><use href="gfx/icons/mono/galaxy.svg#icon-galaxy"></use></svg></div>
       <h1 class="logo-title">GalaxyQuest</h1>
@@ -131,6 +127,7 @@
     <div class="auth-tabs">
       <button class="tab-btn active" data-tab="login">Login</button>
       <button class="tab-btn" data-tab="register">Register</button>
+      <button id="auth-dev-tab" class="tab-btn" data-tab="dev">Dev</button>
     </div>
 
     <!-- Login form -->
@@ -150,14 +147,6 @@
           <input id="login-remember" type="checkbox" name="remember" value="1" checked />
           Keep me signed in
         </label>
-      </div>
-      <div class="form-group">
-        <label for="auth-flight-profile">Startseiten-Flugprofil</label>
-        <select id="auth-flight-profile" name="auth_flight_profile" aria-label="Startseiten-Flugprofil">
-          <option value="cinematic">Cinematic (realistisch)</option>
-          <option value="balanced">Balanced</option>
-          <option value="slow">Slow (sehr ruhig)</option>
-        </select>
       </div>
       <button type="submit" class="btn btn-primary btn-full">Enter the Galaxy</button>
       <div id="login-error" class="form-error" aria-live="polite"></div>
@@ -227,6 +216,17 @@
       <button type="submit" class="btn btn-primary btn-full">Launch into the Galaxy</button>
       <div id="register-error" class="form-error" aria-live="polite"></div>
     </form>
+
+    <div class="auth-inline-copyright" aria-hidden="true">
+      <p class="auth-inline-copyright-main">© 2026 Galaxy Quest Interactive. All rights reserved.</p>
+      <p class="auth-inline-copyright-build">build {{buildnr}} — {{build_date}}</p>
+    </div>
+
+    <div class="auth-bottom-bar" aria-label="Auth Quick Links">
+      <button id="auth-console-toggle" class="auth-bottom-btn" type="button" title="Toggle Developer Console" aria-label="Developer Console"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/terminal.svg#icon-terminal"></use></svg>Konsole</button>
+      <a class="auth-bottom-btn auth-bottom-link" href="README.md" target="_blank" rel="noopener noreferrer" aria-label="Hilfe oeffnen"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/search.svg#icon-search"></use></svg>Hilfe</a>
+      <a class="auth-bottom-btn auth-bottom-link" href="docs/lore/" target="_blank" rel="noopener noreferrer" aria-label="Blog oeffnen"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/mail.svg#icon-mail"></use></svg>Blog</a>
+    </div>
   </div>
   </section>
 
@@ -863,7 +863,11 @@
           'js/runtime/audio.js?v=20260328p53',
           'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
           'js/engine/core/GraphicsContext.js?v=20260330p2',
+          'js/engine/webgpu/WebGPURenderPass.js?v=20260401p1',
+          'js/engine/webgpu/WebGPUShader.js?v=20260401p1',
+          'js/engine/core/WebGPURenderer.js?v=20260401p1',
           'js/engine/core/WebGLRenderer.js?v=20260330p3',
+          'js/engine/core/RendererFactory.js?v=20260401p1',
           // Debug Phase 2: Postprocessing-Kette vorerst deaktiviert.
           // 'js/rendering/three-EffectComposer.js?v=20260328p55',
           // 'js/rendering/three-RenderPass.js?v=20260328p55',
@@ -887,9 +891,23 @@
           'js/rendering/galaxy-renderer-event-binding-shared.js?v=20260329p77',
           'js/rendering/galaxy-renderer-events.js?v=20260329p76',
           'js/rendering/galaxy-camera-controller.js?v=20260329p85',
+          'js/rendering/IZoomLevelRenderer.js?v=20260401p1',
+          'js/rendering/RendererRegistry.js?v=20260401p1',
+          'js/rendering/CameraFlightPath.js?v=20260401p1',
+          'js/rendering/SeamlessZoomOrchestrator.js?v=20260401p1',
+          'js/rendering/levels/GalaxyLevelThreeJS.js?v=20260401p1',
+          'js/rendering/levels/GalaxyLevelWebGPU.js?v=20260401p1',
+          'js/rendering/levels/SystemLevelThreeJS.js?v=20260401p1',
+          'js/rendering/levels/SystemLevelWebGPU.js?v=20260401p1',
+          'js/rendering/levels/PlanetApproachLevelThreeJS.js?v=20260401p1',
+          'js/rendering/levels/PlanetApproachLevelWebGPU.js?v=20260401p1',
+          'js/rendering/levels/ColonySurfaceLevelThreeJS.js?v=20260401p1',
+          'js/rendering/levels/ColonySurfaceLevelWebGPU.js?v=20260401p1',
+          'js/rendering/levels/ObjectApproachLevelThreeJS.js?v=20260401p1',
+          'js/rendering/levels/ObjectApproachLevelWebGPU.js?v=20260401p1',
           'js/rendering/galaxy-renderer-core.js?v=20260331p112',
           'js/rendering/starfield-webgpu.js?v=20260330p2',
-          'js/rendering/Galaxy3DRendererWebGPU.js?v=20260401p1',
+          'js/rendering/Galaxy3DRendererWebGPU.js?v=20260401p3',
           'js/legacy/galaxy3d-webgpu.js?v=20260401p1',
           'js/rendering/starfield.js?v=20260331p101',
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
@@ -908,7 +926,11 @@
           'js/runtime/galaxy-db.js?v=20260328p49',
           'js/runtime/audio.js?v=20260328p53',
           'js/engine/core/GraphicsContext.js?v=20260330p2',
+          'js/engine/webgpu/WebGPURenderPass.js?v=20260401p1',
+          'js/engine/webgpu/WebGPUShader.js?v=20260401p1',
+          'js/engine/core/WebGPURenderer.js?v=20260401p1',
           'js/engine/core/WebGLRenderer.js?v=20260330p3',
+          'js/engine/core/RendererFactory.js?v=20260401p1',
           'js/rendering/planet-textures.js?v=20260328p49',
           'js/rendering/texture-manager.js?v=20260329p1',
           'js/rendering/geometry-manager.js?v=20260329p1',
@@ -924,9 +946,23 @@
           'js/rendering/galaxy-renderer-event-binding-shared.js?v=20260329p77',
           'js/rendering/galaxy-renderer-events.js?v=20260329p76',
           'js/rendering/galaxy-camera-controller.js?v=20260329p85',
+          'js/rendering/IZoomLevelRenderer.js?v=20260401p1',
+          'js/rendering/RendererRegistry.js?v=20260401p1',
+          'js/rendering/CameraFlightPath.js?v=20260401p1',
+          'js/rendering/SeamlessZoomOrchestrator.js?v=20260401p1',
+          'js/rendering/levels/GalaxyLevelThreeJS.js?v=20260401p1',
+          'js/rendering/levels/GalaxyLevelWebGPU.js?v=20260401p1',
+          'js/rendering/levels/SystemLevelThreeJS.js?v=20260401p1',
+          'js/rendering/levels/SystemLevelWebGPU.js?v=20260401p1',
+          'js/rendering/levels/PlanetApproachLevelThreeJS.js?v=20260401p1',
+          'js/rendering/levels/PlanetApproachLevelWebGPU.js?v=20260401p1',
+          'js/rendering/levels/ColonySurfaceLevelThreeJS.js?v=20260401p1',
+          'js/rendering/levels/ColonySurfaceLevelWebGPU.js?v=20260401p1',
+          'js/rendering/levels/ObjectApproachLevelThreeJS.js?v=20260401p1',
+          'js/rendering/levels/ObjectApproachLevelWebGPU.js?v=20260401p1',
           'js/rendering/galaxy-renderer-core.js?v=20260331p112',
           'js/rendering/starfield-webgpu.js?v=20260330p2',
-          'js/rendering/Galaxy3DRendererWebGPU.js?v=20260401p1',
+          'js/rendering/Galaxy3DRendererWebGPU.js?v=20260401p3',
           'js/legacy/galaxy3d-webgpu.js?v=20260401p1',
           'js/rendering/starfield.js?v=20260331p101',
           'js/tests/flight-driver-integration-tests.js?v=20260329p1',
@@ -1359,7 +1395,7 @@
   <script src="js/rendering/galaxy-camera-controller.js?v=20260329p85"></script>
   <script src="js/rendering/starfield.js?v=20260331p101"></script>
   <script src="js/ui/prolog.js?v=1"></script>
-  <script src="js/network/auth.js?v=20260331p82"></script>
+  <script src="js/network/auth.js?v=20260401p83"></script>
   <script src="js/ui/glossary.js?v=20260331p50"></script>
   <script src="js/ui/ui-kit.js?v=20260331p62"></script>
   <script src="js/ui/star-tooltip.js?v=20260331p51"></script>

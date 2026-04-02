@@ -1,0 +1,10 @@
+{
+    "username": "testuser99",
+    "is_npc": false,
+    "race": "Kryl'Tha",
+    "profession": "Emissary of Peace",
+    "stance": "Diplomat and peacekeeper in the Kryl'Tha society.",
+    "vita": "As a representative from planet Tarkon, I have spent my life mastering diplomacy among galactic factions. My family once brokered a historic truce that ended decades of conflict between two major powers on distant planets and established trade routes across the galaxy. Now, as an emissary for Kryl'Tha, it is my duty to maintain harmony in this vast universe.",
+    "portrait_prompt": "A dignified alien bust portrait of a tall figure with reflective silver skin that shimmers under starlight; eyes filled with wisdom and compassion. The character wears traditional Kryl'Tha ceremonial garb, adorned with intricate patterns representing peace symbols from across the galaxy.",
+    "generated_at": "2026-04-01T16:28:08+00:00"
+}

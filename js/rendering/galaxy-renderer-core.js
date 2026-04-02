@@ -117,8 +117,8 @@
     const generatedPlanets = planets.filter((planet) => !!planet?.generated_planet).length;
     const playerPlanets = planets.filter((planet) => !!planet?.player_planet).length;
     const moonCount = planets.reduce((sum, planet) => {
-      const generatedMoons = Array.isArray(planet?.generated_planet?.moons) ? planet.generated_planet.moons.length : 0;
-      const playerMoons = Array.isArray(planet?.player_planet?.moons) ? planet.player_planet.moons.length : 0;
+        const generatedMoons = Array.isArray(planet?.generated_planet?.moons) ? planet.generated_planet.moons.length : 0;
+        const playerMoons = Array.isArray(planet?.player_planet?.moons) ? planet.player_planet.moons.length : 0;
       return sum + generatedMoons + playerMoons;
     }, 0);
     return {
@@ -306,6 +306,9 @@
             planetTextureSize: Number(this.qualityProfile?.textures?.planetTextureSize || 256),
             planetMaxEntries: Number(this.qualityProfile?.textures?.planetMaxEntries || 128),
             proceduralMaxEntries: Number(this.qualityProfile?.textures?.proceduralMaxEntries || 128),
+            serverTexturesEnabled: this.opts.serverTexturesEnabled !== false,
+            serverTextureEndpoint: String(this.opts.serverTextureEndpoint || 'api/textures.php'),
+            serverTextureAlgoVersion: String(this.opts.serverTextureAlgoVersion || 'v1'),
           })
         : null;
       this.geometryManager = window.GQGeometryManager
@@ -1619,18 +1622,19 @@
       const cls = String(body?.planet_class || '').toLowerCase();
       let baseSize = 0;
       if (diameter > 0) {
-        const scale = cls.includes('gas') ? 7000 : 10500;
-        const max = cls.includes('gas') ? 14.5 : 10.8;
-        baseSize = THREE.MathUtils.clamp(2.6 + diameter / scale, 2.6, max);
+        const scale = cls.includes('gas') ? 9500 : 14500;
+        const min = cls.includes('gas') ? 3.0 : 1.8;
+        const max = cls.includes('gas') ? 8.8 : 5.8;
+        baseSize = THREE.MathUtils.clamp(min + diameter / scale, min, max);
       } else {
-        if (cls.includes('gas')) baseSize = 8.6 + (fallbackIndex % 3) * 1.1;
-        else if (cls.includes('ice')) baseSize = 5.4 + (fallbackIndex % 2) * 0.7;
-        else baseSize = 3 + (fallbackIndex % 4) * 0.85;
+        if (cls.includes('gas')) baseSize = 5.9 + (fallbackIndex % 3) * 0.65;
+        else if (cls.includes('ice')) baseSize = 3.1 + (fallbackIndex % 2) * 0.38;
+        else baseSize = 2.1 + (fallbackIndex % 4) * 0.42;
       }
       // Scientific scaling: Scale planet size proportionally to orbital distance
       if (this.useScientificScale && orbitRadius > 0) {
         const referenceOrbit = 50; // Base orbit where game-scale applies
-        const orbitFactor = Math.max(0.3, Math.min(1.8, orbitRadius / referenceOrbit));
+        const orbitFactor = Math.max(0.55, Math.min(1.25, orbitRadius / referenceOrbit));
         baseSize *= orbitFactor;
       }
       return baseSize;
@@ -3536,8 +3540,8 @@
 
     _buildSystemPhase0(star, payload) {
       const starRadius = {
-        O: 20, B: 17, A: 15, F: 13, G: 11, K: 9, M: 7,
-      }[String(star.spectral_class || 'G').toUpperCase()] || 11;
+        O: 34, B: 30, A: 26, F: 22, G: 18, K: 15, M: 12,
+      }[String(star.spectral_class || 'G').toUpperCase()] || 18;
       const starColor = this._spectralColorHex(star.spectral_class);
       const starSeed = this._starSeed(star);
       const starMap = this._starSurfaceTexture(star.spectral_class, starSeed);
@@ -3734,8 +3738,8 @@
         moons.forEach((moon, moonIndex) => {
           const moonDiameter = Number(moon?.diameter || 0);
           const moonSize = moonDiameter > 0
-            ? THREE.MathUtils.clamp(0.75 + moonDiameter / 4200, 0.85, Math.max(1.9, parentRadius * 0.55))
-            : THREE.MathUtils.clamp(parentRadius * (0.24 + moonIndex * 0.04), 0.9, Math.max(1.8, parentRadius * 0.5));
+            ? THREE.MathUtils.clamp(0.48 + moonDiameter / 6200, 0.52, Math.max(1.25, parentRadius * 0.32))
+            : THREE.MathUtils.clamp(parentRadius * (0.13 + moonIndex * 0.025), 0.55, Math.max(1.15, parentRadius * 0.28));
           const axisParentR = Math.max(0.8, Number(moon?.semi_major_axis_parent_r || moon?.semi_major_axis || (2 + moonIndex * 1.35)));
           const orbitRadius = THREE.MathUtils.clamp(
             parentRadius * (1.7 + axisParentR * 0.36),

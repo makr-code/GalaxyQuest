@@ -10,11 +10,11 @@
 
 'use strict';
 
-const { IZoomLevelRenderer } = typeof require !== 'undefined'
+var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
-class GalaxyLevelThreeJS extends IZoomLevelRenderer {
+class GalaxyLevelThreeJS extends ZoomLevelRendererBase {
   constructor() {
     super();
     this._canvas     = null;
@@ -27,12 +27,22 @@ class GalaxyLevelThreeJS extends IZoomLevelRenderer {
     this._canvas  = canvas;
     this._backend = backend;
 
-    // GalaxyRenderer is registered as a browser global in the live app.
-    // In Node/test environments it may be absent — guard gracefully.
-    const GalaxyRendererCtor = (typeof window !== 'undefined' && window.GalaxyRenderer)
-      || null;
-    if (GalaxyRendererCtor) {
-      this._renderer = new GalaxyRendererCtor(canvas, {});
+    const GalaxyRendererCtor = (typeof window !== 'undefined' && (window.Galaxy3DRenderer || window.GalaxyRendererCore)) || null;
+    const runtimeOptions = (typeof window !== 'undefined' && window.__GQ_LEVEL_RENDERER_OPTIONS && typeof window.__GQ_LEVEL_RENDERER_OPTIONS === 'object')
+      ? window.__GQ_LEVEL_RENDERER_OPTIONS
+      : {};
+    const container = canvas?.parentElement || null;
+    if (GalaxyRendererCtor && container) {
+      const shared = window.__GQ_LEVEL_SHARED_RENDERER_THREEJS;
+      if (shared) {
+        this._renderer = shared;
+        if (this._renderer.opts && typeof this._renderer.opts === 'object') {
+          Object.assign(this._renderer.opts, runtimeOptions);
+        }
+      } else {
+        this._renderer = new GalaxyRendererCtor(container, Object.assign({}, runtimeOptions, { externalCanvas: canvas, interactive: true }));
+        window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = this._renderer;
+      }
     }
   }
 

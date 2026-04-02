@@ -493,6 +493,7 @@
     hoverMagnetClusterPx: 28,
     persistentHoverDistance: 220,
     transitionStableMinMs: 160,
+    systemViewLegacyFallback: false,
     homeEnterSystem: false,
     introFlightMode: 'cinematic',
     masterVolume: 0.8,
@@ -2761,6 +2762,7 @@
       settingsState.systemOrbitPathsVisible = settingsState.systemOrbitPathsVisible !== false;
       settingsState.systemOrbitMarkersVisible = settingsState.systemOrbitMarkersVisible !== false;
       settingsState.systemOrbitFocusOnly = settingsState.systemOrbitFocusOnly === true;
+      settingsState.systemViewLegacyFallback = settingsState.systemViewLegacyFallback === true;
       settingsState.introFlightMode = ['off', 'fast', 'cinematic'].includes(String(settingsState.introFlightMode || 'cinematic').toLowerCase())
         ? String(settingsState.introFlightMode || 'cinematic').toLowerCase()
         : 'cinematic';
@@ -3206,20 +3208,16 @@
     applyRuntimeSettings() {
       applyUiTheme('apply-runtime');
       if (!galaxy3d) return;
-      if (typeof galaxy3d.setTransitionsEnabled === 'function') {
-        galaxy3d.setTransitionsEnabled(!!settingsState.autoTransitions);
-      } else {
+      if (!callRendererMethod('setTransitionsEnabled', !!settingsState.autoTransitions)) {
         galaxy3d.transitionsEnabled = !!settingsState.autoTransitions;
       }
-      if (typeof galaxy3d.setHoverMagnetConfig === 'function') {
-        galaxy3d.setHoverMagnetConfig({
+      if (!callRendererMethod('setHoverMagnetConfig', {
           enabled: !!settingsState.hoverMagnetEnabled,
           clickEnabled: !!settingsState.clickMagnetEnabled,
           starPx: Number(settingsState.hoverMagnetStarPx || 24),
           planetPx: Number(settingsState.hoverMagnetPlanetPx || 30),
           clusterPx: Number(settingsState.hoverMagnetClusterPx || 28),
-        });
-      } else {
+        })) {
         galaxy3d.hoverMagnetEnabled = !!settingsState.hoverMagnetEnabled;
         galaxy3d.clickMagnetEnabled = !!settingsState.clickMagnetEnabled;
         galaxy3d.hoverMagnetStarPx = Math.max(8, Math.min(64, Number(settingsState.hoverMagnetStarPx || 24)));
@@ -3228,37 +3226,23 @@
       }
       galaxy3d.persistentHoverDistance = Math.max(120, Number(settingsState.persistentHoverDistance || 220));
       galaxy3d.transitionStableMinMs = Math.max(60, Number(settingsState.transitionStableMinMs || 160));
-      if (typeof galaxy3d.setClusterDensityMode === 'function') {
-        galaxy3d.setClusterDensityMode(settingsState.clusterDensityMode || 'auto', {
-          recluster: true,
-          preserveView: true,
-        });
-      }
-      if (typeof galaxy3d.setOrbitSimulationMode === 'function') {
-        galaxy3d.setOrbitSimulationMode(settingsState.orbitSimulationMode || 'auto');
-      }
-      if (typeof galaxy3d.setClusterBoundsVisible === 'function') {
-        galaxy3d.setClusterBoundsVisible(settingsState.clusterBoundsVisible !== false);
-      }
-      if (typeof galaxy3d.setGalaxyFleetVectorsVisible === 'function') {
-        galaxy3d.setGalaxyFleetVectorsVisible(settingsState.galaxyFleetVectorsVisible !== false);
-      }
-      if (typeof galaxy3d.setSystemOrbitPathsVisible === 'function') {
-        galaxy3d.setSystemOrbitPathsVisible(settingsState.systemOrbitPathsVisible !== false);
-      }
-      if (typeof galaxy3d.setSystemOrbitMarkersVisible === 'function') {
-        galaxy3d.setSystemOrbitMarkersVisible(settingsState.systemOrbitMarkersVisible !== false);
-      }
-      if (typeof galaxy3d.setSystemOrbitFocusOnly === 'function') {
-        galaxy3d.setSystemOrbitFocusOnly(settingsState.systemOrbitFocusOnly === true);
-      }
-      if (typeof galaxy3d.setGalacticCoreFxEnabled === 'function') {
+      callRendererMethod('setClusterDensityMode', settingsState.clusterDensityMode || 'auto', {
+        recluster: true,
+        preserveView: true,
+      });
+      callRendererMethod('setOrbitSimulationMode', settingsState.orbitSimulationMode || 'auto');
+      callRendererMethod('setClusterBoundsVisible', settingsState.clusterBoundsVisible !== false);
+      callRendererMethod('setGalaxyFleetVectorsVisible', settingsState.galaxyFleetVectorsVisible !== false);
+      callRendererMethod('setSystemOrbitPathsVisible', settingsState.systemOrbitPathsVisible !== false);
+      callRendererMethod('setSystemOrbitMarkersVisible', settingsState.systemOrbitMarkersVisible !== false);
+      callRendererMethod('setSystemOrbitFocusOnly', settingsState.systemOrbitFocusOnly === true);
+      if (hasRendererMethod('setGalacticCoreFxEnabled')) {
         const autoCoreFx = settingsState.galacticCoreFxAuto !== false;
         const recommendedCoreFx = galaxy3dQualityState?.features?.galacticCoreFx;
         const shouldEnableCoreFx = autoCoreFx && recommendedCoreFx === false
           ? false
           : (settingsState.galacticCoreFxEnabled !== false);
-        galaxy3d.setGalacticCoreFxEnabled(shouldEnableCoreFx);
+        callRendererMethod('setGalacticCoreFxEnabled', shouldEnableCoreFx);
       }
     }
   }
@@ -3406,8 +3390,8 @@
   function canUsePhysicsFlightPath(target) {
     return !!(
       galaxy3d
-      && typeof galaxy3d.setCameraDriver === 'function'
-      && typeof galaxy3d.clearCameraDriver === 'function'
+      && hasRendererMethod('setCameraDriver')
+      && hasRendererMethod('clearCameraDriver')
       && window.GQSpaceCameraFlightDriver
       && typeof window.GQSpaceCameraFlightDriver.create === 'function'
       && Number.isFinite(Number(target?.x_ly))
@@ -3436,14 +3420,14 @@
       }, { durationSec });
       if (!accepted) return { ok: false, reason: 'target-rejected' };
 
-      galaxy3d.setCameraDriver(driver, { consumeAutoNav: true, updateControls: true });
+      callRendererMethod('setCameraDriver', driver, { consumeAutoNav: true, updateControls: true });
       await waitMs(holdMs);
       return { ok: true };
     } catch (_) {
       return { ok: false, reason: 'driver-error' };
     } finally {
       try {
-        galaxy3d?.clearCameraDriver?.();
+        callRendererMethod('clearCameraDriver');
       } catch (_) {}
     }
   }
@@ -4981,33 +4965,9 @@
       }
       const normalized = String(action || '');
       if (audioManager) audioManager.playUiClick();
-      if (normalized === 'zoom-in' && typeof galaxy3d.nudgeZoom === 'function') galaxy3d.nudgeZoom('in');
-      else if (normalized === 'zoom-out' && typeof galaxy3d.nudgeZoom === 'function') galaxy3d.nudgeZoom('out');
-      else if (normalized === 'rotate-left' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('left');
-      else if (normalized === 'rotate-right' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('right');
-      else if (normalized === 'rotate-up' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('up');
-      else if (normalized === 'rotate-down' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('down');
-      else if (normalized === 'pan-left' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('left');
-      else if (normalized === 'pan-right' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('right');
-      else if (normalized === 'pan-up' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('up');
-      else if (normalized === 'pan-down' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('down');
-      else if (normalized === 'pan-up-left' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('up-left');
-      else if (normalized === 'pan-up-right' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('up-right');
-      else if (normalized === 'pan-down-left' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('down-left');
-      else if (normalized === 'pan-down-right' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('down-right');
-      else if (normalized === 'translate-x-plus' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('right');
-      else if (normalized === 'translate-x-minus' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('left');
-      else if (normalized === 'translate-y-plus' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('up');
-      else if (normalized === 'translate-y-minus' && typeof galaxy3d.nudgePan === 'function') galaxy3d.nudgePan('down');
-      else if (normalized === 'translate-z-plus' && typeof galaxy3d.nudgeZoom === 'function') galaxy3d.nudgeZoom('in');
-      else if (normalized === 'translate-z-minus' && typeof galaxy3d.nudgeZoom === 'function') galaxy3d.nudgeZoom('out');
-      else if (normalized === 'rotate-u-plus' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('left');
-      else if (normalized === 'rotate-u-minus' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('right');
-      else if (normalized === 'rotate-v-plus' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('up');
-      else if (normalized === 'rotate-v-minus' && typeof galaxy3d.nudgeOrbit === 'function') galaxy3d.nudgeOrbit('down');
-      else if (normalized === 'rotate-w-plus' && typeof galaxy3d.nudgeRoll === 'function') galaxy3d.nudgeRoll('cw', Number(uiState?.navOrbTuning?.rollStepRad || 0.05));
-      else if (normalized === 'rotate-w-minus' && typeof galaxy3d.nudgeRoll === 'function') galaxy3d.nudgeRoll('ccw', Number(uiState?.navOrbTuning?.rollStepRad || 0.05));
-      else if (normalized === 'toggle-vectors') {
+      if (runRendererNavAction(normalized)) {
+        return;
+      } else if (normalized === 'toggle-vectors') {
         settingsState.galaxyFleetVectorsVisible = !(settingsState.galaxyFleetVectorsVisible !== false);
         applyRuntimeSettings();
         if (root) updateGalaxyFollowUi(root);
@@ -5019,8 +4979,8 @@
         refreshGalaxyDensityMetrics(root);
         showToast('Darstellung optimiert (Auto-Profil).', 'info');
       }
-      else if (normalized === 'reset' && typeof galaxy3d.resetNavigationView === 'function') galaxy3d.resetNavigationView();
-      else if (normalized === 'focus' && typeof galaxy3d.focusCurrentSelection === 'function') galaxy3d.focusCurrentSelection();
+      else if (normalized === 'reset') callRendererMethod('resetNavigationView');
+      else if (normalized === 'focus') callRendererMethod('focusCurrentSelection');
       else if (normalized === 'home' && root) this.focusHomeSystem(root);
       else if (normalized === 'enter-system') {
         const activeStar = pinnedStar || uiState.activeStar || null;
@@ -5031,10 +4991,8 @@
         }
       } else if (normalized === 'exit-system') {
         const activeStar = pinnedStar || uiState.activeStar || null;
-        if (galaxy3d.systemMode && typeof galaxy3d.exitSystemView === 'function') {
-          galaxy3d.exitSystemView(true);
-          // Trigger Breadcrumb Exit
-          triggerSystemBreadcrumbExit();
+        if (isSystemModeActive()) {
+          transitionOutOfSystemView(activeStar, 'triggerNavAction:exit-system');
         }
         if (root) {
           renderGalaxySystemDetails(root, activeStar, false);
@@ -5080,7 +5038,7 @@
         galaxy3d.focusOnStar(target, !flight.ok);
       }
       toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-      renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
+      renderGalaxySystemDetails(root, target, isSystemModeActive());
       showToast(`Navigation: ${target.name || target.catalog_name || `System ${s}`}`, 'info');
     }
 
@@ -5176,18 +5134,18 @@
         await waitMs(700);
       }
 
-      if (shouldEnterSystem && !galaxy3d?.systemMode) {
+      if (shouldEnterSystem && !isSystemModeActive()) {
         renderGalaxySystemDetails(root, target, true);
         await loadStarSystemPlanets(root, target);
         if (cinematic) {
           await waitMs(450);
         }
       } else {
-        renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
+        renderGalaxySystemDetails(root, target, isSystemModeActive());
       }
 
-      if (shouldFocusPlanet && galaxy3d?.systemMode && typeof galaxy3d.focusOnSystemPlanet === 'function') {
-        galaxy3d.focusOnSystemPlanet({ position: p }, true);
+      if (shouldFocusPlanet && isSystemModeActive()) {
+        focusSystemPlanetInView({ position: p }, true);
         if (cinematic) {
           await waitMs(350);
         }
@@ -5209,16 +5167,14 @@
         return;
       }
       const GalaxyViewCtor = window.Galaxy3DView || window.Galaxy3DRendererWebGPU || window.Galaxy3DRenderer;
-      if (!GalaxyViewCtor) {
-        galaxy3dInitReason = 'window.Galaxy3DView unavailable';
-        root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D engine failed to load. Reason: ${esc(galaxy3dInitReason)}</span>`;
-        toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-        return;
-      }
 
       if (galaxy3d) {
-        galaxy3d.destroy();
-        galaxy3d = null;
+        if (isSharedLevelRenderer(galaxy3d)) {
+          galaxy3d = null;
+        } else {
+          galaxy3d.destroy();
+          galaxy3d = null;
+        }
       }
 
       galaxyAutoFramedOnce = false;
@@ -5255,7 +5211,24 @@
           sharedCanvas.style.pointerEvents = 'auto';
         }
 
-        galaxy3d = new GalaxyViewCtor(holder, {
+        const gqZoom   = window.GQSeamlessZoomOrchestrator || {};
+        const gqLevels = {
+          galaxyThreeJS:       (window.GQGalaxyLevelThreeJS       || {}).GalaxyLevelThreeJS,
+          galaxyWebGPU:        (window.GQGalaxyLevelWebGPU        || {}).GalaxyLevelWebGPU,
+          systemThreeJS:       (window.GQSystemLevelThreeJS        || {}).SystemLevelThreeJS,
+          systemWebGPU:        (window.GQSystemLevelWebGPU         || {}).SystemLevelWebGPU,
+          planetThreeJS:       (window.GQPlanetApproachLevelThreeJS || {}).PlanetApproachLevelThreeJS,
+          planetWebGPU:        (window.GQPlanetApproachLevelWebGPU  || {}).PlanetApproachLevelWebGPU,
+          colonyThreeJS:       (window.GQColonySurfaceLevelThreeJS  || {}).ColonySurfaceLevelThreeJS,
+          colonyWebGPU:        (window.GQColonySurfaceLevelWebGPU   || {}).ColonySurfaceLevelWebGPU,
+          objectThreeJS:       (window.GQObjectApproachLevelThreeJS || {}).ObjectApproachLevelThreeJS,
+          objectWebGPU:        (window.GQObjectApproachLevelWebGPU  || {}).ObjectApproachLevelWebGPU,
+        };
+        const ZOOM_LEVEL     = gqZoom.ZOOM_LEVEL;
+        const SPATIAL_DEPTH  = gqZoom.SPATIAL_DEPTH;
+        const SeamlessZoomOrchestrator = gqZoom.SeamlessZoomOrchestrator;
+
+        const rendererOptions = {
           externalCanvas: sharedCanvas instanceof HTMLCanvasElement ? sharedCanvas : null,
           interactive: true,
           qualityProfile: resolvedRendererQuality?.name || settingsState.renderQualityProfile || 'auto',
@@ -5331,11 +5304,7 @@
             if (audioManager && typeof audioManager.setScene === 'function') {
               audioManager.setScene('galaxy', { autoplay: true, transition: 'soft', minHoldMs: 700 });
             }
-            if (galaxy3d && typeof galaxy3d.exitSystemView === 'function') {
-              galaxy3d.exitSystemView(true);
-              // Trigger Breadcrumb Exit
-              triggerSystemBreadcrumbExit();
-            }
+            transitionOutOfSystemView(star, 'renderer:onSystemZoomOut');
             pinnedStar = star || null;
             renderGalaxySystemDetails(root, star, false);
             const panel = root.querySelector('#galaxy-planets-panel');
@@ -5353,18 +5322,70 @@
               zoomOrchestrator.zoomTo(ZOOM_LEVEL.SYSTEM, star || null).catch(() => {});
             }
           },
-        });
+        };
+        window.__GQ_LEVEL_RENDERER_OPTIONS = rendererOptions;
 
-        if (galaxy3d && typeof galaxy3d.init === 'function') {
-          Promise.resolve(galaxy3d.init()).catch((err) => {
-            console.warn('[GQ] Galaxy3DRendererWebGPU init fallback:', err?.message || err);
-          });
+        const adoptSharedRendererIfAvailable = () => {
+          const sharedLevelRenderer = getPreferredLevelSharedRenderer();
+          if (!sharedLevelRenderer || galaxy3d === sharedLevelRenderer) return false;
+          if (galaxy3d && !isSharedLevelRenderer(galaxy3d) && typeof galaxy3d.destroy === 'function') {
+            try { galaxy3d.destroy(); } catch (_) {}
+          }
+          galaxy3d = sharedLevelRenderer;
+          attachRendererCallbacks(galaxy3d, rendererOptions);
+          if (galaxy3d?.renderer?.domElement) {
+            galaxy3d.renderer.domElement.style.pointerEvents = 'auto';
+          }
+          applyRuntimeSettings();
+          refreshGalaxyDensityMetrics(root);
+          updateGalaxyFollowUi(root);
+          updateClusterBoundsUi(root);
+          galaxy3dInitReason = '';
+          return true;
+        };
+
+        const canBootstrapOrchestrator = !!(
+          SeamlessZoomOrchestrator && ZOOM_LEVEL &&
+          sharedCanvas instanceof HTMLCanvasElement &&
+          gqLevels.galaxyThreeJS && gqLevels.galaxyWebGPU
+        );
+
+        const initDirectRendererFallback = () => {
+          if (galaxy3d) return true;
+          if (!GalaxyViewCtor) {
+            galaxy3dInitReason = 'No direct renderer constructor available';
+            return false;
+          }
+          try {
+            galaxy3d = new GalaxyViewCtor(holder, rendererOptions);
+            if (galaxy3d && typeof galaxy3d.init === 'function') {
+              Promise.resolve(galaxy3d.init()).catch((err) => {
+                console.warn('[GQ] Galaxy3DRendererWebGPU init fallback:', err?.message || err);
+              });
+            }
+            galaxy3dInitReason = '';
+            return true;
+          } catch (err) {
+            console.warn('[GQ] direct renderer fallback init failed:', err?.message || err);
+            galaxy3dInitReason = String(err?.message || err || 'direct renderer fallback failed');
+            galaxy3d = null;
+            return false;
+          }
+        };
+
+        const sharedLevelRenderer = getPreferredLevelSharedRenderer();
+        if (sharedLevelRenderer) {
+          galaxy3d = sharedLevelRenderer;
+          attachRendererCallbacks(galaxy3d, rendererOptions);
+        } else if (!canBootstrapOrchestrator) {
+          initDirectRendererFallback();
         }
+
         if (galaxy3d && galaxy3d.backendType) {
           window.__GQ_ACTIVE_RENDERER_BACKEND = galaxy3d.backendType;
         }
 
-        if (typeof galaxy3d.getQualityProfileState === 'function') {
+        if (galaxy3d && typeof galaxy3d.getQualityProfileState === 'function') {
           galaxy3dQualityState = galaxy3d.getQualityProfileState();
         }
         if (settingsState.renderQualityProfile === 'auto' && galaxy3dQualityState?.name === 'low') {
@@ -5387,41 +5408,22 @@
         setTimeout(kickResize, 60);
         setTimeout(kickResize, 220);
         galaxy3dInitReason = '';
-        if (typeof galaxy3d.setClusterColorPalette === 'function') {
+        if (galaxy3d && typeof galaxy3d.setClusterColorPalette === 'function') {
           galaxy3d.setClusterColorPalette(resolveClusterColorPalette(uiState.territory));
         }
-        applyRuntimeSettings();
-        refreshGalaxyDensityMetrics(root);
-        updateGalaxyFollowUi(root);
-        updateClusterBoundsUi(root);
+        if (galaxy3d) {
+          applyRuntimeSettings();
+          refreshGalaxyDensityMetrics(root);
+          updateGalaxyFollowUi(root);
+          updateClusterBoundsUi(root);
+        }
 
         // ── SeamlessZoomOrchestrator bootstrap ──────────────────────────────
         // Wire the orchestrator alongside the legacy galaxy3d renderer so the
         // zoom engine is available for future seamless transitions.  The
         // orchestrator is intentionally initialised asynchronously so it never
         // blocks the synchronous init3D() path.
-        const gqZoom   = window.GQSeamlessZoomOrchestrator || {};
-        const gqLevels = {
-          galaxyThreeJS:       (window.GQGalaxyLevelThreeJS       || {}).GalaxyLevelThreeJS,
-          galaxyWebGPU:        (window.GQGalaxyLevelWebGPU        || {}).GalaxyLevelWebGPU,
-          systemThreeJS:       (window.GQSystemLevelThreeJS        || {}).SystemLevelThreeJS,
-          systemWebGPU:        (window.GQSystemLevelWebGPU         || {}).SystemLevelWebGPU,
-          planetThreeJS:       (window.GQPlanetApproachLevelThreeJS || {}).PlanetApproachLevelThreeJS,
-          planetWebGPU:        (window.GQPlanetApproachLevelWebGPU  || {}).PlanetApproachLevelWebGPU,
-          colonyThreeJS:       (window.GQColonySurfaceLevelThreeJS  || {}).ColonySurfaceLevelThreeJS,
-          colonyWebGPU:        (window.GQColonySurfaceLevelWebGPU   || {}).ColonySurfaceLevelWebGPU,
-          objectThreeJS:       (window.GQObjectApproachLevelThreeJS || {}).ObjectApproachLevelThreeJS,
-          objectWebGPU:        (window.GQObjectApproachLevelWebGPU  || {}).ObjectApproachLevelWebGPU,
-        };
-        const ZOOM_LEVEL     = gqZoom.ZOOM_LEVEL;
-        const SPATIAL_DEPTH  = gqZoom.SPATIAL_DEPTH;
-        const SeamlessZoomOrchestrator = gqZoom.SeamlessZoomOrchestrator;
-
-        if (
-          SeamlessZoomOrchestrator && ZOOM_LEVEL &&
-          sharedCanvas instanceof HTMLCanvasElement &&
-          gqLevels.galaxyThreeJS && gqLevels.galaxyWebGPU
-        ) {
+        if (canBootstrapOrchestrator) {
           if (zoomOrchestrator) {
             try { zoomOrchestrator.dispose(); } catch (disposeErr) {
               console.warn('[GQ] SeamlessZoomOrchestrator dispose error (non-fatal):', disposeErr?.message || disposeErr);
@@ -5458,10 +5460,29 @@
               threejs: gqLevels.objectThreeJS,
             });
           }
-          zoomOrchestrator.initialize().catch((err) => {
-            console.warn('[GQ] SeamlessZoomOrchestrator init failed:', err?.message || err, err?.stack || '');
-            zoomOrchestrator = null;
-          });
+          zoomOrchestrator.initialize()
+            .then(() => {
+              try {
+                zoomOrchestrator.zoomTo(ZOOM_LEVEL.GALAXY, null)
+                  .then(() => {
+                    adoptSharedRendererIfAvailable();
+                  })
+                  .catch(() => {});
+              } catch (_) {}
+            })
+            .catch((err) => {
+              console.warn('[GQ] SeamlessZoomOrchestrator init failed:', err?.message || err, err?.stack || '');
+              zoomOrchestrator = null;
+              initDirectRendererFallback();
+            });
+        }
+        if (!adoptSharedRendererIfAvailable() && !canBootstrapOrchestrator) {
+          initDirectRendererFallback();
+        }
+        if (!galaxy3d && !canBootstrapOrchestrator) {
+          const reason = esc(galaxy3dInitReason || 'Renderer bootstrap unavailable');
+          root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D renderer unavailable. Fallback list active. Reason: ${reason}</span>`;
+          toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
         }
       } catch (err) {
         galaxy3d = null;
@@ -5516,6 +5537,7 @@
                 <button class="btn btn-secondary" id="gal-colonies-only-btn">Nur Kolonien: aus</button>
                 <button class="btn btn-secondary" id="gal-core-fx-btn">Core FX: on</button>
                 <button class="btn btn-secondary" id="gal-fleet-vectors-btn">Fleet Vectors: on</button>
+                <button class="btn btn-secondary" id="gal-system-legacy-fallback-btn">System Legacy Fallback: off</button>
                 <button class="btn btn-secondary" id="gal-magnet-hover-toggle-btn">Magnet Hover: on</button>
                 <button class="btn btn-secondary" id="gal-magnet-click-toggle-btn">Magnet Click: on</button>
                 <div class="galaxy-nav-strip" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:0.25rem;">
@@ -5672,10 +5694,16 @@
           applyRuntimeSettings();
           this.updateFleetVectorsUi(root);
           if (root?.querySelector('#galaxy-system-details')) {
-            renderGalaxySystemDetails(root, pinnedStar || uiState.activeStar || null, !!galaxy3d?.systemMode);
+            renderGalaxySystemDetails(root, pinnedStar || uiState.activeStar || null, isSystemModeActive());
           }
           saveUiSettings();
           showToast(`Fleet-Vektoren: ${settingsState.galaxyFleetVectorsVisible ? 'an' : 'aus'}`, 'info');
+        });
+        root.querySelector('#gal-system-legacy-fallback-btn')?.addEventListener('click', () => {
+          settingsState.systemViewLegacyFallback = !(settingsState.systemViewLegacyFallback === true);
+          this.updateLegacyFallbackUi(root);
+          saveUiSettings();
+          showToast(`System Legacy Fallback: ${settingsState.systemViewLegacyFallback ? 'an' : 'aus'}`, 'info');
         });
         root.querySelector('#gal-magnet-hover-toggle-btn')?.addEventListener('click', () => {
           settingsState.hoverMagnetEnabled = !(settingsState.hoverMagnetEnabled !== false);
@@ -5782,6 +5810,7 @@
         updateGalaxyColonyFilterUi(root);
         this.updateCoreFxUi(root);
         this.updateFleetVectorsUi(root);
+        this.updateLegacyFallbackUi(root);
         this.updateMagnetUi(root);
         renderGalaxyDebugPanel(root);
       }
@@ -5807,6 +5836,7 @@
       updateGalaxyColonyFilterUi(root);
       this.updateCoreFxUi(root);
       this.updateFleetVectorsUi(root);
+      this.updateLegacyFallbackUi(root);
       this.updateMagnetUi(root);
     }
 
@@ -5896,13 +5926,9 @@
       }
 
       const applyStarsToRenderer = (stars, clusterSummary, contextLabel = 'render') => {
-        if (!galaxy3d) return true;
         try {
-          const curGalaxy = galaxy3d.stars?.length > 0 ? Number(galaxy3d.stars[0]?.galaxy_index || 0) : 0;
+          const curGalaxy = galaxy3d?.stars?.length > 0 ? Number(galaxy3d.stars[0]?.galaxy_index || 0) : 0;
           const preserveView = curGalaxy > 0 && curGalaxy === g;
-          if (galaxyMeta && typeof galaxy3d.setGalaxyMetadata === 'function') {
-            galaxy3d.setGalaxyMetadata(galaxyMeta);
-          }
           const filteredStars = getDisplayedGalaxyStars(stars);
           const displayedStars = (Array.isArray(filteredStars) && filteredStars.length === 0 && Array.isArray(stars) && stars.length > 0)
             ? stars
@@ -5911,12 +5937,39 @@
             uiConsolePush('[galaxy] filter produced 0 stars; fallback to raw star payload.');
           }
           const displayedClusterSummary = getDisplayedGalaxyClusterSummary(clusterSummary, displayedStars);
+
+          const ftlMap = window._GQ_ftl_map;
+          const ctx = getZoomTransitionContext();
+          const orchestrator = ctx.orchestrator;
+          const galaxyLevel = ctx.ZOOM_LEVEL?.GALAXY;
+          if (orchestrator && Number.isFinite(Number(galaxyLevel)) && typeof orchestrator.setSceneData === 'function') {
+            Promise.resolve(orchestrator.setSceneData(galaxyLevel, {
+              stars: displayedStars,
+              clusterAuras: displayedClusterSummary || [],
+              ftlInfrastructure: {
+                gates: ftlMap?.gates || [],
+                resonance_nodes: ftlMap?.resonance_nodes || [],
+              },
+              fleets: window._GQ_fleets || [],
+              galaxyMetadata: galaxyMeta || null,
+            })).catch(() => {});
+            const sharedLevelRenderer = getPreferredLevelSharedRenderer();
+            if (sharedLevelRenderer && galaxy3d !== sharedLevelRenderer) {
+              galaxy3d = sharedLevelRenderer;
+              attachRendererCallbacks(galaxy3d, window.__GQ_LEVEL_RENDERER_OPTIONS || {});
+            }
+          }
+
+          if (!galaxy3d) return true;
+
+          if (galaxyMeta && typeof galaxy3d.setGalaxyMetadata === 'function') {
+            galaxy3d.setGalaxyMetadata(galaxyMeta);
+          }
           galaxy3d.setStars(displayedStars, { preserveView });
           if (typeof galaxy3d.setGalaxyFleets === 'function') {
             galaxy3d.setGalaxyFleets(window._GQ_fleets || []);
           }
           if (typeof galaxy3d.setFtlInfrastructure === 'function') {
-            const ftlMap = window._GQ_ftl_map;
             galaxy3d.setFtlInfrastructure(ftlMap?.gates || [], ftlMap?.resonance_nodes || []);
           }
           if (typeof galaxy3d.setClusterColorPalette === 'function') {
@@ -6137,7 +6190,7 @@
         const rendered = applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'network');
         if (!galaxy3d || !rendered) {
           renderGalaxyFallbackList(root, galaxyStars, from, to, galaxy3dInitReason || 'renderer unavailable');
-        } else if (!galaxy3d.systemMode) {
+        } else if (!isSystemModeActive()) {
           renderGalaxyColonySummary(root.querySelector('#galaxy-planets-panel'), galaxyStars, { from, to });
         }
 
@@ -6271,6 +6324,15 @@
       btn.classList.toggle('btn-warning', !enabled);
     }
 
+    updateLegacyFallbackUi(root) {
+      const btn = root?.querySelector('#gal-system-legacy-fallback-btn');
+      if (!btn) return;
+      const enabled = settingsState.systemViewLegacyFallback === true;
+      btn.textContent = `System Legacy Fallback: ${enabled ? 'on' : 'off'}`;
+      btn.classList.toggle('btn-secondary', !enabled);
+      btn.classList.toggle('btn-warning', enabled);
+    }
+
     updateFollowUi(root) {
       const btn = root?.querySelector('#gal-follow-toggle-btn');
       const enabled = !galaxy3d || typeof galaxy3d.isFollowingSelection !== 'function'
@@ -6283,7 +6345,7 @@
       }
       const activeStar = pinnedStar || uiState.activeStar || null;
       if (root?.querySelector('#galaxy-system-details')) {
-        renderGalaxySystemDetails(root, activeStar, !!galaxy3d?.systemMode);
+        renderGalaxySystemDetails(root, activeStar, isSystemModeActive());
       }
     }
 
@@ -8803,7 +8865,7 @@
           galaxyController.updateFleetVectorsUi(root);
         }
         if (root?.querySelector('#galaxy-system-details')) {
-          renderGalaxySystemDetails(root, pinnedStar || uiState.activeStar || null, !!galaxy3d?.systemMode);
+          renderGalaxySystemDetails(root, pinnedStar || uiState.activeStar || null, isSystemModeActive());
         }
         saveUiSettings();
         showToast(`Fleet-Vektoren: ${settingsState.galaxyFleetVectorsVisible ? 'an' : 'aus'} (V zum Umschalten).`, 'info');
@@ -8960,7 +9022,7 @@
     let hoverAction = null;
 
     const readMode = () => {
-      const inSystem = !!galaxy3d?.systemMode;
+      const inSystem = isSystemModeActive();
       const hasPlanet = !!(galaxy3d?.systemSelectedEntry || uiState?.activePlanet);
       const hasInfra = !!window?._GQ_ftl_map?.success;
       const shipsOn = settingsState.galaxyFleetVectorsVisible !== false;
@@ -9562,7 +9624,7 @@
       const index = Math.max(0, orbitOrder.indexOf(normalized));
       return orbitOrder[(index + 1) % orbitOrder.length].toUpperCase();
     };
-    if (!galaxy3d || typeof galaxy3d.getRenderStats !== 'function' || !galaxy3d.systemMode) {
+    if (!galaxy3d || typeof galaxy3d.getRenderStats !== 'function' || !isSystemModeActive()) {
       if (badge) {
         badge.classList.add('hidden');
         badge.textContent = '';
@@ -10081,7 +10143,7 @@
             const newState = galaxy3d.toggleScientificScale();
             const msg = newState ? 'Wissenschaftliche Skalierung: Relative Planetengrößen korrekt' : 'Spielmodus: Alle Planeten gleichzeitig sichtbar';
             showToast(msg, 'info');
-            renderGalaxySystemDetails(root, star, !!galaxy3d?.systemMode);
+            renderGalaxySystemDetails(root, star, isSystemModeActive());
           } else {
             showToast('Wissenschaftliche Skalierung ist derzeit nicht verfügbar.', 'warning');
           }
@@ -10308,7 +10370,7 @@
         updateFooterQuickNavBadge();
         renderList();
         const galaxyRoot = WM.body('galaxy');
-        if (galaxyRoot && pinnedStar) renderGalaxySystemDetails(galaxyRoot, pinnedStar, !!galaxy3d?.systemMode);
+        if (galaxyRoot && pinnedStar) renderGalaxySystemDetails(galaxyRoot, pinnedStar, isSystemModeActive());
         return;
       }
       if (itemRow && !e.target.closest('select') && !e.target.closest('button')) {
@@ -10576,7 +10638,7 @@
             galaxy3d.focusOnStar(target, !flight.ok);
           }
           toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-          renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
+          renderGalaxySystemDetails(root, target, isSystemModeActive());
           showToast(`Range auf ${ownerName}: ${from}-${to} ┬À Fokus auf ${target.name || target.catalog_name || `System ${Number(target.system_index || '?')}`}`, 'info');
           return;
         }
@@ -10742,6 +10804,245 @@
     } catch (_) {}
   }
 
+  function getPreferredLevelSharedRenderer() {
+    const preferred = String(settingsState?.renderQualityProfile || 'auto').toLowerCase();
+    const sharedWebGpu = window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU || null;
+    const sharedThree = window.__GQ_LEVEL_SHARED_RENDERER_THREEJS || null;
+    if (preferred === 'webgpu' && sharedWebGpu) return sharedWebGpu;
+    if (preferred === 'webgl2' && sharedThree) return sharedThree;
+    return sharedWebGpu || sharedThree || null;
+  }
+
+  function isSharedLevelRenderer(renderer) {
+    if (!renderer) return false;
+    return renderer === window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU
+      || renderer === window.__GQ_LEVEL_SHARED_RENDERER_THREEJS;
+  }
+
+  function attachRendererCallbacks(renderer, options = {}) {
+    if (!renderer || !options || typeof options !== 'object') return;
+    if (renderer._opts && typeof renderer._opts === 'object') {
+      Object.assign(renderer._opts, options);
+    }
+    if (renderer.opts && typeof renderer.opts === 'object') {
+      Object.assign(renderer.opts, options);
+    }
+  }
+
+  function getZoomTransitionContext() {
+    const gqZoom = window.GQSeamlessZoomOrchestrator || {};
+    return {
+      orchestrator: zoomOrchestrator,
+      ZOOM_LEVEL: gqZoom.ZOOM_LEVEL || null,
+      SPATIAL_DEPTH: gqZoom.SPATIAL_DEPTH || null,
+    };
+  }
+
+  function hasRendererMethod(methodName) {
+    return !!(galaxy3d && typeof galaxy3d[methodName] === 'function');
+  }
+
+  function callRendererMethod(methodName, ...args) {
+    if (!hasRendererMethod(methodName)) return false;
+    try {
+      galaxy3d[methodName](...args);
+      return true;
+    } catch (err) {
+      gameLog('warn', `Renderer call failed: ${String(methodName || 'unknown')}`, err);
+      return false;
+    }
+  }
+
+  function runRendererNavAction(action) {
+    const normalized = String(action || '');
+    const rollStep = Number(uiState?.navOrbTuning?.rollStepRad || 0.05);
+    const navActionMap = {
+      'zoom-in': () => callRendererMethod('nudgeZoom', 'in'),
+      'zoom-out': () => callRendererMethod('nudgeZoom', 'out'),
+      'rotate-left': () => callRendererMethod('nudgeOrbit', 'left'),
+      'rotate-right': () => callRendererMethod('nudgeOrbit', 'right'),
+      'rotate-up': () => callRendererMethod('nudgeOrbit', 'up'),
+      'rotate-down': () => callRendererMethod('nudgeOrbit', 'down'),
+      'pan-left': () => callRendererMethod('nudgePan', 'left'),
+      'pan-right': () => callRendererMethod('nudgePan', 'right'),
+      'pan-up': () => callRendererMethod('nudgePan', 'up'),
+      'pan-down': () => callRendererMethod('nudgePan', 'down'),
+      'pan-up-left': () => callRendererMethod('nudgePan', 'up-left'),
+      'pan-up-right': () => callRendererMethod('nudgePan', 'up-right'),
+      'pan-down-left': () => callRendererMethod('nudgePan', 'down-left'),
+      'pan-down-right': () => callRendererMethod('nudgePan', 'down-right'),
+      'translate-x-plus': () => callRendererMethod('nudgePan', 'right'),
+      'translate-x-minus': () => callRendererMethod('nudgePan', 'left'),
+      'translate-y-plus': () => callRendererMethod('nudgePan', 'up'),
+      'translate-y-minus': () => callRendererMethod('nudgePan', 'down'),
+      'translate-z-plus': () => callRendererMethod('nudgeZoom', 'in'),
+      'translate-z-minus': () => callRendererMethod('nudgeZoom', 'out'),
+      'rotate-u-plus': () => callRendererMethod('nudgeOrbit', 'left'),
+      'rotate-u-minus': () => callRendererMethod('nudgeOrbit', 'right'),
+      'rotate-v-plus': () => callRendererMethod('nudgeOrbit', 'up'),
+      'rotate-v-minus': () => callRendererMethod('nudgeOrbit', 'down'),
+      'rotate-w-plus': () => callRendererMethod('nudgeRoll', 'cw', rollStep),
+      'rotate-w-minus': () => callRendererMethod('nudgeRoll', 'ccw', rollStep),
+    };
+
+    const run = navActionMap[normalized];
+    if (!run) return false;
+    return !!run();
+  }
+
+  function isSystemModeActive() {
+    const ctx = getZoomTransitionContext();
+    const activeLevel = Number(ctx.orchestrator?._activeLevel);
+    if (Number.isFinite(activeLevel) && ctx.ZOOM_LEVEL) {
+      return activeLevel >= Number(ctx.ZOOM_LEVEL.SYSTEM);
+    }
+    return !!galaxy3d?.systemMode;
+  }
+
+  function transitionIntoSystemView(star, payload, source = 'unknown') {
+    const ctx = getZoomTransitionContext();
+    let orchestratorDispatched = false;
+    if (ctx.orchestrator && ctx.SPATIAL_DEPTH && star) {
+      try {
+        ctx.orchestrator.zoomToTarget(
+          Object.assign({ spatialDepth: ctx.SPATIAL_DEPTH.STAR_SYSTEM }, star),
+        ).catch(() => {});
+        orchestratorDispatched = true;
+      } catch (_) {}
+    }
+
+    const systemLevel = ctx.ZOOM_LEVEL?.SYSTEM;
+    if (ctx.orchestrator && Number.isFinite(Number(systemLevel)) && typeof ctx.orchestrator.setSceneData === 'function') {
+      try {
+        Promise.resolve(ctx.orchestrator.setSceneData(systemLevel, {
+          star,
+          stars: star ? [star] : [],
+          systemPayload: payload || null,
+          planets: Array.isArray(payload?.planets) ? payload.planets : [],
+          fleets: Array.isArray(payload?.fleets_in_system) ? payload.fleets_in_system : [],
+          starInstallations: Array.isArray(payload?.star_installations) ? payload.star_installations : [],
+        })).then((accepted) => {
+          if (!accepted) return;
+          const sharedLevelRenderer = getPreferredLevelSharedRenderer();
+          if (sharedLevelRenderer && galaxy3d !== sharedLevelRenderer) {
+            galaxy3d = sharedLevelRenderer;
+            attachRendererCallbacks(galaxy3d, window.__GQ_LEVEL_RENDERER_OPTIONS || {});
+          }
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
+    if (orchestratorDispatched && ctx.ZOOM_LEVEL) {
+      if (payload) triggerSystemBreadcrumbEnter(payload, galaxy3d || null);
+      logEnterSystemPipeline(`${source}:orchestrator-enter-dispatch`, {
+        rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+        rendererSystemModeAfter: !!galaxy3d?.systemMode,
+        renderStats: galaxy3d?.getRenderStats?.() || null,
+      });
+      return true;
+    }
+
+    const allowLegacyFallback = !ctx.orchestrator || !ctx.ZOOM_LEVEL || settingsState.systemViewLegacyFallback === true;
+    if (!allowLegacyFallback) {
+      logEnterSystemPipeline(`${source}:enterSystemView:legacy-fallback-disabled`, {
+        rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+        hasRenderer: !!galaxy3d,
+      }, 'warn');
+      return false;
+    }
+
+    if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
+      galaxy3d.enterSystemView(star, payload);
+      logEnterSystemPipeline(`${source}:enterSystemView`, {
+        rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+        rendererSystemModeAfter: !!galaxy3d?.systemMode,
+        renderStats: galaxy3d?.getRenderStats?.() || null,
+      });
+      if (payload) triggerSystemBreadcrumbEnter(payload, galaxy3d);
+      return true;
+    }
+
+    logEnterSystemPipeline(`${source}:enterSystemView:missing`, {
+      rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+      rendererBackend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
+      hasRenderer: !!galaxy3d,
+    }, 'warn');
+    return false;
+  }
+
+  function transitionOutOfSystemView(star, source = 'unknown') {
+    const ctx = getZoomTransitionContext();
+    let orchestratorDispatched = false;
+    if (ctx.orchestrator && ctx.ZOOM_LEVEL) {
+      try {
+        ctx.orchestrator.zoomTo(ctx.ZOOM_LEVEL.GALAXY, null).catch(() => {});
+        orchestratorDispatched = true;
+      } catch (_) {}
+    }
+
+    if (orchestratorDispatched && ctx.ZOOM_LEVEL) {
+      triggerSystemBreadcrumbExit();
+      logEnterSystemPipeline(`${source}:orchestrator-exit-dispatch`, {
+        rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+        rendererSystemModeAfter: !!galaxy3d?.systemMode,
+      });
+      return true;
+    }
+
+    const allowLegacyFallback = !ctx.orchestrator || !ctx.ZOOM_LEVEL || settingsState.systemViewLegacyFallback === true;
+    if (!allowLegacyFallback) {
+      logEnterSystemPipeline(`${source}:exitSystemView:legacy-fallback-disabled`, {
+        rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+        hasRenderer: !!galaxy3d,
+      }, 'warn');
+      return false;
+    }
+
+    if (galaxy3d && typeof galaxy3d.exitSystemView === 'function') {
+      galaxy3d.exitSystemView(true);
+      triggerSystemBreadcrumbExit();
+      logEnterSystemPipeline(`${source}:exitSystemView`, {
+        rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+        rendererSystemModeAfter: !!galaxy3d?.systemMode,
+      });
+      return true;
+    }
+
+    logEnterSystemPipeline(`${source}:exitSystemView:missing`, {
+      rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
+      rendererBackend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
+      hasRenderer: !!galaxy3d,
+      hasStar: !!star,
+    }, 'warn');
+    return false;
+  }
+
+  function focusSystemPlanetInView(planetLike, smooth = true) {
+    const payload = planetLike && typeof planetLike === 'object'
+      ? planetLike
+      : null;
+    if (!payload) return false;
+
+    const ctx = getZoomTransitionContext();
+    const systemLevel = ctx.ZOOM_LEVEL?.SYSTEM;
+    if (ctx.orchestrator && Number.isFinite(Number(systemLevel)) && typeof ctx.orchestrator.setSceneData === 'function') {
+      try {
+        Promise.resolve(ctx.orchestrator.setSceneData(systemLevel, {
+          focusPlanet: payload,
+        })).then((accepted) => {
+          if (!accepted) return;
+          const sharedLevelRenderer = getPreferredLevelSharedRenderer();
+          if (sharedLevelRenderer && galaxy3d !== sharedLevelRenderer) {
+            galaxy3d = sharedLevelRenderer;
+            attachRendererCallbacks(galaxy3d, window.__GQ_LEVEL_RENDERER_OPTIONS || {});
+          }
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
+    return callRendererMethod('focusOnSystemPlanet', payload, smooth);
+  }
+
   async function loadStarSystemPlanets(root, star) {
     const panel = root.querySelector('#galaxy-planets-panel');
     if (!panel || !star) return;
@@ -10819,14 +11120,7 @@
             rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
           }, summarizeSystemPayloadMeta(payload, g, s)));
           renderPlanetPanel(panel, star, payload);
-          if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
-            galaxy3d.enterSystemView(star, payload);
-            logEnterSystemPipeline('loadStarSystemPlanets:onStaleData:enterSystemView', {
-              rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
-              rendererSystemModeAfter: !!galaxy3d?.systemMode,
-              renderStats: galaxy3d?.getRenderStats?.() || null,
-            });
-          }
+          transitionIntoSystemView(star, payload, 'loadStarSystemPlanets:onStaleData');
         },
       });
       traceSystemQueryPipeline('loadStarSystemPlanets:loadResult', {
@@ -10844,20 +11138,7 @@
       const fallbackPayload = buildSafeSystemPayload(null);
       logEnterSystemPipeline('loadStarSystemPlanets:fallback-payload', summarizeSystemPayloadMeta(fallbackPayload, g, s), 'warn');
       try {
-        if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
-          galaxy3d.enterSystemView(star, fallbackPayload);
-          logEnterSystemPipeline('loadStarSystemPlanets:fallback-enterSystemView', {
-            rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
-            rendererSystemModeAfter: !!galaxy3d?.systemMode,
-            renderStats: galaxy3d?.getRenderStats?.() || null,
-          }, 'warn');
-        } else {
-          logEnterSystemPipeline('loadStarSystemPlanets:fallback-enterSystemView:missing', {
-            rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
-            rendererBackend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
-            hasRenderer: !!galaxy3d,
-          }, 'warn');
-        }
+        transitionIntoSystemView(star, fallbackPayload, 'loadStarSystemPlanets:fallback');
       } catch (e3d) {
         console.error('[GQ] enterSystemView (fallback) failed:', e3d);
         pushGalaxyDebugError('system-render-fallback', String(e3d?.message || e3d || 'unknown error'), `${g}:${s}`);
@@ -10877,31 +11158,13 @@
     logEnterSystemPipeline('loadStarSystemPlanets:safePayload', summarizeSystemPayloadMeta(safePayload, g, s));
     renderPlanetPanel(panel, star, safePayload);
     try {
-      if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
-        galaxy3d.enterSystemView(star, safePayload);
-        // Trigger Breadcrumb Update
-        triggerSystemBreadcrumbEnter(safePayload, galaxy3d);
-        logEnterSystemPipeline('loadStarSystemPlanets:enterSystemView:done', {
-          rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
-          rendererSystemModeAfter: !!galaxy3d?.systemMode,
-          renderStats: galaxy3d?.getRenderStats?.() || null,
-        });
-      } else {
-        logEnterSystemPipeline('loadStarSystemPlanets:enterSystemView:missing', {
-          rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
-          rendererBackend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
-          hasRenderer: !!galaxy3d,
-        }, 'warn');
-      }
+      transitionIntoSystemView(star, safePayload, 'loadStarSystemPlanets:final');
     } catch (e3d) {
       console.error('[GQ] enterSystemView failed:', e3d);
       pushGalaxyDebugError('system-render', String(e3d?.message || e3d || 'unknown error'), `${g}:${s}`);
       let fallbackOk = false;
       try {
-        if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
-          galaxy3d.enterSystemView(star, buildSafeSystemPayload(null));
-          fallbackOk = true;
-        }
+        fallbackOk = transitionIntoSystemView(star, buildSafeSystemPayload(null), 'loadStarSystemPlanets:error-fallback');
       } catch (fallbackErr) {
         console.error('[GQ] enterSystemView fallback failed:', fallbackErr);
         pushGalaxyDebugError('system-render-fallback', String(fallbackErr?.message || fallbackErr || 'unknown error'), `${g}:${s}`);
@@ -11172,8 +11435,8 @@
     setActivePlanetListItem(panel, planetLike.__slot.position);
     const detail = ensurePlanetDetailPanel(panel);
     renderPlanetDetailCard(detail, planetLike.__slot);
-    if (zoomPlanet && galaxy3d && typeof galaxy3d.focusOnSystemPlanet === 'function') {
-      galaxy3d.focusOnSystemPlanet(planetLike, true);
+    if (zoomPlanet) {
+      focusSystemPlanetInView(planetLike, true);
     }
     if (activateColony) {
       const colonyId = Number(planetLike.__slot?.player_planet?.colony_id || 0);
@@ -14298,7 +14561,7 @@
       }
       pinnedStar = target;
       uiState.activeStar = target;
-      renderGalaxySystemDetails(root, target, !!galaxy3d?.systemMode);
+      renderGalaxySystemDetails(root, target, isSystemModeActive());
     });
   }
 
@@ -14346,6 +14609,10 @@
         <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
           <input type="checkbox" id="set-home-enter-system" ${settingsState.homeEnterSystem ? 'checked' : ''} />
           Home-Navigation ├Âffnet direkt Systemansicht
+        </label>
+        <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="checkbox" id="set-system-legacy-fallback" ${settingsState.systemViewLegacyFallback === true ? 'checked' : ''} />
+          System Legacy Fallback (direkte enter/exitSystemView-Calls erlauben)
         </label>
         <label class="system-row">Persistente Hover-Distanz: <span id="set-hover-distance-value">${Math.round(settingsState.persistentHoverDistance)}</span></label>
         <input id="set-hover-distance" type="range" min="120" max="380" step="5" value="${Math.round(settingsState.persistentHoverDistance)}" />
@@ -14508,7 +14775,7 @@
       const galaxyRoot = WM.body('galaxy');
       if (galaxyRoot?.querySelector('#galaxy-system-details')) {
         const activeStar = pinnedStar || uiState.activeStar || null;
-        renderGalaxySystemDetails(galaxyRoot, activeStar, !!galaxy3d?.systemMode);
+        renderGalaxySystemDetails(galaxyRoot, activeStar, isSystemModeActive());
       }
     });
 
@@ -14516,6 +14783,16 @@
     homeEnterSystem?.addEventListener('change', () => {
       settingsState.homeEnterSystem = !!homeEnterSystem.checked;
       saveUiSettings();
+    });
+
+    const systemLegacyFallback = root.querySelector('#set-system-legacy-fallback');
+    systemLegacyFallback?.addEventListener('change', () => {
+      settingsState.systemViewLegacyFallback = !!systemLegacyFallback.checked;
+      saveUiSettings();
+      const galaxyRoot = WM.body('galaxy');
+      if (galaxyRoot && galaxyController) {
+        galaxyController.updateLegacyFallbackUi(galaxyRoot);
+      }
     });
 
     const transitionPreset = root.querySelector('#set-transition-preset');

@@ -1,11 +1,17 @@
 FROM php:8.2-apache
 
-RUN docker-php-ext-install pdo_mysql \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libpng-dev \
+        libjpeg62-turbo-dev \
+        libfreetype6-dev \
+        nodejs \
+        npm \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install gd pdo_mysql \
     && pecl install xdebug \
     && docker-php-ext-enable xdebug \
     && a2enmod rewrite headers \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends nodejs npm \
     && npm install -g esbuild \
     && rm -rf /var/lib/apt/lists/*
 

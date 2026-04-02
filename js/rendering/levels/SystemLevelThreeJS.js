@@ -10,11 +10,11 @@
 
 'use strict';
 
-const { IZoomLevelRenderer } = typeof require !== 'undefined'
+var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
-class SystemLevelThreeJS extends IZoomLevelRenderer {
+class SystemLevelThreeJS extends ZoomLevelRendererBase {
   constructor() {
     super();
     this._canvas    = null;
@@ -27,14 +27,24 @@ class SystemLevelThreeJS extends IZoomLevelRenderer {
     this._canvas  = canvas;
     this._backend = backend;
 
-    const GalaxyRendererCtor = (typeof window !== 'undefined' && window.GalaxyRenderer) || null;
-    if (GalaxyRendererCtor) {
-      this._renderer = new GalaxyRendererCtor(canvas, {});
+    const GalaxyRendererCtor = (typeof window !== 'undefined' && (window.Galaxy3DRenderer || window.GalaxyRendererCore)) || null;
+    const container = canvas?.parentElement || null;
+    if (GalaxyRendererCtor && container) {
+      const shared = window.__GQ_LEVEL_SHARED_RENDERER_THREEJS;
+      if (shared) {
+        this._renderer = shared;
+      } else {
+        this._renderer = new GalaxyRendererCtor(container, { externalCanvas: canvas, interactive: true });
+        window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = this._renderer;
+      }
     }
   }
 
   setSceneData(data) {
     this._sceneData = data || null;
+    if (this._renderer && data && data.focusPlanet && typeof this._renderer.focusOnSystemPlanet === 'function') {
+      this._renderer.focusOnSystemPlanet(data.focusPlanet, true);
+    }
   }
 
   render(dt, cameraState) { // eslint-disable-line no-unused-vars
@@ -43,10 +53,16 @@ class SystemLevelThreeJS extends IZoomLevelRenderer {
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
     if (this._renderer && typeof this._renderer.enterSystemView === 'function') {
-      const star = transitionPayload && transitionPayload.star
-        ? transitionPayload.star
+      const sceneData = this._sceneData && typeof this._sceneData === 'object'
+        ? this._sceneData
         : null;
-      this._renderer.enterSystemView(star, transitionPayload);
+      const star = (sceneData && sceneData.star)
+        || (transitionPayload && transitionPayload.star)
+        || null;
+      const payload = (sceneData && sceneData.systemPayload)
+        ? sceneData.systemPayload
+        : transitionPayload;
+      this._renderer.enterSystemView(star, payload);
     }
   }
 

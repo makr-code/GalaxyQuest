@@ -19,11 +19,11 @@
 
 'use strict';
 
-const { IZoomLevelRenderer } = typeof require !== 'undefined'
+var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
-class PlanetApproachLevelWebGPU extends IZoomLevelRenderer {
+class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
   constructor() {
     super();
     this._canvas    = null;
