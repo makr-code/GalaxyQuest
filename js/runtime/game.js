@@ -97,6 +97,9 @@
   let currentColony  = null;
   let galaxySystemMax = 499;
   let galaxy3d = null;
+  // Standalone virtual camera state for the minimap. Updated by every drag/zoom
+  // even when galaxy3d is null (e.g. headless renderer or system-view mode).
+  let minimapCamera = { targetX: 0, targetY: 0, cameraX: 0, cameraY: 0, zoom: 1 };
   let galaxy3dQualityState = null;
   let galaxy3dInitReason = '';
   let zoomOrchestrator = null;
@@ -274,7 +277,188 @@
     rawClusters: [],
     clusterSummary: [],
     resourceInsight: null,
+    selectionState: {
+      active: null,
+      hover: null,
+      multiSelection: [],
+      group: null,
+      mode: 'galaxy',
+      sourceView: 'renderer',
+      updatedAt: 0,
+    },
   };
+
+  function normalizeSelectionPosition(pos) {
+    if (!pos || typeof pos !== 'object') return null;
+    const x = Number(pos.x);
+    const y = Number(pos.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
+  }
+
+  function buildSelectionKey(target) {
+    if (!target || typeof target !== 'object') return null;
+    const kind = String(target.__kind || 'star').trim().toLowerCase();
+    if (kind === 'cluster') {
+      return `cluster:${Number(target.__clusterIndex || -1)}`;
+    }
+    if (kind === 'planet') {
+      const sourceStar = target.__sourceStar || {};
+      return `planet:${Number(sourceStar.galaxy_index || target.galaxy_index || 0)}:${Number(sourceStar.system_index || target.system || 0)}:${Number(target.id || target.planet_id || target.__slot?.position || target.position || 0)}`;
+    }
+    if (kind === 'system_fleet' || kind === 'galaxy_fleet') {
+      return `${kind}:${Number(target.id || target.fleet_id || 0)}`;
+    }
+    if (kind === 'orbital_facility') {
+      return `orbital_facility:${Number(target.__slot?.player_planet?.colony_id || target.colony_id || 0)}:${Number(target.__slot?.position || 0)}`;
+    }
+    if (kind === 'star_installation') {
+      return `star_installation:${Number(target.id || target.installation_id || 0)}`;
+    }
+    if (kind === 'system_traffic') {
+      return `system_traffic:${Number(target.orbitRadius || 0)}:${Number(target.orbitSpeed || 0)}`;
+    }
+    if (kind === 'ftl_node') {
+      return `ftl_node:${Number(target.id || target.node_id || 0)}`;
+    }
+    if (kind === 'ftl_gate') {
+      return `ftl_gate:${Number(target.id || target.gate_id || 0)}:${String(target.__endpoint || '')}`;
+    }
+    return `star:${Number(target.galaxy_index || 0)}:${Number(target.system_index || 0)}`;
+  }
+
+  function normalizeRendererSelection(target, pos, eventType = 'hover') {
+    if (!target || typeof target !== 'object') {
+      return {
+        key: null,
+        kind: null,
+        target: null,
+        position: normalizeSelectionPosition(pos),
+        eventType: String(eventType || 'hover'),
+        mode: galaxy3d && typeof galaxy3d.isSystemMode === 'function' && galaxy3d.isSystemMode() ? 'system' : 'galaxy',
+        sourceView: 'renderer',
+      };
+    }
+    const kind = String(target.__kind || 'star').trim().toLowerCase();
+    const sourceStar = target.__sourceStar || null;
+    return {
+      key: String(target.__selectionKey || buildSelectionKey(target) || ''),
+      kind,
+      target,
+      position: normalizeSelectionPosition(pos),
+      eventType: String(eventType || 'hover'),
+      mode: String(target.__selectionMode || (galaxy3d && typeof galaxy3d.isSystemMode === 'function' && galaxy3d.isSystemMode() ? 'system' : 'galaxy')),
+      scope: String(target.__selectionScope || (kind === 'cluster' ? 'cluster' : (kind === 'planet' ? 'system' : 'galaxy'))),
+      sourceView: String(target.__selectionSourceView || 'renderer'),
+      galaxy: Number(target.galaxy_index || sourceStar?.galaxy_index || 0),
+      system: Number(target.system_index || sourceStar?.system_index || target.system || 0),
+      slot: Number(target.__slot?.position || target.position || 0),
+    };
+  }
+
+  function resolveSelectionGroupMembers(normalized) {
+    if (!normalized?.target || typeof normalized.target !== 'object') return { members: [], group: null };
+    const target = normalized.target;
+    const kind = String(normalized.kind || '').toLowerCase();
+
+    if (kind === 'cluster') {
+      const clusterSystems = Array.isArray(target.__clusterSystems)
+        ? [...new Set(target.__clusterSystems.map((n) => Number(n || 0)).filter((n) => Number.isFinite(n) && n > 0))]
+        : [];
+      const factionId = Number(target?.faction?.id || target?.faction?.faction_id || target?.faction_id || 0);
+      const factionName = String(target?.faction?.name || target?.faction_name || '').trim();
+      let systems = clusterSystems.slice();
+      if ((factionId > 0 || factionName) && Array.isArray(uiState.clusterSummary) && uiState.clusterSummary.length) {
+        const factionSystems = uiState.clusterSummary
+          .filter((cluster) => {
+            const cf = cluster?.faction || null;
+            const cid = Number(cf?.id || cf?.faction_id || 0);
+            const cname = String(cf?.name || '').trim();
+            if (factionId > 0 && cid > 0) return cid === factionId;
+            if (factionName && cname) return cname.localeCompare(factionName, 'de', { sensitivity: 'base' }) === 0;
+            return false;
+          })
+          .flatMap((cluster) => Array.isArray(cluster?.systems) ? cluster.systems : [])
+          .map((n) => Number(n || 0))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        if (factionSystems.length) systems = [...new Set(factionSystems)];
+      }
+      const groupType = (factionId > 0 || factionName) && systems.length > clusterSystems.length
+        ? 'faction'
+        : 'cluster';
+      const members = systems.map((systemIndex) => ({
+        key: `${groupType}:${systemIndex}`,
+        kind: 'star',
+        system: Number(systemIndex || 0),
+        mode: 'galaxy',
+        sourceView: 'renderer',
+      }));
+      return {
+        members,
+        group: {
+          type: groupType,
+          systems,
+          factionId: factionId > 0 ? factionId : 0,
+          factionName: factionName || '',
+        },
+      };
+    }
+
+    return {
+      members: normalized.key ? [normalized] : [],
+      group: normalized.key
+        ? {
+            type: 'single',
+            systems: Number.isFinite(Number(normalized.system || 0)) && Number(normalized.system || 0) > 0
+              ? [Number(normalized.system || 0)]
+              : [],
+          }
+        : null,
+    };
+  }
+
+  function getSelectionGroupHighlightedSystems() {
+    const systems = Array.isArray(uiState.selectionState?.group?.systems)
+      ? uiState.selectionState.group.systems
+      : [];
+    return [...new Set(
+      systems
+        .map((n) => Number(n || 0))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    )];
+  }
+
+  function applySelectionGroupHighlightToRenderer(stars = galaxyStars) {
+    if (!galaxy3d || typeof galaxy3d.setEmpireHeartbeatSystems !== 'function') return;
+    const ownerSystems = getGalaxyOwnerFocusHighlightedSystems(stars);
+    const groupSystems = getSelectionGroupHighlightedSystems();
+    const merged = [...new Set([...ownerSystems, ...groupSystems])];
+    galaxy3d.setEmpireHeartbeatSystems(merged);
+  }
+
+  function commitSelectionState(kind, target, pos, eventType = 'hover') {
+    const normalized = normalizeRendererSelection(target, pos, eventType);
+    uiState.selectionState.mode = normalized.mode || uiState.selectionState.mode || 'galaxy';
+    uiState.selectionState.sourceView = normalized.sourceView || 'renderer';
+    uiState.selectionState.updatedAt = Date.now();
+    if (kind === 'hover') {
+      uiState.selectionState.hover = normalized.target ? normalized : null;
+      return normalized;
+    }
+    if (kind === 'active') {
+      uiState.selectionState.active = normalized.target ? normalized : null;
+      const groupSelection = resolveSelectionGroupMembers(normalized);
+      uiState.selectionState.multiSelection = normalized.target ? groupSelection.members : [];
+      uiState.selectionState.group = normalized.target ? (groupSelection.group || null) : null;
+      if (normalized.target && normalized.kind === 'star') {
+        uiState.activeStar = normalized.target;
+        uiState.activeSystem = Math.max(1, Number(normalized.target.system_index || uiState.activeSystem || 1));
+      }
+      applySelectionGroupHighlightToRenderer(galaxyStars);
+      return normalized;
+    }
+    return normalized;
+  }
   const RESOURCE_INSIGHT_CONFIG = Object.freeze({
     metal: { key: 'metal', label: 'Metal', icon: 'MET', desc: 'Basismetall fuer Hulls, Industrie und Ausbau. Ueberschuesse eignen sich fuer Angebotstrades oder interne Transporte.', focusBuilding: 'metal_mine', rateKey: 'metal', tradeable: true, transportable: true },
     crystal: { key: 'crystal', label: 'Crystal', icon: 'CRY', desc: 'Veredelte Hochtechnologieressource fuer Forschung, Scanner und Komponentenbau.', focusBuilding: 'crystal_mine', rateKey: 'crystal', tradeable: true, transportable: true },
@@ -482,6 +666,7 @@
     galaxyOwnerFocusUserId: 0,
     galaxyOwnerFocusName: '',
     clusterBoundsVisible: true,
+    clusterHeatmapEnabled: true,
     galaxyFleetVectorsVisible: true,
     galacticCoreFxAuto: true,
     galacticCoreFxEnabled: true,
@@ -2754,6 +2939,7 @@
         : 'auto';
       settingsState.hoverMagnetEnabled = settingsState.hoverMagnetEnabled !== false;
       settingsState.clickMagnetEnabled = settingsState.clickMagnetEnabled !== false;
+      settingsState.clusterHeatmapEnabled = settingsState.clusterHeatmapEnabled !== false;
       settingsState.galacticCoreFxAuto = persisted && typeof persisted === 'object' && Object.prototype.hasOwnProperty.call(persisted, 'galacticCoreFxAuto')
         ? persisted.galacticCoreFxAuto !== false
         : !(persisted && typeof persisted === 'object' && Object.prototype.hasOwnProperty.call(persisted, 'galacticCoreFxEnabled'));
@@ -3232,6 +3418,7 @@
       });
       callRendererMethod('setOrbitSimulationMode', settingsState.orbitSimulationMode || 'auto');
       callRendererMethod('setClusterBoundsVisible', settingsState.clusterBoundsVisible !== false);
+      callRendererMethod('setClusterHeatmapEnabled', settingsState.clusterHeatmapEnabled !== false);
       callRendererMethod('setGalaxyFleetVectorsVisible', settingsState.galaxyFleetVectorsVisible !== false);
       callRendererMethod('setSystemOrbitPathsVisible', settingsState.systemOrbitPathsVisible !== false);
       callRendererMethod('setSystemOrbitMarkersVisible', settingsState.systemOrbitMarkersVisible !== false);
@@ -5232,8 +5419,12 @@
           externalCanvas: sharedCanvas instanceof HTMLCanvasElement ? sharedCanvas : null,
           interactive: true,
           qualityProfile: resolvedRendererQuality?.name || settingsState.renderQualityProfile || 'auto',
-          onHover: (star, pos) => updateGalaxyHoverCard(root, star, pos, false),
+          onHover: (star, pos) => {
+            commitSelectionState('hover', star, pos, 'hover');
+            updateGalaxyHoverCard(root, star, pos, false);
+          },
           onClick: (star, pos) => {
+            commitSelectionState('active', star, pos, 'click');
             if (star?.__kind === 'planet') {
               focusPlanetDetailsInOverlay(root, star, false, false);
               updateGalaxyHoverCard(root, star, pos, true);
@@ -5254,6 +5445,7 @@
             renderGalaxySystemDetails(root, star, false);
           },
           onDoubleClick: async (star, pos) => {
+            commitSelectionState('active', star, pos, 'doubleClick');
             logEnterSystemPipeline('renderer:onDoubleClick', {
               rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
               rendererBackend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
@@ -5340,6 +5532,7 @@
           refreshGalaxyDensityMetrics(root);
           updateGalaxyFollowUi(root);
           updateClusterBoundsUi(root);
+          syncRendererInputContext(galaxy3d);
           galaxy3dInitReason = '';
           return true;
         };
@@ -5534,6 +5727,7 @@
                   </select>
                 </label>
                 <button class="btn btn-secondary" id="gal-cluster-bounds-btn">Cluster Boxes: on</button>
+                <button class="btn btn-secondary" id="gal-cluster-heatmap-btn">Cluster Heatmap: on</button>
                 <button class="btn btn-secondary" id="gal-colonies-only-btn">Nur Kolonien: aus</button>
                 <button class="btn btn-secondary" id="gal-core-fx-btn">Core FX: on</button>
                 <button class="btn btn-secondary" id="gal-fleet-vectors-btn">Fleet Vectors: on</button>
@@ -5659,6 +5853,14 @@
           updateClusterBoundsUi(root);
           saveUiSettings();
           showToast(`Cluster-Boxen: ${settingsState.clusterBoundsVisible ? 'an' : 'aus'}`, 'info');
+        });
+        root.querySelector('#gal-cluster-heatmap-btn')?.addEventListener('click', () => {
+          settingsState.clusterHeatmapEnabled = !(settingsState.clusterHeatmapEnabled !== false);
+          applyRuntimeSettings();
+          refreshGalaxyDensityMetrics(root);
+          this.updateClusterHeatmapUi(root);
+          saveUiSettings();
+          showToast(`Cluster-Heatmap: ${settingsState.clusterHeatmapEnabled ? 'an' : 'aus'}`, 'info');
         });
         root.querySelector('#gal-colonies-only-btn')?.addEventListener('click', () => {
           if (!GALAXY_FILTERS_ENABLED) {
@@ -5807,6 +6009,7 @@
         refreshGalaxyDensityMetrics(root);
         updateGalaxyFollowUi(root);
         updateClusterBoundsUi(root);
+        this.updateClusterHeatmapUi(root);
         updateGalaxyColonyFilterUi(root);
         this.updateCoreFxUi(root);
         this.updateFleetVectorsUi(root);
@@ -5833,6 +6036,7 @@
       refreshGalaxyDensityMetrics(root);
       updateGalaxyFollowUi(root);
       updateClusterBoundsUi(root);
+      this.updateClusterHeatmapUi(root);
       updateGalaxyColonyFilterUi(root);
       this.updateCoreFxUi(root);
       this.updateFleetVectorsUi(root);
@@ -6288,8 +6492,9 @@
       const target = Number(stats.targetPoints || 0);
       const clusters = Number(stats.clusterCount || 0);
       const clusterLabel = stats.clusterBoundsVisible ? 'boxes on' : 'boxes off';
+      const heatmapLabel = stats.clusterHeatmapEnabled ? 'heat on' : 'heat off';
       const ratioPct = raw > 0 ? Math.max(0, Math.min(100, Math.round((visible / raw) * 100))) : 0;
-      label.textContent = `Density: ${visible}/${raw} (${ratioPct}%) | target ${target} | ${clusters} clusters | ${clusterLabel} | ${String(stats.densityMode || 'auto').toUpperCase()} | ${String(stats.lodProfile || 'n/a')} | q=${String(stats.qualityProfile || 'n/a')}`;
+      label.textContent = `Density: ${visible}/${raw} (${ratioPct}%) | target ${target} | ${clusters} clusters | ${clusterLabel} | ${heatmapLabel} | ${String(stats.densityMode || 'auto').toUpperCase()} | ${String(stats.lodProfile || 'n/a')} | q=${String(stats.qualityProfile || 'n/a')}`;
       label.className = ratioPct >= 70 ? 'text-green' : ratioPct >= 35 ? 'text-yellow' : 'text-muted';
     }
 
@@ -6300,6 +6505,17 @@
         : galaxy3d.areClusterBoundsVisible();
       if (!btn) return;
       btn.textContent = `Cluster Boxes: ${enabled ? 'on' : 'off'}`;
+      btn.classList.toggle('btn-secondary', enabled);
+      btn.classList.toggle('btn-warning', !enabled);
+    }
+
+    updateClusterHeatmapUi(root) {
+      const btn = root?.querySelector('#gal-cluster-heatmap-btn');
+      const enabled = !galaxy3d || typeof galaxy3d.areClusterHeatmapEnabled !== 'function'
+        ? (settingsState.clusterHeatmapEnabled !== false)
+        : galaxy3d.areClusterHeatmapEnabled();
+      if (!btn) return;
+      btn.textContent = `Cluster Heatmap: ${enabled ? 'on' : 'off'}`;
       btn.classList.toggle('btn-secondary', enabled);
       btn.classList.toggle('btn-warning', !enabled);
     }
@@ -10496,7 +10712,7 @@
 
   function applyGalaxyOwnerHighlightToRenderer(stars) {
     if (!galaxy3d || typeof galaxy3d.setEmpireHeartbeatSystems !== 'function') return;
-    galaxy3d.setEmpireHeartbeatSystems(getGalaxyOwnerFocusHighlightedSystems(stars));
+    applySelectionGroupHighlightToRenderer(stars);
   }
 
   function renderGalaxyColonySummary(panel, stars, range = null) {
@@ -10838,6 +11054,46 @@
     };
   }
 
+  function resolveRendererInputContext(ctx = getZoomTransitionContext(), levelHint = null) {
+    const levels = ctx?.ZOOM_LEVEL || null;
+    const activeLevelRaw = Number.isFinite(Number(levelHint))
+      ? Number(levelHint)
+      : Number(ctx?.orchestrator?._activeLevel);
+    if (Number.isFinite(activeLevelRaw) && levels) {
+      const colonyLevel = Number(levels.COLONY_SURFACE);
+      const objectLevel = Number(levels.OBJECT_APPROACH);
+      const planetLevel = Number(levels.PLANET_APPROACH);
+      const systemLevel = Number(levels.SYSTEM);
+      if (Number.isFinite(colonyLevel) && activeLevelRaw >= colonyLevel) {
+        return 'colonySurface';
+      }
+      if (Number.isFinite(objectLevel) && activeLevelRaw >= objectLevel) {
+        return 'objectApproach';
+      }
+      if (Number.isFinite(planetLevel) && activeLevelRaw >= planetLevel) {
+        return 'planetApproach';
+      }
+      if (Number.isFinite(systemLevel) && activeLevelRaw >= systemLevel) {
+        return 'system';
+      }
+    }
+    return galaxy3d?.systemMode ? 'system' : 'galaxy';
+  }
+
+  function syncRendererInputContext(renderer = galaxy3d, opts = {}) {
+    if (!renderer || typeof renderer.setInputContext !== 'function') return '';
+    const ctx = opts?.ctx || getZoomTransitionContext();
+    const contextName = resolveRendererInputContext(ctx, opts?.level);
+    const applyName = opts?.exact === true ? contextName : 'auto';
+    try {
+      renderer.setInputContext(applyName);
+      return contextName;
+    } catch (err) {
+      gameLog('warn', 'Renderer input context sync failed', err);
+      return '';
+    }
+  }
+
   function hasRendererMethod(methodName) {
     return !!(galaxy3d && typeof galaxy3d[methodName] === 'function');
   }
@@ -10901,6 +11157,7 @@
 
   function transitionIntoSystemView(star, payload, source = 'unknown') {
     const ctx = getZoomTransitionContext();
+    syncRendererInputContext(galaxy3d, { ctx });
     let orchestratorDispatched = false;
     if (ctx.orchestrator && ctx.SPATIAL_DEPTH && star) {
       try {
@@ -10933,6 +11190,8 @@
     }
 
     if (orchestratorDispatched && ctx.ZOOM_LEVEL) {
+      setTimeout(() => { syncRendererInputContext(galaxy3d, { ctx }); }, 80);
+      setTimeout(() => { syncRendererInputContext(galaxy3d, { ctx }); }, 320);
       if (payload) triggerSystemBreadcrumbEnter(payload, galaxy3d || null);
       logEnterSystemPipeline(`${source}:orchestrator-enter-dispatch`, {
         rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
@@ -10953,6 +11212,7 @@
 
     if (galaxy3d && typeof galaxy3d.enterSystemView === 'function') {
       galaxy3d.enterSystemView(star, payload);
+      syncRendererInputContext(galaxy3d, { ctx, level: Number(ctx.ZOOM_LEVEL?.SYSTEM) });
       logEnterSystemPipeline(`${source}:enterSystemView`, {
         rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
         rendererSystemModeAfter: !!galaxy3d?.systemMode,
@@ -10972,6 +11232,7 @@
 
   function transitionOutOfSystemView(star, source = 'unknown') {
     const ctx = getZoomTransitionContext();
+    syncRendererInputContext(galaxy3d, { ctx });
     let orchestratorDispatched = false;
     if (ctx.orchestrator && ctx.ZOOM_LEVEL) {
       try {
@@ -10981,6 +11242,8 @@
     }
 
     if (orchestratorDispatched && ctx.ZOOM_LEVEL) {
+      setTimeout(() => { syncRendererInputContext(galaxy3d, { ctx }); }, 80);
+      setTimeout(() => { syncRendererInputContext(galaxy3d, { ctx }); }, 320);
       triggerSystemBreadcrumbExit();
       logEnterSystemPipeline(`${source}:orchestrator-exit-dispatch`, {
         rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
@@ -11000,6 +11263,7 @@
 
     if (galaxy3d && typeof galaxy3d.exitSystemView === 'function') {
       galaxy3d.exitSystemView(true);
+      syncRendererInputContext(galaxy3d, { ctx, level: Number(ctx.ZOOM_LEVEL?.GALAXY) });
       triggerSystemBreadcrumbExit();
       logEnterSystemPipeline(`${source}:exitSystemView`, {
         rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
@@ -14384,66 +14648,286 @@
   const MINIMAP_PAD = 14;           // canvas padding in px
   const MINIMAP_GRID_DIVS = 5;     // number of grid lines per axis
   const MINIMAP_CLICK_RADIUS = 18; // max click distance in px to select a star
+  const MINIMAP_DRAG_THRESHOLD = 4;
+  const MINIMAP_WORLD_SCALE = 0.028;
 
-  function renderMinimap(root) {
-    if (!root) return;
+  function minimapProjectPoint(state, x, y) {
+    return {
+      x: state.offX + (Number(x || 0) - state.minX) * state.scale,
+      y: state.offY + (Number(y || 0) - state.minY) * state.scale,
+    };
+  }
 
-    // Ensure wrapper exists
-    let wrap = root.querySelector('.minimap-wrap');
-    if (!wrap) {
-      root.innerHTML = '';
-      wrap = document.createElement('div');
-      wrap.className = 'minimap-wrap';
-      root.appendChild(wrap);
+  function minimapClampCanvasPoint(state, point) {
+    const pad = MINIMAP_PAD + 2;
+    return {
+      x: Math.max(pad, Math.min((state.width || 0) - pad, Number(point?.x || 0))),
+      y: Math.max(pad, Math.min((state.height || 0) - pad, Number(point?.y || 0))),
+    };
+  }
+
+  function minimapUnprojectPoint(state, px, py) {
+    const x = state.minX + ((Number(px || 0) - state.offX) / Math.max(0.0001, state.scale));
+    const y = state.minY + ((Number(py || 0) - state.offY) / Math.max(0.0001, state.scale));
+    return {
+      x: Math.max(state.minX, Math.min(state.maxX, x)),
+      y: Math.max(state.minY, Math.min(state.maxY, y)),
+    };
+  }
+
+  function resolveMinimapRendererPose() {
+    const renderer = galaxy3d;
+    if (!renderer) {
+      return {
+        kind: 'virtual',
+        backend: 'offline',
+        scale: MINIMAP_WORLD_SCALE,
+        zoom: minimapCamera.zoom,
+        cameraX: minimapCamera.cameraX,
+        cameraY: minimapCamera.cameraY,
+        targetX: minimapCamera.targetX,
+        targetY: minimapCamera.targetY,
+      };
     }
 
-    // Ensure canvas exists
-    let canvas = wrap.querySelector('.minimap-canvas');
-    if (!canvas) {
-      canvas = document.createElement('canvas');
-      canvas.className = 'minimap-canvas';
-      wrap.appendChild(canvas);
+    const delegate = renderer._delegate || null;
+    const base = delegate || renderer;
+    const scale = Number(base?._starScale || renderer?._starScale || MINIMAP_WORLD_SCALE) || MINIMAP_WORLD_SCALE;
 
-      // Click-to-navigate: find closest star and open galaxy map at it
-      canvas.addEventListener('click', (e) => {
-        const state = canvas.__minimapState;
-        if (!state || !state.stars.length) return;
-        const rect = canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        let best = null;
-        let bestDist = Infinity;
-        for (const star of state.stars) {
-          const cx = state.offX + (Number(star.x_ly || 0) - state.minX) * state.scale;
-          const cy = state.offY + (Number(star.y_ly || 0) - state.minY) * state.scale;
-          const d = Math.hypot(mx - cx, my - cy);
-          if (d < bestDist) { bestDist = d; best = star; }
-        }
-        if (best && bestDist < MINIMAP_CLICK_RADIUS) {
-          WM.open('galaxy');
-          window.dispatchEvent(new CustomEvent('gq:minimap-navigate', {
-            detail: { galaxy: Number(best.galaxy_index || uiState.activeGalaxy || 1), system: Number(best.system_index || 0), star: best },
-          }));
-        }
-      });
+    if (base?.camera?.position && base?.controls?.target) {
+      return {
+        kind: 'orbit',
+        backend: String(renderer.backendType || base.rendererBackend || 'threejs'),
+        scale,
+        zoom: Number(renderer?._view?.zoom || renderer?._view?.targetZoom || 1) || 1,
+        cameraX: Number(base.camera.position.x || 0) / scale,
+        cameraY: Number(base.camera.position.z || 0) / scale,
+        targetX: Number(base.controls.target.x || 0) / scale,
+        targetY: Number(base.controls.target.z || 0) / scale,
+      };
     }
 
-    // Size canvas to wrapper
+    if (renderer?._view) {
+      const zoom = Number(renderer._view.zoom || renderer._view.targetZoom || 1) || 1;
+      const targetX = -(Number(renderer._view.targetPanX ?? renderer._view.panX ?? 0) / scale);
+      const targetY = -(Number(renderer._view.targetPanY ?? renderer._view.panY ?? 0) / scale);
+      const distanceLy = Math.max(55, Math.min(240, 118 / Math.max(0.45, zoom)));
+      return {
+        kind: 'panzoom',
+        backend: String(renderer.backendType || 'webgpu'),
+        scale,
+        zoom,
+        cameraX: targetX + distanceLy * 0.58,
+        cameraY: targetY + distanceLy * 0.92,
+        targetX,
+        targetY,
+      };
+    }
+
+    // No live renderer — return the virtual camera state so overlays and smoke
+    // tests always have a readable, mutable pose object.
+    return {
+      kind: 'virtual',
+      backend: 'offline',
+      scale: MINIMAP_WORLD_SCALE,
+      zoom: minimapCamera.zoom,
+      cameraX: minimapCamera.cameraX,
+      cameraY: minimapCamera.cameraY,
+      targetX: minimapCamera.targetX,
+      targetY: minimapCamera.targetY,
+    };
+  }
+
+  function setMinimapCameraTarget(targetX, targetY, immediate = false) {
+    // Always keep virtual camera in sync so the minimap overlay works even
+    // without a live renderer (e.g. headless CI or planet/system view mode).
+    const tx = Number(targetX || 0);
+    const ty = Number(targetY || 0);
+    minimapCamera.targetX = tx;
+    minimapCamera.targetY = ty;
+    // Approximate camera eye offset (distanceLy ≈ 118 at zoom 1).
+    minimapCamera.cameraX = tx + 68;
+    minimapCamera.cameraY = ty + 109;
+
+    const renderer = galaxy3d;
+    if (!renderer) return false;
+
+    const delegate = renderer._delegate || null;
+    const base = delegate || renderer;
+    const scale = Number(base?._starScale || renderer?._starScale || MINIMAP_WORLD_SCALE) || MINIMAP_WORLD_SCALE;
+
+    if (base?.camera?.position && base?.controls?.target) {
+      const nextX = Number(targetX || 0) * scale;
+      const nextZ = Number(targetY || 0) * scale;
+      const deltaX = nextX - Number(base.controls.target.x || 0);
+      const deltaZ = nextZ - Number(base.controls.target.z || 0);
+      if (!Number.isFinite(deltaX) || !Number.isFinite(deltaZ)) return false;
+      base.controls.target.x += deltaX;
+      base.controls.target.z += deltaZ;
+      base.camera.position.x += deltaX;
+      base.camera.position.z += deltaZ;
+      if (immediate && typeof base.controls.update === 'function') {
+        try { base.controls.update(); } catch (_) {}
+      }
+      return true;
+    }
+
+    if (renderer?._view) {
+      const nextPanX = -Number(targetX || 0) * scale;
+      const nextPanY = -Number(targetY || 0) * scale;
+      renderer._view.targetPanX = nextPanX;
+      renderer._view.targetPanY = nextPanY;
+      if (immediate) {
+        renderer._view.panX = nextPanX;
+        renderer._view.panY = nextPanY;
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  function zoomMinimapCamera(deltaY) {
+    // Always update virtual zoom so the smoke-test pose is readable even when
+    // the live renderer is absent.
+    const zoomOut = Number(deltaY || 0) > 0;
+    const vz = Number(minimapCamera.zoom || 1) || 1;
+    minimapCamera.zoom = zoomOut ? Math.max(0.25, vz * 0.88) : Math.min(8, vz * 1.12);
+
+    const renderer = galaxy3d;
+    if (!renderer) return false;
+
+    const delegate = renderer._delegate || null;
+    const base = delegate || renderer;
+
+    if (base?.camera?.position && base?.controls?.target) {
+      const factor = zoomOut ? 1.12 : 0.88;
+      const offset = base.camera.position.clone().sub(base.controls.target).multiplyScalar(factor);
+      base.camera.position.copy(base.controls.target.clone().add(offset));
+      if (typeof base.controls.update === 'function') {
+        try { base.controls.update(); } catch (_) {}
+      }
+      return true;
+    }
+
+    if (renderer?._view) {
+      const currentZoom = Number(renderer._view.targetZoom || renderer._view.zoom || 1) || 1;
+      const nextZoom = zoomOut
+        ? Math.max(0.45, currentZoom * 0.88)
+        : Math.min(6, currentZoom * 1.12);
+      renderer._view.targetZoom = nextZoom;
+      return true;
+    }
+
+    return false;
+  }
+
+  function queueMinimapCameraTarget(targetX, targetY, immediate = false) {
+    WM.open('galaxy');
+    if (setMinimapCameraTarget(targetX, targetY, immediate)) return;
+    setTimeout(() => { setMinimapCameraTarget(targetX, targetY, immediate); }, 120);
+    setTimeout(() => { setMinimapCameraTarget(targetX, targetY, immediate); }, 360);
+  }
+
+  function drawMinimapCameraOverlay(ctx, state, pose) {
+    if (!ctx || !state || !pose) return;
+
+    const rawApex = minimapProjectPoint(state, pose.cameraX, pose.cameraY);
+    const rawTarget = minimapProjectPoint(state, pose.targetX, pose.targetY);
+    const apex = minimapClampCanvasPoint(state, rawApex);
+    const target = minimapClampCanvasPoint(state, rawTarget);
+
+    const dirXRaw = target.x - apex.x;
+    const dirYRaw = target.y - apex.y;
+    const dirLen = Math.hypot(dirXRaw, dirYRaw) || 1;
+    const dirX = dirXRaw / dirLen;
+    const dirY = dirYRaw / dirLen;
+    const perpX = -dirY;
+    const perpY = dirX;
+    const zoom = Math.max(0.45, Number(pose.zoom || 1));
+    const fovFactor = Math.max(0.52, Math.min(1.45, 1.35 / zoom));
+    const nearDist = Math.max(10, dirLen * 0.22);
+    const farDist = Math.max(22, dirLen * 0.86);
+    const nearHalf = Math.max(6, farDist * 0.12 * fovFactor);
+    const farHalf = Math.max(12, farDist * 0.23 * fovFactor);
+
+    const nearCenter = { x: apex.x + dirX * nearDist, y: apex.y + dirY * nearDist };
+    const farCenter = { x: apex.x + dirX * farDist, y: apex.y + dirY * farDist };
+    const nearLeft = { x: nearCenter.x - perpX * nearHalf, y: nearCenter.y - perpY * nearHalf };
+    const nearRight = { x: nearCenter.x + perpX * nearHalf, y: nearCenter.y + perpY * nearHalf };
+    const farLeft = { x: farCenter.x - perpX * farHalf, y: farCenter.y - perpY * farHalf };
+    const farRight = { x: farCenter.x + perpX * farHalf, y: farCenter.y + perpY * farHalf };
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(79, 222, 255, 0.45)';
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = 'rgba(35, 157, 214, 0.12)';
+    ctx.beginPath();
+    ctx.moveTo(apex.x, apex.y);
+    ctx.lineTo(farLeft.x, farLeft.y);
+    ctx.lineTo(farRight.x, farRight.y);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(110, 229, 255, 0.9)';
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    ctx.moveTo(apex.x, apex.y);
+    ctx.lineTo(nearLeft.x, nearLeft.y);
+    ctx.lineTo(farLeft.x, farLeft.y);
+    ctx.lineTo(farRight.x, farRight.y);
+    ctx.lineTo(nearRight.x, nearRight.y);
+    ctx.closePath();
+    ctx.moveTo(apex.x, apex.y);
+    ctx.lineTo(farLeft.x, farLeft.y);
+    ctx.moveTo(apex.x, apex.y);
+    ctx.lineTo(farRight.x, farRight.y);
+    ctx.moveTo(nearLeft.x, nearLeft.y);
+    ctx.lineTo(nearRight.x, nearRight.y);
+    ctx.moveTo(nearCenter.x, nearCenter.y);
+    ctx.lineTo(farCenter.x, farCenter.y);
+    ctx.stroke();
+
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(147, 219, 255, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(apex.x, apex.y);
+    ctx.lineTo(target.x, target.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = 'rgba(148, 235, 255, 0.95)';
+    ctx.beginPath();
+    ctx.arc(apex.x, apex.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(148, 235, 255, 0.9)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, 4.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawMinimap(root, wrap, canvas, hud) {
+    if (!root || !wrap || !canvas) return;
+
     const w = Math.max(100, wrap.clientWidth || 260);
     const h = Math.max(100, wrap.clientHeight || 260);
-    canvas.width = w;
-    canvas.height = h;
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Background
     ctx.fillStyle = '#050d1e';
     ctx.fillRect(0, 0, w, h);
 
     const stars = Array.isArray(galaxyStars) ? galaxyStars.filter((s) => s.x_ly != null && s.y_ly != null) : [];
 
     if (!stars.length) {
+      if (hud) hud.dataset.backend = 'offline';
       ctx.fillStyle = 'rgba(80, 140, 200, 0.6)';
       ctx.font = '11px Consolas, monospace';
       ctx.textAlign = 'center';
@@ -14453,8 +14937,10 @@
       return;
     }
 
-    // Compute bounds
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
     for (const s of stars) {
       const sx = Number(s.x_ly);
       const sy = Number(s.y_ly);
@@ -14471,11 +14957,30 @@
     const scale = Math.min(scaleX, scaleY);
     const offX = MINIMAP_PAD + ((w - MINIMAP_PAD * 2) - rangeX * scale) / 2;
     const offY = MINIMAP_PAD + ((h - MINIMAP_PAD * 2) - rangeY * scale) / 2;
+    const pose = resolveMinimapRendererPose();
 
-    // Store transform state for click handler
-    canvas.__minimapState = { minX, minY, scale, offX, offY, stars };
+    canvas.__minimapState = {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      scale,
+      offX,
+      offY,
+      width: w,
+      height: h,
+      stars,
+      pose,
+    };
 
-    // Subtle grid lines
+    if (hud) {
+      hud.dataset.backend = pose?.backend || 'offline';
+      const badge = hud.querySelector('.minimap-badge');
+      const meta = hud.querySelector('.minimap-meta');
+      if (badge) badge.textContent = pose ? `LIVE ${String(pose.backend || '').toUpperCase()}` : 'STATIC';
+      if (meta) meta.textContent = pose ? 'Ziehen bewegt die Kamera' : 'Klick springt zum System';
+    }
+
     ctx.strokeStyle = 'rgba(50, 90, 150, 0.22)';
     ctx.lineWidth = 0.5;
     const gridStepLy = Math.max(1, Math.round(rangeX / MINIMAP_GRID_DIVS));
@@ -14494,24 +14999,24 @@
       ctx.stroke();
     }
 
-    // Build lookup sets for own colonies and current system
     const ownColonySystems = new Set(
       (Array.isArray(colonies) ? colonies : []).map((col) => Number(col.system || col.system_index || 0)).filter(Boolean)
     );
     const currentSysIdx = Number(currentColony?.system || currentColony?.system_index || 0);
+    const activeSysIdx = Number(uiState.activeStar?.system_index || pinnedStar?.system_index || 0);
 
-    // Draw stars
     for (const star of stars) {
       const sx = Number(star.x_ly);
       const sy = Number(star.y_ly);
-      const cx = offX + (sx - minX) * scale;
-      const cy = offY + (sy - minY) * scale;
+      const point = minimapProjectPoint(canvas.__minimapState, sx, sy);
+      const cx = point.x;
+      const cy = point.y;
       const sysIdx = Number(star.system_index || 0);
       const isOwn = sysIdx > 0 && ownColonySystems.has(sysIdx);
       const isCurrent = currentSysIdx > 0 && sysIdx === currentSysIdx;
+      const isActive = activeSysIdx > 0 && sysIdx === activeSysIdx;
 
       if (isCurrent) {
-        // Current system: bright yellow with outer ring
         ctx.beginPath();
         ctx.arc(cx, cy, 4, 0, Math.PI * 2);
         ctx.fillStyle = '#ffe066';
@@ -14521,14 +15026,22 @@
         ctx.strokeStyle = 'rgba(255, 224, 102, 0.7)';
         ctx.lineWidth = 1.5;
         ctx.stroke();
+      } else if (isActive) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#5de4ff';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(93, 228, 255, 0.55)';
+        ctx.lineWidth = 1.25;
+        ctx.stroke();
       } else if (isOwn) {
-        // Own colony: green dot
         ctx.beginPath();
         ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
         ctx.fillStyle = '#44ee88';
         ctx.fill();
       } else {
-        // Regular star: colour by spectral class
         ctx.beginPath();
         ctx.arc(cx, cy, 1, 0, Math.PI * 2);
         ctx.fillStyle = starClassColor(star.spectral_class);
@@ -14536,12 +15049,185 @@
       }
     }
 
-    // Legend (bottom-left)
+    drawMinimapCameraOverlay(ctx, canvas.__minimapState, pose);
+
     ctx.font = '9px Consolas, monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = 'rgba(100, 160, 220, 0.6)';
     ctx.fillText(`${stars.length} stars`, 5, h - 5);
+  }
+
+  function bindMinimapInteractions(root, canvas) {
+    if (!canvas || canvas.__minimapInteractiveBound) return;
+    canvas.__minimapInteractiveBound = true;
+
+    const dragState = {
+      active: false,
+      moved: false,
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+      baseTargetX: 0,
+      baseTargetY: 0,
+    };
+    canvas.__minimapDragState = dragState;
+
+    const getPointerPos = (evt) => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: evt.clientX - rect.left,
+        y: evt.clientY - rect.top,
+      };
+    };
+
+    const finishDrag = (evt) => {
+      if (!dragState.active) return;
+      if (evt?.pointerId != null && dragState.pointerId !== evt.pointerId) return;
+      if (dragState.pointerId != null) {
+        try { canvas.releasePointerCapture(dragState.pointerId); } catch (_) {}
+      }
+      canvas.classList.remove('is-dragging');
+      dragState.active = false;
+      dragState.pointerId = null;
+    };
+
+    canvas.addEventListener('pointerdown', (evt) => {
+      if (evt.button !== 0) return;
+      const state = canvas.__minimapState;
+      if (!state) return;
+      const pose = resolveMinimapRendererPose();
+      const pointer = getPointerPos(evt);
+      const fallbackWorld = minimapUnprojectPoint(state, pointer.x, pointer.y);
+      dragState.active = true;
+      dragState.moved = false;
+      dragState.pointerId = evt.pointerId;
+      dragState.startX = pointer.x;
+      dragState.startY = pointer.y;
+      dragState.baseTargetX = Number(pose?.targetX ?? fallbackWorld.x ?? 0);
+      dragState.baseTargetY = Number(pose?.targetY ?? fallbackWorld.y ?? 0);
+      canvas.classList.add('is-dragging');
+      try { canvas.setPointerCapture(evt.pointerId); } catch (_) {}
+      evt.preventDefault();
+    });
+
+    canvas.addEventListener('pointermove', (evt) => {
+      const state = canvas.__minimapState;
+      if (!state || !dragState.active || dragState.pointerId !== evt.pointerId) return;
+      const pointer = getPointerPos(evt);
+      const dx = pointer.x - dragState.startX;
+      const dy = pointer.y - dragState.startY;
+      if (!dragState.moved && Math.hypot(dx, dy) >= MINIMAP_DRAG_THRESHOLD) {
+        dragState.moved = true;
+      }
+      if (!dragState.moved) return;
+      const nextX = Math.max(state.minX, Math.min(state.maxX, dragState.baseTargetX + dx / Math.max(0.0001, state.scale)));
+      const nextY = Math.max(state.minY, Math.min(state.maxY, dragState.baseTargetY + dy / Math.max(0.0001, state.scale)));
+      setMinimapCameraTarget(nextX, nextY, true);
+    });
+
+    canvas.addEventListener('pointerup', (evt) => {
+      const state = canvas.__minimapState;
+      if (!state) {
+        finishDrag(evt);
+        return;
+      }
+
+      const wasDrag = dragState.active && dragState.moved && dragState.pointerId === evt.pointerId;
+      const pointer = getPointerPos(evt);
+      finishDrag(evt);
+      if (wasDrag) return;
+
+      let best = null;
+      let bestDist = Infinity;
+      for (const star of state.stars) {
+        const point = minimapProjectPoint(state, star.x_ly, star.y_ly);
+        const dist = Math.hypot(pointer.x - point.x, pointer.y - point.y);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = star;
+        }
+      }
+
+      if (best && bestDist < MINIMAP_CLICK_RADIUS) {
+        WM.open('galaxy');
+        window.dispatchEvent(new CustomEvent('gq:minimap-navigate', {
+          detail: { galaxy: Number(best.galaxy_index || uiState.activeGalaxy || 1), system: Number(best.system_index || 0), star: best },
+        }));
+        return;
+      }
+
+      const world = minimapUnprojectPoint(state, pointer.x, pointer.y);
+      queueMinimapCameraTarget(world.x, world.y, true);
+    });
+
+    canvas.addEventListener('pointercancel', finishDrag);
+    canvas.addEventListener('wheel', (evt) => {
+      evt.preventDefault();
+      zoomMinimapCamera(evt.deltaY);
+    }, { passive: false });
+    canvas.addEventListener('contextmenu', (evt) => evt.preventDefault());
+  }
+
+  function ensureMinimapLoop(root, wrap, canvas, hud) {
+    if (!canvas || canvas.__minimapLoopActive) return;
+    canvas.__minimapLoopActive = true;
+
+    const tick = () => {
+      if (!canvas.__minimapLoopActive) return;
+      if (!root?.isConnected || !WM.isOpen('minimap')) {
+        canvas.__minimapLoopActive = false;
+        canvas.__minimapRaf = 0;
+        return;
+      }
+      drawMinimap(root, wrap, canvas, hud);
+      canvas.__minimapRaf = requestAnimationFrame(tick);
+    };
+
+    canvas.__minimapRaf = requestAnimationFrame(tick);
+  }
+
+  function renderMinimap(root) {
+    if (!root) return;
+
+    // Seed virtualcamera from active/pinned star the first time the minimap opens.
+    if (minimapCamera.targetX === 0 && minimapCamera.targetY === 0) {
+      const seedStar = uiState.activeStar || pinnedStar;
+      if (seedStar) {
+        minimapCamera.targetX = Number(seedStar.x_ly || 0);
+        minimapCamera.targetY = Number(seedStar.y_ly || 0);
+        minimapCamera.cameraX = minimapCamera.targetX + 68;
+        minimapCamera.cameraY = minimapCamera.targetY + 109;
+        minimapCamera.zoom = 1;
+      }
+    }
+
+    let wrap = root.querySelector('.minimap-wrap');
+    if (!wrap) {
+      root.innerHTML = '';
+      wrap = document.createElement('div');
+      wrap.className = 'minimap-wrap';
+      root.appendChild(wrap);
+    }
+
+    let canvas = wrap.querySelector('.minimap-canvas');
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.className = 'minimap-canvas';
+      wrap.appendChild(canvas);
+    }
+
+    let hud = wrap.querySelector('.minimap-hud');
+    if (!hud) {
+      hud = document.createElement('div');
+      hud.className = 'minimap-hud';
+      hud.innerHTML = '<span class="minimap-badge">LIVE</span><span class="minimap-meta">Ziehen bewegt die Kamera</span><span class="minimap-hint">Klick fokussiert Systeme, Mausrad zoomt</span>';
+      wrap.appendChild(hud);
+    }
+
+    bindMinimapInteractions(root, canvas);
+    drawMinimap(root, wrap, canvas, hud);
+    ensureMinimapLoop(root, wrap, canvas, hud);
   }
 
   // Handle minimap click-to-navigate: open galaxy map and fly to the selected star.

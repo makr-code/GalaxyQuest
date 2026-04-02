@@ -8,6 +8,7 @@
       this.serverTexturesEnabled = opts.serverTexturesEnabled !== false;
       this.serverTextureEndpoint = String(opts.serverTextureEndpoint || 'api/textures.php');
       this.serverTextureAlgoVersion = String(opts.serverTextureAlgoVersion || 'v1');
+      this.serverTextureAction = String(opts.serverTextureAction || 'planet_map');
       this._textureLoader = null;
     }
 
@@ -19,14 +20,17 @@
       }
     }
 
-    _serverTextureUrl(descriptor, map, size) {
+    _serverTextureUrl(descriptor, map, size, options = null) {
       if (!this.serverTexturesEnabled) return '';
       if (!descriptor || typeof descriptor !== 'object') return '';
       const encoded = this._encodeDescriptor(descriptor);
       if (!encoded) return '';
       const endpoint = String(this.serverTextureEndpoint || '').trim();
       if (!endpoint) return '';
-      return `${endpoint}?action=planet_map&map=${encodeURIComponent(map)}&size=${Number(size || this.size)}&algo=${encodeURIComponent(this.serverTextureAlgoVersion)}&d=${encodeURIComponent(encoded)}`;
+      const action = String(options?.action || this.serverTextureAction || 'planet_map');
+      const objectType = String(options?.objectType || 'generic');
+      const objectSegment = action === 'object_map' ? `&object=${encodeURIComponent(objectType)}` : '';
+      return `${endpoint}?action=${encodeURIComponent(action)}${objectSegment}&map=${encodeURIComponent(map)}&size=${Number(size || this.size)}&algo=${encodeURIComponent(this.serverTextureAlgoVersion)}&d=${encodeURIComponent(encoded)}`;
     }
 
     _applyTextureSampling(texture, map) {
@@ -40,8 +44,8 @@
       texture.needsUpdate = true;
     }
 
-    _attachServerTexture(fallbackTexture, descriptor, map, size) {
-      const url = this._serverTextureUrl(descriptor, map, size);
+    _attachServerTexture(fallbackTexture, descriptor, map, size, options = null) {
+      const url = this._serverTextureUrl(descriptor, map, size, options);
       if (!url || !fallbackTexture || !THREE?.TextureLoader) return fallbackTexture;
       this._textureLoader = this._textureLoader || new THREE.TextureLoader();
       this._textureLoader.load(
@@ -142,25 +146,83 @@
     }
 
     getPlanetMaterial(body, descriptor, fallbackColor = 0x9aa7b8) {
-      const bundle = this.getTextureBundle(descriptor, fallbackColor);
+      const bundle = this.getTextureBundle(descriptor, fallbackColor, { action: 'planet_map' });
       const material = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         map: bundle.map,
         bumpMap: bundle.bumpMap,
-        bumpScale: Math.max(0.01, Math.min(0.18, Number(descriptor?.variant === 'gas' ? 0.025 : 0.085))),
+        bumpScale: Math.max(0.004, Math.min(0.05, Number(descriptor?.variant === 'gas' ? 0.01 : 0.024))),
+        normalMap: bundle.normalMap || null,
+        normalScale: new THREE.Vector2(
+          Math.max(0.12, Math.min(1.15, Number(descriptor?.variant === 'gas' ? 0.22 : 0.68))),
+          Math.max(0.12, Math.min(1.15, Number(descriptor?.variant === 'gas' ? 0.22 : 0.68)))
+        ),
         emissiveMap: bundle.emissiveMap,
         emissive: new THREE.Color(Number(descriptor?.variant === 'lava' ? 0xff7d4d : 0xbfd8ff)),
         emissiveIntensity: Math.max(0, Math.min(0.7, Number(descriptor?.variant === 'lava' ? 0.42 : 0.12) + Number(descriptor?.glow || 0) * 0.7)),
         roughness: Math.max(0.08, Math.min(0.98, Number(descriptor?.roughness ?? 0.82))),
         metalness: Math.max(0, Math.min(0.22, Number(descriptor?.metalness ?? 0.04))),
       });
+      this._attachNightEmission(material, descriptor);
       material.userData = Object.assign({}, material.userData, { sharedTexture: true });
       return material;
     }
 
+    _attachNightEmission(material, descriptor) {
+      if (!material) return;
+      const variant = String(descriptor?.variant || '').toLowerCase();
+      const baseNightStrength = variant === 'lava'
+        ? 0.4
+        : Math.max(0.16, Math.min(1.15, Number(descriptor?.glow || 0) * 1.9 + 0.18));
+      material.userData = Object.assign({}, material.userData, {
+        sharedTexture: true,
+        nightEmission: {
+          lightWorldPos: new THREE.Vector3(0, 0, 0),
+          strength: baseNightStrength,
+        },
+      });
+      material.onBeforeCompile = (shader) => {
+        shader.uniforms.gqLightWorldPos = { value: material.userData.nightEmission.lightWorldPos.clone() };
+        shader.uniforms.gqNightEmissionStrength = { value: Number(material.userData.nightEmission.strength || 0) };
+        material.userData.nightEmission.shader = shader;
+
+        shader.vertexShader = shader.vertexShader
+          .replace(
+            '#include <common>',
+            '#include <common>\nvarying vec3 gqWorldPosition;'
+          )
+          .replace(
+            '#include <worldpos_vertex>',
+            '#include <worldpos_vertex>\ngqWorldPosition = worldPosition.xyz;'
+          );
+
+        shader.fragmentShader = shader.fragmentShader
+          .replace(
+            '#include <common>',
+            '#include <common>\nuniform vec3 gqLightWorldPos;\nuniform float gqNightEmissionStrength;\nvarying vec3 gqWorldPosition;'
+          )
+          .replace(
+            '#include <emissivemap_fragment>',
+            [
+              '#ifdef USE_EMISSIVEMAP',
+              '  vec4 emissiveColor = texture2D( emissiveMap, vEmissiveMapUv );',
+              '  #ifdef DECODE_VIDEO_TEXTURE_EMISSIVE',
+              '    emissiveColor = sRGBTransferEOTF( emissiveColor );',
+              '  #endif',
+              '  vec3 gqNightLightDir = normalize( gqLightWorldPos - gqWorldPosition );',
+              '  float gqNightFacing = max( dot( normal, gqNightLightDir ), 0.0 );',
+              '  float gqNightFactor = smoothstep( 0.02, 0.82, 1.0 - gqNightFacing );',
+              '  totalEmissiveRadiance *= emissiveColor.rgb * ( gqNightFactor * gqNightEmissionStrength );',
+              '#endif'
+            ].join('\n')
+          );
+      };
+      material.needsUpdate = true;
+    }
+
     getCloudLayerConfig(descriptor, fallbackColor = 0x9aa7b8) {
       if (!descriptor || typeof descriptor !== 'object') return null;
-      const bundle = this.getTextureBundle(descriptor, fallbackColor);
+      const bundle = this.getTextureBundle(descriptor, fallbackColor, { action: 'planet_map' });
       if (!bundle?.cloudAlphaMap) return null;
       const cloudiness = Math.max(0, Math.min(1, Number(descriptor.clouds || 0)));
       if (cloudiness <= 0.06) return null;
@@ -174,15 +236,24 @@
       };
     }
 
-    getTextureBundle(descriptor, fallbackColor = 0x9aa7b8) {
-      const key = this._descriptorKey(descriptor);
+    getTextureBundle(descriptor, fallbackColor = 0x9aa7b8, options = null) {
+      const action = String(options?.action || 'planet_map');
+      const objectType = String(options?.objectType || 'generic');
+      const key = `${action}:${objectType}:${this._descriptorKey(descriptor)}`;
       const cached = this.cache.get(key);
       if (cached?.textures) return cached.textures;
 
-      const textures = this._buildTextureBundle(descriptor, fallbackColor);
+      const textures = this._buildTextureBundle(descriptor, fallbackColor, options);
       this.cache.set(key, { textures });
       this._rememberCacheKey(key);
       return textures;
+    }
+
+    getObjectTextureBundle(objectType, descriptor, fallbackColor = 0x9aa7b8) {
+      return this.getTextureBundle(descriptor, fallbackColor, {
+        action: 'object_map',
+        objectType: String(objectType || 'generic').toLowerCase(),
+      });
     }
 
     getAtmosphereConfig(descriptor) {
@@ -197,7 +268,7 @@
       };
     }
 
-    _buildTextureBundle(descriptor, fallbackColor) {
+    _buildTextureBundle(descriptor, fallbackColor, options = null) {
       const size = this.size;
       const width = size;
       const height = Math.max(64, Math.floor(size / 2));
@@ -210,25 +281,31 @@
       const emissiveCanvas = document.createElement('canvas');
       emissiveCanvas.width = width;
       emissiveCanvas.height = height;
+      const normalCanvas = document.createElement('canvas');
+      normalCanvas.width = width;
+      normalCanvas.height = height;
       const cloudCanvas = document.createElement('canvas');
       cloudCanvas.width = width;
       cloudCanvas.height = height;
       const ctx = colorCanvas.getContext('2d');
       const bumpCtx = bumpCanvas.getContext('2d');
       const emissiveCtx = emissiveCanvas.getContext('2d');
+      const normalCtx = normalCanvas.getContext('2d');
       const cloudCtx = cloudCanvas.getContext('2d');
-      if (!ctx || !bumpCtx || !emissiveCtx || !cloudCtx) {
+      if (!ctx || !bumpCtx || !emissiveCtx || !normalCtx || !cloudCtx) {
         const map = new THREE.CanvasTexture(colorCanvas);
-        return { map, bumpMap: null, emissiveMap: null, cloudAlphaMap: null };
+        return { map, bumpMap: null, normalMap: null, emissiveMap: null, cloudAlphaMap: null };
       }
 
       const image = ctx.createImageData(width, height);
       const bumpImage = bumpCtx.createImageData(width, height);
       const emissiveImage = emissiveCtx.createImageData(width, height);
+      const normalImage = normalCtx.createImageData(width, height);
       const cloudImage = cloudCtx.createImageData(width, height);
       const data = image.data;
       const bumpData = bumpImage.data;
       const emissiveData = emissiveImage.data;
+      const normalData = normalImage.data;
       const cloudData = cloudImage.data;
       const seed = Number(descriptor?.seed || fallbackColor || 1) >>> 0;
       const variant = String(descriptor?.variant || 'rocky').toLowerCase();
@@ -329,9 +406,32 @@
         }
       }
 
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          const idx = (y * width + x) * 4;
+          const leftX = (x - 1 + width) % width;
+          const rightX = (x + 1) % width;
+          const upY = Math.max(0, y - 1);
+          const downY = Math.min(height - 1, y + 1);
+          const heightL = bumpData[(y * width + leftX) * 4] / 255;
+          const heightR = bumpData[(y * width + rightX) * 4] / 255;
+          const heightU = bumpData[(upY * width + x) * 4] / 255;
+          const heightD = bumpData[(downY * width + x) * 4] / 255;
+          const dx = heightL - heightR;
+          const dy = heightU - heightD;
+          const nz = 1.0 / Math.max(0.18, Number(descriptor?.variant === 'gas' ? 2.8 : 1.65));
+          const len = Math.sqrt(dx * dx + dy * dy + nz * nz) || 1;
+          normalData[idx] = this._clampByte(((dx / len) * 0.5 + 0.5) * 255);
+          normalData[idx + 1] = this._clampByte(((dy / len) * 0.5 + 0.5) * 255);
+          normalData[idx + 2] = this._clampByte(((nz / len) * 0.5 + 0.5) * 255);
+          normalData[idx + 3] = 255;
+        }
+      }
+
       ctx.putImageData(image, 0, 0);
       bumpCtx.putImageData(bumpImage, 0, 0);
       emissiveCtx.putImageData(emissiveImage, 0, 0);
+      normalCtx.putImageData(normalImage, 0, 0);
       cloudCtx.putImageData(cloudImage, 0, 0);
 
       const map = new THREE.CanvasTexture(colorCanvas);
@@ -340,18 +440,22 @@
       const bumpMap = new THREE.CanvasTexture(bumpCanvas);
       this._applyTextureSampling(bumpMap, 'bump');
 
+      const normalMap = new THREE.CanvasTexture(normalCanvas);
+      this._applyTextureSampling(normalMap, 'normal');
+
       const emissiveMap = new THREE.CanvasTexture(emissiveCanvas);
       this._applyTextureSampling(emissiveMap, 'emissive');
 
       const cloudAlphaMap = new THREE.CanvasTexture(cloudCanvas);
       this._applyTextureSampling(cloudAlphaMap, 'cloud');
 
-      this._attachServerTexture(map, descriptor, 'albedo', width);
-      this._attachServerTexture(bumpMap, descriptor, 'bump', width);
-      this._attachServerTexture(emissiveMap, descriptor, 'emissive', width);
-      this._attachServerTexture(cloudAlphaMap, descriptor, 'cloud', width);
+      this._attachServerTexture(map, descriptor, 'albedo', width, options);
+      this._attachServerTexture(bumpMap, descriptor, 'bump', width, options);
+      this._attachServerTexture(normalMap, descriptor, 'normal', width, options);
+      this._attachServerTexture(emissiveMap, descriptor, 'emissive', width, options);
+      this._attachServerTexture(cloudAlphaMap, descriptor, 'cloud', width, options);
 
-      return { map, bumpMap, emissiveMap, cloudAlphaMap };
+      return { map, bumpMap, normalMap, emissiveMap, cloudAlphaMap };
     }
 
     dispose() {

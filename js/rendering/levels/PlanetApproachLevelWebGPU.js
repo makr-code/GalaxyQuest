@@ -23,6 +23,22 @@ var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefine
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
+function parseHexColor(hex, fallback) {
+  const normalized = String(hex || '').trim();
+  return /^#?[0-9a-f]{6}$/i.test(normalized)
+    ? `#${normalized.replace(/^#/, '')}`
+    : fallback;
+}
+
+function hexToRgbFloat(hex) {
+  const normalized = parseHexColor(hex, '#7db7ee').replace('#', '');
+  return [
+    parseInt(normalized.slice(0, 2), 16) / 255,
+    parseInt(normalized.slice(2, 4), 16) / 255,
+    parseInt(normalized.slice(4, 6), 16) / 255,
+  ];
+}
+
 class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
   constructor() {
     super();
@@ -35,6 +51,11 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
     this._context   = null;
     this._pipeline  = null;
     this._rotation  = 0;          // radians accumulated per-frame
+    this._visualPalette = {
+      base: [0.2, 0.45, 0.8],
+      atmo: [0.55, 0.75, 1.0],
+      clear: [0.0, 0.0, 0.02],
+    };
   }
 
   async initialize(canvas, backend) {
@@ -59,6 +80,7 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
 
   setSceneData(data) {
     this._sceneData = data || null;
+    this._applySceneDataVisuals(data);
   }
 
   render(dt, cameraState) { // eslint-disable-line no-unused-vars
@@ -69,6 +91,7 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
     this._rotation = 0;
+    this._applySceneDataVisuals(transitionPayload || this._sceneData || null);
   }
 
   async exit(nextLevel) { // eslint-disable-line no-unused-vars
@@ -91,6 +114,9 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
 
   async _buildPipeline() {
     if (!this._device) return;
+
+    const base = this._visualPalette.base.map((value) => Number(value).toFixed(4));
+    const atmo = this._visualPalette.atmo.map((value) => Number(value).toFixed(4));
 
     const shaderCode = /* wgsl */`
       struct Uniforms {
@@ -133,8 +159,8 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
         // Fresnel atmosphere rim-lighting
         let view_dir = normalize(vec3<f32>(0.0, 0.0, 1.0));
         let fresnel  = pow(1.0 - abs(dot(in.norm, view_dir)), 3.0);
-        let base_col = vec3<f32>(0.2, 0.45, 0.8);          // ocean blue
-        let atmo_col = vec3<f32>(0.55, 0.75, 1.0);         // atmosphere glow
+        let base_col = vec3<f32>(${base[0]}, ${base[1]}, ${base[2]});
+        let atmo_col = vec3<f32>(${atmo[0]}, ${atmo[1]}, ${atmo[2]});
         let col      = mix(base_col, atmo_col, fresnel * 0.8);
         return vec4<f32>(col, 1.0);
       }
@@ -161,7 +187,7 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
       const pass    = encoder.beginRenderPass({
         colorAttachments: [{
           view,
-          clearValue: { r: 0.0, g: 0.0, b: 0.02, a: 1.0 },
+          clearValue: { r: this._visualPalette.clear[0], g: this._visualPalette.clear[1], b: this._visualPalette.clear[2], a: 1.0 },
           loadOp: 'clear',
           storeOp: 'store',
         }],
@@ -172,6 +198,31 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
       pass.end();
       this._device.queue.submit([encoder.finish()]);
     } catch (_) {}
+  }
+
+  _resolveVisualSource(data) {
+    if (!data || typeof data !== 'object') return null;
+    return data.focusPlanet || data.planet || data.colony || data.target || data;
+  }
+
+  _applySceneDataVisuals(data) {
+    const source = this._resolveVisualSource(data);
+    const ownerColor = parseHexColor(
+      source?.colony_owner_color || source?.owner_color || source?.faction_color || '',
+      '#7db7ee'
+    );
+    const isOwned = !!String(source?.colony_owner_color || source?.owner_color || source?.faction_color || '').trim();
+    const isPlayer = Number(source?.colony_is_player || source?.is_player || 0) === 1;
+    const base = hexToRgbFloat(isOwned ? ownerColor : '#3373cc');
+    const atmo = hexToRgbFloat(isPlayer ? '#7dffb2' : (isOwned ? ownerColor : '#8cc4ff'));
+    this._visualPalette = {
+      base,
+      atmo,
+      clear: isOwned ? [0.02, 0.04, 0.07] : [0.0, 0.0, 0.02],
+    };
+    if (this._device && this._context) {
+      this._buildPipeline().catch(() => {});
+    }
   }
 }
 

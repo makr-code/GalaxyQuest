@@ -36,6 +36,31 @@
       return this.planetPipeline.getCloudLayerConfig(descriptor, fallbackColor);
     }
 
+    getObjectTextureBundle(objectType, descriptor, fallbackColor = 0x9aa7b8) {
+      if (!this.planetPipeline || !descriptor) return null;
+      return this.planetPipeline.getObjectTextureBundle(objectType, descriptor, fallbackColor);
+    }
+
+    getObjectMaterial(descriptor, fallbackColor = 0x9aa7b8, objectType = 'generic') {
+      const bundle = this.getObjectTextureBundle(objectType, descriptor, fallbackColor);
+      if (!bundle) return null;
+      const material = new this.THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: bundle.map,
+        bumpMap: bundle.bumpMap,
+        bumpScale: Math.max(0.01, Math.min(0.16, Number(descriptor?.variant === 'gas' ? 0.02 : 0.075))),
+        normalMap: bundle.normalMap || null,
+        normalScale: new this.THREE.Vector2(0.5, 0.5),
+        emissiveMap: bundle.emissiveMap,
+        emissive: new this.THREE.Color(Number(descriptor?.variant === 'lava' ? 0xff7d4d : fallbackColor)),
+        emissiveIntensity: Math.max(0, Math.min(0.9, Number(descriptor?.glow || 0) * 0.75 + 0.16)),
+        roughness: Math.max(0.08, Math.min(0.98, Number(descriptor?.roughness ?? 0.62))),
+        metalness: Math.max(0, Math.min(0.88, Number(descriptor?.metalness ?? 0.35))),
+      });
+      material.userData = Object.assign({}, material.userData, { sharedTexture: true });
+      return material;
+    }
+
     getProceduralTexture(key, size, drawFn) {
       const THREE = this.THREE;
       if (!THREE || typeof drawFn !== 'function') return null;

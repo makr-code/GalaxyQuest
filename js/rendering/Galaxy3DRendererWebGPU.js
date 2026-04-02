@@ -122,7 +122,20 @@
       pad1          : f32,
     };
 
+    struct LightEntry {
+      typeAndColor        : vec4<f32>,
+      intensityAndPos     : vec4<f32>,
+      dirAndDistance      : vec4<f32>,
+      decayShadowVisible  : vec4<f32>,
+    };
+
+    struct LightBlock {
+      header : vec4<f32>,
+      lights : array<LightEntry, 8>,
+    };
+
     @group(0) @binding(0) var<uniform> uHero : HeroUniforms;
+    @group(0) @binding(1) var<uniform> uLights : LightBlock;
 
     struct HeroIn {
       @location(0) pos    : vec3<f32>,
@@ -134,7 +147,7 @@
       @builtin(position) clipPos : vec4<f32>,
       @location(0) normal : vec3<f32>,
       @location(1) uv     : vec2<f32>,
-      @location(2) worldZ : f32,
+      @location(2) worldPos : vec3<f32>,
     };
 
     fn rotateY(v : vec3<f32>, angle : f32) -> vec3<f32> {
@@ -171,14 +184,45 @@
       );
       out.normal = normal;
       out.uv = in.uv;
-      out.worldZ = pos.z;
+      out.worldPos = pos;
       return out;
     }
 
     @fragment
     fn fs_main(in : HeroOut) -> @location(0) vec4<f32> {
-      let lightDir = normalize(vec3<f32>(-0.45, 0.35, 1.0));
-      let ndl = max(dot(normalize(in.normal), lightDir), 0.0);
+      var ambient = vec3<f32>(0.18, 0.20, 0.26);
+      var direct = vec3<f32>(0.0, 0.0, 0.0);
+      let lightCount = min(i32(uLights.header.x), 8);
+      for (var i = 0; i < 8; i = i + 1) {
+        if (i >= lightCount) { break; }
+        let light = uLights.lights[i];
+        if (light.decayShadowVisible.z < 0.5) { continue; }
+        let lightType = i32(light.typeAndColor.x + 0.5);
+        let color = light.typeAndColor.yzw;
+        let intensity = light.intensityAndPos.x;
+        if (lightType == 0) {
+          ambient = ambient + color * intensity;
+        } else if (lightType == 1) {
+          let lightDir = normalize(light.dirAndDistance.xyz);
+          let ndl = max(dot(normalize(in.normal), lightDir), 0.0);
+          direct = direct + color * intensity * ndl;
+        } else if (lightType == 2) {
+          let lightPos = light.intensityAndPos.yzw;
+          let toLight = lightPos - in.worldPos;
+          let dist = max(length(toLight), 0.0001);
+          var distanceAtten = 1.0;
+          let maxDistance = light.dirAndDistance.w;
+          if (maxDistance > 0.0) {
+            let distNorm = clamp(1.0 - dist / maxDistance, 0.0, 1.0);
+            let decay = max(light.decayShadowVisible.x, 0.0001);
+            distanceAtten = pow(distNorm, decay);
+          }
+          let pointDir = normalize(toLight);
+          let ndlPoint = max(dot(normalize(in.normal), pointDir), 0.0);
+          direct = direct + color * intensity * ndlPoint * distanceAtten;
+        }
+      }
+      let ndl = max(max(direct.x, direct.y), direct.z);
       let rim = pow(1.0 - max(in.normal.z, 0.0), 2.8);
       let plasma = (
         sin(in.uv.x * 22.0 + uHero.time * 1.7) +
@@ -189,7 +233,7 @@
       let base = vec3<f32>(uHero.baseR, uHero.baseG, uHero.baseB);
       let corona = vec3<f32>(uHero.coronaR, uHero.coronaG, uHero.coronaB);
       let glow = rim * (0.32 + plasmaMask * 0.68);
-      let color = base * (0.45 + ndl * 0.9)
+      let color = base * (ambient * 0.22 + vec3<f32>(0.24, 0.24, 0.24) + direct * 0.9)
                 + corona * (glow * (0.65 + plasmaMask * 0.35))
                 + base * plasmaMask * 0.22;
       let alpha = clamp(0.94 + rim * 0.06, 0.0, 1.0);
@@ -217,7 +261,20 @@
       pad1          : f32,
     };
 
+    struct LightEntry {
+      typeAndColor        : vec4<f32>,
+      intensityAndPos     : vec4<f32>,
+      dirAndDistance      : vec4<f32>,
+      decayShadowVisible  : vec4<f32>,
+    };
+
+    struct LightBlock {
+      header : vec4<f32>,
+      lights : array<LightEntry, 8>,
+    };
+
     @group(0) @binding(0) var<uniform> uHero : HeroUniforms;
+    @group(0) @binding(1) var<uniform> uLights : LightBlock;
 
     struct HeroIn {
       @location(0) pos    : vec3<f32>,
@@ -283,7 +340,20 @@
       pad0       : f32,
     };
 
+    struct LightEntry {
+      typeAndColor        : vec4<f32>,
+      intensityAndPos     : vec4<f32>,
+      dirAndDistance      : vec4<f32>,
+      decayShadowVisible  : vec4<f32>,
+    };
+
+    struct LightBlock {
+      header : vec4<f32>,
+      lights : array<LightEntry, 8>,
+    };
+
     @group(0) @binding(0) var<uniform> uPlanet : PlanetUniforms;
+    @group(0) @binding(1) var<uniform> uLights : LightBlock;
 
     struct PlanetIn {
       @location(0) pos    : vec3<f32>,
@@ -295,6 +365,7 @@
       @builtin(position) clipPos : vec4<f32>,
       @location(0) normal : vec3<f32>,
       @location(1) uv     : vec2<f32>,
+      @location(2) worldPos : vec3<f32>,
     };
 
     fn rotateY(v : vec3<f32>, angle : f32) -> vec3<f32> {
@@ -317,13 +388,45 @@
       );
       out.normal = normal;
       out.uv = in.uv;
+      out.worldPos = pos;
       return out;
     }
 
     @fragment
     fn fs_main(in : PlanetOut) -> @location(0) vec4<f32> {
-      let lightDir = normalize(vec3<f32>(-0.3, 0.25, 1.0));
-      let ndl = max(dot(normalize(in.normal), lightDir), 0.0);
+      var ambient = vec3<f32>(0.12, 0.14, 0.18);
+      var direct = vec3<f32>(0.0, 0.0, 0.0);
+      let lightCount = min(i32(uLights.header.x), 8);
+      for (var i = 0; i < 8; i = i + 1) {
+        if (i >= lightCount) { break; }
+        let light = uLights.lights[i];
+        if (light.decayShadowVisible.z < 0.5) { continue; }
+        let lightType = i32(light.typeAndColor.x + 0.5);
+        let color = light.typeAndColor.yzw;
+        let intensity = light.intensityAndPos.x;
+        if (lightType == 0) {
+          ambient = ambient + color * intensity;
+        } else if (lightType == 1) {
+          let lightDir = normalize(light.dirAndDistance.xyz);
+          let ndlContribution = max(dot(normalize(in.normal), lightDir), 0.0);
+          direct = direct + color * intensity * ndlContribution;
+        } else if (lightType == 2) {
+          let lightPos = light.intensityAndPos.yzw;
+          let toLight = lightPos - in.worldPos;
+          let dist = max(length(toLight), 0.0001);
+          var distanceAtten = 1.0;
+          let maxDistance = light.dirAndDistance.w;
+          if (maxDistance > 0.0) {
+            let distNorm = clamp(1.0 - dist / maxDistance, 0.0, 1.0);
+            let decay = max(light.decayShadowVisible.x, 0.0001);
+            distanceAtten = pow(distNorm, decay);
+          }
+          let pointDir = normalize(toLight);
+          let ndlPoint = max(dot(normalize(in.normal), pointDir), 0.0);
+          direct = direct + color * intensity * ndlPoint * distanceAtten;
+        }
+      }
+      let ndl = max(max(direct.x, direct.y), direct.z);
       let latBands = 0.5 + 0.5 * sin((in.uv.y * 18.0 + uPlanet.seed * 5.3) + uPlanet.time * 0.18);
       let terrain = 0.5 + 0.5 * sin((in.uv.x * 15.0) + (in.uv.y * 11.0) + uPlanet.seed * 9.0);
       let waterMask = step(terrain, uPlanet.water);
@@ -335,7 +438,8 @@
       let cloudMask = smoothstep(0.58, 0.88, 0.5 + 0.5 * sin((in.uv.x * 24.0) - (in.uv.y * 13.0) + uPlanet.time * 0.26 + uPlanet.seed * 3.0));
       surface = mix(surface, vec3<f32>(1.0, 1.0, 1.0), cloudMask * uPlanet.cloudiness * 0.45);
       let rim = pow(1.0 - max(in.normal.z, 0.0), 3.0);
-      let color = surface * (0.24 + ndl * 0.92) + accent * (rim * 0.18 + uPlanet.emissive * 0.12);
+      let color = surface * (ambient * 0.22 + vec3<f32>(0.18, 0.18, 0.2) + direct * 0.92)
+                + accent * (rim * 0.18 + uPlanet.emissive * 0.12);
       return vec4<f32>(color, 1.0);
     }
   `;
@@ -619,6 +723,7 @@
       this._orbitPipeline = null;
       this._uniformBuf = null;
       this._heroUniformBuf = null;
+      this._lightUniformBuf = null;
       this._planetUniformBuf = null;
       this._orbitUniformBuf = null;
       this._bindGroup  = null;
@@ -683,11 +788,25 @@
       this._lastClickTs   = 0;
       this._followSelection = true;
       this._cameraDriver    = null;
+      this._lightProfile    = 'galaxy';
+      this._lightRigProfiles = window.GQLightRigManager
+        ? new window.GQLightRigManager({})
+        : null;
       this._eventHandlers   = null;
       this._resizeHandler   = null;
+      this._inputContextOverride = '';
+      this._kbdMove = {
+        zoomIn: false,
+        zoomOut: false,
+        panL: false,
+        panR: false,
+        panU: false,
+        panD: false,
+      };
 
       // Flags
       this._clusterBoundsVisible   = false;
+      this._clusterHeatmapEnabled  = true;
       this._galacticCoreFxEnabled  = false;
       this._scientificScale        = false;
 
@@ -867,16 +986,30 @@
         size: 64,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
+      this._lightUniformBuf = this._device.createBuffer({
+        size: 528,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
       const heroBgl = this._device.createBindGroupLayout({
-        entries: [{
-          binding: 0,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'uniform' },
-        }],
+        entries: [
+          {
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform' },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform' },
+          }
+        ],
       });
       this._heroBindGroup = this._device.createBindGroup({
         layout: heroBgl,
-        entries: [{ binding: 0, resource: { buffer: this._heroUniformBuf } }],
+        entries: [
+          { binding: 0, resource: { buffer: this._heroUniformBuf } },
+          { binding: 1, resource: { buffer: this._lightUniformBuf } },
+        ],
       });
       const heroVertexBuffers = [{
         arrayStride: 32,
@@ -926,15 +1059,25 @@
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       const planetBgl = this._device.createBindGroupLayout({
-        entries: [{
-          binding: 0,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'uniform' },
-        }],
+        entries: [
+          {
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform' },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform' },
+          }
+        ],
       });
       this._planetBindGroup = this._device.createBindGroup({
         layout: planetBgl,
-        entries: [{ binding: 0, resource: { buffer: this._planetUniformBuf } }],
+        entries: [
+          { binding: 0, resource: { buffer: this._planetUniformBuf } },
+          { binding: 1, resource: { buffer: this._lightUniformBuf } },
+        ],
       });
       this._planetPipeline = this._device.createRenderPipeline({
         layout: this._device.createPipelineLayout({ bindGroupLayouts: [planetBgl] }),
@@ -1071,6 +1214,109 @@
       uni.setFloat32(56, 0, true);
       uni.setFloat32(60, 0, true);
       this._device.queue.writeBuffer(this._heroUniformBuf, 0, uni.buffer);
+    }
+
+    _getEngineLightApi() {
+      return window.GQLight || null;
+    }
+
+    _engineLightHexFromStar(star) {
+      const rgb = _starColor(star || this._currentTarget || null);
+      const r = Math.max(0, Math.min(255, Math.round((rgb[0] || 0) * 255)));
+      const g = Math.max(0, Math.min(255, Math.round((rgb[1] || 0) * 255)));
+      const b = Math.max(0, Math.min(255, Math.round((rgb[2] || 0) * 255)));
+      return (r << 16) | (g << 8) | b;
+    }
+
+    _buildEngineLights() {
+      const api = this._getEngineLightApi();
+      if (!api) return null;
+      const { AmbientLight, DirectionalLight, PointLight, buildLightUniformBlock } = api;
+      if (typeof AmbientLight !== 'function' || typeof DirectionalLight !== 'function' || typeof PointLight !== 'function' || typeof buildLightUniformBlock !== 'function') {
+        return null;
+      }
+      const defs = this._resolveSharedLightProfileDefs();
+      const lights = [];
+      defs.forEach((def) => {
+        const type = String(def?.type || 'ambient').toLowerCase();
+        if (type === 'ambient') {
+          lights.push(new AmbientLight(Number(def.color || 0xffffff), Number(def.intensity || 0)));
+          return;
+        }
+        if (type === 'directional') {
+          const dir = new DirectionalLight(Number(def.color || 0xffffff), Number(def.intensity || 0));
+          if (Array.isArray(def.direction) && def.direction.length >= 3) {
+            dir.direction.x = Number(def.direction[0] || 0);
+            dir.direction.y = Number(def.direction[1] || -1);
+            dir.direction.z = Number(def.direction[2] || 0);
+          } else if (Array.isArray(def.position) && def.position.length >= 3) {
+            const px = Number(def.position[0] || 0);
+            const py = Number(def.position[1] || -1);
+            const pz = Number(def.position[2] || 0);
+            const len = Math.sqrt(px * px + py * py + pz * pz) || 1;
+            dir.direction.x = px / len;
+            dir.direction.y = py / len;
+            dir.direction.z = pz / len;
+          }
+          lights.push(dir);
+          return;
+        }
+        if (type === 'point') {
+          const point = new PointLight(
+            Number(def.color || 0xffffff),
+            Number(def.intensity || 0),
+            Number(def.distance || 0),
+            Number(def.decay || 2)
+          );
+          if (Array.isArray(def.position) && def.position.length >= 3) {
+            point.position.x = Number(def.position[0] || 0);
+            point.position.y = Number(def.position[1] || 0);
+            point.position.z = Number(def.position[2] || 0);
+          }
+          lights.push(point);
+        }
+      });
+
+      return buildLightUniformBlock(lights, 8);
+    }
+
+    _buildLightRigProfileOptions(profileName) {
+      if (String(profileName || '').toLowerCase() !== 'system') return null;
+      return {
+        starColor: this._engineLightHexFromStar(this._currentTarget),
+        starIntensity: ({ O: 3.2, B: 2.9, A: 2.7, F: 2.45, G: 2.3, K: 2.1, M: 1.85 })[
+          String(this._currentTarget?.spectral_class || 'G').toUpperCase().charAt(0)
+        ] || 2.3,
+        starPosition: [0, 0, 0],
+      };
+    }
+
+    _resolveSharedLightProfileDefs() {
+      if (this._lightRigProfiles && typeof this._lightRigProfiles.getProfileDescriptors === 'function') {
+        return this._lightRigProfiles.getProfileDescriptors(
+          this._lightProfile,
+          this._buildLightRigProfileOptions(this._lightProfile)
+        );
+      }
+      if (this._lightProfile === 'system') {
+        return [
+          { type: 'ambient', color: 0x6179a8, intensity: 0.34 },
+          { type: 'point', color: this._engineLightHexFromStar(this._currentTarget), intensity: 2.2, position: [0, 0, 0], distance: 900, decay: 1.6 },
+          { type: 'directional', color: 0x7ba8ff, intensity: 0.22, direction: [0.28, -0.18, 0.92] },
+        ];
+      }
+      return [
+        { type: 'ambient', color: 0x52648c, intensity: 0.42 },
+        { type: 'directional', color: this._engineLightHexFromStar(this._currentTarget), intensity: 0.86, direction: [-0.45, 0.35, 1.0] },
+        { type: 'directional', color: 0x7ba8ff, intensity: 0.18, direction: [0.28, -0.18, 0.92] },
+      ];
+    }
+
+    _writeLightUniforms() {
+      if (!this._lightUniformBuf || !this._device) return;
+      const block = this._buildEngineLights();
+      if (!block) return;
+      this._device.queue.writeBuffer(this._lightUniformBuf, 0, block.buffer, block.byteOffset, block.byteLength);
     }
 
     _drawHeroStar(pass) {
@@ -1248,6 +1494,25 @@
     _renderFrame() {
       if (!this._device || !this._context || !this._pipeline || !this._uniformBuf) return;
 
+      if (this._kbdMove.zoomIn) {
+        this._view.targetZoom = Math.min(6, Number(this._view.targetZoom || this._view.zoom || 1) * 1.02);
+      }
+      if (this._kbdMove.zoomOut) {
+        this._view.targetZoom = Math.max(0.45, Number(this._view.targetZoom || this._view.zoom || 1) * 0.98);
+      }
+      if (this._kbdMove.panL) {
+        this._view.targetPanX -= 0.012 / Math.max(0.45, Number(this._view.zoom || this._view.targetZoom || 1));
+      }
+      if (this._kbdMove.panR) {
+        this._view.targetPanX += 0.012 / Math.max(0.45, Number(this._view.zoom || this._view.targetZoom || 1));
+      }
+      if (this._kbdMove.panU) {
+        this._view.targetPanY += 0.012 / Math.max(0.45, Number(this._view.zoom || this._view.targetZoom || 1));
+      }
+      if (this._kbdMove.panD) {
+        this._view.targetPanY -= 0.012 / Math.max(0.45, Number(this._view.zoom || this._view.targetZoom || 1));
+      }
+
       // Smooth camera
       const s = 0.12;
       this._view.panX  += (this._view.targetPanX  - this._view.panX)  * s;
@@ -1269,6 +1534,7 @@
       uni.setFloat32(24, 2 / Math.max(1, this._canvas?.width || 1), true);
       uni.setFloat32(28, 2 / Math.max(1, this._canvas?.height || 1), true);
       this._device.queue.writeBuffer(this._uniformBuf, 0, uni.buffer);
+      this._writeLightUniforms();
 
       const encoder = this._device.createCommandEncoder();
       const view    = this._context.getCurrentTexture().createView();
@@ -1304,11 +1570,185 @@
       this._frameTick++;
     }
 
+    _resolveInputActions(ctx, phase, inputContextHint = '') {
+      const moduleApi = window.GQWebGPUInputContexts;
+      if (moduleApi && typeof moduleApi.resolve === 'function') {
+        return moduleApi.resolve(this, ctx, phase, inputContextHint);
+      }
+      const inputContext = String(inputContextHint || ctx?.inputContext || this._getInputContext());
+      if (inputContext === 'system') {
+        return this._resolveSystemInputActions(ctx, phase);
+      }
+      if (inputContext === 'planetApproach' || inputContext === 'colonySurface' || inputContext === 'objectApproach') {
+        return this._resolveSystemInputActions(ctx, phase);
+      }
+      return this._resolveGalaxyInputActions(ctx, phase);
+    }
+
+    _resolveGalaxyInputActions(ctx, phase) {
+      return this._resolveInputActionsCommon(ctx, phase, { allowSystemExit: false });
+    }
+
+    _resolveSystemInputActions(ctx, phase) {
+      return this._resolveInputActionsCommon(ctx, phase, { allowSystemExit: true });
+    }
+
+    _resolveInputActionsCommon(ctx, phase, opts = {}) {
+      const actions = [];
+      const allowSystemExit = opts.allowSystemExit === true;
+      const key = String(ctx?.key || '').toLowerCase();
+      const active = phase === 'keydown';
+      const target = ctx?.nativeEvent?.target || null;
+      const tag = String(target?.tagName || '').toLowerCase();
+
+      if ((phase === 'keydown' || phase === 'keyup') && (tag === 'input' || tag === 'textarea' || target?.isContentEditable)) {
+        return actions;
+      }
+
+      if (phase === 'pointerdown' && (ctx.button === 1 || ctx.button === 2)) {
+        actions.push({ type: 'camera.drag.begin', mode: 'pan', button: ctx.button });
+      }
+      if (phase === 'pointermove' && ctx?.state?.drag?.active && (ctx.state.drag.button === 1 || ctx.state.drag.button === 2)) {
+        actions.push({ type: 'camera.drag.move', mode: 'pan', button: ctx.state.drag.button });
+      }
+      if ((phase === 'pointerup' || phase === 'pointercancel') && this._isDragging) {
+        actions.push({ type: 'camera.drag.end' });
+      }
+      if (phase === 'wheel') {
+        actions.push({ type: 'camera.zoom.step', direction: ctx.deltaY < 0 ? 'in' : 'out' });
+      }
+      if (phase === 'keydown' || phase === 'keyup') {
+        if (key === 'escape' && active && allowSystemExit) actions.push({ type: 'ui.system.exit' });
+        if (key === '+' || key === '=' || key === 'w') actions.push({ type: 'camera.zoom.hold', direction: 'in', active });
+        if (key === '-' || key === 's') actions.push({ type: 'camera.zoom.hold', direction: 'out', active });
+        if (key === 'arrowleft' || key === 'a') actions.push({ type: 'camera.pan.hold', direction: 'left', active });
+        if (key === 'arrowright' || key === 'd') actions.push({ type: 'camera.pan.hold', direction: 'right', active });
+        if (key === 'arrowup' || key === 'e') actions.push({ type: 'camera.pan.hold', direction: 'up', active });
+        if (key === 'arrowdown' || key === 'q') actions.push({ type: 'camera.pan.hold', direction: 'down', active });
+      }
+      return actions;
+    }
+
+    _handleInputAction(action, ctx) {
+      const moduleApi = window.GQWebGPUInputContexts;
+      if (moduleApi && typeof moduleApi.handle === 'function') {
+        moduleApi.handle(this, action, ctx);
+        return;
+      }
+      if (!action || !action.type) return;
+      switch (action.type) {
+        case 'ui.system.exit':
+          if (this.systemMode) {
+            ctx?.nativeEvent?.preventDefault?.();
+            this.exitSystemView(true);
+          }
+          break;
+        case 'camera.drag.begin':
+          this._isDragging = true;
+          this._dragStartX = Number(ctx?.clientX || 0);
+          this._dragStartY = Number(ctx?.clientY || 0);
+          this._dragPanX = Number(this._view.targetPanX || 0);
+          this._dragPanY = Number(this._view.targetPanY || 0);
+          ctx?.nativeEvent?.preventDefault?.();
+          break;
+        case 'camera.drag.move': {
+          if (!this._isDragging) return;
+          const dx = Number(ctx?.state?.drag?.deltaClientX || 0) / Math.max(1, this._canvas?.clientWidth || 1) * 2;
+          const dy = Number(ctx?.state?.drag?.deltaClientY || 0) / Math.max(1, this._canvas?.clientHeight || 1) * 2;
+          this._view.targetPanX = this._dragPanX + dx / Math.max(0.45, Number(this._view.zoom || 1));
+          this._view.targetPanY = this._dragPanY - dy / Math.max(0.45, Number(this._view.zoom || 1));
+          break;
+        }
+        case 'camera.drag.end':
+          this._isDragging = false;
+          break;
+        case 'camera.zoom.step': {
+          const delta = action.direction === 'out' ? -0.15 : 0.15;
+          const nextZ = Math.max(0.45, Math.min(6, Number(this._view.targetZoom || this._view.zoom || 1) + delta * Number(this._view.targetZoom || this._view.zoom || 1)));
+          this._view.targetZoom = nextZ;
+          break;
+        }
+        case 'camera.zoom.hold':
+          if (action.direction === 'in') this._kbdMove.zoomIn = !!action.active;
+          if (action.direction === 'out') this._kbdMove.zoomOut = !!action.active;
+          break;
+        case 'camera.pan.hold':
+          if (action.direction === 'left') this._kbdMove.panL = !!action.active;
+          if (action.direction === 'right') this._kbdMove.panR = !!action.active;
+          if (action.direction === 'up') this._kbdMove.panU = !!action.active;
+          if (action.direction === 'down') this._kbdMove.panD = !!action.active;
+          if (String(ctx?.key || '').startsWith('Arrow')) ctx?.nativeEvent?.preventDefault?.();
+          break;
+        default:
+          break;
+      }
+    }
+
     // ── Mouse / touch interaction ───────────────────────────────────────────
 
     _attachInteraction(canvas) {
       if (this._eventHandlers) return;
       const self = this;
+
+      if (window.GQCanvasInputController) {
+        const actionResolverProfiles = {
+          galaxy: (ctx, phase) => self._resolveInputActions(ctx, phase, 'galaxy'),
+          system: (ctx, phase) => self._resolveInputActions(ctx, phase, 'system'),
+          planetApproach: (ctx, phase) => self._resolveInputActions(ctx, phase, 'planetApproach'),
+          colonySurface: (ctx, phase) => self._resolveInputActions(ctx, phase, 'colonySurface'),
+          objectApproach: (ctx, phase) => self._resolveInputActions(ctx, phase, 'objectApproach'),
+        };
+        const input = new window.GQCanvasInputController({
+          surface: canvas,
+          container: this.container,
+          keyboardTarget: window,
+          windowTarget: window,
+          context: this._getInputContext(),
+          captureWheel: true,
+          resolveActionsByContext: actionResolverProfiles,
+          resolveActions: (ctx, phase, contextName) => self._resolveInputActions(ctx, phase, contextName),
+          onAction: (action, ctx) => self._handleInputAction(action, ctx),
+          onResize: () => self.resize(),
+          onPointerMove: (ctx) => {
+            if (!self._rawStars.length) return;
+            const ndc = { x: ctx.ndcX, y: ctx.ndcY };
+            const magPx = self.hoverMagnetStarPx || 24;
+            const thresh = (magPx / Math.max(1, canvas.clientWidth)) * 2;
+            const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
+            if (idx !== self._hoveredIdx) {
+              self._hoveredIdx = idx;
+              const star = idx >= 0 ? self._rawStars[idx] : null;
+              if (typeof self._opts.onHover === 'function') {
+                self._opts.onHover(star, star ? self._starToScreenPos(canvas, star) : null);
+              }
+            }
+          },
+          onClick: (ctx) => {
+            const ndc = { x: ctx.ndcX, y: ctx.ndcY };
+            const magPx = self.clickMagnetEnabled ? (self.hoverMagnetStarPx || 24) : 8;
+            const thresh = (magPx / Math.max(1, canvas.clientWidth)) * 2;
+            const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
+            const star = idx >= 0 ? self._rawStars[idx] : null;
+            self._selectedIdx = idx;
+            self._pinnedStar = star;
+            if (star && typeof self._opts.onClick === 'function') {
+              self._opts.onClick(self._selectionPayload(star), self._starToScreenPos(canvas, star));
+            }
+          },
+          onDoubleClick: (ctx) => {
+            const ndc = { x: ctx.ndcX, y: ctx.ndcY };
+            const thresh = ((self.hoverMagnetStarPx || 24) / Math.max(1, canvas.clientWidth)) * 2;
+            const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
+            const star = idx >= 0 ? self._rawStars[idx] : null;
+            if (star && typeof self._opts.onDoubleClick === 'function') {
+              self._opts.onDoubleClick(self._selectionPayload(star), self._starToScreenPos(canvas, star));
+            }
+          },
+        });
+        input.bind();
+        this._eventHandlers = { inputController: input };
+        return;
+      }
 
       const onMouseMove = (e) => {
         if (!self._rawStars.length) return;
@@ -1355,7 +1795,7 @@
       const onClick = (e) => {
         const ndc = self._canvasToNdc(canvas, e.clientX, e.clientY);
         const magPx = self.clickMagnetEnabled ? (self.hoverMagnetStarPx || 24) : 8;
-        const thresh = (magPx / Math.max(1, canvas.clientWidth)) * 2;
+            self._opts.onHover(self._selectionPayload(star), star ? self._starToScreenPos(canvas, star) : null);
         const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
         const star = idx >= 0 ? self._rawStars[idx] : null;
         const now = Date.now();
@@ -1364,7 +1804,7 @@
 
         if (dbl) {
           if (star && typeof self._opts.onDoubleClick === 'function') {
-            self._opts.onDoubleClick(star, self._starToScreenPos(canvas, star));
+            self._opts.onDoubleClick(self._selectionPayload(star), self._starToScreenPos(canvas, star));
           }
           return;
         }
@@ -1372,7 +1812,7 @@
         self._selectedIdx = idx;
         self._pinnedStar  = star;
         if (star && typeof self._opts.onClick === 'function') {
-          self._opts.onClick(star, self._starToScreenPos(canvas, star));
+          self._opts.onClick(self._selectionPayload(star), self._starToScreenPos(canvas, star));
         }
       };
 
@@ -1382,7 +1822,7 @@
         const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
         const star = idx >= 0 ? self._rawStars[idx] : null;
         if (star && typeof self._opts.onDoubleClick === 'function') {
-          self._opts.onDoubleClick(star, self._starToScreenPos(canvas, star));
+          self._opts.onDoubleClick(self._selectionPayload(star), self._starToScreenPos(canvas, star));
         }
       };
 
@@ -1415,6 +1855,10 @@
     }
 
     _detachInteraction() {
+      if (this._eventHandlers?.inputController) {
+        this._eventHandlers.inputController.unbind();
+        this._eventHandlers = null;
+      }
       if (this._canvas && this._eventHandlers) {
         this._canvas.removeEventListener('mousemove', this._eventHandlers.onMouseMove);
         this._canvas.removeEventListener('mousedown', this._eventHandlers.onMouseDown);
@@ -1464,9 +1908,33 @@
       if (this._delegate) return this._delegate.setEmpires?.(empires);
     }
 
+    _selectionPayload(star) {
+      if (!star || typeof star !== 'object') return null;
+      return Object.assign({}, star, {
+        __kind: 'star',
+        __selectionKey: `star:${Number(star.galaxy_index || 0)}:${Number(star.system_index || 0)}`,
+        __selectionScope: 'galaxy',
+        __selectionMode: 'galaxy',
+        __selectionSourceView: 'renderer',
+      });
+    }
+
+    _resolveStarIndex(star) {
+      if (!star || !Array.isArray(this._rawStars) || !this._rawStars.length) return -1;
+      const directIdx = this._rawStars.indexOf(star);
+      if (directIdx >= 0) return directIdx;
+      const galaxyIndex = Number(star.galaxy_index || 0);
+      const systemIndex = Number(star.system_index || 0);
+      if (!Number.isFinite(galaxyIndex) || !Number.isFinite(systemIndex)) return -1;
+      return this._rawStars.findIndex((candidate) => (
+        Number(candidate?.galaxy_index || 0) === galaxyIndex
+        && Number(candidate?.system_index || 0) === systemIndex
+      ));
+    }
+
     setSelectedStar(star) {
       if (this._delegate) return this._delegate.setSelectedStar?.(star);
-      const idx = star ? this._rawStars.indexOf(star) : -1;
+      const idx = star ? this._resolveStarIndex(star) : -1;
       this._selectedIdx = idx;
     }
 
@@ -1530,6 +1998,17 @@
     areClusterBoundsVisible() {
       if (this._delegate) return this._delegate.areClusterBoundsVisible?.();
       return this._clusterBoundsVisible;
+    }
+
+    setClusterHeatmapEnabled(flag) {
+      if (this._delegate) return this._delegate.setClusterHeatmapEnabled?.(flag);
+      this._clusterHeatmapEnabled = flag !== false;
+      return this._clusterHeatmapEnabled;
+    }
+
+    areClusterHeatmapEnabled() {
+      if (this._delegate) return this._delegate.areClusterHeatmapEnabled?.();
+      return this._clusterHeatmapEnabled !== false;
     }
 
     setGalacticCoreFxEnabled(flag) {
@@ -1607,9 +2086,50 @@
       if (this._pinnedStar) this.focusOnStar(this._pinnedStar, false);
     }
 
+    _computeAutoInputContext() {
+      if (!this.systemMode) return 'galaxy';
+      const zoom = Number(this._view?.zoom || this._view?.targetZoom || 1);
+      if (zoom >= 4.2) return 'colonySurface';
+      if (zoom >= 2.25) return 'planetApproach';
+      return 'system';
+    }
+
+    _getInputContext() {
+      return String(this._inputContextOverride || this._computeAutoInputContext());
+    }
+
+    _syncInputContext() {
+      const controller = this._eventHandlers?.inputController || null;
+      if (!controller || typeof controller.setContext !== 'function') return;
+      controller.setContext(this._getInputContext());
+    }
+
+    setInputContext(name) {
+      const raw = String(name || '').trim();
+      const normalized = raw.replace(/[\s_-]+/g, '').toLowerCase();
+      const mapping = {
+        '': '',
+        default: '',
+        auto: '',
+        galaxy: 'galaxy',
+        system: 'system',
+        planetapproach: 'planetApproach',
+        colonysurface: 'colonySurface',
+        objectapproach: 'objectApproach',
+      };
+      const next = Object.prototype.hasOwnProperty.call(mapping, normalized)
+        ? mapping[normalized]
+        : '';
+      this._inputContextOverride = next;
+      this._syncInputContext();
+      return this._getInputContext();
+    }
+
     resetNavigationView() {
       if (this._delegate) return this._delegate.resetNavigationView?.();
       this.systemMode = false;
+      this._lightProfile = 'galaxy';
+      this._syncInputContext();
       this._systemPayload = null;
       this._systemPlanetEntries = [];
       this._currentTarget = null;
@@ -1632,6 +2152,8 @@
     enterSystemView(star, payload) {
       if (this._delegate) return this._delegate.enterSystemView?.(star, payload);
       this.systemMode = true;
+      this._lightProfile = 'system';
+      this._syncInputContext();
       this._systemPayload = payload || null;
       this._rebuildSystemPlanetEntries();
       this._view.targetZoom = Math.max(this._view.targetZoom, 2.25);
@@ -1641,6 +2163,8 @@
     exitSystemView(restoreGalaxy) {
       if (this._delegate) return this._delegate.exitSystemView?.(restoreGalaxy);
       this.systemMode = false;
+      this._lightProfile = 'galaxy';
+      this._syncInputContext();
       this._systemPayload = null;
       this._systemPlanetEntries = [];
       this._view.targetZoom = Math.min(this._view.targetZoom, 1.2);

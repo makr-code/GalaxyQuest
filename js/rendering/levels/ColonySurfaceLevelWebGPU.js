@@ -20,6 +20,22 @@ var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefine
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
+function parseHexColor(hex, fallback) {
+  const normalized = String(hex || '').trim();
+  return /^#?[0-9a-f]{6}$/i.test(normalized)
+    ? `#${normalized.replace(/^#/, '')}`
+    : fallback;
+}
+
+function hexToRgbFloat(hex) {
+  const normalized = parseHexColor(hex, '#7db7ee').replace('#', '');
+  return [
+    parseInt(normalized.slice(0, 2), 16) / 255,
+    parseInt(normalized.slice(2, 4), 16) / 255,
+    parseInt(normalized.slice(4, 6), 16) / 255,
+  ];
+}
+
 /** Instance buffer layout: 64 bytes = 16 × f32 per slot (see COLONY_BUILDING_WEBGPU_DESIGN.md) */
 const BYTES_PER_SLOT = 64;
 
@@ -35,6 +51,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._meshPipeline   = null;
     this._instanceBuffer = null;
     this._slotCount      = 0;
+    this._visualPalette  = {
+      owner: [0.49, 0.72, 0.93],
+      clear: [0.05, 0.06, 0.04],
+    };
   }
 
   async initialize(canvas, backend) {
@@ -57,6 +77,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
   setSceneData(data) {
     this._sceneData = data || null;
+    this._applySceneDataVisuals(data);
     if (data && Array.isArray(data.slots)) {
       this._uploadSlots(data.slots);
     }
@@ -68,6 +89,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
+    this._applySceneDataVisuals(transitionPayload || this._sceneData || null);
     // Colony data injected via setSceneData prior to enter().
   }
 
@@ -198,10 +220,14 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     for (let i = 0; i < count; i++) {
       const s = slots[i] || {};
       const base = i * 16;
+      const slotColor = hexToRgbFloat(s.owner_color || s.colony_owner_color || s.faction_color || '');
+      const tint = slotColor.some((value) => value > 0)
+        ? slotColor
+        : this._visualPalette.owner;
       // col0 = RGBA color or building type encoded as float
-      data[base + 0] = Number(s.r || 0.6);
-      data[base + 1] = Number(s.g || 0.6);
-      data[base + 2] = Number(s.b || 0.6);
+      data[base + 0] = Number(s.r ?? tint[0] ?? 0.6);
+      data[base + 1] = Number(s.g ?? tint[1] ?? 0.6);
+      data[base + 2] = Number(s.b ?? tint[2] ?? 0.6);
       data[base + 3] = 1.0;
       // col1–col2 = rotation matrix rows (identity by default)
       data[base + 4] = 1; data[base + 5] = 0; data[base + 6] = 0; data[base + 7] = 0;
@@ -224,7 +250,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       const pass    = encoder.beginRenderPass({
         colorAttachments: [{
           view,
-          clearValue: { r: 0.05, g: 0.06, b: 0.04, a: 1.0 },
+          clearValue: { r: this._visualPalette.clear[0], g: this._visualPalette.clear[1], b: this._visualPalette.clear[2], a: 1.0 },
           loadOp: 'clear',
           storeOp: 'store',
         }],
@@ -240,6 +266,26 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       pass.end();
       this._device.queue.submit([encoder.finish()]);
     } catch (_) {}
+  }
+
+  _resolveVisualSource(data) {
+    if (!data || typeof data !== 'object') return null;
+    if (data.colony && typeof data.colony === 'object') return data.colony;
+    if (Array.isArray(data.slots) && data.slots.length) return data.slots[0];
+    return data;
+  }
+
+  _applySceneDataVisuals(data) {
+    const source = this._resolveVisualSource(data);
+    const ownerColor = parseHexColor(
+      source?.colony_owner_color || source?.owner_color || source?.faction_color || '',
+      '#7db7ee'
+    );
+    const isOwned = !!String(source?.colony_owner_color || source?.owner_color || source?.faction_color || '').trim();
+    this._visualPalette = {
+      owner: hexToRgbFloat(ownerColor),
+      clear: isOwned ? [0.04, 0.07, 0.05] : [0.05, 0.06, 0.04],
+    };
   }
 }
 

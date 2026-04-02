@@ -27,6 +27,14 @@ function THREE() {
   return (typeof window !== 'undefined' && window.THREE) || null;
 }
 
+function parseHexColor(hex, fallback) {
+  const normalized = String(hex || '').trim();
+  const valid = /^#?[0-9a-f]{6}$/i.test(normalized)
+    ? `#${normalized.replace(/^#/, '')}`
+    : fallback;
+  return valid;
+}
+
 class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
   constructor() {
     super();
@@ -39,7 +47,18 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     this._planetMesh = null;
     this._cloudMesh  = null;
     this._atmoMesh   = null;
+    this._ownershipRing = null;
     this._rotation   = 0;
+    this._visualPalette = {
+      ownerColor: '#7db7ee',
+      isOwned: false,
+      isPlayer: false,
+      surfaceColor: '#2277bb',
+      cloudColor: '#f4fbff',
+      atmosphereColor: '#55aaff',
+      ringColor: '#ffd47a',
+      clearColor: '#040814',
+    };
   }
 
   async initialize(canvas, backend) {
@@ -63,6 +82,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
 
   setSceneData(data) {
     this._sceneData = data || null;
+    this._applySceneDataVisuals(data);
   }
 
   render(dt, cameraState) {
@@ -88,6 +108,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
     this._rotation = 0;
+    this._applySceneDataVisuals(transitionPayload || this._sceneData || null);
   }
 
   async exit(nextLevel) { // eslint-disable-line no-unused-vars
@@ -104,6 +125,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     this._planetMesh = null;
     this._cloudMesh  = null;
     this._atmoMesh   = null;
+    this._ownershipRing = null;
     this._canvas     = null;
     this._backend    = null;
   }
@@ -113,14 +135,14 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
   _buildPlanetMesh(T) {
     // Planet sphere — 64×64 segments for smooth appearance at close range.
     const planetGeo  = new T.SphereGeometry(5, 64, 64);
-    const planetMat  = new T.MeshStandardMaterial({ color: 0x2277bb, roughness: 0.7, metalness: 0.1 });
+    const planetMat  = new T.MeshStandardMaterial({ color: this._visualPalette.surfaceColor, roughness: 0.7, metalness: 0.1 });
     this._planetMesh = new T.Mesh(planetGeo, planetMat);
     this._scene.add(this._planetMesh);
 
     // Cloud layer — slightly larger, semi-transparent.
     const cloudGeo  = new T.SphereGeometry(5.12, 64, 64);
     const cloudMat  = new T.MeshStandardMaterial({
-      color: 0xffffff,
+      color: this._visualPalette.cloudColor,
       transparent: true,
       opacity: 0.35,
       roughness: 1.0,
@@ -133,7 +155,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     const atmoMat = new T.ShaderMaterial({
       transparent: true,
       side: T.BackSide,
-      uniforms: { color: { value: new T.Color(0x55aaff) } },
+      uniforms: { color: { value: new T.Color(this._visualPalette.atmosphereColor) } },
       vertexShader: `
         varying vec3 vNormal;
         void main() {
@@ -153,11 +175,70 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     this._atmoMesh = new T.Mesh(atmoGeo, atmoMat);
     this._scene.add(this._atmoMesh);
 
+    const ringGeo = new T.TorusGeometry(6.2, 0.14, 10, 72);
+    const ringMat = new T.MeshBasicMaterial({
+      color: this._visualPalette.ringColor,
+      transparent: true,
+      opacity: 0.78,
+      depthWrite: false,
+    });
+    this._ownershipRing = new T.Mesh(ringGeo, ringMat);
+    this._ownershipRing.rotation.x = Math.PI / 2;
+    this._ownershipRing.visible = false;
+    this._scene.add(this._ownershipRing);
+
     // Lighting
     const ambient = new T.AmbientLight(0x333344, 0.6);
     const sunLight = new T.DirectionalLight(0xfff0dd, 1.4);
     sunLight.position.set(50, 30, 80);
     this._scene.add(ambient, sunLight);
+  }
+
+  _resolveVisualSource(data) {
+    if (!data || typeof data !== 'object') return null;
+    return data.focusPlanet || data.planet || data.colony || data.target || data;
+  }
+
+  _applySceneDataVisuals(data) {
+    const T = THREE();
+    const source = this._resolveVisualSource(data);
+    const ownerColor = parseHexColor(
+      source?.colony_owner_color || source?.owner_color || source?.faction_color || '',
+      '#7db7ee'
+    );
+    const isOwned = !!String(source?.colony_owner_color || source?.owner_color || source?.faction_color || '').trim();
+    const isPlayer = Number(source?.colony_is_player || source?.is_player || 0) === 1;
+    this._visualPalette = {
+      ownerColor,
+      isOwned,
+      isPlayer,
+      surfaceColor: isOwned ? ownerColor : '#2277bb',
+      cloudColor: isOwned ? '#eef7ff' : '#f4fbff',
+      atmosphereColor: isOwned ? ownerColor : '#55aaff',
+      ringColor: isPlayer ? '#7dffb2' : ownerColor,
+      clearColor: isOwned ? '#08101c' : '#040814',
+    };
+    if (!T) return;
+    if (this._scene?.background) {
+      this._scene.background.set(this._visualPalette.clearColor);
+    } else if (this._scene) {
+      this._scene.background = new T.Color(this._visualPalette.clearColor);
+    }
+    if (this._planetMesh?.material?.color) {
+      this._planetMesh.material.color.set(this._visualPalette.surfaceColor);
+    }
+    if (this._cloudMesh?.material?.color) {
+      this._cloudMesh.material.color.set(this._visualPalette.cloudColor);
+      this._cloudMesh.material.opacity = isOwned ? 0.42 : 0.35;
+    }
+    if (this._atmoMesh?.material?.uniforms?.color?.value) {
+      this._atmoMesh.material.uniforms.color.value.set(this._visualPalette.atmosphereColor);
+    }
+    if (this._ownershipRing?.material?.color) {
+      this._ownershipRing.material.color.set(this._visualPalette.ringColor);
+      this._ownershipRing.material.opacity = isPlayer ? 0.92 : 0.78;
+      this._ownershipRing.visible = isOwned;
+    }
   }
 }
 

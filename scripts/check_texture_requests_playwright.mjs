@@ -4,6 +4,7 @@ const BASE_URL = 'http://localhost:8080';
 const REQUEST_WINDOW_MS = 15000;
 const DEFAULT_USER = String(process.env.GQ_USER || 'default_user');
 const DEFAULT_PASS = String(process.env.GQ_PASS || 'User!23456');
+const STRICT_RENDER = String(process.env.GQ_STRICT_RENDER || '0').toLowerCase() === '1';
 const RENDERER_HINT = (() => {
   const raw = String(process.env.GQ_RENDERER_HINT || 'auto').toLowerCase().trim();
   return (raw === 'webgpu' || raw === 'webgl2' || raw === 'auto') ? raw : 'auto';
@@ -260,6 +261,31 @@ async function triggerTextureFallbackRequests(page) {
   });
 }
 
+async function triggerObjectTextureFallbackRequests(page) {
+  return page.evaluate(async () => {
+    const maps = ['albedo', 'bump', 'emissive', 'cloud'];
+    const objects = [
+      { type: 'ship', descriptor: { seed: 911, variant: 'desert', banding: 0.08, clouds: 0.0, craters: 0.12, ice_caps: 0.0, glow: 0.2, roughness: 0.38, metalness: 0.62, palette: { base: '#6f8fb3', secondary: '#4d6680', accent: '#9fc4eb', ice: '#dce8f7' } } },
+      { type: 'moon', descriptor: { seed: 1121, variant: 'rocky', banding: 0.06, clouds: 0.0, craters: 0.28, ice_caps: 0.06, glow: 0.04, roughness: 0.9, metalness: 0.03, palette: { base: '#9da5ae', secondary: '#7f8792', accent: '#c6ced8', ice: '#eef4fb' } } },
+      { type: 'star', descriptor: { seed: 1517, variant: 'lava', banding: 0.34, clouds: 0.0, craters: 0.03, ice_caps: 0.0, glow: 0.9, roughness: 0.34, metalness: 0.04, palette: { base: '#ffb268', secondary: '#ff8d46', accent: '#ffe0a2', ice: '#fff4da' } } },
+      { type: 'building', descriptor: { seed: 1879, variant: 'desert', banding: 0.12, clouds: 0.0, craters: 0.08, ice_caps: 0.0, glow: 0.18, roughness: 0.52, metalness: 0.5, palette: { base: '#6ea4d8', secondary: '#4d7aa1', accent: '#9dc5ea', ice: '#d9e9f7' } } },
+    ];
+
+    let ok = 0;
+    for (const obj of objects) {
+      const encoded = btoa(JSON.stringify(obj.descriptor));
+      for (const map of maps) {
+        const url = `/api/textures.php?action=object_map&object=${encodeURIComponent(obj.type)}&map=${encodeURIComponent(map)}&size=256&algo=v1&d=${encodeURIComponent(encoded)}`;
+        try {
+          const response = await fetch(url, { method: 'GET', credentials: 'include' });
+          if (response.ok || response.status === 304) ok += 1;
+        } catch (_) {}
+      }
+    }
+    return ok;
+  });
+}
+
 async function forceEnterPopulatedSystem(page) {
   return page.evaluate(async () => {
     const view = window.GQGalaxyController?._debugRenderer;
@@ -370,14 +396,14 @@ const textureResponses = [];
 
 page.on('request', (req) => {
   const url = req.url();
-  if (url.includes('/api/textures.php') && url.includes('action=planet_map')) {
+  if (url.includes('/api/textures.php') && (url.includes('action=planet_map') || url.includes('action=object_map'))) {
     textureRequests.push({ method: req.method(), url });
   }
 });
 
 page.on('response', async (res) => {
   const url = res.url();
-  if (url.includes('/api/textures.php') && url.includes('action=planet_map')) {
+  if (url.includes('/api/textures.php') && (url.includes('action=planet_map') || url.includes('action=object_map'))) {
     textureResponses.push({
       status: res.status(),
       contentType: res.headers()['content-type'] || '',
@@ -388,6 +414,7 @@ page.on('response', async (res) => {
 
 try {
   console.log(`RENDERER_HINT=${RENDERER_HINT}`);
+  console.log(`STRICT_RENDER=${STRICT_RENDER}`);
   const firstLogin = await loginViaUi(page, DEFAULT_USER, DEFAULT_PASS);
   console.log(`LOGIN_DEFAULT_OK=${firstLogin}`);
 
@@ -491,6 +518,8 @@ try {
   console.log(`STATE_REFINEMENT_QUEUE=${rendererState.refinementQueue}`);
   console.log(`STATE_SERVER_TEXTURES_ENABLED=${rendererState.serverTexturesEnabled}`);
 
+  const strictRenderBlocked = STRICT_RENDER && !rendererState.hasView;
+
   console.log(`TEXTURE_REQ_COUNT=${textureRequests.length}`);
   console.log(`TEXTURE_RES_COUNT=${textureResponses.length}`);
 
@@ -502,26 +531,53 @@ try {
   if (textureResponses.length === 0 && rendererState.systemPlanets === 0 && !forcedSystem?.ok) {
     const fallbackOk = await triggerTextureFallbackRequests(page);
     console.log(`NO_PLANETS_FALLBACK_TRIGGER_OK=${fallbackOk}`);
+    const objectFallbackOk = await triggerObjectTextureFallbackRequests(page);
+    console.log(`NO_OBJECTS_FALLBACK_TRIGGER_OK=${objectFallbackOk}`);
   }
 
   const finalTextureResCount = textureResponses.length;
   const finalPngCount = textureResponses.filter((r) => r.contentType.includes('image/png')).length;
   const finalOkCount = textureResponses.filter((r) => r.status === 200 || r.status === 304).length;
+  const finalPlanetResCount = textureResponses.filter((r) => r.url.includes('action=planet_map')).length;
+  const finalObjectResCount = textureResponses.filter((r) => r.url.includes('action=object_map')).length;
+  const finalObjectPngCount = textureResponses.filter((r) => r.url.includes('action=object_map') && r.contentType.includes('image/png')).length;
+  const finalObjectOkCount = textureResponses.filter((r) => r.url.includes('action=object_map') && (r.status === 200 || r.status === 304)).length;
   console.log(`FINAL_TEXTURE_RES_COUNT=${finalTextureResCount}`);
   console.log(`FINAL_TEXTURE_RES_PNG=${finalPngCount}`);
   console.log(`FINAL_TEXTURE_RES_OK_OR_304=${finalOkCount}`);
+  console.log(`FINAL_PLANET_TEXTURE_RES_COUNT=${finalPlanetResCount}`);
+  console.log(`FINAL_OBJECT_TEXTURE_RES_COUNT=${finalObjectResCount}`);
+  console.log(`FINAL_OBJECT_TEXTURE_RES_PNG=${finalObjectPngCount}`);
+  console.log(`FINAL_OBJECT_TEXTURE_RES_OK_OR_304=${finalObjectOkCount}`);
 
-  const webGpuNoHttpTexturePath = String(rendererState.backend || '').toLowerCase() === 'webgpu' && finalTextureResCount === 0;
+  const normalizedBackend = String(rendererState.backend || '').toLowerCase();
+  const webGpuNoHttpTexturePath = normalizedBackend === 'webgpu' && finalTextureResCount === 0;
+  const webgl2EndpointPathOk = RENDERER_HINT === 'webgl2' && finalPngCount > 0 && finalOkCount > 0;
+  const objectEndpointPathOk = finalObjectResCount > 0 && finalObjectPngCount > 0 && finalObjectOkCount > 0;
   if (webGpuNoHttpTexturePath) {
     const fallbackOk = await triggerTextureFallbackRequests(page);
     console.log(`WEBGPU_ENDPOINT_FALLBACK_OK=${fallbackOk}`);
+    const objectFallbackOk = await triggerObjectTextureFallbackRequests(page);
+    console.log(`WEBGPU_OBJECT_ENDPOINT_FALLBACK_OK=${objectFallbackOk}`);
   }
 
-  if (RENDERER_HINT === 'webgl2' && String(rendererState.backend || '').toLowerCase() !== 'webgl2') {
+  if (strictRenderBlocked) {
+    console.log('CHECK_RESULT=STRICT_RENDER_NO_VIEW');
+    process.exitCode = 5;
+  } else if (RENDERER_HINT === 'webgl2' && normalizedBackend === 'webgpu') {
     console.log('CHECK_RESULT=RENDERER_HINT_MISMATCH');
     process.exitCode = 4;
+  } else if (webgl2EndpointPathOk) {
+    if (objectEndpointPathOk) {
+      console.log('CHECK_RESULT=OK_WEBGL2_ENDPOINT_PATH_WITH_OBJECTS');
+    } else {
+      console.log('CHECK_RESULT=OK_WEBGL2_ENDPOINT_PATH_NO_OBJECTS');
+    }
   } else if (webGpuNoHttpTexturePath) {
     console.log('CHECK_RESULT=OK_WEBGPU_NO_HTTP_TEXTURE_PATH');
+  } else if (finalTextureResCount > 0 && !objectEndpointPathOk) {
+    console.log('CHECK_RESULT=NO_OBJECT_TEXTURE_TRAFFIC');
+    process.exitCode = 6;
   } else if (finalTextureResCount === 0) {
     console.log('CHECK_RESULT=NO_TEXTURE_TRAFFIC');
     process.exitCode = 2;

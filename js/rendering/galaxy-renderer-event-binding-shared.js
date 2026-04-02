@@ -3,8 +3,62 @@
  * Single source of truth for renderer DOM event wiring.
  */
 (function () {
+  function bindViaInputController(instance) {
+    if (!window.GQCanvasInputController || !instance || !instance.renderer?.domElement) return false;
+    const supportsSemanticInput = typeof instance._resolveInputActions === 'function'
+      && typeof instance._handleInputAction === 'function';
+    const baseContext = typeof instance._getInputContext === 'function'
+      ? instance._getInputContext()
+      : (instance.systemMode ? 'system' : 'galaxy');
+    const actionResolverProfiles = supportsSemanticInput
+      ? {
+          galaxy: (ctx, phase) => instance._resolveInputActions(ctx, phase, 'galaxy'),
+          system: (ctx, phase) => instance._resolveInputActions(ctx, phase, 'system'),
+          planetApproach: (ctx, phase) => instance._resolveInputActions(ctx, phase, 'planetApproach'),
+          colonySurface: (ctx, phase) => instance._resolveInputActions(ctx, phase, 'colonySurface'),
+          objectApproach: (ctx, phase) => instance._resolveInputActions(ctx, phase, 'objectApproach'),
+        }
+      : null;
+
+    instance._inputController = new window.GQCanvasInputController({
+      surface: instance.renderer.domElement,
+      container: instance.container,
+      keyboardTarget: window,
+      windowTarget: window,
+      context: baseContext,
+      captureWheel: true,
+      enabled: instance.interactive !== false,
+      resolveActionsByContext: actionResolverProfiles,
+      resolveActions: supportsSemanticInput ? ((ctx, phase, contextName) => instance._resolveInputActions(ctx, phase, contextName)) : null,
+      onAction: supportsSemanticInput ? ((action, ctx) => instance._handleInputAction(action, ctx)) : null,
+      onResize: () => instance._onResize(),
+      onPointerMove: (ctx) => instance._handlePointerMove?.(ctx.nativeEvent, ctx),
+      onPointerDown: supportsSemanticInput ? null : ((ctx) => instance._handleMouseDown?.(ctx.nativeEvent, ctx)),
+      onPointerUp: supportsSemanticInput ? null : ((ctx) => instance._handleMouseUp?.(ctx.nativeEvent, ctx)),
+      onPointerCancel: supportsSemanticInput ? null : ((ctx) => instance._handleMouseUp?.(ctx.nativeEvent, ctx)),
+      onClick: (ctx) => instance._handleClick?.(ctx.nativeEvent, ctx),
+      onDoubleClick: (ctx) => instance._handleDoubleClick?.(ctx.nativeEvent, ctx),
+      onWheel: supportsSemanticInput ? null : ((ctx) => instance._handleWheel?.(ctx.nativeEvent, ctx)),
+      onContextMenu: (ctx) => {
+        if (instance._handleContextMenu) return instance._handleContextMenu(ctx.nativeEvent, ctx);
+        return false;
+      },
+      onKeyDown: supportsSemanticInput ? null : ((ctx) => instance._handleKeyDown?.(ctx.nativeEvent, ctx)),
+      onKeyUp: supportsSemanticInput ? null : ((ctx) => instance._handleKeyUp?.(ctx.nativeEvent, ctx)),
+    });
+    instance._inputController.bind();
+    return true;
+  }
+
   function bindEvents(instance) {
     if (!instance || !instance.renderer?.domElement) return;
+
+    if (bindViaInputController(instance)) {
+      if (!instance.interactive) {
+        instance.renderer.domElement.style.pointerEvents = 'none';
+      }
+      return;
+    }
 
     instance._onResizeBound = () => instance._onResize();
     window.addEventListener('resize', instance._onResizeBound);
@@ -47,6 +101,11 @@
 
   function unbindEvents(instance) {
     if (!instance) return;
+
+    if (instance._inputController) {
+      instance._inputController.unbind();
+      instance._inputController = null;
+    }
 
     if (instance._onResizeBound) window.removeEventListener('resize', instance._onResizeBound);
     if (instance._containerResizeObserver) {

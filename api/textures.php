@@ -4,7 +4,9 @@ declare(strict_types=1);
 header('Access-Control-Allow-Origin: *');
 header('Cache-Control: public, max-age=31536000, immutable');
 
-if (($_GET['action'] ?? '') !== 'planet_map') {
+$action = strtolower((string)($_GET['action'] ?? 'planet_map'));
+$allowedActions = ['planet_map', 'object_map'];
+if (!in_array($action, $allowedActions, true)) {
     header('Content-Type: application/json; charset=utf-8');
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'invalid action']);
@@ -14,7 +16,7 @@ if (($_GET['action'] ?? '') !== 'planet_map') {
 $gdAvailable = extension_loaded('gd');
 
 $map = strtolower((string)($_GET['map'] ?? 'albedo'));
-$allowedMaps = ['albedo', 'bump', 'emissive', 'cloud'];
+$allowedMaps = ['albedo', 'bump', 'normal', 'emissive', 'cloud'];
 if (!in_array($map, $allowedMaps, true)) {
     header('Content-Type: application/json; charset=utf-8');
     http_response_code(400);
@@ -35,7 +37,11 @@ if (!is_array($descriptor)) {
     exit;
 }
 
-$cacheDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'generated' . DIRECTORY_SEPARATOR . 'textures' . DIRECTORY_SEPARATOR . 'planet';
+$objectType = sanitize_object_type((string)($_GET['object'] ?? 'generic'));
+$cacheScope = $action === 'planet_map'
+    ? 'planet'
+    : ('object' . DIRECTORY_SEPARATOR . $objectType);
+$cacheDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'generated' . DIRECTORY_SEPARATOR . 'textures' . DIRECTORY_SEPARATOR . $cacheScope;
 if (!is_dir($cacheDir) && !@mkdir($cacheDir, 0775, true) && !is_dir($cacheDir)) {
     header('Content-Type: application/json; charset=utf-8');
     http_response_code(500);
@@ -44,7 +50,7 @@ if (!is_dir($cacheDir) && !@mkdir($cacheDir, 0775, true) && !is_dir($cacheDir)) 
 }
 
 $normalizedDescriptor = normalize_descriptor($descriptor);
-$signature = hash('sha256', $map . '|' . $size . '|' . $algo . '|' . json_encode($normalizedDescriptor, JSON_UNESCAPED_SLASHES));
+$signature = hash('sha256', $action . '|' . $objectType . '|' . $map . '|' . $size . '|' . $algo . '|' . json_encode($normalizedDescriptor, JSON_UNESCAPED_SLASHES));
 $ext = $gdAvailable ? 'png' : 'svg';
 $cacheFile = $cacheDir . DIRECTORY_SEPARATOR . $signature . '.' . $ext;
 $lockFile = $cacheDir . DIRECTORY_SEPARATOR . $signature . '.lock';
@@ -129,6 +135,17 @@ function sanitize_hex(string $value, string $fallback): string
 function clamp01(float $value): float
 {
     return max(0.0, min(1.0, $value));
+}
+
+function sanitize_object_type(string $value): string
+{
+    $raw = strtolower(trim($value));
+    if ($raw === '') {
+        return 'generic';
+    }
+    $clean = preg_replace('/[^a-z0-9_-]+/', '_', $raw);
+    $clean = trim((string)$clean, '_');
+    return $clean !== '' ? $clean : 'generic';
 }
 
 function hex_to_rgb(string $hex): array
@@ -273,6 +290,20 @@ function render_planet_map_png(string $path, string $map, int $width, int $heigh
                 $col = allocate_rgba($img, $final[0], $final[1], $final[2], 0);
             } elseif ($map === 'bump') {
                 $col = allocate_rgba($img, $bumpShade, $bumpShade, $bumpShade, 0);
+            } elseif ($map === 'normal') {
+                $left = max(0.0, min(1.0, fbm($seed + 77, max(0.0, $u - (1 / max(1, $width - 1))) * 3.4, $v * 3.4, 4) * 0.58 + fbm($seed + 254, max(0.0, $u - (1 / max(1, $width - 1))) * 8.3, $v * 8.3, 3) * 0.42));
+                $right = max(0.0, min(1.0, fbm($seed + 77, min(1.0, $u + (1 / max(1, $width - 1))) * 3.4, $v * 3.4, 4) * 0.58 + fbm($seed + 254, min(1.0, $u + (1 / max(1, $width - 1))) * 8.3, $v * 8.3, 3) * 0.42));
+                $up = max(0.0, min(1.0, fbm($seed + 77, $u * 3.4, max(0.0, $v - (1 / max(1, $height - 1))) * 3.4, 4) * 0.58 + fbm($seed + 254, $u * 8.3, max(0.0, $v - (1 / max(1, $height - 1))) * 8.3, 3) * 0.42));
+                $down = max(0.0, min(1.0, fbm($seed + 77, $u * 3.4, min(1.0, $v + (1 / max(1, $height - 1))) * 3.4, 4) * 0.58 + fbm($seed + 254, $u * 8.3, min(1.0, $v + (1 / max(1, $height - 1))) * 8.3, 3) * 0.42));
+                $dx = $left - $right;
+                $dy = $up - $down;
+                $nz = $variant === 'gas' ? 0.34 : 0.58;
+                $len = sqrt($dx * $dx + $dy * $dy + $nz * $nz);
+                if ($len <= 0.00001) $len = 1.0;
+                $nr = (int)round(max(0.0, min(1.0, (($dx / $len) * 0.5) + 0.5)) * 255);
+                $ng = (int)round(max(0.0, min(1.0, (($dy / $len) * 0.5) + 0.5)) * 255);
+                $nb = (int)round(max(0.0, min(1.0, (($nz / $len) * 0.5) + 0.5)) * 255);
+                $col = allocate_rgba($img, $nr, $ng, $nb, 0);
             } elseif ($map === 'emissive') {
                 $col = allocate_rgba($img, $emissiveShade, $emissiveShade, $emissiveShade, 0);
             } else {
@@ -332,6 +363,12 @@ function render_planet_map_svg(string $path, string $map, int $width, int $heigh
         </filter>
     </defs>
     <rect width="100%" height="100%" fill="#7f7f7f" filter="url(#n)"/>
+</svg>
+SVG;
+    } elseif ($map === 'normal') {
+        $svg = <<<SVG
+<svg xmlns="http://www.w3.org/2000/svg" width="{$width}" height="{$height}" viewBox="0 0 {$width} {$height}">
+    <rect width="100%" height="100%" fill="#8080ff"/>
 </svg>
 SVG;
         } elseif ($map === 'cloud') {

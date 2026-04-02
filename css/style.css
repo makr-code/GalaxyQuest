@@ -6821,6 +6821,7 @@ body > section:last-of-type {
 
 /* ── Minimap window ───────────────────────────────────────────────────────── */
 .minimap-wrap {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
@@ -6837,4 +6838,60 @@ body > section:last-of-type {
   height: 100%;
   cursor: crosshair;
   image-rendering: pixelated;
+}
+
+.minimap-canvas.is-dragging {
+  cursor: grabbing;
+}
+
+.minimap-hud {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  pointer-events: none;
+  z-index: 1;
+  font: 10px/1.3 Consolas, Menlo, Monaco, monospace;
+  color: rgba(198, 225, 255, 0.92);
+  text-shadow: 0 0 8px rgba(30, 117, 171, 0.55);
+}
+
+.minimap-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 0.4rem;
+  border: 1px solid rgba(102, 214, 255, 0.45);
+  border-radius: 999px;
+  background: rgba(7, 24, 42, 0.74);
+  box-shadow: inset 0 0 10px rgba(72, 184, 255, 0.12), 0 0 12px rgba(22, 106, 165, 0.2);
+  letter-spacing: 0.05em;
+}
+
+.minimap-meta,
+.minimap-hint {
+  padding: 0.16rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(4, 15, 30, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.minimap-hud[data-backend="webgpu"] .minimap-badge {
+  border-color: rgba(68, 237, 181, 0.48);
+  color: rgba(190, 255, 233, 0.95);
+}
+
+.minimap-hud[data-backend="threejs"] .minimap-badge,
+.minimap-hud[data-backend="webgl"] .minimap-badge {
+  border-color: rgba(110, 196, 255, 0.48);
+  color: rgba(201, 236, 255, 0.95);
+}
+
+.minimap-hud[data-backend="offline"] .minimap-badge {
+  border-color: rgba(124, 154, 182, 0.42);
+  color: rgba(187, 205, 222, 0.88);
 }

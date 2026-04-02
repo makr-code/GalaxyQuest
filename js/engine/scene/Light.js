@@ -11,9 +11,17 @@
 
 'use strict';
 
+class LightFallbackVector3 {
+  constructor(x = 0, y = 0, z = 0) {
+    this.x = Number(x || 0);
+    this.y = Number(y || 0);
+    this.z = Number(z || 0);
+  }
+}
+
 const { Vector3 } = typeof require !== 'undefined'
   ? require('../math/Vector3.js')
-  : { Vector3: window.GQVector3 };
+  : { Vector3: window.GQVector3 || LightFallbackVector3 };
 
 class Light {
   constructor(type) {

@@ -4,6 +4,7 @@
  */
 (async function () {
   const AUTH_AUDIO_SCRIPT = 'js/runtime/audio.js?v=20260328p53';
+  const AUTH_GQUI_SCRIPT = 'js/ui/gq-ui.js?v=20260330p1';
   const AUTH_WM_SCRIPT = 'js/runtime/wm.js?v=20260331p56';
   const AUTH_AUDIO_PRELOAD = [
     'music/Nebula_Overture.mp3',
@@ -507,6 +508,15 @@
 
   async function ensureAuthWindowManaged() {
     if (!authSection || authSection.classList.contains('hidden')) return;
+    if (!window.GQUI) {
+      try {
+        await loadScript(AUTH_GQUI_SCRIPT);
+      } catch (err) {
+        if (!authWindowIntegrationAttempted) {
+          authLog('warn', 'auth GQUI preload skipped', String(err?.message || err || 'unknown'));
+        }
+      }
+    }
     if (!window.WM) {
       try {
         await loadScript(AUTH_WM_SCRIPT);
