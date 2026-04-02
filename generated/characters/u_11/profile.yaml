@@ -1,0 +1,8 @@
+username: "default_user"
+is_npc: false
+race: "Cephalid Synapsekin"
+profession: "Trade Envoy"
+stance: "Skeptical"
+vita: "default_user emerged from a newly commissioned colony command and built a reputation as a trade envoy. Their skeptical outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources."
+portrait_prompt: "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Cephalid Synapsekin, role: Trade Envoy, attitude: Skeptical, player commander, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism"
+generated_at: "2026-04-02T17:09:54+00:00"

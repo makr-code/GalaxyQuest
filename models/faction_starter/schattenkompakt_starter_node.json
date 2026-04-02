@@ -1,0 +1,398 @@
+{
+  "metadata": {
+    "version": 4.6,
+    "type": "Object",
+    "generator": "GalaxyQuest Faction 3D Gen"
+  },
+  "modelId": "schattenkompakt_starter_node",
+  "label": "schattenkompakt Starter Node",
+  "version": 1,
+  "scale": 1,
+  "lod": {
+    "segments_full": 20,
+    "segments_low": 10
+  },
+  "images": [
+    {
+      "uuid": "img_panel_grid",
+      "url": "models/textures/panel_grid.svg"
+    },
+    {
+      "uuid": "img_emissive_lines",
+      "url": "models/textures/emissive_lines.svg"
+    }
+  ],
+  "textures": [
+    {
+      "uuid": "tex_panel_grid",
+      "image": "img_panel_grid",
+      "name": "panel-grid",
+      "wrap": [
+        1000,
+        1000
+      ],
+      "repeat": [
+        2,
+        1
+      ]
+    },
+    {
+      "uuid": "tex_emissive_lines",
+      "image": "img_emissive_lines",
+      "name": "emissive-lines",
+      "wrap": [
+        1000,
+        1000
+      ],
+      "repeat": [
+        3,
+        1
+      ]
+    },
+    {
+      "uuid": "tex_panel_bump",
+      "image": "img_panel_grid",
+      "name": "panel-bump",
+      "wrap": [
+        1000,
+        1000
+      ],
+      "repeat": [
+        3,
+        2
+      ]
+    }
+  ],
+  "geometries": [
+    {
+      "uuid": "geo_hull_1",
+      "type": "CylinderGeometry",
+      "radiusTop": 0.28,
+      "radiusBottom": 0.52,
+      "height": 2.2,
+      "radialSegments": 10
+    },
+    {
+      "uuid": "geo_ring_1",
+      "type": "TorusGeometry",
+      "radius": 1.05,
+      "tube": 0.1,
+      "radialSegments": 10,
+      "tubularSegments": 20
+    },
+    {
+      "uuid": "geo_core_1",
+      "type": "SphereGeometry",
+      "radius": 0.2,
+      "widthSegments": 8,
+      "heightSegments": 6
+    }
+  ],
+  "materials": [
+    {
+      "uuid": "mat_hull_1",
+      "type": "MeshPhongMaterial",
+      "color": 4473924,
+      "emissive": 1118481,
+      "specular": 11184810,
+      "shininess": 64,
+      "map": "tex_panel_grid",
+      "emissiveMap": "tex_emissive_lines",
+      "bumpMap": "tex_panel_bump",
+      "bumpScale": 0.16,
+      "normalMap": "tex_panel_bump",
+      "normalScale": [
+        0.6,
+        0.6
+      ],
+      "specularMap": "tex_emissive_lines"
+    },
+    {
+      "uuid": "mat_ring_1",
+      "type": "MeshStandardMaterial",
+      "color": 7833753,
+      "emissive": 3368601,
+      "emissiveIntensity": 0.45,
+      "metalness": 0.65,
+      "roughness": 0.32,
+      "map": "tex_panel_grid",
+      "roughnessMap": "tex_panel_grid",
+      "metalnessMap": "tex_panel_grid"
+    },
+    {
+      "uuid": "mat_core_1",
+      "type": "MeshStandardMaterial",
+      "color": 16756736,
+      "emissive": 16742912,
+      "emissiveIntensity": 1.15,
+      "metalness": 0.4,
+      "roughness": 0.2
+    }
+  ],
+  "animations": [
+    {
+      "name": "idle_ring_spin",
+      "duration": 5,
+      "tracks": [
+        {
+          "name": "mesh_ring_1.rotation[y]",
+          "type": "number",
+          "times": [
+            0,
+            5
+          ],
+          "values": [
+            0,
+            6.2831853072
+          ],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "active_core_pulse",
+      "duration": 2,
+      "tracks": [
+        {
+          "name": "mesh_core_1.scale[x]",
+          "type": "number",
+          "times": [
+            0,
+            1,
+            2
+          ],
+          "values": [
+            1,
+            1.2,
+            1
+          ],
+          "interpolation": 2301
+        },
+        {
+          "name": "mesh_core_1.scale[y]",
+          "type": "number",
+          "times": [
+            0,
+            1,
+            2
+          ],
+          "values": [
+            1,
+            1.2,
+            1
+          ],
+          "interpolation": 2301
+        },
+        {
+          "name": "mesh_core_1.scale[z]",
+          "type": "number",
+          "times": [
+            0,
+            1,
+            2
+          ],
+          "values": [
+            1,
+            1.2,
+            1
+          ],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "alert_beacon_boost",
+      "duration": 1.4,
+      "tracks": [
+        {
+          "name": "light_beacon_1.intensity",
+          "type": "number",
+          "times": [
+            0,
+            0.7,
+            1.4
+          ],
+          "values": [
+            1.2,
+            4,
+            1.2
+          ],
+          "interpolation": 2301
+        }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_root",
+    "type": "Group",
+    "name": "schattenkompakt_starter_node",
+    "userData": {
+      "gqModelSemantics": {
+        "factionCode": "schattenkompakt",
+        "objectClass": "relay_or_sensor",
+        "archetype": "starter_node",
+        "designLanguageVersion": "egl-1.0",
+        "silhouetteTags": [
+          "narrow_veil",
+          "stealth_asymmetry"
+        ],
+        "signatureParts": [
+          "mask_nodes",
+          "cipher_beacons"
+        ]
+      },
+      "designIntent": "Starter asset for schattenkompakt with light and advanced material maps.",
+      "recognitionHints": [
+        "narrow_veil",
+        "mask_nodes",
+        "specular"
+      ],
+      "gqAnimations": [],
+      "gqVfxEmitters": [
+        {
+          "id": "thruster_main",
+          "kind": "thruster",
+          "mode": "continuous",
+          "attachTo": "mesh_core_1",
+          "position": [
+            0,
+            0,
+            -0.35
+          ],
+          "direction": [
+            0,
+            0,
+            -1
+          ],
+          "count": 24,
+          "lifetime": 0.45,
+          "speed": 7.5,
+          "spread": 0.22,
+          "colorStart": 16763904,
+          "colorEnd": 3368703,
+          "sizeStart": 0.14,
+          "sizeEnd": 0.03,
+          "drag": 0.05
+        },
+        {
+          "id": "muzzle_primary",
+          "kind": "muzzle",
+          "mode": "burst",
+          "attachTo": "mesh_ring_1",
+          "position": [
+            0,
+            0,
+            1.05
+          ],
+          "direction": [
+            0,
+            0,
+            1
+          ],
+          "count": 18,
+          "lifetime": 0.22,
+          "speed": 14,
+          "spread": 0.16,
+          "colorStart": 16766976,
+          "colorEnd": 16724787,
+          "sizeStart": 0.11,
+          "sizeEnd": 0.01,
+          "drag": 0.02
+        }
+      ],
+      "gqWeaponFx": [
+        {
+          "id": "beam_primary",
+          "kind": "beam",
+          "from": "muzzle_primary",
+          "to": "target",
+          "coreColor": 16724787,
+          "glowColor": 8965375,
+          "glowRadius": 0.18,
+          "alpha": 0.9
+        }
+      ]
+    },
+    "children": [
+      {
+        "uuid": "mesh_hull_1",
+        "type": "Mesh",
+        "name": "mesh_hull_1",
+        "geometry": "geo_hull_1",
+        "material": "mat_hull_1",
+        "rotation": [
+          1.5708,
+          0,
+          0
+        ],
+        "userData": {
+          "role": "hull"
+        }
+      },
+      {
+        "uuid": "mesh_ring_1",
+        "type": "Mesh",
+        "name": "mesh_ring_1",
+        "geometry": "geo_ring_1",
+        "material": "mat_ring_1",
+        "rotation": [
+          1.5708,
+          0,
+          0
+        ],
+        "userData": {
+          "role": "ring"
+        }
+      },
+      {
+        "uuid": "mesh_core_1",
+        "type": "Mesh",
+        "name": "mesh_core_1",
+        "geometry": "geo_core_1",
+        "material": "mat_core_1",
+        "position": [
+          0,
+          0.05,
+          0
+        ],
+        "userData": {
+          "role": "core"
+        }
+      },
+      {
+        "uuid": "light_beacon_1",
+        "type": "PointLight",
+        "name": "light_beacon_1",
+        "color": 16756736,
+        "intensity": 1.2,
+        "distance": 6,
+        "decay": 2,
+        "position": [
+          0,
+          0.1,
+          0
+        ]
+      },
+      {
+        "uuid": "mesh_muzzle_primary",
+        "type": "Mesh",
+        "name": "muzzle_primary",
+        "geometry": "geo_core_1",
+        "material": "mat_core_1",
+        "position": [
+          0,
+          0,
+          1.05
+        ],
+        "scale": [
+          0.2,
+          0.2,
+          0.2
+        ],
+        "userData": {
+          "role": "muzzle"
+        }
+      }
+    ]
+  }
+}

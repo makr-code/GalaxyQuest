@@ -49,7 +49,23 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._context        = null;
     this._gridPipeline   = null;
     this._meshPipeline   = null;
+    this._vfxPipeline    = null;
     this._instanceBuffer = null;
+    this._instanceBindGroup = null;
+    this._buildingVfxBuffer = null;
+    this._buildingVfxVertexCount = 0;
+    this._buildingVfxParticles = [];
+    this._buildingVfxTime = 0;
+    this._buildingVfxBurstUntil = 0;
+    this._slotUpgradeState = new Map();
+    this._buildingVfxStats = {
+      backend: 'webgpu',
+      quality: 'medium',
+      emitters: 0,
+      particles: 0,
+      profileCounts: {},
+      burstActive: false,
+    };
     this._slotCount      = 0;
     this._visualPalette  = {
       owner: [0.49, 0.72, 0.93],
@@ -80,11 +96,13 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._applySceneDataVisuals(data);
     if (data && Array.isArray(data.slots)) {
       this._uploadSlots(data.slots);
+      this._rebuildBuildingVfx(data.slots);
     }
   }
 
   render(dt, cameraState) { // eslint-disable-line no-unused-vars
     if (!this._device || !this._context) return;
+    this._updateBuildingVfxBuffer(Number(dt) || 0.016);
     this._drawFrame();
   }
 
@@ -102,8 +120,27 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       try { this._instanceBuffer.destroy(); } catch (_) {}
       this._instanceBuffer = null;
     }
+    if (this._buildingVfxBuffer) {
+      try { this._buildingVfxBuffer.destroy(); } catch (_) {}
+      this._buildingVfxBuffer = null;
+    }
     this._gridPipeline = null;
     this._meshPipeline = null;
+    this._vfxPipeline = null;
+    this._instanceBindGroup = null;
+    this._buildingVfxVertexCount = 0;
+    this._buildingVfxParticles = [];
+    this._buildingVfxTime = 0;
+    this._buildingVfxBurstUntil = 0;
+    this._slotUpgradeState = new Map();
+    this._buildingVfxStats = {
+      backend: 'webgpu',
+      quality: 'medium',
+      emitters: 0,
+      particles: 0,
+      profileCounts: {},
+      burstActive: false,
+    };
     if (this._device) {
       try { this._device.destroy(); } catch (_) {}
       this._device = null;
@@ -200,6 +237,52 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       fragment: { module: meshShader, entryPoint: 'fs_main', targets: [{ format }] },
       primitive: { topology: 'triangle-list' },
     });
+
+    const vfxShader = this._device.createShaderModule({
+      label: 'building_vfx',
+      code: /* wgsl */`
+        struct VSOut {
+          @builtin(position) pos : vec4<f32>,
+          @location(0) col       : vec4<f32>,
+        };
+
+        @vertex
+        fn vs_main(
+          @location(0) inPos : vec2<f32>,
+          @location(1) inCol : vec4<f32>
+        ) -> VSOut {
+          var out : VSOut;
+          out.pos = vec4<f32>(inPos, 0.45, 1.0);
+          out.col = inCol;
+          return out;
+        }
+
+        @fragment
+        fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
+          return in.col;
+        }
+      `,
+    });
+
+    this._vfxPipeline = this._device.createRenderPipeline({
+      layout: 'auto',
+      vertex: {
+        module: vfxShader,
+        entryPoint: 'vs_main',
+        buffers: [{
+          arrayStride: 24,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x2' },
+            { shaderLocation: 1, offset: 8, format: 'float32x4' },
+          ],
+        }],
+      },
+      fragment: { module: vfxShader, entryPoint: 'fs_main', targets: [{ format, blend: {
+        color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      } }] },
+      primitive: { topology: 'triangle-list' },
+    });
   }
 
   _uploadSlots(slots) {
@@ -239,7 +322,222 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       data[base +15] = 1;
     }
     this._device.queue.writeBuffer(this._instanceBuffer, 0, data.buffer, 0, data.byteLength);
+    if (this._meshPipeline && this._instanceBuffer) {
+      try {
+        this._instanceBindGroup = this._device.createBindGroup({
+          layout: this._meshPipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: this._instanceBuffer } }],
+        });
+      } catch (_) {
+        this._instanceBindGroup = null;
+      }
+    }
     this._slotCount = count;
+  }
+
+  _resolveBuildingVfxQuality(slotCount) {
+    const requested = String(this._sceneData?.vfx_quality || this._sceneData?.quality || '').toLowerCase();
+    if (requested === 'low' || requested === 'medium' || requested === 'high') return requested;
+    if (slotCount > 280) return 'low';
+    if (slotCount > 120) return 'medium';
+    return 'high';
+  }
+
+  _slotKey(slot, index) {
+    const sx = Number(slot?.x || 0).toFixed(2);
+    const sz = Number(slot?.z || 0).toFixed(2);
+    const type = String(slot?.type || slot?.building_type || slot?.category || 'generic');
+    return `${index}:${sx}:${sz}:${type}`;
+  }
+
+  _ingestUpgradeTransitions(slots) {
+    const source = Array.isArray(slots) ? slots : [];
+    const next = new Map();
+    let detectedTransition = false;
+    for (let i = 0; i < source.length; i += 1) {
+      const slot = source[i] || {};
+      const key = this._slotKey(slot, i);
+      const active = !!slot?.upgrade_end;
+      next.set(key, active);
+      const previous = this._slotUpgradeState.get(key);
+      if (typeof previous === 'boolean' && previous !== active) {
+        detectedTransition = true;
+      }
+    }
+    this._slotUpgradeState = next;
+    if (detectedTransition) {
+      this._buildingVfxBurstUntil = Math.max(this._buildingVfxBurstUntil, this._buildingVfxTime + 1.6);
+    }
+  }
+
+  _slotVfxProfile(slot) {
+    const explicitProfile = String(slot?.vfx_profile || slot?.fx_profile || '').toLowerCase();
+    const explicitIntensity = Math.max(0.4, Math.min(2.2, Number(slot?.vfx_intensity || slot?.fx_intensity || 1) || 1));
+    if (explicitProfile) {
+      if (explicitProfile === 'construction' || explicitProfile === 'upgrade') {
+        return { profileName: 'construction', particleMul: 1.35 * explicitIntensity, sizeMul: 1.12, opacityAdd: 0.12, driftMul: 1.25, tint: [1.0, 0.70, 0.42] };
+      }
+      if (explicitProfile === 'industry' || explicitProfile === 'smelter' || explicitProfile === 'refinery') {
+        return { profileName: 'industry', particleMul: 1.2 * explicitIntensity, sizeMul: 1.06, opacityAdd: 0.08, driftMul: 1.16, tint: [1.0, 0.79, 0.47] };
+      }
+      if (explicitProfile === 'power' || explicitProfile === 'reactor') {
+        return { profileName: 'power', particleMul: 1.05 * explicitIntensity, sizeMul: 1.0, opacityAdd: 0.06, driftMul: 1.08, tint: [0.54, 0.84, 1.0] };
+      }
+      if (explicitProfile === 'research' || explicitProfile === 'science') {
+        return { profileName: 'research', particleMul: 0.95 * explicitIntensity, sizeMul: 0.92, opacityAdd: 0.05, driftMul: 0.92, tint: [0.62, 0.82, 1.0] };
+      }
+      if (explicitProfile === 'quiet' || explicitProfile === 'minimal') {
+        return { profileName: 'quiet', particleMul: 0.6 * explicitIntensity, sizeMul: 0.82, opacityAdd: -0.05, driftMul: 0.7, tint: null };
+      }
+    }
+
+    const text = [
+      slot?.type,
+      slot?.building_type,
+      slot?.category,
+      slot?.state,
+      slot?.status,
+      slot?.activity,
+    ].map((v) => String(v || '').toLowerCase()).join(' ');
+    const busy = !!slot?.upgrade_end
+      || /construction|building|upgrade|running|queued|active/.test(text);
+    const industrial = /mine|factory|refinery|smelter|forge|industry/.test(text);
+    const research = /lab|research|science/.test(text);
+    const power = /power|reactor|fusion|energy/.test(text);
+
+    if (busy) {
+      return { profileName: 'construction', particleMul: 1.35 * explicitIntensity, sizeMul: 1.12, opacityAdd: 0.12, driftMul: 1.25, tint: [1.0, 0.70, 0.42] };
+    }
+    if (industrial) {
+      return { profileName: 'industry', particleMul: 1.2 * explicitIntensity, sizeMul: 1.06, opacityAdd: 0.08, driftMul: 1.16, tint: [1.0, 0.79, 0.47] };
+    }
+    if (power) {
+      return { profileName: 'power', particleMul: 1.05 * explicitIntensity, sizeMul: 1.0, opacityAdd: 0.06, driftMul: 1.08, tint: [0.54, 0.84, 1.0] };
+    }
+    if (research) {
+      return { profileName: 'research', particleMul: 0.95 * explicitIntensity, sizeMul: 0.92, opacityAdd: 0.05, driftMul: 0.92, tint: [0.62, 0.82, 1.0] };
+    }
+    return { profileName: 'auto', particleMul: 1 * explicitIntensity, sizeMul: 1, opacityAdd: 0, driftMul: 1, tint: null };
+  }
+
+  _rebuildBuildingVfx(slots) {
+    const source = Array.isArray(slots) ? slots : [];
+    this._ingestUpgradeTransitions(source);
+    this._buildingVfxParticles = [];
+    this._buildingVfxVertexCount = 0;
+    if (!source.length) return;
+
+    const quality = this._resolveBuildingVfxQuality(source.length);
+    const qualityMap = {
+      low: { emitters: 10, particlesPerEmitter: 8, size: 0.11, opacity: 0.16 },
+      medium: { emitters: 20, particlesPerEmitter: 10, size: 0.12, opacity: 0.2 },
+      high: { emitters: 36, particlesPerEmitter: 14, size: 0.14, opacity: 0.24 },
+    };
+    const cfg = qualityMap[quality] || qualityMap.medium;
+    const profileCounts = {};
+    const maxParticles = 900;
+    const maxEmittersByCap = Math.max(1, Math.floor(maxParticles / Math.max(1, cfg.particlesPerEmitter)));
+    const emitterCount = Math.min(source.length, cfg.emitters, maxEmittersByCap);
+    const stride = Math.max(1, Math.floor(source.length / emitterCount));
+    let remainingParticles = maxParticles;
+
+    for (let e = 0; e < emitterCount; e += 1) {
+      if (remainingParticles <= 0) break;
+      const slot = source[Math.min(source.length - 1, e * stride)] || {};
+      const profile = this._slotVfxProfile(slot);
+      const profileName = String(profile.profileName || 'auto');
+      profileCounts[profileName] = (profileCounts[profileName] || 0) + 1;
+      const rgb = hexToRgbFloat(slot.owner_color || slot.colony_owner_color || slot.faction_color || '');
+      const particleCount = Math.max(3, Math.min(remainingParticles, Math.round(cfg.particlesPerEmitter * profile.particleMul)));
+      for (let i = 0; i < particleCount; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 0.1 + Math.random() * 0.85;
+        const tint = profile.tint || rgb;
+        this._buildingVfxParticles.push({
+          x: Number(slot.x || 0) + Math.cos(angle) * radius,
+          y: 0.6 + Math.random() * 1.7,
+          z: Number(slot.z || 0) + Math.sin(angle) * radius,
+          size: cfg.size * profile.sizeMul * (0.8 + Math.random() * 0.6),
+          r: tint[0],
+          g: tint[1],
+          b: tint[2],
+          baseOpacity: Math.max(0.05, Math.min(0.6, cfg.opacity + profile.opacityAdd)),
+          pulsePhase: Math.random() * Math.PI * 2,
+          drift: (0.14 + Math.random() * 0.22) * profile.driftMul,
+        });
+      }
+      remainingParticles -= particleCount;
+    }
+
+    this._buildingVfxVertexCount = this._buildingVfxParticles.length * 6;
+    this._ensureBuildingVfxBufferCapacity(this._buildingVfxVertexCount);
+    this._buildingVfxStats = {
+      backend: 'webgpu',
+      quality,
+      emitters: emitterCount,
+      particles: this._buildingVfxParticles.length,
+      profileCounts,
+      burstActive: this._buildingVfxBurstUntil > this._buildingVfxTime,
+    };
+  }
+
+  _ensureBuildingVfxBufferCapacity(vertexCount) {
+    if (!this._device) return;
+    const bytesNeeded = Math.max(0, Number(vertexCount || 0)) * 24;
+    if (!bytesNeeded) return;
+    const existing = this._buildingVfxBuffer?.size || 0;
+    if (existing >= bytesNeeded) return;
+    if (this._buildingVfxBuffer) {
+      try { this._buildingVfxBuffer.destroy(); } catch (_) {}
+      this._buildingVfxBuffer = null;
+    }
+    this._buildingVfxBuffer = this._device.createBuffer({
+      size: bytesNeeded,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+  }
+
+  _updateBuildingVfxBuffer(dt) {
+    if (!this._device || !this._buildingVfxVertexCount || !this._buildingVfxBuffer) return;
+    const particles = this._buildingVfxParticles;
+    if (!particles.length) return;
+    this._buildingVfxTime += Math.max(0, Number(dt) || 0.016);
+    const t = this._buildingVfxTime;
+    const burstT = this._buildingVfxBurstUntil > t
+      ? Math.max(0, Math.min(1, (this._buildingVfxBurstUntil - t) / 1.6))
+      : 0;
+    const out = new Float32Array(this._buildingVfxVertexCount * 6);
+    let vp = 0;
+    particles.forEach((p, index) => {
+      const pulse = 0.5 + 0.5 * Math.sin(t * (1.15 + index * 0.001) + p.pulsePhase);
+      const driftY = Math.sin(t * p.drift + p.pulsePhase) * 0.22;
+      const cx = (p.x * 0.05);
+      const cy = ((p.y + driftY + p.z * 0.02) * 0.05);
+      const hs = Math.max(0.002, p.size * 0.05 * (1 + burstT * 0.18));
+      const a = Math.max(0.05, Math.min(0.78, p.baseOpacity + pulse * 0.16 + burstT * 0.22));
+      const verts = [
+        [cx - hs, cy - hs], [cx + hs, cy - hs], [cx - hs, cy + hs],
+        [cx - hs, cy + hs], [cx + hs, cy - hs], [cx + hs, cy + hs],
+      ];
+      for (let i = 0; i < 6; i += 1) {
+        out[vp + 0] = verts[i][0];
+        out[vp + 1] = verts[i][1];
+        out[vp + 2] = p.r;
+        out[vp + 3] = p.g;
+        out[vp + 4] = p.b;
+        out[vp + 5] = a;
+        vp += 6;
+      }
+    });
+    this._device.queue.writeBuffer(this._buildingVfxBuffer, 0, out.buffer, 0, out.byteLength);
+    if (this._buildingVfxStats) {
+      this._buildingVfxStats.burstActive = burstT > 0.001;
+    }
+    if (typeof window !== 'undefined') {
+      window.__GQ_COLONY_VFX_STATS = Object.assign({}, this._buildingVfxStats || {}, {
+        ts: Date.now(),
+      });
+    }
   }
 
   _drawFrame() {
@@ -261,7 +559,15 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       // Building instances pass
       if (this._meshPipeline && this._slotCount > 0) {
         pass.setPipeline(this._meshPipeline);
+        if (this._instanceBindGroup) {
+          pass.setBindGroup(0, this._instanceBindGroup);
+        }
         pass.draw(8, this._slotCount, 0, 0);
+      }
+      if (this._vfxPipeline && this._buildingVfxBuffer && this._buildingVfxVertexCount > 0) {
+        pass.setPipeline(this._vfxPipeline);
+        pass.setVertexBuffer(0, this._buildingVfxBuffer);
+        pass.draw(this._buildingVfxVertexCount, 1, 0, 0);
       }
       pass.end();
       this._device.queue.submit([encoder.finish()]);

@@ -130,6 +130,9 @@
         craters: descriptor.craters || 0,
         iceCaps: descriptor.ice_caps || 0,
         glow: descriptor.glow || 0,
+        cityDensity: descriptor.city_density || 0,
+        cityGrid: descriptor.city_grid || 0,
+        cityWarmth: descriptor.city_warmth || 0,
       });
     }
 
@@ -163,14 +166,25 @@
         roughness: Math.max(0.08, Math.min(0.98, Number(descriptor?.roughness ?? 0.82))),
         metalness: Math.max(0, Math.min(0.22, Number(descriptor?.metalness ?? 0.04))),
       });
-      this._attachNightEmission(material, descriptor);
+      this._attachNightEmission(material, descriptor, bundle);
       material.userData = Object.assign({}, material.userData, { sharedTexture: true });
       return material;
     }
 
-    _attachNightEmission(material, descriptor) {
+    _attachNightEmission(material, descriptor, bundle = null) {
       if (!material) return;
+      const cityMap = bundle?.cityMap || material.emissiveMap || null;
       const variant = String(descriptor?.variant || '').toLowerCase();
+      const defaultWarmth = variant === 'desert' ? 0.78 : (variant === 'ocean' ? 0.35 : 0.62);
+      const warmthInput = Number(descriptor?.city_warmth);
+      const cityWarmth = Number.isFinite(warmthInput)
+        ? Math.max(0, Math.min(1, warmthInput))
+        : defaultWarmth;
+      const cityTint = new THREE.Color(
+        (0.62 * (1 - cityWarmth)) + (1.0 * cityWarmth),
+        (0.78 * (1 - cityWarmth)) + (0.72 * cityWarmth),
+        (1.0 * (1 - cityWarmth)) + (0.46 * cityWarmth)
+      );
       const baseNightStrength = variant === 'lava'
         ? 0.4
         : Math.max(0.16, Math.min(1.15, Number(descriptor?.glow || 0) * 1.9 + 0.18));
@@ -179,11 +193,15 @@
         nightEmission: {
           lightWorldPos: new THREE.Vector3(0, 0, 0),
           strength: baseNightStrength,
+          cityMap,
+          cityTint,
         },
       });
       material.onBeforeCompile = (shader) => {
         shader.uniforms.gqLightWorldPos = { value: material.userData.nightEmission.lightWorldPos.clone() };
         shader.uniforms.gqNightEmissionStrength = { value: Number(material.userData.nightEmission.strength || 0) };
+        shader.uniforms.gqCityMap = { value: material.userData.nightEmission.cityMap || material.emissiveMap || null };
+        shader.uniforms.gqCityTint = { value: material.userData.nightEmission.cityTint || new THREE.Color(1, 1, 1) };
         material.userData.nightEmission.shader = shader;
 
         shader.vertexShader = shader.vertexShader
@@ -199,7 +217,7 @@
         shader.fragmentShader = shader.fragmentShader
           .replace(
             '#include <common>',
-            '#include <common>\nuniform vec3 gqLightWorldPos;\nuniform float gqNightEmissionStrength;\nvarying vec3 gqWorldPosition;'
+            '#include <common>\nuniform vec3 gqLightWorldPos;\nuniform float gqNightEmissionStrength;\nuniform sampler2D gqCityMap;\nuniform vec3 gqCityTint;\nvarying vec3 gqWorldPosition;'
           )
           .replace(
             '#include <emissivemap_fragment>',
@@ -209,11 +227,15 @@
               '  #ifdef DECODE_VIDEO_TEXTURE_EMISSIVE',
               '    emissiveColor = sRGBTransferEOTF( emissiveColor );',
               '  #endif',
+              '#else',
+              '  vec4 emissiveColor = vec4( 0.0 );',
+              '#endif',
+              '  vec3 gqCityColor = texture2D( gqCityMap, vMapUv ).rgb * gqCityTint;',
               '  vec3 gqNightLightDir = normalize( gqLightWorldPos - gqWorldPosition );',
               '  float gqNightFacing = max( dot( normal, gqNightLightDir ), 0.0 );',
               '  float gqNightFactor = smoothstep( 0.02, 0.82, 1.0 - gqNightFacing );',
-              '  totalEmissiveRadiance *= emissiveColor.rgb * ( gqNightFactor * gqNightEmissionStrength );',
-              '#endif'
+              '  vec3 gqEmission = max( emissiveColor.rgb, gqCityColor );',
+              '  totalEmissiveRadiance *= gqEmission * ( gqNightFactor * gqNightEmissionStrength );'
             ].join('\n')
           );
       };
@@ -292,20 +314,26 @@
       const emissiveCtx = emissiveCanvas.getContext('2d');
       const normalCtx = normalCanvas.getContext('2d');
       const cloudCtx = cloudCanvas.getContext('2d');
-      if (!ctx || !bumpCtx || !emissiveCtx || !normalCtx || !cloudCtx) {
+      const cityCanvas = document.createElement('canvas');
+      cityCanvas.width = width;
+      cityCanvas.height = height;
+      const cityCtx = cityCanvas.getContext('2d');
+      if (!ctx || !bumpCtx || !emissiveCtx || !normalCtx || !cloudCtx || !cityCtx) {
         const map = new THREE.CanvasTexture(colorCanvas);
-        return { map, bumpMap: null, normalMap: null, emissiveMap: null, cloudAlphaMap: null };
+        return { map, bumpMap: null, normalMap: null, emissiveMap: null, cityMap: null, cloudAlphaMap: null };
       }
 
       const image = ctx.createImageData(width, height);
       const bumpImage = bumpCtx.createImageData(width, height);
       const emissiveImage = emissiveCtx.createImageData(width, height);
       const normalImage = normalCtx.createImageData(width, height);
+      const cityImage = cityCtx.createImageData(width, height);
       const cloudImage = cloudCtx.createImageData(width, height);
       const data = image.data;
       const bumpData = bumpImage.data;
       const emissiveData = emissiveImage.data;
       const normalData = normalImage.data;
+      const cityData = cityImage.data;
       const cloudData = cloudImage.data;
       const seed = Number(descriptor?.seed || fallbackColor || 1) >>> 0;
       const variant = String(descriptor?.variant || 'rocky').toLowerCase();
@@ -319,6 +347,17 @@
       const craters = Math.max(0, Math.min(1, Number(descriptor?.craters ?? 0.12)));
       const iceCaps = Math.max(0, Math.min(1, Number(descriptor?.ice_caps ?? 0.0)));
       const glow = Math.max(0, Math.min(1, Number(descriptor?.glow ?? 0.0)));
+      const cityDensityInput = Number(descriptor?.city_density);
+      const cityGridInput = Number(descriptor?.city_grid);
+      const defaultCityDensity = variant === 'rocky' ? 0.62 : (variant === 'desert' ? 0.52 : (variant === 'ocean' ? 0.34 : 0.0));
+      const defaultCityGrid = variant === 'rocky' ? 0.58 : (variant === 'desert' ? 0.64 : (variant === 'ocean' ? 0.42 : 0.0));
+      const cityVariantBoost = variant === 'rocky' ? 1.0 : (variant === 'desert' ? 0.92 : (variant === 'ocean' ? 0.68 : 0.0));
+      const cityDensity = Number.isFinite(cityDensityInput)
+        ? Math.max(0, Math.min(1, cityDensityInput))
+        : defaultCityDensity;
+      const cityGrid = Number.isFinite(cityGridInput)
+        ? Math.max(0, Math.min(1, cityGridInput))
+        : defaultCityGrid;
       const rand = this._rng(seed);
       const craterSeeds = [];
       const craterCount = Math.floor(craters * 18);
@@ -384,7 +423,13 @@
             : (variant === 'ocean' || variant === 'rocky' || variant === 'desert')
               ? Math.max(0, (this._fbm(seed + 1401, u * 11.5, v * 11.5, 3) - 0.83) / 0.17) * glow * 0.45
               : 0;
+          const cityStrength = (variant === 'ocean' || variant === 'rocky' || variant === 'desert')
+            ? Math.max(0, (this._fbm(seed + 1843, u * 14.0, v * 14.0, 4) - (0.78 - cityDensity * 0.32)) / (0.22 + (1 - cityDensity) * 0.30))
+              * Math.max(0, (this._fbm(seed + 1961, u * 38.0, v * 38.0, 2) - (0.74 - cityGrid * 0.34)) / (0.26 + (1 - cityGrid) * 0.26))
+              * ((0.16 + glow * 0.72 + cityDensity * 0.34) * cityVariantBoost)
+            : 0;
           const emissiveShade = this._clampByte(emissiveStrength * 255);
+          const cityShade = this._clampByte(cityStrength * 255);
 
           data[idx] = this._clampByte(color.r);
           data[idx + 1] = this._clampByte(color.g);
@@ -398,6 +443,10 @@
           emissiveData[idx + 1] = emissiveShade;
           emissiveData[idx + 2] = emissiveShade;
           emissiveData[idx + 3] = 255;
+          cityData[idx] = cityShade;
+          cityData[idx + 1] = cityShade;
+          cityData[idx + 2] = cityShade;
+          cityData[idx + 3] = 255;
           const cloudShade = this._clampByte(cloudMask * clouds * 255);
           cloudData[idx] = 255;
           cloudData[idx + 1] = 255;
@@ -432,6 +481,7 @@
       bumpCtx.putImageData(bumpImage, 0, 0);
       emissiveCtx.putImageData(emissiveImage, 0, 0);
       normalCtx.putImageData(normalImage, 0, 0);
+      cityCtx.putImageData(cityImage, 0, 0);
       cloudCtx.putImageData(cloudImage, 0, 0);
 
       const map = new THREE.CanvasTexture(colorCanvas);
@@ -446,6 +496,9 @@
       const emissiveMap = new THREE.CanvasTexture(emissiveCanvas);
       this._applyTextureSampling(emissiveMap, 'emissive');
 
+      const cityMap = new THREE.CanvasTexture(cityCanvas);
+      this._applyTextureSampling(cityMap, 'city');
+
       const cloudAlphaMap = new THREE.CanvasTexture(cloudCanvas);
       this._applyTextureSampling(cloudAlphaMap, 'cloud');
 
@@ -453,9 +506,10 @@
       this._attachServerTexture(bumpMap, descriptor, 'bump', width, options);
       this._attachServerTexture(normalMap, descriptor, 'normal', width, options);
       this._attachServerTexture(emissiveMap, descriptor, 'emissive', width, options);
+      this._attachServerTexture(cityMap, descriptor, 'city', width, options);
       this._attachServerTexture(cloudAlphaMap, descriptor, 'cloud', width, options);
 
-      return { map, bumpMap, normalMap, emissiveMap, cloudAlphaMap };
+      return { map, bumpMap, normalMap, emissiveMap, cityMap, cloudAlphaMap };
     }
 
     dispose() {

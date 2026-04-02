@@ -16,7 +16,7 @@ if (!in_array($action, $allowedActions, true)) {
 $gdAvailable = extension_loaded('gd');
 
 $map = strtolower((string)($_GET['map'] ?? 'albedo'));
-$allowedMaps = ['albedo', 'bump', 'normal', 'emissive', 'cloud'];
+$allowedMaps = ['albedo', 'bump', 'normal', 'emissive', 'city', 'cloud'];
 if (!in_array($map, $allowedMaps, true)) {
     header('Content-Type: application/json; charset=utf-8');
     http_response_code(400);
@@ -120,6 +120,9 @@ function normalize_descriptor(array $descriptor): array
         'craters' => clamp01((float)($descriptor['craters'] ?? 0.12)),
         'ice_caps' => clamp01((float)($descriptor['ice_caps'] ?? 0.0)),
         'glow' => clamp01((float)($descriptor['glow'] ?? 0.0)),
+        'city_density' => clamp01((float)($descriptor['city_density'] ?? 0.0)),
+        'city_grid' => clamp01((float)($descriptor['city_grid'] ?? 0.0)),
+        'city_warmth' => clamp01((float)($descriptor['city_warmth'] ?? 0.0)),
     ];
 }
 
@@ -219,6 +222,29 @@ function render_planet_map_png(string $path, string $map, int $width, int $heigh
     $craters = (float)($descriptor['craters'] ?? 0.12);
     $iceCaps = (float)($descriptor['ice_caps'] ?? 0.0);
     $glow = (float)($descriptor['glow'] ?? 0.0);
+    $hasCityDensity = array_key_exists('city_density', $descriptor);
+    $hasCityGrid = array_key_exists('city_grid', $descriptor);
+    $cityDensityInput = (float)($descriptor['city_density'] ?? 0.0);
+    $cityGridInput = (float)($descriptor['city_grid'] ?? 0.0);
+
+    $defaultCityDensity = 0.0;
+    $defaultCityGrid = 0.0;
+    $cityVariantBoost = 0.0;
+    if ($variant === 'rocky') {
+        $defaultCityDensity = 0.62;
+        $defaultCityGrid = 0.58;
+        $cityVariantBoost = 1.0;
+    } elseif ($variant === 'desert') {
+        $defaultCityDensity = 0.52;
+        $defaultCityGrid = 0.64;
+        $cityVariantBoost = 0.92;
+    } elseif ($variant === 'ocean') {
+        $defaultCityDensity = 0.34;
+        $defaultCityGrid = 0.42;
+        $cityVariantBoost = 0.68;
+    }
+    $cityDensity = $hasCityDensity ? clamp01($cityDensityInput) : $defaultCityDensity;
+    $cityGrid = $hasCityGrid ? clamp01($cityGridInput) : $defaultCityGrid;
 
     for ($y = 0; $y < $height; $y++) {
         $v = $height > 1 ? ($y / ($height - 1)) : 0.0;
@@ -275,12 +301,23 @@ function render_planet_map_png(string $path, string $map, int $width, int $heigh
             $relief = max(0.0, min(1.0, ($n1 * 0.58) + ($n2 * 0.42)));
             $bumpShade = (int)round(45 + $relief * 210);
             $emissiveStrength = 0.0;
+            $cityStrength = 0.0;
             if ($variant === 'lava') {
                 $emissiveStrength = max(0.0, ($n2 - 0.68) / 0.32) * (0.45 + $glow * 0.45);
             } elseif (in_array($variant, ['ocean', 'rocky', 'desert'], true)) {
                 $emissiveStrength = max(0.0, (fbm($seed + 1401, $u * 11.5, $v * 11.5, 3) - 0.83) / 0.17) * $glow * 0.45;
+                $cityCluster = fbm($seed + 1843, $u * 14.0, $v * 14.0, 4);
+                $cityGridNoise = fbm($seed + 1961, $u * 38.0, $v * 38.0, 2);
+                $clusterThreshold = 0.78 - $cityDensity * 0.32;
+                $clusterSpan = 0.22 + (1.0 - $cityDensity) * 0.30;
+                $gridThreshold = 0.74 - $cityGrid * 0.34;
+                $gridSpan = 0.26 + (1.0 - $cityGrid) * 0.26;
+                $cityStrength = max(0.0, ($cityCluster - $clusterThreshold) / $clusterSpan)
+                    * max(0.0, ($cityGridNoise - $gridThreshold) / $gridSpan);
+                $cityStrength *= (0.16 + $glow * 0.72 + $cityDensity * 0.34) * $cityVariantBoost;
             }
             $emissiveShade = (int)round(max(0.0, min(1.0, $emissiveStrength)) * 255);
+            $cityShade = (int)round(max(0.0, min(1.0, $cityStrength)) * 255);
             $cloudShade = (int)round(max(0.0, min(1.0, $cloudMask * $clouds)) * 255);
 
             if ($map === 'albedo') {
@@ -306,6 +343,8 @@ function render_planet_map_png(string $path, string $map, int $width, int $heigh
                 $col = allocate_rgba($img, $nr, $ng, $nb, 0);
             } elseif ($map === 'emissive') {
                 $col = allocate_rgba($img, $emissiveShade, $emissiveShade, $emissiveShade, 0);
+            } elseif ($map === 'city') {
+                $col = allocate_rgba($img, $cityShade, $cityShade, $cityShade, 0);
             } else {
                 $alpha = 127 - (int)round(($cloudShade / 255) * 127);
                 $col = allocate_rgba($img, 255, 255, 255, $alpha);
@@ -348,7 +387,7 @@ function render_planet_map_svg(string $path, string $map, int $width, int $heigh
         $opacityCloud = number_format(0.22 + $clouds * 0.45, 3, '.', '');
         $opacityGlow = number_format(0.08 + $glow * 0.45, 3, '.', '');
 
-        if ($map === 'bump' || $map === 'emissive') {
+        if ($map === 'bump' || $map === 'emissive' || $map === 'city') {
                 $svg = <<<SVG
 <svg xmlns="http://www.w3.org/2000/svg" width="{$width}" height="{$height}" viewBox="0 0 {$width} {$height}">
     <defs>

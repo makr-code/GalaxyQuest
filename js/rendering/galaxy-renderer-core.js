@@ -385,6 +385,10 @@
       this.systemMoonEntries = [];
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
+      this.systemInstallationWeaponFxEntries = [];
+      this.systemInstallationBurstFxEntries = [];
+      this.pendingInstallationWeaponFire = [];
+      this.beamEffect = null;  // Instanced beam pool (Phase FX-3)
       this.galaxyFleetEntries = [];
       this.systemAtmosphereEntries = [];
       this.systemCloudEntries = [];
@@ -505,8 +509,12 @@
         startSpherical: null,
       };
 
+      this._ensureModelRegistryVfxBridge();
+      this._registerCombatFxBridge();
+
       this._setupScene();
       this._bindEvents();
+      this._bindCombatEventHooks();
       this._onResize();
       this._debugLog('renderer-init', {
         lodProfile: this.lodProfile,
@@ -697,6 +705,14 @@
       this.systemStarInstallationGroup.visible = false;
       this.renderFrames.system.add(this.systemStarInstallationGroup);
 
+      this.systemInstallationWeaponFxGroup = new THREE.Group();
+      this.systemInstallationWeaponFxGroup.visible = false;
+      this.renderFrames.system.add(this.systemInstallationWeaponFxGroup);
+
+      this.systemInstallationBurstFxGroup = new THREE.Group();
+      this.systemInstallationBurstFxGroup.visible = false;
+      this.renderFrames.system.add(this.systemInstallationBurstFxGroup);
+
       this.systemTrafficGroup = new THREE.Group();
       this.systemTrafficGroup.visible = false;
       this.renderFrames.system.add(this.systemTrafficGroup);
@@ -706,6 +722,81 @@
       this._buildGalaxyBackgroundGlow();
       this._buildHoverMarker();
       this._buildSelectionMarker();
+    }
+
+    _registerCombatFxBridge() {
+      const bridge = window.GQGalaxyEngineBridge;
+      if (!bridge || typeof bridge.registerAdapter !== 'function') return;
+
+      const adapter = {
+        emitWeaponFire: (payload) => this._queueInstallationWeaponFire(payload),
+        emitWeaponFireBatch: (events) => {
+          if (!Array.isArray(events)) return 0;
+          let accepted = 0;
+          events.forEach((payload) => {
+            if (this._queueInstallationWeaponFire(payload)) accepted += 1;
+          });
+          return accepted;
+        },
+        getRendererInstanceId: () => this.instanceId,
+      };
+
+      bridge.registerAdapter('system-combat-fx', adapter);
+      bridge.registerAdapter('galaxy-renderer', adapter);
+    }
+
+    _bindCombatEventHooks() {
+      this._onCombatWeaponFireEvent = (ev) => {
+        const payload = ev?.detail ?? ev?.payload ?? null;
+        this._queueInstallationWeaponFire(payload);
+      };
+      window.addEventListener('gq:combat:weapon-fire', this._onCombatWeaponFireEvent);
+      window.addEventListener('gq:weapon-fire', this._onCombatWeaponFireEvent);
+    }
+
+    _queueInstallationWeaponFire(payload) {
+      if (!payload || typeof payload !== 'object') return false;
+
+      const sourcePosition = Number(payload.sourcePosition ?? payload.origin_position ?? payload.position ?? 0);
+      const sourceOwner = String(payload.sourceOwner ?? payload.owner ?? '').trim();
+      const sourceType = String(payload.sourceType ?? payload.installType ?? payload.type ?? '').trim().toLowerCase();
+      const weaponKind = String(payload.weaponKind ?? payload.kind ?? '').trim().toLowerCase();
+
+      if (!sourcePosition && !sourceOwner && !sourceType && !weaponKind) return false;
+
+      this.pendingInstallationWeaponFire.push({
+        sourcePosition,
+        sourceOwner,
+        sourceType,
+        weaponKind,
+        ts: performance.now(),
+      });
+      if (this.pendingInstallationWeaponFire.length > 180) {
+        this.pendingInstallationWeaponFire.splice(0, this.pendingInstallationWeaponFire.length - 180);
+      }
+      return true;
+    }
+
+    _ensureModelRegistryVfxBridge() {
+      const registry = window.__GQ_ModelRegistry;
+      if (!registry || typeof registry.setVfxBridge !== 'function') return;
+      if (registry.__gqRendererVfxBridgeInstalled) return;
+
+      registry.setVfxBridge((instance, payload) => {
+        if (!instance?.userData) return;
+        const emitters = Array.isArray(payload?.emitters) ? payload.emitters : [];
+        const weapons = Array.isArray(payload?.weapons) ? payload.weapons : [];
+        instance.userData.gqResolvedVfx = {
+          emitters,
+          weapons,
+          counts: {
+            emitters: emitters.length,
+            weapons: weapons.length,
+          },
+        };
+      });
+
+      registry.__gqRendererVfxBridgeInstalled = true;
     }
 
     _syncSystemSkyDome(dt = 0) {
@@ -1297,6 +1388,7 @@
               m.map?.dispose?.();
               m.bumpMap?.dispose?.();
               m.emissiveMap?.dispose?.();
+              m.cityMap?.dispose?.();
               m.normalMap?.dispose?.();
               m.alphaMap?.dispose?.();
             }
@@ -1308,6 +1400,7 @@
             child.material.map?.dispose?.();
             child.material.bumpMap?.dispose?.();
             child.material.emissiveMap?.dispose?.();
+            child.material.cityMap?.dispose?.();
             child.material.normalMap?.dispose?.();
             child.material.alphaMap?.dispose?.();
           }
@@ -2564,6 +2657,15 @@
           orbitRadius,
           orbitMinor,
         });
+        const installParticles = this._createInstallationParticleField(
+          colorHex,
+          type,
+          level,
+          mesh.userData?.gqResolvedVfx || mesh.userData?.resolvedVfx || null,
+        );
+        if (installParticles) {
+          mesh.add(installParticles);
+        }
         this.systemStarInstallationGroup.add(mesh);
 
         // Build a faint orbit ring for the installation
@@ -2585,10 +2687,289 @@
           position:    Number(install.position || 0),
           owner:       String(install.owner || ''),
           animState,
+          installParticles,
           modelAnims:  this._extractModelAnimations(type),
           elapsed:     0,
         });
+
+        this._initInstallationWeaponFxEntry(this.systemStarInstallationEntries[this.systemStarInstallationEntries.length - 1]);
+        this._initInstallationBurstFxEntry(this.systemStarInstallationEntries[this.systemStarInstallationEntries.length - 1]);
       });
+    }
+
+    _initInstallationWeaponFxEntry(entry) {
+      if (!entry?.mesh || !this.systemInstallationWeaponFxGroup) return;
+      const resolved = entry.mesh.userData?.gqResolvedVfx || entry.mesh.userData?.resolvedVfx || null;
+      const weapons = Array.isArray(resolved?.weapons) ? resolved.weapons : [];
+      if (!weapons.length) return;
+
+      weapons.forEach((weapon, idx) => {
+        const kind = String(weapon?.kind || '').toLowerCase();
+        if (kind !== 'beam' && kind !== 'plasma' && kind !== 'rail' && kind !== 'missile') return;
+        const sourceNode = typeof weapon.fromResolvedUuid === 'string'
+          ? entry.mesh.getObjectByProperty('uuid', weapon.fromResolvedUuid)
+          : null;
+        const coreColor = Number.isInteger(weapon?.coreColor) ? weapon.coreColor : 0x66ccff;
+        const glowColor = Number.isInteger(weapon?.glowColor) ? weapon.glowColor : coreColor;
+        const alpha = THREE.MathUtils.clamp(Number(weapon?.alpha || 0.8), 0.08, 1);
+
+        const profile = this._installationWeaponFxProfile(kind);
+
+        const points = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0)];
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+          color: profile.lineUsesGlow ? glowColor : coreColor,
+          transparent: true,
+          opacity: alpha,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const line = new THREE.Line(geometry, material);
+        line.visible = false;
+        line.userData = Object.assign({}, line.userData, {
+          kind: 'installation-weapon-beam',
+          beamId: String(weapon.id || `beam_${idx}`),
+          weaponKind: kind,
+          baseAlpha: alpha,
+          profile,
+          pulseOffset: Math.random() * Math.PI * 2,
+        });
+        this.systemInstallationWeaponFxGroup.add(line);
+
+        let headMesh = null;
+        if (profile.useHeadMesh) {
+          headMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(profile.headRadius, 8, 8),
+            new THREE.MeshBasicMaterial({
+              color: glowColor,
+              transparent: true,
+              opacity: THREE.MathUtils.clamp(alpha * 0.95, 0.08, 1),
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+            }),
+          );
+          headMesh.visible = false;
+          this.systemInstallationWeaponFxGroup.add(headMesh);
+        }
+
+        this.systemInstallationWeaponFxEntries.push({
+          installEntry: entry,
+          weapon,
+          kind,
+          profile,
+          sourceNode,
+          line,
+          headMesh,
+          nextFireAt: 0,
+          fireUntil: 0,
+        });
+      });
+    }
+
+    _installationWeaponFxProfile(kind) {
+      switch (String(kind || '').toLowerCase()) {
+        case 'plasma':
+          return {
+            lineUsesGlow: true,
+            useHeadMesh: true,
+            headRadius: 0.11,
+            pulseFreq: 8.2,
+            pulseMin: 0.36,
+            pulseMax: 0.96,
+            travelSpeed: 0.72,
+            drawsTrailToSource: true,
+            strobe: false,
+          };
+        case 'rail':
+          return {
+            lineUsesGlow: false,
+            useHeadMesh: false,
+            headRadius: 0,
+            pulseFreq: 17.5,
+            pulseMin: 0.12,
+            pulseMax: 1.0,
+            travelSpeed: 1.35,
+            drawsTrailToSource: false,
+            strobe: true,
+          };
+        case 'missile':
+          return {
+            lineUsesGlow: true,
+            useHeadMesh: true,
+            headRadius: 0.15,
+            pulseFreq: 5.8,
+            pulseMin: 0.32,
+            pulseMax: 0.9,
+            travelSpeed: 0.48,
+            drawsTrailToSource: true,
+            strobe: false,
+          };
+        case 'beam':
+        default:
+          return {
+            lineUsesGlow: false,
+            useHeadMesh: false,
+            headRadius: 0,
+            pulseFreq: 11.0,
+            pulseMin: 0.38,
+            pulseMax: 1.0,
+            travelSpeed: 0,
+            drawsTrailToSource: false,
+            strobe: false,
+          };
+      }
+    }
+
+    _installationWeaponFxCadence(kind, state) {
+      const s = String(state || 'idle').toLowerCase();
+      const alert = s === 'alert';
+      switch (String(kind || '').toLowerCase()) {
+        case 'plasma': return alert ? 0.75 : 1.15;
+        case 'rail': return alert ? 0.42 : 0.8;
+        case 'missile': return alert ? 1.35 : 2.1;
+        case 'beam':
+        default:
+          return alert ? 0.28 : 0.5;
+      }
+    }
+
+    _installationWeaponFxShotDuration(kind, state) {
+      const s = String(state || 'idle').toLowerCase();
+      const alert = s === 'alert';
+      switch (String(kind || '').toLowerCase()) {
+        case 'plasma': return alert ? 0.52 : 0.36;
+        case 'rail': return alert ? 0.1 : 0.08;
+        case 'missile': return alert ? 0.72 : 0.55;
+        case 'beam':
+        default:
+          return alert ? 0.34 : 0.22;
+      }
+    }
+
+    _triggerInstallationWeaponFire(fxEntry, elapsed, activeState, cadenceScale = 1) {
+      const cadence = this._installationWeaponFxCadence(fxEntry.kind, activeState) * Math.max(0.1, Number(cadenceScale) || 1);
+      const shotDuration = this._installationWeaponFxShotDuration(fxEntry.kind, activeState);
+      fxEntry.fireUntil = Math.max(Number(fxEntry.fireUntil || 0), elapsed + shotDuration);
+      fxEntry.nextFireAt = elapsed + cadence;
+
+      // Add to BeamEffect pool (Phase FX-3 instanced rendering)
+      if (this.beamEffect && fxEntry.worldFrom && fxEntry.worldTo) {
+        const beamRecord = {
+          id: String(fxEntry?.weapon?.id || `beam_${fxEntry?.kind}_${Date.now()}`),
+          from: fxEntry.worldFrom,
+          to: fxEntry.worldTo,
+          coreColor: Number(fxEntry?.weapon?.coreColor ?? 0x66ccff),
+          color: Number(fxEntry?.weapon?.glowColor ?? fxEntry?.weapon?.coreColor ?? 0x66ccff),
+          glowRadius: 0.4,
+          duration: shotDuration,
+        };
+        this.beamEffect.addBeam(beamRecord);
+      }
+
+      const installEntry = fxEntry.installEntry;
+      if (installEntry && elapsed >= Number(installEntry.burstCooldownUntil || 0)) {
+        this._spawnInstallationBurstFx(installEntry, elapsed);
+      }
+    }
+
+    _applyPendingInstallationWeaponFire(elapsed) {
+      if (!Array.isArray(this.pendingInstallationWeaponFire) || !this.pendingInstallationWeaponFire.length) return;
+      if (!Array.isArray(this.systemInstallationWeaponFxEntries) || !this.systemInstallationWeaponFxEntries.length) {
+        this.pendingInstallationWeaponFire.length = 0;
+        return;
+      }
+
+      const events = this.pendingInstallationWeaponFire.splice(0, this.pendingInstallationWeaponFire.length);
+      events.forEach((ev) => {
+        this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
+          const installEntry = fxEntry?.installEntry;
+          if (!installEntry?.mesh) return;
+
+          if (ev.weaponKind && ev.weaponKind !== String(fxEntry.kind || '').toLowerCase()) return;
+          if (ev.sourcePosition && Number(installEntry.position || 0) !== ev.sourcePosition) return;
+          if (ev.sourceOwner && ev.sourceOwner !== String(installEntry.owner || '').trim()) return;
+          if (ev.sourceType && ev.sourceType !== String(installEntry.install?.type || '').toLowerCase()) return;
+
+          const state = String(installEntry.animState || installEntry.mesh.userData?.animState || 'active');
+          this._triggerInstallationWeaponFire(fxEntry, elapsed, state, 0.7);
+        });
+      });
+    }
+
+    _initInstallationBurstFxEntry(entry) {
+      if (!entry?.mesh) return;
+      const resolved = entry.mesh.userData?.gqResolvedVfx || entry.mesh.userData?.resolvedVfx || null;
+      const emitters = Array.isArray(resolved?.emitters) ? resolved.emitters : [];
+      entry.burstEmitters = emitters.filter((emitter) => {
+        const mode = String(emitter?.mode || '').toLowerCase();
+        const kind = String(emitter?.kind || '').toLowerCase();
+        if (mode !== 'burst') return false;
+        return kind === 'muzzle' || kind === 'impact' || kind === 'debris' || kind === 'trail';
+      });
+      entry.burstCooldownUntil = 0;
+    }
+
+    _spawnInstallationBurstFx(entry, elapsed = 0) {
+      if (!entry?.mesh || !Array.isArray(entry.burstEmitters) || !entry.burstEmitters.length) return;
+      if (!this.systemInstallationBurstFxGroup) return;
+
+      const localPosition = new THREE.Vector3();
+      const worldPosition = new THREE.Vector3();
+
+      entry.burstEmitters.forEach((emitter, emitterIdx) => {
+        const sourceNode = typeof emitter?.attachResolvedUuid === 'string'
+          ? entry.mesh.getObjectByProperty('uuid', emitter.attachResolvedUuid)
+          : null;
+        const count = THREE.MathUtils.clamp(Number(emitter?.count || 12), 8, 40);
+        const duration = THREE.MathUtils.clamp(Number(emitter?.lifetime || 0.22), 0.08, 1.1);
+        const spread = THREE.MathUtils.clamp(Number(emitter?.spread || 0.18), 0.02, Math.PI);
+        const sizeStart = THREE.MathUtils.clamp(Number(emitter?.sizeStart || 0.1), 0.02, 0.35);
+        const colorStart = Number.isInteger(emitter?.colorStart) ? Number(emitter.colorStart) : 0xffbb66;
+
+        if (sourceNode?.isObject3D) {
+          sourceNode.getWorldPosition(worldPosition);
+        } else {
+          entry.mesh.getWorldPosition(worldPosition);
+        }
+        this.systemInstallationBurstFxGroup.worldToLocal(localPosition.copy(worldPosition));
+
+        const positions = new Float32Array(count * 3);
+        for (let i = 0; i < count; i += 1) {
+          const idx = i * 3;
+          const a = (Math.random() - 0.5) * spread + emitterIdx * 0.2;
+          const r = (0.08 + Math.random() * 0.34) * (1 + spread * 0.35);
+          const y = (Math.random() - 0.5) * 0.3;
+          positions[idx] = Math.cos(a) * r;
+          positions[idx + 1] = y;
+          positions[idx + 2] = Math.sin(a) * r;
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({
+          color: new THREE.Color(colorStart),
+          size: sizeStart,
+          transparent: true,
+          opacity: 0.95,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          sizeAttenuation: true,
+        });
+        const burst = new THREE.Points(geometry, material);
+        burst.position.copy(localPosition);
+        burst.userData = Object.assign({}, burst.userData, {
+          kind: 'installation-burst-fx',
+          age: 0,
+          duration,
+          fadeBase: material.opacity,
+          growRate: 1.6 + Math.random() * 1.4,
+        });
+
+        this.systemInstallationBurstFxGroup.add(burst);
+        this.systemInstallationBurstFxEntries.push(burst);
+      });
+
+      entry.burstCooldownUntil = elapsed + (0.7 + Math.random() * 0.5);
     }
 
     /**
@@ -2833,6 +3214,85 @@
       return group;
     }
 
+    _createInstallationParticleField(colorHex, type, level, resolvedVfx = null) {
+      if (!THREE?.BufferGeometry || !THREE?.PointsMaterial || !THREE?.Points) return null;
+      const installType = String(type || '').toLowerCase();
+      if (installType === 'jump_inhibitor') return null;
+
+      const emitterHint = this._deriveInstallationEmitterHint(resolvedVfx);
+
+      const safeLevel = Math.max(1, Number(level || 1));
+      const particleCount = Math.min(180, Math.max(12, Number(emitterHint?.count) || (28 + safeLevel * 10)));
+      const radius = 1.4 + safeLevel * 0.18;
+      const positions = new Float32Array(particleCount * 3);
+      const color = emitterHint?.colorStart
+        ? new THREE.Color(Number(emitterHint.colorStart))
+        : new THREE.Color(colorHex || '#4af9ff');
+
+      for (let i = 0; i < particleCount; i += 1) {
+        const idx = i * 3;
+        const spread = THREE.MathUtils.clamp(Number(emitterHint?.spread), 0.04, Math.PI);
+        const baseDir = Math.atan2(Number(emitterHint?.direction?.z || -1), Number(emitterHint?.direction?.x || 0));
+        const a = baseDir + (Math.random() - 0.5) * spread;
+        const ring = radius * (0.55 + Math.random() * 0.75);
+        const yJitter = (Math.random() - 0.5) * (0.5 + safeLevel * 0.08);
+        positions[idx] = Math.cos(a) * ring;
+        positions[idx + 1] = yJitter;
+        positions[idx + 2] = Math.sin(a) * ring;
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const mat = new THREE.PointsMaterial({
+        color,
+        size: Math.min(0.26, Math.max(0.05, Number(emitterHint?.sizeStart) || (0.08 + safeLevel * 0.012))),
+        transparent: true,
+        opacity: 0.24,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        sizeAttenuation: true,
+      });
+      const points = new THREE.Points(geo, mat);
+      points.userData = Object.assign({}, points.userData, {
+        kind: 'installation-particles',
+        pulsePhase: Math.random() * Math.PI * 2,
+        spinRate: THREE.MathUtils.clamp(0.08 + (Number(emitterHint?.speed) || 5) * 0.02, 0.12, 0.52),
+        vfxEmitterId: String(emitterHint?.id || ''),
+      });
+      if (Array.isArray(emitterHint?.position) && emitterHint.position.length === 3) {
+        points.position.set(
+          Number(emitterHint.position[0]) || 0,
+          Number(emitterHint.position[1]) || 0,
+          Number(emitterHint.position[2]) || 0,
+        );
+      }
+      return points;
+    }
+
+    _deriveInstallationEmitterHint(resolvedVfx) {
+      const emitters = Array.isArray(resolvedVfx?.emitters) ? resolvedVfx.emitters : [];
+      if (!emitters.length) return null;
+
+      const preferred = emitters.find((e) => String(e?.kind || '').toLowerCase() === 'thruster')
+        || emitters.find((e) => String(e?.kind || '').toLowerCase() === 'trail')
+        || emitters[0];
+      if (!preferred || typeof preferred !== 'object') return null;
+
+      const direction = Array.isArray(preferred.direction) ? preferred.direction : [0, 0, -1];
+      const position = Array.isArray(preferred.position) ? preferred.position : [0, 0, 0];
+      return {
+        id: preferred.id,
+        kind: preferred.kind,
+        count: Number(preferred.count),
+        speed: Number(preferred.speed),
+        spread: Number(preferred.spread),
+        sizeStart: Number(preferred.sizeStart),
+        colorStart: Number(preferred.colorStart),
+        direction,
+        position,
+      };
+    }
+
     _extractModelAnimations(type) {
       const registry = window.__GQ_ModelRegistry;
       if (!registry?.hasCached(type) || typeof registry.getAnimations !== 'function') {
@@ -2985,7 +3445,7 @@
       return 0;
     }
 
-    _syncInstallationAnimationStates() {
+    _syncInstallationAnimationStates(elapsed = 0) {
       const registry = window.__GQ_ModelRegistry;
       if (!registry || typeof registry.setAnimationState !== 'function') return;
 
@@ -2993,11 +3453,199 @@
         if (!entry?.mesh) return;
         const nextState = this._installationDynamicAnimState(entry);
         const currentState = String(entry.animState || entry.mesh.userData?.animState || '');
-        if (nextState === currentState) return;
+        if (nextState === currentState) {
+          if (nextState === 'alert' && elapsed >= Number(entry.burstCooldownUntil || 0)) {
+            this._spawnInstallationBurstFx(entry, elapsed);
+          }
+          return;
+        }
 
         registry.setAnimationState(entry.mesh, nextState);
         entry.animState = nextState;
+
+        const particleMat = entry.installParticles?.material;
+        if (!particleMat) return;
+        if (nextState === 'alert') {
+          particleMat.opacity = 0.5;
+          particleMat.size = Math.max(0.12, Number(particleMat.size || 0.1) * 1.12);
+        } else if (nextState === 'active') {
+          particleMat.opacity = 0.34;
+          particleMat.size = Math.max(0.1, Number(particleMat.size || 0.1) * 1.04);
+        } else {
+          particleMat.opacity = 0.22;
+          particleMat.size = Math.max(0.08, Number(particleMat.size || 0.1) * 0.96);
+        }
+
+        if (nextState === 'alert') {
+          this._spawnInstallationBurstFx(entry, elapsed);
+        }
       });
+    }
+
+    _resolveInstallationThreatTarget(entry, out = null) {
+      const target = out || new THREE.Vector3();
+      if (!entry?.mesh || !Array.isArray(this.systemFleetEntries) || !this.systemFleetEntries.length) return null;
+
+      const owner = String(entry.owner || entry.install?.owner || '');
+      const installPos = new THREE.Vector3();
+      entry.mesh.getWorldPosition(installPos);
+
+      let best = null;
+      let bestDist2 = Infinity;
+
+      this.systemFleetEntries.forEach((fleetEntry) => {
+        const fleet = fleetEntry?.fleet || {};
+        const fleetOwner = String(fleet.owner || '');
+        if (owner && fleetOwner && owner === fleetOwner) return;
+
+        const mission = String(fleet.mission || '').toLowerCase();
+        if (mission !== 'attack' && mission !== 'spy') return;
+        if (!fleetEntry?.group) return;
+
+        const fleetPos = new THREE.Vector3();
+        fleetEntry.group.getWorldPosition(fleetPos);
+        const dist2 = installPos.distanceToSquared(fleetPos);
+        if (dist2 < bestDist2) {
+          bestDist2 = dist2;
+          best = fleetPos;
+        }
+      });
+
+      if (!best) return null;
+      target.copy(best);
+      return target;
+    }
+
+    _syncInstallationWeaponFx(elapsed) {
+      if (!Array.isArray(this.systemInstallationWeaponFxEntries) || !this.systemInstallationWeaponFxEntries.length) return;
+      if (!this.systemInstallationWeaponFxGroup) return;
+
+      // Update BeamEffect pool (Phase FX-3)
+      if (this.beamEffect) {
+        this.beamEffect.update(elapsed);
+      }
+
+      const localFrom = new THREE.Vector3();
+      const localTo = new THREE.Vector3();
+      const worldFrom = new THREE.Vector3();
+      const worldTo = new THREE.Vector3();
+
+      this.systemInstallationWeaponFxEntries.forEach((fxEntry, index) => {
+        const installEntry = fxEntry?.installEntry;
+        if (!installEntry?.mesh) return;
+
+        const activeState = String(installEntry.animState || installEntry.mesh.userData?.animState || 'idle');
+        const threat = this._resolveInstallationThreatTarget(installEntry, worldTo);
+        const canFire = !!threat && activeState !== 'idle';
+        
+        // Cache world positions for potential BeamEffect usage
+        if (fxEntry.sourceNode?.isObject3D) {
+          fxEntry.sourceNode.getWorldPosition(worldFrom);
+        } else {
+          installEntry.mesh.getWorldPosition(worldFrom);
+        }
+        fxEntry.worldFrom = worldFrom.clone();
+        fxEntry.worldTo = worldTo.clone();
+
+        if (canFire && elapsed >= Number(fxEntry.nextFireAt || 0)) {
+          this._triggerInstallationWeaponFire(fxEntry, elapsed, activeState);
+        }
+
+        const shouldRender = canFire && elapsed <= Number(fxEntry.fireUntil || 0);
+        
+        // Fallback: update THREE.Line if BeamEffect is unavailable
+        const line = fxEntry?.line;
+        const headMesh = fxEntry?.headMesh;
+        const profile = fxEntry?.profile || this._installationWeaponFxProfile(fxEntry?.kind);
+        
+        if (line && line.geometry && line.material) {
+          if (!shouldRender) {
+            line.visible = false;
+            if (headMesh) headMesh.visible = false;
+            return;
+          }
+
+          this.systemInstallationWeaponFxGroup.worldToLocal(localFrom.copy(worldFrom));
+          this.systemInstallationWeaponFxGroup.worldToLocal(localTo.copy(worldTo));
+
+          const travelSpeed = Number(profile?.travelSpeed || 0);
+          const travelT = travelSpeed > 0
+            ? ((elapsed * travelSpeed) + index * 0.173) % 1
+            : 1;
+          const headPos = localFrom.clone().lerp(localTo, travelT);
+
+          const posAttr = line.geometry.getAttribute('position');
+          if (posAttr && posAttr.count >= 2) {
+            const drawTo = profile?.drawsTrailToSource ? headPos : localTo;
+            posAttr.setXYZ(0, localFrom.x, localFrom.y, localFrom.z);
+            posAttr.setXYZ(1, drawTo.x, drawTo.y, drawTo.z);
+            posAttr.needsUpdate = true;
+            line.geometry.computeBoundingSphere();
+          }
+
+          const baseAlpha = Number(line.userData?.baseAlpha || 0.8);
+          const pulseOffset = Number(line.userData?.pulseOffset || 0);
+          const pulseFreq = Number(profile?.pulseFreq || 11);
+          const pulseMin = Number(profile?.pulseMin || 0.35);
+          const pulseMax = Number(profile?.pulseMax || 1.0);
+          const pulse = pulseMin + (pulseMax - pulseMin) * (0.5 + 0.5 * Math.sin(elapsed * pulseFreq + pulseOffset + index * 0.31));
+          const strobe = !!profile?.strobe;
+          const strobeOn = strobe ? (Math.sin(elapsed * pulseFreq + pulseOffset) > -0.08) : true;
+          line.material.opacity = THREE.MathUtils.clamp(baseAlpha * pulse, 0.08, 1);
+          line.visible = strobe ? strobeOn : true;
+
+          if (headMesh) {
+            headMesh.position.copy(headPos);
+            if (headMesh.material) {
+              headMesh.material.opacity = THREE.MathUtils.clamp(baseAlpha * (0.65 + pulse * 0.45), 0.08, 1);
+            }
+            headMesh.visible = line.visible;
+          }
+        }
+      });
+    }
+
+    _tickInstallationParticleFields(elapsed, dt) {
+      (this.systemStarInstallationEntries || []).forEach((entry, index) => {
+        const particles = entry?.installParticles;
+        const mat = particles?.material;
+        if (!particles || !mat) return;
+        const phase = Number(particles.userData?.pulsePhase || 0);
+        const spinRate = Number(particles.userData?.spinRate || 0.24);
+        const pulse = 0.5 + 0.5 * Math.sin(elapsed * (1.25 + index * 0.03) + phase);
+        particles.rotation.y += dt * spinRate;
+        particles.rotation.z = Math.sin(elapsed * 0.32 + phase) * 0.1;
+        const base = entry?.animState === 'alert' ? 0.34 : (entry?.animState === 'active' ? 0.24 : 0.16);
+        mat.opacity = THREE.MathUtils.clamp(base + pulse * 0.22, 0.12, 0.62);
+      });
+    }
+
+    _tickInstallationBurstFx(_elapsed, dt) {
+      if (!Array.isArray(this.systemInstallationBurstFxEntries) || !this.systemInstallationBurstFxEntries.length) return;
+      for (let i = this.systemInstallationBurstFxEntries.length - 1; i >= 0; i -= 1) {
+        const burst = this.systemInstallationBurstFxEntries[i];
+        const material = burst?.material;
+        if (!burst || !material) {
+          this.systemInstallationBurstFxEntries.splice(i, 1);
+          continue;
+        }
+
+        burst.userData.age = Number(burst.userData.age || 0) + dt;
+        const duration = Math.max(0.01, Number(burst.userData.duration || 0.2));
+        const t = THREE.MathUtils.clamp(burst.userData.age / duration, 0, 1);
+        const fadeBase = Number(burst.userData.fadeBase || 0.9);
+        material.opacity = THREE.MathUtils.clamp((1 - t) * fadeBase, 0, 1);
+        const growRate = Number(burst.userData.growRate || 2);
+        const s = 1 + t * growRate;
+        burst.scale.setScalar(s);
+
+        if (t >= 1) {
+          if (burst.parent) burst.parent.remove(burst);
+          burst.geometry?.dispose?.();
+          burst.material?.dispose?.();
+          this.systemInstallationBurstFxEntries.splice(i, 1);
+        }
+      }
     }
 
     // ── Ambient traffic ────────────────────────────────────────────────────────
@@ -3691,6 +4339,8 @@
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
       this.systemStarInstallationEntries = [];
+      this.systemInstallationWeaponFxEntries = [];
+      this.systemInstallationBurstFxEntries = [];
       this.systemTrafficEntries = [];
       this.systemAtmosphereEntries = [];
       this.systemCloudEntries = [];
@@ -3714,7 +4364,14 @@
       if (this.systemFacilityGroup) this.systemFacilityGroup.visible = false;
       if (this.systemFleetGroup) this.systemFleetGroup.visible = false;
       if (this.systemStarInstallationGroup) this.systemStarInstallationGroup.visible = false;
+      if (this.systemInstallationWeaponFxGroup) this.systemInstallationWeaponFxGroup.visible = false;
+      if (this.systemInstallationBurstFxGroup) this.systemInstallationBurstFxGroup.visible = false;
       if (this.systemTrafficGroup) this.systemTrafficGroup.visible = false;
+      // Dispose of BeamEffect pool
+      if (this.beamEffect) {
+        this.beamEffect.dispose();
+        this.beamEffect = null;
+      }
       this._clearGroup(this.systemSkyGroup);
       this._clearGroup(this.systemBackdrop);
       this._clearGroup(this.systemOrbitGroup);
@@ -3722,6 +4379,8 @@
       this._clearGroup(this.systemFacilityGroup);
       this._clearGroup(this.systemFleetGroup);
       this._clearGroup(this.systemStarInstallationGroup);
+      this._clearGroup(this.systemInstallationWeaponFxGroup);
+      this._clearGroup(this.systemInstallationBurstFxGroup);
       this._clearGroup(this.systemTrafficGroup);
       if (this.starPoints) this.starPoints.visible = true;
       if (this.coreStars) this.coreStars.visible = true;
@@ -3765,6 +4424,13 @@
       const wasSystemMode = !!this.systemMode;
       this.exitSystemView(false);
       this.systemMode = true;
+      // Initialize BeamEffect pool for instanced beam rendering (Phase FX-3)
+      if (window.GQBeamEffect && typeof window.GQBeamEffect.BeamEffect === 'function') {
+        this.beamEffect = new window.GQBeamEffect.BeamEffect({ maxBeams: 128 });
+      } else {
+        console.warn('[Galaxy3DRenderer] BeamEffect not available; beam rendering via THREE.Line');
+        this.beamEffect = null;
+      }
       this._syncInputContext();
       this.systemSourceStar = star;
       if (this.renderFrames?.galaxy) this.renderFrames.galaxy.visible = true;
@@ -3777,6 +4443,8 @@
       if (this.systemFacilityGroup) this.systemFacilityGroup.visible = true;
       if (this.systemFleetGroup) this.systemFleetGroup.visible = true;
       if (this.systemStarInstallationGroup) this.systemStarInstallationGroup.visible = true;
+      if (this.systemInstallationWeaponFxGroup) this.systemInstallationWeaponFxGroup.visible = true;
+      if (this.systemInstallationBurstFxGroup) this.systemInstallationBurstFxGroup.visible = true;
       if (this.systemTrafficGroup) this.systemTrafficGroup.visible = true;
       this.autoFrameEnabled = false;
       if (this.starPoints) this.starPoints.visible = true;
@@ -6345,7 +7013,7 @@
             vColonyStrength = aColonyStrength;
             vColonyOwnership = aColonyOwnership;
             vColonyColor = aColonyColor;
-            vAlpha = clamp((0.30 + (aSize / 12.0)) * (0.82 + centerBoost * 0.18), 0.24, 0.90);
+            vAlpha = clamp((0.40 + (aSize / 10.0)) * (0.85 + centerBoost * 0.20), 0.32, 0.95);
             vEmpire = aEmpire;
             vProximityFactor = aProximityFactor;
           }
@@ -6414,22 +7082,41 @@
         this.renderer.compile(this.starPoints, this.renderFrames.galaxy);
       } catch (shaderErr) {
         // Fallback: replace with simple PointsMaterial if shader compilation fails
+        console.error('[galaxy] shader compilation error:', shaderErr);
         try {
           material.dispose();
         } catch (_) {}
+        
+        // Create per-vertex colors from the geometry attributes if available
+        let vertexColors = undefined;
+        if (geo && geo.attributes && geo.attributes.aColor) {
+          try {
+            geo.setAttribute('color', geo.getAttribute('aColor'));
+            vertexColors = true;
+          } catch (_) {}
+        }
+        
         const fallbackMaterial = new THREE.PointsMaterial({
-          color: 0xffffff,
-          size: 2.0,
+          color: vertexColors ? 0xffffff : 0xffffff,
+          size: 5.2,
           sizeAttenuation: true,
           transparent: true,
           blending: THREE.AdditiveBlending,
           depthTest: false,
           depthWrite: false,
+          vertexColors: vertexColors || false,
+          opacity: 1.0,
+          fog: false,
         });
         this.starPoints.material = fallbackMaterial;
         try {
           if (window.GQLog && typeof window.GQLog.warn === 'function') {
-            window.GQLog.warn('[galaxy] star shader compilation failed, using fallback PointsMaterial');
+            window.GQLog.warn('[galaxy] star shader compilation failed, using fallback PointsMaterial', {
+              shaderError: shaderErr?.message || String(shaderErr || 'unknown'),
+              vertexColors: !!vertexColors,
+              materialSize: 4.5,
+              materialOpacity: 0.95,
+            });
           }
         } catch (_) {}
       }
@@ -7726,7 +8413,15 @@ ${shader.vertexShader}`;
             fleetEntry.headingLine.material.opacity = 0.58 + 0.3 * pulse;
           }
         });
-        this._syncInstallationAnimationStates();
+        this._syncInstallationAnimationStates(elapsed);
+        this._applyPendingInstallationWeaponFire(elapsed);
+        this._syncInstallationWeaponFx(elapsed);
+        this._tickInstallationParticleFields(elapsed, dt);
+        this._tickInstallationBurstFx(elapsed, dt);
+        // Upload BeamEffect pool to GPU (Phase FX-3)
+        if (this.beamEffect && typeof this.beamEffect.uploadToGPU === 'function') {
+          this.beamEffect.uploadToGPU();
+        }
         const registry = window.__GQ_ModelRegistry;
         if (registry && typeof registry.tickAnimations === 'function') {
           registry.tickAnimations(this.systemStarInstallationEntries, elapsed, dt);
@@ -7831,6 +8526,10 @@ ${shader.vertexShader}`;
       if (this._onMouseUp) window.removeEventListener('mouseup', this._onMouseUp);
       if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown);
       if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp);
+      if (this._onCombatWeaponFireEvent) {
+        window.removeEventListener('gq:combat:weapon-fire', this._onCombatWeaponFireEvent);
+        window.removeEventListener('gq:weapon-fire', this._onCombatWeaponFireEvent);
+      }
       if (this._containerResizeObserver) {
         try {
           this._containerResizeObserver.disconnect();

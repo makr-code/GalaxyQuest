@@ -1,0 +1,10 @@
+faction_code: schattenkompakt
+faction_name: Das Schattenkompakt
+faction_type: espionage
+description: "Netzwerk aus Informationsbrokern, Agenten und Doppelspionen."
+status: active_ambivalent
+homeworld: Distributed Cells
+technology:
+  - Stealth infiltration
+  - Counter-intelligence meshes
+  - Signal obfuscation

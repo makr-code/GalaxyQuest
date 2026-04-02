@@ -77,6 +77,14 @@
     "type": "Group",
     "name": "stargate",
     "userData": {
+      "gqModelSemantics": {
+        "factionCode": "aethernox",
+        "objectClass": "station",
+        "archetype": "stargate",
+        "designLanguageVersion": "egl-1.0",
+        "silhouetteTags": ["monolith_axis", "balance_rings"],
+        "signatureParts": ["ward_monolith", "logic_obelisks"]
+      },
       "gqAnimations": [
         { "target": "root", "property": "rotation.z", "type": "linear", "speed": 0.28 },
         { "target": "child:0", "property": "rotation.z", "type": "linear", "speed": 0.18 },

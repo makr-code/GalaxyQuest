@@ -12,7 +12,8 @@
     "test:e2e:viewflow:seeded:native": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"$env:GQ_VIEWFLOW_NATIVE_ONLY='1'; docker compose exec -T web php scripts/ensure_default_e2e_user.php --username=default_user --password=User!23456 --email=default_user@local.test; playwright test tests/e2e/view-flow.spec.js --reporter=line\"",
     "test:e2e:galaxy-rotation:seeded": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"docker compose exec -T web php scripts/ensure_default_e2e_user.php --username=default_user --password=User!23456 --email=default_user@local.test; playwright test tests/e2e/galaxy-rotation.spec.js --reporter=line\"",
     "test:e2e:planet-colony-smoke": "node scripts/check_planet_colony_smoke_playwright.mjs",
-    "test:e2e:planet-colony-smoke:strict": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"$env:GQ_PLANET_COLONY_STRICT='1'; node scripts/check_planet_colony_smoke_playwright.mjs\""
+    "test:e2e:planet-colony-smoke:strict": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"$env:GQ_PLANET_COLONY_STRICT='1'; node scripts/check_planet_colony_smoke_playwright.mjs\"",
+    "validate:models:faction": "node scripts/validate_faction_model_json.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

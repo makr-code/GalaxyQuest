@@ -364,6 +364,18 @@ function summarize_scan_payload(?array $scanPayload): ?array
     $leaders = is_array($scanPayload['leaders'] ?? null) ? $scanPayload['leaders'] : [];
     $resources = is_array($scanPayload['resources'] ?? null) ? $scanPayload['resources'] : [];
     $welfare = is_array($scanPayload['welfare'] ?? null) ? $scanPayload['welfare'] : [];
+    $healthPct = extract_scan_pct($scanPayload, [
+        'integrity_pct',
+        'health_pct',
+        'hp_pct',
+        'condition_pct',
+    ]);
+    $shieldPct = extract_scan_pct($scanPayload, [
+        'shield_pct',
+        'shields_pct',
+        'planetary_shield_pct',
+        'defense_shield_pct',
+    ]);
 
     return [
         'status' => (string)($scanPayload['status'] ?? 'unknown'),
@@ -373,7 +385,46 @@ function summarize_scan_payload(?array $scanPayload): ?array
         'resource_total' => (float)(($resources['metal'] ?? 0) + ($resources['crystal'] ?? 0) + ($resources['deuterium'] ?? 0)),
         'population' => (int)($welfare['population'] ?? 0),
         'happiness' => (int)($welfare['happiness'] ?? 0),
+        'health_pct' => $healthPct,
+        'shield_pct' => $shieldPct,
     ];
+}
+
+/**
+ * Read a percentage value from known scan payload key locations.
+ * Returns null when no plausible percentage is present.
+ */
+function extract_scan_pct(array $scanPayload, array $keys): ?int
+{
+    $candidates = [$scanPayload];
+    if (is_array($scanPayload['colony'] ?? null)) {
+        $candidates[] = $scanPayload['colony'];
+    }
+    if (is_array($scanPayload['defense'] ?? null)) {
+        $candidates[] = $scanPayload['defense'];
+    }
+    if (is_array($scanPayload['fortifications'] ?? null)) {
+        $candidates[] = $scanPayload['fortifications'];
+    }
+
+    foreach ($candidates as $source) {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $source)) {
+                continue;
+            }
+            $value = $source[$key];
+            if (!is_numeric($value)) {
+                continue;
+            }
+            $pct = (int)round((float)$value);
+            if ($pct < 0 || $pct > 100) {
+                continue;
+            }
+            return $pct;
+        }
+    }
+
+    return null;
 }
 
 function compute_planet_threat(array $planet, ?array $scanPayload, array $territory): array

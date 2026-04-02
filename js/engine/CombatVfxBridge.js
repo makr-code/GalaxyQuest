@@ -1,0 +1,239 @@
+/**
+ * CombatVfxBridge.js — Event producer that bridges fleet & combat game events
+ * to the renderer's installation weapon-fire VFX pipeline.
+ *
+ * Listens for fleet lifecycle CustomEvents dispatched by game.js SSE handlers:
+ *   • gq:fleet-arrived           — fleet reached target (carries mission/target/attacker)
+ *   • gq:fleet-incoming-attack   — enemy fleet inbound (carry attacker/target/arrival_time)
+ *   • gq:fleet-returning         — fleet returning home after mission
+ *
+ * When a combat situation is detected, produces a time-windowed burst of
+ *   gq:combat:weapon-fire  CustomEvents consumed by Galaxy3DRenderer.
+ *
+ * The renderer matches events by sourceOwner / sourceType / weaponKind — any
+ * null field matches all entries in the current system.  A broadcast payload
+ * (all nulls) fires every installation weapon in the currently viewed system,
+ * which is what we want for system-level battles.
+ *
+ * Registered in window.GQGalaxyEngineBridge under the key 'combat-vfx-bridge'.
+ *
+ * License: MIT — makr-code/GalaxyQuest
+ */
+
+'use strict';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Duration in ms that weapon-fire events are emitted after a fleet_arrived attack. */
+const BATTLE_DURATION_MS  = 8_000;
+
+/** Interval in ms between individual weapon-fire event pulses during a battle. */
+const FIRE_INTERVAL_MS    = 380;
+
+/** Number of initial warning pulses dispatched on incoming_attack (pre-arrival alert). */
+const ALERT_PULSES        = 3;
+
+/** Delay between alert pulses in ms. */
+const ALERT_PULSE_DELAY   = 260;
+
+// ---------------------------------------------------------------------------
+// CombatVfxBridge
+// ---------------------------------------------------------------------------
+
+class CombatVfxBridge {
+  constructor() {
+    /**
+     * Ongoing battle timers keyed by a unique battle string (e.g. "attacker→target").
+     * @type {Map<string, { interval: number, timeout: number }>}
+     */
+    this._activeBattles = new Map();
+
+    this._onFleetArrived        = this._onFleetArrived.bind(this);
+    this._onIncomingAttack      = this._onIncomingAttack.bind(this);
+    this._onFleetReturning      = this._onFleetReturning.bind(this);
+
+    window.addEventListener('gq:fleet-arrived',         this._onFleetArrived);
+    window.addEventListener('gq:fleet-incoming-attack', this._onIncomingAttack);
+    window.addEventListener('gq:fleet-returning',       this._onFleetReturning);
+
+    this._registerBridgeAdapter();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bridge adapter
+  // ---------------------------------------------------------------------------
+
+  _registerBridgeAdapter() {
+    const bridge = window.GQGalaxyEngineBridge;
+    if (!bridge || typeof bridge.registerAdapter !== 'function') return;
+    bridge.registerAdapter('combat-vfx-bridge', {
+      startBattleFx:  (attacker, target, durationMs) => this._startBattleFx(attacker, target, durationMs),
+      stopBattleFx:   (key)                           => this._stopBattleFx(key),
+      dispatchWpnFire:(payload)                        => this._dispatchWeaponFire(payload),
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Incoming event handlers
+  // ---------------------------------------------------------------------------
+
+  _onFleetArrived(ev) {
+    const data    = ev?.detail ?? {};
+    const mission = String(data.mission || '').toLowerCase();
+    if (mission !== 'attack' && mission !== 'spy') return;
+
+    const attacker = String(data.attacker || data.owner || '');
+    const target   = String(data.target   || '');
+
+    if (mission === 'attack') {
+      // Immediate opening salvo then sustained fire window
+      this._dispatchWeaponFire({ sourceOwner: null, weaponKind: null, ts: Date.now() });
+      this._startBattleFx(attacker, target, BATTLE_DURATION_MS);
+    } else {
+      // Spy: one silent pulse (no visible weapon FX needed, but emit for any interest)
+      this._dispatchWeaponFire({ sourceOwner: null, weaponKind: 'beam', ts: Date.now() });
+    }
+  }
+
+  _onIncomingAttack(ev) {
+    const data    = ev?.detail ?? {};
+    const mission = String(data.mission || '').toLowerCase();
+    // Raise alert-level weapon FX on defender installations (pre-battle warning)
+    if (mission === 'spy') return;   // spy → no visible weapons
+
+    let sent = 0;
+    const dispatchPulse = () => {
+      if (sent >= ALERT_PULSES) return;
+      this._dispatchWeaponFire({ sourceOwner: null, weaponKind: null, ts: Date.now() });
+      sent += 1;
+      window.setTimeout(dispatchPulse, ALERT_PULSE_DELAY);
+    };
+    dispatchPulse();
+  }
+
+  _onFleetReturning(ev) {
+    const data    = ev?.detail ?? {};
+    const mission = String(data.mission || '').toLowerCase();
+    if (mission !== 'attack') return;
+
+    // End any active battle in the system the fleet just left
+    const target = String(data.target || data.origin || '');
+    const key    = this._battleKey('', target);
+    this._stopBattleFx(key);
+
+    // Stop any attacker-named battles too (legacy key format)
+    for (const k of this._activeBattles.keys()) {
+      if (k.endsWith(`→${target}`)) this._stopBattleFx(k);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Battle FX management
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Begin emitting weapon-fire events at FIRE_INTERVAL_MS for durationMs.
+   * @param {string} attacker
+   * @param {string} target
+   * @param {number} durationMs
+   * @returns {string} battle key
+   */
+  _startBattleFx(attacker, target, durationMs = BATTLE_DURATION_MS) {
+    const key = this._battleKey(attacker, target);
+    this._stopBattleFx(key); // clear any prior battle for the same key
+
+    const intervalId = window.setInterval(() => {
+      this._dispatchWeaponFire({ sourceOwner: null, weaponKind: null, ts: Date.now() });
+    }, FIRE_INTERVAL_MS);
+
+    const timeoutId = window.setTimeout(() => {
+      this._stopBattleFx(key);
+    }, durationMs);
+
+    this._activeBattles.set(key, { interval: intervalId, timeout: timeoutId });
+    return key;
+  }
+
+  /**
+   * Stop the weapon-fire loop for a given battle key.
+   * @param {string} key
+   */
+  _stopBattleFx(key) {
+    const entry = this._activeBattles.get(key);
+    if (!entry) return;
+    window.clearInterval(entry.interval);
+    window.clearTimeout(entry.timeout);
+    this._activeBattles.delete(key);
+  }
+
+  /** Stop all active battle FX loops. */
+  stopAll() {
+    for (const key of this._activeBattles.keys()) this._stopBattleFx(key);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Event dispatch helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Dispatch a gq:combat:weapon-fire CustomEvent on window.
+   * Renderer's Galaxy3DRenderer._bindCombatEventHooks() picks this up.
+   *
+   * @param {object} payload
+   * @param {string|null}  [payload.sourceOwner]  - Owner name filter (null = all)
+   * @param {string|null}  [payload.sourceType]   - Installation type filter (null = all)
+   * @param {string|null}  [payload.weaponKind]   - Weapon kind filter: beam|plasma|rail|missile|null
+   * @param {number}       [payload.ts]           - Timestamp (defaults to Date.now())
+   */
+  _dispatchWeaponFire(payload = {}) {
+    const detail = {
+      sourceOwner:  payload.sourceOwner  ?? null,
+      sourceType:   payload.sourceType   ?? null,
+      weaponKind:   payload.weaponKind   ?? null,
+      ts:           payload.ts           ?? Date.now(),
+    };
+    window.dispatchEvent(new CustomEvent('gq:combat:weapon-fire', { detail }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal helpers
+  // ---------------------------------------------------------------------------
+
+  _battleKey(attacker, target) {
+    return `${attacker}→${target}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cleanup
+  // ---------------------------------------------------------------------------
+
+  destroy() {
+    this.stopAll();
+    window.removeEventListener('gq:fleet-arrived',         this._onFleetArrived);
+    window.removeEventListener('gq:fleet-incoming-attack', this._onIncomingAttack);
+    window.removeEventListener('gq:fleet-returning',       this._onFleetReturning);
+
+    const bridge = window.GQGalaxyEngineBridge;
+    if (bridge && typeof bridge.unregisterAdapter === 'function') {
+      bridge.unregisterAdapter('combat-vfx-bridge');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Singleton boot
+// ---------------------------------------------------------------------------
+
+if (typeof window !== 'undefined') {
+  window.GQCombatVfxBridge = new CombatVfxBridge();
+}
+
+// ---------------------------------------------------------------------------
+// Export (CommonJS test shim)
+// ---------------------------------------------------------------------------
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { CombatVfxBridge, BATTLE_DURATION_MS, FIRE_INTERVAL_MS, ALERT_PULSES };
+}

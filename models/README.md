@@ -4,6 +4,10 @@ Models are stored in Three.js Object JSON format (metadata.type = Object).
 The renderer loads them via api/model_gen.php?type=<id> and parses them
 with THREE.ObjectLoader.
 
+Faction-aware generation can be validated against:
+
+- models/schema/gq-faction-object.schema.json
+
 ---
 
 ## Primary Structure
@@ -120,3 +124,8 @@ ModelRegistry supports both:
 | deep_space_radar.json   | deep_space_radar   | Deep-space radar array                    |
 | space_station.json      | space_station      | Generic orbital station (hub + arms)      |
 | transport_shuttle.json  | transport_shuttle  | Ambient transport vessel                  |
+| faction_lit_reference.json | faction_lit_reference | Reference: light node + bump/normal/specular maps |
+
+Starter pack (13 NPC factions):
+
+- models/faction_starter/*.json

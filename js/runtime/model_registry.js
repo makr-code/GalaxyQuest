@@ -34,6 +34,8 @@ class GQModelRegistry {
     ]);
 
     this._textureCache = new Map();
+    /** @type {((instance: THREE.Group, payload: object) => void)|null} */
+    this._vfxBridge = null;
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
@@ -47,6 +49,15 @@ class GQModelRegistry {
     const anims = template?.userData?.rawAnims;
     if (!Array.isArray(anims)) return [];
     return anims.map((anim) => ({ ...anim }));
+  }
+
+  /**
+   * Register an optional callback that receives each instantiated model with
+   * resolved VFX metadata (emitters + weapon FX). Useful for runtime FX wiring.
+   * @param {((instance: THREE.Group, payload: object) => void)|null} bridge
+   */
+  setVfxBridge(bridge) {
+    this._vfxBridge = typeof bridge === 'function' ? bridge : null;
   }
 
   /**
@@ -183,6 +194,9 @@ class GQModelRegistry {
       this.setAnimationState(clone, initialAnimState);
     }
 
+    clone.userData.resolvedVfx = this._resolveVfxPayload(clone);
+    this._notifyVfxBridge(clone);
+
     return clone;
   }
 
@@ -260,11 +274,19 @@ class GQModelRegistry {
           }
 
           const objectAnims = descriptor?.object?.userData?.gqAnimations;
+          const objectVfxEmitters = descriptor?.object?.userData?.gqVfxEmitters;
+          const objectWeaponFx = descriptor?.object?.userData?.gqWeaponFx;
           group.userData.modelType = descriptor.modelId || descriptor.id || group.name || 'unknown';
           group.userData.modelVersion = descriptor.version || descriptor?.metadata?.version || 1;
           group.userData.rawAnims = Array.isArray(descriptor.animations)
             ? descriptor.animations
             : (Array.isArray(objectAnims) ? objectAnims : []);
+          group.userData.rawVfxEmitters = Array.isArray(objectVfxEmitters)
+            ? objectVfxEmitters.map((e) => ({ ...e }))
+            : [];
+          group.userData.rawWeaponFx = Array.isArray(objectWeaponFx)
+            ? objectWeaponFx.map((w) => ({ ...w }))
+            : [];
 
           const nativeClipMap = {
             idle: [],
@@ -451,6 +473,71 @@ class GQModelRegistry {
     if (clipName.startsWith('alert_') || clipName.startsWith('alert.')) return 'alert';
     if (clipName.startsWith('idle_') || clipName.startsWith('idle.')) return 'idle';
     return 'idle';
+  }
+
+  _resolveNodeByNameOrUuid(group, nameOrUuid) {
+    const key = String(nameOrUuid || '').trim();
+    if (!key) return null;
+
+    let found = null;
+    group.traverse((node) => {
+      if (found) return;
+      if (node?.name === key || node?.uuid === key) {
+        found = node;
+      }
+    });
+    return found;
+  }
+
+  _resolveVfxPayload(group) {
+    const rawEmitters = Array.isArray(group?.userData?.rawVfxEmitters)
+      ? group.userData.rawVfxEmitters
+      : [];
+    const rawWeaponFx = Array.isArray(group?.userData?.rawWeaponFx)
+      ? group.userData.rawWeaponFx
+      : [];
+
+    const emitters = rawEmitters.map((emitter) => {
+      const attachNode = this._resolveNodeByNameOrUuid(group, emitter.attachTo);
+      return {
+        ...emitter,
+        attachResolved: !!attachNode,
+        attachResolvedName: attachNode?.name || 'root',
+        attachResolvedUuid: attachNode?.uuid || group.uuid,
+      };
+    });
+
+    const weapons = rawWeaponFx.map((weapon) => {
+      const fromNode = this._resolveNodeByNameOrUuid(group, weapon.from);
+      const toNode = weapon.to === 'target' ? null : this._resolveNodeByNameOrUuid(group, weapon.to);
+      return {
+        ...weapon,
+        fromResolved: !!fromNode,
+        fromResolvedName: fromNode?.name || null,
+        fromResolvedUuid: fromNode?.uuid || null,
+        toResolved: weapon.to === 'target' ? true : !!toNode,
+        toResolvedName: weapon.to === 'target' ? 'target' : (toNode?.name || null),
+        toResolvedUuid: weapon.to === 'target' ? 'target' : (toNode?.uuid || null),
+      };
+    });
+
+    return {
+      emitters,
+      weapons,
+      counts: {
+        emitters: emitters.length,
+        weapons: weapons.length,
+      },
+    };
+  }
+
+  _notifyVfxBridge(instance) {
+    if (!this._vfxBridge) return;
+    try {
+      this._vfxBridge(instance, instance?.userData?.resolvedVfx || { emitters: [], weapons: [], counts: { emitters: 0, weapons: 0 } });
+    } catch (err) {
+      console.warn('[ModelRegistry] VFX bridge callback failed:', err);
+    }
   }
 }
 

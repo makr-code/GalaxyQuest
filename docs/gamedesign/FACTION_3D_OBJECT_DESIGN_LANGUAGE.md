@@ -86,6 +86,44 @@ Budget pro Instanz (LOD full):
 3. Symmetriegrad je Fraktion steuern (siehe Matrix), nicht global erzwingen.
 4. Harte Clipping-Ueberlappungen vermeiden (max 15% Volumenpenetration je Nachbarteil als Richtwert).
 
+### 3.5 Rendering- und Materialsprache (erweitert)
+
+Modelle duerfen und sollen ueber Geometrie hinaus eigene Rendering-Signaturen tragen:
+
+1. Eigene Lichtquellen im Modell-Hierarchiebaum (z. B. PointLight, SpotLight, DirectionalLight, RectAreaLight).
+2. Material-Maps fuer visuelle Lesbarkeit:
+   - map (Albedo)
+   - emissiveMap
+   - bumpMap + bumpScale
+   - normalMap (+ optional normalScale)
+   - roughnessMap
+   - metalnessMap
+   - specularMap (insb. bei MeshPhongMaterial)
+3. Materialtypen (v1):
+   - MeshStandardMaterial
+   - MeshPhongMaterial (fuer explizite specular/shininess-Profile)
+
+Empfehlung fuer Performance:
+
+1. Maximal 3 aktive Light-Nodes je Objekt-Instanz.
+2. Emissive-Materialien bevorzugen, wenn ein Licht nur zur Stilerkennung dient.
+3. Mehrere Maps nur einsetzen, wenn die Fraktionslesbarkeit dadurch klar steigt.
+
+### 3.6 VFX-Emitter-Sprache (Partikel, Waffenfeuer, Triebwerke)
+
+Modelle koennen zusaetzlich standardisierte VFX-Emitter tragen, die vom Engine-FX-Stack
+(ParticleEmitter/CombatFX/BeamEffect) zur Laufzeit gelesen werden.
+
+Pflichtkonzept:
+
+1. Triebwerkseffekte als `thruster`-Emitter.
+2. Waffenmuendungsfeuer als `muzzle`-Emitter.
+3. Laser/Beam-Ausgabe als `beam`-Definition.
+
+VFX-Emitter liegen in `object.userData.gqVfxEmitters` und sind datengetrieben.
+
+---
+
 ---
 
 ## 4. KI-Output-Contract (3D JSON)
@@ -118,6 +156,36 @@ Die KI erzeugt IMMER valides Three.js Object JSON plus GalaxyQuest Metafelder.
         "silhouetteTags": ["armored_spine", "forward_wedge"],
         "signatureParts": ["bone_plating", "jaw_bridge"]
       },
+         "gqVfxEmitters": [
+            {
+               "id": "thruster_main",
+               "kind": "thruster",
+               "mode": "continuous",
+               "attachTo": "mesh_engine_1",
+               "position": [0, 0, -1.2],
+               "direction": [0, 0, -1],
+               "count": 28,
+               "lifetime": 0.5,
+               "speed": 7,
+               "spread": 0.22,
+               "colorStart": 16763904,
+               "colorEnd": 3355647,
+               "sizeStart": 0.16,
+               "sizeEnd": 0.02
+            }
+         ],
+         "gqWeaponFx": [
+            {
+               "id": "laser_primary",
+               "kind": "beam",
+               "from": "muzzle_l",
+               "to": "target",
+               "coreColor": 16724787,
+               "glowColor": 8965375,
+               "glowRadius": 0.18,
+               "alpha": 0.9
+            }
+         ],
       "gqAnimations": []
     },
     "children": []
@@ -131,6 +199,7 @@ Die KI erzeugt IMMER valides Three.js Object JSON plus GalaxyQuest Metafelder.
 2. material UUIDs: mat_<role>_<n>
 3. meshes: mesh_<role>_<n>
 4. userData.role MUSS gesetzt sein (z. B. hull, ring, fin, sensor, engine, armor, spine).
+5. Light-Nodes: light_<role>_<n>.
 
 ### 4.3 Validierungsregeln fuer KI-Ausgabe
 
@@ -139,6 +208,10 @@ Die KI erzeugt IMMER valides Three.js Object JSON plus GalaxyQuest Metafelder.
 3. Kein NaN, kein Infinity, keine negativen Segmentwerte.
 4. Jede Datei muss mindestens ein idle_*, active_*, alert_* Clip oder gqAnimations-Set besitzen.
 5. gqModelSemantics.factionCode muss in fractions/* vorhanden sein.
+6. Wenn Material-Maps gesetzt sind, muessen die referenzierten texture UUIDs existieren.
+7. Light-Nodes duerfen keine ungueltigen/negativen Intensitaeten besitzen.
+8. VFX-Emitter duerfen nur bekannte `kind`- und `mode`-Werte nutzen.
+9. Beam-FX muessen gueltige Farb-/Alpha-/Radius-Werte besitzen.
 
 ---
 
@@ -212,12 +285,17 @@ Optional:
 
 1. texture references (max 3)
 2. colorVariants (skins), solange Silhouette unveraendert bleibt
+3. lokale Light-Nodes fuer Signaturlichter (z. B. Docking-Beacon, Ritual-Halo, Core-Glow)
+4. VFX-Emitter fuer thruster/muzzle/impact/trail
+5. beam-Definitionen fuer Laser/Plasma-Strahlen
 
 ### 7.1 Negativvorgaben (KI darf NICHT)
 
 1. Keine nicht unterstuetzten Geometrietypen ausgeben.
 2. Keine zu filigranen Teile unter 0.02 Welteinheiten bei Basis-Scale 1.
 3. Keine komplett fraktionsfremde Signatur uebernehmen (z. B. Vor'Tak-Schiff mit Syl'Nar-Halo-Tentacles als Hauptmerkmal).
+4. Keine uebermaessige Light-Inflation (mehr als 3 lokale Lights ohne Gameplay-Begruendung).
+5. Keine ungebremste Partikelrate (Richtwert: max. 120 Partikel/s je Emitter bei Dauerbetrieb).
 
 ---
 

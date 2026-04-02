@@ -4184,6 +4184,89 @@
     return { cols, rows, cells };
   }
 
+  function mapBuildingToVfxProfile(building) {
+    const type = String(building?.type || '').toLowerCase();
+    const category = String(building?.meta?.cat || '').toLowerCase();
+    const busy = !!building?.upgrade_end;
+    if (busy) return { profile: 'construction', intensity: 1.4 };
+    if (/mine|refinery|factory|forge|smelter/.test(type) || /industry|extraction/.test(category)) {
+      return { profile: 'industry', intensity: 1.2 };
+    }
+    if (/reactor|fusion|power|energy/.test(type) || /energy/.test(category)) {
+      return { profile: 'power', intensity: 1.06 };
+    }
+    if (/lab|research|academy|science/.test(type) || /science/.test(category)) {
+      return { profile: 'research', intensity: 0.96 };
+    }
+    if (/storage|habitat|residential|housing/.test(type)) {
+      return { profile: 'quiet', intensity: 0.78 };
+    }
+    return { profile: '', intensity: 1.0 };
+  }
+
+  function buildColonySurfaceVfxSlots(colony, buildingPayload) {
+    const buildings = Array.isArray(buildingPayload?.buildings) ? buildingPayload.buildings : [];
+    const layout = buildingPayload?.layout || colony?.layout || null;
+    const grid = buildColonyGridCells(layout, buildings);
+    const cols = Math.max(1, Number(grid?.cols || 6));
+    const rows = Math.max(1, Number(grid?.rows || 4));
+    const spacing = 3.1;
+    const offsetX = ((cols - 1) * spacing) * 0.5;
+    const offsetZ = ((rows - 1) * spacing) * 0.5;
+
+    const slots = [];
+    const profileCounts = {};
+    (grid?.cells || []).forEach((cell) => {
+      if (!cell?.building || Number(cell.fill || 0) !== 0) return;
+      const building = cell.building;
+      const idx = Number(cell.index || 0);
+      const gx = idx % cols;
+      const gz = Math.floor(idx / cols);
+      const mapped = mapBuildingToVfxProfile(building);
+      const profileName = String(mapped.profile || 'auto');
+      profileCounts[profileName] = (profileCounts[profileName] || 0) + 1;
+      slots.push({
+        x: gx * spacing - offsetX,
+        y: 0,
+        z: gz * spacing - offsetZ,
+        type: String(building.type || ''),
+        category: String(building.meta?.cat || ''),
+        owner_color: String(colony?.owner_color || colony?.colony_owner_color || colony?.faction_color || ''),
+        upgrade_end: building.upgrade_end || null,
+        vfx_profile: mapped.profile,
+        vfx_intensity: mapped.intensity,
+      });
+    });
+    return {
+      slots,
+      stats: {
+        mappedSlots: slots.length,
+        profileCounts,
+      },
+    };
+  }
+
+  function queueColonySurfaceSceneData(colony, buildingPayload) {
+    const ctx = getZoomTransitionContext();
+    const colonyLevel = Number(ctx?.ZOOM_LEVEL?.COLONY_SURFACE);
+    if (!ctx?.orchestrator || !Number.isFinite(colonyLevel) || typeof ctx.orchestrator.setSceneData !== 'function') {
+      return;
+    }
+    const mapped = buildColonySurfaceVfxSlots(colony, buildingPayload);
+    const slots = Array.isArray(mapped?.slots) ? mapped.slots : [];
+    const payload = {
+      colony: colony || null,
+      layout: buildingPayload?.layout || colony?.layout || null,
+      slots,
+      vfx_quality: String(settingsState?.renderQualityProfile === 'webgpu' ? 'high' : 'medium'),
+      vfx_mapper_stats: mapped?.stats || null,
+    };
+    if (typeof window !== 'undefined') {
+      window.__GQ_COLONY_VFX_MAPPER = Object.assign({}, mapped?.stats || {}, { ts: Date.now() });
+    }
+    Promise.resolve(ctx.orchestrator.setSceneData(colonyLevel, payload)).catch(() => {});
+  }
+
   class GameRuntime {
     constructor() {
       this.initialized = false;
@@ -4872,9 +4955,26 @@
             : 'Ready';
 
           let extraInfo = '';
+          let gateHealthHtml = '';
           if (driveType === 'syl_nar') {
-            const gateCount = Array.isArray(ftlData.gates) ? ftlData.gates.filter((g) => g.is_active && g.health > 0).length : 0;
+            const allGates = Array.isArray(ftlData.gates) ? ftlData.gates : [];
+            const gateCount = allGates.filter((g) => g.is_active && g.health > 0).length;
             extraInfo = ` | ${gateCount} gate(s) active | Survey to build new gates`;
+            if (allGates.length) {
+              gateHealthHtml = `<div class="entity-bars" style="margin-top:0.45rem;">` +
+                allGates.map((g) => {
+                  const hp = Math.max(0, Math.min(100, Number(g.health ?? 100)));
+                  const tone = hp < 30 ? 'is-critical' : (hp < 60 ? 'is-warning' : 'is-good');
+                  const active = g.is_active ? '' : ' <span class="text-muted" style="font-size:0.7rem;">(Offline)</span>';
+                  const label = `G${Number(g.galaxy_a || 0)}:${Number(g.system_a || 0)}↔G${Number(g.galaxy_b || 0)}:${Number(g.system_b || 0)}`;
+                  return `<div class="entity-bar-row" title="Gate ${label} health ${hp}%">` +
+                    `<span class="entity-bar-label" style="min-width:7rem;font-size:0.7rem;">${esc(label)}${active}</span>` +
+                    `<div class="bar-wrap"><div class="bar-fill bar-integrity ${tone}" style="width:${hp}%"></div></div>` +
+                    `<span class="entity-bar-value">${hp}%</span>` +
+                    `</div>`;
+                }).join('') +
+              `</div>`;
+            }
           } else if (driveType === 'zhareen') {
             const nodeCount = Array.isArray(ftlData.resonance_nodes) ? ftlData.resonance_nodes.length : 0;
             extraInfo = ` | ${nodeCount} node(s) charted | Survey to chart new nodes`;
@@ -4891,6 +4991,7 @@
           ftlEl.innerHTML = `<span style="color:#88ccff;font-weight:600;">${esc(driveLabel)}</span>`
             + ` <span style="color:${ready ? '#88ff88' : '#ffcc44'}">${esc(cooldownStr)}</span>`
             + `<span style="color:#aaa">${esc(extraInfo)}</span>`
+            + gateHealthHtml
             + (!ready && driveType === 'vor_tak'
               ? ` <button class="btn btn-sm" id="ftl-reset-cooldown-btn" style="margin-left:0.5rem;font-size:0.75rem;">Reset (50 Dark Matter)</button>`
               : '');
@@ -6730,10 +6831,20 @@
       return;
     }
     const scan = intel.latest_scan;
+    const scanHealth = Number(scan?.health_pct);
+    const scanShield = Number(scan?.shield_pct);
+    const scanBarsHtml = Number.isFinite(scanHealth) || Number.isFinite(scanShield)
+      ? buildEntityBarsHtml(
+        Number.isFinite(scanHealth) ? scanHealth : 0,
+        Number.isFinite(scanShield) ? scanShield : 0,
+        'Scanned colony'
+      )
+      : '';
     extra.innerHTML = `
       <div class="planet-detail-row">Bedrohungsgrad: <span class="threat-chip threat-${esc(intel.threat.level)}">${esc(intel.threat.label)} | ${esc(String(intel.threat.score))}</span></div>
       <div class="planet-detail-row">Letzter Scan: ${intel.latest_scan_at ? esc(new Date(intel.latest_scan_at).toLocaleString()) : 'Kein Scan vorhanden'}</div>
       <div class="planet-detail-row">Scanlage: ${scan ? `${esc(String(scan.ship_count))} Schiffe | Kampfkraft ${esc(String(scan.combat_power_estimate))} | Leader ${esc(String(scan.leader_count))}` : 'Erstspionage empfohlen'}</div>
+      ${scanBarsHtml}
       <div class="planet-detail-row">Diplomatie: ${esc(payload.diplomacy_hint || 'Keine Einschaetzung verfuegbar.')}</div>
       <div class="territory-mini-list">${territory.slice(0, 3).map((f) => `
         <span class="territory-chip" style="--territory-color:${esc(f.color)}">${esc(f.icon)} ${esc(f.name)} | ${esc(f.government?.icon || 'GOV')} ${esc(f.government?.label || 'Herrschaft')}</span>`).join('') || '<span class="text-muted">Keine Sektoransprueche</span>'}
@@ -6753,6 +6864,7 @@
             <div class="progress-bar-wrap fleet-progress-wrap" style="width:80px">
               <div class="progress-bar fleet-progress-bar" style="width:{{{progressPct}}}%" data-dep="{{{departureTimeRaw}}}" data-arr="{{{arrivalTimeRaw}}}"></div>
             </div>
+            {{{fleetHealthHtml}}}
             {{{vesselListHtml}}}
             {{{returningBadgeHtml}}}
             {{{ftlBadgesHtml}}}
@@ -7112,6 +7224,32 @@
         const hullBadge = hullDmg > 0
           ? `<span class="fleet-hull-badge" title="Kryl'Tha hull damage: -${hullDmg}% attack">Hull ${hullDmg}%</span>`
           : '';
+        const hullIntegrityPct = Math.max(0, Math.min(100, 100 - hullDmg));
+        const rawShieldPct = Number(
+          fleet.shield_pct
+          ?? fleet.shields_pct
+          ?? fleet.shield_integrity_pct
+          ?? fleet.defense_shield_pct
+          ?? 100
+        );
+        const shieldPct = Number.isFinite(rawShieldPct)
+          ? Math.max(0, Math.min(100, Math.round(rawShieldPct)))
+          : 100;
+        const hullIntegrityTone = hullIntegrityPct < 30 ? 'is-critical' : (hullIntegrityPct < 60 ? 'is-warning' : 'is-good');
+        const shieldTone = shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good');
+        const fleetHealthHtml = `
+          <div class="entity-bars entity-bars-compact" aria-label="Fleet status bars">
+            <div class="entity-bar-row" title="Fleet hull integrity ${hullIntegrityPct}%">
+              <span class="entity-bar-label">Hull</span>
+              <div class="bar-wrap"><div class="bar-fill bar-integrity ${hullIntegrityTone}" style="width:${hullIntegrityPct}%"></div></div>
+              <span class="entity-bar-value">${hullIntegrityPct}%</span>
+            </div>
+            <div class="entity-bar-row" title="Fleet shields ${shieldPct}%">
+              <span class="entity-bar-label">Shield</span>
+              <div class="bar-wrap"><div class="bar-fill bar-shield ${shieldTone}" style="width:${shieldPct}%"></div></div>
+              <span class="entity-bar-value">${shieldPct}%</span>
+            </div>
+          </div>`;
 
         return {
           mission: esc(String(fleet.mission || '').toUpperCase()),
@@ -7123,6 +7261,7 @@
           departureTimeRaw: esc(String(fleet.departure_time || '')),
           arrivalCountdown: esc(countdown(fleet.arrival_time)),
           progressPct: esc(progressPct),
+          fleetHealthHtml,
           vesselListHtml,
           returningBadgeHtml: fleet.returning ? '<span class="fleet-returning">Returning</span>' : '',
           ftlBadgesHtml: stealthBadge + hullBadge,
@@ -7313,6 +7452,16 @@
                  ${leader.role === 'colony_manager' ? 'MGR' : leader.role === 'science_director' ? 'SCI' : 'MIL'} ${esc(leader.name)}
                </span>`
             ).join('');
+            const derivedHealth = Number(colony.integrity_pct ?? colony.health_pct ?? colony.hp_pct ?? colony.condition_pct);
+            const colonyHealthPct = Number.isFinite(derivedHealth)
+              ? Math.max(0, Math.min(100, Math.round(derivedHealth)))
+              : Math.max(0, Math.min(100, Math.round(Number(colony.public_services ?? colony.happiness ?? 70))));
+            const rawShield = Number(colony.shield_pct ?? colony.shields_pct ?? colony.planetary_shield_pct);
+            const colonyShieldPct = Number.isFinite(rawShield)
+              ? Math.max(0, Math.min(100, Math.round(rawShield)))
+              : (protected_ ? 100 : 0);
+            const colonyHealthTone = colonyHealthPct < 30 ? 'is-critical' : (colonyHealthPct < 60 ? 'is-warning' : 'is-good');
+            const colonyShieldTone = colonyShieldPct < 30 ? 'is-critical' : (colonyShieldPct < 60 ? 'is-warning' : 'is-good');
             return `
             <div class="planet-card ${currentColony && colony.id === currentColony.id ? 'selected' : ''}" data-cid="${colony.id}">
               <div class="planet-card-name">${esc(colony.name)}
@@ -7345,6 +7494,18 @@
                 <span title="Public Services ${colony.public_services ?? 0}%">­ƒÅÑ</span>
                 <div class="bar-wrap"><div class="bar-fill bar-services" style="width:${colony.public_services ?? 0}%"></div></div>
                 <span style="font-size:0.7rem;min-width:28px">${colony.public_services ?? 0}%</span>
+              </div>
+              <div class="entity-bars" aria-label="Colony status bars">
+                <div class="entity-bar-row" title="Colony integrity ${colonyHealthPct}%">
+                  <span class="entity-bar-label">Health</span>
+                  <div class="bar-wrap"><div class="bar-fill bar-integrity ${colonyHealthTone}" style="width:${colonyHealthPct}%"></div></div>
+                  <span class="entity-bar-value">${colonyHealthPct}%</span>
+                </div>
+                <div class="entity-bar-row" title="Colony shields ${colonyShieldPct}%">
+                  <span class="entity-bar-label">Shield</span>
+                  <div class="bar-wrap"><div class="bar-fill bar-shield ${colonyShieldTone}" style="width:${colonyShieldPct}%"></div></div>
+                  <span class="entity-bar-value">${colonyShieldPct}%</span>
+                </div>
               </div>
               ${colony.deposit_metal >= 0 ? `
                 <div style="margin-top:0.3rem;font-size:0.7rem">
@@ -7484,6 +7645,7 @@
           root.innerHTML = '<p class="text-red">Failed to load colony view.</p>';
           return;
         }
+        queueColonySurfaceSceneData(currentColony, data);
         root.innerHTML = this.buildViewHtml(data);
         this.bindActions(root);
       } catch (err) {
@@ -7537,7 +7699,42 @@
         html += `<div class="building-category"><h4 class="building-cat-title">${cat}</h4><div class="card-grid">`;
         for (const building of items) {
           const busy = !!building.upgrade_end;
+          let upgradeProgressPct = 0;
+          let upgradeTone = 'is-good';
+          if (busy && building.upgrade_start && building.upgrade_end) {
+            const now = Date.now();
+            const startMs = new Date(building.upgrade_start).getTime();
+            const endMs = new Date(building.upgrade_end).getTime();
+            const totalMs = endMs - startMs;
+            if (totalMs > 0) {
+              upgradeProgressPct = Math.min(100, Math.round(Math.max(0, (now - startMs) / totalMs * 100)));
+              upgradeTone = upgradeProgressPct < 30 ? 'is-critical' : (upgradeProgressPct < 70 ? 'is-warning' : 'is-good');
+            }
+          }
           const cost = building.next_cost;
+          const rawIntegrity = Number(
+            building.integrity_pct
+            ?? building.health_pct
+            ?? building.hp_pct
+            ?? building.condition_pct
+            ?? (busy ? 92 : 100)
+          );
+          const integrityPct = Number.isFinite(rawIntegrity)
+            ? Math.max(0, Math.min(100, Math.round(rawIntegrity)))
+            : (busy ? 92 : 100);
+          const rawShield = Number(
+            building.shield_pct
+            ?? building.shields_pct
+            ?? building.defense_shield_pct
+            ?? ((building.meta?.cat === 'Military' || building.meta?.cat === 'Advanced')
+              ? Math.min(100, Math.round(25 + Number(building.level || 0) * 8))
+              : 0)
+          );
+          const shieldPct = Number.isFinite(rawShield)
+            ? Math.max(0, Math.min(100, Math.round(rawShield)))
+            : 0;
+          const integrityTone = integrityPct < 30 ? 'is-critical' : (integrityPct < 60 ? 'is-warning' : 'is-good');
+          const shieldTone = shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good');
           html += `
             <div class="item-card ${buildingFocus === building.type ? 'item-card-focus' : ''}" data-building-type="${esc(building.type)}">
               <div class="item-card-header">
@@ -7545,13 +7742,32 @@
                 <span class="item-level">Lv ${building.level}</span>
               </div>
               <div class="item-desc">${building.meta.desc}</div>
+              <div class="entity-bars" aria-label="Building status bars">
+                <div class="entity-bar-row" title="Building integrity ${integrityPct}%">
+                  <span class="entity-bar-label">Health</span>
+                  <div class="bar-wrap"><div class="bar-fill bar-integrity ${integrityTone}" style="width:${integrityPct}%"></div></div>
+                  <span class="entity-bar-value">${integrityPct}%</span>
+                </div>
+                <div class="entity-bar-row" title="Building shields ${shieldPct}%">
+                  <span class="entity-bar-label">Shield</span>
+                  <div class="bar-wrap"><div class="bar-fill bar-shield ${shieldTone}" style="width:${shieldPct}%"></div></div>
+                  <span class="entity-bar-value">${shieldPct}%</span>
+                </div>
+              </div>
               <div class="item-cost">
                 ${cost.metal ? `<span class="cost-metal">Ô¼í ${fmt(cost.metal)}</span>` : ''}
                 ${cost.crystal ? `<span class="cost-crystal">­ƒÆÄ ${fmt(cost.crystal)}</span>` : ''}
                 ${cost.deuterium ? `<span class="cost-deut">­ƒöÁ ${fmt(cost.deuterium)}</span>` : ''}
               </div>
               ${busy
-                ? `<div class="item-timer">ÔÅ│ <span data-end="${esc(building.upgrade_end)}">${countdown(building.upgrade_end)}</span></div><div class="progress-bar-wrap"><div class="progress-bar" data-start="${esc(building.upgrade_start||'')}" data-end="${esc(building.upgrade_end)}" style="width:0%"></div></div>`
+                ? `<div class="item-timer">ÔÅ│ ETA <span data-end="${esc(building.upgrade_end)}">${countdown(building.upgrade_end)}</span></div>
+                <div class="entity-bars" style="margin-top:0.2rem;">
+                  <div class="entity-bar-row" title="Upgrade progress ${upgradeProgressPct}%">
+                    <span class="entity-bar-label">Upgr</span>
+                    <div class="bar-wrap"><div class="bar-fill bar-integrity ${upgradeTone}" style="width:${upgradeProgressPct}%"></div></div>
+                    <span class="entity-bar-value">${upgradeProgressPct}%</span>
+                  </div>
+                </div>`
                 : `<button class="btn btn-primary btn-sm upgrade-btn" data-type="${esc(building.type)}">Ôåæ Upgrade</button>`}
             </div>`;
         }
@@ -7610,6 +7826,7 @@
 
         const byCategory = this.groupByCategory(data.buildings || []);
         const upgradeQueue = Array.isArray(data.upgrade_queue) ? data.upgrade_queue : [];
+        queueColonySurfaceSceneData(currentColony, data);
         let html = '';
         if (buildingFocus) {
           html += `<div class="build-focus-banner">Fokus: ${fmtName(buildingFocus)}${uiState.colonyViewFocus?.source ? ` ┬À Quelle: ${esc(uiState.colonyViewFocus.source)}` : ''}</div>`;
@@ -8898,6 +9115,11 @@
         const hp    = v.hp_state?.hp    ?? v.stats?.hull ?? '?';
         const maxHp = v.hp_state?.max_hp ?? v.stats?.hull ?? '?';
         const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
+        const shieldCurrent = Number(v.hp_state?.shield ?? v.stats?.shield ?? 0);
+        const shieldMax = Number(v.hp_state?.max_shield ?? v.stats?.shield ?? 0);
+        const shieldPct = shieldMax > 0 ? Math.max(0, Math.min(100, Math.round((shieldCurrent / shieldMax) * 100))) : 0;
+        const hpTone = hpPct < 30 ? 'is-critical' : (hpPct < 60 ? 'is-warning' : 'is-good');
+        const shieldTone = shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good');
 
         const card = new GQUI.Div().setClass('vessel-card');
         card.dom.dataset.vesselId = String(v.id);
@@ -8913,10 +9135,18 @@
         card.add(hullLbl);
 
         const hpBarWrap = new GQUI.Div().setClass('vessel-hp-bar');
-        const hpFill = new GQUI.Div().setClass('vessel-hp-fill');
+        const hpFill = new GQUI.Div().setClass('vessel-hp-fill ' + hpTone);
         hpFill.dom.style.width = hpPct + '%';
+        hpFill.dom.title = `Hull ${hpPct}%`;
         hpBarWrap.add(hpFill);
         card.add(hpBarWrap);
+
+        const shieldBarWrap = new GQUI.Div().setClass('vessel-shield-bar');
+        const shieldFill = new GQUI.Div().setClass('vessel-shield-fill ' + shieldTone);
+        shieldFill.dom.style.width = shieldPct + '%';
+        shieldFill.dom.title = `Shield ${shieldPct}%`;
+        shieldBarWrap.add(shieldFill);
+        card.add(shieldBarWrap);
 
         const chipsDiv = new GQUI.Div().setClass('vessel-stat-chips');
         ['attack', 'shield', 'hull', 'cargo', 'speed'].filter((k) => v.stats?.[k] > 0).forEach((k) => {
@@ -11591,6 +11821,38 @@
     });
   }
 
+  function clampPct(value, fallback = 0) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return Math.max(0, Math.min(100, Number(fallback) || 0));
+    return Math.max(0, Math.min(100, Math.round(numeric)));
+  }
+
+  function statusToneClass(pct) {
+    if (pct < 30) return 'is-critical';
+    if (pct < 60) return 'is-warning';
+    return 'is-good';
+  }
+
+  function buildEntityBarsHtml(healthPct, shieldPct, scopeLabel = 'Entity') {
+    const hp = clampPct(healthPct, 0);
+    const sh = clampPct(shieldPct, 0);
+    const hpTone = statusToneClass(hp);
+    const shTone = statusToneClass(sh);
+    return `
+      <div class="entity-bars" aria-label="${esc(scopeLabel)} status bars">
+        <div class="entity-bar-row" title="${esc(scopeLabel)} integrity ${hp}%">
+          <span class="entity-bar-label">Health</span>
+          <div class="bar-wrap"><div class="bar-fill bar-integrity ${hpTone}" style="width:${hp}%"></div></div>
+          <span class="entity-bar-value">${hp}%</span>
+        </div>
+        <div class="entity-bar-row" title="${esc(scopeLabel)} shields ${sh}%">
+          <span class="entity-bar-label">Shield</span>
+          <div class="bar-wrap"><div class="bar-fill bar-shield ${shTone}" style="width:${sh}%"></div></div>
+          <span class="entity-bar-value">${sh}%</span>
+        </div>
+      </div>`;
+  }
+
   async function renderPlanetDetailCard(detail, slot) {
     const pos = Number(slot?.position || 0);
     const pp = slot?.player_planet;
@@ -11603,6 +11865,21 @@
       const targetGalaxy = Number(pp.galaxy || ownColony?.galaxy || uiState.activeGalaxy || 0);
       const targetSystem = Number(pp.system || ownColony?.system || uiState.activeSystem || 0);
       const targetPosition = Number(pp.position || ownColony?.position || pos || 0);
+      const detailHealthPct = clampPct(
+        ownColony?.integrity_pct
+          ?? ownColony?.health_pct
+          ?? ownColony?.hp_pct
+          ?? ownColony?.condition_pct
+          ?? ownColony?.public_services
+          ?? ownColony?.happiness,
+        70,
+      );
+      const detailShieldPct = clampPct(
+        ownColony?.shield_pct
+          ?? ownColony?.shields_pct
+          ?? ownColony?.planetary_shield_pct,
+        0,
+      );
       detail.dataset.ownerName = String(pp.owner || '');
       detail.innerHTML = `
         <h5>Planet #${pos} - ${esc(pp.name)}</h5>
@@ -11615,6 +11892,7 @@
           <div class="planet-detail-row">Colony Type: ${esc(fmtName(ownColony.colony_type || 'balanced'))}</div>
           <div class="planet-detail-row">Population: ${fmt(ownColony.population || 0)} / ${fmt(ownColony.max_population || 0)}</div>
           <div class="planet-detail-row">Happiness: ${esc(String(ownColony.happiness ?? 'ÔÇö'))}% ┬À Energy: ${esc(String(ownColony.energy ?? 'ÔÇö'))}</div>
+          ${buildEntityBarsHtml(detailHealthPct, detailShieldPct, 'Colony')}
           <div class="planet-detail-actions">
             <button class="btn btn-secondary btn-sm" data-colony-action="overview">Overview</button>
             <button class="btn btn-secondary btn-sm" data-colony-action="colony">Colony</button>
@@ -11648,7 +11926,27 @@
           const buildings = buildingsRes?.success ? (buildingsRes.buildings || []).slice().sort((a, b) => Number(b.level || 0) - Number(a.level || 0)).slice(0, 4) : [];
           const layout = buildingsRes?.success ? buildingsRes.layout || null : null;
           const orbitalFacilities = buildingsRes?.success ? buildingsRes.orbital_facilities || [] : [];
+          const extraHealthPct = clampPct(
+            resources.integrity_pct
+              ?? resources.health_pct
+              ?? resources.hp_pct
+              ?? resources.condition_pct
+              ?? resources.public_services
+              ?? ownColony.public_services
+              ?? ownColony.happiness,
+            detailHealthPct,
+          );
+          const extraShieldPct = clampPct(
+            resources.shield_pct
+              ?? resources.shields_pct
+              ?? resources.planetary_shield_pct
+              ?? ownColony.shield_pct
+              ?? ownColony.shields_pct
+              ?? ownColony.planetary_shield_pct,
+            detailShieldPct,
+          );
           extra.innerHTML = `
+            ${buildEntityBarsHtml(extraHealthPct, extraShieldPct, 'Colony')}
             <div class="planet-detail-row">Metal: ${fmt(resources.metal || ownColony.metal || 0)} ┬À Crystal: ${fmt(resources.crystal || ownColony.crystal || 0)}</div>
             <div class="planet-detail-row">Deuterium: ${fmt(resources.deuterium || ownColony.deuterium || 0)} ┬À Food: ${fmt(resources.food || ownColony.food || 0)}</div>
             <div class="planet-detail-row">Rare Earth: ${fmt(resources.rare_earth || ownColony.rare_earth || 0)} ┬À Services: ${esc(String(resources.public_services || ownColony.public_services || 'ÔÇö'))}</div>
@@ -12327,6 +12625,27 @@
       const loot = r.loot || {};
       const attackerWins = !!r.attacker_wins;
       const accent = attackerWins ? '#3e8f5a' : '#9a4b4b';
+      const ctx = report.simulation_context || r;
+      const atkPwr = Number(ctx.power_rating?.attacker || r.power_rating?.attacker || 0);
+      const defPwr = Number(ctx.power_rating?.defender || r.power_rating?.defender || 0);
+      const totalPwr = atkPwr + defPwr;
+      const atkPct = totalPwr > 0 ? Math.round((atkPwr / totalPwr) * 100) : 50;
+      const defPct = totalPwr > 0 ? Math.round((defPwr / totalPwr) * 100) : 50;
+      const atkTone = atkPct > defPct ? 'is-good' : (atkPct >= defPct - 10 ? 'is-warning' : 'is-critical');
+      const defTone = defPct > atkPct ? 'is-good' : (defPct >= atkPct - 10 ? 'is-warning' : 'is-critical');
+      const powerBarsHtml = totalPwr > 0 ? `
+        <div class="entity-bars" style="margin-top:0.45rem;">
+          <div class="entity-bar-row" title="Attacker power ${atkPct}% (${fmt(atkPwr)})">
+            <span class="entity-bar-label">Atk</span>
+            <div class="bar-wrap"><div class="bar-fill bar-integrity ${atkTone}" style="width:${atkPct}%"></div></div>
+            <span class="entity-bar-value">${atkPct}%</span>
+          </div>
+          <div class="entity-bar-row" title="Defender power ${defPct}% (${fmt(defPwr)})">
+            <span class="entity-bar-label">Def</span>
+            <div class="bar-wrap"><div class="bar-fill bar-shield ${defTone}" style="width:${defPct}%"></div></div>
+            <span class="entity-bar-value">${defPct}%</span>
+          </div>
+        </div>` : '';
 
       return `
         <div class="system-card" style="margin-bottom:1rem; border-color:${accent};">
@@ -12335,6 +12654,7 @@
           <div class="system-row" style="margin-top:0.35rem; color:${accent}; font-weight:700;">
             ${attackerWins ? 'Attacker succeeded' : 'Defender held'}
           </div>
+          ${powerBarsHtml}
           ${this.renderCombatSummary(report)}
           <div class="system-row small" style="margin-top:0.5rem;">
             Loot: Metal ${fmt(loot.metal || 0)} | Crystal ${fmt(loot.crystal || 0)} | Deuterium ${fmt(loot.deuterium || 0)} | Rare Earth ${fmt(loot.rare_earth || 0)}
@@ -12460,20 +12780,40 @@
               ${renderModifierRows('defender', 'Defender')}
             </div>
           </div>
-          ${rounds.length ? `
+          ${rounds.length ? (() => {
+            const maxAtkInt = Math.max(1, ...rounds.map((rd) => Number(rd.attacker_integrity_remaining || 0)));
+            const maxDefInt = Math.max(1, ...rounds.map((rd) => Number(rd.defender_integrity_remaining || 0)));
+            return `
             <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
               <div><strong>Round Flow</strong></div>
               <div class="small" style="margin-top:0.35rem; display:grid; gap:0.35rem;">
-                ${rounds.map((round) => `
+                ${rounds.map((round) => {
+                  const atkInt = Number(round.attacker_integrity_remaining || 0);
+                  const defInt = Number(round.defender_integrity_remaining || 0);
+                  const atkIntPct = Math.round((atkInt / maxAtkInt) * 100);
+                  const defIntPct = Math.round((defInt / maxDefInt) * 100);
+                  const atkIntTone = atkIntPct < 30 ? 'is-critical' : (atkIntPct < 60 ? 'is-warning' : 'is-good');
+                  const defIntTone = defIntPct < 30 ? 'is-critical' : (defIntPct < 60 ? 'is-warning' : 'is-good');
+                  return `
                   <div style="padding:0.45rem 0.55rem; border:1px solid #314154; border-radius:8px; background:#0d1420;">
-                    <div style="font-weight:700; color:#eef4ff;">Round ${fmt(round.round || 0)}${round.decisive ? ' | Decisive' : ''}</div>
-                    <div>Pressure A/D: ${fmt(round.attacker_pressure || 0)} / ${fmt(round.defender_pressure || 0)}</div>
-                    <div>Integrity A/D: ${fmt(round.attacker_integrity_remaining || 0)} / ${fmt(round.defender_integrity_remaining || 0)}</div>
-                    <div>Swing: ${esc(fmtName(String(round.swing || 'neutral')))}${round.outcome ? ' | Outcome: ' + esc(fmtName(String(round.outcome))) : ''}</div>
-                  </div>`).join('')}
+                    <div style="font-weight:700; color:#eef4ff;">Round ${fmt(round.round || 0)}${round.decisive ? ' \u25CF Decisive' : ''}</div>
+                    <div style="margin:0.25rem 0;">Pressure A/D: ${fmt(round.attacker_pressure || 0)} / ${fmt(round.defender_pressure || 0)}</div>
+                    <div class="entity-bar-row" title="Attacker integrity ${fmt(atkInt)}" style="margin-bottom:0.15rem;">
+                      <span class="entity-bar-label" style="min-width:2.4rem;">A-Int</span>
+                      <div class="bar-wrap"><div class="bar-fill bar-integrity ${atkIntTone}" style="width:${atkIntPct}%"></div></div>
+                      <span class="entity-bar-value">${fmt(atkInt)}</span>
+                    </div>
+                    <div class="entity-bar-row" title="Defender integrity ${fmt(defInt)}">
+                      <span class="entity-bar-label" style="min-width:2.4rem;">D-Int</span>
+                      <div class="bar-wrap"><div class="bar-fill bar-shield ${defIntTone}" style="width:${defIntPct}%"></div></div>
+                      <span class="entity-bar-value">${fmt(defInt)}</span>
+                    </div>
+                    <div style="margin-top:0.25rem;">Swing: ${esc(fmtName(String(round.swing || 'neutral')))}${round.outcome ? ' | Outcome: ' + esc(fmtName(String(round.outcome))) : ''}</div>
+                  </div>`;
+                }).join('')}
               </div>
-            </div>
-          ` : ''}
+            </div>`;
+          })() : ''}
           ${explain.length ? `
             <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
               <div><strong>Explainability</strong></div>
@@ -16262,6 +16602,7 @@
           const icons = { attack: 'ÔÜö', transport: '­ƒôª', colonize: '­ƒÅø', spy: '­ƒöì', harvest: 'ÔøÅ', recall: 'Ôå®' };
           const icon = icons[mission] || 'ÔÜí';
           showToast(`${icon} Fleet arrived at ${target} (${mission})`, mission === 'attack' ? 'success' : 'info');
+          window.dispatchEvent(new CustomEvent('gq:fleet-arrived', { detail: data }));
           if (window.GQTTS && window.GQTTS.isAutoVoiceEnabled()) {
             window.GQTTS.speak(`Flotte hat ${target} erreicht.`).catch(() => {});
           }
@@ -16277,6 +16618,7 @@
         try {
           const data = JSON.parse(e.data);
           showToast(`Ôå® Fleet returned home (${data.mission || ''})`, 'info');
+          window.dispatchEvent(new CustomEvent('gq:fleet-returning', { detail: data }));
           if (window.GQTTS && window.GQTTS.isAutoVoiceEnabled()) {
             window.GQTTS.speak('Flotte ist heimgekehrt.').catch(() => {});
           }
@@ -16296,6 +16638,7 @@
             ? `­ƒöì Spy fleet from ${data.attacker} inbound ÔåÆ ${data.target} (${arrival})`
             : `ÔÜá INCOMING ATTACK from ${data.attacker} ÔåÆ ${data.target} at ${arrival}!`;
           showToast(msg, 'danger');
+          window.dispatchEvent(new CustomEvent('gq:fleet-incoming-attack', { detail: data }));
           if (window.GQTTS && window.GQTTS.isAutoVoiceEnabled()) {
             const ttsText = data.mission === 'spy'
               ? `Achtung! Spionageflotte von ${data.attacker} im Anflug.`
@@ -16578,4 +16921,125 @@
   }
 
   await loadBadge();
+
+  // ── Colony VFX Debug Widget ────────────────────────────────────────
+  // Auto-updating debug widget to display live VFX telemetry for Colony Surface
+  function initColonyVFXDebugWidget() {
+    let widget = null;
+    let updateInterval = null;
+    let lastStats = null;
+    let lastMapper = null;
+
+    const ZOOM_LEVEL = window.GQSeamlessZoomOrchestrator?.ZOOM_LEVEL || { COLONY_SURFACE: 3 };
+    const COLONY_SURFACE = ZOOM_LEVEL.COLONY_SURFACE || 3;
+
+    function createWidgetHTML(stats, mapper) {
+      const backend = stats?.backend || '?';
+      const quality = stats?.quality || 'auto';
+      const emitters = stats?.emitters || 0;
+      const particles = stats?.particles || 0;
+      const burstActive = stats?.burstActive ? '●' : '○';
+
+      const profiles = stats?.profileCounts || {};
+      const profileLines = Object.entries(profiles)
+        .map(([name, count]) => `<div class="vfx-stat-line"><span class="vfx-profile-name">${esc(name)}</span>: ${count}</div>`)
+        .join('');
+
+      const mapperSlots = mapper?.stats?.mappedSlots || 0;
+      const mapperCounts = mapper?.stats?.profileCounts || {};
+      const mapperLines = Object.entries(mapperCounts)
+        .map(([name, count]) => `<span class="vfx-mapper-tag">${esc(name)}=${count}</span>`)
+        .join(' ');
+
+      return `
+        <div class="vfx-debug-widget-content">
+          <div class="vfx-debug-header">Colony VFX Stats</div>
+          <div class="vfx-debug-section">
+            <div class="vfx-stat-line"><strong>Backend:</strong> ${esc(backend)}</div>
+            <div class="vfx-stat-line"><strong>Quality:</strong> ${esc(quality)}</div>
+            <div class="vfx-stat-line"><strong>Emitters:</strong> ${emitters}</div>
+            <div class="vfx-stat-line"><strong>Particles:</strong> ${particles}</div>
+            <div class="vfx-stat-line"><strong>Burst:</strong> ${burstActive}</div>
+          </div>
+          <div class="vfx-debug-section">
+            <div class="vfx-debug-sublabel">Profiles</div>
+            ${profileLines || '<div class="vfx-stat-line">(none)</div>'}
+          </div>
+          ${mapperSlots > 0 ? `
+          <div class="vfx-debug-section">
+            <div class="vfx-debug-sublabel">Mapper: ${mapperSlots} slots</div>
+            <div class="vfx-stat-line" style="font-size:0.85em; flex-wrap:wrap; display:flex; gap:4px;">
+              ${mapperLines || '(none)'}
+            </div>
+          </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function updateWidget() {
+      const stats = window.__GQ_COLONY_VFX_STATS;
+      const mapper = window.__GQ_COLONY_VFX_MAPPER;
+      const orchest = window.GQSeamlessZoomOrchestrator;
+      const activeLevel = orchest?.activeLevel || -1;
+      const isColonyLevel = activeLevel === COLONY_SURFACE;
+
+      if (!widget) {
+        widget = document.getElementById('colony-vfx-debug-widget');
+        if (!widget) {
+          const overlay = document.getElementById('galaxy-info-overlay');
+          if (!overlay) return;
+          widget = document.createElement('div');
+          widget.id = 'colony-vfx-debug-widget';
+          widget.className = 'colony-vfx-debug-widget';
+          overlay.appendChild(widget);
+        }
+      }
+
+      const hasStats = !!(stats && stats.particles > 0);
+      const shouldShow = isColonyLevel && hasStats;
+
+      if (!shouldShow) {
+        widget.innerHTML = '';
+        widget.style.display = 'none';
+        return;
+      }
+
+      const changed = JSON.stringify(stats) !== JSON.stringify(lastStats) ||
+                      JSON.stringify(mapper) !== JSON.stringify(lastMapper);
+      if (changed || !widget.innerHTML) {
+        widget.innerHTML = createWidgetHTML(stats, mapper);
+        lastStats = stats;
+        lastMapper = mapper;
+      }
+
+      widget.style.display = 'block';
+    }
+
+    function startUpdating() {
+      if (updateInterval) clearInterval(updateInterval);
+      updateInterval = setInterval(updateWidget, 150);
+    }
+
+    function stopUpdating() {
+      if (updateInterval) {
+        clearInterval(updateInterval);
+        updateInterval = null;
+      }
+    }
+
+    // Start widget updates after 500ms
+    setTimeout(startUpdating, 500);
+
+    // Public API for cleanup
+    window.__GQ_VFX_WIDGET_CONTROL = { startUpdating, stopUpdating, updateWidget };
+  }
+
+  // Initialize the widget
+  try {
+    initColonyVFXDebugWidget();
+  } catch (err) {
+    console.warn('[GQ] VFX debug widget init failed (non-blocking)', err);
+  }
+
 })();

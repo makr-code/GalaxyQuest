@@ -184,7 +184,11 @@
       );
       out.normal = normal;
       out.uv = in.uv;
-      out.worldPos = pos;
+      out.worldPos = vec3<f32>(
+        uHero.centerX + (pos.x * uHero.radius) / max(uHero.aspect, 0.0001),
+        uHero.centerY + pos.y * uHero.radius,
+        pos.z * uHero.radius * 0.5
+      );
       return out;
     }
 
@@ -388,7 +392,11 @@
       );
       out.normal = normal;
       out.uv = in.uv;
-      out.worldPos = pos;
+      out.worldPos = vec3<f32>(
+        uPlanet.centerX + (pos.x * uPlanet.radius) / max(uPlanet.aspect, 0.0001),
+        uPlanet.centerY + pos.y * uPlanet.radius,
+        pos.z * uPlanet.radius * 0.25
+      );
       return out;
     }
 
@@ -1282,12 +1290,15 @@
 
     _buildLightRigProfileOptions(profileName) {
       if (String(profileName || '').toLowerCase() !== 'system') return null;
+      const heroState = this._getHeroStarState();
       return {
         starColor: this._engineLightHexFromStar(this._currentTarget),
         starIntensity: ({ O: 3.2, B: 2.9, A: 2.7, F: 2.45, G: 2.3, K: 2.1, M: 1.85 })[
           String(this._currentTarget?.spectral_class || 'G').toUpperCase().charAt(0)
         ] || 2.3,
-        starPosition: [0, 0, 0],
+        starPosition: heroState
+          ? [Number(heroState.clipX || 0), Number(heroState.clipY || 0), 0]
+          : [0, 0, 0],
       };
     }
 

@@ -2197,6 +2197,55 @@ input:focus, select:focus, textarea:focus {
 .bar-food       { background:#27ae60; }
 .bar-population { background:#3498db; }
 .bar-services   { background:#9b59b6; }
+.bar-integrity  { background:linear-gradient(90deg, #c84b4b, #f1c40f 48%, #32d296); }
+.bar-shield     { background:linear-gradient(90deg, #205bb8, #3f88ff); }
+.bar-fill.is-good {
+  filter: saturate(1);
+}
+.bar-fill.bar-integrity.is-warning,
+.bar-fill.bar-shield.is-warning {
+  background: linear-gradient(90deg, #d18d20, #f2c75a);
+}
+.bar-fill.bar-integrity.is-critical,
+.bar-fill.bar-shield.is-critical {
+  background: linear-gradient(90deg, #9f2b2b, #df4a4a);
+}
+.entity-bars {
+  margin-top: 0.35rem;
+  display: grid;
+  gap: 0.24rem;
+}
+.entity-bars-compact {
+  min-width: 140px;
+  max-width: 180px;
+}
+.entity-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+}
+.entity-bar-row .bar-wrap {
+  flex: 1;
+  height: 5px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.entity-bar-row .bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.25s ease;
+}
+.entity-bar-label {
+  min-width: 36px;
+  color: var(--text-muted);
+}
+.entity-bar-value {
+  min-width: 34px;
+  text-align: right;
+  color: var(--text-secondary);
+}
 .deposit-chip   { font-size:0.72rem; color:var(--text-muted); }
 .deposit-chip.depleted { color:#e74c3c; }
 .rare-earth-chip { color:#bb44ff; font-weight:600; }
@@ -2520,6 +2569,31 @@ input:focus, select:focus, textarea:focus {
   background: linear-gradient(90deg, #3c8e5a, #5ef09a);
   border-radius: 999px;
   min-width: 2px;
+}
+.vessel-hp-fill.is-warning {
+  background: linear-gradient(90deg, #d18d20, #f2c75a);
+}
+.vessel-hp-fill.is-critical {
+  background: linear-gradient(90deg, #9f2b2b, #df4a4a);
+}
+.vessel-shield-bar {
+  height: 4px;
+  margin-top: 0.2rem;
+  background: rgba(255,255,255,0.1);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.vessel-shield-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2f65cc, #69a8ff);
+  border-radius: 999px;
+  min-width: 2px;
+}
+.vessel-shield-fill.is-warning {
+  background: linear-gradient(90deg, #d18d20, #f2c75a);
+}
+.vessel-shield-fill.is-critical {
+  background: linear-gradient(90deg, #9f2b2b, #df4a4a);
 }
 .vessel-stat-chips {
   display: flex;
