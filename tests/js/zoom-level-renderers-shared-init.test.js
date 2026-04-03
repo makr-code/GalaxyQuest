@@ -6,10 +6,10 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const root = path.resolve(fileURLToPath(import.meta.url), '../../..');
 
-const { GalaxyLevelWebGPU } = require(path.join(root, 'js/rendering/levels/GalaxyLevelWebGPU.js'));
-const { GalaxyLevelThreeJS } = require(path.join(root, 'js/rendering/levels/GalaxyLevelThreeJS.js'));
-const { SystemLevelWebGPU } = require(path.join(root, 'js/rendering/levels/SystemLevelWebGPU.js'));
-const { SystemLevelThreeJS } = require(path.join(root, 'js/rendering/levels/SystemLevelThreeJS.js'));
+const { GalaxyLevelWebGPU } = require(path.join(root, 'js/engine/zoom/levels/GalaxyLevelWebGPU.js'));
+const { GalaxyLevelThreeJS } = require(path.join(root, 'js/engine/zoom/levels/GalaxyLevelThreeJS.js'));
+const { SystemLevelWebGPU } = require(path.join(root, 'js/engine/zoom/levels/SystemLevelWebGPU.js'));
+const { SystemLevelThreeJS } = require(path.join(root, 'js/engine/zoom/levels/SystemLevelThreeJS.js'));
 
 function makeCanvasHost() {
   const host = document.createElement('div');

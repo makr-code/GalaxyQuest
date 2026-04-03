@@ -6969,3 +6969,225 @@ body > section:last-of-type {
   border-color: rgba(124, 154, 182, 0.42);
   color: rgba(187, 205, 222, 0.88);
 }
+
+/* ── Colony VFX Debug Widget ──────────────────────────────────────────────── */
+#colony-vfx-debug-widget {
+  position: fixed;
+  bottom: 64px;
+  right: 14px;
+  z-index: 8500;
+  width: min(92vw, 340px);
+  max-height: min(60vh, 480px);
+  display: none;
+  flex-direction: column;
+  border: 1px solid rgba(88, 175, 255, 0.48);
+  border-radius: 10px;
+  background: rgba(8, 18, 34, 0.95);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(88, 175, 255, 0.18) inset;
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+  overflow: hidden;
+  animation: vfx-widget-in 0.22s ease;
+}
+
+#colony-vfx-debug-widget.visible {
+  display: flex;
+}
+
+@keyframes vfx-widget-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.vfx-debug-widget-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0.75rem;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.vfx-debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid rgba(88, 175, 255, 0.28);
+  padding-bottom: 0.35rem;
+}
+
+.vfx-debug-header strong {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #a8dcff;
+  letter-spacing: 0.03em;
+  flex: 1;
+}
+
+.vfx-debug-header .backend-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(80, 200, 120, 0.45);
+  background: rgba(20, 70, 45, 0.32);
+  color: #7edfc0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.vfx-debug-section {
+  display: grid;
+  gap: 0.32rem;
+  padding-top: 0.28rem;
+  border-top: 1px solid rgba(88, 175, 255, 0.16);
+}
+
+.vfx-debug-section:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.vfx-debug-section-title {
+  font-size: 0.71rem;
+  font-weight: 700;
+  color: #88b8e6;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 0.1rem;
+  opacity: 0.92;
+}
+
+.vfx-stat-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.3rem;
+  border-radius: 5px;
+  background: rgba(10, 24, 44, 0.52);
+  transition: background 0.12s ease;
+}
+
+.vfx-stat-line:hover {
+  background: rgba(20, 40, 70, 0.6);
+}
+
+.vfx-stat-label {
+  color: #8fa5c8;
+  font-weight: 500;
+  flex: 1 1 auto;
+  min-width: 70px;
+}
+
+.vfx-stat-value {
+  color: #b8deff;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-weight: 600;
+  text-align: right;
+  flex: 0 0 auto;
+  min-width: 45px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vfx-profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.71rem;
+  padding: 0.12rem 0.3rem;
+  border-radius: 5px;
+  background: rgba(15, 28, 50, 0.42);
+  transition: background 0.1s ease;
+}
+
+.vfx-profile-row:hover {
+  background: rgba(22, 40, 65, 0.56);
+}
+
+.vfx-profile-name {
+  color: #9ec2e8;
+  font-weight: 600;
+  flex: 1 1 auto;
+  min-width: 60px;
+}
+
+.vfx-profile-count {
+  color: #c8daff;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-weight: 600;
+  text-align: right;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.vfx-mapper-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid rgba(120, 160, 200, 0.3);
+  background: rgba(16, 32, 56, 0.48);
+  color: #9ec2e8;
+  font-size: 0.68rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.10s ease;
+}
+
+.vfx-mapper-tag:hover {
+  border-color: rgba(150, 190, 230, 0.5);
+  background: rgba(24, 44, 72, 0.66);
+  color: #bde8ff;
+}
+
+.vfx-mapper-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+/* ─ Responsive adjustments ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  #colony-vfx-debug-widget {
+    right: 10px;
+    bottom: 58px;
+    width: min(90vw, 300px);
+    max-height: min(50vh, 400px);
+  }
+
+  .vfx-debug-widget-content {
+    padding: 0.55rem 0.65rem;
+    gap: 0.28rem;
+  }
+
+  .vfx-stat-line,
+  .vfx-profile-row {
+    font-size: 0.72rem;
+    padding: 0.12rem 0.25rem;
+  }
+
+  .vfx-debug-header strong {
+    font-size: 0.78rem;
+  }
+
+  .vfx-stat-label,
+  .vfx-profile-name {
+    min-width: 60px;
+  }
+}

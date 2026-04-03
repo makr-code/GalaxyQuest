@@ -22,7 +22,7 @@
  *
  * Usage (game.js)
  * ───────────────
- *   import { SeamlessZoomOrchestrator, ZOOM_LEVEL } from './rendering/SeamlessZoomOrchestrator.js';
+ *   import { SeamlessZoomOrchestrator, ZOOM_LEVEL } from './engine/zoom/SeamlessZoomOrchestrator.js';
  *
  *   const orchestrator = new SeamlessZoomOrchestrator(canvas);
  *   orchestrator.register(ZOOM_LEVEL.GALAXY, { webgpu: GalaxyLevelWebGPU, threejs: GalaxyLevelThreeJS });
@@ -43,7 +43,7 @@ let RendererRegistryCtor, RendererFactoryApi, CameraFlightPathCtor;
 
 if (typeof require !== 'undefined') {
   ({ RendererRegistry: RendererRegistryCtor } = require('./RendererRegistry.js'));
-  ({ RendererFactory: RendererFactoryApi }  = require('../engine/core/RendererFactory.js'));
+  ({ RendererFactory: RendererFactoryApi }  = require('../core/RendererFactory.js'));
   ({ CameraFlightPath: CameraFlightPathCtor } = require('./CameraFlightPath.js'));
 } else {
   ({ RendererRegistry: RendererRegistryCtor } = window.GQRendererRegistry   || {});

@@ -89,11 +89,12 @@ class CombatVfxBridge {
 
     if (mission === 'attack') {
       // Immediate opening salvo then sustained fire window
-      this._dispatchWeaponFire({ sourceOwner: null, weaponKind: null, ts: Date.now() });
+      // Installations ($target system) fire defensively
+      this._dispatchWeaponFire({ sourceOwner: null, sourceType: 'installation', weaponKind: null, ts: Date.now() });
       this._startBattleFx(attacker, target, BATTLE_DURATION_MS);
     } else {
       // Spy: one silent pulse (no visible weapon FX needed, but emit for any interest)
-      this._dispatchWeaponFire({ sourceOwner: null, weaponKind: 'beam', ts: Date.now() });
+      this._dispatchWeaponFire({ sourceOwner: null, sourceType: 'installation', weaponKind: 'beam', ts: Date.now() });
     }
   }
 
@@ -106,7 +107,7 @@ class CombatVfxBridge {
     let sent = 0;
     const dispatchPulse = () => {
       if (sent >= ALERT_PULSES) return;
-      this._dispatchWeaponFire({ sourceOwner: null, weaponKind: null, ts: Date.now() });
+      this._dispatchWeaponFire({ sourceOwner: null, sourceType: 'installation', weaponKind: null, ts: Date.now() });
       sent += 1;
       window.setTimeout(dispatchPulse, ALERT_PULSE_DELAY);
     };
@@ -135,6 +136,7 @@ class CombatVfxBridge {
 
   /**
    * Begin emitting weapon-fire events at FIRE_INTERVAL_MS for durationMs.
+   * Alternates between installation and ship weapon fire for visual variety.
    * @param {string} attacker
    * @param {string} target
    * @param {number} durationMs
@@ -144,8 +146,19 @@ class CombatVfxBridge {
     const key = this._battleKey(attacker, target);
     this._stopBattleFx(key); // clear any prior battle for the same key
 
+    let fireCount = 0;
     const intervalId = window.setInterval(() => {
-      this._dispatchWeaponFire({ sourceOwner: null, weaponKind: null, ts: Date.now() });
+      // Alternate between installation and ship weapon fire (Phase 2 multi-entity)
+      const sourceType = (fireCount % 3 < 2) ? 'installation' : 'ship';
+      const weaponKind = ['laser', 'beam', 'missile'][fireCount % 3];
+      
+      this._dispatchWeaponFire({
+        sourceOwner: null,
+        sourceType,
+        weaponKind,
+        ts: Date.now(),
+      });
+      fireCount += 1;
     }, FIRE_INTERVAL_MS);
 
     const timeoutId = window.setTimeout(() => {
@@ -183,7 +196,7 @@ class CombatVfxBridge {
    *
    * @param {object} payload
    * @param {string|null}  [payload.sourceOwner]  - Owner name filter (null = all)
-   * @param {string|null}  [payload.sourceType]   - Installation type filter (null = all)
+   * @param {string|null}  [payload.sourceType]   - Entity type filter: installation|ship|debris|wormhole|beacon|gate (null = all)
    * @param {string|null}  [payload.weaponKind]   - Weapon kind filter: beam|plasma|rail|missile|null
    * @param {number}       [payload.ts]           - Timestamp (defaults to Date.now())
    */

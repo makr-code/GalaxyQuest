@@ -4,2435 +4,277 @@
  */
 (async function () {
 
-  // Auth guard
-  let currentUser;
-  try {
-    const meData = await API.me();
-    if (!meData.success) { window.location.href = 'index.html'; return; }
-    currentUser = meData.user;
-  } catch (err) {
-    console.error('[GQ][game] Auth guard failed, redirecting to login', err);
-    window.location.href = 'index.html';
-    return;
-  }
-
-  function updateCommanderButtonLabel() {
-    const commanderBtn = document.getElementById('commander-name');
-    if (commanderBtn) commanderBtn.textContent = `${currentUser.username}`;
-  }
-  updateCommanderButtonLabel();
-
-  // Backward-compat helper: legacy callers in this file still invoke
-  // _invalidateGetCache(...). Route those calls to API.invalidateCache(...).
-  function _invalidateGetCache(patterns) {
-    try {
-      if (API && typeof API.invalidateCache === 'function') {
-        API.invalidateCache(patterns);
-      }
-    } catch (err) {
-      console.warn('[GQ][game] Cache-Invalidierung fehlgeschlagen', err);
+  function requireRuntimeApi(globalName, requiredMethods = []) {
+    const api = window?.[globalName] || null;
+    if (!api) {
+      throw new Error(`[runtime/game] ${globalName} is required but not available.`);
     }
-  }
-
-  if (Number(currentUser?.is_admin || 0) === 1 && window.AdminUsers && typeof window.AdminUsers.init === 'function') {
-    window.AdminUsers.init();
-  }
-
-  // Breadcrumb Navigation für System-Bodies
-  function initSystemBreadcrumb() {
-    if (window.SystemBreadcrumbIntegration) {
-      try {
-        systemBreadcrumbIntegration = new window.SystemBreadcrumbIntegration();
-        console.log('[GQ] SystemBreadcrumb initialized');
-      } catch (err) {
-        console.warn('[GQ] Failed to initialize SystemBreadcrumb:', err);
-      }
+    const missingMethods = requiredMethods.filter((methodName) => typeof api[methodName] !== 'function');
+    if (missingMethods.length) {
+      throw new Error(`[runtime/game] ${globalName} is missing methods: ${missingMethods.join(', ')}`);
     }
+    return api;
   }
 
-  function triggerSystemBreadcrumbEnter(payload, renderer) {
-    if (systemBreadcrumbIntegration && typeof systemBreadcrumbIntegration.onSystemEnter === 'function') {
-      try {
-        systemBreadcrumbIntegration.onSystemEnter(payload, renderer);
-      } catch (err) {
-        console.warn('[GQ] SystemBreadcrumb.onSystemEnter failed:', err);
-      }
-    }
-  }
-
-  function triggerSystemBreadcrumbExit() {
-    if (systemBreadcrumbIntegration && typeof systemBreadcrumbIntegration.onSystemExit === 'function') {
-      try {
-        systemBreadcrumbIntegration.onSystemExit();
-      } catch (err) {
-        console.warn('[GQ] SystemBreadcrumb.onSystemExit failed:', err);
-      }
-    }
-  }
-
-  function isCurrentUserAdmin() {
-    return Number(currentUser?.is_admin || 0) === 1;
-  }
-
-  function normalizeStarVisibility(star) {
-    if (!star || typeof star !== 'object' || !isCurrentUserAdmin()) return star;
-    return Object.assign({}, star, { visibility_level: 'own' });
-  }
-
-  function normalizeStarListVisibility(stars) {
-    if (!Array.isArray(stars)) return [];
-    if (!isCurrentUserAdmin()) return stars;
-    return stars.map((star) => normalizeStarVisibility(star));
-  }
-
-  function normalizeSystemPayloadVisibility(payload) {
-    if (!payload || typeof payload !== 'object' || !isCurrentUserAdmin()) return payload;
-    return Object.assign({}, payload, {
-      visibility: Object.assign({}, payload.visibility || {}, { level: 'own' }),
-    });
-  }
-
-  // State
-  let colonies       = [];
-  let currentColony  = null;
-  let galaxySystemMax = 499;
-  let galaxy3d = null;
-  // Standalone virtual camera state for the minimap. Updated by every drag/zoom
-  // even when galaxy3d is null (e.g. headless renderer or system-view mode).
-  let minimapCamera = { targetX: 0, targetY: 0, cameraX: 0, cameraY: 0, zoom: 1 };
-  let galaxy3dQualityState = null;
-  let galaxy3dInitReason = '';
-  let zoomOrchestrator = null;
-  let systemBreadcrumbIntegration = null;
-  const messageConsoleState = {
-    maxLines: 140,
-    userHints: [],
-    lines: [
-      '[system] Message console ready. Type "help" for commands.',
-    ],
-  };
-  const messageSignalState = {
-    host: null,
-    rings: Object.create(null),
-    levelLabel: {
-      danger: 'Gefahr',
-      success: 'Erfolg',
-      info: 'Info',
-    },
-    levelPriority: {
-      danger: 3,
-      success: 2,
-      info: 1,
-    },
-    unreadIds: new Set(),
-    unreadByLevel: { danger: 0, success: 0, info: 0 },
-    flashUntilByLevel: { danger: 0, success: 0, info: 0 },
-    bootstrapped: false,
-  };
-  class UIConsoleStore {
-    constructor(options = {}) {
-      this.maxLines = Math.max(20, Number(options.maxLines || 220));
-      this.lines = Array.isArray(options.initialLines) && options.initialLines.length
-        ? options.initialLines.map((line) => String(line || '').trim()).filter(Boolean)
-        : ['[ui] Console ready. Type "help".'];
-      this.filter = String(options.filter || 'all').toLowerCase();
-    }
-
-    push(line) {
-      const text = String(line || '').trim();
-      if (!text) return false;
-      this.lines.push(text);
-      if (this.lines.length > this.maxLines) {
-        this.lines.splice(0, this.lines.length - this.maxLines);
-      }
-      return true;
-    }
-
-    clear(seedLine = '[ui] Console cleared.') {
-      this.lines = [String(seedLine || '[ui] Console cleared.')];
-    }
-
-    setFilter(value) {
-      this.filter = String(value || 'all').toLowerCase();
-    }
-
-    getVisibleLines() {
-      const selected = this.filter;
-      if (selected === 'all') return this.lines.slice();
-      return this.lines.filter((line) => {
-        const text = String(line || '').toLowerCase();
-        if (selected === 'abort') {
-          return text.includes('abort') || text.includes('cancel') || text.includes('navigation') || text.includes('fetchabort');
-        }
-        if (selected === 'system') {
-          return text.includes('[ui]') || text.includes('[system]') || text.includes('[api:');
-        }
-        return text.includes(`[${selected}]`);
-      });
-    }
-  }
-  const uiConsoleStore = new UIConsoleStore({
-    maxLines: 220,
-    initialLines: ['[ui] Console ready. Type "help".'],
-    filter: 'all',
+  runtimeTopbarA11yApi.initTopbarA11yRuntime();
+  const focusFirstInTopbarMenu = runtimeTopbarA11yApi.focusFirstInTopbarMenu;
+  const syncTopbarBottomSheetState = runtimeTopbarA11yApi.syncTopbarBottomSheetState;
+  const setTopbarMenuFocusTrap = runtimeTopbarA11yApi.setTopbarMenuFocusTrap;
+  const clearTopbarMenuFocusTrap = runtimeTopbarA11yApi.clearTopbarMenuFocusTrap;
+  const isTopbarMenuFocusTrapped = runtimeTopbarA11yApi.isTopbarMenuFocusTrapped;
+  const closeCommanderMenuPanel = runtimeTopbarA11yApi.closeCommanderMenuPanel;
+  const closeTopbarPlayerMenu = runtimeTopbarA11yApi.closeTopbarPlayerMenu;
+  const runtimeFooterUiKitApi = requireRuntimeApi('GQRuntimeFooterUiKit', ['initFooterUiKit']);
+  const runtimeFooterNetworkStatusApi = requireRuntimeApi('GQRuntimeFooterNetworkStatus', ['refreshFooterNetworkStatus']);
+  runtimeFooterNetworkStatusApi.configureFooterNetworkStatusRuntime({
+    documentRef: document,
+    getApi: getApiRef,
+    getNavigator: getNavigatorRef,
+    logger: gameLog,
   });
-  let galaxyStars = [];
-  let pinnedStar = null;
-  let galaxyHealthLast = null;
-  let galaxyHealthLastCheckMs = 0;
-  let galaxyHealthWarned = false;
-  let galaxyOverlayHotkeysBound = false;
-  let galaxyHydrationToken = 0;
-  let galaxyAutoFramedOnce = false;
-  const galaxyDebugState = {
+  const setFooterLoadProgress = runtimeFooterNetworkStatusApi.setFooterLoadProgress;
+  const setFooterNetworkStatus = runtimeFooterNetworkStatusApi.setFooterNetworkStatus;
+  const refreshFooterNetworkStatus = runtimeFooterNetworkStatusApi.refreshFooterNetworkStatus;
+  const runtimeRealtimeSyncApi = requireRuntimeApi('GQRuntimeRealtimeSync', ['initRealtimeSync']);
+  const runtimeStartupBootApi = requireRuntimeApi('GQRuntimeStartupBoot', ['initStartupBoot']);
+  const runtimePostBootFlowApi = requireRuntimeApi('GQRuntimePostBootFlow', ['runPostBootFlow']);
+  const runtimeColonyVfxDebugWidgetApi = requireRuntimeApi('GQRuntimeColonyVfxDebugWidget', ['safeInitColonyVfxDebugWidget']);
+  const runtimePolicyEngineApi = requireRuntimeApi('GQRuntimePolicyEngine', ['applyPolicyMode']);
+  runtimePolicyEngineApi.configurePolicyRuntime({
+    getGalaxyDb: getGalaxyDbRef,
+    getLocalStorage: getLocalStorageRef,
+    getNavigator: getNavigatorRef,
+    logger: gameLog,
+  });
+  const POLICY_PROFILES = runtimePolicyEngineApi.getPolicyProfiles();
+  const LEVEL_POLICIES = runtimePolicyEngineApi.getLevelPolicies();
+  const applyPolicyMode = runtimePolicyEngineApi.applyPolicyMode;
+  const refreshPolicyUi = runtimePolicyEngineApi.refreshPolicyUi;
+  const getActivePolicyMode = runtimePolicyEngineApi.getActivePolicyMode;
+  const getActivePolicyProfile = runtimePolicyEngineApi.getActivePolicyProfile;
+  const isPolicyModeAuto = runtimePolicyEngineApi.isPolicyModeAuto;
+  const getPolicyProfileLabelRef = () => POLICY_PROFILES[getActivePolicyProfile()]?.label || getActivePolicyProfile();
+  const runtimeGalaxyDebugLogApi = requireRuntimeApi('GQRuntimeGalaxyDebugLog', ['pushGalaxyDebugError']);
+  runtimeGalaxyDebugLogApi.configureGalaxyDebugLogRuntime({
+    wm: WM,
+    esc,
+    showToast,
+    documentRef: document,
+    navigatorRef: navigator,
     maxEntries: 6,
-    entries: [],
-  };
-  class TopbarSearchStore {
-    constructor(options = {}) {
-      this.query = '';
-      this.localResults = [];
-      this.serverResults = [];
-      this.open = false;
-      this.serverPending = false;
-      this.debounceId = 0;
-      this.requestToken = 0;
-      this.maxLocal = Math.max(1, Number(options.maxLocal || 10));
-      this.maxServer = Math.max(1, Number(options.maxServer || 18));
-    }
-
-    nextToken(query) {
-      this.query = String(query || '').trim();
-      this.requestToken += 1;
-      return this.requestToken;
-    }
-
-    matchesToken(token) {
-      return Number(token || 0) === Number(this.requestToken || 0);
-    }
-
-    setLocalResults(rows) {
-      this.localResults = Array.isArray(rows) ? rows : [];
-    }
-
-    setServerResults(rows) {
-      this.serverResults = Array.isArray(rows) ? rows : [];
-    }
-
-    setServerPending(flag) {
-      this.serverPending = !!flag;
-    }
-
-    openOverlay() {
-      this.open = true;
-    }
-
-    closeOverlay() {
-      this.open = false;
-    }
-
-    reset() {
-      this.query = '';
-      this.localResults = [];
-      this.serverResults = [];
-      this.serverPending = false;
-      this.closeOverlay();
-    }
-
-    clearDebounce() {
-      if (!this.debounceId) return;
-      clearTimeout(this.debounceId);
-      this.debounceId = 0;
-    }
-
-    queueServerFetch(run, delayMs = 260) {
-      this.clearDebounce();
-      this.debounceId = window.setTimeout(async () => {
-        this.debounceId = 0;
-        await run();
-      }, delayMs);
-    }
-
-    firstCandidate() {
-      return this.localResults[0] || this.serverResults[0] || null;
-    }
-  }
-  const topbarSearchStore = new TopbarSearchStore({
-    maxLocal: 10,
-    maxServer: 18,
   });
-  let lastLoadErrorToastAt = 0;
-  let authRedirectScheduled = false;
-  const GALAXY_FILTERS_ENABLED = false;
-  const uiState = {
-    activeGalaxy: 1,
-    activeSystem: 1,
-    activeStar: null,
-    activeRange: { from: 1, to: 499 },
-    assetsManifestVersion: Math.max(1, Number(window.GQ_ASSETS_MANIFEST_VERSION || 1)),
-    colonyViewFocus: null,
-    fleetPrefill: null,
-    intelCache: new Map(),
-    territory: [],
-    rawClusters: [],
-    clusterSummary: [],
-    resourceInsight: null,
-    selectionState: {
-      active: null,
-      hover: null,
-      multiSelection: [],
-      group: null,
-      mode: 'galaxy',
-      sourceView: 'renderer',
-      updatedAt: 0,
-    },
-  };
-
-  function normalizeSelectionPosition(pos) {
-    if (!pos || typeof pos !== 'object') return null;
-    const x = Number(pos.x);
-    const y = Number(pos.y);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    return { x, y };
-  }
-
-  function buildSelectionKey(target) {
-    if (!target || typeof target !== 'object') return null;
-    const kind = String(target.__kind || 'star').trim().toLowerCase();
-    if (kind === 'cluster') {
-      return `cluster:${Number(target.__clusterIndex || -1)}`;
-    }
-    if (kind === 'planet') {
-      const sourceStar = target.__sourceStar || {};
-      return `planet:${Number(sourceStar.galaxy_index || target.galaxy_index || 0)}:${Number(sourceStar.system_index || target.system || 0)}:${Number(target.id || target.planet_id || target.__slot?.position || target.position || 0)}`;
-    }
-    if (kind === 'system_fleet' || kind === 'galaxy_fleet') {
-      return `${kind}:${Number(target.id || target.fleet_id || 0)}`;
-    }
-    if (kind === 'orbital_facility') {
-      return `orbital_facility:${Number(target.__slot?.player_planet?.colony_id || target.colony_id || 0)}:${Number(target.__slot?.position || 0)}`;
-    }
-    if (kind === 'star_installation') {
-      return `star_installation:${Number(target.id || target.installation_id || 0)}`;
-    }
-    if (kind === 'system_traffic') {
-      return `system_traffic:${Number(target.orbitRadius || 0)}:${Number(target.orbitSpeed || 0)}`;
-    }
-    if (kind === 'ftl_node') {
-      return `ftl_node:${Number(target.id || target.node_id || 0)}`;
-    }
-    if (kind === 'ftl_gate') {
-      return `ftl_gate:${Number(target.id || target.gate_id || 0)}:${String(target.__endpoint || '')}`;
-    }
-    return `star:${Number(target.galaxy_index || 0)}:${Number(target.system_index || 0)}`;
-  }
-
-  function normalizeRendererSelection(target, pos, eventType = 'hover') {
-    if (!target || typeof target !== 'object') {
-      return {
-        key: null,
-        kind: null,
-        target: null,
-        position: normalizeSelectionPosition(pos),
-        eventType: String(eventType || 'hover'),
-        mode: galaxy3d && typeof galaxy3d.isSystemMode === 'function' && galaxy3d.isSystemMode() ? 'system' : 'galaxy',
-        sourceView: 'renderer',
+  const pushGalaxyDebugError = runtimeGalaxyDebugLogApi.pushGalaxyDebugError;
+  const renderGalaxyDebugPanel = runtimeGalaxyDebugLogApi.renderGalaxyDebugPanel;
+  const copyLastGalaxyDebugError = runtimeGalaxyDebugLogApi.copyLastGalaxyDebugError;
+  const clearGalaxyDebugErrors = runtimeGalaxyDebugLogApi.clearGalaxyDebugErrors;
+  const downloadGalaxyDebugLog = runtimeGalaxyDebugLogApi.downloadGalaxyDebugLog;
+  const runtimeColonyBuildingLogicApi = requireRuntimeApi('GQRuntimeColonyBuildingLogic', ['focusColonyDevelopment']);
+  runtimeColonyBuildingLogicApi.configureColonyBuildingLogicRuntime({
+    getColonies: getColoniesRef,
+    getWm: getWmRef,
+    setColonyViewFocusCallback: (colonyId, focusBuilding, source) => {
+      uiState.colonyViewFocus = {
+        colonyId: Number(colonyId || 0),
+        focusBuilding: String(focusBuilding || ''),
+        source: String(source || 'manual'),
+        ts: Date.now(),
       };
-    }
-    const kind = String(target.__kind || 'star').trim().toLowerCase();
-    const sourceStar = target.__sourceStar || null;
-    return {
-      key: String(target.__selectionKey || buildSelectionKey(target) || ''),
-      kind,
-      target,
-      position: normalizeSelectionPosition(pos),
-      eventType: String(eventType || 'hover'),
-      mode: String(target.__selectionMode || (galaxy3d && typeof galaxy3d.isSystemMode === 'function' && galaxy3d.isSystemMode() ? 'system' : 'galaxy')),
-      scope: String(target.__selectionScope || (kind === 'cluster' ? 'cluster' : (kind === 'planet' ? 'system' : 'galaxy'))),
-      sourceView: String(target.__selectionSourceView || 'renderer'),
-      galaxy: Number(target.galaxy_index || sourceStar?.galaxy_index || 0),
-      system: Number(target.system_index || sourceStar?.system_index || target.system || 0),
-      slot: Number(target.__slot?.position || target.position || 0),
-    };
-  }
-
-  function resolveSelectionGroupMembers(normalized) {
-    if (!normalized?.target || typeof normalized.target !== 'object') return { members: [], group: null };
-    const target = normalized.target;
-    const kind = String(normalized.kind || '').toLowerCase();
-
-    if (kind === 'cluster') {
-      const clusterSystems = Array.isArray(target.__clusterSystems)
-        ? [...new Set(target.__clusterSystems.map((n) => Number(n || 0)).filter((n) => Number.isFinite(n) && n > 0))]
-        : [];
-      const factionId = Number(target?.faction?.id || target?.faction?.faction_id || target?.faction_id || 0);
-      const factionName = String(target?.faction?.name || target?.faction_name || '').trim();
-      let systems = clusterSystems.slice();
-      if ((factionId > 0 || factionName) && Array.isArray(uiState.clusterSummary) && uiState.clusterSummary.length) {
-        const factionSystems = uiState.clusterSummary
-          .filter((cluster) => {
-            const cf = cluster?.faction || null;
-            const cid = Number(cf?.id || cf?.faction_id || 0);
-            const cname = String(cf?.name || '').trim();
-            if (factionId > 0 && cid > 0) return cid === factionId;
-            if (factionName && cname) return cname.localeCompare(factionName, 'de', { sensitivity: 'base' }) === 0;
-            return false;
-          })
-          .flatMap((cluster) => Array.isArray(cluster?.systems) ? cluster.systems : [])
-          .map((n) => Number(n || 0))
-          .filter((n) => Number.isFinite(n) && n > 0);
-        if (factionSystems.length) systems = [...new Set(factionSystems)];
-      }
-      const groupType = (factionId > 0 || factionName) && systems.length > clusterSystems.length
-        ? 'faction'
-        : 'cluster';
-      const members = systems.map((systemIndex) => ({
-        key: `${groupType}:${systemIndex}`,
-        kind: 'star',
-        system: Number(systemIndex || 0),
-        mode: 'galaxy',
-        sourceView: 'renderer',
-      }));
-      return {
-        members,
-        group: {
-          type: groupType,
-          systems,
-          factionId: factionId > 0 ? factionId : 0,
-          factionName: factionName || '',
-        },
-      };
-    }
-
-    return {
-      members: normalized.key ? [normalized] : [],
-      group: normalized.key
-        ? {
-            type: 'single',
-            systems: Number.isFinite(Number(normalized.system || 0)) && Number(normalized.system || 0) > 0
-              ? [Number(normalized.system || 0)]
-              : [],
-          }
-        : null,
-    };
-  }
-
-  function getSelectionGroupHighlightedSystems() {
-    const systems = Array.isArray(uiState.selectionState?.group?.systems)
-      ? uiState.selectionState.group.systems
-      : [];
-    return [...new Set(
-      systems
-        .map((n) => Number(n || 0))
-        .filter((n) => Number.isFinite(n) && n > 0)
-    )];
-  }
-
-  function applySelectionGroupHighlightToRenderer(stars = galaxyStars) {
-    if (!galaxy3d || typeof galaxy3d.setEmpireHeartbeatSystems !== 'function') return;
-    const ownerSystems = getGalaxyOwnerFocusHighlightedSystems(stars);
-    const groupSystems = getSelectionGroupHighlightedSystems();
-    const merged = [...new Set([...ownerSystems, ...groupSystems])];
-    galaxy3d.setEmpireHeartbeatSystems(merged);
-  }
-
-  function commitSelectionState(kind, target, pos, eventType = 'hover') {
-    const normalized = normalizeRendererSelection(target, pos, eventType);
-    uiState.selectionState.mode = normalized.mode || uiState.selectionState.mode || 'galaxy';
-    uiState.selectionState.sourceView = normalized.sourceView || 'renderer';
-    uiState.selectionState.updatedAt = Date.now();
-    if (kind === 'hover') {
-      uiState.selectionState.hover = normalized.target ? normalized : null;
-      return normalized;
-    }
-    if (kind === 'active') {
-      uiState.selectionState.active = normalized.target ? normalized : null;
-      const groupSelection = resolveSelectionGroupMembers(normalized);
-      uiState.selectionState.multiSelection = normalized.target ? groupSelection.members : [];
-      uiState.selectionState.group = normalized.target ? (groupSelection.group || null) : null;
-      if (normalized.target && normalized.kind === 'star') {
-        uiState.activeStar = normalized.target;
-        uiState.activeSystem = Math.max(1, Number(normalized.target.system_index || uiState.activeSystem || 1));
-      }
-      applySelectionGroupHighlightToRenderer(galaxyStars);
-      return normalized;
-    }
-    return normalized;
-  }
-  const RESOURCE_INSIGHT_CONFIG = Object.freeze({
-    metal: { key: 'metal', label: 'Metal', icon: 'MET', desc: 'Basismetall fuer Hulls, Industrie und Ausbau. Ueberschuesse eignen sich fuer Angebotstrades oder interne Transporte.', focusBuilding: 'metal_mine', rateKey: 'metal', tradeable: true, transportable: true },
-    crystal: { key: 'crystal', label: 'Crystal', icon: 'CRY', desc: 'Veredelte Hochtechnologieressource fuer Forschung, Scanner und Komponentenbau.', focusBuilding: 'crystal_mine', rateKey: 'crystal', tradeable: true, transportable: true },
-    deuterium: { key: 'deuterium', label: 'Deuterium', icon: 'DEU', desc: 'Treibstoff und Spezialressource. Transporte, Flottenstarts und Handel ziehen Deuterium fuer Frachtsicherung und Flugzeit.', focusBuilding: 'deuterium_synth', rateKey: 'deuterium', tradeable: true, transportable: true },
-    food: { key: 'food', label: 'Food', icon: 'FOD', desc: 'Versorgt die Bevoelkerung und stabilisiert Wachstum. Negative Raten wirken direkt auf Wohlfahrt und Ausbau.', focusBuilding: 'hydroponic_farm', rateKey: 'food', tradeable: false, transportable: false },
-    rare_earth: { key: 'rare_earth', label: 'Rare Earth', icon: 'RRE', desc: 'Seltene Fertigungsmetalle fuer fortgeschrittene Module. Im aktuellen Handelssystem nur strategisch beobachten, nicht direkt handeln.', focusBuilding: 'rare_earth_drill', rateKey: 'rare_earth', tradeable: false, transportable: false },
-    population: { key: 'population', label: 'Population', icon: 'POP', desc: 'Arbeitskraefte und Wachstumspuffer der Kolonie. Engpaesse limitieren Produktion und Baugeschwindigkeit.', focusBuilding: 'habitat_dome', rateKey: 'population', tradeable: false, transportable: false },
-    happiness: { key: 'happiness', label: 'Happiness', icon: 'HAP', desc: 'Produktivitaets- und Stabilitaetsindikator. Sinkt Happiness, verlieren selbst volle Lager an Effizienz.', focusBuilding: 'hospital', rateKey: null, tradeable: false, transportable: false },
-    energy: { key: 'energy', label: 'Energy', icon: 'ENG', desc: 'Versorgt Gebaeude und beeinflusst alle Produktionsketten. Defizite wirken sofort auf die Wirtschaft.', focusBuilding: 'solar_plant', rateKey: null, tradeable: false, transportable: false },
-    dark_matter: { key: 'dark_matter', label: 'Dark Matter', icon: 'DM', desc: 'Prestigewaehrung aus Quests und Progression. Nicht ueber den normalen Rohstoffmarkt handelbar.', focusBuilding: '', rateKey: null, tradeable: false, transportable: false },
+    },
+    selectColonyById,
+    showToast,
+    prefillFleetTarget,
   });
-
-  function getResourceInsightConfig(resourceKey) {
-    return RESOURCE_INSIGHT_CONFIG[String(resourceKey || '').toLowerCase()] || null;
+  const BUILDING_UI_META = runtimeColonyBuildingLogicApi.getBuildingUiMetaAll();
+  const BUILDING_ZONE_PRIORITY = runtimeColonyBuildingLogicApi.getBuildingZonePriority();
+  const runtimeMessageSignalsApi = requireRuntimeApi('GQRuntimeMessageSignals', ['updateMessageSignalsFromInbox']);
+  runtimeMessageSignalsApi.configureMessageSignalsRuntime({ documentRef: document });
+  const updateMessageSignalsFromInbox = runtimeMessageSignalsApi.updateMessageSignalsFromInbox;
+  const runtimeGalaxyCanvasDebugApi = requireRuntimeApi('GQRuntimeGalaxyCanvasDebug', ['inspectGalaxyCanvasLayering']);
+  runtimeGalaxyCanvasDebugApi.configureGalaxyCanvasDebugRuntime({
+    windowRef: window,
+    documentRef: document,
+  });
+  runtimeGalaxyCanvasDebugApi.attachGlobalGalaxyCanvasDebug();
+  const inspectGalaxyCanvasLayering = runtimeGalaxyCanvasDebugApi.inspectGalaxyCanvasLayering;
+  const runtimeGalaxyEventProbeApi = requireRuntimeApi('GQRuntimeGalaxyEventProbe', ['runGalaxyEventProbe']);
+  runtimeGalaxyEventProbeApi.configureGalaxyEventProbeRuntime({
+    documentRef: document,
+    windowRef: window,
+    consoleRef: console,
+  });
+  const runtimeGalaxyRendererDebugApi = requireRuntimeApi('GQRuntimeGalaxyRendererDebug', ['runGalaxyRendererDebug']);
+  runtimeGalaxyRendererDebugApi.configureGalaxyRendererDebugRuntime({
+    getGalaxy3d: getGalaxy3dRef,
+    consoleRef: console,
+  });
+  const runtimePerfTelemetryCommandApi = requireRuntimeApi('GQRuntimePerfTelemetryCommand', ['runPerfTelemetryCommand']);
+  runtimePerfTelemetryCommandApi.configurePerfTelemetryCommandRuntime({
+    getApi: getApiRef,
+    isOptIn: isPerfTelemetryOptIn,
+    setOptIn: setPerfTelemetryOptIn,
+    sendSnapshot: sendPerfTelemetrySnapshot,
+  });
+  const runtimeTerminalCommandApi = requireRuntimeApi('GQRuntimeTerminalCommand', ['runTerminalCommand']);
+  runtimeTerminalCommandApi.configureTerminalCommandRuntime({
+    getLogApi: getLogApiRef,
+  });
+  const runtimeOpenWindowCommandApi = requireRuntimeApi('GQRuntimeOpenWindowCommand', ['runOpenWindowCommand']);
+  runtimeOpenWindowCommandApi.configureOpenWindowCommandRuntime({
+    wmOpen,
+  });
+  const runtimeMessageSendCommandApi = requireRuntimeApi('GQRuntimeMessageSendCommand', ['runMessageSendCommand']);
+  runtimeMessageSendCommandApi.configureMessageSendCommandRuntime({
+    sendMsg: apiSendMsg,
+    playMessageSend: playMessageSendRef,
+  });
+  const runtimeMessageConsoleCommandApi = requireRuntimeApi('GQRuntimeMessageConsoleCommand', ['runMessageConsoleCommand']);
+  runtimeMessageConsoleCommandApi.configureMessageConsoleCommandRuntime({
+    readMsg: apiReadMsg,
+    deleteMsg: apiDeleteMsg,
+    sendMsg: apiSendMsg,
+    showToast,
+  });
+  const runtimeGalaxyOverlayControlsApi = requireRuntimeApi('GQRuntimeGalaxyOverlayControls', ['bindGalaxyOverlayHotkeys']);
+  runtimeGalaxyOverlayControlsApi.configureGalaxyOverlayControlsRuntime({
+    windowRef: window,
+    documentRef: document,
+    wmIsOpen,
+    wmBody,
+    showToast,
+    getGalaxy3d: getGalaxy3dRef,
+    updateGalaxyFollowUi,
+    getSettingsState: getSettingsStateRef,
+    applyRuntimeSettings: applyRuntimeSettingsRef,
+    updateFleetVectorsUi: updateFleetVectorsUiSafeRef,
+    saveUiSettings: saveUiSettingsRef,
+    renderGalaxySystemDetails,
+    getPinnedStar: getPinnedStarRef,
+    getActiveStar: getActiveStarRef,
+    isSystemModeActive,
+    getHotkeysBound: getHotkeysBoundRef,
+    setHotkeysBound: setHotkeysBoundRef,
+    triggerNavAction: galaxyTriggerNavActionRef,
+  });
+  const runtimeGalaxyNavActionsApi = requireRuntimeApi('GQRuntimeGalaxyNavActions', ['runRendererNavAction']);
+  runtimeGalaxyNavActionsApi.configureGalaxyNavActionsRuntime({
+    callRendererMethod,
+    getRollStep: getRollStepRef,
+  });
+  const runtimeGalaxyNavOrbRepeatApi = requireRuntimeApi('GQRuntimeGalaxyNavOrbRepeat', ['bindNavRepeatButton']);
+  runtimeGalaxyNavOrbRepeatApi.configureGalaxyNavOrbRepeatRuntime({
+    triggerNavAction: triggerGalaxyNavAction,
+    windowRef: window,
+  });
+  const runtimeGalaxyNavOrbApi = requireRuntimeApi('GQRuntimeGalaxyNavOrb', ['bindGalaxyNavOrb']);
+  runtimeGalaxyNavOrbApi.configureGalaxyNavOrbRuntime({
+    windowRef: window,
+    documentRef: document,
+    getUiState: getUiStateRef,
+    getSettingsState: getSettingsStateRef,
+    getGalaxy3d: getGalaxy3dRef,
+    isSystemModeActive,
+    triggerNavAction: triggerGalaxyNavAction,
+    showToast,
+  });
+  const runtimeGalaxyControlUiApi = requireRuntimeApi('GQRuntimeGalaxyControlUi', ['refreshDensityMetrics']);
+async function uiConsoleClearCommand() {
+    uiConsoleStore.clear();
+    renderUiConsole();
   }
 
-  function getResourceInsightValue(resourceKey, colony = currentColony, meta = window._GQ_meta || {}) {
-    const key = String(resourceKey || '');
-    if (key === 'dark_matter') return Number(meta?.dark_matter || 0);
-    if (!colony) return 0;
-    if (key === 'population') return Number(colony.population || 0);
-    if (key === 'happiness') return Number(colony.happiness || 0);
-    if (key === 'energy') return Number(colony.energy || 0);
-    return Number(colony[key] || 0);
+  async function uiConsoleRefreshCommand() {
+    await loadOverview();
+    uiConsolePush('[ok] Overview refreshed.');
   }
 
-  function getResourceInsightTotal(resourceKey, meta = window._GQ_meta || {}) {
-    const key = String(resourceKey || '');
-    if (key === 'dark_matter') return Number(meta?.dark_matter || 0);
-    return colonies.reduce((sum, colony) => sum + getResourceInsightValue(key, colony, meta), 0);
+  async function uiConsoleHomeCommand() {
+    WM.open('galaxy');
+    const root = WM.body('galaxy');
+    if (root) await focusHomeSystemInGalaxy(root);
+    uiConsolePush('[ok] Jumped to home system.');
   }
 
-  function formatResourceInsightValue(resourceKey, value, colony = currentColony) {
-    const key = String(resourceKey || '');
-    const numeric = Number(value || 0);
-    if (key === 'population') {
-      const maxPopulation = Number(colony?.max_population || 0);
-      return maxPopulation > 0 ? `${fmt(numeric)}/${fmt(maxPopulation)}` : fmt(numeric);
-    }
-    if (key === 'happiness') return `${Math.round(numeric)}%`;
-    if (key === 'energy') return `${Math.round(numeric)}`;
-    return fmt(numeric);
+  async function uiConsoleGalaxyDiagCommand() {
+    runtimeGalaxyCanvasDebugApi.runGalaxyCanvasDiag(uiConsolePush);
   }
 
-  function getSuggestedTradeAmount(resourceKey, mode = 'request') {
-    const key = String(resourceKey || '');
-    if (!['metal', 'crystal', 'deuterium'].includes(key)) return 0;
-    const currentValue = Math.max(0, getResourceInsightValue(key));
-    if (mode === 'offer') {
-      return Math.max(250, Math.min(5000, Math.round(currentValue * 0.08)));
-    }
-    return Math.max(1000, Math.min(5000, Math.round(currentValue * 0.15) || 1000));
-  }
-
-  function openResourceInsight(resourceKey) {
-    const config = getResourceInsightConfig(resourceKey);
-    if (!config) return;
-    uiState.resourceInsight = config.key;
-    WM.open('overview');
-    WM.refresh('overview');
-  }
-
-  function openTradeMarketplace(resourceKey, mode = 'request') {
-    const config = getResourceInsightConfig(resourceKey);
-    if (!config?.tradeable) {
-      showToast(`${config?.label || 'Ressource'} ist im aktuellen Markt nicht direkt handelbar.`, 'info');
-      return;
-    }
-    WM.open('trade');
-    window.setTimeout(() => {
-      window.GQTradeProposalsController?.showProposeDialog(0, '', {
-        resourceKey: config.key,
-        mode,
-      });
-    }, 0);
-  }
-
-  function openFleetTransportPlanner(resourceKey) {
-    const config = getResourceInsightConfig(resourceKey);
-    if (!config?.transportable) {
-      showToast(`${config?.label || 'Ressource'} nutzt aktuell keinen direkten Frachteinsatz.`, 'info');
-      return;
-    }
-    const cargo = { metal: 0, crystal: 0, deuterium: 0 };
-    cargo[config.key] = getSuggestedTradeAmount(config.key, 'offer');
-    uiState.fleetPrefill = {
-      galaxy: Number(currentColony?.galaxy || 1),
-      system: Number(currentColony?.system || 1),
-      position: Number(currentColony?.position || 1),
-      mission: 'transport',
-      owner: `${config.icon} ${config.label}`,
-      threatLevel: 'Frachtsicherung aktiv',
-      cargo,
-      ts: Date.now(),
-    };
-    WM.open('fleet');
-    WM.refresh('fleet');
-  }
-  const PERF_TELEMETRY_OPT_IN_KEY = 'gq_perf_telemetry_opt_in';
-  const PERF_TELEMETRY_INTERVAL_MS = 2 * 60 * 1000;
-  const footerLoadUi = {
-    root: document.getElementById('footer-load'),
-    bar: document.getElementById('footer-load-bar'),
-    pct: document.getElementById('footer-load-pct'),
-    queue: document.getElementById('footer-load-queue'),
-    net: document.getElementById('footer-network-status'),
-    label: document.getElementById('footer-load-label'),
-  };
-  const footerNetworkState = {
-    lastProbeAt: 0,
-    inFlight: false,
-  };
-
-  function redirectToLogin(reason = 'auth') {
-    if (authRedirectScheduled) return;
-    authRedirectScheduled = true;
-    const target = `index.html?reason=${encodeURIComponent(String(reason || 'auth'))}`;
-    uiConsolePush(`[system] Session abgelaufen (${reason}). Redirect -> ${target}`);
-    showToast('Session abgelaufen. Weiterleitung zum Login...', 'warning');
-    window.setTimeout(() => {
-      window.location.href = target;
-    }, 450);
-  }
-
-  function gameLog(level, message, data = null) {
-    const lvl = String(level || 'info').toLowerCase();
-    const sink = window.GQLog && typeof window.GQLog[lvl] === 'function'
-      ? window.GQLog[lvl].bind(window.GQLog)
-      : null;
-    const prefix = '[game]';
-    if (sink) {
-      if (data == null) sink(prefix, message);
-      else sink(prefix, message, data);
-      return;
-    }
-    const method = (lvl === 'error' || lvl === 'warn' || lvl === 'info') ? lvl : 'log';
-    if (data == null) console[method]('[GQ][game]', message);
-    else console[method]('[GQ][game]', message, data);
-  }
-  const AUDIO_TRACK_OPTIONS_FALLBACK = [
-    { value: 'music/Nebula_Overture.mp3', label: 'Nebula Overture' },
-  ];
-  let audioTrackOptions = AUDIO_TRACK_OPTIONS_FALLBACK.slice();
-  let audioTrackCatalogLoaded = false;
-  let audioTrackCatalogPromise = null;
-  const AUDIO_SFX_OPTIONS = [
-    { value: 'sfx/mixkit-video-game-retro-click-237.wav', label: 'Retro Click' },
-    { value: 'sfx/mixkit-quick-positive-video-game-notification-interface-265.wav', label: 'Positive Notification' },
-    { value: 'sfx/mixkit-negative-game-notification-249.wav', label: 'Negative Notification' },
-    { value: 'sfx/mixkit-sci-fi-positive-notification-266.wav', label: 'Sci-Fi Positive Notification' },
-    { value: 'sfx/mixkit-sci-fi-warp-slide-3113.wav', label: 'Sci-Fi Warp Slide' },
-    { value: 'sfx/mixkit-unlock-new-item-game-notification-254.wav', label: 'Unlock New Item' },
-    { value: 'sfx/mixkit-casino-bling-achievement-2067.wav', label: 'Achievement Bling' },
-    { value: 'sfx/mixkit-space-shot-whoosh-3001.wav', label: 'Space Shot Whoosh' },
-    { value: 'sfx/mixkit-space-coin-win-notification-271.wav', label: 'Space Coin Win' },
-    { value: 'sfx/mixkit-falling-hit-757.wav', label: 'Falling Hit' },
-    { value: 'sfx/mixkit-horn-suspense-transition-3112.wav', label: 'Horn Suspense Transition' },
-    { value: 'sfx/mixkit-laser-gun-shot-3110.wav', label: 'Laser Gun Shot' },
-    { value: 'sfx/mixkit-night-vision-starting-2476.wav', label: 'Night Vision Start' },
-    { value: 'sfx/mixkit-medieval-show-fanfare-announcement-226.wav', label: 'Fanfare Announcement' },
-    { value: 'sfx/mixkit-space-plasma-shot-3002.wav', label: 'Space Plasma Shot' },
-    { value: 'sfx/mixkit-bonus-earned-in-video-game-2058.wav', label: 'Bonus Earned' },
-    { value: 'sfx/mixkit-space-deploy-whizz-3003.wav', label: 'Space Deploy Whizz' },
-    { value: 'sfx/mixkit-sci-fi-laser-in-space-sound-2825.wav', label: 'Sci-Fi Laser' },
-    { value: 'sfx/mixkit-space-plasma-shot-3002.wav', label: 'Space Plasma Shot' },
-    { value: 'sfx/mixkit-space-shot-whoosh-3001.wav', label: 'Space Shot Whoosh' },
-    { value: 'sfx/mixkit-unlock-new-item-game-notification-254.wav', label: 'Unlock New Item' },
-    { value: 'sfx/mixkit-space-coin-win-notification-271.wav', label: 'Space Coin Win' },
-    { value: 'sfx/mixkit-medieval-show-fanfare-announcement-226.wav', label: 'Fanfare Announcement' },
-    { value: 'sfx/mixkit-laser-gun-shot-3110.wav', label: 'Laser Gun Shot' },
-    { value: 'sfx/mixkit-short-laser-gun-shot-1670.wav', label: 'Short Laser Shot' },
-  ];
-  const AUDIO_SFX_EVENTS = [
-    { key: 'uiClick', label: 'UI Click', tester: 'playUiClick' },
-    { key: 'uiConfirm', label: 'UI Confirm', tester: 'playUiConfirm' },
-    { key: 'uiError', label: 'UI Error', tester: 'playUiError' },
-    { key: 'uiNotify', label: 'UI Notify', tester: 'playUiNotify' },
-    { key: 'navigation', label: 'Navigation', tester: 'playNavigation' },
-    { key: 'pvpToggle', label: 'PvP Toggle', tester: 'playPvpToggle' },
-    { key: 'researchStart', label: 'Research Start', tester: 'playResearchStart' },
-    { key: 'researchComplete', label: 'Research Complete', tester: 'playResearchComplete' },
-    { key: 'fleetRecall', label: 'Fleet Recall', tester: 'playFleetRecall' },
-    { key: 'messageSend', label: 'Message Send', tester: 'playMessageSend' },
-    { key: 'messageRead', label: 'Message Read', tester: 'playMessageRead' },
-    { key: 'messageDelete', label: 'Message Delete', tester: 'playMessageDelete' },
-    { key: 'fleetAttack', label: 'Fleet Attack', tester: 'playFleetAttack' },
-    { key: 'fleetTransport', label: 'Fleet Transport', tester: 'playFleetTransport' },
-    { key: 'fleetSpy', label: 'Fleet Spy', tester: 'playFleetSpy' },
-    { key: 'fleetColonize', label: 'Fleet Colonize', tester: 'playFleetColonize' },
-    { key: 'fleetHarvest', label: 'Fleet Harvest', tester: 'playFleetHarvest' },
-    { key: 'buildComplete', label: 'Build Complete', tester: 'playBuildComplete' },
-    { key: 'fleetLaunch', label: 'Fleet Launch', tester: 'playFleetLaunch' },
-  ];
-  const settingsState = {
-    transitionPreset: 'balanced',
-    orbitSimulationMode: 'auto',
-    systemOrbitPathsVisible: true,
-    systemOrbitMarkersVisible: true,
-    systemOrbitFocusOnly: false,
-    autoTransitions: true,
-    renderQualityProfile: 'auto',
-    clusterDensityMode: 'auto',
-    galaxyColonyFilterMode: 'all',
-    galaxyColoniesOnly: false,
-    galaxyOwnerFocusUserId: 0,
-    galaxyOwnerFocusName: '',
-    clusterBoundsVisible: true,
-    clusterHeatmapEnabled: true,
-    galaxyFleetVectorsVisible: true,
-    galacticCoreFxAuto: true,
-    galacticCoreFxEnabled: true,
-    magnetPreset: 'balanced',
-    hoverMagnetEnabled: true,
-    clickMagnetEnabled: true,
-    hoverMagnetStarPx: 24,
-    hoverMagnetPlanetPx: 30,
-    hoverMagnetClusterPx: 28,
-    persistentHoverDistance: 220,
-    transitionStableMinMs: 160,
-    systemViewLegacyFallback: false,
-    homeEnterSystem: false,
-    introFlightMode: 'cinematic',
-    masterVolume: 0.8,
-    musicVolume: 0.55,
-    sfxVolume: 0.8,
-    masterMuted: false,
-    musicMuted: false,
-    sfxMuted: false,
-    musicTransitionMode: 'fade',
-    musicUrl: '',
-    autoSceneMusic: true,
-    sceneTracks: {
-      galaxy: '',
-      system: '',
-      battle: '',
-      ui: '',
-    },
-    sfxMap: {
-      uiClick: 'sfx/mixkit-video-game-retro-click-237.wav',
-      uiConfirm: 'sfx/mixkit-quick-positive-video-game-notification-interface-265.wav',
-      uiError: 'sfx/mixkit-negative-game-notification-249.wav',
-      uiNotify: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
-      navigation: 'sfx/mixkit-sci-fi-warp-slide-3113.wav',
-      pvpToggle: 'sfx/mixkit-horn-suspense-transition-3112.wav',
-      researchStart: 'sfx/mixkit-unlock-new-item-game-notification-254.wav',
-      researchComplete: 'sfx/mixkit-casino-bling-achievement-2067.wav',
-      fleetRecall: 'sfx/mixkit-space-shot-whoosh-3001.wav',
-      messageSend: 'sfx/mixkit-space-coin-win-notification-271.wav',
-      messageRead: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
-      messageDelete: 'sfx/mixkit-falling-hit-757.wav',
-      fleetAttack: 'sfx/mixkit-laser-gun-shot-3110.wav',
-      fleetTransport: 'sfx/mixkit-space-deploy-whizz-3003.wav',
-      fleetSpy: 'sfx/mixkit-night-vision-starting-2476.wav',
-      fleetColonize: 'sfx/mixkit-medieval-show-fanfare-announcement-226.wav',
-      fleetHarvest: 'sfx/mixkit-space-plasma-shot-3002.wav',
-      buildComplete: 'sfx/mixkit-bonus-earned-in-video-game-2058.wav',
-      fleetLaunch: 'sfx/mixkit-space-deploy-whizz-3003.wav',
-    },
-    uiThemeMode: 'auto',
-    uiThemeCustomAccent: '#3aa0ff',
-    uiThemeFactionId: 0,
-    factionThemeCache: {},
-  };
-
-  const UI_THEME_MODE_VALUES = new Set(['auto', 'faction', 'custom']);
-  const UI_THEME_DEFAULT_ACCENT = '#3aa0ff';
-  const UI_THEME_DYNAMIC_VARS = [
-    '--accent-blue',
-    '--accent-cyan',
-    '--accent-purple',
-    '--border-lit',
-    '--theme-accent',
-    '--theme-accent-soft',
-    '--theme-accent-strong',
-    '--theme-complement',
-    '--theme-complement-soft',
-  ];
-
-  const UI_SETTINGS_STORAGE_KEY = 'gq_ui_settings';
-  const UI_SETTINGS_SESSION_KEY = 'gq_ui_settings_session';
-  const UI_SETTINGS_COOKIE_KEY = 'gq_ui_settings';
-  const UI_SETTINGS_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 180;
-  const GALAXY_FLEET_HINT_KEY = 'gq_hint_galaxy_fleet_colors_v1';
-  const ORBIT_BADGE_HINT_SESSION_KEY = 'gq_hint_orbit_badge_v1';
-  const GALAXY_FLEET_HINT_COOKIE_DAYS = 365;
-  let galaxyFleetHintShownInSession = false;
-  let galaxyFleetHintScheduledInSession = false;
-  let galaxyShortcutsHintShownInSession = false;
-
-  function clamp01(value) {
-    return Math.max(0, Math.min(1, Number(value || 0)));
-  }
-
-  function clampByte(value) {
-    return Math.max(0, Math.min(255, Math.round(Number(value || 0))));
-  }
-
-  function normalizeHexColor(value, fallback = UI_THEME_DEFAULT_ACCENT) {
-    const raw = String(value || '').trim();
-    const match = raw.match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
-    if (!match) return String(fallback || UI_THEME_DEFAULT_ACCENT);
-    const hex = String(match[1] || '').toLowerCase();
-    if (hex.length === 3) {
-      return `#${hex.split('').map((c) => c + c).join('')}`;
-    }
-    return `#${hex}`;
-  }
-
-  function hexToRgb(hex) {
-    const safeHex = normalizeHexColor(hex, UI_THEME_DEFAULT_ACCENT);
-    const body = safeHex.slice(1);
-    return {
-      r: parseInt(body.slice(0, 2), 16),
-      g: parseInt(body.slice(2, 4), 16),
-      b: parseInt(body.slice(4, 6), 16),
-    };
-  }
-
-  function rgbToHex(r, g, b) {
-    const toHex = (value) => clampByte(value).toString(16).padStart(2, '0');
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
-
-  function rgbToHsl(r, g, b) {
-    const rn = clampByte(r) / 255;
-    const gn = clampByte(g) / 255;
-    const bn = clampByte(b) / 255;
-    const max = Math.max(rn, gn, bn);
-    const min = Math.min(rn, gn, bn);
-    const d = max - min;
-    let h = 0;
-    const l = (max + min) / 2;
-    const s = d === 0 ? 0 : d / (1 - Math.abs((2 * l) - 1));
-    if (d !== 0) {
-      if (max === rn) h = ((gn - bn) / d) % 6;
-      else if (max === gn) h = ((bn - rn) / d) + 2;
-      else h = ((rn - gn) / d) + 4;
-    }
-    return {
-      h: (h * 60 + 360) % 360,
-      s,
-      l,
-    };
-  }
-
-  function hueToRgb(p, q, t) {
-    let x = t;
-    if (x < 0) x += 1;
-    if (x > 1) x -= 1;
-    if (x < 1 / 6) return p + (q - p) * 6 * x;
-    if (x < 1 / 2) return q;
-    if (x < 2 / 3) return p + (q - p) * ((2 / 3) - x) * 6;
-    return p;
-  }
-
-  function hslToRgb(h, s, l) {
-    const hn = ((Number(h || 0) % 360) + 360) % 360;
-    const sn = clamp01(s);
-    const ln = clamp01(l);
-    if (sn === 0) {
-      const gray = Math.round(ln * 255);
-      return { r: gray, g: gray, b: gray };
-    }
-    const q = ln < 0.5 ? ln * (1 + sn) : ln + sn - (ln * sn);
-    const p = 2 * ln - q;
-    const hk = hn / 360;
-    return {
-      r: Math.round(hueToRgb(p, q, hk + (1 / 3)) * 255),
-      g: Math.round(hueToRgb(p, q, hk) * 255),
-      b: Math.round(hueToRgb(p, q, hk - (1 / 3)) * 255),
-    };
-  }
-
-  function shiftHueHex(hex, hueShiftDeg = 0, satMul = 1, lightMul = 1) {
-    const rgb = hexToRgb(hex);
-    const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-    const shifted = hslToRgb(
-      (hsl.h + Number(hueShiftDeg || 0) + 360) % 360,
-      clamp01(hsl.s * Number(satMul || 1)),
-      clamp01(hsl.l * Number(lightMul || 1))
+  async function uiConsoleGalaxyCommand({ parts, normalizedInput }) {
+    const diag = (
+      normalizedInput === 'gqgalaxycanvasdebug.inspect()'
+      || normalizedInput === 'gqgalaxycanvasdebug.inspect'
+      || String(parts?.[1] || '').toLowerCase() === 'diag'
     );
-    return rgbToHex(shifted.r, shifted.g, shifted.b);
-  }
-
-  function mixHex(a, b, ratio = 0.5) {
-    const pa = hexToRgb(a);
-    const pb = hexToRgb(b);
-    const t = clamp01(ratio);
-    return rgbToHex(
-      Math.round(pa.r + (pb.r - pa.r) * t),
-      Math.round(pa.g + (pb.g - pa.g) * t),
-      Math.round(pa.b + (pb.b - pa.b) * t)
-    );
-  }
-
-  function hexToRgba(hex, alpha = 1) {
-    const rgb = hexToRgb(hex);
-    return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${clamp01(alpha)})`;
-  }
-
-  function createThemePaletteFromAccent(accentHex) {
-    const accent = normalizeHexColor(accentHex, UI_THEME_DEFAULT_ACCENT);
-    const complement = shiftHueHex(accent, 180, 0.94, 1.02);
-    const accentStrong = mixHex(accent, '#ffffff', 0.2);
-    const accentSoft = mixHex(accent, '#0b1526', 0.52);
-    const complementSoft = mixHex(complement, '#0b1526', 0.5);
-    const borderLit = mixHex(accent, '#d8ebff', 0.34);
-    return {
-      accent,
-      accentStrong,
-      accentSoft,
-      complement,
-      complementSoft,
-      borderLit,
-    };
-  }
-
-  function getRootStyle() {
-    return document.documentElement ? document.documentElement.style : null;
-  }
-
-  function applyThemePaletteToCss(palette) {
-    const style = getRootStyle();
-    if (!style || !palette) return;
-    style.setProperty('--accent-blue', palette.accent);
-    style.setProperty('--accent-cyan', palette.complement);
-    style.setProperty('--accent-purple', palette.complementSoft);
-    style.setProperty('--border-lit', palette.borderLit);
-    style.setProperty('--theme-accent', palette.accent);
-    style.setProperty('--theme-accent-soft', hexToRgba(palette.accentSoft, 0.78));
-    style.setProperty('--theme-accent-strong', palette.accentStrong);
-    style.setProperty('--theme-complement', palette.complement);
-    style.setProperty('--theme-complement-soft', hexToRgba(palette.complementSoft, 0.7));
-  }
-
-  function clearThemePaletteCssOverrides() {
-    const style = getRootStyle();
-    if (!style) return;
-    UI_THEME_DYNAMIC_VARS.forEach((name) => style.removeProperty(name));
-  }
-
-  function resolvePlayerFactionThemeSeed() {
-    const currentUserCandidates = [
-      { id: currentUser?.faction_id, color: currentUser?.faction_color },
-      { id: currentUser?.home_faction_id, color: currentUser?.home_faction_color },
-      { id: currentUser?.primary_faction_id, color: currentUser?.primary_faction_color },
-      { id: currentUser?.faction?.id, color: currentUser?.faction?.color },
-    ];
-    for (const row of currentUserCandidates) {
-      const id = Number(row?.id || 0);
-      const color = normalizeHexColor(row?.color || '', '');
-      if (id > 0 && color) return { factionId: id, color };
-    }
-
-    const playerClaim = (Array.isArray(uiState.territory) ? uiState.territory : []).find((f) => f?.__isPlayer);
-    if (playerClaim) {
-      const id = Number(playerClaim?.id || playerClaim?.faction_id || 0);
-      const color = normalizeHexColor(playerClaim?.color || '', '');
-      if (id > 0 && color) return { factionId: id, color };
-    }
-    return { factionId: 0, color: '' };
-  }
-
-  function findFactionColorById(factionId) {
-    const targetId = Number(factionId || 0);
-    if (targetId <= 0) return '';
-
-    const currentUserCandidates = [
-      { id: currentUser?.faction_id, color: currentUser?.faction_color },
-      { id: currentUser?.home_faction_id, color: currentUser?.home_faction_color },
-      { id: currentUser?.primary_faction_id, color: currentUser?.primary_faction_color },
-      { id: currentUser?.faction?.id, color: currentUser?.faction?.color },
-    ];
-    for (const row of currentUserCandidates) {
-      const id = Number(row?.id || 0);
-      const color = normalizeHexColor(row?.color || '', '');
-      if (id === targetId && color) return color;
-    }
-
-    const fromTerritory = (Array.isArray(uiState.territory) ? uiState.territory : []).find((f) => Number(f?.id || f?.faction_id || 0) === targetId);
-    const territoryColor = normalizeHexColor(fromTerritory?.color || '', '');
-    if (territoryColor) return territoryColor;
-
-    const cached = settingsState.factionThemeCache?.[String(targetId)];
-    const cachedColor = normalizeHexColor(cached?.base || '', '');
-    return cachedColor || '';
-  }
-
-  function ensureFactionThemeCacheEntry(factionId, baseColor) {
-    const id = Number(factionId || 0);
-    const color = normalizeHexColor(baseColor || '', '');
-    if (id <= 0 || !color) return null;
-    if (!settingsState.factionThemeCache || typeof settingsState.factionThemeCache !== 'object') {
-      settingsState.factionThemeCache = {};
-    }
-    const key = String(id);
-    const existing = settingsState.factionThemeCache[key];
-    if (existing && String(existing.base || '').toLowerCase() === color.toLowerCase()) {
-      return existing;
-    }
-    const palette = createThemePaletteFromAccent(color);
-    const next = Object.assign({
-      factionId: id,
-      base: color,
-      generatedAt: Date.now(),
-    }, palette);
-    settingsState.factionThemeCache[key] = next;
-    return next;
-  }
-
-  function warmFactionThemeCacheFromTerritory(territoryList) {
-    if (!Array.isArray(territoryList) || !territoryList.length) return false;
-    let changed = false;
-    territoryList.forEach((faction) => {
-      const id = Number(faction?.id || faction?.faction_id || 0);
-      const color = normalizeHexColor(faction?.color || '', '');
-      if (id <= 0 || !color) return;
-      const before = settingsState.factionThemeCache?.[String(id)]?.base || '';
-      const after = ensureFactionThemeCacheEntry(id, color)?.base || '';
-      if (before !== after) changed = true;
-    });
-    return changed;
-  }
-
-  function resolveThemePaletteForSelection(modeInput, customAccentInput, factionIdInput) {
-    const mode = UI_THEME_MODE_VALUES.has(String(modeInput || '').toLowerCase())
-      ? String(modeInput || '').toLowerCase()
-      : 'auto';
-    const customAccent = normalizeHexColor(customAccentInput || '', UI_THEME_DEFAULT_ACCENT);
-    if (mode === 'custom') {
-      return Object.assign({ source: 'custom', factionId: 0 }, createThemePaletteFromAccent(customAccent));
-    }
-
-    const preferredFactionId = Math.max(0, Number(factionIdInput || 0));
-    const selectedFactionSeed = preferredFactionId > 0
-      ? { factionId: preferredFactionId, color: findFactionColorById(preferredFactionId) }
-      : null;
-    const factionSeed = mode === 'faction'
-      ? (selectedFactionSeed && selectedFactionSeed.color ? selectedFactionSeed : resolvePlayerFactionThemeSeed())
-      : resolvePlayerFactionThemeSeed();
-    if (factionSeed.factionId > 0 && factionSeed.color) {
-      const cached = ensureFactionThemeCacheEntry(factionSeed.factionId, factionSeed.color);
-      if (cached) return Object.assign({ source: 'faction', factionId: factionSeed.factionId }, cached);
-    }
-
-    return Object.assign({ source: 'fallback', factionId: 0 }, createThemePaletteFromAccent(UI_THEME_DEFAULT_ACCENT));
-  }
-
-  function resolveActiveThemePalette() {
-    return resolveThemePaletteForSelection(
-      settingsState.uiThemeMode,
-      settingsState.uiThemeCustomAccent,
-      settingsState.uiThemeFactionId
-    );
-  }
-
-  function applyUiTheme(reason = 'runtime') {
-    const palette = resolveActiveThemePalette();
-    if (!palette) {
-      clearThemePaletteCssOverrides();
+    if (diag) {
+      await uiConsoleGalaxyDiagCommand();
       return;
     }
-    applyThemePaletteToCss(palette);
-    settingsState.uiThemeLastSource = String(palette.source || 'fallback');
-    settingsState.uiThemeLastFactionId = Number(palette.factionId || 0);
-    if (reason === 'user-change') {
-      const root = document.documentElement;
-      root.classList.remove('is-theme-changing');
-      void root.offsetHeight;
-      root.classList.add('is-theme-changing');
-      setTimeout(() => root.classList.remove('is-theme-changing'), 420);
-      showToast(`UI Theme aktiv: ${settingsState.uiThemeLastSource === 'faction' ? 'Fraktion' : settingsState.uiThemeLastSource === 'custom' ? 'Benutzerdefiniert' : 'Standard'}`, 'info');
-    }
+    WM.open('galaxy');
+    uiConsolePush('[ok] Galaxy window opened.');
   }
 
-  function readCookieValue(name) {
-    try {
-      const cookieText = String(document.cookie || '');
-      if (!cookieText) return '';
-      const safeName = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const match = cookieText.match(new RegExp(`(?:^|;\\s*)${safeName}=([^;]*)`));
-      return match?.[1] ? decodeURIComponent(match[1]) : '';
-    } catch (err) {
-      gameLog('warn', 'Cookie konnte nicht gelesen werden', { name, error: err });
-      return '';
-    }
+  async function uiConsoleGalaxyRendererDebugCommand() {
+    runtimeGalaxyRendererDebugApi.runGalaxyRendererDebug(uiConsolePush);
   }
 
-  function writeCookieValue(name, value, maxAgeSec) {
-    try {
-      const safeAge = Math.max(60, Number(maxAgeSec || 0));
-      document.cookie = `${name}=${encodeURIComponent(String(value || ''))}; Max-Age=${safeAge}; Path=/; SameSite=Lax`;
-    } catch (err) {
-      gameLog('warn', 'Cookie konnte nicht geschrieben werden', { name, error: err });
-    }
+  async function uiConsoleGalprobeCommand({ parts }) {
+    runtimeGalaxyEventProbeApi.runGalaxyEventProbe(parts?.[1] || 6, uiConsolePush);
   }
 
-  function hasSeenGalaxyFleetHint() {
-    try {
-      if (window.localStorage?.getItem(GALAXY_FLEET_HINT_KEY) === '1') return true;
-    } catch (err) {
-      gameLog('info', 'Fleet-Hint Status nicht aus localStorage lesbar', err);
-    }
-    return readCookieValue(GALAXY_FLEET_HINT_KEY) === '1';
+  async function uiConsolePerfTelemetryCommand({ parts }) {
+    await runtimePerfTelemetryCommandApi.runPerfTelemetryCommand(parts, uiConsolePush);
   }
 
-  function markGalaxyFleetHintSeen() {
-    try {
-      window.localStorage?.setItem(GALAXY_FLEET_HINT_KEY, '1');
-    } catch (err) {
-      gameLog('info', 'Fleet-Hint Status nicht in localStorage schreibbar', err);
-    }
-    writeCookieValue(GALAXY_FLEET_HINT_KEY, '1', GALAXY_FLEET_HINT_COOKIE_DAYS * 24 * 60 * 60);
+  async function uiConsoleOpenCommand({ parts }) {
+    runtimeOpenWindowCommandApi.runOpenWindowCommand(parts, uiConsolePush);
   }
 
-  function readJsonFromCookie(name) {
-    try {
-      const cookieText = String(document.cookie || '');
-      if (!cookieText) return null;
-      const safeName = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const match = cookieText.match(new RegExp(`(?:^|;\\s*)${safeName}=([^;]*)`));
-      if (!match || !match[1]) return null;
-      const raw = decodeURIComponent(match[1]);
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (err) {
-      gameLog('warn', 'JSON-Cookie konnte nicht geparst werden', { name, error: err });
-      return null;
-    }
+  async function uiConsoleTransitionsCommand({ parts }) {
+    runtimeTransitionsCommandApi.runTransitionsCommand(parts, uiConsolePush);
   }
 
-  function writeJsonCookie(name, data, maxAgeSec = UI_SETTINGS_COOKIE_MAX_AGE_SEC) {
-    try {
-      const encoded = encodeURIComponent(JSON.stringify(data));
-      document.cookie = `${name}=${encoded}; Max-Age=${Math.max(60, Number(maxAgeSec || 0))}; Path=/; SameSite=Lax`;
-    } catch (err) {
-      gameLog('warn', 'JSON-Cookie konnte nicht geschrieben werden', { name, error: err });
-    }
+  async function uiConsoleMessageSendCommand({ parts, input }) {
+    await runtimeMessageSendCommandApi.runMessageSendCommand(parts, input, uiConsolePush);
   }
 
-  function loadPortableUiSettings() {
-    const merged = {};
-    try {
-      const raw = localStorage.getItem(UI_SETTINGS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') Object.assign(merged, parsed);
-      }
-    } catch (err) {
-      gameLog('info', 'UI-Settings localStorage read failed', err);
-    }
-
-    const cookieState = readJsonFromCookie(UI_SETTINGS_COOKIE_KEY);
-    if (cookieState && typeof cookieState === 'object') Object.assign(merged, cookieState);
-
-    try {
-      const rawSession = sessionStorage.getItem(UI_SETTINGS_SESSION_KEY);
-      if (rawSession) {
-        const parsedSession = JSON.parse(rawSession);
-        if (parsedSession && typeof parsedSession === 'object') Object.assign(merged, parsedSession);
-      }
-    } catch (err) {
-      gameLog('info', 'UI-Settings sessionStorage read failed', err);
-    }
-
-    return merged;
+  async function uiConsoleTerminalCommand({ parts }) {
+    runtimeTerminalCommandApi.runTerminalCommand(parts, uiConsolePush);
   }
 
-  function savePortableUiSettings(data) {
-    try {
-      localStorage.setItem(UI_SETTINGS_STORAGE_KEY, JSON.stringify(data));
-    } catch (err) {
-      gameLog('warn', 'UI-Settings localStorage write failed', err);
-    }
-    try {
-      sessionStorage.setItem(UI_SETTINGS_SESSION_KEY, JSON.stringify(data));
-    } catch (err) {
-      gameLog('info', 'UI-Settings sessionStorage write failed', err);
-    }
-    writeJsonCookie(UI_SETTINGS_COOKIE_KEY, data, UI_SETTINGS_COOKIE_MAX_AGE_SEC);
-  }
-
-  function normalizeAudioTrackCatalog(items) {
-    if (!Array.isArray(items)) return [];
-    const out = [];
-    const seen = new Set();
-
-    for (let i = 0; i < items.length; i += 1) {
-      const row = items[i] || {};
-      const value = String(row.value || '').trim();
-      if (!value || seen.has(value)) continue;
-      seen.add(value);
-      const label = String(row.label || row.file || value).trim() || value;
-      out.push({ value, label });
-    }
-
-    return out;
-  }
-
-  function resolveAudioTrackLabel(url) {
-    const value = String(url || '').trim();
-    if (!value) return '-';
-    const fromCatalog = audioTrackOptions.find((entry) => String(entry.value || '') === value);
-    if (fromCatalog && fromCatalog.label) return String(fromCatalog.label);
-    const parts = value.split('/');
-    const file = String(parts[parts.length - 1] || value);
-    return file.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim() || file;
-  }
-
-  function updateTopbarTrackTicker(label) {
-    const host = document.getElementById('topbar-player-current');
-    if (!host) return;
-
-    const text = String(label || '-').trim() || '-';
-    host.textContent = '';
-    const node = document.createElement('span');
-    node.className = 'topbar-player-current-text';
-    node.textContent = text;
-    host.appendChild(node);
-
-    host.classList.remove('is-overflow');
-    host.style.removeProperty('--marquee-shift');
-    host.style.removeProperty('--marquee-duration');
-
-    const checkOverflow = () => {
-      const overflow = node.scrollWidth - host.clientWidth;
-      if (overflow > 6) {
-        const shift = Math.ceil(overflow + 18);
-        const duration = Math.max(6, Math.min(18, shift / 18));
-        host.style.setProperty('--marquee-shift', `${shift}px`);
-        host.style.setProperty('--marquee-duration', `${duration.toFixed(2)}s`);
-        host.classList.add('is-overflow');
-      }
-    };
-
-    window.requestAnimationFrame(checkOverflow);
-  }
-
-  function refreshSettingsMusicPresetOptions() {
-    const select = document.querySelector('#set-music-preset');
-    const miniSelect = document.querySelector('#set-player-track');
-    const topbarSelect = document.querySelector('#topbar-player-track');
-    const current = select ? String(select.value || '') : '';
-    const miniCurrent = miniSelect ? String(miniSelect.value || '') : '';
-    const topbarCurrent = topbarSelect ? String(topbarSelect.value || '') : '';
-    const optionsHtml = audioTrackOptions
-      .map((entry) => `<option value="${esc(entry.value)}">${esc(entry.label)}</option>`)
-      .join('');
-
-    if (select) {
-      select.innerHTML = `<option value="">Keine Vorlage</option>${optionsHtml}`;
-      if (current && audioTrackOptions.some((entry) => String(entry.value) === current)) {
-        select.value = current;
-      }
-    }
-
-    if (miniSelect) {
-      miniSelect.innerHTML = optionsHtml;
-      if (miniCurrent && audioTrackOptions.some((entry) => String(entry.value) === miniCurrent)) {
-        miniSelect.value = miniCurrent;
-      }
-    }
-
-    if (topbarSelect) {
-      topbarSelect.innerHTML = optionsHtml;
-      if (topbarCurrent && audioTrackOptions.some((entry) => String(entry.value) === topbarCurrent)) {
-        topbarSelect.value = topbarCurrent;
-      }
-    }
-
-    renderTopbarTrackQuickList(topbarCurrent || settingsState.musicUrl || '');
-  }
-
-  function renderTopbarTrackQuickList(activeTrackUrl = '') {
-    const list = document.getElementById('topbar-player-track-list');
-    if (!list) return;
-
-    const active = String(activeTrackUrl || '').trim();
-    if (!Array.isArray(audioTrackOptions) || !audioTrackOptions.length) {
-      list.innerHTML = '<div class="topbar-player-track-empty">Keine Titel verfuegbar.</div>';
-      return;
-    }
-
-    list.innerHTML = audioTrackOptions.map((entry) => {
-      const value = String(entry?.value || '').trim();
-      const label = String(entry?.label || value || '-').trim() || '-';
-      const isActive = !!value && value === active;
-      return `<button type="button" class="topbar-player-track-item${isActive ? ' is-active' : ''}" data-track="${esc(value)}" role="option" aria-selected="${isActive ? 'true' : 'false'}" title="${esc(label)}">${esc(label)}</button>`;
-    }).join('');
-  }
-
-  function applyAudioPlaylistFromCatalog() {
-    if (!audioManager || typeof audioManager.setMusicPlaylist !== 'function') return;
-    const playlist = audioTrackOptions
-      .map((entry) => String(entry.value || '').trim())
-      .filter((value, idx, arr) => value && arr.indexOf(value) === idx);
-    audioManager.setMusicPlaylist(playlist, { mode: 'shuffle' });
-  }
-
-  async function loadAudioTrackCatalog(force = false) {
-    if (!force && audioTrackCatalogLoaded) return audioTrackOptions;
-    if (!force && audioTrackCatalogPromise) return audioTrackCatalogPromise;
-
-    audioTrackCatalogPromise = (async () => {
-      try {
-        if (!API || typeof API.audioTracks !== 'function') {
-          audioTrackCatalogLoaded = true;
-          return audioTrackOptions;
-        }
-        const data = await API.audioTracks();
-        const nextOptions = normalizeAudioTrackCatalog(data?.tracks);
-        if (nextOptions.length > 0) {
-          audioTrackOptions = nextOptions;
-          const firstTrack = String(nextOptions[0].value || '').trim();
-          const sceneTracks = settingsState.sceneTracks || {};
-          const hasSceneTrack = ['galaxy', 'system', 'battle', 'ui'].some((k) => String(sceneTracks[k] || '').trim() !== '');
-          const hasMusicUrl = String(settingsState.musicUrl || '').trim() !== '';
-
-          if (firstTrack && !hasMusicUrl && !hasSceneTrack) {
-            settingsState.musicUrl = firstTrack;
-            settingsState.sceneTracks = {
-              galaxy: firstTrack,
-              system: firstTrack,
-              battle: firstTrack,
-              ui: firstTrack,
-            };
-
-            if (audioManager) {
-              if (typeof audioManager.setMusicTrack === 'function') {
-                audioManager.setMusicTrack(firstTrack, false);
-              }
-              if (typeof audioManager.setSceneTrack === 'function') {
-                audioManager.setSceneTrack('galaxy', firstTrack);
-                audioManager.setSceneTrack('system', firstTrack);
-                audioManager.setSceneTrack('battle', firstTrack);
-                audioManager.setSceneTrack('ui', firstTrack);
-              }
-            }
-
-            saveUiSettings();
-          }
-        }
-        audioTrackCatalogLoaded = true;
-        applyAudioPlaylistFromCatalog();
-        refreshSettingsMusicPresetOptions();
-        refreshAudioUi();
-        return audioTrackOptions;
-      } catch (_) {
-        gameLog('warn', 'Audio-Track-Katalog konnte nicht geladen werden, fallback aktiv');
-        audioTrackCatalogLoaded = true;
-        applyAudioPlaylistFromCatalog();
-        refreshSettingsMusicPresetOptions();
-        refreshAudioUi();
-        return audioTrackOptions;
-      } finally {
-        audioTrackCatalogPromise = null;
-      }
-    })();
-
-    return audioTrackCatalogPromise;
-  }
-  const BUILDING_UI_META = {
-    metal_mine:       { cat:'Extraction', icon:'MET', desc:'Mines metal from the planet crust. Output scales with richness.' },
-    crystal_mine:     { cat:'Extraction', icon:'CRY', desc:'Extracts crystal formations. Higher levels deplete deposits faster.' },
-    deuterium_synth:  { cat:'Extraction', icon:'DEU', desc:'Synthesises deuterium from surface water or atmosphere.' },
-    rare_earth_drill: { cat:'Extraction', icon:'RRE', desc:'Extracts rare earth elements - finite deposit, high value.' },
-    solar_plant:      { cat:'Energy', icon:'SOL', desc:'Converts sunlight to energy. Output depends on star type.' },
-    fusion_reactor:   { cat:'Energy', icon:'FUS', desc:'High-output fusion reactor. Consumes deuterium.' },
-    hydroponic_farm:  { cat:'Life Support', icon:'FOD', desc:'Grows food for the population. Required to prevent starvation.' },
-    food_silo:        { cat:'Life Support', icon:'SILO', desc:'Increases food storage capacity.' },
-    habitat:          { cat:'Population', icon:'HAB', desc:'+200 max population per level.' },
-    hospital:         { cat:'Population', icon:'MED', desc:'Improves healthcare. Raises happiness and public services index.' },
-    school:           { cat:'Population', icon:'EDU', desc:'Education facility. Improves public services and colony productivity.' },
-    security_post:    { cat:'Population', icon:'SEC', desc:'Maintains order. Reduces unrest and deters pirate raids.' },
-    robotics_factory: { cat:'Industry', icon:'ROB', desc:'Reduces building construction time.' },
-    shipyard:         { cat:'Industry', icon:'YRD', desc:'Required to build spacecraft.' },
-    metal_storage:    { cat:'Storage', icon:'STO', desc:'Increases metal storage cap.' },
-    crystal_storage:  { cat:'Storage', icon:'STO', desc:'Increases crystal storage cap.' },
-    deuterium_tank:   { cat:'Storage', icon:'STO', desc:'Increases deuterium storage cap.' },
-    research_lab:     { cat:'Science', icon:'LAB', desc:'Enables and accelerates research.' },
-    missile_silo:     { cat:'Military', icon:'MSL', desc:'Launches defensive missiles.' },
-    nanite_factory:   { cat:'Advanced', icon:'NAN', desc:'Nano-assemblers that dramatically cut build times.' },
-    terraformer:      { cat:'Advanced', icon:'TER', desc:'Reshapes planetary geology to expand available tiles.' },
-    colony_hq:        { cat:'Advanced', icon:'HQ', desc:'Colony administration. Raises colony level cap.' },
-    solar_satellite:  { cat:'Orbital', icon:'SAT', desc:'Orbital solar collectors supporting planetary energy output.' },
-  };
-  const BUILDING_ZONE_PRIORITY = {
-    industrial: ['metal_mine', 'crystal_mine', 'deuterium_synth', 'robotics_factory'],
-    utility: ['solar_plant', 'fusion_reactor', 'metal_storage', 'crystal_storage', 'deuterium_tank'],
-    civic: ['habitat', 'hydroponic_farm', 'hospital', 'school'],
-    science: ['research_lab', 'terraformer'],
-    military: ['shipyard', 'missile_silo', 'security_post'],
-    orbital: ['solar_satellite', 'shipyard', 'missile_silo'],
-    flex: ['colony_hq', 'robotics_factory', 'habitat'],
-  };
-  const galaxyModel = window.GQGalaxyModel ? new window.GQGalaxyModel() : null;
-  const galaxyDB = window.GQGalaxyDB ? new window.GQGalaxyDB() : null;
-  const audioManager = (() => {
-    if (!window.GQAudioManager) return null;
-    if (window.__GQ_AUDIO_MANAGER) return window.__GQ_AUDIO_MANAGER;
-    try {
-      const manager = new window.GQAudioManager({ storageKey: 'gq_audio_settings' });
-      window.__GQ_AUDIO_MANAGER = manager;
-      return manager;
-    } catch (err) {
-      gameLog('warn', 'AudioManager Init fehlgeschlagen', err);
-      return null;
-    }
-  })();
-  const STAR_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-  const SYSTEM_CACHE_MAX_AGE_MS = 20 * 60 * 1000;
-  const POLICY_PROFILES = {
-    balanced: {
-      label: 'Balanced',
-      galaxy: { stars: { maxPoints: 12000, cacheMaxAgeMs: 6 * 60 * 60 * 1000, alwaysRefreshNetwork: false } },
-      system: { payload: { cacheMaxAgeMs: 20 * 60 * 1000, allowStaleFirst: true } },
-      planet: { details: { mode: 'on-demand' } },
+  runtimeUiConsoleCommandRegistryApi.configureUiConsoleCommandRegistryRuntime({
+    commands: {
+      help: uiConsoleHelpCommand,
+      '?': uiConsoleHelpCommand,
+      copy: uiConsoleCopyCommand,
+      clear: uiConsoleClearCommand,
+      refresh: uiConsoleRefreshCommand,
+      home: uiConsoleHomeCommand,
+      galaxy: uiConsoleGalaxyCommand,
+      galdiag: uiConsoleGalaxyDiagCommand,
+      galinspect: uiConsoleGalaxyDiagCommand,
+      galdebug: uiConsoleGalaxyRendererDebugCommand,
+      galprobe: uiConsoleGalprobeCommand,
+      perftelemetry: uiConsolePerfTelemetryCommand,
+      open: uiConsoleOpenCommand,
+      transitions: uiConsoleTransitionsCommand,
+      msg: uiConsoleMessageSendCommand,
+      term: uiConsoleTerminalCommand,
+      terminal: uiConsoleTerminalCommand,
+      'gqgalaxycanvasdebug.inspect()': uiConsoleGalaxyDiagCommand,
+      'gqgalaxycanvasdebug.inspect': uiConsoleGalaxyDiagCommand,
     },
-    cache_aggressive: {
-      label: 'Aggressive Cache',
-      galaxy: { stars: { maxPoints: 12000, cacheMaxAgeMs: 12 * 60 * 60 * 1000, alwaysRefreshNetwork: false } },
-      system: { payload: { cacheMaxAgeMs: 45 * 60 * 1000, allowStaleFirst: true } },
-      planet: { details: { mode: 'on-demand' } },
-    },
-    always_fresh: {
-      label: 'Always Fresh',
-      galaxy: { stars: { maxPoints: 12000, cacheMaxAgeMs: 60 * 1000, alwaysRefreshNetwork: true } },
-      system: { payload: { cacheMaxAgeMs: 60 * 1000, allowStaleFirst: false } },
-      planet: { details: { mode: 'on-demand' } },
-    },
-  };
-  let activePolicyProfile = 'balanced';
-  let activePolicyMode = 'auto';
-  let activeAutoPolicyReason = '';
-  const LEVEL_POLICIES = {
-    galaxy: {
-      stars: {
-        maxPoints: 12000,
-        cacheMaxAgeMs: STAR_CACHE_MAX_AGE_MS,
-        alwaysRefreshNetwork: false,
-      },
-    },
-    system: {
-      payload: {
-        cacheMaxAgeMs: SYSTEM_CACHE_MAX_AGE_MS,
-        allowStaleFirst: true,
-      },
-    },
-    planet: {
-      details: {
-        mode: 'on-demand',
-      },
-    },
-  };
-
-  function setFooterLoadProgress(detail = {}) {
-    const root = footerLoadUi.root;
-    const bar = footerLoadUi.bar;
-    const pct = footerLoadUi.pct;
-    const queue = footerLoadUi.queue;
-    const net = footerLoadUi.net;
-    const label = footerLoadUi.label;
-    if (!root || !bar || !pct || !queue || !label) return;
-
-    const active = !!detail.active;
-    const progress = Math.max(0, Math.min(1, Number(detail.progress || 0)));
-    const percent = Math.round(progress * 100);
-    const pending = Math.max(0, Number(detail.pending || 0));
-    const queued = Math.max(0, Number(detail.queued || 0));
-    const inFlight = Math.max(0, Number(detail.inFlight || 0));
-    const concurrency = Math.max(0, Number(detail.concurrency || 0));
-    const queueTotal = queued + inFlight;
-
-    if (!active && percent <= 0) {
-      root.classList.add('hidden');
-      bar.style.width = '0%';
-      pct.textContent = '0%';
-      queue.textContent = 'Q:0|F:0|C:0';
-      if (net && !net.textContent) {
-        net.textContent = 'NET: ?';
-      }
-      label.textContent = 'Bereit';
-      return;
-    }
-
-    root.classList.remove('hidden');
-    bar.style.width = `${percent}%`;
-    pct.textContent = `${percent}%`;
-    queue.textContent = `Q:${queued}|F:${inFlight}|C:${concurrency}`;
-    label.textContent = detail.label
-      ? String(detail.label)
-      : (pending > 1 ? `Lade Daten (${pending})...` : 'Lade Daten...');
-
-    refreshFooterNetworkStatus(false);
-  }
-
-  function setFooterNetworkStatus(kind = 'unknown', latencyMs = 0, status = 0) {
-    const node = footerLoadUi.net;
-    if (!node) return;
-
-    node.classList.remove('footer-net-ok', 'footer-net-warn', 'footer-net-bad', 'footer-net-unknown');
-
-    const latency = Math.max(0, Number(latencyMs || 0));
-    const httpStatus = Math.max(0, Number(status || 0));
-    const k = String(kind || 'unknown');
-
-    if (k === 'ok') {
-      node.textContent = `NET: ${latency}ms`;
-      node.classList.add('footer-net-ok');
-      return;
-    }
-    if (k === 'offline') {
-      node.textContent = 'NET: offline';
-      node.classList.add('footer-net-bad');
-      return;
-    }
-    if (k === 'timeout') {
-      node.textContent = 'NET: timeout';
-      node.classList.add('footer-net-warn');
-      return;
-    }
-    if (k === 'unreachable') {
-      node.textContent = 'NET: unreachable';
-      node.classList.add('footer-net-bad');
-      return;
-    }
-    if (k === 'auth') {
-      node.textContent = httpStatus > 0 ? `NET: auth ${httpStatus}` : 'NET: auth';
-      node.classList.add('footer-net-warn');
-      return;
-    }
-    if (k === 'http') {
-      node.textContent = httpStatus > 0 ? `NET: HTTP ${httpStatus}` : 'NET: HTTP';
-      node.classList.add('footer-net-warn');
-      return;
-    }
-
-    node.textContent = 'NET: ?';
-    node.classList.add('footer-net-unknown');
-  }
-
-  async function refreshFooterNetworkStatus(force = false) {
-    if (footerNetworkState.inFlight) return;
-    if (typeof API?.networkHealth !== 'function') {
-      setFooterNetworkStatus('unknown');
-      return;
-    }
-
-    const now = Date.now();
-    if (!force && (now - footerNetworkState.lastProbeAt) < 5000) return;
-
-    footerNetworkState.inFlight = true;
-    footerNetworkState.lastProbeAt = now;
-    try {
-      const health = await API.networkHealth(!!force);
-      const kind = String(health?.kind || (health?.ok ? 'ok' : 'unknown'));
-      const latencyMs = Number(health?.latencyMs || 0);
-      const status = Number(health?.status || 0);
-      setFooterNetworkStatus(kind, latencyMs, status);
-    } catch (err) {
-      gameLog('warn', 'Footer-Netzwerkstatus Probe fehlgeschlagen', err);
-      setFooterNetworkStatus(navigator.onLine === false ? 'offline' : 'unknown');
-    } finally {
-      footerNetworkState.inFlight = false;
-    }
-  }
-
-  function pushGalaxyDebugError(source, message, extra = '') {
-    const src = String(source || 'unknown');
-    const msg = String(message || 'unknown error');
-    const ex = String(extra || '');
-    galaxyDebugState.entries.unshift({
-      ts: Date.now(),
-      source: src,
-      message: msg,
-      extra: ex,
-    });
-    galaxyDebugState.entries = galaxyDebugState.entries.slice(0, galaxyDebugState.maxEntries);
-    renderGalaxyDebugPanel();
-  }
-
-  function renderGalaxyDebugPanel(rootRef = null) {
-    const root = rootRef || WM.body('galaxy');
-    const log = root?.querySelector?.('#galaxy-debug-log');
-    if (!log) return;
-
-    if (!galaxyDebugState.entries.length) {
-      log.innerHTML = '<div class="galaxy-debug-empty">Keine aktuellen Lade-/Renderfehler.</div>';
-      return;
-    }
-
-    log.innerHTML = galaxyDebugState.entries.map((entry) => {
-      const time = new Date(entry.ts).toLocaleTimeString();
-      const extra = entry.extra ? `<div class="galaxy-debug-extra">${esc(entry.extra)}</div>` : '';
-      return `<div class="galaxy-debug-item">
-        <div class="galaxy-debug-head"><span class="galaxy-debug-time">${esc(time)}</span><span class="galaxy-debug-source">${esc(entry.source)}</span></div>
-        <div class="galaxy-debug-msg">${esc(entry.message)}</div>
-        ${extra}
-      </div>`;
-    }).join('');
-  }
-
-  async function copyLastGalaxyDebugError() {
-    const last = galaxyDebugState.entries[0] || null;
-    if (!last) {
-      showToast('Kein Fehler zum Kopieren vorhanden.', 'info');
-      return;
-    }
-    const payload = `[${new Date(last.ts).toISOString()}] ${last.source}: ${last.message}${last.extra ? ` | ${last.extra}` : ''}`;
-    try {
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(payload);
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = payload;
-        ta.setAttribute('readonly', 'readonly');
-        ta.style.position = 'fixed';
-        ta.style.left = '-10000px';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      }
-      showToast('Letzter Fehler in Zwischenablage kopiert.', 'success');
-    } catch (err) {
-      console.error('[GQ] copyLastGalaxyDebugError failed', err);
-      showToast('Kopieren fehlgeschlagen.', 'warning');
-    }
-  }
-
-  function clearGalaxyDebugErrors() {
-    galaxyDebugState.entries = [];
-    renderGalaxyDebugPanel();
-    showToast('Galaxy-Debuglog geleert.', 'info');
-  }
-
-  function downloadGalaxyDebugLog() {
-    if (!galaxyDebugState.entries.length) {
-      showToast('Kein Debuglog zum Download vorhanden.', 'info');
-      return;
-    }
-
-    const lines = galaxyDebugState.entries
-      .slice()
-      .reverse()
-      .map((entry) => {
-        const stamp = new Date(entry.ts).toISOString();
-        const extra = entry.extra ? ` | ${entry.extra}` : '';
-        return `[${stamp}] ${entry.source}: ${entry.message}${extra}`;
-      });
-
-    const content = lines.join('\n') + '\n';
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const fileName = `gq-galaxy-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
-
-    try {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      showToast('Debuglog heruntergeladen.', 'success');
-    } catch (err) {
-      console.error('[GQ] downloadGalaxyDebugLog failed', err);
-      showToast('Download des Debuglogs fehlgeschlagen.', 'warning');
-    }
-  }
-
-  window.addEventListener('gq:load-progress', (ev) => {
-    setFooterLoadProgress(ev?.detail || {});
   });
 
-  function shouldRedirectOnAuthLoadError(endpoint = '', context = '') {
-    const ep = String(endpoint || '').toLowerCase();
-    const cx = String(context || '').toLowerCase();
-    if (!ep && !cx) return true;
-
-    const coreEndpointPatterns = [
-      /api\/(v1\/)?auth\.php\?action=me/i,
-      /api\/(v1\/)?game\.php\?/i,
-      /api\/(v1\/)?galaxy\.php\?/i,
-    ];
-    if (coreEndpointPatterns.some((re) => re.test(ep))) {
-      return true;
-    }
-
-    const coreContextPatterns = [
-      /auth|session|bootstrap|overview|galaxy/i,
-    ];
-    if (coreContextPatterns.some((re) => re.test(cx))) {
-      return true;
-    }
-
-    return false;
-  }
-
-  window.addEventListener('gq:load-error', (ev) => {
-    const detail = ev?.detail || {};
-    const endpoint = String(detail.endpoint || 'unbekannt');
-    const context = String(detail.context || 'request');
-    const message = String(detail.message || 'Ladevorgang fehlgeschlagen');
-    const kind = String(detail.kind || 'unknown');
-    if (kind === 'abort' || /aborted|cancelled|canceled|home navigation|view switch|aborterror/i.test(message)) return;
-    pushGalaxyDebugError(`api:${context}`, message, endpoint);
-    console.error('[GQ][LoadError]', { endpoint, context, kind, message, detail });
-
-    const now = Date.now();
-    if ((now - lastLoadErrorToastAt) > 2500) {
-      let suffix = '';
-      if (kind === 'offline') suffix = ' (Offline)';
-      else if (kind === 'unreachable') suffix = ' (API nicht erreichbar)';
-      else if (kind === 'timeout') suffix = ' (Timeout)';
-      if (kind === 'auth') {
-        showToast('Session abgelaufen. Bitte neu einloggen.', 'warning');
-      } else {
-        showToast(`Laden fehlgeschlagen (${context}${suffix}): ${message}`, 'error');
-      }
-      lastLoadErrorToastAt = now;
-    }
-
-    if (kind === 'offline' || kind === 'timeout' || kind === 'unreachable' || kind === 'http' || kind === 'auth') {
-      setFooterNetworkStatus(kind);
-    }
-
-    if (kind === 'auth') {
-      if (shouldRedirectOnAuthLoadError(endpoint, context)) {
-        redirectToLogin('load-error-auth');
-      } else {
-        console.info('[GQ][LoadError] Auth-Fehler bei Nebenendpoint ignoriert (kein Redirect).', {
-          endpoint,
-          context,
-        });
-      }
-    }
+  const uiConsoleController = runtimeUiConsolePanelApi.createUiConsoleController({
+    store: uiConsoleStore,
+    showToast,
+    esc,
+    documentRef: document,
+    windowRef: window,
+    navigatorRef: navigator,
+    onRunCommand: async (raw) => {
+      await runUiConsoleCommand(raw);
+    },
   });
-
-  window.addEventListener('online', () => {
-    refreshFooterNetworkStatus(true);
-  });
-  window.addEventListener('offline', () => {
-    setFooterNetworkStatus('offline');
-  });
-
-  setFooterNetworkStatus(navigator.onLine === false ? 'offline' : 'unknown');
-  refreshFooterNetworkStatus(false);
-
-  function applyPolicyProfile(name) {
-    const profileName = POLICY_PROFILES[name] ? name : 'balanced';
-    const profile = POLICY_PROFILES[profileName];
-    LEVEL_POLICIES.galaxy.stars = Object.assign({}, profile.galaxy.stars);
-    LEVEL_POLICIES.system.payload = Object.assign({}, profile.system.payload);
-    LEVEL_POLICIES.planet.details = Object.assign({}, profile.planet.details);
-    if (galaxyDB && galaxyDB.policies) {
-      galaxyDB.policies.starMaxAgeMs = Number(profile.galaxy.stars.cacheMaxAgeMs);
-      galaxyDB.policies.systemMaxAgeMs = Number(profile.system.payload.cacheMaxAgeMs);
-    }
-    activePolicyProfile = profileName;
-    try { localStorage.setItem('gq_policy_profile', profileName); } catch (err) { gameLog('info', 'Policy-Profil konnte nicht persistiert werden', err); }
-  }
-
-  function detectAutoPolicyProfile() {
-    try {
-      const nav = navigator || {};
-      const conn = nav.connection || nav.mozConnection || nav.webkitConnection || {};
-      const cores = Number(nav.hardwareConcurrency || 0);
-      const mem = Number(nav.deviceMemory || 0);
-      const saveData = !!conn.saveData;
-      const effectiveType = String(conn.effectiveType || '').toLowerCase();
-      const isSlowNetwork = effectiveType === 'slow-2g' || effectiveType === '2g';
-      const isConstrained = saveData || isSlowNetwork || (cores > 0 && cores <= 4) || (mem > 0 && mem <= 4);
-      const isStrong = !saveData && !isSlowNetwork && cores >= 8 && mem >= 8;
-
-      if (isConstrained) {
-        return {
-          profile: 'cache_aggressive',
-          reason: `Auto rule: constrained device/network (cores=${cores || 'n/a'}, mem=${mem || 'n/a'}GB, net=${effectiveType || 'unknown'}, saveData=${saveData ? 'on' : 'off'})`,
-        };
-      }
-      if (isStrong) {
-        return {
-          profile: 'always_fresh',
-          reason: `Auto rule: strong device/network (cores=${cores}, mem=${mem}GB, net=${effectiveType || 'unknown'})`,
-        };
-      }
-      return {
-        profile: 'balanced',
-        reason: `Auto rule: mixed profile (cores=${cores || 'n/a'}, mem=${mem || 'n/a'}GB, net=${effectiveType || 'unknown'})`,
-      };
-    } catch (err) {
-      gameLog('warn', 'Auto-Policy-Erkennung fehlgeschlagen, verwende balanced', err);
-      return {
-        profile: 'balanced',
-        reason: 'Auto rule: fallback (device capabilities unavailable).',
-      };
-    }
-  }
-
-  function currentPolicyHintText() {
-    if (activePolicyMode === 'auto') {
-      return `Auto active -> ${POLICY_PROFILES[activePolicyProfile].label}. ${activeAutoPolicyReason}`;
-    }
-    return `Manual policy: ${POLICY_PROFILES[activePolicyProfile].label}.`;
-  }
-
-  function refreshPolicyUi(root) {
-    if (!root) return;
-    const select = root.querySelector('#gal-policy-profile');
-    if (select) {
-      const autoOption = select.querySelector('option[value="auto"]');
-      if (autoOption) autoOption.textContent = `Auto (${POLICY_PROFILES[activePolicyProfile].label})`;
-      select.value = activePolicyMode === 'auto' ? 'auto' : activePolicyProfile;
-    }
-    const hint = root.querySelector('#gal-policy-hint');
-    if (hint) hint.textContent = currentPolicyHintText();
-  }
-
-  function setGalaxyContext(galaxy, system, star = null) {
-    uiState.activeGalaxy = Math.max(1, Number(galaxy || uiState.activeGalaxy || 1));
-    uiState.activeSystem = Math.max(1, Number(system || uiState.activeSystem || 1));
-    if (star) uiState.activeStar = star;
-  }
-
-  function resolvePlayerFactionId() {
-    const candidates = [
-      currentUser?.faction_id,
-      currentUser?.home_faction_id,
-      currentUser?.primary_faction_id,
-      currentUser?.player_faction_id,
-      currentUser?.faction?.id,
-      currentUser?.faction?.faction_id,
-    ];
-    for (const candidate of candidates) {
-      const id = Number(candidate || 0);
-      if (Number.isFinite(id) && id > 0) return id;
-    }
-    return 0;
-  }
-
-  function mapTerritoryFactionsForPlayer(territoryList) {
-    const list = Array.isArray(territoryList) ? territoryList : [];
-    const playerFactionId = resolvePlayerFactionId();
-    return list.map((faction) => {
-      const factionId = Number(faction?.id || faction?.faction_id || 0);
-      const isPlayer = playerFactionId > 0 && factionId > 0 && factionId === playerFactionId;
-      return Object.assign({}, faction, { __isPlayer: isPlayer });
-    });
-  }
-
-  function resolveClusterColorPalette(territoryList) {
-    const list = Array.isArray(territoryList) ? territoryList : [];
-    const playerFaction = list.find((f) => f?.__isPlayer) || null;
-    return {
-      player: String(playerFaction?.color || '#5de0a0'),
-      pve: '#ff7b72',
-      neutral: '#6a8cc9',
-    };
-  }
-
-  function setColonyViewFocus(colonyId, focusBuilding = '', source = 'manual') {
-    uiState.colonyViewFocus = {
-      colonyId: Number(colonyId || 0),
-      focusBuilding: String(focusBuilding || ''),
-      source: String(source || 'manual'),
-      ts: Date.now(),
-    };
-  }
-
-  function getRecommendedBuildingFocus(colony) {
-    if (!colony) return 'colony_hq';
-    const type = String(colony.colony_type || '').toLowerCase();
-    if (type === 'mining') return 'metal_mine';
-    if (type === 'industrial') return 'robotics_factory';
-    if (type === 'research') return 'research_lab';
-    if (type === 'agricultural') return 'hydroponic_farm';
-    if (type === 'military') return 'shipyard';
-    return 'colony_hq';
-  }
-
-  function getBuildingUiMeta(type) {
-    return BUILDING_UI_META[String(type || '')] || { cat:'Other', icon:'BLD', desc:'' };
-  }
-
-  function pickZoneBuildFocus(zone, colony, buildings = []) {
-    const normalizedZone = String(zone || 'flex');
-    const priorities = BUILDING_ZONE_PRIORITY[normalizedZone] || BUILDING_ZONE_PRIORITY.flex;
-    const existing = new Set((buildings || []).map((building) => String(building.type || '')));
-    const missing = priorities.find((type) => !existing.has(type));
-    return missing || priorities[0] || getRecommendedBuildingFocus(colony);
-  }
-
-  function focusColonyDevelopment(colonyId, opts = {}) {
-    const colony = colonies.find((col) => Number(col.id || 0) === Number(colonyId || 0));
-    if (!colony) return;
-    const focusBuilding = String(opts.focusBuilding || getRecommendedBuildingFocus(colony));
-    setColonyViewFocus(colony.id, focusBuilding, opts.source || 'planet');
-    selectColonyById(colony.id, {
-      openWindows: true,
-      focusBuilding,
-      openOverview: !!opts.openOverview,
-    });
-  }
-
-  function openColonySubview(colonyId, view, opts = {}) {
-    const colony = colonies.find((col) => Number(col.id || 0) === Number(colonyId || 0));
-    if (!colony) return false;
-
-    const targetView = String(view || '').toLowerCase();
-    const focusBuilding = String(opts.focusBuilding || getRecommendedBuildingFocus(colony));
-
-    selectColonyById(colony.id, {
-      openWindows: false,
-      focusBuilding: targetView === 'buildings' ? focusBuilding : '',
-      focusSource: opts.source || 'view-chain',
-    });
-
-    if (targetView === 'overview') {
-      WM.open('overview');
-      return true;
-    }
-    if (targetView === 'colony' || targetView === 'planet') {
-      WM.open('colony');
-      return true;
-    }
-    if (targetView === 'buildings') {
-      WM.open('buildings');
-      return true;
-    }
-    if (targetView === 'shipyard' || targetView === 'vessels' || targetView === 'ships') {
-      WM.open('shipyard');
-      if (targetView === 'vessels' || targetView === 'ships') {
-        showToast('Vessels werden im Shipyard verwaltet.', 'info');
-      }
-      return true;
-    }
-    if (targetView === 'orbitals' || targetView === 'orbital-installations') {
-      setColonyViewFocus(colony.id, 'solar_satellite', opts.source || 'view-chain');
-      WM.open('shipyard');
-      showToast('Orbital-Installationen werden im Shipyard verwaltet.', 'info');
-      return true;
-    }
-    if (targetView === 'wormholes' || targetView === 'gates' || targetView === 'gate-installations') {
-      WM.open('wormholes');
-      return true;
-    }
-    if (targetView === 'fleet') {
-      if (opts.prefillTarget) {
-        prefillFleetTarget(opts.prefillTarget, String(opts.mission || 'transport'), {
-          owner: opts.owner || '',
-          threatLevel: opts.threatLevel || '',
-          intel: opts.intel || null,
-        });
-      } else {
-        WM.open('fleet');
-      }
-      return true;
-    }
-
-    return false;
-  }
-
-  // Attaches faction data (from separate factions API) to backend-provided cluster objects.
-  function assignClusterFactions(clusters, territory) {
-    const claims = Array.isArray(territory) ? territory : [];
-    return (Array.isArray(clusters) ? clusters : []).map((cluster, index) =>
-      Object.assign({}, cluster, { faction: claims.length ? claims[index % claims.length] : null })
-    );
-  }
-
-  function applyPolicyMode(mode, explicitProfile) {
-    const normalizedMode = mode === 'manual' ? 'manual' : 'auto';
-    activePolicyMode = normalizedMode;
-    let nextProfile = 'balanced';
-
-    if (normalizedMode === 'manual') {
-      nextProfile = POLICY_PROFILES[explicitProfile] ? explicitProfile : activePolicyProfile;
-      activeAutoPolicyReason = '';
-    } else {
-      const autoDecision = detectAutoPolicyProfile();
-      nextProfile = autoDecision.profile;
-      activeAutoPolicyReason = autoDecision.reason;
-    }
-
-    applyPolicyProfile(nextProfile);
-    try {
-      localStorage.setItem('gq_policy_mode', activePolicyMode);
-      if (normalizedMode === 'manual' && POLICY_PROFILES[nextProfile]) {
-        localStorage.setItem('gq_policy_profile_manual', nextProfile);
-      }
-    } catch (err) {
-      gameLog('info', 'Policy-Modus konnte nicht persistiert werden', err);
-    }
-  }
-
-  (() => {
-    try {
-      const savedMode = localStorage.getItem('gq_policy_mode');
-      const savedManual = localStorage.getItem('gq_policy_profile_manual');
-      const savedLegacy = localStorage.getItem('gq_policy_profile');
-      if (savedMode === 'manual' && savedManual && POLICY_PROFILES[savedManual]) {
-        applyPolicyMode('manual', savedManual);
-        return;
-      }
-      if (savedMode === 'manual' && savedLegacy && POLICY_PROFILES[savedLegacy]) {
-        applyPolicyMode('manual', savedLegacy);
-        return;
-      }
-      applyPolicyMode('auto');
-    } catch (err) {
-      gameLog('warn', 'Policy-Init aus Storage fehlgeschlagen, fallback auto', err);
-      applyPolicyMode('auto');
-    }
-  })();
-
-  if (galaxyDB) {
-    galaxyDB.init().catch((err) => {
-      gameLog('warn', 'Browser DB Init fehlgeschlagen, fallback memory', err);
-      showToast('Browser DB fallback active (memory only).', 'warning');
-    });
-    setInterval(() => {
-      galaxyDB.prune().catch((err) => {
-        gameLog('info', 'Browser DB prune fehlgeschlagen', err);
-      });
-    }, 5 * 60 * 1000);
-  }
-
-  window.GQGalaxyModelStore = galaxyModel;
-  window.GQGalaxyDBStore = galaxyDB;
-
-  setInterval(() => {
-    sendPerfTelemetrySnapshot('interval').catch((err) => {
-      gameLog('info', 'Perf-Telemetrie Snapshot fehlgeschlagen', err);
-    });
-  }, PERF_TELEMETRY_INTERVAL_MS);
-
-  // Utilities
-  function fmt(n) {
-    n = parseFloat(n);
-    if (isNaN(n)) return '0';
-    if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
-    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-    return Math.floor(n).toLocaleString();
-  }
-
-  function fmtName(type) {
-    return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  }
-
-  function isPerfTelemetryOptIn() {
-    try {
-      return window.localStorage?.getItem(PERF_TELEMETRY_OPT_IN_KEY) === '1';
-    } catch (err) {
-      gameLog('info', 'Perf-Telemetrie Opt-In nicht lesbar', err);
-      return false;
-    }
-  }
-
-  function setPerfTelemetryOptIn(enabled) {
-    try {
-      window.localStorage?.setItem(PERF_TELEMETRY_OPT_IN_KEY, enabled ? '1' : '0');
-      return true;
-    } catch (err) {
-      gameLog('warn', 'Perf-Telemetrie Opt-In nicht speicherbar', err);
-      return false;
-    }
-  }
-
-  async function sendPerfTelemetrySnapshot(reason = 'interval') {
-    if (!isPerfTelemetryOptIn()) return false;
-    if (!API || typeof API.perfTelemetry !== 'function') return false;
-    if (!galaxy3d || typeof galaxy3d.getRenderStats !== 'function') return false;
-
-    const stats = galaxy3d.getRenderStats() || {};
-    const payload = {
-      opt_in: true,
-      source: 'galaxy',
-      reason: String(reason || 'interval'),
-      app_version: String(window.GQ_BOOT_CONFIG?.version || ''),
-      assets_manifest_version: Number(uiState.assetsManifestVersion || window.GQ_ASSETS_MANIFEST_VERSION || 1),
-      render_schema_version: Number(window.GQRenderDataAdapter?.renderSchemaVersion || 1),
-      metrics: {
-        rawStars: Number(stats.rawStars || 0),
-        visibleStars: Number(stats.visibleStars || 0),
-        clusterCount: Number(stats.clusterCount || 0),
-        targetPoints: Number(stats.targetPoints || 0),
-        densityRatio: Number(stats.densityRatio || 0),
-        densityMode: String(stats.densityMode || 'auto'),
-        lodProfile: String(stats.lodProfile || 'medium'),
-        qualityProfile: String(stats.qualityProfile || 'medium'),
-        pixelRatio: Number(stats.pixelRatio || 1),
-        cameraDistance: Number(stats.cameraDistance || 0),
-        instancingCandidates: Number(stats.instancingCandidates || 0),
-        lightRig: String(stats.lightRig || ''),
-      },
-    };
-
-    try {
-      const res = await API.perfTelemetry(payload);
-      return !!res?.success;
-    } catch (err) {
-      gameLog('info', 'Perf-Telemetrie API call fehlgeschlagen', err);
-      return false;
-    }
-  }
-
-  function countdown(endTime) {
-    const secs = Math.max(0, Math.round((new Date(endTime) - Date.now()) / 1000));
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = secs % 60;
-    return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
-  }
-
-  function showToast(msg, type = 'info') {
-    const el = document.getElementById('toast');
-    if (!el) return;
-    el.textContent = msg;
-    el.className   = `toast ${type}`;
-    el.classList.remove('hidden');
-    clearTimeout(el._timeout);
-    el._timeout = setTimeout(() => el.classList.add('hidden'), 3500);
-    if (audioManager) {
-      if (type === 'error' || type === 'warning') audioManager.playUiError();
-      else if (type === 'success') audioManager.playUiConfirm();
-      else audioManager.playUiNotify();
-    }
-  }
-
-  let renderTelemetryHookInstalled = false;
-  let renderTelemetryLastToastMs = 0;
-  const expectedRenderFallbackReasons = new Set([
-    'interactive-galaxy-uses-three-path',
-  ]);
-  function installRenderTelemetryHook() {
-    if (renderTelemetryHookInstalled || typeof window === 'undefined') {
-      return;
-    }
-    renderTelemetryHookInstalled = true;
-    window.addEventListener('gq:render-telemetry', (ev) => {
-      const detail = ev?.detail || {};
-      const type = String(detail.type || '').toLowerCase();
-      if (type === 'backend-active') {
-        const backend = String(detail.backend || 'unknown');
-        window.__GQ_ACTIVE_RENDERER_BACKEND = backend;
-        console.info('[render-telemetry] backend-active:', backend, detail);
-        return;
-      }
-      if (type === 'fallback') {
-        const from = String(detail.from || 'unknown');
-        const to = String(detail.to || 'unknown');
-        const reason = String(detail.reason || 'n/a');
-        const isExpected = expectedRenderFallbackReasons.has(reason);
-        if (isExpected) {
-          console.info('[render-telemetry] fallback(expected):', { from, to, reason, detail });
-          return;
-        }
-        console.warn('[render-telemetry] fallback:', { from, to, reason, detail });
-        const now = Date.now();
-        if ((now - renderTelemetryLastToastMs) > 2500) {
-          renderTelemetryLastToastMs = now;
-          showToast(`Renderer-Fallback: ${from} -> ${to} (${reason})`, 'warning');
-        }
-      }
-    });
-  }
-
-  installRenderTelemetryHook();
-
-  function showToastWithAction(msg, type = 'info', actionLabel = '', onAction = null, timeoutMs = 7000) {
-    const el = document.getElementById('toast');
-    if (!el) return;
-
-    el.innerHTML = '';
-    el.className = `toast ${type}`;
-
-    const textNode = document.createElement('span');
-    textNode.className = 'toast-message';
-    textNode.textContent = String(msg || '');
-    el.appendChild(textNode);
-
-    if (actionLabel) {
-      const actionBtn = document.createElement('button');
-      actionBtn.type = 'button';
-      actionBtn.className = 'toast-action-btn';
-      actionBtn.textContent = String(actionLabel);
-      actionBtn.addEventListener('click', () => {
-        try {
-          if (typeof onAction === 'function') onAction();
-        } finally {
-          el.classList.add('hidden');
-        }
-      });
-      el.appendChild(actionBtn);
-    }
-
-    el.classList.remove('hidden');
-    clearTimeout(el._timeout);
-    el._timeout = setTimeout(() => el.classList.add('hidden'), Math.max(1200, Number(timeoutMs || 7000)));
-
-    if (audioManager) {
-      if (type === 'error' || type === 'warning') audioManager.playUiError();
-      else if (type === 'success') audioManager.playUiConfirm();
-      else audioManager.playUiNotify();
-    }
-  }
-
-  function ensureMessageSignalLayer() {
-    if (messageSignalState.host && document.body.contains(messageSignalState.host)) {
-      return messageSignalState.host;
-    }
-    const host = document.createElement('aside');
-    host.id = 'global-message-signals';
-    host.className = 'global-message-signals hidden';
-    host.setAttribute('aria-live', 'polite');
-    host.setAttribute('aria-label', 'Nachrichten-Signale');
-
-    const levels = [
-      { key: 'danger', label: 'Gefahr', colorClass: 'danger' },
-      { key: 'success', label: 'Erfolg', colorClass: 'success' },
-      { key: 'info', label: 'Info', colorClass: 'info' },
-    ];
-    levels.forEach((level) => {
-      const ring = document.createElement('div');
-      ring.className = `message-signal-ring ${level.colorClass}`;
-      ring.setAttribute('data-level', level.key);
-      ring.setAttribute('title', `${level.label}-Meldungen`);
-      ring.innerHTML = `
-        <span class="ring-core"></span>
-        <span class="ring-wave"></span>
-        <span class="ring-wave delay"></span>
-        <span class="ring-count">0</span>
-      `;
-      host.appendChild(ring);
-      messageSignalState.rings[level.key] = ring;
-    });
-
-    document.body.appendChild(host);
-    messageSignalState.host = host;
-    return host;
-  }
-
-  function classifyMessageSignalLevel(message) {
-    const subject = String(message?.subject || '').toLowerCase();
-    const body = String(message?.body || '').toLowerCase();
-    const text = `${subject} ${body}`;
-
-    const dangerPattern = /(attacked|attack|battle|raid|defeat|defeated|under attack|hostile|war|lost|alarm|danger|failed|gescheitert|angegriffen|verloren|niederlage)/i;
-    const successPattern = /(complete|completed|established|finished|success|reward|quest completed|repelled|fertig|abgeschlossen|errichtet|gebaut|erfolgreich|gewonnen)/i;
-
-    if (dangerPattern.test(text)) return 'danger';
-    if (successPattern.test(text)) return 'success';
-    return 'info';
-  }
-
-  function updateMessageSignalsFromInbox(messages) {
-    const host = ensureMessageSignalLayer();
-    const now = Date.now();
-    const list = Array.isArray(messages) ? messages : [];
-    const unread = list.filter((message) => !parseInt(message?.is_read, 10));
-    const unreadByLevel = { danger: 0, success: 0, info: 0 };
-    const nextUnreadIds = new Set();
-
-    unread.forEach((message) => {
-      const id = Number(message?.id || 0);
-      if (id > 0) nextUnreadIds.add(id);
-      const level = classifyMessageSignalLevel(message);
-      unreadByLevel[level] += 1;
-    });
-
-    if (!messageSignalState.bootstrapped) {
-      messageSignalState.unreadIds = nextUnreadIds;
-      messageSignalState.unreadByLevel = unreadByLevel;
-      messageSignalState.bootstrapped = true;
-    } else {
-      unread.forEach((message) => {
-        const id = Number(message?.id || 0);
-        if (id <= 0 || messageSignalState.unreadIds.has(id)) return;
-        const level = classifyMessageSignalLevel(message);
-        messageSignalState.flashUntilByLevel[level] = Math.max(
-          Number(messageSignalState.flashUntilByLevel[level] || 0),
-          now + 14000
-        );
-      });
-      messageSignalState.unreadIds = nextUnreadIds;
-      messageSignalState.unreadByLevel = unreadByLevel;
-    }
-
-    let activeAny = false;
-    let dominantLevel = '';
-    let dominantScore = -1;
-    ['danger', 'success', 'info'].forEach((level) => {
-      const ring = messageSignalState.rings[level];
-      if (!ring) return;
-      const unreadCount = Number(unreadByLevel[level] || 0);
-      const flashing = now < Number(messageSignalState.flashUntilByLevel[level] || 0);
-      const active = unreadCount > 0 || flashing;
-      const score = (Number(messageSignalState.levelPriority[level] || 0) * 1000) + (unreadCount * 10) + (flashing ? 1 : 0);
-      ring.classList.toggle('active', active);
-      ring.classList.toggle('flash', flashing);
-      const countEl = ring.querySelector('.ring-count');
-      if (countEl) countEl.textContent = String(Math.max(0, unreadCount));
-      const label = String(messageSignalState.levelLabel[level] || level);
-      ring.setAttribute('title', `${label}: ${unreadCount} ungelesen`);
-      ring.style.order = String(10 - Number(messageSignalState.levelPriority[level] || 0));
-      if (active && score > dominantScore) {
-        dominantScore = score;
-        dominantLevel = level;
-      }
-      activeAny = activeAny || active;
-    });
-
-    ['danger', 'success', 'info'].forEach((level) => {
-      const ring = messageSignalState.rings[level];
-      if (!ring) return;
-      ring.classList.toggle('dominant', activeAny && level === dominantLevel);
-    });
-
-    host.classList.toggle('danger-priority', dominantLevel === 'danger');
-    host.classList.toggle('hidden', !activeAny);
-  }
-
-  class UIConsoleController {
-    constructor(store) {
-      this.store = store;
-      this.initialized = false;
-    }
-
-    push(line) {
-      if (!this.store.push(line)) return false;
-      this.render();
-      return true;
-    }
-
-    getVisibleLines() {
-      return this.store.getVisibleLines();
-    }
-
-    async copyToClipboard() {
-      const lines = this.getVisibleLines();
-      if (!lines.length) {
-        showToast('Keine Console-Zeilen zum Kopieren.', 'info');
-        return;
-      }
-      const payload = lines.join('\n');
-      try {
-        if (navigator?.clipboard?.writeText) {
-          await navigator.clipboard.writeText(payload);
-        } else {
-          const ta = document.createElement('textarea');
-          ta.value = payload;
-          ta.setAttribute('readonly', 'readonly');
-          ta.style.position = 'fixed';
-          ta.style.left = '-10000px';
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-        }
-        showToast(`Console kopiert (${lines.length} Zeilen).`, 'success');
-      } catch (err) {
-        console.error('[GQ] copyUiConsoleToClipboard failed', err);
-        showToast('Kopieren der Console fehlgeschlagen.', 'warning');
-      }
-    }
-
-    render() {
-      const log = document.getElementById('ui-console-log');
-      if (!log) return;
-      const visibleLines = this.getVisibleLines();
-      log.innerHTML = visibleLines.map((line) => `<div>${esc(line)}</div>`).join('');
-      log.scrollTop = log.scrollHeight;
-    }
-
-    hydrateFromTerminal() {
-      if (!(window.GQLog && typeof window.GQLog.getAll === 'function')) return;
-      const source = typeof window.GQLog.getSessionEntries === 'function'
-        ? window.GQLog.getSessionEntries()
-        : window.GQLog.getAll();
-      const history = source.slice(-25);
-      history.forEach((entry) => {
-        const level = String(entry?.level || 'log').toUpperCase();
-        const sourceName = String(entry?.source || 'app');
-        const text = String(entry?.text || '');
-        this.push(`[${level}] [${sourceName}] ${text}`);
-      });
-    }
-
-    bindTerminalLogStream() {
-      if (window.__gqTerminalLogBound) return;
-      window.__gqTerminalLogBound = true;
-      window.addEventListener('gq:terminal-log', (ev) => {
-        const entry = ev?.detail || {};
-        const level = String(entry.level || 'log').toUpperCase();
-        const source = String(entry.source || 'app');
-        const text = String(entry.text || '');
-        this.push(`[${level}] [${source}] ${text}`);
-      });
-    }
-
-    setOpen(open, panel, toggleBtn, input) {
-      panel.classList.toggle('hidden', !open);
-      toggleBtn.textContent = open ? 'Hide Console' : 'Show Console';
-      if (open) {
-        this.render();
-        input.focus();
-      }
-    }
-
-    init() {
-      if (this.initialized) return true;
-      const panel = document.getElementById('ui-console-panel') || document.getElementById('boot-terminal');
-      const toggleBtn = document.getElementById('ui-console-toggle');
-      const closeBtn = document.getElementById('ui-console-close');
-      const clearBtn = document.getElementById('ui-console-clear');
-      const copyBtn = document.getElementById('ui-console-copy');
-      const filterSelect = document.getElementById('ui-console-filter');
-      const runBtn = document.getElementById('ui-console-run');
-      const input = document.getElementById('ui-console-input');
-      if (!panel || !toggleBtn || !runBtn || !input) return false;
-
-      this.hydrateFromTerminal();
-      this.bindTerminalLogStream();
-
-      toggleBtn.addEventListener('click', () => this.setOpen(panel.classList.contains('hidden'), panel, toggleBtn, input));
-      closeBtn?.addEventListener('click', () => this.setOpen(false, panel, toggleBtn, input));
-      clearBtn?.addEventListener('click', () => {
-        this.store.clear();
-        this.render();
-      });
-      copyBtn?.addEventListener('click', async () => {
-        await this.copyToClipboard();
-      });
-      filterSelect?.addEventListener('change', () => {
-        this.store.setFilter(filterSelect.value || 'all');
-        this.render();
-      });
-      runBtn.addEventListener('click', async () => {
-        const cmd = input.value;
-        input.value = '';
-        await runUiConsoleCommand(cmd);
-      });
-      input.addEventListener('keydown', async (e) => {
-        if (e.key !== 'Enter') return;
-        e.preventDefault();
-        const cmd = input.value;
-        input.value = '';
-        await runUiConsoleCommand(cmd);
-      });
-
-      // Sync toggle button text with current panel visibility (unified panel may already be visible)
-      if (toggleBtn) toggleBtn.textContent = panel.classList.contains('hidden') ? 'Show Con' : 'Hide Con';
-
-      // Bind auth-console-toggle button to the same toggle mechanism
-      const authConsoleToggleBtn = document.getElementById('auth-console-toggle');
-      if (authConsoleToggleBtn) {
-        authConsoleToggleBtn.addEventListener('click', () => this.setOpen(panel.classList.contains('hidden'), panel, toggleBtn, input));
-      }
-
-      window.__gqUiConsoleReady = true;
-      if (typeof window.dispatchEvent === 'function') {
-        window.dispatchEvent(new CustomEvent('gq:ui-console-ready', {
-          detail: { panelId: panel.id, logId: 'ui-console-log' },
-        }));
-      }
-
-      this.initialized = true;
-      return true;
-    }
-  }
-
-  const uiConsoleController = new UIConsoleController(uiConsoleStore);
   window.GQUIConsoleController = uiConsoleController;
 
   function uiConsolePush(line) {
@@ -2443,1017 +285,61 @@
     return uiConsoleController.getVisibleLines();
   }
 
-  async function copyUiConsoleToClipboard() {
-    await uiConsoleController.copyToClipboard();
-  }
-
-  function renderUiConsole() {
-    uiConsoleController.render();
-  }
-
-  function inspectGalaxyCanvasLayering() {
-    const stage = document.querySelector('.galaxy-3d-stage') || document.getElementById('galaxy-stage');
-    const canvas = document.getElementById('starfield');
-    const desktop = document.body;
-    const report = {
-      ok: !!canvas,
-      bodyClass: String(document.body.className || ''),
-      canvas: null,
-      stage: null,
-      desktop: null,
-      windows: [],
-      topElementsAtCanvas: [],
-    };
-
-    const styleOf = (el) => {
-      if (!el) return null;
-      const cs = window.getComputedStyle(el);
-      const r = el.getBoundingClientRect();
-      return {
-        id: String(el.id || ''),
-        className: String(el.className || ''),
-        display: String(cs.display || ''),
-        visibility: String(cs.visibility || ''),
-        opacity: Number(cs.opacity || 0),
-        pointerEvents: String(cs.pointerEvents || ''),
-        position: String(cs.position || ''),
-        zIndex: String(cs.zIndex || ''),
-        width: Math.round(Number(r.width || 0)),
-        height: Math.round(Number(r.height || 0)),
-        top: Math.round(Number(r.top || 0)),
-        left: Math.round(Number(r.left || 0)),
-      };
-    };
-
-    report.canvas = styleOf(canvas);
-    report.stage = styleOf(stage);
-    report.desktop = styleOf(desktop);
-
-    document.querySelectorAll('.wm-window').forEach((el) => {
-      const item = styleOf(el);
-      if (item) report.windows.push(item);
-    });
-
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect();
-      const points = [
-        [Math.round(rect.left + rect.width * 0.5), Math.round(rect.top + rect.height * 0.5)],
-        [Math.round(rect.left + rect.width * 0.2), Math.round(rect.top + rect.height * 0.25)],
-        [Math.round(rect.left + rect.width * 0.8), Math.round(rect.top + rect.height * 0.75)],
-      ];
-      points.forEach(([x, y]) => {
-        const top = document.elementFromPoint(x, y);
-        report.topElementsAtCanvas.push({
-          x,
-          y,
-          topId: String(top?.id || ''),
-          topClass: String(top?.className || ''),
-          topTag: String(top?.tagName || ''),
-        });
-      });
-    }
-
-    return report;
-  }
-
-  window.GQGalaxyCanvasDebug = {
-    inspect: inspectGalaxyCanvasLayering,
-  };
-
-  class UIConsoleCommandController {
-    async execute(raw) {
-      const input = String(raw || '').trim();
-      if (!input) return;
-      uiConsolePush(`> ${input}`);
-
-      const parts = input.split(/\s+/).filter(Boolean);
-      const cmd = String(parts[0] || '').toLowerCase();
-      const normalizedInput = String(input || '').trim().toLowerCase();
-
-      if (cmd === 'help' || cmd === '?') {
-        uiConsolePush('[help] refresh | home | galaxy | galdiag | galinspect | galdebug | galprobe [sec] | perftelemetry on/off/status/send | open <window> | transitions on/off/status | term debug on/off/status | term clear | term download | msg <user> <text> | copy | clear');
-        return;
-      }
-      if (cmd === 'copy') {
-        await copyUiConsoleToClipboard();
-        return;
-      }
-      if (cmd === 'clear') {
-        uiConsoleStore.clear();
-        renderUiConsole();
-        return;
-      }
-      if (cmd === 'refresh') {
-        await loadOverview();
-        uiConsolePush('[ok] Overview refreshed.');
-        return;
-      }
-      if (cmd === 'home') {
-        WM.open('galaxy');
-        const root = WM.body('galaxy');
-        if (root) await focusHomeSystemInGalaxy(root);
-        uiConsolePush('[ok] Jumped to home system.');
-        return;
-      }
-      if (cmd === 'galaxy') {
-        WM.open('galaxy');
-        uiConsolePush('[ok] Galaxy window opened.');
-        return;
-      }
-      if (
-        cmd === 'galdiag'
-        || cmd === 'galinspect'
-        || normalizedInput === 'gqgalaxycanvasdebug.inspect()'
-        || normalizedInput === 'gqgalaxycanvasdebug.inspect'
-        || (cmd === 'galaxy' && String(parts[1] || '').toLowerCase() === 'diag')
-      ) {
-        const diag = inspectGalaxyCanvasLayering();
-        uiConsolePush(`[diag] body=${diag.bodyClass || '(none)'}`);
-        uiConsolePush(`[diag] stage z=${diag.stage?.zIndex || 'n/a'} display=${diag.stage?.display || 'n/a'} vis=${diag.stage?.visibility || 'n/a'} size=${diag.stage?.width || 0}x${diag.stage?.height || 0}`);
-        uiConsolePush(`[diag] canvas z=${diag.canvas?.zIndex || 'n/a'} display=${diag.canvas?.display || 'n/a'} vis=${diag.canvas?.visibility || 'n/a'} op=${diag.canvas?.opacity ?? 'n/a'} size=${diag.canvas?.width || 0}x${diag.canvas?.height || 0}`);
-        uiConsolePush(`[diag] desktop z=${diag.desktop?.zIndex || 'n/a'} display=${diag.desktop?.display || 'n/a'} vis=${diag.desktop?.visibility || 'n/a'} size=${diag.desktop?.width || 0}x${diag.desktop?.height || 0}`);
-        const topInfo = (diag.topElementsAtCanvas || []).map((p) => `${p.x},${p.y}->${p.topTag}${p.topId ? '#' + p.topId : ''}`).join(' | ');
-        uiConsolePush(`[diag] elementFromPoint: ${topInfo || 'n/a'}`);
-        const visibleWindows = (diag.windows || []).filter((w) => w.display !== 'none' && w.visibility !== 'hidden' && (w.width > 0 && w.height > 0));
-        uiConsolePush(`[diag] wm windows visible=${visibleWindows.length}`);
-        visibleWindows.slice(0, 6).forEach((w) => {
-          uiConsolePush(`[diag] win ${w.id || '(no-id)'} z=${w.zIndex} pos=${w.left},${w.top} size=${w.width}x${w.height}`);
-        });
-        try { console.table(diag.windows || []); } catch (_) {}
-        try { console.log('[GQ][galdiag]', diag); } catch (_) {}
-        return;
-      }
-      if (cmd === 'galdebug') {
-        uiConsolePush('[galdebug] === Galaxy3D Renderer Status ===');
-        if (!galaxy3d) {
-          uiConsolePush('[galdebug] galaxy3d is NULL');
-          return;
-        }
-        const stats = (typeof galaxy3d.getRenderStats === 'function') ? galaxy3d.getRenderStats() : null;
-        uiConsolePush(`[galdebug] visible stars: ${stats?.visibleStars || 0}`);
-        uiConsolePush(`[galdebug] target points: ${stats?.targetPoints || 0}`);
-        uiConsolePush(`[galdebug] density mode: ${stats?.densityMode || 'n/a'}`);
-        uiConsolePush(`[galdebug] starPoints: ${galaxy3d.starPoints ? 'exists' : 'NULL'}`);
-        if (galaxy3d.starPoints) {
-          uiConsolePush(`[galdebug] starPoints.visible: ${galaxy3d.starPoints.visible}`);
-          uiConsolePush(`[galdebug] starPoints.material: ${galaxy3d.starPoints.material?.constructor?.name || 'unknown'}`);
-          uiConsolePush(`[galdebug] starPoints.geometry.attributes.position.count: ${galaxy3d.starPoints.geometry?.attributes?.position?.count || 0}`);
-        }
-        uiConsolePush(`[galdebug] renderFrames.galaxy.visible: ${galaxy3d.renderFrames?.galaxy?.visible ?? 'n/a'}`);
-        uiConsolePush(`[galdebug] renderFrames.galaxy children: ${galaxy3d.renderFrames?.galaxy?.children?.length || 0}`);
-        if (galaxy3d.renderFrames?.galaxy) {
-          const starPointsInScene = galaxy3d.renderFrames.galaxy.children.includes(galaxy3d.starPoints);
-          uiConsolePush(`[galdebug] starPoints in scene: ${starPointsInScene}`);
-        }
-        uiConsolePush(`[galdebug] camera position: ${galaxy3d.camera?.position?.x?.toFixed(1) || 'n/a'}, ${galaxy3d.camera?.position?.y?.toFixed(1) || 'n/a'}, ${galaxy3d.camera?.position?.z?.toFixed(1) || 'n/a'}`);
-        try { console.log('[GQ][galdebug]', { galaxy3d, stats }); } catch (_) {}
-        return;
-      }
-      if (cmd === 'galprobe') {
-        const sec = Math.max(2, Math.min(20, Number(parts[1] || 6)));
-        const canvas = document.getElementById('starfield');
-        if (!(canvas instanceof HTMLCanvasElement)) {
-          uiConsolePush('[galprobe] canvas #starfield nicht gefunden.');
-          return;
-        }
-        const counters = {
-          mousemove: 0,
-          mousedown: 0,
-          mouseup: 0,
-          click: 0,
-          dblclick: 0,
-          wheel: 0,
-          contextmenu: 0,
-        };
-        const opts = { capture: true, passive: false };
-        const bump = (key) => (e) => {
-          counters[key] += 1;
-          if (key === 'wheel' || key === 'contextmenu') {
-            // Nur Telemetrie; Verhalten nicht veraendern.
-            void e;
-          }
-        };
-        const handlers = {
-          mousemove: bump('mousemove'),
-          mousedown: bump('mousedown'),
-          mouseup: bump('mouseup'),
-          click: bump('click'),
-          dblclick: bump('dblclick'),
-          wheel: bump('wheel'),
-          contextmenu: bump('contextmenu'),
-        };
-
-        Object.keys(handlers).forEach((type) => {
-          canvas.addEventListener(type, handlers[type], opts);
-        });
-
-        uiConsolePush(`[galprobe] Starte Event-Probe fuer ${sec}s auf #starfield ...`);
-        setTimeout(() => {
-          Object.keys(handlers).forEach((type) => {
-            canvas.removeEventListener(type, handlers[type], opts);
-          });
-          uiConsolePush('[galprobe] Ergebnis: '
-            + `move=${counters.mousemove}, down=${counters.mousedown}, up=${counters.mouseup}, `
-            + `click=${counters.click}, dbl=${counters.dblclick}, wheel=${counters.wheel}, ctx=${counters.contextmenu}`);
-          try { console.log('[GQ][galprobe]', counters); } catch (_) {}
-        }, Math.round(sec * 1000));
-        return;
-      }
-      if (cmd === 'perftelemetry') {
-        const arg = String(parts[1] || '').toLowerCase();
-        if (arg === 'status') {
-          uiConsolePush(`[state] perftelemetry=${isPerfTelemetryOptIn() ? 'on' : 'off'}`);
-          return;
-        }
-        if (arg === 'on' || arg === 'off') {
-          const ok = setPerfTelemetryOptIn(arg === 'on');
-          if (!ok) {
-            uiConsolePush('[error] Konnte Opt-In nicht speichern.');
-            return;
-          }
-          uiConsolePush(`[ok] perftelemetry=${arg}`);
-          return;
-        }
-        if (arg === 'send') {
-          const sent = await sendPerfTelemetrySnapshot('manual');
-          uiConsolePush(sent ? '[ok] Perf-Telemetrie gesendet.' : '[warn] Perf-Telemetrie nicht gesendet (Opt-In aus oder keine Renderer-Daten).');
-          return;
-        }
-        if (arg === 'summary') {
-          const mins = Math.max(5, Math.min(24 * 60, Number(parts[2] || 60)));
-          if (!API || typeof API.perfTelemetrySummary !== 'function') {
-            uiConsolePush('[error] Perf-Telemetrie-Summary API nicht verfuegbar.');
-            return;
-          }
-          const formatBytes = (input) => {
-            const bytes = Math.max(0, Number(input || 0));
-            if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-            let value = bytes;
-            let idx = 0;
-            while (value >= 1024 && idx < units.length - 1) {
-              value /= 1024;
-              idx += 1;
-            }
-            const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
-            return `${value.toFixed(digits)} ${units[idx]}`;
-          };
-          try {
-            const res = await API.perfTelemetrySummary({ minutes: mins, source: 'galaxy' });
-            if (!res?.success) {
-              uiConsolePush(`[error] ${res?.error || 'summary failed'}`);
-              return;
-            }
-            const s = res.summary || {};
-            const storage = res.storage || {};
-            const today = storage.today || {};
-            const limits = storage.limits || {};
-            const fps = s.fps || {};
-            const ft = s.frame_time_ms || {};
-            const dc = s.draw_calls || {};
-            uiConsolePush(`[perf] summary ${mins}m events=${res.count || 0}`);
-            uiConsolePush(`[perf] fps avg=${fps.avg ?? 'n/a'} p95=${fps.p95 ?? 'n/a'} min=${fps.min ?? 'n/a'}`);
-            uiConsolePush(`[perf] frameMs avg=${ft.avg ?? 'n/a'} p95=${ft.p95 ?? 'n/a'} max=${ft.max ?? 'n/a'}`);
-            uiConsolePush(`[perf] drawCalls avg=${dc.avg ?? 'n/a'} p95=${dc.p95 ?? 'n/a'} max=${dc.max ?? 'n/a'}`);
-            uiConsolePush(`[perf] storage files=${storage.files_count ?? 0} total=${formatBytes(storage.total_bytes)} latest=${storage.latest_file || 'n/a'} (${formatBytes(storage.latest_size_bytes)})`);
-            uiConsolePush(`[perf] shards date=${today.date || 'n/a'} count=${today.shards ?? 0} maxShard=${today.max_shard ?? 0}`);
-            uiConsolePush(`[perf] rotation maxFile=${formatBytes(limits.max_file_bytes)} maxShards=${limits.max_shards ?? 'n/a'} retention=${limits.retention_days ?? 'n/a'}d`);
-          } catch (e) {
-            uiConsolePush(`[error] ${String(e?.message || e || 'summary failed')}`);
-          }
-          return;
-        }
-        uiConsolePush('[usage] perftelemetry on|off|status|send|summary [minutes]');
-        return;
-      }
-      if (cmd === 'open') {
-        const win = String(parts[1] || '').toLowerCase();
-        const valid = new Set(['overview','buildings','colony','research','shipyard','fleet','galaxy','messages','quests','leaderboard','leaders','factions','settings']);
-        if (!valid.has(win)) {
-          uiConsolePush('[error] Unknown window.');
-          return;
-        }
-        WM.open(win);
-        uiConsolePush(`[ok] Opened ${win}.`);
-        return;
-      }
-      if (cmd === 'transitions') {
-        const arg = String(parts[1] || '').toLowerCase();
-        if (arg === 'status') {
-          uiConsolePush(`[state] transitions=${settingsState.autoTransitions ? 'on' : 'off'}`);
-          return;
-        }
-        if (arg === 'on' || arg === 'off') {
-          settingsState.autoTransitions = arg === 'on';
-          applyRuntimeSettings();
-          saveUiSettings();
-          uiConsolePush(`[ok] transitions=${arg}`);
-          return;
-        }
-        uiConsolePush('[usage] transitions on|off|status');
-        return;
-      }
-      if (cmd === 'msg') {
-        if (parts.length < 3) {
-          uiConsolePush('[usage] msg <user> <text>');
-          return;
-        }
-        const to = parts[1];
-        const body = input.split(/\s+/).slice(2).join(' ').trim();
-        const r = await API.sendMsg(to, 'Direct Message', body);
-        if (r.success) {
-          if (audioManager && typeof audioManager.playMessageSend === 'function') audioManager.playMessageSend();
-          uiConsolePush(`[ok] message sent to ${to}`);
-        }
-        else uiConsolePush(`[error] ${r.error || 'send failed'}`);
-        return;
-      }
-
-      if (cmd === 'term' || cmd === 'terminal') {
-        const sub = String(parts[1] || '').toLowerCase();
-        if (!window.GQLog) {
-          uiConsolePush('[error] Terminal logger nicht verfuegbar.');
-          return;
-        }
-        if (sub === 'clear') {
-          window.GQLog.clear();
-          uiConsolePush('[ok] Terminal-Log geleert.');
-          return;
-        }
-        if (sub === 'download') {
-          window.GQLog.download();
-          uiConsolePush('[ok] Terminal-Log Download gestartet.');
-          return;
-        }
-        if (sub === 'debug') {
-          const mode = String(parts[2] || '').toLowerCase();
-          if (mode === 'status') {
-            uiConsolePush(`[state] term.debug=${window.GQLog.debugEnabled() ? 'on' : 'off'}`);
-            return;
-          }
-          if (mode === 'on' || mode === 'off') {
-            window.GQLog.setDebugEnabled(mode === 'on');
-            uiConsolePush(`[ok] term.debug=${mode}`);
-            return;
-          }
-          uiConsolePush('[usage] term debug on|off|status');
-          return;
-        }
-        if (sub === 'trace') {
-          const mode = String(parts[2] || '').toLowerCase();
-          if (mode === 'status') {
-            uiConsolePush(`[state] term.trace=${window.GQLog.traceEnabled() ? 'on' : 'off'}`);
-            return;
-          }
-          if (mode === 'on' || mode === 'off') {
-            window.GQLog.setTraceEnabled(mode === 'on');
-            window.GQLog.instrumentNow();
-            uiConsolePush(`[ok] term.trace=${mode}`);
-            return;
-          }
-          uiConsolePush('[usage] term trace on|off|status');
-          return;
-        }
-        if (sub === 'instrument') {
-          const count = Number(window.GQLog.instrumentNow() || 0);
-          uiConsolePush(`[ok] Instrumentierung ausgefuehrt (+${count}).`);
-          return;
-        }
-        uiConsolePush('[usage] term clear | term download | term debug on|off|status | term trace on|off|status | term instrument');
-        return;
-      }
-
-      uiConsolePush(`[error] Unknown command: ${cmd}`);
-    }
-  }
-
-  const uiConsoleCommandController = new UIConsoleCommandController();
-  window.GQUIConsoleCommandController = uiConsoleCommandController;
-
-  async function runUiConsoleCommand(raw) {
-    await uiConsoleCommandController.execute(raw);
-  }
-
-  function renderMonoIconButton(button, symbolId, label) {
-    if (!(button instanceof HTMLElement)) return;
-    const iconId = String(symbolId || '').trim();
-    if (!iconId) return;
-    const iconFile = iconId.replace(/^icon-/, '');
-    const safeLabel = String(label || '').trim();
-    if (safeLabel) {
-      button.setAttribute('aria-label', safeLabel);
-      button.title = safeLabel;
-    }
-    button.innerHTML =
-      `<svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/${iconFile}.svg#${iconId}"></use></svg>` +
-      (safeLabel ? `<span class="sr-only">${safeLabel}</span>` : '');
-  }
-
-  function initUiConsole() {
-    uiConsoleController.init();
-  }
-
-  class SettingsController {
-    refreshAudioUi() {
-      const btn = document.getElementById('audio-toggle-btn');
-      const topbarTrack = document.getElementById('topbar-player-track');
-      const topbarToggle = document.getElementById('topbar-player-toggle');
-      const topbarCurrent = document.getElementById('topbar-player-current');
-      const topbarMode = document.getElementById('topbar-player-mode');
-      if (!btn) return;
-      if (!audioManager) {
-        btn.disabled = true;
-        btn.textContent = 'M';
-        btn.title = 'Audio nicht verfuegbar';
-        renderMonoIconButton(btn, 'icon-volume-muted', 'Audio nicht verfuegbar');
-        if (topbarTrack) topbarTrack.disabled = true;
-        if (topbarToggle) {
-          topbarToggle.disabled = true;
-          topbarToggle.textContent = 'Play';
-          topbarToggle.title = 'Musik nicht verfuegbar';
-          topbarToggle.setAttribute('aria-label', 'Musik nicht verfuegbar');
-          renderMonoIconButton(topbarToggle, 'icon-play', 'Musik nicht verfuegbar');
-        }
-        if (topbarCurrent) {
-          topbarCurrent.textContent = '-';
-          topbarCurrent.title = 'Kein aktiver Track';
-        }
-        if (topbarMode) {
-          topbarMode.textContent = 'N/A';
-          topbarMode.title = 'Transition-Modus nicht verfuegbar';
-        }
-        renderTopbarTrackQuickList('');
-        return;
-      }
-      const state = audioManager.snapshot();
-      const muted = !!state.masterMuted;
-      btn.disabled = false;
-      btn.textContent = muted ? 'M' : 'S';
-      btn.title = muted ? 'Audio aktivieren' : 'Audio stummschalten';
-      renderMonoIconButton(btn, muted ? 'icon-volume-muted' : 'icon-volume', muted ? 'Audio aktivieren' : 'Audio stummschalten');
-
-      if (topbarTrack) {
-        topbarTrack.disabled = false;
-        const activeTrack = String(state.musicUrl || settingsState.musicUrl || '').trim();
-        if (activeTrack && Array.isArray(audioTrackOptions) && audioTrackOptions.some((entry) => String(entry.value) === activeTrack)) {
-          topbarTrack.value = activeTrack;
-        }
-      }
-      const activeTrackForList = String(state.musicUrl || settingsState.musicUrl || '').trim();
-      renderTopbarTrackQuickList(activeTrackForList);
-      if (topbarCurrent) {
-        const activeTrack = String(state.musicUrl || settingsState.musicUrl || '').trim();
-        const label = resolveAudioTrackLabel(activeTrack);
-        updateTopbarTrackTicker(label);
-        topbarCurrent.title = activeTrack ? `Aktueller Track: ${label}` : 'Kein aktiver Track';
-      }
-      if (topbarToggle) {
-        topbarToggle.disabled = false;
-        const playing = !!state.musicPlaying;
-        topbarToggle.textContent = playing ? 'Pause' : 'Play';
-        topbarToggle.title = playing ? 'Musik pausieren' : 'Musik starten';
-        topbarToggle.setAttribute('aria-label', playing ? 'Musik pausieren' : 'Musik starten');
-        renderMonoIconButton(topbarToggle, playing ? 'icon-pause' : 'icon-play', playing ? 'Musik pausieren' : 'Musik starten');
-      }
-      if (topbarMode) {
-        const mode = String(state.musicTransitionMode || settingsState.musicTransitionMode || 'fade').toLowerCase() === 'cut' ? 'cut' : 'fade';
-        topbarMode.textContent = mode.toUpperCase();
-        topbarMode.title = mode === 'fade' ? 'Transition-Modus: Fade (nahtlos)' : 'Transition-Modus: Cut (sofort)';
-      }
-    }
-
-    loadUiSettings() {
-      const persisted = loadPortableUiSettings();
-      if (persisted && typeof persisted === 'object') {
-        Object.assign(settingsState, persisted);
-      }
-      applyTransitionPreset(settingsState.transitionPreset);
-      settingsState.magnetPreset = ['precise', 'balanced', 'sticky', 'custom'].includes(String(settingsState.magnetPreset || 'balanced'))
-        ? String(settingsState.magnetPreset)
-        : 'balanced';
-      settingsState.renderQualityProfile = ['auto', 'low', 'medium', 'high', 'ultra'].includes(String(settingsState.renderQualityProfile || 'auto').toLowerCase())
-        ? String(settingsState.renderQualityProfile || 'auto').toLowerCase()
-        : 'auto';
-      settingsState.orbitSimulationMode = ['auto', 'simple', 'complex'].includes(String(settingsState.orbitSimulationMode || 'auto').toLowerCase())
-        ? String(settingsState.orbitSimulationMode || 'auto').toLowerCase()
-        : 'auto';
-      settingsState.hoverMagnetEnabled = settingsState.hoverMagnetEnabled !== false;
-      settingsState.clickMagnetEnabled = settingsState.clickMagnetEnabled !== false;
-      settingsState.clusterHeatmapEnabled = settingsState.clusterHeatmapEnabled !== false;
-      settingsState.galacticCoreFxAuto = persisted && typeof persisted === 'object' && Object.prototype.hasOwnProperty.call(persisted, 'galacticCoreFxAuto')
-        ? persisted.galacticCoreFxAuto !== false
-        : !(persisted && typeof persisted === 'object' && Object.prototype.hasOwnProperty.call(persisted, 'galacticCoreFxEnabled'));
-      settingsState.galacticCoreFxEnabled = settingsState.galacticCoreFxEnabled !== false;
-      settingsState.galaxyFleetVectorsVisible = settingsState.galaxyFleetVectorsVisible !== false;
-      settingsState.systemOrbitPathsVisible = settingsState.systemOrbitPathsVisible !== false;
-      settingsState.systemOrbitMarkersVisible = settingsState.systemOrbitMarkersVisible !== false;
-      settingsState.systemOrbitFocusOnly = settingsState.systemOrbitFocusOnly === true;
-      settingsState.systemViewLegacyFallback = settingsState.systemViewLegacyFallback === true;
-      settingsState.introFlightMode = ['off', 'fast', 'cinematic'].includes(String(settingsState.introFlightMode || 'cinematic').toLowerCase())
-        ? String(settingsState.introFlightMode || 'cinematic').toLowerCase()
-        : 'cinematic';
-      settingsState.hoverMagnetStarPx = Math.max(8, Math.min(64, Number(settingsState.hoverMagnetStarPx || 24)));
-      settingsState.hoverMagnetPlanetPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetPlanetPx || 30)));
-      settingsState.hoverMagnetClusterPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetClusterPx || 28)));
-      settingsState.galaxyOwnerFocusUserId = Math.max(0, Number(settingsState.galaxyOwnerFocusUserId || 0));
-      settingsState.galaxyOwnerFocusName = String(settingsState.galaxyOwnerFocusName || '').trim();
-      if (!GALAXY_FILTERS_ENABLED) {
-        settingsState.galaxyColonyFilterMode = 'all';
-        settingsState.galaxyColoniesOnly = false;
-        settingsState.galaxyOwnerFocusUserId = 0;
-        settingsState.galaxyOwnerFocusName = '';
-      }
-      settingsState.uiThemeMode = UI_THEME_MODE_VALUES.has(String(settingsState.uiThemeMode || '').toLowerCase())
-        ? String(settingsState.uiThemeMode || '').toLowerCase()
-        : 'auto';
-      settingsState.uiThemeCustomAccent = normalizeHexColor(settingsState.uiThemeCustomAccent || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT);
-      settingsState.uiThemeFactionId = Math.max(0, Number(settingsState.uiThemeFactionId || 0));
-      if (!settingsState.factionThemeCache || typeof settingsState.factionThemeCache !== 'object') {
-        settingsState.factionThemeCache = {};
-      }
-      if (!settingsState.sceneTracks || typeof settingsState.sceneTracks !== 'object') {
-        settingsState.sceneTracks = { galaxy: '', system: '', battle: '', ui: '' };
-      }
-      if (!settingsState.sfxMap || typeof settingsState.sfxMap !== 'object') {
-        settingsState.sfxMap = {
-          uiClick: 'sfx/mixkit-video-game-retro-click-237.wav',
-          uiConfirm: 'sfx/mixkit-quick-positive-video-game-notification-interface-265.wav',
-          uiError: 'sfx/mixkit-negative-game-notification-249.wav',
-          uiNotify: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
-          navigation: 'sfx/mixkit-sci-fi-warp-slide-3113.wav',
-          pvpToggle: 'sfx/mixkit-horn-suspense-transition-3112.wav',
-          researchStart: 'sfx/mixkit-unlock-new-item-game-notification-254.wav',
-          researchComplete: 'sfx/mixkit-casino-bling-achievement-2067.wav',
-          fleetRecall: 'sfx/mixkit-space-shot-whoosh-3001.wav',
-          messageSend: 'sfx/mixkit-space-coin-win-notification-271.wav',
-          messageRead: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
-          messageDelete: 'sfx/mixkit-falling-hit-757.wav',
-          fleetAttack: 'sfx/mixkit-laser-gun-shot-3110.wav',
-          fleetTransport: 'sfx/mixkit-space-deploy-whizz-3003.wav',
-          fleetSpy: 'sfx/mixkit-night-vision-starting-2476.wav',
-          fleetColonize: 'sfx/mixkit-medieval-show-fanfare-announcement-226.wav',
-          fleetHarvest: 'sfx/mixkit-space-plasma-shot-3002.wav',
-          buildComplete: 'sfx/mixkit-bonus-earned-in-video-game-2058.wav',
-          fleetLaunch: 'sfx/mixkit-space-deploy-whizz-3003.wav',
-        };
-      }
-      if (audioManager) {
-        const audioSnapshot = audioManager.snapshot();
-        if (audioSnapshot?.sfxMap && typeof audioSnapshot.sfxMap === 'object') {
-          settingsState.sfxMap = Object.assign({}, settingsState.sfxMap, audioSnapshot.sfxMap);
-        }
-        if (audioSnapshot?.musicTransitionMode) {
-          settingsState.musicTransitionMode = String(audioSnapshot.musicTransitionMode || 'fade').toLowerCase() === 'cut' ? 'cut' : 'fade';
-        }
-        audioManager.setMasterVolume(settingsState.masterVolume);
-        audioManager.setMusicVolume(settingsState.musicVolume);
-        audioManager.setSfxVolume(settingsState.sfxVolume);
-        audioManager.setMasterMuted(settingsState.masterMuted);
-        audioManager.setMusicMuted(settingsState.musicMuted);
-        audioManager.setSfxMuted(settingsState.sfxMuted);
-        if (typeof audioManager.setMusicTransitionMode === 'function') {
-          audioManager.setMusicTransitionMode(settingsState.musicTransitionMode);
-        }
-        if (typeof audioManager.setAutoSceneMusic === 'function') {
-          audioManager.setAutoSceneMusic(!!settingsState.autoSceneMusic);
-        }
-        if (typeof audioManager.setSceneTrack === 'function') {
-          ['galaxy', 'system', 'battle', 'ui'].forEach((sceneKey) => {
-            audioManager.setSceneTrack(sceneKey, settingsState.sceneTracks?.[sceneKey] || '');
-          });
-        }
-        if (typeof audioManager.setSfxTrack === 'function') {
-          Object.entries(settingsState.sfxMap || {}).forEach(([eventKey, trackUrl]) => {
-            audioManager.setSfxTrack(eventKey, trackUrl || '');
-          });
-        }
-        if (settingsState.musicUrl) {
-          audioManager.setMusicTrack(settingsState.musicUrl, false);
-        }
-      }
-      applyUiTheme('load-ui-settings');
-      this.refreshAudioUi();
-      this.refreshThemeSettingsUi();
-      this.saveUiSettings();
-    }
-
-    refreshThemeSettingsUi() {
-      const modal = document.getElementById('settings-modal');
-      if (!modal) return;
-      const modeSelect = modal.querySelector('[data-setting="uiThemeMode"]');
-      const factionSelect = modal.querySelector('[data-setting="uiThemeFactionId"]');
-      const customAccentInput = modal.querySelector('[data-setting="uiThemeCustomAccent"]');
-      if (!modeSelect || !factionSelect || !customAccentInput) return;
-
-      const options = [];
-      const seen = new Set();
-
-      const pushFactionOption = (id, name, isPlayer = false) => {
-        const factionId = Math.max(0, Number(id || 0));
-        if (factionId <= 0 || seen.has(factionId)) return;
-        seen.add(factionId);
-        const label = String(name || `Faction #${factionId}`).trim() || `Faction #${factionId}`;
-        options.push({
-          id: factionId,
-          label: isPlayer ? `${label} (Player)` : label,
-        });
-      };
-
-      const playerSeed = resolvePlayerFactionThemeSeed();
-      if (playerSeed.factionId > 0) {
-        const playerName = String(currentUser?.faction?.name || currentUser?.faction_name || `Faction #${playerSeed.factionId}`);
-        pushFactionOption(playerSeed.factionId, playerName, true);
-      }
-
-      (Array.isArray(uiState.territory) ? uiState.territory : []).forEach((f) => {
-        pushFactionOption(f?.id || f?.faction_id, f?.name || f?.faction_name, !!f?.__isPlayer);
-      });
-
-      Object.keys(settingsState.factionThemeCache || {}).forEach((key) => {
-        pushFactionOption(Number(key || 0), `Faction #${key}`);
-      });
-
-      options.sort((a, b) => String(a.label).localeCompare(String(b.label), 'en', { sensitivity: 'base' }));
-
-      const selectedFactionId = Math.max(0, Number(settingsState.uiThemeFactionId || 0));
-      const html = [`<option value="0">Player faction (auto)</option>`]
-        .concat(options.map((row) => `<option value="${row.id}">${esc(row.label)}</option>`))
-        .join('');
-      factionSelect.innerHTML = html;
-      factionSelect.value = String(selectedFactionId);
-
-      const mode = String(modeSelect.value || settingsState.uiThemeMode || 'auto').toLowerCase();
-      const enableFactionSelect = mode === 'faction';
-      factionSelect.disabled = !enableFactionSelect;
-      factionSelect.title = enableFactionSelect
-        ? 'Select which faction palette should drive the UI theme.'
-        : 'Available when Theme Source is set to Faction Theme.';
-
-      const enableCustomAccent = mode === 'custom';
-      customAccentInput.disabled = !enableCustomAccent;
-      customAccentInput.title = enableCustomAccent
-        ? 'Select a custom accent color for the UI theme.'
-        : 'Available when Theme Source is set to Custom Accent.';
-
-      if (!modeSelect.__gqThemePreviewBound) {
-        modeSelect.__gqThemePreviewBound = true;
-        modeSelect.addEventListener('change', () => {
-          this.refreshThemeSettingsUi();
-          this.renderThemePreviewUi();
-        });
-      }
-      if (!factionSelect.__gqThemePreviewBound) {
-        factionSelect.__gqThemePreviewBound = true;
-        factionSelect.addEventListener('change', () => {
-          this.renderThemePreviewUi();
-        });
-      }
-      if (!customAccentInput.__gqThemePreviewBound) {
-        customAccentInput.__gqThemePreviewBound = true;
-        customAccentInput.addEventListener('input', () => {
-          this.renderThemePreviewUi();
-        });
-        customAccentInput.addEventListener('change', () => {
-          this.renderThemePreviewUi();
-        });
-      }
-
-      this.renderThemePreviewUi();
-    }
-
-    renderThemePreviewUi() {
-      const modal = document.getElementById('settings-modal');
-      if (!modal) return;
-      const modeSelect = modal.querySelector('[data-setting="uiThemeMode"]');
-      const factionSelect = modal.querySelector('[data-setting="uiThemeFactionId"]');
-      const customAccentInput = modal.querySelector('[data-setting="uiThemeCustomAccent"]');
-      const sourceMeta = modal.querySelector('[data-theme-preview-source]');
-      const detailMeta = modal.querySelector('[data-theme-preview-detail]');
-      if (!modeSelect || !factionSelect || !customAccentInput || !sourceMeta || !detailMeta) return;
-
-      const mode = String(modeSelect.value || settingsState.uiThemeMode || 'auto').toLowerCase();
-      const customAccent = normalizeHexColor(customAccentInput.value || settingsState.uiThemeCustomAccent || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT);
-      const factionId = Math.max(0, Number(factionSelect.value || settingsState.uiThemeFactionId || 0));
-      const palette = resolveThemePaletteForSelection(mode, customAccent, factionId);
-      if (!palette) return;
-
-      // Reflect the resolved accent back into the (disabled) color input so the
-      // user always sees the exact color the current mode produces.
-      if (mode !== 'custom') {
-        const resolvedAccent = normalizeHexColor(palette.accent, UI_THEME_DEFAULT_ACCENT);
-        if (resolvedAccent && customAccentInput.value !== resolvedAccent) {
-          customAccentInput.value = resolvedAccent;
-        }
-      }
-
-      const sourceLabel = palette.source === 'faction'
-        ? `Faction${palette.factionId > 0 ? ` #${palette.factionId}` : ''}`
-        : palette.source === 'custom'
-          ? 'Custom'
-          : 'Fallback';
-      sourceMeta.textContent = `Source: ${sourceLabel}`;
-      detailMeta.textContent = `Accent ${String(palette.accent || '').toUpperCase()} | Complement ${String(palette.complement || '').toUpperCase()}`;
-
-      const swatchMap = {
-        accent: normalizeHexColor(palette.accent || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT),
-        accentSoft: normalizeHexColor(palette.accentSoft || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT),
-        complement: normalizeHexColor(palette.complement || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT),
-        complementSoft: normalizeHexColor(palette.complementSoft || UI_THEME_DEFAULT_ACCENT, UI_THEME_DEFAULT_ACCENT),
-      };
-      modal.querySelectorAll('[data-theme-swatch]').forEach((node) => {
-        const key = String(node.getAttribute('data-theme-swatch') || '').trim();
-        const color = swatchMap[key];
-        if (!color) return;
-        node.style.background = color;
-        node.setAttribute('title', `${key}: ${color}`);
-      });
-    }
-
-    saveUiSettings() {
-      savePortableUiSettings(settingsState);
-    }
-
-    renderUserMenu() {
-      // Splitbutton menu is generated on-demand via WM.contextMenu.
-    }
-
-    closeUserMenu() {
-      const wrap = document.getElementById('user-menu-wrap');
-      const btn = document.getElementById('commander-name');
-      const arrow = document.getElementById('commander-menu-arrow');
-      if (WM && typeof WM.closeContextMenu === 'function') WM.closeContextMenu();
-      if (wrap) wrap.classList.remove('open');
-      if (btn) btn.setAttribute('aria-expanded', 'false');
-      if (arrow) arrow.setAttribute('aria-expanded', 'false');
-    }
-
-    openUserMenu() {
-      const wrap = document.getElementById('user-menu-wrap');
-      const btn = document.getElementById('commander-name');
-      const arrow = document.getElementById('commander-menu-arrow');
-      if (!btn || !arrow || !WM || typeof WM.contextMenu !== 'function') return;
-      closeTopbarSearchOverlay();
-      closeTopbarPlayerMenu();
-
-      const meta = window._GQ_meta || {};
-      const username = String(meta.username || btn.textContent || 'Commander').trim() || 'Commander';
-      const isAdmin = Number(meta.is_admin || 0) === 1;
-
-      const items = [
-        {
-          label: 'Einstellungen',
-          onSelect: () => {
-            this.closeUserMenu();
-            if (WM && typeof WM.modal === 'function') WM.modal('settings-modal');
-          },
-        },
-        {
-          label: settingsState.masterMuted ? 'Ton aktivieren' : 'Ton stummschalten',
-          onSelect: () => {
-            this.closeUserMenu();
-            this.handleUserMenuAction('toggle-master-mute');
-          },
-        },
-        {
-          label: 'Transition-Preset wechseln',
-          onSelect: () => {
-            this.closeUserMenu();
-            this.handleUserMenuAction('cycle-transition');
-          },
-        },
-        {
-          label: 'Home-Navigation wechseln',
-          onSelect: () => {
-            this.closeUserMenu();
-            this.handleUserMenuAction('toggle-home-enter');
-          },
-        },
-        {
-          label: 'Intro-Flight wechseln',
-          onSelect: () => {
-            this.closeUserMenu();
-            this.handleUserMenuAction('cycle-intro-flight');
-          },
-        },
-        { type: 'separator' },
-        {
-          label: 'PvP umschalten',
-          onSelect: () => {
-            this.closeUserMenu();
-            this.handleUserMenuAction('toggle-pvp');
-          },
-        },
-        {
-          label: 'Profildaten neu laden',
-          onSelect: () => {
-            this.closeUserMenu();
-            this.handleUserMenuAction('refresh-profile');
-          },
-        },
-      ];
-
-      if (isAdmin) {
-        items.push({
-          label: 'Users (Admin)',
-          onSelect: () => {
-            this.closeUserMenu();
-            if (WM && typeof WM.open === 'function') WM.open('admin-users');
-          },
-        });
-      }
-
-      items.push({ type: 'separator' });
-      items.push({
-        label: 'Logout',
-        danger: true,
-        onSelect: () => {
-          this.closeUserMenu();
-          this.handleUserMenuAction('logout');
-        },
-      });
-
-      const rect = arrow.getBoundingClientRect();
-      WM.contextMenu(items, {
-        title: username,
-        x: Math.max(8, Number(rect.right || rect.left || 0) - 8),
-        y: Math.max(8, Number(rect.bottom || rect.top || 0) + 6),
-      });
-
-      if (wrap) wrap.classList.add('open');
-      btn.setAttribute('aria-expanded', 'true');
-      arrow.setAttribute('aria-expanded', 'true');
-    }
-
-    toggleUserMenu() {
-      const arrow = document.getElementById('commander-menu-arrow');
-      if (!arrow) return;
-      if (arrow.getAttribute('aria-expanded') === 'true') this.closeUserMenu();
-      else this.openUserMenu();
-    }
-
-    async handleUserMenuAction(action) {
-      if (audioManager) audioManager.playNavigation();
-      // Note: 'open-settings' action no longer needed as settings are directly in the panel
-      if (action === 'toggle-master-mute') {
-        settingsState.masterMuted = !settingsState.masterMuted;
-        if (audioManager) audioManager.setMasterMuted(settingsState.masterMuted);
-        this.saveUiSettings();
-        this.refreshAudioUi();
-        this.renderUserMenu();
-        return;
-      }
-      if (action === 'cycle-transition') {
-        const order = ['smooth', 'balanced', 'snappy'];
-        const idx = Math.max(0, order.indexOf(String(settingsState.transitionPreset || 'balanced')));
-        const next = order[(idx + 1) % order.length];
-        applyTransitionPreset(next);
-        this.applyRuntimeSettings();
-        this.saveUiSettings();
-        this.renderUserMenu();
-        showToast(`Transition-Preset: ${next}`, 'info');
-        return;
-      }
-      if (action === 'toggle-home-enter') {
-        settingsState.homeEnterSystem = !settingsState.homeEnterSystem;
-        this.saveUiSettings();
-        this.renderUserMenu();
-        showToast(`Home-Navigation: ${settingsState.homeEnterSystem ? 'Systemansicht' : 'Galaxieansicht'}`, 'info');
-        return;
-      }
-      if (action === 'cycle-intro-flight') {
-        const order = ['off', 'fast', 'cinematic'];
-        const idx = Math.max(0, order.indexOf(String(settingsState.introFlightMode || 'cinematic')));
-        const next = order[(idx + 1) % order.length];
-        settingsState.introFlightMode = next;
-        this.saveUiSettings();
-        this.renderUserMenu();
-        const label = next === 'off' ? 'Aus' : next === 'fast' ? 'Schnell' : 'Cinematic';
-        showToast(`Intro-Flight: ${label}`, 'info');
-        return;
-      }
-      if (action === 'toggle-pvp') {
-        const response = await API.togglePvp();
-        if (response.success) {
-          if (audioManager && typeof audioManager.playPvpToggle === 'function') audioManager.playPvpToggle();
-          showToast(response.pvp_mode ? 'PvP enabled!' : 'PvP disabled.', 'info');
-          await loadOverview();
-          this.renderUserMenu();
-        } else {
-          showToast(response.error || 'PvP konnte nicht geaendert werden.', 'error');
-        }
-        return;
-      }
-      if (action === 'refresh-profile') {
-        await loadOverview();
-        this.renderUserMenu();
-        showToast('Profildaten aktualisiert.', 'success');
-        return;
-      }
-      if (action === 'logout') {
-        this.closeUserMenu();
-        document.getElementById('logout-btn')?.click();
-      }
-    }
-
-    initUserMenu() {
-      const wrap = document.getElementById('user-menu-wrap');
-      const btn = document.getElementById('commander-name');
-      const arrow = document.getElementById('commander-menu-arrow');
-      if (!wrap || !btn || !arrow) return;
-
-      if (wrap.__gqCommanderSplitBound) return;
-      wrap.__gqCommanderSplitBound = true;
-
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.closeUserMenu();
-        if (WM && typeof WM.modal === 'function') WM.modal('settings-modal');
-      });
-
-      arrow.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.toggleUserMenu();
-      });
-
-      // Close on outside click
-      document.addEventListener('click', (e) => {
-        const target = e.target;
-        if (!(target instanceof Node)) return;
-        if (!wrap.contains(target)) {
-          this.closeUserMenu();
-          return;
-        }
-      });
-
-      // Close on Escape
-      window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') this.closeUserMenu();
-      });
-    }
-
-    applyRuntimeSettings() {
-      applyUiTheme('apply-runtime');
-      if (!galaxy3d) return;
-      if (!callRendererMethod('setTransitionsEnabled', !!settingsState.autoTransitions)) {
-        galaxy3d.transitionsEnabled = !!settingsState.autoTransitions;
-      }
-      if (!callRendererMethod('setHoverMagnetConfig', {
-          enabled: !!settingsState.hoverMagnetEnabled,
-          clickEnabled: !!settingsState.clickMagnetEnabled,
-          starPx: Number(settingsState.hoverMagnetStarPx || 24),
-          planetPx: Number(settingsState.hoverMagnetPlanetPx || 30),
-          clusterPx: Number(settingsState.hoverMagnetClusterPx || 28),
-        })) {
-        galaxy3d.hoverMagnetEnabled = !!settingsState.hoverMagnetEnabled;
-        galaxy3d.clickMagnetEnabled = !!settingsState.clickMagnetEnabled;
-        galaxy3d.hoverMagnetStarPx = Math.max(8, Math.min(64, Number(settingsState.hoverMagnetStarPx || 24)));
-        galaxy3d.hoverMagnetPlanetPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetPlanetPx || 30)));
-        galaxy3d.hoverMagnetClusterPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetClusterPx || 28)));
-      }
-      galaxy3d.persistentHoverDistance = Math.max(120, Number(settingsState.persistentHoverDistance || 220));
-      galaxy3d.transitionStableMinMs = Math.max(60, Number(settingsState.transitionStableMinMs || 160));
-      callRendererMethod('setClusterDensityMode', settingsState.clusterDensityMode || 'auto', {
-        recluster: true,
-        preserveView: true,
-      });
-      callRendererMethod('setOrbitSimulationMode', settingsState.orbitSimulationMode || 'auto');
-      callRendererMethod('setClusterBoundsVisible', settingsState.clusterBoundsVisible !== false);
-      callRendererMethod('setClusterHeatmapEnabled', settingsState.clusterHeatmapEnabled !== false);
-      callRendererMethod('setGalaxyFleetVectorsVisible', settingsState.galaxyFleetVectorsVisible !== false);
-      callRendererMethod('setSystemOrbitPathsVisible', settingsState.systemOrbitPathsVisible !== false);
-      callRendererMethod('setSystemOrbitMarkersVisible', settingsState.systemOrbitMarkersVisible !== false);
-      callRendererMethod('setSystemOrbitFocusOnly', settingsState.systemOrbitFocusOnly === true);
-      if (hasRendererMethod('setGalacticCoreFxEnabled')) {
-        const autoCoreFx = settingsState.galacticCoreFxAuto !== false;
-        const recommendedCoreFx = galaxy3dQualityState?.features?.galacticCoreFx;
-        const shouldEnableCoreFx = autoCoreFx && recommendedCoreFx === false
-          ? false
-          : (settingsState.galacticCoreFxEnabled !== false);
-        callRendererMethod('setGalacticCoreFxEnabled', shouldEnableCoreFx);
-      }
-    }
-  }
-
-  const settingsController = new SettingsController();
+  const runtimeSettingsControllerApi = requireRuntimeApi('GQRuntimeSettingsController', ['createSettingsController']);
+  const settingsController = runtimeSettingsControllerApi.createSettingsController({
+    windowRef: window,
+    documentRef: document,
+    settingsState,
+    uiState,
+    currentUser,
+    audioManager,
+    getAudioTrackOptions,
+    renderMonoIconButton,
+    renderTopbarTrackQuickList,
+    resolveAudioTrackLabel,
+    updateTopbarTrackTicker,
+    loadPortableUiSettings,
+    savePortableUiSettings,
+    applyTransitionPreset,
+    normalizeHexColor,
+    uiThemeModeValues: UI_THEME_MODE_VALUES,
+    uiThemeDefaultAccent: UI_THEME_DEFAULT_ACCENT,
+    galaxyFiltersEnabled: GALAXY_FILTERS_ENABLED,
+    applyUiTheme,
+    resolvePlayerFactionThemeSeed,
+    esc,
+    resolveThemePaletteForSelection,
+    wm: WM,
+    closeTopbarSearchOverlay,
+    closeTopbarPlayerMenu,
+    showToast,
+    api: API,
+    loadOverview,
+    getGalaxy3d: getGalaxy3dRef,
+    getGalaxy3dQualityState: getGalaxy3dQualityStateRef,
+    callRendererMethod,
+    hasRendererMethod,
+  });
   window.GQSettingsController = settingsController;
 
-  function refreshAudioUi() {
-    settingsController.refreshAudioUi();
-  }
+  const runtimeSettingsUiHelpersApi = requireRuntimeApi('GQRuntimeSettingsUiHelpers', [
+    'formatLastAudioEvent',
+    'updateLastAudioEventUi',
+    'applyTransitionPreset',
+  ]);
 
   function formatLastAudioEvent(detail) {
-    if (!detail || !detail.key) return 'Kein Event';
-    const key = String(detail.key || '');
-    const matching = AUDIO_SFX_EVENTS.find((item) => item.key === key);
-    const label = matching ? matching.label : key;
-    const stamp = detail.ts ? new Date(detail.ts).toLocaleTimeString() : '';
-    return stamp ? `${label} @ ${stamp}` : label;
+    return runtimeSettingsUiHelpersApi.formatLastAudioEvent(detail, {
+      audioEvents: AUDIO_SFX_EVENTS,
+    });
   }
 
   function updateLastAudioEventUi(detail) {
-    const node = document.querySelector('#set-last-audio-event');
-    if (!node) return;
-    node.textContent = formatLastAudioEvent(detail);
+    runtimeSettingsUiHelpersApi.updateLastAudioEventUi(detail, {
+      documentRef: document,
+      formatLastAudioEvent,
+      audioEvents: AUDIO_SFX_EVENTS,
+    });
   }
 
   window.addEventListener('gq:audio-event', (ev) => {
@@ -3461,811 +347,123 @@
   });
 
   window.addEventListener('gq:audio-state', () => {
-    refreshAudioUi();
+    settingsController.refreshAudioUi();
   });
 
-  function loadUiSettings() {
-    settingsController.loadUiSettings();
-  }
-
-  function saveUiSettings() {
-    settingsController.saveUiSettings();
-  }
-
-  function renderUserMenu() {
-    settingsController.renderUserMenu();
-  }
-
-  function closeUserMenu() {
-    settingsController.closeUserMenu();
-  }
-
-  function openUserMenu() {
-    settingsController.openUserMenu();
-  }
-
-  function toggleUserMenu() {
-    settingsController.toggleUserMenu();
-  }
-
-  function initUserMenu() {
-    settingsController.initUserMenu();
-  }
-
   function applyTransitionPreset(presetName) {
-    const preset = String(presetName || 'balanced');
-    const presets = {
-      smooth: { hover: 270, stableMs: 240 },
-      balanced: { hover: 220, stableMs: 160 },
-      snappy: { hover: 175, stableMs: 100 },
-    };
-    const selected = presets[preset] || presets.balanced;
-    settingsState.transitionPreset = presets[preset] ? preset : 'balanced';
-    settingsState.persistentHoverDistance = selected.hover;
-    settingsState.transitionStableMinMs = selected.stableMs;
+    runtimeSettingsUiHelpersApi.applyTransitionPreset(presetName, settingsState);
   }
 
-  function applyRuntimeSettings() {
-    settingsController.applyRuntimeSettings();
-  }
+  const runtimePayloadValidationApi = requireRuntimeApi('GQRuntimePayloadValidation', ['hasPlanetTextureManifest']);
 
   function hasPlanetTextureManifest(payload) {
-    // Accept any payload that has a star_system or a non-empty planets array -
-    // a missing/empty texture manifest is harmless (planets render with fallback colors).
-    if (!payload) return false;
-    if (Array.isArray(payload.planets) && payload.planets.length > 0) return true;
-    if (payload.star_system && typeof payload.star_system === 'object') return true;
-    const planets = payload?.planet_texture_manifest?.planets;
-    return !!(planets && typeof planets === 'object' && Object.keys(planets).length);
+    return runtimePayloadValidationApi.hasPlanetTextureManifest(payload);
   }
 
+  const runtimeUiTemplateHelpersApi = requireRuntimeApi('GQRuntimeUiTemplateHelpers', [
+    'esc',
+    'renderInlineTemplate',
+    'renderInlineTemplateList',
+    'uiKitTemplateHTML',
+    'uiKitEmptyStateHTML',
+    'uiKitSkeletonHTML',
+    'waitMs',
+  ]);
+
   function esc(str) {
-    return String(str)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return runtimeUiTemplateHelpersApi.esc(str);
   }
 
   function renderInlineTemplate(template, data = {}) {
-    const tpl = String(template || '');
-    if (window.Mustache && typeof window.Mustache.render === 'function') {
-      return window.Mustache.render(tpl, data);
-    }
-    return tpl.replace(/\{\{\{?\s*([a-zA-Z0-9_]+)\s*\}?\}\}/g, (_, key) => {
-      const value = data[key];
-      if (value === null || value === undefined) return '';
-      return String(value);
+    return runtimeUiTemplateHelpersApi.renderInlineTemplate(template, data, {
+      windowRef: window,
     });
   }
 
   function renderInlineTemplateList(template, rows) {
-    const list = Array.isArray(rows) ? rows : [];
-    return list.map((row) => renderInlineTemplate(template, row)).join('');
+    return runtimeUiTemplateHelpersApi.renderInlineTemplateList(template, rows, {
+      windowRef: window,
+    });
   }
 
   function uiKitTemplateHTML(templateId) {
-    try {
-      if (!(window.GQUIKit && typeof window.GQUIKit.cloneTemplate === 'function')) return '';
-      const frag = window.GQUIKit.cloneTemplate(templateId);
-      if (!frag) return '';
-      const wrap = document.createElement('div');
-      wrap.appendChild(frag);
-      return wrap.innerHTML;
-    } catch (_) {
-      return '';
-    }
+    return runtimeUiTemplateHelpersApi.uiKitTemplateHTML(templateId, {
+      windowRef: window,
+      documentRef: document,
+    });
   }
 
   function uiKitEmptyStateHTML(title, text) {
-    const fromTemplate = uiKitTemplateHTML('tpl-ui-empty-state');
-    if (fromTemplate) return fromTemplate;
-    return `
-      <section class="ui-empty-state">
-        <div class="ui-empty-icon">i</div>
-        <h4 class="ui-empty-title">${esc(title || 'No data available')}</h4>
-        <p class="ui-empty-text">${esc(text || 'Content will appear here soon.')}</p>
-      </section>`;
+    return runtimeUiTemplateHelpersApi.uiKitEmptyStateHTML(title, text, {
+      windowRef: window,
+      documentRef: document,
+    });
   }
 
   function uiKitSkeletonHTML() {
-    return uiKitTemplateHTML('tpl-ui-skeleton-list') || '<p class="text-muted">Loading...</p>';
+    return runtimeUiTemplateHelpersApi.uiKitSkeletonHTML({
+      windowRef: window,
+      documentRef: document,
+    });
   }
 
   function waitMs(ms) {
-    return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
+    return runtimeUiTemplateHelpersApi.waitMs(ms);
   }
 
   function canUsePhysicsFlightPath(target) {
-    return !!(
-      galaxy3d
-      && hasRendererMethod('setCameraDriver')
-      && hasRendererMethod('clearCameraDriver')
-      && window.GQSpaceCameraFlightDriver
-      && typeof window.GQSpaceCameraFlightDriver.create === 'function'
-      && Number.isFinite(Number(target?.x_ly))
-      && Number.isFinite(Number(target?.z_ly))
-    );
+    return runtimeGalaxyPhysicsFlightApi.canUsePhysicsFlightPath(target);
   }
 
   async function runPhysicsCinematicFlight(target, opts = {}) {
-    if (!canUsePhysicsFlightPath(target)) return { ok: false, reason: 'unavailable' };
-
-    const durationSec = Math.max(1.2, Number(opts.durationSec || 2.2));
-    const holdMs = Math.max(420, Number(opts.holdMs || Math.round(durationSec * 520)));
-    const label = String(opts.label || target?.name || target?.catalog_name || `System ${Number(target?.system_index || 0)}`);
-
-    try {
-      const driver = window.GQSpaceCameraFlightDriver.create({ three: window.THREE });
-      if (typeof driver.setRandomStars === 'function' && Array.isArray(galaxyStars) && galaxyStars.length) {
-        driver.setRandomStars(galaxyStars);
-      }
-      const accepted = driver.setTarget({
-        id: Number(target?.id || target?.system_index || 0) || 0,
-        x_ly: Number(target?.x_ly),
-        y_ly: Number(target?.y_ly || 0),
-        z_ly: Number(target?.z_ly),
-        label,
-      }, { durationSec });
-      if (!accepted) return { ok: false, reason: 'target-rejected' };
-
-      callRendererMethod('setCameraDriver', driver, { consumeAutoNav: true, updateControls: true });
-      await waitMs(holdMs);
-      return { ok: true };
-    } catch (_) {
-      return { ok: false, reason: 'driver-error' };
-    } finally {
-      try {
-        callRendererMethod('clearCameraDriver');
-      } catch (_) {}
-    }
+    return runtimeGalaxyPhysicsFlightApi.runPhysicsCinematicFlight(target, opts);
   }
 
   function starSearchKey(star) {
-    if (!star) return '';
-    const g = Number(star.galaxy_index || star.galaxy || 1);
-    const s = Number(star.system_index || star.system || 0);
-    return `${g}:${s}`;
+    return runtimeGalaxySearchScoringApi.starSearchKey(star);
   }
 
   function scoreStarSearchMatch(star, queryLower, systemExact) {
-    const name = String(star?.name || '').toLowerCase();
-    const catalog = String(star?.catalog_name || '').toLowerCase();
-    const sys = Number(star?.system_index || 0);
-    const sysText = String(sys);
-    let score = -1;
-
-    if (systemExact > 0 && sys === systemExact) score = Math.max(score, 120);
-    if (sysText === queryLower) score = Math.max(score, 116);
-    if (sysText.startsWith(queryLower)) score = Math.max(score, 100);
-    if (name === queryLower) score = Math.max(score, 98);
-    if (catalog === queryLower) score = Math.max(score, 96);
-    if (name.startsWith(queryLower)) score = Math.max(score, 86);
-    if (catalog.startsWith(queryLower)) score = Math.max(score, 84);
-    if (name.includes(queryLower)) score = Math.max(score, 70);
-    if (catalog.includes(queryLower)) score = Math.max(score, 66);
-
-    if (score < 0) return -1;
-    return score - Math.min(30, Math.floor(sys / 1000));
+    return runtimeGalaxySearchScoringApi.scoreStarSearchMatch(star, queryLower, systemExact);
   }
 
   function collectLocalStarSearch(query, limit = 10) {
-    const q = String(query || '').trim().toLowerCase();
-    if (!q) return [];
-    const g = Number(uiState.activeGalaxy || currentColony?.galaxy || 1);
-    const systemExact = /^\d+$/.test(q) ? Number(q) : -1;
-    const rows = [];
-
-    (Array.isArray(galaxyStars) ? galaxyStars : []).forEach((star) => {
-      if (Number(star?.galaxy_index || 0) !== g) return;
-      const score = scoreStarSearchMatch(star, q, systemExact);
-      if (score < 0) return;
-      rows.push({ score, star });
-    });
-
-    rows.sort((a, b) => b.score - a.score);
-    return rows.slice(0, Math.max(1, Number(limit || 10))).map((row) => row.star);
-  }
-
-  function getTopbarSearchDom() {
-    const wrap = document.getElementById('topbar-search-wrap');
-    const toggle = document.getElementById('topbar-search-toggle');
-    const menu = document.getElementById('topbar-search-menu');
-    const input = document.getElementById('topbar-search-input');
-    const overlay = document.getElementById('topbar-search-overlay');
-    return { wrap, toggle, menu, input, overlay };
-  }
-
-  const topbarMenuFocusTrapState = {
-    container: null,
-    returnEl: null,
-  };
-
-  let topbarDebugIndicatorNode = null;
-
-  const TOPBAR_A11Y_BACKGROUND_IDS = [
-    'resource-section',
-    'left_sidebar',
-    'right_sidebar',
-    'taskbar-section',
-    'terminal-section',
-    'modal_container',
-    'context_menu_container',
-  ];
-
-  function isTopbarBottomSheetMode() {
-    try {
-      return window.matchMedia('(max-width: 560px) and (hover: none) and (pointer: coarse)').matches;
-    } catch (_) {
-      const smallScreen = window.innerWidth <= 560;
-      const coarsePointer = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
-      return smallScreen && coarsePointer;
-    }
-  }
-
-  function isTopbarSheetDebugEnabled() {
-    try {
-      const qs = new URLSearchParams(window.location.search || '');
-      if (qs.get('debugTopbarSheet') === '1') return true;
-    } catch (_) {
-      // Ignore query parse failures.
-    }
-
-    try {
-      return localStorage.getItem('gq.debug.topbarSheet') === '1';
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function ensureTopbarDebugIndicator() {
-    if (!isTopbarSheetDebugEnabled()) return null;
-    if (topbarDebugIndicatorNode instanceof HTMLElement && document.body?.contains(topbarDebugIndicatorNode)) {
-      return topbarDebugIndicatorNode;
-    }
-
-    const node = document.createElement('aside');
-    node.className = 'gq-topbar-debug-indicator';
-    node.setAttribute('aria-live', 'polite');
-    node.setAttribute('aria-label', 'Topbar Bottom Sheet Debug');
-    node.innerHTML = '<strong>Topbar Debug</strong><div class="gq-topbar-debug-indicator-body"></div>';
-    document.body?.appendChild(node);
-    topbarDebugIndicatorNode = node;
-    return node;
-  }
-
-  function updateTopbarDebugIndicator(state = null) {
-    const node = ensureTopbarDebugIndicator();
-    if (!(node instanceof HTMLElement)) return;
-
-    const body = document.body;
-    const data = state || {};
-    const inBottomSheetMode = !!data.inBottomSheetMode;
-    const searchOpen = !!data.searchOpen;
-    const playerOpen = !!data.playerOpen;
-    const scrollLock = !!(body && body.classList.contains('gq-mobile-sheet-open'));
-    const trappedId = topbarMenuFocusTrapState.container?.id || '-';
-    const activeEl = document.activeElement;
-    const activeLabel = activeEl instanceof HTMLElement
-      ? (activeEl.id ? `#${activeEl.id}` : activeEl.tagName.toLowerCase())
-      : '-';
-
-    const bodyEl = node.querySelector('.gq-topbar-debug-indicator-body');
-    if (!(bodyEl instanceof HTMLElement)) return;
-    bodyEl.textContent = `mode:${inBottomSheetMode ? 'bottom-sheet' : 'normal'} | search:${searchOpen ? 'open' : 'closed'} | player:${playerOpen ? 'open' : 'closed'} | lock:${scrollLock ? 'on' : 'off'} | trap:${trappedId} | focus:${activeLabel}`;
-  }
-
-  function focusFirstInTopbarMenu(container, preferredSelector = '') {
-    if (!(container instanceof HTMLElement)) return;
-    const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-    let target = null;
-    if (preferredSelector) {
-      target = container.querySelector(preferredSelector);
-    }
-    if (!(target instanceof HTMLElement)) {
-      target = container.querySelector(focusableSelector);
-    }
-    if (target instanceof HTMLElement && typeof target.focus === 'function') {
-      target.focus();
-    }
-  }
-
-  function syncTopbarBottomSheetState() {
-    const body = document.body;
-    if (!body || !body.classList.contains('game-page')) return;
-
-    const searchMenu = document.getElementById('topbar-search-menu');
-    const playerMenu = document.getElementById('topbar-player-menu');
-    const searchOpen = !!(searchMenu && !searchMenu.classList.contains('hidden'));
-    const playerOpen = !!(playerMenu && !playerMenu.classList.contains('hidden'));
-    const inBottomSheetMode = isTopbarBottomSheetMode();
-    const shouldLock = inBottomSheetMode && (searchOpen || playerOpen);
-
-    syncTopbarBottomSheetA11y({
-      inBottomSheetMode,
-      searchOpen,
-      playerOpen,
-      searchMenu,
-      playerMenu,
-    });
-
-    body.classList.toggle('gq-mobile-sheet-open', shouldLock);
-    updateTopbarDebugIndicator({ inBottomSheetMode, searchOpen, playerOpen });
-  }
-
-  function applyTopbarBackgroundInert(enabled) {
-    TOPBAR_A11Y_BACKGROUND_IDS.forEach((id) => {
-      const node = document.getElementById(id);
-      if (!(node instanceof HTMLElement)) return;
-
-      if (enabled) {
-        if (!node.hasAttribute('data-gq-prev-aria-hidden')) {
-          const prevAriaHidden = node.getAttribute('aria-hidden');
-          node.setAttribute('data-gq-prev-aria-hidden', prevAriaHidden === null ? '__none__' : prevAriaHidden);
-        }
-        node.setAttribute('aria-hidden', 'true');
-        node.setAttribute('inert', '');
-        return;
-      }
-
-      if (node.hasAttribute('data-gq-prev-aria-hidden')) {
-        const prev = node.getAttribute('data-gq-prev-aria-hidden');
-        if (prev === '__none__') node.removeAttribute('aria-hidden');
-        else if (prev !== null) node.setAttribute('aria-hidden', prev);
-        node.removeAttribute('data-gq-prev-aria-hidden');
-      } else {
-        node.removeAttribute('aria-hidden');
-      }
-      node.removeAttribute('inert');
-    });
-  }
-
-  function syncTopbarBottomSheetA11y(state) {
-    const inBottomSheetMode = !!state?.inBottomSheetMode;
-    const searchOpen = !!state?.searchOpen;
-    const playerOpen = !!state?.playerOpen;
-    const searchMenu = state?.searchMenu;
-    const playerMenu = state?.playerMenu;
-    const anyOpen = searchOpen || playerOpen;
-
-    if (searchMenu instanceof HTMLElement) {
-      if (inBottomSheetMode && searchOpen) searchMenu.setAttribute('aria-modal', 'true');
-      else searchMenu.removeAttribute('aria-modal');
-    }
-
-    if (playerMenu instanceof HTMLElement) {
-      if (inBottomSheetMode && playerOpen) playerMenu.setAttribute('aria-modal', 'true');
-      else playerMenu.removeAttribute('aria-modal');
-    }
-
-    applyTopbarBackgroundInert(inBottomSheetMode && anyOpen);
-  }
-
-  function setTopbarMenuFocusTrap(container, returnEl) {
-    if (!(container instanceof HTMLElement)) return;
-    topbarMenuFocusTrapState.container = container;
-    topbarMenuFocusTrapState.returnEl = returnEl instanceof HTMLElement ? returnEl : null;
-    updateTopbarDebugIndicator();
-  }
-
-  function clearTopbarMenuFocusTrap({ restoreFocus = false } = {}) {
-    const returnEl = topbarMenuFocusTrapState.returnEl;
-    topbarMenuFocusTrapState.container = null;
-    topbarMenuFocusTrapState.returnEl = null;
-    if (restoreFocus && returnEl && typeof returnEl.focus === 'function') {
-      returnEl.focus();
-    }
-    updateTopbarDebugIndicator();
-  }
-
-  document.addEventListener('keydown', (ev) => {
-    if (ev.key !== 'Tab') return;
-    const container = topbarMenuFocusTrapState.container;
-    if (!(container instanceof HTMLElement) || container.classList.contains('hidden')) {
-      clearTopbarMenuFocusTrap();
-      return;
-    }
-
-    const focusable = container.querySelectorAll(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    );
-    if (!focusable.length) return;
-
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-
-    if (ev.shiftKey && active === first) {
-      ev.preventDefault();
-      if (last instanceof HTMLElement) last.focus();
-      return;
-    }
-
-    if (!ev.shiftKey && active === last) {
-      ev.preventDefault();
-      if (first instanceof HTMLElement) first.focus();
-    }
-  });
-
-  window.addEventListener('resize', () => {
-    syncTopbarBottomSheetState();
-  });
-
-  function closeCommanderMenuPanel() {
-    const wrap = document.getElementById('user-menu-wrap');
-    const btn = document.getElementById('commander-name');
-    const arrow = document.getElementById('commander-menu-arrow');
-    if (WM && typeof WM.closeContextMenu === 'function') WM.closeContextMenu();
-    if (wrap) wrap.classList.remove('open');
-    if (btn) btn.setAttribute('aria-expanded', 'false');
-    if (arrow) arrow.setAttribute('aria-expanded', 'false');
-  }
-
-  function closeTopbarPlayerMenu() {
-    const menuWrap = document.getElementById('topbar-player');
-    const menu = document.getElementById('topbar-player-menu');
-    const menuToggle = document.getElementById('topbar-player-menu-toggle');
-    if (menu) menu.classList.add('hidden');
-    if (menuWrap) menuWrap.classList.remove('open');
-    if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
-    if (topbarMenuFocusTrapState.container === menu) {
-      clearTopbarMenuFocusTrap({ restoreFocus: true });
-    }
-    syncTopbarBottomSheetState();
-  }
-
-  function closeTopbarSearchOverlay() {
-    topbarSearchStore.closeOverlay();
-    renderTopbarSearchOverlay();
-    const { wrap, menu, toggle } = getTopbarSearchDom();
-    wrap?.classList.remove('open');
-    menu?.classList.add('hidden');
-    if (toggle) toggle.setAttribute('aria-expanded', 'false');
-    if (topbarMenuFocusTrapState.container === menu) {
-      clearTopbarMenuFocusTrap({ restoreFocus: true });
-    }
-    syncTopbarBottomSheetState();
-  }
-
-  const TOPBAR_SEARCH_TEMPLATES = {
-    item: '<button type="button" class="topbar-search-item" data-search-source="{{{source}}}" data-search-index="{{{index}}}" role="option"><div class="topbar-search-title">{{{name}}}</div><div class="topbar-search-meta">{{{coords}}} | {{{starClass}}} | {{{origin}}}</div></button>',
-    sections: '<div class="topbar-search-section"><div class="topbar-search-head">Lokal (Three)</div>{{{localHtml}}}</div><div class="topbar-search-section"><div class="topbar-search-head">Server-Erweiterung</div>{{{serverHtml}}}</div>',
-  };
-
-  function renderTopbarSearchOverlay() {
-    const { overlay } = getTopbarSearchDom();
-    if (!overlay) return;
-    if (!topbarSearchStore.open) {
-      overlay.classList.add('hidden');
-      overlay.innerHTML = '';
-      return;
-    }
-
-    const localRows = Array.isArray(topbarSearchStore.localResults) ? topbarSearchStore.localResults : [];
-    const serverRows = Array.isArray(topbarSearchStore.serverResults) ? topbarSearchStore.serverResults : [];
-    const renderRow = (star, source, idx) => {
-      const name = star?.name || star?.catalog_name || `System ${Number(star?.system_index || 0)}`;
-      const cls = `${String(star?.spectral_class || '?')}${String(star?.subtype || '')}`;
-      const g = Number(star?.galaxy_index || uiState.activeGalaxy || 1);
-      const s = Number(star?.system_index || 0);
-      return renderInlineTemplate(TOPBAR_SEARCH_TEMPLATES.item, {
-        source: esc(source),
-        index: esc(String(idx)),
-        name: esc(name),
-        coords: esc(`${g}:${s}`),
-        starClass: esc(cls),
-        origin: source === 'local' ? 'lokal (3D)' : 'server',
-      });
-    };
-
-    const localHtml = localRows.length
-      ? localRows.map((star, idx) => renderRow(star, 'local', idx)).join('')
-      : '<div class="topbar-search-empty">Keine lokalen Treffer im aktuell geladenen 3D-Sternfeld.</div>';
-    const serverHtml = topbarSearchStore.serverPending
-      ? '<div class="topbar-search-empty">Server-Suche laeuft...</div>'
-      : (serverRows.length
-        ? serverRows.map((star, idx) => renderRow(star, 'server', idx)).join('')
-        : '<div class="topbar-search-empty">Keine zusaetzlichen Server-Treffer.</div>');
-
-    overlay.innerHTML = renderInlineTemplate(TOPBAR_SEARCH_TEMPLATES.sections, {
-      localHtml,
-      serverHtml,
-    });
-    overlay.classList.remove('hidden');
-
-    overlay.querySelectorAll('.topbar-search-item').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const source = String(btn.getAttribute('data-search-source') || 'local');
-        const index = Number(btn.getAttribute('data-search-index') || -1);
-        const list = source === 'server' ? serverRows : localRows;
-        const star = (index >= 0 && index < list.length) ? list[index] : null;
-        if (!star) return;
-        await jumpToSearchStar(star);
-        closeTopbarSearchOverlay();
-      });
-    });
-  }
-
-  function queueServerStarSearch(query, token) {
-    topbarSearchStore.queueServerFetch(async () => {
-      if (!topbarSearchStore.matchesToken(token)) return;
-      const g = Number(uiState.activeGalaxy || currentColony?.galaxy || 1);
-      try {
-        const data = await API.galaxySearch(g, query, topbarSearchStore.maxServer);
-        if (!topbarSearchStore.matchesToken(token)) return;
-        const localKeys = new Set((topbarSearchStore.localResults || []).map((s) => starSearchKey(s)));
-        const stars = Array.isArray(data?.stars) ? data.stars : [];
-        topbarSearchStore.setServerResults(stars.filter((star) => !localKeys.has(starSearchKey(star))));
-      } catch (_) {
-        if (!topbarSearchStore.matchesToken(token)) return;
-        topbarSearchStore.setServerResults([]);
-      }
-      topbarSearchStore.setServerPending(false);
-      renderTopbarSearchOverlay();
-    }, 260);
-  }
-
-  function runTopbarSearch(query) {
-    const normalized = String(query || '').trim();
-    const token = topbarSearchStore.nextToken(normalized);
-
-    if (!normalized) {
-      topbarSearchStore.reset();
-      closeTopbarSearchOverlay();
-      return;
-    }
-
-    topbarSearchStore.setLocalResults(collectLocalStarSearch(normalized, topbarSearchStore.maxLocal));
-    topbarSearchStore.setServerResults([]);
-    topbarSearchStore.setServerPending(normalized.length >= 2);
-    topbarSearchStore.openOverlay();
-    renderTopbarSearchOverlay();
-
-    if (topbarSearchStore.serverPending) {
-      queueServerStarSearch(normalized, token);
-    }
-  }
-
-  async function jumpToSearchStar(star) {
-    await galaxyController.jumpToSearchStar(star);
-  }
-
-  function initTopbarSearch() {
-    const { wrap, toggle, menu, input, overlay } = getTopbarSearchDom();
-    if (!wrap || !input || !overlay || !menu || !toggle) return;
-
-    const openSearchMenu = () => {
-      closeCommanderMenuPanel();
-      closeTopbarPlayerMenu();
-      wrap.classList.add('open');
-      menu.classList.remove('hidden');
-      toggle.setAttribute('aria-expanded', 'true');
-      setTopbarMenuFocusTrap(menu, toggle);
-      syncTopbarBottomSheetState();
-      focusFirstInTopbarMenu(menu, '#topbar-search-input');
-    };
-
-    input.addEventListener('input', () => runTopbarSearch(input.value));
-    input.addEventListener('focus', () => {
-      if (!String(input.value || '').trim()) return;
-      openSearchMenu();
-      topbarSearchStore.openOverlay();
-      renderTopbarSearchOverlay();
-    });
-
-    toggle.addEventListener('click', () => {
-      const willOpen = menu.classList.contains('hidden');
-      if (willOpen) {
-        openSearchMenu();
-      } else {
-        closeTopbarSearchOverlay();
-      }
-    });
-    input.addEventListener('keydown', async (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeTopbarSearchOverlay();
-        input.blur();
-        return;
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        const candidate = topbarSearchStore.firstCandidate();
-        if (candidate) {
-          await jumpToSearchStar(candidate);
-          closeTopbarSearchOverlay();
-        }
-      }
-    });
-
-    document.addEventListener('click', (e) => {
-      const target = e.target;
-      if (!(target instanceof Node)) return;
-      if (!wrap.contains(target)) closeTopbarSearchOverlay();
-    });
-
-    window.addEventListener('keydown', (e) => {
-      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const active = document.activeElement;
-        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) return;
-        e.preventDefault();
-        openSearchMenu();
-        input.focus();
-      }
-    });
+    return runtimeGalaxySearchScoringApi.collectLocalStarSearch(query, limit);
   }
 
   function starClassColor(spectralClass) {
-    const cls = String(spectralClass || '').toUpperCase();
-    const colors = {
-      O: '#9bb0ff',
-      B: '#aabfff',
-      A: '#cad7ff',
-      F: '#f8f7ff',
-      G: '#fff4ea',
-      K: '#ffd2a1',
-      M: '#ffcc6f',
-    };
-    return colors[cls] || '#d8e6ff';
+    return runtimeGalaxyVisualUtilsApi.starClassColor(spectralClass);
   }
 
   function planetIcon(planetClass) {
-    const cls = String(planetClass || '').toLowerCase();
-    if (cls.includes('gas')) return 'GAS';
-    if (cls.includes('ice') || cls.includes('frozen')) return 'ICE';
-    if (cls.includes('lava') || cls.includes('volcan')) return 'LAV';
-    if (cls.includes('ocean')) return 'OCN';
-    if (cls.includes('desert')) return 'DES';
-    if (cls.includes('terra') || cls.includes('hab')) return 'TER';
-    if (cls.includes('toxic')) return 'TOX';
-    return 'PLN';
+    return runtimeGalaxyVisualUtilsApi.planetIcon(planetClass);
   }
 
   function buildingZoneLabel(zone) {
-    return {
-      industrial: 'Industry',
-      utility: 'Utility',
-      civic: 'Civic',
-      science: 'Science',
-      military: 'Defense',
-      orbital: 'Orbital',
-      flex: 'Flexible',
-    }[String(zone || '')] || fmtName(String(zone || 'flex'));
+    return runtimeColonySurfaceSlotMappingApi.buildingZoneLabel(zone);
   }
 
   function buildColonyGridCells(layout, buildings) {
-    const cols = Number(layout?.grid?.cols || 6);
-    const rows = Number(layout?.grid?.rows || 4);
-    const surfaceSlots = cols * rows;
-    const caps = Object.assign({}, layout?.class_caps || {});
-    const zones = [];
-    const order = ['industrial', 'utility', 'civic', 'science', 'military', 'flex'];
-    order.forEach((zone) => {
-      const count = Math.max(0, Number(caps[zone] || 0));
-      for (let index = 0; index < count; index++) zones.push(zone);
-    });
-    while (zones.length < surfaceSlots) zones.push('flex');
-    zones.length = surfaceSlots;
-
-    const cells = zones.map((zone, index) => ({ index, zone, building: null, fill: 0, locked: false }));
-    const sortedBuildings = (buildings || []).filter((b) => (b.meta?.zone || 'surface') === 'surface')
-      .slice()
-      .sort((a, b) => Number(b.meta?.footprint || 1) - Number(a.meta?.footprint || 1));
-
-    for (const building of sortedBuildings) {
-      const footprint = Math.max(1, Number(building.meta?.footprint || 1));
-      const zone = String(building.meta?.class_key || 'flex');
-      let anchor = cells.findIndex((cell, idx) => {
-        if (cell.building || cell.locked) return false;
-        if (cell.zone !== zone && cell.zone !== 'flex') return false;
-        for (let offset = 0; offset < footprint; offset++) {
-          const next = cells[idx + offset];
-          if (!next || next.building || next.locked) return false;
-          if (offset > 0 && Math.floor((idx + offset) / cols) !== Math.floor(idx / cols)) return false;
-        }
-        return true;
-      });
-      if (anchor < 0) {
-        anchor = cells.findIndex((cell, idx) => {
-          if (cell.building || cell.locked) return false;
-          for (let offset = 0; offset < footprint; offset++) {
-            const next = cells[idx + offset];
-            if (!next || next.building || next.locked) return false;
-            if (offset > 0 && Math.floor((idx + offset) / cols) !== Math.floor(idx / cols)) return false;
-          }
-          return true;
-        });
-      }
-      if (anchor < 0) continue;
-      for (let offset = 0; offset < footprint; offset++) {
-        const cell = cells[anchor + offset];
-        cell.building = building;
-        cell.fill = offset;
-      }
-    }
-    return { cols, rows, cells };
+    return runtimeColonySurfaceSlotMappingApi.buildColonyGridCells(layout, buildings);
   }
 
   function mapBuildingToVfxProfile(building) {
-    const type = String(building?.type || '').toLowerCase();
-    const category = String(building?.meta?.cat || '').toLowerCase();
-    const busy = !!building?.upgrade_end;
-    if (busy) return { profile: 'construction', intensity: 1.4 };
-    if (/mine|refinery|factory|forge|smelter/.test(type) || /industry|extraction/.test(category)) {
-      return { profile: 'industry', intensity: 1.2 };
-    }
-    if (/reactor|fusion|power|energy/.test(type) || /energy/.test(category)) {
-      return { profile: 'power', intensity: 1.06 };
-    }
-    if (/lab|research|academy|science/.test(type) || /science/.test(category)) {
-      return { profile: 'research', intensity: 0.96 };
-    }
-    if (/storage|habitat|residential|housing/.test(type)) {
-      return { profile: 'quiet', intensity: 0.78 };
-    }
-    return { profile: '', intensity: 1.0 };
+    return runtimeColonySurfaceSlotMappingApi.mapBuildingToVfxProfile(building);
   }
 
   function buildColonySurfaceVfxSlots(colony, buildingPayload) {
-    const buildings = Array.isArray(buildingPayload?.buildings) ? buildingPayload.buildings : [];
-    const layout = buildingPayload?.layout || colony?.layout || null;
-    const grid = buildColonyGridCells(layout, buildings);
-    const cols = Math.max(1, Number(grid?.cols || 6));
-    const rows = Math.max(1, Number(grid?.rows || 4));
-    const spacing = 3.1;
-    const offsetX = ((cols - 1) * spacing) * 0.5;
-    const offsetZ = ((rows - 1) * spacing) * 0.5;
-
-    const slots = [];
-    const profileCounts = {};
-    (grid?.cells || []).forEach((cell) => {
-      if (!cell?.building || Number(cell.fill || 0) !== 0) return;
-      const building = cell.building;
-      const idx = Number(cell.index || 0);
-      const gx = idx % cols;
-      const gz = Math.floor(idx / cols);
-      const mapped = mapBuildingToVfxProfile(building);
-      const profileName = String(mapped.profile || 'auto');
-      profileCounts[profileName] = (profileCounts[profileName] || 0) + 1;
-      slots.push({
-        x: gx * spacing - offsetX,
-        y: 0,
-        z: gz * spacing - offsetZ,
-        type: String(building.type || ''),
-        category: String(building.meta?.cat || ''),
-        owner_color: String(colony?.owner_color || colony?.colony_owner_color || colony?.faction_color || ''),
-        upgrade_end: building.upgrade_end || null,
-        vfx_profile: mapped.profile,
-        vfx_intensity: mapped.intensity,
-      });
-    });
-    return {
-      slots,
-      stats: {
-        mappedSlots: slots.length,
-        profileCounts,
-      },
-    };
+    return runtimeColonySurfaceSlotMappingApi.buildColonySurfaceVfxSlots(colony, buildingPayload);
   }
 
   function queueColonySurfaceSceneData(colony, buildingPayload) {
-    const ctx = getZoomTransitionContext();
-    const colonyLevel = Number(ctx?.ZOOM_LEVEL?.COLONY_SURFACE);
-    if (!ctx?.orchestrator || !Number.isFinite(colonyLevel) || typeof ctx.orchestrator.setSceneData !== 'function') {
-      return;
-    }
-    const mapped = buildColonySurfaceVfxSlots(colony, buildingPayload);
-    const slots = Array.isArray(mapped?.slots) ? mapped.slots : [];
-    const payload = {
-      colony: colony || null,
-      layout: buildingPayload?.layout || colony?.layout || null,
-      slots,
-      vfx_quality: String(settingsState?.renderQualityProfile === 'webgpu' ? 'high' : 'medium'),
-      vfx_mapper_stats: mapped?.stats || null,
-    };
-    if (typeof window !== 'undefined') {
-      window.__GQ_COLONY_VFX_MAPPER = Object.assign({}, mapped?.stats || {}, { ts: Date.now() });
-    }
-    Promise.resolve(ctx.orchestrator.setSceneData(colonyLevel, payload)).catch(() => {});
+    runtimeColonySurfaceSlotMappingApi.queueColonySurfaceSceneData(colony, buildingPayload);
   }
+
+  const runtimeDesktopShellApi = requireRuntimeApi('GQRuntimeDesktopShell', [
+    'createWindowRegistry',
+    'createNavigationController',
+    'selfHealGalaxyWindow',
+  ]);
 
   class GameRuntime {
     constructor() {
@@ -4274,8 +472,8 @@
 
     initUi() {
       if (this.initialized) return;
-      loadUiSettings();
-      initUserMenu();
+      settingsController.loadUiSettings();
+      settingsController.initUserMenu();
       initUiConsole();
       initTopbarSearch();
       this.initialized = true;
@@ -4286,367 +484,74 @@
   window.GQGameRuntime = gameRuntime;
   gameRuntime.initUi();
 
-  class WindowRegistry {
-    constructor(wm) {
-      this.wm = wm;
-      this.registered = false;
-    }
-
-    buildDefinitions() {
-      return [
-        ['overview', { title: 'Overview', w: 460, h: 620, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderOverview() }],
-        ['buildings', { title: 'Buildings', w: 480, h: 560, defaultDock: 'right', defaultY: 38, onRender: () => renderBuildings() }],
-        ['colony', { title: 'Colony', w: 620, h: 620, defaultDock: 'right', defaultY: 24, onRender: () => renderColonyView() }],
-        ['research', { title: 'Research', w: 480, h: 560, defaultDock: 'right', defaultY: 58, onRender: () => renderResearch() }],
-        ['shipyard', { title: 'Shipyard', w: 500, h: 560, defaultDock: 'right', defaultY: 78, onRender: () => renderShipyard() }],
-        ['fleet', { title: 'Fleet', w: 500, h: 620, defaultDock: 'right', defaultY: 98, onRender: () => renderFleetForm() }],
-        ['wormholes', { title: 'Wormholes', w: 520, h: 560, defaultDock: 'right', defaultY: 108, onRender: () => renderWormholes() }],
-        ['galaxy', { title: 'Galaxy Map', fullscreenDesktop: true, hideTaskButton: true, backgroundLayer: true, onRender: () => renderGalaxyWindow() }],
-        ['messages', { title: 'Messages', w: 500, h: 520, defaultDock: 'right', defaultY: 118, onRender: () => renderMessages() }],
-        ['intel', { title: 'Intel', w: 520, h: 560, defaultDock: 'right', defaultY: 128, onRender: () => renderIntel() }],
-        ['trade-routes', { title: 'Trade Routes', w: 520, h: 560, defaultDock: 'right', defaultY: 138, onRender: () => renderTradeRoutes() }],
-          ['trade', { title: 'Trade', w: 540, h: 580, defaultDock: 'right', defaultY: 148, onRender: () => renderTradeProposals() }],
-        ['quests', { title: 'Quests', w: 540, h: 620, defaultDock: 'right', defaultY: 28, onRender: () => renderQuests() }],
-        ['leaderboard', { title: 'Leaderboard', w: 420, h: 480, defaultDock: 'right', defaultY: 138, onRender: () => renderLeaderboard() }],
-        ['leaders', { title: 'Leaders & Marketplace', w: 700, h: 600, defaultDock: 'right', defaultY: 44, onRender: () => renderLeaders() }],
-        ['factions', { title: 'Factions', w: 560, h: 620, defaultDock: 'right', defaultY: 24, onRender: () => renderFactions() }],
-        ['alliances', { title: 'Alliances', w: 560, h: 620, defaultDock: 'right', defaultY: 54, onRender: () => renderAlliances() }],
-        ['settings', { title: 'Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12, onRender: () => renderSettings() }],
-        ['quicknav', { title: 'QuickNav', w: 370, h: 520, defaultDock: 'left', defaultY: 12, onRender: () => renderQuickNav() }],
-        ['minimap', { title: 'Minimap', w: 290, h: 310, defaultDock: 'right', defaultY: 12, defaultDockMargin: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: (root) => renderMinimap(root) }],
-        ['left-sidebar', {
-          title: 'Left Sidebar',
-          sectionId: 'left_sidebar',
-          prebuiltSelector: '.sidebar-panel-left',
-          adaptExisting: true,
-          defaultDock: 'left',
-          defaultY: 72,
-          w: 300,
-          h: 520,
-          onRender: (root) => {
-            if (!root) return;
-            if (!root.innerHTML.trim()) root.innerHTML = '<p class="text-muted">Left sidebar window.</p>';
-          },
-        }],
-        ['right-sidebar', {
-          title: 'Right Sidebar',
-          sectionId: 'right_sidebar',
-          prebuiltSelector: '.sidebar-panel-right',
-          adaptExisting: true,
-          defaultDock: 'right',
-          defaultY: 72,
-          w: 300,
-          h: 520,
-          onRender: (root) => {
-            if (!root) return;
-            if (!root.innerHTML.trim()) root.innerHTML = '<p class="text-muted">Right sidebar window.</p>';
-          },
-        }],
-      ];
-    }
-
-    registerAll() {
-      if (this.registered) return;
-      const definitions = this.buildDefinitions();
-      definitions.forEach(([id, options]) => this.wm.register(id, options));
-      this.registered = true;
-    }
-  }
-
-  const windowRegistry = new WindowRegistry(WM);
+  const windowRegistry = runtimeDesktopShellApi.createWindowRegistry({
+    wm: WM,
+    renderers: {
+      renderOverview,
+      renderBuildings,
+      renderColonyView,
+      renderResearch,
+      renderShipyard,
+      renderFleetForm,
+      renderWormholes,
+      renderGalaxyWindow,
+      renderMessages,
+      renderIntel,
+      renderTradeRoutes,
+      renderEconomyFlow,
+      renderTradeProposals,
+      renderQuests,
+      renderLeaderboard,
+      renderLeaders,
+      renderFactions,
+      renderAlliances,
+      renderSettings,
+      renderQuickNav,
+      renderMinimap,
+    },
+  });
   window.GQWindowRegistry = windowRegistry;
   windowRegistry.registerAll();
   if (WM && typeof WM.restorePersistedState === 'function') {
     WM.restorePersistedState();
   }
 
-  // If auth recovery opened "galaxy" before registerAll, WM may have created a
-  // regular window using DEFAULTS. Recreate it once with the registered
-  // background/fullscreen config.
-  try {
-    const staleGalaxyWindow = document.getElementById('wm-win-galaxy');
-    const hasBackgroundClass = !!(staleGalaxyWindow && staleGalaxyWindow.classList.contains('wm-window-background'));
-    if (staleGalaxyWindow && !hasBackgroundClass && WM.isOpen('galaxy')) {
-      WM.close('galaxy');
-      gameLog('info', 'Recreated stale galaxy window with registered background config');
-    }
-  } catch (err) {
-    gameLog('info', 'Galaxy window self-heal check failed', err);
-  }
-
-  class NavigationController {
-    constructor(options = {}) {
-      this.wm = options.wm;
-      this.api = options.api;
-      this.audio = options.audio;
-      this.planetSelect = options.planetSelect;
-      this.bound = false;
-    }
-
-    bindNavButtons() {
-      document.querySelectorAll('.nav-btn[data-win]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          if (this.audio && typeof this.audio.playNavigation === 'function') this.audio.playNavigation();
-          const win = String(btn.dataset.win || '');
-          
-          // Special handling for settings modal
-          if (win === 'settings') {
-            if (this.wm && typeof this.wm.modal === 'function') {
-              this.wm.modal('settings-modal');
-            }
-            return;
-          }
-          
-          if (this.api && typeof this.api.cancelPendingRequests === 'function') {
-            this.api.cancelPendingRequests(`View switch to ${win || 'unknown'}`);
-          }
-          this.wm.open(win);
-          if (this.audio && typeof this.audio.setScene === 'function') {
-            if (win === 'galaxy') this.audio.setScene('galaxy', { autoplay: false, transition: 'fast', force: true });
-            else if (win === 'fleet') this.audio.setScene('battle', { autoplay: false, transition: 'normal', force: true });
-            else this.audio.setScene('ui', { autoplay: false, transition: 'fast', force: true });
-          }
-        });
-      });
-    }
-
-    bindTopbarButtons() {
-      document.getElementById('topbar-title-btn')?.addEventListener('click', async () => {
-        if (this.audio) this.audio.playNavigation();
-        await loadOverview();
-        ['overview','colony','buildings','research','shipyard','fleet','wormholes','messages','quests','leaders','factions','leaderboard'].forEach((id) => {
-          try {
-            this.wm.refresh(id);
-          } catch (err) {
-            gameLog('info', `WM refresh fehlgeschlagen (${id})`, err);
-          }
-        });
-        showToast('Daten aktualisiert.', 'success');
-      });
-
-      document.getElementById('topbar-home-btn')?.addEventListener('click', async () => {
-        if (this.audio) this.audio.playNavigation();
-        if (this.api && typeof this.api.cancelPendingRequests === 'function') {
-          this.api.cancelPendingRequests('Home navigation');
-        }
-        this.wm.open('galaxy');
-        const root = this.wm.body('galaxy');
-        if (!root) return;
-        await focusHomeSystemInGalaxy(root);
-      });
-
-      const cycleOrbitMode = () => {
-        try {
-          if (!window.sessionStorage.getItem(ORBIT_BADGE_HINT_SESSION_KEY)) {
-            showToast('Orbit-Badge: Klick/Enter/Space wechselt AUTO -> SIMPLE -> COMPLEX.', 'info');
-            window.sessionStorage.setItem(ORBIT_BADGE_HINT_SESSION_KEY, '1');
-          }
-        } catch (_) {
-          // Session storage can be unavailable in restricted contexts.
-        }
-
-        const order = ['auto', 'simple', 'complex'];
-        const currentMode = String(settingsState.orbitSimulationMode || 'auto').toLowerCase();
-        const currentIndex = Math.max(0, order.indexOf(currentMode));
-        const nextMode = order[(currentIndex + 1) % order.length];
-        settingsState.orbitSimulationMode = nextMode;
-        settingsController.applyRuntimeSettings();
-        saveUiSettings();
-        updateTopbarOrbitBadge();
-        showToast(`Orbit-Simulation: ${nextMode.toUpperCase()}`, 'info');
-      };
-
-      document.getElementById('topbar-orbit-mode')?.addEventListener('click', () => {
-        if (this.audio) this.audio.playNavigation();
-        cycleOrbitMode();
-      });
-
-      document.getElementById('topbar-orbit-mode')?.addEventListener('keydown', (ev) => {
-        if (ev.key !== 'Enter' && ev.key !== ' ') return;
-        ev.preventDefault();
-        if (this.audio) this.audio.playNavigation();
-        cycleOrbitMode();
-      });
-
-      document.querySelectorAll('.resource-btn[data-resource]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          if (this.audio && typeof this.audio.playNavigation === 'function') this.audio.playNavigation();
-          openResourceInsight(String(btn.dataset.resource || ''));
-        });
-      });
-    }
-
-    bindAudioToggle() {
-      document.getElementById('audio-toggle-btn')?.addEventListener('click', () => {
-        if (!this.audio) return;
-        const snap = this.audio.snapshot();
-        settingsState.masterMuted = !snap.masterMuted;
-        this.audio.setMasterMuted(settingsState.masterMuted);
-        if (!settingsState.masterMuted) this.audio.playUiClick();
-        saveUiSettings();
-        refreshAudioUi();
-      });
-    }
-
-    bindTopbarPlayer() {
-      const trackSelect = document.getElementById('topbar-player-track');
-      const trackList = document.getElementById('topbar-player-track-list');
-      const prevBtn = document.getElementById('topbar-player-prev');
-      const nextBtn = document.getElementById('topbar-player-next');
-      const nextQuickBtn = document.getElementById('topbar-player-next-quick');
-      const toggleBtn = document.getElementById('topbar-player-toggle');
-      const menuWrap = document.getElementById('topbar-player');
-      const menuToggle = document.getElementById('topbar-player-menu-toggle');
-      const menu = document.getElementById('topbar-player-menu');
-      if (!trackSelect || !toggleBtn || !menuWrap || !menuToggle || !menu) return;
-
-      menuToggle.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const willOpen = menu.classList.contains('hidden');
-        if (!willOpen) {
-          closeTopbarPlayerMenu();
-          return;
-        }
-        closeTopbarSearchOverlay();
-        closeCommanderMenuPanel();
-        menu.classList.remove('hidden');
-        menuWrap.classList.add('open');
-        menuToggle.setAttribute('aria-expanded', 'true');
-        setTopbarMenuFocusTrap(menu, menuToggle);
-        syncTopbarBottomSheetState();
-        focusFirstInTopbarMenu(menu, '#topbar-player-prev');
-      });
-
-      document.addEventListener('click', (e) => {
-        const target = e.target;
-        if (!(target instanceof Node)) return;
-        if (menuWrap.contains(target)) return;
-        closeTopbarPlayerMenu();
-      });
-
-      window.addEventListener('keydown', (e) => {
-        if (e.key !== 'Escape') return;
-        closeTopbarPlayerMenu();
-      });
-
-      const setActiveTrack = (url, autoplay = false) => {
-        const next = String(url || '').trim();
-        if (!next || !this.audio) return;
-        settingsState.musicUrl = next;
-        this.audio.setMusicTrack(next, autoplay);
-        saveUiSettings();
-      };
-
-      const shiftTrack = async (dir) => {
-        if (!this.audio || !audioTrackOptions.length) return;
-        if (typeof this.audio.playNextInPlaylist === 'function') {
-          const ok = await this.audio.playNextInPlaylist(dir, true);
-          if (!ok) showToast('Track konnte nicht gestartet werden.', 'warning');
-          const snap = this.audio.snapshot ? this.audio.snapshot() : null;
-          const currentUrl = String(snap?.musicUrl || '').trim();
-          if (currentUrl) settingsState.musicUrl = currentUrl;
-          saveUiSettings();
-          refreshAudioUi();
-          return;
-        }
-
-        const currentUrl = String(trackSelect.value || settingsState.musicUrl || '').trim();
-        let idx = audioTrackOptions.findIndex((entry) => String(entry.value) === currentUrl);
-        if (idx < 0) idx = 0;
-        const nextIdx = (idx + dir + audioTrackOptions.length) % audioTrackOptions.length;
-        const nextTrack = String(audioTrackOptions[nextIdx]?.value || '').trim();
-        if (!nextTrack) return;
-        setActiveTrack(nextTrack, false);
-        const ok = await this.audio.playMusic();
-        if (!ok) showToast('Track konnte nicht gestartet werden.', 'warning');
-        refreshAudioUi();
-      };
-
-      trackSelect.addEventListener('change', () => {
-        const selected = String(trackSelect.value || '').trim();
-        if (!selected) return;
-        setActiveTrack(selected, false);
-        refreshAudioUi();
-      });
-
-      trackList?.addEventListener('click', async (e) => {
-        const target = e.target;
-        const btn = (target instanceof Element) ? target.closest('.topbar-player-track-item') : null;
-        if (!(btn instanceof HTMLElement)) return;
-        const selected = String(btn.getAttribute('data-track') || '').trim();
-        if (!selected || !this.audio) return;
-        const wasPlaying = !!this.audio.snapshot()?.musicPlaying;
-        setActiveTrack(selected, wasPlaying);
-        if (wasPlaying && !this.audio.snapshot()?.musicPlaying) {
-          const ok = await this.audio.playMusic();
-          if (!ok) showToast('Track konnte nicht gestartet werden.', 'warning');
-        }
-        refreshAudioUi();
-      });
-
-      prevBtn?.addEventListener('click', async () => {
-        await shiftTrack(-1);
-      });
-
-      nextBtn?.addEventListener('click', async () => {
-        await shiftTrack(1);
-      });
-
-      nextQuickBtn?.addEventListener('click', async () => {
-        await shiftTrack(1);
-      });
-
-      toggleBtn.addEventListener('click', async () => {
-        if (!this.audio) return;
-        const hasTrack = String(trackSelect.value || settingsState.musicUrl || '').trim();
-        if (hasTrack && String(this.audio.snapshot()?.musicUrl || '').trim() !== hasTrack) {
-          setActiveTrack(hasTrack, false);
-        }
-
-        const isPlaying = !!this.audio.snapshot()?.musicPlaying;
-        if (isPlaying) {
-          if (typeof this.audio.pauseMusic === 'function') this.audio.pauseMusic(false);
-          else this.audio.stopMusic();
-        } else {
-          const ok = await this.audio.playMusic();
-          if (!ok) showToast('Musik konnte nicht gestartet werden.', 'warning');
-        }
-        refreshAudioUi();
-      });
-
-      loadAudioTrackCatalog().catch((err) => {
-        gameLog('info', 'Audio-Track-Katalog Laden in Settings fehlgeschlagen', err);
-      });
-      refreshAudioUi();
-    }
-
-    bindColonySelector() {
-      if (!this.planetSelect) return;
-      this.planetSelect.addEventListener('change', () => {
-        if (this.audio && typeof this.audio.playNavigation === 'function') this.audio.playNavigation();
-        const cid = parseInt(this.planetSelect.value, 10);
-        selectColonyById(cid);
-      });
-    }
-
-    init() {
-      if (this.bound) return;
-      this.bindNavButtons();
-      this.bindTopbarButtons();
-      this.bindAudioToggle();
-      this.bindTopbarPlayer();
-      this.bindColonySelector();
-      this.bound = true;
-    }
-  }
+  runtimeDesktopShellApi.selfHealGalaxyWindow({
+    wm: WM,
+    documentRef: document,
+    gameLog,
+  });
 
   // ÔöÇÔöÇ Colony selector ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   const planetSelect = document.getElementById('planet-select');
-  const navigationController = new NavigationController({
+  const navigationController = runtimeDesktopShellApi.createNavigationController({
     wm: WM,
     api: API,
     audio: audioManager,
     planetSelect,
+    documentRef: document,
+    windowRef: window,
+    loadOverview,
+    focusHomeSystemInGalaxy,
+    openResourceInsight,
+    selectColonyById,
+    showToast,
+    gameLog,
+    settingsState,
+    applyRuntimeSettings: applyRuntimeSettingsRef,
+    saveUiSettings: saveUiSettingsRef,
+    refreshAudioUi: refreshAudioUiRef,
+    updateTopbarOrbitBadge,
+    showOrbitModeHintOnce,
+    topbarAudioControlsApi: runtimeTopbarAudioControlsApi,
+    audioTrackOptions,
+    closeTopbarPlayerMenu,
+    closeTopbarSearchOverlay,
+    closeCommanderMenuPanel,
+    setTopbarMenuFocusTrap,
+    syncTopbarBottomSheetState,
+    focusFirstInTopbarMenu,
+    loadAudioTrackCatalog,
   });
   window.GQNavigationController = navigationController;
   navigationController.init();
@@ -4657,7 +562,7 @@
       gameState: settingsState,
       onSave: (changes) => {
         console.log('[Game] Settings saved:', changes);
-        applyRuntimeSettings();
+        settingsController.applyRuntimeSettings();
         // Propagate volume changes to audio system
         if (audioManager && changes.hasOwnProperty('masterVolume')) {
           if (typeof audioManager.setMasterVolume === 'function') {
@@ -4695,508 +600,58 @@
     }
   }
 
-  class FleetController {
-    prefillTarget(coords, mission, defaults = {}) {
-      if (!coords) return;
-      uiState.fleetPrefill = {
-        galaxy: Number(coords.galaxy || 1),
-        system: Number(coords.system || 1),
-        position: Number(coords.position || 1),
-        mission: String(mission || 'transport'),
-        owner: defaults.owner || '',
-        threatLevel: defaults.threatLevel || '',
-        intel: defaults.intel || null,
-        ts: Date.now(),
-      };
-      WM.open('fleet');
-      setTimeout(() => {
-        const root = WM.body('fleet');
-        if (!root) return;
-        const galaxyInput = root.querySelector('#f-galaxy');
-        const systemInput = root.querySelector('#f-system');
-        const positionInput = root.querySelector('#f-position');
-        if (galaxyInput) galaxyInput.value = String(coords.galaxy || 1);
-        if (systemInput) systemInput.value = String(coords.system || 1);
-        if (positionInput) positionInput.value = String(coords.position || 1);
-        const missionInput = root.querySelector(`input[name="mission"][value="${mission}"]`);
-        if (missionInput) {
-          missionInput.checked = true;
-          missionInput.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }, 0);
-    }
-
-    pickDefaultShips(mission, avail, intel) {
-      const available = Array.isArray(avail) ? avail : [];
-      const byType = Object.fromEntries(available.map((ship) => [String(ship.type), ship]));
-      const selected = {};
-      const choose = (type, amount) => {
-        const ship = byType[type];
-        if (!ship) return false;
-        const count = Math.max(0, Math.min(Number(ship.count || 0), Number(amount || 0)));
-        if (count > 0) {
-          selected[type] = count;
-          return true;
-        }
-        return false;
-      };
-
-      if (mission === 'spy') {
-        if (!choose('espionage_probe', 1)) choose('pathfinder', 1);
-        return selected;
-      }
-      if (mission === 'colonize') {
-        choose('colony_ship', 1);
-        choose('small_cargo', 1);
-        choose('large_cargo', 1);
-        return selected;
-      }
-      if (mission === 'harvest') {
-        if (!choose('recycler', 4)) choose('pathfinder', 2);
-        choose('large_cargo', 2);
-        return selected;
-      }
-      if (mission === 'transport') {
-        if (!choose('large_cargo', 8)) choose('small_cargo', 12);
-        choose('pathfinder', 1);
-        return selected;
-      }
-
-      if (mission === 'attack') {
-        const threatScore = Number(intel?.threat?.score || 0);
-        const heavyTarget = threatScore >= 80 ? 8 : threatScore >= 50 ? 5 : 3;
-        const mediumTarget = threatScore >= 80 ? 12 : threatScore >= 50 ? 8 : 5;
-        if (!choose('battlecruiser', heavyTarget)) choose('battleship', heavyTarget);
-        choose('cruiser', mediumTarget);
-        choose('heavy_fighter', mediumTarget);
-        if (!Object.keys(selected).length) choose('light_fighter', Math.min(20, Number(byType.light_fighter?.count || 0)));
-        return selected;
-      }
-
-      choose('small_cargo', 1);
-      return selected;
-    }
-
-    applyMissionDefaults(root, avail, prefill) {
-      if (!root) return;
-      const fallbackPrefill = prefill || {};
-      const mission = String(root.querySelector('input[name="mission"]:checked')?.value || fallbackPrefill.mission || 'transport');
-      const selectedShips = this.pickDefaultShips(mission, avail, fallbackPrefill.intel);
-      root.querySelectorAll('.fleet-ship-qty').forEach((inp) => {
-        inp.value = String(selectedShips[inp.dataset.type] || 0);
-      });
-
-      const cargoMetal = root.querySelector('#f-cargo-metal');
-      const cargoCrystal = root.querySelector('#f-cargo-crystal');
-      const cargoDeut = root.querySelector('#f-cargo-deut');
-      if (mission === 'transport' && currentColony) {
-        const cargoCap = Object.entries(selectedShips).reduce((sum, [type, count]) => {
-          const ship = (avail || []).find((entry) => entry.type === type);
-          return sum + (Number(ship?.cargo || 0) * Number(count || 0));
-        }, 0);
-        const prefillCargo = fallbackPrefill.cargo && typeof fallbackPrefill.cargo === 'object'
-          ? fallbackPrefill.cargo
-          : null;
-        const metal = prefillCargo
-          ? Math.min(Number(currentColony.metal || 0), Math.max(0, Number(prefillCargo.metal || 0)), cargoCap)
-          : Math.min(Number(currentColony.metal || 0), Math.round(cargoCap * 0.45));
-        const crystal = prefillCargo
-          ? Math.min(Number(currentColony.crystal || 0), Math.max(0, Number(prefillCargo.crystal || 0)), cargoCap)
-          : Math.min(Number(currentColony.crystal || 0), Math.round(cargoCap * 0.3));
-        const deut = prefillCargo
-          ? Math.min(Number(currentColony.deuterium || 0), Math.max(0, Number(prefillCargo.deuterium || 0)), cargoCap)
-          : Math.min(Number(currentColony.deuterium || 0), Math.round(cargoCap * 0.15));
-        if (cargoMetal) cargoMetal.value = String(Math.max(0, metal));
-        if (cargoCrystal) cargoCrystal.value = String(Math.max(0, crystal));
-        if (cargoDeut) cargoDeut.value = String(Math.max(0, deut));
-      } else {
-        if (cargoMetal) cargoMetal.value = '0';
-        if (cargoCrystal) cargoCrystal.value = '0';
-        if (cargoDeut) cargoDeut.value = '0';
-      }
-
-      const hint = root.querySelector('#fleet-default-hint');
-      if (hint) {
-        const owner = fallbackPrefill.owner ? `Ziel: ${esc(fallbackPrefill.owner)}` : 'Freies Zielprofil';
-        const threat = fallbackPrefill.threatLevel ? ` | Bedrohung: ${esc(fallbackPrefill.threatLevel)}` : '';
-        const scan = fallbackPrefill.intel?.intel?.latest_scan_at
-          ? ` | Scan: ${esc(new Date(fallbackPrefill.intel.intel.latest_scan_at).toLocaleString())}`
-          : '';
-        hint.innerHTML = `${owner}${threat}${scan} | Missionsdefaults gesetzt.`;
-      }
-    }
-
-    buildPayload(root) {
-      const ships = {};
-      root.querySelectorAll('.fleet-ship-qty').forEach((inp) => {
-        const count = parseInt(inp.value, 10);
-        if (count > 0) ships[inp.dataset.type] = count;
-      });
-
-      return {
-        origin_colony_id: currentColony.id,
-        target_galaxy: parseInt(root.querySelector('#f-galaxy').value, 10),
-        target_system: parseInt(root.querySelector('#f-system').value, 10),
-        target_position: parseInt(root.querySelector('#f-position').value, 10),
-        mission: root.querySelector('input[name="mission"]:checked')?.value,
-        use_wormhole: !!root.querySelector('#f-use-wormhole')?.checked,
-        ships,
-        cargo: {
-          metal: parseFloat(root.querySelector('#f-cargo-metal').value) || 0,
-          crystal: parseFloat(root.querySelector('#f-cargo-crystal').value) || 0,
-          deuterium: parseFloat(root.querySelector('#f-cargo-deut').value) || 0,
-        },
-      };
-    }
-
-    bindMissionDefaults(root, avail) {
-      root.querySelectorAll('input[name="mission"]').forEach((input) => {
-        input.addEventListener('change', () => this.applyMissionDefaults(root, avail, uiState.fleetPrefill));
-      });
-    }
-
-    async renderForm() {
-      const root = WM.body('fleet');
-      if (!root) return;
-      if (!currentColony) {
-        root.innerHTML = '<p class="text-muted">Select a colony first.</p>';
-        return;
-      }
-
-      root.innerHTML = `
-        <form id="fleet-form-wm" autocomplete="off">
-          <h3>1. Select Ships</h3>
-          <div id="fleet-ship-select-wm"><p class="text-muted">Loading ships...</p></div>
-
-          <h3>2. Select Mission</h3>
-          <div class="mission-grid">
-            <label><input type="radio" name="mission" value="attack" /> Attack colony</label>
-            <label><input type="radio" name="mission" value="transport" checked /> Transport resources</label>
-            <label><input type="radio" name="mission" value="spy" /> Spy on colony</label>
-            <label><input type="radio" name="mission" value="colonize" /> Colonize planet</label>
-            <label><input type="radio" name="mission" value="harvest" /> Harvest deposits</label>
-            <label><input type="radio" name="mission" value="survey" /> Survey system (FTL infrastructure)</label>
-          </div>
-
-          <h3>3. Target Coordinates</h3>
-          <div class="coord-inputs">
-            <label>Galaxy  <input type="number" id="f-galaxy"   min="1" max="9"   value="1" /></label>
-            <label>System  <input type="number" id="f-system"   min="1" max="499" value="1" /></label>
-            <label>Position<input type="number" id="f-position" min="1" max="15"  value="1" /></label>
-          </div>
-
-          <div class="form-info" id="fleet-wormhole-info" style="margin-top:0.4rem;">
-            <label style="display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer;">
-              <input type="checkbox" id="f-use-wormhole" />
-              Use Wormhole Jump (requires Wormhole Theory Lv5 and active route)
-            </label>
-          </div>
-
-          <div id="fleet-ftl-status" style="margin-top:0.4rem;padding:0.4rem 0.6rem;border-radius:4px;background:rgba(0,0,0,0.15);font-size:0.82rem;"></div>
-
-          <h3>4. Cargo (optional)</h3>
-          <div class="cargo-inputs">
-            <label>Metal    <input type="number" id="f-cargo-metal"   min="0" value="0" /></label>
-            <label>Crystal  <input type="number" id="f-cargo-crystal" min="0" value="0" /></label>
-            <label>Deuterium<input type="number" id="f-cargo-deut"    min="0" value="0" /></label>
-          </div>
-
-          <div id="fleet-default-hint" class="form-info"></div>
-
-          <button type="submit" class="btn btn-primary">Launch Fleet</button>
-          <div id="fleet-send-result-wm" class="form-info" aria-live="polite"></div>
-        </form>`;
-
-      try {
-        const [data, wormholeData, ftlData] = await Promise.all([
-          API.ships(currentColony.id),
-          API.wormholes(currentColony.id).catch(() => ({ success: false, wormholes: [], wormhole_theory_level: 0, can_jump: false })),
-          API.ftlStatus().catch(() => null),
-        ]);
-        const shipEl = root.querySelector('#fleet-ship-select-wm');
-        const wormholeEl = root.querySelector('#fleet-wormhole-info');
-        if (!data.success) {
-          shipEl.innerHTML = '<p class="text-red">Error.</p>';
-          return;
-        }
-
-        if (wormholeEl) {
-          const routeCount = Array.isArray(wormholeData?.wormholes) ? wormholeData.wormholes.filter((w) => !!w.available).length : 0;
-          const level = Number(wormholeData?.wormhole_theory_level || 0);
-          const canJump = !!wormholeData?.can_jump;
-          const cb = root.querySelector('#f-use-wormhole');
-          if (cb && (!canJump || routeCount <= 0)) {
-            cb.disabled = true;
-            cb.checked = false;
-          }
-          const reason = canJump
-            ? (routeCount > 0 ? `${routeCount} active route(s) from this colony.` : 'No active route currently available.')
-            : `Wormhole Theory Lv5 required (current Lv${level}).`;
-          wormholeEl.insertAdjacentHTML('beforeend', `<div class="text-muted small" style="margin-top:0.2rem;">${esc(reason)}</div>`);
-        }
-
-        // FTL drive status panel
-        const ftlEl = root.querySelector('#fleet-ftl-status');
-        if (ftlEl && ftlData?.success) {
-          const driveLabels = {
-            vor_tak:  "Vor'Tak - K-F Jump Drive",
-            syl_nar:  "Syl'Nar - Resonance Gate Network",
-            vel_ar:   "Vel'Ar - Blind Quantum Jump",
-            zhareen:  "Zhareen - Crystal Resonance Channel",
-            aereth:   "Aereth - Alcubierre Warp",
-            kryl_tha: "Kryl'Tha - Swarm Tunnel",
-          };
-          const driveType = ftlData.ftl_drive_type || 'aereth';
-          const driveLabel = driveLabels[driveType] || driveType;
-          const ready = !!ftlData.ftl_ready;
-          const cooldownSec = Number(ftlData.ftl_cooldown_remaining_s || 0);
-          const cooldownStr = cooldownSec > 0
-            ? `Recharging: ${Math.floor(cooldownSec/3600)}h ${Math.floor((cooldownSec%3600)/60)}m remaining`
-            : 'Ready';
-
-          let extraInfo = '';
-          let gateHealthHtml = '';
-          if (driveType === 'syl_nar') {
-            const allGates = Array.isArray(ftlData.gates) ? ftlData.gates : [];
-            const gateCount = allGates.filter((g) => g.is_active && g.health > 0).length;
-            extraInfo = ` | ${gateCount} gate(s) active | Survey to build new gates`;
-            if (allGates.length) {
-              gateHealthHtml = `<div class="entity-bars" style="margin-top:0.45rem;">` +
-                allGates.map((g) => {
-                  const hp = Math.max(0, Math.min(100, Number(g.health ?? 100)));
-                  const tone = hp < 30 ? 'is-critical' : (hp < 60 ? 'is-warning' : 'is-good');
-                  const active = g.is_active ? '' : ' <span class="text-muted" style="font-size:0.7rem;">(Offline)</span>';
-                  const label = `G${Number(g.galaxy_a || 0)}:${Number(g.system_a || 0)}↔G${Number(g.galaxy_b || 0)}:${Number(g.system_b || 0)}`;
-                  return `<div class="entity-bar-row" title="Gate ${label} health ${hp}%">` +
-                    `<span class="entity-bar-label" style="min-width:7rem;font-size:0.7rem;">${esc(label)}${active}</span>` +
-                    `<div class="bar-wrap"><div class="bar-fill bar-integrity ${tone}" style="width:${hp}%"></div></div>` +
-                    `<span class="entity-bar-value">${hp}%</span>` +
-                    `</div>`;
-                }).join('') +
-              `</div>`;
-            }
-          } else if (driveType === 'zhareen') {
-            const nodeCount = Array.isArray(ftlData.resonance_nodes) ? ftlData.resonance_nodes.length : 0;
-            extraInfo = ` | ${nodeCount} node(s) charted | Survey to chart new nodes`;
-          } else if (driveType === 'aereth') {
-            extraInfo = ' | Core bonus: +50% speed in galaxies <=3, +30% in galaxies >=7';
-          } else if (driveType === 'kryl_tha') {
-            extraInfo = ' | Max 50 ships per FTL jump | -10% hull after each jump';
-          } else if (driveType === 'vel_ar') {
-            extraInfo = ' | Arrival scatter: 0.5% of distance | 60s stealth on landing';
-          } else if (driveType === 'vor_tak') {
-            extraInfo = ' | Max 30 LY | 72h recharge | Carrier gives +30% cargo';
-          }
-
-          ftlEl.innerHTML = `<span style="color:#88ccff;font-weight:600;">${esc(driveLabel)}</span>`
-            + ` <span style="color:${ready ? '#88ff88' : '#ffcc44'}">${esc(cooldownStr)}</span>`
-            + `<span style="color:#aaa">${esc(extraInfo)}</span>`
-            + gateHealthHtml
-            + (!ready && driveType === 'vor_tak'
-              ? ` <button class="btn btn-sm" id="ftl-reset-cooldown-btn" style="margin-left:0.5rem;font-size:0.75rem;">Reset (50 Dark Matter)</button>`
-              : '');
-          // Wire cooldown reset button
-          const resetBtn = ftlEl.querySelector('#ftl-reset-cooldown-btn');
-          if (resetBtn) {
-            resetBtn.addEventListener('click', async () => {
-              resetBtn.disabled = true;
-              resetBtn.textContent = '...';
-              try {
-                const res = await API.resetFtlCooldown();
-                if (res?.success) {
-                  showToast(res.message || 'FTL cooldown reset.', 'success');
-                  WM.refresh('fleet');
-                } else {
-                  showToast(res?.error || 'Reset failed.', 'error');
-                  resetBtn.disabled = false;
-                  resetBtn.textContent = 'Reset (50 Dark Matter)';
-                }
-              } catch {
-                showToast('Reset failed.', 'error');
-                resetBtn.disabled = false;
-                resetBtn.textContent = 'Reset (50 Dark Matter)';
-              }
-            });
-          }
-        } else if (ftlEl) {
-          ftlEl.innerHTML = '';
-        }
-        // end FTL panel
-
-        const avail = [...(data.ships || []), ...(data.blueprints || [])].filter((ship) => Number(ship.count || 0) > 0);
-        if (!avail.length) {
-          shipEl.innerHTML = '<p class="text-muted">No ships on this planet.</p>';
-          return;
-        }
-        shipEl.innerHTML = `<div class="ship-selector-grid">${avail.map((ship) => `
-          <div class="ship-selector-row">
-            <span>${esc(ship.name || fmtName(ship.type))}${ship.ship_class ? ` | ${esc(fmtName(ship.ship_class))}` : ''} (${ship.count})</span>
-            <input type="number" class="fleet-ship-qty" data-type="${esc(ship.type)}"
-                   min="0" max="${ship.count}" value="0" />
-          </div>`).join('')}</div>`;
-        this.bindMissionDefaults(root, avail);
-        this.applyMissionDefaults(root, avail, uiState.fleetPrefill);
-      } catch (err) {
-        gameLog('info', 'Fleet mission defaults konnten nicht initialisiert werden', err);
-      }
-
-      root.querySelector('#fleet-form-wm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const resultEl = root.querySelector('#fleet-send-result-wm');
-        resultEl.textContent = '';
-
-        const payload = this.buildPayload(root);
-        const mission = payload.mission;
-        const submitBtn = root.querySelector('button[type="submit"]');
-        submitBtn.disabled = true;
-        try {
-          const response = await API.sendFleet(payload);
-          if (response.success) {
-            resultEl.className = 'form-info';
-            resultEl.textContent = `Fleet launched! ETA: ${new Date(response.arrival_time).toLocaleString()}`;
-            showToast('Fleet launched!', 'success');
-            if (audioManager && typeof audioManager.playFleetMission === 'function') audioManager.playFleetMission(mission);
-            else if (audioManager && typeof audioManager.playFleetLaunch === 'function') audioManager.playFleetLaunch();
-            await loadOverview();
-          } else {
-            resultEl.className = 'form-error';
-            resultEl.textContent = response.error || 'Failed to send fleet.';
-          }
-        } catch (err) {
-          gameLog('warn', 'Fleet send request fehlgeschlagen', err);
-          resultEl.className = 'form-error';
-          resultEl.textContent = 'Network error.';
-        }
-        submitBtn.disabled = false;
-      });
-    }
-  }
-
-  const fleetController = new FleetController();
+  const runtimeFleetMissionDefaultsApi = requireRuntimeApi('GQRuntimeFleetMissionDefaults', ['createFleetMissionDefaultsHelper']);
+  const fleetMissionDefaultsHelper = runtimeFleetMissionDefaultsApi.createFleetMissionDefaultsHelper({
+    getCurrentColony: () => currentColony,
+    esc,
+  });
+  const runtimeFleetSubmitFlowApi = requireRuntimeApi('GQRuntimeFleetSubmitFlow', ['createFleetSubmitFlowHelper']);
+  const fleetSubmitFlowHelper = runtimeFleetSubmitFlowApi.createFleetSubmitFlowHelper({
+    api: API,
+    getCurrentColony: () => currentColony,
+    getAudioManager: () => audioManager,
+    loadOverview,
+    showToast,
+    gameLog,
+  });
+  const runtimeFleetStatusPanelsApi = requireRuntimeApi('GQRuntimeFleetStatusPanels', ['createFleetStatusPanelsHelper']);
+  const fleetStatusPanelsHelper = runtimeFleetStatusPanelsApi.createFleetStatusPanelsHelper({
+    wm: WM,
+    api: API,
+    showToast,
+    esc,
+  });
+  const runtimeFleetControllerApi = requireRuntimeApi('GQRuntimeFleetController', ['createFleetController']);
+  const fleetController = runtimeFleetControllerApi.createFleetController({
+    wm: WM,
+    api: API,
+    getCurrentColony: () => currentColony,
+    getUiState: () => uiState,
+    esc,
+    fmtName,
+    gameLog,
+    missionDefaultsHelper: fleetMissionDefaultsHelper,
+    submitFlowHelper: fleetSubmitFlowHelper,
+    statusPanelsHelper: fleetStatusPanelsHelper,
+  });
   window.GQFleetController = fleetController;
 
   function prefillFleetTarget(coords, mission, defaults = {}) {
     fleetController.prefillTarget(coords, mission, defaults);
   }
-
-  class WormholeController {
-    resolveOriginCoords() {
-      const g = Number(currentColony?.galaxy || 0);
-      const s = Number(currentColony?.system || 0);
-      return { g, s };
-    }
-
-    resolveCounterpart(wormhole, origin) {
-      const a = wormhole?.a || {};
-      const b = wormhole?.b || {};
-      const originMatchesA = Number(a.galaxy || 0) === origin.g && Number(a.system || 0) === origin.s;
-      if (originMatchesA) return b;
-      const originMatchesB = Number(b.galaxy || 0) === origin.g && Number(b.system || 0) === origin.s;
-      if (originMatchesB) return a;
-      return b;
-    }
-
-    async openFleetWithWormholeTarget(endpoint) {
-      WM.open('fleet');
-      await waitFor(120);
-      const root = WM.body('fleet');
-      if (!root) return;
-
-      const gInput = root.querySelector('#f-galaxy');
-      const sInput = root.querySelector('#f-system');
-      const pInput = root.querySelector('#f-position');
-      const cb = root.querySelector('#f-use-wormhole');
-      const missionTransport = root.querySelector('input[name="mission"][value="transport"]');
-
-      if (gInput) gInput.value = String(Number(endpoint?.galaxy || 1));
-      if (sInput) sInput.value = String(Number(endpoint?.system || 1));
-      if (pInput) pInput.value = String(Number(pInput?.value || 1));
-      if (missionTransport) {
-        missionTransport.checked = true;
-        missionTransport.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      if (cb && !cb.disabled) cb.checked = true;
-      showToast('Fleet target prefilled for wormhole jump.', 'info');
-    }
-
-    buildCardsHtml(payload) {
-      const wormholes = Array.isArray(payload?.wormholes) ? payload.wormholes : [];
-      const canJump = !!payload?.can_jump;
-      const level = Number(payload?.wormhole_theory_level || 0);
-      const origin = this.resolveOriginCoords();
-
-      if (!wormholes.length) {
-        return uiKitEmptyStateHTML(
-          'No Wormhole Routes',
-          canJump
-            ? 'No active route starts at this colony system.'
-            : `Wormhole Theory Lv5 required (current Lv${level}).`
-        );
-      }
-
-      return `<div class="card-grid">${wormholes.map((w) => {
-        const to = this.resolveCounterpart(w, origin);
-        const available = !!w.available;
-        const isPermanent = !!w.is_permanent;
-        const unlocked = !!w.unlocked;
-        const statusCls = available ? 'resource-positive' : 'text-muted';
-        const cooldown = w.cooldown_until ? new Date(w.cooldown_until).toLocaleString() : 'ready';
-        const availabilityText = available
-          ? 'Available for jump'
-          : (isPermanent && !unlocked ? 'Requires Precursor beacon unlock quest' : 'Unavailable');
-        return `
-          <div class="item-card">
-            <div class="item-card-header">
-              <span class="item-name">${esc(String(w.label || `Route #${w.id}`))}</span>
-              <span class="item-level">Stability ${fmt(w.stability || 0)}</span>
-            </div>
-            ${isPermanent ? '<div class="system-row small">Permanent Beacon Route</div>' : ''}
-            <div class="system-row small">A: [${fmt(w.a?.galaxy || 0)}:${fmt(w.a?.system || 0)}] | B: [${fmt(w.b?.galaxy || 0)}:${fmt(w.b?.system || 0)}]</div>
-            <div class="system-row small">Jump target from here: [${fmt(to?.galaxy || 0)}:${fmt(to?.system || 0)}]</div>
-            <div class="system-row small">Cooldown: ${esc(cooldown)}</div>
-            <div class="system-row small ${statusCls}">${availabilityText}</div>
-            ${available
-              ? `<button class="btn btn-primary btn-sm wormhole-use-btn" data-target-g="${esc(String(to?.galaxy || 1))}" data-target-s="${esc(String(to?.system || 1))}">Use Wormhole (Fleet)</button>`
-              : `<button class="btn btn-secondary btn-sm" disabled>Unavailable</button>`}
-          </div>`;
-      }).join('')}</div>`;
-    }
-
-    bindActions(root) {
-      root.querySelectorAll('.wormhole-use-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const g = Number(btn.getAttribute('data-target-g') || 1);
-          const s = Number(btn.getAttribute('data-target-s') || 1);
-          await this.openFleetWithWormholeTarget({ galaxy: g, system: s });
-        });
-      });
-    }
-
-    async render() {
-      const root = WM.body('wormholes');
-      if (!root) return;
-      if (!currentColony) {
-        root.innerHTML = '<p class="text-muted">Select a colony first.</p>';
-        return;
-      }
-
-      root.innerHTML = uiKitSkeletonHTML();
-      try {
-        const data = await API.wormholes(currentColony.id);
-        if (!data?.success) {
-          root.innerHTML = '<p class="text-red">Failed to load wormholes.</p>';
-          return;
-        }
-        root.innerHTML = this.buildCardsHtml(data);
-        this.bindActions(root);
-      } catch (err) {
-        gameLog('warn', 'Wormhole view laden fehlgeschlagen', err);
-        root.innerHTML = '<p class="text-red">Failed to load wormholes.</p>';
-      }
-    }
-  }
-
-  const wormholeController = new WormholeController();
+  const runtimeWormholeControllerApi = requireRuntimeApi('GQRuntimeWormholeController', ['createWormholeController']);
+  const wormholeController = runtimeWormholeControllerApi.createWormholeController({
+    wm: WM,
+    api: API,
+    getCurrentColony: () => currentColony,
+    waitMs,
+    showToast,
+    uiKitEmptyStateHTML,
+    uiKitSkeletonHTML,
+    esc,
+    fmt,
+    gameLog,
+  });
   window.GQWormholeController = wormholeController;
 
   async function renderWormholes() {
@@ -5204,39 +659,6 @@
   }
 
   class GalaxyController {
-    showShortcutsHintOnce() {
-      if (galaxyShortcutsHintShownInSession) return;
-      showToast('Galaxy-Shortcuts: O Controls, I Info, L Follow, V Vectors.', 'info');
-      galaxyShortcutsHintShownInSession = true;
-    }
-
-    showFleetLegendHintOnce() {
-      if (galaxyFleetHintShownInSession) return;
-      if (hasSeenGalaxyFleetHint()) {
-        galaxyFleetHintShownInSession = true;
-        return;
-      }
-
-      showToastWithAction(
-        'Tipp: Fleet-Richtungsfarben und Marker findest du in Settings unter "Galaxy: Fleet-Marker und Fluglinien anzeigen".',
-        'info',
-        'Nicht mehr anzeigen',
-        () => {
-          markGalaxyFleetHintSeen();
-        },
-        8500
-      );
-      galaxyFleetHintShownInSession = true;
-    }
-
-    scheduleFleetLegendHint(delayMs = 1300) {
-      if (galaxyFleetHintShownInSession || galaxyFleetHintScheduledInSession) return;
-      galaxyFleetHintScheduledInSession = true;
-      window.setTimeout(() => {
-        this.showFleetLegendHintOnce();
-      }, Math.max(0, Number(delayMs || 0)));
-    }
-
     triggerNavAction(action, rootRef = null) {
       const root = rootRef || WM.body('galaxy');
       if (!galaxy3d && root) {
@@ -5257,13 +679,13 @@
         return;
       } else if (normalized === 'toggle-vectors') {
         settingsState.galaxyFleetVectorsVisible = !(settingsState.galaxyFleetVectorsVisible !== false);
-        applyRuntimeSettings();
+        settingsController.applyRuntimeSettings();
         if (root) updateGalaxyFollowUi(root);
       }
       else if (normalized === 'optimize-view' && root) {
         settingsState.clusterDensityMode = 'auto';
         settingsState.renderQualityProfile = 'auto';
-        applyRuntimeSettings();
+        settingsController.applyRuntimeSettings();
         refreshGalaxyDensityMetrics(root);
         showToast('Darstellung optimiert (Auto-Profil).', 'info');
       }
@@ -5445,347 +867,7 @@
     }
 
     init3D(root) {
-      const holder = document.getElementById('galaxy-3d-host');
-      const hostWrapper = document.getElementById('galaxy-host-wrapper');
-      const sharedCanvas = holder?.querySelector('#starfield');
-      if (!holder) {
-        galaxy3dInitReason = 'Missing #galaxy-3d-host container';
-        root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D engine failed to load. Reason: ${esc(galaxy3dInitReason)}</span>`;
-        toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-        return;
-      }
-      const GalaxyViewCtor = window.Galaxy3DView || window.Galaxy3DRendererWebGPU || window.Galaxy3DRenderer;
-
-      if (galaxy3d) {
-        if (isSharedLevelRenderer(galaxy3d)) {
-          galaxy3d = null;
-        } else {
-          galaxy3d.destroy();
-          galaxy3d = null;
-        }
-      }
-
-      galaxyAutoFramedOnce = false;
-
-      try {
-        const resolvedRendererQuality = window.GQGalaxyRendererConfig?.resolveQualityProfile?.({
-          requestedProfile: settingsState.renderQualityProfile || 'auto',
-        }) || null;
-        galaxy3dQualityState = resolvedRendererQuality;
-        const authBgControl = window.GQAuthGalaxyBackgroundControl || window.GQStarfieldControl;
-        if (authBgControl && typeof authBgControl.releaseCanvasForGame === 'function') {
-          authBgControl.releaseCanvasForGame();
-        }
-
-        const stage = root?.querySelector('.galaxy-3d-stage') || document.getElementById('galaxy-stage');
-        if (stage) {
-          stage.style.pointerEvents = 'none';
-          stage.style.zIndex = '1';
-        }
-        if (hostWrapper) {
-          hostWrapper.style.display = 'block';
-          hostWrapper.style.visibility = 'visible';
-          hostWrapper.style.opacity = '1';
-        }
-        if (holder) {
-          holder.style.display = 'block';
-          holder.style.visibility = 'visible';
-          holder.style.opacity = '1';
-        }
-        if (sharedCanvas instanceof HTMLCanvasElement) {
-          sharedCanvas.style.display = 'block';
-          sharedCanvas.style.opacity = '1';
-          sharedCanvas.style.visibility = 'visible';
-          sharedCanvas.style.pointerEvents = 'auto';
-        }
-
-        const gqZoom   = window.GQSeamlessZoomOrchestrator || {};
-        const gqLevels = {
-          galaxyThreeJS:       (window.GQGalaxyLevelThreeJS       || {}).GalaxyLevelThreeJS,
-          galaxyWebGPU:        (window.GQGalaxyLevelWebGPU        || {}).GalaxyLevelWebGPU,
-          systemThreeJS:       (window.GQSystemLevelThreeJS        || {}).SystemLevelThreeJS,
-          systemWebGPU:        (window.GQSystemLevelWebGPU         || {}).SystemLevelWebGPU,
-          planetThreeJS:       (window.GQPlanetApproachLevelThreeJS || {}).PlanetApproachLevelThreeJS,
-          planetWebGPU:        (window.GQPlanetApproachLevelWebGPU  || {}).PlanetApproachLevelWebGPU,
-          colonyThreeJS:       (window.GQColonySurfaceLevelThreeJS  || {}).ColonySurfaceLevelThreeJS,
-          colonyWebGPU:        (window.GQColonySurfaceLevelWebGPU   || {}).ColonySurfaceLevelWebGPU,
-          objectThreeJS:       (window.GQObjectApproachLevelThreeJS || {}).ObjectApproachLevelThreeJS,
-          objectWebGPU:        (window.GQObjectApproachLevelWebGPU  || {}).ObjectApproachLevelWebGPU,
-        };
-        const ZOOM_LEVEL     = gqZoom.ZOOM_LEVEL;
-        const SPATIAL_DEPTH  = gqZoom.SPATIAL_DEPTH;
-        const SeamlessZoomOrchestrator = gqZoom.SeamlessZoomOrchestrator;
-
-        const rendererOptions = {
-          externalCanvas: sharedCanvas instanceof HTMLCanvasElement ? sharedCanvas : null,
-          interactive: true,
-          qualityProfile: resolvedRendererQuality?.name || settingsState.renderQualityProfile || 'auto',
-          onHover: (star, pos) => {
-            commitSelectionState('hover', star, pos, 'hover');
-            updateGalaxyHoverCard(root, star, pos, false);
-          },
-          onClick: (star, pos) => {
-            commitSelectionState('active', star, pos, 'click');
-            if (star?.__kind === 'planet') {
-              focusPlanetDetailsInOverlay(root, star, false, false);
-              updateGalaxyHoverCard(root, star, pos, true);
-              return;
-            }
-            if (star?.__kind === 'cluster') {
-              pinnedStar = star;
-              toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-              updateGalaxyHoverCard(root, star, pos, true);
-              renderGalaxySystemDetails(root, star, false);
-              applyClusterRangeToControls(root, star, { toast: false });
-              flashGalaxyControlBtn(root, '#gal-cluster-bounds-btn');
-              return;
-            }
-            pinnedStar = star;
-            toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-            updateGalaxyHoverCard(root, star, pos, true);
-            renderGalaxySystemDetails(root, star, false);
-          },
-          onDoubleClick: async (star, pos) => {
-            commitSelectionState('active', star, pos, 'doubleClick');
-            logEnterSystemPipeline('renderer:onDoubleClick', {
-              rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
-              rendererBackend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
-              rendererHasEnterSystemView: typeof galaxy3d?.enterSystemView === 'function',
-              kind: String(star?.__kind || 'star'),
-              galaxy: Number(star?.galaxy_index || star?.__sourceStar?.galaxy_index || 0),
-              system: Number(star?.system_index || star?.__sourceStar?.system_index || 0),
-              starName: String(star?.name || star?.catalog_name || star?.__sourceStar?.name || ''),
-              pos: pos ? { x: Number(pos.x || 0), y: Number(pos.y || 0) } : null,
-            });
-            if (star?.__kind === 'planet') {
-              focusPlanetDetailsInOverlay(root, star, true, true);
-              updateGalaxyHoverCard(root, star, pos, true);
-              if (zoomOrchestrator && SPATIAL_DEPTH) {
-                zoomOrchestrator.zoomToTarget(
-                  Object.assign({ spatialDepth: SPATIAL_DEPTH.STELLAR_VICINITY }, star),
-                ).catch(() => {});
-              }
-              return;
-            }
-            if (star?.__kind === 'cluster') {
-              pinnedStar = star;
-              toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-              updateGalaxyHoverCard(root, star, pos, true);
-              renderGalaxySystemDetails(root, star, true);
-              const range = applyClusterRangeToControls(root, star, { toast: true });
-              if (range) {
-                flashGalaxyControlBtn(root, '#gal-cluster-bounds-btn');
-                await loadGalaxyStars3D(root);
-              }
-              return;
-            }
-            if (audioManager && typeof audioManager.setScene === 'function') {
-              audioManager.setScene('system', { autoplay: true, transition: 'soft', minHoldMs: 700 });
-            }
-            pinnedStar = star;
-            toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-            updateGalaxyHoverCard(root, star, pos, true);
-            renderGalaxySystemDetails(root, star, true);
-            await loadStarSystemPlanets(root, star);
-            if (zoomOrchestrator && SPATIAL_DEPTH && star) {
-              zoomOrchestrator.zoomToTarget(
-                Object.assign({ spatialDepth: SPATIAL_DEPTH.STAR_SYSTEM }, star),
-              ).catch(() => {});
-            }
-          },
-          onSystemZoomOut: (star) => {
-            if (audioManager && typeof audioManager.setScene === 'function') {
-              audioManager.setScene('galaxy', { autoplay: true, transition: 'soft', minHoldMs: 700 });
-            }
-            transitionOutOfSystemView(star, 'renderer:onSystemZoomOut');
-            pinnedStar = star || null;
-            renderGalaxySystemDetails(root, star, false);
-            const panel = root.querySelector('#galaxy-planets-panel');
-            if (panel) renderGalaxyColonySummary(panel, galaxyStars, uiState.activeRange || null);
-            if (zoomOrchestrator && ZOOM_LEVEL) {
-              zoomOrchestrator.zoomTo(ZOOM_LEVEL.GALAXY, null).catch(() => {});
-            }
-          },
-          onPlanetZoomOut: (star) => {
-            if (audioManager && typeof audioManager.setScene === 'function') {
-              audioManager.setScene('system', { autoplay: true, transition: 'normal', minHoldMs: 500 });
-            }
-            if (star) renderGalaxySystemDetails(root, star, true);
-            if (zoomOrchestrator && ZOOM_LEVEL) {
-              zoomOrchestrator.zoomTo(ZOOM_LEVEL.SYSTEM, star || null).catch(() => {});
-            }
-          },
-        };
-        window.__GQ_LEVEL_RENDERER_OPTIONS = rendererOptions;
-
-        const adoptSharedRendererIfAvailable = () => {
-          const sharedLevelRenderer = getPreferredLevelSharedRenderer();
-          if (!sharedLevelRenderer || galaxy3d === sharedLevelRenderer) return false;
-          if (galaxy3d && !isSharedLevelRenderer(galaxy3d) && typeof galaxy3d.destroy === 'function') {
-            try { galaxy3d.destroy(); } catch (_) {}
-          }
-          galaxy3d = sharedLevelRenderer;
-          attachRendererCallbacks(galaxy3d, rendererOptions);
-          if (galaxy3d?.renderer?.domElement) {
-            galaxy3d.renderer.domElement.style.pointerEvents = 'auto';
-          }
-          applyRuntimeSettings();
-          refreshGalaxyDensityMetrics(root);
-          updateGalaxyFollowUi(root);
-          updateClusterBoundsUi(root);
-          syncRendererInputContext(galaxy3d);
-          galaxy3dInitReason = '';
-          return true;
-        };
-
-        const canBootstrapOrchestrator = !!(
-          SeamlessZoomOrchestrator && ZOOM_LEVEL &&
-          sharedCanvas instanceof HTMLCanvasElement &&
-          gqLevels.galaxyThreeJS && gqLevels.galaxyWebGPU
-        );
-
-        const initDirectRendererFallback = () => {
-          if (galaxy3d) return true;
-          if (!GalaxyViewCtor) {
-            galaxy3dInitReason = 'No direct renderer constructor available';
-            return false;
-          }
-          try {
-            galaxy3d = new GalaxyViewCtor(holder, rendererOptions);
-            if (galaxy3d && typeof galaxy3d.init === 'function') {
-              Promise.resolve(galaxy3d.init()).catch((err) => {
-                console.warn('[GQ] Galaxy3DRendererWebGPU init fallback:', err?.message || err);
-              });
-            }
-            galaxy3dInitReason = '';
-            return true;
-          } catch (err) {
-            console.warn('[GQ] direct renderer fallback init failed:', err?.message || err);
-            galaxy3dInitReason = String(err?.message || err || 'direct renderer fallback failed');
-            galaxy3d = null;
-            return false;
-          }
-        };
-
-        const sharedLevelRenderer = getPreferredLevelSharedRenderer();
-        if (sharedLevelRenderer) {
-          galaxy3d = sharedLevelRenderer;
-          attachRendererCallbacks(galaxy3d, rendererOptions);
-        } else if (!canBootstrapOrchestrator) {
-          initDirectRendererFallback();
-        }
-
-        if (galaxy3d && galaxy3d.backendType) {
-          window.__GQ_ACTIVE_RENDERER_BACKEND = galaxy3d.backendType;
-        }
-
-        if (galaxy3d && typeof galaxy3d.getQualityProfileState === 'function') {
-          galaxy3dQualityState = galaxy3d.getQualityProfileState();
-        }
-        if (settingsState.renderQualityProfile === 'auto' && galaxy3dQualityState?.name === 'low') {
-          showToast('Low-End-Rendering aktiv: Pixel Ratio, Cache-Groessen und FX wurden reduziert.', 'warning');
-        }
-        if (galaxy3d?.renderer?.domElement) {
-          galaxy3d.renderer.domElement.style.pointerEvents = 'auto';
-        }
-        galaxy3dQualityState = null;
-        // Window-manager transitions can report stale host bounds for a frame.
-        // Trigger a few deferred resizes so the renderer matches the visible host.
-        const kickResize = () => {
-          try {
-            if (galaxy3d && typeof galaxy3d.resize === 'function') galaxy3d.resize();
-          } catch (err) {
-            gameLog('info', 'Galaxy3D resize kick fehlgeschlagen', err);
-          }
-        };
-        kickResize();
-        setTimeout(kickResize, 60);
-        setTimeout(kickResize, 220);
-        galaxy3dInitReason = '';
-        if (galaxy3d && typeof galaxy3d.setClusterColorPalette === 'function') {
-          galaxy3d.setClusterColorPalette(resolveClusterColorPalette(uiState.territory));
-        }
-        if (galaxy3d) {
-          applyRuntimeSettings();
-          refreshGalaxyDensityMetrics(root);
-          updateGalaxyFollowUi(root);
-          updateClusterBoundsUi(root);
-        }
-
-        // ── SeamlessZoomOrchestrator bootstrap ──────────────────────────────
-        // Wire the orchestrator alongside the legacy galaxy3d renderer so the
-        // zoom engine is available for future seamless transitions.  The
-        // orchestrator is intentionally initialised asynchronously so it never
-        // blocks the synchronous init3D() path.
-        if (canBootstrapOrchestrator) {
-          if (zoomOrchestrator) {
-            try { zoomOrchestrator.dispose(); } catch (disposeErr) {
-              console.warn('[GQ] SeamlessZoomOrchestrator dispose error (non-fatal):', disposeErr?.message || disposeErr);
-            }
-          }
-          zoomOrchestrator = new SeamlessZoomOrchestrator(sharedCanvas, {
-            rendererHint: settingsState.renderQualityProfile === 'webgpu' ? 'webgpu' : 'auto',
-          });
-          zoomOrchestrator.register(ZOOM_LEVEL.GALAXY, {
-            webgpu:  gqLevels.galaxyWebGPU,
-            threejs: gqLevels.galaxyThreeJS,
-          });
-          if (gqLevels.systemThreeJS && gqLevels.systemWebGPU) {
-            zoomOrchestrator.register(ZOOM_LEVEL.SYSTEM, {
-              webgpu:  gqLevels.systemWebGPU,
-              threejs: gqLevels.systemThreeJS,
-            });
-          }
-          if (gqLevels.planetThreeJS && gqLevels.planetWebGPU) {
-            zoomOrchestrator.register(ZOOM_LEVEL.PLANET_APPROACH, {
-              webgpu:  gqLevels.planetWebGPU,
-              threejs: gqLevels.planetThreeJS,
-            });
-          }
-          if (gqLevels.colonyThreeJS && gqLevels.colonyWebGPU) {
-            zoomOrchestrator.register(ZOOM_LEVEL.COLONY_SURFACE, {
-              webgpu:  gqLevels.colonyWebGPU,
-              threejs: gqLevels.colonyThreeJS,
-            });
-          }
-          if (gqLevels.objectThreeJS && gqLevels.objectWebGPU) {
-            zoomOrchestrator.register(ZOOM_LEVEL.OBJECT_APPROACH, {
-              webgpu:  gqLevels.objectWebGPU,
-              threejs: gqLevels.objectThreeJS,
-            });
-          }
-          zoomOrchestrator.initialize()
-            .then(() => {
-              try {
-                zoomOrchestrator.zoomTo(ZOOM_LEVEL.GALAXY, null)
-                  .then(() => {
-                    adoptSharedRendererIfAvailable();
-                  })
-                  .catch(() => {});
-              } catch (_) {}
-            })
-            .catch((err) => {
-              console.warn('[GQ] SeamlessZoomOrchestrator init failed:', err?.message || err, err?.stack || '');
-              zoomOrchestrator = null;
-              initDirectRendererFallback();
-            });
-        }
-        if (!adoptSharedRendererIfAvailable() && !canBootstrapOrchestrator) {
-          initDirectRendererFallback();
-        }
-        if (!galaxy3d && !canBootstrapOrchestrator) {
-          const reason = esc(galaxy3dInitReason || 'Renderer bootstrap unavailable');
-          root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D renderer unavailable. Fallback list active. Reason: ${reason}</span>`;
-          toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-        }
-      } catch (err) {
-        galaxy3d = null;
-        console.error('Galaxy3D init failed:', err);
-        galaxy3dInitReason = String(err?.message || err || 'unknown error');
-        const reason = esc(galaxy3dInitReason);
-        root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D renderer unavailable. Fallback list active. Reason: ${reason}</span>`;
-        toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-      }
+      runtimeGalaxyInit3DFacadeApi.initGalaxy3D(root);
     }
 
     renderWindow() {
@@ -5814,10 +896,10 @@
                 <button class="btn btn-secondary" id="gal-follow-toggle-btn">Follow: on</button>
                 <label>Policy:
                   <select id="gal-policy-profile">
-                    <option value="auto" ${activePolicyMode === 'auto' ? 'selected' : ''}>Auto (${POLICY_PROFILES[activePolicyProfile].label})</option>
-                    <option value="balanced" ${activePolicyMode === 'manual' && activePolicyProfile === 'balanced' ? 'selected' : ''}>Balanced</option>
-                    <option value="cache_aggressive" ${activePolicyMode === 'manual' && activePolicyProfile === 'cache_aggressive' ? 'selected' : ''}>Aggressive Cache</option>
-                    <option value="always_fresh" ${activePolicyMode === 'manual' && activePolicyProfile === 'always_fresh' ? 'selected' : ''}>Always Fresh</option>
+                    <option value="auto" ${getActivePolicyMode() === 'auto' ? 'selected' : ''}>Auto (${POLICY_PROFILES[getActivePolicyProfile()].label})</option>
+                    <option value="balanced" ${getActivePolicyMode() === 'manual' && getActivePolicyProfile() === 'balanced' ? 'selected' : ''}>Balanced</option>
+                    <option value="cache_aggressive" ${getActivePolicyMode() === 'manual' && getActivePolicyProfile() === 'cache_aggressive' ? 'selected' : ''}>Aggressive Cache</option>
+                    <option value="always_fresh" ${getActivePolicyMode() === 'manual' && getActivePolicyProfile() === 'always_fresh' ? 'selected' : ''}>Always Fresh</option>
                   </select>
                 </label>
                 <label>Density:
@@ -5927,196 +1009,7 @@
         `;
 
 
-      const stageEl = root.querySelector('.galaxy-3d-stage');
-      if (stageEl) {
-        stageEl.style.pointerEvents = 'none';
-        stageEl.style.zIndex = '1';
-      }
-      root.querySelectorAll('.galaxy-overlay-window').forEach((overlay) => {
-        overlay.style.pointerEvents = 'auto';
-      });
-        bindGalaxyOverlayHotkeys();
-        makeGalaxyOverlayDraggable(root, '#galaxy-controls-overlay');
-        makeGalaxyOverlayDraggable(root, '#galaxy-info-overlay');
-        makeGalaxyOverlayDraggable(root, '#galaxy-nav-orb-overlay');
-        bindGalaxyNavOrb(root);
-
-        root.querySelector('#gal-load-3d-btn').addEventListener('click', () => this.loadStars3D(root));
-        root.querySelector('#gal-follow-toggle-btn').addEventListener('click', () => {
-          if (!galaxy3d || typeof galaxy3d.toggleFollowSelection !== 'function') return;
-          galaxy3d.toggleFollowSelection();
-          updateGalaxyFollowUi(root);
-        });
-        root.querySelector('#gal-cluster-bounds-btn')?.addEventListener('click', () => {
-          settingsState.clusterBoundsVisible = !(settingsState.clusterBoundsVisible !== false);
-          applyRuntimeSettings();
-          refreshGalaxyDensityMetrics(root);
-          updateClusterBoundsUi(root);
-          saveUiSettings();
-          showToast(`Cluster-Boxen: ${settingsState.clusterBoundsVisible ? 'an' : 'aus'}`, 'info');
-        });
-        root.querySelector('#gal-cluster-heatmap-btn')?.addEventListener('click', () => {
-          settingsState.clusterHeatmapEnabled = !(settingsState.clusterHeatmapEnabled !== false);
-          applyRuntimeSettings();
-          refreshGalaxyDensityMetrics(root);
-          this.updateClusterHeatmapUi(root);
-          saveUiSettings();
-          showToast(`Cluster-Heatmap: ${settingsState.clusterHeatmapEnabled ? 'an' : 'aus'}`, 'info');
-        });
-        root.querySelector('#gal-colonies-only-btn')?.addEventListener('click', () => {
-          if (!GALAXY_FILTERS_ENABLED) {
-            showToast('Galaxie-Filter ist derzeit deaktiviert.', 'info');
-            return;
-          }
-          const modes = ['all', 'colonies', 'own', 'foreign'];
-          const currentIndex = modes.indexOf(getGalaxyColonyFilterMode());
-          settingsState.galaxyColonyFilterMode = modes[(currentIndex + 1 + modes.length) % modes.length];
-          settingsState.galaxyColoniesOnly = settingsState.galaxyColonyFilterMode !== 'all';
-          refreshGalaxyDensityMetrics(root);
-          updateGalaxyColonyFilterUi(root);
-          saveUiSettings();
-          this.loadStars3D(root);
-          const modeLabels = {
-            all: 'alle Systeme',
-            colonies: 'nur Kolonien',
-            own: 'nur eigene Kolonien',
-            foreign: 'nur fremde Kolonien',
-          };
-          showToast(`Galaxie-Filter: ${modeLabels[getGalaxyColonyFilterMode()] || 'alle Systeme'}`, 'info');
-        });
-        root.querySelector('#gal-core-fx-btn')?.addEventListener('click', () => {
-          settingsState.galacticCoreFxAuto = false;
-          settingsState.galacticCoreFxEnabled = !(settingsState.galacticCoreFxEnabled !== false);
-          applyRuntimeSettings();
-          this.updateCoreFxUi(root);
-          saveUiSettings();
-          showToast(`Galactic Core FX: ${settingsState.galacticCoreFxEnabled ? 'an' : 'aus'}`, 'info');
-        });
-        root.querySelector('#gal-fleet-vectors-btn')?.addEventListener('click', () => {
-          settingsState.galaxyFleetVectorsVisible = !(settingsState.galaxyFleetVectorsVisible !== false);
-          applyRuntimeSettings();
-          this.updateFleetVectorsUi(root);
-          if (root?.querySelector('#galaxy-system-details')) {
-            renderGalaxySystemDetails(root, pinnedStar || uiState.activeStar || null, isSystemModeActive());
-          }
-          saveUiSettings();
-          showToast(`Fleet-Vektoren: ${settingsState.galaxyFleetVectorsVisible ? 'an' : 'aus'}`, 'info');
-        });
-        root.querySelector('#gal-system-legacy-fallback-btn')?.addEventListener('click', () => {
-          settingsState.systemViewLegacyFallback = !(settingsState.systemViewLegacyFallback === true);
-          this.updateLegacyFallbackUi(root);
-          saveUiSettings();
-          showToast(`System Legacy Fallback: ${settingsState.systemViewLegacyFallback ? 'an' : 'aus'}`, 'info');
-        });
-        root.querySelector('#gal-magnet-hover-toggle-btn')?.addEventListener('click', () => {
-          settingsState.hoverMagnetEnabled = !(settingsState.hoverMagnetEnabled !== false);
-          applyRuntimeSettings();
-          this.updateMagnetUi(root);
-          saveUiSettings();
-          showToast(`Magnet-Hover: ${settingsState.hoverMagnetEnabled ? 'an' : 'aus'}`, 'info');
-        });
-        root.querySelector('#gal-magnet-click-toggle-btn')?.addEventListener('click', () => {
-          settingsState.clickMagnetEnabled = !(settingsState.clickMagnetEnabled !== false);
-          applyRuntimeSettings();
-          this.updateMagnetUi(root);
-          saveUiSettings();
-          showToast(`Magnet-Klick: ${settingsState.clickMagnetEnabled ? 'an' : 'aus'}`, 'info');
-        });
-        root.querySelector('#gal-magnet-star-px')?.addEventListener('input', (e) => {
-          settingsState.hoverMagnetStarPx = Math.max(8, Math.min(64, Number(e.target.value || 24)));
-          settingsState.magnetPreset = 'custom';
-          applyRuntimeSettings();
-          this.updateMagnetUi(root);
-          saveUiSettings();
-        });
-        root.querySelector('#gal-magnet-planet-px')?.addEventListener('input', (e) => {
-          settingsState.hoverMagnetPlanetPx = Math.max(8, Math.min(72, Number(e.target.value || 30)));
-          settingsState.magnetPreset = 'custom';
-          applyRuntimeSettings();
-          this.updateMagnetUi(root);
-          saveUiSettings();
-        });
-        root.querySelector('#gal-magnet-cluster-px')?.addEventListener('input', (e) => {
-          settingsState.hoverMagnetClusterPx = Math.max(8, Math.min(72, Number(e.target.value || 28)));
-          settingsState.magnetPreset = 'custom';
-          applyRuntimeSettings();
-          this.updateMagnetUi(root);
-          saveUiSettings();
-        });
-        root.querySelectorAll('[data-magnet-preset]').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            const preset = String(btn.getAttribute('data-magnet-preset') || 'balanced');
-            this.applyMagnetPreset(preset, root);
-          });
-        });
-        root.querySelector('#gal-policy-profile').addEventListener('change', (e) => {
-          const selected = String(e.target.value || 'auto');
-          if (selected === 'auto') {
-            applyPolicyMode('auto');
-            showToast(`Policy: Auto -> ${POLICY_PROFILES[activePolicyProfile].label}`, 'info');
-          } else {
-            applyPolicyMode('manual', selected);
-            showToast(`Policy: ${POLICY_PROFILES[activePolicyProfile].label}`, 'info');
-          }
-          refreshPolicyUi(root);
-          this.loadStars3D(root);
-        });
-        root.querySelector('#gal-cluster-density')?.addEventListener('change', (e) => {
-          const selected = String(e.target.value || 'auto').toLowerCase();
-          settingsState.clusterDensityMode = ['auto', 'high', 'max'].includes(selected) ? selected : 'auto';
-          applyRuntimeSettings();
-          refreshGalaxyDensityMetrics(root);
-          saveUiSettings();
-          showToast(`Cluster-Dichte: ${settingsState.clusterDensityMode.toUpperCase()}`, 'info');
-        });
-        root.querySelector('#gal-clear-cache-btn').addEventListener('click', async () => {
-          galaxyHydrationToken += 1;
-          if (galaxyModel) galaxyModel.clearAll();
-          if (galaxyDB) await galaxyDB.clearAll();
-          galaxyStars = [];
-          pinnedStar = null;
-          if (galaxy3d) galaxy3d.setStars([]);
-          const details = root.querySelector('#galaxy-system-details');
-          const panel = root.querySelector('#galaxy-planets-panel');
-          if (details) details.innerHTML = '<span class="text-muted">Galaxy cache cleared.</span>';
-          if (panel) panel.innerHTML = '';
-          showToast('Galaxy cache cleared.', 'success');
-        });
-        root.querySelector('#galaxy-debug-copy-btn')?.addEventListener('click', () => {
-          copyLastGalaxyDebugError();
-        });
-        root.querySelector('#galaxy-debug-download-btn')?.addEventListener('click', () => {
-          downloadGalaxyDebugLog();
-        });
-        root.querySelector('#galaxy-debug-clear-btn')?.addEventListener('click', () => {
-          clearGalaxyDebugErrors();
-        });
-        root.querySelector('#gal-from').addEventListener('change', () => {
-          const from = root.querySelector('#gal-from');
-          const to = root.querySelector('#gal-to');
-          if (parseInt(from.value, 10) > parseInt(to.value, 10)) to.value = from.value;
-        });
-
-        root.querySelectorAll('[data-overlay-close]').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            const selector = btn.getAttribute('data-overlay-close');
-            if (!selector) return;
-            toggleGalaxyOverlay(root, selector, false);
-          });
-        });
-
-        refreshPolicyUi(root);
-        refreshGalaxyHealth(root, false);
-        refreshGalaxyDensityMetrics(root);
-        updateGalaxyFollowUi(root);
-        updateClusterBoundsUi(root);
-        this.updateClusterHeatmapUi(root);
-        updateGalaxyColonyFilterUi(root);
-        this.updateCoreFxUi(root);
-        this.updateFleetVectorsUi(root);
-        this.updateLegacyFallbackUi(root);
-        this.updateMagnetUi(root);
-        renderGalaxyDebugPanel(root);
+        runtimeGalaxyWindowBindingsApi.bindGalaxyWindowControls(root);
       }
 
       if (root.querySelector('#gal-health-badge') && (Date.now() - galaxyHealthLastCheckMs) > 60 * 1000) {
@@ -6131,8 +1024,8 @@
         this.loadStars3D(root);
       }
 
-      this.showShortcutsHintOnce();
-      this.scheduleFleetLegendHint(1300);
+      showGalaxyShortcutsHintOnce();
+      scheduleFleetLegendHint(1300);
 
       refreshGalaxyDensityMetrics(root);
       updateGalaxyFollowUi(root);
@@ -6146,645 +1039,84 @@
     }
 
     async loadStars3D(root) {
-      const details = root.querySelector('#galaxy-system-details');
-      if (activePolicyMode === 'auto') {
-        applyPolicyMode('auto');
-        refreshPolicyUi(root);
-      }
-      const g = parseInt(root.querySelector('#gal-galaxy').value, 10) || 1;
-      let from = Math.max(1, parseInt(root.querySelector('#gal-from').value, 10) || 1);
-      let to = Math.max(from, parseInt(root.querySelector('#gal-to').value, 10) || from);
-      if (galaxyStars.length && Number(galaxyStars[0]?.galaxy_index || 0) !== g) {
-        galaxyStars = [];
-      }
-      uiState.activeRange = { from, to };
-      setGalaxyContext(g, uiState.activeSystem || from, uiState.activeStar);
-      const starsPolicy = LEVEL_POLICIES.galaxy.stars;
-      let requestMaxPoints = Number(starsPolicy.maxPoints || 1500);
-      let galaxyMeta = null;
-      const densityMode = String(settingsState.clusterDensityMode || 'auto').toLowerCase();
-      const clusterPreset = densityMode === 'max'
-        ? 'ultra'
-        : (densityMode === 'high' ? 'high' : 'auto');
-      const renderDataAdapter = window.GQRenderDataAdapter || API;
-
-      if (details) details.innerHTML = '<span class="text-muted">Loading star cloud...</span>';
-
-      if (typeof API.galaxyBootstrap === 'function') {
-        try {
-          const bootstrapRaw = await API.galaxyBootstrap(g, from, to, requestMaxPoints);
-          const bootstrapRes = (typeof renderDataAdapter?.adaptGalaxyBootstrap === 'function')
-            ? renderDataAdapter.adaptGalaxyBootstrap(bootstrapRaw, { galaxy: g, from, to, maxPoints: requestMaxPoints })
-            : { ok: true, data: bootstrapRaw };
-          if (bootstrapRes?.ok && bootstrapRes.data) {
-            const bootstrap = bootstrapRes.data;
-            const reportedSystemMax = Number(bootstrap.system_max || 0);
-            if (reportedSystemMax > 0) {
-              galaxySystemMax = Math.max(galaxySystemMax, reportedSystemMax);
-            }
-            const init = bootstrap.initial_range || {};
-            const recommendedTo = Math.max(from, Number(init.to || to));
-            if (to <= from && recommendedTo > to) {
-              to = recommendedTo;
-              uiState.activeRange = { from, to };
-              const toInput = root.querySelector('#gal-to');
-              if (toInput) {
-                toInput.value = String(to);
-              }
-            }
-            requestMaxPoints = Math.max(100, Math.min(50000, Number(init.max_points || requestMaxPoints)));
-            const assetsManifestVersion = Number(bootstrap.assets_manifest_version || 0);
-            if (assetsManifestVersion > 0) {
-              uiState.assetsManifestVersion = assetsManifestVersion;
-            }
-            if (bootstrap.assets_manifest_ok === false) {
-              console.warn('[GQ] loadGalaxyStars3D: assets manifest mismatch', {
-                expected: Number(window.GQ_ASSETS_MANIFEST_VERSION || 1),
-                received: assetsManifestVersion,
-              });
-              if (details) {
-                details.innerHTML = '<span class="text-yellow">Asset manifest mismatch; forcing fresh asset paths.</span>';
-              }
-            }
-            if (bootstrap.stale && details) {
-              details.innerHTML = '<span class="text-yellow">Bootstrap data is stale; refreshing live stars...</span>';
-            }
-          } else if (bootstrapRes?.errorType === 'schema') {
-            const issueList = Array.isArray(bootstrapRes.issues) ? bootstrapRes.issues.join(', ') : 'invalid payload';
-            console.warn('[GQ] loadGalaxyStars3D: bootstrap schema mismatch', issueList);
-            const cls = (typeof renderDataAdapter?.classifyRenderError === 'function')
-              ? renderDataAdapter.classifyRenderError(bootstrapRes)
-              : { type: 'schema' };
-            if (details && cls.type === 'schema') {
-              details.innerHTML = '<span class="text-yellow">Bootstrap schema mismatch; using fallback stars endpoint.</span>';
-            }
-          }
-        } catch (bootstrapErr) {
-          console.warn('[GQ] loadGalaxyStars3D: bootstrap request failed', bootstrapErr);
-          const cls = (typeof renderDataAdapter?.classifyRenderError === 'function')
-            ? renderDataAdapter.classifyRenderError(bootstrapErr)
-            : { type: 'network' };
-          if (details && cls.type === 'auth') {
-            details.innerHTML = '<span class="text-red">Session expired. Please log in again.</span>';
-          }
-        }
-      }
-
-      const applyStarsToRenderer = (stars, clusterSummary, contextLabel = 'render') => {
-        try {
-          const curGalaxy = galaxy3d?.stars?.length > 0 ? Number(galaxy3d.stars[0]?.galaxy_index || 0) : 0;
-          const preserveView = curGalaxy > 0 && curGalaxy === g;
-          const filteredStars = getDisplayedGalaxyStars(stars);
-          const displayedStars = (Array.isArray(filteredStars) && filteredStars.length === 0 && Array.isArray(stars) && stars.length > 0)
-            ? stars
-            : filteredStars;
-          if (Array.isArray(filteredStars) && filteredStars.length === 0 && Array.isArray(stars) && stars.length > 0) {
-            uiConsolePush('[galaxy] filter produced 0 stars; fallback to raw star payload.');
-          }
-          const displayedClusterSummary = getDisplayedGalaxyClusterSummary(clusterSummary, displayedStars);
-
-          const ftlMap = window._GQ_ftl_map;
-          const ctx = getZoomTransitionContext();
-          const orchestrator = ctx.orchestrator;
-          const galaxyLevel = ctx.ZOOM_LEVEL?.GALAXY;
-          if (orchestrator && Number.isFinite(Number(galaxyLevel)) && typeof orchestrator.setSceneData === 'function') {
-            Promise.resolve(orchestrator.setSceneData(galaxyLevel, {
-              stars: displayedStars,
-              clusterAuras: displayedClusterSummary || [],
-              ftlInfrastructure: {
-                gates: ftlMap?.gates || [],
-                resonance_nodes: ftlMap?.resonance_nodes || [],
-              },
-              fleets: window._GQ_fleets || [],
-              galaxyMetadata: galaxyMeta || null,
-            })).catch(() => {});
-            const sharedLevelRenderer = getPreferredLevelSharedRenderer();
-            if (sharedLevelRenderer && galaxy3d !== sharedLevelRenderer) {
-              galaxy3d = sharedLevelRenderer;
-              attachRendererCallbacks(galaxy3d, window.__GQ_LEVEL_RENDERER_OPTIONS || {});
-            }
-          }
-
-          if (!galaxy3d) return true;
-
-          if (galaxyMeta && typeof galaxy3d.setGalaxyMetadata === 'function') {
-            galaxy3d.setGalaxyMetadata(galaxyMeta);
-          }
-          galaxy3d.setStars(displayedStars, { preserveView });
-          if (typeof galaxy3d.setGalaxyFleets === 'function') {
-            galaxy3d.setGalaxyFleets(window._GQ_fleets || []);
-          }
-          if (typeof galaxy3d.setFtlInfrastructure === 'function') {
-            galaxy3d.setFtlInfrastructure(ftlMap?.gates || [], ftlMap?.resonance_nodes || []);
-          }
-          if (typeof galaxy3d.setClusterColorPalette === 'function') {
-            galaxy3d.setClusterColorPalette(resolveClusterColorPalette(uiState.territory));
-          }
-          if (typeof galaxy3d.setClusterAuras === 'function') {
-            galaxy3d.setClusterAuras(displayedClusterSummary || []);
-          }
-          applyGalaxyOwnerHighlightToRenderer(displayedStars);
-          return true;
-        } catch (err) {
-          const msg = String(err?.message || err || 'renderer error');
-          console.error('[GQ] Galaxy renderer failed', { context: contextLabel, error: err });
-          pushGalaxyDebugError('galaxy-render', msg, contextLabel);
-          return false;
-        }
-      };
-
-      if (typeof API.galaxyMeta === 'function') {
-        try {
-          const metaPayload = await API.galaxyMeta(g);
-          if (metaPayload && metaPayload.success === true && metaPayload.metadata && typeof metaPayload.metadata === 'object') {
-            galaxyMeta = metaPayload.metadata;
-            if (galaxy3d && typeof galaxy3d.setGalaxyMetadata === 'function') {
-              galaxy3d.setGalaxyMetadata(galaxyMeta);
-            }
-          }
-        } catch (metaErr) {
-          console.warn('[GQ] loadGalaxyStars3D: metadata request failed', metaErr);
-        }
-      }
-
-      const emitRenderProbe = (sourceLabel, meta = {}) => {
-        const rawStars = Array.isArray(galaxyStars) ? galaxyStars.length : 0;
-        const displayedStars = getDisplayedGalaxyStars(galaxyStars);
-        const filteredStars = Array.isArray(displayedStars) ? displayedStars.length : 0;
-        const stats = (galaxy3d && typeof galaxy3d.getRenderStats === 'function')
-          ? galaxy3d.getRenderStats()
-          : null;
-        const visibleStars = Number(stats?.visibleStars || 0);
-        const targetPoints = Number(stats?.targetPoints || 0);
-        const densityMode = String(stats?.densityMode || 'n/a');
-        const instanceId = String(stats?.instanceId || galaxy3d?.instanceId || 'n/a');
-        const viewMode = stats?.systemMode ? 'system' : 'galaxy';
-        uiConsolePush(`[galaxy] probe src=${sourceLabel} inst=${instanceId} raw=${rawStars} filtered=${filteredStars} visible=${visibleStars} target=${targetPoints} mode=${densityMode} view=${viewMode}`);
-
-        if (meta && Object.keys(meta).length) {
-          const extras = Object.entries(meta)
-            .map(([k, v]) => `${k}=${String(v)}`)
-            .join(' ');
-          uiConsolePush(`[galaxy] meta ${extras}`);
-        }
-
-        if (filteredStars > 0 && visibleStars <= 0) {
-          const diag = inspectGalaxyCanvasLayering();
-          const topInfo = (diag.topElementsAtCanvas || [])
-            .map((p) => `${p.x},${p.y}->${p.topTag}${p.topId ? '#' + p.topId : ''}`)
-            .join(' | ');
-          uiConsolePush(`[galaxy][warn] stars loaded but not visible. top=${topInfo || 'n/a'}`);
-          pushGalaxyDebugError('galaxy-visible-zero', `raw=${rawStars} filtered=${filteredStars} visible=${visibleStars}`, String(sourceLabel || 'unknown'));
-        }
-      };
-
-      const ensureInitialGalaxyFrame = () => {
-        if (galaxyAutoFramedOnce) return;
-        if (!galaxy3d || typeof galaxy3d.fitCameraToStars !== 'function') return;
-        const hasStars = Array.isArray(galaxyStars) && galaxyStars.length > 0;
-        if (!hasStars) return;
-        galaxyAutoFramedOnce = true;
-        setTimeout(() => {
-          try {
-            galaxy3d.fitCameraToStars(true, true);
-          } catch (err) {
-            gameLog('info', 'Galaxy3D fitCameraToStars fehlgeschlagen', err);
-          }
-        }, 30);
-      };
-
-      let cachedStars = normalizeStarListVisibility(galaxyModel ? galaxyModel.listStars(g, from, to) : []);
-      const fullRangeInModel = galaxyModel
-        ? galaxyModel.hasLoadedStarRange(g, from, to, starsPolicy.cacheMaxAgeMs)
-        : false;
-      if ((!cachedStars || cachedStars.length === 0) && galaxyDB && !isCurrentUserAdmin()) {
-        try {
-          const dbStars = await galaxyDB.getStars(g, from, to, { maxAgeMs: starsPolicy.cacheMaxAgeMs });
-          if (dbStars.length && galaxyModel) {
-            cachedStars = normalizeStarListVisibility(galaxyModel.upsertStarBatch(g, dbStars));
-            if (hasDenseSystemCoverage(dbStars, g, from, to)) {
-              galaxyModel.addLoadedStarRange(g, from, to, Date.now());
-            }
-          } else {
-            cachedStars = normalizeStarListVisibility(dbStars);
-          }
-        } catch (dbErr) {
-          console.warn('[GQ] loadGalaxyStars3D: DB cache read failed', dbErr);
-        }
-      }
-
-      if (cachedStars && cachedStars.length) {
-        galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, cachedStars, g);
-        uiState.clusterSummary = assignClusterFactions(uiState.rawClusters || [], uiState.territory);
-        const rendered = applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'cache');
-        if (!rendered) {
-          renderGalaxyFallbackList(root, galaxyStars, from, to, '3D renderer unavailable (cache fallback)');
-        } else if (!galaxy3d?.systemMode) {
-          renderGalaxyColonySummary(root.querySelector('#galaxy-planets-panel'), galaxyStars, { from, to });
-        }
-        if (details) {
-          details.innerHTML = `<span class="text-cyan">Cache: ${galaxyStars.length} stars loaded${fullRangeInModel ? ' (complete range)' : ''}. Syncing live data...</span>`;
-        }
-        refreshGalaxyDensityMetrics(root);
-        emitRenderProbe('cache', {
-          fullRange: fullRangeInModel,
-          from,
-          to,
-        });
-        ensureInitialGalaxyFrame();
-      }
-
-      const shouldRefreshNetwork = isCurrentUserAdmin() || starsPolicy.alwaysRefreshNetwork || !fullRangeInModel;
-      if (!shouldRefreshNetwork && cachedStars && cachedStars.length) {
-        if (details) {
-          details.innerHTML = `<span class="text-cyan">Policy hit: fresh range from cache (${from}-${to}), network refresh skipped.</span>`;
-        }
-          hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch((err) => {
-            gameLog('info', 'Background-Hydration (initial) fehlgeschlagen', err);
-          });
-        return;
-      }
-
-      try {
-        const dataRaw = (typeof API.galaxyStars === 'function')
-          ? await API.galaxyStars(g, from, to, requestMaxPoints, {
-              streamPriority: 'critical',
-              requestPriority: 'critical',
-              prefetch: false,
-              chunkHint: requestMaxPoints,
-              clusterPreset,
-              includeClusterLod: false,
-            })
-          : await API.galaxy(g, from);
-        const adapted = (typeof renderDataAdapter?.adaptGalaxyStars === 'function')
-          ? renderDataAdapter.adaptGalaxyStars(dataRaw, {
-              galaxy: g,
-              from,
-              to,
-              systemMax: galaxySystemMax,
-              assetsManifestVersion: uiState.assetsManifestVersion,
-            })
-          : { ok: true, data: dataRaw };
-        if (!adapted?.ok || !adapted.data?.success) {
-          const cls = (typeof renderDataAdapter?.classifyRenderError === 'function')
-            ? renderDataAdapter.classifyRenderError(adapted)
-            : { type: 'schema' };
-          if (details) {
-            if (cls.type === 'auth') {
-              details.innerHTML = '<span class="text-red">Session expired. Please log in again.</span>';
-            } else if (cls.type === 'schema') {
-              details.innerHTML = '<span class="text-red">Could not load stars (schema mismatch).</span>';
-            } else if (cls.type === 'stale') {
-              details.innerHTML = '<span class="text-yellow">Star data is stale.</span>';
-            } else {
-              details.innerHTML = '<span class="text-red">Could not load stars (network).</span>';
-            }
-          }
-          if (cls.type === 'schema') {
-            const issueList = Array.isArray(adapted?.issues) ? adapted.issues.join(', ') : 'invalid payload';
-            console.warn('[GQ] loadGalaxyStars3D: stars schema mismatch', issueList);
-          }
-          return;
-        }
-        const data = adapted.data;
-        if (data.stale && details) {
-          details.innerHTML = '<span class="text-yellow">Loaded stale star data; resyncing...</span>';
-        }
-
-        if (Array.isArray(data.stars)) {
-          galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, normalizeStarListVisibility(data.stars), g);
-        } else if (data.star_system) {
-          const single = normalizeStarVisibility(Object.assign({}, data.star_system, {
-            galaxy_index: Number(data.galaxy || g),
-            system_index: Number(data.system || from),
-          }));
-          galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, [single], g);
-        } else {
-          galaxyStars = [];
-        }
-        const reportedSystemMax = Number(data.system_max || 0);
-        if (reportedSystemMax > 0) {
-          galaxySystemMax = Math.max(galaxySystemMax, reportedSystemMax);
-        }
-        const territoryData = await API.factions().catch(() => null);
-        uiState.territory = territoryData?.success
-          ? mapTerritoryFactionsForPlayer((territoryData.factions || []).filter((f) => g >= Number(f.home_galaxy_min || 1) && g <= Number(f.home_galaxy_max || 0)))
-          : [];
-        const themeCacheChanged = warmFactionThemeCacheFromTerritory(uiState.territory);
-        applyUiTheme('territory-update');
-        settingsController.refreshThemeSettingsUi();
-        if (themeCacheChanged) {
-          savePortableUiSettings(settingsState);
-        }
-        uiState.rawClusters = Array.isArray(data.clusters) ? data.clusters : [];
-        uiState.clusterSummary = assignClusterFactions(uiState.rawClusters, uiState.territory);
-        const responseTs = Number(data.server_ts_ms || Date.now());
-        if (galaxyModel) {
-          galaxyModel.upsertStarBatch(g, galaxyStars);
-          const stride = Number(data.stride || 1);
-          if (stride <= 1 && hasDenseSystemCoverage(data.stars || galaxyStars, g, from, to)) {
-            galaxyModel.addLoadedStarRange(g, from, to, responseTs);
-          }
-        }
-        if (galaxyDB) {
-          galaxyDB.upsertStars(galaxyStars, responseTs).catch((err) => {
-            gameLog('info', 'DB upsertStars fehlgeschlagen', err);
-          });
-        }
-
-        const rendered = applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'network');
-        if (!galaxy3d || !rendered) {
-          renderGalaxyFallbackList(root, galaxyStars, from, to, galaxy3dInitReason || 'renderer unavailable');
-        } else if (!isSystemModeActive()) {
-          renderGalaxyColonySummary(root.querySelector('#galaxy-planets-panel'), galaxyStars, { from, to });
-        }
-
-        if (details) {
-          details.innerHTML = `<span class="text-cyan">Loaded ${galaxyStars.length} stars from systems ${from}..${to} (stride ${data.stride}).</span>`;
-        }
-        const toInput = root.querySelector('#gal-to');
-        const fromInput = root.querySelector('#gal-from');
-        if (toInput) toInput.max = String(galaxySystemMax);
-        if (fromInput) fromInput.max = String(galaxySystemMax);
-        refreshGalaxyDensityMetrics(root);
-        emitRenderProbe('network', {
-          from,
-          to,
-          stride: data.stride,
-          count: data.count,
-          cacheMode: data.cache_mode || 'n/a',
-        });
-        ensureInitialGalaxyFrame();
-          hydrateGalaxyRangeInBackground(root, g, 1, galaxySystemMax).catch((err) => {
-            gameLog('info', 'Background-Hydration (post-load) fehlgeschlagen', err);
-          });
-      } catch (err) {
-        const errMsg = String(err?.message || err || 'unknown error');
-        pushGalaxyDebugError('galaxy-stars', errMsg, `${from}..${to}`);
-
-        // Failure guard: keep galaxy navigation alive with the best available local data.
-        let fallbackStars = Array.isArray(cachedStars) ? cachedStars.slice() : [];
-
-        if (!fallbackStars.length) {
-          const scopedInMemory = (Array.isArray(galaxyStars) ? galaxyStars : [])
-            .filter((star) => Number(star?.galaxy_index || 0) === g);
-          if (scopedInMemory.length) fallbackStars = scopedInMemory;
-        }
-
-        if (!fallbackStars.length && galaxyModel) {
-          try {
-            fallbackStars = galaxyModel.listStars(g, 1, galaxySystemMax) || [];
-          } catch (err) {
-            gameLog('info', 'Fallback listStars aus galaxyModel fehlgeschlagen', err);
-          }
-        }
-
-        if (!fallbackStars.length && galaxyDB && !isCurrentUserAdmin()) {
-          try {
-            fallbackStars = await galaxyDB.getStars(g, 1, galaxySystemMax, { maxAgeMs: 7 * 24 * 60 * 60 * 1000 });
-            if (fallbackStars.length && galaxyModel) {
-              galaxyModel.upsertStarBatch(g, fallbackStars);
-            }
-          } catch (err) {
-            gameLog('info', 'Fallback listStars aus galaxyDB fehlgeschlagen', err);
-          }
-        }
-
-        fallbackStars = normalizeStarListVisibility(fallbackStars);
-
-        if (fallbackStars.length) {
-          galaxyStars = mergeGalaxyStarsBySystem(galaxyStars, fallbackStars, g);
-          uiState.clusterSummary = assignClusterFactions(uiState.rawClusters || [], uiState.territory);
-          const rendered = applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'error-fallback');
-          if (!rendered) {
-            renderGalaxyFallbackList(root, galaxyStars, from, to, `network error (fallback): ${errMsg}`);
-          } else if (!galaxy3d?.systemMode) {
-            renderGalaxyColonySummary(root.querySelector('#galaxy-planets-panel'), galaxyStars, { from, to });
-          }
-          if (details) {
-            details.innerHTML = `<span class="text-yellow">Netzwerkfehler bei ${from}..${to}; nutze lokalen Fallback mit ${galaxyStars.length} Sternen.</span>`;
-          }
-          refreshGalaxyDensityMetrics(root);
-          emitRenderProbe('error-fallback', {
-            from,
-            to,
-            fallbackCount: fallbackStars.length,
-          });
-          ensureInitialGalaxyFrame();
-          return;
-        }
-
-        if (details) details.innerHTML = `<span class="text-red">Failed to load stars: ${esc(errMsg)}</span>`;
-        renderGalaxyFallbackList(root, galaxyStars, from, to, errMsg);
-      }
-    }
-
-    refreshDensityMetrics(root) {
-      const label = root?.querySelector?.('#gal-density-metrics');
-      if (!label) return;
-      if (!galaxy3d || typeof galaxy3d.getRenderStats !== 'function') {
-        label.textContent = 'Density: renderer offline';
-        label.className = 'text-muted';
-        return;
-      }
-      const stats = galaxy3d.getRenderStats();
-      const raw = Number(stats.rawStars || 0);
-      const visible = Number(stats.visibleStars || 0);
-      const target = Number(stats.targetPoints || 0);
-      const clusters = Number(stats.clusterCount || 0);
-      const clusterLabel = stats.clusterBoundsVisible ? 'boxes on' : 'boxes off';
-      const heatmapLabel = stats.clusterHeatmapEnabled ? 'heat on' : 'heat off';
-      const ratioPct = raw > 0 ? Math.max(0, Math.min(100, Math.round((visible / raw) * 100))) : 0;
-      label.textContent = `Density: ${visible}/${raw} (${ratioPct}%) | target ${target} | ${clusters} clusters | ${clusterLabel} | ${heatmapLabel} | ${String(stats.densityMode || 'auto').toUpperCase()} | ${String(stats.lodProfile || 'n/a')} | q=${String(stats.qualityProfile || 'n/a')}`;
-      label.className = ratioPct >= 70 ? 'text-green' : ratioPct >= 35 ? 'text-yellow' : 'text-muted';
-    }
-
-    updateClusterBoundsUi(root) {
-      const btn = root?.querySelector('#gal-cluster-bounds-btn');
-      const enabled = !galaxy3d || typeof galaxy3d.areClusterBoundsVisible !== 'function'
-        ? (settingsState.clusterBoundsVisible !== false)
-        : galaxy3d.areClusterBoundsVisible();
-      if (!btn) return;
-      btn.textContent = `Cluster Boxes: ${enabled ? 'on' : 'off'}`;
-      btn.classList.toggle('btn-secondary', enabled);
-      btn.classList.toggle('btn-warning', !enabled);
-    }
-
-    updateClusterHeatmapUi(root) {
-      const btn = root?.querySelector('#gal-cluster-heatmap-btn');
-      const enabled = !galaxy3d || typeof galaxy3d.areClusterHeatmapEnabled !== 'function'
-        ? (settingsState.clusterHeatmapEnabled !== false)
-        : galaxy3d.areClusterHeatmapEnabled();
-      if (!btn) return;
-      btn.textContent = `Cluster Heatmap: ${enabled ? 'on' : 'off'}`;
-      btn.classList.toggle('btn-secondary', enabled);
-      btn.classList.toggle('btn-warning', !enabled);
-    }
-
-    updateCoreFxUi(root) {
-      const btn = root?.querySelector('#gal-core-fx-btn');
-      if (!btn) return;
-      const enabled = !galaxy3d || typeof galaxy3d.areGalacticCoreFxEnabled !== 'function'
-        ? (settingsState.galacticCoreFxEnabled !== false)
-        : galaxy3d.areGalacticCoreFxEnabled();
-      btn.textContent = `Core FX: ${enabled ? 'on' : 'off'}${settingsState.galacticCoreFxAuto !== false ? ' (auto)' : ''}`;
-      btn.classList.toggle('btn-secondary', enabled);
-      btn.classList.toggle('btn-warning', !enabled);
-    }
-
-    updateFleetVectorsUi(root) {
-      const btn = root?.querySelector('#gal-fleet-vectors-btn');
-      if (!btn) return;
-      const enabled = settingsState.galaxyFleetVectorsVisible !== false;
-      btn.textContent = `Fleet Vectors: ${enabled ? 'on' : 'off'}`;
-      btn.classList.toggle('btn-secondary', enabled);
-      btn.classList.toggle('btn-warning', !enabled);
-    }
-
-    updateLegacyFallbackUi(root) {
-      const btn = root?.querySelector('#gal-system-legacy-fallback-btn');
-      if (!btn) return;
-      const enabled = settingsState.systemViewLegacyFallback === true;
-      btn.textContent = `System Legacy Fallback: ${enabled ? 'on' : 'off'}`;
-      btn.classList.toggle('btn-secondary', !enabled);
-      btn.classList.toggle('btn-warning', enabled);
-    }
-
-    updateFollowUi(root) {
-      const btn = root?.querySelector('#gal-follow-toggle-btn');
-      const enabled = !galaxy3d || typeof galaxy3d.isFollowingSelection !== 'function'
-        ? true
-        : galaxy3d.isFollowingSelection();
-      if (btn) {
-        btn.textContent = `Follow: ${enabled ? 'on' : 'off'}`;
-        btn.classList.toggle('btn-secondary', enabled);
-        btn.classList.toggle('btn-warning', !enabled);
-      }
-      const activeStar = pinnedStar || uiState.activeStar || null;
-      if (root?.querySelector('#galaxy-system-details')) {
-        renderGalaxySystemDetails(root, activeStar, isSystemModeActive());
-      }
-    }
-
-    applyMagnetPreset(presetName, root) {
-      const preset = String(presetName || 'balanced').toLowerCase();
-      const presets = {
-        precise: { star: 16, planet: 20, cluster: 18 },
-        balanced: { star: 24, planet: 30, cluster: 28 },
-        sticky: { star: 34, planet: 42, cluster: 40 },
-      };
-      const selected = presets[preset] || presets.balanced;
-      settingsState.magnetPreset = presets[preset] ? preset : 'balanced';
-      settingsState.hoverMagnetStarPx = selected.star;
-      settingsState.hoverMagnetPlanetPx = selected.planet;
-      settingsState.hoverMagnetClusterPx = selected.cluster;
-      applyRuntimeSettings();
-      this.updateMagnetUi(root);
-      saveUiSettings();
-      showToast(`Magnet-Preset: ${settingsState.magnetPreset}`, 'info');
-    }
-
-    updateMagnetUi(root) {
-      const hoverBtn = root?.querySelector('#gal-magnet-hover-toggle-btn');
-      const clickBtn = root?.querySelector('#gal-magnet-click-toggle-btn');
-      const presetButtons = root?.querySelectorAll?.('[data-magnet-preset]') || [];
-      const starRange = root?.querySelector('#gal-magnet-star-px');
-      const planetRange = root?.querySelector('#gal-magnet-planet-px');
-      const clusterRange = root?.querySelector('#gal-magnet-cluster-px');
-      const starValue = root?.querySelector('#gal-magnet-star-px-value');
-      const planetValue = root?.querySelector('#gal-magnet-planet-px-value');
-      const clusterValue = root?.querySelector('#gal-magnet-cluster-px-value');
-
-      const hoverEnabled = settingsState.hoverMagnetEnabled !== false;
-      const clickEnabled = settingsState.clickMagnetEnabled !== false;
-      const starPx = Math.max(8, Math.min(64, Number(settingsState.hoverMagnetStarPx || 24)));
-      const planetPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetPlanetPx || 30)));
-      const clusterPx = Math.max(8, Math.min(72, Number(settingsState.hoverMagnetClusterPx || 28)));
-      const activePreset = String(settingsState.magnetPreset || 'custom');
-
-      if (hoverBtn) {
-        hoverBtn.textContent = `Magnet Hover: ${hoverEnabled ? 'on' : 'off'}`;
-        hoverBtn.classList.toggle('btn-secondary', hoverEnabled);
-        hoverBtn.classList.toggle('btn-warning', !hoverEnabled);
-      }
-      if (clickBtn) {
-        clickBtn.textContent = `Magnet Click: ${clickEnabled ? 'on' : 'off'}`;
-        clickBtn.classList.toggle('btn-secondary', clickEnabled);
-        clickBtn.classList.toggle('btn-warning', !clickEnabled);
-      }
-      if (starRange) starRange.value = String(starPx);
-      if (planetRange) planetRange.value = String(planetPx);
-      if (clusterRange) clusterRange.value = String(clusterPx);
-      if (starValue) starValue.textContent = String(starPx);
-      if (planetValue) planetValue.textContent = String(planetPx);
-      if (clusterValue) clusterValue.textContent = String(clusterPx);
-
-      presetButtons.forEach((btn) => {
-        const preset = String(btn.getAttribute('data-magnet-preset') || '');
-        const active = preset === activePreset;
-        btn.classList.toggle('btn-secondary', !active);
-        btn.classList.toggle('btn-primary', active);
+      await runtimeGalaxyStarLoaderFacadeApi.loadGalaxyStars3D({
+        root,
+        isPolicyModeAuto,
+        applyPolicyMode,
+        refreshPolicyUi,
+        getGalaxyStars: getGalaxyStarsRef,
+        setGalaxyStars: setGalaxyStarsRef,
+        getUiState: getUiStateRef,
+        setGalaxyContext,
+        getStarsPolicy: () => LEVEL_POLICIES.galaxy.stars,
+        getSettingsState: getSettingsStateRef,
+        getRenderDataAdapter: () => window.GQRenderDataAdapter || API,
+        getExpectedAssetsManifestVersion: () => Number(window.GQ_ASSETS_MANIFEST_VERSION || 1),
+        getGalaxySystemMax: () => galaxySystemMax,
+        setGalaxySystemMax: setGalaxySystemMaxRef,
+        isCurrentUserAdmin,
+        mergeGalaxyStarsBySystem,
+        assignClusterFactions,
+        renderGalaxyFallbackList,
+        renderGalaxyColonySummary,
+        refreshGalaxyDensityMetrics,
+        getGalaxy3d: getGalaxy3dRef,
+        isSystemModeActive,
+        hydrateGalaxyRangeInBackground,
+        gameLog,
+        pushGalaxyDebugError,
+        getGalaxy3dInitReason: getGalaxy3dInitReasonRef,
+        runtimeGalaxyStarUiStatusApi,
+        runtimeGalaxyStarBootstrapPreflightApi,
+        runtimeGalaxyStarLoadingHelpersApi,
+        runtimeGalaxyStarTerritorySyncApi,
+        runtimeGalaxyStarCacheReadApi,
+        runtimeGalaxyStarFlowOrchestratorApi,
+        runtimeGalaxyStarNetworkFlowApi,
+        runtimeGalaxyStarPersistenceApi,
+        runtimeGalaxyStarFallbackRecoveryApi,
+        runtimeGalaxyStarErrorUiApi,
       });
     }
 
+    refreshDensityMetrics(root) {
+      runtimeGalaxyControlUiApi.refreshDensityMetrics(root);
+    }
+
+    updateClusterBoundsUi(root) {
+      runtimeGalaxyControlUiApi.updateClusterBoundsUi(root);
+    }
+
+    updateClusterHeatmapUi(root) {
+      runtimeGalaxyControlUiApi.updateClusterHeatmapUi(root);
+    }
+
+    updateCoreFxUi(root) {
+      runtimeGalaxyControlUiApi.updateCoreFxUi(root);
+    }
+
+    updateFleetVectorsUi(root) {
+      runtimeGalaxyControlUiApi.updateFleetVectorsUi(root);
+    }
+
+    updateLegacyFallbackUi(root) {
+      runtimeGalaxyControlUiApi.updateLegacyFallbackUi(root);
+    }
+
+    updateFollowUi(root) {
+      runtimeGalaxyControlUiApi.updateFollowUi(root);
+    }
+
+    applyMagnetPreset(presetName, root) {
+      runtimeGalaxyControlUiApi.applyMagnetPreset(presetName, root);
+    }
+
+    updateMagnetUi(root) {
+      runtimeGalaxyControlUiApi.updateMagnetUi(root);
+    }
+
     async refreshHealth(root, force) {
-      const badge = root ? root.querySelector('#gal-health-badge') : null;
-      if (!badge) return;
-      if (!force && (Date.now() - galaxyHealthLastCheckMs) < 8000) return;
-
-      badge.textContent = 'Health: checking...';
-      badge.className = 'text-muted';
-      try {
-        const data = await API.health();
-        galaxyHealthLastCheckMs = Date.now();
-        if (!data || !data.success || !data.health) {
-          badge.textContent = 'Health: unavailable';
-          badge.className = 'text-muted';
-          return;
-        }
-
-        galaxyHealthLast = data.health;
-        const checks = data.health.checks || {};
-        const missing = Number(checks.star_systems_missing_metadata || 0);
-        if (data.health.ok) {
-          badge.textContent = `Health: OK (${Number(checks.star_systems_total || 0)} systems)`;
-          badge.className = 'text-green';
-        } else {
-          badge.textContent = `Health: WARN (${missing} missing metadata)`;
-          badge.className = 'text-red';
-          if (!galaxyHealthWarned) {
-            showToast(`Galaxy metadata warnings: ${missing} rows`, 'warning');
-            galaxyHealthWarned = true;
-          }
-        }
-      } catch (err) {
-        gameLog('warn', 'Health check (API) fehlgeschlagen', err);
-        galaxyHealthLastCheckMs = Date.now();
-        try {
-          const net = (typeof API?.networkHealth === 'function') ? await API.networkHealth(false) : null;
-          const kind = String(net?.kind || 'unknown');
-          if (kind === 'offline') {
-            badge.textContent = 'Health: offline';
-            badge.className = 'text-red';
-          } else if (kind === 'timeout') {
-            badge.textContent = 'Health: timeout';
-            badge.className = 'text-yellow';
-          } else if (kind === 'unreachable') {
-            badge.textContent = 'Health: API unreachable';
-            badge.className = 'text-red';
-          } else if (kind === 'http' || kind === 'auth') {
-            badge.textContent = `Health: API ${Number(net?.status || 0) || 'error'}`;
-            badge.className = 'text-yellow';
-          } else {
-            badge.textContent = 'Health: unavailable';
-            badge.className = 'text-muted';
-          }
-        } catch (netErr) {
-          gameLog('info', 'Health fallback network probe fehlgeschlagen', netErr);
-          badge.textContent = 'Health: unavailable';
-          badge.className = 'text-muted';
-        }
-      }
+      await runtimeGalaxyControlUiApi.refreshHealth(root, force);
     }
 
     /** Debug getter — exposes the live Galaxy3D renderer instance for E2E testing. */
@@ -6852,685 +1184,102 @@
       ${clusters.length ? `<div class="planet-detail-row">Cluster: ${clusters.slice(0, 2).map((cluster) => `${esc(cluster.label)} ${esc(String(cluster.from))}-${esc(String(cluster.to))}`).join(' | ')}</div>` : ''}`;
   }
 
-  class OverviewController {
-    constructor() {
-      this.templates = {
-        fleetRow: `
-          <div class="fleet-row">
-            <span class="fleet-mission">{{{mission}}}</span>
-            <span class="fleet-target">-> [{{{targetGalaxy}}}:{{{targetSystem}}}:{{{targetPosition}}}]</span>
-            {{{positionHtml}}}
-            <span class="fleet-timer" data-end="{{{arrivalTimeRaw}}}">{{{arrivalCountdown}}}</span>
-            <div class="progress-bar-wrap fleet-progress-wrap" style="width:80px">
-              <div class="progress-bar fleet-progress-bar" style="width:{{{progressPct}}}%" data-dep="{{{departureTimeRaw}}}" data-arr="{{{arrivalTimeRaw}}}"></div>
-            </div>
-            {{{fleetHealthHtml}}}
-            {{{vesselListHtml}}}
-            {{{returningBadgeHtml}}}
-            {{{ftlBadgesHtml}}}
-            {{{recallButtonHtml}}}
-          </div>`,
-        battleRow: `
-          <div class="battle-row {{{battleClass}}}">
-            <span class="battle-result">{{{resultLabel}}}</span>
-            <span class="battle-vs">vs {{{defenderName}}}</span>
-            <span class="battle-time" style="font-size:0.75rem;color:var(--text-muted)">{{{createdAt}}}</span>
-            {{{lootHtml}}}
-          </div>`,
-      };
-    }
+  // ─────────────────────────────────────────────────────────────────────────
+  // ►► PROBLEM PRE-WARNINGS SYSTEM ◄◄
+  // Automatically detects and displays critical game state issues
+  // ─────────────────────────────────────────────────────────────────────────
+  
+  const runtimeColonyWarningsApi = requireRuntimeApi('GQRuntimeColonyWarnings', ['createColonyWarnings']);
+  const colonyWarnings = runtimeColonyWarningsApi.createColonyWarnings({ fmt });
 
-    renderTemplate(templateName, data = {}) {
-      return renderInlineTemplate(this.templates[templateName], data);
-    }
-
-    renderTemplateList(templateName, rows) {
-      return renderInlineTemplateList(this.templates[templateName], rows);
-    }
-
-    populatePlanetSelect() {
-      if (planetSelect) {
-        planetSelect.innerHTML = colonies.map((colony) =>
-          `<option value="${colony.id}">${esc(colony.name)} [${colony.galaxy}:${colony.system}:${colony.position}]</option>`
-        ).join('');
-      }
-      if (!currentColony && colonies.length) {
-        selectColonyById(colonies[0].id);
-      }
-    }
-
-    updateResourceBar() {
-      if (!currentColony) return;
-      const resMetalEl = document.getElementById('res-metal');
-      if (resMetalEl) resMetalEl.textContent = fmt(currentColony.metal);
-      const resCrystalEl = document.getElementById('res-crystal');
-      if (resCrystalEl) resCrystalEl.textContent = fmt(currentColony.crystal);
-      const resDeuteriumEl = document.getElementById('res-deuterium');
-      if (resDeuteriumEl) resDeuteriumEl.textContent = fmt(currentColony.deuterium);
-      const resEnergyEl = document.getElementById('res-energy');
-      if (resEnergyEl) resEnergyEl.textContent = currentColony.energy ?? '-';
-      const foodEl = document.getElementById('res-food');
-      if (foodEl) foodEl.textContent = fmt(currentColony.food ?? 0);
-      const reEl = document.getElementById('res-rare-earth');
-      if (reEl) reEl.textContent = fmt(currentColony.rare_earth ?? 0);
-      const popEl = document.getElementById('res-population');
-      if (popEl) popEl.textContent = `${fmt(currentColony.population ?? 0)}/${fmt(currentColony.max_population ?? 500)}`;
-      const happEl = document.getElementById('res-happiness');
-      if (happEl) {
-        const happiness = parseInt(currentColony.happiness ?? 70, 10);
-        happEl.textContent = `${happiness}%`;
-        happEl.style.color = happiness >= 70 ? '#2ecc71' : happiness >= 40 ? '#f1c40f' : '#e74c3c';
-      }
-      const topbarCoordsEl = document.getElementById('topbar-coords');
-      if (topbarCoordsEl) {
-        topbarCoordsEl.textContent = `[${currentColony.galaxy}:${currentColony.system}:${currentColony.position}]`;
-      }
-      if (window._GQ_meta) {
-        const darkMatterEl = document.getElementById('res-dark-matter');
-        if (darkMatterEl) darkMatterEl.textContent = fmt(window._GQ_meta.dark_matter ?? 0);
-      }
-    }
-
-    applyBadges(data) {
-      const msgBadge = document.getElementById('msg-badge');
-      if (msgBadge && data.unread_msgs > 0) {
-        msgBadge.textContent = data.unread_msgs;
-        msgBadge.classList.remove('hidden');
-      } else if (msgBadge) {
-        msgBadge.classList.add('hidden');
-      }
-
-      const qBadge = document.getElementById('quest-badge');
-      const unclaimed = data.user_meta?.unclaimed_quests ?? 0;
-      if (qBadge && unclaimed > 0) {
-        qBadge.textContent = unclaimed;
-        qBadge.classList.remove('hidden');
-      } else if (qBadge) {
-        qBadge.classList.add('hidden');
-      }
-    }
-
-    async load() {
-      try {
-        const data = await API.overview();
-        if (!data.success) {
-          console.error('Overview API error:', data.error);
-          if (/not authenticated|unauthorized|401/i.test(String(data.error || ''))) {
-            if (shouldRedirectOnAuthLoadError('api/game.php?action=overview', 'overview')) {
-              redirectToLogin('overview-not-authenticated');
-            } else {
-              console.info('[overview] Auth-Fehler erkannt, Redirect unterdrueckt (policy).');
-            }
-            return;
-          }
-          showToast(data.error || 'Overview konnte nicht geladen werden.', 'error');
-          const root = WM.body('overview');
-          if (root) root.innerHTML = `<p class="text-muted" style="color:#e74c3c">Error: ${data.error || 'Nicht eingeloggt. Bitte neu laden.'}</p>`;
-          return;
-        }
-
-        colonies = data.colonies || [];
-        window._GQ_battles = data.battles || [];
-        window._GQ_politics = data.politics || null;
-        window._GQ_meta = data.user_meta || {};
-        window._GQ_fleets = data.fleets || [];
-        window._GQ_offline = data.offline_progress || null;
-
-        if (galaxy3d && typeof galaxy3d.setGalaxyFleets === 'function') {
-          galaxy3d.setGalaxyFleets(window._GQ_fleets || []);
-        }
-
-        // Refresh FTL infrastructure overlay (lazy: only when galaxy3d is active)
-        if (galaxy3d && typeof galaxy3d.setFtlInfrastructure === 'function') {
-          API.ftlMap().then((ftlData) => {
-            if (ftlData?.success) {
-              window._GQ_ftl_map = ftlData;
-              galaxy3d.setFtlInfrastructure(ftlData.gates || [], ftlData.resonance_nodes || []);
-            }
-          }).catch(() => {});
-        }
-
-        this.populatePlanetSelect();
-        this.updateResourceBar();
-        this.applyBadges(data);
-        WM.refresh('overview');
-        WM.refresh('minimap');
-      } catch (e) {
-        const em = String(e?.message || e || '');
-        if (/abort|cancel|navigation/i.test(em)) return;
-        if (/not authenticated|unauthorized|http\s*401|\b401\b/i.test(em)) {
-          if (shouldRedirectOnAuthLoadError('api/game.php?action=overview', 'overview')) {
-            redirectToLogin('overview-401');
-          } else {
-            console.info('[overview] 401 erkannt, Redirect unterdrueckt (policy).');
-          }
-          return;
-        }
-        console.error('Overview load failed', e);
-        showToast('Overview konnte nicht geladen werden. Bitte Seite neu laden.', 'error');
-        const root = WM.body('overview');
-        if (root && !root.innerHTML.trim()) {
-          root.innerHTML = `<p class="text-muted" style="color:#e74c3c">Fehler beim Laden: ${e.message || e}</p>`;
-        }
-      }
-    }
-
-    riskFocusFromFlags(flags) {
-      const list = Array.isArray(flags) ? flags.map((f) => String(f || '')) : [];
-      if (list.includes('food_decline') || list.includes('low_food_buffer')) return 'hydroponic_farm';
-      if (list.includes('energy_deficit')) return 'solar_plant';
-      if (list.includes('low_welfare')) return 'hospital';
-      return 'colony_hq';
-    }
-
-    evaluateRiskUpgradeBudget(colony, nextCost, share = 0.55) {
-      const parseRes = (v) => Math.max(0, Number(v || 0));
-      const resources = {
-        metal: parseRes(colony?.metal),
-        crystal: parseRes(colony?.crystal),
-        deuterium: parseRes(colony?.deuterium),
-      };
-      const costs = {
-        metal: parseRes(nextCost?.metal),
-        crystal: parseRes(nextCost?.crystal),
-        deuterium: parseRes(nextCost?.deuterium),
-      };
-      const over = [];
-      ['metal', 'crystal', 'deuterium'].forEach((key) => {
-        if (!costs[key]) return;
-        const limit = resources[key] * share;
-        if (costs[key] > limit) {
-          over.push(`${key}:${Math.round(costs[key])}>${Math.round(limit)}`);
-        }
-      });
-      return { ok: over.length === 0, details: over };
-    }
-
-    async runRiskAutoUpgrade(cid, focusBuilding) {
-      const autoRiskUpgradeBudgetShare = 0.55;
-      focusColonyDevelopment(cid, {
-        source: 'economy-risk-auto',
-        focusBuilding,
-      });
-
-      const colony = colonies.find((c) => Number(c.id || 0) === Number(cid || 0)) || null;
-      if (!colony) {
-        showToast('Kolonie nicht gefunden, Auto-Upgrade abgebrochen.', 'warning');
-        return;
-      }
-
-      let buildingsPayload = null;
-      try {
-        buildingsPayload = await API.buildings(cid);
-      } catch (_) {
-        showToast('Kostenpr├╝fung nicht m├Âglich (Netzwerk). Auto-Upgrade aus Sicherheitsgr├╝nden abgebrochen.', 'warning');
-        return;
-      }
-      if (!buildingsPayload?.success) {
-        showToast(buildingsPayload?.error || 'Kostenpr├╝fung fehlgeschlagen. Auto-Upgrade abgebrochen.', 'warning');
-        return;
-      }
-
-      const buildingEntry = (buildingsPayload.buildings || []).find((b) => String(b.type || '') === String(focusBuilding || ''));
-      if (!buildingEntry) {
-        showToast(`Geb├ñude ${fmtName(focusBuilding)} nicht verf├╝gbar.`, 'warning');
-        return;
-      }
-
-      const budgetCheck = this.evaluateRiskUpgradeBudget(colony, buildingEntry.next_cost || {}, autoRiskUpgradeBudgetShare);
-      if (!budgetCheck.ok) {
-        showToast(`Auto +1 blockiert (Budgetlimit ${Math.round(autoRiskUpgradeBudgetShare * 100)}%). ${budgetCheck.details.join(', ')}`, 'warning');
-        return;
-      }
-
-      const res = await API.upgrade(cid, focusBuilding);
-      if (!res?.success) {
-        showToast(res?.error || 'Auto-Upgrade fehlgeschlagen.', 'warning');
-        return;
-      }
-      const queuePos = Number(res.queue_position || 0);
-      const targetLevel = Number(res.target_level || 0);
-      if (queuePos > 1) showToast(`${fmtName(focusBuilding)} eingereiht (Pos ${queuePos}, Lv ${targetLevel}).`, 'success');
-      else showToast(`${fmtName(focusBuilding)} gestartet (Lv ${targetLevel}).`, 'success');
-      await this.load();
-      WM.refresh('buildings');
-      WM.refresh('colony');
-    }
-
-    signed(value, digits = 0) {
-      const n = Number(value || 0);
-      const fixed = digits > 0 ? n.toFixed(digits) : Math.round(n).toString();
-      return `${n >= 0 ? '+' : ''}${fixed}`;
-    }
-
-    riskLabel(status) {
-      const code = String(status || 'stable');
-      if (code === 'strain') return '<span class="text-red">Kritisch</span>';
-      if (code === 'watch') return '<span class="text-yellow">Beobachten</span>';
-      return '<span class="text-cyan">Stabil</span>';
-    }
-
-    buildOfflineSummaryHtml(offline) {
-      const economy = offline?.economy || null;
-      const netRates = economy?.net_rates_per_hour || offline?.rates_per_hour || null;
-      const hadOfflineTime = !!offline?.had_offline_time;
-      const statusCounts = economy?.status_counts || { stable: 0, watch: 0, strain: 0 };
-      const topRisks = Array.isArray(economy?.top_risks) ? economy.top_risks : [];
-      const topRiskHtml = topRisks.length
-        ? `<div class="system-row" style="font-size:0.8rem;line-height:1.45;margin-top:0.25rem">
-            ${topRisks.map((risk) => {
-              const flags = Array.isArray(risk.risk_flags) ? risk.risk_flags.join(', ') : '';
-              const cid = Number(risk.colony_id || 0);
-              const focus = this.riskFocusFromFlags(risk.risk_flags);
-              return `Risk ${esc(String(risk.colony_name || 'Colony'))}: ${this.riskLabel(risk.status)} | Score ${esc(String(risk.risk_score || 0))} | Food ${esc(String(risk.food_rate_per_hour || 0))}/h | Energy ${esc(String(risk.energy || 0))}${flags ? ` | ${esc(flags)}` : ''} <button type="button" class="btn btn-secondary btn-sm" data-risk-action="focus" data-risk-cid="${cid}" data-risk-focus="${esc(focus)}" style="margin-left:0.35rem;padding:0.2rem 0.45rem;font-size:0.7rem">Fix</button><button type="button" class="btn btn-primary btn-sm" data-risk-action="auto" data-risk-cid="${cid}" data-risk-focus="${esc(focus)}" style="margin-left:0.25rem;padding:0.2rem 0.45rem;font-size:0.7rem">Auto +1</button>`;
-            }).join('<br>')}
-          </div>`
-        : '<div class="system-row text-cyan" style="font-size:0.8rem">Keine akuten Wirtschaftsrisiken erkannt.</div>';
-
-      return `
-        <div class="system-card" style="margin:0.75rem 0 0.6rem">
-          <div class="system-row"><strong>Oekonomie-Snapshot</strong>${hadOfflineTime ? ` | Offline-Zeit: ${Math.max(1, Math.round((Number(offline?.max_elapsed_seconds || 0) / 60)))} min` : ''}</div>
-          <div class="system-row" style="font-size:0.8rem;color:var(--text-secondary)">
-            Metal ${this.signed(netRates?.metal, 1)}/h | Crystal ${this.signed(netRates?.crystal, 1)}/h | Deuterium ${this.signed(netRates?.deuterium, 1)}/h | Food ${this.signed(netRates?.food, 1)}/h | Population ${this.signed(netRates?.population, 2)}/h
-          </div>
-          <div class="system-row" style="font-size:0.8rem;color:var(--text-secondary)">
-            Stabil: ${statusCounts.stable || 0} | Beobachten: ${statusCounts.watch || 0} | Kritisch: ${statusCounts.strain || 0}
-            ${economy ? ` | Wohlfahrt >= ${(Number(economy.avg_welfare || 0)).toFixed(1)}%` : ''}
-          </div>
-          ${topRiskHtml}
-        </div>`;
-    }
-
-    buildResourceInsightHtml(offline, meta) {
-      const config = getResourceInsightConfig(uiState.resourceInsight);
-      if (!config || !currentColony) return '';
-      const netRates = offline?.economy?.net_rates_per_hour || offline?.rates_per_hour || {};
-      const currentValue = getResourceInsightValue(config.key, currentColony, meta);
-      const totalValue = getResourceInsightTotal(config.key, meta);
-      const share = totalValue > 0 ? Math.min(100, Math.round((currentValue / totalValue) * 100)) : 0;
-      const perHour = config.rateKey ? Number(netRates?.[config.rateKey] || 0) : null;
-      const actions = [];
-      if (config.focusBuilding) {
-        actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-resource-action="focus-building" data-resource-focus="${esc(config.focusBuilding)}">Produktionsfokus</button>`);
-      }
-      if (config.transportable) {
-        actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-resource-action="transport" data-resource="${esc(config.key)}">Transport starten</button>`);
-      }
-      if (config.tradeable) {
-        actions.push(`<button type="button" class="btn btn-primary btn-sm" data-resource-action="market-sell" data-resource="${esc(config.key)}">Verkaufen</button>`);
-        actions.push(`<button type="button" class="btn btn-primary btn-sm" data-resource-action="market-buy" data-resource="${esc(config.key)}">Kaufen</button>`);
-      }
-      actions.push('<button type="button" class="btn btn-secondary btn-sm" data-resource-action="close-insight">Schliessen</button>');
-
-      return `
-        <section class="resource-insight-card">
-          <div class="resource-insight-head">
-            <div>
-              <div class="resource-insight-title">${esc(config.icon)} ${esc(config.label)} | ${esc(currentColony.name || 'Kolonie')}</div>
-              <div class="resource-insight-note">${esc(config.desc)}</div>
-            </div>
-            <span class="status-chip chip-neutral">[${esc(String(currentColony.galaxy || 0))}:${esc(String(currentColony.system || 0))}:${esc(String(currentColony.position || 0))}]</span>
-          </div>
-          <div class="resource-insight-meta">
-            <div class="resource-insight-stat">
-              <div class="resource-insight-stat-label">Aktueller Bestand</div>
-              <div class="resource-insight-stat-value">${esc(formatResourceInsightValue(config.key, currentValue, currentColony))}</div>
-            </div>
-            <div class="resource-insight-stat">
-              <div class="resource-insight-stat-label">Anteil an deinem Imperium</div>
-              <div class="resource-insight-stat-value">${esc(String(share))}%</div>
-            </div>
-            <div class="resource-insight-stat">
-              <div class="resource-insight-stat-label">Imperiumsbestand</div>
-              <div class="resource-insight-stat-value">${esc(formatResourceInsightValue(config.key, totalValue, currentColony))}</div>
-            </div>
-            <div class="resource-insight-stat">
-              <div class="resource-insight-stat-label">Nettofluss</div>
-              <div class="resource-insight-stat-value">${perHour === null ? 'Kontextwert' : `${perHour >= 0 ? '+' : ''}${fmt(Math.abs(perHour))}/h`}</div>
-            </div>
-          </div>
-          <div class="resource-insight-actions">${actions.join('')}</div>
-          <div class="resource-insight-note">Handelsangebote werden nach Annahme nicht mehr sofort verrechnet. Stattdessen starten Frachter von der bestversorgten Quelle, binden die Fracht an die Flugzeit und verbrauchen Deuterium fuer den Transport.</div>
-        </section>`;
-    }
-
-    renderFleetList(root) {
-      const fleetList = root.querySelector('#fleet-list-wm');
-      const fleets = window._GQ_fleets || [];
-      if (!fleetList) return;
-      if (!fleets.length) {
-        fleetList.innerHTML = '<p class="text-muted">No active fleets.</p>';
-        return;
-      }
-
-      fleetList.innerHTML = this.renderTemplateList('fleetRow', fleets.map((fleet) => {
-        const pos = fleet.current_pos || {};
-        const positionHtml = (pos.x !== undefined)
-          ? `<span class="fleet-pos" title="3D position">POS ${esc(String(pos.x.toFixed(0)))}, ${esc(String(pos.y.toFixed(0)))}, ${esc(String(pos.z.toFixed(0)))} ly</span>`
-          : '';
-        const vesselChips = (fleet.vessels || [])
-          .slice(0, 5)
-          .map((vessel) => `<span class="fleet-vessel-chip">${esc(fmtName(vessel.type))} x${esc(String(vessel.count))}</span>`)
-          .join('');
-        const vesselListHtml = vesselChips ? `<div class="fleet-vessel-list">${vesselChips}</div>` : '';
-        const progressPct = ((pos.progress || 0) * 100).toFixed(0);
-
-        // FTL status badges
-        const stealthSec = Number(fleet.stealth_remaining_s || 0);
-        const stealthBadge = stealthSec > 0
-          ? `<span class="fleet-stealth-badge" title="Vel'Ar stealth: ${stealthSec}s remaining">Stealth ${stealthSec}s</span>`
-          : '';
-        const hullDmg = Number(fleet.hull_damage_pct || 0);
-        const hullBadge = hullDmg > 0
-          ? `<span class="fleet-hull-badge" title="Kryl'Tha hull damage: -${hullDmg}% attack">Hull ${hullDmg}%</span>`
-          : '';
-        const hullIntegrityPct = Math.max(0, Math.min(100, 100 - hullDmg));
-        const rawShieldPct = Number(
-          fleet.shield_pct
-          ?? fleet.shields_pct
-          ?? fleet.shield_integrity_pct
-          ?? fleet.defense_shield_pct
-          ?? 100
-        );
-        const shieldPct = Number.isFinite(rawShieldPct)
-          ? Math.max(0, Math.min(100, Math.round(rawShieldPct)))
-          : 100;
-        const hullIntegrityTone = hullIntegrityPct < 30 ? 'is-critical' : (hullIntegrityPct < 60 ? 'is-warning' : 'is-good');
-        const shieldTone = shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good');
-        const fleetHealthHtml = `
-          <div class="entity-bars entity-bars-compact" aria-label="Fleet status bars">
-            <div class="entity-bar-row" title="Fleet hull integrity ${hullIntegrityPct}%">
-              <span class="entity-bar-label">Hull</span>
-              <div class="bar-wrap"><div class="bar-fill bar-integrity ${hullIntegrityTone}" style="width:${hullIntegrityPct}%"></div></div>
-              <span class="entity-bar-value">${hullIntegrityPct}%</span>
-            </div>
-            <div class="entity-bar-row" title="Fleet shields ${shieldPct}%">
-              <span class="entity-bar-label">Shield</span>
-              <div class="bar-wrap"><div class="bar-fill bar-shield ${shieldTone}" style="width:${shieldPct}%"></div></div>
-              <span class="entity-bar-value">${shieldPct}%</span>
-            </div>
-          </div>`;
-
-        return {
-          mission: esc(String(fleet.mission || '').toUpperCase()),
-          targetGalaxy: esc(String(fleet.target_galaxy || '')),
-          targetSystem: esc(String(fleet.target_system || '')),
-          targetPosition: esc(String(fleet.target_position || '')),
-          positionHtml,
-          arrivalTimeRaw: esc(String(fleet.arrival_time || '')),
-          departureTimeRaw: esc(String(fleet.departure_time || '')),
-          arrivalCountdown: esc(countdown(fleet.arrival_time)),
-          progressPct: esc(progressPct),
-          fleetHealthHtml,
-          vesselListHtml,
-          returningBadgeHtml: fleet.returning ? '<span class="fleet-returning">Returning</span>' : '',
-          ftlBadgesHtml: stealthBadge + hullBadge,
-          recallButtonHtml: !fleet.returning
-            ? `<button class="btn btn-warning btn-sm recall-btn" data-fid="${esc(String(fleet.id || ''))}">Recall</button>`
-            : '',
-        };
-      }));
-
-      fleetList.querySelectorAll('.recall-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const response = await API.recallFleet(parseInt(btn.dataset.fid, 10));
-          if (response.success) {
-            if (audioManager && typeof audioManager.playFleetRecall === 'function') audioManager.playFleetRecall();
-            showToast('Fleet recalled.', 'success');
-            await this.load();
-          } else {
-            showToast(response.error || 'Recall failed', 'error');
-          }
-        });
-      });
-    }
-
-    renderBattleLog(root) {
-      const battleLog = root.querySelector('#battle-log-wm');
-      if (!battleLog) return;
-      const battles = window._GQ_battles || [];
-      if (!battles.length) {
-        battleLog.innerHTML = '<p class="text-muted">No battles yet.</p>';
-        return;
-      }
-
-      battleLog.innerHTML = this.renderTemplateList('battleRow', battles.map((battle) => {
-        const report = battle.report || {};
-        const won = report.attacker_wins;
-        const loot = report.loot || {};
-        const lootStr = [
-          loot.metal > 0 ? `MET ${fmt(loot.metal)}` : '',
-          loot.crystal > 0 ? `CRY ${fmt(loot.crystal)}` : '',
-          loot.deuterium > 0 ? `DEU ${fmt(loot.deuterium)}` : '',
-          loot.rare_earth > 0 ? `RRE ${fmt(loot.rare_earth)}` : '',
-        ].filter(Boolean).join(' ');
-        return {
-          battleClass: won ? 'battle-win' : 'battle-loss',
-          resultLabel: won ? 'Victory' : 'Defeat',
-          defenderName: esc(battle.defender_name),
-          createdAt: esc(new Date(battle.created_at).toLocaleString()),
-          lootHtml: won && lootStr ? `<span class="battle-loot">${esc(lootStr)}</span>` : '',
-        };
-      }));
-    }
-
-    bindOverviewActions(root) {
-      root.querySelectorAll('.planet-card').forEach((card) => {
-        card.addEventListener('click', () => {
-          const cid = parseInt(card.dataset.cid, 10);
-          currentColony = colonies.find((c) => c.id === cid) || null;
-          if (planetSelect) planetSelect.value = String(cid);
-          this.updateResourceBar();
-          this.render();
-        });
-      });
-
-      root.querySelector('#open-leaders-btn')?.addEventListener('click', () => WM.open('leaders'));
-
-      root.querySelectorAll('[data-resource-action="focus-building"]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          if (!currentColony) return;
-          const focusBuilding = String(btn.getAttribute('data-resource-focus') || 'colony_hq');
-          focusColonyDevelopment(currentColony.id, {
-            source: 'resource-insight',
-            focusBuilding,
-          });
-          WM.open('buildings');
-          showToast(`Fokus gesetzt: ${fmtName(focusBuilding)}.`, 'info');
-        });
-      });
-
-      root.querySelectorAll('[data-resource-action="transport"]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          openFleetTransportPlanner(String(btn.getAttribute('data-resource') || ''));
-          showToast('Transportplanung geoeffnet. Ziel und Eskorte im Fleet-Fenster setzen.', 'info');
-        });
-      });
-
-      root.querySelectorAll('[data-resource-action="market-buy"]').forEach((btn) => {
-        btn.addEventListener('click', () => openTradeMarketplace(String(btn.getAttribute('data-resource') || ''), 'request'));
-      });
-
-      root.querySelectorAll('[data-resource-action="market-sell"]').forEach((btn) => {
-        btn.addEventListener('click', () => openTradeMarketplace(String(btn.getAttribute('data-resource') || ''), 'offer'));
-      });
-
-      root.querySelectorAll('[data-resource-action="close-insight"]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          uiState.resourceInsight = null;
-          this.render();
-        });
-      });
-
-      root.querySelectorAll('[data-risk-action="focus"]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const cid = Number(btn.getAttribute('data-risk-cid') || 0);
-          if (!cid) return;
-          const focusBuilding = String(btn.getAttribute('data-risk-focus') || 'colony_hq');
-          focusColonyDevelopment(cid, {
-            source: 'economy-risk',
-            focusBuilding,
-          });
-          if (audioManager) audioManager.playUiClick();
-          showToast(`Kolonie-Fokus gesetzt: ${fmtName(focusBuilding)}.`, 'info');
-        });
-      });
-
-      root.querySelectorAll('[data-risk-action="auto"]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const cid = Number(btn.getAttribute('data-risk-cid') || 0);
-          if (!cid) return;
-          const focusBuilding = String(btn.getAttribute('data-risk-focus') || 'colony_hq');
-          btn.disabled = true;
-          const prevLabel = btn.textContent;
-          btn.textContent = '...';
-          try {
-            await this.runRiskAutoUpgrade(cid, focusBuilding);
-            if (audioManager) audioManager.playUiConfirm();
-          } catch (err) {
-            showToast(String(err?.message || err || 'Auto-Upgrade fehlgeschlagen.'), 'error');
-            if (audioManager) audioManager.playUiError();
-          } finally {
-            btn.disabled = false;
-            btn.textContent = prevLabel || 'Auto +1';
-          }
-        });
-      });
-
-      root.querySelector('#pvp-toggle-btn')?.addEventListener('click', async () => {
-        const response = await API.togglePvp();
-        if (response.success) {
-          if (audioManager && typeof audioManager.playPvpToggle === 'function') audioManager.playPvpToggle();
-          showToast(response.pvp_mode ? 'PvP enabled!' : 'PvP disabled.', 'info');
-          await this.load();
-        } else {
-          showToast(response.error || 'Could not toggle PvP.', 'error');
-        }
-      });
-    }
-
-    render() {
-      const root = WM.body('overview');
-      if (!root) return;
-      if (!colonies.length) {
-        root.innerHTML = uiKitEmptyStateHTML('No colonies yet', 'Found your first colony to unlock strategic overview data.');
-        return;
-      }
-
-      const meta = window._GQ_meta || {};
-      const protUntil = meta.protection_until ? new Date(meta.protection_until) : null;
-      const protected_ = protUntil && protUntil > Date.now();
-      const pvpOn = !!parseInt(meta.pvp_mode, 10);
-      const protText = protected_ ? `Newbie protection until ${protUntil.toLocaleDateString()}` : 'No protection';
-      const colonyTypeLabels = {
-        balanced: 'Balanced', mining: 'Mining', industrial: 'Industrial',
-        research: 'Research', agricultural: 'Agricultural', military: 'Military'
-      };
-      const offline = window._GQ_offline || null;
-
-      root.innerHTML = `
-        <div class="status-bar">
-          <span class="status-chip ${protected_ ? 'chip-shield' : 'chip-neutral'}">${protText}</span>
-          <span class="status-chip ${pvpOn ? 'chip-pvp-on' : 'chip-pvp-off'}">PvP: ${pvpOn ? 'ON' : 'OFF'}</span>
-          <button id="pvp-toggle-btn" class="btn btn-sm ${pvpOn ? 'btn-warning' : 'btn-secondary'}" ${protected_ ? 'disabled' : ''}>
-            ${pvpOn ? 'Disable PvP' : 'Enable PvP'}
-          </button>
-          <span class="status-chip chip-rank">Rank ${fmt(meta.rank_points ?? 0)} RP</span>
-          <span class="status-chip chip-dm">DM ${fmt(meta.dark_matter ?? 0)} DM</span>
-          <button class="btn btn-secondary btn-sm" id="open-leaders-btn">Leaders</button>
-        </div>
-
-        ${this.buildOfflineSummaryHtml(offline)}
-
-        ${this.buildResourceInsightHtml(offline, meta)}
-
-        <h3 style="margin:0.75rem 0 0.5rem">Your Colonies</h3>
-        <div class="overview-grid">
-          ${colonies.map((colony) => {
-            const leaderChips = (colony.leaders || []).map((leader) =>
-              `<span class="leader-chip" title="${esc(leader.role)} Lv${leader.level} - ${leader.last_action || 'idle'}">
-                 ${leader.role === 'colony_manager' ? 'MGR' : leader.role === 'science_director' ? 'SCI' : 'MIL'} ${esc(leader.name)}
-               </span>`
-            ).join('');
-            const derivedHealth = Number(colony.integrity_pct ?? colony.health_pct ?? colony.hp_pct ?? colony.condition_pct);
-            const colonyHealthPct = Number.isFinite(derivedHealth)
-              ? Math.max(0, Math.min(100, Math.round(derivedHealth)))
-              : Math.max(0, Math.min(100, Math.round(Number(colony.public_services ?? colony.happiness ?? 70))));
-            const rawShield = Number(colony.shield_pct ?? colony.shields_pct ?? colony.planetary_shield_pct);
-            const colonyShieldPct = Number.isFinite(rawShield)
-              ? Math.max(0, Math.min(100, Math.round(rawShield)))
-              : (protected_ ? 100 : 0);
-            const colonyHealthTone = colonyHealthPct < 30 ? 'is-critical' : (colonyHealthPct < 60 ? 'is-warning' : 'is-good');
-            const colonyShieldTone = colonyShieldPct < 30 ? 'is-critical' : (colonyShieldPct < 60 ? 'is-warning' : 'is-good');
-            return `
-            <div class="planet-card ${currentColony && colony.id === currentColony.id ? 'selected' : ''}" data-cid="${colony.id}">
-              <div class="planet-card-name">${esc(colony.name)}
-                ${colony.is_homeworld ? '<span class="hw-badge">HW</span>' : ''}
-              </div>
-              <div class="planet-card-coords">[${colony.galaxy}:${colony.system}:${colony.position}]</div>
-              <div class="planet-card-type">
-                <span class="colony-type-badge">${colonyTypeLabels[colony.colony_type] || colony.colony_type}</span>
-                ÔÇó ${fmtName(colony.planet_type || 'terrestrial')}
-                ${colony.in_habitable_zone ? '<span class="hz-badge" title="Habitable Zone">­ƒî┐</span>' : ''}
-              </div>
-              <div style="margin-top:0.4rem;font-size:0.78rem;color:var(--text-secondary)">
-                Ô¼í ${fmt(colony.metal)} &nbsp; ­ƒÆÄ ${fmt(colony.crystal)} &nbsp; ­ƒöÁ ${fmt(colony.deuterium)}
-                ${parseFloat(colony.rare_earth || 0) > 0 ? `&nbsp; ­ƒÆ£ ${fmt(colony.rare_earth)}` : ''}
-              </div>
-              <div style="margin-top:0.2rem;font-size:0.75rem;color:var(--text-secondary)">
-                ­ƒî¥ ${fmt(colony.food || 0)} &nbsp; ÔÜí ${colony.energy ?? 0}
-              </div>
-              <div class="welfare-bar" style="margin-top:0.4rem">
-                <span title="Happiness ${colony.happiness ?? 70}%">­ƒÿè</span>
-                <div class="bar-wrap"><div class="bar-fill bar-happiness" style="width:${colony.happiness ?? 70}%"></div></div>
-                <span style="font-size:0.7rem;min-width:28px">${colony.happiness ?? 70}%</span>
-              </div>
-              <div class="welfare-bar">
-                <span title="Population ${colony.population ?? 0}/${colony.max_population ?? 500}">­ƒæÑ</span>
-                <div class="bar-wrap"><div class="bar-fill bar-population" style="width:${Math.min(100, Math.round((colony.population ?? 0) / (colony.max_population || 500) * 100))}%"></div></div>
-                <span style="font-size:0.7rem;min-width:28px">${fmt(colony.population ?? 0)}</span>
-              </div>
-              <div class="welfare-bar">
-                <span title="Public Services ${colony.public_services ?? 0}%">­ƒÅÑ</span>
-                <div class="bar-wrap"><div class="bar-fill bar-services" style="width:${colony.public_services ?? 0}%"></div></div>
-                <span style="font-size:0.7rem;min-width:28px">${colony.public_services ?? 0}%</span>
-              </div>
-              <div class="entity-bars" aria-label="Colony status bars">
-                <div class="entity-bar-row" title="Colony integrity ${colonyHealthPct}%">
-                  <span class="entity-bar-label">Health</span>
-                  <div class="bar-wrap"><div class="bar-fill bar-integrity ${colonyHealthTone}" style="width:${colonyHealthPct}%"></div></div>
-                  <span class="entity-bar-value">${colonyHealthPct}%</span>
-                </div>
-                <div class="entity-bar-row" title="Colony shields ${colonyShieldPct}%">
-                  <span class="entity-bar-label">Shield</span>
-                  <div class="bar-wrap"><div class="bar-fill bar-shield ${colonyShieldTone}" style="width:${colonyShieldPct}%"></div></div>
-                  <span class="entity-bar-value">${colonyShieldPct}%</span>
-                </div>
-              </div>
-              ${colony.deposit_metal >= 0 ? `
-                <div style="margin-top:0.3rem;font-size:0.7rem">
-                  <span class="deposit-chip ${colony.deposit_metal < 100000 ? 'depleted' : ''}" title="Metal deposit remaining">Ô¼í ${fmt(colony.deposit_metal)}</span>
-                  <span class="deposit-chip ${colony.deposit_crystal < 50000 ? 'depleted' : ''}" title="Crystal deposit">­ƒÆÄ ${fmt(colony.deposit_crystal)}</span>
-                  <span class="deposit-chip rare-earth-chip" title="Rare Earth deposit">­ƒÆ£ ${fmt(colony.deposit_rare_earth)}</span>
-                </div>` : ''}
-              ${leaderChips ? `<div class="leader-chips">${leaderChips}</div>` : ''}
-            </div>`;
-          }).join('')}
-        </div>
-
-        <h3 style="margin:1rem 0 0.5rem">Fleets in Motion</h3>
-        <div id="fleet-list-wm"></div>
-
-        <h3 style="margin:1rem 0 0.5rem">Recent Battles</h3>
-        <div id="battle-log-wm"></div>`;
-
-      this.bindOverviewActions(root);
-      this.renderFleetList(root);
-      this.renderBattleLog(root);
-    }
+  function detectColonyWarnings(colony, offline) {
+    return colonyWarnings.detectColonyWarnings(colony, offline);
   }
 
-  const overviewController = new OverviewController();
+  function buildWarningsHtml(colony, offline) {
+    return colonyWarnings.buildWarningsHtml(colony, offline);
+  }
+
+  const runtimeOverviewInsightsApi = requireRuntimeApi('GQRuntimeOverviewInsights', ['createOverviewInsights']);
+  const overviewInsights = runtimeOverviewInsightsApi.createOverviewInsights({
+    fmt,
+    fmtName,
+    esc,
+    getUiState: () => uiState,
+    getCurrentColony: () => currentColony,
+    getResourceInsightConfig,
+    getResourceInsightValue,
+    getResourceInsightTotal,
+    formatResourceInsightValue,
+  });
+
+  const runtimeOverviewListsApi = requireRuntimeApi('GQRuntimeOverviewLists', ['createOverviewLists']);
+  const overviewLists = runtimeOverviewListsApi.createOverviewLists({
+    windowRef: window,
+    esc,
+    fmt,
+    fmtName,
+    countdown,
+    api: API,
+    showToast,
+    getAudioManager: () => audioManager,
+  });
+
+  const runtimeOverviewActionsApi = requireRuntimeApi('GQRuntimeOverviewActions', ['createOverviewActions']);
+  const overviewActions = runtimeOverviewActionsApi.createOverviewActions({
+    api: API,
+    wm: WM,
+    getUiState: () => uiState,
+    getCurrentColony: () => currentColony,
+    setCurrentColony: (value) => { currentColony = value; },
+    getColonies: () => colonies,
+    getPlanetSelect: () => planetSelect,
+    updateResourceBar: () => overviewController.updateResourceBar(),
+    renderOverview: () => overviewController.render(),
+    focusColonyDevelopment,
+    fmtName,
+    showToast,
+    openFleetTransportPlanner,
+    openTradeMarketplace,
+    getAudioManager: () => audioManager,
+    runRiskAutoUpgrade: async (cid, focusBuilding) => overviewController.runRiskAutoUpgrade(cid, focusBuilding),
+    onReload: async () => overviewController.load(),
+  });
+
+  const runtimeOverviewControllerApi = requireRuntimeApi('GQRuntimeOverviewController', ['createOverviewController']);
+  const overviewController = runtimeOverviewControllerApi.createOverviewController({
+    wm: WM,
+    api: API,
+    windowRef: window,
+    documentRef: document,
+    getColonies: () => colonies,
+    setColonies: (val) => { colonies = val; },
+    getCurrentColony: () => currentColony,
+    getPlanetSelect: () => planetSelect,
+    getUiState: () => uiState,
+    fmt,
+    fmtName,
+    esc,
+    showToast,
+    shouldRedirectOnAuthLoadError,
+    redirectToLogin,
+    getGalaxy3d: () => galaxy3d,
+    uiKitEmptyStateHTML,
+    focusColonyDevelopment,
+    selectColonyById,
+    buildWarningsHtml: (colony, offline) => colonyWarnings.buildWarningsHtml(colony, offline),
+    buildOfflineSummaryHtml: (offline) => overviewInsights.buildOfflineSummaryHtml(offline),
+    buildResourceInsightHtml: (offline, meta) => overviewInsights.buildResourceInsightHtml(offline, meta),
+    evaluateRiskUpgradeBudget: (colony, nextCost, share) => overviewInsights.evaluateRiskUpgradeBudget(colony, nextCost, share),
+    riskFocusFromFlags: (flags) => overviewInsights.riskFocusFromFlags(flags),
+    signed: (value, digits) => overviewInsights.signed(value, digits),
+    riskLabel: (status) => overviewInsights.riskLabel(status),
+    renderInlineTemplate,
+    renderInlineTemplateList,
+    renderFleetListFn: (params) => overviewLists.renderFleetList(params),
+    renderBattleLogFn: (params) => overviewLists.renderBattleLog(params),
+    bindOverviewActionsFn: (root) => overviewActions.bindOverviewActions(root),
+  });
   window.GQOverviewController = overviewController;
 
   function populatePlanetSelect() {
@@ -7552,297 +1301,82 @@
     overviewController.render();
   }
 
-  class ColonyViewController {
-    buildViewHtml(data) {
-      const layout = data.layout || currentColony.layout || null;
-      const buildings = data.buildings || [];
-      const orbitalFacilities = data.orbital_facilities || [];
-      const grid = buildColonyGridCells(layout, buildings);
-      const classCaps = layout?.class_caps || {};
-      const buildingFocus = uiState.colonyViewFocus && Number(uiState.colonyViewFocus.colonyId) === Number(currentColony.id)
-        ? String(uiState.colonyViewFocus.focusBuilding || '')
-        : '';
+  const runtimeColonyViewControllerApi = requireRuntimeApi('GQRuntimeColonyViewController', ['createColonyViewController']);
+  const colonyViewController = runtimeColonyViewControllerApi.createColonyViewController({
+    wm: WM,
+    api: API,
+    getCurrentColony: () => currentColony,
+    getUiState: () => uiState,
+    buildColonyGridCells,
+    buildingZoneLabel,
+    pickZoneBuildFocus,
+    getBuildingUiMeta,
+    getRecommendedBuildingFocus,
+    selectColonyById,
+    focusColonyDevelopment,
+    queueColonySurfaceSceneData,
+    fmtName,
+    esc,
+    showToast,
+    gameLog,
+  });
 
-      return `
-        <div class="colony-view-head">
-          <div>
-            <h3>${esc(currentColony.name)}</h3>
-            <div class="colony-view-meta">${esc(fmtName(currentColony.planet_class || currentColony.planet_type || 'planet'))} ┬À ${esc(String(currentColony.diameter || layout?.planet_scale?.diameter || 0))} km ┬À ${esc(layout?.planet_scale?.tier || 'standard')}</div>
-          </div>
-          <div class="colony-view-actions">
-            <button class="btn btn-secondary btn-sm" id="colony-open-buildings-btn">Buildings</button>
-            <button class="btn btn-secondary btn-sm" id="colony-open-shipyard-btn">Shipyard</button>
-          </div>
-        </div>
-        ${buildingFocus ? `<div class="build-focus-banner">Rasterfokus: ${esc(fmtName(buildingFocus))}${uiState.colonyViewFocus?.source ? ` ┬À Quelle: ${esc(uiState.colonyViewFocus.source)}` : ''}</div>` : ''}
-        ${(() => {
-          const ev = currentColony.active_event;
-          if (!ev) return '';
-          const meta = {
-            solar_flare:        { icon: 'ÔÿÇ´©Å', label: 'Solar Flare',        cls: 'event-solar',   desc: 'Energy production ÔêÆ30%' },
-            mineral_vein:       { icon: 'ÔøÅ´©Å', label: 'Mineral Vein',       cls: 'event-mineral', desc: 'Metal production +20%' },
-            disease:            { icon: '­ƒªá', label: 'Disease Outbreak',   cls: 'event-disease', desc: 'Happiness ÔêÆ25 (until Hospital Lv3)' },
-            archaeological_find:{ icon: '­ƒÅ║', label: 'Archaeological Find', cls: 'event-unknown', desc: '+500 Dark Matter discovered' },
-          }[ev.type] || { icon: 'ÔÜá´©Å', label: ev.type, cls: 'event-unknown', desc: '' };
-          const mins = Number(ev.ends_in_min || 0);
-          const timeLeft = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
-          return `<div class="colony-event-banner ${esc(meta.cls)}"><span class="ce-icon">${meta.icon}</span><span class="ce-label"><strong>${esc(meta.label)}</strong> ÔÇö ${esc(meta.desc)}</span><span class="ce-timer">ends in ${esc(timeLeft)}</span></div>`;
-        })()}
-        <div class="colony-capacity-row">${Object.entries(classCaps).map(([key, value]) => `<span class="colony-cap-chip">${esc(buildingZoneLabel(key))}: ${esc(String(value))}</span>`).join('')}</div>
-        <div class="colony-grid" style="grid-template-columns:repeat(${grid.cols}, minmax(0, 1fr));">
-          ${grid.cells.map((cell) => {
-            const building = cell.building;
-            const anchor = !!building && cell.fill === 0;
-            const focusType = building ? String(building.type || '') : pickZoneBuildFocus(cell.zone, currentColony, buildings);
-            return `<button type="button" class="colony-cell colony-zone-${esc(cell.zone)} ${building ? 'occupied' : 'empty'} ${anchor ? 'anchor' : ''} ${buildingFocus && focusType === buildingFocus ? 'colony-cell-focus' : ''}" data-focus-building="${esc(focusType)}" data-cell-zone="${esc(cell.zone)}" data-cell-state="${building ? 'occupied' : 'empty'}" title="${building ? esc(building.meta?.label || fmtName(building.type)) : esc(buildingZoneLabel(cell.zone))}">
-              ${building ? `<span class="colony-cell-icon">${esc(building.meta?.icon || '­ƒÅù')}</span><span class="colony-cell-label">${esc(fmtName(building.type))}</span><span class="colony-cell-level">Lv ${esc(String(building.level || 0))}</span>` : `<span class="colony-cell-icon">${esc(getBuildingUiMeta(focusType).icon || '­ƒÅù')}</span><span class="colony-cell-label">${esc(fmtName(focusType))}</span><span class="colony-cell-empty">${esc(buildingZoneLabel(cell.zone))}</span>`}
-            </button>`;
-          }).join('')}
-        </div>
-        <div class="colony-orbital-band">
-          <h4>Orbital Layer</h4>
-          <div class="colony-orbital-list">${orbitalFacilities.length ? orbitalFacilities.map((facility) => `<button type="button" class="colony-orbital-card" data-focus-building="${esc(facility.type || 'solar_satellite')}"><strong>${esc(facility.icon)} ${esc(facility.label)}</strong><span>Lv ${esc(String(facility.level || 0))}</span></button>`).join('') : '<p class="text-muted">No orbital facilities online.</p>'}</div>
-        </div>`;
-    }
+  const runtimeEconomyFlowControllerApi = requireRuntimeApi('GQRuntimeEconomyFlowController', ['createEconomyFlowController']);
+  const economyFlowController = runtimeEconomyFlowControllerApi.createEconomyFlowController({
+    wm: WM,
+    getColonies: () => colonies,
+    resourceInsightConfig: RESOURCE_INSIGHT_CONFIG,
+    fmtName,
+    esc,
+    fmt,
+    selectColonyById,
+    gameLog,
+  });
+  window.GQEconomyFlowController = economyFlowController;
+  async function renderEconomyFlow() { await economyFlowController.render(); }
 
-    bindActions(root) {
-      root.querySelector('#colony-open-buildings-btn')?.addEventListener('click', () => WM.open('buildings'));
-      root.querySelector('#colony-open-shipyard-btn')?.addEventListener('click', () => WM.open('shipyard'));
-      root.querySelectorAll('[data-focus-building]').forEach((el) => {
-        el.addEventListener('click', () => {
-          const focusBuilding = String(el.getAttribute('data-focus-building') || getRecommendedBuildingFocus(currentColony));
-          const cellState = String(el.getAttribute('data-cell-state') || 'occupied');
-          const cellZone = String(el.getAttribute('data-cell-zone') || 'flex');
-          if (focusBuilding === 'solar_satellite') {
-            selectColonyById(currentColony.id, { openWindows: false });
-            WM.open('shipyard');
-            showToast('Orbitalenergie wird im Shipyard verwaltet.', 'info');
-            return;
-          }
-          focusColonyDevelopment(currentColony.id, {
-            source: cellState === 'empty' ? `colony-zone:${cellZone}` : 'colony-grid',
-            focusBuilding,
-          });
-          if (cellState === 'empty') {
-            showToast(`Zone ${buildingZoneLabel(cellZone)}: Fokus auf ${fmtName(focusBuilding)}.`, 'info');
-          }
-        });
-      });
-    }
-
-    async render() {
-      const root = WM.body('colony');
-      if (!root) return;
-      if (!currentColony) {
-        root.innerHTML = '<p class="text-muted">Select a colony first.</p>';
-        return;
-      }
-      root.innerHTML = '<p class="text-muted">Loading colony viewÔÇª</p>';
-
-      try {
-        const data = await API.buildings(currentColony.id);
-        if (!data.success) {
-          root.innerHTML = '<p class="text-red">Failed to load colony view.</p>';
-          return;
-        }
-        queueColonySurfaceSceneData(currentColony, data);
-        root.innerHTML = this.buildViewHtml(data);
-        this.bindActions(root);
-      } catch (err) {
-        gameLog('warn', 'Colony view render fehlgeschlagen', err);
-        root.innerHTML = '<p class="text-red">Failed to render colony view.</p>';
-      }
-    }
-  }
-
-  const colonyViewController = new ColonyViewController();
   window.GQColonyViewController = colonyViewController;
 
   async function renderColonyView() {
     await colonyViewController.render();
   }
 
-  class BuildingsController {
-    getBuildingFocus() {
-      return uiState.colonyViewFocus && Number(uiState.colonyViewFocus.colonyId) === Number(currentColony.id)
-        ? String(uiState.colonyViewFocus.focusBuilding || '')
-        : '';
-    }
+  // ─────────────────────────────────────────────────────────────────────────
+  // ►► SIMULATION PREVIEW SYSTEM ◄◄
+  // Shows building upgrade previews before commitment
+  // ─────────────────────────────────────────────────────────────────────────
+  
+  const runtimeBuildingUpgradePreviewApi = requireRuntimeApi('GQRuntimeBuildingUpgradePreview', ['createBuildingUpgradePreview']);
+  const runtimeBuildingUpgradePreview = runtimeBuildingUpgradePreviewApi.createBuildingUpgradePreview({
+    fmt,
+    fmtName,
+    esc,
+    getCurrentColony: () => currentColony,
+  });
 
-    groupByCategory(buildings) {
-      const byCategory = {};
-      for (const building of buildings) {
-        const meta = getBuildingUiMeta(building.type);
-        (byCategory[meta.cat] ??= []).push({ ...building, meta });
-      }
-      return byCategory;
-    }
+  const simulateBuildingUpgrade = runtimeBuildingUpgradePreview.simulateBuildingUpgrade;
+  const buildUpgradePreviewModal = runtimeBuildingUpgradePreview.buildUpgradePreviewModal;
 
-    buildQueueHtml(upgradeQueue) {
-      if (!upgradeQueue.length) return '';
-      const active = upgradeQueue.find((q) => String(q.status || '') === 'running') || null;
-      const queued = upgradeQueue.filter((q) => String(q.status || '') === 'queued');
-      return `
-        <div class="system-card" style="margin-bottom:0.8rem">
-          <div class="system-row"><strong>Bauauftrags-Queue</strong></div>
-          ${active ? `<div class="system-row">­ƒöº Aktiv: ${esc(fmtName(active.type || 'building'))} -> Lv ${esc(String(active.target_level || '?'))} ┬À ETA <span data-end="${esc(active.eta)}">${countdown(active.eta)}</span></div>` : '<div class="system-row text-muted">Aktuell kein aktiver Auftrag.</div>'}
-          ${queued.length ? `<div class="system-row">­ƒôï Wartend: ${queued.map((q) => `${esc(fmtName(q.type || 'building'))} -> Lv ${esc(String(q.target_level || '?'))}`).join(' ┬À ')}</div>` : '<div class="system-row text-muted">Keine weiteren Auftr├ñge in Warteschlange.</div>'}
-        </div>`;
-    }
-
-    buildCardsHtml(byCategory, buildingFocus) {
-      const catOrder = ['Extraction', 'Energy', 'Life Support', 'Population', 'Industry', 'Storage', 'Science', 'Military', 'Advanced', 'Other'];
-      let html = '';
-      for (const cat of catOrder) {
-        const items = byCategory[cat];
-        if (!items?.length) continue;
-        html += `<div class="building-category"><h4 class="building-cat-title">${cat}</h4><div class="card-grid">`;
-        for (const building of items) {
-          const busy = !!building.upgrade_end;
-          let upgradeProgressPct = 0;
-          let upgradeTone = 'is-good';
-          if (busy && building.upgrade_start && building.upgrade_end) {
-            const now = Date.now();
-            const startMs = new Date(building.upgrade_start).getTime();
-            const endMs = new Date(building.upgrade_end).getTime();
-            const totalMs = endMs - startMs;
-            if (totalMs > 0) {
-              upgradeProgressPct = Math.min(100, Math.round(Math.max(0, (now - startMs) / totalMs * 100)));
-              upgradeTone = upgradeProgressPct < 30 ? 'is-critical' : (upgradeProgressPct < 70 ? 'is-warning' : 'is-good');
-            }
-          }
-          const cost = building.next_cost;
-          const rawIntegrity = Number(
-            building.integrity_pct
-            ?? building.health_pct
-            ?? building.hp_pct
-            ?? building.condition_pct
-            ?? (busy ? 92 : 100)
-          );
-          const integrityPct = Number.isFinite(rawIntegrity)
-            ? Math.max(0, Math.min(100, Math.round(rawIntegrity)))
-            : (busy ? 92 : 100);
-          const rawShield = Number(
-            building.shield_pct
-            ?? building.shields_pct
-            ?? building.defense_shield_pct
-            ?? ((building.meta?.cat === 'Military' || building.meta?.cat === 'Advanced')
-              ? Math.min(100, Math.round(25 + Number(building.level || 0) * 8))
-              : 0)
-          );
-          const shieldPct = Number.isFinite(rawShield)
-            ? Math.max(0, Math.min(100, Math.round(rawShield)))
-            : 0;
-          const integrityTone = integrityPct < 30 ? 'is-critical' : (integrityPct < 60 ? 'is-warning' : 'is-good');
-          const shieldTone = shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good');
-          html += `
-            <div class="item-card ${buildingFocus === building.type ? 'item-card-focus' : ''}" data-building-type="${esc(building.type)}">
-              <div class="item-card-header">
-                <span class="item-name">${building.meta.icon} ${fmtName(building.type)}</span>
-                <span class="item-level">Lv ${building.level}</span>
-              </div>
-              <div class="item-desc">${building.meta.desc}</div>
-              <div class="entity-bars" aria-label="Building status bars">
-                <div class="entity-bar-row" title="Building integrity ${integrityPct}%">
-                  <span class="entity-bar-label">Health</span>
-                  <div class="bar-wrap"><div class="bar-fill bar-integrity ${integrityTone}" style="width:${integrityPct}%"></div></div>
-                  <span class="entity-bar-value">${integrityPct}%</span>
-                </div>
-                <div class="entity-bar-row" title="Building shields ${shieldPct}%">
-                  <span class="entity-bar-label">Shield</span>
-                  <div class="bar-wrap"><div class="bar-fill bar-shield ${shieldTone}" style="width:${shieldPct}%"></div></div>
-                  <span class="entity-bar-value">${shieldPct}%</span>
-                </div>
-              </div>
-              <div class="item-cost">
-                ${cost.metal ? `<span class="cost-metal">Ô¼í ${fmt(cost.metal)}</span>` : ''}
-                ${cost.crystal ? `<span class="cost-crystal">­ƒÆÄ ${fmt(cost.crystal)}</span>` : ''}
-                ${cost.deuterium ? `<span class="cost-deut">­ƒöÁ ${fmt(cost.deuterium)}</span>` : ''}
-              </div>
-              ${busy
-                ? `<div class="item-timer">ÔÅ│ ETA <span data-end="${esc(building.upgrade_end)}">${countdown(building.upgrade_end)}</span></div>
-                <div class="entity-bars" style="margin-top:0.2rem;">
-                  <div class="entity-bar-row" title="Upgrade progress ${upgradeProgressPct}%">
-                    <span class="entity-bar-label">Upgr</span>
-                    <div class="bar-wrap"><div class="bar-fill bar-integrity ${upgradeTone}" style="width:${upgradeProgressPct}%"></div></div>
-                    <span class="entity-bar-value">${upgradeProgressPct}%</span>
-                  </div>
-                </div>`
-                : `<button class="btn btn-primary btn-sm upgrade-btn" data-type="${esc(building.type)}">Ôåæ Upgrade</button>`}
-            </div>`;
-        }
-        html += '</div></div>';
-      }
-      return html;
-    }
-
-    async handleUpgrade(type, btn) {
-      btn.disabled = true;
-      const response = await API.upgrade(currentColony.id, type);
-      if (response.success) {
-        const queuePos = Number(response.queue_position || 0);
-        const targetLevel = Number(response.target_level || 0);
-        if (queuePos > 1) showToast(`Queued ${fmtName(type)} -> Lv ${targetLevel} (Position ${queuePos}).`, 'success');
-        else showToast(`Upgrading ${fmtName(type)} -> Lv ${targetLevel}ÔÇª`, 'success');
-        const resources = await API.resources(currentColony.id);
-        if (resources.success) Object.assign(currentColony, resources.resources);
-        updateResourceBar();
-        await this.render();
-      } else {
-        showToast(response.error || 'Upgrade failed', 'error');
-        btn.disabled = false;
-      }
-    }
-
-    bindActions(root, buildingFocus) {
-      root.querySelectorAll('.upgrade-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          await this.handleUpgrade(btn.dataset.type, btn);
-        });
-      });
-      if (buildingFocus) {
-        const focusEl = root.querySelector(`.item-card[data-building-type="${buildingFocus}"]`);
-        if (focusEl) focusEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-
-    async render() {
-      const root = WM.body('buildings');
-      if (!root) return;
-      if (!currentColony) {
-        root.innerHTML = '<p class="text-muted">Select a colony first.</p>';
-        return;
-      }
-      root.innerHTML = '<p class="text-muted">LoadingÔÇª</p>';
-      const buildingFocus = this.getBuildingFocus();
-
-      try {
-        await API.finishBuilding(currentColony.id);
-        const data = await API.buildings(currentColony.id);
-        if (!data.success) {
-          root.innerHTML = '<p class="text-red">Error loading buildings.</p>';
-          return;
-        }
-
-        const byCategory = this.groupByCategory(data.buildings || []);
-        const upgradeQueue = Array.isArray(data.upgrade_queue) ? data.upgrade_queue : [];
-        queueColonySurfaceSceneData(currentColony, data);
-        let html = '';
-        if (buildingFocus) {
-          html += `<div class="build-focus-banner">Fokus: ${fmtName(buildingFocus)}${uiState.colonyViewFocus?.source ? ` ┬À Quelle: ${esc(uiState.colonyViewFocus.source)}` : ''}</div>`;
-        }
-        html += this.buildQueueHtml(upgradeQueue);
-        html += this.buildCardsHtml(byCategory, buildingFocus);
-        root.innerHTML = html;
-        this.bindActions(root, buildingFocus);
-      } catch (err) {
-        gameLog('warn', 'Buildings view laden fehlgeschlagen', err);
-        root.innerHTML = '<p class="text-red">Failed to load buildings.</p>';
-      }
-    }
-  }
-
-  const buildingsController = new BuildingsController();
+  const runtimeBuildingsControllerApi = requireRuntimeApi('GQRuntimeBuildingsController', ['createBuildingsController']);
+  const buildingsController = runtimeBuildingsControllerApi.createBuildingsController({
+    wm: WM,
+    api: API,
+    windowRef: window,
+    documentRef: document,
+    getCurrentColony: () => currentColony,
+    getUiState: () => uiState,
+    getBuildingUiMeta,
+    fmtName,
+    fmt,
+    esc,
+    countdown,
+    simulateBuildingUpgrade,
+    buildUpgradePreviewModal,
+    queueColonySurfaceSceneData,
+    updateResourceBar,
+    showToast,
+    gameLog,
+  });
   window.GQBuildingsController = buildingsController;
 
   // ÔöÇÔöÇ Buildings window ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
@@ -7850,83 +1384,19 @@
     await buildingsController.render();
   }
 
-  class ResearchController {
-    buildCardsHtml(researchRows) {
-      return `<div class="card-grid">${researchRows.map((row) => {
-        const busy = !!row.research_end;
-        const unlocked = row.can_research !== false;
-        const locked = !unlocked;
-        const cost = row.next_cost;
-        const missing = Array.isArray(row.missing_prereqs) ? row.missing_prereqs : [];
-        const missingText = missing.map(m => m.tech + ' L' + m.required_level).join(', ');
-        return `
-          <div class="item-card ${locked ? 'item-card-locked' : ''}">
-            <div class="item-card-header">
-              <span class="item-name">${fmtName(row.type)}</span>
-              <span class="item-level">Lv ${row.level}</span>
-            </div>
-            ${locked ? `<div class="item-locked-badge">­ƒöÆ Locked</div>` : ''}
-            <div class="item-cost">
-              ${cost.metal ? `<span class="cost-metal">Ô¼í ${fmt(cost.metal)}</span>` : ''}
-              ${cost.crystal ? `<span class="cost-crystal">­ƒÆÄ ${fmt(cost.crystal)}</span>` : ''}
-              ${cost.deuterium ? `<span class="cost-deut">­ƒöÁ ${fmt(cost.deuterium)}</span>` : ''}
-            </div>
-            ${locked && missing.length ? `<div class="item-prereq-hint" title="Prerequisites">Requires: ${esc(missingText)}</div>` : ''}
-            ${busy
-              ? `<div class="item-timer">­ƒö¼ <span data-end="${esc(row.research_end)}">${countdown(row.research_end)}</span></div><div class="progress-bar-wrap"><div class="progress-bar" data-start="${esc(row.research_start||'')}" data-end="${esc(row.research_end)}" style="width:0%"></div></div>`
-              : unlocked ? `<button class="btn btn-primary btn-sm research-btn" data-type="${esc(row.type)}">Research</button>` : `<button class="btn btn-secondary btn-sm" disabled>Locked</button>`}
-          </div>`;
-      }).join('')}</div>`;
-    }
-
-    bindActions(root) {
-      root.querySelectorAll('.research-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          btn.disabled = true;
-          const response = await API.doResearch(currentColony.id, btn.dataset.type);
-          if (response.success) {
-            showToast(`Researching ${fmtName(btn.dataset.type)}ÔÇª`, 'success');
-            if (audioManager && typeof audioManager.playResearchStart === 'function') audioManager.playResearchStart();
-            await this.render();
-          } else {
-            showToast(response.error || 'Research failed', 'error');
-            btn.disabled = false;
-          }
-        });
-      });
-    }
-
-    async render() {
-      const root = WM.body('research');
-      if (!root) return;
-      if (!currentColony) {
-        root.innerHTML = '<p class="text-muted">Select a colony first.</p>';
-        return;
-      }
-      root.innerHTML = '<p class="text-muted">LoadingÔÇª</p>';
-
-      try {
-        const finishResult = await API.finishResearch();
-        if (finishResult?.success && Array.isArray(finishResult.completed) && finishResult.completed.length > 0) {
-          if (audioManager && typeof audioManager.playResearchComplete === 'function') audioManager.playResearchComplete();
-          showToast(`Forschung abgeschlossen: ${finishResult.completed.map((type) => fmtName(type)).join(', ')}`, 'success');
-        }
-        const data = await API.research(currentColony.id);
-        if (!data.success) {
-          root.innerHTML = '<p class="text-red">Error.</p>';
-          return;
-        }
-
-        root.innerHTML = this.buildCardsHtml(data.research || []);
-        this.bindActions(root);
-      } catch (err) {
-        gameLog('warn', 'Research view laden fehlgeschlagen', err);
-        root.innerHTML = '<p class="text-red">Failed to load research.</p>';
-      }
-    }
-  }
-
-  const researchController = new ResearchController();
+  const runtimeResearchControllerApi = requireRuntimeApi('GQRuntimeResearchController', ['createResearchController']);
+  const researchController = runtimeResearchControllerApi.createResearchController({
+    wm: WM,
+    api: API,
+    getCurrentColony: () => currentColony,
+    getAudioManager: () => audioManager,
+    fmtName,
+    fmt,
+    esc,
+    countdown,
+    showToast,
+    gameLog,
+  });
   window.GQResearchController = researchController;
 
   // ÔöÇÔöÇ Research window ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
@@ -7941,1256 +1411,23 @@
     el.replaceChildren(p);
   }
 
-  class ShipyardController {
-    constructor() {
-      this.moduleCatalogCache = new Map();
-    }
-
-    renderSlotProfile(profile = {}) {
-      const entries = Object.entries(profile || {}).filter(([, count]) => Number(count || 0) > 0);
-      const frag = document.createDocumentFragment();
-      if (!entries.length) {
-        const s = new GQUI.Span().setClass('text-muted small').setTextContent('No slots');
-        frag.appendChild(s.dom);
-        return frag;
-      }
-      entries.forEach(([group, count]) => {
-        const s = document.createElement('span');
-        s.style.cssText = 'display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.4rem;border:1px solid rgba(120,145,180,0.35);border-radius:999px;background:rgba(80,108,152,0.14);font-size:0.7rem;';
-        s.textContent = fmtName(group) + ' ' + fmt(count);
-        frag.appendChild(s);
-      });
-      return frag;
-    }
-    // ── Pure data helpers ────────────────────────────────────
-
-    computeSlotProfile(hull, layoutCode = 'default') {
-      const base = Object.assign({}, hull?.slot_profile || {});
-      const layout = hull?.slot_variations?.[layoutCode] || null;
-      const adjustments = layout?.slot_adjustments || {};
-      Object.entries(adjustments).forEach(([group, delta]) => {
-        base[group] = Math.max(0, Number(base[group] || 0) + Number(delta || 0));
-      });
-      return base;
-    }
-
-    moduleCatalogKey(hullCode, layoutCode) {
-      return `${String(hullCode || '')}|${String(layoutCode || 'default')}`;
-    }
-
-    async fetchModuleCatalog(colonyId, hullCode, layoutCode = 'default') {
-      const key = this.moduleCatalogKey(hullCode, layoutCode);
-      if (this.moduleCatalogCache.has(key)) {
-        return this.moduleCatalogCache.get(key);
-      }
-      const response = await API.shipyardModules(colonyId, hullCode, layoutCode);
-      if (!response?.success) {
-        throw new Error(response?.error || 'Failed to load module catalog.');
-      }
-      this.moduleCatalogCache.set(key, response);
-      return response;
-    }
-
-    renderAffinityChips(affinities) {
-      if (!Array.isArray(affinities) || !affinities.length) return null;
-      const fmtBonus = (type, val) => {
-        const v = Number(val);
-        if (type === 'cost_pct') return `Kosten ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
-        if (type === 'build_time_pct') return `Bauzeit ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
-        if (type === 'stat_mult') return `Stats ${v >= 0 ? '+' : ''}${(v * 100).toFixed(0)}%`;
-        if (type === 'unlock_tier') return `Tier +${v.toFixed(0)}`;
-        return `${type} ${v}`;
-      };
-      const frag = document.createDocumentFragment();
-      affinities.forEach((a) => {
-        const label = fmtBonus(a.bonus_type, a.bonus_value);
-        const titleText = `${String(a.faction_name || a.faction_code || '')}: ${label} ┬À Ben├Âtigt Stand ${a.min_standing} ┬À Aktuell ${a.user_standing ?? '?'}`;
-        const chip = new GQUI.Span().setClass('shipyard-affinity-chip ' + (a.active ? 'affinity-active' : 'affinity-inactive'));
-        chip.dom.title = titleText;
-        chip.dom.textContent = String(a.faction_icon || 'Ô¼í') + ' ' + label;
-        frag.appendChild(chip.dom);
-      });
-      return frag;
-    }
-
-    renderModuleSlotEditor(moduleCatalog) {
-      const groups = Array.isArray(moduleCatalog?.module_groups) ? moduleCatalog.module_groups : [];
-      if (!groups.length) {
-        return new GQUI.Div().setClass('text-muted small')
-          .setTextContent('No module groups available for this hull/layout.').dom;
-      }
-
-      const editor = new GQUI.Div().setClass('shipyard-slot-editor');
-      groups.forEach((group) => {
-        const slotCount = Math.max(0, Number(group.slot_count || 0));
-        if (!slotCount) return;
-
-        const groupDiv = new GQUI.Div().setClass('shipyard-slot-group');
-        groupDiv.dom.dataset.groupCode = String(group.code || '');
-
-        const labelDiv = new GQUI.Div().setClass('small shipyard-slot-group-label');
-        labelDiv.dom.textContent = `${fmtName(group.label || group.code || 'group')} ┬À Slots ${fmt(slotCount)}`;
-        const affFrag = this.renderAffinityChips(group.affinities || []);
-        if (affFrag) {
-          const chipsWrap = new GQUI.Span().setClass('shipyard-affinity-chips');
-          chipsWrap.dom.appendChild(affFrag);
-          labelDiv.dom.appendChild(chipsWrap.dom);
-        }
-        groupDiv.add(labelDiv);
-
-        const rowsDiv = new GQUI.Div().setClass('shipyard-slot-rows');
-        for (let idx = 0; idx < slotCount; idx++) {
-          const slotRow = new GQUI.Div().setClass('shipyard-slot-row');
-          slotRow.dom.dataset.groupCode = String(group.code || '');
-          slotRow.dom.dataset.slotIndex = String(idx);
-
-          const lbl = new GQUI.Span().setClass('shipyard-slot-label small')
-            .setTextContent('Slot ' + (idx + 1));
-          slotRow.add(lbl);
-
-          const sel = document.createElement('select');
-          sel.className = 'input shipyard-module-slot';
-          sel.dataset.groupCode = String(group.code || '');
-          sel.dataset.slotIndex = String(idx);
-          const emptyOpt = document.createElement('option');
-          emptyOpt.value = '';
-          emptyOpt.textContent = 'ÔÇö empty ÔÇö';
-          sel.appendChild(emptyOpt);
-          (Array.isArray(group.modules) ? group.modules : []).forEach((mod) => {
-            const statsLabel = Object.entries(mod.stats_delta || {})
-              .map(([k, v]) => `${fmtName(k)} ${v >= 0 ? '+' : ''}${fmt(v)}`).join(', ');
-            const statsData = Object.entries(mod.stats_delta || {})
-              .map(([k, v]) => `${k}:${v}`).join(',');
-            const blocker = Array.isArray(mod.blockers) && mod.blockers.length
-              ? ` [LOCKED: ${mod.blockers.join(' / ')}]` : '';
-            const opt = document.createElement('option');
-            opt.value = String(mod.code || '');
-            opt.dataset.stats = statsData;
-            opt.dataset.tier = String(Number(mod.tier || 1));
-            if (mod.unlocked === false) opt.disabled = true;
-            opt.textContent = `${String(mod.label || mod.code || 'Module')} (T${fmt(mod.tier || 1)})${statsLabel ? ' ┬À ' + statsLabel : ''}${blocker}`;
-            sel.appendChild(opt);
-          });
-          if (!group.modules?.length) sel.disabled = true;
-          slotRow.dom.appendChild(sel);
-
-          const arrowsDiv = new GQUI.Div().setClass('shipyard-slot-arrows');
-          const upBtn = new GQUI.Button('Ôû▓').setClass('btn shipyard-slot-up');
-          upBtn.dom.type = 'button';
-          upBtn.dom.dataset.groupCode = String(group.code || '');
-          upBtn.dom.dataset.slotIndex = String(idx);
-          upBtn.dom.title = 'Tauscht diesen Slot mit dem dar├╝ber';
-          if (idx === 0) upBtn.dom.disabled = true;
-          const downBtn = new GQUI.Button('Ôû╝').setClass('btn shipyard-slot-down');
-          downBtn.dom.type = 'button';
-          downBtn.dom.dataset.groupCode = String(group.code || '');
-          downBtn.dom.dataset.slotIndex = String(idx);
-          downBtn.dom.title = 'Tauscht diesen Slot mit dem darunter';
-          if (idx === slotCount - 1) downBtn.dom.disabled = true;
-          arrowsDiv.add(upBtn, downBtn);
-          slotRow.add(arrowsDiv);
-
-          rowsDiv.add(slotRow);
-        }
-        groupDiv.add(rowsDiv);
-        editor.add(groupDiv);
-      });
-
-      if (!editor.dom.children.length) {
-        return new GQUI.Div().setClass('text-muted small')
-          .setTextContent('No active slots for this layout.').dom;
-      }
-      return editor.dom;
-    }
-
-    collectBlueprintModulesFromUI(root) {
-      const selects = Array.from(root.querySelectorAll('.shipyard-module-slot'));
-      if (!selects.length) return [];
-      const totals = new Map();
-      selects.forEach((el) => {
-        const code = String(el.value || '').trim();
-        if (!code) return;
-        totals.set(code, (totals.get(code) || 0) + 1);
-      });
-      return Array.from(totals.entries()).map(([code, quantity]) => ({ code, quantity }));
-    }
-
-    swapSlots(root, groupCode, idxA, idxB) {
-      const selA = root.querySelector(`.shipyard-module-slot[data-group-code="${groupCode}"][data-slot-index="${idxA}"]`);
-      const selB = root.querySelector(`.shipyard-module-slot[data-group-code="${groupCode}"][data-slot-index="${idxB}"]`);
-      if (!selA || !selB) return;
-      const tmp = selA.value;
-      selA.value = selB.value;
-      selB.value = tmp;
-      this.updateStatsPreview(root);
-    }
-
-    computeLiveStats(root, baseStats = {}) {
-      const slots = Array.from(root.querySelectorAll('.shipyard-module-slot'));
-      const totals = Object.assign({ attack: 0, shield: 0, hull: 0, cargo: 0, speed: 0 }, baseStats);
-      slots.forEach((sel) => {
-        if (!sel.value) return;
-        const opt = sel.options[sel.selectedIndex];
-        if (!opt) return;
-        const statsStr = String(opt.dataset.stats || '');
-        statsStr.split(',').forEach((part) => {
-          const [key, val] = part.split(':');
-          if (!key || val === undefined) return;
-          const k = key.trim();
-          if (k in totals) totals[k] = (totals[k] || 0) + Number(val);
-        });
-      });
-      return totals;
-    }
-
-    // ── DOM builders ─────────────────────────────────────────
-
-    /** Returns a DocumentFragment with slot-profile chip spans. */
-    renderSlotProfile(profile = {}) {
-      const entries = Object.entries(profile || {}).filter(([, count]) => Number(count || 0) > 0);
-      const frag = document.createDocumentFragment();
-      if (!entries.length) {
-        frag.appendChild(GQUI.span('text-muted', 'small').setText('No slots').dom);
-        return frag;
-      }
-      entries.forEach(([group, count], i) => {
-        if (i > 0) frag.appendChild(document.createTextNode(' '));
-        const chip = GQUI.span();
-        chip.dom.style.cssText = 'display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.4rem;border:1px solid rgba(120,145,180,0.35);border-radius:999px;background:rgba(80,108,152,0.14);font-size:0.7rem;';
-        chip.dom.textContent = `${fmtName(group)} ${fmt(count)}`;
-        frag.appendChild(chip.dom);
-      });
-      return frag;
-    }
-
-    /** Returns a DocumentFragment with affinity chip spans. */
-    renderAffinityChips(affinities = []) {
-      const list = Array.isArray(affinities) ? affinities.filter((a) => !!a) : [];
-      const frag = document.createDocumentFragment();
-      if (!list.length) return frag;
-      const fmtBonus = (type, val) => {
-        const v = Number(val);
-        if (type === 'cost_pct') return `Kosten ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
-        if (type === 'build_time_pct') return `Bauzeit ${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
-        if (type === 'stat_mult') return `Stats ${v >= 0 ? '+' : ''}${(v * 100).toFixed(0)}%`;
-        if (type === 'unlock_tier') return `Tier +${v.toFixed(0)}`;
-        return `${type} ${v}`;
-      };
-      list.forEach((a) => {
-        const active = !!a.active;
-        const bonusText = fmtBonus(a.bonus_type, a.bonus_value);
-        const titleText = `${String(a.faction_name || a.faction_code || '?')}: ${bonusText} · Benötigt Stand ${a.min_standing} · Aktuell ${a.user_standing ?? '?'}`;
-        const chip = GQUI.span('shipyard-affinity-chip', active ? 'affinity-active' : 'affinity-inactive')
-          .setTitle(titleText)
-          .setText(`${String(a.faction_icon || '⬡')} ${bonusText}`);
-        frag.appendChild(chip.dom);
-      });
-      return frag;
-    }
-
-    /** Returns a GQUI UIElement with the full module-slot editor. */
-    renderModuleSlotEditor(moduleCatalog) {
-      const groups = Array.isArray(moduleCatalog?.module_groups) ? moduleCatalog.module_groups : [];
-      if (!groups.length) {
-        return GQUI.span('text-muted', 'small').setText('No module groups available for this hull/layout.');
-      }
-      const editor = GQUI.div('shipyard-slot-editor');
-      let hasGroups = false;
-      groups.forEach((group) => {
-        const slotCount = Math.max(0, Number(group.slot_count || 0));
-        if (!slotCount) return;
-        hasGroups = true;
-
-        const groupDiv = GQUI.div('shipyard-slot-group').setData('groupCode', group.code || '');
-        const labelDiv = GQUI.div('small', 'shipyard-slot-group-label');
-        labelDiv.setText(`${fmtName(group.label || group.code || 'group')} · Slots ${fmt(slotCount)}`);
-        const affinityFrag = this.renderAffinityChips(group.affinities || []);
-        if (affinityFrag.childNodes.length) {
-          const chipsWrap = GQUI.span('shipyard-affinity-chips');
-          chipsWrap.dom.appendChild(affinityFrag);
-          labelDiv.add(chipsWrap);
-        }
-
-        const rowsDiv = GQUI.div('shipyard-slot-rows');
-        for (let idx = 0; idx < slotCount; idx++) {
-          const rowDiv = GQUI.div('shipyard-slot-row')
-            .setData('groupCode', group.code || '')
-            .setData('slotIndex', idx);
-          const slotLabel = GQUI.span('shipyard-slot-label', 'small').setText(`Slot ${idx + 1}`);
-          const sel = GQUI.select('input', 'shipyard-module-slot')
-            .setData('groupCode', group.code || '')
-            .setData('slotIndex', idx);
-          const hasOpts = Array.isArray(group.modules) && group.modules.length > 0;
-          if (!hasOpts) sel.setDisabled(true);
-          sel.addOption('', '— empty —');
-          (Array.isArray(group.modules) ? group.modules : []).forEach((mod) => {
-            const statsLabel = Object.entries(mod.stats_delta || {})
-              .map(([k, v]) => `${fmtName(k)} ${v >= 0 ? '+' : ''}${fmt(v)}`).join(', ');
-            const statsData = Object.entries(mod.stats_delta || {})
-              .map(([k, v]) => `${k}:${v}`).join(',');
-            const blocker = Array.isArray(mod.blockers) && mod.blockers.length
-              ? ` [LOCKED: ${mod.blockers.join(' / ')}]` : '';
-            const optText = `${String(mod.label || mod.code || 'Module')} (T${fmt(mod.tier || 1)})${statsLabel ? ` · ${statsLabel}` : ''}${blocker}`;
-            sel.addOption(mod.code || '', optText, mod.unlocked === false, {
-              stats: statsData,
-              tier: String(Number(mod.tier || 1)),
-            });
-          });
-
-          const arrowsDiv = GQUI.div('shipyard-slot-arrows');
-          const upBtn = GQUI.btn('▲', 'btn', 'shipyard-slot-up')
-            .setData('groupCode', group.code || '')
-            .setData('slotIndex', idx)
-            .setTitle('Tauscht diesen Slot mit dem darüber')
-            .setDisabled(idx === 0);
-          const downBtn = GQUI.btn('▼', 'btn', 'shipyard-slot-down')
-            .setData('groupCode', group.code || '')
-            .setData('slotIndex', idx)
-            .setTitle('Tauscht diesen Slot mit dem darunter')
-            .setDisabled(idx === slotCount - 1);
-          arrowsDiv.add(upBtn, downBtn);
-          rowDiv.add(slotLabel, sel, arrowsDiv);
-          rowsDiv.add(rowDiv);
-        }
-        groupDiv.add(labelDiv, rowsDiv);
-        editor.add(groupDiv);
-      });
-      if (!hasGroups) {
-        return GQUI.span('text-muted', 'small').setText('No active slots for this layout.');
-      }
-      return editor;
-    }
-
-    updateStatsPreview(root) {
-      const preview = root.querySelector('#shipyard-blueprint-stats-preview');
-      if (!preview) return;
-      const hullCode = String(root.querySelector('#shipyard-blueprint-hull')?.value || '');
-      const hullCard = root.querySelector(`.shipyard-hull-base[data-hull-code="${hullCode}"]`);
-      const baseStats = hullCard
-        ? {
-            attack: Number(hullCard.dataset.attack || 0),
-            shield: Number(hullCard.dataset.shield || 0),
-            hull:   Number(hullCard.dataset.hull   || 0),
-            cargo:  Number(hullCard.dataset.cargo  || 0),
-            speed:  Number(hullCard.dataset.speed  || 0),
-          }
-        : {};
-      const live = this.computeLiveStats(root, baseStats);
-      const hasMods = Array.from(root.querySelectorAll('.shipyard-module-slot')).some((s) => s.value);
-      if (!hasMods) {
-        const empty = new GQUI.Div().setClass('shipyard-stats-preview-empty small text-muted')
-          .setTextContent('W├ñhle Module, um eine Vorschau zu erhalten.');
-        preview.replaceChildren(empty.dom);
-        return;
-      }
-      const chipDefs = [
-        { cls: 'chiptype-atk',   icon: 'ÔÜö',  key: 'ATK',   val: live.attack },
-        { cls: 'chiptype-shd',   icon: '­ƒøí', key: 'SHD',   val: live.shield },
-        { cls: 'chiptype-hll',   icon: '­ƒö®', key: 'HULL',  val: live.hull   },
-        { cls: 'chiptype-cargo', icon: '­ƒôª', key: 'CARGO', val: live.cargo  },
-        { cls: 'chiptype-spd',   icon: 'ÔÜí', key: 'SPD',   val: live.speed  },
-      ];
-      const grid = new GQUI.Div().setClass('shipyard-stats-preview-grid');
-      chipDefs.forEach(({ cls, icon, key, val }) => {
-        const chip = new GQUI.Div().setClass('shipyard-stats-chip ' + cls);
-        chip.dom.textContent = icon + ' ' + key + ' ';
-        const strong = document.createElement('strong');
-        strong.textContent = fmt(val);
-        chip.dom.appendChild(strong);
-        grid.add(chip);
-      });
-      const wrap = new GQUI.Div().setClass('shipyard-stats-preview');
-      wrap.add(new GQUI.Div().setClass('shipyard-stats-preview-label').setTextContent('Kompilierte Statistiken (Vorschau)'));
-      wrap.add(grid);
-      preview.replaceChildren(wrap.dom);
-    }
-
-    // ÔöÇÔöÇ Saved presets (localStorage) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-    _presetKey() { return 'gq_shipyard_presets_v1'; }
-
-    loadPresetsFromStorage() {
-      try {
-        return JSON.parse(localStorage.getItem(this._presetKey()) || '[]');
-      } catch (err) {
-        gameLog('info', 'Shipyard-Presets konnten nicht aus Storage geladen werden', err);
-        return [];
-      }
-    }
-
-    savePresetToStorage(name, hull, layout, modules) {
-      const presets = this.loadPresetsFromStorage().filter((p) => p.name !== name);
-      presets.unshift({ name, hull, layout, modules, ts: Date.now() });
-      localStorage.setItem(this._presetKey(), JSON.stringify(presets.slice(0, 20)));
-    }
-
-    deletePresetFromStorage(name) {
-      const presets = this.loadPresetsFromStorage().filter((p) => p.name !== name);
-      localStorage.setItem(this._presetKey(), JSON.stringify(presets));
-    }
-
-    buildPresetToolbarDom() {
-      const presets = this.loadPresetsFromStorage();
-      const sel = document.createElement('select');
-      sel.id = 'shipyard-preset-select';
-      sel.className = 'input shipyard-preset-select';
-      if (!presets.length) sel.disabled = true;
-      const placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = 'ÔÇö Preset laden ÔÇö';
-      sel.appendChild(placeholder);
-      if (presets.length) {
-        presets.forEach((p) => {
-          const opt = document.createElement('option');
-          opt.value = String(p.name);
-          opt.textContent = `${p.name} ┬À ${fmtName(p.hull)} / ${fmtName(p.layout)}`;
-          sel.appendChild(opt);
-        });
-      } else {
-        const noOpt = document.createElement('option');
-        noOpt.value = '';
-        noOpt.disabled = true;
-        noOpt.textContent = 'Keine Presets gespeichert';
-        sel.appendChild(noOpt);
-      }
-
-      const loadBtn = new GQUI.Button('Laden').setClass('btn btn-secondary btn-sm');
-      loadBtn.dom.id = 'shipyard-preset-load';
-      loadBtn.dom.type = 'button';
-      if (!presets.length) loadBtn.dom.disabled = true;
-
-      const saveBtn = new GQUI.Button('Speichern').setClass('btn btn-secondary btn-sm');
-      saveBtn.dom.id = 'shipyard-preset-save';
-      saveBtn.dom.type = 'button';
-
-      const delBtn = new GQUI.Button('L├Âschen').setClass('btn btn-warning btn-sm');
-      delBtn.dom.id = 'shipyard-preset-delete';
-      delBtn.dom.type = 'button';
-      if (!presets.length) delBtn.dom.disabled = true;
-
-      const toolbar = new GQUI.Div().setClass('shipyard-preset-toolbar');
-      toolbar.dom.appendChild(sel);
-      toolbar.add(loadBtn, saveBtn, delBtn);
-      return toolbar.dom;
-
-    }
-
-    refreshPresetToolbar(root) {
-      const container = root.querySelector('#shipyard-preset-toolbar-wrap');
-      if (container) container.replaceChildren(this.buildPresetToolbarDom());
-      this.bindPresetActions(root);
-    }
-
-    applyPreset(root, preset, hulls) {
-      const hullSel = root.querySelector('#shipyard-blueprint-hull');
-      const layoutSel = root.querySelector('#shipyard-blueprint-layout');
-      if (hullSel) hullSel.value = preset.hull;
-      this.updateBlueprintLayoutOptions(root, hulls).then(() => {
-        if (layoutSel) layoutSel.value = preset.layout;
-        // restore module slots after layout is rendered
-        window.setTimeout(() => {
-          const groupMap = new Map();
-          (Array.isArray(preset.modules) ? preset.modules : []).forEach((m) => {
-            if (!groupMap.has(m.group)) groupMap.set(m.group, []);
-            for (let i = 0; i < (m.quantity || 1); i++) groupMap.get(m.group).push(m.code);
-          });
-          root.querySelectorAll('.shipyard-module-slot').forEach((sel) => {
-            const g = sel.dataset.groupCode;
-            const idx = Number(sel.dataset.slotIndex || 0);
-            const codes = groupMap.get(g) || [];
-            if (codes[idx] !== undefined) sel.value = codes[idx];
-          });
-          this.updateStatsPreview(root);
-        }, 80);
-      });
-    }
-
-    bindPresetActions(root) {
-      root.querySelector('#shipyard-preset-save')?.addEventListener('click', () => {
-        const hullCode = String(root.querySelector('#shipyard-blueprint-hull')?.value || '');
-        const layoutCode = String(root.querySelector('#shipyard-blueprint-layout')?.value || 'default');
-        if (!hullCode) { showToast('Kein Hull ausgew├ñhlt.', 'warning'); return; }
-        const nameDefault = `${fmtName(hullCode)}-${fmtName(layoutCode)}`;
-        const name = (window.prompt('Preset-Name:', nameDefault) || '').trim();
-        if (!name) return;
-        const slotModules = [];
-        root.querySelectorAll('.shipyard-module-slot').forEach((sel) => {
-          if (sel.value) slotModules.push({ group: sel.dataset.groupCode, code: sel.value, quantity: 1 });
-        });
-        this.savePresetToStorage(name, hullCode, layoutCode, slotModules);
-        this.refreshPresetToolbar(root);
-        showToast(`Preset gespeichert: ${name}`, 'success');
-      });
-
-      root.querySelector('#shipyard-preset-load')?.addEventListener('click', () => {
-        const sel = root.querySelector('#shipyard-preset-select');
-        const name = String(sel?.value || '').trim();
-        if (!name) { showToast('Kein Preset ausgew├ñhlt.', 'warning'); return; }
-        const preset = this.loadPresetsFromStorage().find((p) => p.name === name);
-        if (!preset) { showToast('Preset nicht gefunden.', 'error'); return; }
-        this._pendingHulls = this._pendingHulls || [];
-        this.applyPreset(root, preset, this._pendingHulls);
-        showToast(`Preset geladen: ${name}`, 'info');
-      });
-
-      root.querySelector('#shipyard-preset-delete')?.addEventListener('click', () => {
-        const sel = root.querySelector('#shipyard-preset-select');
-        const name = String(sel?.value || '').trim();
-        if (!name) { showToast('Kein Preset ausgew├ñhlt.', 'warning'); return; }
-        this.deletePresetFromStorage(name);
-        this.refreshPresetToolbar(root);
-        showToast(`Preset gel├Âscht: ${name}`, 'info');
-      });
-    }
-
-    buildCardsDom(ships) {
-      const grid = new GQUI.Div().setClass('card-grid');
-      ships.forEach((ship) => {
-        const card = new GQUI.Div().setClass('item-card');
-
-        const header = new GQUI.Div().setClass('item-card-header');
-        header.add(new GQUI.Span().setClass('item-name').setTextContent(fmtName(ship.type)));
-        header.add(new GQUI.Span().setClass('item-level').setTextContent(ship.count + ' owned'));
-        card.add(header);
-
-        const runningCount = Number(ship.running_count || 0);
-        const queuedCount  = Number(ship.queued_count  || 0);
-        if (runningCount > 0 || queuedCount > 0) {
-          const qDiv = new GQUI.Div().setClass('small text-muted');
-          qDiv.dom.style.marginBottom = '0.35rem';
-          let qText = 'Queue: ';
-          if (runningCount > 0) qText += `${fmt(runningCount)} running`;
-          if (runningCount > 0 && queuedCount > 0) qText += ' ┬À ';
-          if (queuedCount > 0) qText += `${fmt(queuedCount)} queued`;
-          if (ship.active_eta) qText += ` ┬À ETA ${countdown(ship.active_eta)}`;
-          qDiv.dom.textContent = qText;
-          card.add(qDiv);
-        }
-
-        const costDiv = new GQUI.Div().setClass('item-cost');
-        if (ship.cost.metal)     { const s = new GQUI.Span().setClass('cost-metal').setTextContent(`Ô¼í ${fmt(ship.cost.metal)}`); costDiv.add(s); }
-        if (ship.cost.crystal)   { const s = new GQUI.Span().setClass('cost-crystal').setTextContent(`­ƒÆÄ ${fmt(ship.cost.crystal)}`); costDiv.add(s); }
-        if (ship.cost.deuterium) { const s = new GQUI.Span().setClass('cost-deut').setTextContent(`­ƒöÁ ${fmt(ship.cost.deuterium)}`); costDiv.add(s); }
-        card.add(costDiv);
-
-        const statsDiv = new GQUI.Div();
-        statsDiv.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted)';
-        statsDiv.dom.textContent = `­ƒôª ${fmt(ship.cargo)}   ÔÜí ${fmt(ship.speed)}`;
-        card.add(statsDiv);
-
-        const buildRow = new GQUI.Div().setClass('ship-build-row');
-        const qtyInput = document.createElement('input');
-        qtyInput.type = 'number';
-        qtyInput.className = 'ship-qty';
-        qtyInput.dataset.type = String(ship.type);
-        qtyInput.min = '1';
-        qtyInput.value = '1';
-        buildRow.dom.appendChild(qtyInput);
-        const buildBtn = new GQUI.Button('Build').setClass('btn btn-primary btn-sm build-btn');
-        buildBtn.dom.dataset.type = String(ship.type);
-        buildRow.add(buildBtn);
-        card.add(buildRow);
-
-        grid.add(card);
-      });
-      return grid.dom;
-    }
-
-    buildBlueprintCardsDom(blueprints) {
-      if (!Array.isArray(blueprints) || !blueprints.length) {
-        const p = document.createElement('p');
-        p.className = 'text-muted small';
-        p.textContent = 'No blueprints created yet.';
-        return p;
-      }
-      const grid = new GQUI.Div().setClass('card-grid');
-      blueprints.forEach((bp) => {
-        const card = new GQUI.Div().setClass('item-card');
-        card.dom.style.cssText = 'border-color:rgba(94,133,189,0.45);background:linear-gradient(180deg, rgba(13,20,33,0.96), rgba(10,16,27,0.92));';
-
-        const header = new GQUI.Div().setClass('item-card-header');
-        header.add(new GQUI.Span().setClass('item-name').setTextContent(String(bp.name || bp.type)));
-        header.add(new GQUI.Span().setClass('item-level').setTextContent(`${fmt(bp.count || 0)} owned`));
-        card.add(header);
-
-        const runningCount = Number(bp.running_count || 0);
-        const queuedCount  = Number(bp.queued_count  || 0);
-        if (runningCount > 0 || queuedCount > 0) {
-          const qDiv = new GQUI.Div().setClass('small text-muted');
-          qDiv.dom.style.marginBottom = '0.35rem';
-          let qText = 'Queue: ';
-          if (runningCount > 0) qText += `${fmt(runningCount)} running`;
-          if (runningCount > 0 && queuedCount > 0) qText += ' ┬À ';
-          if (queuedCount > 0) qText += `${fmt(queuedCount)} queued`;
-          if (bp.active_eta) qText += ` ┬À ETA ${countdown(bp.active_eta)}`;
-          qDiv.dom.textContent = qText;
-          card.add(qDiv);
-        }
-
-        const classDiv = new GQUI.Div().setClass('small text-muted');
-        classDiv.dom.style.marginBottom = '0.35rem';
-        classDiv.dom.textContent = `${fmtName(bp.ship_class || 'corvette')} ┬À ${fmtName(bp.slot_layout_code || 'default')}`;
-        card.add(classDiv);
-
-        const costDiv = new GQUI.Div().setClass('item-cost');
-        if (bp.cost?.metal)     { const s = new GQUI.Span().setClass('cost-metal').setTextContent(`Ô¼í ${fmt(bp.cost.metal)}`); costDiv.add(s); }
-        if (bp.cost?.crystal)   { const s = new GQUI.Span().setClass('cost-crystal').setTextContent(`­ƒÆÄ ${fmt(bp.cost.crystal)}`); costDiv.add(s); }
-        if (bp.cost?.deuterium) { const s = new GQUI.Span().setClass('cost-deut').setTextContent(`­ƒöÁ ${fmt(bp.cost.deuterium)}`); costDiv.add(s); }
-        card.add(costDiv);
-
-        const stats1 = new GQUI.Div();
-        stats1.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted)';
-        stats1.dom.textContent = `ATK ${fmt(bp.stats?.attack || 0)} ┬À SHD ${fmt(bp.stats?.shield || 0)} ┬À HULL ${fmt(bp.stats?.hull || 0)}`;
-        card.add(stats1);
-
-        const stats2 = new GQUI.Div();
-        stats2.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;';
-        stats2.dom.textContent = `CARGO ${fmt(bp.stats?.cargo || 0)} ┬À SPD ${fmt(bp.stats?.speed || 0)}`;
-        card.add(stats2);
-
-        const slotWrap = new GQUI.Div();
-        slotWrap.dom.style.cssText = 'margin-top:0.45rem; display:flex; flex-wrap:wrap; gap:0.3rem;';
-        slotWrap.dom.appendChild(this.renderSlotProfile(bp.slot_profile || {}));
-        card.add(slotWrap);
-
-        const buildRow = new GQUI.Div().setClass('ship-build-row');
-        buildRow.dom.style.marginTop = '0.65rem';
-        const qtyInput = document.createElement('input');
-        qtyInput.type = 'number';
-        qtyInput.className = 'ship-qty';
-        qtyInput.dataset.blueprintId = String(Number(bp.id || 0));
-        qtyInput.min = '1';
-        qtyInput.value = '1';
-        buildRow.dom.appendChild(qtyInput);
-        const buildBtn = new GQUI.Button('Build').setClass('btn btn-primary btn-sm build-blueprint-btn');
-        buildBtn.dom.dataset.blueprintId = String(Number(bp.id || 0));
-        buildBtn.dom.dataset.blueprintType = String(bp.type || '');
-        buildBtn.dom.dataset.blueprintName = String(bp.name || bp.type || 'Blueprint');
-        buildRow.add(buildBtn);
-        card.add(buildRow);
-
-        grid.add(card);
-      });
-      return grid.dom;
-    }
-
-    buildHullCatalogDom(hulls) {
-      if (!Array.isArray(hulls) || !hulls.length) {
-        const p = document.createElement('p');
-        p.className = 'text-muted small';
-        p.textContent = 'No hull catalog available.';
-        return p;
-      }
-      const grid = new GQUI.Div().setClass('card-grid');
-      hulls.forEach((hull) => {
-        const layouts = Object.keys(hull.slot_variations || {});
-        const card = new GQUI.Div().setClass('item-card');
-        card.dom.style.cssText = 'border-color:rgba(137,117,70,0.45);';
-
-        const header = new GQUI.Div().setClass('item-card-header');
-        header.add(new GQUI.Span().setClass('item-name').setTextContent(String(hull.label || hull.code)));
-        header.add(new GQUI.Span().setClass('item-level').setTextContent(fmtName(hull.ship_class || hull.role || 'hull')));
-        card.add(header);
-
-        if (hull.unlocked === false) {
-          const lockDiv = new GQUI.Div().setClass('small text-red');
-          lockDiv.dom.style.marginBottom = '0.35rem';
-          lockDiv.dom.textContent = 'Locked: ' + (hull.blockers || []).join(' | ');
-          card.add(lockDiv);
-        } else {
-          const unlockDiv = new GQUI.Div().setClass('small');
-          unlockDiv.dom.style.cssText = 'margin-bottom:0.35rem;color:#7ed7a1;';
-          unlockDiv.dom.textContent = 'Unlocked';
-          card.add(unlockDiv);
-        }
-
-        const tierDiv = new GQUI.Div().setClass('small text-muted');
-        tierDiv.dom.style.marginBottom = '0.35rem';
-        tierDiv.dom.textContent = `Tier ${fmt(hull.tier || 1)} ┬À ${String(hull.code || '')}`;
-        card.add(tierDiv);
-
-        const stats1 = new GQUI.Div();
-        stats1.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted)';
-        stats1.dom.textContent = `ATK ${fmt(hull.base_stats?.attack || 0)} ┬À SHD ${fmt(hull.base_stats?.shield || 0)} ┬À HULL ${fmt(hull.base_stats?.hull || 0)}`;
-        card.add(stats1);
-
-        const stats2 = new GQUI.Div();
-        stats2.dom.style.cssText = 'font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;';
-        stats2.dom.textContent = `CARGO ${fmt(hull.base_stats?.cargo || 0)} ┬À SPD ${fmt(hull.base_stats?.speed || 0)}`;
-        card.add(stats2);
-
-        const slotWrap = new GQUI.Div();
-        slotWrap.dom.style.cssText = 'margin-top:0.45rem; display:flex; flex-wrap:wrap; gap:0.3rem;';
-        slotWrap.dom.appendChild(this.renderSlotProfile(hull.slot_profile || {}));
-        card.add(slotWrap);
-
-        const layoutsDiv = new GQUI.Div().setClass('small text-muted');
-        layoutsDiv.dom.style.marginTop = '0.45rem';
-        layoutsDiv.dom.textContent = 'Layouts: ' + (layouts.length
-          ? layouts.map((layout) => fmtName(layout)).join(' ┬À ')
-          : 'default only');
-        card.add(layoutsDiv);
-
-        grid.add(card);
-      });
-      return grid.dom;
-    }
-
-    buildBlueprintCreatorDom(hulls) {
-      const card = new GQUI.Div().setClass('system-card');
-      card.dom.style.marginBottom = '1rem';
-
-      const titleRow = new GQUI.Div().setClass('system-row');
-      const titleStrong = document.createElement('strong');
-      titleStrong.textContent = 'Blueprint Forge';
-      titleRow.dom.appendChild(titleStrong);
-      card.add(titleRow);
-
-      const desc = new GQUI.Div().setClass('small text-muted');
-      desc.dom.style.marginTop = '0.3rem';
-      desc.dom.textContent = 'Quick-create a starter blueprint from a hull class and one of its slot layouts.';
-      card.add(desc);
-
-      const presetWrap = new GQUI.Div();
-      presetWrap.dom.id = 'shipyard-preset-toolbar-wrap';
-      presetWrap.dom.style.marginTop = '0.65rem';
-      presetWrap.dom.appendChild(this.buildPresetToolbarDom());
-      card.add(presetWrap);
-
-      const grid = new GQUI.Div();
-      grid.dom.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.6rem;margin-top:0.7rem;';
-
-      const nameLbl = document.createElement('label');
-      nameLbl.className = 'small';
-      nameLbl.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = 'Name';
-      const nameInput = document.createElement('input');
-      nameInput.id = 'shipyard-blueprint-name';
-      nameInput.className = 'input';
-      nameInput.placeholder = 'Aegis Frigate';
-      nameLbl.appendChild(nameSpan);
-      nameLbl.appendChild(nameInput);
-      grid.dom.appendChild(nameLbl);
-
-      const hullLbl = document.createElement('label');
-      hullLbl.className = 'small';
-      hullLbl.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
-      const hullSpan = document.createElement('span');
-      hullSpan.textContent = 'Hull';
-      const hullSel = document.createElement('select');
-      hullSel.id = 'shipyard-blueprint-hull';
-      hullSel.className = 'input';
-      (Array.isArray(hulls) ? hulls : []).forEach((hull) => {
-        const opt = document.createElement('option');
-        opt.value = String(hull.code || '');
-        opt.dataset.attack = String(Number(hull.base_stats?.attack || 0));
-        opt.dataset.shield = String(Number(hull.base_stats?.shield || 0));
-        opt.dataset.hull   = String(Number(hull.base_stats?.hull   || 0));
-        opt.dataset.cargo  = String(Number(hull.base_stats?.cargo  || 0));
-        opt.dataset.speed  = String(Number(hull.base_stats?.speed  || 0));
-        if (hull.unlocked === false) opt.disabled = true;
-        opt.textContent = `${String(hull.label || hull.code || 'Hull')} (${fmtName(hull.ship_class || hull.role || 'hull')})${hull.unlocked === false ? ' [locked]' : ''}`;
-        hullSel.appendChild(opt);
-      });
-      hullLbl.appendChild(hullSpan);
-      hullLbl.appendChild(hullSel);
-      grid.dom.appendChild(hullLbl);
-
-      const layoutLbl = document.createElement('label');
-      layoutLbl.className = 'small';
-      layoutLbl.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
-      const layoutSpan = document.createElement('span');
-      layoutSpan.textContent = 'Layout';
-      const layoutSel = document.createElement('select');
-      layoutSel.id = 'shipyard-blueprint-layout';
-      layoutSel.className = 'input';
-      layoutLbl.appendChild(layoutSpan);
-      layoutLbl.appendChild(layoutSel);
-      grid.dom.appendChild(layoutLbl);
-
-      card.add(grid);
-
-      const layoutPreview = new GQUI.Div().setClass('small text-muted');
-      layoutPreview.dom.id = 'shipyard-blueprint-layout-preview';
-      layoutPreview.dom.style.marginTop = '0.55rem';
-      card.add(layoutPreview);
-
-      const modulesDiv = new GQUI.Div();
-      modulesDiv.dom.id = 'shipyard-blueprint-modules';
-      modulesDiv.dom.style.marginTop = '0.65rem';
-      card.add(modulesDiv);
-
-      const statsPreview = new GQUI.Div();
-      statsPreview.dom.id = 'shipyard-blueprint-stats-preview';
-      statsPreview.dom.style.marginTop = '0.55rem';
-      card.add(statsPreview);
-
-      const actionsDiv = new GQUI.Div();
-      actionsDiv.dom.style.cssText = 'margin-top:0.7rem; display:flex; gap:0.5rem; flex-wrap:wrap;';
-      const createBtn = new GQUI.Button('Create Blueprint').setClass('btn');
-      createBtn.dom.id = 'shipyard-create-blueprint';
-      actionsDiv.add(createBtn);
-      card.add(actionsDiv);
-
-      return card.dom;
-    }
-
-    buildQueueDom(queue) {
-      if (!Array.isArray(queue) || !queue.length) {
-        return new GQUI.El(document.createElement('p')).setClass('text-muted small')
-          .setTextContent('No ships in production.').dom;
-      }
-      const wrap = new GQUI.Div();
-      wrap.dom.style.cssText = 'display:grid;gap:0.55rem;';
-      queue.forEach((entry) => {
-        const running = String(entry.status || '') === 'running';
-        const label = String(entry.label || entry.ship_type || 'Ship');
-        const statusLabel = running ? 'Running' : `Queued #${Number(entry.position || 1)}`;
-
-        const card = new GQUI.Div().setClass('item-card');
-        card.dom.style.cssText = 'padding:0.8rem 0.9rem;';
-
-        const header = new GQUI.Div().setClass('item-card-header');
-        const nameSpan = new GQUI.Span().setClass('item-name').setTextContent(label);
-        const statusSpan = new GQUI.Span().setClass('item-level').setTextContent(statusLabel);
-        header.add(nameSpan, statusSpan);
-        card.add(header);
-
-        const qtyDiv = new GQUI.Div().setClass('small text-muted');
-        qtyDiv.dom.style.marginBottom = '0.35rem';
-        qtyDiv.dom.textContent = `${fmt(Number(entry.quantity || 1))}x ${fmtName(entry.ship_type || label)}`;
-        card.add(qtyDiv);
-
-        if (running && entry.eta) {
-          const timerDiv = new GQUI.Div().setClass('item-timer');
-          timerDiv.dom.textContent = 'ÔÅ│ ';
-          const etaSpan = document.createElement('span');
-          etaSpan.dataset.end = String(entry.eta);
-          etaSpan.textContent = countdown(entry.eta);
-          timerDiv.dom.appendChild(etaSpan);
-          card.add(timerDiv);
-
-          const pbWrap = new GQUI.Div().setClass('progress-bar-wrap');
-          const pb = new GQUI.Div().setClass('progress-bar');
-          pb.dom.dataset.start = String(entry.started_at || '');
-          pb.dom.dataset.end = String(entry.eta);
-          pb.dom.style.width = '0%';
-          pbWrap.add(pb);
-          card.add(pbWrap);
-        } else {
-          const waitDiv = new GQUI.Div().setClass('small text-muted')
-            .setTextContent('Waiting for free shipyard slot.');
-          card.add(waitDiv);
-        }
-        wrap.add(card);
-      });
-      return wrap.dom;
-    }
-
-    async updateBlueprintLayoutOptions(root, hulls) {
-      const hullCode = String(root.querySelector('#shipyard-blueprint-hull')?.value || '');
-      const hull = (Array.isArray(hulls) ? hulls : []).find((entry) => String(entry.code || '') === hullCode);
-      const layoutSelect = root.querySelector('#shipyard-blueprint-layout');
-      const preview = root.querySelector('#shipyard-blueprint-layout-preview');
-      const modulesRoot = root.querySelector('#shipyard-blueprint-modules');
-      if (!layoutSelect || !hull) {
-        if (layoutSelect) {
-          const defOpt = document.createElement('option');
-          defOpt.value = 'default';
-          defOpt.textContent = 'Default';
-          layoutSelect.replaceChildren(defOpt);
-        }
-        if (preview) preview.replaceChildren();
-        if (modulesRoot) modulesRoot.replaceChildren();
-        return;
-      }
-
-      const layouts = ['default', ...Object.keys(hull.slot_variations || {})];
-      const newOpts = layouts.map((layoutCode) => {
-        const label = layoutCode === 'default'
-          ? 'Default'
-          : String(hull.slot_variations?.[layoutCode]?.label || fmtName(layoutCode));
-        const opt = document.createElement('option');
-        opt.value = layoutCode;
-        opt.textContent = label;
-        return opt;
-      });
-      layoutSelect.replaceChildren(...newOpts);
-
-      const selectedLayout = String(layoutSelect.value || 'default');
-      const profile = this.computeSlotProfile(hull, selectedLayout);
-      if (preview) {
-        const previewFrag = document.createDocumentFragment();
-        const classSpan = document.createTextNode(
-          `Class: ${fmtName(hull.ship_class || hull.role || 'hull')} ┬À Slots: `
-        );
-        previewFrag.appendChild(classSpan);
-        previewFrag.appendChild(this.renderSlotProfile(profile));
-        if (Array.isArray(hull.blockers) && hull.blockers.length) {
-          const lockDiv = new GQUI.Div().setClass('text-red');
-          lockDiv.dom.style.marginTop = '0.3rem';
-          lockDiv.dom.textContent = 'Locked: ' + hull.blockers.join(' | ');
-          previewFrag.appendChild(lockDiv.dom);
-        }
-        preview.replaceChildren(previewFrag);
-      }
-
-      if (modulesRoot) {
-        const loadingDiv = new GQUI.Div().setClass('text-muted small')
-          .setTextContent('Loading module options...');
-        modulesRoot.replaceChildren(loadingDiv.dom);
-      }
-      try {
-        const catalog = await this.fetchModuleCatalog(currentColony.id, hull.code, selectedLayout);
-        if (modulesRoot) {
-          modulesRoot.replaceChildren();
-          if (catalog?.hull_unlocked === false && Array.isArray(catalog?.hull_blockers) && catalog.hull_blockers.length) {
-            const gateDiv = new GQUI.Div().setClass('text-red small');
-            gateDiv.dom.style.marginBottom = '0.45rem';
-            gateDiv.dom.textContent = 'Hull locked: ' + catalog.hull_blockers.join(' | ');
-            modulesRoot.appendChild(gateDiv.dom);
-          }
-          modulesRoot.appendChild(this.renderModuleSlotEditor(catalog));
-        }
-      } catch (err) {
-        if (modulesRoot) {
-          const errDiv = new GQUI.Div().setClass('text-red small');
-          errDiv.dom.textContent = String(err?.message || 'Failed to load module options.');
-          modulesRoot.replaceChildren(errDiv.dom);
-        }
-      }
-    }
-
-    bindActions(root, hulls = []) {
-      root.querySelectorAll('.build-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const type = btn.dataset.type;
-          const qty = parseInt(root.querySelector(`.ship-qty[data-type="${type}"]`).value, 10) || 1;
-          btn.disabled = true;
-          const res = await API.buildShip(currentColony.id, type, qty);
-          if (res.success) {
-            const queuePosition = Number(res.queue_position || 1);
-            showToast(`Queued ${qty}x ${fmtName(type)}${queuePosition > 1 ? ` (#${queuePosition})` : ''}`, 'success');
-            const resources = await API.resources(currentColony.id);
-            if (resources.success) Object.assign(currentColony, resources.resources);
-            updateResourceBar();
-            await this.render();
-          } else {
-            showToast(res.error || 'Build failed', 'error');
-            btn.disabled = false;
-          }
-        });
-      });
-
-      root.querySelectorAll('.build-blueprint-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const blueprintId = Number(btn.dataset.blueprintId || 0);
-          const type = String(btn.dataset.blueprintType || '');
-          const name = String(btn.dataset.blueprintName || 'Blueprint');
-          const qty = parseInt(root.querySelector(`.ship-qty[data-blueprint-id="${blueprintId}"]`)?.value || '1', 10) || 1;
-          btn.disabled = true;
-          const res = await API.buildShip(currentColony.id, type, qty, { blueprint_id: blueprintId });
-          if (res.success) {
-            const queuePosition = Number(res.queue_position || 1);
-            showToast(`Queued ${qty}x ${name}${queuePosition > 1 ? ` (#${queuePosition})` : ''}`, 'success');
-            const resources = await API.resources(currentColony.id);
-            if (resources.success) Object.assign(currentColony, resources.resources);
-            updateResourceBar();
-            await this.render();
-          } else {
-            showToast(res.error || 'Build failed', 'error');
-            btn.disabled = false;
-          }
-        });
-      });
-
-      root.querySelector('#shipyard-blueprint-hull')?.addEventListener('change', async () => {
-        await this.updateBlueprintLayoutOptions(root, hulls);
-      });
-      root.querySelector('#shipyard-blueprint-layout')?.addEventListener('change', async () => {
-        await this.updateBlueprintLayoutOptions(root, hulls);
-      });
-      root.querySelector('#shipyard-create-blueprint')?.addEventListener('click', async () => {
-        const hullCode = String(root.querySelector('#shipyard-blueprint-hull')?.value || '');
-        const layoutCode = String(root.querySelector('#shipyard-blueprint-layout')?.value || 'default');
-        const nameInput = root.querySelector('#shipyard-blueprint-name');
-        const hull = hulls.find((entry) => String(entry.code || '') === hullCode);
-        if (!hull) { showToast('No hull selected.', 'warning'); return; }
-        const modules = this.collectBlueprintModulesFromUI(root);
-        if (!modules.length) { showToast('Select modules for at least one slot.', 'warning'); return; }
-        const defaultName = `${fmtName(hull.ship_class || hull.role || 'Hull')} ${fmtName(layoutCode === 'default' ? hull.code : layoutCode)}`;
-        const payload = {
-          colony_id: currentColony.id,
-          name: String(nameInput?.value || '').trim() || defaultName,
-          hull_code: hullCode,
-          slot_layout_code: layoutCode,
-          doctrine_tag: layoutCode,
-          modules,
-        };
-        const createBtn = root.querySelector('#shipyard-create-blueprint');
-        if (createBtn) createBtn.disabled = true;
-        try {
-          const res = await API.createBlueprint(payload);
-          if (!res.success) throw new Error(res.error || 'Blueprint creation failed');
-          showToast(`Blueprint created: ${payload.name}`, 'success');
-          if (nameInput) nameInput.value = '';
-          await this.render();
-        } catch (err) {
-          showToast(String(err?.message || 'Blueprint creation failed'), 'error');
-          if (createBtn) createBtn.disabled = false;
-        }
-      });
-
-      this.updateBlueprintLayoutOptions(root, hulls).catch((err) => {
-        gameLog('info', 'Blueprint Layout-Optionen Update fehlgeschlagen', err);
-      });
-
-      // ÔöÇÔöÇ Module slot events (delegated on modules container) ÔöÇ
-      const modsContainer = root.querySelector('#shipyard-blueprint-modules');
-      if (modsContainer) {
-        modsContainer.addEventListener('change', (e) => {
-          if (e.target.classList.contains('shipyard-module-slot')) this.updateStatsPreview(root);
-        });
-        modsContainer.addEventListener('click', (e) => {
-          const upBtn = e.target.closest('.shipyard-slot-up');
-          const downBtn = e.target.closest('.shipyard-slot-down');
-          const btn = upBtn || downBtn;
-          if (!btn || btn.disabled) return;
-          const groupCode = String(btn.dataset.groupCode || '');
-          const idx = Number(btn.dataset.slotIndex || 0);
-          if (upBtn) this.swapSlots(root, groupCode, idx, idx - 1);
-          else this.swapSlots(root, groupCode, idx, idx + 1);
-        });
-      }
-
-      // ÔöÇÔöÇ Hull change: update base stats proxy element ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-      root.querySelector('#shipyard-blueprint-hull')?.addEventListener('change', () => {
-        this.updateStatsPreview(root);
-      });
-
-      this.bindPresetActions(root);
-
-      // ÔöÇÔöÇ Decommission vessel buttons ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-      root.addEventListener('click', (e) => {
-        const btn = e.target.closest('.vessel-decommission-btn');
-        if (!btn) return;
-        const vid = Number(btn.dataset.vesselId);
-        if (vid > 0) this.decommissionVessel(vid, root);
-      });
-    }
-
-    async render() {
-      const root = WM.body('shipyard');
-      if (!root) return;
-      if (!currentColony) {
-        gqStatusMsg(root, 'Select a colony first.', 'muted');
-        return;
-      }
-      gqStatusMsg(root, 'Loading\u2026', 'muted');
-
-      try {
-        const [data, hullData, vesselData] = await Promise.all([
-          API.ships(currentColony.id),
-          API.shipyardHulls(currentColony.id),
-          API.shipyardVessels(currentColony.id).catch(() => ({ vessels: [] })),
-        ]);
-        if (!data.success) {
-          gqStatusMsg(root, 'Error.', 'red');
-          return;
-        }
-        const hulls   = Array.isArray(hullData?.hulls)       ? hullData.hulls       : [];
-        const vessels = Array.isArray(vesselData?.vessels)    ? vesselData.vessels   : [];
-        this._pendingHulls = hulls;
-
-        const frag = document.createDocumentFragment();
-
-        frag.appendChild(this.buildBlueprintCreatorDom(hulls));
-
-        const queueCard = new GQUI.Div().setClass('system-card');
-        queueCard.dom.style.marginBottom = '1rem';
-        const queueTitle = new GQUI.Div().setClass('system-row');
-        const queueStrong = document.createElement('strong');
-        queueStrong.textContent = 'Build Queue';
-        queueTitle.dom.appendChild(queueStrong);
-        queueCard.add(queueTitle);
-        const queueDesc = new GQUI.Div().setClass('small text-muted');
-        queueDesc.dom.style.marginTop = '0.3rem';
-        queueDesc.dom.textContent = 'Ships now enter a real production queue with ETA.';
-        queueCard.add(queueDesc);
-        const queueBody = new GQUI.Div();
-        queueBody.dom.style.marginTop = '0.7rem';
-        queueBody.dom.appendChild(this.buildQueueDom(data.queue || []));
-        queueCard.add(queueBody);
-        frag.appendChild(queueCard.dom);
-
-        if (vessels.length) {
-          const vesselsDom = this.renderDockedVesselsDom(vessels);
-          if (vesselsDom) {
-            const vesselCard = new GQUI.Div().setClass('system-card');
-            vesselCard.dom.id = 'shipyard-docked-vessels-card';
-            vesselCard.dom.style.marginBottom = '1rem';
-            const vesselTitle = new GQUI.Div().setClass('system-row');
-            const vesselStrong = document.createElement('strong');
-            vesselStrong.textContent = 'Docked Vessels';
-            vesselTitle.dom.appendChild(vesselStrong);
-            const badge = new GQUI.Span().setClass('badge');
-            badge.dom.style.marginLeft = '0.5rem';
-            badge.dom.textContent = String(vessels.length);
-            vesselTitle.add(badge);
-            vesselCard.add(vesselTitle);
-            const vesselDesc = new GQUI.Div().setClass('small text-muted');
-            vesselDesc.dom.style.marginTop = '0.3rem';
-            vesselDesc.dom.textContent = 'Individual blueprint vessels docked at this colony.';
-            vesselCard.add(vesselDesc);
-            const vesselBody = new GQUI.Div();
-            vesselBody.dom.style.marginTop = '0.7rem';
-            vesselBody.dom.appendChild(vesselsDom);
-            vesselCard.add(vesselBody);
-            frag.appendChild(vesselCard.dom);
-          }
-        }
-
-        const hullCard = new GQUI.Div().setClass('system-card');
-        hullCard.dom.style.marginBottom = '1rem';
-        const hullTitle = new GQUI.Div().setClass('system-row');
-        const hullStrong = document.createElement('strong');
-        hullStrong.textContent = 'Hull Catalog';
-        hullTitle.dom.appendChild(hullStrong);
-        hullCard.add(hullTitle);
-        const hullDesc = new GQUI.Div().setClass('small text-muted');
-        hullDesc.dom.style.marginTop = '0.3rem';
-        hullDesc.dom.textContent = 'Ship classes and their slot-layout variations.';
-        hullCard.add(hullDesc);
-        const hullBody = new GQUI.Div();
-        hullBody.dom.style.marginTop = '0.7rem';
-        hullBody.dom.appendChild(this.buildHullCatalogDom(hulls));
-        hullCard.add(hullBody);
-        frag.appendChild(hullCard.dom);
-
-        const bpCard = new GQUI.Div().setClass('system-card');
-        bpCard.dom.style.marginBottom = '1rem';
-        const bpTitle = new GQUI.Div().setClass('system-row');
-        const bpStrong = document.createElement('strong');
-        bpStrong.textContent = 'Blueprints';
-        bpTitle.dom.appendChild(bpStrong);
-        bpCard.add(bpTitle);
-        const bpDesc = new GQUI.Div().setClass('small text-muted');
-        bpDesc.dom.style.marginTop = '0.3rem';
-        bpDesc.dom.textContent = 'Compiled blueprints built as synthetic ship types.';
-        bpCard.add(bpDesc);
-        const bpBody = new GQUI.Div();
-        bpBody.dom.style.marginTop = '0.7rem';
-        bpBody.dom.appendChild(this.buildBlueprintCardsDom(data.blueprints || []));
-        bpCard.add(bpBody);
-        frag.appendChild(bpCard.dom);
-
-        const legacyCard = new GQUI.Div().setClass('system-card');
-        const legacyTitle = new GQUI.Div().setClass('system-row');
-        const legacyStrong = document.createElement('strong');
-        legacyStrong.textContent = 'Legacy Ships';
-        legacyTitle.dom.appendChild(legacyStrong);
-        legacyCard.add(legacyTitle);
-        const legacyDesc = new GQUI.Div().setClass('small text-muted');
-        legacyDesc.dom.style.marginTop = '0.3rem';
-        legacyDesc.dom.textContent = 'Fallback SHIP_STATS path remains available during migration.';
-        legacyCard.add(legacyDesc);
-        const legacyBody = new GQUI.Div();
-        legacyBody.dom.style.marginTop = '0.7rem';
-        legacyBody.dom.appendChild(this.buildCardsDom(data.ships || []));
-        legacyCard.add(legacyBody);
-        frag.appendChild(legacyCard.dom);
-
-        root.replaceChildren(frag);
-        this.bindActions(root, hulls);
-      } catch (err) {
-        gameLog('warn', 'Shipyard view laden fehlgeschlagen (renderer v1)', err);
-        gqStatusMsg(root, 'Failed to load shipyard.', 'red');
-      }
-    }
-
-    renderDockedVesselsDom(vessels) {
-      if (!vessels.length) return null;
-      const list = new GQUI.Div().setClass('vessel-list');
-      vessels.forEach((v) => {
-        const hp    = v.hp_state?.hp    ?? v.stats?.hull ?? '?';
-        const maxHp = v.hp_state?.max_hp ?? v.stats?.hull ?? '?';
-        const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
-        const shieldCurrent = Number(v.hp_state?.shield ?? v.stats?.shield ?? 0);
-        const shieldMax = Number(v.hp_state?.max_shield ?? v.stats?.shield ?? 0);
-        const shieldPct = shieldMax > 0 ? Math.max(0, Math.min(100, Math.round((shieldCurrent / shieldMax) * 100))) : 0;
-        const hpTone = hpPct < 30 ? 'is-critical' : (hpPct < 60 ? 'is-warning' : 'is-good');
-        const shieldTone = shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good');
-
-        const card = new GQUI.Div().setClass('vessel-card');
-        card.dom.dataset.vesselId = String(v.id);
-
-        const header = new GQUI.Div().setClass('vessel-card-header');
-        header.add(new GQUI.Span().setClass('vessel-card-name').setTextContent(String(v.bp_name || v.name || `Vessel #${v.id}`)));
-        header.add(new GQUI.Span().setClass('vessel-card-class badge').setTextContent(`${fmtName(v.hull_class || 'unknown')} T${v.hull_tier ?? '?'}`));
-        const statusSpan = new GQUI.Span().setClass('vessel-card-status vessel-status-' + String(v.status)).setTextContent(String(v.status));
-        header.add(statusSpan);
-        card.add(header);
-
-        const hullLbl = new GQUI.Div().setClass('vessel-card-hull').setTextContent(String(v.hull_label || ''));
-        card.add(hullLbl);
-
-        const hpBarWrap = new GQUI.Div().setClass('vessel-hp-bar');
-        const hpFill = new GQUI.Div().setClass('vessel-hp-fill ' + hpTone);
-        hpFill.dom.style.width = hpPct + '%';
-        hpFill.dom.title = `Hull ${hpPct}%`;
-        hpBarWrap.add(hpFill);
-        card.add(hpBarWrap);
-
-        const shieldBarWrap = new GQUI.Div().setClass('vessel-shield-bar');
-        const shieldFill = new GQUI.Div().setClass('vessel-shield-fill ' + shieldTone);
-        shieldFill.dom.style.width = shieldPct + '%';
-        shieldFill.dom.title = `Shield ${shieldPct}%`;
-        shieldBarWrap.add(shieldFill);
-        card.add(shieldBarWrap);
-
-        const chipsDiv = new GQUI.Div().setClass('vessel-stat-chips');
-        ['attack', 'shield', 'hull', 'cargo', 'speed'].filter((k) => v.stats?.[k] > 0).forEach((k) => {
-          const chip = new GQUI.Span().setClass('vessel-stat-chip chiptype-' + k.slice(0, 3));
-          chip.dom.textContent = fmtName(k) + ' ' + fmt(v.stats[k]);
-          chipsDiv.add(chip);
-        });
-        card.add(chipsDiv);
-
-        const actionsDiv = new GQUI.Div().setClass('vessel-card-actions');
-        const decommBtn = new GQUI.Button('Decommission').setClass('btn btn-sm btn-danger vessel-decommission-btn');
-        decommBtn.dom.type = 'button';
-        decommBtn.dom.dataset.vesselId = String(v.id);
-        decommBtn.dom.title = 'Permanently decommission this vessel';
-        actionsDiv.add(decommBtn);
-        card.add(actionsDiv);
-
-        list.add(card);
-      });
-      return list.dom;
-    }
-
-    async decommissionVessel(vesselId, root) {
-      if (!confirm('Permanently decommission this vessel? This cannot be undone.')) return;
-      try {
-        const res = await API.decommissionVessel(vesselId);
-        if (res.success) {
-          const card = root?.querySelector(`.vessel-card[data-vessel-id="${vesselId}"]`);
-          card?.remove();
-          const listEl = root?.querySelector('.vessel-list');
-          if (listEl && !listEl.querySelector('.vessel-card')) {
-            root?.querySelector('#shipyard-docked-vessels-card')?.remove();
-          }
-        } else {
-          alert(res.error || 'Decommission failed.');
-        }
-      } catch (err) {
-        gameLog('warn', 'Blueprint decommission fehlgeschlagen', err);
-        alert('Network error.');
-      }
-    }
-  }
-
-  const shipyardController = new ShipyardController();
+  const runtimeShipyardControllerApi = requireRuntimeApi('GQRuntimeShipyardController', ['createShipyardController']);
+  const shipyardController = runtimeShipyardControllerApi.createShipyardController({
+    wm: WM,
+    api: API,
+    windowRef: window,
+    documentRef: document,
+    getCurrentColony: () => currentColony,
+    updateResourceBar,
+    fmt,
+    fmtName,
+    esc,
+    countdown,
+    showToast,
+    gameLog,
+    gqStatusMsg,
+    GQUI,
+  });
   window.GQShipyardController = shipyardController;
 
   // ÔöÇÔöÇ Shipyard window ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
@@ -9205,122 +1442,19 @@
 
   // ÔöÇÔöÇ Galaxy window (3D) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   function toggleGalaxyOverlay(root, selector, forceVisible) {
-    if (!root) return false;
-    const el = root.querySelector(selector);
-    if (!el) return false;
-    const nextVisible = typeof forceVisible === 'boolean'
-      ? forceVisible
-      : el.classList.contains('hidden');
-    el.classList.toggle('hidden', !nextVisible);
-    return nextVisible;
+    return runtimeGalaxyOverlayControlsApi.toggleGalaxyOverlay(root, selector, forceVisible);
   }
 
   function makeGalaxyOverlayDraggable(root, selector) {
-    const overlay = root?.querySelector(selector);
-    const head = overlay?.querySelector('.galaxy-overlay-head');
-    const stage = root?.querySelector('.galaxy-3d-stage');
-    if (!overlay || !head || !stage || overlay.dataset.dragBound === '1') return;
-    overlay.dataset.dragBound = '1';
-
-    let dragging = false;
-    let offsetX = 0;
-    let offsetY = 0;
-
-    const getStageRect = () => stage.getBoundingClientRect();
-    const startDrag = (clientX, clientY) => {
-      const rect = overlay.getBoundingClientRect();
-      dragging = true;
-      offsetX = clientX - rect.left;
-      offsetY = clientY - rect.top;
-    };
-
-    const doDrag = (clientX, clientY) => {
-      if (!dragging) return;
-      const stageRect = getStageRect();
-      const maxLeft = Math.max(0, stage.clientWidth - overlay.offsetWidth);
-      const maxTop = Math.max(0, stage.clientHeight - overlay.offsetHeight);
-      const left = Math.max(0, Math.min(clientX - stageRect.left - offsetX, maxLeft));
-      const top = Math.max(0, Math.min(clientY - stageRect.top - offsetY, maxTop));
-      overlay.style.left = `${left}px`;
-      overlay.style.top = `${top}px`;
-      overlay.style.right = 'auto';
-      overlay.style.bottom = 'auto';
-    };
-
-    head.addEventListener('mousedown', (e) => {
-      if (e.target.closest('button')) return;
-      startDrag(e.clientX, e.clientY);
-      e.preventDefault();
-    });
-
-    window.addEventListener('mousemove', (e) => doDrag(e.clientX, e.clientY));
-    window.addEventListener('mouseup', () => { dragging = false; });
-
-    head.addEventListener('touchstart', (e) => {
-      if (e.target.closest('button')) return;
-      const t = e.touches[0];
-      startDrag(t.clientX, t.clientY);
-      e.preventDefault();
-    }, { passive: false });
-
-    window.addEventListener('touchmove', (e) => {
-      const t = e.touches[0];
-      if (!t) return;
-      doDrag(t.clientX, t.clientY);
-    }, { passive: true });
-    window.addEventListener('touchend', () => { dragging = false; });
+    runtimeGalaxyOverlayControlsApi.makeGalaxyOverlayDraggable(root, selector);
   }
 
   function bindGalaxyOverlayHotkeys() {
-    if (galaxyOverlayHotkeysBound) return;
-    galaxyOverlayHotkeysBound = true;
-    window.addEventListener('keydown', (e) => {
-      const tag = String(e.target?.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
-      if (!WM.isOpen('galaxy')) return;
-
-      const root = WM.body('galaxy');
-      if (!root) return;
-
-      const k = String(e.key || '').toLowerCase();
-      if (k === 'o') {
-        e.preventDefault();
-        const opened = toggleGalaxyOverlay(root, '#galaxy-controls-overlay');
-        if (opened) showToast('Galaxy controls overlay opened (O to toggle).', 'info');
-      } else if (k === 'i') {
-        e.preventDefault();
-        const opened = toggleGalaxyOverlay(root, '#galaxy-info-overlay');
-        if (opened) showToast('Galaxy info overlay opened (I to toggle).', 'info');
-      } else if (k === 'escape') {
-        toggleGalaxyOverlay(root, '#galaxy-controls-overlay', false);
-        toggleGalaxyOverlay(root, '#galaxy-info-overlay', false);
-        const card = document.getElementById('galaxy-hover-card');
-        if (card) card.classList.add('hidden');
-      } else if (k === 'l') {
-        e.preventDefault();
-        const enabled = galaxy3d && typeof galaxy3d.toggleFollowSelection === 'function'
-          ? galaxy3d.toggleFollowSelection()
-          : false;
-        updateGalaxyFollowUi(root);
-        showToast(`Selection follow ${enabled ? 'enabled' : 'disabled'} (L to toggle).`, 'info');
-      } else if (k === 'v' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        e.preventDefault();
-        settingsState.galaxyFleetVectorsVisible = !(settingsState.galaxyFleetVectorsVisible !== false);
-        applyRuntimeSettings();
-        if (galaxyController && typeof galaxyController.updateFleetVectorsUi === 'function') {
-          galaxyController.updateFleetVectorsUi(root);
-        }
-        if (root?.querySelector('#galaxy-system-details')) {
-          renderGalaxySystemDetails(root, pinnedStar || uiState.activeStar || null, isSystemModeActive());
-        }
-        saveUiSettings();
-        showToast(`Fleet-Vektoren: ${settingsState.galaxyFleetVectorsVisible ? 'an' : 'aus'} (V zum Umschalten).`, 'info');
-      }
-    });
+    runtimeGalaxyOverlayControlsApi.bindGalaxyOverlayHotkeys();
   }
 
   function triggerGalaxyNavAction(action, rootRef = null) {
-    galaxyController.triggerNavAction(action, rootRef);
+    runtimeGalaxyOverlayControlsApi.triggerGalaxyNavAction(action, rootRef);
   }
 
   function bindGalaxyNavOrb(root) {
@@ -9328,58 +1462,9 @@
     if (!overlay || overlay.dataset.bound === '1') return;
     overlay.dataset.bound = '1';
 
-    const bindRepeat = (button) => {
-      const action = String(button.dataset.navAction || '');
-      if (!action) return;
-      let intervalTimer = null;
-      let delayTimer = null;
-      let held = false;
-      const clearTimers = () => {
-        if (delayTimer) {
-          window.clearTimeout(delayTimer);
-          delayTimer = null;
-        }
-        if (intervalTimer) {
-          window.clearInterval(intervalTimer);
-          intervalTimer = null;
-        }
-      };
-      const fire = () => triggerGalaxyNavAction(action, root);
-      const startHold = () => {
-        held = true;
-        fire();
-        clearTimers();
-        delayTimer = window.setTimeout(() => {
-          intervalTimer = window.setInterval(fire, 96);
-        }, 190);
-      };
-      const stopHold = () => {
-        clearTimers();
-        window.setTimeout(() => { held = false; }, 0);
-      };
-      button.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (held) return;
-        fire();
-      });
-      button.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return;
-        startHold();
-      });
-      button.addEventListener('mouseup', stopHold);
-      button.addEventListener('mouseleave', stopHold);
-      button.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        startHold();
-      }, { passive: false });
-      button.addEventListener('touchend', stopHold);
-      button.addEventListener('touchcancel', stopHold);
-      window.addEventListener('mouseup', stopHold);
-      window.addEventListener('touchend', stopHold);
-      window.addEventListener('touchcancel', stopHold);
-    };
-
-    overlay.querySelectorAll('[data-nav-action]').forEach(bindRepeat);
+    overlay.querySelectorAll('[data-nav-action]').forEach((button) => {
+      runtimeGalaxyNavOrbRepeatApi.bindNavRepeatButton(button, root);
+    });
 
     const canvas = overlay.querySelector('#galaxy-nav-gizmo');
     const modeBadge = overlay.querySelector('#galaxy-nav-mode-badge');
@@ -11019,7 +3104,7 @@
     panel.querySelector('[data-owner-focus-clear="1"]')?.addEventListener('click', () => {
       settingsState.galaxyOwnerFocusUserId = 0;
       settingsState.galaxyOwnerFocusName = '';
-      saveUiSettings();
+      settingsController.saveUiSettings();
       const root = WM.body('galaxy');
       if (!root) return;
       updateGalaxyColonyFilterUi(root);
@@ -11035,7 +3120,7 @@
           || (ownerFocus.userId <= 0 && ownerFocus.name && nextUserId <= 0 && ownerFocus.name.localeCompare(nextName, 'de', { sensitivity: 'base' }) === 0);
         settingsState.galaxyOwnerFocusUserId = isSame ? 0 : nextUserId;
         settingsState.galaxyOwnerFocusName = isSame ? '' : nextName;
-        saveUiSettings();
+        settingsController.saveUiSettings();
         const root = WM.body('galaxy');
         if (!root) return;
         updateGalaxyColonyFilterUi(root);
@@ -11058,7 +3143,7 @@
         const toInput = root.querySelector('#gal-to');
         settingsState.galaxyOwnerFocusUserId = ownerUserId;
         settingsState.galaxyOwnerFocusName = ownerName;
-        saveUiSettings();
+        settingsController.saveUiSettings();
         if (fromInput) fromInput.value = String(from);
         if (toInput) toInput.value = String(to);
         uiState.activeRange = { from, to };
@@ -11340,40 +3425,7 @@
   }
 
   function runRendererNavAction(action) {
-    const normalized = String(action || '');
-    const rollStep = Number(uiState?.navOrbTuning?.rollStepRad || 0.05);
-    const navActionMap = {
-      'zoom-in': () => callRendererMethod('nudgeZoom', 'in'),
-      'zoom-out': () => callRendererMethod('nudgeZoom', 'out'),
-      'rotate-left': () => callRendererMethod('nudgeOrbit', 'left'),
-      'rotate-right': () => callRendererMethod('nudgeOrbit', 'right'),
-      'rotate-up': () => callRendererMethod('nudgeOrbit', 'up'),
-      'rotate-down': () => callRendererMethod('nudgeOrbit', 'down'),
-      'pan-left': () => callRendererMethod('nudgePan', 'left'),
-      'pan-right': () => callRendererMethod('nudgePan', 'right'),
-      'pan-up': () => callRendererMethod('nudgePan', 'up'),
-      'pan-down': () => callRendererMethod('nudgePan', 'down'),
-      'pan-up-left': () => callRendererMethod('nudgePan', 'up-left'),
-      'pan-up-right': () => callRendererMethod('nudgePan', 'up-right'),
-      'pan-down-left': () => callRendererMethod('nudgePan', 'down-left'),
-      'pan-down-right': () => callRendererMethod('nudgePan', 'down-right'),
-      'translate-x-plus': () => callRendererMethod('nudgePan', 'right'),
-      'translate-x-minus': () => callRendererMethod('nudgePan', 'left'),
-      'translate-y-plus': () => callRendererMethod('nudgePan', 'up'),
-      'translate-y-minus': () => callRendererMethod('nudgePan', 'down'),
-      'translate-z-plus': () => callRendererMethod('nudgeZoom', 'in'),
-      'translate-z-minus': () => callRendererMethod('nudgeZoom', 'out'),
-      'rotate-u-plus': () => callRendererMethod('nudgeOrbit', 'left'),
-      'rotate-u-minus': () => callRendererMethod('nudgeOrbit', 'right'),
-      'rotate-v-plus': () => callRendererMethod('nudgeOrbit', 'up'),
-      'rotate-v-minus': () => callRendererMethod('nudgeOrbit', 'down'),
-      'rotate-w-plus': () => callRendererMethod('nudgeRoll', 'cw', rollStep),
-      'rotate-w-minus': () => callRendererMethod('nudgeRoll', 'ccw', rollStep),
-    };
-
-    const run = navActionMap[normalized];
-    if (!run) return false;
-    return !!run();
+    return runtimeGalaxyNavActionsApi.runRendererNavAction(action);
   }
 
   function isSystemModeActive() {
@@ -12080,963 +4132,45 @@
     }
   }
 
-  class MessagesController {
-    constructor() {
-      this.templates = {
-        shell: '{{{composeToggle}}}{{{composeForm}}}{{{terminalPanel}}}{{{messagesList}}}',
-        composeToggle: '<div style="margin-bottom:0.75rem"><button class="btn btn-secondary btn-sm" id="compose-toggle-btn">Ô£ë Compose</button></div>',
-        composeForm: `
-        <div id="compose-form-wm" class="hidden" style="margin-bottom:1rem">
-          <div class="form-group">
-            <label>To (username)</label>
-            <input id="msg-to-wm" type="text" placeholder="recipient" />
-          </div>
-          <div class="form-group">
-            <label>Subject</label>
-            <input id="msg-subject-wm" type="text" placeholder="Subject" />
-          </div>
-          <div class="form-group">
-            <label>Message</label>
-            <textarea id="msg-body-wm" rows="3" placeholder="Your messageÔÇª"></textarea>
-          </div>
-          <button class="btn btn-primary btn-sm" id="msg-send-btn-wm">Send</button>
-          <div id="msg-send-result-wm" class="form-info" aria-live="polite"></div>
-        </div>`,
-        terminalPanel: `
-        <div class="msg-terminal" style="margin-bottom:0.9rem;border:1px solid rgba(150,180,230,0.25);border-radius:10px;padding:0.55rem;background:rgba(7,14,28,0.55)">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
-            <strong style="font-size:0.82rem;color:#b8cff3">Terminal Console</strong>
-            <span style="font-size:0.72rem;color:var(--text-muted)">Direktbefehle f├╝r Messages</span>
-          </div>
-          <div id="msg-terminal-log" style="height:140px;overflow:auto;background:rgba(5,10,18,0.82);border-radius:8px;padding:0.45rem;font-family:Consolas, 'Courier New', monospace;font-size:0.74rem;line-height:1.35;color:#d7e4ff"></div>
-          <div style="display:flex;gap:0.45rem;margin-top:0.45rem">
-            <input id="msg-terminal-input" type="text" list="msg-terminal-users" placeholder="help | msg <user> <text> | inbox | read <id> | delete <id> | clear" style="flex:1" />
-            <datalist id="msg-terminal-users"></datalist>
-            <button class="btn btn-secondary btn-sm" id="msg-terminal-run">Run</button>
-          </div>
-        </div>`,
-        messagesList: `<div id="messages-list-wm">${uiKitTemplateHTML('tpl-ui-skeleton-list') || '<p class="text-muted">LoadingÔÇª</p>'}</div>`,
-        consoleLine: '<div>{{{line}}}</div>',
-        userHintOption: '<option value="{{{value}}}"></option>',
-        detail: `
-        <div class="msg-detail-header">
-          <div>
-            <strong>{{{subject}}}</strong>
-            <div class="msg-detail-meta">From: {{{sender}}} &nbsp;ÔÇó&nbsp; {{{sentAt}}}</div>
-          </div>
-          <button class="btn btn-secondary btn-sm close-msg-btn">Ô£ò Close</button>
-        </div>
-        <hr class="separator" />
-        <div class="msg-detail-body">{{{body}}}</div>`,
-        row: `
-          <div class="msg-row {{{unreadClass}}}" data-mid="{{{id}}}">
-            {{{unreadDot}}}
-            <span class="msg-subject">{{{subject}}}</span>
-            <span class="msg-sender">From: {{{sender}}}</span>
-            <span class="msg-date">{{{date}}}</span>
-            <button class="btn btn-danger btn-sm del-msg-btn" data-mid="{{{id}}}">­ƒùæ</button>
-          </div>`,
-      };
-    }
-
-    renderTemplate(templateName, data = {}) {
-      return renderInlineTemplate(this.templates[templateName], data);
-    }
-
-    renderTemplateList(templateName, rows) {
-      return renderInlineTemplateList(this.templates[templateName], rows);
-    }
-
-    consolePush(line) {
-      const text = String(line || '').trim();
-      if (!text) return;
-      messageConsoleState.lines.push(text);
-      if (messageConsoleState.lines.length > messageConsoleState.maxLines) {
-        messageConsoleState.lines.splice(0, messageConsoleState.lines.length - messageConsoleState.maxLines);
-      }
-    }
-
-    renderConsoleLog(root) {
-      const log = root?.querySelector('#msg-terminal-log');
-      if (!log) return;
-      log.innerHTML = this.renderTemplateList('consoleLine', messageConsoleState.lines.map((line) => ({ line: esc(line) })));
-      log.scrollTop = log.scrollHeight;
-    }
-
-    extractUserPrefix(raw) {
-      const txt = String(raw || '').trimStart();
-      const normalized = txt.startsWith('/') ? txt.slice(1) : txt;
-      const match = normalized.match(/^(msg|dm)\s+([^\s]*)$/i);
-      return match ? String(match[2] || '') : '';
-    }
-
-    autocompleteCommand(raw, hints) {
-      const text = String(raw || '');
-      const leadSlash = text.startsWith('/');
-      const normalized = leadSlash ? text.slice(1) : text;
-      const match = normalized.match(/^(msg|dm)\s+([^\s]*)(\s*)$/i);
-      if (!match) return null;
-      const cmd = match[1];
-      const prefix = String(match[2] || '');
-      if (!prefix) return null;
-      const list = Array.isArray(hints) ? hints : [];
-      const hit = list.find((u) => String(u).toLowerCase().startsWith(prefix.toLowerCase()));
-      if (!hit) return null;
-      return `${leadSlash ? '/' : ''}${cmd} ${hit} `;
-    }
-
-    async refreshUserHints(root, prefix = '') {
-      const datalist = root?.querySelector('#msg-terminal-users');
-      if (!datalist) return;
-      try {
-        const response = await API.messageUsers(prefix || '');
-        const users = response?.success && Array.isArray(response.users)
-          ? Array.from(new Set(response.users.map((u) => String(u || '').trim()).filter(Boolean))).slice(0, 12)
-          : [];
-        messageConsoleState.userHints = users;
-        datalist.innerHTML = this.renderTemplateList('userHintOption', users.map((u) => ({ value: esc(u) })));
-      } catch (err) {
-        gameLog('info', 'Message user hints laden fehlgeschlagen', err);
-        messageConsoleState.userHints = [];
-        datalist.innerHTML = '';
-      }
-    }
-
-    showMessageDetail(root, message) {
-      const listEl = root.querySelector('#messages-list-wm');
-      if (!listEl) return;
-      let detail = root.querySelector('.msg-detail');
-      if (!detail) {
-        detail = document.createElement('div');
-        detail.className = 'msg-detail';
-        listEl.before(detail);
-      }
-      detail.innerHTML = this.renderTemplate('detail', {
-        subject: esc(message.subject),
-        sender: esc(message.sender),
-        sentAt: esc(new Date(message.sent_at).toLocaleString()),
-        body: esc(message.body),
-      });
-      detail.querySelector('.close-msg-btn')?.addEventListener('click', () => detail.remove());
-    }
-
-    async loadMessagesList(root) {
-      const el = root.querySelector('#messages-list-wm');
-      if (!el) return;
-      el.innerHTML = uiKitTemplateHTML('tpl-ui-skeleton-list') || '<p class="text-muted">LoadingÔÇª</p>';
-      try {
-        const data = await API.inbox();
-        if (!data.success) {
-          el.innerHTML = '<p class="text-red">Error.</p>';
-          return;
-        }
-        if (!data.messages.length) {
-          el.innerHTML = uiKitEmptyStateHTML('Inbox empty', 'New diplomatic and tactical messages will appear here.');
-          return;
-        }
-
-        el.innerHTML = this.renderTemplateList('row', data.messages.map((message) => ({
-          id: Number(message.id || 0),
-          unreadClass: message.is_read ? '' : 'unread',
-          unreadDot: message.is_read ? '' : '<div class="msg-unread-dot"></div>',
-          subject: esc(message.subject),
-          sender: esc(message.sender),
-          date: esc(new Date(message.sent_at).toLocaleDateString()),
-        })));
-
-        el.querySelectorAll('.msg-row').forEach((row) => {
-          row.addEventListener('click', async (e) => {
-            if (e.target.classList.contains('del-msg-btn')) return;
-            const mid = parseInt(row.dataset.mid, 10);
-            const detail = await API.readMsg(mid);
-            if (!detail.success) return;
-            const message = detail.message;
-            this.showMessageDetail(root, message);
-            if (audioManager && typeof audioManager.playMessageRead === 'function') audioManager.playMessageRead();
-            this.consolePush(`[read] #${mid} from ${message.sender || 'Unknown'}: ${message.subject || '(no subject)'}`);
-            this.renderConsoleLog(root);
-            row.classList.remove('unread');
-            await this.loadBadge();
-          });
-        });
-
-        el.querySelectorAll('.del-msg-btn').forEach((btn) => {
-          btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const response = await API.deleteMsg(parseInt(btn.dataset.mid, 10));
-            if (response.success) {
-              if (audioManager && typeof audioManager.playMessageDelete === 'function') audioManager.playMessageDelete();
-              this.consolePush(`[ok] Deleted message #${btn.dataset.mid}.`);
-              this.renderConsoleLog(root);
-              await this.loadMessagesList(root);
-              await this.loadBadge();
-            }
-          });
-        });
-      } catch (err) {
-        gameLog('warn', 'Messages view laden fehlgeschlagen', err);
-        el.innerHTML = '<p class="text-red">Failed to load messages.</p>';
-      }
-    }
-
-    async runConsoleCommand(root, rawCommand) {
-      const raw = String(rawCommand || '').trim();
-      if (!raw) return;
-      this.consolePush(`> ${raw}`);
-      this.renderConsoleLog(root);
-
-      const normalized = raw.startsWith('/') ? raw.slice(1).trim() : raw;
-      const parts = normalized.split(/\s+/).filter(Boolean);
-      const cmd = String(parts[0] || '').toLowerCase();
-
-      if (!cmd) {
-        this.consolePush('[system] Empty command.');
-        this.renderConsoleLog(root);
-        return;
-      }
-
-      if (cmd === 'help' || cmd === '?') {
-        this.consolePush('[help] msg <user> <text>  -> sends direct message (subject auto).');
-        this.consolePush('[help] msg <user> <subject> | <body>  -> custom subject/body.');
-        this.consolePush('[help] inbox  -> reload inbox list.');
-        this.consolePush('[help] read <id>  -> open message detail.');
-        this.consolePush('[help] delete <id>  -> delete message.');
-        this.consolePush('[help] clear  -> clear console output.');
-        this.renderConsoleLog(root);
-        return;
-      }
-
-      if (cmd === 'clear') {
-        messageConsoleState.lines = ['[system] Console cleared.'];
-        this.renderConsoleLog(root);
-        return;
-      }
-
-      if (cmd === 'inbox') {
-        await this.loadMessagesList(root);
-        this.consolePush('[ok] Inbox refreshed.');
-        this.renderConsoleLog(root);
-        return;
-      }
-
-      if (cmd === 'read') {
-        const id = Number(parts[1] || 0);
-        if (!Number.isFinite(id) || id <= 0) {
-          this.consolePush('[error] Usage: read <id>');
-          this.renderConsoleLog(root);
-          return;
-        }
-        const detail = await API.readMsg(id);
-        if (!detail.success || !detail.message) {
-          this.consolePush(`[error] ${detail.error || 'Message not found.'}`);
-          this.renderConsoleLog(root);
-          return;
-        }
-        this.showMessageDetail(root, detail.message);
-        if (audioManager && typeof audioManager.playMessageRead === 'function') audioManager.playMessageRead();
-        this.consolePush(`[ok] Opened message #${id} from ${detail.message.sender || 'Unknown'}.`);
-        await this.loadMessagesList(root);
-        await this.loadBadge();
-        this.renderConsoleLog(root);
-        return;
-      }
-
-      if (cmd === 'delete') {
-        const id = Number(parts[1] || 0);
-        if (!Number.isFinite(id) || id <= 0) {
-          this.consolePush('[error] Usage: delete <id>');
-          this.renderConsoleLog(root);
-          return;
-        }
-        const response = await API.deleteMsg(id);
-        if (!response.success) {
-          this.consolePush(`[error] ${response.error || 'Delete failed.'}`);
-          this.renderConsoleLog(root);
-          return;
-        }
-        await this.loadMessagesList(root);
-        if (audioManager && typeof audioManager.playMessageDelete === 'function') audioManager.playMessageDelete();
-        this.consolePush(`[ok] Deleted message #${id}.`);
-        await this.loadBadge();
-        this.renderConsoleLog(root);
-        return;
-      }
-
-      if (cmd === 'msg' || cmd === 'dm') {
-        if (parts.length < 3) {
-          this.consolePush('[error] Usage: msg <user> <text>');
-          this.renderConsoleLog(root);
-          return;
-        }
-        const to = parts[1];
-        const payload = normalized.split(/\s+/).slice(2).join(' ').trim();
-        if (!payload) {
-          this.consolePush('[error] Message text missing.');
-          this.renderConsoleLog(root);
-          return;
-        }
-        let subject = 'Direct Message';
-        let body = payload;
-        if (payload.includes('|')) {
-          const payloadParts = payload.split('|');
-          subject = String(payloadParts.shift() || '').trim() || 'Direct Message';
-          body = payloadParts.join('|').trim();
-        }
-        if (!body) {
-          this.consolePush('[error] Message body missing after subject separator.');
-          this.renderConsoleLog(root);
-          return;
-        }
-
-        const response = await API.sendMsg(to, subject, body);
-        if (!response.success) {
-          this.consolePush(`[error] ${response.error || 'Send failed.'}`);
-          this.renderConsoleLog(root);
-          return;
-        }
-        if (audioManager && typeof audioManager.playMessageSend === 'function') audioManager.playMessageSend();
-        this.consolePush(`[ok] Sent message to ${to} (subject: ${subject}).`);
-        showToast(`Message sent to ${to}.`, 'success');
-        this.renderConsoleLog(root);
-        return;
-      }
-
-      this.consolePush(`[error] Unknown command: ${cmd}. Type "help".`);
-      this.renderConsoleLog(root);
-    }
-
-    async loadBadge() {
-      try {
-        const data = await API.inbox();
-        if (!data.success) return;
-        const list = Array.isArray(data.messages) ? data.messages : [];
-        const unread = list.filter((message) => !parseInt(message.is_read, 10)).length;
-        const badge = document.getElementById('msg-badge');
-        if (unread > 0) {
-          badge.textContent = unread;
-          badge.classList.remove('hidden');
-        } else {
-          badge.classList.add('hidden');
-        }
-        updateMessageSignalsFromInbox(list);
-      } catch (_) {}
-    }
-
-    bindComposeControls(root) {
-      root.querySelector('#compose-toggle-btn')?.addEventListener('click', () => {
-        root.querySelector('#compose-form-wm')?.classList.toggle('hidden');
-      });
-
-      root.querySelector('#msg-send-btn-wm')?.addEventListener('click', async () => {
-        const res = root.querySelector('#msg-send-result-wm');
-        const to = root.querySelector('#msg-to-wm')?.value.trim();
-        const subject = root.querySelector('#msg-subject-wm')?.value.trim();
-        const body = root.querySelector('#msg-body-wm')?.value.trim();
-        if (!to || !subject || !body) {
-          res.className = 'form-error';
-          res.textContent = 'Fill in all fields.';
-          return;
-        }
-        const response = await API.sendMsg(to, subject, body);
-        if (response.success) {
-          if (audioManager && typeof audioManager.playMessageSend === 'function') audioManager.playMessageSend();
-          res.className = 'form-info';
-          res.textContent = 'Message sent!';
-          root.querySelector('#msg-to-wm').value = '';
-          root.querySelector('#msg-subject-wm').value = '';
-          root.querySelector('#msg-body-wm').value = '';
-          showToast('Message sent!', 'success');
-        } else {
-          res.className = 'form-error';
-          res.textContent = response.error || 'Failed.';
-        }
-      });
-    }
-
-    bindTerminalControls(root) {
-      const runTerminalCommand = async () => {
-        const input = root.querySelector('#msg-terminal-input');
-        if (!input) return;
-        const command = String(input.value || '').trim();
-        if (!command) return;
-        input.value = '';
-        await this.runConsoleCommand(root, command);
-      };
-
-      root.querySelector('#msg-terminal-run')?.addEventListener('click', runTerminalCommand);
-      root.querySelector('#msg-terminal-input')?.addEventListener('keydown', async (e) => {
-        if (e.key === 'Tab') {
-          const input = e.currentTarget;
-          if (!(input instanceof HTMLInputElement)) return;
-          const next = this.autocompleteCommand(input.value, messageConsoleState.userHints || []);
-          if (next && next !== input.value) {
-            e.preventDefault();
-            input.value = next;
-            input.setSelectionRange(next.length, next.length);
-            return;
-          }
-        }
-        if (e.key !== 'Enter') return;
-        e.preventDefault();
-        await runTerminalCommand();
-      });
-
-      root.querySelector('#msg-terminal-input')?.addEventListener('input', async (e) => {
-        const input = e.currentTarget;
-        if (!(input instanceof HTMLInputElement)) return;
-        const prefix = this.extractUserPrefix(input.value);
-        await this.refreshUserHints(root, prefix);
-      });
-    }
-
-    async render() {
-      const root = WM.body('messages');
-      if (!root) return;
-
-      root.innerHTML = this.renderTemplate('shell', {
-        composeToggle: this.templates.composeToggle,
-        composeForm: this.templates.composeForm,
-        terminalPanel: this.templates.terminalPanel,
-        messagesList: this.templates.messagesList,
-      });
-
-      this.bindComposeControls(root);
-
-      this.renderConsoleLog(root);
-      await this.refreshUserHints(root, '');
-      this.bindTerminalControls(root);
-
-      await this.loadMessagesList(root);
-    }
-  }
-
-  const messagesController = new MessagesController();
+  const runtimeMessagesControllerApi = requireRuntimeApi('GQRuntimeMessagesController', ['createMessagesController']);
+  const messagesController = runtimeMessagesControllerApi.createMessagesController({
+    wm: WM,
+    api: API,
+    documentRef: document,
+    renderInlineTemplate,
+    renderInlineTemplateList,
+    uiKitTemplateHTML,
+    uiKitEmptyStateHTML,
+    esc,
+    gameLog,
+    showToast,
+    getAudioManager: () => audioManager,
+    getMessageConsoleState: () => messageConsoleState,
+    updateMessageSignalsFromInbox,
+    runtimeCommandParsingApi,
+    runtimeMessageConsoleCommandApi,
+    playMessageSendRef,
+  });
   window.GQMessagesController = messagesController;
 
-  // ÔöÇÔöÇ Messages window ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // ÔöÇÔöÇ Messages window ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   async function renderMessages() {
     await messagesController.render();
   }
 
-  class IntelController {
-    constructor() {
-      this.lastMatchupScan = null;
-      this.battleDetailCache = new Map();
-    }
-
-    renderCombatSummary(report) {
-      const ctx = report?.simulation_context || {};
-      const power = ctx.power_rating || {};
-      const winLabel = ctx.attacker_wins === null || typeof ctx.attacker_wins === 'undefined'
-        ? 'n/a'
-        : (ctx.attacker_wins ? 'Attacker victory' : 'Defender hold');
-      const diceVar = Number(ctx.dice_variance_index || 0);
-
-      return `
-        <div class="system-row small" style="margin-top:0.45rem; color:#b8c7d9;">
-          <span style="display:inline-block; margin-right:0.7rem;">Seed: ${esc(String(ctx.seed || 'n/a').slice(0, 12))}</span>
-          <span style="display:inline-block; margin-right:0.7rem;">Var: ${fmt(diceVar)}</span>
-          <span style="display:inline-block; margin-right:0.7rem;">PWR A/D: ${fmt(power.attacker || 0)} / ${fmt(power.defender || 0)}</span>
-          <span style="display:inline-block;">${esc(winLabel)}</span>
-        </div>`;
-    }
-
-    renderSpyReportCard(report) {
-      if (!report || !report.report) return '';
-      const r = report.report;
-      const createdAt = new Date(report.created_at).toLocaleString();
-      const status = r.status || 'unknown';
-
-      if (status === 'uninhabited') {
-        return `
-          <div class="system-card" style="margin-bottom:1rem">
-            <div class="system-row"><strong>Uninhabited Planet</strong></div>
-            <div class="system-row text-muted small">${createdAt}</div>
-            ${r.planet ? `<div class="system-row">Class: ${esc(r.planet.planet_class || '?')}</div>` : ''}
-            ${r.planet && r.planet.deposit_metal ? `<div class="system-row">Metal: ${esc(r.planet.richness_metal || '?')}</div>` : ''}
-            ${r.planet && r.planet.deposit_crystal ? `<div class="system-row">Crystal: ${esc(r.planet.richness_crystal || '?')}</div>` : ''}
-          </div>`;
-      }
-
-      if (status !== 'inhabited') return '';
-
-      return `
-        <div class="system-card" style="margin-bottom:1rem">
-          <div class="system-row"><strong>Spy Report: ${esc(r.owner || '?')}</strong></div>
-          <div class="system-row" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-            <strong>Spy Report: ${esc(r.owner || '?')}</strong>
-            ${!report.is_own && report.owner_username ? `<span class="lb-alliance-tag">via ${esc(report.owner_username)}</span>` : ''}
-          </div>
-          <div class="system-row text-muted small">${createdAt}</div>
-          
-          <div class="system-row" style="margin-top:0.5rem"><strong>Resources</strong></div>
-          ${r.resources ? `
-            <div class="system-row small">
-              Metal ${fmt(r.resources.metal || 0)} | Crystal ${fmt(r.resources.crystal || 0)} |
-              Deuterium ${fmt(r.resources.deuterium || 0)} | Rare Earth ${fmt(r.resources.rare_earth || 0)}
-            </div>
-          ` : ''}
-          
-          <div class="system-row" style="margin-top:0.5rem"><strong>Welfare</strong></div>
-          ${r.welfare ? `
-            <div class="welfare-bar" style="margin-top:0.3rem">
-              <span title="Happiness ${r.welfare.happiness || 0}%">HAP</span>
-              <div class="bar-wrap"><div class="bar-fill bar-happiness" style="width:${r.welfare.happiness || 0}%"></div></div>
-              <span style="font-size:0.7rem;min-width:28px">${r.welfare.happiness || 0}%</span>
-            </div>
-            <div class="welfare-bar">
-              <span title="Population">POP</span>
-              <div class="bar-wrap"><div class="bar-fill bar-population" style="width:${Math.min(100, Math.round((r.welfare.population || 0) / (r.welfare.max_population || 500) * 100))}%"></div></div>
-              <span style="font-size:0.7rem;min-width:38px">${fmt(r.welfare.population || 0)}</span>
-            </div>
-            <div class="welfare-bar">
-              <span title="Public Services">SRV</span>
-              <div class="bar-wrap"><div class="bar-fill bar-services" style="width:${r.welfare.public_services || 0}%"></div></div>
-              <span style="font-size:0.7rem;min-width:28px">${r.welfare.public_services || 0}%</span>
-            </div>
-          ` : ''}
-
-          ${r.stealth_masked ? `
-            <div class="system-row" style="margin-top:0.5rem"><strong>Stealth</strong></div>
-            <div class="system-row small text-muted">${esc(r.stealth_note || 'Fleet intel is hidden by active stealth technology.')}</div>
-          ` : ''}
-
-          ${r.ships && Object.keys(r.ships).length ? `
-            <div class="system-row" style="margin-top:0.5rem"><strong>Ships</strong></div>
-            <div class="system-row small">
-              ${Object.entries(r.ships).map(([ship, count]) => esc(fmtName(ship)) + ': ' + fmt(count)).join(' | ')}
-            </div>
-          ` : ''}
-
-          ${r.leaders && r.leaders.length ? `
-            <div class="system-row" style="margin-top:0.5rem"><strong>Leaders</strong></div>
-            <div class="system-row small">
-              ${r.leaders.map((l) => esc(l.name || '?') + ' (' + esc(l.role || '?') + ') Lv' + (l.level || 0)).join(' | ')}
-            </div>
-          ` : ''}
-        </div>`;
-    }
-
-    renderBattleReportCard(report) {
-      if (!report || !report.report) return '';
-      const r = report.report || {};
-      const createdAt = new Date(report.created_at).toLocaleString();
-      const explain = Array.isArray(r.explainability?.top_factors) ? r.explainability.top_factors : [];
-      const loot = r.loot || {};
-      const attackerWins = !!r.attacker_wins;
-      const accent = attackerWins ? '#3e8f5a' : '#9a4b4b';
-      const ctx = report.simulation_context || r;
-      const atkPwr = Number(ctx.power_rating?.attacker || r.power_rating?.attacker || 0);
-      const defPwr = Number(ctx.power_rating?.defender || r.power_rating?.defender || 0);
-      const totalPwr = atkPwr + defPwr;
-      const atkPct = totalPwr > 0 ? Math.round((atkPwr / totalPwr) * 100) : 50;
-      const defPct = totalPwr > 0 ? Math.round((defPwr / totalPwr) * 100) : 50;
-      const atkTone = atkPct > defPct ? 'is-good' : (atkPct >= defPct - 10 ? 'is-warning' : 'is-critical');
-      const defTone = defPct > atkPct ? 'is-good' : (defPct >= atkPct - 10 ? 'is-warning' : 'is-critical');
-      const powerBarsHtml = totalPwr > 0 ? `
-        <div class="entity-bars" style="margin-top:0.45rem;">
-          <div class="entity-bar-row" title="Attacker power ${atkPct}% (${fmt(atkPwr)})">
-            <span class="entity-bar-label">Atk</span>
-            <div class="bar-wrap"><div class="bar-fill bar-integrity ${atkTone}" style="width:${atkPct}%"></div></div>
-            <span class="entity-bar-value">${atkPct}%</span>
-          </div>
-          <div class="entity-bar-row" title="Defender power ${defPct}% (${fmt(defPwr)})">
-            <span class="entity-bar-label">Def</span>
-            <div class="bar-wrap"><div class="bar-fill bar-shield ${defTone}" style="width:${defPct}%"></div></div>
-            <span class="entity-bar-value">${defPct}%</span>
-          </div>
-        </div>` : '';
-
-      return `
-        <div class="system-card" style="margin-bottom:1rem; border-color:${accent};">
-          <div class="system-row"><strong>Battle Report #${report.id}</strong></div>
-          <div class="system-row text-muted small">${createdAt} | Role: ${esc(report.role || '?')}</div>
-          <div class="system-row" style="margin-top:0.35rem; color:${accent}; font-weight:700;">
-            ${attackerWins ? 'Attacker succeeded' : 'Defender held'}
-          </div>
-          ${powerBarsHtml}
-          ${this.renderCombatSummary(report)}
-          <div class="system-row small" style="margin-top:0.5rem;">
-            Loot: Metal ${fmt(loot.metal || 0)} | Crystal ${fmt(loot.crystal || 0)} | Deuterium ${fmt(loot.deuterium || 0)} | Rare Earth ${fmt(loot.rare_earth || 0)}
-          </div>
-          ${explain.length ? `
-            <div class="system-row" style="margin-top:0.55rem;"><strong>Top Factors</strong></div>
-            <div class="system-row small" style="color:#d7dfef;">
-              ${explain.map((f) => `${esc(fmtName(String(f.factor || 'factor')))} ${fmt(Number(f.impact_pct || 0))}%`).join(' | ')}
-            </div>
-          ` : ''}
-          <div style="margin-top:0.65rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
-            <button class="btn btn-sm" data-battle-detail="${Number(report.id || 0)}">Open Detail</button>
-          </div>
-        </div>`;
-    }
-
-    renderBattleDetailBody(detailResponse) {
-      const battle = detailResponse?.battle_report || {};
-      const report = battle.report || {};
-      const meta = battle.meta || {};
-      const explain = Array.isArray(report.explainability?.top_factors) ? report.explainability.top_factors : [];
-      const rounds = Array.isArray(report.rounds) ? report.rounds : [];
-      const modifierBreakdown = report.modifier_breakdown || {};
-      const loot = report.loot || {};
-      const tech = report.tech || {};
-      const attackerLost = report.attacker_lost || {};
-      const defenderLost = report.defender_lost || {};
-      const renderModifierRows = (sideKey, label) => {
-        const buckets = modifierBreakdown?.[sideKey] || {};
-        const entries = Object.entries(buckets);
-        if (!entries.length) {
-          return `<div class="small">${label}: none</div>`;
-        }
-
-        return `
-          <div class="small" style="display:grid; gap:0.25rem;">
-            <div style="font-weight:700; color:#eef4ff;">${label}</div>
-            ${entries.map(([key, value]) => `
-              <div>
-                ${esc(fmtName(String(key || 'modifier')))}:
-                +${fmt(Number(value?.add_pct || 0) * 100)}% pct |
-                +${fmt(Number(value?.add_flat || 0))} flat |
-                x${fmt(Number(value?.mult || 1))}
-              </div>`).join('')}
-          </div>`;
-      };
-
-      return `
-        <div style="display:grid; gap:0.8rem; color:#dfe7f5;">
-          <div>
-            <div style="font-weight:700; font-size:1.05rem;">Battle Report #${fmt(battle.id || 0)}</div>
-            <div class="small text-muted">${esc(String(battle.created_at || ''))} | Role: ${esc(String(battle.role || '?'))}</div>
-          </div>
-          <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
-            <div><strong>Combat Meta</strong></div>
-            <div class="small" style="margin-top:0.35rem;">Seed: ${esc(String(meta.battle_seed || report.seed || 'n/a'))}</div>
-            <div class="small">Version: ${fmt(meta.report_version || report.version || 0)} | Dice Var: ${fmt(meta.dice_variance_index || report.dice_variance_index || 0)}</div>
-            <div class="small">Power A/D: ${fmt(meta.attacker_power_rating || report.power_rating?.attacker || 0)} / ${fmt(meta.defender_power_rating || report.power_rating?.defender || 0)}</div>
-          </div>
-          <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
-            <div><strong>Tech Snapshot</strong></div>
-            <div class="small" style="margin-top:0.35rem;">Atk Wpn/Shld: ${fmt(tech.atk_wpn || 0)} / ${fmt(tech.atk_shld || 0)}</div>
-            <div class="small">Def Wpn/Shld: ${fmt(tech.def_wpn || 0)} / ${fmt(tech.def_shld || 0)}</div>
-          </div>
-          ${(() => {
-            const ec = report.energy_context;
-            const dc = report.damage_channels;
-            if (!ec && !dc) return '';
-            const atkBudget = ec?.attacker || {};
-            const defBudget = ec?.defender || {};
-            const atkCh = dc?.attacker || {};
-            const defCh = dc?.defender || {};
-            return `
-              <div style="padding:0.65rem; border:1px solid #2a4563; border-radius:10px; background:#0d1824;">
-                <div><strong>Energy Economy</strong></div>
-                <div style="margin-top:0.45rem; display:grid; grid-template-columns:1fr 1fr; gap:0.55rem;">
-                  <div class="small">
-                    <div style="font-weight:700; color:#7ec8e3; margin-bottom:0.2rem;">Attacker</div>
-                    ${atkBudget.generated != null ? `<div>Generated: ${fmt(atkBudget.generated)}</div>` : ''}
-                    ${atkBudget.upkeep != null ? `<div>Upkeep: ${fmt(atkBudget.upkeep)}</div>` : ''}
-                    ${atkBudget.weapon_factor != null ? `<div>Wpn Factor: ${fmt(atkBudget.weapon_factor)}</div>` : ''}
-                    ${atkBudget.shield_factor != null ? `<div>Shld Factor: ${fmt(atkBudget.shield_factor)}</div>` : ''}
-                    ${atkBudget.weapon_efficiency != null ? `<div>Wpn Eff: ${fmt(atkBudget.weapon_efficiency)}</div>` : ''}
-                    ${atkBudget.shield_efficiency != null ? `<div>Shld Eff: ${fmt(atkBudget.shield_efficiency)}</div>` : ''}
-                    ${(atkCh.energy != null || atkCh.kinetic != null) ? `
-                      <div style="margin-top:0.2rem; border-top:1px solid #2a4060; padding-top:0.2rem;">
-                        <span style="color:#f09c30;">Energy: ${fmt(atkCh.energy || 0)}</span>
-                        &nbsp;|&nbsp;
-                        <span style="color:#c0c8d8;">Kinetic: ${fmt(atkCh.kinetic || 0)}</span>
-                      </div>` : ''}
-                  </div>
-                  <div class="small">
-                    <div style="font-weight:700; color:#e38080; margin-bottom:0.2rem;">Defender</div>
-                    ${defBudget.generated != null ? `<div>Generated: ${fmt(defBudget.generated)}</div>` : ''}
-                    ${defBudget.upkeep != null ? `<div>Upkeep: ${fmt(defBudget.upkeep)}</div>` : ''}
-                    ${defBudget.weapon_factor != null ? `<div>Wpn Factor: ${fmt(defBudget.weapon_factor)}</div>` : ''}
-                    ${defBudget.shield_factor != null ? `<div>Shld Factor: ${fmt(defBudget.shield_factor)}</div>` : ''}
-                    ${defBudget.weapon_efficiency != null ? `<div>Wpn Eff: ${fmt(defBudget.weapon_efficiency)}</div>` : ''}
-                    ${defBudget.shield_efficiency != null ? `<div>Shld Eff: ${fmt(defBudget.shield_efficiency)}</div>` : ''}
-                    ${(defCh.energy != null || defCh.kinetic != null) ? `
-                      <div style="margin-top:0.2rem; border-top:1px solid #2a4060; padding-top:0.2rem;">
-                        <span style="color:#f09c30;">Energy: ${fmt(defCh.energy || 0)}</span>
-                        &nbsp;|&nbsp;
-                        <span style="color:#c0c8d8;">Kinetic: ${fmt(defCh.kinetic || 0)}</span>
-                      </div>` : ''}
-                  </div>
-                </div>
-              </div>`;
-          })()}
-          <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
-            <div><strong>Losses</strong></div>
-            <div class="small" style="margin-top:0.35rem;">Attacker: ${Object.keys(attackerLost).length ? Object.entries(attackerLost).map(([k, v]) => `${esc(fmtName(k))} ${fmt(v)}`).join(' | ') : 'none'}</div>
-            <div class="small">Defender: ${Object.keys(defenderLost).length ? Object.entries(defenderLost).map(([k, v]) => `${esc(fmtName(k))} ${fmt(v)}`).join(' | ') : 'none'}</div>
-          </div>
-          <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
-            <div><strong>Loot</strong></div>
-            <div class="small" style="margin-top:0.35rem;">Metal ${fmt(loot.metal || 0)} | Crystal ${fmt(loot.crystal || 0)} | Deuterium ${fmt(loot.deuterium || 0)} | Rare Earth ${fmt(loot.rare_earth || 0)}</div>
-          </div>
-          <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
-            <div><strong>Modifier Breakdown</strong></div>
-            <div class="small" style="margin-top:0.35rem; display:grid; gap:0.55rem;">
-              ${renderModifierRows('attacker', 'Attacker')}
-              ${renderModifierRows('defender', 'Defender')}
-            </div>
-          </div>
-          ${rounds.length ? (() => {
-            const maxAtkInt = Math.max(1, ...rounds.map((rd) => Number(rd.attacker_integrity_remaining || 0)));
-            const maxDefInt = Math.max(1, ...rounds.map((rd) => Number(rd.defender_integrity_remaining || 0)));
-            return `
-            <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
-              <div><strong>Round Flow</strong></div>
-              <div class="small" style="margin-top:0.35rem; display:grid; gap:0.35rem;">
-                ${rounds.map((round) => {
-                  const atkInt = Number(round.attacker_integrity_remaining || 0);
-                  const defInt = Number(round.defender_integrity_remaining || 0);
-                  const atkIntPct = Math.round((atkInt / maxAtkInt) * 100);
-                  const defIntPct = Math.round((defInt / maxDefInt) * 100);
-                  const atkIntTone = atkIntPct < 30 ? 'is-critical' : (atkIntPct < 60 ? 'is-warning' : 'is-good');
-                  const defIntTone = defIntPct < 30 ? 'is-critical' : (defIntPct < 60 ? 'is-warning' : 'is-good');
-                  return `
-                  <div style="padding:0.45rem 0.55rem; border:1px solid #314154; border-radius:8px; background:#0d1420;">
-                    <div style="font-weight:700; color:#eef4ff;">Round ${fmt(round.round || 0)}${round.decisive ? ' \u25CF Decisive' : ''}</div>
-                    <div style="margin:0.25rem 0;">Pressure A/D: ${fmt(round.attacker_pressure || 0)} / ${fmt(round.defender_pressure || 0)}</div>
-                    <div class="entity-bar-row" title="Attacker integrity ${fmt(atkInt)}" style="margin-bottom:0.15rem;">
-                      <span class="entity-bar-label" style="min-width:2.4rem;">A-Int</span>
-                      <div class="bar-wrap"><div class="bar-fill bar-integrity ${atkIntTone}" style="width:${atkIntPct}%"></div></div>
-                      <span class="entity-bar-value">${fmt(atkInt)}</span>
-                    </div>
-                    <div class="entity-bar-row" title="Defender integrity ${fmt(defInt)}">
-                      <span class="entity-bar-label" style="min-width:2.4rem;">D-Int</span>
-                      <div class="bar-wrap"><div class="bar-fill bar-shield ${defIntTone}" style="width:${defIntPct}%"></div></div>
-                      <span class="entity-bar-value">${fmt(defInt)}</span>
-                    </div>
-                    <div style="margin-top:0.25rem;">Swing: ${esc(fmtName(String(round.swing || 'neutral')))}${round.outcome ? ' | Outcome: ' + esc(fmtName(String(round.outcome))) : ''}</div>
-                  </div>`;
-                }).join('')}
-              </div>
-            </div>`;
-          })() : ''}
-          ${explain.length ? `
-            <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
-              <div><strong>Explainability</strong></div>
-              <div class="small" style="margin-top:0.35rem; display:grid; gap:0.25rem;">
-                ${explain.map((item) => `<div>${esc(fmtName(String(item.factor || 'factor')))}: ${fmt(Number(item.impact_pct || 0))}%</div>`).join('')}
-              </div>
-            </div>
-          ` : ''}
-        </div>`;
-    }
-
-    closeBattleDetailOverlay() {
-      document.getElementById('intel-battle-detail-overlay')?.remove();
-    }
-
-    async openBattleDetail(reportId) {
-      const id = Number(reportId || 0);
-      if (!id) return;
-
-      this.closeBattleDetailOverlay();
-
-      const overlay = document.createElement('div');
-      overlay.id = 'intel-battle-detail-overlay';
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(5,8,14,0.76);z-index:10020;display:flex;align-items:center;justify-content:center;padding:20px;';
-      overlay.innerHTML = `
-        <div style="width:min(860px, 100%); max-height:88vh; overflow:auto; background:#0f1724; border:1px solid #4d6078; border-radius:14px; padding:18px; box-shadow:0 24px 80px rgba(0,0,0,0.45);">
-          <div style="display:flex; justify-content:space-between; gap:1rem; align-items:center; margin-bottom:0.9rem;">
-            <div style="font-weight:800; font-size:1.1rem; color:#eef4ff;">Battle Detail</div>
-            <button id="intel-battle-detail-close" class="btn btn-sm">Close</button>
-          </div>
-          <div id="intel-battle-detail-body" class="text-muted small">Loading battle detail...</div>
-        </div>`;
-      document.body.appendChild(overlay);
-
-      overlay.addEventListener('click', (event) => {
-        if (event.target === overlay) {
-          this.closeBattleDetailOverlay();
-        }
-      });
-      overlay.querySelector('#intel-battle-detail-close')?.addEventListener('click', () => this.closeBattleDetailOverlay());
-
-      try {
-        let payload = this.battleDetailCache.get(id);
-        if (!payload) {
-          payload = await API.battleReportDetail(id);
-          if (payload?.success) {
-            this.battleDetailCache.set(id, payload);
-          }
-        }
-        if (!payload?.success) {
-          throw new Error(payload?.error || 'Failed to load battle detail.');
-        }
-        const body = overlay.querySelector('#intel-battle-detail-body');
-        if (body) {
-          body.innerHTML = this.renderBattleDetailBody(payload);
-        }
-      } catch (err) {
-        const body = overlay.querySelector('#intel-battle-detail-body');
-        if (body) {
-          body.innerHTML = `<div class="text-red">${esc(String(err?.message || 'Failed to load battle detail.'))}</div>`;
-        }
-        showToast(String(err?.message || 'Failed to load battle detail.'), 'error');
-      }
-    }
-
-    renderMatchupScanPanel(fleets = []) {
-      const options = fleets.length
-        ? fleets.map((fleet) => `<option value="${Number(fleet.id || 0)}">Fleet #${Number(fleet.id || 0)} | ${esc(String(fleet.mission || 'unknown'))}</option>`).join('')
-        : '<option value="">No fleets available</option>';
-      const last = this.lastMatchupScan;
-      let resultHtml = '<div class="text-muted small">Run a scan to estimate winrate and loss expectations against one or more target colonies.</div>';
-      if (last && Array.isArray(last.ranking)) {
-        resultHtml = `
-          <div class="system-row small" style="margin-top:0.45rem; color:#b8c7d9;">
-            Seed: ${esc(String(last.seed || '').slice(0, 12))} | Targets: ${fmt(last.targets_scanned || 0)} | Iterations: ${fmt(last.iterations || 0)}
-          </div>
-          <div style="margin-top:0.55rem; display:grid; gap:0.45rem;">
-            ${last.ranking.map((row) => `
-              <div style="padding:0.45rem 0.55rem; border:1px solid #45556d; border-radius:8px; background:#111927;">
-                <div style="font-weight:700;">Target Colony #${fmt(row.target_colony_id || 0)}</div>
-                <div class="small" style="color:#d7dfef; margin-top:0.2rem;">
-                  Winrate: ${fmt((Number(row.attacker_winrate_estimate || 0) * 100).toFixed(2))}% |
-                  Dice Var: ${fmt(row.dice_variance_avg || 0)} |
-                  Loss A/D: ${fmt((Number(row.expected_loss_fraction_avg?.attacker || 0) * 100).toFixed(2))}% / ${fmt((Number(row.expected_loss_fraction_avg?.defender || 0) * 100).toFixed(2))}%
-                </div>
-              </div>
-            `).join('')}
-          </div>`;
-      }
-
-      return `
-        <div class="system-card" style="margin-bottom:1rem;">
-          <div class="system-row"><strong>Combat Matchup Scan</strong></div>
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:0.6rem; margin-top:0.65rem;">
-            <label class="small" style="display:flex; flex-direction:column; gap:0.25rem;">
-              <span>Attacker Fleet</span>
-              <select id="intel-matchup-fleet" class="input">${options}</select>
-            </label>
-            <label class="small" style="display:flex; flex-direction:column; gap:0.25rem;">
-              <span>Target Colony IDs</span>
-              <input id="intel-matchup-targets" class="input" placeholder="195,196,197" />
-            </label>
-            <label class="small" style="display:flex; flex-direction:column; gap:0.25rem;">
-              <span>Iterations</span>
-              <input id="intel-matchup-iterations" class="input" type="number" min="1" max="2000" value="200" />
-            </label>
-            <label class="small" style="display:flex; flex-direction:column; gap:0.25rem;">
-              <span>Seed</span>
-              <input id="intel-matchup-seed" class="input" placeholder="scan_v1" />
-            </label>
-          </div>
-          <div style="margin-top:0.65rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
-            <button id="intel-run-matchup-scan" class="btn">Run Scan</button>
-            <button id="intel-clear-matchup-scan" class="btn btn-sm">Clear</button>
-          </div>
-          <div id="intel-matchup-results" style="margin-top:0.8rem;">${resultHtml}</div>
-        </div>`;
-    }
-
-    attachEventListeners(root) {
-      root.querySelectorAll('[data-battle-detail]').forEach((btn) => {
-        btn.addEventListener('click', async (event) => {
-          const reportId = Number(event.currentTarget?.dataset?.battleDetail || 0);
-          await this.openBattleDetail(reportId);
-        });
-      });
-
-      root.querySelector('#intel-run-matchup-scan')?.addEventListener('click', async () => {
-        const fleetId = Number(root.querySelector('#intel-matchup-fleet')?.value || 0);
-        const targetsRaw = String(root.querySelector('#intel-matchup-targets')?.value || '');
-        const iterations = Number(root.querySelector('#intel-matchup-iterations')?.value || 200);
-        const seed = String(root.querySelector('#intel-matchup-seed')?.value || '').trim();
-        const targetIds = targetsRaw.split(',').map((v) => Number(String(v).trim())).filter((v) => Number.isFinite(v) && v > 0);
-
-        if (!fleetId) {
-          showToast('Select an attacker fleet first.', 'warning');
-          return;
-        }
-        if (!targetIds.length) {
-          showToast('Enter at least one target colony id.', 'warning');
-          return;
-        }
-
-        const resultRoot = root.querySelector('#intel-matchup-results');
-        if (resultRoot) resultRoot.innerHTML = '<div class="text-muted small">Running scan...</div>';
-
-        try {
-          const response = await API.matchupScan({
-            attacker_fleet_id: fleetId,
-            target_colony_ids: targetIds,
-            iterations: Math.max(1, Math.min(2000, iterations || 200)),
-            deterministic_seed: seed || undefined,
-          });
-          if (!response.success || !response.scan) {
-            throw new Error(response.error || 'Matchup scan failed.');
-          }
-          this.lastMatchupScan = response.scan;
-          await this.render();
-          showToast('Combat matchup scan complete.', 'success');
-        } catch (err) {
-          if (resultRoot) resultRoot.innerHTML = '<div class="text-red small">Scan failed.</div>';
-          showToast(String(err?.message || 'Matchup scan failed.'), 'error');
-        }
-      });
-
-      root.querySelector('#intel-clear-matchup-scan')?.addEventListener('click', async () => {
-        this.lastMatchupScan = null;
-        await this.render();
-      });
-    }
-
-    async render() {
-      const root = WM.body('intel');
-      if (!root) return;
-
-      root.innerHTML = uiKitSkeletonHTML();
-
-      try {
-        const [spyResponse, battleResponse, fleetsResponse] = await Promise.all([
-          API.spyReports(),
-          API.battleReports(),
-          API.fleets(),
-        ]);
-        if (!spyResponse.success || !Array.isArray(spyResponse.spy_reports)) {
-          root.innerHTML = '<p class="text-red">Failed to load intel reports.</p>';
-          return;
-        }
-
-        const battleReports = battleResponse?.success && Array.isArray(battleResponse.battle_reports)
-          ? battleResponse.battle_reports
-          : [];
-        const fleets = fleetsResponse?.success && Array.isArray(fleetsResponse.fleets)
-          ? fleetsResponse.fleets
-          : [];
-
-        const spyReports = spyResponse.spy_reports;
-        if (!spyReports.length && !battleReports.length) {
-          root.innerHTML = this.renderMatchupScanPanel(fleets) + uiKitEmptyStateHTML('No intel reports yet', 'Launch reconnaissance or battle missions to collect fresh intel.');
-          this.attachEventListeners(root);
-          return;
-        }
-
-        let html = '<div>';
-        html += this.renderMatchupScanPanel(fleets);
-        const sharedBadge = spyResponse.alliance_shared ? ' <span class="lb-alliance-tag">Alliance shared</span>' : '';
-        html += `<div class="system-card" style="margin-bottom:1rem"><div class="system-row"><strong>Spy Reports (${spyReports.length})</strong>${sharedBadge}</div></div>`;
-        for (const report of spyReports) {
-          html += this.renderSpyReportCard(report);
-        }
-        html += `<div class="system-card" style="margin:1rem 0"><div class="system-row"><strong>Battle Reports (${battleReports.length})</strong></div></div>`;
-        for (const report of battleReports) {
-          html += this.renderBattleReportCard(report);
-        }
-        html += '</div>';
-        root.innerHTML = html;
-        this.attachEventListeners(root);
-      } catch (e) {
-        root.innerHTML = '<p class="text-red">Error: ' + esc(String(e.message || 'Unknown error')) + '</p>';
-      }
-    }
-  }
-
-  const intelController = new IntelController();
+  const runtimeIntelControllerApi = requireRuntimeApi('GQRuntimeIntelController', ['createIntelController']);
+  const intelController = runtimeIntelControllerApi.createIntelController({
+    wm: WM,
+    api: API,
+    documentRef: document,
+    uiKitSkeletonHTML,
+    uiKitEmptyStateHTML,
+    esc,
+    fmt,
+    fmtName,
+    showToast,
+    getCurrentColony: () => currentColony,
+  });
   window.GQIntelController = intelController;
 
   // ÔöÇÔöÇ Intel window ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
@@ -13088,6 +4222,39 @@
 
     renderRouteCard(route) {
       const routeId = route.id;
+      const intervalHours = Number(route.interval_hours || 24);
+      const isDue = !!route.is_due;
+      const isActive = !!route.is_active;
+      
+      let nextExecProgressPct = isDue ? 100 : 0;
+      let nextExecTone = 'is-good';
+      let nextExecHtml = '';
+      
+      if (route.next_execution_at || route.last_execution_at) {
+        const nextExecTime = route.next_execution_at ? new Date(route.next_execution_at).getTime() : null;
+        const lastExecTime = route.last_execution_at ? new Date(route.last_execution_at).getTime() : null;
+        const now = Date.now();
+        
+        if (nextExecTime) {
+          const intervalMs = intervalHours * 3600000;
+          const timeUntilNextMs = Math.max(0, nextExecTime - now);
+          nextExecProgressPct = Math.min(100, Math.round((1 - (timeUntilNextMs / intervalMs)) * 100));
+        } else if (lastExecTime) {
+          const intervalMs = intervalHours * 3600000;
+          const timeSinceLastMs = now - lastExecTime;
+          nextExecProgressPct = Math.min(100, Math.round((timeSinceLastMs / intervalMs) * 100));
+        }
+        
+        nextExecTone = nextExecProgressPct < 30 ? 'is-good' : (nextExecProgressPct < 70 ? 'is-warning' : 'is-critical');
+        nextExecHtml = `<div class="entity-bars" style="margin-top:0.4rem;">
+          <div class="entity-bar-row" title="Next execution in ${intervalHours - Math.floor(nextExecProgressPct / 100 * intervalHours)}h">
+            <span class="entity-bar-label" style="font-size:0.75rem;">Next</span>
+            <div class="bar-wrap"><div class="bar-fill bar-integrity ${nextExecTone}" style="width:${nextExecProgressPct}%"></div></div>
+            <span class="entity-bar-value" style="font-size:0.75rem;">${nextExecProgressPct}%</span>
+          </div>
+        </div>`;
+      }
+      
       const html = `
         <div class="route-card" style="padding: 8px; border: 1px solid #777; border-radius: 4px; background: #1a1a1a;">
           <div style="font-weight: bold; margin-bottom: 4px;">
@@ -13103,7 +4270,8 @@
             ${route.is_due ? ' <span style="color: #f00;">[DUE NOW]</span>' : ''}
             ${!route.is_active ? ' <span style="color: #f80;">[PAUSED]</span>' : ''}
           </div>
-          <div style="display: flex; gap: 4px;">
+          ${nextExecHtml}
+          <div style="display: flex; gap: 4px; margin-top:6px;">
             <button data-toggle-route="${routeId}" class="btn" style="flex: 1; padding: 4px;">
               ${route.is_active ? 'Pause' : 'Resume'}
             </button>
@@ -13167,487 +4335,18 @@
 
   // ÔöÇÔöÇ Alliances Controller ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
-  class AlliancesController {
-    constructor() {
-      this.alliances = [];
-      this.userAlliance = null;
-      this.allianceDetails = null;
-    }
-
-    async render() {
-      const root = WM.body('alliances');
-      if (!root) return;
-
-      root.innerHTML = uiKitSkeletonHTML();
-
-      try {
-        const data = await API.alliances();
-        this.alliances = data.alliances || [];
-        this.userAlliance = data.user_alliance_id;
-
-        let html = '<div style="padding: 8px;">';
-
-        if (this.userAlliance) {
-          // Show user's alliance details
-          html += `<div style="margin-bottom: 12px; padding: 8px; background: #1a3a2a; border: 1px solid #4a8;border-radius:4px;">
-            <button class="btn" onclick="GQAlliancesController.showAllianceDetails(${this.userAlliance})" style="width:100%;text-align:left;">View My Alliance</button>
-            <button class="btn btn-sm" style="margin-top:4px;width:100%;background:#8b4444;" onclick="GQAlliancesController.showLeaveDialog();">Leave Alliance</button>
-          </div>`;
-        } else {
-          // Show create alliance button
-          html += `<div style="margin-bottom: 12px;">
-            <button class="btn" onclick="GQAlliancesController.showCreateDialog()" style="width:100%;">Create Alliance</button>
-          </div>`;
-        }
-
-        // List all alliances
-        html += '<div style="margin-top: 12px; border-top: 1px solid #555; padding-top: 8px;"><strong>All Alliances</strong></div>';
-        if (this.alliances.length === 0) {
-          html += uiKitEmptyStateHTML('No alliances found', 'Start a new alliance and invite trusted commanders.');
-        } else {
-          html += '<div style="display: grid; gap: 6px; margin-top: 6px;">';
-          for (const alliance of this.alliances) {
-            html += this.renderAllianceCard(alliance);
-          }
-          html += '</div>';
-        }
-
-        html += '</div>';
-        root.innerHTML = html;
-      } catch (e) {
-        root.innerHTML = '<p class="text-red">Error: ' + esc(String(e.message || 'Unknown error')) + '</p>';
-      }
-    }
-
-    renderAllianceCard(alliance) {
-      const canJoin = !this.userAlliance;
-      return `
-        <div style="padding:8px;border:1px solid #666;border-radius:4px;background:#0a0a0a;">
-          <div style="font-weight:bold;">[${esc(alliance.tag)}] ${esc(alliance.name)}</div>
-          <div style="font-size:0.85em;color:#bbb;margin:4px 0;">Leader ${esc(alliance.leader_name)} | ${alliance.member_count} members</div>
-          ${alliance.description ? `<div style="font-size:0.8em;color:#aaa;margin:4px 0;max-height:2.5em;overflow:hidden;">${esc(alliance.description)}</div>` : ''}
-          <div style="display:flex;gap:4px;margin-top:6px;">
-            <button class="btn btn-sm" onclick="GQAlliancesController.showAllianceDetails(${alliance.id})" style="flex:1;">View</button>
-            ${canJoin ? `<button class="btn btn-sm" onclick="GQAlliancesController.joinAlliance(${alliance.id})" style="flex:1;background:#3a4;">Join</button>` : ''}
-          </div>
-        </div>
-      `;
-    }
-
-    async showAllianceDetails(allianceId) {
-      try {
-        const data = await API.allianceDetails(allianceId);
-        const alliance = data.alliance;
-        const members = data.members || [];
-        const isMember = data.is_member;
-        const isLeader = isMember && data.user_role === 'leader';
-
-        // Load relations if member
-        let relations = [];
-        if (isMember) {
-          try {
-            const relData = await API.allianceRelations(allianceId);
-            relations = relData.relations || [];
-          } catch (e) {
-            console.warn('Failed to load relations:', e);
-          }
-        }
-
-        let html = `
-          <div style="padding:12px;overflow-y:auto;max-height:100%;font-size:0.9em;">
-            <div style="font-size:1.1em;font-weight:bold;margin-bottom:8px;">
-              [${esc(alliance.tag)}] ${esc(alliance.name)}
-            </div>
-            ${alliance.description ? `<div style="color:#bbb;margin-bottom:8px;">${esc(alliance.description)}</div>` : ''}
-            <div style="border-bottom:1px solid #555;padding-bottom:8px;margin-bottom:8px;font-size:0.85em;color:#aaa;">
-              Leader: ID ${alliance.leader_id} | Founded: ${new Date(alliance.created_at).toLocaleDateString()}
-            </div>
-            
-            ${isMember ? `
-              <div style="background:#1a3a2a;padding:6px;border-radius:4px;margin-bottom:8px;font-size:0.85em;">
-                <div style="font-weight:bold;color:#4f8;">Member (${esc(data.user_role)})</div>
-              </div>
-            ` : ''}
-
-            <div style="margin-bottom:8px;">
-              <strong>Treasury</strong>
-              <div style="font-size:0.8em;color:#bbb;margin-top:4px;">
-                Metal ${fmt(alliance.treasury.metal)} | Crystal ${fmt(alliance.treasury.crystal)} | Deuterium ${fmt(alliance.treasury.deuterium)} | Dark Matter ${fmt(alliance.treasury.dark_matter)}
-              </div>
-            </div>
-
-            <div style="margin-bottom:8px;">
-              <strong>Members (${members.length})</strong>
-              <div style="background:#0a0a0a;border:1px solid #555;border-radius:4px;max-height:120px;overflow-y:auto;margin-top:4px;font-size:0.8em;">
-                ${members.map(m => `
-                  <div style="padding:3px 6px;border-bottom:1px solid #333;">
-                    <strong style="color:${m.role === 'leader' ? '#ff8' : m.role === 'diplomat' ? '#8ff' : '#fff'};">${esc(m.username)}</strong>
-                    <span style="color:#999;"> (${esc(m.role)})</span>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-
-            ${relations.length > 0 ? `
-              <div style="margin-bottom:8px;">
-                <strong>Diplomacy Relations</strong>
-                <div style="background:#0a0a0a;border:1px solid #555;border-radius:4px;max-height:120px;overflow-y:auto;margin-top:4px;font-size:0.8em;">
-                  ${relations.map(r => {
-                    const icon = {
-                      'war': 'WAR',
-                      'enemy': 'ENEMY',
-                      'alliance': 'ALLY',
-                      'nap': 'NAP',
-                      'neutral': 'NEUTRAL'
-                    }[r.relation_type] || '?';
-                    const color = {
-                      'war': '#f44',
-                      'enemy': '#f44',
-                      'alliance': '#4f4',
-                      'nap': '#ff8',
-                      'neutral': '#888'
-                    }[r.relation_type] || '#fff';
-                    const label = r.other_alliance_name ? `[${r.other_alliance_tag}] ${r.other_alliance_name}` : `Player: ${r.other_user_name}`;
-                    return `<div style="padding:3px 6px;border-bottom:1px solid #333;color:${color};">${icon} ${esc(label)} (${r.relation_type})</div>`;
-                  }).join('')}
-                </div>
-              </div>
-            ` : ''}
-
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:12px;font-size:0.85em;">
-              ${isMember ? `
-                <button class="btn btn-sm" onclick="GQAlliancesController.showChatDialog(${allianceId})" style="background:#448;">Chat</button>
-                <button class="btn btn-sm" onclick="GQAlliancesController.showContributeDialog(${allianceId})" style="background:#484;">Contribute</button>
-              ` : ''}
-              ${isLeader ? `
-                <button class="btn btn-sm" onclick="GQAlliancesController.showDiplomacyDialog(${allianceId})" style="background:#844;">Diplomacy</button>
-                <button class="btn btn-sm" onclick="GQAlliancesController.showManageMembersDialog(${allianceId})" style="background:#448;">Members</button>
-              ` : ''}
-              ${isMember ? `
-                <button class="btn btn-sm" onclick="GQAlliancesController.showLeaveDialog()" style="background:#844;">Leave</button>
-              ` : `
-                <button class="btn btn-sm" onclick="GQAlliancesController.joinAlliance(${allianceId})" style="background:#3a4;">Join</button>
-              `}
-              <button class="btn btn-sm" onclick="GQAlliancesController.render()" style="background:#555;">Back</button>
-            </div>
-          </div>
-        `;
-
-        const root = WM.body('alliances');
-        if (root) root.innerHTML = html;
-      } catch (e) {
-        showToast('Error loading alliance: ' + String(e.message), 'error');
-      }
-    }
-
-    showCreateDialog() {
-      const dialog = document.createElement('div');
-      dialog.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#222;border:2px solid #777;border-radius:4px;padding:16px;z-index:10000;width:90%;max-width:420px;';
-      dialog.innerHTML = `
-        <h3 style="margin: 0 0 12px 0;">Create Alliance</h3>
-        <label style="display:block;margin-bottom:8px;">
-          Name <span style="color:#f88;">*</span>
-          <input type="text" id="alliance-name-input" placeholder="e.g., Unified Empire" style="width:100%;margin-top:4px;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;" maxlength="64" />
-        </label>
-        <label style="display:block;margin-bottom:8px;">
-          Tag <span style="color:#f88;">*</span>
-          <input type="text" id="alliance-tag-input" placeholder="e.g., UE" style="width:100%;margin-top:4px;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;" maxlength="4" />
-        </label>
-        <label style="display:block;margin-bottom:12px;">
-          Description
-          <textarea id="alliance-desc-input" placeholder="Optional..." style="width:100%;margin-top:4px;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;height:80px;resize:none;" maxlength="500"></textarea>
-        </label>
-        <div style="display:flex;gap:8px;">
-          <button class="btn" onclick="GQAlliancesController.doCreateAlliance()" style="flex:1;">Create</button>
-          <button class="btn btn-sm" onclick="this.closest('div').remove();" style="flex:1;">Cancel</button>
-        </div>
-      `;
-      document.body.appendChild(dialog);
-    }
-
-    async doCreateAlliance() {
-      try {
-        const name = document.getElementById('alliance-name-input')?.value || '';
-        const tag = document.getElementById('alliance-tag-input')?.value || '';
-        const description = document.getElementById('alliance-desc-input')?.value || '';
-
-        const response = await API.createAlliance({ name, tag, description });
-        document.querySelector('[style*="position:fixed"]')?.remove();
-        showToast(`Alliance "${response.name}" created! [${response.tag}]`, 'success');
-        _invalidateGetCache([/api\/alliances\.php/i]);
-        await this.render();
-      } catch (e) {
-        showToast('Error: ' + String(e.message), 'error');
-      }
-    }
-
-    async joinAlliance(allianceId) {
-      if (!confirm('Join this alliance?')) return;
-      try {
-        await API.joinAlliance(allianceId);
-        showToast('Joined alliance!', 'success');
-        _invalidateGetCache([/api\/alliances\.php/i]);
-        await this.render();
-      } catch (e) {
-        showToast('Error: ' + String(e.message), 'error');
-      }
-    }
-
-    showLeaveDialog() {
-      if (!confirm('Leave your alliance?')) return;
-      // TODO: implement
-      showToast('Not yet ready', 'warning');
-    }
-
-    async showChatDialog(allianceId) {
-      try {
-        const data = await API.allianceMessages(allianceId);
-        const messages = data.messages || [];
-
-        let html = `
-          <div style="padding:12px;">
-            <h4 style="margin:0 0 12px 0;">Alliance Chat</h4>
-            <div style="background:#0a0a0a;border:1px solid #555;border-radius:4px;height:300px;overflow-y:auto;margin-bottom:8px;padding:8px;">
-              ${messages.length === 0 ? '<div class="text-muted">No messages yet.</div>' : messages.map(m => `
-                <div style="margin-bottom:6px;padding:4px;border-bottom:1px solid #333;">
-                  <div style="font-weight:bold;color:#8f8;">${esc(m.author_name)}</div>
-                  <div style="color:#ccc;font-size:0.9em;margin:2px 0;">${esc(m.text)}</div>
-                  <div style="color:#666;font-size:0.75em;">${new Date(m.created_at).toLocaleTimeString()}</div>
-                </div>
-              `).join('')}
-            </div>
-            <div style="display:flex;gap:4px;">
-              <input type="text" id="alliance-chat-input" placeholder="Message..." style="flex:1;padding:6px;border:1px solid #666;background:#0a0a0a;color:#fff;" />
-              <button class="btn btn-sm" onclick="GQAlliancesController.doSendChatMessage(${allianceId})">Send</button>
-            </div>
-            <button class="btn btn-sm" onclick="GQAlliancesController.showAllianceDetails(${allianceId})" style="margin-top:8px;width:100%;">ÔåÉ Close</button>
-          </div>
-        `;
-
-        const root = WM.body('alliances');
-        if (root) root.innerHTML = html;
-      } catch (e) {
-        showToast('Error: ' + String(e.message), 'error');
-      }
-    }
-
-    async doSendChatMessage(allianceId) {
-      const input = document.getElementById('alliance-chat-input');
-      const msg = input?.value || '';
-      if (!msg.trim()) return;
-
-      try {
-        await API.sendAllianceMessage(allianceId, msg);
-        input.value = '';
-        _invalidateGetCache([/api\/alliances\.php\?action=get_messages/i]);
-        await this.showChatDialog(allianceId);
-      } catch (e) {
-        showToast('Error: ' + String(e.message), 'error');
-      }
-    }
-
-    showContributeDialog(allianceId) {
-      const dialog = document.createElement('div');
-      dialog.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#222;border:2px solid #777;border-radius:4px;padding:16px;z-index:10000;width:90%;max-width:380px;font-size:0.9em;';
-      dialog.innerHTML = `
-        <h3 style="margin: 0 0 12px 0;">Contribute to Treasury</h3>
-        <label style="display:block;margin-bottom:8px;">
-          Metal <input type="number" id="contrib-metal" value="0" min="0" style="width:100%;margin-top:4px;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;" />
-        </label>
-        <label style="display:block;margin-bottom:8px;">
-          Crystal <input type="number" id="contrib-crystal" value="0" min="0" style="width:100%;margin-top:4px;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;" />
-        </label>
-        <label style="display:block;margin-bottom:12px;">
-          Deuterium <input type="number" id="contrib-deuterium" value="0" min="0" style="width:100%;margin-top:4px;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;" />
-        </label>
-        <div style="display:flex;gap:8px;">
-          <button class="btn" onclick="GQAlliancesController.doContribute(${allianceId})" style="flex:1;">Ô£ô Contribute</button>
-          <button class="btn btn-sm" onclick="this.closest('div').remove();" style="flex:1;">Ô£ò Cancel</button>
-        </div>
-      `;
-      document.body.appendChild(dialog);
-    }
-
-    async doContribute(allianceId) {
-      const metal = parseFloat(document.getElementById('contrib-metal')?.value || 0);
-      const crystal = parseFloat(document.getElementById('contrib-crystal')?.value || 0);
-      const deuterium = parseFloat(document.getElementById('contrib-deuterium')?.value || 0);
-
-      if (metal < 0 || crystal < 0 || deuterium < 0) {
-        showToast('Resources must be non-negative.', 'error');
-        return;
-      }
-
-      try {
-        await API.contributeAlliance({ alliance_id: allianceId, metal, crystal, deuterium });
-        document.querySelector('[style*="position:fixed"]')?.remove();
-        showToast('Resources contributed!', 'success');
-        _invalidateGetCache([/api\/alliances\.php/i]);
-        await this.showAllianceDetails(allianceId);
-      } catch (e) {
-        showToast('Error: ' + String(e.message), 'error');
-      }
-    }
-
-    showDiplomacyDialog(allianceId) {
-      const dialog = document.createElement('div');
-      dialog.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#222;border:2px solid #777;border-radius:4px;padding:16px;z-index:10000;width:90%;max-width:400px;font-size:0.9em;';
-      dialog.innerHTML = `
-        <h3 style="margin: 0 0 12px 0;">­ƒñØ Diplomacy</h3>
-        <div style="margin-bottom:12px;">
-          <div style="color:#aaa;margin-bottom:8px;"><strong>Target Type</strong></div>
-          <select id="diplo-target-type" style="width:100%;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;">
-            <option value="alliance">Alliance</option>
-            <option value="player">Player</option>
-          </select>
-        </div>
-        <div style="margin-bottom:12px;">
-          <div style="color:#aaa;margin-bottom:8px;"><strong>Target ID</strong></div>
-          <input type="number" id="diplo-target-id" min="1" style="width:100%;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;" placeholder="Alliance/Player ID" />
-        </div>
-        <div style="margin-bottom:12px;">
-          <div style="color:#aaa;margin-bottom:8px;"><strong>Action</strong></div>
-          <select id="diplo-action" style="width:100%;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;">
-            <option value="war">ÔÜö Declare War</option>
-            <option value="nap">Ô£ï Non-Aggression Pact</option>
-            <option value="alliance">Ô£ª Propose Alliance</option>
-            <option value="enemy">­ƒÆÇ Mark as Enemy</option>
-            <option value="neutral">ÔÇô Neutral</option>
-          </select>
-        </div>
-        <div id="diplo-nap-days" style="display:none;margin-bottom:12px;">
-          <div style="color:#aaa;margin-bottom:8px;"><strong>Duration (days)</strong></div>
-          <input type="number" id="diplo-nap-value" value="7" min="1" max="365" style="width:100%;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;" />
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn" onclick="GQAlliancesController.doDiplomacy(${allianceId})" style="flex:1;">Ô£ô Execute</button>
-          <button class="btn btn-sm" onclick="this.closest('div').remove();" style="flex:1;">Ô£ò Cancel</button>
-        </div>
-      `;
-      document.body.appendChild(dialog);
-
-      // Show NAP days input only for NAP
-      document.getElementById('diplo-action')?.addEventListener('change', (e) => {
-        const napDaysDiv = document.getElementById('diplo-nap-days');
-        if (napDaysDiv) {
-          napDaysDiv.style.display = e.target.value === 'nap' ? 'block' : 'none';
-        }
-      });
-    }
-
-    async doDiplomacy(allianceId) {
-      const targetType = document.getElementById('diplo-target-type')?.value || 'alliance';
-      const targetId = parseInt(document.getElementById('diplo-target-id')?.value || 0);
-      const action = document.getElementById('diplo-action')?.value || 'war';
-      const napDays = parseInt(document.getElementById('diplo-nap-value')?.value || 7);
-
-      if (!targetId || targetId <= 0) {
-        showToast('Invalid target ID.', 'error');
-        return;
-      }
-
-      try {
-        const payload = { alliance_id: allianceId };
-        if (targetType === 'alliance') {
-          payload.target_alliance_id = targetId;
-        } else {
-          payload.target_user_id = targetId;
-        }
-
-        if (action === 'war') {
-          await API.declareWar(payload);
-          showToast('War declared!', 'success');
-        } else if (action === 'nap') {
-          payload.days = napDays;
-          await API.declareNap(payload);
-          showToast(`NAP declared for ${napDays} days!`, 'success');
-        } else if (action === 'alliance') {
-          await API.declareAllianceDiplomacy(payload);
-          showToast('Alliance proposed!', 'success');
-        } else {
-          // Use legacy set_relation for enemy/neutral
-          payload.relation_type = action;
-          await API.setAllianceRelation(payload);
-          showToast(`Relation set to ${action}.`, 'success');
-        }
-
-        document.querySelector('[style*="position:fixed"]')?.remove();
-        _invalidateGetCache([/api\/alliances\.php/i]);
-        await this.showAllianceDetails(allianceId);
-      } catch (e) {
-        showToast('Error: ' + String(e.message), 'error');
-      }
-    }
-
-    showManageMembersDialog(allianceId) {
-      const dialog = document.createElement('div');
-      dialog.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#222;border:2px solid #777;border-radius:4px;padding:16px;z-index:10000;width:90%;max-width:420px;font-size:0.9em;';
-      dialog.innerHTML = `
-        <h3 style="margin: 0 0 12px 0;">­ƒæÑ Manage Members</h3>
-        <div style="margin-bottom:12px;">
-          <div style="color:#aaa;margin-bottom:8px;"><strong>Member ID/Username</strong></div>
-          <input type="text" id="member-id-input" style="width:100%;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;" placeholder="User ID (numeric)" />
-        </div>
-        <div style="margin-bottom:12px;">
-          <div style="color:#aaa;margin-bottom:8px;"><strong>Action</strong></div>
-          <select id="member-action" style="width:100%;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;">
-            <option value="set_role">Change Role</option>
-            <option value="remove">Remove Member</option>
-          </select>
-        </div>
-        <div id="member-role-div" style="margin-bottom:12px;">
-          <div style="color:#aaa;margin-bottom:8px;"><strong>New Role</strong></div>
-          <select id="member-role" style="width:100%;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;">
-            <option value="diplomat">Diplomat</option>
-            <option value="officer">Officer</option>
-            <option value="member">Member</option>
-          </select>
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn" onclick="GQAlliancesController.doManageMember(${allianceId})" style="flex:1;">Ô£ô Execute</button>
-          <button class="btn btn-sm" onclick="this.closest('div').remove();" style="flex:1;">Ô£ò Cancel</button>
-        </div>
-      `;
-      document.body.appendChild(dialog);
-
-      document.getElementById('member-action')?.addEventListener('change', (e) => {
-        const roleDiv = document.getElementById('member-role-div');
-        if (roleDiv) {
-          roleDiv.style.display = e.target.value === 'set_role' ? 'block' : 'none';
-        }
-      });
-    }
-
-    async doManageMember(allianceId) {
-      const userId = parseInt(document.getElementById('member-id-input')?.value || 0);
-      const action = document.getElementById('member-action')?.value || 'set_role';
-
-      if (!userId || userId <= 0) {
-        showToast('Invalid user ID.', 'error');
-        return;
-      }
-
-      try {
-        if (action === 'remove') {
-          if (!confirm('Remove this member?')) return;
-          await API.removeAllianceMember({ alliance_id: allianceId, user_id: userId });
-          showToast('Member removed!', 'success');
-        } else {
-          const role = document.getElementById('member-role')?.value || 'member';
-          await API.setAllianceMemberRole({ alliance_id: allianceId, user_id: userId, role });
-          showToast(`Member role set to ${role}!`, 'success');
-        }
-
-        document.querySelector('[style*="position:fixed"]')?.remove();
-        _invalidateGetCache([/api\/alliances\.php/i]);
-        await this.showAllianceDetails(allianceId);
-      } catch (e) {
-        showToast('Error: ' + String(e.message), 'error');
-      }
-    }
-  }
-
-  const alliancesController = new AlliancesController();
+  const runtimeAlliancesControllerApi = requireRuntimeApi('GQRuntimeAlliancesController', ['createAlliancesController']);
+  const alliancesController = runtimeAlliancesControllerApi.createAlliancesController({
+    wm: WM,
+    api: API,
+    documentRef: document,
+    uiKitSkeletonHTML,
+    uiKitEmptyStateHTML,
+    esc,
+    fmt,
+    showToast,
+    invalidateGetCache: _invalidateGetCache,
+  });
   window.GQAlliancesController = alliancesController;
 
   async function renderAlliances() {
@@ -13655,583 +4354,33 @@
   }
 
   // ÔöÇÔöÇ Trade Proposals Controller ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-
-  class TradeProposalsController {
-        constructor() {
-          this._tab = 'inbox'; // 'inbox' | 'outbox'
-        }
-
-        async render() {
-          const root = WM.body('trade');
-          if (!root) return;
-          root.innerHTML = '<div class="text-muted" style="padding:8px;">LoadingÔÇª</div>';
-          try {
-            const data = await API.listTradeProposals();
-            const proposals = data.proposals || [];
-            const inbox  = proposals.filter(p => !p.is_mine);
-            const outbox = proposals.filter(p =>  p.is_mine);
-
-            const pendingInbox = inbox.filter(p => p.status === 'pending').length;
-            const pendingTab = pendingInbox > 0 ? ` <span style="background:#c44;border-radius:8px;padding:1px 6px;font-size:0.78em;">${pendingInbox}</span>` : '';
-
-            const tab = this._tab;
-            const items = tab === 'inbox' ? inbox : outbox;
-
-            let html = `<div style="padding:8px;">
-              <div style="display:flex;gap:6px;margin-bottom:10px;">
-                <button class="btn btn-sm${tab==='inbox'?'':' btn-secondary'}" style="flex:1;" onclick="GQTradeProposalsController._tab='inbox';GQTradeProposalsController.render()">
-                  ­ƒôÑ Inbox${pendingTab}
-                </button>
-                <button class="btn btn-sm${tab==='outbox'?'':' btn-secondary'}" style="flex:1;" onclick="GQTradeProposalsController._tab='outbox';GQTradeProposalsController.render()">
-                  ­ƒôñ Outbox
-                </button>
-                <button class="btn btn-sm btn-secondary" onclick="GQTradeProposalsController.showProposeDialog()" title="New Proposal">Ô×ò</button>
-              </div>`;
-
-            if (items.length === 0) {
-              html += `<div class="text-muted" style="padding:8px;text-align:center;">No proposals.</div>`;
-            } else {
-              for (const p of items) {
-                html += this._renderCard(p);
-              }
-            }
-            html += '</div>';
-            root.innerHTML = html;
-          } catch (e) {
-            root.innerHTML = `<div class="text-muted" style="padding:8px;">Error: ${esc(e.message)}</div>`;
-          }
-        }
-
-        _statusBadge(status) {
-          const map = { pending:'#bb8822', accepted:'#3a8', rejected:'#844', cancelled:'#555', expired:'#444' };
-          return `<span style="background:${map[status]??'#555'};border-radius:4px;padding:1px 6px;font-size:0.8em;">${esc(status)}</span>`;
-        }
-
-        _fmtRes(r) {
-          const parts = [];
-          if (r.metal     > 0) parts.push(`ÔÜÖ ${r.metal.toLocaleString()}`);
-          if (r.crystal   > 0) parts.push(`­ƒÆÄ ${r.crystal.toLocaleString()}`);
-          if (r.deuterium > 0) parts.push(`­ƒÆº ${r.deuterium.toLocaleString()}`);
-          return parts.length ? parts.join('  ') : 'ÔÇö';
-        }
-
-        _renderCard(p) {
-          const other = p.is_mine ? p.target_name : p.initiator_name;
-          const expires = new Date(p.expires_at).toLocaleDateString();
-          const actions = [];
-          if (p.status === 'pending') {
-            if (!p.is_mine) {
-              actions.push(`<button class="btn btn-sm" style="background:#3a8;" onclick="GQTradeProposalsController.doAccept(${p.id})">Ô£ô Accept</button>`);
-              actions.push(`<button class="btn btn-sm" style="background:#844;" onclick="GQTradeProposalsController.doReject(${p.id})">Ô£ù Reject</button>`);
-            } else {
-              actions.push(`<button class="btn btn-sm btn-secondary" onclick="GQTradeProposalsController.doCancel(${p.id})">Ô£ò Cancel</button>`);
-            }
-          }
-          return `<div style="border:1px solid #444;border-radius:6px;padding:8px;margin-bottom:6px;font-size:0.88em;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-              <strong>${esc(other)}</strong>
-              ${this._statusBadge(p.status)}
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:4px;">
-              <div><span style="color:#aaa;">Offers:</span><br>${this._fmtRes(p.offer)}</div>
-              <div><span style="color:#aaa;">Wants:</span><br>${this._fmtRes(p.request)}</div>
-            </div>
-            ${p.message ? `<div style="color:#aaa;font-size:0.85em;margin-bottom:4px;">"${esc(p.message)}"</div>` : ''}
-            <div style="color:#666;font-size:0.8em;">Expires ${esc(expires)}</div>
-            ${actions.length ? `<div style="display:flex;gap:4px;margin-top:6px;">${actions.join('')}</div>` : ''}
-          </div>`;
-        }
-
-        showProposeDialog(targetId = 0, targetName = '', options = {}) {
-          const existing = document.getElementById('trade-propose-dialog');
-          if (existing) existing.remove();
-
-          const config = getResourceInsightConfig(options.resourceKey);
-          const focusMode = String(options.mode || 'request');
-          const focusAmount = getSuggestedTradeAmount(config?.key || '', focusMode);
-          const offerDefaults = { metal: 0, crystal: 0, deuterium: 0 };
-          const requestDefaults = { metal: 0, crystal: 0, deuterium: 0 };
-          if (config?.tradeable && ['offer', 'request'].includes(focusMode)) {
-            if (focusMode === 'offer') offerDefaults[config.key] = focusAmount;
-            else requestDefaults[config.key] = focusAmount;
-          }
-
-          const div = document.createElement('div');
-          div.id = 'trade-propose-dialog';
-          div.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:#1a1a2e;border:1px solid #444;border-radius:8px;padding:16px;min-width:320px;max-width:400px;';
-          div.innerHTML = `
-            <h3 style="margin:0 0 12px;">­ƒÆ▒ New Trade Proposal</h3>
-            ${config?.tradeable ? `<div style="margin:-4px 0 10px;color:#9fb3d1;font-size:0.82em;">Fokus: ${esc(config.icon)} ${esc(config.label)} ┬À Bei Annahme starten echte Transportflotten. Flugzeit und Deuterium-Frachtkosten werden sofort gebunden.</div>` : ''}
-            <label class="system-row">Target Player (username)</label>
-            <input id="tp-target-name" type="text" placeholder="username" value="${esc(targetName)}" style="width:100%;box-sizing:border-box;" />
-            <div style="margin-top:10px;font-weight:bold;">You Offer</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:4px;">
-              <div><label style="font-size:0.8em;">ÔÜÖ Metal</label><input id="tp-om" type="number" min="0" value="${Math.round(offerDefaults.metal)}" style="width:100%;box-sizing:border-box;"/></div>
-              <div><label style="font-size:0.8em;">­ƒÆÄ Crystal</label><input id="tp-oc" type="number" min="0" value="${Math.round(offerDefaults.crystal)}" style="width:100%;box-sizing:border-box;"/></div>
-              <div><label style="font-size:0.8em;">­ƒÆº Deuterium</label><input id="tp-od" type="number" min="0" value="${Math.round(offerDefaults.deuterium)}" style="width:100%;box-sizing:border-box;"/></div>
-            </div>
-            <div style="margin-top:10px;font-weight:bold;">You Want</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:4px;">
-              <div><label style="font-size:0.8em;">ÔÜÖ Metal</label><input id="tp-rm" type="number" min="0" value="${Math.round(requestDefaults.metal)}" style="width:100%;box-sizing:border-box;"/></div>
-              <div><label style="font-size:0.8em;">­ƒÆÄ Crystal</label><input id="tp-rc" type="number" min="0" value="${Math.round(requestDefaults.crystal)}" style="width:100%;box-sizing:border-box;"/></div>
-              <div><label style="font-size:0.8em;">­ƒÆº Deuterium</label><input id="tp-rd" type="number" min="0" value="${Math.round(requestDefaults.deuterium)}" style="width:100%;box-sizing:border-box;"/></div>
-            </div>
-            <label class="system-row" style="margin-top:10px;">Message (optional)</label>
-            <input id="tp-msg" type="text" maxlength="500" placeholder="ÔÇª" style="width:100%;box-sizing:border-box;" />
-            <label class="system-row" style="margin-top:10px;">Expires in (days)</label>
-            <select id="tp-days" style="width:100%;box-sizing:border-box;">
-              <option value="1">1 day</option>
-              <option value="2" selected>2 days</option>
-              <option value="3">3 days</option>
-              <option value="7">7 days</option>
-            </select>
-            <div id="tp-err" style="color:#d66;font-size:0.85em;margin-top:6px;min-height:1em;"></div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button class="btn" style="flex:1;" onclick="GQTradeProposalsController.doPropose()">Ô£ô Send</button>
-              <button class="btn btn-secondary" onclick="document.getElementById('trade-propose-dialog').remove()">Cancel</button>
-            </div>`;
-          document.body.appendChild(div);
-        }
-
-        async doPropose() {
-          const err = v => { const el = document.getElementById('tp-err'); if (el) el.textContent = v; };
-          const targetName = (document.getElementById('tp-target-name')?.value ?? '').trim();
-          if (!targetName) return err('Please enter a target player.');
-
-          // Resolve username ÔåÆ id via leaderboard / players list
-          let targetId = 0;
-          try {
-            const lb = await API.get('api/game.php?action=leaderboard');
-            const match = (lb.leaderboard || lb.players || []).find(u =>
-              (u.username || u.name || '').toLowerCase() === targetName.toLowerCase()
-            );
-            if (!match) return err('Player not found.');
-            targetId = match.id || match.user_id;
-          } catch (e) { return err('Could not resolve player: ' + e.message); }
-
-          const data = {
-            target_id:        targetId,
-            offer_metal:      parseFloat(document.getElementById('tp-om')?.value || 0),
-            offer_crystal:    parseFloat(document.getElementById('tp-oc')?.value || 0),
-            offer_deuterium:  parseFloat(document.getElementById('tp-od')?.value || 0),
-            request_metal:    parseFloat(document.getElementById('tp-rm')?.value || 0),
-            request_crystal:  parseFloat(document.getElementById('tp-rc')?.value || 0),
-            request_deuterium:parseFloat(document.getElementById('tp-rd')?.value || 0),
-            message:          document.getElementById('tp-msg')?.value || '',
-            expire_days:      parseInt(document.getElementById('tp-days')?.value || 2),
-          };
-
-          try {
-            await API.proposeTrade(data);
-            document.getElementById('trade-propose-dialog')?.remove();
-            this.render();
-          } catch (e) {
-            err(e.message || 'Failed to send proposal.');
-          }
-        }
-
-        async doAccept(id) {
-          try {
-            const response = await API.acceptTrade(id);
-            const deliveries = Array.isArray(response?.deliveries) ? response.deliveries : [];
-            if (response?.success) {
-              const headline = deliveries.length
-                ? deliveries.map((entry) => `${entry.resource_label || 'Transport'} ETA ${new Date(entry.arrival_time).toLocaleTimeString()}`).join(' ┬À ')
-                : 'Transportauftrag gestartet.';
-              showToast(headline, 'success');
-              if (audioManager) audioManager.playUiConfirm();
-              await loadOverview();
-              WM.refresh('fleet');
-            }
-            this.render();
-          } catch (e) {
-            alert('Accept failed: ' + e.message);
-          }
-        }
-
-        async doReject(id) {
-          if (!confirm('Reject this trade proposal?')) return;
-          try {
-            await API.rejectTrade(id);
-            this.render();
-          } catch (e) {
-            alert('Reject failed: ' + e.message);
-          }
-        }
-
-        async doCancel(id) {
-          if (!confirm('Cancel this proposal?')) return;
-          try {
-            await API.cancelTrade(id);
-            this.render();
-          } catch (e) {
-            alert('Cancel failed: ' + e.message);
-          }
-        }
-      }
-
-      const tradeProposalsController = new TradeProposalsController();
-      window.GQTradeProposalsController = tradeProposalsController;
-
-  async function renderTradeProposals() {
+  const runtimeTradeProposalsControllerApi = requireRuntimeApi('GQRuntimeTradeProposalsController', ['createTradeProposalsController']);
+  const tradeProposalsController = runtimeTradeProposalsControllerApi.createTradeProposalsController({
+    wm: WM,
+    api: API,
+    documentRef: document,
+    esc,
+    showToast,
+    getAudioManager: () => audioManager,
+    onLoadOverview: loadOverview,
+    getResourceInsightConfig,
+    getSuggestedTradeAmount,
+  });
+  window.GQTradeProposalsController = tradeProposalsController;
+async function renderTradeProposals() {
     await tradeProposalsController.render();
   }
 
-  class LeadersController {
-    constructor() {
-      this._tab = 'my_leaders'; // 'my_leaders' | 'marketplace'
-      this.roleLabel = {
-        colony_manager:    '­ƒÅù Colony Manager',
-        fleet_commander:   'ÔÜö Fleet Commander',
-        science_director:  '­ƒö¼ Science Director',
-        diplomacy_officer: '­ƒòè Diplomacy Officer',
-        trade_director:    '­ƒÆ░ Trade Director',
-        advisor:           '­ƒºÖ Advisor',
-      };
-      this.rarityLabel = {
-        common:    'Common',
-        uncommon:  'Uncommon',
-        rare:      'Rare',
-        legendary: 'Ô£¿ Legendary',
-      };
-      this._styleInjected = false;
-    }
-
-    _injectCardStyles() {
-      if (this._styleInjected) return;
-      this._styleInjected = true;
-      const s = document.createElement('style');
-      s.textContent = `
-        .leader-tab-bar { display:flex; gap:0.5rem; margin-bottom:0.9rem; border-bottom:1px solid var(--border,#333); padding-bottom:0.4rem; }
-        .leader-tab-btn { background:none; border:none; color:var(--text-secondary,#aaa); cursor:pointer; padding:0.3rem 0.8rem; border-radius:4px 4px 0 0; font-size:0.85rem; }
-        .leader-tab-btn.active { background:var(--accent,#4a9eff22); color:var(--accent,#4a9eff); border-bottom:2px solid var(--accent,#4a9eff); }
-        .mkt-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:0.75rem; }
-        .leader-card { background:var(--panel-bg,#1a1a2e); border:1px solid var(--border,#333); border-radius:8px; padding:0.75rem; display:flex; flex-direction:column; gap:0.3rem; position:relative; }
-        .leader-card.rarity-uncommon { border-color:#4fc3f7; }
-        .leader-card.rarity-rare     { border-color:#a78bfa; }
-        .leader-card.rarity-legendary { border-color:#f59e0b; box-shadow:0 0 10px #f59e0b44; }
-        .leader-card.is-hired { opacity:0.55; }
-        .leader-portrait-lg { font-size:2.2rem; line-height:1; display:block; text-align:center; }
-        .rarity-badge { font-size:0.64rem; font-weight:700; text-transform:uppercase; padding:1px 5px; border-radius:3px; position:absolute; top:0.45rem; right:0.45rem; }
-        .rarity-badge.rarity-common    { background:#555; color:#ddd; }
-        .rarity-badge.rarity-uncommon  { background:#0c4a6e; color:#7dd3fc; }
-        .rarity-badge.rarity-rare      { background:#3b0764; color:#c4b5fd; }
-        .rarity-badge.rarity-legendary { background:#78350f; color:#fcd34d; }
-        .leader-card-name { font-weight:700; font-size:0.95rem; margin-top:0.2rem; }
-        .leader-card-role { font-size:0.72rem; color:var(--text-secondary,#aaa); }
-        .leader-card-tagline { font-size:0.74rem; font-style:italic; color:var(--accent,#4a9eff); margin-top:0.2rem; line-height:1.3; }
-        .leader-card-traits { display:flex; flex-wrap:wrap; gap:0.25rem; margin-top:0.25rem; }
-        .chip-trait { font-size:0.66rem; background:#333; color:#ccc; padding:1px 6px; border-radius:20px; }
-        .skill-bar-row { display:flex; align-items:center; gap:0.3rem; margin-bottom:0.1rem; }
-        .skill-bar-label { font-size:0.65rem; color:var(--text-secondary,#aaa); width:72px; flex-shrink:0; }
-        .skill-bar-track { flex:1; height:4px; background:#333; border-radius:2px; overflow:hidden; }
-        .skill-bar-fill  { height:100%; background:var(--accent,#4a9eff); border-radius:2px; transition:width 0.3s; }
-        .leader-card-cost { font-size:0.75rem; color:#ccc; margin-top:0.3rem; }
-        .leader-card-free { color:#4ade80; font-style:italic; }
-        .advisor-hint-card { background:var(--panel-bg,#1a1a2e); border-left:3px solid var(--accent,#4a9eff); border-radius:0 6px 6px 0; padding:0.6rem 0.75rem; margin-bottom:0.5rem; }
-        .advisor-hint-card.hint-warning  { border-left-color:#f59e0b; }
-        .advisor-hint-card.hint-quest_hint { border-left-color:#a78bfa; }
-        .advisor-hint-card.hint-action_required { border-left-color:#ef4444; }
-        .advisor-hint-title { font-weight:700; font-size:0.85rem; }
-        .advisor-hint-body  { font-size:0.78rem; color:var(--text-secondary,#aaa); margin-top:0.2rem; }
-        #advisor-widget { position:fixed; bottom:3.2rem; left:0.8rem; z-index:900; }
-        #advisor-bubble { background:var(--panel-bg,#1a1a2e); border:1px solid var(--accent,#4a9eff); border-radius:10px; padding:0.4rem 0.65rem; display:flex; align-items:center; gap:0.5rem; cursor:pointer; box-shadow:0 2px 12px #00000066; min-width:48px; }
-        #advisor-bubble:hover { border-color:#7dd3fc; }
-        #advisor-bubble-portrait { font-size:1.4rem; }
-        #advisor-bubble-info { display:flex; flex-direction:column; line-height:1.2; }
-        #advisor-bubble-name { font-size:0.7rem; font-weight:700; color:#ccc; }
-        #advisor-bubble-badge { font-size:0.65rem; color:var(--accent,#4a9eff); }
-      `;
-      document.head.appendChild(s);
-    }
-
-    renderTabs(active) {
-      return `<div class="leader-tab-bar">
-        <button class="leader-tab-btn ${active === 'my_leaders' ? 'active' : ''}" data-tab="my_leaders">­ƒæñ My Leaders</button>
-        <button class="leader-tab-btn ${active === 'marketplace' ? 'active' : ''}" data-tab="marketplace">­ƒøÆ Marketplace</button>
-      </div>`;
-    }
-
-    renderMyLeaders(leaders) {
-      const hasAdvisor = leaders.some((l) => l.role === 'advisor');
-      const nonAdvisors = leaders.filter((l) => l.role !== 'advisor');
-      const advisors    = leaders.filter((l) => l.role === 'advisor');
-
-      return `
-        ${!hasAdvisor ? `<div style="background:#1e3a2f;border:1px solid #4ade8066;border-radius:6px;padding:0.5rem 0.75rem;margin-bottom:0.75rem;font-size:0.8rem;">
-          ­ƒºÖ <strong>No Advisor yet.</strong> Visit the <span style="color:var(--accent)">Marketplace</span> tab to hire a free Advisor who will guide you through the game.
-        </div>` : ''}
-
-        ${advisors.length ? `<div style="margin-bottom:0.75rem">
-          <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;text-transform:uppercase;letter-spacing:0.05em">Advisor</div>
-          ${advisors.map((l) => `
-            <div style="display:flex;align-items:center;gap:0.6rem;background:var(--panel-bg,#1a1a2e);border:1px solid var(--accent,#4a9eff);border-radius:7px;padding:0.5rem 0.75rem;">
-              <span style="font-size:1.6rem">${esc(l.portrait || '­ƒºÖ')}</span>
-              <div style="flex:1">
-                <div style="font-weight:700">${esc(l.name)}</div>
-                <div style="font-size:0.72rem;color:var(--text-secondary)">${this.rarityLabel[l.rarity] || ''} ┬À Lv ${l.level}</div>
-                ${l.tagline ? `<div style="font-size:0.73rem;font-style:italic;color:var(--accent)">${esc(l.tagline)}</div>` : ''}
-              </div>
-              <button class="btn btn-danger btn-sm dismiss-btn" data-lid="${l.id}" title="Dismiss">Ô£ò</button>
-            </div>`).join('')}
-        </div>` : ''}
-
-        <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;text-transform:uppercase;letter-spacing:0.05em">Officers</div>
-        <table class="data-table" style="width:100%;font-size:0.8rem">
-          <thead><tr>
-            <th></th><th>Name</th><th>Role</th><th>Lv</th><th>Assignment</th>
-            <th>Autonomy</th><th>Last Action</th><th></th>
-          </tr></thead>
-          <tbody>
-          ${nonAdvisors.length ? nonAdvisors.map((l) => `
-            <tr>
-              <td style="font-size:1.2rem;text-align:center">${esc(l.portrait || '­ƒæñ')}</td>
-              <td>
-                ${esc(l.name)}
-                ${l.rarity && l.rarity !== 'common' ? `<span class="rarity-badge rarity-${l.rarity}" style="position:static;margin-left:4px">${this.rarityLabel[l.rarity]}</span>` : ''}
-              </td>
-              <td>${this.roleLabel[l.role] ?? l.role}</td>
-              <td>${l.level}</td>
-              <td>${l.colony_name
-                ? `${esc(l.colony_name)} [${esc(l.colony_coords || '?')}]`
-                : l.fleet_id ? `Fleet #${l.fleet_id}` : '<em>Unassigned</em>'}</td>
-              <td>
-                <select class="input-sm autonomy-sel" data-lid="${l.id}">
-                  <option value="0" ${+l.autonomy === 0 ? 'selected' : ''}>Off</option>
-                  <option value="1" ${+l.autonomy === 1 ? 'selected' : ''}>Suggest</option>
-                  <option value="2" ${+l.autonomy === 2 ? 'selected' : ''}>Full Auto</option>
-                </select>
-              </td>
-              <td style="font-size:0.72rem;max-width:170px;overflow:hidden;text-overflow:ellipsis"
-                  title="${esc(l.last_action || '')}">
-                ${l.last_action ? esc(l.last_action.substring(0, 55)) + 'ÔÇª' : 'ÔÇö'}
-              </td>
-              <td style="white-space:nowrap">
-                <select class="input-sm assign-col-sel" data-lid="${l.id}">
-                  <option value="">ÔÇö Colony ÔÇö</option>
-                  ${colonies.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}
-                </select>
-                <button class="btn btn-secondary btn-sm assign-col-btn" data-lid="${l.id}">Assign</button>
-                <button class="btn btn-danger btn-sm dismiss-btn" data-lid="${l.id}">Ô£ò</button>
-              </td>
-            </tr>`).join('')
-          : '<tr><td colspan="8" class="text-muted">No officers hired yet ÔÇö visit the Marketplace.</td></tr>'}
-          </tbody>
-        </table>
-        <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
-          <button class="btn btn-secondary btn-sm" id="ai-tick-btn">ÔûÂ Run AI Tick</button>
-        </div>`;
-    }
-
-    renderMarketplace(candidates) {
-      const available = candidates.filter((c) => !c.is_hired);
-      const hired     = candidates.filter((c) =>  c.is_hired);
-      const expiresAt = candidates[0]?.expires_at;
-
-      return `
-        <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.65rem">
-          ­ƒøÆ <strong>Marketplace</strong> ÔÇö ${available.length} candidate(s) available.
-          ${expiresAt ? `Refreshes at <strong>${String(expiresAt).substring(0, 16)}</strong>.` : ''}
-        </div>
-        ${available.length === 0 ? '<p class="text-muted">Marketplace is empty. Come back in 24 hours.</p>' : ''}
-        <div class="mkt-grid">
-          ${[...available, ...hired].map((c) => this.renderCard(c)).join('')}
-        </div>`;
-    }
-
-    renderCard(c) {
-      const isHired = !!+c.is_hired;
-      const skills  = this._skillsForRole(c.role, c);
-      const mt = +c.hire_metal, cr = +c.hire_crystal, dt = +c.hire_deuterium;
-      const free = mt === 0 && cr === 0 && dt === 0;
-      return `
-        <div class="leader-card rarity-${c.rarity} ${isHired ? 'is-hired' : ''}">
-          <span class="rarity-badge rarity-${c.rarity}">${this.rarityLabel[c.rarity]}</span>
-          <span class="leader-portrait-lg">${esc(c.portrait || '­ƒæñ')}</span>
-          <div class="leader-card-name">${esc(c.name)}</div>
-          <div class="leader-card-role">${this.roleLabel[c.role] ?? c.role}</div>
-          <div class="leader-card-tagline">${esc(c.tagline)}</div>
-          <div class="leader-card-traits">
-            ${c.trait_1 ? `<span class="chip-trait">${esc(c.trait_1)}</span>` : ''}
-            ${c.trait_2 ? `<span class="chip-trait">${esc(c.trait_2)}</span>` : ''}
-          </div>
-          <div style="margin-top:0.3rem">
-            ${skills.map((s) => `
-              <div class="skill-bar-row">
-                <span class="skill-bar-label">${esc(s.label)}</span>
-                <div class="skill-bar-track"><div class="skill-bar-fill" style="width:${Math.round(+s.val / 10 * 100)}%"></div></div>
-                <span style="font-size:0.65rem;color:#aaa;width:16px;text-align:right">${s.val}</span>
-              </div>`).join('')}
-          </div>
-          <details style="margin-top:0.35rem">
-            <summary style="cursor:pointer;font-size:0.7rem;color:var(--text-secondary)">­ƒôû Background</summary>
-            <p style="font-size:0.73rem;color:var(--text-secondary);margin-top:0.25rem;line-height:1.35">${esc(c.backstory)}</p>
-          </details>
-          <div class="leader-card-cost" style="margin-top:0.4rem">
-            ${free
-              ? '<span class="leader-card-free">Free</span>'
-              : [mt > 0 ? `${(mt/1000).toFixed(0)}k Ô¼í` : '',
-                 cr > 0 ? `${(cr/1000).toFixed(0)}k ­ƒÆÄ` : '',
-                 dt > 0 ? `${(dt/1000).toFixed(0)}k ­ƒöÁ` : ''].filter(Boolean).join(' ')}
-          </div>
-          ${isHired
-            ? `<button class="btn btn-secondary btn-sm" style="margin-top:0.4rem" disabled>Ô£ô Hired</button>`
-            : `<button class="btn btn-primary btn-sm hire-candidate-btn" data-cid="${c.id}" style="margin-top:0.4rem">Hire</button>`
-          }
-        </div>`;
-    }
-
-    _skillsForRole(role, c) {
-      const map = {
-        colony_manager:    [{ label: 'Production',   val: c.skill_production   },
-                            { label: 'Construction', val: c.skill_construction }],
-        fleet_commander:   [{ label: 'Tactics',      val: c.skill_tactics      },
-                            { label: 'Navigation',   val: c.skill_navigation   }],
-        science_director:  [{ label: 'Research',     val: c.skill_research     },
-                            { label: 'Efficiency',   val: c.skill_efficiency   }],
-        diplomacy_officer: [{ label: 'Efficiency',   val: c.skill_efficiency   },
-                            { label: 'Guidance',     val: c.skill_guidance     }],
-        trade_director:    [{ label: 'Efficiency',   val: c.skill_efficiency   },
-                            { label: 'Production',   val: c.skill_production   }],
-        advisor:           [{ label: 'Guidance',     val: c.skill_guidance     },
-                            { label: 'Research',     val: c.skill_research     }],
-      };
-      return map[role] || [{ label: 'Skill', val: 1 }];
-    }
-
-    bindTabs(root) {
-      root.querySelectorAll('.leader-tab-btn').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          this._tab = btn.dataset.tab;
-          WM.refresh('leaders');
-        });
-      });
-    }
-
-    bindHireButtons(root) {
-      root.querySelectorAll('.hire-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const role    = btn.dataset.role;
-          const nameEl  = root.querySelector(`.hire-name[data-role="${role}"]`);
-          const name    = nameEl?.value.trim();
-          if (!name) { showToast('Enter a name first.', 'error'); return; }
-          const res = await API.hireLeader(name, role);
-          if (res.success) {
-            showToast(res.message, 'success');
-            WM.refresh('leaders');
-          } else {
-            showToast(res.error || 'Failed', 'error');
-          }
-        });
-      });
-    }
-
-    bindHireCandidateButtons(root) {
-      root.querySelectorAll('.hire-candidate-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const cid = parseInt(btn.dataset.cid, 10);
-          btn.disabled = true;
-          const res = await API.hireCandidate(cid);
-          if (res.success) {
-            showToast(res.message, 'success');
-            WM.refresh('leaders');
-            AdvisorWidget.maybeRefresh();
-          } else {
-            showToast(res.error || 'Hire failed.', 'error');
-            btn.disabled = false;
-          }
-        });
-      });
-    }
-
-    bindAutonomyControls(root) {
-      root.querySelectorAll('.autonomy-sel').forEach((sel) => {
-        sel.addEventListener('change', async () => {
-          const res = await API.setAutonomy(parseInt(sel.dataset.lid, 10), parseInt(sel.value, 10));
-          if (res.success) showToast(res.message, 'info');
-          else showToast(res.error, 'error');
-        });
-      });
-    }
-
-    bindAssignmentControls(root) {
-      root.querySelectorAll('.assign-col-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const lid = parseInt(btn.dataset.lid, 10);
-          const sel = root.querySelector(`.assign-col-sel[data-lid="${lid}"]`);
-          const cid = sel?.value ? parseInt(sel.value, 10) : null;
-          const res = await API.assignLeader(lid, cid, null);
-          if (res.success) {
-            showToast(res.message, 'success');
-            WM.refresh('leaders');
-          } else {
-            showToast(res.error, 'error');
-          }
-        });
-      });
-    }
-
-    bindDismissControls(root) {
-      root.querySelectorAll('.dismiss-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          if (!confirm('Dismiss this leader?')) return;
-          const res = await API.dismissLeader(parseInt(btn.dataset.lid, 10));
-          if (res.success) {
-            showToast(res.message, 'success');
-            WM.refresh('leaders');
-            AdvisorWidget.maybeRefresh();
-          } else {
-            showToast(res.error, 'error');
-          }
-        });
-      });
-    }
-
-    bindAiTick(root) {
-      root.querySelector('#ai-tick-btn')?.addEventListener('click', async () => {
-        const res = await API.aiTick();
-        if (res.success) {
-          const acts = res.actions || [];
-          showToast(acts.length ? `AI: ${acts[0]}` : 'AI: No actions taken.', 'info');
-          WM.refresh('leaders');
-        }
-      });
-    }
-
-    bindActions(root) {
-      this.bindHireButtons(root);
-      this.bindAutonomyControls(root);
-      this.bindAssignmentControls(root);
-      this.bindDismissControls(root);
-      this.bindAiTick(root);
-    }
-
-    async render() {
-      const root = WM.body('leaders');
-      if (!root) return;
-      this._injectCardStyles();
-      root.innerHTML = '<p class="text-muted">LoadingÔÇª</p>';
-      try {
-        if (this._tab === 'marketplace') {
-          const mkt = await API.leaderMarketplace();
-          if (!mkt.success) { root.innerHTML = '<p class="error">Marketplace unavailable.</p>'; return; }
-          root.innerHTML = this.renderTabs('marketplace') + this.renderMarketplace(mkt.candidates || []);
-          this.bindTabs(root);
-          this.bindHireCandidateButtons(root);
-        } else {
-          const data = await API.leaders();
-          if (!data.success) { root.innerHTML = '<p class="error">Failed to load leaders.</p>'; return; }
-          root.innerHTML = this.renderTabs('my_leaders') + this.renderMyLeaders(data.leaders || []);
-          this.bindTabs(root);
-          this.bindActions(root);
-        }
-      } catch (e) {
-        root.innerHTML = `<p class="error">${esc(String(e))}</p>`;
-      }
-    }
-  }
-
-  const leadersController = new LeadersController();
+  const runtimeLeadersControllerApi = requireRuntimeApi('GQRuntimeLeadersController', ['createLeadersController']);
+  const leadersController = runtimeLeadersControllerApi.createLeadersController({
+    wm: WM,
+    api: API,
+    documentRef: document,
+    esc,
+    showToast,
+    getColonies: () => colonies,
+    getAdvisorWidget: () => AdvisorWidget,
+  });
   window.GQLeadersController = leadersController;
 
   // ÔöÇÔöÇ Advisor Widget ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
@@ -14382,602 +4531,35 @@
     await leadersController.render();
   }
 
-  class FactionsController {
-    constructor() {
-      this.conversations = new Map();
-      this.lastFactions = [];
-    }
-
-    standingClass(value) {
-      if (value >= 50) return 'chip-allied';
-      if (value >= 10) return 'chip-friendly';
-      if (value >= -10) return 'chip-neutral';
-      if (value >= -50) return 'chip-hostile';
-      return 'chip-war';
-    }
-
-    standingLabel(value) {
-      if (value >= 50) return 'Allied';
-      if (value >= 10) return 'Friendly';
-      if (value >= -10) return 'Neutral';
-      if (value >= -50) return 'Hostile';
-      return 'War';
-    }
-
-    formatEffect(key, value) {
-      const n = Number(value || 0);
-      const sign = n > 0 ? '+' : '';
-      const percentKeys = ['resource_output_mult', 'food_output_mult', 'pop_growth_mult', 'research_speed_mult', 'fleet_readiness_mult'];
-      if (percentKeys.includes(String(key))) {
-        return `${sign}${Math.round(n * 1000) / 10}%`;
-      }
-      return `${sign}${Math.round(n * 100) / 100}`;
-    }
-
-    effectLabel(key) {
-      return ({
-        resource_output_mult: 'Resource Output',
-        food_output_mult: 'Food Output',
-        pop_growth_mult: 'Population Growth',
-        happiness_flat: 'Happiness',
-        public_services_flat: 'Public Services',
-        research_speed_mult: 'Research Speed',
-        fleet_readiness_mult: 'Fleet Readiness',
-      }[String(key)] || String(key));
-    }
-
-    buildMainView({ factions, politicsProfile, dynamicEffects, presets, activeUnrest, activeEvent }) {
-      const effectRows = Object.entries(dynamicEffects || {})
-        .filter(([key, value]) => !['faction_pressure_score', 'unrest_active', 'unrest_severity'].includes(String(key))
-          && Number(value || 0) !== 0)
-        .sort((a, b) => Math.abs(Number(b[1] || 0)) - Math.abs(Number(a[1] || 0)));
-
-      const eventBanner = activeEvent
-        ? `<div style="background:rgba(255,180,0,0.13);border:1px solid rgba(255,180,0,0.45);border-radius:6px;padding:0.55rem 0.8rem;margin-bottom:0.75rem;display:flex;gap:0.6rem;align-items:center">
-            <span style="font-size:1.4rem">${esc(activeEvent.icon)}</span>
-            <div>
-              <strong>${esc(activeEvent.label)}</strong> ÔÇö galactic event active
-              <div style="font-size:0.76rem;color:var(--text-secondary)">Ends in ~${esc(String(activeEvent.ends_in_min))} min ┬À Faction stats temporarily modified</div>
-            </div>
-          </div>`
-        : '';
-
-      return `
-        ${eventBanner}
-        <div class="system-card" style="margin-bottom:0.85rem">
-          <h4 style="margin:0 0 0.35rem">Empire Politics</h4>
-          ${politicsProfile ? `
-            <div class="system-row">Species: <strong>${esc(politicsProfile.primary_species_key || 'n/a')}</strong></div>
-            <div class="system-row">Government: <strong>${esc(politicsProfile.government_key || 'n/a')}</strong></div>
-            <div class="system-row">Civics: ${(politicsProfile.civics || []).map((c) => esc(c.civic_key)).join(', ') || '<span class="text-muted">none</span>'}</div>
-          ` : '<div class="system-row text-muted">Politics profile unavailable.</div>'}
-          <div class="system-row" style="display:flex;gap:0.45rem;align-items:center;flex-wrap:wrap">
-            <select id="politics-preset-select" class="input-sm" style="min-width:220px">
-              <option value="">Preset w├ñhlenÔÇª</option>
-              ${presets.map((p) => `<option value="${esc(p.preset_key)}">${esc(p.name)}</option>`).join('')}
-            </select>
-            <button id="politics-apply-preset-btn" class="btn btn-secondary btn-sm" type="button">Preset anwenden</button>
-            <button id="politics-refresh-btn" class="btn btn-secondary btn-sm" type="button">Aktualisieren</button>
-          </div>
-          <div class="system-row" style="font-size:0.78rem;color:var(--text-muted)">
-            Faction Pressure: <strong>${esc(String(dynamicEffects?.faction_pressure_score ?? 'n/a'))}</strong>
-            ${Number(dynamicEffects?.unrest_active || 0) ? ` ┬À Unrest aktiv (Severity ${esc(String(Math.round(Number(dynamicEffects?.unrest_severity || 0) * 100) / 100))})` : ''}
-          </div>
-          <div style="margin-top:0.55rem">
-            <table class="data-table" style="width:100%">
-              <thead><tr><th>Effect</th><th>Value</th></tr></thead>
-              <tbody>
-                ${effectRows.length
-                  ? effectRows.map(([key, value]) => `<tr><td>${esc(this.effectLabel(key))}</td><td>${esc(this.formatEffect(key, value))}</td></tr>`).join('')
-                  : '<tr><td colspan="2" class="text-muted">Keine aktiven Modifikatoren.</td></tr>'}
-              </tbody>
-            </table>
-          </div>
-          ${activeUnrest ? `
-            <div class="system-row" style="margin-top:0.55rem">
-              <strong>Unrest Approach:</strong>
-              Stage ${esc(String(activeUnrest.stage || '?'))} ┬À Progress ${esc(String(activeUnrest.progress || '?'))}
-            </div>
-            <div style="display:flex;gap:0.35rem;flex-wrap:wrap">
-              <button class="btn btn-warning btn-sm unrest-approach-btn" data-approach="conciliation" data-sid="${esc(String(activeUnrest.id))}">Conciliation</button>
-              <button class="btn btn-warning btn-sm unrest-approach-btn" data-approach="reforms" data-sid="${esc(String(activeUnrest.id))}">Reforms</button>
-              <button class="btn btn-warning btn-sm unrest-approach-btn" data-approach="repression" data-sid="${esc(String(activeUnrest.id))}">Repression</button>
-              <button class="btn btn-secondary btn-sm" id="unrest-tick-btn" data-sid="${esc(String(activeUnrest.id))}">Situation Tick</button>
-            </div>
-          ` : '<div class="system-row text-muted" style="margin-top:0.55rem">Kein aktiver Faction-Unrest.</div>'}
-        </div>
-
-        <div class="factions-grid">
-          ${factions.map((faction) => `
-            <div class="faction-card" data-fid="${faction.id}" style="border-color:${esc(faction.color)}">
-              <div class="faction-header">
-                <span class="faction-icon">${esc(faction.icon)}</span>
-                <span class="faction-name" style="color:${esc(faction.color)}">${esc(faction.name)}</span>
-                <span class="status-chip faction-standing-chip ${this.standingClass(faction.standing)}">
-                  ${this.standingLabel(faction.standing)} (${faction.standing > 0 ? '+' : ''}${faction.standing})
-                </span>
-              </div>
-              <p style="font-size:0.8rem;color:var(--text-secondary);margin:0.3rem 0 0.6rem">
-                ${esc(faction.description)}
-              </p>
-              <div style="font-size:0.75rem;color:var(--text-muted)">
-                ÔÜö Aggression: ${faction.aggression}/100 &nbsp;
-                ­ƒÆ░ Trade: ${faction.trade_willingness}/100 &nbsp;
-                Ô£à Quests done: ${faction.quests_done}
-              </div>
-              <div class="faction-last-event" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">${faction.last_event ? esc(faction.last_event) : ''}</div>
-              <div class="faction-actions" style="margin-top:0.6rem;display:flex;gap:0.4rem">
-                <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="trade">­ƒÆ▒ Trade</button>
-                <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="quests">­ƒôï Quests</button>
-                <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="contact">­ƒù¿ Contact</button>
-              </div>
-            </div>`).join('')}
-        </div>
-
-        <div id="faction-detail" style="margin-top:1rem"></div>`;
-    }
-
-    bindMainActions(root) {
-      root.querySelector('#politics-refresh-btn')?.addEventListener('click', async () => {
-        await loadOverview();
-        WM.refresh('factions');
-      });
-
-      root.querySelector('#politics-apply-preset-btn')?.addEventListener('click', async () => {
-        const sel = root.querySelector('#politics-preset-select');
-        const key = String(sel?.value || '').trim();
-        if (!key) {
-          showToast('Bitte ein Preset ausw├ñhlen.', 'warning');
-          return;
-        }
-        const result = await API.applyPoliticsPreset(key);
-        if (!result?.success) {
-          showToast(result?.error || 'Preset konnte nicht angewendet werden.', 'error');
-          return;
-        }
-        showToast('Politik-Preset angewendet.', 'success');
-        await loadOverview();
-        WM.refresh('factions');
-      });
-
-      root.querySelectorAll('.unrest-approach-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const sid = Number(btn.getAttribute('data-sid') || 0);
-          const approach = String(btn.getAttribute('data-approach') || '').trim();
-          if (!sid || !approach) return;
-          const result = await API.setSituationApproach(sid, approach);
-          if (!result?.success) {
-            showToast(result?.error || 'Approach konnte nicht gesetzt werden.', 'error');
-            return;
-          }
-          showToast(`Unrest-Approach auf ${approach} gesetzt.`, 'success');
-          await API.tickSituations(sid).catch(() => null);
-          await loadOverview();
-          WM.refresh('factions');
-        });
-      });
-
-      root.querySelector('#unrest-tick-btn')?.addEventListener('click', async () => {
-        const sid = Number(root.querySelector('#unrest-tick-btn')?.getAttribute('data-sid') || 0);
-        const result = await API.tickSituations(sid || undefined);
-        if (!result?.success) {
-          showToast(result?.error || 'Situation tick fehlgeschlagen.', 'error');
-          return;
-        }
-        showToast('Situation getickt.', 'info');
-        await loadOverview();
-        WM.refresh('factions');
-      });
-
-      root.querySelectorAll('[data-act]').forEach((btn) => {
-        btn.addEventListener('click', () => this.renderDetail(root, parseInt(btn.dataset.fid, 10), btn.dataset.act));
-      });
-    }
-
-    getFactionById(fid) {
-      return (this.lastFactions || []).find((faction) => Number(faction?.id || 0) === Number(fid || 0)) || null;
-    }
-
-    getConversationState(fid) {
-      return this.conversations.get(Number(fid || 0)) || null;
-    }
-
-    setConversationState(fid, state) {
-      this.conversations.set(Number(fid || 0), Object.assign({
-        history: [],
-        suggestedReplies: [],
-        model: '',
-        fallback: false,
-        standingChange: null,
-        questHook: null,
-        loading: false,
-      }, state || {}));
-    }
-
-    updateFactionSnapshot(fid, patch = {}) {
-      const faction = this.getFactionById(fid);
-      if (!faction || !patch || typeof patch !== 'object') return;
-      Object.assign(faction, patch);
-    }
-
-    syncFactionCard(root, fid) {
-      const card = root?.querySelector(`.faction-card[data-fid="${Number(fid || 0)}"]`);
-      const faction = this.getFactionById(fid);
-      if (!card || !faction) return;
-
-      const chip = card.querySelector('.faction-standing-chip');
-      if (chip) {
-        chip.className = `status-chip faction-standing-chip ${this.standingClass(faction.standing)}`;
-        chip.textContent = `${this.standingLabel(faction.standing)} (${faction.standing > 0 ? '+' : ''}${faction.standing})`;
-      }
-
-      const lastEvent = card.querySelector('.faction-last-event');
-      if (lastEvent) {
-        lastEvent.textContent = String(faction.last_event || '');
-      }
-    }
-
-    buildConversationDetail(fid) {
-      const faction = this.getFactionById(fid);
-      const state = this.getConversationState(fid) || { history: [], suggestedReplies: [], model: '', fallback: false, standingChange: null, questHook: null, loading: true };
-      const factionName = faction?.name || `Faction ${fid}`;
-      const factionColor = faction?.color || '#88aaff';
-      const factionIcon = faction?.icon || '­ƒæ¥';
-      const standingChange = state.standingChange && typeof state.standingChange === 'object' ? state.standingChange : null;
-      const standingDelta = Number(standingChange?.delta || 0);
-      const questHook = state.questHook && typeof state.questHook === 'object' ? state.questHook : null;
-
-      const transcriptHtml = state.history.length
-        ? state.history.map((entry) => {
-            const isNpc = entry.speaker === 'npc';
-            const align = isNpc ? 'flex-start' : 'flex-end';
-            const bg = isNpc ? 'rgba(80,120,255,0.16)' : 'rgba(255,255,255,0.08)';
-            const border = isNpc ? factionColor : 'rgba(255,255,255,0.18)';
-            const label = isNpc ? `${factionIcon} ${factionName}` : 'You';
-            return `
-              <div style="display:flex;justify-content:${align};margin-bottom:0.55rem;">
-                <div style="max-width:85%;border:1px solid ${esc(border)};background:${bg};border-radius:10px;padding:0.55rem 0.7rem;">
-                  <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.22rem">${esc(label)}</div>
-                  <div style="line-height:1.4">${esc(entry.text)}</div>
-                </div>
-              </div>`;
-          }).join('')
-        : '<div class="text-muted">Opening channelÔÇª</div>';
-
-      const standingEffectHtml = standingChange
-        ? `
-          <div style="margin-bottom:0.7rem;border:1px solid ${standingDelta >= 0 ? 'rgba(90,200,140,0.45)' : 'rgba(220,110,110,0.45)'};background:${standingDelta >= 0 ? 'rgba(90,200,140,0.12)' : 'rgba(220,110,110,0.12)'};border-radius:10px;padding:0.6rem 0.75rem;">
-            <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.18rem">Diplomatic Shift</div>
-            <div style="font-weight:600">Standing ${standingDelta >= 0 ? '+' : ''}${standingDelta} ÔåÆ ${esc(String(standingChange.after ?? faction?.standing ?? ''))}</div>
-            <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.18rem">${esc(String(standingChange.reason || ''))}</div>
-          </div>`
-        : '';
-
-      const questHookHtml = questHook
-        ? `
-          <div style="margin-bottom:0.7rem;border:1px solid rgba(255,210,90,0.38);background:rgba(255,210,90,0.08);border-radius:10px;padding:0.7rem 0.75rem;display:flex;justify-content:space-between;gap:0.8rem;align-items:center;">
-            <div>
-              <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.18rem">Quest Hook</div>
-              <div style="font-weight:600">${esc(String(questHook.title || 'Available Assignment'))}</div>
-              <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.18rem">${esc(String(questHook.description || ''))}</div>
-              <div style="font-size:0.74rem;color:var(--text-muted);margin-top:0.18rem">${esc(String(questHook.hook_text || ''))}${Number(questHook.reward_standing || 0) ? ` Reward standing: +${esc(String(questHook.reward_standing))}` : ''}</div>
-            </div>
-            <button class="btn btn-primary btn-sm" id="faction-dialog-start-hook" data-fid="${fid}" data-fqid="${Number(questHook.quest_id || 0)}" type="button" ${questHook.started ? 'disabled' : ''}>${questHook.started ? 'Quest Started' : 'Start Quest'}</button>
-          </div>`
-        : '';
-
-      const suggestionsHtml = (state.suggestedReplies || []).map((reply, index) => `
-        <button class="btn btn-secondary btn-sm faction-dialog-suggestion" data-fid="${fid}" data-index="${index}" style="text-align:left;justify-content:flex-start">${esc(reply)}</button>
-      `).join('');
-
-      return `
-        <div class="system-card">
-          <div style="display:flex;justify-content:space-between;gap:0.8rem;align-items:center;margin-bottom:0.65rem">
-            <div>
-              <h4 style="margin:0">${esc(factionIcon)} Contact: ${esc(factionName)}</h4>
-              <div style="font-size:0.74rem;color:var(--text-muted)">NPC opens first. Then you get 3 RPG-style responses plus free input.${state.model ? ` Model: ${esc(state.model)}` : ''}${state.fallback ? ' ┬À fallback reply' : ''}</div>
-            </div>
-            <button class="btn btn-secondary btn-sm" id="faction-dialog-restart" data-fid="${fid}" type="button">Restart</button>
-          </div>
-          ${standingEffectHtml}
-          ${questHookHtml}
-          <div style="background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.75rem;max-height:360px;overflow:auto;margin-bottom:0.7rem">
-            ${transcriptHtml}
-          </div>
-          <div style="display:grid;gap:0.45rem;margin-bottom:0.7rem">
-            ${suggestionsHtml || '<div class="text-muted">No suggested replies available.</div>'}
-          </div>
-          <div style="display:flex;gap:0.45rem;align-items:center">
-            <input id="faction-dialog-input" type="text" maxlength="280" placeholder="Type your own responseÔÇª" style="flex:1;padding:0.55rem 0.7rem;border:1px solid #666;background:#0a0a0a;color:#fff;border-radius:8px;" ${state.loading ? 'disabled' : ''} />
-            <button class="btn btn-primary btn-sm" id="faction-dialog-send" data-fid="${fid}" type="button" ${state.loading ? 'disabled' : ''}>Send</button>
-          </div>
-        </div>`;
-    }
-
-    bindConversationActions(root, fid) {
-      const detail = root.querySelector('#faction-detail');
-      if (!detail) return;
-
-      detail.querySelectorAll('.faction-dialog-suggestion').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const state = this.getConversationState(fid);
-          const index = Number(btn.getAttribute('data-index') || -1);
-          const reply = state?.suggestedReplies?.[index] || '';
-          if (!reply) return;
-          await this.advanceConversation(root, fid, reply, false);
-        });
-      });
-
-      detail.querySelector('#faction-dialog-send')?.addEventListener('click', async () => {
-        const input = detail.querySelector('#faction-dialog-input');
-        const value = String(input?.value || '').trim();
-        if (!value) return;
-        if (input) input.value = '';
-        await this.advanceConversation(root, fid, value, false);
-      });
-
-      detail.querySelector('#faction-dialog-input')?.addEventListener('keydown', async (event) => {
-        if (event.key !== 'Enter') return;
-        event.preventDefault();
-        const input = event.currentTarget;
-        const value = String(input?.value || '').trim();
-        if (!value) return;
-        input.value = '';
-        await this.advanceConversation(root, fid, value, false);
-      });
-
-      detail.querySelector('#faction-dialog-restart')?.addEventListener('click', async () => {
-        await this.advanceConversation(root, fid, '', true);
-      });
-
-      detail.querySelector('#faction-dialog-start-hook')?.addEventListener('click', async (event) => {
-        const btn = event.currentTarget;
-        const fqid = Number(btn?.getAttribute('data-fqid') || 0);
-        if (!fqid) return;
-        btn.disabled = true;
-        const response = await API.startFactionQuest(fqid);
-        if (response?.success) {
-          const current = this.getConversationState(fid) || {};
-          const nextHook = current.questHook ? Object.assign({}, current.questHook, { started: true }) : null;
-          this.setConversationState(fid, Object.assign({}, current, { questHook: nextHook }));
-          detail.innerHTML = this.buildConversationDetail(fid);
-          this.bindConversationActions(root, fid);
-          showToast(response.message || 'Quest started.', 'success');
-        } else {
-          btn.disabled = false;
-          showToast(response?.error || 'Quest could not be started.', 'error');
-        }
-      });
-    }
-
-    async advanceConversation(root, fid, playerInput = '', reset = false) {
-      const detail = root.querySelector('#faction-detail');
-      if (!detail) return;
-
-      const current = reset ? null : this.getConversationState(fid);
-      const history = reset ? [] : (current?.history || []);
-      this.setConversationState(fid, Object.assign({}, current || {}, { loading: true, history }));
-      detail.innerHTML = this.buildConversationDetail(fid);
-
-      try {
-        const response = await API.factionDialogue({
-          faction_id: fid,
-          history,
-          player_input: reset ? '' : playerInput,
-        });
-
-        if (!response?.success) {
-          throw new Error(response?.error || 'Dialogue request failed.');
-        }
-
-        this.setConversationState(fid, {
-          history: Array.isArray(response.history) ? response.history : [],
-          suggestedReplies: Array.isArray(response.suggested_replies) ? response.suggested_replies : [],
-          model: String(response.model || ''),
-          fallback: !!response.fallback,
-          standingChange: response.standing_change && typeof response.standing_change === 'object' ? response.standing_change : null,
-          questHook: response.quest_hook && typeof response.quest_hook === 'object' ? Object.assign({ started: false }, response.quest_hook) : null,
-          loading: false,
-        });
-        if (response?.faction && Number.isFinite(Number(response.faction.standing))) {
-          const standingChange = response.standing_change && typeof response.standing_change === 'object' ? response.standing_change : null;
-          this.updateFactionSnapshot(fid, {
-            standing: Number(response.faction.standing),
-            last_event: standingChange?.reason ? `[dialogue] ${standingChange.reason}` : String(this.getFactionById(fid)?.last_event || ''),
-          });
-          this.syncFactionCard(root, fid);
-        }
-        detail.innerHTML = this.buildConversationDetail(fid);
-        this.bindConversationActions(root, fid);
-
-        // ── Auto-voice: play NPC audio if TTS is available ────────────────
-        const npcMsg = String(response.npc_message || '').trim();
-        if (npcMsg && window.GQTTS && typeof window.GQTTS.playOrSpeak === 'function') {
-          window.GQTTS.playOrSpeak(
-            response.tts_audio_url || null,
-            npcMsg,
-            { voice: response.tts_voice || '' }
-          ).catch(() => {});
-        }
-      } catch (err) {
-        this.setConversationState(fid, Object.assign({}, current || {}, { loading: false }));
-        detail.innerHTML = `<p class="error">${esc(String(err?.message || err || 'Dialogue failed.'))}</p>`;
-        showToast('Faction dialogue failed.', 'error');
-      }
-    }
-
-    async renderDetail(root, fid, mode) {
-      const detail = root.querySelector('#faction-detail');
-      if (!detail) return;
-      detail.innerHTML = '<p class="text-muted">LoadingÔÇª</p>';
-
-      if (mode === 'contact') {
-        const existing = this.getConversationState(fid);
-        if (existing) {
-          detail.innerHTML = this.buildConversationDetail(fid);
-          this.bindConversationActions(root, fid);
-        } else {
-          await this.advanceConversation(root, fid, '', true);
-        }
-        return;
-      }
-
-      if (mode === 'trade') {
-        const data = await API.tradeOffers(fid);
-        if (!data.success || !data.offers.length) {
-          detail.innerHTML = '<p class="text-muted">No active trade offers from this faction.</p>';
-          return;
-        }
-        detail.innerHTML = `
-          <h4>Trade Offers (Standing: ${data.standing})</h4>
-          <table class="data-table" style="width:100%">
-            <thead><tr><th>They Offer</th><th>They Want</th><th>Expires</th><th>Claims</th><th></th></tr></thead>
-            <tbody>${data.offers.map((offer) => `
-              <tr>
-                <td>Ô¼í ${offer.offer_amount.toLocaleString()} ${offer.offer_resource}</td>
-                <td>Ô¼í ${offer.request_amount.toLocaleString()} ${offer.request_resource}</td>
-                <td style="font-size:0.75rem">${new Date(offer.valid_until).toLocaleString()}</td>
-                <td>${offer.claims_count}/${offer.max_claims}</td>
-                <td><button class="btn btn-primary btn-sm trade-accept-btn" data-oid="${offer.id}">Accept</button></td>
-              </tr>`).join('')}
-            </tbody>
-          </table>`;
-
-        detail.querySelectorAll('.trade-accept-btn').forEach((btn) => {
-          btn.addEventListener('click', async () => {
-            if (!currentColony) {
-              showToast('Select a colony first.', 'error');
-              return;
-            }
-            const response = await API.acceptTrade(parseInt(btn.dataset.oid, 10), currentColony.id);
-            if (response.success) {
-              showToast(response.message, 'success');
-              await loadOverview();
-              await this.renderDetail(root, fid, 'trade');
-            } else {
-              showToast(response.error || 'Trade failed', 'error');
-            }
-          });
-        });
-        return;
-      }
-
-      const data = await API.factionQuests(fid);
-      if (!data.success) {
-        detail.innerHTML = '<p class="error">Failed to load quests.</p>';
-        return;
-      }
-      const quests = data.quests || [];
-      detail.innerHTML = `
-        <h4>Faction Quests (Standing: ${data.standing})</h4>
-        <div style="display:flex;flex-wrap:wrap;gap:0.75rem">
-          ${quests.map((quest) => `
-            <div class="quest-card" style="min-width:240px;max-width:320px">
-              <div style="font-weight:bold">${esc(quest.title)}</div>
-              <div style="font-size:0.75rem;color:var(--text-secondary);margin:0.2rem 0">${esc(quest.description)}</div>
-              <div style="font-size:0.72rem">
-                Difficulty: <strong>${quest.difficulty}</strong> &nbsp;
-                Type: ${quest.quest_type}
-              </div>
-              <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem">
-                Reward: ${quest.reward_metal ? 'Ô¼í' + quest.reward_metal + ' ' : ''} ${quest.reward_crystal ? '­ƒÆÄ' + quest.reward_crystal + ' ' : ''}
-                        ${quest.reward_rank_points ? 'Ôÿà' + quest.reward_rank_points : ''} ${quest.reward_standing ? '+' + quest.reward_standing + ' ­ƒñØ' : ''}
-              </div>
-              ${quest.taken
-                ? '<span class="status-chip chip-neutral">Active / Done</span>'
-                : `<button class="btn btn-primary btn-sm start-fq-btn" data-fqid="${quest.id}" style="margin-top:0.4rem">Start Quest</button>`}
-            </div>`).join('')}
-          ${!quests.length ? '<p class="text-muted">No quests available at your current standing.</p>' : ''}
-        </div>`;
-
-      detail.querySelectorAll('.start-fq-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const response = await API.startFactionQuest(parseInt(btn.dataset.fqid, 10));
-          if (response.success) {
-            showToast(response.message, 'success');
-            await this.renderDetail(root, fid, 'quests');
-          } else {
-            showToast(response.error || 'Failed', 'error');
-          }
-        });
-      });
-    }
-
-    async render() {
-      const root = WM.body('factions');
-      if (!root) return;
-      root.innerHTML = uiKitSkeletonHTML();
-      try {
-        const [factionsData, politicsData, presetsData, unrestData] = await Promise.all([
-          API.factions(),
-          API.politicsStatus().catch(() => ({ success: false })),
-          API.politicsPresets().catch(() => ({ success: false })),
-          API.situations('active', 100).catch(() => ({ success: false })),
-        ]);
-        if (!factionsData.success) {
-          root.innerHTML = '<p class="error">Failed.</p>';
-          return;
-        }
-        const factions = factionsData.factions || [];
-        this.lastFactions = factions;
-        const activeEvent = factionsData.active_event || null;
-        const politicsProfile = politicsData?.profile || null;
-        const dynamicEffects = politicsData?.dynamic_effects || window._GQ_politics?.effects || {};
-        const presets = Array.isArray(presetsData?.presets) ? presetsData.presets : [];
-        const activeUnrest = (unrestData?.situations || []).find((s) => String(s?.situation_type || '') === 'faction_unrest') || null;
-        root.innerHTML = this.buildMainView({ factions, politicsProfile, dynamicEffects, presets, activeUnrest, activeEvent });
-        if (!factions.length) {
-          const detail = root.querySelector('#faction-detail');
-          if (detail) {
-            detail.innerHTML = uiKitEmptyStateHTML('No factions available', 'Faction data is currently unavailable in this sector.');
-          }
-        }
-        this.bindMainActions(root);
-      } catch (e) {
-        root.innerHTML = `<p class="error">${esc(String(e))}</p>`;
-      }
-    }
-  }
-
-  const factionsController = new FactionsController();
+  const runtimeFactionsControllerApi = requireRuntimeApi('GQRuntimeFactionsController', ['createFactionsController']);
+  const factionsController = runtimeFactionsControllerApi.createFactionsController({
+    wm: WM,
+    api: API,
+    showToast,
+    esc,
+    uiKitSkeletonHTML,
+    uiKitEmptyStateHTML,
+    onLoadOverview: loadOverview,
+    getCurrentColony: () => currentColony,
+    windowRef: window,
+  });
   window.GQFactionsController = factionsController;
 
   async function renderFactions() {
     await factionsController.render();
   }
 
-  class LeaderboardController {
-    async render() {
-      const root = WM.body('leaderboard');
-      if (!root) return;
-      root.innerHTML = uiKitSkeletonHTML();
-      try {
-        const data = await API.leaderboard();
-        if (!data.success) {
-          root.innerHTML = '<p class="text-red">Error.</p>';
-          return;
-        }
-        if (!data.leaderboard.length) {
-          root.innerHTML = uiKitEmptyStateHTML('No players yet', 'Leaderboard will populate as commanders expand their empires.');
-          return;
-        }
-
-        root.innerHTML = data.leaderboard.map((row, index) => `
-          <div class="lb-row">
-            <span class="lb-rank">${index + 1}</span>
-            <span class="lb-name">${esc(row.username)} ${row.username === currentUser.username ? '(You)' : ''}${row.alliance_tag ? ` <span class="lb-alliance-tag">[${esc(row.alliance_tag)}]</span>` : ''}</span>
-            <span class="lb-stat">Ôÿà ${fmt(row.rank_points)} RP</span>
-            <span class="lb-stat">­ƒîì ${row.planet_count}</span>
-            <span class="lb-stat">Ôùå ${fmt(row.dark_matter)}</span>
-          </div>`).join('');
-      } catch (err) {
-        gameLog('warn', 'Leaderboard laden fehlgeschlagen', err);
-        root.innerHTML = '<p class="text-red">Failed to load leaderboard.</p>';
-      }
-    }
-  }
-
-  const leaderboardController = new LeaderboardController();
+  const runtimeLeaderboardControllerApi = requireRuntimeApi('GQRuntimeLeaderboardController', ['createLeaderboardController']);
+  const leaderboardController = runtimeLeaderboardControllerApi.createLeaderboardController({
+    wm: WM,
+    api: API,
+    esc,
+    fmt,
+    uiKitSkeletonHTML,
+    uiKitEmptyStateHTML,
+    gameLog,
+    getCurrentUser: () => currentUser,
+  });
   window.GQLeaderboardController = leaderboardController;
 
   async function renderLeaderboard() {
@@ -15789,15 +5371,15 @@
     const autoTransitions = root.querySelector('#set-auto-transitions');
     autoTransitions?.addEventListener('change', () => {
       settingsState.autoTransitions = !!autoTransitions.checked;
-      applyRuntimeSettings();
-      saveUiSettings();
+      settingsController.applyRuntimeSettings();
+      settingsController.saveUiSettings();
     });
 
     const fleetVectors = root.querySelector('#set-galaxy-fleet-vectors');
     fleetVectors?.addEventListener('change', () => {
       settingsState.galaxyFleetVectorsVisible = !!fleetVectors.checked;
-      applyRuntimeSettings();
-      saveUiSettings();
+      settingsController.applyRuntimeSettings();
+      settingsController.saveUiSettings();
       const galaxyRoot = WM.body('galaxy');
       if (galaxyRoot?.querySelector('#galaxy-system-details')) {
         const activeStar = pinnedStar || uiState.activeStar || null;
@@ -15808,13 +5390,13 @@
     const homeEnterSystem = root.querySelector('#set-home-enter-system');
     homeEnterSystem?.addEventListener('change', () => {
       settingsState.homeEnterSystem = !!homeEnterSystem.checked;
-      saveUiSettings();
+      settingsController.saveUiSettings();
     });
 
     const systemLegacyFallback = root.querySelector('#set-system-legacy-fallback');
     systemLegacyFallback?.addEventListener('change', () => {
       settingsState.systemViewLegacyFallback = !!systemLegacyFallback.checked;
-      saveUiSettings();
+      settingsController.saveUiSettings();
       const galaxyRoot = WM.body('galaxy');
       if (galaxyRoot && galaxyController) {
         galaxyController.updateLegacyFallbackUi(galaxyRoot);
@@ -15832,597 +5414,49 @@
       if (stableSlider) stableSlider.value = String(Math.round(settingsState.transitionStableMinMs));
       if (hoverOut) hoverOut.textContent = String(Math.round(settingsState.persistentHoverDistance));
       if (stableOut) stableOut.textContent = String(Math.round(settingsState.transitionStableMinMs));
-      applyRuntimeSettings();
-      saveUiSettings();
+      settingsController.applyRuntimeSettings();
+      settingsController.saveUiSettings();
     });
 
     bindRange('#set-hover-distance', '#set-hover-distance-value', (v) => {
       settingsState.persistentHoverDistance = Math.max(120, v);
-      applyRuntimeSettings();
-      saveUiSettings();
+      settingsController.applyRuntimeSettings();
+      settingsController.saveUiSettings();
     });
 
     bindRange('#set-transition-ms', '#set-transition-ms-value', (v) => {
       settingsState.transitionStableMinMs = Math.max(80, v);
-      applyRuntimeSettings();
-      saveUiSettings();
+      settingsController.applyRuntimeSettings();
+      settingsController.saveUiSettings();
     });
 
-    const masterMute = root.querySelector('#set-master-mute');
-    masterMute?.addEventListener('change', () => {
-      settingsState.masterMuted = !!masterMute.checked;
-      if (audioManager) audioManager.setMasterMuted(settingsState.masterMuted);
-      saveUiSettings();
-      refreshAudioUi();
+    runtimeAudioSettingsPanelApi.bindAudioSettingsPanel({
+      root,
+      audioState,
+      audioTrackOptions,
+      settingsState,
+      audioManager,
+      bindRange,
+      loadAudioTrackCatalog,
+      showToast,
+      saveUiSettings: saveUiSettingsRef,
+      refreshAudioUi: refreshAudioUiRef,
+      rerenderSettings: renderSettings,
     });
-    const musicMute = root.querySelector('#set-music-mute');
-    musicMute?.addEventListener('change', () => {
-      settingsState.musicMuted = !!musicMute.checked;
-      if (audioManager) audioManager.setMusicMuted(settingsState.musicMuted);
-      saveUiSettings();
+    runtimeAiSettingsPanelApi.bindAiSettingsPanel({
+      root,
+      api: API,
+      esc,
+      showToast,
     });
-    const sfxMute = root.querySelector('#set-sfx-mute');
-    sfxMute?.addEventListener('change', () => {
-      settingsState.sfxMuted = !!sfxMute.checked;
-      if (audioManager) audioManager.setSfxMuted(settingsState.sfxMuted);
-      saveUiSettings();
-    });
-
-    bindRange('#set-master-vol', '#set-master-vol-value', (v) => {
-      settingsState.masterVolume = Math.max(0, Math.min(1, v / 100));
-      if (audioManager) audioManager.setMasterVolume(settingsState.masterVolume);
-      saveUiSettings();
-    });
-    bindRange('#set-music-vol', '#set-music-vol-value', (v) => {
-      settingsState.musicVolume = Math.max(0, Math.min(1, v / 100));
-      if (audioManager) audioManager.setMusicVolume(settingsState.musicVolume);
-      saveUiSettings();
-    });
-    bindRange('#set-sfx-vol', '#set-sfx-vol-value', (v) => {
-      settingsState.sfxVolume = Math.max(0, Math.min(1, v / 100));
-      if (audioManager) audioManager.setSfxVolume(settingsState.sfxVolume);
-      saveUiSettings();
-    });
-
-    root.querySelector('#set-audio-test')?.addEventListener('click', () => {
-      if (audioManager) audioManager.playUiConfirm();
-    });
-
-    const transitionModeSelect = root.querySelector('#set-music-transition-mode');
-    transitionModeSelect?.addEventListener('change', () => {
-      const mode = String(transitionModeSelect.value || 'fade').toLowerCase() === 'cut' ? 'cut' : 'fade';
-      settingsState.musicTransitionMode = mode;
-      if (audioManager && typeof audioManager.setMusicTransitionMode === 'function') {
-        audioManager.setMusicTransitionMode(mode);
-      }
-      saveUiSettings();
-    });
-
-    root.querySelector('#set-music-preset')?.addEventListener('change', () => {
-      const preset = String(root.querySelector('#set-music-preset')?.value || '').trim();
-      if (!preset) return;
-      const urlInput = root.querySelector('#set-music-url');
-      if (urlInput) urlInput.value = preset;
-      const playerSelect = root.querySelector('#set-player-track');
-      if (playerSelect) playerSelect.value = preset;
-      ['galaxy', 'system', 'battle', 'ui'].forEach((sceneKey) => {
-        const input = root.querySelector(`#set-scene-${sceneKey}`);
-        if (input && !String(input.value || '').trim()) {
-          input.value = preset;
-        }
-      });
-    });
-
-    const playerSelect = root.querySelector('#set-player-track');
-    const playerToggleBtn = root.querySelector('#set-player-toggle');
-    const playerPrevBtn = root.querySelector('#set-player-prev');
-    const playerNextBtn = root.querySelector('#set-player-next');
-
-    const setActiveTrack = (url, autoplay = false) => {
-      const next = String(url || '').trim();
-      if (!next) return;
-      settingsState.musicUrl = next;
-      const urlInput = root.querySelector('#set-music-url');
-      if (urlInput) urlInput.value = next;
-      if (playerSelect) playerSelect.value = next;
-      if (audioManager) {
-        audioManager.setMusicTrack(next, autoplay);
-      }
-      saveUiSettings();
-    };
-
-    const updatePlayerToggleLabel = () => {
-      if (!playerToggleBtn) return;
-      const isPlaying = !!(audioManager && audioManager.snapshot && audioManager.snapshot().musicPlaying);
-      playerToggleBtn.textContent = isPlaying ? 'Pause' : 'Play';
-    };
-
-    const shiftTrack = async (dir) => {
-      if (!audioTrackOptions.length) return;
-      if (audioManager && typeof audioManager.playNextInPlaylist === 'function') {
-        const ok = await audioManager.playNextInPlaylist(dir, true);
-        if (!ok) showToast('Track konnte nicht gestartet werden.', 'warning');
-        const snap = audioManager.snapshot ? audioManager.snapshot() : null;
-        const currentUrl = String(snap?.musicUrl || '').trim();
-        if (currentUrl) {
-          settingsState.musicUrl = currentUrl;
-          if (playerSelect) playerSelect.value = currentUrl;
-        }
-        saveUiSettings();
-        refreshAudioUi();
-        updatePlayerToggleLabel();
-        return;
-      }
-      const currentUrl = String(playerSelect?.value || settingsState.musicUrl || '').trim();
-      let idx = audioTrackOptions.findIndex((entry) => String(entry.value) === currentUrl);
-      if (idx < 0) idx = 0;
-      const nextIdx = (idx + dir + audioTrackOptions.length) % audioTrackOptions.length;
-      const nextTrack = String(audioTrackOptions[nextIdx]?.value || '').trim();
-      if (!nextTrack) return;
-      setActiveTrack(nextTrack, false);
-      if (audioManager) {
-        const ok = await audioManager.playMusic();
-        if (!ok) showToast('Track konnte nicht gestartet werden.', 'warning');
-      }
-      updatePlayerToggleLabel();
-    };
-
-    if (playerSelect) {
-      const preselect = String(audioState.musicUrl || settingsState.musicUrl || audioTrackOptions[0]?.value || '').trim();
-      if (preselect) playerSelect.value = preselect;
-      playerSelect.addEventListener('change', () => {
-        const selected = String(playerSelect.value || '').trim();
-        if (!selected) return;
-        setActiveTrack(selected, false);
-      });
-    }
-
-    playerPrevBtn?.addEventListener('click', async () => {
-      await shiftTrack(-1);
-    });
-
-    playerNextBtn?.addEventListener('click', async () => {
-      await shiftTrack(1);
-    });
-
-    playerToggleBtn?.addEventListener('click', async () => {
-      if (!audioManager) {
-        showToast('Audio-Manager nicht verf├╝gbar.', 'warning');
-        return;
-      }
-
-      const hasTrack = String(playerSelect?.value || settingsState.musicUrl || '').trim();
-      if (hasTrack && String(audioManager.snapshot()?.musicUrl || '').trim() !== hasTrack) {
-        setActiveTrack(hasTrack, false);
-      }
-
-      const isPlaying = !!audioManager.snapshot()?.musicPlaying;
-      if (isPlaying) {
-        if (typeof audioManager.pauseMusic === 'function') {
-          audioManager.pauseMusic(false);
-        } else {
-          audioManager.stopMusic();
-        }
-      } else {
-        const ok = await audioManager.playMusic();
-        if (!ok) showToast('Musik konnte nicht gestartet werden.', 'warning');
-      }
-      updatePlayerToggleLabel();
-    });
-
-    updatePlayerToggleLabel();
-
-    loadAudioTrackCatalog();
-
-    const autoSceneMusic = root.querySelector('#set-auto-scene-music');
-    autoSceneMusic?.addEventListener('change', () => {
-      settingsState.autoSceneMusic = !!autoSceneMusic.checked;
-      if (audioManager && typeof audioManager.setAutoSceneMusic === 'function') {
-        audioManager.setAutoSceneMusic(settingsState.autoSceneMusic);
-      }
-      saveUiSettings();
-    });
-
-    root.querySelector('#set-scene-apply')?.addEventListener('click', () => {
-      const galaxyTrack = String(root.querySelector('#set-scene-galaxy')?.value || '').trim();
-      const systemTrack = String(root.querySelector('#set-scene-system')?.value || '').trim();
-      const battleTrack = String(root.querySelector('#set-scene-battle')?.value || '').trim();
-      const uiTrack = String(root.querySelector('#set-scene-ui')?.value || '').trim();
-      settingsState.sceneTracks = Object.assign({}, settingsState.sceneTracks, {
-        galaxy: galaxyTrack,
-        system: systemTrack,
-        battle: battleTrack,
-        ui: uiTrack,
-      });
-      if (audioManager && typeof audioManager.setSceneTrack === 'function') {
-        audioManager.setSceneTrack('galaxy', galaxyTrack);
-        audioManager.setSceneTrack('system', systemTrack);
-        audioManager.setSceneTrack('battle', battleTrack);
-        audioManager.setSceneTrack('ui', uiTrack);
-      }
-      saveUiSettings();
-      showToast('Szenenmusik gespeichert.', 'success');
-    });
-
-    root.querySelector('#set-sfx-apply')?.addEventListener('click', () => {
-      const nextMap = Object.assign({}, settingsState.sfxMap);
-      root.querySelectorAll('.set-sfx-select').forEach((node) => {
-        const key = String(node.getAttribute('data-sfx-key') || '').trim();
-        if (!key) return;
-        nextMap[key] = String(node.value || '').trim();
-      });
-      settingsState.sfxMap = nextMap;
-      if (audioManager && typeof audioManager.setSfxTrack === 'function') {
-        Object.entries(nextMap).forEach(([key, track]) => audioManager.setSfxTrack(key, track));
-      }
-      saveUiSettings();
-      showToast('SFX-Zuordnung gespeichert.', 'success');
-    });
-
-    root.querySelector('#set-audio-reset')?.addEventListener('click', () => {
-      settingsState.musicUrl = '';
-      settingsState.autoSceneMusic = true;
-      settingsState.sceneTracks = {
-        galaxy: 'music/Nebula_Overture.mp3',
-        system: 'music/Nebula_Overture.mp3',
-        battle: 'music/Nebula_Overture.mp3',
-        ui: 'music/Nebula_Overture.mp3',
-      };
-      settingsState.sfxMap = {
-        uiClick: 'sfx/mixkit-video-game-retro-click-237.wav',
-        uiConfirm: 'sfx/mixkit-quick-positive-video-game-notification-interface-265.wav',
-        uiError: 'sfx/mixkit-negative-game-notification-249.wav',
-        uiNotify: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
-        navigation: 'sfx/mixkit-sci-fi-warp-slide-3113.wav',
-        pvpToggle: 'sfx/mixkit-horn-suspense-transition-3112.wav',
-        researchStart: 'sfx/mixkit-unlock-new-item-game-notification-254.wav',
-        researchComplete: 'sfx/mixkit-casino-bling-achievement-2067.wav',
-        fleetRecall: 'sfx/mixkit-space-shot-whoosh-3001.wav',
-        messageSend: 'sfx/mixkit-space-coin-win-notification-271.wav',
-        messageRead: 'sfx/mixkit-sci-fi-positive-notification-266.wav',
-        messageDelete: 'sfx/mixkit-falling-hit-757.wav',
-        fleetAttack: 'sfx/mixkit-laser-gun-shot-3110.wav',
-        fleetTransport: 'sfx/mixkit-space-deploy-whizz-3003.wav',
-        fleetSpy: 'sfx/mixkit-night-vision-starting-2476.wav',
-        fleetColonize: 'sfx/mixkit-medieval-show-fanfare-announcement-226.wav',
-        fleetHarvest: 'sfx/mixkit-space-plasma-shot-3002.wav',
-        buildComplete: 'sfx/mixkit-bonus-earned-in-video-game-2058.wav',
-        fleetLaunch: 'sfx/mixkit-space-deploy-whizz-3003.wav',
-      };
-      if (audioManager) {
-        if (typeof audioManager.resetAudioDefaults === 'function') {
-          audioManager.resetAudioDefaults();
-        }
-        if (typeof audioManager.setAutoSceneMusic === 'function') {
-          audioManager.setAutoSceneMusic(true);
-        }
-      }
-      saveUiSettings();
-      renderSettings();
-      showToast('Audio auf Standardwerte zur├╝ckgesetzt.', 'success');
-    });
-
-    root.querySelectorAll('.set-sfx-test').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        if (!audioManager) return;
-        const method = String(btn.getAttribute('data-sfx-test') || '').trim();
-        if (method && typeof audioManager[method] === 'function') {
-          audioManager[method]();
-        }
-      });
-    });
-
-    root.querySelector('#set-scene-preview-galaxy')?.addEventListener('click', async () => {
-      if (!audioManager || typeof audioManager.setScene !== 'function') return;
-      audioManager.setScene('galaxy', { autoplay: true, transition: 'dramatic', force: true });
-      const ok = await audioManager.playMusic();
-      if (!ok) showToast('Galaxy-Track konnte nicht gestartet werden.', 'warning');
-    });
-    root.querySelector('#set-scene-preview-system')?.addEventListener('click', async () => {
-      if (!audioManager || typeof audioManager.setScene !== 'function') return;
-      audioManager.setScene('system', { autoplay: true, transition: 'dramatic', force: true });
-      const ok = await audioManager.playMusic();
-      if (!ok) showToast('System-Track konnte nicht gestartet werden.', 'warning');
-    });
-    root.querySelector('#set-scene-preview-battle')?.addEventListener('click', async () => {
-      if (!audioManager || typeof audioManager.setScene !== 'function') return;
-      audioManager.setScene('battle', { autoplay: true, transition: 'dramatic', force: true });
-      const ok = await audioManager.playMusic();
-      if (!ok) showToast('Battle-Track konnte nicht gestartet werden.', 'warning');
-    });
-    root.querySelector('#set-scene-preview-ui')?.addEventListener('click', async () => {
-      if (!audioManager || typeof audioManager.setScene !== 'function') return;
-      audioManager.setScene('ui', { autoplay: true, transition: 'dramatic', force: true });
-      const ok = await audioManager.playMusic();
-      if (!ok) showToast('UI-Track konnte nicht gestartet werden.', 'warning');
-    });
-
-    root.querySelector('#set-music-apply')?.addEventListener('click', () => {
-      const urlInput = root.querySelector('#set-music-url');
-      const next = String(urlInput?.value || '').trim();
-      settingsState.musicUrl = next;
-      if (audioManager) audioManager.setMusicTrack(next, false);
-      saveUiSettings();
-      showToast(next ? 'Musik-URL gespeichert.' : 'Musik-URL entfernt.', 'info');
-    });
-    root.querySelector('#set-music-play')?.addEventListener('click', async () => {
-      if (!audioManager) return;
-      const ok = await audioManager.playMusic();
-      if (!ok) showToast('Musik konnte nicht gestartet werden (Autoplay/URL).', 'warning');
-    });
-    root.querySelector('#set-music-stop')?.addEventListener('click', () => {
-      if (audioManager) audioManager.stopMusic();
-    });
-
-    const llmProfileSelect = root.querySelector('#set-llm-profile');
-    const llmInputVars = root.querySelector('#set-llm-input-vars');
-    const llmOutput = root.querySelector('#set-llm-output');
-    const npcStatusLine = root.querySelector('#set-npc-status-line');
-    const npcSummaryHours = root.querySelector('#set-npc-summary-hours');
-    const npcSummaryOut = root.querySelector('#set-npc-summary');
-    const npcDecisions = root.querySelector('#set-npc-decisions');
-
-    const writeLlmOutput = (value) => {
-      if (!llmOutput) return;
-      llmOutput.value = String(value || '');
-    };
-
-    const writeNpcDecisions = (value) => {
-      if (!npcDecisions) return;
-      npcDecisions.value = String(value || '');
-    };
-
-    const writeNpcSummary = (value) => {
-      if (!npcSummaryOut) return;
-      npcSummaryOut.textContent = String(value || '');
-    };
-
-    const loadNpcControllerStatus = async () => {
-      const res = await API.npcControllerStatus();
-      if (!res.success) {
-        if (npcStatusLine) npcStatusLine.textContent = `Fehler: ${String(res.error || 'Status konnte nicht geladen werden.')}`;
-        return;
-      }
-      const c = res.controller || {};
-      const t = res.tick || {};
-      const m = res.metrics || {};
-      const parts = [
-        `enabled=${c.enabled ? 'yes' : 'no'}`,
-        `ollama=${c.ollama_enabled ? 'yes' : 'no'}`,
-        `cooldown=${Number(c.cooldown_seconds || 0)}s`,
-        `min_conf=${Number(c.min_confidence || 0)}`,
-        `last_tick=${t.last_npc_tick || 'n/a'}`,
-        `decisions_24h=${Number(m.decisions_last_24h || 0)}`,
-      ];
-      if (npcStatusLine) npcStatusLine.textContent = parts.join(' | ');
-    };
-
-    const loadNpcDecisions = async () => {
-      const res = await API.npcControllerDecisions({ limit: 10 });
-      writeNpcDecisions(JSON.stringify(res, null, 2));
-      if (!res.success) showToast(res.error || 'NPC decisions konnten nicht geladen werden.', 'error');
-    };
-
-    const loadNpcSummary = async () => {
-      const hours = Math.max(1, Math.min(168, Number(npcSummaryHours?.value || 24)));
-      const res = await API.npcControllerSummary({ hours });
-      if (!res.success) {
-        writeNpcSummary(JSON.stringify(res, null, 2));
-        showToast(res.error || 'NPC summary konnte nicht geladen werden.', 'error');
-        return;
-      }
-
-      const metrics = res.metrics || {};
-      const byAction = Array.isArray(res.by_action) ? res.by_action : [];
-      const recentErrors = Array.isArray(res.recent_errors) ? res.recent_errors : [];
-      const actionRows = byAction.map((row) => {
-        const key = String(row.action_key || 'none');
-        return `${key.padEnd(16, ' ')} total=${Number(row.total || 0)} exec=${Number(row.executed || 0)} err=${Number(row.errors || 0)} conf=${Number(row.avg_confidence || 0).toFixed(3)}`;
-      });
-
-      const errorRows = recentErrors.map((row) => {
-        const when = String(row.created_at || 'n/a');
-        const msg = String(row.error_message || row.reasoning || 'error').replace(/\s+/g, ' ').slice(0, 140);
-        return `- [${when}] ${msg}`;
-      });
-
-      writeNpcSummary([
-        `window_hours=${Number(res.window_hours || hours)}`,
-        `faction_id=${Number(res.faction_id || 0)}`,
-        `total=${Number(metrics.total || 0)} | executed=${Number(metrics.executed || 0)} | blocked=${Number(metrics.blocked || 0)} | errors=${Number(metrics.errors || 0)}`,
-        `avg_confidence=${Number(metrics.avg_confidence || 0).toFixed(3)} | executed_ratio=${(Number(metrics.executed_ratio || 0) * 100).toFixed(1)}%`,
-        '',
-        'by_action:',
-        ...(actionRows.length ? actionRows : ['(no rows)']),
-        '',
-        'recent_errors:',
-        ...(errorRows.length ? errorRows : ['(none)']),
-      ].join('\n'));
-    };
-
-    const loadLlmProfiles = async () => {
-      if (!llmProfileSelect) return;
-      llmProfileSelect.innerHTML = '<option value="">Lade...</option>';
-      const res = await API.llmProfiles();
-      if (!res.success) {
-        llmProfileSelect.innerHTML = '<option value="">Fehler beim Laden</option>';
-        writeLlmOutput(res.error || 'LLM profile load failed.');
-        return;
-      }
-      const profiles = Array.isArray(res.profiles) ? res.profiles : [];
-      llmProfileSelect.innerHTML = profiles.length
-        ? profiles.map((p) => `<option value="${esc(p.profile_key)}">${esc(p.name)} (${esc(p.profile_key)})</option>`).join('')
-        : '<option value="">Keine Profile gefunden</option>';
-      if (profiles.length && llmInputVars && !String(llmInputVars.value || '').trim()) {
-        const first = profiles[0];
-        const required = Array.isArray(first?.input_schema?.required) ? first.input_schema.required : [];
-        const sample = {};
-        required.forEach((key) => { sample[String(key)] = ''; });
-        llmInputVars.value = JSON.stringify(sample, null, 2);
-      }
-      writeLlmOutput(JSON.stringify({ loaded_profiles: profiles.length }, null, 2));
-    };
-
-    const readLlmInputVars = () => {
-      const raw = String(llmInputVars?.value || '').trim();
-      if (raw === '') return {};
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('Input vars must be a JSON object.');
-      }
-      return parsed;
-    };
-
-    root.querySelector('#set-llm-profiles-load')?.addEventListener('click', async () => {
-      try {
-        await loadLlmProfiles();
-      } catch (err) {
-        writeLlmOutput(String(err?.message || err || 'Failed to load profiles'));
-      }
-    });
-
-    root.querySelector('#set-llm-compose')?.addEventListener('click', async () => {
-      try {
-        const profile_key = String(llmProfileSelect?.value || '').trim();
-        if (!profile_key) {
-          showToast('Bitte ein LLM-Profil auswaehlen.', 'warning');
-          return;
-        }
-        const input_vars = readLlmInputVars();
-        const res = await API.llmCompose({ profile_key, input_vars });
-        writeLlmOutput(JSON.stringify(res, null, 2));
-        if (!res.success) showToast(res.error || 'Compose fehlgeschlagen.', 'error');
-      } catch (err) {
-        writeLlmOutput(String(err?.message || err || 'Compose failed'));
-        showToast('Compose fehlgeschlagen.', 'error');
-      }
-    });
-
-    root.querySelector('#set-llm-run')?.addEventListener('click', async () => {
-      try {
-        const profile_key = String(llmProfileSelect?.value || '').trim();
-        if (!profile_key) {
-          showToast('Bitte ein LLM-Profil auswaehlen.', 'warning');
-          return;
-        }
-        const input_vars = readLlmInputVars();
-        writeLlmOutput('LLM Anfrage laeuft...');
-        const res = await API.llmChatProfile({ profile_key, input_vars });
-        writeLlmOutput(JSON.stringify(res, null, 2));
-        if (res.success) showToast('LLM Antwort erhalten.', 'success');
-        else showToast(res.error || 'LLM Anfrage fehlgeschlagen.', 'error');
-      } catch (err) {
-        writeLlmOutput(String(err?.message || err || 'LLM request failed'));
-        showToast('LLM Anfrage fehlgeschlagen.', 'error');
-      }
-    });
-
-    root.querySelector('#set-npc-refresh')?.addEventListener('click', async () => {
-      try {
-        await loadNpcControllerStatus();
-        await loadNpcSummary();
-      } catch (err) {
-        if (npcStatusLine) npcStatusLine.textContent = String(err?.message || err || 'Status-Fehler');
-      }
-    });
-
-    root.querySelector('#set-npc-load-summary')?.addEventListener('click', async () => {
-      try {
-        await loadNpcSummary();
-      } catch (err) {
-        writeNpcSummary(String(err?.message || err || 'Summary load failed'));
-      }
-    });
-
-    root.querySelector('#set-npc-load-decisions')?.addEventListener('click', async () => {
-      try {
-        await loadNpcDecisions();
-      } catch (err) {
-        writeNpcDecisions(String(err?.message || err || 'Decision load failed'));
-      }
-    });
-
-    root.querySelector('#set-npc-run-once')?.addEventListener('click', async () => {
-      try {
-        const res = await API.npcControllerRunOnce();
-        if (res.success) {
-          showToast(`NPC tick ausgefuehrt (+${Number(res.new_decision_logs || 0)} logs).`, 'success');
-        } else {
-          showToast(res.error || 'NPC tick fehlgeschlagen.', 'error');
-        }
-        await loadNpcControllerStatus();
-        await loadNpcSummary();
-        await loadNpcDecisions();
-      } catch (err) {
-        showToast('NPC tick fehlgeschlagen.', 'error');
-      }
-    });
-
-    loadLlmProfiles().catch(() => {
-      writeLlmOutput('LLM profile preload failed.');
-    });
-    loadNpcControllerStatus().catch(() => {
-      if (npcStatusLine) npcStatusLine.textContent = 'NPC status preload failed.';
-    });
-    loadNpcSummary().catch(() => {
-      writeNpcSummary('NPC summary preload failed.');
-    });
-    loadNpcDecisions().catch(() => {
-      writeNpcDecisions('NPC decisions preload failed.');
-    });
-
-    // ÔöÇÔöÇ FTL Drive Selection ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-    const ftlCurrentEl  = root.querySelector('#set-ftl-current');
-    const ftlResultEl   = root.querySelector('#set-ftl-result');
-    const ftlButtons    = root.querySelectorAll('.set-ftl-drive-btn');
-
-    // Load and display current FTL drive
-    API.ftlStatus().then((ftlData) => {
-      if (!ftlCurrentEl) return;
-      const driveType = ftlData?.ftl_drive_type || 'aereth';
-      const dm = window._GQ_meta?.dark_matter ?? '?';
-      const isDefault = driveType === 'aereth';
-      ftlCurrentEl.textContent = `Aktueller Antrieb: ${driveType}${isDefault ? ' (Standard ÔÇö Auswahl kostenlos)' : ''} ┬À Ôùå ${fmt(dm)} DM`;
-      // Highlight current drive button
-      ftlButtons.forEach((btn) => {
-        const d = btn.getAttribute('data-drive');
-        btn.style.borderColor = d === driveType ? '#88ccff' : '';
-        btn.style.background  = d === driveType ? 'rgba(136,204,255,0.12)' : '';
-      });
-    }).catch(() => {
-      if (ftlCurrentEl) ftlCurrentEl.textContent = 'FTL-Status konnte nicht geladen werden.';
-    });
-
-    ftlButtons.forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const drive = btn.getAttribute('data-drive');
-        if (!drive) return;
-        ftlButtons.forEach((b) => { b.disabled = true; });
-        if (ftlResultEl) ftlResultEl.textContent = 'Wird gesetztÔÇª';
-        try {
-          const res = await API.setFtlDrive(drive);
-          if (res?.success) {
-            if (ftlResultEl) ftlResultEl.innerHTML = `<span style="color:#88ff88">Ô£ô ${esc(res.message || 'Drive gesetzt.')}</span>`;
-            // Update current label
-            if (ftlCurrentEl) ftlCurrentEl.textContent = `Aktueller Antrieb: ${drive}`;
-            ftlButtons.forEach((b) => {
-              const d = b.getAttribute('data-drive');
-              b.style.borderColor = d === drive ? '#88ccff' : '';
-              b.style.background  = d === drive ? 'rgba(136,204,255,0.12)' : '';
-            });
-            if (res.dm_spent > 0) showToast(`FTL Drive gewechselt. ${res.dm_spent} Ôùå DM abgezogen.`, 'info');
-            else showToast(`FTL Drive auf ${drive} gesetzt.`, 'success');
-            WM.refresh('fleet');
-          } else {
-            if (ftlResultEl) ftlResultEl.innerHTML = `<span style="color:#ff6666">Ô£ù ${esc(res?.error || 'Fehler')}</span>`;
-            showToast(res?.error || 'Drive-Wechsel fehlgeschlagen.', 'error');
-          }
-        } catch {
-          if (ftlResultEl) ftlResultEl.innerHTML = '<span style="color:#ff6666">Ô£ù Netzwerkfehler</span>';
-          showToast('Drive-Wechsel fehlgeschlagen.', 'error');
-        }
-        ftlButtons.forEach((b) => { b.disabled = false; });
-      });
+    runtimeFtlSettingsPanelApi.bindFtlSettingsPanel({
+      root,
+      api: API,
+      wm: WM,
+      esc,
+      fmt,
+      showToast,
+      windowRef: window,
     });
   }
 
@@ -16558,488 +5592,58 @@
     await messagesController.loadBadge();
   }
 
-  // ÔöÇÔöÇ Server-Sent Events ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-  (function initSSE() {
-    if (!window.EventSource) return; // Not supported
-
-    let es;
-    let reconnectDelay = 3000;
-    const MAX_RECONNECT_DELAY = 60000;
-
-    function connect() {
-      es = new EventSource('api/events.php');
-
-      es.addEventListener('connected', () => {
-        reconnectDelay = 3000; // Reset on successful connect
-      });
-
-      es.addEventListener('new_messages', (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          const unread = parseInt(data.unread, 10) || 0;
-          const badge = document.getElementById('msg-badge');
-          if (badge) {
-            if (unread > 0) {
-              badge.textContent = unread;
-              badge.classList.remove('hidden');
-            } else {
-              badge.classList.add('hidden');
-            }
-          }
-          if ((parseInt(data.new, 10) || 0) > 0) {
-            showToast(`Ô£ë ${data.new} new message${data.new > 1 ? 's' : ''}`, 'info');
-          }
-        } catch (err) {
-          gameLog('info', 'SSE new_messages handler fehlgeschlagen', err);
-        }
-      });
-
-      es.addEventListener('fleet_arrived', async (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          const mission = data.mission || '';
-          const target = data.target || '';
-          const icons = { attack: 'ÔÜö', transport: '­ƒôª', colonize: '­ƒÅø', spy: '­ƒöì', harvest: 'ÔøÅ', recall: 'Ôå®' };
-          const icon = icons[mission] || 'ÔÜí';
-          showToast(`${icon} Fleet arrived at ${target} (${mission})`, mission === 'attack' ? 'success' : 'info');
-          window.dispatchEvent(new CustomEvent('gq:fleet-arrived', { detail: data }));
-          if (window.GQTTS && window.GQTTS.isAutoVoiceEnabled()) {
-            window.GQTTS.speak(`Flotte hat ${target} erreicht.`).catch(() => {});
-          }
-          await loadOverview();
-          _invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
-          ['fleet', 'shipyard', 'buildings'].forEach(id => WM.refresh(id));
-        } catch (err) {
-          gameLog('info', 'SSE fleet_arrived handler fehlgeschlagen', err);
-        }
-      });
-
-      es.addEventListener('fleet_returning', async (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          showToast(`Ôå® Fleet returned home (${data.mission || ''})`, 'info');
-          window.dispatchEvent(new CustomEvent('gq:fleet-returning', { detail: data }));
-          if (window.GQTTS && window.GQTTS.isAutoVoiceEnabled()) {
-            window.GQTTS.speak('Flotte ist heimgekehrt.').catch(() => {});
-          }
-          await loadOverview();
-          _invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
-          WM.refresh('fleet');
-        } catch (err) {
-          gameLog('info', 'SSE fleet_returning handler fehlgeschlagen', err);
-        }
-      });
-
-      es.addEventListener('incoming_attack', (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          const arrival = data.arrival_time ? new Date(data.arrival_time).toLocaleTimeString() : '?';
-          const msg = data.mission === 'spy'
-            ? `­ƒöì Spy fleet from ${data.attacker} inbound ÔåÆ ${data.target} (${arrival})`
-            : `ÔÜá INCOMING ATTACK from ${data.attacker} ÔåÆ ${data.target} at ${arrival}!`;
-          showToast(msg, 'danger');
-          window.dispatchEvent(new CustomEvent('gq:fleet-incoming-attack', { detail: data }));
-          if (window.GQTTS && window.GQTTS.isAutoVoiceEnabled()) {
-            const ttsText = data.mission === 'spy'
-              ? `Achtung! Spionageflotte von ${data.attacker} im Anflug.`
-              : `Warnung! Angriff von ${data.attacker} auf ${data.target} um ${arrival}!`;
-            window.GQTTS.speak(ttsText).catch(() => {});
-          }
-        } catch (err) {
-          gameLog('info', 'SSE incoming_attack handler fehlgeschlagen', err);
-        }
-      });
-
-      es.addEventListener('reconnect', () => {
-        es.close();
-        setTimeout(connect, 1000);
-      });
-
-      es.onerror = () => {
-        es.close();
-        reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
-        setTimeout(connect, reconnectDelay);
-      };
-    }
-
-    connect();
-  })();
-
-  // ÔöÇÔöÇ Countdown ticker ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-  // Guard sets ÔÇô keyed by unique string to prevent repeated triggers
-  const _tickerFleetArrived     = new Set(); // arr-timestamp strings already triggered
-  const _tickerWindowRefreshed  = {};        // windowId -> last trigger ms (debounce 8 s)
-
-  setInterval(() => {
-    const nowMs = Date.now();
-
-    // ÔöÇÔöÇ Countdown text spans (data-end only) ÔöÇÔöÇ
-    document.querySelectorAll('[data-end]:not([data-start])').forEach(el => {
-      const text = countdown(el.dataset.end);
-      el.textContent = text;
-      // When a building / research / shipyard timer hits zero, auto-refresh its window
-      if (text === '00:00:00') {
-        const win = el.closest('.wm-window[data-winid]');
-        if (win) {
-          const wid = win.dataset.winid;
-          const last = _tickerWindowRefreshed[wid] || 0;
-          if (nowMs - last > 8000) {
-            _tickerWindowRefreshed[wid] = nowMs;
-            WM.refresh(wid);
-          }
-        }
-      }
-    });
-
-    // ÔöÇÔöÇ Live building / research progress bars (data-start + data-end) ÔöÇÔöÇ
-    document.querySelectorAll('.progress-bar[data-start][data-end]').forEach(bar => {
-      const start = new Date(bar.dataset.start).getTime();
-      const end   = new Date(bar.dataset.end).getTime();
-      const total = end - start;
-      if (!total || total <= 0 || isNaN(total)) return;
-      const pct = Math.max(0, Math.min(100, ((nowMs - start) / total) * 100));
-      bar.style.width = pct.toFixed(1) + '%';
-    });
-
-    // ÔöÇÔöÇ Live fleet progress bars + auto-refresh on arrival ÔöÇÔöÇ
-    document.querySelectorAll('.fleet-progress-bar[data-dep][data-arr]').forEach(bar => {
-      const dep = new Date(bar.dataset.dep).getTime();
-      const arr = new Date(bar.dataset.arr).getTime();
-      const total = arr - dep;
-      if (!total || total <= 0) return;
-      const pct = Math.max(0, Math.min(100, ((nowMs - dep) / total) * 100));
-      bar.style.width = pct.toFixed(1) + '%';
-      // Trigger overview reload once when fleet has arrived and SSE might be unavailable
-      if (pct >= 100 && !_tickerFleetArrived.has(bar.dataset.arr)) {
-        _tickerFleetArrived.add(bar.dataset.arr);
-        loadOverview();
-        _invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
-        WM.refresh('fleet');
-      }
-    });
-  }, 1000);
-
-  // ÔöÇÔöÇ Periodic refresh (fallback polling when SSE is unavailable) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-  setInterval(async () => {
-    await loadOverview();
-    await loadBadge();
-    ['buildings','research','shipyard'].forEach(id => WM.refresh(id));
-  }, 60000); // Reduced from 30 s ÔÇô SSE handles fleet/message events in real-time
-
-  setInterval(async () => {
-    // Fallback badge sync every 30 s (SSE handles instant updates)
-    await loadBadge();
-  }, 30000);
-
-  setInterval(() => {
-    const root = WM.body('galaxy');
-    if (!root) return;
-    refreshGalaxyDensityMetrics(root);
-  }, 1500);
+  runtimeRealtimeSyncApi.configureRealtimeSyncRuntime({
+    windowRef: window,
+    documentRef: document,
+    onLoadBadge: loadBadge,
+    onLoadOverview: loadOverview,
+    invalidateGetCache: _invalidateGetCache,
+    refreshWindow: wmRefresh,
+    getGalaxyRoot: () => wmBody('galaxy'),
+    refreshGalaxyDensityMetrics,
+    showToast,
+    gameLog,
+    eventSourceFactory: eventSourceFactoryRef,
+  });
+  runtimeRealtimeSyncApi.initRealtimeSync();
 
   // ÔöÇÔöÇ Boot: keep galaxy fixed in main desktop area and preload overview data ÔöÇÔöÇ
-  WM.open('galaxy');
-  if (audioManager && typeof audioManager.setScene === 'function') {
-    audioManager.setScene('galaxy', { autoplay: true, transition: 'fast', force: true });
-
-    if (!window.__GQ_AUDIO_UNLOCK_INSTALLED) {
-      window.__GQ_AUDIO_UNLOCK_INSTALLED = true;
-      let unlocked = false;
-      const listeners = [];
-
-      const clearListeners = () => {
-        listeners.forEach(({ type, handler, opts }) => {
-          try {
-            window.removeEventListener(type, handler, opts);
-          } catch (err) {
-            gameLog('info', `Audio-Unlock Listener-Entfernung fehlgeschlagen (${type})`, err);
-          }
-        });
-        listeners.length = 0;
-      };
-
-      const resumeOnInteract = async () => {
-        if (unlocked) return;
-        try {
-          const snap = audioManager.snapshot ? audioManager.snapshot() : null;
-          const muted = !!(snap?.masterMuted || snap?.musicMuted);
-          const hasTrack = String(snap?.musicUrl || '').trim() !== '';
-          if (muted || !hasTrack) return;
-          const ok = await audioManager.playMusic();
-          if (ok) {
-            unlocked = true;
-            clearListeners();
-          }
-        } catch (err) {
-          gameLog('info', 'Audio resume on interaction fehlgeschlagen', err);
-        }
-      };
-
-      const bind = (type, opts) => {
-        window.addEventListener(type, resumeOnInteract, opts);
-        listeners.push({ type, handler: resumeOnInteract, opts });
-      };
-
-      bind('pointerdown', { passive: true });
-      bind('click', { passive: true });
-      bind('touchstart', { passive: true });
-      bind('keydown', false);
-    }
-  }
+  runtimeStartupBootApi.initStartupBoot({
+    wm: WM,
+    audioManager,
+    loadAudioTrackCatalog,
+    refreshAudioUi: refreshAudioUiRef,
+    gameLog,
+    windowRef: window,
+  });
 
   // ÔöÇÔöÇ Footer actions init ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-  updateFooterQuickNavBadge();
-
-  document.getElementById('footer-quicknav-btn')?.addEventListener('click', () => {
-    if (WM.isOpen('quicknav')) WM.close('quicknav');
-    else WM.open('quicknav');
-    document.getElementById('footer-quicknav-btn')?.classList.toggle('active', WM.isOpen('quicknav'));
+  runtimeFooterUiKitApi.initFooterUiKit({
+    wm: WM,
+    updateFooterQuickNavBadge,
+    documentRef: document,
+    windowRef: window,
+    storage: localStorage,
   });
 
-  document.getElementById('footer-overview-btn')?.addEventListener('click', () => {
-    if (WM.isOpen('overview')) WM.close('overview');
-    else WM.open('overview');
-    document.getElementById('footer-overview-btn')?.classList.toggle('active', WM.isOpen('overview'));
+  await runtimePostBootFlowApi.runPostBootFlow({
+    wm: WM,
+    settingsState,
+    focusHomeSystemInGalaxy,
+    loadOverview,
+    loadBadge,
+    initSystemBreadcrumb,
+    advisorWidget: AdvisorWidget,
+    gameLog,
+    windowRef: window,
   });
 
-  document.getElementById('footer-minimap-btn')?.addEventListener('click', () => {
-    if (WM.isOpen('minimap')) WM.close('minimap');
-    else WM.open('minimap');
-    document.getElementById('footer-minimap-btn')?.classList.toggle('active', WM.isOpen('minimap'));
+  runtimeColonyVfxDebugWidgetApi.safeInitColonyVfxDebugWidget({
+    esc,
+    documentRef: document,
+    windowRef: window,
+    logger: console,
   });
-
-  const UI_KIT_PANEL_MODE_KEY = 'gq.uiKitPreview.mode';
-  const uiKitPanel = document.getElementById('ui-kit-preview-panel');
-  const uiKitToggleBtn = document.getElementById('ui-kit-preview-expand-btn');
-  const uiKitFooterBtn = document.getElementById('footer-uikit-btn');
-  const setUiKitPanelVisible = (visible) => {
-    if (!uiKitPanel) return;
-    uiKitPanel.hidden = !visible;
-    uiKitFooterBtn?.classList.toggle('active', !!visible);
-    uiKitFooterBtn?.setAttribute('aria-expanded', String(!!visible));
-  };
-  const readUiKitPanelCompactMode = () => {
-    try {
-      return localStorage.getItem(UI_KIT_PANEL_MODE_KEY) !== 'expanded';
-    } catch (_) {
-      return true;
-    }
-  };
-  const writeUiKitPanelCompactMode = (isCompact) => {
-    try {
-      localStorage.setItem(UI_KIT_PANEL_MODE_KEY, isCompact ? 'compact' : 'expanded');
-    } catch (_) {
-      // Non-blocking: localStorage might be unavailable.
-    }
-  };
-  const applyUiKitPanelCompactMode = (isCompact) => {
-    if (!uiKitPanel || !uiKitToggleBtn) return;
-    uiKitPanel.classList.toggle('is-compact', !!isCompact);
-    uiKitToggleBtn.setAttribute('aria-expanded', String(!isCompact));
-    uiKitToggleBtn.textContent = isCompact ? 'Mehr' : 'Weniger';
-    uiKitToggleBtn.title = isCompact ? 'Panel erweitern' : 'Panel reduzieren';
-  };
-
-  applyUiKitPanelCompactMode(readUiKitPanelCompactMode());
-  uiKitToggleBtn?.addEventListener('click', () => {
-    const isCompact = !(uiKitPanel && uiKitPanel.classList.contains('is-compact'));
-    applyUiKitPanelCompactMode(isCompact);
-    writeUiKitPanelCompactMode(isCompact);
-  });
-
-  uiKitFooterBtn?.addEventListener('click', () => {
-    const isNowVisible = !!(uiKitPanel && !uiKitPanel.hidden);
-    const nextVisible = !isNowVisible;
-    setUiKitPanelVisible(nextVisible);
-    if (nextVisible) {
-      const previewBody = document.getElementById('ui-kit-preview-body');
-      const isEmpty = !previewBody || previewBody.childElementCount === 0;
-      if (isEmpty && window.GQUIKit && typeof window.GQUIKit.renderDemo === 'function') {
-        window.GQUIKit.renderDemo('buttons');
-      }
-    }
-  });
-
-  document.addEventListener('keydown', (ev) => {
-    if (ev.key !== 'Escape') return;
-    if (uiKitPanel && !uiKitPanel.hidden) {
-      setUiKitPanelVisible(false);
-    }
-  });
-
-  document.addEventListener('click', (ev) => {
-    if (!uiKitPanel || uiKitPanel.hidden) return;
-    const target = ev.target;
-    if (!(target instanceof Element)) return;
-    if (uiKitPanel.contains(target)) return;
-    if (uiKitFooterBtn && uiKitFooterBtn.contains(target)) return;
-    setUiKitPanelVisible(false);
-  });
-
-  setUiKitPanelVisible(false);
-
-  refreshAudioUi();
-  loadAudioTrackCatalog().catch((err) => {
-    gameLog('info', 'Initiales Laden des Audio-Track-Katalogs fehlgeschlagen', err);
-  });
-
-  // Advisor widget: register WM window + mount floating bubble
-  AdvisorWidget.register();
-  AdvisorWidget.load().catch((err) => {
-    gameLog('info', 'AdvisorWidget Load fehlgeschlagen', err);
-  });
-
-  // Initialize Breadcrumb Navigation for System Bodies
-  initSystemBreadcrumb();
-
-  await loadOverview();
-
-  try {
-    const bootHomeFlight = window.__GQ_BOOT_HOME_FLIGHT;
-    if (bootHomeFlight) {
-      const root = WM.body('galaxy');
-      if (root) {
-        const introMode = String(settingsState.introFlightMode || 'cinematic');
-        const shouldPlayIntro = introMode !== 'off';
-        await focusHomeSystemInGalaxy(root, {
-          silent: true,
-          cinematic: shouldPlayIntro && introMode === 'cinematic',
-          enterSystem: bootHomeFlight.enterSystem !== false,
-          focusPlanet: shouldPlayIntro && bootHomeFlight.focusPlanet !== false,
-        });
-      }
-    }
-  } catch (err) {
-    gameLog('info', 'Intro camera flight bootstrap fehlgeschlagen (non-blocking)', err);
-    // Keep startup resilient if intro camera flight fails.
-  } finally {
-    try {
-      window.__GQ_BOOT_HOME_FLIGHT = null;
-    } catch (err) {
-      gameLog('info', 'Konnte __GQ_BOOT_HOME_FLIGHT nicht zuruecksetzen', err);
-    }
-  }
-
-  await loadBadge();
-
-  // ── Colony VFX Debug Widget ────────────────────────────────────────
-  // Auto-updating debug widget to display live VFX telemetry for Colony Surface
-  function initColonyVFXDebugWidget() {
-    let widget = null;
-    let updateInterval = null;
-    let lastStats = null;
-    let lastMapper = null;
-
-    const ZOOM_LEVEL = window.GQSeamlessZoomOrchestrator?.ZOOM_LEVEL || { COLONY_SURFACE: 3 };
-    const COLONY_SURFACE = ZOOM_LEVEL.COLONY_SURFACE || 3;
-
-    function createWidgetHTML(stats, mapper) {
-      const backend = stats?.backend || '?';
-      const quality = stats?.quality || 'auto';
-      const emitters = stats?.emitters || 0;
-      const particles = stats?.particles || 0;
-      const burstActive = stats?.burstActive ? '●' : '○';
-
-      const profiles = stats?.profileCounts || {};
-      const profileLines = Object.entries(profiles)
-        .map(([name, count]) => `<div class="vfx-stat-line"><span class="vfx-profile-name">${esc(name)}</span>: ${count}</div>`)
-        .join('');
-
-      const mapperSlots = mapper?.stats?.mappedSlots || 0;
-      const mapperCounts = mapper?.stats?.profileCounts || {};
-      const mapperLines = Object.entries(mapperCounts)
-        .map(([name, count]) => `<span class="vfx-mapper-tag">${esc(name)}=${count}</span>`)
-        .join(' ');
-
-      return `
-        <div class="vfx-debug-widget-content">
-          <div class="vfx-debug-header">Colony VFX Stats</div>
-          <div class="vfx-debug-section">
-            <div class="vfx-stat-line"><strong>Backend:</strong> ${esc(backend)}</div>
-            <div class="vfx-stat-line"><strong>Quality:</strong> ${esc(quality)}</div>
-            <div class="vfx-stat-line"><strong>Emitters:</strong> ${emitters}</div>
-            <div class="vfx-stat-line"><strong>Particles:</strong> ${particles}</div>
-            <div class="vfx-stat-line"><strong>Burst:</strong> ${burstActive}</div>
-          </div>
-          <div class="vfx-debug-section">
-            <div class="vfx-debug-sublabel">Profiles</div>
-            ${profileLines || '<div class="vfx-stat-line">(none)</div>'}
-          </div>
-          ${mapperSlots > 0 ? `
-          <div class="vfx-debug-section">
-            <div class="vfx-debug-sublabel">Mapper: ${mapperSlots} slots</div>
-            <div class="vfx-stat-line" style="font-size:0.85em; flex-wrap:wrap; display:flex; gap:4px;">
-              ${mapperLines || '(none)'}
-            </div>
-          </div>
-          ` : ''}
-        </div>
-      `;
-    }
-
-    function updateWidget() {
-      const stats = window.__GQ_COLONY_VFX_STATS;
-      const mapper = window.__GQ_COLONY_VFX_MAPPER;
-      const orchest = window.GQSeamlessZoomOrchestrator;
-      const activeLevel = orchest?.activeLevel || -1;
-      const isColonyLevel = activeLevel === COLONY_SURFACE;
-
-      if (!widget) {
-        widget = document.getElementById('colony-vfx-debug-widget');
-        if (!widget) {
-          const overlay = document.getElementById('galaxy-info-overlay');
-          if (!overlay) return;
-          widget = document.createElement('div');
-          widget.id = 'colony-vfx-debug-widget';
-          widget.className = 'colony-vfx-debug-widget';
-          overlay.appendChild(widget);
-        }
-      }
-
-      const hasStats = !!(stats && stats.particles > 0);
-      const shouldShow = isColonyLevel && hasStats;
-
-      if (!shouldShow) {
-        widget.innerHTML = '';
-        widget.style.display = 'none';
-        return;
-      }
-
-      const changed = JSON.stringify(stats) !== JSON.stringify(lastStats) ||
-                      JSON.stringify(mapper) !== JSON.stringify(lastMapper);
-      if (changed || !widget.innerHTML) {
-        widget.innerHTML = createWidgetHTML(stats, mapper);
-        lastStats = stats;
-        lastMapper = mapper;
-      }
-
-      widget.style.display = 'block';
-    }
-
-    function startUpdating() {
-      if (updateInterval) clearInterval(updateInterval);
-      updateInterval = setInterval(updateWidget, 150);
-    }
-
-    function stopUpdating() {
-      if (updateInterval) {
-        clearInterval(updateInterval);
-        updateInterval = null;
-      }
-    }
-
-    // Start widget updates after 500ms
-    setTimeout(startUpdating, 500);
-
-    // Public API for cleanup
-    window.__GQ_VFX_WIDGET_CONTROL = { startUpdating, stopUpdating, updateWidget };
-  }
-
-  // Initialize the widget
-  try {
-    initColonyVFXDebugWidget();
-  } catch (err) {
-    console.warn('[GQ] VFX debug widget init failed (non-blocking)', err);
-  }
 
 })();
+

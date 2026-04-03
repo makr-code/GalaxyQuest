@@ -33,14 +33,14 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const root    = path.resolve(fileURLToPath(import.meta.url), '../../..');
 
-const { RendererRegistry }         = require(path.join(root, 'js/rendering/RendererRegistry.js'));
+const { RendererRegistry }         = require(path.join(root, 'js/engine/zoom/RendererRegistry.js'));
 const { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType, SPATIAL_DEPTH } =
-  require(path.join(root, 'js/rendering/SeamlessZoomOrchestrator.js'));
-const { CameraFlightPath }         = require(path.join(root, 'js/rendering/CameraFlightPath.js'));
+  require(path.join(root, 'js/engine/zoom/SeamlessZoomOrchestrator.js'));
+const { CameraFlightPath }         = require(path.join(root, 'js/engine/zoom/CameraFlightPath.js'));
 const { ObjectApproachLevelThreeJS } =
-  require(path.join(root, 'js/rendering/levels/ObjectApproachLevelThreeJS.js'));
+  require(path.join(root, 'js/engine/zoom/levels/ObjectApproachLevelThreeJS.js'));
 const { ObjectApproachLevelWebGPU, meshDescriptorFor } =
-  require(path.join(root, 'js/rendering/levels/ObjectApproachLevelWebGPU.js'));
+  require(path.join(root, 'js/engine/zoom/levels/ObjectApproachLevelWebGPU.js'));
 
 // ---------------------------------------------------------------------------
 // Mock helpers

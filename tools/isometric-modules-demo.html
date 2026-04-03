@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Isometric Modules Demo — GalaxyQuest Shipyard</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/isometric-modules.css" />
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #040e24 0%, #0d1421 100%);
+      color: #d7e8ff;
+      padding: 20px;
+      line-height: 1.6;
+    }
+
+    .demo-container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .demo-header {
+      margin-bottom: 32px;
+    }
+
+    .demo-header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #e9f0ff;
+      margin: 0 0 8px;
+    }
+
+    .demo-header p {
+      color: #7a8ca0;
+      margin: 0;
+    }
+
+    .demo-section {
+      margin-bottom: 40px;
+    }
+
+    .demo-section h2 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #a8c5dd;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid rgba(100, 150, 200, 0.2);
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+
+    .demo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 16px;
+    }
+
+    .demo-item {
+      padding: 12px;
+      border: 1px solid rgba(100, 150, 200, 0.2);
+      border-radius: 8px;
+      background: rgba(13, 20, 33, 0.4);
+      text-align: center;
+    }
+
+    .demo-item canvas {
+      width: 120px;
+      height: 120px;
+      margin: 0 auto 8px;
+      display: block;
+      image-rendering: crisp-edges;
+      border-radius: 4px;
+      background: rgba(10, 16, 28, 0.5);
+    }
+
+    .demo-item-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #c8deff;
+      margin-bottom: 4px;
+    }
+
+    .demo-item-tier {
+      font-size: 10px;
+      color: #7a8ca0;
+    }
+
+    .demo-controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+      padding: 16px;
+      border: 1px solid rgba(100, 150, 200, 0.2);
+      border-radius: 8px;
+      background: rgba(13, 20, 33, 0.3);
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .control-group label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #7a8ca0;
+    }
+
+    .control-group select,
+    .control-group input {
+      padding: 6px 8px;
+      border: 1px solid rgba(100, 150, 200, 0.3);
+      border-radius: 4px;
+      background: rgba(10, 16, 28, 0.6);
+      color: #a8c5dd;
+      font-size: 12px;
+    }
+
+    .control-group input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      margin-top: 2px;
+    }
+
+    .demo-preview {
+      padding: 24px;
+      border: 2px solid rgba(100, 200, 255, 0.3);
+      border-radius: 8px;
+      background: rgba(13, 20, 33, 0.4);
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .demo-preview canvas {
+      max-width: 300px;
+      max-height: 300px;
+      image-rendering: crisp-edges;
+      border-radius: 8px;
+      background: rgba(10, 16, 28, 0.5);
+      display: inline-block;
+    }
+
+    .slot-editor-demo {
+      padding: 16px;
+      border: 1px solid rgba(100, 150, 200, 0.2);
+      border-radius: 8px;
+      background: rgba(13, 20, 33, 0.4);
+    }
+
+    .debug-info {
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(100, 100, 100, 0.3);
+      border-radius: 4px;
+      padding: 8px;
+      color: #7a8ca0;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-container">
+    <!-- Header -->
+    <div class="demo-header">
+      <h1>Isometric Modules Demo</h1>
+      <p>Interactive visualization of equipment modules for the GalaxyQuest shipyard</p>
+    </div>
+
+    <!-- Interactive Preview -->
+    <div class="demo-section">
+      <h2>Interactive Preview</h2>
+      
+      <div class="demo-controls">
+        <div class="control-group">
+          <label>Module Type</label>
+          <select id="ctrl-module-type">
+            <option value="ENERGY">Energy (Reactor)</option>
+            <option value="WEAPON">Weapon (Laser)</option>
+            <option value="SHIELD">Shield (Barrier)</option>
+            <option value="ARMOR">Armor (Plating)</option>
+            <option value="PROPULSION">Propulsion (Drive)</option>
+            <option value="COMMAND" selected>Command (Bridge)</option>
+            <option value="AUXILIARY">Auxiliary (Sensors)</option>
+            <option value="HULL">Hull (Structure)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label>Tier Level</label>
+          <select id="ctrl-tier">
+            <option value="1">Tier 1 (Basic)</option>
+            <option value="2">Tier 2 (Advanced)</option>
+            <option value="3" selected>Tier 3 (Expert)</option>
+            <option value="4">Tier 4 (Master)</option>
+            <option value="5">Tier 5 (Exotic)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label>Damage State</label>
+          <select id="ctrl-damage">
+            <option value="intact" selected>Intact (100%)</option>
+            <option value="damaged">Damaged (50%)</option>
+            <option value="critical">Critical (25%)</option>
+            <option value="destroyed">Destroyed (0%)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label>Rotation (°)</label>
+          <input type="range" id="ctrl-rotation" min="0" max="360" value="0" />
+          <span id="rotation-display">0°</span>
+        </div>
+
+        <div class="control-group">
+          <label>
+            <input type="checkbox" id="ctrl-upgraded" />
+            Upgraded
+          </label>
+        </div>
+
+        <div class="control-group">
+          <label>
+            <input type="checkbox" id="ctrl-highlighted" />
+            Highlighted
+          </label>
+        </div>
+      </div>
+
+      <div class="demo-preview">
+        <canvas id="preview-canvas" width="300" height="300"></canvas>
+      </div>
+    </div>
+
+    <!-- All Module Types -->
+    <div class="demo-section">
+      <h2>Module Types</h2>
+      <div class="demo-grid" id="module-types-grid"></div>
+    </div>
+
+    <!-- Damage State Progression -->
+    <div class="demo-section">
+      <h2>Damage State Progression (Energy Module)</h2>
+      <div class="demo-grid" id="damage-states-grid"></div>
+    </div>
+
+    <!-- Tier Levels -->
+    <div class="demo-section">
+      <h2>Tier Levels (Shield Module)</h2>
+      <div class="demo-grid" id="tier-levels-grid"></div>
+    </div>
+
+    <!-- Slot Editor Demo -->
+    <div class="demo-section">
+      <h2>Slot Editor Integration</h2>
+      <div class="slot-editor-demo" id="slot-editor-demo"></div>
+    </div>
+
+    <!-- Debug Info -->
+    <div class="demo-section">
+      <h2>Debug Information</h2>
+      <div class="debug-info" id="debug-info">Loading...</div>
+    </div>
+  </div>
+
+  <script src="../js/ui/IsometricModuleRenderer.js"></script>
+  <script src="../js/ui/ShipyardModuleEditor.js"></script>
+  <script>
+    const { IsometricModuleRenderer, ModuleType } = window.GQIsometricModuleRenderer || {};
+    const { ShipyardModuleEditor } = window.GQShipyardModuleEditor || {};
+
+    let previewRenderer = null;
+    let moduleTypeRenderers = [];
+    let damageStateRenderers = [];
+    let tierLevelRenderers = [];
+
+    function initPreviewRenderer() {
+      const canvas = document.getElementById('preview-canvas');
+      if (canvas && !previewRenderer) {
+        previewRenderer = new IsometricModuleRenderer(canvas, { scale: 2.5 });
+      }
+    }
+
+    function updatePreview() {
+      if (!previewRenderer) return;
+
+      const moduleType = document.getElementById('ctrl-module-type').value;
+      const tier = parseInt(document.getElementById('ctrl-tier').value);
+      const damageState = document.getElementById('ctrl-damage').value;
+      const rotation = parseInt(document.getElementById('ctrl-rotation').value);
+      const upgraded = document.getElementById('ctrl-upgraded').checked;
+      const highlighted = document.getElementById('ctrl-highlighted').checked;
+
+      previewRenderer.render({
+        moduleType,
+        tier,
+        damageState,
+        upgraded,
+        highlighted,
+        rotation,
+      });
+
+      document.getElementById('rotation-display').textContent = rotation + '°';
+      updateDebugInfo();
+    }
+
+    function renderModuleTypes() {
+      const container = document.getElementById('module-types-grid');
+      if (!container) return;
+
+      Object.values(ModuleType).forEach((type) => {
+        const item = document.createElement('div');
+        item.className = 'demo-item';
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 120;
+        canvas.height = 120;
+
+        const renderer = new IsometricModuleRenderer(canvas, { scale: 1.5 });
+        renderer.render({ moduleType: type, tier: 2 });
+        moduleTypeRenderers.push(renderer);
+
+        const label = document.createElement('div');
+        label.className = 'demo-item-label';
+        label.textContent = type;
+
+        item.appendChild(canvas);
+        item.appendChild(label);
+        container.appendChild(item);
+      });
+    }
+
+    function renderDamageStates() {
+      const container = document.getElementById('damage-states-grid');
+      if (!container) return;
+
+      const states = ['intact', 'damaged', 'critical', 'destroyed'];
+      states.forEach((state) => {
+        const item = document.createElement('div');
+        item.className = 'demo-item';
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 120;
+        canvas.height = 120;
+
+        const renderer = new IsometricModuleRenderer(canvas, { scale: 1.5 });
+        renderer.render({
+          moduleType: ModuleType.ENERGY,
+          tier: 3,
+          damageState: state,
+        });
+        damageStateRenderers.push(renderer);
+
+        const label = document.createElement('div');
+        label.className = 'demo-item-label';
+        label.textContent = state.toUpperCase();
+
+        item.appendChild(canvas);
+        item.appendChild(label);
+        container.appendChild(item);
+      });
+    }
+
+    function renderTierLevels() {
+      const container = document.getElementById('tier-levels-grid');
+      if (!container) return;
+
+      for (let tier = 1; tier <= 5; tier++) {
+        const item = document.createElement('div');
+        item.className = 'demo-item';
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 120;
+        canvas.height = 120;
+
+        const renderer = new IsometricModuleRenderer(canvas, { scale: 1.5 });
+        renderer.render({
+          moduleType: ModuleType.SHIELD,
+          tier,
+        });
+        tierLevelRenderers.push(renderer);
+
+        const label = document.createElement('div');
+        label.className = 'demo-item-label';
+        label.textContent = `Tier ${tier}`;
+
+        const tierInfo = document.createElement('div');
+        tierInfo.className = 'demo-item-tier';
+        tierInfo.textContent = ['Basic', 'Advanced', 'Expert', 'Master', 'Exotic'][tier - 1];
+
+        item.appendChild(canvas);
+        item.appendChild(label);
+        item.appendChild(tierInfo);
+        container.appendChild(item);
+      }
+    }
+
+    function renderSlotEditor() {
+      const container = document.getElementById('slot-editor-demo');
+      if (!container || !ShipyardModuleEditor) return;
+
+      const editor = new ShipyardModuleEditor({ container });
+
+      // Create some example slots
+      const slotConfigs = [
+        { groupLabel: 'Power System', slots: [
+          { slotId: 'pwr_1', label: 'Main Reactor', moduleType: ModuleType.ENERGY, tier: 3 },
+          { slotId: 'pwr_2', label: 'Backup Generator', moduleType: ModuleType.ENERGY, tier: 1 },
+        ]},
+        { groupLabel: 'Weapon System', slots: [
+          { slotId: 'wpn_1', label: 'Primary Launcher', moduleType: ModuleType.WEAPON, tier: 2, upgraded: true },
+          { slotId: 'wpn_2', label: 'Secondary Turret', moduleType: ModuleType.WEAPON, tier: 2 },
+        ]},
+        { groupLabel: 'Defenses', slots: [
+          { slotId: 'shd_1', label: 'Shield Generator', moduleType: ModuleType.SHIELD, tier: 3 },
+          { slotId: 'arm_1', label: 'Reinforced Hull', moduleType: ModuleType.ARMOR, tier: 2 },
+        ]},
+      ];
+
+      slotConfigs.forEach((group) => {
+        const groupDiv = document.createElement('div');
+        groupDiv.style.marginBottom = '16px';
+
+        const groupLabel = document.createElement('h3');
+        groupLabel.style.fontSize = '12px';
+        groupLabel.style.fontWeight = '600';
+        groupLabel.style.color = '#a8c5dd';
+        groupLabel.style.margin = '0 0 8px';
+        groupLabel.textContent = group.groupLabel;
+        groupDiv.appendChild(groupLabel);
+
+        const slotsDiv = document.createElement('div');
+        slotsDiv.style.display = 'grid';
+        slotsDiv.style.gridTemplateColumns = 'repeat(auto-fit, minmax(250px, 1fr))';
+        slotsDiv.style.gap = '12px';
+
+        group.slots.forEach((slotConfig) => {
+          editor.createSlotPanel(slotsDiv, slotConfig.slotId, slotConfig);
+        });
+
+        groupDiv.appendChild(slotsDiv);
+        container.appendChild(groupDiv);
+      });
+    }
+
+    function updateDebugInfo() {
+      const info = {
+        'Renderer Status': previewRenderer ? '✓ Initialized' : '✗ Not ready',
+        'Module Type': document.getElementById('ctrl-module-type').value,
+        'Tier': parseInt(document.getElementById('ctrl-tier').value),
+        'Damage State': document.getElementById('ctrl-damage').value,
+        'Rotation': parseInt(document.getElementById('ctrl-rotation').value) + '°',
+        'Upgraded': document.getElementById('ctrl-upgraded').checked ? 'Yes' : 'No',
+        'Highlighted': document.getElementById('ctrl-highlighted').checked ? 'Yes' : 'No',
+        'Canvas Size': '300x300',
+        'Scale': 2.5,
+      };
+
+      const lines = Object.entries(info).map(([k, v]) => `${k}: ${v}`);
+      document.getElementById('debug-info').textContent = lines.join('\n');
+    }
+
+    function init() {
+      // Setup event listeners
+      document.getElementById('ctrl-module-type').addEventListener('change', updatePreview);
+      document.getElementById('ctrl-tier').addEventListener('change', updatePreview);
+      document.getElementById('ctrl-damage').addEventListener('change', updatePreview);
+      document.getElementById('ctrl-rotation').addEventListener('input', updatePreview);
+      document.getElementById('ctrl-upgraded').addEventListener('change', updatePreview);
+      document.getElementById('ctrl-highlighted').addEventListener('change', updatePreview);
+
+      // Render all sections
+      initPreviewRenderer();
+      updatePreview();
+      renderModuleTypes();
+      renderDamageStates();
+      renderTierLevels();
+      renderSlotEditor();
+
+      updateDebugInfo();
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  </script>
+</body>
+</html>

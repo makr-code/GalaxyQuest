@@ -389,6 +389,7 @@
       this.systemInstallationBurstFxEntries = [];
       this.pendingInstallationWeaponFire = [];
       this.beamEffect = null;  // Instanced beam pool (Phase FX-3)
+      this.debrisManager = null;  // Debris state machine & registry (Phase FX-5)
       this.galaxyFleetEntries = [];
       this.systemAtmosphereEntries = [];
       this.systemCloudEntries = [];
@@ -775,6 +776,24 @@
         this.pendingInstallationWeaponFire.splice(0, this.pendingInstallationWeaponFire.length - 180);
       }
       return true;
+    }
+
+    /**
+     * Public API: Enqueue a weapon-fire event for installations/entities in this system.
+     * 
+     * Event fields (all optional):
+     * - sourceType: 'installation' | 'ship' | 'debris' | 'wormhole' (null = broadcast all)
+     * - sourceOwner: faction/owner name to filter (null = all)
+     * - sourcePosition: [reserved] target position index
+     * - weaponKind: 'laser' | 'beam' | ... to filter (null = all)
+     * - targetPos: [x,y,z] impact point [unused, for future particles]
+     * - energy: energy/power display [unused, for future HUD]
+     * 
+     * @param {object} event - Weapon-fire event payload
+     * @returns {boolean} - True if queued, false if invalid
+     */
+    enqueueInstallationWeaponFire(event) {
+      return this._queueInstallationWeaponFire(event);
     }
 
     _ensureModelRegistryVfxBridge() {
@@ -2874,25 +2893,508 @@
 
     _applyPendingInstallationWeaponFire(elapsed) {
       if (!Array.isArray(this.pendingInstallationWeaponFire) || !this.pendingInstallationWeaponFire.length) return;
-      if (!Array.isArray(this.systemInstallationWeaponFxEntries) || !this.systemInstallationWeaponFxEntries.length) {
-        this.pendingInstallationWeaponFire.length = 0;
+
+      const events = this.pendingInstallationWeaponFire.splice(0, this.pendingInstallationWeaponFire.length);
+      
+      events.forEach((ev) => {
+        const eventSourceType = String(ev?.sourceType || '').toLowerCase();
+        
+        // Phase 2: Multi-entity routing
+        switch (eventSourceType) {
+          case 'ship':
+            this._applyWeaponFireToShips(ev, elapsed);
+            break;
+          case 'debris':
+            this._applyWeaponFireToDebris(ev, elapsed);
+            break;
+          case 'wormhole':
+          case 'gate':
+          case 'beacon':
+            this._applyWeaponFireToWormholes(ev, elapsed);
+            break;
+          case 'installation':
+          case '': // null/empty defaults to installation broadcast
+          case null:
+          default:
+            this._applyWeaponFireToInstallations(ev, elapsed);
+        }
+      });
+    }
+
+    /**
+     * Apply a weapon-fire event to stations/installations in this system.
+     * @param {object} ev - Event payload
+     * @param {number} elapsed - Frame elapsed time
+     * @private
+     */
+    _applyWeaponFireToInstallations(ev, elapsed) {
+      if (!Array.isArray(this.systemInstallationWeaponFxEntries) || !this.systemInstallationWeaponFxEntries.length) return;
+
+      this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
+        const installEntry = fxEntry?.installEntry;
+        if (!installEntry?.mesh) return;
+
+        // Filter by weapon kind
+        if (ev.weaponKind && ev.weaponKind !== String(fxEntry.kind || '').toLowerCase()) return;
+        
+        // Filter by source owner (null = all)
+        if (ev.sourceOwner && ev.sourceOwner !== String(installEntry.owner || '').trim()) return;
+        
+        // Fire!
+        const state = String(installEntry.animState || installEntry.mesh.userData?.animState || 'active');
+        this._triggerInstallationWeaponFire(fxEntry, elapsed, state, 0.7);
+      });
+    }
+
+    // ============================================================================
+    // Phase 2 Stubs: Ship/Debris/Wormhole Weapon Fire (Future Implementation)
+    // ============================================================================
+
+    /**
+     * Apply weapon-fire event to ships/vessels in this system.
+     * 
+     * Matches ships by:
+     * - sourceOwner: faction/player name
+     * - weaponKind: laser, beam, missile, etc.
+     * 
+     * Triggers beams from ship hardpoints to closest enemy beacon/installation.
+     * 
+     * @param {object} ev - Event payload with sourceType='ship'
+     * @param {number} elapsed - Frame elapsed time
+     * @private
+     */
+    _applyWeaponFireToShips(ev, elapsed) {
+      if (!Array.isArray(this.systemFleetEntries) || !this.systemFleetEntries.length) return;
+
+      this.systemFleetEntries.forEach((fleetEntry) => {
+        if (!fleetEntry?.mesh || !fleetEntry?.fleet) return;
+
+        // Filter by source owner (null = all)
+        if (ev.sourceOwner && ev.sourceOwner !== String(fleetEntry.fleet.owner || '').trim()) return;
+        
+        // Filter by weapon kind if specified
+        if (ev.weaponKind) {
+          const ship = fleetEntry.fleet;
+          const hasWeapon = String(ship?.armament || ship?.weapons || '').toLowerCase().includes(ev.weaponKind);
+          if (!hasWeapon) return;
+        }
+
+        // Fire ship weapon
+        const state = String(fleetEntry.mesh.userData?.animState || 'active');
+        this._triggerShipWeaponFire(fleetEntry, ev, elapsed, state);
+      });
+    }
+
+    /**
+     * Trigger weapon fire from a ship.
+     * Creates beams from ship position to nearby enemy installations.
+     * 
+     * @param {object} fleetEntry - Ship entry with mesh and fleet data
+     * @param {object} ev - Event payload
+     * @param {number} elapsed - Frame elapsed time
+     * @param {string} state - Animation state (active, damaged, etc)
+     * @private
+     */
+    _triggerShipWeaponFire(fleetEntry, ev, elapsed, state = 'active') {
+      if (!fleetEntry?.mesh || !this.beamEffect) return;
+
+      // Get ship position
+      const shipWorldPos = new THREE.Vector3();
+      fleetEntry.mesh.getWorldPosition(shipWorldPos);
+
+      // Find closest enemy installation as target
+      let closestInstall = null;
+      let closestDist = Number.MAX_VALUE;
+
+      if (Array.isArray(this.systemInstallationWeaponFxEntries)) {
+        this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
+          const install = fxEntry?.installEntry;
+          if (!install?.mesh) return;
+          
+          // Skip friendly installations
+          const installOwner = String(install.owner || '').trim();
+          const shipOwner = String(fleetEntry.fleet?.owner || '').trim();
+          if (installOwner === shipOwner) return;
+
+          // Check distance
+          const installWorldPos = new THREE.Vector3();
+          install.mesh.getWorldPosition(installWorldPos);
+          const dist = shipWorldPos.distanceTo(installWorldPos);
+
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestInstall = { fxEntry, world: installWorldPos };
+          }
+        });
+      }
+
+      // Create beam to target
+      if (closestInstall && closestDist < 200) { // Range limit
+        const cadence = this._installationWeaponFxCadence(ev.weaponKind || 'laser', state);
+        const shotDuration = this._installationWeaponFxShotDuration(ev.weaponKind || 'laser', state);
+
+        const beamRecord = {
+          id: `ship_beam_${fleetEntry.fleet?.id}_${Date.now()}`,
+          from: shipWorldPos.toArray(),
+          to: closestInstall.world.toArray(),
+          coreColor: Number(ev.coreColor ?? 0x00ff88),
+          color: Number(ev.color ?? 0x00ff88),
+          glowRadius: 0.35,
+          duration: shotDuration,
+        };
+
+        this.beamEffect.addBeam(beamRecord);
+        
+        // Set up next fire interval
+        if (!fleetEntry._nextShipFire) fleetEntry._nextShipFire = {};
+        fleetEntry._nextShipFire[ev.weaponKind || 'default'] = elapsed + cadence;
+      }
+    }
+
+    /**
+     * Apply weapon-fire event to debris/wreckage in this system.
+     * 
+     * PHASE 3 COMPLETE:
+     * - Damage accumulation via DebrisManager state machine
+     * - State transitions (intact → damaged → critical → destroyed)
+     * - Progressive fragment spawning based on damage level
+     * - Material damage visualization
+     * - Destruction callback with explosion effects
+     * 
+     * @param {object} ev - Event payload with sourceType='debris'
+     * @param {number} elapsed - Frame elapsed time
+     * @private
+     */
+    _applyWeaponFireToDebris(ev, elapsed) {
+      if (!this.debrisManager) {
+        // Fallback: simple impact burst (Phase 2)
+        this._spawnDebrisImpactBurst(ev, elapsed);
         return;
       }
 
-      const events = this.pendingInstallationWeaponFire.splice(0, this.pendingInstallationWeaponFire.length);
-      events.forEach((ev) => {
-        this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
-          const installEntry = fxEntry?.installEntry;
-          if (!installEntry?.mesh) return;
+      // TODO: Match debris by position/ID from targetPos
+      // For now: apply damage to all debris in system (or use sourcePosition as ID)
+      if (!ev.targetPos) return;
 
-          if (ev.weaponKind && ev.weaponKind !== String(fxEntry.kind || '').toLowerCase()) return;
-          if (ev.sourcePosition && Number(installEntry.position || 0) !== ev.sourcePosition) return;
-          if (ev.sourceOwner && ev.sourceOwner !== String(installEntry.owner || '').trim()) return;
-          if (ev.sourceType && ev.sourceType !== String(installEntry.install?.type || '').toLowerCase()) return;
+      const targetPos = ev.targetPos;
+      const damageAmount = Number(ev.damage ?? 25);
 
-          const state = String(installEntry.animState || installEntry.mesh.userData?.animState || 'active');
-          this._triggerInstallationWeaponFire(fxEntry, elapsed, state, 0.7);
-        });
+      // Find nearest debris object within range
+      const nearestDebris = this._findNearestDebrisToPosition(targetPos, 50);
+      if (!nearestDebris) {
+        // No debris found, spawn impact burst
+        this._spawnDebrisImpactBurst(ev, elapsed);
+        return;
+      }
+
+      // Apply damage via DebrisManager (triggers state machine)
+      this.debrisManager.applyDamage(nearestDebris.id, damageAmount, {
+        attacker: String(ev.sourceOwner || 'unknown'),
+        weaponKind: String(ev.weaponKind || 'impact'),
+        timestamp: elapsed,
+      });
+
+      // Spawn fragments based on new state
+      const debris = this.debrisManager.get(nearestDebris.id);
+      this._spawnDebrisFragmentsByState(debris, targetPos, elapsed);
+    }
+
+    /**
+     * Simple debris impact burst (fallback from Phase 2)
+     * Spawns particles at impact location
+     * @private
+     */
+    _spawnDebrisImpactBurst(ev, elapsed) {
+      if (!ev.targetPos || !Array.isArray(ev.targetPos) || !this.systemInstallationBurstFxGroup) return;
+
+      const impactPos = new THREE.Vector3(...ev.targetPos);
+      
+      const count = 12;
+      const positions = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        const idx = i * 3;
+        const angle = (i / count) * Math.PI * 2;
+        const r = 0.3;
+        positions[idx] = Math.cos(angle) * r;
+        positions[idx + 1] = (Math.random() - 0.5) * 0.2;
+        positions[idx + 2] = Math.sin(angle) * r;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: 0xffaa44,
+        size: 0.08,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      
+      const burst = new THREE.Points(geometry, material);
+      burst.position.copy(impactPos);
+      burst.userData = {
+        kind: 'debris-impact',
+        age: 0,
+        duration: 0.4,
+      };
+
+      this.systemInstallationBurstFxGroup.add(burst);
+    }
+
+    /**
+     * Find nearest debris object to world position
+     * @param {[number, number, number]} worldPos - World coordinates
+     * @param {number} maxDistance - Search radius
+     * @returns {object|null} Debris entry with metadata or null
+     * @private
+     */
+    _findNearestDebrisToPosition(worldPos, maxDistance = 50) {
+      if (!this.debrisManager) return null;
+
+      const targetVec = new THREE.Vector3(...worldPos);
+      let nearest = null;
+      let nearestDist = maxDistance;
+
+      this.debrisManager.getAll().forEach((debris) => {
+        const debrisVec = new THREE.Vector3(...debris.position);
+        const dist = targetVec.distanceTo(debrisVec);
+
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = debris;
+        }
+      });
+
+      return nearest;
+    }
+
+    /**
+     * Spawn debris fragments based on cumulative damage state
+     * Progressive emission: damaged→critical→destroyed
+     * 
+     * @param {object} debris - Debris object from manager
+     * @param {[number, number, number]} impactPos - Impact location
+     * @param {number} elapsed - Frame time
+     * @private
+     */
+    _spawnDebrisFragmentsByState(debris, impactPos, elapsed) {
+      if (!debris || !this.systemInstallationBurstFxGroup) return;
+
+      let fragmentCount = 0;
+      let spreadAngle = 0.2 * Math.PI;
+      let fragmentColor = 0xffaa44;
+
+      // Determine emission intensity by state
+      switch (debris.state) {
+        case 'damaged':
+          fragmentCount = 6;
+          spreadAngle = 0.3 * Math.PI;
+          fragmentColor = 0xffaa44;  // Orange
+          break;
+        case 'critical':
+          fragmentCount = 12;
+          spreadAngle = 0.4 * Math.PI;
+          fragmentColor = 0xff6622;  // Darker orange/red
+          break;
+        case 'destroyed':
+          fragmentCount = 24;
+          spreadAngle = 0.5 * Math.PI;
+          fragmentColor = 0xff2200;  // Red
+          break;
+        default:
+          return;
+      }
+
+      // Spawn fragments
+      const positions = new Float32Array(fragmentCount * 3);
+      for (let i = 0; i < fragmentCount; i++) {
+        const idx = i * 3;
+        const angle = (i / fragmentCount) * Math.PI * 2 + (Math.random() - 0.5) * spreadAngle;
+        const r = 0.2 + Math.random() * 0.5;
+        positions[idx] = Math.cos(angle) * r;
+        positions[idx + 1] = (Math.random() - 0.5) * 0.3;
+        positions[idx + 2] = Math.sin(angle) * r;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: fragmentColor,
+        size: 0.05 + Math.random() * 0.08,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+
+      const burst = new THREE.Points(geometry, material);
+      burst.position.set(...impactPos);
+      burst.userData = {
+        kind: 'debris-fragments',
+        age: 0,
+        duration: 0.8 + Math.random() * 0.4,
+        state: debris.state,
+      };
+
+      this.systemInstallationBurstFxGroup.add(burst);
+
+      // Update debris material
+      this._updateDebrisMaterialByState(debris, elapsed);
+    }
+
+    /**
+     * Update debris mesh material based on damage state
+     * Progressive darkening and color shift toward red
+     * 
+     * @param {object} debris - Debris from manager
+     * @param {number} elapsed - Frame time
+     * @private
+     */
+    _updateDebrisMaterialByState(debris, elapsed) {
+      if (!debris.mesh || !debris.mesh.material) return;
+
+      const material = debris.mesh.material;
+      const dmg = debris.damageLevel;
+
+      // Color progression: white → orange → red
+      const targetColor = new THREE.Color(1, 0.3, 0.2);  // Red/orange
+      const blend = Math.min(1.0, dmg * 1.5);  // Exaggerate color shift
+
+      if (material.color) {
+        material.color.lerp(targetColor, blend * 0.4);
+      }
+
+      if (material.emissive) {
+        material.emissive.lerp(targetColor, blend * 0.6);
+      }
+
+      if ('emissiveIntensity' in material) {
+        material.emissiveIntensity = blend * 0.7;
+      }
+
+      // Optional: darken material
+      if ('opacity' in material) {
+        material.opacity = 1.0 - blend * 0.15;  // Slight transparency as damage increases
+      }
+    }
+
+    /**
+     * Callback when debris is destroyed
+     * Triggers final explosion effects
+     * 
+     * @param {object} debris - Destroyed debris object
+     * @private
+     */
+    _onDebrisDestroyed(debris) {
+      if (!debris || !this.systemInstallationBurstFxGroup) return;
+
+      // Final explosion burst
+      const count = 24;
+      const positions = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        const idx = i * 3;
+        const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+        const r = 0.4 + Math.random() * 0.6;
+        positions[idx] = Math.cos(angle) * r;
+        positions[idx + 1] = (Math.random() - 0.5) * 0.5;
+        positions[idx + 2] = Math.sin(angle) * r;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: 0xff4400,
+        size: 0.12,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+
+      const explosion = new THREE.Points(geometry, material);
+      explosion.position.set(...debris.position);
+      explosion.userData = {
+        kind: 'debris-explosion',
+        age: 0,
+        duration: 1.0,
+      };
+
+      this.systemInstallationBurstFxGroup.add(explosion);
+
+      // Dispatch destruction event
+      window.dispatchEvent(new CustomEvent('gq:debris:destroyed', {
+        detail: {
+          debrisId: debris.id,
+          position: debris.position,
+          state: debris.state,
+          damageLevel: debris.damageLevel,
+        },
+      }));
+    }
+
+    /**
+     * Apply weapon-fire event to wormholes/gateways/beacons in this system.
+     * 
+     * PHASE 2 PLANNING:
+     * - Locate active wormhole/gateway meshes
+     * - Animate destabilization shader/colors
+     * - Trigger rupture sequence when energy threshold hit
+     * - Cascade effects to linked wormholes
+     * 
+     * Currently: Creates pulsing beam discharge effect.
+     * 
+     * @param {object} ev - Event payload with sourceType='wormhole|gate|beacon'
+     * @param {number} elapsed - Frame elapsed time
+     * @private
+     */
+    _applyWeaponFireToWormholes(ev, elapsed) {
+      // TODO: Full wormhole destabilization system in future Phase
+      // For now: Generic energy discharge effect
+      if (!this.beamEffect) return;
+
+      // Look for wormhole/gate/beacon in installation registry
+      if (!Array.isArray(this.systemInstallationWeaponFxEntries)) return;
+
+      this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
+        const install = fxEntry?.installEntry;
+        if (!install?.mesh) return;
+
+        // Match wormholes/gates/beacons by type
+        const installType = String(install.type || install.kind || '').toLowerCase();
+        if (!installType.includes('wormhole') && 
+            !installType.includes('gate') && 
+            !installType.includes('beacon')) return;
+
+        // Filter by owner if specified
+        if (ev.sourceOwner && ev.sourceOwner !== String(install.owner || '').trim()) return;
+
+        // Create discharge beam pattern (spiral around entity)
+        const installWorldPos = new THREE.Vector3();
+        install.mesh.getWorldPosition(installWorldPos);
+
+        // Create radial discharge beams
+        const numBeams = 3;
+        for (let i = 0; i < numBeams; i++) {
+          const angle = (i / numBeams) * Math.PI * 2 + elapsed;
+          const offset = new THREE.Vector3(
+            Math.cos(angle) * 3,
+            Math.sin(angle) * 2,
+            Math.cos(angle + 1) * 2
+          );
+
+          const beamRecord = {
+            id: `wormhole_discharge_${install.id}_${i}_${Date.now()}`,
+            from: installWorldPos.toArray(),
+            to: installWorldPos.clone().add(offset).toArray(),
+            coreColor: 0x6600ff,
+            color: 0x9933ff,
+            glowRadius: 0.5,
+            duration: 0.08,
+          };
+
+          this.beamEffect.addBeam(beamRecord);
+        }
       });
     }
 
@@ -4350,6 +4852,19 @@
       this.systemSelectedObject = null;
       this.systemOrbitSimulationBuffer = null;
       this.activeGpuOrbitVisuals = false;
+      
+      // Cleanup Phase 3: DebrisManager
+      if (this.debrisManager) {
+        this.debrisManager.clear();
+        this.debrisManager = null;
+      }
+      
+      // Cleanup Phase 3: BeamEffect pool
+      if (this.beamEffect) {
+        this.beamEffect.dispose?.();
+        this.beamEffect = null;
+      }
+      
       if (this.renderFrames?.galaxy) this.renderFrames.galaxy.visible = true;
       if (this.renderFrames?.system) {
         this.renderFrames.system.visible = false;
@@ -4430,6 +4945,25 @@
       } else {
         console.warn('[Galaxy3DRenderer] BeamEffect not available; beam rendering via THREE.Line');
         this.beamEffect = null;
+      }
+      
+      // Initialize DebrisManager for advanced debris system (Phase FX-5)
+      if (typeof DebrisManager === 'function' || window.DebrisManager) {
+        const DebrisManagerClass = window.DebrisManager || DebrisManager;
+        this.debrisManager = new DebrisManagerClass({
+          debugLogging: false,
+          damageDampenFactor: 1.0,
+        });
+        
+        // Listen for debris destruction events
+        this.debrisManager.on('state-changed', (debris, data) => {
+          if (data.to === 'destroyed') {
+            this._onDebrisDestroyed(debris);
+          }
+        });
+      } else {
+        console.warn('[Galaxy3DRenderer] DebrisManager not available');
+        this.debrisManager = null;
       }
       this._syncInputContext();
       this.systemSourceStar = star;
