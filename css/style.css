@@ -297,7 +297,12 @@
   border-radius: var(--radius);
   padding: 1.8rem 1.5rem 1.2rem;
   width: 100%;
-  max-width: 400px;
+  max-width: 100%;
+  min-height: 460px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
   box-shadow: var(--shadow), 0 0 80px rgba(58,160,255,0.08);
 }
 
@@ -632,7 +637,8 @@ input:focus, select:focus, textarea:focus {
 .form-warning { color: var(--accent-yellow); font-size: 0.82rem; min-height: 1.2rem; }
 
 .auth-inline-copyright {
-  margin-top: 0.75rem;
+  margin-top: auto;
+  margin-bottom: 0;
   padding-top: 0.62rem;
   border-top: 1px solid rgba(79, 151, 255, 0.15);
   text-align: center;
@@ -668,6 +674,15 @@ input:focus, select:focus, textarea:focus {
 .auth-page #context_menu_container,
 .auth-page .copyright,
 .auth-page .affiliates {
+  display: none !important;
+}
+
+.auth-page .galaxy-overlay-window,
+.auth-page #galaxy-nav-orb-overlay,
+.auth-page #galaxy-info-overlay,
+.auth-page .gq-spaceflight-hud,
+.auth-page #footer-actions,
+.auth-page #footer-load {
   display: none !important;
 }
 

@@ -51,6 +51,117 @@
 
   ensureGalaxyEngineBridge();
 
+  function resolveThreeRuntime(win) {
+    const three = win?.THREE || null;
+    const hasCoreCtors = (obj) => !!obj
+      && (typeof obj === 'object' || typeof obj === 'function')
+      && typeof obj.Vector3 === 'function'
+      && typeof obj.Scene === 'function';
+
+    const candidates = [];
+    const push = (value) => {
+      if (!value) return;
+      if (candidates.includes(value)) return;
+      candidates.push(value);
+    };
+
+    push(three);
+    if (three && (typeof three === 'object' || typeof three === 'function')) {
+      push(three.THREE);
+      push(three.default);
+      push(three.module);
+      push(three.namespace);
+    }
+    push(win?.__GQ_THREE_RUNTIME || null);
+    push(win?.__THREE__ || null);
+    push(win?.THREE_NS || null);
+
+    try {
+      const names = Object.getOwnPropertyNames(win || {});
+      for (const name of names) {
+        if (!/three/i.test(String(name || ''))) continue;
+        push(win[name]);
+      }
+    } catch (_) {}
+
+    for (const candidate of candidates) {
+      if (!hasCoreCtors(candidate)) continue;
+      try {
+        win.THREE = candidate;
+        win.__GQ_THREE_RUNTIME = candidate;
+      } catch (_) {}
+      return candidate;
+    }
+
+    return null;
+  }
+
+  function ensureThreeMathUtils(win) {
+    const three = resolveThreeRuntime(win);
+    if (!three || (typeof three !== 'object' && typeof three !== 'function')) return false;
+
+    const existing = (three.MathUtils && typeof three.MathUtils === 'object') ? three.MathUtils : {};
+    const fallback = {
+      clamp(value, min, max) {
+        const v = Number(value);
+        const lo = Number(min);
+        const hi = Number(max);
+        if (!Number.isFinite(v) || !Number.isFinite(lo) || !Number.isFinite(hi)) return lo;
+        return Math.min(hi, Math.max(lo, v));
+      },
+      lerp(a, b, t) {
+        const ta = Number(a);
+        const tb = Number(b);
+        const tt = Number(t);
+        if (!Number.isFinite(ta) || !Number.isFinite(tb)) return 0;
+        const k = Number.isFinite(tt) ? Math.min(1, Math.max(0, tt)) : 0;
+        return ta + (tb - ta) * k;
+      },
+      degToRad(deg) {
+        const d = Number(deg);
+        if (!Number.isFinite(d)) return 0;
+        return d * (Math.PI / 180);
+      },
+    };
+
+    try {
+      three.MathUtils = Object.assign({}, fallback, existing);
+    } catch (_) {
+      return false;
+    }
+    return typeof three.MathUtils?.clamp === 'function';
+  }
+
+  function getThreeMathUtils(win) {
+    const math = win?.THREE?.MathUtils;
+    if (math && typeof math.clamp === 'function') return math;
+    if (ensureThreeMathUtils(win) && win?.THREE?.MathUtils && typeof win.THREE.MathUtils.clamp === 'function') {
+      return win.THREE.MathUtils;
+    }
+    return {
+      clamp(value, min, max) {
+        const v = Number(value);
+        const lo = Number(min);
+        const hi = Number(max);
+        if (!Number.isFinite(v) || !Number.isFinite(lo) || !Number.isFinite(hi)) return lo;
+        return Math.min(hi, Math.max(lo, v));
+      },
+      lerp(a, b, t) {
+        const ta = Number(a);
+        const tb = Number(b);
+        const tt = Number(t);
+        if (!Number.isFinite(ta) || !Number.isFinite(tb)) return 0;
+        const k = Number.isFinite(tt) ? Math.min(1, Math.max(0, tt)) : 0;
+        return ta + (tb - ta) * k;
+      },
+      degToRad(deg) {
+        const d = Number(deg);
+        if (!Number.isFinite(d)) return 0;
+        return d * (Math.PI / 180);
+      },
+    };
+  }
+
   function createFallbackRendererConfig() {
     return {
       getOptionDefaults() {
@@ -195,7 +306,11 @@
   class Galaxy3DRenderer {
     constructor(container, opts = {}) {
       if (!container) throw new Error('Galaxy3DRenderer: missing container');
-      if (!window.THREE) throw new Error('Galaxy3DRenderer: THREE not loaded');
+      const threeRuntime = resolveThreeRuntime(window);
+      if (!threeRuntime) throw new Error('Galaxy3DRenderer: THREE runtime invalid (Vector3/Scene missing)');
+      if (!ensureThreeMathUtils(window)) {
+        throw new Error('Galaxy3DRenderer: THREE.MathUtils unavailable');
+      }
 
       this.container = container;
       window.__GQ_RENDERER_INSTANCE_SEQ = Number(window.__GQ_RENDERER_INSTANCE_SEQ || 0) + 1;
@@ -390,6 +505,7 @@
       this.pendingInstallationWeaponFire = [];
       this.beamEffect = null;  // Instanced beam pool (Phase FX-3)
       this.debrisManager = null;  // Debris state machine & registry (Phase FX-5)
+      this._warnedMissingDebrisManager = false;
       this.galaxyFleetEntries = [];
       this.systemAtmosphereEntries = [];
       this.systemCloudEntries = [];
@@ -4962,7 +5078,10 @@
           }
         });
       } else {
-        console.warn('[Galaxy3DRenderer] DebrisManager not available');
+        if (!this._warnedMissingDebrisManager) {
+          console.warn('[Galaxy3DRenderer] DebrisManager not available');
+          this._warnedMissingDebrisManager = true;
+        }
         this.debrisManager = null;
       }
       this._syncInputContext();
@@ -6741,9 +6860,15 @@
         if (typeof this.opts.onHover === 'function') this.opts.onHover(null, null);
         return;
       }
-      const idx = this.clickMagnetEnabled
+      let idx = this.clickMagnetEnabled
         ? this._applyMagneticStarHover(this._pickStar())
         : this._pickStar();
+      if (idx < 0) {
+        const fallbackStarIdx = this._pickStarByScreenProximity(34);
+        if (fallbackStarIdx >= 0) {
+          idx = fallbackStarIdx;
+        }
+      }
       if (idx < 0) {
         const dynamicSelection = this.clickMagnetEnabled
           ? this._applyMagneticGalaxyObjectHover(this._pickGalaxyDynamicObject())
@@ -6945,6 +7070,24 @@
       }
     }
 
+    _pickStarByScreenProximity(maxDistancePx = 34) {
+      if (this.systemMode || !Array.isArray(this.visibleStars) || !this.visibleStars.length) return -1;
+      const maxD2 = Math.max(8, Number(maxDistancePx || 34));
+      const threshold2 = maxD2 * maxD2;
+      let bestIdx = -1;
+      let bestD2 = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < this.visibleStars.length; i++) {
+        const sp = this.getScreenPosition(i);
+        if (!sp) continue;
+        const d2 = this._pixelDistanceSq(sp, this.pointerPx);
+        if (d2 <= threshold2 && d2 < bestD2) {
+          bestD2 = d2;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
+    }
+
     _onResize() {
       if (!this.container || this.destroyed) return;
       const w = Math.max(320, this.container.clientWidth);
@@ -7123,18 +7266,19 @@
       const distance = this._cameraDistance();
       const zoomNear = 90;
       const zoomFar = 900;
-      const zoomT = THREE.MathUtils.clamp((zoomFar - distance) / (zoomFar - zoomNear), 0, 1);
+      const math = getThreeMathUtils(window);
+      const zoomT = math.clamp((zoomFar - distance) / (zoomFar - zoomNear), 0, 1);
       const mode = String(this.clusterDensityMode || 'auto');
       if (mode === 'max') {
         const maxTarget = Math.round((base * 2.25) * (1 + zoomT * 0.85));
-        return THREE.MathUtils.clamp(maxTarget, 13000, 42000);
+        return math.clamp(maxTarget, 13000, 42000);
       }
       if (mode === 'high') {
         const highTarget = Math.round((base * 1.55) * (1 + zoomT * 0.62));
-        return THREE.MathUtils.clamp(highTarget, 8200, 30000);
+        return math.clamp(highTarget, 8200, 30000);
       }
       const target = Math.round(base * (1 + zoomT * boost));
-      return THREE.MathUtils.clamp(target, 3500, 26000);
+      return math.clamp(target, 3500, 26000);
     }
 
     setClusterDensityMode(mode, opts = {}) {
@@ -8751,6 +8895,8 @@ ${shader.vertexShader}`;
     _animate() {
       if (this.destroyed) return;
       requestAnimationFrame(() => this._animate());
+      if (!resolveThreeRuntime(window)) return;
+      ensureThreeMathUtils(window);
       const dt = this.clock.getDelta();
 
       if (!this.systemMode) {

@@ -314,7 +314,23 @@ function handle_logout(): void {
 }
 
 function handle_me(): void {
-    $uid = require_auth();
+    $quiet = isset($_GET['quiet']) && (string)$_GET['quiet'] === '1';
+    $uid = current_user_id();
+    
+    if (!$uid) {
+        if ($quiet) {
+            // Quiet mode: return 200 + {authenticated: false}
+            json_ok([
+                'authenticated' => false,
+                'user' => null,
+            ]);
+            return;
+        }
+        // Non-quiet mode: strict auth required
+        require_auth();
+        return; // Never reached, require_auth() exits
+    }
+    
     $db   = get_db();
     $stmt = $db->prepare(
         'SELECT id, username, email, dark_matter, rank_points,

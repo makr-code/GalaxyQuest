@@ -81,7 +81,7 @@
       await loadScript('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js');
     }
     if (!window.Galaxy3DRenderer) {
-      await loadScript('js/rendering/galaxy-renderer-core.js?v=20260329p83');
+      await loadScript('js/rendering/galaxy-renderer-core.js?v=20260404p115');
     }
     if (!window.GQAuthGalaxyAnimationProfile) {
       await loadScript('js/network/auth-galaxy-animation-profile.js?v=20260329p83');

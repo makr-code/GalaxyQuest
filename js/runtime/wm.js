@@ -30,6 +30,7 @@ const WM = (() => {
   let _restoreAttempted = false;
   let _isRestoringState = false;
   let _recentClosed = [];
+  let _prebuiltHydrationDone = false;
 
   const WM_MOBILE_BREAKPOINT = 800;
   const WM_DOCK_STORAGE_PREFIX = 'gq_wdock_';
@@ -1129,6 +1130,89 @@ const WM = (() => {
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  function _toWindowTitle(id) {
+    const raw = String(id || '').trim();
+    if (!raw) return 'Window';
+    return raw
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+  }
+
+  function _attrBool(el, name, fallback) {
+    if (!(el instanceof HTMLElement)) return !!fallback;
+    const raw = String(el.getAttribute(name) || '').trim().toLowerCase();
+    if (!raw) return !!fallback;
+    if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on') return true;
+    if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
+    return !!fallback;
+  }
+
+  function _attrNum(el, name, fallback) {
+    if (!(el instanceof HTMLElement)) return Number(fallback);
+    const raw = String(el.getAttribute(name) || '').trim();
+    if (!raw) return Number(fallback);
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : Number(fallback);
+  }
+
+  function _autoHydratePrebuiltWindows() {
+    if (_prebuiltHydrationDone) return;
+
+    const run = () => {
+      const nodes = Array.from(document.querySelectorAll('[data-wm-window]'));
+      if (!nodes.length) return;
+
+      nodes.forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const id = String(node.getAttribute('data-wm-window') || '').trim();
+        if (!id) return;
+        if (_wins.has(id)) return;
+
+        const host = node.closest('.wm-window-host') || node.parentElement;
+        const hostId = host instanceof HTMLElement && host.id ? host.id : '';
+        const width = _attrNum(node, 'data-wm-width', 420);
+        const height = _attrNum(node, 'data-wm-height', 360);
+        const defaultY = _attrNum(node, 'data-wm-default-y', 12);
+        const title = String(node.getAttribute('data-wm-title') || _toWindowTitle(id));
+        const defaultDock = String(node.getAttribute('data-wm-default-dock') || '').trim().toLowerCase();
+        const preserveOnClose = _attrBool(node, 'data-wm-preserve-on-close', true);
+        const hideTaskButton = _attrBool(node, 'data-wm-hide-task-button', false);
+        const persistState = _attrBool(node, 'data-wm-persist-state', false);
+
+        const cfg = {
+          title,
+          adaptExisting: true,
+          prebuiltSelector: `[data-wm-window="${id}"]`,
+          preserveOnClose,
+          hideTaskButton,
+          persistState,
+          defaultY,
+          w: Number.isFinite(width) ? width : 420,
+          h: Number.isFinite(height) ? height : 360,
+        };
+        if (defaultDock === 'left' || defaultDock === 'right') {
+          cfg.defaultDock = defaultDock;
+        }
+        if (hostId) cfg.sectionId = hostId;
+
+        try {
+          adopt(id, cfg);
+          if (_wins.has(id)) close(id);
+        } catch (_) {
+          // Best-effort only: explicit runtime registrations can still take over.
+        }
+      });
+
+      _prebuiltHydrationDone = true;
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', run, { once: true });
+      return;
+    }
+    run();
+  }
+
   // ── Public: show a <section class="wm-modal"> as a card-paging dialog ───────
   /**
    * WM.modal(sectionId, opts?)
@@ -1242,6 +1326,8 @@ const WM = (() => {
       focusable?.focus();
     });
   }
+
+  _autoHydratePrebuiltWindows();
 
   return { register, adopt, open, close, refresh, body, isOpen, setTitle, modal, contextMenu, closeContextMenu: _closeContextMenu };
 })();

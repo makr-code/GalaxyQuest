@@ -375,6 +375,9 @@ class DebrisManager {
 }
 
 // Export for use in galaxy renderer
+if (typeof window !== 'undefined') {
+  window.DebrisManager = DebrisManager;
+}
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = DebrisManager;
 }

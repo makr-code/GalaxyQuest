@@ -7,6 +7,18 @@
 'use strict';
 
 (function () {
+  function diagLog(payload, level = 'info') {
+    try {
+      const fn = window.GQLog && typeof window.GQLog[level] === 'function' ? window.GQLog[level] : null;
+      const line = JSON.stringify(payload || {});
+      if (fn) {
+        fn('[galaxy-init3d]', line);
+      } else {
+        console[level]('[GQ][GalaxyInit3D]', payload);
+      }
+    } catch (_) {}
+  }
+
   const state = {
     windowRef: null,
     documentRef: null,
@@ -63,6 +75,102 @@
     if (!state.documentRef) state.documentRef = document;
   }
 
+  function hasCoreThreeCtors(obj) {
+    return !!obj
+      && (typeof obj === 'object' || typeof obj === 'function')
+      && typeof obj.Scene === 'function'
+      && typeof obj.Vector3 === 'function';
+  }
+
+  function collectThreeCandidates(win, base) {
+    const candidates = [];
+    const push = (value) => {
+      if (!value) return;
+      if (candidates.includes(value)) return;
+      candidates.push(value);
+    };
+
+    push(base);
+    if (base && (typeof base === 'object' || typeof base === 'function')) {
+      push(base.THREE);
+      push(base.default);
+      push(base.module);
+      push(base.namespace);
+    }
+
+    push(win?.__GQ_THREE_RUNTIME || null);
+    push(win?.__THREE__ || null);
+    push(win?.THREE_NS || null);
+
+    try {
+      const names = Object.getOwnPropertyNames(win || {});
+      for (const name of names) {
+        if (!/three/i.test(String(name || ''))) continue;
+        push(win[name]);
+      }
+    } catch (_) {}
+
+    return candidates;
+  }
+
+  function loadScriptOnce(win, src) {
+    const key = String(src || '').trim();
+    if (!key) return Promise.reject(new Error('missing script src'));
+    const existing = win.document?.querySelector?.(`script[src="${key}"]`);
+    if (existing) {
+      if (hasCoreThreeCtors(win?.THREE)) return Promise.resolve();
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const s = win.document.createElement('script');
+      s.src = key;
+      s.async = false;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error(`script load failed: ${key}`));
+      win.document.head.appendChild(s);
+    });
+  }
+
+  function ensureThreeRuntimeLoaded(win) {
+    if (hasCoreThreeCtors(win?.THREE)) return Promise.resolve(true);
+    if (win.__GQ_THREE_RECOVERY_PROMISE) return win.__GQ_THREE_RECOVERY_PROMISE;
+
+    const cdnCandidates = [
+      'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
+      'https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js',
+    ];
+
+    const job = (async () => {
+      for (const src of cdnCandidates) {
+        try {
+          await loadScriptOnce(win, src);
+          const resolved = resolveThreeGlobal(win);
+          if (hasCoreThreeCtors(resolved)) return true;
+        } catch (_) {}
+      }
+      return hasCoreThreeCtors(resolveThreeGlobal(win));
+    })().finally(() => {
+      try { win.__GQ_THREE_RECOVERY_PROMISE = null; } catch (_) {}
+    });
+
+    win.__GQ_THREE_RECOVERY_PROMISE = job;
+    return job;
+  }
+
+  function resolveThreeGlobal(win) {
+    const three = win?.THREE || null;
+    const candidates = collectThreeCandidates(win, three);
+    for (const candidate of candidates) {
+      if (!hasCoreThreeCtors(candidate)) continue;
+      try {
+        win.THREE = candidate;
+        win.__GQ_THREE_RUNTIME = candidate;
+      } catch (_) {}
+      return candidate;
+    }
+    return null;
+  }
+
   function initGalaxy3D(root) {
     state.emitRuntimeEvent?.('runtime:renderer-init-start', {
       view: 'galaxy',
@@ -72,6 +180,16 @@
     const holder = state.documentRef.getElementById('galaxy-3d-host');
     const hostWrapper = state.documentRef.getElementById('galaxy-host-wrapper');
     const sharedCanvas = holder?.querySelector('#starfield');
+    try {
+      diagLog({
+        stage: 'init:container-check',
+        ts: Date.now(),
+        holder: !!holder,
+        hostWrapper: !!hostWrapper,
+        sharedCanvas: !!sharedCanvas,
+        bodyClass: String(state.documentRef?.body?.className || ''),
+      });
+    } catch (_) {}
     if (!holder) {
       state.emitRuntimeEvent?.('runtime:renderer-init-failed', {
         view: 'galaxy',
@@ -85,7 +203,60 @@
       return;
     }
 
+    const resolvedThree = resolveThreeGlobal(state.windowRef);
+    if (!resolvedThree || typeof resolvedThree.Scene !== 'function') {
+      const reason = 'THREE is missing or invalid (Scene constructor unavailable)';
+      state.emitRuntimeEvent?.('runtime:renderer-init-failed', {
+        view: 'galaxy',
+        reason,
+        ts: Date.now(),
+      });
+      state.setGalaxy3dInitReason?.(reason);
+      diagLog({
+        stage: 'init:three-missing',
+        ts: Date.now(),
+        reason,
+      }, 'warn');
+
+      const canRetry = !state.windowRef.__GQ_THREE_RECOVERY_IN_FLIGHT;
+      if (canRetry) {
+        state.windowRef.__GQ_THREE_RECOVERY_IN_FLIGHT = true;
+        ensureThreeRuntimeLoaded(state.windowRef)
+          .then((ok) => {
+            const recovered = !!ok && !!resolveThreeGlobal(state.windowRef);
+            diagLog({
+              stage: 'init:three-recovery-result',
+              ts: Date.now(),
+              recovered,
+            }, recovered ? 'info' : 'warn');
+            if (!recovered) return;
+            if (state.getGalaxy3d?.()) return;
+            state.setGalaxy3dInitReason?.('');
+            try {
+              initGalaxy3D(root);
+            } catch (_) {}
+          })
+          .finally(() => {
+            try { state.windowRef.__GQ_THREE_RECOVERY_IN_FLIGHT = false; } catch (_) {}
+          });
+      }
+      const safeReason = state.esc ? state.esc(reason) : reason;
+      root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D renderer unavailable. Fallback list active. Reason: ${safeReason}</span>`;
+      state.toggleGalaxyOverlay?.(root, '#galaxy-info-overlay', true);
+      return;
+    }
+
     const GalaxyViewCtor = state.windowRef.Galaxy3DView || state.windowRef.Galaxy3DRendererWebGPU || state.windowRef.Galaxy3DRenderer;
+    try {
+      diagLog({
+        stage: 'init:ctor-resolve',
+        ts: Date.now(),
+        hasGalaxy3DView: !!state.windowRef.Galaxy3DView,
+        hasWebGPU: !!state.windowRef.Galaxy3DRendererWebGPU,
+        hasLegacy: !!state.windowRef.Galaxy3DRenderer,
+        resolvedCtor: String(GalaxyViewCtor?.name || ''),
+      });
+    } catch (_) {}
 
     const existingRenderer = state.getGalaxy3d?.();
     if (existingRenderer) {
@@ -108,7 +279,16 @@
       state.setGalaxy3dQualityState?.(resolvedRendererQuality);
 
       const authBgControl = state.windowRef.GQAuthGalaxyBackgroundControl || state.windowRef.GQStarfieldControl;
-      if (authBgControl && typeof authBgControl.releaseCanvasForGame === 'function') {
+      if (state.windowRef.__GQ_RELEASE_AUTH_BG_ON_BOOT !== false
+        && authBgControl
+        && typeof authBgControl.releaseCanvasForGame === 'function') {
+        try {
+          diagLog({
+            stage: 'init:release-auth-bg',
+            ts: Date.now(),
+            control: authBgControl === state.windowRef.GQAuthGalaxyBackgroundControl ? 'auth-bg' : 'starfield',
+          });
+        } catch (_) {}
         authBgControl.releaseCanvasForGame();
       }
 
@@ -150,6 +330,10 @@
       const ZOOM_LEVEL = gqZoom.ZOOM_LEVEL;
       const SPATIAL_DEPTH = gqZoom.SPATIAL_DEPTH;
       const SeamlessZoomOrchestrator = gqZoom.SeamlessZoomOrchestrator;
+      const userAgent = String(state.windowRef?.navigator?.userAgent || '').toLowerCase();
+      const isWindows = userAgent.includes('windows');
+      const forceWebGpu = !!state.windowRef.__GQ_FORCE_WEBGPU;
+      const disableWebGpuPath = isWindows && !forceWebGpu;
 
       const rendererOptions = {
         externalCanvas: sharedCanvas instanceof HTMLCanvasElement ? sharedCanvas : null,
@@ -283,20 +467,35 @@
       };
 
       const canBootstrapOrchestrator = !!(
+        !disableWebGpuPath &&
         SeamlessZoomOrchestrator && ZOOM_LEVEL &&
         sharedCanvas instanceof HTMLCanvasElement &&
         gqLevels.galaxyThreeJS && gqLevels.galaxyWebGPU
       );
+      diagLog({
+        stage: 'init:bootstrap-decision',
+        ts: Date.now(),
+        canBootstrapOrchestrator,
+        disableWebGpuPath,
+        hasSharedCanvas: sharedCanvas instanceof HTMLCanvasElement,
+        hasZoomOrchestratorCtor: !!SeamlessZoomOrchestrator,
+        hasZoomLevel: !!ZOOM_LEVEL,
+        hasLevelGalaxyThree: !!gqLevels.galaxyThreeJS,
+        hasLevelGalaxyWebGPU: !!gqLevels.galaxyWebGPU,
+      });
 
       const initDirectRendererFallback = () => {
         let galaxy3d = state.getGalaxy3d?.();
         if (galaxy3d) return true;
-        if (!GalaxyViewCtor) {
+        const directRendererCtor = disableWebGpuPath
+          ? (state.windowRef.Galaxy3DRenderer || GalaxyViewCtor)
+          : GalaxyViewCtor;
+        if (!directRendererCtor) {
           state.setGalaxy3dInitReason?.('No direct renderer constructor available');
           return false;
         }
         try {
-          galaxy3d = new GalaxyViewCtor(holder, rendererOptions);
+          galaxy3d = new directRendererCtor(holder, rendererOptions);
           state.setGalaxy3d?.(galaxy3d);
           if (galaxy3d && typeof galaxy3d.init === 'function') {
             Promise.resolve(galaxy3d.init()).catch((err) => {
@@ -365,6 +564,10 @@
       if (canBootstrapOrchestrator) {
         const bootstrapApi = state.getGalaxyRendererBootstrapApi?.() || null;
         if (bootstrapApi && typeof bootstrapApi.bootstrapSeamlessZoomOrchestrator === 'function') {
+          diagLog({
+            stage: 'init:bootstrap-start',
+            ts: Date.now(),
+          });
           const currentOrchestrator = state.getZoomOrchestrator?.();
           const nextOrchestrator = bootstrapApi.bootstrapSeamlessZoomOrchestrator({
             currentOrchestrator,
@@ -383,11 +586,56 @@
             },
             onInitFailed: (err) => {
               console.warn('[GQ] SeamlessZoomOrchestrator init failed:', err?.message || err, err?.stack || '');
+              diagLog({
+                stage: 'init:bootstrap-failed',
+                ts: Date.now(),
+                error: String(err?.message || err || 'unknown error'),
+              }, 'warn');
             },
           });
           state.setZoomOrchestrator?.(nextOrchestrator || null);
+          diagLog({
+            stage: 'init:bootstrap-dispatched',
+            ts: Date.now(),
+            hasOrchestrator: !!nextOrchestrator,
+          });
+
+          // In some runtime constellations orchestrator init resolves but no
+          // shared renderer gets adopted. Guard against an endless "rendererReady=false"
+          // state by forcing direct fallback after a short grace period.
+          setTimeout(() => {
+            try {
+              if (state.getGalaxy3d?.()) return;
+              if (!state.getZoomOrchestrator?.()) return;
+              const reason = state.getGalaxy3dInitReason?.();
+              if (reason) return;
+              state.setGalaxy3dInitReason?.('Seamless bootstrap timeout (no renderer adopted)');
+              diagLog({
+                stage: 'init:watchdog-timeout',
+                ts: Date.now(),
+                reason: state.getGalaxy3dInitReason?.() || '',
+              }, 'warn');
+              const ok = initDirectRendererFallback();
+              if (!ok) {
+                console.warn('[GQ] Renderer watchdog fallback failed after seamless bootstrap timeout.');
+                diagLog({
+                  stage: 'init:watchdog-fallback-failed',
+                  ts: Date.now(),
+                }, 'warn');
+              } else {
+                diagLog({
+                  stage: 'init:watchdog-fallback-ok',
+                  ts: Date.now(),
+                });
+              }
+            } catch (_) {}
+          }, 1200);
         } else {
           console.warn('[GQ] GalaxyRendererBootstrap API fehlt; nutze direkten Fallback.');
+          diagLog({
+            stage: 'init:bootstrap-api-missing',
+            ts: Date.now(),
+          }, 'warn');
           initDirectRendererFallback();
         }
       }

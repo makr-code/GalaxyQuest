@@ -30,6 +30,18 @@
     }
   );
 
+  function starfieldDebug(payload, level = 'info') {
+    try {
+      const fn = window.GQLog && typeof window.GQLog[level] === 'function' ? window.GQLog[level] : null;
+      const line = JSON.stringify(payload || {});
+      if (fn) {
+        fn('[starfielddbg]', line);
+      } else {
+        console[level]('[GQ][Starfield]', payload);
+      }
+    } catch (_) {}
+  }
+
   function clamp(v, min, max) {
     return Math.max(min, Math.min(max, v));
   }
@@ -54,7 +66,10 @@
 
   async function ensureDeps() {
     if (!window.THREE) {
-      await loadScript('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js');
+    }
+    if (window.THREE && typeof window.THREE.Scene === 'function' && typeof window.THREE.Vector3 === 'function') {
+      window.__GQ_THREE_RUNTIME = window.THREE;
     }
     if (!window.GalaxyCameraController) {
       await loadScript('js/rendering/galaxy-camera-controller.js?v=20260329p85');
@@ -72,7 +87,7 @@
       await loadScript('js/rendering/light-rig-manager.js?v=20260329p1');
     }
     if (!window.Galaxy3DRenderer) {
-      await loadScript('js/rendering/galaxy-renderer-core.js?v=20260329p94');
+      await loadScript('js/rendering/galaxy-renderer-core.js?v=20260404p116');
     }
     if (!window.Galaxy3DRenderer) {
       throw new Error('Galaxy3DRenderer unavailable');
@@ -835,6 +850,31 @@
 
   function destroy(options = {}) {
     const keepCanvasVisible = options.keepCanvasVisible === true;
+    if (runtime.released && !runtime.renderer && !runtime.animationEngine) {
+      if (canvas) {
+        if (keepCanvasVisible) {
+          canvas.style.opacity = '1';
+          canvas.style.visibility = 'visible';
+          canvas.style.display = 'block';
+        } else {
+          canvas.style.opacity = '0';
+          canvas.style.visibility = 'hidden';
+        }
+      }
+      return;
+    }
+    try {
+      const expectedHandoffDestroy = keepCanvasVisible && !!runtime.releaseRequested;
+      starfieldDebug({
+        stage: 'destroy',
+        ts: Date.now(),
+        keepCanvasVisible,
+        releaseRequested: !!runtime.releaseRequested,
+        released: !!runtime.released,
+        bodyClass: String(document.body?.className || ''),
+        stack: expectedHandoffDestroy ? '' : String(new Error().stack || '').split('\n').slice(0, 6).join(' | '),
+      }, expectedHandoffDestroy ? 'info' : 'warn');
+    } catch (_) {}
     if (canvas) {
       if (keepCanvasVisible) {
         canvas.style.opacity = '1';
@@ -882,6 +922,16 @@
   const controlApi = {
     releaseCanvasForGame() {
       runtime.releaseRequested = true;
+      if (runtime.released && !runtime.renderer) {
+        return;
+      }
+      try {
+        starfieldDebug({
+          stage: 'releaseCanvasForGame',
+          ts: Date.now(),
+          bodyClass: String(document.body?.className || ''),
+        });
+      } catch (_) {}
       destroy({ keepCanvasVisible: true });
     },
     setNavigationTarget(target) {
@@ -907,14 +957,18 @@
   try {
     await ensureDeps();
     if (runtime.releaseRequested || document.body.classList.contains('game-page')) {
-      destroy({ keepCanvasVisible: true });
+      if (!(runtime.released && !runtime.renderer)) {
+        destroy({ keepCanvasVisible: true });
+      }
       return;
     }
     runtime.releaseRequested = false;
     runtime.released = false;
     const authStars = await fetchAuthStars();
     if (runtime.releaseRequested || document.body.classList.contains('game-page')) {
-      destroy({ keepCanvasVisible: true });
+      if (!(runtime.released && !runtime.renderer)) {
+        destroy({ keepCanvasVisible: true });
+      }
       return;
     }
     runtime.stars = Array.isArray(authStars?.stars) && authStars.stars.length

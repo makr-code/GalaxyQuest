@@ -7,6 +7,16 @@
 'use strict';
 
 (function () {
+  function loaderLog(opts, level, message, meta = null) {
+    try {
+      opts?.gameLog?.(level, `[galaxy-stars] ${message}`, meta || null);
+    } catch (_) {}
+    try {
+      const fn = window.GQLog && typeof window.GQLog[level] === 'function' ? window.GQLog[level] : null;
+      if (fn) fn('[galaxy-stars]', message, meta || {});
+    } catch (_) {}
+  }
+
   async function loadGalaxyStars3D(opts = {}) {
     const root = opts.root || null;
     if (!root) return;
@@ -132,11 +142,31 @@
     opts.setGalaxyStars?.(galaxyStars);
 
     const shouldRefreshNetwork = !!opts.isCurrentUserAdmin?.() || !!starsPolicy.alwaysRefreshNetwork || !fullRangeInModel;
+    const hydrationUpperBound = Math.max(1, Number(galaxySystemMax || 0), Number(to || 0), Number(from || 0));
+    loaderLog(opts, 'info', 'load:start', {
+      g,
+      from,
+      to,
+      cachedStars: cachedStars.length,
+      fullRangeInModel,
+      shouldRefreshNetwork,
+      hydrationUpperBound,
+    });
     if (!shouldRefreshNetwork && cachedStars && cachedStars.length) {
       statusApi.setPolicySkipStatus(details, from, to);
-      opts.hydrateGalaxyRangeInBackground?.(root, g, 1, galaxySystemMax).catch((err) => {
-        opts.gameLog?.('info', 'Background-Hydration (initial) fehlgeschlagen', err);
+      // Always hydrate the currently visible range first so chunk updates become
+      // visible immediately, then optionally backfill full range.
+      opts.hydrateGalaxyRangeInBackground?.(root, g, from, to).catch((err) => {
+        opts.gameLog?.('warn', 'Background-Hydration (initial-range) fehlgeschlagen', String(err?.message || err || 'unknown error'));
       });
+      if (hydrationUpperBound > to) {
+        window.setTimeout(() => {
+          opts.hydrateGalaxyRangeInBackground?.(root, g, 1, hydrationUpperBound).catch((err) => {
+            opts.gameLog?.('warn', 'Background-Hydration (initial-full) fehlgeschlagen', String(err?.message || err || 'unknown error'));
+          });
+        }, 220);
+      }
+      loaderLog(opts, 'info', 'load:cache-skip-network', { g, from, to, hydrationUpperBound });
       return;
     }
 
@@ -153,6 +183,12 @@
       });
       if (!networkResult?.ok) {
         const cls = networkResult?.cls || { type: 'schema' };
+        loaderLog(opts, 'warn', 'load:network-not-ok', {
+          g,
+          from,
+          to,
+          cls: cls.type,
+        });
         statusApi.setNetworkErrorStatus(details, cls.type);
         if (cls.type === 'schema') {
           const issueList = Array.isArray(networkResult?.adapted?.issues)
@@ -160,6 +196,11 @@
             : 'invalid payload';
           console.warn('[GQ] loadGalaxyStars3D: stars schema mismatch', issueList);
         }
+        // Even when the direct request fails, try background hydration for the
+        // current visible range so the view can recover from partial cache/API drift.
+        opts.hydrateGalaxyRangeInBackground?.(root, g, from, to).catch((err) => {
+          opts.gameLog?.('warn', 'Background-Hydration (network-not-ok) fehlgeschlagen', String(err?.message || err || 'unknown error'));
+        });
         return;
       }
 
@@ -206,11 +247,32 @@
       opts.setGalaxyStars?.(galaxyStars);
       opts.setGalaxySystemMax?.(galaxySystemMax);
 
-      opts.hydrateGalaxyRangeInBackground?.(root, g, 1, galaxySystemMax).catch((err) => {
-        opts.gameLog?.('info', 'Background-Hydration (post-load) fehlgeschlagen', err);
+      const hydrationUpperBoundAfterLoad = Math.max(1, Number(galaxySystemMax || 0), Number(to || 0), Number(from || 0));
+      opts.hydrateGalaxyRangeInBackground?.(root, g, from, to).catch((err) => {
+        opts.gameLog?.('warn', 'Background-Hydration (post-load-range) fehlgeschlagen', String(err?.message || err || 'unknown error'));
+      });
+      if (hydrationUpperBoundAfterLoad > to) {
+        window.setTimeout(() => {
+          opts.hydrateGalaxyRangeInBackground?.(root, g, 1, hydrationUpperBoundAfterLoad).catch((err) => {
+            opts.gameLog?.('warn', 'Background-Hydration (post-load-full) fehlgeschlagen', String(err?.message || err || 'unknown error'));
+          });
+        }, 220);
+      }
+      loaderLog(opts, 'info', 'load:network-success', {
+        g,
+        from,
+        to,
+        stars: galaxyStars.length,
+        systemMax: galaxySystemMax,
       });
     } catch (err) {
       const errMsg = String(err?.message || err || 'unknown error');
+      loaderLog(opts, 'error', 'load:exception', {
+        g,
+        from,
+        to,
+        error: errMsg,
+      });
       opts.pushGalaxyDebugError?.('galaxy-stars', errMsg, `${from}..${to}`);
 
       const fallbackStars = await fallbackRecoveryApi.recoverFallbackStars({
@@ -237,6 +299,9 @@
       galaxyStars = fallbackUiResult.galaxyStars;
       opts.setGalaxyStars?.(galaxyStars);
       if (fallbackUiResult.handled) {
+        opts.hydrateGalaxyRangeInBackground?.(root, g, from, to).catch((hydrateErr) => {
+          opts.gameLog?.('warn', 'Background-Hydration (fallback-handled) fehlgeschlagen', String(hydrateErr?.message || hydrateErr || 'unknown error'));
+        });
         return;
       }
 

@@ -49,13 +49,23 @@
   }
 
   function isInteractiveWebGPUExperimentEnabled() {
+    let forced = false;
     try {
       const stored = String(localStorage.getItem('gq:webgpuInteractive') || '').trim().toLowerCase();
+      if (stored === 'force') {
+        forced = true;
+      }
       if (stored === '1' || stored === 'true' || stored === 'on') {
-        return true;
+        forced = true;
       }
     } catch (_) {}
-    return !!window.__GQ_WEBGPU_INTERACTIVE_EXPERIMENT;
+    const globalFlag = !!window.__GQ_WEBGPU_INTERACTIVE_EXPERIMENT;
+    const enabled = forced || globalFlag;
+    if (!enabled) return false;
+    const ua = String(window.navigator?.userAgent || '').toLowerCase();
+    const isWindows = ua.includes('windows');
+    if (isWindows && !forced) return false;
+    return true;
   }
 
   class Galaxy3DRendererWebGPU {

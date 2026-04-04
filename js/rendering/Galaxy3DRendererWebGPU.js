@@ -442,7 +442,7 @@
       let accent = vec3<f32>(uPlanet.accentR, uPlanet.accentG, uPlanet.accentB);
       let land = mix(base, accent, latBands * 0.5 + terrain * 0.5);
       let ocean = mix(vec3<f32>(0.05, 0.12, 0.2), base, 0.78);
-      let surface = mix(land, ocean, waterMask * 0.82);
+      var surface = mix(land, ocean, waterMask * 0.82);
       let cloudMask = smoothstep(0.58, 0.88, 0.5 + 0.5 * sin((in.uv.x * 24.0) - (in.uv.y * 13.0) + uPlanet.time * 0.26 + uPlanet.seed * 3.0));
       surface = mix(surface, vec3<f32>(1.0, 1.0, 1.0), cloudMask * uPlanet.cloudiness * 0.45);
       let rim = pow(1.0 - max(in.normal.z, 0.0), 3.0);

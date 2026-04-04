@@ -33,16 +33,28 @@
     const assetsManifestVersion = opts.assetsManifestVersion;
     const renderDataAdapter = opts.renderDataAdapter || null;
 
-    const dataRaw = (typeof state.apiGalaxyStars === 'function')
-      ? await state.apiGalaxyStars(galaxyIndex, fromSystem, toSystem, requestMaxPoints, {
-          streamPriority: 'critical',
-          requestPriority: 'critical',
-          prefetch: false,
-          chunkHint: requestMaxPoints,
-          clusterPreset,
-          includeClusterLod: false,
-        })
-      : await state.apiGalaxyFallback(galaxyIndex, fromSystem);
+    let dataRaw = null;
+    if (typeof state.apiGalaxyStars === 'function') {
+      dataRaw = await state.apiGalaxyStars(galaxyIndex, fromSystem, toSystem, requestMaxPoints, {
+        streamPriority: 'critical',
+        requestPriority: 'critical',
+        prefetch: false,
+        chunkHint: requestMaxPoints,
+        clusterPreset,
+        includeClusterLod: false,
+      });
+    } else if (typeof state.apiGalaxyFallback === 'function') {
+      dataRaw = await state.apiGalaxyFallback(galaxyIndex, fromSystem);
+    } else {
+      return {
+        ok: false,
+        cls: { type: 'network' },
+        adapted: {
+          ok: false,
+          issues: ['missing-galaxy-api-runtime'],
+        },
+      };
+    }
 
     const adapted = (typeof renderDataAdapter?.adaptGalaxyStars === 'function')
       ? renderDataAdapter.adaptGalaxyStars(dataRaw, {

@@ -80,8 +80,22 @@
                 adoptSharedRendererIfAvailable();
               }
             })
-            .catch(() => {});
-        } catch (_) {}
+            .catch((err) => {
+              if (typeof onInitFailed === 'function') {
+                onInitFailed(err || new Error('SeamlessZoomOrchestrator zoomTo(GALAXY) failed'));
+              }
+              if (typeof initDirectRendererFallback === 'function') {
+                initDirectRendererFallback();
+              }
+            });
+        } catch (err) {
+          if (typeof onInitFailed === 'function') {
+            onInitFailed(err || new Error('SeamlessZoomOrchestrator zoomTo(GALAXY) threw'));
+          }
+          if (typeof initDirectRendererFallback === 'function') {
+            initDirectRendererFallback();
+          }
+        }
       })
       .catch((err) => {
         if (typeof setOrchestrator === 'function') setOrchestrator(null);

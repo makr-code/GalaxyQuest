@@ -373,7 +373,10 @@
       await loadMessagesList(root);
     }
 
-    return { render };
+    return {
+      render,
+      loadBadge,
+    };
   }
 
   const api = { createMessagesController };
