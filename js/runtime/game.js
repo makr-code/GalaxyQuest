@@ -1344,13 +1344,17 @@
       renderMessages,
       renderIntel,
       renderTradeRoutes,
+      renderTradersDashboard,
+      renderPirates,
       renderEconomyFlow,
+      renderEconomy,
       renderTradeProposals,
       renderQuests,
       renderLeaderboard,
       renderLeaders,
       renderFactions,
       renderAlliances,
+      renderWars,
       renderSettings,
       renderQuickNav,
       renderMinimap,
@@ -1738,6 +1742,7 @@
 
   const runtimeColonyViewControllerApi = requireRuntimeApi('GQRuntimeColonyViewController', ['createColonyViewController']);
   const runtimeEconomyFlowControllerApi = requireRuntimeApi('GQRuntimeEconomyFlowController', ['createEconomyFlowController']);
+  const runtimeEconomyControllerApi = requireRuntimeApi('GQRuntimeEconomyController', ['createEconomyController']);
   const runtimeBuildingUpgradePreviewApi = requireRuntimeApi('GQRuntimeBuildingUpgradePreview', ['createBuildingUpgradePreview']);
   const runtimeBuildingsControllerApi = requireRuntimeApi('GQRuntimeBuildingsController', ['createBuildingsController']);
   const runtimeResearchControllerApi = requireRuntimeApi('GQRuntimeResearchController', ['createResearchController']);
@@ -1746,6 +1751,7 @@
   const developmentControllers = runtimeDevelopmentControllersBootstrapApi.createDevelopmentControllersBootstrap({
     runtimeColonyViewControllerApi,
     runtimeEconomyFlowControllerApi,
+    runtimeEconomyControllerApi,
     runtimeBuildingUpgradePreviewApi,
     runtimeBuildingsControllerApi,
     runtimeResearchControllerApi,
@@ -1774,21 +1780,25 @@
     showToast,
     gameLog,
     getAudioManager: () => audioManager,
+    invalidateGetCache: (hint) => API.invalidateGetCache ? API.invalidateGetCache(hint) : undefined,
     GQUI: window.GQUI || null,
   });
   const colonyViewController = developmentControllers.colonyViewController;
   const economyFlowController = developmentControllers.economyFlowController;
+  const economyController = developmentControllers.economyController;
   const buildingsController = developmentControllers.buildingsController;
   const researchController = developmentControllers.researchController;
   const shipyardController = developmentControllers.shipyardController;
 
   window.GQEconomyFlowController = economyFlowController;
+  window.GQEconomyController = economyController;
   window.GQColonyViewController = colonyViewController;
   window.GQBuildingsController = buildingsController;
   window.GQResearchController = researchController;
   window.GQShipyardController = shipyardController;
 
   async function renderEconomyFlow() { await economyFlowController.render(); }
+  async function renderEconomy() { if (economyController) await economyController.render(); }
 
   async function renderColonyView() {
     await colonyViewController.render();
@@ -4210,11 +4220,14 @@
   const runtimeMessagesControllerApi = requireRuntimeApi('GQRuntimeMessagesController', ['createMessagesController']);
   const runtimeIntelControllerApi = requireRuntimeApi('GQRuntimeIntelController', ['createIntelController']);
   const runtimeTradeRoutesControllerApi = requireRuntimeApi('GQRuntimeTradeRoutesController', ['createTradeRoutesController']);
+  const runtimeTradersDashboardControllerApi = requireRuntimeApi('GQRuntimeTradersDashboardController', ['createTradersDashboardController']);
+  const runtimePiratesControllerApi = requireRuntimeApi('GQRuntimePiratesController', ['createPiratesController']);
   const runtimeAlliancesControllerApi = requireRuntimeApi('GQRuntimeAlliancesController', ['createAlliancesController']);
   const runtimeTradeProposalsControllerApi = requireRuntimeApi('GQRuntimeTradeProposalsController', ['createTradeProposalsController']);
   const runtimeLeadersControllerApi = requireRuntimeApi('GQRuntimeLeadersController', ['createLeadersController']);
   const runtimeFactionsControllerApi = requireRuntimeApi('GQRuntimeFactionsController', ['createFactionsController']);
   const runtimeLeaderboardControllerApi = requireRuntimeApi('GQRuntimeLeaderboardController', ['createLeaderboardController']);
+  const runtimeWarControllerApi = requireRuntimeApi('GQRuntimeWarController', ['createWarController']);
   const runtimeSocialControllersBootstrapApi = requireRuntimeApi('GQRuntimeSocialControllersBootstrap', ['createSocialControllersBootstrap']);
   const runtimeAdvisorWidgetApi = requireRuntimeApi('GQRuntimeAdvisorWidget', ['createAdvisorWidget']);
   let AdvisorWidget = null;
@@ -4222,11 +4235,14 @@
     runtimeMessagesControllerApi,
     runtimeIntelControllerApi,
     runtimeTradeRoutesControllerApi,
+    runtimeTradersDashboardControllerApi,
+    runtimePiratesControllerApi,
     runtimeAlliancesControllerApi,
     runtimeTradeProposalsControllerApi,
     runtimeLeadersControllerApi,
     runtimeFactionsControllerApi,
     runtimeLeaderboardControllerApi,
+    runtimeWarControllerApi,
     wm: WM,
     api: API,
     windowRef: window,
@@ -4259,22 +4275,28 @@
   const messagesController = socialControllers.messagesController;
   const intelController = socialControllers.intelController;
   const tradeRoutesController = socialControllers.tradeRoutesController;
+  const tradersDashboardController = socialControllers.tradersDashboardController;
+  const piratesController = socialControllers.piratesController;
   const alliancesController = socialControllers.alliancesController;
   const tradeProposalsController = socialControllers.tradeProposalsController;
   const leadersController = socialControllers.leadersController;
   const factionsController = socialControllers.factionsController;
   const leaderboardController = socialControllers.leaderboardController;
+  const warController = socialControllers.warController;
 
   window.GQMessagesController = messagesController;
   window.GQIntelController = intelController;
   window.GQTradeRoutesController = tradeRoutesController;
+  window.GQTradersDashboardController = tradersDashboardController;
+  window.GQPiratesController = piratesController;
   window.GQAlliancesController = alliancesController;
   window.GQTradeProposalsController = tradeProposalsController;
   window.GQLeadersController = leadersController;
   window.GQFactionsController = factionsController;
   window.GQLeaderboardController = leaderboardController;
+  window.GQWarController = warController;
 
-  // ÔöÇÔöÇ Messages window ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // ── Messages window ─────────────────────────────────────────────────────────
   async function renderMessages() {
     await messagesController.render();
   }
@@ -4287,6 +4309,14 @@
   // ÔöÇÔöÇ Trade Routes Controller ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   async function renderTradeRoutes() {
     await tradeRoutesController.render();
+  }
+
+  async function renderTradersDashboard() {
+    await tradersDashboardController.render();
+  }
+
+  async function renderPirates() {
+    await piratesController.render();
   }
 
   // ÔöÇÔöÇ Alliances Controller ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
@@ -4601,6 +4631,10 @@ async function renderTradeProposals() {
     wm: WM,
     renderSettings,
     renderQuests,
+    renderTradersDashboard,
+    renderPirates,
+    renderWars,
+    renderEconomy,
     gameLog,
   });
 

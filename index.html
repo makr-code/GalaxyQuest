@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>GalaxyQuest – Unified Command Shell</title>
-  <link rel="stylesheet" href="css/style.css?v=20260404p52" />
+  <link rel="stylesheet" href="css/style.css?v=20260404p54" />
   <link rel="stylesheet" href="css/prolog.css?v=1" />
   <style>
     #boot-terminal {
@@ -288,6 +288,7 @@
             <button class="nav-drop-item" data-win="overview" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/colony.svg#icon-colony"></use></svg>Overview</button>
             <button class="nav-drop-item" data-win="buildings" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/buildings.svg#icon-buildings"></use></svg>Buildings</button>
             <button class="nav-drop-item" data-win="research" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/research.svg#icon-research"></use></svg>Research</button>
+            <button class="nav-drop-item" data-win="economy" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/trade.svg#icon-trade"></use></svg>Economy</button>
           </div>
         </div>
 
@@ -319,6 +320,8 @@
               <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/intel.svg#icon-intel"></use></svg>Intel <span id="intel-badge" class="msg-badge hidden">0</span>
             </button>
             <button class="nav-drop-item" data-win="trade-routes" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/trade.svg#icon-trade"></use></svg>Trade Routes</button>
+            <button class="nav-drop-item" data-win="traders" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/leaderboard.svg#icon-leaderboard"></use></svg>Traders</button>
+            <button class="nav-drop-item" data-win="pirates" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/fleet.svg#icon-fleet"></use></svg>Pirates</button>
             <button class="nav-drop-item" data-win="quests" role="menuitem">
               <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/quests.svg#icon-quests"></use></svg>Quests <span id="quest-badge" class="msg-badge hidden">0</span>
             </button>
@@ -485,6 +488,7 @@
         <button id="ui-console-toggle" class="footer-action-btn" type="button" title="UI-Konsole ein-/ausklappen"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/terminal.svg#icon-terminal"></use></svg>Con</button>
         <button id="footer-uikit-btn" class="footer-action-btn" type="button" title="UI Kit Preview &amp; Modal-Demos ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/gameplay.svg#icon-gameplay"></use></svg>Kit</button>
       </div>
+      <div id="footer-load-badge" class="footer-load-badge hidden" role="status" aria-live="polite" aria-atomic="true">Nachladen</div>
       <div id="footer-load" class="footer-load hidden" role="status" aria-live="polite">
         <span id="footer-load-label" class="footer-load-label">Lade Daten…</span>
         <div class="footer-load-track" aria-hidden="true">
@@ -844,278 +848,6 @@
           }
         });
       })();
-
-      window.GQ_ASSETS_MANIFEST_VERSION = 2;
-      window.__GQ_BOOT = {
-        assetsManifestVersion: 2,
-        // Disabled intentionally: stale bundled code can override newer hotfixes.
-        packageBundles: [],
-        gameScripts: [
-          'js/runtime/wm.js?v=20260404p52',
-          'js/network/binary-decoder.js?v=20260404p50',
-          'js/network/binary-decoder-v2.js?v=20260404p50',
-          'js/network/binary-decoder-v3.js?v=20260404p50',
-          'js/network/api.js?v=20260404p50',
-          'js/network/api-contracts.js?v=20260404p50',
-          'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
-          'js/runtime/galaxy-model.js?v=20260404p50',
-          'js/runtime/galaxy-db.js?v=20260404p50',
-          'js/runtime/audio.js?v=20260404p50',
-          'https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js',
-          'js/engine/core/GraphicsContext.js?v=20260404p50',
-          'js/engine/webgpu/WebGPURenderPass.js?v=20260401p1',
-          'js/engine/webgpu/WebGPUShader.js?v=20260401p1',
-          'js/engine/core/WebGPURenderer.js?v=20260401p1',
-          'js/engine/core/WebGLRenderer.js?v=20260404p50',
-          'js/engine/core/RendererFactory.js?v=20260401p1',
-          'js/engine/EventBus.js?v=20260403p1',
-          'js/engine/GameLoop.js?v=20260403p1',
-          'js/engine/runtime/RuntimeCore.js?v=20260403p1',
-          'js/engine/runtime/RuntimeLifecyclePhases.js?v=20260403p1',
-          'js/engine/runtime/RuntimeFeatureRegistry.js?v=20260403p1',
-          'js/engine/runtime/RuntimeLifecycleManager.js?v=20260403p1',
-          'js/engine/runtime/RuntimeLifecycleCoreFeatures.js?v=20260403p1',
-          'js/engine/runtime/RuntimeLifecycleDomainFeatures.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGameContextRefs.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSelectionState.js?v=20260403p1',
-          'js/engine/runtime/GalaxyRendererBootstrap.js?v=20260404p2',
-          'js/engine/runtime/RuntimeLoadNetworkEvents.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsDefaults.js?v=20260403p1',
-          'js/engine/runtime/RuntimeAudioSettingsMetadata.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsStorage.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsNormalization.js?v=20260403p1',
-          'js/engine/runtime/RuntimeThemePalette.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsBootstrap.js?v=20260403p1',
-          'js/engine/runtime/RuntimeResourceInsight.js?v=20260403p1',
-          'js/engine/runtime/RuntimeHints.js?v=20260403p1',
-          'js/engine/runtime/RuntimeTopbarA11y.js?v=20260403p1',
-          'js/engine/runtime/RuntimeTopbarSearchStore.js?v=20260403p1',
-          'js/engine/runtime/RuntimeTopbarSearch.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxySearchScoring.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyPhysicsFlight.js?v=20260403p1',
-          'js/engine/runtime/RuntimeColonySurfaceSlotMapping.js?v=20260403p1',
-          'js/engine/runtime/RuntimeWormholeController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeRealtimeSync.js?v=20260403p1',
-          'js/engine/runtime/RuntimeStartupBoot.js?v=20260403p1',
-          'js/engine/runtime/RuntimePostBootFlow.js?v=20260403p1',
-          'js/engine/runtime/RuntimeColonyVfxDebugWidget.js?v=20260403p1',
-          'js/engine/runtime/RuntimeFooterNetworkStatus.js?v=20260403p1',
-          'js/engine/runtime/RuntimePolicyEngine.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyDebugLog.js?v=20260403p1',
-          'js/engine/runtime/RuntimeColonyBuildingLogic.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMessageSignals.js?v=20260403p1',
-          'js/engine/runtime/RuntimeRenderTelemetryHook.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyCanvasDebug.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyEventProbe.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyRendererDebug.js?v=20260403p1',
-          'js/engine/runtime/RuntimePerfTelemetryCommand.js?v=20260403p1',
-          'js/engine/runtime/RuntimeTerminalCommand.js?v=20260403p1',
-          'js/engine/runtime/RuntimeOpenWindowCommand.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMessageSendCommand.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMessageConsoleCommand.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyOverlayControls.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyNavActions.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyControllerNavigation.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyControllerActions.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyControllerWindow.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyControllerRenderWindowFlow.js?v=20260404p2',
-          'js/engine/runtime/RuntimeGalaxyControllerControlUi.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyControllerStarLoading.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyControllerFacade.js?v=20260404p2',
-          'js/engine/runtime/RuntimeGalaxyControllerBootstrap.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyControlUi.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyWindowBindings.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyStarLoadingHelpers.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyStarTerritorySync.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyStarCacheRead.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyStarNetworkFlow.js?v=20260404p2',
-          'js/engine/runtime/RuntimeGalaxyStarFallbackRecovery.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyStarErrorUi.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyStarUiStatus.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyStarPersistence.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyStarBootstrapPreflight.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyStarFlowOrchestrator.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyStarLoaderFacade.js?v=20260404p4',
-          'js/engine/runtime/RuntimeGalaxyInit3DFacade.js?v=20260404p10',
-          'js/engine/runtime/RuntimeGalaxyNavOrbRepeat.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyNavOrb.js?v=20260403p1',
-          'js/engine/runtime/RuntimeCommandParsing.js?v=20260403p1',
-          'js/engine/runtime/RuntimeTransitionsCommand.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGameBootstrapHelpers.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGameInfraHelpers.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSystemBreadcrumbHelpers.js?v=20260403p1',
-          'js/engine/runtime/RuntimeUiConsoleCommandRegistry.js?v=20260403p1',
-          'js/engine/runtime/RuntimeUiConsoleMetaCommand.js?v=20260403p1',
-          'js/engine/runtime/RuntimeAdminVisibility.js?v=20260403p1',
-          'js/engine/runtime/RuntimeGalaxyVisualUtils.js?v=20260403p1',
-          'js/engine/runtime/RuntimeUiTemplateHelpers.js?v=20260403p1',
-          'js/engine/runtime/RuntimeUiConsoleStore.js?v=20260403p1',
-          'js/engine/runtime/RuntimeUiConsolePanel.js?v=20260403p1',
-          'js/engine/runtime/RuntimeUiConsoleCommandExecutor.js?v=20260403p1',
-          'js/engine/runtime/RuntimeRendererSettingsApply.js?v=20260403p1',
-          'js/engine/runtime/RuntimeAudioSettingsApply.js?v=20260403p1',
-          'js/engine/runtime/RuntimeAudioSettingsPanel.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsUiHelpers.js?v=20260403p1',
-          'js/engine/runtime/RuntimePayloadValidation.js?v=20260403p1',
-          'js/engine/runtime/RuntimeAiSettingsPanel.js?v=20260403p1',
-          'js/engine/runtime/RuntimeFtlSettingsPanel.js?v=20260403p1',
-          'js/engine/runtime/RuntimeAudioCatalog.js?v=20260403p1',
-          'js/engine/runtime/RuntimeTopbarAudioControls.js?v=20260403p1',
-          'js/engine/runtime/RuntimeFooterUiKit.js?v=20260403p1',
-          'js/engine/runtime/RuntimeThemeSettingsUi.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeUserMenuActions.js?v=20260403p1',
-          'js/engine/runtime/RuntimeUserMenuUi.js?v=20260403p1',
-          'js/engine/runtime/RuntimeAudioUi.js?v=20260403p1',
-          'js/engine/runtime/RuntimeDesktopShell.js?v=20260403p1',
-          'js/engine/runtime/RuntimeFleetMissionDefaults.js?v=20260403p1',
-          'js/engine/runtime/RuntimeFleetSubmitFlow.js?v=20260403p1',
-          'js/engine/runtime/RuntimeFleetStatusPanels.js?v=20260403p1',
-          'js/engine/runtime/RuntimeFleetController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeEconomyFlowController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeResearchController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeBuildingsController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeColonyViewController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeColonyWarnings.js?v=20260403p1',
-          'js/engine/runtime/RuntimeBuildingUpgradePreview.js?v=20260403p1',
-          'js/engine/runtime/RuntimeOverviewInsights.js?v=20260403p1',
-          'js/engine/runtime/RuntimeOverviewLists.js?v=20260403p1',
-          'js/engine/runtime/RuntimeOverviewActions.js?v=20260403p1',
-          'js/engine/runtime/RuntimeOverviewController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeOverviewBootstrap.js?v=20260403p1',
-          'js/engine/runtime/RuntimeDevelopmentControllersBootstrap.js?v=20260403p1',
-          'js/engine/runtime/RuntimeShipyardController.js?v=20260403p1',
-                    'js/engine/runtime/RuntimeMessagesController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeIntelController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeLeadersController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeAlliancesController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeTradeProposalsController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeTradeRoutesController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeFactionsController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeLeaderboardController.js?v=20260403p1',
-          'js/engine/runtime/RuntimeAdvisorWidget.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSocialControllersBootstrap.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapHelpers.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapCameraControls.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapOverlay.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapRenderer.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapInteractions.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapLoop.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapSeed.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapDomScaffold.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapNavigationBinding.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapRenderOrchestrator.js?v=20260403p1',
-          'js/engine/runtime/RuntimeMinimapFacade.js?v=20260403p1',
-          'js/engine/runtime/RuntimeQuickNavFacade.js?v=20260404p1',
-          'js/engine/runtime/RuntimeGalaxyHoverCardFacade.js?v=20260404p1',
-          'js/engine/runtime/RuntimeGalaxyClusterRangeControls.js?v=20260404p1',
-          'js/engine/runtime/RuntimeGalaxySystemDetailsFacade.js?v=20260404p1',
-          'js/engine/runtime/RuntimeSettingsSfxRows.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsMusicTrackOptions.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsFtlDriveButtons.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsFtlDrivesCatalog.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsFtlTemplateStyles.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsFtlSectionTemplate.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsLlmSectionTemplate.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsNpcSectionTemplate.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsCoreSectionTemplate.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsViewModel.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsSectionsComposer.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsBaseBindings.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsPanelBindingsOrchestrator.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsRenderModel.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsRenderBindings.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsRenderContext.js?v=20260403p1',
-          'js/engine/runtime/RuntimeSettingsRenderFacade.js?v=20260403p1',
-          'js/engine/runtime/RuntimeQuestsDataModel.js?v=20260403p1',
-          'js/engine/runtime/RuntimeQuestsCardTemplate.js?v=20260403p1',
-          'js/engine/runtime/RuntimeQuestsGroupTemplate.js?v=20260403p1',
-          'js/engine/runtime/RuntimeQuestsClaimBindings.js?v=20260403p1',
-          'js/engine/runtime/RuntimeQuestsRenderContext.js?v=20260403p1',
-          'js/engine/runtime/RuntimeQuestsRenderFacade.js?v=20260403p1',
-          'js/engine/runtime/RuntimeLogoutHandler.js?v=20260403p1',
-          'js/engine/runtime/RuntimeBadgeLoader.js?v=20260403p1',
-          'js/engine/runtime/RuntimeRealtimeSyncSetup.js?v=20260403p1',
-          'js/engine/runtime/RuntimeStartupBootSetup.js?v=20260403p1',
-          'js/engine/runtime/RuntimeFooterUiKitSetup.js?v=20260403p1',
-          'js/engine/runtime/RuntimePostBootFlowSetup.js?v=20260403p1',
-          'js/engine/runtime/RuntimeColonyVfxDebugWidgetSetup.js?v=20260403p1',
-          'js/engine/runtime/RuntimeBootSetupContext.js?v=20260403p1',
-          'js/engine/runtime/RuntimeBootSetupSequence.js?v=20260403p1',
-          // Debug Phase 2: Postprocessing-Kette vorerst deaktiviert.
-          // 'js/rendering/three-EffectComposer.js?v=20260328p55',
-          // 'js/rendering/three-RenderPass.js?v=20260328p55',
-          // 'js/rendering/three-ShaderPass.js?v=20260328p55',
-          // 'js/rendering/three-CopyShader.js?v=20260328p55',
-          // 'js/rendering/three-UnrealBloomPass.js?v=20260328p55',
-          'https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js',
-          'js/rendering/planet-textures.js?v=20260404p50',
-          'js/rendering/texture-manager.js?v=20260404p50',
-          'js/engine/scene/Light.js?v=20260402p4',
-          'js/rendering/geometry-manager.js?v=20260404p50',
-          'js/rendering/material-factory.js?v=20260404p50',
-          'js/rendering/light-rig-manager.js?v=20260404p50',
-          'js/runtime/model_registry.js?v=20260404p50',
-          // 'js/rendering/post-effects.js?v=20260328p55',
-          'js/telemetry/space-physics-engine.js?v=20260404p50',
-          'js/telemetry/performance-budget.js?v=20260404p50',
-          'js/telemetry/space-flight-telemetry-schema.js?v=20260404p50',
-          'js/telemetry/trajectory-planner.js?v=20260404p50',
-          'js/telemetry/space-camera-flight-driver.js?v=20260404p50',
-          'js/rendering/canvas-input-controller.js?v=20260402p1',
-          'js/rendering/input-contexts/input-action-types.js?v=20260402p3',
-          'js/rendering/input-contexts/core-galaxy-context.js?v=20260402p3',
-          'js/rendering/input-contexts/core-system-context.js?v=20260402p3',
-          'js/rendering/input-contexts/webgpu-galaxy-context.js?v=20260402p3',
-          'js/rendering/input-contexts/webgpu-system-context.js?v=20260402p3',
-          'js/rendering/input-contexts/core-context-actions.js?v=20260402p2',
-          'js/rendering/input-contexts/webgpu-context-actions.js?v=20260402p2',
-          'js/engine/DebrisManager.js?v=20260404p1',
-          'js/rendering/galaxy-renderer-config.js?v=20260329p76',
-          'js/rendering/galaxy-renderer-event-binding-shared.js?v=20260329p77',
-          'js/rendering/galaxy-renderer-events.js?v=20260329p76',
-          'js/rendering/galaxy-camera-controller.js?v=20260329p85',
-          'js/engine/zoom/IZoomLevelRenderer.js?v=20260403p1',
-          'js/engine/zoom/RendererRegistry.js?v=20260403p1',
-          'js/engine/zoom/CameraFlightPath.js?v=20260403p1',
-          'js/engine/zoom/SeamlessZoomOrchestrator.js?v=20260403p1',
-          'js/engine/zoom/levels/GalaxyLevelThreeJS.js?v=20260403p1',
-          'js/engine/zoom/levels/GalaxyLevelWebGPU.js?v=20260403p1',
-          'js/engine/zoom/levels/SystemLevelThreeJS.js?v=20260403p1',
-          'js/engine/zoom/levels/SystemLevelWebGPU.js?v=20260403p1',
-          'js/engine/zoom/levels/PlanetApproachLevelThreeJS.js?v=20260403p1',
-          'js/engine/zoom/levels/PlanetApproachLevelWebGPU.js?v=20260403p1',
-          'js/engine/zoom/levels/ColonySurfaceLevelThreeJS.js?v=20260403p1',
-          'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js?v=20260403p1',
-          'js/engine/zoom/levels/ObjectApproachLevelThreeJS.js?v=20260403p1',
-          'js/engine/zoom/levels/ObjectApproachLevelWebGPU.js?v=20260403p1',
-          'js/rendering/galaxy-renderer-core.js?v=20260404p118',
-          'js/rendering/starfield-webgpu.js?v=20260330p2',
-          'js/engine/CombatVfxBridge.js?v=20260402p1',
-          'js/engine/fx/BeamEffect.js?v=20260402p1',
-          'js/rendering/Galaxy3DRendererWebGPU.js?v=20260404p4',
-          'js/legacy/galaxy3d-webgpu.js?v=20260404p2',
-          'js/rendering/starfield.js?v=20260404p108',
-          'js/tests/flight-driver-integration-tests.js?v=20260329p1',
-          'js/tests/regression-tests-lod-streaming.js?v=20260329p2',
-          'js/ui/glossary.js?v=20260331p50',
-          'js/ui/ui-kit.js?v=20260331p62',
-          'js/ui/star-tooltip.js?v=20260331p51',
-          'js/ui/system-info-panel.js?v=20260331p54',
-          'js/ui/hr-diagram.js?v=20260328p49',
-          'js/ui/settings-panel.js?v=20260331p7',
-          'js/ui/settings-2fa.js?v=20260331p2',
-          'js/ui/admin-users.js?v=20260331p1',
-          'js/ui/system-bodies-breadcrumb.js?v=20260331p1',
-          'js/ui/system-breadcrumb-integration.js?v=20260331p1',
-          'js/ui/gq-ui.js?v=20260330p1',
-          'js/runtime/game.js?v=20260404p37'
-        ]
-      };
-      // Keep preload list in sync with gameScripts and skip remote CDN URLs.
-      window.__GQ_BOOT.preloadAssets = (window.__GQ_BOOT.gameScripts || []).filter(function (src) {
-        return typeof src === 'string' && !/^https?:\/\//i.test(src);
-      });
     </script>
   </section>
 
@@ -1530,10 +1262,24 @@
     })();
   </script>
 
-  <script src="js/ui/terminal.js?v=20260404p50"></script>
-  <script src="js/rendering/starfield.js?v=20260404p108"></script>
+  <script src="js/runtime/boot-manifest.js?v=20260404p1"></script>
+  <script src="js/runtime/boot-assets.js?v=20260404p1"></script>
+  <script src="js/ui/terminal.js?v=20260404p51"></script>
+  <!-- Minimal boot path: auth shell + shared galaxy background before session branching. -->
+  <script src="js/rendering/starfield.js?v=20260404p110"></script>
   <script src="js/ui/prolog.js?v=1"></script>
-  <script src="js/network/auth.js?v=20260404p106"></script>
+  <script src="js/network/auth.js?v=20260404p110"></script>
+  <script>
+    (function runBootAssetAudits() {
+      try {
+        if (!window.GQBootAssets) return;
+        window.GQBootAssets.auditDirectBootScripts(window.__GQ_DIRECT_BOOT_SCRIPTS);
+        window.GQBootAssets.auditLazyLocalScripts(window.__GQ_LAZY_LOCAL_SCRIPTS, window.__GQ_BOOT);
+      } catch (error) {
+        console.warn('[GQ Boot] Boot asset audit dispatch failed:', error);
+      }
+    })();
+  </script>
 
   <!-- =========================================================
     Post-FX Settings Panel

@@ -10,6 +10,7 @@
   function createDevelopmentControllersBootstrap(opts = {}) {
     const runtimeColonyViewControllerApi = opts.runtimeColonyViewControllerApi || {};
     const runtimeEconomyFlowControllerApi = opts.runtimeEconomyFlowControllerApi || {};
+    const runtimeEconomyControllerApi = opts.runtimeEconomyControllerApi || {};
     const runtimeBuildingUpgradePreviewApi = opts.runtimeBuildingUpgradePreviewApi || {};
     const runtimeBuildingsControllerApi = opts.runtimeBuildingsControllerApi || {};
     const runtimeResearchControllerApi = opts.runtimeResearchControllerApi || {};
@@ -112,9 +113,21 @@
       GQUI: opts.GQUI,
     });
 
+    const economyController = runtimeEconomyControllerApi.createEconomyController
+      ? runtimeEconomyControllerApi.createEconomyController({
+          wm: opts.wm,
+          api: opts.api,
+          esc: opts.esc,
+          showToast: opts.showToast,
+          gameLog: opts.gameLog,
+          invalidateGetCache: opts.invalidateGetCache,
+        })
+      : null;
+
     return {
       colonyViewController,
       economyFlowController,
+      economyController,
       buildingsController,
       researchController,
       shipyardController,

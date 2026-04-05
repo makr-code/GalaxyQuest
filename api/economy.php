@@ -13,24 +13,13 @@
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/economy_flush.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
 $uid    = require_auth();
 $db     = get_db();
 $action = $_GET['action'] ?? '';
-
-match ($action) {
-    'get_overview'          => action_get_overview($db, $uid),
-    'get_production'        => action_get_production($db, $uid),
-    'set_production_method' => action_set_production_method($db, $uid),
-    'get_policy'            => action_get_policy($db, $uid),
-    'set_policy'            => action_set_policy($db, $uid),
-    'set_tax'               => action_set_tax($db, $uid),
-    'set_subsidy'           => action_set_subsidy($db, $uid),
-    'get_pop_classes'       => action_get_pop_classes($db, $uid),
-    default                 => json_error('Unknown action: ' . $action, 400),
-};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,7 +75,7 @@ function fetch_policy(PDO $db, int $uid): array {
  */
 function fetch_user_colonies(PDO $db, int $uid): array {
     $stmt = $db->prepare(<<<SQL
-        SELECT c.id, c.name, c.population, c.type,
+        SELECT c.id, c.name, c.population, c.colony_type AS type,
                cb.galaxy_index, cb.system_index, cb.position
         FROM colonies c
         JOIN celestial_bodies cb ON cb.id = c.body_id
@@ -181,6 +170,7 @@ function action_get_overview(PDO $db, int $uid): never {
     $result = [];
     foreach ($colonies as $c) {
         $cid  = (int)$c['id'];
+        flush_colony_production($db, $cid);
         $result[] = [
             'id'         => $cid,
             'name'       => $c['name'],
@@ -214,6 +204,7 @@ function action_get_production(PDO $db, int $uid): never {
     $stmt->execute([$colonyId, $uid]);
     if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
 
+    flush_colony_production($db, $colonyId);
     $methods = fetch_production_methods($db, $colonyId);
     $goods   = fetch_colony_goods($db, $colonyId);
 
@@ -434,3 +425,15 @@ function action_get_pop_classes(PDO $db, int $uid): never {
 
     json_ok(['pop_classes' => $out]);
 }
+
+match ($action) {
+    'get_overview'          => action_get_overview($db, $uid),
+    'get_production'        => action_get_production($db, $uid),
+    'set_production_method' => action_set_production_method($db, $uid),
+    'get_policy'            => action_get_policy($db, $uid),
+    'set_policy'            => action_set_policy($db, $uid),
+    'set_tax'               => action_set_tax($db, $uid),
+    'set_subsidy'           => action_set_subsidy($db, $uid),
+    'get_pop_classes'       => action_get_pop_classes($db, $uid),
+    default                 => json_error('Unknown action: ' . $action, 400),
+};

@@ -46,6 +46,14 @@
     return Math.max(min, Math.min(max, v));
   }
 
+  const withAssetVersion = typeof window.GQResolveAssetVersion === 'function'
+    ? window.GQResolveAssetVersion.bind(window)
+    : function fallbackAssetVersion(path, versionKey, fallbackVersion) {
+        const assetVersions = window.__GQ_ASSET_VERSIONS || {};
+        const version = String(assetVersions?.[versionKey] || fallbackVersion || '').trim();
+        return version ? `${path}?v=${version}` : path;
+      };
+
   function scriptLoaded(src) {
     return !!document.querySelector(`script[src="${src}"]`);
   }
@@ -72,22 +80,22 @@
       window.__GQ_THREE_RUNTIME = window.THREE;
     }
     if (!window.GalaxyCameraController) {
-      await loadScript('js/rendering/galaxy-camera-controller.js?v=20260329p85');
+      await loadScript(withAssetVersion('js/rendering/galaxy-camera-controller.js', 'galaxyCameraController', '20260329p85'));
     }
     if (!window.GQTextureManager) {
-      await loadScript('js/rendering/texture-manager.js?v=20260329p1');
+      await loadScript(withAssetVersion('js/rendering/texture-manager.js', 'textureManager', '20260404p50'));
     }
     if (!window.GQGeometryManager) {
-      await loadScript('js/rendering/geometry-manager.js?v=20260329p1');
+      await loadScript(withAssetVersion('js/rendering/geometry-manager.js', 'geometryManager', '20260404p50'));
     }
     if (!window.GQMaterialFactory) {
-      await loadScript('js/rendering/material-factory.js?v=20260329p1');
+      await loadScript(withAssetVersion('js/rendering/material-factory.js', 'materialFactory', '20260404p50'));
     }
     if (!window.GQLightRigManager) {
-      await loadScript('js/rendering/light-rig-manager.js?v=20260329p1');
+      await loadScript(withAssetVersion('js/rendering/light-rig-manager.js', 'lightRigManager', '20260404p50'));
     }
     if (!window.Galaxy3DRenderer) {
-      await loadScript('js/rendering/galaxy-renderer-core.js?v=20260404p116');
+      await loadScript(withAssetVersion('js/rendering/galaxy-renderer-core.js', 'galaxyRendererCore', '20260404p118'));
     }
     if (!window.Galaxy3DRenderer) {
       throw new Error('Galaxy3DRenderer unavailable');

@@ -17,6 +17,8 @@ match ($action) {
     'create'          => action_create($db, $uid),
     'delete'          => action_delete($db, $uid),
     'toggle'          => action_toggle($db, $uid),
+    'list_suggestions' => action_list_suggestions($db, $uid),
+    'apply_suggestion' => action_apply_suggestion($db, $uid),
     'list_proposals'  => action_list_proposals($db, $uid),
     'propose'         => action_propose($db, $uid),
     'accept'          => action_accept($db, $uid),
@@ -121,29 +123,17 @@ function action_create(PDO $db, int $uid): never {
     if (!$stmt->fetchColumn()) {
         json_error('You don\'t own the target colony.', 403);
     }
-    
-    // Create trade route (UNIQUE key prevents duplicates)
-    $stmt = $db->prepare(<<<SQL
-        INSERT INTO trade_routes
-            (user_id, origin_colony_id, target_colony_id, cargo_metal, cargo_crystal, cargo_deuterium, interval_hours)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-            cargo_metal = VALUES(cargo_metal),
-            cargo_crystal = VALUES(cargo_crystal),
-            cargo_deuterium = VALUES(cargo_deuterium),
-            interval_hours = VALUES(interval_hours),
-            is_active = 1,
-            updated_at = CURRENT_TIMESTAMP
-    SQL);
-    $stmt->execute([$uid, $originColonyId, $targetColonyId, $cargoMetal, $cargoCrystal, $cargoDeuterium, $intervalHours]);
-    
-    $routeId = (int)$db->lastInsertId();
-    if ($routeId === 0) {
-        // Already existed, fetch the updated row
-        $stmt = $db->prepare('SELECT id FROM trade_routes WHERE user_id = ? AND origin_colony_id = ? AND target_colony_id = ?');
-        $stmt->execute([$uid, $originColonyId, $targetColonyId]);
-        $routeId = (int)$stmt->fetchColumn();
-    }
+
+    $routeId = upsert_trade_route(
+        $db,
+        $uid,
+        $originColonyId,
+        $targetColonyId,
+        $cargoMetal,
+        $cargoCrystal,
+        $cargoDeuterium,
+        $intervalHours
+    );
     
     json_ok(['trade_route_id' => $routeId]);
 }
@@ -190,6 +180,217 @@ function action_toggle(PDO $db, int $uid): never {
     
     json_ok(['is_active' => (bool)$newState]);
 }
+
+    function action_list_suggestions(PDO $db, int $uid): never {
+        $limit = min(20, max(1, (int)($_GET['limit'] ?? 10)));
+        $intervalHours = min(168, max(1, (int)($_GET['interval_hours'] ?? 24)));
+
+        $colonies = fetch_trade_user_colony_nodes($db, $uid);
+        if (count($colonies) < 2) {
+            json_ok(['suggestions' => []]);
+        }
+
+        $suggestions = build_trade_balance_suggestions($db, $uid, $colonies, $intervalHours, $limit);
+        json_ok(['suggestions' => $suggestions]);
+    }
+
+    function action_apply_suggestion(PDO $db, int $uid): never {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+
+        $originColonyId = (int)($body['origin_colony_id'] ?? 0);
+        $targetColonyId = (int)($body['target_colony_id'] ?? 0);
+        $cargoMetal = max(0.0, (float)($body['cargo_metal'] ?? 0));
+        $cargoCrystal = max(0.0, (float)($body['cargo_crystal'] ?? 0));
+        $cargoDeuterium = max(0.0, (float)($body['cargo_deuterium'] ?? 0));
+        $intervalHours = min(168, max(1, (int)($body['interval_hours'] ?? 24)));
+
+        if ($originColonyId <= 0 || $targetColonyId <= 0 || $originColonyId === $targetColonyId) {
+            json_error('Invalid colony IDs.', 400);
+        }
+        if ($cargoMetal <= 0 && $cargoCrystal <= 0 && $cargoDeuterium <= 0) {
+            json_error('Cargo must be specified.', 400);
+        }
+
+        $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
+        $stmt->execute([$originColonyId, $uid]);
+        if (!$stmt->fetchColumn()) {
+            json_error('You do not own the origin colony.', 403);
+        }
+        $stmt->execute([$targetColonyId, $uid]);
+        if (!$stmt->fetchColumn()) {
+            json_error('You do not own the target colony.', 403);
+        }
+
+        $routeId = upsert_trade_route(
+            $db,
+            $uid,
+            $originColonyId,
+            $targetColonyId,
+            $cargoMetal,
+            $cargoCrystal,
+            $cargoDeuterium,
+            $intervalHours
+        );
+
+        json_ok([
+            'trade_route_id' => $routeId,
+            'applied' => true,
+        ]);
+    }
+
+    function upsert_trade_route(PDO $db, int $uid, int $originColonyId, int $targetColonyId, float $cargoMetal, float $cargoCrystal, float $cargoDeuterium, int $intervalHours): int {
+        $stmt = $db->prepare(<<<SQL
+            INSERT INTO trade_routes
+                (user_id, origin_colony_id, target_colony_id, cargo_metal, cargo_crystal, cargo_deuterium, interval_hours)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                cargo_metal = VALUES(cargo_metal),
+                cargo_crystal = VALUES(cargo_crystal),
+                cargo_deuterium = VALUES(cargo_deuterium),
+                interval_hours = VALUES(interval_hours),
+                is_active = 1,
+                updated_at = CURRENT_TIMESTAMP
+        SQL);
+        $stmt->execute([$uid, $originColonyId, $targetColonyId, $cargoMetal, $cargoCrystal, $cargoDeuterium, $intervalHours]);
+
+        $routeId = (int)$db->lastInsertId();
+        if ($routeId > 0) {
+            return $routeId;
+        }
+
+        $stmt = $db->prepare('SELECT id FROM trade_routes WHERE user_id = ? AND origin_colony_id = ? AND target_colony_id = ?');
+        $stmt->execute([$uid, $originColonyId, $targetColonyId]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    function fetch_trade_user_colony_nodes(PDO $db, int $uid): array {
+        $stmt = $db->prepare(<<<SQL
+            SELECT c.id, c.user_id, c.name, c.metal, c.crystal, c.deuterium,
+                   cb.galaxy_index AS galaxy, cb.system_index AS system, cb.position,
+                   COALESCE(s.x_ly, 0) AS x_ly,
+                   COALESCE(s.y_ly, 0) AS y_ly,
+                   COALESCE(s.z_ly, 0) AS z_ly
+            FROM colonies c
+            JOIN celestial_bodies cb ON cb.id = c.body_id
+            LEFT JOIN star_systems s ON s.galaxy_index = cb.galaxy_index AND s.system_index = cb.system_index
+            WHERE c.user_id = ?
+            ORDER BY c.id ASC
+        SQL);
+        $stmt->execute([$uid]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    function build_trade_balance_suggestions(PDO $db, int $uid, array $colonies, int $intervalHours, int $limit): array {
+        $resources = ['metal', 'crystal', 'deuterium'];
+        $suggestions = [];
+
+        foreach ($resources as $resource) {
+            $total = 0.0;
+            foreach ($colonies as $colony) {
+                $total += (float)$colony[$resource];
+            }
+            $avg = count($colonies) > 0 ? ($total / count($colonies)) : 0.0;
+            $threshold = max(100.0, $avg * 0.15);
+
+            $sources = [];
+            $targets = [];
+            foreach ($colonies as $colony) {
+                $qty = (float)$colony[$resource];
+                $surplus = $qty - $avg;
+                $deficit = $avg - $qty;
+                if ($surplus > $threshold) {
+                    $sources[] = ['colony' => $colony, 'surplus' => $surplus];
+                }
+                if ($deficit > $threshold) {
+                    $targets[] = ['colony' => $colony, 'deficit' => $deficit];
+                }
+            }
+
+            usort($sources, fn($a, $b) => $b['surplus'] <=> $a['surplus']);
+            usort($targets, fn($a, $b) => $b['deficit'] <=> $a['deficit']);
+
+            foreach ($targets as $targetEntry) {
+                $bestSourceIndex = null;
+                $bestScore = -1.0;
+                $bestTransfer = 0.0;
+                $bestProfile = null;
+
+                foreach ($sources as $sourceIndex => $sourceEntry) {
+                    $sourceColony = $sourceEntry['colony'];
+                    $targetColony = $targetEntry['colony'];
+                    if ((int)$sourceColony['id'] === (int)$targetColony['id']) {
+                        continue;
+                    }
+
+                    $transferQty = min((float)$sourceEntry['surplus'], (float)$targetEntry['deficit']);
+                    if ($transferQty <= 0) {
+                        continue;
+                    }
+
+                    $cargo = ['metal' => 0.0, 'crystal' => 0.0, 'deuterium' => 0.0];
+                    $cargo[$resource] = $transferQty;
+                    $profile = estimate_trade_transport_profile($sourceColony, $targetColony, $cargo);
+
+                    if ($resource === 'deuterium') {
+                        $maxTransfer = max(0.0, (float)$sourceColony['deuterium'] - ($avg + (float)$profile['fuel_cost_deuterium']));
+                        $transferQty = min($transferQty, $maxTransfer);
+                        if ($transferQty <= 0) {
+                            continue;
+                        }
+                        $cargo[$resource] = $transferQty;
+                        $profile = estimate_trade_transport_profile($sourceColony, $targetColony, $cargo);
+                    }
+
+                    $score = $transferQty / max(1.0, (float)$profile['distance_ly']);
+                    if ($score > $bestScore) {
+                        $bestScore = $score;
+                        $bestSourceIndex = $sourceIndex;
+                        $bestTransfer = $transferQty;
+                        $bestProfile = $profile;
+                    }
+                }
+
+                if ($bestSourceIndex === null || $bestTransfer <= 0 || $bestProfile === null) {
+                    continue;
+                }
+
+                $sourceColony = $sources[$bestSourceIndex]['colony'];
+                $targetColony = $targetEntry['colony'];
+                $sources[$bestSourceIndex]['surplus'] -= $bestTransfer;
+
+                $cargo = ['metal' => 0.0, 'crystal' => 0.0, 'deuterium' => 0.0];
+                $cargo[$resource] = round($bestTransfer, 2);
+
+                $existingStmt = $db->prepare('SELECT id, is_active FROM trade_routes WHERE user_id = ? AND origin_colony_id = ? AND target_colony_id = ? LIMIT 1');
+                $existingStmt->execute([$uid, (int)$sourceColony['id'], (int)$targetColony['id']]);
+                $existingRoute = $existingStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+                $suggestions[] = [
+                    'origin_colony_id' => (int)$sourceColony['id'],
+                    'origin_name' => (string)$sourceColony['name'],
+                    'target_colony_id' => (int)$targetColony['id'],
+                    'target_name' => (string)$targetColony['name'],
+                    'cargo' => $cargo,
+                    'resource_type' => $resource,
+                    'interval_hours' => $intervalHours,
+                    'estimated_distance_ly' => round((float)$bestProfile['distance_ly'], 2),
+                    'estimated_fuel_cost_deuterium' => round((float)$bestProfile['fuel_cost_deuterium'], 2),
+                    'source_surplus_before' => round((float)$sources[$bestSourceIndex]['surplus'] + $bestTransfer, 2),
+                    'target_deficit_before' => round((float)$targetEntry['deficit'], 2),
+                    'existing_route_id' => $existingRoute ? (int)$existingRoute['id'] : null,
+                    'existing_route_active' => $existingRoute ? (bool)$existingRoute['is_active'] : false,
+                    'reason' => 'stock-imbalance',
+                ];
+
+                if (count($suggestions) >= $limit) {
+                    break 2;
+                }
+            }
+        }
+
+        usort($suggestions, fn($a, $b) => array_sum($b['cargo']) <=> array_sum($a['cargo']));
+        return array_slice($suggestions, 0, $limit);
+    }
 
 // ─── Auto-dispatch logic ──────────────────────────────────────────────────────
 

@@ -4,7 +4,7 @@
  * Registers first domain lifecycle features for settings/quests UI sync.
  */
 (function () {
-  function registerLifecycleDomainFeatures({ manager, wm, renderSettings, renderQuests, gameLog }) {
+  function registerLifecycleDomainFeatures({ manager, wm, renderSettings, renderQuests, renderTradersDashboard, renderPirates, renderWars, renderEconomy, gameLog }) {
     if (!manager || typeof manager.registerFeature !== 'function') {
       throw new Error('[RuntimeLifecycleDomainFeatures] manager.registerFeature is required');
     }
@@ -34,6 +34,46 @@
         } catch (err) {
           if (typeof gameLog === 'function') {
             gameLog('warn', '[LifecycleFeature] quests sync failed', err);
+          }
+        }
+      }
+
+      if (isOpen('traders') && typeof renderTradersDashboard === 'function') {
+        try {
+          await renderTradersDashboard();
+        } catch (err) {
+          if (typeof gameLog === 'function') {
+            gameLog('warn', '[LifecycleFeature] traders sync failed', err);
+          }
+        }
+      }
+
+      if (isOpen('pirates') && typeof renderPirates === 'function') {
+        try {
+          await renderPirates();
+        } catch (err) {
+          if (typeof gameLog === 'function') {
+            gameLog('warn', '[LifecycleFeature] pirates sync failed', err);
+          }
+        }
+      }
+
+      if (isOpen('wars') && typeof renderWars === 'function') {
+        try {
+          await renderWars();
+        } catch (err) {
+          if (typeof gameLog === 'function') {
+            gameLog('warn', '[LifecycleFeature] wars sync failed', err);
+          }
+        }
+      }
+
+      if (isOpen('economy') && typeof renderEconomy === 'function') {
+        try {
+          await renderEconomy();
+        } catch (err) {
+          if (typeof gameLog === 'function') {
+            gameLog('warn', '[LifecycleFeature] economy sync failed', err);
           }
         }
       }

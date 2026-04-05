@@ -10,6 +10,7 @@
   const state = {
     footerLoadUi: {
       root: null,
+      badge: null,
       bar: null,
       pct: null,
       queue: null,
@@ -19,6 +20,7 @@
     footerNetwork: {
       lastProbeAt: 0,
       inFlight: false,
+      kind: 'unknown',
     },
     getApi: () => null,
     getNavigator: () => (typeof navigator !== 'undefined' ? navigator : null),
@@ -35,6 +37,7 @@
 
     state.footerLoadUi = {
       root: documentRef?.getElementById?.('footer-load') || null,
+      badge: documentRef?.getElementById?.('footer-load-badge') || null,
       bar: documentRef?.getElementById?.('footer-load-bar') || null,
       pct: documentRef?.getElementById?.('footer-load-pct') || null,
       queue: documentRef?.getElementById?.('footer-load-queue') || null,
@@ -44,11 +47,40 @@
 
     state.footerNetwork.lastProbeAt = 0;
     state.footerNetwork.inFlight = false;
+    state.footerNetwork.kind = 'unknown';
     state.getApi = typeof getApi === 'function' ? getApi : () => null;
     state.getNavigator = typeof getNavigator === 'function'
       ? getNavigator
       : () => (typeof navigator !== 'undefined' ? navigator : null);
     state.logger = logger;
+  }
+
+  function applyFooterLoadBadgeState(kind = 'unknown', active = false) {
+    const badge = state.footerLoadUi.badge;
+    if (!badge) return;
+
+    badge.classList.remove(
+      'footer-load-badge-ok',
+      'footer-load-badge-warn',
+      'footer-load-badge-bad',
+      'footer-load-badge-idle'
+    );
+
+    if (!active) {
+      badge.classList.add('footer-load-badge-idle');
+      return;
+    }
+
+    const normalized = String(kind || 'unknown');
+    if (normalized === 'offline' || normalized === 'unreachable') {
+      badge.classList.add('footer-load-badge-bad');
+      return;
+    }
+    if (normalized === 'timeout' || normalized === 'auth' || normalized === 'http') {
+      badge.classList.add('footer-load-badge-warn');
+      return;
+    }
+    badge.classList.add('footer-load-badge-ok');
   }
 
   function setFooterNetworkStatus(kind = 'unknown', latencyMs = 0, status = 0) {
@@ -60,6 +92,8 @@
     const latency = Math.max(0, Number(latencyMs || 0));
     const httpStatus = Math.max(0, Number(status || 0));
     const k = String(kind || 'unknown');
+    state.footerNetwork.kind = k;
+    applyFooterLoadBadgeState(k, !state.footerLoadUi.root?.classList.contains('hidden'));
 
     if (k === 'ok') {
       node.textContent = `NET: ${latency}ms`;
@@ -126,6 +160,7 @@
 
   function setFooterLoadProgress(detail = {}) {
     const root = state.footerLoadUi.root;
+    const badge = state.footerLoadUi.badge;
     const bar = state.footerLoadUi.bar;
     const pct = state.footerLoadUi.pct;
     const queue = state.footerLoadUi.queue;
@@ -143,6 +178,8 @@
 
     if (!active && percent <= 0) {
       root.classList.add('hidden');
+      badge?.classList.add('hidden');
+      applyFooterLoadBadgeState(state.footerNetwork.kind, false);
       bar.style.width = '0%';
       pct.textContent = '0%';
       queue.textContent = 'Q:0|F:0|C:0';
@@ -154,6 +191,13 @@
     }
 
     root.classList.remove('hidden');
+    if (badge) {
+      badge.classList.remove('hidden');
+      badge.textContent = pending > 1
+        ? `Nachladen ${pending}`
+        : (queued > 0 || inFlight > 0 ? 'Nachladen' : 'Sync');
+    }
+    applyFooterLoadBadgeState(state.footerNetwork.kind, true);
     bar.style.width = `${percent}%`;
     pct.textContent = `${percent}%`;
     queue.textContent = `Q:${queued}|F:${inFlight}|C:${concurrency}`;

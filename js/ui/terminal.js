@@ -728,10 +728,16 @@
         return response;
       } catch (err) {
         const took = Math.round(performance.now() - start);
+        const urlText = String(url || '');
+        const isQuietAuthProbe = /api\/auth\.php\?action=me(?:&|&amp;)quiet=1/i.test(urlText);
+        const errText = safeStringify(err);
+        const isTimeoutLike = /timeout|etimedout|abort/i.test(String(errText || ''));
         if (isAbortLike(err)) {
           if (isDebugEnabled()) {
             append('debug', ['FetchAbort', url, `(${took}ms)`, safeStringify(err)], 'fetch');
           }
+        } else if (isQuietAuthProbe && isTimeoutLike) {
+          append('warn', ['FetchTimeout', url, `(${took}ms)`, errText], 'fetch');
         } else {
           append('error', ['FetchError', url, `(${took}ms)`, safeStringify(err)], 'fetch');
         }

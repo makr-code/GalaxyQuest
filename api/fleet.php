@@ -848,6 +848,45 @@ function deliver_resources(PDO $db, array $fleet, array $ships): void {
     enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_delivered');
 }
 
+function leaders_attack_skill_column(PDO $db): ?string {
+    static $resolved = false;
+    static $column = null;
+
+    if ($resolved) {
+        return $column;
+    }
+
+    $resolved = true;
+    try {
+        $check = $db->prepare(
+            'SELECT COLUMN_NAME
+               FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = ?
+                AND COLUMN_NAME IN (?, ?)' 
+        );
+        $check->execute(['leaders', 'skill_attack', 'skill_tactics']);
+
+        $found = [];
+        foreach ($check->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $name = (string)($row['COLUMN_NAME'] ?? '');
+            if ($name !== '') {
+                $found[$name] = true;
+            }
+        }
+
+        if (isset($found['skill_attack'])) {
+            $column = 'skill_attack';
+        } elseif (isset($found['skill_tactics'])) {
+            $column = 'skill_tactics';
+        }
+    } catch (\Throwable) {
+        $column = null;
+    }
+
+    return $column;
+}
+
 function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $tgt = $db->prepare(
         'SELECT c.id, c.body_id, c.user_id, c.metal, c.crystal, c.deuterium, c.rare_earth
@@ -875,10 +914,16 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $atkShldLevel = (int)($atkShldRow->fetchColumn() ?? 0);
 
     // Fleet commander attack bonus (+2% per skill_attack level)
-    $cmdRow = $db->prepare('SELECT skill_attack FROM leaders WHERE fleet_id=? AND role=\'fleet_commander\' LIMIT 1');
-    $cmdRow->execute([$fleet['id']]);
-    $cmd = $cmdRow->fetch();
-    $cmdBonus = $cmd ? (1.0 + (int)$cmd['skill_attack'] * 0.02) : 1.0;
+    $cmdBonus = 1.0;
+    $attackSkillCol = leaders_attack_skill_column($db);
+    if ($attackSkillCol !== null) {
+        $cmdRow = $db->prepare("SELECT {$attackSkillCol} AS attack_skill FROM leaders WHERE fleet_id=? AND role='fleet_commander' LIMIT 1");
+        $cmdRow->execute([$fleet['id']]);
+        $cmd = $cmdRow->fetch();
+        if ($cmd) {
+            $cmdBonus = 1.0 + (int)($cmd['attack_skill'] ?? 0) * 0.02;
+        }
+    }
 
     $atkMulti = (1.0 + $atkWpnLevel * 0.1) * $cmdBonus;
 
@@ -1128,10 +1173,59 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $defNpc->execute([$target['user_id']]);
     $defUser = $defNpc->fetch();
     if ($defUser && (string)($defUser['control_type'] ?? 'human') === 'npc_engine') {
-        // Find which faction this NPC belongs to (look up by faction colonies)
-        // Simplified: just degrade pirate standing if attacking NPC
         require_once __DIR__ . '/factions.php';
-        // TODO: link NPC users to faction — for now skip
+
+        $factionId = 0;
+
+        // Primary mapping: NPC user owns a colony that is linked in faction_colonies.
+        try {
+            $fc = $db->prepare(
+                'SELECT fc.faction_id
+                   FROM faction_colonies fc
+                   JOIN colonies c ON c.id = fc.colony_id
+                  WHERE c.user_id = ?
+                  LIMIT 1'
+            );
+            $fc->execute([(int)$target['user_id']]);
+            $factionId = (int)($fc->fetchColumn() ?: 0);
+        } catch (\Throwable) {
+            $factionId = 0;
+        }
+
+        // Fallback for trader-NPC users.
+        if ($factionId <= 0) {
+            try {
+                $tr = $db->prepare('SELECT faction_id FROM npc_traders WHERE user_id = ? LIMIT 1');
+                $tr->execute([(int)$target['user_id']]);
+                $factionId = (int)($tr->fetchColumn() ?: 0);
+            } catch (\Throwable) {
+                $factionId = 0;
+            }
+        }
+
+        // Legacy/optional fallback if users.faction_id exists in this DB variant.
+        if ($factionId <= 0) {
+            try {
+                $ur = $db->prepare('SELECT faction_id FROM users WHERE id = ? LIMIT 1');
+                $ur->execute([(int)$target['user_id']]);
+                $factionId = (int)($ur->fetchColumn() ?: 0);
+            } catch (\Throwable) {
+                $factionId = 0;
+            }
+        }
+
+        if ($factionId > 0 && function_exists('update_standing')) {
+            update_standing(
+                $db,
+                (int)$fleet['user_id'],
+                $factionId,
+                -5,
+                'battle',
+                'Attacked faction NPC colony'
+            );
+            $db->prepare('UPDATE diplomacy SET attacks_against = attacks_against + 1 WHERE user_id = ? AND faction_id = ?')
+               ->execute([(int)$fleet['user_id'], $factionId]);
+        }
     }
 
     // ── Messages ─────────────────────────────────────────────────────────

@@ -11,11 +11,14 @@
     const runtimeMessagesControllerApi = opts.runtimeMessagesControllerApi || {};
     const runtimeIntelControllerApi = opts.runtimeIntelControllerApi || {};
     const runtimeTradeRoutesControllerApi = opts.runtimeTradeRoutesControllerApi || {};
+    const runtimeTradersDashboardControllerApi = opts.runtimeTradersDashboardControllerApi || {};
+    const runtimePiratesControllerApi = opts.runtimePiratesControllerApi || {};
     const runtimeAlliancesControllerApi = opts.runtimeAlliancesControllerApi || {};
     const runtimeTradeProposalsControllerApi = opts.runtimeTradeProposalsControllerApi || {};
     const runtimeLeadersControllerApi = opts.runtimeLeadersControllerApi || {};
     const runtimeFactionsControllerApi = opts.runtimeFactionsControllerApi || {};
     const runtimeLeaderboardControllerApi = opts.runtimeLeaderboardControllerApi || {};
+    const runtimeWarControllerApi = opts.runtimeWarControllerApi || {};
 
     const messagesController = runtimeMessagesControllerApi.createMessagesController({
       wm: opts.wm,
@@ -61,6 +64,30 @@
       getResourceInsightConfig: opts.getResourceInsightConfig,
       getSuggestedTradeAmount: opts.getSuggestedTradeAmount,
       getCurrentColony: opts.getCurrentColony,
+    });
+
+    const tradersDashboardController = runtimeTradersDashboardControllerApi.createTradersDashboardController({
+      wm: opts.wm,
+      api: opts.api,
+      documentRef: opts.documentRef,
+      uiKitSkeletonHTML: opts.uiKitSkeletonHTML,
+      uiKitEmptyStateHTML: opts.uiKitEmptyStateHTML,
+      esc: opts.esc,
+      gameLog: opts.gameLog,
+      showToast: opts.showToast,
+      invalidateGetCache: opts.invalidateGetCache,
+    });
+
+    const piratesController = runtimePiratesControllerApi.createPiratesController({
+      wm: opts.wm,
+      api: opts.api,
+      documentRef: opts.documentRef,
+      uiKitSkeletonHTML: opts.uiKitSkeletonHTML,
+      uiKitEmptyStateHTML: opts.uiKitEmptyStateHTML,
+      esc: opts.esc,
+      gameLog: opts.gameLog,
+      showToast: opts.showToast,
+      invalidateGetCache: opts.invalidateGetCache,
     });
 
     const alliancesController = runtimeAlliancesControllerApi.createAlliancesController({
@@ -120,15 +147,31 @@
       getCurrentUser: opts.getCurrentUser,
     });
 
+    const warController = runtimeWarControllerApi.createWarController
+      ? runtimeWarControllerApi.createWarController({
+          wm: opts.wm,
+          api: opts.api,
+          uiKitSkeletonHTML: opts.uiKitSkeletonHTML,
+          uiKitEmptyStateHTML: opts.uiKitEmptyStateHTML,
+          esc: opts.esc,
+          gameLog: opts.gameLog,
+          showToast: opts.showToast,
+          invalidateGetCache: opts.invalidateGetCache,
+        })
+      : null;
+
     return {
       messagesController,
       intelController,
       tradeRoutesController,
+      tradersDashboardController,
+      piratesController,
       alliancesController,
       tradeProposalsController,
       leadersController,
       factionsController,
       leaderboardController,
+      warController,
     };
   }
 

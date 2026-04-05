@@ -11,9 +11,17 @@
   }
   window.__GQ_AUTH_BOOTSTRAP_LOCK = true;
 
-  const AUTH_AUDIO_SCRIPT = 'js/runtime/audio.js?v=20260328p53';
-  const AUTH_GQUI_SCRIPT = 'js/ui/gq-ui.js?v=20260330p1';
-  const AUTH_WM_SCRIPT = 'js/runtime/wm.js?v=20260404p52';
+  const withAssetVersion = typeof window.GQResolveAssetVersion === 'function'
+    ? window.GQResolveAssetVersion.bind(window)
+    : function fallbackAssetVersion(path, versionKey, fallbackVersion) {
+        const assetVersions = window.__GQ_ASSET_VERSIONS || {};
+        const version = String(assetVersions?.[versionKey] || fallbackVersion || '').trim();
+        return version ? `${path}?v=${version}` : path;
+      };
+
+  const AUTH_AUDIO_SCRIPT = withAssetVersion('js/runtime/audio.js', 'audio', '20260404p50');
+  const AUTH_GQUI_SCRIPT = withAssetVersion('js/ui/gq-ui.js', 'gqui', '20260330p1');
+  const AUTH_WM_SCRIPT = withAssetVersion('js/runtime/wm.js', 'wm', '20260404p52');
   const AUTH_AUDIO_PRELOAD = [
     'music/Nebula_Overture.mp3',
     'sfx/mixkit-video-game-retro-click-237.wav',
@@ -105,6 +113,42 @@
     }
   }
 
+  async function checkSessionValidityForBreaker(tag) {
+    try {
+      const me = await fetchWithTimeout('api/auth.php?action=me&quiet=1', {
+        method: 'GET',
+        credentials: 'same-origin',
+        timeoutMs: 5000,
+        tag,
+      });
+
+      if (!me.ok) {
+        const status = Number(me.status || 0);
+        if (status === 401 || status === 403) {
+          return { state: 'invalid', reason: `session check returned ${status}` };
+        }
+        return { state: 'transient', reason: `session check returned ${status}` };
+      }
+
+      const data = await me.json();
+      if (data?.authenticated === true || !!data?.user) {
+        return { state: 'valid' };
+      }
+      return { state: 'invalid', reason: 'session not authenticated' };
+    } catch (err) {
+      if (isTransientAuthFetchError(err)) {
+        return {
+          state: 'transient',
+          reason: String(err?.message || err || 'transient auth check failure'),
+        };
+      }
+      return {
+        state: 'invalid',
+        reason: String(err?.message || err || 'session validation failure'),
+      };
+    }
+  }
+
   function installSessionValidationBreaker() {
     stopSessionValidationBreaker();
     
@@ -112,26 +156,17 @@
     
     // Start immediate check
     const validateSessionImmediate = async () => {
-      try {
-        const me = await fetchWithTimeout('api/auth.php?action=me&quiet=1', {
-          method: 'GET',
-          credentials: 'same-origin',
-          timeoutMs: 5000,
-          tag: 'session-validation-breaker',
-        });
-        
-        if (!me.ok) {
-          throw new Error(`Session check returned ${me.status}`);
-        }
-        
-        const data = await me.json();
-        if (!data.authenticated) {
-          throw new Error('Session not authenticated');
-        }
-        
+      const result = await checkSessionValidityForBreaker('session-validation-breaker');
+      if (result.state === 'valid') {
         authLog('debug', 'session validation breaker: session valid');
-      } catch (err) {
-        authLog('error', 'session validation breaker: session invalid or check failed', String(err?.message || err || 'unknown'));
+        return;
+      }
+      if (result.state === 'transient') {
+        authLog('warn', 'session validation breaker transient failure', result.reason || 'unknown');
+        return;
+      }
+      authLog('error', 'session validation breaker: session invalid', result.reason || 'unknown');
+      if (result.state === 'invalid') {
         returnToLoginPage();
       }
     };
@@ -141,26 +176,17 @@
     
     // Periodic checks every 30 seconds
     sessionValidationBreaker = setInterval(async () => {
-      try {
-        const me = await fetchWithTimeout('api/auth.php?action=me&quiet=1', {
-          method: 'GET',
-          credentials: 'same-origin',
-          timeoutMs: 5000,
-          tag: 'session-validation-periodic',
-        });
-        
-        if (!me.ok) {
-          throw new Error(`Session check returned ${me.status}`);
-        }
-        
-        const data = await me.json();
-        if (!data.authenticated) {
-          throw new Error('Session not authenticated');
-        }
-        
+      const result = await checkSessionValidityForBreaker('session-validation-periodic');
+      if (result.state === 'valid') {
         authLog('debug', 'session validation breaker: periodic check passed');
-      } catch (err) {
-        authLog('warn', 'session validation breaker: session became invalid', String(err?.message || err || 'unknown'));
+        return;
+      }
+      if (result.state === 'transient') {
+        authLog('warn', 'session validation breaker transient periodic failure', result.reason || 'unknown');
+        return;
+      }
+      authLog('warn', 'session validation breaker: session became invalid', result.reason || 'unknown');
+      if (result.state === 'invalid') {
         returnToLoginPage();
       }
     }, 30000); // Check every 30 seconds
@@ -1693,7 +1719,8 @@
       const tag = String(opts.tag || 'fetch');
       const isHealthProbe = /^auth-health#\d+$/i.test(tag);
       const isCsrfProbe = /^csrf#\d+$/i.test(tag);
-      const logLevel = (isHealthProbe || isCsrfProbe) ? 'warn' : 'error';
+      const isSessionValidationProbe = /^session-validation-(breaker|periodic)$/i.test(tag);
+      const logLevel = (isHealthProbe || isCsrfProbe || isSessionValidationProbe) ? 'warn' : 'error';
       let wrapped = err;
       if (controller.signal.aborted) {
         wrapped = new Error(`request timeout after ${timeoutMs}ms`);

@@ -1757,6 +1757,401 @@ function apply_faction_pressure_situations(PDO $db, int $userId): array {
 }
 
 /**
+ * Check whether the war strategy schema is available.
+ */
+function has_war_runtime_schema(PDO $db): bool {
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    try {
+        $tables = ['wars', 'war_goals', 'peace_offers'];
+        foreach ($tables as $table) {
+            $st = $db->prepare(
+                'SELECT 1
+                 FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+                 LIMIT 1'
+            );
+            $st->execute([$table]);
+            if (!$st->fetchColumn()) {
+                $cached = false;
+                return $cached;
+            }
+        }
+    } catch (Throwable $e) {
+        $cached = false;
+        return $cached;
+    }
+
+    $cached = true;
+    return $cached;
+}
+
+/**
+ * Global war runtime tick.
+ *
+ * Applies passive war exhaustion drift, expires stale peace offers,
+ * and enforces forced peace when exhaustion reaches threshold.
+ *
+ * @return array{
+ *   processed:bool,
+ *   schema_ready:bool,
+ *   elapsed_seconds:int,
+ *   passive_delta:float,
+ *   touched_wars:int,
+ *   expired_offers:int,
+ *   forced_peace:int,
+ *   active_wars:int,
+ *   last_tick:int
+ * }
+ */
+function process_war_runtime_tick(PDO $db, bool $force = false): array {
+    $result = [
+        'processed' => false,
+        'schema_ready' => false,
+        'elapsed_seconds' => 0,
+        'passive_delta' => 0.0,
+        'touched_wars' => 0,
+        'expired_offers' => 0,
+        'goal_score_delta_att' => 0,
+        'goal_score_delta_def' => 0,
+        'forced_peace' => 0,
+        'active_wars' => 0,
+        'last_tick' => 0,
+    ];
+
+    if (!has_war_runtime_schema($db)) {
+        return $result;
+    }
+    $result['schema_ready'] = true;
+
+    $now = time();
+    $lastTick = $now;
+    $stateKey = 'war_runtime:last_tick';
+
+    if (function_exists('app_state_get_int')) {
+        $lastTick = app_state_get_int($db, $stateKey, $now);
+        if ($lastTick <= 0) {
+            $lastTick = $now;
+        }
+    }
+
+    $elapsed = max(0, $now - $lastTick);
+    $result['elapsed_seconds'] = $elapsed;
+    $result['last_tick'] = $lastTick;
+
+    try {
+        // Expire pending offers independently from exhaustion cadence.
+        $db->prepare(
+            'UPDATE peace_offers
+             SET status = "expired", responded_at = NOW()
+             WHERE status = "pending" AND expires_at <= NOW()'
+        )->execute();
+        $result['expired_offers'] = (int)$db->query('SELECT ROW_COUNT()')->fetchColumn();
+
+        $delta = 0.0;
+        if ($elapsed > 0) {
+            $perDay = defined('WAR_EXHAUSTION_PASSIVE_PER_DAY')
+                ? (float)WAR_EXHAUSTION_PASSIVE_PER_DAY
+                : 0.5;
+            $delta = ($elapsed / 86400.0) * $perDay;
+        }
+
+        // Keep a minimum cadence unless explicitly forced.
+        if ($force || $elapsed >= 300) {
+            if ($delta > 0.0) {
+                $threshold = defined('WAR_EXHAUSTION_FORCED_PEACE')
+                    ? (float)WAR_EXHAUSTION_FORCED_PEACE
+                    : 100.0;
+
+                $st = $db->prepare(
+                    'UPDATE wars
+                     SET exhaustion_att = LEAST(?, exhaustion_att + ?),
+                         exhaustion_def = LEAST(?, exhaustion_def + ?)
+                     WHERE status = "active"'
+                );
+                $st->execute([$threshold, $delta, $threshold, $delta]);
+                $result['touched_wars'] = (int)$db->query('SELECT ROW_COUNT()')->fetchColumn();
+                $result['passive_delta'] = round($delta, 4);
+            }
+
+            $goalDeltas = process_war_goal_progress($db, $elapsed);
+            $result['goal_score_delta_att'] = (int)($goalDeltas['att'] ?? 0);
+            $result['goal_score_delta_def'] = (int)($goalDeltas['def'] ?? 0);
+
+            if (function_exists('app_state_set_int')) {
+                app_state_set_int($db, $stateKey, $now);
+            }
+        }
+
+        $forcedThreshold = defined('WAR_EXHAUSTION_FORCED_PEACE')
+            ? (float)WAR_EXHAUSTION_FORCED_PEACE
+            : 100.0;
+        $forcedStmt = $db->prepare(
+            'UPDATE wars
+             SET status = "ended",
+                 ended_at = NOW(),
+                 ended_reason = "forced_peace_exhaustion"
+             WHERE status = "active"
+               AND (exhaustion_att >= ? OR exhaustion_def >= ?)'
+        );
+        $forcedStmt->execute([$forcedThreshold, $forcedThreshold]);
+        $result['forced_peace'] = (int)$db->query('SELECT ROW_COUNT()')->fetchColumn();
+
+        $activeCount = $db->query('SELECT COUNT(*) FROM wars WHERE status = "active"');
+        $result['active_wars'] = $activeCount ? (int)$activeCount->fetchColumn() : 0;
+        $result['processed'] = true;
+    } catch (Throwable $e) {
+        error_log('process_war_runtime_tick error: ' . $e->getMessage());
+    }
+
+    return $result;
+}
+
+/**
+ * Parse war-goal location tuple.
+ * target_id is treated as system index by default.
+ * target_value may be:
+ * - numeric galaxy index
+ * - "galaxy:system"
+ */
+function parse_war_goal_location(int $targetId, ?string $targetValue): ?array {
+    $system = $targetId > 0 ? $targetId : null;
+    $galaxy = null;
+
+    $tv = trim((string)$targetValue);
+    if ($tv !== '') {
+        if (ctype_digit($tv)) {
+            $galaxy = (int)$tv;
+        } elseif (preg_match('/^(\d+)\s*:\s*(\d+)$/', $tv, $m)) {
+            $galaxy = (int)$m[1];
+            $system = (int)$m[2];
+        }
+    }
+
+    if ($galaxy === null || $galaxy <= 0 || $system === null || $system <= 0) {
+        return null;
+    }
+
+    return ['galaxy' => $galaxy, 'system' => $system];
+}
+
+/**
+ * Count user colonies in a star system.
+ */
+function count_user_colonies_in_system(PDO $db, int $userId, int $galaxy, int $system): int {
+    $st = $db->prepare(
+        'SELECT COUNT(*)
+         FROM colonies c
+         JOIN celestial_bodies cb ON cb.id = c.body_id
+         WHERE c.user_id = ?
+           AND cb.galaxy_index = ?
+           AND cb.system_index = ?'
+    );
+    $st->execute([$userId, $galaxy, $system]);
+    return (int)$st->fetchColumn();
+}
+
+/**
+ * Resolve side-specific war participants and current metrics.
+ *
+ * @return array{owner_user_id:int,enemy_user_id:int,own_exhaustion:float,enemy_exhaustion:float,own_score:int,enemy_score:int}
+ */
+function war_side_snapshot(array $warRow, string $side): array {
+    $isAttacker = ($side === 'attacker');
+    return [
+        'owner_user_id' => $isAttacker ? (int)($warRow['attacker_user_id'] ?? 0) : (int)($warRow['defender_user_id'] ?? 0),
+        'enemy_user_id' => $isAttacker ? (int)($warRow['defender_user_id'] ?? 0) : (int)($warRow['attacker_user_id'] ?? 0),
+        'own_exhaustion' => $isAttacker ? (float)($warRow['exhaustion_att'] ?? 0.0) : (float)($warRow['exhaustion_def'] ?? 0.0),
+        'enemy_exhaustion' => $isAttacker ? (float)($warRow['exhaustion_def'] ?? 0.0) : (float)($warRow['exhaustion_att'] ?? 0.0),
+        'own_score' => $isAttacker ? (int)($warRow['war_score_att'] ?? 0) : (int)($warRow['war_score_def'] ?? 0),
+        'enemy_score' => $isAttacker ? (int)($warRow['war_score_def'] ?? 0) : (int)($warRow['war_score_att'] ?? 0),
+    ];
+}
+
+/**
+ * Determine score gain in milli-points for one goal over elapsed time.
+ */
+function war_goal_progress_milli(PDO $db, array $warRow, array $goalRow, int $elapsedSeconds): int {
+    if ($elapsedSeconds <= 0) {
+        return 0;
+    }
+
+    $side = (string)($goalRow['side'] ?? '');
+    if ($side !== 'attacker' && $side !== 'defender') {
+        return 0;
+    }
+
+    $snapshot = war_side_snapshot($warRow, $side);
+    $goalType = (string)($goalRow['goal_type'] ?? '');
+    $ratePerDay = defined('WAR_SCORE_OCCUPY_PER_DAY')
+        ? (float)WAR_SCORE_OCCUPY_PER_DAY
+        : 2.0;
+    $days = $elapsedSeconds / 86400.0;
+
+    if ($goalType === 'annex_system') {
+        $loc = parse_war_goal_location((int)($goalRow['target_id'] ?? 0), (string)($goalRow['target_value'] ?? ''));
+        if ($loc === null) {
+            return 0;
+        }
+
+        $ownerCols = count_user_colonies_in_system($db, $snapshot['owner_user_id'], (int)$loc['galaxy'], (int)$loc['system']);
+        $enemyCols = count_user_colonies_in_system($db, $snapshot['enemy_user_id'], (int)$loc['galaxy'], (int)$loc['system']);
+        if ($ownerCols <= $enemyCols) {
+            return 0;
+        }
+
+        return (int)round($days * $ratePerDay * 1000.0);
+    }
+
+    if ($goalType === 'attrition') {
+        $gap = max(0.0, $snapshot['enemy_exhaustion'] - $snapshot['own_exhaustion']);
+        if ($gap <= 0.0) {
+            return 0;
+        }
+
+        // Scales from 0..WAR_SCORE_OCCUPY_PER_DAY based on exhaustion advantage.
+        $scaledRate = $ratePerDay * min(1.0, $gap / 100.0);
+        return (int)round($days * $scaledRate * 1000.0);
+    }
+
+    return 0;
+}
+
+/**
+ * Read score remainder (milli-points) used for fractional war-score accumulation.
+ */
+function war_goal_remainder_get(PDO $db, int $warId, string $side): int {
+    if (!function_exists('app_state_get_int')) {
+        return 0;
+    }
+    $key = 'war_goal:rem_milli:' . $warId . ':' . $side;
+    return max(0, app_state_get_int($db, $key, 0));
+}
+
+/**
+ * Persist score remainder (milli-points) used for fractional war-score accumulation.
+ */
+function war_goal_remainder_set(PDO $db, int $warId, string $side, int $milli): void {
+    if (!function_exists('app_state_set_int')) {
+        return;
+    }
+    $key = 'war_goal:rem_milli:' . $warId . ':' . $side;
+    app_state_set_int($db, $key, max(0, $milli));
+}
+
+/**
+ * Apply war-goal score progression for active wars.
+ *
+ * Currently supported:
+ * - goal_type=annex_system
+ *   target_id: system index
+ *   target_value: galaxy index or "galaxy:system"
+ *   scoring: side gains WAR_SCORE_OCCUPY_PER_DAY while controlling the target system
+ *
+ * @return array{att:int,def:int}
+ */
+function process_war_goal_progress(PDO $db, int $elapsedSeconds): array {
+    $out = ['att' => 0, 'def' => 0];
+    if ($elapsedSeconds <= 0) {
+        return $out;
+    }
+
+    $ratePerDay = defined('WAR_SCORE_OCCUPY_PER_DAY')
+        ? (float)WAR_SCORE_OCCUPY_PER_DAY
+        : 2.0;
+    if ($ratePerDay <= 0.0) {
+        return $out;
+    }
+
+    $days = $elapsedSeconds / 86400.0;
+    if ($days <= 0.0) {
+        return $out;
+    }
+
+    try {
+        $warsStmt = $db->query(
+            'SELECT id,
+                    attacker_user_id,
+                    defender_user_id,
+                    war_score_att,
+                    war_score_def,
+                    exhaustion_att,
+                    exhaustion_def
+             FROM wars
+             WHERE status = "active"'
+        );
+        $wars = $warsStmt ? ($warsStmt->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
+    } catch (Throwable $e) {
+        error_log('process_war_goal_progress load wars error: ' . $e->getMessage());
+        return $out;
+    }
+
+    foreach ($wars as $war) {
+        $warId = (int)($war['id'] ?? 0);
+        if ($warId <= 0 || (int)($war['attacker_user_id'] ?? 0) <= 0 || (int)($war['defender_user_id'] ?? 0) <= 0) {
+            continue;
+        }
+
+        $goalStmt = $db->prepare(
+            'SELECT side, goal_type, target_id, target_value
+             FROM war_goals
+             WHERE war_id = ?'
+        );
+        $goalStmt->execute([$warId]);
+        $goals = $goalStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if (!$goals) {
+            continue;
+        }
+
+        $milliAddAtt = 0;
+        $milliAddDef = 0;
+
+        foreach ($goals as $goal) {
+            $side = (string)($goal['side'] ?? '');
+            $milli = war_goal_progress_milli($db, $war, $goal, $elapsedSeconds);
+            if ($milli <= 0) {
+                continue;
+            }
+            if ($side === 'attacker') {
+                $milliAddAtt += $milli;
+            }
+            if ($side === 'defender') {
+                $milliAddDef += $milli;
+            }
+        }
+
+        $carryAtt = war_goal_remainder_get($db, $warId, 'att');
+        $carryDef = war_goal_remainder_get($db, $warId, 'def');
+
+        $sumAtt = $carryAtt + $milliAddAtt;
+        $sumDef = $carryDef + $milliAddDef;
+
+        $pointsAtt = intdiv($sumAtt, 1000);
+        $pointsDef = intdiv($sumDef, 1000);
+
+        war_goal_remainder_set($db, $warId, 'att', $sumAtt % 1000);
+        war_goal_remainder_set($db, $warId, 'def', $sumDef % 1000);
+
+        if ($pointsAtt > 0 || $pointsDef > 0) {
+            $up = $db->prepare(
+                'UPDATE wars
+                 SET war_score_att = war_score_att + ?,
+                     war_score_def = war_score_def + ?
+                 WHERE id = ? AND status = "active"'
+            );
+            $up->execute([$pointsAtt, $pointsDef, $warId]);
+            $out['att'] += $pointsAtt;
+            $out['def'] += $pointsDef;
+        }
+    }
+
+    return $out;
+}
+
+/**
  * Returns emoji+name label for a colony type.
  */
 function get_colony_type_label(string $type): string {
