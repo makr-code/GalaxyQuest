@@ -136,6 +136,7 @@
     if (win.__GQ_THREE_RECOVERY_PROMISE) return win.__GQ_THREE_RECOVERY_PROMISE;
 
     const cdnCandidates = [
+      'js/vendor/three.min.js',
       'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
       'https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js',
     ];

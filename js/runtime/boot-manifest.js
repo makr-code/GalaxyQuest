@@ -1,6 +1,6 @@
 (function () {
   const V = Object.freeze({
-    bootManifest: '20260406p3',
+    bootManifest: '20260406p4',
     bootAssets: '20260404p1',
     terminal: '20260404p51',
     starfield: '20260404p110',
@@ -41,9 +41,9 @@
   });
 
   const CDN = Object.freeze({
-    dexie: 'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
-    three: 'https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js',
-    mustache: 'https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js'
+    dexie: 'js/vendor/dexie.min.js',
+    three: 'js/vendor/three.min.js',
+    mustache: 'js/vendor/mustache.min.js'
   });
 
   const assetVersions = Object.freeze({

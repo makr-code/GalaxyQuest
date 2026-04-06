@@ -1306,6 +1306,9 @@
   function isOptionalBootScript(src) {
     const raw = String(src || '').toLowerCase();
     return raw.includes('js/tests/')
+      || raw.includes('js/vendor/dexie.min.js')
+      || raw.includes('js/vendor/three.min.js')
+      || raw.includes('js/vendor/mustache.min.js')
       || raw.includes('cdn.jsdelivr.net/npm/dexie')
       || raw.includes('cdn.jsdelivr.net/npm/three')
       || raw.includes('cdn.jsdelivr.net/npm/mustache');

@@ -74,7 +74,11 @@
 
   async function ensureDeps() {
     if (!window.THREE) {
-      await loadScript('https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js');
+      try {
+        await loadScript('js/vendor/three.min.js');
+      } catch (_) {
+        await loadScript('https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js');
+      }
     }
     if (window.THREE && typeof window.THREE.Scene === 'function' && typeof window.THREE.Vector3 === 'function') {
       window.__GQ_THREE_RUNTIME = window.THREE;
