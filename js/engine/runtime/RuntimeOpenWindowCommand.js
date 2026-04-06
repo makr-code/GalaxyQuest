@@ -21,7 +21,13 @@
   function runOpenWindowCommand(parts, pushLine) {
     const logLine = typeof pushLine === 'function' ? pushLine : (() => {});
     const win = String(parts?.[1] || '').toLowerCase();
-    const valid = new Set(['overview','buildings','colony','research','shipyard','fleet','galaxy','messages','quests','leaderboard','leaders','factions','settings']);
+    const valid = new Set([
+      'overview','buildings','colony','research','shipyard','fleet',
+      'galaxy','messages','intel','trade-routes','traders','pirates',
+      'economy-flow','economy','trade','quests','leaderboard','leaders',
+      'factions','alliances','wars','nav-orb','minimap','quicknav',
+      'console','wormholes','settings','left-sidebar','right-sidebar',
+    ]);
 
     if (!valid.has(win)) {
       logLine('[error] Unknown window.');

@@ -69,6 +69,16 @@ const WM = (function () {
     clearList:        'Liste leeren',
     recentClosedTitle:'Zuletzt geschlossen',
     showRecentClosed: 'Zuletzt geschlossene Fenster anzeigen',
+    commandPalette:   'Befehlspalette',
+    noCommands:       'Keine Befehle gefunden',
+    saveLayout:       'Layout speichern',
+    loadLayout:       'Layout laden',
+    snapLeft:         'Snap: Links',
+    snapRight:        'Snap: Rechts',
+    snapTop:          'Snap: Oben',
+    snapBottom:       'Snap: Unten',
+    tileWithSelected: 'Mit Auswahl kacheln',
+    createDockGroup:  'Gruppe erstellen',
   };
 
   // ── Instantiate WMCore with GQ-specific configuration ─────────────────────
@@ -81,11 +91,46 @@ const WM = (function () {
     getViewportInsets: getGQViewportInsets,
     windowDefaults:    GQ_WINDOW_DEFAULTS,
     labels:            GQ_LABELS,
+    supportedThemes:   ['nebula', 'alliance', 'raider', 'zenith', 'dusk',
+                        'dark', 'light', 'gq-blue', 'gq-red', 'gq-green', 'high-contrast'],
+    defaultTheme:      'nebula',
   });
 
 }());
 
 if (typeof WMWidgets !== 'undefined') WM.widgets = WMWidgets;
+
+// ── Theme bridge: emit custom event whenever WM theme changes ──────────────
+// Game runtime can listen to 'gq:wm-theme-changed' to react (e.g. update
+// settings panel).  Also listen on 'gq:theme-changed' to re-apply WM class.
+(function () {
+  var origSetTheme = WM.setTheme;
+  if (typeof origSetTheme === 'function') {
+    WM.setTheme = function (themeName, optsTheme) {
+      var result = origSetTheme.call(WM, themeName, optsTheme);
+      try {
+        window.dispatchEvent(new CustomEvent('gq:wm-theme-changed', {
+          detail: { theme: result, opts: optsTheme || {} },
+        }));
+      } catch (_) {}
+      return result;
+    };
+  }
+
+  // When the game palette changes theme (faction / custom), keep WM theme class.
+  window.addEventListener('gq:theme-changed', function (ev) {
+    try {
+      var source = (ev && ev.detail && ev.detail.source) ? String(ev.detail.source) : '';
+      // Map game theme sources → WM theme tokens heuristically.
+      if (typeof WM.applyTheme !== 'function') return;
+      if (source === 'custom' || source === 'faction') {
+        // Keep whatever the user explicitly set via WM; do not override.
+        return;
+      }
+      WM.applyTheme({});
+    } catch (_) {}
+  });
+}());
 
 if (typeof window !== 'undefined') {
   window.WM = WM;

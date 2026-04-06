@@ -62,6 +62,12 @@ const WMCore = (() => {
     noCommands:       'No commands found',
     saveLayout:       'Save layout',
     loadLayout:       'Load layout',
+    snapLeft:         'Snap left',
+    snapRight:        'Snap right',
+    snapTop:          'Snap top',
+    snapBottom:       'Snap bottom',
+    tileWithSelected: 'Tile with selection',
+    createDockGroup:  'Create group',
   };
 
   // ── Factory ─────────────────────────────────────────────────────────────────
@@ -87,6 +93,8 @@ const WMCore = (() => {
     let _dockGroupUis         = new Map();
     let _dockGroupCounter     = 0;
     let _commands             = new Map();
+    let _hotkeyMap            = new Map(); // Map: "Ctrl+K" -> "command_id"
+      let _lastSelectedWindowId  = null; // For Shift+click range selection
     let _paletteState         = null;
 
     // ── Configuration ──────────────────────────────────────────────────────
@@ -241,17 +249,99 @@ const WMCore = (() => {
 
     applyTheme({});
 
+    // ── Hotkey helper methods ────────────────────────────────────────────
+    function _getHotkeyString(ev) {
+      var parts = [];
+      if (ev.ctrlKey || ev.metaKey) parts.push('Ctrl');
+      if (ev.altKey) parts.push('Alt');
+      if (ev.shiftKey) parts.push('Shift');
+      var key = String(ev.key || '').toUpperCase();
+      if (key && key.length > 0 && key !== 'CONTROL' && key !== 'ALT' && key !== 'SHIFT' && key !== 'META') {
+        parts.push(key);
+      }
+      return parts.join('+');
+    }
+
+    function _registerHotkey(commandId, hotkeyString) {
+      var hk = String(hotkeyString || '').trim().toUpperCase();
+      if (!hk || !commandId) return false;
+      var cid = String(commandId).trim();
+      var existing = _hotkeyMap.get(hk);
+      // Reject conflicts across different commands; allow idempotent rebind.
+      if (existing && existing !== cid) return false;
+      _hotkeyMap.set(hk, cid);
+      return true;
+    }
+
+    function _unregisterHotkey(hotkeyString) {
+      var hk = String(hotkeyString || '').trim().toUpperCase();
+      if (!hk) return false;
+      return _hotkeyMap.delete(hk);
+    }
+
+    function _handleGlobalKeydown(ev) {
+      if (!ev || ev.defaultPrevented) return;
+      var hk = _getHotkeyString(ev).toUpperCase();
+      var cid = _hotkeyMap.get(hk);
+      if (cid) {
+        ev.preventDefault();
+        executeCommand(cid, {});
+      }
+    }
+
     // ── Commands / Palette ───────────────────────────────────────────────
+    function _extractCommandShortcuts(cfg) {
+      if (!cfg || typeof cfg !== 'object') return [];
+      if (cfg.shortcuts) {
+        return Array.isArray(cfg.shortcuts) ? cfg.shortcuts.slice() : [cfg.shortcuts];
+      }
+      if (cfg.shortcut) return [cfg.shortcut];
+      return [];
+    }
+
     function registerCommand(id, cfg) {
       var cid = String(id || '').trim();
       if (!cid) return false;
       var current = _commands.get(cid) || {};
-      _commands.set(cid, Object.assign({ id: cid }, current, cfg || {}));
+
+      // Remove currently bound shortcuts for this command so updates don't
+      // leave stale bindings behind.
+      _extractCommandShortcuts(current).forEach(function (hk) {
+        _unregisterHotkey(hk);
+      });
+
+      var next = Object.assign({ id: cid }, current, cfg || {});
+
+      // Validate and reserve shortcuts atomically: if any conflicts, rollback.
+      var shortcuts = _extractCommandShortcuts(next);
+      var claimed = [];
+      for (var i = 0; i < shortcuts.length; i++) {
+        var hk = shortcuts[i];
+        if (!_registerHotkey(cid, hk)) {
+          claimed.forEach(function (bound) { _unregisterHotkey(bound); });
+          // Restore previous bindings before aborting.
+          _extractCommandShortcuts(current).forEach(function (oldHk) {
+            _registerHotkey(cid, oldHk);
+          });
+          return false;
+        }
+        claimed.push(hk);
+      }
+
+      _commands.set(cid, next);
       return true;
     }
 
     function unregisterCommand(id) {
-      return _commands.delete(String(id || '').trim());
+      var cid = String(id || '').trim();
+      var cmd = _commands.get(cid);
+      if (cmd) {
+        var shortcuts = cmd.shortcuts
+          ? (Array.isArray(cmd.shortcuts) ? cmd.shortcuts : [cmd.shortcuts])
+          : (cmd.shortcut ? [cmd.shortcut] : []);
+        shortcuts.forEach(function (hk) { _unregisterHotkey(hk); });
+      }
+      return _commands.delete(cid);
     }
 
     function executeCommand(id, payload) {
@@ -414,16 +504,33 @@ const WMCore = (() => {
         label: 'Load Layout: Quick',
         execute: function () { loadLayoutProfile('quick', { scope: 'global' }); },
       });
+      registerCommand('wm.dock.tab.next', {
+        label: 'Switch to Next Dock Tab',
+        shortcut: 'Ctrl+Tab',
+        execute: function () { cycleDockTabNext(); },
+      });
+      registerCommand('wm.dock.tab.prev', {
+        label: 'Switch to Previous Dock Tab',
+        shortcuts: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'],
+        execute: function () { cycleDockTabPrev(); },
+      });
+      registerCommand('wm.window.focus.next', {
+        label: 'Switch to Next Window',
+        shortcut: 'Alt+Tab',
+        execute: function () { cycleWindowFocusNext(); },
+      });
+      registerCommand('wm.window.focus.prev', {
+        label: 'Switch to Previous Window',
+        shortcut: 'Alt+Shift+Tab',
+        execute: function () { cycleWindowFocusPrev(); },
+      });
     }
 
     _registerBuiltinCommands();
 
+    // ── Global hotkey dispatcher (attach after built-in commands registered) ──
     document.addEventListener('keydown', function (ev) {
-      var ctrlLike = !!(ev.ctrlKey || ev.metaKey);
-      if (!ctrlLike) return;
-      if (String(ev.key || '').toLowerCase() !== 'k') return;
-      ev.preventDefault();
-      showCommandPalette({});
+      _handleGlobalKeydown(ev);
     }, true);
 
     // ── Window selection / tiling / docking groups ──────────────────────
@@ -434,12 +541,14 @@ const WMCore = (() => {
       if (selected === false) _selectedWindows.delete(sid);
       else _selectedWindows.add(sid);
       if (win && win.el) win.el.classList.toggle('wm-selected', _selectedWindows.has(sid));
+      if (selected && sid) _lastSelectedWindowId = sid;
       return true;
     }
 
     function clearWindowSelection() {
       Array.from(_selectedWindows).forEach(function (id) { setWindowSelected(id, false); });
       _selectedWindows.clear();
+      _lastSelectedWindowId = null;
     }
 
     function getSelectedWindows() {
@@ -594,6 +703,46 @@ const WMCore = (() => {
       return true;
     }
 
+    function _findActiveDockGroup() {
+      // Find the first dock group that has the focused/topmost window
+      var topWinId = null;
+      var topZ = -1;
+      _wins.forEach(function (win, id) {
+        if (!win || !win.el) return;
+        var z = parseInt(win.el.style.zIndex, 10) || 0;
+        if (z > topZ) { topZ = z; topWinId = id; }
+      });
+
+      if (!topWinId) return null;
+      
+      var found = null;
+      _dockGroups.forEach(function (group) {
+        if (found || !group || !Array.isArray(group.tabs)) return;
+        if (group.tabs.indexOf(topWinId) >= 0) found = group;
+      });
+      return found;
+    }
+
+    function cycleDockTabNext() {
+      var group = _findActiveDockGroup();
+      if (!group || !Array.isArray(group.tabs) || group.tabs.length < 2) return false;
+
+      var currentIdx = group.tabs.indexOf(group.activeId);
+      if (currentIdx < 0) currentIdx = 0;
+      var nextIdx = (currentIdx + 1) % group.tabs.length;
+      return activateDockTab(group.id, group.tabs[nextIdx]);
+    }
+
+    function cycleDockTabPrev() {
+      var group = _findActiveDockGroup();
+      if (!group || !Array.isArray(group.tabs) || group.tabs.length < 2) return false;
+
+      var currentIdx = group.tabs.indexOf(group.activeId);
+      if (currentIdx < 0) currentIdx = 0;
+      var nextIdx = (currentIdx - 1 + group.tabs.length) % group.tabs.length;
+      return activateDockTab(group.id, group.tabs[nextIdx]);
+    }
+
     function _removeDockGroupUi(groupId) {
       var gid = String(groupId || '');
       var ui = _dockGroupUis.get(gid);
@@ -719,6 +868,18 @@ const WMCore = (() => {
     }
 
     function _captureLayoutSnapshot() {
+      // Serialize dock groups: only include if they have members
+      var dockGroupsData = [];
+      _dockGroups.forEach(function (group) {
+        if (group && group.tabs && group.tabs.length > 0) {
+          dockGroupsData.push({
+            id: group.id,
+            tabs: group.tabs.slice(),
+            activeId: group.activeId,
+          });
+        }
+      });
+
       return {
         windows: Array.from(_wins.keys()).map(function (id) {
           var win = _wins.get(id);
@@ -730,6 +891,7 @@ const WMCore = (() => {
             dock: _loadDock(id),
           };
         }),
+        dockGroups: dockGroupsData,
         selected: getSelectedWindows(),
         theme: {
           global: getTheme({ scope: 'global' }),
@@ -778,6 +940,22 @@ const WMCore = (() => {
             _applyDockPosition(w2.el, w2.cfg || {}, String(row.dock.side), true);
           }
         });
+
+        // Restore dock groups from snapshot
+        var dockGroupsData = Array.isArray(data && data.dockGroups) ? data.dockGroups : [];
+        dockGroupsData.forEach(function (groupData) {
+          if (groupData && groupData.id && Array.isArray(groupData.tabs) && groupData.tabs.length > 0) {
+            // Only recreate if all tabs exist
+            var validTabs = groupData.tabs.filter(function (id) { return _wins.has(id); });
+            if (validTabs.length === groupData.tabs.length) {
+              createDockGroup(validTabs, { id: groupData.id });
+              if (groupData.activeId && validTabs.indexOf(groupData.activeId) >= 0) {
+                activateDockTab(groupData.id, groupData.activeId);
+              }
+            }
+          }
+        });
+
         _syncAllDockGroupUis();
         if (data && data.theme && data.theme.global) setTheme(data.theme.global, { scope: 'global', apply: true, persist: true });
         clearWindowSelection();
@@ -1181,14 +1359,44 @@ const WMCore = (() => {
 
       if (!cfg.backgroundLayer) {
         el.addEventListener('mousedown', function (ev) {
-          if (ev && (ev.ctrlKey || ev.metaKey)) {
-            setWindowSelected(id, !_selectedWindows.has(id));
-          } else {
+          // Selection modifiers are handled on click; mousedown only focuses
+          // plain interactions to avoid double-toggle (mousedown + click).
+          if (!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey))) {
             _focus(id);
           }
         }, true);
       }
 
+      if (!cfg.backgroundLayer) {
+        el.addEventListener('click', function (ev) {
+          if (ev && (ev.shiftKey)) {
+            // Range select: select from last selected to current
+            var lastSelected = _lastSelectedWindowId;
+            if (lastSelected && _wins.has(lastSelected)) {
+              var allIds = Array.from(_wins.keys());
+              var fromIdx = allIds.indexOf(lastSelected);
+              var toIdx = allIds.indexOf(id);
+              if (fromIdx >= 0 && toIdx >= 0) {
+                var start = Math.min(fromIdx, toIdx);
+                var end = Math.max(fromIdx, toIdx);
+                for (var i = start; i <= end; i++) {
+                  if (allIds[i]) setWindowSelected(allIds[i], true);
+                }
+              }
+            } else {
+              setWindowSelected(id, true);
+            }
+            _lastSelectedWindowId = id;
+          } else if (ev && (ev.ctrlKey || ev.metaKey)) {
+            setWindowSelected(id, !_selectedWindows.has(id));
+            _lastSelectedWindowId = id;
+          } else if (!ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
+            // Click without modifiers: clear selection and focus
+            clearWindowSelection();
+            _focus(id);
+          }
+        }, true);
+      }
       var minBtn   = el.querySelector('.wm-btn-min');
       var closeBtn = el.querySelector('.wm-btn-close');
       if (minBtn)   minBtn.addEventListener('click',   function (e) { e.stopPropagation(); _minimize(id); });
@@ -1237,6 +1445,55 @@ const WMCore = (() => {
         if (Number.isFinite(z)) maxZ = Math.max(maxZ, z);
       });
       return maxZ;
+    }
+
+    function _listFocusableWindowIdsByZ() {
+      var rows = [];
+      _wins.forEach(function (win, id) {
+        if (!win || !win.el) return;
+        if (win.minimized) return;
+        if (win.cfg && win.cfg.backgroundLayer) return;
+        var z = parseInt((win.el.style && win.el.style.zIndex) || '', 10);
+        rows.push({ id: id, z: Number.isFinite(z) ? z : 0 });
+      });
+      rows.sort(function (a, b) { return a.z - b.z; });
+      return rows.map(function (r) { return r.id; });
+    }
+
+    function cycleWindowFocusNext() {
+      var ids = _listFocusableWindowIdsByZ();
+      if (!ids.length) return false;
+      if (ids.length === 1) { _focus(ids[0]); return true; }
+
+      var focusedId = null;
+      ids.forEach(function (id) {
+        var w = _wins.get(id);
+        if (w && w.el && w.el.classList.contains('wm-focused')) focusedId = id;
+      });
+
+      var idx = focusedId ? ids.indexOf(focusedId) : -1;
+      if (idx < 0) idx = ids.length - 1;
+      var next = ids[(idx + 1) % ids.length];
+      _focus(next);
+      return true;
+    }
+
+    function cycleWindowFocusPrev() {
+      var ids = _listFocusableWindowIdsByZ();
+      if (!ids.length) return false;
+      if (ids.length === 1) { _focus(ids[0]); return true; }
+
+      var focusedId = null;
+      ids.forEach(function (id) {
+        var w = _wins.get(id);
+        if (w && w.el && w.el.classList.contains('wm-focused')) focusedId = id;
+      });
+
+      var idx = focusedId ? ids.indexOf(focusedId) : 0;
+      if (idx < 0) idx = 0;
+      var prev = ids[(idx - 1 + ids.length) % ids.length];
+      _focus(prev);
+      return true;
     }
 
     function _clampWindowPosition(x, y, width, height, margin) {
@@ -1294,6 +1551,13 @@ const WMCore = (() => {
       });
       _focus(id);
       _persistWindowStateCookie();
+    }
+
+    function isMinimized(id) {
+      var sid = String(id || '').trim();
+      if (!sid) return false;
+      var win = _wins.get(sid);
+      return !!(win && win.minimized);
     }
 
     // ── Internal: recent-closed list ─────────────────────────────────────
@@ -1832,6 +2096,53 @@ const WMCore = (() => {
           label:    _labels.resetPosition,
           onSelect: function () { _resetWindowGeometry(id); },
         });
+      }
+
+      // ── Snap targets ────────────────────────────────────────────────────
+      if (!cfg.fullscreenDesktop && !cfg.backgroundLayer) {
+        var snapTargets = suggestSnapTargets(id);
+        if (snapTargets.length) {
+          items.push({ type: 'separator' });
+          var snapLabelMap = {
+            'left-half':   _labels.snapLeft,
+            'right-half':  _labels.snapRight,
+            'top-half':    _labels.snapTop,
+            'bottom-half': _labels.snapBottom,
+          };
+          snapTargets.forEach(function (target) {
+            var label = snapLabelMap[target.id] || target.id;
+            var t = target;
+            items.push({
+              label:    label,
+              onSelect: function () {
+                if (!win.el) return;
+                win.el.style.left   = t.x + 'px';
+                win.el.style.top    = t.y + 'px';
+                win.el.style.width  = t.w + 'px';
+                win.el.style.height = t.h + 'px';
+                _savePos(id, t.x, t.y, t.w, t.h);
+                if (win.minimized) _restore(id);
+              },
+            });
+          });
+        }
+      }
+
+      // ── Multi-select tile / group actions ───────────────────────────────
+      var selectedIds = Array.from(_selectedWindows.values()).filter(function (sid) { return _wins.has(sid); });
+      if (selectedIds.length >= 2) {
+        var inSelection = _selectedWindows.has(id);
+        if (inSelection) {
+          items.push({ type: 'separator' });
+          items.push({
+            label:    _labels.tileWithSelected,
+            onSelect: function () { tileSelected('2x2'); },
+          });
+          items.push({
+            label:    _labels.createDockGroup,
+            onSelect: function () { createDockGroup(selectedIds); clearWindowSelection(); },
+          });
+        }
       }
 
       items.push({ type: 'separator' });
@@ -2417,8 +2728,11 @@ const WMCore = (() => {
       refresh:               refresh,
       body:                  body,
       isOpen:                isOpen,
+      isMinimized:           isMinimized,
       setTitle:              setTitle,
       modal:                 modal,
+      minimize:              _minimize,
+      restore:               _restore,
       contextMenu:           contextMenu,
       closeContextMenu:      _closeContextMenu,
       restorePersistedState: restorePersistedState,
@@ -2429,6 +2743,8 @@ const WMCore = (() => {
       applyTheme:            applyTheme,
       registerCommand:       registerCommand,
       unregisterCommand:     unregisterCommand,
+      registerHotkey:        _registerHotkey,
+      unregisterHotkey:      _unregisterHotkey,
       executeCommand:        executeCommand,
       listCommands:          listCommands,
       showCommandPalette:    showCommandPalette,
@@ -2443,6 +2759,10 @@ const WMCore = (() => {
       activateDockTab:       activateDockTab,
       reorderDockTab:        reorderDockTab,
       listDockGroups:        listDockGroups,
+      cycleDockTabNext:      cycleDockTabNext,
+      cycleDockTabPrev:      cycleDockTabPrev,
+      cycleWindowFocusNext:  cycleWindowFocusNext,
+      cycleWindowFocusPrev:  cycleWindowFocusPrev,
       saveLayoutProfile:     saveLayoutProfile,
       loadLayoutProfile:     loadLayoutProfile,
       listLayoutProfiles:    listLayoutProfiles,

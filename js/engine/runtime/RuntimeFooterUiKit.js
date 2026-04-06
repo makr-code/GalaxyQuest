@@ -113,6 +113,44 @@
     });
 
     setUiKitPanelVisible(false);
+
+    // ── WM Statusbar widget (optional, requires WM.widgets) ──────────────
+    const statusBarSlot = documentRef?.getElementById('footer-wm-statusbar');
+    if (statusBarSlot && wm && typeof wm.widgets?.statusBar === 'function') {
+      const wmStatusBar = wm.widgets.statusBar(statusBarSlot, {
+        items: [
+          { id: 'wm-sb-focused', text: '—', title: 'Aktives Fenster' },
+          { id: 'wm-sb-open-count', text: '', title: 'Geöffnete Fenster' },
+        ],
+      });
+
+      const updateStatusBar = () => {
+        try {
+          // Active window: look for the focused task button
+          const focusedTaskBtn = documentRef?.querySelector('.wm-task-btn.wm-task-active .wm-task-label');
+          const focusedLabel = focusedTaskBtn ? String(focusedTaskBtn.textContent || '').trim() : '—';
+          wmStatusBar?.setItemText?.('wm-sb-focused', focusedLabel || '—');
+
+          // Open windows count
+          const taskBtns = documentRef?.querySelectorAll('.wm-task-btn');
+          const openCount = taskBtns ? taskBtns.length : 0;
+          wmStatusBar?.setItemText?.('wm-sb-open-count', openCount > 0 ? `${openCount} offen` : '');
+        } catch (_) {}
+      };
+
+      // Update on WM focus changes (taskbar mutation) and periodically
+      const taskbar = documentRef?.getElementById('wm-taskbar');
+      if (taskbar && typeof MutationObserver !== 'undefined') {
+        new MutationObserver(updateStatusBar).observe(taskbar, {
+          childList: true, subtree: true, attributes: true,
+          attributeFilter: ['class'],
+        });
+      } else {
+        windowRef?.setInterval?.(updateStatusBar, 2000);
+      }
+
+      updateStatusBar();
+    }
   }
 
   if (typeof module !== 'undefined' && module.exports) {

@@ -386,6 +386,46 @@
       });
     }
 
+    // ── Theme commands ───────────────────────────────────────────────────
+    if (typeof wm.listThemes === 'function') {
+      const applyFn = typeof wm.applyTheme === 'function' ? wm.applyTheme.bind(wm) : null;
+      const setFn   = typeof wm.setTheme   === 'function' ? wm.setTheme.bind(wm)   : null;
+
+      const themeCommands = [
+        { id: 'gq.theme.dark',      label: 'Theme: Dunkel',         theme: 'dark' },
+        { id: 'gq.theme.light',     label: 'Theme: Hell',           theme: 'light' },
+        { id: 'gq.theme.gq-blue',   label: 'Theme: GQ Blau',        theme: 'gq-blue' },
+        { id: 'gq.theme.gq-red',    label: 'Theme: GQ Rot',         theme: 'gq-red' },
+        { id: 'gq.theme.gq-green',  label: 'Theme: GQ Grün',        theme: 'gq-green' },
+        { id: 'gq.theme.high-contrast', label: 'Theme: Hoher Kontrast', theme: 'high-contrast' },
+      ];
+
+      if (setFn) {
+        themeCommands.forEach(({ id, label, theme }) => {
+          wm.registerCommand(id, {
+            label,
+            icon: '🎨',
+            category: 'Darstellung',
+            execute() {
+              setFn(theme, { scope: 'user', apply: true, persist: true });
+              showToast(`Theme: ${label}`, 'success');
+            },
+          });
+        });
+      }
+
+      wm.registerCommand('gq.theme.reset', {
+        label: 'Theme: Zurücksetzen',
+        icon: '↺',
+        category: 'Darstellung',
+        execute() {
+          if (typeof wm.clearTheme === 'function') wm.clearTheme({ scope: 'user', apply: true });
+          if (applyFn) applyFn({});
+          showToast('Theme zurückgesetzt.', 'info');
+        },
+      });
+    }
+
     gameLog('info', '[GQ] WM game commands registered');
   }
 

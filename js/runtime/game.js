@@ -1049,6 +1049,10 @@
 
   function applyUiTheme(reason = 'runtime') {
     runtimeThemePaletteApi.applyUiTheme(reason);
+    try {
+      const src = settingsState?.uiThemeLastSource || 'fallback';
+      window.dispatchEvent(new CustomEvent('gq:theme-changed', { detail: { source: src, reason } }));
+    } catch (_) {}
   }
 
   function showOrbitModeHintOnce() {
@@ -1126,6 +1130,12 @@
 
   window.addEventListener('gq:audio-state', () => {
     settingsController.refreshAudioUi();
+  });
+
+  // When WM's CSS theme class changes (e.g. via Command Palette theme commands),
+  // trigger a full palette re-apply so CSS custom properties stay in sync.
+  window.addEventListener('gq:wm-theme-changed', () => {
+    applyUiTheme('runtime');
   });
 
   function applyTransitionPreset(presetName) {
