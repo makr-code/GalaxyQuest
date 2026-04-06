@@ -654,6 +654,22 @@ body.wm-dock-preview-bottom::before {
   color: #7ea5c8;
   font-size: 0.74rem;
 }
+.wm-command-palette-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: 0.8rem;
+}
+.wm-command-palette-flag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(126, 165, 200, 0.45);
+  color: #9bc3e6;
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
 .wm-command-palette-empty {
   padding: 12px;
   color: #89adce;

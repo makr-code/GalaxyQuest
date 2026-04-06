@@ -94,7 +94,8 @@ const WMCore = (() => {
     let _dockGroupCounter     = 0;
     let _commands             = new Map();
     let _hotkeyMap            = new Map(); // Map: "Ctrl+K" -> "command_id"
-      let _lastSelectedWindowId  = null; // For Shift+click range selection
+    let _lastSelectedWindowId  = null; // For Shift+click range selection
+    let _focusHistory          = [];   // MRU list, most recent first
     let _paletteState         = null;
 
     // ── Configuration ──────────────────────────────────────────────────────
@@ -255,7 +256,11 @@ const WMCore = (() => {
       if (ev.ctrlKey || ev.metaKey) parts.push('Ctrl');
       if (ev.altKey) parts.push('Alt');
       if (ev.shiftKey) parts.push('Shift');
-      var key = String(ev.key || '').toUpperCase();
+
+      var key = '';
+      if (ev.code === 'Backquote') key = 'BACKQUOTE';
+      else key = String(ev.key || '').toUpperCase();
+
       if (key && key.length > 0 && key !== 'CONTROL' && key !== 'ALT' && key !== 'SHIFT' && key !== 'META') {
         parts.push(key);
       }
@@ -279,14 +284,29 @@ const WMCore = (() => {
       return _hotkeyMap.delete(hk);
     }
 
+    function _isEditableTarget(target) {
+      if (!target || !(target instanceof Element)) return false;
+      var tag = String(target.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (target.isContentEditable) return true;
+      var editableAncestor = target.closest('[contenteditable="true"], input, textarea, select');
+      return !!editableAncestor;
+    }
+
     function _handleGlobalKeydown(ev) {
       if (!ev || ev.defaultPrevented) return;
       var hk = _getHotkeyString(ev).toUpperCase();
       var cid = _hotkeyMap.get(hk);
-      if (cid) {
-        ev.preventDefault();
-        executeCommand(cid, {});
-      }
+      if (!cid) return;
+
+      var cmd = _commands.get(cid);
+      var active = document.activeElement;
+      var target = ev.target;
+      var isEditing = _isEditableTarget(target) || _isEditableTarget(active);
+      if (isEditing && !(cmd && cmd.allowInInputs === true)) return;
+
+      ev.preventDefault();
+      executeCommand(cid, {});
     }
 
     // ── Commands / Palette ───────────────────────────────────────────────
@@ -368,12 +388,28 @@ const WMCore = (() => {
       }
     }
 
+    function _normalizeCommandSearchText(value) {
+      var raw = String(value || '').toLowerCase().trim();
+      if (!raw) return '';
+      return raw
+        .replace(/\s*\+\s*/g, '+')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
     function listCommands(query) {
-      var q = String(query || '').trim().toLowerCase();
+      var qRaw = String(query || '').trim().toLowerCase();
+      var qNorm = _normalizeCommandSearchText(query);
       return Array.from(_commands.values()).filter(function (cmd) {
-        if (!q) return true;
-        var hay = [cmd.id, cmd.label, cmd.shortcut, cmd.keywords].filter(Boolean).join(' ').toLowerCase();
-        return hay.indexOf(q) >= 0;
+        if (!qRaw) return true;
+        var shortcuts = _extractCommandShortcuts(cmd).join(' ');
+        var hay = [cmd.id, cmd.label, cmd.category, cmd.shortcut, shortcuts, cmd.keywords]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (hay.indexOf(qRaw) >= 0) return true;
+        if (!qNorm) return false;
+        return _normalizeCommandSearchText(hay).indexOf(qNorm) >= 0;
       });
     }
 
@@ -425,11 +461,19 @@ const WMCore = (() => {
           return;
         }
         currentRows.forEach(function (cmd, idx) {
+          var shortcuts = _extractCommandShortcuts(cmd).map(function (s) { return String(s || '').trim(); }).filter(Boolean);
+          var shortcutText = shortcuts.join(' / ');
+          var inputBadge = cmd && cmd.allowInInputs === true
+            ? '<span class="wm-command-palette-flag" title="Hotkey works in inputs">Input</span>'
+            : '';
           var row = document.createElement('button');
           row.type = 'button';
           row.className = 'wm-command-palette-row' + (idx === currentIndex ? ' is-active' : '');
           row.innerHTML = '<span class="wm-command-palette-label">' + _esc(String(cmd.label || cmd.id || 'Command')) + '</span>'
-            + (cmd.shortcut ? '<span class="wm-command-palette-shortcut">' + _esc(String(cmd.shortcut)) + '</span>' : '');
+            + '<span class="wm-command-palette-meta">'
+            + (shortcutText ? '<span class="wm-command-palette-shortcut">' + _esc(shortcutText) + '</span>' : '')
+            + inputBadge
+            + '</span>';
           row.addEventListener('click', function () {
             executeCommand(cmd.id, { source: 'wm.commandPalette' });
             hideCommandPalette();
@@ -524,14 +568,33 @@ const WMCore = (() => {
         shortcut: 'Alt+Shift+Tab',
         execute: function () { cycleWindowFocusPrev(); },
       });
+      registerCommand('wm.window.linear.next', {
+        label: 'Linear Window Switch (No Raise)',
+        shortcut: 'Alt+Escape',
+        execute: function () { cycleWindowLinearNext(); },
+      });
+      registerCommand('wm.window.linear.prev', {
+        label: 'Linear Window Switch Backward (No Raise)',
+        shortcut: 'Alt+Shift+Escape',
+        execute: function () { cycleWindowLinearPrev(); },
+      });
+      registerCommand('wm.window.toggle.recent', {
+        label: 'Toggle Most Recent Window',
+        shortcut: 'Ctrl+Backquote',
+        execute: function () { toggleMostRecentWindow(); },
+      });
     }
 
     _registerBuiltinCommands();
 
     // ── Global hotkey dispatcher (attach after built-in commands registered) ──
-    document.addEventListener('keydown', function (ev) {
+    if (document.__wmGlobalHotkeyHandler) {
+      document.removeEventListener('keydown', document.__wmGlobalHotkeyHandler, true);
+    }
+    document.__wmGlobalHotkeyHandler = function (ev) {
       _handleGlobalKeydown(ev);
-    }, true);
+    };
+    document.addEventListener('keydown', document.__wmGlobalHotkeyHandler, true);
 
     // ── Window selection / tiling / docking groups ──────────────────────
     function setWindowSelected(id, selected) {
@@ -1173,6 +1236,7 @@ const WMCore = (() => {
         if (win && win.hostManaged && win.hostEl) win.hostEl.remove();
       }
       _wins.delete(id);
+      _focusHistory = _focusHistory.filter(function (x) { return x !== String(id); });
       var taskBtn = document.getElementById('wm-task-' + id);
       if (taskBtn) taskBtn.remove();
       _selectedWindows.delete(String(id));
@@ -1424,17 +1488,57 @@ const WMCore = (() => {
     }
 
     // ── Internal: focus ───────────────────────────────────────────────────
-    function _focus(id) {
+    function _setFocusedWindow(id, optsFocus) {
+      var opts = optsFocus || {};
       var win = _wins.get(id);
       if (!win) return;
-      _topZ = Math.max(_topZ, _highestNonBackgroundZ()) + 1;
-      win.el.style.zIndex = _topZ;
+      if (opts.promote !== false) {
+        _topZ = Math.max(_topZ, _highestNonBackgroundZ()) + 1;
+        win.el.style.zIndex = _topZ;
+      }
       document.querySelectorAll('.wm-window').forEach(function (w) { w.classList.remove('wm-focused'); });
       document.querySelectorAll('.wm-task-btn').forEach(function (b) { b.classList.remove('wm-task-active'); });
       win.el.classList.add('wm-focused');
       var taskBtn = document.getElementById('wm-task-' + id);
       if (taskBtn) taskBtn.classList.add('wm-task-active');
+      _recordFocusHistory(id);
       _syncAllDockGroupUis();
+    }
+
+    function _focus(id) {
+      _setFocusedWindow(id, { promote: true });
+    }
+
+    function _pruneFocusHistory() {
+      _focusHistory = _focusHistory.filter(function (id) {
+        var win = _wins.get(id);
+        return !!(win && win.el && !win.minimized && !(win.cfg && win.cfg.backgroundLayer));
+      });
+    }
+
+    function _recordFocusHistory(id) {
+      var sid = String(id || '').trim();
+      if (!sid) return;
+      _focusHistory = _focusHistory.filter(function (x) { return x !== sid; });
+      _focusHistory.unshift(sid);
+      if (_focusHistory.length > 64) _focusHistory = _focusHistory.slice(0, 64);
+    }
+
+    function toggleMostRecentWindow() {
+      _pruneFocusHistory();
+      if (_focusHistory.length < 2) return false;
+
+      var current = _focusHistory[0];
+      var target = null;
+      for (var i = 1; i < _focusHistory.length; i++) {
+        if (_focusHistory[i] !== current) {
+          target = _focusHistory[i];
+          break;
+        }
+      }
+      if (!target) return false;
+      _focus(target);
+      return true;
     }
 
     function _highestNonBackgroundZ() {
@@ -1458,6 +1562,16 @@ const WMCore = (() => {
       });
       rows.sort(function (a, b) { return a.z - b.z; });
       return rows.map(function (r) { return r.id; });
+    }
+
+    function _listFocusableWindowIdsByOpenOrder() {
+      return Array.from(_wins.keys()).filter(function (id) {
+        var win = _wins.get(id);
+        if (!win || !win.el) return false;
+        if (win.minimized) return false;
+        if (win.cfg && win.cfg.backgroundLayer) return false;
+        return true;
+      });
     }
 
     function cycleWindowFocusNext() {
@@ -1496,6 +1610,42 @@ const WMCore = (() => {
       return true;
     }
 
+    function cycleWindowLinearNext() {
+      var ids = _listFocusableWindowIdsByOpenOrder();
+      if (!ids.length) return false;
+      if (ids.length === 1) { _setFocusedWindow(ids[0], { promote: false }); return true; }
+
+      var focusedId = null;
+      ids.forEach(function (id) {
+        var w = _wins.get(id);
+        if (w && w.el && w.el.classList.contains('wm-focused')) focusedId = id;
+      });
+
+      var idx = focusedId ? ids.indexOf(focusedId) : -1;
+      if (idx < 0) idx = ids.length - 1;
+      var next = ids[(idx + 1) % ids.length];
+      _setFocusedWindow(next, { promote: false });
+      return true;
+    }
+
+    function cycleWindowLinearPrev() {
+      var ids = _listFocusableWindowIdsByOpenOrder();
+      if (!ids.length) return false;
+      if (ids.length === 1) { _setFocusedWindow(ids[0], { promote: false }); return true; }
+
+      var focusedId = null;
+      ids.forEach(function (id) {
+        var w = _wins.get(id);
+        if (w && w.el && w.el.classList.contains('wm-focused')) focusedId = id;
+      });
+
+      var idx = focusedId ? ids.indexOf(focusedId) : 0;
+      if (idx < 0) idx = 0;
+      var prev = ids[(idx - 1 + ids.length) % ids.length];
+      _setFocusedWindow(prev, { promote: false });
+      return true;
+    }
+
     function _clampWindowPosition(x, y, width, height, margin) {
       margin = margin != null ? margin : 8;
       var viewportW = Math.max(320, window.innerWidth  || (document.documentElement && document.documentElement.clientWidth)  || 1280);
@@ -1522,6 +1672,7 @@ const WMCore = (() => {
       _closeContextMenu();
       win.minimized = true;
       win.el.classList.add('wm-minimized');
+      _focusHistory = _focusHistory.filter(function (x) { return x !== String(id); });
       var taskBtn = document.getElementById('wm-task-' + id);
       if (taskBtn) taskBtn.classList.remove('wm-task-active');
       // If this window is the active tab in a dock group, promote next visible tab
@@ -2763,6 +2914,9 @@ const WMCore = (() => {
       cycleDockTabPrev:      cycleDockTabPrev,
       cycleWindowFocusNext:  cycleWindowFocusNext,
       cycleWindowFocusPrev:  cycleWindowFocusPrev,
+      cycleWindowLinearNext: cycleWindowLinearNext,
+      cycleWindowLinearPrev: cycleWindowLinearPrev,
+      toggleMostRecentWindow:toggleMostRecentWindow,
       saveLayoutProfile:     saveLayoutProfile,
       loadLayoutProfile:     loadLayoutProfile,
       listLayoutProfiles:    listLayoutProfiles,

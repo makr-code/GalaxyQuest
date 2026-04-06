@@ -235,6 +235,138 @@
       },
       "group": "build",
       "problemMatcher": []
+    },
+    {
+      "label": "TRELLIS2: Link Repo (Submodule)",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_link.ps1 -UseSubmodule",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "TRELLIS2: Update Repo",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_link.ps1 -Update",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "TRELLIS2: WebApp (Image->3D)",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_webapp.ps1 -Mode image -Port 7860",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "TRELLIS2: WebApp (Text->3D)",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_webapp.ps1 -Mode text -Port 7861",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "TRELLIS2: Generate Ship (Text CLI)",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_generate.ps1 -Mode text -Prompt \"a modular hard-surface sci-fi cargo ship with engine nacelles\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "TRELLIS2: Import GLB as Dev Asset",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_import.ps1 -SourceGlb \"${input:trellisGlbPath}\" -AssetType \"${input:trellisAssetType}\" -Faction \"${input:trellisFaction}\" -Variant \"${input:trellisVariant}\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "TRELLIS2: Full Setup (via WSL2 – empfohlen)",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_setup.ps1 -UseWsl -Models ${input:trellisSetupModels}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "TRELLIS2: Full Setup (Windows/conda – eingeschränkt)",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_setup.ps1 -Models ${input:trellisSetupModels}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "TRELLIS2: Download Models (HuggingFace)",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_setup.ps1 -SkipRepo -SkipEnv -Models ${input:trellisSetupModels}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "trellisSetupModels",
+      "type": "pickString",
+      "description": "Welche TRELLIS2-Modelle von HuggingFace laden?",
+      "options": [
+        "image-large",
+        "text-xlarge",
+        "text-large",
+        "text-base",
+        "image-large,text-xlarge"
+      ],
+      "default": "image-large"
+    },
+    {
+      "id": "trellisGlbPath",
+      "type": "promptString",
+      "description": "Pfad zur GLB-Datei (relativ zu Workspace oder absolut)",
+      "default": "generated/trellis2/asset_text.glb"
+    },
+    {
+      "id": "trellisAssetType",
+      "type": "pickString",
+      "description": "Asset-Typ",
+      "options": ["ship", "building", "station", "object"],
+      "default": "ship"
+    },
+    {
+      "id": "trellisFaction",
+      "type": "promptString",
+      "description": "Fraktion (leer = generic)",
+      "default": "generic"
+    },
+    {
+      "id": "trellisVariant",
+      "type": "promptString",
+      "description": "Varianten-Label (z. B. cargo, heavy, outpost)",
+      "default": "v1"
     }
   ]
 }

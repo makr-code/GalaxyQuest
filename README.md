@@ -33,6 +33,9 @@ For a non-Docker setup, see [Manual Installation](#manual-installation).
 Gameplay and systems design:
 - [Gameplay Data Model & Mechanics](docs/gamedesign/GAMEPLAY_DATA_MODEL.md)
 
+Developer 3D tooling:
+- [TRELLIS2 Dev Toolset](docs/technical/TRELLIS2_DEV_TOOLSET.md)
+
 ### Scientific Glossary with LLM + Wikipedia RAG
 
 The in-game glossary now uses **Ollama LLM with Wikipedia as Retrieval-Augmented Generation (RAG)** context for dynamic, scientifically-enhanced definitions.

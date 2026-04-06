@@ -40,6 +40,71 @@ describe('WM advanced features', () => {
     expect(hit).toBe(1);
   });
 
+  it('shows shortcuts and input badge in command palette rows', () => {
+    const WM = loadWmScript();
+
+    WM.registerCommand('unit.palette.meta', {
+      label: 'Palette Meta Command',
+      shortcuts: ['Ctrl+Y', 'Alt+Y'],
+      allowInInputs: true,
+      execute: () => {},
+    });
+
+    WM.showCommandPalette({});
+
+    const rows = Array.from(document.querySelectorAll('.wm-command-palette-row'));
+    const target = rows.find((r) => /Palette Meta Command/.test(r.textContent || ''));
+    expect(target).toBeTruthy();
+
+    const shortcut = target.querySelector('.wm-command-palette-shortcut');
+    expect(shortcut?.textContent || '').toContain('Ctrl+Y');
+    expect(shortcut?.textContent || '').toContain('Alt+Y');
+
+    const badge = target.querySelector('.wm-command-palette-flag');
+    expect((badge?.textContent || '').trim()).toBe('Input');
+
+    WM.hideCommandPalette();
+  });
+
+  it('finds commands by secondary shortcut in listCommands', () => {
+    const WM = loadWmScript();
+
+    WM.registerCommand('unit.search.shortcuts', {
+      label: 'Search By Shortcut Command',
+      shortcuts: ['Ctrl+L', 'Alt+L'],
+      execute: () => {},
+    });
+
+    const hits = WM.listCommands('alt+l');
+    expect(hits.some((c) => c.id === 'unit.search.shortcuts')).toBe(true);
+  });
+
+  it('matches shortcuts with flexible spacing in listCommands', () => {
+    const WM = loadWmScript();
+
+    WM.registerCommand('unit.search.spacing', {
+      label: 'Search Spacing Command',
+      shortcuts: ['Ctrl+L', 'Alt+L'],
+      execute: () => {},
+    });
+
+    const hits = WM.listCommands('ctrl + l');
+    expect(hits.some((c) => c.id === 'unit.search.spacing')).toBe(true);
+  });
+
+  it('matches commands by category in listCommands', () => {
+    const WM = loadWmScript();
+
+    WM.registerCommand('unit.search.category', {
+      label: 'Category Search Command',
+      category: 'Darstellung',
+      execute: () => {},
+    });
+
+    const hits = WM.listCommands('darstellung');
+    expect(hits.some((c) => c.id === 'unit.search.category')).toBe(true);
+  });
+
   it('creates dock group and switches active tab', () => {
     const WM = loadWmScript();
 
@@ -431,5 +496,150 @@ describe('WM advanced features', () => {
       bubbles: true,
     }));
     expect(currentFocusedId()).toBe('focus_a');
+  });
+
+  it('cycles windows linearly with Alt+Escape without raising z-order', () => {
+    const WM = loadWmScript();
+
+    WM.register('lin_a', { title: 'Lin A', w: 260, h: 170, onRender: () => {} });
+    WM.register('lin_b', { title: 'Lin B', w: 260, h: 170, onRender: () => {} });
+    WM.register('lin_c', { title: 'Lin C', w: 260, h: 170, onRender: () => {} });
+    WM.open('lin_a');
+    WM.open('lin_b');
+    WM.open('lin_c');
+
+    const elA = document.getElementById('wm-win-lin_a');
+    const elB = document.getElementById('wm-win-lin_b');
+    const elC = document.getElementById('wm-win-lin_c');
+
+    const zBefore = {
+      a: parseInt(elA.style.zIndex || '0', 10),
+      b: parseInt(elB.style.zIndex || '0', 10),
+      c: parseInt(elC.style.zIndex || '0', 10),
+    };
+
+    const focusedId = () => {
+      const focused = document.querySelector('.wm-window.wm-focused');
+      return focused ? focused.id.replace(/^wm-win-/, '') : null;
+    };
+
+    // Initial focus on last opened window
+    expect(focusedId()).toBe('lin_c');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Escape',
+      altKey: true,
+      bubbles: true,
+    }));
+    expect(focusedId()).toBe('lin_a');
+
+    const zAfter = {
+      a: parseInt(elA.style.zIndex || '0', 10),
+      b: parseInt(elB.style.zIndex || '0', 10),
+      c: parseInt(elC.style.zIndex || '0', 10),
+    };
+
+    // Linear switch must not raise window stack order.
+    expect(zAfter).toEqual(zBefore);
+  });
+
+  it('toggles to most recently focused window with Ctrl+Backquote', () => {
+    const WM = loadWmScript();
+
+    WM.register('mru_a', { title: 'MRU A', w: 260, h: 170, onRender: () => {} });
+    WM.register('mru_b', { title: 'MRU B', w: 260, h: 170, onRender: () => {} });
+    WM.register('mru_c', { title: 'MRU C', w: 260, h: 170, onRender: () => {} });
+    WM.open('mru_a');
+    WM.open('mru_b');
+    WM.open('mru_c');
+
+    const focusedId = () => {
+      const focused = document.querySelector('.wm-window.wm-focused');
+      return focused ? focused.id.replace(/^wm-win-/, '') : null;
+    };
+
+    // Current is mru_c, previous is mru_b
+    expect(focusedId()).toBe('mru_c');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: '`',
+      code: 'Backquote',
+      ctrlKey: true,
+      bubbles: true,
+    }));
+    expect(focusedId()).toBe('mru_b');
+
+    // Toggle again goes back to previously focused mru_c
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: '`',
+      code: 'Backquote',
+      ctrlKey: true,
+      bubbles: true,
+    }));
+    expect(focusedId()).toBe('mru_c');
+  });
+
+  it('ignores WM hotkeys while typing in input fields', () => {
+    const WM = loadWmScript();
+
+    WM.register('type_a', { title: 'Type A', w: 260, h: 170, onRender: () => {} });
+    WM.register('type_b', { title: 'Type B', w: 260, h: 170, onRender: () => {} });
+    WM.open('type_a');
+    WM.open('type_b');
+
+    const focusedId = () => {
+      const focused = document.querySelector('.wm-window.wm-focused');
+      return focused ? focused.id.replace(/^wm-win-/, '') : null;
+    };
+
+    // Baseline: currently focused window is the most recently opened one.
+    expect(focusedId()).toBe('type_b');
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    document.body.appendChild(input);
+    input.focus();
+
+    // Alt+Tab would normally switch focus, but must be ignored while typing.
+    input.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Tab',
+      altKey: true,
+      bubbles: true,
+    }));
+    expect(focusedId()).toBe('type_b');
+
+    // Ctrl+Backquote MRU toggle must also be ignored while typing.
+    input.dispatchEvent(new KeyboardEvent('keydown', {
+      key: '`',
+      code: 'Backquote',
+      ctrlKey: true,
+      bubbles: true,
+    }));
+    expect(focusedId()).toBe('type_b');
+  });
+
+  it('allows opted-in hotkeys in input fields via allowInInputs', () => {
+    const WM = loadWmScript();
+    let hits = 0;
+
+    const ok = WM.registerCommand('unit.input.allowed', {
+      label: 'Allowed In Input',
+      shortcut: 'Ctrl+Q',
+      allowInInputs: true,
+      execute() { hits++; },
+    });
+    expect(ok).toBe(true);
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    document.body.appendChild(input);
+    input.focus();
+
+    input.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'q',
+      ctrlKey: true,
+      bubbles: true,
+    }));
+    expect(hits).toBe(1);
   });
 });
