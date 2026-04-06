@@ -23,7 +23,7 @@
     {
       "label": "Docker: Reset DB",
       "type": "shell",
-      "command": "docker compose down -v && docker compose up -d --build",
+      "command": "docker compose down -v && docker compose up -d --build && docker compose exec -T web php scripts/ensure_default_admin.php",
       "options": {
         "cwd": "${workspaceFolder}"
       },

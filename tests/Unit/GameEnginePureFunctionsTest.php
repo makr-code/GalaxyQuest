@@ -75,6 +75,32 @@ final class GameEnginePureFunctionsTest extends TestCase
         $this->assertSame(400, $cost['deuterium']);
     }
 
+    public function testComputeHappinessRewardsFoodEnergyAndServices(): void
+    {
+        $low = compute_happiness(0.4, -20, 20);
+        $high = compute_happiness(1.5, 25, 80);
+
+        $this->assertGreaterThan($low, $high);
+        $this->assertGreaterThanOrEqual(0, $low);
+        $this->assertLessThanOrEqual(100, $high);
+    }
+
+    public function testPopulationGrowthTurnsNegativeUnderStarvation(): void
+    {
+        $growth = population_growth(2000, 3000, 65, 0.2);
+
+        $this->assertLessThan(0, $growth);
+    }
+
+    public function testHappinessProductivityImprovesAtHighHappiness(): void
+    {
+        $low = happiness_productivity(20);
+        $high = happiness_productivity(90);
+
+        $this->assertGreaterThan($low, $high);
+        $this->assertGreaterThanOrEqual(0.5, $low);
+    }
+
     public function testVesselManifestFiltersZeroCountShips(): void
     {
         $ships = ['light_fighter' => 5, 'cruiser' => 0, 'battleship' => 3];

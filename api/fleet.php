@@ -823,8 +823,15 @@ function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
         $db->prepare('INSERT INTO ships (colony_id,type,count) VALUES (?,?,?) ON DUPLICATE KEY UPDATE count=count+?')
            ->execute([$cid, $type, $cnt, $cnt]);
     }
-    $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
-       ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $cid]);
+
+    $payload = decode_fleet_cargo_payload($fleet);
+    if ($payload) {
+        apply_fleet_payload_to_colony($db, $cid, $payload);
+    } else {
+        $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
+           ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $cid]);
+    }
+
     $db->prepare('DELETE FROM fleets WHERE id=?')->execute([$fleet['id']]);
     enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_returned');
 }
@@ -833,9 +840,16 @@ function deliver_resources(PDO $db, array $fleet, array $ships): void {
     $tgt = $db->prepare('SELECT c.id, c.user_id FROM colonies c JOIN celestial_bodies cb ON cb.id=c.body_id WHERE cb.galaxy_index=? AND cb.system_index=? AND cb.position=?');
     $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $target = $tgt->fetch();
+    $payload = decode_fleet_cargo_payload($fleet);
+
     if ($target) {
-        $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
-           ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $target['id']]);
+        if ($payload) {
+            apply_fleet_payload_to_colony($db, (int)$target['id'], $payload);
+        } else {
+            $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
+               ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $target['id']]);
+        }
+
         // Mark the receiving user dirty (different user for inter-player transports)
         if ((int)$target['user_id'] !== (int)$fleet['user_id']) {
             enqueue_dirty_user($db, (int)$target['user_id'], 'resources_received');
@@ -843,9 +857,58 @@ function deliver_resources(PDO $db, array $fleet, array $ships): void {
     }
     $travel  = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
     $retTime = date('Y-m-d H:i:s', time() + $travel);
-    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=?, cargo_metal=0, cargo_crystal=0, cargo_deuterium=0 WHERE id=?')
-       ->execute([$retTime, $retTime, $fleet['id']]);
+    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=?, cargo_metal=0, cargo_crystal=0, cargo_deuterium=0, cargo_payload = ? WHERE id=?')
+       ->execute([$retTime, $retTime, '{}', $fleet['id']]);
     enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_delivered');
+}
+
+function decode_fleet_cargo_payload(array $fleet): array {
+    $raw = $fleet['cargo_payload'] ?? null;
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $out = [];
+    foreach ($decoded as $resource => $qty) {
+        $key = trim((string)$resource);
+        $val = max(0.0, (float)$qty);
+        if ($key !== '' && $val > 0) {
+            $out[$key] = $val;
+        }
+    }
+
+    return $out;
+}
+
+function apply_fleet_payload_to_colony(PDO $db, int $colonyId, array $payload): void {
+    $metal = (float)($payload['metal'] ?? 0.0);
+    $crystal = (float)($payload['crystal'] ?? 0.0);
+    $deuterium = (float)($payload['deuterium'] ?? 0.0);
+    $rareEarth = (float)($payload['rare_earth'] ?? 0.0);
+    $food = (float)($payload['food'] ?? 0.0);
+
+    if ($metal > 0 || $crystal > 0 || $deuterium > 0 || $rareEarth > 0 || $food > 0) {
+        $db->prepare('UPDATE colonies SET metal = metal + ?, crystal = crystal + ?, deuterium = deuterium + ?, rare_earth = rare_earth + ?, food = food + ? WHERE id = ?')
+           ->execute([$metal, $crystal, $deuterium, $rareEarth, $food, $colonyId]);
+    }
+
+    foreach ($payload as $resource => $qty) {
+        $qty = max(0.0, (float)$qty);
+        if ($qty <= 0 || in_array($resource, ['metal', 'crystal', 'deuterium', 'rare_earth', 'food'], true)) {
+            continue;
+        }
+
+        $db->prepare(<<<SQL
+            INSERT INTO economy_processed_goods (colony_id, good_type, quantity, capacity)
+            VALUES (?, ?, ?, 5000.0)
+            ON DUPLICATE KEY UPDATE quantity = LEAST(capacity, quantity + VALUES(quantity))
+        SQL)->execute([$colonyId, $resource, $qty]);
+    }
 }
 
 function leaders_attack_skill_column(PDO $db): ?string {

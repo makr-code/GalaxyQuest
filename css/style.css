@@ -2677,18 +2677,23 @@ input:focus, select:focus, textarea:focus {
 }
 
 body.wm-dock-preview-left::before,
-body.wm-dock-preview-right::before {
+body.wm-dock-preview-right::before,
+body.wm-dock-preview-bottom::before {
   content: '';
   position: fixed;
-  top: 64px;
-  bottom: 56px;
-  width: min(320px, 28vw);
   border: 1px dashed rgba(108, 177, 255, 0.75);
   background: linear-gradient(180deg, rgba(34, 86, 150, 0.14), rgba(20, 58, 112, 0.08));
   box-shadow: inset 0 0 0 1px rgba(159, 211, 255, 0.2);
   border-radius: 12px;
   pointer-events: none;
   z-index: 250;
+}
+
+body.wm-dock-preview-left::before,
+body.wm-dock-preview-right::before {
+  top: 64px;
+  bottom: 56px;
+  width: min(320px, 28vw);
 }
 
 body.wm-dock-preview-left::before {
@@ -2699,12 +2704,20 @@ body.wm-dock-preview-right::before {
   right: 8px;
 }
 
+body.wm-dock-preview-bottom::before {
+  left: min(24vw, 220px);
+  right: min(24vw, 220px);
+  bottom: 52px;
+  height: min(300px, 36vh);
+}
+
 .wm-window.wm-docked {
   box-shadow: 0 22px 58px rgba(2, 8, 22, 0.75), 0 0 0 1px rgba(118, 194, 255, 0.22) inset;
 }
 
 .wm-window.wm-docked-left,
-.wm-window.wm-docked-right {
+.wm-window.wm-docked-right,
+.wm-window.wm-docked-bottom {
   border-color: rgba(94, 164, 230, 0.75);
 }
 
@@ -3605,6 +3618,25 @@ body.wm-dock-preview-right::before {
   padding: 0.8rem;
 }
 
+.wm-window[data-winid="console"] .wm-body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.wm-window[data-winid="console"] .ui-console-panel {
+  max-height: none;
+  height: 100%;
+  border-bottom: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wm-window[data-winid="console"] .ui-console-log {
+  flex: 1;
+  height: auto;
+}
+
 .wm-minimized {
   display: none;
 }
@@ -3969,9 +4001,49 @@ body.wm-dock-preview-right::before {
 #galaxy-info-overlay {
   top: 10px;
   right: 10px;
-  width: min(420px, 45vw);
+  width: min(360px, 40vw);
   max-height: calc(100% - 20px);
   overflow: auto;
+}
+
+.galaxy-info-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.28rem;
+  margin: 0 0 0.4rem;
+}
+
+.galaxy-info-tab {
+  appearance: none;
+  border: 1px solid rgba(95, 145, 201, 0.5);
+  border-radius: 8px;
+  background: rgba(13, 27, 48, 0.82);
+  color: #a9c9ee;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 0.22rem 0.35rem;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+
+.galaxy-info-tab:hover {
+  border-color: rgba(143, 200, 255, 0.75);
+  color: #d3ebff;
+}
+
+.galaxy-info-tab.is-active {
+  border-color: rgba(143, 200, 255, 0.82);
+  background: rgba(20, 44, 76, 0.92);
+  color: #d9efff;
+}
+
+.galaxy-info-panel {
+  display: none;
+}
+
+.galaxy-info-panel.is-active {
+  display: block;
 }
 
 .galaxy-overlay-head {
@@ -4010,6 +4082,19 @@ body.wm-dock-preview-right::before {
   border-color: rgba(118, 170, 228, 0.42);
   box-shadow: 0 10px 28px rgba(3, 8, 20, 0.5);
   backdrop-filter: blur(10px) saturate(1.08);
+}
+
+.nav-orb-window {
+  height: 100%;
+  padding: 0.35rem;
+  overflow: auto;
+}
+
+.nav-orb-window .galaxy-nav-orb-overlay {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  min-height: 100%;
 }
 
 .galaxy-nav-orb-head {
@@ -4383,11 +4468,11 @@ body.wm-dock-preview-right::before {
 }
 
 .galaxy-colony-legend {
-  margin-top: 0.3rem;
+  margin-top: 0.24rem;
   border: 1px solid rgba(65, 106, 148, 0.45);
   border-radius: 8px;
   background: rgba(10, 21, 37, 0.68);
-  padding: 0.42rem 0.48rem;
+  padding: 0.34rem 0.42rem;
 }
 
 .galaxy-colony-legend-title {
@@ -4491,7 +4576,7 @@ body.wm-dock-preview-right::before {
 }
 
 .galaxy-debug-wrap {
-  margin-top: 0.55rem;
+  margin-top: 0.2rem;
   border: 1px solid rgba(62, 103, 146, 0.5);
   border-radius: 8px;
   background: rgba(9, 19, 34, 0.72);
@@ -4574,7 +4659,7 @@ body.wm-dock-preview-right::before {
 }
 
 .galaxy-planets-panel h4 {
-  margin: 0.8rem 0 0.55rem;
+  margin: 0.3rem 0 0.45rem;
   color: #9ecaff;
   font-size: 0.86rem;
 }

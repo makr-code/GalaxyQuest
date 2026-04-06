@@ -285,6 +285,7 @@ CREATE TABLE IF NOT EXISTS fleets (
     cargo_metal DECIMAL(20,4) NOT NULL DEFAULT 0,
     cargo_crystal DECIMAL(20,4) NOT NULL DEFAULT 0,
     cargo_deuterium DECIMAL(20,4) NOT NULL DEFAULT 0,
+    cargo_payload JSON DEFAULT NULL,
     -- 3-D galactic coordinates (light-years) for Newtonian flight mechanics
     origin_x_ly DOUBLE NOT NULL DEFAULT 0,
     origin_y_ly DOUBLE NOT NULL DEFAULT 0,
@@ -689,6 +690,7 @@ CREATE TABLE IF NOT EXISTS trade_routes (
     cargo_metal DECIMAL(20,4) NOT NULL DEFAULT 0,
     cargo_crystal DECIMAL(20,4) NOT NULL DEFAULT 0,
     cargo_deuterium DECIMAL(20,4) NOT NULL DEFAULT 0,
+    cargo_payload JSON DEFAULT NULL,
     interval_hours INT UNSIGNED NOT NULL DEFAULT 24,
     last_dispatch DATETIME DEFAULT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,

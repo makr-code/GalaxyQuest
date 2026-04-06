@@ -193,12 +193,12 @@ function fetch_colony_name(PDO $db, int $colonyId, string $username): string {
 function handle_login(): void {
     verify_csrf();
     $body     = get_json_body();
-    $username = trim($body['username'] ?? '');
+    $identifier = trim($body['username'] ?? '');
     $password = $body['password'] ?? '';
     $remember = !empty($body['remember']);
 
-    if ($username === '' || $password === '') {
-        json_error('Username and password required.');
+    if ($identifier === '' || $password === '') {
+        json_response(['success' => false, 'error' => 'Username/email and password required.'], 200);
     }
 
     $db       = get_db();
@@ -226,8 +226,8 @@ function handle_login(): void {
         }
     }
 
-    $stmt = $db->prepare('SELECT id, username, password_hash, is_admin, COALESCE(totp_enabled, 0) AS totp_enabled, deleted_at, control_type, auth_enabled FROM users WHERE username = ?');
-    $stmt->execute([$username]);
+    $stmt = $db->prepare('SELECT id, username, password_hash, is_admin, COALESCE(totp_enabled, 0) AS totp_enabled, deleted_at, control_type, auth_enabled FROM users WHERE username = ? OR email = ? LIMIT 1');
+    $stmt->execute([$identifier, $identifier]);
     $user = $stmt->fetch();
 
     if (!$user || !password_verify($password, $user['password_hash'])) {
@@ -241,7 +241,7 @@ function handle_login(): void {
              VALUES (?, 1, NOW(), NULL)
              ON DUPLICATE KEY UPDATE attempt_count = ?, locked_until = ?'
         )->execute([$ipHash, $newCount, $lockedUntil]);
-        json_error('Invalid username or password.', 401);
+        json_response(['success' => false, 'error' => 'Invalid username or password.'], 200);
     }
 
     // Successful login — clear any recorded failures for this IP.
@@ -249,7 +249,7 @@ function handle_login(): void {
 
     // Refuse non-auth actors and deleted accounts.
     if ($user['deleted_at'] !== null || (int)($user['auth_enabled'] ?? 0) !== 1 || (string)($user['control_type'] ?? 'human') !== 'human') {
-        json_error('Invalid username or password.', 401);
+        json_response(['success' => false, 'error' => 'Invalid username or password.'], 200);
     }
 
     // ── TOTP 2FA challenge ────────────────────────────────────────────────────

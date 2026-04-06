@@ -14,6 +14,7 @@
     const documentRef = opts.documentRef || document;
     const windowRef = opts.windowRef || window;
     const navigatorRef = opts.navigatorRef || navigator;
+    const wm = opts.wm || null;
     const onRunCommand = typeof opts.onRunCommand === 'function' ? opts.onRunCommand : (async () => {});
 
     if (!store || typeof store.push !== 'function' || typeof store.getVisibleLines !== 'function') {
@@ -96,8 +97,25 @@
       },
 
       setOpen(open, panel, toggleBtn, input) {
+        const hasWm = !!(wm && typeof wm.open === 'function' && typeof wm.close === 'function');
+        if (hasWm) {
+          panel.classList.remove('hidden');
+          if (open) {
+            windowRef.GQWindowRegistry?.registerAll?.();
+            wm.open('console');
+          } else {
+            wm.close('console');
+          }
+          toggleBtn?.classList.toggle('active', !!open);
+          if (open) {
+            this.render();
+            input.focus();
+          }
+          return;
+        }
+
         panel.classList.toggle('hidden', !open);
-        toggleBtn.textContent = open ? 'Hide Console' : 'Show Console';
+        toggleBtn?.classList.toggle('active', !!open);
         if (open) {
           this.render();
           input.focus();
@@ -119,7 +137,13 @@
         this.hydrateFromTerminal();
         this.bindTerminalLogStream();
 
-        toggleBtn.addEventListener('click', () => this.setOpen(panel.classList.contains('hidden'), panel, toggleBtn, input));
+        const isConsoleOpen = () => {
+          const hasWm = !!(wm && typeof wm.isOpen === 'function');
+          if (hasWm) return !!wm.isOpen('console');
+          return !panel.classList.contains('hidden');
+        };
+
+        toggleBtn.addEventListener('click', () => this.setOpen(!isConsoleOpen(), panel, toggleBtn, input));
         closeBtn?.addEventListener('click', () => this.setOpen(false, panel, toggleBtn, input));
         clearBtn?.addEventListener('click', () => {
           store.clear();
@@ -145,11 +169,11 @@
           await onRunCommand(cmd);
         });
 
-        if (toggleBtn) toggleBtn.textContent = panel.classList.contains('hidden') ? 'Show Con' : 'Hide Con';
+        toggleBtn.classList.toggle('active', isConsoleOpen());
 
         const authConsoleToggleBtn = documentRef.getElementById('auth-console-toggle');
         if (authConsoleToggleBtn) {
-          authConsoleToggleBtn.addEventListener('click', () => this.setOpen(panel.classList.contains('hidden'), panel, toggleBtn, input));
+          authConsoleToggleBtn.addEventListener('click', () => this.setOpen(!isConsoleOpen(), panel, toggleBtn, input));
         }
 
         windowRef.__gqUiConsoleReady = true;

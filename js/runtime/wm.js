@@ -116,6 +116,13 @@ const WM = (() => {
           const dockY = Number(cfg.defaultY ?? 12);
           x = Math.max(0, ds.w - (cfg.w ?? 600) - margin);
           y = Math.max(0, dockY);
+        } else if (cfg.defaultDock === 'bottom') {
+          const margin = Number(cfg.defaultDockMargin ?? 12);
+          const bottomInset = Math.max(0, Number(cfg.dockBottomInset ?? 56));
+          x = Number.isFinite(Number(cfg.defaultX))
+            ? Number(cfg.defaultX)
+            : Math.max(0, Math.floor((ds.w - (cfg.w ?? 600)) / 2));
+          y = Math.max(0, ds.h - (cfg.h ?? 400) - margin - bottomInset);
         } else {
           if (Number.isFinite(Number(cfg.defaultX))) x = Number(cfg.defaultX);
           if (Number.isFinite(Number(cfg.defaultY))) y = Number(cfg.defaultY);
@@ -260,6 +267,7 @@ const WM = (() => {
 
   function _prepareAdaptedWindow(el, id, cfg) {
     if (!(el instanceof HTMLElement)) return;
+    el.classList.remove('hidden');
     el.classList.add('wm-window', 'wm-window-adapted');
     if (cfg.fullscreenDesktop) el.classList.add('wm-window-fullscreen');
     if (cfg.backgroundLayer) el.classList.add('wm-window-background');
@@ -638,6 +646,13 @@ const WM = (() => {
       const margin = Number(cfg.defaultDockMargin ?? 12);
       x = Math.max(0, ds.w - width - margin);
       y = Math.max(0, Number(cfg.defaultY ?? 12));
+    } else if (cfg.defaultDock === 'bottom') {
+      const margin = Number(cfg.defaultDockMargin ?? 12);
+      const bottomInset = Math.max(0, Number(cfg.dockBottomInset ?? 56));
+      x = Number.isFinite(Number(cfg.defaultX))
+        ? Number(cfg.defaultX)
+        : Math.max(0, Math.floor((ds.w - width) / 2));
+      y = Math.max(0, ds.h - height - margin - bottomInset);
     }
 
     x = Math.max(0, Math.min(x, Math.max(0, ds.w - width)));
@@ -785,6 +800,13 @@ const WM = (() => {
         checked: win.el.dataset.wmDocked === 'right',
         onSelect: () => _applyDockPosition(win.el, cfg, 'right', true),
       });
+      if (_getDockConfig(cfg)?.sides.includes('bottom')) {
+        items.push({
+          label: 'Unten andocken',
+          checked: win.el.dataset.wmDocked === 'bottom',
+          onSelect: () => _applyDockPosition(win.el, cfg, 'bottom', true),
+        });
+      }
       items.push({
         label: 'Position zuruecksetzen',
         onSelect: () => _resetWindowGeometry(id),
@@ -807,8 +829,12 @@ const WM = (() => {
   }
 
   function _getDockConfig(cfg = {}) {
-    const dockable = !!cfg.dockable || Array.isArray(cfg.dockableSides);
+    if (cfg.fullscreenDesktop || cfg.backgroundLayer) return null;
+
+    const hasExplicitDockable = Object.prototype.hasOwnProperty.call(cfg, 'dockable');
+    const dockable = hasExplicitDockable ? !!cfg.dockable : true;
     if (!dockable) return null;
+
     const sides = Array.isArray(cfg.dockableSides) && cfg.dockableSides.length
       ? cfg.dockableSides.map((side) => String(side || '').toLowerCase())
       : ['left', 'right'];
@@ -817,15 +843,17 @@ const WM = (() => {
       threshold: Math.max(18, Number(cfg.dockMagnetThreshold ?? 56)),
       margin: Math.max(0, Number(cfg.dockMargin ?? 12)),
       topInset: Math.max(0, Number(cfg.dockTopInset ?? 12)),
+      bottomInset: Math.max(0, Number(cfg.dockBottomInset ?? 56)),
     };
   }
 
   function _setDockPreview(side) {
     const root = document.body || document.documentElement;
     if (!root) return;
-    root.classList.remove('wm-dock-preview-left', 'wm-dock-preview-right');
+    root.classList.remove('wm-dock-preview-left', 'wm-dock-preview-right', 'wm-dock-preview-bottom');
     if (side === 'left') root.classList.add('wm-dock-preview-left');
     if (side === 'right') root.classList.add('wm-dock-preview-right');
+    if (side === 'bottom') root.classList.add('wm-dock-preview-bottom');
   }
 
   function _clearDockPreview() {
@@ -834,9 +862,12 @@ const WM = (() => {
 
   function _setDockState(winEl, side) {
     if (!winEl) return;
-    winEl.classList.remove('wm-docked', 'wm-docked-left', 'wm-docked-right');
-    if (side === 'left' || side === 'right') {
-      winEl.classList.add('wm-docked', side === 'left' ? 'wm-docked-left' : 'wm-docked-right');
+    winEl.classList.remove('wm-docked', 'wm-docked-left', 'wm-docked-right', 'wm-docked-bottom');
+    if (side === 'left' || side === 'right' || side === 'bottom') {
+      winEl.classList.add('wm-docked');
+      if (side === 'left') winEl.classList.add('wm-docked-left');
+      if (side === 'right') winEl.classList.add('wm-docked-right');
+      if (side === 'bottom') winEl.classList.add('wm-docked-bottom');
       winEl.dataset.wmDocked = side;
     } else {
       delete winEl.dataset.wmDocked;
@@ -861,26 +892,29 @@ const WM = (() => {
       const raw = localStorage.getItem(WM_DOCK_STORAGE_PREFIX + id);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (!parsed || (parsed.side !== 'left' && parsed.side !== 'right')) return null;
+      if (!parsed || (parsed.side !== 'left' && parsed.side !== 'right' && parsed.side !== 'bottom')) return null;
       return parsed;
     } catch (_) {
       return null;
     }
   }
 
-  function _pickDockSide(cfg, cx) {
+  function _pickDockSide(cfg, cx, cy) {
     const dockCfg = _getDockConfig(cfg);
     if (!dockCfg) return null;
     const width = Math.max(320, window.innerWidth || document.documentElement?.clientWidth || 1280);
+    const height = Math.max(240, window.innerHeight || document.documentElement?.clientHeight || 720);
     const nearLeft = cx <= dockCfg.threshold;
     const nearRight = cx >= (width - dockCfg.threshold);
+    const nearBottom = cy >= (height - dockCfg.threshold);
+    if (nearBottom && dockCfg.sides.includes('bottom')) return 'bottom';
     if (nearLeft && dockCfg.sides.includes('left')) return 'left';
     if (nearRight && dockCfg.sides.includes('right')) return 'right';
     return null;
   }
 
   function _applyDockPosition(winEl, cfg, side, persist = true) {
-    if (!winEl || (side !== 'left' && side !== 'right')) return false;
+    if (!winEl || (side !== 'left' && side !== 'right' && side !== 'bottom')) return false;
     const dockCfg = _getDockConfig(cfg);
     if (!dockCfg) return false;
     if (!dockCfg.sides.includes(side)) return false;
@@ -889,16 +923,30 @@ const WM = (() => {
     const ds = _desktopSize(desktop);
     const width = Math.max(200, winEl.offsetWidth || parseInt(winEl.style.width, 10) || Number(cfg?.w || 360));
     const height = Math.max(140, winEl.offsetHeight || parseInt(winEl.style.height, 10) || Number(cfg?.h || 320));
-    const x = side === 'left'
-      ? dockCfg.margin
-      : Math.max(dockCfg.margin, ds.w - width - dockCfg.margin);
-    const currentTop = parseInt(winEl.style.top, 10);
-    const fallbackTop = Number.isFinite(Number(cfg?.defaultY)) ? Number(cfg.defaultY) : dockCfg.topInset;
-    const maxTop = Math.max(dockCfg.topInset, ds.h - height - dockCfg.margin);
-    const y = Math.min(
-      maxTop,
-      Math.max(dockCfg.topInset, Number.isFinite(currentTop) ? currentTop : fallbackTop),
-    );
+
+    let x = parseInt(winEl.style.left, 10);
+    let y = parseInt(winEl.style.top, 10);
+
+    if (side === 'left' || side === 'right') {
+      x = side === 'left'
+        ? dockCfg.margin
+        : Math.max(dockCfg.margin, ds.w - width - dockCfg.margin);
+      const fallbackTop = Number.isFinite(Number(cfg?.defaultY)) ? Number(cfg.defaultY) : dockCfg.topInset;
+      const maxTop = Math.max(dockCfg.topInset, ds.h - height - dockCfg.margin - dockCfg.bottomInset);
+      y = Math.min(
+        maxTop,
+        Math.max(dockCfg.topInset, Number.isFinite(y) ? y : fallbackTop),
+      );
+    } else if (side === 'bottom') {
+      const fallbackLeft = Number.isFinite(Number(cfg?.defaultX))
+        ? Number(cfg.defaultX)
+        : Math.floor((ds.w - width) / 2);
+      x = Math.min(
+        Math.max(dockCfg.margin, Number.isFinite(x) ? x : fallbackLeft),
+        Math.max(dockCfg.margin, ds.w - width - dockCfg.margin),
+      );
+      y = Math.max(dockCfg.topInset, ds.h - height - dockCfg.margin - dockCfg.bottomInset);
+    }
 
     winEl.style.left = Math.max(0, x) + 'px';
     winEl.style.top = Math.max(0, y) + 'px';
@@ -963,15 +1011,17 @@ const WM = (() => {
       const y = Math.max(0, Math.min(cy - oy, ds.h - winEl.offsetHeight));
 
       const cfg = getWindowConfig();
-      const side = _pickDockSide(cfg, cx);
+      const side = _pickDockSide(cfg, cx, cy);
       dockCandidate = side;
       if (side) {
         _setDockPreview(side);
         const dockCfg = _getDockConfig(cfg);
         if (dockCfg) {
-          x = side === 'left'
-            ? dockCfg.margin
-            : Math.max(0, ds.w - winEl.offsetWidth - dockCfg.margin);
+          if (side === 'left') {
+            x = dockCfg.margin;
+          } else if (side === 'right') {
+            x = Math.max(0, ds.w - winEl.offsetWidth - dockCfg.margin);
+          }
         }
       } else {
         _clearDockPreview();

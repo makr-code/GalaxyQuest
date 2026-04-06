@@ -23,7 +23,12 @@ require_once __DIR__ . '/market_analysis.php';
 header('Content-Type: application/json; charset=utf-8');
 
 $event = $_GET['event'] ?? $_POST['event'] ?? '';
-$db = get_db();
+$uid   = require_auth();
+$db    = get_db();
+
+if (!is_admin_user($db, $uid)) {
+    json_error('Admin access required.', 403);
+}
 
 try {
     match ($event) {

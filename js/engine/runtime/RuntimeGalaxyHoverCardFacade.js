@@ -10,6 +10,7 @@
     const starClassColor = typeof options.starClassColor === 'function' ? options.starClassColor : () => '#7db7ee';
     const getPinnedStar = typeof options.getPinnedStar === 'function' ? options.getPinnedStar : () => null;
     const getColonies = typeof options.getColonies === 'function' ? options.getColonies : () => [];
+    const countdown = typeof options.countdown === 'function' ? options.countdown : () => '-';
 
     function formatColonyPopulation(value) {
       const population = Math.max(0, Number(value || 0));
@@ -117,6 +118,23 @@
           + esc(String(to || '?'))
           + '</div>'
           + '<div class="hover-meta">Hover/Klick selektiert | Doppelklick zoomt in die Bounding Box</div>';
+      } else if (star.__kind === 'system_fleet' || star.__kind === 'galaxy_fleet') {
+        const mission = String(star.mission || '').toUpperCase() || 'FLEET';
+        const tg = String(star.target_galaxy || '?');
+        const ts = String(star.target_system || '?');
+        const tp = String(star.target_position || '?');
+        const target = tg + ':' + ts + ':' + tp;
+        const returningTag = star.returning ? ' ↩ Rückkehr' : '';
+        const eta = countdown(star.arrival_time);
+        const vessels = Array.isArray(star.vessels) ? star.vessels : [];
+        const vesselLine = vessels.length
+          ? vessels.slice(0, 3).map((v) => esc(fmtName(String(v.type || ''))) + ' x' + esc(String(v.count || 0))).join(', ')
+          : '';
+        card.innerHTML = ''
+          + '<div class="hover-title hover-title-fleet">⚡ ' + esc(mission) + esc(returningTag) + '</div>'
+          + '<div class="hover-meta">Ziel: ' + esc(target) + '</div>'
+          + (eta && eta !== '-' ? '<div class="hover-meta hover-meta-fleet-eta">ETA: <strong>' + esc(eta) + '</strong></div>' : '')
+          + (vesselLine ? '<div class="hover-meta">' + vesselLine + '</div>' : '');
       } else {
         const starColor = starClassColor(star.spectral_class);
         const colonyMeta = getColonyMarkerMeta(star);

@@ -737,6 +737,7 @@
     getUiState: getUiStateRef,
     getSettingsState: getSettingsStateRef,
     getGalaxy3d: getGalaxy3dRef,
+    getGalaxyRoot: () => WM?.body?.('galaxy') || null,
     isSystemModeActive,
     triggerNavAction: triggerGalaxyNavAction,
     showToast,
@@ -894,6 +895,7 @@
     documentRef: document,
     windowRef: window,
     navigatorRef: navigator,
+    wm: WM,
     onRunCommand: async (raw) => {
       await runUiConsoleCommand(raw);
     },
@@ -1247,6 +1249,7 @@
     windowRef: window,
     esc,
     fmtName,
+    countdown,
     planetIcon,
     starClassColor,
     getPinnedStar: () => pinnedStar,
@@ -1355,6 +1358,7 @@
       renderFactions,
       renderAlliances,
       renderWars,
+      renderNavOrb,
       renderSettings,
       renderQuickNav,
       renderMinimap,
@@ -4317,6 +4321,54 @@
 
   async function renderPirates() {
     await piratesController.render();
+  }
+
+  async function renderWars() {
+    await warController.render();
+  }
+
+  function renderNavOrb() {
+    const root = WM?.body?.('nav-orb');
+    if (!root) return;
+    root.classList.add('nav-orb-window');
+    root.innerHTML = `
+      <div id="galaxy-nav-orb-overlay" class="galaxy-nav-orb-overlay">
+        <div class="galaxy-overlay-head galaxy-nav-orb-head">
+          <strong>Nav Canvas</strong>
+          <span id="galaxy-nav-mode-badge" class="galaxy-nav-mode-badge is-galaxy">GALAXY</span>
+        </div>
+        <div class="galaxy-nav-gizmo-wrap">
+          <canvas id="galaxy-nav-gizmo" class="galaxy-nav-gizmo-canvas" width="250" height="250" aria-label="Navigation gizmo" title="X/Y/Z Translation und U/V/W Rotation"></canvas>
+          <div class="galaxy-nav-gizmo-legend">
+            <span class="axis axis-x">X</span>
+            <span class="axis axis-y">Y</span>
+            <span class="axis axis-z">Z</span>
+            <span class="ring ring-u">U</span>
+            <span class="ring ring-v">V</span>
+            <span class="ring ring-w">W</span>
+          </div>
+        </div>
+        <div class="galaxy-nav-strip">
+          <label class="galaxy-nav-slider-row" for="gal-nav-zoom-slider">
+            <span>Zoom</span>
+            <input id="gal-nav-zoom-slider" type="range" min="0" max="100" step="1" value="55" />
+            <span id="gal-nav-zoom-value" class="text-muted">55%</span>
+          </label>
+          <label class="galaxy-nav-slider-row" for="gal-nav-fov-slider">
+            <span>FOV</span>
+            <input id="gal-nav-fov-slider" type="range" min="25" max="100" step="1" value="60" />
+            <span id="gal-nav-fov-value" class="text-muted">60°</span>
+          </label>
+        </div>
+        <div class="galaxy-nav-strip" style="margin-top:0.15rem;grid-template-columns:repeat(4,minmax(0,1fr));">
+          <button class="galaxy-nav-mini-btn" type="button" data-nav-action="focus" title="Auf Auswahl zentrieren">Center</button>
+          <button class="galaxy-nav-mini-btn" type="button" data-nav-action="enter-system" title="Ins System zoomen">System</button>
+          <button class="galaxy-nav-mini-btn galaxy-nav-mini-btn-center galaxy-nav-reset-btn" type="button" data-nav-action="reset" title="Reset view">Reset</button>
+          <button class="galaxy-nav-mini-btn" type="button" data-nav-action="home" title="Jump to home system">Home</button>
+        </div>
+      </div>
+    `;
+    runtimeGalaxyNavOrbApi.bindGalaxyNavOrb(root, runtimeGalaxyNavOrbRepeatApi.bindNavRepeatButton);
   }
 
   // ÔöÇÔöÇ Alliances Controller ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ

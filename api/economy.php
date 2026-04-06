@@ -14,6 +14,7 @@
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/economy_flush.php';
+require_once __DIR__ . '/economy_runtime.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -21,44 +22,16 @@ $uid    = require_auth();
 $db     = get_db();
 $action = $_GET['action'] ?? '';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Valid processing methods */
 const VALID_METHODS = ['standard', 'efficient', 'premium'];
-
-/** Valid global policy values */
 const VALID_POLICIES = ['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'];
-
-/** Valid tax types with max rates */
 const TAX_MAX = ['income' => 0.40, 'production' => 0.30, 'trade' => 0.25];
-
-/** Valid subsidy sectors */
 const VALID_SUBSIDIES = ['agriculture', 'research', 'military'];
-
-/** Valid pop class values */
 const VALID_POP_CLASSES = ['colonist', 'citizen', 'specialist', 'elite', 'transcendent'];
 
-/**
- * Ensure the user's economy_policies row exists (created on first access).
- *
- * @param PDO $db
- * @param int $uid
- */
 function ensure_policy_row(PDO $db, int $uid): void {
-    $db->prepare(<<<SQL
-        INSERT IGNORE INTO economy_policies (user_id) VALUES (?)
-    SQL)->execute([$uid]);
+    $db->prepare('INSERT IGNORE INTO economy_policies (user_id) VALUES (?)')->execute([$uid]);
 }
 
-/**
- * Fetch the user's policy row.
- *
- * @param PDO $db
- * @param int $uid
- * @return array
- */
 function fetch_policy(PDO $db, int $uid): array {
     ensure_policy_row($db, $uid);
     $stmt = $db->prepare('SELECT * FROM economy_policies WHERE user_id = ?');
@@ -66,13 +39,6 @@ function fetch_policy(PDO $db, int $uid): array {
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 }
 
-/**
- * Return all colonies owned by $uid with their economy nodes.
- *
- * @param PDO $db
- * @param int $uid
- * @return array[]
- */
 function fetch_user_colonies(PDO $db, int $uid): array {
     $stmt = $db->prepare(<<<SQL
         SELECT c.id, c.name, c.population, c.colony_type AS type,
@@ -86,18 +52,11 @@ function fetch_user_colonies(PDO $db, int $uid): array {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-/**
- * Fetch processed goods stock for a colony.
- *
- * @param PDO $db
- * @param int $colonyId
- * @return array  keyed by good_type
- */
 function fetch_colony_goods(PDO $db, int $colonyId): array {
     $stmt = $db->prepare('SELECT good_type, quantity, capacity FROM economy_processed_goods WHERE colony_id = ?');
     $stmt->execute([$colonyId]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $out  = [];
+    $out = [];
     foreach ($rows as $r) {
         $out[$r['good_type']] = [
             'quantity' => (float)$r['quantity'],
@@ -107,13 +66,6 @@ function fetch_colony_goods(PDO $db, int $colonyId): array {
     return $out;
 }
 
-/**
- * Fetch production methods for a colony.
- *
- * @param PDO $db
- * @param int $colonyId
- * @return array  keyed by building_type
- */
 function fetch_production_methods(PDO $db, int $colonyId): array {
     $stmt = $db->prepare('SELECT building_type, method FROM economy_production_methods WHERE colony_id = ?');
     $stmt->execute([$colonyId]);
@@ -124,13 +76,6 @@ function fetch_production_methods(PDO $db, int $colonyId): array {
     return $out;
 }
 
-/**
- * Fetch pop class distribution for a colony.
- *
- * @param PDO $db
- * @param int $colonyId
- * @return array  keyed by pop_class
- */
 function fetch_pop_classes(PDO $db, int $colonyId): array {
     $stmt = $db->prepare(<<<SQL
         SELECT pop_class, count, satisfaction_ticks, shortage_ticks
@@ -141,9 +86,9 @@ function fetch_pop_classes(PDO $db, int $colonyId): array {
     $out = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $out[$r['pop_class']] = [
-            'count'              => (int)$r['count'],
+            'count' => (int)$r['count'],
             'satisfaction_ticks' => (int)$r['satisfaction_ticks'],
-            'shortage_ticks'     => (int)$r['shortage_ticks'],
+            'shortage_ticks' => (int)$r['shortage_ticks'],
         ];
     }
     return $out;
@@ -170,12 +115,15 @@ function action_get_overview(PDO $db, int $uid): never {
     $result = [];
     foreach ($colonies as $c) {
         $cid  = (int)$c['id'];
+        update_colony_resources($db, $cid);
         flush_colony_production($db, $cid);
+        $runtimeRow = fetch_colony_runtime_row($db, $cid);
+        $runtime = $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : [];
         $result[] = [
             'id'         => $cid,
-            'name'       => $c['name'],
-            'population' => (int)$c['population'],
-            'type'       => $c['type'],
+            'name'       => $runtimeRow['name'] ?? $c['name'],
+            'population' => (int)($runtimeRow['population'] ?? $c['population']),
+            'type'       => $runtimeRow['colony_type'] ?? $c['type'],
             'location'   => [
                 'galaxy' => (int)$c['galaxy_index'],
                 'system' => (int)$c['system_index'],
@@ -184,6 +132,12 @@ function action_get_overview(PDO $db, int $uid): never {
             'goods'       => fetch_colony_goods($db, $cid),
             'methods'     => fetch_production_methods($db, $cid),
             'pop_classes' => fetch_pop_classes($db, $cid),
+            'resources'   => $runtime['resources'] ?? [],
+            'storage'     => $runtime['storage'] ?? [],
+            'production'  => $runtime['production'] ?? [],
+            'consumption' => $runtime['consumption'] ?? [],
+            'welfare'     => $runtime['welfare'] ?? [],
+            'building_levels' => $runtime['building_levels'] ?? [],
         ];
     }
 
@@ -204,9 +158,12 @@ function action_get_production(PDO $db, int $uid): never {
     $stmt->execute([$colonyId, $uid]);
     if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
 
+    update_colony_resources($db, $colonyId);
     flush_colony_production($db, $colonyId);
     $methods = fetch_production_methods($db, $colonyId);
     $goods   = fetch_colony_goods($db, $colonyId);
+    $runtimeRow = fetch_colony_runtime_row($db, $colonyId);
+    $runtime = $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : [];
 
     // Fetch colony's processing buildings from buildings table
     $stmt = $db->prepare(<<<SQL
@@ -231,6 +188,12 @@ function action_get_production(PDO $db, int $uid): never {
         'buildings' => $buildings,
         'methods'   => $methods,
         'goods'     => $goods,
+        'resources' => $runtime['resources'] ?? [],
+        'storage' => $runtime['storage'] ?? [],
+        'raw_production' => $runtime['production'] ?? [],
+        'raw_consumption' => $runtime['consumption'] ?? [],
+        'welfare' => $runtime['welfare'] ?? [],
+        'building_levels' => $runtime['building_levels'] ?? [],
     ]);
 }
 

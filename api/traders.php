@@ -24,7 +24,7 @@ require_once __DIR__ . '/market_analysis.php';
 header('Content-Type: application/json; charset=utf-8');
 
 $action = $_GET['action'] ?? '';
-$uid    = null;
+$uid    = require_auth();
 $db     = get_db();
 
 try {
@@ -126,7 +126,8 @@ function action_list_traders(PDO $db): never {
             'base_colony_id'    => (int)$trader['base_colony_id'],
             'capital_credits'   => (float)$trader['capital_credits'],
             'total_profit'      => (float)$trader['total_profit'],
-            'active_fleets'     => (int)$trader['active_fleets'] . '/' . (int)$trader['max_fleets'],
+            'active_fleets'     => (int)$trader['active_fleets'],
+            'max_fleets'        => (int)$trader['max_fleets'],
             'strategy'          => (string)$trader['strategy'],
             'specialization'    => (string)$trader['specialization'] ?? 'none',
             'active_routes'     => (int)$trader['active_routes'],

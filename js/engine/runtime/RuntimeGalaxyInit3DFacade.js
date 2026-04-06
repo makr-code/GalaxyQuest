@@ -359,6 +359,10 @@
             state.flashGalaxyControlBtn?.(root, '#gal-cluster-bounds-btn');
             return;
           }
+          if (star?.__kind === 'system_fleet' || star?.__kind === 'galaxy_fleet') {
+            state.updateGalaxyHoverCard?.(root, star, pos, true);
+            return;
+          }
           state.setPinnedStar?.(star);
           state.toggleGalaxyOverlay?.(root, '#galaxy-info-overlay', true);
           state.updateGalaxyHoverCard?.(root, star, pos, true);

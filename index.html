@@ -133,9 +133,9 @@
     <!-- Login form -->
     <form id="login-form" class="auth-form" autocomplete="on" method="post" action="index.html">
       <div class="form-group">
-        <label for="login-username">Commander Name</label>
+        <label for="login-username">Commander Name or E-Mail</label>
         <input id="login-username" type="text" name="username" required
-               autocomplete="username" placeholder="Your username" />
+               autocomplete="username" placeholder="Your username or e-mail" />
       </div>
       <div class="form-group">
         <label for="login-password">Password</label>
@@ -172,7 +172,7 @@
       </div>
     </div>
 
-    <div id="dev-auth-tools" class="auth-form hidden" aria-live="polite">
+    <form id="dev-auth-tools" class="auth-form hidden" aria-live="polite" autocomplete="off" method="post" action="index.html" onsubmit="return false;">
       <h3>Dev Tools</h3>
       <p style="margin-top:0">Local-only password reset for test users.</p>
       <div class="form-group">
@@ -185,7 +185,7 @@
       </div>
       <button id="dev-reset-btn" type="button" class="btn btn-danger btn-full">Reset Password (Dev)</button>
       <div id="dev-reset-result" class="form-error" aria-live="polite"></div>
-    </div>
+    </form>
 
     <!-- Register form -->
     <form id="register-form" class="auth-form hidden" autocomplete="on" method="post" action="index.html">
@@ -483,7 +483,7 @@
         <button id="footer-quicknav-btn" class="footer-action-btn" type="button" title="Quick Navigation &amp; Favoriten">
           <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/star.svg#icon-star"></use></svg>QuickNav <span id="footer-quicknav-badge" class="footer-action-badge hidden">0</span>
         </button>
-        <button id="footer-overview-btn" class="footer-action-btn" type="button" title="Overview-Fenster (Orb) ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/orb.svg#icon-orb"></use></svg>Orb</button>
+        <button id="footer-nav-orb-btn" class="footer-action-btn" type="button" title="Nav-Orb-Fenster ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/orb.svg#icon-orb"></use></svg>Orb</button>
         <button id="footer-minimap-btn" class="footer-action-btn" type="button" title="Minikarte ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/map.svg#icon-map"></use></svg>Map</button>
         <button id="ui-console-toggle" class="footer-action-btn" type="button" title="UI-Konsole ein-/ausklappen"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/terminal.svg#icon-terminal"></use></svg>Con</button>
         <button id="footer-uikit-btn" class="footer-action-btn" type="button" title="UI Kit Preview &amp; Modal-Demos ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/gameplay.svg#icon-gameplay"></use></svg>Kit</button>
@@ -1262,7 +1262,7 @@
     })();
   </script>
 
-  <script src="js/runtime/boot-manifest.js?v=20260404p1"></script>
+  <script src="js/runtime/boot-manifest.js?v=20260406p3"></script>
   <script src="js/runtime/boot-assets.js?v=20260404p1"></script>
   <script src="js/ui/terminal.js?v=20260404p51"></script>
   <!-- Minimal boot path: auth shell + shared galaxy background before session branching. -->

@@ -1696,13 +1696,9 @@ const API = (() => {
       }),
 
   // Trade Proposals (player-to-player)
-  listTradeRoutes: ()          => get('api/trade.php?action=list'),
   listTradeSuggestions: ({ limit = 10, interval_hours = 24 } = {}) =>
     get(`api/trade.php?action=list_suggestions&limit=${encodeURIComponent(Math.max(1, Number(limit || 10)))}&interval_hours=${encodeURIComponent(Math.max(1, Number(interval_hours || 24)))}`),
   applyTradeSuggestion: (data) => post('api/trade.php?action=apply_suggestion', data),
-  createTradeRoute: (data)     => post('api/trade.php?action=create', data),
-  deleteTradeRoute: (route_id) => post('api/trade.php?action=delete', { route_id: Number(route_id) }),
-  toggleTradeRoute: (route_id) => post('api/trade.php?action=toggle', { route_id: Number(route_id) }),
   listTradeProposals: ()       => get('api/trade.php?action=list_proposals'),
   proposeTrade: (data)         => post('api/trade.php?action=propose', data),
   acceptTrade: (id)            => post('api/trade.php?action=accept',  { proposal_id: id }),

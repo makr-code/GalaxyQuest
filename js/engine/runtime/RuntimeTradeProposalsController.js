@@ -36,13 +36,13 @@
 
           let html = `<div style="padding:8px;">
             <div style="display:flex;gap:6px;margin-bottom:10px;">
-              <button class="btn btn-sm${tab === 'inbox' ? '' : ' btn-secondary'}" style="flex:1;" onclick="GQTradeProposalsController._tab='inbox';GQTradeProposalsController.render()">
+              <button class="btn btn-sm${tab === 'inbox' ? '' : ' btn-secondary'}" style="flex:1;" data-tab="inbox">
                 Inbox${pendingTab}
               </button>
-              <button class="btn btn-sm${tab === 'outbox' ? '' : ' btn-secondary'}" style="flex:1;" onclick="GQTradeProposalsController._tab='outbox';GQTradeProposalsController.render()">
+              <button class="btn btn-sm${tab === 'outbox' ? '' : ' btn-secondary'}" style="flex:1;" data-tab="outbox">
                 Outbox
               </button>
-              <button class="btn btn-sm btn-secondary" onclick="GQTradeProposalsController.showProposeDialog()" title="New Proposal">+</button>
+              <button class="btn btn-sm btn-secondary" data-new-proposal="1" title="New Proposal">+</button>
             </div>`;
 
           if (items.length === 0) {
@@ -54,9 +54,31 @@
           }
           html += '</div>';
           root.innerHTML = html;
+          this.attachEventListeners(root);
         } catch (error) {
           root.innerHTML = `<div class="text-muted" style="padding:8px;">Error: ${esc(error.message)}</div>`;
         }
+      }
+
+      attachEventListeners(root) {
+        root.querySelectorAll('[data-tab]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            this._tab = btn.dataset.tab;
+            this.render();
+          });
+        });
+        root.querySelector('[data-new-proposal]')?.addEventListener('click', () => {
+          this.showProposeDialog();
+        });
+        root.querySelectorAll('[data-accept]').forEach((btn) => {
+          btn.addEventListener('click', () => this.doAccept(parseInt(btn.dataset.accept, 10)));
+        });
+        root.querySelectorAll('[data-reject]').forEach((btn) => {
+          btn.addEventListener('click', () => this.doReject(parseInt(btn.dataset.reject, 10)));
+        });
+        root.querySelectorAll('[data-cancel]').forEach((btn) => {
+          btn.addEventListener('click', () => this.doCancel(parseInt(btn.dataset.cancel, 10)));
+        });
       }
 
       _statusBadge(status) {
@@ -78,10 +100,10 @@
         const actions = [];
         if (proposal.status === 'pending') {
           if (!proposal.is_mine) {
-            actions.push(`<button class="btn btn-sm" style="background:#3a8;" onclick="GQTradeProposalsController.doAccept(${proposal.id})">Accept</button>`);
-            actions.push(`<button class="btn btn-sm" style="background:#844;" onclick="GQTradeProposalsController.doReject(${proposal.id})">Reject</button>`);
+            actions.push(`<button class="btn btn-sm" style="background:#3a8;" data-accept="${proposal.id}">Accept</button>`);
+            actions.push(`<button class="btn btn-sm" style="background:#844;" data-reject="${proposal.id}">Reject</button>`);
           } else {
-            actions.push(`<button class="btn btn-sm btn-secondary" onclick="GQTradeProposalsController.doCancel(${proposal.id})">Cancel</button>`);
+            actions.push(`<button class="btn btn-sm btn-secondary" data-cancel="${proposal.id}">Cancel</button>`);
           }
         }
         return `<div style="border:1px solid #444;border-radius:6px;padding:8px;margin-bottom:6px;font-size:0.88em;">
@@ -144,10 +166,12 @@
           </select>
           <div id="tp-err" style="color:#d66;font-size:0.85em;margin-top:6px;min-height:1em;"></div>
           <div style="display:flex;gap:8px;margin-top:12px;">
-            <button class="btn" style="flex:1;" onclick="GQTradeProposalsController.doPropose()">Send</button>
-            <button class="btn btn-secondary" onclick="document.getElementById('trade-propose-dialog').remove()">Cancel</button>
+            <button class="btn" style="flex:1;" data-propose-send="1">Send</button>
+            <button class="btn btn-secondary" data-propose-cancel="1">Cancel</button>
           </div>`;
         documentRef.body.appendChild(dialog);
+        dialog.querySelector('[data-propose-send]')?.addEventListener('click', () => this.doPropose());
+        dialog.querySelector('[data-propose-cancel]')?.addEventListener('click', () => dialog.remove());
       }
 
       async doPropose() {

@@ -251,6 +251,7 @@ function action_get_prices(PDO $db, int $uid): never {
  * Respects AUTARKY policy (no imports allowed).
  */
 function action_buy(PDO $db, int $uid): never {
+    verify_csrf();
     $body     = json_decode(file_get_contents('php://input'), true) ?? [];
     $colonyId = (int)($body['colony_id'] ?? 0);
     $goodType = trim($body['good_type'] ?? '');
@@ -336,6 +337,7 @@ function action_buy(PDO $db, int $uid): never {
  * Adds credits to the player; removes goods from colony stock.
  */
 function action_sell(PDO $db, int $uid): never {
+    verify_csrf();
     $body     = json_decode(file_get_contents('php://input'), true) ?? [];
     $colonyId = (int)($body['colony_id'] ?? 0);
     $goodType = trim($body['good_type'] ?? '');
@@ -429,13 +431,14 @@ function action_get_history(PDO $db, int $uid): never {
         $params[] = $goodType;
     }
 
+    $params[] = $limit;
     $stmt = $db->prepare(<<<SQL
         SELECT id, colony_id, good_type, direction, quantity, price_per_unit,
                total_credits, trade_tax_rate, net_credits, transacted_at
         FROM economy_market_transactions
         {$where}
         ORDER BY transacted_at DESC
-        LIMIT {$limit}
+        LIMIT ?
     SQL);
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);

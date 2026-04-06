@@ -13,6 +13,7 @@
     getUiState: null,
     getSettingsState: null,
     getGalaxy3d: null,
+    getGalaxyRoot: null,
     isSystemModeActive: null,
     triggerNavAction: null,
     showToast: null,
@@ -24,6 +25,7 @@
     state.getUiState = typeof opts.getUiState === 'function' ? opts.getUiState : null;
     state.getSettingsState = typeof opts.getSettingsState === 'function' ? opts.getSettingsState : null;
     state.getGalaxy3d = typeof opts.getGalaxy3d === 'function' ? opts.getGalaxy3d : null;
+    state.getGalaxyRoot = typeof opts.getGalaxyRoot === 'function' ? opts.getGalaxyRoot : null;
     state.isSystemModeActive = typeof opts.isSystemModeActive === 'function' ? opts.isSystemModeActive : null;
     state.triggerNavAction = typeof opts.triggerNavAction === 'function' ? opts.triggerNavAction : null;
     state.showToast = typeof opts.showToast === 'function' ? opts.showToast : null;
@@ -33,10 +35,11 @@
     const overlay = root?.querySelector('#galaxy-nav-orb-overlay');
     if (!overlay || overlay.dataset.bound === '1') return;
     overlay.dataset.bound = '1';
+    const actionRoot = (typeof state.getGalaxyRoot === 'function' ? state.getGalaxyRoot() : null) || root;
 
     overlay.querySelectorAll('[data-nav-action]').forEach((button) => {
       if (typeof bindRepeatButton === 'function') {
-        bindRepeatButton(button, root);
+        bindRepeatButton(button, actionRoot);
       }
     });
 
@@ -508,12 +511,12 @@
         if (!action) return;
         activeAction = action;
         if (typeof state.triggerNavAction === 'function') {
-          state.triggerNavAction(action, root);
+          state.triggerNavAction(action, actionRoot);
         }
         if (holdTimer) state.windowRef.clearInterval(holdTimer);
         holdTimer = state.windowRef.setInterval(() => {
           if (!activeAction || typeof state.triggerNavAction !== 'function') return;
-          state.triggerNavAction(activeAction, root);
+          state.triggerNavAction(activeAction, actionRoot);
         }, Math.max(35, Number(navOrbTuning.holdRateMs || 100)));
       };
 
@@ -543,7 +546,7 @@
       canvas.addEventListener('dblclick', (ev) => {
         ev.preventDefault();
         if (!navOrbTuning.snapOnDoubleClick || typeof state.triggerNavAction !== 'function') return;
-        state.triggerNavAction('reset', root);
+        state.triggerNavAction('reset', actionRoot);
       });
 
       canvas.addEventListener('pointerup', stopCanvasHold);

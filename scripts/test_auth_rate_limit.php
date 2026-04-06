@@ -172,14 +172,14 @@ try {
             'remember' => false,
         ], $cookieJar, $csrf);
 
-        if ($resp['status'] !== 401) {
+        if ($resp['status'] !== 200 || ($resp['json']['success'] ?? true) !== false) {
             $hasFailure = true;
-            fail('Attempt #' . $i . ' expected 401, got ' . $resp['status']);
+            fail('Attempt #' . $i . ' expected HTTP 200 with success=false, got status=' . $resp['status']);
             break;
         }
     }
     if (!$hasFailure) {
-        pass('First ' . $maxAttempts . ' failed logins returned HTTP 401');
+        pass('First ' . $maxAttempts . ' failed logins returned HTTP 200 with success=false');
     }
 
     $lockedResp = http_json('POST', $baseUrl . '?action=login', [

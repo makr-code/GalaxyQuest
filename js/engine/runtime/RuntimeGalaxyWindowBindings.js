@@ -75,10 +75,6 @@
     if (typeof state.makeGalaxyOverlayDraggable === 'function') {
       state.makeGalaxyOverlayDraggable(root, '#galaxy-controls-overlay');
       state.makeGalaxyOverlayDraggable(root, '#galaxy-info-overlay');
-      state.makeGalaxyOverlayDraggable(root, '#galaxy-nav-orb-overlay');
-    }
-    if (typeof state.bindGalaxyNavOrb === 'function') {
-      state.bindGalaxyNavOrb(root);
     }
 
     root.querySelector('#gal-load-3d-btn')?.addEventListener('click', () => {
@@ -306,6 +302,31 @@
         state.toggleGalaxyOverlay?.(root, selector, false);
       });
     });
+
+    const infoTabButtons = Array.from(root.querySelectorAll('#galaxy-info-overlay [data-info-tab]'));
+    const infoPanels = Array.from(root.querySelectorAll('#galaxy-info-overlay [data-info-panel]'));
+    const activateInfoTab = (tabKey) => {
+      const key = String(tabKey || 'details').trim().toLowerCase();
+      infoTabButtons.forEach((btn) => {
+        const isActive = String(btn.getAttribute('data-info-tab') || '').toLowerCase() === key;
+        btn.classList.toggle('is-active', isActive);
+        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+      infoPanels.forEach((panel) => {
+        const isActive = String(panel.getAttribute('data-info-panel') || '').toLowerCase() === key;
+        panel.classList.toggle('is-active', isActive);
+      });
+    };
+
+    infoTabButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        activateInfoTab(btn.getAttribute('data-info-tab'));
+      });
+    });
+
+    if (infoTabButtons.length) {
+      activateInfoTab(infoTabButtons[0].getAttribute('data-info-tab'));
+    }
 
     state.refreshPolicyUi?.(root);
     state.refreshGalaxyHealth?.(root, false);

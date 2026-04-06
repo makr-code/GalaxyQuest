@@ -25,11 +25,12 @@
       documentRef.getElementById('footer-quicknav-btn')?.classList.toggle('active', wm.isOpen('quicknav'));
     });
 
-    documentRef?.getElementById('footer-overview-btn')?.addEventListener('click', () => {
+    documentRef.getElementById('footer-nav-orb-btn')?.classList.toggle('active', !!wm?.isOpen?.('nav-orb'));
+    documentRef?.getElementById('footer-nav-orb-btn')?.addEventListener('click', () => {
       if (!wm) return;
-      if (wm.isOpen('overview')) wm.close('overview');
-      else wm.open('overview');
-      documentRef.getElementById('footer-overview-btn')?.classList.toggle('active', wm.isOpen('overview'));
+      if (wm.isOpen('nav-orb')) wm.close('nav-orb');
+      else wm.open('nav-orb');
+      documentRef.getElementById('footer-nav-orb-btn')?.classList.toggle('active', wm.isOpen('nav-orb'));
     });
 
     documentRef?.getElementById('footer-minimap-btn')?.addEventListener('click', () => {

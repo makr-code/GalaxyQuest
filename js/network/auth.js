@@ -104,6 +104,7 @@
   let gameBootPromise = null;
   let startGameShellPromise = null;
   let sessionValidationBreaker = null;
+  let loginSubmitInFlight = false;
 
   function stopSessionValidationBreaker() {
     if (sessionValidationBreaker) {
@@ -667,7 +668,7 @@
       const hostWrapper = document.getElementById('galaxy-host-wrapper');
       const host = document.getElementById('galaxy-3d-host');
       const starfield = document.getElementById('starfield');
-      const hasOrb = !!document.getElementById('galaxy-nav-orb-overlay');
+      const hasNavOrbDom = !!document.getElementById('galaxy-nav-orb-overlay');
       const hasRenderer = !!window.galaxy3d;
       const wm = window.WM;
       const hasGameWindowRegistry = !!(window.GQWindowRegistry && window.GQWindowRegistry.registered);
@@ -699,14 +700,12 @@
         if (!hasRenderer && attempt >= 2 && typeof wm.refresh === 'function') {
           wm.refresh('galaxy');
         }
-        if (!hasOrb && typeof wm.refresh === 'function') {
-          wm.refresh('galaxy');
-        }
       }
-      if (attempt === 0 || attempt >= maxAttempts || !hasOrb) {
+      if (attempt === 0 || attempt >= maxAttempts || !hasGameWindowRegistry) {
         emitShellDebugConsole('ensureGalaxyUiMounted', {
           attempt,
-          hasOrb,
+          hasNavOrbDom,
+          navOrbOpen: !!wm?.isOpen?.('nav-orb'),
           hasRenderer,
           hasGameWindowRegistry,
         });
@@ -720,7 +719,7 @@
     }
 
     if (attempt >= maxAttempts) return;
-    if (document.getElementById('galaxy-nav-orb-overlay')) return;
+    if (window.GQWindowRegistry && window.GQWindowRegistry.registered) return;
     window.setTimeout(() => ensureGalaxyUiMounted(attempt + 1), 240);
   }
 
@@ -1306,7 +1305,10 @@
 
   function isOptionalBootScript(src) {
     const raw = String(src || '').toLowerCase();
-    return raw.includes('js/tests/');
+    return raw.includes('js/tests/')
+      || raw.includes('cdn.jsdelivr.net/npm/dexie')
+      || raw.includes('cdn.jsdelivr.net/npm/three')
+      || raw.includes('cdn.jsdelivr.net/npm/mustache');
   }
 
   async function bootGameRuntime() {
@@ -1651,6 +1653,7 @@
     const code = String(err?.code || '').toUpperCase();
     const status = Number(err?.status || 0);
     const msg = String(err?.message || '').trim();
+    const msgLower = msg.toLowerCase();
 
     if (code === 'EUNREACH') {
       return 'Server derzeit nicht erreichbar. Bitte Verbindung pruefen und erneut versuchen.';
@@ -1658,7 +1661,19 @@
     if (code === 'ETIMEOUT') {
       return 'Zeitueberschreitung beim Server. Bitte erneut versuchen.';
     }
+    if (status === 429 || /too many failed login attempts/.test(msgLower)) {
+      return msg || 'Zu viele fehlgeschlagene Anmeldeversuche. Bitte spaeter erneut versuchen.';
+    }
     if (code === 'EAUTH' || status === 401 || status === 403) {
+      if (/invalid username or password/.test(msgLower)) {
+        return 'Anmeldung fehlgeschlagen. Bitte Benutzername oder E-Mail und Passwort pruefen.';
+      }
+      if (/username\/email and password required/.test(msgLower) || /username and password required/.test(msgLower)) {
+        return 'Bitte Benutzername oder E-Mail sowie Passwort eingeben.';
+      }
+      if (/csrf/.test(msgLower)) {
+        return 'Sitzung abgelaufen. Bitte erneut versuchen.';
+      }
       return msg || 'Anmeldung fehlgeschlagen. Bitte Zugangsdaten pruefen.';
     }
     if (code === 'EPARSE') {
@@ -1795,6 +1810,13 @@
   primeAuthAudio();
 
   loginForm?.addEventListener('submit', async (e) => {
+    if (loginSubmitInFlight) {
+      authLog('warn', 'login submit ignored', 'request already in flight');
+      e.preventDefault();
+      return;
+    }
+
+    loginSubmitInFlight = true;
     authReady.lastLoginSubmitAt = Date.now();
     authProbe('login submit handler entered', 'warn');
     authLog('info', 'login submit fired');
@@ -1894,7 +1916,12 @@
     } catch (err) {
       const status = Number(err?.status || 0);
       const code = String(err?.code || '').toUpperCase();
-      const isAuthFailure = code === 'EAUTH' || status === 401 || status === 403;
+      const msg = String(err?.message || '').toLowerCase();
+      const isAuthFailure = code === 'EAUTH'
+        || status === 401
+        || status === 403
+        || status === 429
+        || /too many failed login attempts|lockout/.test(msg);
       const isReachabilityFailure = code === 'EUNREACH' || code === 'ETIMEOUT';
       if (isAuthFailure) {
         authProbe('login submit auth failure', 'warn');
@@ -1909,6 +1936,7 @@
       hideActionModal();
       setAuthError(errEl, err, userFacingAuthError(err));
     } finally {
+      loginSubmitInFlight = false;
       if (btn) {
         btn.disabled = false;
         btn.textContent = 'Enter the Galaxy';

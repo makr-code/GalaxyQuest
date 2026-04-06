@@ -1,14 +1,14 @@
 (function () {
   const V = Object.freeze({
-    bootManifest: '20260404p1',
+    bootManifest: '20260406p3',
     bootAssets: '20260404p1',
     terminal: '20260404p51',
     starfield: '20260404p110',
     prolog: '1',
-    auth: '20260404p110',
+    auth: '20260404p111',
     assetCore: '20260404p50',
     webgpuCore: '20260401p1',
-    runtime: '20260403p1',
+    runtime: '20260406p4',
     galaxyController: '20260404p2',
     footerNetworkStatus: '20260404p3',
     galaxyStarLoaderFacade: '20260404p4',
@@ -35,7 +35,7 @@
     settings2fa: '20260331p2',
     adminUsers: '20260331p1',
     systemBreadcrumb: '20260331p1',
-    game: '20260404p37',
+    game: '20260406p40',
     flightDriverSmoke: '20260329p1',
     lodStreamingSmoke: '20260329p2'
   });
@@ -47,7 +47,7 @@
   });
 
   const assetVersions = Object.freeze({
-    wm: '20260404p52',
+    wm: '20260404p54',
     audio: V.assetCore,
     gqui: V.gqui,
     galaxyCameraController: '20260329p85',

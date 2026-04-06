@@ -106,66 +106,46 @@
 
             <aside id="galaxy-info-overlay" class="galaxy-overlay-window galaxy-info-overlay hidden">
               <div class="galaxy-overlay-head">
-                <strong>System Details</strong>
+                <strong>Galaxy Intel</strong>
                 <button class="btn btn-sm" data-overlay-close="#galaxy-info-overlay">Close</button>
               </div>
               <div class="galaxy-overlay-shortcuts">Shortcuts: O Controls | I Info | L Follow | V Vectors</div>
-              <div id="galaxy-system-details" class="text-muted">Overlay hidden. Press I to open details.</div>
-              <div class="galaxy-colony-legend" aria-label="Kolonie-Ring-Legende">
-                <div class="galaxy-colony-legend-title">Kolonie-Ringe</div>
-                <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-sm"></span><span>Aussenposten</span></div>
-                <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-md"></span><span>Kolonie</span></div>
-                <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-lg"></span><span>Kernwelt</span></div>
+
+              <div class="galaxy-info-tabs" role="tablist" aria-label="Galaxy Info Tabs">
+                <button class="galaxy-info-tab is-active" type="button" role="tab" aria-selected="true" data-info-tab="details">Details</button>
+                <button class="galaxy-info-tab" type="button" role="tab" aria-selected="false" data-info-tab="planets">Planets</button>
+                <button class="galaxy-info-tab" type="button" role="tab" aria-selected="false" data-info-tab="debug">Debug</button>
               </div>
-              <div class="galaxy-debug-wrap">
-                <div class="galaxy-debug-headline">
-                  <div class="galaxy-debug-title">Lade-/Render-Log</div>
-                  <div class="galaxy-debug-actions">
-                    <button class="btn btn-secondary btn-sm" id="galaxy-debug-copy-btn" type="button">Letzten kopieren</button>
-                    <button class="btn btn-secondary btn-sm" id="galaxy-debug-download-btn" type="button">Download</button>
-                    <button class="btn btn-secondary btn-sm" id="galaxy-debug-clear-btn" type="button">Leeren</button>
-                  </div>
+
+              <section class="galaxy-info-panel is-active" data-info-panel="details">
+                <div id="galaxy-system-details" class="text-muted">Overlay hidden. Press I to open details.</div>
+                <div class="galaxy-colony-legend" aria-label="Kolonie-Ring-Legende">
+                  <div class="galaxy-colony-legend-title">Kolonie-Ringe</div>
+                  <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-sm"></span><span>Aussenposten</span></div>
+                  <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-md"></span><span>Kolonie</span></div>
+                  <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-lg"></span><span>Kernwelt</span></div>
                 </div>
-                <div id="galaxy-debug-log" class="galaxy-debug-log">Keine aktuellen Lade-/Renderfehler.</div>
-              </div>
-              <div id="galaxy-planets-panel" class="galaxy-planets-panel"></div>
+              </section>
+
+              <section class="galaxy-info-panel" data-info-panel="planets">
+                <div id="galaxy-planets-panel" class="galaxy-planets-panel"></div>
+              </section>
+
+              <section class="galaxy-info-panel" data-info-panel="debug">
+                <div class="galaxy-debug-wrap">
+                  <div class="galaxy-debug-headline">
+                    <div class="galaxy-debug-title">Lade-/Render-Log</div>
+                    <div class="galaxy-debug-actions">
+                      <button class="btn btn-secondary btn-sm" id="galaxy-debug-copy-btn" type="button">Letzten kopieren</button>
+                      <button class="btn btn-secondary btn-sm" id="galaxy-debug-download-btn" type="button">Download</button>
+                      <button class="btn btn-secondary btn-sm" id="galaxy-debug-clear-btn" type="button">Leeren</button>
+                    </div>
+                  </div>
+                  <div id="galaxy-debug-log" class="galaxy-debug-log">Keine aktuellen Lade-/Renderfehler.</div>
+                </div>
+              </section>
             </aside>
 
-            <div id="galaxy-nav-orb-overlay" class="galaxy-overlay-window galaxy-nav-orb-overlay">
-              <div class="galaxy-overlay-head galaxy-nav-orb-head">
-                <strong>Nav Canvas</strong>
-                <span id="galaxy-nav-mode-badge" class="galaxy-nav-mode-badge is-galaxy">GALAXY</span>
-              </div>
-              <div class="galaxy-nav-gizmo-wrap">
-                <canvas id="galaxy-nav-gizmo" class="galaxy-nav-gizmo-canvas" width="250" height="250" aria-label="Navigation gizmo" title="X/Y/Z Translation und U/V/W Rotation"></canvas>
-                <div class="galaxy-nav-gizmo-legend">
-                  <span class="axis axis-x">X</span>
-                  <span class="axis axis-y">Y</span>
-                  <span class="axis axis-z">Z</span>
-                  <span class="ring ring-u">U</span>
-                  <span class="ring ring-v">V</span>
-                  <span class="ring ring-w">W</span>
-                </div>
-              </div>
-              <div class="galaxy-nav-strip">
-                <label class="galaxy-nav-slider-row" for="gal-nav-zoom-slider">
-                  <span>Zoom</span>
-                  <input id="gal-nav-zoom-slider" type="range" min="0" max="100" step="1" value="55" />
-                  <span id="gal-nav-zoom-value" class="text-muted">55%</span>
-                </label>
-                <label class="galaxy-nav-slider-row" for="gal-nav-fov-slider">
-                  <span>FOV</span>
-                  <input id="gal-nav-fov-slider" type="range" min="25" max="100" step="1" value="60" />
-                  <span id="gal-nav-fov-value" class="text-muted">60°</span>
-                </label>
-              </div>
-              <div class="galaxy-nav-strip" style="margin-top:0.15rem;grid-template-columns:repeat(4,minmax(0,1fr));">
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="focus" title="Auf Auswahl zentrieren">Center</button>
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="enter-system" title="Ins System zoomen">System</button>
-                <button class="galaxy-nav-mini-btn galaxy-nav-mini-btn-center galaxy-nav-reset-btn" type="button" data-nav-action="reset" title="Reset view">Reset</button>
-                <button class="galaxy-nav-mini-btn" type="button" data-nav-action="home" title="Jump to home system">Home</button>
-              </div>
-            </div>
           </div>
         `;
 
