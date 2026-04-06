@@ -19,15 +19,15 @@
 
 'use strict';
 
-const { IGraphicsRenderer: BaseGraphicsRenderer } = typeof require !== 'undefined'
+var { IGraphicsRenderer: BaseGraphicsRenderer } = typeof require !== 'undefined'
   ? require('./GraphicsContext.js')
   : window.GQGraphicsContext;
 
-const WebGPURenderPass = typeof require !== 'undefined'
+const WebGPURenderPassCtor = typeof require !== 'undefined'
   ? require('../webgpu/WebGPURenderPass.js').WebGPURenderPass
   : window.GQWebGPURenderPass;
 
-const WebGPUShader = typeof require !== 'undefined'
+const WebGPUShaderCtor = typeof require !== 'undefined'
   ? require('../webgpu/WebGPUShader.js').WebGPUShader
   : window.GQWebGPUShader;
 
@@ -126,7 +126,7 @@ class WebGPURenderer extends BaseGraphicsRenderer {
     this._createDepthBuffer(canvas.width || 300, canvas.height || 150);
 
     // 6. Shader pipeline manager
-    this._shaderMgr = new WebGPUShader(this.device);
+    this._shaderMgr = new WebGPUShaderCtor(this.device);
   }
 
   getCapabilities() {
@@ -270,7 +270,7 @@ class WebGPURenderer extends BaseGraphicsRenderer {
     const colorView = this.context.getCurrentTexture().createView();
     const depthView = this._depthTexture ? this._depthTexture.createView() : null;
 
-    this._framePass = new WebGPURenderPass(this.device, colorView, depthView);
+    this._framePass = new WebGPURenderPassCtor(this.device, colorView, depthView);
     this._framePass.begin();
     return this._framePass;
   }

@@ -73,6 +73,14 @@
     "type": "Group",
     "name": "jump_inhibitor",
     "userData": {
+      "gqModelSemantics": {
+        "factionCode": "aethernox",
+        "objectClass": "defense_platform",
+        "archetype": "jump_inhibitor",
+        "designLanguageVersion": "egl-1.0",
+        "silhouetteTags": ["monolith_axis", "balance_rings"],
+        "signatureParts": ["ward_monolith", "anchor_pylons"]
+      },
       "gqAnimations": [
         { "target": "child:1", "property": "rotation.x", "type": "linear", "speed": 0.55 },
         { "target": "child:2", "property": "rotation.z", "type": "linear", "speed": -0.4 },

@@ -23,7 +23,7 @@
     {
       "label": "Docker: Reset DB",
       "type": "shell",
-      "command": "docker compose down -v && docker compose up -d --build",
+      "command": "docker compose down -v && docker compose up -d --build && docker compose exec -T web php scripts/ensure_default_admin.php",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -90,6 +90,86 @@
       "label": "Test: Wormhole Beacon Unlock",
       "type": "shell",
       "command": "docker compose exec -T web php scripts/test_wormhole_beacon_unlock.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Pirates Endpoint Smoke",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/test_pirates_endpoint_smoke.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Economy Endpoint Smoke",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/test_economy_endpoint_smoke.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: NPC Battle Diplomacy Smoke",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/test_npc_battle_diplomacy_smoke.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: War Endpoint Smoke",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/test_war_endpoint_smoke.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: War Forced Peace Tick Smoke",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/test_war_forced_peace_tick_smoke.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: War Offer Lifecycle Smoke",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/test_war_offer_lifecycle_smoke.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: War Goal Progress Smoke",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/test_war_goal_progress_smoke.php",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: War Attrition Goal Smoke",
+      "type": "shell",
+      "command": "docker compose exec -T web php scripts/test_war_attrition_goal_smoke.php",
       "options": {
         "cwd": "${workspaceFolder}"
       },

@@ -81,6 +81,14 @@
     "type": "Group",
     "name": "transport_shuttle",
     "userData": {
+      "gqModelSemantics": {
+        "factionCode": "helion_confederation",
+        "objectClass": "ship",
+        "archetype": "transport_shuttle",
+        "designLanguageVersion": "egl-1.0",
+        "silhouetteTags": ["modular_tradeframe", "cargo_spine"],
+        "signatureParts": ["docking_braids", "trade_rings"]
+      },
       "gqAnimations": []
     },
     "children": [

@@ -11,7 +11,8 @@
   ],
   "textures": [
     { "uuid": "tex_panel_grid", "image": "img_panel_grid", "name": "panel-grid", "wrap": [1000, 1000], "repeat": [2, 1] },
-    { "uuid": "tex_panel_emissive", "image": "img_panel_emissive", "name": "panel-emissive", "wrap": [1000, 1000], "repeat": [4, 1] }
+    { "uuid": "tex_panel_emissive", "image": "img_panel_emissive", "name": "panel-emissive", "wrap": [1000, 1000], "repeat": [4, 1] },
+    { "uuid": "tex_panel_bump", "image": "img_panel_grid", "name": "panel-bump", "wrap": [1000, 1000], "repeat": [3, 2] }
   ],
   "geometries": [
     { "uuid": "geo_hub", "type": "CylinderGeometry", "radiusTop": 1.1, "radiusBottom": 1.1, "height": 1, "radialSegments": 14 },
@@ -23,7 +24,7 @@
     { "uuid": "mat_hub", "type": "MeshStandardMaterial", "color": 4478327, "emissive": 2241365, "emissiveIntensity": 0.28, "roughness": 0.45, "metalness": 0.6 },
     { "uuid": "mat_ring", "type": "MeshStandardMaterial", "color": 5592712, "emissive": 3359846, "emissiveIntensity": 0.22, "roughness": 0.4, "metalness": 0.65 },
     { "uuid": "mat_spoke", "type": "MeshStandardMaterial", "color": 3359829, "roughness": 0.6, "metalness": 0.5 },
-    { "uuid": "mat_panel", "type": "MeshStandardMaterial", "color": 6719385, "emissive": 3359846, "emissiveIntensity": 0.3, "roughness": 0.3, "metalness": 0.7, "transparent": true, "opacity": 0.9, "map": "tex_panel_grid", "emissiveMap": "tex_panel_emissive" }
+    { "uuid": "mat_panel", "type": "MeshPhongMaterial", "color": 6719385, "emissive": 3359846, "emissiveIntensity": 0.3, "specular": 11250603, "shininess": 72, "transparent": true, "opacity": 0.9, "map": "tex_panel_grid", "emissiveMap": "tex_panel_emissive", "bumpMap": "tex_panel_bump", "bumpScale": 0.18, "normalMap": "tex_panel_bump", "normalScale": [0.65, 0.65], "specularMap": "tex_panel_emissive" }
   ],
   "animations": [
     {
@@ -78,6 +79,14 @@
     "type": "Group",
     "name": "space_station",
     "userData": {
+      "gqModelSemantics": {
+        "factionCode": "helion_confederation",
+        "objectClass": "station",
+        "archetype": "space_station",
+        "designLanguageVersion": "egl-1.0",
+        "silhouetteTags": ["modular_tradeframe", "trade_ring_hub"],
+        "signatureParts": ["trade_rings", "docking_braids"]
+      },
       "gqAnimations": [
         { "target": "child:1", "property": "rotation.y", "type": "linear", "speed": 0.32 }
       ]
@@ -90,7 +99,8 @@
       { "uuid": "mesh_spoke_3", "type": "Mesh", "name": "spoke-3", "geometry": "geo_spoke", "material": "mat_spoke", "position": [0, 0, 2.8], "rotation": [1.5708, 0, 0], "userData": { "role": "spoke-3" } },
       { "uuid": "mesh_spoke_4", "type": "Mesh", "name": "spoke-4", "geometry": "geo_spoke", "material": "mat_spoke", "position": [0, 0, -2.8], "rotation": [1.5708, 0, 0], "userData": { "role": "spoke-4" } },
       { "uuid": "mesh_panel_1", "type": "Mesh", "name": "solar-array-1", "geometry": "geo_panel", "material": "mat_panel", "position": [0, 0.65, 0], "userData": { "role": "solar-array-1" } },
-      { "uuid": "mesh_panel_2", "type": "Mesh", "name": "solar-array-2", "geometry": "geo_panel", "material": "mat_panel", "position": [0, -0.65, 0], "rotation": [0, 0.7854, 0], "userData": { "role": "solar-array-2" } }
+      { "uuid": "mesh_panel_2", "type": "Mesh", "name": "solar-array-2", "geometry": "geo_panel", "material": "mat_panel", "position": [0, -0.65, 0], "rotation": [0, 0.7854, 0], "userData": { "role": "solar-array-2" } },
+      { "uuid": "light_station_beacon_1", "type": "PointLight", "name": "light_station_beacon_1", "color": 6737151, "intensity": 1.25, "distance": 8, "decay": 2, "position": [0, 0, 0] }
     ]
   }
 }

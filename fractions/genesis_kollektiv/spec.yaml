@@ -1,0 +1,10 @@
+faction_code: genesis_kollektiv
+faction_name: Das Genesis-Kollektiv
+faction_type: metamorphic
+description: "Post-biologische Gemeinschaft, die Biologie und Technologie verschmilzt."
+status: active_unpredictable
+homeworld: Bio-Forge Clusters
+technology:
+  - Metamorphic biotech
+  - Adaptive hull tissue
+  - Synthetic nutrient loops

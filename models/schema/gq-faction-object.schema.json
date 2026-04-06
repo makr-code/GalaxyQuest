@@ -1,0 +1,547 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galaxyquest.local/schema/gq-faction-object.schema.json",
+  "title": "GalaxyQuest Faction Object Model",
+  "type": "object",
+  "required": [
+    "metadata",
+    "modelId",
+    "label",
+    "version",
+    "scale",
+    "lod",
+    "geometries",
+    "materials",
+    "animations",
+    "object"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["version", "type"],
+      "properties": {
+        "version": { "const": 4.6 },
+        "type": { "const": "Object" },
+        "generator": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "modelId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_\\-]+$",
+      "minLength": 3,
+      "maxLength": 80
+    },
+    "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "version": { "type": "integer", "minimum": 1 },
+    "scale": { "type": "number", "exclusiveMinimum": 0 },
+    "lod": {
+      "type": "object",
+      "required": ["segments_full", "segments_low"],
+      "properties": {
+        "segments_full": { "type": "integer", "minimum": 3 },
+        "segments_low": { "type": "integer", "minimum": 3 }
+      },
+      "description": "segments_low should be <= segments_full (enforce in runtime validator)",
+      "additionalProperties": true
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["uuid", "url"],
+        "properties": {
+          "uuid": { "$ref": "#/$defs/uuidName" },
+          "url": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": true
+      },
+      "default": []
+    },
+    "textures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["uuid", "image"],
+        "properties": {
+          "uuid": { "$ref": "#/$defs/uuidName" },
+          "image": { "$ref": "#/$defs/uuidName" }
+        },
+        "additionalProperties": true
+      },
+      "default": []
+    },
+    "geometries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["uuid", "type"],
+        "properties": {
+          "uuid": { "$ref": "#/$defs/geoUuid" },
+          "type": {
+            "type": "string",
+            "enum": [
+              "BoxGeometry",
+              "SphereGeometry",
+              "CylinderGeometry",
+              "TorusGeometry",
+              "RingGeometry",
+              "OctahedronGeometry"
+            ]
+          },
+          "radialSegments": { "$ref": "#/$defs/segmentInt" },
+          "tubularSegments": { "$ref": "#/$defs/segmentInt" },
+          "widthSegments": { "$ref": "#/$defs/segmentInt" },
+          "heightSegments": { "$ref": "#/$defs/segmentInt" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "materials": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["uuid", "type"],
+        "properties": {
+          "uuid": { "$ref": "#/$defs/matUuid" },
+          "type": { "enum": ["MeshStandardMaterial", "MeshPhongMaterial"] },
+          "color": { "$ref": "#/$defs/colorInt" },
+          "emissive": { "$ref": "#/$defs/colorInt" },
+          "specular": { "$ref": "#/$defs/colorInt" },
+          "shininess": { "type": "number", "minimum": 0, "maximum": 256 },
+          "metalness": { "type": "number", "minimum": 0, "maximum": 1 },
+          "roughness": { "type": "number", "minimum": 0, "maximum": 1 },
+          "map": { "$ref": "#/$defs/uuidName" },
+          "emissiveMap": { "$ref": "#/$defs/uuidName" },
+          "normalMap": { "$ref": "#/$defs/uuidName" },
+          "bumpMap": { "$ref": "#/$defs/uuidName" },
+          "specularMap": { "$ref": "#/$defs/uuidName" },
+          "roughnessMap": { "$ref": "#/$defs/uuidName" },
+          "metalnessMap": { "$ref": "#/$defs/uuidName" },
+          "aoMap": { "$ref": "#/$defs/uuidName" },
+          "alphaMap": { "$ref": "#/$defs/uuidName" },
+          "bumpScale": { "type": "number", "minimum": 0, "maximum": 8 },
+          "normalScale": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "animations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "duration", "tracks"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^(idle|active|alert)_[a-z0-9_\\-]+$"
+          },
+          "duration": { "type": "number", "exclusiveMinimum": 0 },
+          "tracks": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["name", "type", "times", "values"],
+              "properties": {
+                "name": { "type": "string", "minLength": 3 },
+                "type": { "type": "string" },
+                "times": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": { "type": "number" }
+                },
+                "values": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": { "type": "number" }
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "object": {
+      "type": "object",
+      "required": ["uuid", "type", "name", "userData", "children"],
+      "properties": {
+        "uuid": { "$ref": "#/$defs/uuidName" },
+        "type": { "const": "Group" },
+        "name": { "type": "string", "minLength": 3 },
+        "userData": {
+          "type": "object",
+          "required": ["gqModelSemantics"],
+          "properties": {
+            "gqModelSemantics": { "$ref": "#/$defs/gqModelSemantics" },
+            "gqVfxEmitters": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/gqVfxEmitter" }
+            },
+            "gqWeaponFx": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/gqWeaponFx" }
+            },
+            "gqAnimations": {
+              "type": "array",
+              "items": { "type": "object" }
+            }
+          },
+          "additionalProperties": true
+        },
+        "children": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/sceneNode" }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "anyOf": [
+        {
+          "properties": {
+            "animations": { "minItems": 1 }
+          },
+          "required": ["animations"]
+        },
+        {
+          "properties": {
+            "object": {
+              "properties": {
+                "userData": {
+                  "properties": {
+                    "gqAnimations": { "minItems": 1 }
+                  },
+                  "required": ["gqAnimations"]
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "$defs": {
+    "uuidName": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_\\-]+$",
+      "minLength": 3,
+      "maxLength": 100
+    },
+    "geoUuid": {
+      "type": "string",
+      "pattern": "^geo_[a-z0-9_\\-]+$",
+      "minLength": 5,
+      "maxLength": 120
+    },
+    "matUuid": {
+      "type": "string",
+      "pattern": "^mat_[a-z0-9_\\-]+$",
+      "minLength": 5,
+      "maxLength": 120
+    },
+    "segmentInt": {
+      "type": "integer",
+      "minimum": 3,
+      "maximum": 256
+    },
+    "colorInt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16777215
+    },
+    "gqModelSemantics": {
+      "type": "object",
+      "required": [
+        "factionCode",
+        "objectClass",
+        "archetype",
+        "designLanguageVersion",
+        "silhouetteTags",
+        "signatureParts"
+      ],
+      "properties": {
+        "factionCode": {
+          "type": "string",
+          "enum": [
+            "aereth",
+            "aethernox",
+            "architekten_des_lichts",
+            "brut_der_ewigkeit",
+            "echos_der_leere",
+            "helion_confederation",
+            "iron_fleet",
+            "ketzer_von_verath",
+            "khar_morr_syndicate",
+            "kryl_tha",
+            "myr_keth",
+            "nomaden_des_rifts",
+            "omniscienta",
+            "schattenkompakt",
+            "syl_nar",
+            "vel_ar",
+            "vor_tak",
+            "genesis_kollektiv",
+            "zhareen"
+          ]
+        },
+        "objectClass": {
+          "type": "string",
+          "enum": [
+            "ship",
+            "station",
+            "base",
+            "building",
+            "defense_platform",
+            "relay_or_sensor"
+          ]
+        },
+        "archetype": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[a-z0-9_\\-]+$"
+        },
+        "designLanguageVersion": { "const": "egl-1.0" },
+        "silhouetteTags": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_\\-]+$",
+            "minLength": 2,
+            "maxLength": 40
+          }
+        },
+        "signatureParts": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_\\-]+$",
+            "minLength": 2,
+            "maxLength": 40
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "gqVfxEmitter": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "mode",
+        "attachTo",
+        "position",
+        "direction",
+        "count",
+        "lifetime",
+        "speed"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_\\-]+$",
+          "minLength": 3,
+          "maxLength": 60
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["thruster", "muzzle", "impact", "trail", "debris"]
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["continuous", "burst"]
+        },
+        "attachTo": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "position": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "direction": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "count": { "type": "number", "minimum": 1, "maximum": 500 },
+        "lifetime": { "type": "number", "minimum": 0.01, "maximum": 30 },
+        "lifetimeVariance": { "type": "number", "minimum": 0, "maximum": 10 },
+        "speed": { "type": "number", "minimum": 0, "maximum": 200 },
+        "speedVariance": { "type": "number", "minimum": 0, "maximum": 10 },
+        "spread": { "type": "number", "minimum": 0, "maximum": 3.14159 },
+        "colorStart": { "$ref": "#/$defs/colorInt" },
+        "colorEnd": { "$ref": "#/$defs/colorInt" },
+        "sizeStart": { "type": "number", "minimum": 0, "maximum": 10 },
+        "sizeEnd": { "type": "number", "minimum": 0, "maximum": 10 },
+        "gravity": { "type": "number", "minimum": -100, "maximum": 100 },
+        "drag": { "type": "number", "minimum": 0, "maximum": 10 },
+        "duration": { "type": "number", "minimum": 0, "maximum": 600 }
+      },
+      "additionalProperties": true
+    },
+    "gqWeaponFx": {
+      "type": "object",
+      "required": ["id", "kind", "from", "to", "coreColor", "glowColor", "glowRadius", "alpha"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_\\-]+$",
+          "minLength": 3,
+          "maxLength": 60
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["beam", "plasma", "rail", "missile"]
+        },
+        "from": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "to": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "coreColor": { "$ref": "#/$defs/colorInt" },
+        "glowColor": { "$ref": "#/$defs/colorInt" },
+        "glowRadius": { "type": "number", "minimum": 0.01, "maximum": 10 },
+        "alpha": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "sceneNode": {
+      "oneOf": [
+        { "$ref": "#/$defs/meshNode" },
+        { "$ref": "#/$defs/groupNode" },
+        { "$ref": "#/$defs/lightNode" }
+      ]
+    },
+    "meshNode": {
+      "type": "object",
+      "required": ["uuid", "type", "name", "geometry", "material", "userData"],
+      "properties": {
+        "uuid": { "$ref": "#/$defs/uuidName" },
+        "type": { "const": "Mesh" },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "geometry": { "$ref": "#/$defs/geoUuid" },
+        "material": { "$ref": "#/$defs/matUuid" },
+        "position": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "rotation": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "scale": {
+          "type": "array",
+          "items": { "type": "number", "exclusiveMinimum": 0 },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "userData": {
+          "type": "object",
+          "required": ["role"],
+          "properties": {
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z0-9_\\-]+$",
+              "minLength": 2,
+              "maxLength": 60
+            }
+          },
+          "additionalProperties": true
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sceneNode" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "groupNode": {
+      "type": "object",
+      "required": ["uuid", "type", "name", "children"],
+      "properties": {
+        "uuid": { "$ref": "#/$defs/uuidName" },
+        "type": { "const": "Group" },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sceneNode" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "lightNode": {
+      "type": "object",
+      "required": ["uuid", "type", "name", "color", "intensity"],
+      "properties": {
+        "uuid": { "$ref": "#/$defs/uuidName" },
+        "type": {
+          "enum": [
+            "AmbientLight",
+            "DirectionalLight",
+            "HemisphereLight",
+            "PointLight",
+            "SpotLight",
+            "RectAreaLight"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "color": { "$ref": "#/$defs/colorInt" },
+        "groundColor": { "$ref": "#/$defs/colorInt" },
+        "intensity": { "type": "number", "minimum": 0, "maximum": 100 },
+        "distance": { "type": "number", "minimum": 0 },
+        "decay": { "type": "number", "minimum": 0 },
+        "angle": { "type": "number", "minimum": 0, "maximum": 3.14159 },
+        "penumbra": { "type": "number", "minimum": 0, "maximum": 1 },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "position": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

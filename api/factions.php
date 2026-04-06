@@ -17,6 +17,7 @@ require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';   // verify_colony_ownership
 require_once __DIR__ . '/galaxy_seed.php';  // get_faction_government, get_faction_alliances
 require_once __DIR__ . '/ollama_client.php';
+require_once __DIR__ . '/tts_client.php';
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     $action = $_GET['action'] ?? '';
@@ -160,6 +161,16 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         ]);
         $history[] = ['speaker' => 'npc', 'text' => $turn['npc_message']];
 
+        // ── TTS: pre-render NPC audio when TTS service is available ──────────
+        $ttsVoice    = trim((string)($faction['tts_voice'] ?? ''));
+        $ttsAudioUrl = null;
+        if (tts_is_enabled() && $turn['npc_message'] !== '') {
+            $ttsResult = tts_synthesise($turn['npc_message'], ['voice' => $ttsVoice]);
+            if ($ttsResult['ok'] ?? false) {
+                $ttsAudioUrl = (string)($ttsResult['audio_url'] ?? null);
+            }
+        }
+
         json_ok([
             'faction' => [
                 'id' => (int)$faction['id'],
@@ -175,6 +186,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             'quest_hook' => $dialogEffects['quest_hook'] ?? null,
             'model' => $turn['model'],
             'fallback' => !empty($turn['fallback']),
+            'tts_voice' => $ttsVoice !== '' ? $ttsVoice : null,
+            'tts_audio_url' => $ttsAudioUrl,
         ]);
         break;
 

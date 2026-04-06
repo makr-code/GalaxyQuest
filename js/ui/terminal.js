@@ -702,6 +702,11 @@
   });
 
   const originalFetch = window.fetch ? window.fetch.bind(window) : null;
+  function isExpectedAuthProbeMiss(url, status) {
+    if (Number(status || 0) !== 401) return false;
+    const lowerUrl = String(url || '').toLowerCase();
+    return lowerUrl.includes('api/auth.php?action=me');
+  }
   if (originalFetch) {
     window.fetch = async function (...args) {
       const url = String(args?.[0] || '');
@@ -710,6 +715,12 @@
         const response = await originalFetch(...args);
         const took = Math.round(performance.now() - start);
         if (!response.ok) {
+          if (isExpectedAuthProbeMiss(url, response.status)) {
+            if (isDebugEnabled()) {
+              append('debug', [`HTTP ${response.status}`, url, `(${took}ms)`, 'expected-session-miss'], 'fetch');
+            }
+            return response;
+          }
           append('warn', [`HTTP ${response.status}`, url, `(${took}ms)`], 'fetch');
         } else if (isDebugEnabled()) {
           append('debug', [`HTTP ${response.status}`, url, `(${took}ms)`], 'fetch');
@@ -717,10 +728,16 @@
         return response;
       } catch (err) {
         const took = Math.round(performance.now() - start);
+        const urlText = String(url || '');
+        const isQuietAuthProbe = /api\/auth\.php\?action=me(?:&|&amp;)quiet=1/i.test(urlText);
+        const errText = safeStringify(err);
+        const isTimeoutLike = /timeout|etimedout|abort/i.test(String(errText || ''));
         if (isAbortLike(err)) {
           if (isDebugEnabled()) {
             append('debug', ['FetchAbort', url, `(${took}ms)`, safeStringify(err)], 'fetch');
           }
+        } else if (isQuietAuthProbe && isTimeoutLike) {
+          append('warn', ['FetchTimeout', url, `(${took}ms)`, errText], 'fetch');
         } else {
           append('error', ['FetchError', url, `(${took}ms)`, safeStringify(err)], 'fetch');
         }

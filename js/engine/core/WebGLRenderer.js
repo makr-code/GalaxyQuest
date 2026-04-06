@@ -19,7 +19,7 @@
 
 'use strict';
 
-const { IGraphicsRenderer: BaseGraphicsRenderer } = typeof require !== 'undefined'
+var { IGraphicsRenderer: BaseGraphicsRenderer } = typeof require !== 'undefined'
   ? require('./GraphicsContext.js')
   : window.GQGraphicsContext;
 

@@ -38,3 +38,6 @@ Thumbs.db
 *.swp
 *.swo
 *.pyc\n__pycache__/
+
+# TTS runtime audio cache (generated MP3s)
+cache/tts/*.mp3

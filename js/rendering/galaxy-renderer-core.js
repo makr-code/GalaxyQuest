@@ -51,6 +51,117 @@
 
   ensureGalaxyEngineBridge();
 
+  function resolveThreeRuntime(win) {
+    const three = win?.THREE || null;
+    const hasCoreCtors = (obj) => !!obj
+      && (typeof obj === 'object' || typeof obj === 'function')
+      && typeof obj.Vector3 === 'function'
+      && typeof obj.Scene === 'function';
+
+    const candidates = [];
+    const push = (value) => {
+      if (!value) return;
+      if (candidates.includes(value)) return;
+      candidates.push(value);
+    };
+
+    push(three);
+    if (three && (typeof three === 'object' || typeof three === 'function')) {
+      push(three.THREE);
+      push(three.default);
+      push(three.module);
+      push(three.namespace);
+    }
+    push(win?.__GQ_THREE_RUNTIME || null);
+    push(win?.__THREE__ || null);
+    push(win?.THREE_NS || null);
+
+    try {
+      const names = Object.getOwnPropertyNames(win || {});
+      for (const name of names) {
+        if (!/three/i.test(String(name || ''))) continue;
+        push(win[name]);
+      }
+    } catch (_) {}
+
+    for (const candidate of candidates) {
+      if (!hasCoreCtors(candidate)) continue;
+      try {
+        win.THREE = candidate;
+        win.__GQ_THREE_RUNTIME = candidate;
+      } catch (_) {}
+      return candidate;
+    }
+
+    return null;
+  }
+
+  function ensureThreeMathUtils(win) {
+    const three = resolveThreeRuntime(win);
+    if (!three || (typeof three !== 'object' && typeof three !== 'function')) return false;
+
+    const existing = (three.MathUtils && typeof three.MathUtils === 'object') ? three.MathUtils : {};
+    const fallback = {
+      clamp(value, min, max) {
+        const v = Number(value);
+        const lo = Number(min);
+        const hi = Number(max);
+        if (!Number.isFinite(v) || !Number.isFinite(lo) || !Number.isFinite(hi)) return lo;
+        return Math.min(hi, Math.max(lo, v));
+      },
+      lerp(a, b, t) {
+        const ta = Number(a);
+        const tb = Number(b);
+        const tt = Number(t);
+        if (!Number.isFinite(ta) || !Number.isFinite(tb)) return 0;
+        const k = Number.isFinite(tt) ? Math.min(1, Math.max(0, tt)) : 0;
+        return ta + (tb - ta) * k;
+      },
+      degToRad(deg) {
+        const d = Number(deg);
+        if (!Number.isFinite(d)) return 0;
+        return d * (Math.PI / 180);
+      },
+    };
+
+    try {
+      three.MathUtils = Object.assign({}, fallback, existing);
+    } catch (_) {
+      return false;
+    }
+    return typeof three.MathUtils?.clamp === 'function';
+  }
+
+  function getThreeMathUtils(win) {
+    const math = win?.THREE?.MathUtils;
+    if (math && typeof math.clamp === 'function') return math;
+    if (ensureThreeMathUtils(win) && win?.THREE?.MathUtils && typeof win.THREE.MathUtils.clamp === 'function') {
+      return win.THREE.MathUtils;
+    }
+    return {
+      clamp(value, min, max) {
+        const v = Number(value);
+        const lo = Number(min);
+        const hi = Number(max);
+        if (!Number.isFinite(v) || !Number.isFinite(lo) || !Number.isFinite(hi)) return lo;
+        return Math.min(hi, Math.max(lo, v));
+      },
+      lerp(a, b, t) {
+        const ta = Number(a);
+        const tb = Number(b);
+        const tt = Number(t);
+        if (!Number.isFinite(ta) || !Number.isFinite(tb)) return 0;
+        const k = Number.isFinite(tt) ? Math.min(1, Math.max(0, tt)) : 0;
+        return ta + (tb - ta) * k;
+      },
+      degToRad(deg) {
+        const d = Number(deg);
+        if (!Number.isFinite(d)) return 0;
+        return d * (Math.PI / 180);
+      },
+    };
+  }
+
   function createFallbackRendererConfig() {
     return {
       getOptionDefaults() {
@@ -117,8 +228,8 @@
     const generatedPlanets = planets.filter((planet) => !!planet?.generated_planet).length;
     const playerPlanets = planets.filter((planet) => !!planet?.player_planet).length;
     const moonCount = planets.reduce((sum, planet) => {
-      const generatedMoons = Array.isArray(planet?.generated_planet?.moons) ? planet.generated_planet.moons.length : 0;
-      const playerMoons = Array.isArray(planet?.player_planet?.moons) ? planet.player_planet.moons.length : 0;
+        const generatedMoons = Array.isArray(planet?.generated_planet?.moons) ? planet.generated_planet.moons.length : 0;
+        const playerMoons = Array.isArray(planet?.player_planet?.moons) ? planet.player_planet.moons.length : 0;
       return sum + generatedMoons + playerMoons;
     }, 0);
     return {
@@ -195,7 +306,11 @@
   class Galaxy3DRenderer {
     constructor(container, opts = {}) {
       if (!container) throw new Error('Galaxy3DRenderer: missing container');
-      if (!window.THREE) throw new Error('Galaxy3DRenderer: THREE not loaded');
+      const threeRuntime = resolveThreeRuntime(window);
+      if (!threeRuntime) throw new Error('Galaxy3DRenderer: THREE runtime invalid (Vector3/Scene missing)');
+      if (!ensureThreeMathUtils(window)) {
+        throw new Error('Galaxy3DRenderer: THREE.MathUtils unavailable');
+      }
 
       this.container = container;
       window.__GQ_RENDERER_INSTANCE_SEQ = Number(window.__GQ_RENDERER_INSTANCE_SEQ || 0) + 1;
@@ -306,6 +421,9 @@
             planetTextureSize: Number(this.qualityProfile?.textures?.planetTextureSize || 256),
             planetMaxEntries: Number(this.qualityProfile?.textures?.planetMaxEntries || 128),
             proceduralMaxEntries: Number(this.qualityProfile?.textures?.proceduralMaxEntries || 128),
+            serverTexturesEnabled: this.opts.serverTexturesEnabled !== false,
+            serverTextureEndpoint: String(this.opts.serverTextureEndpoint || 'api/textures.php'),
+            serverTextureAlgoVersion: String(this.opts.serverTextureAlgoVersion || 'v1'),
           })
         : null;
       this.geometryManager = window.GQGeometryManager
@@ -382,6 +500,12 @@
       this.systemMoonEntries = [];
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
+      this.systemInstallationWeaponFxEntries = [];
+      this.systemInstallationBurstFxEntries = [];
+      this.pendingInstallationWeaponFire = [];
+      this.beamEffect = null;  // Instanced beam pool (Phase FX-3)
+      this.debrisManager = null;  // Debris state machine & registry (Phase FX-5)
+      this._warnedMissingDebrisManager = false;
       this.galaxyFleetEntries = [];
       this.systemAtmosphereEntries = [];
       this.systemCloudEntries = [];
@@ -393,6 +517,7 @@
         neutral: '#6a8cc9',
       };
       this.clusterBoundsVisible = true;
+      this.clusterHeatmapEnabled = true;
       this.hoverClusterIndex = -1;
       this.selectedClusterIndex = -1;
       this.empireHeartbeatFactionId = null;
@@ -479,6 +604,7 @@
         planet: 2.65,
       }, runtimeTuning.focusDamping || {});
       this.destroyed = false;
+      this._inputContextOverride = '';
       this.prevCamPos = this.camera.position.clone();
       this.cameraVelocity = new THREE.Vector3();
       this.autoFrameEnabled = true;
@@ -491,9 +617,21 @@
           log.warn('[renderer] GalaxyCameraController nicht geladen — Driver-Funktionalität nicht verfügbar');
         }
         this._kbdMove = { forward: false, back: false, left: false, right: false, up: false, down: false, panL: false, panR: false, panU: false, panD: false };
+      this._inputDragState = {
+        active: false,
+        button: -1,
+        mode: '',
+        startTarget: null,
+        startPosition: null,
+        startSpherical: null,
+      };
+
+      this._ensureModelRegistryVfxBridge();
+      this._registerCombatFxBridge();
 
       this._setupScene();
       this._bindEvents();
+      this._bindCombatEventHooks();
       this._onResize();
       this._debugLog('renderer-init', {
         lodProfile: this.lodProfile,
@@ -684,6 +822,14 @@
       this.systemStarInstallationGroup.visible = false;
       this.renderFrames.system.add(this.systemStarInstallationGroup);
 
+      this.systemInstallationWeaponFxGroup = new THREE.Group();
+      this.systemInstallationWeaponFxGroup.visible = false;
+      this.renderFrames.system.add(this.systemInstallationWeaponFxGroup);
+
+      this.systemInstallationBurstFxGroup = new THREE.Group();
+      this.systemInstallationBurstFxGroup.visible = false;
+      this.renderFrames.system.add(this.systemInstallationBurstFxGroup);
+
       this.systemTrafficGroup = new THREE.Group();
       this.systemTrafficGroup.visible = false;
       this.renderFrames.system.add(this.systemTrafficGroup);
@@ -692,6 +838,100 @@
       this._buildGalacticCore();
       this._buildGalaxyBackgroundGlow();
       this._buildHoverMarker();
+      this._buildSelectionMarker();
+    }
+
+    _registerCombatFxBridge() {
+      const bridge = window.GQGalaxyEngineBridge;
+      if (!bridge || typeof bridge.registerAdapter !== 'function') return;
+
+      const adapter = {
+        emitWeaponFire: (payload) => this._queueInstallationWeaponFire(payload),
+        emitWeaponFireBatch: (events) => {
+          if (!Array.isArray(events)) return 0;
+          let accepted = 0;
+          events.forEach((payload) => {
+            if (this._queueInstallationWeaponFire(payload)) accepted += 1;
+          });
+          return accepted;
+        },
+        getRendererInstanceId: () => this.instanceId,
+      };
+
+      bridge.registerAdapter('system-combat-fx', adapter);
+      bridge.registerAdapter('galaxy-renderer', adapter);
+    }
+
+    _bindCombatEventHooks() {
+      this._onCombatWeaponFireEvent = (ev) => {
+        const payload = ev?.detail ?? ev?.payload ?? null;
+        this._queueInstallationWeaponFire(payload);
+      };
+      window.addEventListener('gq:combat:weapon-fire', this._onCombatWeaponFireEvent);
+      window.addEventListener('gq:weapon-fire', this._onCombatWeaponFireEvent);
+    }
+
+    _queueInstallationWeaponFire(payload) {
+      if (!payload || typeof payload !== 'object') return false;
+
+      const sourcePosition = Number(payload.sourcePosition ?? payload.origin_position ?? payload.position ?? 0);
+      const sourceOwner = String(payload.sourceOwner ?? payload.owner ?? '').trim();
+      const sourceType = String(payload.sourceType ?? payload.installType ?? payload.type ?? '').trim().toLowerCase();
+      const weaponKind = String(payload.weaponKind ?? payload.kind ?? '').trim().toLowerCase();
+
+      if (!sourcePosition && !sourceOwner && !sourceType && !weaponKind) return false;
+
+      this.pendingInstallationWeaponFire.push({
+        sourcePosition,
+        sourceOwner,
+        sourceType,
+        weaponKind,
+        ts: performance.now(),
+      });
+      if (this.pendingInstallationWeaponFire.length > 180) {
+        this.pendingInstallationWeaponFire.splice(0, this.pendingInstallationWeaponFire.length - 180);
+      }
+      return true;
+    }
+
+    /**
+     * Public API: Enqueue a weapon-fire event for installations/entities in this system.
+     * 
+     * Event fields (all optional):
+     * - sourceType: 'installation' | 'ship' | 'debris' | 'wormhole' (null = broadcast all)
+     * - sourceOwner: faction/owner name to filter (null = all)
+     * - sourcePosition: [reserved] target position index
+     * - weaponKind: 'laser' | 'beam' | ... to filter (null = all)
+     * - targetPos: [x,y,z] impact point [unused, for future particles]
+     * - energy: energy/power display [unused, for future HUD]
+     * 
+     * @param {object} event - Weapon-fire event payload
+     * @returns {boolean} - True if queued, false if invalid
+     */
+    enqueueInstallationWeaponFire(event) {
+      return this._queueInstallationWeaponFire(event);
+    }
+
+    _ensureModelRegistryVfxBridge() {
+      const registry = window.__GQ_ModelRegistry;
+      if (!registry || typeof registry.setVfxBridge !== 'function') return;
+      if (registry.__gqRendererVfxBridgeInstalled) return;
+
+      registry.setVfxBridge((instance, payload) => {
+        if (!instance?.userData) return;
+        const emitters = Array.isArray(payload?.emitters) ? payload.emitters : [];
+        const weapons = Array.isArray(payload?.weapons) ? payload.weapons : [];
+        instance.userData.gqResolvedVfx = {
+          emitters,
+          weapons,
+          counts: {
+            emitters: emitters.length,
+            weapons: weapons.length,
+          },
+        };
+      });
+
+      registry.__gqRendererVfxBridgeInstalled = true;
     }
 
     _syncSystemSkyDome(dt = 0) {
@@ -1186,7 +1426,7 @@
       this.renderFrames.galaxy.add(this.coreStars);
     }
 
-    _buildHoverMarker() {
+    _buildMarkerSprite(options = {}) {
       const size = 96;
       const canvas = document.createElement('canvas');
       canvas.width = size;
@@ -1195,18 +1435,24 @@
       if (!ctx) return;
 
       const center = size / 2;
+      const outerRadius = Number(options.outerRadius || (size * 0.29));
+      const innerRadius = Number(options.innerRadius || (size * 0.14));
+      const outerStroke = String(options.outerStroke || 'rgba(122, 194, 255, 0.72)');
+      const innerStroke = String(options.innerStroke || 'rgba(214, 238, 255, 0.52)');
+      const outerWidth = Number(options.outerWidth || 3);
+      const innerWidth = Number(options.innerWidth || 1.5);
       ctx.clearRect(0, 0, size, size);
 
       ctx.beginPath();
-      ctx.arc(center, center, size * 0.29, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(122, 194, 255, 0.72)';
-      ctx.lineWidth = 3;
+      ctx.arc(center, center, outerRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = outerStroke;
+      ctx.lineWidth = outerWidth;
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.arc(center, center, size * 0.14, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(214, 238, 255, 0.52)';
-      ctx.lineWidth = 1.5;
+      ctx.arc(center, center, innerRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = innerStroke;
+      ctx.lineWidth = innerWidth;
       ctx.stroke();
 
       const texture = new THREE.CanvasTexture(canvas);
@@ -1218,10 +1464,36 @@
         color: 0xffffff,
       });
 
-      this.hoverMarker = new THREE.Sprite(material);
-      this.hoverMarker.visible = false;
-      this.hoverMarker.renderOrder = 20;
+      const marker = new THREE.Sprite(material);
+      marker.visible = false;
+      marker.renderOrder = Number(options.renderOrder || 20);
+      return marker;
+    }
+
+    _buildHoverMarker() {
+      this.hoverMarker = this._buildMarkerSprite({
+        outerStroke: 'rgba(122, 194, 255, 0.72)',
+        innerStroke: 'rgba(214, 238, 255, 0.52)',
+        outerWidth: 3,
+        innerWidth: 1.5,
+        renderOrder: 20,
+      });
+      if (!this.hoverMarker) return;
       this.scene.add(this.hoverMarker);
+    }
+
+    _buildSelectionMarker() {
+      this.selectionMarker = this._buildMarkerSprite({
+        outerRadius: 32,
+        innerRadius: 10,
+        outerStroke: 'rgba(255, 217, 122, 0.88)',
+        innerStroke: 'rgba(255, 246, 214, 0.76)',
+        outerWidth: 4,
+        innerWidth: 2,
+        renderOrder: 21,
+      });
+      if (!this.selectionMarker) return;
+      this.scene.add(this.selectionMarker);
     }
 
     _spectralColorHex(spectralClass) {
@@ -1251,6 +1523,7 @@
               m.map?.dispose?.();
               m.bumpMap?.dispose?.();
               m.emissiveMap?.dispose?.();
+              m.cityMap?.dispose?.();
               m.normalMap?.dispose?.();
               m.alphaMap?.dispose?.();
             }
@@ -1262,6 +1535,7 @@
             child.material.map?.dispose?.();
             child.material.bumpMap?.dispose?.();
             child.material.emissiveMap?.dispose?.();
+            child.material.cityMap?.dispose?.();
             child.material.normalMap?.dispose?.();
             child.material.alphaMap?.dispose?.();
           }
@@ -1277,6 +1551,53 @@
         return Object.assign({ version: payload?.planet_texture_manifest?.version || 1 }, manifest[position]);
       }
       return null;
+    }
+
+    _hashSeed(input) {
+      const key = String(input || '0');
+      let hash = 2166136261;
+      for (let i = 0; i < key.length; i += 1) {
+        hash ^= key.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return hash >>> 0;
+    }
+
+    _objectTextureDescriptor(objectType, source, fallbackColor, seedOverride = null, overrides = null) {
+      const type = String(objectType || 'generic').toLowerCase();
+      const baseColor = new THREE.Color(fallbackColor || 0x9aa7b8);
+      const secondary = baseColor.clone().multiplyScalar(0.74);
+      const accent = baseColor.clone().lerp(new THREE.Color(0xffffff), 0.24);
+      const ice = baseColor.clone().lerp(new THREE.Color(0xdfeeff), 0.55);
+      const baseKey = `${type}:${source?.id || source?.name || source?.slug || source?.type || source?.position || source?.index || ''}`;
+      const seed = Number.isFinite(seedOverride)
+        ? (seedOverride >>> 0)
+        : this._hashSeed(baseKey || JSON.stringify(source || {}));
+
+      const defaults = {
+        version: 1,
+        seed,
+        variant: type === 'star' || type === 'sun' ? 'lava' : 'rocky',
+        palette: {
+          base: `#${baseColor.getHexString()}`,
+          secondary: `#${secondary.getHexString()}`,
+          accent: `#${accent.getHexString()}`,
+          ice: `#${ice.getHexString()}`,
+        },
+        banding: type === 'star' || type === 'sun' ? 0.32 : 0.12,
+        clouds: type === 'moon' || type === 'ship' || type === 'fleet' || type === 'building' ? 0 : 0.08,
+        craters: type === 'moon' ? 0.24 : 0.08,
+        ice_caps: type === 'moon' ? 0.08 : 0,
+        glow: type === 'star' || type === 'sun' ? 0.82 : 0.14,
+        roughness: type === 'ship' || type === 'fleet' || type === 'building' ? 0.42 : 0.78,
+        metalness: type === 'ship' || type === 'fleet' || type === 'building' ? 0.56 : 0.08,
+      };
+      return Object.assign(defaults, overrides || {});
+    }
+
+    _objectTextureBundle(objectType, descriptor, fallbackColor) {
+      if (!this.textureManager || !descriptor) return null;
+      return this.textureManager.getObjectTextureBundle(objectType, descriptor, fallbackColor);
     }
 
     _planetMaterial(payload, slot, body, index) {
@@ -1619,18 +1940,19 @@
       const cls = String(body?.planet_class || '').toLowerCase();
       let baseSize = 0;
       if (diameter > 0) {
-        const scale = cls.includes('gas') ? 7000 : 10500;
-        const max = cls.includes('gas') ? 14.5 : 10.8;
-        baseSize = THREE.MathUtils.clamp(2.6 + diameter / scale, 2.6, max);
+        const scale = cls.includes('gas') ? 9500 : 14500;
+        const min = cls.includes('gas') ? 3.0 : 1.8;
+        const max = cls.includes('gas') ? 8.8 : 5.8;
+        baseSize = THREE.MathUtils.clamp(min + diameter / scale, min, max);
       } else {
-        if (cls.includes('gas')) baseSize = 8.6 + (fallbackIndex % 3) * 1.1;
-        else if (cls.includes('ice')) baseSize = 5.4 + (fallbackIndex % 2) * 0.7;
-        else baseSize = 3 + (fallbackIndex % 4) * 0.85;
+        if (cls.includes('gas')) baseSize = 5.9 + (fallbackIndex % 3) * 0.65;
+        else if (cls.includes('ice')) baseSize = 3.1 + (fallbackIndex % 2) * 0.38;
+        else baseSize = 2.1 + (fallbackIndex % 4) * 0.42;
       }
       // Scientific scaling: Scale planet size proportionally to orbital distance
       if (this.useScientificScale && orbitRadius > 0) {
         const referenceOrbit = 50; // Base orbit where game-scale applies
-        const orbitFactor = Math.max(0.3, Math.min(1.8, orbitRadius / referenceOrbit));
+        const orbitFactor = Math.max(0.55, Math.min(1.25, orbitRadius / referenceOrbit));
         baseSize *= orbitFactor;
       }
       return baseSize;
@@ -1719,6 +2041,63 @@
         ((value >> 8) & 0xff) / 255,
         (value & 0xff) / 255,
       ];
+    }
+
+    _clusterGroupHeat(entry) {
+      if (!entry || typeof entry !== 'object') return 0;
+      const systems = Array.isArray(entry.systems)
+        ? entry.systems.map((n) => Number(n || 0)).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+      let systemHeat = 0;
+      if (systems.length && this.empireHeartbeatSystems instanceof Set && this.empireHeartbeatSystems.size) {
+        let hits = 0;
+        for (let i = 0; i < systems.length; i++) {
+          if (this.empireHeartbeatSystems.has(systems[i])) hits += 1;
+        }
+        systemHeat = hits > 0 ? (hits / systems.length) : 0;
+      }
+
+      const clusterFactionId = Number(entry?.cluster?.faction?.id || entry?.cluster?.faction?.faction_id || 0);
+      const heartbeatFactionId = Number(this.empireHeartbeatFactionId || 0);
+      const factionHeat = (heartbeatFactionId > 0 && clusterFactionId > 0 && heartbeatFactionId === clusterFactionId) ? 1 : 0;
+      return THREE.MathUtils.clamp(Math.max(systemHeat, factionHeat), 0, 1);
+    }
+
+    _starEventSeverity(star) {
+      const row = (star && typeof star === 'object') ? star : {};
+      const threatRaw = Number(
+        row.event_severity
+        ?? row.threat_level
+        ?? row.alert_level
+        ?? row.threat
+        ?? 0
+      );
+      let threatScore = 0;
+      if (Number.isFinite(threatRaw) && threatRaw > 0) {
+        if (threatRaw <= 1) threatScore = threatRaw;
+        else if (threatRaw <= 5) threatScore = threatRaw / 5;
+        else if (threatRaw <= 10) threatScore = threatRaw / 10;
+        else threatScore = threatRaw / 100;
+      }
+      const activeEvents = Array.isArray(row.active_events) ? row.active_events.length : 0;
+      const eventCount =
+        Number(row.event_count || 0)
+        + Number(row.events_count || 0)
+        + Number(row.situations_count || 0)
+        + Number(row.alert_count || 0)
+        + Number(row.anomaly_count || 0)
+        + activeEvents;
+      const eventScore = eventCount > 0
+        ? THREE.MathUtils.clamp(Math.log2(eventCount + 1) / 4.8, 0, 1)
+        : 0;
+      const criticalSignals = [
+        row.under_attack,
+        row.combat_active,
+        row.emergency,
+        row.anomaly_active,
+      ].filter(Boolean).length;
+      const criticalBoost = THREE.MathUtils.clamp(criticalSignals * 0.18, 0, 0.42);
+      return THREE.MathUtils.clamp(Math.max(threatScore, eventScore) + criticalBoost, 0, 1);
     }
 
     setClusterColorPalette(palette = {}) {
@@ -1895,11 +2274,56 @@
       this.clusterAuraGroup.visible = !!this.starPoints.visible;
     }
 
+    _annotateSelectionPayload(payload, meta = {}) {
+      if (!payload || typeof payload !== 'object') return null;
+      const kind = String(meta.kind || payload.__kind || 'star');
+      const scope = String(meta.scope || payload.__selectionScope || (this.systemMode ? 'system' : 'galaxy'));
+      const mode = String(meta.mode || payload.__selectionMode || (this.systemMode ? 'system' : 'galaxy'));
+      const sourceView = String(meta.sourceView || payload.__selectionSourceView || 'renderer');
+      let selectionKey = String(meta.selectionKey || payload.__selectionKey || '').trim();
+      if (!selectionKey) {
+        if (kind === 'cluster') {
+          selectionKey = `cluster:${Number(payload.__clusterIndex || -1)}`;
+        } else if (kind === 'planet') {
+          selectionKey = `planet:${Number(payload.__sourceStar?.galaxy_index || payload.galaxy_index || 0)}:${Number(payload.__sourceStar?.system_index || payload.system || 0)}:${Number(payload.id || payload.planet_id || payload.__slot?.position || payload.position || 0)}`;
+        } else if (kind === 'system_fleet' || kind === 'galaxy_fleet') {
+          selectionKey = `${kind}:${Number(payload.id || payload.fleet_id || 0)}`;
+        } else if (kind === 'orbital_facility') {
+          selectionKey = `orbital_facility:${Number(payload.__slot?.player_planet?.colony_id || payload.colony_id || 0)}:${Number(payload.__slot?.position || 0)}`;
+        } else if (kind === 'star_installation') {
+          selectionKey = `star_installation:${Number(payload.id || payload.installation_id || 0)}`;
+        } else if (kind === 'system_traffic') {
+          selectionKey = `system_traffic:${Number(payload.orbitRadius || 0)}:${Number(payload.orbitSpeed || 0)}`;
+        } else if (kind === 'ftl_node') {
+          selectionKey = `ftl_node:${Number(payload.id || payload.node_id || 0)}`;
+        } else if (kind === 'ftl_gate') {
+          selectionKey = `ftl_gate:${Number(payload.id || payload.gate_id || 0)}:${String(payload.__endpoint || '')}`;
+        } else {
+          selectionKey = `star:${Number(payload.galaxy_index || 0)}:${Number(payload.system_index || 0)}`;
+        }
+      }
+      return Object.assign({}, payload, {
+        __kind: kind,
+        __selectionKey: selectionKey,
+        __selectionScope: scope,
+        __selectionMode: mode,
+        __selectionSourceView: sourceView,
+      });
+    }
+
+    _starPayload(star) {
+      return this._annotateSelectionPayload(star || null, {
+        kind: 'star',
+        scope: 'galaxy',
+        mode: 'galaxy',
+      });
+    }
+
     _clusterPayload(entry, index) {
       if (!entry) return null;
       const cluster = entry.cluster || {};
       const resolvedColor = this._clusterAuraColor(cluster);
-      return Object.assign({}, cluster, {
+      return this._annotateSelectionPayload(Object.assign({}, cluster, {
         __kind: 'cluster',
         __clusterIndex: index,
         __clusterColor: this._toHexColor(resolvedColor, '#6a8cc9'),
@@ -1915,6 +2339,11 @@
         },
         __clusterSystems: Array.isArray(entry.systems) ? entry.systems.slice() : [],
         __clusterBoundsVisible: !!this.clusterBoundsVisible,
+      }), {
+        kind: 'cluster',
+        scope: 'cluster',
+        mode: 'galaxy',
+        selectionKey: `cluster:${Number(index || -1)}`,
       });
     }
 
@@ -2212,6 +2641,8 @@
           center,
           size,
           systems: systemsForCluster,
+          baseColor: new THREE.Color(color),
+          heatColor: new THREE.Color(0xff8a54),
         });
       });
     }
@@ -2234,14 +2665,26 @@
       facilities.slice(0, 8).forEach((facility, facilityIndex) => {
         const angle = (facilityIndex / Math.max(1, facilities.length)) * Math.PI * 2;
         const fColor = this._facilityColor(facility.category);
-        const fTex = this._fleetHullTexture(fColor, (index * 31 + facilityIndex * 17) >>> 0);
+        const textureSeed = (index * 31 + facilityIndex * 17) >>> 0;
+        const descriptor = this._objectTextureDescriptor('building', facility, fColor, textureSeed, {
+          variant: 'desert',
+          roughness: 0.54,
+          metalness: 0.44,
+          glow: 0.18,
+          clouds: 0,
+          ice_caps: 0,
+        });
+        const bundle = this._objectTextureBundle('building', descriptor, fColor);
+        const fTex = bundle?.map || this._fleetHullTexture(fColor, textureSeed);
         const fMaterial = this.materialFactory
-          ? this.materialFactory.createFleetHullMaterial(fColor, fTex)
+          ? this.materialFactory.createFleetHullMaterial(fColor, bundle || fTex)
           : new THREE.MeshStandardMaterial({
               color: fColor,
               map: fTex,
+              bumpMap: bundle?.bumpMap || null,
+              bumpScale: bundle?.bumpMap ? 0.05 : 0,
               emissive: fColor,
-              emissiveMap: fTex,
+              emissiveMap: bundle?.emissiveMap || fTex,
               emissiveIntensity: 0.2,
               roughness: 0.56,
               metalness: 0.38,
@@ -2349,6 +2792,15 @@
           orbitRadius,
           orbitMinor,
         });
+        const installParticles = this._createInstallationParticleField(
+          colorHex,
+          type,
+          level,
+          mesh.userData?.gqResolvedVfx || mesh.userData?.resolvedVfx || null,
+        );
+        if (installParticles) {
+          mesh.add(installParticles);
+        }
         this.systemStarInstallationGroup.add(mesh);
 
         // Build a faint orbit ring for the installation
@@ -2370,10 +2822,772 @@
           position:    Number(install.position || 0),
           owner:       String(install.owner || ''),
           animState,
+          installParticles,
           modelAnims:  this._extractModelAnimations(type),
           elapsed:     0,
         });
+
+        this._initInstallationWeaponFxEntry(this.systemStarInstallationEntries[this.systemStarInstallationEntries.length - 1]);
+        this._initInstallationBurstFxEntry(this.systemStarInstallationEntries[this.systemStarInstallationEntries.length - 1]);
       });
+    }
+
+    _initInstallationWeaponFxEntry(entry) {
+      if (!entry?.mesh || !this.systemInstallationWeaponFxGroup) return;
+      const resolved = entry.mesh.userData?.gqResolvedVfx || entry.mesh.userData?.resolvedVfx || null;
+      const weapons = Array.isArray(resolved?.weapons) ? resolved.weapons : [];
+      if (!weapons.length) return;
+
+      weapons.forEach((weapon, idx) => {
+        const kind = String(weapon?.kind || '').toLowerCase();
+        if (kind !== 'beam' && kind !== 'plasma' && kind !== 'rail' && kind !== 'missile') return;
+        const sourceNode = typeof weapon.fromResolvedUuid === 'string'
+          ? entry.mesh.getObjectByProperty('uuid', weapon.fromResolvedUuid)
+          : null;
+        const coreColor = Number.isInteger(weapon?.coreColor) ? weapon.coreColor : 0x66ccff;
+        const glowColor = Number.isInteger(weapon?.glowColor) ? weapon.glowColor : coreColor;
+        const alpha = THREE.MathUtils.clamp(Number(weapon?.alpha || 0.8), 0.08, 1);
+
+        const profile = this._installationWeaponFxProfile(kind);
+
+        const points = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0)];
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+          color: profile.lineUsesGlow ? glowColor : coreColor,
+          transparent: true,
+          opacity: alpha,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const line = new THREE.Line(geometry, material);
+        line.visible = false;
+        line.userData = Object.assign({}, line.userData, {
+          kind: 'installation-weapon-beam',
+          beamId: String(weapon.id || `beam_${idx}`),
+          weaponKind: kind,
+          baseAlpha: alpha,
+          profile,
+          pulseOffset: Math.random() * Math.PI * 2,
+        });
+        this.systemInstallationWeaponFxGroup.add(line);
+
+        let headMesh = null;
+        if (profile.useHeadMesh) {
+          headMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(profile.headRadius, 8, 8),
+            new THREE.MeshBasicMaterial({
+              color: glowColor,
+              transparent: true,
+              opacity: THREE.MathUtils.clamp(alpha * 0.95, 0.08, 1),
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+            }),
+          );
+          headMesh.visible = false;
+          this.systemInstallationWeaponFxGroup.add(headMesh);
+        }
+
+        this.systemInstallationWeaponFxEntries.push({
+          installEntry: entry,
+          weapon,
+          kind,
+          profile,
+          sourceNode,
+          line,
+          headMesh,
+          nextFireAt: 0,
+          fireUntil: 0,
+        });
+      });
+    }
+
+    _installationWeaponFxProfile(kind) {
+      switch (String(kind || '').toLowerCase()) {
+        case 'plasma':
+          return {
+            lineUsesGlow: true,
+            useHeadMesh: true,
+            headRadius: 0.11,
+            pulseFreq: 8.2,
+            pulseMin: 0.36,
+            pulseMax: 0.96,
+            travelSpeed: 0.72,
+            drawsTrailToSource: true,
+            strobe: false,
+          };
+        case 'rail':
+          return {
+            lineUsesGlow: false,
+            useHeadMesh: false,
+            headRadius: 0,
+            pulseFreq: 17.5,
+            pulseMin: 0.12,
+            pulseMax: 1.0,
+            travelSpeed: 1.35,
+            drawsTrailToSource: false,
+            strobe: true,
+          };
+        case 'missile':
+          return {
+            lineUsesGlow: true,
+            useHeadMesh: true,
+            headRadius: 0.15,
+            pulseFreq: 5.8,
+            pulseMin: 0.32,
+            pulseMax: 0.9,
+            travelSpeed: 0.48,
+            drawsTrailToSource: true,
+            strobe: false,
+          };
+        case 'beam':
+        default:
+          return {
+            lineUsesGlow: false,
+            useHeadMesh: false,
+            headRadius: 0,
+            pulseFreq: 11.0,
+            pulseMin: 0.38,
+            pulseMax: 1.0,
+            travelSpeed: 0,
+            drawsTrailToSource: false,
+            strobe: false,
+          };
+      }
+    }
+
+    _installationWeaponFxCadence(kind, state) {
+      const s = String(state || 'idle').toLowerCase();
+      const alert = s === 'alert';
+      switch (String(kind || '').toLowerCase()) {
+        case 'plasma': return alert ? 0.75 : 1.15;
+        case 'rail': return alert ? 0.42 : 0.8;
+        case 'missile': return alert ? 1.35 : 2.1;
+        case 'beam':
+        default:
+          return alert ? 0.28 : 0.5;
+      }
+    }
+
+    _installationWeaponFxShotDuration(kind, state) {
+      const s = String(state || 'idle').toLowerCase();
+      const alert = s === 'alert';
+      switch (String(kind || '').toLowerCase()) {
+        case 'plasma': return alert ? 0.52 : 0.36;
+        case 'rail': return alert ? 0.1 : 0.08;
+        case 'missile': return alert ? 0.72 : 0.55;
+        case 'beam':
+        default:
+          return alert ? 0.34 : 0.22;
+      }
+    }
+
+    _triggerInstallationWeaponFire(fxEntry, elapsed, activeState, cadenceScale = 1) {
+      const cadence = this._installationWeaponFxCadence(fxEntry.kind, activeState) * Math.max(0.1, Number(cadenceScale) || 1);
+      const shotDuration = this._installationWeaponFxShotDuration(fxEntry.kind, activeState);
+      fxEntry.fireUntil = Math.max(Number(fxEntry.fireUntil || 0), elapsed + shotDuration);
+      fxEntry.nextFireAt = elapsed + cadence;
+
+      // Add to BeamEffect pool (Phase FX-3 instanced rendering)
+      if (this.beamEffect && fxEntry.worldFrom && fxEntry.worldTo) {
+        const beamRecord = {
+          id: String(fxEntry?.weapon?.id || `beam_${fxEntry?.kind}_${Date.now()}`),
+          from: fxEntry.worldFrom,
+          to: fxEntry.worldTo,
+          coreColor: Number(fxEntry?.weapon?.coreColor ?? 0x66ccff),
+          color: Number(fxEntry?.weapon?.glowColor ?? fxEntry?.weapon?.coreColor ?? 0x66ccff),
+          glowRadius: 0.4,
+          duration: shotDuration,
+        };
+        this.beamEffect.addBeam(beamRecord);
+      }
+
+      const installEntry = fxEntry.installEntry;
+      if (installEntry && elapsed >= Number(installEntry.burstCooldownUntil || 0)) {
+        this._spawnInstallationBurstFx(installEntry, elapsed);
+      }
+    }
+
+    _applyPendingInstallationWeaponFire(elapsed) {
+      if (!Array.isArray(this.pendingInstallationWeaponFire) || !this.pendingInstallationWeaponFire.length) return;
+
+      const events = this.pendingInstallationWeaponFire.splice(0, this.pendingInstallationWeaponFire.length);
+      
+      events.forEach((ev) => {
+        const eventSourceType = String(ev?.sourceType || '').toLowerCase();
+        
+        // Phase 2: Multi-entity routing
+        switch (eventSourceType) {
+          case 'ship':
+            this._applyWeaponFireToShips(ev, elapsed);
+            break;
+          case 'debris':
+            this._applyWeaponFireToDebris(ev, elapsed);
+            break;
+          case 'wormhole':
+          case 'gate':
+          case 'beacon':
+            this._applyWeaponFireToWormholes(ev, elapsed);
+            break;
+          case 'installation':
+          case '': // null/empty defaults to installation broadcast
+          case null:
+          default:
+            this._applyWeaponFireToInstallations(ev, elapsed);
+        }
+      });
+    }
+
+    /**
+     * Apply a weapon-fire event to stations/installations in this system.
+     * @param {object} ev - Event payload
+     * @param {number} elapsed - Frame elapsed time
+     * @private
+     */
+    _applyWeaponFireToInstallations(ev, elapsed) {
+      if (!Array.isArray(this.systemInstallationWeaponFxEntries) || !this.systemInstallationWeaponFxEntries.length) return;
+
+      this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
+        const installEntry = fxEntry?.installEntry;
+        if (!installEntry?.mesh) return;
+
+        // Filter by weapon kind
+        if (ev.weaponKind && ev.weaponKind !== String(fxEntry.kind || '').toLowerCase()) return;
+        
+        // Filter by source owner (null = all)
+        if (ev.sourceOwner && ev.sourceOwner !== String(installEntry.owner || '').trim()) return;
+        
+        // Fire!
+        const state = String(installEntry.animState || installEntry.mesh.userData?.animState || 'active');
+        this._triggerInstallationWeaponFire(fxEntry, elapsed, state, 0.7);
+      });
+    }
+
+    // ============================================================================
+    // Phase 2 Stubs: Ship/Debris/Wormhole Weapon Fire (Future Implementation)
+    // ============================================================================
+
+    /**
+     * Apply weapon-fire event to ships/vessels in this system.
+     * 
+     * Matches ships by:
+     * - sourceOwner: faction/player name
+     * - weaponKind: laser, beam, missile, etc.
+     * 
+     * Triggers beams from ship hardpoints to closest enemy beacon/installation.
+     * 
+     * @param {object} ev - Event payload with sourceType='ship'
+     * @param {number} elapsed - Frame elapsed time
+     * @private
+     */
+    _applyWeaponFireToShips(ev, elapsed) {
+      if (!Array.isArray(this.systemFleetEntries) || !this.systemFleetEntries.length) return;
+
+      this.systemFleetEntries.forEach((fleetEntry) => {
+        if (!fleetEntry?.mesh || !fleetEntry?.fleet) return;
+
+        // Filter by source owner (null = all)
+        if (ev.sourceOwner && ev.sourceOwner !== String(fleetEntry.fleet.owner || '').trim()) return;
+        
+        // Filter by weapon kind if specified
+        if (ev.weaponKind) {
+          const ship = fleetEntry.fleet;
+          const hasWeapon = String(ship?.armament || ship?.weapons || '').toLowerCase().includes(ev.weaponKind);
+          if (!hasWeapon) return;
+        }
+
+        // Fire ship weapon
+        const state = String(fleetEntry.mesh.userData?.animState || 'active');
+        this._triggerShipWeaponFire(fleetEntry, ev, elapsed, state);
+      });
+    }
+
+    /**
+     * Trigger weapon fire from a ship.
+     * Creates beams from ship position to nearby enemy installations.
+     * 
+     * @param {object} fleetEntry - Ship entry with mesh and fleet data
+     * @param {object} ev - Event payload
+     * @param {number} elapsed - Frame elapsed time
+     * @param {string} state - Animation state (active, damaged, etc)
+     * @private
+     */
+    _triggerShipWeaponFire(fleetEntry, ev, elapsed, state = 'active') {
+      if (!fleetEntry?.mesh || !this.beamEffect) return;
+
+      // Get ship position
+      const shipWorldPos = new THREE.Vector3();
+      fleetEntry.mesh.getWorldPosition(shipWorldPos);
+
+      // Find closest enemy installation as target
+      let closestInstall = null;
+      let closestDist = Number.MAX_VALUE;
+
+      if (Array.isArray(this.systemInstallationWeaponFxEntries)) {
+        this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
+          const install = fxEntry?.installEntry;
+          if (!install?.mesh) return;
+          
+          // Skip friendly installations
+          const installOwner = String(install.owner || '').trim();
+          const shipOwner = String(fleetEntry.fleet?.owner || '').trim();
+          if (installOwner === shipOwner) return;
+
+          // Check distance
+          const installWorldPos = new THREE.Vector3();
+          install.mesh.getWorldPosition(installWorldPos);
+          const dist = shipWorldPos.distanceTo(installWorldPos);
+
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestInstall = { fxEntry, world: installWorldPos };
+          }
+        });
+      }
+
+      // Create beam to target
+      if (closestInstall && closestDist < 200) { // Range limit
+        const cadence = this._installationWeaponFxCadence(ev.weaponKind || 'laser', state);
+        const shotDuration = this._installationWeaponFxShotDuration(ev.weaponKind || 'laser', state);
+
+        const beamRecord = {
+          id: `ship_beam_${fleetEntry.fleet?.id}_${Date.now()}`,
+          from: shipWorldPos.toArray(),
+          to: closestInstall.world.toArray(),
+          coreColor: Number(ev.coreColor ?? 0x00ff88),
+          color: Number(ev.color ?? 0x00ff88),
+          glowRadius: 0.35,
+          duration: shotDuration,
+        };
+
+        this.beamEffect.addBeam(beamRecord);
+        
+        // Set up next fire interval
+        if (!fleetEntry._nextShipFire) fleetEntry._nextShipFire = {};
+        fleetEntry._nextShipFire[ev.weaponKind || 'default'] = elapsed + cadence;
+      }
+    }
+
+    /**
+     * Apply weapon-fire event to debris/wreckage in this system.
+     * 
+     * PHASE 3 COMPLETE:
+     * - Damage accumulation via DebrisManager state machine
+     * - State transitions (intact → damaged → critical → destroyed)
+     * - Progressive fragment spawning based on damage level
+     * - Material damage visualization
+     * - Destruction callback with explosion effects
+     * 
+     * @param {object} ev - Event payload with sourceType='debris'
+     * @param {number} elapsed - Frame elapsed time
+     * @private
+     */
+    _applyWeaponFireToDebris(ev, elapsed) {
+      if (!this.debrisManager) {
+        // Fallback: simple impact burst (Phase 2)
+        this._spawnDebrisImpactBurst(ev, elapsed);
+        return;
+      }
+
+      // TODO: Match debris by position/ID from targetPos
+      // For now: apply damage to all debris in system (or use sourcePosition as ID)
+      if (!ev.targetPos) return;
+
+      const targetPos = ev.targetPos;
+      const damageAmount = Number(ev.damage ?? 25);
+
+      // Find nearest debris object within range
+      const nearestDebris = this._findNearestDebrisToPosition(targetPos, 50);
+      if (!nearestDebris) {
+        // No debris found, spawn impact burst
+        this._spawnDebrisImpactBurst(ev, elapsed);
+        return;
+      }
+
+      // Apply damage via DebrisManager (triggers state machine)
+      this.debrisManager.applyDamage(nearestDebris.id, damageAmount, {
+        attacker: String(ev.sourceOwner || 'unknown'),
+        weaponKind: String(ev.weaponKind || 'impact'),
+        timestamp: elapsed,
+      });
+
+      // Spawn fragments based on new state
+      const debris = this.debrisManager.get(nearestDebris.id);
+      this._spawnDebrisFragmentsByState(debris, targetPos, elapsed);
+    }
+
+    /**
+     * Simple debris impact burst (fallback from Phase 2)
+     * Spawns particles at impact location
+     * @private
+     */
+    _spawnDebrisImpactBurst(ev, elapsed) {
+      if (!ev.targetPos || !Array.isArray(ev.targetPos) || !this.systemInstallationBurstFxGroup) return;
+
+      const impactPos = new THREE.Vector3(...ev.targetPos);
+      
+      const count = 12;
+      const positions = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        const idx = i * 3;
+        const angle = (i / count) * Math.PI * 2;
+        const r = 0.3;
+        positions[idx] = Math.cos(angle) * r;
+        positions[idx + 1] = (Math.random() - 0.5) * 0.2;
+        positions[idx + 2] = Math.sin(angle) * r;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: 0xffaa44,
+        size: 0.08,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      
+      const burst = new THREE.Points(geometry, material);
+      burst.position.copy(impactPos);
+      burst.userData = {
+        kind: 'debris-impact',
+        age: 0,
+        duration: 0.4,
+      };
+
+      this.systemInstallationBurstFxGroup.add(burst);
+    }
+
+    /**
+     * Find nearest debris object to world position
+     * @param {[number, number, number]} worldPos - World coordinates
+     * @param {number} maxDistance - Search radius
+     * @returns {object|null} Debris entry with metadata or null
+     * @private
+     */
+    _findNearestDebrisToPosition(worldPos, maxDistance = 50) {
+      if (!this.debrisManager) return null;
+
+      const targetVec = new THREE.Vector3(...worldPos);
+      let nearest = null;
+      let nearestDist = maxDistance;
+
+      this.debrisManager.getAll().forEach((debris) => {
+        const debrisVec = new THREE.Vector3(...debris.position);
+        const dist = targetVec.distanceTo(debrisVec);
+
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = debris;
+        }
+      });
+
+      return nearest;
+    }
+
+    /**
+     * Spawn debris fragments based on cumulative damage state
+     * Progressive emission: damaged→critical→destroyed
+     * 
+     * @param {object} debris - Debris object from manager
+     * @param {[number, number, number]} impactPos - Impact location
+     * @param {number} elapsed - Frame time
+     * @private
+     */
+    _spawnDebrisFragmentsByState(debris, impactPos, elapsed) {
+      if (!debris || !this.systemInstallationBurstFxGroup) return;
+
+      let fragmentCount = 0;
+      let spreadAngle = 0.2 * Math.PI;
+      let fragmentColor = 0xffaa44;
+
+      // Determine emission intensity by state
+      switch (debris.state) {
+        case 'damaged':
+          fragmentCount = 6;
+          spreadAngle = 0.3 * Math.PI;
+          fragmentColor = 0xffaa44;  // Orange
+          break;
+        case 'critical':
+          fragmentCount = 12;
+          spreadAngle = 0.4 * Math.PI;
+          fragmentColor = 0xff6622;  // Darker orange/red
+          break;
+        case 'destroyed':
+          fragmentCount = 24;
+          spreadAngle = 0.5 * Math.PI;
+          fragmentColor = 0xff2200;  // Red
+          break;
+        default:
+          return;
+      }
+
+      // Spawn fragments
+      const positions = new Float32Array(fragmentCount * 3);
+      for (let i = 0; i < fragmentCount; i++) {
+        const idx = i * 3;
+        const angle = (i / fragmentCount) * Math.PI * 2 + (Math.random() - 0.5) * spreadAngle;
+        const r = 0.2 + Math.random() * 0.5;
+        positions[idx] = Math.cos(angle) * r;
+        positions[idx + 1] = (Math.random() - 0.5) * 0.3;
+        positions[idx + 2] = Math.sin(angle) * r;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: fragmentColor,
+        size: 0.05 + Math.random() * 0.08,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+
+      const burst = new THREE.Points(geometry, material);
+      burst.position.set(...impactPos);
+      burst.userData = {
+        kind: 'debris-fragments',
+        age: 0,
+        duration: 0.8 + Math.random() * 0.4,
+        state: debris.state,
+      };
+
+      this.systemInstallationBurstFxGroup.add(burst);
+
+      // Update debris material
+      this._updateDebrisMaterialByState(debris, elapsed);
+    }
+
+    /**
+     * Update debris mesh material based on damage state
+     * Progressive darkening and color shift toward red
+     * 
+     * @param {object} debris - Debris from manager
+     * @param {number} elapsed - Frame time
+     * @private
+     */
+    _updateDebrisMaterialByState(debris, elapsed) {
+      if (!debris.mesh || !debris.mesh.material) return;
+
+      const material = debris.mesh.material;
+      const dmg = debris.damageLevel;
+
+      // Color progression: white → orange → red
+      const targetColor = new THREE.Color(1, 0.3, 0.2);  // Red/orange
+      const blend = Math.min(1.0, dmg * 1.5);  // Exaggerate color shift
+
+      if (material.color) {
+        material.color.lerp(targetColor, blend * 0.4);
+      }
+
+      if (material.emissive) {
+        material.emissive.lerp(targetColor, blend * 0.6);
+      }
+
+      if ('emissiveIntensity' in material) {
+        material.emissiveIntensity = blend * 0.7;
+      }
+
+      // Optional: darken material
+      if ('opacity' in material) {
+        material.opacity = 1.0 - blend * 0.15;  // Slight transparency as damage increases
+      }
+    }
+
+    /**
+     * Callback when debris is destroyed
+     * Triggers final explosion effects
+     * 
+     * @param {object} debris - Destroyed debris object
+     * @private
+     */
+    _onDebrisDestroyed(debris) {
+      if (!debris || !this.systemInstallationBurstFxGroup) return;
+
+      // Final explosion burst
+      const count = 24;
+      const positions = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        const idx = i * 3;
+        const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+        const r = 0.4 + Math.random() * 0.6;
+        positions[idx] = Math.cos(angle) * r;
+        positions[idx + 1] = (Math.random() - 0.5) * 0.5;
+        positions[idx + 2] = Math.sin(angle) * r;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: 0xff4400,
+        size: 0.12,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+
+      const explosion = new THREE.Points(geometry, material);
+      explosion.position.set(...debris.position);
+      explosion.userData = {
+        kind: 'debris-explosion',
+        age: 0,
+        duration: 1.0,
+      };
+
+      this.systemInstallationBurstFxGroup.add(explosion);
+
+      // Dispatch destruction event
+      window.dispatchEvent(new CustomEvent('gq:debris:destroyed', {
+        detail: {
+          debrisId: debris.id,
+          position: debris.position,
+          state: debris.state,
+          damageLevel: debris.damageLevel,
+        },
+      }));
+    }
+
+    /**
+     * Apply weapon-fire event to wormholes/gateways/beacons in this system.
+     * 
+     * PHASE 2 PLANNING:
+     * - Locate active wormhole/gateway meshes
+     * - Animate destabilization shader/colors
+     * - Trigger rupture sequence when energy threshold hit
+     * - Cascade effects to linked wormholes
+     * 
+     * Currently: Creates pulsing beam discharge effect.
+     * 
+     * @param {object} ev - Event payload with sourceType='wormhole|gate|beacon'
+     * @param {number} elapsed - Frame elapsed time
+     * @private
+     */
+    _applyWeaponFireToWormholes(ev, elapsed) {
+      // TODO: Full wormhole destabilization system in future Phase
+      // For now: Generic energy discharge effect
+      if (!this.beamEffect) return;
+
+      // Look for wormhole/gate/beacon in installation registry
+      if (!Array.isArray(this.systemInstallationWeaponFxEntries)) return;
+
+      this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
+        const install = fxEntry?.installEntry;
+        if (!install?.mesh) return;
+
+        // Match wormholes/gates/beacons by type
+        const installType = String(install.type || install.kind || '').toLowerCase();
+        if (!installType.includes('wormhole') && 
+            !installType.includes('gate') && 
+            !installType.includes('beacon')) return;
+
+        // Filter by owner if specified
+        if (ev.sourceOwner && ev.sourceOwner !== String(install.owner || '').trim()) return;
+
+        // Create discharge beam pattern (spiral around entity)
+        const installWorldPos = new THREE.Vector3();
+        install.mesh.getWorldPosition(installWorldPos);
+
+        // Create radial discharge beams
+        const numBeams = 3;
+        for (let i = 0; i < numBeams; i++) {
+          const angle = (i / numBeams) * Math.PI * 2 + elapsed;
+          const offset = new THREE.Vector3(
+            Math.cos(angle) * 3,
+            Math.sin(angle) * 2,
+            Math.cos(angle + 1) * 2
+          );
+
+          const beamRecord = {
+            id: `wormhole_discharge_${install.id}_${i}_${Date.now()}`,
+            from: installWorldPos.toArray(),
+            to: installWorldPos.clone().add(offset).toArray(),
+            coreColor: 0x6600ff,
+            color: 0x9933ff,
+            glowRadius: 0.5,
+            duration: 0.08,
+          };
+
+          this.beamEffect.addBeam(beamRecord);
+        }
+      });
+    }
+
+    _initInstallationBurstFxEntry(entry) {
+      if (!entry?.mesh) return;
+      const resolved = entry.mesh.userData?.gqResolvedVfx || entry.mesh.userData?.resolvedVfx || null;
+      const emitters = Array.isArray(resolved?.emitters) ? resolved.emitters : [];
+      entry.burstEmitters = emitters.filter((emitter) => {
+        const mode = String(emitter?.mode || '').toLowerCase();
+        const kind = String(emitter?.kind || '').toLowerCase();
+        if (mode !== 'burst') return false;
+        return kind === 'muzzle' || kind === 'impact' || kind === 'debris' || kind === 'trail';
+      });
+      entry.burstCooldownUntil = 0;
+    }
+
+    _spawnInstallationBurstFx(entry, elapsed = 0) {
+      if (!entry?.mesh || !Array.isArray(entry.burstEmitters) || !entry.burstEmitters.length) return;
+      if (!this.systemInstallationBurstFxGroup) return;
+
+      const localPosition = new THREE.Vector3();
+      const worldPosition = new THREE.Vector3();
+
+      entry.burstEmitters.forEach((emitter, emitterIdx) => {
+        const sourceNode = typeof emitter?.attachResolvedUuid === 'string'
+          ? entry.mesh.getObjectByProperty('uuid', emitter.attachResolvedUuid)
+          : null;
+        const count = THREE.MathUtils.clamp(Number(emitter?.count || 12), 8, 40);
+        const duration = THREE.MathUtils.clamp(Number(emitter?.lifetime || 0.22), 0.08, 1.1);
+        const spread = THREE.MathUtils.clamp(Number(emitter?.spread || 0.18), 0.02, Math.PI);
+        const sizeStart = THREE.MathUtils.clamp(Number(emitter?.sizeStart || 0.1), 0.02, 0.35);
+        const colorStart = Number.isInteger(emitter?.colorStart) ? Number(emitter.colorStart) : 0xffbb66;
+
+        if (sourceNode?.isObject3D) {
+          sourceNode.getWorldPosition(worldPosition);
+        } else {
+          entry.mesh.getWorldPosition(worldPosition);
+        }
+        this.systemInstallationBurstFxGroup.worldToLocal(localPosition.copy(worldPosition));
+
+        const positions = new Float32Array(count * 3);
+        for (let i = 0; i < count; i += 1) {
+          const idx = i * 3;
+          const a = (Math.random() - 0.5) * spread + emitterIdx * 0.2;
+          const r = (0.08 + Math.random() * 0.34) * (1 + spread * 0.35);
+          const y = (Math.random() - 0.5) * 0.3;
+          positions[idx] = Math.cos(a) * r;
+          positions[idx + 1] = y;
+          positions[idx + 2] = Math.sin(a) * r;
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({
+          color: new THREE.Color(colorStart),
+          size: sizeStart,
+          transparent: true,
+          opacity: 0.95,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          sizeAttenuation: true,
+        });
+        const burst = new THREE.Points(geometry, material);
+        burst.position.copy(localPosition);
+        burst.userData = Object.assign({}, burst.userData, {
+          kind: 'installation-burst-fx',
+          age: 0,
+          duration,
+          fadeBase: material.opacity,
+          growRate: 1.6 + Math.random() * 1.4,
+        });
+
+        this.systemInstallationBurstFxGroup.add(burst);
+        this.systemInstallationBurstFxEntries.push(burst);
+      });
+
+      entry.burstCooldownUntil = elapsed + (0.7 + Math.random() * 0.5);
     }
 
     /**
@@ -2401,11 +3615,28 @@
       const color = new THREE.Color(colorHex);
       const group = new THREE.Group();
       const scale = 1 + (level - 1) * 0.12;
+      const installSeed = this._hashSeed(`${type}:${level}:${colorHex}`);
+      const installDescriptor = this._objectTextureDescriptor('building', { type, level, colorHex }, color.getHex(), installSeed, {
+        variant: 'desert',
+        roughness: 0.5,
+        metalness: 0.6,
+        glow: 0.22,
+        clouds: 0,
+      });
+      const installBundle = this._objectTextureBundle('building', installDescriptor, color.getHex());
 
       if (type === 'stargate') {
         const ringMat = this.materialFactory
-          ? this.materialFactory.createHotGlowMaterial(color)
-          : new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.7, roughness: 0.25, metalness: 0.75 });
+          ? this.materialFactory.createHotGlowMaterial(color, color, installBundle)
+          : new THREE.MeshStandardMaterial({
+              color: installBundle?.map ? 0xffffff : color,
+              map: installBundle?.map || null,
+              emissive: color,
+              emissiveMap: installBundle?.emissiveMap || null,
+              emissiveIntensity: 0.7,
+              roughness: 0.25,
+              metalness: 0.75,
+            });
         const ring = new THREE.Mesh(
           new THREE.TorusGeometry(3.2, 0.22, 14, 60),
           ringMat,
@@ -2413,8 +3644,16 @@
         ring.rotation.x = Math.PI / 2;
         group.add(ring);
         const coreMat = this.materialFactory
-          ? this.materialFactory.createHotGlowMaterial(color)
-          : new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.4, roughness: 0.1, metalness: 0.85 });
+          ? this.materialFactory.createHotGlowMaterial(color, color, installBundle)
+          : new THREE.MeshStandardMaterial({
+              color: installBundle?.map ? 0xffffff : color,
+              map: installBundle?.map || null,
+              emissive: color,
+              emissiveMap: installBundle?.emissiveMap || null,
+              emissiveIntensity: 1.4,
+              roughness: 0.1,
+              metalness: 0.85,
+            });
         const core = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.55),
           coreMat,
@@ -2422,58 +3661,254 @@
         group.add(core);
       } else if (type === 'relay_station') {
         const hubMat = this.materialFactory
-          ? this.materialFactory.createStationBodyMaterial(color)
-          : new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.28, roughness: 0.55, metalness: 0.5 });
+          ? this.materialFactory.createStationBodyMaterial(color, installBundle)
+          : new THREE.MeshStandardMaterial({
+              color: installBundle?.map ? 0xffffff : color,
+              map: installBundle?.map || null,
+              emissive: color,
+              emissiveMap: installBundle?.emissiveMap || null,
+              emissiveIntensity: 0.28,
+              roughness: 0.55,
+              metalness: 0.5,
+            });
         const hub = new THREE.Mesh(
           new THREE.CylinderGeometry(0.6, 0.6, 1.6, 10),
           hubMat,
         );
         group.add(hub);
         const panelMat = this.materialFactory
-          ? this.materialFactory.createStationPanelMaterial(color, 0.88)
-          : new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.3, metalness: 0.65, transparent: true, opacity: 0.88 });
+          ? this.materialFactory.createStationPanelMaterial(color, 0.88, installBundle)
+          : new THREE.MeshStandardMaterial({
+              color: installBundle?.map ? 0xffffff : color,
+              map: installBundle?.map || null,
+              emissive: color,
+              emissiveMap: installBundle?.emissiveMap || null,
+              emissiveIntensity: 0.35,
+              roughness: 0.3,
+              metalness: 0.65,
+              transparent: true,
+              opacity: 0.88,
+            });
         const panel = new THREE.Mesh(
           new THREE.BoxGeometry(2.6, 0.12, 0.55),
           panelMat,
         );
         group.add(panel);
       } else if (type === 'jump_inhibitor') {
+        const inhibitorCoreColor = new THREE.Color(0xaa2222);
+        const inhibitorRingColor = new THREE.Color(0xff3333);
+        const inhibitorCoreDescriptor = this._objectTextureDescriptor('building', { type, level, phase: 'core' }, inhibitorCoreColor.getHex(), installSeed + 1, {
+          variant: 'lava',
+          glow: 0.76,
+          roughness: 0.34,
+          metalness: 0.66,
+          clouds: 0,
+          craters: 0.04,
+        });
+        const inhibitorRingDescriptor = this._objectTextureDescriptor('building', { type, level, phase: 'ring' }, inhibitorRingColor.getHex(), installSeed + 2, {
+          variant: 'lava',
+          glow: 0.9,
+          roughness: 0.22,
+          metalness: 0.72,
+          clouds: 0,
+          craters: 0.02,
+        });
+        const inhibitorCoreBundle = this._objectTextureBundle('building', inhibitorCoreDescriptor, inhibitorCoreColor.getHex());
+        const inhibitorRingBundle = this._objectTextureBundle('building', inhibitorRingDescriptor, inhibitorRingColor.getHex());
         const core = new THREE.Mesh(
           new THREE.OctahedronGeometry(1.0),
-          new THREE.MeshStandardMaterial({ color: 0xaa2222, emissive: 0x880000, emissiveIntensity: 0.55, roughness: 0.4, metalness: 0.65 }),
+          this.materialFactory
+            ? this.materialFactory.createHotGlowMaterial(inhibitorCoreColor, 0x880000, inhibitorCoreBundle)
+            : new THREE.MeshStandardMaterial({
+                color: inhibitorCoreBundle?.map ? 0xffffff : 0xaa2222,
+                map: inhibitorCoreBundle?.map || null,
+                bumpMap: inhibitorCoreBundle?.bumpMap || null,
+                bumpScale: inhibitorCoreBundle?.bumpMap ? 0.03 : 0,
+                emissive: 0x880000,
+                emissiveMap: inhibitorCoreBundle?.emissiveMap || null,
+                emissiveIntensity: 0.55,
+                roughness: 0.4,
+                metalness: 0.65,
+              }),
         );
         group.add(core);
         [0, Math.PI / 2, Math.PI / 4].forEach((rotY) => {
           const ring = new THREE.Mesh(
             new THREE.TorusGeometry(2.0, 0.14, 10, 40),
-            new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0xcc0000, emissiveIntensity: 0.9, roughness: 0.2, metalness: 0.7, transparent: true, opacity: 0.82 }),
+            this.materialFactory
+              ? this.materialFactory.createHotGlowMaterial(inhibitorRingColor, 0xcc0000, inhibitorRingBundle)
+              : new THREE.MeshStandardMaterial({
+                  color: inhibitorRingBundle?.map ? 0xffffff : 0xff3333,
+                  map: inhibitorRingBundle?.map || null,
+                  bumpMap: inhibitorRingBundle?.bumpMap || null,
+                  bumpScale: inhibitorRingBundle?.bumpMap ? 0.02 : 0,
+                  emissive: 0xcc0000,
+                  emissiveMap: inhibitorRingBundle?.emissiveMap || null,
+                  emissiveIntensity: 0.9,
+                  roughness: 0.2,
+                  metalness: 0.7,
+                  transparent: true,
+                  opacity: 0.82,
+                }),
           );
           ring.rotation.y = rotY;
           group.add(ring);
         });
       } else if (type === 'deep_space_radar') {
+        const radarDescriptor = this._objectTextureDescriptor('building', { type, level, colorHex }, color.getHex(), installSeed + 3, {
+          variant: 'desert',
+          roughness: 0.58,
+          metalness: 0.52,
+          glow: 0.24,
+          clouds: 0,
+        });
+        const radarBundle = this._objectTextureBundle('building', radarDescriptor, color.getHex());
         const base = new THREE.Mesh(
           new THREE.CylinderGeometry(0.3, 0.45, 1.8, 8),
-          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.2, roughness: 0.6, metalness: 0.5 }),
+          this.materialFactory
+            ? this.materialFactory.createStationBodyMaterial(color, radarBundle)
+            : new THREE.MeshStandardMaterial({
+                color: radarBundle?.map ? 0xffffff : color,
+                map: radarBundle?.map || null,
+                bumpMap: radarBundle?.bumpMap || null,
+                bumpScale: radarBundle?.bumpMap ? 0.04 : 0,
+                emissive: color,
+                emissiveMap: radarBundle?.emissiveMap || null,
+                emissiveIntensity: 0.2,
+                roughness: 0.6,
+                metalness: 0.5,
+              }),
         );
         group.add(base);
         const dish = new THREE.Mesh(
           new THREE.RingGeometry(1.4, 1.8, 28),
-          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.65, roughness: 0.25, metalness: 0.65, transparent: true, opacity: 0.88 }),
+          this.materialFactory
+            ? this.materialFactory.createStationPanelMaterial(color, 0.88, radarBundle)
+            : new THREE.MeshStandardMaterial({
+                color: radarBundle?.map ? 0xffffff : color,
+                map: radarBundle?.map || null,
+                bumpMap: radarBundle?.bumpMap || null,
+                bumpScale: radarBundle?.bumpMap ? 0.03 : 0,
+                emissive: color,
+                emissiveMap: radarBundle?.emissiveMap || null,
+                emissiveIntensity: 0.65,
+                roughness: 0.25,
+                metalness: 0.65,
+                transparent: true,
+                opacity: 0.88,
+              }),
         );
         dish.position.set(0, 2.8, 0);
         dish.rotation.x = Math.PI / 2;
         group.add(dish);
       } else {
         // Generic fallback: wireframe octahedron
+        const genericDescriptor = this._objectTextureDescriptor('building', { type, level, colorHex }, color.getHex(), installSeed + 4, {
+          variant: 'rocky',
+          roughness: 0.48,
+          metalness: 0.56,
+          glow: 0.2,
+          clouds: 0,
+        });
+        const genericBundle = this._objectTextureBundle('building', genericDescriptor, color.getHex());
         group.add(new THREE.Mesh(
           new THREE.OctahedronGeometry(1.5, 1),
-          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.4, roughness: 0.45, metalness: 0.55, wireframe: true }),
+          new THREE.MeshStandardMaterial({
+            color: genericBundle?.map ? 0xffffff : color,
+            map: genericBundle?.map || null,
+            bumpMap: genericBundle?.bumpMap || null,
+            bumpScale: genericBundle?.bumpMap ? 0.04 : 0,
+            emissive: color,
+            emissiveMap: genericBundle?.emissiveMap || null,
+            emissiveIntensity: 0.4,
+            roughness: 0.45,
+            metalness: 0.55,
+            wireframe: true,
+          }),
         ));
       }
 
       group.scale.setScalar(scale);
       return group;
+    }
+
+    _createInstallationParticleField(colorHex, type, level, resolvedVfx = null) {
+      if (!THREE?.BufferGeometry || !THREE?.PointsMaterial || !THREE?.Points) return null;
+      const installType = String(type || '').toLowerCase();
+      if (installType === 'jump_inhibitor') return null;
+
+      const emitterHint = this._deriveInstallationEmitterHint(resolvedVfx);
+
+      const safeLevel = Math.max(1, Number(level || 1));
+      const particleCount = Math.min(180, Math.max(12, Number(emitterHint?.count) || (28 + safeLevel * 10)));
+      const radius = 1.4 + safeLevel * 0.18;
+      const positions = new Float32Array(particleCount * 3);
+      const color = emitterHint?.colorStart
+        ? new THREE.Color(Number(emitterHint.colorStart))
+        : new THREE.Color(colorHex || '#4af9ff');
+
+      for (let i = 0; i < particleCount; i += 1) {
+        const idx = i * 3;
+        const spread = THREE.MathUtils.clamp(Number(emitterHint?.spread), 0.04, Math.PI);
+        const baseDir = Math.atan2(Number(emitterHint?.direction?.z || -1), Number(emitterHint?.direction?.x || 0));
+        const a = baseDir + (Math.random() - 0.5) * spread;
+        const ring = radius * (0.55 + Math.random() * 0.75);
+        const yJitter = (Math.random() - 0.5) * (0.5 + safeLevel * 0.08);
+        positions[idx] = Math.cos(a) * ring;
+        positions[idx + 1] = yJitter;
+        positions[idx + 2] = Math.sin(a) * ring;
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const mat = new THREE.PointsMaterial({
+        color,
+        size: Math.min(0.26, Math.max(0.05, Number(emitterHint?.sizeStart) || (0.08 + safeLevel * 0.012))),
+        transparent: true,
+        opacity: 0.24,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        sizeAttenuation: true,
+      });
+      const points = new THREE.Points(geo, mat);
+      points.userData = Object.assign({}, points.userData, {
+        kind: 'installation-particles',
+        pulsePhase: Math.random() * Math.PI * 2,
+        spinRate: THREE.MathUtils.clamp(0.08 + (Number(emitterHint?.speed) || 5) * 0.02, 0.12, 0.52),
+        vfxEmitterId: String(emitterHint?.id || ''),
+      });
+      if (Array.isArray(emitterHint?.position) && emitterHint.position.length === 3) {
+        points.position.set(
+          Number(emitterHint.position[0]) || 0,
+          Number(emitterHint.position[1]) || 0,
+          Number(emitterHint.position[2]) || 0,
+        );
+      }
+      return points;
+    }
+
+    _deriveInstallationEmitterHint(resolvedVfx) {
+      const emitters = Array.isArray(resolvedVfx?.emitters) ? resolvedVfx.emitters : [];
+      if (!emitters.length) return null;
+
+      const preferred = emitters.find((e) => String(e?.kind || '').toLowerCase() === 'thruster')
+        || emitters.find((e) => String(e?.kind || '').toLowerCase() === 'trail')
+        || emitters[0];
+      if (!preferred || typeof preferred !== 'object') return null;
+
+      const direction = Array.isArray(preferred.direction) ? preferred.direction : [0, 0, -1];
+      const position = Array.isArray(preferred.position) ? preferred.position : [0, 0, 0];
+      return {
+        id: preferred.id,
+        kind: preferred.kind,
+        count: Number(preferred.count),
+        speed: Number(preferred.speed),
+        spread: Number(preferred.spread),
+        sizeStart: Number(preferred.sizeStart),
+        colorStart: Number(preferred.colorStart),
+        direction,
+        position,
+      };
     }
 
     _extractModelAnimations(type) {
@@ -2628,7 +4063,7 @@
       return 0;
     }
 
-    _syncInstallationAnimationStates() {
+    _syncInstallationAnimationStates(elapsed = 0) {
       const registry = window.__GQ_ModelRegistry;
       if (!registry || typeof registry.setAnimationState !== 'function') return;
 
@@ -2636,11 +4071,199 @@
         if (!entry?.mesh) return;
         const nextState = this._installationDynamicAnimState(entry);
         const currentState = String(entry.animState || entry.mesh.userData?.animState || '');
-        if (nextState === currentState) return;
+        if (nextState === currentState) {
+          if (nextState === 'alert' && elapsed >= Number(entry.burstCooldownUntil || 0)) {
+            this._spawnInstallationBurstFx(entry, elapsed);
+          }
+          return;
+        }
 
         registry.setAnimationState(entry.mesh, nextState);
         entry.animState = nextState;
+
+        const particleMat = entry.installParticles?.material;
+        if (!particleMat) return;
+        if (nextState === 'alert') {
+          particleMat.opacity = 0.5;
+          particleMat.size = Math.max(0.12, Number(particleMat.size || 0.1) * 1.12);
+        } else if (nextState === 'active') {
+          particleMat.opacity = 0.34;
+          particleMat.size = Math.max(0.1, Number(particleMat.size || 0.1) * 1.04);
+        } else {
+          particleMat.opacity = 0.22;
+          particleMat.size = Math.max(0.08, Number(particleMat.size || 0.1) * 0.96);
+        }
+
+        if (nextState === 'alert') {
+          this._spawnInstallationBurstFx(entry, elapsed);
+        }
       });
+    }
+
+    _resolveInstallationThreatTarget(entry, out = null) {
+      const target = out || new THREE.Vector3();
+      if (!entry?.mesh || !Array.isArray(this.systemFleetEntries) || !this.systemFleetEntries.length) return null;
+
+      const owner = String(entry.owner || entry.install?.owner || '');
+      const installPos = new THREE.Vector3();
+      entry.mesh.getWorldPosition(installPos);
+
+      let best = null;
+      let bestDist2 = Infinity;
+
+      this.systemFleetEntries.forEach((fleetEntry) => {
+        const fleet = fleetEntry?.fleet || {};
+        const fleetOwner = String(fleet.owner || '');
+        if (owner && fleetOwner && owner === fleetOwner) return;
+
+        const mission = String(fleet.mission || '').toLowerCase();
+        if (mission !== 'attack' && mission !== 'spy') return;
+        if (!fleetEntry?.group) return;
+
+        const fleetPos = new THREE.Vector3();
+        fleetEntry.group.getWorldPosition(fleetPos);
+        const dist2 = installPos.distanceToSquared(fleetPos);
+        if (dist2 < bestDist2) {
+          bestDist2 = dist2;
+          best = fleetPos;
+        }
+      });
+
+      if (!best) return null;
+      target.copy(best);
+      return target;
+    }
+
+    _syncInstallationWeaponFx(elapsed) {
+      if (!Array.isArray(this.systemInstallationWeaponFxEntries) || !this.systemInstallationWeaponFxEntries.length) return;
+      if (!this.systemInstallationWeaponFxGroup) return;
+
+      // Update BeamEffect pool (Phase FX-3)
+      if (this.beamEffect) {
+        this.beamEffect.update(elapsed);
+      }
+
+      const localFrom = new THREE.Vector3();
+      const localTo = new THREE.Vector3();
+      const worldFrom = new THREE.Vector3();
+      const worldTo = new THREE.Vector3();
+
+      this.systemInstallationWeaponFxEntries.forEach((fxEntry, index) => {
+        const installEntry = fxEntry?.installEntry;
+        if (!installEntry?.mesh) return;
+
+        const activeState = String(installEntry.animState || installEntry.mesh.userData?.animState || 'idle');
+        const threat = this._resolveInstallationThreatTarget(installEntry, worldTo);
+        const canFire = !!threat && activeState !== 'idle';
+        
+        // Cache world positions for potential BeamEffect usage
+        if (fxEntry.sourceNode?.isObject3D) {
+          fxEntry.sourceNode.getWorldPosition(worldFrom);
+        } else {
+          installEntry.mesh.getWorldPosition(worldFrom);
+        }
+        fxEntry.worldFrom = worldFrom.clone();
+        fxEntry.worldTo = worldTo.clone();
+
+        if (canFire && elapsed >= Number(fxEntry.nextFireAt || 0)) {
+          this._triggerInstallationWeaponFire(fxEntry, elapsed, activeState);
+        }
+
+        const shouldRender = canFire && elapsed <= Number(fxEntry.fireUntil || 0);
+        
+        // Fallback: update THREE.Line if BeamEffect is unavailable
+        const line = fxEntry?.line;
+        const headMesh = fxEntry?.headMesh;
+        const profile = fxEntry?.profile || this._installationWeaponFxProfile(fxEntry?.kind);
+        
+        if (line && line.geometry && line.material) {
+          if (!shouldRender) {
+            line.visible = false;
+            if (headMesh) headMesh.visible = false;
+            return;
+          }
+
+          this.systemInstallationWeaponFxGroup.worldToLocal(localFrom.copy(worldFrom));
+          this.systemInstallationWeaponFxGroup.worldToLocal(localTo.copy(worldTo));
+
+          const travelSpeed = Number(profile?.travelSpeed || 0);
+          const travelT = travelSpeed > 0
+            ? ((elapsed * travelSpeed) + index * 0.173) % 1
+            : 1;
+          const headPos = localFrom.clone().lerp(localTo, travelT);
+
+          const posAttr = line.geometry.getAttribute('position');
+          if (posAttr && posAttr.count >= 2) {
+            const drawTo = profile?.drawsTrailToSource ? headPos : localTo;
+            posAttr.setXYZ(0, localFrom.x, localFrom.y, localFrom.z);
+            posAttr.setXYZ(1, drawTo.x, drawTo.y, drawTo.z);
+            posAttr.needsUpdate = true;
+            line.geometry.computeBoundingSphere();
+          }
+
+          const baseAlpha = Number(line.userData?.baseAlpha || 0.8);
+          const pulseOffset = Number(line.userData?.pulseOffset || 0);
+          const pulseFreq = Number(profile?.pulseFreq || 11);
+          const pulseMin = Number(profile?.pulseMin || 0.35);
+          const pulseMax = Number(profile?.pulseMax || 1.0);
+          const pulse = pulseMin + (pulseMax - pulseMin) * (0.5 + 0.5 * Math.sin(elapsed * pulseFreq + pulseOffset + index * 0.31));
+          const strobe = !!profile?.strobe;
+          const strobeOn = strobe ? (Math.sin(elapsed * pulseFreq + pulseOffset) > -0.08) : true;
+          line.material.opacity = THREE.MathUtils.clamp(baseAlpha * pulse, 0.08, 1);
+          line.visible = strobe ? strobeOn : true;
+
+          if (headMesh) {
+            headMesh.position.copy(headPos);
+            if (headMesh.material) {
+              headMesh.material.opacity = THREE.MathUtils.clamp(baseAlpha * (0.65 + pulse * 0.45), 0.08, 1);
+            }
+            headMesh.visible = line.visible;
+          }
+        }
+      });
+    }
+
+    _tickInstallationParticleFields(elapsed, dt) {
+      (this.systemStarInstallationEntries || []).forEach((entry, index) => {
+        const particles = entry?.installParticles;
+        const mat = particles?.material;
+        if (!particles || !mat) return;
+        const phase = Number(particles.userData?.pulsePhase || 0);
+        const spinRate = Number(particles.userData?.spinRate || 0.24);
+        const pulse = 0.5 + 0.5 * Math.sin(elapsed * (1.25 + index * 0.03) + phase);
+        particles.rotation.y += dt * spinRate;
+        particles.rotation.z = Math.sin(elapsed * 0.32 + phase) * 0.1;
+        const base = entry?.animState === 'alert' ? 0.34 : (entry?.animState === 'active' ? 0.24 : 0.16);
+        mat.opacity = THREE.MathUtils.clamp(base + pulse * 0.22, 0.12, 0.62);
+      });
+    }
+
+    _tickInstallationBurstFx(_elapsed, dt) {
+      if (!Array.isArray(this.systemInstallationBurstFxEntries) || !this.systemInstallationBurstFxEntries.length) return;
+      for (let i = this.systemInstallationBurstFxEntries.length - 1; i >= 0; i -= 1) {
+        const burst = this.systemInstallationBurstFxEntries[i];
+        const material = burst?.material;
+        if (!burst || !material) {
+          this.systemInstallationBurstFxEntries.splice(i, 1);
+          continue;
+        }
+
+        burst.userData.age = Number(burst.userData.age || 0) + dt;
+        const duration = Math.max(0.01, Number(burst.userData.duration || 0.2));
+        const t = THREE.MathUtils.clamp(burst.userData.age / duration, 0, 1);
+        const fadeBase = Number(burst.userData.fadeBase || 0.9);
+        material.opacity = THREE.MathUtils.clamp((1 - t) * fadeBase, 0, 1);
+        const growRate = Number(burst.userData.growRate || 2);
+        const s = 1 + t * growRate;
+        burst.scale.setScalar(s);
+
+        if (t >= 1) {
+          if (burst.parent) burst.parent.remove(burst);
+          burst.geometry?.dispose?.();
+          burst.material?.dispose?.();
+          this.systemInstallationBurstFxEntries.splice(i, 1);
+        }
+      }
     }
 
     // ── Ambient traffic ────────────────────────────────────────────────────────
@@ -2668,10 +4291,32 @@
         const color        = new THREE.Color(colorHex);
 
         for (let i = 0; i < numShuttles; i++) {
+          const shuttleSeed = this._hashSeed(`${slot?.position || 0}:${shipyard.level}:${i}:${colorHex}`);
+          const shuttleDescriptor = this._objectTextureDescriptor('ship', { ship_type: 'shuttle', owner: pp?.owner, idx: i }, color.getHex(), shuttleSeed, {
+            variant: 'desert',
+            roughness: 0.42,
+            metalness: 0.58,
+            glow: 0.22,
+            clouds: 0,
+            ice_caps: 0,
+          });
+          const shuttleBundle = this._objectTextureBundle('ship', shuttleDescriptor, color.getHex());
           const shuttle = new THREE.Group();
           const hull = new THREE.Mesh(
             new THREE.CylinderGeometry(0.18, 0.45, 1.1, 7),
-            new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.22, roughness: 0.45, metalness: 0.55 }),
+            this.materialFactory
+              ? this.materialFactory.createFleetHullMaterial(color, shuttleBundle)
+              : new THREE.MeshStandardMaterial({
+                  color: shuttleBundle?.map ? 0xffffff : color,
+                  map: shuttleBundle?.map || null,
+                  bumpMap: shuttleBundle?.bumpMap || null,
+                  bumpScale: shuttleBundle?.bumpMap ? 0.05 : 0,
+                  emissive: color,
+                  emissiveMap: shuttleBundle?.emissiveMap || null,
+                  emissiveIntensity: 0.22,
+                  roughness: 0.45,
+                  metalness: 0.55,
+                }),
           );
           hull.rotation.z = Math.PI / 2;
           shuttle.add(hull);
@@ -2706,14 +4351,25 @@
         for (let i = 0; i < sample; i++) {
           const seed = this._vesselSeed(fleet, vesselType, index, cursor, i);
           const geometry = this._proceduralVesselGeometry(vesselType, seed);
-          const hullTex = this._fleetHullTexture(color, seed);
+          const descriptor = this._objectTextureDescriptor('ship', vessel, color, seed, {
+            variant: 'desert',
+            roughness: 0.38,
+            metalness: 0.62,
+            glow: 0.16,
+            clouds: 0,
+            ice_caps: 0,
+          });
+          const hullBundle = this._objectTextureBundle('ship', descriptor, color);
+          const hullTex = hullBundle?.map || this._fleetHullTexture(color, seed);
           const hullMat = this.materialFactory
-            ? this.materialFactory.createFleetHullMaterial(color, hullTex)
+            ? this.materialFactory.createFleetHullMaterial(color, hullBundle || hullTex)
             : new THREE.MeshStandardMaterial({
                 color,
                 map: hullTex,
+                bumpMap: hullBundle?.bumpMap || null,
+                bumpScale: hullBundle?.bumpMap ? 0.06 : 0,
                 emissive: color,
-                emissiveMap: hullTex,
+                emissiveMap: hullBundle?.emissiveMap || hullTex,
                 emissiveIntensity: 0.18,
                 roughness: 0.36,
                 metalness: 0.48,
@@ -3293,6 +4949,7 @@
       this.systemRefinementInProgress = false;
 
       this.systemMode = false;
+      this._syncInputContext();
       this.setLightRig('galaxy');
       this.systemSourceStar = null;
       this.systemPlanetEntries = [];
@@ -3300,6 +4957,8 @@
       this.systemFacilityEntries = [];
       this.systemFleetEntries = [];
       this.systemStarInstallationEntries = [];
+      this.systemInstallationWeaponFxEntries = [];
+      this.systemInstallationBurstFxEntries = [];
       this.systemTrafficEntries = [];
       this.systemAtmosphereEntries = [];
       this.systemCloudEntries = [];
@@ -3309,6 +4968,19 @@
       this.systemSelectedObject = null;
       this.systemOrbitSimulationBuffer = null;
       this.activeGpuOrbitVisuals = false;
+      
+      // Cleanup Phase 3: DebrisManager
+      if (this.debrisManager) {
+        this.debrisManager.clear();
+        this.debrisManager = null;
+      }
+      
+      // Cleanup Phase 3: BeamEffect pool
+      if (this.beamEffect) {
+        this.beamEffect.dispose?.();
+        this.beamEffect = null;
+      }
+      
       if (this.renderFrames?.galaxy) this.renderFrames.galaxy.visible = true;
       if (this.renderFrames?.system) {
         this.renderFrames.system.visible = false;
@@ -3323,7 +4995,14 @@
       if (this.systemFacilityGroup) this.systemFacilityGroup.visible = false;
       if (this.systemFleetGroup) this.systemFleetGroup.visible = false;
       if (this.systemStarInstallationGroup) this.systemStarInstallationGroup.visible = false;
+      if (this.systemInstallationWeaponFxGroup) this.systemInstallationWeaponFxGroup.visible = false;
+      if (this.systemInstallationBurstFxGroup) this.systemInstallationBurstFxGroup.visible = false;
       if (this.systemTrafficGroup) this.systemTrafficGroup.visible = false;
+      // Dispose of BeamEffect pool
+      if (this.beamEffect) {
+        this.beamEffect.dispose();
+        this.beamEffect = null;
+      }
       this._clearGroup(this.systemSkyGroup);
       this._clearGroup(this.systemBackdrop);
       this._clearGroup(this.systemOrbitGroup);
@@ -3331,6 +5010,8 @@
       this._clearGroup(this.systemFacilityGroup);
       this._clearGroup(this.systemFleetGroup);
       this._clearGroup(this.systemStarInstallationGroup);
+      this._clearGroup(this.systemInstallationWeaponFxGroup);
+      this._clearGroup(this.systemInstallationBurstFxGroup);
       this._clearGroup(this.systemTrafficGroup);
       if (this.starPoints) this.starPoints.visible = true;
       if (this.coreStars) this.coreStars.visible = true;
@@ -3339,6 +5020,7 @@
       if (this.galaxyGlowGroup) this.galaxyGlowGroup.visible = true;
       if (this.grid) this.grid.visible = true;
       if (this.hoverMarker) this.hoverMarker.visible = false;
+      if (this.selectionMarker) this.selectionMarker.visible = false;
       this._syncClusterAuraTransform();
       if (restoreGalaxy && this.starPoints) {
         this.autoFrameEnabled = true;
@@ -3373,7 +5055,36 @@
       const wasSystemMode = !!this.systemMode;
       this.exitSystemView(false);
       this.systemMode = true;
-      this.setLightRig('system');
+      // Initialize BeamEffect pool for instanced beam rendering (Phase FX-3)
+      if (window.GQBeamEffect && typeof window.GQBeamEffect.BeamEffect === 'function') {
+        this.beamEffect = new window.GQBeamEffect.BeamEffect({ maxBeams: 128 });
+      } else {
+        console.warn('[Galaxy3DRenderer] BeamEffect not available; beam rendering via THREE.Line');
+        this.beamEffect = null;
+      }
+      
+      // Initialize DebrisManager for advanced debris system (Phase FX-5)
+      if (typeof DebrisManager === 'function' || window.DebrisManager) {
+        const DebrisManagerClass = window.DebrisManager || DebrisManager;
+        this.debrisManager = new DebrisManagerClass({
+          debugLogging: false,
+          damageDampenFactor: 1.0,
+        });
+        
+        // Listen for debris destruction events
+        this.debrisManager.on('state-changed', (debris, data) => {
+          if (data.to === 'destroyed') {
+            this._onDebrisDestroyed(debris);
+          }
+        });
+      } else {
+        if (!this._warnedMissingDebrisManager) {
+          console.warn('[Galaxy3DRenderer] DebrisManager not available');
+          this._warnedMissingDebrisManager = true;
+        }
+        this.debrisManager = null;
+      }
+      this._syncInputContext();
       this.systemSourceStar = star;
       if (this.renderFrames?.galaxy) this.renderFrames.galaxy.visible = true;
       if (this.renderFrames?.system) this.renderFrames.system.visible = true;
@@ -3385,6 +5096,8 @@
       if (this.systemFacilityGroup) this.systemFacilityGroup.visible = true;
       if (this.systemFleetGroup) this.systemFleetGroup.visible = true;
       if (this.systemStarInstallationGroup) this.systemStarInstallationGroup.visible = true;
+      if (this.systemInstallationWeaponFxGroup) this.systemInstallationWeaponFxGroup.visible = true;
+      if (this.systemInstallationBurstFxGroup) this.systemInstallationBurstFxGroup.visible = true;
       if (this.systemTrafficGroup) this.systemTrafficGroup.visible = true;
       this.autoFrameEnabled = false;
       if (this.starPoints) this.starPoints.visible = true;
@@ -3394,6 +5107,7 @@
       if (this.galaxyGlowGroup) this.galaxyGlowGroup.visible = true;
       if (this.grid) this.grid.visible = true;
       if (this.hoverMarker) this.hoverMarker.visible = false;
+      if (this.selectionMarker) this.selectionMarker.visible = false;
       this._syncClusterAuraTransform();
       if (typeof this._buildSystemSkyDome === 'function') {
         this._buildSystemSkyDome(star);
@@ -3430,6 +5144,7 @@
         this.renderFrames.system.position.copy(systemOrigin);
       }
       if (this.systemOrigin) this.systemOrigin.copy(systemOrigin);
+      this.setLightRig('system', { star, systemOrigin });
 
       if (!wasSystemMode) {
         this._preSystemFov = Number(this.camera?.fov || this._preSystemFov || 58);
@@ -3536,22 +5251,37 @@
 
     _buildSystemPhase0(star, payload) {
       const starRadius = {
-        O: 20, B: 17, A: 15, F: 13, G: 11, K: 9, M: 7,
-      }[String(star.spectral_class || 'G').toUpperCase()] || 11;
+        O: 34, B: 30, A: 26, F: 22, G: 18, K: 15, M: 12,
+      }[String(star.spectral_class || 'G').toUpperCase()] || 18;
       const starColor = this._spectralColorHex(star.spectral_class);
       const starSeed = this._starSeed(star);
       const starMap = this._starSurfaceTexture(star.spectral_class, starSeed);
+      const starDescriptor = this._objectTextureDescriptor('star', star, starColor, starSeed, {
+        variant: 'lava',
+        glow: 0.9,
+        banding: 0.36,
+        clouds: 0,
+        craters: 0.04,
+        roughness: 0.36,
+        metalness: 0.04,
+      });
+      const starBundle = this._objectTextureBundle('star', starDescriptor, starColor) || { map: starMap, emissiveMap: starMap };
+      const starMaterial = this.materialFactory
+        ? this.materialFactory.createStarMaterial(starColor, starBundle)
+        : new THREE.MeshStandardMaterial({
+            color: starBundle?.map ? 0xffffff : starColor,
+            map: starBundle?.map || starMap,
+            bumpMap: starBundle?.bumpMap || null,
+            bumpScale: starBundle?.bumpMap ? 0.02 : 0,
+            emissive: starColor,
+            emissiveMap: starBundle?.emissiveMap || starMap,
+            emissiveIntensity: 0.85,
+            roughness: 0.4,
+            metalness: 0.02,
+          });
       const starMesh = new THREE.Mesh(
         new THREE.SphereGeometry(starRadius, 28, 28),
-        new THREE.MeshStandardMaterial({
-          color: starColor,
-          map: starMap,
-          emissive: starColor,
-          emissiveMap: starMap,
-          emissiveIntensity: 0.85,
-          roughness: 0.4,
-          metalness: 0.02,
-        })
+        starMaterial
       );
       starMesh.material.userData = Object.assign({}, starMesh.material.userData, { sharedTexture: true });
       const starCorona = this._buildStarCoronaShader(starColor, starRadius);
@@ -3734,8 +5464,8 @@
         moons.forEach((moon, moonIndex) => {
           const moonDiameter = Number(moon?.diameter || 0);
           const moonSize = moonDiameter > 0
-            ? THREE.MathUtils.clamp(0.75 + moonDiameter / 4200, 0.85, Math.max(1.9, parentRadius * 0.55))
-            : THREE.MathUtils.clamp(parentRadius * (0.24 + moonIndex * 0.04), 0.9, Math.max(1.8, parentRadius * 0.5));
+            ? THREE.MathUtils.clamp(0.48 + moonDiameter / 6200, 0.52, Math.max(1.25, parentRadius * 0.32))
+            : THREE.MathUtils.clamp(parentRadius * (0.13 + moonIndex * 0.025), 0.55, Math.max(1.15, parentRadius * 0.28));
           const axisParentR = Math.max(0.8, Number(moon?.semi_major_axis_parent_r || moon?.semi_major_axis || (2 + moonIndex * 1.35)));
           const orbitRadius = THREE.MathUtils.clamp(
             parentRadius * (1.7 + axisParentR * 0.36),
@@ -3764,11 +5494,28 @@
           this.systemBodyGroup.add(orbitPivot);
 
           const moonGeometry = new THREE.SphereGeometry(moonSize, 14, 14);
-          const moonMaterial = new THREE.MeshStandardMaterial({
-            color: this._planetColor(moon?.planet_class || moon?.body_type || 'moon'),
-            roughness: 0.88,
-            metalness: 0.03,
+          const moonColor = this._planetColor(moon?.planet_class || moon?.body_type || 'moon');
+          const moonSeed = this._hashSeed(`${planetIndex}:${moonIndex}:${moon?.name || moon?.id || moon?.position || ''}`);
+          const moonDescriptor = this._objectTextureDescriptor('moon', moon, moonColor, moonSeed, {
+            variant: 'rocky',
+            craters: 0.28,
+            clouds: 0,
+            glow: 0.05,
+            roughness: 0.9,
+            metalness: 0.02,
           });
+          const moonBundle = this._objectTextureBundle('moon', moonDescriptor, moonColor);
+          const moonMaterial = this.materialFactory
+            ? this.materialFactory.createMoonMaterial(moonColor, moonBundle)
+            : new THREE.MeshStandardMaterial({
+                color: moonBundle?.map ? 0xffffff : moonColor,
+                map: moonBundle?.map || null,
+                bumpMap: moonBundle?.bumpMap || null,
+                bumpScale: moonBundle?.bumpMap ? 0.06 : 0,
+                emissiveMap: moonBundle?.emissiveMap || null,
+                roughness: 0.88,
+                metalness: 0.03,
+              });
           const mesh = new THREE.Mesh(moonGeometry, moonMaterial);
           mesh.userData = {
             kind: 'moon',
@@ -3940,6 +5687,48 @@
     }
 
     _bindEventsFallback() {
+      if (window.GQCanvasInputController && this.renderer?.domElement) {
+        const supportsSemanticInput = typeof this._resolveInputActions === 'function'
+          && typeof this._handleInputAction === 'function';
+        const actionResolverProfiles = supportsSemanticInput
+          ? {
+              galaxy: (ctx, phase) => this._resolveInputActions(ctx, phase, 'galaxy'),
+              system: (ctx, phase) => this._resolveInputActions(ctx, phase, 'system'),
+              planetApproach: (ctx, phase) => this._resolveInputActions(ctx, phase, 'planetApproach'),
+              colonySurface: (ctx, phase) => this._resolveInputActions(ctx, phase, 'colonySurface'),
+              objectApproach: (ctx, phase) => this._resolveInputActions(ctx, phase, 'objectApproach'),
+            }
+          : null;
+        this._inputController = new window.GQCanvasInputController({
+          surface: this.renderer.domElement,
+          container: this.container,
+          keyboardTarget: window,
+          windowTarget: window,
+          context: this._getInputContext(),
+          captureWheel: true,
+          enabled: this.interactive !== false,
+          resolveActionsByContext: actionResolverProfiles,
+          resolveActions: supportsSemanticInput ? ((ctx, phase, contextName) => this._resolveInputActions(ctx, phase, contextName)) : null,
+          onAction: supportsSemanticInput ? ((action, ctx) => this._handleInputAction(action, ctx)) : null,
+          onResize: () => this._onResize(),
+          onPointerMove: (ctx) => this._handlePointerMove(ctx.nativeEvent, ctx),
+          onPointerDown: supportsSemanticInput ? null : ((ctx) => this._handleMouseDown(ctx.nativeEvent, ctx)),
+          onPointerUp: supportsSemanticInput ? null : ((ctx) => this._handleMouseUp(ctx.nativeEvent, ctx)),
+          onPointerCancel: supportsSemanticInput ? null : ((ctx) => this._handleMouseUp(ctx.nativeEvent, ctx)),
+          onClick: (ctx) => this._handleClick(ctx.nativeEvent, ctx),
+          onDoubleClick: (ctx) => this._handleDoubleClick(ctx.nativeEvent, ctx),
+          onWheel: supportsSemanticInput ? null : ((ctx) => this._handleWheel(ctx.nativeEvent, ctx)),
+          onContextMenu: (ctx) => this._handleContextMenu ? this._handleContextMenu(ctx.nativeEvent, ctx) : false,
+          onKeyDown: supportsSemanticInput ? null : ((ctx) => this._handleKeyDown(ctx.nativeEvent, ctx)),
+          onKeyUp: supportsSemanticInput ? null : ((ctx) => this._handleKeyUp(ctx.nativeEvent, ctx)),
+        });
+        this._inputController.bind();
+        if (!this.interactive) {
+          this.renderer.domElement.style.pointerEvents = 'none';
+        }
+        return;
+      }
+
       this._onResizeBound = this._onResizeBound || (() => this._onResize());
       window.addEventListener('resize', this._onResizeBound);
 
@@ -3976,6 +5765,268 @@
         } catch (_) {
           this._containerResizeObserver = null;
         }
+      }
+    }
+
+    _computeAutoInputContext() {
+      if (!this.systemMode) return 'galaxy';
+      const dist = Number(this._cameraDistance?.() || 0);
+      const planetThreshold = Math.max(18, Number(this.zoomThresholds?.systemEnterPlanet || 50));
+      const colonyThreshold = Math.max(12, planetThreshold * 0.52);
+      if (Number.isFinite(dist) && dist > 0) {
+        if (dist <= colonyThreshold) return 'colonySurface';
+        if (dist <= planetThreshold) return 'planetApproach';
+      }
+      return 'system';
+    }
+
+    _getInputContext() {
+      return String(this._inputContextOverride || this._computeAutoInputContext());
+    }
+
+    _syncInputContext() {
+      if (!this._inputController || typeof this._inputController.setContext !== 'function') return;
+      this._inputController.setContext(this._getInputContext());
+    }
+
+    setInputContext(name) {
+      const raw = String(name || '').trim();
+      const normalized = raw
+        .replace(/[\s_-]+/g, '')
+        .toLowerCase();
+      const mapping = {
+        '': '',
+        default: '',
+        auto: '',
+        galaxy: 'galaxy',
+        system: 'system',
+        planetapproach: 'planetApproach',
+        colonysurface: 'colonySurface',
+        objectapproach: 'objectApproach',
+      };
+      const next = Object.prototype.hasOwnProperty.call(mapping, normalized)
+        ? mapping[normalized]
+        : '';
+      this._inputContextOverride = next;
+      this._syncInputContext();
+      return this._getInputContext();
+    }
+
+    _resolveInputActions(ctx, phase, inputContextHint = '') {
+      const moduleApi = window.GQCoreInputContexts;
+      if (moduleApi && typeof moduleApi.resolve === 'function') {
+        return moduleApi.resolve(this, ctx, phase, inputContextHint);
+      }
+      const inputContext = String(inputContextHint || ctx?.inputContext || this._getInputContext());
+      if (inputContext === 'system') {
+        return this._resolveSystemInputActions(ctx, phase);
+      }
+      if (inputContext === 'planetApproach' || inputContext === 'colonySurface' || inputContext === 'objectApproach') {
+        return this._resolveSystemInputActions(ctx, phase);
+      }
+      return this._resolveGalaxyInputActions(ctx, phase);
+    }
+
+    _resolveGalaxyInputActions(ctx, phase) {
+      return this._resolveInputActionsCommon(ctx, phase, { allowSystemExit: false });
+    }
+
+    _resolveSystemInputActions(ctx, phase) {
+      return this._resolveInputActionsCommon(ctx, phase, { allowSystemExit: true });
+    }
+
+    _resolveInputActionsCommon(ctx, phase, opts = {}) {
+      const actions = [];
+      const allowSystemExit = opts.allowSystemExit === true;
+      const key = String(ctx?.key || '').toLowerCase();
+      const active = phase === 'keydown';
+      const dragButton = Number(ctx?.state?.drag?.button ?? -1);
+      const keyTarget = ctx?.nativeEvent?.target || null;
+      const tag = String(keyTarget?.tagName || '').toLowerCase();
+
+      if ((phase === 'keydown' || phase === 'keyup') && (tag === 'input' || tag === 'textarea' || keyTarget?.isContentEditable)) {
+        return actions;
+      }
+
+      if (phase === 'pointerdown') {
+        if (ctx.button === 0) {
+          actions.push({ type: 'camera.drag.begin', mode: this.hasExternalOrbitControls ? 'orbit-passive' : 'orbit', button: 0 });
+        } else if (ctx.button === 1 || ctx.button === 2) {
+          actions.push({ type: 'camera.drag.begin', mode: 'pan', button: ctx.button });
+        }
+      }
+
+      if (phase === 'pointermove' && ctx?.state?.drag?.active) {
+        if (dragButton === 1 || dragButton === 2) {
+          actions.push({ type: 'camera.drag.move', mode: 'pan', button: dragButton });
+        } else if (dragButton === 0 && !this.hasExternalOrbitControls) {
+          actions.push({ type: 'camera.drag.move', mode: 'orbit', button: 0 });
+        }
+      }
+
+      if ((phase === 'pointerup' || phase === 'pointercancel') && this._inputDragState?.active) {
+        actions.push({
+          type: 'camera.drag.end',
+          mode: this._inputDragState.mode,
+          button: this._inputDragState.button,
+        });
+      }
+
+      if (phase === 'wheel') {
+        actions.push({
+          type: 'camera.zoom.step',
+          direction: ctx.deltaY < 0 ? 'in' : 'out',
+          factor: ctx.deltaY < 0 ? 0.88 : 1.14,
+        });
+      }
+
+      if (phase === 'keydown' || phase === 'keyup') {
+        if (key === 'escape' && active && allowSystemExit) actions.push({ type: 'ui.system.exit' });
+        if (key === 'f' && active) actions.push({ type: 'camera.frame.fit' });
+        if (key === 'r' && active) actions.push({ type: 'camera.frame.reset' });
+        if (key === '+' || key === '=' || key === 'w') actions.push({ type: 'camera.zoom.hold', direction: 'in', active });
+        if (key === '-' || key === 's') actions.push({ type: 'camera.zoom.hold', direction: 'out', active });
+        if (key === 'a') actions.push({ type: 'camera.orbit.hold', direction: 'left', active });
+        if (key === 'd') actions.push({ type: 'camera.orbit.hold', direction: 'right', active });
+        if (key === 'e') actions.push({ type: 'camera.orbit.hold', direction: 'up', active });
+        if (key === 'q') actions.push({ type: 'camera.orbit.hold', direction: 'down', active });
+        if (key === 'arrowleft') actions.push({ type: 'camera.pan.hold', direction: 'left', active });
+        if (key === 'arrowright') actions.push({ type: 'camera.pan.hold', direction: 'right', active });
+        if (key === 'arrowup') actions.push({ type: 'camera.pan.hold', direction: 'up', active });
+        if (key === 'arrowdown') actions.push({ type: 'camera.pan.hold', direction: 'down', active });
+      }
+
+      return actions;
+    }
+
+    _handleInputAction(action, ctx) {
+      const moduleApi = window.GQCoreInputContexts;
+      if (moduleApi && typeof moduleApi.handle === 'function') {
+        moduleApi.handle(this, action, ctx);
+        return;
+      }
+      if (!action || !action.type) return;
+
+      switch (action.type) {
+        case 'camera.drag.begin': {
+          this.autoFrameEnabled = false;
+          this.controls.dragging = true;
+          this._inputDragState.active = true;
+          this._inputDragState.button = Number(action.button ?? -1);
+          this._inputDragState.mode = String(action.mode || '');
+          this._inputDragState.startTarget = this.controls.target.clone();
+          this._inputDragState.startPosition = this.camera.position.clone();
+          this._inputDragState.startSpherical = new THREE.Spherical().setFromVector3(
+            this.camera.position.clone().sub(this.controls.target)
+          );
+          break;
+        }
+        case 'camera.drag.move': {
+          if (!this._inputDragState.active) return;
+          this.autoFrameEnabled = false;
+          if (action.mode === 'pan') {
+            const width = Math.max(220, Number(this.renderer?.domElement?.clientWidth || 0));
+            const panScale = Math.max(0.025, this._cameraDistance() / width);
+            const startTarget = this._inputDragState.startTarget || this.controls.target.clone();
+            const startPosition = this._inputDragState.startPosition || this.camera.position.clone();
+            const dx = Number(ctx?.state?.drag?.deltaClientX || 0);
+            const dy = Number(ctx?.state?.drag?.deltaClientY || 0);
+            const nextTargetX = Number(startTarget.x || 0) - dx * panScale;
+            const nextTargetZ = Number(startTarget.z || 0) + dy * panScale;
+            const deltaX = nextTargetX - Number(this.controls.target.x || 0);
+            const deltaZ = nextTargetZ - Number(this.controls.target.z || 0);
+            this.controls.target.x = nextTargetX;
+            this.controls.target.z = nextTargetZ;
+            this.camera.position.x = Number(startPosition.x || 0) + (nextTargetX - Number(startTarget.x || 0));
+            this.camera.position.z = Number(startPosition.z || 0) + (nextTargetZ - Number(startTarget.z || 0));
+            if (typeof this.controls.update === 'function' && (Math.abs(deltaX) > 1e-6 || Math.abs(deltaZ) > 1e-6)) {
+              this.controls.update();
+            }
+            break;
+          }
+          if (action.mode === 'orbit' && !this.hasExternalOrbitControls) {
+            const startTarget = this._inputDragState.startTarget || this.controls.target.clone();
+            const startSpherical = this._inputDragState.startSpherical || new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
+            const dx = Number(ctx?.state?.drag?.deltaClientX || 0);
+            const dy = Number(ctx?.state?.drag?.deltaClientY || 0);
+            const spherical = new THREE.Spherical(startSpherical.radius, startSpherical.phi, startSpherical.theta);
+            spherical.theta -= dx * 0.01;
+            spherical.phi = Math.max(0.15, Math.min(Math.PI - 0.15, spherical.phi + dy * 0.008));
+            const offset = new THREE.Vector3().setFromSpherical(spherical);
+            this.controls.target.copy(startTarget);
+            this.camera.position.copy(startTarget.clone().add(offset));
+            if (typeof this.controls.update === 'function') {
+              this.controls.update();
+            }
+          }
+          break;
+        }
+        case 'camera.drag.end': {
+          this.controls.dragging = false;
+          this._inputDragState.active = false;
+          this._inputDragState.button = -1;
+          this._inputDragState.mode = '';
+          this._inputDragState.startTarget = null;
+          this._inputDragState.startPosition = null;
+          this._inputDragState.startSpherical = null;
+          break;
+        }
+        case 'camera.zoom.step': {
+          if (this.hasExternalOrbitControls) return;
+          ctx?.nativeEvent?.preventDefault?.();
+          this.autoFrameEnabled = false;
+          this._lastZoomInputMs = performance.now();
+          if (action.direction !== 'in') this._lastZoomOutInputMs = this._lastZoomInputMs;
+          this._zoomTowardsTarget(Number(action.factor || 1));
+          break;
+        }
+        case 'ui.system.exit': {
+          const tag = String(ctx?.nativeEvent?.target?.tagName || '').toLowerCase();
+          if (tag === 'input' || tag === 'textarea' || ctx?.nativeEvent?.target?.isContentEditable) return;
+          if (this.systemMode) {
+            ctx?.nativeEvent?.preventDefault?.();
+            this.exitSystemView(true);
+          }
+          break;
+        }
+        case 'camera.frame.fit': {
+          ctx?.nativeEvent?.preventDefault?.();
+          if (this.systemMode) this.exitSystemView(false);
+          this.autoFrameEnabled = true;
+          this.fitCameraToStars(true);
+          break;
+        }
+        case 'camera.frame.reset': {
+          ctx?.nativeEvent?.preventDefault?.();
+          if (this.systemMode) this.exitSystemView(false);
+          this.autoFrameEnabled = true;
+          this.fitCameraToStars(false, true);
+          break;
+        }
+        case 'camera.zoom.hold': {
+          if (action.direction === 'in') this._kbdMove.forward = !!action.active;
+          if (action.direction === 'out') this._kbdMove.back = !!action.active;
+          break;
+        }
+        case 'camera.orbit.hold': {
+          if (action.direction === 'left') this._kbdMove.left = !!action.active;
+          if (action.direction === 'right') this._kbdMove.right = !!action.active;
+          if (action.direction === 'up') this._kbdMove.up = !!action.active;
+          if (action.direction === 'down') this._kbdMove.down = !!action.active;
+          break;
+        }
+        case 'camera.pan.hold': {
+          if (action.direction === 'left') this._kbdMove.panL = !!action.active;
+          if (action.direction === 'right') this._kbdMove.panR = !!action.active;
+          if (action.direction === 'up') this._kbdMove.panU = !!action.active;
+          if (action.direction === 'down') this._kbdMove.panD = !!action.active;
+          if (String(action.direction || '').startsWith('arrow')) {
+            ctx?.nativeEvent?.preventDefault?.();
+          }
+          break;
+        }
+        default:
+          break;
       }
     }
 
@@ -4326,36 +6377,64 @@
     _selectionPayload(selection) {
       if (!selection?.kind) return null;
       if (selection.kind === 'system-fleet') {
-        return Object.assign({ __kind: 'system_fleet' }, selection.entry?.fleet || {});
+        return this._annotateSelectionPayload(Object.assign({ __kind: 'system_fleet' }, selection.entry?.fleet || {}), {
+          kind: 'system_fleet',
+          scope: 'system',
+          mode: 'system',
+        });
       }
       if (selection.kind === 'orbital-facility') {
         const slot = selection.entry?.entry?.slot || null;
-        return {
+        return this._annotateSelectionPayload({
           __kind: 'orbital_facility',
           __slot: slot,
           __sourceStar: this.systemSourceStar,
           count: Number(selection.entry?.entry?.slot?.player_planet?.orbital_facilities?.length || 0),
-        };
+        }, {
+          kind: 'orbital_facility',
+          scope: 'system',
+          mode: 'system',
+        });
       }
       if (selection.kind === 'star-installation') {
         const install = selection.entry?.install || {};
-        return Object.assign({ __kind: 'star_installation' }, install);
+        return this._annotateSelectionPayload(Object.assign({ __kind: 'star_installation' }, install), {
+          kind: 'star_installation',
+          scope: 'system',
+          mode: 'system',
+        });
       }
       if (selection.kind === 'system-traffic') {
-        return {
+        return this._annotateSelectionPayload({
           __kind: 'system_traffic',
           orbitRadius: Number(selection.entry?.orbitRadius || 0),
           orbitSpeed: Number(selection.entry?.orbitSpeed || 0),
-        };
+        }, {
+          kind: 'system_traffic',
+          scope: 'system',
+          mode: 'system',
+        });
       }
       if (selection.kind === 'galaxy-fleet') {
-        return Object.assign({ __kind: 'galaxy_fleet' }, selection.entry?.fleet || {});
+        return this._annotateSelectionPayload(Object.assign({ __kind: 'galaxy_fleet' }, selection.entry?.fleet || {}), {
+          kind: 'galaxy_fleet',
+          scope: 'galaxy',
+          mode: 'galaxy',
+        });
       }
       if (selection.kind === 'ftl-node') {
-        return Object.assign({ __kind: 'ftl_node' }, selection.entry?.node || {});
+        return this._annotateSelectionPayload(Object.assign({ __kind: 'ftl_node' }, selection.entry?.node || {}), {
+          kind: 'ftl_node',
+          scope: 'galaxy',
+          mode: 'galaxy',
+        });
       }
       if (selection.kind === 'ftl-gate' || selection.kind === 'ftl-gate-endpoint') {
-        return Object.assign({ __kind: 'ftl_gate', __endpoint: selection.entry?.endpoint || '' }, selection.entry?.gate || {});
+        return this._annotateSelectionPayload(Object.assign({ __kind: 'ftl_gate', __endpoint: selection.entry?.endpoint || '' }, selection.entry?.gate || {}), {
+          kind: 'ftl_gate',
+          scope: 'galaxy',
+          mode: 'galaxy',
+        });
       }
       return null;
     }
@@ -4666,7 +6745,7 @@
           this.systemHoverEntry = entry;
           this._updateHoverMarker();
           if (typeof this.opts.onHover === 'function') {
-            this.opts.onHover(entry ? Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }) : null, entry ? this._getSystemPlanetScreenPosition(entry) : null);
+            this.opts.onHover(entry ? this._planetPayload(entry) : null, entry ? this._getSystemPlanetScreenPosition(entry) : null);
           }
           return;
         }
@@ -4697,7 +6776,7 @@
         this.hoverIndex = idx;
         this._updateHoverMarker();
         if (typeof this.opts.onHover === 'function') {
-          this.opts.onHover(this.visibleStars[idx], this.getScreenPosition(idx));
+          this.opts.onHover(this._starPayload(this.visibleStars[idx]), this.getScreenPosition(idx));
         }
         this._updateStarVisualState();
         return;
@@ -4753,7 +6832,7 @@
           this._updateHoverMarker();
           this.focusOnSystemPlanet(this._planetPayload(entry), true);
           if (typeof this.opts.onClick === 'function') {
-            this.opts.onClick(Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }), this._getSystemPlanetScreenPosition(entry));
+            this.opts.onClick(this._planetPayload(entry), this._getSystemPlanetScreenPosition(entry));
           }
           return;
         }
@@ -4781,9 +6860,15 @@
         if (typeof this.opts.onHover === 'function') this.opts.onHover(null, null);
         return;
       }
-      const idx = this.clickMagnetEnabled
+      let idx = this.clickMagnetEnabled
         ? this._applyMagneticStarHover(this._pickStar())
         : this._pickStar();
+      if (idx < 0) {
+        const fallbackStarIdx = this._pickStarByScreenProximity(34);
+        if (fallbackStarIdx >= 0) {
+          idx = fallbackStarIdx;
+        }
+      }
       if (idx < 0) {
         const dynamicSelection = this.clickMagnetEnabled
           ? this._applyMagneticGalaxyObjectHover(this._pickGalaxyDynamicObject())
@@ -4850,7 +6935,7 @@
       this.focusOnStar(this.visibleStars[idx], true);
       this._updateStarVisualState();
       if (typeof this.opts.onClick === 'function') {
-        this.opts.onClick(this.visibleStars[idx], this.getScreenPosition(idx));
+        this.opts.onClick(this._starPayload(this.visibleStars[idx]), this.getScreenPosition(idx));
       }
     }
 
@@ -4883,7 +6968,7 @@
               slot: Number(entry?.slot?.position || 0),
               sourceSystem: Number(this.systemSourceStar?.system_index || 0),
             });
-            this.opts.onDoubleClick(Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }), this._getSystemPlanetScreenPosition(entry));
+            this.opts.onDoubleClick(this._planetPayload(entry), this._getSystemPlanetScreenPosition(entry));
           }
           return;
         }
@@ -4981,8 +7066,26 @@
       this.focusOnStar(this.visibleStars[idx], true);
       this._updateStarVisualState();
       if (typeof this.opts.onDoubleClick === 'function') {
-        this.opts.onDoubleClick(this.visibleStars[idx], this.getScreenPosition(idx));
+        this.opts.onDoubleClick(this._starPayload(this.visibleStars[idx]), this.getScreenPosition(idx));
       }
+    }
+
+    _pickStarByScreenProximity(maxDistancePx = 34) {
+      if (this.systemMode || !Array.isArray(this.visibleStars) || !this.visibleStars.length) return -1;
+      const maxD2 = Math.max(8, Number(maxDistancePx || 34));
+      const threshold2 = maxD2 * maxD2;
+      let bestIdx = -1;
+      let bestD2 = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < this.visibleStars.length; i++) {
+        const sp = this.getScreenPosition(i);
+        if (!sp) continue;
+        const d2 = this._pixelDistanceSq(sp, this.pointerPx);
+        if (d2 <= threshold2 && d2 < bestD2) {
+          bestD2 = d2;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
     }
 
     _onResize() {
@@ -5055,6 +7158,8 @@
             colonyColorScores: {},
             ownColonyWeight: 0,
             foreignColonyWeight: 0,
+            eventScoreTotal: 0,
+            eventScorePeak: 0,
           });
         }
 
@@ -5083,6 +7188,10 @@
           if (Number(s.colony_is_player || 0) === 1) b.ownColonyWeight += weight;
           else b.foreignColonyWeight += weight;
         }
+
+        const eventScore = this._starEventSeverity(s);
+        b.eventScoreTotal += eventScore;
+        if (eventScore > b.eventScorePeak) b.eventScorePeak = eventScore;
       }
 
       const out = [];
@@ -5120,6 +7229,7 @@
           colony_population: Math.max(0, Number(b.colonyPopulation || 0)),
           colony_owner_color: dominantColonyColor,
           colony_is_player: Number(b.ownColonyWeight || 0) > Number(b.foreignColonyWeight || 0) ? 1 : 0,
+          event_severity: THREE.MathUtils.clamp(((b.eventScoreTotal / Math.max(1, b.count)) * 0.62) + (b.eventScorePeak * 0.38), 0, 1),
         }));
         map.push(b.repIndex);
       });
@@ -5156,18 +7266,19 @@
       const distance = this._cameraDistance();
       const zoomNear = 90;
       const zoomFar = 900;
-      const zoomT = THREE.MathUtils.clamp((zoomFar - distance) / (zoomFar - zoomNear), 0, 1);
+      const math = getThreeMathUtils(window);
+      const zoomT = math.clamp((zoomFar - distance) / (zoomFar - zoomNear), 0, 1);
       const mode = String(this.clusterDensityMode || 'auto');
       if (mode === 'max') {
         const maxTarget = Math.round((base * 2.25) * (1 + zoomT * 0.85));
-        return THREE.MathUtils.clamp(maxTarget, 13000, 42000);
+        return math.clamp(maxTarget, 13000, 42000);
       }
       if (mode === 'high') {
         const highTarget = Math.round((base * 1.55) * (1 + zoomT * 0.62));
-        return THREE.MathUtils.clamp(highTarget, 8200, 30000);
+        return math.clamp(highTarget, 8200, 30000);
       }
       const target = Math.round(base * (1 + zoomT * boost));
-      return THREE.MathUtils.clamp(target, 3500, 26000);
+      return math.clamp(target, 3500, 26000);
     }
 
     setClusterDensityMode(mode, opts = {}) {
@@ -5187,14 +7298,56 @@
       return String(this.clusterDensityMode || 'auto');
     }
 
-    setLightRig(profile) {
+    setLightRig(profile, opts = null) {
       if (this.lightRigManager) {
-        const resolved = this.lightRigManager.setProfile(profile, this.scene);
+        const lightOptions = this._buildLightRigOptions(profile, opts);
+        const resolved = this.lightRigManager.setProfile(profile, this.scene, lightOptions);
         this.activeLightRig = String(resolved || 'galaxy');
         return this.activeLightRig;
       }
       this.activeLightRig = String(profile || 'galaxy');
       return this.activeLightRig;
+    }
+
+    _buildLightRigOptions(profile, opts = null) {
+      const normalized = String(profile || 'galaxy').toLowerCase();
+      if (normalized !== 'system') return null;
+      const star = opts?.star || this.systemSourceStar || null;
+      const systemOrigin = opts?.systemOrigin || this.systemOrigin || this.renderFrames?.system?.position || null;
+      const starColor = this._spectralColorHex(star?.spectral_class);
+      const intensity = ({ O: 3.2, B: 2.9, A: 2.7, F: 2.45, G: 2.3, K: 2.1, M: 1.85 })[String(star?.spectral_class || 'G').toUpperCase().charAt(0)] || 2.3;
+      return {
+        starColor,
+        starIntensity: intensity,
+        starPosition: systemOrigin
+          ? [Number(systemOrigin.x || 0), Number(systemOrigin.y || 0), Number(systemOrigin.z || 0)]
+          : [0, 0, 0],
+      };
+    }
+
+    _syncSystemLightState() {
+      if (!this.systemMode || !this.lightRigManager || typeof this.lightRigManager.setProfile !== 'function') return;
+      const lightOptions = this._buildLightRigOptions('system');
+      if (!lightOptions) return;
+      this.lightRigManager.setProfile('system', this.scene, lightOptions);
+      this.systemPlanetEntries.forEach((entry) => {
+        const materials = entry?.renderMesh?.material
+          ? (Array.isArray(entry.renderMesh.material) ? entry.renderMesh.material : [entry.renderMesh.material])
+          : [];
+        materials.forEach((material) => {
+          const shader = material?.userData?.nightEmission?.shader;
+          if (shader?.uniforms?.gqLightWorldPos?.value) {
+            shader.uniforms.gqLightWorldPos.value.set(
+              Number(lightOptions.starPosition?.[0] || 0),
+              Number(lightOptions.starPosition?.[1] || 0),
+              Number(lightOptions.starPosition?.[2] || 0)
+            );
+          }
+          if (shader?.uniforms?.gqNightEmissionStrength) {
+            shader.uniforms.gqNightEmissionStrength.value = Number(material?.userData?.nightEmission?.strength || 0);
+          }
+        });
+      });
     }
 
     getLightRig() {
@@ -5215,6 +7368,7 @@
         visibleStars: visible,
         clusterCount: Array.isArray(this.clusterAuraEntries) ? this.clusterAuraEntries.length : 0,
         clusterBoundsVisible: !!this.clusterBoundsVisible,
+        clusterHeatmapEnabled: this.clusterHeatmapEnabled !== false,
         densityRatio: ratio,
         targetPoints: Number(this._appliedClusterTargetPoints || 0),
         densityMode: String(this.clusterDensityMode || 'auto'),
@@ -5443,7 +7597,13 @@
 
         const relClass = { O: 2.4, B: 1.9, A: 1.5, F: 1.2, G: 1.0, K: 0.85, M: 0.72 };
         const clusterBoost = Math.min(2.2, 1 + Math.log2(Math.max(1, Number(s.cluster_size || 1))) * 0.24);
-        const baseSize = (3.1 * (relClass[s.spectral_class] || 1.0)) * clusterBoost;
+        const eventSeverity = this._starEventSeverity(s);
+        const baseSize = (3.1 * (relClass[s.spectral_class] || 1.0)) * clusterBoost * (1 + eventSeverity * 0.42);
+        const alertColor = [1.0, 0.45, 0.22];
+        const alertMix = THREE.MathUtils.clamp(eventSeverity * 0.58, 0, 0.58);
+        colors[p + 0] = THREE.MathUtils.lerp(colors[p + 0], alertColor[0], alertMix);
+        colors[p + 1] = THREE.MathUtils.lerp(colors[p + 1], alertColor[1], alertMix);
+        colors[p + 2] = THREE.MathUtils.lerp(colors[p + 2], alertColor[2], alertMix * 0.9);
         if (fowLevel === 'unknown') {
           sizes[i] = Math.max(4.4, baseSize);
         } else if (fowLevel === 'stale') {
@@ -5457,6 +7617,7 @@
         const colonyColorSource = s.colony_owner_color || s.owner_color || s.faction_color || '';
         const colonyRgb = this._hexColorToRgb01(colonyColorSource, [0.62, 0.75, 1.0]);
         const cp = i * 3;
+        s.__eventSeverity = eventSeverity;
         colonyFlags[i] = colonyCount > 0 ? 1 : 0;
         colonyOwnership[i] = Number(s.colony_is_player || 0) === 1 ? 1 : 0;
         const countStrength = colonyCount > 0
@@ -5530,7 +7691,7 @@
             vColonyStrength = aColonyStrength;
             vColonyOwnership = aColonyOwnership;
             vColonyColor = aColonyColor;
-            vAlpha = clamp((0.30 + (aSize / 12.0)) * (0.82 + centerBoost * 0.18), 0.24, 0.90);
+            vAlpha = clamp((0.40 + (aSize / 10.0)) * (0.85 + centerBoost * 0.20), 0.32, 0.95);
             vEmpire = aEmpire;
             vProximityFactor = aProximityFactor;
           }
@@ -5599,22 +7760,41 @@
         this.renderer.compile(this.starPoints, this.renderFrames.galaxy);
       } catch (shaderErr) {
         // Fallback: replace with simple PointsMaterial if shader compilation fails
+        console.error('[galaxy] shader compilation error:', shaderErr);
         try {
           material.dispose();
         } catch (_) {}
+        
+        // Create per-vertex colors from the geometry attributes if available
+        let vertexColors = undefined;
+        if (geo && geo.attributes && geo.attributes.aColor) {
+          try {
+            geo.setAttribute('color', geo.getAttribute('aColor'));
+            vertexColors = true;
+          } catch (_) {}
+        }
+        
         const fallbackMaterial = new THREE.PointsMaterial({
-          color: 0xffffff,
-          size: 2.0,
+          color: vertexColors ? 0xffffff : 0xffffff,
+          size: 5.2,
           sizeAttenuation: true,
           transparent: true,
           blending: THREE.AdditiveBlending,
           depthTest: false,
           depthWrite: false,
+          vertexColors: vertexColors || false,
+          opacity: 1.0,
+          fog: false,
         });
         this.starPoints.material = fallbackMaterial;
         try {
           if (window.GQLog && typeof window.GQLog.warn === 'function') {
-            window.GQLog.warn('[galaxy] star shader compilation failed, using fallback PointsMaterial');
+            window.GQLog.warn('[galaxy] star shader compilation failed, using fallback PointsMaterial', {
+              shaderError: shaderErr?.message || String(shaderErr || 'unknown'),
+              vertexColors: !!vertexColors,
+              materialSize: 4.5,
+              materialOpacity: 0.95,
+            });
           }
         } catch (_) {}
       }
@@ -5679,7 +7859,8 @@
         const s = this.visibleStars[i] || {};
         const relClass = { O: 2.4, B: 1.9, A: 1.5, F: 1.2, G: 1.0, K: 0.85, M: 0.72 };
         const clusterBoost = Math.min(2.2, 1 + Math.log2(Math.max(1, Number(s.cluster_size || 1))) * 0.24);
-        let base = (3.1 * (relClass[s.spectral_class] || 1.0)) * clusterBoost;
+        const eventSeverity = THREE.MathUtils.clamp(Number(s.__eventSeverity ?? this._starEventSeverity(s) ?? 0), 0, 1);
+        let base = (3.1 * (relClass[s.spectral_class] || 1.0)) * clusterBoost * (1 + eventSeverity * 0.42);
         if (i === this.hoverIndex) base *= 1.5;
         if (i === this.selectedIndex) base *= 1.9;
         sizeAttr.setX(i, base);
@@ -5687,78 +7868,111 @@
       sizeAttr.needsUpdate = true;
     }
 
-    _updateHoverMarker() {
-      if (!this.hoverMarker) return;
+    _markerTarget(kind, value) {
+      return value == null ? null : { kind, value };
+    }
+
+    _getHoverMarkerTarget() {
       if (this.systemMode) {
-        const entry = this.systemHoverEntry || this.systemSelectedEntry;
-        if (entry) {
-          const worldPos = this._getSystemPlanetWorldPosition(entry, new THREE.Vector3());
-          const baseSize = Math.max(4.5, entry.mesh.geometry?.parameters?.radius || 4.5);
-          this.hoverMarker.position.copy(worldPos);
-          this.hoverMarker.scale.setScalar(baseSize * (this.systemHoverEntry ? 3.2 : 2.7));
-          this.hoverMarker.visible = true;
-          return;
-        }
-        const dynamicSelection = this.systemHoverObject || this.systemSelectedObject;
-        if (dynamicSelection) {
-          const worldPos = this._getSelectionWorldPosition(dynamicSelection, new THREE.Vector3());
-          if (worldPos) {
-            this.hoverMarker.position.copy(worldPos);
-            this.hoverMarker.scale.setScalar(this._selectionPickRadiusPx(dynamicSelection) * 0.18);
-            this.hoverMarker.visible = true;
-            return;
-          }
-        }
-        this.hoverMarker.visible = false;
-        this._updateSystemOrbitLineStates();
-        return;
+        if (this.systemHoverEntry) return this._markerTarget('system-planet', this.systemHoverEntry);
+        if (this.systemHoverObject) return this._markerTarget('selection', this.systemHoverObject);
+        return null;
       }
-      const dynamicSelection = this.galaxyHoverObject || this.galaxySelectedObject;
-      if (dynamicSelection) {
-        const worldPos = this._getSelectionWorldPosition(dynamicSelection, new THREE.Vector3());
-        if (worldPos) {
-          this.hoverMarker.position.copy(worldPos);
-          this.hoverMarker.scale.setScalar(this._selectionPickRadiusPx(dynamicSelection) * 0.18);
-          this.hoverMarker.visible = true;
-          return;
-        }
+      if (this.galaxyHoverObject) return this._markerTarget('selection', this.galaxyHoverObject);
+      if (this.hoverClusterIndex >= 0) return this._markerTarget('cluster', this.hoverClusterIndex);
+      if (this.hoverIndex >= 0) return this._markerTarget('star', this.hoverIndex);
+      return null;
+    }
+
+    _getSelectionMarkerTarget() {
+      if (this.systemMode) {
+        if (this.systemSelectedEntry) return this._markerTarget('system-planet', this.systemSelectedEntry);
+        if (this.systemSelectedObject) return this._markerTarget('selection', this.systemSelectedObject);
+        return null;
       }
-      const clusterMarkerIndex = this.hoverClusterIndex >= 0 ? this.hoverClusterIndex : this.selectedClusterIndex;
-      if (clusterMarkerIndex >= 0) {
-        const clusterEntry = this.clusterAuraEntries?.[clusterMarkerIndex] || null;
+      if (this.galaxySelectedObject) return this._markerTarget('selection', this.galaxySelectedObject);
+      if (this.selectedClusterIndex >= 0) return this._markerTarget('cluster', this.selectedClusterIndex);
+      if (this.selectedIndex >= 0) return this._markerTarget('star', this.selectedIndex);
+      return null;
+    }
+
+    _sameMarkerTarget(a, b) {
+      if (!a || !b) return false;
+      return a.kind === b.kind && a.value === b.value;
+    }
+
+    _applyMarkerTarget(marker, target, variant = 'hover') {
+      if (!marker) return false;
+      if (!target) {
+        marker.visible = false;
+        return false;
+      }
+      if (target.kind === 'system-planet') {
+        const entry = target.value;
+        const worldPos = this._getSystemPlanetWorldPosition(entry, new THREE.Vector3());
+        const baseSize = Math.max(4.5, entry?.mesh?.geometry?.parameters?.radius || 4.5);
+        marker.position.copy(worldPos);
+        marker.scale.setScalar(baseSize * (variant === 'selection' ? 3.4 : 2.6));
+        marker.visible = true;
+        return true;
+      }
+      if (target.kind === 'selection') {
+        const worldPos = this._getSelectionWorldPosition(target.value, new THREE.Vector3());
+        if (!worldPos) {
+          marker.visible = false;
+          return false;
+        }
+        marker.position.copy(worldPos);
+        marker.scale.setScalar(this._selectionPickRadiusPx(target.value) * (variant === 'selection' ? 0.23 : 0.17));
+        marker.visible = true;
+        return true;
+      }
+      if (target.kind === 'cluster') {
+        const clusterEntry = this.clusterAuraEntries?.[target.value] || null;
         if (!clusterEntry?.center || !clusterEntry?.size) {
-          this.hoverMarker.visible = false;
-          this._updateSystemOrbitLineStates();
-          return;
+          marker.visible = false;
+          return false;
         }
         const worldPos = this.clusterAuraGroup.localToWorld(clusterEntry.center.clone());
         const baseSize = Math.max(10, clusterEntry.size.length() * 0.18);
-        this.hoverMarker.position.copy(worldPos);
-        this.hoverMarker.scale.setScalar(baseSize * (this.hoverClusterIndex >= 0 ? 2.1 : 1.8));
-        this.hoverMarker.visible = !!this.clusterBoundsVisible;
-        return;
+        marker.position.copy(worldPos);
+        marker.scale.setScalar(baseSize * (variant === 'selection' ? 1.95 : 1.55));
+        marker.visible = !!this.clusterBoundsVisible;
+        return marker.visible;
       }
-      if (!this.starPoints) return;
-      const markerIndex = this.hoverIndex >= 0 ? this.hoverIndex : this.selectedIndex;
-      if (markerIndex < 0 || markerIndex >= this.visibleStars.length) {
-        this.hoverMarker.visible = false;
-        return;
+      if (target.kind === 'star') {
+        if (!this.starPoints || target.value < 0 || target.value >= this.visibleStars.length) {
+          marker.visible = false;
+          return false;
+        }
+        const posAttr = this.starPoints.geometry.getAttribute('position');
+        const sizeAttr = this.starPoints.geometry.getAttribute('aSize');
+        const localPos = new THREE.Vector3(
+          posAttr.getX(target.value),
+          posAttr.getY(target.value),
+          posAttr.getZ(target.value)
+        );
+        const worldPos = this.starPoints.localToWorld(localPos.clone());
+        const baseSize = sizeAttr ? sizeAttr.getX(target.value) : 6;
+        marker.position.copy(worldPos);
+        marker.scale.setScalar(Math.max(7, baseSize * (variant === 'selection' ? 2.55 : 1.95)));
+        marker.visible = true;
+        return true;
       }
+      marker.visible = false;
+      return false;
+    }
 
-      const posAttr = this.starPoints.geometry.getAttribute('position');
-      const sizeAttr = this.starPoints.geometry.getAttribute('aSize');
-      const localPos = new THREE.Vector3(
-        posAttr.getX(markerIndex),
-        posAttr.getY(markerIndex),
-        posAttr.getZ(markerIndex)
-      );
-      const worldPos = this.starPoints.localToWorld(localPos.clone());
-      const baseSize = sizeAttr ? sizeAttr.getX(markerIndex) : 6;
-      const markerScale = Math.max(7, baseSize * (this.hoverIndex >= 0 ? 2.4 : 2.0));
-
-      this.hoverMarker.position.copy(worldPos);
-      this.hoverMarker.scale.setScalar(markerScale);
-      this.hoverMarker.visible = true;
+    _updateHoverMarker() {
+      if (!this.hoverMarker && !this.selectionMarker) return;
+      const selectionTarget = this._getSelectionMarkerTarget();
+      const hoverTarget = this._getHoverMarkerTarget();
+      const uniqueHoverTarget = this._sameMarkerTarget(hoverTarget, selectionTarget) ? null : hoverTarget;
+      this._applyMarkerTarget(this.selectionMarker, selectionTarget, 'selection');
+      this._applyMarkerTarget(this.hoverMarker, uniqueHoverTarget, 'hover');
+      if (this.systemMode) {
+        this._updateSystemOrbitLineStates();
+      }
     }
 
     getWorldScreenPosition(worldVec) {
@@ -6341,6 +8555,19 @@ ${shader.vertexShader}`;
       return !!this.clusterBoundsVisible;
     }
 
+    setClusterHeatmapEnabled(enabled) {
+      this.clusterHeatmapEnabled = enabled !== false;
+      return this.clusterHeatmapEnabled;
+    }
+
+    toggleClusterHeatmap() {
+      return this.setClusterHeatmapEnabled(!(this.clusterHeatmapEnabled !== false));
+    }
+
+    areClusterHeatmapEnabled() {
+      return this.clusterHeatmapEnabled !== false;
+    }
+
     setGalacticCoreFxEnabled(enabled) {
       this.galacticCoreFxEnabled = !!enabled;
       if (!this.galacticCoreGroup) return this.galacticCoreFxEnabled;
@@ -6521,7 +8748,11 @@ ${shader.vertexShader}`;
     }
 
     _planetPayload(entry) {
-      return Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar });
+      return this._annotateSelectionPayload(Object.assign({ __kind: 'planet' }, entry.body, { __slot: entry.slot, __sourceStar: this.systemSourceStar }), {
+        kind: 'planet',
+        scope: 'system',
+        mode: 'system',
+      });
     }
 
     _triggerAutoTransition(kind, payload, screenPos = null) {
@@ -6664,6 +8895,8 @@ ${shader.vertexShader}`;
     _animate() {
       if (this.destroyed) return;
       requestAnimationFrame(() => this._animate());
+      if (!resolveThreeRuntime(window)) return;
+      ensureThreeMathUtils(window);
       const dt = this.clock.getDelta();
 
       if (!this.systemMode) {
@@ -6728,27 +8961,36 @@ ${shader.vertexShader}`;
           const zoomFar = 760;
           const zoomT = THREE.MathUtils.clamp((zoomFar - camDist) / (zoomFar - zoomNear), 0, 1);
           const visibleSegments = Math.max(8, Math.floor(THREE.MathUtils.lerp(24, entry.segmentCount || 24, zoomT)));
+          const heat = this.clusterHeatmapEnabled !== false ? this._clusterGroupHeat(entry) : 0;
+          const heatPulse = heat * (0.55 + beat * 0.45);
+          const isSelected = index === this.selectedClusterIndex;
+          const isHovered = index === this.hoverClusterIndex;
+          const colorMix = THREE.MathUtils.clamp((heat * 0.72) + (isSelected ? 0.22 : isHovered ? 0.12 : 0), 0, 0.92);
+          const baseColor = entry.baseColor || new THREE.Color(this._clusterAuraColor(entry.cluster));
+          const heatColor = entry.heatColor || new THREE.Color(0xff8a54);
+          const mixedColor = baseColor.clone().lerp(heatColor, colorMix);
           if (entry.lineGeo && typeof entry.lineGeo.setDrawRange === 'function') {
             entry.lineGeo.setDrawRange(0, visibleSegments * 2);
           }
           (entry.nodeMeshes || []).forEach((nodeMesh) => {
             if (!nodeMesh?.material) return;
-            nodeMesh.material.opacity = THREE.MathUtils.lerp(0.18, 0.42, zoomT) + beat * 0.12;
+            if (nodeMesh.material.color) nodeMesh.material.color.copy(mixedColor);
+            nodeMesh.material.opacity = THREE.MathUtils.lerp(0.18, 0.42, zoomT) + beat * 0.12 + heatPulse * 0.18;
             nodeMesh.scale.setScalar(THREE.MathUtils.lerp(0.68, 1.08, zoomT) + beat * 0.18);
           });
           if (entry.lineMat) {
-            entry.lineMat.opacity = THREE.MathUtils.lerp(0.04, 0.20, zoomT) + beat * 0.08;
+            if (entry.lineMat.color) entry.lineMat.color.copy(mixedColor);
+            entry.lineMat.opacity = THREE.MathUtils.lerp(0.04, 0.20, zoomT) + beat * 0.08 + heatPulse * 0.22;
           }
           if (entry.group) {
             entry.group.rotation.y += dt * (0.018 + index * 0.0008);
           }
           if (entry.wireMat) {
-            const isSelected = index === this.selectedClusterIndex;
-            const isHovered = index === this.hoverClusterIndex;
+            if (entry.wireMat.color) entry.wireMat.color.copy(mixedColor);
             const baseOpacity = this.clusterBoundsVisible ? THREE.MathUtils.lerp(0.14, 0.28, zoomT) : 0;
             const accentOpacity = isSelected ? 0.52 : isHovered ? 0.34 : 0;
             entry.wireMat.opacity = this.clusterBoundsVisible
-              ? THREE.MathUtils.clamp(baseOpacity + accentOpacity + beat * 0.08, 0, 0.88)
+              ? THREE.MathUtils.clamp(baseOpacity + accentOpacity + beat * 0.08 + heatPulse * 0.28, 0, 0.92)
               : 0;
           }
           const scale = index === this.selectedClusterIndex
@@ -6807,6 +9049,7 @@ ${shader.vertexShader}`;
         this._syncClusterAuraTransform();
       } else {
         const elapsed = this.clock.elapsedTime;
+        this._syncSystemLightState();
         this._syncSystemSkyDome(dt);
         this._updateSystemOrbitTransforms(dt);
         this.systemFacilityEntries.forEach((facility, index) => {
@@ -6850,7 +9093,15 @@ ${shader.vertexShader}`;
             fleetEntry.headingLine.material.opacity = 0.58 + 0.3 * pulse;
           }
         });
-        this._syncInstallationAnimationStates();
+        this._syncInstallationAnimationStates(elapsed);
+        this._applyPendingInstallationWeaponFire(elapsed);
+        this._syncInstallationWeaponFx(elapsed);
+        this._tickInstallationParticleFields(elapsed, dt);
+        this._tickInstallationBurstFx(elapsed, dt);
+        // Upload BeamEffect pool to GPU (Phase FX-3)
+        if (this.beamEffect && typeof this.beamEffect.uploadToGPU === 'function') {
+          this.beamEffect.uploadToGPU();
+        }
         const registry = window.__GQ_ModelRegistry;
         if (registry && typeof registry.tickAnimations === 'function') {
           registry.tickAnimations(this.systemStarInstallationEntries, elapsed, dt);
@@ -6955,6 +9206,10 @@ ${shader.vertexShader}`;
       if (this._onMouseUp) window.removeEventListener('mouseup', this._onMouseUp);
       if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown);
       if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp);
+      if (this._onCombatWeaponFireEvent) {
+        window.removeEventListener('gq:combat:weapon-fire', this._onCombatWeaponFireEvent);
+        window.removeEventListener('gq:weapon-fire', this._onCombatWeaponFireEvent);
+      }
       if (this._containerResizeObserver) {
         try {
           this._containerResizeObserver.disconnect();
@@ -6989,6 +9244,10 @@ ${shader.vertexShader}`;
       if (this.hoverMarker) {
         this.hoverMarker.material.map?.dispose();
         this.hoverMarker.material.dispose();
+      }
+      if (this.selectionMarker) {
+        this.selectionMarker.material.map?.dispose();
+        this.selectionMarker.material.dispose();
       }
       if (this.ownsRendererCanvas && this.renderer.domElement.parentNode === this.container) {
         this.container.removeChild(this.renderer.domElement);

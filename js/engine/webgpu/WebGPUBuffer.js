@@ -71,6 +71,31 @@ class WebGPUBuffer {
     this._device.queue.writeBuffer(this._buffer, byteOffset, _toU8(data));
   }
 
+  /**
+   * Asynchronously read back the entire buffer contents to a CPU ArrayBuffer.
+   * The buffer must have COPY_SRC usage (DYNAMIC/STREAM buffers automatically
+   * include it; STORAGE buffers always include it).
+   *
+   * @returns {Promise<ArrayBuffer>}
+   */
+  async readback() {
+    // Staging buffer: MAP_READ | COPY_DST
+    const staging = this._device.createBuffer({
+      size:  this.size,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+
+    const encoder = this._device.createCommandEncoder();
+    encoder.copyBufferToBuffer(this._buffer, 0, staging, 0, this.size);
+    this._device.queue.submit([encoder.finish()]);
+
+    await staging.mapAsync(GPUMapMode.READ);
+    const result = staging.getMappedRange(0, this.size).slice(0);
+    staging.unmap();
+    staging.destroy();
+    return result;
+  }
+
   destroy() {
     this._buffer.destroy();
   }

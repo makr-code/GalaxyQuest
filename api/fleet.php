@@ -823,8 +823,15 @@ function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
         $db->prepare('INSERT INTO ships (colony_id,type,count) VALUES (?,?,?) ON DUPLICATE KEY UPDATE count=count+?')
            ->execute([$cid, $type, $cnt, $cnt]);
     }
-    $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
-       ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $cid]);
+
+    $payload = decode_fleet_cargo_payload($fleet);
+    if ($payload) {
+        apply_fleet_payload_to_colony($db, $cid, $payload);
+    } else {
+        $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
+           ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $cid]);
+    }
+
     $db->prepare('DELETE FROM fleets WHERE id=?')->execute([$fleet['id']]);
     enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_returned');
 }
@@ -833,9 +840,16 @@ function deliver_resources(PDO $db, array $fleet, array $ships): void {
     $tgt = $db->prepare('SELECT c.id, c.user_id FROM colonies c JOIN celestial_bodies cb ON cb.id=c.body_id WHERE cb.galaxy_index=? AND cb.system_index=? AND cb.position=?');
     $tgt->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
     $target = $tgt->fetch();
+    $payload = decode_fleet_cargo_payload($fleet);
+
     if ($target) {
-        $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
-           ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $target['id']]);
+        if ($payload) {
+            apply_fleet_payload_to_colony($db, (int)$target['id'], $payload);
+        } else {
+            $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
+               ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $target['id']]);
+        }
+
         // Mark the receiving user dirty (different user for inter-player transports)
         if ((int)$target['user_id'] !== (int)$fleet['user_id']) {
             enqueue_dirty_user($db, (int)$target['user_id'], 'resources_received');
@@ -843,9 +857,97 @@ function deliver_resources(PDO $db, array $fleet, array $ships): void {
     }
     $travel  = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
     $retTime = date('Y-m-d H:i:s', time() + $travel);
-    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=?, cargo_metal=0, cargo_crystal=0, cargo_deuterium=0 WHERE id=?')
-       ->execute([$retTime, $retTime, $fleet['id']]);
+    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=?, cargo_metal=0, cargo_crystal=0, cargo_deuterium=0, cargo_payload = ? WHERE id=?')
+       ->execute([$retTime, $retTime, '{}', $fleet['id']]);
     enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_delivered');
+}
+
+function decode_fleet_cargo_payload(array $fleet): array {
+    $raw = $fleet['cargo_payload'] ?? null;
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $out = [];
+    foreach ($decoded as $resource => $qty) {
+        $key = trim((string)$resource);
+        $val = max(0.0, (float)$qty);
+        if ($key !== '' && $val > 0) {
+            $out[$key] = $val;
+        }
+    }
+
+    return $out;
+}
+
+function apply_fleet_payload_to_colony(PDO $db, int $colonyId, array $payload): void {
+    $metal = (float)($payload['metal'] ?? 0.0);
+    $crystal = (float)($payload['crystal'] ?? 0.0);
+    $deuterium = (float)($payload['deuterium'] ?? 0.0);
+    $rareEarth = (float)($payload['rare_earth'] ?? 0.0);
+    $food = (float)($payload['food'] ?? 0.0);
+
+    if ($metal > 0 || $crystal > 0 || $deuterium > 0 || $rareEarth > 0 || $food > 0) {
+        $db->prepare('UPDATE colonies SET metal = metal + ?, crystal = crystal + ?, deuterium = deuterium + ?, rare_earth = rare_earth + ?, food = food + ? WHERE id = ?')
+           ->execute([$metal, $crystal, $deuterium, $rareEarth, $food, $colonyId]);
+    }
+
+    foreach ($payload as $resource => $qty) {
+        $qty = max(0.0, (float)$qty);
+        if ($qty <= 0 || in_array($resource, ['metal', 'crystal', 'deuterium', 'rare_earth', 'food'], true)) {
+            continue;
+        }
+
+        $db->prepare(<<<SQL
+            INSERT INTO economy_processed_goods (colony_id, good_type, quantity, capacity)
+            VALUES (?, ?, ?, 5000.0)
+            ON DUPLICATE KEY UPDATE quantity = LEAST(capacity, quantity + VALUES(quantity))
+        SQL)->execute([$colonyId, $resource, $qty]);
+    }
+}
+
+function leaders_attack_skill_column(PDO $db): ?string {
+    static $resolved = false;
+    static $column = null;
+
+    if ($resolved) {
+        return $column;
+    }
+
+    $resolved = true;
+    try {
+        $check = $db->prepare(
+            'SELECT COLUMN_NAME
+               FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = ?
+                AND COLUMN_NAME IN (?, ?)' 
+        );
+        $check->execute(['leaders', 'skill_attack', 'skill_tactics']);
+
+        $found = [];
+        foreach ($check->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $name = (string)($row['COLUMN_NAME'] ?? '');
+            if ($name !== '') {
+                $found[$name] = true;
+            }
+        }
+
+        if (isset($found['skill_attack'])) {
+            $column = 'skill_attack';
+        } elseif (isset($found['skill_tactics'])) {
+            $column = 'skill_tactics';
+        }
+    } catch (\Throwable) {
+        $column = null;
+    }
+
+    return $column;
 }
 
 function resolve_battle(PDO $db, array $fleet, array $ships): void {
@@ -875,10 +977,16 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $atkShldLevel = (int)($atkShldRow->fetchColumn() ?? 0);
 
     // Fleet commander attack bonus (+2% per skill_attack level)
-    $cmdRow = $db->prepare('SELECT skill_attack FROM leaders WHERE fleet_id=? AND role=\'fleet_commander\' LIMIT 1');
-    $cmdRow->execute([$fleet['id']]);
-    $cmd = $cmdRow->fetch();
-    $cmdBonus = $cmd ? (1.0 + (int)$cmd['skill_attack'] * 0.02) : 1.0;
+    $cmdBonus = 1.0;
+    $attackSkillCol = leaders_attack_skill_column($db);
+    if ($attackSkillCol !== null) {
+        $cmdRow = $db->prepare("SELECT {$attackSkillCol} AS attack_skill FROM leaders WHERE fleet_id=? AND role='fleet_commander' LIMIT 1");
+        $cmdRow->execute([$fleet['id']]);
+        $cmd = $cmdRow->fetch();
+        if ($cmd) {
+            $cmdBonus = 1.0 + (int)($cmd['attack_skill'] ?? 0) * 0.02;
+        }
+    }
 
     $atkMulti = (1.0 + $atkWpnLevel * 0.1) * $cmdBonus;
 
@@ -1128,10 +1236,59 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $defNpc->execute([$target['user_id']]);
     $defUser = $defNpc->fetch();
     if ($defUser && (string)($defUser['control_type'] ?? 'human') === 'npc_engine') {
-        // Find which faction this NPC belongs to (look up by faction colonies)
-        // Simplified: just degrade pirate standing if attacking NPC
         require_once __DIR__ . '/factions.php';
-        // TODO: link NPC users to faction — for now skip
+
+        $factionId = 0;
+
+        // Primary mapping: NPC user owns a colony that is linked in faction_colonies.
+        try {
+            $fc = $db->prepare(
+                'SELECT fc.faction_id
+                   FROM faction_colonies fc
+                   JOIN colonies c ON c.id = fc.colony_id
+                  WHERE c.user_id = ?
+                  LIMIT 1'
+            );
+            $fc->execute([(int)$target['user_id']]);
+            $factionId = (int)($fc->fetchColumn() ?: 0);
+        } catch (\Throwable) {
+            $factionId = 0;
+        }
+
+        // Fallback for trader-NPC users.
+        if ($factionId <= 0) {
+            try {
+                $tr = $db->prepare('SELECT faction_id FROM npc_traders WHERE user_id = ? LIMIT 1');
+                $tr->execute([(int)$target['user_id']]);
+                $factionId = (int)($tr->fetchColumn() ?: 0);
+            } catch (\Throwable) {
+                $factionId = 0;
+            }
+        }
+
+        // Legacy/optional fallback if users.faction_id exists in this DB variant.
+        if ($factionId <= 0) {
+            try {
+                $ur = $db->prepare('SELECT faction_id FROM users WHERE id = ? LIMIT 1');
+                $ur->execute([(int)$target['user_id']]);
+                $factionId = (int)($ur->fetchColumn() ?: 0);
+            } catch (\Throwable) {
+                $factionId = 0;
+            }
+        }
+
+        if ($factionId > 0 && function_exists('update_standing')) {
+            update_standing(
+                $db,
+                (int)$fleet['user_id'],
+                $factionId,
+                -5,
+                'battle',
+                'Attacked faction NPC colony'
+            );
+            $db->prepare('UPDATE diplomacy SET attacks_against = attacks_against + 1 WHERE user_id = ? AND faction_id = ?')
+               ->execute([(int)$fleet['user_id'], $factionId]);
+        }
     }
 
     // ── Messages ─────────────────────────────────────────────────────────

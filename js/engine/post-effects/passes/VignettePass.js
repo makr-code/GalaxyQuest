@@ -78,11 +78,12 @@ class VignettePass {
    */
   render(srcTex, dstTex, renderer) {
     if (!this.enabled) return;
-    // Renderer dispatch (wired up when WebGPU device is available):
-    //   renderer.runVignettePass(this, srcTex, dstTex)
+    // Dispatch to the renderer's fullscreen vignette pass.
     // The renderer binds buildParamBlock() into @group(0) @binding(2)
     // and dispatches a fullscreen quad using vignette.wgsl.
-    void srcTex; void dstTex; void renderer;
+    if (typeof renderer?.runVignettePass === 'function') {
+      renderer.runVignettePass(this, srcTex, dstTex);
+    }
   }
 
   dispose() {

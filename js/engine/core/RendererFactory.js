@@ -21,11 +21,11 @@
 
 'use strict';
 
-const { WebGPURenderer } = typeof require !== 'undefined'
+const { WebGPURenderer: WebGPURendererCtor } = typeof require !== 'undefined'
   ? require('./WebGPURenderer.js')
   : { WebGPURenderer: window.GQWebGPURenderer };
 
-const { WebGLRenderer } = typeof require !== 'undefined'
+const { WebGLRenderer: WebGLRendererCtor } = typeof require !== 'undefined'
   ? require('./WebGLRenderer.js')
   : { WebGLRenderer: window.GQWebGLRenderer };
 
@@ -52,7 +52,7 @@ class RendererFactory {
       const gpuAvailable = await RendererFactory.isWebGPUAvailable();
       if (gpuAvailable) {
         try {
-          const r = new WebGPURenderer();
+          const r = new WebGPURendererCtor();
           await r.initialize(canvas);
           return r;
         } catch (err) {
@@ -91,7 +91,7 @@ class RendererFactory {
     if (typeof onFallback === 'function') {
       onFallback('using-webgl2', null);
     }
-    const r = new WebGLRenderer();
+    const r = new WebGLRendererCtor();
     r.debug = debug;
     await r.initialize(canvas);
     return r;

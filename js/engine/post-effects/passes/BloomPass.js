@@ -160,12 +160,13 @@ class BloomPass {
    */
   render(srcTex, dstTex, renderer) {
     if (!this.enabled) return;
-    // Renderer dispatch (wired up when WebGPU device is available):
-    //   renderer.runBloomPass(this, srcTex, dstTex)
+    // Dispatch to the renderer's two-pass bloom implementation.
     // The renderer iterates mipLevels and calls buildThresholdParamBlock(),
     // buildBlurParamBlock(true/false, levelRadius(l)) for each level, then
     // buildCompositeParamBlock() for the additive blend.
-    void srcTex; void dstTex; void renderer;
+    if (typeof renderer?.runBloomPass === 'function') {
+      renderer.runBloomPass(this, srcTex, dstTex);
+    }
   }
 
   dispose() {

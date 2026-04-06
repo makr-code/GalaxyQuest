@@ -354,17 +354,31 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
         'colonies'       => $offlineEntries,
     ];
 
-    // ── Session side-effects (achievements + NPC tick) ─────────────────────────
+    $warRuntime = [
+        'processed' => false,
+        'schema_ready' => false,
+        'elapsed_seconds' => 0,
+        'passive_delta' => 0.0,
+        'touched_wars' => 0,
+        'expired_offers' => 0,
+        'forced_peace' => 0,
+        'active_wars' => 0,
+        'last_tick' => 0,
+    ];
+
+    // ── Session side-effects (achievements + NPC tick + war runtime) ─────────
     if ($runSessionSideEffects) {
         check_and_update_achievements($db, $uid);
         require_once __DIR__ . '/npc_ai.php';
         try { npc_ai_tick($db, $uid); } catch (Throwable $e) { error_log('npc_ai_tick error: ' . $e->getMessage()); }
+        try { $warRuntime = process_war_runtime_tick($db); } catch (Throwable $e) { error_log('war_runtime_tick error: ' . $e->getMessage()); }
     }
 
     // ── Politics runtime ──────────────────────────────────────────────────────
     $politicsRuntime = [
         'effects'         => empire_dynamic_effects($db, $uid),
         'pressure_events' => apply_faction_pressure_situations($db, $uid),
+        'war'             => $warRuntime,
     ];
 
     // ── User meta ─────────────────────────────────────────────────────────────
@@ -469,6 +483,49 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
         unset($f['ships_json']);
         $f['current_pos'] = fleet_current_position($f);
         $fleets[] = $f;
+    }
+
+
+    // ── NPC / free-trader fleets (visible galaxy-wide) ────────────────────────
+    // Include active fleets for NPC-engine users so they appear as moving markers
+    // on the galaxy map (rendered via setGalaxyFleets → _buildGalaxyFleetEntry).
+    // Spy missions are excluded; all other missions (transport, colonize, …) are
+    // publicly visible. Capped at 60 to keep response payload small.
+    try {
+        $npcFleetStmt = $db->prepare(
+            'SELECT f.id, f.mission, f.origin_colony_id,
+                    f.target_galaxy, f.target_system, f.target_position,
+                    f.ships_json,
+                    f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
+                    f.origin_x_ly, f.origin_y_ly, f.origin_z_ly,
+                    f.target_x_ly, f.target_y_ly, f.target_z_ly,
+                    f.speed_ly_h, f.distance_ly,
+                    f.departure_time, f.arrival_time, f.return_time, f.returning,
+                    u.username AS owner,
+                    cb.galaxy_index AS origin_galaxy,
+                    cb.system_index AS origin_system,
+                    cb.position     AS origin_position
+             FROM fleets f
+             JOIN colonies c           ON c.id  = f.origin_colony_id
+             JOIN celestial_bodies cb  ON cb.id = c.body_id
+             JOIN users u              ON u.id  = f.user_id
+             WHERE u.control_type = \'npc_engine\'
+               AND f.mission      != \'spy\'
+             ORDER BY f.arrival_time ASC
+             LIMIT 60'
+        );
+        $npcFleetStmt->execute();
+        foreach ($npcFleetStmt->fetchAll() as $f) {
+            $ships = json_decode((string)$f['ships_json'], true);
+            $f['ships']   = is_array($ships) ? $ships : [];
+            $f['vessels'] = vessel_manifest($f['ships']);
+            unset($f['ships_json']);
+            $f['current_pos'] = fleet_current_position($f);
+            $f['is_npc']      = true;
+            $fleets[] = $f;
+        }
+    } catch (\Throwable $e) {
+        // Graceful degradation: keep player fleets even if NPC query fails.
     }
 
     // ── Unread messages ───────────────────────────────────────────────────────

@@ -46,11 +46,24 @@ const API = (() => {
     { re: /api\/reports\.php\?action=battle_reports/i, ttl: 10 * 1000 },
     { re: /api\/trade\.php\?action=list$/i,          ttl: 8 * 1000 },
     { re: /api\/trade\.php\?action=list_proposals/i, ttl: 6 * 1000 },
+    { re: /api\/traders\.php\?action=list_traders/i, ttl: 8 * 1000 },
+    { re: /api\/traders\.php\?action=list_routes/i, ttl: 6 * 1000 },
+    { re: /api\/traders_events\.php\?event=status/i, ttl: 5 * 1000 },
+    { re: /api\/traders_dashboard\.php\?action=opportunity_alerts/i, ttl: 6 * 1000 },
+    { re: /api\/pirates\.php\?action=status/i, ttl: 6 * 1000 },
+    { re: /api\/pirates\.php\?action=recent_raids/i, ttl: 6 * 1000 },
+    { re: /api\/pirates\.php\?action=forecast/i, ttl: 8 * 1000 },
+    { re: /api\/economy\.php\?action=get_overview/i, ttl: 8 * 1000 },
+    { re: /api\/economy\.php\?action=get_policy/i, ttl: 10 * 1000 },
+    { re: /api\/economy\.php\?action=get_pop_classes/i, ttl: 10 * 1000 },
+    { re: /api\/economy\.php\?action=get_production/i, ttl: 8 * 1000 },
     { re: /api\/alliances\.php\?action=list/i, ttl: 8 * 1000 },
     { re: /api\/alliances\.php\?action=details/i, ttl: 6 * 1000 },
     { re: /api\/alliances\.php\?action=relations/i, ttl: 5 * 1000 },
     { re: /api\/alliances\.php\?action=get_messages/i, ttl: 5 * 1000 },
     { re: /api\/alliances\.php\?action=war_map/i, ttl: 10 * 1000 },
+    { re: /api\/war\.php\?action=list/i, ttl: 8 * 1000 },
+    { re: /api\/war\.php\?action=get_status/i, ttl: 5 * 1000 },
     { re: /api\/galaxy\.php\?action=stars/i, ttl: 45 * 1000 },
     { re: /api\/galaxy\.php\?action=bootstrap/i, ttl: 20 * 1000 },
     { re: /api\/galaxy\.php\?/i, ttl: 15 * 1000 },
@@ -75,7 +88,13 @@ const API = (() => {
     /^api\/messages\.php\?action=/i,
     /^api\/reports\.php\?action=/i,
     /^api\/trade\.php\?action=/i,
+    /^api\/traders\.php\?action=/i,
+    /^api\/traders_events\.php\?event=/i,
+    /^api\/traders_dashboard\.php\?action=/i,
+    /^api\/pirates\.php\?action=/i,
+    /^api\/economy\.php\?action=/i,
     /^api\/alliances\.php\?action=/i,
+    /^api\/war\.php\?action=/i,
     /^api\/galaxy\.php\?/i,
   ];
 
@@ -1623,7 +1642,63 @@ const API = (() => {
     deleteTradeRoute: (id)     => post('api/trade.php?action=delete', { route_id: id }),
     toggleTradeRoute: (id)     => post('api/trade.php?action=toggle', { route_id: id }),
 
+    // NPC Traders Dashboard
+    tradersStatus: ()          => get('api/traders_events.php?event=status'),
+    tradersEvent: (eventName)  => post(`api/traders_events.php?event=${encodeURIComponent(String(eventName || 'status'))}`, {}),
+    tradersList: ()            => get('api/traders.php?action=list_traders'),
+    tradersRoutes: (status = '') => get(`api/traders.php?action=list_routes${status ? `&status=${encodeURIComponent(String(status))}` : ''}`),
+    traderOpportunities: (threshold = 15) =>
+      get(`api/traders_dashboard.php?action=opportunity_alerts&threshold=${Math.max(0, Number(threshold || 15))}`),
+
+    // Pirates / raids
+    piratesStatus: ()          => get('api/pirates.php?action=status'),
+    piratesRecentRaids: (limit = 20) => get(`api/pirates.php?action=recent_raids&limit=${Math.max(1, Number(limit || 20))}`),
+    piratesForecast: ()        => get('api/pirates.php?action=forecast'),
+    piratesRunTick: ()         => post('api/pirates.php?action=run_tick', {}),
+
+    // Economy management (policy / tax / subsidies / overview)
+    economyOverview: (colony_id = null) => {
+      const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
+      return get(`api/economy.php?action=get_overview${q}`);
+    },
+    economyProduction: (colony_id) =>
+      get(`api/economy.php?action=get_production&colony_id=${encodeURIComponent(Number(colony_id))}`),
+    economyPolicy: ()          => get('api/economy.php?action=get_policy'),
+    setEconomyPolicy: (policy) => post('api/economy.php?action=set_policy', { policy }),
+    setEconomyTax: (type, rate) => post('api/economy.php?action=set_tax', { type, rate }),
+    setEconomySubsidy: (sector, enabled) => post('api/economy.php?action=set_subsidy', { sector, enabled }),
+    setEconomyProductionMethod: (colony_id, building_type, method) =>
+      post('api/economy.php?action=set_production_method', { colony_id: Number(colony_id), building_type, method }),
+    economyPopClasses: (colony_id = null) => {
+      const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
+      return get(`api/economy.php?action=get_pop_classes${q}`);
+    },
+
+    // Strategic wars
+    wars: () => get('api/war.php?action=list'),
+    warStatus: (warId) =>
+      get(`api/war.php?action=get_status&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
+    declareStrategicWar: ({ target_user_id, war_goals = [], casus_belli = '' } = {}) =>
+      post('api/war.php?action=declare', {
+        target_user_id: Math.max(0, Number(target_user_id || 0)),
+        war_goals: Array.isArray(war_goals) ? war_goals : [],
+        casus_belli: String(casus_belli || ''),
+      }),
+    offerPeace: ({ war_id, terms = [] } = {}) =>
+      post('api/war.php?action=offer_peace', {
+        war_id: Math.max(0, Number(war_id || 0)),
+        terms: Array.isArray(terms) ? terms : [],
+      }),
+    respondPeaceOffer: ({ offer_id, accept } = {}) =>
+      post('api/war.php?action=respond_peace', {
+        offer_id: Math.max(0, Number(offer_id || 0)),
+        accept: !!accept,
+      }),
+
   // Trade Proposals (player-to-player)
+  listTradeSuggestions: ({ limit = 10, interval_hours = 24 } = {}) =>
+    get(`api/trade.php?action=list_suggestions&limit=${encodeURIComponent(Math.max(1, Number(limit || 10)))}&interval_hours=${encodeURIComponent(Math.max(1, Number(interval_hours || 24)))}`),
+  applyTradeSuggestion: (data) => post('api/trade.php?action=apply_suggestion', data),
   listTradeProposals: ()       => get('api/trade.php?action=list_proposals'),
   proposeTrade: (data)         => post('api/trade.php?action=propose', data),
   acceptTrade: (id)            => post('api/trade.php?action=accept',  { proposal_id: id }),

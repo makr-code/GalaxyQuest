@@ -28,9 +28,24 @@ function makeMockDevice() {
   return {
     createTexture:  vi.fn((spec) => makeTexture(spec)),
     createSampler:  vi.fn(() => makeSampler()),
+    createShaderModule: vi.fn(() => ({})),
+    createRenderPipeline: vi.fn(() => ({
+      getBindGroupLayout: vi.fn(() => ({})),
+    })),
+    createBindGroup: vi.fn(() => ({})),
+    createCommandEncoder: vi.fn(() => ({
+      beginRenderPass: vi.fn(() => ({
+        setPipeline: vi.fn(),
+        setBindGroup: vi.fn(),
+        draw: vi.fn(),
+        end: vi.fn(),
+      })),
+      finish: vi.fn(() => ({})),
+    })),
     queue: {
       copyExternalImageToTexture: vi.fn(),
       writeTexture:               vi.fn(),
+      submit:                     vi.fn(),
     },
   };
 }
@@ -88,5 +103,25 @@ describe('WebGPUTexture', () => {
     new WebGPUTexture(device, { width: 256, height: 256, mipMaps: true });
     const callArg = device.createTexture.mock.calls[0][0];
     expect(callArg.mipLevelCount).toBeGreaterThan(1);
+  });
+
+  it('mipMaps=true enables render attachment usage for blit chain', () => {
+    const device = makeMockDevice();
+    new WebGPUTexture(device, { width: 128, height: 128, mipMaps: true });
+    const spec = device.createTexture.mock.calls[0][0];
+    expect((spec.usage & GPUTextureUsage.RENDER_ATTACHMENT) !== 0).toBe(true);
+  });
+
+  it('generateMipmaps builds pipeline for the texture format', () => {
+    const device = makeMockDevice();
+    const tex = new WebGPUTexture(device, {
+      width: 64,
+      height: 64,
+      format: 'rgba16float',
+      mipMaps: true,
+    });
+    tex.generateMipmaps();
+    const pipelineSpec = device.createRenderPipeline.mock.calls[0][0];
+    expect(pipelineSpec.fragment.targets[0].format).toBe('rgba16float');
   });
 });

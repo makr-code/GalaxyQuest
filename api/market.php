@@ -10,6 +10,7 @@
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/economy_flush.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -67,28 +68,74 @@ const PRICE_MULT_MAX = 3.50;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Compute current market price for a good from the market_prices table.
- * Applies supply/demand formula and active event multipliers.
- *
- * @param PDO $db
- * @param string $goodType
- * @return float
- */
-function compute_price(PDO $db, string $goodType): float {
-    $stmt = $db->prepare('SELECT supply, demand FROM economy_market_prices WHERE good_type = ?');
-    $stmt->execute([$goodType]);
-    $row  = $stmt->fetch(PDO::FETCH_ASSOC);
+function fetch_colony_market_scope(PDO $db, int $colonyId): ?array {
+    $stmt = $db->prepare(<<<SQL
+        SELECT cb.galaxy_index, cb.system_index
+        FROM colonies c
+        JOIN celestial_bodies cb ON cb.id = c.body_id
+        WHERE c.id = ?
+        LIMIT 1
+    SQL);
+    $stmt->execute([$colonyId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) {
-        return BASE_PRICES[$goodType] ?? 10.0;
+        return null;
     }
 
-    $supply  = max(1.0, (float)$row['supply']);
-    $demand  = max(0.0, (float)$row['demand']);
-    $mult    = pow($demand / $supply, PRICE_ELASTICITY);
-    $mult    = max(PRICE_MULT_MIN, min(PRICE_MULT_MAX, $mult));
+    return [
+        'galaxy' => (int)$row['galaxy_index'],
+        'system' => (int)$row['system_index'],
+    ];
+}
 
-    // Apply active event multipliers
+function fetch_market_snapshot(PDO $db, string $goodType, ?int $colonyId = null): array {
+    if ($colonyId !== null) {
+        $scope = fetch_colony_market_scope($db, $colonyId);
+        if ($scope !== null) {
+            $stmt = $db->prepare(<<<SQL
+                SELECT available_supply, desired_demand
+                FROM market_supply_demand
+                WHERE galaxy_index = ? AND system_index = ? AND resource_type = ?
+                LIMIT 1
+            SQL);
+            $stmt->execute([$scope['galaxy'], $scope['system'], $goodType]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                return [
+                    'supply' => (float)$row['available_supply'],
+                    'demand' => (float)$row['desired_demand'],
+                ];
+            }
+        }
+    }
+
+    $stmt = $db->prepare(<<<SQL
+        SELECT COALESCE(SUM(available_supply), 100.0) AS supply,
+               COALESCE(SUM(desired_demand), 100.0) AS demand
+        FROM market_supply_demand
+        WHERE resource_type = ?
+    SQL);
+    $stmt->execute([$goodType]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['supply' => 100.0, 'demand' => 100.0];
+
+    return [
+        'supply' => (float)$row['supply'],
+        'demand' => (float)$row['demand'],
+    ];
+}
+
+/**
+ * Compute current market price from market_supply_demand.
+ * With colony_id the local system price is used; otherwise the aggregated
+ * galaxy-wide price is returned.
+ */
+function compute_price(PDO $db, string $goodType, ?int $colonyId = null): float {
+    $snapshot = fetch_market_snapshot($db, $goodType, $colonyId);
+    $supply   = max(1.0, (float)$snapshot['supply']);
+    $demand   = max(1.0, (float)$snapshot['demand']);
+    $mult     = pow($demand / $supply, PRICE_ELASTICITY);
+    $mult     = max(PRICE_MULT_MIN, min(PRICE_MULT_MAX, $mult));
+
     $evStmt = $db->prepare(<<<SQL
         SELECT price_mult FROM economy_market_events
         WHERE remaining_ticks > 0 AND (affected_good IS NULL OR affected_good = ?)
@@ -98,7 +145,7 @@ function compute_price(PDO $db, string $goodType): float {
         $mult *= (float)$evMult;
     }
 
-    $base  = BASE_PRICES[$goodType] ?? 10.0;
+    $base = BASE_PRICES[$goodType] ?? 10.0;
     return round($base * $mult, 2);
 }
 
@@ -120,22 +167,41 @@ function fetch_trade_tax(PDO $db, int $uid): float {
 }
 
 /**
- * Update supply/demand for a good in economy_market_prices.
- *
- * @param PDO $db
- * @param string $goodType
- * @param float $supplyDelta
- * @param float $demandDelta
+ * Update local system supply/demand for a colony.
  */
-function update_supply_demand(PDO $db, string $goodType, float $supplyDelta, float $demandDelta): void {
+function update_supply_demand(PDO $db, int $colonyId, string $goodType, float $supplyDelta, float $demandDelta): void {
+    $scope = fetch_colony_market_scope($db, $colonyId);
+    if ($scope === null) {
+        return;
+    }
+
     $db->prepare(<<<SQL
-        INSERT INTO economy_market_prices (good_type, supply, demand)
-        VALUES (?, GREATEST(0, 100 + ?), GREATEST(0, 100 + ?))
+        INSERT INTO market_supply_demand
+            (galaxy_index, system_index, resource_type,
+             production_per_hour, consumption_per_hour,
+             available_supply, desired_demand, net_balance)
+        VALUES (?, ?, ?, 0, 0,
+                GREATEST(0, 100 + ?),
+                GREATEST(0, 100 + ?),
+                (GREATEST(0, 100 + ?) - GREATEST(0, 100 + ?)))
         ON DUPLICATE KEY UPDATE
-            supply = GREATEST(0, supply + ?),
-            demand = GREATEST(0, demand + ?),
-            updated_at = CURRENT_TIMESTAMP
-    SQL)->execute([$goodType, $supplyDelta, $demandDelta, $supplyDelta, $demandDelta]);
+            available_supply = GREATEST(0, available_supply + ?),
+            desired_demand   = GREATEST(0, desired_demand + ?),
+            net_balance      = (GREATEST(0, available_supply + ?) - GREATEST(0, desired_demand + ?)),
+            updated_at       = CURRENT_TIMESTAMP
+    SQL)->execute([
+        $scope['galaxy'],
+        $scope['system'],
+        $goodType,
+        $supplyDelta,
+        $demandDelta,
+        $supplyDelta,
+        $demandDelta,
+        $supplyDelta,
+        $demandDelta,
+        $supplyDelta,
+        $demandDelta,
+    ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -149,20 +215,27 @@ function update_supply_demand(PDO $db, string $goodType, float $supplyDelta, flo
  * or for a single good if good_type is specified.
  */
 function action_get_prices(PDO $db, int $uid): never {
-    $filter = $_GET['good_type'] ?? null;
-    $goods  = $filter ? [$filter] : array_keys(BASE_PRICES);
+    $filter   = $_GET['good_type'] ?? null;
+    $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
+    $goods    = $filter ? [$filter] : array_keys(BASE_PRICES);
+
+    if ($colonyId !== null) {
+        $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
+        $stmt->execute([$colonyId, $uid]);
+        if (!$stmt->fetch()) {
+            json_error('Colony not found or access denied', 403);
+        }
+    }
 
     $prices = [];
     foreach ($goods as $good) {
-        $stmt = $db->prepare('SELECT supply, demand FROM economy_market_prices WHERE good_type = ?');
-        $stmt->execute([$good]);
-        $row  = $stmt->fetch(PDO::FETCH_ASSOC);
+        $row = fetch_market_snapshot($db, $good, $colonyId);
         $prices[$good] = [
             'good_type'  => $good,
             'base_price' => BASE_PRICES[$good] ?? 0,
-            'price'      => compute_price($db, $good),
-            'supply'     => $row ? (float)$row['supply'] : 100.0,
-            'demand'     => $row ? (float)$row['demand'] : 100.0,
+            'price'      => compute_price($db, $good, $colonyId),
+            'supply'     => (float)$row['supply'],
+            'demand'     => (float)$row['demand'],
         ];
     }
 
@@ -178,6 +251,7 @@ function action_get_prices(PDO $db, int $uid): never {
  * Respects AUTARKY policy (no imports allowed).
  */
 function action_buy(PDO $db, int $uid): never {
+    verify_csrf();
     $body     = json_decode(file_get_contents('php://input'), true) ?? [];
     $colonyId = (int)($body['colony_id'] ?? 0);
     $goodType = trim($body['good_type'] ?? '');
@@ -202,7 +276,7 @@ function action_buy(PDO $db, int $uid): never {
     }
 
     $taxRate  = fetch_trade_tax($db, $uid);
-    $price    = compute_price($db, $goodType);
+    $price    = compute_price($db, $goodType, $colonyId);
     $gross    = $price * $quantity;
     $total    = round($gross * (1 + $taxRate), 2);
 
@@ -230,7 +304,7 @@ function action_buy(PDO $db, int $uid): never {
         SQL)->execute([$colonyId, $goodType, $quantity]);
 
         // Update market demand
-        update_supply_demand($db, $goodType, 0, $quantity * 0.1);
+        update_supply_demand($db, $colonyId, $goodType, 0, $quantity * 0.1);
 
         // Log transaction
         $db->prepare(<<<SQL
@@ -263,6 +337,7 @@ function action_buy(PDO $db, int $uid): never {
  * Adds credits to the player; removes goods from colony stock.
  */
 function action_sell(PDO $db, int $uid): never {
+    verify_csrf();
     $body     = json_decode(file_get_contents('php://input'), true) ?? [];
     $colonyId = (int)($body['colony_id'] ?? 0);
     $goodType = trim($body['good_type'] ?? '');
@@ -277,6 +352,8 @@ function action_sell(PDO $db, int $uid): never {
     $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
     $stmt->execute([$colonyId, $uid]);
     if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
+
+    flush_colony_production($db, $colonyId);
 
     // Check available stock
     $gStmt = $db->prepare('SELECT quantity FROM economy_processed_goods WHERE colony_id = ? AND good_type = ?');
@@ -294,7 +371,7 @@ function action_sell(PDO $db, int $uid): never {
     $taxRate   = $pRow ? (float)$pRow['tax_trade'] : 0.05;
     $exportMult = ($pRow && $pRow['global_policy'] === 'mercantilism') ? 1.20 : 1.0;
 
-    $price  = compute_price($db, $goodType);
+    $price  = compute_price($db, $goodType, $colonyId);
     $gross  = $price * $quantity;
     $net    = round($gross * $exportMult * (1 - $taxRate), 2);
 
@@ -312,7 +389,7 @@ function action_sell(PDO $db, int $uid): never {
            ->execute([$net, $uid]);
 
         // Update market supply
-        update_supply_demand($db, $goodType, $quantity * 0.1, 0);
+        update_supply_demand($db, $colonyId, $goodType, $quantity * 0.1, 0);
 
         // Log transaction
         $db->prepare(<<<SQL
@@ -354,13 +431,14 @@ function action_get_history(PDO $db, int $uid): never {
         $params[] = $goodType;
     }
 
+    $params[] = $limit;
     $stmt = $db->prepare(<<<SQL
         SELECT id, colony_id, good_type, direction, quantity, price_per_unit,
                total_credits, trade_tax_rate, net_credits, transacted_at
         FROM economy_market_transactions
         {$where}
         ORDER BY transacted_at DESC
-        LIMIT {$limit}
+        LIMIT ?
     SQL);
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);

@@ -66,9 +66,19 @@ try {
         Wait-WebDbReady -TimeoutSeconds 120
     }
 
+    Invoke-Step 'DB migrate: combat wars v1' { Get-Content -Raw sql/migrate_combat_v1_wars.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
+        Invoke-Step 'DB migrate: economy v1' { Get-Content -Raw sql/migrate_economy_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
+        Invoke-Step 'DB migrate: economy v2' { Get-Content -Raw sql/migrate_economy_v2.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
+        Invoke-Step 'DB migrate: economy policies v1' { Get-Content -Raw sql/migrate_economy_policies_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
+
     Invoke-Step 'API smoke: auth rate limit' { docker compose exec -T web php scripts/test_auth_rate_limit.php }
     Invoke-Step 'API smoke: admin stats' { docker compose exec -T web php scripts/test_admin_stats_endpoint.php }
     Invoke-Step 'API smoke: wormhole beacon unlock' { docker compose exec -T web php scripts/test_wormhole_beacon_unlock.php }
+    Invoke-Step 'API smoke: pirates endpoints' { docker compose exec -T web php scripts/test_pirates_endpoint_smoke.php }
+    Invoke-Step 'API smoke: colony building economy' { docker compose exec -T web php scripts/test_colony_building_economy_smoke.php }
+    Invoke-Step 'API smoke: economy consumption simulation' { docker compose exec -T web php scripts/test_economy_consumption_simulation_smoke.php }
+    Invoke-Step 'API smoke: trade suggestions generic' { docker compose exec -T web php scripts/test_trade_suggestions_generic_smoke.php }
+    Invoke-Step 'API smoke: trade generic delivery' { docker compose exec -T web php scripts/test_trade_generic_delivery_smoke.php }
 
     if (-not $ApiOnly) {
         Invoke-Step 'PHPUnit' { docker compose exec -T web php /var/www/html/tools/phpunit.phar -c /var/www/html/phpunit.xml }

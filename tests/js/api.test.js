@@ -55,4 +55,49 @@ describe('API wrapper versioning', () => {
     const calledEndpoint = String(global.fetch.mock.calls.at(-1)[0] || '');
     expect(calledEndpoint).toBe('https://example.com/api/ping');
   });
+
+  it('exposes war list and status getters on the shared API wrapper', async () => {
+    const API = loadApiScript();
+
+    await API.wars();
+    let calledEndpoint = String(global.fetch.mock.calls.at(-1)[0] || '');
+    expect(calledEndpoint).toContain('api/v1/war.php?action=list');
+
+    await API.warStatus(42);
+    calledEndpoint = String(global.fetch.mock.calls.at(-1)[0] || '');
+    expect(calledEndpoint).toContain('api/v1/war.php?action=get_status&war_id=42');
+  });
+
+  it('normalizes strategic war mutation payloads before posting', async () => {
+    const API = loadApiScript();
+
+    await API.declareStrategicWar({
+      target_user_id: '7',
+      war_goals: [{ type: 'annex_system', target_id: 4 }],
+      casus_belli: 99,
+    });
+    let calledEndpoint = String(global.fetch.mock.calls.at(-1)[0] || '');
+    let requestInit = global.fetch.mock.calls.at(-1)[1] || {};
+    let payload = JSON.parse(String(requestInit.body || '{}'));
+    expect(calledEndpoint).toContain('api/v1/war.php?action=declare');
+    expect(payload).toMatchObject({
+      target_user_id: 7,
+      war_goals: [{ type: 'annex_system', target_id: 4 }],
+      casus_belli: '99',
+    });
+
+    await API.offerPeace({ war_id: '15', terms: 'white-peace' });
+    calledEndpoint = String(global.fetch.mock.calls.at(-1)[0] || '');
+    requestInit = global.fetch.mock.calls.at(-1)[1] || {};
+    payload = JSON.parse(String(requestInit.body || '{}'));
+    expect(calledEndpoint).toContain('api/v1/war.php?action=offer_peace');
+    expect(payload).toEqual({ war_id: 15, terms: [] });
+
+    await API.respondPeaceOffer({ offer_id: '23', accept: 1 });
+    calledEndpoint = String(global.fetch.mock.calls.at(-1)[0] || '');
+    requestInit = global.fetch.mock.calls.at(-1)[1] || {};
+    payload = JSON.parse(String(requestInit.body || '{}'));
+    expect(calledEndpoint).toContain('api/v1/war.php?action=respond_peace');
+    expect(payload).toEqual({ offer_id: 23, accept: true });
+  });
 });

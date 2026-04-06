@@ -6,13 +6,23 @@
   "scripts": {
     "test:unit:js": "vitest run",
     "test:e2e:viewflow": "playwright test tests/e2e/view-flow.spec.js --reporter=line",
+    "test:e2e:renderer-smoke": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"$env:GQ_RUN_RENDERER_SMOKE='1'; playwright test tests/e2e/system-enter-renderer.spec.js --reporter=line\"",
+    "test:e2e:smoke:renderer+viewflow": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"$env:GQ_RUN_RENDERER_SMOKE='1'; playwright test tests/e2e/system-enter-renderer.spec.js tests/e2e/view-flow.spec.js --reporter=line\"",
     "test:e2e:viewflow:seeded": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"docker compose exec -T web php scripts/ensure_default_e2e_user.php --username=default_user --password=User!23456 --email=default_user@local.test; playwright test tests/e2e/view-flow.spec.js --reporter=line\"",
     "test:e2e:viewflow:seeded:native": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"$env:GQ_VIEWFLOW_NATIVE_ONLY='1'; docker compose exec -T web php scripts/ensure_default_e2e_user.php --username=default_user --password=User!23456 --email=default_user@local.test; playwright test tests/e2e/view-flow.spec.js --reporter=line\"",
-    "test:e2e:galaxy-rotation:seeded": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"docker compose exec -T web php scripts/ensure_default_e2e_user.php --username=default_user --password=User!23456 --email=default_user@local.test; playwright test tests/e2e/galaxy-rotation.spec.js --reporter=line\""
+    "test:e2e:galaxy-rotation:seeded": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"docker compose exec -T web php scripts/ensure_default_e2e_user.php --username=default_user --password=User!23456 --email=default_user@local.test; playwright test tests/e2e/galaxy-rotation.spec.js --reporter=line\"",
+    "test:e2e:planet-colony-smoke": "node scripts/check_planet_colony_smoke_playwright.mjs",
+    "test:e2e:planet-colony-smoke:strict": "pwsh -NoProfile -ExecutionPolicy Bypass -Command \"$env:GQ_PLANET_COLONY_STRICT='1'; node scripts/check_planet_colony_smoke_playwright.mjs\"",
+    "validate:models:faction": "node scripts/validate_faction_model_json.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
-    "jsdom": "^24.1.0",
+    "jsdom": "^24.1.3",
     "vitest": "^4.1.2"
+  },
+  "dependencies": {
+    "dexie": "^4.0.8",
+    "mustache": "^4.2.0",
+    "three": "^0.160.0"
   }
 }

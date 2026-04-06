@@ -77,6 +77,14 @@
     "type": "Group",
     "name": "deep_space_radar",
     "userData": {
+      "gqModelSemantics": {
+        "factionCode": "helion_confederation",
+        "objectClass": "relay_or_sensor",
+        "archetype": "deep_space_radar",
+        "designLanguageVersion": "egl-1.0",
+        "silhouetteTags": ["modular_tradeframe", "sensor_mast"],
+        "signatureParts": ["dish_array", "focal_emitter"]
+      },
       "gqAnimations": [
         { "target": "root", "property": "rotation.y", "type": "linear", "speed": 0.14 },
         { "target": "child:2", "property": "rotation.z", "type": "sine", "speed": 0.4, "amplitude": 0.35, "phase": 0 }

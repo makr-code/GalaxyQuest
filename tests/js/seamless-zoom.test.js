@@ -33,14 +33,14 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const root    = path.resolve(fileURLToPath(import.meta.url), '../../..');
 
-const { RendererRegistry }         = require(path.join(root, 'js/rendering/RendererRegistry.js'));
+const { RendererRegistry }         = require(path.join(root, 'js/engine/zoom/RendererRegistry.js'));
 const { SeamlessZoomOrchestrator, ZOOM_LEVEL, ApproachTargetType, SPATIAL_DEPTH } =
-  require(path.join(root, 'js/rendering/SeamlessZoomOrchestrator.js'));
-const { CameraFlightPath }         = require(path.join(root, 'js/rendering/CameraFlightPath.js'));
+  require(path.join(root, 'js/engine/zoom/SeamlessZoomOrchestrator.js'));
+const { CameraFlightPath }         = require(path.join(root, 'js/engine/zoom/CameraFlightPath.js'));
 const { ObjectApproachLevelThreeJS } =
-  require(path.join(root, 'js/rendering/levels/ObjectApproachLevelThreeJS.js'));
+  require(path.join(root, 'js/engine/zoom/levels/ObjectApproachLevelThreeJS.js'));
 const { ObjectApproachLevelWebGPU, meshDescriptorFor } =
-  require(path.join(root, 'js/rendering/levels/ObjectApproachLevelWebGPU.js'));
+  require(path.join(root, 'js/engine/zoom/levels/ObjectApproachLevelWebGPU.js'));
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -169,6 +169,25 @@ describe('SeamlessZoomOrchestrator — zoomTo() lifecycle', () => {
     const payload = { star: { id: 42 } };
     await orchestrator.zoomTo(ZOOM_LEVEL.GALAXY, payload);
     expect(levelA.enter.mock.calls[0][1]).toBe(payload);
+  });
+});
+
+describe('SeamlessZoomOrchestrator — setSceneData()', () => {
+  it('lazily initialises target level and forwards scene data', async () => {
+    const backend = makeMockBackend('webgl2');
+    const orch = new SeamlessZoomOrchestrator(null, { _backend: backend });
+
+    const level = makeMockLevel();
+    const LevelClass = makeLevelClass(level);
+    orch.register(ZOOM_LEVEL.GALAXY, { webgpu: LevelClass, threejs: LevelClass });
+
+    const payload = { stars: [{ id: 1 }] };
+    const ok = await orch.setSceneData(ZOOM_LEVEL.GALAXY, payload);
+
+    expect(ok).toBe(true);
+    expect(level.initialize).toHaveBeenCalledTimes(1);
+    expect(level.setSceneData).toHaveBeenCalledTimes(1);
+    expect(level.setSceneData.mock.calls[0][0]).toBe(payload);
   });
 });
 

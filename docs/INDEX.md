@@ -36,6 +36,7 @@
 | [technical/DEV_USERS.md](technical/DEV_USERS.md) | Pre-seeded development accounts |
 | [technical/ROADMAP.md](technical/ROADMAP.md) | Engine & feature development roadmap |
 | [technical/FUTURE_ENHANCEMENTS.md](technical/FUTURE_ENHANCEMENTS.md) | Planned features and extension points |
+| [technical/FACTION_3D_VFX_RUNTIME_MAPPING.md](technical/FACTION_3D_VFX_RUNTIME_MAPPING.md) | Runtime-Mapping: gqVfxEmitters/gqWeaponFx -> ParticleEmitter/BeamEffect |
 
 ### WebGPU Engine
 
@@ -77,8 +78,12 @@
 | [gamedesign/EMPIRE_CATEGORIES.md](gamedesign/EMPIRE_CATEGORIES.md) | **Empire categories** — Wirtschaft, Militär, Forschung, Wachstum, Stabilität, Diplomatie, Spionage |
 | [gamedesign/FTL_DRIVE_DESIGN.md](gamedesign/FTL_DRIVE_DESIGN.md) | FTL drive system — faction designs and balancing |
 | [gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md](gamedesign/VESSEL_MODULE_BLUEPRINT_DESIGN.md) | Vessel blueprint and module system |
+| [gamedesign/FACTION_3D_OBJECT_DESIGN_LANGUAGE.md](gamedesign/FACTION_3D_OBJECT_DESIGN_LANGUAGE.md) | Fraktionsspezifische 3D-Objekt-Designsprache (KI -> Three.js JSON) |
+| [gamedesign/FACTION_3D_GENERATION_EXAMPLES.md](gamedesign/FACTION_3D_GENERATION_EXAMPLES.md) | Prompt- und JSON-Beispiele fuer fraktionsspezifische 3D-Objekte |
 | [gamedesign/GAME_CLASSICS_INSPIRATION.md](gamedesign/GAME_CLASSICS_INSPIRATION.md) | Classic game inspirations and adopted mechanics |
 | [gamedesign/COLONIZATION_SYSTEM_DESIGN.md](gamedesign/COLONIZATION_SYSTEM_DESIGN.md) | Colonization system — Empire Sprawl, sectors, governors, buildings |
+| [gamedesign/FACTION_INTRODUCTION.md](gamedesign/FACTION_INTRODUCTION.md) | **Spielerstart & Fraktionsaufstieg** — Herolde, Reputationssystem, Tutorial-Klimax |
+| [gamedesign/ONBOARDING_PROLOGUE_DESIGN.md](gamedesign/ONBOARDING_PROLOGUE_DESIGN.md) | **Narrativer Registrierungsprolog** — 5-stufiger Onboarding-Flow, fraktionsspezifische Prologe |
 
 ---
 

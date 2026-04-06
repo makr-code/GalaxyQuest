@@ -3,8 +3,25 @@
  * Handles auth section, game section, and progressive runtime loading.
  */
 (async function () {
-  const AUTH_AUDIO_SCRIPT = 'js/runtime/audio.js?v=20260328p53';
-  const AUTH_WM_SCRIPT = 'js/runtime/wm.js?v=20260331p56';
+  if (window.__GQ_AUTH_BOOTSTRAP_LOCK === true) {
+    if (window.GQLog && typeof window.GQLog.warn === 'function') {
+      window.GQLog.warn('[auth]', 'bootstrap skipped: already initialized');
+    }
+    return;
+  }
+  window.__GQ_AUTH_BOOTSTRAP_LOCK = true;
+
+  const withAssetVersion = typeof window.GQResolveAssetVersion === 'function'
+    ? window.GQResolveAssetVersion.bind(window)
+    : function fallbackAssetVersion(path, versionKey, fallbackVersion) {
+        const assetVersions = window.__GQ_ASSET_VERSIONS || {};
+        const version = String(assetVersions?.[versionKey] || fallbackVersion || '').trim();
+        return version ? `${path}?v=${version}` : path;
+      };
+
+  const AUTH_AUDIO_SCRIPT = withAssetVersion('js/runtime/audio.js', 'audio', '20260404p50');
+  const AUTH_GQUI_SCRIPT = withAssetVersion('js/ui/gq-ui.js', 'gqui', '20260330p1');
+  const AUTH_WM_SCRIPT = withAssetVersion('js/runtime/wm.js', 'wm', '20260404p52');
   const AUTH_AUDIO_PRELOAD = [
     'music/Nebula_Overture.mp3',
     'sfx/mixkit-video-game-retro-click-237.wav',
@@ -49,11 +66,19 @@
   authProbe('bootstrap start');
 
   const authSection = document.getElementById('auth-section');
-  const gameSection = document.getElementById('game-section');
-  const tabs = document.querySelectorAll('.tab-btn');
+  function resolveGameSection() {
+    return document.getElementById('game-section')
+      || document.getElementById('wm-galaxy-section')
+      || document.getElementById('wm-host-galaxy')
+      || null;
+  }
+  const tabs = authSection
+    ? authSection.querySelectorAll('.auth-tabs .tab-btn')
+    : document.querySelectorAll('.auth-tabs .tab-btn');
   const loginForm = document.getElementById('login-form');
   const registerForm = document.getElementById('register-form');
   const devTools = document.getElementById('dev-auth-tools');
+  const devTabButton = document.getElementById('auth-dev-tab');
   const devResetBtn = document.getElementById('dev-reset-btn');
   const devResetUser = document.getElementById('dev-reset-username');
   const devResetPass = document.getElementById('dev-reset-password');
@@ -73,10 +98,155 @@
   const authLoginConfirmMeta = document.getElementById('auth-login-confirm-meta');
   const loginRemember = document.getElementById('login-remember');
   const regRemember = document.getElementById('reg-remember');
-  const authFlightProfileSelect = document.getElementById('auth-flight-profile');
   const AUTH_FLIGHT_PROFILE_KEY = 'gq_auth_flight_profile';
+  const AUTH_DEFAULT_FLIGHT_PROFILE = 'cinematic';
 
   let gameBootPromise = null;
+  let startGameShellPromise = null;
+  let sessionValidationBreaker = null;
+  let loginSubmitInFlight = false;
+
+  function stopSessionValidationBreaker() {
+    if (sessionValidationBreaker) {
+      clearInterval(sessionValidationBreaker);
+      sessionValidationBreaker = null;
+      authLog('info', 'session validation breaker stopped');
+    }
+  }
+
+  async function checkSessionValidityForBreaker(tag) {
+    try {
+      const me = await fetchWithTimeout('api/auth.php?action=me&quiet=1', {
+        method: 'GET',
+        credentials: 'same-origin',
+        timeoutMs: 5000,
+        tag,
+      });
+
+      if (!me.ok) {
+        const status = Number(me.status || 0);
+        if (status === 401 || status === 403) {
+          return { state: 'invalid', reason: `session check returned ${status}` };
+        }
+        return { state: 'transient', reason: `session check returned ${status}` };
+      }
+
+      const data = await me.json();
+      if (data?.authenticated === true || !!data?.user) {
+        return { state: 'valid' };
+      }
+      return { state: 'invalid', reason: 'session not authenticated' };
+    } catch (err) {
+      if (isTransientAuthFetchError(err)) {
+        return {
+          state: 'transient',
+          reason: String(err?.message || err || 'transient auth check failure'),
+        };
+      }
+      return {
+        state: 'invalid',
+        reason: String(err?.message || err || 'session validation failure'),
+      };
+    }
+  }
+
+  function installSessionValidationBreaker() {
+    stopSessionValidationBreaker();
+    
+    authLog('info', 'installing session validation breaker');
+    
+    // Start immediate check
+    const validateSessionImmediate = async () => {
+      const result = await checkSessionValidityForBreaker('session-validation-breaker');
+      if (result.state === 'valid') {
+        authLog('debug', 'session validation breaker: session valid');
+        return;
+      }
+      if (result.state === 'transient') {
+        authLog('warn', 'session validation breaker transient failure', result.reason || 'unknown');
+        return;
+      }
+      authLog('error', 'session validation breaker: session invalid', result.reason || 'unknown');
+      if (result.state === 'invalid') {
+        returnToLoginPage();
+      }
+    };
+    
+    // Initial immediate check
+    validateSessionImmediate();
+    
+    // Periodic checks every 30 seconds
+    sessionValidationBreaker = setInterval(async () => {
+      const result = await checkSessionValidityForBreaker('session-validation-periodic');
+      if (result.state === 'valid') {
+        authLog('debug', 'session validation breaker: periodic check passed');
+        return;
+      }
+      if (result.state === 'transient') {
+        authLog('warn', 'session validation breaker transient periodic failure', result.reason || 'unknown');
+        return;
+      }
+      authLog('warn', 'session validation breaker: session became invalid', result.reason || 'unknown');
+      if (result.state === 'invalid') {
+        returnToLoginPage();
+      }
+    }, 30000); // Check every 30 seconds
+  }
+
+  function returnToLoginPage(reason = 'session-invalid') {
+    stopSessionValidationBreaker();
+    
+    authLog('error', 'returning to login page', reason);
+    authUiLog('error', 'Deine Session ist ungültig. Melde dich erneut an.');
+    
+    // Hide game, show auth
+    const gameSection = resolveGameSection();
+    const stageSection = document.getElementById('wm-galaxy-section');
+    
+    document.body.classList.remove('game-page');
+    document.body.classList.add('auth-page');
+    
+    if (stageSection) {
+      stageSection.classList.remove('game-shell');
+      stageSection.classList.add('auth-shell');
+    }
+    
+    gameSection?.classList.add('hidden');
+    gameSection?.setAttribute('aria-hidden', 'true');
+    authSection?.classList.remove('hidden');
+    authSection?.setAttribute('aria-hidden', 'false');
+    
+    setAuthVisible();
+    showErrorBanner('Deine Session ist abgelaufen. Melde dich bitte erneut an.', 5000);
+    
+    // Reset app state
+    gameBootPromise = null;
+    startGameShellPromise = null;
+  }
+  
+  function showErrorBanner(message, durationMs = 5000) {
+    const banner = document.createElement('div');
+    banner.className = 'session-error-banner';
+    banner.textContent = message;
+    Object.assign(banner.style, {
+      position: 'fixed',
+      top: '0',
+      left: '0',
+      right: '0',
+      backgroundColor: '#cc4433',
+      color: '#fff',
+      padding: '12px 16px',
+      zIndex: '9999',
+      textAlign: 'center',
+      fontWeight: 'bold',
+    });
+    
+    document.body.appendChild(banner);
+    
+    setTimeout(() => {
+      banner.remove();
+    }, durationMs);
+  }
   const scriptLoadPromises = new Map();
   const packageLoadPromises = new Map();
   let authDebugDetails = false;
@@ -93,43 +263,12 @@
   if (loginRemember) loginRemember.checked = true;
   if (regRemember) regRemember.checked = false;
 
-  function normalizeAuthFlightProfile(value) {
-    const v = String(value || '').trim().toLowerCase();
-    if (v === 'balanced' || v === 'slow') return v;
-    return 'cinematic';
+  try {
+    localStorage.setItem(AUTH_FLIGHT_PROFILE_KEY, AUTH_DEFAULT_FLIGHT_PROFILE);
+  } catch (err) {
+    authLog('warn', 'auth flight profile write failed', String(err?.message || err || 'unknown'));
   }
-
-  function getStoredAuthFlightProfile() {
-    try {
-      return normalizeAuthFlightProfile(localStorage.getItem(AUTH_FLIGHT_PROFILE_KEY));
-    } catch (err) {
-      authLog('warn', 'auth flight profile read failed', String(err?.message || err || 'unknown'));
-      return 'cinematic';
-    }
-  }
-
-  function setStoredAuthFlightProfile(value) {
-    const normalized = normalizeAuthFlightProfile(value);
-    try {
-      localStorage.setItem(AUTH_FLIGHT_PROFILE_KEY, normalized);
-    } catch (err) {
-      authLog('warn', 'auth flight profile write failed', String(err?.message || err || 'unknown'));
-    }
-    window.__GQ_AUTH_FLIGHT_PROFILE = normalized;
-    return normalized;
-  }
-
-  if (authFlightProfileSelect) {
-    const initialProfile = setStoredAuthFlightProfile(getStoredAuthFlightProfile());
-    authFlightProfileSelect.value = initialProfile;
-    authFlightProfileSelect.addEventListener('change', () => {
-      const saved = setStoredAuthFlightProfile(authFlightProfileSelect.value);
-      authFlightProfileSelect.value = saved;
-      authProbe(`auth flight profile -> ${saved}`);
-    });
-  } else {
-    setStoredAuthFlightProfile(getStoredAuthFlightProfile());
-  }
+  window.__GQ_AUTH_FLIGHT_PROFILE = AUTH_DEFAULT_FLIGHT_PROFILE;
 
   try {
     const host = String(window.location?.hostname || '').toLowerCase();
@@ -164,10 +303,11 @@
   function setPhase(label, pct) {
     const clamped = Math.max(0, Math.min(100, Number(pct || 0)));
     const authVisible = !!(authSection && !authSection.classList.contains('hidden'));
+    const loginConfirmVisible = !!(authLoginConfirmSection && !authLoginConfirmSection.classList.contains('hidden'));
     if (preloadLabel) preloadLabel.textContent = String(label || 'Loading...');
     if (preloadMeta) preloadMeta.textContent = `${clamped.toFixed(0)}%`;
     if (preloadBar) preloadBar.style.width = `${clamped}%`;
-    if (!preloadPanelSuppressed && !authVisible) {
+    if (!preloadPanelSuppressed && !authVisible && !loginConfirmVisible) {
       preloadPanel?.classList.remove('hidden');
     } else {
       preloadPanel?.classList.add('hidden');
@@ -205,11 +345,47 @@
     if (preloadMeta) preloadMeta.textContent = '0%';
   }
 
+  function closeGameplayWindowsForAuthState() {
+    try {
+      const wm = window.WM;
+      if (!wm || typeof wm.close !== 'function' || typeof wm.isOpen !== 'function') return;
+      [
+        'left-sidebar',
+        'right-sidebar',
+        'overview',
+        'buildings',
+        'colony',
+        'research',
+        'shipyard',
+        'fleet',
+        'wormholes',
+        'messages',
+        'intel',
+        'trade-routes',
+        'economy-flow',
+        'trade',
+        'quests',
+        'leaderboard',
+        'leaders',
+        'factions',
+        'alliances',
+        'settings',
+        'quicknav',
+        'minimap',
+      ].forEach((id) => {
+        if (wm.isOpen(id)) wm.close(id);
+      });
+    } catch (err) {
+      authLog('warn', 'closeGameplayWindowsForAuthState failed', String(err?.message || err || 'unknown'));
+    }
+  }
+
   function showLoginConfirmSection(title, text, meta = '') {
     if (authLoginConfirmTitle) authLoginConfirmTitle.textContent = String(title || 'Login ok');
     if (authLoginConfirmText) authLoginConfirmText.textContent = String(text || 'Lade Kommandostand...');
     if (authLoginConfirmMeta) authLoginConfirmMeta.textContent = String(meta || 'Session ok');
     if (authLoginConfirmBar) authLoginConfirmBar.style.width = '0%';
+    preloadPanel?.classList.add('hidden');
     authLoginConfirmSection?.classList.remove('is-complete');
     authLoginConfirmSection?.classList.remove('is-exiting');
     authLoginConfirmSection?.classList.remove('hidden');
@@ -258,6 +434,7 @@
   }
 
   async function performLogoutCleanup() {
+    stopSessionValidationBreaker();
     try {
       await fetchWithTimeout('api/auth.php?action=logout', {
         method: 'POST',
@@ -275,6 +452,7 @@
 
   function emitInitDiag(stage) {
     try {
+      const gameSection = resolveGameSection();
       const bodyClass = String(document.body?.className || '');
       const authVisible = !!(authSection && !authSection.classList.contains('hidden'));
       const gameSectionExists = !!gameSection;
@@ -310,9 +488,146 @@
     }
   }
 
+  function emitShellDebugConsole(stage, extra = {}) {
+    try {
+      const gameSection = resolveGameSection();
+      const bodyClass = String(document.body?.className || '');
+      const stageSection = document.getElementById('wm-galaxy-section');
+      const hostWrapper = document.getElementById('galaxy-host-wrapper');
+      const host = document.getElementById('galaxy-3d-host');
+      const starfield = document.getElementById('starfield');
+      const authVisible = !!(authSection && !authSection.classList.contains('hidden'));
+      const gameVisible = !!(gameSection && !gameSection.classList.contains('hidden'));
+      const renderTelemetry = Array.isArray(window.__GQ_RENDER_TELEMETRY) ? window.__GQ_RENDER_TELEMETRY : [];
+      const lastRenderEvent = renderTelemetry.length ? renderTelemetry[renderTelemetry.length - 1] : null;
+      const snapshot = {
+        stage: String(stage || 'unknown'),
+        ts: Date.now(),
+        bodyClass,
+        authVisible,
+        gameSectionExists: !!gameSection,
+        gameSectionId: String(gameSection?.id || ''),
+        gameVisible,
+        stageSectionClass: String(stageSection?.className || ''),
+        hostWrapper: !!hostWrapper,
+        host: !!host,
+        starfield: !!starfield,
+        starfieldSize: starfield ? `${Number(starfield.width || 0)}x${Number(starfield.height || 0)}` : 'missing',
+        hostRect: host ? {
+          w: Math.round(Number(host.getBoundingClientRect()?.width || 0)),
+          h: Math.round(Number(host.getBoundingClientRect()?.height || 0)),
+        } : null,
+        hostStyle: host ? {
+          display: window.getComputedStyle(host).display,
+          visibility: window.getComputedStyle(host).visibility,
+          opacity: window.getComputedStyle(host).opacity,
+        } : null,
+        starfieldStyle: starfield ? {
+          display: window.getComputedStyle(starfield).display,
+          visibility: window.getComputedStyle(starfield).visibility,
+          opacity: window.getComputedStyle(starfield).opacity,
+        } : null,
+        wmReady: !!(window.WM && typeof window.WM.open === 'function'),
+        galaxyOpen: !!(window.WM && typeof window.WM.isOpen === 'function' && window.WM.isOpen('galaxy')),
+        rendererReady: !!window.galaxy3d,
+        rendererInitReason: String(window.galaxy3dInitReason || ''),
+        renderTelemetryReason: String(lastRenderEvent?.reason || ''),
+        rendererBootstrapReady: !!window.GQGalaxyRendererBootstrap,
+        extra,
+      };
+      console.info('[GQ][ShellDebug]', snapshot);
+      authLog('info', '[shelldbg]', JSON.stringify({
+        stage: snapshot.stage,
+        bodyClass: snapshot.bodyClass,
+        authVisible: snapshot.authVisible,
+        gameSectionExists: snapshot.gameSectionExists,
+        gameSectionId: snapshot.gameSectionId,
+        gameVisible: snapshot.gameVisible,
+        stageSectionClass: snapshot.stageSectionClass,
+        host: snapshot.host,
+        starfield: snapshot.starfield,
+        starfieldSize: snapshot.starfieldSize,
+        galaxyOpen: snapshot.galaxyOpen,
+        rendererReady: snapshot.rendererReady,
+        rendererInitReason: snapshot.rendererInitReason,
+        renderTelemetryReason: snapshot.renderTelemetryReason,
+        extra: snapshot.extra,
+      }));
+    } catch (err) {
+      console.warn('[GQ][ShellDebug] emit failed', String(err?.message || err || 'unknown'));
+    }
+  }
+
+  function installShellDebugObservers() {
+    if (window.__GQ_SHELL_DEBUG_OBSERVERS_INSTALLED) return;
+    window.__GQ_SHELL_DEBUG_OBSERVERS_INSTALLED = true;
+
+    try {
+      const bodyObserver = new MutationObserver((mutations) => {
+        const changed = mutations.map((m) => ({
+          type: m.type,
+          attr: m.attributeName || '',
+        }));
+        emitShellDebugConsole('observer:body-mutation', { changed });
+      });
+      if (document.body) {
+        bodyObserver.observe(document.body, {
+          attributes: true,
+          attributeFilter: ['class', 'style'],
+        });
+      }
+      window.__GQ_SHELL_DEBUG_BODY_OBSERVER = bodyObserver;
+    } catch (err) {
+      console.warn('[GQ][ShellDebug] body observer failed', String(err?.message || err || 'unknown'));
+    }
+
+    try {
+      const watchIds = ['wm-galaxy-section', 'galaxy-bg-wrapper', 'galaxy-host-wrapper', 'galaxy-3d-host', 'starfield'];
+      watchIds.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const observer = new MutationObserver((mutations) => {
+          const changed = mutations.map((m) => ({
+            id,
+            type: m.type,
+            attr: m.attributeName || '',
+            className: String(el.className || ''),
+            style: el.getAttribute('style') || '',
+          }));
+          emitShellDebugConsole('observer:stage-mutation', { changed });
+        });
+        observer.observe(el, {
+          attributes: true,
+          attributeFilter: ['class', 'style', 'hidden'],
+        });
+      });
+    } catch (err) {
+      console.warn('[GQ][ShellDebug] stage observer failed', String(err?.message || err || 'unknown'));
+    }
+
+    try {
+      let ticks = 0;
+      const timer = window.setInterval(() => {
+        ticks += 1;
+        emitShellDebugConsole('observer:interval-snapshot', { tick: ticks });
+        if (ticks >= 12) {
+          window.clearInterval(timer);
+        }
+      }, 1500);
+    } catch (err) {
+      console.warn('[GQ][ShellDebug] interval snapshot failed', String(err?.message || err || 'unknown'));
+    }
+  }
+
   function setAuthVisible() {
+    const gameSection = resolveGameSection();
+    const stageSection = document.getElementById('wm-galaxy-section');
     document.body.classList.remove('game-page');
     document.body.classList.add('auth-page');
+    if (stageSection) {
+      stageSection.classList.add('auth-shell');
+      stageSection.classList.remove('game-shell');
+    }
     preloadPanelSuppressed = false;
     hidePreloadPanel(true);
     hideLoginConfirmSection();
@@ -320,6 +635,7 @@
     authSection?.setAttribute('aria-hidden', 'false');
     gameSection?.classList.add('hidden');
     gameSection?.setAttribute('aria-hidden', 'true');
+    closeGameplayWindowsForAuthState();
     // Try once UI is visible so prepared auth container can be adapted into a WM window.
     Promise.resolve().then(() => {
       try {
@@ -329,15 +645,31 @@
       }
     });
     emitInitDiag('setAuthVisible');
+    emitShellDebugConsole('setAuthVisible');
+  }
+
+  function ensureSharedGalaxyStageVisible() {
+    const ids = ['wm-galaxy-section', 'galaxy-bg-wrapper', 'galaxy-host-wrapper', 'galaxy-3d-host', 'starfield'];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.remove('hidden');
+      el.removeAttribute('hidden');
+      el.style.display = 'block';
+      el.style.visibility = 'visible';
+      el.style.opacity = '1';
+    });
   }
 
   function ensureGalaxyUiMounted(attempt = 0) {
     const maxAttempts = 8;
     try {
+      ensureSharedGalaxyStageVisible();
       const hostWrapper = document.getElementById('galaxy-host-wrapper');
       const host = document.getElementById('galaxy-3d-host');
       const starfield = document.getElementById('starfield');
-      const hasOrb = !!document.getElementById('galaxy-nav-orb-overlay');
+      const hasNavOrbDom = !!document.getElementById('galaxy-nav-orb-overlay');
+      const hasRenderer = !!window.galaxy3d;
       const wm = window.WM;
       const hasGameWindowRegistry = !!(window.GQWindowRegistry && window.GQWindowRegistry.registered);
 
@@ -365,22 +697,42 @@
         if (!isGalaxyOpen) {
           wm.open('galaxy');
         }
-        if (!hasOrb && typeof wm.refresh === 'function') {
+        if (!hasRenderer && attempt >= 2 && typeof wm.refresh === 'function') {
           wm.refresh('galaxy');
         }
       }
+      if (attempt === 0 || attempt >= maxAttempts || !hasGameWindowRegistry) {
+        emitShellDebugConsole('ensureGalaxyUiMounted', {
+          attempt,
+          hasNavOrbDom,
+          navOrbOpen: !!wm?.isOpen?.('nav-orb'),
+          hasRenderer,
+          hasGameWindowRegistry,
+        });
+      }
     } catch (err) {
       authLog('warn', 'ensureGalaxyUiMounted failed', String(err?.message || err || 'unknown'));
+      emitShellDebugConsole('ensureGalaxyUiMounted:error', {
+        attempt,
+        error: String(err?.message || err || 'unknown'),
+      });
     }
 
     if (attempt >= maxAttempts) return;
-    if (document.getElementById('galaxy-nav-orb-overlay')) return;
+    if (window.GQWindowRegistry && window.GQWindowRegistry.registered) return;
     window.setTimeout(() => ensureGalaxyUiMounted(attempt + 1), 240);
   }
 
   function setGameVisible() {
+    const gameSection = resolveGameSection();
+    const stageSection = document.getElementById('wm-galaxy-section');
     document.body.classList.remove('auth-page');
     document.body.classList.add('game-page');
+    if (stageSection) {
+      stageSection.classList.remove('auth-shell');
+      stageSection.classList.add('game-shell');
+    }
+    ensureSharedGalaxyStageVisible();
     authSection?.classList.add('hidden');
     authSection?.setAttribute('aria-hidden', 'true');
     gameSection?.classList.remove('hidden');
@@ -396,6 +748,19 @@
     // Safety net: if the galaxy background/orb was not mounted yet, retry briefly.
     Promise.resolve().then(() => ensureGalaxyUiMounted(0));
     emitInitDiag('setGameVisible');
+    emitShellDebugConsole('setGameVisible');
+  }
+
+  function hideAuthWindowForBootProgress() {
+    authSection?.classList.add('hidden');
+    authSection?.setAttribute('aria-hidden', 'true');
+    try {
+      if (window.WM && typeof window.WM.isOpen === 'function' && window.WM.isOpen('auth')) {
+        window.WM.close('auth');
+      }
+    } catch (err) {
+      authLog('warn', 'WM close(auth) during boot progress failed', String(err?.message || err || 'unknown'));
+    }
   }
 
   function queueHomeworldIntroFlight(payload = {}) {
@@ -535,6 +900,15 @@
 
   async function ensureAuthWindowManaged() {
     if (!authSection || authSection.classList.contains('hidden')) return;
+    if (!window.GQUI) {
+      try {
+        await loadScript(AUTH_GQUI_SCRIPT);
+      } catch (err) {
+        if (!authWindowIntegrationAttempted) {
+          authLog('warn', 'auth GQUI preload skipped', String(err?.message || err || 'unknown'));
+        }
+      }
+    }
     if (!window.WM) {
       try {
         await loadScript(AUTH_WM_SCRIPT);
@@ -556,22 +930,26 @@
     const desiredH = 580;
     const defaultX = Math.max(18, Math.floor((window.innerWidth - desiredW) / 2));
     const defaultY = Math.max(14, Math.floor((window.innerHeight - desiredH) / 2));
+    const authWindowCfg = {
+      title: 'Commander Login',
+      sectionId: 'auth-section',
+      prebuiltSelector: '#auth-wrapper',
+      adaptExisting: true,
+      preserveOnClose: false,
+      hideTaskButton: false,
+      w: desiredW,
+      h: desiredH,
+      defaultX,
+      defaultY,
+    };
 
     try {
       if (!window.WM.isOpen('auth')) {
-        window.WM.adopt('auth', {
-          title: 'Commander Login',
-          sectionId: 'auth-section',
-          prebuiltSelector: '#auth-wrapper',
-          adaptExisting: true,
-          preserveOnClose: true,
-          hideTaskButton: true,
-          w: desiredW,
-          h: desiredH,
-          defaultX,
-          defaultY,
-        });
-      } else if (typeof window.WM.refresh === 'function') {
+        window.WM.adopt('auth', authWindowCfg);
+      } else {
+        window.WM.open('auth');
+      }
+      if (typeof window.WM.refresh === 'function') {
         window.WM.refresh('auth');
       }
       authWindowIntegrationAttempted = true;
@@ -685,22 +1063,7 @@
   }
 
   function warmAudioAssets() {
-    if (!Array.isArray(AUTH_AUDIO_PRELOAD) || !AUTH_AUDIO_PRELOAD.length) return;
-    AUTH_AUDIO_PRELOAD.forEach((url) => {
-      const href = String(url || '').trim();
-      if (!href) return;
-      try {
-        const existing = document.querySelector(`link[rel="preload"][as="audio"][href="${href}"]`);
-        if (existing) return;
-        const link = document.createElement('link');
-        link.rel = 'preload';
-        link.as = 'audio';
-        link.href = href;
-        document.head.appendChild(link);
-      } catch (err) {
-        authLog('warn', 'audio preload link injection failed', `${href} | ${String(err?.message || err || 'unknown')}`);
-      }
-    });
+    // Disabled: preload link hints produced noisy browser warnings and no measurable gain.
   }
 
   function pickRandomItem(list) {
@@ -935,6 +1298,22 @@
     }));
   }
 
+  async function preloadAssetsForAuthenticatedBoot() {
+    setPhase('Preloading assets...', 8);
+    await preloadAssets();
+  }
+
+  function isOptionalBootScript(src) {
+    const raw = String(src || '').toLowerCase();
+    return raw.includes('js/tests/')
+      || raw.includes('js/vendor/dexie.min.js')
+      || raw.includes('js/vendor/three.min.js')
+      || raw.includes('js/vendor/mustache.min.js')
+      || raw.includes('cdn.jsdelivr.net/npm/dexie')
+      || raw.includes('cdn.jsdelivr.net/npm/three')
+      || raw.includes('cdn.jsdelivr.net/npm/mustache');
+  }
+
   async function bootGameRuntime() {
     if (gameBootPromise) return gameBootPromise;
     gameBootPromise = (async () => {
@@ -961,7 +1340,15 @@
 
       setPhase('Loading game modules...', 52);
       for (let i = 0; i < scripts.length; i += 1) {
-        await loadBootAsset(scripts[i]);
+        const scriptSrc = scripts[i];
+        try {
+          await loadBootAsset(scriptSrc);
+        } catch (err) {
+          if (!isOptionalBootScript(scriptSrc)) {
+            throw err;
+          }
+          authLog('warn', 'optional boot script failed, continuing', String(scriptSrc || 'unknown script'));
+        }
         setPhase('Loading game modules...', 52 + ((i + 1) / scripts.length) * 48);
       }
       setPhase('Boot complete', 100);
@@ -970,9 +1357,16 @@
   }
 
   async function startGameShell() {
+    if (startGameShellPromise) {
+      authLog('warn', 'startGameShell skipped (already in progress)');
+      return startGameShellPromise;
+    }
+
+    startGameShellPromise = (async () => {
     authLog('info', 'startGameShell begin');
     authProbe('startGameShell begin', 'warn');
     hideActionModal();
+    hideAuthWindowForBootProgress();
     preloadPanelSuppressed = false;
     setPhase('Aktive Session erkannt. Lade Kommandostand...', 8);
     showLoginConfirmSection(
@@ -981,7 +1375,14 @@
       'Session ok'
     );
     authUiLog('info', 'preload panel enabled for active session flow');
-    releaseAuthBackgroundForGame();
+    installShellDebugObservers();
+    emitShellDebugConsole('startGameShell:begin');
+    if (window.__GQ_RELEASE_AUTH_BG_ON_BOOT !== false) {
+      releaseAuthBackgroundForGame();
+    }
+    emitInitDiag('startGameShell:beforePreloadAssets');
+    await preloadAssetsForAuthenticatedBoot();
+    emitInitDiag('startGameShell:afterPreloadAssets');
     emitInitDiag('startGameShell:beforeBootRuntime');
     await bootGameRuntime();
     emitInitDiag('startGameShell:afterBootRuntime');
@@ -989,9 +1390,18 @@
     await hideLoginConfirmSection({ animate: true });
     hideActionModal();
     setGameVisible();
+    installSessionValidationBreaker();
     emitInitDiag('startGameShell:complete');
+    emitShellDebugConsole('startGameShell:complete');
     authLog('info', 'startGameShell complete');
     authProbe('startGameShell complete');
+    })();
+
+    try {
+      return await startGameShellPromise;
+    } finally {
+      startGameShellPromise = null;
+    }
   }
 
   async function checkSessionAndBoot() {
@@ -1000,7 +1410,7 @@
     authUiLog('info', 'checking session state');
     hidePreloadPanel(true);
     try {
-      const me = await fetch('api/auth.php?action=me', { credentials: 'same-origin' });
+      const me = await fetch('api/auth.php?action=me&quiet=1', { credentials: 'same-origin' });
       if (!me.ok) {
         authUiLog('info', 'no valid session detected (HTTP)');
         setAuthVisible();
@@ -1008,7 +1418,9 @@
         return false;
       }
       const data = await me.json();
-      if (!data.success) {
+      const hasAuthSuccess = !!data?.success;
+      const isAuthenticated = data?.authenticated === true || !!data?.user;
+      if (!hasAuthSuccess || !isAuthenticated) {
         authUiLog('info', 'no valid session detected (payload)');
         setAuthVisible();
         hidePreloadPanel(true);
@@ -1017,7 +1429,9 @@
       authUiLog('info', 'valid session detected, booting game shell');
       await startGameShell();
       return true;
-    } catch (_) {
+    } catch (err) {
+      authUiLog('error', 'startGameShell failed with error', String(err?.message || err || 'unknown'));
+      authLog('error', 'startGameShell stack:', err?.stack || 'no stack');
       authUiLog('warn', 'session check failed, staying on auth screen');
       setAuthVisible();
       hidePreloadPanel(true);
@@ -1025,21 +1439,39 @@
     }
   }
 
-  tabs.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      tabs.forEach((t) => t.classList.remove('active'));
-      btn.classList.add('active');
-      const tab = btn.dataset.tab;
-      // Hide 2FA panel and restore login form whenever user switches tabs.
-      const panel2fa = document.getElementById('auth-2fa-panel');
-      if (panel2fa && !panel2fa.classList.contains('hidden')) {
-        panel2fa.classList.add('hidden');
-        loginForm?.classList.remove('hidden');
+  function activateAuthTab(tab) {
+    tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+    // Hide 2FA panel and restore normal forms whenever user switches tabs.
+    const panel2fa = document.getElementById('auth-2fa-panel');
+    if (panel2fa && !panel2fa.classList.contains('hidden')) {
+      panel2fa.classList.add('hidden');
+      panel2fa.setAttribute('hidden', 'hidden');
+    }
+
+    const setVisible = (el, visible) => {
+      if (!el) return;
+      el.classList.toggle('hidden', !visible);
+      if (visible) {
+        el.removeAttribute('hidden');
+      } else {
+        el.setAttribute('hidden', 'hidden');
       }
-      loginForm?.classList.toggle('hidden', tab !== 'login');
-      registerForm?.classList.toggle('hidden', tab !== 'register');
+    };
+
+    setVisible(loginForm, tab === 'login');
+    setVisible(registerForm, tab === 'register');
+    setVisible(devTools, tab === 'dev');
+  }
+
+  tabs.forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      activateAuthTab(btn.dataset.tab || 'login');
     });
   });
+
+  const initiallyActiveTab = Array.from(tabs).find((btn) => btn.classList.contains('active'))?.dataset.tab || 'login';
+  activateAuthTab(initiallyActiveTab);
 
   const csrfState = {
     token: '',
@@ -1069,6 +1501,7 @@
 
   async function ensureAuthApiReachable(options = {}) {
     const force = !!options.force;
+    const softFail = options.softFail !== false;
     const now = Date.now();
     const cacheTtlMs = 15000;
 
@@ -1080,35 +1513,50 @@
     }
 
     const run = async () => {
-      try {
-        await fetchWithTimeout('api/auth.php?action=me', {
-          method: 'GET',
-          credentials: 'same-origin',
-          cache: 'no-store',
-          timeoutMs: 7000,
-          tag: 'auth-health',
-        });
-        authReachabilityState.ok = true;
-        authReachabilityState.checkedAt = Date.now();
-        return true;
-      } catch (err) {
-        authReachabilityState.ok = false;
-        const code = String(err?.code || '').toUpperCase();
-        const msg = String(err?.message || '').toLowerCase();
-        const status = Number(err?.status || 0);
-        const isNetwork = code === 'ETIMEOUT'
-          || status === 0
-          || /failed to fetch|networkerror|network error|timeout/.test(msg);
-        if (!isNetwork) {
+      const timeouts = [2200, 3500];
+      let lastErr = null;
+
+      for (let i = 0; i < timeouts.length; i += 1) {
+        try {
+          await fetchWithTimeout('api/auth.php?action=me&quiet=1', {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store',
+            timeoutMs: timeouts[i],
+            tag: `auth-health#${i + 1}`,
+          });
+          authReachabilityState.ok = true;
+          authReachabilityState.checkedAt = Date.now();
           return true;
+        } catch (err) {
+          lastErr = err;
+          if (!isTransientAuthFetchError(err) || i === (timeouts.length - 1)) {
+            break;
+          }
+          await sleep(300 * (i + 1));
         }
-        const reachabilityErr = new Error('auth api unreachable');
-        reachabilityErr.code = 'EUNREACH';
-        reachabilityErr.status = 0;
-        reachabilityErr.endpoint = 'api/auth.php?action=me';
-        reachabilityErr.cause = err;
-        throw reachabilityErr;
       }
+
+      authReachabilityState.ok = false;
+      const code = String(lastErr?.code || '').toUpperCase();
+      const msg = String(lastErr?.message || '').toLowerCase();
+      const status = Number(lastErr?.status || 0);
+      const isNetwork = code === 'ETIMEOUT'
+        || status === 0
+        || /failed to fetch|networkerror|network error|timeout/.test(msg);
+      if (!isNetwork) {
+        return true;
+      }
+      if (softFail) {
+        authLog('warn', 'auth api health soft-fail', String(lastErr?.message || lastErr || 'unreachable'));
+        return false;
+      }
+      const reachabilityErr = new Error('auth api unreachable');
+      reachabilityErr.code = 'EUNREACH';
+      reachabilityErr.status = 0;
+      reachabilityErr.endpoint = 'api/auth.php?action=me';
+      reachabilityErr.cause = lastErr;
+      throw reachabilityErr;
     };
 
     authReachabilityState.inflight = run();
@@ -1132,7 +1580,7 @@
     }
 
     const run = async () => {
-      const attempts = [12000, 18000, 26000];
+      const attempts = [2800, 5200, 7800];
       let lastErr = null;
       for (let i = 0; i < attempts.length; i += 1) {
         try {
@@ -1208,6 +1656,7 @@
     const code = String(err?.code || '').toUpperCase();
     const status = Number(err?.status || 0);
     const msg = String(err?.message || '').trim();
+    const msgLower = msg.toLowerCase();
 
     if (code === 'EUNREACH') {
       return 'Server derzeit nicht erreichbar. Bitte Verbindung pruefen und erneut versuchen.';
@@ -1215,7 +1664,19 @@
     if (code === 'ETIMEOUT') {
       return 'Zeitueberschreitung beim Server. Bitte erneut versuchen.';
     }
+    if (status === 429 || /too many failed login attempts/.test(msgLower)) {
+      return msg || 'Zu viele fehlgeschlagene Anmeldeversuche. Bitte spaeter erneut versuchen.';
+    }
     if (code === 'EAUTH' || status === 401 || status === 403) {
+      if (/invalid username or password/.test(msgLower)) {
+        return 'Anmeldung fehlgeschlagen. Bitte Benutzername oder E-Mail und Passwort pruefen.';
+      }
+      if (/username\/email and password required/.test(msgLower) || /username and password required/.test(msgLower)) {
+        return 'Bitte Benutzername oder E-Mail sowie Passwort eingeben.';
+      }
+      if (/csrf/.test(msgLower)) {
+        return 'Sitzung abgelaufen. Bitte erneut versuchen.';
+      }
       return msg || 'Anmeldung fehlgeschlagen. Bitte Zugangsdaten pruefen.';
     }
     if (code === 'EPARSE') {
@@ -1274,6 +1735,10 @@
       return res;
     } catch (err) {
       const tag = String(opts.tag || 'fetch');
+      const isHealthProbe = /^auth-health#\d+$/i.test(tag);
+      const isCsrfProbe = /^csrf#\d+$/i.test(tag);
+      const isSessionValidationProbe = /^session-validation-(breaker|periodic)$/i.test(tag);
+      const logLevel = (isHealthProbe || isCsrfProbe || isSessionValidationProbe) ? 'warn' : 'error';
       let wrapped = err;
       if (controller.signal.aborted) {
         wrapped = new Error(`request timeout after ${timeoutMs}ms`);
@@ -1282,8 +1747,8 @@
         wrapped.cause = err;
       }
       const reason = String(wrapped?.message || wrapped || 'request failed');
-      authLog('error', `${tag} failed`, reason);
-      authProbe(`${tag} failed: ${reason}`, 'error');
+      authLog(logLevel, `${tag} failed`, reason);
+      authProbe(`${tag} failed: ${reason}`, logLevel);
       throw wrapped;
     } finally {
       clearTimeout(timer);
@@ -1295,7 +1760,7 @@
       const r = await fetch('api/auth.php?action=dev_tools_status');
       const d = await r.json();
       if (d.success && d.enabled) {
-        devTools.classList.remove('hidden');
+        devTabButton?.classList.remove('hidden');
         authDebugDetails = true;
       }
     } catch (err) {
@@ -1348,6 +1813,13 @@
   primeAuthAudio();
 
   loginForm?.addEventListener('submit', async (e) => {
+    if (loginSubmitInFlight) {
+      authLog('warn', 'login submit ignored', 'request already in flight');
+      e.preventDefault();
+      return;
+    }
+
+    loginSubmitInFlight = true;
     authReady.lastLoginSubmitAt = Date.now();
     authProbe('login submit handler entered', 'warn');
     authLog('info', 'login submit fired');
@@ -1380,7 +1852,15 @@
         remember: rememberEl.checked,
       };
 
-      await ensureAuthApiReachable();
+      try {
+        const reachable = await ensureAuthApiReachable({ softFail: true });
+        if (reachable === false) {
+          authLog('warn', 'health check skip', 'continuing login without preflight reachability confirmation');
+        }
+      } catch (reachErr) {
+        if (String(reachErr?.code || '').toUpperCase() !== 'EUNREACH') throw reachErr;
+        authLog('warn', 'health check skip', 'proceeding with login attempt despite reachability failure');
+      }
 
       const submitLogin = async (forceCsrfRefresh = false) => {
         const csrf = await getCsrf({ force: forceCsrfRefresh });
@@ -1439,7 +1919,12 @@
     } catch (err) {
       const status = Number(err?.status || 0);
       const code = String(err?.code || '').toUpperCase();
-      const isAuthFailure = code === 'EAUTH' || status === 401 || status === 403;
+      const msg = String(err?.message || '').toLowerCase();
+      const isAuthFailure = code === 'EAUTH'
+        || status === 401
+        || status === 403
+        || status === 429
+        || /too many failed login attempts|lockout/.test(msg);
       const isReachabilityFailure = code === 'EUNREACH' || code === 'ETIMEOUT';
       if (isAuthFailure) {
         authProbe('login submit auth failure', 'warn');
@@ -1454,6 +1939,7 @@
       hideActionModal();
       setAuthError(errEl, err, userFacingAuthError(err));
     } finally {
+      loginSubmitInFlight = false;
       if (btn) {
         btn.disabled = false;
         btn.textContent = 'Enter the Galaxy';
@@ -1678,7 +2164,20 @@
           authLog('warn', 'homeworld target skipped (register)', 'best-effort budget exceeded');
           queueHomeworldIntroFlight({ source: 'register' });
         }
-        await startGameShell();
+
+        // Show narrative prologue for new registrations; fall back to direct launch
+        // when GQProlog is unavailable (e.g. script failed to load).
+        if (window.GQProlog && typeof window.GQProlog.show === 'function') {
+          hideActionModal();
+          authSection?.classList.add('hidden');
+          window.GQProlog.show({
+            username: String(registerPayload.username || ''),
+            colonyName: String(data.colony_name || ''),
+            onComplete: async () => { await startGameShell(); },
+          });
+        } else {
+          await startGameShell();
+        }
       } else {
         hideActionModal();
         if (errEl) errEl.textContent = data.error || 'Registration failed.';
@@ -1697,7 +2196,7 @@
   authProbe(`register handler bound=${authReady.registerBound}`);
 
   try {
-    await preloadAssets();
+    setPhase('Pruefe Session...', 8);
     const bootUrl = new URL(window.location.href);
     const skipAutoBootAfterLogout = bootUrl.searchParams.get('logout') === '1';
     if (skipAutoBootAfterLogout) {
