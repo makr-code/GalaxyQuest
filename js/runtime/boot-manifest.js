@@ -121,9 +121,9 @@
   const bootScriptsRuntimeFoundation = []
     .concat(localScripts([
       'js/engine/runtime/RuntimeCore.js',
-      'js/engine/runtime/RuntimeLifecyclePhases.js',
-      'js/engine/runtime/RuntimeFeatureRegistry.js',
-      'js/engine/runtime/RuntimeLifecycleManager.js',
+      'js/engine/runtime/layers/core/LifecyclePhases.js',
+      'js/engine/runtime/layers/core/FeatureRegistry.js',
+      'js/engine/runtime/layers/core/LifecycleManager.js',
       'js/engine/runtime/RuntimeLifecycleCoreFeatures.js',
       'js/engine/runtime/RuntimeLifecycleDomainFeatures.js',
       'js/engine/runtime/RuntimeGameContextRefs.js',
@@ -150,8 +150,8 @@
       'js/engine/runtime/RuntimeColonySurfaceSlotMapping.js',
       'js/engine/runtime/RuntimeWormholeController.js',
       'js/engine/runtime/RuntimeRealtimeSync.js',
-      'js/engine/runtime/RuntimeStartupBoot.js',
-      'js/engine/runtime/RuntimePostBootFlow.js',
+      'js/engine/runtime/layers/bootstrap/StartupBoot.js',
+      'js/engine/runtime/layers/bootstrap/PostBootFlow.js',
       'js/engine/runtime/RuntimeColonyVfxDebugWidget.js'
     ], V.runtime))
     .concat([
@@ -159,13 +159,13 @@
     ])
     .concat(localScripts([
       'js/engine/runtime/RuntimePolicyEngine.js',
-      'js/engine/runtime/RuntimeGalaxyDebugLog.js',
+      'js/engine/runtime/layers/integration/galaxy/DebugLog.js',
       'js/engine/runtime/RuntimeColonyBuildingLogic.js',
       'js/engine/runtime/RuntimeMessageSignals.js',
       'js/engine/runtime/RuntimeRenderTelemetryHook.js',
-      'js/engine/runtime/RuntimeGalaxyCanvasDebug.js',
-      'js/engine/runtime/RuntimeGalaxyEventProbe.js',
-      'js/engine/runtime/RuntimeGalaxyRendererDebug.js',
+      'js/engine/runtime/layers/integration/galaxy/CanvasDebug.js',
+      'js/engine/runtime/layers/integration/galaxy/EventProbe.js',
+      'js/engine/runtime/layers/integration/galaxy/RendererDebug.js',
       'js/engine/runtime/RuntimePerfTelemetryCommand.js',
       'js/engine/runtime/RuntimeTerminalCommand.js',
       'js/engine/runtime/RuntimeOpenWindowCommand.js',
@@ -175,27 +175,27 @@
 
   const bootScriptsGalaxy = []
     .concat(localScripts([
-      'js/engine/runtime/RuntimeGalaxyOverlayControls.js',
-      'js/engine/runtime/RuntimeGalaxyNavActions.js',
-      'js/engine/runtime/RuntimeGalaxyControllerNavigation.js',
-      'js/engine/runtime/RuntimeGalaxyControllerActions.js',
-      'js/engine/runtime/RuntimeGalaxyControllerWindow.js'
+      'js/engine/runtime/layers/ui/galaxy/OverlayControls.js',
+      'js/engine/runtime/layers/domain/galaxy/NavActions.js',
+      'js/engine/runtime/layers/domain/galaxy/ControllerNavigation.js',
+      'js/engine/runtime/layers/domain/galaxy/ControllerActions.js',
+      'js/engine/runtime/layers/ui/galaxy/ControllerWindow.js'
     ], V.runtime))
     .concat([
-      localScript('js/engine/runtime/RuntimeGalaxyControllerRenderWindowFlow.js', V.galaxyController)
+      localScript('js/engine/runtime/layers/integration/galaxy/ControllerRenderWindowFlow.js', V.galaxyController)
     ])
     .concat(localScripts([
-      'js/engine/runtime/RuntimeGalaxyControllerControlUi.js',
-      'js/engine/runtime/RuntimeGalaxyControllerStarLoading.js'
+      'js/engine/runtime/layers/ui/galaxy/ControllerControlUi.js',
+      'js/engine/runtime/layers/integration/galaxy/ControllerStarLoading.js'
     ], V.runtime))
     .concat([
       localScript('js/engine/runtime/RuntimeGalaxyControllerFacade.js', V.galaxyController)
     ])
     .concat(localScripts([
       'js/engine/runtime/RuntimeGalaxyControllerBootstrap.js',
-      'js/engine/runtime/RuntimeGalaxyControlUi.js',
-      'js/engine/runtime/RuntimeGalaxyWindowBindings.js',
-      'js/engine/runtime/RuntimeGalaxyStarLoadingHelpers.js',
+      'js/engine/runtime/layers/ui/galaxy/ControlUi.js',
+      'js/engine/runtime/layers/integration/galaxy/WindowBindings.js',
+      'js/engine/runtime/layers/integration/galaxy/StarLoadingHelpers.js',
       'js/engine/runtime/RuntimeGalaxyStarTerritorySync.js',
       'js/engine/runtime/RuntimeGalaxyStarCacheRead.js'
     ], V.runtime))
@@ -225,7 +225,7 @@
       'js/engine/runtime/RuntimeUiConsoleCommandRegistry.js',
       'js/engine/runtime/RuntimeUiConsoleMetaCommand.js',
       'js/engine/runtime/RuntimeAdminVisibility.js',
-      'js/engine/runtime/RuntimeGalaxyVisualUtils.js'
+      'js/engine/runtime/layers/ui/galaxy/VisualUtils.js'
     ], V.runtime));
 
   const bootScriptsUiRuntime = localScripts([
