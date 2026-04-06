@@ -41,3 +41,7 @@ Thumbs.db
 
 # TTS runtime audio cache (generated MP3s)
 cache/tts/*.mp3
+
+# Generated procedural textures (runtime artifacts)
+generated/textures/**/*.png
+generated/textures/**/*.lock
