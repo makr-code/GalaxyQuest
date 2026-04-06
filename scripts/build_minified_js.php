@@ -692,7 +692,7 @@ function determine_package_theme(string $relPath): string {
     }
 
     // Core runtime orchestration.
-    if ($base === 'game.js' || str_starts_with($base, 'game-') || $base === 'wm.js' || $base === 'audio.js' || $base === 'model_registry.js'
+    if ($base === 'game.js' || str_starts_with($base, 'game-') || $base === 'wm.js' || $base === 'wm-widgets.js' || $base === 'gqwm.js' || $base === 'audio.js' || $base === 'model_registry.js'
         || $base === 'galaxy-model.js' || $base === 'galaxy-db.js') {
         return 'runtime';
     }

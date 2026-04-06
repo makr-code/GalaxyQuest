@@ -47,7 +47,9 @@
   });
 
   const assetVersions = Object.freeze({
-    wm: '20260404p54',
+    wm: '20260406p2',
+    wmWidgets: '20260406p2',
+    gqwm: '20260406p2',
     audio: V.assetCore,
     gqui: V.gqui,
     galaxyCameraController: '20260329p85',
@@ -92,6 +94,8 @@
   const bootScriptsCore = []
     .concat([
       localScript('js/runtime/wm.js', assetVersions.wm),
+      localScript('js/runtime/wm-widgets.js', assetVersions.wmWidgets),
+      localScript('js/runtime/gqwm.js', assetVersions.gqwm),
       localScript('js/network/binary-decoder.js', V.assetCore),
       localScript('js/network/binary-decoder-v2.js', V.assetCore),
       localScript('js/network/binary-decoder-v3.js', V.assetCore),

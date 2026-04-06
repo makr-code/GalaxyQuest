@@ -279,10 +279,121 @@
     };
   }
 
+  /**
+   * registerGameCommands – registers named WM commands for all game windows
+   * and common layout actions so they appear in the Command Palette and can
+   * be bound to toolbar items or hotkeys.
+   *
+   * opts: { wm, showToast, gameLog }
+   */
+  function registerGameCommands(opts = {}) {
+    const {
+      wm = null,
+      showToast = () => {},
+      gameLog = () => {},
+    } = opts;
+
+    if (!wm || typeof wm.registerCommand !== 'function') return;
+
+    // ── Window-open commands ─────────────────────────────────────────────
+    const windowCommands = [
+      { id: 'gq.open.overview',    label: 'Übersicht öffnen',          icon: '◉', win: 'overview' },
+      { id: 'gq.open.colony',      label: 'Kolonie öffnen',            icon: '🏠', win: 'colony' },
+      { id: 'gq.open.buildings',   label: 'Gebäude öffnen',            icon: '🏗', win: 'buildings' },
+      { id: 'gq.open.research',    label: 'Forschung öffnen',          icon: '🔬', win: 'research' },
+      { id: 'gq.open.shipyard',    label: 'Werft öffnen',              icon: '⚙', win: 'shipyard' },
+      { id: 'gq.open.fleet',       label: 'Flotte öffnen',             icon: '🚀', win: 'fleet' },
+      { id: 'gq.open.galaxy',      label: 'Galaxiekarte öffnen',       icon: '🌌', win: 'galaxy' },
+      { id: 'gq.open.messages',    label: 'Nachrichten öffnen',        icon: '✉', win: 'messages' },
+      { id: 'gq.open.intel',       label: 'Intel öffnen',              icon: '🔭', win: 'intel' },
+      { id: 'gq.open.wormholes',   label: 'Wurmlöcher öffnen',         icon: '🌀', win: 'wormholes' },
+      { id: 'gq.open.trade',       label: 'Handel öffnen',             icon: '💱', win: 'trade' },
+      { id: 'gq.open.economy',     label: 'Wirtschaft öffnen',         icon: '📈', win: 'economy' },
+      { id: 'gq.open.quests',      label: 'Quests öffnen',             icon: '📜', win: 'quests' },
+      { id: 'gq.open.factions',    label: 'Fraktionen öffnen',         icon: '⚑', win: 'factions' },
+      { id: 'gq.open.alliances',   label: 'Allianzen öffnen',          icon: '🤝', win: 'alliances' },
+      { id: 'gq.open.wars',        label: 'Kriege öffnen',             icon: '⚔', win: 'wars' },
+      { id: 'gq.open.leaderboard', label: 'Rangliste öffnen',          icon: '🏆', win: 'leaderboard' },
+      { id: 'gq.open.leaders',     label: 'Anführer öffnen',           icon: '👑', win: 'leaders' },
+      { id: 'gq.open.pirates',     label: 'Piraten öffnen',            icon: '☠', win: 'pirates' },
+      { id: 'gq.open.traders',     label: 'Händler öffnen',            icon: '🛒', win: 'traders' },
+      { id: 'gq.open.minimap',     label: 'Minimap öffnen',            icon: '🗺', win: 'minimap' },
+      { id: 'gq.open.quicknav',    label: 'QuickNav öffnen',           icon: '⌖', win: 'quicknav' },
+      { id: 'gq.open.console',     label: 'Konsole öffnen',            icon: '>', win: 'console' },
+    ];
+
+    windowCommands.forEach(({ id, label, icon, win }) => {
+      wm.registerCommand(id, {
+        label,
+        icon,
+        category: 'Fenster',
+        execute() { wm.open(win); },
+      });
+    });
+
+    // ── Layout commands ──────────────────────────────────────────────────
+    if (typeof wm.tileWindows === 'function') {
+      wm.registerCommand('gq.layout.tile2x2', {
+        label: 'Layout: 2×2 Kacheln',
+        icon: '⊞',
+        category: 'Layout',
+        execute() { wm.tileWindows('2x2'); },
+      });
+      wm.registerCommand('gq.layout.tile3col', {
+        label: 'Layout: 3 Spalten',
+        icon: '⋮',
+        category: 'Layout',
+        execute() { wm.tileWindows('3col'); },
+      });
+      wm.registerCommand('gq.layout.tileSelected', {
+        label: 'Layout: Auswahl kacheln',
+        icon: '⊟',
+        category: 'Layout',
+        execute() { wm.tileSelected('2x2'); },
+      });
+    }
+
+    if (typeof wm.saveLayoutProfile === 'function') {
+      wm.registerCommand('gq.layout.save', {
+        label: 'Layout speichern (Schnell)',
+        icon: '💾',
+        category: 'Layout',
+        execute() {
+          wm.saveLayoutProfile('quick', { scope: 'global' });
+          showToast('Layout gespeichert.', 'success');
+        },
+      });
+    }
+
+    if (typeof wm.loadLayoutProfile === 'function') {
+      wm.registerCommand('gq.layout.load', {
+        label: 'Layout laden (Schnell)',
+        icon: '📂',
+        category: 'Layout',
+        execute() {
+          const ok = wm.loadLayoutProfile('quick', { scope: 'global' });
+          showToast(ok ? 'Layout geladen.' : 'Kein gespeichertes Layout gefunden.', ok ? 'success' : 'info');
+        },
+      });
+    }
+
+    if (typeof wm.showCommandPalette === 'function') {
+      wm.registerCommand('gq.palette', {
+        label: 'Befehlspalette öffnen',
+        icon: '⌨',
+        category: 'System',
+        execute() { wm.showCommandPalette({}); },
+      });
+    }
+
+    gameLog('info', '[GQ] WM game commands registered');
+  }
+
   const api = {
     createNavigationController,
     createWindowRegistry,
     selfHealGalaxyWindow,
+    registerGameCommands,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

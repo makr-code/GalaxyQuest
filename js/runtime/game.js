@@ -1312,6 +1312,7 @@
     'createWindowRegistry',
     'createNavigationController',
     'selfHealGalaxyWindow',
+    'registerGameCommands',
   ]);
 
   class GameRuntime {
@@ -1369,6 +1370,12 @@
   if (WM && typeof WM.restorePersistedState === 'function') {
     WM.restorePersistedState();
   }
+
+  runtimeDesktopShellApi.registerGameCommands({
+    wm: WM,
+    showToast,
+    gameLog,
+  });
 
   runtimeDesktopShellApi.selfHealGalaxyWindow({
     wm: WM,

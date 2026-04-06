@@ -21,7 +21,9 @@
 
   const AUTH_AUDIO_SCRIPT = withAssetVersion('js/runtime/audio.js', 'audio', '20260404p50');
   const AUTH_GQUI_SCRIPT = withAssetVersion('js/ui/gq-ui.js', 'gqui', '20260330p1');
-  const AUTH_WM_SCRIPT = withAssetVersion('js/runtime/wm.js', 'wm', '20260404p52');
+  const AUTH_WM_SCRIPT = withAssetVersion('js/runtime/wm.js', 'wm', '20260406p2');
+  const AUTH_WM_WIDGETS_SCRIPT = withAssetVersion('js/runtime/wm-widgets.js', 'wmWidgets', '20260406p2');
+  const AUTH_GQWM_SCRIPT = withAssetVersion('js/runtime/gqwm.js', 'gqwm', '20260406p2');
   const AUTH_AUDIO_PRELOAD = [
     'music/Nebula_Overture.mp3',
     'sfx/mixkit-video-game-retro-click-237.wav',
@@ -912,6 +914,8 @@
     if (!window.WM) {
       try {
         await loadScript(AUTH_WM_SCRIPT);
+        await loadScript(AUTH_WM_WIDGETS_SCRIPT);
+        await loadScript(AUTH_GQWM_SCRIPT);
       } catch (err) {
         if (!authWindowIntegrationAttempted) {
           authLog('warn', 'auth WM integration skipped', String(err?.message || err || 'unknown'));

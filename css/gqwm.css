@@ -1,0 +1,62 @@
+/* ============================================================
+   gqwm.css – GalaxyQuest-specific Window Manager overrides
+   Extends wm.css (must be loaded AFTER wm.css)
+   ============================================================ */
+
+/* ── Auth-page: hide GQ overlay elements ─────────────────── */
+.auth-page .galaxy-overlay-window,
+.auth-page #galaxy-nav-orb-overlay,
+.auth-page #galaxy-info-overlay,
+.auth-page .gq-spaceflight-hud,
+.auth-page #footer-actions,
+.auth-page #footer-load {
+  display: none !important;
+}
+
+/* ── Galaxy window (background) pointer-events ───────────── */
+.wm-window.wm-window-background[data-winid="galaxy"] {
+  pointer-events: none;
+}
+
+.wm-window.wm-window-background[data-winid="galaxy"] .wm-body {
+  pointer-events: none;
+}
+
+.wm-window.wm-window-background[data-winid="galaxy"] .galaxy-overlay-window,
+.wm-window.wm-window-background[data-winid="galaxy"] .galaxy-overlay-window * {
+  pointer-events: auto;
+}
+
+/* ── Galaxy window (fullscreen) ─────────────────────────────── */
+.wm-window.wm-window-fullscreen[data-winid="galaxy"] .wm-body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.wm-window.wm-window-fullscreen.wm-window-background[data-winid="galaxy"] .wm-body {
+  position: relative;
+}
+
+/* ── Console window ─────────────────────────────────────────── */
+.wm-window[data-winid="console"] .wm-body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.wm-window[data-winid="console"] .ui-console-panel {
+  max-height: none;
+  height: 100%;
+  border-bottom: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wm-window[data-winid="console"] .ui-console-log {
+  flex: 1;
+  height: auto;
+}
+
+/* NOTE: .galaxy-overlay-window, #galaxy-info-overlay, .galaxy-info-tabs etc.
+   are GQ app-content styles and remain in css/style.css.
+   Only WM-framework modifier rules per window-id live here. */
