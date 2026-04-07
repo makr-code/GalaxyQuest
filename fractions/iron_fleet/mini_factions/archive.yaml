@@ -1,0 +1,16 @@
+# Eisenflotte – Historisches Archiv (Archive Division)
+# Aufzeichnung aller Kriegshandlungen, Geheimdienstberichte und strategischen Dossiers.
+# Zugang streng klassifiziert; schätzt Wissen als Machtinstrument.
+
+division_code: archive
+display_name: "Historisches Archiv"
+role: "Geheimdienstarchiv, Kriegschronik und strategische Dossiers aller feindlichen Spezies"
+motto: "Wissen ist das letzte Kaliber"
+personnel_scale: elite_unit
+threat_level: high
+known_intel: none
+current_objective: "Katalogisierung aller bekannten Kalytherion-Raumhafenkoordinaten"
+notable_officer:
+  name: "Archivarin Dr. Ines Kroll"
+  rank: "Oberarchivarin"
+  specialization: "Xenobiologische Geheimdienstanalyse"

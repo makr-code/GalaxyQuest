@@ -1,0 +1,16 @@
+# Eisenflotte – Klan-Rat (Clan Council)
+# Interne politische Struktur der menschlichen Militärklans.
+# Fünf rivalisierende Klans bestimmen gemeinsam Strategie und Ressourcenverteilung.
+
+division_code: clan
+display_name: "Klan-Rat"
+role: "Politische Koordination der fünf rivalisierenden Militärklans der Eisenflotte"
+motto: "Blut bindet stärker als Befehl"
+personnel_scale: full_division
+threat_level: medium
+known_intel: minimal
+current_objective: "Intern: Machtkonsolidierung nach dem Ableben von Admiral Grosskampf"
+notable_officer:
+  name: "Klan-Ältester Friedrich von Lenz"
+  rank: "Klan-Ältester"
+  specialization: "Innenpolitik und Ressourcenkontrolle"

@@ -1,0 +1,16 @@
+# Eisenflotte – Schattenprotokoll (Shadow Operations)
+# Verdeckte Operationen, Infiltration und Sabotage feindlicher Infrastruktur.
+# Existenz wird offiziell geleugnet.
+
+division_code: shadow
+display_name: "Schattenprotokoll"
+role: "Verdeckte Infiltration, Sabotage und Liquidierung hochrangiger Konvergenz-Kommandeure"
+motto: "Kein Zeuge, kein Verrat"
+personnel_scale: elite_unit
+threat_level: critical
+known_intel: none
+current_objective: "Infiltration eines Vor'Tak-Militärrats zur Vorbereitung einer Invasion von Drak'Thuun"
+notable_officer:
+  name: "Agent 'Eisvogel' (Identität unbekannt)"
+  rank: "Schattenkommandant"
+  specialization: "Infiltration und verdeckte Liquidierung"

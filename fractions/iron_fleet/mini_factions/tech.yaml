@@ -1,0 +1,15 @@
+# Eisenflotte – Waffenentwicklungsamt (Tech Division)
+# Forschung und Entwicklung neuer Waffensysteme und KI-gestützter Zielsysteme.
+
+division_code: tech
+display_name: "Waffenentwicklungsamt"
+role: "Entwicklung kinetischer Waffensysteme und KI-gestützter Zielerfassungstechnologie"
+motto: "Masse schlägt Meisterschaft"
+personnel_scale: regiment
+threat_level: high
+known_intel: fragmentary
+current_objective: "Entwicklung eines Massentötungsfeldes gegen Bio-Einheiten der Kryl'Tha"
+notable_officer:
+  name: "Chefingenieur Dominik Rauch"
+  rank: "Generalingenieur"
+  specialization: "Kinetische Großkampfwaffen"
