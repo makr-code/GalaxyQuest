@@ -9,12 +9,27 @@
 
 | Phase | Zeitraum | Milestone | Status |
 |---|---|---|---|
-| **Phase 0** | Woche 1 | Architektur + Skeleton | ✅ Dieses PR |
+| **Phase 0** | Woche 1 | Architektur + Skeleton | ✅ Erledigt |
 | **Phase 1** | Woche 2–3 | WebGPU Core (Device, Buffer, Texture) | ✅ Erledigt |
 | **Phase 2** | Woche 4–5 | Scene Graph + Camera | ✅ Erledigt |
 | **Phase 3** | Woche 6–7 | Post-Effects Migration (WGSL) | ✅ Erledigt |
 | **Phase 4** | Woche 8–9 | Galaxy3D + Starfield Integration | ⏳ Nächste |
-| **Phase 5** | Woche 10+ | GPU-Physics (NPC AI + Flotten) | 🔭 Zukunft |
+| **Phase 5** | Woche 10+ | GPU-Physics (NPC AI + Flotten) | 🔧 In Arbeit |
+
+### Technische Verbesserungen (abgeschlossen)
+
+| # | Verbesserung | Datei(en) | Status |
+|---|---|---|---|
+| 1 | `localStorage gq:rendererHint` in RendererFactory | `js/engine/core/RendererFactory.js` | ✅ |
+| 2 | ComputePass vollständig + `dispatchCompute()` | `ComputePass.js`, `WebGPURenderer.js` | ✅ |
+| 3 | GPU-Profiling via Timestamp Queries | `js/engine/utils/WebGPUProfiler.js` | ✅ |
+| 4 | Double-Buffering für async Physics Readback | `js/engine/webgpu/WebGPUPhysics.js` | ✅ |
+| 5 | WebGPUResourcePool in EffectComposer integriert | `js/engine/post-effects/EffectComposer.js` | ✅ |
+| 6 | SSAO in PostFxController + GameEngine (tier=high) | `PostFxController.js`, `GameEngine.js` | ✅ |
+| 7 | Shader-Fehler via EventBus + DOM CustomEvent | `js/engine/webgpu/WebGPUShader.js` | ✅ |
+| 8 | Device-Loss: expon. Backoff + `onLost`-Callback | `js/engine/core/WebGPURenderer.js` | ✅ |
+| 11 | Dev-Overlay (Renderer-Auswahl + GPU-Stats) | `js/engine/utils/GpuDevOverlay.js` | ✅ |
+| 12 | QualityManager (zentrales Tier-basiertes Schalten) | `js/engine/utils/QualityManager.js` | ✅ |
 
 ---
 
@@ -105,7 +120,7 @@ tests/webgpu/                 ← Test-Suite
 **Tasks:**
 - [ ] `Galaxy3DRendererWebGPU.js` — vollständige WebGPU-Implementierung
 - [ ] `StarfieldWebGPU.js` — Auth-Screen auf WebGPU
-- [ ] `engine-compat.js` — Umschalt-UI im Dev-Modus
+- [x] `engine-compat.js` / `RendererFactory.js` — `localStorage gq:rendererHint` + Dev-Overlay (`GpuDevOverlay.js`)
 - [ ] Regressionstests: Side-by-Side Canvas-Vergleich (WebGPU vs WebGL)
 
 **Akzeptanzkriterien:**
@@ -127,7 +142,7 @@ JS: SpacePhysicsEngine (CPU — Autoritativ)
 GPU: WebGPUPhysics.js (Compute Shader — Parallelisiert)
      - N-body Gravity: O(N²/W) mit W=64 Workgroup-Parallelismus
      - Velocity Integration + Drag in einem Pass
-     ↓ readback() (async, 0-copy)
+     ↓ readback() (async, double-buffered → 0-frame-block)
 JS: Reconcile positions/velocities
 ```
 
@@ -151,11 +166,11 @@ cs_main() {
 | 5000     | ~1000ms  | ~5ms         | 200×    |
 
 **Tasks:**
-- [ ] `WebGPUPhysics.js` — WGSL Shader final testen mit echtem GPU
+- [x] `WebGPUPhysics.js` — Double-Buffering für Async Readback (kein Frame-Blocking)
+- [x] `ComputePass.js` — vollständig mit `dispatchCompute()` verdrahtet
 - [ ] `SpacePhysicsEngine` — Hybrid-Mode (CPU+GPU mit Sync-Point)
-- [ ] `ComputePass.js` — Integration in EffectComposer-Pipeline
 - [ ] NPC-Pathfinding als separater Compute-Pass
-- [ ] Async Readback ohne Frame-Blocking (Double-Buffering)
+- [ ] `WebGPUPhysics.js` — WGSL Shader final testen mit echtem GPU
 
 ---
 
