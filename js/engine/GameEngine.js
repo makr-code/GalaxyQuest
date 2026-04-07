@@ -462,6 +462,14 @@ class GameEngine {
       if (jetLighting.spread          !== undefined) this._jetLightingPass.spread          = jetLighting.spread;
     }
 
+    const { ssao } = cfg;
+    if (ssao && this._ssaoPass) {
+      if (ssao.enabled !== undefined) this._ssaoPass.enabled = !!ssao.enabled;
+      if (ssao.radius  !== undefined) this._ssaoPass.radius  = ssao.radius;
+      if (ssao.power   !== undefined) this._ssaoPass.power   = ssao.power;
+      if (ssao.bias    !== undefined) this._ssaoPass.bias    = ssao.bias;
+    }
+
     this.events.emit('postfx:configured', { cfg });
     return this;
   }

@@ -1,5 +1,22 @@
 // Minimal Playwright config for local GalaxyQuest UI smoke tests.
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
+
+// Extra Chromium launch args for the WebGPU shader validation test.
+// When running in CI (GQ_WEBGPU_SHADER_CI=1) or locally with the
+// PLAYWRIGHT_CHROMIUM_ARGS env var set, these flags activate Chrome's
+// software Vulkan renderer (SwiftShader) so that WebGPU is available
+// without a physical GPU.
+const webgpuArgs = process.env.GQ_WEBGPU_SHADER_CI === '1' || process.env.PLAYWRIGHT_CHROMIUM_ARGS
+  ? [
+      '--enable-unsafe-webgpu',
+      '--use-vulkan=swiftshader',
+      '--disable-vulkan-fallback-to-gl-for-testing',
+      '--disable-dawn-features=disallow_unsafe_apis',
+      '--use-angle=swiftshader',
+      '--enable-features=Vulkan',
+    ]
+  : [];
+
 module.exports = {
   testDir: './tests/e2e',
   timeout: 90_000,
@@ -16,7 +33,12 @@ module.exports = {
   projects: [
     {
       name: 'chromium',
-      use: { browserName: 'chromium' },
+      use: {
+        browserName: 'chromium',
+        launchOptions: {
+          args: webgpuArgs,
+        },
+      },
     },
   ],
 };
