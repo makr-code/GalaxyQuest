@@ -54,6 +54,39 @@ Zusatzwelle Galaxy (Loading + Window Glue):
 - `integration/galaxy/StarLoadingHelpers.js`
 - `integration/galaxy/WindowBindings.js`
 
+Zusatzwelle Galaxy (Star Loader Facade + Flow):
+- `integration/galaxy/FlowOrchestrator.js`
+- `integration/galaxy/LoaderFacade.js`
+
+Zusatzwelle Galaxy (Error + Status Flow):
+- `integration/galaxy/FallbackRecovery.js`
+- `integration/galaxy/ErrorUi.js`
+- `integration/galaxy/UiStatus.js`
+
+Zusatzwelle Galaxy (Network + Persistence + Preflight):
+- `integration/galaxy/NetworkFlow.js`
+- `integration/galaxy/Persistence.js`
+- `integration/galaxy/BootstrapPreflight.js`
+
+Zusatzwelle Galaxy (Territory + Cache Read):
+- `integration/galaxy/TerritorySync.js`
+- `integration/galaxy/CacheRead.js`
+
+Zusatzwelle Galaxy (Controller Orchestration):
+- `integration/galaxy/ControllerFacade.js`
+- `integration/galaxy/ControllerBootstrap.js`
+
+Zusatzwelle Galaxy (Init3D Facade):
+- `integration/galaxy/Init3DFacade.js`
+
+Zusatzwelle Galaxy (Nav Orb):
+- `integration/galaxy/NavOrbRepeat.js`
+- `integration/galaxy/NavOrb.js`
+
+Zusatzwelle Commands (Domain + UI):
+- `domain/commands/CommandParsing.js`
+- `ui/commands/TransitionsCommand.js`
+
 Boot-Manifest umgestellt auf neue Layer-Dateien:
 - `js/runtime/boot-manifest.js`
 

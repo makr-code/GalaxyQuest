@@ -189,36 +189,36 @@
       'js/engine/runtime/layers/integration/galaxy/ControllerStarLoading.js'
     ], V.runtime))
     .concat([
-      localScript('js/engine/runtime/RuntimeGalaxyControllerFacade.js', V.galaxyController)
+      localScript('js/engine/runtime/layers/integration/galaxy/ControllerFacade.js', V.galaxyController)
     ])
     .concat(localScripts([
-      'js/engine/runtime/RuntimeGalaxyControllerBootstrap.js',
+      'js/engine/runtime/layers/integration/galaxy/ControllerBootstrap.js',
       'js/engine/runtime/layers/ui/galaxy/ControlUi.js',
       'js/engine/runtime/layers/integration/galaxy/WindowBindings.js',
       'js/engine/runtime/layers/integration/galaxy/StarLoadingHelpers.js',
-      'js/engine/runtime/RuntimeGalaxyStarTerritorySync.js',
-      'js/engine/runtime/RuntimeGalaxyStarCacheRead.js'
+      'js/engine/runtime/layers/integration/galaxy/TerritorySync.js',
+      'js/engine/runtime/layers/integration/galaxy/CacheRead.js'
     ], V.runtime))
     .concat([
-      localScript('js/engine/runtime/RuntimeGalaxyStarNetworkFlow.js', V.galaxyController)
+      localScript('js/engine/runtime/layers/integration/galaxy/NetworkFlow.js', V.galaxyController)
     ])
     .concat(localScripts([
-      'js/engine/runtime/RuntimeGalaxyStarFallbackRecovery.js',
-      'js/engine/runtime/RuntimeGalaxyStarErrorUi.js',
-      'js/engine/runtime/RuntimeGalaxyStarUiStatus.js',
-      'js/engine/runtime/RuntimeGalaxyStarPersistence.js',
-      'js/engine/runtime/RuntimeGalaxyStarBootstrapPreflight.js',
-      'js/engine/runtime/RuntimeGalaxyStarFlowOrchestrator.js'
+      'js/engine/runtime/layers/integration/galaxy/FallbackRecovery.js',
+      'js/engine/runtime/layers/integration/galaxy/ErrorUi.js',
+      'js/engine/runtime/layers/integration/galaxy/UiStatus.js',
+      'js/engine/runtime/layers/integration/galaxy/Persistence.js',
+      'js/engine/runtime/layers/integration/galaxy/BootstrapPreflight.js',
+      'js/engine/runtime/layers/integration/galaxy/FlowOrchestrator.js'
     ], V.runtime))
     .concat([
-      localScript('js/engine/runtime/RuntimeGalaxyStarLoaderFacade.js', V.galaxyStarLoaderFacade),
-      localScript('js/engine/runtime/RuntimeGalaxyInit3DFacade.js', V.galaxyInit3D)
+      localScript('js/engine/runtime/layers/integration/galaxy/LoaderFacade.js', V.galaxyStarLoaderFacade),
+      localScript('js/engine/runtime/layers/integration/galaxy/Init3DFacade.js', V.galaxyInit3D)
     ])
     .concat(localScripts([
-      'js/engine/runtime/RuntimeGalaxyNavOrbRepeat.js',
-      'js/engine/runtime/RuntimeGalaxyNavOrb.js',
-      'js/engine/runtime/RuntimeCommandParsing.js',
-      'js/engine/runtime/RuntimeTransitionsCommand.js',
+      'js/engine/runtime/layers/integration/galaxy/NavOrbRepeat.js',
+      'js/engine/runtime/layers/integration/galaxy/NavOrb.js',
+      'js/engine/runtime/layers/domain/commands/CommandParsing.js',
+      'js/engine/runtime/layers/ui/commands/TransitionsCommand.js',
       'js/engine/runtime/RuntimeGameBootstrapHelpers.js',
       'js/engine/runtime/RuntimeGameInfraHelpers.js',
       'js/engine/runtime/RuntimeSystemBreadcrumbHelpers.js',
