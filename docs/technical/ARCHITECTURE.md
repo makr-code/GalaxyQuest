@@ -10,7 +10,10 @@
 ## Table of Contents
 
 1. [System Overview](#1-system-overview)
-2. [Request Lifecycle](#2-request-lifecycle)
+2. [Request Lifecycle & Data Flow](#2-request-lifecycle--data-flow)
+   - 2.1 [Request Lifecycle](#21-request-lifecycle)
+   - 2.2 [Data Flow](#22-data-flow)
+   - 2.3 [Gameflow: Tick-Based vs. Event-Driven](#23-gameflow-tick-based-vs-event-driven)
 3. [Directory & Module Map](#3-directory--module-map)
 4. [Backend Architecture](#4-backend-architecture)
    - 4.1 [Entry Points & Routing](#41-entry-points--routing)
@@ -20,7 +23,7 @@
    - 4.5 [Tick-free Resource Model](#45-tick-free-resource-model)
    - 4.6 [Galaxy Generator (`galaxy_gen.php`)](#46-galaxy-generator-galaxy_genphp)
    - 4.7 [Fleet & Mission System](#47-fleet--mission-system)
-   - 4.8 [NPC Faction AI (`npc_ai.php`)](#48-npc-faction-ai-npc_aiphp)
+   - 4.8 [NPC AI Architecture](#48-npc-ai-architecture)
    - 4.9 [Leader AI (`leaders.php`)](#49-leader-ai-leadersphp)
    - 4.10 [LLM Integration](#410-llm-integration)
    - 4.11 [FTL Drive System](#411-ftl-drive-system)
@@ -36,6 +39,7 @@
    - 5.4 [Game Controller (`game.js`)](#54-game-controller-gamejs)
    - 5.5 [GQUI DOM Builder (`gq-ui.js`)](#55-gqui-dom-builder-gq-uijs)
    - 5.6 [Galaxy Renderer](#56-galaxy-renderer)
+   - 5.7 [TTS & Audio System](#57-tts--audio-system)
 6. [WebGPU Game Engine](#6-webgpu-game-engine)
    - 6.1 [GameEngine & GameLoop](#61-gameengine--gameloop)
    - 6.2 [Renderer Abstraction](#62-renderer-abstraction)
@@ -44,6 +48,7 @@
    - 6.5 [FX System](#65-fx-system)
    - 6.6 [Game Systems (JS)](#66-game-systems-js)
    - 6.7 [ViewportManager & PiP](#67-viewportmanager--pip)
+   - 6.8 [SeamlessZoom System](#68-seamlesszoom-system)
 7. [Database Schema](#7-database-schema)
    - 7.1 [Entity Relationships](#71-entity-relationships)
    - 7.2 [Table Reference](#72-table-reference)
@@ -99,7 +104,9 @@ queue in the database (see [§4.14](#414-projection-runtime)).
 
 ---
 
-## 2. Request Lifecycle
+## 2. Request Lifecycle & Data Flow
+
+### 2.1 Request Lifecycle
 
 ```
 1. Browser sends  GET /api/game.php?action=overview
@@ -125,6 +132,162 @@ queue in the database (see [§4.14](#414-projection-runtime)).
 Every API endpoint returns either:
 - `{"success": true, ...extra fields}` with HTTP 200
 - `{"success": false, "error": "message"}` with HTTP 4xx/5xx
+
+---
+
+### 2.2 Data Flow
+
+GalaxyQuest uses three distinct data channels between browser and server.
+
+#### A. JSON REST — overview & mutations
+
+The core game state travels as JSON via synchronous `fetch()` calls. `loadOverview()`
+is the heartbeat of the game UI — called on page load, after every mutation, and on a
+**60-second polling interval**:
+
+```
+game.js: loadOverview()
+  ─► GET /api/game.php?action=overview
+       │
+       ├─ update_all_colonies()   — lazy resource catch-up for all user colonies
+       ├─ npc_ai_tick()           — NPC faction behaviour (rate-limited ≤5 min)
+       ├─ check_arrivals()        — resolves all overdue fleets
+       └─ JSON response: { colonies[], fleets[], meta{} }
+       │
+  ◄── game.js stores in window._GQ_* globals
+       └─ re-renders all open WM windows via WM.refresh()
+```
+
+There is no WebSocket or push mechanism for the main game state — the polling model
+keeps the PHP backend fully stateless between requests.
+
+#### B. Binary Galaxy Data — star map bootstrap
+
+Galaxy star data is delivered as a gzip-compressed binary stream, decoded
+client-side, and cached in IndexedDB for subsequent sessions:
+
+```
+game.js: loadGalaxyStars3D()
+  │
+  ├─ 1. Check IndexedDB cache (binary-decoder-v3 range key)
+  │       Hit  ──► decode instantly + apply to renderer
+  │       Miss ──►
+  │
+  ├─ 2. GET /api/galaxy.php?action=bootstrap  (gzip binary)
+  │       └─ binary-decoder-v3.js decodes delta-encoded star records
+  │
+  └─ 3. Persist decoded records to IndexedDB for next session
+```
+
+Binary protocol versions:
+
+| Version | Server endpoint | Client decoder | Notes |
+|---|---|---|---|
+| V1 | `api/compression.php` | `js/network/binary-decoder.js` | Full snapshot |
+| V2 | `api/compression-v2.php` | `js/network/binary-decoder-v2.js` | Structured binary |
+| V3 | `api/compression-v3.php` | `js/network/binary-decoder-v3.js` | Delta-encoded; current default |
+
+See [DELTA_ENCODING_V3.md](DELTA_ENCODING_V3.md) and [BINARY_ENCODING_V2.md](BINARY_ENCODING_V2.md).
+
+#### C. SSE — spoken fleet alerts
+
+A `Server-Sent Events` connection (`EventSource`) delivers real-time spoken alerts
+for fleet events. The TTS service converts text to MP3 on demand:
+
+```
+game.js: initSSE()
+  ─► EventSource /api/sse.php
+       │
+       ├─ fleet_arrived   ──► GQTTS.speak("Fleet arrived at …")
+       ├─ fleet_returning ──► GQTTS.speak("Fleet returning …")
+       └─ incoming_attack ──► GQTTS.speak("Incoming attack …")
+                               └─ GQAudioManager plays on TTS channel
+```
+
+SSE is used **exclusively** for real-time TTS notifications. All other state
+synchronisation uses polling. See [§5.7](#57-tts--audio-system) and
+[TTS_SYSTEM_DESIGN.md](TTS_SYSTEM_DESIGN.md).
+
+---
+
+### 2.3 Gameflow: Tick-Based vs. Event-Driven
+
+GalaxyQuest combines two fundamentally different timing models that operate at
+different layers of the stack.
+
+#### Backend — lazy resource model + rate-limited AI ticks
+
+| Layer | Model | Trigger | Implementation |
+|---|---|---|---|
+| Colony resources | **Lazy / tick-free** | Every API read | `update_colony_resources()` in `game_engine.php` |
+| Fleet arrivals | **Lazy** | Every `fleet.php?action=list` | `process_fleet_arrivals()` |
+| NPC faction AI | **Rate-limited tick** | ≤5 min per user | `npc_ai_tick()` in `npc_ai.php` |
+| NPC player accounts | **Rate-limited tick** | ≤3 min globally | `npc_player_accounts_tick_global()` |
+| Faction / colony events | **Rate-limited tick** | Inside NPC tick | `faction_events_tick_global()`, `colony_events_tick_global()` |
+| Wormhole maintenance | **Rate-limited tick** | Inside NPC tick | `wormhole_regeneration_tick_global()` |
+| Leader AI | **On-demand** | Player-triggered | `POST /api/leaders.php?action=ai_tick` |
+| Background projections | **Worker / cron** | CLI batch | `scripts/project_*.php` via projection queue |
+
+Key insight: **there is no server-side cron job for resource advancement.** Resources
+accumulate passively and are computed lazily on first read. NPC AI ticks are
+piggy-backed onto active player traffic — avoiding idle-server load entirely.
+
+#### Frontend UI — event-driven with polling heartbeat
+
+```
+User action  ──►  API.someCall()  ──►  PHP endpoint
+                                         │
+                               ◄── JSON response
+                                         │
+                              game.js calls loadOverview()
+                                         │
+                              Re-renders all open WM windows
+```
+
+The UI is **purely event-driven**: every mutation immediately calls `loadOverview()`
+to refresh authoritative server state. A 60-second `setInterval` keeps the resource
+bar current even when the player is idle.
+
+#### Frontend Engine — fixed-step physics loop + EventBus
+
+The WebGPU engine uses a classic **fixed-step accumulator** (Glenn Fiedler pattern):
+
+```
+GameLoop (RAF)
+  ├── onFixedUpdate(dt=1/60 s) ──► PhysicsEngine.step()          [60 Hz physics]
+  │                             ──► SystemRegistry [PHYSICS prio=100]
+  ├── onUpdate(dt, alpha)       ──► SystemRegistry [non-physics]
+  └── onRender(alpha)           ──► SceneGraph → Renderer → EffectComposer
+```
+
+- Physics runs at a constant 60 Hz regardless of render frame rate.
+- `alpha` (interpolation factor 0–1) is passed to the render step for smooth motion.
+- `maxDt = 0.25 s` clamps spiral-of-death when the tab is backgrounded.
+
+Decoupled subsystem communication uses the **EventBus** (synchronous pub/sub):
+
+```javascript
+engine.events.on('physics:step', ({ dt }) => { /* handler */ });
+engine.events.emit('render:frame', { alpha });
+```
+
+The **SystemRegistry** executes all registered systems each frame in priority order:
+
+| Priority | Slot | Purpose |
+|---|---|---|
+| 0 | INPUT | Input handling |
+| 100 | PHYSICS | PhysicsEngine, collision |
+| 200 | AI | NPC behaviour, combat AI |
+| 300 | ANIMATION | Tweens, skeletal animation |
+| 400 | CAMERA | Follow-camera, CameraFlightPath |
+| 500 | SCENE | SceneGraph update |
+| 600 | RENDER | Renderer |
+| 700 | POSTFX | Post-processing, UI overlays |
+| 900 | CLEANUP | Deferred destroy |
+
+**Summary**: backend is lazy/tick-free for resources and rate-limited for AI;
+frontend UI is event-driven with a polling heartbeat; rendering engine is
+fixed-step tick-based with event-driven subsystem communication via EventBus.
 
 ---
 
@@ -442,20 +605,79 @@ $pos = [
 ];
 ```
 
-### 4.8 NPC Faction AI (`npc_ai.php`)
+### 4.8 NPC AI Architecture
 
-Called once per overview load, rate-limited to once per 5 minutes per user via `users.last_npc_tick`.
+The NPC AI is a multi-tier system combining fast rule-based decisions with optional
+LLM-guided steering. All logic is triggered opportunistically by active player traffic
+— no dedicated background process is required.
+
+#### Tier 1 — Rule-Based Faction Tick (`npc_ai.php`)
+
+`npc_ai_tick($db, $userId)` is called on every overview load, rate-limited to
+**once per 5 minutes** per user via `users.last_npc_tick`.
 
 ```
 npc_ai_tick($db, $userId)
   │
   ├─ foreach faction:
-  │   ├─ trade_willingness ≥ 30  →  generate_trade_offer() if < 2 active offers
-  │   └─ faction_type = 'pirate' AND aggression ≥ 70 AND standing < −20
-  │       → maybe_pirate_raid()   steal ≤5% metal/crystal, send message, −3 standing
+  │   ├─ [LLM path] npc_pve_llm_controller_try()     — if enabled + cooldown ready
+  │   │     handled=true → skip rule path for this faction
+  │   │
+  │   ├─ trade_willingness ≥ 30  →  generate_trade_offer()  (if < 2 active offers)
+  │   │     resource pairs: metal/crystal/deuterium/rare_earth/food
+  │   │     faction-type preferences (trade/science/pirate/military)
+  │   │
+  │   └─ faction_type='pirate' AND aggression ≥ 70 AND standing < −20
+  │       → maybe_pirate_raid()   steal ≤5% metal + ≤5% crystal, −3 standing
   │
-  └─ Diplomacy decay: standing nudges ±1 toward faction.base_diplomacy
-     (only if |standing − base| > 5)
+  ├─ Diplomacy decay: standing ±1 toward faction.base_diplomacy per tick
+  │     (only if |standing − base| > 5)
+  │
+  ├─ npc_player_accounts_tick_global()   — NPC user accounts (≤3 min cooldown)
+  ├─ faction_events_tick_global()        — galactic war / trade boom / pirate surge
+  ├─ colony_events_tick_global()         — solar flare / mineral vein / disease
+  └─ wormhole_regeneration_tick_global() — stability regen + cooldown clear
+```
+
+#### Tier 2 — LLM-Guided PvE Controller (`npc_llm_controller.php`)
+
+When `NPC_LLM_CONTROLLER_ENABLED=true`, each faction may receive an LLM-generated
+decision before the rule-based path runs. The controller builds a player-state
+snapshot, calls Ollama, parses JSON, checks confidence, and executes the action:
+
+```
+npc_pve_llm_controller_try($db, $userId, $faction)
+  │
+  ├─ Check cooldown (NPC_LLM_CONTROLLER_COOLDOWN_SECONDS, default ≥60 s)
+  ├─ Build player snapshot (colonies, fleets, standing, recent events)
+  ├─ Build prompt → ollama_generate(prompt, temperature=0.2, num_predict=220)
+  │
+  ├─ Parse JSON decision: { action, confidence, reasoning }
+  │     Actions: 'offer_trade' | 'send_warning' | 'raid' | 'peace_offer' | 'none'
+  │
+  ├─ confidence < NPC_LLM_CONTROLLER_MIN_CONFIDENCE → skip execution, log only
+  │
+  ├─ Execute action (trade offer / in-game message / standing change)
+  └─ Log to npc_llm_decision_log (action, confidence, standing delta, raw output)
+```
+
+If Ollama is unavailable or returns invalid JSON, the controller falls back
+gracefully to the rule-based path.
+
+#### Tier 3 — NPC Player Accounts (`npc_player_accounts_tick_global`)
+
+NPC "player" accounts (`users.control_type = 'npc_engine'`) simulate competing
+civilisations. Each account receives one build action, one research action, and one
+ship action per global tick (≤3 min cooldown, stored in `app_state`):
+
+```
+npc_player_account_tick($db, $npcUserId)
+  ├─ ensure_user_character_profile()   — LLM-generated personality (if missing)
+  ├─ npc_assign_ftl_drive()            — assign faction FTL if still on default
+  ├─ Finish due research
+  ├─ Start cheapest affordable research (if none active)
+  ├─ Upgrade cheapest affordable building (if none active)
+  └─ Build ships to maintain a target fleet strength
 ```
 
 NPC ships can be equipped with FTL drives (`npc_assign_ftl_drive()` — migration v12).
@@ -482,25 +704,69 @@ attack bonus in `resolve_battle()`).
 
 ### 4.10 LLM Integration
 
-GalaxyQuest embeds a local LLM gateway via Ollama for:
-- **Scientific glossary** — Ollama + Wikipedia RAG for dynamic definitions
-  (`GET /api/glossary.php?action=generate&term=…`)
-- **Character profile generation** — LLM-driven backstories
-  (`api/character_profile_generator.php`)
-- **NPC behaviour** — LLM-augmented NPC decision-making
-  (`api/npc_llm_controller.php`)
-- **Leader marketplace** — AI-generated leader personalities
+GalaxyQuest embeds a local LLM gateway via Ollama for several AI-driven features.
 
-**Separation-of-Concerns (SoC) modules** in `api/llm_soc/`:
+#### Use cases
+
+| Feature | Endpoint | Notes |
+|---|---|---|
+| Scientific glossary | `GET /api/glossary.php?action=generate&term=…` | Ollama + Wikipedia RAG |
+| Character profiles | `api/character_profile_generator.php` | Backstories for leaders and NPC users |
+| NPC PvE decisions | `api/npc_llm_controller.php` | LLM-guided faction behaviour (see §4.8) |
+| Leader marketplace | `api/llm.php` | AI-generated leader personalities |
+| NPC chat sessions | `api/llm.php?action=chat_npc` | Per-faction dialogue with session history |
+| Iron Fleet briefings | `api/llm.php?action=iron_fleet_compose` | Mini-faction prompt variable composition |
+
+#### Separation-of-Concerns modules (`api/llm_soc/`)
 
 | Module | Responsibility |
 |---|---|
-| `PromptCatalogRepository.php` | CRUD for prompt profiles in `llm_prompt_profiles` table |
-| `LlmPromptService.php` | Prompt assembly, Ollama dispatch, response parsing |
+| `PromptCatalogRepository.php` | CRUD for prompt profiles in `llm_prompt_profiles` table; merges file + DB profiles |
+| `LlmPromptService.php` | Prompt template rendering (`{{token}}` substitution), Ollama dispatch, response parsing |
 | `LlmRequestLogRepository.php` | Audit log in `llm_request_log` table |
+| `FactionSpecLoader.php` | Loads faction YAML specs (`fractions/<code>/spec.yaml`) for prompt variable injection |
+| `NpcChatSessionRepository.php` | Stores/loads NPC chat sessions as JSON files in `generated/npc_chats/` |
+| `IronFleetPromptVarsComposer.php` | Loads Iron Fleet mini-faction YAML specs → flat `{{token}}` vars for `LlmPromptService` |
 
-Prompt profiles are defined in `config/llm_profiles.yaml` (authoring) and
-`config/llm_profiles.json` (runtime). The orchestration endpoint is `api/llm.php`.
+#### NPC Chat Session system
+
+Players can hold multi-turn conversations with faction NPCs. Sessions are persisted
+as JSON files (`generated/npc_chats/u_{uid}/{faction_code}/{npc_slug}/session_{id}.json`)
+and tracked in the `npc_chat_sessions` DB table.
+
+```
+POST /api/llm.php?action=chat_npc
+  │  { faction_code, npc_slug, message }
+  │
+  ├─ FactionSpecLoader: load faction YAML → npc roster
+  ├─ NpcChatSessionRepository: load or create session
+  ├─ LlmPromptService: render system prompt + history + user message
+  ├─ ollama_generate()
+  └─ Append assistant reply to session file; return reply
+
+POST /api/llm.php?action=close_npc_session
+  └─ Generate LLM summary of the conversation; store in session JSON
+```
+
+Client API: `API.chatNpc(factionCode, npcSlug, message)` and
+`API.closeNpcSession(factionCode, npcSlug)` in `js/network/api.js`.
+
+#### Iron Fleet prompt composition
+
+`IronFleetPromptVarsComposer` loads `fractions/iron_fleet/spec.json` and up to 6
+mini-faction YAML files (`parade`, `pr`, `tech`, `clan`, `archive`, `shadow`),
+then merges them into a flat `{{token}}` variable map consumed by `LlmPromptService`.
+
+```
+GET /api/llm.php?action=iron_fleet_vars       — return available token map
+POST /api/llm.php?action=iron_fleet_compose   — render full briefing prompt
+```
+
+#### Configuration
+
+Prompt profiles are defined in `config/llm_profiles.yaml` (authoring) and compiled
+to `config/llm_profiles.json` (runtime). The central orchestration endpoint is
+`api/llm.php`.
 
 **Fallback chain**: Ollama timeout → cached definition → static definition.
 
@@ -727,6 +993,53 @@ galaxy-renderer-core.js  (main renderer)
 **Legacy renderer** (`js/legacy/galaxy3d.js`) is deprecated (since 2026-03-29) and will
 be removed after the migration period.
 
+### 5.7 TTS & Audio System
+
+GalaxyQuest ships a fully integrated text-to-speech pipeline for spoken in-game
+notifications.
+
+#### Architecture
+
+```
+Browser                      Docker network
+────────                     ──────────────
+game.js initSSE()
+  └─ EventSource /api/sse.php
+       fleet_arrived / fleet_returning / incoming_attack
+         └─► js/runtime/tts.js  (window.GQTTS)
+               └─ GET /api/tts.php?text=…&voice=…
+                    └─ api/tts_client.php
+                         └─ POST http://tts:5500/synthesize  (FastAPI)
+                              └─ Piper / XTTS engine → MP3 bytes
+                                   └─ cached in cache/tts/<hash>.mp3
+                                        └─ returned to browser
+                                             └─ GQAudioManager.playTtsAudio(mp3Blob)
+```
+
+#### GQAudioManager channels (`js/runtime/audio.js`)
+
+`GQAudioManager` (exposed as `window.GQAudio`) manages **4 independent audio channels**:
+
+| Channel | Methods | Purpose |
+|---|---|---|
+| `music` | `playMusic`, `setMusicVolume`, `setMusicMuted` | Background music tracks |
+| `sfx` | `playSfx`, `setSfxVolume`, `setSfxMuted` | Sound effects |
+| `teaser` | `playTeaser`, `setTeaserVolume`, `setTeaserMuted` | Teaser / ambient clips |
+| `tts` | `playTtsAudio`, `setTtsVolume`, `setTtsMuted` | Spoken TTS alerts |
+
+`duckMusicForTts()` applies a stronger volume-duck to the music channel while TTS
+speech is playing, then restores the level automatically.
+
+#### TTS service configuration
+
+| Config key | Default | Effect |
+|---|---|---|
+| `TTS_ENABLED` | `false` | Master on/off switch |
+| `TTS_SERVICE_URL` | `http://tts:5500` | FastAPI TTS service URL |
+| `TTS_DEFAULT_VOICE` | — | Default Piper/XTTS voice identifier |
+
+See [TTS_SYSTEM_DESIGN.md](TTS_SYSTEM_DESIGN.md) for the full design specification.
+
 ---
 
 ## 6. WebGPU Game Engine
@@ -870,6 +1183,51 @@ Picture-in-Picture (PiP) sub-pass rendered directly on the main swap-chain textu
 // PiP rendering uses GPURenderPassDescriptor with loadOp:'load'
 // + setViewport/setScissorRect on the main swap-chain texture.
 // PIP_DEFAULTS.headerHeight = 22  (22 px title bar — single source of truth)
+```
+
+### 6.8 SeamlessZoom System
+
+`js/engine/zoom/` implements a seamless camera-zoom system that transitions between
+five distinct spatial scales — from the full galaxy view down to individual objects —
+with animated camera flight paths between levels.
+
+#### Zoom levels
+
+| Level | Constant | Camera distance | Renderer pair |
+|---|---|---|---|
+| 0 | `ZOOM_LEVEL.GALAXY` | 145–2400 | GalaxyLevelWebGPU / GalaxyLevelThreeJS |
+| 1 | `ZOOM_LEVEL.SYSTEM` | 50–145 | SystemLevelWebGPU / SystemLevelThreeJS |
+| 2 | `ZOOM_LEVEL.PLANET_APPROACH` | 12–50 | PlanetApproachLevelWebGPU / ThreeJS (fly-in) |
+| 3 | `ZOOM_LEVEL.COLONY_SURFACE` | 3–12 | ColonySurfaceLevelWebGPU / ThreeJS |
+| 4 | `ZOOM_LEVEL.OBJECT_APPROACH` | 0–3 | ObjectApproachLevelWebGPU / ThreeJS |
+
+#### Key classes (`js/engine/zoom/`)
+
+| Class | Purpose |
+|---|---|
+| `SeamlessZoomOrchestrator` | Top-level coordinator; owns RendererRegistry; drives level transitions |
+| `RendererRegistry` | Stores registered `{webgpu, threejs}` renderer pairs per zoom level |
+| `CameraFlightPath` | Animates camera from current position to target for level-2 fly-in |
+| `IZoomLevelRenderer` | Interface contract implemented by every level renderer |
+
+#### Transition flow
+
+```
+zoomToTarget(target, opts)
+  │  guard: reject concurrent transitions
+  │
+  ├─ exitLevel(current)       — tear down current level renderer
+  ├─ CameraFlightPath.fly()   — animated camera move (level 2 only)
+  ├─ enterLevel(target.spatialDepth)  — activate new level renderer
+  └─ emit 'enterLevel' / 'exitLevel' events on the orchestrator
+```
+
+`SPATIAL_DEPTH` (0–4) on a scene-graph target node determines the zoom level
+automatically — no manual level specification needed in most call sites.
+
+Usage in `game.js`:
+```javascript
+orchestrator.zoomToTarget(selectedStar, { animate: true });
 ```
 
 ---
@@ -1061,12 +1419,12 @@ LLM configuration via environment variables:
 
 ## 10. Testing Infrastructure
 
-| Layer | Framework | Location | Count |
+| Layer | Framework | Location | Notable counts |
 |---|---|---|---|
-| PHP Unit | PHPUnit | `tests/Unit/` | ~4 test classes |
-| JS Engine | Vitest | `tests/js/` | 78 post-effects tests + FX tests |
-| WebGPU | Vitest | `tests/webgpu/` | WebGPU-specific tests |
-| End-to-End | Playwright | `tests/e2e/` | Browser E2E flows |
+| PHP Unit | PHPUnit | `tests/Unit/` | 9+ test classes; 130 assertions (Iron Fleet, NPC chat, YAML parser, …) |
+| JS Engine | Vitest | `tests/js/` | audio (45), TTS (28), prolog (37), runtime-quests (16), seamless-zoom (66), + post-FX / FX tests |
+| WebGPU | Vitest | `tests/webgpu/` | game-systems.test.js; 20 pre-existing failures in webgl-renderer.test.js (mock issue) |
+| End-to-End | Playwright | `tests/e2e/` | Browser E2E registration, login, colony, fleet flows |
 
 **Run tests:**
 ```bash
