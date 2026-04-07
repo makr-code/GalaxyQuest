@@ -35,14 +35,19 @@ final class IronFleetPromptVarsComposer {
         return $this->loadSpec($this->fractionsDir . '/iron_fleet/spec.yaml');
     }
 
+    /** @var list<string> Exhaustive list of valid mini-faction codes. */
+    private const VALID_MINI_FACTION_CODES = ['parade', 'pr', 'tech', 'clan', 'archive', 'shadow'];
+
     /**
      * Load a mini-faction spec by code (e.g. 'shadow', 'parade', 'tech').
+     *
+     * Only codes from the known allowlist are accepted; anything else returns [].
      *
      * @return array<string, mixed>
      */
     public function loadMiniFactionSpec(string $miniFactionCode): array {
-        $code = preg_replace('/[^a-z0-9_]/', '', strtolower(trim($miniFactionCode)));
-        if ($code === '') {
+        $code = strtolower(trim($miniFactionCode));
+        if (!in_array($code, self::VALID_MINI_FACTION_CODES, true)) {
             return [];
         }
         $path = $this->fractionsDir . '/iron_fleet/mini_factions/' . $code . '/spec.yaml';
@@ -159,12 +164,37 @@ final class IronFleetPromptVarsComposer {
             return is_array($result) ? $result : [];
         }
 
+        // php-yaml extension not available — fall back to the inline parser.
+        // In production, install the yaml extension (php-yaml / ext-yaml) for
+        // full YAML support.  Log a notice so deployment issues surface early.
+        if (function_exists('trigger_error')) {
+            trigger_error(
+                'IronFleetPromptVarsComposer: php-yaml extension not available; '
+                . 'using built-in fallback parser. Install ext-yaml for full YAML support.',
+                E_USER_NOTICE
+            );
+        }
+
         return $this->parseYamlSimple($path);
     }
 
     /**
-     * Minimal YAML parser for flat key: value and simple list fields.
-     * Handles the subset of YAML used in Iron Fleet spec files.
+     * Minimal YAML parser for the subset of YAML used in Iron Fleet spec files.
+     *
+     * Supported constructs:
+     *  - Top-level scalar values:   key: value  (quoted or unquoted)
+     *  - Block sequences under a key:
+     *      key:
+     *        - item1
+     *        - item2
+     *  - Nested mappings (one level deep):
+     *      parent_key:
+     *        child_key: value
+     *  - Block scalars (| / >) — collected as a single newline-joined string
+     *  - Comments (#) and blank lines are ignored
+     *
+     * Not supported: anchors (&, *, merge-key), tags (!), flow-style ({}/[]),
+     * multi-document (---/...), multi-level nesting.
      *
      * @return array<string, mixed>
      */

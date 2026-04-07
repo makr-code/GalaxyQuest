@@ -169,9 +169,27 @@ final class IronFleetPromptVarsComposerTest extends TestCase
 
     public function testLoadMiniFactionSpecRejectsPathTraversal(): void
     {
-        // Should return [] rather than reading an arbitrary file
+        // Allowlist prevents path traversal — not in the known-codes list
         $spec = $this->composer->loadMiniFactionSpec('../vor_tak');
         $this->assertSame([], $spec, 'Path traversal attempt must return empty array');
+    }
+
+    public function testLoadMiniFactionSpecRejectsArbitraryStrings(): void
+    {
+        foreach (['../../config/config', 'null', '', '   '] as $bad) {
+            $spec = $this->composer->loadMiniFactionSpec($bad);
+            $this->assertSame([], $spec, "loadMiniFactionSpec('$bad') must return [] — not in allowlist");
+        }
+    }
+
+    public function testLoadMiniFactionSpecIsCaseInsensitive(): void
+    {
+        // Allowlist check is case-insensitive (strtolower applied before lookup)
+        $spec = $this->composer->loadMiniFactionSpec('PARADE');
+        $this->assertNotEmpty($spec, 'PARADE (uppercase) should resolve to parade');
+
+        $spec2 = $this->composer->loadMiniFactionSpec('Shadow');
+        $this->assertNotEmpty($spec2, 'Shadow (mixed case) should resolve to shadow');
     }
 
     // ── compose ───────────────────────────────────────────────────────────────
