@@ -141,7 +141,7 @@
         ],
         "signature_moves": [
           "Bricht mitten in Sätzen ab wenn Erinnerungen kollidieren",
-          "Frägt nach Namen von Personen die der Forscher kannte"
+          "Fragt nach Namen von Personen die der Forscher kannte"
         ]
       },
       "llm_quotes": {

@@ -20,7 +20,7 @@ Das Schattenkompakt ist ein dezentrales Netzwerk aus Informationsbrokern, Agente
 | Name | Titel | Öffentliches Gesicht | Verborgenes Ziel |
 |------|-------|---------------------|-----------------|
 | Direktor Null | Operativer Leiter des Schattenkompakts | Existiert offiziell nicht; kommuniziert durch Intermediäre | Alle Fraktionsinformationen als Verhandlungschip für neue Machtstruktur nutzen |
-| Agentin Kyra-Seven (Deckname) | Feldagentin / Dreifach-Undercover | Gleichzeitig als Helion-Attaché Zhareen-Wissenschaftlerin und Vor'Tak-Beraterin aktiv | Eine Identität zur echten machen und Kompakt verlassen |
+| Agentin Kyra-Seven (Deckname) | Feldagentin / Dreifach-Undercover | Gleichzeitig als Helion-Attaché, Zhareen-Wissenschaftlerin und Vor'Tak-Beraterin aktiv | Eine Identität zur echten machen und Kompakt verlassen |
 | Analyst Breveth | Datenanalyst / Gewissen des Kompakts | Technischer Analytiker der Berichte auswertet | Beweise sammeln dass Kompakt Echo-Infiltration hatte und immer noch hat |
 
 ## 3-Akt Plot-Outline
