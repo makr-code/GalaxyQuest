@@ -171,6 +171,9 @@ class GameEngine {
    * @param {Object|boolean} [opts.chromatic]    Chromatic-aberration pass options (false = disabled)
    * @param {number}  [opts.chromatic.power=0.005] Shift magnitude
    * @param {number}  [opts.chromatic.angle=0]     Shift direction (radians)
+   * @param {Object|boolean} [opts.ssao]         SSAO pass options (false = disabled; requires WebGPU tier=high)
+   * @param {number}  [opts.ssao.radius=0.5]       Hemisphere radius
+   * @param {number}  [opts.ssao.power=2.0]        Contrast exponent
    * @param {boolean} [opts.debug=false]         Verbose logging
    * @returns {Promise<GameEngine>}
    */
@@ -390,6 +393,14 @@ class GameEngine {
       if (chromatic.angle   !== undefined) this._chromaticPass.angle   = chromatic.angle;
     }
 
+    const { ssao } = cfg;
+    if (ssao && this._ssaoPass) {
+      if (ssao.enabled !== undefined) this._ssaoPass.enabled = !!ssao.enabled;
+      if (ssao.radius  !== undefined) this._ssaoPass.radius  = ssao.radius;
+      if (ssao.power   !== undefined) this._ssaoPass.power   = ssao.power;
+      if (ssao.bias    !== undefined) this._ssaoPass.bias    = ssao.bias;
+    }
+
     this.events.emit('postfx:configured', { cfg });
     return this;
   }
@@ -454,20 +465,22 @@ class GameEngine {
       // resolve to the same module instance (avoiding instanceof failures caused
       // by the CJS-require / ESM-import dual-module-cache split).
       const _g = typeof window !== 'undefined' ? window : globalThis;
-      let BloomPass, VignettePass, ChromaticPass;
+      let BloomPass, VignettePass, ChromaticPass, SSAOPass;
       if (typeof _g.GQBloomPass !== 'undefined') {
         // Browser plain-script context: globals were set by <script> tags.
         BloomPass    = _g.GQBloomPass;
         VignettePass = _g.GQVignettePass;
         ChromaticPass = _g.GQChromaticPass;
+        SSAOPass     = _g.GQSSAOPass ?? null;
       } else {
         // Node.js / bundler / test context: dynamic import() shares the ESM
         // module registry with static `import` statements, guaranteeing
         // identical class constructors for `instanceof` checks.
-        ([{ BloomPass }, { VignettePass }, { ChromaticPass }] = await Promise.all([
+        ([{ BloomPass }, { VignettePass }, { ChromaticPass }, { SSAOPass }] = await Promise.all([
           import('./post-effects/passes/BloomPass.js'),
           import('./post-effects/passes/VignettePass.js'),
           import('./post-effects/passes/ChromaticPass.js'),
+          import('./post-effects/passes/SSAOPass.js'),
         ]));
       }
 
@@ -487,6 +500,17 @@ class GameEngine {
         const chromaticOpts = typeof opts.chromatic === 'object' ? opts.chromatic : {};
         this._chromaticPass = new ChromaticPass(chromaticOpts);
         this.postFx.addPass(this._chromaticPass);
+      }
+
+      // SSAO — only on high-tier WebGPU; explicit opts.ssao=false disables it.
+      const caps       = this.renderer.getCapabilities();
+      const ssaoTier   = caps.webgpu ? (caps.tier ?? 'medium') : 'low';
+      const ssaoWanted = opts.ssao !== false && SSAOPass !== null;
+      if (ssaoWanted && (ssaoTier === 'high' || opts.ssao)) {
+        const ssaoOpts = typeof opts.ssao === 'object' ? opts.ssao : {};
+        this._ssaoPass = new SSAOPass(ssaoOpts);
+        this.postFx.addPass(this._ssaoPass);
+        this._log('SSAO pass enabled (WebGPU tier=high)');
       }
     }
 

@@ -13,7 +13,7 @@ class ComputePass {
   /**
    * @param {Object} opts
    * @param {string} opts.label
-   * @param {string} opts.shaderSrc        WGSL compute shader
+   * @param {string} opts.shaderSrc        WGSL compute shader (must expose cs_main entry)
    * @param {number} [opts.workgroupsX=1]
    * @param {number} [opts.workgroupsY=1]
    * @param {number} [opts.workgroupsZ=1]
@@ -25,20 +25,56 @@ class ComputePass {
     this.workgroupsX  = opts.workgroupsX ?? 1;
     this.workgroupsY  = opts.workgroupsY ?? 1;
     this.workgroupsZ  = opts.workgroupsZ ?? 1;
+    /** @type {GPUComputePipeline|null} Lazily compiled by the renderer on first dispatch. */
     this._pipeline    = null;
+    /** @type {Map<number, GPUBindGroup>} group-index → GPUBindGroup */
     this._bindGroups  = new Map();
   }
 
+  // ---------------------------------------------------------------------------
+  // Bind group management
+  // ---------------------------------------------------------------------------
+
   /**
-   * Dispatch the compute pass.
-   * @param {*} _srcTex   unused — compute passes don't sample the scene texture
-   * @param {*} _dstTex   unused
+   * Register a pre-built GPUBindGroup for a specific bind-group index.
+   * Must be called before the pass is rendered for the first time.
+   *
+   * @param {number}       groupIndex
+   * @param {GPUBindGroup} bindGroup
+   */
+  setBindGroup(groupIndex, bindGroup) {
+    this._bindGroups.set(groupIndex, bindGroup);
+  }
+
+  /**
+   * Remove the bind group registered at `groupIndex`.
+   * @param {number} groupIndex
+   */
+  removeBindGroup(groupIndex) {
+    this._bindGroups.delete(groupIndex);
+  }
+
+  // ---------------------------------------------------------------------------
+  // EffectComposer integration
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Dispatch the compute shader.
+   * Follows the render(srcTex, dstTex, renderer) contract used by all passes.
+   * Compute passes do not consume or write textures directly — they operate
+   * on storage buffers registered via setBindGroup().
+   *
+   * @param {*} _srcTex   - unused (compute passes operate on storage buffers)
+   * @param {*} _dstTex   - unused
    * @param {import('../../core/GraphicsContext').IGraphicsRenderer} renderer
    */
   render(_srcTex, _dstTex, renderer) {
     if (!this.enabled) return;
-    // Phase 5: call renderer.dispatchCompute(...)
-    void renderer;
+    if (!this.shaderSrc) return;
+
+    if (typeof renderer?.dispatchCompute === 'function') {
+      renderer.dispatchCompute(this);
+    }
   }
 
   dispose() {
