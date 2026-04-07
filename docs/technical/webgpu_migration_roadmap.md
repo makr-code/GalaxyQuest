@@ -169,7 +169,7 @@ cs_main() {
 - [x] `WebGPUPhysics.js` — Double-Buffering für Async Readback (kein Frame-Blocking)
 - [x] `ComputePass.js` — vollständig mit `dispatchCompute()` verdrahtet
 - [x] `HybridPhysicsEngine.js` — CPU+GPU Hybrid-Mode mit Auto-Switch + Sync-Point (`js/engine/webgpu/HybridPhysicsEngine.js`)
-- [ ] `SpacePhysicsEngine` — NPC-Pathfinding als separater Compute-Pass
+- [x] `SpacePhysicsEngine` — NPC-Pathfinding als separater Compute-Pass (`js/engine/webgpu/NPCPathfindingCompute.js`: Seek/Arrive + Separation WGSL, 41 Tests)
 - [ ] `WebGPUPhysics.js` — WGSL Shader final testen mit echtem GPU (Hardware-in-Loop CI)
 
 ---
