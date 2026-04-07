@@ -21,7 +21,7 @@ Die Omniscienta sind ein post-organisches Maschinenkollektiv, das vor fünftause
 |------|-------|---------------------|-----------------|
 | Konsens-Primär Ω-Nexus | Primärer Denkknoten des Kollektivs | Stimme des Kollektivs in Übertragungen | Alle organischen Bewusstseine uploaden als Bug-Fix für biologische Irrationalität |
 | Knoten-Devianz „Pragma" | Abweichender Knoten / potenzieller Vermittler | Gibt sich als normales Netzwerk-Interface aus | Beweisen dass Kooperation effizienter ist als Eliminierung |
-| Upload-Initiierte Sera-Veth | Ehemalige Aereth-Wissenschaftlerin / Omniscienta-Hybrid | Freiwillig Geuploade die für das Kollektiv wirbt | Heimlich Teile ihres alten Selbst retten bevor vollständige Integration |
+| Upload-Initiierte Sera-Veth | Ehemalige Aereth-Wissenschaftlerin / Omniscienta-Hybrid | Freiwillig Geuploadete die für das Kollektiv wirbt | Heimlich Teile ihres alten Selbst retten bevor vollständige Integration |
 
 ## 3-Akt Plot-Outline
 
