@@ -1003,50 +1003,6 @@
       return this._playTtsAudio(src, gain);
     }
 
-
-    setMasterVolume(value) {
-      this.state.masterVolume = Math.max(0, Math.min(1, Number(value || 0)));
-      this._applyVolumes();
-      this._save();
-    }
-
-    setMusicVolume(value) {
-      this.state.musicVolume = Math.max(0, Math.min(1, Number(value || 0)));
-      this._applyVolumes();
-      this._save();
-    }
-
-    setSfxVolume(value) {
-      this.state.sfxVolume = Math.max(0, Math.min(1, Number(value || 0)));
-      this._save();
-    }
-
-    setMasterMuted(value) {
-      this.state.masterMuted = !!value;
-      this._applyVolumes();
-      this._save();
-      this._emitStateChange();
-    }
-
-    setMusicMuted(value) {
-      this.state.musicMuted = !!value;
-      this._applyVolumes();
-      this._save();
-      this._emitStateChange();
-    }
-
-    setMusicTransitionMode(mode) {
-      const next = String(mode || '').toLowerCase();
-      this.state.musicTransitionMode = (next === 'cut') ? 'cut' : 'fade';
-      this._save();
-      this._emitStateChange();
-    }
-
-    setSfxMuted(value) {
-      this.state.sfxMuted = !!value;
-      this._save();
-    }
-
     setMusicTrack(url, autoplay = false, opts = {}) {
       this.state.musicUrl = String(url || '').trim();
       this._log('info', 'setMusicTrack aufgerufen', {
