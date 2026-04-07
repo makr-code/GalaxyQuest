@@ -171,6 +171,17 @@ class GameEngine {
    * @param {Object|boolean} [opts.chromatic]    Chromatic-aberration pass options (false = disabled)
    * @param {number}  [opts.chromatic.power=0.005] Shift magnitude
    * @param {number}  [opts.chromatic.angle=0]     Shift direction (radians)
+   * @param {Object|boolean} [opts.toneMapping]  Tone-mapping pass options (false = disabled)
+   * @param {number}  [opts.toneMapping.mode=1]    Operator: 0=Reinhard, 1=ACES
+   * @param {number}  [opts.toneMapping.exposure=1.0] Pre-exposure multiplier
+   * @param {Object|boolean} [opts.lensFlare]    Lens-flare pass options (false = disabled)
+   * @param {number}  [opts.lensFlare.globalScale=1.0] Flare element size multiplier
+   * @param {number}  [opts.lensFlare.ghostCount=3]    Ghost disc count per source (1–4)
+   * @param {Object|boolean} [opts.dustLayer]    Dust-layer pass options (false = disabled)
+   * @param {number}  [opts.dustLayer.masterOpacity=0.22] Global dust opacity [0,1]
+   * @param {Object|boolean} [opts.motionBlur]   Motion-blur pass options (false = disabled)
+   * @param {number}  [opts.motionBlur.strength=0.8]   Blur strength [0,1]
+   * @param {number}  [opts.motionBlur.maxSamples=6]   Max tap count (2–8)
    * @param {boolean} [opts.debug=false]         Verbose logging
    * @returns {Promise<GameEngine>}
    */
@@ -363,18 +374,22 @@ class GameEngine {
    * Pass a falsy value to keep the current setting unchanged.
    *
    * @param {Object} cfg
-   * @param {Object} [cfg.bloom]       Bloom params: { enabled, threshold, strength, radius }
-   * @param {Object} [cfg.vignette]    Vignette params: { enabled, darkness, falloff }
-   * @param {Object} [cfg.chromatic]   Chromatic params: { enabled, power, angle }
+   * @param {Object} [cfg.bloom]        Bloom params: { enabled, threshold, strength, radius }
+   * @param {Object} [cfg.vignette]     Vignette params: { enabled, darkness, falloff }
+   * @param {Object} [cfg.chromatic]    Chromatic params: { enabled, power, angle }
+   * @param {Object} [cfg.toneMapping]  Tone-mapping params: { enabled, mode, exposure }
+   * @param {Object} [cfg.lensFlare]    Lens-flare params: { enabled, globalScale, ghostCount }
+   * @param {Object} [cfg.dustLayer]    Dust-layer params: { enabled, masterOpacity }
+   * @param {Object} [cfg.motionBlur]   Motion-blur params: { enabled, strength, maxSamples, threshold }
    * @returns {this}
    */
   configurePostFx(cfg) {
     if (!this.postFx || !cfg) return this;
 
-    const { bloom, vignette, chromatic } = cfg;
+    const { bloom, vignette, chromatic, toneMapping, lensFlare, dustLayer, motionBlur } = cfg;
 
     if (bloom && this._bloomPass) {
-      if (bloom.enabled  !== undefined) this._bloomPass.enabled   = !!bloom.enabled;
+      if (bloom.enabled   !== undefined) this._bloomPass.enabled   = !!bloom.enabled;
       if (bloom.threshold !== undefined) this._bloomPass.threshold = bloom.threshold;
       if (bloom.strength  !== undefined) this._bloomPass.strength  = bloom.strength;
       if (bloom.radius    !== undefined) this._bloomPass.radius    = bloom.radius;
@@ -388,6 +403,26 @@ class GameEngine {
       if (chromatic.enabled !== undefined) this._chromaticPass.enabled = !!chromatic.enabled;
       if (chromatic.power   !== undefined) this._chromaticPass.power   = chromatic.power;
       if (chromatic.angle   !== undefined) this._chromaticPass.angle   = chromatic.angle;
+    }
+    if (toneMapping && this._toneMappingPass) {
+      if (toneMapping.enabled  !== undefined) this._toneMappingPass.enabled  = !!toneMapping.enabled;
+      if (toneMapping.mode     !== undefined) this._toneMappingPass.mode     = toneMapping.mode;
+      if (toneMapping.exposure !== undefined) this._toneMappingPass.exposure = toneMapping.exposure;
+    }
+    if (lensFlare && this._lensFlarePass) {
+      if (lensFlare.enabled     !== undefined) this._lensFlarePass.enabled     = !!lensFlare.enabled;
+      if (lensFlare.globalScale !== undefined) this._lensFlarePass.globalScale = lensFlare.globalScale;
+      if (lensFlare.ghostCount  !== undefined) this._lensFlarePass.ghostCount  = lensFlare.ghostCount;
+    }
+    if (dustLayer && this._dustLayerPass) {
+      if (dustLayer.enabled       !== undefined) this._dustLayerPass.enabled       = !!dustLayer.enabled;
+      if (dustLayer.masterOpacity !== undefined) this._dustLayerPass.masterOpacity = dustLayer.masterOpacity;
+    }
+    if (motionBlur && this._motionBlurPass) {
+      if (motionBlur.enabled    !== undefined) this._motionBlurPass.enabled    = !!motionBlur.enabled;
+      if (motionBlur.strength   !== undefined) this._motionBlurPass.strength   = motionBlur.strength;
+      if (motionBlur.maxSamples !== undefined) this._motionBlurPass.maxSamples = motionBlur.maxSamples;
+      if (motionBlur.threshold  !== undefined) this._motionBlurPass.threshold  = motionBlur.threshold;
     }
 
     this.events.emit('postfx:configured', { cfg });
