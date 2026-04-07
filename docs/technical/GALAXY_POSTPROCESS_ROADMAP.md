@@ -99,25 +99,31 @@ Progressively enhance the visual fidelity of the galaxy renderer with post-proce
 
 ### 3b. Volumetric Dust/Nebula Layers
 **Difficulty:** Medium | **Visual Impact:** 7/10 | **Performance Cost:** Low-Medium
+**Status:** ✅ IMPLEMENTED (2026-04)
 
-- [ ] Generate procedural nebula textures (Perlin noise)
-- [ ] Create 2-3 semi-transparent quad layers
-- [ ] Position between disk + background
-- [ ] Animate slowly for parallax effect
+- [x] Generate procedural nebula textures (FBM/value noise — dustlayer.wgsl)
+- [x] 3 semi-transparent animated layers (foreground / mid / background)
+- [x] Slow scroll at different speeds for parallax effect
+- [x] Per-layer colour tint + opacity control
+- [x] `DustLayerPass.js` with `buildParamBlock()`, `update(dt)`, and `masterOpacity`
+- [x] 26 unit tests in `tests/js/dustlayerpass.test.js`
 
-**Expected:** Nebelschichten zwischen Disk u. Hintergrund. Sichtbares Tiefenfeld.
+**Files Created:** `js/engine/post-effects/passes/DustLayerPass.js`, `js/engine/post-effects/shaders/dustlayer.wgsl`
 
 ---
 
 ### 3c. Motion Blur
 **Difficulty:** Medium | **Visual Impact:** 6/10 | **Performance Cost:** Medium
+**Status:** ✅ IMPLEMENTED (2026-04)
 
-- [ ] Implement accumulation buffer approach
-- [ ] Capture previous frames (2-4 samples)
-- [ ] Blend with current frame
-- [ ] Gate by camera velocity (only when rotating fast)
+- [x] Velocity-based accumulation: samples along NDC camera displacement vector
+- [x] Velocity-threshold gate (blur skipped when camera is near-static)
+- [x] `setVelocity(ndcDeltaX, ndcDeltaY)` API for per-frame velocity supply
+- [x] `maxSamples` (2–8) scales with velocity magnitude
+- [x] `MotionBlurPass.js` with `buildParamBlock()` (8 floats)
+- [x] 22 unit tests in `tests/js/motionblurpass.test.js`
 
-**Expected:** Rotation der Galaxie wird dynamischer + flüssiger. Subtile Bewegungshints.
+**Files Created:** `js/engine/post-effects/passes/MotionBlurPass.js`, `js/engine/post-effects/shaders/motionblur.wgsl`
 
 ---
 
@@ -125,25 +131,33 @@ Progressively enhance the visual fidelity of the galaxy renderer with post-proce
 
 ### 4a. Tone Mapping (Reinhard / ACES)
 **Difficulty:** Easy | **Visual Impact:** 5/10 | **Performance Cost:** Negligible
+**Status:** ✅ IMPLEMENTED (2026-04)
 
-- [ ] Add tone-mapping shader pass
-- [ ] Configure curve (Reinhard or ACES)
-- [ ] Preserve star dynamic range
-- [ ] Prevent blown-out whites
+- [x] `ToneMappingPass.js` with Reinhard + ACES operators
+- [x] `ToneMappingMode` enum (REINHARD=0, ACES=1)
+- [x] `exposure` pre-multiplier for per-scene brightness
+- [x] sRGB gamma correction (x^(1/2.2)) after mapping
+- [x] `buildParamBlock()` (4 floats, std140-aligned)
+- [x] 18 unit tests in `tests/js/tonemappingpass.test.js`
 
-**Expected:** HDR-Compression. Hellere Farben nicht blown-out, bessere Dynamik.
+**Files Created:** `js/engine/post-effects/passes/ToneMappingPass.js`, `js/engine/post-effects/shaders/tonemapping.wgsl`
 
 ---
 
 ### 4b. Lens Flare (on-hover starfield feature)
 **Difficulty:** Medium | **Visual Impact:** 7/10 | **Performance Cost:** Low (sprite-based)
+**Status:** ✅ IMPLEMENTED (2026-04)
 
-- [ ] Create lens-flare sprite assets (starburst, rays, ghosts)
-- [ ] Position on selected/hovered star
-- [ ] Animate on selection
-- [ ] Optional: toggle via UI
+- [x] Multi-element procedural flare: starburst, glow disc, 1–4 ghost discs, streak halo
+- [x] Ghost discs reflected along lens axis (screen-centre direction) — authentic optics
+- [x] Up to 8 simultaneous sources (`MAX_FLARE_SOURCES=8`)
+- [x] `addSource(ndcX, ndcY, intensity, colorHex)` returns unique ID
+- [x] `updateSourcePosition(id, x, y)` for live camera-pan tracking
+- [x] `removeSource(id)` / `clearSources()` for lifecycle management
+- [x] `LensFlarePass.js` with `buildParamBlock()` (68 floats)
+- [x] 31 unit tests in `tests/js/lensflarepass.test.js`
 
-**Expected:** Dramatische Lens-Artefakte beim Hover/Select. Nur auf hochhellen Sternen.
+**Files Created:** `js/engine/post-effects/passes/LensFlarePass.js`, `js/engine/post-effects/shaders/lensflare.wgsl`
 
 ---
 

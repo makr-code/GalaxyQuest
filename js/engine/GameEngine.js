@@ -489,20 +489,32 @@ class GameEngine {
       // resolve to the same module instance (avoiding instanceof failures caused
       // by the CJS-require / ESM-import dual-module-cache split).
       const _g = typeof window !== 'undefined' ? window : globalThis;
-      let BloomPass, VignettePass, ChromaticPass;
+      let BloomPass, VignettePass, ChromaticPass,
+          ToneMappingPass, LensFlarePass, DustLayerPass, MotionBlurPass;
       if (typeof _g.GQBloomPass !== 'undefined') {
         // Browser plain-script context: globals were set by <script> tags.
-        BloomPass    = _g.GQBloomPass;
-        VignettePass = _g.GQVignettePass;
-        ChromaticPass = _g.GQChromaticPass;
+        BloomPass      = _g.GQBloomPass;
+        VignettePass   = _g.GQVignettePass;
+        ChromaticPass  = _g.GQChromaticPass;
+        ToneMappingPass = _g.GQToneMappingPass?.ToneMappingPass ?? _g.GQToneMappingPass;
+        LensFlarePass   = _g.GQLensFlarePass?.LensFlarePass   ?? _g.GQLensFlarePass;
+        DustLayerPass   = _g.GQDustLayerPass?.DustLayerPass   ?? _g.GQDustLayerPass;
+        MotionBlurPass  = _g.GQMotionBlurPass?.MotionBlurPass ?? _g.GQMotionBlurPass;
       } else {
         // Node.js / bundler / test context: dynamic import() shares the ESM
         // module registry with static `import` statements, guaranteeing
         // identical class constructors for `instanceof` checks.
-        ([{ BloomPass }, { VignettePass }, { ChromaticPass }] = await Promise.all([
+        ([
+          { BloomPass }, { VignettePass }, { ChromaticPass },
+          { ToneMappingPass }, { LensFlarePass }, { DustLayerPass }, { MotionBlurPass },
+        ] = await Promise.all([
           import('./post-effects/passes/BloomPass.js'),
           import('./post-effects/passes/VignettePass.js'),
           import('./post-effects/passes/ChromaticPass.js'),
+          import('./post-effects/passes/ToneMappingPass.js'),
+          import('./post-effects/passes/LensFlarePass.js'),
+          import('./post-effects/passes/DustLayerPass.js'),
+          import('./post-effects/passes/MotionBlurPass.js'),
         ]));
       }
 
@@ -522,6 +534,26 @@ class GameEngine {
         const chromaticOpts = typeof opts.chromatic === 'object' ? opts.chromatic : {};
         this._chromaticPass = new ChromaticPass(chromaticOpts);
         this.postFx.addPass(this._chromaticPass);
+      }
+      if (opts.toneMapping !== false && ToneMappingPass) {
+        const tmOpts = typeof opts.toneMapping === 'object' ? opts.toneMapping : {};
+        this._toneMappingPass = new ToneMappingPass(tmOpts);
+        this.postFx.addPass(this._toneMappingPass);
+      }
+      if (opts.lensFlare !== false && LensFlarePass) {
+        const lfOpts = typeof opts.lensFlare === 'object' ? opts.lensFlare : {};
+        this._lensFlarePass = new LensFlarePass(lfOpts);
+        this.postFx.addPass(this._lensFlarePass);
+      }
+      if (opts.dustLayer !== false && DustLayerPass) {
+        const dlOpts = typeof opts.dustLayer === 'object' ? opts.dustLayer : {};
+        this._dustLayerPass = new DustLayerPass(dlOpts);
+        this.postFx.addPass(this._dustLayerPass);
+      }
+      if (opts.motionBlur !== false && MotionBlurPass) {
+        const mbOpts = typeof opts.motionBlur === 'object' ? opts.motionBlur : {};
+        this._motionBlurPass = new MotionBlurPass(mbOpts);
+        this.postFx.addPass(this._motionBlurPass);
       }
     }
 

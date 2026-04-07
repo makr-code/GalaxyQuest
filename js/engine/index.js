@@ -38,6 +38,10 @@ const { VignettePass }              = require('./post-effects/passes/VignettePas
 const { ChromaticPass }             = require('./post-effects/passes/ChromaticPass');
 const { ComputePass }               = require('./post-effects/passes/ComputePass');
 const { SSAOPass, MAX_KERNEL_SIZE }  = require('./post-effects/passes/SSAOPass');
+const { ToneMappingPass, ToneMappingMode } = require('./post-effects/passes/ToneMappingPass');
+const { LensFlarePass, MAX_FLARE_SOURCES } = require('./post-effects/passes/LensFlarePass');
+const { DustLayerPass, DUST_LAYER_COUNT }  = require('./post-effects/passes/DustLayerPass');
+const { MotionBlurPass }            = require('./post-effects/passes/MotionBlurPass');
 const { ColonySimulation, Colony, PopJob, BASE_YIELD, ColonyType, COLONY_TYPE_BONUS } = require('./game/ColonySimulation');
 const {
   EconomySimulation, ColonyEconomyNode, GalacticMarket, EconomyPolicy, GoodStock,
@@ -78,6 +82,10 @@ module.exports = {
   // Post-effects
   EffectComposer, RenderPass, BloomPass, VignettePass, ChromaticPass, ComputePass,
   SSAOPass, MAX_KERNEL_SIZE,
+  ToneMappingPass, ToneMappingMode,
+  LensFlarePass, MAX_FLARE_SOURCES,
+  DustLayerPass, DUST_LAYER_COUNT,
+  MotionBlurPass,
   PostFxController, PostFxParamMeta,
   // Math
   Vector2, Vector3, Vector4, Matrix4, Quaternion, MathUtils,

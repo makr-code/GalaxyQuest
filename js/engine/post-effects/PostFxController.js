@@ -33,6 +33,21 @@ const PARAM_META = {
     power:     { min: 0, max: 0.05, step: 0.001, default: 0.005 },
     angle:     { min: 0, max: 6.28, step: 0.01,  default: 0     },
   },
+  toneMapping: {
+    mode:     { min: 0, max: 1, step: 1, default: 1 },
+    exposure: { min: 0.1, max: 4, step: 0.05, default: 1.0 },
+  },
+  lensFlare: {
+    globalScale: { min: 0.1, max: 3, step: 0.05, default: 1.0 },
+    ghostCount:  { min: 1, max: 4,  step: 1,    default: 3   },
+  },
+  dustLayer: {
+    masterOpacity: { min: 0, max: 1, step: 0.01, default: 0.22 },
+  },
+  motionBlur: {
+    strength:   { min: 0, max: 1, step: 0.05, default: 0.8 },
+    maxSamples: { min: 2, max: 8, step: 1,    default: 6   },
+  },
 };
 
 class PostFxController {
@@ -81,7 +96,7 @@ class PostFxController {
   // ---------------------------------------------------------------------------
 
   _bindAll() {
-    const effects = ['bloom', 'vignette', 'chromatic'];
+    const effects = ['bloom', 'vignette', 'chromatic', 'toneMapping', 'lensFlare', 'dustLayer', 'motionBlur'];
 
     for (const effect of effects) {
       // Enable/disable checkbox
@@ -108,7 +123,7 @@ class PostFxController {
 
   /**
    * Apply a single parameter change to the engine.
-   * @param {string} effect  'bloom' | 'vignette' | 'chromatic'
+   * @param {string} effect  'bloom' | 'vignette' | 'chromatic' | 'toneMapping' | 'lensFlare' | 'dustLayer' | 'motionBlur'
    * @param {string} param   parameter name
    * @param {*}      value
    */
@@ -125,9 +140,13 @@ class PostFxController {
     if (!engine) return;
 
     const passes = {
-      bloom:    engine._bloomPass,
-      vignette: engine._vignettePass,
-      chromatic: engine._chromaticPass,
+      bloom:       engine._bloomPass,
+      vignette:    engine._vignettePass,
+      chromatic:   engine._chromaticPass,
+      toneMapping: engine._toneMappingPass,
+      lensFlare:   engine._lensFlarePass,
+      dustLayer:   engine._dustLayerPass,
+      motionBlur:  engine._motionBlurPass,
     };
 
     for (const [effect, pass] of Object.entries(passes)) {
