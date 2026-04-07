@@ -254,8 +254,8 @@ final class ScenarioEngineTest extends TestCase
         $stmt->expects($this->once())->method('execute');
 
         $db = $this->createMock(\PDO::class);
-        // resolveFactionId will call prepare once, seedScenario INSERT once → 2 prepares
-        $db->expects($this->exactly(2))->method('prepare')->willReturn($stmt);
+        // Empty faction_code skips resolveFactionId DB lookup; only INSERT is prepared.
+        $db->expects($this->once())->method('prepare')->willReturn($stmt);
 
         $stmt2 = $this->createMock(\PDOStatement::class);
         $stmt2->method('fetchColumn')->willReturn(false);

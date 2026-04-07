@@ -86,6 +86,36 @@ Zusatzwelle Galaxy (Nav Orb):
 Zusatzwelle Commands (Domain + UI):
 - `domain/commands/CommandParsing.js`
 - `ui/commands/TransitionsCommand.js`
+
+Welle 12 – RuntimeGame-Helpers + Commands Manifest Correction:
+- `core/GameContextRefs.js` (migrated)
+- `bootstrap/GameBootstrapHelpers.js` (migrated)
+- `bootstrap/GameInfraHelpers.js` (migrated)
+- `domain/commands/CommandParsing.js` (manifest updated)
+- `ui/commands/TransitionsCommand.js` (manifest updated)
+✅ Boot-manifest.js: Pfade aktualisiert
+✅ Alle 91 Galaxy-Tests bestanden
+
+Welle 13 – RuntimeSystemBreadcrumbHelpers + RuntimeUiConsole* Familie:
+- `ui/system/SystemBreadcrumbHelpers.js` (migrated)
+- `ui/console/Store.js` (migrated)
+- `ui/console/Panel.js` (migrated)
+- `ui/console/MetaCommand.js` (migrated)
+- `ui/console/CommandRegistry.js` (migrated)
+- `ui/console/CommandExecutor.js` (migrated)
+✅ Boot-manifest.js: 6 alte Pfade → neue Layer-Pfade aktualisiert
+✅ Alle 91 Galaxy-Tests bestanden
+
+Welle 14 – RuntimeAdmin + RuntimeUiTemplate + RuntimeRenderer/Audio Settings:
+- `ui/admin/AdminVisibility.js` (migrated)
+- `ui/helpers/TemplateHelpers.js` (migrated)
+- `ui/settings/RendererSettingsApply.js` (migrated)
+- `ui/settings/audio/SettingsPanel.js` (migrated)
+- `ui/settings/audio/SettingsMetadata.js` (migrated)
+- `ui/settings/audio/SettingsApply.js` (migrated)
+✅ Boot-manifest.js: 7 alte Pfade → neue Layer-Pfade aktualisiert (2 Stellen)
+✅ Alle 91 Galaxy-Tests bestanden
+
 Welle 1 – RuntimeGalaxy* Restmodule (Renderer/API-Glue + Domain):
 - `domain/galaxy/SearchScoring.js`
 - `domain/galaxy/PhysicsFlight.js`

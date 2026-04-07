@@ -64,7 +64,7 @@ describe('RuntimeRealtimeSync – world_event SSE handler', () => {
 
     window.addEventListener('gq:world-event', (ev) => {
       dispatchedEvents.push(ev.detail);
-    });
+    }, { once: true });
 
     mod.configureRealtimeSyncRuntime({
       windowRef: window,

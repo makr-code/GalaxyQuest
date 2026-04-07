@@ -134,7 +134,7 @@ final class TtsClientTest extends TestCase
         $key1 = hash('sha256', 'de_DE-thorsten-high|Willkommen, Kommandant!');
         $key2 = hash('sha256', 'de_DE-thorsten-high|Willkommen, Kommandant!');
         self::assertSame($key1, $key2);
-        self::assertRegExp('/^[a-f0-9]{64}$/', $key1);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $key1);
     }
 
     public function testCacheKeyDiffersForDifferentVoices(): void
