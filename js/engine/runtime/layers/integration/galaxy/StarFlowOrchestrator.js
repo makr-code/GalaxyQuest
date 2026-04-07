@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyStarFlowOrchestrator.js
+ * StarFlowOrchestrator.js
  *
  * Applies cache-hit and network-success flow segments for galaxy star loading.
  */

@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyNavOrbRepeat.js
+ * NavOrbRepeat.js
  *
  * Repeat/hold button behavior for galaxy nav orb actions.
  */

@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyStarPersistence.js
+ * StarPersistence.js
  *
  * Persists network-loaded galaxy stars into model and DB caches.
  */

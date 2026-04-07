@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyInit3DFacade.js
+ * Init3DFacade.js
  *
  * High-level facade for GalaxyController.init3D.
  */

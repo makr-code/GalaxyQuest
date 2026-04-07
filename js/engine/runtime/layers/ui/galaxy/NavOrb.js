@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyNavOrb.js
+ * NavOrb.js
  *
  * Encapsulates the galaxy nav orb canvas, tuning and slider bindings.
  */

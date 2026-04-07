@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyStarTerritorySync.js
+ * StarTerritorySync.js
  *
  * Encapsulates galaxy metadata loading and territory/theme synchronization.
  */

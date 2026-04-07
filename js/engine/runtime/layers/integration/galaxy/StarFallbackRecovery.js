@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyStarFallbackRecovery.js
+ * StarFallbackRecovery.js
  *
  * Encapsulates local fallback star recovery for loadStars3D error paths.
  */

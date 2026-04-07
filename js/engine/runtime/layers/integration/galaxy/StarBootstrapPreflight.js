@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyStarBootstrapPreflight.js
+ * StarBootstrapPreflight.js
  *
  * Encapsulates bootstrap/preflight phase for galaxy star loading.
  */

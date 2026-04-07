@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyStarCacheRead.js
+ * StarCacheRead.js
  *
  * Encapsulates cache read flow for galaxy star ranges (memory model + DB fallback).
  */

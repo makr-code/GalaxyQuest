@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxySearchScoring.js
+ * SearchScoring.js
  *
  * Star search key/scoring helpers used by topbar search.
  */

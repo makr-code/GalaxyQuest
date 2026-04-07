@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyStarUiStatus.js
+ * StarUiStatus.js
  *
  * Small UI status helpers for galaxy star loading flow.
  */

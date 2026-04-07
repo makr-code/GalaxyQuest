@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyPhysicsFlight.js
+ * PhysicsFlight.js
  *
  * Physics-based cinematic camera flight helpers.
  */

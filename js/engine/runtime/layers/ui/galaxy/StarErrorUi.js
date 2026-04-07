@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyStarErrorUi.js
+ * StarErrorUi.js
  *
  * Encapsulates catch-path fallback rendering for galaxy star loading.
  */

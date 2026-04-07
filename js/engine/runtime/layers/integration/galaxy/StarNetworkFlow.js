@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyStarNetworkFlow.js
+ * StarNetworkFlow.js
  *
  * Encapsulates network fetch/adaptation and payload merge for galaxy star loading.
  */

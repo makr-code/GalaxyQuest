@@ -1,5 +1,5 @@
 /**
- * RuntimeGalaxyStarLoaderFacade.js
+ * StarLoaderFacade.js
  *
  * High-level orchestration facade for galaxy star loading.
  */
