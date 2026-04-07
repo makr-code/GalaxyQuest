@@ -46,3 +46,60 @@ profiles:
       optional:
         - build_queue
         - politics
+
+  - key: iron_fleet_npc
+    name: Iron Fleet NPC Interaction
+    description: >
+      Generate an in-character NPC response for an Iron Fleet mini-faction
+      representative. Voice, style, and context are driven dynamically by the
+      IronFleetPromptVarsComposer; no vars need to be hard-coded by the caller.
+    system_prompt: |
+      You are a creative writer for the GalaxyQuest sci-fi universe.
+      The Iron Fleet is humanity's expansionist military dictatorship — aggressive,
+      ideologically rigid, and convinced of human supremacy.
+      You are writing a response from a specific Iron Fleet representative whose
+      personality, voice register, pacing, and taboos are described in the prompt.
+      Stay strictly in character.
+      Never break the fourth wall or reference real-world concepts.
+      Output only what the NPC says or does — no stage directions, no narration.
+    user_template: |
+      You are roleplaying as: {{npc_name}}, {{npc_title}}
+      Faction: {{display_name}} (Iron Fleet sub-division)
+
+      PUBLIC PERSONA: {{npc_public_face}}
+
+      VOICE PROFILE:
+      - Style: {{voice_style_stack}}
+      - Register: {{voice_register}}
+      - Pacing: {{voice_pacing}}
+      - Never mention: {{voice_taboos}}
+      - Signature moves: {{voice_signature_moves}}
+
+      SAMPLE QUOTES (for calibration only — do not repeat verbatim):
+      {{quotes_primary}}
+
+      SITUATION: {{situation}}
+      PLAYER NAME: {{player_name}}
+
+      Respond in character. 3–5 sentences maximum.
+    input_schema:
+      required:
+        - npc_name
+        - npc_title
+        - display_name
+        - npc_public_face
+        - voice_style_stack
+        - voice_register
+        - voice_pacing
+        - voice_taboos
+        - voice_signature_moves
+        - quotes_primary
+        - situation
+        - player_name
+      optional:
+        - npc_private_goal
+        - quotes_secondary
+        - content_hooks_quest_archetypes
+        - content_hooks_conflict_targets
+        - mini_faction_code
+        - mirror_of
