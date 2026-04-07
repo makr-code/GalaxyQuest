@@ -56,7 +56,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url) => {
     const u = String(url || '');
     if (u.includes('action=synthesise')) {
-      return okJson({ ok: true, audio_url: '/cache/tts/abc123.mp3' });
+      return okJson({ ok: true, audio_url: '/generated/tts/abc123.mp3' });
     }
     if (u.includes('action=status')) {
       return okJson({ enabled: true, engine: 'piper' });
@@ -170,12 +170,39 @@ describe('speak()', () => {
     expect(global.fetch.mock.calls.length).toBeGreaterThan(count1);
   });
 
-  it('calls duckMusic() on window.__GQ_AUDIO_MANAGER when present', async () => {
+  it('calls duckMusic() on window.__GQ_AUDIO_MANAGER when present (legacy fallback)', async () => {
     const duckMusic = vi.fn();
     vi.stubGlobal('__GQ_AUDIO_MANAGER', { duckMusic });
     const GQTTS = loadTtsScript();
     await GQTTS.speak('Duck the music');
     expect(duckMusic).toHaveBeenCalled();
+    delete window.__GQ_AUDIO_MANAGER;
+  });
+
+  it('prefers duckMusicForTts() over duckMusic() when available', async () => {
+    const duckMusic = vi.fn();
+    const duckMusicForTts = vi.fn();
+    vi.stubGlobal('__GQ_AUDIO_MANAGER', { duckMusic, duckMusicForTts });
+    const GQTTS = loadTtsScript();
+    await GQTTS.speak('Prefer TTS duck');
+    expect(duckMusicForTts).toHaveBeenCalled();
+    expect(duckMusic).not.toHaveBeenCalled();
+    delete window.__GQ_AUDIO_MANAGER;
+  });
+
+  it('delegates to playTtsAudio() when manager provides it', async () => {
+    const playTtsAudio = vi.fn(() => {
+      const el = { volume: 0, play: vi.fn().mockResolvedValue(undefined), addEventListener: vi.fn() };
+      return el;
+    });
+    vi.stubGlobal('__GQ_AUDIO_MANAGER', { playTtsAudio });
+    const GQTTS = loadTtsScript();
+    const result = await GQTTS.speak('Delegate to manager');
+    expect(playTtsAudio).toHaveBeenCalledWith(
+      expect.stringContaining('.mp3'),
+      expect.objectContaining({ gain: expect.any(Number) })
+    );
+    expect(result).not.toBeNull();
     delete window.__GQ_AUDIO_MANAGER;
   });
 });
@@ -216,14 +243,14 @@ describe('playOrSpeak()', () => {
   it('returns null when auto-voice is disabled', async () => {
     const GQTTS = loadTtsScript();
     GQTTS.setAutoVoice(false);
-    const result = await GQTTS.playOrSpeak('/cache/tts/prerendered.mp3', 'Text');
+    const result = await GQTTS.playOrSpeak('/generated/tts/prerendered.mp3', 'Text');
     expect(result).toBeNull();
     expect(global.Audio).not.toHaveBeenCalled();
   });
 
   it('plays pre-rendered URL directly without calling fetch', async () => {
     const GQTTS = loadTtsScript();
-    const result = await GQTTS.playOrSpeak('/cache/tts/prerendered.mp3', 'Fallback text');
+    const result = await GQTTS.playOrSpeak('/generated/tts/prerendered.mp3', 'Fallback text');
     expect(global.fetch).not.toHaveBeenCalled();
     expect(result).not.toBeNull();
     expect(result.play).toHaveBeenCalled();
@@ -344,4 +371,65 @@ describe('session cache', () => {
     // A new fetch should have been made for the new voice
     expect(global.fetch.mock.calls.length).toBeGreaterThan(countAfterFirst);
   });
+
+  it('cache survives module reload (sessionStorage persists across instances)', async () => {
+    const GQTTS1 = loadTtsScript();
+    await GQTTS1.speak('Persist across reload');
+    const calls1 = global.fetch.mock.calls.length;
+
+    const GQTTS2 = loadTtsScript();
+    await GQTTS2.speak('Persist across reload');
+    expect(global.fetch.mock.calls.length).toBe(calls1);
+  });
 });
+
+// ── lang option ───────────────────────────────────────────────────────────────
+
+describe('lang option', () => {
+  it('sends lang in request body', async () => {
+    const GQTTS = loadTtsScript();
+    await GQTTS.speak('Bonjour', { lang: 'fr' });
+    const [, init] = global.fetch.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.lang).toBe('fr');
+  });
+
+  it('defaults to "de" when lang is omitted', async () => {
+    const GQTTS = loadTtsScript();
+    await GQTTS.speak('Hallo');
+    const [, init] = global.fetch.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.lang).toBe('de');
+  });
+});
+
+// ── audio URL path contains generated/tts ────────────────────────────────────
+
+describe('audio URL path', () => {
+  it('resolved audio URL contains generated/tts path segment', async () => {
+    const GQTTS = loadTtsScript();
+    const url = await GQTTS.preload('Pfad-Test');
+    expect(url).toContain('generated/tts');
+  });
+});
+
+// ── playOrSpeak() + GQAudioManager integration ───────────────────────────────
+
+describe('playOrSpeak() + GQAudioManager integration', () => {
+  it('delegates pre-rendered URL to manager.playTtsAudio', async () => {
+    const playTtsAudio = vi.fn(() => ({
+      volume: 1,
+      play: vi.fn().mockResolvedValue(undefined),
+      addEventListener: vi.fn(),
+    }));
+    vi.stubGlobal('__GQ_AUDIO_MANAGER', { playTtsAudio });
+    const GQTTS = loadTtsScript();
+    await GQTTS.playOrSpeak('/generated/tts/prerendered.mp3', 'Fallback');
+    expect(playTtsAudio).toHaveBeenCalledWith(
+      '/generated/tts/prerendered.mp3',
+      expect.any(Object)
+    );
+    delete window.__GQ_AUDIO_MANAGER;
+  });
+});
+
