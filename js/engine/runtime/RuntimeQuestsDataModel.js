@@ -14,11 +14,12 @@
       }
 
       const categoryLabels = {
-        tutorial:  '­ƒôÿ Tutorial ÔÇô New Player Quests',
-        economy:   '­ƒÆ░ Economy', expansion: '­ƒîì Expansion',
-        combat:    'ÔÜö Combat',   milestone: '­ƒÅå Veteran Milestones',
+        faction:   '🌐 Fraktionsaufträge',
+        tutorial:  '📚 Tutorial – New Player Quests',
+        economy:   '💰 Economy', expansion: '🌌 Expansion',
+        combat:    '⚔ Combat',   milestone: '🏅 Veteran Milestones',
       };
-      const categoryOrder = ['tutorial', 'economy', 'expansion', 'combat', 'milestone'];
+      const categoryOrder = ['faction', 'tutorial', 'economy', 'expansion', 'combat', 'milestone'];
 
       return { groups, categoryLabels, categoryOrder };
     }

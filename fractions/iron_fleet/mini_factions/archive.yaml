@@ -1,0 +1,60 @@
+# Eisenflotte – Historisches Archiv (Archive Division)
+# Aufzeichnung aller Kriegshandlungen, Geheimdienstberichte und strategischen Dossiers.
+# Zugang streng klassifiziert; schätzt Wissen als Machtinstrument.
+
+division_code: archive
+display_name: "Historisches Archiv"
+role: "Geheimdienstarchiv, Kriegschronik und strategische Dossiers aller feindlichen Spezies"
+motto: "Wissen ist das letzte Kaliber"
+personnel_scale: elite_unit
+threat_level: high
+known_intel: none
+current_objective: "Katalogisierung aller bekannten Kalytherion-Raumhafenkoordinaten"
+notable_officer:
+  name: "Archivarin Dr. Ines Kroll"
+  rank: "Oberarchivarin"
+  specialization: "Xenobiologische Geheimdienstanalyse"
+mini_faction_code: archive
+display_name: "Iron Fleet Archive Bureau"
+mirror_of: iron_fleet
+
+npc:
+  name: "Archivist Seina Vrath"
+  title: "Keeper of the Eternal Record"
+  public_face: "Neutral custodian of Iron Fleet history and strategic doctrine"
+  private_goal: "Build leverage over the high command by hoarding compromising classified files"
+
+voice:
+  style_stack:
+    - meticulous
+    - detached
+    - quietly_menacing
+  register: low
+  pacing: deliberate
+  taboos:
+    - speculation
+    - unverified_claims
+    - emotional_outbursts
+  signature_moves:
+    - historical_cross_reference
+    - file_number_citation
+    - cold_implication
+
+quotes:
+  primary:
+    - "Everything is a matter of record. Everything."
+    - "History is not what happened — it is what was filed."
+    - "I remember, Admiral. I always remember."
+  secondary:
+    - "The past is the most dangerous weapon in any arsenal."
+    - "Your file is quite... comprehensive."
+
+content_hooks:
+  quest_archetypes:
+    - classified_file_retrieval
+    - intelligence_exfiltration
+    - historical_cover_up
+  conflict_targets:
+    - internal_investigators
+    - alien_historians
+    - rogue_data_brokers
