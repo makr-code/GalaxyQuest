@@ -13,6 +13,7 @@ require_once __DIR__ . '/llm_soc/PromptCatalogRepository.php';
 require_once __DIR__ . '/llm_soc/LlmPromptService.php';
 require_once __DIR__ . '/llm_soc/LlmRequestLogRepository.php';
 require_once __DIR__ . '/llm_soc/FactionSpecLoader.php';
+require_once __DIR__ . '/llm_soc/NpcChatHistoryRepository.php';
 
 $uid = require_auth();
 $action = strtolower((string) ($_GET['action'] ?? 'catalog'));
@@ -192,26 +193,16 @@ switch ($action) {
 			$systemPrompt .= "\n\nJüngste Fraktionsentscheidungen: " . implode(' | ', $decisionSummaries);
 		}
 
-		// Build message array: system + conversation history from DB + current player message.
-		$messages = [
-			['role' => 'system', 'content' => $systemPrompt],
-		];
+		// Load conversation history from disk (DB holds only the file path).
+		$chatHistory = new NpcChatHistoryRepository();
+		$chatFile = $chatHistory->ensureRegistered($db, $uid, $factionCode, $npcName);
+		$historyMessages = $chatHistory->loadMessages($chatFile);
 
-		$historyStmt = $db->prepare(
-			'SELECT role, content
-			 FROM npc_chat_history
-			 WHERE user_id = ? AND faction_code = ? AND npc_name = ?
-			 ORDER BY created_at ASC'
-		);
-		$historyStmt->execute([$uid, $factionCode, $npcName]);
-		$historyRows = $historyStmt->fetchAll();
-		foreach ($historyRows as $row) {
-			$messages[] = [
-				'role' => (string) ($row['role'] ?? 'user'),
-				'content' => (string) ($row['content'] ?? ''),
-			];
+		// Build message array: system + history from file + current player message.
+		$messages = [['role' => 'system', 'content' => $systemPrompt]];
+		foreach ($historyMessages as $row) {
+			$messages[] = ['role' => (string) ($row['role'] ?? 'user'), 'content' => (string) ($row['content'] ?? '')];
 		}
-
 		$messages[] = ['role' => 'user', 'content' => $playerMessage];
 
 		$start = microtime(true);
@@ -242,13 +233,11 @@ switch ($action) {
 
 		$npcReply = (string) ($llm['text'] ?? '');
 
-		// Persist both turns in npc_chat_history.
-		$insertStmt = $db->prepare(
-			'INSERT INTO npc_chat_history (user_id, faction_code, npc_name, role, content)
-			 VALUES (?, ?, ?, ?, ?)'
-		);
-		$insertStmt->execute([$uid, $factionCode, $npcName, 'user', $playerMessage]);
-		$insertStmt->execute([$uid, $factionCode, $npcName, 'assistant', $npcReply]);
+		// Persist both turns to the JSON file on disk.
+		$chatHistory->appendMessages($db, $chatFile, [
+			['role' => 'user', 'content' => $playerMessage],
+			['role' => 'assistant', 'content' => $npcReply],
+		]);
 
 		$logRepository->log($db, [
 			'user_id' => $uid,
