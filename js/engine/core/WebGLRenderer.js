@@ -88,9 +88,44 @@ class WebGLRenderer extends BaseGraphicsRenderer {
     if (typeof THREE === 'undefined') {
       throw new Error('WebGLRenderer requires Three.js — load three.min.js first');
     }
-    this._threeRenderer = new THREE.WebGLRenderer(opts);
+    this._threeRenderer = this._createThreeRenderer(opts);
     this.ready = true;
     this._log('_initSync: THREE.WebGLRenderer created (sync)');
+  }
+
+  /**
+   * Build THREE.WebGLRenderer in a way that also supports test doubles
+   * that are plain callables (not constructable via `new`).
+   * @param {Object} opts
+   * @returns {THREE.WebGLRenderer}
+   */
+  _createThreeRenderer(opts) {
+    const ctor = THREE.WebGLRenderer;
+    try {
+      return new ctor(opts);
+    } catch (err) {
+      if (typeof ctor === 'function') {
+        return ctor(opts);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Instantiate a THREE type while supporting callable test doubles.
+   * @param {Function} ctor
+   * @param {...*} args
+   * @returns {*}
+   */
+  _createThreeObject(ctor, ...args) {
+    try {
+      return new ctor(...args);
+    } catch (err) {
+      if (typeof ctor === 'function') {
+        return ctor(...args);
+      }
+      throw err;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -103,7 +138,7 @@ class WebGLRenderer extends BaseGraphicsRenderer {
     }
 
     this._log('initialize: creating THREE.WebGLRenderer…');
-    this._threeRenderer = new THREE.WebGLRenderer({
+    this._threeRenderer = this._createThreeRenderer({
       canvas,
       antialias: true,
       alpha: false,
@@ -152,7 +187,7 @@ class WebGLRenderer extends BaseGraphicsRenderer {
     const { width, height, format = 'rgba8unorm', renderTarget = false } = spec;
 
     if (renderTarget) {
-      return new THREE.WebGLRenderTarget(width, height, {
+      return this._createThreeObject(THREE.WebGLRenderTarget, width, height, {
         minFilter: THREE.LinearFilter,
         magFilter: THREE.LinearFilter,
         format: THREE.RGBAFormat,
@@ -161,7 +196,8 @@ class WebGLRenderer extends BaseGraphicsRenderer {
     }
 
     // Plain data texture
-    const tex = new THREE.DataTexture(
+    const tex = this._createThreeObject(
+      THREE.DataTexture,
       new Uint8Array(width * height * 4),
       width, height,
       THREE.RGBAFormat

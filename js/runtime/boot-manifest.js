@@ -36,6 +36,7 @@
     adminUsers: '20260331p1',
     systemBreadcrumb: '20260331p1',
     game: '20260406p40',
+    packageBundle: '20260407p1',
     flightDriverSmoke: '20260329p1',
     lodStreamingSmoke: '20260329p2'
   });
@@ -124,9 +125,9 @@
       'js/engine/runtime/layers/core/LifecyclePhases.js',
       'js/engine/runtime/layers/core/FeatureRegistry.js',
       'js/engine/runtime/layers/core/LifecycleManager.js',
+      'js/engine/runtime/layers/core/GameContextRefs.js',
       'js/engine/runtime/RuntimeLifecycleCoreFeatures.js',
       'js/engine/runtime/RuntimeLifecycleDomainFeatures.js',
-      'js/engine/runtime/RuntimeGameContextRefs.js',
       'js/engine/runtime/RuntimeSelectionState.js'
     ], V.runtime))
     .concat([
@@ -134,12 +135,12 @@
       localScript('js/engine/runtime/RuntimeLoadNetworkEvents.js', V.runtime)
     ])
     .concat(localScripts([
-      'js/engine/runtime/RuntimeSettingsDefaults.js',
-      'js/engine/runtime/RuntimeAudioSettingsMetadata.js',
-      'js/engine/runtime/RuntimeSettingsStorage.js',
-      'js/engine/runtime/RuntimeSettingsNormalization.js',
+      'js/engine/runtime/layers/ui/settings/foundation/Defaults.js',
+      'js/engine/runtime/layers/ui/settings/audio/SettingsMetadata.js',
+      'js/engine/runtime/layers/ui/settings/foundation/Storage.js',
+      'js/engine/runtime/layers/ui/settings/foundation/Normalization.js',
       'js/engine/runtime/RuntimeThemePalette.js',
-      'js/engine/runtime/RuntimeSettingsBootstrap.js',
+      'js/engine/runtime/layers/ui/settings/foundation/Bootstrap.js',
       'js/engine/runtime/RuntimeResourceInsight.js',
       'js/engine/runtime/RuntimeHints.js',
       'js/engine/runtime/RuntimeTopbarA11y.js',
@@ -240,34 +241,34 @@
     .concat(localScripts([
       'js/engine/runtime/layers/ui/galaxy/NavOrbRepeat.js',
       'js/engine/runtime/layers/ui/galaxy/NavOrb.js',
-      'js/engine/runtime/RuntimeCommandParsing.js',
-      'js/engine/runtime/RuntimeTransitionsCommand.js',
-      'js/engine/runtime/RuntimeGameBootstrapHelpers.js',
-      'js/engine/runtime/RuntimeGameInfraHelpers.js',
-      'js/engine/runtime/RuntimeSystemBreadcrumbHelpers.js',
-      'js/engine/runtime/RuntimeUiConsoleCommandRegistry.js',
-      'js/engine/runtime/RuntimeUiConsoleMetaCommand.js',
-      'js/engine/runtime/RuntimeAdminVisibility.js',
+      'js/engine/runtime/layers/domain/commands/CommandParsing.js',
+      'js/engine/runtime/layers/ui/commands/TransitionsCommand.js',
+      'js/engine/runtime/layers/bootstrap/GameBootstrapHelpers.js',
+      'js/engine/runtime/layers/bootstrap/GameInfraHelpers.js',
+      'js/engine/runtime/layers/ui/system/SystemBreadcrumbHelpers.js',
+      'js/engine/runtime/layers/ui/console/CommandRegistry.js',
+      'js/engine/runtime/layers/ui/console/MetaCommand.js',
+      'js/engine/runtime/layers/ui/admin/AdminVisibility.js',
       'js/engine/runtime/layers/ui/galaxy/VisualUtils.js'
     ], V.runtime));
 
   const bootScriptsUiRuntime = localScripts([
-    'js/engine/runtime/RuntimeUiTemplateHelpers.js',
-    'js/engine/runtime/RuntimeUiConsoleStore.js',
-    'js/engine/runtime/RuntimeUiConsolePanel.js',
-    'js/engine/runtime/RuntimeUiConsoleCommandExecutor.js',
-    'js/engine/runtime/RuntimeRendererSettingsApply.js',
-    'js/engine/runtime/RuntimeAudioSettingsApply.js',
-    'js/engine/runtime/RuntimeAudioSettingsPanel.js',
-    'js/engine/runtime/RuntimeSettingsUiHelpers.js',
+    'js/engine/runtime/layers/ui/helpers/TemplateHelpers.js',
+    'js/engine/runtime/layers/ui/console/Store.js',
+    'js/engine/runtime/layers/ui/console/Panel.js',
+    'js/engine/runtime/layers/ui/console/CommandExecutor.js',
+    'js/engine/runtime/layers/ui/settings/RendererSettingsApply.js',
+    'js/engine/runtime/layers/ui/settings/audio/SettingsApply.js',
+    'js/engine/runtime/layers/ui/settings/audio/SettingsPanel.js',
+    'js/engine/runtime/layers/ui/settings/UiHelpers.js',
     'js/engine/runtime/RuntimePayloadValidation.js',
-    'js/engine/runtime/RuntimeAiSettingsPanel.js',
-    'js/engine/runtime/RuntimeFtlSettingsPanel.js',
+    'js/engine/runtime/layers/ui/settings/ai/SettingsPanel.js',
+    'js/engine/runtime/layers/ui/settings/ftl/SettingsPanel.js',
     'js/engine/runtime/RuntimeAudioCatalog.js',
     'js/engine/runtime/RuntimeTopbarAudioControls.js',
     'js/engine/runtime/RuntimeFooterUiKit.js',
-    'js/engine/runtime/RuntimeThemeSettingsUi.js',
-    'js/engine/runtime/RuntimeSettingsController.js',
+    'js/engine/runtime/layers/ui/settings/theme/SettingsUi.js',
+    'js/engine/runtime/layers/ui/settings/SettingsController.js',
     'js/engine/runtime/RuntimeUserMenuActions.js',
     'js/engine/runtime/RuntimeUserMenuUi.js',
     'js/engine/runtime/RuntimeAudioUi.js',
@@ -302,6 +303,7 @@
     'js/engine/runtime/RuntimePiratesController.js',
     'js/engine/runtime/RuntimeWarController.js',
     'js/engine/runtime/RuntimeEconomyController.js',
+    'js/engine/runtime/RuntimeConflictDashboard.js',
     'js/engine/runtime/RuntimeFactionsController.js',
     'js/engine/runtime/RuntimeLeaderboardController.js',
     'js/engine/runtime/RuntimeAdvisorWidget.js',
@@ -329,23 +331,27 @@
       'js/engine/runtime/layers/ui/galaxy/SystemDetailsFacade.js'
     ], V.quickNav))
     .concat(localScripts([
-      'js/engine/runtime/RuntimeSettingsSfxRows.js',
-      'js/engine/runtime/RuntimeSettingsMusicTrackOptions.js',
-      'js/engine/runtime/RuntimeSettingsFtlDriveButtons.js',
-      'js/engine/runtime/RuntimeSettingsFtlDrivesCatalog.js',
-      'js/engine/runtime/RuntimeSettingsFtlTemplateStyles.js',
-      'js/engine/runtime/RuntimeSettingsFtlSectionTemplate.js',
-      'js/engine/runtime/RuntimeSettingsLlmSectionTemplate.js',
-      'js/engine/runtime/RuntimeSettingsNpcSectionTemplate.js',
-      'js/engine/runtime/RuntimeSettingsCoreSectionTemplate.js',
-      'js/engine/runtime/RuntimeSettingsViewModel.js',
-      'js/engine/runtime/RuntimeSettingsSectionsComposer.js',
-      'js/engine/runtime/RuntimeSettingsBaseBindings.js',
-      'js/engine/runtime/RuntimeSettingsPanelBindingsOrchestrator.js',
-      'js/engine/runtime/RuntimeSettingsRenderModel.js',
-      'js/engine/runtime/RuntimeSettingsRenderBindings.js',
-      'js/engine/runtime/RuntimeSettingsRenderContext.js',
-      'js/engine/runtime/RuntimeSettingsRenderFacade.js'
+      'js/engine/runtime/layers/ui/settings/audio/SfxRows.js',
+      'js/engine/runtime/layers/ui/settings/audio/MusicTrackOptions.js',
+      'js/engine/runtime/layers/ui/settings/ftl/DriveButtons.js',
+      'js/engine/runtime/layers/ui/settings/ftl/DrivesCatalog.js',
+      'js/engine/runtime/layers/ui/settings/ftl/TemplateStyles.js',
+      'js/engine/runtime/layers/ui/settings/ftl/SectionTemplate.js',
+      'js/engine/runtime/layers/ui/settings/ai/SectionTemplate.js',
+      'js/engine/runtime/layers/ui/settings/ai/NpcSectionTemplate.js',
+      'js/engine/runtime/layers/ui/settings/core/SectionTemplate.js',
+      'js/engine/runtime/layers/ui/settings/foundation/Defaults.js',
+      'js/engine/runtime/layers/ui/settings/foundation/Storage.js',
+      'js/engine/runtime/layers/ui/settings/foundation/Normalization.js',
+      'js/engine/runtime/layers/ui/settings/foundation/Bootstrap.js',
+      'js/engine/runtime/layers/ui/settings/compose/ViewModel.js',
+      'js/engine/runtime/layers/ui/settings/compose/SectionsComposer.js',
+      'js/engine/runtime/layers/ui/settings/compose/BaseBindings.js',
+      'js/engine/runtime/layers/ui/settings/compose/PanelBindingsOrchestrator.js',
+      'js/engine/runtime/layers/ui/settings/render/RenderModel.js',
+      'js/engine/runtime/layers/ui/settings/render/RenderBindings.js',
+      'js/engine/runtime/layers/ui/settings/render/RenderContext.js',
+      'js/engine/runtime/layers/ui/settings/render/RenderFacade.js'
     ], V.runtime));
 
   const bootScriptsBootFlow = localScripts([
@@ -439,7 +445,16 @@
 
   window.__GQ_BOOT = {
     assetsManifestVersion: 2,
-    packageBundles: [],
+    packageBundles: [
+      localScript('js/packages/game.boot.bundle.engine-core.js.gz', V.packageBundle),
+      localScript('js/packages/game.boot.bundle.runtime.js.gz', V.packageBundle),
+      localScript('js/packages/game.boot.bundle.network.js.gz', V.packageBundle),
+      localScript('js/packages/game.boot.bundle.rendering.js.gz', V.packageBundle),
+      localScript('js/packages/game.boot.bundle.telemetry.js.gz', V.packageBundle),
+      localScript('js/packages/game.boot.bundle.ui.js.gz', V.packageBundle),
+      localScript('js/packages/game.boot.bundle.tests.js.gz', V.packageBundle),
+      localScript('js/packages/game.boot.bundle.legacy.js.gz', V.packageBundle)
+    ],
     gameScripts: []
       .concat(bootScriptsCore)
       .concat(bootScriptsRuntimeFoundation)

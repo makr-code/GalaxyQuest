@@ -25,6 +25,7 @@
           ['trade-routes', { title: 'Trade Routes', w: 520, h: 560, defaultDock: 'right', defaultY: 138, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradeRoutes() }],
           ['traders', { title: 'Trader Ops', w: 760, h: 680, defaultDock: 'right', defaultY: 82, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradersDashboard() }],
           ['pirates', { title: 'Pirate Activity', w: 760, h: 680, defaultDock: 'right', defaultY: 96, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderPirates() }],
+          ['conflict', { title: 'Conflict Dashboard', w: 860, h: 680, defaultDock: 'right', defaultY: 72, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderConflict() }],
           ['economy-flow', { title: 'Economy Flow', w: 540, h: 600, defaultDock: 'right', defaultY: 148, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderEconomyFlow() }],
           ['economy', { title: 'Economy Management', w: 680, h: 640, defaultDock: 'right', defaultY: 80, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderEconomy() }],
           ['trade', { title: 'Trade', w: 540, h: 580, defaultDock: 'right', defaultY: 148, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradeProposals() }],
@@ -180,7 +181,7 @@
         documentRef?.getElementById('topbar-title-btn')?.addEventListener('click', async () => {
           if (this.audio) this.audio.playNavigation();
           await loadOverview();
-          ['overview','colony','buildings','research','shipyard','fleet','wormholes','messages','quests','leaders','factions','leaderboard','pirates','economy'].forEach((id) => {
+          ['overview','colony','buildings','research','shipyard','fleet','wormholes','messages','quests','leaders','factions','leaderboard','trade-routes','traders','wars','pirates','conflict','economy'].forEach((id) => {
             try {
               this.wm.refresh(id);
             } catch (err) {

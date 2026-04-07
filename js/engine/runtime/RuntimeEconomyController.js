@@ -83,7 +83,11 @@
         api.economyPopClasses(),
       ]);
       if (!ovResp?.success) throw new Error(ovResp?.error || 'Economy overview request failed');
-      _state.overview = { colonies: ovResp.colonies || [] };
+      _state.overview = {
+        colonies: ovResp.colonies || [],
+        war_modifiers: ovResp.war_modifiers || null,
+        pirate_damage_mult: ovResp.pirate_damage_mult ?? 1.0,
+      };
       _state.popClasses = popResp?.success ? popResp : null;
     }
 
@@ -148,6 +152,25 @@
         .join(' ');
     }
 
+    // PHASE 4.2 – Conflict-driven production warning banner
+    function _renderConflictWarnings(warMods, pirateMult) {
+      const bits = [];
+      if (warMods) {
+        const prodPct  = Math.round((1 - (warMods.production_mult   ?? 1)) * 100);
+        const tradePct = Math.round((1 - (warMods.trade_income_mult ?? 1)) * 100);
+        const taxPct   = Math.round((1 - (warMods.tax_efficiency_mult ?? 1)) * 100);
+        if (prodPct > 0)  bits.push(`\u2694 War: production \u2212${prodPct}%`);
+        if (tradePct > 0) bits.push(`\u2694 War: trade income \u2212${tradePct}%`);
+        if (taxPct > 0)   bits.push(`\u2694 War: tax efficiency \u2212${taxPct}%`);
+        if ((warMods.production_mult ?? 1) >= 1.1)
+          bits.push(`\u2694 War Economy policy: production +${Math.round(((warMods.production_mult ?? 1) - 1) * 100)}%`);
+      }
+      const pirateLoss = Math.round((1 - (pirateMult ?? 1)) * 100);
+      if (pirateLoss > 0) bits.push(`\u2620 Pirate damage: goods capacity \u2212${pirateLoss}%`);
+      if (!bits.length) return '';
+      return `<div class="economy-conflict-warnings" style="background:#2a1f0a;border:1px solid #7a5c1a;border-radius:6px;padding:.5rem .75rem;margin-bottom:.75rem;line-height:1.7;font-size:12px;">${bits.map(b => `<div>${esc(b)}</div>`).join('')}</div>`;
+    }
+
     function _renderGoodsRow(goods) {
       if (!goods || !Object.keys(goods).length) return '<span class="text-muted">— no processed goods —</span>';
       return Object.entries(goods).map(([good, data]) => {
@@ -161,9 +184,10 @@
       }).join(' ');
     }
 
-    function _renderOverviewTab(colonies, popClasses) {
+    function _renderOverviewTab(colonies, popClasses, warMods, pirateMult) {
       if (!colonies.length) {
         return '<p class="text-muted">No colonies found.</p>';
+        const warningHtml = _renderConflictWarnings(warMods, pirateMult);
       }
 
       // Empire-wide pop summary
@@ -205,7 +229,7 @@
         </div>`;
       }).join('');
 
-      return empirePopHtml + colonyCards;
+      return warningHtml + empirePopHtml + colonyCards;
     }
 
     function _renderSkeleton() {
@@ -229,7 +253,12 @@
       } else if (state.tab === 'policy' && state.policy) {
         contentHtml = _renderPolicyTab(state.policy);
       } else if (state.tab === 'overview' && state.overview) {
-        contentHtml = _renderOverviewTab(state.overview.colonies, state.popClasses);
+        contentHtml = _renderOverviewTab(
+          state.overview.colonies,
+          state.popClasses,
+          state.overview.war_modifiers,
+          state.overview.pirate_damage_mult,
+        );
       } else {
         contentHtml = _renderSkeleton();
       }

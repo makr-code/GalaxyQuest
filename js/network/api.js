@@ -1655,6 +1655,14 @@ const API = (() => {
     piratesRecentRaids: (limit = 20) => get(`api/pirates.php?action=recent_raids&limit=${Math.max(1, Number(limit || 20))}`),
     piratesForecast: ()        => get('api/pirates.php?action=forecast'),
     piratesRunTick: ()         => post('api/pirates.php?action=run_tick', {}),
+    piratesContracts: ()       => get('api/pirates.php?action=list_contracts'),
+    piratesProposeContract: ({ faction_id, contract_type = 'tributary', credit_offer = 0, duration_days = 30 } = {}) =>
+      post('api/pirates.php?action=propose_contract', {
+        faction_id: Math.max(0, Number(faction_id || 0)),
+        contract_type: String(contract_type || 'tributary'),
+        credit_offer: Math.max(0, Number(credit_offer || 0)),
+        duration_days: Math.max(1, Math.min(90, Number(duration_days || 30))),
+      }),
 
     // Economy management (policy / tax / subsidies / overview)
     economyOverview: (colony_id = null) => {
@@ -1678,6 +1686,8 @@ const API = (() => {
     wars: () => get('api/war.php?action=list'),
     warStatus: (warId) =>
       get(`api/war.php?action=get_status&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
+    warGoalProgress: (warId) =>
+      get(`api/war.php?action=get_goal_progress&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
     declareStrategicWar: ({ target_user_id, war_goals = [], casus_belli = '' } = {}) =>
       post('api/war.php?action=declare', {
         target_user_id: Math.max(0, Number(target_user_id || 0)),

@@ -42,7 +42,8 @@
 
   function initSseListeners() {
     const windowRef = runtimeConfig.windowRef;
-    if (!windowRef?.EventSource) return;
+    if (!windowRef) return;
+    if (!windowRef.EventSource && !runtimeConfig.eventSourceFactory) return;
 
     let eventSource;
     let reconnectDelay = 3000;

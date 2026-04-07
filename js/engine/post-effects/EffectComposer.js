@@ -199,6 +199,7 @@ class EffectComposer {
     // Without a pool the old texture is simply orphaned — the WebGPU GC will
     // clean it up when the renderer is destroyed.
   }
+}
 
 // ---------------------------------------------------------------------------
 // Module-private helpers

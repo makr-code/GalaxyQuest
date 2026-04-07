@@ -264,9 +264,11 @@
         if (!wars.length) {
           return `
             <div style="display:grid;gap:10px;">
-              <section style="display:flex;gap:8px;">
+              <section style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button style="${S.btn}" data-wars-refresh="1">Refresh</button>
+                <button style="${S.btnDanger}" data-wars-declare="1">⚔ Declare War</button>
               </section>
+              <div data-declare-form-host style="display:none;"></div>
               ${uiKitEmptyStateHTML('No active wars', 'Your empire is currently at peace.')}
             </div>
           `;
@@ -281,7 +283,9 @@
           <div style="display:grid;gap:10px;">
             <section style="display:flex;gap:8px;flex-wrap:wrap;">
               <button style="${S.btn}" data-wars-refresh="1">Refresh</button>
+              <button style="${S.btnDanger}" data-wars-declare="1">⚔ Declare War</button>
             </section>
+            <div data-declare-form-host style="display:none;"></div>
             <div style="${S.section}">
               <div style="${S.sectionTitle}">Active Wars</div>
               <table style="${S.table}">
@@ -310,6 +314,83 @@
           this.state.detailWarId = null;
           this.state.detailData = null;
           this.render();
+        });
+
+        // PHASE 4.1: Declare war button (uses target user ID expected by backend)
+        root.querySelector('[data-wars-declare="1"]')?.addEventListener('click', () => {
+          const formHost = root.querySelector('[data-declare-form-host]');
+          if (!formHost) return;
+          if (formHost.style.display !== 'none') {
+            formHost.style.display = 'none';
+            formHost.innerHTML = '';
+            return;
+          }
+
+          formHost.innerHTML = `
+            <div style="background:#2a1820;border:1px solid #7a2e2e;border-radius:8px;padding:12px;display:grid;gap:10px;">
+              <div style="font-weight:700;color:#ffcdd2;">⚔ Declare War</div>
+              <label style="font-size:11px;color:#9fb0ce;">Target User ID
+                <input data-dw-target-user type="number" min="1" step="1" placeholder="e.g. 42"
+                  style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:4px;">
+              </label>
+              <label style="font-size:11px;color:#9fb0ce;">War Goal
+                <select data-dw-goal style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:4px;">
+                  <option value="subjugation">Subjugation</option>
+                  <option value="annex_system">Annex System</option>
+                  <option value="attrition">Attrition</option>
+                  <option value="economic">Economic</option>
+                  <option value="diplomatic">Diplomatic</option>
+                </select>
+              </label>
+              <label style="font-size:11px;color:#9fb0ce;">Casus Belli (optional)
+                <input data-dw-casus type="text" maxlength="120" placeholder="e.g. Border aggression"
+                  style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:4px;">
+              </label>
+              <div style="display:flex;gap:8px;">
+                <button data-dw-confirm style="background:#6b1e1e;border:1px solid #9e3030;color:#ffcdd2;border-radius:5px;padding:5px 14px;cursor:pointer;font-size:12px;font-weight:700;">Confirm Declaration</button>
+                <button data-dw-cancel style="${S.btn}">Cancel</button>
+              </div>
+            </div>`;
+          formHost.style.display = '';
+
+          formHost.querySelector('[data-dw-cancel]')?.addEventListener('click', () => {
+            formHost.style.display = 'none';
+            formHost.innerHTML = '';
+          });
+
+          formHost.querySelector('[data-dw-confirm]')?.addEventListener('click', async () => {
+            if (this.isBusy) return;
+            this.isBusy = true;
+            const targetUserId = Number(formHost.querySelector('[data-dw-target-user]')?.value || 0);
+            const warGoal = formHost.querySelector('[data-dw-goal]')?.value || 'subjugation';
+            const casusBelli = String(formHost.querySelector('[data-dw-casus]')?.value || '').trim();
+            if (!targetUserId) {
+              showToast('Please enter a target user ID.', 'warning');
+              this.isBusy = false;
+              return;
+            }
+            try {
+              const res = await api.declareStrategicWar({
+                target_user_id: targetUserId,
+                war_goals: [warGoal],
+                casus_belli: casusBelli,
+              });
+              if (res?.success) {
+                showToast('War declared! War #' + (res.war_id || '?'), 'warning');
+                invalidateGetCache([/api\/war\.php\?action=/i]);
+                formHost.style.display = 'none';
+                formHost.innerHTML = '';
+                await this.render();
+              } else {
+                showToast(res?.error || 'Failed to declare war.', 'error');
+              }
+            } catch (err) {
+              gameLog('warn', 'declareStrategicWar failed', err);
+              showToast('Network error declaring war.', 'error');
+            } finally {
+              this.isBusy = false;
+            }
+          });
         });
 
         // Refresh list

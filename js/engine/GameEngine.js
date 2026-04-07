@@ -53,10 +53,20 @@ const POST_FX_MIN_FPS = 45;
 // ---------------------------------------------------------------------------
 
 function _req(modPath, globalName) {
-  if (typeof require !== 'undefined') return require(modPath);
   const g = typeof window !== 'undefined' ? window : globalThis;
+  const isOptional = globalName === 'GQEffectComposer' || globalName === 'GQRenderPass';
+  if (typeof require !== 'undefined') {
+    try {
+      return require(modPath);
+    } catch (_) {
+      // Fall through to global resolution in browser-like test environments.
+    }
+  }
   const v = g[globalName];
-  if (!v) throw new Error(`[GameEngine] missing global: ${globalName} (expected from ${modPath})`);
+  if (!v) {
+    if (isOptional) return {};
+    throw new Error(`[GameEngine] missing global: ${globalName} (expected from ${modPath})`);
+  }
   return v;
 }
 

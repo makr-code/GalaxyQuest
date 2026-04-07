@@ -1360,6 +1360,7 @@
       renderTradeRoutes,
       renderTradersDashboard,
       renderPirates,
+      renderConflict,
       renderEconomyFlow,
       renderEconomy,
       renderTradeProposals,
@@ -4249,6 +4250,7 @@
   const runtimeFactionsControllerApi = requireRuntimeApi('GQRuntimeFactionsController', ['createFactionsController']);
   const runtimeLeaderboardControllerApi = requireRuntimeApi('GQRuntimeLeaderboardController', ['createLeaderboardController']);
   const runtimeWarControllerApi = requireRuntimeApi('GQRuntimeWarController', ['createWarController']);
+  const runtimeConflictDashboardApi = requireRuntimeApi('GQRuntimeConflictDashboard', ['createConflictDashboard']);
   const runtimeSocialControllersBootstrapApi = requireRuntimeApi('GQRuntimeSocialControllersBootstrap', ['createSocialControllersBootstrap']);
   const runtimeAdvisorWidgetApi = requireRuntimeApi('GQRuntimeAdvisorWidget', ['createAdvisorWidget']);
   let AdvisorWidget = null;
@@ -4304,6 +4306,13 @@
   const factionsController = socialControllers.factionsController;
   const leaderboardController = socialControllers.leaderboardController;
   const warController = socialControllers.warController;
+  const conflictDashboard = runtimeConflictDashboardApi.createConflictDashboard({
+    wm: WM,
+    api: API,
+    esc,
+    gameLog,
+    showToast,
+  });
 
   window.GQMessagesController = messagesController;
   window.GQIntelController = intelController;
@@ -4316,6 +4325,7 @@
   window.GQFactionsController = factionsController;
   window.GQLeaderboardController = leaderboardController;
   window.GQWarController = warController;
+  window.GQConflictDashboard = conflictDashboard;
 
   // ── Messages window ─────────────────────────────────────────────────────────
   async function renderMessages() {
@@ -4342,6 +4352,10 @@
 
   async function renderWars() {
     await warController.render();
+  }
+
+  async function renderConflict() {
+    await conflictDashboard.render();
   }
 
   function renderNavOrb() {

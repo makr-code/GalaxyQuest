@@ -4,7 +4,6 @@
   function createPiratesController(opts = {}) {
     const wm = opts.wm;
     const api = opts.api;
-    const documentRef = opts.documentRef || document;
     const uiKitSkeletonHTML = opts.uiKitSkeletonHTML || (() => '<p class="text-muted">Loading...</p>');
     const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML || (() => '');
     const esc = opts.esc || ((value) => String(value ?? ''));
@@ -18,21 +17,24 @@
           status: null,
           raids: [],
           forecast: null,
+          contracts: [],
           lastTickResult: null,
         };
         this.isBusy = false;
       }
 
       async loadData() {
-        const [statusRes, raidsRes, forecastRes] = await Promise.all([
+        const [statusRes, raidsRes, forecastRes, contractsRes] = await Promise.all([
           api.piratesStatus(),
           api.piratesRecentRaids(20),
           api.piratesForecast(),
+          api.piratesContracts ? api.piratesContracts() : Promise.resolve({ success: true, contracts: [] }),
         ]);
 
         this.state.status = statusRes && statusRes.success ? statusRes : null;
         this.state.raids = (raidsRes && raidsRes.success && Array.isArray(raidsRes.raids)) ? raidsRes.raids : [];
         this.state.forecast = forecastRes && forecastRes.success ? forecastRes.forecast : null;
+        this.state.contracts = (contractsRes && contractsRes.success && Array.isArray(contractsRes.contracts)) ? contractsRes.contracts : [];
       }
 
       async render() {
@@ -56,6 +58,7 @@
         const factions = Array.isArray(status.factions) ? status.factions : [];
         const raids = this.state.raids || [];
         const forecast = this.state.forecast || null;
+        const contracts = this.state.contracts || [];
         const lastTick = this.state.lastTickResult;
 
         const cards = [
@@ -88,6 +91,15 @@
             </tr>
           `;
         }).join('');
+
+        const contractRows = contracts.map((c) => `
+          <tr>
+            <td>${esc(c.faction_icon || '')} ${esc(c.faction_name || '?')}</td>
+            <td>${esc(c.contract_type || '-')}</td>
+            <td style="text-align:right;">${Number(c.credit_payment || 0).toLocaleString('de-DE')}</td>
+            <td>${esc((c.expires_at || '').slice(0, 10))}</td>
+          </tr>
+        `).join('');
 
         const forecastHtml = forecast
           ? `
@@ -134,7 +146,6 @@
             </section>
 
             ${tickResultHtml}
-
             ${forecastHtml}
 
             <section style="background:#171c28;border:1px solid #2e374e;border-radius:8px;padding:10px;overflow:auto;">
@@ -176,6 +187,25 @@
                   </table>
                 `}
             </section>
+
+            <section style="background:#171c28;border:1px solid #2e374e;border-radius:8px;padding:10px;overflow:auto;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <div style="font-weight:700;">Active Contracts</div>
+                <button style="background:#2e374e;border:1px solid #4a5878;color:#d7e4ff;border-radius:5px;padding:3px 8px;cursor:pointer;font-size:11px;" data-pirates-propose-contract="1">+ Propose</button>
+              </div>
+              ${contracts.length === 0
+                ? '<p style="color:#9fb0ce;font-size:12px;">No active contracts. Use + Propose to set up a tributary or non-aggression pact.</p>'
+                : `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead><tr>
+                      <th style="text-align:left;padding:4px;border-bottom:1px solid #3a4762;">Faction</th>
+                      <th style="text-align:left;padding:4px;border-bottom:1px solid #3a4762;">Type</th>
+                      <th style="text-align:right;padding:4px;border-bottom:1px solid #3a4762;">Credits</th>
+                      <th style="text-align:left;padding:4px;border-bottom:1px solid #3a4762;">Expires</th>
+                    </tr></thead>
+                    <tbody>${contractRows}</tbody>
+                  </table>`}
+              <div data-contract-form-host style="display:none;margin-top:10px;"></div>
+            </section>
           </div>
         `;
       }
@@ -183,6 +213,74 @@
       attachEventListeners(root) {
         root.querySelector('[data-pirates-refresh="1"]')?.addEventListener('click', async () => {
           await this.render();
+        });
+
+        root.querySelector('[data-pirates-propose-contract="1"]')?.addEventListener('click', () => {
+          const formHost = root.querySelector('[data-contract-form-host]');
+          if (!formHost) return;
+          formHost.innerHTML = `
+            <form data-contract-form style="display:grid;gap:8px;background:#1a2035;padding:10px;border-radius:6px;border:1px solid #3a4762;">
+              <div style="font-weight:700;font-size:12px;margin-bottom:2px;">Propose Contract</div>
+              <label style="font-size:11px;color:#9fb0ce;">Faction
+                <select data-cf-faction style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:3px;">
+                  ${(this.state.status?.factions || []).map(f => `<option value="${esc(String(f.id))}">${esc(f.icon || '')} ${esc(f.name || String(f.id))}</option>`).join('')}
+                </select>
+              </label>
+              <label style="font-size:11px;color:#9fb0ce;">Type
+                <select data-cf-type style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:3px;">
+                  <option value="tributary">Tributary</option>
+                  <option value="non_aggression">Non-Aggression</option>
+                  <option value="mercenary">Mercenary</option>
+                </select>
+              </label>
+              <label style="font-size:11px;color:#9fb0ce;">Credit Offer
+                <input data-cf-credits type="number" min="0" step="500" value="5000" style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:3px;">
+              </label>
+              <label style="font-size:11px;color:#9fb0ce;">Duration (days)
+                <input data-cf-days type="number" min="1" max="90" value="30" style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:3px;">
+              </label>
+              <div style="display:flex;gap:6px;">
+                <button type="button" data-cf-submit style="background:#2e5a2e;border:1px solid #4a8a4a;color:#ccffcc;border-radius:5px;padding:4px 12px;cursor:pointer;font-size:12px;">Send Offer</button>
+                <button type="button" data-cf-cancel style="background:#2e374e;border:1px solid #4a5878;color:#d7e4ff;border-radius:5px;padding:4px 12px;cursor:pointer;font-size:12px;">Cancel</button>
+              </div>
+            </form>`;
+          formHost.style.display = '';
+
+          formHost.querySelector('[data-cf-cancel]')?.addEventListener('click', () => {
+            formHost.style.display = 'none';
+            formHost.innerHTML = '';
+          });
+
+          formHost.querySelector('[data-cf-submit]')?.addEventListener('click', async () => {
+            if (this.isBusy) return;
+            this.isBusy = true;
+            const factionId = Number(formHost.querySelector('[data-cf-faction]')?.value || 0);
+            const contractType = formHost.querySelector('[data-cf-type]')?.value || 'tributary';
+            const creditOffer = Number(formHost.querySelector('[data-cf-credits]')?.value || 0);
+            const durationDays = Number(formHost.querySelector('[data-cf-days]')?.value || 30);
+            try {
+              const resp = await api.piratesProposeContract({
+                faction_id: factionId,
+                contract_type: contractType,
+                credit_offer: creditOffer,
+                duration_days: durationDays,
+              });
+              if (resp?.accepted) {
+                showToast('Contract accepted.', 'success');
+              } else {
+                showToast('Contract rejected. Try offering more credits.', 'warning');
+              }
+              invalidateGetCache([/api\/pirates\.php\?action=/i]);
+              formHost.style.display = 'none';
+              formHost.innerHTML = '';
+              await this.render();
+            } catch (err) {
+              gameLog('warn', 'propose_contract failed', err);
+              showToast('Failed to send contract offer.', 'error');
+            } finally {
+              this.isBusy = false;
+            }
+          });
         });
 
         root.querySelector('[data-pirates-run="1"]')?.addEventListener('click', async () => {
