@@ -133,6 +133,22 @@ describe('API chatNpc', () => {
     expect(payload.player_message).toBe('Was sind eure Absichten?');
   });
 
+  it('forwards optional session_id to continue existing session', async () => {
+    const API = loadApiScript();
+
+    await API.chatNpc({
+      faction_code: 'vor_tak',
+      npc_name: 'Admiral',
+      player_message: 'Continue?',
+      session_id: 17,
+    });
+
+    const requestInit = global.fetch.mock.calls.at(-1)[1] || {};
+    const payload = JSON.parse(String(requestInit.body || '{}'));
+
+    expect(payload.session_id).toBe(17);
+  });
+
   it('exposes chatNpc on window.GQ_LLM', async () => {
     loadApiScript();
     expect(typeof window.GQ_LLM.chatNpc).toBe('function');
@@ -154,5 +170,23 @@ describe('API chatNpc', () => {
 
     expect(payload.model).toBe('llama3.1:8b');
     expect(payload.temperature).toBe(0.7);
+  });
+
+  it('calls close_npc_session endpoint with session_id', async () => {
+    const API = loadApiScript();
+
+    await API.closeNpcSession({ session_id: 42 });
+
+    const calledEndpoint = String(global.fetch.mock.calls.at(-1)[0] || '');
+    const requestInit = global.fetch.mock.calls.at(-1)[1] || {};
+    const payload = JSON.parse(String(requestInit.body || '{}'));
+
+    expect(calledEndpoint).toContain('api/v1/llm.php?action=close_npc_session');
+    expect(payload.session_id).toBe(42);
+  });
+
+  it('exposes closeNpcSession on window.GQ_LLM', async () => {
+    loadApiScript();
+    expect(typeof window.GQ_LLM.closeNpcSession).toBe('function');
   });
 });

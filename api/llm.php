@@ -3,8 +3,10 @@
  * LLM orchestration endpoint with separation-of-concerns style modules.
  *
  * GET  /api/llm.php?action=catalog
- * POST /api/llm.php?action=compose       body: {profile_key, input_vars}
- * POST /api/llm.php?action=chat_profile  body: {profile_key, input_vars, model?, temperature?, options?, timeout?}
+ * POST /api/llm.php?action=compose            body: {profile_key, input_vars}
+ * POST /api/llm.php?action=chat_profile       body: {profile_key, input_vars, model?, temperature?, options?, timeout?}
+ * POST /api/llm.php?action=chat_npc           body: {faction_code, npc_name, player_message, session_id?, model?, temperature?, options?, timeout?}
+ * POST /api/llm.php?action=close_npc_session  body: {session_id, model?}
  */
 
 require_once __DIR__ . '/helpers.php';
@@ -13,7 +15,7 @@ require_once __DIR__ . '/llm_soc/PromptCatalogRepository.php';
 require_once __DIR__ . '/llm_soc/LlmPromptService.php';
 require_once __DIR__ . '/llm_soc/LlmRequestLogRepository.php';
 require_once __DIR__ . '/llm_soc/FactionSpecLoader.php';
-require_once __DIR__ . '/llm_soc/NpcChatHistoryRepository.php';
+require_once __DIR__ . '/llm_soc/NpcChatSessionRepository.php';
 
 $uid = require_auth();
 $action = strtolower((string) ($_GET['action'] ?? 'catalog'));
@@ -128,18 +130,13 @@ switch ($action) {
 		$body = get_json_body();
 
 		$factionCode = strtolower(trim((string) ($body['faction_code'] ?? '')));
-		$npcName = trim((string) ($body['npc_name'] ?? ''));
+		$npcName     = trim((string) ($body['npc_name'] ?? ''));
 		$playerMessage = trim((string) ($body['player_message'] ?? ''));
+		$sessionId   = isset($body['session_id']) ? (int) $body['session_id'] : null;
 
-		if ($factionCode === '') {
-			json_error('faction_code is required.');
-		}
-		if ($npcName === '') {
-			json_error('npc_name is required.');
-		}
-		if ($playerMessage === '') {
-			json_error('player_message is required.');
-		}
+		if ($factionCode === '') { json_error('faction_code is required.'); }
+		if ($npcName === '')     { json_error('npc_name is required.'); }
+		if ($playerMessage === '') { json_error('player_message is required.'); }
 
 		$specLoader = new FactionSpecLoader();
 		try {
@@ -153,11 +150,42 @@ switch ($action) {
 			json_error('NPC not found: ' . $npcName, 404);
 		}
 
+		$chatSessions = new NpcChatSessionRepository();
+
+		// Resolve or create session.
+		if ($sessionId !== null) {
+			$session = $chatSessions->loadSession($db, $sessionId, $uid);
+			if ($session === null) {
+				json_error('Session not found or access denied.', 404);
+			}
+			$isNewSession = false;
+		} else {
+			$session = $chatSessions->createSession($db, $uid, $factionCode, $npcName);
+			$sessionId = (int) $session['id'];
+			$isNewSession = true;
+		}
+
+		$chatFile = (string) $session['chat_file'];
+
+		// Build system prompt from spec.
 		$systemPrompt = $specLoader->buildNpcSystemPrompt($npc, $spec);
 
-		// Enrich system prompt with diplomacy context from DB.
+		// Inject summaries of previous sessions on new session start.
+		if ($isNewSession) {
+			$summaries = $chatSessions->loadPreviousSummaries($db, $uid, $factionCode, $npcName);
+			if (!empty($summaries)) {
+				$summaryLines = [];
+				foreach ($summaries as $s) {
+					$date = substr((string) ($s['started_at'] ?? ''), 0, 10);
+					$summaryLines[] = '[' . $date . '] ' . (string) ($s['summary'] ?? '');
+				}
+				$systemPrompt .= "\n\nBisherige Gespräche (Zusammenfassung):\n" . implode("\n", $summaryLines);
+			}
+		}
+
+		// Enrich with diplomacy context.
 		$diplomacyStmt = $db->prepare(
-			'SELECT d.standing, d.last_event, d.last_event_at
+			'SELECT d.standing, d.last_event
 			 FROM diplomacy d
 			 JOIN npc_factions f ON f.id = d.faction_id
 			 WHERE d.user_id = ? AND f.code = ?
@@ -174,9 +202,9 @@ switch ($action) {
 			}
 		}
 
-		// Load recent NPC decisions for this faction as context.
+		// Enrich with recent faction AI decisions.
 		$decisionsStmt = $db->prepare(
-			'SELECT n.action_key, n.reasoning, n.created_at
+			'SELECT n.action_key, n.reasoning
 			 FROM npc_llm_decision_log n
 			 JOIN npc_factions f ON f.id = n.faction_id
 			 WHERE n.user_id = ? AND f.code = ? AND n.executed = 1
@@ -193,12 +221,8 @@ switch ($action) {
 			$systemPrompt .= "\n\nJüngste Fraktionsentscheidungen: " . implode(' | ', $decisionSummaries);
 		}
 
-		// Load conversation history from disk (DB holds only the file path).
-		$chatHistory = new NpcChatHistoryRepository();
-		$chatFile = $chatHistory->ensureRegistered($db, $uid, $factionCode, $npcName);
-		$historyMessages = $chatHistory->loadMessages($chatFile);
-
-		// Build message array: system + history from file + current player message.
+		// Load this session's messages from disk and build message array.
+		$historyMessages = $chatSessions->loadMessages($chatFile);
 		$messages = [['role' => 'system', 'content' => $systemPrompt]];
 		foreach ($historyMessages as $row) {
 			$messages[] = ['role' => (string) ($row['role'] ?? 'user'), 'content' => (string) ($row['content'] ?? '')];
@@ -207,10 +231,10 @@ switch ($action) {
 
 		$start = microtime(true);
 		$llm = ollama_chat($messages, [
-			'model' => $body['model'] ?? null,
+			'model'       => $body['model'] ?? null,
 			'temperature' => $body['temperature'] ?? null,
-			'options' => is_array($body['options'] ?? null) ? $body['options'] : null,
-			'timeout' => isset($body['timeout']) ? (int) $body['timeout'] : null,
+			'options'     => is_array($body['options'] ?? null) ? $body['options'] : null,
+			'timeout'     => isset($body['timeout']) ? (int) $body['timeout'] : null,
 		]);
 		$latencyMs = (int) round((microtime(true) - $start) * 1000);
 		$model = (string) ($llm['model'] ?? (string) OLLAMA_DEFAULT_MODEL);
@@ -218,46 +242,137 @@ switch ($action) {
 
 		if (!($llm['ok'] ?? false)) {
 			$logRepository->log($db, [
-				'user_id' => $uid,
-				'profile_key' => $profileKey,
-				'model' => $model,
-				'prompt_hash' => hash('sha256', $playerMessage),
-				'prompt_preview' => substr($playerMessage, 0, 800),
+				'user_id'          => $uid,
+				'profile_key'      => $profileKey,
+				'model'            => $model,
+				'prompt_hash'      => hash('sha256', $playerMessage),
+				'prompt_preview'   => substr($playerMessage, 0, 800),
 				'response_preview' => '',
-				'latency_ms' => $latencyMs,
-				'status' => 'error',
-				'error_message' => substr((string) ($llm['error'] ?? 'Ollama failed.'), 0, 512),
+				'latency_ms'       => $latencyMs,
+				'status'           => 'error',
+				'error_message'    => substr((string) ($llm['error'] ?? 'Ollama failed.'), 0, 512),
 			]);
 			json_error((string) ($llm['error'] ?? 'Ollama failed.'), (int) ($llm['status'] ?? 502));
 		}
 
 		$npcReply = (string) ($llm['text'] ?? '');
 
-		// Persist both turns to the JSON file on disk.
-		$chatHistory->appendMessages($db, $chatFile, [
-			['role' => 'user', 'content' => $playerMessage],
+		// Persist both turns to the session file on disk.
+		$chatSessions->appendMessages($db, $sessionId, $chatFile, [
+			['role' => 'user',      'content' => $playerMessage],
 			['role' => 'assistant', 'content' => $npcReply],
 		]);
 
 		$logRepository->log($db, [
-			'user_id' => $uid,
-			'profile_key' => $profileKey,
-			'model' => $model,
-			'prompt_hash' => hash('sha256', $playerMessage),
-			'prompt_preview' => substr($playerMessage, 0, 800),
+			'user_id'          => $uid,
+			'profile_key'      => $profileKey,
+			'model'            => $model,
+			'prompt_hash'      => hash('sha256', $playerMessage),
+			'prompt_preview'   => substr($playerMessage, 0, 800),
 			'response_preview' => substr($npcReply, 0, 1200),
-			'latency_ms' => $latencyMs,
-			'status' => 'ok',
-			'error_message' => '',
+			'latency_ms'       => $latencyMs,
+			'status'           => 'ok',
+			'error_message'    => '',
 		]);
 
 		json_ok([
+			'session_id'  => $sessionId,
 			'faction_code' => $factionCode,
-			'npc_name' => (string) ($npc['name'] ?? $npcName),
-			'model' => $model,
-			'reply' => $npcReply,
-			'latency_ms' => $latencyMs,
+			'npc_name'    => (string) ($npc['name'] ?? $npcName),
+			'model'       => $model,
+			'reply'       => $npcReply,
+			'latency_ms'  => $latencyMs,
 		]);
+		break;
+
+	case 'close_npc_session':
+		only_method('POST');
+		verify_csrf();
+		$body = get_json_body();
+
+		$sessionId = isset($body['session_id']) ? (int) $body['session_id'] : 0;
+		if ($sessionId <= 0) {
+			json_error('session_id is required.');
+		}
+
+		$chatSessions = new NpcChatSessionRepository();
+		$session = $chatSessions->loadSession($db, $sessionId, $uid);
+		if ($session === null) {
+			json_error('Session not found or access denied.', 404);
+		}
+
+		if (!empty($session['summary'])) {
+			json_ok(['session_id' => $sessionId, 'summary' => (string) $session['summary'], 'already_closed' => true]);
+			break;
+		}
+
+		$chatFile = (string) $session['chat_file'];
+		$messages = $chatSessions->loadMessages($chatFile);
+		if (empty($messages)) {
+			json_ok(['session_id' => $sessionId, 'summary' => '', 'already_closed' => false]);
+			break;
+		}
+
+		// Build a condensed transcript for the summary prompt.
+		$transcriptLines = [];
+		foreach ($messages as $msg) {
+			$speaker = (string) ($msg['role'] ?? 'user') === 'assistant' ? (string) ($session['npc_name'] ?? 'NPC') : 'Spieler';
+			$transcriptLines[] = $speaker . ': ' . (string) ($msg['content'] ?? '');
+		}
+		$transcript = implode("\n", $transcriptLines);
+
+		$summaryMessages = [
+			[
+				'role'    => 'system',
+				'content' => 'Fasse das folgende Gespräch in 2-3 Sätzen auf Deutsch zusammen. Schreibe in der dritten Person. Nenne keine Rollennamen wie "Spieler" oder "NPC" – beschreibe stattdessen, was besprochen wurde und welche Entscheidungen oder Eindrücke entstanden sind.',
+			],
+			[
+				'role'    => 'user',
+				'content' => $transcript,
+			],
+		];
+
+		$start = microtime(true);
+		$summaryLlm = ollama_chat($summaryMessages, [
+			'model'       => $body['model'] ?? null,
+			'temperature' => 0.3,
+			'options'     => ['num_predict' => 200],
+			'timeout'     => 30,
+		]);
+		$latencyMs = (int) round((microtime(true) - $start) * 1000);
+		$model = (string) ($summaryLlm['model'] ?? (string) OLLAMA_DEFAULT_MODEL);
+
+		if (!($summaryLlm['ok'] ?? false)) {
+			$logRepository->log($db, [
+				'user_id'          => $uid,
+				'profile_key'      => 'npc_character_chat',
+				'model'            => $model,
+				'prompt_hash'      => hash('sha256', $transcript),
+				'prompt_preview'   => substr($transcript, 0, 800),
+				'response_preview' => '',
+				'latency_ms'       => $latencyMs,
+				'status'           => 'error',
+				'error_message'    => substr((string) ($summaryLlm['error'] ?? 'Ollama failed.'), 0, 512),
+			]);
+			json_error((string) ($summaryLlm['error'] ?? 'Ollama failed.'), (int) ($summaryLlm['status'] ?? 502));
+		}
+
+		$summary = trim((string) ($summaryLlm['text'] ?? ''));
+		$chatSessions->saveSessionSummary($db, $sessionId, $summary);
+
+		$logRepository->log($db, [
+			'user_id'          => $uid,
+			'profile_key'      => 'npc_character_chat',
+			'model'            => $model,
+			'prompt_hash'      => hash('sha256', $transcript),
+			'prompt_preview'   => substr($transcript, 0, 800),
+			'response_preview' => substr($summary, 0, 1200),
+			'latency_ms'       => $latencyMs,
+			'status'           => 'ok',
+			'error_message'    => '',
+		]);
+
+		json_ok(['session_id' => $sessionId, 'summary' => $summary, 'already_closed' => false]);
 		break;
 
 	default:

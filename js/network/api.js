@@ -1780,6 +1780,7 @@ const API = (() => {
       faction_code,
       npc_name,
       player_message,
+      session_id,
       model,
       temperature,
       options,
@@ -1788,10 +1789,18 @@ const API = (() => {
       faction_code,
       npc_name,
       player_message,
+      session_id,
       model,
       temperature,
       options,
       timeout,
+    }),
+    closeNpcSession: ({
+      session_id,
+      model,
+    } = {}) => post('api/llm.php?action=close_npc_session', {
+      session_id,
+      model,
     }),
 
     // Situations
@@ -1820,5 +1829,6 @@ if (typeof window !== 'undefined') {
     compose: (payload) => API.llmCompose(payload),
     chatProfile: (payload) => API.llmChatProfile(payload),
     chatNpc: (payload) => API.chatNpc(payload),
+    closeNpcSession: (payload) => API.closeNpcSession(payload),
   };
 }
