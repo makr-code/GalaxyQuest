@@ -28,6 +28,11 @@ services:
       SWARMUI_BASE_URL: http://host.docker.internal:7801
       TTS_ENABLED: 1
       TTS_SERVICE_URL: http://tts:5500
+      # ThemisDB – Phase 0 dual-write (disabled by default; enable when themisdb profile is active)
+      THEMISDB_ENABLED: 0
+      THEMISDB_BASE_URL: http://themisdb:8080
+      THEMISDB_TIMEOUT_SECONDS: 10
+      THEMISDB_DUAL_WRITE: 0
     ports:
       - "8080:80"
     volumes:
@@ -86,7 +91,81 @@ services:
       - galaxyquest-tts-voice-cache:/app/voice_cache
       - galaxyquest-tts-audio-cache:/app/audio_cache
 
+  # ── ThemisDB (Phase 0: parallel to MySQL for dual-write PoC) ──────────────
+  # ThemisDB COMMUNITY edition – multi-model database with native LLM support.
+  # Ports:
+  #   8090  → HTTP/REST/GraphQL API  (maps to internal 8080, avoids conflict with web:8080)
+  #   18765 → Binary Wire / gRPC
+  #   4318  → OpenTelemetry / Prometheus metrics
+  # Set THEMISDB_ENABLED=1 in the web service environment to activate dual-write.
+  themisdb:
+    image: themisdb/themisdb:latest
+    container_name: galaxyquest-themisdb
+    profiles:
+      - themisdb          # opt-in: start with `docker compose --profile themisdb up`
+    environment:
+      THEMIS_HTTP_PORT: 8080
+      THEMIS_WIRE_PORT: 18765
+      THEMIS_METRICS_PORT: 4318
+      THEMIS_DATA_DIR: /data
+      THEMIS_LOG_LEVEL: info
+      THEMIS_EDITION: community
+      # LLM integration – mount a models/ directory and set the path here.
+      THEMIS_LLM_ENABLED: 0
+      THEMIS_LLM_MODEL_DIR: /models
+    ports:
+      - "8090:8080"
+      - "18765:18765"
+      - "4318:4318"
+    volumes:
+      - galaxyquest-themisdb-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # ── ThemisDB schema provisioner ──────────────────────────────────────────────
+  # Runs once after ThemisDB is healthy: creates all collections, indexes, graph
+  # definitions and seed data that mirror the MySQL schema.
+  # MySQL parallel: sql/schema.sql + sql/migrate_*.sql → themis_schema_provision.php
+  #
+  # Automatically runs when starting with the 'themisdb' profile:
+  #   docker compose --profile themisdb up
+  #
+  # Timing note: themisdb healthcheck has start_period=30s + 12 retries × 10s = up to
+  # 2 minutes before this init container starts.  On first startup (cold data volume)
+  # this is normal.  themisdb-init exits with code 0 on success; use
+  # `docker compose logs themisdb-init` to inspect provisioning output.
+  themisdb-init:
+    image: php:8.3-cli
+    container_name: galaxyquest-themisdb-init
+    profiles:
+      - themisdb
+    depends_on:
+      themisdb:
+        condition: service_healthy
+    environment:
+      # Mirror the web service ThemisDB settings
+      THEMISDB_ENABLED:         1
+      THEMISDB_BASE_URL:        http://themisdb:8080
+      THEMISDB_TIMEOUT_SECONDS: 30
+      THEMISDB_DUAL_WRITE:      0
+      THEMISDB_API_TOKEN:       ""
+    volumes:
+      - ./:/app:ro          # mount repo read-only
+    working_dir: /app
+    # Provision schema + seed data, then exit (restart: no)
+    command: >
+      sh -c "php tools/themis_schema_provision.php
+               --url=http://themisdb:8080
+               --seed
+               && echo '[themisdb-init] Schema provisioning complete.'"
+    restart: "no"
+
 volumes:
   galaxyquest-db-data:
   galaxyquest-tts-voice-cache:
   galaxyquest-tts-audio-cache:
+  galaxyquest-themisdb-data:
