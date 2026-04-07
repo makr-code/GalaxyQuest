@@ -23,7 +23,10 @@ declare(strict_types=1);
  *  - Flow-style mappings ({ }) and flow-style sequences ([ ])
  *  - Block scalars (| and >)
  *
- * No eval(), no unserialize(), no object instantiation.
+ * Silently skipped:
+ *  - Empty lines, lines containing only whitespace
+ *  - Comment lines (# at the start of the trimmed content)
+ *  - Document start/end markers (--- / ...)
  */
 final class MiniYamlParser
 {
@@ -121,7 +124,13 @@ final class MiniYamlParser
                 );
             }
 
-            // Parse  key: [value]
+            // Skip document markers.
+            if ($stripped === '---' || $stripped === '...') {
+                $i++;
+                continue;
+            }
+
+            // Parse key: [value]
             $colonPos = strpos($stripped, ':');
             if ($colonPos === false) {
                 throw new \RuntimeException(
@@ -225,93 +234,53 @@ final class MiniYamlParser
     // ── Scalar parsing ────────────────────────────────────────────────────────
 
     /**
-     * Parse a single scalar value from the inline portion of a YAML line.
-     *
-     * @return string|int|float|bool|null
+     * Convert a raw scalar string to its PHP equivalent (string, int, float, bool, null).
      */
     private function parseScalar(string $raw): mixed
     {
-        $raw = trim($raw);
+        $v = trim($raw);
 
-        // Inline comment — strip it (only outside quotes)
-        $raw = $this->stripInlineComment($raw);
-
-        // Check for unsupported constructs in the value
-        $this->guardUnsupported($raw, '(scalar)');
-
-        // Double-quoted string
-        if (str_starts_with($raw, '"')) {
-            return $this->parseDoubleQuoted($raw);
+        // Double-quoted string – handle basic escapes
+        if (str_starts_with($v, '"') && str_ends_with($v, '"') && strlen($v) >= 2) {
+            $inner = substr($v, 1, -1);
+            $inner = str_replace(['\\"', '\\n', '\\t', '\\\\'], ['"', "\n", "\t", '\\'], $inner);
+            return $inner;
         }
 
-        // Single-quoted string
-        if (str_starts_with($raw, "'")) {
-            return $this->parseSingleQuoted($raw);
+        // Single-quoted string – only '' escape inside
+        if (str_starts_with($v, "'") && str_ends_with($v, "'") && strlen($v) >= 2) {
+            return str_replace("''", "'", substr($v, 1, -1));
+        }
+
+        // Strip trailing inline comment (must have at least one space before #)
+        if (preg_match('/^(.*?)\s+#[^"\']*$/', $v, $cm)) {
+            $v = rtrim($cm[1]);
         }
 
         // Null
-        if ($raw === '~' || strtolower($raw) === 'null') {
+        if ($v === '' || strtolower($v) === 'null' || $v === '~') {
             return null;
         }
 
         // Boolean
-        $lower = strtolower($raw);
-        if (in_array($lower, ['true', 'yes', 'on'], true)) {
+        if (in_array(strtolower($v), ['true', 'yes', 'on'], true)) {
             return true;
         }
-        if (in_array($lower, ['false', 'no', 'off'], true)) {
+        if (in_array(strtolower($v), ['false', 'no', 'off'], true)) {
             return false;
         }
 
         // Integer
-        if (preg_match('/^-?\d+$/', $raw)) {
-            return (int) $raw;
+        if (preg_match('/^-?\d+$/', $v)) {
+            return (int) $v;
         }
 
         // Float
-        if (preg_match('/^-?\d+\.\d+$/', $raw)) {
-            return (float) $raw;
+        if (preg_match('/^-?\d+\.\d+$/', $v)) {
+            return (float) $v;
         }
 
-        return $raw;
-    }
-
-    private function parseDoubleQuoted(string $raw): string
-    {
-        // Strip surrounding "
-        if (!str_ends_with($raw, '"') || strlen($raw) < 2) {
-            return $raw;
-        }
-        $inner = substr($raw, 1, -1);
-        // Handle common escape sequences
-        $inner = str_replace(['\\"', '\\n', '\\t', '\\\\'], ['"', "\n", "\t", '\\'], $inner);
-        return $inner;
-    }
-
-    private function parseSingleQuoted(string $raw): string
-    {
-        if (!str_ends_with($raw, "'") || strlen($raw) < 2) {
-            return $raw;
-        }
-        $inner = substr($raw, 1, -1);
-        // Only escape is '' → '
-        return str_replace("''", "'", $inner);
-    }
-
-    /**
-     * Strip a trailing inline comment (# ...) from a raw scalar string.
-     * Does not strip inside single- or double-quoted strings.
-     */
-    private function stripInlineComment(string $raw): string
-    {
-        if (str_starts_with($raw, '"') || str_starts_with($raw, "'")) {
-            return $raw; // quoted — don't strip
-        }
-        $pos = strpos($raw, ' #');
-        if ($pos !== false) {
-            return rtrim(substr($raw, 0, $pos));
-        }
-        return $raw;
+        return $v;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -368,36 +337,41 @@ final class MiniYamlParser
     }
 
     /**
-     * Throw \InvalidArgumentException if the value uses an unsupported YAML feature.
+     * Throw on syntax this parser deliberately does not support.
      *
-     * @param string     $value       The trimmed/raw value string to inspect
-     * @param string|int $lineContext  For error messages (line number or label)
+     * @throws \InvalidArgumentException
      */
     private function guardUnsupported(string $value, string|int $lineContext): void
     {
-        $trimmed = ltrim($value);
-
-        if (str_starts_with($trimmed, '&') || str_starts_with($trimmed, '*')) {
+        // Anchors (& at line start or inline as value).
+        if (str_starts_with($stripped, '&') || preg_match('/:\s*&/', $stripped)) {
             throw new \InvalidArgumentException(
-                "MiniYamlParser: anchors and aliases are not supported. Line: {$lineContext}"
+                "YAML anchors are not supported (line {$lineNumber})"
             );
         }
-
-        if (str_starts_with($trimmed, '!')) {
+        // Aliases (* at line start or inline as value).
+        if (str_starts_with($stripped, '*') || preg_match('/:\s*\*/', $stripped)) {
             throw new \InvalidArgumentException(
-                "MiniYamlParser: YAML tags are not supported. Line: {$lineContext}"
+                "YAML aliases are not supported (line {$lineNumber})"
             );
         }
-
-        if (str_starts_with($trimmed, '{') || str_starts_with($trimmed, '[')) {
+        // Tags (! at line start or inline as value).
+        if (str_starts_with($stripped, '!') || preg_match('/:\s*!/', $stripped)) {
             throw new \InvalidArgumentException(
-                "MiniYamlParser: flow-style collections are not supported. Line: {$lineContext}"
+                "YAML tags are not supported (line {$lineNumber})"
             );
         }
-
-        if (preg_match('/^[|>]/', $trimmed)) {
+        // Flow mappings / sequences (at line start or inline as value).
+        if (str_starts_with($stripped, '{') || str_starts_with($stripped, '[')
+            || preg_match('/:\s*[{[]/', $stripped)) {
             throw new \InvalidArgumentException(
-                "MiniYamlParser: block-scalar styles (| and >) are not supported. Line: {$lineContext}"
+                "YAML flow style is not supported (line {$lineNumber})"
+            );
+        }
+        // Block-scalars.
+        if (preg_match('/^[^:]+:\s*[|>]/', $stripped)) {
+            throw new \InvalidArgumentException(
+                "YAML block-scalars (| and >) are not supported (line {$lineNumber})"
             );
         }
     }
