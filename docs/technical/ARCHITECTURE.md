@@ -320,17 +320,20 @@ fixed-step tick-based with event-driven subsystem communication via EventBus.
 │   │   ├── galaxy-renderer-events.js  Event bindings for renderer
 │   │   ├── galaxy-renderer-config.js  Renderer configuration
 │   │   ├── galaxy-camera-controller.js  Camera control
+│   │   ├── Galaxy3DRendererWebGPU.js  Native WebGPU galaxy renderer
 │   │   ├── material-factory.js        Material creation
 │   │   ├── geometry-manager.js        Geometry management
 │   │   ├── texture-manager.js         Texture management
 │   │   ├── light-rig-manager.js       Lighting setup
 │   │   ├── post-effects.js            Post-processing integration
 │   │   ├── starfield-webgpu.js        WebGPU starfield renderer
+│   │   ├── starfield.js               WebGL starfield renderer
 │   │   └── planet-textures.js         Procedural planet textures
 │   ├── runtime/               Core game runtime (legacy position)
 │   │   ├── game.js            Main game UI controller
 │   │   ├── wm.js              Floating window manager
-│   │   ├── audio.js           Audio engine
+│   │   ├── audio.js           GQAudioManager — 4 channels: music/sfx/teaser/tts
+│   │   ├── tts.js             GQTTS — text-to-speech client
 │   │   ├── galaxy-model.js    Galaxy data model
 │   │   ├── galaxy-db.js       Galaxy data access layer
 │   │   ├── model_registry.js  Client-side model registry
@@ -358,19 +361,21 @@ fixed-step tick-based with event-driven subsystem communication via EventBus.
 │   │   ├── GameEngine.js      Top-level engine coordinator
 │   │   ├── GameLoop.js        RAF + fixed-step accumulator
 │   │   ├── EventBus.js        Decoupled pub/sub events
-│   │   ├── SystemRegistry.js  Ordered update pipeline
+│   │   ├── SystemRegistry.js  Ordered update pipeline (priority slots 0–900)
 │   │   ├── AssetRegistry.js   Asset cache + preloading
 │   │   ├── ViewportManager.js PiP viewport manager
 │   │   ├── constants.js       Engine constants
-│   │   ├── core/              Renderer core + abstraction
-│   │   ├── webgpu/            WebGPU wrappers
-│   │   ├── scene/             Scene graph, camera, geometry
+│   │   ├── core/              Renderer core + abstraction (RendererFactory)
+│   │   ├── webgpu/            WebGPU wrappers (Device, Buffer, Texture, Shader, …)
+│   │   ├── scene/             Scene graph, camera, geometry, lights
 │   │   ├── math/              Vector, Matrix, Quaternion, MathUtils
 │   │   ├── loaders/           Asset loaders
 │   │   ├── utils/             Performance monitor, resource tracker
-│   │   ├── post-effects/      Post-processing pipeline
-│   │   ├── fx/                Combat, environment, particle FX
-│   │   └── game/              BattleSimulator, ColonySimulation, etc.
+│   │   ├── post-effects/      Post-processing pipeline (EffectComposer + passes)
+│   │   ├── fx/                Combat, environment, particle FX; StarfieldFX; WarpFX
+│   │   ├── game/              BattleSimulator, ColonySimulation, ResearchTree, etc.
+│   │   ├── zoom/              SeamlessZoom system (Orchestrator, RendererRegistry, CameraFlightPath)
+│   │   └── runtime/           ~140 Runtime* modules (controllers, facades, lifecycle)
 │   └── packages/              Pre-built bundles (game.boot.bundle.*.js.gz)
 │
 ├── api/
@@ -420,18 +425,34 @@ fixed-step tick-based with event-driven subsystem communication via EventBus.
 │   ├── compression-v3.php     Binary encoding V3 (delta)
 │   ├── model_gen.php          AI model generation proxy
 │   ├── character_profile_generator.php  LLM-driven character profiles
+│   ├── tts.php                TTS synthesis endpoint (proxies to tts_service)
+│   ├── tts_client.php         TTS HTTP client
+│   ├── sse.php                Server-Sent Events — fleet/attack spoken alerts
 │   └── llm_soc/               LLM Separation-of-Concerns modules
-│       ├── PromptCatalogRepository.php  Prompt profile CRUD
-│       ├── LlmPromptService.php         Prompt assembly + LLM dispatch
-│       └── LlmRequestLogRepository.php  Request audit log
+│       ├── PromptCatalogRepository.php     Prompt profile CRUD (file + DB merge)
+│       ├── LlmPromptService.php            Prompt template rendering + LLM dispatch
+│       ├── LlmRequestLogRepository.php     Request audit log
+│       ├── FactionSpecLoader.php           Loads faction YAML specs for prompt vars
+│       ├── NpcChatSessionRepository.php    NPC chat session storage (JSON files + DB)
+│       └── IronFleetPromptVarsComposer.php Iron Fleet mini-faction prompt vars
 │
 ├── lib/
 │   ├── projection_runtime.php  Shared projection queue runtime
+│   ├── MiniYamlParser.php      Strict YAML-subset parser (scalars/maps/sequences)
 │   └── template-renderer.php   PHP template rendering helpers
 │
 ├── scripts/
 │   └── project_user_overview.php  Projection worker: user overviews
 │   └── project_system_snapshots.php  Projection worker: system snapshots
+│
+├── tts_service/               FastAPI TTS microservice (Piper / XTTS)
+│   └── main.py                HTTP endpoint: POST /synthesize → MP3 bytes
+│
+├── fractions/                 Faction definition files
+│   └── <faction_code>/        One folder per faction
+│       ├── spec.yaml          Faction spec (authoring)
+│       ├── spec.json          Faction spec (runtime)
+│       └── mini_factions/     Mini-faction YAML specs (e.g. iron_fleet)
 │
 ├── sql/
 │   ├── schema.sql             Full schema for fresh install
