@@ -987,10 +987,10 @@ function generate_faction_homeworld_name(string $factionId, int $g, int $s, int 
  * user_faction_quests.  Returns the new user_faction_quests.id on success, or
  * null if the faction/quest is not found (e.g. migration not yet run).
  *
- * Uses INSERT IGNORE so it is safe to call twice (idempotency on the unique
- * constraint on (user_id, faction_quest_id) is handled by the fact that
- * user_faction_quests has no such unique constraint; instead we check for an
- * existing row first to avoid duplicates).
+ * Idempotency is achieved by an explicit SELECT check before INSERT: if the
+ * row already exists the function returns null without inserting a duplicate.
+ * The quest code for each faction mirrors the quest_code field defined on the
+ * corresponding FACTIONS entry in js/ui/prolog.js; both must be kept in sync.
  */
 function seed_prolog_initial_quest(PDO $db, int $userId, string $factionId): ?int {
     if ($factionId === '') {

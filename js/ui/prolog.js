@@ -25,6 +25,9 @@
   'use strict';
 
   // ─── Faction data ──────────────────────────────────────────────────────────
+  // Each faction's quest_code must match the corresponding faction_quests.code
+  // value seeded in sql/schema.sql (and sql/migrate_prolog_quests_v1.sql), and
+  // the $questCodes map in api/auth.php seed_prolog_initial_quest().
 
   const FACTIONS = [
     {
