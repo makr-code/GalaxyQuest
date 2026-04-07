@@ -86,6 +86,11 @@ module.exports = {
   LensFlarePass, MAX_FLARE_SOURCES,
   DustLayerPass, DUST_LAYER_COUNT,
   MotionBlurPass,
+  FilmGrainPass,
+  ColorGradingPass,
+  StarScintillationPass,
+  DiskRotationParallaxPass,
+  JetLightingPass, MAX_JET_SOURCES,
   PostFxController, PostFxParamMeta,
   // Math
   Vector2, Vector3, Vector4, Matrix4, Quaternion, MathUtils,

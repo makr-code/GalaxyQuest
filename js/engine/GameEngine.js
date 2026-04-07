@@ -377,16 +377,22 @@ class GameEngine {
    * @param {Object} [cfg.bloom]        Bloom params: { enabled, threshold, strength, radius }
    * @param {Object} [cfg.vignette]     Vignette params: { enabled, darkness, falloff }
    * @param {Object} [cfg.chromatic]    Chromatic params: { enabled, power, angle }
-   * @param {Object} [cfg.toneMapping]  Tone-mapping params: { enabled, mode, exposure }
-   * @param {Object} [cfg.lensFlare]    Lens-flare params: { enabled, globalScale, ghostCount }
-   * @param {Object} [cfg.dustLayer]    Dust-layer params: { enabled, masterOpacity }
-   * @param {Object} [cfg.motionBlur]   Motion-blur params: { enabled, strength, maxSamples, threshold }
+   * @param {Object} [cfg.toneMapping]         Tone-mapping params: { enabled, mode, exposure }
+   * @param {Object} [cfg.lensFlare]           Lens-flare params: { enabled, globalScale, ghostCount }
+   * @param {Object} [cfg.dustLayer]           Dust-layer params: { enabled, masterOpacity }
+   * @param {Object} [cfg.motionBlur]          Motion-blur params: { enabled, strength, maxSamples, threshold }
+   * @param {Object} [cfg.filmGrain]           Film-grain params: { enabled, intensity, speed, size }
+   * @param {Object} [cfg.colorGrading]        Color-grading params: { enabled, brightness, contrast, saturation, hueShift }
+   * @param {Object} [cfg.starScintillation]   Star-scintillation params: { enabled, threshold, amplitude, speed }
+   * @param {Object} [cfg.diskRotationParallax] Disc-rotation params: { enabled, innerVelocity, outerVelocity, centerX, centerY }
+   * @param {Object} [cfg.jetLighting]         Jet-lighting params: { enabled, globalIntensity, spread }
    * @returns {this}
    */
   configurePostFx(cfg) {
     if (!this.postFx || !cfg) return this;
 
-    const { bloom, vignette, chromatic, toneMapping, lensFlare, dustLayer, motionBlur } = cfg;
+    const { bloom, vignette, chromatic, toneMapping, lensFlare, dustLayer, motionBlur,
+            filmGrain, colorGrading, starScintillation, diskRotationParallax, jetLighting } = cfg;
 
     if (bloom && this._bloomPass) {
       if (bloom.enabled   !== undefined) this._bloomPass.enabled   = !!bloom.enabled;
@@ -423,6 +429,37 @@ class GameEngine {
       if (motionBlur.strength   !== undefined) this._motionBlurPass.strength   = motionBlur.strength;
       if (motionBlur.maxSamples !== undefined) this._motionBlurPass.maxSamples = motionBlur.maxSamples;
       if (motionBlur.threshold  !== undefined) this._motionBlurPass.threshold  = motionBlur.threshold;
+    }
+    if (filmGrain && this._filmGrainPass) {
+      if (filmGrain.enabled    !== undefined) this._filmGrainPass.enabled    = !!filmGrain.enabled;
+      if (filmGrain.intensity  !== undefined) this._filmGrainPass.intensity  = filmGrain.intensity;
+      if (filmGrain.speed      !== undefined) this._filmGrainPass.speed      = filmGrain.speed;
+      if (filmGrain.size       !== undefined) this._filmGrainPass.size       = filmGrain.size;
+    }
+    if (colorGrading && this._colorGradingPass) {
+      if (colorGrading.enabled     !== undefined) this._colorGradingPass.enabled     = !!colorGrading.enabled;
+      if (colorGrading.brightness  !== undefined) this._colorGradingPass.brightness  = colorGrading.brightness;
+      if (colorGrading.contrast    !== undefined) this._colorGradingPass.contrast    = colorGrading.contrast;
+      if (colorGrading.saturation  !== undefined) this._colorGradingPass.saturation  = colorGrading.saturation;
+      if (colorGrading.hueShift    !== undefined) this._colorGradingPass.hueShift    = colorGrading.hueShift;
+    }
+    if (starScintillation && this._starScintillationPass) {
+      if (starScintillation.enabled   !== undefined) this._starScintillationPass.enabled   = !!starScintillation.enabled;
+      if (starScintillation.threshold !== undefined) this._starScintillationPass.threshold = starScintillation.threshold;
+      if (starScintillation.amplitude !== undefined) this._starScintillationPass.amplitude = starScintillation.amplitude;
+      if (starScintillation.speed     !== undefined) this._starScintillationPass.speed     = starScintillation.speed;
+    }
+    if (diskRotationParallax && this._diskRotationParallaxPass) {
+      if (diskRotationParallax.enabled       !== undefined) this._diskRotationParallaxPass.enabled       = !!diskRotationParallax.enabled;
+      if (diskRotationParallax.innerVelocity !== undefined) this._diskRotationParallaxPass.innerVelocity = diskRotationParallax.innerVelocity;
+      if (diskRotationParallax.outerVelocity !== undefined) this._diskRotationParallaxPass.outerVelocity = diskRotationParallax.outerVelocity;
+      if (diskRotationParallax.centerX       !== undefined) this._diskRotationParallaxPass.centerX       = diskRotationParallax.centerX;
+      if (diskRotationParallax.centerY       !== undefined) this._diskRotationParallaxPass.centerY       = diskRotationParallax.centerY;
+    }
+    if (jetLighting && this._jetLightingPass) {
+      if (jetLighting.enabled         !== undefined) this._jetLightingPass.enabled         = !!jetLighting.enabled;
+      if (jetLighting.globalIntensity !== undefined) this._jetLightingPass.globalIntensity = jetLighting.globalIntensity;
+      if (jetLighting.spread          !== undefined) this._jetLightingPass.spread          = jetLighting.spread;
     }
 
     this.events.emit('postfx:configured', { cfg });
@@ -490,7 +527,9 @@ class GameEngine {
       // by the CJS-require / ESM-import dual-module-cache split).
       const _g = typeof window !== 'undefined' ? window : globalThis;
       let BloomPass, VignettePass, ChromaticPass,
-          ToneMappingPass, LensFlarePass, DustLayerPass, MotionBlurPass;
+          ToneMappingPass, LensFlarePass, DustLayerPass, MotionBlurPass,
+          FilmGrainPass, ColorGradingPass, StarScintillationPass,
+          DiskRotationParallaxPass, JetLightingPass;
       if (typeof _g.GQBloomPass !== 'undefined') {
         // Browser plain-script context: globals were set by <script> tags.
         BloomPass      = _g.GQBloomPass;
@@ -500,6 +539,11 @@ class GameEngine {
         LensFlarePass   = _g.GQLensFlarePass?.LensFlarePass   ?? _g.GQLensFlarePass;
         DustLayerPass   = _g.GQDustLayerPass?.DustLayerPass   ?? _g.GQDustLayerPass;
         MotionBlurPass  = _g.GQMotionBlurPass?.MotionBlurPass ?? _g.GQMotionBlurPass;
+        FilmGrainPass            = _g.GQFilmGrainPass?.FilmGrainPass               ?? _g.GQFilmGrainPass;
+        ColorGradingPass         = _g.GQColorGradingPass?.ColorGradingPass          ?? _g.GQColorGradingPass;
+        StarScintillationPass    = _g.GQStarScintillationPass?.StarScintillationPass ?? _g.GQStarScintillationPass;
+        DiskRotationParallaxPass = _g.GQDiskRotationParallaxPass?.DiskRotationParallaxPass ?? _g.GQDiskRotationParallaxPass;
+        JetLightingPass          = _g.GQJetLightingPass?.JetLightingPass            ?? _g.GQJetLightingPass;
       } else {
         // Node.js / bundler / test context: dynamic import() shares the ESM
         // module registry with static `import` statements, guaranteeing
@@ -507,6 +551,8 @@ class GameEngine {
         ([
           { BloomPass }, { VignettePass }, { ChromaticPass },
           { ToneMappingPass }, { LensFlarePass }, { DustLayerPass }, { MotionBlurPass },
+          { FilmGrainPass }, { ColorGradingPass }, { StarScintillationPass },
+          { DiskRotationParallaxPass }, { JetLightingPass },
         ] = await Promise.all([
           import('./post-effects/passes/BloomPass.js'),
           import('./post-effects/passes/VignettePass.js'),
@@ -515,6 +561,11 @@ class GameEngine {
           import('./post-effects/passes/LensFlarePass.js'),
           import('./post-effects/passes/DustLayerPass.js'),
           import('./post-effects/passes/MotionBlurPass.js'),
+          import('./post-effects/passes/FilmGrainPass.js'),
+          import('./post-effects/passes/ColorGradingPass.js'),
+          import('./post-effects/passes/StarScintillationPass.js'),
+          import('./post-effects/passes/DiskRotationParallaxPass.js'),
+          import('./post-effects/passes/JetLightingPass.js'),
         ]));
       }
 
@@ -554,6 +605,31 @@ class GameEngine {
         const mbOpts = typeof opts.motionBlur === 'object' ? opts.motionBlur : {};
         this._motionBlurPass = new MotionBlurPass(mbOpts);
         this.postFx.addPass(this._motionBlurPass);
+      }
+      if (opts.filmGrain !== false && FilmGrainPass) {
+        const fgOpts = typeof opts.filmGrain === 'object' ? opts.filmGrain : {};
+        this._filmGrainPass = new FilmGrainPass(fgOpts);
+        this.postFx.addPass(this._filmGrainPass);
+      }
+      if (opts.colorGrading !== false && ColorGradingPass) {
+        const cgOpts = typeof opts.colorGrading === 'object' ? opts.colorGrading : {};
+        this._colorGradingPass = new ColorGradingPass(cgOpts);
+        this.postFx.addPass(this._colorGradingPass);
+      }
+      if (opts.starScintillation !== false && StarScintillationPass) {
+        const ssOpts = typeof opts.starScintillation === 'object' ? opts.starScintillation : {};
+        this._starScintillationPass = new StarScintillationPass(ssOpts);
+        this.postFx.addPass(this._starScintillationPass);
+      }
+      if (opts.diskRotationParallax !== false && DiskRotationParallaxPass) {
+        const drOpts = typeof opts.diskRotationParallax === 'object' ? opts.diskRotationParallax : {};
+        this._diskRotationParallaxPass = new DiskRotationParallaxPass(drOpts);
+        this.postFx.addPass(this._diskRotationParallaxPass);
+      }
+      if (opts.jetLighting !== false && JetLightingPass) {
+        const jlOpts = typeof opts.jetLighting === 'object' ? opts.jetLighting : {};
+        this._jetLightingPass = new JetLightingPass(jlOpts);
+        this.postFx.addPass(this._jetLightingPass);
       }
     }
 

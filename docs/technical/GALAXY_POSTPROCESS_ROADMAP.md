@@ -174,12 +174,13 @@ Progressively enhance the visual fidelity of the galaxy renderer with post-proce
 ---
 
 ## Phase 5: Optional Enhancements 🌟
+**Status:** ✅ IMPLEMENTED (2026-04)
 
-- [ ] **Star Scintillation:** Twinkle effect (variation in alpha per frame)
-- [ ] **Disk Rotation Parallax:** Closer layers rotate faster
-- [ ] **Jet Lighting:** Directional light affecting jets dynamically
-- [ ] **Color Grading:** LUT-based color correction for cohesive mood
-- [ ] **Film Grain:** Subtle noise overlay for gritty authenticity
+- [x] **Star Scintillation:** Twinkle effect — `StarScintillationPass.js` + `starscintillation.wgsl`; luminance-threshold hash noise modulates bright pixels; 20 unit tests
+- [x] **Disk Rotation Parallax:** Closer layers rotate faster — `DiskRotationParallaxPass.js` + `diskrotationparallax.wgsl`; Keplerian innerVelocity/outerVelocity UV warp; 22 unit tests
+- [x] **Jet Lighting:** Directional light affecting jets dynamically — `JetLightingPass.js` + `jetlighting.wgsl`; up to 4 AGN/black-hole jet sources with narrow-core + wide-penumbra model; 35 unit tests
+- [x] **Color Grading:** Analytical Brightness/Contrast/Saturation/HueShift — `ColorGradingPass.js` + `colorgrading.wgsl`; LGG model (DaVinci Resolve style); 17 unit tests
+- [x] **Film Grain:** Temporal hash noise overlay — `FilmGrainPass.js` + `filmgrain.wgsl`; luminance-weighted grain, intensity/speed/size controls; 20 unit tests
 
 ---
 
