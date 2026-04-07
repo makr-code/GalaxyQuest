@@ -120,6 +120,17 @@
       }
     },
     {
+      "key": "npc_character_chat",
+      "name": "NPC Character Chat",
+      "description": "Direct character chat with a named NPC. System prompt is replaced at runtime by the NPC ai_prompt from the faction spec.",
+      "system_prompt": "",
+      "user_template": "{{player_message}}",
+      "input_schema": {
+        "required": ["player_message"],
+        "optional": []
+      }
+    },
+    {
       "key": "faction_intelligence_report",
       "name": "Faction Intelligence Report",
       "description": "Generate an in-universe intelligence briefing about a faction or enemy force.",
