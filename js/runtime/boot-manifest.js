@@ -145,8 +145,8 @@
       'js/engine/runtime/RuntimeTopbarA11y.js',
       'js/engine/runtime/RuntimeTopbarSearchStore.js',
       'js/engine/runtime/RuntimeTopbarSearch.js',
-      'js/engine/runtime/RuntimeGalaxySearchScoring.js',
-      'js/engine/runtime/RuntimeGalaxyPhysicsFlight.js',
+      'js/engine/runtime/layers/domain/galaxy/SearchScoring.js',
+      'js/engine/runtime/layers/domain/galaxy/PhysicsFlight.js',
       'js/engine/runtime/RuntimeColonySurfaceSlotMapping.js',
       'js/engine/runtime/RuntimeWormholeController.js',
       'js/engine/runtime/RuntimeRealtimeSync.js',
@@ -189,34 +189,34 @@
       'js/engine/runtime/layers/integration/galaxy/ControllerStarLoading.js'
     ], V.runtime))
     .concat([
-      localScript('js/engine/runtime/RuntimeGalaxyControllerFacade.js', V.galaxyController)
+      localScript('js/engine/runtime/layers/integration/galaxy/ControllerFacade.js', V.galaxyController)
     ])
     .concat(localScripts([
-      'js/engine/runtime/RuntimeGalaxyControllerBootstrap.js',
+      'js/engine/runtime/layers/integration/galaxy/ControllerBootstrap.js',
       'js/engine/runtime/layers/ui/galaxy/ControlUi.js',
       'js/engine/runtime/layers/integration/galaxy/WindowBindings.js',
       'js/engine/runtime/layers/integration/galaxy/StarLoadingHelpers.js',
-      'js/engine/runtime/RuntimeGalaxyStarTerritorySync.js',
-      'js/engine/runtime/RuntimeGalaxyStarCacheRead.js'
+      'js/engine/runtime/layers/integration/galaxy/StarTerritorySync.js',
+      'js/engine/runtime/layers/integration/galaxy/StarCacheRead.js'
     ], V.runtime))
     .concat([
-      localScript('js/engine/runtime/RuntimeGalaxyStarNetworkFlow.js', V.galaxyController)
+      localScript('js/engine/runtime/layers/integration/galaxy/StarNetworkFlow.js', V.galaxyController)
     ])
     .concat(localScripts([
-      'js/engine/runtime/RuntimeGalaxyStarFallbackRecovery.js',
-      'js/engine/runtime/RuntimeGalaxyStarErrorUi.js',
-      'js/engine/runtime/RuntimeGalaxyStarUiStatus.js',
-      'js/engine/runtime/RuntimeGalaxyStarPersistence.js',
-      'js/engine/runtime/RuntimeGalaxyStarBootstrapPreflight.js',
-      'js/engine/runtime/RuntimeGalaxyStarFlowOrchestrator.js'
+      'js/engine/runtime/layers/integration/galaxy/StarFallbackRecovery.js',
+      'js/engine/runtime/layers/ui/galaxy/StarErrorUi.js',
+      'js/engine/runtime/layers/ui/galaxy/StarUiStatus.js',
+      'js/engine/runtime/layers/integration/galaxy/StarPersistence.js',
+      'js/engine/runtime/layers/integration/galaxy/StarBootstrapPreflight.js',
+      'js/engine/runtime/layers/integration/galaxy/StarFlowOrchestrator.js'
     ], V.runtime))
     .concat([
-      localScript('js/engine/runtime/RuntimeGalaxyStarLoaderFacade.js', V.galaxyStarLoaderFacade),
-      localScript('js/engine/runtime/RuntimeGalaxyInit3DFacade.js', V.galaxyInit3D)
+      localScript('js/engine/runtime/layers/integration/galaxy/StarLoaderFacade.js', V.galaxyStarLoaderFacade),
+      localScript('js/engine/runtime/layers/integration/galaxy/Init3DFacade.js', V.galaxyInit3D)
     ])
     .concat(localScripts([
-      'js/engine/runtime/RuntimeGalaxyNavOrbRepeat.js',
-      'js/engine/runtime/RuntimeGalaxyNavOrb.js',
+      'js/engine/runtime/layers/ui/galaxy/NavOrbRepeat.js',
+      'js/engine/runtime/layers/ui/galaxy/NavOrb.js',
       'js/engine/runtime/RuntimeCommandParsing.js',
       'js/engine/runtime/RuntimeTransitionsCommand.js',
       'js/engine/runtime/RuntimeGameBootstrapHelpers.js',
@@ -301,9 +301,9 @@
     ], V.runtime))
     .concat(localScripts([
       'js/engine/runtime/RuntimeQuickNavFacade.js',
-      'js/engine/runtime/RuntimeGalaxyHoverCardFacade.js',
-      'js/engine/runtime/RuntimeGalaxyClusterRangeControls.js',
-      'js/engine/runtime/RuntimeGalaxySystemDetailsFacade.js'
+      'js/engine/runtime/layers/ui/galaxy/HoverCardFacade.js',
+      'js/engine/runtime/layers/ui/galaxy/ClusterRangeControls.js',
+      'js/engine/runtime/layers/ui/galaxy/SystemDetailsFacade.js'
     ], V.quickNav))
     .concat(localScripts([
       'js/engine/runtime/RuntimeSettingsSfxRows.js',
