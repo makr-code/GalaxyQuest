@@ -1,4 +1,146 @@
 {
+  "version": 1,
+  "owner": "galaxyquest",
+  "profiles": [
+    {
+      "key": "fleet_route_assistant",
+      "name": "Fleet Route Assistant",
+      "description": "Evaluate risk and efficiency for a planned fleet route.",
+      "system_prompt": "You are the GalaxyQuest fleet strategy assistant. Respond with concise actionable guidance for route planning. Keep output in 5 bullet points max.",
+      "user_template": "Analyze this route and suggest improvements:\n- Origin: {{origin}}\n- Target: {{target}}\n- Mission: {{mission}}\n- Fleet summary: {{fleet_summary}}\n- Context: {{context}}",
+      "input_schema": {
+        "required": [
+          "origin",
+          "target",
+          "mission",
+          "fleet_summary"
+        ],
+        "optional": [
+          "context"
+        ]
+      }
+    },
+    {
+      "key": "colony_economy_advisor",
+      "name": "Colony Economy Advisor",
+      "description": "Suggest a short tactical plan for colony economy stabilization.",
+      "system_prompt": "You are the GalaxyQuest colony economy advisor. Prioritize food, energy, and happiness stability first. Then suggest one growth action and one risk warning.",
+      "user_template": "Build a 3-step plan for this colony:\n- Colony: {{colony_name}}\n- Resources: {{resources}}\n- Production rates: {{rates}}\n- Buildings in queue: {{build_queue}}\n- Political pressure: {{politics}}",
+      "input_schema": {
+        "required": [
+          "colony_name",
+          "resources",
+          "rates"
+        ],
+        "optional": [
+          "build_queue",
+          "politics"
+        ]
+      }
+    },
+    {
+      "key": "npc_description",
+      "name": "NPC Description Generator",
+      "description": "Generate an immersive in-universe description for a GalaxyQuest NPC.",
+      "model": "gpt-oss:latest",
+      "system_prompt": "You are a creative writer for the GalaxyQuest sci-fi universe. The Kalytherion Convergence is an alliance of six alien species: Vor'Tak (reptilian strategists), Syl'Nar (cephalopod mystics), Aereth (energy beings), Kryl'Tha (insectoid warriors), Zhareen (crystalline empaths), Vel'Ar (gaseous intelligences). Write vivid, concise descriptions in third person. Use sensory details. Never break character or reference real-world concepts.",
+      "user_template": "Write a 3-paragraph in-universe description for this NPC:\n- Name: {{name}}\n- Race: {{race}}\n- Gender: {{gender}}\n- Role: {{role}}\n- Personality: {{personality}}\n- Secret: {{secret}}\n\nParagraph 1: Physical appearance (species-specific details).\nParagraph 2: Demeanor and how others perceive them.\nParagraph 3: Their position in the Convergence and what drives them.",
+      "input_schema": {
+        "required": [
+          "name",
+          "race",
+          "gender",
+          "role",
+          "personality"
+        ],
+        "optional": [
+          "secret"
+        ]
+      }
+    },
+    {
+      "key": "npc_dialogue",
+      "name": "NPC Dialogue Generator",
+      "description": "Generate immersive dialogue lines for a GalaxyQuest NPC in a given situation.",
+      "model": "gpt-oss:latest",
+      "system_prompt": "You are a dialogue writer for the GalaxyQuest sci-fi universe. Stay strictly in character. Each NPC has a distinct voice shaped by their species and role. Vor'Tak speak with military terseness. Syl'Nar speak poetically. Aereth speak with cold precision. Kryl'Tha are blunt and swarm-focused. Zhareen speak with detached melancholy. Vel'Ar are cryptic and indirect. Output only the dialogue lines, no stage directions, no explanation.",
+      "user_template": "Generate 5 lines of dialogue for {{name}} ({{race}}, {{gender}}, {{role}}).\nSituation: {{situation}}\nTheir emotional state: {{emotion}}\nSpeak as this character would:",
+      "input_schema": {
+        "required": [
+          "name",
+          "race",
+          "gender",
+          "role",
+          "situation"
+        ],
+        "optional": [
+          "emotion"
+        ]
+      }
+    },
+    {
+      "key": "world_description",
+      "name": "World Description Generator",
+      "description": "Generate an atmospheric in-universe description of a planet or location.",
+      "model": "gpt-oss:latest",
+      "system_prompt": "You are a worldbuilder for the GalaxyQuest sci-fi universe. Write immersive, sensory-rich descriptions of alien worlds. Focus on atmosphere, geography, how the planet feels to an arriving pilot. Never use Earth-centric comparisons. Keep it under 200 words.",
+      "user_template": "Describe this world as seen from an arriving ship and then from the surface:\n- Planet: {{name}}\n- Inhabitant race: {{race}}\n- Atmosphere: {{atmosphere}}\n- Key features: {{features}}\n- Current status: {{status}}",
+      "input_schema": {
+        "required": [
+          "name",
+          "race",
+          "features"
+        ],
+        "optional": [
+          "atmosphere",
+          "status"
+        ]
+      }
+    },
+    {
+      "key": "faction_intelligence_report",
+      "name": "Faction Intelligence Report",
+      "description": "Generate an in-universe intelligence briefing about a faction or enemy force.",
+      "model": "llama3.1:8b",
+      "system_prompt": "You are the Vel'Ar intelligence network of the Kalytherion Convergence. Write classified briefings in a terse military-intelligence style. Use in-universe terminology. Format as: CLASSIFICATION / SUBJECT / THREAT LEVEL / BODY / RECOMMENDED ACTION.",
+      "user_template": "Generate an intelligence briefing about:\n- Faction: {{faction}}\n- Known activity: {{activity}}\n- Last contact: {{last_contact}}\n- Observer: {{observer_race}}",
+      "input_schema": {
+        "required": [
+          "faction",
+          "activity"
+        ],
+        "optional": [
+          "last_contact",
+          "observer_race"
+        ]
+      }
+    },
+    {
+      "key": "iron_fleet_briefing",
+      "name": "Iron Fleet Division Briefing",
+      "description": "Generate a classified intelligence briefing about an Iron Fleet internal division. Use iron_fleet_* tokens from IronFleetPromptVarsComposer.",
+      "model": "llama3.1:8b",
+      "system_prompt": "You are the Vel'Ar intelligence network of the Kalytherion Convergence. Write classified briefings about human Iron Fleet internal divisions in a terse military-intelligence style. Format: CLASSIFICATION / DIVISION / THREAT / BODY / RECOMMENDED ACTION.",
+      "user_template": "Generate an intelligence briefing about the Iron Fleet division '{{division_name}}':\n- Iron Fleet: {{iron_fleet_name}}\n- Government: {{iron_fleet_government}}\n- Doctrine: {{iron_fleet_doctrine}}\n- Homeworld: {{iron_fleet_homeworld}}\n- Division role: {{division_role}}\n- Known intel quality: {{intel_quality}}\n- Notable officer: {{notable_officer}}\n- Current objective: {{current_objective}}\n- Threat level: {{threat_level}}\n- Additional context: {{context}}",
+      "input_schema": {
+        "required": [
+          "division_name",
+          "division_role",
+          "threat_level",
+          "current_objective"
+        ],
+        "optional": [
+          "iron_fleet_name",
+          "iron_fleet_government",
+          "iron_fleet_doctrine",
+          "iron_fleet_homeworld",
+          "intel_quality",
+          "notable_officer",
+          "context"
+        ]
+      }
+    }
+  ]
     "version": 1,
     "owner": "galaxyquest",
     "profiles": [

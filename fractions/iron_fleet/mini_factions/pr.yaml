@@ -1,3 +1,18 @@
+# Eisenflotte – Propagandaministerium (PR Division)
+# Informationskrieg, Rekrutierung und Kontrolle der öffentlichen Meinung.
+
+division_code: pr
+display_name: "Propagandaministerium"
+role: "Informationskrieg, Rekrutierungskampagnen und Kontrolle aller Nachrichtenkanäle"
+motto: "Eine Wahrheit, eine Flotte, eine Menschheit"
+personnel_scale: elite_unit
+threat_level: medium
+known_intel: fragmentary
+current_objective: "Verbreitung von Desinformation über Kalytherion-Konvergenz-Truppenstärken"
+notable_officer:
+  name: "Oberst Mara Steinhoff"
+  rank: "Oberst"
+  specialization: "Psychologische Kriegsführung"
 mini_faction_code: pr
 display_name: "Iron Fleet Information Directorate"
 mirror_of: iron_fleet

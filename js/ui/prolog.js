@@ -25,6 +25,9 @@
   'use strict';
 
   // ─── Faction data ──────────────────────────────────────────────────────────
+  // Each faction's quest_code must match the corresponding faction_quests.code
+  // value seeded in sql/schema.sql (and sql/migrate_prolog_quests_v1.sql), and
+  // the $questCodes map in api/auth.php seed_prolog_initial_quest().
 
   const FACTIONS = [
     {
@@ -47,6 +50,7 @@
         '„Zeigen Sie mir Ihre Verteidigungsanlagen, Gouverneur. Dann reden wir weiter."',
       ],
       mission: 'Inspiziere die Patrouillenkorvetten in deinem Orbit und melde Sharr\'Keth den Zustand ihrer Waffensysteme.',
+      quest_code: 'vor_tak_first_patrol',
     },
     {
       id: 'syl_nar',
@@ -67,6 +71,7 @@
         '„Wenn ihr wollt, können wir morgen über die Hydroponik-Anlagen sprechen. Aber zuerst: Seid ihr gut hier angekommen?"',
       ],
       mission: 'Prüfe die Nahrungsmittelversorgung deiner Kolonie und finde heraus, wie viele Wochen euer aktueller Vorrat reicht.',
+      quest_code: 'syl_nar_food_check',
     },
     {
       id: 'aereth',
@@ -87,6 +92,7 @@
         '„Zeig mir eure Abbauanlagen. Ich werde dir erklären, warum das Mineral wichtiger ist, als ihr glaubt."',
       ],
       mission: 'Öffne die Bergbau-Übersicht und bestimme die aktuelle tägliche Förderrate des unbekannten Minerals.',
+      quest_code: 'aereth_mineral_survey',
     },
     {
       id: 'kryl_tha',
@@ -107,6 +113,7 @@
         '„Was sagt ihr?"',
       ],
       mission: 'Rufe die Sicherheitsprotokolle deiner Außenposten auf und bewerte die aktuelle Bedrohungslage.',
+      quest_code: 'kryl_tha_security_sweep',
     },
     {
       id: 'zhareen',
@@ -126,6 +133,7 @@
         'Der Archivrat gibt nichts umsonst. Aber er gibt ehrlich. Wissen gegen Zugang. Das ist sein Handel.',
       ],
       mission: 'Schalte das Archivdatenbank-Terminal im Gouverneursgebäude frei und rufe die ältesten verfügbaren Karten auf.',
+      quest_code: 'zhareen_first_research',
     },
     {
       id: 'vel_ar',
@@ -147,6 +155,7 @@
         '„Lies das. Dann entscheide, ob du wissen willst, was als Nächstes kommt."',
       ],
       mission: 'Öffne die Datentafel von Nira\'Vel und analysiere, welche Informationen über die anderen Gesandten sie enthält.',
+      quest_code: 'vel_ar_data_intel',
     },
   ];
 
@@ -658,6 +667,7 @@
     const colony      = _colonyName || 'deine Welt';
     const factionName = _selectedFaction ? _selectedFaction.name : 'der Gesandte';
     const commander   = _username || 'Gouverneur';
+    const mission     = _selectedFaction ? _selectedFaction.mission : '';
 
     const lines = [
       factionName + ' ist gegangen.',
@@ -668,7 +678,10 @@
       'Dein Terminal blinkt. Eine Nachricht: \u201e'
         + commander
         + ' \u2013 die w\u00f6chentliche Lage\u00fcbersicht steht bereit. Ihr erster Tag beginnt.\u201c',
-    ];
+      mission
+        ? '\u26a1 Dein erster Auftrag wurde im Auftragsprotokoll hinterlegt: \u201e' + mission + '\u201c'
+        : '',
+    ].filter(Boolean);
 
     const el = document.getElementById('prolog-transition-text');
     if (el) {

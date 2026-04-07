@@ -1,3 +1,18 @@
+# Eisenflotte – Ehrenlegion (Parade Corps)
+# Zeremonielle Truppenschauen und öffentliche Machtdemonstrationen.
+
+division_code: parade
+display_name: "Ehrenlegion"
+role: "Zeremonielle Machtdemonstrationen und öffentliche Siegesparaden"
+motto: "Stärke durch Spektakel"
+personnel_scale: full_division
+threat_level: low
+known_intel: detailed
+current_objective: "Vierteljährliche Militärparaden auf Saturn-Kolonie zur Stärkung der Truppenmoral"
+notable_officer:
+  name: "Vizeadmiral Klaus Brenner"
+  rank: "Vizeadmiral"
+  specialization: "Zeremonielle Kriegsführung"
 mini_faction_code: parade
 display_name: "Iron Fleet Parade Division"
 mirror_of: iron_fleet
