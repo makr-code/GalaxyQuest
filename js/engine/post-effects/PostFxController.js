@@ -33,10 +33,44 @@ const PARAM_META = {
     power:     { min: 0, max: 0.05, step: 0.001, default: 0.005 },
     angle:     { min: 0, max: 6.28, step: 0.01,  default: 0     },
   },
-  ssao: {
-    radius:    { min: 0.05, max: 2.0, step: 0.05, default: 0.5  },
-    power:     { min: 0.5,  max: 4.0, step: 0.1,  default: 2.0  },
-    bias:      { min: 0,    max: 0.1, step: 0.005, default: 0.025 },
+  toneMapping: {
+    mode:     { min: 0, max: 1, step: 1, default: 1 },
+    exposure: { min: 0.1, max: 4, step: 0.05, default: 1.0 },
+  },
+  lensFlare: {
+    globalScale: { min: 0.1, max: 3, step: 0.05, default: 1.0 },
+    ghostCount:  { min: 1, max: 4,  step: 1,    default: 3   },
+  },
+  dustLayer: {
+    masterOpacity: { min: 0, max: 1, step: 0.01, default: 0.22 },
+  },
+  motionBlur: {
+    strength:   { min: 0, max: 1, step: 0.05, default: 0.8 },
+    maxSamples: { min: 2, max: 8, step: 1,    default: 6   },
+  },
+  filmGrain: {
+    intensity: { min: 0, max: 1,   step: 0.01, default: 0.18 },
+    speed:     { min: 0, max: 10,  step: 0.1,  default: 3.0  },
+    size:      { min: 0.5, max: 3, step: 0.05, default: 1.0  },
+  },
+  colorGrading: {
+    brightness:  { min: -1, max: 1,  step: 0.01, default: 0.0 },
+    contrast:    { min: 0,  max: 3,  step: 0.05, default: 1.0 },
+    saturation:  { min: 0,  max: 3,  step: 0.05, default: 1.0 },
+    hueShift:    { min: 0,  max: 6.28, step: 0.01, default: 0.0 },
+  },
+  starScintillation: {
+    threshold:  { min: 0, max: 1,  step: 0.01, default: 0.8 },
+    amplitude:  { min: 0, max: 1,  step: 0.01, default: 0.3 },
+    speed:      { min: 0, max: 10, step: 0.1,  default: 2.0 },
+  },
+  diskRotationParallax: {
+    innerVelocity: { min: 0, max: 1,   step: 0.005, default: 0.15 },
+    outerVelocity: { min: 0, max: 0.5, step: 0.005, default: 0.02 },
+  },
+  jetLighting: {
+    globalIntensity: { min: 0, max: 3, step: 0.05, default: 1.0  },
+    spread:          { min: 0.01, max: 0.5, step: 0.01, default: 0.18 },
   },
 };
 
@@ -86,7 +120,10 @@ class PostFxController {
   // ---------------------------------------------------------------------------
 
   _bindAll() {
-    const effects = ['bloom', 'vignette', 'chromatic', 'ssao'];
+    const effects = [
+      'bloom', 'vignette', 'chromatic', 'toneMapping', 'lensFlare', 'dustLayer', 'motionBlur',
+      'filmGrain', 'colorGrading', 'starScintillation', 'diskRotationParallax', 'jetLighting',
+    ];
 
     for (const effect of effects) {
       // Enable/disable checkbox
@@ -113,7 +150,8 @@ class PostFxController {
 
   /**
    * Apply a single parameter change to the engine.
-   * @param {string} effect  'bloom' | 'vignette' | 'chromatic'
+   * @param {string} effect  'bloom' | 'vignette' | 'chromatic' | 'toneMapping' | 'lensFlare' | 'dustLayer' | 'motionBlur'
+   *                          | 'filmGrain' | 'colorGrading' | 'starScintillation' | 'diskRotationParallax' | 'jetLighting'
    * @param {string} param   parameter name
    * @param {*}      value
    */
@@ -130,10 +168,18 @@ class PostFxController {
     if (!engine) return;
 
     const passes = {
-      bloom:    engine._bloomPass,
-      vignette: engine._vignettePass,
-      chromatic: engine._chromaticPass,
-      ssao:     engine._ssaoPass,
+      bloom:                engine._bloomPass,
+      vignette:             engine._vignettePass,
+      chromatic:            engine._chromaticPass,
+      toneMapping:          engine._toneMappingPass,
+      lensFlare:            engine._lensFlarePass,
+      dustLayer:            engine._dustLayerPass,
+      motionBlur:           engine._motionBlurPass,
+      filmGrain:            engine._filmGrainPass,
+      colorGrading:         engine._colorGradingPass,
+      starScintillation:    engine._starScintillationPass,
+      diskRotationParallax: engine._diskRotationParallaxPass,
+      jetLighting:          engine._jetLightingPass,
     };
 
     for (const [effect, pass] of Object.entries(passes)) {
