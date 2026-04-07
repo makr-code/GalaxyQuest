@@ -262,7 +262,17 @@ final class IronFleetPromptVarsComposer
             return is_array($result) ? $result : [];
         }
 
-        return $this->parseYamlSimple($path);
+        // Fallback without ext-yaml: prefer MiniYamlParser for nested maps/lists.
+        $raw = file_get_contents($path);
+        if ($raw === false) {
+            return [];
+        }
+        try {
+            return (new MiniYamlParser())->parse($raw);
+        } catch (\Throwable $e) {
+            // Keep legacy fallback for edge-cases MiniYamlParser intentionally rejects.
+            return $this->parseYamlSimple($path);
+        }
     }
 
     /**

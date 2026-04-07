@@ -114,6 +114,116 @@ function npc_faction_tick(PDO $db, int $userId, array $faction): void {
         // If player has no colonies above galaxy 3, ignore
         // (simplified: just drift standing)
     }
+
+    // ── PHASE 2.4: NPC War declaration & counter-alliance reactions ────────
+    npc_check_war_reaction($db, $userId, $faction);
+}
+
+/**
+ * PHASE 2.4 — Evaluate whether an NPC faction should declare war or join a
+ * counter-alliance based on the player's recent aggression / active wars.
+ *
+ * Triggers:
+ *  - military factions with standing < -30 check if they should declare war
+ *  - if player has ≥ 3 recent pirate raids, allied factions band together
+ */
+function npc_check_war_reaction(PDO $db, int $userId, array $faction): void {
+    // Rate-limit: factions only re-evaluate once per hour
+    $coolKey = "npc_war_reaction_{$userId}_{$faction['id']}";
+    $coolStmt = $db->prepare(
+        "SELECT state_value FROM app_state WHERE state_key = ? AND updated_at > DATE_SUB(NOW(), INTERVAL 60 MINUTE)"
+    );
+    $coolStmt->execute([$coolKey]);
+    if ($coolStmt->fetchColumn() !== false) return;
+
+    $factionType = $faction['faction_type'];
+    $aggression  = (int)$faction['aggression'];
+    $fid         = (int)$faction['id'];
+    $standing    = get_faction_standing($db, $userId, $fid);
+
+    // ── 1. Military factions declaring war on hostile players ─────────────
+    if ($factionType === 'military' && $standing < -30 && $aggression >= 50) {
+        $activeWar = $db->prepare(
+            'SELECT id FROM wars WHERE user_id = ? AND status = ? LIMIT 1'
+        );
+        $activeWar->execute([$userId, 'active']);
+        $hasWar = $activeWar->fetchColumn();
+
+        if (!$hasWar) {
+            npc_declare_war_against_user($db, $userId, $faction);
+        }
+    }
+
+    // ── 2. Counter-alliance: if player raided ≥ 3 times in 24h, allied NPCs unite ──
+    $hasPirateHistory = $db->query("SHOW TABLES LIKE 'pirate_raid_history'")->fetchColumn();
+    if ($hasPirateHistory) {
+        $raidCount = $db->prepare(
+            'SELECT COUNT(*) FROM pirate_raid_history
+             WHERE colony_id IN (SELECT id FROM colonies WHERE user_id = ?)
+               AND raid_date >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+             AND raid_success = 1'
+        );
+        $raidCount->execute([$userId]);
+        $raids = (int)$raidCount->fetchColumn();
+
+        if ($raids >= 3 && $factionType === 'military' && $aggression >= 40 && $standing < 0) {
+            // Form a visible alliance event via message; add minor standing penalty
+            $db->prepare(
+                'INSERT INTO messages (receiver_id, subject, body) VALUES (?, ?, ?)'
+            )->execute([
+                $userId,
+                "Counter-Alliance Warning: {$faction['name']}",
+                "[{$faction['icon']} {$faction['name']}] Due to the escalating raider crisis in this sector, "
+                . "our faction has entered a joint defence pact with neighbouring powers. "
+                . "Further aggression will be met with combined force.",
+            ]);
+            require_once __DIR__ . '/factions.php';
+            update_standing($db, $userId, $fid, -5, 'counter_alliance', 'Counter-alliance formed due to raid escalation');
+        }
+    }
+
+    // Mark cooldown
+    $db->prepare(
+        'INSERT INTO app_state (state_key, state_value) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE state_value=VALUES(state_value), updated_at=NOW()'
+    )->execute([$coolKey, '1']);
+}
+
+/**
+ * Declare war on behalf of an NPC faction against a player.
+ * Inserts a war record and sends a declaration message.
+ */
+function npc_declare_war_against_user(PDO $db, int $userId, array $faction): void {
+    $hasWars = $db->query("SHOW TABLES LIKE 'wars'")->fetchColumn();
+    if (!$hasWars) return;
+
+    // Insert war record (attacker = faction acting as aggressor in NPC context)
+    $warStmt = $db->prepare(
+        'INSERT INTO wars
+         (user_id, target_faction_id, status, war_goal, declared_at)
+         VALUES (?, ?, ?, ?, NOW())'
+    );
+    $warStmt->execute([
+        $userId,
+        (int)$faction['id'],
+        'active',
+        'subjugation',
+    ]);
+    $warId = (int)$db->lastInsertId();
+
+    // Notify the player
+    $db->prepare(
+        'INSERT INTO messages (receiver_id, subject, body) VALUES (?, ?, ?)'
+    )->execute([
+        $userId,
+        "War Declared: {$faction['name']}",
+        "[{$faction['icon']} {$faction['name']}] Our patience is exhausted. "
+        . "Your hostility has crossed the line. As of this moment, a state of war exists between "
+        . "our faction and your empire. Expect retaliation. (War #$warId)",
+    ]);
+
+    require_once __DIR__ . '/factions.php';
+    update_standing($db, $userId, (int)$faction['id'], -15, 'war_declaration', 'NPC faction declared war');
 }
 
 function get_faction_standing(PDO $db, int $userId, int $factionId): int {

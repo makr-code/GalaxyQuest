@@ -220,6 +220,88 @@ function war_goal_status_payload(PDO $db, array $warRow, array $goalRow): array 
     }
 
     $payload['progress']['hint'] = 'No progress model is implemented for this goal type yet.';
+
+        // PHASE 3.4 – Economic goal: capture trade income by blocking enemy colonies
+        if ($goalType === 'economic') {
+            $ownerId   = (int)$snapshot['owner_user_id'];
+            $enemyId   = (int)$snapshot['enemy_user_id'];
+
+            // Count active trade offers for each side as a proxy for economic power
+            $ownTrade  = (int)$db->prepare(
+                'SELECT COUNT(*) FROM trade_offers WHERE faction_id IN
+                 (SELECT id FROM npc_factions WHERE id IN
+                    (SELECT faction_id FROM diplomacy WHERE user_id = ? AND standing >= 0))
+                 AND active = 1 AND valid_until > NOW()'
+            )->execute([$ownerId]) ? 0 : 0; // simplified: use war exhaustion asymmetry
+
+            $ownExhaustion  = (float)$snapshot['own_exhaustion'];
+            $enemyExhaustion= (float)$snapshot['enemy_exhaustion'];
+            // Economic advantage = enemy trade disrupted (enemy exhaustion > 60) while own < 60
+            $economicScore  = max(0, min(100, ($enemyExhaustion - $ownExhaustion) * 0.8));
+            $rate = round((float)WAR_SCORE_OCCUPY_PER_DAY * min(1.0, $economicScore / 100.0), 3);
+            $isAdvantage = $economicScore > 20;
+
+            $payload['progress'] = [
+                'status'             => $isAdvantage ? 'advantage' : 'neutral',
+                'label'              => $isAdvantage ? 'Economic Pressure' : 'No Economic Edge',
+                'score_rate_per_day' => $rate,
+                'current_value'      => round($economicScore, 1),
+                'target_value'       => 100,
+                'control'            => null,
+                'hint'               => $isAdvantage
+                    ? 'Economic war score accrues while the enemy is exhausted and trade-disrupted.'
+                    : 'Increase enemy exhaustion above 60 to gain economic war score.',
+            ];
+            return $payload;
+        }
+
+        // PHASE 3.4 – Diplomatic goal: form alliances (tracked via diplomacy table)
+        if ($goalType === 'diplomatic') {
+            $ownerId = (int)$snapshot['owner_user_id'];
+            // Count active positive-standing faction relationships (allies)
+            $allyStmt = $db->prepare(
+                'SELECT COUNT(*) FROM diplomacy WHERE user_id = ? AND standing >= 50'
+            );
+            $allyStmt->execute([$ownerId]);
+            $allyCount  = (int)$allyStmt->fetchColumn();
+            $targetAllies = (int)($goalRow['target_value'] ?? 3);
+            $isAchieved   = $allyCount >= $targetAllies;
+            $rate = $isAchieved ? (float)WAR_SCORE_OCCUPY_PER_DAY * 0.5 : 0.0;
+
+            $payload['progress'] = [
+                'status'             => $isAchieved ? 'advantage' : 'neutral',
+                'label'              => $isAchieved ? 'Alliance Secured' : 'Building Alliance',
+                'score_rate_per_day' => round($rate, 3),
+                'current_value'      => $allyCount,
+                'target_value'       => $targetAllies,
+                'control'            => ['ally_count' => $allyCount, 'target' => $targetAllies],
+                'hint'               => $isAchieved
+                    ? "Alliance goal met ({$allyCount}/{$targetAllies} factions standing ≥ 50). War score accruing."
+                    : "Improve standing with {$targetAllies} factions to ≥ 50 to fulfil this goal. Currently: {$allyCount}.",
+            ];
+            return $payload;
+        }
+
+        // PHASE 3.4 – Subjugation goal: win score exceeds threshold
+        if ($goalType === 'subjugation') {
+            $ownScore   = (float)$snapshot['own_score'];
+            $enemyScore = (float)$snapshot['enemy_score'];
+            $threshold  = 100.0;
+            $isWinning  = $ownScore > $enemyScore;
+            $rate = $isWinning ? (float)WAR_SCORE_OCCUPY_PER_DAY : 0.0;
+
+            $payload['progress'] = [
+                'status'             => $isWinning ? 'advantage' : 'neutral',
+                'label'              => $isWinning ? 'Winning' : 'Behind',
+                'score_rate_per_day' => round($rate, 3),
+                'current_value'      => round($ownScore, 1),
+                'target_value'       => $threshold,
+                'control'            => ['own' => round($ownScore, 1), 'enemy' => round($enemyScore, 1)],
+                'hint'               => 'Force enemy surrender by achieving a war score lead. Control systems and outlast your opponent.',
+            ];
+            return $payload;
+        }
+
     return $payload;
 }
 
@@ -590,6 +672,169 @@ switch ($action) {
         only_method('GET');
         json_ok([
             'wars' => war_list_active($db, $uid),
+        ]);
+    }
+
+    case 'get_supply_status': {
+        only_method('GET');
+        $warId = (int)($_GET['war_id'] ?? 0);
+        if ($warId <= 0) json_error('Missing war_id', 400);
+
+        $war = war_load_for_participant($db, $warId, $uid);
+        if (!$war) json_error('War not found or access denied', 403);
+
+        $stmt = $db->prepare(<<<SQL
+            SELECT id, from_colony_id, to_system_index, distance_ly, logistics_cost,
+                   supply_capacity, interdiction_level, status
+            FROM war_supply_lines
+            WHERE war_id = ?
+            ORDER BY status, distance_ly DESC
+        SQL);
+        $stmt->execute([$warId]);
+        $supplyLines = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $lines = [];
+        $totalCost = 0;
+        foreach ($supplyLines as $line) {
+            $capacity = (int)$line['supply_capacity'];
+            $interdiction = (int)$line['interdiction_level'];
+            $effective = max(0, $capacity - $interdiction * 0.5);
+            $cost = (float)$line['logistics_cost'];
+            $totalCost += $cost * ($effective / 100.0);
+
+            $lines[] = [
+                'id'                => (int)$line['id'],
+                'from_colony_id'    => (int)$line['from_colony_id'],
+                'to_system_index'   => (int)$line['to_system_index'],
+                'distance_ly'       => (float)$line['distance_ly'],
+                'logistics_cost'    => $cost,
+                'supply_capacity'   => $capacity,
+                'effective_capacity'=> round($effective, 2),
+                'interdiction_level'=> $interdiction,
+                'status'            => $line['status'],
+            ];
+        }
+
+        // Get attrition estimate
+        $attrStmt = $db->prepare(<<<SQL
+            SELECT AVG(attrition_rate) as avg_rate FROM war_attrition_events
+            WHERE war_id = ? AND (attacker_id = ? OR defender_id = ?)
+        SQL);
+        $attrStmt->execute([$warId, $uid, $uid]);
+        $attr = $attrStmt->fetch(PDO::FETCH_ASSOC);
+        $attritionRate = $attr ? (float)($attr['avg_rate'] ?? 0.5) : 0.5;
+
+        json_ok([
+            'war_id'           => $warId,
+            'supply_lines'     => $lines,
+            'total_logistics_cost' => round($totalCost, 2),
+            'estimated_attrition_rate' => $attritionRate,
+            'count_supply_lines'=> count($lines),
+        ]);
+    }
+
+    case 'set_supply_route': {
+        only_method('POST');
+        $warId = (int)($_POST['war_id'] ?? 0);
+        $fromColonyId = (int)($_POST['from_colony_id'] ?? 0);
+        $toSystemIndex = (int)($_POST['to_system_index'] ?? 0);
+
+        if ($warId <= 0 || $fromColonyId <= 0 || $toSystemIndex < 0) {
+            json_error('Missing war_id, from_colony_id, or to_system_index', 400);
+        }
+
+        $war = war_load_for_participant($db, $warId, $uid);
+        if (!$war) json_error('War not found or access denied', 403);
+
+        // Verify colony ownership
+        $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
+        $stmt->execute([$fromColonyId, $uid]);
+        if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
+
+        // Calculate distance from colony to target system (simplified)
+        $distanceLy = sqrt(abs($toSystemIndex - ($fromColonyId % 10000)) * 2 + 50);
+        $logisticsCost = round($distanceLy * 50, 2);
+
+        // Create or update supply line
+        $existingStmt = $db->prepare(<<<SQL
+            SELECT id FROM war_supply_lines
+            WHERE war_id = ? AND from_colony_id = ? AND to_system_index = ?
+        SQL);
+        $existingStmt->execute([$warId, $fromColonyId, $toSystemIndex]);
+        $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($existing) {
+            json_error('Supply line already exists for this route', 409);
+        }
+
+        $insertStmt = $db->prepare(<<<SQL
+            INSERT INTO war_supply_lines
+            (war_id, from_colony_id, to_system_index, distance_ly, logistics_cost, supply_capacity)
+            VALUES (?, ?, ?, ?, ?, 100)
+        SQL);
+        $insertStmt->execute([$warId, $fromColonyId, $toSystemIndex, round($distanceLy, 2), $logisticsCost]);
+
+        $supplyLineId = (int)$db->lastInsertId();
+        json_ok([
+            'supply_line_id'  => $supplyLineId,
+            'war_id'          => $warId,
+            'distance_ly'     => round($distanceLy, 2),
+            'logistics_cost'  => $logisticsCost,
+            'status'          => 'active',
+        ]);
+    }
+
+    // PHASE 3.3 – War goal progress tracker
+    // GET /api/war.php?action=get_goal_progress&war_id=X
+    case 'get_goal_progress': {
+        only_method('GET');
+        $warId = (int)($_GET['war_id'] ?? 0);
+        if ($warId <= 0) json_error('Missing war_id', 400);
+
+        $war = war_load_for_participant($db, $warId, $uid);
+        if (!$war) json_error('War not found or access denied', 403);
+
+        $enrichedGoals = war_get_enriched_goals($db, $war);
+        $isAttacker    = (int)$war['attacker_id'] === $uid;
+        $side          = $isAttacker ? 'attacker' : 'defender';
+
+        // Tally overall war score as percentage toward victory
+        $goalsMet    = 0;
+        $goalsTotal  = count($enrichedGoals);
+        $scoreDetails = [];
+        foreach ($enrichedGoals as $g) {
+            $status = $g['progress']['status'] ?? 'unknown';
+            $met    = in_array($status, ['contested_controlled', 'advantage'], true);
+            if ($met) $goalsMet++;
+            $scoreDetails[] = [
+                'goal_id'   => $g['id'],
+                'goal_type' => $g['goal_type'],
+                'side'      => $g['side'],
+                'status'    => $status,
+                'label'     => $g['progress']['label'] ?? '',
+                'hint'      => $g['progress']['hint'] ?? null,
+                'score_rate_per_day' => $g['progress']['score_rate_per_day'] ?? 0.0,
+            ];
+        }
+
+        $warScoreAttacker = (float)($war['war_score_attacker'] ?? 0);
+        $warScoreDefender = (float)($war['war_score_defender'] ?? 0);
+
+        json_ok([
+            'war_id'           => $warId,
+            'your_side'        => $side,
+            'war_score'        => [
+                'attacker' => round($warScoreAttacker, 2),
+                'defender' => round($warScoreDefender, 2),
+            ],
+            'goals_total'      => $goalsTotal,
+            'goals_progressing'=> $goalsMet,
+            'goals'            => $scoreDetails,
+            'supply_status'    => [
+                'total_lines'    => (int)($war['total_supply_lines'] ?? 0),
+                'logistics_cost' => (float)($war['total_logistics_cost'] ?? 0),
+                'attrition_rate' => round((float)($war['avg_attrition_rate'] ?? 0), 3),
+            ],
         ]);
     }
 

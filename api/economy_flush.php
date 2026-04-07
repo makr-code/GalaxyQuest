@@ -116,16 +116,87 @@ function flush_colony_production(PDO $db, int $colony_id): void {
     }
 
     // 4. Per-good production rates (from buildings)
+    //    PHASE 2.3: satisfaction multiplier (0.5x–1.5x) applied to all rates
+    $satisfactionMult = 1.0;
+    {
+        $satStmt = $db->prepare(<<<SQL
+            SELECT COALESCE(
+                SUM(satisfaction_index * count) / NULLIF(SUM(count), 0),
+                50.0
+            ) AS weighted_satisfaction
+            FROM economy_pop_classes WHERE colony_id = ?
+        SQL);
+        $satStmt->execute([$colony_id]);
+        $satRow = $satStmt->fetch(PDO::FETCH_ASSOC);
+        $satisfactionIndex = (float)($satRow['weighted_satisfaction'] ?? 50.0);
+        $satisfactionMult = 0.5 + ($satisfactionIndex / 100.0);  // 0.5x–1.5x
+    }
+
+    // PHASE 3.2 – Determine which tiers are unlocked for this colony's owner.
+    // T3+ goods are disrupted when:
+    //   a) Pop satisfaction < 40 (workforce too unhappy to operate advanced facilities)
+    //   b) Player has an active war AND no 'war_economy' policy active
+    $tier3Blocked = false;
+    {
+        if ($satisfactionIndex < 40.0) {
+            $tier3Blocked = true;
+        } else {
+            // Check for war without war_economy policy
+            $ownerStmt = $db->prepare('SELECT user_id FROM colonies WHERE id = ?');
+            $ownerStmt->execute([$colony_id]);
+            $ownerRow = $ownerStmt->fetch(PDO::FETCH_ASSOC);
+            if ($ownerRow) {
+                $ownerId = (int)$ownerRow['user_id'];
+                $hasWarTable = $db->query("SHOW TABLES LIKE 'wars'")->fetchColumn();
+                if ($hasWarTable) {
+                    $warActive = $db->prepare(
+                        'SELECT COUNT(*) FROM wars WHERE (attacker_user_id = ? OR defender_user_id = ?) AND status = ?'
+                    );
+                    $warActive->execute([$ownerId, $ownerId, 'active']);
+                    $atWar = (int)$warActive->fetchColumn() > 0;
+                    if ($atWar) {
+                        $polStmt = $db->prepare('SELECT global_policy FROM economy_policies WHERE user_id = ?');
+                        $polStmt->execute([$ownerId]);
+                        $rawPolicy = $polStmt->fetchColumn();
+
+                        $warEconomyActive = false;
+                        if (is_numeric($rawPolicy)) {
+                            // Legacy schema: global_policy as integer index in VALID_POLICIES order
+                            $warEconomyActive = ((int)$rawPolicy === 4);
+                        } else {
+                            $warEconomyActive = ((string)$rawPolicy === 'war_economy');
+                        }
+
+                        if (!$warEconomyActive) {
+                            $tier3Blocked = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Tier-3+ building keys (consumer_factory and above in ECONOMY_BUILDING_BASE_RATES definition)
+    static $tier3Buildings = [
+        'consumer_factory', 'luxury_workshop', 'arms_factory', 'research_lab_adv', 'colony_supplies',
+        'neural_fabricator', 'quantum_lab', 'bio_pharma', 'cultural_center', 'propulsion_works',
+        'void_refinery', 'consciousness_institute', 'temporal_atelier',
+    ];
+
     $prodRates = [];
     foreach (ECONOMY_BUILDING_BASE_RATES as $buildingType => $def) {
         $level = $buildings[$buildingType] ?? 0;
         if ($level <= 0) {
             continue;
         }
+        // PHASE 3.2: Block T3+ production under war/satisfaction stress
+        if ($tier3Blocked && in_array($buildingType, $tier3Buildings, true)) {
+            continue;
+        }
         $method = $methods[$buildingType] ?? 'standard';
         $mult   = ECONOMY_METHOD_MULTIPLIERS[$method] ?? 1.0;
         $good   = $def['good'];
-        $prodRates[$good] = ($prodRates[$good] ?? 0.0) + $def['rate'] * $level * $mult;
+        $prodRates[$good] = ($prodRates[$good] ?? 0.0) + $def['rate'] * $level * $mult * $satisfactionMult;
     }
 
     // 5. Per-good consumption rates (from population)
@@ -182,5 +253,37 @@ function flush_colony_production(PDO $db, int $colony_id): void {
         $newQty = max(0.0, min((float)$r['capacity'], $newQty));
 
         $updStmt->execute([$newQty, $prodRate, $consRate, (int)$r['id']]);
+    }
+
+    // PHASE 2.2 – Apply active pirate raid damage to current goods quantities.
+    // If a colony has unrepaired damage recorded in pirate_damage_recovery, reduce
+    // all stored goods proportionally (simulates disrupted supply chains).
+    $hasDmgTable = $db->query("SHOW TABLES LIKE 'pirate_damage_recovery'")->fetchColumn();
+    if ($hasDmgTable) {
+        $dmgStmt = $db->prepare(<<<SQL
+            SELECT (100 - LEAST(recovery_percent, 99)) / 100.0 AS damage_factor
+            FROM   pirate_damage_recovery
+            WHERE  colony_id = ?
+              AND  recovery_percent < 100
+                        ORDER BY recovery_started DESC
+            LIMIT  1
+        SQL);
+        $dmgStmt->execute([$colony_id]);
+        $dmgRow = $dmgStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($dmgRow && (float)$dmgRow['damage_factor'] > 0) {
+            $damageFactor = (float)$dmgRow['damage_factor'];
+            // damageFactor is the fraction of goods capacity still offline (0..1).
+            // We cap goods at (1 - damageFactor) of their current quantity, i.e.
+            // a colony with 40 % unrepaired damage loses up to 40 % of its stock.
+            $capMult = 1.0 - ($damageFactor * 0.5); // maximum 50 % reduction
+            $capMult = max(0.5, $capMult);
+
+            $db->prepare(
+                'UPDATE economy_processed_goods
+                 SET quantity = GREATEST(0, quantity * ?)
+                 WHERE colony_id = ?'
+            )->execute([$capMult, $colony_id]);
+        }
     }
 }

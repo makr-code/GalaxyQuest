@@ -32,6 +32,113 @@ function ensure_policy_row(PDO $db, int $uid): void {
     $db->prepare('INSERT IGNORE INTO economy_policies (user_id) VALUES (?)')->execute([$uid]);
 }
 
+function policy_key_from_mixed(mixed $raw): string {
+    if (is_numeric($raw)) {
+        $idx = (int)$raw;
+        return VALID_POLICIES[$idx] ?? 'free_market';
+    }
+    $key = (string)$raw;
+    return in_array($key, VALID_POLICIES, true) ? $key : 'free_market';
+}
+
+function policy_storage_value(array $policyRow, string $policy): int|string {
+    $current = $policyRow['global_policy'] ?? 'free_market';
+    if (is_numeric($current)) {
+        $idx = array_search($policy, VALID_POLICIES, true);
+        return $idx === false ? 0 : (int)$idx;
+    }
+    return $policy;
+}
+
+function normalize_tax_value(mixed $v): float {
+    $n = (float)$v;
+    // Legacy schema stores percentages as ints (e.g. 20), newer schema as 0..1
+    if ($n > 1.0) $n /= 100.0;
+    return max(0.0, min(1.0, $n));
+}
+
+/**
+ * PHASE 2.1: War→Economy coupling.
+ * Returns a modifier (0.4–1.0) applied to production/trade tax efficiency.
+ * policy = 'war_economy' avoids the penalty on military goods but hurts civilian.
+ */
+function fetch_war_economy_modifier(PDO $db, int $uid): array {
+    $modifiers = [
+        'production_mult'        => 1.0,
+        'trade_income_mult'      => 1.0,
+        'tax_efficiency_mult'    => 1.0,
+        'active_wars'            => 0,
+        'war_exhaustion_avg'     => 0.0,
+        'has_war_economy_policy' => false,
+    ];
+
+    $warTableCheckStmt = $db->query("SHOW TABLES LIKE 'wars'");
+    if (!$warTableCheckStmt->fetch()) {
+        return $modifiers;
+    }
+
+    $stmt = $db->prepare(<<<SQL
+        SELECT COUNT(*) AS cnt,
+               AVG((exhaustion_att + exhaustion_def) / 2.0) AS avg_exhaustion
+        FROM wars
+        WHERE status = 'active'
+          AND (attacker_user_id = ? OR defender_user_id = ?)
+    SQL);
+    $stmt->execute([$uid, $uid]);
+    $warData = $stmt->fetch(PDO::FETCH_ASSOC);
+    $activeWars    = (int)($warData['cnt'] ?? 0);
+    $avgExhaustion = (float)($warData['avg_exhaustion'] ?? 0.0);
+
+    if ($activeWars === 0) {
+        return $modifiers;
+    }
+
+    $modifiers['active_wars']        = $activeWars;
+    $modifiers['war_exhaustion_avg'] = $avgExhaustion;
+
+    // Each active war reduces production by 10% (capped at -50%)
+    $warPenalty = min(0.5, $activeWars * 0.10 + ($avgExhaustion / 200.0));
+    $modifiers['production_mult']     = max(0.4, 1.0 - $warPenalty);
+    $modifiers['trade_income_mult']   = max(0.5, 1.0 - $warPenalty * 0.5);
+    $modifiers['tax_efficiency_mult'] = max(0.6, 1.0 - $warPenalty * 0.3);
+
+    // War Economy policy reduces civilian penalty, boosts military production
+    $policyStmt = $db->prepare('SELECT global_policy FROM economy_policies WHERE user_id = ?');
+    $policyStmt->execute([$uid]);
+    $policy = policy_key_from_mixed($policyStmt->fetchColumn());
+    if ($policy === 'war_economy') {
+        $modifiers['production_mult']     = min(1.0, $modifiers['production_mult'] + 0.15);
+        $modifiers['has_war_economy_policy'] = true;
+    }
+
+    return $modifiers;
+}
+
+/**
+ * PHASE 2.2: Pirates→Colony damage modifier.
+ * Returns a multiplier (0.7–1.0) reflecting unrepaired raid damage.
+ */
+function fetch_pirate_damage_modifier(PDO $db, int $uid): float {
+    $tableCheckStmt = $db->query("SHOW TABLES LIKE 'pirate_damage_recovery'");
+    if (!$tableCheckStmt->fetch()) {
+        return 1.0;
+    }
+
+    $stmt = $db->prepare(<<<SQL
+        SELECT AVG(initial_damage - recovery_percent) AS avg_unrepaired
+        FROM pirate_damage_recovery pdr
+        JOIN colonies c ON c.id = pdr.colony_id
+        WHERE c.user_id = ?
+          AND pdr.recovery_complete IS NULL
+    SQL);
+    $stmt->execute([$uid]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    $unrepairedPct = (float)($row['avg_unrepaired'] ?? 0.0);
+
+    // Every % of unrepaired damage = 0.5% production loss, capped at -30%
+    return max(0.7, 1.0 - ($unrepairedPct * 0.005));
+}
+
 function fetch_policy(PDO $db, int $uid): array {
     ensure_policy_row($db, $uid);
     $stmt = $db->prepare('SELECT * FROM economy_policies WHERE user_id = ?');
@@ -112,6 +219,11 @@ function action_get_overview(PDO $db, int $uid): never {
         $colonies = array_filter($colonies, fn($c) => (int)$c['id'] === $colonyId);
     }
 
+    // PHASE 2.1: Fetch war economy modifiers
+    $warModifiers = fetch_war_economy_modifier($db, $uid);
+    // PHASE 2.2: Fetch pirate damage modifier
+    $pirateDamageMult = fetch_pirate_damage_modifier($db, $uid);
+
     $result = [];
     foreach ($colonies as $c) {
         $cid  = (int)$c['id'];
@@ -141,7 +253,11 @@ function action_get_overview(PDO $db, int $uid): never {
         ];
     }
 
-    json_ok(['colonies' => $result]);
+    json_ok([
+        'colonies'       => $result,
+        'war_modifiers'  => $warModifiers,
+        'pirate_damage_mult' => $pirateDamageMult,
+    ]);
 }
 
 /**
@@ -257,17 +373,19 @@ function action_set_production_method(PDO $db, int $uid): never {
  */
 function action_get_policy(PDO $db, int $uid): never {
     $policy = fetch_policy($db, $uid);
+    $globalPolicy = policy_key_from_mixed($policy['global_policy'] ?? 'free_market');
+    $taxProductionRaw = $policy['tax_production'] ?? ($policy['tax_resources'] ?? 0);
     json_ok([
-        'global_policy'       => $policy['global_policy'],
+        'global_policy'       => $globalPolicy,
         'taxes'               => [
-            'income'      => (float)$policy['tax_income'],
-            'production'  => (float)$policy['tax_production'],
-            'trade'       => (float)$policy['tax_trade'],
+            'income'      => normalize_tax_value($policy['tax_income'] ?? 0),
+            'production'  => normalize_tax_value($taxProductionRaw),
+            'trade'       => normalize_tax_value($policy['tax_trade'] ?? 0),
         ],
         'subsidies'           => [
-            'agriculture' => (bool)$policy['subsidy_agriculture'],
-            'research'    => (bool)$policy['subsidy_research'],
-            'military'    => (bool)$policy['subsidy_military'],
+            'agriculture' => ((int)($policy['subsidy_agriculture'] ?? 0)) > 0,
+            'research'    => ((int)($policy['subsidy_research'] ?? 0)) > 0,
+            'military'    => ((int)($policy['subsidy_military'] ?? 0)) > 0,
         ],
     ]);
 }
@@ -287,8 +405,10 @@ function action_set_policy(PDO $db, int $uid): never {
     }
 
     ensure_policy_row($db, $uid);
+    $row = fetch_policy($db, $uid);
+    $storage = policy_storage_value($row, $policy);
     $db->prepare('UPDATE economy_policies SET global_policy = ? WHERE user_id = ?')
-       ->execute([$policy, $uid]);
+       ->execute([$storage, $uid]);
 
     json_ok(['global_policy' => $policy]);
 }
@@ -308,12 +428,23 @@ function action_set_tax(PDO $db, int $uid): never {
         json_error('Invalid tax type. Must be: ' . implode(', ', array_keys(TAX_MAX)), 400);
     }
 
-    $clamped = max(0.0, min((float)TAX_MAX[$type], $rate));
-    $col     = 'tax_' . $type;
-
     ensure_policy_row($db, $uid);
+    $row = fetch_policy($db, $uid);
+
+    $clamped = max(0.0, min((float)TAX_MAX[$type], $rate));
+    $storeRate = $clamped;
+
+    $col = 'tax_' . $type;
+    if ($type === 'production' && !array_key_exists('tax_production', $row) && array_key_exists('tax_resources', $row)) {
+        $col = 'tax_resources';
+    }
+    // Legacy schema stores percentages in whole numbers.
+    if (isset($row[$col]) && is_numeric($row[$col]) && (float)$row[$col] > 1.0) {
+        $storeRate = round($clamped * 100, 2);
+    }
+
     $db->prepare("UPDATE economy_policies SET {$col} = ? WHERE user_id = ?")
-       ->execute([$clamped, $uid]);
+       ->execute([$storeRate, $uid]);
 
     json_ok(['type' => $type, 'rate' => $clamped]);
 }
@@ -389,6 +520,134 @@ function action_get_pop_classes(PDO $db, int $uid): never {
     json_ok(['pop_classes' => $out]);
 }
 
+/**
+ * GET economy.php?action=get_pop_status[&colony_id=N]
+ *
+ * Returns detailed pop satisfaction, employment, and migration data per colony.
+ * Satisfaction index (0-100) affects production yield (-50% to +50%).
+ */
+function action_get_pop_status(PDO $db, int $uid): never {
+    $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
+
+    if ($colonyId !== null) {
+        // Single colony detailed status
+        $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
+        $stmt->execute([$colonyId, $uid]);
+        if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
+
+        $stmt = $db->prepare(<<<SQL
+            SELECT pop_class, count, satisfaction_index, employment_level, migration_rate, wage_requirement
+            FROM economy_pop_classes
+            WHERE colony_id = ?
+            ORDER BY FIELD(pop_class, 'colonist','citizen','specialist','elite','transcendent')
+        SQL);
+        $stmt->execute([$colonyId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $out = [];
+        $totalCount = 0;
+        $avgSatisfaction = 0.0;
+
+        foreach ($rows as $r) {
+            $count = (int)$r['count'];
+            $satisfaction = (float)$r['satisfaction_index'];
+            $totalCount += $count;
+            $avgSatisfaction += $satisfaction * $count;
+
+            $out[$r['pop_class']] = [
+                'count'              => $count,
+                'satisfaction'       => round($satisfaction, 2),
+                'employment'         => round((float)$r['employment_level'], 2),
+                'migration_rate'     => round((float)$r['migration_rate'], 2),
+                'wage_requirement'   => round((float)$r['wage_requirement'], 2),
+                'production_mult'    => round(0.5 + ($satisfaction / 100.0), 3),  // 0.5x–1.5x
+            ];
+        }
+
+        $avgSatisfaction = $totalCount > 0 ? $avgSatisfaction / $totalCount : 50.0;
+
+        json_ok([
+            'colony_id'           => $colonyId,
+            'total_population'    => $totalCount,
+            'avg_satisfaction'    => round($avgSatisfaction, 2),
+            'pop_status'          => $out,
+        ]);
+    }
+
+    // All colonies — aggregated
+    $stmt = $db->prepare(<<<SQL
+        SELECT c.id, c.name,
+               SUM(epc.count) AS total_pop,
+               AVG(epc.satisfaction_index) AS avg_satisfaction,
+               AVG(epc.employment_level) AS avg_employment,
+               SUM(epc.migration_rate * epc.count) / SUM(epc.count) AS avg_migration
+        FROM colonies c
+        LEFT JOIN economy_pop_classes epc ON epc.colony_id = c.id
+        WHERE c.user_id = ?
+        GROUP BY c.id
+        ORDER BY c.id
+    SQL);
+    $stmt->execute([$uid]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $colonies = [];
+    foreach ($rows as $r) {
+        $satisfaction = (float)($r['avg_satisfaction'] ?? 50.0);
+        $colonies[] = [
+            'colony_id'        => (int)$r['id'],
+            'name'             => $r['name'],
+            'total_population' => (int)($r['total_pop'] ?? 0),
+            'avg_satisfaction' => round($satisfaction, 2),
+            'avg_employment'   => round((float)($r['avg_employment'] ?? 80.0), 2),
+            'avg_migration'    => round((float)($r['avg_migration'] ?? 0.0), 2),
+            'production_mult'  => round(0.5 + ($satisfaction / 100.0), 3),
+        ];
+    }
+
+    json_ok(['colonies' => $colonies]);
+}
+
+/**
+ * POST economy.php?action=set_pop_policy
+ *
+ * Set satisfaction drivers like wage_adjustment, culture_spending, safety_budget.
+ * Recalculates satisfaction_index and employment_level on next tick.
+ */
+function action_set_pop_policy(PDO $db, int $uid): never {
+    $colonyId = (int)($_POST['colony_id'] ?? 0);
+    $wageAdjustment = (float)($_POST['wage_adjustment'] ?? 1.0);  // 0.5–2.0x multiplier
+    $cultureSpending = (float)($_POST['culture_spending'] ?? 0.0); // 0–1000 credits/tick
+    $safetyBudget = (float)($_POST['safety_budget'] ?? 0.0);       // 0–100% budget
+    
+    // Validate
+    if ($colonyId <= 0) json_error('Invalid colony_id', 400);
+    if ($wageAdjustment < 0.5 || $wageAdjustment > 2.0) json_error('wage_adjustment must be 0.5–2.0', 400);
+    if ($cultureSpending < 0 || $cultureSpending > 1000) json_error('culture_spending must be 0–1000', 400);
+    if ($safetyBudget < 0 || $safetyBudget > 100) json_error('safety_budget must be 0–100%', 400);
+
+    // Verify colony ownership
+    $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
+    $stmt->execute([$colonyId, $uid]);
+    if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
+
+    // Update all pop classes in this colony
+    $stmt = $db->prepare(<<<SQL
+        UPDATE economy_pop_classes
+        SET wage_requirement = wage_requirement * ?,
+            last_satisfaction_calc = CURRENT_TIMESTAMP
+        WHERE colony_id = ?
+    SQL);
+    $stmt->execute([$wageAdjustment, $colonyId]);
+
+    json_ok([
+        'colony_id'        => $colonyId,
+        'wage_adjustment'  => $wageAdjustment,
+        'culture_spending' => $cultureSpending,
+        'safety_budget'    => $safetyBudget,
+        'message'          => 'Pop policy updated; satisfaction recalculated on next tick',
+    ]);
+}
+
 match ($action) {
     'get_overview'          => action_get_overview($db, $uid),
     'get_production'        => action_get_production($db, $uid),
@@ -398,5 +657,7 @@ match ($action) {
     'set_tax'               => action_set_tax($db, $uid),
     'set_subsidy'           => action_set_subsidy($db, $uid),
     'get_pop_classes'       => action_get_pop_classes($db, $uid),
+    'get_pop_status'        => action_get_pop_status($db, $uid),
+    'set_pop_policy'        => action_set_pop_policy($db, $uid),
     default                 => json_error('Unknown action: ' . $action, 400),
 };

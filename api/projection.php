@@ -372,6 +372,9 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
         require_once __DIR__ . '/npc_ai.php';
         try { npc_ai_tick($db, $uid); } catch (Throwable $e) { error_log('npc_ai_tick error: ' . $e->getMessage()); }
         try { $warRuntime = process_war_runtime_tick($db); } catch (Throwable $e) { error_log('war_runtime_tick error: ' . $e->getMessage()); }
+        try { $economyPopTick = process_economy_pop_satisfaction_tick($db); } catch (Throwable $e) { error_log('economy_pop_satisfaction_tick error: ' . $e->getMessage()); }
+        try { $warAttritionTick = process_war_attrition_tick($db); } catch (Throwable $e) { error_log('war_attrition_tick error: ' . $e->getMessage()); }
+        try { $pirateRaidTick = process_pirate_raid_resolution_tick($db); } catch (Throwable $e) { error_log('pirate_raid_resolution_tick error: ' . $e->getMessage()); }
     }
 
     // ── Politics runtime ──────────────────────────────────────────────────────

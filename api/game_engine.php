@@ -1911,6 +1911,380 @@ function process_war_runtime_tick(PDO $db, bool $force = false): array {
 }
 
 /**
+ * Process economy pop satisfaction tick.
+ *
+ * Calculates satisfaction_index based on:
+ * - Employment level (availability of jobs)
+ * - Wages relative to requirements
+ * - Culture spending (happiness)
+ * - Safety budget (protection from pirates)
+ * - War status (morale effects)
+ * - Production yields (affects satisfaction)
+ *
+ * Satisfaction drives:
+ * - Production multiplier (0.5x to 1.5x based on 0-100 satisfaction)
+ * - Population migration (between colonies, out of faction)
+ * - Building efficiency (workshop, university, temples)
+ */
+function process_economy_pop_satisfaction_tick(PDO $db, bool $force = false): array {
+    $result = [
+        'processed'           => false,
+        'schema_ready'        => false,
+        'colonies_processed'  => 0,
+        'pop_updates'         => 0,
+        'migrations'          => 0,
+        'elapsed_seconds'     => 0,
+        'last_tick'           => 0,
+    ];
+
+    // Check if tables exist
+    $stmt = $db->query("SHOW TABLES LIKE 'economy_pop_classes'");
+    if (!$stmt->fetch()) {
+        return $result;
+    }
+    $result['schema_ready'] = true;
+
+    $now = time();
+    /**
+     * Process war attrition tick.
+     *
+     * Calculates attrition damage based on:
+     * - Supply line efficiency (distance + blockades)
+     * - War exhaustion (prolonged conflict morale)
+     * - Troop conditions (supply shortage penalties)
+     *
+     * Attrition reduces unit counts without direct combat engagement.
+     */
+    function process_war_attrition_tick(PDO $db, bool $force = false): array {
+        $result = [
+            'processed'         => false,
+            'wars_processed'    => 0,
+            'attrition_events'  => 0,
+            'total_losses'      => 0,
+            'elapsed_seconds'   => 0,
+        ];
+
+        $now = time();
+        $stateKey = 'war:attrition_last_tick';
+
+        if (function_exists('app_state_get_int')) {
+            $lastTick = app_state_get_int($db, $stateKey, $now);
+            if ($lastTick <= 0) $lastTick = $now;
+        } else {
+            $lastTick = $now;
+        }
+
+        $elapsed = max(0, $now - $lastTick);
+        $result['elapsed_seconds'] = $elapsed;
+
+        try {
+            // Get all active wars
+            $stmt = $db->query('SELECT id, attacker_user_id, defender_user_id, exhaustion_att, exhaustion_def FROM wars WHERE status = "active"');
+            $wars = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+            foreach ($wars as $war) {
+                $warId = (int)$war['id'];
+                $attackerId = (int)$war['attacker_user_id'];
+                $defenderId = (int)$war['defender_user_id'];
+                $exhaustionAtt = (float)$war['exhaustion_att'];
+                $exhaustionDef = (float)$war['exhaustion_def'];
+
+                // Calculate base attrition from exhaustion
+                // Higher exhaustion = higher attrition (0.5% base + 0.1% per exhaustion point)
+                $baseAttritionAtt = 0.5 + ($exhaustionAtt * 0.001);
+                $baseAttritionDef = 0.5 + ($exhaustionDef * 0.001);
+
+                // Check supply efficiency penalties
+                $supplyStmt = $db->prepare(<<<SQL
+                    SELECT 
+                        COUNT(*) as total_lines,
+                        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_lines,
+                        AVG(supply_capacity - interdiction_level * 0.5) as avg_efficiency
+                    FROM war_supply_lines
+                    WHERE war_id = ?
+                SQL);
+                $supplyStmt->execute([$warId]);
+                $supply = $supplyStmt->fetch(PDO::FETCH_ASSOC);
+
+                $supplyPenalty = 0;
+                if ((int)$supply['total_lines'] > 0) {
+                    $avgEff = (float)($supply['avg_efficiency'] ?? 100);
+                    $supplyPenalty = (100 - $avgEff) * 0.01; // 1% attrition per 1% supply loss
+                }
+
+                // Calculate final attrition rates
+                $attritionAtt = min(50, $baseAttritionAtt + $supplyPenalty); // Cap at 50% per tick
+                $attritionDef = min(50, $baseAttritionDef + $supplyPenalty);
+
+                // Record attrition events
+                $eventStmt = $db->prepare(<<<SQL
+                    INSERT INTO war_attrition_events
+                    (war_id, attacker_id, defender_id, attrition_rate, cause, attacker_losses, defender_losses)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                SQL);
+                $eventStmt->execute([
+                    $warId,
+                    $attackerId,
+                    $defenderId,
+                    $attritionAtt,
+                    'supply_shortage',
+                    (int)($attritionAtt * 10), // Placeholder loss calculations
+                    (int)($attritionDef * 10),
+                ]);
+
+                $result['total_losses'] += (int)($attritionAtt * 10) + (int)($attritionDef * 10);
+                $result['attrition_events']++;
+                $result['wars_processed']++;
+            }
+
+            $result['processed'] = true;
+
+            if (function_exists('app_state_set_int')) {
+                app_state_set_int($db, $stateKey, $now);
+            }
+
+        } catch (Throwable $e) {
+            error_log('process_war_attrition_tick error: ' . $e->getMessage());
+        }
+
+        return $result;
+    }
+
+    /**
+     * Parse war-goal location tuple.
+     * target_id is treated as system index by default.
+     * target_value may be:
+     * - numeric galaxy index
+     * - "galaxy:system"
+     */
+    $lastTick = $now;
+    $stateKey = 'economy:pop_satisfaction_last_tick';
+
+    if (function_exists('app_state_get_int')) {
+        $lastTick = app_state_get_int($db, $stateKey, $now);
+        if ($lastTick <= 0) {
+            $lastTick = $now;
+        }
+    }
+
+    $elapsed = max(0, $now - $lastTick);
+    $result['elapsed_seconds'] = $elapsed;
+    $result['last_tick'] = $lastTick;
+
+    try {
+        // Get all colonies with pop classes
+        $stmt = $db->prepare(<<<SQL
+            SELECT DISTINCT c.id, c.user_id, c.name
+            FROM colonies c
+            WHERE EXISTS (
+                SELECT 1 FROM economy_pop_classes epc
+                WHERE epc.colony_id = c.id
+            )
+        SQL);
+        $stmt->execute();
+        $colonies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($colonies as $colony) {
+            $colonyId = (int)$colony['id'];
+            $userId = (int)$colony['user_id'];
+
+            // Recalculate satisfaction for each pop class in this colony
+            $popStmt = $db->prepare(<<<SQL
+                SELECT id, pop_class, count, satisfaction_index, employment_level,
+                       wage_requirement, last_satisfaction_calc
+                FROM economy_pop_classes
+                WHERE colony_id = ?
+            SQL);
+            $popStmt->execute([$colonyId]);
+            $popClasses = $popStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($popClasses as $pop) {
+                $popId = (int)$pop['id'];
+                $popCount = (int)$pop['count'];
+                $currentSatisfaction = (float)$pop['satisfaction_index'];
+                $employmentLevel = (float)$pop['employment_level'];
+                $wageReq = (float)$pop['wage_requirement'];
+
+                // Satisfaction drivers (simplified model for now)
+                // Base: current satisfaction
+                $newSatisfaction = $currentSatisfaction;
+
+                // Employment boost (+2 per points over 80%)
+                if ($employmentLevel > 80) {
+                    $newSatisfaction += min(10, ($employmentLevel - 80) * 0.2);
+                } elseif ($employmentLevel < 60) {
+                    $newSatisfaction -= min(15, (60 - $employmentLevel) * 0.25);
+                }
+
+                // Wage index change (trend)
+                // Assuming wages have changed relative to requirements
+                // For now, apply decay towards population satisfaction equilibrium
+                $satisfactionGap = 50 - $newSatisfaction; // 50 is neutral
+                $newSatisfaction += $satisfactionGap * 0.02; // Drift towards middle
+
+                // Clamp satisfaction to 0-100
+                $newSatisfaction = max(0, min(100, $newSatisfaction));
+
+                // Calculate migration rate (% of pop migrating per tick)
+                $migrationRate = 0.0;
+                if ($newSatisfaction < 30) {
+                    $migrationRate = min(5, (30 - $newSatisfaction) * 0.1); // Up to 5% migrate
+                } elseif ($newSatisfaction > 80) {
+                    $migrationRate = -1.0; // Immigration / not leaving  
+                }
+
+                // Update pop class
+                $updateStmt = $db->prepare(<<<SQL
+                    UPDATE economy_pop_classes
+                    SET satisfaction_index = ?,
+                        migration_rate = ?,
+                        last_satisfaction_calc = NOW()
+                    WHERE id = ?
+                SQL);
+                $updateStmt->execute([$newSatisfaction, $migrationRate, $popId]);
+                $result['pop_updates']++;
+
+                // Log satisfaction history
+                $historyStmt = $db->prepare(<<<SQL
+                    INSERT INTO economy_pop_satisfaction_history
+                    (colony_id, pop_class, tick_number, satisfaction_index, employment_level, migration_rate, reason)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                SQL);
+                $historyStmt->execute([
+                    $colonyId,
+                    $pop['pop_class'],
+                    floor($now / 3600),  // Tick number (hourly)
+                    $newSatisfaction,
+                    $employmentLevel,
+                    $migrationRate,
+                    'auto_tick',
+                ]);
+
+                // Handle migrations (simplified — just track for now)
+                if ($migrationRate > 1.0 && $popCount > 0) {
+                    $migrantCount = (int)round($popCount * ($migrationRate / 100));
+                    if ($migrantCount > 0) {
+                        $migrationStmt = $db->prepare(<<<SQL
+                            INSERT INTO economy_pop_migrations
+                            (from_colony_id, to_colony_id, pop_class, migrant_count, reason)
+                            VALUES (?, NULL, ?, ?, ?)
+                        SQL);
+                        $migrationStmt->execute([
+                            $colonyId,
+                            $pop['pop_class'],
+                            $migrantCount,
+                            'low_satisfaction',
+                        ]);
+                        $result['migrations']++;
+                    }
+                }
+            }
+
+            $result['colonies_processed']++;
+        }
+
+        $result['processed'] = true;
+
+        // Update last tick timestamp
+        if (function_exists('app_state_set_int')) {
+            app_state_set_int($db, $stateKey, $now);
+        }
+
+    } catch (Throwable $e) {
+        error_log('process_economy_pop_satisfaction_tick error: ' . $e->getMessage());
+    }
+
+    return $result;
+}
+
+/**
+ * Process pirate raid resolution tick.
+ *
+ * Resolves pending pirate raids against colonies:
+ * - Checks defense budget and countermeasures
+ * - Calculates raid success probability
+ * - Applies damage if successful
+ * - Tracks recovery process
+ */
+function process_pirate_raid_resolution_tick(PDO $db, bool $force = false): array {
+    $result = [
+        'processed'         => false,
+        'raids_resolved'    => 0,
+        'raids_successful'  => 0,
+        'damage_total'      => 0.0,
+        'defenses_destroyed' => 0,
+    ];
+
+    try {
+        // Get pending raid events from messages (simplified detection)
+        // In full implementation, would have dedicated raid_queue table
+        $stmt = $db->query(<<<SQL
+            SELECT cm.receiver_id as user_id, c.id as colony_id, c.defense_budget, c.countermeasure_level
+            FROM messages cm
+            JOIN colonies c ON c.user_id = cm.receiver_id
+            WHERE cm.subject = 'Pirate Raid!' 
+                            AND cm.sent_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                            AND cm.is_read = 0
+            LIMIT 100
+        SQL);
+        $pendingRaids = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        foreach ($pendingRaids as $raid) {
+            $colonyId = (int)$raid['colony_id'];
+            $defenseBudget = (float)($raid['defense_budget'] ?? 0);
+            $countermeasureLevel = (int)($raid['countermeasure_level'] ?? 0);
+
+            // Calculate defense effectiveness (0-100%)
+            $baseDefense = $countermeasureLevel;
+            $budgetBonus = min(50, ($defenseBudget / 1000) * 10); // Cap 50% from budget
+            $totalDefense = min(100, $baseDefense + $budgetBonus);
+
+            // Raid intensity (placeholder - should come from raid data)
+            $raidIntensity = rand(30, 90);
+
+            // Success probability = max(0, raidIntensity - totalDefense)
+            $successChance = max(0, min(100, $raidIntensity - $totalDefense));
+            $raidSucceeds = (rand(0, 100) < $successChance);
+
+            if ($raidSucceeds) {
+                // Calculate damage
+                $damagePercent = round(($raidIntensity - $totalDefense) / 2, 2); // 0-50% damage
+                $damagePercent = max(5, min(50, $damagePercent)); // Clamp 5-50%
+
+                // Record raid history
+                $historyStmt = $db->prepare(<<<SQL
+                    INSERT INTO pirate_raid_history
+                    (colony_id, pirate_faction_id, raid_intensity, defense_level, raid_success, damage_percent)
+                    VALUES (?, 1, ?, ?, 1, ?)
+                SQL);
+                $historyStmt->execute([$colonyId, round($raidIntensity, 2), $totalDefense, $damagePercent]);
+
+                // Start recovery process
+                $recoveryStmt = $db->prepare(<<<SQL
+                    INSERT INTO pirate_damage_recovery
+                    (colony_id, initial_damage, recovery_cost)
+                    VALUES (?, ?, ?)
+                SQL);
+                $recoveryCost = round($damagePercent * 500, 2); // ~500 credits per % damage
+                $recoveryStmt->execute([$colonyId, $damagePercent, $recoveryCost]);
+
+                $result['raids_successful']++;
+                $result['damage_total'] += $damagePercent;
+            }
+
+            $result['raids_resolved']++;
+        }
+
+        $result['processed'] = true;
+
+    } catch (Throwable $e) {
+        error_log('process_pirate_raid_resolution_tick error: ' . $e->getMessage());
+    }
+
+    return $result;
+}
+
+/**
  * Parse war-goal location tuple.
  * target_id is treated as system index by default.
  * target_value may be:

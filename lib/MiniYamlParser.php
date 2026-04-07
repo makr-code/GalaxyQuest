@@ -211,6 +211,29 @@ final class MiniYamlParser
             $i++;
 
             if ($itemText !== '') {
+                // Support common YAML pattern "- key: value" (sequence of maps).
+                $colonPos = strpos($itemText, ':');
+                if ($colonPos !== false) {
+                    $firstKey = trim(substr($itemText, 0, $colonPos));
+                    if ($firstKey !== '' && preg_match('/^[A-Za-z0-9_\-]+$/', $firstKey)) {
+                        $item = [];
+                        $rest = ltrim(substr($itemText, $colonPos + 1));
+                        $item[$firstKey] = ($rest !== '') ? $this->parseScalar($rest) : null;
+
+                        // Merge additional nested key/value lines belonging to this item.
+                        $nextIndent = $this->peekIndent($i);
+                        if ($nextIndent !== null && $nextIndent > $indent) {
+                            $tail = $this->parseMap($i, $nextIndent);
+                            foreach ($tail as $k => $v) {
+                                $item[$k] = $v;
+                            }
+                        }
+
+                        $seq[] = $item;
+                        continue;
+                    }
+                }
+
                 $seq[] = $this->parseScalar($itemText);
             } else {
                 // Nested block under sequence item
@@ -239,6 +262,11 @@ final class MiniYamlParser
     private function parseScalar(string $raw): mixed
     {
         $v = trim($raw);
+
+        // Allow explicit empty sequence literal used in some scenario files.
+        if ($v === '[]') {
+            return [];
+        }
 
         // Double-quoted string – handle basic escapes
         if (str_starts_with($v, '"') && str_ends_with($v, '"') && strlen($v) >= 2) {
@@ -343,6 +371,8 @@ final class MiniYamlParser
      */
     private function guardUnsupported(string $value, string|int $lineContext): void
     {
+        $stripped = $value;
+        $lineNumber = (string) $lineContext;
         // Anchors (& at line start or inline as value).
         if (str_starts_with($stripped, '&') || preg_match('/:\s*&/', $stripped)) {
             throw new \InvalidArgumentException(
@@ -362,8 +392,10 @@ final class MiniYamlParser
             );
         }
         // Flow mappings / sequences (at line start or inline as value).
+        $hasInlineFlow = preg_match('/:\s*[{[]/', $stripped) === 1;
+        $isExplicitEmptySeq = preg_match('/:\s*\[\s*\]\s*$/', $stripped) === 1;
         if (str_starts_with($stripped, '{') || str_starts_with($stripped, '[')
-            || preg_match('/:\s*[{[]/', $stripped)) {
+            || ($hasInlineFlow && !$isExplicitEmptySeq)) {
             throw new \InvalidArgumentException(
                 "YAML flow style is not supported (line {$lineNumber})"
             );
