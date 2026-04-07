@@ -2,6 +2,8 @@
   "_comment": "ThemisDB collection catalogue – parallel to sql/schema.sql. Updated whenever schema.sql or migration scripts add tables/indexes.",
   "_schema_version": "1.0.0",
   "_mysql_tables": 35,
+  "_total_collections": 65,
+  "_collection_type_note": "_mysql_tables counts direct MySQL table equivalents (relational collections). _total_collections includes additional edge collections and graph-specific collections that have no MySQL equivalent (e.g. diplomacy_edges, faction_to_faction_edges, wormhole_edges, ftl_gate_edges, trade_route_edges, alliance_member_edges, alliance_relation_edges).",
 
   "collections": [
 

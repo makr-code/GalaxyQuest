@@ -487,7 +487,7 @@ function validate_collection(ThemisDbClient $client, string $table, int $expecte
         return false;
     }
 
-    $actual = (int) (($result['data']['result'][0] ?? null) ?? -1);
+    $actual = (int) ($result['data']['result'][0] ?? -1);
     if ($actual !== $expected) {
         log_warn("  [VALIDATE] Row count mismatch for '{$table}': MySQL={$expected}, ThemisDB={$actual}");
         return false;

@@ -206,7 +206,7 @@ foreach ($collections as $col) {
     $result = $themis->ensureCollection($name, $themisType);
 
     if ($result['ok']) {
-        $existed = ($result['data']['new'] ?? true) === false;
+        $existed = !($result['data']['new'] ?? false);
         if ($existed) {
             log_msg('INFO', "  {$label} – already exists.");
             $stats['collections_existed']++;
@@ -258,7 +258,7 @@ if (!$skipIdx) {
             $result = $themis->ensureIndex($name, $idxType, $fields, $unique, $sparse, $geoJson);
 
             if ($result['ok']) {
-                $existed = ($result['data']['new'] ?? true) === false;
+                $existed = !($result['data']['new'] ?? false);
                 if ($existed) {
                     log_msg('INFO', "    {$label} – already exists.");
                 } else {
@@ -295,7 +295,7 @@ if (!$skipGraph && $onlyCol === '') {
         $result = $themis->ensureGraph($gName, $edgeDefs);
 
         if ($result['ok']) {
-            $existed = ($result['data']['new'] ?? true) === false;
+            $existed = !($result['data']['new'] ?? false);
             if ($existed) {
                 log_msg('INFO', "  Graph {$gName} – already exists.");
             } else {

@@ -133,6 +133,11 @@ services:
   #
   # Automatically runs when starting with the 'themisdb' profile:
   #   docker compose --profile themisdb up
+  #
+  # Timing note: themisdb healthcheck has start_period=30s + 12 retries × 10s = up to
+  # 2 minutes before this init container starts.  On first startup (cold data volume)
+  # this is normal.  themisdb-init exits with code 0 on success; use
+  # `docker compose logs themisdb-init` to inspect provisioning output.
   themisdb-init:
     image: php:8.3-cli
     container_name: galaxyquest-themisdb-init

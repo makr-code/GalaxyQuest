@@ -433,6 +433,9 @@ final class ThemisDbClient
         }
 
         // Parse HTTP status from response headers.
+        // $http_response_header is a PHP superglobal automatically populated by
+        // file_get_contents() after a successful stream operation.  It contains
+        // the raw HTTP response header lines, e.g. ["HTTP/1.1 200 OK", ...].
         $httpStatus = 200;
         if (isset($http_response_header) && is_array($http_response_header)) {
             foreach ($http_response_header as $line) {
