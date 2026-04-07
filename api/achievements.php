@@ -200,7 +200,7 @@ function fetch_faction_quests_as_achievements(PDO $db, int $userId): array
                     fq.reward_metal, fq.reward_crystal, fq.reward_deuterium,
                     fq.reward_dark_matter, fq.reward_rank_points,
                     fq.reward_standing,
-                    999                AS sort_order,
+                    999                AS sort_order,  -- faction quests sort after all achievements
                     (uq.status IN (\'completed\',\'claimed\')) AS completed,
                     (uq.status = \'claimed\')                  AS reward_claimed,
                     1                  AS progress,
