@@ -268,6 +268,72 @@ final class ThemisDbClient
         return $this->request('POST', '/api/llm/rag', $payload);
     }
 
+    // ── Schema Provisioning ───────────────────────────────────────────────────
+
+    /**
+     * Idempotently create a collection.
+     *
+     * @param  string $name       Collection name.
+     * @param  string $type       'collection' | 'document' | 'edge'
+     * @return array{ok: bool, data: mixed, status: int, error: string|null}
+     */
+    public function ensureCollection(string $name, string $type = 'collection'): array
+    {
+        return $this->request('PUT', '/api/collection/' . rawurlencode($name), [
+            'name' => $name,
+            'type' => $type,
+        ]);
+    }
+
+    /**
+     * Idempotently create an index on a collection.
+     *
+     * @param  string   $collection Target collection name.
+     * @param  string   $type       'persistent' | 'geo' | 'fulltext' | 'ttl'
+     * @param  string[] $fields     Field paths to index.
+     * @param  bool     $unique     Whether the index enforces uniqueness.
+     * @param  bool     $sparse     Whether to skip null/missing values.
+     * @param  bool     $geoJson    For geo indexes: treat as GeoJSON.
+     * @return array{ok: bool, data: mixed, status: int, error: string|null}
+     */
+    public function ensureIndex(
+        string $collection,
+        string $type,
+        array  $fields,
+        bool   $unique  = false,
+        bool   $sparse  = false,
+        bool   $geoJson = false
+    ): array {
+        $body = [
+            'type'   => $type,
+            'fields' => $fields,
+        ];
+        if ($unique)  { $body['unique']  = true; }
+        if ($sparse)  { $body['sparse']  = true; }
+        if ($geoJson) { $body['geoJson'] = true; }
+
+        return $this->request(
+            'POST',
+            '/api/index/' . rawurlencode($collection),
+            $body
+        );
+    }
+
+    /**
+     * Idempotently create a named graph with its edge definitions.
+     *
+     * @param  string                                                       $name      Graph name.
+     * @param  array<int, array{collection: string, from: string[], to: string[]}>  $edgeDefs  Edge collection definitions.
+     * @return array{ok: bool, data: mixed, status: int, error: string|null}
+     */
+    public function ensureGraph(string $name, array $edgeDefs): array
+    {
+        return $this->request('PUT', '/api/graph/' . rawurlencode($name), [
+            'name'             => $name,
+            'edgeDefinitions'  => $edgeDefs,
+        ]);
+    }
+
     // ── Dual-write Helper ─────────────────────────────────────────────────────
 
     /**

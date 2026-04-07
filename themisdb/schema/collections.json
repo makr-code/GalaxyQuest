@@ -1,0 +1,745 @@
+{
+  "_comment": "ThemisDB collection catalogue – parallel to sql/schema.sql. Updated whenever schema.sql or migration scripts add tables/indexes.",
+  "_schema_version": "1.0.0",
+  "_mysql_tables": 35,
+
+  "collections": [
+
+    {
+      "name": "users",
+      "type": "collection",
+      "comment": "Player + NPC actor accounts (mirrors MySQL users table)",
+      "indexes": [
+        { "type": "persistent", "fields": ["username"],     "unique": true  },
+        { "type": "persistent", "fields": ["email"],        "unique": true  },
+        { "type": "persistent", "fields": ["control_type"]                  },
+        { "type": "persistent", "fields": ["last_login"]                    },
+        { "type": "persistent", "fields": ["ftl_drive_type"]                }
+      ]
+    },
+
+    {
+      "name": "user_character_profiles",
+      "type": "document",
+      "comment": "Generated character dossier, portrait refs, vita text",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id"],  "unique": true },
+        { "type": "persistent", "fields": ["is_npc"]                   },
+        { "type": "fulltext",   "fields": ["vita"]                     }
+      ]
+    },
+
+    {
+      "name": "remember_tokens",
+      "type": "collection",
+      "comment": "Persistent login / remember-me tokens",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id"]                  },
+        { "type": "persistent", "fields": ["selector"],  "unique": true },
+        { "type": "persistent", "fields": ["expires_at"]               }
+      ]
+    },
+
+    {
+      "name": "app_state",
+      "type": "collection",
+      "comment": "Key-value bootstrap / feature-flag state",
+      "indexes": [
+        { "type": "persistent", "fields": ["state_key"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "star_systems",
+      "type": "collection",
+      "comment": "Star system catalogue with 3-D coordinates",
+      "indexes": [
+        { "type": "persistent", "fields": ["galaxy_index", "system_index"], "unique": true },
+        { "type": "persistent", "fields": ["galaxy_index"]                                 },
+        { "type": "geo",        "fields": ["coordinates"],  "geoJson": false,
+          "comment": "3-D position: store as {lat:y_ly, lon:x_ly}; z_ly in payload for Dijkstra" },
+        { "type": "persistent", "fields": ["spectral_class"]                               },
+        { "type": "persistent", "fields": ["stellar_type"]                                 }
+      ]
+    },
+
+    {
+      "name": "binary_systems",
+      "type": "collection",
+      "comment": "Binary star companion data",
+      "indexes": [
+        { "type": "persistent", "fields": ["primary_star_system_id"], "unique": true },
+        { "type": "persistent", "fields": ["separation_au"]                          },
+        { "type": "persistent", "fields": ["companion_stellar_type"]                 }
+      ]
+    },
+
+    {
+      "name": "planets",
+      "type": "document",
+      "comment": "Planet catalogue; species_affinity_json embedded",
+      "indexes": [
+        { "type": "persistent", "fields": ["system_id"]                                   },
+        { "type": "persistent", "fields": ["galaxy", "system", "position"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "celestial_bodies",
+      "type": "document",
+      "comment": "Unified body catalogue (planet, moon, comet, rogue planet, rings)",
+      "indexes": [
+        { "type": "persistent", "fields": ["body_uid"],                    "unique": true },
+        { "type": "persistent", "fields": ["galaxy_index", "system_index"]               },
+        { "type": "persistent", "fields": ["body_type"]                                  },
+        { "type": "persistent", "fields": ["parent_body_id"]                             },
+        { "type": "persistent", "fields": ["can_colonize"]                               }
+      ]
+    },
+
+    {
+      "name": "colonies",
+      "type": "collection",
+      "comment": "Player colonies with resources",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id"]                                             },
+        { "type": "persistent", "fields": ["body_id"],       "unique": true                       },
+        { "type": "persistent", "fields": ["galaxy", "system", "position"]                        },
+        { "type": "persistent", "fields": ["is_homeworld"]                                        }
+      ]
+    },
+
+    {
+      "name": "buildings",
+      "type": "collection",
+      "comment": "Colony buildings",
+      "indexes": [
+        { "type": "persistent", "fields": ["colony_id", "type"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "building_upgrade_queue",
+      "type": "collection",
+      "comment": "Building upgrade jobs queue",
+      "indexes": [
+        { "type": "persistent", "fields": ["colony_id", "status"] },
+        { "type": "persistent", "fields": ["eta"]                 }
+      ]
+    },
+
+    {
+      "name": "research",
+      "type": "collection",
+      "comment": "Per-user research progress",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id", "type"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "ships",
+      "type": "collection",
+      "comment": "Ships stationed at colonies",
+      "indexes": [
+        { "type": "persistent", "fields": ["colony_id"]           },
+        { "type": "persistent", "fields": ["colony_id", "type"]   }
+      ]
+    },
+
+    {
+      "name": "fleets",
+      "type": "collection",
+      "comment": "In-flight fleet movements with 3-D Newtonian coordinates",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id"]           },
+        { "type": "persistent", "fields": ["arrival_time"]      },
+        { "type": "persistent", "fields": ["return_time"]       },
+        { "type": "persistent", "fields": ["returning"]         },
+        { "type": "persistent", "fields": ["mission"]           },
+        { "type": "persistent", "fields": ["origin_colony_id"]  }
+      ]
+    },
+
+    {
+      "name": "wormholes",
+      "type": "collection",
+      "comment": "Static wormhole connections between star systems; also an edge collection in ftl_network graph",
+      "indexes": [
+        { "type": "persistent", "fields": ["system_a_id", "system_b_id"], "unique": true },
+        { "type": "persistent", "fields": ["stability"]                                  },
+        { "type": "persistent", "fields": ["wormhole_type"]                              }
+      ]
+    },
+
+    {
+      "name": "wormhole_edges",
+      "type": "edge",
+      "comment": "Graph edge collection: wormhole connections between StarSystemVertex nodes",
+      "indexes": [
+        { "type": "persistent", "fields": ["wormhole_id"]  },
+        { "type": "persistent", "fields": ["stability"]    },
+        { "type": "persistent", "fields": ["wormhole_type"]}
+      ]
+    },
+
+    {
+      "name": "user_wormhole_unlocks",
+      "type": "collection",
+      "comment": "Per-player wormhole unlock state",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id", "wormhole_id"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "ftl_gates",
+      "type": "collection",
+      "comment": "FTL gate installations at star systems",
+      "indexes": [
+        { "type": "persistent", "fields": ["system_id"]                         },
+        { "type": "persistent", "fields": ["system_id", "gate_type"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "ftl_gate_edges",
+      "type": "edge",
+      "comment": "Graph edge collection: FTL gate connections in ftl_network",
+      "indexes": [
+        { "type": "persistent", "fields": ["gate_type"] }
+      ]
+    },
+
+    {
+      "name": "ftl_resonance_nodes",
+      "type": "collection",
+      "comment": "Syl'Nar resonance node installations",
+      "indexes": [
+        { "type": "persistent", "fields": ["system_id"]          },
+        { "type": "persistent", "fields": ["faction_code"]       },
+        { "type": "persistent", "fields": ["active_until"]       }
+      ]
+    },
+
+    {
+      "name": "leaders",
+      "type": "document",
+      "comment": "Faction leaders and player-associated characters",
+      "indexes": [
+        { "type": "persistent", "fields": ["faction_code"]                            },
+        { "type": "persistent", "fields": ["faction_code", "role"], "unique": true    },
+        { "type": "persistent", "fields": ["is_player_character"]                     },
+        { "type": "fulltext",   "fields": ["vita"]                                    }
+      ]
+    },
+
+    {
+      "name": "messages",
+      "type": "document",
+      "comment": "In-game messages between players and factions",
+      "indexes": [
+        { "type": "persistent", "fields": ["receiver_id", "read_at"]         },
+        { "type": "persistent", "fields": ["sender_id"]                      },
+        { "type": "persistent", "fields": ["message_type"]                   },
+        { "type": "persistent", "fields": ["created_at"]                     }
+      ]
+    },
+
+    {
+      "name": "battle_reports",
+      "type": "document",
+      "comment": "Combat battle reports with full JSON payload",
+      "indexes": [
+        { "type": "persistent", "fields": ["attacker_id"]               },
+        { "type": "persistent", "fields": ["defender_id"]               },
+        { "type": "persistent", "fields": ["created_at"]                },
+        { "type": "persistent", "fields": ["outcome"]                   }
+      ]
+    },
+
+    {
+      "name": "spy_reports",
+      "type": "document",
+      "comment": "Espionage reports with JSON payload",
+      "indexes": [
+        { "type": "persistent", "fields": ["spy_user_id"]               },
+        { "type": "persistent", "fields": ["target_user_id"]            },
+        { "type": "persistent", "fields": ["created_at"]                }
+      ]
+    },
+
+    {
+      "name": "npc_factions",
+      "type": "collection",
+      "comment": "NPC faction catalogue; also vertices in diplomacy_net graph",
+      "indexes": [
+        { "type": "persistent", "fields": ["code"],          "unique": true },
+        { "type": "persistent", "fields": ["faction_type"]                  },
+        { "type": "persistent", "fields": ["power_level"]                   }
+      ]
+    },
+
+    {
+      "name": "diplomacy",
+      "type": "collection",
+      "comment": "Per-player faction standings (-100..+100); will become edge collection in Phase 3",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id", "faction_id"], "unique": true },
+        { "type": "persistent", "fields": ["standing"]                              },
+        { "type": "persistent", "fields": ["last_event_at"]                         }
+      ]
+    },
+
+    {
+      "name": "diplomacy_edges",
+      "type": "edge",
+      "comment": "Graph edge collection: player ↔ faction standing in diplomacy_net",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id", "faction_id"], "unique": true },
+        { "type": "persistent", "fields": ["standing"]                              }
+      ]
+    },
+
+    {
+      "name": "faction_to_faction_edges",
+      "type": "edge",
+      "comment": "Graph edge collection: faction ↔ faction standing from FACTION_RELATIONS.yaml",
+      "indexes": [
+        { "type": "persistent", "fields": ["faction_a", "faction_b"], "unique": true },
+        { "type": "persistent", "fields": ["standing"]                               }
+      ]
+    },
+
+    {
+      "name": "trade_offers",
+      "type": "collection",
+      "comment": "Time-limited faction trade offers",
+      "indexes": [
+        { "type": "persistent", "fields": ["faction_id"]            },
+        { "type": "persistent", "fields": ["valid_until", "active"] }
+      ]
+    },
+
+    {
+      "name": "faction_quests",
+      "type": "collection",
+      "comment": "Faction quest catalogue",
+      "indexes": [
+        { "type": "persistent", "fields": ["faction_id"]              },
+        { "type": "persistent", "fields": ["code"],      "unique": true },
+        { "type": "persistent", "fields": ["quest_type"]              },
+        { "type": "persistent", "fields": ["difficulty"]              }
+      ]
+    },
+
+    {
+      "name": "user_faction_quests",
+      "type": "collection",
+      "comment": "Per-user active/completed faction quests",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id"]                                     },
+        { "type": "persistent", "fields": ["user_id", "faction_quest_id"], "unique": true },
+        { "type": "persistent", "fields": ["status"]                                      },
+        { "type": "persistent", "fields": ["completed_at"]                                }
+      ]
+    },
+
+    {
+      "name": "trade_routes",
+      "type": "collection",
+      "comment": "Player-configured automated trade routes; also edges in trade_network",
+      "indexes": [
+        { "type": "persistent", "fields": ["origin_colony_id", "target_colony_id"], "unique": true },
+        { "type": "persistent", "fields": ["user_id", "last_dispatch"]                             }
+      ]
+    },
+
+    {
+      "name": "trade_route_edges",
+      "type": "edge",
+      "comment": "Graph edge collection: colony ↔ colony trade route in trade_network",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id"] },
+        { "type": "persistent", "fields": ["is_active"] }
+      ]
+    },
+
+    {
+      "name": "alliances",
+      "type": "collection",
+      "comment": "Player alliances (guilds)",
+      "indexes": [
+        { "type": "persistent", "fields": ["tag"],            "unique": true },
+        { "type": "persistent", "fields": ["leader_user_id"]                 }
+      ]
+    },
+
+    {
+      "name": "alliance_members",
+      "type": "collection",
+      "comment": "Alliance membership records",
+      "indexes": [
+        { "type": "persistent", "fields": ["alliance_id", "user_id"], "unique": true },
+        { "type": "persistent", "fields": ["user_id", "alliance_id"]                 }
+      ]
+    },
+
+    {
+      "name": "alliance_member_edges",
+      "type": "edge",
+      "comment": "Graph edge collection: player MEMBER_OF alliance",
+      "indexes": [
+        { "type": "persistent", "fields": ["role"] }
+      ]
+    },
+
+    {
+      "name": "alliance_relations",
+      "type": "collection",
+      "comment": "Inter-alliance relations (nap/alliance/war)",
+      "indexes": [
+        { "type": "persistent", "fields": ["alliance_id", "relation_type"]       },
+        { "type": "persistent", "fields": ["other_alliance_id", "relation_type"] }
+      ]
+    },
+
+    {
+      "name": "alliance_relation_edges",
+      "type": "edge",
+      "comment": "Graph edge collection: alliance ALLIED_WITH/AT_WAR_WITH edge",
+      "indexes": [
+        { "type": "persistent", "fields": ["relation_type"] }
+      ]
+    },
+
+    {
+      "name": "alliance_messages",
+      "type": "document",
+      "comment": "Alliance internal message board",
+      "indexes": [
+        { "type": "persistent", "fields": ["alliance_id", "created_at"] }
+      ]
+    },
+
+    {
+      "name": "achievements",
+      "type": "collection",
+      "comment": "Achievement catalogue",
+      "indexes": [
+        { "type": "persistent", "fields": ["code"],     "unique": true },
+        { "type": "persistent", "fields": ["category"]                  },
+        { "type": "persistent", "fields": ["sort_order"]                }
+      ]
+    },
+
+    {
+      "name": "user_achievements",
+      "type": "collection",
+      "comment": "Per-user achievement progress",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id", "achievement_id"], "unique": true },
+        { "type": "persistent", "fields": ["user_id", "completed"]                      }
+      ]
+    },
+
+    {
+      "name": "colony_events",
+      "type": "collection",
+      "comment": "Planetary random events",
+      "indexes": [
+        { "type": "persistent", "fields": ["colony_id"],  "unique": true },
+        { "type": "persistent", "fields": ["expires_at"]                 }
+      ]
+    },
+
+    {
+      "name": "npc_chat_sessions",
+      "type": "document",
+      "comment": "NPC conversation sessions with summary; migrating from disk JSON files",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id"]                         },
+        { "type": "persistent", "fields": ["user_id", "npc_slug"]             },
+        { "type": "persistent", "fields": ["faction_code"]                    },
+        { "type": "persistent", "fields": ["status"]                          },
+        { "type": "persistent", "fields": ["updated_at"]                      }
+      ]
+    },
+
+    {
+      "name": "llm_prompt_profiles",
+      "type": "collection",
+      "comment": "Prompt template catalogue (from migrate_llm_soc_v1.sql)",
+      "indexes": [
+        { "type": "persistent", "fields": ["profile_key"],  "unique": true },
+        { "type": "persistent", "fields": ["faction_code"]                 },
+        { "type": "persistent", "fields": ["profile_type"]                 }
+      ]
+    },
+
+    {
+      "name": "llm_request_log",
+      "type": "document",
+      "comment": "LLM inference request log for auditing and optimization",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id"]        },
+        { "type": "persistent", "fields": ["created_at"]     },
+        { "type": "persistent", "fields": ["model_alias"]    },
+        { "type": "persistent", "fields": ["duration_ms"]    }
+      ]
+    },
+
+    {
+      "name": "npc_llm_decision_log",
+      "type": "document",
+      "comment": "NPC PvE AI decision log (from migrate_npc_pve_controller_v1.sql)",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id",    "created_at"] },
+        { "type": "persistent", "fields": ["faction_id", "created_at"] },
+        { "type": "persistent", "fields": ["status",     "created_at"] }
+      ]
+    },
+
+    {
+      "name": "rbac_groups",
+      "type": "collection",
+      "comment": "RBAC permission groups (from migrate_rbac_v1.sql)",
+      "indexes": [
+        { "type": "persistent", "fields": ["group_key"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "rbac_profiles",
+      "type": "collection",
+      "comment": "RBAC permission profiles with hierarchy",
+      "indexes": [
+        { "type": "persistent", "fields": ["profile_key"],      "unique": true },
+        { "type": "persistent", "fields": ["parent_profile_id"]                }
+      ]
+    },
+
+    {
+      "name": "rbac_group_profiles",
+      "type": "collection",
+      "comment": "Many-to-many: RBAC group ↔ profile assignments",
+      "indexes": [
+        { "type": "persistent", "fields": ["group_id",   "profile_id"], "unique": true },
+        { "type": "persistent", "fields": ["profile_id"]                               }
+      ]
+    },
+
+    {
+      "name": "rbac_user_groups",
+      "type": "collection",
+      "comment": "User ↔ RBAC group assignments",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id",  "group_id"], "unique": true },
+        { "type": "persistent", "fields": ["group_id"]                             }
+      ]
+    },
+
+    {
+      "name": "vessel_hulls",
+      "type": "collection",
+      "comment": "Ship hull blueprints catalogue",
+      "indexes": [
+        { "type": "persistent", "fields": ["hull_class"]  },
+        { "type": "persistent", "fields": ["faction_code"]}
+      ]
+    },
+
+    {
+      "name": "module_groups",
+      "type": "collection",
+      "comment": "Ship module groups (weapons/shields/engines/…)",
+      "indexes": [
+        { "type": "persistent", "fields": ["group_code"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "modules",
+      "type": "collection",
+      "comment": "Individual ship modules",
+      "indexes": [
+        { "type": "persistent", "fields": ["module_code"], "unique": true },
+        { "type": "persistent", "fields": ["module_group_id"]             }
+      ]
+    },
+
+    {
+      "name": "hull_module_compatibility",
+      "type": "collection",
+      "comment": "Hull ↔ module slot compatibility matrix",
+      "indexes": [
+        { "type": "persistent", "fields": ["hull_id", "module_id"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "vessel_blueprints",
+      "type": "document",
+      "comment": "User-saved ship configuration blueprints",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id"]           },
+        { "type": "persistent", "fields": ["hull_id"]           },
+        { "type": "persistent", "fields": ["faction_code"]      }
+      ]
+    },
+
+    {
+      "name": "species_profiles",
+      "type": "document",
+      "comment": "Playable species profiles (from migrate_politics_model_v1.sql)",
+      "indexes": [
+        { "type": "persistent", "fields": ["species_code"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "government_forms",
+      "type": "collection",
+      "comment": "Available government types",
+      "indexes": [
+        { "type": "persistent", "fields": ["form_code"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "government_civics",
+      "type": "collection",
+      "comment": "Civic policies unlockable per government form",
+      "indexes": [
+        { "type": "persistent", "fields": ["civic_code"],    "unique": true },
+        { "type": "persistent", "fields": ["government_form_id"]            }
+      ]
+    },
+
+    {
+      "name": "user_empire_profile",
+      "type": "document",
+      "comment": "Per-user empire configuration (species, government, ethics)",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "user_empire_civics",
+      "type": "collection",
+      "comment": "Per-user active civic choices",
+      "indexes": [
+        { "type": "persistent", "fields": ["user_id", "civic_id"], "unique": true }
+      ]
+    },
+
+    {
+      "name": "npc_traders",
+      "type": "collection",
+      "comment": "NPC trader actors (from migrate_traders_system_v1.sql)",
+      "indexes": [
+        { "type": "persistent", "fields": ["faction_id"]   },
+        { "type": "persistent", "fields": ["trader_type"]  },
+        { "type": "persistent", "fields": ["current_system_id"] }
+      ]
+    },
+
+    {
+      "name": "trade_opportunities",
+      "type": "collection",
+      "comment": "Open market trade opportunities",
+      "indexes": [
+        { "type": "persistent", "fields": ["faction_id"]       },
+        { "type": "persistent", "fields": ["valid_until"]      },
+        { "type": "persistent", "fields": ["resource_offered"] }
+      ]
+    },
+
+    {
+      "name": "trader_routes",
+      "type": "collection",
+      "comment": "NPC trader planned routes",
+      "indexes": [
+        { "type": "persistent", "fields": ["trader_id"]           },
+        { "type": "persistent", "fields": ["from_system_id", "to_system_id"] }
+      ]
+    },
+
+    {
+      "name": "market_supply_demand",
+      "type": "collection",
+      "comment": "Real-time market supply/demand data",
+      "indexes": [
+        { "type": "persistent", "fields": ["system_id", "resource_type"], "unique": true },
+        { "type": "persistent", "fields": ["resource_type"]                              }
+      ]
+    },
+
+    {
+      "name": "trader_transactions",
+      "type": "document",
+      "comment": "NPC trader transaction history",
+      "indexes": [
+        { "type": "persistent", "fields": ["trader_id"]    },
+        { "type": "persistent", "fields": ["created_at"]   }
+      ]
+    }
+  ],
+
+  "graphs": [
+    {
+      "name": "diplomacy_net",
+      "comment": "Faction diplomacy network: factions ↔ players ↔ alliances",
+      "edge_definitions": [
+        {
+          "collection": "diplomacy_edges",
+          "from": ["users"],
+          "to":   ["npc_factions"]
+        },
+        {
+          "collection": "faction_to_faction_edges",
+          "from": ["npc_factions"],
+          "to":   ["npc_factions"]
+        },
+        {
+          "collection": "alliance_member_edges",
+          "from": ["users"],
+          "to":   ["alliances"]
+        },
+        {
+          "collection": "alliance_relation_edges",
+          "from": ["alliances"],
+          "to":   ["alliances"]
+        }
+      ]
+    },
+    {
+      "name": "ftl_network",
+      "comment": "FTL travel network: wormholes + FTL gates between star systems",
+      "edge_definitions": [
+        {
+          "collection": "wormhole_edges",
+          "from": ["star_systems"],
+          "to":   ["star_systems"]
+        },
+        {
+          "collection": "ftl_gate_edges",
+          "from": ["star_systems"],
+          "to":   ["star_systems"]
+        }
+      ]
+    },
+    {
+      "name": "trade_network",
+      "comment": "Automated trade route network between colonies",
+      "edge_definitions": [
+        {
+          "collection": "trade_route_edges",
+          "from": ["colonies"],
+          "to":   ["colonies"]
+        }
+      ]
+    }
+  ]
+}

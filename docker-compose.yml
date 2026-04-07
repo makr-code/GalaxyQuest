@@ -126,6 +126,39 @@ services:
       retries: 12
       start_period: 30s
 
+  # ── ThemisDB schema provisioner ──────────────────────────────────────────────
+  # Runs once after ThemisDB is healthy: creates all collections, indexes, graph
+  # definitions and seed data that mirror the MySQL schema.
+  # MySQL parallel: sql/schema.sql + sql/migrate_*.sql → themis_schema_provision.php
+  #
+  # Automatically runs when starting with the 'themisdb' profile:
+  #   docker compose --profile themisdb up
+  themisdb-init:
+    image: php:8.3-cli
+    container_name: galaxyquest-themisdb-init
+    profiles:
+      - themisdb
+    depends_on:
+      themisdb:
+        condition: service_healthy
+    environment:
+      # Mirror the web service ThemisDB settings
+      THEMISDB_ENABLED:         1
+      THEMISDB_BASE_URL:        http://themisdb:8080
+      THEMISDB_TIMEOUT_SECONDS: 30
+      THEMISDB_DUAL_WRITE:      0
+      THEMISDB_API_TOKEN:       ""
+    volumes:
+      - ./:/app:ro          # mount repo read-only
+    working_dir: /app
+    # Provision schema + seed data, then exit (restart: no)
+    command: >
+      sh -c "php tools/themis_schema_provision.php
+               --url=http://themisdb:8080
+               --seed
+               && echo '[themisdb-init] Schema provisioning complete.'"
+    restart: "no"
+
 volumes:
   galaxyquest-db-data:
   galaxyquest-tts-voice-cache:
