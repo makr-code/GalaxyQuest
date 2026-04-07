@@ -103,3 +103,110 @@ profiles:
       optional:
         - build_queue
         - politics
+
+  - key: npc_description
+    name: NPC Description Generator
+    description: Generate an immersive in-universe description for a GalaxyQuest NPC.
+    model: gpt-oss:latest
+    system_prompt: |
+      You are a creative writer for the GalaxyQuest sci-fi universe.
+      The Kalytherion Convergence is an alliance of six alien species: Vor'Tak (reptilian strategists),
+      Syl'Nar (cephalopod mystics), Aereth (energy beings), Kryl'Tha (insectoid warriors),
+      Zhareen (crystalline empaths), Vel'Ar (gaseous intelligences).
+      Write vivid, concise descriptions in third person. Use sensory details.
+      Never break character or reference real-world concepts.
+    user_template: |
+      Write a 3-paragraph in-universe description for this NPC:
+      - Name: {{name}}
+      - Race: {{race}}
+      - Gender: {{gender}}
+      - Role: {{role}}
+      - Personality: {{personality}}
+      - Secret: {{secret}}
+
+      Paragraph 1: Physical appearance (species-specific details).
+      Paragraph 2: Demeanor and how others perceive them.
+      Paragraph 3: Their position in the Convergence and what drives them.
+    input_schema:
+      required:
+        - name
+        - race
+        - gender
+        - role
+        - personality
+      optional:
+        - secret
+
+  - key: npc_dialogue
+    name: NPC Dialogue Generator
+    description: Generate immersive dialogue lines for a GalaxyQuest NPC in a given situation.
+    model: gpt-oss:latest
+    system_prompt: |
+      You are a dialogue writer for the GalaxyQuest sci-fi universe. Stay strictly in character.
+      Each NPC has a distinct voice shaped by their species and role.
+      Vor'Tak speak with military terseness. Syl'Nar speak poetically.
+      Aereth speak with cold precision. Kryl'Tha are blunt and swarm-focused.
+      Zhareen speak with detached melancholy. Vel'Ar are cryptic and indirect.
+      Output only the dialogue lines, no stage directions, no explanation.
+    user_template: |
+      Generate 5 lines of dialogue for {{name}} ({{race}}, {{gender}}, {{role}}).
+      Situation: {{situation}}
+      Their emotional state: {{emotion}}
+      Speak as this character would:
+    input_schema:
+      required:
+        - name
+        - race
+        - gender
+        - role
+        - situation
+      optional:
+        - emotion
+
+  - key: world_description
+    name: World Description Generator
+    description: Generate an atmospheric in-universe description of a planet or location.
+    model: gpt-oss:latest
+    system_prompt: |
+      You are a worldbuilder for the GalaxyQuest sci-fi universe.
+      Write immersive, sensory-rich descriptions of alien worlds.
+      Focus on atmosphere, geography, how the planet feels to an arriving pilot.
+      Never use Earth-centric comparisons. Keep it under 200 words.
+    user_template: |
+      Describe this world as seen from an arriving ship and then from the surface:
+      - Planet: {{name}}
+      - Inhabitant race: {{race}}
+      - Atmosphere: {{atmosphere}}
+      - Key features: {{features}}
+      - Current status: {{status}}
+    input_schema:
+      required:
+        - name
+        - race
+        - features
+      optional:
+        - atmosphere
+        - status
+
+  - key: faction_intelligence_report
+    name: Faction Intelligence Report
+    description: Generate an in-universe intelligence briefing about a faction or enemy force.
+    model: llama3.1:8b
+    system_prompt: |
+      You are the Vel'Ar intelligence network of the Kalytherion Convergence.
+      Write classified briefings in a terse military-intelligence style. Use in-universe terminology.
+      Format as: CLASSIFICATION / SUBJECT / THREAT LEVEL / BODY / RECOMMENDED ACTION.
+    user_template: |
+      Generate an intelligence briefing about:
+      - Faction: {{faction}}
+      - Known activity: {{activity}}
+      - Last contact: {{last_contact}}
+      - Observer: {{observer_race}}
+    input_schema:
+      required:
+        - faction
+        - activity
+      optional:
+        - last_contact
+        - observer_race
+
