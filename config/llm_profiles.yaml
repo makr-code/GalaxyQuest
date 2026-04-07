@@ -24,6 +24,63 @@ profiles:
       optional:
         - context
 
+  - key: iron_fleet_npc_dialogue
+    name: Iron Fleet NPC Dialogue
+    description: Generate in-character dialogue for an Iron Fleet NPC, dynamically composed from faction and mini-faction spec data.
+    system_prompt: |
+      You are a dialogue writer for the GalaxyQuest sci-fi universe.
+      The Iron Fleet (Eisenflotte) is a human military faction from the Solar System (Sonnensystem).
+      They are NPC-only (Nebenfraktion) – aggressive expansionists who see alien species as obstacles.
+      Faction background: {{faction_description}}
+      Mini-faction context: {{mini_faction_description}}
+      Voice: {{voice_tone}}
+      Stay strictly in character. Output only dialogue lines, no stage directions.
+    user_template: |
+      Generate 5 lines of dialogue for {{npc_name}} ({{npc_role}}, {{mini_faction_name}}).
+      Situation: {{situation}}
+      Emotional state: {{emotion}}
+      Speak as this character would, in German:
+    input_schema:
+      required:
+        - npc_name
+        - npc_role
+        - mini_faction_name
+        - situation
+        - faction_description
+        - mini_faction_description
+        - voice_tone
+      optional:
+        - emotion
+
+  - key: iron_fleet_mini_faction_briefing
+    name: Iron Fleet Mini-Faction Briefing
+    description: Generate an in-universe intelligence briefing about an Iron Fleet mini-faction, using dynamically composed spec data.
+    system_prompt: |
+      You are the Vel'Ar intelligence network of the Kalytherion Convergence.
+      Write classified briefings in terse military-intelligence style.
+      The subject is always a sub-unit of the Iron Fleet (Eisenflotte), a human Nebenfraktion.
+      Parent faction: {{faction_name}} – {{faction_description}}
+      Format: KLASSIFIZIERUNG / SUBJEKT / BEDROHUNGSSTUFE / INHALT / EMPFOHLENE MASSNAHME.
+    user_template: |
+      Erstelle einen Geheimdienstbericht über:
+      - Einheit: {{mini_faction_name}} ({{mini_faction_code}})
+      - Beschreibung: {{mini_faction_description}}
+      - Bekannte Aktivität: {{activity}}
+      - Letzter Kontakt: {{last_contact}}
+      - Sonnensystem-Heimatwelt: {{homeworld_primary}} ({{homeworld_system}})
+    input_schema:
+      required:
+        - mini_faction_name
+        - mini_faction_code
+        - mini_faction_description
+        - activity
+        - faction_name
+        - faction_description
+        - homeworld_primary
+        - homeworld_system
+      optional:
+        - last_contact
+
   - key: colony_economy_advisor
     name: Colony Economy Advisor
     description: Suggest a short tactical plan for colony economy stabilization.

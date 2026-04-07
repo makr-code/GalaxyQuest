@@ -1,0 +1,24 @@
+faction_code: iron_fleet_tech
+mini_faction_code: tech
+parent_faction: iron_fleet
+display_name: "Techniker-Gilde"
+description: "Ingenieure und Techniker der Eisenflotte. Halten die Massenflotten am Laufen, entwickeln kinetische Waffensysteme und KI-Zielsysteme. Pragmatisch und lösungsorientiert – Ideologie ist Nebensache."
+
+society:
+  government: "Meritokratie – Chefingenieur nach technischer Kompetenz gewählt"
+  culture: "Pragmatismus, technische Exzellenz, Problemlösung"
+
+important_npcs:
+  - name: "Chefingenieurin Yuki Tanaka"
+    role: "Leiterin der Techniker-Gilde"
+    description: "Technisch brillant, politisch desinteressiert. Wartet auf den Tag, an dem die Technik über die Ideologie siegt."
+
+llm_voice:
+  tone: "Sachlich, technisch, kein Raum für Sentimentalität. Zahlen und Fakten."
+  speech_style: "Präzise, fachlich, kurze technische Begriffe bevorzugt"
+  typical_greeting: "Techniker-Gilde hier. Problem? Wir lösen es."
+
+llm_quotes:
+  - "Funktioniert es? Wenn nicht – reparieren oder ersetzen."
+  - "Ideologie rostet. Stahl nicht."
+  - "Die beste Waffe ist eine, die nie versagt."

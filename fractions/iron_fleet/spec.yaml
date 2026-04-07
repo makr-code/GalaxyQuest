@@ -1,0 +1,110 @@
+faction_code: iron_fleet
+faction_name: "Die Eisenflotte"
+display_name: "Eisenflotte"
+faction_type: human_military
+description: "Menschliche Militärmacht aus dem Sonnensystem. Aggressiv-expansiv, zahlenmäßig stark, technologisch rückständig gegenüber der Konvergenz. Spiegel im Kleinen der Konvergenz – eine Nebenfraktion, keine Hauptmacht."
+status: active_hostile
+
+meta:
+  faction_tier: "side"
+  faction_tier_label_de: "Nebenfraktion"
+  playable: false
+  npc_only: true
+  canon_note: "Nebenfraktion: Spiegel im Kleinen der Konvergenz, keine Hauptmacht."
+
+homeworld:
+  system: "Sonnensystem"
+  primary: "Erde"
+  planets_de:
+    - "Merkur"
+    - "Venus"
+    - "Erde"
+    - "Mars"
+    - "Jupiter"
+    - "Saturn"
+    - "Uranus"
+    - "Neptun"
+
+society:
+  government: "Militärdiktatur"
+  culture: "Expansion, Kontrolle, Menschliche Vorherrschaft"
+  gender_roles: "Streng meritokratisch innerhalb des Militärs"
+
+biology:
+  type: Human
+  male:
+    appearance: "Kampfgehärtete Gesichtszüge, Narben, kurze Haare"
+    color_primary: "#2c3e50"
+    color_secondary: "#7f8c8d"
+    color_accent: "#e74c3c"
+  female:
+    appearance: "Scharf, wachsam, markante Militäruniform"
+    color_primary: "#2c3e50"
+    color_secondary: "#95a5a6"
+    color_accent: "#c0392b"
+
+portraiture:
+  base_prompt: "Photorealistic portrait photo of a human military officer, head and shoulders (bust portrait), clearly gendered appearance, ultra-detailed military uniform texture, realistic lighting, studio portrait photography style, soft key light, subtle rim light, shallow depth of field, sharp focus on the face, transparent background, PNG alpha, cinematic realism."
+  male_modifier: "Male human military officer, battle-hardened face, short cropped hair, visible combat scars, stern expression, dark steel armor details."
+  female_modifier: "Female human military officer, sharp angular features, severe expression, polished dark steel uniform insignia, hair pulled back tight."
+  material_description: "Dark steel and grey composite armor with red faction markings, weathered and functional"
+  silhouette_description: "Upright military bearing, squared shoulders, stern gaze, practical uniform with rank insignia"
+
+logo:
+  prompt: "Military faction insignia for a human space fleet, dark steel grey and deep red colors, featuring a stylized iron fist or armored gauntlet gripping a planet, aggressive and expansionist aesthetic, metallic finish, isolated on transparent background, vector art style"
+  description: "Iron fist gripping a planet – Menschliche Dominanz"
+
+technology:
+  weapons:
+    - "Massenschiffe"
+    - "Kinetische Waffen"
+    - "KI-gestützte Zielsysteme"
+    - "Nuklearwaffen"
+
+military:
+  primary_asset: "Massenflotten"
+  strength: 7
+  doctrine: "Overwhelming Force"
+
+agenda: "Expansion, Kontrolle, Assimilation – Menschliche Dominanz im Sektor"
+
+important_npcs:
+  - name: "Admiral Kessler"
+    role: "Oberkommandierender der Eisenflotte"
+    description: "Kalt, berechnend, überzeugt von menschlicher Überlegenheit. Verhandelt nicht."
+    faction: iron_fleet
+
+relationships:
+  vor_tak:
+    standing: 0
+    description: "Feind – aber taktische Bündnisse mit Abtrünnigen möglich"
+  syl_nar:
+    standing: 0
+    description: "Feind"
+  aereth:
+    standing: 0
+    description: "Feind"
+  kryl_tha:
+    standing: 0
+    description: "Feind"
+  zhareen:
+    standing: 0
+    description: "Feind"
+  vel_ar:
+    standing: 1
+    description: "Spionage über Abtrünnige"
+
+quest_hooks:
+  - "Die Eisenflotte plant eine Invasion von Drak'Thuun"
+  - "Ein menschlicher Admiral will Frieden – aber niemand glaubt ihm"
+  - "Menschen haben eine Waffe entwickelt, die die Leerenbrut anzieht"
+
+llm_voice:
+  tone: "Militärisch, direkt, ohne Umschweife. Spricht von menschlicher Überlegenheit."
+  speech_style: "Kurze Befehle, Propaganda-Phrasen, Verachtung für Fremde"
+  typical_greeting: "Die Eisenflotte duldet keine Schwäche."
+
+llm_quotes:
+  - "Der Kosmos gehört dem Menschen. Alles andere ist Hindernis."
+  - "Wir haben keine Angst vor dem, was wir nicht verstehen – wir zerstören es."
+  - "Kapitulation ist keine Option. Für keine der Seiten."
