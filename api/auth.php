@@ -980,6 +980,72 @@ function generate_faction_homeworld_name(string $factionId, int $g, int $s, int 
 }
 
 /**
+ * Seed the player's initial faction quest at the end of the registration prolog.
+ *
+ * Looks up the herald NPC faction by $factionId code, finds its initial quest
+ * (the unique non-repeatable 'easy' quest), and inserts an active entry into
+ * user_faction_quests.  Returns the new user_faction_quests.id on success, or
+ * null if the faction/quest is not found (e.g. migration not yet run).
+ *
+ * Uses INSERT IGNORE so it is safe to call twice (idempotency on the unique
+ * constraint on (user_id, faction_quest_id) is handled by the fact that
+ * user_faction_quests has no such unique constraint; instead we check for an
+ * existing row first to avoid duplicates).
+ */
+function seed_prolog_initial_quest(PDO $db, int $userId, string $factionId): ?int {
+    if ($factionId === '') {
+        return null;
+    }
+
+    // Map prolog faction codes to their initial quest codes.
+    $questCodes = [
+        'vor_tak'  => 'vor_tak_first_patrol',
+        'syl_nar'  => 'syl_nar_food_check',
+        'aereth'   => 'aereth_mineral_survey',
+        'kryl_tha' => 'kryl_tha_security_sweep',
+        'zhareen'  => 'zhareen_first_research',
+        'vel_ar'   => 'vel_ar_data_intel',
+    ];
+
+    $questCode = $questCodes[$factionId] ?? null;
+    if ($questCode === null) {
+        return null;
+    }
+
+    // Look up the faction_quests row.
+    $qStmt = $db->prepare(
+        'SELECT q.id FROM faction_quests q
+           JOIN npc_factions f ON f.id = q.faction_id
+          WHERE f.code = ? AND q.code = ?
+          LIMIT 1'
+    );
+    $qStmt->execute([$factionId, $questCode]);
+    $factionQuestId = (int)($qStmt->fetchColumn() ?: 0);
+    if ($factionQuestId === 0) {
+        // Migration not yet applied – skip silently.
+        return null;
+    }
+
+    // Avoid duplicate if called more than once for the same user.
+    $existsStmt = $db->prepare(
+        'SELECT id FROM user_faction_quests
+          WHERE user_id = ? AND faction_quest_id = ?
+          LIMIT 1'
+    );
+    $existsStmt->execute([$userId, $factionQuestId]);
+    if ($existsStmt->fetchColumn() !== false) {
+        return null;
+    }
+
+    $db->prepare(
+        'INSERT INTO user_faction_quests (user_id, faction_quest_id, status, progress_json)
+         VALUES (?, ?, \'active\', \'{}\')'
+    )->execute([$userId, $factionQuestId]);
+
+    return (int)$db->lastInsertId();
+}
+
+/**
  * POST /api/auth.php?action=register_prepare
  *
  * Step 1 of the two-step narrative registration.
@@ -1132,6 +1198,16 @@ function handle_register_complete(): void {
         // Non-fatal.
     }
 
+    // Auto-start the faction's initial prolog quest so it appears in the player's
+    // quest log as soon as they enter the game.
+    $initialQuestId = null;
+    try {
+        $factionId = (string)($session['faction_id'] ?? '');
+        $initialQuestId = seed_prolog_initial_quest($db, $provisionalUid, $factionId);
+    } catch (Throwable $e) {
+        error_log('prolog initial quest failed for uid ' . $provisionalUid . ': ' . $e->getMessage());
+    }
+
     // Consume the prolog session.
     $db->prepare('DELETE FROM prolog_sessions WHERE token = ?')->execute([$token]);
     gq_cache_delete('game_overview', ['uid' => $provisionalUid]);
@@ -1149,7 +1225,8 @@ function handle_register_complete(): void {
     }
 
     json_ok([
-        'user'        => ['id' => $provisionalUid, 'username' => $username],
-        'colony_name' => $colonyName,
+        'user'             => ['id' => $provisionalUid, 'username' => $username],
+        'colony_name'      => $colonyName,
+        'initial_quest_id' => $initialQuestId,
     ]);
 }
