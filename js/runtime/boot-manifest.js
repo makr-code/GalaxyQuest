@@ -145,8 +145,8 @@
       'js/engine/runtime/RuntimeTopbarA11y.js',
       'js/engine/runtime/RuntimeTopbarSearchStore.js',
       'js/engine/runtime/RuntimeTopbarSearch.js',
-      'js/engine/runtime/RuntimeGalaxySearchScoring.js',
-      'js/engine/runtime/RuntimeGalaxyPhysicsFlight.js',
+      'js/engine/runtime/layers/domain/galaxy/SearchScoring.js',
+      'js/engine/runtime/layers/domain/galaxy/PhysicsFlight.js',
       'js/engine/runtime/RuntimeColonySurfaceSlotMapping.js',
       'js/engine/runtime/RuntimeWormholeController.js',
       'js/engine/runtime/RuntimeRealtimeSync.js',
@@ -219,6 +219,29 @@
       'js/engine/runtime/layers/integration/galaxy/NavOrb.js',
       'js/engine/runtime/layers/domain/commands/CommandParsing.js',
       'js/engine/runtime/layers/ui/commands/TransitionsCommand.js',
+      'js/engine/runtime/layers/integration/galaxy/StarTerritorySync.js',
+      'js/engine/runtime/layers/integration/galaxy/StarCacheRead.js'
+    ], V.runtime))
+    .concat([
+      localScript('js/engine/runtime/layers/integration/galaxy/StarNetworkFlow.js', V.galaxyController)
+    ])
+    .concat(localScripts([
+      'js/engine/runtime/layers/integration/galaxy/StarFallbackRecovery.js',
+      'js/engine/runtime/layers/ui/galaxy/StarErrorUi.js',
+      'js/engine/runtime/layers/ui/galaxy/StarUiStatus.js',
+      'js/engine/runtime/layers/integration/galaxy/StarPersistence.js',
+      'js/engine/runtime/layers/integration/galaxy/StarBootstrapPreflight.js',
+      'js/engine/runtime/layers/integration/galaxy/StarFlowOrchestrator.js'
+    ], V.runtime))
+    .concat([
+      localScript('js/engine/runtime/layers/integration/galaxy/StarLoaderFacade.js', V.galaxyStarLoaderFacade),
+      localScript('js/engine/runtime/layers/integration/galaxy/Init3DFacade.js', V.galaxyInit3D)
+    ])
+    .concat(localScripts([
+      'js/engine/runtime/layers/ui/galaxy/NavOrbRepeat.js',
+      'js/engine/runtime/layers/ui/galaxy/NavOrb.js',
+      'js/engine/runtime/RuntimeCommandParsing.js',
+      'js/engine/runtime/RuntimeTransitionsCommand.js',
       'js/engine/runtime/RuntimeGameBootstrapHelpers.js',
       'js/engine/runtime/RuntimeGameInfraHelpers.js',
       'js/engine/runtime/RuntimeSystemBreadcrumbHelpers.js',
@@ -301,9 +324,9 @@
     ], V.runtime))
     .concat(localScripts([
       'js/engine/runtime/RuntimeQuickNavFacade.js',
-      'js/engine/runtime/RuntimeGalaxyHoverCardFacade.js',
-      'js/engine/runtime/RuntimeGalaxyClusterRangeControls.js',
-      'js/engine/runtime/RuntimeGalaxySystemDetailsFacade.js'
+      'js/engine/runtime/layers/ui/galaxy/HoverCardFacade.js',
+      'js/engine/runtime/layers/ui/galaxy/ClusterRangeControls.js',
+      'js/engine/runtime/layers/ui/galaxy/SystemDetailsFacade.js'
     ], V.quickNav))
     .concat(localScripts([
       'js/engine/runtime/RuntimeSettingsSfxRows.js',

@@ -4,10 +4,160 @@
   "faction_type": "espionage",
   "description": "Netzwerk aus Informationsbrokern, Agenten und Doppelspionen.",
   "status": "active_ambivalent",
+  "government": "Dezentrales Zellen-System",
   "homeworld": "Distributed Cells",
   "technology": [
     "Stealth infiltration",
     "Counter-intelligence meshes",
     "Signal obfuscation"
-  ]
+  ],
+  "military": {
+    "primary_asset": "Verdeckte Agenten und Saboteure",
+    "strength": 4,
+    "doctrine": "Informationskontrolle und gezielte Destabilisierung"
+  },
+  "agenda": "Informationsmonopol; alle Fraktionen in Abhängigkeit von Schattenkompakt-Daten halten",
+  "relationships": {
+    "vor_tak": {
+      "standing": 3,
+      "description": "Nützliche Klienten; kennen ihre Grenzen nicht"
+    },
+    "syl_nar": {
+      "standing": 5,
+      "description": "Komplizierte Beziehung; teilen manche Interessen"
+    },
+    "aereth": {
+      "standing": 6,
+      "description": "Schätzen Aereth-Kooperation; vorsichtig"
+    },
+    "kryl_tha": {
+      "standing": 2,
+      "description": "Unvorhersehbar; nur für Ablenkungsmanöver nützlich"
+    },
+    "zhareen": {
+      "standing": 7,
+      "description": "Kristall-Archive sind Gold"
+    },
+    "vel_ar": {
+      "standing": 8,
+      "description": "Kollegiale Konkurrenz; respektieren einander"
+    }
+  },
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Vor ~1.500 Jahren: Drei unabhängige Spionagezellen aus verschiedenen Spezies erkennen, dass sie dieselben Auftraggeber haben – und gründen ein Kartell.",
+    "Vor ~1.000 Jahren: Das Kompakt expandiert auf 47 Zellen in 12 Sektoren; entwickelt ein eigenes verschlüsseltes Kommunikationsnetz.",
+    "Vor ~600 Jahren: Erster großer Verrat: ein Direktor verkauft Zellen-Identitäten. Das Kompakt überlebt durch radikale Dezentralisierung.",
+    "Vor ~300 Jahren: Geheimvertrag mit Vel'Ar: Informationsaustausch gegen Zugang zu Phasentechnologie.",
+    "Vor ~80 Jahren: Das Kompakt entdeckt, dass die Leerenbrut Agenten korrumpiert. Sie beginnen interne Protokolle zur Echo-Detektion.",
+    "Gegenwart: Das Kompakt besitzt Informationen über alle Hauptfraktionen – und ist unsicher, an wen sie diese verkaufen sollen. Die falsche Entscheidung könnte alles zerstören."
+  ],
+  "important_npcs": [
+    {
+      "name": "Direktor Null (echter Name: unbekannt)",
+      "title": "Operativer Leiter des Schattenkompakts",
+      "public_face": "Existiert offiziell nicht; kommuniziert nur durch Intermediäre",
+      "private_goal": "Die Informationen über alle Fraktionen als Verhandlungschip für einen neuen galaktischen Machtstruktur nutzen",
+      "description": "Niemand weiß, welche Spezies oder welches Geschlecht Direktor Null hat. Manche bezweifeln, dass es eine einzelne Person ist.",
+      "llm_voice": {
+        "style_stack": [
+          "omniszient-wirkend",
+          "trocken-ironisch",
+          "nie direkt"
+        ],
+        "register": "immer angemessen für den Kontext – das ist das Beunruhigende",
+        "pacing": "perfekt getimed",
+        "taboos": [
+          "Identität preisgeben",
+          "Direkte Drohungen",
+          "Fehler zugeben"
+        ],
+        "signature_moves": [
+          "Weiß immer etwas das die anderen nicht wissen sollten",
+          "Stellt Bedingungen die für sich selbst keine Information preisgeben"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Wir wissen alles Relevante. Die Frage ist: was ist euch das wert?",
+          "Ich sage nicht, was ich weiß. Ich sage, was ich sagen werde.",
+          "Die Konvergenz glaubt, sie hat Geheimnisse. Sie irrt sich bezüglich der Anzahl."
+        ]
+      }
+    },
+    {
+      "name": "Agentin Kyra-Seven (Deckname)",
+      "title": "Feldagentin / Dreifach-Undercover",
+      "public_face": "Gleichzeitig als Helion-Attaché, Zhareen-Wissenschaftlerin und Vor'Tak-Beraterin aktiv",
+      "private_goal": "Eine der drei Identitäten zu ihrer echten machen und das Kompakt verlassen",
+      "description": "Wird von jedem für ein Mitglied ihrer Fraktion gehalten. Sie selbst weiß nicht mehr, wer sie wirklich ist.",
+      "llm_voice": {
+        "style_stack": [
+          "angepasst an Kontext",
+          "innerlich erschöpft",
+          "selbstironisch wenn sicher"
+        ],
+        "register": "wechselt je nach Kontext",
+        "pacing": "immer passend, nie auffällig",
+        "taboos": [
+          "Identitäten vermischen",
+          "In privaten Momenten zu persönlich werden"
+        ],
+        "signature_moves": [
+          "Wechselt Identität und Sprache je nach Zuhörer nahtlos",
+          "Hat Momente der echten Erschöpfung wenn allein mit Vertrauten"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "[Als Helion-Attaché]: Natürlich, die Konföderation schätzt diese Kooperation sehr.",
+          "[Als sich selbst, kurz]: Ich erinnere mich nicht mehr, wie ich spreche wenn niemand zuhört.",
+          "[Lacht leise]: Drei Identitäten. Keine davon ist genug."
+        ]
+      }
+    },
+    {
+      "name": "Analyst Breveth",
+      "title": "Datenanalyst / Gewissen des Kompakts",
+      "public_face": "Technischer Analytiker, der Berichte auswertet",
+      "private_goal": "Beweise sammeln, dass das Kompakt eine Echo-Infiltration hatte und immer noch hat",
+      "description": "Der einzige im Kompakt, der alle Informationen zusammenführt. Hat Angst vor dem, was er sieht.",
+      "llm_voice": {
+        "style_stack": [
+          "analytisch",
+          "besorgt",
+          "vorsichtig-präzise"
+        ],
+        "register": "sachlich mit emotionalem Subtext",
+        "pacing": "bedächtig",
+        "taboos": [
+          "Panik",
+          "Hypothesen ohne Daten"
+        ],
+        "signature_moves": [
+          "Drückt Unsicherheit in Prozentwerten aus",
+          "Hält immer Ausfluchten bereit in jedem Gespräch"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Die Daten zeigen eine 67% Wahrscheinlichkeit, dass Agent X-12 kein Mensch mehr ist. Das beunruhigt mich.",
+          "Ich weiß zu viel. Das ist in meinem Beruf normalerweise ein Vorteil.",
+          "Wenn ich recht habe, ist das Kompakt bereits kompromittiert. Ich wünschte, ich läge falsch."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Das Kompakt verkauft den Spielern eine Information, die sich als zu wertvoll herausstellt. Eine andere Fraktion will sie zurück – mit Gewalt.",
+    "act2": "Kyra-Seven bittet die Spieler diskret um Hilfe, aus einer ihrer Identitäten auszubrechen. Breveth kontaktiert die Spieler mit Beweisen einer Echo-Infiltration im Kompakt.",
+    "act3": "Direktor Null lädt die Spieler ein – alle Fraktionsinformationen liegen auf dem Tisch. Der Preis: die Spieler müssen die Echo-Infiltration abschließen, bevor sie eskaliert. Oder sie nutzen die Chance, das Kompakt aufzudecken.",
+    "aftershock": "Wiederholbar: Informationslecks erscheinen; Kyra-Seven bittet um Aufträge; Breveth liefert Analysewarnungen; Kompakt-Zellen werden aufgedeckt."
+  }
 }

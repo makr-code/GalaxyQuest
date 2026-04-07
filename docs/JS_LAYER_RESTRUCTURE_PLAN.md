@@ -86,15 +86,35 @@ Zusatzwelle Galaxy (Nav Orb):
 Zusatzwelle Commands (Domain + UI):
 - `domain/commands/CommandParsing.js`
 - `ui/commands/TransitionsCommand.js`
+Welle 1 – RuntimeGalaxy* Restmodule (Renderer/API-Glue + Domain):
+- `domain/galaxy/SearchScoring.js`
+- `domain/galaxy/PhysicsFlight.js`
+- `integration/galaxy/ControllerFacade.js`
+- `integration/galaxy/ControllerBootstrap.js`
+- `integration/galaxy/StarTerritorySync.js`
+- `integration/galaxy/StarCacheRead.js`
+- `integration/galaxy/StarNetworkFlow.js`
+- `integration/galaxy/StarFallbackRecovery.js`
+- `integration/galaxy/StarPersistence.js`
+- `integration/galaxy/StarBootstrapPreflight.js`
+- `integration/galaxy/StarFlowOrchestrator.js`
+- `integration/galaxy/StarLoaderFacade.js`
+- `integration/galaxy/Init3DFacade.js`
+- `ui/galaxy/StarErrorUi.js`
+- `ui/galaxy/StarUiStatus.js`
+- `ui/galaxy/NavOrbRepeat.js`
+- `ui/galaxy/NavOrb.js`
+- `ui/galaxy/HoverCardFacade.js`
+- `ui/galaxy/ClusterRangeControls.js`
+- `ui/galaxy/SystemDetailsFacade.js`
 
 Boot-Manifest umgestellt auf neue Layer-Dateien:
 - `js/runtime/boot-manifest.js`
 
 ## Naechste sinnvolle Wellen
-1. `RuntimeGalaxy*` Restmodule in `layers/integration/galaxy/*` fuer Renderer/API-Glue auslagern.
-2. `RuntimeSettings*` in `layers/ui/settings/*` und `layers/domain/settings/*` trennen.
-3. `RuntimeMessage*`, `RuntimeTrade*`, `RuntimeWar*`, `RuntimePirates*` je Feature in eigene Domain-Subtrees.
-4. Nach jeder Welle: Boot-Manifest-Umstellung + gezielte Vitest-Smokes.
+1. `RuntimeSettings*` in `layers/ui/settings/*` und `layers/domain/settings/*` trennen.
+2. `RuntimeMessage*`, `RuntimeTrade*`, `RuntimeWar*`, `RuntimePirates*` je Feature in eigene Domain-Subtrees.
+3. Nach jeder Welle: Boot-Manifest-Umstellung + gezielte Vitest-Smokes.
 
 ## Regeln fuer weitere Migrationen
 - Altes Public-API-Surface (`window.GQ...`) beibehalten.

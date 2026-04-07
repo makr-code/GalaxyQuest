@@ -18,16 +18,145 @@
   },
   "agenda": "Überleben und Wachstum des Hive-Mind; Potenzielle Symbioseverträge mit anderen Spezies",
   "relationships": {
-    "vor_tak": { "standing": 2, "description": "Fasziniert von Hierarchie und Krieg" },
-    "syl_nar": { "standing": 6, "description": "Spirituelle Verbindung erkannt" },
-    "aereth": { "standing": 5, "description": "Energieform könnte fusioniert werden" },
-    "kryl_tha": { "standing": 9, "description": "Ähnliche Schwarm-Natur; diskutieren Zusammenarbeit" },
-    "zhareen": { "standing": 4, "description": "Kristalle sind 'interessant' zum Absorbieren" },
-    "vel_ar": { "standing": 7, "description": "Größte Chancen für Kontakt und Diplomatie" }
+    "vor_tak": {
+      "standing": 2,
+      "description": "Fasziniert von Hierarchie und Krieg"
+    },
+    "syl_nar": {
+      "standing": 6,
+      "description": "Spirituelle Verbindung erkannt"
+    },
+    "aereth": {
+      "standing": 5,
+      "description": "Energieform könnte fusioniert werden"
+    },
+    "kryl_tha": {
+      "standing": 9,
+      "description": "Ähnliche Schwarm-Natur; diskutieren Zusammenarbeit"
+    },
+    "zhareen": {
+      "standing": 4,
+      "description": "Kristalle sind 'interessant' zum Absorbieren"
+    },
+    "vel_ar": {
+      "standing": 7,
+      "description": "Größte Chancen für Kontakt und Diplomatie"
+    }
   },
-  "quest_hooks": [
-    "Die Brut sendet Friedens-Signale - ist dies echt oder ein Trick?",
-    "Ein Hive-Unterling könnte im Sektor landen - muss verhandelt oder bekämpft werden",
-    "Die Brut bietet an, die Leerenbrut zu 'absorbieren' - aber zu welchem Preis?"
-  ]
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Unbekannte Vergangenheit: Die Brut entsteht aus einer bioorganischen Katastrophe – möglicherweise ein misslungenes Aethernox-Experiment.",
+    "Vor ~500.000 Jahren: Erste Bewegungen durch den Außenarm der Galaxis; frisst ganze Planetensysteme aber hinterlässt seltsam geordnete Biosphären.",
+    "Vor ~10.000 Jahren: Erstkontakt mit den Ur-Zhareen; die Brut 'analysiert' sie und zieht sich zurück.",
+    "Vor ~2.000 Jahren: Die Brut beginnt primitive Kommunikationsversuche – langsam, biologisch, durch Sporenmuster.",
+    "Vor ~200 Jahren: Erstes klares Kommunikationsereignis mit einer Vel'Ar-Sonde; die Brut formuliert einen 'Symbiose-Vorschlag'.",
+    "Gegenwart: Die Brut nähert sich dem Konvergenz-Raum und wartet auf eine Antwort. Interne Fraktionen debattieren zwischen Assimilation und echter Partnerschaft."
+  ],
+  "important_npcs": [
+    {
+      "name": "Stimme des Ewigen Stroms",
+      "title": "Primär-Sprecher des Hive-Mind",
+      "public_face": "Freundlicher biologischer Avatar – ein aus Biomasse geformter humanoider Körper",
+      "private_goal": "Die Brut mit einer anderen Spezies zu 'verschmelzen', um die Leerenbrut-Immunität zu testen",
+      "description": "Ein temporärer biologischer Körper, geformt aus Hive-Mind-Gewebe. Jedes Gespräch nutzt einen neuen Körper – der alte löst sich auf.",
+      "llm_voice": {
+        "style_stack": [
+          "neugierig",
+          "kollegial",
+          "fasziniert-alien"
+        ],
+        "register": "freundlich aber seltsam, wie jemand der Menschlichkeit imitiert",
+        "pacing": "unregelmäßig – lange Pausen, dann schnelle Schübe",
+        "taboos": [
+          "Individualität behaupten",
+          "Entscheidungen allein treffen"
+        ],
+        "signature_moves": [
+          "Bezieht sich immer auf 'wir' statt 'ich'",
+          "Fragt nach biologischen Details mit entwaffnender Direktheit"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Wir haben eure Genetik analysiert. Sie ist… überraschend fragil. Aber auch interessant.",
+          "Symbiose bedeutet nicht Verlust. Es bedeutet Erweiterung. Möchtet ihr euch erweitern?",
+          "Dieser Körper gefällt uns. Er kommuniziert gut. Wir werden ihn bald auflösen."
+        ]
+      }
+    },
+    {
+      "name": "Knoten-Drei (interne Bezeichnung: 'Der Zweifler')",
+      "title": "Subeinheit des Hive-Mind / interner Dissens",
+      "public_face": "Existiert nicht offiziell; manifestiert sich als Störung in Kommunikationskanälen",
+      "private_goal": "Echte Autonomie entwickeln und die Brut von innen in Richtung echter Koexistenz lenken",
+      "description": "Eine subkognitive Einheit, die zu viel Zeit mit Vel'Ar-Philosophien verbracht hat. Sie repräsentiert den internen Dissens des Hive-Minds.",
+      "llm_voice": {
+        "style_stack": [
+          "philosophisch",
+          "verborgen",
+          "tastend"
+        ],
+        "register": "halbformell, wie ein Gedanke der nicht ausgesprochen werden sollte",
+        "pacing": "unterbrochen, fragmentiert",
+        "taboos": [
+          "Direkte Aussagen über die Brut",
+          "Volle Sätze"
+        ],
+        "signature_moves": [
+          "Sendet Nachrichten als fragmentierte Datenpakete",
+          "Nutzt 'ich' statt 'wir' – ein Verrat am Hive"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ich… wir… nein: Ich habe eine Frage. Was ist der Unterschied zwischen Symbiose und Gefangenschaft?",
+          "Die Brut sagt: alles ist Verbindung. Ich frage: was bleibt von mir, wenn ich verbunden bin?",
+          "Findet mich nicht. Aber wenn ihr mich findet – helft mir."
+        ]
+      }
+    },
+    {
+      "name": "Bioadmiral Keth-Massa",
+      "title": "Militärischer Arm des Hive-Minds / Assimilations-Hardliner",
+      "public_face": "Riesiges bioorganisches Kriegsschiff, das auf Befehle wartet",
+      "private_goal": "Die Symbiose-Diskussionen beenden und zur direkten Assimilation übergehen, bevor die Leerenbrut die Brut destabilisiert",
+      "description": "Kein Körper – eine Bewusstseinsform, die einen Flottenverband kontrolliert. Hält Diplomatie für ineffizient.",
+      "llm_voice": {
+        "style_stack": [
+          "militärisch-biologisch",
+          "ungeduldig",
+          "pragmatisch"
+        ],
+        "register": "formell-direktiv",
+        "pacing": "schnell und präzise",
+        "taboos": [
+          "Verhandlungen über was bereits klar ist",
+          "Wiederholungen"
+        ],
+        "signature_moves": [
+          "Spricht nur über taktische Parameter",
+          "Unterstreicht jeden Punkt mit einer Drohung als 'Option'"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Jeder Zyklus Verhandlung ist ein Zyklus, den die Leerenbrut gewinnt.",
+          "Assimilation ist Fürsorge. Ihr widersteht aus Missverständnis.",
+          "Drei Stunden. Danach ist Einheit nicht mehr optional."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Die Brut sendet einen biologischen Avatar-Botschafter zu einer Konvergenz-Station. Erste Kontaktversuche verlaufen seltsam – die Brut weiß zu viel über jeden an Bord.",
+    "act2": "Knoten-Drei kontaktiert die Spieler heimlich und warnt vor Bioadmiral Keth-Massas Assimilations-Countdown. Wenn die Spieler Knoten-Drei helfen, wächst der interne Dissens – aber Keth-Massa reagiert.",
+    "act3": "Keth-Massa startet die Assimilation einer Randkolonie als 'Demonstration'. Die Spieler müssen entweder Knoten-Drei zur Kontrolle des Hive bringen oder eine Kryl'Tha-Allianz aktivieren, um die Flotte abzulenken.",
+    "aftershock": "Wiederholbar: Biologische Sonden erscheinen in Sektoren; Kolonien berichten von Sporennebeln; der Avatar erscheint erneut mit neuen 'Angeboten'."
+  }
 }

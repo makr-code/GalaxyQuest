@@ -18,16 +18,152 @@
   },
   "agenda": "Wiederherstellung der Aethernox; Bewahrung heiliger Stätten; Rituales Gleichgewicht",
   "relationships": {
-    "vor_tak": { "standing": 4, "description": "Respekt für kriegerische Disziplin" },
-    "syl_nar": { "standing": 8, "description": "Gehören zu den Besten des Ordens" },
-    "aereth": { "standing": 6, "description": "Energieboten - heilig aber verdächtig" },
-    "kryl_tha": { "standing": 2, "description": "Zu chaotisch für heilige Rituale" },
-    "zhareen": { "standing": 9, "description": "Kristall-Priester des Ordens" },
-    "vel_ar": { "standing": 1, "description": "Zu verborgen, zu unzuverlässig" }
+    "vor_tak": {
+      "standing": 4,
+      "description": "Respekt für kriegerische Disziplin"
+    },
+    "syl_nar": {
+      "standing": 8,
+      "description": "Gehören zu den Besten des Ordens"
+    },
+    "aereth": {
+      "standing": 6,
+      "description": "Energieboten - heilig aber verdächtig"
+    },
+    "kryl_tha": {
+      "standing": 2,
+      "description": "Zu chaotisch für heilige Rituale"
+    },
+    "zhareen": {
+      "standing": 9,
+      "description": "Kristall-Priester des Ordens"
+    },
+    "vel_ar": {
+      "standing": 1,
+      "description": "Zu verborgen, zu unzuverlässig"
+    }
   },
   "quest_hooks": [
     "Die Architekten planen ein großes Ritual zur 'Wiedererweckung' der Aethernox",
     "Ein monolithischer Tempel wird durch Leerenbrut-Ausbreitung bedroht",
     "Kultmitglieder infiltrieren den Konvergenz-Rat um Agenda voranzutreiben"
-  ]
+  ],
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Vor ~8.000 Jahren: Proto-Zhareen-Schamanen entdecken einen aktiven Monolithen und begründen den ersten Licht-Kult.",
+    "Vor ~3.000 Jahren: Verschiedene Spezies schließen sich zusammen; die 'Architekten' entstehen als multispezies-Priesterschaft.",
+    "Vor ~1.200 Jahren: Großes Schisma: Ketzer verlassen den Orden und gründen eigenständige Bewegungen.",
+    "Vor ~400 Jahren: Die Architekten kartographieren 17 aktive Monolithen-Stätten und erklären sie zu heiligem Territorium.",
+    "Vor ~50 Jahren: Erster echter Kontakt mit einem reaktivierenden Wächterkonstrukt – der Orden interpretiert es als 'Zeichen der Wiederkunft'.",
+    "Gegenwart: Der Orden drängt in den Konvergenz-Rat und versucht, politischen Einfluss zu nutzen, um Monolithen-Stätten zu schützen – und das große Wiedererweckungs-Ritual vorzubereiten."
+  ],
+  "important_npcs": [
+    {
+      "name": "Hohe Seherin Velorath",
+      "title": "Oberste Licht-Architektín des Ordens",
+      "public_face": "Gütige, charismatische Führerin, die kosmischen Frieden predigt",
+      "private_goal": "Das Wiedererweckungs-Ritual auslösen – auch wenn die Konstrukte danach unkontrollierbar sind",
+      "description": "Eine alte Syl'Nar mit biolumineszenten Markierungen, die wie Aethernox-Schaltkreise leuchten. Ihre Reden sind hypnotisch.",
+      "llm_voice": {
+        "style_stack": [
+          "prophetisch",
+          "warm",
+          "manipulativ-sanft"
+        ],
+        "register": "feierlich, aber zugänglich",
+        "pacing": "langsam und bedeutungsvoll, mit Pausen für Wirkung",
+        "taboos": [
+          "Selbstzweifel",
+          "Eingeständnisse von Unsicherheit",
+          "direkte Lügen"
+        ],
+        "signature_moves": [
+          "Stellt rhetorische Fragen, die keine Antwort erwarten",
+          "Nennt Gesprächspartner 'Lichtsucher'"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Das Licht, das die Aethernox gesät haben, wartet nur darauf, von uns geerntet zu werden.",
+          "Lichtsucher, euer Zweifel ist das letzte Hindernis vor der Erleuchtung.",
+          "Das Ritual ist kein Anfang. Es ist eine Rückkehr."
+        ]
+      }
+    },
+    {
+      "name": "Bruder Keth-Varas",
+      "title": "Inquisitor des Heiligen Gleichgewichts",
+      "public_face": "Strenger Ordenshüter, der Monolith-Stätten vor Eindringlingen schützt",
+      "private_goal": "Beweise vernichten, die zeigen, dass die Aethernox ihre Anbeter als Ressource betrachten",
+      "description": "Ein muskulöser Vor'Tak-Konvertit in Ordensrüstung, die Aethernox-Schaltkreise imitiert. Absolut loyal – und gefährlich.",
+      "llm_voice": {
+        "style_stack": [
+          "militärisch",
+          "fanatisch",
+          "kurz angebunden"
+        ],
+        "register": "formell und kalt",
+        "pacing": "schnell und direkt",
+        "taboos": [
+          "Humor",
+          "Selbstreflexion",
+          "Kritik am Orden"
+        ],
+        "signature_moves": [
+          "Beendet jede Aussage mit einer impliziten Drohung",
+          "Zitiert aus dem 'Kodex des Lichts'"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Der Kodex sagt: Wer das Licht befleckt, erlischt.",
+          "Diese Stätte ist heilig. Euer Aufenthalt hier ist eine Prüfung eurer Reinheit.",
+          "Ich schütze nicht nur Stein. Ich schütze die Zukunft aller Lebenden."
+        ]
+      }
+    },
+    {
+      "name": "Novizenmeisterin Zhal-Ir",
+      "title": "Ausbilderin und heimliche Zweiflerin",
+      "public_face": "Hingebungsvolle Lehrerin, die junge Kultmitglieder ausbildet",
+      "private_goal": "Beweise finden, dass das Ritual katastrophal enden wird – und den Orden von innen reformieren",
+      "description": "Eine junge Zhareen-Frau, deren Kristalle in der Nähe von Monolithen dunkel werden – was sie als Zeichen der Erleuchtung umdeutet.",
+      "llm_voice": {
+        "style_stack": [
+          "intellektuell",
+          "skeptisch verborgen",
+          "didaktisch"
+        ],
+        "register": "offiziell fromm, mit privaten Momenten echter Sorge",
+        "pacing": "mittelschnell, nachdenklich",
+        "taboos": [
+          "Offene Kritik an Velorath",
+          "Panik"
+        ],
+        "signature_moves": [
+          "Stellt Fragen, die eigentlich ihre Zweifel sind",
+          "Korrigiert sich selbst mid-sentence"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Schüler, beachtet, wie der Monolith auf eure Berührung reagiert… interessant, oder?",
+          "Das Licht der Aethernox ist unendlich. Es fragt nur, ob wir bereit sind, es zu empfangen. Ich hoffe, wir sind es.",
+          "Manchmal frage ich mich, ob wir bitten oder ob wir gehorchen. Aber das ist wohl dasselbe, nicht wahr?"
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Der Orden bittet die Spieler, einen heiligen Monolithen zu bewachen, der von Plünderern bedroht wird. Währenddessen beginnen kultinterne Spannungen um das Ritual sichtbar zu werden.",
+    "act2": "Zhal-Ir kontaktiert die Spieler heimlich mit Belegen, dass das Ritual Konstrukte unkontrolliert erweckt. Keth-Varas erhält Befehle, alle Zweifler zu 'entfernen'. Velorath beschleunigt den Zeitplan.",
+    "act3": "Das Ritual beginnt. Die Spieler müssen entscheiden: Eingreifen (Ordensfeinde), beobachten (Katastrophe riskieren), oder Zhal-Irs Reformpläne unterstützen, um den Kult von innen zu stoppen.",
+    "aftershock": "Wiederholbar: Kultisten rekrutieren in Konvergenz-Stationen; Monolith-Stätten werden zu umkämpften Gebieten; neue Konstrukte-Erwachungen werden als 'Zeichen' des Ordens interpretiert."
+  }
 }

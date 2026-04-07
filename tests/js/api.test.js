@@ -101,3 +101,145 @@ describe('API wrapper versioning', () => {
     expect(payload).toEqual({ offer_id: 23, accept: true });
   });
 });
+
+describe('API chatNpc', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    vi.stubGlobal('fetch', vi.fn(async (endpoint) => {
+      const ep = String(endpoint || '');
+      if (ep.includes('auth.php?action=csrf')) {
+        return okJson({ success: true, token: 'csrf_token_test' });
+      }
+      return okJson({ success: true, endpoint: ep });
+    }));
+  });
+
+  it('calls chat_npc endpoint with faction_code, npc_name and player_message', async () => {
+    const API = loadApiScript();
+
+    await API.chatNpc({
+      faction_code: 'vor_tak',
+      npc_name: "General Drak'Mol",
+      player_message: 'Was sind eure Absichten?',
+    });
+
+    const calledEndpoint = String(global.fetch.mock.calls.at(-1)[0] || '');
+    const requestInit = global.fetch.mock.calls.at(-1)[1] || {};
+    const payload = JSON.parse(String(requestInit.body || '{}'));
+
+    expect(calledEndpoint).toContain('api/v1/llm.php?action=chat_npc');
+    expect(payload.faction_code).toBe('vor_tak');
+    expect(payload.npc_name).toBe("General Drak'Mol");
+    expect(payload.player_message).toBe('Was sind eure Absichten?');
+  });
+
+  it('forwards optional session_id to continue existing session', async () => {
+    const API = loadApiScript();
+
+    await API.chatNpc({
+      faction_code: 'vor_tak',
+      npc_name: 'Admiral',
+      player_message: 'Continue?',
+      session_id: 17,
+    });
+
+    const requestInit = global.fetch.mock.calls.at(-1)[1] || {};
+    const payload = JSON.parse(String(requestInit.body || '{}'));
+
+    expect(payload.session_id).toBe(17);
+  });
+
+  it('exposes chatNpc on window.GQ_LLM', async () => {
+    loadApiScript();
+    expect(typeof window.GQ_LLM.chatNpc).toBe('function');
+  });
+
+  it('chatNpc forwards optional model and temperature', async () => {
+    const API = loadApiScript();
+
+    await API.chatNpc({
+      faction_code: 'iron_fleet',
+      npc_name: 'Admiral',
+      player_message: 'Surrender?',
+      model: 'llama3.1:8b',
+      temperature: 0.7,
+    });
+
+    const requestInit = global.fetch.mock.calls.at(-1)[1] || {};
+    const payload = JSON.parse(String(requestInit.body || '{}'));
+
+    expect(payload.model).toBe('llama3.1:8b');
+    expect(payload.temperature).toBe(0.7);
+  });
+
+  it('calls close_npc_session endpoint with session_id', async () => {
+    const API = loadApiScript();
+
+    await API.closeNpcSession({ session_id: 42 });
+
+    const calledEndpoint = String(global.fetch.mock.calls.at(-1)[0] || '');
+    const requestInit = global.fetch.mock.calls.at(-1)[1] || {};
+    const payload = JSON.parse(String(requestInit.body || '{}'));
+
+    expect(calledEndpoint).toContain('api/v1/llm.php?action=close_npc_session');
+    expect(payload.session_id).toBe(42);
+  });
+
+  it('exposes closeNpcSession on window.GQ_LLM', async () => {
+    loadApiScript();
+    expect(typeof window.GQ_LLM.closeNpcSession).toBe('function');
+  });
+
+  it('chatNpc response passes through suggested_replies from server', async () => {
+    const suggestions = ['Ich stimme zu.', 'Ich bin skeptisch.', 'Das lehne ich ab.'];
+    vi.stubGlobal('fetch', vi.fn(async (endpoint) => {
+      const ep = String(endpoint || '');
+      if (ep.includes('auth.php?action=csrf')) {
+        return okJson({ success: true, token: 'csrf_token_test' });
+      }
+      return okJson({
+        success: true,
+        session_id: 1,
+        reply: 'Antwort des NPC.',
+        suggested_replies: suggestions,
+        is_yes_no: false,
+      });
+    }));
+    const API = loadApiScript();
+
+    const result = await API.chatNpc({
+      faction_code: 'vor_tak',
+      npc_name: 'Admiral',
+      player_message: 'Was plant ihr?',
+    });
+
+    expect(result.suggested_replies).toEqual(suggestions);
+    expect(result.is_yes_no).toBe(false);
+  });
+
+  it('chatNpc response passes through is_yes_no=true for yes/no questions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (endpoint) => {
+      const ep = String(endpoint || '');
+      if (ep.includes('auth.php?action=csrf')) {
+        return okJson({ success: true, token: 'csrf_token_test' });
+      }
+      return okJson({
+        success: true,
+        session_id: 2,
+        reply: 'Wollt ihr kapitulieren?',
+        suggested_replies: ['Ja', 'Nein'],
+        is_yes_no: true,
+      });
+    }));
+    const API = loadApiScript();
+
+    const result = await API.chatNpc({
+      faction_code: 'iron_fleet',
+      npc_name: 'Admiral',
+      player_message: 'Erklärt euch!',
+    });
+
+    expect(result.is_yes_no).toBe(true);
+    expect(result.suggested_replies).toEqual(['Ja', 'Nein']);
+  });
+});

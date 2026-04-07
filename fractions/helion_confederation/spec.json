@@ -18,16 +18,151 @@
   },
   "agenda": "Stabilität durch Handel - Kontrolle durch ökonomische Abhängigkeit",
   "relationships": {
-    "vor_tak": { "standing": 4, "description": "Liefern Waffen, misstrauen aber" },
-    "syl_nar": { "standing": 6, "description": "Handeln mit Biolumineszenz-Kunst" },
-    "aereth": { "standing": 7, "description": "Kaufen Energiekerne" },
-    "kryl_tha": { "standing": 5, "description": "Verkaufen 'Schwarmverstärker'" },
-    "zhareen": { "standing": 6, "description": "Handeln mit Kristallfragmenten" },
-    "vel_ar": { "standing": 5, "description": "Nutzen als Informationsbroker" }
+    "vor_tak": {
+      "standing": 4,
+      "description": "Liefern Waffen, misstrauen aber"
+    },
+    "syl_nar": {
+      "standing": 6,
+      "description": "Handeln mit Biolumineszenz-Kunst"
+    },
+    "aereth": {
+      "standing": 7,
+      "description": "Kaufen Energiekerne"
+    },
+    "kryl_tha": {
+      "standing": 5,
+      "description": "Verkaufen 'Schwarmverstärker'"
+    },
+    "zhareen": {
+      "standing": 6,
+      "description": "Handeln mit Kristallfragmenten"
+    },
+    "vel_ar": {
+      "standing": 5,
+      "description": "Nutzen als Informationsbroker"
+    }
   },
   "quest_hooks": [
     "Ein Handelsvertrag könnte die Konvergenz retten – oder ruinieren",
     "Die Helion haben eine Karte zu einem Aethernox-Tempel",
     "Ein Helion-Magnat finanziert heimlich die Eisenflotte"
-  ]
+  ],
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Vor ~3.000 Jahren: Helion Prime wird zur ersten neutralen Handelszone für drei verfeindete Spezies – ein Kompromiss-Erfolg.",
+    "Vor ~2.000 Jahren: Die Konföderation expandiert auf 40 Handelswelten und entwickelt das erste galaktische Kredit-System.",
+    "Vor ~800 Jahren: Großer Handelskrieg mit den Khar'Morr-Vorläufern; Helion gewinnt durch Wirtschaftsblockade statt Waffen.",
+    "Vor ~400 Jahren: Geheimvertrag mit der Vel'Ar: Informationen gegen Zugänge zu Hyperraum-Routen.",
+    "Vor ~100 Jahren: Die Leerenbrut-Krise destabilisiert Handelsrouten; die Konföderation profitiert von Rüstungslieferungen an alle Seiten.",
+    "Gegenwart: Ein Helion-Magnat hat entdeckt, dass Aethernox-Artefakte enorme wirtschaftliche Macht verleihen. Er kauft Informationen, bezahlt Söldner und destabilisiert Regionen um an Artefakte zu gelangen."
+  ],
+  "important_npcs": [
+    {
+      "name": "Erste Rätin Solvara Heith",
+      "title": "Vorsitzende des Wirtschaftsrats der Helion-Konföderation",
+      "public_face": "Elegante, neutrale Diplomatin, die faire Handelsverträge für alle anbietet",
+      "private_goal": "Die wirtschaftliche Abhängigkeit aller Fraktionen von Helion maximieren – auch durch die Leerenbrut-Krise",
+      "description": "Brillant, kalt und immer freundlich. Solvara hat noch nie ein Versprechen gebrochen – sie formuliert nur sehr präzise.",
+      "llm_voice": {
+        "style_stack": [
+          "diplomatisch",
+          "kalkulierend",
+          "elegant-kalt"
+        ],
+        "register": "formell und charmant",
+        "pacing": "gemächlich, nimmt sich Zeit für jeden Satz",
+        "taboos": [
+          "Drohungen",
+          "Offene Feindseligkeit",
+          "Emotionen zeigen"
+        ],
+        "signature_moves": [
+          "Formuliert Verträge mit 'großzügigen' Klauseln die später schmerzen",
+          "Lächelt bei unangenehmen Wahrheiten"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Handel ist der einzige Friede, den wir uns leisten können. Alles andere ist zu teuer.",
+          "Ich biete Ihnen eine Möglichkeit. Was Sie daraus machen, ist Ihre Entscheidung – und Ihre Schuld.",
+          "Wir sind neutral. Das bedeutet: wir lieben alle gleich wenig."
+        ]
+      }
+    },
+    {
+      "name": "Magnat Drev Solhann",
+      "title": "Privater Investor / Aethernox-Artefakt-Sammler",
+      "public_face": "Exzentrischer, aber harmloser Handelsmagnaten mit Faible für Antiquitäten",
+      "private_goal": "Ein Aethernox-Artefakt aktivieren, um seine Handelsflotte unbesiegbar zu machen – Folgen egal",
+      "description": "Fett, laut und unverschämt reich. Hinter der Fassade verbirgt sich ein Pragmatiker, der buchstäblich alles kaufen würde.",
+      "llm_voice": {
+        "style_stack": [
+          "jovial",
+          "vulgär-reich",
+          "berechnend"
+        ],
+        "register": "laut und informell",
+        "pacing": "schnell, unterbricht andere",
+        "taboos": [
+          "Bescheidenheit",
+          "Zugeben von Fehlern"
+        ],
+        "signature_moves": [
+          "Bietet immer zuerst Geld an",
+          "Lacht über ernste Dinge als sozialer Test"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Alles hat einen Preis. Ich habe nur noch nie jemanden gefunden, der seinen zu hoch angesetzt hat.",
+          "Antike Artefakte? Schön. Antike Artefakte die Systeme kontrollieren? Perfekt.",
+          "Eure moralischen Einwände sind sehr rührend. Wie viel kosten sie?"
+        ]
+      }
+    },
+    {
+      "name": "Agent Thal-Mira (Deckname)",
+      "title": "Helion-Geheimdienst-Operative / Vel'Ar-Doppelspion",
+      "public_face": "Effizienter Handels-Attaché in Diensten der Konföderation",
+      "private_goal": "Informationen über Solvara's Aethernox-Pläne an die Vel'Ar weitergeben",
+      "description": "Niemand weiß, welcher Spezies Thal-Mira angehört. Sie wechselt regelmäßig das Erscheinungsbild.",
+      "llm_voice": {
+        "style_stack": [
+          "minimal",
+          "präzise",
+          "anpassungsfähig"
+        ],
+        "register": "immer passend zur Situation",
+        "pacing": "effizient – nie mehr Worte als nötig",
+        "taboos": [
+          "Persönliche Enthüllungen",
+          "Widerspruch in derselben Person"
+        ],
+        "signature_moves": [
+          "Beendet Gespräche kurz bevor sie interessant werden",
+          "Stellt Fragen die keine Antworten erwarten, aber Informationen liefern"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Die Konföderation ist informiert. Wie die Konföderation reagiert – das ist eine andere Frage.",
+          "Mein Name ist irrelevant. Meine Aufgabe ist relevant. Kann ich helfen?",
+          "Information ist Währung. Ich bin sehr wohlhabend."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Ein Helion-Handelsschiff wird in einem umstrittenen Sektor überfallen – von wem? Die Spieler werden beauftragt, den Vorfall zu untersuchen. Thal-Mira taucht als 'Zeuge' auf.",
+    "act2": "Solhann beauftragt die Spieler, ein Aethernox-Artefakt aus einem Sperrgebiet zu bergen. Solvara blockiert dies offiziell, finanziert es heimlich. Thal-Mira warnt die Vel'Ar.",
+    "act3": "Solhann aktiviert das Artefakt. Ein Wächterkonstrukt erwacht. Die Helion-Flotte ist eingeschlossen. Solvara bietet den Spielern einen 'Vertrag' zur Problemlösung an – mit üblen Klauseln.",
+    "aftershock": "Wiederholbar: Handelsrouten öffnen und schließen je nach Fraktionsstatus; Solhann bietet neue Expeditionen an; Thal-Mira taucht mit Informationen auf, die immer einen Preis haben."
+  }
 }

@@ -45,12 +45,25 @@ describe('GQProlog – FACTIONS data', () => {
 
   it('every faction has required fields', () => {
     const required = ['id', 'emoji', 'name', 'subtitle', 'herald', 'heraldRole', 'color',
-      'promise', 'demand', 'confirmQuote', 'story', 'mission'];
+      'promise', 'demand', 'confirmQuote', 'story', 'mission', 'quest_code'];
     GQProlog._test.FACTIONS.forEach((f) => {
       required.forEach((key) => {
         expect(f[key], `faction ${f.id} missing field "${key}"`).toBeDefined();
       });
     });
+  });
+
+  it('every faction has a non-empty quest_code string', () => {
+    GQProlog._test.FACTIONS.forEach((f) => {
+      expect(typeof f.quest_code).toBe('string');
+      expect(f.quest_code.length, `faction ${f.id} has empty quest_code`).toBeGreaterThan(0);
+    });
+  });
+
+  it('all quest_codes are unique across factions', () => {
+    const codes = GQProlog._test.FACTIONS.map((f) => f.quest_code);
+    const unique = new Set(codes);
+    expect(unique.size).toBe(codes.length);
   });
 
   it('every faction has a non-empty story array', () => {
@@ -211,6 +224,28 @@ describe('GQProlog – colony name in transition text', () => {
 
     const transText = document.getElementById('prolog-transition-text');
     expect(transText.textContent).toContain('TestCmd');
+  });
+
+  it('transition text includes the faction mission (quest) hint', () => {
+    const firstCard = document.querySelector('#prolog-cards .prolog-card');
+    firstCard.click();
+    document.getElementById('prolog-confirm-yes').click();
+    document.getElementById('prolog-next3').click();
+
+    const transText = document.getElementById('prolog-transition-text');
+    // The selected faction (vor_tak) mission text should appear in the transition.
+    const vor_tak = window.GQProlog._test.getFactionById('vor_tak');
+    expect(transText.textContent).toContain(vor_tak.mission);
+  });
+
+  it('transition text mentions the quest log', () => {
+    const firstCard = document.querySelector('#prolog-cards .prolog-card');
+    firstCard.click();
+    document.getElementById('prolog-confirm-yes').click();
+    document.getElementById('prolog-next3').click();
+
+    const transText = document.getElementById('prolog-transition-text');
+    expect(transText.textContent).toContain('Auftragsprotokoll');
   });
 });
 

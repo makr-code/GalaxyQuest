@@ -18,7 +18,7 @@ no cloud, no usage cost.  It runs alongside the existing Ollama and SwarmUI serv
 │         │  Python audio cache hit? → return MP3 bytes      │
 │         │  cache miss → Piper TTS (or XTTS v2)             │
 │         │  WAV → ffmpeg → MP3 bytes                        │
-│  PHP writes MP3 → cache/tts/<sha256>.mp3                   │
+│  PHP writes MP3 → generated/tts/<sha256>.mp3                   │
 │  JS plays via Audio API (volume-controlled by GQAudioMgr)  │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -101,7 +101,7 @@ Follows the same pattern as `ollama_client.php` / `swarmui_client.php`.
 
 ```php
 tts_synthesise(string $text, array $options = []): array
-// Returns: ['ok' => true, 'audio_url' => 'cache/tts/<hash>.mp3', 'cached' => bool]
+// Returns: ['ok' => true, 'audio_url' => 'generated/tts/<hash>.mp3', 'cached' => bool]
 //       or ['ok' => false, 'error' => '...', 'status' => int]
 ```
 
@@ -115,7 +115,7 @@ tts_synthesise(string $text, array $options = []): array
 
 **PHP-level cache**
 
-Synthesised MP3 files are stored in `cache/tts/<sha256(voice|text)>.mp3` inside
+Synthesised MP3 files are stored in `generated/tts/<sha256(voice|text)>.mp3` inside
 the web root so they can be served directly by Apache/nginx without any PHP
 overhead on subsequent requests.  The cache is permanent by default
 (`TTS_CACHE_TTL = 0`).  Set `TTS_CACHE_TTL` to a positive integer (seconds) for

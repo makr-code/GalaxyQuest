@@ -97,3 +97,4 @@
 | [lore/gamedesign_fractions_backup.md](lore/gamedesign_fractions_backup.md) | Faction lore — backup / previous version |
 | [lore/ART_PROMPTS_SDXL.md](lore/ART_PROMPTS_SDXL.md) | SDXL image generation prompts (portraits, environments) |
 | [lore/ART_QUICKSTART.md](lore/ART_QUICKSTART.md) | Art generation quick start guide (SwarmUI / ComfyUI) |
+| [lore/side_factions/](lore/side_factions/) | **Nebenfraktionen** — NPC-only side faction lore, NPC rosters, plot arcs (12 factions) |

@@ -58,6 +58,18 @@ class WebGPURenderer extends BaseGraphicsRenderer {
     this._shaderMgr = null;
     /** @type {WebGPURenderPass|null} */
     this._framePass = null;
+
+    /**
+     * Called when the device is permanently lost (all reconnect attempts
+     * exhausted).  Receives the GPUDeviceLostInfo reason string.
+     * @type {((reason: string) => void)|null}
+     */
+    this.onLost = null;
+
+    /** @private Internal reconnect attempt counter. */
+    this._lostRetries = 0;
+    /** @private Max reconnect attempts before calling this.onLost. */
+    this._maxLostRetries = 4;
   }
 
   // ---------------------------------------------------------------------------
@@ -95,14 +107,8 @@ class WebGPURenderer extends BaseGraphicsRenderer {
       },
     });
 
-    // 3. Handle device loss gracefully (pattern from WebGPU Samples)
-    this.device.lost.then((info) => {
-      if (info.reason !== 'destroyed') {
-        console.warn('[WebGPURenderer] Device lost:', info.message, '— attempting reinit');
-        this.ready = false;
-        this.initialize(canvas).catch(console.error);
-      }
-    });
+    // 3. Handle device loss gracefully with exponential backoff
+    this._setupDeviceLostHandler(canvas);
 
     // 4. Configure canvas context
     this.context = canvas.getContext('webgpu');
@@ -313,6 +319,50 @@ class WebGPURenderer extends BaseGraphicsRenderer {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Phase 2+ — compute dispatch
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Dispatch a compute shader described by a ComputePass.
+   * Lazily compiles the pipeline on first call; subsequent calls reuse it.
+   *
+   * @param {import('../post-effects/passes/ComputePass').ComputePass} computePass
+   */
+  dispatchCompute(computePass) {
+    if (!this.ready || !this.device) return;
+    if (!computePass.shaderSrc) return;
+
+    // Lazy pipeline compilation (stored on the pass object itself)
+    if (!computePass._pipeline) {
+      const module = this.device.createShaderModule({
+        label: `gq-compute:${computePass.label}`,
+        code:  computePass.shaderSrc,
+      });
+      computePass._pipeline = this.device.createComputePipeline({
+        label:   `gq-compute-pipeline:${computePass.label}`,
+        layout:  'auto',
+        compute: { module, entryPoint: 'cs_main' },
+      });
+    }
+
+    const encoder = this.device.createCommandEncoder({ label: `gq-compute-enc:${computePass.label}` });
+    const pass    = encoder.beginComputePass({ label: `gq-compute-pass:${computePass.label}` });
+    pass.setPipeline(computePass._pipeline);
+
+    for (const [index, bg] of computePass._bindGroups) {
+      pass.setBindGroup(index, bg);
+    }
+
+    pass.dispatchWorkgroups(
+      computePass.workgroupsX,
+      computePass.workgroupsY,
+      computePass.workgroupsZ,
+    );
+    pass.end();
+    this.device.queue.submit([encoder.finish()]);
+  }
+
   dispose() {
     this._buffers.forEach((b) => b.destroy());
     this._buffers.clear();
@@ -338,6 +388,50 @@ class WebGPURenderer extends BaseGraphicsRenderer {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Attach the device.lost handler once after every successful device creation.
+   * Uses exponential backoff: waits 500 ms × 2^attempt before re-initialising.
+   * After _maxLostRetries failures the `onLost` callback is invoked and no
+   * further reconnection is attempted.
+   *
+   * @param {HTMLCanvasElement} canvas
+   * @private
+   */
+  _setupDeviceLostHandler(canvas) {
+    if (!this.device) return;
+
+    this.device.lost.then((info) => {
+      if (info.reason === 'destroyed') return;   // intentional teardown — ignore
+
+      console.warn('[WebGPURenderer] Device lost:', info.message,
+        `(attempt ${this._lostRetries + 1}/${this._maxLostRetries})`);
+      this.ready = false;
+
+      if (this._lostRetries >= this._maxLostRetries) {
+        console.error('[WebGPURenderer] Max reconnect attempts reached — giving up.');
+        if (typeof this.onLost === 'function') {
+          this.onLost(info.reason ?? 'unknown');
+        }
+        return;
+      }
+
+      // Exponential backoff: 500 ms, 1 000 ms, 2 000 ms, 4 000 ms
+      const delay = 500 * (1 << this._lostRetries);
+      this._lostRetries++;
+
+      setTimeout(() => {
+        this.initialize(canvas)
+          .then(() => {
+            this._lostRetries = 0;
+            console.info('[WebGPURenderer] Device successfully restored.');
+          })
+          .catch((err) => {
+            console.error('[WebGPURenderer] Reinit failed after device loss:', err.message);
+          });
+      }, delay);
+    });
+  }
 
   /**
    * (Re-)create the depth buffer sized to the canvas.  Called during

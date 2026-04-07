@@ -1,5 +1,6 @@
 /**
  * RuntimeGalaxyControllerBootstrap.js
+ * ControllerBootstrap.js
  *
  * Central bootstrap wiring for GalaxyController runtime modules.
  */

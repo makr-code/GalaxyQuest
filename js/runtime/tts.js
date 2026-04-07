@@ -210,10 +210,18 @@
       ? Math.max(0, Math.min(1, opts.volume))
       : 1;
 
+    // Delegate to manager's TTS channel when available (respects ttsVolume + ttsMuted)
+    if (mgr && typeof mgr.playTtsAudio === 'function') {
+      const holdMs = typeof opts.holdMs === 'number' ? opts.holdMs : 2500;
+      return mgr.playTtsAudio(url, { gain: vol, holdMs });
+    }
+
     const el = new Audio(url);
     el.volume = vol;
 
-    if (mgr && typeof mgr.duckMusic === 'function') {
+    if (mgr && typeof mgr.duckMusicForTts === 'function') {
+      mgr.duckMusicForTts(2500);
+    } else if (mgr && typeof mgr.duckMusic === 'function') {
       mgr.duckMusic(2500);
     }
 

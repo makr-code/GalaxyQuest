@@ -1,5 +1,6 @@
 /**
  * RuntimeGalaxyControllerFacade.js
+ * ControllerFacade.js
  *
  * Creates the thin GalaxyController facade object.
  */

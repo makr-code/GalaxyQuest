@@ -123,6 +123,21 @@
         }
       });
 
+      eventSource.addEventListener('world_event', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const title = data.title_de || data.code || 'Galaxie-Ereignis';
+          const isResolved = data.conclusion_key != null;
+          const msg = isResolved
+            ? `🌌 ${title} – Ergebnis: ${data.conclusion_key}`
+            : `🌌 ${title} – Ein neues Szenario beginnt`;
+          runtimeConfig.showToast(msg, 'info');
+          windowRef.dispatchEvent(new CustomEvent('gq:world-event', { detail: data }));
+        } catch (err) {
+          runtimeConfig.gameLog('info', 'SSE world_event handler fehlgeschlagen', err);
+        }
+      });
+
       eventSource.addEventListener('reconnect', () => {
         eventSource.close();
         windowRef.setTimeout(connect, 1000);
