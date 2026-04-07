@@ -49,7 +49,7 @@ final class FactionSpecLoader {
                     if ($raw === false) {
                         throw new \InvalidArgumentException('Cannot read spec.yaml for faction: ' . $code);
                     }
-                    $spec = MiniYamlParser::parse($raw);
+                    $spec = (new MiniYamlParser())->parse($raw);
                     if (!is_array($spec)) {
                         throw new \InvalidArgumentException('Invalid YAML in spec.yaml for faction: ' . $code);
                     }
