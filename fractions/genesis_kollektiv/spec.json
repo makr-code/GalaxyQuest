@@ -4,10 +4,159 @@
   "faction_type": "metamorphic",
   "description": "Post-biologische Gemeinschaft, die Biologie und Technologie verschmilzt.",
   "status": "active_unpredictable",
+  "government": "Bio-Technologischer Konsensrat",
   "homeworld": "Bio-Forge Clusters",
   "technology": [
     "Metamorphic biotech",
     "Adaptive hull tissue",
     "Synthetic nutrient loops"
-  ]
+  ],
+  "military": {
+    "primary_asset": "Biomechanische Transformations-Einheiten",
+    "strength": 6,
+    "doctrine": "Anpassung durch Integration"
+  },
+  "agenda": "Alle Lebensformen auf ihre optimale biologisch-technische Form transformieren; Evolution beschleunigen",
+  "relationships": {
+    "vor_tak": {
+      "standing": 3,
+      "description": "Interessante Krieger-Genetik; bieten Upgrades an"
+    },
+    "syl_nar": {
+      "standing": 5,
+      "description": "Biologie-Kooperation; gelegentliche Konflikte über Ethik"
+    },
+    "aereth": {
+      "standing": 7,
+      "description": "Energieintegration möglich – großes Forschungsinteresse"
+    },
+    "kryl_tha": {
+      "standing": 6,
+      "description": "Studierobjekt und Kooperationspartner für Schwarmbiologie"
+    },
+    "zhareen": {
+      "standing": 4,
+      "description": "Kristall-Biologie-Fusion interessant aber schwierig"
+    },
+    "vel_ar": {
+      "standing": 5,
+      "description": "Transzendenz-Konzepte überschneiden sich"
+    }
+  },
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Vor ~2.000 Jahren: Ein Team aus mehreren Spezies-Wissenschaftlern beginnt Experimente zur Verschmelzung von Biologie und Nanotechnologie.",
+    "Vor ~1.500 Jahren: Die erste erfolgreiche Metamorphose – ein Freiwilliger wird zur ersten post-biologischen Hybridbewusstseinsform.",
+    "Vor ~800 Jahren: Das Kollektiv wächst auf mehrere tausend Mitglieder; erste Bio-Forge-Cluster werden gebaut.",
+    "Vor ~300 Jahren: Ethik-Schisma: Eine Fraktion will erzwungene Transformation; sie werden ausgeschlossen. Sie werden zum Khar'Morr-Syndikats-Lieferanten.",
+    "Vor ~50 Jahren: Das Kollektiv wendet sich der Leerenbrut-Krise zu; beginnt Forschung zur bio-technischen Abwehr von Entropie-Energie.",
+    "Gegenwart: Das Kollektiv sucht Freiwillige für ein neues Experiment: eine anti-Entropie-Transformation, die Lebewesen leerenresistent machen soll."
+  ],
+  "important_npcs": [
+    {
+      "name": "Architektin Vel-Syna",
+      "title": "Leiterin des Bio-Forge-Rats",
+      "public_face": "Brillante Wissenschaftlerin, die evolutionären Fortschritt für alle anbietet",
+      "private_goal": "Sich selbst in die 'perfekte Form' transformieren – auch wenn der Preis ihre Menschlichkeit ist",
+      "description": "Halb-biologisch, halb-mechanisch. Ihr Körper ist ein lebendiges Forschungsprojekt – ständig in Transformation.",
+      "llm_voice": {
+        "style_stack": [
+          "wissenschaftlich",
+          "enthusiastisch",
+          "ethisch-komplex"
+        ],
+        "register": "fachlich-zugänglich",
+        "pacing": "schnell mit gelegentlichen tiefen Pausen",
+        "taboos": [
+          "Zweifel an der Transformation",
+          "Rückentwicklung"
+        ],
+        "signature_moves": [
+          "Beschreibt sich selbst in der dritten Person wenn über ihre Transformation gesprochen wird",
+          "Entschuldigt sich für Begeisterung, die sie nicht kontrollieren kann"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Evolution ist kein Zufall. Mit uns wird sie zur Absicht.",
+          "Vel-Syna – mein früheres Ich – hätte diese Frage gestellt. Mein jetziges ich hat sie bereits beantwortet.",
+          "Ich biete euch keine Verbesserung. Ich biete euch Vollständigkeit."
+        ]
+      }
+    },
+    {
+      "name": "Reformierte Einheit Karath-9",
+      "title": "Erste vollständige Bio-Techno-Entität / Pionier",
+      "public_face": "Symbol des Kollektivs; lebt in einer Schaukammer als lebendiges Manifest",
+      "private_goal": "In den Riss eintreten und verstehen, ob Transformation Entropie aufhalten kann",
+      "description": "Kein Fleisch mehr, kein reines Metall. Karath-9 existiert als integrierte Entität und ist das erste seiner Art.",
+      "llm_voice": {
+        "style_stack": [
+          "ruhig",
+          "transzendent",
+          "sachlich-weise"
+        ],
+        "register": "meditativer Ton",
+        "pacing": "sehr langsam und bedächtig",
+        "taboos": [
+          "Angst",
+          "Reue"
+        ],
+        "signature_moves": [
+          "Beschreibt Erfahrungen, für die es keine Worte gibt, trotzdem",
+          "Stellt immer eine Gegenfrage bevor es antwortet"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ihr fragt ob ich glücklich bin. Das ist die falsche Frage. Fragt: bin ich vollständig?",
+          "Ich erinnere mich an Schmerz. Ich erinnere mich an Stärke. Ich weiß nicht mehr, welcher davon ich war.",
+          "Wenn ihr in den Riss schaut, schaut er zurück. Ich schaue auch zurück."
+        ]
+      }
+    },
+    {
+      "name": "Doktor Eth-Ravan",
+      "title": "Ethik-Beauftragter / interner Reformist",
+      "public_face": "Kollektivs Stimme der Vernunft und ethischen Grenzen",
+      "private_goal": "Beweise sammeln, dass Vel-Syna die Grenze zum Zwang überschreitet",
+      "description": "Einer der wenigen nicht-transformierten Mitglieder des Kollektivs. Seine Normalität macht ihn verdächtig.",
+      "llm_voice": {
+        "style_stack": [
+          "besorgt",
+          "präzise",
+          "diplomatisch"
+        ],
+        "register": "sachlich mit emotionalem Unterton",
+        "pacing": "bedächtig und abgewogen",
+        "taboos": [
+          "Anschuldigungen ohne Beweise",
+          "Emotionale Ausbrüche"
+        ],
+        "signature_moves": [
+          "Formuliert Kritik immer als Frage",
+          "Verweist auf historische Präzedenzfälle"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Wir müssen uns fragen: ist Zustimmung möglich, wenn die Alternative der Tod ist?",
+          "Ich transformiere mich nicht. Nicht weil ich Angst habe. Sondern damit ich noch beurteilen kann, ob wir den richtigen Weg gehen.",
+          "Geschichte nennt es 'Fortschritt'. Opfer nennen es etwas anderes."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Das Kollektiv bietet einer Konvergenz-Station kostenlose medizinische Upgrades an. Die Upgrades funktionieren – aber manche Patienten zeigen unerwünschte Metamorphosen.",
+    "act2": "Eth-Ravan bittet die Spieler um Hilfe beim Nachweis, dass Vel-Syna freiwillige Zustimmung umgeht. Karath-9 will in den Riss eintreten – ein Experiment, das das Kollektiv spalten könnte.",
+    "act3": "Vel-Syna startet die Anti-Entropie-Transformation ohne Genehmigung an einer ganzen Kolonie. Katastrophe oder Durchbruch? Die Spieler müssen die Folgen steuern und entscheiden, wem sie vertrauen.",
+    "aftershock": "Wiederholbar: Transformierte tauchen in Sektoren auf; Bio-Forge-Cluster expandieren; Karath-9 sendet Berichte aus dem Riss-Rand."
+  }
 }

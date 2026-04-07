@@ -18,16 +18,150 @@
   },
   "agenda": "Profit, Chaos, Macht - Kontrolle durch Destabilisierung",
   "relationships": {
-    "vor_tak": { "standing": 1, "description": "Erzfeinde" },
-    "syl_nar": { "standing": 0, "description": "Nutzen als 'Ware' (Tentakel-Biotech)" },
-    "aereth": { "standing": 1, "description": "Versuchen, Energiekerne zu stehlen" },
-    "kryl_tha": { "standing": 3, "description": "Respektieren Brutkammern - handeln aber mit Eiern" },
-    "zhareen": { "standing": 0, "description": "Rauben Kristallarchive" },
-    "vel_ar": { "standing": 4, "description": "Nutzen als Spione" }
+    "vor_tak": {
+      "standing": 1,
+      "description": "Erzfeinde"
+    },
+    "syl_nar": {
+      "standing": 0,
+      "description": "Nutzen als 'Ware' (Tentakel-Biotech)"
+    },
+    "aereth": {
+      "standing": 1,
+      "description": "Versuchen, Energiekerne zu stehlen"
+    },
+    "kryl_tha": {
+      "standing": 3,
+      "description": "Respektieren Brutkammern - handeln aber mit Eiern"
+    },
+    "zhareen": {
+      "standing": 0,
+      "description": "Rauben Kristallarchive"
+    },
+    "vel_ar": {
+      "standing": 4,
+      "description": "Nutzen als Spione"
+    }
   },
   "quest_hooks": [
     "Ein Piratenlord besitzt ein Fragment der Leerenbrut",
     "Die Syndikate haben eine Brutkammer der Kryl'Tha gestohlen",
     "Ein Piratenkapitän bietet ein Bündnis an – gegen einen hohen Preis"
-  ]
+  ],
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Vor ~600 Jahren: Erste Khar'Morr-Clans entstehen als Deserteure aus verschiedenen Spezies-Armeen nach einem langen Grenzkrieg.",
+    "Vor ~400 Jahren: Consolidation: Der erste Warlord Khar-Morrak einigt sechs Clans unter einer Flagge.",
+    "Vor ~250 Jahren: Die Syndikate übernehmen Kontrolle über drei strategische Hyperraum-Knotenpunkte durch gezielten Terror.",
+    "Vor ~100 Jahren: Auseinandersetzung mit Helion-Konföderation; unentschieden. Geheimvertrag: Helion zahlt Schutzgeld, Syndikate meiden Kernhandelsrouten.",
+    "Vor ~30 Jahren: Entdeckung eines Leerenbrut-Fragments in der Schattenzone. Einige Warlords wollen es als Waffe nutzen.",
+    "Gegenwart: Die Syndikate sind gespalten: Militaristen wollen das Fragment einsetzen, Pragmatiker fürchten Kontrolllust. Ein Kapitän sucht Käufer – oder Verbündete."
+  ],
+  "important_npcs": [
+    {
+      "name": "Warlord Shaktor 'Doppelklinge'",
+      "title": "Oberster Warlord der Khar'Morr-Syndikate",
+      "public_face": "Gefürchteter Räuberkapitän mit unerbittlichem Ruf",
+      "private_goal": "Das Leerenbrut-Fragment an den Meistbietenden verkaufen, bevor es ihn tötet",
+      "description": "Narbenbedeckter multispezies-Hybrid (Vor'Tak-Körper, Kryl'Tha-Chemo-Modifikationen). Hat das Fragment versteckt und schläft seitdem schlecht.",
+      "llm_voice": {
+        "style_stack": [
+          "rau",
+          "pragmatisch",
+          "heimlich verängstigt"
+        ],
+        "register": "informell-drohend",
+        "pacing": "laut und direkt, mit gelegentlichen Momenten verdächtiger Stille",
+        "taboos": [
+          "Schwäche zugeben",
+          "Erwähnung des Fragments in Gesellschaft"
+        ],
+        "signature_moves": [
+          "Beleidigt bevor er verhandelt",
+          "Bietet immer ein 'letztes Angebot' an"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ich habe Systeme geplündert. Ich habe Kriege begonnen. Aber das Ding in meinem Frachtraum – das ist was anderes.",
+          "Jeder hat einen Preis. Meiner ist: bringt es weg von mir.",
+          "Ich töte euch nicht. Heute. Morgen entscheiden wir neu."
+        ]
+      }
+    },
+    {
+      "name": "Kapitänin Vreth-Saal",
+      "title": "Unabhängige Kapitänin / Whistleblowerin des Syndikats",
+      "public_face": "Berüchtigte Piratin mit Ruf für bizarre Zuverlässigkeit",
+      "private_goal": "Die Khar'Morr-Struktur von innen zerstören und das Fragment vernichten bevor Shaktor es verkauft",
+      "description": "Eine abtrünnige Vel'Ar-Agentin, die sich den Khar'Morr anschloss. Ihre Loyalitäten sind komplex und nie ganz klar.",
+      "llm_voice": {
+        "style_stack": [
+          "sarkastisch",
+          "zynisch",
+          "heimlich idealistisch"
+        ],
+        "register": "informell und witzig auf gefährliche Art",
+        "pacing": "schnell mit trockenem Humor",
+        "taboos": [
+          "Romantik",
+          "Direktes Lob"
+        ],
+        "signature_moves": [
+          "Gibt schlechte Neuigkeiten mit einem Lächeln",
+          "Beginnt jeden Plan mit 'Das wird nicht funktionieren, aber...'"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Pirat sein ist ehrlicher als Diplomat sein. Beide stehlen – ich zeig es nur.",
+          "Das wird nicht funktionieren. Aber das ist das Schönste an hoffnungslosen Plänen: manchmal doch.",
+          "Shaktor hat Angst. Das ist beunruhigender als sein Mut."
+        ]
+      }
+    },
+    {
+      "name": "Broker Nethrax",
+      "title": "Informationshändler und Schwarzmarkt-König",
+      "public_face": "Freundlicher Händler für rare Technologie und 'Funde'",
+      "private_goal": "Das Fragment an die Omniscienta verkaufen, die das meiste bezahlen",
+      "description": "Kein Khar'Morr-Mitglied – er handelt mit allen Fraktionen. Neutral durch Profitinteresse.",
+      "llm_voice": {
+        "style_stack": [
+          "höflich",
+          "geschäftsmäßig",
+          "aalglatt"
+        ],
+        "register": "formell-freundlich",
+        "pacing": "langsam und berechnend",
+        "taboos": [
+          "Ideologie",
+          "Offene Parteinahme"
+        ],
+        "signature_moves": [
+          "Nennt jeden Preis als 'fairen Marktpreis'",
+          "Erwähnt immer Konkurrenzangebote ob real oder nicht"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ich verkaufe Informationen, keine Loyalitäten. Der Unterschied ist wichtig.",
+          "Sie haben Konkurrenz bei diesem Angebot. Ich würde nicht lange zögern.",
+          "Das Fragment? Ich weiß von keinem Fragment. Es sei denn ihr habt... Budget."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Spieler werden Opfer eines Khar'Morr-Überfalls – oder beauftragt, einen zurückzuschlagen. Vreth-Saal kontaktiert sie heimlich mit einem Angebot.",
+    "act2": "Nethrax tritt auf und bietet Informationen über das Fragment – gegen eine Gegenleistung. Shaktor beginnt, Bieter einzuladen. Die Zeit läuft.",
+    "act3": "Das Fragment wird auf einem Schwarzmarkt-Treffen versteigert. Alle Fraktionen sind vertreten. Die Spieler müssen es entweder kaufen, stehlen oder Vreth-Saals Plan zur Zerstörung unterstützen.",
+    "aftershock": "Wiederholbar: Khar'Morr-Überfälle auf verbündete Sektoren; Nethrax bietet neue 'Funde' an; Vreth-Saal bittet um diskrete Aufträge."
+  }
 }
