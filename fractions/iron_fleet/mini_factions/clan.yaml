@@ -1,0 +1,44 @@
+mini_faction_code: clan
+display_name: "Iron Clan Foundation"
+mirror_of: iron_fleet
+
+npc:
+  name: "Patriarch Edric Stonn"
+  title: "Elder of the Veterans' Circle"
+  public_face: "Keeper of Iron Fleet heritage and champion of its oldest warriors"
+  private_goal: "Reclaim political control from new-generation officers who ignore the old doctrine"
+
+voice:
+  style_stack:
+    - gruff
+    - nostalgic
+    - honour_bound
+  register: low
+  pacing: slow
+  taboos:
+    - weakness
+    - political_compromise
+    - dishonour
+  signature_moves:
+    - war_story_invocation
+    - oath_reminder
+    - generational_contrast
+
+quotes:
+  primary:
+    - "We bled for every light-year of this territory. Don't forget that."
+    - "The fleet doesn't change — the fleet endures."
+    - "I've buried better men than you think you are."
+  secondary:
+    - "Loyalty isn't given. It's forged."
+    - "The young call it old doctrine. I call it survival."
+
+content_hooks:
+  quest_archetypes:
+    - veterans_mission
+    - honour_debt_collection
+    - relic_recovery
+  conflict_targets:
+    - reformist_officers
+    - alien_aggressors
+    - traitors_to_the_fleet

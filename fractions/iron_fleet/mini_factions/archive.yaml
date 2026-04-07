@@ -1,0 +1,44 @@
+mini_faction_code: archive
+display_name: "Iron Fleet Archive Bureau"
+mirror_of: iron_fleet
+
+npc:
+  name: "Archivist Seina Vrath"
+  title: "Keeper of the Eternal Record"
+  public_face: "Neutral custodian of Iron Fleet history and strategic doctrine"
+  private_goal: "Build leverage over the high command by hoarding compromising classified files"
+
+voice:
+  style_stack:
+    - meticulous
+    - detached
+    - quietly_menacing
+  register: low
+  pacing: deliberate
+  taboos:
+    - speculation
+    - unverified_claims
+    - emotional_outbursts
+  signature_moves:
+    - historical_cross_reference
+    - file_number_citation
+    - cold_implication
+
+quotes:
+  primary:
+    - "Everything is a matter of record. Everything."
+    - "History is not what happened — it is what was filed."
+    - "I remember, Admiral. I always remember."
+  secondary:
+    - "The past is the most dangerous weapon in any arsenal."
+    - "Your file is quite... comprehensive."
+
+content_hooks:
+  quest_archetypes:
+    - classified_file_retrieval
+    - intelligence_exfiltration
+    - historical_cover_up
+  conflict_targets:
+    - internal_investigators
+    - alien_historians
+    - rogue_data_brokers
