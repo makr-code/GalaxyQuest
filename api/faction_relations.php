@@ -19,6 +19,8 @@
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
+require_once __DIR__ . '/../lib/ThemisDbClient.php';
+require_once __DIR__ . '/../lib/ThemisDbDualWriteService.php';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // YAML Parsing (fallback to JSON if YAML not available)
@@ -314,29 +316,49 @@ function generate_diplomatic_event($db, $uid, $relations_data) {
     }
 }
 
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // API Dispatcher
+// Supported actions:
+//   standing          – player standings from MySQL (authoritative)
+//   relationships     – faction-to-faction matrix from YAML
+//   trade_routes      – active trade routes from YAML
+//   conflicts         – conflict prediction via PHP/MySQL loop
+//   update_standing   – update standing (dual-write: MySQL + ThemisDB)
+//   diplomacy_events  – AI-driven diplomatic events
+//   graph_conflicts   – ThemisDB: graph traversal conflict query
+//   graph_path        – ThemisDB: shortest diplomatic path between factions
+//   graph_clusters    – ThemisDB: alliance community clusters
+//   compare_conflicts – side-by-side MySQL vs ThemisDB comparison
+//   seed_themisdb     – populate ThemisDB graph from live MySQL data
+//   db_status         – health of both MySQL and ThemisDB
 // ═══════════════════════════════════════════════════════════════════════════════
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     $action = strtolower($_GET['action'] ?? 'standing');
     $uid = require_auth();
     $db = get_db();
-    
+
+    // Parallel-DB service (dual-write + ThemisDB graph reads).
+    $dualSvc = ThemisDbDualWriteService::instance($db);
+
     // Load relations data
     $relations_data = load_faction_relations_yaml();
     if (!$relations_data) {
         $relations_data = ['relationships' => [], 'factions' => []];
     }
-    
+
     $cache_key = 'faction_relations_' . $action;
-    
+
     switch ($action) {
-        // Player's standing with all factions
+
+        // ── MySQL-backed reads ──────────────────────────────────────────────
+
+        // Player's standing with all factions (MySQL authoritative)
         case 'standing':
             only_method('GET');
             ensure_diplomacy_rows($db, $uid);
-            
+
             $standings = $db->prepare('
                 SELECT f.id, f.name, COALESCE(d.standing, 0) as standing
                 FROM npc_factions f
@@ -344,19 +366,18 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 ORDER BY f.id
             ');
             $standings->execute([$uid]);
-            
+
             $result = [];
             while ($row = $standings->fetch()) {
                 $result[] = [
-                    'faction_id' => (int)$row['id'],
+                    'faction_id'   => (int)$row['id'],
                     'faction_name' => $row['name'],
-                    'standing' => (int)$row['standing'],
+                    'standing'     => (int)$row['standing'],
                 ];
             }
-            
             json_ok(['standings' => $result]);
             break;
-        
+
         // Faction-to-faction relationship matrix
         case 'relationships':
             only_method('GET');
@@ -364,71 +385,153 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             if ($cached) {
                 json_ok($cached);
             }
-            
             $payload = ['relationships' => $relations_data['relationships'] ?? []];
             gq_cache_set($cache_key, ['uid' => $uid], $payload, CACHE_TTL_FACTIONS);
             json_ok($payload);
             break;
-        
-        // Predicted conflicts
+
+        // Predicted conflicts (classic PHP/MySQL loop)
         case 'conflicts':
             only_method('GET');
             $cached = gq_cache_get($cache_key, ['uid' => $uid], CACHE_TTL_FACTIONS);
             if ($cached) {
                 json_ok($cached);
             }
-            
             $conflicts = predict_conflicts($db, $relations_data);
             $payload = ['conflicts' => $conflicts];
             gq_cache_set($cache_key, ['uid' => $uid], $payload, CACHE_TTL_FACTIONS);
             json_ok($payload);
             break;
-        
+
         // Trade routes
         case 'trade_routes':
             only_method('GET');
-            $payload = ['routes' => $relations_data['trade_routes'] ?? []];
-            json_ok($payload);
+            json_ok(['routes' => $relations_data['trade_routes'] ?? []]);
             break;
-        
+
+        // ── Write path (dual-write: MySQL primary + ThemisDB mirror) ────────
+
         // Update player standing
         case 'update_standing':
             only_method('POST');
             verify_csrf();
             $body = get_json_body();
-            
+
             $faction_id = (int)($body['faction_id'] ?? 0);
-            $delta = (int)($body['delta'] ?? 0);
-            $reason = trim($body['reason'] ?? 'unknown');
-            
+            $delta      = (int)($body['delta']      ?? 0);
+            $reason     = trim($body['reason']      ?? 'unknown');
+
             if ($faction_id <= 0 || abs($delta) > 10) {
                 json_error('Invalid faction_id or delta', 400);
             }
-            
             $verify = $db->prepare('SELECT id FROM npc_factions WHERE id = ? LIMIT 1');
             $verify->execute([$faction_id]);
             if (!$verify->fetch()) {
                 json_error('Faction not found', 404);
             }
-            
+
             $new_standing = update_faction_standing($db, $uid, $faction_id, $delta, $reason);
+
+            // Dual-write: mirror the updated standing to ThemisDB (fire-and-forget).
+            $dualSvc->writeDiplomacyStanding($uid, $faction_id, $new_standing, $reason);
+
             gq_cache_delete('faction_relations_standing', ['uid' => $uid]);
-            
+
             json_ok([
-                'faction_id' => $faction_id,
+                'faction_id'     => $faction_id,
                 'standing_delta' => $delta,
-                'new_standing' => $new_standing,
-                'reason' => $reason,
+                'new_standing'   => $new_standing,
+                'reason'         => $reason,
             ]);
             break;
-        
-        // AI-driven diplomatic events
+
+        // ── AI-driven diplomatic events ────────────────────────────────────
+
         case 'diplomacy_events':
             only_method('GET');
             $event = generate_diplomatic_event($db, $uid, $relations_data);
             json_ok(['event' => $event]);
             break;
-        
+
+        // ── ThemisDB graph-native reads ────────────────────────────────────
+
+        // Graph conflict query – ThemisDB Property Graph traversal.
+        // Optional: ?threshold=-50
+        case 'graph_conflicts':
+            only_method('GET');
+            $threshold = (int)($_GET['threshold'] ?? -50);
+            $conflicts = $dualSvc->graphFactionConflicts($threshold);
+            json_ok(['conflicts' => $conflicts, 'source' => 'themisdb_graph', 'threshold' => $threshold]);
+            break;
+
+        // Shortest diplomatic path between two factions.
+        // Required: ?from=vor_tak&to=aereth  Optional: ?min_standing=0
+        case 'graph_path':
+            only_method('GET');
+            $from        = trim($_GET['from']          ?? '');
+            $to          = trim($_GET['to']            ?? '');
+            $minStanding = (int)($_GET['min_standing'] ?? 0);
+
+            if ($from === '' || $to === '') {
+                json_error('Query params "from" and "to" are required.', 400);
+            }
+            $path = $dualSvc->graphShortestDiplomaticPath($from, $to, $minStanding);
+            if ($path === null) {
+                json_ok(['path' => null, 'message' => 'No diplomatic path found.', 'source' => 'themisdb_graph']);
+            }
+            json_ok(['path' => $path, 'source' => 'themisdb_graph']);
+            break;
+
+        // Alliance clusters – graph community detection.
+        // Optional: ?min_standing=3
+        case 'graph_clusters':
+            only_method('GET');
+            $minStanding = (int)($_GET['min_standing'] ?? 3);
+            $clusters = $dualSvc->graphAllianceClusters($minStanding);
+            json_ok(['clusters' => $clusters, 'source' => 'themisdb_graph', 'min_standing' => $minStanding]);
+            break;
+
+        // Side-by-side comparison: MySQL PHP loop vs ThemisDB graph traversal.
+        // Optional: ?threshold=-50
+        case 'compare_conflicts':
+            only_method('GET');
+            $threshold = (int)($_GET['threshold'] ?? -50);
+            $comparison = $dualSvc->compareConflictPrediction(
+                $relations_data['relationships'] ?? [],
+                $threshold
+            );
+            json_ok($comparison);
+            break;
+
+        // Seed ThemisDB graph collections from live MySQL data.
+        // Body (optional): { "seed_player_diplomacy": true }
+        case 'seed_themisdb':
+            only_method('POST');
+            verify_csrf();
+            $body = get_json_body();
+
+            $factionResult   = $dualSvc->seedFactions();
+            $relationsResult = $dualSvc->seedFactionRelationsGraph($relations_data['relationships'] ?? []);
+
+            $playerResult = ['seeded' => 0, 'errors' => 0];
+            if ($body['seed_player_diplomacy'] ?? false) {
+                $playerResult = $dualSvc->seedPlayerDiplomacy($uid);
+            }
+
+            json_ok([
+                'factions_seeded'         => $factionResult['seeded'],
+                'relation_edges_seeded'   => $relationsResult['seeded'],
+                'player_diplomacy_seeded' => $playerResult['seeded'],
+                'errors'                  => $factionResult['errors'] + $relationsResult['errors'] + $playerResult['errors'],
+            ]);
+            break;
+
+        // Health status of both database backends.
+        case 'db_status':
+            only_method('GET');
+            json_ok($dualSvc->status());
+            break;
+
         default:
             json_error("Unknown action: $action", 400);
     }

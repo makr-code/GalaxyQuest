@@ -122,3 +122,15 @@ define('TTS_TIMEOUT_SECONDS', (int)    env_value('TTS_TIMEOUT_SECONDS', 30));
 define('TTS_MAX_CHARS',       (int)    env_value('TTS_MAX_CHARS', 2000));
 // Cache TTL for synthesised audio files (seconds); 0 = permanent.
 define('TTS_CACHE_TTL',       (int)    env_value('TTS_CACHE_TTL', 0));
+
+// ── ThemisDB (Migration Phase 0+) ───────────────────────────────────────────
+// Feature flag: set to 1 to enable ThemisDB HTTP client and dual-write path.
+define('THEMISDB_ENABLED',         (int)    env_value('THEMISDB_ENABLED',         0));
+// Base URL of the ThemisDB HTTP/REST API (no trailing slash).
+define('THEMISDB_BASE_URL',        (string) env_value('THEMISDB_BASE_URL',        'http://localhost:8090'));
+// Request timeout for ThemisDB API calls in seconds.
+define('THEMISDB_TIMEOUT_SECONDS', (int)    env_value('THEMISDB_TIMEOUT_SECONDS', 10));
+// When 1, critical write operations are mirrored to both MySQL and ThemisDB (dual-write).
+define('THEMISDB_DUAL_WRITE',      (int)    env_value('THEMISDB_DUAL_WRITE',      0));
+// Bearer token for ThemisDB API authentication (empty = no auth, dev only).
+define('THEMISDB_API_TOKEN',       (string) env_value('THEMISDB_API_TOKEN',       ''));

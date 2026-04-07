@@ -13,10 +13,10 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/cache.php';
 
 // ── Directory for cached audio files (web-accessible) ────────────────────────
-// Files are stored outside the main cache so they can be served directly by
+// Files are stored in generated/tts/ so they can be served directly by
 // Apache / nginx.  The directory must be listed in .htaccess / vhost config.
-define('TTS_AUDIO_DIR', __DIR__ . '/../cache/tts');
-define('TTS_AUDIO_WEB', 'cache/tts');
+define('TTS_AUDIO_DIR', __DIR__ . '/../generated/tts');
+define('TTS_AUDIO_WEB', 'generated/tts');
 
 function tts_is_enabled(): bool
 {
@@ -27,7 +27,7 @@ function tts_is_enabled(): bool
  * Synthesise text to speech and return a web-accessible audio URL.
  *
  * The result is cached permanently (TTL = TTS_CACHE_TTL) on the filesystem
- * under cache/tts/<hash>.mp3.  Identical (text + voice) pairs never hit the
+ * under generated/tts/<hash>.mp3.  Identical (text + voice) pairs never hit the
  * microservice twice.
  *
  * @param  string $text    The text to synthesise.
