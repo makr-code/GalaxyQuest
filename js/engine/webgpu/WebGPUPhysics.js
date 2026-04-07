@@ -168,8 +168,20 @@ class WebGPUPhysics {
     this._paramBuf    = null;
     /** @type {GPUBuffer[]} Ping-pong state buffers */
     this._stateBufs   = [null, null];
-    /** @type {GPUBuffer|null} Readback staging */
-    this._stagingBuf  = null;
+    /**
+     * Two staging buffers for double-buffered async readback.
+     * While frame N's result is being mapped, frame N+1 writes to the other.
+     * @type {GPUBuffer[]}
+     */
+    this._stagingBufs  = [null, null];
+    /** Current staging write index (0 or 1) */
+    this._stagingPing  = 0;
+    /**
+     * Promise that resolves with the staging-buffer index once mapAsync
+     * completes.  Null when no readback is in flight.
+     * @type {Promise<number|null>|null}
+     */
+    this._pendingReadback = null;
     /** @type {number} Current ping index (0 or 1) */
     this._pingIdx     = 0;
     /** @type {number} Number of bodies */
@@ -236,14 +248,19 @@ class WebGPUPhysics {
     if (!this._stateBufs[0] || this._stateBufs[0].size !== byteSize) {
       this._stateBufs[0]?.destroy();
       this._stateBufs[1]?.destroy();
-      this._stagingBuf?.destroy();
+      this._stagingBufs[0]?.destroy();
+      this._stagingBufs[1]?.destroy();
 
       this._stateBufs[0]  = this._device.createBuffer({ size: byteSize, usage: storageUsage });
       this._stateBufs[1]  = this._device.createBuffer({ size: byteSize, usage: storageUsage });
-      this._stagingBuf    = this._device.createBuffer({
-        size: byteSize,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-      });
+
+      // Two staging buffers for double-buffered readback
+      const stagingUsage = GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ;
+      this._stagingBufs[0] = this._device.createBuffer({ size: byteSize, usage: stagingUsage });
+      this._stagingBufs[1] = this._device.createBuffer({ size: byteSize, usage: stagingUsage });
+
+      this._stagingPing     = 0;
+      this._pendingReadback = null;
     }
 
     this._device.queue.writeBuffer(this._stateBufs[this._pingIdx], 0, data);
@@ -255,7 +272,12 @@ class WebGPUPhysics {
   // ---------------------------------------------------------------------------
 
   /**
-   * Dispatch one physics step on the GPU.
+   * Dispatch one physics step on the GPU and immediately start copying results
+   * to the current staging buffer (double-buffer pattern).
+   *
+   * This fires the GPU-side copy + mapAsync eagerly so that by the time
+   * readback() is called in the *next* frame the transfer is already complete.
+   * The result is applied with at most 1-frame of latency, but no frame-blocking.
    *
    * @param {number} dtSeconds
    */
@@ -284,10 +306,26 @@ class WebGPUPhysics {
     pass.setBindGroup(0, bindGroup);
     pass.dispatchWorkgroups(workgroups);
     pass.end();
+
+    // Immediately queue a copy from the output buffer to the active staging buffer.
+    // This is the "double-buffer" trick: the GPU copies while the next CPU frame runs.
+    const stagingIdx = this._stagingPing;
+    const byteSize   = this._bodyCount * BODY_BYTES;
+    encoder.copyBufferToBuffer(outBuf, 0, this._stagingBufs[stagingIdx], 0, byteSize);
+
     this._device.queue.submit([encoder.finish()]);
 
-    // Swap ping-pong
+    // Start the async mapping immediately — it will (usually) be done by the
+    // next time readback() is called.
+    this._pendingReadback = this._stagingBufs[stagingIdx]
+      .mapAsync(GPUMapMode.READ, 0, byteSize)
+      .then(() => stagingIdx)
+      .catch(() => null);
+
+    // Swap physics ping-pong
     this._pingIdx ^= 1;
+    // Swap staging ping-pong for the next frame
+    this._stagingPing ^= 1;
   }
 
   // ---------------------------------------------------------------------------
@@ -295,25 +333,29 @@ class WebGPUPhysics {
   // ---------------------------------------------------------------------------
 
   /**
-   * Asynchronously read back the current body states from the GPU and
-   * reconcile them into the JS SpacePhysicsEngine bodies Map.
+   * Apply the GPU physics result from the previous frame's async copy.
+   *
+   * Because step() eagerly enqueues the GPU→CPU transfer, this call will
+   * almost always find the data already available — no frame-blocking stall.
    *
    * @param {Map<number, Object>} bodies — SpacePhysicsEngine#bodies Map
    * @returns {Promise<void>}
    */
   async readback(bodies) {
-    if (!this._stagingBuf || this._bodyCount === 0) return;
+    if (!this._pendingReadback || this._bodyCount === 0) return;
 
-    const srcBuf  = this._stateBufs[this._pingIdx];
+    // Await the mapAsync Promise that was started in step().
+    // By the time this runs (one frame later) the GPU is typically done.
+    const stagingIdx = await this._pendingReadback;
+    this._pendingReadback = null;
+
+    if (stagingIdx === null) return; // mapAsync was rejected (device lost etc.)
+
     const byteSize = this._bodyCount * BODY_BYTES;
-
-    const encoder = this._device.createCommandEncoder();
-    encoder.copyBufferToBuffer(srcBuf, 0, this._stagingBuf, 0, byteSize);
-    this._device.queue.submit([encoder.finish()]);
-
-    await this._stagingBuf.mapAsync(GPUMapMode.READ, 0, byteSize);
-    const raw  = new Float32Array(this._stagingBuf.getMappedRange(0, byteSize).slice(0));
-    this._stagingBuf.unmap();
+    const raw      = new Float32Array(
+      this._stagingBufs[stagingIdx].getMappedRange(0, byteSize).slice(0),
+    );
+    this._stagingBufs[stagingIdx].unmap();
 
     let i = 0;
     for (const b of bodies.values()) {
@@ -335,11 +377,13 @@ class WebGPUPhysics {
   dispose() {
     this._stateBufs[0]?.destroy();
     this._stateBufs[1]?.destroy();
-    this._stagingBuf?.destroy();
+    this._stagingBufs[0]?.destroy();
+    this._stagingBufs[1]?.destroy();
     this._paramBuf?.destroy();
-    this._stateBufs  = [null, null];
-    this._stagingBuf = null;
-    this._paramBuf   = null;
+    this._stateBufs   = [null, null];
+    this._stagingBufs = [null, null];
+    this._paramBuf    = null;
+    this._pendingReadback = null;
   }
 
   // ---------------------------------------------------------------------------

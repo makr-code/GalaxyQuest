@@ -33,6 +33,11 @@ const PARAM_META = {
     power:     { min: 0, max: 0.05, step: 0.001, default: 0.005 },
     angle:     { min: 0, max: 6.28, step: 0.01,  default: 0     },
   },
+  ssao: {
+    radius:    { min: 0.05, max: 2.0, step: 0.05, default: 0.5  },
+    power:     { min: 0.5,  max: 4.0, step: 0.1,  default: 2.0  },
+    bias:      { min: 0,    max: 0.1, step: 0.005, default: 0.025 },
+  },
 };
 
 class PostFxController {
@@ -81,7 +86,7 @@ class PostFxController {
   // ---------------------------------------------------------------------------
 
   _bindAll() {
-    const effects = ['bloom', 'vignette', 'chromatic'];
+    const effects = ['bloom', 'vignette', 'chromatic', 'ssao'];
 
     for (const effect of effects) {
       // Enable/disable checkbox
@@ -128,6 +133,7 @@ class PostFxController {
       bloom:    engine._bloomPass,
       vignette: engine._vignettePass,
       chromatic: engine._chromaticPass,
+      ssao:     engine._ssaoPass,
     };
 
     for (const [effect, pass] of Object.entries(passes)) {
