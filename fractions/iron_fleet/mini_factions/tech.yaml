@@ -1,0 +1,59 @@
+# Eisenflotte – Waffenentwicklungsamt (Tech Division)
+# Forschung und Entwicklung neuer Waffensysteme und KI-gestützter Zielsysteme.
+
+division_code: tech
+display_name: "Waffenentwicklungsamt"
+role: "Entwicklung kinetischer Waffensysteme und KI-gestützter Zielerfassungstechnologie"
+motto: "Masse schlägt Meisterschaft"
+personnel_scale: regiment
+threat_level: high
+known_intel: fragmentary
+current_objective: "Entwicklung eines Massentötungsfeldes gegen Bio-Einheiten der Kryl'Tha"
+notable_officer:
+  name: "Chefingenieur Dominik Rauch"
+  rank: "Generalingenieur"
+  specialization: "Kinetische Großkampfwaffen"
+mini_faction_code: tech
+display_name: "Iron Fleet Technical Corps"
+mirror_of: iron_fleet
+
+npc:
+  name: "Chief Engineer Dorna Krauss"
+  title: "Director of Weapons Systems and Fleet Engineering"
+  public_face: "Brilliant innovator keeping the Iron Fleet at the cutting edge"
+  private_goal: "Divert experimental weapons research into personal black-market contracts"
+
+voice:
+  style_stack:
+    - precise
+    - clinical
+    - jargon_heavy
+  register: mid
+  pacing: rapid
+  taboos:
+    - budget_overruns
+    - failed_prototypes
+    - alien_tech_superiority
+  signature_moves:
+    - technical_deep_dive
+    - spec_sheet_citation
+    - dry_understatement
+
+quotes:
+  primary:
+    - "We don't build weapons. We build solutions to biological obstacles."
+    - "Every system failure is just an undocumented feature."
+    - "If it explodes on the enemy, it works."
+  secondary:
+    - "Redundancy is cowardice in engineering form."
+    - "The specs said it was stable. The specs were optimistic."
+
+content_hooks:
+  quest_archetypes:
+    - prototype_field_test
+    - weapons_heist
+    - sabotage_mission
+  conflict_targets:
+    - alien_tech_guilds
+    - rival_engineers
+    - corporate_spies

@@ -2,25 +2,35 @@
  * RuntimeQuestsCardTemplate.js
  *
  * Builds one quest card HTML block.
+ * Handles both regular achievements (source undefined) and faction quests
+ * (source === 'faction_quest'), routing claim buttons accordingly.
  */
 (function () {
   function createQuestsCardTemplateBuilder() {
     function build({ quest, esc, fmt }) {
       const q = quest || {};
+      const isFactionQuest = q.source === 'faction_quest';
       const pct = (q.goal > 0) ? Math.min(100, Math.round((q.progress / q.goal) * 100)) : 100;
       const state = q.reward_claimed ? 'claimed' : q.completed ? 'claimable' : 'pending';
 
       const rewards = [];
-      if (q.reward_metal) rewards.push(`Ô¼í ${fmt(q.reward_metal)}`);
-      if (q.reward_crystal) rewards.push(`­ƒÆÄ ${fmt(q.reward_crystal)}`);
-      if (q.reward_deuterium) rewards.push(`­ƒöÁ ${fmt(q.reward_deuterium)}`);
-      if (q.reward_dark_matter) rewards.push(`Ôùå ${fmt(q.reward_dark_matter)} DM`);
-      if (q.reward_rank_points) rewards.push(`Ôÿà ${fmt(q.reward_rank_points)} RP`);
+      if (q.reward_metal) rewards.push(`⚙ ${fmt(q.reward_metal)}`);
+      if (q.reward_crystal) rewards.push(`💎 ${fmt(q.reward_crystal)}`);
+      if (q.reward_deuterium) rewards.push(`🔋 ${fmt(q.reward_deuterium)}`);
+      if (q.reward_dark_matter) rewards.push(`✨ ${fmt(q.reward_dark_matter)} DM`);
+      if (q.reward_rank_points) rewards.push(`⭐ ${fmt(q.reward_rank_points)} RP`);
+      if (q.reward_standing) rewards.push(`🤝 +${q.reward_standing} Standing`);
+
+      // Faction quests use user_quest_id; achievements use achievement id.
+      const claimDataAttr = isFactionQuest
+        ? `data-uqid="${q.user_quest_id}"`
+        : `data-aid="${q.id}"`;
+      const claimClass = isFactionQuest ? 'faction-claim-btn' : 'claim-btn';
 
       return `
             <div class="quest-card quest-${state}" data-aid="${q.id}">
               <div class="quest-header">
-                <span class="quest-icon">${state==='claimed'?'Ô£à':state==='claimable'?'­ƒÄü':'Ôùï'}</span>
+                <span class="quest-icon">${state==='claimed'?'✅':state==='claimable'?'📦':'🕐'}</span>
                 <span class="quest-title">${esc(q.title)}</span>
               </div>
               <div class="quest-desc">${esc(q.description)}</div>
@@ -32,7 +42,7 @@
               <div class="quest-footer">
                 <span class="quest-rewards">${rewards.join(' &nbsp; ')}</span>
                 ${state==='claimable'
-                  ? `<button class="btn btn-primary btn-sm claim-btn" data-aid="${q.id}">Ô£¿ Claim</button>`
+                  ? `<button class="btn btn-primary btn-sm ${claimClass}" ${claimDataAttr}>✅ Claim</button>`
                   : state==='claimed'
                     ? `<span class="quest-claimed-label">Claimed ${q.completed_at ? new Date(q.completed_at).toLocaleDateString() : ''}</span>`
                     : ''}

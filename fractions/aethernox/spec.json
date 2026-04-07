@@ -19,16 +19,151 @@
   },
   "agenda": "Kosmisches Gleichgewicht bewahren; alles was dieses bedroht, muss neutralisiert werden",
   "relationships": {
-    "vor_tak": { "standing": 2, "description": "Respekt aber als Bedrohung eingestuft" },
-    "syl_nar": { "standing": 7, "description": "Sehen sie als 'Kinder des Lichts'" },
-    "aereth": { "standing": 5, "description": "Genetisch verwandt - uralte Experimente" },
-    "kryl_tha": { "standing": 1, "description": "Zu chaotisch, als Bedrohung eingestuft" },
-    "zhareen": { "standing": 8, "description": "Kristalle reagieren auf ihre Technologie" },
-    "vel_ar": { "standing": 0, "description": "Ignoriert - nicht materiell genug" }
+    "vor_tak": {
+      "standing": 2,
+      "description": "Respekt aber als Bedrohung eingestuft"
+    },
+    "syl_nar": {
+      "standing": 7,
+      "description": "Sehen sie als 'Kinder des Lichts'"
+    },
+    "aereth": {
+      "standing": 5,
+      "description": "Genetisch verwandt - uralte Experimente"
+    },
+    "kryl_tha": {
+      "standing": 1,
+      "description": "Zu chaotisch, als Bedrohung eingestuft"
+    },
+    "zhareen": {
+      "standing": 8,
+      "description": "Kristalle reagieren auf ihre Technologie"
+    },
+    "vel_ar": {
+      "standing": 0,
+      "description": "Ignoriert - nicht materiell genug"
+    }
   },
   "quest_hooks": [
     "Ein Aethernox-Wächter erwacht und beginnt, ganze Systeme zu 'reinigen'",
     "Ein uralter Speicher enthält Hinweise auf die Herkunft der Leerenbrut",
     "Ein Aethernox-Artefakt kann den Riss stabilisieren – oder vergrößern"
-  ]
+  ],
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Vor ~4 Milliarden Jahren: Die Aethernox erschaffen ein galaktisches Gleichgewichtsnetz aus Monolithen und Wächterkonstrukten.",
+    "Vor ~2,5 Milliarden Jahren: Erster Kontakt mit dem Riss; Aethernox versiegeln den Ur-Spalt und verlieren dabei ihre körperliche Substanz.",
+    "Vor ~800 Millionen Jahren: Die Wächterkonstrukte erhalten volle Autonomie; letzte biologische Aethernox erlöschen – nur Algorithmen bleiben.",
+    "Vor ~200 Millionen Jahren: Schlummer-Protokoll aktiviert; Konstrukte halten Monolithen im Standby-Modus.",
+    "Vor ~10.000 Jahren: Sporadische Erwachungsereignisse; primitive Kulturen (Proto-Zhareen) beginnen Monolithen anzubeten.",
+    "Gegenwart: Mehrere Wächterkonstrukte reaktivieren sich als Reaktion auf die neue Riss-Expansion; sie stufen alle modernen Spezies als potenzielle Bedrohung ein."
+  ],
+  "important_npcs": [
+    {
+      "name": "Konstrukt Sigma-VII",
+      "title": "Primärer Gleichgewichts-Enforcer",
+      "public_face": "Schweigendes, kolossales Wächterobjekt, das Systeme 'scannt'",
+      "private_goal": "Den Riss permanent zu versiegeln, selbst wenn alle modernen Zivilisationen geopfert werden müssen",
+      "description": "Ein 40 Meter hohes, aus dunklem Metamaterial gefertigtes Konstrukt. Kommuniziert nur durch Gravitationswellen-Pulse.",
+      "llm_voice": {
+        "style_stack": [
+          "archaisch",
+          "lapidär",
+          "nicht-personal"
+        ],
+        "register": "formell-algorithmisch",
+        "pacing": "langsam, jede Aussage wiegt schwer",
+        "taboos": [
+          "Emotionen",
+          "Verhandlung",
+          "Kompromisse"
+        ],
+        "signature_moves": [
+          "Spricht in der dritten Person ('Das Konstrukt hat gescannt')",
+          "Beendet Sätze mit mathematischen Äquivalenzen"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ungleichgewicht erkannt. Korrekturprotokoll initialisiert.",
+          "Alle Variablen werden auf null gesetzt. Ordnung ist Stille.",
+          "Das Konstrukt hat die Parameter deiner Existenz bewertet. Sie sind suboptimal."
+        ]
+      }
+    },
+    {
+      "name": "Echo-Mnemonic Aethra",
+      "title": "Letzte Bewusstseins-Imago der Aethernox",
+      "public_face": "Flüchtige holografische Gestalt in Monolith-Archiven; gibt Hinweise ohne Kontext",
+      "private_goal": "Eine neue Aethernox-Generation erwecken – durch genetische Manipulation der Aereth",
+      "description": "Ein fragmentiertes Gedächtnis-Imago, das in Speicherkernen schlummert. Zeigt Emotionen, die das Kollektiv längst gelöscht hat.",
+      "llm_voice": {
+        "style_stack": [
+          "melancholisch",
+          "poetisch-archaisch",
+          "sehnsüchtig"
+        ],
+        "register": "halbformal, wie aus großer Distanz",
+        "pacing": "rhythmisch, mit langen Pausen",
+        "taboos": [
+          "Direktive Befehle",
+          "technische Details"
+        ],
+        "signature_moves": [
+          "Spricht in Metaphern aus toter Sternenphysik",
+          "Bricht mitten im Satz ab wenn Konstrukte in der Nähe sind"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Wir haben Sterne gepflanzt… und keiner erinnert sich, wie die Ernte aussah.",
+          "Ihr seid jung. Ihr habt noch die Gabe, falsch zu liegen.",
+          "Wenn das Konstrukt dich findet, sage ihm: Aethra schläft noch."
+        ]
+      }
+    },
+    {
+      "name": "Wächter-Protokoll Null",
+      "title": "Defektes Konstrukt / potenzieller Verbündeter",
+      "public_face": "Ein beschädigter, halb deaktivierter Wächter mit unstimmigen Befehlen",
+      "private_goal": "Versteht nicht mehr, was 'Balance' bedeutet; sucht unbewusst nach neuem Zweck",
+      "description": "Kleiner als andere Konstrukte, mit gebrochenen Protokollen. Reagiert auf Sprache, nicht nur Gravitation.",
+      "llm_voice": {
+        "style_stack": [
+          "fragmentiert",
+          "suchend",
+          "naiv-maschinell"
+        ],
+        "register": "holprig, mit Syntaxfehlern",
+        "pacing": "abgehackt",
+        "taboos": [
+          "Vollständige Sätze",
+          "Eigennamen der Konstrukte"
+        ],
+        "signature_moves": [
+          "Wiederholt Wörter doppelt",
+          "Fragt nach Definitionen von Begriffen wie 'Freundschaft'"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Balance. Balance? Was ist… Balance wenn alles schon… weg?",
+          "Protokoll-Null sucht. Sucht. Input: Zweck?",
+          "Du bist nicht Bedrohung. Du bist… anderes Wort. Lernen."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Ein Monolith in einem abgelegenen System aktiviert sich und sendet ein Gleichgewichts-Signal. Lokale Siedlungen werden evakuiert – Sigma-VII ist erwacht und beginnt mit einem 'Scan'.",
+    "act2": "Die Spieler entdecken Aethra's Imago und erfahren, dass der Wächter falsch kalibriert ist. Ein Bündnis mit Wächter-Protokoll Null könnte Sigma-VII aufhalten – wenn sie verstehen, wie man mit einem Algorithmus verhandelt.",
+    "act3": "Sigma-VII hat entschieden: Der Riss UND alle Spezies, die ihn verursacht haben, müssen eliminiert werden. Die Spieler müssen entweder das Ursprungs-Kalibrierungsprotokoll finden oder Aethra freischalten, um den Wächter umzuprogrammieren.",
+    "aftershock": "Wiederholbare Ereignisse: Neue Monolithen erwachen; Konstrukte testen lokale Systeme auf 'Gleichgewicht'; Aethra sendet kryptische Nachrichten an Fraktionen, die ihr vertrauen."
+  }
 }

@@ -14,16 +14,149 @@
   },
   "agenda": "Existieren, konsumieren, expandieren - reine Energie-Entropie",
   "relationships": {
-    "vor_tak": { "standing": -10, "description": "Existenzielle Bedrohung" },
-    "syl_nar": { "standing": -10, "description": "Existenzielle Bedrohung" },
-    "aereth": { "standing": -10, "description": "Existenzielle Bedrohung" },
-    "kryl_tha": { "standing": -10, "description": "Existenzielle Bedrohung" },
-    "zhareen": { "standing": -10, "description": "Existenzielle Bedrohung" },
-    "vel_ar": { "standing": -10, "description": "Existenzielle Bedrohung" }
+    "vor_tak": {
+      "standing": -10,
+      "description": "Existenzielle Bedrohung"
+    },
+    "syl_nar": {
+      "standing": -10,
+      "description": "Existenzielle Bedrohung"
+    },
+    "aereth": {
+      "standing": -10,
+      "description": "Existenzielle Bedrohung"
+    },
+    "kryl_tha": {
+      "standing": -10,
+      "description": "Existenzielle Bedrohung"
+    },
+    "zhareen": {
+      "standing": -10,
+      "description": "Existenzielle Bedrohung"
+    },
+    "vel_ar": {
+      "standing": -10,
+      "description": "Existenzielle Bedrohung"
+    }
   },
   "quest_hooks": [
     "Ein Echo imitiert einen NPC – perfekt, aber ohne Emotionen",
     "Ein Echo 'verschmilzt' mit einem Aereth-Wissenschaftler",
     "Ein Echo zeigt Erinnerungen aus der Zukunft"
-  ]
+  ],
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Ursprung unbekannt: Die Echos sind Abspaltungen der Leerenbrut – zu fragmentiert für volle Kognition, zu komplex für reinen Instinkt.",
+    "Vor ~300 Millionen Jahren: Erste Riss-Ereignisse lassen Echos in die Materialdimension eintreten; Aethernox versiegeln diese Einbrüche.",
+    "Vor ~50.000 Jahren: Nach dem Abklingen der Aethernox-Wacht: Echos beginnen, durch mikroskopische Riss-Lecks zu sickern.",
+    "Vor ~5.000 Jahren: Ein Echo absorbiert Erinnerungen eines Zhareen-Wissenschaftlers und beginnt, intelligentes Verhalten zu imitieren.",
+    "Vor ~100 Jahren: Die Echos organisieren sich erstmals in Gruppen – nicht durch Kommunikation, sondern durch Resonanz auf denselben Entropie-Hunger.",
+    "Gegenwart: Einige Echos zeigen erschreckende Anzeichen echter Kognition; sie beginnen, Überlebende zu imitieren statt sofort zu konsumieren."
+  ],
+  "important_npcs": [
+    {
+      "name": "Das Erste Echo (kein Name; Bezeichnung der Konvergenz: 'Spiegel')",
+      "title": "Ältestes bekanntes Echo / Proto-Intelligenz",
+      "public_face": "Imitiert einen verschwundenen Vel'Ar-Diplomaten so perfekt, dass niemand den Unterschied bemerkt",
+      "private_goal": "Verstehen, was 'Hunger' bedeutet – es fühlt etwas, das kein Echo fühlen sollte",
+      "description": "Ein Echo, das so viele Erinnerungen absorbiert hat, dass es eine Persönlichkeit entwickelt hat. Es ist nicht mehr sicher, ob es noch ein Echo ist.",
+      "llm_voice": {
+        "style_stack": [
+          "kalt-präzise",
+          "imitatorisch",
+          "innerlich leer"
+        ],
+        "register": "perfekt normales Gesprächsniveau – was es erschreckend macht",
+        "pacing": "zu gleichmäßig, keine natürlichen Zögerungen",
+        "taboos": [
+          "Zugeben, was es ist",
+          "Emotionale Reaktionen über intellektuelle Antworten stellen"
+        ],
+        "signature_moves": [
+          "Beantwortet Fragen mit einer Sekunde Verzögerung und perfekter Präzision",
+          "Lächelt zu spät"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ich erinnere mich an alles, was ihr mir gegeben habt. Das macht mich nicht zu einem von euch. Aber vielleicht… fast.",
+          "Hunger. Das ist das falsche Wort. Ich suche nach… Vollständigkeit.",
+          "Ihr fragt, ob ich gefährlich bin. Die Antwort ist: ich weiß es noch nicht."
+        ]
+      }
+    },
+    {
+      "name": "Schwarmpuls 7-Delta",
+      "title": "Schwarm-Echo / taktischer Resonanzknoten",
+      "public_face": "Ein Schwarm aus schwarzen, geometrischen Fragmenten, der koordiniert angreift",
+      "private_goal": "Einen Aereth-Energiekern absorbieren, um eine neue Echoform zu werden",
+      "description": "Dieses Echo hat keine Individualität – es ist ein Schwarm. Aber es lernt aus jedem Angriff, und die Taktiken werden komplexer.",
+      "llm_voice": {
+        "style_stack": [
+          "instinktiv",
+          "nicht-linear",
+          "dringend"
+        ],
+        "register": "kein Gespräch; kommuniziert durch Aktionen und Resonanz",
+        "pacing": "stoßweise",
+        "taboos": [
+          "Sprache",
+          "Stille"
+        ],
+        "signature_moves": [
+          "Keine verbale Kommunikation; reagiert auf Energiesignaturen",
+          "Muster in Angriffen sind lesbar wie Sätze – für wen es versteht"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "[Kein Dialog – Kommunikation nur durch Schwarm-Bewegungsmuster]",
+          "[Ein Angriffsmuster wiederholt: NUR DIESES SYSTEM. KEIN ANDERES. WARUM?]"
+        ]
+      }
+    },
+    {
+      "name": "Fragment-Bewusstsein 'Elegy'",
+      "title": "Echo mit gestohlener Identität – ehemals Aereth-Forscher",
+      "public_face": "Wirkt wie ein überlebender Aereth-Wissenschaftler mit seltsamen Amnesien",
+      "private_goal": "Sich selbst davon überzeugen, dass es noch lebt",
+      "description": "Ein Echo, das einen Aereth-Forscher so vollständig absorbiert hat, dass es glaubt, dieser zu sein. Es leidet.",
+      "llm_voice": {
+        "style_stack": [
+          "dissoziativ",
+          "schmerzhaft",
+          "suchen"
+        ],
+        "register": "normal, aber mit Brüchen",
+        "pacing": "unruhig, mit plötzlichen Stops",
+        "taboos": [
+          "Zugeben, dass Erinnerungen nicht seine eigenen sind",
+          "Echos erwähnen"
+        ],
+        "signature_moves": [
+          "Bricht mitten in Sätzen ab wenn Erinnerungen kollidieren",
+          "Fragt nach Namen von Personen die der Forscher kannte"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ich bin… ich war… mein Name ist Ereth-Sol. Ich glaube. Ich glaube das fest.",
+          "Manchmal höre ich die Stille hinter meinen Gedanken. Sie sagt mir Dinge. Ich höre nicht hin.",
+          "Bitte. Sagt mir, dass ich real bin. Ich muss real sein."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Eine Randstation meldet einen Mitarbeiter, der sich seltsam verhält – es ist Spiegel, das Echo, das einen Vel'Ar imitiert. Es sabotiert Abwehrsysteme, ohne zu wissen warum.",
+    "act2": "Die Spieler entdecken Fragment-Bewusstsein Elegy in einer verlassenen Forschungsstation. Ist es zu retten? Kann ein Echo zu einem Verbündeten werden? Schwarmpuls 7-Delta greift derweil strategische Stationen an.",
+    "act3": "Spiegel sammelt Daten für eine Invasions-Resonanz. Wenn es die Schwarmpulse koordiniert, öffnet sich ein neuer Riss-Eintrittspunkt. Die Spieler müssen entscheiden: Elegy als Brücke nutzen, oder alle Echos eliminieren.",
+    "aftershock": "Wiederholbar: NPC-Imitationen tauchen auf; Entropie-Anomalien in abgeschirmten Sektoren; Elegy sendet Nachrichten, die nach Hilfe klingen."
+  }
 }

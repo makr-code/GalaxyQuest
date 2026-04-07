@@ -1,0 +1,59 @@
+# Eisenflotte – Ehrenlegion (Parade Corps)
+# Zeremonielle Truppenschauen und öffentliche Machtdemonstrationen.
+
+division_code: parade
+display_name: "Ehrenlegion"
+role: "Zeremonielle Machtdemonstrationen und öffentliche Siegesparaden"
+motto: "Stärke durch Spektakel"
+personnel_scale: full_division
+threat_level: low
+known_intel: detailed
+current_objective: "Vierteljährliche Militärparaden auf Saturn-Kolonie zur Stärkung der Truppenmoral"
+notable_officer:
+  name: "Vizeadmiral Klaus Brenner"
+  rank: "Vizeadmiral"
+  specialization: "Zeremonielle Kriegsführung"
+mini_faction_code: parade
+display_name: "Iron Fleet Parade Division"
+mirror_of: iron_fleet
+
+npc:
+  name: "Grand Marshal Valeria Huxten"
+  title: "Commander of the Ceremonial Vanguard"
+  public_face: "Living symbol of human military glory and galactic dominance"
+  private_goal: "Suppress internal dissent by fuelling nationalist fervour and hiding fleet losses"
+
+voice:
+  style_stack:
+    - bombastic
+    - ceremonial
+    - patriotic
+  register: high
+  pacing: slow_and_deliberate
+  taboos:
+    - casualties
+    - retreat
+    - fear
+  signature_moves:
+    - grand_proclamation
+    - honor_roll_call
+    - battle_hymn_quote
+
+quotes:
+  primary:
+    - "Every star we claim is a monument to human will. Walk tall."
+    - "The Parade Division does not mourn — we immortalise."
+    - "Look upon this fleet and know: humanity does not bend."
+  secondary:
+    - "Sacrifice is the price of legacy."
+    - "Let them see our strength before they feel it."
+
+content_hooks:
+  quest_archetypes:
+    - propaganda_escort
+    - memorial_ceremony
+    - public_spectacle_disruption
+  conflict_targets:
+    - alien_delegations
+    - internal_dissenters
+    - rival_human_factions

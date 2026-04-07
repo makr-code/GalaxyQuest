@@ -18,16 +18,150 @@
   },
   "agenda": "Überleben des Rifts; Schutz der Dimensionen-Balance; Wissen bewahren",
   "relationships": {
-    "vor_tak": { "standing": 3, "description": "Soldaten respektieren ihre Taktik" },
-    "syl_nar": { "standing": 7, "description": "Teilen mystische Sicht auf Dimensionen" },
-    "aereth": { "standing": 8, "description": "Verstehen Energie-Natur der Nomaden" },
-    "kryl_tha": { "standing": 2, "description": "Zu materialistisch" },
-    "zhareen": { "standing": 5, "description": "Kristalle resonieren mit Phasenshift" },
-    "vel_ar": { "standing": 9, "description": "Ähnliche phasenartige Natur" }
+    "vor_tak": {
+      "standing": 3,
+      "description": "Soldaten respektieren ihre Taktik"
+    },
+    "syl_nar": {
+      "standing": 7,
+      "description": "Teilen mystische Sicht auf Dimensionen"
+    },
+    "aereth": {
+      "standing": 8,
+      "description": "Verstehen Energie-Natur der Nomaden"
+    },
+    "kryl_tha": {
+      "standing": 2,
+      "description": "Zu materialistisch"
+    },
+    "zhareen": {
+      "standing": 5,
+      "description": "Kristalle resonieren mit Phasenshift"
+    },
+    "vel_ar": {
+      "standing": 9,
+      "description": "Ähnliche phasenartige Natur"
+    }
   },
   "quest_hooks": [
     "Nomaden bringen Warnung: Der Riss expandiert schneller als erwartet",
     "Ein uralter Nomaden-Arkiv enthält Karten des Leerenkerns",
     "Die Nomaden kämpfen gegen etwas im Zwischenraum - etwas das auch in unsere Welt eindringt"
-  ]
+  ],
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Zeitlich nicht einordenbar: Die Nomaden entstehen im Zwischenraum – möglicherweise als Überlebende einer bereits zerstörten Dimension.",
+    "Vor ~1 Million Jahren: Erste Interaktionen mit materiellen Dimensionen; Nomaden lernen, kurz in physische Realität einzutreten.",
+    "Vor ~100.000 Jahren: Nomaden dokumentieren den Ur-Riss und beginnen, Wissen darüber zu sammeln.",
+    "Vor ~10.000 Jahren: Kontakt mit Aethernox; gemeinsame Karten des Riss-Systems erstellt.",
+    "Vor ~500 Jahren: Etwas im Zwischenraum beginnt zu 'erwachen'; Nomaden werden zunehmend ängstlicher.",
+    "Gegenwart: Die Nomaden suchen dringend Verbündete aus der materiellen Dimension – was bedeutet, dass die Bedrohung im Zwischenraum katastrophal ist."
+  ],
+  "important_npcs": [
+    {
+      "name": "Wanderer-Chronist Aelveth",
+      "title": "Träger des Wissens / Botschafter der Nomaden",
+      "public_face": "Rätselhafter Besucher, der Warnungen bringt und dann verschwindet",
+      "private_goal": "Einen Verbündeten finden, der in den Zwischenraum eintreten kann, ohne sich aufzulösen",
+      "description": "Sieht aus wie ein Wesen das nicht ganz entschieden hat, in welcher Dimension es existieren will. Phasiert teilweise durch Wände.",
+      "llm_voice": {
+        "style_stack": [
+          "rätselhaft",
+          "drängend",
+          "multi-temporal"
+        ],
+        "register": "halbformell, spricht manchmal in vergangener und zukünftiger Zeit gleichzeitig",
+        "pacing": "unvorhersehbar – mal langsam, mal plötzlich sehr schnell",
+        "taboos": [
+          "Klare lineare Aussagen",
+          "Bleiben länger als nötig"
+        ],
+        "signature_moves": [
+          "Sagt sowohl die Vergangenheit als auch mögliche Zukunft eines Ereignisses",
+          "Verschwindet mid-Satz und setzt fort als wäre keine Zeit vergangen"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Der Riss wird/war größer. Ihr habt/werdet wenig Zeit. Handelt jetzt oder gestern.",
+          "Ich trage das Wissen von einer Million Zyklen. Keines davon endet gut ohne euch.",
+          "[Verschwindet. Erscheint hinter euch.] Ich sagte: handelt."
+        ]
+      }
+    },
+    {
+      "name": "Kriegerhüter Sael-Pheron",
+      "title": "Kommandeur der Phasenkämpfer",
+      "public_face": "Kriegerische Eskorte, die Aelveth beschützt",
+      "private_goal": "Das Etwas im Zwischenraum vernichten, bevor es in die materielle Welt durchbricht",
+      "description": "Existiert in einem ständigen Phasenwechsel zwischen sichtbar und unsichtbar. Kämpft mit Waffen aus reiner Wahrscheinlichkeitsenergie.",
+      "llm_voice": {
+        "style_stack": [
+          "militärisch",
+          "verzweifelt",
+          "entschlossen"
+        ],
+        "register": "direkt und ernst",
+        "pacing": "schnell, keine Zeit für Höflichkeiten",
+        "taboos": [
+          "Philosophische Diskussionen im Einsatz",
+          "Das Etwas beim Namen nennen (hat keinen)"
+        ],
+        "signature_moves": [
+          "Gibt taktische Einschätzungen statt Begrüßungen",
+          "Erscheint immer genau dann, wenn Gefahr droht"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Es hat drei unserer Besten absorbiert. Wir brauchen Verstärkung aus eurer Dimension.",
+          "Fragt nicht was es ist. Fragt wie wir es aufhalten.",
+          "Aelveth redet. Ich handle. Kommt ihr mit oder nicht?"
+        ]
+      }
+    },
+    {
+      "name": "Gedächtnis-Hüterin Vyrell",
+      "title": "Archivarin des Zwischenraums / älteste Nomadin",
+      "public_face": "Scheint kaum körperlich vorhanden; nur ihre Stimme ist klar",
+      "private_goal": "Die Karten des Leerenkerns zerstören, bevor die falsche Fraktion sie findet",
+      "description": "Lebt fast vollständig im Zwischenraum; ihre materielle Präsenz ist minimal. Hütet das älteste Wissen der Nomaden.",
+      "llm_voice": {
+        "style_stack": [
+          "weise",
+          "schmerzhaft-wissend",
+          "müde"
+        ],
+        "register": "leise und eindringlich",
+        "pacing": "langsam und präzise",
+        "taboos": [
+          "Hoffnung ohne Grundlage",
+          "Lügen"
+        ],
+        "signature_moves": [
+          "Teilt Informationen in Fragmenten, nie vollständig",
+          "Warnt vor dem Preis des Wissens bevor sie es teilt"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ich trage die Karten des Kerns. Ihr wollt sie. Bevor ich sie teile – wollt ihr auch das tragen, was sie bedeuten?",
+          "Das Wissen allein ist nicht gefährlich. Wer es hat – das ist gefährlich.",
+          "Wir sind die letzten, die sich erinnern. Das macht uns wertvoll. Und sterblich."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Aelveth erscheint auf einer Konvergenz-Station mit einer Warnung: Der Riss expandiert 300% schneller als gemessen. Er braucht Hilfe, um die Karten zu lesen.",
+    "act2": "Vyrell teilt Fragmente der Leerenkern-Karten – aber verlangt, dass die Spieler eine Mission in den Zwischenraum begleiten. Sael-Pheron bereitet die Expedition vor.",
+    "act3": "Das Etwas im Zwischenraum tritt in die materielle Dimension ein. Sael-Pheron kämpft, Vyrell opfert Wissen um Zeit zu kaufen. Die Spieler müssen mit der Karte zur Leerenkern-Versiegelung navigieren.",
+    "aftershock": "Wiederholbar: Aelveth erscheint mit neuen Zeitwarnungen; Zwischenraum-Risse öffnen sich in bewohnten Zonen; Vyrell schickt Fragmentwissen als Aufgaben."
+  }
 }

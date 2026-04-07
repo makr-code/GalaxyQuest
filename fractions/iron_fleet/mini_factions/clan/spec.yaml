@@ -1,0 +1,24 @@
+faction_code: iron_fleet_clan
+mini_faction_code: clan
+parent_faction: iron_fleet
+display_name: "Clan-Krieger"
+description: "Kernkampftruppe der Eisenflotte. Tribal-organisierte Stoßtrupps, die auf Mars und in den äußeren Kolonien rekrutiert werden. Loyal bis zum Tod – aber nur dem eigenen Clan-Anführer gegenüber."
+
+society:
+  government: "Clansystem – Kriegsrat aus Clanchefs"
+  culture: "Ehre im Kampf, Clansolidarität, Blut-Treue"
+
+important_npcs:
+  - name: "Kriegshäuptling Brant Vorak"
+    role: "Sprecher des Kriegsrats"
+    description: "Narbenübersät, furchtlos, respektiert von allen Clans. Zweifelt heimlich an der Führung Kesslers."
+
+llm_voice:
+  tone: "Rau, direkt, kriegerisch. Ehre ist alles. Rückzug ist Schande."
+  speech_style: "Kurze Sätze, Kriegsmetaphern, kein Smalltalk"
+  typical_greeting: "Clan-Krieger grüßt. Wer bist du? Wofür kämpfst du?"
+
+llm_quotes:
+  - "Ein Krieger stirbt einmal. Ein Feigling stirbt täglich."
+  - "Der Clan ist Familie. Alles andere ist Fremdes."
+  - "Mars hat uns geboren. Die Sterne werden uns begraben."

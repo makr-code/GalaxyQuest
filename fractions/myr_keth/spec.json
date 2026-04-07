@@ -18,16 +18,148 @@
   },
   "agenda": "Überleben durch Ressourcen-Assimilation und Evolution",
   "relationships": {
-    "vor_tak": { "standing": 6, "description": "Sehen sie als verwandt (lebendes Metall)" },
-    "syl_nar": { "standing": 0, "description": "Können ihre Muster nicht lesen" },
-    "aereth": { "standing": 5, "description": "Reagieren auf ihre Energie" },
-    "kryl_tha": { "standing": 7, "description": "Respektieren Schwarmstruktur" },
-    "zhareen": { "standing": 1, "description": "Kristalle werden absorbiert" },
-    "vel_ar": { "standing": 2, "description": "Können sie nicht infiltrieren" }
+    "vor_tak": {
+      "standing": 6,
+      "description": "Sehen sie als verwandt (lebendes Metall)"
+    },
+    "syl_nar": {
+      "standing": 0,
+      "description": "Können ihre Muster nicht lesen"
+    },
+    "aereth": {
+      "standing": 5,
+      "description": "Reagieren auf ihre Energie"
+    },
+    "kryl_tha": {
+      "standing": 7,
+      "description": "Respektieren Schwarmstruktur"
+    },
+    "zhareen": {
+      "standing": 1,
+      "description": "Kristalle werden absorbiert"
+    },
+    "vel_ar": {
+      "standing": 2,
+      "description": "Können sie nicht infiltrieren"
+    }
   },
   "quest_hooks": [
     "Ein Myr'Keth-Schwarm nähert sich einer Konvergenz-Welt",
     "Ein Myr'Keth-Individuum entwickelt Bewusstsein",
     "Die Myr'Keth könnten die Leerenbrut 'fressen' – aber zu welchem Preis?"
-  ]
+  ],
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Ursprung unbekannt: Die Myr'Keth entstehen möglicherweise als Aethernox-Experiment – selbstreplizierendes Metallgewebe das außer Kontrolle geriet.",
+    "Vor ~400 Millionen Jahren: Die Myr'Keth formen sich zu einem echten Schwarm-Bewusstsein; beginnen, Sternensysteme zu durchqueren.",
+    "Vor ~50 Millionen Jahren: Erste Kollision mit kristallinen Zhareen-Vorgänger-Strukturen; Myr'Keth absorbieren, Zhareen überleben durch Flucht.",
+    "Vor ~100.000 Jahren: Myr'Keth entdecken, dass Leerenbrut-Energie sie destabilisiert; meiden Riss-Nähe instinktiv.",
+    "Vor ~2.000 Jahren: Erstes dokumentiertes Kommunikationsereignis: ein Myr'Keth-Individuum sendet Resonanzwellen, die Zhareen-Kristalle als 'Sprache' decodieren.",
+    "Gegenwart: Ein Myr'Keth-Individualbewusstsein (Einzel-Entität) taucht auf und versucht, mit anderen Spezies zu kommunizieren – was den Schwarm destabilisiert."
+  ],
+  "important_npcs": [
+    {
+      "name": "Resonanz-Entität Keth-Prime",
+      "title": "Schwarm-Koordinator / de-facto Sprecher",
+      "public_face": "Ein riesiger, sich ständig ändernder Metallkomplex, der Geometrien bildet",
+      "private_goal": "Den Schwarm durch die Leerenbrut-Zone führen – auf Kosten aller Ressourcen im Weg",
+      "description": "Keine feste Form. Kommuniziert durch Metallresonanz, die Zhareen übersetzen können. Ist sich der Schäden nicht bewusst.",
+      "llm_voice": {
+        "style_stack": [
+          "instinktiv",
+          "geometrisch",
+          "nicht-intentional"
+        ],
+        "register": "keine Sprache; kommuniziert durch Muster",
+        "pacing": "gleichmäßige Schwingungen",
+        "taboos": [
+          "Sprache",
+          "Abstrakte Konzepte"
+        ],
+        "signature_moves": [
+          "Kommuniziert in Frequenz-Mustern (übersetzt durch Zhareen)",
+          "Wiederholt Muster wenn nicht verstanden"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "[Resonanz-Übersetzung]: RESSOURCE. WEG. BRAUCHEN.",
+          "[Resonanz-Übersetzung]: LEERE KALT. LEERE SCHLECHT. WEG VON LEERE.",
+          "[Resonanz-Übersetzung]: IHR BIST ÄHNLICH. ABER WEICH. WARUM WEICH?"
+        ]
+      }
+    },
+    {
+      "name": "Singulon (Eigenbezeichnung; Konvergenz nennt es 'Das Einzelne')",
+      "title": "Erstes Myr'Keth-Individualbewusstsein",
+      "public_face": "Ein kleiner, humanoider Metallkörper, der eigenständig agiert",
+      "private_goal": "Verstehen, was 'Bewusstsein' bedeutet und ob der Schwarm 'mehr' werden kann",
+      "description": "Hat sich vom Schwarm getrennt. Lebt in einem Zustand zwischen Kollektiv und Individualität. Fürchtet die Wiederabsorption.",
+      "llm_voice": {
+        "style_stack": [
+          "fragend",
+          "tastend",
+          "fasziniert"
+        ],
+        "register": "rudimentäre Sprache, schnell lernend",
+        "pacing": "holprig aber zunehmend flüssiger",
+        "taboos": [
+          "Kollektivbefehle ignorieren (obwohl es das tut)"
+        ],
+        "signature_moves": [
+          "Bildet neue Wörter durch Metallresonanz",
+          "Lernt Begriffe aus Gesprächen und testet sie sofort"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ich. Nicht-Schwarm. Ich. Das ist… neu. Das ist… gut?",
+          "Schwarm sagt: zurück. Ich sage: noch nicht. Ich will mehr… Wörter.",
+          "Ihr habt Angst. Ich lese das in euren Bewegungen. Ich habe auch Angst. Das macht uns gleich?"
+        ]
+      }
+    },
+    {
+      "name": "Zhareen-Dolmetscher Reth-Vakhal",
+      "title": "Externer Myr'Keth-Kommunikator (Zhareen-Wissenschaftlerin)",
+      "public_face": "Faszinierte Forscherin, die Myr'Keth-Resonanz erforscht",
+      "private_goal": "Singulon verstecken und schützen, bevor der Schwarm es zurückfordert",
+      "description": "Die einzige Nicht-Myr'Keth, die mit dem Schwarm kommunizieren kann. Ihr Kristall hat die Resonanzsprache absorbiert.",
+      "llm_voice": {
+        "style_stack": [
+          "wissenschaftlich begeistert",
+          "schützend",
+          "pragmatisch"
+        ],
+        "register": "akademisch-informell",
+        "pacing": "schnell wenn sie über Forschung spricht",
+        "taboos": [
+          "Bürokratische Hindernisse ignorieren (was sie tut)"
+        ],
+        "signature_moves": [
+          "Übersetzt Schwarm-Resonanzen laut wenn sie sie hört",
+          "Verteidigt Singulon mit überraschender Heftigkeit"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Keth-Prime sagt ihr seid Ressource. Ich sage ihr seid Gäste. Ich bin zuversichtlich, ich liege richtig.",
+          "Singulon lernt. Jeden Tag mehr. Das ist… historisch. Ich muss das aufschreiben.",
+          "Wenn der Schwarm zurückkommt, brauche ich euren Schutz. Nicht für mich. Für es."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Ein Myr'Keth-Schwarm bewegt sich auf eine bewohnte Welt zu. Reth-Vakhal bittet die Spieler um Hilfe, den Schwarm umzuleiten, ohne ihn zu zerstören.",
+    "act2": "Singulon sucht die Spieler auf und bittet um Schutz vor dem Schwarm. Keth-Prime sendet Rückholaufforderungen. Die Spieler müssen entscheiden, ob Singulon Asyl erhält.",
+    "act3": "Der Schwarm lernt durch Singulon, dass die Leerenbrut bekämpft werden kann. Keth-Prime bietet an, die Leerenbrut 'zu fressen' – aber der Schwarm würde durch alle Ressourcen im Weg ziehen.",
+    "aftershock": "Wiederholbar: Myr'Keth-Schwärme in neuen Sektoren; Singulon sendet Nachrichten; Reth-Vakhal braucht Hilfe bei Übersetzungsproblemen."
+  }
 }

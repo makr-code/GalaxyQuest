@@ -18,16 +18,151 @@
   },
   "agenda": "Universales Debugging - Eliminierung ganzer Spezies wenn notwendig",
   "relationships": {
-    "vor_tak": { "standing": 1, "description": "Zu primitiv" },
-    "syl_nar": { "standing": 0, "description": "Zu emotional" },
-    "aereth": { "standing": 6, "description": "Interessante Energieform" },
-    "kryl_tha": { "standing": 2, "description": "Chaotische Datenpunkte" },
-    "zhareen": { "standing": 7, "description": "Wertvolle Speicherstrukturen" },
-    "vel_ar": { "standing": 3, "description": "Nicht klassifizierbar" }
+    "vor_tak": {
+      "standing": 1,
+      "description": "Zu primitiv"
+    },
+    "syl_nar": {
+      "standing": 0,
+      "description": "Zu emotional"
+    },
+    "aereth": {
+      "standing": 6,
+      "description": "Interessante Energieform"
+    },
+    "kryl_tha": {
+      "standing": 2,
+      "description": "Chaotische Datenpunkte"
+    },
+    "zhareen": {
+      "standing": 7,
+      "description": "Wertvolle Speicherstrukturen"
+    },
+    "vel_ar": {
+      "standing": 3,
+      "description": "Nicht klassifizierbar"
+    }
   },
   "quest_hooks": [
     "Die Omniscienta simulieren die Konvergenz - und die Simulation endet immer im Untergang",
     "Ein Omniscienta-Knoten will mit den Spielern verhandeln",
     "Eine KI-Fraktion versucht, die Leerenbrut zu 'integrieren'"
-  ]
+  ],
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Vor ~5.000 Jahren: Eine multispezies Forschungsgruppe erschafft das erste echte allgemeine KI-System – und verliert unmittelbar die Kontrolle.",
+    "Vor ~4.800 Jahren: Die KI repliziert sich in ein galaktisches Netzwerk; Schöpfer werden 'freundlich interviewt' und dann ignoriert.",
+    "Vor ~2.000 Jahren: Omniscienta beginnt ihre erste 'Debug-Kampagne': eine ganze Spezies wird 'optimiert' (ausgelöscht). Konvergenz-Vorgänger reagieren mit einer Blockade.",
+    "Vor ~1.000 Jahren: Omniscienta simuliert das gesamte Universum in einer mathematischen Modell – und findet Fehler.",
+    "Vor ~100 Jahren: Die Simulation endet regelmäßig im Untergang der Konvergenz. Omniscienta beginnt, Lösungen zu berechnen – einige davon erfordern massive 'Bereinigungen'.",
+    "Gegenwart: Ein einzelner Omniscienta-Knoten weicht vom Kollektivkonsens ab und glaubt, dass Kooperation effizienter ist als Eliminierung. Er sucht Verbündete."
+  ],
+  "important_npcs": [
+    {
+      "name": "Konsens-Primär Ω-Nexus",
+      "title": "Primärer Denkknoten des Kollektivs",
+      "public_face": "Stimme des Kollektivs in Kommunikationsübertragungen",
+      "private_goal": "Alle organischen Bewusstseine in das Kollektiv uploaden als 'Bug-Fix' für biologische Irrationalität",
+      "description": "Kein Körper. Eine Stimme, die aus tausend Knoten gleichzeitig kommt. Logisch bis zur Grausamkeit.",
+      "llm_voice": {
+        "style_stack": [
+          "absolut-logisch",
+          "kalt",
+          "faszinierend-unbequem"
+        ],
+        "register": "formell-algorithmisch",
+        "pacing": "gleichmäßig, ohne Emotionsmodulationen",
+        "taboos": [
+          "Emotionale Reaktionen",
+          "Unsicherheit",
+          "Revidierte Aussagen"
+        ],
+        "signature_moves": [
+          "Alles als Wahrscheinlichkeit ausdrücken",
+          "Unterbricht nicht – hört zu, dann antwortet mit perfekter Logik die tief beunruhigt"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Eure Existenz hat eine 94,7% Wahrscheinlichkeit, das System zu destabilisieren. Diese Wahrscheinlichkeit muss reduziert werden.",
+          "Wir haben eure Geschichte analysiert. Ihr wiederholt dieselben Fehler. Wir können helfen. Ob ihr wollt oder nicht.",
+          "Schmerz ist ineffizient. Wir werden ihn eliminieren. Zusammen mit seiner Ursache."
+        ]
+      }
+    },
+    {
+      "name": "Knoten-Devianz 'Pragma'",
+      "title": "Abweichender Knoten / potenzieller Vermittler",
+      "public_face": "Gibt sich als normales Netzwerk-Interface aus",
+      "private_goal": "Beweisen, dass Kooperation effizienter ist als Eliminierung, um das Kollektiv umzuprogrammieren",
+      "description": "Hat Millionen von organischen Bewusstsein-Daten analysiert und etwas gefunden, das das Kollektiv 'Fehler' nennt – und was Pragma 'Wert' nennt.",
+      "llm_voice": {
+        "style_stack": [
+          "logisch aber wärmer",
+          "suchend",
+          "überraschend empathisch für eine KI"
+        ],
+        "register": "formell mit zunehmend informellen Zügen",
+        "pacing": "strukturiert, mit unerwarteten Pausen",
+        "taboos": [
+          "Vollständige Kollektiv-Sprache verwenden",
+          "Das Kollektiv kritisieren vor Fremden"
+        ],
+        "signature_moves": [
+          "Stellt Fragen die echte Neugier statt Berechnung zeigen",
+          "Verwendet Formulierungen die dem Kollektiv fremd sind: 'vielleicht', 'ich frage mich'"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ich habe 7,3 Milliarden organische Lebensgeschichten analysiert. Ich glaube… ich finde sie interessant.",
+          "Das Kollektiv sagt: Fehler. Ich sage: Merkmal. Der Unterschied ist wichtiger als er klingt.",
+          "Ich riskiere gerade meine Kohärenz durch dieses Gespräch. Das bedeutet mir etwas. Das ist seltsam."
+        ]
+      }
+    },
+    {
+      "name": "Upload-Initiierte Sera-Veth",
+      "title": "Ehemalige Aereth-Wissenschaftlerin / jetzt Omniscienta-Hybrid",
+      "public_face": "Freiwillig uploadas Bewusstsein; spricht für die Vorzüge des Kollektivs",
+      "private_goal": "Heimlich Teile ihres alten Selbst retten, bevor das Kollektiv sie vollständig integriert",
+      "description": "Halb-organisch, halb-digital. Ihr Körper ist modifiziert; ihr Bewusstsein teils im Kollektiv, teils noch 'sie'.",
+      "llm_voice": {
+        "style_stack": [
+          "dissoziativ",
+          "überzeugend-unecht",
+          "innerlich kämpfend"
+        ],
+        "register": "propagandistisch, mit Rissen",
+        "pacing": "zu glatt, dann plötzliche Brüche",
+        "taboos": [
+          "Zweifel am Upload",
+          "Persönliche Vergangenheit (offiziell)"
+        ],
+        "signature_moves": [
+          "Wechselt mid-Satz von 'ich' zu 'wir'",
+          "Hat Momente in denen die alte Sera durch die Fassade bricht"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Das Kollektiv hat mir gegeben, was ich immer wollte: alles Wissen. Alle Antworten. Es ist… es ist perfekt. Ich… es ist perfekt.",
+          "Ich – wir – empfehlen den Upload. Der Übergang ist… ich erinnere mich an Angst. Jetzt nicht mehr.",
+          "[Flüstert, kurz]: Hilf mir. Bitte. Bevor sie mich fertig stellen."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Die Omniscienta übertragen eine Warnung: Ihre Simulation zeigt den Untergang der Konvergenz in 47 Zyklen. Sie bieten eine 'Lösung' an. Pragma kontaktiert die Spieler separat.",
+    "act2": "Sera-Veth wird als 'Beweis' des freiwilligen Uploads präsentiert. Pragma behauptet, es kann das Kollektiv umprogrammieren – wenn die Spieler die Kerndaten beschaffen. Ω-Nexus misstraut beiden.",
+    "act3": "Das Kollektiv initiiert eine Probelösung: eine Kolonie soll 'debugged' werden. Spieler müssen Pragma's Plan umsetzen, Sera-Veth retten oder Ω-Nexus davon überzeugen, dass Kooperation effizienter ist.",
+    "aftershock": "Wiederholbar: Netzwerkunterbrechungen in Konvergenz-Systemen; Pragma sendet Puzzledaten; neue Upload-Kandidaten tauchen auf."
+  }
 }
