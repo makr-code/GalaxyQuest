@@ -493,7 +493,7 @@ class NPCPathfindingCompute {
 // ---------------------------------------------------------------------------
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { NPCPathfindingCompute, AGENT_STRIDE, AGENT_BYTES, PATHFIND_WORKGROUP_SIZE };
+  module.exports = { NPCPathfindingCompute, AGENT_STRIDE, AGENT_BYTES, PATHFIND_WORKGROUP_SIZE, PATHFIND_WGSL };
 } else if (typeof window !== 'undefined') {
   window.GQNPCPathfindingCompute = NPCPathfindingCompute;
 }

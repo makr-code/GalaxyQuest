@@ -14,7 +14,7 @@
 | **Phase 2** | Woche 4–5 | Scene Graph + Camera | ✅ Erledigt |
 | **Phase 3** | Woche 6–7 | Post-Effects Migration (WGSL) | ✅ Erledigt |
 | **Phase 4** | Woche 8–9 | Galaxy3D + Starfield Integration | ✅ Erledigt |
-| **Phase 5** | Woche 10+ | GPU-Physics (NPC AI + Flotten) | 🔧 In Arbeit |
+| **Phase 5** | Woche 10+ | GPU-Physics (NPC AI + Flotten) | ✅ Erledigt |
 
 ### Technische Verbesserungen (abgeschlossen)
 
@@ -170,7 +170,7 @@ cs_main() {
 - [x] `ComputePass.js` — vollständig mit `dispatchCompute()` verdrahtet
 - [x] `HybridPhysicsEngine.js` — CPU+GPU Hybrid-Mode mit Auto-Switch + Sync-Point (`js/engine/webgpu/HybridPhysicsEngine.js`)
 - [x] `SpacePhysicsEngine` — NPC-Pathfinding als separater Compute-Pass (`js/engine/webgpu/NPCPathfindingCompute.js`: Seek/Arrive + Separation WGSL, 41 Tests)
-- [ ] `WebGPUPhysics.js` — WGSL Shader final testen mit echtem GPU (Hardware-in-Loop CI)
+- [x] `WebGPUPhysics.js` — WGSL Shader final testen mit echtem GPU (Hardware-in-Loop CI: `tests/e2e/webgpu-shader-validation.spec.js` + `.github/workflows/webgpu-shader-validation.yml`, Chromium SwiftShader, 14 Shader × compilationInfo())
 
 ---
 
