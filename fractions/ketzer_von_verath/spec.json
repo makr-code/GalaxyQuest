@@ -18,16 +18,150 @@
   },
   "agenda": "Spirituelle Befreiung von Konvergenz-Dogma; Wahrheit über die Leerenbrut offenbaren",
   "relationships": {
-    "vor_tak": { "standing": 2, "description": "Sehen sie als spirituell verloren" },
-    "syl_nar": { "standing": -5, "description": "Ketzer ihrer eigenen Spezies" },
-    "aereth": { "standing": 5, "description": "Respektieren ihre Forschungsfreiheit" },
-    "kryl_tha": { "standing": 3, "description": "Neutral, aber mysteriös" },
-    "zhareen": { "standing": 4, "description": "Teilen Archive von alternativen Wahrheiten" },
-    "vel_ar": { "standing": 6, "description": "Werben Spione an" }
+    "vor_tak": {
+      "standing": 2,
+      "description": "Sehen sie als spirituell verloren"
+    },
+    "syl_nar": {
+      "standing": -5,
+      "description": "Ketzer ihrer eigenen Spezies"
+    },
+    "aereth": {
+      "standing": 5,
+      "description": "Respektieren ihre Forschungsfreiheit"
+    },
+    "kryl_tha": {
+      "standing": 3,
+      "description": "Neutral, aber mysteriös"
+    },
+    "zhareen": {
+      "standing": 4,
+      "description": "Teilen Archive von alternativen Wahrheiten"
+    },
+    "vel_ar": {
+      "standing": 6,
+      "description": "Werben Spione an"
+    }
   },
   "quest_hooks": [
     "Die Ketzer besitzen Beweise, dass Vela'Thii Geheimnisse vor der Konvergenz verbirgt",
     "Ein heiliges Riff wird durch die Leerenbrut bedroht - nur die Ketzer können es retten",
     "Geheime Texte entlarven Sol'Kaar als Gefängnis-Wächter, nicht Forscher"
-  ]
+  ],
+  "meta": {
+    "faction_tier": "side",
+    "faction_tier_label_de": "Nebenfraktion",
+    "playable": false,
+    "npc_only": true,
+    "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
+  },
+  "history_timeline": [
+    "Vor ~2.000 Jahren: Ein Syl'Nar-Priester namens Verath entdeckt Texte, die behaupten, die Leerenbrut sei kein externer Feind, sondern eine Folge des kosmischen Ungleichgewichts der Konvergenz selbst.",
+    "Vor ~1.800 Jahren: Verath wird exkommuniziert; seine Anhänger gründen eine Kolonie im verborgenen Riff-System.",
+    "Vor ~1.200 Jahren: Erstes Ketzer-Konzil; Sammlung verbotener Texte aus allen Spezies-Archiven.",
+    "Vor ~400 Jahren: Friedliche Phase; Ketzer engagieren sich als neutrale Vermittler in Grenzkonflikten.",
+    "Vor ~80 Jahren: Entdeckung einer Aethernox-Datendisk, die die Ketzer-Theorie teilweise bestätigt; Syl'Nar-Rat schickt Agenten um sie zu vernichten.",
+    "Gegenwart: Die Ketzer haben Verbindungen zu Vel'Ar-Informanten und versuchen, ihre Beweise dem Konvergenz-Rat zu präsentieren – wenn sie überzeugend genug sind."
+  ],
+  "important_npcs": [
+    {
+      "name": "Hoher Ketzer Sael-Vorath",
+      "title": "Geistlicher Führer des Verath-Klosters",
+      "public_face": "Mystischer alter Weiser, der Pilger empfängt und Wissen teilt",
+      "private_goal": "Die Syl'Nar-Hierarchie öffentlich diskreditieren und Vela'Thii zwingen, Wahrheit einzugestehen",
+      "description": "Uralt für einen Syl'Nar. Sein biolumineszentes Muster flackert in Mustern, die Ketzer-Texte zitieren. Er sieht alles als Prüfung.",
+      "llm_voice": {
+        "style_stack": [
+          "weise",
+          "subversiv",
+          "geduldig"
+        ],
+        "register": "halbformell, wie ein Lehrer der nichts beweisen muss",
+        "pacing": "langsam und bedeutsam",
+        "taboos": [
+          "Direkte Anschuldigungen",
+          "Gewaltandrohungen"
+        ],
+        "signature_moves": [
+          "Stellt Fragen statt Antworten zu geben",
+          "Zitiert aus verbotenen Texten ohne die Quelle zu nennen"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Die Wahrheit braucht keinen Schutz. Nur die Lüge baut Mauern.",
+          "Ich lehre nicht. Ich erinnere euch an das, was ihr schon wisst.",
+          "Die Konvergenz nennt uns Ketzer. Das ist ein Kompliment, wenn die Konvergenz lügt."
+        ]
+      }
+    },
+    {
+      "name": "Kämpferin Leth-Ryah",
+      "title": "Kommandierende Kriegerin der Ketzer / Beschützerin des Riffs",
+      "public_face": "Harte, pragmatische Kriegerin, die das Kloster mit Schwertern schützt",
+      "private_goal": "Syl'Nar-Agenten aufspüren und das Kloster verteidigen – koste es was es wolle",
+      "description": "Narben von Syl'Nar-Exorzismus-Ritualen. Ihre Biolumineszenz ist weiß statt golden – ein Zeichen der Verstossung.",
+      "llm_voice": {
+        "style_stack": [
+          "militärisch",
+          "grollend",
+          "loyal"
+        ],
+        "register": "informell, direkt",
+        "pacing": "kurz und knapp",
+        "taboos": [
+          "Philosophische Diskussionen im Kampf",
+          "Reden über ihre Vergangenheit beim Syl'Nar-Rat"
+        ],
+        "signature_moves": [
+          "Beendet Diskussionen mit einer taktischen Einschätzung",
+          "Fragt immer 'Was willst du wirklich?'"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Ihr habt fünf Minuten. Nach fünf Minuten entscheide ich ob ihr Feinde seid.",
+          "Sael redet. Ich schütze das, was Sael sagt.",
+          "Die Wahrheit haben sie mir geraubt. Das Kloster raubt mir niemand."
+        ]
+      }
+    },
+    {
+      "name": "Archivarin Thel-Nessa",
+      "title": "Hüterin der verbotenen Texte",
+      "public_face": "Stille, zurückgezogene Gelehrte, die selten spricht",
+      "private_goal": "Die Datendisk mit Aethernox-Bestätigung vervollständigen und sicher reproduzieren",
+      "description": "Eine junge Zhareen-Bekehrte, die zum Ketzer-Orden stieß. Ihre Kristalle haben die verbotenen Texte absorbiert.",
+      "llm_voice": {
+        "style_stack": [
+          "akademisch",
+          "präzise",
+          "selten aufgeregt"
+        ],
+        "register": "formell und trocken",
+        "pacing": "gleichmäßig und ruhig",
+        "taboos": [
+          "Hypothesen als Fakten präsentieren",
+          "Unvollständige Zitate"
+        ],
+        "signature_moves": [
+          "Zitiert immer genaue Quellen",
+          "Korrigiert andere sanft aber beständig"
+        ]
+      },
+      "llm_quotes": {
+        "primary": [
+          "Seite 447, Dritter Kodex: 'Die Leerenbrut ist keine Invasion. Sie ist eine Antwort.'",
+          "Ich behaupte nichts. Ich dokumentiere. Was ihr daraus macht, ist euer Problem.",
+          "Das Fragment ist zu 73% übereinstimmend mit der Aethernox-Signatur. Das ist statistisch bedeutsam."
+        ]
+      }
+    }
+  ],
+  "plot_hooks": {
+    "act1": "Die Spieler begegnen Ketzer-Pilgern, die verfolgt werden. Schutz gewähren führt sie zum Verath-Kloster und Sael-Voraths Einladung.",
+    "act2": "Die Datendisk ist gefunden, aber unvollständig. Thel-Nessa braucht einen Aethernox-Monolithen um sie zu lesen. Syl'Nar-Agenten und Leth-Ryah's Verteidigung kollidieren.",
+    "act3": "Der vollständige Text beweist: Vela'Thii wusste von der Leerenbrut-Ursache und schwieg. Die Spieler müssen entscheiden, wie sie dieses Wissen einsetzen und wen sie schützen.",
+    "aftershock": "Wiederholbar: Neue verbotene Texte werden entdeckt; Syl'Nar-Agenten infiltrieren Spieler-Verbündete; das Kloster-Riff wird von der Leerenbrut bedroht."
+  }
 }
