@@ -46,7 +46,80 @@
   "important_npcs": [
     {
       "name": "Sol'Kaar",
-      "description": "Brilliant, besessen, erschuf die Leerenbrut"
+      "gender": "männlich",
+      "role": "Leiter des Kernrats, Chefwissenschaftler",
+      "age": "~280 Jahre",
+      "personality": "Brilliant, besessen, emotional distanziert",
+      "description": "Sol'Kaar ist das brillanteste und gefährlichste Wesen der Konvergenz. Sein Wissensdurst kennt keine ethischen Grenzen – und sein dunkstes Geheimnis könnte die gesamte Allianz zerstören.",
+      "perspective": "Verkörpert die Schattenseite der aerethischen Wissenschaftskultur: die Überzeugung, dass Verstehen wichtiger ist als Konsequenzen.",
+      "motivation": "Die Leerenbrut vollständig verstehen und kontrollieren – und dabei verhindern, dass die Wahrheit über seine Rolle bei ihrer Erschaffung ans Licht kommt.",
+      "conflict": "Er weiß, dass er vor 2000 Jahren mitverantwortlich für die Entstehung der Leerenbrut war. Diese Schuld frisst ihn auf."
+    },
+    {
+      "name": "Forscherin Lyra'Tehn",
+      "gender": "weiblich",
+      "role": "Kernrat-Mitglied, Sechsfalten-Rat",
+      "age": "~140 Jahre",
+      "personality": "Vernünftig, ethisch, couragiert",
+      "description": "Lyra'Tehn ist Sol'Kaars formelle Partnerin im Sechsfalten-Rat – und sein häufigster Widerpart. Sie repräsentiert die aerethische Wissenschaft mit Gewissen.",
+      "perspective": "Zeigt, dass die Aereth nicht monolithisch sind: Es gibt eine starke Strömung, die Forschung an Verantwortung knüpft.",
+      "motivation": "Die wissenschaftlichen Fähigkeiten der Aereth zum Wohl der Konvergenz nutzen, ohne moralische Grenzen zu überschreiten.",
+      "conflict": "Ahnt, dass Sol'Kaar etwas verbirgt, und kämpft damit, ob sie ihn konfrontieren oder schützen soll."
+    },
+    {
+      "name": "Leerenbinder Aer'Zeth",
+      "gender": "männlich",
+      "role": "Militärischer Spezialist gegen die Leerenbrut",
+      "age": "~200 Jahre",
+      "personality": "Distanziert, pragmatisch, traumatisiert",
+      "description": "Aer'Zeth ist einer der wenigen Aereth, die direkt gegen die Leerenbrut gekämpft und überlebt haben. Was er dort gesehen hat, veränderte ihn dauerhaft.",
+      "perspective": "Militärische und existenzielle Perspektive: Die Leerenbrut ist kein wissenschaftliches Problem, sondern eine Auslöschungsdrohung.",
+      "motivation": "Praktische Werkzeuge entwickeln, um die Leerenbrut aufzuhalten – weniger Theorie, mehr Überleben.",
+      "conflict": "Hat Fragmente der Leerenbrut studiert und fragt sich manchmal, ob diese Entität wirklich böse ist oder einfach nur hungrig."
+    },
+    {
+      "name": "Energiepriesterin Sola'Veth",
+      "gender": "weiblich",
+      "role": "Hüterin des Energieheiligen, spirituelle Führerin",
+      "age": "~300 Jahre",
+      "personality": "Gläubig, kompromisslos, visionär",
+      "description": "Sola'Veth hält an der ursprünglichen Überzeugung fest, dass Energie heilig ist – nicht nur nützlich. Sie ist die einzige, die der wissenschaftlichen Dominanz in der Aereth-Gesellschaft offen widerspricht.",
+      "perspective": "Historische Perspektive: Erinnert daran, dass die Aereth einst spirituelle Energieverehrung praktizierten, bevor reine Wissenschaft alles verdrängte.",
+      "motivation": "Die spirituelle Dimension der Energiekultur bewahren, bevor die Aereth zu seelenlosen Forschungsmaschinen werden.",
+      "conflict": "Sol'Kaars Experiment betrachtete Energie als bloßes Werkzeug – was für sie Sakrileg ist. Sie weiß mehr, als sie sagt."
+    },
+    {
+      "name": "Exilierter Forscher Kar'Naam",
+      "gender": "männlich",
+      "role": "Flüchtiger Wissenschaftler, ehemaliges Kernrat-Mitglied",
+      "age": "~170 Jahre",
+      "personality": "Zerrissen, ehrenhaft, einsam",
+      "description": "Kar'Naam entdeckte vor Jahren Hinweise auf Sol'Kaars Vergangenheit. Als er damit an die Öffentlichkeit wollte, fand er sich auf einmal allein – und musste fliehen.",
+      "perspective": "Gibt Einblick in die Unterdrückungsmechanismen der aerethischen Wissenschaftselite und die Kosten von Integrität.",
+      "motivation": "Beweise sichern und eines Tages die Wahrheit über die Leerenbrut ans Licht bringen.",
+      "conflict": "Fragt sich, ob die Wahrheit die Konvergenz retten oder vernichten würde – und ob es seine Entscheidung sein sollte."
+    },
+    {
+      "name": "Kernläufer Jin'Sol",
+      "gender": "männlich",
+      "role": "Junger Elitesoldat, Energie-Krieger",
+      "age": "~40 Jahre",
+      "personality": "Idealistisch, enthusiastisch, naiv",
+      "description": "Jin'Sol ist einer der jüngsten und talentiertesten Kernläufer der Aereth. Er verehrt Sol'Kaar und glaubt unerschütterlich an den Fortschritt der aerethischen Wissenschaft.",
+      "perspective": "Repräsentiert die nächste Generation: voller Vertrauen in eine Führung, deren wahres Gesicht er noch nicht kennt.",
+      "motivation": "Die Aereth zu ihrer vollen Leistungsfähigkeit führen und die Leerenbrut für immer bezwingen.",
+      "conflict": "Sein Glaube an Sol'Kaar und den Kernrat wird auf eine harte Probe gestellt, wenn er beginnt, inkonsistente Daten zu bemerken."
+    },
+    {
+      "name": "Chronistin Myr'Aen",
+      "gender": "weiblich",
+      "role": "Historikerin, Bewahrerin aerethischer Geschichte",
+      "age": "~250 Jahre",
+      "personality": "Analytisch, unbestechlich, kühl",
+      "description": "Myr'Aen hat die Geschichte der Aereth in lückenlosen Energiekristallen dokumentiert – einschließlich der Abschnitte, die der Kernrat lieber vergessen würde.",
+      "perspective": "Historische Metaperspektive: Zeigt, wie die Aereth-Gesellschaft von einem spirituellen Volk zu einer wissenschaftlichen Meritokratie wurde – und was dabei verloren ging.",
+      "motivation": "Die vollständige und unverfälschte Geschichte bewahren, egal wie unbequem sie für die Herrschenden ist.",
+      "conflict": "Besitzt Aufzeichnungen über frühe Leerenbrut-Experimente. Hält sie zurück, weil sie nicht weiß, wem sie vertrauen kann."
     }
   ]
 }

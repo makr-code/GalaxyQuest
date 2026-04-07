@@ -46,7 +46,80 @@
   "important_npcs": [
     {
       "name": "Hohepriesterin Vela'Thii",
-      "description": "Spirituell, weise, kennt die Wahrheit über die Leerenbrut"
+      "gender": "weiblich",
+      "role": "Spirituelle Führerin des Lichtbunds, Sechsfalten-Rat",
+      "age": "~230 Jahre",
+      "personality": "Sanft, weise, innerlich zerrissen",
+      "description": "Vela'Thii ist das spirituelle Herz der Syl'Nar und vielleicht der Konvergenz insgesamt. Sie weiß mehr über die Leerenbrut als irgendjemand ahnt – und trägt dieses Wissen wie einen Abgrund in sich.",
+      "perspective": "Spirituelle und diplomatische Führungsperspektive: Wie hält man eine Allianz zusammen, wenn man weiß, dass die Wahrheit sie zerstören könnte?",
+      "motivation": "Die Konvergenz als spirituelle Einheit erhalten und die Wahrheit über die Leerenbrut so dosieren, dass sie heilt statt zerstört.",
+      "conflict": "Kommuniziert telepathisch mit einem Fragment der Leerenbrut – und weiß nicht, ob das eine Verbindung oder eine Infektion ist."
+    },
+    {
+      "name": "Licht-Diplomat Asha'Vor",
+      "gender": "männlich",
+      "role": "Außenminister, Sechsfalten-Rat",
+      "age": "~170 Jahre",
+      "personality": "Charmant, flexibel, kalkulierend",
+      "description": "Asha'Vor ist der diplomatischste aller Syl'Nar – und damit der unverständlichste für die Vor'Tak. Er spricht alle Sprachen der Konvergenz und einige der Feinde.",
+      "perspective": "Politische und interrassische Perspektive: Zeigt die Syl'Nar als aktiven diplomatischen Akteur, nicht nur als passive Spiritualisten.",
+      "motivation": "Durch Verhandlung, Empathie und strategische Großzügigkeit eine dauerhafte Allianzstruktur aufbauen.",
+      "conflict": "Weiß von Vela'Thiis Geheimnis und schützt es – aber fragt sich, wie lange das noch gut gehen kann."
+    },
+    {
+      "name": "Novizin Tara'Sheen",
+      "gender": "weiblich",
+      "role": "Priesteranwärterin, Schülerin von Vela'Thii",
+      "age": "~30 Jahre",
+      "personality": "Neugierig, enthusiastisch, zweiflerisch",
+      "description": "Tara'Sheen trat voller Glauben in den Lichtbund ein. Nun, tiefer eingetaucht, beginnt sie Widersprüche zu entdecken – und traut sich kaum, sie auszusprechen.",
+      "perspective": "Perspektive der neuen Generation: repräsentiert Hoffnung, aber auch die Frage, ob alte Strukturen für neue Herausforderungen taugen.",
+      "motivation": "Verstehen, was die Leerenbrut wirklich ist – und ob der spirituelle Weg der Syl'Nar darauf eine Antwort hat.",
+      "conflict": "Entdeckt, dass ihre Ausbildung Lücken hat. Wer füllt diese Lücken – und warum wurden sie gelassen?"
+    },
+    {
+      "name": "Gezeitenrufer Mor'Lux",
+      "gender": "männlich",
+      "role": "Flottenkommandant, militärischer Pragmatiker",
+      "age": "~200 Jahre",
+      "personality": "Direkt, ungeduldig, verlässlich",
+      "description": "Mor'Lux liebt den Lichtbund, aber er findet Vela'Thiis Umgang mit Diplomatie naiv. Flotten brauchen Befehle, keine Meditationen.",
+      "perspective": "Militärische Innenperspektive: Zeigt die Spannung zwischen Syl'Nar-Spiritualität und der Notwendigkeit, Kriege zu führen und Flotten zu befehligen.",
+      "motivation": "Die Syl'Nar-Flotte so stark machen, dass niemand sie angreifen will.",
+      "conflict": "Respektiert Vela'Thii tief, aber hält ihren diplomatischen Kurs für gefährlich naiv angesichts der Eisenflotte."
+    },
+    {
+      "name": "Traumsprecher Vey'Rin",
+      "gender": "männlich",
+      "role": "Psychischer Orakel, Hüter verbotenen Wissens",
+      "age": "~280 Jahre",
+      "personality": "Rätselhaft, erschöpft, unerbittlich wahrhaftig",
+      "description": "Vey'Rin hat Visionen von Zukunftsmöglichkeiten – und keine davon endet gut. Er trägt die Last unzähliger möglicher Katastrophen und versucht, die schlimmsten abzuwenden.",
+      "perspective": "Prophetische und psychologische Perspektive: Was bedeutet es, Wahrheiten zu kennen, die niemand hören will?",
+      "motivation": "Zumindest eine gute Zukunft sehen, bevor er stirbt.",
+      "conflict": "Die Syl'Nar-Gesellschaft will Harmonie. Vey'Rins Visionen sind das Gegenteil davon."
+    },
+    {
+      "name": "Lore'Mith, die Verstoßene",
+      "gender": "weiblich",
+      "role": "Exilierte, ehemalige Traumsprecherin",
+      "age": "~90 Jahre",
+      "personality": "Desillusioniert, ehrlich, überlebensstark",
+      "description": "Lore'Mith verlor ihren Glauben nach dem Tod ihrer ganzen Ökosystem-Sippe durch einen Leerenbrut-Angriff, den der Lichtbund nicht verhindern wollte – aus diplomatischen Gründen.",
+      "perspective": "Kritische Außenperspektive auf die Syl'Nar: Spiritualität kann als Ausrede benutzt werden, um schwierige Entscheidungen zu vermeiden.",
+      "motivation": "Überleben und den anderen beweisen, dass man ohne Lichtbund-Strukturen existieren kann.",
+      "conflict": "Hasst den Lichtbund für seine Passivität, vermisst aber das spirituelle Zuhause, das er ihr bot."
+    },
+    {
+      "name": "Korallen-Baumeisterin Sha'Voon",
+      "gender": "weiblich",
+      "role": "Architektin der organischen Städte, Bewahrerin biologischer Tradition",
+      "age": "~150 Jahre",
+      "personality": "Kreativ, geduldig, naturverbunden",
+      "description": "Sha'Voon baut Städte, die atmen. Ihre organischen Korallenkonstrukte wachsen mit den Bewohnern – und sterben mit ihnen. Sie sieht Architektur als lebendige Kunst.",
+      "perspective": "Technologisch-kulturelle Perspektive: Zeigt, wie Syl'Nar-Technologie nicht von Biologie trennt, sondern beide verschmilzt.",
+      "motivation": "Die nächste Generation mit lebenden Städten ausstatten, die widerstandsfähiger gegen Leerenbrut-Angriffe sind.",
+      "conflict": "Ihre biologischen Stadtstrukturen sind anfällig für Leerenbrut-Infektion. Jedes Gebäude, das sie errichtet, ist auch eine potenzielle Wunde."
     }
   ]
 }
