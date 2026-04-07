@@ -372,13 +372,57 @@ $logRepository->log($db, [
 'error_message'    => '',
 ]);
 
+// Generate suggested player reply options via a second lightweight LLM call.
+// For yes/no questions the LLM returns ["Ja","Nein"]; otherwise 3 stanced options.
+$suggestionsMessages = [
+[
+'role'    => 'system',
+'content' => 'Deine Aufgabe: Analysiere die folgende NPC-Aussage und generiere Antwortoptionen fuer den Spieler. Antworte NUR mit einem gueltigen JSON-Objekt ohne Markdown: {"is_yes_no":bool,"suggestions":["...","...","..."]}. Regel: Wenn die NPC-Aussage eine Ja/Nein-Frage ist, setze is_yes_no=true und suggestions=["Ja","Nein"]. Andernfalls is_yes_no=false und liefere genau 3 kurze Antwortoptionen (max. 80 Zeichen je) mit unterschiedlicher Haltung: eine zustimmende, eine neutrale oder skeptische und eine ablehnende. Formuliere die Optionen in der Sprache des Gespraechs aus Spielerperspektive.',
+],
+[
+'role'    => 'user',
+'content' => $npcReply,
+],
+];
+
+$suggestLlm = ollama_chat($suggestionsMessages, [
+'model'       => $body['model'] ?? null,
+'temperature' => 0.6,
+'options'     => ['num_predict' => 160],
+'timeout'     => 15,
+]);
+
+$suggestedReplies = [];
+$isYesNo = false;
+if ($suggestLlm['ok'] ?? false) {
+$rawSug = trim((string) ($suggestLlm['text'] ?? ''));
+// Strip possible markdown code fences from less-capable models.
+$rawSug = (string) preg_replace('/^```(?:json)?\s*/m', '', $rawSug);
+$rawSug = (string) preg_replace('/```\s*$/m', '', $rawSug);
+$decodedSug = json_decode(trim($rawSug), true);
+if (is_array($decodedSug)) {
+$isYesNo = (bool) ($decodedSug['is_yes_no'] ?? false);
+$rawOpts = $decodedSug['suggestions'] ?? [];
+if (is_array($rawOpts)) {
+foreach ($rawOpts as $opt) {
+$opt = trim((string) $opt);
+if ($opt !== '') {
+$suggestedReplies[] = $opt;
+}
+}
+}
+}
+}
+
 json_ok([
-'session_id'   => $sessionId,
-'faction_code' => $factionCode,
-'npc_name'     => (string) ($npc['name'] ?? $npcName),
-'model'        => $model,
-'reply'        => $npcReply,
-'latency_ms'   => $latencyMs,
+'session_id'        => $sessionId,
+'faction_code'      => $factionCode,
+'npc_name'          => (string) ($npc['name'] ?? $npcName),
+'model'             => $model,
+'reply'             => $npcReply,
+'latency_ms'        => $latencyMs,
+'suggested_replies' => $suggestedReplies,
+'is_yes_no'         => $isYesNo,
 ]);
 break;
 

@@ -189,4 +189,57 @@ describe('API chatNpc', () => {
     loadApiScript();
     expect(typeof window.GQ_LLM.closeNpcSession).toBe('function');
   });
+
+  it('chatNpc response passes through suggested_replies from server', async () => {
+    const suggestions = ['Ich stimme zu.', 'Ich bin skeptisch.', 'Das lehne ich ab.'];
+    vi.stubGlobal('fetch', vi.fn(async (endpoint) => {
+      const ep = String(endpoint || '');
+      if (ep.includes('auth.php?action=csrf')) {
+        return okJson({ success: true, token: 'csrf_token_test' });
+      }
+      return okJson({
+        success: true,
+        session_id: 1,
+        reply: 'Antwort des NPC.',
+        suggested_replies: suggestions,
+        is_yes_no: false,
+      });
+    }));
+    const API = loadApiScript();
+
+    const result = await API.chatNpc({
+      faction_code: 'vor_tak',
+      npc_name: 'Admiral',
+      player_message: 'Was plant ihr?',
+    });
+
+    expect(result.suggested_replies).toEqual(suggestions);
+    expect(result.is_yes_no).toBe(false);
+  });
+
+  it('chatNpc response passes through is_yes_no=true for yes/no questions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (endpoint) => {
+      const ep = String(endpoint || '');
+      if (ep.includes('auth.php?action=csrf')) {
+        return okJson({ success: true, token: 'csrf_token_test' });
+      }
+      return okJson({
+        success: true,
+        session_id: 2,
+        reply: 'Wollt ihr kapitulieren?',
+        suggested_replies: ['Ja', 'Nein'],
+        is_yes_no: true,
+      });
+    }));
+    const API = loadApiScript();
+
+    const result = await API.chatNpc({
+      faction_code: 'iron_fleet',
+      npc_name: 'Admiral',
+      player_message: 'Erklärt euch!',
+    });
+
+    expect(result.is_yes_no).toBe(true);
+    expect(result.suggested_replies).toEqual(['Ja', 'Nein']);
+  });
 });
