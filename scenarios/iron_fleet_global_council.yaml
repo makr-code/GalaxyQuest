@@ -1,0 +1,75 @@
+code: iron_fleet_global_council
+faction_code: iron_fleet
+title_de: "Eisenflotte schlägt Galaktischen Rat vor"
+description_de: "Der Generalstab der Eisenflotte überrascht die Galaxis mit einem unerwarteten Vorschlag: Die Bildung eines Galaktischen Rates, dem alle Fraktionen angehören sollen – mit der Eisenflotte als gleichberechtigtem Mitglied. Interne Machtkämpfe, Skepsis der Konvergenz und dünne diplomatische Erfahrung machen den Ausgang ungewiss."
+
+trigger:
+  chance: 0.05
+  cooldown_hours: 72
+  min_player_progress: 0
+
+duration_hours: 24
+
+phases:
+  - "Ankündigung: Der Vorschlag wird öffentlich bekannt"
+  - "Abwarten: Fraktionen reagieren intern"
+  - "Conclusion: Ergebnis wird verkündet"
+
+llm_prompt_key: null
+
+conclusions:
+  - key: internal_collapse
+    weight: 60
+    title_de: "Teenager-Flause des Generalstabs"
+    description_de: "Der Vorschlag scheitert spektakulär am internen Widerstand des Eisenflotten-Militärs. Hardliner bezeichnen ihn als 'sentimentalen Anfall' – und der Generalstab zieht die Initiative still zurück. Die Galaxis belächelt die Episode."
+    condition: null
+
+  - key: diplomatic_rejection
+    weight: 30
+    title_de: "Konvergenz lehnt höflich ab"
+    description_de: "Der Konvergenzrat formuliert eine elegante, aber endgültige Absage. Vor'Tak-Diplomaten nutzen die Gelegenheit, ihren eigenen Einfluss zu unterstreichen. Die Eisenflotte zieht sich beleidigt zurück."
+    condition: null
+
+  - key: unexpected_support
+    weight: 10
+    title_de: "Aereth signalisiert Interesse"
+    description_de: "Überraschend meldet sich die Aereth-Fraktion mit wissenschaftlichem Interesse am Rat-Konzept – nicht aus Sympathie, sondern als Beobachtungsposten. Eine historische Gelegenheit für informelle Diplomatie öffnet sich."
+    condition:
+      type: faction_standing_threshold
+      faction_code: iron_fleet
+      operator: ">="
+      value: -20
+      scope: any_player
+
+effects:
+  internal_collapse: []
+
+  diplomatic_rejection:
+    - type: standing_delta
+      faction_code: iron_fleet
+      delta: -5
+      scope: all_players
+    - type: standing_delta
+      faction_code: vor_tak
+      delta: 3
+      scope: all_players
+    - type: galactic_event
+      event_type: faction_diplomatic_rebuke
+      affected_scope: sector
+      duration_hours: 48
+      description_de: "Die Konvergenz hat den Eisenflotten-Ratvorschlag abgelehnt. Diplomatische Spannungen steigen."
+
+  unexpected_support:
+    - type: standing_delta
+      faction_code: aereth
+      delta: 5
+      scope: all_players
+    - type: quest_spawn
+      quest_code: iron_fleet_council_observer
+      faction_code: aereth
+      scope: all_players
+    - type: galactic_event
+      event_type: scenario_conclusion
+      affected_scope: galaxy
+      duration_hours: 72
+      description_de: "Aereth hat offiziell Interesse am Galaktischen Rat bekundet. Die Diplomatie-Geschichte der Galaxis könnte sich verändern."

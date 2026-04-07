@@ -8,6 +8,8 @@ require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/npc_llm_controller.php';
 require_once __DIR__ . '/character_profile_generator.php';
+require_once __DIR__ . '/../lib/MiniYamlParser.php';
+require_once __DIR__ . '/llm_soc/ScenarioEngine.php';
 
 /**
  * Run the NPC AI tick for a specific user.
@@ -52,6 +54,14 @@ function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
         faction_events_tick_global($db);
     } catch (Throwable $e) {
         error_log('faction_events_tick_global error: ' . $e->getMessage());
+    }
+
+    // REDCS: Random-Event-Driven-Conclusion System scenario tick.
+    try {
+        $scenariosDir = realpath(__DIR__ . '/../scenarios') ?: (__DIR__ . '/../scenarios');
+        ScenarioEngine::tick($db, $scenariosDir);
+    } catch (Throwable $e) {
+        error_log('ScenarioEngine::tick error: ' . $e->getMessage());
     }
 
     // Planetary random events (solar flare, mineral vein, disease).

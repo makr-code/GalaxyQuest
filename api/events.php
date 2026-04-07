@@ -10,6 +10,7 @@
  *   - fleet_arrived   one of the user's outbound fleets just arrived
  *   - fleet_returning one of the user's return fleets just arrived home
  *   - incoming_attack a hostile fleet will arrive at a player colony within 5 min
+ *   - world_event     a REDCS scenario started or resolved (global, all players)
  *
  * The connection is held open for up to MAX_RUNTIME seconds. The browser's
  * EventSource API reconnects automatically.
@@ -94,6 +95,7 @@ $snapshot = [
     'fleet_ids'         => [],   // pending outbound fleet IDs
     'return_fleet_ids'  => [],   // pending return fleet IDs
     'warned_attacks'    => [],   // incoming attack fleet IDs already notified
+    'world_event_ids'   => [],   // world event IDs already pushed via SSE
 ];
 
 $db = get_db();
@@ -284,6 +286,42 @@ while (true) {
                 ]);
                 $snapshot['warned_attacks'][] = $fid;
             }
+        }
+
+        // ── Check for world events (REDCS scenario starts/conclusions) ────────
+        try {
+            $worldEvts = $db->query(
+                'SELECT awe.id, awe.phase, awe.ends_at, awe.conclusion_key, awe.flavor_text,
+                        ws.code AS scenario_code, ws.title_de
+                 FROM active_world_events awe
+                 JOIN world_scenarios ws ON ws.id = awe.scenario_id
+                 WHERE awe.started_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+                    OR (awe.conclusion_key IS NOT NULL AND awe.resolved_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR))
+                 ORDER BY awe.id DESC
+                 LIMIT 10'
+            );
+            if ($worldEvts) {
+                foreach ($worldEvts->fetchAll(PDO::FETCH_ASSOC) as $we) {
+                    $weid = (int)$we['id'];
+                    $stateKey = $we['conclusion_key'] !== null
+                        ? 'resolved_' . $weid
+                        : 'started_' . $weid;
+                    if (!in_array($stateKey, $snapshot['world_event_ids'], true)) {
+                        sse_event('world_event', [
+                            'event_id'       => $weid,
+                            'code'           => $we['scenario_code'],
+                            'title_de'       => $we['title_de'],
+                            'phase'          => (int)$we['phase'],
+                            'conclusion_key' => $we['conclusion_key'],
+                            'ends_at'        => $we['ends_at'],
+                            'flavor_text'    => $we['flavor_text'],
+                        ]);
+                        $snapshot['world_event_ids'][] = $stateKey;
+                    }
+                }
+            }
+        } catch (Throwable) {
+            // active_world_events table may not exist yet – skip silently
         }
 
     } catch (Throwable $e) {
