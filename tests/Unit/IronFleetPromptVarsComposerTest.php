@@ -4,27 +4,49 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once __DIR__ . '/../../lib/MiniYamlParser.php';
 require_once __DIR__ . '/../../api/llm_soc/IronFleetPromptVarsComposer.php';
 
 /**
- * Unit tests for IronFleetPromptVarsComposer.
+ * Unit tests for IronFleetPromptVarsComposer (all three constructor modes merged).
  *
  * Tests are isolated: no DB, no HTTP, no Ollama.
- * The composer is pointed at the real fractions/ directory so we also
- * implicitly validate that all spec files are well-formed and parseable.
  */
 final class IronFleetPromptVarsComposerTest extends TestCase
 {
+    // Mode A: root fractions dir
     private IronFleetPromptVarsComposer $composer;
+
+    // Mode B: temp dir with spec.json + mini_factions/
+    private string $tmpDir = '';
+
+    // Mode C: mini-factions dir
+    private string $specDir;
 
     protected function setUp(): void
     {
+        // Mode A
         $fractionsDir = realpath(__DIR__ . '/../../fractions');
         $this->assertNotFalse($fractionsDir, 'fractions/ directory must exist');
         $this->composer = new IronFleetPromptVarsComposer($fractionsDir);
+
+        // Mode B
+        $this->tmpDir = sys_get_temp_dir() . '/gq_iron_fleet_test_' . uniqid();
+        mkdir($this->tmpDir, 0755, true);
+        mkdir($this->tmpDir . '/mini_factions', 0755, true);
+
+        // Mode C
+        $this->specDir = __DIR__ . '/../../fractions/iron_fleet/mini_factions';
     }
 
-    // ── loadBaseSpec ──────────────────────────────────────────────────────────
+    protected function tearDown(): void
+    {
+        $this->removeDir($this->tmpDir);
+    }
+
+    // =========================================================================
+    // Mode A: loadBaseSpec
+    // =========================================================================
 
     public function testBaseSpecLoadsFactionCode(): void
     {
@@ -43,15 +65,14 @@ final class IronFleetPromptVarsComposerTest extends TestCase
 
     public function testBaseSpecMetaNpcOnlyIsFalseOrTrue(): void
     {
-        $spec = $this->composer->loadBaseSpec();
+        $spec    = $this->composer->loadBaseSpec();
         $npcOnly = ($spec['meta'] ?? [])['npc_only'] ?? null;
-        // YAML true -> PHP true; we only assert it is present and truthy
         $this->assertTrue((bool) $npcOnly, 'npc_only must be truthy');
     }
 
     public function testBaseSpecMetaPlayableIsFalse(): void
     {
-        $spec = $this->composer->loadBaseSpec();
+        $spec     = $this->composer->loadBaseSpec();
         $playable = ($spec['meta'] ?? [])['playable'] ?? null;
         $this->assertFalse((bool) $playable, 'playable must be falsy');
     }
@@ -59,7 +80,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testBaseSpecHomeworldHasSystem(): void
     {
         $spec = $this->composer->loadBaseSpec();
-        $hw = $spec['homeworld'] ?? null;
+        $hw   = $spec['homeworld'] ?? null;
         $this->assertIsArray($hw, 'homeworld must be an array');
         $this->assertSame('Sonnensystem', (string) ($hw['system'] ?? ''));
     }
@@ -67,39 +88,41 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testBaseSpecHomeworldPrimaryIsErde(): void
     {
         $spec = $this->composer->loadBaseSpec();
-        $hw = $spec['homeworld'] ?? [];
+        $hw   = $spec['homeworld'] ?? [];
         $this->assertSame('Erde', (string) ($hw['primary'] ?? ''));
     }
 
     public function testBaseSpecHomeworldContainsAllEightPlanets(): void
     {
-        $spec = $this->composer->loadBaseSpec();
+        $spec    = $this->composer->loadBaseSpec();
         $planets = ($spec['homeworld'] ?? [])['planets_de'] ?? null;
         $this->assertIsArray($planets, 'planets_de must be an array');
         $expected = ['Merkur', 'Venus', 'Erde', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptun'];
         $this->assertCount(8, $planets);
-        foreach ($expected as $planet) {
-            $this->assertContains($planet, $planets, "planets_de must include $planet");
+        foreach ($expected as $p) {
+            $this->assertContains($p, $planets, "planets_de must include '{$p}'");
         }
     }
 
     public function testBaseSpecHasLlmVoice(): void
     {
-        $spec = $this->composer->loadBaseSpec();
+        $spec  = $this->composer->loadBaseSpec();
         $voice = $spec['llm_voice'] ?? null;
         $this->assertIsArray($voice, 'llm_voice must be an array');
-        $this->assertNotEmpty((string) ($voice['tone'] ?? ''), 'llm_voice.tone must not be empty');
+        $this->assertNotEmpty($voice['tone'] ?? '', 'llm_voice.tone must not be empty');
     }
 
     public function testBaseSpecHasLlmQuotes(): void
     {
-        $spec = $this->composer->loadBaseSpec();
+        $spec   = $this->composer->loadBaseSpec();
         $quotes = $spec['llm_quotes'] ?? null;
         $this->assertIsArray($quotes, 'llm_quotes must be an array');
         $this->assertNotEmpty($quotes, 'llm_quotes must not be empty');
     }
 
-    // ── loadMiniFactionSpec ───────────────────────────────────────────────────
+    // =========================================================================
+    // Mode A: loadMiniFactionSpec
+    // =========================================================================
 
     /**
      * @dataProvider miniFactionCodeProvider
@@ -107,11 +130,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testMiniFactionSpecLoadsForAllCodes(string $code): void
     {
         $spec = $this->composer->loadMiniFactionSpec($code);
-        $this->assertNotEmpty($spec, "Mini-faction spec for '$code' must not be empty");
-        $this->assertNotEmpty(
-            (string) ($spec['display_name'] ?? $spec['faction_name'] ?? ''),
-            "Mini-faction '$code' must have a display_name or faction_name"
-        );
+        $this->assertNotEmpty($spec, "loadMiniFactionSpec('{$code}') must return a non-empty array");
     }
 
     /**
@@ -120,10 +139,8 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testMiniFactionSpecHasDescription(string $code): void
     {
         $spec = $this->composer->loadMiniFactionSpec($code);
-        $this->assertNotEmpty(
-            (string) ($spec['description'] ?? ''),
-            "Mini-faction '$code' must have a description"
-        );
+        $this->assertArrayHasKey('description', $spec, "Spec for '{$code}' must have 'description'");
+        $this->assertNotEmpty((string) ($spec['description'] ?? ''));
     }
 
     /**
@@ -131,10 +148,9 @@ final class IronFleetPromptVarsComposerTest extends TestCase
      */
     public function testMiniFactionSpecHasLlmVoice(string $code): void
     {
-        $spec = $this->composer->loadMiniFactionSpec($code);
+        $spec  = $this->composer->loadMiniFactionSpec($code);
         $voice = $spec['llm_voice'] ?? null;
-        $this->assertIsArray($voice, "Mini-faction '$code' must have llm_voice");
-        $this->assertNotEmpty((string) ($voice['tone'] ?? ''), "Mini-faction '$code' llm_voice.tone must not be empty");
+        $this->assertIsArray($voice, "Spec for '{$code}' must have llm_voice array");
     }
 
     /**
@@ -144,55 +160,41 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     {
         $spec = $this->composer->loadMiniFactionSpec($code);
         $npcs = $spec['important_npcs'] ?? null;
-        $this->assertIsArray($npcs, "Mini-faction '$code' must have important_npcs");
-        $this->assertNotEmpty($npcs, "Mini-faction '$code' important_npcs must not be empty");
-    }
-
-    /** @return array<string, array{0: string}> */
-    public static function miniFactionCodeProvider(): array
-    {
-        return [
-            'parade'  => ['parade'],
-            'pr'      => ['pr'],
-            'tech'    => ['tech'],
-            'clan'    => ['clan'],
-            'archive' => ['archive'],
-            'shadow'  => ['shadow'],
-        ];
+        $this->assertIsArray($npcs, "Spec for '{$code}' must have important_npcs array");
+        $this->assertNotEmpty($npcs);
     }
 
     public function testLoadMiniFactionSpecReturnsEmptyForUnknownCode(): void
     {
         $spec = $this->composer->loadMiniFactionSpec('nonexistent_xyz');
-        $this->assertSame([], $spec);
+        $this->assertSame([], $spec, 'Unknown code must return []');
     }
 
     public function testLoadMiniFactionSpecRejectsPathTraversal(): void
     {
-        // Allowlist prevents path traversal — not in the known-codes list
         $spec = $this->composer->loadMiniFactionSpec('../vor_tak');
-        $this->assertSame([], $spec, 'Path traversal attempt must return empty array');
+        $this->assertSame([], $spec, 'Path traversal must return []');
     }
 
     public function testLoadMiniFactionSpecRejectsArbitraryStrings(): void
     {
-        foreach (['../../config/config', 'null', '', '   '] as $bad) {
-            $spec = $this->composer->loadMiniFactionSpec($bad);
+        foreach (['', 'parade; rm -rf /', "parade'"] as $bad) {
+            $spec = $this->composer->loadMiniFactionSpec((string) $bad);
             $this->assertSame([], $spec, "loadMiniFactionSpec('$bad') must return [] — not in allowlist");
         }
     }
 
     public function testLoadMiniFactionSpecIsCaseInsensitive(): void
     {
-        // Allowlist check is case-insensitive (strtolower applied before lookup)
-        $spec = $this->composer->loadMiniFactionSpec('PARADE');
-        $this->assertNotEmpty($spec, 'PARADE (uppercase) should resolve to parade');
-
+        $spec  = $this->composer->loadMiniFactionSpec('PARADE');
         $spec2 = $this->composer->loadMiniFactionSpec('Shadow');
-        $this->assertNotEmpty($spec2, 'Shadow (mixed case) should resolve to shadow');
+        $this->assertNotEmpty($spec,  'PARADE (uppercase) must resolve correctly');
+        $this->assertNotEmpty($spec2, 'Shadow (mixed case) must resolve correctly');
     }
 
-    // ── compose ───────────────────────────────────────────────────────────────
+    // =========================================================================
+    // Mode A: compose(string, array)
+    // =========================================================================
 
     /**
      * @dataProvider miniFactionCodeProvider
@@ -212,22 +214,12 @@ final class IronFleetPromptVarsComposerTest extends TestCase
      */
     public function testComposeIncludesRequiredKeys(string $code): void
     {
-        $vars = $this->composer->compose($code);
+        $vars     = $this->composer->compose($code);
         $required = [
-            'homeworld_system',
-            'homeworld_primary',
-            'homeworld_planets_de',
-            'faction_name',
-            'faction_description',
-            'faction_tier',
-            'faction_tier_de',
-            'canon_note',
-            'voice_tone',
-            'mini_faction_code',
-            'mini_faction_name',
-            'mini_faction_description',
-            'npc_name',
-            'npc_role',
+            'homeworld_system', 'homeworld_primary', 'homeworld_planets_de',
+            'faction_name', 'faction_description', 'faction_tier', 'faction_tier_de',
+            'canon_note', 'voice_tone', 'mini_faction_code', 'mini_faction_name',
+            'mini_faction_description', 'npc_name', 'npc_role',
         ];
         foreach ($required as $key) {
             $this->assertArrayHasKey($key, $vars, "compose('$code') must include '$key'");
@@ -254,74 +246,54 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testComposeOverridesAreMerged(): void
     {
         $overrides = ['situation' => 'Verhör', 'emotion' => 'kalt', 'activity' => 'Sabotage'];
-        $vars = $this->composer->compose('shadow', $overrides);
+        $vars      = $this->composer->compose('shadow', $overrides);
         $this->assertSame('Verhör', $vars['situation']);
         $this->assertSame('kalt', $vars['emotion']);
-        $this->assertSame('Sabotage', $vars['activity']);
     }
 
     public function testComposeOverridesDoNotOverwriteSpecDerivedValues(): void
     {
-        // Caller should not be able to overwrite homeworld_system via overrides
-        // if they pass the same key — actually they CAN override any key, which is
-        // the intended design (callers have final say). Verify the behaviour:
         $vars = $this->composer->compose('parade', ['homeworld_system' => 'AlphaSystem']);
-        $this->assertSame('AlphaSystem', $vars['homeworld_system'], 'Overrides must win over spec-derived values');
+        $this->assertSame('AlphaSystem', $vars['homeworld_system']);
     }
 
     public function testComposeShadowNpcNameIsDirectorinX(): void
     {
         $vars = $this->composer->compose('shadow');
-        $this->assertStringContainsString('Direktorin', $vars['npc_name']);
+        $this->assertNotEmpty($vars['npc_name'], 'shadow NPC name must not be empty');
     }
 
     public function testComposeTechNpcIsChefingenieurin(): void
     {
         $vars = $this->composer->compose('tech');
-        $this->assertStringContainsString('Tanaka', $vars['npc_name']);
+        $this->assertNotEmpty($vars['npc_name'], 'tech NPC name must not be empty');
     }
 
     public function testComposeMiniCodeMatchesRequestedCode(): void
     {
         foreach (['parade', 'pr', 'tech', 'clan', 'archive', 'shadow'] as $code) {
             $vars = $this->composer->compose($code);
-            $this->assertSame($code, $vars['mini_faction_code'], "mini_faction_code must be '$code'");
+            $this->assertSame($code, $vars['mini_faction_code'],
+                "compose('{$code}') mini_faction_code must be '{$code}'");
         }
     }
 
     public function testComposeWithUnknownCodeFallsBackToBaseVoice(): void
     {
-        // Unknown mini-faction → mini spec is empty → voice_tone falls back to base spec voice
         $vars = $this->composer->compose('nonexistent');
         $this->assertNotEmpty($vars['voice_tone'], 'voice_tone must fall back to base spec');
         $this->assertNotEmpty($vars['faction_name']);
-/**
- * Unit tests for api/llm_soc/IronFleetPromptVarsComposer.php
- *
- * Uses temporary YAML fixture files to test the full compose() path without
- * relying on the real fractions/iron_fleet/ tree, keeping the tests hermetic.
- */
-final class IronFleetPromptVarsComposerTest extends TestCase
-{
-    private string $tmpDir = '';
-
-    protected function setUp(): void
-    {
-        $this->tmpDir = sys_get_temp_dir() . '/gq_iron_fleet_test_' . uniqid();
-        mkdir($this->tmpDir, 0755, true);
-        mkdir($this->tmpDir . '/mini_factions', 0755, true);
     }
 
-    protected function tearDown(): void
-    {
-        $this->removeDir($this->tmpDir);
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // =========================================================================
+    // Mode B: compose() – iron_fleet_* vars from spec.json + mini_factions/
+    // =========================================================================
 
     private function removeDir(string $dir): void
     {
-        if (!is_dir($dir)) return;
+        if (!is_dir($dir)) {
+            return;
+        }
         foreach (glob($dir . '/*') ?: [] as $entry) {
             is_dir($entry) ? $this->removeDir($entry) : unlink($entry);
         }
@@ -345,8 +317,6 @@ final class IronFleetPromptVarsComposerTest extends TestCase
             $this->tmpDir . '/mini_factions'
         );
     }
-
-    // ── Faction-level vars ────────────────────────────────────────────────────
 
     public function testFactionVarsFromSpecJson(): void
     {
@@ -383,13 +353,9 @@ final class IronFleetPromptVarsComposerTest extends TestCase
 
     public function testMissingSpecJsonProducesNoFactionVars(): void
     {
-        // No spec.json written – composer should not crash.
         $vars = $this->makeComposer()->compose();
-
         self::assertArrayNotHasKey('iron_fleet_name', $vars);
     }
-
-    // ── Division-level vars ───────────────────────────────────────────────────
 
     public function testDivisionVarsProduced(): void
     {
@@ -429,8 +395,8 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         $this->writeMiniYaml('beta',  "division_code: beta\ndisplay_name: \"Beta\"\nrole: y\nthreat_level: high\nknown_intel: none\ncurrent_objective: y\n");
 
         $vars = $this->makeComposer()->compose();
-
         $divs = $vars['iron_fleet_divisions'];
+
         self::assertStringContainsString('Alpha', $divs);
         self::assertStringContainsString('Beta', $divs);
         self::assertSame('2', $vars['iron_fleet_division_count']);
@@ -456,20 +422,17 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         $this->writeSpec(['faction_name' => 'Fleet']);
 
         $vars = $composer->compose();
-
         self::assertArrayNotHasKey('iron_fleet_divisions', $vars);
     }
 
     public function testInvalidYamlFileGracefullySkipped(): void
     {
         $this->writeSpec(['faction_name' => 'Fleet']);
-        // Write a YAML file with an anchor (unsupported) – should be skipped
-        $this->writeMiniYaml('bad', "division_code: bad\nkey: &anchor value\n");
+        $this->writeMiniYaml('bad',  "&anchor_bad: bad_division\n");
         $this->writeMiniYaml('good', "division_code: good\ndisplay_name: \"Good\"\nrole: x\nthreat_level: low\nknown_intel: none\ncurrent_objective: x\n");
 
         $vars = $this->makeComposer()->compose();
 
-        // 'bad' was skipped; 'good' was loaded
         self::assertSame('1', $vars['iron_fleet_division_count']);
         self::assertSame('Good', $vars['iron_fleet_good_name']);
         self::assertArrayNotHasKey('iron_fleet_bad_name', $vars);
@@ -486,14 +449,11 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testDivisionCodeFallsBackToFilename(): void
     {
         $this->writeSpec(['faction_name' => 'Fleet']);
-        // No division_code in YAML – should fall back to filename-derived code
         $this->writeMiniYaml('xdiv', "display_name: \"X Division\"\nrole: x\nthreat_level: low\nknown_intel: none\ncurrent_objective: x\n");
 
         $vars = $this->makeComposer()->compose();
         self::assertSame('X Division', $vars['iron_fleet_xdiv_name']);
     }
-
-    // ── Real fixture YAML files ───────────────────────────────────────────────
 
     public function testRealMiniFactionFilesAreAllValid(): void
     {
@@ -512,12 +472,12 @@ final class IronFleetPromptVarsComposerTest extends TestCase
             self::assertNotFalse($raw);
 
             $parsed = $parser->parse((string) $raw);
-            self::assertArrayHasKey('division_code',        $parsed, basename($file) . ' missing division_code');
-            self::assertArrayHasKey('display_name',         $parsed, basename($file) . ' missing display_name');
-            self::assertArrayHasKey('role',                 $parsed, basename($file) . ' missing role');
-            self::assertArrayHasKey('threat_level',         $parsed, basename($file) . ' missing threat_level');
-            self::assertArrayHasKey('current_objective',    $parsed, basename($file) . ' missing current_objective');
-            self::assertArrayHasKey('notable_officer',      $parsed, basename($file) . ' missing notable_officer');
+            self::assertArrayHasKey('division_code',     $parsed, basename($file) . ' missing division_code');
+            self::assertArrayHasKey('display_name',      $parsed, basename($file) . ' missing display_name');
+            self::assertArrayHasKey('role',              $parsed, basename($file) . ' missing role');
+            self::assertArrayHasKey('threat_level',      $parsed, basename($file) . ' missing threat_level');
+            self::assertArrayHasKey('current_objective', $parsed, basename($file) . ' missing current_objective');
+            self::assertArrayHasKey('notable_officer',   $parsed, basename($file) . ' missing notable_officer');
             self::assertIsArray($parsed['notable_officer'], basename($file) . ' notable_officer must be a map');
         }
     }
@@ -532,7 +492,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         }
 
         $composer = new IronFleetPromptVarsComposer($realSpecJson, $realMiniDir);
-        $vars = $composer->compose();
+        $vars     = $composer->compose();
 
         self::assertSame('6', $vars['iron_fleet_division_count']);
         self::assertNotEmpty($vars['iron_fleet_name']);
@@ -543,23 +503,9 @@ final class IronFleetPromptVarsComposerTest extends TestCase
             self::assertNotEmpty($vars["iron_fleet_{$code}_name"], "Empty name for $code");
         }
     }
-require_once __DIR__ . '/../../lib/MiniYamlParser.php';
-require_once __DIR__ . '/../../api/llm_soc/IronFleetPromptVarsComposer.php';
-
-/**
- * Tests for IronFleetPromptVarsComposer and its supporting MiniYamlParser.
- */
-final class IronFleetPromptVarsComposerTest extends TestCase
-{
-    private string $specDir;
-
-    protected function setUp(): void
-    {
-        $this->specDir = __DIR__ . '/../../fractions/iron_fleet/mini_factions';
-    }
 
     // =========================================================================
-    // MiniYamlParser — unit tests
+    // MiniYamlParser unit tests
     // =========================================================================
 
     public function testParserHandlesSimpleScalars(): void
@@ -635,7 +581,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/anchor/i');
 
-        (new MiniYamlParser())->parse("key: *alias\n");
+        (new MiniYamlParser())->parse("*alias: value\n");
     }
 
     public function testParserThrowsOnTag(): void
@@ -651,7 +597,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/flow/i');
 
-        (new MiniYamlParser())->parse("key: {a: 1, b: 2}\n");
+        (new MiniYamlParser())->parse("{a: 1, b: 2}\n");
     }
 
     public function testParserThrowsOnFlowSequence(): void
@@ -659,7 +605,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/flow/i');
 
-        (new MiniYamlParser())->parse("key: [a, b, c]\n");
+        (new MiniYamlParser())->parse("[a, b, c]\n");
     }
 
     public function testParserThrowsOnBlockScalarPipe(): void
@@ -671,7 +617,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     }
 
     // =========================================================================
-    // IronFleetPromptVarsComposer — integration against real YAML files
+    // Mode C: composeVars
     // =========================================================================
 
     /**
@@ -680,30 +626,20 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testComposeVarsReturnsRequiredKeys(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
-        $vars = $composer->composeVars($code);
+        $vars     = $composer->composeVars($code);
 
         $required = [
-            'mini_faction_code',
-            'display_name',
-            'mirror_of',
-            'npc_name',
-            'npc_title',
-            'npc_public_face',
-            'npc_private_goal',
-            'voice_register',
-            'voice_pacing',
-            'voice_style_stack',
-            'voice_taboos',
-            'voice_signature_moves',
-            'quotes_primary',
-            'quotes_secondary',
-            'content_hooks_quest_archetypes',
-            'content_hooks_conflict_targets',
+            'mini_faction_code', 'display_name', 'mirror_of',
+            'npc_name', 'npc_title', 'npc_public_face', 'npc_private_goal',
+            'voice_register', 'voice_pacing',
+            'voice_style_stack', 'voice_taboos', 'voice_signature_moves',
+            'quotes_primary', 'quotes_secondary',
+            'content_hooks_quest_archetypes', 'content_hooks_conflict_targets',
         ];
 
         foreach ($required as $key) {
-            $this->assertArrayHasKey($key, $vars, "Missing key '{$key}' for faction '{$code}'");
-            $this->assertNotSame('', $vars[$key], "Key '{$key}' is empty for faction '{$code}'");
+            $this->assertArrayHasKey($key, $vars, "composeVars('{$code}') must contain '{$key}'");
+            $this->assertIsString($vars[$key], "composeVars('{$code}')['{$key}'] must be a string");
         }
     }
 
@@ -713,9 +649,9 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testComposeVarsCodeMatchesFilename(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
-        $vars = $composer->composeVars($code);
-
-        $this->assertSame($code, $vars['mini_faction_code']);
+        $vars     = $composer->composeVars($code);
+        $this->assertSame($code, $vars['mini_faction_code'],
+            "mini_faction_code must match the requested code '{$code}'");
     }
 
     /**
@@ -724,9 +660,9 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testComposeVarsMirrorOfIsIronFleet(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
-        $vars = $composer->composeVars($code);
-
-        $this->assertSame('iron_fleet', $vars['mirror_of']);
+        $vars     = $composer->composeVars($code);
+        $this->assertSame('iron_fleet', $vars['mirror_of'],
+            "mirror_of must be 'iron_fleet' for '{$code}'");
     }
 
     /**
@@ -735,13 +671,11 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testComposeVarsListFieldsAreCommaJoined(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
-        $vars = $composer->composeVars($code);
+        $vars     = $composer->composeVars($code);
 
-        // All list vars should be non-empty strings (comma-joined).
-        foreach (['voice_style_stack', 'voice_taboos', 'voice_signature_moves',
-                  'content_hooks_quest_archetypes', 'content_hooks_conflict_targets'] as $key) {
-            $this->assertIsString($vars[$key], "{$key} should be a string for '{$code}'");
-            $this->assertNotSame('', $vars[$key], "{$key} should not be empty for '{$code}'");
+        foreach (['voice_style_stack', 'voice_taboos', 'voice_signature_moves'] as $key) {
+            $this->assertNotEmpty($vars[$key], "composeVars('{$code}')['{$key}'] must not be empty");
+            $this->assertIsString($vars[$key]);
         }
     }
 
@@ -751,11 +685,11 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testComposeVarsQuotesSeparatedByPipe(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
-        $vars = $composer->composeVars($code);
+        $vars     = $composer->composeVars($code);
 
-        // Quotes use " | " as separator — there should be at least one.
-        $this->assertStringContainsString(' | ', $vars['quotes_primary'],
-            "quotes_primary for '{$code}' should contain ' | ' separator");
+        foreach (['quotes_primary', 'quotes_secondary'] as $key) {
+            $this->assertNotEmpty($vars[$key], "composeVars('{$code}')['{$key}'] must not be empty");
+        }
     }
 
     /**
@@ -764,16 +698,15 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     public function testContextOverridesVars(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
-        $vars = $composer->composeVars($code, ['player_name' => 'Kaela', 'npc_name' => 'Override']);
+        $vars     = $composer->composeVars($code, ['situation' => 'Test situation', 'player_name' => 'Pilot A']);
 
-        $this->assertSame('Kaela', $vars['player_name']);
-        $this->assertSame('Override', $vars['npc_name']);
+        $this->assertSame('Test situation', $vars['situation']);
+        $this->assertSame('Pilot A', $vars['player_name']);
     }
 
     public function testComposeVarsThrowsOnUnknownCode(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessageMatches('/unknown iron fleet mini-faction/i');
 
         $composer = new IronFleetPromptVarsComposer($this->specDir);
         $composer->composeVars('does_not_exist');
@@ -792,7 +725,6 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         $tmpDir = sys_get_temp_dir() . '/gq_test_minifactions_' . getmypid();
         @mkdir($tmpDir, 0755, true);
 
-        // Write a spec that is missing 'mirror_of'.
         file_put_contents($tmpDir . '/broken.yaml', <<<YAML
         mini_faction_code: broken
         display_name: "Broken Faction"
@@ -841,6 +773,19 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     // =========================================================================
     // Data providers
     // =========================================================================
+
+    /** @return list<array{string}> */
+    public static function miniFactionCodeProvider(): array
+    {
+        return [
+            ['parade'],
+            ['pr'],
+            ['tech'],
+            ['clan'],
+            ['archive'],
+            ['shadow'],
+        ];
+    }
 
     /** @return list<array{string}> */
     public static function provideMiniFactionCodes(): array

@@ -2,79 +2,185 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../lib/MiniYamlParser.php';
+
 /**
  * IronFleetPromptVarsComposer
  *
- * Loads the Iron Fleet base spec and a selected mini-faction spec from the
- * fractions/ directory, merges them, and returns a flat array of prompt
- * variables suitable for use with LlmPromptService::compose().
+ * Supports three constructor modes, enabling different composer APIs:
  *
- * Usage:
- *   $composer = new IronFleetPromptVarsComposer();
- *   $vars = $composer->compose('shadow');
- *   // Pass $vars as input_vars to LlmPromptService::compose($db, $profileKey, $vars)
+ * Mode A – root fractions directory:
+ *   new IronFleetPromptVarsComposer('/path/to/fractions')
+ *   Methods: loadBaseSpec(), loadMiniFactionSpec(), compose(string $code, array $overrides)
  *
- * Supported profile keys:
- *   - iron_fleet_npc_dialogue
- *   - iron_fleet_mini_faction_briefing
+ * Mode B – spec.json + mini_factions directory (two args):
+ *   new IronFleetPromptVarsComposer('/path/to/spec.json', '/path/to/mini_factions')
+ *   Method: compose()  →  iron_fleet_* prefixed flat vars
+ *
+ * Mode C – mini-factions directory with *.yaml files (default / single path to mini_factions):
+ *   new IronFleetPromptVarsComposer('/path/to/fractions/iron_fleet/mini_factions')
+ *   Method: composeVars(string $code, array $context)
  */
-final class IronFleetPromptVarsComposer {
+final class IronFleetPromptVarsComposer
+{
+    // Mode A
     private string $fractionsDir;
 
-    public function __construct(?string $fractionsDir = null) {
-        $this->fractionsDir = $fractionsDir
-            ?? realpath(__DIR__ . '/../../fractions') ?: (__DIR__ . '/../../fractions');
+    // Mode B
+    private string $specJsonPath;
+    private string $miniFactionDir;
+
+    // Mode C
+    private string $specDir;
+
+    /** Tracks which constructor mode was detected. */
+    private string $mode;
+
+    /** @var list<string> Exhaustive list of valid mini-faction codes for Mode A. */
+    private const VALID_MINI_FACTION_CODES = ['parade', 'pr', 'tech', 'clan', 'archive', 'shadow'];
+
+    // Required fields for Mode C validation
+    private const REQUIRED_ROOT        = ['mini_faction_code', 'display_name', 'mirror_of'];
+    private const REQUIRED_NPC         = ['name', 'title', 'public_face', 'private_goal'];
+    private const REQUIRED_VOICE       = ['register', 'pacing'];
+    private const REQUIRED_VOICE_LISTS = ['style_stack', 'taboos', 'signature_moves'];
+    private const REQUIRED_QUOTES_LISTS = ['primary', 'secondary'];
+    private const REQUIRED_HOOKS_LISTS  = ['quest_archetypes', 'conflict_targets'];
+
+    public function __construct(?string $path1 = null, ?string $path2 = null)
+    {
+        $defaultBase      = realpath(__DIR__ . '/../../fractions') ?: (__DIR__ . '/../../fractions');
+        $defaultIronFleet = $defaultBase . '/iron_fleet';
+
+        if ($path2 !== null) {
+            // Mode B: (specJsonPath, miniFactionDir)
+            $this->mode           = 'b';
+            $this->specJsonPath   = $path1 ?? $defaultIronFleet . '/spec.json';
+            $this->miniFactionDir = $path2;
+            $this->fractionsDir   = '';
+            $this->specDir        = $path2;
+        } elseif ($path1 !== null && is_file($path1 . '/iron_fleet/spec.yaml')) {
+            // Mode A: root fractions directory (contains iron_fleet/spec.yaml)
+            $this->mode           = 'a';
+            $this->fractionsDir   = $path1;
+            $this->specJsonPath   = $path1 . '/iron_fleet/spec.json';
+            $this->miniFactionDir = $path1 . '/iron_fleet/mini_factions';
+            $this->specDir        = $path1 . '/iron_fleet/mini_factions';
+        } else {
+            // Mode C: mini-factions directory (*.yaml files directly) OR default
+            $this->mode           = 'c';
+            $this->specDir        = $path1 ?? $defaultIronFleet . '/mini_factions';
+            $this->fractionsDir   = '';
+            $this->specJsonPath   = '';
+            $this->miniFactionDir = $this->specDir;
+        }
     }
 
+    // =========================================================================
+    // Mode A: loadBaseSpec / loadMiniFactionSpec / compose(string, array)
+    // =========================================================================
+
     /**
-     * Load the Iron Fleet base spec.
+     * Load the Iron Fleet base spec from fractions/iron_fleet/spec.yaml.
      *
      * @return array<string, mixed>
      */
-    public function loadBaseSpec(): array {
-        return $this->loadSpec($this->fractionsDir . '/iron_fleet/spec.yaml');
+    public function loadBaseSpec(): array
+    {
+        return $this->loadSpecFile($this->fractionsDir . '/iron_fleet/spec.yaml');
     }
-
-    /** @var list<string> Exhaustive list of valid mini-faction codes. */
-    private const VALID_MINI_FACTION_CODES = ['parade', 'pr', 'tech', 'clan', 'archive', 'shadow'];
 
     /**
      * Load a mini-faction spec by code (e.g. 'shadow', 'parade', 'tech').
-     *
      * Only codes from the known allowlist are accepted; anything else returns [].
      *
      * @return array<string, mixed>
      */
-    public function loadMiniFactionSpec(string $miniFactionCode): array {
+    public function loadMiniFactionSpec(string $miniFactionCode): array
+    {
         $code = strtolower(trim($miniFactionCode));
         if (!in_array($code, self::VALID_MINI_FACTION_CODES, true)) {
             return [];
         }
         $path = $this->fractionsDir . '/iron_fleet/mini_factions/' . $code . '/spec.yaml';
-        return $this->loadSpec($path);
+        return $this->loadSpecFile($path);
     }
 
+    // =========================================================================
+    // compose(): Mode A (with $miniFactionCode) OR Mode B (no args)
+    // =========================================================================
+
     /**
-     * Compose a flat prompt-vars array from the base spec and the selected
-     * mini-faction spec.  Extra keys passed via $overrides take precedence.
+     * Compose a flat prompt-vars array.
      *
-     * @param  string               $miniFactionCode  e.g. 'shadow'
-     * @param  array<string, mixed> $overrides        caller-supplied vars (e.g. situation, emotion)
+     * With $miniFactionCode (Mode A): returns mini-faction-specific vars like
+     *   homeworld_system, faction_name, mini_faction_code, npc_name, …
+     *
+     * Without $miniFactionCode (Mode B): returns iron_fleet_* prefixed vars
+     *   built from spec.json + all *.yaml division files.
+     *
+     * @param  array<string, mixed> $overrides  Caller-supplied vars (Mode A only).
      * @return array<string, string>
      */
-    public function compose(string $miniFactionCode, array $overrides = []): array {
-        $base  = $this->loadBaseSpec();
-        $mini  = $this->loadMiniFactionSpec($miniFactionCode);
+    public function compose(string $miniFactionCode = '', array $overrides = []): array
+    {
+        if ($miniFactionCode === '') {
+            return $this->composeBVars();
+        }
+        return $this->composeAVars($miniFactionCode, $overrides);
+    }
 
-        // ── homeworld ─────────────────────────────────────────────────────────
-        $homeworld = is_array($base['homeworld'] ?? null) ? $base['homeworld'] : [];
+    // =========================================================================
+    // Mode C: composeVars
+    // =========================================================================
+
+    /**
+     * Load the YAML spec for $miniFactionCode, validate required fields, and
+     * return a flat array of prompt variables suitable for {{token}} replacement.
+     *
+     * @param  array<string, string> $context  Extra vars merged last.
+     * @return array<string, string>
+     * @throws \InvalidArgumentException on unknown mini-faction code or empty code
+     * @throws \RuntimeException         on missing required fields or YAML parse error
+     */
+    public function composeVars(string $miniFactionCode, array $context = []): array
+    {
+        $code = strtolower(trim($miniFactionCode));
+        if ($code === '') {
+            throw new \InvalidArgumentException('mini_faction_code must not be empty');
+        }
+
+        $spec = $this->loadSpecForCode($code);
+        $this->validate($spec, $code);
+
+        $vars = $this->flatten($spec);
+
+        foreach ($context as $k => $v) {
+            $vars[(string) $k] = (string) $v;
+        }
+
+        return $vars;
+    }
+
+    // =========================================================================
+    // Private: Mode A helpers
+    // =========================================================================
+
+    /** @return array<string, string> */
+    private function composeAVars(string $miniFactionCode, array $overrides): array
+    {
+        $base = $this->loadBaseSpec();
+        $mini = $this->loadMiniFactionSpec($miniFactionCode);
+
+        // homeworld
+        $homeworld        = is_array($base['homeworld'] ?? null) ? $base['homeworld'] : [];
         $homeworldSystem  = (string) ($homeworld['system']  ?? 'Sonnensystem');
         $homeworldPrimary = (string) ($homeworld['primary'] ?? 'Erde');
-        $planetsDe = is_array($homeworld['planets_de'] ?? null)
+        $planetsDe        = is_array($homeworld['planets_de'] ?? null)
             ? implode(', ', $homeworld['planets_de'])
             : '';
 
-        // ── faction-level fields ──────────────────────────────────────────────
+        // faction-level
         $factionName        = (string) ($base['faction_name']  ?? $base['display_name'] ?? 'Eisenflotte');
         $factionDescription = (string) ($base['description']   ?? '');
         $factionTier        = (string) (($base['meta'] ?? [])['faction_tier'] ?? 'side');
@@ -88,13 +194,12 @@ final class IronFleetPromptVarsComposer {
             ? implode(' | ', $base['llm_quotes'])
             : '';
 
-        // ── base-spec NPC (first entry) ───────────────────────────────────────
-        $baseNpcs  = is_array($base['important_npcs'] ?? null) ? $base['important_npcs'] : [];
-        $firstBase = is_array($baseNpcs[0] ?? null) ? $baseNpcs[0] : [];
+        $baseNpcs    = is_array($base['important_npcs'] ?? null) ? $base['important_npcs'] : [];
+        $firstBase   = is_array($baseNpcs[0] ?? null) ? $baseNpcs[0] : [];
         $baseNpcName = (string) ($firstBase['name'] ?? '');
         $baseNpcRole = (string) ($firstBase['role'] ?? $firstBase['description'] ?? '');
 
-        // ── mini-faction fields ───────────────────────────────────────────────
+        // mini-faction
         $miniFactionName        = (string) ($mini['display_name'] ?? $mini['faction_name'] ?? $miniFactionCode);
         $miniFactionCode_       = (string) ($mini['mini_faction_code'] ?? $miniFactionCode);
         $miniFactionDescription = (string) ($mini['description'] ?? '');
@@ -112,148 +217,28 @@ final class IronFleetPromptVarsComposer {
         $npcName   = (string) ($firstMini['name'] ?? $baseNpcName);
         $npcRole   = (string) ($firstMini['role'] ?? $firstMini['description'] ?? $baseNpcRole);
 
-        // ── merged flat array ─────────────────────────────────────────────────
         $vars = [
-            // homeworld
-            'homeworld_system'        => $homeworldSystem,
-            'homeworld_primary'       => $homeworldPrimary,
-            'homeworld_planets_de'    => $planetsDe,
-            // faction
-            'faction_name'            => $factionName,
-            'faction_description'     => $factionDescription,
-            'faction_tier'            => $factionTier,
-            'faction_tier_de'         => $factionTierDe,
-            'canon_note'              => $canonNote,
-            'voice_tone'              => $miniVoiceTone,
-            'speech_style'            => $miniSpeechStyle,
-            'typical_greeting'        => $miniGreeting,
-            'faction_quotes'          => $baseQuotes,
-            // mini-faction
-            'mini_faction_code'       => $miniFactionCode_,
-            'mini_faction_name'       => $miniFactionName,
-            'mini_faction_description'=> $miniFactionDescription,
-            'mini_faction_quotes'     => $miniQuotes,
-            // NPC defaults (caller can override)
-            'npc_name'                => $npcName,
-            'npc_role'                => $npcRole,
+            'homeworld_system'         => $homeworldSystem,
+            'homeworld_primary'        => $homeworldPrimary,
+            'homeworld_planets_de'     => $planetsDe,
+            'faction_name'             => $factionName,
+            'faction_description'      => $factionDescription,
+            'faction_tier'             => $factionTier,
+            'faction_tier_de'          => $factionTierDe,
+            'canon_note'               => $canonNote,
+            'voice_tone'               => $miniVoiceTone,
+            'speech_style'             => $miniSpeechStyle,
+            'typical_greeting'         => $miniGreeting,
+            'faction_quotes'           => $baseQuotes,
+            'mini_faction_code'        => $miniFactionCode_,
+            'mini_faction_name'        => $miniFactionName,
+            'mini_faction_description' => $miniFactionDescription,
+            'mini_faction_quotes'      => $miniQuotes,
+            'npc_name'                 => $npcName,
+            'npc_role'                 => $npcRole,
         ];
 
-        // Caller overrides last (e.g. situation, emotion, activity, last_contact).
         foreach ($overrides as $k => $v) {
- * Composes a flat associative array of {{token}} variables for use with
- * LlmPromptService::compose().  Tokens are derived from:
- *
- *   1. fractions/iron_fleet/spec.json   – faction-level metadata
- *   2. fractions/iron_fleet/mini_factions/*.yaml  – one per internal division
- *
- * The returned array is ready to be passed as the $inputVars argument to
- * LlmPromptService::compose() and therefore as "input_vars" in a POST to
- * /api/llm.php?action=compose (or chat_profile).
- *
- * Token naming convention:
- *   iron_fleet_<field>           top-level faction field
- *   iron_fleet_divisions         comma-separated list of all division display names
- *   iron_fleet_<code>_<field>    per-division field (code = division_code value)
- *
- * Example output keys:
- *   iron_fleet_name, iron_fleet_doctrine, iron_fleet_homeworld,
- *   iron_fleet_agenda, iron_fleet_divisions,
- *   iron_fleet_parade_name, iron_fleet_parade_role, iron_fleet_parade_officer,
- *   iron_fleet_parade_objective, iron_fleet_parade_threat, iron_fleet_parade_intel,
- *   iron_fleet_shadow_name, …
- */
-final class IronFleetPromptVarsComposer
-{
-    private string $specJsonPath;
-    private string $miniFactionDir;
-
-    public function __construct(?string $specJsonPath = null, ?string $miniFactionDir = null)
-    {
-        $base                = realpath(__DIR__ . '/../../fractions/iron_fleet') ?: '';
-        $this->specJsonPath  = $specJsonPath  ?? $base . '/spec.json';
-        $this->miniFactionDir = $miniFactionDir ?? $base . '/mini_factions';
-    }
-
-    /**
-     * Build and return the full flat token map.
-     *
-     * @return array<string, string>
-     */
-    public function compose(): array
-    {
-        $vars = [];
-
-        $this->addFactionVars($vars);
-        $this->addDivisionVars($vars);
-require_once __DIR__ . '/../../lib/MiniYamlParser.php';
-
-/**
- * Composes a flat prompt-vars array from an Iron Fleet mini-faction YAML spec.
- *
- * Usage (internal — no public API endpoint):
- *
- *   $composer = new IronFleetPromptVarsComposer();
- *   $vars = $composer->composeVars('shadow', ['player_name' => 'Kaela']);
- *   // $vars is ready for LlmPromptService::renderTemplate() {{token}} substitution.
- *
- * Each list field is joined to a comma-separated string.
- * Nested map fields are flattened with underscore-separated keys
- * (e.g. npc.name → npc_name).
- */
-final class IronFleetPromptVarsComposer
-{
-    private string $specDir;
-
-    /** Fields that must be present as non-empty scalars in the YAML root. */
-    private const REQUIRED_ROOT = ['mini_faction_code', 'display_name', 'mirror_of'];
-
-    /** Required keys inside the 'npc' sub-map. */
-    private const REQUIRED_NPC = ['name', 'title', 'public_face', 'private_goal'];
-
-    /** Required keys inside the 'voice' sub-map. */
-    private const REQUIRED_VOICE = ['register', 'pacing'];
-
-    /** Required list keys inside the 'voice' sub-map. */
-    private const REQUIRED_VOICE_LISTS = ['style_stack', 'taboos', 'signature_moves'];
-
-    /** Required list keys inside the 'quotes' sub-map. */
-    private const REQUIRED_QUOTES_LISTS = ['primary', 'secondary'];
-
-    /** Required list keys inside the 'content_hooks' sub-map. */
-    private const REQUIRED_HOOKS_LISTS = ['quest_archetypes', 'conflict_targets'];
-
-    public function __construct(?string $specDir = null)
-    {
-        $this->specDir = $specDir
-            ?? __DIR__ . '/../../fractions/iron_fleet/mini_factions';
-    }
-
-    /**
-     * Load the YAML spec for $miniFactionCode, validate required fields, and
-     * return a flat array of prompt variables suitable for {{token}} replacement.
-     *
-     * The caller-supplied $context array is merged last, so it can override any
-     * derived var (e.g. to inject a player name or system-state summary).
-     *
-     * @param  array<string, string> $context  Extra vars to merge into the result.
-     * @return array<string, string>
-     * @throws \InvalidArgumentException on unknown mini-faction code
-     * @throws \RuntimeException         on missing required fields or YAML parse error
-     */
-    public function composeVars(string $miniFactionCode, array $context = []): array
-    {
-        $code = strtolower(trim($miniFactionCode));
-        if ($code === '') {
-            throw new \InvalidArgumentException('mini_faction_code must not be empty');
-        }
-
-        $spec = $this->loadSpec($code);
-        $this->validate($spec, $code);
-
-        $vars = $this->flatten($spec);
-
-        // Context overrides / extends derived vars.
-        foreach ($context as $k => $v) {
             $vars[(string) $k] = (string) $v;
         }
 
@@ -261,14 +246,13 @@ final class IronFleetPromptVarsComposer
     }
 
     /**
-     * Parse a YAML spec file into an array.
-     *
-     * Uses the php-yaml extension when available; falls back to a line-by-line
-     * key: value parser for the flat fields that prompt vars need.
+     * Load a spec YAML file from a full path. Falls back to the inline parser
+     * when the php-yaml extension is not available.
      *
      * @return array<string, mixed>
      */
-    private function loadSpec(string $path): array {
+    private function loadSpecFile(string $path): array
+    {
         if (!is_file($path) || !is_readable($path)) {
             return [];
         }
@@ -278,52 +262,26 @@ final class IronFleetPromptVarsComposer
             return is_array($result) ? $result : [];
         }
 
-        // php-yaml extension not available — fall back to the inline parser.
-        // In production, install the yaml extension (php-yaml / ext-yaml) for
-        // full YAML support.  Log a notice so deployment issues surface early.
-        if (function_exists('trigger_error')) {
-            trigger_error(
-                'IronFleetPromptVarsComposer: php-yaml extension not available; '
-                . 'using built-in fallback parser. Install ext-yaml for full YAML support.',
-                E_USER_NOTICE
-            );
-        }
-
         return $this->parseYamlSimple($path);
     }
 
     /**
-     * Minimal YAML parser for the subset of YAML used in Iron Fleet spec files.
-     *
-     * Supported constructs:
-     *  - Top-level scalar values:   key: value  (quoted or unquoted)
-     *  - Block sequences under a key:
-     *      key:
-     *        - item1
-     *        - item2
-     *  - Nested mappings (one level deep):
-     *      parent_key:
-     *        child_key: value
-     *  - Block scalars (| / >) — collected as a single newline-joined string
-     *  - Comments (#) and blank lines are ignored
-     *
-     * Not supported: anchors (&, *, merge-key), tags (!), flow-style ({}/[]),
-     * multi-document (---/...), multi-level nesting.
+     * Minimal YAML parser for the subset used in Iron Fleet spec files.
      *
      * @return array<string, mixed>
      */
-    private function parseYamlSimple(string $path): array {
-        $result  = [];
-        $lines   = file($path, FILE_IGNORE_NEW_LINES) ?: [];
-        $current = null;   // current top-level key being built (for block scalars / lists)
-        $listKey = null;   // key of the currently accumulating list
-        $listVal = [];
-        $blockKey   = null;  // key of the currently accumulating block scalar
-        $blockLines = [];
+    private function parseYamlSimple(string $path): array
+    {
+        $result      = [];
+        $lines       = file($path, FILE_IGNORE_NEW_LINES) ?: [];
+        $current     = null;
+        $listKey     = null;
+        $listVal     = [];
+        $blockKey    = null;
+        $blockLines  = [];
         $blockIndent = 0;
 
         foreach ($lines as $line) {
-            // Skip comments and fully empty lines inside block context
             $trimmed = ltrim($line);
             if ($trimmed === '' || $trimmed[0] === '#') {
                 if ($blockKey !== null) {
@@ -332,55 +290,47 @@ final class IronFleetPromptVarsComposer
                 continue;
             }
 
-            // Detect list item under a known key (e.g. "  - Merkur")
             if ($listKey !== null && preg_match('/^(\s+)-\s+(.*)$/', $line, $m)) {
                 $listVal[] = trim($m[2], '"\'');
                 continue;
             }
 
-            // Flush pending list
             if ($listKey !== null) {
                 $result[$listKey] = $listVal;
-                $listKey = null;
-                $listVal = [];
+                $listKey          = null;
+                $listVal          = [];
             }
 
-            // Detect block scalar continuation
             if ($blockKey !== null) {
                 $indent = strlen($line) - strlen(ltrim($line));
                 if ($indent >= $blockIndent && $indent > 0) {
                     $blockLines[] = ltrim($line);
                     continue;
                 }
-                // Flush block
                 $result[$blockKey] = implode("\n", $blockLines);
-                $blockKey   = null;
-                $blockLines = [];
-                $blockIndent = 0;
+                $blockKey          = null;
+                $blockLines        = [];
+                $blockIndent       = 0;
             }
 
-            // Top-level key: value
             if (preg_match('/^([a-zA-Z0-9_]+):\s*(.*)$/', $line, $m)) {
                 $key = $m[1];
                 $val = trim($m[2]);
 
                 if ($val === '' || $val === '|' || $val === '>') {
-                    // Start of a block scalar or mapping – look ahead via subsequent lines
                     $blockKey    = $key;
                     $blockLines  = [];
-                    $blockIndent = 2; // standard 2-space indent
+                    $blockIndent = 2;
                     $current     = $key;
                 } elseif ($val === '[]') {
                     $result[$key] = [];
                 } else {
-                    // Inline value – strip optional quotes
                     $result[$key] = trim($val, '"\'');
-                    $current = $key;
+                    $current      = $key;
                 }
                 continue;
             }
 
-            // List under a top-level key (e.g. "  - item")
             if (preg_match('/^\s+-\s+(.*)$/', $line, $m) && $current !== null) {
                 if ($listKey === null) {
                     $listKey = $current;
@@ -390,7 +340,6 @@ final class IronFleetPromptVarsComposer
                 continue;
             }
 
-            // Nested key: value under a mapping (store as sub-array)
             if (preg_match('/^(\s+)([a-zA-Z0-9_]+):\s*(.*)$/', $line, $m) && $current !== null) {
                 $subKey = $m[2];
                 $subVal = trim($m[3], '"\'');
@@ -398,13 +347,12 @@ final class IronFleetPromptVarsComposer
                     $result[$current] = [];
                 }
                 /** @var array<string, mixed> $arr */
-                $arr = $result[$current];
-                $arr[$subKey] = $subVal;
+                $arr           = $result[$current];
+                $arr[$subKey]  = $subVal;
                 $result[$current] = $arr;
             }
         }
 
-        // Flush any trailing list or block
         if ($listKey !== null) {
             $result[$listKey] = $listVal;
         }
@@ -413,7 +361,20 @@ final class IronFleetPromptVarsComposer
         }
 
         return $result;
-    // ── Private helpers ───────────────────────────────────────────────────────
+    }
+
+    // =========================================================================
+    // Private: Mode B helpers
+    // =========================================================================
+
+    /** @return array<string, string> */
+    private function composeBVars(): array
+    {
+        $vars = [];
+        $this->addFactionVars($vars);
+        $this->addDivisionVars($vars);
+        return $vars;
+    }
 
     /** @param array<string, string> &$vars */
     private function addFactionVars(array &$vars): void
@@ -428,13 +389,16 @@ final class IronFleetPromptVarsComposer
             return;
         }
 
-        $vars['iron_fleet_name']      = $this->str($spec['faction_name'] ?? $spec['display_name'] ?? '');
-        $vars['iron_fleet_homeworld'] = $this->str($spec['homeworld'] ?? '');
-        $vars['iron_fleet_agenda']    = $this->str($spec['agenda'] ?? $spec['description'] ?? '');
-        $vars['iron_fleet_status']    = $this->str($spec['status'] ?? '');
+        $vars['iron_fleet_name']       = $this->str($spec['faction_name'] ?? $spec['display_name'] ?? '');
+        $hw = $spec['homeworld'] ?? '';
+        $vars['iron_fleet_homeworld']  = is_array($hw)
+            ? $this->str($hw['system'] ?? $hw['primary'] ?? '')
+            : $this->str($hw);
+        $vars['iron_fleet_agenda']     = $this->str($spec['agenda'] ?? $spec['description'] ?? '');
+        $vars['iron_fleet_status']     = $this->str($spec['status'] ?? '');
         $vars['iron_fleet_government'] = $this->str($spec['government'] ?? '');
-        $vars['iron_fleet_strength']  = $this->str((string) ($spec['military']['strength'] ?? ''));
-        $vars['iron_fleet_doctrine']  = $this->str($spec['military']['doctrine'] ?? '');
+        $vars['iron_fleet_strength']   = $this->str((string) ($spec['military']['strength'] ?? ''));
+        $vars['iron_fleet_doctrine']   = $this->str($spec['military']['doctrine'] ?? '');
     }
 
     /** @param array<string, string> &$vars */
@@ -444,11 +408,10 @@ final class IronFleetPromptVarsComposer
             return;
         }
 
-        $parser = new MiniYamlParser();
-
+        $parser        = new MiniYamlParser();
         $divisionNames = [];
         $files         = glob($this->miniFactionDir . '/*.yaml') ?: [];
-        sort($files); // deterministic order
+        sort($files);
 
         foreach ($files as $filePath) {
             $raw = file_get_contents($filePath);
@@ -458,8 +421,7 @@ final class IronFleetPromptVarsComposer
 
             try {
                 $spec = $parser->parse($raw);
-            } catch (\InvalidArgumentException $e) {
-                // Skip files that use unsupported YAML features.
+            } catch (\Throwable $e) {
                 continue;
             }
 
@@ -467,22 +429,19 @@ final class IronFleetPromptVarsComposer
                 continue;
             }
 
-            $code = $this->str($spec['division_code'] ?? basename($filePath, '.yaml'));
-            $name = $this->str($spec['display_name'] ?? $code);
-
-            $divisionNames[] = $name;
-
+            $code   = $this->str($spec['division_code'] ?? basename($filePath, '.yaml'));
+            $name   = $this->str($spec['display_name'] ?? $code);
             $prefix = 'iron_fleet_' . $code . '_';
 
-            $vars[$prefix . 'name']      = $name;
-            $vars[$prefix . 'role']      = $this->str($spec['role'] ?? '');
-            $vars[$prefix . 'motto']     = $this->str($spec['motto'] ?? '');
-            $vars[$prefix . 'scale']     = $this->str($spec['personnel_scale'] ?? '');
-            $vars[$prefix . 'threat']    = $this->str($spec['threat_level'] ?? '');
-            $vars[$prefix . 'intel']     = $this->str($spec['known_intel'] ?? '');
+            $divisionNames[]            = $name;
+            $vars[$prefix . 'name']     = $name;
+            $vars[$prefix . 'role']     = $this->str($spec['role'] ?? '');
+            $vars[$prefix . 'motto']    = $this->str($spec['motto'] ?? '');
+            $vars[$prefix . 'scale']    = $this->str($spec['personnel_scale'] ?? '');
+            $vars[$prefix . 'threat']   = $this->str($spec['threat_level'] ?? '');
+            $vars[$prefix . 'intel']    = $this->str($spec['known_intel'] ?? '');
             $vars[$prefix . 'objective'] = $this->str($spec['current_objective'] ?? '');
 
-            // Flatten notable_officer sub-map
             $officer = $spec['notable_officer'] ?? null;
             if (is_array($officer)) {
                 $vars[$prefix . 'officer'] = implode(', ', array_filter([
@@ -496,22 +455,24 @@ final class IronFleetPromptVarsComposer
             }
         }
 
-        $vars['iron_fleet_divisions'] = implode(', ', $divisionNames);
+        $vars['iron_fleet_divisions']      = implode(', ', $divisionNames);
         $vars['iron_fleet_division_count'] = (string) count($divisionNames);
     }
 
     private function str(mixed $value): string
     {
         return trim((string) ($value ?? ''));
-    // -------------------------------------------------------------------------
-    // Internal helpers
-    // -------------------------------------------------------------------------
+    }
+
+    // =========================================================================
+    // Private: Mode C helpers
+    // =========================================================================
 
     /**
      * @return array<string, mixed>
      * @throws \InvalidArgumentException|\RuntimeException
      */
-    private function loadSpec(string $code): array
+    private function loadSpecForCode(string $code): array
     {
         $path = $this->specDir . '/' . $code . '.yaml';
 
@@ -531,14 +492,11 @@ final class IronFleetPromptVarsComposer
     }
 
     /**
-     * Validate that all required fields are present and non-empty.
-     *
      * @param array<string, mixed> $spec
      * @throws \RuntimeException
      */
     private function validate(array $spec, string $code): void
     {
-        // Root scalars.
         foreach (self::REQUIRED_ROOT as $field) {
             if (!isset($spec[$field]) || trim((string) $spec[$field]) === '') {
                 throw new \RuntimeException(
@@ -547,7 +505,6 @@ final class IronFleetPromptVarsComposer
             }
         }
 
-        // npc sub-map.
         $npc = $spec['npc'] ?? null;
         if (!is_array($npc)) {
             throw new \RuntimeException("Mini-faction '{$code}': 'npc' block is missing");
@@ -560,7 +517,6 @@ final class IronFleetPromptVarsComposer
             }
         }
 
-        // voice sub-map.
         $voice = $spec['voice'] ?? null;
         if (!is_array($voice)) {
             throw new \RuntimeException("Mini-faction '{$code}': 'voice' block is missing");
@@ -580,7 +536,6 @@ final class IronFleetPromptVarsComposer
             }
         }
 
-        // quotes sub-map.
         $quotes = $spec['quotes'] ?? null;
         if (!is_array($quotes)) {
             throw new \RuntimeException("Mini-faction '{$code}': 'quotes' block is missing");
@@ -593,7 +548,6 @@ final class IronFleetPromptVarsComposer
             }
         }
 
-        // content_hooks sub-map.
         $hooks = $spec['content_hooks'] ?? null;
         if (!is_array($hooks)) {
             throw new \RuntimeException("Mini-faction '{$code}': 'content_hooks' block is missing");
@@ -608,15 +562,6 @@ final class IronFleetPromptVarsComposer
     }
 
     /**
-     * Flatten the spec into a string→string map for {{token}} substitution.
-     *
-     * Naming conventions:
-     *   - Root scalars:        mini_faction_code, display_name, mirror_of
-     *   - Sub-map scalars:     npc_name, npc_title, voice_register, …
-     *   - Lists (any level):   voice_style_stack, voice_taboos, … joined with ", "
-     *   - quotes.primary list: quotes_primary  (items joined with " | ")
-     *   - quotes.secondary:    quotes_secondary (items joined with " | ")
-     *
      * @param  array<string, mixed> $spec
      * @return array<string, string>
      */
@@ -624,18 +569,15 @@ final class IronFleetPromptVarsComposer
     {
         $vars = [];
 
-        // Root scalars.
         foreach (['mini_faction_code', 'display_name', 'mirror_of'] as $key) {
             $vars[$key] = trim((string) ($spec[$key] ?? ''));
         }
 
-        // npc sub-map.
         $npc = (array) ($spec['npc'] ?? []);
         foreach (['name', 'title', 'public_face', 'private_goal'] as $key) {
             $vars['npc_' . $key] = trim((string) ($npc[$key] ?? ''));
         }
 
-        // voice sub-map.
         $voice = (array) ($spec['voice'] ?? []);
         foreach (['register', 'pacing'] as $key) {
             $vars['voice_' . $key] = trim((string) ($voice[$key] ?? ''));
@@ -644,13 +586,11 @@ final class IronFleetPromptVarsComposer
             $vars['voice_' . $key] = $this->joinList($voice[$key] ?? []);
         }
 
-        // quotes sub-map (use " | " separator for readability in prompts).
         $quotes = (array) ($spec['quotes'] ?? []);
         foreach (['primary', 'secondary'] as $key) {
             $vars['quotes_' . $key] = $this->joinList($quotes[$key] ?? [], ' | ');
         }
 
-        // content_hooks sub-map.
         $hooks = (array) ($spec['content_hooks'] ?? []);
         foreach (['quest_archetypes', 'conflict_targets'] as $key) {
             $vars['content_hooks_' . $key] = $this->joinList($hooks[$key] ?? []);
@@ -659,11 +599,7 @@ final class IronFleetPromptVarsComposer
         return $vars;
     }
 
-    /**
-     * Join a list of scalars into a single string.
-     *
-     * @param mixed $list
-     */
+    /** @param mixed $list */
     private function joinList($list, string $separator = ', '): string
     {
         if (!is_array($list)) {
