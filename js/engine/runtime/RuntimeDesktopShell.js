@@ -20,6 +20,7 @@
           ['fleet', { title: 'Fleet', w: 500, h: 620, defaultDock: 'right', defaultY: 98, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderFleetForm() }],
           ['wormholes', { title: 'Wormholes', w: 520, h: 560, defaultDock: 'right', defaultY: 108, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderWormholes() }],
           ['galaxy', { title: 'Galaxy Map', fullscreenDesktop: true, hideTaskButton: true, backgroundLayer: true, onRender: () => renderers.renderGalaxyWindow() }],
+          ['galaxy-info', { title: 'Galaxy Intel', w: 380, h: 640, defaultDock: 'right', defaultY: 24, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderGalaxyInfoWindow() }],
           ['messages', { title: 'Messages', w: 500, h: 520, defaultDock: 'right', defaultY: 118, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderMessages() }],
           ['intel', { title: 'Intel', w: 520, h: 560, defaultDock: 'right', defaultY: 128, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderIntel() }],
           ['trade-routes', { title: 'Trade Routes', w: 520, h: 560, defaultDock: 'right', defaultY: 138, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradeRoutes() }],

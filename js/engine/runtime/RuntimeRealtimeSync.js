@@ -40,6 +40,16 @@
     }
   }
 
+  function speakTts(text) {
+    const windowRef = runtimeConfig.windowRef;
+    const ttsApi = windowRef?.GQTTS || null;
+    if (!ttsApi || typeof ttsApi.isAutoVoiceEnabled !== 'function' || typeof ttsApi.speak !== 'function') return;
+    if (!ttsApi.isAutoVoiceEnabled()) return;
+    const line = String(text || '').trim();
+    if (!line) return;
+    ttsApi.speak(line).catch(() => {});
+  }
+
   function initSseListeners() {
     const windowRef = runtimeConfig.windowRef;
     if (!windowRef) return;
@@ -64,6 +74,7 @@
           applyMessageBadge(unread);
           if ((parseInt(data.new, 10) || 0) > 0) {
             runtimeConfig.showToast(`${data.new} new message${data.new > 1 ? 's' : ''}`, 'info');
+            speakTts(data.new > 1 ? `${data.new} neue Nachrichten eingegangen.` : 'Neue Nachricht eingegangen.');
           }
         } catch (err) {
           runtimeConfig.gameLog('info', 'SSE new_messages handler fehlgeschlagen', err);
@@ -77,9 +88,7 @@
           const target = data.target || '';
           runtimeConfig.showToast(`Fleet arrived at ${target} (${mission})`, mission === 'attack' ? 'success' : 'info');
           windowRef.dispatchEvent(new CustomEvent('gq:fleet-arrived', { detail: data }));
-          if (windowRef.GQTTS && windowRef.GQTTS.isAutoVoiceEnabled()) {
-            windowRef.GQTTS.speak(`Flotte hat ${target} erreicht.`).catch(() => {});
-          }
+          speakTts(`Flotte hat ${target} erreicht.`);
           await runtimeConfig.onLoadOverview();
           runtimeConfig.invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
           ['fleet', 'shipyard', 'buildings'].forEach((id) => runtimeConfig.refreshWindow(id));
@@ -93,9 +102,7 @@
           const data = JSON.parse(event.data);
           runtimeConfig.showToast(`Fleet returned home (${data.mission || ''})`, 'info');
           windowRef.dispatchEvent(new CustomEvent('gq:fleet-returning', { detail: data }));
-          if (windowRef.GQTTS && windowRef.GQTTS.isAutoVoiceEnabled()) {
-            windowRef.GQTTS.speak('Flotte ist heimgekehrt.').catch(() => {});
-          }
+          speakTts('Flotte ist heimgekehrt.');
           await runtimeConfig.onLoadOverview();
           runtimeConfig.invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
           runtimeConfig.refreshWindow('fleet');
@@ -113,12 +120,10 @@
             : `INCOMING ATTACK from ${data.attacker} to ${data.target} at ${arrival}!`;
           runtimeConfig.showToast(msg, 'danger');
           windowRef.dispatchEvent(new CustomEvent('gq:fleet-incoming-attack', { detail: data }));
-          if (windowRef.GQTTS && windowRef.GQTTS.isAutoVoiceEnabled()) {
-            const ttsText = data.mission === 'spy'
-              ? `Achtung! Spionageflotte von ${data.attacker} im Anflug.`
-              : `Warnung! Angriff von ${data.attacker} auf ${data.target} um ${arrival}!`;
-            windowRef.GQTTS.speak(ttsText).catch(() => {});
-          }
+          const ttsText = data.mission === 'spy'
+            ? `Achtung! Spionageflotte von ${data.attacker} im Anflug.`
+            : `Warnung! Angriff von ${data.attacker} auf ${data.target} um ${arrival}!`;
+          speakTts(ttsText);
         } catch (err) {
           runtimeConfig.gameLog('info', 'SSE incoming_attack handler fehlgeschlagen', err);
         }
@@ -134,6 +139,10 @@
             : `🌌 ${title} – Ein neues Szenario beginnt`;
           runtimeConfig.showToast(msg, 'info');
           windowRef.dispatchEvent(new CustomEvent('gq:world-event', { detail: data }));
+          const ttsText = isResolved
+            ? `${title}. Ergebnis: ${data.conclusion_key}.`
+            : `${title}. Ein neues Galaxie-Szenario beginnt.`;
+          speakTts(ttsText);
         } catch (err) {
           runtimeConfig.gameLog('info', 'SSE world_event handler fehlgeschlagen', err);
         }

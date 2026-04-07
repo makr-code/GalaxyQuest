@@ -8,6 +8,7 @@
 
 (function () {
   const state = {
+    wmBody: null,
     bindGalaxyOverlayHotkeys: null,
     makeGalaxyOverlayDraggable: null,
     bindGalaxyNavOrb: null,
@@ -57,6 +58,12 @@
     });
   }
 
+  function getGalaxyInfoRoot() {
+    return state.wmBody?.('galaxy-info')
+      || ((typeof window !== 'undefined' && window.WM?.body) ? window.WM.body('galaxy-info') : null)
+      || null;
+  }
+
   function bindGalaxyWindowControls(root) {
     if (!root) return;
 
@@ -74,7 +81,6 @@
     }
     if (typeof state.makeGalaxyOverlayDraggable === 'function') {
       state.makeGalaxyOverlayDraggable(root, '#galaxy-controls-overlay');
-      state.makeGalaxyOverlayDraggable(root, '#galaxy-info-overlay');
     }
 
     root.querySelector('#gal-load-3d-btn')?.addEventListener('click', () => {
@@ -270,8 +276,9 @@
       state.setGalaxyStars?.([]);
       state.setPinnedStar?.(null);
       state.clearGalaxyRendererStars?.();
-      const details = root.querySelector('#galaxy-system-details');
-      const panel = root.querySelector('#galaxy-planets-panel');
+      const infoRoot = getGalaxyInfoRoot();
+      const details = infoRoot?.querySelector('#galaxy-system-details');
+      const panel = infoRoot?.querySelector('#galaxy-planets-panel');
       if (details) details.innerHTML = '<span class="text-muted">Galaxy cache cleared.</span>';
       if (panel) panel.innerHTML = '';
       state.showToast?.('Galaxy cache cleared.', 'success');
@@ -303,31 +310,6 @@
       });
     });
 
-    const infoTabButtons = Array.from(root.querySelectorAll('#galaxy-info-overlay [data-info-tab]'));
-    const infoPanels = Array.from(root.querySelectorAll('#galaxy-info-overlay [data-info-panel]'));
-    const activateInfoTab = (tabKey) => {
-      const key = String(tabKey || 'details').trim().toLowerCase();
-      infoTabButtons.forEach((btn) => {
-        const isActive = String(btn.getAttribute('data-info-tab') || '').toLowerCase() === key;
-        btn.classList.toggle('is-active', isActive);
-        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      });
-      infoPanels.forEach((panel) => {
-        const isActive = String(panel.getAttribute('data-info-panel') || '').toLowerCase() === key;
-        panel.classList.toggle('is-active', isActive);
-      });
-    };
-
-    infoTabButtons.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        activateInfoTab(btn.getAttribute('data-info-tab'));
-      });
-    });
-
-    if (infoTabButtons.length) {
-      activateInfoTab(infoTabButtons[0].getAttribute('data-info-tab'));
-    }
-
     state.refreshPolicyUi?.(root);
     state.refreshGalaxyHealth?.(root, false);
     state.refreshGalaxyDensityMetrics?.(root);
@@ -339,7 +321,7 @@
     state.updateFleetVectorsUi?.(root);
     state.updateLegacyFallbackUi?.(root);
     state.updateMagnetUi?.(root);
-    state.renderGalaxyDebugPanel?.(root);
+    state.renderGalaxyDebugPanel?.(getGalaxyInfoRoot() || root);
   }
 
   const api = {

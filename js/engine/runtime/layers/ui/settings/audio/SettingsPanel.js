@@ -79,6 +79,8 @@
       if (!ok) showToast(message, 'warning');
     };
 
+    const ttsApi = (typeof window !== 'undefined' && window.GQTTS) || null;
+
     const masterMute = root.querySelector('#set-master-mute');
     masterMute?.addEventListener('change', () => {
       settingsState.masterMuted = !!masterMute.checked;
@@ -101,6 +103,22 @@
       saveUiSettings();
     });
 
+    const ttsMute = root.querySelector('#set-tts-mute');
+    ttsMute?.addEventListener('change', () => {
+      settingsState.ttsMuted = !!ttsMute.checked;
+      audioManager?.setTtsMuted?.(settingsState.ttsMuted);
+      saveUiSettings();
+    });
+
+    const ttsAutoVoice = root.querySelector('#set-tts-auto-voice');
+    ttsAutoVoice?.addEventListener('change', () => {
+      settingsState.ttsAutoVoice = !!ttsAutoVoice.checked;
+      if (ttsApi && typeof ttsApi.setAutoVoice === 'function') {
+        ttsApi.setAutoVoice(settingsState.ttsAutoVoice);
+      }
+      saveUiSettings();
+    });
+
     bindRange('#set-master-vol', '#set-master-vol-value', (value) => {
       settingsState.masterVolume = Math.max(0, Math.min(1, value / 100));
       audioManager?.setMasterVolume?.(settingsState.masterVolume);
@@ -119,8 +137,25 @@
       saveUiSettings();
     });
 
+    bindRange('#set-tts-vol', '#set-tts-vol-value', (value) => {
+      settingsState.ttsVolume = Math.max(0, Math.min(1, value / 100));
+      audioManager?.setTtsVolume?.(settingsState.ttsVolume);
+      saveUiSettings();
+    });
+
     root.querySelector('#set-audio-test')?.addEventListener('click', () => {
       audioManager?.playUiConfirm?.();
+    });
+
+    root.querySelector('#set-tts-test')?.addEventListener('click', async () => {
+      if (!ttsApi || typeof ttsApi.speak !== 'function') {
+        showToast('TTS ist nicht verfuegbar.', 'warning');
+        return;
+      }
+      const result = await ttsApi.speak('Systemcheck. Sprachausgabe aktiv.', { noCache: true });
+      if (!result) {
+        showToast('TTS-Test konnte nicht abgespielt werden.', 'warning');
+      }
     });
 
     const transitionModeSelect = root.querySelector('#set-music-transition-mode');
@@ -272,11 +307,19 @@
     root.querySelector('#set-audio-reset')?.addEventListener('click', () => {
       settingsState.musicUrl = '';
       settingsState.autoSceneMusic = true;
+      settingsState.ttsVolume = 0.95;
+      settingsState.ttsMuted = false;
+      settingsState.ttsAutoVoice = true;
       settingsState.sceneTracks = Object.assign({}, DEFAULT_SCENE_TRACKS);
       settingsState.sfxMap = Object.assign({}, DEFAULT_SFX_MAP);
       if (audioManager) {
         audioManager.resetAudioDefaults?.();
         audioManager.setAutoSceneMusic?.(true);
+        audioManager.setTtsVolume?.(0.95);
+        audioManager.setTtsMuted?.(false);
+      }
+      if (ttsApi && typeof ttsApi.setAutoVoice === 'function') {
+        ttsApi.setAutoVoice(true);
       }
       saveUiSettings();
       rerenderSettings();

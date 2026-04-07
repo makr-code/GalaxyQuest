@@ -28,9 +28,19 @@
     audioManager.setMasterVolume(settingsState.masterVolume);
     audioManager.setMusicVolume(settingsState.musicVolume);
     audioManager.setSfxVolume(settingsState.sfxVolume);
+    if (typeof audioManager.setTtsVolume === 'function') {
+      audioManager.setTtsVolume(settingsState.ttsVolume);
+    }
     audioManager.setMasterMuted(settingsState.masterMuted);
     audioManager.setMusicMuted(settingsState.musicMuted);
     audioManager.setSfxMuted(settingsState.sfxMuted);
+    if (typeof audioManager.setTtsMuted === 'function') {
+      audioManager.setTtsMuted(settingsState.ttsMuted);
+    }
+
+    if (typeof window !== 'undefined' && window.GQTTS && typeof window.GQTTS.setAutoVoice === 'function') {
+      window.GQTTS.setAutoVoice(settingsState.ttsAutoVoice !== false);
+    }
 
     if (typeof audioManager.setMusicTransitionMode === 'function') {
       audioManager.setMusicTransitionMode(settingsState.musicTransitionMode);

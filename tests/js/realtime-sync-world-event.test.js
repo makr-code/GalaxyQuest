@@ -55,12 +55,18 @@ describe('RuntimeRealtimeSync – world_event SSE handler', () => {
   let fakeEs;
   let toastCalls;
   let dispatchedEvents;
+  let ttsSpeak;
 
   beforeEach(() => {
     mod = loadModule();
     fakeEs = new FakeEventSource();
     toastCalls = [];
     dispatchedEvents = [];
+    ttsSpeak = vi.fn().mockResolvedValue(null);
+    window.GQTTS = {
+      isAutoVoiceEnabled: vi.fn(() => true),
+      speak: ttsSpeak,
+    };
 
     window.addEventListener('gq:world-event', (ev) => {
       dispatchedEvents.push(ev.detail);
@@ -100,6 +106,7 @@ describe('RuntimeRealtimeSync – world_event SSE handler', () => {
     expect(toastCalls[0].msg).toContain('Eisenflotte schlägt Galaktischen Rat vor');
     expect(toastCalls[0].msg).toContain('neues Szenario');
     expect(toastCalls[0].type).toBe('info');
+    expect(ttsSpeak).toHaveBeenCalledWith(expect.stringContaining('Eisenflotte schlägt Galaktischen Rat vor'));
   });
 
   it('fires a toast notification for a scenario conclusion event', () => {
@@ -117,6 +124,17 @@ describe('RuntimeRealtimeSync – world_event SSE handler', () => {
     expect(toastCalls[0].msg).toContain('internal_collapse');
     expect(toastCalls[0].msg).toContain('Ergebnis');
     expect(toastCalls[0].type).toBe('info');
+    expect(ttsSpeak).toHaveBeenCalledWith(expect.stringContaining('Ergebnis: internal_collapse'));
+  });
+
+  it('speaks new message notifications when auto voice is enabled', () => {
+    fakeEs.emit('new_messages', {
+      unread: 3,
+      new: 2,
+    });
+
+    expect(toastCalls.length).toBe(1);
+    expect(ttsSpeak).toHaveBeenCalledWith('2 neue Nachrichten eingegangen.');
   });
 
   it('dispatches a gq:world-event CustomEvent on the window', () => {
@@ -132,9 +150,7 @@ describe('RuntimeRealtimeSync – world_event SSE handler', () => {
 
     fakeEs.emit('world_event', payload);
 
-    expect(dispatchedEvents.length).toBe(1);
-    expect(dispatchedEvents[0].event_id).toBe(3);
-    expect(dispatchedEvents[0].code).toBe('iron_fleet_global_council');
+    expect(dispatchedEvents.some((event) => event.event_id === 3 && event.code === 'iron_fleet_global_council')).toBe(true);
   });
 
   it('does not crash on malformed JSON in world_event', () => {

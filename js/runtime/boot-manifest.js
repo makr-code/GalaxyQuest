@@ -1,14 +1,15 @@
 (function () {
   const V = Object.freeze({
-    bootManifest: '20260406p4',
+    bootManifest: '20260407p2',
     bootAssets: '20260404p1',
     terminal: '20260404p51',
     starfield: '20260404p110',
     prolog: '1',
     auth: '20260404p111',
     assetCore: '20260404p50',
+    tts: '20260404p1',
     webgpuCore: '20260401p1',
-    runtime: '20260406p4',
+    runtime: '20260407p2',
     galaxyController: '20260404p2',
     footerNetworkStatus: '20260404p3',
     galaxyStarLoaderFacade: '20260404p4',
@@ -35,7 +36,7 @@
     settings2fa: '20260331p2',
     adminUsers: '20260331p1',
     systemBreadcrumb: '20260331p1',
-    game: '20260406p40',
+    game: '20260407p2',
     packageBundle: '20260407p1',
     flightDriverSmoke: '20260329p1',
     lodStreamingSmoke: '20260329p2'
@@ -50,7 +51,7 @@
   const assetVersions = Object.freeze({
     wm: '20260406p2',
     wmWidgets: '20260406p2',
-    gqwm: '20260406p2',
+    gqwm: '20260407p1',
     audio: V.assetCore,
     gqui: V.gqui,
     galaxyCameraController: '20260329p85',
@@ -106,6 +107,7 @@
       localScript('js/runtime/galaxy-model.js', V.assetCore),
       localScript('js/runtime/galaxy-db.js', V.assetCore),
       localScript('js/runtime/audio.js', V.assetCore),
+      localScript('js/runtime/tts.js', V.tts),
       CDN.three,
       localScript('js/engine/core/GraphicsContext.js', V.assetCore),
       localScript('js/engine/webgpu/WebGPURenderPass.js', V.webgpuCore),

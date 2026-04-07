@@ -77,7 +77,8 @@
       if (!widget) {
         widget = documentRef?.getElementById('colony-vfx-debug-widget');
         if (!widget) {
-          const overlay = documentRef?.getElementById('galaxy-info-overlay');
+          const overlay = windowRef?.WM?.body?.('galaxy-info')?.querySelector?.('#galaxy-info-overlay')
+            || documentRef?.getElementById('galaxy-info-overlay');
           if (!overlay) return;
           widget = documentRef.createElement('div');
           widget.id = 'colony-vfx-debug-widget';

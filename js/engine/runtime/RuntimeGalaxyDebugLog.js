@@ -51,7 +51,7 @@
   }
 
   function renderGalaxyDebugPanel(rootRef = null) {
-    const root = rootRef || state.wm?.body?.('galaxy');
+    const root = rootRef || state.wm?.body?.('galaxy-info') || state.wm?.body?.('galaxy');
     const log = root?.querySelector?.('#galaxy-debug-log');
     if (!log) return;
 

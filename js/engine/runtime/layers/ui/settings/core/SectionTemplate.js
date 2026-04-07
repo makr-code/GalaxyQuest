@@ -70,6 +70,16 @@
         </label>
         <label class="system-row">SFX: <span id="set-sfx-vol-value">${Math.round((audioState.sfxVolume || 0) * 100)}</span>%</label>
         <input id="set-sfx-vol" type="range" min="0" max="100" step="1" value="${Math.round((audioState.sfxVolume || 0) * 100)}" />
+        <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="checkbox" id="set-tts-mute" ${audioState.ttsMuted ? 'checked' : ''} />
+          Sprachausgabe stumm
+        </label>
+        <label class="system-row">Sprachausgabe: <span id="set-tts-vol-value">${Math.round((audioState.ttsVolume || 0.95) * 100)}</span>%</label>
+        <input id="set-tts-vol" type="range" min="0" max="100" step="1" value="${Math.round((audioState.ttsVolume || 0.95) * 100)}" />
+        <label class="system-row" style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="checkbox" id="set-tts-auto-voice" ${settingsState.ttsAutoVoice !== false ? 'checked' : ''} />
+          Automatische Sprachausgabe fuer Hinweise, Nachrichten und NPC-Dialoge
+        </label>
         <div class="system-row" style="font-size:0.8rem;color:var(--text-muted)">Letztes Audio-Event: <span id="set-last-audio-event">${lastAudioEventLabel}</span></div>
 
         <label class="system-row" style="margin-top:0.75rem;">Musik-URL (optional)</label>
@@ -107,6 +117,7 @@
         ${sfxRows}
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.55rem;">
           <button id="set-audio-test" class="btn btn-secondary btn-sm" type="button">SFX-Test</button>
+          <button id="set-tts-test" class="btn btn-secondary btn-sm" type="button">TTS-Test</button>
           <button id="set-sfx-apply" class="btn btn-secondary btn-sm" type="button">SFX speichern</button>
           <button id="set-audio-reset" class="btn btn-warning btn-sm" type="button">Audio-Defaults</button>
           <button id="set-scene-apply" class="btn btn-secondary btn-sm" type="button">Szenen speichern</button>

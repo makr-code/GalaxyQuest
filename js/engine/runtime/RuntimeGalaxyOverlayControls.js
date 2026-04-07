@@ -12,6 +12,8 @@
     documentRef: null,
     wmIsOpen: null,
     wmBody: null,
+    wmOpen: null,
+    wmClose: null,
     showToast: null,
     getGalaxy3d: null,
     updateGalaxyFollowUi: null,
@@ -33,6 +35,8 @@
     state.documentRef = opts.documentRef || document;
     state.wmIsOpen = typeof opts.wmIsOpen === 'function' ? opts.wmIsOpen : null;
     state.wmBody = typeof opts.wmBody === 'function' ? opts.wmBody : null;
+    state.wmOpen = typeof opts.wmOpen === 'function' ? opts.wmOpen : null;
+    state.wmClose = typeof opts.wmClose === 'function' ? opts.wmClose : null;
     state.showToast = typeof opts.showToast === 'function' ? opts.showToast : null;
     state.getGalaxy3d = typeof opts.getGalaxy3d === 'function' ? opts.getGalaxy3d : null;
     state.updateGalaxyFollowUi = typeof opts.updateGalaxyFollowUi === 'function' ? opts.updateGalaxyFollowUi : null;
@@ -50,6 +54,14 @@
   }
 
   function toggleGalaxyOverlay(root, selector, forceVisible) {
+    if (selector === '#galaxy-info-overlay') {
+      const isOpen = typeof state.wmIsOpen === 'function' ? !!state.wmIsOpen('galaxy-info') : false;
+      if (forceVisible === false) {
+        state.wmClose?.('galaxy-info');
+        return false;
+      }
+      return isOpen;
+    }
     if (!root) return false;
     const el = root.querySelector(selector);
     if (!el) return false;
@@ -138,8 +150,9 @@
         if (opened && typeof state.showToast === 'function') state.showToast('Galaxy controls overlay opened (O to toggle).', 'info');
       } else if (k === 'i') {
         e.preventDefault();
-        const opened = toggleGalaxyOverlay(root, '#galaxy-info-overlay');
-        if (opened && typeof state.showToast === 'function') state.showToast('Galaxy info overlay opened (I to toggle).', 'info');
+        if (typeof state.showToast === 'function') {
+          state.showToast('Galaxy Intel wird nur ueber den Taskleisten-Button ein-/ausgeblendet.', 'info');
+        }
       } else if (k === 'escape') {
         toggleGalaxyOverlay(root, '#galaxy-controls-overlay', false);
         toggleGalaxyOverlay(root, '#galaxy-info-overlay', false);

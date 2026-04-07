@@ -14,7 +14,9 @@
     const settingsState = opts.settingsState;
     const uiState = opts.uiState;
     const currentUser = opts.currentUser;
-    const audioManager = opts.audioManager;
+    const getAudioManager = typeof opts.getAudioManager === 'function'
+      ? opts.getAudioManager
+      : (() => opts.audioManager || null);
     const getAudioTrackOptions = typeof opts.getAudioTrackOptions === 'function' ? opts.getAudioTrackOptions : (() => []);
     const renderMonoIconButton = opts.renderMonoIconButton;
     const renderTopbarTrackQuickList = opts.renderTopbarTrackQuickList;
@@ -50,7 +52,7 @@
         const audioUiApi = windowRef.GQRuntimeAudioUi || null;
         if (!audioUiApi || typeof audioUiApi.refreshAudioUi !== 'function') return;
         audioUiApi.refreshAudioUi({
-          audioManager,
+          audioManager: getAudioManager(),
           settingsState,
           audioTrackOptions: getAudioTrackOptions(),
           documentRef,
@@ -79,6 +81,7 @@
         } else {
           applyTransitionPreset(settingsState.transitionPreset);
         }
+        const audioManager = getAudioManager();
         if (audioManager) {
           const audioApplyApi = windowRef.GQRuntimeAudioSettingsApply || null;
           if (audioApplyApi && typeof audioApplyApi.applyLoadedAudioSettings === 'function') {
@@ -177,7 +180,7 @@
         if (!userMenuActionsApi || typeof userMenuActionsApi.handleUserMenuAction !== 'function') return;
         await userMenuActionsApi.handleUserMenuAction(action, {
           settingsState,
-          audioManager,
+          audioManager: getAudioManager(),
           saveUiSettings: () => this.saveUiSettings(),
           refreshAudioUi: () => this.refreshAudioUi(),
           renderUserMenu: () => this.renderUserMenu(),

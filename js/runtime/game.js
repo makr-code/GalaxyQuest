@@ -288,7 +288,7 @@
     };
   const currentUser = window.currentUser || window.GQ_CURRENT_USER || null;
 
-  let audioManager = window.audioManager || window.GQAudioManagerInstance || null;
+  let audioManager = window.__GQ_AUDIO_MANAGER || window.audioManager || window.GQAudioManagerInstance || null;
   let colonies = Array.isArray(window.colonies) ? window.colonies : [];
   let currentColony = null;
   let galaxy3d = window.galaxy3d || null;
@@ -705,6 +705,8 @@
     documentRef: document,
     wmIsOpen,
     wmBody,
+    wmOpen: (id) => WM?.open?.(id),
+    wmClose: (id) => WM?.close?.(id),
     showToast,
     getGalaxy3d: getGalaxy3dRef,
     updateGalaxyFollowUi,
@@ -1075,6 +1077,7 @@
     uiState,
     currentUser,
     audioManager,
+    getAudioManager: () => audioManager || window.__GQ_AUDIO_MANAGER || null,
     getAudioTrackOptions,
     renderMonoIconButton,
     renderTopbarTrackQuickList,
@@ -1355,6 +1358,7 @@
       renderFleetForm,
       renderWormholes,
       renderGalaxyWindow,
+      renderGalaxyInfoWindow,
       renderMessages,
       renderIntel,
       renderTradeRoutes,
@@ -2542,6 +2546,91 @@
     galaxyController.renderWindow();
   }
 
+  function getGalaxyInfoRoot() {
+    return WM?.body?.('galaxy-info') || null;
+  }
+
+  function renderGalaxyInfoWindow() {
+    const root = WM?.body?.('galaxy-info');
+    if (!root) return;
+
+    if (!root.querySelector('#galaxy-info-overlay')) {
+      root.innerHTML = `
+        <div id="galaxy-info-overlay" class="galaxy-info-window-shell">
+          <div class="galaxy-overlay-shortcuts">Shortcuts: O Controls | I Info | L Follow | V Vectors</div>
+
+          <div class="galaxy-info-tabs" role="tablist" aria-label="Galaxy Info Tabs">
+            <button class="galaxy-info-tab is-active" type="button" role="tab" aria-selected="true" data-info-tab="details">Details</button>
+            <button class="galaxy-info-tab" type="button" role="tab" aria-selected="false" data-info-tab="planets">Planets</button>
+            <button class="galaxy-info-tab" type="button" role="tab" aria-selected="false" data-info-tab="debug">Debug</button>
+          </div>
+
+          <section class="galaxy-info-panel is-active" data-info-panel="details">
+            <div id="galaxy-system-details" class="text-muted">Fenster geoeffnet. Waehle ein System fuer Details.</div>
+            <div class="galaxy-colony-legend" aria-label="Kolonie-Ring-Legende">
+              <div class="galaxy-colony-legend-title">Kolonie-Ringe</div>
+              <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-sm"></span><span>Aussenposten</span></div>
+              <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-md"></span><span>Kolonie</span></div>
+              <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-lg"></span><span>Kernwelt</span></div>
+            </div>
+          </section>
+
+          <section class="galaxy-info-panel" data-info-panel="planets">
+            <div id="galaxy-planets-panel" class="galaxy-planets-panel"></div>
+          </section>
+
+          <section class="galaxy-info-panel" data-info-panel="debug">
+            <div class="galaxy-debug-wrap">
+              <div class="galaxy-debug-headline">
+                <div class="galaxy-debug-title">Lade-/Render-Log</div>
+                <div class="galaxy-debug-actions">
+                  <button class="btn btn-secondary btn-sm" id="galaxy-debug-copy-btn" type="button">Letzten kopieren</button>
+                  <button class="btn btn-secondary btn-sm" id="galaxy-debug-download-btn" type="button">Download</button>
+                  <button class="btn btn-secondary btn-sm" id="galaxy-debug-clear-btn" type="button">Leeren</button>
+                </div>
+              </div>
+              <div id="galaxy-debug-log" class="galaxy-debug-log">Keine aktuellen Lade-/Renderfehler.</div>
+            </div>
+          </section>
+        </div>
+      `;
+
+      const infoTabButtons = Array.from(root.querySelectorAll('[data-info-tab]'));
+      const infoPanels = Array.from(root.querySelectorAll('[data-info-panel]'));
+      const activateInfoTab = (tabKey) => {
+        const key = String(tabKey || 'details').trim().toLowerCase();
+        infoTabButtons.forEach((btn) => {
+          const isActive = String(btn.getAttribute('data-info-tab') || '').toLowerCase() === key;
+          btn.classList.toggle('is-active', isActive);
+          btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+        infoPanels.forEach((panel) => {
+          const isActive = String(panel.getAttribute('data-info-panel') || '').toLowerCase() === key;
+          panel.classList.toggle('is-active', isActive);
+        });
+      };
+
+      infoTabButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          activateInfoTab(btn.getAttribute('data-info-tab'));
+        });
+      });
+      activateInfoTab('details');
+
+      root.querySelector('#galaxy-debug-copy-btn')?.addEventListener('click', () => copyLastGalaxyDebugError());
+      root.querySelector('#galaxy-debug-download-btn')?.addEventListener('click', () => downloadGalaxyDebugLog());
+      root.querySelector('#galaxy-debug-clear-btn')?.addEventListener('click', () => clearGalaxyDebugErrors());
+    }
+
+    renderGalaxyDebugPanel(root);
+    const activeInfoStar = pinnedStar || uiState.activeStar || null;
+    if (activeInfoStar) {
+      galaxySystemDetailsFacade.renderGalaxySystemDetails(root, activeInfoStar, isSystemModeActive());
+    } else if (!root.querySelector('#galaxy-planets-panel')?.innerHTML.trim()) {
+      renderGalaxyColonySummary(root.querySelector('#galaxy-planets-panel'), galaxyStars, null);
+    }
+  }
+
   function updateTopbarOrbitBadge() {
     const badge = document.getElementById('topbar-orbit-mode');
     const diagEl = document.getElementById('settings-orbit-diag');
@@ -2745,7 +2834,8 @@
   }
 
   function renderGalaxyFallbackList(root, stars, from, to, reason = '') {
-    const panel = root.querySelector('#galaxy-planets-panel');
+    const infoRoot = getGalaxyInfoRoot();
+    const panel = infoRoot?.querySelector('#galaxy-planets-panel');
     if (!panel) return;
     const rows = (stars || []).slice(0, 40).map((s) => {
       return `<div class="planet-detail-row">#${Number(s.system_index)} - ${esc(s.name || s.catalog_name || 'Unnamed')} (${esc(String(s.spectral_class || '?'))}${esc(String(s.subtype ?? ''))})</div>`;
@@ -2783,7 +2873,9 @@
   }
 
   function renderGalaxySystemDetails(root, star, zoomed) {
-    galaxySystemDetailsFacade.renderGalaxySystemDetails(root, star, zoomed);
+    const infoRoot = getGalaxyInfoRoot();
+    if (!infoRoot) return;
+    galaxySystemDetailsFacade.renderGalaxySystemDetails(infoRoot, star, zoomed);
   }
 
   // QuickNav domain logic is delegated to an engine runtime facade.
@@ -3186,7 +3278,6 @@
           if (galaxy3d && typeof galaxy3d.focusOnStar === 'function') {
             galaxy3d.focusOnStar(target, !flight.ok);
           }
-          toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
           renderGalaxySystemDetails(root, target, isSystemModeActive());
           showToast(`Range auf ${ownerName}: ${from}-${to} ┬À Fokus auf ${target.name || target.catalog_name || `System ${Number(target.system_index || '?')}`}`, 'info');
           return;
@@ -3309,12 +3400,13 @@
           }
           applyGalaxyOwnerHighlightToRenderer(displayedStars);
         }
-        const details = root.querySelector('#galaxy-system-details');
+        const infoRoot = getGalaxyInfoRoot();
+        const details = infoRoot?.querySelector('#galaxy-system-details');
         if (details) {
           details.innerHTML = `<span class="text-cyan">Lazy full-load: ${loadedSystems} Systeme nachgeladen (${start}-${end}/${to}, chunk ${loadedChunks}).</span>`;
         }
         if (!galaxy3d?.systemMode) {
-          renderGalaxyColonySummary(root.querySelector('#galaxy-planets-panel'), galaxyStars, { from, to });
+          renderGalaxyColonySummary(infoRoot?.querySelector('#galaxy-planets-panel'), galaxyStars, { from, to });
         }
       }
     }
@@ -3697,10 +3789,13 @@
   }
 
   async function loadStarSystemPlanets(root, star) {
-    const panel = root.querySelector('#galaxy-planets-panel');
-    if (!panel || !star) return;
+    const infoRoot = getGalaxyInfoRoot();
+    const panel = infoRoot?.querySelector('#galaxy-planets-panel');
+    if (!star) return;
 
-    panel.innerHTML = '<p class="text-muted">Loading planets...</p>';
+    if (panel) {
+      panel.innerHTML = '<p class="text-muted">Loading planets...</p>';
+    }
 
     const g = Number(star.galaxy_index || 1);
     const s = Number(star.system_index || 1);
@@ -3772,7 +3867,9 @@
           logEnterSystemPipeline('loadStarSystemPlanets:onStaleData', Object.assign({
             rendererInstanceId: String(galaxy3d?.getRenderStats?.().instanceId || galaxy3d?.instanceId || ''),
           }, summarizeSystemPayloadMeta(payload, g, s)));
-          renderPlanetPanel(panel, star, payload);
+          if (panel) {
+            renderPlanetPanel(panel, star, payload);
+          }
           transitionIntoSystemView(star, payload, 'loadStarSystemPlanets:onStaleData');
         },
       });
@@ -3796,10 +3893,12 @@
         console.error('[GQ] enterSystemView (fallback) failed:', e3d);
         pushGalaxyDebugError('system-render-fallback', String(e3d?.message || e3d || 'unknown error'), `${g}:${s}`);
       }
-      panel.innerHTML = `<p class="text-yellow">Systemansicht ge├Âffnet. Planetendaten konnten nicht geladen werden.</p>
-        <button class="btn btn-secondary btn-sm" style="margin-top:0.4rem" id="planet-retry-btn">Ôå║ Erneut laden</button>`;
-      const retryBtn = panel.querySelector('#planet-retry-btn');
-      if (retryBtn) retryBtn.addEventListener('click', () => loadStarSystemPlanets(root, star));
+      if (panel) {
+        panel.innerHTML = `<p class="text-yellow">Systemansicht ge├Âffnet. Planetendaten konnten nicht geladen werden.</p>
+          <button class="btn btn-secondary btn-sm" style="margin-top:0.4rem" id="planet-retry-btn">Ôå║ Erneut laden</button>`;
+        const retryBtn = panel.querySelector('#planet-retry-btn');
+        if (retryBtn) retryBtn.addEventListener('click', () => loadStarSystemPlanets(root, star));
+      }
       showToast('Planetendaten nicht verf├╝gbar ÔÇô bitte Retry klicken oder Doppelklick wiederholen.', 'warning');
       if (galaxyModel) {
         galaxyModel.setSystemLoadState(g, s, { pending: false, payload: 'error' });
@@ -3809,7 +3908,9 @@
 
     const safePayload = buildSafeSystemPayload(loadResult.payload);
     logEnterSystemPipeline('loadStarSystemPlanets:safePayload', summarizeSystemPayloadMeta(safePayload, g, s));
-    renderPlanetPanel(panel, star, safePayload);
+    if (panel) {
+      renderPlanetPanel(panel, star, safePayload);
+    }
     try {
       transitionIntoSystemView(star, safePayload, 'loadStarSystemPlanets:final');
     } catch (e3d) {
@@ -4150,12 +4251,14 @@
   }
 
   function focusPlanetDetailsInOverlay(root, planetLike, zoomPlanet, activateColony = false) {
-    const panel = root.querySelector('#galaxy-planets-panel');
-    if (!panel || !planetLike || !planetLike.__slot) return;
-    toggleGalaxyOverlay(root, '#galaxy-info-overlay', true);
-    setActivePlanetListItem(panel, planetLike.__slot.position);
-    const detail = ensurePlanetDetailPanel(panel);
-    renderPlanetDetailCard(detail, planetLike.__slot);
+    const infoRoot = getGalaxyInfoRoot();
+    const panel = infoRoot?.querySelector('#galaxy-planets-panel');
+    if (!planetLike || !planetLike.__slot) return;
+    if (panel) {
+      setActivePlanetListItem(panel, planetLike.__slot.position);
+      const detail = ensurePlanetDetailPanel(panel);
+      renderPlanetDetailCard(detail, planetLike.__slot);
+    }
     if (zoomPlanet) {
       focusSystemPlanetInView(planetLike, true);
     }

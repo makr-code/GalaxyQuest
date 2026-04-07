@@ -2309,6 +2309,38 @@ const WMCore = (() => {
     function _callRender(id) {
       var cfg = _registry.get(id);
       if (cfg && cfg.onRender) cfg.onRender(body(id));
+      _normalizeBodyOverflow(id);
+    }
+
+    function _normalizeBodyOverflow(id) {
+      var win = _wins.get(id);
+      if (!win || !win.el) return;
+      var bodyEl = win.el.querySelector(':scope > .wm-body');
+      if (!bodyEl) return;
+
+      bodyEl.style.minHeight = '0';
+      if (!win.cfg || !win.cfg.fullscreenDesktop) {
+        bodyEl.style.overflow = bodyEl.style.overflow || 'auto';
+      }
+
+      var first = bodyEl.firstElementChild;
+      if (!(first instanceof HTMLElement)) return;
+      if (first.hasAttribute('data-wm-scroll-fix-optout')) return;
+
+      var cs = window.getComputedStyle(first);
+      var overflowY = String(cs.overflowY || cs.overflow || '').toLowerCase();
+      var overflowX = String(cs.overflowX || cs.overflow || '').toLowerCase();
+
+      if ((overflowY === 'hidden' || overflowY === 'clip') && (first.scrollHeight > first.clientHeight + 2)) {
+        first.style.overflowY = 'auto';
+        first.style.minHeight = '0';
+        first.style.maxHeight = '100%';
+      }
+      if ((overflowX === 'hidden' || overflowX === 'clip') && (first.scrollWidth > first.clientWidth + 2)) {
+        first.style.overflowX = 'auto';
+        first.style.minWidth = '0';
+        first.style.maxWidth = '100%';
+      }
     }
 
     // ── Internal: dock system ─────────────────────────────────────────────
@@ -2569,6 +2601,7 @@ const WMCore = (() => {
         var nh   = Math.min(maxH, Math.max(180, sh + (e.clientY - sy)));
         winEl.style.width  = nw + 'px';
         winEl.style.height = nh + 'px';
+        _normalizeBodyOverflow(winEl.dataset.winid);
       });
 
       document.addEventListener('mouseup', function () {
@@ -2578,6 +2611,7 @@ const WMCore = (() => {
         var id = winEl.dataset.winid;
         _savePos(id, parseInt(winEl.style.left), parseInt(winEl.style.top),
                  winEl.offsetWidth, winEl.offsetHeight);
+        _normalizeBodyOverflow(id);
         _syncAllDockGroupUis();
       });
     }

@@ -37,6 +37,28 @@
   position: relative;
 }
 
+.wm-window[data-winid="galaxy-info"] .wm-body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.wm-window[data-winid="galaxy-info"] #galaxy-info-overlay {
+  position: static;
+  top: auto;
+  right: auto;
+  left: auto;
+  bottom: auto;
+  width: auto;
+  max-height: none;
+  height: 100%;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0.65rem;
+  background: transparent;
+}
+
 /* ── Console window ─────────────────────────────────────────── */
 .wm-window[data-winid="console"] .wm-body {
   padding: 0;

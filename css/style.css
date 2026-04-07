@@ -30,6 +30,8 @@
   --deut-color:     #44aaff;
   --energy-color:   #ffe44a;
 
+  --topbar-h:  52px;
+
   --radius:    8px;
   --radius-sm: 4px;
   --shadow:    0 4px 24px rgba(0,0,0,0.6);
@@ -3369,16 +3371,16 @@ input:focus, select:focus, textarea:focus {
 }
 
 #galaxy-controls-overlay {
-  top: 10px;
+  top: calc(var(--topbar-h) + 10px);
   left: 10px;
   max-width: min(96vw, 960px);
 }
 
 #galaxy-info-overlay {
-  top: 10px;
+  top: calc(var(--topbar-h) + 10px);
   right: 10px;
   width: min(360px, 40vw);
-  max-height: calc(100% - 20px);
+  max-height: calc(100% - var(--topbar-h) - 20px);
   overflow: auto;
 }
 

@@ -104,48 +104,6 @@
               </div>
             </div>
 
-            <aside id="galaxy-info-overlay" class="galaxy-overlay-window galaxy-info-overlay hidden">
-              <div class="galaxy-overlay-head">
-                <strong>Galaxy Intel</strong>
-                <button class="btn btn-sm" data-overlay-close="#galaxy-info-overlay">Close</button>
-              </div>
-              <div class="galaxy-overlay-shortcuts">Shortcuts: O Controls | I Info | L Follow | V Vectors</div>
-
-              <div class="galaxy-info-tabs" role="tablist" aria-label="Galaxy Info Tabs">
-                <button class="galaxy-info-tab is-active" type="button" role="tab" aria-selected="true" data-info-tab="details">Details</button>
-                <button class="galaxy-info-tab" type="button" role="tab" aria-selected="false" data-info-tab="planets">Planets</button>
-                <button class="galaxy-info-tab" type="button" role="tab" aria-selected="false" data-info-tab="debug">Debug</button>
-              </div>
-
-              <section class="galaxy-info-panel is-active" data-info-panel="details">
-                <div id="galaxy-system-details" class="text-muted">Overlay hidden. Press I to open details.</div>
-                <div class="galaxy-colony-legend" aria-label="Kolonie-Ring-Legende">
-                  <div class="galaxy-colony-legend-title">Kolonie-Ringe</div>
-                  <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-sm"></span><span>Aussenposten</span></div>
-                  <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-md"></span><span>Kolonie</span></div>
-                  <div class="galaxy-colony-legend-row"><span class="galaxy-colony-legend-ring galaxy-colony-legend-ring-lg"></span><span>Kernwelt</span></div>
-                </div>
-              </section>
-
-              <section class="galaxy-info-panel" data-info-panel="planets">
-                <div id="galaxy-planets-panel" class="galaxy-planets-panel"></div>
-              </section>
-
-              <section class="galaxy-info-panel" data-info-panel="debug">
-                <div class="galaxy-debug-wrap">
-                  <div class="galaxy-debug-headline">
-                    <div class="galaxy-debug-title">Lade-/Render-Log</div>
-                    <div class="galaxy-debug-actions">
-                      <button class="btn btn-secondary btn-sm" id="galaxy-debug-copy-btn" type="button">Letzten kopieren</button>
-                      <button class="btn btn-secondary btn-sm" id="galaxy-debug-download-btn" type="button">Download</button>
-                      <button class="btn btn-secondary btn-sm" id="galaxy-debug-clear-btn" type="button">Leeren</button>
-                    </div>
-                  </div>
-                  <div id="galaxy-debug-log" class="galaxy-debug-log">Keine aktuellen Lade-/Renderfehler.</div>
-                </div>
-              </section>
-            </aside>
-
           </div>
         `;
 

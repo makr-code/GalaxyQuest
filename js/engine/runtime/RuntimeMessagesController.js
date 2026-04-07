@@ -82,6 +82,24 @@
       return renderInlineTemplateList(templates[templateName], rows);
     }
 
+    function speakMessageDetail(message) {
+      const ttsApi = (typeof window !== 'undefined' && window.GQTTS) || null;
+      if (!ttsApi || typeof ttsApi.isAutoVoiceEnabled !== 'function' || typeof ttsApi.speak !== 'function') return;
+      if (!ttsApi.isAutoVoiceEnabled()) return;
+
+      const sender = String(message?.sender || 'Unbekannt').trim();
+      const subject = String(message?.subject || '').trim();
+      const bodyRaw = String(message?.body || '').replace(/\s+/g, ' ').trim();
+      const body = bodyRaw.length > 220 ? `${bodyRaw.slice(0, 217)}...` : bodyRaw;
+      const parts = [];
+      if (sender) parts.push(`Nachricht von ${sender}.`);
+      if (subject) parts.push(`Betreff: ${subject}.`);
+      if (body) parts.push(body);
+      const text = parts.join(' ').trim();
+      if (!text) return;
+      ttsApi.speak(text).catch(() => {});
+    }
+
     function consolePush(line) {
       const state = getMessageConsoleState();
       const text = String(line || '').trim();
@@ -192,6 +210,7 @@
             showMessageDetail(root, message);
             const audioManager = getAudioManager();
             if (audioManager && typeof audioManager.playMessageRead === 'function') audioManager.playMessageRead();
+            speakMessageDetail(message);
             consolePush(`[read] #${mid} from ${message.sender || 'Unknown'}: ${message.subject || '(no subject)'}`);
             renderConsoleLog(root);
             row.classList.remove('unread');
