@@ -213,18 +213,42 @@ function npc_pve_build_prompt(int $userId, array $faction, int $standing, array 
         '- Keep message short and in-universe.',
     ];
 
+    $factionContext = [
+        'id' => (int) ($faction['id'] ?? 0),
+        'code' => (string) ($faction['code'] ?? ''),
+        'name' => (string) ($faction['name'] ?? ''),
+        'type' => (string) ($faction['faction_type'] ?? ''),
+        'aggression' => (int) ($faction['aggression'] ?? 50),
+        'trade_willingness' => (int) ($faction['trade_willingness'] ?? 50),
+        'power_level' => (int) ($faction['power_level'] ?? 1000),
+        'base_diplomacy' => (int) ($faction['base_diplomacy'] ?? 0),
+    ];
+
+    // Enrich with lore data from spec if available.
+    $factionCode = (string) ($faction['code'] ?? '');
+    if ($factionCode !== '') {
+        try {
+            require_once __DIR__ . '/llm_soc/FactionSpecLoader.php';
+            $specLoader = new FactionSpecLoader();
+            $spec = $specLoader->loadFactionSpec($factionCode);
+            if (!empty($spec['description'])) {
+                $factionContext['lore_description'] = (string) $spec['description'];
+            }
+            $society = $spec['society'] ?? [];
+            if (!empty($society['government'])) {
+                $factionContext['lore_government'] = (string) $society['government'];
+            }
+            if (!empty($society['culture'])) {
+                $factionContext['lore_culture'] = (string) $society['culture'];
+            }
+        } catch (\Throwable $e) {
+            // Spec not available – proceed with numeric values only.
+        }
+    }
+
     $context = [
         'player_id' => $userId,
-        'faction' => [
-            'id' => (int) ($faction['id'] ?? 0),
-            'code' => (string) ($faction['code'] ?? ''),
-            'name' => (string) ($faction['name'] ?? ''),
-            'type' => (string) ($faction['faction_type'] ?? ''),
-            'aggression' => (int) ($faction['aggression'] ?? 50),
-            'trade_willingness' => (int) ($faction['trade_willingness'] ?? 50),
-            'power_level' => (int) ($faction['power_level'] ?? 1000),
-            'base_diplomacy' => (int) ($faction['base_diplomacy'] ?? 0),
-        ],
+        'faction' => $factionContext,
         'standing' => $standing,
         'player_snapshot' => $snapshot,
     ];

@@ -1776,6 +1776,23 @@ const API = (() => {
       options,
       timeout,
     }),
+    chatNpc: ({
+      faction_code,
+      npc_name,
+      player_message,
+      model,
+      temperature,
+      options,
+      timeout,
+    } = {}) => post('api/llm.php?action=chat_npc', {
+      faction_code,
+      npc_name,
+      player_message,
+      model,
+      temperature,
+      options,
+      timeout,
+    }),
 
     // Situations
     situations: (status = 'active', limit = 50) =>
@@ -1802,5 +1819,6 @@ if (typeof window !== 'undefined') {
     profiles: () => API.llmProfiles(),
     compose: (payload) => API.llmCompose(payload),
     chatProfile: (payload) => API.llmChatProfile(payload),
+    chatNpc: (payload) => API.chatNpc(payload),
   };
 }
