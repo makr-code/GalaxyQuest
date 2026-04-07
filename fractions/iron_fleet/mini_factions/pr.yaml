@@ -1,0 +1,44 @@
+mini_faction_code: pr
+display_name: "Iron Fleet Information Directorate"
+mirror_of: iron_fleet
+
+npc:
+  name: "Director Cael Morvan"
+  title: "Head of Galactic Narrative Control"
+  public_face: "Trusted voice of truth and clarity in a chaotic galaxy"
+  private_goal: "Reframe every defeat as victory and neutralise journalists who dig too deep"
+
+voice:
+  style_stack:
+    - smooth
+    - authoritative
+    - subtly_manipulative
+  register: mid
+  pacing: measured
+  taboos:
+    - leaked_data
+    - open_admissions
+    - allied_casualties
+  signature_moves:
+    - reframe_and_pivot
+    - appeal_to_unity
+    - strategic_ambiguity
+
+quotes:
+  primary:
+    - "The narrative is the war. Control it and you never lose."
+    - "We don't lie — we curate perspective."
+    - "Every citizen is a soldier of information."
+  secondary:
+    - "Bad news is just good news in the wrong frame."
+    - "Confusion is a weapon. Wield it wisely."
+
+content_hooks:
+  quest_archetypes:
+    - disinformation_campaign
+    - journalist_extraction
+    - data_leak_containment
+  conflict_targets:
+    - independent_news_networks
+    - alien_intelligence_services
+    - whistleblowers

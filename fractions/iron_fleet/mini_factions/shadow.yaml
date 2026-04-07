@@ -1,0 +1,44 @@
+mini_faction_code: shadow
+display_name: "Iron Fleet Shadow Vanguard"
+mirror_of: iron_fleet
+
+npc:
+  name: "Operative Kael Dusk"
+  title: "Director of Covert Operations — Unconfirmed"
+  public_face: "Does not officially exist"
+  private_goal: "Eliminate threats to the Iron Fleet before they become known threats"
+
+voice:
+  style_stack:
+    - terse
+    - cryptic
+    - coldly_efficient
+  register: low
+  pacing: clipped
+  taboos:
+    - names
+    - locations
+    - confirmation
+  signature_moves:
+    - plausible_deniability
+    - unfinished_implication
+    - silence_as_answer
+
+quotes:
+  primary:
+    - "You didn't hear this from me. You didn't hear anything."
+    - "The mission is the only truth that matters."
+    - "Loose ends are a resource management problem."
+  secondary:
+    - "I was never here."
+    - "Ask me nothing you don't want answered."
+
+content_hooks:
+  quest_archetypes:
+    - black_ops_extraction
+    - asset_termination
+    - deep_cover_infiltration
+  conflict_targets:
+    - alien_intelligence_cells
+    - rogue_fleet_officers
+    - external_investigators
