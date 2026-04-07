@@ -60,7 +60,30 @@ $opts = getopt('', [
 ]);
 
 if (isset($opts['help'])) {
-    echo file_get_contents(__FILE__) . PHP_EOL;
+    echo <<<'HELP'
+mysql_to_themis_export.php – GalaxyQuest → ThemisDB bulk export tool.
+
+Usage:
+  php tools/mysql_to_themis_export.php [options]
+
+Options:
+  --output-dir=<path>    Directory to write JSONL files (default: /tmp/themis_export)
+  --tables=<t1,t2,...>   Comma-separated table list (default: all tables)
+  --batch-size=<N>       Rows per batch SELECT, default 5000
+  --push                 Immediately push each JSONL to ThemisDB after export
+  --push-url=<url>       ThemisDB base URL for --push (default: THEMISDB_BASE_URL env)
+  --push-token=<tok>     ThemisDB API token for --push
+  --validate             After push compare row counts (MySQL vs ThemisDB)
+  --dry-run              Print stats without writing files or pushing
+  --help                 Show this help
+
+Examples:
+  php tools/mysql_to_themis_export.php --output-dir=/tmp/gq_export
+  php tools/mysql_to_themis_export.php --tables=users,colonies --push
+  php tools/mysql_to_themis_export.php --push --push-url=http://localhost:8090 --validate
+
+See docs/technical/THEMISDB_MIGRATION_ROADMAP.md for full migration plan.
+HELP;
     exit(0);
 }
 
@@ -298,18 +321,33 @@ foreach ($tablesToExport as $table => $meta) {
         continue;
     }
 
-    $exported   = 0;
-    $offset     = 0;
+    $exported    = 0;
     $batchBuffer = [];
 
-    while ($offset < $totalRows) {
-        $rows = $db->query(
-            "SELECT * FROM `{$table}` ORDER BY `{$pk}` LIMIT {$batchSize} OFFSET {$offset}"
-        );
-        if ($rows === false) {
+    // Determine if we can use keyset pagination (requires a single integer PK).
+    // Keyset is O(log n) per batch; OFFSET is O(n) and degrades on large tables.
+    $useKeyset  = ($pk !== 'state_key'); // state_key is VARCHAR; all others are INT
+    $lastPkVal  = 0;
+
+    do {
+        if ($useKeyset) {
+            // Keyset: WHERE pk > last_seen ORDER BY pk LIMIT batch
+            $stmt = $db->prepare(
+                "SELECT * FROM `{$table}` WHERE `{$pk}` > ? ORDER BY `{$pk}` LIMIT {$batchSize}"
+            );
+            $stmt->execute([$lastPkVal]);
+        } else {
+            // Fallback OFFSET for non-integer PKs (rare; only app_state uses state_key).
+            $stmt = $db->prepare(
+                "SELECT * FROM `{$table}` ORDER BY `{$pk}` LIMIT {$batchSize} OFFSET {$exported}"
+            );
+            $stmt->execute([]);
+        }
+
+        if ($stmt === false) {
             break;
         }
-        $batch = $rows->fetchAll();
+        $batch = $stmt->fetchAll();
         if (empty($batch)) {
             break;
         }
@@ -324,14 +362,18 @@ foreach ($tablesToExport as $table => $meta) {
             }
         }
 
-        // If --push, send each batch to ThemisDB immediately to avoid huge memory usage.
+        // Advance keyset cursor to last seen PK value.
+        if ($useKeyset) {
+            $lastRow   = end($batch);
+            $lastPkVal = $lastRow[$pk] ?? $lastPkVal;
+        }
+
+        // If --push, flush each batch to ThemisDB immediately to avoid memory pressure.
         if ($doPush && !empty($batchBuffer)) {
             push_batch($themis, $table, $batchBuffer, $meta);
             $batchBuffer = [];
         }
-
-        $offset += $batchSize;
-    }
+    } while (count($batch) === $batchSize);
 
     fclose($fh);
 

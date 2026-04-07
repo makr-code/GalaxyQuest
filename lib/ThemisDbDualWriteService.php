@@ -203,6 +203,9 @@ final class ThemisDbDualWriteService
                     standing:         edge.standing,
                     severity:         edge.standing <= -8 ? "critical" : "high",
                     source:           "themisdb_graph"
+                    /* Note: faction-to-faction standings use the FACTION_RELATIONS.yaml scale
+                       (-10 absolute enemy … +10 absolute ally), so -8 is near-maximum
+                       hostility and correctly classified as "critical". */
                 }
             ',
             ['threshold' => $threshold]
