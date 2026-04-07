@@ -1041,21 +1041,24 @@ function seed_prolog_initial_quest(PDO $db, int $userId, string $factionId): ?in
 
     // Avoid duplicate if called more than once for the same user.
     $existsStmt = $db->prepare(
-        'SELECT id FROM user_faction_quests
-          WHERE user_id = ? AND faction_quest_id = ?
-          LIMIT 1'
+        'SELECT COUNT(*) FROM user_faction_quests
+          WHERE user_id = ? AND faction_quest_id = ?'
     );
     $existsStmt->execute([$userId, $factionQuestId]);
-    if ($existsStmt->fetchColumn() !== false) {
+    if ((int) $existsStmt->fetchColumn() > 0) {
         return null;
     }
 
-    $db->prepare(
+    $ins = $db->prepare(
         'INSERT INTO user_faction_quests (user_id, faction_quest_id, status, progress_json)
          VALUES (?, ?, \'active\', \'{}\')'
-    )->execute([$userId, $factionQuestId]);
+    );
+    $ins->execute([$userId, $factionQuestId]);
+    if ($ins->rowCount() < 1) {
+        return null;
+    }
 
-    return (int)$db->lastInsertId();
+    return (int) $db->lastInsertId();
 }
 
 /**
