@@ -170,12 +170,39 @@ describe('speak()', () => {
     expect(global.fetch.mock.calls.length).toBeGreaterThan(count1);
   });
 
-  it('calls duckMusic() on window.__GQ_AUDIO_MANAGER when present', async () => {
+  it('calls duckMusic() on window.__GQ_AUDIO_MANAGER when present (legacy fallback)', async () => {
     const duckMusic = vi.fn();
     vi.stubGlobal('__GQ_AUDIO_MANAGER', { duckMusic });
     const GQTTS = loadTtsScript();
     await GQTTS.speak('Duck the music');
     expect(duckMusic).toHaveBeenCalled();
+    delete window.__GQ_AUDIO_MANAGER;
+  });
+
+  it('prefers duckMusicForTts() over duckMusic() when available', async () => {
+    const duckMusic = vi.fn();
+    const duckMusicForTts = vi.fn();
+    vi.stubGlobal('__GQ_AUDIO_MANAGER', { duckMusic, duckMusicForTts });
+    const GQTTS = loadTtsScript();
+    await GQTTS.speak('Prefer TTS duck');
+    expect(duckMusicForTts).toHaveBeenCalled();
+    expect(duckMusic).not.toHaveBeenCalled();
+    delete window.__GQ_AUDIO_MANAGER;
+  });
+
+  it('delegates to playTtsAudio() when manager provides it', async () => {
+    const playTtsAudio = vi.fn(() => {
+      const el = { volume: 0, play: vi.fn().mockResolvedValue(undefined), addEventListener: vi.fn() };
+      return el;
+    });
+    vi.stubGlobal('__GQ_AUDIO_MANAGER', { playTtsAudio });
+    const GQTTS = loadTtsScript();
+    const result = await GQTTS.speak('Delegate to manager');
+    expect(playTtsAudio).toHaveBeenCalledWith(
+      expect.stringContaining('.mp3'),
+      expect.objectContaining({ gain: expect.any(Number) })
+    );
+    expect(result).not.toBeNull();
     delete window.__GQ_AUDIO_MANAGER;
   });
 });

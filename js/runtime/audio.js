@@ -37,9 +37,13 @@
     'masterVolume',
     'musicVolume',
     'sfxVolume',
+    'teaserVolume',
+    'ttsVolume',
     'masterMuted',
     'musicMuted',
     'sfxMuted',
+    'teaserMuted',
+    'ttsMuted',
     'musicTransitionMode',
     'musicDuckingEnabled',
     'musicDuckingStrength',
@@ -58,9 +62,13 @@
         masterVolume: 0.8,
         musicVolume: 0.55,
         sfxVolume: 0.8,
+        teaserVolume: 0.9,
+        ttsVolume: 0.95,
         masterMuted: false,
         musicMuted: false,
         sfxMuted: false,
+        teaserMuted: false,
+        ttsMuted: false,
         musicTransitionMode: 'fade',
         musicDuckingEnabled: true,
         musicDuckingStrength: 0.55,
@@ -99,6 +107,7 @@
       this._audioContext = null;
       this._gain = null;
       this._sfxLastPlayAt = new Map();
+      this._sfxTeaserLastPlayAt = new Map();
       this._lastAudioEvent = null;
 
       this._logPrefix = '[GQ][Audio]';
@@ -649,6 +658,61 @@
       }
     }
 
+    _playTeaserAudio(url, gain = 1, minIntervalMs = 100) {
+      const src = String(url || '').trim();
+      if (!src) return null;
+      if (this.state.masterMuted || this.state.teaserMuted) return null;
+
+      const now = Date.now();
+      const previous = Number(this._sfxTeaserLastPlayAt.get(src) || 0);
+      if ((now - previous) < Math.max(0, Number(minIntervalMs || 0))) {
+        return null;
+      }
+      this._sfxTeaserLastPlayAt.set(src, now);
+
+      const master = Math.max(0, Math.min(1, Number(this.state.masterVolume || 0)));
+      const teaser = Math.max(0, Math.min(1, Number(this.state.teaserVolume || 0)));
+      const vol = Math.max(0, Math.min(1, master * teaser * Math.max(0, Number(gain || 1))));
+      if (vol <= 0) return null;
+
+      try {
+        const audio = new Audio(src);
+        audio.preload = 'auto';
+        audio.volume = vol;
+        const p = audio.play();
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {});
+        }
+        return audio;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    _playTtsAudio(url, gain = 1) {
+      const src = String(url || '').trim();
+      if (!src) return null;
+      if (this.state.masterMuted || this.state.ttsMuted) return null;
+
+      const master = Math.max(0, Math.min(1, Number(this.state.masterVolume || 0)));
+      const tts = Math.max(0, Math.min(1, Number(this.state.ttsVolume || 0)));
+      const vol = Math.max(0, Math.min(1, master * tts * Math.max(0, Number(gain || 1))));
+      if (vol <= 0) return null;
+
+      try {
+        const audio = new Audio(src);
+        audio.preload = 'auto';
+        audio.volume = vol;
+        const p = audio.play();
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {});
+        }
+        return audio;
+      } catch (_) {
+        return null;
+      }
+    }
+
     playUiClick() {
       this._rememberAudioEvent('uiClick');
       if (this._playSfx(this._resolveSfxTrack('uiClick'), 0.7, 40)) return;
@@ -841,6 +905,104 @@
         this._fadeMusicTo(this._targetMusicVolume(), 220);
       }, Math.max(120, Number(holdMs || 280)));
     }
+
+    duckMusicForTts(holdMs = 1800) {
+      if (!this.state.musicDuckingEnabled) return;
+      if (!this._music.src || this._music.paused) return;
+      const baseStrength = Math.max(0.1, Math.min(0.9, Number(this.state.musicDuckingStrength || 0.55)));
+      const strength = Math.min(0.92, baseStrength * 1.65);
+      this._duckFactor = Math.max(0.05, 1 - strength);
+      this._fadeMusicTo(this._targetMusicVolume(), 80);
+
+      if (this._duckTimer) window.clearTimeout(this._duckTimer);
+      this._duckTimer = window.setTimeout(() => {
+        this._duckTimer = 0;
+        this._duckFactor = 1;
+        this._fadeMusicTo(this._targetMusicVolume(), 320);
+      }, Math.max(200, Number(holdMs || 1800)));
+    }
+
+    setMasterVolume(value) {
+      this.state.masterVolume = Math.max(0, Math.min(1, Number(value || 0)));
+      this._applyVolumes();
+      this._save();
+    }
+
+    setMusicVolume(value) {
+      this.state.musicVolume = Math.max(0, Math.min(1, Number(value || 0)));
+      this._applyVolumes();
+      this._save();
+    }
+
+    setSfxVolume(value) {
+      this.state.sfxVolume = Math.max(0, Math.min(1, Number(value || 0)));
+      this._save();
+    }
+
+    setTeaserVolume(value) {
+      this.state.teaserVolume = Math.max(0, Math.min(1, Number(value || 0)));
+      this._save();
+    }
+
+    setTtsVolume(value) {
+      this.state.ttsVolume = Math.max(0, Math.min(1, Number(value || 0)));
+      this._save();
+    }
+
+    setMasterMuted(value) {
+      this.state.masterMuted = !!value;
+      this._applyVolumes();
+      this._save();
+      this._emitStateChange();
+    }
+
+    setMusicMuted(value) {
+      this.state.musicMuted = !!value;
+      this._applyVolumes();
+      this._save();
+      this._emitStateChange();
+    }
+
+    setMusicTransitionMode(mode) {
+      const next = String(mode || '').toLowerCase();
+      this.state.musicTransitionMode = (next === 'cut') ? 'cut' : 'fade';
+      this._save();
+      this._emitStateChange();
+    }
+
+    setSfxMuted(value) {
+      this.state.sfxMuted = !!value;
+      this._save();
+    }
+
+    setTeaserMuted(value) {
+      this.state.teaserMuted = !!value;
+      this._save();
+    }
+
+    setTtsMuted(value) {
+      this.state.ttsMuted = !!value;
+      this._save();
+    }
+
+    playTeaser(url, opts = {}) {
+      const src = String(url || '').trim();
+      if (!src) return null;
+      const gain = typeof opts.gain === 'number' ? Math.max(0, Math.min(1, opts.gain)) : 1;
+      const duck = opts.duck !== false;
+      if (duck) this.duckMusic(opts.duckHoldMs || 400);
+      return this._playTeaserAudio(src, gain, opts.minIntervalMs ?? 100);
+    }
+
+    playTtsAudio(url, opts = {}) {
+      const src = String(url || '').trim();
+      if (!src) return null;
+      const gain = typeof opts.gain === 'number' ? Math.max(0, Math.min(1, opts.gain)) : 1;
+      const holdMs = typeof opts.holdMs === 'number' ? opts.holdMs : 1800;
+      this.duckMusicForTts(holdMs);
+      return this._playTtsAudio(src, gain);
+    }
+
 
     setMasterVolume(value) {
       this.state.masterVolume = Math.max(0, Math.min(1, Number(value || 0)));
