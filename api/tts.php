@@ -17,7 +17,7 @@
  * Success response for 'synthesise':
  * {
  *   "ok":        true,
- *   "audio_url": "cache/tts/<hash>.mp3",   // web-accessible path
+ *   "audio_url": "generated/tts/<hash>.mp3",   // web-accessible path
  *   "cached":    bool
  * }
  */

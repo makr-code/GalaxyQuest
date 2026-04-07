@@ -6,7 +6,7 @@
  * Supports:
  *   - Render pipelines (vertex + fragment)
  *   - Compute pipelines
- *   - Auto compilation error reporting
+ *   - Auto compilation error reporting via EventBus
  *
  * Inspiration:
  *   - Babylon.js (Apache 2.0): WebGPUShaderProcessor / WebGPUPipelineContext
@@ -30,12 +30,17 @@
  */
 const _shaderModuleCache = new WeakMap();
 
+/** EventBus event name emitted when a shader has compilation errors. */
+const SHADER_ERROR_EVENT = 'webgpu:shader-error';
+
 class WebGPUShader {
   /**
    * @param {GPUDevice} device
+   * @param {import('../EventBus').EventBus} [eventBus]  Optional bus for error events.
    */
-  constructor(device) {
-    this._device = device;
+  constructor(device, eventBus) {
+    this._device    = device;
+    this._eventBus  = eventBus ?? null;
     /** @type {Map<string, GPURenderPipeline>} */
     this._renderPipelines = new Map();
     /** @type {Map<string, GPUComputePipeline>} */
@@ -50,11 +55,15 @@ class WebGPUShader {
    * Compile a WGSL source string into a GPUShaderModule, returning the cached
    * module if the same source has already been compiled on this device.
    *
+   * If the module has compilation errors, a `webgpu:shader-error` event is
+   * emitted on the shared EventBus (when provided).
+   *
    * @param {GPUDevice} device
    * @param {string}    wgslSource
+   * @param {import('../EventBus').EventBus} [eventBus]
    * @returns {GPUShaderModule}
    */
-  static compile(device, wgslSource) {
+  static compile(device, wgslSource, eventBus) {
     if (!_shaderModuleCache.has(device)) {
       _shaderModuleCache.set(device, new Map());
     }
@@ -64,6 +73,10 @@ class WebGPUShader {
 
     const module = device.createShaderModule({ code: wgslSource, label: `gq:${key}` });
     deviceCache.set(key, module);
+
+    // Asynchronously check for compilation errors and report them.
+    _checkShaderErrors(module, key, eventBus ?? null);
+
     return module;
   }
 
@@ -93,6 +106,9 @@ class WebGPUShader {
 
     const vs = this._device.createShaderModule({ code: vertexSrc,   label: `vs:${key}` });
     const fs = this._device.createShaderModule({ code: fragmentSrc, label: `fs:${key}` });
+
+    _checkShaderErrors(vs, `vs:${key}`, this._eventBus);
+    _checkShaderErrors(fs, `fs:${key}`, this._eventBus);
 
     const descriptor = {
       vertex: {
@@ -137,6 +153,8 @@ class WebGPUShader {
     if (this._computePipelines.has(key)) return this._computePipelines.get(key);
 
     const module   = this._device.createShaderModule({ code: computeSrc, label: `cs:${key}` });
+    _checkShaderErrors(module, `cs:${key}`, this._eventBus);
+
     const pipeline = this._device.createComputePipeline({
       layout: 'auto',
       compute: { module, entryPoint: 'cs_main' },
@@ -160,6 +178,51 @@ class WebGPUShader {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Asynchronously retrieve shader compilation info and emit an error event
+ * when errors or warnings are present.
+ *
+ * @param {GPUShaderModule}                 module
+ * @param {string}                          label
+ * @param {import('../EventBus').EventBus|null} eventBus
+ * @private
+ */
+function _checkShaderErrors(module, label, eventBus) {
+  if (typeof module.getCompilationInfo !== 'function') return;
+
+  module.getCompilationInfo().then((info) => {
+    const errors   = info.messages.filter((m) => m.type === 'error');
+    const warnings = info.messages.filter((m) => m.type === 'warning');
+
+    if (errors.length > 0 || warnings.length > 0) {
+      const payload = {
+        label,
+        errors:   errors.map((m) => ({ line: m.lineNum, message: m.message })),
+        warnings: warnings.map((m) => ({ line: m.lineNum, message: m.message })),
+      };
+
+      // Always log to console so errors are visible in DevTools.
+      if (errors.length > 0) {
+        console.error(`[WebGPUShader] Compilation errors in shader '${label}':`, payload.errors);
+      } else {
+        console.warn(`[WebGPUShader] Compilation warnings in shader '${label}':`, payload.warnings);
+      }
+
+      // Emit structured event when a bus is available.
+      if (eventBus && typeof eventBus.emit === 'function') {
+        eventBus.emit(SHADER_ERROR_EVENT, payload);
+      }
+
+      // Also dispatch a DOM CustomEvent so non-engine listeners can catch it.
+      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+        window.dispatchEvent(new CustomEvent(SHADER_ERROR_EVENT, { detail: payload }));
+      }
+    }
+  }).catch(() => {
+    // getCompilationInfo() may not be supported everywhere; fail silently.
+  });
+}
+
 function _defaultBlend() {
   return {
     color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
@@ -179,7 +242,8 @@ function _hashSrc(s) {
 // ---------------------------------------------------------------------------
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { WebGPUShader };
+  module.exports = { WebGPUShader, SHADER_ERROR_EVENT };
 } else {
   window.GQWebGPUShader = WebGPUShader;
+  window.GQWebGPUShaderErrorEvent = SHADER_ERROR_EVENT;
 }

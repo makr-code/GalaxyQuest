@@ -44,8 +44,8 @@ class EffectComposer {
     this._height   = height;
 
     // Two render targets for ping-pong
-    this._rtA = renderer.createTexture({ width, height, format: 'rgba8unorm', renderTarget: true });
-    this._rtB = renderer.createTexture({ width, height, format: 'rgba8unorm', renderTarget: true });
+    this._rtA = this._acquireRT(width, height);
+    this._rtB = this._acquireRT(width, height);
     this._pingIdx = 0;
   }
 
@@ -149,17 +149,56 @@ class EffectComposer {
   resize(width, height) {
     this._width  = width;
     this._height = height;
-    // Recreate render targets at new resolution
-    const renderer = this._renderer;
-    this._rtA = renderer.createTexture({ width, height, format: 'rgba8unorm', renderTarget: true });
-    this._rtB = renderer.createTexture({ width, height, format: 'rgba8unorm', renderTarget: true });
+    // Release old render targets back to the pool (or just destroy)
+    this._releaseRT(this._rtA, this._width, this._height);
+    this._releaseRT(this._rtB, this._width, this._height);
+    // Acquire new render targets at the updated resolution
+    this._rtA = this._acquireRT(width, height);
+    this._rtB = this._acquireRT(width, height);
   }
 
   dispose() {
     for (const pass of this._passes) pass.dispose?.();
     this._passes = [];
   }
-}
+
+  // =========================================================================
+  // Private helpers — resource pool integration
+  // =========================================================================
+
+  /**
+   * Acquire a render-target texture.  Uses the renderer's resource pool when
+   * available (renderer.resourcePool), otherwise falls back to a direct
+   * createTexture() call.
+   * @private
+   */
+  _acquireRT(width, height) {
+    const pool = this._renderer?.resourcePool;
+    if (pool && typeof pool.acquireTexture === 'function') {
+      return pool.acquireTexture(
+        'rgba8unorm',
+        width,
+        height,
+        /* usage = TEXTURE_BINDING | RENDER_ATTACHMENT | COPY_SRC */ 0x14 | 0x10,
+      );
+    }
+    return this._renderer.createTexture({ width, height, format: 'rgba8unorm', renderTarget: true });
+  }
+
+  /**
+   * Release a render-target texture back to the pool (or let it be GC'd when
+   * no pool is available).
+   * @private
+   */
+  _releaseRT(texture, width, height) {
+    if (!texture) return;
+    const pool = this._renderer?.resourcePool;
+    if (pool && typeof pool.releaseTexture === 'function') {
+      pool.releaseTexture(texture, 'rgba8unorm', width, height, 0x14 | 0x10);
+    }
+    // Without a pool the old texture is simply orphaned — the WebGPU GC will
+    // clean it up when the renderer is destroyed.
+  }
 
 // ---------------------------------------------------------------------------
 // Module-private helpers

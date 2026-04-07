@@ -42,7 +42,12 @@ class RendererFactory {
    * @returns {Promise<import('./GraphicsContext').IGraphicsRenderer>}
    */
   static async create(canvas, opts = {}) {
-    const { hint = 'auto', onFallback, debug = false } = opts;
+    // Allow localStorage override — developer/QA can force a specific backend.
+    const storedHint = (typeof localStorage !== 'undefined')
+      ? (localStorage.getItem('gq:rendererHint') ?? null)
+      : null;
+
+    const { hint = storedHint ?? 'auto', onFallback, debug = false } = opts;
 
     if (hint === 'webgl2') {
       return RendererFactory._createWebGL(canvas, onFallback, debug);
