@@ -342,13 +342,26 @@ function handle_me(): void {
     if (!$user) {
         json_error('User not found', 404);
     }
-    // Count unclaimed completed achievements for badge
+    // Count unclaimed completed achievements + claimable faction quests for badge
     $badge = $db->prepare(
         'SELECT COUNT(*) FROM user_achievements
          WHERE user_id = ? AND completed = 1 AND reward_claimed = 0'
     );
     $badge->execute([$uid]);
-    $user['unclaimed_quests'] = (int)$badge->fetchColumn();
+    $achievementBadge = (int)$badge->fetchColumn();
+
+    // Gracefully add claimable faction quests (table may not exist yet).
+    $factionBadge = 0;
+    try {
+        $fbStmt = $db->prepare(
+            "SELECT COUNT(*) FROM user_faction_quests
+              WHERE user_id = ? AND status = 'completed'"
+        );
+        $fbStmt->execute([$uid]);
+        $factionBadge = (int)$fbStmt->fetchColumn();
+    } catch (Throwable $_) { /* migration not yet run */ }
+
+    $user['unclaimed_quests'] = $achievementBadge + $factionBadge;
     json_ok(['user' => $user]);
 }
 
