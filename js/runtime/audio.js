@@ -997,6 +997,7 @@
     playTtsAudio(url, opts = {}) {
       const src = String(url || '').trim();
       if (!src) return null;
+      if (this.state.masterMuted || this.state.ttsMuted) return null;
       const gain = typeof opts.gain === 'number' ? Math.max(0, Math.min(1, opts.gain)) : 1;
       const holdMs = typeof opts.holdMs === 'number' ? opts.holdMs : 1800;
       this.duckMusicForTts(holdMs);

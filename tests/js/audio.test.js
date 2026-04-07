@@ -290,6 +290,29 @@ describe('playTtsAudio()', () => {
     mgr.playTtsAudio('/cache/tts/line.mp3');
     expect(spy).toHaveBeenCalled();
   });
+
+  it('does NOT duck music when ttsMuted is true', () => {
+    const mgr = createManager();
+    mgr.setTtsMuted(true);
+    const spy = vi.spyOn(mgr, 'duckMusicForTts');
+    mgr.playTtsAudio('/cache/tts/line.mp3');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('does NOT duck music when masterMuted is true', () => {
+    const mgr = createManager();
+    mgr.setMasterMuted(true);
+    const spy = vi.spyOn(mgr, 'duckMusicForTts');
+    mgr.playTtsAudio('/cache/tts/line.mp3');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('does NOT duck music for empty URL', () => {
+    const mgr = createManager();
+    const spy = vi.spyOn(mgr, 'duckMusicForTts');
+    mgr.playTtsAudio('');
+    expect(spy).not.toHaveBeenCalled();
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
