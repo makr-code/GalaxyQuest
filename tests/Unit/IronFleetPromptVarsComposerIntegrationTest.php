@@ -134,7 +134,7 @@ final class IronFleetPromptVarsComposerIntegrationTest extends TestCase
         $profile  = $this->findProfile('iron_fleet_npc');
         $rendered = $this->renderTemplate((string) $profile['user_template'], $vars);
 
-        $this->assertNotRegExp('/\{\{[^}]+\}\}/', $rendered,
+        $this->assertDoesNotMatchRegularExpression('/\{\{[^}]+\}\}/', $rendered,
             "Faction '{$code}': rendered template still contains {{…}} placeholders");
     }
 

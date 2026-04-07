@@ -306,31 +306,40 @@ final class MiniYamlParser
 
     /**
      * Throw on syntax this parser deliberately does not support.
+     *
+     * @throws \InvalidArgumentException
      */
     private function guardUnsupported(string $stripped, int $lineNumber): void
     {
-        // Anchors / aliases.
-        if (str_starts_with($stripped, '&') || str_starts_with($stripped, '*')) {
-            throw new \RuntimeException(
-                "YAML anchors and aliases are not supported (line {$lineNumber})"
+        // Anchors (& at line start or inline as value).
+        if (str_starts_with($stripped, '&') || preg_match('/:\s*&/', $stripped)) {
+            throw new \InvalidArgumentException(
+                "YAML anchors are not supported (line {$lineNumber})"
             );
         }
-        // Tags.
-        if (str_starts_with($stripped, '!!')) {
-            throw new \RuntimeException(
+        // Aliases (* at line start or inline as value).
+        if (str_starts_with($stripped, '*') || preg_match('/:\s*\*/', $stripped)) {
+            throw new \InvalidArgumentException(
+                "YAML aliases are not supported (line {$lineNumber})"
+            );
+        }
+        // Tags (! at line start or inline as value).
+        if (str_starts_with($stripped, '!') || preg_match('/:\s*!/', $stripped)) {
+            throw new \InvalidArgumentException(
                 "YAML tags are not supported (line {$lineNumber})"
             );
         }
-        // Flow mappings / sequences.
-        if (str_starts_with($stripped, '{') || str_starts_with($stripped, '[')) {
-            throw new \RuntimeException(
+        // Flow mappings / sequences (at line start or inline as value).
+        if (str_starts_with($stripped, '{') || str_starts_with($stripped, '[')
+            || preg_match('/:\s*[{[]/', $stripped)) {
+            throw new \InvalidArgumentException(
                 "YAML flow style is not supported (line {$lineNumber})"
             );
         }
-        // Block scalars.
+        // Block-scalars.
         if (preg_match('/^[^:]+:\s*[|>]/', $stripped)) {
-            throw new \RuntimeException(
-                "YAML block scalars (| and >) are not supported (line {$lineNumber})"
+            throw new \InvalidArgumentException(
+                "YAML block-scalars (| and >) are not supported (line {$lineNumber})"
             );
         }
     }

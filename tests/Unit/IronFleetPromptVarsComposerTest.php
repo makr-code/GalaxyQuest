@@ -570,7 +570,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
 
     public function testParserThrowsOnAnchor(): void
     {
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/anchor/i');
 
         (new MiniYamlParser())->parse("&anchor key: value\n");
@@ -578,15 +578,15 @@ final class IronFleetPromptVarsComposerTest extends TestCase
 
     public function testParserThrowsOnAlias(): void
     {
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/anchor/i');
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/alias/i');
 
         (new MiniYamlParser())->parse("*alias: value\n");
     }
 
     public function testParserThrowsOnTag(): void
     {
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/tag/i');
 
         (new MiniYamlParser())->parse("!!python/object key: val\n");
@@ -594,7 +594,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
 
     public function testParserThrowsOnFlowMapping(): void
     {
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/flow/i');
 
         (new MiniYamlParser())->parse("{a: 1, b: 2}\n");
@@ -602,7 +602,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
 
     public function testParserThrowsOnFlowSequence(): void
     {
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/flow/i');
 
         (new MiniYamlParser())->parse("[a, b, c]\n");
@@ -610,8 +610,8 @@ final class IronFleetPromptVarsComposerTest extends TestCase
 
     public function testParserThrowsOnBlockScalarPipe(): void
     {
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/block scalar/i');
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/block-scalar/i');
 
         (new MiniYamlParser())->parse("key: |\n  multi\n  line\n");
     }
