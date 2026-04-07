@@ -254,40 +254,40 @@ describe('playTtsAudio()', () => {
 
   it('returns an Audio element for a valid URL', () => {
     const mgr = createManager();
-    const result = mgr.playTtsAudio('/cache/tts/line.mp3');
+    const result = mgr.playTtsAudio('/generated/tts/line.mp3');
     expect(result).not.toBeNull();
   });
 
   it('plays the Audio element', () => {
     const mgr = createManager();
-    const el = mgr.playTtsAudio('/cache/tts/line.mp3');
+    const el = mgr.playTtsAudio('/generated/tts/line.mp3');
     expect(el.play).toHaveBeenCalled();
   });
 
   it('returns null when ttsMuted is true', () => {
     const mgr = createManager();
     mgr.setTtsMuted(true);
-    expect(mgr.playTtsAudio('/cache/tts/line.mp3')).toBeNull();
+    expect(mgr.playTtsAudio('/generated/tts/line.mp3')).toBeNull();
   });
 
   it('returns null when masterMuted is true', () => {
     const mgr = createManager();
     mgr.setMasterMuted(true);
-    expect(mgr.playTtsAudio('/cache/tts/line.mp3')).toBeNull();
+    expect(mgr.playTtsAudio('/generated/tts/line.mp3')).toBeNull();
   });
 
   it('sets volume = master * tts * gain', () => {
     const mgr = createManager();
     mgr.setMasterVolume(1);
     mgr.setTtsVolume(0.8);
-    const el = mgr.playTtsAudio('/cache/tts/line.mp3', { gain: 0.5 });
+    const el = mgr.playTtsAudio('/generated/tts/line.mp3', { gain: 0.5 });
     expect(el.volume).toBeCloseTo(0.4); // 1 * 0.8 * 0.5
   });
 
   it('calls duckMusicForTts internally', () => {
     const mgr = createManager();
     const spy = vi.spyOn(mgr, 'duckMusicForTts');
-    mgr.playTtsAudio('/cache/tts/line.mp3');
+    mgr.playTtsAudio('/generated/tts/line.mp3');
     expect(spy).toHaveBeenCalled();
   });
 
@@ -295,7 +295,7 @@ describe('playTtsAudio()', () => {
     const mgr = createManager();
     mgr.setTtsMuted(true);
     const spy = vi.spyOn(mgr, 'duckMusicForTts');
-    mgr.playTtsAudio('/cache/tts/line.mp3');
+    mgr.playTtsAudio('/generated/tts/line.mp3');
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -303,7 +303,7 @@ describe('playTtsAudio()', () => {
     const mgr = createManager();
     mgr.setMasterMuted(true);
     const spy = vi.spyOn(mgr, 'duckMusicForTts');
-    mgr.playTtsAudio('/cache/tts/line.mp3');
+    mgr.playTtsAudio('/generated/tts/line.mp3');
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -429,7 +429,7 @@ describe('multi-channel audio coexistence', () => {
   it('plays a teaser and a TTS audio element at the same time (independent Audio instances)', () => {
     const mgr = createManager();
     const teaser = mgr.playTeaser('sfx/alarm.wav');
-    const tts = mgr.playTtsAudio('/cache/tts/alert.mp3');
+    const tts = mgr.playTtsAudio('/generated/tts/alert.mp3');
     // Both should be separate Audio instances
     expect(teaser).not.toBeNull();
     expect(tts).not.toBeNull();
@@ -440,7 +440,7 @@ describe('multi-channel audio coexistence', () => {
     const mgr = createManager();
     mgr.setTtsMuted(true);
     const teaser = mgr.playTeaser('sfx/teaser.wav');
-    const tts = mgr.playTtsAudio('/cache/tts/line.mp3');
+    const tts = mgr.playTtsAudio('/generated/tts/line.mp3');
     expect(teaser).not.toBeNull();
     expect(tts).toBeNull();
   });
@@ -449,7 +449,7 @@ describe('multi-channel audio coexistence', () => {
     const mgr = createManager();
     mgr.setTeaserMuted(true);
     const teaser = mgr.playTeaser('sfx/teaser.wav');
-    const tts = mgr.playTtsAudio('/cache/tts/line.mp3');
+    const tts = mgr.playTtsAudio('/generated/tts/line.mp3');
     expect(teaser).toBeNull();
     expect(tts).not.toBeNull();
   });
@@ -458,6 +458,6 @@ describe('multi-channel audio coexistence', () => {
     const mgr = createManager();
     mgr.setMasterMuted(true);
     expect(mgr.playTeaser('sfx/teaser.wav')).toBeNull();
-    expect(mgr.playTtsAudio('/cache/tts/line.mp3')).toBeNull();
+    expect(mgr.playTtsAudio('/generated/tts/line.mp3')).toBeNull();
   });
 });
