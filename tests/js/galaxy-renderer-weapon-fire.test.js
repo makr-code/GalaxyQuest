@@ -122,6 +122,95 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
         if (!fleetEntry._nextShipFire) fleetEntry._nextShipFire = {};
         fleetEntry._nextShipFire[weaponKey] = elapsed + cadence;
       },
+
+      _isWormholeLikeInstallation: function(installEntry) {
+        const installType = String(
+          installEntry?.type
+          || installEntry?.kind
+          || installEntry?.install?.type
+          || installEntry?.mesh?.userData?.installType
+          || ''
+        ).toLowerCase();
+        return installType.includes('wormhole')
+          || installType.includes('gate')
+          || installType.includes('beacon');
+      },
+
+      _wormholeDestabilizationGain: function(ev, installEntry) {
+        const weaponKind = String(ev?.weaponKind || '').toLowerCase();
+        const energyRaw = Number(ev?.energy ?? ev?.power ?? 0.55);
+        const energy = Math.max(0.1, Math.min(4.5, Number.isFinite(energyRaw) ? energyRaw : 0.55));
+        const level = Math.max(1, Number(installEntry?.level || installEntry?.install?.level || 1));
+
+        let weaponMult = 1;
+        if (weaponKind === 'rail') weaponMult = 1.22;
+        else if (weaponKind === 'plasma') weaponMult = 1.14;
+        else if (weaponKind === 'missile') weaponMult = 0.92;
+        else if (weaponKind === 'beam') weaponMult = 1.05;
+
+        const levelResist = 1 / (1 + (level - 1) * 0.12);
+        const gain = 0.06 * energy * weaponMult * levelResist;
+        return Math.max(0.015, Math.min(0.24, gain));
+      },
+
+      _triggerWormholeRupture: vi.fn(),
+
+      _applyWormholeDestabilizationHit: function(installEntry, ev, elapsed) {
+        if (!installEntry) return null;
+
+        const gain = this._wormholeDestabilizationGain(ev, installEntry);
+        const state = installEntry.wormholeDestabilization || {
+          progress: 0,
+          lastHitAt: 0,
+          cooldownUntil: 0,
+          ruptureCount: 0,
+        };
+
+        state.progress = Math.max(0, Math.min(1.2, Number(state.progress || 0) + gain));
+        state.lastHitAt = elapsed;
+
+        if (state.progress >= 1 && elapsed >= Number(state.cooldownUntil || 0)) {
+          state.ruptureCount = Number(state.ruptureCount || 0) + 1;
+          state.cooldownUntil = elapsed + 4.5;
+          state.progress = 0.34;
+          this._triggerWormholeRupture(installEntry, state, elapsed);
+        }
+
+        installEntry.wormholeDestabilization = state;
+        return state;
+      },
+
+      _applyWeaponFireToWormholes: function(ev, elapsed) {
+        if (!Array.isArray(this.systemInstallationWeaponFxEntries)) return;
+
+        this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
+          const install = fxEntry?.installEntry;
+          if (!install?.mesh) return;
+          if (!this._isWormholeLikeInstallation(install)) return;
+          if (ev.sourceOwner && ev.sourceOwner !== String(install.owner || '').trim()) return;
+
+          const destabilization = this._applyWormholeDestabilizationHit(install, ev, elapsed);
+          const progress = Number(destabilization?.progress || 0);
+          if (!this.beamEffect) return;
+
+          const numBeams = progress >= 0.75 ? 5 : (progress >= 0.35 ? 4 : 3);
+          const beamDuration = 0.08 + progress * 0.08;
+          const glowRadius = 0.45 + progress * 0.35;
+          const from = Array.isArray(fxEntry.worldFrom) ? fxEntry.worldFrom : [0, 0, 0];
+
+          for (let i = 0; i < numBeams; i += 1) {
+            this.beamEffect.addBeam({
+              id: `wormhole_discharge_${install.id || 0}_${i}_${Date.now()}`,
+              from: [...from],
+              to: [from[0] + i + 1, from[1], from[2]],
+              coreColor: 0x6600ff,
+              color: 0x9933ff,
+              glowRadius,
+              duration: beamDuration,
+            });
+          }
+        });
+      },
       
       // Methods under test (simplified versions for testing)
       _queueInstallationWeaponFire: function(payload) {
@@ -489,6 +578,81 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
 
       const firstBeam = renderer.beamEffect.addBeam.mock.calls[0][0];
       expect(firstBeam.to).toEqual([150, 12, -6]);
+    });
+  });
+
+  describe('Wormhole Destabilization', () => {
+    it('should classify wormhole-like installations by type/kind', () => {
+      expect(renderer._isWormholeLikeInstallation({ type: 'wormhole_gate' })).toBe(true);
+      expect(renderer._isWormholeLikeInstallation({ kind: 'beacon_relay' })).toBe(true);
+      expect(renderer._isWormholeLikeInstallation({ type: 'shipyard' })).toBe(false);
+    });
+
+    it('should scale destabilization gain by weapon and installation level', () => {
+      const lowLevel = { level: 1 };
+      const highLevel = { level: 6 };
+
+      const railLow = renderer._wormholeDestabilizationGain({ weaponKind: 'rail', energy: 1.0 }, lowLevel);
+      const missileLow = renderer._wormholeDestabilizationGain({ weaponKind: 'missile', energy: 1.0 }, lowLevel);
+      const railHigh = renderer._wormholeDestabilizationGain({ weaponKind: 'rail', energy: 1.0 }, highLevel);
+
+      expect(railLow).toBeGreaterThan(missileLow);
+      expect(railHigh).toBeLessThan(railLow);
+    });
+
+    it('should trigger rupture at threshold and apply cooldown reset', () => {
+      const install = {
+        id: 99,
+        mesh: {},
+        owner: 'Helion',
+        type: 'wormhole',
+        level: 1,
+        wormholeDestabilization: {
+          progress: 0.96,
+          lastHitAt: 0,
+          cooldownUntil: 0,
+          ruptureCount: 0,
+        },
+      };
+
+      const state = renderer._applyWormholeDestabilizationHit(install, { weaponKind: 'rail', energy: 2.0 }, 12.0);
+
+      expect(renderer._triggerWormholeRupture).toHaveBeenCalledTimes(1);
+      expect(state.ruptureCount).toBe(1);
+      expect(state.cooldownUntil).toBeCloseTo(16.5, 5);
+      expect(state.progress).toBeCloseTo(0.34, 5);
+    });
+
+    it('should only fire wormhole beams for matching owner filter', () => {
+      renderer.systemInstallationWeaponFxEntries = [
+        {
+          worldFrom: [10, 0, 0],
+          installEntry: {
+            id: 1,
+            mesh: {},
+            owner: 'Helion',
+            type: 'wormhole',
+            level: 1,
+          },
+        },
+        {
+          worldFrom: [20, 0, 0],
+          installEntry: {
+            id: 2,
+            mesh: {},
+            owner: 'Iron Fleet',
+            type: 'shipyard',
+            level: 1,
+          },
+        },
+      ];
+
+      renderer._applyWeaponFireToWormholes({ sourceOwner: 'Helion', weaponKind: 'beam', energy: 1.4 }, 5.0);
+
+      expect(renderer.beamEffect.addBeam).toHaveBeenCalledTimes(3);
+      const first = renderer.beamEffect.addBeam.mock.calls[0][0];
+      expect(first.from).toEqual([10, 0, 0]);
+      expect(first.coreColor).toBe(0x6600ff);
     });
   });
 });
