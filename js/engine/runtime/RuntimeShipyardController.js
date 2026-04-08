@@ -345,6 +345,10 @@
       const hullSel = root.querySelector('#shipyard-blueprint-hull');
       const layoutSel = root.querySelector('#shipyard-blueprint-layout');
       if (hullSel) hullSel.value = preset.hull;
+      // Sync hull picker visual selection
+      root.querySelectorAll('.shipyard-hull-card').forEach((card) => {
+        card.classList.toggle('is-selected', String(card.dataset.hullCode || '') === String(preset.hull || ''));
+      });
       updateBlueprintLayoutOptions(root, hulls).then(() => {
         if (layoutSel) layoutSel.value = preset.layout;
         windowRef.setTimeout(() => {
@@ -527,6 +531,16 @@
         buildBtn.dom.dataset.blueprintType = String(bp.type || '');
         buildBtn.dom.dataset.blueprintName = String(bp.name || bp.type || 'Blueprint');
         buildRow.add(buildBtn);
+
+        const deleteBtn = documentRef.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'blueprint-delete-btn';
+        deleteBtn.dataset.blueprintId = String(Number(bp.id || 0));
+        deleteBtn.dataset.blueprintName = String(bp.name || bp.type || 'Blueprint');
+        deleteBtn.title = 'Blueprint löschen';
+        deleteBtn.textContent = '🗑';
+        buildRow.dom.appendChild(deleteBtn);
+
         card.add(buildRow);
 
         grid.add(card);
@@ -608,7 +622,7 @@
 
       const desc = new GQUI.Div().setClass('small text-muted');
       desc.dom.style.marginTop = '0.3rem';
-      desc.dom.textContent = 'Quick-create a starter blueprint from a hull class and one of its slot layouts.';
+      desc.dom.textContent = 'Wähle einen Rumpf, konfiguriere Module und speichere dein Design.';
       card.add(desc);
 
       const presetWrap = new GQUI.Div();
@@ -617,8 +631,9 @@
       presetWrap.dom.appendChild(buildPresetToolbarDom());
       card.add(presetWrap);
 
-      const grid = new GQUI.Div();
-      grid.dom.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.6rem;margin-top:0.7rem;';
+      // Name + Layout row
+      const topGrid = new GQUI.Div();
+      topGrid.dom.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.6rem;margin-top:0.7rem;';
 
       const nameLbl = documentRef.createElement('label');
       nameLbl.className = 'small';
@@ -631,31 +646,7 @@
       nameInput.placeholder = 'Aegis Frigate';
       nameLbl.appendChild(nameSpan);
       nameLbl.appendChild(nameInput);
-      grid.dom.appendChild(nameLbl);
-
-      const hullLbl = documentRef.createElement('label');
-      hullLbl.className = 'small';
-      hullLbl.style.cssText = 'display:flex;flex-direction:column;gap:0.25rem;';
-      const hullSpan = documentRef.createElement('span');
-      hullSpan.textContent = 'Hull';
-      const hullSel = documentRef.createElement('select');
-      hullSel.id = 'shipyard-blueprint-hull';
-      hullSel.className = 'input';
-      (Array.isArray(hulls) ? hulls : []).forEach((hull) => {
-        const opt = documentRef.createElement('option');
-        opt.value = String(hull.code || '');
-        opt.dataset.attack = String(Number(hull.base_stats?.attack || 0));
-        opt.dataset.shield = String(Number(hull.base_stats?.shield || 0));
-        opt.dataset.hull   = String(Number(hull.base_stats?.hull   || 0));
-        opt.dataset.cargo  = String(Number(hull.base_stats?.cargo  || 0));
-        opt.dataset.speed  = String(Number(hull.base_stats?.speed  || 0));
-        if (hull.unlocked === false) opt.disabled = true;
-        opt.textContent = `${String(hull.label || hull.code || 'Hull')} (${fmtName(hull.ship_class || hull.role || 'hull')})${hull.unlocked === false ? ' [locked]' : ''}`;
-        hullSel.appendChild(opt);
-      });
-      hullLbl.appendChild(hullSpan);
-      hullLbl.appendChild(hullSel);
-      grid.dom.appendChild(hullLbl);
+      topGrid.dom.appendChild(nameLbl);
 
       const layoutLbl = documentRef.createElement('label');
       layoutLbl.className = 'small';
@@ -667,9 +658,29 @@
       layoutSel.className = 'input';
       layoutLbl.appendChild(layoutSpan);
       layoutLbl.appendChild(layoutSel);
-      grid.dom.appendChild(layoutLbl);
+      topGrid.dom.appendChild(layoutLbl);
 
-      card.add(grid);
+      card.add(topGrid);
+
+      // Hidden hull-code input (set by hull picker)
+      const hullHidden = documentRef.createElement('input');
+      hullHidden.type = 'hidden';
+      hullHidden.id = 'shipyard-blueprint-hull';
+      card.dom.appendChild(hullHidden);
+
+      // Hull picker
+      const hullPickerLabel = new GQUI.Div().setClass('small text-muted');
+      hullPickerLabel.dom.style.marginTop = '0.7rem';
+      hullPickerLabel.dom.textContent = 'Rumpfklasse wählen';
+      card.add(hullPickerLabel);
+      card.dom.appendChild(buildHullPickerDom(hulls));
+
+      // Doctrine selector
+      const doctrineLbl = new GQUI.Div().setClass('small text-muted');
+      doctrineLbl.dom.style.marginTop = '0.55rem';
+      doctrineLbl.dom.textContent = 'Doktrin';
+      card.add(doctrineLbl);
+      card.dom.appendChild(buildDoctrineSelector('custom'));
 
       const layoutPreview = new GQUI.Div().setClass('small text-muted');
       layoutPreview.dom.id = 'shipyard-blueprint-layout-preview';
@@ -688,12 +699,95 @@
 
       const actionsDiv = new GQUI.Div();
       actionsDiv.dom.style.cssText = 'margin-top:0.7rem; display:flex; gap:0.5rem; flex-wrap:wrap;';
-      const createBtn = new GQUI.Button('Create Blueprint').setClass('btn');
+      const createBtn = new GQUI.Button('Blueprint erstellen').setClass('btn');
       createBtn.dom.id = 'shipyard-create-blueprint';
       actionsDiv.add(createBtn);
       card.add(actionsDiv);
 
       return card.dom;
+    }
+
+    function buildHullPickerDom(hulls) {
+      const picker = documentRef.createElement('div');
+      picker.id = 'shipyard-hull-picker';
+      picker.className = 'shipyard-hull-picker';
+      (Array.isArray(hulls) ? hulls : []).forEach((hull, idx) => {
+        const card = documentRef.createElement('div');
+        card.className = 'shipyard-hull-card shipyard-hull-base' + (hull.unlocked === false ? ' is-locked' : '');
+        card.dataset.hullCode = String(hull.code || '');
+        card.dataset.attack = String(Number(hull.base_stats?.attack || 0));
+        card.dataset.shield = String(Number(hull.base_stats?.shield || 0));
+        card.dataset.hull   = String(Number(hull.base_stats?.hull   || 0));
+        card.dataset.cargo  = String(Number(hull.base_stats?.cargo  || 0));
+        card.dataset.speed  = String(Number(hull.base_stats?.speed  || 0));
+        if (idx === 0 && hull.unlocked !== false) card.classList.add('is-selected');
+
+        const nameLine = documentRef.createElement('div');
+        nameLine.className = 'shipyard-hull-card-name';
+        nameLine.textContent = String(hull.label || hull.code || 'Hull');
+        card.appendChild(nameLine);
+
+        const badges = documentRef.createElement('div');
+        badges.className = 'shipyard-hull-card-badges';
+
+        const tierBadge = documentRef.createElement('span');
+        tierBadge.className = 'shipyard-hull-card-tier';
+        tierBadge.textContent = `T${hull.tier ?? 1}`;
+        badges.appendChild(tierBadge);
+
+        const roleBadge = documentRef.createElement('span');
+        roleBadge.className = 'shipyard-hull-card-role';
+        roleBadge.textContent = fmtName(hull.ship_class || hull.role || 'hull');
+        badges.appendChild(roleBadge);
+
+        if (hull.unlocked === false) {
+          const lockBadge = documentRef.createElement('span');
+          lockBadge.className = 'shipyard-hull-card-lock-badge';
+          lockBadge.textContent = '🔒';
+          badges.appendChild(lockBadge);
+        }
+        card.appendChild(badges);
+
+        const stats = documentRef.createElement('div');
+        stats.className = 'shipyard-hull-card-stats';
+        stats.textContent = `⚔ ${fmt(hull.base_stats?.attack || 0)}  🛡 ${fmt(hull.base_stats?.shield || 0)}  🏠 ${fmt(hull.base_stats?.hull || 0)}`;
+        card.appendChild(stats);
+
+        const slotWrap = documentRef.createElement('div');
+        slotWrap.className = 'shipyard-hull-card-slots';
+        slotWrap.appendChild(renderSlotProfile(hull.slot_profile || {}));
+        card.appendChild(slotWrap);
+
+        picker.appendChild(card);
+      });
+      return picker;
+    }
+
+    function buildDoctrineSelector(activeDoctrine) {
+      const doctrines = [
+        { code: 'custom',   icon: '✏',  label: 'Custom' },
+        { code: 'assault',  icon: '⚔',  label: 'Angriff' },
+        { code: 'patrol',   icon: '👁',  label: 'Patrouille' },
+        { code: 'defense',  icon: '🛡',  label: 'Verteidigung' },
+        { code: 'carrier',  icon: '🚀',  label: 'Träger' },
+        { code: 'support',  icon: '🔧',  label: 'Support' },
+      ];
+      const row = documentRef.createElement('div');
+      row.id = 'shipyard-doctrine-selector';
+      row.className = 'shipyard-doctrine-row';
+      doctrines.forEach(({ code, icon, label }) => {
+        const btn = documentRef.createElement('button');
+        btn.type = 'button';
+        btn.className = 'shipyard-doctrine-btn' + (code === (activeDoctrine || 'custom') ? ' is-active' : '');
+        btn.dataset.doctrine = code;
+        btn.textContent = `${icon} ${label}`;
+        btn.addEventListener('click', () => {
+          row.querySelectorAll('.shipyard-doctrine-btn').forEach((b) => b.classList.remove('is-active'));
+          btn.classList.add('is-active');
+        });
+        row.appendChild(btn);
+      });
+      return row;
     }
 
     function buildQueueDom(queue) {
@@ -897,22 +991,39 @@
       root.querySelector('#shipyard-blueprint-layout')?.addEventListener('change', async () => {
         await updateBlueprintLayoutOptions(root, hulls);
       });
+
+      // Hull picker card clicks
+      root.querySelector('#shipyard-hull-picker')?.addEventListener('click', async (e) => {
+        const card = e.target.closest('.shipyard-hull-card');
+        if (!card || card.classList.contains('is-locked')) return;
+        const hullCode = String(card.dataset.hullCode || '');
+        if (!hullCode) return;
+        root.querySelectorAll('.shipyard-hull-card').forEach((c) => c.classList.remove('is-selected'));
+        card.classList.add('is-selected');
+        const hullHidden = root.querySelector('#shipyard-blueprint-hull');
+        if (hullHidden) hullHidden.value = hullCode;
+        await updateBlueprintLayoutOptions(root, hulls);
+        updateStatsPreview(root);
+      });
+
       root.querySelector('#shipyard-create-blueprint')?.addEventListener('click', async () => {
         const hullCode = String(root.querySelector('#shipyard-blueprint-hull')?.value || '');
         const layoutCode = String(root.querySelector('#shipyard-blueprint-layout')?.value || 'default');
         const nameInput = root.querySelector('#shipyard-blueprint-name');
         const hull = hulls.find((entry) => String(entry.code || '') === hullCode);
-        if (!hull) { showToast('No hull selected.', 'warning'); return; }
+        if (!hull) { showToast('Kein Rumpf ausgewählt.', 'warning'); return; }
         const modules = collectBlueprintModulesFromUI(root);
-        if (!modules.length) { showToast('Select modules for at least one slot.', 'warning'); return; }
+        if (!modules.length) { showToast('Wähle mindestens ein Modul aus.', 'warning'); return; }
         const currentColony = getCurrentColony();
         const defaultName = `${fmtName(hull.ship_class || hull.role || 'Hull')} ${fmtName(layoutCode === 'default' ? hull.code : layoutCode)}`;
+        const activeDoctrineBtn = root.querySelector('#shipyard-doctrine-selector .shipyard-doctrine-btn.is-active');
+        const doctrineTag = String(activeDoctrineBtn?.dataset.doctrine || layoutCode || 'custom');
         const payload = {
           colony_id: currentColony.id,
           name: String(nameInput?.value || '').trim() || defaultName,
           hull_code: hullCode,
           slot_layout_code: layoutCode,
-          doctrine_tag: layoutCode,
+          doctrine_tag: doctrineTag,
           modules,
         };
         const createBtn = root.querySelector('#shipyard-create-blueprint');
@@ -920,11 +1031,11 @@
         try {
           const res = await api.createBlueprint(payload);
           if (!res.success) throw new Error(res.error || 'Blueprint creation failed');
-          showToast(`Blueprint created: ${payload.name}`, 'success');
+          showToast(`Blueprint erstellt: ${payload.name}`, 'success');
           if (nameInput) nameInput.value = '';
           await render();
         } catch (err) {
-          showToast(String(err?.message || 'Blueprint creation failed'), 'error');
+          showToast(String(err?.message || 'Blueprint-Erstellung fehlgeschlagen'), 'error');
           if (createBtn) createBtn.disabled = false;
         }
       });
@@ -950,17 +1061,33 @@
         });
       }
 
-      root.querySelector('#shipyard-blueprint-hull')?.addEventListener('change', () => {
-        updateStatsPreview(root);
-      });
-
       bindPresetActions(root);
 
-      root.addEventListener('click', (e) => {
-        const btn = e.target.closest('.vessel-decommission-btn');
-        if (!btn) return;
-        const vid = Number(btn.dataset.vesselId);
-        if (vid > 0) decommissionVessel(vid, root);
+      root.addEventListener('click', async (e) => {
+        const decommBtn = e.target.closest('.vessel-decommission-btn');
+        if (decommBtn) {
+          const vid = Number(decommBtn.dataset.vesselId);
+          if (vid > 0) decommissionVessel(vid, root);
+          return;
+        }
+
+        const deleteBtn = e.target.closest('.blueprint-delete-btn');
+        if (deleteBtn) {
+          const blueprintId = Number(deleteBtn.dataset.blueprintId || 0);
+          const blueprintName = String(deleteBtn.dataset.blueprintName || 'Blueprint');
+          if (blueprintId <= 0) return;
+          if (!windowRef.confirm(`Blueprint "${blueprintName}" dauerhaft löschen?`)) return;
+          deleteBtn.disabled = true;
+          try {
+            const res = await api.deleteBlueprint(blueprintId);
+            if (!res.success) throw new Error(res.error || 'Löschen fehlgeschlagen');
+            showToast(`Blueprint gelöscht: ${blueprintName}`, 'info');
+            await render();
+          } catch (err) {
+            showToast(String(err?.message || 'Blueprint-Löschen fehlgeschlagen'), 'error');
+            deleteBtn.disabled = false;
+          }
+        }
       });
     }
 
@@ -1047,6 +1174,121 @@
       }
     }
 
+    // ── Tab layout builder ─────────────────────────────────────────────────
+
+    function buildShipyardTabs(data, hulls, vessels) {
+      const tabDefs = [
+        { id: 'design',     label: '🔧 Design',     title: 'Blueprint Forge' },
+        { id: 'blueprints', label: '📋 Blueprints',  title: 'Meine Designs' },
+        { id: 'flotte',     label: '🚀 Flotte',      title: 'Angedockte Schiffe' },
+        { id: 'queue',      label: '⏳ Bauschacht',  title: 'Produktionswarteschlange' },
+        { id: 'hulls',      label: '📚 Rümpfe',      title: 'Rumpfkatalog' },
+        { id: 'legacy',     label: '⚙ Klassisch',   title: 'Klassische Schiffe' },
+      ];
+
+      const root = new GQUI.Div().setClass('shipyard-tabs-root');
+
+      // Tab bar
+      const tabList = new GQUI.Div().setClass('ui-tab-list');
+      tabList.dom.style.marginBottom = '0.6rem';
+      tabDefs.forEach(({ id, label }, idx) => {
+        const btn = documentRef.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ui-tab-btn' + (idx === 0 ? ' is-active' : '');
+        btn.dataset.tabTarget = id;
+        btn.textContent = label;
+        tabList.dom.appendChild(btn);
+      });
+      root.add(tabList);
+
+      // Tab panels
+      const panels = new Map();
+
+      function makePanel(id, contentDom) {
+        const panel = documentRef.createElement('div');
+        panel.className = 'ui-tab-panel' + (id === 'design' ? ' is-active' : '');
+        panel.dataset.tabId = id;
+        panel.appendChild(contentDom);
+        root.dom.appendChild(panel);
+        panels.set(id, panel);
+      }
+
+      // Design tab
+      makePanel('design', buildBlueprintCreatorDom(hulls));
+
+      // Blueprints tab
+      const bpWrap = documentRef.createElement('div');
+      bpWrap.appendChild(buildBlueprintCardsDom(data.blueprints || []));
+      makePanel('blueprints', bpWrap);
+
+      // Flotte tab
+      const flotteWrap = documentRef.createElement('div');
+      if (vessels.length) {
+        const vesselsDom = renderDockedVesselsDom(vessels);
+        if (vesselsDom) {
+          const badge = documentRef.createElement('span');
+          badge.className = 'badge';
+          badge.style.marginLeft = '0.5rem';
+          badge.textContent = String(vessels.length);
+          const hdr = documentRef.createElement('div');
+          hdr.className = 'system-row';
+          hdr.style.marginBottom = '0.55rem';
+          const strong = documentRef.createElement('strong');
+          strong.textContent = 'Angedockte Schiffe';
+          hdr.appendChild(strong);
+          hdr.appendChild(badge);
+          flotteWrap.appendChild(hdr);
+          flotteWrap.id = 'shipyard-docked-vessels-card';
+          flotteWrap.appendChild(vesselsDom);
+        }
+      } else {
+        const empty = documentRef.createElement('p');
+        empty.className = 'text-muted small';
+        empty.textContent = 'Keine Schiffe angedockt.';
+        flotteWrap.appendChild(empty);
+      }
+      makePanel('flotte', flotteWrap);
+
+      // Queue tab
+      const queueWrap = documentRef.createElement('div');
+      const queueBadge = (data.queue || []).length;
+      if (queueBadge) {
+        const tabBtn = tabList.dom.querySelector('[data-tab-target="queue"]');
+        if (tabBtn) tabBtn.textContent = `⏳ Bauschacht (${queueBadge})`;
+      }
+      queueWrap.appendChild(buildQueueDom(data.queue || []));
+      makePanel('queue', queueWrap);
+
+      // Hulls tab
+      const hullsWrap = documentRef.createElement('div');
+      hullsWrap.appendChild(buildHullCatalogDom(hulls));
+      makePanel('hulls', hullsWrap);
+
+      // Legacy tab
+      const legacyWrap = documentRef.createElement('div');
+      const legacyDesc = documentRef.createElement('p');
+      legacyDesc.className = 'text-muted small';
+      legacyDesc.style.marginBottom = '0.5rem';
+      legacyDesc.textContent = 'Klassische SHIP_STATS-Schiffe (Migration noch im Gange).';
+      legacyWrap.appendChild(legacyDesc);
+      legacyWrap.appendChild(buildCardsDom(data.ships || []));
+      makePanel('legacy', legacyWrap);
+
+      // Tab switching logic
+      tabList.dom.addEventListener('click', (e) => {
+        const btn = e.target.closest('.ui-tab-btn');
+        if (!btn) return;
+        const targetId = String(btn.dataset.tabTarget || '');
+        tabList.dom.querySelectorAll('.ui-tab-btn').forEach((b) => b.classList.remove('is-active'));
+        btn.classList.add('is-active');
+        panels.forEach((panel, id) => {
+          panel.classList.toggle('is-active', id === targetId);
+        });
+      });
+
+      return root.dom;
+    }
+
     // ── Main render ────────────────────────────────────────────────────────
 
     async function render() {
@@ -1054,10 +1296,10 @@
       if (!root) return;
       const currentColony = getCurrentColony();
       if (!currentColony) {
-        gqStatusMsg(root, 'Select a colony first.', 'muted');
+        gqStatusMsg(root, 'Kolonie auswählen.', 'muted');
         return;
       }
-      gqStatusMsg(root, 'Loading\u2026', 'muted');
+      gqStatusMsg(root, 'Laden\u2026', 'muted');
 
       try {
         const [data, hullData, vesselData] = await Promise.all([
@@ -1066,116 +1308,28 @@
           api.shipyardVessels(currentColony.id).catch(() => ({ vessels: [] })),
         ]);
         if (!data.success) {
-          gqStatusMsg(root, 'Error.', 'red');
+          gqStatusMsg(root, 'Fehler beim Laden.', 'red');
           return;
         }
         const hulls   = Array.isArray(hullData?.hulls)    ? hullData.hulls    : [];
         const vessels = Array.isArray(vesselData?.vessels) ? vesselData.vessels : [];
         _pendingHulls = hulls;
 
-        const frag = documentRef.createDocumentFragment();
+        const tabsDom = buildShipyardTabs(data, hulls, vessels);
 
-        frag.appendChild(buildBlueprintCreatorDom(hulls));
+        root.replaceChildren(tabsDom);
 
-        const queueCard = new GQUI.Div().setClass('system-card');
-        queueCard.dom.style.marginBottom = '1rem';
-        const queueTitle = new GQUI.Div().setClass('system-row');
-        const queueStrong = documentRef.createElement('strong');
-        queueStrong.textContent = 'Build Queue';
-        queueTitle.dom.appendChild(queueStrong);
-        queueCard.add(queueTitle);
-        const queueDesc = new GQUI.Div().setClass('small text-muted');
-        queueDesc.dom.style.marginTop = '0.3rem';
-        queueDesc.dom.textContent = 'Ships now enter a real production queue with ETA.';
-        queueCard.add(queueDesc);
-        const queueBody = new GQUI.Div();
-        queueBody.dom.style.marginTop = '0.7rem';
-        queueBody.dom.appendChild(buildQueueDom(data.queue || []));
-        queueCard.add(queueBody);
-        frag.appendChild(queueCard.dom);
-
-        if (vessels.length) {
-          const vesselsDom = renderDockedVesselsDom(vessels);
-          if (vesselsDom) {
-            const vesselCard = new GQUI.Div().setClass('system-card');
-            vesselCard.dom.id = 'shipyard-docked-vessels-card';
-            vesselCard.dom.style.marginBottom = '1rem';
-            const vesselTitle = new GQUI.Div().setClass('system-row');
-            const vesselStrong = documentRef.createElement('strong');
-            vesselStrong.textContent = 'Docked Vessels';
-            vesselTitle.dom.appendChild(vesselStrong);
-            const badge = new GQUI.Span().setClass('badge');
-            badge.dom.style.marginLeft = '0.5rem';
-            badge.dom.textContent = String(vessels.length);
-            vesselTitle.add(badge);
-            vesselCard.add(vesselTitle);
-            const vesselDesc = new GQUI.Div().setClass('small text-muted');
-            vesselDesc.dom.style.marginTop = '0.3rem';
-            vesselDesc.dom.textContent = 'Individual blueprint vessels docked at this colony.';
-            vesselCard.add(vesselDesc);
-            const vesselBody = new GQUI.Div();
-            vesselBody.dom.style.marginTop = '0.7rem';
-            vesselBody.dom.appendChild(vesselsDom);
-            vesselCard.add(vesselBody);
-            frag.appendChild(vesselCard.dom);
-          }
+        // Set hidden hull input to first unlocked hull
+        const firstUnlocked = hulls.find((h) => h.unlocked !== false);
+        if (firstUnlocked) {
+          const hullHidden = root.querySelector('#shipyard-blueprint-hull');
+          if (hullHidden) hullHidden.value = String(firstUnlocked.code || '');
         }
 
-        const hullCard = new GQUI.Div().setClass('system-card');
-        hullCard.dom.style.marginBottom = '1rem';
-        const hullTitle = new GQUI.Div().setClass('system-row');
-        const hullStrong = documentRef.createElement('strong');
-        hullStrong.textContent = 'Hull Catalog';
-        hullTitle.dom.appendChild(hullStrong);
-        hullCard.add(hullTitle);
-        const hullDesc = new GQUI.Div().setClass('small text-muted');
-        hullDesc.dom.style.marginTop = '0.3rem';
-        hullDesc.dom.textContent = 'Ship classes and their slot-layout variations.';
-        hullCard.add(hullDesc);
-        const hullBody = new GQUI.Div();
-        hullBody.dom.style.marginTop = '0.7rem';
-        hullBody.dom.appendChild(buildHullCatalogDom(hulls));
-        hullCard.add(hullBody);
-        frag.appendChild(hullCard.dom);
-
-        const bpCard = new GQUI.Div().setClass('system-card');
-        bpCard.dom.style.marginBottom = '1rem';
-        const bpTitle = new GQUI.Div().setClass('system-row');
-        const bpStrong = documentRef.createElement('strong');
-        bpStrong.textContent = 'Blueprints';
-        bpTitle.dom.appendChild(bpStrong);
-        bpCard.add(bpTitle);
-        const bpDesc = new GQUI.Div().setClass('small text-muted');
-        bpDesc.dom.style.marginTop = '0.3rem';
-        bpDesc.dom.textContent = 'Compiled blueprints built as synthetic ship types.';
-        bpCard.add(bpDesc);
-        const bpBody = new GQUI.Div();
-        bpBody.dom.style.marginTop = '0.7rem';
-        bpBody.dom.appendChild(buildBlueprintCardsDom(data.blueprints || []));
-        bpCard.add(bpBody);
-        frag.appendChild(bpCard.dom);
-
-        const legacyCard = new GQUI.Div().setClass('system-card');
-        const legacyTitle = new GQUI.Div().setClass('system-row');
-        const legacyStrong = documentRef.createElement('strong');
-        legacyStrong.textContent = 'Legacy Ships';
-        legacyTitle.dom.appendChild(legacyStrong);
-        legacyCard.add(legacyTitle);
-        const legacyDesc = new GQUI.Div().setClass('small text-muted');
-        legacyDesc.dom.style.marginTop = '0.3rem';
-        legacyDesc.dom.textContent = 'Fallback SHIP_STATS path remains available during migration.';
-        legacyCard.add(legacyDesc);
-        const legacyBody = new GQUI.Div();
-        legacyBody.dom.style.marginTop = '0.7rem';
-        legacyBody.dom.appendChild(buildCardsDom(data.ships || []));
-        legacyCard.add(legacyBody);
-        frag.appendChild(legacyCard.dom);
-
-        root.replaceChildren(frag);
         bindActions(root, hulls);
       } catch (err) {
         gameLog('warn', 'Shipyard view laden fehlgeschlagen (renderer v1)', err);
-        gqStatusMsg(root, 'Failed to load shipyard.', 'red');
+        gqStatusMsg(root, 'Shipyard konnte nicht geladen werden.', 'red');
       }
     }
 

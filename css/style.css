@@ -2623,6 +2623,149 @@ input:focus, select:focus, textarea:focus {
   gap: 0.4rem;
 }
 
+/* ── Shipyard tabbed layout (Stellaris-style) ────────────────────────── */
+.shipyard-tabs-root {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+/* Hull picker grid */
+.shipyard-hull-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.shipyard-hull-card {
+  position: relative;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid rgba(87,120,166,0.38);
+  border-radius: 9px;
+  background: rgba(13,22,38,0.72);
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms, box-shadow 120ms;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.shipyard-hull-card:hover {
+  border-color: rgba(100,180,255,0.6);
+  background: rgba(25,45,80,0.78);
+  box-shadow: 0 0 10px rgba(80,160,255,0.18);
+}
+.shipyard-hull-card.is-selected {
+  border-color: rgba(80,180,255,0.85);
+  background: rgba(20,55,110,0.72);
+  box-shadow: 0 0 14px rgba(80,160,255,0.28);
+}
+.shipyard-hull-card.is-locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.shipyard-hull-card.is-locked:hover {
+  border-color: rgba(87,120,166,0.38);
+  box-shadow: none;
+}
+.shipyard-hull-card-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #d6ecff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shipyard-hull-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.shipyard-hull-card-tier {
+  font-size: 0.62rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(90,60,10,0.45);
+  border: 1px solid rgba(220,170,50,0.45);
+  color: #f0d888;
+}
+.shipyard-hull-card-role {
+  font-size: 0.62rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(20,55,110,0.55);
+  border: 1px solid rgba(80,140,230,0.4);
+  color: #a8ccff;
+}
+.shipyard-hull-card-lock-badge {
+  font-size: 0.6rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(100,20,20,0.45);
+  border: 1px solid rgba(200,60,60,0.4);
+  color: #ff9988;
+}
+.shipyard-hull-card-stats {
+  font-size: 0.65rem;
+  color: var(--text-muted, #8899aa);
+  line-height: 1.4;
+}
+.shipyard-hull-card-slots {
+  margin-top: 0.2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+
+/* Doctrine selector */
+.shipyard-doctrine-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+.shipyard-doctrine-btn {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid rgba(87,120,166,0.4);
+  border-radius: 7px;
+  background: rgba(15,28,50,0.6);
+  color: #8aadd4;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  transition: all 120ms;
+}
+.shipyard-doctrine-btn:hover {
+  border-color: rgba(100,180,255,0.55);
+  color: #c8e4ff;
+}
+.shipyard-doctrine-btn.is-active {
+  border-color: rgba(80,180,255,0.8);
+  background: rgba(30,70,140,0.55);
+  color: #d8f0ff;
+  box-shadow: inset 0 0 0 1px rgba(80,180,255,0.3);
+}
+
+/* Blueprint card delete button */
+.blueprint-delete-btn {
+  padding: 0.2rem 0.45rem;
+  border: 1px solid rgba(200,50,50,0.4);
+  border-radius: 6px;
+  background: rgba(50,15,15,0.5);
+  color: #ff8888;
+  cursor: pointer;
+  font-size: 0.7rem;
+  transition: all 120ms;
+}
+.blueprint-delete-btn:hover {
+  border-color: rgba(230,70,70,0.7);
+  background: rgba(80,20,20,0.65);
+}
+.blueprint-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 
 /* ── Building category sections ───────────────────────────────────────── */
 .building-category      { margin-bottom:1.2rem; }

@@ -59,6 +59,12 @@ switch ($action) {
         action_create_blueprint(get_db(), $uid, get_json_body());
         break;
 
+    case 'delete_blueprint':
+        only_method('POST');
+        verify_csrf();
+        action_delete_blueprint(get_db(), $uid, get_json_body());
+        break;
+
     case 'build':
         only_method('POST');
         verify_csrf();
@@ -1035,6 +1041,42 @@ function action_decommission_vessel(PDO $db, int $uid, array $body): never {
         ->execute([$vesselId]);
 
     json_ok(['decommissioned' => $vesselId]);
+}
+
+function action_delete_blueprint(PDO $db, int $uid, array $body): never {
+    if (!vessel_blueprint_tables_exist($db)) {
+        json_error('Blueprint tables are not available.', 409);
+    }
+
+    $blueprintId = (int)($body['blueprint_id'] ?? 0);
+    if ($blueprintId <= 0) {
+        json_error('blueprint_id required.');
+    }
+
+    // verify ownership
+    $ownerStmt = $db->prepare('SELECT user_id FROM vessel_blueprints WHERE id = ? LIMIT 1');
+    $ownerStmt->execute([$blueprintId]);
+    $row = $ownerStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row || (int)$row['user_id'] !== $uid) {
+        json_error('Blueprint not found or access denied.', 403);
+    }
+
+    // prevent deletion while ships are in the build queue
+    $queueCheck = $db->prepare(
+        "SELECT COUNT(*) FROM ship_build_queue WHERE blueprint_id = ? AND status IN ('queued','running')"
+    );
+    $queueCheck->execute([$blueprintId]);
+    if ((int)$queueCheck->fetchColumn() > 0) {
+        json_error('Cannot delete blueprint while ships are being built from it.');
+    }
+
+    $db->prepare('DELETE FROM vessel_blueprint_modules WHERE blueprint_id = ?')
+        ->execute([$blueprintId]);
+    $db->prepare('DELETE FROM vessel_blueprints WHERE id = ? AND user_id = ?')
+        ->execute([$blueprintId, $uid]);
+
+    json_ok(['deleted' => $blueprintId]);
 }
 
 // ── Faction tech affinities ───────────────────────────────────────────────────
