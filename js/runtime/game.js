@@ -4342,6 +4342,7 @@
     }
   }
 
+  const runtimeResourceScanOverviewApi = requireRuntimeApi('GQRuntimeResourceScanOverview', ['createResourceScanOverviewController']);
   const runtimeMessagesControllerApi = requireRuntimeApi('GQRuntimeMessagesController', ['createMessagesController']);
   const runtimeIntelControllerApi = requireRuntimeApi('GQRuntimeIntelController', ['createIntelController']);
   const runtimeTradeRoutesControllerApi = requireRuntimeApi('GQRuntimeTradeRoutesController', ['createTradeRoutesController']);
@@ -4567,6 +4568,7 @@ async function renderTradeProposals() {
       getGalaxyBody: () => WM.body('galaxy'),
       renderGalaxyDetails: (root, star, zoomed) => renderGalaxySystemDetails(root, star, zoomed),
       isSystemModeActive: () => isSystemModeActive(),
+      getTradeRoutes: () => (typeof tradeRoutesController !== 'undefined' && tradeRoutesController ? (tradeRoutesController.routes || []) : []),
       requestFrame: (cb) => requestAnimationFrame(cb),
     };
   }
