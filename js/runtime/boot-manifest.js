@@ -306,6 +306,7 @@
     'js/engine/runtime/RuntimeWarController.js',
     'js/engine/runtime/RuntimeEconomyController.js',
     'js/engine/runtime/RuntimeConflictDashboard.js',
+    'js/engine/runtime/NpcAvatarRenderer.js',
     'js/engine/runtime/RuntimeFactionsController.js',
     'js/engine/runtime/RuntimeLeaderboardController.js',
     'js/engine/runtime/RuntimeAdvisorWidget.js',

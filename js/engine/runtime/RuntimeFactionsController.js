@@ -419,6 +419,7 @@
         });
 
         detail.querySelector('#npc-chat-restart')?.addEventListener('click', async () => {
+          this._destroyNpcAvatar(fid);
           this.npcSessions.delete(Number(fid || 0));
           await this.openNpcChat(root, fid);
         });
@@ -440,7 +441,9 @@
         const optimisticHistory = [...current.history, { role: 'user', content: playerMessage }];
         this.setNpcSession(fid, Object.assign({}, current, { history: optimisticHistory, suggestedReplies: [], loading: true }));
         detail.innerHTML = this.buildNpcChatPanel(fid);
+        this._mountNpcAvatar(detail, fid);
         this._scrollNpcTranscript(detail);
+        this._npcRenderers.get(Number(fid))?.setTalking(true);
 
         try {
           const response = await API.chatNpc({
@@ -449,6 +452,7 @@
             player_message: playerMessage,
             session_id: current.sessionId || undefined,
           });
+          this._npcRenderers.get(Number(fid))?.setTalking(false);
           if (!response?.success) throw new Error(response?.error || 'NPC chat request failed.');
 
           const newHistory = [...optimisticHistory, { role: 'assistant', content: String(response.reply || '') }];
@@ -463,6 +467,7 @@
           });
           detail.innerHTML = this.buildNpcChatPanel(fid);
           this.bindNpcChatActions(root, fid);
+          this._mountNpcAvatar(detail, fid);
           this._scrollNpcTranscript(detail);
 
           const npcReply = String(response.reply || '').trim();
@@ -470,9 +475,11 @@
             windowRef.GQTTS.playOrSpeak(null, npcReply, {}).catch(() => {});
           }
         } catch (err) {
+          this._npcRenderers.get(Number(fid))?.setTalking(false);
           this.setNpcSession(fid, Object.assign({}, current, { loading: false }));
           detail.innerHTML = this.buildNpcChatPanel(fid);
           this.bindNpcChatActions(root, fid);
+          this._mountNpcAvatar(detail, fid);
           showToast(String(err?.message || 'NPC chat fehlgeschlagen.'), 'error');
         }
       }
@@ -511,6 +518,7 @@
           });
           detail.innerHTML = this.buildNpcChatPanel(fid);
           this.bindNpcChatActions(root, fid);
+          this._mountNpcAvatar(detail, fid);
           this._scrollNpcTranscript(detail);
 
           const npcReply = String(response.reply || '').trim();
@@ -535,6 +543,7 @@
           if (existing) {
             detail.innerHTML = this.buildNpcChatPanel(fid);
             this.bindNpcChatActions(root, fid);
+            this._mountNpcAvatar(detail, fid);
           } else {
             await this.openNpcChat(root, fid);
           }
