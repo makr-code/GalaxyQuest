@@ -122,6 +122,17 @@
       const currentSysIdx = Number(currentColony?.system || currentColony?.system_index || 0);
       const activeSysIdx = Number(uiState.activeStar?.system_index || pinnedStar?.system_index || 0);
 
+      // ── Territory overlay (painted empire regions) ─────────────────────────
+      const territoryApi = typeof window !== 'undefined' ? window.GQGalaxyTerritoryLayer : null;
+      let territoryGroups = null;
+      if (territoryApi && typeof territoryApi.buildTerritoryGroups === 'function') {
+        territoryGroups = territoryApi.buildTerritoryGroups(stars, canvas.__minimapState, projectPoint);
+        if (territoryGroups.size) {
+          territoryApi.drawTerritoryLayer(ctx, territoryGroups, canvas.__minimapState);
+          territoryApi.drawTerritoryBorders(ctx, territoryGroups, canvas.__minimapState);
+        }
+      }
+
       // ── Autobahn lane overlay ──────────────────────────────────────────────
       const autobahnApi = typeof window !== 'undefined' ? window.GQGalaxyAutobahnLayer : null;
       let highwayHubs = null;
@@ -210,11 +221,16 @@
 
       drawCameraOverlay(ctx, canvas.__minimapState, pose);
 
+      // ── Territory legend ───────────────────────────────────────────────────
+      if (territoryGroups && territoryGroups.size && territoryApi && typeof territoryApi.drawTerritoryLegend === 'function') {
+        territoryApi.drawTerritoryLegend(ctx, territoryGroups, w, h);
+      }
+
       ctx.font = '9px Consolas, monospace';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = 'rgba(100, 160, 220, 0.6)';
-      const routeCount = (() => { try { return getTradeRoutes().length; } catch (_) { return 0; } })();
+      const routeCount = getTradeRoutes().length;
       const statsLabel = routeCount > 0 ? `${stars.length} stars · ${routeCount} routes` : `${stars.length} stars`;
       ctx.fillText(statsLabel, 5, h - 5);
     }
