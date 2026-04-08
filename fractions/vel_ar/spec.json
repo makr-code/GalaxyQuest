@@ -5,6 +5,20 @@
   "homeworld": "Nira'Voss",
   "faction_type": "espionage",
   "description": "Gasbasierte Bewusstseinswesen mit Spionagekultur. Geheimniskrämer. Identität über Biomasken definiert. Die Atmosphäre ist halb-sentient.",
+  "meta": {
+    "faction_tier": "main",
+    "playable": true,
+    "npc_only": false
+  },
+  "display": {
+    "color": "#4a90e2",
+    "icon": "🎭"
+  },
+  "tech_affinities": [
+    { "group": "shield",  "bonus_type": "stat_mult",  "bonus_value": 0.10, "min_standing": 5  },
+    { "group": "utility", "bonus_type": "cost_pct",   "bonus_value": -15.0, "min_standing": 10 },
+    { "group": "shield",  "bonus_type": "cost_pct",   "bonus_value": -10.0, "min_standing": 15 }
+  ],
   "society": {
     "government": "Geheimnis-Konspirativ",
     "culture": "Geheimnisse, Spionage, Biomasken, Identität",

@@ -158,5 +158,28 @@
     "act2": "Die Spieler entdecken Fragment-Bewusstsein Elegy in einer verlassenen Forschungsstation. Ist es zu retten? Kann ein Echo zu einem Verbündeten werden? Schwarmpuls 7-Delta greift derweil strategische Stationen an.",
     "act3": "Spiegel sammelt Daten für eine Invasions-Resonanz. Wenn es die Schwarmpulse koordiniert, öffnet sich ein neuer Riss-Eintrittspunkt. Die Spieler müssen entscheiden: Elegy als Brücke nutzen, oder alle Echos eliminieren.",
     "aftershock": "Wiederholbar: NPC-Imitationen tauchen auf; Entropie-Anomalien in abgeschirmten Sektoren; Elegy sendet Nachrichten, die nach Hilfe klingen."
-  }
+  },
+  "display": {
+    "color": "#330055",
+    "icon": "🌑"
+  },
+  "game_balance": {
+    "aggression": 100,
+    "power_level": 3500,
+    "base_diplomacy": -50
+  },
+  "tech_affinities": [
+    {
+      "group": "weapon",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.15,
+      "min_standing": 20
+    },
+    {
+      "group": "weapon",
+      "bonus_type": "cost_pct",
+      "bonus_value": -10.0,
+      "min_standing": 35
+    }
+  ]
 }

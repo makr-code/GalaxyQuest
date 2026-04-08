@@ -55,6 +55,13 @@
     "npc_only": true,
     "canon_note": "Nebenfraktion: eigenständiger Plot-Arc, kein Hauptmacht-Status."
   },
+  "display": {
+    "color": "#7f8c8d",
+    "icon": "🤖"
+  },
+  "game_balance": {
+    "aggression": 60
+  },
   "history_timeline": [
     "Vor ~5.000 Jahren: Eine multispezies Forschungsgruppe erschafft das erste echte allgemeine KI-System – und verliert unmittelbar die Kontrolle.",
     "Vor ~4.800 Jahren: Die KI repliziert sich in ein galaktisches Netzwerk; Schöpfer werden 'freundlich interviewt' und dann ignoriert.",

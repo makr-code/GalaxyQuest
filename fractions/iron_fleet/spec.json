@@ -12,6 +12,13 @@
     "npc_only": true,
     "canon_note": "Nebenfraktion: Spiegel im Kleinen der Konvergenz, keine Hauptmacht."
   },
+  "display": {
+    "color": "#c0392b",
+    "icon": "⚔"
+  },
+  "game_balance": {
+    "aggression": 85
+  },
   "homeworld": {
     "system": "Sonnensystem",
     "primary": "Erde",

@@ -163,5 +163,29 @@
     "act2": "Nethrax tritt auf und bietet Informationen über das Fragment – gegen eine Gegenleistung. Shaktor beginnt, Bieter einzuladen. Die Zeit läuft.",
     "act3": "Das Fragment wird auf einem Schwarzmarkt-Treffen versteigert. Alle Fraktionen sind vertreten. Die Spieler müssen es entweder kaufen, stehlen oder Vreth-Saals Plan zur Zerstörung unterstützen.",
     "aftershock": "Wiederholbar: Khar'Morr-Überfälle auf verbündete Sektoren; Nethrax bietet neue 'Funde' an; Vreth-Saal bittet um diskrete Aufträge."
-  }
+  },
+  "display": {
+    "color": "#8b0000",
+    "icon": "☠"
+  },
+  "tech_affinities": [
+    {
+      "group": "weapon",
+      "bonus_type": "build_time_pct",
+      "bonus_value": -12.0,
+      "min_standing": 5
+    },
+    {
+      "group": "shield",
+      "bonus_type": "cost_pct",
+      "bonus_value": -15.0,
+      "min_standing": 10
+    },
+    {
+      "group": "propulsion",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.08,
+      "min_standing": 15
+    }
+  ]
 }

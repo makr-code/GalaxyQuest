@@ -266,7 +266,7 @@ switch ($action) {
         verify_csrf();
         $body  = get_json_body();
         $drive = $body['ftl_drive_type'] ?? '';
-        $validDrives = ['aereth', 'vor_tak', 'syl_nar', 'vel_ar', 'zhareen', 'kryl_tha'];
+        $validDrives = get_playable_faction_codes();
         if (!in_array($drive, $validDrives, true)) {
             json_error('Invalid FTL drive type.');
         }

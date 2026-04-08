@@ -5,6 +5,15 @@
   "homeworld": "Aeryth'Luun",
   "faction_type": "archival",
   "description": "Kristallorganische Lebensformen mit Archivierungsfunktion. Archivare und Bewahrer von Wissen. Perfektion durch Symmetrie. Emotionen werden in Kristallen gespeichert.",
+  "meta": {
+    "faction_tier": "main",
+    "playable": true,
+    "npc_only": false
+  },
+  "display": {
+    "color": "#1abc9c",
+    "icon": "◆"
+  },
   "society": {
     "government": "Archivalistisch-Kollektiv",
     "culture": "Archivierung, Perfektion, Symmetrie, Wissensbewahrung",

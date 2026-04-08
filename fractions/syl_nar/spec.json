@@ -5,6 +5,15 @@
   "homeworld": "Oon'Vareth",
   "faction_type": "spiritual",
   "description": "Cephalopodische Energiewesen mit spiritueller, friedlicher Kultur. Kommunikation über Farbwechsel. Diplomatie und Kunst stehen im Mittelpunkt ihrer Gesellschaft.",
+  "meta": {
+    "faction_tier": "main",
+    "playable": true,
+    "npc_only": false
+  },
+  "display": {
+    "color": "#f39c12",
+    "icon": "⬟"
+  },
   "society": {
     "government": "Spirituell-Konsensual",
     "culture": "Geistigkeit, Kunst, Frieden",
