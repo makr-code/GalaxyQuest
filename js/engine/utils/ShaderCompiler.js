@@ -1,8 +1,8 @@
 /**
  * ShaderCompiler.js
  *
- * WGSL helper utilities — preprocessor directives, GLSL→WGSL shim stubs
- * and platform-difference handling for the WebGL fallback path.
+ * WGSL helper utilities — preprocessor directives and platform-difference
+ * handling for the WebGPU renderer.
  *
  * Inspiration:
  *   - Babylon.js (Apache 2.0): WebGPUShaderProcessor
@@ -47,22 +47,6 @@ function _processIfBlocks(src, defines) {
 }
 
 /**
- * Minimal GLSL ES 300 → WGSL attribute/uniform remapping stubs.
- * Not a full transpiler — used for simple post-effect shaders only.
- *
- * @param {string} glsl
- * @returns {string}
- */
-function glslToWgslStub(glsl) {
-  return glsl
-    .replace(/\bgl_FragColor\b/g, 'fragColor')
-    .replace(/\bgl_Position\b/g,  'output.position')
-    .replace(/\btexture2D\b/g,    'textureSample')
-    .replace(/\bvoid main\b/g,    '@fragment fn fs_main')
-    .replace(/\bprecision\s+\w+\s+\w+;\s*/g, '');
-}
-
-/**
  * Inject standard GalaxyQuest engine header into a WGSL shader.
  * @param {string} src
  * @param {string} [label]
@@ -73,7 +57,7 @@ function injectHeader(src, label = 'gq-shader') {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { preprocessWGSL, glslToWgslStub, injectHeader };
+  module.exports = { preprocessWGSL, injectHeader };
 } else {
-  window.GQShaderCompiler = { preprocessWGSL, glslToWgslStub, injectHeader };
+  window.GQShaderCompiler = { preprocessWGSL, injectHeader };
 }
