@@ -25,6 +25,7 @@ const WM = (function () {
     messages:    { title: 'Messages',    w: 640, h: 520 },
     quests:      { title: 'Quests',      w: 860, h: 620 },
     leaderboard: { title: 'Leaderboard', w: 540, h: 480 },
+    'system-bodies-cards': { title: 'System Bodies', w: 740, h: 500 },
   };
 
   // ── GQ viewport insets (live DOM measurement) ───────────────────────────────

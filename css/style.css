@@ -5762,6 +5762,284 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+/* ── Stellaris System Overview ──────────────────────────────────────── */
+
+#stellaris-system-overview {
+  position: relative;
+  width: 100%;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 350ms ease-out, padding 350ms ease-out, opacity 350ms ease-out;
+  opacity: 0;
+  background: rgba(3, 7, 20, 0.92);
+  border-bottom: 1px solid rgba(42, 100, 150, 0.22);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+}
+
+#stellaris-system-overview.sso-visible {
+  max-height: 168px;
+  padding: 0.55rem 0.9rem;
+  opacity: 1;
+}
+
+.sso-strip {
+  display: flex;
+  flex-direction: row;
+  gap: 0.55rem;
+  align-items: flex-end;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.2rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(42, 100, 150, 0.4) transparent;
+}
+
+.sso-strip::-webkit-scrollbar {
+  height: 4px;
+}
+
+.sso-strip::-webkit-scrollbar-thumb {
+  background: rgba(42, 100, 150, 0.4);
+  border-radius: 2px;
+}
+
+/* Body cards */
+.sso-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 0.3rem 0.4rem 0.35rem;
+  border: 1px solid rgba(42, 100, 150, 0.25);
+  background: rgba(8, 16, 34, 0.65);
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.sso-card:hover {
+  border-color: rgba(58, 160, 255, 0.55);
+  background: rgba(14, 28, 56, 0.85);
+  box-shadow: 0 0 14px rgba(58, 160, 255, 0.18);
+}
+
+.sso-card--focused {
+  border-color: rgba(58, 160, 255, 0.75) !important;
+  background: rgba(20, 40, 80, 0.9) !important;
+  box-shadow: 0 0 18px rgba(58, 160, 255, 0.3), inset 0 0 10px rgba(58, 160, 255, 0.08) !important;
+}
+
+/* Star card accent */
+.sso-card--star {
+  border-color: rgba(255, 200, 106, 0.35);
+}
+
+.sso-card--star:hover {
+  border-color: rgba(255, 200, 106, 0.65) !important;
+  box-shadow: 0 0 18px rgba(255, 200, 106, 0.2) !important;
+}
+
+.sso-card--star.sso-card--focused {
+  border-color: rgba(255, 200, 106, 0.8) !important;
+  box-shadow: 0 0 20px rgba(255, 200, 106, 0.35), inset 0 0 10px rgba(255, 200, 106, 0.1) !important;
+}
+
+/* Moon card accent */
+.sso-card--moon {
+  opacity: 0.88;
+  border-color: rgba(127, 208, 217, 0.25);
+}
+
+.sso-card--moon:hover {
+  opacity: 1;
+  border-color: rgba(127, 208, 217, 0.55) !important;
+}
+
+.sso-card--moon.sso-card--focused {
+  opacity: 1;
+  border-color: rgba(127, 208, 217, 0.75) !important;
+}
+
+/* WebGPU canvas inside the card */
+.sso-canvas {
+  display: block;
+  border-radius: 50%;
+  /* Fallback CSS gradient shown before WebGPU paints */
+  background: radial-gradient(circle at 38% 38%, rgba(100,160,220,0.5), rgba(6,12,30,0.9));
+  image-rendering: pixelated;
+}
+
+.sso-card--star .sso-canvas {
+  background: radial-gradient(circle at 38% 38%, rgba(255,220,120,0.7), rgba(20,8,0,0.9));
+}
+
+.sso-card--moon .sso-canvas {
+  background: radial-gradient(circle at 38% 38%, rgba(160,160,175,0.5), rgba(10,10,20,0.9));
+}
+
+/* Label */
+.sso-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-secondary, #a8c0d8);
+  text-align: center;
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.sso-card--star .sso-label {
+  color: #ffc86a;
+}
+
+.sso-card--moon .sso-label {
+  color: #7fd0d9;
+  font-size: 0.64rem;
+}
+
+/* Type badge */
+.sso-badge {
+  font-size: 0.58rem;
+  color: rgba(120, 160, 210, 0.65);
+  text-align: center;
+  line-height: 1;
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sso-card--star .sso-badge {
+  color: rgba(255, 200, 106, 0.55);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  #stellaris-system-overview.sso-visible {
+    max-height: 140px;
+    padding: 0.4rem 0.55rem;
+  }
+
+  .sso-card--star .sso-canvas { width: 72px !important; height: 72px !important; }
+  .sso-canvas { width: 60px !important; height: 60px !important; }
+  .sso-card--moon .sso-canvas { width: 44px !important; height: 44px !important; }
+  .sso-label { font-size: 0.62rem; max-width: 70px; }
+}
+
+/* ── End Stellaris System Overview ───────────────────────────────────── */
+
+/* ── System Bodies Card Window ──────────────────────────────────────── */
+
+.sbcw-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem 0.25rem;
+  border-bottom: 1px solid rgba(42, 100, 150, 0.2);
+  min-height: 30px;
+}
+
+.sbcw-count {
+  font-size: 0.72rem;
+  color: rgba(120, 160, 210, 0.7);
+}
+
+.sbcw-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  overflow-y: auto;
+  height: calc(100% - 38px);
+  align-content: flex-start;
+}
+
+/* Individual body card */
+.sbcw-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 140px;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 0.5rem;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.sbcw-card:hover,
+.sbcw-card:focus-visible {
+  border-color: rgba(58, 160, 255, 0.55) !important;
+  box-shadow: 0 0 14px rgba(58, 160, 255, 0.18);
+  outline: none;
+}
+
+.sbcw-card--star {
+  border-color: rgba(255, 200, 106, 0.3) !important;
+  width: 160px;
+}
+
+.sbcw-card--star:hover,
+.sbcw-card--star:focus-visible {
+  border-color: rgba(255, 200, 106, 0.65) !important;
+  box-shadow: 0 0 18px rgba(255, 200, 106, 0.2) !important;
+}
+
+.sbcw-card--moon {
+  width: 120px;
+  opacity: 0.9;
+}
+
+.sbcw-canvas-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.4rem;
+}
+
+.sbcw-canvas {
+  display: block;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 38%, rgba(100,160,220,0.5), rgba(6,12,30,0.9));
+  width: 64px;
+  height: 64px;
+}
+
+.sbcw-card--star .sbcw-canvas {
+  width: 80px;
+  height: 80px;
+  background: radial-gradient(circle at 38% 38%, rgba(255,220,120,0.7), rgba(20,8,0,0.9));
+}
+
+.sbcw-card--moon .sbcw-canvas {
+  width: 48px;
+  height: 48px;
+  background: radial-gradient(circle at 38% 38%, rgba(160,160,175,0.5), rgba(10,10,20,0.9));
+}
+
+.sbcw-meta {
+  font-size: 0.68rem;
+  color: rgba(140, 175, 210, 0.7);
+  line-height: 1.4;
+}
+
+.sbcw-meta-label {
+  color: rgba(100, 145, 190, 0.6);
+}
+
+.sbcw-owner-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+/* ── End System Bodies Card Window ───────────────────────────────────── */
+
 .message-signal-ring .ring-wave.delay {
   animation-delay: 0.55s;
 }
