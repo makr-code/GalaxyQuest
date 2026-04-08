@@ -10,6 +10,10 @@ require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
 require_once __DIR__ . '/shipyard_queue.php';
 
+// Build-queue status constants (must match ship_build_queue.status enum/values)
+const SBQ_STATUS_QUEUED  = 'queued';
+const SBQ_STATUS_RUNNING = 'running';
+
 if (PHP_SAPI !== 'cli') {
 
 $action = $_GET['action'] ?? '';
@@ -1064,9 +1068,9 @@ function action_delete_blueprint(PDO $db, int $uid, array $body): never {
 
     // prevent deletion while ships are in the build queue
     $queueCheck = $db->prepare(
-        "SELECT COUNT(*) FROM ship_build_queue WHERE blueprint_id = ? AND status IN ('queued','running')"
+        'SELECT COUNT(*) FROM ship_build_queue WHERE blueprint_id = ? AND status IN (?, ?)'
     );
-    $queueCheck->execute([$blueprintId]);
+    $queueCheck->execute([$blueprintId, SBQ_STATUS_QUEUED, SBQ_STATUS_RUNNING]);
     if ((int)$queueCheck->fetchColumn() > 0) {
         json_error('Cannot delete blueprint while ships are being built from it.');
     }

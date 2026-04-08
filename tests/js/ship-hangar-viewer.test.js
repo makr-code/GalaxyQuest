@@ -68,7 +68,14 @@ function makeThreeStub() {
   }
 
   const mkGeo = () => ({ dispose: vi.fn(), _isGeo: true });
-  const mkMat = () => ({ dispose: vi.fn(), _isMat: true, opacity: 0.14, color: new Color(0), emissive: new Color(0), emissiveIntensity: 1 });
+  const mkMat = () => ({
+    dispose: vi.fn(),
+    _isMat: true,
+    opacity: 0.14,
+    color: new Color(0),
+    emissive: new Color(0),
+    emissiveIntensity: 1,
+  });
 
   class Mesh extends EventTarget2 {
     constructor(geo, mat) {
@@ -578,7 +585,7 @@ describe('RuntimeShipyardController – hangar canvas integration', () => {
     const doc = window.document;
     const root = doc.createElement('div');
     const wm = { body: vi.fn(() => root) };
-    createShipyardController({
+    const controller = createShipyardController({
       wm,
       api: {
         ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
@@ -600,28 +607,7 @@ describe('RuntimeShipyardController – hangar canvas integration', () => {
       GQUI: makeGQUI(doc),
       ShipHangarViewer: null,
     });
-    await window.GQRuntimeShipyardController.createShipyardController({
-      wm,
-      api: {
-        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
-        shipyardHulls: vi.fn().mockResolvedValue({ hulls: sampleHulls }),
-        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [] }),
-        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
-      },
-      windowRef: window,
-      documentRef: doc,
-      getCurrentColony: () => ({ id: 1 }),
-      updateResourceBar: vi.fn(),
-      fmt: (n) => String(n),
-      fmtName: (s) => String(s ?? ''),
-      esc: (s) => String(s ?? ''),
-      countdown: () => '0:00',
-      showToast: vi.fn(),
-      gameLog: vi.fn(),
-      gqStatusMsg: vi.fn(),
-      GQUI: makeGQUI(doc),
-      ShipHangarViewer: null,
-    }).render();
+    await controller.render();
     const wrap = root.querySelector('.shipyard-hangar-wrap');
     expect(wrap).not.toBeNull();
   });
