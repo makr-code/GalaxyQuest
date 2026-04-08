@@ -17,21 +17,6 @@
 const fs   = require('fs');
 const path = require('path');
 
-const SIDE_FACTIONS = [
-  'aethernox',
-  'architekten_des_lichts',
-  'brut_der_ewigkeit',
-  'echos_der_leere',
-  'genesis_kollektiv',
-  'helion_confederation',
-  'ketzer_von_verath',
-  'khar_morr_syndicate',
-  'myr_keth',
-  'nomaden_des_rifts',
-  'omniscienta',
-  'schattenkompakt',
-];
-
 const REQUIRED_META_KEYS = [
   'faction_tier',
   'faction_tier_label_de',
@@ -44,6 +29,29 @@ const REQUIRED_NPC_KEYS = ['name', 'title', 'public_face', 'private_goal'];
 const REQUIRED_PLOT_ACTS = ['act1', 'act2', 'act3', 'aftershock'];
 
 const FRACTIONS_DIR = path.join(__dirname, '..', 'fractions');
+
+// Auto-discover side factions by scanning fractions/ for spec.json files where
+// meta.faction_tier === 'side'.  Factions with a mini_factions/ subdirectory (e.g.
+// iron_fleet) are compound factions validated separately and are excluded here.
+// This replaces the former hardcoded SIDE_FACTIONS list.
+function discoverSideFactions() {
+  const codes = [];
+  if (!fs.existsSync(FRACTIONS_DIR)) return codes;
+  for (const entry of fs.readdirSync(FRACTIONS_DIR)) {
+    const specPath      = path.join(FRACTIONS_DIR, entry, 'spec.json');
+    const miniFacDir    = path.join(FRACTIONS_DIR, entry, 'mini_factions');
+    if (!fs.existsSync(specPath)) continue;
+    if (fs.existsSync(miniFacDir)) continue;   // compound faction – skip
+    let spec;
+    try { spec = JSON.parse(fs.readFileSync(specPath, 'utf8')); } catch { continue; }
+    if (spec && spec.meta && spec.meta.faction_tier === 'side') {
+      codes.push(entry);
+    }
+  }
+  return codes.sort();
+}
+
+const SIDE_FACTIONS = discoverSideFactions();
 
 let failures = 0;
 

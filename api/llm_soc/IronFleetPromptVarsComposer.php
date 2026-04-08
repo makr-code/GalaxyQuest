@@ -36,8 +36,6 @@ final class IronFleetPromptVarsComposer
     /** Tracks which constructor mode was detected. */
     private string $mode;
 
-    /** @var list<string> Exhaustive list of valid mini-faction codes for Mode A. */
-    private const VALID_MINI_FACTION_CODES = ['parade', 'pr', 'tech', 'clan', 'archive', 'shadow'];
 
     // Required fields for Mode C validation
     private const REQUIRED_ROOT        = ['mini_faction_code', 'display_name', 'mirror_of'];
@@ -92,18 +90,31 @@ final class IronFleetPromptVarsComposer
 
     /**
      * Load a mini-faction spec by code (e.g. 'shadow', 'parade', 'tech').
-     * Only codes from the known allowlist are accepted; anything else returns [].
+     * Accepts any code whose name consists solely of a-z, 0-9 and underscores
+     * AND for which a spec.yaml file exists in the mini_factions/ directory.
+     * All other inputs return [].
      *
      * @return array<string, mixed>
      */
     public function loadMiniFactionSpec(string $miniFactionCode): array
     {
         $code = strtolower(trim($miniFactionCode));
-        if (!in_array($code, self::VALID_MINI_FACTION_CODES, true)) {
+        if ($code === '' || !preg_match('/^[a-z0-9_]+$/', $code)) {
             return [];
         }
-        $path = $this->fractionsDir . '/iron_fleet/mini_factions/' . $code . '/spec.yaml';
-        return $this->loadSpecFile($path);
+        $expectedBase = realpath($this->fractionsDir . '/iron_fleet/mini_factions');
+        if ($expectedBase === false) {
+            return [];
+        }
+        $path     = $this->fractionsDir . '/iron_fleet/mini_factions/' . $code . '/spec.yaml';
+        $resolved = realpath($path);
+        if ($resolved === false || !str_starts_with($resolved, $expectedBase . DIRECTORY_SEPARATOR)) {
+            return [];
+        }
+        if (!is_file($resolved)) {
+            return [];
+        }
+        return $this->loadSpecFile($resolved);
     }
 
     // =========================================================================

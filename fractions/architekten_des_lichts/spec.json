@@ -165,5 +165,29 @@
     "act2": "Zhal-Ir kontaktiert die Spieler heimlich mit Belegen, dass das Ritual Konstrukte unkontrolliert erweckt. Keth-Varas erhält Befehle, alle Zweifler zu 'entfernen'. Velorath beschleunigt den Zeitplan.",
     "act3": "Das Ritual beginnt. Die Spieler müssen entscheiden: Eingreifen (Ordensfeinde), beobachten (Katastrophe riskieren), oder Zhal-Irs Reformpläne unterstützen, um den Kult von innen zu stoppen.",
     "aftershock": "Wiederholbar: Kultisten rekrutieren in Konvergenz-Stationen; Monolith-Stätten werden zu umkämpften Gebieten; neue Konstrukte-Erwachungen werden als 'Zeichen' des Ordens interpretiert."
-  }
+  },
+  "display": {
+    "color": "#f0d060",
+    "icon": "✦"
+  },
+  "tech_affinities": [
+    {
+      "group": "utility",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.1,
+      "min_standing": 5
+    },
+    {
+      "group": "utility",
+      "bonus_type": "build_time_pct",
+      "bonus_value": -15.0,
+      "min_standing": 10
+    },
+    {
+      "group": "weapon",
+      "bonus_type": "cost_pct",
+      "bonus_value": -10.0,
+      "min_standing": 15
+    }
+  ]
 }

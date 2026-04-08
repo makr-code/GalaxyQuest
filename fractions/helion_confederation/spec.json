@@ -164,5 +164,29 @@
     "act2": "Solhann beauftragt die Spieler, ein Aethernox-Artefakt aus einem Sperrgebiet zu bergen. Solvara blockiert dies offiziell, finanziert es heimlich. Thal-Mira warnt die Vel'Ar.",
     "act3": "Solhann aktiviert das Artefakt. Ein Wächterkonstrukt erwacht. Die Helion-Flotte ist eingeschlossen. Solvara bietet den Spielern einen 'Vertrag' zur Problemlösung an – mit üblen Klauseln.",
     "aftershock": "Wiederholbar: Handelsrouten öffnen und schließen je nach Fraktionsstatus; Solhann bietet neue Expeditionen an; Thal-Mira taucht mit Informationen auf, die immer einen Preis haben."
-  }
+  },
+  "display": {
+    "color": "#ffa030",
+    "icon": "⬡"
+  },
+  "tech_affinities": [
+    {
+      "group": "propulsion",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.08,
+      "min_standing": 5
+    },
+    {
+      "group": "utility",
+      "bonus_type": "cost_pct",
+      "bonus_value": -15.0,
+      "min_standing": 10
+    },
+    {
+      "group": "propulsion",
+      "bonus_type": "cost_pct",
+      "bonus_value": -12.0,
+      "min_standing": 15
+    }
+  ]
 }

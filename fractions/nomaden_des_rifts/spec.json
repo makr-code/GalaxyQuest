@@ -163,5 +163,32 @@
     "act2": "Vyrell teilt Fragmente der Leerenkern-Karten – aber verlangt, dass die Spieler eine Mission in den Zwischenraum begleiten. Sael-Pheron bereitet die Expedition vor.",
     "act3": "Das Etwas im Zwischenraum tritt in die materielle Dimension ein. Sael-Pheron kämpft, Vyrell opfert Wissen um Zeit zu kaufen. Die Spieler müssen mit der Karte zur Leerenkern-Versiegelung navigieren.",
     "aftershock": "Wiederholbar: Aelveth erscheint mit neuen Zeitwarnungen; Zwischenraum-Risse öffnen sich in bewohnten Zonen; Vyrell schickt Fragmentwissen als Aufgaben."
-  }
+  },
+  "display": {
+    "color": "#00bcd4",
+    "icon": "🌀"
+  },
+  "game_balance": {
+    "power_level": 2000
+  },
+  "tech_affinities": [
+    {
+      "group": "propulsion",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.1,
+      "min_standing": 5
+    },
+    {
+      "group": "weapon",
+      "bonus_type": "cost_pct",
+      "bonus_value": -8.0,
+      "min_standing": 10
+    },
+    {
+      "group": "utility",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.08,
+      "min_standing": 15
+    }
+  ]
 }

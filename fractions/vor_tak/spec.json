@@ -5,6 +5,25 @@
   "homeworld": "Drak'Thuun",
   "faction_type": "military",
   "description": "Reptiloide Strategen mit starker hierarchischer Struktur. Ehre, Disziplin und Stärke prägen ihre Kultur. Männer dominieren das Militär, während Frauen Diplomatie und Strategie lenken.",
+  "meta": {
+    "faction_tier": "main",
+    "playable": true,
+    "npc_only": false
+  },
+  "display": {
+    "color": "#6c3483",
+    "icon": "◈",
+    "color_male_primary": "#1a3d2a",
+    "color_male_secondary": "#2d5f3f",
+    "color_male_accent": "#8b6914",
+    "color_female_primary": "#00c851",
+    "color_female_secondary": "#00e6ff",
+    "color_female_accent": "#ffd700"
+  },
+  "game_balance": {
+    "aggression": 95,
+    "base_diplomacy": -30
+  },
   "society": {
     "government": "Hierarchisch-Militärisch",
     "culture": "Ehre, Disziplin, Stärke",
