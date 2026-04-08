@@ -44,8 +44,9 @@
 - [x] `sql/migrate_empire_categories_v1.sql` — Tabelle `empire_category_scores`, `espionage_agents`, `espionage_missions`
 - [x] `api/empire.php` — `get_scores`, `get_score_breakdown`, `get_espionage_status`
 - [x] `api/espionage.php` — `hire_agent`, `assign_mission`, `get_active_missions`, `mission_result`
-- [ ] Frontend: `RuntimeEmpireCategoriesPanel.js` — Spider-Chart / Balken-Dashboard für 7 Scores
-- [ ] Frontend: `RuntimeEspionageController.js` — Agenten-Verwaltung, Missions-Zuweisung
+- [x] Frontend: `RuntimeEmpireCategoriesPanel.js` — Spider-Chart / Balken-Dashboard für 7 Scores
+- [x] Frontend: `RuntimeEspionageController.js` — Agenten-Verwaltung, Missions-Zuweisung
+- [x] `tests/Unit/EmpireCategoriesTest.php` — 21 Tests für Score-Berechnung und Upsert
 
 ---
 
@@ -53,10 +54,10 @@
 **Referenz:** `COLONY_BUILDING_SYSTEM_DESIGN.md`, `COLONY_BUILDING_WEBGPU_DESIGN.md`, `docs/github-issues/09–10`  
 **Design:** Isometrisches 3D-Bausystem, Gebäude-Slots, WebGPU-Integration
 
-- [ ] `api/colony_buildings.php` — `get_layout`, `place_building`, `remove_building`, `upgrade_slot`, `get_slot_info`
-- [ ] `sql/migrate_colony_buildings_v1.sql` — Tabelle `colony_building_slots`, `colony_building_upgrades`
-- [ ] Frontend-Backend-Binding: `js/ui/IsometricModuleRenderer.js` → API-Calls verdrahten (aktuell nur UI-Stub)
-- [ ] Tests: API-Endpunkt Smoke-Tests
+- [x] `api/colony_buildings.php` — `get_layout`, `place_building`, `remove_building`, `upgrade_slot`, `get_slot_info`
+- [x] `sql/migrate_colony_buildings_v1.sql` — Tabelle `colony_building_slots`, `colony_building_upgrades`
+- [x] Frontend-Backend-Binding: `js/ui/IsometricModuleRenderer.js` → API-Calls verdrahten (IsometricColonyBuildingManager)
+- [x] Tests: `tests/Unit/ColonyBuildingsTest.php` — 25 Smoke-Tests für SQL, PHP-API, JS-Client, Renderer-Wiring
 
 ---
 

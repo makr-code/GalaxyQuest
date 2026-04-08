@@ -630,9 +630,82 @@ class IsometricModuleRenderer {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Colony Building Manager — API wiring for isometric colony grid
+// ---------------------------------------------------------------------------
+
+/**
+ * Manages colony building slot data via the colony_buildings API.
+ * Delegates rendering of each slot to IsometricModuleRenderer.
+ *
+ * Usage:
+ *   const mgr = new IsometricColonyBuildingManager({ api });
+ *   await mgr.getLayout(colonyId);
+ *   await mgr.placeBuilding({ colony_id, building_type, slot_x, slot_y });
+ *   await mgr.removeBuilding({ colony_id, slot_x, slot_y });
+ *   await mgr.upgradeSlot({ colony_id, slot_x, slot_y });
+ */
+class IsometricColonyBuildingManager {
+  /**
+   * @param {object} opts
+   * @param {object} opts.api — API client (js/network/api.js instance / object)
+   */
+  constructor(opts = {}) {
+    if (!opts.api) throw new Error('IsometricColonyBuildingManager: api required');
+    this._api = opts.api;
+  }
+
+  /**
+   * Fetch all building slots for a colony and return the grid layout.
+   * @param {number} colonyId
+   * @returns {Promise<object>} { grid, slots, colony_id }
+   */
+  async getLayout(colonyId) {
+    return this._api.colonyBuildingsLayout(colonyId);
+  }
+
+  /**
+   * Place a new building in an empty slot.
+   * @param {{ colony_id: number, building_type: string, slot_x: number, slot_y: number }} data
+   * @returns {Promise<object>} { success, slot_id }
+   */
+  async placeBuilding(data) {
+    return this._api.colonyBuildingsPlace(data);
+  }
+
+  /**
+   * Remove the building at the given slot.
+   * @param {{ colony_id: number, slot_x: number, slot_y: number }} data
+   * @returns {Promise<object>} { success }
+   */
+  async removeBuilding(data) {
+    return this._api.colonyBuildingsRemove(data);
+  }
+
+  /**
+   * Queue an upgrade for the building at the given slot.
+   * @param {{ colony_id: number, slot_x: number, slot_y: number, completes_in_seconds?: number }} data
+   * @returns {Promise<object>} { success, upgrade_id, from_level, to_level }
+   */
+  async upgradeSlot(data) {
+    return this._api.colonyBuildingsUpgrade(data);
+  }
+
+  /**
+   * Fetch detailed info (including upgrade history) for a single slot.
+   * @param {number} colonyId
+   * @param {number} slotX
+   * @param {number} slotY
+   * @returns {Promise<object>} { success, slot }
+   */
+  async getSlotInfo(colonyId, slotX, slotY) {
+    return this._api.colonyBuildingsSlotInfo(colonyId, slotX, slotY);
+  }
+}
+
 // Export
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { IsometricModuleRenderer, ModuleType, MODULE_CONFIG };
+  module.exports = { IsometricModuleRenderer, IsometricColonyBuildingManager, ModuleType, MODULE_CONFIG };
 } else {
-  window.GQIsometricModuleRenderer = { IsometricModuleRenderer, ModuleType, MODULE_CONFIG };
+  window.GQIsometricModuleRenderer = { IsometricModuleRenderer, IsometricColonyBuildingManager, ModuleType, MODULE_CONFIG };
 }
