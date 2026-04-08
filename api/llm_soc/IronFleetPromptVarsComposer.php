@@ -102,11 +102,19 @@ final class IronFleetPromptVarsComposer
         if ($code === '' || !preg_match('/^[a-z0-9_]+$/', $code)) {
             return [];
         }
-        $path = $this->fractionsDir . '/iron_fleet/mini_factions/' . $code . '/spec.yaml';
-        if (!is_file($path)) {
+        $expectedBase = realpath($this->fractionsDir . '/iron_fleet/mini_factions');
+        if ($expectedBase === false) {
             return [];
         }
-        return $this->loadSpecFile($path);
+        $path     = $this->fractionsDir . '/iron_fleet/mini_factions/' . $code . '/spec.yaml';
+        $resolved = realpath($path);
+        if ($resolved === false || !str_starts_with($resolved, $expectedBase . DIRECTORY_SEPARATOR)) {
+            return [];
+        }
+        if (!is_file($resolved)) {
+            return [];
+        }
+        return $this->loadSpecFile($resolved);
     }
 
     // =========================================================================

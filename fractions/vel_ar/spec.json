@@ -12,12 +12,33 @@
   },
   "display": {
     "color": "#4a90e2",
-    "icon": "🎭"
+    "icon": "🎭",
+    "color_male_primary": "#2a2a2a",
+    "color_male_secondary": "#0d66cc",
+    "color_male_accent": "#0db3ff",
+    "color_female_primary": "#f0f0f0",
+    "color_female_secondary": "#e6b3ff",
+    "color_female_accent": "#00ffff"
   },
   "tech_affinities": [
-    { "group": "shield",  "bonus_type": "stat_mult",  "bonus_value": 0.10, "min_standing": 5  },
-    { "group": "utility", "bonus_type": "cost_pct",   "bonus_value": -15.0, "min_standing": 10 },
-    { "group": "shield",  "bonus_type": "cost_pct",   "bonus_value": -10.0, "min_standing": 15 }
+    {
+      "group": "shield",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.1,
+      "min_standing": 5
+    },
+    {
+      "group": "utility",
+      "bonus_type": "cost_pct",
+      "bonus_value": -15.0,
+      "min_standing": 10
+    },
+    {
+      "group": "shield",
+      "bonus_type": "cost_pct",
+      "bonus_value": -10.0,
+      "min_standing": 15
+    }
   ],
   "society": {
     "government": "Geheimnis-Konspirativ",

@@ -12,7 +12,13 @@
   },
   "display": {
     "color": "#f39c12",
-    "icon": "⬟"
+    "icon": "⬟",
+    "color_male_primary": "#001a66",
+    "color_male_secondary": "#9966ff",
+    "color_male_accent": "#00ffff",
+    "color_female_primary": "#e6b3ff",
+    "color_female_secondary": "#ff66ff",
+    "color_female_accent": "#e6ccff"
   },
   "society": {
     "government": "Spirituell-Konsensual",

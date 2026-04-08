@@ -12,7 +12,13 @@
   },
   "display": {
     "color": "#e6f3ff",
-    "icon": "✦"
+    "icon": "✦",
+    "color_male_primary": "#e6f2ff",
+    "color_male_secondary": "#b3d9ff",
+    "color_male_accent": "#4d94ff",
+    "color_female_primary": "#ffe6cc",
+    "color_female_secondary": "#fff9e6",
+    "color_female_accent": "#ffffcc"
   },
   "game_balance": {
     "aggression": 25

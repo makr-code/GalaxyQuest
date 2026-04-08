@@ -12,7 +12,13 @@
   },
   "display": {
     "color": "#1abc9c",
-    "icon": "◆"
+    "icon": "◆",
+    "color_male_primary": "#0d1f4d",
+    "color_male_secondary": "#4d7a99",
+    "color_male_accent": "#c0c0c0",
+    "color_female_primary": "#ffb3d9",
+    "color_female_secondary": "#e6ccff",
+    "color_female_accent": "#e6f2ff"
   },
   "society": {
     "government": "Archivalistisch-Kollektiv",
