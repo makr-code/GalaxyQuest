@@ -40,10 +40,10 @@
 **Referenz:** `docs/gamedesign/EMPIRE_CATEGORIES.md`, `docs/github-issues/06`  
 **Design:** 7 normierte Scores (0–100), Spionage-Subsystem mit Agenten
 
-- [ ] `scripts/project_user_overview.php` — `calc_economy_score()`, `calc_military_score()`, `calc_research_score()`, `calc_growth_score()`, `calc_stability_score()`, `calc_diplomacy_score()`, `calc_espionage_score()`
-- [ ] `sql/migrate_empire_categories_v1.sql` — Tabelle `empire_category_scores`, `espionage_agents`, `espionage_missions`
-- [ ] `api/empire.php` — `get_scores`, `get_score_breakdown`, `get_espionage_status`
-- [ ] `api/espionage.php` — `hire_agent`, `assign_mission`, `get_active_missions`, `mission_result`
+- [x] `scripts/project_user_overview.php` — `calc_economy_score()`, `calc_military_score()`, `calc_research_score()`, `calc_growth_score()`, `calc_stability_score()`, `calc_diplomacy_score()`, `calc_espionage_score()`
+- [x] `sql/migrate_empire_categories_v1.sql` — Tabelle `empire_category_scores`, `espionage_agents`, `espionage_missions`
+- [x] `api/empire.php` — `get_scores`, `get_score_breakdown`, `get_espionage_status`
+- [x] `api/espionage.php` — `hire_agent`, `assign_mission`, `get_active_missions`, `mission_result`
 - [ ] Frontend: `RuntimeEmpireCategoriesPanel.js` — Spider-Chart / Balken-Dashboard für 7 Scores
 - [ ] Frontend: `RuntimeEspionageController.js` — Agenten-Verwaltung, Missions-Zuweisung
 

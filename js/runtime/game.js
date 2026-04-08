@@ -4354,6 +4354,8 @@
   const runtimeLeaderboardControllerApi = requireRuntimeApi('GQRuntimeLeaderboardController', ['createLeaderboardController']);
   const runtimeWarControllerApi = requireRuntimeApi('GQRuntimeWarController', ['createWarController']);
   const runtimeColonizationControllerApi = requireRuntimeApi('GQRuntimeColonizationController', ['createColonizationController']);
+  const runtimeEmpireCategoriesPanelApi = requireRuntimeApi('GQRuntimeEmpireCategoriesPanel', ['createEmpireCategoriesPanel']);
+  const runtimeEspionageControllerApi = requireRuntimeApi('GQRuntimeEspionageController', ['createEspionageController']);
   const runtimeConflictDashboardApi = requireRuntimeApi('GQRuntimeConflictDashboard', ['createConflictDashboard']);
   const runtimeSocialControllersBootstrapApi = requireRuntimeApi('GQRuntimeSocialControllersBootstrap', ['createSocialControllersBootstrap']);
   const runtimeAdvisorWidgetApi = requireRuntimeApi('GQRuntimeAdvisorWidget', ['createAdvisorWidget']);
@@ -4371,6 +4373,8 @@
     runtimeLeaderboardControllerApi,
     runtimeWarControllerApi,
     runtimeColonizationControllerApi,
+    runtimeEmpireCategoriesPanelApi,
+    runtimeEspionageControllerApi,
     wm: WM,
     api: API,
     windowRef: window,
@@ -4412,6 +4416,8 @@
   const leaderboardController = socialControllers.leaderboardController;
   const warController = socialControllers.warController;
   const colonizationController = socialControllers.colonizationController;
+  const empireCategoriesPanel = socialControllers.empireCategoriesPanel;
+  const espionageController = socialControllers.espionageController;
   const conflictDashboard = runtimeConflictDashboardApi.createConflictDashboard({
     wm: WM,
     api: API,
@@ -4433,6 +4439,8 @@
   window.GQWarController = warController;
   window.GQConflictDashboard = conflictDashboard;
   window.GQColonizationController = colonizationController;
+  window.GQEmpirePanel = empireCategoriesPanel;
+  window.GQEspionageController = espionageController;
 
   // ── Messages window ─────────────────────────────────────────────────────────
   async function renderMessages() {

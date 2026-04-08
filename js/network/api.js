@@ -1840,6 +1840,16 @@ const API = (() => {
       post('api/situations.php?action=set_approach', { situation_id, approach_key }),
     tickSituations: (situation_id) =>
       post('api/situations.php?action=tick', situation_id ? { situation_id } : {}),
+
+    // Empire Categories — scores & espionage
+    getEmpireScores: () => get('api/empire.php?action=get_scores'),
+    getEmpireScoreBreakdown: () => get('api/empire.php?action=get_score_breakdown'),
+    getEspionageStatus: () => get('api/empire.php?action=get_espionage_status'),
+    hireEspionageAgent: (data = {}) => post('api/espionage.php?action=hire_agent', data),
+    assignEspionageMission: (data = {}) => post('api/espionage.php?action=assign_mission', data),
+    getActiveEspionageMissions: () => get('api/espionage.php?action=get_active_missions'),
+    getEspionageMissionResult: (missionId) =>
+      get(`api/espionage.php?action=mission_result&mission_id=${encodeURIComponent(Math.max(0, Number(missionId || 0)))}`),
   };
 })();
 

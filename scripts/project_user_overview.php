@@ -47,7 +47,9 @@ require_once $repoRoot . '/api/projection.php';
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
-$workerArgs   = parse_worker_args($argv);
+if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === realpath(__FILE__)) {
+
+$workerArgs   = parse_worker_args($argv ?? []);
 $batchSize    = defined('PROJECTION_BATCH_SIZE')            ? (int)PROJECTION_BATCH_SIZE            : 50;
 $retryBackoff = defined('PROJECTION_RETRY_BACKOFF_SECONDS') ? (int)PROJECTION_RETRY_BACKOFF_SECONDS : 30;
 
@@ -191,6 +193,8 @@ error_log(sprintf(
 ));
 
 exit($errors > 0 ? 2 : 0);
+
+} // end if (running as main script)
 
 // ── Empire Category Score Functions ───────────────────────────────────────────
 
