@@ -69,7 +69,12 @@ try {
     Invoke-Step 'DB migrate: combat wars v1' { Get-Content -Raw sql/migrate_combat_v1_wars.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
         Invoke-Step 'DB migrate: economy v1' { Get-Content -Raw sql/migrate_economy_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
         Invoke-Step 'DB migrate: economy v2' { Get-Content -Raw sql/migrate_economy_v2.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
+        Invoke-Step 'DB migrate: economy v3' { Get-Content -Raw sql/migrate_economy_v3.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
         Invoke-Step 'DB migrate: economy policies v1' { Get-Content -Raw sql/migrate_economy_policies_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
+        Invoke-Step 'DB migrate: transport generic v1' { Get-Content -Raw sql/migrate_transport_generic_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
+        Invoke-Step 'DB migrate: trade proposals v1' { Get-Content -Raw sql/migrate_trade_proposals_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
+        Invoke-Step 'DB migrate: npc wars v1' { Get-Content -Raw sql/migrate_npc_wars_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
+        Invoke-Step 'DB migrate: economy shortage v1' { Get-Content -Raw sql/migrate_economy_shortage_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest }
 
     Invoke-Step 'API smoke: auth rate limit' { docker compose exec -T web php scripts/test_auth_rate_limit.php }
     Invoke-Step 'API smoke: admin stats' { docker compose exec -T web php scripts/test_admin_stats_endpoint.php }

@@ -547,9 +547,7 @@
           showToast('NPC Diplomatie-Chat fehlgeschlagen.', 'error');
         }
       }
-
-
-            async renderDetail(root, fid, mode) {
+  async renderDetail(root, fid, mode) {
         const detail = root.querySelector('#faction-detail');
         if (!detail) return;
         detail.innerHTML = '<p class="text-muted">Loading...</p>';
@@ -582,6 +580,7 @@
 
         if (mode === 'trade') {
           const data = await API.tradeOffers(fid);
+          if (!data?.success || !Array.isArray(data.offers) || !data.offers.length) {
             detail.innerHTML = '<p class="text-muted">No active trade offers from this faction.</p>';
             return;
           }
