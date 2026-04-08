@@ -5933,6 +5933,113 @@ input:focus, select:focus, textarea:focus {
 
 /* ── End Stellaris System Overview ───────────────────────────────────── */
 
+/* ── System Bodies Card Window ──────────────────────────────────────── */
+
+.sbcw-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem 0.25rem;
+  border-bottom: 1px solid rgba(42, 100, 150, 0.2);
+  min-height: 30px;
+}
+
+.sbcw-count {
+  font-size: 0.72rem;
+  color: rgba(120, 160, 210, 0.7);
+}
+
+.sbcw-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  overflow-y: auto;
+  height: calc(100% - 38px);
+  align-content: flex-start;
+}
+
+/* Individual body card */
+.sbcw-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 140px;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 0.5rem;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.sbcw-card:hover,
+.sbcw-card:focus-visible {
+  border-color: rgba(58, 160, 255, 0.55) !important;
+  box-shadow: 0 0 14px rgba(58, 160, 255, 0.18);
+  outline: none;
+}
+
+.sbcw-card--star {
+  border-color: rgba(255, 200, 106, 0.3) !important;
+  width: 160px;
+}
+
+.sbcw-card--star:hover,
+.sbcw-card--star:focus-visible {
+  border-color: rgba(255, 200, 106, 0.65) !important;
+  box-shadow: 0 0 18px rgba(255, 200, 106, 0.2) !important;
+}
+
+.sbcw-card--moon {
+  width: 120px;
+  opacity: 0.9;
+}
+
+.sbcw-canvas-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.4rem;
+}
+
+.sbcw-canvas {
+  display: block;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 38%, rgba(100,160,220,0.5), rgba(6,12,30,0.9));
+  width: 64px;
+  height: 64px;
+}
+
+.sbcw-card--star .sbcw-canvas {
+  width: 80px;
+  height: 80px;
+  background: radial-gradient(circle at 38% 38%, rgba(255,220,120,0.7), rgba(20,8,0,0.9));
+}
+
+.sbcw-card--moon .sbcw-canvas {
+  width: 48px;
+  height: 48px;
+  background: radial-gradient(circle at 38% 38%, rgba(160,160,175,0.5), rgba(10,10,20,0.9));
+}
+
+.sbcw-meta {
+  font-size: 0.68rem;
+  color: rgba(140, 175, 210, 0.7);
+  line-height: 1.4;
+}
+
+.sbcw-meta-label {
+  color: rgba(100, 145, 190, 0.6);
+}
+
+.sbcw-owner-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+/* ── End System Bodies Card Window ───────────────────────────────────── */
+
 .message-signal-ring .ring-wave.delay {
   animation-delay: 0.55s;
 }

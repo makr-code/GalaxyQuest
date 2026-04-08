@@ -32,6 +32,7 @@
     starTooltip: '20260331p51',
     systemInfoPanel: '20260331p54',
     stellarisSystemOverview: '20260408p1',
+    systemBodiesCardWindow:  '20260408p1',
     hrDiagram: '20260328p49',
     settingsPanel: '20260331p7',
     settings2fa: '20260331p2',
@@ -443,6 +444,7 @@
     localScript('js/ui/system-bodies-breadcrumb.js', V.systemBreadcrumb),
     localScript('js/ui/system-breadcrumb-integration.js', V.systemBreadcrumb),
     localScript('js/ui/stellaris-system-overview.js', V.stellarisSystemOverview),
+    localScript('js/ui/system-bodies-card-window.js', V.systemBodiesCardWindow),
     localScript('js/ui/gq-ui.js', V.gqui),
     localScript('js/runtime/game.js', V.game)
   ];
