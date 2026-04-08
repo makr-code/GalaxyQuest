@@ -151,6 +151,14 @@
           "player_message"
         ],
         "optional": []
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "reply": { "type": "string" },
+          "mood": { "type": "string", "enum": ["neutral", "hostile", "friendly", "fearful", "amused"] }
+        },
+        "required": ["reply"]
       }
     },
     {
