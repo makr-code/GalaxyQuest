@@ -99,6 +99,14 @@
           </div>`;
 
         return {
+          fleetId: esc(String(fleet.id || '')),
+          fleetLabelHtml: (() => {
+            const label = fleet.fleet_label ? esc(String(fleet.fleet_label)) : '';
+            return `<span class="fleet-label-wrap">` +
+              `<span class="fleet-label-text" title="${label || 'Fleet ' + esc(String(fleet.id || ''))}">${label || ''}</span>` +
+              `<button class="fleet-label-edit-btn" aria-label="Fleet umbenennen" title="Fleet umbenennen" data-fid="${esc(String(fleet.id || ''))}" data-label="${label}">✎</button>` +
+              `</span>`;
+          })(),
           mission: esc(String(fleet.mission || '').toUpperCase()),
           targetGalaxy: esc(String(fleet.target_galaxy || '')),
           targetSystem: esc(String(fleet.target_system || '')),
@@ -130,6 +138,52 @@
           } else {
             showToast(response.error || 'Recall failed', 'error');
           }
+        });
+      });
+
+      fleetList.querySelectorAll('.fleet-label-edit-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const wrap = btn.closest('.fleet-label-wrap');
+          if (!wrap || wrap.querySelector('.fleet-label-input')) return;
+          const textSpan = wrap.querySelector('.fleet-label-text');
+          const currentLabel = btn.dataset.label || '';
+          const input = windowRef.document.createElement('input');
+          input.type = 'text';
+          input.maxLength = 48;
+          input.className = 'fleet-label-input';
+          input.value = currentLabel;
+          input.setAttribute('aria-label', 'Fleet label');
+          wrap.insertBefore(input, textSpan);
+          textSpan.style.display = 'none';
+          btn.style.display = 'none';
+          input.focus();
+          input.select();
+
+          async function _save() {
+            const newLabel = input.value.trim().slice(0, 48);
+            const fid = parseInt(btn.dataset.fid, 10);
+            try {
+              const res = await api.renameFleet(fid, newLabel);
+              if (res && res.success !== false) {
+                btn.dataset.label = newLabel;
+                textSpan.textContent = newLabel;
+                showToast(newLabel ? `Fleet umbenannt: "${newLabel}"` : 'Fleet-Label entfernt.', 'success');
+              } else {
+                showToast((res && res.error) || 'Fehler beim Umbenennen.', 'error');
+              }
+            } catch (_) {
+              showToast('Fehler beim Umbenennen.', 'error');
+            }
+            input.remove();
+            textSpan.style.display = '';
+            btn.style.display = '';
+          }
+
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); _save(); }
+            if (e.key === 'Escape') { input.remove(); textSpan.style.display = ''; btn.style.display = ''; }
+          });
+          input.addEventListener('blur', () => _save());
         });
       });
     }

@@ -1449,6 +1449,7 @@ const API = (() => {
     ftlStatus:  ()        => get('api/fleet.php?action=ftl_status'),
     ftlMap:     ()        => get('api/fleet.php?action=ftl_map'),
     recallFleet:(id)      => post('api/fleet.php?action=recall', { fleet_id: id }),
+    renameFleet:(id, label) => post('api/fleet.php?action=rename_fleet', { fleet_id: id, label }),
     simulateBattle: (payload) => post('api/fleet.php?action=simulate_battle', payload),
     matchupScan: (payload) => post('api/fleet.php?action=matchup_scan', payload),
 

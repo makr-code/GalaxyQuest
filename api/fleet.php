@@ -30,7 +30,7 @@ switch ($action) {
                     f.target_galaxy, f.target_system, f.target_position,
                     f.ships_json, f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
                     f.departure_time, f.arrival_time, f.return_time, f.returning,
-                    f.stealth_until, f.hull_damage_pct,
+                    f.stealth_until, f.hull_damage_pct, f.fleet_label,
                     cb.galaxy_index AS origin_galaxy, cb.system_index AS origin_system, cb.position AS origin_position
              FROM fleets f
              JOIN colonies c ON c.id = f.origin_colony_id
@@ -50,6 +50,21 @@ switch ($action) {
             $fleets[] = $f;
         }
         json_ok(['fleets' => $fleets]);
+        break;
+
+    case 'rename_fleet':
+        only_method('POST');
+        verify_csrf();
+        $body     = get_json_body();
+        $fleet_id = positive_int($body['fleet_id'] ?? 0);
+        $label    = isset($body['label']) ? trim((string)$body['label']) : '';
+        if ($fleet_id <= 0) json_error('Invalid fleet_id', 400);
+        if (mb_strlen($label) > 48) json_error('Label too long (max 48 characters)', 400);
+        $db = get_db();
+        $stmt = $db->prepare('UPDATE fleets SET fleet_label = ? WHERE id = ? AND user_id = ?');
+        $stmt->execute([$label === '' ? null : $label, $fleet_id, $uid]);
+        if ($stmt->rowCount() === 0) json_error('Fleet not found', 404);
+        json_ok(['fleet_id' => $fleet_id, 'label' => $label === '' ? null : $label]);
         break;
 
     case 'send':
