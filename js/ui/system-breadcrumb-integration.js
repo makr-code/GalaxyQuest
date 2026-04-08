@@ -1,8 +1,9 @@
 /**
  * System Bodies Breadcrumb Integration
- * 
- * Initialisiert und verwaltet die Breadcrumb-Navigation für Himmelskörper
- * in der System-View.
+ *
+ * Initialisiert und verwaltet die Breadcrumb-Navigation fuer Himmelskoerper
+ * in der System-View sowie die Stellaris-Systemuebersicht (WebGPU-Canvas
+ * pro Himmelskoerper).
  */
 
 class SystemBreadcrumbIntegration {
@@ -10,7 +11,9 @@ class SystemBreadcrumbIntegration {
     this.breadcrumb = null;
     this.renderer = null;
     this.currentSystemPayload = null;
+    this.stellarisOverview = null;
     this._initBreadcrumb();
+    this._initStellarisOverview();
     this._bindRendererEvents();
   }
 
@@ -23,6 +26,18 @@ class SystemBreadcrumbIntegration {
     }
   }
 
+  _initStellarisOverview() {
+    if (!window.StellarisSystemOverview) {
+      console.warn('[SystemBreadcrumbIntegration] StellarisSystemOverview not available');
+      return;
+    }
+    this.stellarisOverview = new window.StellarisSystemOverview('stellaris-system-overview');
+    this.stellarisOverview.init().catch(function (err) {
+      console.warn('[SystemBreadcrumbIntegration] StellarisSystemOverview init failed:', err);
+    });
+    console.log('[SystemBreadcrumbIntegration] StellarisSystemOverview initialized');
+  }
+
   /**
    * Rufe auf wenn ein System geladen wird
    */
@@ -32,12 +47,15 @@ class SystemBreadcrumbIntegration {
 
     if (!this.breadcrumb) {
       console.warn('[SystemBreadcrumbIntegration] Breadcrumb not initialized');
-      return;
+    } else {
+      // Update breadcrumb mit Bodies aus dem System
+      this.breadcrumb.updateBodies(payload, renderer);
+      this.showBreadcrumb();
     }
 
-    // Update breadcrumb mit Bodies aus dem System
-    this.breadcrumb.updateBodies(payload, renderer);
-    this.showBreadcrumb();
+    if (this.stellarisOverview) {
+      this.stellarisOverview.updateBodies(payload, renderer);
+    }
   }
 
   /**
@@ -45,6 +63,9 @@ class SystemBreadcrumbIntegration {
    */
   onSystemExit() {
     this.hideBreadcrumb();
+    if (this.stellarisOverview) {
+      this.stellarisOverview.hide();
+    }
     this.currentSystemPayload = null;
     this.renderer = null;
   }
@@ -76,16 +97,22 @@ class SystemBreadcrumbIntegration {
     if (this.breadcrumb) {
       this.breadcrumb.setFocusedBody(bodyId);
     }
+    if (this.stellarisOverview) {
+      this.stellarisOverview.setFocusedBody(bodyId);
+    }
   }
 
   _bindRendererEvents() {
-    // Hier könnten Renderer-Events gelauscht werden
-    // z.B. für Sphere-Raycasting Updates
+    // Hier koennte auf Renderer-Events gelauscht werden
+    // z.B. fuer Sphere-Raycasting Updates
   }
 
   destroy() {
     if (this.breadcrumb) {
       this.breadcrumb.destroy();
+    }
+    if (this.stellarisOverview) {
+      this.stellarisOverview.destroy();
     }
   }
 }
