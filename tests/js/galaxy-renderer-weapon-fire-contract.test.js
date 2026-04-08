@@ -36,4 +36,26 @@ describe('GalaxyRendererCore weapon-fire source contract', () => {
     expect(source).toMatch(/state\.cooldownUntil\s*=\s*elapsed\s*\+\s*4\.5/);
     expect(source).toMatch(/this\._triggerWormholeRupture\(installEntry,\s*state,\s*elapsed\)/);
   });
+
+  it('keeps debris targeting contract: explicit id first, nearest-position fallback second', () => {
+    expect(source).toMatch(/const\s+targetDebrisId\s*=\s*this\._normalizeWeaponFireDebrisId\(/);
+    expect(source).toMatch(/if\s*\(targetDebrisId\)\s*\{[\s\S]*?this\.debrisManager\.get\(targetDebrisId\)[\s\S]*?this\.debrisManager\.get\(String\(targetDebrisId\)\)/);
+    expect(source).toMatch(/if\s*\(!nearestDebris\s*&&\s*targetPos\)\s*\{[\s\S]*?_findNearestDebrisToPosition\(targetPos,\s*50\)/);
+  });
+
+  it('keeps debris damage + fragment spawn pipeline contract', () => {
+    expect(source).toMatch(/this\.debrisManager\.applyDamage\(nearestDebris\.id,\s*damageAmount,\s*\{/);
+    expect(source).toMatch(/attacker:\s*String\(ev\.sourceOwner\s*\|\|\s*'unknown'\)/);
+    expect(source).toMatch(/weaponKind:\s*String\(ev\.weaponKind\s*\|\|\s*'impact'\)/);
+    expect(source).toMatch(/const\s+debris\s*=\s*this\.debrisManager\.get\(nearestDebris\.id\)/);
+    expect(source).toMatch(/this\._spawnDebrisFragmentsByState\(debris,\s*impactPos,\s*elapsed\)/);
+  });
+
+  it('keeps debris state intensity mapping and destruction event contract', () => {
+    expect(source).toMatch(/switch\s*\(debris\.state\)\s*\{/);
+    expect(source).toMatch(/case\s*'damaged'\s*:[\s\S]*?fragmentCount\s*=\s*6/);
+    expect(source).toMatch(/case\s*'critical'\s*:[\s\S]*?fragmentCount\s*=\s*12/);
+    expect(source).toMatch(/case\s*'destroyed'\s*:[\s\S]*?fragmentCount\s*=\s*24/);
+    expect(source).toMatch(/window\.dispatchEvent\(new\s+CustomEvent\('gq:debris:destroyed'/);
+  });
 });
