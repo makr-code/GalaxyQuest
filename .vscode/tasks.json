@@ -207,6 +207,26 @@
       "problemMatcher": []
     },
     {
+      "label": "Test: Renderer Weapon Fire",
+      "type": "shell",
+      "command": "npm run test:renderer:weapon-fire",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Renderer Weapon Fire Contracts",
+      "type": "shell",
+      "command": "npm run test:renderer:weapon-fire:contract",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
       "label": "Test Data: Bulk Universe Seed",
       "type": "shell",
       "command": "docker compose exec -T web php scripts/seed_test_universe.php --users=100 --npcs=20 --profiles=0",
