@@ -509,6 +509,7 @@
       this.galaxyFleetEntries = [];
       this.systemAtmosphereEntries = [];
       this.systemCloudEntries = [];
+      this.systemSpecialBodyEntries = [];  // asteroid belts, nebula clouds, irregular planets, planet fragments
       this.clusterAuraEntries = [];
       this.clusterSummaryData = [];
       this.clusterColorPalette = {
@@ -4962,6 +4963,7 @@
       this.systemTrafficEntries = [];
       this.systemAtmosphereEntries = [];
       this.systemCloudEntries = [];
+      this.systemSpecialBodyEntries = [];
       this.systemHoverEntry = null;
       this.systemSelectedEntry = null;
       this.systemHoverObject = null;
@@ -5438,6 +5440,193 @@
 
       this._buildSystemBackdrop(star);
       this._syncSystemSkyDome(0);
+
+      // Special non-spherical bodies: asteroid belts, nebula clouds, irregular planets, fragments
+      this._buildSystemSpecialBodies(star, payload);
+    }
+
+    // -----------------------------------------------------------------------
+    // Special body builders (asteroid belts, nebula clouds, irregular planets,
+    // planet fragments)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Build all special (non-spherical) bodies listed in `payload.special_bodies`.
+     *
+     * Supported body_type values:
+     *   - 'asteroid_belt'    – torus-shaped ring of particles around the star
+     *   - 'nebula_cloud'     – layered billboard cloud at an orbital position
+     *   - 'irregular_planet' – noise-displaced sphere in a standard orbit
+     *   - 'planet_fragment'  – cluster of rocky chunks in a standard orbit
+     *
+     * Data shape for each entry in `payload.special_bodies`:
+     * {
+     *   id: string,
+     *   body_type: 'asteroid_belt' | 'nebula_cloud' | 'irregular_planet' | 'planet_fragment',
+     *   name: string,
+     *   semi_major_axis_au: number,   // orbital radius (AU)
+     *   // body_type-specific optional params – see SystemSpecialBodiesRenderer.js
+     * }
+     *
+     * @param {object} star
+     * @param {object} payload
+     */
+    _buildSystemSpecialBodies(star, payload) {
+      const specialBodies = Array.isArray(payload.special_bodies) ? payload.special_bodies : [];
+      this.systemSpecialBodyEntries = [];
+
+      if (!specialBodies.length) return;
+
+      // Resolve the renderer – prefer the window global, fall back gracefully.
+      const renderer = (typeof window !== 'undefined' && window.GQSystemSpecialBodiesRenderer)
+        || (typeof require !== 'undefined' && (() => { try { return require('./SystemSpecialBodiesRenderer'); } catch (_) { return null; } })())
+        || null;
+
+      if (!renderer) {
+        console.warn('[GQ] _buildSystemSpecialBodies: GQSystemSpecialBodiesRenderer not available');
+        return;
+      }
+
+      // Determine scale reference the same way as _buildSystemPhase0
+      const maxAu = Math.max(0.35, ...specialBodies.map((b, i) => Number(b.semi_major_axis_au || (0.35 + i * 0.22))));
+
+      specialBodies.forEach((bodyDef, index) => {
+        const bodyType = String(bodyDef.body_type || '').toLowerCase();
+        if (!bodyType) return;
+
+        const semiMajor = Number(bodyDef.semi_major_axis_au || (0.35 + index * 0.22));
+        const orbitRadius = 34 + (semiMajor / maxAu) * 165;
+
+        // Build the Three.js mesh via the renderer module
+        const meshParams = Object.assign({}, bodyDef, {
+          radius: bodyType === 'asteroid_belt'
+            ? orbitRadius
+            : this._planetSize({ planet_class: bodyDef.planet_class || bodyType }, index, orbitRadius),
+          seed: this._hashSeed(String(bodyDef.id || bodyDef.name || index)),
+        });
+
+        const mesh = renderer.buildSpecialBodyMesh(THREE, bodyType, meshParams);
+        if (!mesh) return;
+
+        mesh.userData = Object.assign({}, mesh.userData, {
+          kind: bodyType,
+          bodyDef,
+          sourceStar: star,
+        });
+
+        if (bodyType === 'asteroid_belt') {
+          // Belts are centred at the star – no orbital motion, just slow rotation.
+          this.systemBodyGroup.add(mesh);
+          this.systemSpecialBodyEntries.push({
+            mesh,
+            bodyType,
+            bodyDef,
+            isStationary: true,
+            orbitRadius,
+          });
+        } else {
+          // Orbiting bodies (nebula cloud, irregular planet, planet fragment)
+          const eccentricity = THREE.MathUtils.clamp(Number(bodyDef.orbital_eccentricity ?? (0.03 + index * 0.013)), 0, 0.92);
+          const orbitMinor = orbitRadius * Math.sqrt(1 - eccentricity * eccentricity);
+          const phase = Number(bodyDef.polar_theta_rad);
+
+          const orbitPoints = this._buildOrbitCurvePoints(orbitRadius, orbitMinor, eccentricity);
+          const orbitLine = new THREE.LineLoop(
+            new THREE.BufferGeometry().setFromPoints(orbitPoints),
+            new THREE.LineBasicMaterial({ color: 0x2d4a62, transparent: true, opacity: 0.4 })
+          );
+          const orbitPivot = new THREE.Group();
+          orbitPivot.rotation.x = Math.PI / 2 + ((index % 2 === 0 ? 1 : -1) * (0.04 + index * 0.01));
+          orbitPivot.rotation.z = (index % 3 - 1) * (0.07 + index * 0.01);
+          orbitPivot.rotation.y = index * 0.41 + 1.1;
+          orbitPivot.add(orbitLine);
+          this.systemOrbitGroup.add(orbitPivot);
+
+          // Position mesh at the current orbital angle
+          const initAngle = Number.isFinite(phase) ? phase : (index / Math.max(1, specialBodies.length)) * Math.PI * 2;
+          mesh.position.set(
+            orbitRadius * Math.cos(initAngle),
+            0,
+            orbitMinor * Math.sin(initAngle)
+          );
+          orbitPivot.add(mesh);
+
+          const periodDays = Number(bodyDef.orbital_period_days || 0);
+          const periodMetric = periodDays > 0 ? periodDays : Math.pow(Math.max(0.12, semiMajor), 1.5);
+          const minPeriodMetric = periodMetric; // no inter-body normalisation needed for specials
+
+          this.systemSpecialBodyEntries.push({
+            mesh,
+            bodyType,
+            bodyDef,
+            isStationary: false,
+            orbitRadius,
+            orbitMinor,
+            orbitPivot,
+            orbitLine,
+            eccentricity,
+            angle: initAngle,
+            speed: this._visualOrbitAngularSpeed(periodMetric, minPeriodMetric) * 0.55,
+            currentLocalPosition: new THREE.Vector3(),
+            currentWorldPosition: new THREE.Vector3(),
+          });
+        }
+      });
+
+      traceSystemRender('buildSystemSpecialBodies:complete', {
+        specialBodiesBuilt: this.systemSpecialBodyEntries.length,
+      });
+    }
+
+    /**
+     * Advance special-body animations (belt rotation, cloud drift, chunk spin).
+     * Called from `_updateSystemOrbitTransforms`.
+     * @param {number} dt - Frame delta in seconds (visual-time-scaled)
+     */
+    _tickSystemSpecialBodies(dt) {
+      if (!Array.isArray(this.systemSpecialBodyEntries) || !this.systemSpecialBodyEntries.length) return;
+
+      this.systemSpecialBodyEntries.forEach((entry) => {
+        const mesh = entry.mesh;
+        if (!mesh) return;
+
+        if (entry.isStationary) {
+          // Asteroid belt: slow in-plane rotation
+          const rotSpeed = Number(mesh.userData.rotationSpeed ?? 0.018);
+          mesh.rotation.y += dt * rotSpeed;
+        } else {
+          // Orbiting special body: advance angle and reposition
+          entry.angle += dt * Number(entry.speed || 0);
+          const orbitalPos = this._computeOrbitPosition(entry, 'simple', new THREE.Vector3());
+          entry.currentLocalPosition.copy(orbitalPos);
+          mesh.position.copy(orbitalPos);
+          if (entry.orbitPivot) {
+            entry.orbitPivot.localToWorld(this._orbitScratchWorld.copy(orbitalPos));
+            entry.currentWorldPosition.copy(this._orbitScratchWorld);
+          }
+
+          // Per-type animation
+          const bodyType = entry.bodyType;
+          if (bodyType === 'nebula_cloud') {
+            const ud = mesh.userData;
+            ud._phase = (ud._phase || 0) + dt * Number(ud.pulseSpeed ?? 0.4);
+            const scale = 1.0 + Math.sin(ud._phase) * Number(ud.pulseAmplitude ?? 0.06);
+            mesh.scale.setScalar(scale);
+            mesh.rotation.y += dt * Number(ud.driftSpeed ?? 0.008);
+          } else if (bodyType === 'planet_fragment') {
+            const speeds = mesh.userData.spinSpeeds;
+            mesh.children.forEach((chunk, ci) => {
+              if (!speeds || !speeds[ci]) return;
+              chunk.rotation.x += dt * speeds[ci].x;
+              chunk.rotation.y += dt * speeds[ci].y;
+              chunk.rotation.z += dt * speeds[ci].z;
+            });
+            mesh.rotation.y += dt * 0.12;
+          } else if (bodyType === 'irregular_planet') {
+            mesh.rotation.y += dt * 0.18;
+          }
+        }
+      });
     }
 
     _buildSystemMoonEntries() {
@@ -8397,6 +8586,9 @@ ${shader.vertexShader}`;
           entry.renderMesh.rotation.y += moonSpinDt * (0.32 + index * 0.025);
         });
       }
+
+      // Tick special bodies (belts, clouds, irregular planets, fragments)
+      this._tickSystemSpecialBodies(orbitDt);
 
       this._updateSystemOrbitLineStates();
     }
