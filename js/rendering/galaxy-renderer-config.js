@@ -50,7 +50,7 @@
         galacticCoreFx: false,
         postEffects: false,
       },
-      clusterDensityMode: 'auto',
+      clusterDensityMode: 'max',
     },
     medium: {
       label: 'Medium',
@@ -72,7 +72,7 @@
         galacticCoreFx: true,
         postEffects: false,
       },
-      clusterDensityMode: 'auto',
+      clusterDensityMode: 'max',
     },
     high: {
       label: 'High',
@@ -94,7 +94,7 @@
         galacticCoreFx: true,
         postEffects: false,
       },
-      clusterDensityMode: 'auto',
+      clusterDensityMode: 'max',
     },
     ultra: {
       label: 'Ultra',
@@ -116,7 +116,7 @@
         galacticCoreFx: true,
         postEffects: true,
       },
-      clusterDensityMode: 'auto',
+      clusterDensityMode: 'max',
     },
   };
 

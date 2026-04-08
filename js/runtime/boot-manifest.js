@@ -1,6 +1,6 @@
 (function () {
   const V = Object.freeze({
-    bootManifest: '20260407p2',
+    bootManifest: '20260408p2',
     bootAssets: '20260404p1',
     terminal: '20260404p51',
     starfield: '20260404p110',
@@ -9,7 +9,7 @@
     assetCore: '20260404p50',
     tts: '20260404p1',
     webgpuCore: '20260401p1',
-    runtime: '20260407p2',
+    runtime: '20260408p2',
     galaxyController: '20260404p2',
     footerNetworkStatus: '20260404p3',
     galaxyStarLoaderFacade: '20260404p4',
@@ -38,7 +38,7 @@
     settings2fa: '20260331p2',
     adminUsers: '20260331p1',
     systemBreadcrumb: '20260331p1',
-    game: '20260407p2',
+    game: '20260408p2',
     packageBundle: '20260407p1',
     flightDriverSmoke: '20260329p1',
     lodStreamingSmoke: '20260329p2'
@@ -51,7 +51,7 @@
   });
 
   const assetVersions = Object.freeze({
-    wm: '20260406p2',
+    wm: '20260408p2',
     wmWidgets: '20260406p2',
     gqwm: '20260407p1',
     audio: V.assetCore,
@@ -146,6 +146,7 @@
       'js/engine/runtime/RuntimeThemePalette.js',
       'js/engine/runtime/layers/ui/settings/foundation/Bootstrap.js',
       'js/engine/runtime/RuntimeResourceInsight.js',
+      'js/engine/runtime/RuntimeResourceScanOverview.js',
       'js/engine/runtime/RuntimeHints.js',
       'js/engine/runtime/RuntimeTopbarA11y.js',
       'js/engine/runtime/RuntimeTopbarSearchStore.js',

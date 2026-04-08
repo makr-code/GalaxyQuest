@@ -3343,7 +3343,7 @@
           requestPriority: 'low',
           prefetch: true,
           chunkHint: chunkSize,
-          clusterPreset: 'low',
+          clusterPreset: 'ultra',
           includeClusterLod: false,
         });
       } catch (netErr) {

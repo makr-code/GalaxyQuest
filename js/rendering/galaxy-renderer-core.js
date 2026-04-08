@@ -331,7 +331,7 @@
             textures: { planetTextureSize: 256, planetMaxEntries: 128, proceduralMaxEntries: 128 },
             geometry: { vesselMaxEntries: 96, instancingUseThreshold: 4 },
             features: { dynamicClusterLod: true, galacticCoreFx: true, postEffects: false },
-            clusterDensityMode: 'auto',
+            clusterDensityMode: 'max',
           };
       this.interactive = this.opts.interactive !== false;
       const hasExternalCanvas = typeof HTMLCanvasElement !== 'undefined'

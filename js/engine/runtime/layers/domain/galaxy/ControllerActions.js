@@ -63,7 +63,7 @@
       }
 
       if (normalized === 'optimize-view' && root) {
-        settingsState.clusterDensityMode = 'auto';
+        settingsState.clusterDensityMode = 'max';
         settingsState.renderQualityProfile = 'auto';
         if (typeof settingsController.applyRuntimeSettings === 'function') {
           settingsController.applyRuntimeSettings();
