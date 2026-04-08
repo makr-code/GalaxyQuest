@@ -8,7 +8,120 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
     renderer = {
       pendingInstallationWeaponFire: [],
       systemInstallationWeaponFxEntries: [],
+      systemFleetEntries: [],
+      debrisManager: null,
       beamEffect: { addBeam: vi.fn() },
+
+      _distance3: function(a, b) {
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length < 3 || b.length < 3) return Number.POSITIVE_INFINITY;
+        const dx = Number(a[0] || 0) - Number(b[0] || 0);
+        const dy = Number(a[1] || 0) - Number(b[1] || 0);
+        const dz = Number(a[2] || 0) - Number(b[2] || 0);
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+      },
+
+      _normalizeWeaponFireTargetPos: function(rawPos) {
+        if (Array.isArray(rawPos) && rawPos.length >= 3) {
+          return [Number(rawPos[0]) || 0, Number(rawPos[1]) || 0, Number(rawPos[2]) || 0];
+        }
+        if (rawPos && typeof rawPos === 'object') {
+          return [Number(rawPos.x) || 0, Number(rawPos.y) || 0, Number(rawPos.z) || 0];
+        }
+        return null;
+      },
+
+      _ownersLikelyHostile: function(ownerA, ownerB) {
+        const a = String(ownerA || '').trim();
+        const b = String(ownerB || '').trim();
+        if (!a || !b) return true;
+        return a !== b;
+      },
+
+      _resolveShipWeaponTarget: function(fleetEntry, shipWorldPos, targetHint = null, maxRange = 220) {
+        const shipOwner = String(fleetEntry?.fleet?.owner || '').trim();
+        const hint = this._normalizeWeaponFireTargetPos(targetHint);
+        const range = Math.max(40, Number(maxRange) || 220);
+
+        let best = null;
+        let bestScore = Number.POSITIVE_INFINITY;
+
+        const considerCandidate = (worldPos, type, baseBias = 0) => {
+          const dist = this._distance3(shipWorldPos, worldPos);
+          if (!Number.isFinite(dist) || dist > range) return;
+
+          let score = dist + Number(baseBias || 0);
+          if (hint) {
+            const hintDist = this._distance3(hint, worldPos);
+            score += hintDist * 0.45;
+            if (hintDist <= 28) score -= 30;
+          }
+
+          if (score < bestScore) {
+            bestScore = score;
+            best = { type, world: [...worldPos] };
+          }
+        };
+
+        (this.systemFleetEntries || []).forEach((candidateEntry) => {
+          if (!candidateEntry || candidateEntry === fleetEntry) return;
+          const targetOwner = String(candidateEntry?.fleet?.owner || '').trim();
+          if (!this._ownersLikelyHostile(shipOwner, targetOwner)) return;
+          const worldPos = Array.isArray(candidateEntry.worldPos) ? candidateEntry.worldPos : null;
+          if (!worldPos) return;
+          considerCandidate(worldPos, 'fleet', -8);
+        });
+
+        (this.systemInstallationWeaponFxEntries || []).forEach((fxEntry) => {
+          const install = fxEntry?.installEntry;
+          const worldPos = Array.isArray(fxEntry.worldTo) ? fxEntry.worldTo : null;
+          if (!install || !worldPos) return;
+          const targetOwner = String(install.owner || '').trim();
+          if (!this._ownersLikelyHostile(shipOwner, targetOwner)) return;
+          considerCandidate(worldPos, 'installation', 4);
+        });
+
+        const allDebris = (this.debrisManager && typeof this.debrisManager.getAll === 'function')
+          ? this.debrisManager.getAll()
+          : [];
+        allDebris.forEach((debris) => {
+          if (!Array.isArray(debris?.position) || debris.position.length < 3) return;
+          considerCandidate(debris.position, 'debris', 10);
+        });
+
+        if (!best && hint) {
+          return { type: 'hint', world: [...hint] };
+        }
+        return best;
+      },
+
+      _triggerShipWeaponFire: function(fleetEntry, ev, elapsed, state = 'active') {
+        if (!fleetEntry?.mesh || !this.beamEffect) return;
+
+        const weaponKey = String(ev?.weaponKind || 'default');
+        const nextFireAt = Number(fleetEntry?._nextShipFire?.[weaponKey] || 0);
+        if (elapsed < nextFireAt) return;
+
+        const shipWorldPos = Array.isArray(fleetEntry.worldPos) ? fleetEntry.worldPos : [0, 0, 0];
+        const targetHint = this._normalizeWeaponFireTargetPos(ev?.targetPos ?? ev?.target_pos ?? null);
+        const resolvedTarget = this._resolveShipWeaponTarget(fleetEntry, shipWorldPos, targetHint, 220);
+        if (!resolvedTarget) return;
+
+        const cadence = state === 'alert' ? 0.28 : 0.5;
+        const shotDuration = state === 'alert' ? 0.34 : 0.22;
+
+        this.beamEffect.addBeam({
+          id: `ship_beam_${fleetEntry.fleet?.id || 'unknown'}_${Date.now()}`,
+          from: [...shipWorldPos],
+          to: [...resolvedTarget.world],
+          coreColor: Number(ev.coreColor ?? 0x00ff88),
+          color: Number(ev.color ?? 0x00ff88),
+          glowRadius: 0.35,
+          duration: shotDuration,
+        });
+
+        if (!fleetEntry._nextShipFire) fleetEntry._nextShipFire = {};
+        fleetEntry._nextShipFire[weaponKey] = elapsed + cadence;
+      },
       
       // Methods under test (simplified versions for testing)
       _queueInstallationWeaponFire: function(payload) {
@@ -305,6 +418,77 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
       renderer._applyPendingInstallationWeaponFire(0.016);
 
       expect(renderer.beamEffect.addBeam).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Ship Target Resolution', () => {
+    const mkShip = (id, owner, worldPos) => ({
+      mesh: {},
+      fleet: { id, owner },
+      worldPos,
+      _nextShipFire: {},
+    });
+
+    it('should prefer hostile fleets over installations at similar range', () => {
+      const shooter = mkShip('s1', 'Helion', [0, 0, 0]);
+      const hostileFleet = mkShip('enemy-1', 'Iron Fleet', [60, 0, 0]);
+      renderer.systemFleetEntries = [shooter, hostileFleet];
+      renderer.systemInstallationWeaponFxEntries = [
+        {
+          kind: 'laser',
+          worldTo: [62, 0, 0],
+          installEntry: { owner: 'Iron Fleet', mesh: {} },
+        },
+      ];
+
+      renderer._triggerShipWeaponFire(shooter, { weaponKind: 'laser' }, 10, 'active');
+
+      const firstBeam = renderer.beamEffect.addBeam.mock.calls[0][0];
+      expect(firstBeam.to).toEqual([60, 0, 0]);
+    });
+
+    it('should skip friendly targets and use hostile installation', () => {
+      const shooter = mkShip('s1', 'Helion', [0, 0, 0]);
+      const friendlyFleet = mkShip('ally-1', 'Helion', [30, 0, 0]);
+      renderer.systemFleetEntries = [shooter, friendlyFleet];
+      renderer.systemInstallationWeaponFxEntries = [
+        {
+          kind: 'beam',
+          worldTo: [40, 0, 0],
+          installEntry: { owner: 'Iron Fleet', mesh: {} },
+        },
+      ];
+
+      renderer._triggerShipWeaponFire(shooter, { weaponKind: 'beam' }, 10, 'active');
+
+      const firstBeam = renderer.beamEffect.addBeam.mock.calls[0][0];
+      expect(firstBeam.to).toEqual([40, 0, 0]);
+    });
+
+    it('should honor cooldown and block rapid second shot', () => {
+      const shooter = mkShip('s1', 'Helion', [0, 0, 0]);
+      renderer.systemFleetEntries = [shooter, mkShip('enemy-1', 'Iron Fleet', [80, 0, 0])];
+
+      renderer._triggerShipWeaponFire(shooter, { weaponKind: 'laser' }, 10, 'active');
+      renderer._triggerShipWeaponFire(shooter, { weaponKind: 'laser' }, 10.2, 'active');
+
+      expect(renderer.beamEffect.addBeam).toHaveBeenCalledTimes(1);
+    });
+
+    it('should use target hint as fallback when no entities are in range', () => {
+      const shooter = mkShip('s1', 'Helion', [0, 0, 0]);
+      renderer.systemFleetEntries = [shooter];
+      renderer.systemInstallationWeaponFxEntries = [];
+
+      renderer._triggerShipWeaponFire(
+        shooter,
+        { weaponKind: 'laser', targetPos: [150, 12, -6] },
+        10,
+        'active'
+      );
+
+      const firstBeam = renderer.beamEffect.addBeam.mock.calls[0][0];
+      expect(firstBeam.to).toEqual([150, 12, -6]);
     });
   });
 });
