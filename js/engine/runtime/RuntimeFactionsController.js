@@ -14,6 +14,7 @@
     class FactionsController {
       constructor() {
         this.conversations = new Map();
+        this.npcSessions = new Map();
         this.lastFactions = [];
       }
 
@@ -267,206 +268,222 @@
         }
       }
 
-      buildConversationDetail(fid) {
+      // ── NPC Diplomacy Chat ────────────────────────────────────────────────
+
+      getNpcSession(fid) {
+        return this.npcSessions.get(Number(fid || 0)) || null;
+      }
+
+      setNpcSession(fid, session) {
+        if (!session) { this.npcSessions.delete(Number(fid || 0)); return; }
+        this.npcSessions.set(Number(fid || 0), Object.assign({
+          sessionId: null, npcName: '', factionCode: '',
+          history: [], suggestedReplies: [], model: '', loading: false,
+        }, session));
+      }
+
+      buildNpcChatPanel(fid) {
         const faction = this.getFactionById(fid);
-        const state = this.getConversationState(fid) || { history: [], suggestedReplies: [], model: '', fallback: false, standingChange: null, questHook: null, loading: true };
+        const session = this.getNpcSession(fid) || { history: [], suggestedReplies: [], npcName: '', model: '', loading: true };
         const factionName = faction?.name || `Faction ${fid}`;
         const factionColor = faction?.color || '#88aaff';
         const factionIcon = faction?.icon || '';
-        const standingChange = state.standingChange && typeof state.standingChange === 'object' ? state.standingChange : null;
-        const standingDelta = Number(standingChange?.delta || 0);
-        const questHook = state.questHook && typeof state.questHook === 'object' ? state.questHook : null;
+        const npcName = session.npcName || factionName;
 
-        const transcriptHtml = state.history.length
-          ? state.history.map((entry) => {
-              const isNpc = entry.speaker === 'npc';
+        const transcriptHtml = session.history.length
+          ? session.history.map((entry) => {
+              const isNpc = entry.role === 'assistant';
               const align = isNpc ? 'flex-start' : 'flex-end';
               const bg = isNpc ? 'rgba(80,120,255,0.16)' : 'rgba(255,255,255,0.08)';
-              const border = isNpc ? factionColor : 'rgba(255,255,255,0.18)';
-              const label = isNpc ? `${factionIcon} ${factionName}` : 'You';
+              const borderColor = isNpc ? factionColor : 'rgba(255,255,255,0.18)';
+              const label = isNpc ? `${esc(factionIcon)} ${esc(npcName)}` : 'Du';
               return `
                 <div style="display:flex;justify-content:${align};margin-bottom:0.55rem;">
-                  <div style="max-width:85%;border:1px solid ${esc(border)};background:${bg};border-radius:10px;padding:0.55rem 0.7rem;">
-                    <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.22rem">${esc(label)}</div>
-                    <div style="line-height:1.4">${esc(entry.text)}</div>
+                  <div style="max-width:85%;border:1px solid ${esc(borderColor)};background:${bg};border-radius:10px;padding:0.55rem 0.7rem;">
+                    <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.22rem">${label}</div>
+                    <div style="line-height:1.4">${esc(entry.content)}</div>
                   </div>
                 </div>`;
             }).join('')
-          : '<div class="text-muted">Opening channel...</div>';
+          : `<div class="text-muted">Verbindung wird aufgebaut${session.loading ? '\u2026' : '.'}</div>`;
 
-        const standingEffectHtml = standingChange
-          ? `
-            <div style="margin-bottom:0.7rem;border:1px solid ${standingDelta >= 0 ? 'rgba(90,200,140,0.45)' : 'rgba(220,110,110,0.45)'};background:${standingDelta >= 0 ? 'rgba(90,200,140,0.12)' : 'rgba(220,110,110,0.12)'};border-radius:10px;padding:0.6rem 0.75rem;">
-              <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.18rem">Diplomatic Shift</div>
-              <div style="font-weight:600">Standing ${standingDelta >= 0 ? '+' : ''}${standingDelta} -> ${esc(String(standingChange.after ?? faction?.standing ?? ''))}</div>
-              <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.18rem">${esc(String(standingChange.reason || ''))}</div>
-            </div>`
-          : '';
-
-        const questHookHtml = questHook
-          ? `
-            <div style="margin-bottom:0.7rem;border:1px solid rgba(255,210,90,0.38);background:rgba(255,210,90,0.08);border-radius:10px;padding:0.7rem 0.75rem;display:flex;justify-content:space-between;gap:0.8rem;align-items:center;">
-              <div>
-                <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.18rem">Quest Hook</div>
-                <div style="font-weight:600">${esc(String(questHook.title || 'Available Assignment'))}</div>
-                <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.18rem">${esc(String(questHook.description || ''))}</div>
-                <div style="font-size:0.74rem;color:var(--text-muted);margin-top:0.18rem">${esc(String(questHook.hook_text || ''))}${Number(questHook.reward_standing || 0) ? ` Reward standing: +${esc(String(questHook.reward_standing))}` : ''}</div>
-              </div>
-              <button class="btn btn-primary btn-sm" id="faction-dialog-start-hook" data-fid="${fid}" data-fqid="${Number(questHook.quest_id || 0)}" type="button" ${questHook.started ? 'disabled' : ''}>${questHook.started ? 'Quest Started' : 'Start Quest'}</button>
-            </div>`
-          : '';
-
-        const suggestionsHtml = (state.suggestedReplies || []).map((reply, index) => `
-          <button class="btn btn-secondary btn-sm faction-dialog-suggestion" data-fid="${fid}" data-index="${index}" style="text-align:left;justify-content:flex-start">${esc(reply)}</button>
-        `).join('');
+        const suggestionsHtml = (session.suggestedReplies || []).map((reply, index) =>
+          `<button class="btn btn-secondary btn-sm npc-chat-suggestion" data-fid="${fid}" data-index="${index}" style="text-align:left;justify-content:flex-start">${esc(reply)}</button>`
+        ).join('');
 
         return `
-          <div class="system-card">
+          <div class="system-card npc-chat-panel">
             <div style="display:flex;justify-content:space-between;gap:0.8rem;align-items:center;margin-bottom:0.65rem">
               <div>
-                <h4 style="margin:0">${esc(factionIcon)} Contact: ${esc(factionName)}</h4>
-                <div style="font-size:0.74rem;color:var(--text-muted)">NPC opens first. Then you get 3 RPG-style responses plus free input.${state.model ? ` Model: ${esc(state.model)}` : ''}${state.fallback ? ' | fallback reply' : ''}</div>
+                <h4 style="margin:0;color:${esc(factionColor)}">${esc(factionIcon)} ${esc(npcName)}</h4>
+                <div style="font-size:0.74rem;color:var(--text-muted)">${esc(factionName)}${session.model ? ` \u00b7 ${esc(session.model)}` : ''}</div>
               </div>
-              <button class="btn btn-secondary btn-sm" id="faction-dialog-restart" data-fid="${fid}" type="button">Restart</button>
+              <button class="btn btn-secondary btn-sm" id="npc-chat-restart" data-fid="${fid}" type="button">Neu starten</button>
             </div>
-            ${standingEffectHtml}
-            ${questHookHtml}
-            <div style="background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.75rem;max-height:360px;overflow:auto;margin-bottom:0.7rem">
+            <div id="npc-chat-transcript" style="background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.75rem;max-height:340px;overflow-y:auto;margin-bottom:0.7rem">
               ${transcriptHtml}
             </div>
-            <div style="display:grid;gap:0.45rem;margin-bottom:0.7rem">
-              ${suggestionsHtml || '<div class="text-muted">No suggested replies available.</div>'}
+            <div style="display:grid;gap:0.4rem;margin-bottom:0.65rem">
+              ${suggestionsHtml || (session.loading ? '' : '<div class="text-muted" style="font-size:0.8rem">Keine Antwortvorschl\u00e4ge.</div>')}
             </div>
             <div style="display:flex;gap:0.45rem;align-items:center">
-              <input id="faction-dialog-input" type="text" maxlength="280" placeholder="Type your own response..." style="flex:1;padding:0.55rem 0.7rem;border:1px solid #666;background:#0a0a0a;color:#fff;border-radius:8px;" ${state.loading ? 'disabled' : ''} />
-              <button class="btn btn-primary btn-sm" id="faction-dialog-send" data-fid="${fid}" type="button" ${state.loading ? 'disabled' : ''}>Send</button>
+              <input id="npc-chat-input" type="text" maxlength="280" placeholder="Nachricht eingeben\u2026" style="flex:1;padding:0.55rem 0.7rem;border:1px solid #666;background:#0a0a0a;color:#fff;border-radius:8px;" ${session.loading ? 'disabled' : ''} />
+              <button class="btn btn-primary btn-sm" id="npc-chat-send" data-fid="${fid}" type="button" ${session.loading ? 'disabled' : ''}>Senden</button>
             </div>
           </div>`;
       }
 
-      bindConversationActions(root, fid) {
+      bindNpcChatActions(root, fid) {
         const detail = root.querySelector('#faction-detail');
         if (!detail) return;
 
-        detail.querySelectorAll('.faction-dialog-suggestion').forEach((btn) => {
+        detail.querySelectorAll('.npc-chat-suggestion').forEach((btn) => {
           btn.addEventListener('click', async () => {
-            const state = this.getConversationState(fid);
-            const index = Number(btn.getAttribute('data-index') || -1);
-            const reply = state?.suggestedReplies?.[index] || '';
+            const session = this.getNpcSession(fid);
+            const index = Number(btn.getAttribute('data-index') ?? -1);
+            const reply = session?.suggestedReplies?.[index] || '';
             if (!reply) return;
-            await this.advanceConversation(root, fid, reply, false);
+            await this.sendNpcMessage(root, fid, reply);
           });
         });
 
-        detail.querySelector('#faction-dialog-send')?.addEventListener('click', async () => {
-          const input = detail.querySelector('#faction-dialog-input');
+        detail.querySelector('#npc-chat-send')?.addEventListener('click', async () => {
+          const input = detail.querySelector('#npc-chat-input');
           const value = String(input?.value || '').trim();
           if (!value) return;
           if (input) input.value = '';
-          await this.advanceConversation(root, fid, value, false);
+          await this.sendNpcMessage(root, fid, value);
         });
 
-        detail.querySelector('#faction-dialog-input')?.addEventListener('keydown', async (event) => {
+        detail.querySelector('#npc-chat-input')?.addEventListener('keydown', async (event) => {
           if (event.key !== 'Enter') return;
           event.preventDefault();
           const input = event.currentTarget;
           const value = String(input?.value || '').trim();
           if (!value) return;
           input.value = '';
-          await this.advanceConversation(root, fid, value, false);
+          await this.sendNpcMessage(root, fid, value);
         });
 
-        detail.querySelector('#faction-dialog-restart')?.addEventListener('click', async () => {
-          await this.advanceConversation(root, fid, '', true);
-        });
-
-        detail.querySelector('#faction-dialog-start-hook')?.addEventListener('click', async (event) => {
-          const btn = event.currentTarget;
-          const fqid = Number(btn?.getAttribute('data-fqid') || 0);
-          if (!fqid) return;
-          btn.disabled = true;
-          const response = await API.startFactionQuest(fqid);
-          if (response?.success) {
-            const current = this.getConversationState(fid) || {};
-            const nextHook = current.questHook ? Object.assign({}, current.questHook, { started: true }) : null;
-            this.setConversationState(fid, Object.assign({}, current, { questHook: nextHook }));
-            detail.innerHTML = this.buildConversationDetail(fid);
-            this.bindConversationActions(root, fid);
-            showToast(response.message || 'Quest started.', 'success');
-          } else {
-            btn.disabled = false;
-            showToast(response?.error || 'Quest could not be started.', 'error');
-          }
+        detail.querySelector('#npc-chat-restart')?.addEventListener('click', async () => {
+          this.npcSessions.delete(Number(fid || 0));
+          await this.openNpcChat(root, fid);
         });
       }
 
-      async advanceConversation(root, fid, playerInput = '', reset = false) {
+      _scrollNpcTranscript(detail) {
+        const t = detail?.querySelector('#npc-chat-transcript');
+        if (t) t.scrollTop = t.scrollHeight;
+      }
+
+      async sendNpcMessage(root, fid, playerMessage) {
         const detail = root.querySelector('#faction-detail');
         if (!detail) return;
+        const faction = this.getFactionById(fid);
+        const factionCode = String(faction?.code || '');
+        const current = this.getNpcSession(fid);
+        if (!current) return;
 
-        const current = reset ? null : this.getConversationState(fid);
-        const history = reset ? [] : (current?.history || []);
-        this.setConversationState(fid, Object.assign({}, current || {}, { loading: true, history }));
-        detail.innerHTML = this.buildConversationDetail(fid);
+        const optimisticHistory = [...current.history, { role: 'user', content: playerMessage }];
+        this.setNpcSession(fid, Object.assign({}, current, { history: optimisticHistory, suggestedReplies: [], loading: true }));
+        detail.innerHTML = this.buildNpcChatPanel(fid);
+        this._scrollNpcTranscript(detail);
 
         try {
-          const response = await API.factionDialogue({
-            faction_id: fid,
-            history,
-            player_input: reset ? '' : playerInput,
+          const response = await API.chatNpc({
+            faction_code: factionCode,
+            npc_name: current.npcName,
+            player_message: playerMessage,
+            session_id: current.sessionId || undefined,
           });
+          if (!response?.success) throw new Error(response?.error || 'NPC chat request failed.');
 
-          if (!response?.success) {
-            throw new Error(response?.error || 'Dialogue request failed.');
-          }
-
-          this.setConversationState(fid, {
-            history: Array.isArray(response.history) ? response.history : [],
+          const newHistory = [...optimisticHistory, { role: 'assistant', content: String(response.reply || '') }];
+          this.setNpcSession(fid, {
+            sessionId: Number(response.session_id || current.sessionId || 0) || null,
+            npcName: String(response.npc_name || current.npcName),
+            factionCode,
+            history: newHistory,
             suggestedReplies: Array.isArray(response.suggested_replies) ? response.suggested_replies : [],
-            model: String(response.model || ''),
-            fallback: !!response.fallback,
-            standingChange: response.standing_change && typeof response.standing_change === 'object' ? response.standing_change : null,
-            questHook: response.quest_hook && typeof response.quest_hook === 'object' ? Object.assign({ started: false }, response.quest_hook) : null,
+            model: String(response.model || current.model || ''),
             loading: false,
           });
-          if (response?.faction && Number.isFinite(Number(response.faction.standing))) {
-            const standingChange = response.standing_change && typeof response.standing_change === 'object' ? response.standing_change : null;
-            this.updateFactionSnapshot(fid, {
-              standing: Number(response.faction.standing),
-              last_event: standingChange?.reason ? `[dialogue] ${standingChange.reason}` : String(this.getFactionById(fid)?.last_event || ''),
-            });
-            this.syncFactionCard(root, fid);
-          }
-          detail.innerHTML = this.buildConversationDetail(fid);
-          this.bindConversationActions(root, fid);
+          detail.innerHTML = this.buildNpcChatPanel(fid);
+          this.bindNpcChatActions(root, fid);
+          this._scrollNpcTranscript(detail);
 
-          const npcMsg = String(response.npc_message || '').trim();
-          if (npcMsg && windowRef.GQTTS && typeof windowRef.GQTTS.playOrSpeak === 'function') {
-            windowRef.GQTTS.playOrSpeak(
-              response.tts_audio_url || null,
-              npcMsg,
-              { voice: response.tts_voice || '' }
-            ).catch(() => {});
+          const npcReply = String(response.reply || '').trim();
+          if (npcReply && windowRef.GQTTS && typeof windowRef.GQTTS.playOrSpeak === 'function') {
+            windowRef.GQTTS.playOrSpeak(null, npcReply, {}).catch(() => {});
           }
         } catch (err) {
-          this.setConversationState(fid, Object.assign({}, current || {}, { loading: false }));
-          detail.innerHTML = `<p class="error">${esc(String(err?.message || err || 'Dialogue failed.'))}</p>`;
-          showToast('Faction dialogue failed.', 'error');
+          this.setNpcSession(fid, Object.assign({}, current, { loading: false }));
+          detail.innerHTML = this.buildNpcChatPanel(fid);
+          this.bindNpcChatActions(root, fid);
+          showToast(String(err?.message || 'NPC chat fehlgeschlagen.'), 'error');
         }
       }
 
-      async renderDetail(root, fid, mode) {
+      async openNpcChat(root, fid) {
+        const detail = root.querySelector('#faction-detail');
+        if (!detail) return;
+        const faction = this.getFactionById(fid);
+        if (!faction) { detail.innerHTML = '<p class="error">Fraktion nicht gefunden.</p>'; return; }
+
+        const npcName = String(faction.diplomat_npc || '');
+        const factionCode = String(faction.code || '');
+        if (!npcName || !factionCode) {
+          detail.innerHTML = '<p class="text-muted">Kein NPC-Kontakt f\u00fcr diese Fraktion verf\u00fcgbar.</p>';
+          return;
+        }
+
+        this.setNpcSession(fid, { sessionId: null, npcName, factionCode, history: [], suggestedReplies: [], model: '', loading: true });
+        detail.innerHTML = this.buildNpcChatPanel(fid);
+
+        try {
+          const response = await API.chatNpc({ faction_code: factionCode, npc_name: npcName, player_message: 'Guten Tag.' });
+          if (!response?.success) throw new Error(response?.error || 'NPC chat konnte nicht gestartet werden.');
+
+          this.setNpcSession(fid, {
+            sessionId: Number(response.session_id || 0) || null,
+            npcName: String(response.npc_name || npcName),
+            factionCode,
+            history: [
+              { role: 'user', content: 'Guten Tag.' },
+              { role: 'assistant', content: String(response.reply || '') },
+            ],
+            suggestedReplies: Array.isArray(response.suggested_replies) ? response.suggested_replies : [],
+            model: String(response.model || ''),
+            loading: false,
+          });
+          detail.innerHTML = this.buildNpcChatPanel(fid);
+          this.bindNpcChatActions(root, fid);
+          this._scrollNpcTranscript(detail);
+
+          const npcReply = String(response.reply || '').trim();
+          if (npcReply && windowRef.GQTTS && typeof windowRef.GQTTS.playOrSpeak === 'function') {
+            windowRef.GQTTS.playOrSpeak(null, npcReply, {}).catch(() => {});
+          }
+        } catch (err) {
+          this.setNpcSession(fid, null);
+          detail.innerHTML = `<p class="error">${esc(String(err?.message || 'NPC Chat konnte nicht ge\u00f6ffnet werden.'))}</p>`;
+          showToast('NPC Diplomatie-Chat fehlgeschlagen.', 'error');
+        }
+      }
+
+
+            async renderDetail(root, fid, mode) {
         const detail = root.querySelector('#faction-detail');
         if (!detail) return;
         detail.innerHTML = '<p class="text-muted">Loading...</p>';
 
         if (mode === 'contact') {
-          const existing = this.getConversationState(fid);
+          const existing = this.getNpcSession(fid);
           if (existing) {
-            detail.innerHTML = this.buildConversationDetail(fid);
-            this.bindConversationActions(root, fid);
+            detail.innerHTML = this.buildNpcChatPanel(fid);
+            this.bindNpcChatActions(root, fid);
           } else {
-            await this.advanceConversation(root, fid, '', true);
+            await this.openNpcChat(root, fid);
           }
           return;
         }
