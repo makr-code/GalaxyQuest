@@ -1,32 +1,15 @@
 /**
  * npc-avatar-renderer.test.js
  *
- * Unit tests for NpcAvatarRenderer:
+ * Unit tests for NpcAvatarRenderer (JSON 3D model + AnimationMixer, PNG fallback, CSS fallback).
+ *
  *   resolvePortraitUrl()
- *     • maps faction + npc name to the correct PNG path
- *     • uses 'm' for männlich, 'f' for weiblich, 'm' as default
- *     • strips apostrophes and titles from NPC names
- *     • handles empty faction / empty npc name gracefully
- *   NpcAvatarRenderer constructor
- *     • defaults are applied when opts is empty
- *     • factionCode, factionColor, npcName stored correctly
- *     • portraitUrl is auto-resolved when not provided
- *     • explicit portraitUrl=null prevents auto-resolve
- *     • explicit portraitUrl string is stored as-is
- *   NpcAvatarRenderer state setters
- *     • setTalking(true/false) updates _talking
- *     • setExpression updates _expression
- *   NpcAvatarRenderer lifecycle (no DOM / no WebGL)
- *     • mount() with THREE=null keeps fallback, does not throw
- *     • destroy() marks as destroyed and is idempotent
- *     • reattach() after destroy() is a no-op
- *   NpcAvatarRenderer._tick() animation maths
- *     • head rotation changes each frame when talking
- *     • head rotation changes each frame when idle
- *     • bust position floats over time
- *   NpcAvatarRenderer.isWebGLActive
- *     • false before WebGL is initialized
- *     • false after destroy()
+ *   NpcAvatarRenderer constructor defaults & opts
+ *   State setters: setTalking, setExpression
+ *   Lifecycle without WebGL: mount, destroy, reattach
+ *   isWebGLActive flag
+ *   _updateAnimationState / _playExpressionOnce with mock mixer
+ *   _loadJsonBust: returns null on fetch failure
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -41,91 +24,79 @@ const { NpcAvatarRenderer, resolvePortraitUrl } =
   require(path.join(root, 'js/engine/runtime/NpcAvatarRenderer.js'));
 
 // ---------------------------------------------------------------------------
-// Mock DOM helpers
+// Minimal DOM mocks
 // ---------------------------------------------------------------------------
 
 function makeElement(tag = 'div') {
   const children = [];
   const el = {
-    tagName: tag.toUpperCase(),
-    _children: children,
-    style: {},
-    className: '',
-    textContent: '',
-    src: '',
-    alt: '',
+    tagName: tag.toUpperCase(), _children: children,
+    style: {}, className: '', textContent: '', src: '', alt: '',
     _listeners: {},
-    appendChild(child)   { children.push(child); return child; },
-    removeChild(child)   { const i = children.indexOf(child); if (i !== -1) children.splice(i, 1); },
-    getAttribute()       { return null; },
-    setAttribute()       {},
+    appendChild(child)  { children.push(child); return child; },
+    removeChild(child)  { const i = children.indexOf(child); if (i !== -1) children.splice(i, 1); },
+    getAttribute()      { return null; },
+    setAttribute()      {},
     addEventListener(ev, fn) {
       if (!this._listeners[ev]) this._listeners[ev] = [];
       this._listeners[ev].push(fn);
     },
-    _fire(ev, arg) {
-      (this._listeners[ev] || []).forEach((fn) => fn(arg));
-    },
-    get parentNode()     { return null; },
+    get parentNode() { return null; },
   };
   return el;
 }
 
 function makeDocument() {
-  const elements = [];
-  const doc = {
-    createElement(tag)  { const el = makeElement(tag); elements.push(el); return el; },
+  return {
+    createElement(tag)  { return makeElement(tag); },
     head: { appendChild: vi.fn() },
-    _elements: elements,
   };
-  return doc;
 }
 
 function makeWindowRef(opts = {}) {
-  const doc  = makeDocument();
-  const win  = {
-    document: doc,
+  return {
+    document: makeDocument(),
     THREE:    opts.THREE || null,
     devicePixelRatio: 1,
-    requestAnimationFrame: vi.fn((fn) => { /* don't call fn in tests */ return 1; }),
+    requestAnimationFrame: vi.fn(() => 1),
     cancelAnimationFrame:  vi.fn(),
+    fetch: opts.fetch || vi.fn(() => Promise.reject(new Error('no fetch'))),
   };
-  return win;
 }
 
 // ---------------------------------------------------------------------------
-// resolvePortraitUrl tests
+// resolvePortraitUrl
 // ---------------------------------------------------------------------------
 
 describe('resolvePortraitUrl', () => {
-  it('maps vor_tak + General Drak\'Mol männlich → Vor_Tak_DrakMol_m.png', () => {
-    const url = resolvePortraitUrl('vor_tak', "General Drak'Mol", 'männlich');
-    expect(url).toBe('gfx/portraits/Vor_Tak_DrakMol_m.png');
+  it("vor_tak + General Drak'Mol männlich → Vor_Tak_DrakMol_m.png", () => {
+    expect(resolvePortraitUrl('vor_tak', "General Drak'Mol", 'männlich'))
+      .toBe('gfx/portraits/Vor_Tak_DrakMol_m.png');
   });
 
-  it('maps aereth + Sol\'Kaar männlich → Aereth_SolKaar_m.png', () => {
-    const url = resolvePortraitUrl('aereth', "Sol'Kaar", 'männlich');
-    expect(url).toBe('gfx/portraits/Aereth_SolKaar_m.png');
+  it("aereth + Sol'Kaar männlich → Aereth_SolKaar_m.png", () => {
+    expect(resolvePortraitUrl('aereth', "Sol'Kaar", 'männlich'))
+      .toBe('gfx/portraits/Aereth_SolKaar_m.png');
   });
 
   it('uses f for weiblich gender', () => {
-    const url = resolvePortraitUrl('kryl_tha', "Kommandantin Zha'Mira", 'weiblich');
-    expect(url).toBe('gfx/portraits/Kryl_Tha_ZhaMira_f.png');
+    expect(resolvePortraitUrl('kryl_tha', "Kommandantin Zha'Mira", 'weiblich'))
+      .toBe('gfx/portraits/Kryl_Tha_ZhaMira_f.png');
   });
 
   it('defaults to m for unknown gender', () => {
-    const url = resolvePortraitUrl('iron_fleet', 'Admiral Kessler', '');
-    expect(url).toBe('gfx/portraits/Iron_Fleet_Kessler_m.png');
+    expect(resolvePortraitUrl('iron_fleet', 'Admiral Kessler', ''))
+      .toBe('gfx/portraits/Iron_Fleet_Kessler_m.png');
   });
 
   it('handles empty npc name', () => {
-    const url = resolvePortraitUrl('syl_nar', '', 'männlich');
-    expect(url).toBe('gfx/portraits/Syl_Nar_Unknown_m.png');
+    expect(resolvePortraitUrl('syl_nar', '', 'männlich'))
+      .toBe('gfx/portraits/Syl_Nar_Unknown_m.png');
   });
 
   it('handles empty faction code', () => {
-    const url = resolvePortraitUrl('', 'Some NPC', 'männlich');
-    expect(url).toBe('gfx/portraits/_SomeNPC_m.png');
+    expect(resolvePortraitUrl('', 'Some NPC', 'männlich'))
+      .toBe('gfx/portraits/_SomeNPC_m.png');
   });
 
   it('is exposed as NpcAvatarRenderer.resolvePortraitUrl static method', () => {
@@ -136,18 +107,15 @@ describe('resolvePortraitUrl', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Constructor tests
+// Constructor
 // ---------------------------------------------------------------------------
 
 describe('NpcAvatarRenderer constructor', () => {
   it('stores factionCode, factionColor, npcName', () => {
     const r = new NpcAvatarRenderer({
-      factionCode:  'vor_tak',
-      factionColor: '#2d5a1b',
-      npcName:      "General Drak'Mol",
-      npcGender:    'männlich',
-      windowRef:    makeWindowRef(),
-      THREE:        null,
+      factionCode: 'vor_tak', factionColor: '#2d5a1b',
+      npcName: "General Drak'Mol", npcGender: 'männlich',
+      windowRef: makeWindowRef(), THREE: null,
     });
     expect(r._factionCode).toBe('vor_tak');
     expect(r._factionColor).toBe('#2d5a1b');
@@ -174,13 +142,12 @@ describe('NpcAvatarRenderer constructor', () => {
   it('skips portrait when portraitUrl is null', () => {
     const r = new NpcAvatarRenderer({
       factionCode: 'aereth', npcName: "Sol'Kaar",
-      portraitUrl: null,
-      windowRef: makeWindowRef(), THREE: null,
+      portraitUrl: null, windowRef: makeWindowRef(), THREE: null,
     });
     expect(r._portraitUrl).toBeNull();
   });
 
-  it('applies safe defaults for all opts empty', () => {
+  it('applies safe defaults when opts is empty', () => {
     const r = new NpcAvatarRenderer({ windowRef: makeWindowRef(), THREE: null });
     expect(r._factionCode).toBe('unknown');
     expect(r._factionColor).toBe('#88aaff');
@@ -188,6 +155,16 @@ describe('NpcAvatarRenderer constructor', () => {
     expect(r._talking).toBe(false);
     expect(r._expression).toBe('neutral');
     expect(r._destroyed).toBe(false);
+  });
+
+  it('uses default modelBasePath when not provided', () => {
+    const r = new NpcAvatarRenderer({ windowRef: makeWindowRef(), THREE: null });
+    expect(r._modelBasePath).toBe('models/npc_avatars');
+  });
+
+  it('accepts custom modelBasePath', () => {
+    const r = new NpcAvatarRenderer({ modelBasePath: '/custom/path', windowRef: makeWindowRef(), THREE: null });
+    expect(r._modelBasePath).toBe('/custom/path');
   });
 
   it('isWebGLActive is false initially', () => {
@@ -236,22 +213,18 @@ describe('NpcAvatarRenderer state setters', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Lifecycle (no DOM / no WebGL)
+// Lifecycle without WebGL
 // ---------------------------------------------------------------------------
 
 describe('NpcAvatarRenderer lifecycle without WebGL', () => {
-  it('mount() with THREE=null mounts the CSS fallback without throwing', () => {
+  it('mount() with THREE=null mounts a CSS fallback without throwing', () => {
     const win = makeWindowRef({ THREE: null });
     const r = new NpcAvatarRenderer({
-      factionCode:  'vor_tak',
-      factionColor: '#2d5a1b',
-      npcName:      "General Drak'Mol",
-      windowRef:    win,
-      THREE:        null,
+      factionCode: 'vor_tak', factionColor: '#2d5a1b',
+      npcName: "General Drak'Mol", windowRef: win, THREE: null,
     });
     const container = makeElement('div');
     expect(() => r.mount(container)).not.toThrow();
-    // Fallback element should be appended
     expect(container._children.length).toBeGreaterThan(0);
   });
 
@@ -261,7 +234,7 @@ describe('NpcAvatarRenderer lifecycle without WebGL', () => {
     expect(r._destroyed).toBe(true);
   });
 
-  it('destroy() is idempotent (second call does not throw)', () => {
+  it('destroy() is idempotent', () => {
     const r = new NpcAvatarRenderer({ windowRef: makeWindowRef(), THREE: null });
     r.destroy();
     expect(() => r.destroy()).not.toThrow();
@@ -292,83 +265,131 @@ describe('NpcAvatarRenderer lifecycle without WebGL', () => {
 });
 
 // ---------------------------------------------------------------------------
-// _tick() animation maths (tested without a real THREE renderer)
+// _updateAnimationState with mock mixer
 // ---------------------------------------------------------------------------
 
-describe('NpcAvatarRenderer._tick() animation', () => {
-  function makeHeadRef() {
-    return { rotation: { x: 0, y: 0, z: 0 }, scale: { y: 1 } };
+describe('NpcAvatarRenderer._updateAnimationState()', () => {
+  function makeAction() {
+    return {
+      _playing: false,
+      enabled: false,
+      crossFadeTo: vi.fn(),
+      reset: vi.fn().mockReturnThis(),
+      play:  vi.fn().mockReturnThis(),
+      stop:  vi.fn(),
+      isRunning: vi.fn(() => false),
+    };
   }
 
-  function makeTorsoRef() {
-    return { rotation: { x: 0, y: 0, z: 0 }, scale: { y: 1 } };
-  }
-
-  function makeGroup() {
-    return { position: { y: 0 } };
-  }
-
-  function makeRendererWithMocks(talking, expression) {
-    const r = new NpcAvatarRenderer({ windowRef: makeWindowRef(), THREE: null });
-    // Inject a minimal THREE mock just for the instanceof check in _tick
-    r._THREE = { Group: class {} };
-    r._headRef  = makeHeadRef();
-    r._torsoRef = makeTorsoRef();
-    r._bust     = makeGroup();
-    r._talking    = talking;
-    r._expression = expression;
+  function makeRenderer(talking) {
+    const r = new NpcAvatarRenderer({ windowRef: makeWindowRef(), THREE: { LoopRepeat: 2201, LoopOnce: 2200 } });
+    r._webglReady = true;
+    r._mixer = { stopAllAction: vi.fn(), update: vi.fn() };
+    r._actionIdle = makeAction();
+    r._actionTalk = makeAction();
+    r._talking = talking;
     return r;
   }
 
-  it('head rotates while talking', () => {
-    const r = makeRendererWithMocks(true, 'neutral');
-    r._elapsed = 1.0;
-    r._tick(0.016);
-    // After one tick, head.rotation.x should deviate from 0
-    const rotBefore = 0;
-    r._elapsed = 1.016;
-    r._tick(0.016);
-    expect(r._headRef.rotation.x).not.toBe(rotBefore);
+  it('crossFades to talk clip when setTalking(true)', () => {
+    const r = makeRenderer(false);
+    r.setTalking(true);
+    expect(r._actionIdle.crossFadeTo).toHaveBeenCalledWith(r._actionTalk, 0.2, false);
   });
 
-  it('head rotates while idle', () => {
-    const r = makeRendererWithMocks(false, 'neutral');
-    r._elapsed = 2.0;
-    r._tick(0.016);
-    r._elapsed = 2.016;
-    r._tick(0.016);
-    // Rotation should be driven by idle sway
-    expect(typeof r._headRef.rotation.y).toBe('number');
+  it('crossFades back to idle when setTalking(false)', () => {
+    const r = makeRenderer(true);
+    // Start already talking so the setter triggers the transition
+    r._talking = true;
+    r.setTalking(false);
+    expect(r._actionTalk.crossFadeTo).toHaveBeenCalledWith(r._actionIdle, 0.3, false);
   });
 
-  it('thinking expression tilts head on Z axis', () => {
-    const r = makeRendererWithMocks(false, 'thinking');
-    r._elapsed = 0;
-    // Run several ticks to allow smooth interpolation to settle toward target
-    for (let i = 0; i < 30; i++) { r._elapsed += 0.016; r._tick(0.016); }
-    expect(r._headRef.rotation.z).toBeGreaterThan(0);
+  it('no-op when setTalking called with same value', () => {
+    const r = makeRenderer(false);
+    r.setTalking(false); // already false
+    expect(r._actionIdle.crossFadeTo).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _playExpressionOnce with mock mixer/clips
+// ---------------------------------------------------------------------------
+
+describe('NpcAvatarRenderer._playExpressionOnce()', () => {
+  it('plays the matching expression clip once', () => {
+    const r = new NpcAvatarRenderer({
+      windowRef: makeWindowRef(),
+      THREE: { LoopOnce: 2200 },
+    });
+    r._webglReady = true;
+    const mockAction = {
+      setLoop: vi.fn(),
+      reset:   vi.fn().mockReturnThis(),
+      play:    vi.fn().mockReturnThis(),
+      clampWhenFinished: false,
+    };
+    r._mixer = { clipAction: vi.fn(() => mockAction), stopAllAction: vi.fn() };
+    r._clips = [
+      { name: 'expression_friendly' },
+      { name: 'expression_hostile' },
+    ];
+    r._playExpressionOnce('friendly');
+    expect(r._mixer.clipAction).toHaveBeenCalledWith({ name: 'expression_friendly' });
+    expect(mockAction.setLoop).toHaveBeenCalledWith(2200, 1);
+    expect(mockAction.reset).toHaveBeenCalled();
+    expect(mockAction.play).toHaveBeenCalled();
   });
 
-  it('bust position floats over time', () => {
-    const r = makeRendererWithMocks(false, 'neutral');
-    r._elapsed = 0;
-    r._tick(0.016);
-    const y0 = r._bust.position.y;
-    r._elapsed = Math.PI / 0.6 / 2; // half period of sin(e*0.6)
-    r._tick(0.016);
-    const y1 = r._bust.position.y;
-    // y position should change between different elapsed values
-    expect(y0).not.toBeCloseTo(y1, 5);
+  it('does nothing when clip not found', () => {
+    const r = new NpcAvatarRenderer({ windowRef: makeWindowRef(), THREE: {} });
+    r._webglReady = true;
+    r._mixer = { clipAction: vi.fn(), stopAllAction: vi.fn() };
+    r._clips = [{ name: 'expression_friendly' }];
+    expect(() => r._playExpressionOnce('thinking')).not.toThrow();
+    expect(r._mixer.clipAction).not.toHaveBeenCalled();
   });
 
-  it('torso scale.y changes with breathing', () => {
-    const r = makeRendererWithMocks(false, 'neutral');
-    r._elapsed = 0;
-    r._tick(0.016);
-    const s0 = r._torsoRef.scale.y;
-    r._elapsed = Math.PI / 0.9; // half period of sin(e*0.9)
-    r._tick(0.016);
-    const s1 = r._torsoRef.scale.y;
-    expect(s0).not.toBeCloseTo(s1, 5);
+  it('does nothing without a mixer', () => {
+    const r = new NpcAvatarRenderer({ windowRef: makeWindowRef(), THREE: {} });
+    r._webglReady = true;
+    r._mixer = null;
+    r._clips = [{ name: 'expression_hostile' }];
+    expect(() => r._playExpressionOnce('hostile')).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _loadJsonBust: returns null on fetch failure
+// ---------------------------------------------------------------------------
+
+describe('NpcAvatarRenderer._loadJsonBust()', () => {
+  it('returns null when fetch rejects', async () => {
+    const win = makeWindowRef({ fetch: vi.fn(() => Promise.reject(new Error('network error'))) });
+    const r = new NpcAvatarRenderer({ factionCode: 'vor_tak', windowRef: win, THREE: null });
+    const THREE_mock = {};
+    const result = await r._loadJsonBust(THREE_mock);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when fetch returns non-ok status', async () => {
+    const win = makeWindowRef({
+      fetch: vi.fn(() => Promise.resolve({ ok: false, status: 404, json: async () => ({}) })),
+    });
+    const r = new NpcAvatarRenderer({ factionCode: 'vor_tak', windowRef: win, THREE: null });
+    const result = await r._loadJsonBust({});
+    expect(result).toBeNull();
+  });
+
+  it('returns null when descriptor has no object field', async () => {
+    const win = makeWindowRef({
+      fetch: vi.fn(() => Promise.resolve({
+        ok: true,
+        json: async () => ({ metadata: { type: 'Object' }, animations: [] }),
+      })),
+    });
+    const r = new NpcAvatarRenderer({ factionCode: 'vor_tak', windowRef: win, THREE: null });
+    const result = await r._loadJsonBust({});
+    expect(result).toBeNull();
   });
 });

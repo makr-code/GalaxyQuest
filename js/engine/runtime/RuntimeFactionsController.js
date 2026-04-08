@@ -16,6 +16,8 @@
         this.conversations = new Map();
         this.npcSessions = new Map();
         this.lastFactions = [];
+        /** @type {Map<number, object>} active NpcAvatarRenderer instances keyed by fid */
+        this._npcRenderers = new Map();
       }
 
       standingClass(value) {
@@ -313,24 +315,75 @@
 
         return `
           <div class="system-card npc-chat-panel">
-            <div style="display:flex;justify-content:space-between;gap:0.8rem;align-items:center;margin-bottom:0.65rem">
-              <div>
-                <h4 style="margin:0;color:${esc(factionColor)}">${esc(factionIcon)} ${esc(npcName)}</h4>
-                <div style="font-size:0.74rem;color:var(--text-muted)">${esc(factionName)}${session.model ? ` \u00b7 ${esc(session.model)}` : ''}</div>
+            <div style="display:grid;grid-template-columns:160px 1fr;gap:1rem;align-items:start">
+              <div id="npc-avatar-container" data-fid="${fid}" style="width:160px;height:220px;border-radius:10px;overflow:hidden;flex-shrink:0;background:rgba(0,0,0,0.3);"></div>
+              <div style="min-width:0">
+                <div style="display:flex;justify-content:space-between;gap:0.8rem;align-items:center;margin-bottom:0.65rem">
+                  <div>
+                    <h4 style="margin:0;color:${esc(factionColor)}">${esc(factionIcon)} ${esc(npcName)}</h4>
+                    <div style="font-size:0.74rem;color:var(--text-muted)">${esc(factionName)}${session.model ? ` \u00b7 ${esc(session.model)}` : ''}</div>
+                  </div>
+                  <button class="btn btn-secondary btn-sm" id="npc-chat-restart" data-fid="${fid}" type="button">Neu starten</button>
+                </div>
+                <div id="npc-chat-transcript" style="background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.75rem;max-height:260px;overflow-y:auto;margin-bottom:0.7rem">
+                  ${transcriptHtml}
+                </div>
+                <div style="display:grid;gap:0.4rem;margin-bottom:0.65rem">
+                  ${suggestionsHtml || (session.loading ? '' : '<div class="text-muted" style="font-size:0.8rem">Keine Antwortvorschl\u00e4ge.</div>')}
+                </div>
+                <div style="display:flex;gap:0.45rem;align-items:center">
+                  <input id="npc-chat-input" type="text" maxlength="280" placeholder="Nachricht eingeben\u2026" style="flex:1;padding:0.55rem 0.7rem;border:1px solid #666;background:#0a0a0a;color:#fff;border-radius:8px;" ${session.loading ? 'disabled' : ''} />
+                  <button class="btn btn-primary btn-sm" id="npc-chat-send" data-fid="${fid}" type="button" ${session.loading ? 'disabled' : ''}>Senden</button>
+                </div>
               </div>
-              <button class="btn btn-secondary btn-sm" id="npc-chat-restart" data-fid="${fid}" type="button">Neu starten</button>
-            </div>
-            <div id="npc-chat-transcript" style="background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.75rem;max-height:340px;overflow-y:auto;margin-bottom:0.7rem">
-              ${transcriptHtml}
-            </div>
-            <div style="display:grid;gap:0.4rem;margin-bottom:0.65rem">
-              ${suggestionsHtml || (session.loading ? '' : '<div class="text-muted" style="font-size:0.8rem">Keine Antwortvorschl\u00e4ge.</div>')}
-            </div>
-            <div style="display:flex;gap:0.45rem;align-items:center">
-              <input id="npc-chat-input" type="text" maxlength="280" placeholder="Nachricht eingeben\u2026" style="flex:1;padding:0.55rem 0.7rem;border:1px solid #666;background:#0a0a0a;color:#fff;border-radius:8px;" ${session.loading ? 'disabled' : ''} />
-              <button class="btn btn-primary btn-sm" id="npc-chat-send" data-fid="${fid}" type="button" ${session.loading ? 'disabled' : ''}>Senden</button>
             </div>
           </div>`;
+      }
+
+      /**
+       * Mount (or reattach) the NpcAvatarRenderer into #npc-avatar-container.
+       * Creates a new renderer on first call; reattaches on panel rebuilds.
+       */
+      _mountNpcAvatar(detail, fid) {
+        const container = detail.querySelector('#npc-avatar-container');
+        if (!container) return;
+
+        const faction = this.getFactionById(fid);
+        const session = this.getNpcSession(fid);
+        const factionCode  = String(faction?.code  || '');
+        const factionColor = String(faction?.color || '#88aaff');
+        const npcName      = String(session?.npcName || faction?.diplomat_npc || '');
+        const npcGender    = String(faction?.diplomat_npc_gender || '');
+
+        // If a renderer already exists for this fid, reattach instead of recreating
+        if (this._npcRenderers.has(Number(fid))) {
+          const existing = this._npcRenderers.get(Number(fid));
+          existing.reattach(container);
+          return;
+        }
+
+        // Lazy-load NpcAvatarRenderer class from window or require
+        const RendererClass = (windowRef.GQNpcAvatarRenderer || {}).NpcAvatarRenderer;
+        if (!RendererClass) return; // not yet loaded – canvas will appear on next open
+
+        const renderer = new RendererClass({
+          factionCode,
+          factionColor,
+          npcName,
+          npcGender,
+          windowRef,
+        });
+        this._npcRenderers.set(Number(fid), renderer);
+        renderer.mount(container);
+      }
+
+      /** Destroy the avatar renderer for a faction (e.g. on chat restart). */
+      _destroyNpcAvatar(fid) {
+        const renderer = this._npcRenderers.get(Number(fid));
+        if (renderer) {
+          renderer.destroy();
+          this._npcRenderers.delete(Number(fid));
+        }
       }
 
       bindNpcChatActions(root, fid) {

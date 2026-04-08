@@ -1,0 +1,363 @@
+{
+  "metadata": {
+    "version": 4.6,
+    "type": "Object",
+    "generator": "GalaxyQuest NPC Bust Gen"
+  },
+  "modelId": "vor_tak_npc_bust",
+  "label": "Vor'Tak NPC Bust",
+  "version": 1,
+  "scale": 1,
+  "lod": {
+    "segments_full": 12,
+    "segments_low": 6
+  },
+  "geometries": [
+    {
+      "uuid": "geo_head",
+      "type": "BoxGeometry",
+      "width": 0.88,
+      "height": 1.0,
+      "depth": 0.78,
+      "widthSegments": 1,
+      "heightSegments": 1,
+      "depthSegments": 1
+    },
+    {
+      "uuid": "geo_neck",
+      "type": "CylinderGeometry",
+      "radiusTop": 0.18,
+      "radiusBottom": 0.22,
+      "height": 0.3,
+      "radialSegments": 8,
+      "heightSegments": 1,
+      "openEnded": false
+    },
+    {
+      "uuid": "geo_torso",
+      "type": "BoxGeometry",
+      "width": 1.35,
+      "height": 0.95,
+      "depth": 0.62,
+      "widthSegments": 1,
+      "heightSegments": 1,
+      "depthSegments": 1
+    },
+    {
+      "uuid": "geo_extra_0",
+      "type": "BoxGeometry",
+      "width": 1.0,
+      "height": 0.16,
+      "depth": 0.5,
+      "widthSegments": 1,
+      "heightSegments": 1,
+      "depthSegments": 1
+    },
+    {
+      "uuid": "geo_extra_1",
+      "type": "BoxGeometry",
+      "width": 0.72,
+      "height": 0.28,
+      "depth": 0.22,
+      "widthSegments": 1,
+      "heightSegments": 1,
+      "depthSegments": 1
+    }
+  ],
+  "materials": [
+    {
+      "uuid": "mat_head",
+      "type": "MeshStandardMaterial",
+      "color": 2972187,
+      "roughness": 0.7,
+      "metalness": 0.2
+    },
+    {
+      "uuid": "mat_neck",
+      "type": "MeshStandardMaterial",
+      "color": 1718800,
+      "roughness": 0.7,
+      "metalness": 0.2
+    },
+    {
+      "uuid": "mat_torso",
+      "type": "MeshStandardMaterial",
+      "color": 1718800,
+      "roughness": 0.7,
+      "metalness": 0.2
+    },
+    {
+      "uuid": "mat_extra_0",
+      "type": "MeshStandardMaterial",
+      "color": 1718800,
+      "roughness": 0.6,
+      "metalness": 0.2
+    },
+    {
+      "uuid": "mat_extra_1",
+      "type": "MeshStandardMaterial",
+      "color": 9136404,
+      "roughness": 0.6,
+      "metalness": 0.2
+    }
+  ],
+  "animations": [
+    {
+      "name": "idle_breathe",
+      "duration": 4.0,
+      "tracks": [
+        {
+          "name": "torso.scale[y]",
+          "type": "number",
+          "times": [
+            0,
+            2.0,
+            4.0
+          ],
+          "values": [
+            1.0,
+            1.022,
+            1.0
+          ],
+          "interpolation": 2301
+        },
+        {
+          "name": "head.rotation[y]",
+          "type": "number",
+          "times": [
+            0,
+            2.0,
+            4.0
+          ],
+          "values": [
+            0,
+            0.018,
+            0
+          ],
+          "interpolation": 2301
+        },
+        {
+          "name": "bust_root.position[y]",
+          "type": "number",
+          "times": [
+            0,
+            2.5,
+            5.0
+          ],
+          "values": [
+            0,
+            0.025,
+            0
+          ],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "talk_nod",
+      "duration": 0.5,
+      "tracks": [
+        {
+          "name": "head.rotation[x]",
+          "type": "number",
+          "times": [
+            0,
+            0.12,
+            0.28,
+            0.38,
+            0.5
+          ],
+          "values": [
+            0,
+            -0.055,
+            0.04,
+            -0.02,
+            0
+          ],
+          "interpolation": 2301
+        },
+        {
+          "name": "head.rotation[y]",
+          "type": "number",
+          "times": [
+            0,
+            0.25,
+            0.5
+          ],
+          "values": [
+            0,
+            0.032,
+            0
+          ],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "expression_friendly",
+      "duration": 0.6,
+      "tracks": [
+        {
+          "name": "head.rotation[z]",
+          "type": "number",
+          "times": [
+            0,
+            0.3,
+            0.6
+          ],
+          "values": [
+            0,
+            -0.06,
+            -0.06
+          ],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "expression_hostile",
+      "duration": 0.4,
+      "tracks": [
+        {
+          "name": "head.rotation[x]",
+          "type": "number",
+          "times": [
+            0,
+            0.2,
+            0.4
+          ],
+          "values": [
+            0,
+            0.07,
+            0.07
+          ],
+          "interpolation": 2301
+        }
+      ]
+    },
+    {
+      "name": "expression_thinking",
+      "duration": 2.0,
+      "tracks": [
+        {
+          "name": "head.rotation[z]",
+          "type": "number",
+          "times": [
+            0,
+            0.4,
+            1.6,
+            2.0
+          ],
+          "values": [
+            0,
+            0.1,
+            0.1,
+            0
+          ],
+          "interpolation": 2301
+        },
+        {
+          "name": "head.rotation[y]",
+          "type": "number",
+          "times": [
+            0,
+            1.0,
+            2.0
+          ],
+          "values": [
+            0,
+            0.04,
+            0
+          ],
+          "interpolation": 2301
+        }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_bust_root",
+    "type": "Group",
+    "name": "bust_root",
+    "userData": {
+      "gqModelSemantics": {
+        "factionCode": "vor_tak",
+        "objectClass": "npc_bust",
+        "archetype": "diplomat_bust"
+      }
+    },
+    "children": [
+      {
+        "uuid": "mesh_head",
+        "type": "Mesh",
+        "name": "head",
+        "geometry": "geo_head",
+        "material": "mat_head",
+        "position": [
+          0,
+          0.54,
+          0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          0.88
+        ],
+        "children": [
+          {
+            "uuid": "mesh_brow",
+            "type": "Mesh",
+            "name": "brow",
+            "geometry": "geo_extra_0",
+            "material": "mat_extra_0",
+            "position": [
+              0,
+              0.47,
+              0.2
+            ]
+          },
+          {
+            "uuid": "mesh_bone_plate",
+            "type": "Mesh",
+            "name": "bone_plate",
+            "geometry": "geo_extra_1",
+            "material": "mat_extra_1",
+            "position": [
+              0,
+              0.64,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "uuid": "mesh_neck",
+        "type": "Mesh",
+        "name": "neck",
+        "geometry": "geo_neck",
+        "material": "mat_neck",
+        "position": [
+          0,
+          0.1,
+          0
+        ]
+      },
+      {
+        "uuid": "mesh_torso",
+        "type": "Mesh",
+        "name": "torso",
+        "geometry": "geo_torso",
+        "material": "mat_torso",
+        "position": [
+          0,
+          -0.5,
+          0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    ]
+  }
+}
