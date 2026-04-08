@@ -123,25 +123,9 @@ function get_policy_good_multipliers(PDO $db, int $owner_id): array {
 
 /**
  * Log a shortage/starvation event for a colony/good when stock hits zero.
- * Creates the economy_shortage_events table if missing (idempotent).
+ * The economy_shortage_events table must exist (created by migration).
  */
 function log_shortage_event(PDO $db, int $colony_id, string $good_type, float $deficit_per_hour): void {
-    // Ensure table exists
-    $db->exec(<<<SQL
-        CREATE TABLE IF NOT EXISTS economy_shortage_events (
-            id              BIGINT        NOT NULL AUTO_INCREMENT,
-            colony_id       INT           NOT NULL,
-            good_type       VARCHAR(60)   NOT NULL,
-            deficit_per_hour FLOAT        NOT NULL DEFAULT 0,
-            severity        ENUM('shortage','starvation') NOT NULL DEFAULT 'shortage',
-            started_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            resolved_at     DATETIME      DEFAULT NULL,
-            PRIMARY KEY (id),
-            INDEX idx_se_colony (colony_id, good_type),
-            INDEX idx_se_started (started_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    SQL);
-
     // Critical goods cause starvation; others are just shortages
     static $criticalGoods = ['consumer_goods', 'biocompost'];
     $severity = in_array($good_type, $criticalGoods, true) ? 'starvation' : 'shortage';
@@ -161,10 +145,6 @@ function log_shortage_event(PDO $db, int $colony_id, string $good_type, float $d
  * Resolve any open shortage events for a colony+good when stock is positive.
  */
 function resolve_shortage_event(PDO $db, int $colony_id, string $good_type): void {
-    $tableExists = $db->query("SHOW TABLES LIKE 'economy_shortage_events'")->fetchColumn();
-    if (!$tableExists) {
-        return;
-    }
     $db->prepare(<<<SQL
         UPDATE economy_shortage_events
         SET resolved_at = NOW()

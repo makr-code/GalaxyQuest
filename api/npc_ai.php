@@ -144,9 +144,9 @@ function npc_check_war_reaction(PDO $db, int $userId, array $faction): void {
     // ── 1. Military factions declaring war on hostile players ─────────────
     if ($factionType === 'military' && $standing < -30 && $aggression >= 50) {
         $activeWar = $db->prepare(
-            'SELECT id FROM wars WHERE user_id = ? AND status = ? LIMIT 1'
+            'SELECT id FROM wars WHERE defender_user_id = ? AND npc_aggressor_faction_id = ? AND status = ? LIMIT 1'
         );
-        $activeWar->execute([$userId, 'active']);
+        $activeWar->execute([$userId, $fid, 'active']);
         $hasWar = $activeWar->fetchColumn();
 
         if (!$hasWar) {
@@ -197,17 +197,17 @@ function npc_declare_war_against_user(PDO $db, int $userId, array $faction): voi
     $hasWars = $db->query("SHOW TABLES LIKE 'wars'")->fetchColumn();
     if (!$hasWars) return;
 
-    // Insert war record (attacker = faction acting as aggressor in NPC context)
+    // Insert war record: NPC faction is aggressor, player is defender.
+    // attacker_user_id = NULL  (no player entity for the NPC faction),
+    // npc_aggressor_faction_id stores the faction reference.
     $warStmt = $db->prepare(
         'INSERT INTO wars
-         (user_id, target_faction_id, status, war_goal, declared_at)
-         VALUES (?, ?, ?, ?, NOW())'
+         (attacker_user_id, defender_user_id, npc_aggressor_faction_id, status, casus_belli)
+         VALUES (NULL, ?, ?, \'active\', \'subjugation\')'
     );
     $warStmt->execute([
         $userId,
         (int)$faction['id'],
-        'active',
-        'subjugation',
     ]);
     $warId = (int)$db->lastInsertId();
 

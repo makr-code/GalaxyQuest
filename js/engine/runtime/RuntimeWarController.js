@@ -65,8 +65,9 @@
 
     // ── War row ────────────────────────────────────────────────────────────────
     function warRowHtml(war, isAttacker) {
-      const side = isAttacker ? 'Attacker' : 'Defender';
-      const sideColor = isAttacker ? '#7eb8ff' : '#ff9980';
+      const isNpc = !!war.is_npc_war;
+      const side = isNpc ? 'NPC Attack' : (isAttacker ? 'Attacker' : 'Defender');
+      const sideColor = isNpc ? '#ff9f40' : (isAttacker ? '#7eb8ff' : '#ff9980');
       const summary = war.summary || {};
       const primaryGoal = summary.primary_goal || null;
       const pressure = Number(summary.pressure || 0);
@@ -320,7 +321,8 @@
         }
 
         const rows = wars.map((w) => {
-          const isAttacker = Number(w.attacker_user_id) === myUid;
+          const isNpc      = !!w.is_npc_war;
+          const isAttacker = !isNpc && Number(w.attacker_user_id) === myUid;
           return warRowHtml(w, isAttacker);
         }).join('');
 

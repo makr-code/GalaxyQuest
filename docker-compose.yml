@@ -74,7 +74,9 @@ services:
       - ./sql/migrate_faction_species_v1.sql:/docker-entrypoint-initdb.d/023-faction-species-v1.sql:ro
       - ./sql/migrate_actor_model_v2_drop_is_npc.sql:/docker-entrypoint-initdb.d/024-actor-model-v2-drop-is-npc.sql:ro
       - ./sql/migrate_tts_v1.sql:/docker-entrypoint-initdb.d/025-tts-v1.sql:ro
-      - ./sql/migrate_v2.sql:/docker-entrypoint-initdb.d/026-v2.sql:ro
+      - ./sql/migrate_trade_proposals_v1.sql:/docker-entrypoint-initdb.d/026-trade-proposals.sql:ro
+      - ./sql/migrate_npc_wars_v1.sql:/docker-entrypoint-initdb.d/027-npc-wars-v1.sql:ro
+      - ./sql/migrate_economy_shortage_v1.sql:/docker-entrypoint-initdb.d/028-economy-shortage.sql:ro
 
   tts:
     build:

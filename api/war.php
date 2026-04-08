@@ -383,16 +383,20 @@ function war_list_active(PDO $db, int $uid): array {
                 w.status,
                 w.attacker_user_id,
                 w.defender_user_id,
+                w.npc_aggressor_faction_id,
                 w.war_score_att,
                 w.war_score_def,
                 w.exhaustion_att,
                 w.exhaustion_def,
                 w.started_at,
-                ua.username AS attacker_name,
-                ud.username AS defender_name
+                ua.username           AS attacker_name,
+                ud.username           AS defender_name,
+                nf.name               AS npc_attacker_name,
+                nf.icon               AS npc_attacker_icon
          FROM wars w
-         JOIN users ua ON ua.id = w.attacker_user_id
-         JOIN users ud ON ud.id = w.defender_user_id
+         LEFT JOIN users ua ON ua.id = w.attacker_user_id
+         JOIN      users ud ON ud.id = w.defender_user_id
+         LEFT JOIN npc_factions nf ON nf.id = w.npc_aggressor_faction_id
          WHERE w.status = "active"
            AND (w.attacker_user_id = ? OR w.defender_user_id = ?)
          ORDER BY w.id DESC'
@@ -402,23 +406,39 @@ function war_list_active(PDO $db, int $uid): array {
 
     $wars = [];
     foreach ($rows as $row) {
-        $isAttacker = (int)$row['attacker_user_id'] === $uid;
-        $opponentId = $isAttacker ? (int)$row['defender_user_id'] : (int)$row['attacker_user_id'];
-        $opponentName = $isAttacker ? (string)$row['defender_name'] : (string)$row['attacker_name'];
+        $isNpcWar    = $row['npc_aggressor_faction_id'] !== null;
+        $isAttacker  = !$isNpcWar && (int)$row['attacker_user_id'] === $uid;
+
+        if ($isNpcWar) {
+            // Player is always the defender in NPC-initiated wars
+            $opponentId   = null; // no player id for the NPC faction
+            $opponentName = trim(($row['npc_attacker_icon'] ?? '') . ' ' . ($row['npc_attacker_name'] ?? 'Unknown Faction'));
+        } else {
+            $opponentId   = $isAttacker ? (int)$row['defender_user_id'] : (int)$row['attacker_user_id'];
+            $opponentName = $isAttacker ? (string)$row['defender_name'] : (string)$row['attacker_name'];
+        }
 
         $wars[] = [
-            'war_id' => (int)$row['id'],
-            'status' => (string)$row['status'],
-            'opponent' => [
-                'id' => $opponentId,
+            'war_id'      => (int)$row['id'],
+            'status'      => (string)$row['status'],
+            'is_npc_war'  => $isNpcWar,
+            'npc_aggressor_faction_id' => $isNpcWar ? (int)$row['npc_aggressor_faction_id'] : null,
+            'attacker_user_id' => $row['attacker_user_id'] !== null ? (int)$row['attacker_user_id'] : null,
+            'defender_user_id' => (int)$row['defender_user_id'],
+            'opponent'    => [
+                'id'       => $opponentId,
                 'username' => $opponentName,
             ],
-            'war_score' => $isAttacker ? (int)$row['war_score_att'] : (int)$row['war_score_def'],
+            'war_score'       => $isAttacker ? (int)$row['war_score_att'] : (int)$row['war_score_def'],
             'enemy_war_score' => $isAttacker ? (int)$row['war_score_def'] : (int)$row['war_score_att'],
-            'exhaustion' => $isAttacker ? (float)$row['exhaustion_att'] : (float)$row['exhaustion_def'],
-            'enemy_exhaustion' => $isAttacker ? (float)$row['exhaustion_def'] : (float)$row['exhaustion_att'],
-            'started_at' => (string)$row['started_at'],
-            'summary' => war_list_summary($db, $row, $isAttacker),
+            'war_score_att'   => (int)$row['war_score_att'],
+            'war_score_def'   => (int)$row['war_score_def'],
+            'exhaustion'      => $isAttacker ? (float)$row['exhaustion_att'] : (float)$row['exhaustion_def'],
+            'enemy_exhaustion'=> $isAttacker ? (float)$row['exhaustion_def'] : (float)$row['exhaustion_att'],
+            'exhaustion_att'  => (float)$row['exhaustion_att'],
+            'exhaustion_def'  => (float)$row['exhaustion_def'],
+            'started_at'      => (string)$row['started_at'],
+            'summary'         => war_list_summary($db, $row, $isAttacker),
         ];
     }
 
