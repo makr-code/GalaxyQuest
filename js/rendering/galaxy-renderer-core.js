@@ -5447,7 +5447,7 @@
 
     // -----------------------------------------------------------------------
     // Special body builders (asteroid belts, nebula clouds, irregular planets,
-    // planet fragments)
+    // planet fragments, comets, black holes, ice fields, dust clouds)
     // -----------------------------------------------------------------------
 
     /**
@@ -5458,6 +5458,10 @@
      *   - 'nebula_cloud'     – layered billboard cloud at an orbital position
      *   - 'irregular_planet' – noise-displaced sphere in a standard orbit
      *   - 'planet_fragment'  – cluster of rocky chunks in a standard orbit
+     *   - 'comet'            – icy nucleus + coma + directional tail, orbiting
+     *   - 'black_hole'       – dark event horizon + accretion disk (orbit or stationary)
+     *   - 'ice_field'        – sparse icy particle disk around the star
+     *   - 'dust_cloud'       – flat protoplanetary dust disk around the star
      *
      * Data shape for each entry in `payload.special_bodies`:
      * {
@@ -5514,8 +5518,8 @@
           sourceStar: star,
         });
 
-        if (bodyType === 'asteroid_belt') {
-          // Belts are centred at the star – no orbital motion, just slow rotation.
+        if (bodyType === 'asteroid_belt' || bodyType === 'ice_field' || bodyType === 'dust_cloud') {
+          // Star-centred bodies – no orbital motion, just slow in-place rotation.
           this.systemBodyGroup.add(mesh);
           this.systemSpecialBodyEntries.push({
             mesh,
@@ -5525,7 +5529,7 @@
             orbitRadius,
           });
         } else {
-          // Orbiting bodies (nebula cloud, irregular planet, planet fragment)
+          // Orbiting bodies (nebula cloud, irregular planet, planet fragment, comet, black hole)
           const eccentricity = THREE.MathUtils.clamp(Number(bodyDef.orbital_eccentricity ?? (0.03 + index * 0.013)), 0, 0.92);
           const orbitMinor = orbitRadius * Math.sqrt(1 - eccentricity * eccentricity);
           const phase = Number(bodyDef.polar_theta_rad);
@@ -5591,9 +5595,17 @@
         if (!mesh) return;
 
         if (entry.isStationary) {
-          // Asteroid belt: slow in-plane rotation
+          // Stationary star-centred bodies: just rotate in place
           const rotSpeed = Number(mesh.userData.rotationSpeed ?? 0.018);
           mesh.rotation.y += dt * rotSpeed;
+
+          // Black hole disk rotation (if stationary black hole)
+          if (entry.bodyType === 'black_hole') {
+            const diskRef = mesh.userData.diskRing;
+            if (diskRef) diskRef.rotation.z += dt * Number(mesh.userData.diskRotationSpeed ?? 0.06);
+            const diskPts = mesh.userData.diskParticles;
+            if (diskPts) diskPts.rotation.y += dt * Number(mesh.userData.diskRotationSpeed ?? 0.06) * 0.7;
+          }
         } else {
           // Orbiting special body: advance angle and reposition
           entry.angle += dt * Number(entry.speed || 0);
@@ -5624,6 +5636,27 @@
             mesh.rotation.y += dt * 0.12;
           } else if (bodyType === 'irregular_planet') {
             mesh.rotation.y += dt * 0.18;
+          } else if (bodyType === 'comet') {
+            // Spin nucleus
+            const nucleusMesh = mesh.userData.nucleusMesh;
+            if (nucleusMesh) nucleusMesh.rotation.y += dt * Number(mesh.userData.nucleusSpinSpeed ?? 0.07);
+            // Orient tail away from star (origin): tail group +Z points along comet-from-star vector
+            const tailGroup = mesh.userData.tailGroup;
+            if (tailGroup) {
+              const px = mesh.position.x;
+              const pz = mesh.position.z;
+              const dist = Math.sqrt(px * px + pz * pz);
+              if (dist > 0.01) {
+                // Angle of comet in XZ, tail points outward (+Z aligns with radial out)
+                tailGroup.rotation.y = Math.atan2(px, pz);
+              }
+            }
+          } else if (bodyType === 'black_hole') {
+            // Spin accretion disk
+            const diskRef = mesh.userData.diskRing;
+            if (diskRef) diskRef.rotation.z += dt * Number(mesh.userData.diskRotationSpeed ?? 0.06);
+            const diskPts = mesh.userData.diskParticles;
+            if (diskPts) diskPts.rotation.y += dt * Number(mesh.userData.diskRotationSpeed ?? 0.06) * 0.7;
           }
         }
       });
