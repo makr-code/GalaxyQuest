@@ -35,7 +35,8 @@
   } = {}) {
     const templates = {
       fleetRow: `
-          <div class="fleet-row">
+          <div class="fleet-row" data-fleet-id="{{{fleetId}}}">
+            {{{fleetLabelHtml}}}
             <span class="fleet-mission">{{{mission}}}</span>
             <span class="fleet-target" title="[{{{targetGalaxy}}}:{{{targetSystem}}}:{{{targetPosition}}}]">-> {{{targetSystemName}}}</span>
             {{{positionHtml}}}

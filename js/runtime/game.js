@@ -1326,6 +1326,7 @@
     'createNavigationController',
     'selfHealGalaxyWindow',
     'registerGameCommands',
+    'registerGlobalHotkeys',
   ]);
 
   class GameRuntime {
@@ -1388,6 +1389,13 @@
 
   runtimeDesktopShellApi.registerGameCommands({
     wm: WM,
+    showToast,
+    gameLog,
+  });
+
+  runtimeDesktopShellApi.registerGlobalHotkeys({
+    wm: WM,
+    windowRef: window,
     showToast,
     gameLog,
   });

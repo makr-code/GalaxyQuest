@@ -310,6 +310,9 @@
     'js/engine/runtime/RuntimeEconomyController.js',
     'js/engine/runtime/RuntimeConflictDashboard.js',
     'js/engine/runtime/RuntimeFactionsController.js',
+    'js/engine/runtime/RuntimeDiplomacyDataModel.js',
+    'js/engine/runtime/RuntimeDiplomacyPanel.js',
+    'js/engine/runtime/RuntimeContractNegotiationModal.js',
     'js/engine/runtime/RuntimeLeaderboardController.js',
     'js/engine/runtime/RuntimeAdvisorWidget.js',
     'js/engine/runtime/RuntimeSocialControllersBootstrap.js'

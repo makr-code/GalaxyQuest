@@ -1792,6 +1792,48 @@ input:focus, select:focus, textarea:focus {
   font-size: 0.82rem;
   flex-wrap: wrap;
 }
+.fleet-label-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 6rem;
+  max-width: 12rem;
+}
+.fleet-label-text {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 10rem;
+}
+.fleet-label-edit-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 2px;
+  font-size: 0.78rem;
+  line-height: 1;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.fleet-row:hover .fleet-label-edit-btn,
+.fleet-label-edit-btn:focus {
+  opacity: 1;
+  color: var(--accent-blue);
+}
+.fleet-label-input {
+  font-size: 0.78rem;
+  padding: 1px 4px;
+  border: 1px solid var(--accent-blue);
+  border-radius: 3px;
+  background: var(--bg-input, var(--bg-elevated));
+  color: var(--text);
+  width: 9rem;
+  max-width: 12rem;
+}
 .fleet-mission { 
   font-weight: 600;
   color: var(--accent-blue);

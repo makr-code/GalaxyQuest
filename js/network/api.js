@@ -1451,6 +1451,7 @@ const API = (() => {
     ftlStatus:  ()        => get('api/fleet.php?action=ftl_status'),
     ftlMap:     ()        => get('api/fleet.php?action=ftl_map'),
     recallFleet:(id)      => post('api/fleet.php?action=recall', { fleet_id: id }),
+    renameFleet:(id, label) => post('api/fleet.php?action=rename_fleet', { fleet_id: id, label }),
     simulateBattle: (payload) => post('api/fleet.php?action=simulate_battle', payload),
     matchupScan: (payload) => post('api/fleet.php?action=matchup_scan', payload),
 
@@ -1604,6 +1605,14 @@ const API = (() => {
     claimFactionQuest:(uqid)      => post('api/factions.php?action=claim_quest',   { user_quest_id: uqid }),
     factionDialogue: ({ faction_id, history = [], player_input = '' } = {}) =>
       post('api/factions.php?action=dialogue', { faction_id, history, player_input }),
+
+    // Faction agreements (Victoria 3-style treaty system)
+    factionAgreementsList:   (faction_id) =>
+      get(faction_id ? `api/diplomacy.php?action=list&faction_id=${Number(faction_id)}` : 'api/diplomacy.php?action=list'),
+    factionAgreementsTypes:  ()           => get('api/diplomacy.php?action=types'),
+    factionAgreementsPropose:(data)       => post('api/diplomacy.php?action=propose', data),
+    factionAgreementsRespond:(id)         => post('api/diplomacy.php?action=respond', { agreement_id: Number(id) }),
+    factionAgreementsCancel: (id)         => post('api/diplomacy.php?action=cancel',  { agreement_id: Number(id) }),
 
     // NPC / PvE controller
     npcControllerStatus: () => get('api/npc_controller.php?action=status'),

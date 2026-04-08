@@ -10,6 +10,8 @@
     const loadOverview = typeof opts.onLoadOverview === 'function' ? opts.onLoadOverview : (async () => {});
     const getCurrentColony = typeof opts.getCurrentColony === 'function' ? opts.getCurrentColony : (() => null);
     const windowRef = opts.windowRef || window;
+    const diplomacyPanel = opts.diplomacyPanel || null;
+    const contractNegotiationModal = opts.contractNegotiationModal || null;
 
     class FactionsController {
       constructor() {
@@ -135,10 +137,11 @@
                   Quests done: ${faction.quests_done}
                 </div>
                 <div class="faction-last-event" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">${faction.last_event ? esc(faction.last_event) : ''}</div>
-                <div class="faction-actions" style="margin-top:0.6rem;display:flex;gap:0.4rem">
+                <div class="faction-actions" style="margin-top:0.6rem;display:flex;gap:0.4rem;flex-wrap:wrap">
                   <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="trade">Trade</button>
                   <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="quests">Quests</button>
                   <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="contact">Contact</button>
+                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="treaties">⚖️ Treaties</button>
                 </div>
               </div>`).join('')}
           </div>
@@ -450,9 +453,22 @@
           return;
         }
 
+        if (mode === 'treaties') {
+          const faction = this.getFactionById(fid);
+          if (!faction) {
+            detail.innerHTML = '<p class="error">Faction not found.</p>';
+            return;
+          }
+          if (diplomacyPanel) {
+            await diplomacyPanel.render(detail, faction);
+          } else {
+            detail.innerHTML = '<p class="text-muted">Treaty panel unavailable.</p>';
+          }
+          return;
+        }
+
         if (mode === 'trade') {
           const data = await API.tradeOffers(fid);
-          if (!data.success || !data.offers.length) {
             detail.innerHTML = '<p class="text-muted">No active trade offers from this faction.</p>';
             return;
           }
