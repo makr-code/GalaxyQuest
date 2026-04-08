@@ -696,10 +696,17 @@ class GameEngine {
       this._log('Physics: CPU backend ready');
     }
 
-    // GPU physics — opt-in, requires WebGPU + compute shaders
-    const wantGpu   = opts.physics === 'gpu' || opts.physics === 'auto';
+    // GPU physics — opt-in, requires WebGPU + compute shaders.
+    // In explicit E2E mode we force CPU physics to avoid non-essential
+    // GPU readback pressure and improve deterministic headless test behavior.
+    const isE2EMode = typeof window !== 'undefined' && window.__GQ_E2E_MODE === true;
+    const wantGpu   = !isE2EMode && (opts.physics === 'gpu' || opts.physics === 'auto');
     const caps      = this.renderer.getCapabilities();
     const canUseGpu = wantGpu && caps.webgpu && caps.computeShaders;
+
+    if (isE2EMode) {
+      this._log('Physics: E2E mode active — forcing CPU backend (GPU readback disabled)');
+    }
 
     if (canUseGpu) {
       try {
