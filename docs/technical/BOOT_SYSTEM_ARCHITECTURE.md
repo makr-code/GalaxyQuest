@@ -1,6 +1,6 @@
 # GalaxyQuest Boot System Architecture
 
-**Document Version:** 20260408p1  
+**Document Version:** 20260408p2  
 **Last Updated:** April 8, 2026  
 **Maintainer:** GalaxyQuest DevOps
 
@@ -405,6 +405,40 @@ const controller = requireRuntimeAPI('GQRuntimeSocialControllersBootstrap');
 // 3. Otherwise throws error
 ```
 
+### 4. E2E Runtime Mode (`window.__GQ_E2E_MODE`)
+
+The E2E suite sets a dedicated runtime flag before first page load:
+
+```javascript
+await page.addInitScript(() => {
+  window.__GQ_E2E_MODE = true;
+});
+```
+
+Current E2E mode effects:
+
+1. Forces low renderer quality profile (via `resolveQualityProfile`) to reduce headless GPU pressure.
+2. Forces CPU physics backend in `GameEngine` (GPU physics/readback is disabled for test runs).
+
+This is intentionally test-only behavior and does not change production runtime.
+
+### 5. GPU Warning Telemetry & Trend Guard
+
+Renderer smoke tests collect warning metrics from browser console output:
+
+1. `gpuReadbackWarnings` (matches `ReadPixels` / `GPU stall` patterns)
+2. `totalWarnings` (all warning/error console lines)
+3. Up to 3 sample messages for quick diagnosis
+
+Example output:
+
+```text
+[e2e:system-enter] ... gpuReadbackWarnings=4 totalWarnings=35
+[e2e:system-enter][gpu-warning-baseline] ok: current=4 baseline=4
+```
+
+Baselines are warn-only (non-blocking): tests do not fail when exceeded.
+
 ---
 
 ## Troubleshooting
@@ -521,6 +555,40 @@ Sequential execution (1 worker) prevents backend contention.
 
 ---
 
+### Issue 5: GPU Stall / ReadPixels Warning Noise in E2E
+
+**Symptom:**
+```text
+GL Driver Message ... GPU stall due to ReadPixels
+```
+
+**Root Cause:**
+1. Headless Chromium/driver path emits performance warnings on synchronous readback.
+2. Smoke tests may show different warning counts per scenario.
+
+**Diagnosis:**
+1. Run the baseline-enabled smoke script.
+2. Check emitted tags:
+  - `[e2e:system-enter][gpu-warning-baseline] ...`
+  - `[e2e:viewflow][gpu-warning-baseline] ...`
+  - `[e2e:viewflow-nav-fallback][gpu-warning-baseline] ...`
+
+**Fix / Mitigation Path:**
+1. Keep E2E mode enabled (`window.__GQ_E2E_MODE = true`).
+2. Use CPU physics override in E2E mode (already integrated).
+3. Tune per-test baselines via env vars (warn-only):
+
+```text
+GQ_E2E_GPU_WARN_BASELINE
+GQ_E2E_GPU_WARN_BASELINE_SYSTEM_ENTER
+GQ_E2E_GPU_WARN_BASELINE_VIEWFLOW
+GQ_E2E_GPU_WARN_BASELINE_VIEWFLOW_NAV
+```
+
+No hard failure thresholds are enforced by default.
+
+---
+
 ## Best Practices
 
 ### For Boot System Developers
@@ -562,7 +630,20 @@ Sequential execution (1 worker) prevents backend contention.
    ```bash
    npm run test:e2e:renderer-smoke      # Single test
    npm run test:e2e:smoke:renderer+viewflow  # Multi-test (sequential)
+  npm run test:e2e:smoke:renderer+viewflow:gpu-baseline  # Sequential + trend guard logs
    ```
+
+4. **Per-Test GPU Baseline Tuning (Optional)**
+  ```bash
+  # Global fallback
+  GQ_E2E_GPU_WARN_BASELINE=2
+
+  # Test-specific overrides
+  GQ_E2E_GPU_WARN_BASELINE_SYSTEM_ENTER=4
+  GQ_E2E_GPU_WARN_BASELINE_VIEWFLOW=1
+  GQ_E2E_GPU_WARN_BASELINE_VIEWFLOW_NAV=1
+  ```
+  Keep thresholds warn-only unless CI policy explicitly requires fail-fast behavior.
 
 ### For DevOps / Deployment
 
@@ -624,6 +705,7 @@ bootScriptsOther             // Misc & polyfills
 | Version | Date | Changes |
 |---------|------|---------|
 | 20260408p1 | April 8, 2026 | Initial documentation; covers boot phases, version tracking, bundle fallback, troubleshooting |
+| 20260408p2 | April 8, 2026 | Added E2E mode behavior, CPU physics override in tests, GPU warning telemetry, warn-only per-test baseline workflow |
 
 ---
 
