@@ -457,8 +457,9 @@
         this._addShieldBubble(shieldCount);
       }
 
-      // ── Engine glow ──────────────────────────────────────────────────────
-      const engineCount = Number(this._moduleState.engine || 0);
+      // ── Engine glow (accepts 'engine' or 'propulsion' group code) ────────
+      const engineCount = Number(this._moduleState.engine || 0)
+        + Number(this._moduleState.propulsion || 0);
       if (engineCount > 0) {
         const pts = hp.engine.slice(0, engineCount);
         pts.forEach((point) => this._addEngineEffect(point));

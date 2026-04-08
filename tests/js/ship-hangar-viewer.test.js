@@ -450,6 +450,16 @@ describe('ShipHangarViewer – applyModules', () => {
     viewer.dispose();
   });
 
+  it('propulsion group code produces engine glow effect (DB alias)', async () => {
+    const viewer = await makeLoadedViewer();
+    viewer.applyModules({ propulsion: 1 });
+    const engineMeshes = viewer._moduleGroup.children.filter((c) =>
+      c.name && c.name.startsWith('engine_glow'),
+    );
+    expect(engineMeshes.length).toBe(1);
+    viewer.dispose();
+  });
+
   it('adds utility pod meshes for each utility slot', async () => {
     const viewer = await makeLoadedViewer();
     viewer.applyModules({ utility: 1 });
@@ -610,5 +620,123 @@ describe('RuntimeShipyardController – hangar canvas integration', () => {
     await controller.render();
     const wrap = root.querySelector('.shipyard-hangar-wrap');
     expect(wrap).not.toBeNull();
+  });
+});
+
+// ── RuntimeDevelopmentControllersBootstrap wiring ────────────────────────────
+
+describe('RuntimeDevelopmentControllersBootstrap – ShipHangarViewer wiring', () => {
+  function loadBootstrap() {
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'js/engine/runtime/RuntimeDevelopmentControllersBootstrap.js'),
+      'utf8',
+    );
+    window.eval(src);
+  }
+
+  function loadControllerForBootstrap() {
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'js/engine/runtime/RuntimeShipyardController.js'),
+      'utf8',
+    );
+    window.eval(src);
+  }
+
+  function makeGQUIForBootstrap(doc) {
+    class El {
+      constructor(tag = 'div') { this.dom = doc.createElement(tag); }
+      setClass(c) { this.dom.className = c; return this; }
+      setTextContent(t) { this.dom.textContent = t; return this; }
+      add(...ch) { ch.forEach((c) => this.dom.appendChild(c?.dom ?? c)); return this; }
+    }
+    class Div extends El { constructor() { super('div'); } }
+    class Span extends El { constructor() { super('span'); } }
+    class Button extends El { constructor(t = '') { super('button'); this.dom.textContent = t; } }
+    return { Div, Span, Button };
+  }
+
+  function makeBootstrapOpts(doc, root, windowRef) {
+    return {
+      runtimeColonyViewControllerApi:   { createColonyViewController:   vi.fn(() => ({ render: vi.fn() })) },
+      runtimeEconomyFlowControllerApi:  { createEconomyFlowController:  vi.fn(() => ({ render: vi.fn() })) },
+      runtimeEconomyControllerApi:      { createEconomyController:      vi.fn(() => ({ render: vi.fn() })) },
+      runtimeBuildingUpgradePreviewApi: { createBuildingUpgradePreview: vi.fn(() => ({ render: vi.fn() })) },
+      runtimeBuildingsControllerApi:    { createBuildingsController:    vi.fn(() => ({ render: vi.fn() })) },
+      runtimeResearchControllerApi:     { createResearchController:     vi.fn(() => ({ render: vi.fn() })) },
+      runtimeShipyardControllerApi:     window.GQRuntimeShipyardController,
+      wm:                { body: vi.fn(() => root) },
+      api: {
+        ships:           vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls:   vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [] }),
+        resources:       vi.fn().mockResolvedValue({ success: true, resources: {} }),
+      },
+      windowRef,
+      documentRef:       doc,
+      getCurrentColony:  () => ({ id: 1 }),
+      updateResourceBar: vi.fn(),
+      fmt:               (n) => String(n),
+      fmtName:           (s) => String(s ?? ''),
+      esc:               (s) => String(s ?? ''),
+      countdown:         () => '0:00',
+      showToast:         vi.fn(),
+      gameLog:           vi.fn(),
+      GQUI:              makeGQUIForBootstrap(doc),
+    };
+  }
+
+  beforeEach(() => {
+    delete window.GQRuntimeShipyardController;
+    delete window.GQRuntimeDevelopmentControllersBootstrap;
+    delete window.GQShipHangarViewer;
+  });
+
+  it('bootstrap passes ShipHangarViewer from window.GQShipHangarViewer to controller', () => {
+    loadViewer();
+    loadControllerForBootstrap();
+    loadBootstrap();
+
+    const doc = window.document;
+    const root = doc.createElement('div');
+
+    const windowRef = Object.assign(Object.create(window), {
+      GQShipHangarViewer: window.GQShipHangarViewer,
+    });
+
+    const createShipyardSpy = vi.spyOn(
+      window.GQRuntimeShipyardController,
+      'createShipyardController',
+    );
+
+    const opts = makeBootstrapOpts(doc, root, windowRef);
+    window.GQRuntimeDevelopmentControllersBootstrap.createDevelopmentControllersBootstrap(opts);
+
+    expect(createShipyardSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ShipHangarViewer: window.GQShipHangarViewer.ShipHangarViewer,
+      }),
+    );
+  });
+
+  it('bootstrap passes null ShipHangarViewer when window.GQShipHangarViewer is absent', () => {
+    loadControllerForBootstrap();
+    loadBootstrap();
+
+    const doc = window.document;
+    const root = doc.createElement('div');
+    const windowRef = { ...window };
+    delete windowRef.GQShipHangarViewer;
+
+    const createShipyardSpy = vi.spyOn(
+      window.GQRuntimeShipyardController,
+      'createShipyardController',
+    );
+
+    const opts = makeBootstrapOpts(doc, root, windowRef);
+    window.GQRuntimeDevelopmentControllersBootstrap.createDevelopmentControllersBootstrap(opts);
+
+    expect(createShipyardSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ ShipHangarViewer: null }),
+    );
   });
 });

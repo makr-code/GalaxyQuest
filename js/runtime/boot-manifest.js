@@ -295,6 +295,7 @@
     'js/engine/runtime/RuntimeOverviewBootstrap.js',
     'js/engine/runtime/RuntimeDevelopmentControllersBootstrap.js',
     'js/engine/runtime/RuntimeShipyardController.js',
+    'js/ui/ShipHangarViewer.js',
     'js/engine/runtime/RuntimeMessagesController.js',
     'js/engine/runtime/RuntimeIntelController.js',
     'js/engine/runtime/RuntimeLeadersController.js',
