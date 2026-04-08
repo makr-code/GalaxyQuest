@@ -189,6 +189,9 @@
         const rateLabel = progress.score_rate_per_day > 0
           ? `<span style="color:#5fd679;">+${Number(progress.score_rate_per_day).toFixed(2)}/day</span>`
           : '<span style="color:#9fb0ce;">0/day</span>';
+        const goalScoreDisplay = (goal.score_value != null && goal.score_value !== '')
+          ? Number(goal.score_value).toLocaleString('de-DE')
+          : 'Unbekannt';
         return `
           <tr>
             <td style="${S.td}">${esc(goal.goal_type)}</td>
@@ -196,6 +199,7 @@
             <td style="${S.td};font-weight:700;color:${progress.status === 'advantage' || progress.status === 'contested_controlled' ? '#5fd679' : '#f0c040'};">
               ${esc(progress.label || progress.status || '?')}
             </td>
+            <td style="${S.tdR};color:#a0c8ff;">${esc(goalScoreDisplay)}</td>
             <td style="${S.tdR}">${rateLabel}</td>
             <td style="${S.td};color:#9fb0ce;font-size:11px;">${esc(progress.hint || '')}</td>
           </tr>
@@ -231,6 +235,7 @@
                       <th style="${S.th}">Type</th>
                       <th style="${S.th}">Side</th>
                       <th style="${S.th}">Status</th>
+                      <th style="${S.thR}">Goal Score</th>
                       <th style="${S.thR}">Score Rate</th>
                       <th style="${S.th}">Hint</th>
                     </tr>
