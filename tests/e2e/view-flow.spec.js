@@ -1,7 +1,15 @@
 const { test, expect } = require('@playwright/test');
 
 const nativeOnlyStrict = process.env.GQ_VIEWFLOW_NATIVE_ONLY === '1';
-const gpuWarnBaseline = Number.parseInt(process.env.GQ_E2E_GPU_WARN_BASELINE || '', 10);
+const globalGpuWarnBaseline = Number.parseInt(process.env.GQ_E2E_GPU_WARN_BASELINE || '', 10);
+const viewFlowGpuWarnBaseline = Number.parseInt(
+  process.env.GQ_E2E_GPU_WARN_BASELINE_VIEWFLOW || '',
+  10
+);
+const viewFlowNavGpuWarnBaseline = Number.parseInt(
+  process.env.GQ_E2E_GPU_WARN_BASELINE_VIEWFLOW_NAV || '',
+  10
+);
 
 function createGpuStallWarningCounter(page) {
   const metrics = {
@@ -32,15 +40,22 @@ function createGpuStallWarningCounter(page) {
 }
 
 function logGpuWarnBaseline(tag, gpuWarn) {
-  if (!Number.isFinite(gpuWarnBaseline) || gpuWarnBaseline < 0) return;
-  if (gpuWarn.gpuReadbackWarnings > gpuWarnBaseline) {
+  let baseline = globalGpuWarnBaseline;
+  if (tag === 'e2e:viewflow' && Number.isFinite(viewFlowGpuWarnBaseline) && viewFlowGpuWarnBaseline >= 0) {
+    baseline = viewFlowGpuWarnBaseline;
+  }
+  if (tag === 'e2e:viewflow-nav-fallback' && Number.isFinite(viewFlowNavGpuWarnBaseline) && viewFlowNavGpuWarnBaseline >= 0) {
+    baseline = viewFlowNavGpuWarnBaseline;
+  }
+  if (!Number.isFinite(baseline) || baseline < 0) return;
+  if (gpuWarn.gpuReadbackWarnings > baseline) {
     console.warn(
-      `[${tag}][gpu-warning-baseline] over-baseline: current=${gpuWarn.gpuReadbackWarnings} baseline=${gpuWarnBaseline}`
+      `[${tag}][gpu-warning-baseline] over-baseline: current=${gpuWarn.gpuReadbackWarnings} baseline=${baseline}`
     );
     return;
   }
   console.log(
-    `[${tag}][gpu-warning-baseline] ok: current=${gpuWarn.gpuReadbackWarnings} baseline=${gpuWarnBaseline}`
+    `[${tag}][gpu-warning-baseline] ok: current=${gpuWarn.gpuReadbackWarnings} baseline=${baseline}`
   );
 }
 
