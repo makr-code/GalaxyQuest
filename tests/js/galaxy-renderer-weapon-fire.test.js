@@ -240,6 +240,9 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
       enqueueInstallationWeaponFire: function(event) {
         return this._queueInstallationWeaponFire(event);
       },
+
+      _applyWeaponFireToShips: vi.fn(),
+      _applyWeaponFireToDebris: vi.fn(),
       
       _applyPendingInstallationWeaponFire: function(elapsed) {
         if (!Array.isArray(this.pendingInstallationWeaponFire) || !this.pendingInstallationWeaponFire.length) return;
@@ -248,9 +251,24 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
         
         events.forEach((ev) => {
           const eventSourceType = String(ev?.sourceType || '').toLowerCase();
-          
-          if (!eventSourceType || eventSourceType === 'installation') {
-            this._applyWeaponFireToInstallations(ev, elapsed);
+
+          switch (eventSourceType) {
+            case 'ship':
+              this._applyWeaponFireToShips(ev, elapsed);
+              break;
+            case 'debris':
+              this._applyWeaponFireToDebris(ev, elapsed);
+              break;
+            case 'wormhole':
+            case 'gate':
+            case 'beacon':
+              this._applyWeaponFireToWormholes(ev, elapsed);
+              break;
+            case 'installation':
+            case '':
+            default:
+              this._applyWeaponFireToInstallations(ev, elapsed);
+              break;
           }
         });
       },
@@ -382,6 +400,72 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
       renderer._applyPendingInstallationWeaponFire(0.016);
 
       expect(renderer.beamEffect.addBeam).toHaveBeenCalled();
+    });
+
+    it('should route ship events to ship handler', () => {
+      renderer.enqueueInstallationWeaponFire({
+        sourceType: 'ship',
+        sourceOwner: 'Helion',
+        weaponKind: 'beam',
+      });
+
+      renderer._applyPendingInstallationWeaponFire(0.016);
+
+      expect(renderer._applyWeaponFireToShips).toHaveBeenCalledTimes(1);
+    });
+
+    it('should route debris events to debris handler', () => {
+      renderer.enqueueInstallationWeaponFire({
+        sourceType: 'debris',
+        sourceOwner: 'Helion',
+      });
+
+      renderer._applyPendingInstallationWeaponFire(0.016);
+
+      expect(renderer._applyWeaponFireToDebris).toHaveBeenCalledTimes(1);
+    });
+
+    it('should route gate/beacon aliases to wormhole handler', () => {
+      renderer.systemInstallationWeaponFxEntries = [
+        {
+          worldFrom: [0, 0, 0],
+          installEntry: { id: 7, mesh: {}, owner: 'Helion', type: 'stargate' },
+        },
+      ];
+
+      renderer.enqueueInstallationWeaponFire({
+        sourceType: 'gate',
+        sourceOwner: 'Helion',
+        weaponKind: 'beam',
+      });
+
+      renderer._applyPendingInstallationWeaponFire(0.016);
+
+      expect(renderer.beamEffect.addBeam).toHaveBeenCalled();
+      expect(renderer._applyWeaponFireToShips).not.toHaveBeenCalled();
+      expect(renderer._applyWeaponFireToDebris).not.toHaveBeenCalled();
+    });
+
+    it('should route unknown sourceType to installation fallback', () => {
+      renderer.systemInstallationWeaponFxEntries = [
+        {
+          kind: 'laser',
+          worldFrom: [0, 0, 0],
+          worldTo: [1, 1, 1],
+          installEntry: { mesh: {}, owner: 'Any Faction', animState: 'active' },
+        },
+      ];
+
+      renderer.enqueueInstallationWeaponFire({
+        sourceType: 'unknown-type',
+        weaponKind: 'laser',
+      });
+
+      renderer._applyPendingInstallationWeaponFire(0.016);
+
+      expect(renderer.beamEffect.addBeam).toHaveBeenCalledTimes(1);
+      expect(renderer._applyWeaponFireToShips).not.toHaveBeenCalled();
+      expect(renderer._applyWeaponFireToDebris).not.toHaveBeenCalled();
     });
   });
 
