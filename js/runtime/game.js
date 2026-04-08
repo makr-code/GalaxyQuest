@@ -299,6 +299,15 @@
   let pinnedStar = window.pinnedStar || null;
   let galaxySystemMax = Number(window.galaxySystemMax || 0);
   let galaxyHealthLastCheckMs = 0;
+  // Trade-Routes-Cache: wird beim Boot-Abschluss und nach jedem renderTradeRoutes()
+  // aktualisiert, damit das Autobahn-Overlay im Minimap immer Daten hat.
+  let _tradeRoutesCache = [];
+  async function refreshTradeRoutesCache() {
+    try {
+      const data = await API.tradeRoutes();
+      _tradeRoutesCache = Array.isArray(data?.trade_routes) ? data.trade_routes : [];
+    } catch (_) {}
+  }
   let zoomOrchestrator = window.__GQ_ZOOM_ORCHESTRATOR || null;
   let galaxyHydrationToken = 0;
   const STAR_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
@@ -4452,6 +4461,7 @@
   // ÔöÇÔöÇ Trade Routes Controller ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   async function renderTradeRoutes() {
     await tradeRoutesController.render();
+    _tradeRoutesCache = tradeRoutesController.routes || [];
   }
 
   async function renderTradersDashboard() {
@@ -4576,7 +4586,7 @@ async function renderTradeProposals() {
       getGalaxyBody: () => WM.body('galaxy'),
       renderGalaxyDetails: (root, star, zoomed) => renderGalaxySystemDetails(root, star, zoomed),
       isSystemModeActive: () => isSystemModeActive(),
-      getTradeRoutes: () => (typeof tradeRoutesController !== 'undefined' && tradeRoutesController ? (tradeRoutesController.routes || []) : []),
+      getTradeRoutes: () => _tradeRoutesCache,
       requestFrame: (cb) => requestAnimationFrame(cb),
     };
   }
@@ -4879,6 +4889,7 @@ async function renderTradeProposals() {
     await lifecycleManager.transitionTo(LIFECYCLE_PHASES.SERVICES_READY, { source: 'game' });
     await lifecycleManager.transitionTo(LIFECYCLE_PHASES.UI_READY, { source: 'game' });
     await lifecycleManager.transitionTo(LIFECYCLE_PHASES.RUNNING, { source: 'game' });
+    refreshTradeRoutesCache().catch(() => {});
   } catch (bootError) {
     await lifecycleManager.transitionTo(LIFECYCLE_PHASES.ERROR, {
       source: 'game',

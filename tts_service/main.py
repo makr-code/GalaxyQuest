@@ -26,8 +26,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
+import shutil
 import subprocess
 import tempfile
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Annotated
 
@@ -101,11 +105,7 @@ def _check_secret(x_tts_key: str | None) -> None:
 
 # ── Piper helpers ───────────────────────────────────────────────────────────────
 
-import hashlib as _hashlib
-import re as _re
-import urllib.parse as _urlparse
-
-_SAFE_VOICE_RE = _re.compile(r'^[a-zA-Z0-9_\-]{1,80}$')
+_SAFE_VOICE_RE = re.compile(r'^[a-zA-Z0-9_\-]{1,80}$')
 
 
 def _validate_voice_name(voice: str) -> str:
@@ -136,19 +136,17 @@ def _piper_ensure_model(voice: str) -> tuple[Path, Path]:
     info = PIPER_VOICES[voice]
 
     # Derive filenames from the hardcoded registry URLs – NOT from user input.
-    model_filename = Path(_urlparse.urlparse(info["model_url"]).path).name
-    config_filename = Path(_urlparse.urlparse(info["config_url"]).path).name
+    model_filename = Path(urllib.parse.urlparse(info["model_url"]).path).name
+    config_filename = Path(urllib.parse.urlparse(info["config_url"]).path).name
 
     # Use a SHA-256 of the whitelisted key (never user input) as the directory
     # name so that the filesystem path is fully under our control.
-    dir_name = _hashlib.sha256(info["model_url"].encode()).hexdigest()
+    dir_name = hashlib.sha256(info["model_url"].encode()).hexdigest()
     voice_dir = CACHE_DIR / dir_name
     voice_dir.mkdir(parents=True, exist_ok=True)
 
     onnx = voice_dir / model_filename
     cfg  = voice_dir / config_filename
-
-    import urllib.request  # stdlib – no extra deps for download
 
     if not onnx.exists():
         log.info("Downloading Piper model %s …", voice)
@@ -307,7 +305,10 @@ class SynthesiseRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "engine": ENGINE, "default_voice": DEFAULT_VOICE}
+    extra: dict = {}
+    if ENGINE == "piper":
+        extra["piper_available"] = shutil.which("piper") is not None
+    return {"ok": True, "engine": ENGINE, "default_voice": DEFAULT_VOICE, **extra}
 
 
 @app.get("/voices")
