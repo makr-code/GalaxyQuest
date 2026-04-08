@@ -18,6 +18,8 @@ require_once __DIR__ . '/buildings.php';   // verify_colony_ownership
 require_once __DIR__ . '/galaxy_seed.php';  // get_faction_government, get_faction_alliances
 require_once __DIR__ . '/ollama_client.php';
 require_once __DIR__ . '/tts_client.php';
+require_once __DIR__ . '/../lib/MiniYamlParser.php';
+require_once __DIR__ . '/../api/llm_soc/FactionSpecLoader.php';
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     $action = $_GET['action'] ?? '';
@@ -49,10 +51,22 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         $factions = $stmt->fetchAll();
         
         // Enrich with government forms and alliances
+        $specLoader = new FactionSpecLoader();
         foreach ($factions as &$faction) {
             $fid = (int)$faction['id'];
             $faction['government'] = get_faction_government($db, $fid);
             $faction['alliances'] = get_faction_alliances($db, $fid);
+            // Resolve first NPC for the diplomacy chat contact button
+            $faction['diplomat_npc'] = null;
+            try {
+                $spec = $specLoader->loadFactionSpec((string)($faction['code'] ?? ''));
+                $npcs = $spec['important_npcs'] ?? [];
+                if (is_array($npcs) && !empty($npcs)) {
+                    $faction['diplomat_npc'] = (string)($npcs[0]['name'] ?? '');
+                }
+            } catch (\Throwable $e) {
+                // spec not found for this faction – diplomat_npc stays null
+            }
         }
         unset($faction);
 

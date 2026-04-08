@@ -263,6 +263,69 @@ class CameraFlightPath {
   }
 
   /**
+   * Start a very short fly-in to a colony building.
+   *
+   * Distance is typically 0.5–3 world units.  The camera moves in a gentle
+   * straight-ish arc from the current position to a point just in front of
+   * the building facade, with minimal roll and no atmosphere/star effects.
+   *
+   * @param {THREE.Vector3|{x,y,z}} from          Current camera position
+   * @param {THREE.Vector3|{x,y,z}} to            Target point in front of building
+   * @param {number}                [durationMs=900]
+   * @param {object}                [opts]
+   * @param {number}                [opts.roll=3]  max roll degrees (small for buildings)
+   * @returns {Promise<void>}        Resolves when flight completes (t === 1)
+   */
+  flyToBuilding(from, to, durationMs, opts = {}) {
+    this._opts     = opts || {};
+    this._duration = Number(durationMs) > 0 ? Number(durationMs) : 900;
+    this._elapsed  = 0;
+    this._t        = 0;
+    this._state    = 'flying';
+
+    // No atmosphere/star callbacks for building-level fly-in
+    this._onAtmosphereScale = null;
+    this._onStarBlur        = null;
+
+    const p0 = toArr(from);
+    const p3 = toArr(to);
+
+    const dist = Math.sqrt(
+      (p3[0] - p0[0]) ** 2 + (p3[1] - p0[1]) ** 2 + (p3[2] - p0[2]) ** 2,
+    ) || 1;
+
+    // Very gentle arc: control points only slightly offset from the straight line.
+    const p1 = [
+      p0[0] + (p3[0] - p0[0]) * 0.33 - (p3[2] - p0[2]) * 0.08,
+      p0[1] + dist * 0.06,
+      p0[2] + (p3[2] - p0[2]) * 0.33 + (p3[0] - p0[0]) * 0.08,
+    ];
+    const p2 = [
+      p0[0] + (p3[0] - p0[0]) * 0.66 - (p3[2] - p0[2]) * 0.04,
+      p0[1] + dist * 0.03,
+      p0[2] + (p3[2] - p0[2]) * 0.66 + (p3[0] - p0[0]) * 0.04,
+    ];
+
+    this._p0 = p0;
+    this._p1 = p1;
+    this._p2 = p2;
+    this._p3 = p3;
+
+    this._lastPos    = p0.slice();
+    this._lastTarget = p3.slice();
+    this._lastRoll   = 0;
+
+    if (this._reject) {
+      this._reject(new Error('CameraFlightPath: new flyToBuilding started'));
+    }
+
+    return new Promise((resolve, reject) => {
+      this._resolve = resolve;
+      this._reject  = reject;
+    });
+  }
+
+  /**
    * Abort the current flight with reverse interpolation.
    * The promise returned by flyTo() resolves (not rejects) when the camera
    * has returned to the start pose, so callers don't need separate error

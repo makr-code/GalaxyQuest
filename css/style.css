@@ -2314,6 +2314,59 @@ input:focus, select:focus, textarea:focus {
 .chip-hostile   { background:#5c2a1a; color:#e67e22; }
 .chip-war       { background:#5c1a1a; color:#e74c3c; }
 
+/* ── Diplomacy card layout ────────────────────────────────────────────── */
+.diplomacy-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+.diplomacy-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+}
+.diplomacy-card-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 90px;
+  border-bottom: 1px solid var(--border);
+}
+.diplomacy-card-icon  { font-size: 3rem; line-height: 1; }
+.diplomacy-card-body  { padding: 0.75rem; display: flex; flex-direction: column; gap: 0.55rem; flex: 1; }
+.diplomacy-card-name  { font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.diplomacy-standing-bar { display: flex; flex-direction: column; gap: 0.2rem; }
+.diplomacy-standing-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+.diplomacy-standing-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.1);
+  overflow: hidden;
+}
+.diplomacy-standing-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s, background 0.4s;
+}
+.diplomacy-standing-value {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  align-self: flex-start;
+}
+
 /* ── Leader cards ─────────────────────────────────────────────────────── */
 .hire-panel     { border:1px solid var(--border); border-radius:var(--radius);
                   padding:0.6rem; background:var(--bg-secondary); min-width:200px; }

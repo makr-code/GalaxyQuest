@@ -78,7 +78,18 @@ final class LlmPromptService {
                 ['role' => 'user', 'content' => $resolved['text']],
             ],
             'resolved_input' => $resolved['resolved'],
+            'output_schema' => is_array($profile['output_schema'] ?? null) ? $profile['output_schema'] : null,
         ];
+    }
+
+    /**
+     * Expose profile lookup for callers that need the raw profile record
+     * (e.g. to read `output_schema` before building messages manually).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findProfilePublic(PDO $db, string $profileKey): ?array {
+        return $this->findProfile($db, $profileKey);
     }
 
     /**

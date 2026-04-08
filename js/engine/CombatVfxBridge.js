@@ -2,10 +2,18 @@
  * CombatVfxBridge.js — Event producer that bridges fleet & combat game events
  * to the renderer's installation weapon-fire VFX pipeline.
  *
- * Listens for fleet lifecycle CustomEvents dispatched by game.js SSE handlers:
- *   • gq:fleet-arrived           — fleet reached target (carries mission/target/attacker)
- *   • gq:fleet-incoming-attack   — enemy fleet inbound (carry attacker/target/arrival_time)
- *   • gq:fleet-returning         — fleet returning home after mission
+ * Listens for fleet lifecycle events from two sources (in parallel):
+ *
+ *   1. Window CustomEvents dispatched by the SSE handlers (legacy path):
+ *      • gq:fleet-arrived           — fleet reached target
+ *      • gq:fleet-incoming-attack   — enemy fleet inbound
+ *      • gq:fleet-returning         — fleet returning home
+ *
+ *   2. Engine EventBus events (canonical path, preferred when an EventBus is
+ *      available).  Register a bus via CombatVfxBridge.connectEventBus(bus).
+ *      • sse:fleet_arrived
+ *      • sse:incoming_attack
+ *      • sse:fleet_returning
  *
  * When a combat situation is detected, produces a time-windowed burst of
  *   gq:combat:weapon-fire  CustomEvents consumed by Galaxy3DRenderer.
@@ -58,7 +66,36 @@ class CombatVfxBridge {
     window.addEventListener('gq:fleet-incoming-attack', this._onIncomingAttack);
     window.addEventListener('gq:fleet-returning',       this._onFleetReturning);
 
+    /** @type {Array<Function>} EventBus unsubscribe callbacks */
+    this._busUnsubs = [];
+
     this._registerBridgeAdapter();
+  }
+
+  // ---------------------------------------------------------------------------
+  // EventBus integration (canonical path)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Wire this bridge to an engine-level EventBus so that canonical
+   * `sse:*` events are handled in addition to window CustomEvents.
+   *
+   * Calling this method more than once replaces the previous subscription.
+   *
+   * @param {import('./EventBus').EventBus} bus
+   */
+  connectEventBus(bus) {
+    // Clean up any previous bus subscriptions.
+    this._busUnsubs.forEach((off) => off());
+    this._busUnsubs = [];
+
+    if (!bus || typeof bus.on !== 'function') return;
+
+    this._busUnsubs.push(
+      bus.on('sse:fleet_arrived',   (data) => this._onFleetArrived({ detail: data })),
+      bus.on('sse:incoming_attack', (data) => this._onIncomingAttack({ detail: data })),
+      bus.on('sse:fleet_returning', (data) => this._onFleetReturning({ detail: data })),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -227,6 +264,9 @@ class CombatVfxBridge {
     window.removeEventListener('gq:fleet-arrived',         this._onFleetArrived);
     window.removeEventListener('gq:fleet-incoming-attack', this._onIncomingAttack);
     window.removeEventListener('gq:fleet-returning',       this._onFleetReturning);
+
+    this._busUnsubs.forEach((off) => off());
+    this._busUnsubs = [];
 
     const bridge = window.GQGalaxyEngineBridge;
     if (bridge && typeof bridge.unregisterAdapter === 'function') {

@@ -328,12 +328,19 @@ switch ($action) {
 		$messages[] = ['role' => 'user', 'content' => $playerMessage];
 
 		$start = microtime(true);
-		$llm = ollama_chat($messages, [
+		// Resolve output_schema from the npc_character_chat profile (if any).
+		$npcChatProfile = $promptService->findProfilePublic($db, 'npc_character_chat');
+		$outputSchema   = is_array($npcChatProfile['output_schema'] ?? null) ? $npcChatProfile['output_schema'] : null;
+		$llmOpts = [
 		'model'       => $body['model'] ?? null,
 		'temperature' => $body['temperature'] ?? null,
 		'options'     => is_array($body['options'] ?? null) ? $body['options'] : null,
 		'timeout'     => isset($body['timeout']) ? (int) $body['timeout'] : null,
-		]);
+		];
+		if ($outputSchema !== null) {
+		$llmOpts['format'] = $outputSchema;
+		}
+		$llm = ollama_chat($messages, $llmOpts);
 		$latencyMs = (int) round((microtime(true) - $start) * 1000);
 		$model     = (string) ($llm['model'] ?? (string) OLLAMA_DEFAULT_MODEL);
 
