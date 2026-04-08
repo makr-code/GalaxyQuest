@@ -1105,8 +1105,9 @@ function action_repair_vessel(PDO $db, int $uid, array $body): never {
         json_ok(['repaired' => $vesselId, 'cost_metal' => 0, 'already_full' => true]);
     }
 
-    $damageFraction = ($maxHp - $currentHp) / $maxHp;
-    $repairCostMetal = (int)ceil($damageFraction * $maxHp * $repairCostFactor);
+    $damageFraction  = ($maxHp - $currentHp) / $maxHp;
+    // Cap at 50 000 metal to prevent overflow for unusually large hull values.
+    $repairCostMetal = min(50000, (int)ceil($damageFraction * $maxHp * $repairCostFactor));
 
     $cid = (int)$row['colony_id'];
     update_colony_resources($db, $cid);

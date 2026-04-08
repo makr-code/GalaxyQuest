@@ -1250,7 +1250,8 @@
           const repairBtn = new GQUI.Button('🔧 Repair').setClass('btn btn-sm btn-success vessel-repair-btn');
           repairBtn.dom.type = 'button';
           repairBtn.dom.dataset.vesselId = String(v.id);
-          const repairCostMetal = Math.ceil(((Number(maxHp) - Number(hp)) / Number(maxHp)) * Number(maxHp) * 0.25);
+          // Repair cost factor (0.25) mirrors api/shipyard.php action_repair_vessel — update both together.
+          const repairCostMetal = Math.min(50000, Math.ceil(((Number(maxHp) - Number(hp)) / Number(maxHp)) * Number(maxHp) * 0.25));
           repairBtn.dom.title = `Repair to full HP — costs ~${fmt(repairCostMetal)} metal`;
           actionsDiv.add(repairBtn);
         }
