@@ -633,13 +633,14 @@ describe('SeamlessZoomOrchestrator._requiresCameraFlight()', () => {
 // ---------------------------------------------------------------------------
 
 describe('SPATIAL_DEPTH — enum completeness', () => {
-  it('exports all 5 depth constants', () => {
+  it('exports all 6 depth constants', () => {
     expect(SPATIAL_DEPTH).toBeDefined();
     expect(SPATIAL_DEPTH.GALAXY).toBe(0);
     expect(SPATIAL_DEPTH.GALAXY_REGION).toBe(1);
     expect(SPATIAL_DEPTH.STAR_SYSTEM).toBe(2);
     expect(SPATIAL_DEPTH.STELLAR_VICINITY).toBe(3);
     expect(SPATIAL_DEPTH.ORBITAL_SHELL).toBe(4);
+    expect(SPATIAL_DEPTH.COLONY_BUILDING).toBe(5);
   });
 
   it('is frozen (immutable)', () => {
@@ -652,6 +653,7 @@ describe('SPATIAL_DEPTH — enum completeness', () => {
     expect(SPATIAL_DEPTH.STAR_SYSTEM).toBe(ZOOM_LEVEL.PLANET_APPROACH);
     expect(SPATIAL_DEPTH.STELLAR_VICINITY).toBe(ZOOM_LEVEL.COLONY_SURFACE);
     expect(SPATIAL_DEPTH.ORBITAL_SHELL).toBe(ZOOM_LEVEL.OBJECT_APPROACH);
+    expect(SPATIAL_DEPTH.COLONY_BUILDING).toBe(ZOOM_LEVEL.COLONY_BUILDING);
   });
 });
 
@@ -667,8 +669,8 @@ describe('zoomToTarget() — depth-based routing', () => {
     mockBackend = makeMockBackend('webgl2');
     orch = new SeamlessZoomOrchestrator(null, { _backend: mockBackend });
 
-    // Register a level class for every depth (0–4).
-    for (let depth = 0; depth <= 4; depth++) {
+    // Register a level class for every depth (0–5).
+    for (let depth = 0; depth <= 5; depth++) {
       const lvl = makeMockLevel();
       const Cls = makeLevelClass(lvl);
       orch.register(depth, { webgpu: Cls, threejs: Cls });
@@ -764,8 +766,8 @@ describe('zoomToTarget() — error handling', () => {
     expect(() => orch.zoomToTarget({})).toThrow(/spatialDepth/);
   });
 
-  it('throws TypeError when spatialDepth is out of range (> 4)', () => {
-    expect(() => orch.zoomToTarget({ spatialDepth: 5 })).toThrow(TypeError);
+  it('throws TypeError when spatialDepth is out of range (> 5)', () => {
+    expect(() => orch.zoomToTarget({ spatialDepth: 6 })).toThrow(TypeError);
   });
 
   it('throws TypeError when spatialDepth is negative', () => {
@@ -778,5 +780,117 @@ describe('zoomToTarget() — error handling', () => {
 
   it('does NOT throw for spatialDepth=0 (valid boundary)', async () => {
     await expect(orch.zoomToTarget({ spatialDepth: 0 })).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ZOOM_LEVEL.COLONY_BUILDING — new depth-5 level
+// ---------------------------------------------------------------------------
+
+describe('ZOOM_LEVEL.COLONY_BUILDING (depth 5)', () => {
+  it('ZOOM_LEVEL.COLONY_BUILDING equals 5', () => {
+    expect(ZOOM_LEVEL.COLONY_BUILDING).toBe(5);
+  });
+
+  it('SPATIAL_DEPTH.COLONY_BUILDING equals 5', () => {
+    expect(SPATIAL_DEPTH.COLONY_BUILDING).toBe(5);
+  });
+
+  it('ApproachTargetType.BUILDING is exported', () => {
+    expect(ApproachTargetType.BUILDING).toBe('BUILDING');
+  });
+
+  it('ZOOM_LEVEL is frozen and still includes all 6 levels', () => {
+    expect(Object.isFrozen(ZOOM_LEVEL)).toBe(true);
+    expect(Object.keys(ZOOM_LEVEL)).toHaveLength(6);
+  });
+});
+
+describe('zoomToTarget() — COLONY_BUILDING routing', () => {
+  let orch;
+
+  beforeEach(() => {
+    orch = new SeamlessZoomOrchestrator(null, { _backend: makeMockBackend('webgl2') });
+    for (let depth = 0; depth <= 5; depth++) {
+      const lvl = makeMockLevel();
+      const Cls = makeLevelClass(lvl);
+      orch.register(depth, { webgpu: Cls, threejs: Cls });
+    }
+  });
+
+  it('routes building (COLONY_BUILDING depth=5) to ZOOM_LEVEL.COLONY_BUILDING', async () => {
+    const building = { spatialDepth: SPATIAL_DEPTH.COLONY_BUILDING, type: 'PowerPlant', id: 42 };
+    const zoomSpy = vi.spyOn(orch, 'zoomTo');
+    vi.spyOn(orch._flight, 'flyTo').mockResolvedValue(undefined);
+    await orch.zoomToTarget(building);
+    expect(zoomSpy).toHaveBeenCalledWith(ZOOM_LEVEL.COLONY_BUILDING, building, {});
+  });
+
+  it('does NOT throw for spatialDepth=5 (valid boundary)', async () => {
+    const building = { spatialDepth: 5 };
+    vi.spyOn(orch._flight, 'flyTo').mockResolvedValue(undefined);
+    await expect(orch.zoomToTarget(building)).resolves.toBeUndefined();
+  });
+
+  it('throws TypeError for spatialDepth=6 (out of range)', () => {
+    expect(() => orch.zoomToTarget({ spatialDepth: 6 })).toThrow(TypeError);
+  });
+
+  it('forwards opts to zoomTo() for COLONY_BUILDING target', async () => {
+    const building = { spatialDepth: SPATIAL_DEPTH.COLONY_BUILDING, id: 1 };
+    const opts = { cameraFrom: { x: 0, y: 0, z: 5 }, flyDuration: 900 };
+    const zoomSpy = vi.spyOn(orch, 'zoomTo');
+    vi.spyOn(orch._flight, 'flyTo').mockResolvedValue(undefined);
+    await orch.zoomToTarget(building, opts);
+    expect(zoomSpy).toHaveBeenCalledWith(ZOOM_LEVEL.COLONY_BUILDING, building, opts);
+  });
+
+  it('_requiresCameraFlight returns true for COLONY_BUILDING', () => {
+    expect(SeamlessZoomOrchestrator._requiresCameraFlight(ZOOM_LEVEL.COLONY_BUILDING)).toBe(true);
+  });
+});
+
+describe('CameraFlightPath — flyToBuilding()', () => {
+  it('resolves when tick reaches t=1', async () => {
+    const flight = new CameraFlightPath();
+    const promise = flight.flyToBuilding({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, 100);
+
+    // Advance enough to complete
+    for (let i = 0; i < 10; i++) {
+      flight.tick(20);
+    }
+
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  it('uses a short default duration of 900 ms', () => {
+    const flight = new CameraFlightPath();
+    flight.flyToBuilding({ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 });
+    expect(flight._duration).toBe(900);
+  });
+
+  it('respects custom duration', () => {
+    const flight = new CameraFlightPath();
+    flight.flyToBuilding({ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, 400);
+    expect(flight._duration).toBe(400);
+  });
+
+  it('tick() returns position progressing toward target', () => {
+    const flight = new CameraFlightPath();
+    flight.flyToBuilding({ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, 1000);
+    const state = flight.tick(500);
+    expect(state).not.toBeNull();
+    expect(state.t).toBeGreaterThan(0);
+    expect(state.t).toBeLessThanOrEqual(1);
+  });
+
+  it('does not set atmosphere or star-blur side-effect callbacks', () => {
+    const flight = new CameraFlightPath();
+    flight._onAtmosphereScale = vi.fn();
+    flight._onStarBlur = vi.fn();
+    flight.flyToBuilding({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, 200);
+    // flyToBuilding clears these callbacks
+    expect(flight._onAtmosphereScale).toBeNull();
+    expect(flight._onStarBlur).toBeNull();
   });
 });

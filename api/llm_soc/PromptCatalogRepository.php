@@ -56,6 +56,9 @@ final class PromptCatalogRepository {
                 'input_schema_json' => is_array($entry['input_schema'] ?? null)
                     ? $entry['input_schema']
                     : [],
+                'output_schema' => is_array($entry['output_schema'] ?? null)
+                    ? $entry['output_schema']
+                    : null,
                 'source' => 'json',
             ];
         }
@@ -116,6 +119,7 @@ SQL;
                 'system_prompt' => trim((string) ($row['system_prompt'] ?? '')),
                 'user_template' => trim((string) ($row['user_template'] ?? '')),
                 'input_schema_json' => $schema,
+                'output_schema' => null,   // DB profiles do not carry output_schema yet
                 'source' => trim((string) ($row['source'] ?? 'db')),
             ];
         }
