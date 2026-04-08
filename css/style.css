@@ -6735,3 +6735,21 @@ body > section:last-of-type {
     min-width: 60px;
   }
 }
+
+/* ── Research category sections ──────────────────────────────────────────── */
+.research-category      { margin-bottom:1.2rem; }
+.research-cat-title     { font-size:0.8rem; text-transform:uppercase; letter-spacing:0.06em;
+                           color:var(--text-muted); margin:0 0 0.5rem; border-bottom:1px solid var(--border);
+                           padding-bottom:0.25rem; }
+
+/* ── Research card extras ────────────────────────────────────────────────── */
+.research-icon-badge    { display:inline-flex; align-items:center; justify-content:center;
+                           width:2rem; height:2rem; font-size:0.65rem; font-weight:700; letter-spacing:0.03em;
+                           border-radius:4px; background:rgba(80,140,200,0.18);
+                           color:var(--accent,#7ab3f0); border:1px solid rgba(80,140,200,0.3);
+                           flex-shrink:0; }
+.research-tier-badge    { font-size:0.64rem; font-weight:700; padding:0.1rem 0.35rem;
+                           border-radius:3px; background:rgba(255,255,255,0.07);
+                           color:var(--text-muted); border:1px solid var(--border); margin-left:auto; flex-shrink:0; }
+.research-desc          { font-size:0.72rem; color:var(--text-muted); margin:0.2rem 0 0.4rem;
+                           line-height:1.3; min-height:2.4em; }
