@@ -478,6 +478,7 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
             $col['crystal_cap']         = $stor['crystal'] ?? 500000.0;
             $col['deuterium_cap']       = $stor['deuterium'] ?? 500000.0;
             $col['food_cap']            = $stor['food'] ?? 100000.0;
+            $col['rare_earth_cap']      = $stor['rare_earth'] ?? 50000.0;
         }
     }
     unset($col);

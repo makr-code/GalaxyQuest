@@ -91,7 +91,7 @@ class StarTooltip {
                         <span class="star-tooltip-value">${star.classification.spectral_class}${star.classification.subtype}</span>
                     </div>
                     <div class="star-tooltip-row">
-                        <span class="star-tooltip-label">Helligkeit:</span>
+                        <span class="star-tooltip-label">Brightness:</span>
                         <span class="star-tooltip-value">${luminosityLabel} (${star.physical_properties.luminosity_solar.toFixed(4)} L☉)</span>
                     </div>
                     <div class="star-tooltip-row">
@@ -159,11 +159,11 @@ class StarTooltip {
      * @private
      */
     _getLuminosityLabel(luminosity) {
-        if (luminosity < 0.01) return 'Lichtschwach';
-        if (luminosity < 0.1) return 'Schwach';
-        if (luminosity < 1.0) return 'Sonnenwert';
+        if (luminosity < 0.01) return 'Dim';
+        if (luminosity < 0.1) return 'Faint';
+        if (luminosity < 1.0) return 'Sun-like';
         if (luminosity <= 10) return 'Hell';
-        return 'Strahlend';
+        return 'Radiant';
     }
 
     /**
@@ -171,9 +171,9 @@ class StarTooltip {
      * @private
      */
     _getAgeLabel(ageGyr) {
-        if (ageGyr < 1) return 'Jung';
-        if (ageGyr <= 5) return 'Reif';
-        return `Alt (${ageGyr.toFixed(1)} Gyr)`;
+        if (ageGyr < 1) return 'Young';
+        if (ageGyr <= 5) return 'Mature';
+        return `Old (${ageGyr.toFixed(1)} Gyr)`;
     }
 
     /**

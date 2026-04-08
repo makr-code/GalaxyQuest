@@ -210,10 +210,10 @@
 
             const confirmBtn = documentRef.createElement('button');
             confirmBtn.className = 'btn btn-primary btn-sm';
-            confirmBtn.textContent = 'Upgrade bestätigen';
+            confirmBtn.textContent = 'Confirm Upgrade';
             const cancelBtn = documentRef.createElement('button');
             cancelBtn.className = 'btn btn-secondary btn-sm';
-            cancelBtn.textContent = 'Abbrechen';
+            cancelBtn.textContent = 'Cancel';
 
             actions.appendChild(confirmBtn);
             actions.appendChild(cancelBtn);

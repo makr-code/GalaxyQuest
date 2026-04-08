@@ -117,7 +117,7 @@
       applyResResource('res-crystal',  currentColony.crystal  ?? 0, currentColony.crystal_per_hour,  currentColony.crystal_cap);
       applyResResource('res-deuterium',currentColony.deuterium?? 0, currentColony.deuterium_per_hour,currentColony.deuterium_cap);
       applyResResource('res-food',     currentColony.food     ?? 0, currentColony.food_per_hour,     currentColony.food_cap);
-      applyResResource('res-rare-earth',currentColony.rare_earth ?? 0, currentColony.rare_earth_per_hour, 50000);
+      applyResResource('res-rare-earth',currentColony.rare_earth ?? 0, currentColony.rare_earth_per_hour, currentColony.rare_earth_cap ?? 50000);
 
       const resEnergyEl = documentRef.getElementById('res-energy');
       if (resEnergyEl) resEnergyEl.textContent = currentColony.energy ?? '-';
