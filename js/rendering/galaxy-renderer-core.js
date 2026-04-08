@@ -5454,6 +5454,7 @@
      * Build all special (non-spherical) bodies listed in `payload.special_bodies`.
      *
      * Supported body_type values:
+     *   Natural:
      *   - 'asteroid_belt'    – torus-shaped ring of particles around the star
      *   - 'nebula_cloud'     – layered billboard cloud at an orbital position
      *   - 'irregular_planet' – noise-displaced sphere in a standard orbit
@@ -5462,6 +5463,11 @@
      *   - 'black_hole'       – dark event horizon + accretion disk (orbit or stationary)
      *   - 'ice_field'        – sparse icy particle disk around the star
      *   - 'dust_cloud'       – flat protoplanetary dust disk around the star
+     *   Artificial / man-made:
+     *   - 'space_station'    – rotating torus + hub + docking arms, orbiting
+     *   - 'jump_gate'        – structural ring + energy particle field, orbiting
+     *   - 'debris_field'     – metallic wreckage particle cloud around the star
+     *   - 'dyson_swarm'      – partial Dyson shell of solar collectors around the star
      *
      * Data shape for each entry in `payload.special_bodies`:
      * {
@@ -5518,7 +5524,8 @@
           sourceStar: star,
         });
 
-        if (bodyType === 'asteroid_belt' || bodyType === 'ice_field' || bodyType === 'dust_cloud') {
+        if (bodyType === 'asteroid_belt' || bodyType === 'ice_field' || bodyType === 'dust_cloud'
+            || bodyType === 'debris_field' || bodyType === 'dyson_swarm') {
           // Star-centred bodies – no orbital motion, just slow in-place rotation.
           this.systemBodyGroup.add(mesh);
           this.systemSpecialBodyEntries.push({
@@ -5529,7 +5536,8 @@
             orbitRadius,
           });
         } else {
-          // Orbiting bodies (nebula cloud, irregular planet, planet fragment, comet, black hole)
+          // Orbiting bodies (nebula cloud, irregular planet, planet fragment, comet, black hole,
+          //   space station, jump gate)
           const eccentricity = THREE.MathUtils.clamp(Number(bodyDef.orbital_eccentricity ?? (0.03 + index * 0.013)), 0, 0.92);
           const orbitMinor = orbitRadius * Math.sqrt(1 - eccentricity * eccentricity);
           const phase = Number(bodyDef.polar_theta_rad);
@@ -5595,7 +5603,7 @@
         if (!mesh) return;
 
         if (entry.isStationary) {
-          // Stationary star-centred bodies: just rotate in place
+          // Stationary star-centred bodies: rotate in place
           const rotSpeed = Number(mesh.userData.rotationSpeed ?? 0.018);
           mesh.rotation.y += dt * rotSpeed;
 
@@ -5605,6 +5613,17 @@
             if (diskRef) diskRef.rotation.z += dt * Number(mesh.userData.diskRotationSpeed ?? 0.06);
             const diskPts = mesh.userData.diskParticles;
             if (diskPts) diskPts.rotation.y += dt * Number(mesh.userData.diskRotationSpeed ?? 0.06) * 0.7;
+          // Dyson swarm: multi-axis slow rotation
+          } else if (entry.bodyType === 'dyson_swarm') {
+            const rs = mesh.userData.rotationSpeeds;
+            if (rs) {
+              mesh.rotation.x += dt * Number(rs.x ?? 0.004);
+              mesh.rotation.z += dt * Number(rs.z ?? 0.002);
+            }
+          // Debris field: slow tumbling drift
+          } else if (entry.bodyType === 'debris_field') {
+            mesh.rotation.y += dt * Number(mesh.userData.driftSpeed ?? 0.005);
+            mesh.rotation.x += dt * Number(mesh.userData.driftSpeed ?? 0.005) * 0.3;
           }
         } else {
           // Orbiting special body: advance angle and reposition
@@ -5640,14 +5659,13 @@
             // Spin nucleus
             const nucleusMesh = mesh.userData.nucleusMesh;
             if (nucleusMesh) nucleusMesh.rotation.y += dt * Number(mesh.userData.nucleusSpinSpeed ?? 0.07);
-            // Orient tail away from star (origin): tail group +Z points along comet-from-star vector
+            // Orient tail away from star (origin)
             const tailGroup = mesh.userData.tailGroup;
             if (tailGroup) {
               const px = mesh.position.x;
               const pz = mesh.position.z;
               const dist = Math.sqrt(px * px + pz * pz);
               if (dist > 0.01) {
-                // Angle of comet in XZ, tail points outward (+Z aligns with radial out)
                 tailGroup.rotation.y = Math.atan2(px, pz);
               }
             }
@@ -5657,6 +5675,19 @@
             if (diskRef) diskRef.rotation.z += dt * Number(mesh.userData.diskRotationSpeed ?? 0.06);
             const diskPts = mesh.userData.diskParticles;
             if (diskPts) diskPts.rotation.y += dt * Number(mesh.userData.diskRotationSpeed ?? 0.06) * 0.7;
+          } else if (bodyType === 'space_station') {
+            // Habitat ring spins around Y; glow ports pulse
+            mesh.rotation.y += dt * Number(mesh.userData.spinSpeed ?? 0.22);
+            const ud = mesh.userData;
+            ud._glowPhase = (ud._glowPhase || 0) + dt * Number(ud.glowPulseSpeed ?? 1.2);
+          } else if (bodyType === 'jump_gate') {
+            // Frame and energy field spin at different rates (counter-rotation)
+            const frameMesh = mesh.userData.frameMesh;
+            if (frameMesh) frameMesh.rotation.z += dt * Number(mesh.userData.frameSpinSpeed ?? 0.04);
+            const energyPts = mesh.userData.energyPoints;
+            if (energyPts) energyPts.rotation.z += dt * Number(mesh.userData.energySpinSpeed ?? -0.18);
+            const ud = mesh.userData;
+            ud._energyPhase = (ud._energyPhase || 0) + dt * Number(ud.pulseSpeed ?? 1.6);
           }
         }
       });

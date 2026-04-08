@@ -23,6 +23,7 @@
 // ---------------------------------------------------------------------------
 
 const SPECIAL_BODY_TYPES = Object.freeze({
+  // Natural bodies
   ASTEROID_BELT: 'asteroid_belt',
   NEBULA_CLOUD: 'nebula_cloud',
   IRREGULAR_PLANET: 'irregular_planet',
@@ -31,6 +32,11 @@ const SPECIAL_BODY_TYPES = Object.freeze({
   BLACK_HOLE: 'black_hole',
   ICE_FIELD: 'ice_field',
   DUST_CLOUD: 'dust_cloud',
+  // Artificial / man-made structures
+  SPACE_STATION: 'space_station',
+  JUMP_GATE: 'jump_gate',
+  DEBRIS_FIELD: 'debris_field',
+  DYSON_SWARM: 'dyson_swarm',
 });
 
 // ---------------------------------------------------------------------------
@@ -784,6 +790,394 @@ function buildDustCloudMesh(THREE, params = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Factory: Space Station
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a rotating space station with a toroidal habitat ring and radial
+ * docking arms connecting to a central hub sphere.
+ *
+ * The station spins around the Y-axis during tick updates.
+ *
+ * @param {object} THREE
+ * @param {object} params
+ * @param {number} [params.ringRadius=4.0]      - Torus major radius (habitat ring)
+ * @param {number} [params.ringTube=0.55]       - Torus minor radius (cross-section)
+ * @param {number} [params.hubRadius=0.9]       - Central hub sphere radius
+ * @param {number} [params.armCount=4]          - Number of radial docking arms
+ * @param {number|string} [params.color=0x7a9ab8]   - Main hull colour
+ * @param {number|string} [params.glowColor=0x88ddff] - Window/light accent colour
+ * @param {number} [params.seed=9]
+ * @returns {THREE.Group}
+ */
+function buildSpaceStationMesh(THREE, params = {}) {
+  const ringRadius  = clamp(params.ringRadius ?? 4.0, 0.8, 40);
+  const ringTube    = clamp(params.ringTube ?? 0.55, 0.1, ringRadius * 0.35);
+  const hubRadius   = clamp(params.hubRadius ?? 0.9, 0.2, ringRadius * 0.5);
+  const armCount    = clamp(Math.round(params.armCount ?? 4), 2, 12);
+  const color       = parseColorHex(params.color, 0x7a9ab8);
+  const glowColor   = parseColorHex(params.glowColor, 0x88ddff);
+  const seed        = params.seed ?? 9;
+  const rng         = makeRng(seed);
+
+  const group = new THREE.Group();
+
+  // --- Habitat ring (torus) ---
+  const ringMesh = new THREE.Mesh(
+    new THREE.TorusGeometry(ringRadius, ringTube, 10, 48),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.7 })
+  );
+  ringMesh.userData = { kind: 'station-ring' };
+  group.add(ringMesh);
+
+  // --- Central hub sphere ---
+  const hub = new THREE.Mesh(
+    new THREE.SphereGeometry(hubRadius, 12, 10),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.85 })
+  );
+  hub.userData = { kind: 'station-hub' };
+  group.add(hub);
+
+  // --- Docking arms: thin cylinders from hub to ring ---
+  for (let i = 0; i < armCount; i++) {
+    const angle = (i / armCount) * Math.PI * 2;
+    const ax = Math.cos(angle) * ringRadius;
+    const az = Math.sin(angle) * ringRadius;
+
+    // Arm represented by a short cylinder mesh (approximated via a very flat
+    // BoxGeometry to avoid needing CylinderGeometry in mock tests)
+    const armLength = ringRadius - hubRadius;
+    const armGeo = new THREE.SphereGeometry(ringTube * 0.25, 4, 2);
+    // Scale to form a rod: X = thickness, Y = thickness, Z = arm length
+    const arm = new THREE.Mesh(
+      armGeo,
+      new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.75 })
+    );
+    arm.scale.set(1, 1, armLength / (ringTube * 0.25));
+    arm.position.set(ax * 0.5, 0, az * 0.5);
+    arm.rotation.y = -angle;
+    arm.userData = { kind: 'station-arm', armIndex: i };
+    group.add(arm);
+
+    // Tiny glow dot at the docking port on the ring
+    const port = new THREE.Mesh(
+      new THREE.SphereGeometry(ringTube * 0.38, 4, 3),
+      new THREE.MeshBasicMaterial({ color: glowColor, transparent: true, opacity: 0.8 })
+    );
+    port.position.set(ax, 0, az);
+    port.userData = { kind: 'station-port', armIndex: i };
+    group.add(port);
+  }
+
+  group.userData = {
+    kind: 'space_station',
+    color,
+    glowColor,
+    spinSpeed:    clamp(params.spinSpeed ?? 0.22, 0, 2.0),
+    _glowPhase:   rng() * Math.PI * 2,
+    glowPulseSpeed: clamp(params.glowPulseSpeed ?? 1.2, 0, 8),
+  };
+  return group;
+}
+
+// ---------------------------------------------------------------------------
+// Factory: Jump Gate
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a jump gate: a large structural ring frame with an energy particle
+ * disk spanning its opening. The particle disk pulses and the frame slowly
+ * counter-rotates against the disk.
+ *
+ * @param {object} THREE
+ * @param {object} params
+ * @param {number} [params.gateRadius=6.0]      - Ring frame major radius
+ * @param {number} [params.frameTube=0.6]       - Frame cross-section radius
+ * @param {number} [params.particleCount=400]   - Energy field particles
+ * @param {number|string} [params.frameColor=0x445566]
+ * @param {number|string} [params.energyColor=0x44aaff]
+ * @param {number} [params.seed=10]
+ * @returns {THREE.Group}
+ */
+function buildJumpGateMesh(THREE, params = {}) {
+  const gateRadius   = clamp(params.gateRadius ?? 6.0, 1, 60);
+  const frameTube    = clamp(params.frameTube ?? 0.6, 0.1, gateRadius * 0.2);
+  const particleCount = clamp(params.particleCount ?? 400, 30, 4000);
+  const frameColor   = parseColorHex(params.frameColor, 0x445566);
+  const energyColor  = parseColorHex(params.energyColor, 0x44aaff);
+  const seed         = params.seed ?? 10;
+  const rng          = makeRng(seed);
+
+  const group = new THREE.Group();
+
+  // --- Ring frame ---
+  const frameMesh = new THREE.Mesh(
+    new THREE.TorusGeometry(gateRadius, frameTube, 10, 56),
+    new THREE.MeshStandardMaterial({ color: frameColor, roughness: 0.35, metalness: 0.9 })
+  );
+  frameMesh.userData = { kind: 'gate-frame' };
+  group.add(frameMesh);
+
+  // --- Energy field: filled disk of particles ---
+  const positions = new Float32Array(particleCount * 3);
+  for (let i = 0; i < particleCount; i++) {
+    // Uniform disk distribution (rejection-free)
+    const r = gateRadius * Math.sqrt(rng());
+    const a = rng() * Math.PI * 2;
+    positions[i * 3]     = r * Math.cos(a);
+    positions[i * 3 + 1] = r * Math.sin(a);
+    positions[i * 3 + 2] = (rng() - 0.5) * frameTube * 0.6;
+  }
+  const energyGeo = new THREE.BufferGeometry();
+  energyGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const energyPoints = new THREE.Points(
+    energyGeo,
+    new THREE.PointsMaterial({
+      color: energyColor,
+      size: clamp(params.particleSize ?? 0.25, 0.05, 1.5),
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+      sizeAttenuation: true,
+    })
+  );
+  energyPoints.userData = { kind: 'gate-energy-field' };
+  group.add(energyPoints);
+
+  // --- Outer accent ring (slightly larger, lower opacity) ---
+  const accentRing = new THREE.Mesh(
+    new THREE.RingGeometry(gateRadius * 0.96, gateRadius * 1.04, 64, 1),
+    new THREE.MeshBasicMaterial({
+      color: energyColor,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  );
+  accentRing.userData = { kind: 'gate-accent-ring' };
+  group.add(accentRing);
+
+  group.userData = {
+    kind: 'jump_gate',
+    frameColor,
+    energyColor,
+    frameSpinSpeed:    clamp(params.frameSpinSpeed ?? 0.04, 0, 0.5),
+    energySpinSpeed:   clamp(params.energySpinSpeed ?? -0.18, -1, 1),
+    _energyPhase:      rng() * Math.PI * 2,
+    pulseSpeed:        clamp(params.pulseSpeed ?? 1.6, 0, 8),
+    pulseAmplitude:    clamp(params.pulseAmplitude ?? 0.12, 0, 0.5),
+    frameMesh,
+    energyPoints,
+  };
+  return group;
+}
+
+// ---------------------------------------------------------------------------
+// Factory: Debris Field
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a man-made debris field: a cloud of metallic wreckage particles
+ * spread loosely in 3D space (not just a flat disk).
+ *
+ * Unlike a natural asteroid belt the debris is spherically distributed and
+ * includes colour variation (oxidised metal tones).
+ * Debris fields are stationary (centred at star origin).
+ *
+ * @param {object} THREE
+ * @param {object} params
+ * @param {number} [params.fieldRadius=55]      - Outer radius of the debris cloud
+ * @param {number} [params.particleCount=700]   - Number of debris particles
+ * @param {number} [params.verticalSpread=0.55] - Vertical-to-radial spread ratio
+ * @param {number|string} [params.color=0x8a7060] - Base metallic-rust colour
+ * @param {number} [params.opacity=0.7]
+ * @param {number} [params.seed=11]
+ * @returns {THREE.Group}
+ */
+function buildDebrisFieldMesh(THREE, params = {}) {
+  const fieldRadius    = clamp(params.fieldRadius ?? 55, 5, 400);
+  const particleCount  = clamp(params.particleCount ?? 700, 50, 8000);
+  const verticalSpread = clamp(params.verticalSpread ?? 0.55, 0.05, 1.0);
+  const color          = parseColorHex(params.color, 0x8a7060);
+  const opacity        = clamp(params.opacity ?? 0.7, 0.1, 1.0);
+  const seed           = params.seed ?? 11;
+  const rng            = makeRng(seed);
+
+  // Two layers: large sparse chunks + small fine particles
+  const chunkCount = Math.round(particleCount * 0.3);
+  const fineCount  = particleCount - chunkCount;
+
+  const chunkPos = new Float32Array(chunkCount * 3);
+  for (let i = 0; i < chunkCount; i++) {
+    const r = fieldRadius * (0.2 + rng() * 0.8);
+    const theta = rng() * Math.PI * 2;
+    const phi = Math.acos(1 - 2 * rng()); // uniform sphere
+    chunkPos[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+    chunkPos[i * 3 + 1] = r * Math.cos(phi) * verticalSpread;
+    chunkPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+  }
+  const chunkGeo = new THREE.BufferGeometry();
+  chunkGeo.setAttribute('position', new THREE.BufferAttribute(chunkPos, 3));
+  const chunks = new THREE.Points(
+    chunkGeo,
+    new THREE.PointsMaterial({
+      color,
+      size: clamp(params.chunkSize ?? 0.9, 0.2, 5.0),
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      sizeAttenuation: true,
+    })
+  );
+  chunks.userData = { kind: 'debris-chunks' };
+
+  const finePos = new Float32Array(fineCount * 3);
+  for (let i = 0; i < fineCount; i++) {
+    const r = fieldRadius * rng();
+    const theta = rng() * Math.PI * 2;
+    const phi = Math.acos(1 - 2 * rng());
+    finePos[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+    finePos[i * 3 + 1] = r * Math.cos(phi) * verticalSpread;
+    finePos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+  }
+  const fineGeo = new THREE.BufferGeometry();
+  fineGeo.setAttribute('position', new THREE.BufferAttribute(finePos, 3));
+  // Slightly lighter oxidised tone for fine dust
+  const fineColor = new THREE.Color(color);
+  const hsl = { h: 0, s: 0, l: 0 };
+  fineColor.getHSL(hsl);
+  fineColor.setHSL(hsl.h, clamp(hsl.s * 0.6, 0, 1), clamp(hsl.l * 1.35, 0, 1));
+  const fine = new THREE.Points(
+    fineGeo,
+    new THREE.PointsMaterial({
+      color: fineColor,
+      size: clamp(params.fineSize ?? 0.28, 0.05, 2.0),
+      transparent: true,
+      opacity: opacity * 0.55,
+      depthWrite: false,
+      sizeAttenuation: true,
+    })
+  );
+  fine.userData = { kind: 'debris-fine' };
+
+  const group = new THREE.Group();
+  group.add(chunks);
+  group.add(fine);
+  group.userData = {
+    kind: 'debris_field',
+    color,
+    fieldRadius,
+    driftSpeed: clamp(params.driftSpeed ?? 0.005, 0, 0.2),
+  };
+  return group;
+}
+
+// ---------------------------------------------------------------------------
+// Factory: Dyson Swarm
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a partial Dyson swarm: a large number of tiny solar-collector quads
+ * distributed on the surface of a sphere around the star.
+ *
+ * Each panel is represented as a Points particle (individual quad meshes
+ * would be too expensive). The swarm group rotates slowly on multiple axes
+ * to simulate independent orbits.
+ * Dyson swarms are stationary (centred at the star).
+ *
+ * @param {object} THREE
+ * @param {object} params
+ * @param {number} [params.swarmRadius=90]       - Radius of the swarm shell
+ * @param {number} [params.panelCount=1200]      - Number of collector panels
+ * @param {number} [params.coverage=0.65]        - Fraction of sphere covered (0–1)
+ * @param {number|string} [params.panelColor=0x2255aa] - Panel colour (deep blue PV)
+ * @param {number|string} [params.glintColor=0xaaddff]  - Glint/reflection colour
+ * @param {number} [params.seed=12]
+ * @returns {THREE.Group}
+ */
+function buildDysonSwarmMesh(THREE, params = {}) {
+  const swarmRadius = clamp(params.swarmRadius ?? 90, 10, 600);
+  const panelCount  = clamp(params.panelCount ?? 1200, 50, 10000);
+  const coverage    = clamp(params.coverage ?? 0.65, 0.1, 1.0);
+  const panelColor  = parseColorHex(params.panelColor, 0x2255aa);
+  const glintColor  = parseColorHex(params.glintColor, 0xaaddff);
+  const seed        = params.seed ?? 12;
+  const rng         = makeRng(seed);
+
+  // --- Panel particles uniformly distributed on sphere, within coverage cap ---
+  const positions = new Float32Array(panelCount * 3);
+  // Coverage maps to a polar angle cap on both hemispheres
+  const cosMax = 1 - 2 * coverage;
+  for (let i = 0; i < panelCount; i++) {
+    const theta = rng() * Math.PI * 2;
+    const cosP  = cosMax + (1 - cosMax) * rng();           // biased toward equator
+    const sinP  = Math.sqrt(Math.max(0, 1 - cosP * cosP));
+    const r     = swarmRadius * (0.9 + rng() * 0.2);       // slight radial spread
+    positions[i * 3]     = r * sinP * Math.cos(theta);
+    positions[i * 3 + 1] = r * cosP;
+    positions[i * 3 + 2] = r * sinP * Math.sin(theta);
+  }
+  const panelGeo = new THREE.BufferGeometry();
+  panelGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const panelPoints = new THREE.Points(
+    panelGeo,
+    new THREE.PointsMaterial({
+      color: panelColor,
+      size: clamp(params.panelSize ?? 0.7, 0.1, 4.0),
+      transparent: true,
+      opacity: 0.78,
+      depthWrite: false,
+      sizeAttenuation: true,
+    })
+  );
+  panelPoints.userData = { kind: 'dyson-panels' };
+
+  // --- Glint layer: sparser, brighter reflection highlights ---
+  const glintCount = Math.round(panelCount * 0.15);
+  const glintPos   = new Float32Array(glintCount * 3);
+  for (let i = 0; i < glintCount; i++) {
+    const theta = rng() * Math.PI * 2;
+    const cosP  = cosMax + (1 - cosMax) * rng();
+    const sinP  = Math.sqrt(Math.max(0, 1 - cosP * cosP));
+    const r     = swarmRadius * (0.95 + rng() * 0.1);
+    glintPos[i * 3]     = r * sinP * Math.cos(theta);
+    glintPos[i * 3 + 1] = r * cosP;
+    glintPos[i * 3 + 2] = r * sinP * Math.sin(theta);
+  }
+  const glintGeo = new THREE.BufferGeometry();
+  glintGeo.setAttribute('position', new THREE.BufferAttribute(glintPos, 3));
+  const glintPoints = new THREE.Points(
+    glintGeo,
+    new THREE.PointsMaterial({
+      color: glintColor,
+      size: 0.4,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+      sizeAttenuation: true,
+    })
+  );
+  glintPoints.userData = { kind: 'dyson-glints' };
+
+  const group = new THREE.Group();
+  group.add(panelPoints);
+  group.add(glintPoints);
+  group.userData = {
+    kind: 'dyson_swarm',
+    panelColor,
+    glintColor,
+    swarmRadius,
+    rotationSpeeds: {
+      x: clamp(params.rotationSpeedX ?? 0.004, 0, 0.2),
+      y: clamp(params.rotationSpeedY ?? 0.009, 0, 0.2),
+      z: clamp(params.rotationSpeedZ ?? 0.002, 0, 0.2),
+    },
+  };
+  return group;
+}
+
+// ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
 
@@ -805,6 +1199,10 @@ function buildSpecialBodyMesh(THREE, bodyType, params = {}) {
     case SPECIAL_BODY_TYPES.BLACK_HOLE:       return buildBlackHoleMesh(THREE, params);
     case SPECIAL_BODY_TYPES.ICE_FIELD:        return buildIceFieldMesh(THREE, params);
     case SPECIAL_BODY_TYPES.DUST_CLOUD:       return buildDustCloudMesh(THREE, params);
+    case SPECIAL_BODY_TYPES.SPACE_STATION:    return buildSpaceStationMesh(THREE, params);
+    case SPECIAL_BODY_TYPES.JUMP_GATE:        return buildJumpGateMesh(THREE, params);
+    case SPECIAL_BODY_TYPES.DEBRIS_FIELD:     return buildDebrisFieldMesh(THREE, params);
+    case SPECIAL_BODY_TYPES.DYSON_SWARM:      return buildDysonSwarmMesh(THREE, params);
     default: return null;
   }
 }
@@ -823,6 +1221,10 @@ const SystemSpecialBodiesRenderer = {
   buildBlackHoleMesh,
   buildIceFieldMesh,
   buildDustCloudMesh,
+  buildSpaceStationMesh,
+  buildJumpGateMesh,
+  buildDebrisFieldMesh,
+  buildDysonSwarmMesh,
   buildSpecialBodyMesh,
 };
 

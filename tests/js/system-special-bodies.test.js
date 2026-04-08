@@ -26,6 +26,10 @@ const {
   buildBlackHoleMesh,
   buildIceFieldMesh,
   buildDustCloudMesh,
+  buildSpaceStationMesh,
+  buildJumpGateMesh,
+  buildDebrisFieldMesh,
+  buildDysonSwarmMesh,
   buildSpecialBodyMesh,
 } = SystemSpecialBodiesRenderer;
 
@@ -106,7 +110,7 @@ class MockMesh {
     this.userData = {};
     this.position = new MockVector3();
     this.rotation = { x: 0, y: 0, z: 0 };
-    this.scale = { x: 1, y: 1, z: 1, setScalar(s) { this.x = s; this.y = s; this.z = s; } };
+    this.scale = { x: 1, y: 1, z: 1, setScalar(s) { this.x = s; this.y = s; this.z = s; }, set(x, y, z) { this.x = x; this.y = y; this.z = z; } };
     this.children = [];
     this.visible = true;
   }
@@ -114,7 +118,12 @@ class MockMesh {
 }
 
 class MockPoints {
-  constructor(geo, mat) { this.geometry = geo; this.material = mat; this.userData = {}; }
+  constructor(geo, mat) {
+    this.geometry = geo;
+    this.material = mat;
+    this.userData = {};
+    this.rotation = { x: 0, y: 0, z: 0 };
+  }
 }
 
 class MockGroup {
@@ -1479,5 +1488,634 @@ describe('Integration: _tickSystemSpecialBodies – new types', () => {
     r._tickSystemSpecialBodies(1.0);
     expect(diskRing.rotation.z).toBeCloseTo(0.08);
     expect(diskParticles.rotation.y).toBeCloseTo(0.056);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SPECIAL_BODY_TYPES – artificial entries
+// ---------------------------------------------------------------------------
+
+describe('SPECIAL_BODY_TYPES – artificial types', () => {
+  it('defines SPACE_STATION', () => expect(SPECIAL_BODY_TYPES.SPACE_STATION).toBe('space_station'));
+  it('defines JUMP_GATE',     () => expect(SPECIAL_BODY_TYPES.JUMP_GATE).toBe('jump_gate'));
+  it('defines DEBRIS_FIELD',  () => expect(SPECIAL_BODY_TYPES.DEBRIS_FIELD).toBe('debris_field'));
+  it('defines DYSON_SWARM',   () => expect(SPECIAL_BODY_TYPES.DYSON_SWARM).toBe('dyson_swarm'));
+});
+
+// ---------------------------------------------------------------------------
+// buildSpaceStationMesh
+// ---------------------------------------------------------------------------
+
+describe('buildSpaceStationMesh', () => {
+  it('returns a THREE.Group', () => {
+    expect(buildSpaceStationMesh(THREE)).toBeInstanceOf(MockGroup);
+  });
+
+  it('userData.kind === "space_station"', () => {
+    expect(buildSpaceStationMesh(THREE).userData.kind).toBe('space_station');
+  });
+
+  it('has at least 2 structural children (ring + hub)', () => {
+    const g = buildSpaceStationMesh(THREE, { armCount: 0 });
+    // ring mesh + hub mesh
+    expect(g.children.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('first child is habitat ring Mesh with TorusGeometry', () => {
+    const g = buildSpaceStationMesh(THREE);
+    expect(g.children[0]).toBeInstanceOf(MockMesh);
+    expect(g.children[0].geometry).toBeInstanceOf(MockTorusGeometry);
+    expect(g.children[0].userData.kind).toBe('station-ring');
+  });
+
+  it('second child is hub Mesh with SphereGeometry', () => {
+    const g = buildSpaceStationMesh(THREE);
+    expect(g.children[1]).toBeInstanceOf(MockMesh);
+    expect(g.children[1].geometry).toBeInstanceOf(MockSphereGeometry);
+    expect(g.children[1].userData.kind).toBe('station-hub');
+  });
+
+  it('armCount docking arms and ports are added', () => {
+    const armCount = 6;
+    const g = buildSpaceStationMesh(THREE, { armCount });
+    // 2 structural + armCount arms + armCount ports
+    expect(g.children.length).toBe(2 + armCount + armCount);
+    const arms  = g.children.filter(c => c.userData.kind === 'station-arm');
+    const ports = g.children.filter(c => c.userData.kind === 'station-port');
+    expect(arms).toHaveLength(armCount);
+    expect(ports).toHaveLength(armCount);
+  });
+
+  it('default armCount is 4', () => {
+    const g = buildSpaceStationMesh(THREE);
+    const arms = g.children.filter(c => c.userData.kind === 'station-arm');
+    expect(arms).toHaveLength(4);
+  });
+
+  it('spinSpeed stored in userData', () => {
+    const g = buildSpaceStationMesh(THREE, { spinSpeed: 0.3 });
+    expect(g.userData.spinSpeed).toBeCloseTo(0.3);
+  });
+
+  it('glowColor stored in userData', () => {
+    const g = buildSpaceStationMesh(THREE, { glowColor: 0xff0000 });
+    expect(g.userData.glowColor).toBe(0xff0000);
+  });
+
+  it('_glowPhase initialised (number)', () => {
+    const g = buildSpaceStationMesh(THREE);
+    expect(typeof g.userData._glowPhase).toBe('number');
+  });
+
+  it('is deterministic with same seed', () => {
+    const a = buildSpaceStationMesh(THREE, { armCount: 3, seed: 77 });
+    const b = buildSpaceStationMesh(THREE, { armCount: 3, seed: 77 });
+    expect(a.children.length).toBe(b.children.length);
+  });
+
+  it('clamps armCount to minimum 2', () => {
+    const g = buildSpaceStationMesh(THREE, { armCount: 1 });
+    const arms = g.children.filter(c => c.userData.kind === 'station-arm');
+    expect(arms.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildJumpGateMesh
+// ---------------------------------------------------------------------------
+
+describe('buildJumpGateMesh', () => {
+  it('returns a THREE.Group', () => {
+    expect(buildJumpGateMesh(THREE)).toBeInstanceOf(MockGroup);
+  });
+
+  it('userData.kind === "jump_gate"', () => {
+    expect(buildJumpGateMesh(THREE).userData.kind).toBe('jump_gate');
+  });
+
+  it('has exactly 3 children: frame, energy field, accent ring', () => {
+    const g = buildJumpGateMesh(THREE);
+    expect(g.children).toHaveLength(3);
+  });
+
+  it('first child is gate frame Mesh with TorusGeometry', () => {
+    const g = buildJumpGateMesh(THREE);
+    expect(g.children[0]).toBeInstanceOf(MockMesh);
+    expect(g.children[0].geometry).toBeInstanceOf(MockTorusGeometry);
+    expect(g.children[0].userData.kind).toBe('gate-frame');
+  });
+
+  it('second child is energy field Points', () => {
+    const g = buildJumpGateMesh(THREE);
+    expect(g.children[1]).toBeInstanceOf(MockPoints);
+    expect(g.children[1].userData.kind).toBe('gate-energy-field');
+  });
+
+  it('third child is accent ring Mesh with RingGeometry', () => {
+    const g = buildJumpGateMesh(THREE);
+    expect(g.children[2]).toBeInstanceOf(MockMesh);
+    expect(g.children[2].geometry).toBeInstanceOf(MockRingGeometry);
+    expect(g.children[2].userData.kind).toBe('gate-accent-ring');
+  });
+
+  it('energy particle count matches param', () => {
+    const g = buildJumpGateMesh(THREE, { particleCount: 200 });
+    expect(g.children[1].geometry.attributes.position.array.length).toBe(200 * 3);
+  });
+
+  it('stores frameMesh and energyPoints references in userData', () => {
+    const g = buildJumpGateMesh(THREE);
+    expect(g.userData.frameMesh).toBe(g.children[0]);
+    expect(g.userData.energyPoints).toBe(g.children[1]);
+  });
+
+  it('energySpinSpeed can be negative (counter-rotation)', () => {
+    const g = buildJumpGateMesh(THREE, { energySpinSpeed: -0.3 });
+    expect(g.userData.energySpinSpeed).toBeLessThan(0);
+  });
+
+  it('frameSpinSpeed stored in userData', () => {
+    const g = buildJumpGateMesh(THREE, { frameSpinSpeed: 0.07 });
+    expect(g.userData.frameSpinSpeed).toBeCloseTo(0.07);
+  });
+
+  it('_energyPhase initialised (number)', () => {
+    const g = buildJumpGateMesh(THREE);
+    expect(typeof g.userData._energyPhase).toBe('number');
+  });
+
+  it('is deterministic with same seed', () => {
+    const a = buildJumpGateMesh(THREE, { particleCount: 80, seed: 88 });
+    const b = buildJumpGateMesh(THREE, { particleCount: 80, seed: 88 });
+    const posA = a.children[1].geometry.attributes.position.array;
+    const posB = b.children[1].geometry.attributes.position.array;
+    expect(Array.from(posA)).toEqual(Array.from(posB));
+  });
+
+  it('default energy color is blue (0x44aaff)', () => {
+    const g = buildJumpGateMesh(THREE);
+    expect(g.userData.energyColor).toBe(0x44aaff);
+  });
+
+  it('all energy particles lie within gateRadius', () => {
+    const gateRadius = 5;
+    const g = buildJumpGateMesh(THREE, { gateRadius, particleCount: 200, seed: 1 });
+    const pos = g.children[1].geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const r = Math.sqrt(pos.getX(i) ** 2 + pos.getY(i) ** 2);
+      expect(r).toBeLessThanOrEqual(gateRadius + 0.01);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildDebrisFieldMesh
+// ---------------------------------------------------------------------------
+
+describe('buildDebrisFieldMesh', () => {
+  it('returns a THREE.Group', () => {
+    expect(buildDebrisFieldMesh(THREE)).toBeInstanceOf(MockGroup);
+  });
+
+  it('userData.kind === "debris_field"', () => {
+    expect(buildDebrisFieldMesh(THREE).userData.kind).toBe('debris_field');
+  });
+
+  it('has exactly 2 children: chunks + fine particles', () => {
+    const g = buildDebrisFieldMesh(THREE);
+    expect(g.children).toHaveLength(2);
+    expect(g.children[0]).toBeInstanceOf(MockPoints);
+    expect(g.children[1]).toBeInstanceOf(MockPoints);
+  });
+
+  it('chunk layer has kind "debris-chunks"', () => {
+    expect(buildDebrisFieldMesh(THREE).children[0].userData.kind).toBe('debris-chunks');
+  });
+
+  it('fine layer has kind "debris-fine"', () => {
+    expect(buildDebrisFieldMesh(THREE).children[1].userData.kind).toBe('debris-fine');
+  });
+
+  it('total particle count matches param (30% chunks + 70% fine)', () => {
+    const total = 200;
+    const g = buildDebrisFieldMesh(THREE, { particleCount: total });
+    const chunkN = Math.round(total * 0.3);
+    const fineN  = total - chunkN;
+    expect(g.children[0].geometry.attributes.position.array.length).toBe(chunkN * 3);
+    expect(g.children[1].geometry.attributes.position.array.length).toBe(fineN  * 3);
+  });
+
+  it('clamps particleCount to min 50', () => {
+    const g = buildDebrisFieldMesh(THREE, { particleCount: 2 });
+    const chunkN = Math.round(50 * 0.3);
+    expect(g.children[0].geometry.attributes.position.array.length).toBe(chunkN * 3);
+  });
+
+  it('fieldRadius stored in userData', () => {
+    const g = buildDebrisFieldMesh(THREE, { fieldRadius: 80 });
+    expect(g.userData.fieldRadius).toBe(80);
+  });
+
+  it('driftSpeed stored in userData', () => {
+    const g = buildDebrisFieldMesh(THREE, { driftSpeed: 0.007 });
+    expect(g.userData.driftSpeed).toBeCloseTo(0.007);
+  });
+
+  it('default color is metallic-rust (0x8a7060)', () => {
+    const g = buildDebrisFieldMesh(THREE);
+    expect(g.userData.color).toBe(0x8a7060);
+  });
+
+  it('is deterministic with same seed', () => {
+    const a = buildDebrisFieldMesh(THREE, { particleCount: 60, seed: 99 });
+    const b = buildDebrisFieldMesh(THREE, { particleCount: 60, seed: 99 });
+    const posA = a.children[0].geometry.attributes.position.array;
+    const posB = b.children[0].geometry.attributes.position.array;
+    expect(Array.from(posA)).toEqual(Array.from(posB));
+  });
+
+  it('particles are distributed 3-dimensionally (Y spread > 0)', () => {
+    const g = buildDebrisFieldMesh(THREE, { particleCount: 200, verticalSpread: 0.5, seed: 1 });
+    const pos = g.children[0].geometry.attributes.position;
+    const yValues = [];
+    for (let i = 0; i < pos.count; i++) yValues.push(Math.abs(pos.getY(i)));
+    const maxY = Math.max(...yValues);
+    expect(maxY).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildDysonSwarmMesh
+// ---------------------------------------------------------------------------
+
+describe('buildDysonSwarmMesh', () => {
+  it('returns a THREE.Group', () => {
+    expect(buildDysonSwarmMesh(THREE)).toBeInstanceOf(MockGroup);
+  });
+
+  it('userData.kind === "dyson_swarm"', () => {
+    expect(buildDysonSwarmMesh(THREE).userData.kind).toBe('dyson_swarm');
+  });
+
+  it('has exactly 2 children: panels + glints', () => {
+    const g = buildDysonSwarmMesh(THREE);
+    expect(g.children).toHaveLength(2);
+    expect(g.children[0]).toBeInstanceOf(MockPoints);
+    expect(g.children[1]).toBeInstanceOf(MockPoints);
+  });
+
+  it('first child has kind "dyson-panels"', () => {
+    expect(buildDysonSwarmMesh(THREE).children[0].userData.kind).toBe('dyson-panels');
+  });
+
+  it('second child has kind "dyson-glints"', () => {
+    expect(buildDysonSwarmMesh(THREE).children[1].userData.kind).toBe('dyson-glints');
+  });
+
+  it('panel count matches param', () => {
+    const g = buildDysonSwarmMesh(THREE, { panelCount: 300 });
+    expect(g.children[0].geometry.attributes.position.array.length).toBe(300 * 3);
+  });
+
+  it('glint count is ~15% of panelCount', () => {
+    const panelCount = 400;
+    const g = buildDysonSwarmMesh(THREE, { panelCount });
+    const glintCount = Math.round(panelCount * 0.15);
+    expect(g.children[1].geometry.attributes.position.array.length).toBe(glintCount * 3);
+  });
+
+  it('swarmRadius stored in userData', () => {
+    const g = buildDysonSwarmMesh(THREE, { swarmRadius: 120 });
+    expect(g.userData.swarmRadius).toBe(120);
+  });
+
+  it('rotationSpeeds stored in userData', () => {
+    const g = buildDysonSwarmMesh(THREE, { rotationSpeedX: 0.005, rotationSpeedY: 0.01, rotationSpeedZ: 0.003 });
+    expect(g.userData.rotationSpeeds.x).toBeCloseTo(0.005);
+    expect(g.userData.rotationSpeeds.y).toBeCloseTo(0.01);
+    expect(g.userData.rotationSpeeds.z).toBeCloseTo(0.003);
+  });
+
+  it('default panel color is deep blue (0x2255aa)', () => {
+    const g = buildDysonSwarmMesh(THREE);
+    expect(g.userData.panelColor).toBe(0x2255aa);
+  });
+
+  it('default glint color is light blue (0xaaddff)', () => {
+    const g = buildDysonSwarmMesh(THREE);
+    expect(g.userData.glintColor).toBe(0xaaddff);
+  });
+
+  it('is deterministic with same seed', () => {
+    const a = buildDysonSwarmMesh(THREE, { panelCount: 100, seed: 55 });
+    const b = buildDysonSwarmMesh(THREE, { panelCount: 100, seed: 55 });
+    const posA = a.children[0].geometry.attributes.position.array;
+    const posB = b.children[0].geometry.attributes.position.array;
+    expect(Array.from(posA)).toEqual(Array.from(posB));
+  });
+
+  it('clamps panelCount to minimum 50', () => {
+    const g = buildDysonSwarmMesh(THREE, { panelCount: 5 });
+    expect(g.children[0].geometry.attributes.position.array.length).toBe(50 * 3);
+  });
+
+  it('panels are distributed near swarmRadius', () => {
+    const swarmRadius = 80;
+    const g = buildDysonSwarmMesh(THREE, { swarmRadius, panelCount: 200, seed: 1 });
+    const pos = g.children[0].geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const r = Math.sqrt(pos.getX(i) ** 2 + pos.getY(i) ** 2 + pos.getZ(i) ** 2);
+      expect(r).toBeGreaterThan(swarmRadius * 0.85);
+      expect(r).toBeLessThan(swarmRadius * 1.15);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildSpecialBodyMesh – artificial type dispatches
+// ---------------------------------------------------------------------------
+
+describe('buildSpecialBodyMesh – artificial types', () => {
+  it('dispatches space_station', () => {
+    expect(buildSpecialBodyMesh(THREE, 'space_station').userData.kind).toBe('space_station');
+  });
+  it('dispatches jump_gate', () => {
+    expect(buildSpecialBodyMesh(THREE, 'jump_gate').userData.kind).toBe('jump_gate');
+  });
+  it('dispatches debris_field', () => {
+    expect(buildSpecialBodyMesh(THREE, 'debris_field').userData.kind).toBe('debris_field');
+  });
+  it('dispatches dyson_swarm', () => {
+    expect(buildSpecialBodyMesh(THREE, 'dyson_swarm').userData.kind).toBe('dyson_swarm');
+  });
+  it('is case-insensitive for artificial types', () => {
+    expect(buildSpecialBodyMesh(THREE, 'SPACE_STATION').userData.kind).toBe('space_station');
+    expect(buildSpecialBodyMesh(THREE, 'JUMP_GATE').userData.kind).toBe('jump_gate');
+    expect(buildSpecialBodyMesh(THREE, 'DEBRIS_FIELD').userData.kind).toBe('debris_field');
+    expect(buildSpecialBodyMesh(THREE, 'DYSON_SWARM').userData.kind).toBe('dyson_swarm');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: _buildSystemSpecialBodies – artificial types stationary flag
+// ---------------------------------------------------------------------------
+
+describe('Integration: _buildSystemSpecialBodies – artificial types', () => {
+  let renderer;
+
+  beforeEach(() => {
+    renderer = {
+      systemSpecialBodyEntries: [],
+      systemBodyGroup: new MockGroup(),
+      systemOrbitGroup: new MockGroup(),
+      _orbitScratchWorld: new MockVector3(),
+      _hashSeed: vi.fn((s) => typeof s === 'string' ? s.split('').reduce((a, c) => a + c.charCodeAt(0), 0) : s),
+      _planetSize: vi.fn(() => 3.5),
+      _visualOrbitAngularSpeed: vi.fn(() => 0.1),
+      _buildOrbitCurvePoints: vi.fn(() => [new MockVector3(), new MockVector3()]),
+
+      _buildSystemSpecialBodies(star, payload) {
+        const specialBodies = Array.isArray(payload.special_bodies) ? payload.special_bodies : [];
+        this.systemSpecialBodyEntries = [];
+        if (!specialBodies.length) return;
+        const sbRenderer = SystemSpecialBodiesRenderer;
+        const maxAu = Math.max(0.35, ...specialBodies.map((b, i) => Number(b.semi_major_axis_au || (0.35 + i * 0.22))));
+        specialBodies.forEach((bodyDef, index) => {
+          const bodyType = String(bodyDef.body_type || '').toLowerCase();
+          if (!bodyType) return;
+          const semiMajor = Number(bodyDef.semi_major_axis_au || (0.35 + index * 0.22));
+          const orbitRadius = 34 + (semiMajor / maxAu) * 165;
+          const meshParams = Object.assign({}, bodyDef, {
+            radius: orbitRadius,
+            seed: this._hashSeed(String(bodyDef.id || index)),
+          });
+          const mesh = sbRenderer.buildSpecialBodyMesh(THREE, bodyType, meshParams);
+          if (!mesh) return;
+          mesh.userData = Object.assign({}, mesh.userData, { kind: bodyType, bodyDef, sourceStar: star });
+          const stationary = bodyType === 'asteroid_belt' || bodyType === 'ice_field'
+            || bodyType === 'dust_cloud' || bodyType === 'debris_field' || bodyType === 'dyson_swarm';
+          if (stationary) {
+            this.systemBodyGroup.add(mesh);
+            this.systemSpecialBodyEntries.push({ mesh, bodyType, bodyDef, isStationary: true, orbitRadius });
+          } else {
+            const eccentricity = THREE.MathUtils.clamp(Number(bodyDef.orbital_eccentricity ?? 0.05), 0, 0.92);
+            const orbitMinor = orbitRadius * Math.sqrt(1 - eccentricity * eccentricity);
+            const initAngle = (index / Math.max(1, specialBodies.length)) * Math.PI * 2;
+            const orbitPoints = this._buildOrbitCurvePoints(orbitRadius, orbitMinor, eccentricity);
+            const orbitLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(orbitPoints), new THREE.LineBasicMaterial({}));
+            const orbitPivot = new THREE.Group();
+            orbitPivot.add(orbitLine);
+            this.systemOrbitGroup.add(orbitPivot);
+            mesh.position.set(orbitRadius * Math.cos(initAngle), 0, orbitMinor * Math.sin(initAngle));
+            orbitPivot.add(mesh);
+            const periodMetric = Math.pow(Math.max(0.12, semiMajor), 1.5);
+            this.systemSpecialBodyEntries.push({
+              mesh, bodyType, bodyDef, isStationary: false,
+              orbitRadius, orbitMinor, orbitPivot, orbitLine, eccentricity,
+              angle: initAngle, speed: this._visualOrbitAngularSpeed(periodMetric, periodMetric) * 0.55,
+              currentLocalPosition: new THREE.Vector3(), currentWorldPosition: new THREE.Vector3(),
+            });
+          }
+        });
+      },
+    };
+  });
+
+  it('debris_field is stationary', () => {
+    renderer._buildSystemSpecialBodies({}, { special_bodies: [{ id: 'd', body_type: 'debris_field', semi_major_axis_au: 2.0 }] });
+    expect(renderer.systemSpecialBodyEntries[0].isStationary).toBe(true);
+  });
+
+  it('dyson_swarm is stationary', () => {
+    renderer._buildSystemSpecialBodies({}, { special_bodies: [{ id: 'dy', body_type: 'dyson_swarm', semi_major_axis_au: 1.0 }] });
+    expect(renderer.systemSpecialBodyEntries[0].isStationary).toBe(true);
+  });
+
+  it('space_station is orbiting', () => {
+    renderer._buildSystemSpecialBodies({}, { special_bodies: [{ id: 'ss', body_type: 'space_station', semi_major_axis_au: 1.0 }] });
+    expect(renderer.systemSpecialBodyEntries[0].isStationary).toBe(false);
+  });
+
+  it('jump_gate is orbiting', () => {
+    renderer._buildSystemSpecialBodies({}, { special_bodies: [{ id: 'jg', body_type: 'jump_gate', semi_major_axis_au: 3.0 }] });
+    expect(renderer.systemSpecialBodyEntries[0].isStationary).toBe(false);
+  });
+
+  it('all 12 body types produce entries without error', () => {
+    const allTypes = [
+      { id: 'a',  body_type: 'asteroid_belt',   semi_major_axis_au: 2.7 },
+      { id: 'b',  body_type: 'nebula_cloud',     semi_major_axis_au: 1.2 },
+      { id: 'c',  body_type: 'irregular_planet', semi_major_axis_au: 0.9 },
+      { id: 'd',  body_type: 'planet_fragment',  semi_major_axis_au: 3.5 },
+      { id: 'e',  body_type: 'comet',            semi_major_axis_au: 5.1 },
+      { id: 'f',  body_type: 'black_hole',       semi_major_axis_au: 8.0 },
+      { id: 'g',  body_type: 'ice_field',        semi_major_axis_au: 3.0 },
+      { id: 'h',  body_type: 'dust_cloud',       semi_major_axis_au: 2.0 },
+      { id: 'i',  body_type: 'space_station',    semi_major_axis_au: 1.0 },
+      { id: 'j',  body_type: 'jump_gate',        semi_major_axis_au: 4.0 },
+      { id: 'k',  body_type: 'debris_field',     semi_major_axis_au: 2.5 },
+      { id: 'l',  body_type: 'dyson_swarm',      semi_major_axis_au: 1.5 },
+    ];
+    expect(() => renderer._buildSystemSpecialBodies({}, { special_bodies: allTypes })).not.toThrow();
+    expect(renderer.systemSpecialBodyEntries).toHaveLength(12);
+  });
+
+  it('debris_field + dyson_swarm added to systemBodyGroup', () => {
+    renderer._buildSystemSpecialBodies({}, {
+      special_bodies: [
+        { id: 'k', body_type: 'debris_field', semi_major_axis_au: 2.5 },
+        { id: 'l', body_type: 'dyson_swarm',  semi_major_axis_au: 1.5 },
+      ],
+    });
+    expect(renderer.systemBodyGroup.children).toHaveLength(2);
+    expect(renderer.systemOrbitGroup.children).toHaveLength(0);
+  });
+
+  it('space_station + jump_gate added to systemOrbitGroup', () => {
+    renderer._buildSystemSpecialBodies({}, {
+      special_bodies: [
+        { id: 'i', body_type: 'space_station', semi_major_axis_au: 1.0 },
+        { id: 'j', body_type: 'jump_gate',     semi_major_axis_au: 4.0 },
+      ],
+    });
+    expect(renderer.systemOrbitGroup.children).toHaveLength(2);
+    expect(renderer.systemBodyGroup.children).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: _tickSystemSpecialBodies – artificial types
+// ---------------------------------------------------------------------------
+
+describe('Integration: _tickSystemSpecialBodies – artificial types', () => {
+  function buildTickRenderer() {
+    return {
+      systemSpecialBodyEntries: [],
+      _tickSystemSpecialBodies(dt) {
+        if (!Array.isArray(this.systemSpecialBodyEntries) || !this.systemSpecialBodyEntries.length) return;
+        this.systemSpecialBodyEntries.forEach((entry) => {
+          const mesh = entry.mesh;
+          if (!mesh) return;
+          if (entry.isStationary) {
+            mesh.rotation.y += dt * Number(mesh.userData.rotationSpeed ?? 0.018);
+            if (entry.bodyType === 'dyson_swarm') {
+              const rs = mesh.userData.rotationSpeeds;
+              if (rs) {
+                mesh.rotation.x += dt * Number(rs.x ?? 0.004);
+                mesh.rotation.z += dt * Number(rs.z ?? 0.002);
+              }
+            } else if (entry.bodyType === 'debris_field') {
+              mesh.rotation.y += dt * Number(mesh.userData.driftSpeed ?? 0.005);
+              mesh.rotation.x += dt * Number(mesh.userData.driftSpeed ?? 0.005) * 0.3;
+            }
+          } else {
+            entry.angle += dt * Number(entry.speed || 0);
+            mesh.position.set(
+              entry.orbitRadius * Math.cos(entry.angle),
+              0,
+              entry.orbitMinor * Math.sin(entry.angle)
+            );
+            if (entry.bodyType === 'space_station') {
+              mesh.rotation.y += dt * Number(mesh.userData.spinSpeed ?? 0.22);
+              const ud = mesh.userData;
+              ud._glowPhase = (ud._glowPhase || 0) + dt * Number(ud.glowPulseSpeed ?? 1.2);
+            } else if (entry.bodyType === 'jump_gate') {
+              const fm = mesh.userData.frameMesh;
+              if (fm) fm.rotation.z += dt * Number(mesh.userData.frameSpinSpeed ?? 0.04);
+              const ep = mesh.userData.energyPoints;
+              if (ep) ep.rotation.z += dt * Number(mesh.userData.energySpinSpeed ?? -0.18);
+              const ud = mesh.userData;
+              ud._energyPhase = (ud._energyPhase || 0) + dt * Number(ud.pulseSpeed ?? 1.6);
+            }
+          }
+        });
+      },
+    };
+  }
+
+  it('dyson_swarm rotates on X and Z', () => {
+    const r = buildTickRenderer();
+    const mesh = new MockGroup();
+    mesh.userData = { rotationSpeed: 0, rotationSpeeds: { x: 0.01, y: 0.02, z: 0.005 } };
+    r.systemSpecialBodyEntries.push({ mesh, bodyType: 'dyson_swarm', isStationary: true });
+    r._tickSystemSpecialBodies(2.0);
+    expect(mesh.rotation.x).toBeCloseTo(0.02);
+    expect(mesh.rotation.z).toBeCloseTo(0.01);
+  });
+
+  it('debris_field drifts on Y and X', () => {
+    const r = buildTickRenderer();
+    const mesh = new MockGroup();
+    mesh.userData = { rotationSpeed: 0, driftSpeed: 0.01 };
+    r.systemSpecialBodyEntries.push({ mesh, bodyType: 'debris_field', isStationary: true });
+    r._tickSystemSpecialBodies(1.0);
+    // generic branch: y += 0 (rotationSpeed=0), debris branch: y += 0.01
+    expect(mesh.rotation.y).toBeCloseTo(0.01);
+    expect(mesh.rotation.x).toBeCloseTo(0.01 * 0.3);
+  });
+
+  it('space_station spins on Y and advances _glowPhase', () => {
+    const r = buildTickRenderer();
+    const mesh = new MockGroup();
+    mesh.userData = { spinSpeed: 0.3, glowPulseSpeed: 2.0, _glowPhase: 0 };
+    mesh.position = new MockVector3(30, 0, 0);
+    const entry = {
+      mesh, bodyType: 'space_station', isStationary: false,
+      angle: 0, speed: 0, orbitRadius: 50, orbitMinor: 48,
+    };
+    r.systemSpecialBodyEntries.push(entry);
+    r._tickSystemSpecialBodies(1.0);
+    expect(mesh.rotation.y).toBeCloseTo(0.3);
+    expect(mesh.userData._glowPhase).toBeCloseTo(2.0);
+  });
+
+  it('jump_gate frame and energy field counter-rotate', () => {
+    const r = buildTickRenderer();
+    const frameMesh = new MockMesh(null, null);
+    const energyPoints = new MockPoints(null, null);
+    frameMesh.rotation = { x: 0, y: 0, z: 0 };
+    energyPoints.rotation = { x: 0, y: 0, z: 0 };
+    const mesh = new MockGroup();
+    mesh.userData = {
+      frameMesh, energyPoints,
+      frameSpinSpeed: 0.05, energySpinSpeed: -0.2,
+      pulseSpeed: 1.6, _energyPhase: 0,
+    };
+    mesh.position = new MockVector3(40, 0, 0);
+    const entry = {
+      mesh, bodyType: 'jump_gate', isStationary: false,
+      angle: 0, speed: 0, orbitRadius: 60, orbitMinor: 58,
+    };
+    r.systemSpecialBodyEntries.push(entry);
+    r._tickSystemSpecialBodies(1.0);
+    expect(frameMesh.rotation.z).toBeCloseTo(0.05);
+    expect(energyPoints.rotation.z).toBeCloseTo(-0.2);
+    expect(mesh.userData._energyPhase).toBeCloseTo(1.6);
+  });
+
+  it('jump_gate frame rotation is in opposite direction to energy when energySpinSpeed < 0', () => {
+    const r = buildTickRenderer();
+    const frameMesh = new MockMesh(null, null);
+    const energyPoints = new MockPoints(null, null);
+    frameMesh.rotation = { x: 0, y: 0, z: 0 };
+    energyPoints.rotation = { x: 0, y: 0, z: 0 };
+    const mesh = new MockGroup();
+    mesh.userData = { frameMesh, energyPoints, frameSpinSpeed: 0.04, energySpinSpeed: -0.18, pulseSpeed: 1.6, _energyPhase: 0 };
+    mesh.position = new MockVector3(0, 0, 40);
+    r.systemSpecialBodyEntries.push({
+      mesh, bodyType: 'jump_gate', isStationary: false,
+      angle: 0, speed: 0, orbitRadius: 50, orbitMinor: 49,
+    });
+    r._tickSystemSpecialBodies(1.0);
+    expect(frameMesh.rotation.z).toBeGreaterThan(0);
+    expect(energyPoints.rotation.z).toBeLessThan(0);
+  });
+
+  it('does not throw for stationary debris_field with no driftSpeed in userData', () => {
+    const r = buildTickRenderer();
+    const mesh = new MockGroup();
+    mesh.userData = { rotationSpeed: 0 }; // driftSpeed intentionally missing → falls back to default
+    r.systemSpecialBodyEntries.push({ mesh, bodyType: 'debris_field', isStationary: true });
+    expect(() => r._tickSystemSpecialBodies(0.016)).not.toThrow();
   });
 });
