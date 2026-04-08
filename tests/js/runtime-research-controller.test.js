@@ -281,3 +281,181 @@ describe('buildCardsHtml — category sections', () => {
     expect(weaponsIdx).toBeLessThan(drivesIdx);
   });
 });
+
+// ── bindActions — resource refresh and updateResourceBar ─────────────────────
+
+describe('bindActions — resource refresh after research start', () => {
+  function makeRoot(type = 'energy_tech') {
+    const root = document.createElement('div');
+    root.innerHTML = `<button class="research-btn" data-type="${type}">Research</button>`;
+    return root;
+  }
+
+  it('calls api.resources and updateResourceBar after successful research start', async () => {
+    const updateResourceBar = vi.fn();
+    const currentColony = { id: 42, metal: 5000, crystal: 4000, deuterium: 2000 };
+    const api = {
+      doResearch: vi.fn(async () => ({ success: true, research_end: '2026-04-09 10:00:00' })),
+      resources: vi.fn(async () => ({
+        success: true,
+        resources: { metal: 4200, crystal: 3200, deuterium: 1600 },
+      })),
+      finishResearch: vi.fn(async () => ({ success: true, completed: [] })),
+      research: vi.fn(async () => ({ success: true, research: [] })),
+    };
+    const wm = { body: vi.fn(() => document.createElement('div')) };
+    const showToast = vi.fn();
+
+    const mod = loadModule();
+    const ctrl = mod.createResearchController({
+      wm,
+      api,
+      getCurrentColony: () => currentColony,
+      getAudioManager: () => null,
+      fmtName: (v) => String(v || ''),
+      fmt: (v) => String(v || 0),
+      esc: (v) => String(v || ''),
+      countdown: (v) => String(v || ''),
+      updateResourceBar,
+      showToast,
+      gameLog: vi.fn(),
+    });
+
+    const root = makeRoot('energy_tech');
+    ctrl.bindActions(root);
+
+    await root.querySelector('.research-btn').click();
+    // allow microtasks to settle
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(api.doResearch).toHaveBeenCalledWith(42, 'energy_tech');
+    expect(api.resources).toHaveBeenCalledWith(42);
+    expect(updateResourceBar).toHaveBeenCalledTimes(1);
+  });
+
+  it('updates currentColony resources with fresh server values', async () => {
+    const currentColony = { id: 7, metal: 10000, crystal: 8000, deuterium: 5000 };
+    const freshResources = { metal: 9000, crystal: 7200, deuterium: 4600 };
+    const api = {
+      doResearch: vi.fn(async () => ({ success: true, research_end: '2026-04-09 11:00:00' })),
+      resources: vi.fn(async () => ({ success: true, resources: freshResources })),
+      finishResearch: vi.fn(async () => ({ success: true, completed: [] })),
+      research: vi.fn(async () => ({ success: true, research: [] })),
+    };
+    const wm = { body: vi.fn(() => document.createElement('div')) };
+
+    const mod = loadModule();
+    const ctrl = mod.createResearchController({
+      wm,
+      api,
+      getCurrentColony: () => currentColony,
+      getAudioManager: () => null,
+      fmtName: (v) => String(v || ''),
+      fmt: (v) => String(v || 0),
+      esc: (v) => String(v || ''),
+      countdown: (v) => String(v || ''),
+      updateResourceBar: vi.fn(),
+      showToast: vi.fn(),
+      gameLog: vi.fn(),
+    });
+
+    const root = makeRoot('computer_tech');
+    ctrl.bindActions(root);
+    await root.querySelector('.research-btn').click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(currentColony.metal).toBe(9000);
+    expect(currentColony.crystal).toBe(7200);
+    expect(currentColony.deuterium).toBe(4600);
+  });
+
+  it('does not call updateResourceBar when research fails', async () => {
+    const updateResourceBar = vi.fn();
+    const api = {
+      doResearch: vi.fn(async () => ({ success: false, error: 'Not enough resources' })),
+    };
+
+    const mod = loadModule();
+    const ctrl = mod.createResearchController({
+      wm: null,
+      api,
+      getCurrentColony: () => ({ id: 1 }),
+      getAudioManager: () => null,
+      fmtName: (v) => String(v || ''),
+      fmt: (v) => String(v || 0),
+      esc: (v) => String(v || ''),
+      countdown: (v) => String(v || ''),
+      updateResourceBar,
+      showToast: vi.fn(),
+      gameLog: vi.fn(),
+    });
+
+    const root = makeRoot('energy_tech');
+    ctrl.bindActions(root);
+    await root.querySelector('.research-btn').click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(updateResourceBar).not.toHaveBeenCalled();
+  });
+
+  it('re-enables button on failure', async () => {
+    const api = {
+      doResearch: vi.fn(async () => ({ success: false, error: 'Busy' })),
+    };
+
+    const mod = loadModule();
+    const ctrl = mod.createResearchController({
+      wm: null,
+      api,
+      getCurrentColony: () => ({ id: 1 }),
+      getAudioManager: () => null,
+      fmtName: (v) => String(v || ''),
+      fmt: (v) => String(v || 0),
+      esc: (v) => String(v || ''),
+      countdown: (v) => String(v || ''),
+      updateResourceBar: vi.fn(),
+      showToast: vi.fn(),
+      gameLog: vi.fn(),
+    });
+
+    const root = makeRoot('weapons_tech');
+    ctrl.bindActions(root);
+    const btn = root.querySelector('.research-btn');
+    await btn.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(btn.disabled).toBe(false);
+  });
+
+  it('works without updateResourceBar (default no-op)', async () => {
+    const api = {
+      doResearch: vi.fn(async () => ({ success: true, research_end: '2026-04-09 10:00:00' })),
+      resources: vi.fn(async () => ({ success: true, resources: { metal: 0 } })),
+      finishResearch: vi.fn(async () => ({ success: true, completed: [] })),
+      research: vi.fn(async () => ({ success: true, research: [] })),
+    };
+    const wm = { body: vi.fn(() => document.createElement('div')) };
+
+    const mod = loadModule();
+    // no updateResourceBar passed — should use default no-op
+    const ctrl = mod.createResearchController({
+      wm,
+      api,
+      getCurrentColony: () => ({ id: 1 }),
+      getAudioManager: () => null,
+      fmtName: (v) => String(v || ''),
+      fmt: (v) => String(v || 0),
+      esc: (v) => String(v || ''),
+      countdown: (v) => String(v || ''),
+      showToast: vi.fn(),
+      gameLog: vi.fn(),
+    });
+
+    const root = makeRoot('laser_tech');
+    ctrl.bindActions(root);
+    // should not throw — click returns undefined (void event handler)
+    root.querySelector('.research-btn').click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(api.doResearch).toHaveBeenCalled();
+  });
+});

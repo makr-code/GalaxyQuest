@@ -61,6 +61,7 @@
       fmt = (value) => String(value || 0),
       esc = (value) => String(value || ''),
       countdown = (value) => String(value || ''),
+      updateResourceBar = () => {},
       showToast = () => {},
       gameLog = () => {},
     } = opts;
@@ -148,9 +149,12 @@
             const currentColony = getCurrentColony();
             const response = await api.doResearch(currentColony.id, btn.dataset.type);
             if (response.success) {
-              showToast(`Researching ${fmtName(btn.dataset.type)}ÔÇª`, 'success');
+              showToast(`Researching ${fmtName(btn.dataset.type)}\u2026`, 'success');
               const audioManager = getAudioManager();
               if (audioManager && typeof audioManager.playResearchStart === 'function') audioManager.playResearchStart();
+              const resources = await api.resources(currentColony.id);
+              if (resources?.success) Object.assign(currentColony, resources.resources);
+              updateResourceBar();
               await this.render();
             } else {
               showToast(response.error || 'Research failed', 'error');

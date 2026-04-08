@@ -85,6 +85,7 @@
       fmt: opts.fmt,
       esc: opts.esc,
       countdown: opts.countdown,
+      updateResourceBar: opts.updateResourceBar,
       showToast: opts.showToast,
       gameLog: opts.gameLog,
     });
