@@ -112,6 +112,7 @@
       gameLog: opts.gameLog,
       gqStatusMsg,
       GQUI: opts.GQUI,
+      ShipHangarViewer: opts.windowRef?.GQShipHangarViewer?.ShipHangarViewer || null,
     });
 
     const economyController = runtimeEconomyControllerApi.createEconomyController

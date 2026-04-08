@@ -31,6 +31,8 @@
     uiKit: '20260331p62',
     starTooltip: '20260331p51',
     systemInfoPanel: '20260331p54',
+    stellarisSystemOverview: '20260408p1',
+    systemBodiesCardWindow:  '20260408p1',
     hrDiagram: '20260328p49',
     settingsPanel: '20260331p7',
     settings2fa: '20260331p2',
@@ -295,6 +297,7 @@
     'js/engine/runtime/RuntimeOverviewBootstrap.js',
     'js/engine/runtime/RuntimeDevelopmentControllersBootstrap.js',
     'js/engine/runtime/RuntimeShipyardController.js',
+    'js/ui/ShipHangarViewer.js',
     'js/engine/runtime/RuntimeMessagesController.js',
     'js/engine/runtime/RuntimeIntelController.js',
     'js/engine/runtime/RuntimeLeadersController.js',
@@ -441,6 +444,8 @@
     localScript('js/ui/admin-users.js', V.adminUsers),
     localScript('js/ui/system-bodies-breadcrumb.js', V.systemBreadcrumb),
     localScript('js/ui/system-breadcrumb-integration.js', V.systemBreadcrumb),
+    localScript('js/ui/stellaris-system-overview.js', V.stellarisSystemOverview),
+    localScript('js/ui/system-bodies-card-window.js', V.systemBodiesCardWindow),
     localScript('js/ui/gq-ui.js', V.gqui),
     localScript('js/runtime/game.js', V.game)
   ];

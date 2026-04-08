@@ -410,6 +410,8 @@
     </header>
     <!-- System Bodies Breadcrumb Navigation -->
     <div id="system-breadcrumb-nav" aria-label="System bodies breadcrumb" role="navigation"></div>
+    <!-- Stellaris-style System Overview: each body rendered as WebGPU canvas -->
+    <div id="stellaris-system-overview" aria-label="Stellaris System Overview" role="region"></div>
   </section>
 
   <section id="resource-section" class="">
@@ -477,6 +479,21 @@
     </div>
   </section>
 
+  <!-- System Bodies Card Window — GQWM floating window with card layout -->
+  <section id="system-bodies-cards-host" class="wm-window-host" aria-label="System Bodies Card Window Host">
+    <div class="wm-adaptable-window"
+         data-wm-window="system-bodies-cards"
+         data-wm-title="System Bodies"
+         data-wm-width="740"
+         data-wm-height="500"
+         data-wm-persist-state="1">
+      <div class="sbcw-toolbar">
+        <span id="system-bodies-cards-count" class="sbcw-count" aria-live="polite"></span>
+      </div>
+      <div id="system-bodies-cards-grid" class="sbcw-grid" role="list" aria-label="Celestial bodies"></div>
+    </div>
+  </section>
+
   <section id="taskbar-section" class="">
     <div id="wm-taskbar" class="wm-taskbar" aria-label="Open windows">
       <div id="wm-taskbar-split" class="wm-taskbar-split" role="group" aria-label="Windows-Menü">
@@ -492,6 +509,7 @@
         <button id="footer-minimap-btn" class="footer-action-btn" type="button" title="Minikarte ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/map.svg#icon-map"></use></svg>Map</button>
         <button id="ui-console-toggle" class="footer-action-btn" type="button" title="UI-Konsole ein-/ausklappen"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/terminal.svg#icon-terminal"></use></svg>Con</button>
         <button id="footer-uikit-btn" class="footer-action-btn" type="button" title="UI Kit Preview &amp; Modal-Demos ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/gameplay.svg#icon-gameplay"></use></svg>Kit</button>
+        <button id="footer-system-cards-btn" class="footer-action-btn" type="button" title="System Bodies — Card View"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/colony.svg#icon-colony"></use></svg>Bodies</button>
       </div>
       <div id="footer-load-badge" class="footer-load-badge hidden" role="status" aria-live="polite" aria-atomic="true">Nachladen</div>
       <div id="footer-load" class="footer-load hidden" role="status" aria-live="polite">
