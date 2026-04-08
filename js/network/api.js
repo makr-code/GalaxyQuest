@@ -1603,6 +1603,14 @@ const API = (() => {
     factionDialogue: ({ faction_id, history = [], player_input = '' } = {}) =>
       post('api/factions.php?action=dialogue', { faction_id, history, player_input }),
 
+    // Faction agreements (Victoria 3-style treaty system)
+    factionAgreementsList:   (faction_id) =>
+      get(faction_id ? `api/diplomacy.php?action=list&faction_id=${Number(faction_id)}` : 'api/diplomacy.php?action=list'),
+    factionAgreementsTypes:  ()           => get('api/diplomacy.php?action=types'),
+    factionAgreementsPropose:(data)       => post('api/diplomacy.php?action=propose', data),
+    factionAgreementsRespond:(id)         => post('api/diplomacy.php?action=respond', { agreement_id: Number(id) }),
+    factionAgreementsCancel: (id)         => post('api/diplomacy.php?action=cancel',  { agreement_id: Number(id) }),
+
     // NPC / PvE controller
     npcControllerStatus: () => get('api/npc_controller.php?action=status'),
     npcControllerSummary: ({ hours = 24, faction_id = 0 } = {}) =>
