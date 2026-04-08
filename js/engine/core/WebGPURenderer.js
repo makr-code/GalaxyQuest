@@ -31,9 +31,23 @@ const WebGPUShaderCtor = typeof require !== 'undefined'
   ? require('../webgpu/WebGPUShader.js').WebGPUShader
   : window.GQWebGPUShader;
 
+const WebGPUDeviceCtor = typeof require !== 'undefined'
+  ? require('../webgpu/WebGPUDevice.js').WebGPUDevice
+  : window.GQWebGPUDevice.WebGPUDevice;
+
+const WebGPUBufferCtor = typeof require !== 'undefined'
+  ? require('../webgpu/WebGPUBuffer.js').WebGPUBuffer
+  : window.GQWebGPUBuffer.WebGPUBuffer;
+
+const WebGPUTextureCtor = typeof require !== 'undefined'
+  ? require('../webgpu/WebGPUTexture.js').WebGPUTexture
+  : window.GQWebGPUTexture;
+
 class WebGPURenderer extends BaseGraphicsRenderer {
   constructor() {
     super();
+    /** @type {WebGPUDevice|null} */
+    this._gpuDevice = null;
     /** @type {GPUAdapter|null} */
     this.adapter = null;
     /** @type {GPUDevice|null} */
@@ -65,11 +79,6 @@ class WebGPURenderer extends BaseGraphicsRenderer {
      * @type {((reason: string) => void)|null}
      */
     this.onLost = null;
-
-    /** @private Internal reconnect attempt counter. */
-    this._lostRetries = 0;
-    /** @private Max reconnect attempts before calling this.onLost. */
-    this._maxLostRetries = 4;
   }
 
   // ---------------------------------------------------------------------------
@@ -83,55 +92,52 @@ class WebGPURenderer extends BaseGraphicsRenderer {
 
     this.canvas = canvas;
 
-    // 1. Request adapter (prefer high-performance discrete GPU if available)
-    this.adapter = await navigator.gpu.requestAdapter({
+    // 1. Acquire adapter + device via WebGPUDevice (handles exponential-backoff
+    //    reconnect on unexpected device loss).
+    this._gpuDevice = new WebGPUDeviceCtor();
+    await this._gpuDevice.request({
       powerPreference: 'high-performance',
-    });
-    if (!this.adapter) {
-      throw new Error('No WebGPU adapter found');
-    }
-
-    // 2. Request device with required features
-    const requiredFeatures = [];
-    if (this.adapter.features.has('depth32float-stencil8')) {
-      requiredFeatures.push('depth32float-stencil8');
-    }
-
-    this.device = await this.adapter.requestDevice({
-      requiredFeatures,
-      requiredLimits: {
-        maxTextureDimension2D: Math.min(
-          8192,
-          this.adapter.limits.maxTextureDimension2D
-        ),
+      onDeviceLost: () => {
+        this.ready  = false;
+        this.device = null;
+      },
+      onReconnect: (newDevice) => {
+        this.device  = newDevice;
+        this.adapter = this._gpuDevice.adapter;
+        this._configureContext();
+        this._createDepthBuffer(this.canvas.width || 300, this.canvas.height || 150);
+        this._shaderMgr?.dispose();
+        this._shaderMgr = new WebGPUShaderCtor(newDevice);
+        this.ready = true;
+        console.info('[WebGPURenderer] Device successfully restored.');
+      },
+      onLost: (reason) => {
+        console.error('[WebGPURenderer] Max reconnect attempts reached — giving up.');
+        if (typeof this.onLost === 'function') this.onLost(reason ?? 'unknown');
       },
     });
 
-    // 3. Handle device loss gracefully with exponential backoff
-    this._setupDeviceLostHandler(canvas);
+    this.adapter = this._gpuDevice.adapter;
+    this.device  = this._gpuDevice.device;
 
-    // 4. Configure canvas context
+    // 2. Configure canvas context
     this.context = canvas.getContext('webgpu');
     if (!this.context) {
       throw new Error('Could not acquire WebGPU canvas context');
     }
 
     this.preferredFormat = navigator.gpu.getPreferredCanvasFormat();
-    this.context.configure({
-      device: this.device,
-      format: this.preferredFormat,
-      alphaMode: 'premultiplied',
-    });
+    this._configureContext();
 
     this.ready = true;
     if (typeof window !== 'undefined' && window.GQLog?.info) {
       window.GQLog.info('[WebGPURenderer] Initialised — adapter:', this.adapter.info?.description ?? 'unknown');
     }
 
-    // 5. Depth buffer (depth24plus) sized to canvas
+    // 3. Depth buffer (depth24plus) sized to canvas
     this._createDepthBuffer(canvas.width || 300, canvas.height || 150);
 
-    // 6. Shader pipeline manager
+    // 4. Shader pipeline manager
     this._shaderMgr = new WebGPUShaderCtor(this.device);
   }
 
@@ -161,21 +167,7 @@ class WebGPURenderer extends BaseGraphicsRenderer {
    */
   createBuffer(type, data, usage = 'static') {
     if (!this.device) throw new Error('WebGPURenderer not initialised');
-
-    const usageFlags = _bufferUsageFlags(type, usage);
-    const size = _alignTo4(data.byteLength || data.length * 4);
-
-    const buffer = this.device.createBuffer({
-      size,
-      usage: usageFlags | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: true,
-    });
-
-    const dst = new Uint8Array(buffer.getMappedRange());
-    dst.set(new Uint8Array(data.buffer ?? data));
-    buffer.unmap();
-
-    return buffer;
+    return new WebGPUBufferCtor(this.device, type, data, usage).gpuBuffer;
   }
 
   /**
@@ -184,13 +176,7 @@ class WebGPURenderer extends BaseGraphicsRenderer {
    */
   createTexture(spec) {
     if (!this.device) throw new Error('WebGPURenderer not initialised');
-
-    const { width, height, format = 'rgba8unorm', mipMaps = false, renderTarget = false } = spec;
-    const mipLevelCount = mipMaps ? Math.floor(Math.log2(Math.max(width, height))) + 1 : 1;
-    const usage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-      | (renderTarget ? GPUTextureUsage.RENDER_ATTACHMENT : 0);
-
-    return this.device.createTexture({ size: [width, height], format, mipLevelCount, usage });
+    return new WebGPUTextureCtor(this.device, spec);
   }
 
   /**
@@ -199,9 +185,8 @@ class WebGPURenderer extends BaseGraphicsRenderer {
    */
   createShader(vertexSrc, fragmentSrc) {
     if (!this.device) throw new Error('WebGPURenderer not initialised');
-
-    const vs = this.device.createShaderModule({ code: vertexSrc });
-    const fs = this.device.createShaderModule({ code: fragmentSrc });
+    const vs = WebGPUShaderCtor.compile(this.device, vertexSrc);
+    const fs = WebGPUShaderCtor.compile(this.device, fragmentSrc);
     return { vs, fs };
   }
 
@@ -325,30 +310,20 @@ class WebGPURenderer extends BaseGraphicsRenderer {
 
   /**
    * Dispatch a compute shader described by a ComputePass.
-   * Lazily compiles the pipeline on first call; subsequent calls reuse it.
+   * Pipeline compilation is delegated to `_shaderMgr.compileComputePipeline()`
+   * which deduplicates by content hash across all passes.
    *
    * @param {import('../post-effects/passes/ComputePass').ComputePass} computePass
    */
   dispatchCompute(computePass) {
-    if (!this.ready || !this.device) return;
+    if (!this.ready || !this.device || !this._shaderMgr) return;
     if (!computePass.shaderSrc) return;
 
-    // Lazy pipeline compilation (stored on the pass object itself)
-    if (!computePass._pipeline) {
-      const module = this.device.createShaderModule({
-        label: `gq-compute:${computePass.label}`,
-        code:  computePass.shaderSrc,
-      });
-      computePass._pipeline = this.device.createComputePipeline({
-        label:   `gq-compute-pipeline:${computePass.label}`,
-        layout:  'auto',
-        compute: { module, entryPoint: 'cs_main' },
-      });
-    }
+    const pipeline = this._shaderMgr.compileComputePipeline(computePass.shaderSrc);
 
     const encoder = this.device.createCommandEncoder({ label: `gq-compute-enc:${computePass.label}` });
     const pass    = encoder.beginComputePass({ label: `gq-compute-pass:${computePass.label}` });
-    pass.setPipeline(computePass._pipeline);
+    pass.setPipeline(pipeline);
 
     for (const [index, bg] of computePass._bindGroups) {
       pass.setBindGroup(index, bg);
@@ -378,11 +353,17 @@ class WebGPURenderer extends BaseGraphicsRenderer {
       this._shaderMgr = null;
     }
     this._framePass = null;
-    if (this.device) {
+    if (this._gpuDevice) {
+      this._gpuDevice.destroy();
+      this._gpuDevice = null;
+    } else if (this.device) {
+      // Fallback for manually constructed instances (e.g. in tests) where
+      // _gpuDevice was never created.
       this.device.destroy();
-      this.device = null;
     }
-    this.ready = false;
+    this.device  = null;
+    this.adapter = null;
+    this.ready   = false;
   }
 
   // ---------------------------------------------------------------------------
@@ -390,46 +371,16 @@ class WebGPURenderer extends BaseGraphicsRenderer {
   // ---------------------------------------------------------------------------
 
   /**
-   * Attach the device.lost handler once after every successful device creation.
-   * Uses exponential backoff: waits 500 ms × 2^attempt before re-initialising.
-   * After _maxLostRetries failures the `onLost` callback is invoked and no
-   * further reconnection is attempted.
-   *
-   * @param {HTMLCanvasElement} canvas
+   * (Re-)apply the canvas context configuration to the current device.
+   * Called once during initialisation and again after every device reconnect.
    * @private
    */
-  _setupDeviceLostHandler(canvas) {
-    if (!this.device) return;
-
-    this.device.lost.then((info) => {
-      if (info.reason === 'destroyed') return;   // intentional teardown — ignore
-
-      console.warn('[WebGPURenderer] Device lost:', info.message,
-        `(attempt ${this._lostRetries + 1}/${this._maxLostRetries})`);
-      this.ready = false;
-
-      if (this._lostRetries >= this._maxLostRetries) {
-        console.error('[WebGPURenderer] Max reconnect attempts reached — giving up.');
-        if (typeof this.onLost === 'function') {
-          this.onLost(info.reason ?? 'unknown');
-        }
-        return;
-      }
-
-      // Exponential backoff: 500 ms, 1 000 ms, 2 000 ms, 4 000 ms
-      const delay = 500 * (1 << this._lostRetries);
-      this._lostRetries++;
-
-      setTimeout(() => {
-        this.initialize(canvas)
-          .then(() => {
-            this._lostRetries = 0;
-            console.info('[WebGPURenderer] Device successfully restored.');
-          })
-          .catch((err) => {
-            console.error('[WebGPURenderer] Reinit failed after device loss:', err.message);
-          });
-      }, delay);
+  _configureContext() {
+    if (!this.context || !this.device) return;
+    this.context.configure({
+      device:    this.device,
+      format:    this.preferredFormat,
+      alphaMode: 'premultiplied',
     });
   }
 
@@ -456,23 +407,6 @@ class WebGPURenderer extends BaseGraphicsRenderer {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-function _alignTo4(n) { return (n + 3) & ~3; }
-
-function _bufferUsageFlags(type, usage) {
-  const base = {
-    vertex:  GPUBufferUsage.VERTEX,
-    index:   GPUBufferUsage.INDEX,
-    uniform: GPUBufferUsage.UNIFORM,
-    storage: GPUBufferUsage.STORAGE,
-  }[type] ?? GPUBufferUsage.VERTEX;
-
-  // dynamic/stream buffers additionally get MAP_WRITE so they can be updated
-  if (usage === 'dynamic' || usage === 'stream') {
-    return base | GPUBufferUsage.COPY_SRC;
-  }
-  return base;
-}
 
 /**
  * Standard GQ vertex buffer layout — three separate slots for positions,

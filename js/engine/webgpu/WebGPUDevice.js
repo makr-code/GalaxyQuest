@@ -34,6 +34,12 @@ class WebGPUDevice {
     /** @type {number} Consecutive reconnect attempts since last successful init. */
     this._reconnectAttempts = 0;
     /**
+     * Callback invoked immediately when the device is unexpectedly lost
+     * (before any reconnect attempt).  Not fired for intentional `destroy()`.
+     * @type {((reason: string) => void)|null}
+     */
+    this.onDeviceLost = null;
+    /**
      * Callback invoked after a successful reconnect.
      * @type {((device: GPUDevice) => void)|null}
      */
@@ -57,8 +63,9 @@ class WebGPUDevice {
   async request(opts = {}) {
     if (!navigator.gpu) throw new Error('WebGPU not supported');
 
-    if (opts.onReconnect) this.onReconnect = opts.onReconnect;
-    if (opts.onLost)      this.onLost      = opts.onLost;
+    if (opts.onDeviceLost) this.onDeviceLost = opts.onDeviceLost;
+    if (opts.onReconnect)  this.onReconnect  = opts.onReconnect;
+    if (opts.onLost)       this.onLost       = opts.onLost;
     this._requestOpts = opts;
 
     await this._acquireDevice(opts.powerPreference ?? 'high-performance');
@@ -142,6 +149,9 @@ class WebGPUDevice {
       // Intentional destruction — do not reconnect.
       return;
     }
+
+    // Notify the owner that the device was unexpectedly lost.
+    if (typeof this.onDeviceLost === 'function') this.onDeviceLost(info.reason);
 
     if (this._reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       console.error('[WebGPUDevice] exceeded max reconnect attempts — WebGPU unavailable');
