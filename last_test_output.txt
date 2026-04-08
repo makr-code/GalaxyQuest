@@ -1,0 +1,12 @@
+
+> galaxyquest-tests@1.0.0 test:e2e:renderer-smoke
+> pwsh -NoProfile -ExecutionPolicy Bypass -Command "$env:GQ_RUN_RENDERER_SMOKE='1'; playwright test tests/e2e/system-enter-renderer.spec.js --reporter=line"
+
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] [chromium] ÔÇ║ tests\e2e\system-enter-renderer.spec.js:116:1 ÔÇ║ Home system enter populates live renderer state
+[1A[2K[chromium] ÔÇ║ tests\e2e\system-enter-renderer.spec.js:116:1 ÔÇ║ Home system enter populates live renderer state
+[e2e:system-enter] controller=true backend= systemMode=false panelPlanets=0 planets=0 moons=0 facilities=0 fleets=0
+
+[1A[2K  1 passed (20.9s)

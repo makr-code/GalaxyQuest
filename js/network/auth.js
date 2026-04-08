@@ -1224,6 +1224,18 @@
     return typeof DecompressionStream !== 'undefined';
   }
 
+  function getPackageCacheStrategy() {
+    // In dev/test environments, use no-store for fresh content.
+    // In production (when located at a CDN/minified URL pattern), use versioned caching.
+    const isDev = (
+      window.location.hostname === 'localhost'
+      || window.location.hostname === '127.0.0.1'
+      || window.location.hostname.includes('127.0.0.1')
+      || window.location.hostname.includes('dev.')
+    );
+    return isDev ? 'no-store' : 'default';
+  }
+
   async function loadGzipPackage(src) {
     const key = String(src || '').trim();
     if (!key) return Promise.reject(new Error('package src missing'));
@@ -1238,7 +1250,19 @@
         throw new Error('DecompressionStream(gzip) is not available in this browser');
       }
 
-      const response = await fetch(key, { cache: 'no-store', credentials: 'same-origin' });
+      const cacheStrategy = getPackageCacheStrategy();
+
+      // Pro-active availability check: HEAD request to verify bundle exists before full download
+      try {
+        const headCheck = await fetch(key, { method: 'HEAD', cache: cacheStrategy, credentials: 'same-origin' });
+        if (!headCheck.ok) {
+          throw new Error(`bundle not available on server (status ${headCheck.status || 0})`);
+        }
+      } catch (headErr) {
+        throw new Error(`package availability check failed: ${key} (${String(headErr?.message || headErr || 'unknown')})`);
+      }
+
+      const response = await fetch(key, { cache: cacheStrategy, credentials: 'same-origin' });
       if (!response.ok || !response.body) {
         throw new Error(`package fetch failed: ${key} (status ${response.status || 0})`);
       }
@@ -1329,16 +1353,26 @@
       if (!scripts.length) throw new Error('No game scripts configured.');
 
       if (packageBundles.length) {
-        try {
-          setPhase('Loading package bundles...', 52);
-          for (let i = 0; i < packageBundles.length; i += 1) {
+        setPhase('Loading package bundles...', 52);
+        let bundlesLoaded = 0;
+        let bundlesFailed = 0;
+        
+        for (let i = 0; i < packageBundles.length; i += 1) {
+          try {
             await loadBootAsset(packageBundles[i]);
-            setPhase('Loading package bundles...', 52 + ((i + 1) / packageBundles.length) * 48);
+            bundlesLoaded += 1;
+          } catch (bundleErr) {
+            bundlesFailed += 1;
+            authLog('warn', `package bundle failed, will fall back to single scripts if all fail: ${String(packageBundles[i] || 'unknown')}`, String(bundleErr?.message || bundleErr || 'unknown'));
           }
-          authLog('info', `package bootstrap complete (${packageBundles.length} bundles)`);
+          setPhase('Loading package bundles...', 52 + ((i + 1) / packageBundles.length) * 48);
+        }
+        
+        if (bundlesLoaded > 0) {
+          authLog('info', `package bootstrap partial (${bundlesLoaded}/${packageBundles.length} bundles loaded)`);
           authLog('info', 'loading latest single scripts after bundles to override stale package code');
-        } catch (packageErr) {
-          authLog('warn', 'package bootstrap failed, falling back to single scripts', String(packageErr?.message || packageErr || 'unknown'));
+        } else if (bundlesFailed > 0) {
+          authLog('warn', `all ${bundlesFailed} package bundles failed, falling back exclusively to single scripts`);
         }
       }
 
