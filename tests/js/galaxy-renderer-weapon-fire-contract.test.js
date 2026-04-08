@@ -58,4 +58,27 @@ describe('GalaxyRendererCore weapon-fire source contract', () => {
     expect(source).toMatch(/case\s*'destroyed'\s*:[\s\S]*?fragmentCount\s*=\s*24/);
     expect(source).toMatch(/window\.dispatchEvent\(new\s+CustomEvent\('gq:debris:destroyed'/);
   });
+
+  it('keeps installation cadence table values for alert and non-alert states', () => {
+    expect(source).toMatch(/_installationWeaponFxCadence\(kind,\s*state\)/);
+    expect(source).toMatch(/case\s*'plasma':\s*return\s*alert\s*\?\s*0\.75\s*:\s*1\.15;/);
+    expect(source).toMatch(/case\s*'rail':\s*return\s*alert\s*\?\s*0\.42\s*:\s*0\.8;/);
+    expect(source).toMatch(/case\s*'missile':\s*return\s*alert\s*\?\s*1\.35\s*:\s*2\.1;/);
+    expect(source).toMatch(/case\s*'beam':[\s\S]*?default:[\s\S]*?return\s*alert\s*\?\s*0\.28\s*:\s*0\.5;/);
+  });
+
+  it('keeps installation shot duration table values for alert and non-alert states', () => {
+    expect(source).toMatch(/_installationWeaponFxShotDuration\(kind,\s*state\)/);
+    expect(source).toMatch(/case\s*'plasma':\s*return\s*alert\s*\?\s*0\.52\s*:\s*0\.36;/);
+    expect(source).toMatch(/case\s*'rail':\s*return\s*alert\s*\?\s*0\.1\s*:\s*0\.08;/);
+    expect(source).toMatch(/case\s*'missile':\s*return\s*alert\s*\?\s*0\.72\s*:\s*0\.55;/);
+    expect(source).toMatch(/case\s*'beam':[\s\S]*?default:[\s\S]*?return\s*alert\s*\?\s*0\.34\s*:\s*0\.22;/);
+  });
+
+  it('keeps trigger integration multiplying cadenceScale and using shotDuration', () => {
+    expect(source).toMatch(/const\s+cadence\s*=\s*this\._installationWeaponFxCadence\(fxEntry\.kind,\s*activeState\)\s*\*\s*Math\.max\(0\.1,\s*Number\(cadenceScale\)\s*\|\|\s*1\)/);
+    expect(source).toMatch(/const\s+shotDuration\s*=\s*this\._installationWeaponFxShotDuration\(fxEntry\.kind,\s*activeState\)/);
+    expect(source).toMatch(/fxEntry\.fireUntil\s*=\s*Math\.max\(Number\(fxEntry\.fireUntil\s*\|\|\s*0\),\s*elapsed\s*\+\s*shotDuration\)/);
+    expect(source).toMatch(/fxEntry\.nextFireAt\s*=\s*elapsed\s*\+\s*cadence/);
+  });
 });
