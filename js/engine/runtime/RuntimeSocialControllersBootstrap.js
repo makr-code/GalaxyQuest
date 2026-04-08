@@ -19,6 +19,9 @@
     const runtimeFactionsControllerApi = opts.runtimeFactionsControllerApi || {};
     const runtimeLeaderboardControllerApi = opts.runtimeLeaderboardControllerApi || {};
     const runtimeWarControllerApi = opts.runtimeWarControllerApi || {};
+    const runtimeColonizationControllerApi = opts.runtimeColonizationControllerApi || {};
+    const runtimeEmpireCategoriesPanelApi = opts.runtimeEmpireCategoriesPanelApi || {};
+    const runtimeEspionageControllerApi = opts.runtimeEspionageControllerApi || {};
     const runtimeDiplomacyDataModelApi = opts.runtimeDiplomacyDataModelApi || (typeof window !== 'undefined' && window.GQRuntimeDiplomacyDataModel) || null;
     const runtimeDiplomacyPanelApi = opts.runtimeDiplomacyPanelApi || (typeof window !== 'undefined' && window.GQRuntimeDiplomacyPanel) || null;
     const runtimeContractNegotiationModalApi = opts.runtimeContractNegotiationModalApi || (typeof window !== 'undefined' && window.GQRuntimeContractNegotiationModal) || null;
@@ -186,6 +189,42 @@
         })
       : null;
 
+    const colonizationController = runtimeColonizationControllerApi.createColonizationController
+      ? runtimeColonizationControllerApi.createColonizationController({
+          wm: opts.wm,
+          api: opts.api,
+          uiKitSkeletonHTML: opts.uiKitSkeletonHTML,
+          uiKitEmptyStateHTML: opts.uiKitEmptyStateHTML,
+          esc: opts.esc,
+          gameLog: opts.gameLog,
+          showToast: opts.showToast,
+        })
+      : null;
+
+    const empireCategoriesPanel = runtimeEmpireCategoriesPanelApi.createEmpireCategoriesPanel
+      ? runtimeEmpireCategoriesPanelApi.createEmpireCategoriesPanel({
+          wm: opts.wm,
+          api: opts.api,
+          uiKitSkeletonHTML: opts.uiKitSkeletonHTML,
+          uiKitEmptyStateHTML: opts.uiKitEmptyStateHTML,
+          esc: opts.esc,
+          gameLog: opts.gameLog,
+          showToast: opts.showToast,
+        })
+      : null;
+
+    const espionageController = runtimeEspionageControllerApi.createEspionageController
+      ? runtimeEspionageControllerApi.createEspionageController({
+          wm: opts.wm,
+          api: opts.api,
+          uiKitSkeletonHTML: opts.uiKitSkeletonHTML,
+          uiKitEmptyStateHTML: opts.uiKitEmptyStateHTML,
+          esc: opts.esc,
+          gameLog: opts.gameLog,
+          showToast: opts.showToast,
+        })
+      : null;
+
     return {
       messagesController,
       intelController,
@@ -198,6 +237,9 @@
       factionsController,
       leaderboardController,
       warController,
+      colonizationController,
+      empireCategoriesPanel,
+      espionageController,
     };
   }
 

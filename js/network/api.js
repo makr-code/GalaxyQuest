@@ -1724,6 +1724,36 @@ const API = (() => {
   proposeTrade: (data)         => post('api/trade.php?action=propose', data),
   acceptTrade: (id)            => post('api/trade.php?action=accept',  { proposal_id: id }),
   rejectTrade: (id)            => post('api/trade.php?action=reject',  { proposal_id: id }),
+
+  // Colonization — Empire Sprawl, Sectors, Governors, Edicts
+  colonizationSprawl: () => get('api/colonization.php?action=sprawl_status'),
+  colonizationSectors: () => get('api/colonization.php?action=list_sectors'),
+  colonizationSectorDetail: (id) => get(`api/colonization.php?action=sector_detail&id=${encodeURIComponent(Math.max(0, Number(id || 0)))}`),
+  colonizationCreateSector: ({ name } = {}) => post('api/colonization.php?action=create_sector', { name: String(name || '') }),
+  colonizationUpdateSector: ({ sector_id, name, tax_rate, autonomy_level } = {}) =>
+    post('api/colonization.php?action=update_sector', { sector_id: Math.max(0, Number(sector_id || 0)), name, tax_rate, autonomy_level }),
+  colonizationDeleteSector: (sectorId) => post('api/colonization.php?action=delete_sector', { sector_id: Math.max(0, Number(sectorId || 0)) }),
+  colonizationAssignSystem: ({ sector_id, star_system_id } = {}) =>
+    post('api/colonization.php?action=assign_system', { sector_id: Math.max(0, Number(sector_id || 0)), star_system_id: Math.max(0, Number(star_system_id || 0)) }),
+  colonizationRemoveSystem: ({ sector_id, star_system_id } = {}) =>
+    post('api/colonization.php?action=remove_system', { sector_id: Math.max(0, Number(sector_id || 0)), star_system_id: Math.max(0, Number(star_system_id || 0)) }),
+  colonizationGovernors: () => get('api/colonization.php?action=list_governors'),
+  colonizationAppointGovernor: ({ governor_id, sector_id } = {}) =>
+    post('api/colonization.php?action=appoint_governor', { governor_id: Math.max(0, Number(governor_id || 0)), sector_id: Math.max(0, Number(sector_id || 0)) }),
+  colonizationDismissGovernor: (governorId) => post('api/colonization.php?action=dismiss_governor', { governor_id: Math.max(0, Number(governorId || 0)) }),
+  colonizationEdicts: () => get('api/colonization.php?action=list_edicts'),
+  colonizationActivateEdict: (edictType) => post('api/colonization.php?action=activate_edict', { edict_type: String(edictType || '') }),
+  colonizationDeactivateEdict: (edictType) => post('api/colonization.php?action=deactivate_edict', { edict_type: String(edictType || '') }),
+
+  // Colony Buildings
+  colonyBuildingsLayout: (colonyId) => get(`api/colony_buildings.php?action=get_layout&colony_id=${encodeURIComponent(Math.max(0, Number(colonyId || 0)))}`),
+  colonyBuildingsPlace: ({ colony_id, building_type, slot_x, slot_y } = {}) =>
+    post('api/colony_buildings.php?action=place_building', { colony_id: Math.max(0, Number(colony_id || 0)), building_type: String(building_type || ''), slot_x: Number(slot_x ?? 0), slot_y: Number(slot_y ?? 0) }),
+  colonyBuildingsRemove: ({ colony_id, slot_x, slot_y } = {}) =>
+    post('api/colony_buildings.php?action=remove_building', { colony_id: Math.max(0, Number(colony_id || 0)), slot_x: Number(slot_x ?? 0), slot_y: Number(slot_y ?? 0) }),
+  colonyBuildingsUpgrade: ({ colony_id, slot_x, slot_y, completes_in_seconds } = {}) =>
+    post('api/colony_buildings.php?action=upgrade_slot', { colony_id: Math.max(0, Number(colony_id || 0)), slot_x: Number(slot_x ?? 0), slot_y: Number(slot_y ?? 0), completes_in_seconds: completes_in_seconds != null ? Number(completes_in_seconds) : undefined }),
+  colonyBuildingsSlotInfo: (colonyId, slotX, slotY) => get(`api/colony_buildings.php?action=get_slot_info&colony_id=${encodeURIComponent(Math.max(0, Number(colonyId || 0)))}&slot_x=${encodeURIComponent(Number(slotX ?? 0))}&slot_y=${encodeURIComponent(Number(slotY ?? 0))}`),
   cancelTrade: (id)            => post('api/trade.php?action=cancel',  { proposal_id: id }),
 
     // Alliances
@@ -1831,6 +1861,16 @@ const API = (() => {
       post('api/situations.php?action=set_approach', { situation_id, approach_key }),
     tickSituations: (situation_id) =>
       post('api/situations.php?action=tick', situation_id ? { situation_id } : {}),
+
+    // Empire Categories — scores & espionage
+    getEmpireScores: () => get('api/empire.php?action=get_scores'),
+    getEmpireScoreBreakdown: () => get('api/empire.php?action=get_score_breakdown'),
+    getEspionageStatus: () => get('api/empire.php?action=get_espionage_status'),
+    hireEspionageAgent: (data = {}) => post('api/espionage.php?action=hire_agent', data),
+    assignEspionageMission: (data = {}) => post('api/espionage.php?action=assign_mission', data),
+    getActiveEspionageMissions: () => get('api/espionage.php?action=get_active_missions'),
+    getEspionageMissionResult: (missionId) =>
+      get(`api/espionage.php?action=mission_result&mission_id=${encodeURIComponent(Math.max(0, Number(missionId || 0)))}`),
   };
 })();
 

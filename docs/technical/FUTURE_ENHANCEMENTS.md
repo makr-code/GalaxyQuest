@@ -196,12 +196,19 @@ header('Cache-Control: no-cache');
 ✅ UI implemented via `TradeProposalsController` in `js/game.js` with Inbox/Outbox tabs and accept/reject/cancel actions.
 
 ### 3.4 War Declarations & Territory
-**Priority:** 🔭  
-**Effort:** Large
+**Priority:** 🚧 Partial  
+**Status:** 🚧 Backend ~80 % implemented (`api/war.php`, `wars`/`war_goals`/`peace_offers` tables), Frontend ~40 %  
+**Effort:** Large (remaining: frontend UI, alliance wars, goal scoring visibility)
 
-- Players (or alliances) can formally declare war / peace, enabling PvP without the `pvp_mode` toggle.
-- Galaxy territory visualisation: sectors coloured by dominant alliance.
-- Blockade mechanic: fleet in orbit prevents departing fleets from leaving a colony.
+- ✅ Backend: `declare`, `list`, `get_status`, `offer_peace`, `respond_peace` endpoints
+- ✅ Backend: War score tracking, exhaustion system, forced-peace logic, territory control detection
+- 🚧 Frontend: War declaration dialog not fully wired (goal customization, casus belli missing)
+- 🚧 Frontend: Peace negotiation UI minimal (accept/reject only — no counter-offers)
+- ❌ Alliance-level wars (only 1v1 implemented)
+- ❌ Galaxy territory visualisation: sectors coloured by dominant alliance
+- ❌ Blockade mechanic: fleet in orbit prevents departing fleets
+
+See `docs/technical/GAP_TODO.md` B-1 for detailed remaining items.
 
 ---
 

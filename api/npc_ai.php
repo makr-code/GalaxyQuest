@@ -295,30 +295,90 @@ function maybe_pirate_raid(PDO $db, int $userId, array $faction): void {
 
     // Pick a random non-homeworld colony
     $col = $db->prepare(
-        'SELECT id, metal, crystal FROM colonies
+        'SELECT id, metal, crystal, deuterium, population FROM colonies
          WHERE user_id=? AND is_homeworld=0 ORDER BY RAND() LIMIT 1'
     );
     $col->execute([$userId]);
     $target = $col->fetch();
     if (!$target) return;
 
-    // Steal up to 5% of metal/crystal
-    $stealM = (int)min((float)$target['metal']   * 0.05, 500);
-    $stealC = (int)min((float)$target['crystal'] * 0.05, 300);
+    $colId = (int)$target['id'];
+    $fid   = (int)$faction['id'];
 
-    if ($stealM > 0 || $stealC > 0) {
-        $db->prepare('UPDATE colonies SET metal=metal-?, crystal=crystal-? WHERE id=?')
-           ->execute([$stealM, $stealC, $target['id']]);
+    // ── Countermeasure effectiveness check ────────────────────────────────
+    $cmStmt = $db->prepare(
+        'SELECT COALESCE(MAX(effectiveness), 0) AS max_eff
+         FROM raid_countermeasures
+         WHERE colony_id = ?
+           AND (pirate_faction_id IS NULL OR pirate_faction_id = ?)
+           AND expires_at > NOW()'
+    );
+    $cmStmt->execute([$colId, $fid]);
+    $cmRow = $cmStmt->fetch(PDO::FETCH_ASSOC);
+    $countermeasureEff = (float)($cmRow['max_eff'] ?? 0); // 0–100
+
+    // Defense infrastructure bonus
+    $infraStmt = $db->prepare(
+        'SELECT COALESCE(SUM(effectiveness * ((100 - damage_current) / 100.0)), 0) AS infra_eff
+         FROM colony_defense_infrastructure
+         WHERE colony_id = ?'
+    );
+    $infraStmt->execute([$colId]);
+    $infraRow = $infraStmt->fetch(PDO::FETCH_ASSOC);
+    $infraEff = (float)($infraRow['infra_eff'] ?? 0);
+
+    // Combined effectiveness caps at 95% block chance
+    $blockChance = min(95.0, $countermeasureEff + $infraEff * 0.5);
+
+    // Random roll — if blocked, log a failed raid and exit
+    if ($blockChance > 0 && (mt_rand(0, 99) < (int)$blockChance)) {
+        $tableExists = $db->query("SHOW TABLES LIKE 'pirate_raid_history'")->fetchColumn();
+        if ($tableExists) {
+            $db->prepare(
+                'INSERT INTO pirate_raid_history
+                 (colony_id, pirate_faction_id, raid_intensity, defense_level, raid_success, goods_stolen, casualties, damage_percent)
+                 VALUES (?, ?, ?, ?, 0, 0, 0, 0)'
+            )->execute([$colId, $fid, (int)$faction['aggression'], (int)$blockChance]);
+        }
+        return; // Raid successfully blocked
+    }
+
+    // ── Calculate loot (reduced by partial defense effectiveness) ─────────
+    $lootReduction = max(0.0, 1.0 - ($blockChance / 100.0));
+    $stealM = (int)min((float)$target['metal']    * 0.05 * $lootReduction, 500);
+    $stealC = (int)min((float)$target['crystal']  * 0.05 * $lootReduction, 300);
+    $stealD = (int)min((float)$target['deuterium'] * 0.03 * $lootReduction, 100);
+
+    if ($stealM > 0 || $stealC > 0 || $stealD > 0) {
+        $db->prepare('UPDATE colonies SET metal=GREATEST(0,metal-?), crystal=GREATEST(0,crystal-?), deuterium=GREATEST(0,deuterium-?) WHERE id=?')
+           ->execute([$stealM, $stealC, $stealD, $colId]);
+
+        $goodsTotal = $stealM + $stealC + $stealD;
+        $lootDesc = implode(', ', array_filter([
+            $stealM > 0 ? "{$stealM} metal"      : null,
+            $stealC > 0 ? "{$stealC} crystal"    : null,
+            $stealD > 0 ? "{$stealD} deuterium"  : null,
+        ]));
 
         $msg = "[{$faction['icon']} {$faction['name']}] A pirate raid struck your colony! "
-             . "Lost: {$stealM} metal, {$stealC} crystal. "
+             . "Lost: {$lootDesc}. "
              . "Improve your diplomatic standing or build defences to deter future raids.";
         $db->prepare('INSERT INTO messages (receiver_id, subject, body) VALUES (?, ?, ?)')
            ->execute([$userId, 'Pirate Raid!', $msg]);
 
+        // ── Log to pirate_raid_history ─────────────────────────────────────
+        $tableExists = $db->query("SHOW TABLES LIKE 'pirate_raid_history'")->fetchColumn();
+        if ($tableExists) {
+            $db->prepare(
+                'INSERT INTO pirate_raid_history
+                 (colony_id, pirate_faction_id, raid_intensity, defense_level, raid_success, goods_stolen, casualties, damage_percent)
+                 VALUES (?, ?, ?, ?, 1, ?, 0, 0.00)'
+            )->execute([$colId, $fid, (int)$faction['aggression'], (int)$blockChance, $goodsTotal]);
+        }
+
         // Reduce standing slightly
         require_once __DIR__ . '/factions.php';
-        update_standing($db, $userId, (int)$faction['id'], -3, 'raid', 'Pirate raid on colony');
+        update_standing($db, $userId, $fid, -3, 'raid', 'Pirate raid on colony');
     }
 }
 

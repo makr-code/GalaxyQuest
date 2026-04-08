@@ -648,6 +648,154 @@ function action_set_pop_policy(PDO $db, int $uid): never {
     ]);
 }
 
+/**
+ * GET economy.php?action=get_bottleneck[&colony_id=N]
+ *
+ * Returns manufacturing bottleneck warnings per colony.
+ * A bottleneck occurs when a building is producing at reduced rate due to:
+ *   - Policy restrictions (war without war_economy policy)
+ *   - Low pop satisfaction (<60%)
+ *   - Missing input goods for Tier-3+ production
+ */
+function action_get_bottleneck(PDO $db, int $uid): never {
+    $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
+
+    $colonies = fetch_user_colonies($db, $uid);
+    if ($colonyId !== null) {
+        $colonies = array_filter($colonies, fn($c) => (int)$c['id'] === $colonyId);
+    }
+
+    $warModifiers = fetch_war_economy_modifier($db, $uid);
+    $policy = fetch_policy($db, $uid);
+    $globalPolicy = policy_key_from_mixed($policy['global_policy'] ?? 'free_market');
+
+    $bottlenecks = [];
+    foreach ($colonies as $c) {
+        $cid = (int)$c['id'];
+        flush_colony_production($db, $cid);
+
+        $warnings = [];
+
+        // Check satisfaction
+        $satStmt = $db->prepare(<<<SQL
+            SELECT COALESCE(SUM(satisfaction_index * count) / NULLIF(SUM(count), 0), 50.0) AS avg_sat,
+                   SUM(shortage_ticks) AS total_shortage_ticks
+            FROM economy_pop_classes WHERE colony_id = ?
+        SQL);
+        $satStmt->execute([$cid]);
+        $satRow = $satStmt->fetch(PDO::FETCH_ASSOC);
+        $avgSat = (float)($satRow['avg_sat'] ?? 50.0);
+        $totalShortTicks = (int)($satRow['total_shortage_ticks'] ?? 0);
+
+        if ($avgSat < 40.0) {
+            $warnings[] = ['type' => 'satisfaction_critical', 'message' => "Pop satisfaction {$avgSat}% — Tier-3 production halted", 'severity' => 'critical'];
+        } elseif ($avgSat < 60.0) {
+            $warnings[] = ['type' => 'satisfaction_low', 'message' => "Pop satisfaction {$avgSat}% — production efficiency reduced", 'severity' => 'warning'];
+        }
+
+        // Check war policy conflict
+        if ($warModifiers['active_wars'] > 0 && !$warModifiers['has_war_economy_policy']) {
+            $warnings[] = ['type' => 'war_no_policy', 'message' => 'Active war without War Economy policy — Tier-3 production disrupted', 'severity' => 'warning'];
+        }
+
+        // Check shortage goods
+        $shortStmt = $db->prepare(<<<SQL
+            SELECT good_type, quantity, consumption_rate_per_hour, production_rate_per_hour
+            FROM economy_processed_goods
+            WHERE colony_id = ? AND consumption_rate_per_hour > production_rate_per_hour
+        SQL);
+        $shortStmt->execute([$cid]);
+        foreach ($shortStmt->fetchAll(PDO::FETCH_ASSOC) as $sg) {
+            $deficit = (float)$sg['consumption_rate_per_hour'] - (float)$sg['production_rate_per_hour'];
+            $isCritical = in_array($sg['good_type'], ['consumer_goods', 'biocompost'], true);
+            $warnings[] = [
+                'type'     => $isCritical ? 'starvation_risk' : 'shortage',
+                'good'     => $sg['good_type'],
+                'message'  => "Shortage: {$sg['good_type']} deficit {$deficit}/hr",
+                'severity' => $isCritical ? 'critical' : 'warning',
+                'deficit_per_hour' => round($deficit, 3),
+            ];
+        }
+
+        // Policy-specific warnings
+        if ($globalPolicy === 'war_economy') {
+            $warnings[] = ['type' => 'policy_info', 'message' => 'War Economy: military +30%, consumer goods −20%', 'severity' => 'info'];
+        }
+        if ($globalPolicy === 'mercantilism') {
+            $warnings[] = ['type' => 'policy_info', 'message' => 'Mercantilism: imports cost +20% more', 'severity' => 'info'];
+        }
+        if ($globalPolicy === 'autarky') {
+            $warnings[] = ['type' => 'policy_info', 'message' => 'Autarky: imports blocked, domestic production +10%', 'severity' => 'info'];
+        }
+
+        $bottlenecks[] = [
+            'colony_id'    => $cid,
+            'colony_name'  => $c['name'],
+            'avg_satisfaction' => round($avgSat, 1),
+            'shortage_ticks'   => $totalShortTicks,
+            'warnings'     => $warnings,
+            'warning_count' => count($warnings),
+        ];
+    }
+
+    json_ok([
+        'bottlenecks'    => $bottlenecks,
+        'global_policy'  => $globalPolicy,
+        'war_modifiers'  => $warModifiers,
+    ]);
+}
+
+/**
+ * GET economy.php?action=get_shortage_events[&colony_id=N][&resolved=0|1]
+ *
+ * Returns shortage/starvation events log.
+ */
+function action_get_shortage_events(PDO $db, int $uid): never {
+    $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
+    $showResolved = isset($_GET['resolved']) && $_GET['resolved'] === '1';
+
+    // Verify table exists
+    $tableExists = $db->query("SHOW TABLES LIKE 'economy_shortage_events'")->fetchColumn();
+    if (!$tableExists) {
+        json_ok(['events' => []]);
+    }
+
+    $params = [$uid];
+    $where = 'c.user_id = ?';
+    if ($colonyId !== null) {
+        $where .= ' AND e.colony_id = ?';
+        $params[] = $colonyId;
+    }
+    if (!$showResolved) {
+        $where .= ' AND e.resolved_at IS NULL';
+    }
+
+    $stmt = $db->prepare(<<<SQL
+        SELECT e.id, e.colony_id, c.name AS colony_name,
+               e.good_type, e.deficit_per_hour, e.severity,
+               e.started_at, e.resolved_at
+        FROM economy_shortage_events e
+        JOIN colonies c ON c.id = e.colony_id
+        WHERE {$where}
+        ORDER BY e.started_at DESC
+        LIMIT 100
+    SQL);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    json_ok(['events' => array_map(fn($r) => [
+        'id'            => (int)$r['id'],
+        'colony_id'     => (int)$r['colony_id'],
+        'colony_name'   => $r['colony_name'],
+        'good_type'     => $r['good_type'],
+        'deficit_per_hour' => (float)$r['deficit_per_hour'],
+        'severity'      => $r['severity'],
+        'started_at'    => $r['started_at'],
+        'resolved_at'   => $r['resolved_at'],
+        'active'        => $r['resolved_at'] === null,
+    ], $rows)]);
+}
+
 match ($action) {
     'get_overview'          => action_get_overview($db, $uid),
     'get_production'        => action_get_production($db, $uid),
@@ -659,5 +807,7 @@ match ($action) {
     'get_pop_classes'       => action_get_pop_classes($db, $uid),
     'get_pop_status'        => action_get_pop_status($db, $uid),
     'set_pop_policy'        => action_set_pop_policy($db, $uid),
+    'get_bottleneck'        => action_get_bottleneck($db, $uid),
+    'get_shortage_events'   => action_get_shortage_events($db, $uid),
     default                 => json_error('Unknown action: ' . $action, 400),
 };
