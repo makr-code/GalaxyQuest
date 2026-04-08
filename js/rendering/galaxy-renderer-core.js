@@ -879,14 +879,24 @@
       const sourceOwner = String(payload.sourceOwner ?? payload.owner ?? '').trim();
       const sourceType = String(payload.sourceType ?? payload.installType ?? payload.type ?? '').trim().toLowerCase();
       const weaponKind = String(payload.weaponKind ?? payload.kind ?? '').trim().toLowerCase();
+      const targetPos = this._normalizeWeaponFireTargetPos(payload.targetPos ?? payload.target_pos ?? null);
+      const targetDebrisId = this._normalizeWeaponFireDebrisId(
+        payload.targetDebrisId
+        ?? payload.target_debris_id
+        ?? payload.debrisId
+        ?? payload.targetId
+        ?? null
+      );
 
-      if (!sourcePosition && !sourceOwner && !sourceType && !weaponKind) return false;
+      if (!sourcePosition && !sourceOwner && !sourceType && !weaponKind && !targetPos && !targetDebrisId) return false;
 
       this.pendingInstallationWeaponFire.push({
         sourcePosition,
         sourceOwner,
         sourceType,
         weaponKind,
+        targetPos,
+        targetDebrisId,
         ts: performance.now(),
       });
       if (this.pendingInstallationWeaponFire.length > 180) {
@@ -903,7 +913,8 @@
      * - sourceOwner: faction/owner name to filter (null = all)
      * - sourcePosition: [reserved] target position index
      * - weaponKind: 'laser' | 'beam' | ... to filter (null = all)
-     * - targetPos: [x,y,z] impact point [unused, for future particles]
+    * - targetPos: [x,y,z] impact point
+    * - targetDebrisId: explicit debris ID target for sourceType='debris'
      * - energy: energy/power display [unused, for future HUD]
      * 
      * @param {object} event - Weapon-fire event payload
@@ -3189,20 +3200,41 @@
         return;
       }
 
-      // TODO: Match debris by position/ID from targetPos
-      // For now: apply damage to all debris in system (or use sourcePosition as ID)
-      if (!ev.targetPos) return;
-
-      const targetPos = ev.targetPos;
+      const targetPos = this._normalizeWeaponFireTargetPos(ev?.targetPos ?? ev?.target_pos ?? null);
+      const targetDebrisId = this._normalizeWeaponFireDebrisId(
+        ev?.targetDebrisId
+        ?? ev?.target_debris_id
+        ?? ev?.debrisId
+        ?? ev?.targetId
+        ?? null
+      );
       const damageAmount = Number(ev.damage ?? 25);
 
-      // Find nearest debris object within range
-      const nearestDebris = this._findNearestDebrisToPosition(targetPos, 50);
+      if (!targetPos && !targetDebrisId) return;
+
+      let nearestDebris = null;
+
+      // Prefer explicit ID targeting when provided.
+      if (targetDebrisId) {
+        nearestDebris = this.debrisManager.get(targetDebrisId)
+          || this.debrisManager.get(String(targetDebrisId));
+      }
+
+      // Fallback: nearest-neighbor targeting around impact point.
+      if (!nearestDebris && targetPos) {
+        nearestDebris = this._findNearestDebrisToPosition(targetPos, 50);
+      }
+
       if (!nearestDebris) {
         // No debris found, spawn impact burst
-        this._spawnDebrisImpactBurst(ev, elapsed);
+        if (targetPos) {
+          this._spawnDebrisImpactBurst(Object.assign({}, ev, { targetPos }), elapsed);
+        }
         return;
       }
+
+      const impactPos = targetPos
+        || (Array.isArray(nearestDebris.position) ? nearestDebris.position : null);
 
       // Apply damage via DebrisManager (triggers state machine)
       this.debrisManager.applyDamage(nearestDebris.id, damageAmount, {
@@ -3213,7 +3245,35 @@
 
       // Spawn fragments based on new state
       const debris = this.debrisManager.get(nearestDebris.id);
-      this._spawnDebrisFragmentsByState(debris, targetPos, elapsed);
+      if (impactPos) {
+        this._spawnDebrisFragmentsByState(debris, impactPos, elapsed);
+      }
+    }
+
+    _normalizeWeaponFireTargetPos(rawPos) {
+      if (Array.isArray(rawPos) && rawPos.length >= 3) {
+        const x = Number(rawPos[0]);
+        const y = Number(rawPos[1]);
+        const z = Number(rawPos[2]);
+        if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+          return [x, y, z];
+        }
+      }
+      if (rawPos && typeof rawPos === 'object') {
+        const x = Number(rawPos.x);
+        const y = Number(rawPos.y);
+        const z = Number(rawPos.z);
+        if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+          return [x, y, z];
+        }
+      }
+      return null;
+    }
+
+    _normalizeWeaponFireDebrisId(rawId) {
+      if (rawId == null) return null;
+      const asString = String(rawId).trim();
+      return asString ? rawId : null;
     }
 
     /**
