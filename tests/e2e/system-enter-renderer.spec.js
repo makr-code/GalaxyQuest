@@ -44,6 +44,9 @@ async function installRendererFriendlyCdnStubs(page) {
 }
 
 async function loginDefaultUser(page, baseURL) {
+  await page.addInitScript(() => {
+    window.__GQ_E2E_MODE = true;
+  });
   await page.goto(`${baseURL}/index.html`, { waitUntil: 'domcontentloaded' });
   const userInput = page.locator('#login-username');
   const passInput = page.locator('#login-password');

@@ -169,6 +169,9 @@
   }
 
   function resolveQualityProfile(opts = {}) {
+    if (typeof window !== 'undefined' && window.__GQ_E2E_MODE === true) {
+      return cloneProfile('low', 'E2E mode: forced low profile to reduce GPU readback stalls.');
+    }
     const requested = normalizeProfileName(opts.requestedProfile);
     if (requested !== 'auto') {
       return cloneProfile(requested, `Manual: ${requested}`);
