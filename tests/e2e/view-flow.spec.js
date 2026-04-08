@@ -2,6 +2,34 @@ const { test, expect } = require('@playwright/test');
 
 const nativeOnlyStrict = process.env.GQ_VIEWFLOW_NATIVE_ONLY === '1';
 
+function createGpuStallWarningCounter(page) {
+  const metrics = {
+    totalConsoleWarnings: 0,
+    gpuReadbackWarnings: 0,
+    samples: [],
+  };
+
+  const onConsole = (msg) => {
+    const level = String(msg.type() || '').toLowerCase();
+    if (level !== 'warning' && level !== 'error') return;
+    metrics.totalConsoleWarnings += 1;
+
+    const text = String(msg.text() || '');
+    if (/readpixels|gpu\s+stall|stall\s+due\s+to\s+readpixels/i.test(text)) {
+      metrics.gpuReadbackWarnings += 1;
+      if (metrics.samples.length < 3) {
+        metrics.samples.push(text.slice(0, 220));
+      }
+    }
+  };
+
+  page.on('console', onConsole);
+  return {
+    snapshot: () => ({ ...metrics, samples: [...metrics.samples] }),
+    dispose: () => page.off('console', onConsole),
+  };
+}
+
 async function installCdnStubs(page) {
   await page.route('https://cdn.jsdelivr.net/**', async (route) => {
     const url = route.request().url();
@@ -161,6 +189,7 @@ async function openBuildingsWindow(page, { allowWmFallback = true } = {}) {
 }
 
 test('Galaxy -> System -> Planet/Colony -> Buildings flow smoke', async ({ page, baseURL }, testInfo) => {
+  const gpuWarnCounter = createGpuStallWarningCounter(page);
   await installCdnStubs(page);
   await loginDefaultUser(page, baseURL);
   let usedSystemFallback = false;
@@ -323,11 +352,17 @@ test('Galaxy -> System -> Planet/Colony -> Buildings flow smoke', async ({ page,
     expect(usedColonyFallback, 'native-only strict mode: colony fallback must stay disabled').toBe(false);
     expect(usedFinalNavRecovery, 'native-only strict mode: final nav recovery must stay disabled').toBe(false);
   }
-  console.log(`[e2e:viewflow] strict-path=${pathTag} systemFallback=${usedSystemFallback} colonyFallback=${usedColonyFallback} finalNavRecovery=${usedFinalNavRecovery}`);
+  const gpuWarn = gpuWarnCounter.snapshot();
+  gpuWarnCounter.dispose();
+  console.log(`[e2e:viewflow] strict-path=${pathTag} systemFallback=${usedSystemFallback} colonyFallback=${usedColonyFallback} finalNavRecovery=${usedFinalNavRecovery} gpuReadbackWarnings=${gpuWarn.gpuReadbackWarnings} totalWarnings=${gpuWarn.totalConsoleWarnings}`);
+  if (gpuWarn.samples.length) {
+    console.log(`[e2e:viewflow][gpu-warning-samples] ${gpuWarn.samples.join(' | ')}`);
+  }
 });
 
 test('UI fallback nav opens buildings window when galaxy backend is degraded', async ({ page, baseURL }) => {
   test.skip(nativeOnlyStrict, 'native-only mode validates strict flow only');
+  const gpuWarnCounter = createGpuStallWarningCounter(page);
   await installCdnStubs(page);
   await loginDefaultUser(page, baseURL);
 
@@ -345,4 +380,11 @@ test('UI fallback nav opens buildings window when galaxy backend is degraded', a
     return wmOpen || navActive;
   });
   expect(buildingsOpen).toBe(true);
+
+  const gpuWarn = gpuWarnCounter.snapshot();
+  gpuWarnCounter.dispose();
+  console.log(`[e2e:viewflow-nav-fallback] gpuReadbackWarnings=${gpuWarn.gpuReadbackWarnings} totalWarnings=${gpuWarn.totalConsoleWarnings}`);
+  if (gpuWarn.samples.length) {
+    console.log(`[e2e:viewflow-nav-fallback][gpu-warning-samples] ${gpuWarn.samples.join(' | ')}`);
+  }
 });

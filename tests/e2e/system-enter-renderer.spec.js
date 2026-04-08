@@ -2,6 +2,34 @@ const { test, expect } = require('@playwright/test');
 
 const runRendererSmoke = process.env.GQ_RUN_RENDERER_SMOKE === '1';
 
+function createGpuStallWarningCounter(page) {
+  const metrics = {
+    totalConsoleWarnings: 0,
+    gpuReadbackWarnings: 0,
+    samples: [],
+  };
+
+  const onConsole = (msg) => {
+    const level = String(msg.type() || '').toLowerCase();
+    if (level !== 'warning' && level !== 'error') return;
+    metrics.totalConsoleWarnings += 1;
+
+    const text = String(msg.text() || '');
+    if (/readpixels|gpu\s+stall|stall\s+due\s+to\s+readpixels/i.test(text)) {
+      metrics.gpuReadbackWarnings += 1;
+      if (metrics.samples.length < 3) {
+        metrics.samples.push(text.slice(0, 220));
+      }
+    }
+  };
+
+  page.on('console', onConsole);
+  return {
+    snapshot: () => ({ ...metrics, samples: [...metrics.samples] }),
+    dispose: () => page.off('console', onConsole),
+  };
+}
+
 async function installRendererFriendlyCdnStubs(page) {
   await page.route('https://cdn.jsdelivr.net/**', async (route) => {
     const url = route.request().url();
@@ -118,6 +146,7 @@ async function openHomeSystem(page) {
 
 test('Home system enter populates live renderer state', async ({ page, baseURL }) => {
   test.skip(!runRendererSmoke, 'Renderer smoke requires explicit opt-in with live WebGL/CDN support.');
+  const gpuWarnCounter = createGpuStallWarningCounter(page);
   await installRendererFriendlyCdnStubs(page);
   await loginDefaultUser(page, baseURL);
   await page.click('#topbar-home-btn');
@@ -166,5 +195,10 @@ test('Home system enter populates live renderer state', async ({ page, baseURL }
     expect(hasRenderableSystemSignal).toBe(true);
   }
 
-  console.log(`[e2e:system-enter] controller=${state.hasController} backend=${state.backend} systemMode=${state.systemMode} panelPlanets=${state.panelPlanetItems} planets=${state.planets} moons=${state.moons} facilities=${state.facilities} fleets=${state.fleets}`);
+  const gpuWarn = gpuWarnCounter.snapshot();
+  gpuWarnCounter.dispose();
+  console.log(`[e2e:system-enter] controller=${state.hasController} backend=${state.backend} systemMode=${state.systemMode} panelPlanets=${state.panelPlanetItems} planets=${state.planets} moons=${state.moons} facilities=${state.facilities} fleets=${state.fleets} gpuReadbackWarnings=${gpuWarn.gpuReadbackWarnings} totalWarnings=${gpuWarn.totalConsoleWarnings}`);
+  if (gpuWarn.samples.length) {
+    console.log(`[e2e:system-enter][gpu-warning-samples] ${gpuWarn.samples.join(' | ')}`);
+  }
 });
