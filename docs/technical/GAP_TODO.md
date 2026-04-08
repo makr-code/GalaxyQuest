@@ -20,14 +20,15 @@
 
 ## Kategorie A — Kritische Gaps (Implementierung 0 %)
 
-### A-1 Kolonisierungssystem 🔴
+### A-1 Kolonisierungssystem 🔴 🚧
 **Referenz:** `docs/gamedesign/COLONIZATION_SYSTEM_DESIGN.md`, `docs/github-issues/01–03`  
 **Design:** Empire Sprawl, AdminCap, Sektoren, Gouverneure, Edikte, Pop-Strata, Produktionsketten
 
-- [ ] `sql/migrate_colonization_v1.sql` — Tabellen: `sectors`, `sector_systems`, `governors`, `empire_edicts`, `empire_sprawl_cache`
-- [ ] `sql/migrate_colonization_v2.sql` — `colonies`-Erweiterungen: `phase`, `sector_id`, `energy_balance`
-- [ ] `lib/ColonizationEngine.php` — `calc_sprawl()`, `apply_edict()`, `appoint_governor()`, `sector_autonomy_tick()`
-- [ ] `api/colonization.php` — 14 Endpunkte: `get_overview`, `create_sector`, `assign_governor`, `set_edict`, `get_edicts`, `remove_edict`, `get_sectors`, `get_governors`, `get_sprawl`, `set_colony_phase`, `get_phases`, `sector_tick`, `update_sector`, `delete_sector`
+- [x] `sql/migrate_colonization_v1.sql` — Tabellen: `sectors`, `sector_systems`, `governors`, `empire_edicts`, `empire_sprawl_cache`
+- [x] `sql/migrate_colonization_v2.sql` — `colonies`-Erweiterungen: `phase`, `sector_id`, `energy_balance`
+- [x] `lib/ColonizationEngine.php` — `recalcSprawl()`, `calcAdminCap()`, `getMalusEffects()`, `calcColonyPhase()`, `createSector()`, `assignSystemToSector()`, `appointGovernor()`, `setEdictActive()`, `listEdicts()`, `tick()`
+- [x] `api/colonization.php` — 14 Endpunkte: `sprawl_status`, `list_sectors`, `sector_detail`, `create_sector`, `update_sector`, `delete_sector`, `assign_system`, `remove_system`, `list_governors`, `appoint_governor`, `dismiss_governor`, `list_edicts`, `activate_edict`, `deactivate_edict`
+- [x] `js/network/api.js` — 15 Client-Methoden: `colonizationSprawl`, `colonizationSectors`, `colonizationSectorDetail`, `colonizationCreateSector`, `colonizationUpdateSector`, `colonizationDeleteSector`, `colonizationAssignSystem`, `colonizationRemoveSystem`, `colonizationGovernors`, `colonizationAppointGovernor`, `colonizationDismissGovernor`, `colonizationEdicts`, `colonizationActivateEdict`, `colonizationDeactivateEdict`
 - [ ] Frontend: `RuntimeColonizationController.js` — Sprawl-Panel, Sektor-Verwaltung, Gouverneurs-Zuweisung, Edikt-Liste
 - [ ] Tests: `tests/Unit/ColonizationEngineTest.php`
 
@@ -222,3 +223,5 @@
 | 2026-04-08 | Modul 1 (D-2) | PROGRESS_BARS_ROADMAP.md Phase 9+10 als ✅ markiert |
 | 2026-04-08 | Modul 1 (D-3) | FUTURE_ENHANCEMENTS.md §3.4 auf 🚧 Partial aktualisiert |
 | 2026-04-08 | Modul 2 (D-4) | 18 Root-MDs nach docs/{gamedesign,technical,lore}/ verschoben; INDEX.md vollständig aktualisiert |
+| 2026-04-08 | Modul 3 (A-1) | `sql/migrate_colonization_v1.sql` + `v2.sql` — 5 neue Tabellen + colonies-Erweiterung |
+| 2026-04-08 | Modul 4 (A-1) | `lib/ColonizationEngine.php` (10 Methoden) + `api/colonization.php` (14 Endpunkte) + `api.js` (14 Client-Methoden) |

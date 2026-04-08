@@ -1713,6 +1713,26 @@ const API = (() => {
   proposeTrade: (data)         => post('api/trade.php?action=propose', data),
   acceptTrade: (id)            => post('api/trade.php?action=accept',  { proposal_id: id }),
   rejectTrade: (id)            => post('api/trade.php?action=reject',  { proposal_id: id }),
+
+  // Colonization — Empire Sprawl, Sectors, Governors, Edicts
+  colonizationSprawl: () => get('api/colonization.php?action=sprawl_status'),
+  colonizationSectors: () => get('api/colonization.php?action=list_sectors'),
+  colonizationSectorDetail: (id) => get(`api/colonization.php?action=sector_detail&id=${encodeURIComponent(Math.max(0, Number(id || 0)))}`),
+  colonizationCreateSector: ({ name } = {}) => post('api/colonization.php?action=create_sector', { name: String(name || '') }),
+  colonizationUpdateSector: ({ sector_id, name, tax_rate, autonomy_level } = {}) =>
+    post('api/colonization.php?action=update_sector', { sector_id: Math.max(0, Number(sector_id || 0)), name, tax_rate, autonomy_level }),
+  colonizationDeleteSector: (sectorId) => post('api/colonization.php?action=delete_sector', { sector_id: Math.max(0, Number(sectorId || 0)) }),
+  colonizationAssignSystem: ({ sector_id, star_system_id } = {}) =>
+    post('api/colonization.php?action=assign_system', { sector_id: Math.max(0, Number(sector_id || 0)), star_system_id: Math.max(0, Number(star_system_id || 0)) }),
+  colonizationRemoveSystem: ({ sector_id, star_system_id } = {}) =>
+    post('api/colonization.php?action=remove_system', { sector_id: Math.max(0, Number(sector_id || 0)), star_system_id: Math.max(0, Number(star_system_id || 0)) }),
+  colonizationGovernors: () => get('api/colonization.php?action=list_governors'),
+  colonizationAppointGovernor: ({ governor_id, sector_id } = {}) =>
+    post('api/colonization.php?action=appoint_governor', { governor_id: Math.max(0, Number(governor_id || 0)), sector_id: Math.max(0, Number(sector_id || 0)) }),
+  colonizationDismissGovernor: (governorId) => post('api/colonization.php?action=dismiss_governor', { governor_id: Math.max(0, Number(governorId || 0)) }),
+  colonizationEdicts: () => get('api/colonization.php?action=list_edicts'),
+  colonizationActivateEdict: (edictType) => post('api/colonization.php?action=activate_edict', { edict_type: String(edictType || '') }),
+  colonizationDeactivateEdict: (edictType) => post('api/colonization.php?action=deactivate_edict', { edict_type: String(edictType || '') }),
   cancelTrade: (id)            => post('api/trade.php?action=cancel',  { proposal_id: id }),
 
     // Alliances
