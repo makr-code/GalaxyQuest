@@ -461,10 +461,32 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
     }
     unset($col);
 
+    // ── Per-colony production rates & storage caps ────────────────────────────
+    require_once __DIR__ . '/economy_runtime.php';
+    foreach ($colonies as &$col) {
+        $runtimeRow = fetch_colony_runtime_row($db, (int)$col['id']);
+        if ($runtimeRow !== null) {
+            $snap = build_colony_consumption_snapshot($db, $runtimeRow);
+            $prod = $snap['production'] ?? [];
+            $stor = $snap['storage'] ?? [];
+            $col['metal_per_hour']      = $prod['metal_per_hour'] ?? 0.0;
+            $col['crystal_per_hour']    = $prod['crystal_per_hour'] ?? 0.0;
+            $col['deuterium_per_hour']  = $prod['deuterium_per_hour'] ?? 0.0;
+            $col['food_per_hour']       = $prod['food_per_hour'] ?? 0.0;
+            $col['rare_earth_per_hour'] = $prod['rare_earth_per_hour'] ?? 0.0;
+            $col['metal_cap']           = $stor['metal'] ?? 500000.0;
+            $col['crystal_cap']         = $stor['crystal'] ?? 500000.0;
+            $col['deuterium_cap']       = $stor['deuterium'] ?? 500000.0;
+            $col['food_cap']            = $stor['food'] ?? 100000.0;
+        }
+    }
+    unset($col);
+
     // ── Fleets ────────────────────────────────────────────────────────────────
     $fleetStmt = $db->prepare(
         'SELECT f.id, f.mission, f.origin_colony_id,
                 f.target_galaxy, f.target_system, f.target_position,
+                COALESCE(NULLIF(ss_tgt.catalog_name, \'\'), ss_tgt.name) AS target_system_name,
                 f.ships_json,
                 f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
                 f.origin_x_ly, f.origin_y_ly, f.origin_z_ly,
@@ -475,6 +497,7 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
          FROM fleets f
          JOIN colonies c ON c.id = f.origin_colony_id
               JOIN celestial_bodies cb ON cb.id = c.body_id
+              LEFT JOIN star_systems ss_tgt ON ss_tgt.galaxy_index = f.target_galaxy AND ss_tgt.system_index = f.target_system
          WHERE f.user_id = ? ORDER BY f.arrival_time ASC'
     );
     $fleetStmt->execute([$uid]);
@@ -498,6 +521,7 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
         $npcFleetStmt = $db->prepare(
             'SELECT f.id, f.mission, f.origin_colony_id,
                     f.target_galaxy, f.target_system, f.target_position,
+                    COALESCE(NULLIF(ss_tgt.catalog_name, \'\'), ss_tgt.name) AS target_system_name,
                     f.ships_json,
                     f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
                     f.origin_x_ly, f.origin_y_ly, f.origin_z_ly,
@@ -512,6 +536,7 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
              JOIN colonies c           ON c.id  = f.origin_colony_id
              JOIN celestial_bodies cb  ON cb.id = c.body_id
              JOIN users u              ON u.id  = f.user_id
+             LEFT JOIN star_systems ss_tgt ON ss_tgt.galaxy_index = f.target_galaxy AND ss_tgt.system_index = f.target_system
              WHERE u.control_type = \'npc_engine\'
                AND f.mission      != \'spy\'
              ORDER BY f.arrival_time ASC

@@ -67,6 +67,19 @@ class StarTooltip {
 
             // Build tooltip HTML
             const typeLabel = this._getStarTypeLabel(star.classification.type);
+            const luminosityLabel = this._getLuminosityLabel(star.physical_properties.luminosity_solar);
+            const ageLabel = this._getAgeLabel(star.age_metallicity.age_gyr);
+
+            const hzInner = data.habitable_zone?.hz_inner_au ?? data.hz_inner_au ?? null;
+            const hzOuter = data.habitable_zone?.hz_outer_au ?? data.hz_outer_au ?? null;
+            let hzBadgeHtml = '';
+            if (hzInner !== null && hzOuter !== null) {
+                const hzClass = hzInner < 2.0 ? 'hz-green' : hzInner < 4.0 ? 'hz-yellow' : 'hz-gray';
+                hzBadgeHtml = `<div class="star-tooltip-row">
+                    <span class="hz-badge ${hzClass}">🌍 Habitzone: ${hzInner.toFixed(1)}–${hzOuter.toFixed(1)} AU</span>
+                </div>`;
+            }
+
             const tooltip_html = `
                 <div class="star-tooltip-content">
                     <div class="star-tooltip-header">
@@ -78,12 +91,8 @@ class StarTooltip {
                         <span class="star-tooltip-value">${star.classification.spectral_class}${star.classification.subtype}</span>
                     </div>
                     <div class="star-tooltip-row">
-                        <span class="star-tooltip-label">Temperature:</span>
-                        <span class="star-tooltip-value">${star.physical_properties.temperature_k.toLocaleString()} K</span>
-                    </div>
-                    <div class="star-tooltip-row">
-                        <span class="star-tooltip-label">Luminosity:</span>
-                        <span class="star-tooltip-value">${star.physical_properties.luminosity_solar.toFixed(4)} L☉</span>
+                        <span class="star-tooltip-label">Helligkeit:</span>
+                        <span class="star-tooltip-value">${luminosityLabel} (${star.physical_properties.luminosity_solar.toFixed(4)} L☉)</span>
                     </div>
                     <div class="star-tooltip-row">
                         <span class="star-tooltip-label">Mass:</span>
@@ -91,8 +100,9 @@ class StarTooltip {
                     </div>
                     <div class="star-tooltip-row">
                         <span class="star-tooltip-label">Age:</span>
-                        <span class="star-tooltip-value">${star.age_metallicity.age_gyr.toFixed(2)} Gyr</span>
+                        <span class="star-tooltip-value">${ageLabel}</span>
                     </div>
+                    ${hzBadgeHtml}
                     <div class="star-tooltip-footer">
                         <button class="star-tooltip-btn" onclick="window.openSystemInfoPanel(${galaxyIdx}, ${systemIdx})">
                             ${this._monoIcon('icon-graphics')}View Full Details
@@ -142,6 +152,28 @@ class StarTooltip {
             this.tooltip.style.display = 'none';
             this.isVisible = false;
         }, 200);
+    }
+
+    /**
+     * Get luminosity descriptive label
+     * @private
+     */
+    _getLuminosityLabel(luminosity) {
+        if (luminosity < 0.01) return 'Lichtschwach';
+        if (luminosity < 0.1) return 'Schwach';
+        if (luminosity < 1.0) return 'Sonnenwert';
+        if (luminosity <= 10) return 'Hell';
+        return 'Strahlend';
+    }
+
+    /**
+     * Get age descriptive label
+     * @private
+     */
+    _getAgeLabel(ageGyr) {
+        if (ageGyr < 1) return 'Jung';
+        if (ageGyr <= 5) return 'Reif';
+        return `Alt (${ageGyr.toFixed(1)} Gyr)`;
     }
 
     /**

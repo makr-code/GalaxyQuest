@@ -22,6 +22,13 @@
       gameLog = () => {},
     } = opts;
 
+    function levelPips(level) {
+      const displayMax = 5;
+      const f = Math.min(level, displayMax);
+      const e = Math.max(0, displayMax - f);
+      return `<span class="item-level-pips" title="Level ${level}">${'●'.repeat(f)}${'○'.repeat(e)}</span>`;
+    }
+
     return {
       getBuildingFocus() {
         const currentColony = getCurrentColony();
@@ -101,19 +108,17 @@
             <div class="item-card ${buildingFocus === building.type ? 'item-card-focus' : ''}" data-building-type="${esc(building.type)}">
               <div class="item-card-header">
                 <span class="item-name">${building.meta.icon} ${fmtName(building.type)}</span>
-                <span class="item-level">Lv ${building.level}</span>
+                ${levelPips(building.level)}
               </div>
               <div class="item-desc">${building.meta.desc}</div>
               <div class="entity-bars" aria-label="Building status bars">
                 <div class="entity-bar-row" title="Building integrity ${integrityPct}%">
                   <span class="entity-bar-label">Health</span>
                   <div class="bar-wrap"><div class="bar-fill bar-integrity ${integrityTone}" style="width:${integrityPct}%"></div></div>
-                  <span class="entity-bar-value">${integrityPct}%</span>
                 </div>
                 <div class="entity-bar-row" title="Building shields ${shieldPct}%">
                   <span class="entity-bar-label">Shield</span>
                   <div class="bar-wrap"><div class="bar-fill bar-shield ${shieldTone}" style="width:${shieldPct}%"></div></div>
-                  <span class="entity-bar-value">${shieldPct}%</span>
                 </div>
               </div>
               <div class="item-cost">
@@ -168,31 +173,64 @@
               return;
             }
 
+            const card = btn.closest('.item-card');
+            if (!card) return;
+
+            // Toggle off if already open
+            const existing = card.querySelector('.upgrade-preview');
+            if (existing) {
+              existing.remove();
+              card.classList.remove('item-card-expanded');
+              return;
+            }
+
             const simulation = simulateBuildingUpgrade(building);
             const previewHtml = buildUpgradePreviewModal(building, simulation);
 
-            const modalContainer = documentRef.createElement('div');
-            modalContainer.innerHTML = previewHtml;
-            documentRef.body.appendChild(modalContainer);
+            // Extract inner content from modal HTML (strip outer modal wrapper if present)
+            const tempDiv = documentRef.createElement('div');
+            tempDiv.innerHTML = previewHtml;
+            const innerContent = tempDiv.querySelector('.upgrade-preview-content, .modal-body, .preview-content')
+              || tempDiv.firstElementChild
+              || tempDiv;
 
-            const confirmBtn = modalContainer.querySelector('#preview-confirm-btn');
-            const cancelBtn = modalContainer.querySelector('#preview-cancel-btn');
+            const preview = documentRef.createElement('div');
+            preview.className = 'upgrade-preview';
+            preview.innerHTML = innerContent.innerHTML || previewHtml;
 
-            const closeModal = () => {
-              modalContainer.remove();
-            };
+            // Replace confirm/cancel buttons with inline ones
+            const existingConfirm = preview.querySelector('#preview-confirm-btn');
+            const existingCancel = preview.querySelector('#preview-cancel-btn');
+            if (existingConfirm) existingConfirm.remove();
+            if (existingCancel) existingCancel.remove();
 
-            cancelBtn.addEventListener('click', closeModal);
+            const actions = documentRef.createElement('div');
+            actions.className = 'upgrade-preview-actions';
+            actions.style.cssText = 'display:flex;gap:0.4rem;margin-top:0.5rem;';
 
-            confirmBtn.addEventListener('click', async () => {
-              closeModal();
-              await this.handleUpgrade(buildingType, btn);
+            const confirmBtn = documentRef.createElement('button');
+            confirmBtn.className = 'btn btn-primary btn-sm';
+            confirmBtn.textContent = 'Upgrade bestätigen';
+            const cancelBtn = documentRef.createElement('button');
+            cancelBtn.className = 'btn btn-secondary btn-sm';
+            cancelBtn.textContent = 'Abbrechen';
+
+            actions.appendChild(confirmBtn);
+            actions.appendChild(cancelBtn);
+            preview.appendChild(actions);
+
+            card.appendChild(preview);
+            card.classList.add('item-card-expanded');
+
+            cancelBtn.addEventListener('click', () => {
+              preview.remove();
+              card.classList.remove('item-card-expanded');
             });
 
-            modalContainer.querySelector('div').parentElement.addEventListener('click', (e) => {
-              if (e.target === modalContainer.querySelector('div').parentElement) {
-                closeModal();
-              }
+            confirmBtn.addEventListener('click', async () => {
+              preview.remove();
+              card.classList.remove('item-card-expanded');
+              await this.handleUpgrade(buildingType, btn);
             });
           });
         });
