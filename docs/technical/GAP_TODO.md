@@ -75,15 +75,15 @@
 
 ## Kategorie B — Partielle Gaps (Backend ✅, Frontend/Integration fehlend)
 
-### B-1 War-System Frontend 🟡
+### B-1 War-System Frontend 🟡 🚧
 **Referenz:** `IMPLEMENTATION_STATUS_SUMMARY.md` (§3), `COMBAT_SYSTEM_DESIGN.md`, `docs/github-issues/07`  
-**Status:** Backend ~80 %, Frontend ~40 %
+**Status:** Backend ~80 %, Frontend ~65 % (teilweise implementiert)
 
-- [ ] War Declaration Dialog vollständig verdrahten (`RuntimeWarController.js`)
-- [ ] Goal-Customization UI (Preset-Auswahl + Freitext-Ziele)
-- [ ] Casus-Belli-Auswahl im Deklarations-Dialog
+- [x] War Declaration Dialog: Multi-Goal-Checkboxen statt Single-Select (5 Ziele mit Beschreibung)
+- [x] Casus-Belli-Eingabe im Deklarations-Dialog
+- [x] Peace-Negotiation: Counter-Offer-UI (counterOfferFormHtml, counterTerms-Checkboxen)
+- [x] Peace-Terms-Auswahl beim Senden (White Peace, Reparations, System Handover, Vassal, Resource Tribute)
 - [ ] War-Intelligence-Panel (feindliche Flottenanzahl, Ressourcen-Scan)
-- [ ] Peace-Negotiation: Counter-Offer-UI (nicht nur Accept/Reject)
 - [ ] Allianz-Kriege: N-vs-M Szenarien (Backend-Stub vorhanden)
 - [ ] War-Goal-Score sichtbar in Frontend (Backend trackt, Frontend zeigt "unknown")
 - [ ] `tests/js/war-events.test.js` erstellen
@@ -106,15 +106,17 @@
 
 ---
 
-### B-3 Pirates — Konsequenzen & Interaktionen 🟡
+### B-3 Pirates — Konsequenzen & Interaktionen 🟡 🚧
 **Referenz:** `IMPLEMENTATION_STATUS_SUMMARY.md` (§1)  
-**Status:** ~60 % Feature-Complete
+**Status:** ~75 % Feature-Complete (teilweise implementiert)
 
-- [ ] Raid-Konsequenzen: Kolonien-Ressourcen bei Überfall abziehen
-- [ ] Countermeasures-System: Credits/Militär ausgeben um Raids abzuwehren
+- [x] Raid-Konsequenzen: Metal, Crystal, **Deuterium** bei Überfall abziehen (`maybe_pirate_raid()`)
+- [x] Countermeasures-Effektivität in `maybe_pirate_raid()` berücksichtigt (raid_countermeasures + colony_defense_infrastructure)
+- [x] Historisches Raid-Archiv in `pirate_raid_history` loggen (raid_success, goods_stolen)
+- [x] `GREATEST(0, col - steal)` verhindert negative Ressourcenwerte
 - [ ] Pirate-Kontrakte/Verhandlungen: Tributbeziehungen, Handel
 - [ ] Standing-Decay-Sichtbarkeit im Frontend (Backend liefert Wert)
-- [ ] Historisches Raid-Archiv (>24h, Paginierung)
+- [ ] Historisches Raid-Archiv >24h mit Paginierung im Frontend
 
 ---
 
@@ -229,3 +231,5 @@
 | 2026-04-08 | Modul 4 (A-1) | `lib/ColonizationEngine.php` (10 Methoden) + `api/colonization.php` (14 Endpunkte) + `api.js` (14 Client-Methoden) |
 | 2026-04-08 | Modul 5 (A-1) | `RuntimeColonizationController.js` — Sprawl-Panel, Sektoren, Gouverneure, Edikte-Toggle; Bootstrap + game.js integriert |
 | 2026-04-08 | Modul 6 (A-1) | `tests/Unit/ColonizationEngineTest.php` — 37 Tests, 60 Assertions ✅ |
+| 2026-04-08 | Modul 7 (B-1) | `RuntimeWarController.js`: Multi-Goal-Declaration, Peace-Terms-Checkboxen, counterOfferFormHtml() |
+| 2026-04-08 | Modul 8 (B-2) | `api/npc_ai.php::maybe_pirate_raid()`: Deuterium-Loot, Countermeasure-Effektivität, pirate_raid_history-Log |

@@ -96,12 +96,51 @@
 
     // ── Offer-peace modal content ─────────────────────────────────────────────
     function offerPeaceFormHtml(warId) {
+      const peaceTermOptions = [
+        { value: 'white_peace',      label: 'White Peace (Status Quo)' },
+        { value: 'reparations',      label: 'Reparations (Credits)' },
+        { value: 'resource_tribute', label: 'Resource Tribute' },
+        { value: 'system_handover',  label: 'System Handover' },
+        { value: 'vassal_status',    label: 'Vassal Status' },
+      ];
+      const termCheckboxes = peaceTermOptions.map((t) => `
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#d7e4ff;cursor:pointer;">
+          <input type="checkbox" class="peace-term-check" value="${esc(t.value)}" style="accent-color:#3a7eff;">
+          ${esc(t.label)}
+        </label>`).join('');
       return `
         <div style="padding:12px;display:grid;gap:10px;">
-          <div style="${S.sectionTitle}">Offer Peace (War #${esc(warId)})</div>
-          <p style="color:#9fb0ce;font-size:12px;">Submit a white-peace offer. The opponent can accept or reject it.</p>
-          <div style="display:flex;gap:8px;">
+          <div style="${S.sectionTitle}">⚖ Offer Peace (War #${esc(warId)})</div>
+          <p style="color:#9fb0ce;font-size:12px;">Select your peace terms. Leave all unchecked for a White Peace offer.</p>
+          <div style="display:grid;gap:6px;">${termCheckboxes}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button style="${S.btn}" data-offer-confirm="${esc(warId)}">Send Peace Offer</button>
+            <button style="${S.btn}" data-offer-cancel="1">Cancel</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function counterOfferFormHtml(offerId, warId) {
+      const counterTermOptions = [
+        { value: 'white_peace',      label: 'White Peace (Status Quo)' },
+        { value: 'reparations',      label: 'Demand Reparations' },
+        { value: 'resource_tribute', label: 'Demand Resource Tribute' },
+        { value: 'continuation',     label: 'Continue Fighting (no terms)' },
+      ];
+      const termCheckboxes = counterTermOptions.map((t) => `
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#d7e4ff;cursor:pointer;">
+          <input type="checkbox" class="counter-term-check" value="${esc(t.value)}" style="accent-color:#bf4040;">
+          ${esc(t.label)}
+        </label>`).join('');
+      return `
+        <div style="padding:12px;display:grid;gap:10px;">
+          <div style="${S.sectionTitle}">🔄 Counter-Offer (in response to Offer #${esc(offerId)})</div>
+          <p style="color:#9fb0ce;font-size:12px;">Reject and immediately propose counter-terms, or simply reject without a counter.</p>
+          <div style="display:grid;gap:6px;">${termCheckboxes}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button style="${S.btn}" data-counter-confirm data-offer-id="${esc(offerId)}" data-war-id="${esc(warId)}">Send Counter-Offer</button>
+            <button style="${S.btnDanger}" data-counter-reject data-offer-id="${esc(offerId)}">Reject Only</button>
             <button style="${S.btn}" data-offer-cancel="1">Cancel</button>
           </div>
         </div>
@@ -122,6 +161,7 @@
             </span>
             ${isIncoming ? `
               <button style="${S.btn}" data-offer-accept="${esc(offer.id)}">Accept</button>
+              <button style="${S.btn}" data-offer-counter="${esc(offer.id)}" data-war-id="${esc(offer.war_id || '')}">Counter</button>
               <button style="${S.btnDanger}" data-offer-reject="${esc(offer.id)}">Reject</button>
             ` : `
               <span style="color:#9fb0ce;font-size:11px;">Awaiting response</span>
@@ -333,15 +373,22 @@
                 <input data-dw-target-user type="number" min="1" step="1" placeholder="e.g. 42"
                   style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:4px;">
               </label>
-              <label style="font-size:11px;color:#9fb0ce;">War Goal
-                <select data-dw-goal style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:4px;">
-                  <option value="subjugation">Subjugation</option>
-                  <option value="annex_system">Annex System</option>
-                  <option value="attrition">Attrition</option>
-                  <option value="economic">Economic</option>
-                  <option value="diplomatic">Diplomatic</option>
-                </select>
-              </label>
+              <div style="font-size:11px;color:#9fb0ce;">War Goals (select one or more)
+                <div style="display:grid;gap:4px;margin-top:4px;">
+                  ${[
+                    { value: 'subjugation',  label: '👑 Subjugation',   desc: 'Force opponent into a vassal relationship' },
+                    { value: 'annex_system', label: '🗺 Annex System',  desc: 'Claim a specific star system' },
+                    { value: 'attrition',    label: '💀 Attrition',     desc: 'Destroy military capacity' },
+                    { value: 'economic',     label: '💰 Economic',      desc: 'Seize trade routes and resources' },
+                    { value: 'diplomatic',   label: '🕊 Diplomatic',    desc: 'Force a diplomatic concession' },
+                  ].map((g) => `
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:#1a1020;padding:5px 8px;border-radius:4px;border:1px solid #3a2030;">
+                      <input type="checkbox" class="dw-goal-check" value="${g.value}" style="accent-color:#bf4040;flex-shrink:0;">
+                      <span><strong style="color:#ffcdd2;">${g.label}</strong>
+                        <span style="color:#9fb0ce;font-size:11px;margin-left:4px;">${g.desc}</span></span>
+                    </label>`).join('')}
+                </div>
+              </div>
               <label style="font-size:11px;color:#9fb0ce;">Casus Belli (optional)
                 <input data-dw-casus type="text" maxlength="120" placeholder="e.g. Border aggression"
                   style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:4px;">
@@ -362,7 +409,8 @@
             if (this.isBusy) return;
             this.isBusy = true;
             const targetUserId = Number(formHost.querySelector('[data-dw-target-user]')?.value || 0);
-            const warGoal = formHost.querySelector('[data-dw-goal]')?.value || 'subjugation';
+            const checkedGoals = [...formHost.querySelectorAll('.dw-goal-check:checked')].map((cb) => cb.value);
+            const warGoals = checkedGoals.length > 0 ? checkedGoals : ['subjugation'];
             const casusBelli = String(formHost.querySelector('[data-dw-casus]')?.value || '').trim();
             if (!targetUserId) {
               showToast('Please enter a target user ID.', 'warning');
@@ -372,7 +420,7 @@
             try {
               const res = await api.declareStrategicWar({
                 target_user_id: targetUserId,
-                war_goals: [warGoal],
+                war_goals: warGoals,
                 casus_belli: casusBelli,
               });
               if (res?.success) {
@@ -421,8 +469,9 @@
           offerForm.querySelector(`[data-offer-confirm]`)?.addEventListener('click', async () => {
             if (this.isBusy) return;
             this.isBusy = true;
+            const selectedTerms = [...offerForm.querySelectorAll('.peace-term-check:checked')].map((cb) => cb.value);
             try {
-              const res = await api.offerPeace({ war_id: wid, terms: [] });
+              const res = await api.offerPeace({ war_id: wid, terms: selectedTerms });
               if (res && res.success) {
                 invalidateGetCache([/api\/war\.php\?action=/i]);
                 showToast('Peace offer sent.', 'success');
@@ -443,7 +492,7 @@
           });
         });
 
-        // Accept / reject incoming offers
+        // Accept / reject / counter incoming offers
         root.querySelectorAll('[data-offer-accept]').forEach((btn) => {
           btn.addEventListener('click', async () => {
             if (this.isBusy) return;
@@ -466,6 +515,75 @@
               this.isBusy = false;
               await this.render();
             }
+          });
+        });
+
+        // Counter-offer button: show form
+        root.querySelectorAll('[data-offer-counter]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const offerId = btn.dataset.offerCounter;
+            const warId = btn.dataset.warId || this.state.detailWarId || 0;
+            const offerForm = root.querySelector('[data-offer-form-host]');
+            if (!offerForm) return;
+            offerForm.innerHTML = counterOfferFormHtml(offerId, warId);
+            offerForm.style.display = '';
+            offerForm.querySelector('[data-offer-cancel="1"]')?.addEventListener('click', () => {
+              offerForm.style.display = 'none';
+              offerForm.innerHTML = '';
+            });
+
+            // "Send Counter-Offer" — reject incoming, then offer peace with new terms
+            offerForm.querySelector('[data-counter-confirm]')?.addEventListener('click', async () => {
+              if (this.isBusy) return;
+              this.isBusy = true;
+              const oid = Number(offerForm.querySelector('[data-counter-confirm]')?.dataset.offerId || offerId);
+              const wid2 = Number(offerForm.querySelector('[data-counter-confirm]')?.dataset.warId || warId);
+              const counterTerms = [...offerForm.querySelectorAll('.counter-term-check:checked')].map((cb) => cb.value);
+              try {
+                // First reject the original offer
+                await api.respondPeaceOffer({ offer_id: oid, accept: false });
+                // Then submit the counter-offer
+                const res = await api.offerPeace({ war_id: wid2, terms: counterTerms });
+                if (res && res.success) {
+                  invalidateGetCache([/api\/war\.php\?action=/i]);
+                  showToast('Counter-offer sent.', 'success');
+                } else {
+                  showToast(res?.error || 'Failed to send counter-offer.', 'error');
+                }
+              } catch (err) {
+                gameLog('warn', 'counterOffer failed', err);
+                showToast('Network error sending counter-offer.', 'error');
+              } finally {
+                this.isBusy = false;
+                offerForm.style.display = 'none';
+                offerForm.innerHTML = '';
+                await this.render();
+              }
+            });
+
+            // "Reject Only"
+            offerForm.querySelector('[data-counter-reject]')?.addEventListener('click', async () => {
+              if (this.isBusy) return;
+              this.isBusy = true;
+              const oid = Number(offerForm.querySelector('[data-counter-reject]')?.dataset.offerId || offerId);
+              try {
+                const res = await api.respondPeaceOffer({ offer_id: oid, accept: false });
+                if (res && res.success) {
+                  invalidateGetCache([/api\/war\.php\?action=/i]);
+                  showToast('Peace offer rejected.', 'info');
+                } else {
+                  showToast(res?.error || 'Failed to reject offer.', 'error');
+                }
+              } catch (err) {
+                gameLog('warn', 'respondPeaceOffer(reject) failed', err);
+                showToast('Network error rejecting peace offer.', 'error');
+              } finally {
+                this.isBusy = false;
+                offerForm.style.display = 'none';
+                offerForm.innerHTML = '';
+                await this.render();
+              }
+            });
           });
         });
 
