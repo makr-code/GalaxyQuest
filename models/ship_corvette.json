@@ -1,0 +1,109 @@
+{
+  "metadata": { "version": 4.6, "type": "Object", "generator": "GalaxyQuest Model Pipeline" },
+  "modelId": "ship_corvette",
+  "label": "Corvette",
+  "version": 1,
+  "scale": 1,
+  "lod": { "segments_full": 8, "segments_low": 6 },
+  "images": [
+    { "uuid": "img_panel_grid", "url": "models/textures/panel_grid.svg" },
+    { "uuid": "img_panel_emissive", "url": "models/textures/emissive_lines.svg" }
+  ],
+  "textures": [
+    { "uuid": "tex_panel", "image": "img_panel_grid", "name": "panel-grid", "wrap": [1000, 1000], "repeat": [3, 2] },
+    { "uuid": "tex_emissive", "image": "img_panel_emissive", "name": "panel-emissive", "wrap": [1000, 1000], "repeat": [2, 1] }
+  ],
+  "geometries": [
+    { "uuid": "geo_fuselage", "type": "CylinderGeometry", "radiusTop": 0.18, "radiusBottom": 0.52, "height": 2.2, "radialSegments": 8 },
+    { "uuid": "geo_wing_l", "type": "BoxGeometry", "width": 1.6, "height": 0.08, "depth": 0.5 },
+    { "uuid": "geo_wing_r", "type": "BoxGeometry", "width": 1.6, "height": 0.08, "depth": 0.5 },
+    { "uuid": "geo_engine_core", "type": "CylinderGeometry", "radiusTop": 0.28, "radiusBottom": 0.22, "height": 0.38, "radialSegments": 8 },
+    { "uuid": "geo_cockpit", "type": "SphereGeometry", "radius": 0.22, "widthSegments": 8, "heightSegments": 6 },
+    { "uuid": "geo_weapon_barrel", "type": "CylinderGeometry", "radiusTop": 0.04, "radiusBottom": 0.06, "height": 0.55, "radialSegments": 6 }
+  ],
+  "materials": [
+    { "uuid": "mat_hull", "type": "MeshStandardMaterial", "color": 5132390, "emissive": 2236962, "emissiveIntensity": 0.12, "roughness": 0.42, "metalness": 0.68, "map": "tex_panel", "emissiveMap": "tex_emissive" },
+    { "uuid": "mat_wing", "type": "MeshStandardMaterial", "color": 4210752, "emissive": 1710618, "emissiveIntensity": 0.15, "roughness": 0.38, "metalness": 0.72 },
+    { "uuid": "mat_engine_off", "type": "MeshStandardMaterial", "color": 1052688, "roughness": 0.4, "metalness": 0.8 },
+    { "uuid": "mat_cockpit", "type": "MeshStandardMaterial", "color": 5066061, "emissive": 1093891, "emissiveIntensity": 0.6, "roughness": 0.1, "metalness": 0.4, "transparent": true, "opacity": 0.82 },
+    { "uuid": "mat_weapon_off", "type": "MeshStandardMaterial", "color": 2763306, "roughness": 0.5, "metalness": 0.75 }
+  ],
+  "animations": [
+    {
+      "name": "idle_hover",
+      "duration": 3.2,
+      "tracks": [
+        { "name": "ship_corvette.position[y]", "type": "number", "times": [0, 1.6, 3.2], "values": [0, 0.07, 0], "interpolation": 2301 }
+      ]
+    },
+    {
+      "name": "active_roll",
+      "duration": 2.8,
+      "tracks": [
+        { "name": "ship_corvette.rotation[y]", "type": "number", "times": [0, 2.8], "values": [0, 6.2831853072], "interpolation": 2301 }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_corvette",
+    "type": "Group",
+    "name": "ship_corvette",
+    "userData": {
+      "gqShipHull": true,
+      "gqHullClass": "corvette",
+      "gqHardpoints": {
+        "weapon": [
+          { "name": "wp_left",  "position": [-0.55, 0.05, 0.3] },
+          { "name": "wp_right", "position": [ 0.55, 0.05, 0.3] }
+        ],
+        "shield": [
+          { "name": "shield_center", "position": [0, 0, 0] }
+        ],
+        "engine": [
+          { "name": "eng_main", "position": [0, 0, -1.1] }
+        ],
+        "utility": [
+          { "name": "util_belly", "position": [0, -0.35, 0.2] }
+        ]
+      }
+    },
+    "children": [
+      {
+        "uuid": "mesh_fuselage", "type": "Mesh", "name": "fuselage",
+        "geometry": "geo_fuselage", "material": "mat_hull",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
+      },
+      {
+        "uuid": "mesh_wing_l", "type": "Mesh", "name": "wing_left",
+        "geometry": "geo_wing_l", "material": "mat_wing",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, -0.7,0,0.1,1]
+      },
+      {
+        "uuid": "mesh_wing_r", "type": "Mesh", "name": "wing_right",
+        "geometry": "geo_wing_r", "material": "mat_wing",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0.7,0,0.1,1]
+      },
+      {
+        "uuid": "mesh_cockpit", "type": "Mesh", "name": "cockpit",
+        "geometry": "geo_cockpit", "material": "mat_cockpit",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0.18,0.85,1]
+      },
+      {
+        "uuid": "grp_engine", "type": "Group", "name": "engine_group",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-1.1,1],
+        "children": [
+          {
+            "uuid": "mesh_engine", "type": "Mesh", "name": "engine_nozzle",
+            "geometry": "geo_engine_core", "material": "mat_engine_off",
+            "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
+          }
+        ]
+      },
+      {
+        "uuid": "grp_hardpoints", "type": "Group", "name": "hardpoints",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
+        "children": []
+      }
+    ]
+  }
+}

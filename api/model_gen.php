@@ -31,6 +31,11 @@ const ALLOWED_MODEL_TYPES = [
     'deep_space_radar',
     'space_station',
     'transport_shuttle',
+    // Ship hull models (used by shipyard hangar viewer)
+    'ship_corvette',
+    'ship_frigate',
+    'ship_destroyer',
+    'ship_cruiser',
 ];
 
 if (!in_array($type, ALLOWED_MODEL_TYPES, true)) {

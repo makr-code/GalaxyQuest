@@ -15,9 +15,12 @@
     gameLog,
     gqStatusMsg,
     GQUI,
+    ShipHangarViewer: ShipHangarViewerClass,
   } = {}) {
     const moduleCatalogCache = new Map();
     let _pendingHulls = [];
+    /** @type {import('../../ui/ShipHangarViewer').ShipHangarViewer|null} */
+    let _hangarViewer = null;
 
     // ── Pure data helpers ──────────────────────────────────────────────────
 
@@ -610,6 +613,79 @@
       return grid.dom;
     }
 
+    // ── Hangar viewer helpers ──────────────────────────────────────────────
+
+    /**
+     * Build and mount the ShipHangarViewer into the hangar canvas wrapper.
+     * Falls back gracefully if THREE or ShipHangarViewerClass is not available.
+     * @param {Element} root
+     * @param {string} initialHullClass
+     */
+    function mountHangarViewer(root, initialHullClass) {
+      const THREE = windowRef?.THREE;
+      if (!THREE || !ShipHangarViewerClass) return;
+
+      const canvas = root.querySelector('#shipyard-hangar-canvas');
+      if (!canvas) return;
+
+      // Dispose old viewer
+      if (_hangarViewer) {
+        _hangarViewer.dispose();
+        _hangarViewer = null;
+      }
+
+      try {
+        _hangarViewer = new ShipHangarViewerClass(canvas, {
+          THREE,
+          fetchModelDescriptor: async (modelId) => {
+            const res = await windowRef.fetch(`/api/model_gen.php?type=${encodeURIComponent(modelId)}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+          },
+          autoRotate: true,
+        });
+        _hangarViewer.loadHull(initialHullClass || 'corvette').catch(() => {});
+      } catch (err) {
+        gameLog('info', 'ShipHangarViewer konnte nicht initialisiert werden', err);
+        _hangarViewer = null;
+      }
+    }
+
+    /**
+     * Read current module-slot counts from the module editor and push to hangar.
+     * @param {Element} root
+     */
+    function syncHangarModules(root) {
+      if (!_hangarViewer) return;
+      const slots = {};
+      root.querySelectorAll('.shipyard-module-slot').forEach((sel) => {
+        if (!sel.value) return;
+        const group = String(sel.dataset.groupCode || '');
+        if (!group) return;
+        slots[group] = (slots[group] || 0) + 1;
+      });
+      _hangarViewer.applyModules(slots);
+    }
+
+    function buildHangarCanvasDom() {
+      const wrapper = documentRef.createElement('div');
+      wrapper.className = 'shipyard-hangar-wrap';
+
+      const canvas = documentRef.createElement('canvas');
+      canvas.id = 'shipyard-hangar-canvas';
+      canvas.className = 'shipyard-hangar-canvas';
+      canvas.width  = 640;
+      canvas.height = 320;
+      wrapper.appendChild(canvas);
+
+      const hint = documentRef.createElement('p');
+      hint.className = 'shipyard-hangar-hint';
+      hint.textContent = 'Ziehen zum Drehen · Module wirken sich visuell auf das Modell aus';
+      wrapper.appendChild(hint);
+
+      return wrapper;
+    }
+
     function buildBlueprintCreatorDom(hulls) {
       const card = new GQUI.Div().setClass('system-card');
       card.dom.style.marginBottom = '1rem';
@@ -624,6 +700,9 @@
       desc.dom.style.marginTop = '0.3rem';
       desc.dom.textContent = 'Wähle einen Rumpf, konfiguriere Module und speichere dein Design.';
       card.add(desc);
+
+      // 3D Hangar viewport
+      card.dom.appendChild(buildHangarCanvasDom());
 
       const presetWrap = new GQUI.Div();
       presetWrap.dom.id = 'shipyard-preset-toolbar-wrap';
@@ -1006,6 +1085,13 @@
         if (hullHidden) hullHidden.value = hullCode;
         await updateBlueprintLayoutOptions(root, hulls);
         updateStatsPreview(root);
+        // Update hangar viewer with new hull class
+        const hull = hulls.find((h) => String(h.code || '') === hullCode);
+        const hullClass = hull?.ship_class || hull?.role || hullCode;
+        if (_hangarViewer) {
+          _hangarViewer.loadHull(hullClass).catch(() => {});
+          syncHangarModules(root);
+        }
       });
 
       root.querySelector('#shipyard-create-blueprint')?.addEventListener('click', async () => {
@@ -1049,7 +1135,10 @@
       const modsContainer = root.querySelector('#shipyard-blueprint-modules');
       if (modsContainer) {
         modsContainer.addEventListener('change', (e) => {
-          if (e.target.classList.contains('shipyard-module-slot')) updateStatsPreview(root);
+          if (e.target.classList.contains('shipyard-module-slot')) {
+            updateStatsPreview(root);
+            syncHangarModules(root);
+          }
         });
         modsContainer.addEventListener('click', (e) => {
           const upBtn = e.target.closest('.shipyard-slot-up');
@@ -1329,6 +1418,11 @@
         }
 
         bindActions(root, hulls);
+
+        // Dispose any previous hangar viewer and mount a new one
+        if (_hangarViewer) { _hangarViewer.dispose(); _hangarViewer = null; }
+        const initialHullClass = firstUnlocked?.ship_class || firstUnlocked?.role || 'corvette';
+        mountHangarViewer(root, initialHullClass);
       } catch (err) {
         gameLog('warn', 'Shipyard view laden fehlgeschlagen (renderer v1)', err);
         gqStatusMsg(root, 'Shipyard konnte nicht geladen werden.', 'red');

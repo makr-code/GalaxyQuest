@@ -1,0 +1,137 @@
+{
+  "metadata": { "version": 4.6, "type": "Object", "generator": "GalaxyQuest Model Pipeline" },
+  "modelId": "ship_destroyer",
+  "label": "Destroyer",
+  "version": 1,
+  "scale": 1,
+  "lod": { "segments_full": 10, "segments_low": 7 },
+  "images": [
+    { "uuid": "img_panel_grid", "url": "models/textures/panel_grid.svg" },
+    { "uuid": "img_panel_emissive", "url": "models/textures/emissive_lines.svg" }
+  ],
+  "textures": [
+    { "uuid": "tex_panel", "image": "img_panel_grid", "name": "panel-grid", "wrap": [1000, 1000], "repeat": [5, 2] },
+    { "uuid": "tex_emissive", "image": "img_panel_emissive", "name": "panel-emissive", "wrap": [1000, 1000], "repeat": [4, 1] }
+  ],
+  "geometries": [
+    { "uuid": "geo_fuselage", "type": "CylinderGeometry", "radiusTop": 0.3, "radiusBottom": 0.9, "height": 4.2, "radialSegments": 10 },
+    { "uuid": "geo_wing_l", "type": "BoxGeometry", "width": 3.2, "height": 0.14, "depth": 1.1 },
+    { "uuid": "geo_wing_r", "type": "BoxGeometry", "width": 3.2, "height": 0.14, "depth": 1.1 },
+    { "uuid": "geo_superstructure", "type": "BoxGeometry", "width": 0.75, "height": 0.65, "depth": 1.6 },
+    { "uuid": "geo_dorsal_fin", "type": "BoxGeometry", "width": 0.15, "height": 0.55, "depth": 1.1 },
+    { "uuid": "geo_engine_l", "type": "CylinderGeometry", "radiusTop": 0.24, "radiusBottom": 0.2, "height": 0.55, "radialSegments": 8 },
+    { "uuid": "geo_engine_r", "type": "CylinderGeometry", "radiusTop": 0.24, "radiusBottom": 0.2, "height": 0.55, "radialSegments": 8 },
+    { "uuid": "geo_engine_c", "type": "CylinderGeometry", "radiusTop": 0.32, "radiusBottom": 0.27, "height": 0.6, "radialSegments": 8 },
+    { "uuid": "geo_cockpit", "type": "SphereGeometry", "radius": 0.34, "widthSegments": 8, "heightSegments": 6 }
+  ],
+  "materials": [
+    { "uuid": "mat_hull", "type": "MeshStandardMaterial", "color": 3947573, "emissive": 1381654, "emissiveIntensity": 0.16, "roughness": 0.46, "metalness": 0.7, "map": "tex_panel", "emissiveMap": "tex_emissive" },
+    { "uuid": "mat_wing", "type": "MeshStandardMaterial", "color": 3092268, "emissive": 1183806, "emissiveIntensity": 0.12, "roughness": 0.42, "metalness": 0.72 },
+    { "uuid": "mat_superstructure", "type": "MeshStandardMaterial", "color": 2500134, "emissive": 986895, "emissiveIntensity": 0.22, "roughness": 0.36, "metalness": 0.76, "map": "tex_panel" },
+    { "uuid": "mat_engine_off", "type": "MeshStandardMaterial", "color": 789516, "roughness": 0.36, "metalness": 0.85 },
+    { "uuid": "mat_cockpit", "type": "MeshStandardMaterial", "color": 3947573, "emissive": 986895, "emissiveIntensity": 0.5, "roughness": 0.1, "metalness": 0.4, "transparent": true, "opacity": 0.85 }
+  ],
+  "animations": [
+    {
+      "name": "idle_hover",
+      "duration": 4.5,
+      "tracks": [
+        { "name": "ship_destroyer.position[y]", "type": "number", "times": [0, 2.25, 4.5], "values": [0, 0.055, 0], "interpolation": 2301 }
+      ]
+    },
+    {
+      "name": "active_roll",
+      "duration": 5.0,
+      "tracks": [
+        { "name": "ship_destroyer.rotation[y]", "type": "number", "times": [0, 5.0], "values": [0, 6.2831853072], "interpolation": 2301 }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_destroyer",
+    "type": "Group",
+    "name": "ship_destroyer",
+    "userData": {
+      "gqShipHull": true,
+      "gqHullClass": "destroyer",
+      "gqHardpoints": {
+        "weapon": [
+          { "name": "wp_port_fwd",  "position": [-1.2, 0.1, 0.8] },
+          { "name": "wp_stbd_fwd",  "position": [ 1.2, 0.1, 0.8] },
+          { "name": "wp_port_mid",  "position": [-1.3, 0.1, 0.0] },
+          { "name": "wp_stbd_mid",  "position": [ 1.3, 0.1, 0.0] }
+        ],
+        "shield": [
+          { "name": "shield_center", "position": [0, 0, 0] }
+        ],
+        "engine": [
+          { "name": "eng_port",   "position": [-0.55, 0, -2.1] },
+          { "name": "eng_stbd",   "position": [ 0.55, 0, -2.1] },
+          { "name": "eng_center", "position": [ 0,    0, -2.1] }
+        ],
+        "utility": [
+          { "name": "util_port_belly",  "position": [-0.8, -0.4, 0.2] },
+          { "name": "util_stbd_belly",  "position": [ 0.8, -0.4, 0.2] }
+        ]
+      }
+    },
+    "children": [
+      {
+        "uuid": "mesh_fuselage", "type": "Mesh", "name": "fuselage",
+        "geometry": "geo_fuselage", "material": "mat_hull",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
+      },
+      {
+        "uuid": "mesh_wing_l", "type": "Mesh", "name": "wing_left",
+        "geometry": "geo_wing_l", "material": "mat_wing",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, -1.3,0,0.1,1]
+      },
+      {
+        "uuid": "mesh_wing_r", "type": "Mesh", "name": "wing_right",
+        "geometry": "geo_wing_r", "material": "mat_wing",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 1.3,0,0.1,1]
+      },
+      {
+        "uuid": "mesh_superstructure", "type": "Mesh", "name": "superstructure",
+        "geometry": "geo_superstructure", "material": "mat_superstructure",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0.62,0.5,1]
+      },
+      {
+        "uuid": "mesh_dorsal_fin", "type": "Mesh", "name": "dorsal_fin",
+        "geometry": "geo_dorsal_fin", "material": "mat_wing",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0.7,-0.2,1]
+      },
+      {
+        "uuid": "mesh_cockpit", "type": "Mesh", "name": "cockpit",
+        "geometry": "geo_cockpit", "material": "mat_cockpit",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0.36,1.6,1]
+      },
+      {
+        "uuid": "grp_engines", "type": "Group", "name": "engine_group",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
+        "children": [
+          {
+            "uuid": "mesh_engine_l", "type": "Mesh", "name": "engine_port",
+            "geometry": "geo_engine_l", "material": "mat_engine_off",
+            "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, -0.55,0,-2.1,1]
+          },
+          {
+            "uuid": "mesh_engine_r", "type": "Mesh", "name": "engine_stbd",
+            "geometry": "geo_engine_r", "material": "mat_engine_off",
+            "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0.55,0,-2.1,1]
+          },
+          {
+            "uuid": "mesh_engine_c", "type": "Mesh", "name": "engine_center",
+            "geometry": "geo_engine_c", "material": "mat_engine_off",
+            "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-2.1,1]
+          }
+        ]
+      },
+      {
+        "uuid": "grp_hardpoints", "type": "Group", "name": "hardpoints",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
+        "children": []
+      }
+    ]
+  }
+}
