@@ -1438,9 +1438,11 @@ const API = (() => {
     shipyardHulls: (cid)                  => get(`api/shipyard.php?action=list_hulls&colony_id=${cid}`),
     shipyardModules: (cid, hullCode, slotLayoutCode = 'default') => get(`api/shipyard.php?action=list_modules&colony_id=${cid}&hull_code=${encodeURIComponent(hullCode)}&slot_layout_code=${encodeURIComponent(slotLayoutCode)}`),
     createBlueprint: (payload)            => post('api/shipyard.php?action=create_blueprint', payload),
+    deleteBlueprint: (blueprintId)        => post('api/shipyard.php?action=delete_blueprint', { blueprint_id: blueprintId }),
     buildShip:(cid, type, count, extra={}) => post('api/shipyard.php?action=build', Object.assign({ colony_id: cid, type, count }, extra)),
     shipyardVessels: (cid)                => get(`api/shipyard.php?action=list_vessels&colony_id=${cid}`),
     decommissionVessel: (vesselId)        => post('api/shipyard.php?action=decommission_vessel', { vessel_id: vesselId }),
+    repairVessel: (vesselId)              => post('api/shipyard.php?action=repair_vessel',       { vessel_id: vesselId }),
 
     // Fleet
     fleets:     ()        => get('api/fleet.php?action=list'),
