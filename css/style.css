@@ -6744,7 +6744,7 @@ body > section:last-of-type {
 
 /* ── Research card extras ────────────────────────────────────────────────── */
 .research-icon-badge    { display:inline-flex; align-items:center; justify-content:center;
-                           width:2rem; height:2rem; font-size:0.65rem; font-weight:700; letter-spacing:0.03em;
+                           width:2rem; height:2rem; font-size:0.75rem; font-weight:700; letter-spacing:0.03em;
                            border-radius:4px; background:rgba(80,140,200,0.18);
                            color:var(--accent,#7ab3f0); border:1px solid rgba(80,140,200,0.3);
                            flex-shrink:0; }

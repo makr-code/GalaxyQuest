@@ -89,10 +89,10 @@
         return `
         <div class="item-card research-card ${locked ? 'item-card-locked' : ''}">
           <div class="item-card-header">
-            <span class="research-icon-badge">${esc(meta.icon)}</span>
+            <span class="research-icon-badge" aria-label="Technology icon">${esc(meta.icon)}</span>
             <span class="item-name">${fmtName(row.type)}</span>
-            <span class="item-level">Lv ${row.level}</span>
-            <span class="research-tier-badge" title="Tech tier">T${meta.tier}</span>
+            <span class="item-level" aria-label="Technology level">Lv ${row.level}</span>
+            <span class="research-tier-badge" title="Tech tier" aria-label="Technology tier ${meta.tier}">T${meta.tier}</span>
           </div>
           ${meta.desc ? `<div class="research-desc">${esc(meta.desc)}</div>` : ''}
           ${locked ? '<div class="item-locked-badge">\uD83D\uDD12 Locked</div>' : ''}
