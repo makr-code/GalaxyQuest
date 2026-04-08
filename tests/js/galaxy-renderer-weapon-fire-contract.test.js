@@ -23,6 +23,14 @@ describe('GalaxyRendererCore weapon-fire source contract', () => {
     expect(source).toMatch(/_resolveShipWeaponTarget\(fleetEntry,\s*shipWorldPos,\s*targetHint,\s*220\)/);
   });
 
+  it('uses sourcePosition to narrow ship event sources when provided', () => {
+    expect(source).toMatch(/_shipMatchesWeaponFireSource\(fleetEntry,\s*ev\)/);
+    expect(source).toMatch(/if\s*\(!this\._shipMatchesWeaponFireSource\(fleetEntry,\s*ev\)\)\s*return;/);
+    expect(source).toMatch(/const\s+sourcePosition\s*=\s*Number\(ev\?\.sourcePosition\s*\|\|\s*0\)/);
+    expect(source).toMatch(/sourcePosition\s*===\s*originPosition/);
+    expect(source).toMatch(/sourcePosition\s*===\s*targetPosition/);
+  });
+
   it('keeps ship target scoring biases for fleet/installation/debris and hint fallback', () => {
     expect(source).toMatch(/considerCandidate\(tmpPos,\s*'fleet',\s*-8\)/);
     expect(source).toMatch(/considerCandidate\(tmpPos,\s*'installation',\s*4\)/);

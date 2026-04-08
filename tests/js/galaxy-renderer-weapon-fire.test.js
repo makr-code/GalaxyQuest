@@ -94,6 +94,20 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
         return best;
       },
 
+      _shipMatchesWeaponFireSource: function(fleetEntry, ev) {
+        const sourcePosition = Number(ev?.sourcePosition || 0);
+        if (!sourcePosition) return true;
+
+        const fleet = fleetEntry?.fleet || {};
+        const originPosition = Number(fleet.origin_position || fleet.originPosition || 0);
+        const targetPosition = Number(fleet.target_position || fleet.targetPosition || 0);
+        const currentPosition = Number(fleet.position || fleet.current_position || 0);
+
+        return sourcePosition === originPosition
+          || sourcePosition === targetPosition
+          || sourcePosition === currentPosition;
+      },
+
       _triggerShipWeaponFire: function(fleetEntry, ev, elapsed, state = 'active') {
         if (!fleetEntry?.mesh || !this.beamEffect) return;
 
@@ -241,7 +255,24 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
         return this._queueInstallationWeaponFire(event);
       },
 
-      _applyWeaponFireToShips: vi.fn(),
+      _applyWeaponFireToShips: function(ev, elapsed) {
+        if (!Array.isArray(this.systemFleetEntries) || !this.systemFleetEntries.length) return;
+
+        this.systemFleetEntries.forEach((fleetEntry) => {
+          if (!fleetEntry?.mesh || !fleetEntry?.fleet) return;
+          if (ev.sourceOwner && ev.sourceOwner !== String(fleetEntry.fleet.owner || '').trim()) return;
+          if (!this._shipMatchesWeaponFireSource(fleetEntry, ev)) return;
+
+          if (ev.weaponKind) {
+            const ship = fleetEntry.fleet;
+            const hasWeapon = String(ship?.armament || ship?.weapons || '').toLowerCase().includes(ev.weaponKind);
+            if (!hasWeapon) return;
+          }
+
+          const state = String(fleetEntry.mesh.userData?.animState || 'active');
+          this._triggerShipWeaponFire(fleetEntry, ev, elapsed, state);
+        });
+      },
       _applyWeaponFireToDebris: vi.fn(),
       
       _applyPendingInstallationWeaponFire: function(elapsed) {
@@ -403,6 +434,7 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
     });
 
     it('should route ship events to ship handler', () => {
+      const shipSpy = vi.spyOn(renderer, '_applyWeaponFireToShips');
       renderer.enqueueInstallationWeaponFire({
         sourceType: 'ship',
         sourceOwner: 'Helion',
@@ -411,7 +443,7 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
 
       renderer._applyPendingInstallationWeaponFire(0.016);
 
-      expect(renderer._applyWeaponFireToShips).toHaveBeenCalledTimes(1);
+      expect(shipSpy).toHaveBeenCalledTimes(1);
     });
 
     it('should route debris events to debris handler', () => {
@@ -426,6 +458,7 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
     });
 
     it('should route gate/beacon aliases to wormhole handler', () => {
+      const shipSpy = vi.spyOn(renderer, '_applyWeaponFireToShips');
       renderer.systemInstallationWeaponFxEntries = [
         {
           worldFrom: [0, 0, 0],
@@ -442,11 +475,12 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
       renderer._applyPendingInstallationWeaponFire(0.016);
 
       expect(renderer.beamEffect.addBeam).toHaveBeenCalled();
-      expect(renderer._applyWeaponFireToShips).not.toHaveBeenCalled();
+      expect(shipSpy).not.toHaveBeenCalled();
       expect(renderer._applyWeaponFireToDebris).not.toHaveBeenCalled();
     });
 
     it('should route unknown sourceType to installation fallback', () => {
+      const shipSpy = vi.spyOn(renderer, '_applyWeaponFireToShips');
       renderer.systemInstallationWeaponFxEntries = [
         {
           kind: 'laser',
@@ -464,7 +498,7 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
       renderer._applyPendingInstallationWeaponFire(0.016);
 
       expect(renderer.beamEffect.addBeam).toHaveBeenCalledTimes(1);
-      expect(renderer._applyWeaponFireToShips).not.toHaveBeenCalled();
+      expect(shipSpy).not.toHaveBeenCalled();
       expect(renderer._applyWeaponFireToDebris).not.toHaveBeenCalled();
     });
   });
@@ -662,6 +696,33 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
 
       const firstBeam = renderer.beamEffect.addBeam.mock.calls[0][0];
       expect(firstBeam.to).toEqual([150, 12, -6]);
+    });
+
+    it('should match ship sourcePosition against fleet route positions', () => {
+      const ship = mkShip('s1', 'Helion', [0, 0, 0]);
+      ship.fleet.origin_position = 4;
+      ship.fleet.target_position = 9;
+
+      expect(renderer._shipMatchesWeaponFireSource(ship, { sourcePosition: 4 })).toBe(true);
+      expect(renderer._shipMatchesWeaponFireSource(ship, { sourcePosition: 9 })).toBe(true);
+      expect(renderer._shipMatchesWeaponFireSource(ship, { sourcePosition: 7 })).toBe(false);
+    });
+
+    it('should narrow ship firing to matching sourcePosition when provided', () => {
+      const shooter = mkShip('s1', 'Helion', [0, 0, 0]);
+      shooter.fleet.origin_position = 4;
+      shooter.fleet.weapons = 'laser';
+      const otherShip = mkShip('s2', 'Helion', [5, 0, 0]);
+      otherShip.fleet.origin_position = 8;
+      otherShip.fleet.weapons = 'laser';
+      const hostile = mkShip('enemy-1', 'Iron Fleet', [60, 0, 0]);
+      renderer.systemFleetEntries = [shooter, otherShip, hostile];
+
+      renderer._applyWeaponFireToShips({ sourceOwner: 'Helion', sourcePosition: 4, weaponKind: 'laser' }, 10);
+
+      expect(renderer.beamEffect.addBeam).toHaveBeenCalledTimes(1);
+      const firstBeam = renderer.beamEffect.addBeam.mock.calls[0][0];
+      expect(firstBeam.from).toEqual([0, 0, 0]);
     });
   });
 

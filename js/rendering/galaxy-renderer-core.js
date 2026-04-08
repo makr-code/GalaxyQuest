@@ -911,7 +911,7 @@
      * Event fields (all optional):
      * - sourceType: 'installation' | 'ship' | 'debris' | 'wormhole' (null = broadcast all)
      * - sourceOwner: faction/owner name to filter (null = all)
-     * - sourcePosition: [reserved] target position index
+    * - sourcePosition: optional origin/target system slot position to narrow source entities
      * - weaponKind: 'laser' | 'beam' | ... to filter (null = all)
     * - targetPos: [x,y,z] impact point
     * - targetDebrisId: explicit debris ID target for sourceType='debris'
@@ -3099,6 +3099,7 @@
 
         // Filter by source owner (null = all)
         if (ev.sourceOwner && ev.sourceOwner !== String(fleetEntry.fleet.owner || '').trim()) return;
+        if (!this._shipMatchesWeaponFireSource(fleetEntry, ev)) return;
         
         // Filter by weapon kind if specified
         if (ev.weaponKind) {
@@ -3111,6 +3112,20 @@
         const state = String(fleetEntry.mesh.userData?.animState || 'active');
         this._triggerShipWeaponFire(fleetEntry, ev, elapsed, state);
       });
+    }
+
+    _shipMatchesWeaponFireSource(fleetEntry, ev) {
+      const sourcePosition = Number(ev?.sourcePosition || 0);
+      if (!sourcePosition) return true;
+
+      const fleet = fleetEntry?.fleet || {};
+      const originPosition = Number(fleet.origin_position || fleet.originPosition || 0);
+      const targetPosition = Number(fleet.target_position || fleet.targetPosition || 0);
+      const currentPosition = Number(fleet.position || fleet.current_position || 0);
+
+      return sourcePosition === originPosition
+        || sourcePosition === targetPosition
+        || sourcePosition === currentPosition;
     }
 
     /**
