@@ -356,7 +356,7 @@ class StellarisSystemOverview {
     const strip = doc.createElement('div');
     strip.className = 'sso-strip';
     strip.setAttribute('role', 'list');
-    strip.setAttribute('aria-label', 'Stellaris-Systemübersicht');
+    strip.setAttribute('aria-label', 'Stellaris System Overview');
 
     this._entries.forEach((entry) => {
       const { w, h } = CANVAS_SIZE[entry.kind] || CANVAS_SIZE.planet;
@@ -400,8 +400,8 @@ class StellarisSystemOverview {
   }
 
   _kindLabel(entry) {
-    if (entry.kind === 'star')   return String(entry.spectralClass || 'G') + '-Stern';
-    if (entry.kind === 'moon')   return 'Mond';
+    if (entry.kind === 'star')   return String(entry.spectralClass || 'G') + '-Star';
+    if (entry.kind === 'moon')   return 'Moon';
     const cls = String(entry.planetClass || '');
     if (cls) return cls.charAt(0).toUpperCase() + cls.slice(1);
     return 'Planet';

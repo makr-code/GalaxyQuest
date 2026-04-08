@@ -1,9 +1,9 @@
 /**
  * System Bodies Breadcrumb Integration
  *
- * Initialisiert und verwaltet die Breadcrumb-Navigation fuer Himmelskoerper
- * in der System-View sowie die Stellaris-Systemuebersicht (WebGPU-Canvas
- * pro Himmelskoerper).
+ * Initializes and manages the breadcrumb navigation for celestial bodies
+ * in the System-View as well as the Stellaris system overview (one WebGPU
+ * canvas per celestial body).
  */
 
 class SystemBreadcrumbIntegration {
@@ -39,7 +39,7 @@ class SystemBreadcrumbIntegration {
   }
 
   /**
-   * Rufe auf wenn ein System geladen wird
+   * Call when a system is entered.
    */
   onSystemEnter(payload, renderer) {
     this.renderer = renderer;
@@ -48,7 +48,6 @@ class SystemBreadcrumbIntegration {
     if (!this.breadcrumb) {
       console.warn('[SystemBreadcrumbIntegration] Breadcrumb not initialized');
     } else {
-      // Update breadcrumb mit Bodies aus dem System
       this.breadcrumb.updateBodies(payload, renderer);
       this.showBreadcrumb();
     }
@@ -59,7 +58,7 @@ class SystemBreadcrumbIntegration {
   }
 
   /**
-   * Rufe auf wenn System verlassen wird
+   * Call when a system is exited.
    */
   onSystemExit() {
     this.hideBreadcrumb();
@@ -71,7 +70,7 @@ class SystemBreadcrumbIntegration {
   }
 
   /**
-   * Breadcrumb anzeigen
+   * Show the breadcrumb nav.
    */
   showBreadcrumb() {
     const nav = document.getElementById('system-breadcrumb-nav');
@@ -81,7 +80,7 @@ class SystemBreadcrumbIntegration {
   }
 
   /**
-   * Breadcrumb verstecken
+   * Hide the breadcrumb nav.
    */
   hideBreadcrumb() {
     const nav = document.getElementById('system-breadcrumb-nav');
@@ -91,7 +90,7 @@ class SystemBreadcrumbIntegration {
   }
 
   /**
-   * Setze fokussierten Body
+   * Set the focused body by id.
    */
   setFocusedBody(bodyId) {
     if (this.breadcrumb) {
@@ -103,8 +102,7 @@ class SystemBreadcrumbIntegration {
   }
 
   _bindRendererEvents() {
-    // Hier koennte auf Renderer-Events gelauscht werden
-    // z.B. fuer Sphere-Raycasting Updates
+    // Here we could listen to renderer events, e.g., for Sphere-Raycasting updates.
   }
 
   destroy() {
@@ -117,5 +115,5 @@ class SystemBreadcrumbIntegration {
   }
 }
 
-// Globale Instanz
+// Global instance
 window.SystemBreadcrumbIntegration = SystemBreadcrumbIntegration;
