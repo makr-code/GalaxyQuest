@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 
 const runRendererSmoke = process.env.GQ_RUN_RENDERER_SMOKE === '1';
+const gpuWarnBaseline = Number.parseInt(process.env.GQ_E2E_GPU_WARN_BASELINE || '', 10);
 
 function createGpuStallWarningCounter(page) {
   const metrics = {
@@ -28,6 +29,19 @@ function createGpuStallWarningCounter(page) {
     snapshot: () => ({ ...metrics, samples: [...metrics.samples] }),
     dispose: () => page.off('console', onConsole),
   };
+}
+
+function logGpuWarnBaseline(tag, gpuWarn) {
+  if (!Number.isFinite(gpuWarnBaseline) || gpuWarnBaseline < 0) return;
+  if (gpuWarn.gpuReadbackWarnings > gpuWarnBaseline) {
+    console.warn(
+      `[${tag}][gpu-warning-baseline] over-baseline: current=${gpuWarn.gpuReadbackWarnings} baseline=${gpuWarnBaseline}`
+    );
+    return;
+  }
+  console.log(
+    `[${tag}][gpu-warning-baseline] ok: current=${gpuWarn.gpuReadbackWarnings} baseline=${gpuWarnBaseline}`
+  );
 }
 
 async function installRendererFriendlyCdnStubs(page) {
@@ -198,6 +212,7 @@ test('Home system enter populates live renderer state', async ({ page, baseURL }
   const gpuWarn = gpuWarnCounter.snapshot();
   gpuWarnCounter.dispose();
   console.log(`[e2e:system-enter] controller=${state.hasController} backend=${state.backend} systemMode=${state.systemMode} panelPlanets=${state.panelPlanetItems} planets=${state.planets} moons=${state.moons} facilities=${state.facilities} fleets=${state.fleets} gpuReadbackWarnings=${gpuWarn.gpuReadbackWarnings} totalWarnings=${gpuWarn.totalConsoleWarnings}`);
+  logGpuWarnBaseline('e2e:system-enter', gpuWarn);
   if (gpuWarn.samples.length) {
     console.log(`[e2e:system-enter][gpu-warning-samples] ${gpuWarn.samples.join(' | ')}`);
   }

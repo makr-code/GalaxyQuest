@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 
 const nativeOnlyStrict = process.env.GQ_VIEWFLOW_NATIVE_ONLY === '1';
+const gpuWarnBaseline = Number.parseInt(process.env.GQ_E2E_GPU_WARN_BASELINE || '', 10);
 
 function createGpuStallWarningCounter(page) {
   const metrics = {
@@ -28,6 +29,19 @@ function createGpuStallWarningCounter(page) {
     snapshot: () => ({ ...metrics, samples: [...metrics.samples] }),
     dispose: () => page.off('console', onConsole),
   };
+}
+
+function logGpuWarnBaseline(tag, gpuWarn) {
+  if (!Number.isFinite(gpuWarnBaseline) || gpuWarnBaseline < 0) return;
+  if (gpuWarn.gpuReadbackWarnings > gpuWarnBaseline) {
+    console.warn(
+      `[${tag}][gpu-warning-baseline] over-baseline: current=${gpuWarn.gpuReadbackWarnings} baseline=${gpuWarnBaseline}`
+    );
+    return;
+  }
+  console.log(
+    `[${tag}][gpu-warning-baseline] ok: current=${gpuWarn.gpuReadbackWarnings} baseline=${gpuWarnBaseline}`
+  );
 }
 
 async function installCdnStubs(page) {
@@ -355,6 +369,7 @@ test('Galaxy -> System -> Planet/Colony -> Buildings flow smoke', async ({ page,
   const gpuWarn = gpuWarnCounter.snapshot();
   gpuWarnCounter.dispose();
   console.log(`[e2e:viewflow] strict-path=${pathTag} systemFallback=${usedSystemFallback} colonyFallback=${usedColonyFallback} finalNavRecovery=${usedFinalNavRecovery} gpuReadbackWarnings=${gpuWarn.gpuReadbackWarnings} totalWarnings=${gpuWarn.totalConsoleWarnings}`);
+  logGpuWarnBaseline('e2e:viewflow', gpuWarn);
   if (gpuWarn.samples.length) {
     console.log(`[e2e:viewflow][gpu-warning-samples] ${gpuWarn.samples.join(' | ')}`);
   }
@@ -384,6 +399,7 @@ test('UI fallback nav opens buildings window when galaxy backend is degraded', a
   const gpuWarn = gpuWarnCounter.snapshot();
   gpuWarnCounter.dispose();
   console.log(`[e2e:viewflow-nav-fallback] gpuReadbackWarnings=${gpuWarn.gpuReadbackWarnings} totalWarnings=${gpuWarn.totalConsoleWarnings}`);
+  logGpuWarnBaseline('e2e:viewflow-nav-fallback', gpuWarn);
   if (gpuWarn.samples.length) {
     console.log(`[e2e:viewflow-nav-fallback][gpu-warning-samples] ${gpuWarn.samples.join(' | ')}`);
   }
