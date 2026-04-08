@@ -1,6 +1,6 @@
 (function () {
   const V = Object.freeze({
-    bootManifest: '20260408p3',
+    bootManifest: '20260408p4',
     bootAssets: '20260404p1',
     terminal: '20260404p51',
     starfield: '20260404p110',
@@ -20,6 +20,7 @@
     inputActions: '20260402p2',
     debrisManager: '20260404p1',
     sceneLight: '20260402p4',
+    webglTexture3DPatch: '20260408p1',
     galaxyRendererConfig: '20260329p76',
     galaxyRendererBinding: '20260329p77',
     starfieldWebGpu: '20260330p2',
@@ -111,6 +112,7 @@
       localScript('js/runtime/audio.js', V.assetCore),
       localScript('js/runtime/tts.js', V.tts),
       CDN.three,
+      localScript('js/engine/core/WebGLTexture3DPatch.js', V.webglTexture3DPatch),
       localScript('js/engine/core/GraphicsContext.js', V.assetCore),
       localScript('js/engine/webgpu/WebGPURenderPass.js', V.webgpuCore),
       localScript('js/engine/webgpu/WebGPUShader.js', V.webgpuCore),

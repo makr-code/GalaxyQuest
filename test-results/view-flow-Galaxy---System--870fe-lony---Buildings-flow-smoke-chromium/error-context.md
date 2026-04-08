@@ -1,0 +1,145 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: Commander Login
+      - generic [ref=e6]:
+        - button "–" [ref=e7] [cursor=pointer]
+        - button "✕" [ref=e8] [cursor=pointer]
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - img [ref=e12]
+        - heading "GalaxyQuest" [level=1] [ref=e14]
+        - paragraph [ref=e15]: Conquer the Stars
+      - generic [ref=e16]:
+        - button "Login" [ref=e17] [cursor=pointer]
+        - button "Register" [ref=e18] [cursor=pointer]
+        - button "Dev" [ref=e19] [cursor=pointer]
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - generic [ref=e22]: Commander Name or E-Mail
+          - textbox "Commander Name or E-Mail" [ref=e23]:
+            - /placeholder: Your username or e-mail
+            - text: default_user
+        - generic [ref=e24]:
+          - generic [ref=e25]: Password
+          - textbox "Password" [ref=e26]:
+            - /placeholder: ••••••••
+            - text: User!23456
+        - generic [ref=e28]:
+          - checkbox "Keep me signed in" [checked] [ref=e29]
+          - text: Keep me signed in
+        - button "Enter the Galaxy" [ref=e30] [cursor=pointer]
+        - generic [ref=e31]: Zeitueberschreitung beim Server. Bitte erneut versuchen. (code=ETIMEOUT | endpoint=api/auth.php?action=login)
+      - generic [ref=e32]:
+        - paragraph [ref=e33]: © 2026 Galaxy Quest Interactive. All rights reserved.
+        - paragraph [ref=e34]: "build {{buildnr}} — {{build_date}}"
+      - generic "Auth Quick Links" [ref=e35]:
+        - button "Developer Console" [ref=e36] [cursor=pointer]:
+          - img [ref=e37]
+          - text: Konsole
+        - link "Hilfe oeffnen" [ref=e39] [cursor=pointer]:
+          - /url: README.md
+          - img [ref=e40]
+          - text: Hilfe
+        - link "Blog oeffnen" [ref=e42] [cursor=pointer]:
+          - /url: docs/lore/
+          - img [ref=e43]
+          - text: Blog
+    - generic "Resize" [ref=e45]
+  - region "System Bodies Card Window Host"
+  - region "Entwickler-Konsole" [ref=e46]:
+    - generic [ref=e47]:
+      - generic [ref=e48]:
+        - strong [ref=e49]: Console
+        - generic [ref=e50]: "Mode: GQLog"
+      - generic [ref=e51]:
+        - generic [ref=e52]: Level
+        - combobox "Level" [ref=e53]:
+          - option "All" [selected]
+          - option "Abort"
+          - option "Error"
+          - option "Warn"
+          - option "Info"
+          - option "Log"
+          - option "Debug"
+          - option "System"
+        - button "Copy" [ref=e54] [cursor=pointer]
+        - button "Clear" [ref=e55] [cursor=pointer]
+        - button "Close" [ref=e56] [cursor=pointer]
+    - generic [ref=e57]:
+      - generic [ref=e58]: "[20:38:13] [INFO] [system] Terminal logger initialized"
+      - generic [ref=e59]: "[20:38:13] [INFO] [api] [boot] takeover complete: terminal.js steuert Boot-Terminal"
+      - generic [ref=e60]: "[20:38:13] [INFO] [api] [module] Init <terminal.js> done."
+      - generic [ref=e61]: "[20:38:13] [INFO] [api] [module] Init <starfield.js> ..."
+      - generic [ref=e62]: "[20:38:13] [INFO] [api] [module] Init <three.min.js> ..."
+      - generic [ref=e63]: "[20:38:13] [INFO] [api] [module] Init <starfield.js> done."
+      - generic [ref=e64]: "[20:38:13] [INFO] [api] [module] Init <prolog.js> ..."
+      - generic [ref=e65]: "[20:38:13] [INFO] [api] [module] Init <prolog.js> done."
+      - generic [ref=e66]: "[20:38:13] [INFO] [api] [module] Init <auth.js> ..."
+      - generic [ref=e67]: "[20:38:13] [INFO] [api] [auth] bootstrap start"
+      - generic [ref=e68]: "[20:38:13] [INFO] [api] [module] Init <audio.js> ..."
+      - generic [ref=e69]: "[20:38:13] [INFO] [api] [auth] [login-ui] boot progress 8% Pruefe Session..."
+      - generic [ref=e70]: "[20:38:13] [INFO] [api] [auth] [login-ui] checking session state"
+      - generic [ref=e71]: "[20:38:13] [INFO] [api] [auth] [login-ui] auth preload panel hidden (reset)"
+      - generic [ref=e72]: "[20:38:13] [INFO] [api] [module] Init <audio.js> ..."
+      - generic [ref=e73]: "[20:38:13] [INFO] [api] [module] Init <auth.js> done."
+      - generic [ref=e74]: "[20:38:13] [INFO] [api] [module] Init <galaxy-camera-controller.js> ..."
+      - generic [ref=e75]: "[20:38:13] [INFO] [api] [module] Init <three.min.js> done."
+      - generic [ref=e76]: "[20:38:14] [INFO] [api] [module] Init <audio.js> done."
+      - generic [ref=e77]: "[20:38:14] [INFO] [api] [module] Init <texture-manager.js> ..."
+      - generic [ref=e78]: "[20:38:14] [INFO] [api] [module] Init <galaxy-camera-controller.js> done."
+      - generic [ref=e79]: "[20:38:14] [INFO] [console] [GQ][Audio] setMusicTrack aufgerufen {\"track\":\"music/Nebula_Overture.mp3\",\"autoplay\":false}"
+      - generic [ref=e80]: "[20:38:14] [INFO] [console] [GQ][Audio] Trackwechsel {\"from\":\"(kein Track)\",\"to\":\"music/Nebula_Overture.mp3\",\"autoplay\":false,\"smooth\":false,\"transitionMode\":\"fade\"}"
+      - generic [ref=e81]: "[20:38:14] [INFO] [console] [GQ][Audio] Track vorbereitet (ohne Autoplay) {\"track\":\"music/Nebula_Overture.mp3\"}"
+      - generic [ref=e82]: "[20:38:14] [INFO] [console] [GQ][Audio] setMusicTrack aufgerufen {\"track\":\"music/Nebula_Overture.mp3\",\"autoplay\":false}"
+      - generic [ref=e83]: "[20:38:14] [INFO] [console] [GQ][Audio] Track bereits aktiv {\"track\":\"music/Nebula_Overture.mp3\",\"autoplay\":false}"
+      - generic [ref=e84]: "[20:38:14] [INFO] [api] [auth] audio primed (lazy), random title track selected music/Nebula_Overture.mp3"
+      - generic [ref=e85]: "[20:38:14] [INFO] [api] [module] Init <geometry-manager.js> ..."
+      - generic [ref=e86]: "[20:38:14] [INFO] [api] [module] Init <texture-manager.js> done."
+      - generic [ref=e87]: "[20:38:14] [INFO] [api] [module] Init <material-factory.js> ..."
+      - generic [ref=e88]: "[20:38:14] [INFO] [api] [module] Init <geometry-manager.js> done."
+      - generic [ref=e89]: "[20:38:14] [INFO] [api] [module] Init <light-rig-manager.js> ..."
+      - generic [ref=e90]: "[20:38:14] [INFO] [api] [module] Init <material-factory.js> done."
+      - generic [ref=e91]: "[20:38:14] [INFO] [console] [GQ][Audio] Play-Versuch {\"track\":\"music/Nebula_Overture.mp3\",\"muted\":false,\"volume\":0.44000000000000006}"
+      - generic [ref=e92]: "[20:38:14] [INFO] [api] [module] Init <galaxy-renderer-core.js> ..."
+      - generic [ref=e93]: "[20:38:14] [INFO] [api] [module] Init <light-rig-manager.js> done."
+      - generic [ref=e94]: "[20:38:14] [INFO] [api] [module] Init <galaxy-renderer-core.js> done."
+      - generic [ref=e95]: "[20:38:14] [INFO] [api] [auth] [login-ui] no valid session detected (payload)"
+      - generic [ref=e96]: "[20:38:14] [INFO] [api] [auth] [login-ui] auth preload panel hidden (reset)"
+      - generic [ref=e97]: "[20:38:14] [INFO] [api] [auth] [login-ui] login confirm section hidden"
+      - generic [ref=e98]: "[20:38:14] [INFO] [api] [auth] [initdiag] stage=setAuthVisible body=auth-page authVisible=true gameSectionExists=true gameVisible=false wmReady=false registryReady=false galaxyOpen=false orb=false starfieldReady=true terminalReady=false"
+      - generic [ref=e99]: "[20:38:14] [INFO] [api] [bootdiag] [initdiag] stage=setAuthVisible body=auth-page authVisible=true gameSectionExists=true gameVisible=false wmReady=false registryReady=false galaxyOpen=false orb=false starfieldReady=true terminalReady=false | auth-init"
+      - generic [ref=e100]: "[20:38:14] [INFO] [console] [GQ][ShellDebug] {\"stage\":\"setAuthVisible\",\"ts\":1775673494348,\"bodyClass\":\"auth-page\",\"authVisible\":true,\"gameSectionExists\":true,\"gameSectionId\":\"wm-galaxy-section\",\"gameVisible\":false,\"stageSectionClass\":\"auth-shell hidden\",\"hostWrapper\":true,\"host\":true,\"starfield\":true,\"starfieldSize\":\"300x150\",\"hostRect\":{\"w\":0,\"h\":0},\"hostStyle\":{\"display\":\"block\",\"visibility\":\"visible\",\"opacity\":\"1\"},\"starfieldStyle\":{\"display\":\"block\",\"visibility\":\"visible\",\"opacity\":\"1\"},\"wmReady\":false,\"galaxyOpen\":false,\"rendererReady\":false,\"rendererInitReason\":\"\",\"renderTelemetryReason\":\"\",\"rendererBootstrapReady\":false,\"extra\":{}}"
+      - generic [ref=e101]: "[20:38:14] [INFO] [api] [auth] [shelldbg] {\"stage\":\"setAuthVisible\",\"bodyClass\":\"auth-page\",\"authVisible\":true,\"gameSectionExists\":true,\"gameSectionId\":\"wm-galaxy-section\",\"gameVisible\":false,\"stageSectionClass\":\"auth-shell hidden\",\"host\":true,\"starfield\":true,\"starfieldSize\":\"300x150\",\"galaxyOpen\":false,\"rendererReady\":false,\"rendererInitReason\":\"\",\"renderTelemetryReason\":\"\",\"extra\":{}}"
+      - generic [ref=e102]: "[20:38:14] [INFO] [api] [auth] [login-ui] auth preload panel hidden (reset)"
+      - generic [ref=e103]: "[20:38:14] [INFO] [api] [module] Init <gq-ui.js> ..."
+      - generic [ref=e104]: "[20:38:14] [INFO] [api] [auth] bootstrap ready"
+      - generic [ref=e105]: "[20:38:14] [INFO] [api] [module] Init <gq-ui.js> ..."
+      - generic [ref=e106]: "[20:38:14] [INFO] [api] [module] Init <gq-ui.js> done."
+      - generic [ref=e107]: "[20:38:14] [INFO] [api] [module] Init <wm.js> ..."
+      - generic [ref=e108]: "[20:38:14] [INFO] [api] [module] Init <gq-ui.js> done."
+      - generic [ref=e109]: "[20:38:14] [INFO] [api] [module] Init <wm.js> done."
+      - generic [ref=e110]: "[20:38:14] [INFO] [api] [module] Init <wm-widgets.js> ..."
+      - generic [ref=e111]: "[20:38:14] [INFO] [api] [module] Init <wm.js> done."
+      - generic [ref=e112]: "[20:38:14] [INFO] [console] [GQ][Audio] Musik läuft {\"track\":\"music/Nebula_Overture.mp3\",\"currentTime\":0}"
+      - generic [ref=e113]: "[20:38:14] [INFO] [api] [auth] audio resume after user interaction (ok)"
+      - generic [ref=e114]: "[20:38:14] [INFO] [api] [module] Init <wm-widgets.js> done."
+      - generic [ref=e115]: "[20:38:14] [INFO] [api] [module] Init <gqwm.js> ..."
+      - generic [ref=e116]: "[20:38:14] [INFO] [api] [module] Init <wm-widgets.js> done."
+      - generic [ref=e117]: "[20:38:14] [INFO] [api] [module] Init <gqwm.js> done."
+      - generic [ref=e118]: "[20:38:14] [INFO] [system] Function instrumentation installed (+92)"
+      - generic [ref=e119]: "[20:38:14] [INFO] [api] [auth] login submit fired"
+      - generic [ref=e120]: "[20:38:16] [INFO] [api] [enter-system] renderer-init {\"stage\":\"renderer-init\",\"ts\":1775673496637,\"instanceId\":\"g3d-1\",\"interactive\":false,\"hostId\":\"galaxy-host-wrapper\",\"canvasId\":\"starfield\",\"backend\":\"three-webgl\"}"
+      - generic [ref=e121]: "[20:38:16] [INFO] [api] [enter-system] setStars:reset {\"stage\":\"setStars:reset\",\"ts\":1775673496639,\"instanceId\":\"g3d-1\",\"rawStarsIncoming\":4103,\"preserveView\":false}"
+      - generic [ref=e122]: "[20:38:16] [INFO] [api] [enter-system] setStars:applied {\"stage\":\"setStars:applied\",\"ts\":1775673496641,\"instanceId\":\"g3d-1\",\"rawStars\":4103,\"visibleStars\":4103,\"targetPoints\":35655,\"preserveView\":false}"
+      - generic [ref=e123]: "[20:38:16] [INFO] [api] [galaxy] stars rendered: 4103 visible points (ir) visible=true sceneHas=true"
+      - generic [ref=e124]: "[20:38:36] [ERROR] [fetch] FetchError api/auth.php?action=login (22055ms) timeout after 22000ms"
+      - generic [ref=e125]: "[20:38:36] [ERROR] [api] [auth] login failed request timeout after 22000ms"
+      - generic [ref=e126]: "[20:38:36] [WARN] [api] [auth] login submit reachability failure request timeout after 22000ms"
+    - generic [ref=e127]:
+      - textbox "help | refresh | home | open settings | transitions on/off | msg <user> <text>" [ref=e128]
+      - button "Run" [ref=e129] [cursor=pointer]
+```
