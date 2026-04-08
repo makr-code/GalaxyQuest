@@ -711,7 +711,9 @@
       const picker = documentRef.createElement('div');
       picker.id = 'shipyard-hull-picker';
       picker.className = 'shipyard-hull-picker';
-      (Array.isArray(hulls) ? hulls : []).forEach((hull, idx) => {
+      const hullList = Array.isArray(hulls) ? hulls : [];
+      const firstUnlockedCode = (hullList.find((h) => h.unlocked !== false) || hullList[0])?.code || '';
+      hullList.forEach((hull) => {
         const card = documentRef.createElement('div');
         card.className = 'shipyard-hull-card shipyard-hull-base' + (hull.unlocked === false ? ' is-locked' : '');
         card.dataset.hullCode = String(hull.code || '');
@@ -720,7 +722,7 @@
         card.dataset.hull   = String(Number(hull.base_stats?.hull   || 0));
         card.dataset.cargo  = String(Number(hull.base_stats?.cargo  || 0));
         card.dataset.speed  = String(Number(hull.base_stats?.speed  || 0));
-        if (idx === 0 && hull.unlocked !== false) card.classList.add('is-selected');
+        if (String(hull.code || '') === firstUnlockedCode) card.classList.add('is-selected');
 
         const nameLine = documentRef.createElement('div');
         nameLine.className = 'shipyard-hull-card-name';

@@ -231,6 +231,26 @@ describe('RuntimeShipyardController – hull picker', () => {
     expect(cards.length).toBe(2);
   });
 
+  it('selects first unlocked hull even when first array entry is locked', async () => {
+    const hulls = [
+      { ...sampleHulls[1], unlocked: false },  // locked first
+      { ...sampleHulls[0], unlocked: true },   // unlocked second
+    ];
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+      },
+    });
+    await controller.render();
+    const selected = root.querySelector('.shipyard-hull-card.is-selected');
+    expect(selected).not.toBeNull();
+    expect(selected.classList.contains('is-locked')).toBe(false);
+    expect(selected.dataset.hullCode).toBe('corvette_t1');
+  });
+
   it('first unlocked hull card is pre-selected', async () => {
     const { controller, root } = makeController({
       api: {
@@ -419,6 +439,10 @@ describe('RuntimeShipyardController – blueprint delete', () => {
       },
     });
     await controller.render();
+
+    // Switch to blueprints tab so card is visible
+    const bpTab = root.querySelector('.ui-tab-btn[data-tab-target="blueprints"]');
+    bpTab.click();
 
     const deleteBtn = root.querySelector('.blueprint-delete-btn[data-blueprint-id="7"]');
     expect(deleteBtn.dataset.blueprintName).toBe('Aegis');
