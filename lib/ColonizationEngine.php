@@ -66,7 +66,7 @@ class ColonizationEngine
         $colonyCount = (int)($stmt->fetchColumn() ?: 0);
 
         // ── 3. Flotten mit > 5 Schiffen ──────────────────────────────────────
-        $stmt = $db->prepare('SELECT ships_json FROM fleets WHERE user_id = ? AND returning = 0');
+        $stmt = $db->prepare('SELECT ships_json FROM fleets WHERE user_id = ? AND `returning` = 0');
         $stmt->execute([$userId]);
         $largeFleets = 0;
         foreach ($stmt->fetchAll() as $row) {
@@ -93,15 +93,18 @@ class ColonizationEngine
             : 200;
 
         // ── 6. Cache upsert ───────────────────────────────────────────────────
-        $db->prepare(
-            'INSERT INTO empire_sprawl_cache (player_id, sprawl_value, admin_cap, sprawl_pct, updated_at)
-             VALUES (?, ?, ?, ?, NOW())
-             ON DUPLICATE KEY UPDATE
-               sprawl_value = VALUES(sprawl_value),
-               admin_cap    = VALUES(admin_cap),
-               sprawl_pct   = VALUES(sprawl_pct),
-               updated_at   = NOW()'
-        )->execute([$userId, $sprawlValue, $adminCap, $sprawlPct]);
+        $upd = $db->prepare(
+            'UPDATE empire_sprawl_cache
+             SET sprawl_value = ?, admin_cap = ?, sprawl_pct = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE player_id = ?'
+        );
+        $upd->execute([$sprawlValue, $adminCap, $sprawlPct, $userId]);
+        if ($upd->rowCount() === 0) {
+            $db->prepare(
+                'INSERT INTO empire_sprawl_cache (player_id, sprawl_value, admin_cap, sprawl_pct, updated_at)
+                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)'
+            )->execute([$userId, $sprawlValue, $adminCap, $sprawlPct]);
+        }
 
         return [
             'sprawl_value' => $sprawlValue,
@@ -267,14 +270,14 @@ class ColonizationEngine
 
         // Entfernt aus alten Sektoren desselben Spielers
         $db->prepare(
-            'DELETE ss FROM sector_systems ss
-             JOIN sectors s ON s.id = ss.sector_id
-             WHERE ss.star_system_id = ? AND s.player_id = ?'
+            'DELETE FROM sector_systems
+             WHERE star_system_id = ?
+               AND sector_id IN (SELECT id FROM sectors WHERE player_id = ?)'
         )->execute([$starSystemId, $userId]);
 
         // Zuordnen
         $db->prepare(
-            'INSERT IGNORE INTO sector_systems (sector_id, star_system_id) VALUES (?, ?)'
+            'INSERT OR IGNORE INTO sector_systems (sector_id, star_system_id) VALUES (?, ?)'
         )->execute([$sectorId, $starSystemId]);
     }
 
@@ -327,14 +330,18 @@ class ColonizationEngine
         $costPerTick = self::EDICTS[$edictType]['cost_per_tick'];
         $activatedAt = $active ? date('Y-m-d H:i:s') : null;
 
-        $db->prepare(
-            'INSERT INTO empire_edicts (player_id, edict_type, active, cost_per_tick, activated_at)
-             VALUES (?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE
-               active       = VALUES(active),
-               cost_per_tick = VALUES(cost_per_tick),
-               activated_at = VALUES(activated_at)'
-        )->execute([$userId, $edictType, $active ? 1 : 0, $costPerTick, $activatedAt]);
+        $upd = $db->prepare(
+            'UPDATE empire_edicts
+             SET active = ?, cost_per_tick = ?, activated_at = ?
+             WHERE player_id = ? AND edict_type = ?'
+        );
+        $upd->execute([$active ? 1 : 0, $costPerTick, $activatedAt, $userId, $edictType]);
+        if ($upd->rowCount() === 0) {
+            $db->prepare(
+                'INSERT INTO empire_edicts (player_id, edict_type, active, cost_per_tick, activated_at)
+                 VALUES (?, ?, ?, ?, ?)'
+            )->execute([$userId, $edictType, $active ? 1 : 0, $costPerTick, $activatedAt]);
+        }
     }
 
     /**

@@ -19,6 +19,7 @@
     const runtimeFactionsControllerApi = opts.runtimeFactionsControllerApi || {};
     const runtimeLeaderboardControllerApi = opts.runtimeLeaderboardControllerApi || {};
     const runtimeWarControllerApi = opts.runtimeWarControllerApi || {};
+    const runtimeColonizationControllerApi = opts.runtimeColonizationControllerApi || {};
 
     const messagesController = runtimeMessagesControllerApi.createMessagesController({
       wm: opts.wm,
@@ -160,6 +161,18 @@
         })
       : null;
 
+    const colonizationController = runtimeColonizationControllerApi.createColonizationController
+      ? runtimeColonizationControllerApi.createColonizationController({
+          wm: opts.wm,
+          api: opts.api,
+          uiKitSkeletonHTML: opts.uiKitSkeletonHTML,
+          uiKitEmptyStateHTML: opts.uiKitEmptyStateHTML,
+          esc: opts.esc,
+          gameLog: opts.gameLog,
+          showToast: opts.showToast,
+        })
+      : null;
+
     return {
       messagesController,
       intelController,
@@ -172,6 +185,7 @@
       factionsController,
       leaderboardController,
       warController,
+      colonizationController,
     };
   }
 

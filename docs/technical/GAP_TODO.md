@@ -28,9 +28,11 @@
 - [x] `sql/migrate_colonization_v2.sql` — `colonies`-Erweiterungen: `phase`, `sector_id`, `energy_balance`
 - [x] `lib/ColonizationEngine.php` — `recalcSprawl()`, `calcAdminCap()`, `getMalusEffects()`, `calcColonyPhase()`, `createSector()`, `assignSystemToSector()`, `appointGovernor()`, `setEdictActive()`, `listEdicts()`, `tick()`
 - [x] `api/colonization.php` — 14 Endpunkte: `sprawl_status`, `list_sectors`, `sector_detail`, `create_sector`, `update_sector`, `delete_sector`, `assign_system`, `remove_system`, `list_governors`, `appoint_governor`, `dismiss_governor`, `list_edicts`, `activate_edict`, `deactivate_edict`
-- [x] `js/network/api.js` — 15 Client-Methoden: `colonizationSprawl`, `colonizationSectors`, `colonizationSectorDetail`, `colonizationCreateSector`, `colonizationUpdateSector`, `colonizationDeleteSector`, `colonizationAssignSystem`, `colonizationRemoveSystem`, `colonizationGovernors`, `colonizationAppointGovernor`, `colonizationDismissGovernor`, `colonizationEdicts`, `colonizationActivateEdict`, `colonizationDeactivateEdict`
-- [ ] Frontend: `RuntimeColonizationController.js` — Sprawl-Panel, Sektor-Verwaltung, Gouverneurs-Zuweisung, Edikt-Liste
-- [ ] Tests: `tests/Unit/ColonizationEngineTest.php`
+- [x] `js/network/api.js` — 14 Client-Methoden: `colonizationSprawl`, `colonizationSectors`, `colonizationEdicts` etc.
+- [x] `js/engine/runtime/RuntimeColonizationController.js` — Sprawl-Panel, Sektor-Liste, Gouverneur-Zuweisung, Edikt-Toggle-UI
+- [x] `js/engine/runtime/RuntimeSocialControllersBootstrap.js` — colonizationController integriert
+- [x] `js/runtime/game.js` — `runtimeColonizationControllerApi`, `colonizationController`, `renderColonization()`, `window.GQColonizationController` registriert
+- [x] `tests/Unit/ColonizationEngineTest.php` — 37 Tests, 60 Assertions, alle ✅
 
 ---
 
@@ -225,3 +227,5 @@
 | 2026-04-08 | Modul 2 (D-4) | 18 Root-MDs nach docs/{gamedesign,technical,lore}/ verschoben; INDEX.md vollständig aktualisiert |
 | 2026-04-08 | Modul 3 (A-1) | `sql/migrate_colonization_v1.sql` + `v2.sql` — 5 neue Tabellen + colonies-Erweiterung |
 | 2026-04-08 | Modul 4 (A-1) | `lib/ColonizationEngine.php` (10 Methoden) + `api/colonization.php` (14 Endpunkte) + `api.js` (14 Client-Methoden) |
+| 2026-04-08 | Modul 5 (A-1) | `RuntimeColonizationController.js` — Sprawl-Panel, Sektoren, Gouverneure, Edikte-Toggle; Bootstrap + game.js integriert |
+| 2026-04-08 | Modul 6 (A-1) | `tests/Unit/ColonizationEngineTest.php` — 37 Tests, 60 Assertions ✅ |
