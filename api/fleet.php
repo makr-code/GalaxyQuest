@@ -28,6 +28,7 @@ switch ($action) {
         $stmt = $db->prepare(
             'SELECT f.id, f.mission, f.origin_colony_id,
                     f.target_galaxy, f.target_system, f.target_position,
+                    COALESCE(NULLIF(ss_tgt.catalog_name, \'\'), ss_tgt.name) AS target_system_name,
                     f.ships_json, f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
                     f.departure_time, f.arrival_time, f.return_time, f.returning,
                     f.stealth_until, f.hull_damage_pct,
@@ -35,6 +36,7 @@ switch ($action) {
              FROM fleets f
              JOIN colonies c ON c.id = f.origin_colony_id
                JOIN celestial_bodies cb ON cb.id = c.body_id
+               LEFT JOIN star_systems ss_tgt ON ss_tgt.galaxy_index = f.target_galaxy AND ss_tgt.system_index = f.target_system
              WHERE f.user_id = ? ORDER BY f.arrival_time ASC'
         );
         $stmt->execute([$uid]);

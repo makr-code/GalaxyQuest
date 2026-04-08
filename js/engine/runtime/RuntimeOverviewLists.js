@@ -103,6 +103,7 @@
           targetGalaxy: esc(String(fleet.target_galaxy || '')),
           targetSystem: esc(String(fleet.target_system || '')),
           targetPosition: esc(String(fleet.target_position || '')),
+          targetSystemName: esc(fleet.target_system_name || `[${fleet.target_galaxy}:${fleet.target_system}:${fleet.target_position}]`),
           positionHtml,
           arrivalTimeRaw: esc(String(fleet.arrival_time || '')),
           departureTimeRaw: esc(String(fleet.departure_time || '')),
