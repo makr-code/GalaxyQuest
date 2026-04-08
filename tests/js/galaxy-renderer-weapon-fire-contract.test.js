@@ -81,4 +81,15 @@ describe('GalaxyRendererCore weapon-fire source contract', () => {
     expect(source).toMatch(/fxEntry\.fireUntil\s*=\s*Math\.max\(Number\(fxEntry\.fireUntil\s*\|\|\s*0\),\s*elapsed\s*\+\s*shotDuration\)/);
     expect(source).toMatch(/fxEntry\.nextFireAt\s*=\s*elapsed\s*\+\s*cadence/);
   });
+
+  it('keeps installation weapon visual profile values for plasma and rail', () => {
+    expect(source).toMatch(/_installationWeaponFxProfile\(kind\)/);
+    expect(source).toMatch(/case\s*'plasma':[\s\S]*?lineUsesGlow:\s*true,[\s\S]*?useHeadMesh:\s*true,[\s\S]*?headRadius:\s*0\.11,[\s\S]*?pulseFreq:\s*8\.2,[\s\S]*?travelSpeed:\s*0\.72,[\s\S]*?drawsTrailToSource:\s*true,[\s\S]*?strobe:\s*false/);
+    expect(source).toMatch(/case\s*'rail':[\s\S]*?lineUsesGlow:\s*false,[\s\S]*?useHeadMesh:\s*false,[\s\S]*?headRadius:\s*0,[\s\S]*?pulseFreq:\s*17\.5,[\s\S]*?travelSpeed:\s*1\.35,[\s\S]*?drawsTrailToSource:\s*false,[\s\S]*?strobe:\s*true/);
+  });
+
+  it('keeps installation weapon visual profile values for missile and beam default', () => {
+    expect(source).toMatch(/case\s*'missile':[\s\S]*?lineUsesGlow:\s*true,[\s\S]*?useHeadMesh:\s*true,[\s\S]*?headRadius:\s*0\.15,[\s\S]*?pulseFreq:\s*5\.8,[\s\S]*?travelSpeed:\s*0\.48,[\s\S]*?drawsTrailToSource:\s*true,[\s\S]*?strobe:\s*false/);
+    expect(source).toMatch(/case\s*'beam':[\s\S]*?default:[\s\S]*?lineUsesGlow:\s*false,[\s\S]*?useHeadMesh:\s*false,[\s\S]*?headRadius:\s*0,[\s\S]*?pulseFreq:\s*11\.0,[\s\S]*?travelSpeed:\s*0,[\s\S]*?drawsTrailToSource:\s*false,[\s\S]*?strobe:\s*false/);
+  });
 });
