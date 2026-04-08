@@ -19,6 +19,8 @@
     const projectPoint = typeof opts.projectPoint === 'function' ? opts.projectPoint : (() => ({ x: 0, y: 0 }));
     const drawCameraOverlay = typeof opts.drawCameraOverlay === 'function' ? opts.drawCameraOverlay : (() => {});
     const getStarClassColor = typeof opts.getStarClassColor === 'function' ? opts.getStarClassColor : (() => '#ffffff');
+    // Optional – autobahn lane data from trade routes
+    const getTradeRoutes = typeof opts.getTradeRoutes === 'function' ? opts.getTradeRoutes : (() => []);
 
     function draw(root, wrap, canvas, hud) {
       if (!root || !wrap || !canvas) return;
@@ -120,6 +122,18 @@
       const currentSysIdx = Number(currentColony?.system || currentColony?.system_index || 0);
       const activeSysIdx = Number(uiState.activeStar?.system_index || pinnedStar?.system_index || 0);
 
+      // ── Autobahn lane overlay ──────────────────────────────────────────────
+      const autobahnApi = typeof window !== 'undefined' ? window.GQGalaxyAutobahnLayer : null;
+      let highwayHubs = null;
+      if (autobahnApi && typeof autobahnApi.buildAutobahnEdges === 'function') {
+        const routes = getTradeRoutes();
+        if (Array.isArray(routes) && routes.length) {
+          const edges = autobahnApi.buildAutobahnEdges(routes);
+          autobahnApi.drawAutobahnEdges(ctx, edges, canvas.__minimapState, projectPoint, stars);
+          highwayHubs = autobahnApi.buildHighwayHubSet(edges);
+        }
+      }
+
       for (const star of stars) {
         const sx = Number(star.x_ly);
         const sy = Number(star.y_ly);
@@ -127,9 +141,21 @@
         const cx = point.x;
         const cy = point.y;
         const sysIdx = Number(star.system_index || 0);
+        const galaxyIdx = Number(star.galaxy_index || 1);
         const isOwn = sysIdx > 0 && ownColonySystems.has(sysIdx);
         const isCurrent = currentSysIdx > 0 && sysIdx === currentSysIdx;
         const isActive = activeSysIdx > 0 && sysIdx === activeSysIdx;
+        const isHighwayHub = highwayHubs ? highwayHubs.has(`${galaxyIdx}:${sysIdx}`) : false;
+        const hasForeignColony = !isOwn && Number(star.colony_count || 0) > 0;
+
+        // ── Kurzinfo: highway hub ring ──
+        if (isHighwayHub && !isCurrent && !isActive) {
+          ctx.beginPath();
+          ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255, 179, 71, 0.5)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
 
         if (isCurrent) {
           ctx.beginPath();
@@ -156,6 +182,24 @@
           ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
           ctx.fillStyle = '#44ee88';
           ctx.fill();
+          // Kurzinfo: own colony tier ring
+          ctx.beginPath();
+          ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(68, 238, 136, 0.4)';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        } else if (hasForeignColony) {
+          // Kurzinfo: foreign colony – colored dot with faction color
+          const colonyColor = String(star.colony_owner_color || star.faction_color || '#7db7ee');
+          ctx.beginPath();
+          ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+          ctx.fillStyle = colonyColor;
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(cx, cy, 3.8, 0, Math.PI * 2);
+          ctx.strokeStyle = colonyColor + '66';
+          ctx.lineWidth = 0.7;
+          ctx.stroke();
         } else {
           ctx.beginPath();
           ctx.arc(cx, cy, 1, 0, Math.PI * 2);
@@ -170,7 +214,9 @@
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = 'rgba(100, 160, 220, 0.6)';
-      ctx.fillText(`${stars.length} stars`, 5, h - 5);
+      const routeCount = (() => { try { return getTradeRoutes().length; } catch (_) { return 0; } })();
+      const statsLabel = routeCount > 0 ? `${stars.length} stars · ${routeCount} routes` : `${stars.length} stars`;
+      ctx.fillText(statsLabel, 5, h - 5);
     }
 
     return {
