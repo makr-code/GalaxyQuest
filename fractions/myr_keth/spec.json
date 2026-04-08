@@ -161,5 +161,32 @@
     "act2": "Singulon sucht die Spieler auf und bittet um Schutz vor dem Schwarm. Keth-Prime sendet Rückholaufforderungen. Die Spieler müssen entscheiden, ob Singulon Asyl erhält.",
     "act3": "Der Schwarm lernt durch Singulon, dass die Leerenbrut bekämpft werden kann. Keth-Prime bietet an, die Leerenbrut 'zu fressen' – aber der Schwarm würde durch alle Ressourcen im Weg ziehen.",
     "aftershock": "Wiederholbar: Myr'Keth-Schwärme in neuen Sektoren; Singulon sendet Nachrichten; Reth-Vakhal braucht Hilfe bei Übersetzungsproblemen."
-  }
+  },
+  "display": {
+    "color": "#708090",
+    "icon": "◈"
+  },
+  "game_balance": {
+    "aggression": 70
+  },
+  "tech_affinities": [
+    {
+      "group": "hull",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.12,
+      "min_standing": 5
+    },
+    {
+      "group": "weapon",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.1,
+      "min_standing": 10
+    },
+    {
+      "group": "utility",
+      "bonus_type": "build_time_pct",
+      "bonus_value": -10.0,
+      "min_standing": 15
+    }
+  ]
 }

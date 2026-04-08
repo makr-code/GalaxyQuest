@@ -114,6 +114,38 @@
 
     setUiKitPanelVisible(false);
 
+    // ── System Bodies Card Window context-menu button ─────────────────
+    const systemCardBtn = documentRef?.getElementById('footer-system-cards-btn');
+    if (systemCardBtn && wm && typeof wm.contextMenu === 'function') {
+      systemCardBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const rect = systemCardBtn.getBoundingClientRect();
+        wm.contextMenu(
+          [
+            {
+              label: 'System Bodies — Card View',
+              onSelect: () => {
+                if (typeof wm.open === 'function') wm.open('system-bodies-cards');
+              },
+            },
+            {
+              label: 'Stellaris System Overview',
+              onSelect: () => {
+                const sso = documentRef?.getElementById('stellaris-system-overview');
+                if (sso) sso.classList.toggle('sso-visible');
+              },
+            },
+          ],
+          {
+            title: 'System Views',
+            x: Math.max(8, Number(rect.left || 0)),
+            y: Math.max(8, Number(rect.top  || 0) - 4),
+          }
+        );
+        systemCardBtn.classList.add('active');
+      });
+    }
+
     // ── WM Statusbar widget (optional, requires WM.widgets) ──────────────
     const statusBarSlot = documentRef?.getElementById('footer-wm-statusbar');
     if (statusBarSlot && wm && typeof wm.widgets?.statusBar === 'function') {

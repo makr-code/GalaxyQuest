@@ -1438,9 +1438,11 @@ const API = (() => {
     shipyardHulls: (cid)                  => get(`api/shipyard.php?action=list_hulls&colony_id=${cid}`),
     shipyardModules: (cid, hullCode, slotLayoutCode = 'default') => get(`api/shipyard.php?action=list_modules&colony_id=${cid}&hull_code=${encodeURIComponent(hullCode)}&slot_layout_code=${encodeURIComponent(slotLayoutCode)}`),
     createBlueprint: (payload)            => post('api/shipyard.php?action=create_blueprint', payload),
+    deleteBlueprint: (blueprintId)        => post('api/shipyard.php?action=delete_blueprint', { blueprint_id: blueprintId }),
     buildShip:(cid, type, count, extra={}) => post('api/shipyard.php?action=build', Object.assign({ colony_id: cid, type, count }, extra)),
     shipyardVessels: (cid)                => get(`api/shipyard.php?action=list_vessels&colony_id=${cid}`),
     decommissionVessel: (vesselId)        => post('api/shipyard.php?action=decommission_vessel', { vessel_id: vesselId }),
+    repairVessel: (vesselId)              => post('api/shipyard.php?action=repair_vessel',       { vessel_id: vesselId }),
 
     // Fleet
     fleets:     ()        => get('api/fleet.php?action=list'),
@@ -1449,6 +1451,7 @@ const API = (() => {
     ftlStatus:  ()        => get('api/fleet.php?action=ftl_status'),
     ftlMap:     ()        => get('api/fleet.php?action=ftl_map'),
     recallFleet:(id)      => post('api/fleet.php?action=recall', { fleet_id: id }),
+    renameFleet:(id, label) => post('api/fleet.php?action=rename_fleet', { fleet_id: id, label }),
     simulateBattle: (payload) => post('api/fleet.php?action=simulate_battle', payload),
     matchupScan: (payload) => post('api/fleet.php?action=matchup_scan', payload),
 
@@ -1602,6 +1605,14 @@ const API = (() => {
     claimFactionQuest:(uqid)      => post('api/factions.php?action=claim_quest',   { user_quest_id: uqid }),
     factionDialogue: ({ faction_id, history = [], player_input = '' } = {}) =>
       post('api/factions.php?action=dialogue', { faction_id, history, player_input }),
+
+    // Faction agreements (Victoria 3-style treaty system)
+    factionAgreementsList:   (faction_id) =>
+      get(faction_id ? `api/diplomacy.php?action=list&faction_id=${Number(faction_id)}` : 'api/diplomacy.php?action=list'),
+    factionAgreementsTypes:  ()           => get('api/diplomacy.php?action=types'),
+    factionAgreementsPropose:(data)       => post('api/diplomacy.php?action=propose', data),
+    factionAgreementsRespond:(id)         => post('api/diplomacy.php?action=respond', { agreement_id: Number(id) }),
+    factionAgreementsCancel: (id)         => post('api/diplomacy.php?action=cancel',  { agreement_id: Number(id) }),
 
     // NPC / PvE controller
     npcControllerStatus: () => get('api/npc_controller.php?action=status'),

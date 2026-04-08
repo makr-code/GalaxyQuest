@@ -2,6 +2,21 @@
  * RuntimeRealtimeSync.js
  *
  * Manages SSE updates and fallback polling/ticker loops.
+ *
+ * EventBus integration
+ * ─────────────────────
+ * When an `eventBus` is passed to configureRealtimeSyncRuntime(), each SSE
+ * event is also published on the bus under a canonical name so that engine
+ * subsystems (e.g. CombatVfxBridge) can subscribe without touching the DOM.
+ *
+ *   sse:new_messages    — { unread, new }
+ *   sse:fleet_arrived   — { mission, target, attacker, … }
+ *   sse:fleet_returning — { mission, origin, … }
+ *   sse:incoming_attack — { attacker, target, arrival_time, mission, … }
+ *   sse:world_event     — { title_de, code, conclusion_key, … }
+ *
+ * Both the window CustomEvent path and the EventBus path are fired in
+ * parallel, so existing listeners on window are not broken.
  */
 
 'use strict';
@@ -19,6 +34,8 @@
     showToast: () => {},
     gameLog: () => {},
     eventSourceFactory: null,
+    /** @type {import('../EventBus').EventBus|null} Optional engine-level event bus */
+    eventBus: null,
   };
 
   const tickerFleetArrived = new Set();
@@ -72,6 +89,7 @@
           const data = JSON.parse(event.data);
           const unread = parseInt(data.unread, 10) || 0;
           applyMessageBadge(unread);
+          runtimeConfig.eventBus?.emit('sse:new_messages', data);
           if ((parseInt(data.new, 10) || 0) > 0) {
             runtimeConfig.showToast(`${data.new} new message${data.new > 1 ? 's' : ''}`, 'info');
             speakTts(data.new > 1 ? `${data.new} neue Nachrichten eingegangen.` : 'Neue Nachricht eingegangen.');
@@ -88,6 +106,7 @@
           const target = data.target || '';
           runtimeConfig.showToast(`Fleet arrived at ${target} (${mission})`, mission === 'attack' ? 'success' : 'info');
           windowRef.dispatchEvent(new CustomEvent('gq:fleet-arrived', { detail: data }));
+          runtimeConfig.eventBus?.emit('sse:fleet_arrived', data);
           speakTts(`Flotte hat ${target} erreicht.`);
           await runtimeConfig.onLoadOverview();
           runtimeConfig.invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
@@ -102,6 +121,7 @@
           const data = JSON.parse(event.data);
           runtimeConfig.showToast(`Fleet returned home (${data.mission || ''})`, 'info');
           windowRef.dispatchEvent(new CustomEvent('gq:fleet-returning', { detail: data }));
+          runtimeConfig.eventBus?.emit('sse:fleet_returning', data);
           speakTts('Flotte ist heimgekehrt.');
           await runtimeConfig.onLoadOverview();
           runtimeConfig.invalidateGetCache([/api\/fleet\.php/, /api\/game\.php/]);
@@ -120,6 +140,7 @@
             : `INCOMING ATTACK from ${data.attacker} to ${data.target} at ${arrival}!`;
           runtimeConfig.showToast(msg, 'danger');
           windowRef.dispatchEvent(new CustomEvent('gq:fleet-incoming-attack', { detail: data }));
+          runtimeConfig.eventBus?.emit('sse:incoming_attack', data);
           const ttsText = data.mission === 'spy'
             ? `Achtung! Spionageflotte von ${data.attacker} im Anflug.`
             : `Warnung! Angriff von ${data.attacker} auf ${data.target} um ${arrival}!`;
@@ -139,6 +160,7 @@
             : `🌌 ${title} – Ein neues Szenario beginnt`;
           runtimeConfig.showToast(msg, 'info');
           windowRef.dispatchEvent(new CustomEvent('gq:world-event', { detail: data }));
+          runtimeConfig.eventBus?.emit('sse:world_event', data);
           const ttsText = isResolved
             ? `${title}. Ergebnis: ${data.conclusion_key}.`
             : `${title}. Ein neues Galaxie-Szenario beginnt.`;

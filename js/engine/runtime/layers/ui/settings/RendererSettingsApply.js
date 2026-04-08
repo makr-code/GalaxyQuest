@@ -41,7 +41,8 @@
     renderer.persistentHoverDistance = Math.max(120, Number(settingsState.persistentHoverDistance || 220));
     renderer.transitionStableMinMs = Math.max(60, Number(settingsState.transitionStableMinMs || 160));
 
-    callRendererMethod('setClusterDensityMode', settingsState.clusterDensityMode || 'auto', {
+    settingsState.clusterDensityMode = 'max';
+    callRendererMethod('setClusterDensityMode', 'max', {
       recluster: true,
       preserveView: true,
     });

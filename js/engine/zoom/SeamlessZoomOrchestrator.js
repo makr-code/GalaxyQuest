@@ -65,6 +65,8 @@ const ZOOM_LEVEL = Object.freeze({
   PLANET_APPROACH: 2,
   COLONY_SURFACE:  3,
   OBJECT_APPROACH: 4,
+  /** Close-up view of a colony building (depth 5). Triggers a short-distance fly-in. */
+  COLONY_BUILDING: 5,
 });
 
 /**
@@ -80,6 +82,8 @@ const ApproachTargetType = Object.freeze({
   VAGABOND:                    'VAGABOND',
   SOLAR_INSTALLATION_SHIPYARD: 'SOLAR_INSTALLATION_SHIPYARD',
   SOLAR_INSTALLATION_STARGATE: 'SOLAR_INSTALLATION_STARGATE',
+  /** Colony building — used with ZOOM_LEVEL.COLONY_BUILDING. */
+  BUILDING:                    'BUILDING',
 });
 
 /**
@@ -102,7 +106,9 @@ const ApproachTargetType = Object.freeze({
  *                 ├── Stargate      [3]   stationary at the system rim
  *                 └── Planet / Moon [3]
  *                       ├── Fleet   [4]   fleet in planet orbit
- *                       └── Shipyard[4]   installation orbiting a body
+ *                       ├── Shipyard[4]   installation orbiting a body
+ *                       └── Colony  [4]
+ *                             └── Building [5]   colony building (short fly-in)
  *
  * Note: a fleet in transit between systems shares STAR_SYSTEM depth (2) because
  * the renderer for that level covers both "deep-system approach" and
@@ -130,6 +136,8 @@ const SPATIAL_DEPTH = Object.freeze({
   STELLAR_VICINITY:  3,
   /** In orbit around a body or docked to an installation (e.g. Shipyard). */
   ORBITAL_SHELL:     4,
+  /** Colony building — child of a colony surface (very short fly-in, 0.5–3 units). */
+  COLONY_BUILDING:   5,
 });
 
 // ---------------------------------------------------------------------------
@@ -315,9 +323,9 @@ class SeamlessZoomOrchestrator {
    */
   zoomToTarget(target, opts = {}) {
     if (target == null || typeof target.spatialDepth !== 'number' ||
-        target.spatialDepth < 0 || target.spatialDepth > 4) {
+        target.spatialDepth < 0 || target.spatialDepth > 5) {
       throw new TypeError(
-        'zoomToTarget: target must be a non-null object with a spatialDepth property (number 0–4)',
+        'zoomToTarget: target must be a non-null object with a spatialDepth property (number 0–5)',
       );
     }
     return this.zoomTo(target.spatialDepth, target, opts);
@@ -418,7 +426,9 @@ class SeamlessZoomOrchestrator {
    * @returns {boolean}
    */
   static _requiresCameraFlight(level) {
-    return level === ZOOM_LEVEL.PLANET_APPROACH || level === ZOOM_LEVEL.OBJECT_APPROACH;
+    return level === ZOOM_LEVEL.PLANET_APPROACH ||
+           level === ZOOM_LEVEL.OBJECT_APPROACH  ||
+           level === ZOOM_LEVEL.COLONY_BUILDING;
   }
 }
 

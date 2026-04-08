@@ -1,0 +1,146 @@
+{
+  "metadata": { "version": 4.6, "type": "Object", "generator": "GalaxyQuest Model Pipeline" },
+  "modelId": "ship_cruiser",
+  "label": "Cruiser",
+  "version": 1,
+  "scale": 1,
+  "lod": { "segments_full": 12, "segments_low": 8 },
+  "images": [
+    { "uuid": "img_panel_grid", "url": "models/textures/panel_grid.svg" },
+    { "uuid": "img_panel_emissive", "url": "models/textures/emissive_lines.svg" }
+  ],
+  "textures": [
+    { "uuid": "tex_panel", "image": "img_panel_grid", "name": "panel-grid", "wrap": [1000, 1000], "repeat": [6, 3] },
+    { "uuid": "tex_emissive", "image": "img_panel_emissive", "name": "panel-emissive", "wrap": [1000, 1000], "repeat": [5, 1] }
+  ],
+  "geometries": [
+    { "uuid": "geo_fuselage", "type": "CylinderGeometry", "radiusTop": 0.38, "radiusBottom": 1.18, "height": 5.5, "radialSegments": 12 },
+    { "uuid": "geo_wing_l", "type": "BoxGeometry", "width": 4.2, "height": 0.18, "depth": 1.5 },
+    { "uuid": "geo_wing_r", "type": "BoxGeometry", "width": 4.2, "height": 0.18, "depth": 1.5 },
+    { "uuid": "geo_superstructure", "type": "BoxGeometry", "width": 1.0, "height": 0.8, "depth": 2.2 },
+    { "uuid": "geo_bridge", "type": "BoxGeometry", "width": 0.6, "height": 0.45, "depth": 0.8 },
+    { "uuid": "geo_dorsal_fin", "type": "BoxGeometry", "width": 0.18, "height": 0.72, "depth": 1.4 },
+    { "uuid": "geo_engine_outer", "type": "CylinderGeometry", "radiusTop": 0.3, "radiusBottom": 0.24, "height": 0.65, "radialSegments": 8 },
+    { "uuid": "geo_engine_inner", "type": "CylinderGeometry", "radiusTop": 0.38, "radiusBottom": 0.32, "height": 0.72, "radialSegments": 8 }
+  ],
+  "materials": [
+    { "uuid": "mat_hull", "type": "MeshStandardMaterial", "color": 3552873, "emissive": 1118481, "emissiveIntensity": 0.18, "roughness": 0.48, "metalness": 0.72, "map": "tex_panel", "emissiveMap": "tex_emissive" },
+    { "uuid": "mat_wing", "type": "MeshStandardMaterial", "color": 2763306, "emissive": 986895, "emissiveIntensity": 0.12, "roughness": 0.44, "metalness": 0.74 },
+    { "uuid": "mat_superstructure", "type": "MeshStandardMaterial", "color": 2105376, "emissive": 855309, "emissiveIntensity": 0.24, "roughness": 0.38, "metalness": 0.78, "map": "tex_panel" },
+    { "uuid": "mat_bridge", "type": "MeshStandardMaterial", "color": 2697513, "emissive": 1093891, "emissiveIntensity": 0.45, "roughness": 0.15, "metalness": 0.5, "transparent": true, "opacity": 0.88 },
+    { "uuid": "mat_engine_off", "type": "MeshStandardMaterial", "color": 592137, "roughness": 0.34, "metalness": 0.88 }
+  ],
+  "animations": [
+    {
+      "name": "idle_hover",
+      "duration": 5.0,
+      "tracks": [
+        { "name": "ship_cruiser.position[y]", "type": "number", "times": [0, 2.5, 5.0], "values": [0, 0.045, 0], "interpolation": 2301 }
+      ]
+    },
+    {
+      "name": "active_roll",
+      "duration": 6.5,
+      "tracks": [
+        { "name": "ship_cruiser.rotation[y]", "type": "number", "times": [0, 6.5], "values": [0, 6.2831853072], "interpolation": 2301 }
+      ]
+    }
+  ],
+  "object": {
+    "uuid": "obj_cruiser",
+    "type": "Group",
+    "name": "ship_cruiser",
+    "userData": {
+      "gqShipHull": true,
+      "gqHullClass": "cruiser",
+      "gqHardpoints": {
+        "weapon": [
+          { "name": "wp_port_fwd",  "position": [-1.8, 0.15, 1.2] },
+          { "name": "wp_stbd_fwd",  "position": [ 1.8, 0.15, 1.2] },
+          { "name": "wp_port_mid",  "position": [-2.0, 0.15, 0.0] },
+          { "name": "wp_stbd_mid",  "position": [ 2.0, 0.15, 0.0] },
+          { "name": "wp_dorsal",    "position": [ 0,   0.95, 1.0] }
+        ],
+        "shield": [
+          { "name": "shield_fwd",   "position": [ 0,   0,    1.0] },
+          { "name": "shield_aft",   "position": [ 0,   0,   -1.5] }
+        ],
+        "engine": [
+          { "name": "eng_port_out",  "position": [-1.1, 0, -2.75] },
+          { "name": "eng_port_in",   "position": [-0.5, 0, -2.75] },
+          { "name": "eng_stbd_in",   "position": [ 0.5, 0, -2.75] },
+          { "name": "eng_stbd_out",  "position": [ 1.1, 0, -2.75] }
+        ],
+        "utility": [
+          { "name": "util_port_fwd",  "position": [-1.3, -0.5,  0.8] },
+          { "name": "util_stbd_fwd",  "position": [ 1.3, -0.5,  0.8] },
+          { "name": "util_port_aft",  "position": [-1.4, -0.5, -0.5] },
+          { "name": "util_stbd_aft",  "position": [ 1.4, -0.5, -0.5] }
+        ]
+      }
+    },
+    "children": [
+      {
+        "uuid": "mesh_fuselage", "type": "Mesh", "name": "fuselage",
+        "geometry": "geo_fuselage", "material": "mat_hull",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
+      },
+      {
+        "uuid": "mesh_wing_l", "type": "Mesh", "name": "wing_left",
+        "geometry": "geo_wing_l", "material": "mat_wing",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, -1.8,0,0.2,1]
+      },
+      {
+        "uuid": "mesh_wing_r", "type": "Mesh", "name": "wing_right",
+        "geometry": "geo_wing_r", "material": "mat_wing",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 1.8,0,0.2,1]
+      },
+      {
+        "uuid": "mesh_superstructure", "type": "Mesh", "name": "superstructure",
+        "geometry": "geo_superstructure", "material": "mat_superstructure",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0.76,0.7,1]
+      },
+      {
+        "uuid": "mesh_bridge", "type": "Mesh", "name": "bridge",
+        "geometry": "geo_bridge", "material": "mat_bridge",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,1.1,1.5,1]
+      },
+      {
+        "uuid": "mesh_dorsal_fin", "type": "Mesh", "name": "dorsal_fin",
+        "geometry": "geo_dorsal_fin", "material": "mat_wing",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0.95,-0.3,1]
+      },
+      {
+        "uuid": "grp_engines", "type": "Group", "name": "engine_group",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
+        "children": [
+          {
+            "uuid": "mesh_eng_port_out", "type": "Mesh", "name": "engine_port_outer",
+            "geometry": "geo_engine_outer", "material": "mat_engine_off",
+            "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, -1.1,0,-2.75,1]
+          },
+          {
+            "uuid": "mesh_eng_port_in", "type": "Mesh", "name": "engine_port_inner",
+            "geometry": "geo_engine_inner", "material": "mat_engine_off",
+            "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, -0.5,0,-2.75,1]
+          },
+          {
+            "uuid": "mesh_eng_stbd_in", "type": "Mesh", "name": "engine_stbd_inner",
+            "geometry": "geo_engine_inner", "material": "mat_engine_off",
+            "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0.5,0,-2.75,1]
+          },
+          {
+            "uuid": "mesh_eng_stbd_out", "type": "Mesh", "name": "engine_stbd_outer",
+            "geometry": "geo_engine_outer", "material": "mat_engine_off",
+            "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 1.1,0,-2.75,1]
+          }
+        ]
+      },
+      {
+        "uuid": "grp_hardpoints", "type": "Group", "name": "hardpoints",
+        "matrix": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
+        "children": []
+      }
+    ]
+  }
+}

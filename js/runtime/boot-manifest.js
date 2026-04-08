@@ -1,6 +1,6 @@
 (function () {
   const V = Object.freeze({
-    bootManifest: '20260407p2',
+    bootManifest: '20260408p2',
     bootAssets: '20260404p1',
     terminal: '20260404p51',
     starfield: '20260404p110',
@@ -9,7 +9,7 @@
     assetCore: '20260404p50',
     tts: '20260404p1',
     webgpuCore: '20260401p1',
-    runtime: '20260407p2',
+    runtime: '20260408p2',
     galaxyController: '20260404p2',
     footerNetworkStatus: '20260404p3',
     galaxyStarLoaderFacade: '20260404p4',
@@ -31,12 +31,14 @@
     uiKit: '20260331p62',
     starTooltip: '20260331p51',
     systemInfoPanel: '20260331p54',
+    stellarisSystemOverview: '20260408p1',
+    systemBodiesCardWindow:  '20260408p1',
     hrDiagram: '20260328p49',
     settingsPanel: '20260331p7',
     settings2fa: '20260331p2',
     adminUsers: '20260331p1',
     systemBreadcrumb: '20260331p1',
-    game: '20260407p2',
+    game: '20260408p2',
     packageBundle: '20260407p1',
     flightDriverSmoke: '20260329p1',
     lodStreamingSmoke: '20260329p2'
@@ -49,7 +51,7 @@
   });
 
   const assetVersions = Object.freeze({
-    wm: '20260406p2',
+    wm: '20260408p2',
     wmWidgets: '20260406p2',
     gqwm: '20260407p1',
     audio: V.assetCore,
@@ -144,6 +146,7 @@
       'js/engine/runtime/RuntimeThemePalette.js',
       'js/engine/runtime/layers/ui/settings/foundation/Bootstrap.js',
       'js/engine/runtime/RuntimeResourceInsight.js',
+      'js/engine/runtime/RuntimeResourceScanOverview.js',
       'js/engine/runtime/RuntimeHints.js',
       'js/engine/runtime/RuntimeTopbarA11y.js',
       'js/engine/runtime/RuntimeTopbarSearchStore.js',
@@ -295,6 +298,7 @@
     'js/engine/runtime/RuntimeOverviewBootstrap.js',
     'js/engine/runtime/RuntimeDevelopmentControllersBootstrap.js',
     'js/engine/runtime/RuntimeShipyardController.js',
+    'js/ui/ShipHangarViewer.js',
     'js/engine/runtime/RuntimeMessagesController.js',
     'js/engine/runtime/RuntimeIntelController.js',
     'js/engine/runtime/RuntimeLeadersController.js',
@@ -306,7 +310,11 @@
     'js/engine/runtime/RuntimeWarController.js',
     'js/engine/runtime/RuntimeEconomyController.js',
     'js/engine/runtime/RuntimeConflictDashboard.js',
+    'js/engine/runtime/NpcAvatarRenderer.js',
     'js/engine/runtime/RuntimeFactionsController.js',
+    'js/engine/runtime/RuntimeDiplomacyDataModel.js',
+    'js/engine/runtime/RuntimeDiplomacyPanel.js',
+    'js/engine/runtime/RuntimeContractNegotiationModal.js',
     'js/engine/runtime/RuntimeLeaderboardController.js',
     'js/engine/runtime/RuntimeAdvisorWidget.js',
     'js/engine/runtime/RuntimeSocialControllersBootstrap.js'
@@ -441,6 +449,8 @@
     localScript('js/ui/admin-users.js', V.adminUsers),
     localScript('js/ui/system-bodies-breadcrumb.js', V.systemBreadcrumb),
     localScript('js/ui/system-breadcrumb-integration.js', V.systemBreadcrumb),
+    localScript('js/ui/stellaris-system-overview.js', V.stellarisSystemOverview),
+    localScript('js/ui/system-bodies-card-window.js', V.systemBodiesCardWindow),
     localScript('js/ui/gq-ui.js', V.gqui),
     localScript('js/runtime/game.js', V.game)
   ];

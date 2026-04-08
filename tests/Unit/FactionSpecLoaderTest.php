@@ -191,4 +191,100 @@ final class FactionSpecLoaderTest extends TestCase {
 
         $this->assertSame('', $prompt);
     }
+
+    // ── buildSideFactionVoicePrompt (via buildNpcSystemPrompt with no ai_prompt) ──
+
+    public function testSideFactionNpcNameAndTitleIncluded(): void {
+        $npc = [
+            'name'  => "Konstrukt Sigma-VII",
+            'title' => "Primärer Gleichgewichts-Enforcer",
+        ];
+
+        $prompt = $this->loader->buildNpcSystemPrompt($npc, []);
+
+        $this->assertStringContainsString('Konstrukt Sigma-VII', $prompt);
+        $this->assertStringContainsString("Primärer Gleichgewichts-Enforcer", $prompt);
+    }
+
+    public function testSideFactionNameOnlyWithoutTitle(): void {
+        $npc = ['name' => 'Echo-Mnemonic Aethra'];
+
+        $prompt = $this->loader->buildNpcSystemPrompt($npc, []);
+
+        $this->assertStringContainsString('Echo-Mnemonic Aethra', $prompt);
+    }
+
+    public function testSideFactionPublicFaceAndPrivateGoalIncluded(): void {
+        $npc = [
+            'name'         => 'Sigma-VII',
+            'public_face'  => 'Schweigendes Wächterobjekt',
+            'private_goal' => 'Alle Zivilisationen opfern',
+        ];
+
+        $prompt = $this->loader->buildNpcSystemPrompt($npc, []);
+
+        $this->assertStringContainsString('Schweigendes Wächterobjekt', $prompt);
+        $this->assertStringContainsString('Alle Zivilisationen opfern', $prompt);
+    }
+
+    public function testSideFactionLlmVoiceFieldsIncluded(): void {
+        $npc = [
+            'name'      => 'Test NPC',
+            'llm_voice' => [
+                'register'        => 'formell-algorithmisch',
+                'pacing'          => 'langsam',
+                'style_stack'     => ['archaisch', 'lapidar'],
+                'taboos'          => ['Emotionen', 'Verhandlung'],
+                'signature_moves' => ['Spricht in der dritten Person'],
+            ],
+        ];
+
+        $prompt = $this->loader->buildNpcSystemPrompt($npc, []);
+
+        $this->assertStringContainsString('formell-algorithmisch', $prompt);
+        $this->assertStringContainsString('langsam', $prompt);
+        $this->assertStringContainsString('archaisch', $prompt);
+        $this->assertStringContainsString('Emotionen', $prompt);
+        $this->assertStringContainsString('Spricht in der dritten Person', $prompt);
+    }
+
+    public function testSideFactionLlmQuotesPrimaryIncluded(): void {
+        $npc = [
+            'name'       => 'Test NPC',
+            'llm_quotes' => [
+                'primary' => ['Ungleichgewicht erkannt.', 'Ordnung ist Stille.'],
+            ],
+        ];
+
+        $prompt = $this->loader->buildNpcSystemPrompt($npc, []);
+
+        $this->assertStringContainsString('Ungleichgewicht erkannt.', $prompt);
+        $this->assertStringContainsString('Ordnung ist Stille.', $prompt);
+    }
+
+    public function testSideFactionContextAppendedAfterVoicePrompt(): void {
+        $npc  = ['name' => 'Test NPC', 'title' => "Wächter"];
+        $spec = ['description' => 'Ancient guardian faction.', 'society' => ['government' => 'Algorithmic']];
+
+        $prompt = $this->loader->buildNpcSystemPrompt($npc, $spec);
+
+        $this->assertStringContainsString('Test NPC', $prompt);
+        $this->assertStringContainsString('Ancient guardian faction.', $prompt);
+        $this->assertStringContainsString('Algorithmic', $prompt);
+    }
+
+    public function testSideFactionAiPromptTakesPrecedenceOverStructuredFields(): void {
+        $npc = [
+            'ai_prompt' => 'Custom system prompt.',
+            'name'      => 'Should Not Appear As Header',
+            'title'     => 'Also Not As Header',
+        ];
+
+        $prompt = $this->loader->buildNpcSystemPrompt($npc, []);
+
+        $this->assertStringContainsString('Custom system prompt.', $prompt);
+        // The structured name/title should NOT be duplicated as a generated header
+        // since ai_prompt takes precedence over the side-faction voice builder.
+        $this->assertStringNotContainsString('Du bist Should Not Appear', $prompt);
+    }
 }

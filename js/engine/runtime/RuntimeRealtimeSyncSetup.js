@@ -17,6 +17,7 @@
     showToast,
     gameLog,
     eventSourceFactory,
+    eventBus,
   }) {
     realtimeSyncApi.configureRealtimeSyncRuntime({
       windowRef,
@@ -30,6 +31,7 @@
       showToast,
       gameLog,
       eventSourceFactory,
+      eventBus: eventBus ?? null,
     });
     realtimeSyncApi.initRealtimeSync();
   }

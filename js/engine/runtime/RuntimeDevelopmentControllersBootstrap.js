@@ -85,6 +85,7 @@
       fmt: opts.fmt,
       esc: opts.esc,
       countdown: opts.countdown,
+      updateResourceBar: opts.updateResourceBar,
       showToast: opts.showToast,
       gameLog: opts.gameLog,
     });
@@ -111,6 +112,7 @@
       gameLog: opts.gameLog,
       gqStatusMsg,
       GQUI: opts.GQUI,
+      ShipHangarViewer: opts.windowRef?.GQShipHangarViewer?.ShipHangarViewer || null,
     });
 
     const economyController = runtimeEconomyControllerApi.createEconomyController

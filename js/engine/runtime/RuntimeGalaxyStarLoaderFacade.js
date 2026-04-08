@@ -46,10 +46,8 @@
     let requestMaxPoints = Number(starsPolicy.maxPoints || 1500);
     let galaxyMeta = null;
     const settingsState = opts.getSettingsState?.() || {};
-    const densityMode = String(settingsState.clusterDensityMode || 'auto').toLowerCase();
-    const clusterPreset = densityMode === 'max'
-      ? 'ultra'
-      : (densityMode === 'high' ? 'high' : 'auto');
+    settingsState.clusterDensityMode = 'max';
+    const clusterPreset = 'ultra';
 
     const renderDataAdapter = opts.getRenderDataAdapter?.() || null;
     const expectedAssetsManifestVersion = Number(opts.getExpectedAssetsManifestVersion?.() || 1);

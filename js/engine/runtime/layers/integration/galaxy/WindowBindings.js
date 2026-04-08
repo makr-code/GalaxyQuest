@@ -260,12 +260,12 @@
     root.querySelector('#gal-cluster-density')?.addEventListener('change', (e) => {
       const settingsState = typeof state.getSettingsState === 'function' ? state.getSettingsState() : null;
       if (!settingsState) return;
-      const selected = String(e.target.value || 'auto').toLowerCase();
-      settingsState.clusterDensityMode = ['auto', 'high', 'max'].includes(selected) ? selected : 'auto';
+      settingsState.clusterDensityMode = 'max';
+      if (e?.target) e.target.value = 'max';
       state.applyRuntimeSettings?.();
       state.refreshGalaxyDensityMetrics?.(root);
       state.saveUiSettings?.();
-      state.showToast?.(`Cluster-Dichte: ${settingsState.clusterDensityMode.toUpperCase()}`, 'info');
+      state.showToast?.('Cluster-Dichte ist fest auf MAX gesetzt.', 'info');
     });
 
     root.querySelector('#gal-clear-cache-btn')?.addEventListener('click', async () => {

@@ -163,5 +163,29 @@
     "act2": "Die Datendisk ist gefunden, aber unvollständig. Thel-Nessa braucht einen Aethernox-Monolithen um sie zu lesen. Syl'Nar-Agenten und Leth-Ryah's Verteidigung kollidieren.",
     "act3": "Der vollständige Text beweist: Vela'Thii wusste von der Leerenbrut-Ursache und schwieg. Die Spieler müssen entscheiden, wie sie dieses Wissen einsetzen und wen sie schützen.",
     "aftershock": "Wiederholbar: Neue verbotene Texte werden entdeckt; Syl'Nar-Agenten infiltrieren Spieler-Verbündete; das Kloster-Riff wird von der Leerenbrut bedroht."
-  }
+  },
+  "display": {
+    "color": "#7a0572",
+    "icon": "🔱"
+  },
+  "tech_affinities": [
+    {
+      "group": "weapon",
+      "bonus_type": "cost_pct",
+      "bonus_value": -12.0,
+      "min_standing": 5
+    },
+    {
+      "group": "utility",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.08,
+      "min_standing": 10
+    },
+    {
+      "group": "hull",
+      "bonus_type": "cost_pct",
+      "bonus_value": -8.0,
+      "min_standing": 15
+    }
+  ]
 }

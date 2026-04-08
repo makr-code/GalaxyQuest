@@ -1077,7 +1077,7 @@ function handle_register_prepare(): void {
     $body      = get_json_body();
     $factionId = trim($body['faction_id'] ?? '');
 
-    $validFactions = ['aereth', 'vor_tak', 'syl_nar', 'vel_ar', 'zhareen', 'kryl_tha'];
+    $validFactions = get_playable_faction_codes();
     if (!in_array($factionId, $validFactions, true)) {
         json_error('Ungültige Fraktion.');
     }

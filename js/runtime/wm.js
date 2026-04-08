@@ -1200,6 +1200,8 @@ const WMCore = (() => {
         adopted: !!adopted,
         preserveOnClose: !!(adopted && cfg.preserveOnClose !== false),
         hostManaged: !!hostManaged,
+        overflowResizeObserver: null,
+        overflowMutationObserver: null,
       });
 
       _removeFromRecentClosed(id);
@@ -1217,6 +1219,7 @@ const WMCore = (() => {
       } else {
         _focus(id);
       }
+      _attachOverflowObservers(id);
       _callRender(id);
       _persistWindowStateCookie();
       _syncAllDockGroupUis();
@@ -1227,6 +1230,7 @@ const WMCore = (() => {
       if (!_wins.has(id)) return;
       var win = _wins.get(id);
       var cfg = (win && win.cfg) || _registry.get(id) || _windowDefaults[id] || {};
+      _detachOverflowObservers(id);
       if (win && win.preserveOnClose) {
         win.el.classList.add('wm-closed');
         win.el.classList.remove('wm-focused');
@@ -2340,6 +2344,53 @@ const WMCore = (() => {
         first.style.overflowX = 'auto';
         first.style.minWidth = '0';
         first.style.maxWidth = '100%';
+      }
+    }
+
+    function _attachOverflowObservers(id) {
+      var win = _wins.get(id);
+      if (!win || !win.el) return;
+      if (win.overflowResizeObserver || win.overflowMutationObserver) return;
+
+      var bodyEl = win.el.querySelector(':scope > .wm-body');
+      if (!bodyEl) return;
+
+      if (typeof ResizeObserver !== 'undefined') {
+        var resizeObserver = new ResizeObserver(function () {
+          _normalizeBodyOverflow(id);
+        });
+        resizeObserver.observe(win.el);
+        resizeObserver.observe(bodyEl);
+        if (bodyEl.firstElementChild instanceof HTMLElement) {
+          resizeObserver.observe(bodyEl.firstElementChild);
+        }
+        win.overflowResizeObserver = resizeObserver;
+      }
+
+      if (typeof MutationObserver !== 'undefined') {
+        var mutationObserver = new MutationObserver(function () {
+          _normalizeBodyOverflow(id);
+          if (win.overflowResizeObserver && bodyEl.firstElementChild instanceof HTMLElement) {
+            try {
+              win.overflowResizeObserver.observe(bodyEl.firstElementChild);
+            } catch (_) {}
+          }
+        });
+        mutationObserver.observe(bodyEl, { childList: true, subtree: true, attributes: true });
+        win.overflowMutationObserver = mutationObserver;
+      }
+    }
+
+    function _detachOverflowObservers(id) {
+      var win = _wins.get(id);
+      if (!win) return;
+      if (win.overflowResizeObserver) {
+        try { win.overflowResizeObserver.disconnect(); } catch (_) {}
+        win.overflowResizeObserver = null;
+      }
+      if (win.overflowMutationObserver) {
+        try { win.overflowMutationObserver.disconnect(); } catch (_) {}
+        win.overflowMutationObserver = null;
       }
     }
 

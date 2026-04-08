@@ -287,9 +287,20 @@ body.wm-dock-preview-bottom::before {
 .wm-body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
   padding: 0.8rem;
   color: var(--wm-theme-body-text);
+}
+
+.wm-body > * {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.wm-body > :first-child {
+  min-height: 0;
 }
 
 /* ── Minimized / resize handle ────────────────────────────────────────── */

@@ -280,7 +280,7 @@
       systemOrbitFocusOnly: false,
       autoTransitions: true,
       renderQualityProfile: 'auto',
-      clusterDensityMode: 'auto',
+      clusterDensityMode: 'max',
       galaxyColonyFilterMode: 'all',
       galaxyColoniesOnly: false,
       clusterBoundsVisible: true,

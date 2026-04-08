@@ -456,7 +456,7 @@ Very late-game, alliance-level constructions:
 ## Backlog (Unordered)
 
 - [x] Colony rename history log
-- [ ] Fleet name / custom labels
+- [x] Fleet name / custom labels
 - [ ] Debris field mechanic (resources from destroyed ships, collectible by recycler)
 - [x] Moon slots (1 per planet, smaller, no temperature bonus, military structures only)
 - [x] Dark matter mine (requires graviton_tech lv 5, very slow production)
@@ -468,5 +468,5 @@ Very late-game, alliance-level constructions:
 - [ ] Cross-galaxy fleet routing with waypoints
 - [ ] Export planet data as JSON (for player tooling / spreadsheets)
 - [ ] Dark theme / light theme toggle
-- [ ] Keyboard shortcuts for common actions (B = open Buildings, R = Research, etc.)
+- [x] Keyboard shortcuts for common actions (B = open Buildings, R = Research, etc.)
 - [ ] Internationalisation (i18n) — German + English at minimum

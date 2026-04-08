@@ -158,5 +158,9 @@
     "act2": "Eth-Ravan bittet die Spieler um Hilfe beim Nachweis, dass Vel-Syna freiwillige Zustimmung umgeht. Karath-9 will in den Riss eintreten – ein Experiment, das das Kollektiv spalten könnte.",
     "act3": "Vel-Syna startet die Anti-Entropie-Transformation ohne Genehmigung an einer ganzen Kolonie. Katastrophe oder Durchbruch? Die Spieler müssen die Folgen steuern und entscheiden, wem sie vertrauen.",
     "aftershock": "Wiederholbar: Transformierte tauchen in Sektoren auf; Bio-Forge-Cluster expandieren; Karath-9 sendet Berichte aus dem Riss-Rand."
+  },
+  "display": {
+    "color": "#3cb371",
+    "icon": "🧬"
   }
 }

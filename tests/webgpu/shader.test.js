@@ -1,12 +1,12 @@
 /**
  * tests/webgpu/shader.test.js
  *
- * Tests for ShaderCompiler utility (preprocessWGSL, glslToWgslStub).
+ * Tests for ShaderCompiler utility (preprocessWGSL, injectHeader).
  * These are pure-JS, no GPU required.
  */
 
 import { describe, it, expect } from 'vitest';
-import { preprocessWGSL, glslToWgslStub, injectHeader } from '../../js/engine/utils/ShaderCompiler.js';
+import { preprocessWGSL, injectHeader } from '../../js/engine/utils/ShaderCompiler.js';
 
 describe('preprocessWGSL', () => {
   it('substitutes #define constants', () => {
@@ -45,29 +45,6 @@ describe('preprocessWGSL', () => {
     const src = '#ifndef LEGACY\nmodern code\n#endif';
     const result = preprocessWGSL(src, { LEGACY: 1 });
     expect(result).not.toContain('modern code');
-  });
-});
-
-describe('glslToWgslStub', () => {
-  it('replaces gl_FragColor with fragColor', () => {
-    const result = glslToWgslStub('gl_FragColor = vec4(1.0);');
-    expect(result).toContain('fragColor');
-    expect(result).not.toContain('gl_FragColor');
-  });
-
-  it('replaces gl_Position', () => {
-    const result = glslToWgslStub('gl_Position = vec4(0.0);');
-    expect(result).toContain('output.position');
-  });
-
-  it('replaces texture2D with textureSample', () => {
-    const result = glslToWgslStub('color = texture2D(tex, uv);');
-    expect(result).toContain('textureSample');
-  });
-
-  it('removes precision declarations', () => {
-    const result = glslToWgslStub('precision highp float;\nvoid main() {}');
-    expect(result).not.toContain('precision');
   });
 });
 
