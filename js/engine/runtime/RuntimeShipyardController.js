@@ -1162,6 +1162,16 @@
           return;
         }
 
+        const repairBtn = e.target.closest('.vessel-repair-btn');
+        if (repairBtn) {
+          const vid = Number(repairBtn.dataset.vesselId);
+          if (vid > 0) {
+            repairBtn.disabled = true;
+            await repairVessel(vid, root);
+          }
+          return;
+        }
+
         const deleteBtn = e.target.closest('.blueprint-delete-btn');
         if (deleteBtn) {
           const blueprintId = Number(deleteBtn.dataset.blueprintId || 0);
@@ -1233,6 +1243,18 @@
         card.add(chipsDiv);
 
         const actionsDiv = new GQUI.Div().setClass('vessel-card-actions');
+
+        // Repair button — shown only for damaged vessels (hp < max)
+        const isDamaged = Number(hp) < Number(maxHp) && Number(maxHp) > 0;
+        if (isDamaged) {
+          const repairBtn = new GQUI.Button('🔧 Repair').setClass('btn btn-sm btn-success vessel-repair-btn');
+          repairBtn.dom.type = 'button';
+          repairBtn.dom.dataset.vesselId = String(v.id);
+          const repairCostMetal = Math.ceil(((Number(maxHp) - Number(hp)) / Number(maxHp)) * Number(maxHp) * 0.25);
+          repairBtn.dom.title = `Repair to full HP — costs ~${fmt(repairCostMetal)} metal`;
+          actionsDiv.add(repairBtn);
+        }
+
         const decommBtn = new GQUI.Button('Decommission').setClass('btn btn-sm btn-danger vessel-decommission-btn');
         decommBtn.dom.type = 'button';
         decommBtn.dom.dataset.vesselId = String(v.id);
@@ -1261,6 +1283,30 @@
         }
       } catch (err) {
         gameLog('warn', 'Blueprint decommission fehlgeschlagen', err);
+        windowRef.alert('Network error.');
+      }
+    }
+
+    async function repairVessel(vesselId, root) {
+      try {
+        const res = await api.repairVessel(vesselId);
+        if (res.success) {
+          const card = root?.querySelector(`.vessel-card[data-vessel-id="${vesselId}"]`);
+          if (card) {
+            // Restore HP bar to full and remove the repair button
+            const hpFill = card.querySelector('.vessel-hp-fill');
+            if (hpFill) {
+              hpFill.style.width = '100%';
+              hpFill.className = 'vessel-hp-fill is-good';
+              hpFill.title = 'Hull 100%';
+            }
+            card.querySelector('.vessel-repair-btn')?.remove();
+          }
+        } else {
+          windowRef.alert(res.error || 'Repair failed.');
+        }
+      } catch (err) {
+        gameLog('warn', 'Vessel repair fehlgeschlagen', err);
         windowRef.alert('Network error.');
       }
     }

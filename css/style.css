@@ -2622,6 +2622,19 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   gap: 0.4rem;
 }
+.vessel-repair-btn {
+  background: rgba(20,80,50,0.6);
+  border: 1px solid rgba(60,200,120,0.45);
+  color: #7efbb0;
+}
+.vessel-repair-btn:hover:not(:disabled) {
+  background: rgba(30,120,70,0.75);
+  border-color: rgba(80,220,140,0.65);
+}
+.vessel-repair-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 /* ── Shipyard tabbed layout (Stellaris-style) ────────────────────────── */
 .shipyard-tabs-root {

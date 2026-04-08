@@ -1442,6 +1442,7 @@ const API = (() => {
     buildShip:(cid, type, count, extra={}) => post('api/shipyard.php?action=build', Object.assign({ colony_id: cid, type, count }, extra)),
     shipyardVessels: (cid)                => get(`api/shipyard.php?action=list_vessels&colony_id=${cid}`),
     decommissionVessel: (vesselId)        => post('api/shipyard.php?action=decommission_vessel', { vessel_id: vesselId }),
+    repairVessel: (vesselId)              => post('api/shipyard.php?action=repair_vessel',       { vessel_id: vesselId }),
 
     // Fleet
     fleets:     ()        => get('api/fleet.php?action=list'),

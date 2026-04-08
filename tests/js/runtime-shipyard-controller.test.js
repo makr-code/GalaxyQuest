@@ -554,3 +554,149 @@ describe('RuntimeShipyardController – flotte tab', () => {
     expect(vesselCard).not.toBeNull();
   });
 });
+
+// ── Vessel Repair ────────────────────────────────────────────────────────────
+
+describe('RuntimeShipyardController – vessel repair', () => {
+  beforeEach(() => {
+    delete window.GQRuntimeShipyardController;
+  });
+
+  const damagedVessel = {
+    id: 99,
+    status: 'docked',
+    bp_name: 'Wounded Eagle',
+    hull_class: 'corvette',
+    hull_tier: 1,
+    hull_label: 'Corvette T1',
+    stats: { attack: 10, shield: 5, hull: 20, cargo: 50, speed: 1200 },
+    hp_state: { hp: 10, max_hp: 20, shield: 2, max_shield: 5 },
+  };
+
+  const healthyVessel = {
+    id: 55,
+    status: 'docked',
+    bp_name: 'Iron Citadel',
+    hull_class: 'cruiser',
+    hull_tier: 3,
+    hull_label: 'Cruiser T3',
+    stats: { attack: 40, shield: 20, hull: 80, cargo: 200, speed: 700 },
+    hp_state: { hp: 80, max_hp: 80, shield: 20, max_shield: 20 },
+  };
+
+  it('shows repair button for damaged vessel', async () => {
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [damagedVessel] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+      },
+    });
+    await controller.render();
+    const repairBtn = root.querySelector(`.vessel-card[data-vessel-id="99"] .vessel-repair-btn`);
+    expect(repairBtn).not.toBeNull();
+  });
+
+  it('does not show repair button for fully healthy vessel', async () => {
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [healthyVessel] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+      },
+    });
+    await controller.render();
+    const repairBtn = root.querySelector(`.vessel-card[data-vessel-id="55"] .vessel-repair-btn`);
+    expect(repairBtn).toBeNull();
+  });
+
+  it('repair button has correct data-vessel-id', async () => {
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [damagedVessel] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+      },
+    });
+    await controller.render();
+    const repairBtn = root.querySelector('.vessel-repair-btn');
+    expect(repairBtn.dataset.vesselId).toBe('99');
+  });
+
+  it('clicking repair button calls api.repairVessel with vessel id', async () => {
+    const repairVessel = vi.fn().mockResolvedValue({ success: true, hp: 20, max_hp: 20, cost_metal: 5 });
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [damagedVessel] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+        repairVessel,
+      },
+    });
+    await controller.render();
+    const repairBtn = root.querySelector('.vessel-repair-btn');
+    repairBtn.click();
+    await vi.waitFor(() => expect(repairVessel).toHaveBeenCalledWith(99));
+  });
+
+  it('after successful repair: HP bar is set to 100% and repair button is removed', async () => {
+    const repairVessel = vi.fn().mockResolvedValue({ success: true, hp: 20, max_hp: 20, cost_metal: 5 });
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [damagedVessel] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+        repairVessel,
+      },
+    });
+    await controller.render();
+    const repairBtn = root.querySelector('.vessel-repair-btn');
+    repairBtn.click();
+    await vi.waitFor(() => {
+      const card = root.querySelector('.vessel-card[data-vessel-id="99"]');
+      const hpFill = card.querySelector('.vessel-hp-fill');
+      expect(hpFill.style.width).toBe('100%');
+      expect(hpFill.classList.contains('is-good')).toBe(true);
+      expect(card.querySelector('.vessel-repair-btn')).toBeNull();
+    });
+  });
+
+  it('failed repair shows alert', async () => {
+    const repairVessel = vi.fn().mockResolvedValue({ success: false, error: 'Insufficient metal. Repair requires 10 metal.' });
+    const alertSpy = vi.fn();
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [damagedVessel] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+        repairVessel,
+      },
+    });
+    window.alert = alertSpy;
+    await controller.render();
+    const repairBtn = root.querySelector('.vessel-repair-btn');
+    repairBtn.click();
+    await vi.waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Insufficient metal')));
+  });
+
+  it('decommission button still present alongside repair button for damaged vessel', async () => {
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [damagedVessel] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+      },
+    });
+    await controller.render();
+    const card = root.querySelector('.vessel-card[data-vessel-id="99"]');
+    expect(card.querySelector('.vessel-repair-btn')).not.toBeNull();
+    expect(card.querySelector('.vessel-decommission-btn')).not.toBeNull();
+  });
+});

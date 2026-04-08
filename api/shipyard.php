@@ -57,6 +57,12 @@ switch ($action) {
         action_decommission_vessel(get_db(), $uid, get_json_body());
         break;
 
+    case 'repair_vessel':
+        only_method('POST');
+        verify_csrf();
+        action_repair_vessel(get_db(), $uid, get_json_body());
+        break;
+
     case 'create_blueprint':
         only_method('POST');
         verify_csrf();
@@ -1045,6 +1051,95 @@ function action_decommission_vessel(PDO $db, int $uid, array $body): never {
         ->execute([$vesselId]);
 
     json_ok(['decommissioned' => $vesselId]);
+}
+
+/**
+ * Repair a docked vessel to full HP.
+ *
+ * Repair cost (metal only): ceil(damage_fraction × base_hull_stat × REPAIR_COST_FACTOR)
+ * where damage_fraction = (max_hp - current_hp) / max_hp.
+ * REPAIR_COST_FACTOR = 0.25 (25% of hull stat in metal per full repair).
+ */
+function action_repair_vessel(PDO $db, int $uid, array $body): never {
+    $repairCostFactor = 0.25;
+
+    $vesselId = (int)($body['vessel_id'] ?? 0);
+    if ($vesselId <= 0) {
+        json_error('vessel_id required');
+    }
+
+    // Verify ownership + fetch vessel data
+    try {
+        $stmt = $db->prepare(
+            'SELECT bv.id, bv.colony_id, bv.hp_state_json, bv.snapshot_stats_json, bv.status,
+                    c.user_id
+             FROM built_vessels bv
+             JOIN colonies c ON bv.colony_id = c.id
+             WHERE bv.id = ? LIMIT 1'
+        );
+        $stmt->execute([$vesselId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        json_error('Vessel system not available.');
+    }
+
+    if (!$row || (int)$row['user_id'] !== $uid) {
+        json_error('Vessel not found or access denied.', 403);
+    }
+
+    if ($row['status'] !== 'docked') {
+        json_error('Only docked vessels can be repaired.');
+    }
+
+    $hpState = json_decode($row['hp_state_json'] ?? '{}', true) ?: [];
+    $stats   = json_decode($row['snapshot_stats_json'] ?? '{}', true) ?: [];
+
+    $currentHp = (int)($hpState['hp']     ?? $stats['hull'] ?? 0);
+    $maxHp     = (int)($hpState['max_hp'] ?? $stats['hull'] ?? 0);
+
+    if ($maxHp <= 0) {
+        json_error('Vessel has no valid hull stats.');
+    }
+
+    if ($currentHp >= $maxHp) {
+        json_ok(['repaired' => $vesselId, 'cost_metal' => 0, 'already_full' => true]);
+    }
+
+    $damageFraction = ($maxHp - $currentHp) / $maxHp;
+    $repairCostMetal = (int)ceil($damageFraction * $maxHp * $repairCostFactor);
+
+    $cid = (int)$row['colony_id'];
+    update_colony_resources($db, $cid);
+    $resStmt = $db->prepare('SELECT metal FROM colonies WHERE id = ? LIMIT 1');
+    $resStmt->execute([$cid]);
+    $res = $resStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$res || (int)$res['metal'] < $repairCostMetal) {
+        json_error("Insufficient metal. Repair requires {$repairCostMetal} metal.");
+    }
+
+    // Deduct cost and restore HP
+    $db->beginTransaction();
+    try {
+        $db->prepare('UPDATE colonies SET metal = metal - ? WHERE id = ?')
+           ->execute([$repairCostMetal, $cid]);
+
+        $newHpState = array_merge($hpState, ['hp' => $maxHp]);
+        $db->prepare('UPDATE built_vessels SET hp_state_json = ? WHERE id = ?')
+           ->execute([json_encode($newHpState), $vesselId]);
+
+        $db->commit();
+    } catch (PDOException $e) {
+        $db->rollBack();
+        json_error('Repair transaction failed.');
+    }
+
+    json_ok([
+        'repaired'    => $vesselId,
+        'hp'          => $maxHp,
+        'max_hp'      => $maxHp,
+        'cost_metal'  => $repairCostMetal,
+    ]);
 }
 
 function action_delete_blueprint(PDO $db, int $uid, array $body): never {
