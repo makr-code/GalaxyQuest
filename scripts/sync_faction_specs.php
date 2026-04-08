@@ -76,103 +76,12 @@ $typeDefaults = [
                    'home_min' =>  3, 'home_max' => 9, 'color' => '#9944cc', 'icon' => '🌀'],
 ];
 
-// ── 3. Per-faction color/icon/balance overrides (derived from spec visual identity)
-$overrides = [
-    // ── already seeded by migrate_vessel_blueprints_v3.sql ──
-    // included here for idempotency so running this script always wins with
-    // the curated values from the spec analysis.
-    'iron_fleet'             => ['color' => '#c0392b', 'icon' => '⚔', 'aggression' => 85],
-    'aereth'                 => ['color' => '#e6f3ff', 'icon' => '✦', 'aggression' => 25],
-    'omniscienta'            => ['color' => '#7f8c8d', 'icon' => '🤖', 'aggression' => 60],
-    'vor_tak'                => ['color' => '#6c3483', 'icon' => '◈', 'aggression' => 95, 'base_diplomacy' => -30],
-    'syl_nar'                => ['color' => '#f39c12', 'icon' => '⬟'],
-    'zhareen'                => ['color' => '#1abc9c', 'icon' => '◆'],
-    // ── 11 fractions not yet in npc_factions ──
-    'aethernox'              => ['color' => '#c8b8ff', 'icon' => '⚖', 'power_level' => 3500, 'aggression' => 20],
-    'architekten_des_lichts' => ['color' => '#f0d060', 'icon' => '✦'],
-    'brut_der_ewigkeit'      => ['color' => '#2d7a27', 'icon' => '🧬', 'aggression' => 85],
-    'echos_der_leere'        => ['color' => '#330055', 'icon' => '🌑', 'aggression' => 100,
-                                 'base_diplomacy' => -50, 'power_level' => 3500],
-    'helion_confederation'   => ['color' => '#ffa030', 'icon' => '⬡'],
-    'ketzer_von_verath'      => ['color' => '#7a0572', 'icon' => '🔱'],
-    'khar_morr_syndicate'    => ['color' => '#8b0000', 'icon' => '☠'],
-    'kryl_tha'               => ['color' => '#ffd700', 'icon' => '⬡', 'aggression' => 85],
-    'myr_keth'               => ['color' => '#708090', 'icon' => '◈', 'aggression' => 70],
-    'nomaden_des_rifts'      => ['color' => '#00bcd4', 'icon' => '🌀', 'power_level' => 2000],
-    'vel_ar'                 => ['color' => '#4a90e2', 'icon' => '🎭'],
-];
+// ── 3. Per-faction display / game_balance overrides and tech_affinities are now
+//       stored in each fractions/{code}/spec.json (blocks "display", "game_balance",
+//       and "tech_affinities").  The $overrides and $affinityMatrix arrays that used
+//       to live here have been removed.
 
-// ── 4. Affinity matrix [ faction_code => [[group, bonus_type, value, min_standing], …] ]
-// Values are game-design decisions; reasoning is annotated from fractions/* spec analysis.
-$affinityMatrix = [
-    // Aethernox: gravimetric hull-monoliths (hull★★★), planetary shields (shield★★), storage cores (utility★★)
-    'aethernox' => [
-        ['hull',       'stat_mult',       0.10,  5],
-        ['shield',     'cost_pct',      -10.0, 10],
-        ['utility',    'cost_pct',        -8.0, 15],
-    ],
-    // Architekten des Lichts: holy data-nodes (utility★★★), light weapons (weapon★★), light-shield (shield★)
-    'architekten_des_lichts' => [
-        ['utility',    'stat_mult',       0.10,  5],
-        ['utility',    'build_time_pct', -15.0, 10],
-        ['weapon',     'cost_pct',       -10.0, 15],
-    ],
-    // Brut der Ewigkeit: living weapons (weapon★★★), bio-armor hull (hull★★★), organic nanites (utility★★)
-    'brut_der_ewigkeit' => [
-        ['weapon',     'stat_mult',       0.12,  5],
-        ['hull',       'stat_mult',       0.10, 10],
-        ['utility',    'cost_pct',        -8.0, 15],
-    ],
-    // Echos der Leere: entropy-manipulation weapons (weapon★★★) – extremely hard to befriend
-    'echos_der_leere' => [
-        ['weapon',     'stat_mult',       0.15, 20],
-        ['weapon',     'cost_pct',       -10.0, 35],
-    ],
-    // Helion-Konföderation: hyperspace trade routes (propulsion★★★), economic AI / nanofab (utility★★★)
-    'helion_confederation' => [
-        ['propulsion', 'stat_mult',       0.08,  5],
-        ['utility',    'cost_pct',       -15.0, 10],
-        ['propulsion', 'cost_pct',       -12.0, 15],
-    ],
-    // Ketzer von Verath: frequency/bioluminescent weapons (weapon★★★), crystal comms (utility★★★), Syl'Nar biotech hull (hull★★)
-    'ketzer_von_verath' => [
-        ['weapon',     'cost_pct',       -12.0,  5],
-        ['utility',    'stat_mult',       0.08, 10],
-        ['hull',       'cost_pct',        -8.0, 15],
-    ],
-    // Khar'Morr Syndikate: hybrid stolen weapons (weapon★★★), Vel'Ar cloaking shields (shield★★★), fast raiders (propulsion★★)
-    'khar_morr_syndicate' => [
-        ['weapon',     'build_time_pct', -12.0,  5],
-        ['shield',     'cost_pct',       -15.0, 10],
-        ['propulsion', 'stat_mult',       0.08, 15],
-    ],
-    // Kryl'Tha: organic weapons/swarm drones (weapon★★★), chitin self-healing hull (hull★★★), regen exoskeleton (shield★)
-    'kryl_tha' => [
-        ['weapon',     'stat_mult',       0.10,  5],
-        ['hull',       'stat_mult',       0.12, 10],
-        ['shield',     'cost_pct',        -5.0, 15],
-    ],
-    // Myr'Keth: adaptive morphmetal hull (hull★★★), resonance weapons (weapon★★★), swarm AI (utility★★)
-    'myr_keth' => [
-        ['hull',       'stat_mult',       0.12,  5],
-        ['weapon',     'stat_mult',       0.10, 10],
-        ['utility',    'build_time_pct', -10.0, 15],
-    ],
-    // Nomaden des Rifts: phase propulsion (propulsion★★★), phase-shift weapons (weapon★★★), probability manipulation (utility★★★)
-    'nomaden_des_rifts' => [
-        ['propulsion', 'stat_mult',       0.10,  5],
-        ['weapon',     'cost_pct',        -8.0, 10],
-        ['utility',    'stat_mult',       0.08, 15],
-    ],
-    // Vel'Ar: gas-cloud cloaking shields (shield★★★), gas-nanoclouds / identity masks (utility★★★)
-    'vel_ar' => [
-        ['shield',     'stat_mult',       0.10,  5],
-        ['utility',    'cost_pct',       -15.0, 10],
-        ['shield',     'cost_pct',       -10.0, 15],
-    ],
-];
-
-// ── 5. Scan fractions/ and upsert npc_factions ────────────────────────────────
+// ── 4. Scan fractions/ and upsert npc_factions ────────────────────────────────
 $fractionsDir = realpath(__DIR__ . '/../fractions');
 if (!$fractionsDir || !is_dir($fractionsDir)) {
     fwrite(STDERR, "ERROR: fractions/ directory not found at expected path.\n");
@@ -224,8 +133,17 @@ foreach (scandir($fractionsDir) as $entry) {
     $rawType = strtolower(trim($specData['faction_type'] ?? 'ancient'));
     $dbType  = $typeMap[$rawType] ?? 'ancient';
 
-    // Merge defaults + per-faction overrides  
-    $params = array_merge($typeDefaults[$dbType], $overrides[$code] ?? []);
+    // Merge type defaults, then apply per-faction overrides from spec's
+    // "display" and "game_balance" blocks.
+    $params = $typeDefaults[$dbType];
+    $specDisplay      = is_array($specData['display']       ?? null) ? $specData['display']       : [];
+    $specGameBalance  = is_array($specData['game_balance']   ?? null) ? $specData['game_balance']   : [];
+    if (isset($specDisplay['color']))        $params['color']          = (string) $specDisplay['color'];
+    if (isset($specDisplay['icon']))         $params['icon']           = (string) $specDisplay['icon'];
+    if (isset($specGameBalance['aggression']))      $params['aggression']      = (int) $specGameBalance['aggression'];
+    if (isset($specGameBalance['base_diplomacy']))  $params['base_diplomacy']  = (int) $specGameBalance['base_diplomacy'];
+    if (isset($specGameBalance['power_level']))     $params['power_level']     = (int) $specGameBalance['power_level'];
+    if (isset($specGameBalance['trade_willingness'])) $params['trade_willingness'] = (int) $specGameBalance['trade_willingness'];
 
     $stmt = $db->prepare('
         INSERT INTO npc_factions
@@ -262,7 +180,7 @@ foreach (scandir($fractionsDir) as $entry) {
     echo "  $mark $code  ($dbType)  [$action]\n";
 }
 
-// ── 6. Upsert faction_tech_affinities ─────────────────────────────────────────
+// ── 5. Upsert faction_tech_affinities ─────────────────────────────────────────
 echo "\nSeeding faction_tech_affinities...\n\n";
 $affinityStmt = $db->prepare('
     INSERT INTO faction_tech_affinities
@@ -275,8 +193,25 @@ $affinityStmt = $db->prepare('
 
 $affinityTotal  = 0;
 $affinityNew    = 0;
-foreach ($affinityMatrix as $factionCode => $bonuses) {
-    foreach ($bonuses as [$groupCode, $bonusType, $bonusValue, $minStanding]) {
+foreach (scandir($fractionsDir) as $affinEntry) {
+    if ($affinEntry[0] === '.') continue;
+    $affinDir = $fractionsDir . DIRECTORY_SEPARATOR . $affinEntry;
+    if (!is_dir($affinDir)) continue;
+    $affinJsonPath = $affinDir . '/spec.json';
+    if (!is_file($affinJsonPath)) continue;
+    $raw = file_get_contents($affinJsonPath);
+    $affinSpec = $raw !== false ? json_decode($raw, true) : null;
+    if (!is_array($affinSpec)) continue;
+    $factionCode = (string) ($affinSpec['faction_code'] ?? $affinSpec['species_code'] ?? $affinEntry);
+    $bonuses = $affinSpec['tech_affinities'] ?? null;
+    if (!is_array($bonuses) || empty($bonuses)) continue;
+    foreach ($bonuses as $bonus) {
+        if (!is_array($bonus)) continue;
+        $groupCode    = (string) ($bonus['group']         ?? '');
+        $bonusType    = (string) ($bonus['bonus_type']    ?? '');
+        $bonusValue   = (float)  ($bonus['bonus_value']   ?? 0.0);
+        $minStanding  = (int)    ($bonus['min_standing']  ?? 0);
+        if ($groupCode === '' || $bonusType === '') continue;
         $affinityStmt->execute([$factionCode, $groupCode, $bonusType, $bonusValue, $minStanding]);
         $rc = $affinityStmt->rowCount();
         if ($rc === 1) $affinityNew++;
@@ -285,7 +220,7 @@ foreach ($affinityMatrix as $factionCode => $bonuses) {
     echo "  · $factionCode  " . count($bonuses) . " bonus(es)\n";
 }
 
-// ── 7. Summary ────────────────────────────────────────────────────────────────
+// ── 6. Summary ────────────────────────────────────────────────────────────────
 echo "\n";
 echo "npc_factions:            inserted={$counts['inserted']}  updated={$counts['updated']}  unchanged={$counts['unchanged']}  skipped={$counts['skipped']}\n";
 echo "faction_tech_affinities: total={$affinityTotal}  new/changed={$affinityNew}\n";
