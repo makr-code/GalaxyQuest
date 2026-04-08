@@ -3115,7 +3115,8 @@
 
     /**
      * Trigger weapon fire from a ship.
-     * Creates beams from ship position to nearby enemy installations.
+     * Uses dynamic target selection across hostile fleets/installations/debris,
+     * with optional `targetPos` hints from the event payload.
      * 
      * @param {object} fleetEntry - Ship entry with mesh and fleet data
      * @param {object} ev - Event payload
@@ -3126,57 +3127,109 @@
     _triggerShipWeaponFire(fleetEntry, ev, elapsed, state = 'active') {
       if (!fleetEntry?.mesh || !this.beamEffect) return;
 
-      // Get ship position
+      const weaponKey = String(ev?.weaponKind || 'default');
+      const nextFireAt = Number(fleetEntry?._nextShipFire?.[weaponKey] || 0);
+      if (elapsed < nextFireAt) return;
+
       const shipWorldPos = new THREE.Vector3();
       fleetEntry.mesh.getWorldPosition(shipWorldPos);
 
-      // Find closest enemy installation as target
-      let closestInstall = null;
-      let closestDist = Number.MAX_VALUE;
+      const targetHint = this._normalizeWeaponFireTargetPos(ev?.targetPos ?? ev?.target_pos ?? null);
+      const resolvedTarget = this._resolveShipWeaponTarget(fleetEntry, shipWorldPos, targetHint, 220);
+      if (!resolvedTarget) return;
+
+      const cadence = this._installationWeaponFxCadence(ev.weaponKind || 'laser', state);
+      const shotDuration = this._installationWeaponFxShotDuration(ev.weaponKind || 'laser', state);
+
+      const beamRecord = {
+        id: `ship_beam_${fleetEntry.fleet?.id || 'unknown'}_${Date.now()}`,
+        from: shipWorldPos.toArray(),
+        to: resolvedTarget.world.toArray(),
+        coreColor: Number(ev.coreColor ?? 0x00ff88),
+        color: Number(ev.color ?? 0x00ff88),
+        glowRadius: 0.35,
+        duration: shotDuration,
+      };
+
+      this.beamEffect.addBeam(beamRecord);
+
+      if (!fleetEntry._nextShipFire) fleetEntry._nextShipFire = {};
+      fleetEntry._nextShipFire[weaponKey] = elapsed + cadence;
+    }
+
+    _ownersLikelyHostile(ownerA, ownerB) {
+      const a = String(ownerA || '').trim();
+      const b = String(ownerB || '').trim();
+      if (!a || !b) return true;
+      return a !== b;
+    }
+
+    _resolveShipWeaponTarget(fleetEntry, shipWorldPos, targetHint = null, maxRange = 220) {
+      const shipOwner = String(fleetEntry?.fleet?.owner || '').trim();
+      const hintVec = Array.isArray(targetHint) ? new THREE.Vector3(targetHint[0], targetHint[1], targetHint[2]) : null;
+      const range = Math.max(40, Number(maxRange) || 220);
+      const tmpPos = new THREE.Vector3();
+
+      let best = null;
+      let bestScore = Number.POSITIVE_INFINITY;
+
+      const considerCandidate = (worldPos, type, baseBias = 0) => {
+        if (!worldPos) return;
+        const dist = shipWorldPos.distanceTo(worldPos);
+        if (!Number.isFinite(dist) || dist > range) return;
+
+        let score = dist + Number(baseBias || 0);
+        if (hintVec) {
+          const hintDist = hintVec.distanceTo(worldPos);
+          score += hintDist * 0.45;
+          if (hintDist <= 28) score -= 30;
+        }
+
+        if (score < bestScore) {
+          bestScore = score;
+          best = { type, world: worldPos.clone() };
+        }
+      };
+
+      if (Array.isArray(this.systemFleetEntries)) {
+        this.systemFleetEntries.forEach((candidateEntry) => {
+          if (!candidateEntry || candidateEntry === fleetEntry) return;
+          const targetOwner = String(candidateEntry?.fleet?.owner || '').trim();
+          if (!this._ownersLikelyHostile(shipOwner, targetOwner)) return;
+          const anchor = candidateEntry.group || candidateEntry.mesh;
+          if (!anchor?.getWorldPosition) return;
+          anchor.getWorldPosition(tmpPos);
+          considerCandidate(tmpPos, 'fleet', -8);
+        });
+      }
 
       if (Array.isArray(this.systemInstallationWeaponFxEntries)) {
         this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
           const install = fxEntry?.installEntry;
-          if (!install?.mesh) return;
-          
-          // Skip friendly installations
-          const installOwner = String(install.owner || '').trim();
-          const shipOwner = String(fleetEntry.fleet?.owner || '').trim();
-          if (installOwner === shipOwner) return;
-
-          // Check distance
-          const installWorldPos = new THREE.Vector3();
-          install.mesh.getWorldPosition(installWorldPos);
-          const dist = shipWorldPos.distanceTo(installWorldPos);
-
-          if (dist < closestDist) {
-            closestDist = dist;
-            closestInstall = { fxEntry, world: installWorldPos };
-          }
+          if (!install?.mesh?.getWorldPosition) return;
+          const targetOwner = String(install.owner || '').trim();
+          if (!this._ownersLikelyHostile(shipOwner, targetOwner)) return;
+          install.mesh.getWorldPosition(tmpPos);
+          considerCandidate(tmpPos, 'installation', 4);
         });
       }
 
-      // Create beam to target
-      if (closestInstall && closestDist < 200) { // Range limit
-        const cadence = this._installationWeaponFxCadence(ev.weaponKind || 'laser', state);
-        const shotDuration = this._installationWeaponFxShotDuration(ev.weaponKind || 'laser', state);
-
-        const beamRecord = {
-          id: `ship_beam_${fleetEntry.fleet?.id}_${Date.now()}`,
-          from: shipWorldPos.toArray(),
-          to: closestInstall.world.toArray(),
-          coreColor: Number(ev.coreColor ?? 0x00ff88),
-          color: Number(ev.color ?? 0x00ff88),
-          glowRadius: 0.35,
-          duration: shotDuration,
-        };
-
-        this.beamEffect.addBeam(beamRecord);
-        
-        // Set up next fire interval
-        if (!fleetEntry._nextShipFire) fleetEntry._nextShipFire = {};
-        fleetEntry._nextShipFire[ev.weaponKind || 'default'] = elapsed + cadence;
+      if (this.debrisManager && typeof this.debrisManager.getAll === 'function') {
+        this.debrisManager.getAll().forEach((debris) => {
+          if (!Array.isArray(debris?.position) || debris.position.length < 3) return;
+          tmpPos.set(
+            Number(debris.position[0]) || 0,
+            Number(debris.position[1]) || 0,
+            Number(debris.position[2]) || 0,
+          );
+          considerCandidate(tmpPos, 'debris', 10);
+        });
       }
+
+      if (!best && hintVec) {
+        return { type: 'hint', world: hintVec.clone() };
+      }
+      return best;
     }
 
     /**
