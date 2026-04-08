@@ -26,11 +26,24 @@
       }
 
       standingLabel(value) {
-        if (value >= 50) return 'Allied';
-        if (value >= 10) return 'Friendly';
+        if (value >= 50) return 'Verbündet';
+        if (value >= 10) return 'Freundlich';
         if (value >= -10) return 'Neutral';
-        if (value >= -50) return 'Hostile';
-        return 'War';
+        if (value >= -50) return 'Feindselig';
+        return 'Krieg';
+      }
+
+      standingBarWidth(value) {
+        return Math.round((Math.max(-100, Math.min(100, Number(value || 0))) + 100) / 2);
+      }
+
+      standingBarColor(value) {
+        const n = Number(value || 0);
+        if (n >= 50) return '#2ecc71';
+        if (n >= 10) return '#27ae60';
+        if (n >= -10) return '#aaa';
+        if (n >= -50) return '#e67e22';
+        return '#e74c3c';
       }
 
       formatEffect(key, value) {
@@ -116,29 +129,31 @@
             ` : '<div class="system-row text-muted" style="margin-top:0.55rem">Kein aktiver Faction-Unrest.</div>'}
           </div>
 
-          <div class="factions-grid">
+          <div class="diplomacy-cards-grid">
             ${factions.map((faction) => `
-              <div class="faction-card" data-fid="${faction.id}" style="border-color:${esc(faction.color)}">
-                <div class="faction-header">
-                  <span class="faction-icon">${esc(faction.icon)}</span>
-                  <span class="faction-name" style="color:${esc(faction.color)}">${esc(faction.name)}</span>
-                  <span class="status-chip faction-standing-chip ${this.standingClass(faction.standing)}">
-                    ${this.standingLabel(faction.standing)} (${faction.standing > 0 ? '+' : ''}${faction.standing})
-                  </span>
+              <div class="diplomacy-card faction-card" data-fid="${faction.id}">
+                <div class="diplomacy-card-image" style="background:${esc(faction.color)}22;border-color:${esc(faction.color)}44">
+                  <span class="diplomacy-card-icon" style="color:${esc(faction.color)}">${esc(faction.icon)}</span>
                 </div>
-                <p style="font-size:0.8rem;color:var(--text-secondary);margin:0.3rem 0 0.6rem">
-                  ${esc(faction.description)}
-                </p>
-                <div style="font-size:0.75rem;color:var(--text-muted)">
-                  Aggression: ${faction.aggression}/100 &nbsp;
-                  Trade: ${faction.trade_willingness}/100 &nbsp;
-                  Quests done: ${faction.quests_done}
-                </div>
-                <div class="faction-last-event" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">${faction.last_event ? esc(faction.last_event) : ''}</div>
-                <div class="faction-actions" style="margin-top:0.6rem;display:flex;gap:0.4rem">
-                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="trade">Trade</button>
-                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="quests">Quests</button>
-                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="contact">Contact</button>
+                <div class="diplomacy-card-body">
+                  <div class="diplomacy-card-name" style="color:${esc(faction.color)}">${esc(faction.name)}</div>
+                  <div class="diplomacy-standing-bar">
+                    <div class="diplomacy-standing-labels">
+                      <span>Feindselig</span><span>Freundlich</span>
+                    </div>
+                    <div class="diplomacy-standing-track">
+                      <div class="diplomacy-standing-fill faction-standing-fill" data-fid="${faction.id}"
+                        style="width:${this.standingBarWidth(faction.standing)}%;background:${this.standingBarColor(faction.standing)}"></div>
+                    </div>
+                    <div class="diplomacy-standing-value faction-standing-chip ${this.standingClass(faction.standing)}" data-fid="${faction.id}">
+                      ${this.standingLabel(faction.standing)} (${faction.standing > 0 ? '+' : ''}${faction.standing})
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+                    <button class="btn btn-primary btn-sm" data-fid="${faction.id}" data-act="contact">Kontakt</button>
+                    <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="trade">Handel</button>
+                    <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="quests">Aufträge</button>
+                  </div>
                 </div>
               </div>`).join('')}
           </div>
@@ -236,8 +251,14 @@
 
         const chip = card.querySelector('.faction-standing-chip');
         if (chip) {
-          chip.className = `status-chip faction-standing-chip ${this.standingClass(faction.standing)}`;
+          chip.className = `diplomacy-standing-value faction-standing-chip ${this.standingClass(faction.standing)}`;
           chip.textContent = `${this.standingLabel(faction.standing)} (${faction.standing > 0 ? '+' : ''}${faction.standing})`;
+        }
+
+        const fill = card.querySelector('.faction-standing-fill');
+        if (fill) {
+          fill.style.width = `${this.standingBarWidth(faction.standing)}%`;
+          fill.style.background = this.standingBarColor(faction.standing);
         }
 
         const lastEvent = card.querySelector('.faction-last-event');
