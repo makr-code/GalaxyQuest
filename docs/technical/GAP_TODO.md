@@ -146,51 +146,51 @@
 
 ## Kategorie D — Dokumentations-Drift (kein Codefehler)
 
-### D-1 GALAXY_POSTPROCESS_ROADMAP.md — veralteter Footer 🔵
+### D-1 GALAXY_POSTPROCESS_ROADMAP.md — veralteter Footer 🔵 ✅
 **Datei:** `docs/technical/GALAXY_POSTPROCESS_ROADMAP.md`
 
-- [ ] Footer-Status aktualisieren: alle 5 Phasen ✅ COMPLETE
-- [ ] Phase 3a (DOF) und Phase 4c (Atmospheric Glow Halo) als 🔴 Not Implemented markieren (offene `[ ]` ohne Implementierung)
+- [x] Footer-Status aktualisiert: alle 5 Phasen ✅ COMPLETE
+- [x] Phase 3a (DOF) und Phase 4c (Atmospheric Glow Halo) als deferred/not implemented markiert
 
 ---
 
-### D-2 PROGRESS_BARS_ROADMAP.md — Phase 9/10 bereits implementiert 🔵
+### D-2 PROGRESS_BARS_ROADMAP.md — Phase 9/10 bereits implementiert 🔵 ✅
 **Datei:** `docs/technical/PROGRESS_BARS_ROADMAP.md`
 
-- [ ] Phase 9 Items als ✅ markieren (Colony Events, Fleet Movement, Storage Capacity — alle bereits implementiert)
-- [ ] Phase 10 Items prüfen und Status korrekt setzen (Energy Balance ✅ implementiert)
+- [x] Phase 9 Items als ✅ markiert (Colony Events, Fleet Movement, Storage Capacity — alle bereits implementiert)
+- [x] Phase 10 Items als ✅ markiert (Energy Balance ✅, Population ✅ implementiert)
 
 ---
 
-### D-3 FUTURE_ENHANCEMENTS.md — §3.4 War Declarations Status 🔵
+### D-3 FUTURE_ENHANCEMENTS.md — §3.4 War Declarations Status 🔵 ✅
 **Datei:** `docs/technical/FUTURE_ENHANCEMENTS.md`
 
-- [ ] §3.4 von `🔭` auf `🚧` aktualisieren (Backend implementiert, Frontend partiell)
+- [x] §3.4 von 🔭 auf 🚧 Partial aktualisiert mit detailliertem Backend/Frontend-Status
 
 ---
 
-### D-4 Root-Level Markdown-Dateien → docs/ verschieben 🔵
+### D-4 Root-Level Markdown-Dateien → docs/ verschieben 🔵 ✅
 **Dateien im Root-Verzeichnis:**
 
-- [ ] `COMBAT_SYSTEM_DESIGN.md` → `docs/gamedesign/COMBAT_SYSTEM_DESIGN.md`
-- [ ] `COLONY_BUILDING_SYSTEM_DESIGN.md` → `docs/gamedesign/COLONY_BUILDING_SYSTEM_DESIGN.md`
-- [ ] `COLONY_BUILDING_WEBGPU_DESIGN.md` → `docs/technical/COLONY_BUILDING_WEBGPU_DESIGN.md`
-- [ ] `WAVE_17_IMPLEMENTATION_PLAN.md` → `docs/technical/WAVE_17_IMPLEMENTATION_PLAN.md`
-- [ ] `TRADERS_SYSTEM_IMPLEMENTATION.md` → `docs/technical/TRADERS_SYSTEM_IMPLEMENTATION.md`
-- [ ] `TRADERS_README.md` → `docs/technical/TRADERS_README.md`
-- [ ] `TRADERS_INTEGRATION_GUIDE.md` → `docs/technical/TRADERS_INTEGRATION_GUIDE.md`
-- [ ] `VFX_PROJECT_completion_REPORT.md` → `docs/technical/VFX_PROJECT_COMPLETION_REPORT.md`
-- [ ] `PHASE_1_COMPLETION_SUMMARY.md` → `docs/technical/PHASE_1_COMPLETION_SUMMARY.md`
-- [ ] `PHASE_2_COMPLETION.md` → `docs/technical/PHASE_2_COMPLETION.md`
-- [ ] `PHASE_2_IMPLEMENTATION.md` → `docs/technical/PHASE_2_IMPLEMENTATION.md`
-- [ ] `PHASE_2_VERIFICATION.md` → `docs/technical/PHASE_2_VERIFICATION.md`
-- [ ] `PHASE_3_COMPLETION.md` → `docs/technical/PHASE_3_COMPLETION.md`
-- [ ] `PHASE_3_DEBRIS_SYSTEM.md` → `docs/technical/PHASE_3_DEBRIS_SYSTEM.md`
-- [ ] `LORA_TRAINING_GUIDE.md` → `docs/lore/LORA_TRAINING_GUIDE.md`
-- [ ] `WEAPON_FIRE_INTEGRATION.md` → `docs/technical/WEAPON_FIRE_INTEGRATION.md`
-- [ ] `IMPLEMENTATION_STATUS_SUMMARY.md` → `docs/technical/IMPLEMENTATION_STATUS_SUMMARY.md`
-- [ ] `IMPLEMENTATION_CHECKLIST.md` → `docs/technical/IMPLEMENTATION_CHECKLIST.md`
-- [ ] `docs/INDEX.md` — Neue Einträge für alle verschobenen Dateien ergänzen
+- [x] `COMBAT_SYSTEM_DESIGN.md` → `docs/gamedesign/COMBAT_SYSTEM_DESIGN.md`
+- [x] `COLONY_BUILDING_SYSTEM_DESIGN.md` → `docs/gamedesign/COLONY_BUILDING_SYSTEM_DESIGN.md`
+- [x] `COLONY_BUILDING_WEBGPU_DESIGN.md` → `docs/technical/COLONY_BUILDING_WEBGPU_DESIGN.md`
+- [x] `WAVE_17_IMPLEMENTATION_PLAN.md` → `docs/technical/WAVE_17_IMPLEMENTATION_PLAN.md`
+- [x] `TRADERS_SYSTEM_IMPLEMENTATION.md` → `docs/technical/TRADERS_SYSTEM_IMPLEMENTATION.md`
+- [x] `TRADERS_README.md` → `docs/technical/TRADERS_README.md`
+- [x] `TRADERS_INTEGRATION_GUIDE.md` → `docs/technical/TRADERS_INTEGRATION_GUIDE.md`
+- [x] `VFX_PROJECT_completion_REPORT.md` → `docs/technical/VFX_PROJECT_COMPLETION_REPORT.md`
+- [x] `PHASE_1_COMPLETION_SUMMARY.md` → `docs/technical/PHASE_1_COMPLETION_SUMMARY.md`
+- [x] `PHASE_2_COMPLETION.md` → `docs/technical/PHASE_2_COMPLETION.md`
+- [x] `PHASE_2_IMPLEMENTATION.md` → `docs/technical/PHASE_2_IMPLEMENTATION.md`
+- [x] `PHASE_2_VERIFICATION.md` → `docs/technical/PHASE_2_VERIFICATION.md`
+- [x] `PHASE_3_COMPLETION.md` → `docs/technical/PHASE_3_COMPLETION.md`
+- [x] `PHASE_3_DEBRIS_SYSTEM.md` → `docs/technical/PHASE_3_DEBRIS_SYSTEM.md`
+- [x] `LORA_TRAINING_GUIDE.md` → `docs/lore/LORA_TRAINING_GUIDE.md`
+- [x] `WEAPON_FIRE_INTEGRATION.md` → `docs/technical/WEAPON_FIRE_INTEGRATION.md`
+- [x] `IMPLEMENTATION_STATUS_SUMMARY.md` → `docs/technical/IMPLEMENTATION_STATUS_SUMMARY.md`
+- [x] `IMPLEMENTATION_CHECKLIST.md` → `docs/technical/IMPLEMENTATION_CHECKLIST.md`
+- [x] `docs/INDEX.md` — Neue Einträge für alle verschobenen Dateien ergänzt
 
 ---
 
@@ -218,3 +218,7 @@
 | Datum | Modul | Erledigte Items |
 |---|---|---|
 | 2026-04-08 | Modul 0 | Dieses Dokument erstellt |
+| 2026-04-08 | Modul 1 (D-1) | GALAXY_POSTPROCESS_ROADMAP.md Footer + Remaining-Work korrigiert |
+| 2026-04-08 | Modul 1 (D-2) | PROGRESS_BARS_ROADMAP.md Phase 9+10 als ✅ markiert |
+| 2026-04-08 | Modul 1 (D-3) | FUTURE_ENHANCEMENTS.md §3.4 auf 🚧 Partial aktualisiert |
+| 2026-04-08 | Modul 2 (D-4) | 18 Root-MDs nach docs/{gamedesign,technical,lore}/ verschoben; INDEX.md vollständig aktualisiert |
