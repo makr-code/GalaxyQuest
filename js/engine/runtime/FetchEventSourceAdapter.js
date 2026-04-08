@@ -62,6 +62,7 @@ function buildFetchEventSourceAdapter(url, opts = {}) {
   const controller = new AbortController();
   const handlers = {};
   let closed = false;
+  let connected = false;
 
   const fetchFn = opts.fetchFn ?? (typeof globalThis !== 'undefined' ? globalThis.fetch : null);
   const fes = opts.fetchEventSourceFn ?? _fetchEventSource;
@@ -76,6 +77,7 @@ function buildFetchEventSourceAdapter(url, opts = {}) {
 
       onopen(response) {
         if (response.ok) {
+          connected = true;
           const h = handlers['connected'];
           if (h) h({ data: '{}' });
         }
@@ -104,6 +106,9 @@ function buildFetchEventSourceAdapter(url, opts = {}) {
 
     addEventListener(type, handler) {
       handlers[type] = handler;
+      if (type === 'connected' && connected) {
+        try { handler({ data: '{}' }); } catch (_) {}
+      }
     },
 
     close() {

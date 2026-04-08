@@ -40,6 +40,18 @@
     return 20 * Math.log10(Math.max(1e-6, linear));
   }
 
+  function createToneNode(Ctor, options) {
+    if (typeof Ctor !== 'function') {
+      throw new TypeError('Invalid Tone constructor');
+    }
+    try {
+      // Test doubles often expose callable factories instead of class ctors.
+      return Ctor(options);
+    } catch (_) {
+      return new Ctor(options);
+    }
+  }
+
   class GQAudioSynth {
     /**
      * @param {object}      [opts]
@@ -90,7 +102,7 @@
       try {
         const freq     = Number(opts.freq ?? 80);
         const duration = Number(opts.duration ?? 1.2);
-        const synth    = new Tone.Synth({
+        const synth    = createToneNode(Tone.Synth, {
           oscillator: { type: 'sawtooth' },
           envelope:   { attack: 0.3, decay: 0.1, sustain: 0.7, release: 0.5 },
         }).toDestination();
@@ -103,7 +115,7 @@
 
     _playLaserFire(Tone, opts) {
       try {
-        const synth = new Tone.MetalSynth({
+        const synth = createToneNode(Tone.MetalSynth, {
           frequency:  Number(opts.freq ?? 400),
           envelope:   { attack: 0.001, decay: 0.1, release: 0.05 },
           harmonicity: 5.1,
@@ -121,14 +133,14 @@
     _playExplosion(Tone, opts) {
       try {
         const duration = Number(opts.duration ?? 0.8);
-        const synth    = new Tone.NoiseSynth({
+        const synth    = createToneNode(Tone.NoiseSynth, {
           noise:    { type: 'brown' },
           envelope: { attack: 0.005, decay: duration * 0.6, sustain: 0, release: duration * 0.4 },
         }).toDestination();
         synth.triggerAttackRelease(duration);
 
         // Low thud via PluckSynth
-        const pluck = new Tone.PluckSynth({ attackNoise: 2, dampening: 2800, resonance: 0.9 }).toDestination();
+        const pluck = createToneNode(Tone.PluckSynth, { attackNoise: 2, dampening: 2800, resonance: 0.9 }).toDestination();
         pluck.triggerAttack('C2');
         return true;
       } catch (_) {
@@ -139,7 +151,7 @@
     _playWarpCharge(Tone, opts) {
       try {
         const duration = Number(opts.duration ?? 2.0);
-        const synth    = new Tone.Synth({
+        const synth    = createToneNode(Tone.Synth, {
           oscillator: { type: 'sine' },
           envelope:   { attack: duration * 0.6, decay: 0.1, sustain: 0.5, release: duration * 0.3 },
         }).toDestination();

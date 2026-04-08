@@ -307,7 +307,8 @@ class EconomyComputeEngine {
         consumed[gi] += Math.min(rate, stock[gi] ?? 0);
       }
       for (let g = 0; g < 12; g++) {
-        priceDelta[g] = -(produced[g] - consumed[g]) * ELAST;
+        const delta = -(produced[g] - consumed[g]) * ELAST;
+        priceDelta[g] = Object.is(delta, -0) ? 0 : delta;
       }
       return { produced, consumed, priceDelta };
     });
