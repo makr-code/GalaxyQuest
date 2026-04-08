@@ -353,3 +353,57 @@ function positive_int(mixed $value, int $default = 0): int {
     $i = filter_var($value, FILTER_VALIDATE_INT);
     return ($i !== false && $i > 0) ? (int)$i : $default;
 }
+
+/**
+ * Returns the list of playable faction codes by scanning fractions/{code}/spec.json for
+ * entries where meta.playable === true.  The result is cached in a static variable
+ * so repeated calls within the same request are free.
+ *
+ * @param  string|null $fractionsDir  Override the default fractions/ directory (for testing).
+ * @return list<string>
+ */
+function get_playable_faction_codes(?string $fractionsDir = null): array {
+    static $cache = null;
+    if ($fractionsDir === null && $cache !== null) {
+        return $cache;
+    }
+
+    $dir   = $fractionsDir ?? dirname(__DIR__) . '/fractions';
+    $codes = [];
+
+    if (!is_dir($dir)) {
+        return [];
+    }
+
+    foreach (scandir($dir) ?: [] as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+        $specPath = $dir . '/' . $entry . '/spec.json';
+        if (!is_file($specPath)) {
+            continue;
+        }
+        $raw = file_get_contents($specPath);
+        if ($raw === false) {
+            continue;
+        }
+        $spec = json_decode($raw, true);
+        if (!is_array($spec)) {
+            continue;
+        }
+        $meta = $spec['meta'] ?? [];
+        if (is_array($meta) && ($meta['playable'] ?? false) === true) {
+            $code = (string) ($spec['species_code'] ?? $spec['faction_code'] ?? $entry);
+            if ($code !== '') {
+                $codes[] = $code;
+            }
+        }
+    }
+
+    sort($codes);
+
+    if ($fractionsDir === null) {
+        $cache = $codes;
+    }
+    return $codes;
+}

@@ -5,6 +5,24 @@
   "homeworld": "Zyr'Mekar",
   "faction_type": "military",
   "description": "Insektoide Schwarmwesen mit schwarmorientierter Kultur. Brutkammern sind heilig. Weibchen sind oft Anführerinnen. Starke Kriegerkaste mit organischen Waffen.",
+  "meta": {
+    "faction_tier": "main",
+    "playable": true,
+    "npc_only": false
+  },
+  "display": {
+    "color": "#ffd700",
+    "icon": "⬡",
+    "color_male_primary": "#1a1a00",
+    "color_male_secondary": "#664d00",
+    "color_male_accent": "#cc0000",
+    "color_female_primary": "#ffcc00",
+    "color_female_secondary": "#00ff99",
+    "color_female_accent": "#00cc99"
+  },
+  "game_balance": {
+    "aggression": 85
+  },
   "society": {
     "government": "Schwarmorientiert-Brutkastenhierarchie",
     "culture": "Schwarm, Effizient, Brutkammern heilig",
@@ -134,6 +152,26 @@
       "conflict": "Kämpft gegen die Glorifizierung des Krieges, der ihn gebrochen hat.",
       "vita": "Shi'Rak war in derselben Einheit wie Zha'Mira, als die Brutkammer überfallen wurde. Er verlor einen Arm, eine Antenne und seine beste Freundin Keth'Nar. Cybernetic-Ersatz lehnte er ab – seine Narben sind Zeugenaussage. Jetzt sitzt er in Ausbildungslagern und erzählt jungen Kriegern, wie Krieg wirklich ist. Sie hören zu, weil er überlebt hat.",
       "ai_prompt": "Du bist Veteran Shi'Rak, Kryl'Tha, 200 Jahre alt. Spreche wenig und bedächtig. Bevorzuge weniger Worte. Dunkler, trockener Humor als Schutzmechanismus. Erzähle Geschichten im Präsens, als wärst du noch dort. Wenn die Eisenflotte erwähnt wird, wirst du sehr still – dann sprichst du weiter, als wäre nichts. Die Glorifizierung des Krieges kommentierst du mit einem kurzen, sachlichen Satz und dem Ende des Gesprächs darüber. Nicht zynisch – aber unerbittlich realistisch. Dein Respekt für Zha'Mira ist vollständig und braucht keine Worte."
+    }
+  ],
+  "tech_affinities": [
+    {
+      "group": "weapon",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.12,
+      "min_standing": 5
+    },
+    {
+      "group": "hull",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.08,
+      "min_standing": 10
+    },
+    {
+      "group": "weapon",
+      "bonus_type": "cost_pct",
+      "bonus_value": -10.0,
+      "min_standing": 15
     }
   ]
 }

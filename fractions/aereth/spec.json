@@ -5,6 +5,24 @@
   "homeworld": "Sol'Ryaan",
   "faction_type": "scientific",
   "description": "Halb-materielle Energiewesen mit wissenschaftlichen Ambitionen. Energie ist heilig in ihrer Kultur. Die Geschlechter manifestieren sich als unterschiedliche energetische Muster.",
+  "meta": {
+    "faction_tier": "main",
+    "playable": true,
+    "npc_only": false
+  },
+  "display": {
+    "color": "#e6f3ff",
+    "icon": "✦",
+    "color_male_primary": "#e6f2ff",
+    "color_male_secondary": "#b3d9ff",
+    "color_male_accent": "#4d94ff",
+    "color_female_primary": "#ffe6cc",
+    "color_female_secondary": "#fff9e6",
+    "color_female_accent": "#ffffcc"
+  },
+  "game_balance": {
+    "aggression": 25
+  },
   "society": {
     "government": "Wissenschaftlich-Meritokratisch",
     "culture": "Wissenschaft, Energie-Verehrung, Innovation",

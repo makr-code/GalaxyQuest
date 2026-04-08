@@ -94,13 +94,22 @@ final class FactionSpecLoader {
 
     /**
      * Builds a complete system prompt for an NPC character chat.
-     * Combines npc.ai_prompt with faction description and society context.
+     * Combines npc voice data with faction description and society context.
+     *
+     * Supports two NPC schemas:
+     *   - Main-faction NPCs: npc.ai_prompt (long character-voice instruction string)
+     *   - Side-faction NPCs: npc.title + npc.public_face + npc.private_goal + npc.llm_voice
      *
      * @param array<string, mixed> $npc
      * @param array<string, mixed> $spec
      */
     public function buildNpcSystemPrompt(array $npc, array $spec): string {
         $aiPrompt = trim((string) ($npc['ai_prompt'] ?? ''));
+
+        // Side-faction schema: synthesise voice prompt from structured NPC fields
+        if ($aiPrompt === '') {
+            $aiPrompt = $this->buildSideFactionVoicePrompt($npc);
+        }
 
         $factionDescription = trim((string) ($spec['description'] ?? ''));
         $society = $spec['society'] ?? [];
@@ -129,5 +138,73 @@ final class FactionSpecLoader {
         }
 
         return implode("\n\n", $parts);
+    }
+
+    /**
+     * Synthesises a character-voice system-prompt from the structured side-faction
+     * NPC schema (title, public_face, private_goal, llm_voice, llm_quotes).
+     *
+     * @param  array<string, mixed> $npc
+     */
+    private function buildSideFactionVoicePrompt(array $npc): string {
+        $name        = trim((string) ($npc['name']         ?? ''));
+        $title       = trim((string) ($npc['title']        ?? ''));
+        $publicFace  = trim((string) ($npc['public_face']  ?? ''));
+        $privateGoal = trim((string) ($npc['private_goal'] ?? ''));
+        $description = trim((string) ($npc['description']  ?? ''));
+
+        $voice          = is_array($npc['llm_voice'] ?? null) ? $npc['llm_voice'] : [];
+        $register       = trim((string) ($voice['register'] ?? ''));
+        $pacing         = trim((string) ($voice['pacing']   ?? ''));
+        $styleStack     = is_array($voice['style_stack']     ?? null)
+            ? implode(', ', $voice['style_stack']) : '';
+        $taboos         = is_array($voice['taboos']          ?? null)
+            ? implode(', ', $voice['taboos']) : '';
+        $signatureMoves = is_array($voice['signature_moves'] ?? null)
+            ? implode('; ', $voice['signature_moves']) : '';
+
+        $quotesBlock   = $npc['llm_quotes'] ?? [];
+        $primaryQuotes = is_array($quotesBlock['primary'] ?? null)
+            ? $quotesBlock['primary']
+            : (is_array($quotesBlock) && !isset($quotesBlock['primary']) ? $quotesBlock : []);
+        $quoteLine = !empty($primaryQuotes)
+            ? 'Typische Aussagen: ' . implode(' | ', $primaryQuotes)
+            : '';
+
+        $lines = [];
+        if ($name !== '' && $title !== '') {
+            $lines[] = "Du bist {$name} ({$title}).";
+        } elseif ($name !== '') {
+            $lines[] = "Du bist {$name}.";
+        }
+        if ($description !== '') {
+            $lines[] = $description;
+        }
+        if ($publicFace !== '') {
+            $lines[] = "Öffentliche Rolle: {$publicFace}";
+        }
+        if ($privateGoal !== '') {
+            $lines[] = "Geheimes Ziel: {$privateGoal}";
+        }
+        if ($styleStack !== '') {
+            $lines[] = "Sprachstil: {$styleStack}.";
+        }
+        if ($register !== '') {
+            $lines[] = "Register: {$register}.";
+        }
+        if ($pacing !== '') {
+            $lines[] = "Tempo: {$pacing}.";
+        }
+        if ($taboos !== '') {
+            $lines[] = "Sprich niemals über: {$taboos}.";
+        }
+        if ($signatureMoves !== '') {
+            $lines[] = "Charakteristische Verhaltensweisen: {$signatureMoves}.";
+        }
+        if ($quoteLine !== '') {
+            $lines[] = $quoteLine;
+        }
+
+        return implode("\n", $lines);
     }
 }

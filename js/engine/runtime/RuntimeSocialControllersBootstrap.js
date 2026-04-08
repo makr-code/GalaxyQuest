@@ -19,6 +19,9 @@
     const runtimeFactionsControllerApi = opts.runtimeFactionsControllerApi || {};
     const runtimeLeaderboardControllerApi = opts.runtimeLeaderboardControllerApi || {};
     const runtimeWarControllerApi = opts.runtimeWarControllerApi || {};
+    const runtimeDiplomacyDataModelApi = opts.runtimeDiplomacyDataModelApi || (typeof window !== 'undefined' && window.GQRuntimeDiplomacyDataModel) || null;
+    const runtimeDiplomacyPanelApi = opts.runtimeDiplomacyPanelApi || (typeof window !== 'undefined' && window.GQRuntimeDiplomacyPanel) || null;
+    const runtimeContractNegotiationModalApi = opts.runtimeContractNegotiationModalApi || (typeof window !== 'undefined' && window.GQRuntimeContractNegotiationModal) || null;
 
     const messagesController = runtimeMessagesControllerApi.createMessagesController({
       wm: opts.wm,
@@ -124,6 +127,27 @@
       getAdvisorWidget: opts.getAdvisorWidget,
     });
 
+    const contractNegotiationModal = runtimeContractNegotiationModalApi && runtimeContractNegotiationModalApi.createModal
+      ? runtimeContractNegotiationModalApi.createModal({
+          api: opts.api,
+          wm: opts.wm,
+          esc: opts.esc,
+          showToast: opts.showToast,
+          dataModel: runtimeDiplomacyDataModelApi,
+          onProposed: () => {},
+        })
+      : null;
+
+    const diplomacyPanel = runtimeDiplomacyPanelApi && runtimeDiplomacyPanelApi.createDiplomacyPanel
+      ? runtimeDiplomacyPanelApi.createDiplomacyPanel({
+          api: opts.api,
+          esc: opts.esc,
+          showToast: opts.showToast,
+          dataModel: runtimeDiplomacyDataModelApi,
+          onNegotiate: (faction, typeCode) => contractNegotiationModal && contractNegotiationModal.open(faction, typeCode),
+        })
+      : null;
+
     const factionsController = runtimeFactionsControllerApi.createFactionsController({
       wm: opts.wm,
       api: opts.api,
@@ -134,6 +158,8 @@
       onLoadOverview: opts.onLoadOverview,
       getCurrentColony: opts.getCurrentColony,
       windowRef: opts.windowRef,
+      diplomacyPanel,
+      contractNegotiationModal,
     });
 
     const leaderboardController = runtimeLeaderboardControllerApi.createLeaderboardController({

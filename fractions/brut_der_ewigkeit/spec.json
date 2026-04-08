@@ -158,5 +158,32 @@
     "act2": "Knoten-Drei kontaktiert die Spieler heimlich und warnt vor Bioadmiral Keth-Massas Assimilations-Countdown. Wenn die Spieler Knoten-Drei helfen, wächst der interne Dissens – aber Keth-Massa reagiert.",
     "act3": "Keth-Massa startet die Assimilation einer Randkolonie als 'Demonstration'. Die Spieler müssen entweder Knoten-Drei zur Kontrolle des Hive bringen oder eine Kryl'Tha-Allianz aktivieren, um die Flotte abzulenken.",
     "aftershock": "Wiederholbar: Biologische Sonden erscheinen in Sektoren; Kolonien berichten von Sporennebeln; der Avatar erscheint erneut mit neuen 'Angeboten'."
-  }
+  },
+  "display": {
+    "color": "#2d7a27",
+    "icon": "🧬"
+  },
+  "game_balance": {
+    "aggression": 85
+  },
+  "tech_affinities": [
+    {
+      "group": "weapon",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.12,
+      "min_standing": 5
+    },
+    {
+      "group": "hull",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.1,
+      "min_standing": 10
+    },
+    {
+      "group": "utility",
+      "bonus_type": "cost_pct",
+      "bonus_value": -8.0,
+      "min_standing": 15
+    }
+  ]
 }

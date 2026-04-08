@@ -431,11 +431,92 @@
     gameLog('info', '[GQ] WM game commands registered');
   }
 
+  /**
+   * registerGlobalHotkeys – binds single-key and Ctrl+key shortcuts that open
+   * WM windows or trigger common actions.
+   *
+   * Keys only fire when no text input, textarea, or contenteditable element has
+   * focus, and only when no modifier key other than the declared one is held.
+   *
+   * opts: { wm, windowRef, showToast, gameLog }
+   *
+   * Default bindings:
+   *   B → Buildings    R → Research    S → Shipyard    F → Fleet
+   *   G → Galaxy       M → Messages    I → Intel        Q → Quests
+   *   L → Leaderboard  T → Trade       W → Wormholes
+   *   Ctrl+K → Command Palette
+   */
+  function registerGlobalHotkeys(opts = {}) {
+    const {
+      wm = null,
+      windowRef = (typeof window !== 'undefined' ? window : null),
+      showToast = () => {},
+      gameLog: log = () => {},
+    } = opts;
+
+    if (!wm || !windowRef) return;
+
+    const SINGLE_KEY_MAP = {
+      b: 'buildings',
+      r: 'research',
+      s: 'shipyard',
+      f: 'fleet',
+      g: 'galaxy',
+      m: 'messages',
+      i: 'intel',
+      q: 'quests',
+      l: 'leaderboard',
+      t: 'trade',
+      w: 'wormholes',
+    };
+
+    function _isInputFocused() {
+      const el = windowRef.document && windowRef.document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName ? el.tagName.toUpperCase() : '';
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+    }
+
+    function _handler(e) {
+      if (_isInputFocused()) return;
+
+      const key = (e.key || '').toLowerCase();
+
+      // Ctrl+K → command palette
+      if ((e.ctrlKey || e.metaKey) && key === 'k' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        if (typeof wm.showCommandPalette === 'function') {
+          wm.showCommandPalette({});
+        }
+        return;
+      }
+
+      // Single-key window toggles — no modifier keys allowed
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+
+      const win = SINGLE_KEY_MAP[key];
+      if (win && typeof wm.toggle === 'function') {
+        e.preventDefault();
+        wm.toggle(win);
+      }
+    }
+
+    windowRef.addEventListener('keydown', _handler);
+    log('info', '[GQ] Global hotkeys registered');
+
+    return {
+      destroy() {
+        windowRef.removeEventListener('keydown', _handler);
+      },
+    };
+  }
+
   const api = {
     createNavigationController,
     createWindowRegistry,
     selfHealGalaxyWindow,
     registerGameCommands,
+    registerGlobalHotkeys,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

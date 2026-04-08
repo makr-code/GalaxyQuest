@@ -159,5 +159,9 @@
     "act2": "Kyra-Seven bittet die Spieler diskret um Hilfe, aus einer ihrer Identitäten auszubrechen. Breveth kontaktiert die Spieler mit Beweisen einer Echo-Infiltration im Kompakt.",
     "act3": "Direktor Null lädt die Spieler ein – alle Fraktionsinformationen liegen auf dem Tisch. Der Preis: die Spieler müssen die Echo-Infiltration abschließen, bevor sie eskaliert. Oder sie nutzen die Chance, das Kompakt aufzudecken.",
     "aftershock": "Wiederholbar: Informationslecks erscheinen; Kyra-Seven bittet um Aufträge; Breveth liefert Analysewarnungen; Kompakt-Zellen werden aufgedeckt."
+  },
+  "display": {
+    "color": "#2c2c2c",
+    "icon": "🕵"
   }
 }

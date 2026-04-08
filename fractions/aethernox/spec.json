@@ -165,5 +165,33 @@
     "act2": "Die Spieler entdecken Aethra's Imago und erfahren, dass der Wächter falsch kalibriert ist. Ein Bündnis mit Wächter-Protokoll Null könnte Sigma-VII aufhalten – wenn sie verstehen, wie man mit einem Algorithmus verhandelt.",
     "act3": "Sigma-VII hat entschieden: Der Riss UND alle Spezies, die ihn verursacht haben, müssen eliminiert werden. Die Spieler müssen entweder das Ursprungs-Kalibrierungsprotokoll finden oder Aethra freischalten, um den Wächter umzuprogrammieren.",
     "aftershock": "Wiederholbare Ereignisse: Neue Monolithen erwachen; Konstrukte testen lokale Systeme auf 'Gleichgewicht'; Aethra sendet kryptische Nachrichten an Fraktionen, die ihr vertrauen."
-  }
+  },
+  "display": {
+    "color": "#c8b8ff",
+    "icon": "⚖"
+  },
+  "game_balance": {
+    "aggression": 20,
+    "power_level": 3500
+  },
+  "tech_affinities": [
+    {
+      "group": "hull",
+      "bonus_type": "stat_mult",
+      "bonus_value": 0.1,
+      "min_standing": 5
+    },
+    {
+      "group": "shield",
+      "bonus_type": "cost_pct",
+      "bonus_value": -10.0,
+      "min_standing": 10
+    },
+    {
+      "group": "utility",
+      "bonus_type": "cost_pct",
+      "bonus_value": -8.0,
+      "min_standing": 15
+    }
+  ]
 }

@@ -1,0 +1,359 @@
+/* ── Faction Agreement / Diplomacy Treaty UI ─────────────────────────────────
+ * Victoria 3-inspired contract & treaty system for GalaxyQuest.
+ * Follows existing CSS variable conventions from style.css / gqwm.css.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Contract type tabs ──────────────────────────────────────────────────── */
+.gq-contract-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.gq-contract-type-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 4px;
+  border: 1px solid var(--tab-color, var(--border));
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.gq-contract-type-tab:hover,
+.gq-contract-type-tab.active {
+  background: color-mix(in srgb, var(--tab-color, var(--accent)) 20%, transparent);
+  color: var(--tab-color, var(--accent));
+  border-color: var(--tab-color, var(--accent));
+}
+
+/* ── Two-column negotiation layout ──────────────────────────────────────── */
+.gq-contract-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin: 0.65rem 0;
+}
+
+.gq-contract-col {
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.gq-contract-col--player  { border-color: rgba(90, 200, 140, 0.35); }
+.gq-contract-col--faction { border-color: rgba(var(--faction-color, 138, 43, 226), 0.35); }
+
+.gq-contract-col__title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.45rem;
+}
+
+.gq-contract-terms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.gq-term-row {
+  display: flex;
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.gq-term-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
+.gq-term-resource {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.gq-term-row--demand { color: var(--text-secondary); }
+.gq-term-demand-icon  { color: var(--text-muted); margin-right: 0.3rem; }
+
+/* ── Contract panel card ─────────────────────────────────────────────────── */
+.gq-contract-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  background: var(--bg-secondary);
+  margin-bottom: 0.65rem;
+  border-left: 3px solid var(--faction-color, var(--accent));
+}
+
+.gq-contract-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.gq-contract-panel__type-icon  { font-size: 1.25rem; }
+.gq-contract-panel__type-label { font-weight: 700; font-size: 0.92rem; }
+.gq-contract-panel__faction     { font-size: 0.8rem; color: var(--text-muted); margin-left: auto; }
+
+.gq-contract-panel__footer {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.gq-contract-panel__duration {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-right: auto;
+}
+
+/* Status variants */
+.gq-contract-status--proposed  { border-left-color: #f0a500; }
+.gq-contract-status--active    { border-left-color: #27ae60; }
+.gq-contract-status--rejected  { opacity: 0.6; border-left-color: #e74c3c; }
+.gq-contract-status--cancelled { opacity: 0.5; border-left-color: #888; }
+.gq-contract-status--expired   { opacity: 0.55; border-left-color: #555; }
+
+/* ── Agreement chip badges ──────────────────────────────────────────────── */
+.gq-contract-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.gq-contract-chip--proposed  { background: #3a2e00; color: #f0a500; }
+.gq-contract-chip--active    { background: #0f2a18; color: #27ae60; }
+.gq-contract-chip--rejected  { background: #2e0000; color: #e74c3c; }
+.gq-contract-chip--cancelled { background: #1c1c1c; color: #888;    }
+.gq-contract-chip--expired   { background: #1c1c1c; color: #666;    }
+
+/* ── AI acceptance confidence bar ──────────────────────────────────────── */
+.gq-ai-confidence {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.45rem 0;
+}
+
+.gq-ai-confidence__bar {
+  height: 6px;
+  border-radius: 3px;
+  flex: 1;
+  transition: width 0.4s ease;
+  max-width: 200px;
+}
+
+.gq-ai-confidence__pct {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  min-width: 2.5rem;
+}
+
+/* ── Standing meter ─────────────────────────────────────────────────────── */
+.gq-standing-meter {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.4rem 0;
+}
+
+.gq-standing-meter__track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  max-width: 220px;
+}
+
+.gq-standing-meter__fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+/* reuse chip colours for fill */
+.gq-standing-meter__fill.chip-allied    { background: #2ecc71; }
+.gq-standing-meter__fill.chip-friendly  { background: #27ae60; }
+.gq-standing-meter__fill.chip-neutral   { background: #9ca3af; }
+.gq-standing-meter__fill.chip-hostile   { background: #e67e22; }
+.gq-standing-meter__fill.chip-war       { background: #e74c3c; }
+
+.gq-standing-meter__delta {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  opacity: 0.55;
+  animation: gq-delta-pulse 1.2s infinite alternate;
+}
+.gq-standing-meter__delta.positive { background: #2ecc71; }
+.gq-standing-meter__delta.negative { background: #e74c3c; }
+
+@keyframes gq-delta-pulse {
+  from { opacity: 0.35; }
+  to   { opacity: 0.7;  }
+}
+
+.gq-standing-meter__label {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ── Diplomacy panel wrapper ────────────────────────────────────────────── */
+.gq-diplomacy-panel {
+  padding: 0.6rem 0;
+}
+
+.gq-diplomacy-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.gq-diplomacy-panel__title {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+.gq-contract-empty {
+  text-align: center;
+  padding: 1.5rem 1rem;
+  color: var(--text-muted);
+}
+
+.gq-contract-empty__icon { font-size: 2rem; display: block; margin-bottom: 0.4rem; }
+
+/* ── Negotiation modal ──────────────────────────────────────────────────── */
+.gq-negotiate-modal {
+  padding: 0.25rem;
+}
+
+.gq-negotiate-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.gq-negotiate-modal__faction {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.gq-negotiate-modal__type-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.gq-negotiate-warning {
+  background: rgba(231, 76, 60, 0.12);
+  border: 1px solid rgba(231, 76, 60, 0.4);
+  border-radius: 5px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.8rem;
+  color: #e74c3c;
+  margin-bottom: 0.5rem;
+}
+
+.gq-negotiate-modal__footer {
+  border-top: 1px solid var(--border);
+  padding-top: 0.65rem;
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.gq-negotiate-footer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+}
+
+.gq-negotiate-standing-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+
+.gq-negotiate-label { color: var(--text-muted); }
+
+.gq-negotiate-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+}
+
+.gq-contract-loading {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 0.5rem;
+}
+
+/* ── HUD sidebar active-contract chips ──────────────────────────────────── */
+.gq-active-contracts-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.3rem 0;
+}
+
+.gq-hud-contract-chip {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gq-hud-contract-chip:hover {
+  background: rgba(var(--accent-rgb, 74, 144, 217), 0.15);
+}
+
+.gq-hud-contract-chip--expiring {
+  animation: gq-chip-pulse 1.4s infinite alternate;
+}
+
+@keyframes gq-chip-pulse {
+  from { opacity: 0.7; }
+  to   { opacity: 1;   }
+}

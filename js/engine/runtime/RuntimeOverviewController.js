@@ -35,9 +35,10 @@
   } = {}) {
     const templates = {
       fleetRow: `
-          <div class="fleet-row">
+          <div class="fleet-row" data-fleet-id="{{{fleetId}}}">
+            {{{fleetLabelHtml}}}
             <span class="fleet-mission">{{{mission}}}</span>
-            <span class="fleet-target">-> [{{{targetGalaxy}}}:{{{targetSystem}}}:{{{targetPosition}}}]</span>
+            <span class="fleet-target" title="[{{{targetGalaxy}}}:{{{targetSystem}}}:{{{targetPosition}}}]">-> {{{targetSystemName}}}</span>
             {{{positionHtml}}}
             <span class="fleet-timer" data-end="{{{arrivalTimeRaw}}}">{{{arrivalCountdown}}}</span>
             {{{progressHtml}}}
@@ -80,18 +81,47 @@
     function updateResourceBar() {
       const currentColony = getCurrentColony();
       if (!currentColony) return;
-      const resMetalEl = documentRef.getElementById('res-metal');
-      if (resMetalEl) resMetalEl.textContent = fmt(currentColony.metal);
-      const resCrystalEl = documentRef.getElementById('res-crystal');
-      if (resCrystalEl) resCrystalEl.textContent = fmt(currentColony.crystal);
-      const resDeuteriumEl = documentRef.getElementById('res-deuterium');
-      if (resDeuteriumEl) resDeuteriumEl.textContent = fmt(currentColony.deuterium);
+
+      function applyResResource(elId, value, ratePerHour, cap) {
+        const el = documentRef.getElementById(elId);
+        if (!el) return;
+        el.textContent = fmt(value);
+        const btn = el.closest('.resource-btn') || el.parentElement;
+        if (btn) {
+          // Capacity color
+          btn.classList.remove('res-cap-full', 'res-cap-warn', 'res-cap-ok', 'res-cap-pulse');
+          if (cap > 0) {
+            const fill = value / cap;
+            if (fill >= 0.95) { btn.classList.add('res-cap-full'); btn.classList.add('res-cap-pulse'); }
+            else if (fill >= 0.75) btn.classList.add('res-cap-warn');
+            else btn.classList.add('res-cap-ok');
+          }
+        }
+        // Rate line
+        let rateEl = el.parentElement ? el.parentElement.querySelector('.res-rate') : null;
+        if (!rateEl && el.parentElement) {
+          rateEl = documentRef.createElement('span');
+          rateEl.className = 'res-rate';
+          el.parentElement.appendChild(rateEl);
+        }
+        if (rateEl && ratePerHour !== undefined) {
+          const rateVal = Math.round(ratePerHour);
+          const sign = rateVal > 0 ? '+' : '';
+          const arrow = rateVal > 0 ? '▲' : rateVal < 0 ? '▼' : '—';
+          const color = rateVal > 0 ? '#2ecc71' : rateVal < 0 ? '#e74c3c' : '#aaa';
+          rateEl.style.color = color;
+          rateEl.textContent = `${arrow} ${sign}${fmt(rateVal)}/h`;
+        }
+      }
+
+      applyResResource('res-metal',    currentColony.metal    ?? 0, currentColony.metal_per_hour,    currentColony.metal_cap);
+      applyResResource('res-crystal',  currentColony.crystal  ?? 0, currentColony.crystal_per_hour,  currentColony.crystal_cap);
+      applyResResource('res-deuterium',currentColony.deuterium?? 0, currentColony.deuterium_per_hour,currentColony.deuterium_cap);
+      applyResResource('res-food',     currentColony.food     ?? 0, currentColony.food_per_hour,     currentColony.food_cap);
+      applyResResource('res-rare-earth',currentColony.rare_earth ?? 0, currentColony.rare_earth_per_hour, currentColony.rare_earth_cap ?? 50000);
+
       const resEnergyEl = documentRef.getElementById('res-energy');
       if (resEnergyEl) resEnergyEl.textContent = currentColony.energy ?? '-';
-      const foodEl = documentRef.getElementById('res-food');
-      if (foodEl) foodEl.textContent = fmt(currentColony.food ?? 0);
-      const reEl = documentRef.getElementById('res-rare-earth');
-      if (reEl) reEl.textContent = fmt(currentColony.rare_earth ?? 0);
       const popEl = documentRef.getElementById('res-population');
       if (popEl) popEl.textContent = `${fmt(currentColony.population ?? 0)}/${fmt(currentColony.max_population ?? 500)}`;
       const happEl = documentRef.getElementById('res-happiness');

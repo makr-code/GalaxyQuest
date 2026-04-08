@@ -33,6 +33,7 @@
     const getGalaxyBody = typeof opts.getGalaxyBody === 'function' ? opts.getGalaxyBody : (() => null);
     const renderGalaxyDetails = typeof opts.renderGalaxyDetails === 'function' ? opts.renderGalaxyDetails : (() => {});
     const isSystemModeActive = typeof opts.isSystemModeActive === 'function' ? opts.isSystemModeActive : (() => false);
+    const getTradeRoutes = typeof opts.getTradeRoutes === 'function' ? opts.getTradeRoutes : (() => []);
     const requestFrame = typeof opts.requestFrame === 'function'
       ? opts.requestFrame
       : (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : ((fn) => setTimeout(fn, 16)));
@@ -113,6 +114,7 @@
       projectPoint: (state, x, y) => minimapProjectPoint(state, x, y),
       drawCameraOverlay: (ctx, state, pose) => drawMinimapCameraOverlay(ctx, state, pose),
       getStarClassColor,
+      getTradeRoutes,
     });
 
     function drawMinimap(root, wrap, canvas, hud) {
