@@ -260,8 +260,8 @@ UI will allow toggling + fine-tuning (dev mode).
 
 ---
 
-**Last Updated:** 2026-03-28  
-**Status:** 🟡 Phase 1 Complete ✅ | Phase 2 (Top 3) Ready for Fine-Tuning ✨
+**Last Updated:** 2026-04-08  
+**Status:** ✅ Phase 1–5 Complete | ⚠️ Phase 3a (DOF) and Phase 4c (Atmospheric Glow Halo) intentionally deferred — not implemented
 
 ---
 
@@ -291,10 +291,11 @@ postEffects.enableVignette(true/false);
 postEffects.enableChromatic(true/false);
 ```
 
-### Next Steps (Top 3 Fine-Tuning)
+### Remaining Work
 
-1. **Test all three effects** on both starfield + galaxy3d
-2. **Adjust base parameters** if visual appearance differs from expectations
-3. **Profile performance** — ensure 60 FPS maintained
-4. **Add UI controls** (optional) for in-game tweaking
-5. **Commit & deploy** Phase 2 completion
+Two effects were intentionally deferred and are not yet implemented:
+
+- **Phase 3a — Depth of Field**: High performance cost (−15–25 FPS), requires 2–3 extra render-to-texture passes. Deferred pending quality-tier gating.
+- **Phase 4c — Atmospheric Glow Halo**: Animated pulsing corona around black-hole core. Deferred pending scene-composition decision.
+
+All other Phase 1–5 passes are fully implemented and tested.

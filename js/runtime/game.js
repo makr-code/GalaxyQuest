@@ -4362,6 +4362,9 @@
   const runtimeFactionsControllerApi = requireRuntimeApi('GQRuntimeFactionsController', ['createFactionsController']);
   const runtimeLeaderboardControllerApi = requireRuntimeApi('GQRuntimeLeaderboardController', ['createLeaderboardController']);
   const runtimeWarControllerApi = requireRuntimeApi('GQRuntimeWarController', ['createWarController']);
+  const runtimeColonizationControllerApi = requireRuntimeApi('GQRuntimeColonizationController', ['createColonizationController']);
+  const runtimeEmpireCategoriesPanelApi = requireRuntimeApi('GQRuntimeEmpireCategoriesPanel', ['createEmpireCategoriesPanel']);
+  const runtimeEspionageControllerApi = requireRuntimeApi('GQRuntimeEspionageController', ['createEspionageController']);
   const runtimeConflictDashboardApi = requireRuntimeApi('GQRuntimeConflictDashboard', ['createConflictDashboard']);
   const runtimeSocialControllersBootstrapApi = requireRuntimeApi('GQRuntimeSocialControllersBootstrap', ['createSocialControllersBootstrap']);
   const runtimeAdvisorWidgetApi = requireRuntimeApi('GQRuntimeAdvisorWidget', ['createAdvisorWidget']);
@@ -4378,6 +4381,9 @@
     runtimeFactionsControllerApi,
     runtimeLeaderboardControllerApi,
     runtimeWarControllerApi,
+    runtimeColonizationControllerApi,
+    runtimeEmpireCategoriesPanelApi,
+    runtimeEspionageControllerApi,
     wm: WM,
     api: API,
     windowRef: window,
@@ -4418,6 +4424,9 @@
   const factionsController = socialControllers.factionsController;
   const leaderboardController = socialControllers.leaderboardController;
   const warController = socialControllers.warController;
+  const colonizationController = socialControllers.colonizationController;
+  const empireCategoriesPanel = socialControllers.empireCategoriesPanel;
+  const espionageController = socialControllers.espionageController;
   const conflictDashboard = runtimeConflictDashboardApi.createConflictDashboard({
     wm: WM,
     api: API,
@@ -4438,6 +4447,9 @@
   window.GQLeaderboardController = leaderboardController;
   window.GQWarController = warController;
   window.GQConflictDashboard = conflictDashboard;
+  window.GQColonizationController = colonizationController;
+  window.GQEmpirePanel = empireCategoriesPanel;
+  window.GQEspionageController = espionageController;
 
   // ── Messages window ─────────────────────────────────────────────────────────
   async function renderMessages() {
@@ -4464,6 +4476,10 @@
 
   async function renderWars() {
     await warController.render();
+  }
+
+  async function renderColonization() {
+    if (colonizationController) await colonizationController.render();
   }
 
   async function renderConflict() {

@@ -73,6 +73,147 @@ if (!defined('ECONOMY_POP_CONSUMPTION_RATES')) {
 /** Maximum hours of back-accumulation applied in a single flush (prevents runaway). */
 const ECONOMY_FLUSH_MAX_HOURS = 24.0;
 
+/**
+ * Policy-aware per-good production multipliers.
+ *
+ * war_economy: military_equipment +30%, consumer_goods −20%
+ * autarky:     all domestic production +10% (import-substitution bonus)
+ * subsidies:   agriculture/research/military +20% on relevant goods
+ */
+function get_policy_good_multipliers(PDO $db, int $owner_id): array {
+    $mult = [];
+    $stmt = $db->prepare('SELECT global_policy, subsidy_agriculture, subsidy_research, subsidy_military FROM economy_policies WHERE user_id = ?');
+    $stmt->execute([$owner_id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return $mult;
+    }
+
+    $policy = is_numeric($row['global_policy'])
+        ? (['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'][(int)$row['global_policy']] ?? 'free_market')
+        : (string)$row['global_policy'];
+
+    if ($policy === 'war_economy') {
+        $mult['military_equipment'] = ($mult['military_equipment'] ?? 1.0) * 1.30;
+        $mult['consumer_goods']     = ($mult['consumer_goods']     ?? 1.0) * 0.80;
+    }
+
+    if ($policy === 'autarky') {
+        // Domestic production bonus — all goods +10%
+        foreach (['steel_alloy','focus_crystals','reactor_fuel','biocompost','electronics_components',
+                  'consumer_goods','luxury_goods','military_equipment','research_kits','colonization_packs'] as $g) {
+            $mult[$g] = ($mult[$g] ?? 1.0) * 1.10;
+        }
+    }
+
+    if ((int)($row['subsidy_agriculture'] ?? 0)) {
+        $mult['biocompost']  = ($mult['biocompost']  ?? 1.0) * 1.20;
+        $mult['food']        = ($mult['food']        ?? 1.0) * 1.20;
+    }
+    if ((int)($row['subsidy_research'] ?? 0)) {
+        $mult['research_kits']     = ($mult['research_kits']     ?? 1.0) * 1.20;
+        $mult['quantum_circuits']  = ($mult['quantum_circuits']  ?? 1.0) * 1.15;
+    }
+    if ((int)($row['subsidy_military'] ?? 0)) {
+        $mult['military_equipment'] = ($mult['military_equipment'] ?? 1.0) * 1.20;
+    }
+
+    return $mult;
+}
+
+/**
+ * Log a shortage/starvation event for a colony/good when stock hits zero.
+ * Creates the economy_shortage_events table if missing (idempotent).
+ */
+function log_shortage_event(PDO $db, int $colony_id, string $good_type, float $deficit_per_hour): void {
+    // Ensure table exists
+    $db->exec(<<<SQL
+        CREATE TABLE IF NOT EXISTS economy_shortage_events (
+            id              BIGINT        NOT NULL AUTO_INCREMENT,
+            colony_id       INT           NOT NULL,
+            good_type       VARCHAR(60)   NOT NULL,
+            deficit_per_hour FLOAT        NOT NULL DEFAULT 0,
+            severity        ENUM('shortage','starvation') NOT NULL DEFAULT 'shortage',
+            started_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            resolved_at     DATETIME      DEFAULT NULL,
+            PRIMARY KEY (id),
+            INDEX idx_se_colony (colony_id, good_type),
+            INDEX idx_se_started (started_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    SQL);
+
+    // Critical goods cause starvation; others are just shortages
+    static $criticalGoods = ['consumer_goods', 'biocompost'];
+    $severity = in_array($good_type, $criticalGoods, true) ? 'starvation' : 'shortage';
+
+    // Insert only if no open event for this colony+good already exists
+    $db->prepare(<<<SQL
+        INSERT IGNORE INTO economy_shortage_events (colony_id, good_type, deficit_per_hour, severity)
+        SELECT ?, ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1 FROM economy_shortage_events
+            WHERE colony_id = ? AND good_type = ? AND resolved_at IS NULL
+        )
+    SQL)->execute([$colony_id, $good_type, $deficit_per_hour, $severity, $colony_id, $good_type]);
+}
+
+/**
+ * Resolve any open shortage events for a colony+good when stock is positive.
+ */
+function resolve_shortage_event(PDO $db, int $colony_id, string $good_type): void {
+    $tableExists = $db->query("SHOW TABLES LIKE 'economy_shortage_events'")->fetchColumn();
+    if (!$tableExists) {
+        return;
+    }
+    $db->prepare(<<<SQL
+        UPDATE economy_shortage_events
+        SET resolved_at = NOW()
+        WHERE colony_id = ? AND good_type = ? AND resolved_at IS NULL
+    SQL)->execute([$colony_id, $good_type]);
+}
+
+/**
+ * Update pop satisfaction_index based on goods shortages.
+ * Shortage ticks increment shortage_ticks counter; adequate supply restores satisfaction.
+ */
+function update_pop_satisfaction_from_goods(PDO $db, int $colony_id, array $goodStates): void {
+    // goodStates: [ good_type => ['has_shortage' => bool, 'net_rate' => float] ]
+    $hasCriticalShortage = false;
+    $shortageCount = 0;
+    foreach ($goodStates as $good => $state) {
+        if ($state['has_shortage']) {
+            $shortageCount++;
+            if (in_array($good, ['consumer_goods', 'biocompost'], true)) {
+                $hasCriticalShortage = true;
+            }
+        }
+    }
+
+    // Adjust satisfaction: -5 per shortage good per tick, -15 for critical shortage
+    $satisfactionDelta = 0;
+    if ($shortageCount > 0) {
+        $satisfactionDelta -= $shortageCount * 5;
+    }
+    if ($hasCriticalShortage) {
+        $satisfactionDelta -= 15;
+    }
+    // Small recovery if no shortages
+    if ($shortageCount === 0) {
+        $satisfactionDelta = 2;
+    }
+
+    if ($satisfactionDelta === 0) {
+        return;
+    }
+
+    $db->prepare(<<<SQL
+        UPDATE economy_pop_classes
+        SET satisfaction_index = GREATEST(0, LEAST(100, satisfaction_index + ?)),
+            shortage_ticks     = CASE WHEN ? < 0 THEN shortage_ticks + 1 ELSE GREATEST(0, shortage_ticks - 1) END
+        WHERE colony_id = ?
+    SQL)->execute([$satisfactionDelta, $satisfactionDelta, $colony_id]);
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -183,6 +324,23 @@ function flush_colony_production(PDO $db, int $colony_id): void {
         'void_refinery', 'consciousness_institute', 'temporal_atelier',
     ];
 
+    // PHASE 3.3 – Fetch policy-aware per-good multipliers (war_economy, autarky, subsidies)
+    $policyGoodMults = [];
+    if (!empty($ownerRow['user_id']) || isset($ownerId)) {
+        $effectiveOwnerId = $ownerId ?? (int)($ownerRow['user_id'] ?? 0);
+        if ($effectiveOwnerId > 0) {
+            $policyGoodMults = get_policy_good_multipliers($db, $effectiveOwnerId);
+        }
+    } else {
+        // Fallback: resolve owner here
+        $ownerFb = $db->prepare('SELECT user_id FROM colonies WHERE id = ?');
+        $ownerFb->execute([$colony_id]);
+        $ownerFbRow = $ownerFb->fetch(PDO::FETCH_ASSOC);
+        if ($ownerFbRow) {
+            $policyGoodMults = get_policy_good_multipliers($db, (int)$ownerFbRow['user_id']);
+        }
+    }
+
     $prodRates = [];
     foreach (ECONOMY_BUILDING_BASE_RATES as $buildingType => $def) {
         $level = $buildings[$buildingType] ?? 0;
@@ -196,7 +354,9 @@ function flush_colony_production(PDO $db, int $colony_id): void {
         $method = $methods[$buildingType] ?? 'standard';
         $mult   = ECONOMY_METHOD_MULTIPLIERS[$method] ?? 1.0;
         $good   = $def['good'];
-        $prodRates[$good] = ($prodRates[$good] ?? 0.0) + $def['rate'] * $level * $mult * $satisfactionMult;
+        // PHASE 3.3: Apply policy good multipliers
+        $policyMult = $policyGoodMults[$good] ?? 1.0;
+        $prodRates[$good] = ($prodRates[$good] ?? 0.0) + $def['rate'] * $level * $mult * $satisfactionMult * $policyMult;
     }
 
     // 5. Per-good consumption rates (from population)
@@ -240,6 +400,9 @@ function flush_colony_production(PDO $db, int $colony_id): void {
         WHERE id = ?
     SQL);
 
+    // PHASE 3.3: Track goods states for shortage/satisfaction updates
+    $goodStates = [];
+
     foreach ($rows as $r) {
         $goodType = $r['good_type'];
         $prodRate = $prodRates[$goodType] ?? 0.0;
@@ -253,6 +416,25 @@ function flush_colony_production(PDO $db, int $colony_id): void {
         $newQty = max(0.0, min((float)$r['capacity'], $newQty));
 
         $updStmt->execute([$newQty, $prodRate, $consRate, (int)$r['id']]);
+
+        // PHASE 3.3: Track shortage state for consumed goods
+        if ($consRate > 0) {
+            $hasShortage = ($newQty <= 0.0 && $consRate > $prodRate);
+            $goodStates[$goodType] = [
+                'has_shortage' => $hasShortage,
+                'net_rate'     => $prodRate - $consRate,
+            ];
+            if ($hasShortage) {
+                log_shortage_event($db, $colony_id, $goodType, $consRate - $prodRate);
+            } else {
+                resolve_shortage_event($db, $colony_id, $goodType);
+            }
+        }
+    }
+
+    // PHASE 3.3: Update pop satisfaction based on shortage state
+    if (!empty($goodStates)) {
+        update_pop_satisfaction_from_goods($db, $colony_id, $goodStates);
     }
 
     // PHASE 2.2 – Apply active pirate raid damage to current goods quantities.

@@ -267,18 +267,27 @@ function action_buy(PDO $db, int $uid): never {
     $stmt->execute([$colonyId, $uid]);
     if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
 
-    // Check AUTARKY policy
+    // Check AUTARKY policy — imports blocked
+    // Check MERCANTILISM policy — imports cost +20% more
     $pStmt = $db->prepare('SELECT global_policy FROM economy_policies WHERE user_id = ?');
     $pStmt->execute([$uid]);
     $pRow  = $pStmt->fetch(PDO::FETCH_ASSOC);
-    if ($pRow && $pRow['global_policy'] === 'autarky') {
+    $rawPolicy = $pRow ? $pRow['global_policy'] : 'free_market';
+    $resolvedPolicy = is_numeric($rawPolicy)
+        ? (['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'][(int)$rawPolicy] ?? 'free_market')
+        : (string)$rawPolicy;
+
+    if ($resolvedPolicy === 'autarky') {
         json_error('Autarky policy: imports are blocked', 403);
     }
 
     $taxRate  = fetch_trade_tax($db, $uid);
     $price    = compute_price($db, $goodType, $colonyId);
     $gross    = $price * $quantity;
-    $total    = round($gross * (1 + $taxRate), 2);
+
+    // MERCANTILISM: import surcharge +20% (protects domestic industry)
+    $importMult = ($resolvedPolicy === 'mercantilism') ? 1.20 : 1.0;
+    $total    = round($gross * $importMult * (1 + $taxRate), 2);
 
     // Check player credits
     $cStmt = $db->prepare('SELECT credits FROM users WHERE id = ?');
@@ -320,12 +329,13 @@ function action_buy(PDO $db, int $uid): never {
     }
 
     json_ok([
-        'colony_id'     => $colonyId,
-        'good_type'     => $goodType,
-        'quantity'      => $quantity,
-        'price_per_unit'=> $price,
-        'trade_tax'     => $taxRate,
-        'total_credits' => $total,
+        'colony_id'      => $colonyId,
+        'good_type'      => $goodType,
+        'quantity'       => $quantity,
+        'price_per_unit' => $price,
+        'trade_tax'      => $taxRate,
+        'import_mult'    => $importMult,
+        'total_credits'  => $total,
     ]);
 }
 
