@@ -33,15 +33,15 @@ const WebGPUShaderCtor = typeof require !== 'undefined'
 
 const WebGPUDeviceCtor = typeof require !== 'undefined'
   ? require('../webgpu/WebGPUDevice.js').WebGPUDevice
-  : window.GQWebGPUDevice.WebGPUDevice;
+  : (window.GQWebGPUDevice && window.GQWebGPUDevice.WebGPUDevice) || null;
 
 const WebGPUBufferCtor = typeof require !== 'undefined'
   ? require('../webgpu/WebGPUBuffer.js').WebGPUBuffer
-  : window.GQWebGPUBuffer.WebGPUBuffer;
+  : (window.GQWebGPUBuffer && window.GQWebGPUBuffer.WebGPUBuffer) || null;
 
 const WebGPUTextureCtor = typeof require !== 'undefined'
   ? require('../webgpu/WebGPUTexture.js').WebGPUTexture
-  : window.GQWebGPUTexture;
+  : window.GQWebGPUTexture || null;
 
 class WebGPURenderer extends BaseGraphicsRenderer {
   constructor() {
@@ -88,6 +88,9 @@ class WebGPURenderer extends BaseGraphicsRenderer {
   async initialize(canvas) {
     if (!navigator.gpu) {
       throw new Error('WebGPU not supported in this browser');
+    }
+    if (!WebGPUDeviceCtor) {
+      throw new Error('WebGPU device helper is not available');
     }
 
     this.canvas = canvas;

@@ -1,6 +1,6 @@
 (function () {
   const V = Object.freeze({
-    bootManifest: '20260408p2',
+    bootManifest: '20260408p3',
     bootAssets: '20260404p1',
     terminal: '20260404p51',
     starfield: '20260404p110',
@@ -310,6 +310,9 @@
     'js/engine/runtime/RuntimeWarController.js',
     'js/engine/runtime/RuntimeEconomyController.js',
     'js/engine/runtime/RuntimeConflictDashboard.js',
+    'js/engine/runtime/RuntimeColonizationController.js',
+    'js/engine/runtime/RuntimeEmpireCategoriesPanel.js',
+    'js/engine/runtime/RuntimeEspionageController.js',
     'js/engine/runtime/NpcAvatarRenderer.js',
     'js/engine/runtime/RuntimeFactionsController.js',
     'js/engine/runtime/RuntimeDiplomacyDataModel.js',
