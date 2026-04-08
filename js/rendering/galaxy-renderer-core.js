@@ -3526,10 +3526,6 @@
      * @private
      */
     _applyWeaponFireToWormholes(ev, elapsed) {
-      // TODO: Full wormhole destabilization system in future Phase
-      // For now: Generic energy discharge effect
-      if (!this.beamEffect) return;
-
       // Look for wormhole/gate/beacon in installation registry
       if (!Array.isArray(this.systemInstallationWeaponFxEntries)) return;
 
@@ -3537,27 +3533,30 @@
         const install = fxEntry?.installEntry;
         if (!install?.mesh) return;
 
-        // Match wormholes/gates/beacons by type
-        const installType = String(install.type || install.kind || '').toLowerCase();
-        if (!installType.includes('wormhole') && 
-            !installType.includes('gate') && 
-            !installType.includes('beacon')) return;
+        if (!this._isWormholeLikeInstallation(install)) return;
 
         // Filter by owner if specified
         if (ev.sourceOwner && ev.sourceOwner !== String(install.owner || '').trim()) return;
+
+        const destabilization = this._applyWormholeDestabilizationHit(install, ev, elapsed);
+        const progress = Number(destabilization?.progress || 0);
+
+        if (!this.beamEffect) return;
 
         // Create discharge beam pattern (spiral around entity)
         const installWorldPos = new THREE.Vector3();
         install.mesh.getWorldPosition(installWorldPos);
 
         // Create radial discharge beams
-        const numBeams = 3;
+        const numBeams = progress >= 0.75 ? 5 : (progress >= 0.35 ? 4 : 3);
+        const beamDuration = 0.08 + progress * 0.08;
+        const glowRadius = 0.45 + progress * 0.35;
         for (let i = 0; i < numBeams; i++) {
           const angle = (i / numBeams) * Math.PI * 2 + elapsed;
           const offset = new THREE.Vector3(
-            Math.cos(angle) * 3,
-            Math.sin(angle) * 2,
-            Math.cos(angle + 1) * 2
+            Math.cos(angle) * (3 + progress * 2),
+            Math.sin(angle) * (2 + progress * 1.2),
+            Math.cos(angle + 1) * (2 + progress * 1.5)
           );
 
           const beamRecord = {
@@ -3566,13 +3565,113 @@
             to: installWorldPos.clone().add(offset).toArray(),
             coreColor: 0x6600ff,
             color: 0x9933ff,
-            glowRadius: 0.5,
-            duration: 0.08,
+            glowRadius,
+            duration: beamDuration,
           };
 
           this.beamEffect.addBeam(beamRecord);
         }
       });
+    }
+
+    _isWormholeLikeInstallation(installEntry) {
+      const installType = String(
+        installEntry?.type
+        || installEntry?.kind
+        || installEntry?.install?.type
+        || installEntry?.mesh?.userData?.installType
+        || ''
+      ).toLowerCase();
+      return installType.includes('wormhole')
+        || installType.includes('gate')
+        || installType.includes('beacon');
+    }
+
+    _applyWormholeDestabilizationHit(installEntry, ev, elapsed) {
+      if (!installEntry) return null;
+
+      const gain = this._wormholeDestabilizationGain(ev, installEntry);
+      const state = installEntry.wormholeDestabilization || {
+        progress: 0,
+        lastHitAt: 0,
+        cooldownUntil: 0,
+        ruptureCount: 0,
+      };
+
+      state.progress = THREE.MathUtils.clamp(Number(state.progress || 0) + gain, 0, 1.2);
+      state.lastHitAt = elapsed;
+
+      if (state.progress >= 1 && elapsed >= Number(state.cooldownUntil || 0)) {
+        state.ruptureCount = Number(state.ruptureCount || 0) + 1;
+        state.cooldownUntil = elapsed + 4.5;
+        state.progress = 0.34;
+        this._triggerWormholeRupture(installEntry, state, elapsed);
+      }
+
+      installEntry.wormholeDestabilization = state;
+      return state;
+    }
+
+    _wormholeDestabilizationGain(ev, installEntry) {
+      const weaponKind = String(ev?.weaponKind || '').toLowerCase();
+      const energy = THREE.MathUtils.clamp(Number(ev?.energy ?? ev?.power ?? 0.55), 0.1, 4.5);
+      const level = Math.max(1, Number(installEntry?.level || installEntry?.install?.level || 1));
+
+      let weaponMult = 1;
+      if (weaponKind === 'rail') weaponMult = 1.22;
+      else if (weaponKind === 'plasma') weaponMult = 1.14;
+      else if (weaponKind === 'missile') weaponMult = 0.92;
+      else if (weaponKind === 'beam') weaponMult = 1.05;
+
+      const levelResist = 1 / (1 + (level - 1) * 0.12);
+      return THREE.MathUtils.clamp(0.06 * energy * weaponMult * levelResist, 0.015, 0.24);
+    }
+
+    _triggerWormholeRupture(installEntry, state, elapsed) {
+      if (!installEntry?.mesh) return;
+
+      const worldPos = new THREE.Vector3();
+      installEntry.mesh.getWorldPosition(worldPos);
+
+      const burstCount = 14 + Math.min(18, Number(state?.ruptureCount || 0) * 2);
+      const positions = new Float32Array(burstCount * 3);
+      for (let i = 0; i < burstCount; i += 1) {
+        const idx = i * 3;
+        const angle = (i / burstCount) * Math.PI * 2 + Math.random() * 0.4;
+        const r = 0.45 + Math.random() * 0.85;
+        positions[idx] = Math.cos(angle) * r;
+        positions[idx + 1] = (Math.random() - 0.5) * 0.6;
+        positions[idx + 2] = Math.sin(angle) * r;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: 0x9933ff,
+        size: 0.11,
+        transparent: true,
+        opacity: 0.92,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const burst = new THREE.Points(geometry, material);
+      burst.position.copy(worldPos);
+      burst.userData = {
+        kind: 'wormhole-rupture',
+        age: 0,
+        duration: 0.95,
+      };
+      this.systemInstallationBurstFxGroup?.add(burst);
+
+      window.dispatchEvent(new CustomEvent('gq:wormhole:rupture', {
+        detail: {
+          installId: Number(installEntry?.install?.id || 0),
+          owner: String(installEntry?.owner || installEntry?.install?.owner || ''),
+          position: [worldPos.x, worldPos.y, worldPos.z],
+          ruptureCount: Number(state?.ruptureCount || 0),
+          ts: elapsed,
+        },
+      }));
     }
 
     _initInstallationBurstFxEntry(entry) {
@@ -4296,6 +4395,27 @@
         particles.rotation.z = Math.sin(elapsed * 0.32 + phase) * 0.1;
         const base = entry?.animState === 'alert' ? 0.34 : (entry?.animState === 'active' ? 0.24 : 0.16);
         mat.opacity = THREE.MathUtils.clamp(base + pulse * 0.22, 0.12, 0.62);
+
+        if (this._isWormholeLikeInstallation(entry)) {
+          const state = entry.wormholeDestabilization;
+          if (state) {
+            state.progress = Math.max(0, Number(state.progress || 0) - dt * 0.045);
+            const p = THREE.MathUtils.clamp(Number(state.progress || 0), 0, 1.1);
+            const pulseBoost = 1 + Math.sin(elapsed * (3.5 + p * 4.0) + index * 0.37) * (0.03 + p * 0.08);
+            entry.mesh.scale.setScalar(pulseBoost);
+
+            entry.mesh.traverse((obj) => {
+              const material = obj?.material;
+              if (!material) return;
+              if (material.emissive && material.emissive.isColor) {
+                material.emissive.lerp(new THREE.Color(0x9933ff), Math.min(0.25, p * 0.28));
+              }
+              if ('emissiveIntensity' in material) {
+                material.emissiveIntensity = Math.max(Number(material.emissiveIntensity || 0), p * 0.9);
+              }
+            });
+          }
+        }
       });
     }
 
