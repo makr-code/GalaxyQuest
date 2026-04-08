@@ -1229,6 +1229,45 @@
       this._emitStateChange();
     }
 
+    /**
+     * Attach an optional procedural synth engine (e.g. GQAudioSynth).
+     * When set, SFX events triggered through this manager can delegate to the
+     * synth for procedural synthesis instead of (or in addition to) file playback.
+     *
+     * Call with `null` to detach.
+     *
+     * @param {Object|null} synth  — Object with a `playProcedural(type, opts)` method
+     */
+    setSynthEngine(synth) {
+      if (synth !== null && (typeof synth !== 'object' || typeof synth.playProcedural !== 'function')) {
+        throw new TypeError('[GQAudioManager] setSynthEngine: synth must have a playProcedural(type, opts) method');
+      }
+      this._synth = synth ?? null;
+    }
+
+    /**
+     * Play a procedural sound via the attached synth engine (if any).
+     * Volume is gated by masterMuted / sfxMuted / masterVolume / sfxVolume.
+     *
+     * @param {string} type   — sound type, e.g. 'warp_charge', 'laser_fire'
+     * @param {Object} [opts] — forwarded to synth.playProcedural()
+     * @returns {boolean}  true if the synth was invoked
+     */
+    playProceduralSfx(type, opts = {}) {
+      if (!this._synth) return false;
+      if (this.state.masterMuted || this.state.sfxMuted) return false;
+      const master = Math.max(0, Math.min(1, Number(this.state.masterVolume || 0)));
+      const sfx    = Math.max(0, Math.min(1, Number(this.state.sfxVolume || 0)));
+      const vol    = master * sfx;
+      if (vol <= 0) return false;
+      try {
+        this._synth.playProcedural(type, { volume: vol, ...opts });
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
     snapshot() {
       return Object.assign({}, this.state, {
         lastAudioEvent: this._lastAudioEvent ? Object.assign({}, this._lastAudioEvent) : null,
