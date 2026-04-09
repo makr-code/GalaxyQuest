@@ -20,6 +20,8 @@
       wm: opts.wm,
       api: opts.api,
       getCurrentColony: opts.getCurrentColony,
+      getColonies: opts.getColonies,
+      getGalaxy3d: opts.getGalaxy3d,
       getUiState: opts.getUiState,
       buildColonyGridCells: opts.buildColonyGridCells,
       buildingZoneLabel: opts.buildingZoneLabel,

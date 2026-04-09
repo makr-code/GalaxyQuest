@@ -367,6 +367,9 @@
       // First paint with current state
       root.innerHTML = _buildFullHtml(_state);
       _attachPolicyListeners(root);
+      // Bind View Hyperlinks for navigation
+      const ViewHyperlinks = window.GQRuntimeViewHyperlinks?.ViewHyperlinks;
+      if (ViewHyperlinks) ViewHyperlinks.bindAll(root);
 
       if (!_state.loading && !_state.policy && _state.tab === 'policy') {
         _state.loading = true;

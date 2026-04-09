@@ -6,6 +6,8 @@
       wm = null,
       api = null,
       getCurrentColony = () => null,
+      getColonies = () => [],
+      getGalaxy3d = () => null,
       getUiState = () => ({}),
       buildColonyGridCells = () => ({ cols: 1, cells: [] }),
       buildingZoneLabel = (value) => String(value || ''),
@@ -20,6 +22,39 @@
       showToast = () => {},
       gameLog = () => {},
     } = opts;
+
+    function colonyDistance(a, b) {
+      const ga = Number(a?.galaxy || 0);
+      const gb = Number(b?.galaxy || 0);
+      const sa = Number(a?.system || 0);
+      const sb = Number(b?.system || 0);
+      const pa = Number(a?.position || 0);
+      const pb = Number(b?.position || 0);
+
+      // Weighted discrete distance keeps same-system neighbors closest.
+      return Math.abs(ga - gb) * 10000 + Math.abs(sa - sb) * 100 + Math.abs(pa - pb);
+    }
+
+    function colonyDistText(d) {
+      if (d < 100) return `\u0394${d}`;
+      if (d < 10000) return `${Math.floor(d / 100)} Sys`;
+      return `${Math.floor(d / 10000)} Gal`;
+    }
+
+    function collectNearestColonyNeighbors(currentColony) {
+      if (!currentColony) return [];
+
+      return (Array.isArray(getColonies()) ? getColonies() : [])
+        .filter((col) => Number(col?.id || 0) > 0 && Number(col.id || 0) !== Number(currentColony.id || 0))
+        .map((col) => ({
+          colony: col,
+          distance: colonyDistance(currentColony, col),
+          label: `${fmtName(col?.name || `Kolonie ${Number(col?.id || 0)}`)} · G${Number(col?.galaxy || 0)}:${Number(col?.system || 0)}:${Number(col?.position || 0)}`,
+          distText: colonyDistText(colonyDistance(currentColony, col)),
+        }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 3);
+    }
 
     return {
       buildViewHtml(data) {
@@ -96,6 +131,37 @@
         const currentColony = getCurrentColony();
         root.querySelector('#colony-open-buildings-btn')?.addEventListener('click', () => wm.open('buildings'));
         root.querySelector('#colony-open-shipyard-btn')?.addEventListener('click', () => wm.open('shipyard'));
+
+        const overlay = typeof window?.GQNeighborWaypointOverlay?.getOverlay === 'function'
+          ? window.GQNeighborWaypointOverlay.getOverlay() : null;
+        const galaxy3d = getGalaxy3d();
+        const neighbors = collectNearestColonyNeighbors(currentColony);
+        const canvas3d = galaxy3d?.renderer?.domElement || null;
+
+        if (overlay && canvas3d) {
+          overlay.mount(canvas3d, getGalaxy3d);
+          if (galaxy3d?.systemMode && neighbors.length) {
+            overlay.setColonyNeighbors(currentColony, neighbors, (entry) => {
+              const targetId = Number(entry?.colony?.id || 0);
+              if (!targetId) return;
+              selectColonyById(targetId, { openWindows: false });
+              showToast('Kolonie gewechselt.', 'info');
+            });
+          } else {
+            overlay.clear();
+          }
+        }
+
+        root.addEventListener('keydown', (e) => {
+          const tag = String(e.target?.tagName || '').toLowerCase();
+          if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
+          const rank = Number(e.key);
+          if (rank < 1 || rank > 3) return;
+          if (!overlay) return;
+          e.preventDefault();
+          overlay.activate(rank);
+        });
+
         root.querySelectorAll('[data-focus-building]').forEach((el) => {
           el.addEventListener('click', () => {
             const focusBuilding = String(el.getAttribute('data-focus-building') || getRecommendedBuildingFocus(currentColony));
@@ -123,6 +189,9 @@
         if (!root) return;
         const currentColony = getCurrentColony();
         if (!currentColony) {
+          const overlay = typeof window?.GQNeighborWaypointOverlay?.getOverlay === 'function'
+            ? window.GQNeighborWaypointOverlay.getOverlay() : null;
+          if (overlay) overlay.clear();
           root.innerHTML = '<p class="text-muted">Select a colony first.</p>';
           return;
         }
@@ -137,6 +206,9 @@
           queueColonySurfaceSceneData(currentColony, data);
           root.innerHTML = this.buildViewHtml(data);
           this.bindActions(root);
+          // Bind View Hyperlinks for navigation
+          const ViewHyperlinks = window.GQRuntimeViewHyperlinks?.ViewHyperlinks;
+          if (ViewHyperlinks) ViewHyperlinks.bindAll(root);
         } catch (err) {
           gameLog('warn', 'Colony view render fehlgeschlagen', err);
           root.innerHTML = '<p class="text-red">Failed to render colony view.</p>';
