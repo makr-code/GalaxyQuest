@@ -135,7 +135,11 @@ class CombatVfxBridge {
         weaponKind: null,
         ts: Date.now(),
       });
-      this._startBattleFx(attacker, target, BATTLE_DURATION_MS, sourcePosition);
+      this._startBattleFx(attacker, target, BATTLE_DURATION_MS, sourcePosition, {
+        mission,
+        attacker,
+        target,
+      });
     } else {
       // Spy: one silent pulse (no visible weapon FX needed, but emit for any interest)
       this._dispatchWeaponFire({
@@ -198,17 +202,26 @@ class CombatVfxBridge {
    * @param {string} target
    * @param {number} durationMs
    * @param {number|null} sourcePosition
+   * @param {object|null} context
    * @returns {string} battle key
    */
-  _startBattleFx(attacker, target, durationMs = BATTLE_DURATION_MS, sourcePosition = null) {
+  _startBattleFx(attacker, target, durationMs = BATTLE_DURATION_MS, sourcePosition = null, context = null) {
     const key = this._battleKey(attacker, target);
     this._stopBattleFx(key); // clear any prior battle for the same key
 
+    const profile = this._battlePulseProfile(context);
+    const sourcePattern = Array.isArray(profile?.sourcePattern) && profile.sourcePattern.length
+      ? profile.sourcePattern
+      : ['installation', 'installation', 'ship'];
+    const weaponPattern = Array.isArray(profile?.weaponPattern) && profile.weaponPattern.length
+      ? profile.weaponPattern
+      : ['laser', 'beam', 'missile'];
+
     let fireCount = 0;
     const intervalId = window.setInterval(() => {
-      // Alternate between installation and ship weapon fire (Phase 2 multi-entity)
-      const sourceType = (fireCount % 3 < 2) ? 'installation' : 'ship';
-      const weaponKind = ['laser', 'beam', 'missile'][fireCount % 3];
+      // Mission-aware pulse profile keeps visuals coherent with battle context.
+      const sourceType = String(sourcePattern[fireCount % sourcePattern.length] || 'installation');
+      const weaponKind = String(weaponPattern[fireCount % weaponPattern.length] || 'beam');
       
       this._dispatchWeaponFire({
         sourceOwner: null,
@@ -282,6 +295,29 @@ class CombatVfxBridge {
   _normalizeSourcePosition(value) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  _battlePulseProfile(context = null) {
+    const mission = String(context?.mission || '').toLowerCase();
+
+    if (mission === 'attack') {
+      return {
+        sourcePattern: ['installation', 'ship', 'ship'],
+        weaponPattern: ['laser', 'beam', 'missile', 'rail'],
+      };
+    }
+
+    if (mission === 'spy') {
+      return {
+        sourcePattern: ['installation'],
+        weaponPattern: ['beam'],
+      };
+    }
+
+    return {
+      sourcePattern: ['installation', 'installation', 'ship'],
+      weaponPattern: ['laser', 'beam', 'missile'],
+    };
   }
 
   _deriveSourcePosition(data, preferredKeys = []) {

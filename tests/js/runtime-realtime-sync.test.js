@@ -276,7 +276,13 @@ describe('CombatVfxBridge — connectEventBus()', () => {
     bridge._onFleetArrived({ detail: { mission: 'attack', attacker: 'A', target: 'B', target_position: 11 } });
 
     expect(bridge._dispatchWeaponFire).toHaveBeenCalledWith(expect.objectContaining({ sourcePosition: 11, sourceType: 'installation' }));
-    expect(bridge._startBattleFx).toHaveBeenCalledWith('A', 'B', BATTLE_DURATION_MS, 11);
+    expect(bridge._startBattleFx).toHaveBeenCalledWith(
+      'A',
+      'B',
+      BATTLE_DURATION_MS,
+      11,
+      expect.objectContaining({ mission: 'attack', attacker: 'A', target: 'B' })
+    );
   });
 
   it('derives sourcePosition for incoming_attack pulses', () => {
@@ -294,5 +300,37 @@ describe('CombatVfxBridge — connectEventBus()', () => {
     expect(bridge._dispatchWeaponFire).toHaveBeenCalled();
     const hasPos = bridge._dispatchWeaponFire.mock.calls.every((call) => call?.[0]?.sourcePosition === 9);
     expect(hasPos).toBe(true);
+  });
+
+  it('uses ship-heavier pulse profile for attack missions', () => {
+    const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const bridge = Object.create(CombatVfxBridge.prototype);
+
+    const profile = bridge._battlePulseProfile({ mission: 'attack' });
+
+    expect(profile.sourcePattern).toEqual(['installation', 'ship', 'ship']);
+    expect(profile.weaponPattern).toEqual(['laser', 'beam', 'missile', 'rail']);
+  });
+
+  it('applies mission profile inside _startBattleFx dispatch loop', () => {
+    const { CombatVfxBridge, FIRE_INTERVAL_MS } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const bridge = Object.create(CombatVfxBridge.prototype);
+    bridge._activeBattles = new Map();
+    bridge._dispatchWeaponFire = vi.fn();
+    bridge._stopBattleFx = CombatVfxBridge.prototype._stopBattleFx;
+    bridge._battleKey = CombatVfxBridge.prototype._battleKey;
+    bridge._battlePulseProfile = vi.fn(() => ({ sourcePattern: ['ship'], weaponPattern: ['rail'] }));
+
+    vi.useFakeTimers();
+    bridge._startBattleFx('A', 'B', FIRE_INTERVAL_MS + 20, 12, { mission: 'attack' });
+    vi.advanceTimersByTime(FIRE_INTERVAL_MS + 5);
+    vi.runAllTimers();
+    vi.useRealTimers();
+
+    expect(bridge._dispatchWeaponFire).toHaveBeenCalledWith(expect.objectContaining({
+      sourceType: 'ship',
+      weaponKind: 'rail',
+      sourcePosition: 12,
+    }));
   });
 });
