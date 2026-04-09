@@ -144,14 +144,10 @@
     if (hasCoreThreeCtors(win?.THREE)) return Promise.resolve(true);
     if (win.__GQ_THREE_RECOVERY_PROMISE) return win.__GQ_THREE_RECOVERY_PROMISE;
 
-    const cdnCandidates = [
-      'js/vendor/three.min.js',
-      'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
-      'https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js',
-    ];
+    const localCandidates = ['js/vendor/three.min.js'];
 
     const job = (async () => {
-      for (const src of cdnCandidates) {
+      for (const src of localCandidates) {
         try {
           await loadScriptOnce(win, src);
           const resolved = resolveThreeGlobal(win);

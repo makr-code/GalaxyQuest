@@ -195,11 +195,7 @@
     const hasUsableWebGpu = await canUseWebGpuAdapter();
     if (!hasWebGpuView || !hasUsableWebGpu) {
       if (!window.THREE) {
-        try {
-          await loadScript('js/vendor/three.min.js');
-        } catch (_) {
-          await loadScript('https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js');
-        }
+        await loadScript('js/vendor/three.min.js');
       }
       if (window.THREE && typeof window.THREE.Scene === 'function' && typeof window.THREE.Vector3 === 'function') {
         window.__GQ_THREE_RUNTIME = window.THREE;

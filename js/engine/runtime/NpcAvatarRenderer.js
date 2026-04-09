@@ -452,13 +452,7 @@
         const s = doc.createElement('script');
         s.src = 'js/vendor/three.min.js';
         s.onload  = () => resolve(win.THREE || null);
-        s.onerror = () => {
-          const s2 = doc.createElement('script');
-          s2.src = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js';
-          s2.onload  = () => resolve(win.THREE || null);
-          s2.onerror = () => resolve(null);
-          doc.head.appendChild(s2);
-        };
+        s.onerror = () => resolve(null);
         doc.head.appendChild(s);
       });
     }
