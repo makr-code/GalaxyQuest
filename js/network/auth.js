@@ -1170,7 +1170,7 @@
 
   function traceModule(state, src, detail = '') {
     const verboseTrace = isShellDebugEnabled();
-    if (!verboseTrace && state !== 'error') {
+    if (!verboseTrace) {
       return;
     }
     const mod = String(src || '').split('?')[0].split('/').pop() || String(src || 'unknown');
