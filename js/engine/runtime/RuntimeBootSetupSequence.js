@@ -12,6 +12,8 @@
     footerUiKitSetupApi,
     postBootFlowSetupApi,
     colonyVfxDebugWidgetSetupApi,
+    loadNetworkEventsApi,
+    renderTelemetryHookApi,
     realtimeSyncApi,
     startupBootApi,
     footerUiKitApi,
@@ -30,9 +32,17 @@
     refreshWindow,
     getGalaxyRoot,
     refreshGalaxyDensityMetrics,
+    refreshFooterNetworkStatus,
     showToast,
     eventSourceFactory,
     eventBus,
+    runtimeCore,
+    setFooterLoadProgress,
+    setFooterNetworkStatus,
+    redirectToLogin,
+    pushGalaxyDebugError,
+    getLastLoadErrorToastAt,
+    setLastLoadErrorToastAt,
     wm,
     loadAudioTrackCatalog,
     refreshAudioUi,
@@ -44,6 +54,31 @@
     esc,
     logger,
   }) {
+    if (renderTelemetryHookApi
+      && typeof renderTelemetryHookApi.configureRenderTelemetryRuntime === 'function'
+      && typeof renderTelemetryHookApi.installRenderTelemetryHook === 'function') {
+      renderTelemetryHookApi.configureRenderTelemetryRuntime({
+        showToast,
+        windowRef,
+        consoleRef: logger,
+      });
+      renderTelemetryHookApi.installRenderTelemetryHook();
+    }
+
+    if (loadNetworkEventsApi && typeof loadNetworkEventsApi.registerLoadAndNetworkRuntimeEvents === 'function') {
+      loadNetworkEventsApi.registerLoadAndNetworkRuntimeEvents({
+        runtimeCore,
+        setFooterLoadProgress,
+        pushGalaxyDebugError,
+        showToast,
+        setFooterNetworkStatus,
+        refreshFooterNetworkStatus,
+        redirectToLogin,
+        getLastLoadErrorToastAt,
+        setLastLoadErrorToastAt,
+      });
+    }
+
     logoutHandlerApi.bindLogoutHandler({
       documentRef,
       audioManager,

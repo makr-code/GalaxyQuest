@@ -18,6 +18,7 @@ function loadContextModule() {
 }
 
 function createBaseSetup(eventBus = null, windowRef = {}) {
+  const fallbackWindowRef = { navigator: { onLine: true }, ...windowRef };
   return {
     logoutHandlerApi: { bindLogoutHandler: vi.fn() },
     badgeLoaderApi: { createBadgeLoader: vi.fn(() => ({ loadBadge: vi.fn() })) },
@@ -26,6 +27,11 @@ function createBaseSetup(eventBus = null, windowRef = {}) {
     footerUiKitSetupApi: { setupFooterUiKit: vi.fn() },
     postBootFlowSetupApi: { runPostBootFlowSetup: vi.fn().mockResolvedValue(undefined) },
     colonyVfxDebugWidgetSetupApi: { setupColonyVfxDebugWidget: vi.fn() },
+    loadNetworkEventsApi: { registerLoadAndNetworkRuntimeEvents: vi.fn() },
+    renderTelemetryHookApi: {
+      configureRenderTelemetryRuntime: vi.fn(),
+      installRenderTelemetryHook: vi.fn(),
+    },
     realtimeSyncApi: {},
     startupBootApi: {},
     footerUiKitApi: {},
@@ -37,16 +43,24 @@ function createBaseSetup(eventBus = null, windowRef = {}) {
     gameLog: vi.fn(),
     localStorageRef: {},
     sessionStorageRef: {},
-    windowRef,
+    windowRef: fallbackWindowRef,
     documentRef: {},
     loadOverview: vi.fn(),
     invalidateGetCache: vi.fn(),
     refreshWindow: vi.fn(),
     getGalaxyRoot: vi.fn(() => null),
     refreshGalaxyDensityMetrics: vi.fn(),
+    refreshFooterNetworkStatus: vi.fn(),
     showToast: vi.fn(),
     eventSourceFactory: vi.fn(),
     eventBus,
+    runtimeCore: null,
+    setFooterLoadProgress: vi.fn(),
+    setFooterNetworkStatus: vi.fn(),
+    redirectToLogin: vi.fn(),
+    pushGalaxyDebugError: vi.fn(),
+    getLastLoadErrorToastAt: vi.fn(() => 0),
+    setLastLoadErrorToastAt: vi.fn(),
     wm: {},
     loadAudioTrackCatalog: vi.fn(),
     refreshAudioUi: vi.fn(),
@@ -77,6 +91,16 @@ describe('RuntimeBootSetupSequence event bus integration', () => {
       eventBus,
     }));
     expect(combatBridge.connectEventBus).toHaveBeenCalledWith(eventBus);
+    expect(setup.renderTelemetryHookApi.configureRenderTelemetryRuntime).toHaveBeenCalledWith(expect.objectContaining({
+      showToast: setup.showToast,
+      windowRef: setup.windowRef,
+    }));
+    expect(setup.renderTelemetryHookApi.installRenderTelemetryHook).toHaveBeenCalled();
+    expect(setup.loadNetworkEventsApi.registerLoadAndNetworkRuntimeEvents).toHaveBeenCalledWith(expect.objectContaining({
+      setFooterLoadProgress: setup.setFooterLoadProgress,
+      setFooterNetworkStatus: setup.setFooterNetworkStatus,
+      pushGalaxyDebugError: setup.pushGalaxyDebugError,
+    }));
   });
 
   it('skips combat bridge event bus connect when bus is missing', async () => {
@@ -91,14 +115,39 @@ describe('RuntimeBootSetupSequence event bus integration', () => {
     }));
     expect(combatBridge.connectEventBus).not.toHaveBeenCalled();
   });
+
+  it('skips optional module calls when missing', async () => {
+    const mod = loadSequenceModule();
+    const setup = createBaseSetup(null, {});
+    setup.renderTelemetryHookApi = null;
+    setup.loadNetworkEventsApi = null;
+
+    await mod.runBootSetupSequence(setup);
+
+    expect(setup.realtimeSyncSetupApi.setupRealtimeSync).toHaveBeenCalled();
+  });
 });
 
 describe('RuntimeBootSetupContext event bus passthrough', () => {
-  it('includes eventBus in built boot setup context', () => {
+  it('includes eventBus and integration handles in built boot setup context', () => {
     const mod = loadContextModule();
     const eventBus = { emit: vi.fn() };
-    const context = mod.createBootSetupContextBuilder().build({ eventBus });
+    const loadNetworkEventsApi = { registerLoadAndNetworkRuntimeEvents: vi.fn() };
+    const renderTelemetryHookApi = { configureRenderTelemetryRuntime: vi.fn(), installRenderTelemetryHook: vi.fn() };
+    const getLastLoadErrorToastAt = vi.fn(() => 0);
+    const setLastLoadErrorToastAt = vi.fn();
+    const context = mod.createBootSetupContextBuilder().build({
+      eventBus,
+      loadNetworkEventsApi,
+      renderTelemetryHookApi,
+      getLastLoadErrorToastAt,
+      setLastLoadErrorToastAt,
+    });
 
     expect(context.eventBus).toBe(eventBus);
+    expect(context.loadNetworkEventsApi).toBe(loadNetworkEventsApi);
+    expect(context.renderTelemetryHookApi).toBe(renderTelemetryHookApi);
+    expect(context.getLastLoadErrorToastAt).toBe(getLastLoadErrorToastAt);
+    expect(context.setLastLoadErrorToastAt).toBe(setLastLoadErrorToastAt);
   });
 });

@@ -4722,6 +4722,11 @@ async function renderTradeProposals() {
     const runtimeFooterUiKitSetupApi = requireRuntimeApi('GQRuntimeFooterUiKitSetup', ['setupFooterUiKit']);
     const runtimePostBootFlowSetupApi = requireRuntimeApi('GQRuntimePostBootFlowSetup', ['runPostBootFlowSetup']);
     const runtimeColonyVfxDebugWidgetSetupApi = requireRuntimeApi('GQRuntimeColonyVfxDebugWidgetSetup', ['setupColonyVfxDebugWidget']);
+    const runtimeLoadNetworkEventsApi = requireRuntimeApi('GQRuntimeLoadNetworkEvents', ['registerLoadAndNetworkRuntimeEvents']);
+    const runtimeRenderTelemetryHookApi = requireRuntimeApi('GQRuntimeRenderTelemetryHook', [
+      'configureRenderTelemetryRuntime',
+      'installRenderTelemetryHook',
+    ]);
     const runtimeBootSetupSequenceApi = requireRuntimeApi('GQRuntimeBootSetupSequence', ['runBootSetupSequence']);
     const runtimeBootSetupContextApi = requireRuntimeApi('GQRuntimeBootSetupContext', ['createBootSetupContextBuilder']);
     const bootSetupContextBuilder = runtimeBootSetupContextApi.createBootSetupContextBuilder();
@@ -4733,6 +4738,8 @@ async function renderTradeProposals() {
       runtimeFooterUiKitSetupApi,
       runtimePostBootFlowSetupApi,
       runtimeColonyVfxDebugWidgetSetupApi,
+      runtimeLoadNetworkEventsApi,
+      runtimeRenderTelemetryHookApi,
       runtimeBootSetupSequenceApi,
       bootSetupContextBuilder,
     };
@@ -4746,9 +4753,12 @@ async function renderTradeProposals() {
     runtimeFooterUiKitSetupApi,
     runtimePostBootFlowSetupApi,
     runtimeColonyVfxDebugWidgetSetupApi,
+    runtimeLoadNetworkEventsApi,
+    runtimeRenderTelemetryHookApi,
     runtimeBootSetupSequenceApi,
     bootSetupContextBuilder,
   } = initBootSetupApis();
+  let lastLoadErrorToastAt = 0;
   const runtimeFeatureRegistryApi = requireRuntimeApi('GQRuntimeFeatureRegistry', ['createFeatureRegistry']);
   const runtimeLifecycleManagerApi = requireRuntimeApi('GQRuntimeLifecycleManager', ['createLifecycleManager']);
   const runtimeLifecycleCoreFeaturesApi = requireRuntimeApi('GQRuntimeLifecycleCoreFeatures', ['registerLifecycleCoreFeatures']);
@@ -4872,6 +4882,8 @@ async function renderTradeProposals() {
       footerUiKitSetupApi: runtimeFooterUiKitSetupApi,
       postBootFlowSetupApi: runtimePostBootFlowSetupApi,
       colonyVfxDebugWidgetSetupApi: runtimeColonyVfxDebugWidgetSetupApi,
+      loadNetworkEventsApi: runtimeLoadNetworkEventsApi,
+      renderTelemetryHookApi: runtimeRenderTelemetryHookApi,
       realtimeSyncApi: runtimeRealtimeSyncApi,
       startupBootApi: runtimeStartupBootApi,
       footerUiKitApi: runtimeFooterUiKitApi,
@@ -4890,9 +4902,19 @@ async function renderTradeProposals() {
       refreshWindow: wmRefresh,
       getGalaxyRoot: () => wmBody('galaxy'),
       refreshGalaxyDensityMetrics,
+      refreshFooterNetworkStatus,
       showToast,
       eventSourceFactory: eventSourceFactoryRef,
       eventBus: runtimeEventBus,
+      runtimeCore: window?.GQGameRuntimeCore || null,
+      setFooterLoadProgress,
+      setFooterNetworkStatus,
+      redirectToLogin,
+      pushGalaxyDebugError,
+      getLastLoadErrorToastAt: () => lastLoadErrorToastAt,
+      setLastLoadErrorToastAt: (value) => {
+        lastLoadErrorToastAt = Number(value || 0);
+      },
       wm: WM,
       loadAudioTrackCatalog,
       refreshAudioUi: refreshAudioUiRef,
