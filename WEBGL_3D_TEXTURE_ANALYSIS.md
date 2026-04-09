@@ -19,10 +19,8 @@
   - Standardeinstellungen: `flipY = false`, `unpackAlignment = 1`
 
 #### Sekundäre Definitionen (alle three.js):
-- `node_modules/three/build/three.js` (minified)
-- `node_modules/three/build/three.module.js`
-- `node_modules/three/build/three.cjs`
-- `js/vendor/three.min.js` (lokale Kopie im Repo)
+- `node_modules/three/src/**` (Quellmodule)
+- `js/vendor/three.min.js` (lokale Laufzeitkopie im Repo)
 
 ---
 

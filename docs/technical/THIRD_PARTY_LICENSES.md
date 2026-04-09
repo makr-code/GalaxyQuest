@@ -5,15 +5,15 @@ Dieses Dokument listet alle eingesetzten Drittanbieter-Bibliotheken, ihre Versio
 
 ---
 
-## 1. Laufzeit-Abhängigkeiten (CDN, gehen in Produktion)
+## 1. Laufzeit-Abhängigkeiten (lokal ausgeliefert)
 
-Diese Bibliotheken werden zur Laufzeit aus dem jsDelivr-CDN geladen und sind damit Bestandteil des ausgelieferten Clients.
+Diese Bibliotheken werden zur Laufzeit aus lokalen Vendor-Assets geladen und sind Bestandteil des ausgelieferten Clients.
 
-| Bibliothek | Version | Lizenz | Einsatzbereich | CDN-URL |
+| Bibliothek | Version | Lizenz | Einsatzbereich | Asset-Pfad |
 |---|---|---|---|---|
-| **Three.js** | 0.160.0 | MIT | 3D-Rendering (Galaxie-Karte, Starfield) | `https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js` |
-| **Dexie** | 4.0.8 | Apache-2.0 | IndexedDB-Wrapper (Client-seitiger Datenspeicher) | `https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js` |
-| **Mustache.js** | 4.2.0 | MIT | Logic-less Templating | `https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js` |
+| **Three.js** | 0.160.0 | MIT | 3D-Rendering (Galaxie-Karte, Starfield) | `js/vendor/three.min.js` |
+| **Dexie** | 4.0.8 | Apache-2.0 | IndexedDB-Wrapper (Client-seitiger Datenspeicher) | `js/vendor/dexie.min.js` |
+| **Mustache.js** | 4.2.0 | MIT | Logic-less Templating | `js/vendor/mustache.min.js` |
 | **QRCode.js** | 1.5.4 | MIT | QR-Code-Generierung (2FA-Einrichtung) | `https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js` |
 
 > QRCode.js wird **lazy** geladen (nur auf der 2FA-Seite), CDN-Request erfolgt erst bei Bedarf.

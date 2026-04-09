@@ -20,7 +20,7 @@
 ### 1.2 Verwendete Three.js-Version
 
 ```
-three@0.160.0 (CDN: cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js)
+three@0.160.0 (lokal: js/vendor/three.min.js)
 ```
 
 ### 1.3 Aktive Rendering-Features
