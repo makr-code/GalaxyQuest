@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_colonist_04",
+    "username": "dev_npc_pirate_09",
     "is_npc": true,
-    "race": "Insectoid Varkh",
-    "profession": "Trade Envoy",
-    "stance": "Resolute",
-    "vita": "dev_npc_colonist_04 emerged from an autonomous sector protocol and built a reputation as a trade envoy. Their resolute outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
-    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Insectoid Varkh, role: Trade Envoy, attitude: Resolute, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
-    "generated_at": "2026-03-31T13:13:52+00:00"
+    "race": "Vor'Tak",
+    "profession": "Pirate Navigator",
+    "stance": "Galactic Trader with a penchant for peaceful negotin...",
+    "vita": "Born on the bustling trade hub planet of Zypheron, I learned to navigate not just ships but also complex social currents among diverse species. My kin hail from the floating markets above Neptune's clouds where we barter in rare cosmic artifacts and interstellar knowledge.",
+    "portrait_prompt": "A striking Vor'Tak with a weathered face, eyes reflecting wisdom accrued through centuries of travel. Adorned in the traditional pirate attire fused with advanced tech gear from my home world, I stand poised by an antique astrolabe and holographic maps hover above me.",
+    "generated_at": "2026-04-09T07:06:24+00:00"
 }

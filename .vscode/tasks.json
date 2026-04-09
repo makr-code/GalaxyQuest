@@ -1,392 +1,402 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "Docker: Up",
-      "type": "shell",
-      "command": "docker compose up -d --build",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "Docker: Down",
-      "type": "shell",
-      "command": "docker compose down",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Docker: Reset DB",
-      "type": "shell",
-      "command": "docker compose down -v && docker compose up -d --build && docker compose exec -T web php scripts/ensure_default_admin.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Docker: Logs",
-      "type": "shell",
-      "command": "docker compose logs -f",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "isBackground": true,
-      "problemMatcher": []
-    },
-    {
-      "label": "Docker: Rebuild Web",
-      "type": "shell",
-      "command": "docker compose up -d --build web",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Docker: Bootstrap Galaxy",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/bootstrap_galaxy.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Docker: Backfill Star Metadata",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/backfill_star_system_metadata.php --all --batch=2000",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: Leader E2E",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_leader_e2e.ps1",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: NPC Avatar + Leader Smoke",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/test_npc_avatar_leader_system.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: Wormhole Beacon Unlock",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/test_wormhole_beacon_unlock.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: Pirates Endpoint Smoke",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/test_pirates_endpoint_smoke.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: Economy Endpoint Smoke",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/test_economy_endpoint_smoke.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: NPC Battle Diplomacy Smoke",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/test_npc_battle_diplomacy_smoke.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: War Endpoint Smoke",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/test_war_endpoint_smoke.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: War Forced Peace Tick Smoke",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/test_war_forced_peace_tick_smoke.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: War Offer Lifecycle Smoke",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/test_war_offer_lifecycle_smoke.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: War Goal Progress Smoke",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/test_war_goal_progress_smoke.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: War Attrition Goal Smoke",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/test_war_attrition_goal_smoke.php",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: API Smoke Suite",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_full_regression.ps1 -ApiOnly",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: Full Regression Suite",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_full_regression.ps1",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: Fresh DB + Full Regression",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_full_regression.ps1 -FreshReset",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: Renderer Weapon Fire",
-      "type": "shell",
-      "command": "npm run test:renderer:weapon-fire",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test: Renderer Weapon Fire Contracts",
-      "type": "shell",
-      "command": "npm run test:renderer:weapon-fire:contract",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test Data: Bulk Universe Seed",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/seed_test_universe.php --users=100 --npcs=20 --profiles=0",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test Data: Dev Overview Seed",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/seed_dev_overview.php --verbose",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test Data: Full Seed (One Click)",
-      "type": "shell",
-      "command": "docker compose exec -T web php scripts/bootstrap_galaxy.php; docker compose exec -T web php scripts/backfill_star_system_metadata.php --all --batch=2000; Get-Content -Raw sql/migrate_gameplay_model_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v2.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v3.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v4.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v5.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v6_planetary_events.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v7_research_phase5.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v8_wormholes.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v9_wormhole_beacons.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; docker compose exec -T web php scripts/sync_faction_specs.php; Get-Content -Raw sql/test_gameplay_model_seed.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/test_gameplay_model_checks.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; docker compose exec -T web php scripts/seed_test_universe.php --users=100 --npcs=20 --profiles=0",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "TRELLIS2: Link Repo (Submodule)",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_link.ps1 -UseSubmodule",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "TRELLIS2: Update Repo",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_link.ps1 -Update",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "TRELLIS2: WebApp (Image->3D)",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_webapp.ps1 -Mode image -Port 7860",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "isBackground": true,
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "TRELLIS2: WebApp (Text->3D)",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_webapp.ps1 -Mode text -Port 7861",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "isBackground": true,
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "TRELLIS2: Generate Ship (Text CLI)",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_generate.ps1 -Mode text -Prompt \"a modular hard-surface sci-fi cargo ship with engine nacelles\"",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "TRELLIS2: Import GLB as Dev Asset",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_import.ps1 -SourceGlb \"${input:trellisGlbPath}\" -AssetType \"${input:trellisAssetType}\" -Faction \"${input:trellisFaction}\" -Variant \"${input:trellisVariant}\"",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "TRELLIS2: Full Setup (via WSL2 – empfohlen)",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_setup.ps1 -UseWsl -Models ${input:trellisSetupModels}",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "TRELLIS2: Full Setup (Windows/conda – eingeschränkt)",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_setup.ps1 -Models ${input:trellisSetupModels}",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "TRELLIS2: Download Models (HuggingFace)",
-      "type": "shell",
-      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_setup.ps1 -SkipRepo -SkipEnv -Models ${input:trellisSetupModels}",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
-      "problemMatcher": []
-    }
-  ],
-  "inputs": [
-    {
-      "id": "trellisSetupModels",
-      "type": "pickString",
-      "description": "Welche TRELLIS2-Modelle von HuggingFace laden?",
-      "options": [
-        "image-large",
-        "text-xlarge",
-        "text-large",
-        "text-base",
-        "image-large,text-xlarge"
-      ],
-      "default": "image-large"
-    },
-    {
-      "id": "trellisGlbPath",
-      "type": "promptString",
-      "description": "Pfad zur GLB-Datei (relativ zu Workspace oder absolut)",
-      "default": "generated/trellis2/asset_text.glb"
-    },
-    {
-      "id": "trellisAssetType",
-      "type": "pickString",
-      "description": "Asset-Typ",
-      "options": ["ship", "building", "station", "object"],
-      "default": "ship"
-    },
-    {
-      "id": "trellisFaction",
-      "type": "promptString",
-      "description": "Fraktion (leer = generic)",
-      "default": "generic"
-    },
-    {
-      "id": "trellisVariant",
-      "type": "promptString",
-      "description": "Varianten-Label (z. B. cargo, heavy, outpost)",
-      "default": "v1"
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Docker: Up",
+			"type": "shell",
+			"command": "docker compose up -d --build",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Docker: Down",
+			"type": "shell",
+			"command": "docker compose down",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Docker: Reset DB",
+			"type": "shell",
+			"command": "docker compose down -v && docker compose up -d --build && docker compose exec -T web php scripts/ensure_default_admin.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Docker: Logs",
+			"type": "shell",
+			"command": "docker compose logs -f",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Docker: Rebuild Web",
+			"type": "shell",
+			"command": "docker compose up -d --build web",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Docker: Bootstrap Galaxy",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/bootstrap_galaxy.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Docker: Backfill Star Metadata",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/backfill_star_system_metadata.php --all --batch=2000",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Leader E2E",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_leader_e2e.ps1",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: NPC Avatar + Leader Smoke",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_npc_avatar_leader_system.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Wormhole Beacon Unlock",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_wormhole_beacon_unlock.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Pirates Endpoint Smoke",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_pirates_endpoint_smoke.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Economy Endpoint Smoke",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_economy_endpoint_smoke.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: NPC Battle Diplomacy Smoke",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_npc_battle_diplomacy_smoke.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: War Endpoint Smoke",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_war_endpoint_smoke.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: War Forced Peace Tick Smoke",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_war_forced_peace_tick_smoke.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: War Offer Lifecycle Smoke",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_war_offer_lifecycle_smoke.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: War Goal Progress Smoke",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_war_goal_progress_smoke.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: War Attrition Goal Smoke",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_war_attrition_goal_smoke.php",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: API Smoke Suite",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_full_regression.ps1 -ApiOnly",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Full Regression Suite",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_full_regression.ps1",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Fresh DB + Full Regression",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_full_regression.ps1 -FreshReset",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Renderer Weapon Fire",
+			"type": "shell",
+			"command": "npm run test:renderer:weapon-fire",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Renderer Weapon Fire Contracts",
+			"type": "shell",
+			"command": "npm run test:renderer:weapon-fire:contract",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test Data: Bulk Universe Seed",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/seed_test_universe.php --users=100 --npcs=20 --profiles=0",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test Data: Dev Overview Seed",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/seed_dev_overview.php --verbose",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test Data: Full Seed (One Click)",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/bootstrap_galaxy.php; docker compose exec -T web php scripts/backfill_star_system_metadata.php --all --batch=2000; Get-Content -Raw sql/migrate_gameplay_model_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v1.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v2.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v3.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v4.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v5.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v6_planetary_events.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v7_research_phase5.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v8_wormholes.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/migrate_vessel_blueprints_v9_wormhole_beacons.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; docker compose exec -T web php scripts/sync_faction_specs.php; Get-Content -Raw sql/test_gameplay_model_seed.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; Get-Content -Raw sql/test_gameplay_model_checks.sql | docker compose exec -T db mysql -uroot -proot galaxyquest; docker compose exec -T web php scripts/seed_test_universe.php --users=100 --npcs=20 --profiles=0",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2: Link Repo (Submodule)",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_link.ps1 -UseSubmodule",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2: Update Repo",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_link.ps1 -Update",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2: WebApp (Image->3D)",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_webapp.ps1 -Mode image -Port 7860",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2: WebApp (Text->3D)",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_webapp.ps1 -Mode text -Port 7861",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2: Generate Ship (Text CLI)",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_generate.ps1 -Mode text -Prompt \"a modular hard-surface sci-fi cargo ship with engine nacelles\"",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2: Import GLB as Dev Asset",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_import.ps1 -SourceGlb \"${input:trellisGlbPath}\" -AssetType \"${input:trellisAssetType}\" -Faction \"${input:trellisFaction}\" -Variant \"${input:trellisVariant}\"",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2: Full Setup (via WSL2 – empfohlen)",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_setup.ps1 -UseWsl -Models ${input:trellisSetupModels}",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2: Full Setup (Windows/conda – eingeschränkt)",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_setup.ps1 -Models ${input:trellisSetupModels}",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2: Download Models (HuggingFace)",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_setup.ps1 -SkipRepo -SkipEnv -Models ${input:trellisSetupModels}",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Temp: Test Admin Stats Endpoint",
+			"type": "shell",
+			"command": "docker compose exec -T web php scripts/test_admin_stats_endpoint.php"
+		}
+	],
+	"inputs": [
+		{
+			"id": "trellisSetupModels",
+			"type": "pickString",
+			"description": "Welche TRELLIS2-Modelle von HuggingFace laden?",
+			"options": [
+				"image-large",
+				"text-xlarge",
+				"text-large",
+				"text-base",
+				"image-large,text-xlarge"
+			],
+			"default": "image-large"
+		},
+		{
+			"id": "trellisGlbPath",
+			"type": "promptString",
+			"description": "Pfad zur GLB-Datei (relativ zu Workspace oder absolut)",
+			"default": "generated/trellis2/asset_text.glb"
+		},
+		{
+			"id": "trellisAssetType",
+			"type": "pickString",
+			"description": "Asset-Typ",
+			"options": [
+				"ship",
+				"building",
+				"station",
+				"object"
+			],
+			"default": "ship"
+		},
+		{
+			"id": "trellisFaction",
+			"type": "promptString",
+			"description": "Fraktion (leer = generic)",
+			"default": "generic"
+		},
+		{
+			"id": "trellisVariant",
+			"type": "promptString",
+			"description": "Varianten-Label (z. B. cargo, heavy, outpost)",
+			"default": "v1"
+		}
+	]
 }

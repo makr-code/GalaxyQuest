@@ -1,0 +1,10 @@
+{
+    "username": "dev_npc_colonist_07",
+    "is_npc": true,
+    "race": "Kryl'Tha",
+    "profession": "Colonist Strategist",
+    "stance": "Diplomatic and Trade-Focused",
+    "vita": "As a Kryl'Tha, I have been instrumental in establishing the first human settlements on distant planets across the galaxy. My expertise lies not only in strategic planning but also in fostering peace among diverse species through trade and dialogue.",
+    "portrait_prompt": "A photorealistic alien bust portrait of a Kryl'Tha colonist, with translucent skin that subtly shimmers under the light. The character wears traditional attire reminiscent of their home world but designed for interstellar travel: sleek and functional armor-like clothing blending seamlessly into various environments.",
+    "generated_at": "2026-04-09T07:08:47+00:00"
+}

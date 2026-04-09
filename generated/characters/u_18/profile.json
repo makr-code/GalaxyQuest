@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_trader_07",
+    "username": "dev_npc_trader_02",
     "is_npc": true,
-    "race": "Synthetic Helion",
-    "profession": "Fleet Logistician",
-    "stance": "Resolute",
-    "vita": "dev_npc_trader_07 emerged from an autonomous sector protocol and built a reputation as a fleet logistician. Their resolute outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
-    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Synthetic Helion, role: Fleet Logistician, attitude: Resolute, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
-    "generated_at": "2026-03-31T13:06:13+00:00"
+    "race": "Zhareen",
+    "profession": "Trader",
+    "stance": "Neutral Merchant",
+    "vita": "Dev_npc_trader_02 hails from the bustling spaceport city of Zhar'Elon, a hub for interstellar commerce and diplomacy. Born into one of the most affluent Zhareen families known as 'The Star Weavers', he learned early to navigate various cultures across galaxies through trading routes, understanding that wealth isn't just about accumulation but also creating connections between different worlds.",
+    "portrait_prompt": "A tall and charismatic Zhangar Zhareen with a slender build. His skin shimmers like starlight against the backdrop of his traditional Zhareen attire, adorned with intricate patterns reflecting cosmic motifs native to their home planet.",
+    "generated_at": "2026-04-09T07:01:09+00:00"
 }

@@ -26,6 +26,9 @@ switch ($action) {
     // ── Overview ──────────────────────────────────────────────────────────────
     case 'overview':
         only_method('GET');
+        // Release the session lock before the slow live-computation so parallel
+        // requests (e.g. auth?action=me) are not blocked by this handler.
+        session_write_close();
         $db = get_db();
 
         // ── Projection read path (feature-flag guarded) ───────────────────────

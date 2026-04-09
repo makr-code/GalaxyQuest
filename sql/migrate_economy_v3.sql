@@ -32,8 +32,20 @@ PREPARE _stmt FROM @sql;
 EXECUTE _stmt;
 DEALLOCATE PREPARE _stmt;
 
--- Create index for satisfaction queries (economy ticker)
-ALTER TABLE economy_pop_classes ADD INDEX idx_satisfaction (colony_id, satisfaction_index);
+-- Create index for satisfaction queries (economy ticker) — idempotent guard for re-runs
+SET @idx_exists = (
+    SELECT COUNT(1) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'economy_pop_classes'
+      AND INDEX_NAME   = 'idx_satisfaction'
+);
+SET @sql2 = IF(@idx_exists = 0,
+    'ALTER TABLE economy_pop_classes ADD INDEX idx_satisfaction (colony_id, satisfaction_index)',
+    'SELECT 1 /* migrate_economy_v3: idx_satisfaction already present */'
+);
+PREPARE _stmt2 FROM @sql2;
+EXECUTE _stmt2;
+DEALLOCATE PREPARE _stmt2;
 
 -- Create new table for pop satisfaction history (tracking satisfaction decay)
 CREATE TABLE IF NOT EXISTS economy_pop_satisfaction_history (

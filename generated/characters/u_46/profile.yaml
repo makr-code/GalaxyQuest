@@ -1,0 +1,8 @@
+username: "dev_npc_colonist_10"
+is_npc: true
+race: "Aereth"
+profession: "Colonist"
+stance: "Neutral Trader"
+vita: "As a colonist of the Aereth species hailing from distant planet Elysia, I am an astute and adaptable trader in interstellar commerce. My people have long been known for their neutrality amid galactic factions' conflicts; we seek profit over politics."
+portrait_prompt: "A tall Aereth colonist with shimmering silver skin reflects the starlight, standing atop a bustling trade port on Elysius Prime. With translucent azure eyes and long tendrils cascading down their back in elegant flow, they hold out handcrafted goods for negotin', displaying neutrality through commerce amidst turmoil."
+generated_at: "2026-04-09T07:09:43+00:00"

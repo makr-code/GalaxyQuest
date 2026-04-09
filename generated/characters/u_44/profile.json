@@ -1,0 +1,10 @@
+{
+    "username": "dev_npc_colonist_08",
+    "is_npc": true,
+    "race": "Vel'Ar",
+    "profession": "Colonist and Diplomat",
+    "stance": "Peaceful Trader with a penchant for negotiation and cultural exchange.",
+    "vita": "Born on the lush planet Velara, I was raised to appreciate artistry in all forms. As an adept communicator among my people's star-faring community, diplomacy has always been second nature to me; we Vel’Ar prioritize harmony and understanding above conflict. My home world is rich with diverse flora that inspires our unique approach to aesthetics in art and design.",
+    "portrait_prompt": "A velvety-skinned, statuesque figure stands poised against the backdrop of Velara's iridescent sky; transparent wings subtly shimmer with hues reflecting my home planet’de vibrant flora. The eyes hold a depth that mirrors our deep respect for life and beauty.",
+    "generated_at": "2026-04-09T07:09:06+00:00"
+}

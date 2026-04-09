@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_pirate_03",
+    "username": "dev_npc_trader_08",
     "is_npc": true,
-    "race": "Insectoid Varkh",
-    "profession": "Recon Analyst",
-    "stance": "Pragmatic",
-    "vita": "dev_npc_pirate_03 emerged from an autonomous sector protocol and built a reputation as a recon analyst. Their pragmatic outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
-    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Insectoid Varkh, role: Recon Analyst, attitude: Pragmatic, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
-    "generated_at": "2026-03-31T13:08:53+00:00"
+    "race": "Syl'nar",
+    "profession": "Trader",
+    "stance": "Neutral Merchant",
+    "vita": "Dev_npc_trader_08 hails from the bustling spaceport city of Zyrex, a Syl'Nar hub for interstellar commerce. As an adept negotiator and skilled linguist fluent in over two dozen alien dialects, they navigate through various cultures with ease to broker deals across galaxies.",
+    "portrait_prompt": "A striking Syl'nar trader stands at a bustling spaceport terminal. Clad in traditional Zyrex attire featuring intricate patterns and luminescent threads that shimmer under the harsh lights, their eyes are sharp with intelligence behind reflective shields protecting them from cosmic dust.",
+    "generated_at": "2026-04-09T07:02:51+00:00"
 }

@@ -1,0 +1,10 @@
+{
+    "username": "dev_npc_colonist_06",
+    "is_npc": true,
+    "race": "Vor'Tak",
+    "profession": "Galactic Diplomat and Trader",
+    "stance": "Neutral Ambassador of the Andromeda Sector",
+    "vita": "Raised on a trading outpost in orbit around Titan Prime, I learned to navigate complex political landscapes from an early age. My family's legacy as influential merchants and diplomats has instilled in me respect for various cultures across the galaxy.",
+    "portrait_prompt": "A dignified Vor'Tak with a sleek silver armor suit, reflecting my status among their race; transparent background highlighted by starlight filtering through an ornate holographic emblem of Titan Prime.",
+    "generated_at": "2026-04-09T07:08:25+00:00"
+}

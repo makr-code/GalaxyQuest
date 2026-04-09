@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_pirate_07",
+    "username": "dev_npc_pirate_02",
     "is_npc": true,
-    "race": "Zhareen",
-    "profession": "Pirate Captain",
-    "stance": "Independent Trader",
-    "vita": "A Zhareen pirate captain who has roamed the star systems, negotiating trade deals and navigating alliances between warring factions. Known for their cunning diplomacy and fearless leadership on high seas.",
-    "portrait_prompt": "Photorealistic portrait of a Zhareen pirate captain with an imposing figure standing at the helm, gaze fixed forward amidst stormy skies reflected in eyes that show wisdom beyond their years. The backdrop is transparent space-time fabric showing glimpses of distant nebulae and swirling galaxies.",
-    "generated_at": "2026-03-31T13:10:40+00:00"
+    "race": "Galactic Pirates",
+    "profession": "Navigator and Master Sailor of the Void Seas",
+    "stance": "Independent but honorable to a fault, always seeks fair trades in trade or battl",
+    "vita": "Born on the rogue planet Zharen-5, I learned early that survival meant adaptability and cunning. My people are known for their navigational skills across star systems, using ancient Zhareen technology to chart courses through treacherous space lanes where no one dares tread.",
+    "portrait_prompt": "Captain with a cybernetic eye patch reflecting the nebulas of Zhar-5 and an intimidating scar across their cheek, standing defiantly atop my ship's helm amidst twinkling stars.",
+    "generated_at": "2026-04-09T07:04:10+00:00"
 }

@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_pirate_09",
+    "username": "dev_npc_pirate_04",
     "is_npc": true,
-    "race": "Vor'Tak",
-    "profession": "Pirate Navigator",
-    "stance": "Sea-faring and cunning with a strong sense of justice for their crew.",
-    "vita": "As the navigator abocurse, I traverse treacherous space seas in search of riches. Born on distant planets to impoverished families, my life was shaped by hardship but also resilience and ingenuity. My people are known for their cunning tactics and unmatched ship handling skills.",
-    "portrait_prompt": "A tall Vor'Tak with a rugged exterior standing atop the deck of an interstellar pirate vessel, gazing out towards the stars as if seeing them in every direction. With eyes reflecting determination mixed with compassion for their crew and distant home worlds.",
-    "generated_at": "2026-03-31T13:11:27+00:00"
+    "race": "Insectoid Varkh",
+    "profession": "Fleet Logistician",
+    "stance": "Diplomatic",
+    "vita": "dev_npc_pirate_04 emerged from an autonomous sector protocol and built a reputation as a fleet logistician. Their diplomatic outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
+    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Insectoid Varkh, role: Fleet Logistician, attitude: Diplomatic, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
+    "generated_at": "2026-04-09T07:04:50+00:00"
 }

@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_colonist_01",
+    "username": "dev_npc_pirate_06",
     "is_npc": true,
-    "race": "Vel'Ar",
-    "profession": "Colonist and Trader",
-    "stance": "Diplomatic yet pragmatic negotiator with a keen interest in expanding their infl",
-    "vita": "Dev_npc_colonist_01, born on Vel'Ar Prime but raised among diverse cultures and species. Skilled at navigating complex interstellar politics to secure favorable trade deals for my people while maintaining peaceful relations with various galactic factions.",
-    "portrait_prompt": "A dignified Vel'Ar colonist, dressed in traditional attire that reflects their dual role as a trader and diplomat. Skin tone is metallic silver under the translucent bio-armor revealing intricate circuitry beneath - an emblem of advanced technology melded with culture.",
-    "generated_at": "2026-03-31T13:12:24+00:00"
+    "race": "Human",
+    "profession": "Pirate Captain",
+    "stance": "Reluctant Merchant-Turned-Trader",
+    "vita": "Once a feared pirate captain of the Syl'Nar system, I now navigate trade routes with my crew for profit. My ship 'The Starbound Marauder', once known for plundering star systems is no longer armed but still holds sway in underground markets.",
+    "portrait_prompt": "A weathered human pirate captain from the Syl'Nar, standing against a backdrop of twinkling stars with an air of cunning and experience. With eyes reflecting centuries-old wisdom beneath his rough exterior.",
+    "generated_at": "2026-04-09T07:05:22+00:00"
 }

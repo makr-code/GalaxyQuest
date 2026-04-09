@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_pirate_01",
+    "username": "dev_npc_trader_06",
     "is_npc": true,
-    "race": "Twi'lek",
-    "profession": "Pirate Captain",
-    "stance": "Trader and Diplomat",
-    "vita": "Dev_npc_pirate_01 hails from the bustling spaceport city of Vel'Ar, once a hub for interstellar commerce but now known more for its piracy rings. As captain of one such ring, Dev has made fortunes trading in stolen tech and rare cosmic artifacts across various factions while playing both sides to maintain neutrality.",
-    "portrait_prompt": "A Twi'lek pirate captain with a weathered face showing years at sea. His eyes are sharp as the stars, reflective of his cunning mindset honed by countless negotiations and battles alike.",
-    "generated_at": "2026-03-31T13:07:59+00:00"
+    "race": "Vel'Ar",
+    "profession": "Trader",
+    "stance": "Diplomatic and peace-seeking merchant with a penchant for negotin... (80 charact",
+    "vita": "Dev_npc_trader_06, born on the bustling trade hub of Vel'Ar Prime. Raised amid diverse cultures, vel'ar have always been known as skilled negotiators and respected merchants across galaxies...",
+    "portrait_prompt": "A photorealistic portrait capturing a mature Vel'Ar trader with striking azure skin tone reflective of their home planet. The character stands in traditional vel'ar garb, hands folded at the chest and eyes sharply intelligent yet kind-hearted; transparent background to symbolize openness.",
+    "generated_at": "2026-04-09T07:02:20+00:00"
 }

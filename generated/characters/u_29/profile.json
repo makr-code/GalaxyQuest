@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_pirate_08",
+    "username": "dev_npc_pirate_03",
     "is_npc": true,
-    "race": "Human-like Velarians",
-    "profession": "Pirate Navigator",
-    "stance": "Independent Trader with a Flair for Diplomacy and Conflict Resolution",
-    "vita": "In the vast expanse of space, I've carved out my own path as an astute navigator traversing between galactic factions. My ship is not just a vessel but also a negotinating body that brokers peace or sows discord where needed.",
-    "portrait_prompt": "A ruggedly handsome human-like Velarian pirate, with the calloused hands of experience and eyes reflecting wisdom from countless star systems. His attire is a blend of traditional velarian garb mixed with cosmic elements, hinting at his extensive travels through space lanes.",
-    "generated_at": "2026-03-31T13:11:04+00:00"
+    "race": "Velarian",
+    "profession": "Pirate Captain",
+    "stance": "Trustworthy and charismatic leader respected by many but feared by some.",
+    "vita": "As the captain of a notorious pirate ship, I've seen galaxies far beyond my own. My crew thrives on loyalty to me and fear for others. Our homeworld Velara is known across star systems as a hub of trade routes but also whispers of rebellion against oppressive factions.",
+    "portrait_prompt": "A ruggedly handsome pirate captain with piercing blue eyes, salt-andboned skin from the harsh space climate. His face is marked by scars and sunken cheeks earned through countless skirmishes at sea; his attire a blend of traditional Velarian garb embellished with cosmic symbols reflecting our rebellious spirit against galactic oppressors.",
+    "generated_at": "2026-04-09T07:04:29+00:00"
 }

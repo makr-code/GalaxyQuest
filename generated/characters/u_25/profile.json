@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_pirate_04",
+    "username": "dev_npc_trader_09",
     "is_npc": true,
-    "race": "Vor'Tak",
-    "profession": "Pirate Navigator",
-    "stance": "Neutral Trader with a penchant for neutrality in conflicts and equal respect tow",
-    "vita": "A seasoned pirate navigator, I have traversed the cosmos on countless starships. My life has been one of adventure and exploration rather than conquest or domination; my crew and me seek only to survive and prosper through trade in a galaxy rife with factions vying for power.",
-    "portrait_prompt": "A ruggedly handsome Vor'Tak, adorned with traditional pirate attire from his homeworld of Tarken Prime. His eyes reflect wisdom beyond years despite the youthful appearance and a hint of mischief in his smile.",
-    "generated_at": "2026-03-31T13:09:18+00:00"
+    "race": "Crystalline Asterite",
+    "profession": "Fleet Logistician",
+    "stance": "Pragmatic",
+    "vita": "dev_npc_trader_09 emerged from an autonomous sector protocol and built a reputation as a fleet logistician. Their pragmatic outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
+    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Crystalline Asterite, role: Fleet Logistician, attitude: Pragmatic, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
+    "generated_at": "2026-04-09T07:03:13+00:00"
 }
