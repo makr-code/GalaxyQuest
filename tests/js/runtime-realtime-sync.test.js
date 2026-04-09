@@ -406,4 +406,57 @@ describe('CombatVfxBridge — connectEventBus()', () => {
     adapter.resetBattlePulseProfiles();
     expect(bridge._battlePulseProfile({ mission: 'attack' }).sourcePattern).toEqual(['installation', 'ship', 'ship']);
   });
+
+  it('registers window debug controls for pulse profile tuning', () => {
+    const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const previousDebugApi = window.GQCombatVfxDebug;
+    window.GQCombatVfxDebug = { existing: true };
+
+    const bridge = Object.create(CombatVfxBridge.prototype);
+    bridge._battlePulseProfiles = bridge._cloneBattlePulseProfiles({
+      default: { sourcePattern: ['installation', 'installation', 'ship'], weaponPattern: ['laser', 'beam', 'missile'] },
+      attack: { sourcePattern: ['installation', 'ship', 'ship'], weaponPattern: ['laser', 'beam', 'missile', 'rail'] },
+      spy: { sourcePattern: ['installation'], weaponPattern: ['beam'] },
+    });
+
+    bridge._registerDebugApi();
+
+    expect(window.GQCombatVfxDebug.existing).toBe(true);
+    expect(typeof window.GQCombatVfxDebug.getBattlePulseProfiles).toBe('function');
+    expect(typeof window.GQCombatVfxDebug.setBattlePulseProfiles).toBe('function');
+    expect(typeof window.GQCombatVfxDebug.resetBattlePulseProfiles).toBe('function');
+
+    window.GQCombatVfxDebug.setBattlePulseProfiles({ attack: { sourcePattern: ['ship'], weaponPattern: ['rail'] } });
+    expect(window.GQCombatVfxDebug.getBattlePulseProfiles().attack.sourcePattern).toEqual(['ship']);
+
+    bridge._unregisterDebugApi();
+    expect(window.GQCombatVfxDebug).toEqual({ existing: true });
+
+    window.GQCombatVfxDebug = previousDebugApi;
+  });
+
+  it('removes window debug controls when no previous debug api existed', () => {
+    const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const previousDebugApi = window.GQCombatVfxDebug;
+    delete window.GQCombatVfxDebug;
+
+    const bridge = Object.create(CombatVfxBridge.prototype);
+    bridge._battlePulseProfiles = bridge._cloneBattlePulseProfiles({
+      default: { sourcePattern: ['installation', 'installation', 'ship'], weaponPattern: ['laser', 'beam', 'missile'] },
+      attack: { sourcePattern: ['installation', 'ship', 'ship'], weaponPattern: ['laser', 'beam', 'missile', 'rail'] },
+      spy: { sourcePattern: ['installation'], weaponPattern: ['beam'] },
+    });
+
+    bridge._registerDebugApi();
+    expect(typeof window.GQCombatVfxDebug.getBattlePulseProfiles).toBe('function');
+
+    bridge._unregisterDebugApi();
+    expect(typeof window.GQCombatVfxDebug).toBe('undefined');
+
+    if (typeof previousDebugApi === 'undefined') {
+      delete window.GQCombatVfxDebug;
+    } else {
+      window.GQCombatVfxDebug = previousDebugApi;
+    }
+  });
 });

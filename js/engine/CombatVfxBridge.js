@@ -92,6 +92,7 @@ class CombatVfxBridge {
     this._battlePulseProfiles = this._cloneBattlePulseProfiles(BATTLE_PULSE_PROFILES);
 
     this._registerBridgeAdapter();
+    this._registerDebugApi();
   }
 
   // ---------------------------------------------------------------------------
@@ -135,6 +136,34 @@ class CombatVfxBridge {
       resetBattlePulseProfiles: ()                     => this.resetBattlePulseProfiles(),
       getBattlePulseProfiles: ()                       => this._cloneBattlePulseProfiles(this._battlePulseProfiles),
     });
+  }
+
+  _registerDebugApi() {
+    if (typeof window === 'undefined') return;
+
+    this._prevDebugApi = window.GQCombatVfxDebug;
+
+    const previous = this._prevDebugApi && typeof this._prevDebugApi === 'object'
+      ? this._prevDebugApi
+      : {};
+
+    window.GQCombatVfxDebug = {
+      ...previous,
+      getBattlePulseProfiles: () => this._cloneBattlePulseProfiles(this._battlePulseProfiles),
+      setBattlePulseProfiles: (profiles) => this.configureBattlePulseProfiles(profiles),
+      resetBattlePulseProfiles: () => this.resetBattlePulseProfiles(),
+    };
+  }
+
+  _unregisterDebugApi() {
+    if (typeof window === 'undefined') return;
+
+    if (typeof this._prevDebugApi === 'undefined') {
+      delete window.GQCombatVfxDebug;
+      return;
+    }
+
+    window.GQCombatVfxDebug = this._prevDebugApi;
   }
 
   // ---------------------------------------------------------------------------
@@ -430,6 +459,8 @@ class CombatVfxBridge {
     if (bridge && typeof bridge.unregisterAdapter === 'function') {
       bridge.unregisterAdapter('combat-vfx-bridge');
     }
+
+    this._unregisterDebugApi();
   }
 }
 
