@@ -28,6 +28,7 @@ describe('Zoom level renderers shared init integration', () => {
     window.Galaxy3DRendererWebGPU = undefined;
     window.Galaxy3DRenderer = undefined;
     window.GalaxyRendererCore = undefined;
+    localStorage.removeItem('gq:allowThreeFallback');
   });
 
   afterEach(() => {
@@ -40,6 +41,7 @@ describe('Zoom level renderers shared init integration', () => {
     window.Galaxy3DRendererWebGPU = undefined;
     window.Galaxy3DRenderer = undefined;
     window.GalaxyRendererCore = undefined;
+    localStorage.removeItem('gq:allowThreeFallback');
   });
 
   it('GalaxyLevelWebGPU constructs with runtime options and stores shared WebGPU instance', async () => {
@@ -119,6 +121,36 @@ describe('Zoom level renderers shared init integration', () => {
 
     expect(ctor).toHaveBeenCalledTimes(1);
     expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBe(level._starfield);
+  });
+
+  it('GalaxyLevelWebGPU initialize throws when native renderer is missing and no fallback opt-in is set', async () => {
+    const { canvas } = makeCanvasHost();
+    const level = new GalaxyLevelWebGPU();
+
+    await expect(level.initialize(canvas, {})).rejects.toThrow('GalaxyLevelWebGPU requires Galaxy3DRendererWebGPU');
+  });
+
+  it('GalaxyLevelWebGPU initialize allows legacy Three fallback only with explicit localStorage opt-in', async () => {
+    const { canvas } = makeCanvasHost();
+    const ctor = vi.fn(function (_container, opts) {
+      this.opts = opts;
+      this.init = vi.fn(async () => undefined);
+      this.setStars = vi.fn();
+      this.setClusterAuras = vi.fn();
+      this.setFtlInfrastructure = vi.fn();
+      this.setGalaxyFleets = vi.fn();
+      this.dispose = vi.fn();
+      return this;
+    });
+
+    localStorage.setItem('gq:allowThreeFallback', '1');
+    window.Galaxy3DRenderer = ctor;
+
+    const level = new GalaxyLevelWebGPU();
+    await level.initialize(canvas, {});
+
+    expect(ctor).toHaveBeenCalledTimes(1);
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_THREEJS).toBe(level._starfield);
   });
 
   it('GalaxyLevelThreeJS constructs with runtime options and stores shared instance', async () => {
