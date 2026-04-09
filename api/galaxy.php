@@ -26,6 +26,9 @@ only_method('GET');
 $action = (string)($_GET['action'] ?? 'system');
 if ($action !== 'auth_stars') {
     require_auth();
+    // Star-hydration requests can be long-running; do not hold the PHP session
+    // lock while streaming galaxy data.
+    session_write_close();
 }
 
 // Enable gzip if supported

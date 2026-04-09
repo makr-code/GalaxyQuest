@@ -21,14 +21,17 @@ require_once __DIR__ . '/projection.php';
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
 
+// Read-heavy game endpoints can run in parallel with auth probes once the
+// user is identified.
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+    session_write_close();
+}
+
 switch ($action) {
 
     // ── Overview ──────────────────────────────────────────────────────────────
     case 'overview':
         only_method('GET');
-        // Release the session lock before the slow live-computation so parallel
-        // requests (e.g. auth?action=me) are not blocked by this handler.
-        session_write_close();
         $db = get_db();
 
         // ── Projection read path (feature-flag guarded) ───────────────────────

@@ -202,6 +202,8 @@ switch ($action) {
     case 'marketplace':
         only_method('GET');
         $db         = get_db();
+        ensure_leader_marketplace_schema($db);
+        session_write_close();
         $candidates = get_or_refresh_marketplace($db, $uid);
         json_ok(['candidates' => $candidates]);
         break;
@@ -213,6 +215,7 @@ switch ($action) {
         $body = get_json_body();
         $cid  = (int)($body['candidate_id'] ?? 0);
         $db   = get_db();
+        ensure_leader_marketplace_schema($db);
 
         // Load the candidate (must belong to this user and not yet hired)
         $cRow = $db->prepare(
@@ -1262,6 +1265,49 @@ function get_or_refresh_marketplace(PDO $db, int $uid): array {
     );
     $rows->execute([$uid]);
     return $rows->fetchAll();
+}
+
+/**
+ * Runtime schema guard so marketplace endpoints stay available even when the
+ * optional migration has not been applied yet.
+ */
+function ensure_leader_marketplace_schema(PDO $db): void {
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+
+    $db->exec(
+        "CREATE TABLE IF NOT EXISTS leader_marketplace (
+            id             INT AUTO_INCREMENT PRIMARY KEY,
+            user_id        INT NOT NULL,
+            name           VARCHAR(64)  NOT NULL,
+            role           ENUM('colony_manager','fleet_commander','science_director','diplomacy_officer','trade_director','advisor') NOT NULL,
+            rarity         ENUM('common','uncommon','rare','legendary') NOT NULL DEFAULT 'common',
+            portrait       VARCHAR(8)   NOT NULL DEFAULT '👤',
+            tagline        VARCHAR(128) NOT NULL DEFAULT '',
+            backstory      TEXT         NOT NULL,
+            trait_1        VARCHAR(64)  NOT NULL DEFAULT '',
+            trait_2        VARCHAR(64)  NOT NULL DEFAULT '',
+            skill_production   TINYINT UNSIGNED NOT NULL DEFAULT 1,
+            skill_construction TINYINT UNSIGNED NOT NULL DEFAULT 1,
+            skill_tactics      TINYINT UNSIGNED NOT NULL DEFAULT 1,
+            skill_navigation   TINYINT UNSIGNED NOT NULL DEFAULT 1,
+            skill_research     TINYINT UNSIGNED NOT NULL DEFAULT 1,
+            skill_efficiency   TINYINT UNSIGNED NOT NULL DEFAULT 1,
+            skill_guidance     TINYINT UNSIGNED NOT NULL DEFAULT 1,
+            hire_metal         INT UNSIGNED NOT NULL DEFAULT 5000,
+            hire_crystal       INT UNSIGNED NOT NULL DEFAULT 3000,
+            hire_deuterium     INT UNSIGNED NOT NULL DEFAULT 1000,
+            is_hired       TINYINT(1)   NOT NULL DEFAULT 0,
+            hired_at       DATETIME     DEFAULT NULL,
+            expires_at     DATETIME     NOT NULL,
+            created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_mkt_user_exp (user_id, expires_at)
+        ) ENGINE=InnoDB"
+    );
+
+    $checked = true;
 }
 
 /**
