@@ -65,6 +65,43 @@ const BATTLE_PULSE_PROFILES = Object.freeze({
   }),
 });
 
+/**
+ * Optional QA presets to switch pulse behavior quickly at runtime.
+ * Presets are partial mission-profile maps applied as overrides.
+ */
+const BATTLE_PULSE_PROFILE_PRESETS = Object.freeze({
+  balanced: Object.freeze({
+    attack: Object.freeze({
+      sourcePattern: Object.freeze(['installation', 'ship', 'ship']),
+      weaponPattern: Object.freeze(['laser', 'beam', 'missile', 'rail']),
+    }),
+    spy: Object.freeze({
+      sourcePattern: Object.freeze(['installation']),
+      weaponPattern: Object.freeze(['beam']),
+    }),
+  }),
+  siege: Object.freeze({
+    attack: Object.freeze({
+      sourcePattern: Object.freeze(['installation', 'installation', 'ship']),
+      weaponPattern: Object.freeze(['missile', 'rail', 'beam']),
+    }),
+    default: Object.freeze({
+      sourcePattern: Object.freeze(['installation', 'installation', 'ship']),
+      weaponPattern: Object.freeze(['beam', 'missile', 'rail']),
+    }),
+  }),
+  skirmish: Object.freeze({
+    attack: Object.freeze({
+      sourcePattern: Object.freeze(['ship', 'ship', 'installation']),
+      weaponPattern: Object.freeze(['beam', 'rail', 'laser']),
+    }),
+    default: Object.freeze({
+      sourcePattern: Object.freeze(['ship', 'installation', 'ship']),
+      weaponPattern: Object.freeze(['laser', 'beam', 'rail']),
+    }),
+  }),
+});
+
 // ---------------------------------------------------------------------------
 // CombatVfxBridge
 // ---------------------------------------------------------------------------
@@ -135,6 +172,8 @@ class CombatVfxBridge {
       setBattlePulseProfiles: (profiles)               => this.configureBattlePulseProfiles(profiles),
       resetBattlePulseProfiles: ()                     => this.resetBattlePulseProfiles(),
       getBattlePulseProfiles: ()                       => this._cloneBattlePulseProfiles(this._battlePulseProfiles),
+      applyBattlePulsePreset: (presetName)             => this.applyBattlePulsePreset(presetName),
+      listBattlePulsePresets: ()                       => this.getBattlePulsePresetNames(),
     });
   }
 
@@ -152,6 +191,8 @@ class CombatVfxBridge {
       getBattlePulseProfiles: () => this._cloneBattlePulseProfiles(this._battlePulseProfiles),
       setBattlePulseProfiles: (profiles) => this.configureBattlePulseProfiles(profiles),
       resetBattlePulseProfiles: () => this.resetBattlePulseProfiles(),
+      applyBattlePulsePreset: (presetName) => this.applyBattlePulsePreset(presetName),
+      listBattlePulsePresets: () => this.getBattlePulsePresetNames(),
     };
   }
 
@@ -418,6 +459,19 @@ class CombatVfxBridge {
   resetBattlePulseProfiles() {
     this._battlePulseProfiles = this._cloneBattlePulseProfiles(BATTLE_PULSE_PROFILES);
     return this._cloneBattlePulseProfiles(this._battlePulseProfiles);
+  }
+
+  getBattlePulsePresetNames() {
+    return Object.keys(BATTLE_PULSE_PROFILE_PRESETS);
+  }
+
+  applyBattlePulsePreset(presetName) {
+    const key = String(presetName || '').trim().toLowerCase();
+    const preset = BATTLE_PULSE_PROFILE_PRESETS[key];
+    if (!preset) {
+      return this._cloneBattlePulseProfiles(this._battlePulseProfiles);
+    }
+    return this.configureBattlePulseProfiles(preset);
   }
 
   _deriveSourcePosition(data, preferredKeys = []) {

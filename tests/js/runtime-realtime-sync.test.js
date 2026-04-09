@@ -399,12 +399,20 @@ describe('CombatVfxBridge — connectEventBus()', () => {
     expect(typeof adapter.setBattlePulseProfiles).toBe('function');
     expect(typeof adapter.resetBattlePulseProfiles).toBe('function');
     expect(typeof adapter.getBattlePulseProfiles).toBe('function');
+    expect(typeof adapter.applyBattlePulsePreset).toBe('function');
+    expect(typeof adapter.listBattlePulsePresets).toBe('function');
 
     adapter.setBattlePulseProfiles({ attack: { sourcePattern: ['ship'], weaponPattern: ['rail'] } });
     expect(bridge._battlePulseProfile({ mission: 'attack' }).sourcePattern).toEqual(['ship']);
 
     adapter.resetBattlePulseProfiles();
     expect(bridge._battlePulseProfile({ mission: 'attack' }).sourcePattern).toEqual(['installation', 'ship', 'ship']);
+
+    const presets = adapter.listBattlePulsePresets();
+    expect(presets).toContain('skirmish');
+
+    adapter.applyBattlePulsePreset('skirmish');
+    expect(bridge._battlePulseProfile({ mission: 'attack' }).sourcePattern).toEqual(['ship', 'ship', 'installation']);
   });
 
   it('registers window debug controls for pulse profile tuning', () => {
@@ -425,9 +433,17 @@ describe('CombatVfxBridge — connectEventBus()', () => {
     expect(typeof window.GQCombatVfxDebug.getBattlePulseProfiles).toBe('function');
     expect(typeof window.GQCombatVfxDebug.setBattlePulseProfiles).toBe('function');
     expect(typeof window.GQCombatVfxDebug.resetBattlePulseProfiles).toBe('function');
+    expect(typeof window.GQCombatVfxDebug.applyBattlePulsePreset).toBe('function');
+    expect(typeof window.GQCombatVfxDebug.listBattlePulsePresets).toBe('function');
 
     window.GQCombatVfxDebug.setBattlePulseProfiles({ attack: { sourcePattern: ['ship'], weaponPattern: ['rail'] } });
     expect(window.GQCombatVfxDebug.getBattlePulseProfiles().attack.sourcePattern).toEqual(['ship']);
+
+    const presets = window.GQCombatVfxDebug.listBattlePulsePresets();
+    expect(presets).toContain('siege');
+
+    window.GQCombatVfxDebug.applyBattlePulsePreset('siege');
+    expect(window.GQCombatVfxDebug.getBattlePulseProfiles().attack.weaponPattern).toEqual(['missile', 'rail', 'beam']);
 
     bridge._unregisterDebugApi();
     expect(window.GQCombatVfxDebug).toEqual({ existing: true });
