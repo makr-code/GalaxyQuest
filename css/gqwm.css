@@ -63,20 +63,57 @@
 .wm-window[data-winid="console"] .wm-body {
   padding: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .wm-window[data-winid="console"] .ui-console-panel {
+  flex: 1 1 auto;
   max-height: none;
-  height: 100%;
+  height: auto;
+  width: 100%;
+  min-height: 0;
   border-bottom: 0;
   border-radius: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  padding: 0.35rem 0.45rem;
+}
+
+.wm-window[data-winid="console"] .ui-console-head strong {
+  display: none;
+}
+
+.wm-window[data-winid="console"] .ui-console-head {
+  flex: 0 0 auto;
+  margin-bottom: 0.3rem;
+  min-height: 0;
+}
+
+.wm-window[data-winid="console"] .ui-console-actions {
+  gap: 0.3rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
 }
 
 .wm-window[data-winid="console"] .ui-console-log {
   flex: 1;
   height: auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.35rem;
+}
+
+.wm-window[data-winid="console"] .ui-console-input-row {
+  flex: 0 0 auto;
+  margin-top: 0.3rem;
+  min-height: 0;
+}
+
+.wm-window[data-winid="console"].wm-docked-bottom {
+  border-radius: 8px 8px 0 0;
 }
 
 /* NOTE: .galaxy-overlay-window, #galaxy-info-overlay, .galaxy-info-tabs etc.

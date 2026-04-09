@@ -134,6 +134,13 @@
         const input = documentRef.getElementById('ui-console-input');
         if (!panel || !toggleBtn || !runBtn || !input) return false;
 
+        panel.classList.add('ui-console-enhanced');
+        panel.setAttribute('data-gq-console-enhanced', '1');
+        const modeLabel = documentRef.getElementById('boot-terminal-mode');
+        if (modeLabel) {
+          modeLabel.textContent = 'Mode: UI Console';
+        }
+
         this.hydrateFromTerminal();
         this.bindTerminalLogStream();
 

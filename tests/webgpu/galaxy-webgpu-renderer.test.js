@@ -312,6 +312,106 @@ describe('Galaxy3DRendererWebGPU — native WebGPU path (mocked GPU)', () => {
     expect(state.name).toBe('webgpu-native');
   });
 
+  it('creates a dedicated overlay canvas in native WebGPU mode', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    expect(r._overlayCanvas).toBeTruthy();
+    expect(r._overlayCanvas.className).toContain('gq-webgpu-overlay-canvas');
+    expect(container.contains(r._overlayCanvas)).toBe(true);
+  });
+
+  it('stores overlay datasets from fleet/ftl/cluster API setters', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+
+    const fleets = [{ pos: { x: 10, y: 20 }, target: { x: 40, y: 60 } }];
+    const gates = [{ a: { x: 0, y: 0 }, b: { x: 100, y: 100 } }];
+    const nodes = [{ pos: { x: -25, y: 15 } }];
+    const clusters = [{ x: 12, y: 8, radius: 28, color: '#88aaff' }];
+
+    r.setGalaxyFleets(fleets);
+    r.setFtlInfrastructure(gates, nodes);
+    r.setClusterAuras(clusters);
+
+    expect(r._overlayData.fleets).toEqual(fleets);
+    expect(r._overlayData.gates).toEqual(gates);
+    expect(r._overlayData.nodes).toEqual(nodes);
+    expect(r._overlayData.clusters).toEqual(clusters);
+  });
+
+  it('resolves overlay point references via galaxy/system star keys', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    r.setStars([
+      { x_ly: 100, y_ly: 50, galaxy_index: 1, system_index: 2, name: 'RefStar' },
+    ]);
+
+    const p = r._resolvePoint2({ galaxy_index: 1, system_index: 2 });
+    expect(p).toEqual({ x: 100, y: 50 });
+  });
+
+  it('renders overlay frame with gate markers and fleet vectors without throwing', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    r.setStars(SAMPLE_STARS);
+    r.setFtlInfrastructure([{ a: { x: 100, y: 50 }, b: { x: -80, y: -40 } }], []);
+    r.setGalaxyFleets([{ pos: { x: 100, y: 50 }, target: { x: 30, y: 200 } }]);
+
+    expect(() => r._renderGalaxyOverlay2D()).not.toThrow();
+  });
+
+  it('renders overlay frame across low/high zoom values without throwing', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    r.setStars(SAMPLE_STARS);
+    r.setFtlInfrastructure([{ a: { x: 100, y: 50 }, b: { x: -80, y: -40 } }], [{ pos: { x: 30, y: 200 } }]);
+    r.setGalaxyFleets([{ pos: { x: -80, y: -40 }, target: { x: 100, y: 50 } }]);
+
+    r._view.zoom = 0.55;
+    expect(() => r._renderGalaxyOverlay2D()).not.toThrow();
+
+    r._view.zoom = 5.4;
+    expect(() => r._renderGalaxyOverlay2D()).not.toThrow();
+  });
+
+  it('updates overlay fleet vector visibility flag', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    expect(r._overlayFleetVectorsVisible).toBe(true);
+    r.setGalaxyFleetVectorsVisible(false);
+    expect(r._overlayFleetVectorsVisible).toBe(false);
+    r.setGalaxyFleetVectorsVisible(true);
+    expect(r._overlayFleetVectorsVisible).toBe(true);
+  });
+
+  it('clears overlay datasets on resetNavigationView()', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    r.setGalaxyFleets([{ pos: { x: 1, y: 2 } }]);
+    r.setFtlInfrastructure([{ a: { x: 0, y: 0 }, b: { x: 2, y: 2 } }], [{ pos: { x: 3, y: 4 } }]);
+    r.setClusterAuras([{ x: 9, y: 9, radius: 12 }]);
+
+    r.resetNavigationView();
+
+    expect(r._overlayData.fleets).toEqual([]);
+    expect(r._overlayData.gates).toEqual([]);
+    expect(r._overlayData.nodes).toEqual([]);
+    expect(r._overlayData.clusters).toEqual([]);
+  });
+
+  it('removes overlay canvas on dispose()', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    const overlay = r._overlayCanvas;
+    expect(overlay).toBeTruthy();
+    expect(container.contains(overlay)).toBe(true);
+
+    r.dispose();
+
+    expect(container.contains(overlay)).toBe(false);
+    expect(r._overlayCanvas).toBeNull();
+  });
+
   it('dispose detaches interaction listeners', async () => {
     const removeCanvasSpy = vi.spyOn(HTMLCanvasElement.prototype, 'removeEventListener');
     const removeWindowSpy = vi.spyOn(window, 'removeEventListener');

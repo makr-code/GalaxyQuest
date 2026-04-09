@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="css/prolog.css?v=1" />
   <link rel="stylesheet" href="css/diplomacy.css?v=1" />
   <style>
-    #boot-terminal {
+    #boot-terminal:not(.wm-window):not(.wm-window-adapted) {
       position: fixed;
       left: 12px;
       right: 12px;
@@ -27,10 +27,10 @@
       box-shadow: 0 12px 26px rgba(0, 0, 0, 0.45);
       pointer-events: auto;
     }
-    #boot-terminal.hidden {
+    #boot-terminal:not(.wm-window):not(.wm-window-adapted).hidden {
       display: none;
     }
-    #boot-terminal-head {
+    #boot-terminal:not(.wm-window):not(.wm-window-adapted) #boot-terminal-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -45,7 +45,7 @@
       align-items: center;
       gap: 8px;
     }
-    #boot-terminal-mode {
+    #boot-terminal:not(.wm-window):not(.wm-window-adapted) #boot-terminal-mode {
       display: inline-block;
       padding: 1px 6px;
       border: 1px solid rgba(130, 184, 255, 0.38);
@@ -53,49 +53,6 @@
       color: #b8daff;
       font-size: 11px;
       line-height: 1.2;
-    }
-    #boot-terminal-controls {
-      display: flex;
-      gap: 6px;
-    }
-    #boot-terminal-controls button {
-      border: 1px solid rgba(130, 184, 255, 0.42);
-      border-radius: 4px;
-      background: rgba(10, 28, 70, 0.9);
-      color: #b8daff;
-      padding: 2px 8px;
-      cursor: pointer;
-      font: 11px/1.2 Consolas, Menlo, Monaco, monospace;
-    }
-    #boot-terminal-controls button:hover {
-      background: rgba(17, 43, 105, 0.95);
-    }
-    #boot-terminal-log {
-      max-height: 180px;
-      overflow: auto;
-      padding: 8px 10px;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    #boot-terminal-restore {
-      position: fixed;
-      right: 14px;
-      bottom: 14px;
-      z-index: 100000;
-      border: 1px solid rgba(130, 184, 255, 0.42);
-      border-radius: 999px;
-      background: rgba(10, 28, 70, 0.95);
-      color: #b8daff;
-      padding: 5px 10px;
-      cursor: pointer;
-      font: 11px/1.2 Consolas, Menlo, Monaco, monospace;
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
-    }
-    #boot-terminal-restore:hover {
-      background: rgba(17, 43, 105, 0.95);
-    }
-    #boot-terminal-restore.hidden {
-      display: none;
     }
     .boot-line {
       margin: 0 0 3px;
@@ -820,6 +777,7 @@
         const bootCopyBtn = document.getElementById('ui-console-copy');
 
         bootToggleBtn?.addEventListener('click', function () {
+          if (!fallbackActive) return;
           if (!bootTerminal) return;
           bootTerminal.classList.add('hidden');
         });
@@ -1307,13 +1265,13 @@
     })();
   </script>
 
-  <script src="js/runtime/boot-manifest.js?v=20260408p4"></script>
+  <script src="js/runtime/boot-manifest.js?v=20260409p2"></script>
   <script src="js/runtime/boot-assets.js?v=20260404p1"></script>
   <script src="js/ui/terminal.js?v=20260404p51"></script>
   <!-- Minimal boot path: auth shell + shared galaxy background before session branching. -->
   <script src="js/rendering/starfield.js?v=20260404p110"></script>
   <script src="js/ui/prolog.js?v=1"></script>
-  <script src="js/network/auth.js?v=20260404p111"></script>
+  <script src="js/network/auth.js?v=20260409p112"></script>
   <script>
     (function runBootAssetAudits() {
       try {
@@ -1557,13 +1515,16 @@
             <label class="settings-row">
               <span class="settings-label">Quality Profile</span>
               <select class="settings-select" data-setting="renderQualityProfile">
-                <option value="auto">Auto (Recommended)</option>
+                <option value="auto">Auto (Recommended, WebGPU first)</option>
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
                 <option value="ultra">Ultra</option>
               </select>
             </label>
+            <div class="settings-help" style="margin-top:6px;font-size:0.85em;opacity:0.82;">
+              WebGL/Three.js is retained as a compatibility backend where WebGPU paths are not yet available.
+            </div>
             <label class="settings-row">
               <span class="settings-label">Cluster Density</span>
               <select class="settings-select" data-setting="clusterDensityMode">

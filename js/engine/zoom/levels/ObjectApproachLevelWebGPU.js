@@ -46,6 +46,8 @@ var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefine
  */
 function meshDescriptorFor(targetType) {
   switch (targetType) {
+    case 'BUILDING':
+      return { shape: 'box',         color: [0.80, 0.66, 0.38], emissive: [0.02, 0.01, 0.00], metalness: 0.25, roughness: 0.75 };
     case 'FLEET':
       return { shape: 'box',         color: [0.27, 0.53, 0.80], emissive: [0, 0, 0],           metalness: 0.6, roughness: 0.4 };
     case 'VESSEL':

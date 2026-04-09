@@ -23,6 +23,8 @@
     const isCurrentUserAdmin = typeof options.isCurrentUserAdmin === 'function' ? options.isCurrentUserAdmin : () => false;
     const rerenderSystemDetails = typeof options.rerenderSystemDetails === 'function' ? options.rerenderSystemDetails : function () {};
     const isSystemModeActive = typeof options.isSystemModeActive === 'function' ? options.isSystemModeActive : () => false;
+    const getNearestSystemNeighbors = typeof options.getNearestSystemNeighbors === 'function' ? options.getNearestSystemNeighbors : () => [];
+    const navigateToSystemNeighbor = typeof options.navigateToSystemNeighbor === 'function' ? options.navigateToSystemNeighbor : function () {};
 
     function renderGalaxySystemDetails(root, star, zoomed) {
       const details = root.querySelector('#galaxy-system-details');
@@ -182,6 +184,13 @@
         ? `<div class="system-row system-row-colony"><span class="system-colony-swatch" style="background:${esc(colonyMeta.color)};box-shadow:0 0 10px ${esc(colonyMeta.color)};"></span>${esc(colonyMeta.label)} | ${esc(String(colonyMeta.count))} Kolonien | Bevoelkerung ${esc(colonyMeta.populationFull)}${colonyMeta.ownerName ? ` | ${esc(colonyMeta.isPlayer ? 'Dominanz: Du' : `Dominanz: ${colonyMeta.ownerName}`)}` : ''}</div>`
         : '<div class="system-row text-muted">Keine bekannten Kolonien in diesem System.</div>';
       const scientificScaleEnabled = galaxy3d?.getRenderStats?.()?.scientificScaleEnabled === true;
+      const nearestNeighborRaw = getNearestSystemNeighbors(star, 3);
+      const nearestNeighbors = (Array.isArray(nearestNeighborRaw) ? nearestNeighborRaw : []).slice(0, 3);
+        // Neighbor waypoints are rendered as canvas-2D/3D objects via GQNeighborWaypointOverlay.
+        const _waypointOverlay = typeof global.GQNeighborWaypointOverlay?.getOverlay === 'function'
+          ? global.GQNeighborWaypointOverlay.getOverlay() : null;
+        const _canvas3d = galaxy3d?.renderer?.domElement || null;
+        if (_waypointOverlay && _canvas3d) _waypointOverlay.mount(_canvas3d, getGalaxy3d);
       const scaleButtonHtml = zoomed ? `<button type="button" class="btn btn-secondary btn-sm${scientificScaleEnabled ? ' active' : ''}" data-system-action="scientific-scale" title="Toggle between game scale and scientific proportions">${scientificScaleEnabled ? 'Spielmodus' : 'Wissenschaft'}</button>` : '';
       const systemActionHtml = `
       <div class="system-row" style="margin-top:0.42rem; display:flex; gap:0.36rem; flex-wrap:wrap;">
@@ -284,6 +293,25 @@
             }
           }
         });
+      });
+
+      details.querySelectorAll('[data-system-neighbor-galaxy][data-system-neighbor-system]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const galaxy = Number(button.getAttribute('data-system-neighbor-galaxy') || 0);
+          const system = Number(button.getAttribute('data-system-neighbor-system') || 0);
+          if (!galaxy || !system) return;
+          navigateToSystemNeighbor({ galaxy_index: galaxy, system_index: system });
+        });
+      });
+
+      details.addEventListener('keydown', (e) => {
+        const tag = String(e.target?.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
+        if (e.key !== '1' && e.key !== '2' && e.key !== '3') return;
+        const rankBtn = details.querySelector(`[data-neighbor-rank="${e.key}"]`);
+        if (!rankBtn) return;
+        e.preventDefault();
+        rankBtn.click();
       });
     }
 

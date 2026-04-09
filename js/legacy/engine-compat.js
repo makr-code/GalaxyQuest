@@ -1,12 +1,15 @@
 /**
  * engine-compat.js
  *
- * WebGPU / WebGL2 Fallback Selector
+ * WebGPU / WebGL2 Compatibility Selector
  *
  * Drop-in compatibility bridge for existing galaxy3d.js / starfield.js code.
  * Sets window.GQActiveRenderer to the best available renderer and exposes a
  * unified interface that the rest of the game can use without knowing which
  * backend is running.
+ *
+ * WebGPU is the preferred primary path. WebGL2 / Three.js remains available
+ * as a compatibility backend for feature gaps and unsupported environments.
  *
  * Usage (add once before other game scripts):
  *   <script src="js/legacy/engine-compat.js"></script>
@@ -59,7 +62,7 @@
         return _rendererPromise;
       }
 
-      // Minimal inline fallback: try WebGPU, fall back to Three.js
+      // Minimal inline compatibility path: try WebGPU, fall back to WebGL2/Three.js.
       _rendererPromise = _detectAndCreate(canvas, hint).then((r) => {
         window.GQActiveRenderer = r;
         _dispatchEvent(r);
@@ -94,7 +97,7 @@
       try {
         return await _createWebGPU(canvas);
       } catch (e) {
-        console.warn('[GQEngineCompat] WebGPU init failed, falling back to WebGL2:', e.message);
+        console.warn('[GQEngineCompat] WebGPU init failed, falling back to WebGL2 compatibility backend:', e.message);
       }
     }
     return _createWebGL(canvas);
@@ -113,7 +116,7 @@
   }
 
   function _createWebGL(canvas) {
-    // Wrap Three.js renderer if available, else return null stub
+    // Wrap the compatibility WebGL2 / Three.js renderer if available.
     if (typeof THREE !== 'undefined' && window.GQWebGLRenderer) {
       const r = new window.GQWebGLRenderer();
       return r.initialize(canvas).then(() => r);

@@ -389,6 +389,10 @@
       await refreshUserHints(root, '');
       bindTerminalControls(root);
 
+      // Bind View Hyperlinks for navigation
+      const ViewHyperlinks = window.GQRuntimeViewHyperlinks?.ViewHyperlinks;
+      if (ViewHyperlinks) ViewHyperlinks.bindAll(root);
+
       await loadMessagesList(root);
     }
 

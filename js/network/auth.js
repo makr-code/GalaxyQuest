@@ -70,7 +70,8 @@
       const params = new URLSearchParams(String(window.location?.search || ''));
       const qp = String(params.get('gqShellDebug') || '').toLowerCase();
       if (qp === '1' || qp === 'true' || qp === 'yes' || qp === 'on') return true;
-      return localStorage.getItem('gq_shell_debug') === '1';
+      // Avoid sticky debug spam from old localStorage flags.
+      return false;
     } catch (_) {
       return false;
     }
@@ -1235,6 +1236,28 @@
     return typeof DecompressionStream !== 'undefined';
   }
 
+  async function readPackageCode(response, key) {
+    const raw = await response.arrayBuffer();
+    if (!raw || !raw.byteLength) {
+      throw new Error(`package payload is empty: ${key}`);
+    }
+
+    const bytes = new Uint8Array(raw);
+    const looksGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+    const contentEncoding = String(response.headers.get('content-encoding') || '').toLowerCase();
+    const shouldDecompress = looksGzip || contentEncoding.includes('gzip');
+
+    if (shouldDecompress) {
+      if (!supportsGzipDecompressionStream()) {
+        throw new Error(`gzip payload requires DecompressionStream support: ${key}`);
+      }
+      const decompressed = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+      return new Response(decompressed).text();
+    }
+
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+
   function getPackageCacheStrategy() {
     // In dev/test environments, use no-store for fresh content.
     // In production (when located at a CDN/minified URL pattern), use versioned caching.
@@ -1247,6 +1270,20 @@
     return isDev ? 'no-store' : 'default';
   }
 
+  function shouldLoadPackageBundles() {
+    try {
+      const host = String(window.location.hostname || '').toLowerCase();
+      const isDevHost = host === 'localhost'
+        || host === '127.0.0.1'
+        || host.includes('127.0.0.1')
+        || host.includes('dev.');
+      if (isDevHost && window.__GQ_FORCE_PACKAGE_BUNDLES_DEV !== true) {
+        return false;
+      }
+    } catch (_) {}
+    return true;
+  }
+
   async function loadGzipPackage(src) {
     const key = String(src || '').trim();
     if (!key) return Promise.reject(new Error('package src missing'));
@@ -1257,9 +1294,6 @@
 
     const job = (async () => {
       traceModule('init', key);
-      if (!supportsGzipDecompressionStream()) {
-        throw new Error('DecompressionStream(gzip) is not available in this browser');
-      }
 
       const cacheStrategy = getPackageCacheStrategy();
 
@@ -1278,8 +1312,7 @@
         throw new Error(`package fetch failed: ${key} (status ${response.status || 0})`);
       }
 
-      const decompressed = response.body.pipeThrough(new DecompressionStream('gzip'));
-      const code = await new Response(decompressed).text();
+      const code = await readPackageCode(response, key);
       if (!String(code || '').trim()) {
         throw new Error(`package payload is empty: ${key}`);
       }
@@ -1356,12 +1389,16 @@
   async function bootGameRuntime() {
     if (gameBootPromise) return gameBootPromise;
     gameBootPromise = (async () => {
-      const packageBundles = Array.isArray(window.__GQ_BOOT?.packageBundles)
+      const packageBundles = shouldLoadPackageBundles() && Array.isArray(window.__GQ_BOOT?.packageBundles)
         ? window.__GQ_BOOT.packageBundles.filter((v) => String(v || '').trim() !== '')
         : [];
       const scripts = Array.isArray(window.__GQ_BOOT?.gameScripts) ? window.__GQ_BOOT.gameScripts : [];
       authLog('info', `boot runtime scripts: ${scripts.length}, packages: ${packageBundles.length}`);
       if (!scripts.length) throw new Error('No game scripts configured.');
+
+      if (!packageBundles.length && Array.isArray(window.__GQ_BOOT?.packageBundles) && window.__GQ_BOOT.packageBundles.length) {
+        authLog('info', 'package bundles disabled for dev host; using single-script bootstrap');
+      }
 
       if (packageBundles.length) {
         setPhase('Loading package bundles...', 52);

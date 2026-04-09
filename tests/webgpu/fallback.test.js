@@ -55,11 +55,13 @@ describe('RendererFactory fallback chain', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('create() with hint=webgpu throws when WebGPU not available', async () => {
+  it('create() with hint=webgpu falls back to WebGL when WebGPU not available', async () => {
     vi.spyOn(RendererFactory, 'isWebGPUAvailable').mockResolvedValue(false);
+    const mockGL = { ready: true };
+    vi.spyOn(RendererFactory, '_createWebGL').mockResolvedValue(mockGL);
 
-    await expect(RendererFactory.create(null, { hint: 'webgpu' }))
-      .rejects.toThrow(/not available/);
+    const r = await RendererFactory.create(null, { hint: 'webgpu' });
+    expect(r).toBe(mockGL);
   });
 
   it('create() auto-hint falls back to WebGL when no WebGPU', async () => {

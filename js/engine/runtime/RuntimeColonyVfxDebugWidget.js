@@ -7,6 +7,16 @@
 'use strict';
 
 (function () {
+  function formatBackendLabel(rawBackend) {
+    const value = String(rawBackend || '').toLowerCase();
+    if (value === 'webgpu') return 'WebGPU';
+    if (value === 'three-webgl' || value === 'engine-webgl' || value === 'threejs' || value === 'webgl2') {
+      return 'WebGL Compatibility';
+    }
+    if (value === 'webgl1') return 'WebGL1 Compatibility';
+    return String(rawBackend || '?');
+  }
+
   function initColonyVfxDebugWidget(opts = {}) {
     const {
       esc = (value) => String(value || ''),
@@ -24,7 +34,7 @@
     const colonySurface = Number(zoomLevel.COLONY_SURFACE || 3);
 
     function createWidgetHtml(stats, mapper) {
-      const backend = stats?.backend || '?';
+      const backend = formatBackendLabel(stats?.backend || '?');
       const quality = stats?.quality || 'auto';
       const emitters = stats?.emitters || 0;
       const particles = stats?.particles || 0;

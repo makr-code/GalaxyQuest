@@ -65,7 +65,10 @@ class RendererFactory {
           if (typeof onFallback === 'function') onFallback('webgpu-failed', err);
         }
       } else if (hint === 'webgpu') {
-        throw new Error('WebGPU requested but not available in this browser');
+        console.warn('[RendererFactory] WebGPU requested but not available, falling back to WebGL2');
+        if (typeof onFallback === 'function') {
+          onFallback('webgpu-unavailable', new Error('WebGPU requested but not available in this browser'));
+        }
       }
     }
 

@@ -12,56 +12,79 @@
 
       buildDefinitions() {
         return [
-          ['overview', { title: 'Overview', w: 460, h: 620, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderOverview() }],
-          ['buildings', { title: 'Buildings', w: 480, h: 560, defaultDock: 'right', defaultY: 38, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderBuildings() }],
-          ['colony', { title: 'Colony', w: 620, h: 620, defaultDock: 'right', defaultY: 24, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderColonyView() }],
-          ['research', { title: 'Research', w: 480, h: 560, defaultDock: 'right', defaultY: 58, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderResearch() }],
-          ['shipyard', { title: 'Shipyard', w: 500, h: 560, defaultDock: 'right', defaultY: 78, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderShipyard() }],
-          ['fleet', { title: 'Fleet', w: 500, h: 620, defaultDock: 'right', defaultY: 98, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderFleetForm() }],
-          ['wormholes', { title: 'Wormholes', w: 520, h: 560, defaultDock: 'right', defaultY: 108, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderWormholes() }],
+          // ─── TIER 0: System Foundation ──────────────────────────────────
           ['galaxy', { title: 'Galaxy Map', fullscreenDesktop: true, hideTaskButton: true, backgroundLayer: true, onRender: () => renderers.renderGalaxyWindow() }],
-          ['galaxy-info', { title: 'Galaxy Intel', w: 380, h: 640, defaultDock: 'right', defaultY: 24, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderGalaxyInfoWindow() }],
-          ['messages', { title: 'Messages', w: 500, h: 520, defaultDock: 'right', defaultY: 118, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderMessages() }],
-          ['intel', { title: 'Intel', w: 520, h: 560, defaultDock: 'right', defaultY: 128, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderIntel() }],
-          ['trade-routes', { title: 'Trade Routes', w: 520, h: 560, defaultDock: 'right', defaultY: 138, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradeRoutes() }],
-          ['traders', { title: 'Trader Ops', w: 760, h: 680, defaultDock: 'right', defaultY: 82, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradersDashboard() }],
-          ['pirates', { title: 'Pirate Activity', w: 760, h: 680, defaultDock: 'right', defaultY: 96, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderPirates() }],
-          ['conflict', { title: 'Conflict Dashboard', w: 860, h: 680, defaultDock: 'right', defaultY: 72, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderConflict() }],
-          ['economy-flow', { title: 'Economy Flow', w: 540, h: 600, defaultDock: 'right', defaultY: 148, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderEconomyFlow() }],
-          ['economy', { title: 'Economy Management', w: 680, h: 640, defaultDock: 'right', defaultY: 80, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderEconomy() }],
-          ['trade', { title: 'Trade', w: 540, h: 580, defaultDock: 'right', defaultY: 148, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradeProposals() }],
-          ['quests', { title: 'Quests', w: 540, h: 620, defaultDock: 'right', defaultY: 28, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderQuests() }],
-          ['leaderboard', { title: 'Leaderboard', w: 420, h: 480, defaultDock: 'right', defaultY: 138, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderLeaderboard() }],
-          ['leaders', { title: 'Leaders & Marketplace', w: 700, h: 600, defaultDock: 'right', defaultY: 44, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderLeaders() }],
-          ['factions', { title: 'Factions', w: 560, h: 620, defaultDock: 'right', defaultY: 24, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderFactions() }],
-          ['alliances', { title: 'Alliances', w: 560, h: 620, defaultDock: 'right', defaultY: 54, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderAlliances() }],
-          ['wars', { title: 'Wars', w: 760, h: 640, defaultDock: 'right', defaultY: 64, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderWars() }],
-          ['nav-orb', { title: 'Nav Orb', w: 300, h: 520, defaultDock: 'right', defaultY: 12, defaultDockMargin: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderNavOrb() }],
-          ['settings', { title: 'Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderSettings() }],
-          ['quicknav', { title: 'QuickNav', w: 370, h: 520, defaultDock: 'left', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderQuickNav() }],
           ['console', {
             title: 'Console',
             sectionId: 'terminal-section',
             prebuiltSelector: '#boot-terminal',
             adaptExisting: true,
             preserveOnClose: true,
-            w: 920,
-            h: 290,
+            w: 1280,
+            h: 108,
             defaultDock: 'bottom',
+            autoDockOnOpen: true,
+            forceDockSide: 'bottom',
+            dockBottomFullWidth: true,
+            dockMargin: 0,
+            defaultDockMargin: 0,
             defaultY: 0,
+            ignoreSavedSize: true,
             dockable: true,
             dockableSides: ['bottom', 'left', 'right'],
             dockMagnetThreshold: 72,
-            dockBottomInset: 56,
+            dockBottomInset: 0,
           }],
-          ['minimap', { title: 'Minimap', w: 290, h: 310, defaultDock: 'right', defaultY: 12, defaultDockMargin: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: (root) => renderers.renderMinimap(root) }],
+
+          // ─── TIER 1: Primary Navigation (Entry Points) ──────────────────
+          ['overview', { title: 'Overview', w: 460, h: 620, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderOverview() }],
+          ['quicknav', { title: 'QuickNav', w: 370, h: 520, defaultDock: 'left', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderQuickNav() }],
+          ['nav-orb', { title: 'Nav Orb', w: 300, h: 520, defaultDock: 'right', defaultY: 540, defaultDockMargin: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderNavOrb() }],
+          ['minimap', { title: 'Minimap', w: 290, h: 310, defaultDock: 'right', defaultY: 1090, defaultDockMargin: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: (root) => renderers.renderMinimap(root) }],
+
+          // ─── TIER 2a: Colony Management Hub ────────────────────────────
+          ['colony', { title: 'Colony', w: 620, h: 620, defaultDock: 'right', defaultY: 24, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderColonyView() }],
+          ['buildings', { title: 'Buildings', w: 480, h: 560, defaultDock: 'right', defaultY: 650, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderBuildings() }],
+          ['research', { title: 'Research', w: 480, h: 560, defaultDock: 'right', defaultY: 1220, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderResearch() }],
+          ['shipyard', { title: 'Shipyard', w: 500, h: 560, defaultDock: 'right', defaultY: 24, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderShipyard() }],
+          ['fleet', { title: 'Fleet', w: 500, h: 620, defaultDock: 'right', defaultY: 590, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderFleetForm() }],
+
+          // ─── TIER 2b: Exploration & Movement ────────────────────────────
+          ['wormholes', { title: 'Wormholes', w: 520, h: 560, defaultDock: 'right', defaultY: 24, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderWormholes() }],
+          ['galaxy-info', { title: 'Galaxy Intel', w: 380, h: 640, defaultDock: 'right', defaultY: 600, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderGalaxyInfoWindow() }],
+
+          // ─── TIER 2c: Intelligence & Diplomacy Hub ─────────────────────
+          ['messages', { title: 'Messages', w: 500, h: 520, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderMessages() }],
+          ['intel', { title: 'Intel', w: 520, h: 560, defaultDock: 'right', defaultY: 540, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderIntel() }],
+          ['factions', { title: 'Factions', w: 560, h: 620, defaultDock: 'right', defaultY: 1120, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderFactions() }],
+          ['alliances', { title: 'Alliances', w: 560, h: 620, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderAlliances() }],
+          ['wars', { title: 'Wars', w: 760, h: 640, defaultDock: 'right', defaultY: 660, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderWars() }],
+          ['leaders', { title: 'Leaders & Marketplace', w: 700, h: 600, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderLeaders() }],
+          ['leaderboard', { title: 'Leaderboard', w: 420, h: 480, defaultDock: 'right', defaultY: 630, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderLeaderboard() }],
+
+          // ─── TIER 2d: Economy Hub ──────────────────────────────────────
+          ['economy', { title: 'Economy Management', w: 680, h: 640, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderEconomy() }],
+          ['economy-flow', { title: 'Economy Flow', w: 540, h: 600, defaultDock: 'right', defaultY: 670, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderEconomyFlow() }],
+          ['trade', { title: 'Trade', w: 540, h: 580, defaultDock: 'right', defaultY: 1290, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradeProposals() }],
+          ['trade-routes', { title: 'Trade Routes', w: 520, h: 560, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradeRoutes() }],
+          ['traders', { title: 'Trader Ops', w: 760, h: 680, defaultDock: 'right', defaultY: 590, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradersDashboard() }],
+
+          // ─── TIER 2e: Threats & Conflicts ──────────────────────────────
+          ['pirates', { title: 'Pirate Activity', w: 760, h: 680, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderPirates() }],
+          ['conflict', { title: 'Conflict Dashboard', w: 860, h: 680, defaultDock: 'right', defaultY: 710, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderConflict() }],
+
+          // ─── TIER 2f: Miscellaneous ────────────────────────────────────
+          ['quests', { title: 'Quests', w: 540, h: 620, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderQuests() }],
+
+          // ─── TIER 3: Settings & Infrastructure ─────────────────────────
+          ['settings', { title: 'Settings', w: 460, h: 560, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderSettings() }],
           ['left-sidebar', {
             title: 'Left Sidebar',
             sectionId: 'left_sidebar',
             prebuiltSelector: '.sidebar-panel-left',
             adaptExisting: true,
             defaultDock: 'left',
-            defaultY: 72,
+            defaultY: 560,
             w: 300,
             h: 520,
             onRender: (root) => {
@@ -75,7 +98,7 @@
             prebuiltSelector: '.sidebar-panel-right',
             adaptExisting: true,
             defaultDock: 'right',
-            defaultY: 72,
+            defaultY: 1400,
             w: 300,
             h: 520,
             onRender: (root) => {

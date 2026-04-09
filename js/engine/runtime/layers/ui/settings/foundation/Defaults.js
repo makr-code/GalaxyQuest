@@ -57,7 +57,7 @@
       systemOrbitMarkersVisible: true,
       systemOrbitFocusOnly: false,
       autoTransitions: true,
-      renderQualityProfile: 'auto',
+      renderQualityProfile: 'webgpu',
       clusterDensityMode: 'max',
       galaxyColonyFilterMode: 'all',
       galaxyColoniesOnly: false,

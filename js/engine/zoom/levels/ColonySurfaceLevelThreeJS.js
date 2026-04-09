@@ -18,7 +18,7 @@ var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefine
   : window.GQIZoomLevelRenderer;
 
 /** @returns {typeof THREE | null} */
-function THREE() {
+function getThree() {
   return (typeof window !== 'undefined' && window.THREE) || null;
 }
 
@@ -75,7 +75,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     this._canvas  = canvas;
     this._backend = backend;
 
-    const T = THREE();
+    const T = getThree();
     if (!T) return;
 
     this._renderer = new T.WebGLRenderer({ canvas, antialias: true });
@@ -209,7 +209,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
 
   _updateInstances(slots) {
     if (!this._instanced) return;
-    const T = THREE();
+    const T = getThree();
     if (!T) return;
 
     const count = Math.min(slots.length, MAX_BUILDINGS);
@@ -385,7 +385,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
   }
 
   _clearBuildingVfx(disposeMaterials) {
-    const T = THREE();
+    const T = getThree();
     if (!this._buildingVfxGroup || !T) return;
     while (this._buildingVfxGroup.children.length) {
       const child = this._buildingVfxGroup.children.pop();
@@ -425,7 +425,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
   }
 
   _rebuildBuildingVfx(slots) {
-    const T = THREE();
+    const T = getThree();
     if (!T || !this._buildingVfxGroup) return;
     this._clearBuildingVfx(true);
     const source = Array.isArray(slots) ? slots : [];
@@ -539,7 +539,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
   }
 
   _applySceneDataVisuals(data) {
-    const T = THREE();
+    const T = getThree();
     const source = this._resolveVisualSource(data);
     const ownerColor = parseHexColor(
       source?.colony_owner_color || source?.owner_color || source?.faction_color || '',

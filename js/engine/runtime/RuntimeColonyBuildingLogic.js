@@ -102,11 +102,12 @@
   function focusColonyDevelopment(colonyId, opts = {}) {
     const colonies = state.getColonies();
     const colony = colonies.find((col) => Number(col.id || 0) === Number(colonyId || 0));
-    if (!colony) return;
+    const numericColonyId = Number(colonyId || 0);
+    if (!colony && !numericColonyId) return;
     const focusBuilding = String(opts.focusBuilding || getRecommendedBuildingFocus(colony));
-    setColonyViewFocus(colony.id, focusBuilding, opts.source || 'planet');
+    setColonyViewFocus(colony ? colony.id : numericColonyId, focusBuilding, opts.source || 'planet');
     if (typeof state.selectColonyById === 'function') {
-      state.selectColonyById(colony.id, {
+      state.selectColonyById(colony ? colony.id : numericColonyId, {
         openWindows: true,
         focusBuilding,
         openOverview: !!opts.openOverview,

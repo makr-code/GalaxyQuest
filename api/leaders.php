@@ -216,6 +216,7 @@ switch ($action) {
         $cid  = (int)($body['candidate_id'] ?? 0);
         $db   = get_db();
         ensure_leader_marketplace_schema($db);
+        ensure_leaders_marketplace_profile_schema($db);
 
         // Load the candidate (must belong to this user and not yet hired)
         $cRow = $db->prepare(
@@ -1306,6 +1307,53 @@ function ensure_leader_marketplace_schema(PDO $db): void {
             KEY idx_mkt_user_exp (user_id, expires_at)
         ) ENGINE=InnoDB"
     );
+
+    $checked = true;
+}
+
+/**
+ * Runtime schema guard for optional leader profile columns used by
+ * marketplace hiring. Keeps API endpoints resilient if migration was skipped.
+ */
+function ensure_leaders_marketplace_profile_schema(PDO $db): void {
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+
+    $columns = [
+        'rarity' => "ENUM('common','uncommon','rare','legendary') NOT NULL DEFAULT 'common'",
+        'portrait' => "VARCHAR(16) NOT NULL DEFAULT '👤'",
+        'tagline' => "VARCHAR(255) NOT NULL DEFAULT ''",
+        'backstory' => 'TEXT NULL',
+        'trait_1' => "VARCHAR(128) NOT NULL DEFAULT ''",
+        'trait_2' => "VARCHAR(128) NOT NULL DEFAULT ''",
+        'skill_production' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
+        'skill_construction' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
+        'skill_tactics' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
+        'skill_navigation' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
+        'skill_research' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
+        'skill_efficiency' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
+        'skill_guidance' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
+        'marketplace_source_id' => 'INT NULL',
+    ];
+
+    $colExists = $db->prepare(
+        'SELECT COUNT(*)
+           FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = "leaders"
+            AND COLUMN_NAME = ?'
+    );
+
+    foreach ($columns as $name => $ddl) {
+        $colExists->execute([$name]);
+        $exists = (int)$colExists->fetchColumn() > 0;
+        if ($exists) {
+            continue;
+        }
+        $db->exec("ALTER TABLE leaders ADD COLUMN {$name} {$ddl}");
+    }
 
     $checked = true;
 }

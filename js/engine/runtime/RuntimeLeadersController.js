@@ -259,16 +259,22 @@
           btn.addEventListener('click', async () => {
             const cid = parseInt(btn.dataset.cid, 10);
             btn.disabled = true;
-            const response = await api.hireCandidate(cid);
-            if (response.success) {
-              showToast(response.message, 'success');
-              wm.refresh('leaders');
-              const advisorWidget = getAdvisorWidget();
-              if (advisorWidget && typeof advisorWidget.maybeRefresh === 'function') {
-                advisorWidget.maybeRefresh();
+            try {
+              const response = await api.hireCandidate(cid);
+              if (response.success) {
+                showToast(response.message, 'success');
+                wm.refresh('leaders');
+                const advisorWidget = getAdvisorWidget();
+                if (advisorWidget && typeof advisorWidget.maybeRefresh === 'function') {
+                  advisorWidget.maybeRefresh();
+                }
+              } else {
+                showToast(response.error || 'Hire failed.', 'error');
+                btn.disabled = false;
               }
-            } else {
-              showToast(response.error || 'Hire failed.', 'error');
+            } catch (err) {
+              const message = String(err?.message || 'Hire failed.');
+              showToast(message, 'error');
               btn.disabled = false;
             }
           });
@@ -367,6 +373,9 @@
           root.innerHTML = this.renderTabs('my_leaders') + this.renderMyLeaders(data.leaders || []);
           this.bindTabs(root);
           this.bindActions(root);
+          // Bind View Hyperlinks for navigation
+          const ViewHyperlinks = window.GQRuntimeViewHyperlinks?.ViewHyperlinks;
+          if (ViewHyperlinks) ViewHyperlinks.bindAll(root);
         } catch (error) {
           root.innerHTML = `<p class="error">${esc(String(error))}</p>`;
         }

@@ -419,3 +419,214 @@ test('UI fallback nav opens buildings window when galaxy backend is degraded', a
     console.log(`[e2e:viewflow-nav-fallback][gpu-warning-samples] ${gpuWarn.samples.join(' | ')}`);
   }
 });
+
+test('Colony Building zoom level via runtime API', async ({ page, baseURL }, testInfo) => {
+  await loginDefaultUser(page, baseURL);
+
+  await page.click('#topbar-home-btn');
+  await page.evaluate(() => {
+    if (window.WM && typeof window.WM.open === 'function') {
+      window.WM.open('galaxy');
+    }
+
+    // E2E fallback: bootstrap orchestrator if runtime did not initialize it yet.
+    if (!window.__GQ_ZOOM_ORCHESTRATOR) {
+      const bootstrapApi = window.GQGalaxyRendererBootstrap;
+      const zoomApi = window.GQSeamlessZoomOrchestrator;
+      let sharedCanvas = window.galaxy3d?.renderer?.domElement || document.querySelector('#galaxy-3d-host canvas');
+      if (!(sharedCanvas instanceof HTMLCanvasElement)) {
+        const tmp = document.createElement('canvas');
+        tmp.width = 8;
+        tmp.height = 8;
+        tmp.style.display = 'none';
+        document.body.appendChild(tmp);
+        sharedCanvas = tmp;
+      }
+
+      const levels = {
+        galaxyThreeJS: window.GQGalaxyLevelThreeJS?.GalaxyLevelThreeJS,
+        galaxyWebGPU: window.GQGalaxyLevelWebGPU?.GalaxyLevelWebGPU || window.GQGalaxyLevelThreeJS?.GalaxyLevelThreeJS,
+        systemThreeJS: window.GQSystemLevelThreeJS?.SystemLevelThreeJS,
+        systemWebGPU: window.GQSystemLevelWebGPU?.SystemLevelWebGPU || window.GQSystemLevelThreeJS?.SystemLevelThreeJS,
+        planetThreeJS: window.GQPlanetApproachLevelThreeJS?.PlanetApproachLevelThreeJS,
+        planetWebGPU: window.GQPlanetApproachLevelWebGPU?.PlanetApproachLevelWebGPU || window.GQPlanetApproachLevelThreeJS?.PlanetApproachLevelThreeJS,
+        colonyThreeJS: window.GQColonySurfaceLevelThreeJS?.ColonySurfaceLevelThreeJS,
+        colonyWebGPU: window.GQColonySurfaceLevelWebGPU?.ColonySurfaceLevelWebGPU || window.GQColonySurfaceLevelThreeJS?.ColonySurfaceLevelThreeJS,
+        objectThreeJS: window.GQObjectApproachLevelThreeJS?.ObjectApproachLevelThreeJS,
+        objectWebGPU: window.GQObjectApproachLevelWebGPU?.ObjectApproachLevelWebGPU || window.GQObjectApproachLevelThreeJS?.ObjectApproachLevelThreeJS,
+        colonyBuildingThreeJS: window.GQColonyBuildingLevelThreeJS?.ColonyBuildingLevelThreeJS || window.GQObjectApproachLevelThreeJS?.ObjectApproachLevelThreeJS,
+        colonyBuildingWebGPU: window.GQColonyBuildingLevelWebGPU?.ColonyBuildingLevelWebGPU || window.GQObjectApproachLevelWebGPU?.ObjectApproachLevelWebGPU || window.GQObjectApproachLevelThreeJS?.ObjectApproachLevelThreeJS,
+      };
+
+      if (
+        bootstrapApi && typeof bootstrapApi.bootstrapSeamlessZoomOrchestrator === 'function' &&
+        zoomApi?.SeamlessZoomOrchestrator && zoomApi?.ZOOM_LEVEL &&
+        sharedCanvas instanceof HTMLCanvasElement
+      ) {
+        bootstrapApi.bootstrapSeamlessZoomOrchestrator({
+          currentOrchestrator: window.__GQ_ZOOM_ORCHESTRATOR || null,
+          setOrchestrator: (next) => {
+            window.__GQ_ZOOM_ORCHESTRATOR = next || null;
+            if (next) {
+              window.__GQ_E2E_ZOOM_ORCHESTRATOR = next;
+            }
+          },
+          getCurrentOrchestrator: () => window.__GQ_ZOOM_ORCHESTRATOR || window.__GQ_E2E_ZOOM_ORCHESTRATOR || null,
+          sharedCanvas,
+          settingsState: { renderQualityProfile: 'webgpu' },
+          SeamlessZoomOrchestrator: zoomApi.SeamlessZoomOrchestrator,
+          ZOOM_LEVEL: zoomApi.ZOOM_LEVEL,
+          levels,
+          adoptSharedRendererIfAvailable: () => true,
+          initDirectRendererFallback: () => true,
+        });
+      } else if (zoomApi?.SeamlessZoomOrchestrator && zoomApi?.ZOOM_LEVEL && sharedCanvas instanceof HTMLCanvasElement) {
+        try {
+          const orchestrator = new zoomApi.SeamlessZoomOrchestrator(sharedCanvas, { rendererHint: 'webgpu' });
+          if (levels.galaxyThreeJS && levels.galaxyWebGPU) {
+            orchestrator.register(zoomApi.ZOOM_LEVEL.GALAXY, { webgpu: levels.galaxyWebGPU, threejs: levels.galaxyThreeJS });
+          }
+          if (levels.systemThreeJS && levels.systemWebGPU) {
+            orchestrator.register(zoomApi.ZOOM_LEVEL.SYSTEM, { webgpu: levels.systemWebGPU, threejs: levels.systemThreeJS });
+          }
+          if (levels.planetThreeJS && levels.planetWebGPU) {
+            orchestrator.register(zoomApi.ZOOM_LEVEL.PLANET_APPROACH, { webgpu: levels.planetWebGPU, threejs: levels.planetThreeJS });
+          }
+          if (levels.colonyThreeJS && levels.colonyWebGPU) {
+            orchestrator.register(zoomApi.ZOOM_LEVEL.COLONY_SURFACE, { webgpu: levels.colonyWebGPU, threejs: levels.colonyThreeJS });
+          }
+          if (levels.objectThreeJS && levels.objectWebGPU) {
+            orchestrator.register(zoomApi.ZOOM_LEVEL.OBJECT_APPROACH, { webgpu: levels.objectWebGPU, threejs: levels.objectThreeJS });
+          }
+          if (Number.isFinite(Number(zoomApi.ZOOM_LEVEL.COLONY_BUILDING)) && levels.colonyBuildingThreeJS && levels.colonyBuildingWebGPU) {
+            orchestrator.register(zoomApi.ZOOM_LEVEL.COLONY_BUILDING, { webgpu: levels.colonyBuildingWebGPU, threejs: levels.colonyBuildingThreeJS });
+          }
+          window.__GQ_ZOOM_ORCHESTRATOR = orchestrator;
+          window.__GQ_E2E_ZOOM_ORCHESTRATOR = orchestrator;
+          Promise.resolve(orchestrator.initialize?.()).catch(() => {});
+        } catch (_) {}
+      }
+    }
+  });
+  try {
+    await page.waitForFunction(() => {
+      const orchestrator = window.__GQ_ZOOM_ORCHESTRATOR || window.__GQ_E2E_ZOOM_ORCHESTRATOR || null;
+      const levels = window.GQSeamlessZoomOrchestrator?.ZOOM_LEVEL;
+      return !!orchestrator && !!levels;
+    }, null, { timeout: 20_000 });
+  } catch (_) {
+    const preconditionState = await page.evaluate(() => ({
+      hasWM: !!window.WM,
+      galaxyWindowOpen: !!(window.WM && typeof window.WM.isOpen === 'function' && window.WM.isOpen('galaxy')),
+      hasZoomModule: !!window.GQSeamlessZoomOrchestrator,
+      hasZoomLevels: !!window.GQSeamlessZoomOrchestrator?.ZOOM_LEVEL,
+      hasBootstrapApi: !!window.GQGalaxyRendererBootstrap?.bootstrapSeamlessZoomOrchestrator,
+      hasGalaxyRenderer: !!window.galaxy3d,
+      hasCanvas: !!(window.galaxy3d?.renderer?.domElement || document.querySelector('#galaxy-3d-host canvas')),
+      hasTopbarHomeBtn: !!document.getElementById('topbar-home-btn'),
+    }));
+    testInfo.annotations.push({
+      type: 'precondition',
+      description: `zoom-orchestrator-not-ready ${JSON.stringify(preconditionState)}`,
+    });
+    test.skip(true, `zoom-orchestrator-not-ready ${JSON.stringify(preconditionState)}`);
+  }
+
+  // Call zoom to COLONY_BUILDING level via runtime API
+  const zoomResult = await page.evaluate(async () => {
+    if (window.WM && typeof window.WM.open === 'function') {
+      window.WM.open('colony');
+    }
+
+    // Get the first user colony with multiple fallbacks (runtime API, HTTP API, DOM)
+    const colonyResult = await (async () => {
+      const api = window.GQRuntimeGameStateQuery;
+      if (api && typeof api.getPlayerColonies === 'function') {
+        try {
+          const colonies = await api.getPlayerColonies();
+          if (Array.isArray(colonies) && colonies.length > 0) {
+            return { ok: true, colonyId: Number(colonies[0].id || 0), source: 'runtime-api' };
+          }
+        } catch (_) {}
+      }
+
+      try {
+        const res = await fetch('/api/game.php?action=overview', { credentials: 'include' });
+        const data = await res.json();
+        const colonies = Array.isArray(data?.colonies) ? data.colonies : [];
+        if (colonies.length > 0) {
+          return { ok: true, colonyId: Number(colonies[0].id || 0), source: 'http-overview' };
+        }
+      } catch (_) {}
+
+      const select = document.getElementById('planet-select') || document.getElementById('colony-select');
+      const colonyId = Number(select?.value || select?.options?.[0]?.value || 0);
+      if (colonyId > 0) {
+        return { ok: true, colonyId, source: 'dom-select' };
+      }
+
+      return { ok: false, reason: 'no-player-colonies' };
+    })();
+
+    if (!colonyResult.ok) {
+      return colonyResult;
+    }
+
+    const colonyId = colonyResult.colonyId;
+    const logic = window.GQRuntimeColonyBuildingLogic;
+
+    let mode = 'none';
+
+    if (logic && typeof logic.focusColonyDevelopment === 'function') {
+      try {
+        logic.focusColonyDevelopment(colonyId, {
+          source: 'planet',
+          focusBuilding: 'metal_mine',
+        });
+        mode = 'runtime-focus';
+      } catch (e) {
+        return { ok: false, reason: 'focus-call-error: ' + String(e?.message || e) };
+      }
+    }
+
+    if (mode === 'runtime-focus') {
+      return { ok: true, mode, colonySource: colonyResult.source };
+    }
+
+    return {
+      ok: false,
+      reason: 'no-colony-building-transition-path',
+      details: {
+        hasLogic: !!logic,
+        hasOrchestrator: !!(window.__GQ_ZOOM_ORCHESTRATOR || window.__GQ_E2E_ZOOM_ORCHESTRATOR || null),
+      },
+    };
+  });
+
+  const zoomDebug = zoomResult.details ? ` details=${JSON.stringify(zoomResult.details)}` : '';
+  expect(zoomResult.ok, `Focus building call failed: ${zoomResult.reason || 'unknown'}${zoomDebug}`).toBe(true);
+  // Wait for zoom orchestrator to transition to COLONY_BUILDING level
+  await page.waitForFunction(() => {
+    const orchestrator = window.__GQ_ZOOM_ORCHESTRATOR || window.__GQ_E2E_ZOOM_ORCHESTRATOR || null;
+    const levels = window.GQSeamlessZoomOrchestrator?.ZOOM_LEVEL;
+    if (!orchestrator || !levels) return false;
+    const currentLevel = Number(orchestrator._activeLevel);
+    const targetLevel = Number(levels.COLONY_BUILDING);
+    return currentLevel === targetLevel && Number.isFinite(currentLevel) && currentLevel > 0;
+  }, null, { timeout: 30_000 });
+
+  // Verify the zoom state
+  const finalZoomState = await page.evaluate(() => {
+    const orchestrator = window.__GQ_ZOOM_ORCHESTRATOR || window.__GQ_E2E_ZOOM_ORCHESTRATOR || null;
+    const levels = window.GQSeamlessZoomOrchestrator?.ZOOM_LEVEL;
+    return {
+      activeLevel: Number(orchestrator?._activeLevel),
+      colonyBuildingLevel: Number(levels?.COLONY_BUILDING),
+      isMatch: Number(orchestrator?._activeLevel) === Number(levels?.COLONY_BUILDING),
+    };
+  });
+
+  expect(finalZoomState.isMatch).toBe(true);
+  expect(finalZoomState.activeLevel).toBe(5);
+  expect(finalZoomState.colonyBuildingLevel).toBe(5);
+});

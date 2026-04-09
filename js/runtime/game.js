@@ -94,6 +94,16 @@
     });
   }
 
+  function formatRendererBackendLabel(rawBackend) {
+    const value = String(rawBackend || '').toLowerCase();
+    if (value === 'webgpu') return 'webgpu';
+    if (value === 'three-webgl' || value === 'engine-webgl' || value === 'threejs' || value === 'webgl2') {
+      return 'webgl-compat';
+    }
+    if (value === 'webgl1') return 'webgl1-compat';
+    return String(rawBackend || 'unknown');
+  }
+
   function ensureToastHost() {
     const doc = typeof document !== 'undefined' ? document : null;
     if (!doc || !doc.body) return null;
@@ -601,6 +611,7 @@
         source: String(source || 'manual'),
         ts: Date.now(),
       };
+      maybeZoomToColonyBuilding(colonyId, focusBuilding, source);
     },
     selectColonyById,
     showToast,
@@ -710,6 +721,11 @@
     sendMsg: apiSendMsg,
     showToast,
   });
+  const messageConsoleState = {
+    lines: ['[system] Message console ready. Type "help" for commands.'],
+    maxLines: 180,
+    userHints: [],
+  };
   const runtimeGalaxyOverlayControlsApi = requireRuntimeApi('GQRuntimeGalaxyOverlayControls', ['bindGalaxyOverlayHotkeys']);
   runtimeGalaxyOverlayControlsApi.configureGalaxyOverlayControlsRuntime({
     windowRef: window,
@@ -1307,6 +1323,58 @@
     },
     showToast,
   });
+
+  function getNearestSystemNeighbors(star, limit = 3) {
+    const sourceGalaxy = Number(star?.galaxy_index || 0);
+    const sourceSystem = Number(star?.system_index || 0);
+    const sx = Number(star?.x_ly ?? 0);
+    const sy = Number(star?.y_ly ?? 0);
+    const sz = Number(star?.z_ly ?? 0);
+    if (!sourceGalaxy || !sourceSystem) return [];
+
+    return (Array.isArray(galaxyStars) ? galaxyStars : [])
+      .filter((candidate) => {
+        if (!candidate) return false;
+        const cg = Number(candidate.galaxy_index || 0);
+        const cs = Number(candidate.system_index || 0);
+        if (!cg || !cs) return false;
+        return !(cg === sourceGalaxy && cs === sourceSystem);
+      })
+      .map((candidate) => {
+        const dx = Number(candidate.x_ly ?? 0) - sx;
+        const dy = Number(candidate.y_ly ?? 0) - sy;
+        const dz = Number(candidate.z_ly ?? 0) - sz;
+        const distance = Math.hypot(dx, dy, dz);
+        return {
+          galaxy_index: Number(candidate.galaxy_index || 0),
+          system_index: Number(candidate.system_index || 0),
+          name: String(candidate.name || candidate.catalog_name || `System ${Number(candidate.system_index || 0)}`),
+          distance_ly: Number.isFinite(distance) ? distance : Number.POSITIVE_INFINITY,
+        };
+      })
+      .filter((entry) => Number.isFinite(entry.distance_ly))
+      .sort((a, b) => a.distance_ly - b.distance_ly)
+      .slice(0, Math.max(1, Number(limit || 3)));
+  }
+
+  async function navigateToSystemNeighbor(target = {}) {
+    const targetGalaxy = Number(target.galaxy_index || 0);
+    const targetSystem = Number(target.system_index || 0);
+    if (!targetGalaxy || !targetSystem) return;
+
+    const targetStar = (Array.isArray(galaxyStars) ? galaxyStars : []).find((candidate) =>
+      Number(candidate?.galaxy_index || 0) === targetGalaxy
+      && Number(candidate?.system_index || 0) === targetSystem
+    );
+    if (!targetStar) {
+      showToast('Nachbarsystem nicht in der aktuellen Sternliste gefunden.', 'warning');
+      return;
+    }
+
+    const root = WM?.body?.('galaxy') || null;
+    await loadStarSystemPlanets(root, targetStar);
+  }
+
   const galaxySystemDetailsFacade = runtimeGalaxySystemDetailsFacadeApi.createGalaxySystemDetailsFacade({
     esc,
     settingsState,
@@ -1331,6 +1399,8 @@
       renderGalaxySystemDetails(renderRoot, renderStar, renderZoomed);
     },
     isSystemModeActive,
+    getNearestSystemNeighbors,
+    navigateToSystemNeighbor,
   });
 
   function buildingZoneLabel(zone) {
@@ -1417,6 +1487,17 @@
   windowRegistry.registerAll();
   if (WM && typeof WM.restorePersistedState === 'function') {
     WM.restorePersistedState();
+  }
+
+  // ── Navigation Sequences ─────────────────────────────────────────────────
+  if (typeof window.GQRuntimeNavigationSequences !== 'undefined') {
+    const navSeqApi = window.GQRuntimeNavigationSequences.createNavigationSequenceController({
+      wm: WM,
+      gameLog,
+      settingsState,
+    });
+    window.GQNavigationSequences = navSeqApi;
+    navSeqApi.registerAllSequences();
   }
 
   runtimeDesktopShellApi.registerGameCommands({
@@ -1829,6 +1910,7 @@
     getCurrentColony: () => currentColony,
     getUiState: () => uiState,
     getColonies: () => colonies,
+    getGalaxy3d: () => galaxy3d,
     resourceInsightConfig: RESOURCE_INSIGHT_CONFIG,
     buildColonyGridCells,
     buildingZoneLabel,
@@ -2843,7 +2925,7 @@
         dbMode: String(galaxyDB?.mode || 'n/a'),
       }, extra || {});
       gameLog('info', '[handoff-diag]', payload);
-      uiConsolePush(`[diag][handoff] stage=${payload.stage} authActive=${payload.authActive} renderer=${payload.rendererReady} backend=${payload.backend} visible=${payload.visibleStars} raw=${payload.rawStars} db=${payload.hasDb ? payload.dbMode : 'none'} model=${payload.hasModel} body=${payload.body}`);
+      uiConsolePush(`[diag][handoff] stage=${payload.stage} authActive=${payload.authActive} renderer=${payload.rendererReady} backend=${formatRendererBackendLabel(payload.backend)} visible=${payload.visibleStars} raw=${payload.rawStars} db=${payload.hasDb ? payload.dbMode : 'none'} model=${payload.hasModel} body=${payload.body}`);
     } catch (_) {}
   }
 
@@ -2866,7 +2948,7 @@
       threeRevision: String(window.THREE?.REVISION || 'n/a'),
       hasCanvas: !!document.getElementById('galaxy-3d-host'),
       webglSupport,
-      activeBackend: String(window.__GQ_ACTIVE_RENDERER_BACKEND || 'unknown'),
+      activeBackend: formatRendererBackendLabel(window.__GQ_ACTIVE_RENDERER_BACKEND || 'unknown'),
       fallbackReason: String(lastRenderTelemetry?.reason || 'n/a'),
       reason: String(galaxy3dInitReason || '').trim() || 'n/a',
       time: new Date().toLocaleTimeString(),
@@ -3539,7 +3621,7 @@
     const sharedWebGpu = window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU || null;
     const sharedThree = window.__GQ_LEVEL_SHARED_RENDERER_THREEJS || null;
     if (preferred === 'webgpu' && sharedWebGpu) return sharedWebGpu;
-    if (preferred === 'webgl2' && sharedThree) return sharedThree;
+    if ((preferred === 'webgl2' || preferred === 'webgl-compat' || preferred === 'threejs') && sharedThree) return sharedThree;
     return sharedWebGpu || sharedThree || null;
   }
 
@@ -3570,6 +3652,303 @@
       ZOOM_LEVEL: gqZoom.ZOOM_LEVEL || null,
       SPATIAL_DEPTH: gqZoom.SPATIAL_DEPTH || null,
     };
+  }
+
+  function resolveOnDemandZoomLevels() {
+    return {
+      galaxyThreeJS: window.GQGalaxyLevelThreeJS?.GalaxyLevelThreeJS || null,
+      galaxyWebGPU: window.GQGalaxyLevelWebGPU?.GalaxyLevelWebGPU || window.GQGalaxyLevelThreeJS?.GalaxyLevelThreeJS || null,
+      systemThreeJS: window.GQSystemLevelThreeJS?.SystemLevelThreeJS || null,
+      systemWebGPU: window.GQSystemLevelWebGPU?.SystemLevelWebGPU || window.GQSystemLevelThreeJS?.SystemLevelThreeJS || null,
+      planetThreeJS: window.GQPlanetApproachLevelThreeJS?.PlanetApproachLevelThreeJS || null,
+      planetWebGPU: window.GQPlanetApproachLevelWebGPU?.PlanetApproachLevelWebGPU || window.GQPlanetApproachLevelThreeJS?.PlanetApproachLevelThreeJS || null,
+      colonyThreeJS: window.GQColonySurfaceLevelThreeJS?.ColonySurfaceLevelThreeJS || null,
+      colonyWebGPU: window.GQColonySurfaceLevelWebGPU?.ColonySurfaceLevelWebGPU || window.GQColonySurfaceLevelThreeJS?.ColonySurfaceLevelThreeJS || null,
+      objectThreeJS: window.GQObjectApproachLevelThreeJS?.ObjectApproachLevelThreeJS || null,
+      objectWebGPU: window.GQObjectApproachLevelWebGPU?.ObjectApproachLevelWebGPU || window.GQObjectApproachLevelThreeJS?.ObjectApproachLevelThreeJS || null,
+      colonyBuildingThreeJS: window.GQColonyBuildingLevelThreeJS?.ColonyBuildingLevelThreeJS || window.GQObjectApproachLevelThreeJS?.ObjectApproachLevelThreeJS || null,
+      colonyBuildingWebGPU: window.GQColonyBuildingLevelWebGPU?.ColonyBuildingLevelWebGPU || window.GQObjectApproachLevelWebGPU?.ObjectApproachLevelWebGPU || window.GQObjectApproachLevelThreeJS?.ObjectApproachLevelThreeJS || null,
+    };
+  }
+
+  function ensureZoomOrchestratorAvailable() {
+    const existing = zoomOrchestrator || window.__GQ_ZOOM_ORCHESTRATOR || null;
+    if (existing && typeof existing.zoomToTarget === 'function') {
+      return existing;
+    }
+
+    const bootstrapApi = window.GQGalaxyRendererBootstrap || null;
+    const zoomApi = window.GQSeamlessZoomOrchestrator || {};
+    const sharedCanvas = galaxy3d?.renderer?.domElement || document.querySelector('#galaxy-3d-host canvas');
+    const levels = resolveOnDemandZoomLevels();
+
+    if (!(sharedCanvas instanceof HTMLCanvasElement)) return null;
+    if (!bootstrapApi || typeof bootstrapApi.bootstrapSeamlessZoomOrchestrator !== 'function') return null;
+    if (!zoomApi.SeamlessZoomOrchestrator || !zoomApi.ZOOM_LEVEL) return null;
+    if (!levels.galaxyThreeJS || !levels.galaxyWebGPU) return null;
+
+    try {
+      const next = bootstrapApi.bootstrapSeamlessZoomOrchestrator({
+        currentOrchestrator: existing,
+        setOrchestrator: (value) => {
+          zoomOrchestrator = value || null;
+          window.__GQ_ZOOM_ORCHESTRATOR = zoomOrchestrator;
+        },
+        getCurrentOrchestrator: () => zoomOrchestrator || window.__GQ_ZOOM_ORCHESTRATOR || null,
+        sharedCanvas,
+        settingsState,
+        SeamlessZoomOrchestrator: zoomApi.SeamlessZoomOrchestrator,
+        ZOOM_LEVEL: zoomApi.ZOOM_LEVEL,
+        levels,
+        adoptSharedRendererIfAvailable: () => {
+          const sharedLevelRenderer = getPreferredLevelSharedRenderer();
+          if (!sharedLevelRenderer) return false;
+          if (galaxy3d !== sharedLevelRenderer) {
+            galaxy3d = sharedLevelRenderer;
+            window.galaxy3d = galaxy3d;
+            attachRendererCallbacks(galaxy3d, window.__GQ_LEVEL_RENDERER_OPTIONS || {});
+          }
+          return true;
+        },
+        initDirectRendererFallback: () => !!(galaxy3d && galaxy3d.renderer),
+        onDisposeError: (err) => {
+          gameLog('warn', 'On-demand zoom orchestrator dispose failed', err);
+        },
+        onInitFailed: (err) => {
+          gameLog('warn', 'On-demand zoom orchestrator init failed', err);
+        },
+      });
+      if (next && typeof next.zoomToTarget === 'function') {
+        zoomOrchestrator = next;
+        window.__GQ_ZOOM_ORCHESTRATOR = next;
+        return next;
+      }
+    } catch (err) {
+      gameLog('warn', 'On-demand zoom orchestrator bootstrap failed', err);
+    }
+
+    return null;
+  }
+
+  function resolveColonyNavigationContext(colony) {
+    if (!colony || typeof colony !== 'object') return null;
+    const galaxy = Number(colony.galaxy || colony.galaxy_index || uiState.activeGalaxy || 0);
+    const system = Number(colony.system || colony.system_index || uiState.activeSystem || 0);
+    const position = Number(colony.position || colony.planet_position || colony.slot_position || 0);
+    if (!galaxy || !system || !position) return null;
+    return {
+      galaxy,
+      system,
+      position,
+      colonyId: Number(colony.id || 0),
+      bodyType: String(colony.body_type || colony.planet_type || colony.kind || 'planet').toLowerCase(),
+    };
+  }
+
+  async function resolveColonyForZoom(colonyOrId) {
+    const requestedColonyId = Number(
+      (typeof colonyOrId === 'object' && colonyOrId)
+        ? colonyOrId.id
+        : colonyOrId || 0
+    );
+    if (!requestedColonyId) return null;
+
+    const localMatch = (Array.isArray(colonies) ? colonies : []).find((entry) => Number(entry?.id || 0) === requestedColonyId);
+    if (localMatch && resolveColonyNavigationContext(localMatch)) {
+      return localMatch;
+    }
+
+    const windowMatch = (Array.isArray(window.colonies) ? window.colonies : []).find((entry) => Number(entry?.id || 0) === requestedColonyId);
+    if (windowMatch && resolveColonyNavigationContext(windowMatch)) {
+      return windowMatch;
+    }
+
+    try {
+      const overview = await API.overview();
+      const nextColonies = Array.isArray(overview?.colonies) ? overview.colonies : [];
+      if (nextColonies.length) {
+        colonies = nextColonies;
+        window.colonies = nextColonies;
+        const refreshed = nextColonies.find((entry) => Number(entry?.id || 0) === requestedColonyId) || null;
+        if (refreshed && currentColony && Number(currentColony.id || 0) === requestedColonyId) {
+          currentColony = refreshed;
+        }
+        if (refreshed && resolveColonyNavigationContext(refreshed)) {
+          return refreshed;
+        }
+      }
+    } catch (err) {
+      gameLog('warn', 'Overview colony refresh for zoom failed', err);
+    }
+
+    return null;
+  }
+
+  function resolveColonyTargetStar(navContext) {
+    if (!navContext) return null;
+    const activeStar = uiState.activeStar || pinnedStar || null;
+    if (
+      activeStar
+      && Number(activeStar.galaxy_index || 0) === Number(navContext.galaxy)
+      && Number(activeStar.system_index || 0) === Number(navContext.system)
+    ) {
+      return activeStar;
+    }
+
+    const fromList = (Array.isArray(galaxyStars) ? galaxyStars : []).find((candidate) =>
+      Number(candidate?.galaxy_index || 0) === Number(navContext.galaxy)
+      && Number(candidate?.system_index || 0) === Number(navContext.system)
+    );
+    if (fromList) return fromList;
+
+    return {
+      galaxy_index: Number(navContext.galaxy),
+      system_index: Number(navContext.system),
+      name: `System ${Number(navContext.system)}`,
+      catalog_name: `SYS-${String(navContext.system).padStart(4, '0')}`,
+    };
+  }
+
+  function resolveColonyPlanetSlotFromPayload(navContext, payload) {
+    const planets = Array.isArray(payload?.planets) ? payload.planets : [];
+    if (!planets.length) return null;
+
+    const byColonyId = planets.find((slot) => Number(slot?.player_planet?.colony_id || 0) === Number(navContext?.colonyId || 0));
+    if (byColonyId) return byColonyId;
+
+    const byPosition = planets.find((slot) => Number(slot?.position || 0) === Number(navContext?.position || 0));
+    if (byPosition) return byPosition;
+
+    return null;
+  }
+
+  function waitForZoomLevel(orchestrator, expectedLevel, timeoutMs = 4000) {
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const poll = () => {
+        const activeLevel = Number(orchestrator?._activeLevel);
+        if (activeLevel === Number(expectedLevel)) {
+          resolve(true);
+          return;
+        }
+        if ((Date.now() - started) >= Number(timeoutMs || 0)) {
+          resolve(false);
+          return;
+        }
+        window.setTimeout(poll, 80);
+      };
+      poll();
+    });
+  }
+
+  async function runColonyBuildingZoomSequence(colonyOrId, focusBuilding, source = 'manual') {
+    const colony = await resolveColonyForZoom(colonyOrId);
+    const navContext = resolveColonyNavigationContext(colony);
+    if (!navContext) return false;
+
+    const orchestrator = ensureZoomOrchestratorAvailable();
+    const ctx = getZoomTransitionContext();
+    const levels = ctx?.ZOOM_LEVEL || null;
+    if (!orchestrator || !levels) return false;
+
+    const root = WM?.body?.('galaxy') || null;
+    const targetStar = resolveColonyTargetStar(navContext);
+    if (!root || !targetStar) return false;
+
+    const systemLevel = Number(levels.SYSTEM);
+    const planetLevel = Number(levels.PLANET_APPROACH);
+    const colonyLevel = Number(levels.COLONY_SURFACE);
+    const buildingLevel = Number(levels.COLONY_BUILDING);
+    if (![systemLevel, planetLevel, colonyLevel, buildingLevel].every((value) => Number.isFinite(value))) {
+      return false;
+    }
+
+    try {
+      if (Number(orchestrator._activeLevel) !== Number(levels.GALAXY)) {
+        await orchestrator.zoomTo(levels.GALAXY, null);
+        await waitMs(120);
+      }
+
+      await loadStarSystemPlanets(root, targetStar);
+      await waitForZoomLevel(orchestrator, systemLevel, 4500);
+
+      const systemPayload = galaxyModel?.read('system', {
+        galaxy_index: navContext.galaxy,
+        system_index: navContext.system,
+      })?.payload || null;
+      const targetSlot = resolveColonyPlanetSlotFromPayload(navContext, systemPayload);
+      if (!targetSlot) return false;
+
+      const targetBody = targetSlot.player_planet || targetSlot.generated_planet || null;
+      const planetPayload = Object.assign({}, targetBody || {}, {
+        __slot: targetSlot,
+        position: Number(targetSlot.position || navContext.position || 0),
+        galaxy_index: navContext.galaxy,
+        system_index: navContext.system,
+      });
+
+      focusSystemPlanetInView({ __slot: targetSlot, position: planetPayload.position }, true);
+      await waitMs(120);
+      await orchestrator.zoomTo(planetLevel, planetPayload, {
+        flyDuration: 850,
+        cameraFrom: { x: 0, y: 0.6, z: 18 },
+        cameraTo: { x: 0, y: 0.1, z: 8.5 },
+      });
+      await waitForZoomLevel(orchestrator, planetLevel, 2200);
+
+      const buildingData = await API.buildings(navContext.colonyId);
+      if (!buildingData?.success) return false;
+      queueColonySurfaceSceneData(colony, buildingData);
+      const mapped = buildColonySurfaceVfxSlots(colony, buildingData);
+      const colonyPayload = {
+        colony,
+        layout: buildingData.layout || colony.layout || null,
+        slots: Array.isArray(mapped?.slots) ? mapped.slots : [],
+        vfx_quality: String(settingsState?.renderQualityProfile === 'webgpu' ? 'high' : 'medium'),
+        vfx_mapper_stats: mapped?.stats || null,
+        source,
+      };
+
+      await orchestrator.zoomTo(colonyLevel, colonyPayload, {
+        flyDuration: 600,
+        cameraFrom: { x: 0, y: 1.2, z: 9.5 },
+        cameraTo: { x: 0, y: 8, z: 24 },
+      });
+      await waitForZoomLevel(orchestrator, colonyLevel, 1800);
+
+      await orchestrator.zoomTo(buildingLevel, {
+        spatialDepth: Number(ctx?.SPATIAL_DEPTH?.COLONY_BUILDING || 5),
+        targetType: 'BUILDING',
+        colonyId: navContext.colonyId,
+        buildingType: String(focusBuilding || ''),
+        source,
+      }, {
+        flyDuration: 700,
+        cameraFrom: { x: 0, y: 3, z: 12 },
+        cameraTo: { x: 0, y: 1.2, z: 2.2 },
+      });
+      return true;
+    } catch (err) {
+      gameLog('warn', 'Colony building zoom sequence failed', err);
+      return false;
+    }
+  }
+
+  function maybeZoomToColonyBuilding(colonyId, focusBuilding, source = 'manual') {
+    const targetBuilding = String(focusBuilding || '').trim();
+    if (!targetBuilding || targetBuilding === 'solar_satellite') return false;
+
+    const src = String(source || 'manual');
+    if (!(src.startsWith('colony-') || src === 'planet' || src === 'select-colony' || src === 'view-chain')) {
+      return false;
+    }
+
+    try {
+      Promise.resolve(runColonyBuildingZoomSequence(Number(colonyId || 0), targetBuilding, src)).catch(() => {});
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function resolveRendererInputContext(ctx = getZoomTransitionContext(), levelHint = null) {
@@ -4154,10 +4533,108 @@
       </div>`;
   }
 
+  function getPlanetSlotOrbit(slot) {
+    const pp = slot?.player_planet;
+    const gp = slot?.generated_planet;
+    const orbit = Number(pp?.semi_major_axis_au ?? gp?.semi_major_axis_au);
+    return Number.isFinite(orbit) ? orbit : null;
+  }
+
+  function getPlanetSlotLabel(slot) {
+    const pos = Number(slot?.position || 0);
+    const pp = slot?.player_planet;
+    const gp = slot?.generated_planet;
+    if (pp) {
+      return `#${pos} ${String(pp.colony_name || pp.name || 'Kolonie')}`;
+    }
+    if (gp) {
+      return `#${pos} ${String(gp.name || fmtName(gp.planet_class || 'Planet'))}`;
+    }
+    return `#${pos} Leerer Slot`;
+  }
+
+  function collectNearestPlanetNeighbors(detail, slot, limit = 3) {
+    const context = detail?.__planetContext || {};
+    const planets = Array.isArray(context.planets) ? context.planets : [];
+    const currentPos = Number(slot?.position || 0);
+    const currentOrbit = getPlanetSlotOrbit(slot);
+    if (!currentPos || !planets.length) return [];
+
+    return planets
+      .filter((candidate) => Number(candidate?.position || 0) > 0 && Number(candidate.position || 0) !== currentPos)
+      .map((candidate) => {
+        const candidatePos = Number(candidate.position || 0);
+        const candidateOrbit = getPlanetSlotOrbit(candidate);
+        let score = Math.abs(candidatePos - currentPos) * 10;
+        if (currentOrbit !== null && candidateOrbit !== null) {
+          score = Math.abs(candidateOrbit - currentOrbit);
+        }
+        return {
+          slot: candidate,
+          score,
+          distText: (currentOrbit !== null && candidateOrbit !== null)
+            ? `${Math.abs(candidateOrbit - currentOrbit).toFixed(2)} AU`
+            : `${candidatePos > currentPos ? '+' : ''}${candidatePos - currentPos} Pos`,
+        };
+      })
+      .sort((a, b) => a.score - b.score)
+      .slice(0, Math.max(1, Number(limit || 3)));
+  }
+
+  function buildPlanetNeighborArrowsHtml(detail, slot) {
+    const neighbors = collectNearestPlanetNeighbors(detail, slot, 3);
+      // Store enriched entries for the canvas overlay (GQNeighborWaypointOverlay).
+      detail.__neighborOverlayData = neighbors.map((entry) => ({
+        slot:     entry.slot,
+        label:    getPlanetSlotLabel(entry.slot),
+        distText: entry.distText || '',
+      }));
+      return ''; // rendered as canvas waypoints via bindPlanetNeighborActions
+  }
+
+  function bindPlanetNeighborActions(detail) {
+    const context = detail?.__planetContext || {};
+    const panel = context.panel || null;
+    const planets = Array.isArray(context.planets) ? context.planets : [];
+    if (!detail || !panel || !planets.length) return;
+
+      const entries = Array.isArray(detail.__neighborOverlayData) ? detail.__neighborOverlayData : [];
+      const overlay = typeof window?.GQNeighborWaypointOverlay?.getOverlay === 'function'
+        ? window.GQNeighborWaypointOverlay.getOverlay() : null;
+
+      if (overlay && entries.length) {
+        const canvas3d = galaxy3d?.renderer?.domElement || null;
+        if (canvas3d) overlay.mount(canvas3d, () => galaxy3d);
+        overlay.setPlanetNeighbors(entries, (entry) => {
+          const pos = Number(entry.slot?.position || 0);
+          if (!pos) return;
+          const targetSlot = planets.find((e) => Number(e?.position || 0) === pos);
+          if (!targetSlot) return;
+          setActivePlanetListItem(panel, pos);
+          detail.__planetContext = context;
+          void renderPlanetDetailCard(detail, targetSlot);
+          focusSystemPlanetInView({ __slot: targetSlot, position: pos }, true);
+        });
+      } else if (overlay) {
+        overlay.clear();
+      }
+
+      detail.addEventListener('keydown', (e) => {
+        const tag = String(e.target?.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
+        const rank = Number(e.key);
+        if (rank < 1 || rank > 3) return;
+        if (!overlay) return;
+        e.preventDefault();
+        overlay.activate(rank);
+      });
+  }
+
   async function renderPlanetDetailCard(detail, slot) {
     const pos = Number(slot?.position || 0);
     const pp = slot?.player_planet;
     const gp = slot?.generated_planet;
+    const neighborArrowsHtml = buildPlanetNeighborArrowsHtml(detail, slot);
     if (pp) {
       const colonyId = Number(pp.colony_id || 0);
       const ownColony = colonies.find((col) => Number(col.id || 0) === colonyId) || null;
@@ -4184,6 +4661,7 @@
       detail.dataset.ownerName = String(pp.owner || '');
       detail.innerHTML = `
         <h5>Planet #${pos} - ${esc(pp.name)}</h5>
+        ${neighborArrowsHtml}
         <div class="planet-detail-row planet-detail-owner-row"><span class="planet-owner-badge ${isOwnedColony ? 'own' : 'foreign'}">${esc(ownerBadge)}</span>Owner: ${esc(pp.owner || 'Unknown')}</div>
         <div class="planet-detail-row">Class: ${esc(pp.planet_class || pp.type || 'ÔÇö')}</div>
         <div class="planet-detail-row">Colony ID: ${esc(String(pp.colony_id || 'ÔÇö'))}</div>
@@ -4212,6 +4690,7 @@
           </div>
           <div class="planet-detail-extra text-muted">Lade Scan- und SektorinformationenÔÇª</div>`}`;
       attachPlanetDetailActions(detail, colonyId, isOwnedColony);
+      bindPlanetNeighborActions(detail);
       if (isOwnedColony) {
         const extra = detail.querySelector('.planet-detail-extra');
         const token = `${Date.now()}-${Math.random()}`;
@@ -4274,8 +4753,10 @@
     }
 
     if (gp) {
+      delete detail.dataset.ownerName;
       detail.innerHTML = `
         <h5>Planet #${pos} - ${esc(gp.name || fmtName(gp.planet_class))}</h5>
+        ${neighborArrowsHtml}
         <div class="planet-detail-row">Class: ${esc(gp.planet_class || 'ÔÇö')}</div>
         <div class="planet-detail-row">Semi-major axis: ${Number(gp.semi_major_axis_au || 0).toFixed(3)} AU</div>
         <div class="planet-detail-row">Habitable Zone: ${gp.in_habitable_zone ? 'Yes' : 'No'}</div>
@@ -4283,12 +4764,16 @@
         <div class="planet-detail-row">Pressure: ${Number(gp.surface_pressure_bar || 0).toFixed(2)} bar</div>
         <div class="planet-detail-row">Water: ${esc(gp.water_state || 'ÔÇö')} ┬À Methane: ${esc(gp.methane_state || 'ÔÇö')}</div>
         <div class="planet-detail-row">Radiation: ${esc(gp.radiation_level || 'ÔÇö')} ┬À Habitability: ${Number(gp.habitability_score || 0).toFixed(1)}</div>`;
+      bindPlanetNeighborActions(detail);
       return;
     }
 
+    delete detail.dataset.ownerName;
     detail.innerHTML = `
       <h5>Planet #${pos}</h5>
+      ${neighborArrowsHtml}
       <div class="planet-detail-row">No planetary body in this slot.</div>`;
+    bindPlanetNeighborActions(detail);
   }
 
   function focusPlanetDetailsInOverlay(root, planetLike, zoomPlanet, activateColony = false) {
@@ -4298,6 +4783,7 @@
     if (panel) {
       setActivePlanetListItem(panel, planetLike.__slot.position);
       const detail = ensurePlanetDetailPanel(panel);
+      detail.__planetContext = panel.__planetContext || detail.__planetContext;
       renderPlanetDetailCard(detail, planetLike.__slot);
     }
     if (zoomPlanet) {
@@ -4321,6 +4807,7 @@
     const planets = Array.isArray(data?.planets) ? data.planets : [];
     const fleetsInSystem = Array.isArray(data?.fleets_in_system) ? data.fleets_in_system : [];
     const starInstallations = Array.isArray(data?.star_installations) ? data.star_installations : [];
+    panel.__planetContext = { panel, star, planets };
     const totalMoons = planets.reduce((sum, slot) => {
       const playerMoons = Array.isArray(slot?.player_planet?.moons) ? slot.player_planet.moons.length : 0;
       const generatedMoons = Array.isArray(slot?.generated_planet?.moons) ? slot.generated_planet.moons.length : 0;
@@ -4377,6 +4864,7 @@
           if (!slot) return;
           setActivePlanetListItem(panel, pos);
           const detail = ensurePlanetDetailPanel(panel);
+          detail.__planetContext = panel.__planetContext;
           renderPlanetDetailCard(detail, slot);
         });
       });

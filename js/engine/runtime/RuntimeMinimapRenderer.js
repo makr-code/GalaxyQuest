@@ -7,6 +7,17 @@
 'use strict';
 
 (function () {
+  function formatBackendBadgeLabel(rawBackend) {
+    const value = String(rawBackend || '').toLowerCase();
+    if (!value || value === 'offline') return 'OFFLINE';
+    if (value === 'webgpu') return 'WEBGPU';
+    if (value === 'three-webgl' || value === 'engine-webgl' || value === 'threejs' || value === 'webgl2') {
+      return 'WEBGL COMPAT';
+    }
+    if (value === 'webgl1') return 'WEBGL1 COMPAT';
+    return String(rawBackend || '').toUpperCase();
+  }
+
   function createMinimapRenderer(opts = {}) {
     const minimapPad = Number(opts.minimapPad || 14) || 14;
     const minimapGridDivs = Number(opts.minimapGridDivs || 5) || 5;
@@ -90,7 +101,7 @@
         hud.dataset.backend = pose?.backend || 'offline';
         const badge = hud.querySelector('.minimap-badge');
         const meta = hud.querySelector('.minimap-meta');
-        if (badge) badge.textContent = pose ? `LIVE ${String(pose.backend || '').toUpperCase()}` : 'STATIC';
+        if (badge) badge.textContent = pose ? `LIVE ${formatBackendBadgeLabel(pose.backend)}` : 'STATIC';
         if (meta) meta.textContent = pose ? 'Ziehen bewegt die Kamera' : 'Klick springt zum System';
       }
 

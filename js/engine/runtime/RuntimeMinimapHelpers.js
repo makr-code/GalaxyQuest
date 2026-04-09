@@ -7,6 +7,15 @@
 'use strict';
 
 (function () {
+  function normalizeBackendLabel(rawBackend) {
+    const value = String(rawBackend || '').toLowerCase();
+    if (value === 'threejs' || value === 'three-webgl' || value === 'engine-webgl' || value === 'webgl2') {
+      return 'webgl-compat';
+    }
+    if (value === 'webgl1') return 'webgl1-compat';
+    return String(rawBackend || 'unknown');
+  }
+
   function createMinimapHelpers(opts = {}) {
     const worldScale = Number(opts.worldScale || 0.028) || 0.028;
     const minimapPad = Number(opts.minimapPad || 14) || 14;
@@ -61,7 +70,7 @@
       if (base?.camera?.position && base?.controls?.target) {
         return {
           kind: 'orbit',
-          backend: String(renderer.backendType || base.rendererBackend || 'threejs'),
+          backend: normalizeBackendLabel(renderer.backendType || base.rendererBackend || 'threejs'),
           scale,
           zoom: Number(renderer?._view?.zoom || renderer?._view?.targetZoom || 1) || 1,
           cameraX: Number(base.camera.position.x || 0) / scale,
@@ -78,7 +87,7 @@
         const distanceLy = Math.max(55, Math.min(240, 118 / Math.max(0.45, zoom)));
         return {
           kind: 'panzoom',
-          backend: String(renderer.backendType || 'webgpu'),
+          backend: normalizeBackendLabel(renderer.backendType || 'webgpu'),
           scale,
           zoom,
           cameraX: targetX + distanceLy * 0.58,

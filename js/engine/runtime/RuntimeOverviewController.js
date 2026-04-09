@@ -465,11 +465,25 @@
         <div id="fleet-list-wm"></div>
 
         <h3 style="margin:1rem 0 0.5rem">Recent Battles</h3>
-        <div id="battle-log-wm"></div>`;
+        <div id="battle-log-wm"></div>
+
+        <h3 style="margin:1rem 0 0.5rem">Quick Navigation</h3>
+        <div class="overview-actions"
+             style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;"
+             data-quick-nav>
+          <button class="btn btn-outline-primary btn-sm" data-open-window="colony">Colony</button>
+          <button class="btn btn-outline-primary btn-sm" data-open-window="buildings">Buildings</button>
+          <button class="btn btn-outline-primary btn-sm" data-open-window="economy">Economy</button>
+          <button class="btn btn-outline-primary btn-sm" data-open-window="messages">Messages</button>
+          <button class="btn btn-outline-primary btn-sm" data-open-window="galaxy">Galaxy</button>
+        </div>`;
 
       bindOverviewActions(root);
       renderFleetList(root);
       renderBattleLog(root);
+      // Bind View Hyperlinks
+      const ViewHyperlinks = window.GQRuntimeViewHyperlinks?.ViewHyperlinks;
+      if (ViewHyperlinks) ViewHyperlinks.bindAll(root);
     }
 
     return {

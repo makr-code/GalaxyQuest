@@ -4129,6 +4129,139 @@ input:focus, select:focus, textarea:focus {
   letter-spacing: 0.02em;
 }
 
+.neighbor-arrows-block {
+  margin: 0.5rem 0 0.62rem;
+  padding: 0.42rem 0.48rem;
+  border-radius: 8px;
+  border: 1px solid rgba(86, 128, 176, 0.36);
+  background: rgba(12, 25, 44, 0.52);
+}
+
+.neighbor-arrows-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #c3dbf6;
+  margin-bottom: 0.34rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.neighbor-arrows-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+}
+
+.neighbor-arrow-btn {
+  display: inline-flex;
+  align-items: stretch;
+  min-height: 26px;
+  border: 1px solid rgba(104, 152, 205, 0.44);
+  border-radius: 6px;
+  padding: 0;
+  background: linear-gradient(90deg, rgba(21, 48, 78, 0.9), rgba(13, 33, 58, 0.95));
+  color: #d7ebff;
+  cursor: pointer;
+  transition: transform 130ms ease, border-color 130ms ease, box-shadow 130ms ease;
+}
+
+.neighbor-arrow-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(139, 194, 255, 0.76);
+  box-shadow: 0 0 0 1px rgba(137, 192, 255, 0.18) inset, 0 6px 14px rgba(0, 0, 0, 0.28);
+}
+
+.neighbor-arrow-btn:focus-visible {
+  outline: 2px solid rgba(130, 190, 255, 0.82);
+  outline-offset: 1px;
+}
+
+.neighbor-arrow-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.16rem 0.45rem 0.16rem 0.52rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.neighbor-arrow-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 0.28rem;
+  border-right: 1px solid rgba(180, 212, 246, 0.28);
+  background: rgba(9, 19, 34, 0.72);
+  color: #d7ebff;
+  font-size: 0.67rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.neighbor-arrow-tip {
+  width: 14px;
+  background: linear-gradient(90deg, rgba(90, 147, 209, 0.9), rgba(111, 179, 248, 0.96));
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+.neighbor-arrow-dist {
+  font-size: 0.60rem;
+  font-family: var(--font-mono, monospace);
+  color: rgba(180, 220, 255, 0.68);
+  padding: 0 0.36rem 0 0.26rem;
+  white-space: nowrap;
+  line-height: 1;
+  align-self: center;
+  letter-spacing: 0.01em;
+}
+
+.neighbor-arrow-rank-1 {
+  border-color: rgba(136, 212, 255, 0.78);
+}
+
+.neighbor-arrow-rank-1 .neighbor-arrow-rank {
+  background: rgba(14, 41, 68, 0.82);
+  color: #c9ecff;
+}
+
+.neighbor-arrow-rank-1 .neighbor-arrow-tip {
+  background: linear-gradient(90deg, rgba(92, 177, 234, 0.95), rgba(132, 213, 255, 0.98));
+}
+
+.neighbor-arrow-rank-2 {
+  border-color: rgba(124, 177, 228, 0.62);
+}
+
+.neighbor-arrow-rank-2 .neighbor-arrow-rank {
+  background: rgba(17, 34, 58, 0.78);
+  color: #b8daf8;
+}
+
+.neighbor-arrow-rank-2 .neighbor-arrow-tip {
+  background: linear-gradient(90deg, rgba(78, 144, 206, 0.9), rgba(111, 173, 236, 0.95));
+}
+
+.neighbor-arrow-rank-3 {
+  border-color: rgba(100, 145, 190, 0.52);
+}
+
+.neighbor-arrow-rank-3 .neighbor-arrow-rank {
+  background: rgba(18, 29, 48, 0.76);
+  color: #9fc0de;
+}
+
+.neighbor-arrow-rank-3 .neighbor-arrow-tip {
+  background: linear-gradient(90deg, rgba(67, 120, 172, 0.88), rgba(96, 149, 203, 0.93));
+}
+
+@media (max-width: 640px) {
+  .neighbor-arrow-label {
+    white-space: normal;
+  }
+}
+
 .galaxy-colony-legend {
   margin-top: 0.24rem;
   border: 1px solid rgba(65, 106, 148, 0.45);

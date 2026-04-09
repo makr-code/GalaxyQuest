@@ -521,6 +521,9 @@
         html += '</div>';
         root.innerHTML = html;
         attachEventListeners(root);
+        // Bind View Hyperlinks for navigation
+        const ViewHyperlinks = window.GQRuntimeViewHyperlinks?.ViewHyperlinks;
+        if (ViewHyperlinks) ViewHyperlinks.bindAll(root);
       } catch (e) {
         root.innerHTML = '<p class="text-red">Error: ' + esc(String(e.message || 'Unknown error')) + '</p>';
       }

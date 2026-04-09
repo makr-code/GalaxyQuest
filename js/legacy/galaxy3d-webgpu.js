@@ -49,22 +49,6 @@
   }
 
   function isInteractiveWebGPUExperimentEnabled() {
-    let forced = false;
-    try {
-      const stored = String(localStorage.getItem('gq:webgpuInteractive') || '').trim().toLowerCase();
-      if (stored === 'force') {
-        forced = true;
-      }
-      if (stored === '1' || stored === 'true' || stored === 'on') {
-        forced = true;
-      }
-    } catch (_) {}
-    const globalFlag = !!window.__GQ_WEBGPU_INTERACTIVE_EXPERIMENT;
-    const enabled = forced || globalFlag;
-    if (!enabled) return false;
-    const ua = String(window.navigator?.userAgent || '').toLowerCase();
-    const isWindows = ua.includes('windows');
-    if (isWindows && !forced) return false;
     return true;
   }
 
@@ -87,13 +71,11 @@
 
       // Interactive mode: prefer Galaxy3DRendererWebGPU (native WebGPU) when
       // loaded, otherwise fall back to the Three.js Galaxy3DRenderer.
-      // The old hard-coded Three.js path is kept only as a last resort so that
-      // older deployments without Galaxy3DRendererWebGPU still work.
       if (this._opts.interactive !== false) {
         // FacadeCtor is the class defined in THIS file — prevent the facade
         // from delegating to itself when Galaxy3DRendererWebGPU.js isn't loaded.
-        const FacadeCtor  = Galaxy3DRendererWebGPU;
-        const NativeCtor  = window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU;
+        const FacadeCtor = Galaxy3DRendererWebGPU;
+        const NativeCtor = window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU;
         if (NativeCtor && NativeCtor !== FacadeCtor) {
           // Delegate to the full interactive WebGPU renderer (Galaxy3DRendererWebGPU.js)
           this._delegate = new NativeCtor(this._container, this._opts);
@@ -102,16 +84,16 @@
           emitRenderTelemetry('backend-active', {
             from: 'facade',
             backend: 'webgpu-native',
-            reason: 'galaxy3d-renderer-webgpu-available',
+            reason: 'interactive-webgpu-default',
           });
-        } else if (!this._interactiveExperiment && window.Galaxy3DRenderer) {
+        } else if (window.Galaxy3DRenderer) {
           this._delegate = new window.Galaxy3DRenderer(this._container, this._opts);
           this._backend  = 'webgl2';
           this.ready     = true;
           emitRenderTelemetry('fallback', {
             from: 'webgpu',
             to: 'webgl2',
-            reason: 'interactive-galaxy-uses-three-path',
+            reason: 'interactive-webgpu-renderer-unavailable',
           });
         }
       }
