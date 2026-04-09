@@ -64,6 +64,18 @@
     authLog(level, '[login-ui]', ...parts);
   }
 
+  function isShellDebugEnabled() {
+    try {
+      if (window.GQ_DEBUG_SHELL === true) return true;
+      const params = new URLSearchParams(String(window.location?.search || ''));
+      const qp = String(params.get('gqShellDebug') || '').toLowerCase();
+      if (qp === '1' || qp === 'true' || qp === 'yes' || qp === 'on') return true;
+      return localStorage.getItem('gq_debug_logs') === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
   authLog('info', 'bootstrap start');
   authProbe('bootstrap start');
 
@@ -154,6 +166,8 @@
 
   function installSessionValidationBreaker() {
     stopSessionValidationBreaker();
+
+    let transientFailures = 0;
     
     authLog('info', 'installing session validation breaker');
     
@@ -165,9 +179,12 @@
         return;
       }
       if (result.state === 'transient') {
-        authLog('warn', 'session validation breaker transient failure', result.reason || 'unknown');
+        transientFailures += 1;
+        const logLevel = transientFailures === 1 || (transientFailures % 6 === 0) ? 'warn' : 'debug';
+        authLog(logLevel, 'session validation breaker transient failure', result.reason || 'unknown');
         return;
       }
+      transientFailures = 0;
       authLog('error', 'session validation breaker: session invalid', result.reason || 'unknown');
       if (result.state === 'invalid') {
         returnToLoginPage();
@@ -185,9 +202,12 @@
         return;
       }
       if (result.state === 'transient') {
-        authLog('warn', 'session validation breaker transient periodic failure', result.reason || 'unknown');
+        transientFailures += 1;
+        const logLevel = transientFailures === 1 || (transientFailures % 6 === 0) ? 'warn' : 'debug';
+        authLog(logLevel, 'session validation breaker transient periodic failure', result.reason || 'unknown');
         return;
       }
+      transientFailures = 0;
       authLog('warn', 'session validation breaker: session became invalid', result.reason || 'unknown');
       if (result.state === 'invalid') {
         returnToLoginPage();
@@ -491,6 +511,9 @@
   }
 
   function emitShellDebugConsole(stage, extra = {}) {
+    if (!isShellDebugEnabled()) {
+      return;
+    }
     try {
       const gameSection = resolveGameSection();
       const bodyClass = String(document.body?.className || '');
@@ -561,6 +584,7 @@
   }
 
   function installShellDebugObservers() {
+    if (!isShellDebugEnabled()) return;
     if (window.__GQ_SHELL_DEBUG_OBSERVERS_INSTALLED) return;
     window.__GQ_SHELL_DEBUG_OBSERVERS_INSTALLED = true;
 
