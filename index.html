@@ -566,6 +566,17 @@
         const moduleTraceSeen = new Map();
         let fallbackActive = true;
 
+        function isBootScriptTraceEnabled() {
+          try {
+            const params = new URLSearchParams(String(window.location?.search || ''));
+            const qp = String(params.get('gqBootTrace') || '').toLowerCase();
+            if (qp === '1' || qp === 'true' || qp === 'on' || qp === 'yes') return true;
+            return localStorage.getItem('gq_boot_trace') === '1';
+          } catch (_) {
+            return false;
+          }
+        }
+
         function ensureBootTerminalHostVisible() {
           const host = document.getElementById('terminal-section');
           if (!host) return;
@@ -631,6 +642,8 @@
         }
 
         function traceModuleEvent(state, src, detail) {
+          if (!isBootScriptTraceEnabled()) return;
+          if (!fallbackActive) return;
           const mod = normalizeModuleName(src);
           const dedupeKey = `${state}:${mod}`;
           const now = Date.now();
@@ -677,6 +690,7 @@
         }
 
         function initScriptTraceObserver() {
+          if (!isBootScriptTraceEnabled()) return;
           if (window.__GQ_SCRIPT_TRACE_OBSERVER_READY) return;
           window.__GQ_SCRIPT_TRACE_OBSERVER_READY = true;
 
@@ -750,6 +764,13 @@
         function takeoverByTerminal(gqLogApi) {
           if (!fallbackActive) return;
           fallbackActive = false;
+          try {
+            if (window.__GQ_SCRIPT_TRACE_OBSERVER && typeof window.__GQ_SCRIPT_TRACE_OBSERVER.disconnect === 'function') {
+              window.__GQ_SCRIPT_TRACE_OBSERVER.disconnect();
+            }
+            window.__GQ_SCRIPT_TRACE_OBSERVER = null;
+            window.__GQ_SCRIPT_TRACE_OBSERVER_READY = false;
+          } catch (_) {}
           try {
             window.removeEventListener('error', onWindowError);
             window.removeEventListener('unhandledrejection', onUnhandledRejection);

@@ -1169,6 +1169,10 @@
   }
 
   function traceModule(state, src, detail = '') {
+    const verboseTrace = isShellDebugEnabled();
+    if (!verboseTrace && state !== 'error') {
+      return;
+    }
     const mod = String(src || '').split('?')[0].split('/').pop() || String(src || 'unknown');
     const msg = state === 'done'
       ? `Init <${mod}> done.`
