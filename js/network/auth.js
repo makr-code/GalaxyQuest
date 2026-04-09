@@ -1382,7 +1382,6 @@
       || raw.includes('js/vendor/three.min.js')
       || raw.includes('js/vendor/mustache.min.js')
       || raw.includes('cdn.jsdelivr.net/npm/dexie')
-      || raw.includes('cdn.jsdelivr.net/npm/three')
       || raw.includes('cdn.jsdelivr.net/npm/mustache');
   }
 
