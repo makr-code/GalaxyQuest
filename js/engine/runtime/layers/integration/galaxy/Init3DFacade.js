@@ -8,6 +8,15 @@
 'use strict';
 
 (function () {
+  function normalizeBackendLabel(rawBackend) {
+    const value = String(rawBackend || '').toLowerCase();
+    if (value === 'threejs' || value === 'three-webgl' || value === 'engine-webgl' || value === 'webgl2') {
+      return 'webgl-compat';
+    }
+    if (value === 'webgl1') return 'webgl1-compat';
+    return String(rawBackend || 'unknown');
+  }
+
   function diagLog(payload, level = 'info') {
     try {
       const fn = window.GQLog && typeof window.GQLog[level] === 'function' ? window.GQLog[level] : null;
@@ -318,8 +327,10 @@
 
       const gqZoom = state.windowRef.GQSeamlessZoomOrchestrator || {};
       const gqLevels = {
+        // Three.js levels remain wired as compatibility backends while WebGPU reaches parity.
         galaxyThreeJS: (state.windowRef.GQGalaxyLevelThreeJS || {}).GalaxyLevelThreeJS,
-        galaxyWebGPU: (state.windowRef.GQGalaxyLevelWebGPU || {}).GalaxyLevelWebGPU,
+        galaxyWebGPU: (state.windowRef.GQGalaxyLevelWebGPU || {}).GalaxyLevelWebGPU
+          || (state.windowRef.GQGalaxyLevelThreeJS || {}).GalaxyLevelThreeJS,
         systemThreeJS: (state.windowRef.GQSystemLevelThreeJS || {}).SystemLevelThreeJS,
         systemWebGPU: (state.windowRef.GQSystemLevelWebGPU || {}).SystemLevelWebGPU,
         planetThreeJS: (state.windowRef.GQPlanetApproachLevelThreeJS || {}).PlanetApproachLevelThreeJS,
@@ -328,19 +339,20 @@
         colonyWebGPU: (state.windowRef.GQColonySurfaceLevelWebGPU || {}).ColonySurfaceLevelWebGPU,
         objectThreeJS: (state.windowRef.GQObjectApproachLevelThreeJS || {}).ObjectApproachLevelThreeJS,
         objectWebGPU: (state.windowRef.GQObjectApproachLevelWebGPU || {}).ObjectApproachLevelWebGPU,
+        colonyBuildingThreeJS: (state.windowRef.GQColonyBuildingLevelThreeJS || {}).ColonyBuildingLevelThreeJS
+          || (state.windowRef.GQObjectApproachLevelThreeJS || {}).ObjectApproachLevelThreeJS,
+        colonyBuildingWebGPU: (state.windowRef.GQColonyBuildingLevelWebGPU || {}).ColonyBuildingLevelWebGPU
+          || (state.windowRef.GQObjectApproachLevelWebGPU || {}).ObjectApproachLevelWebGPU,
       };
       const ZOOM_LEVEL = gqZoom.ZOOM_LEVEL;
       const SPATIAL_DEPTH = gqZoom.SPATIAL_DEPTH;
       const SeamlessZoomOrchestrator = gqZoom.SeamlessZoomOrchestrator;
-      const userAgent = String(state.windowRef?.navigator?.userAgent || '').toLowerCase();
-      const isWindows = userAgent.includes('windows');
-      const forceWebGpu = !!state.windowRef.__GQ_FORCE_WEBGPU;
-      const disableWebGpuPath = isWindows && !forceWebGpu;
+      const disableWebGpuPath = false;
 
       const rendererOptions = {
         externalCanvas: sharedCanvas instanceof HTMLCanvasElement ? sharedCanvas : null,
         interactive: true,
-        qualityProfile: resolvedRendererQuality?.name || settingsState.renderQualityProfile || 'auto',
+        qualityProfile: resolvedRendererQuality?.name || settingsState.renderQualityProfile || 'webgpu',
         onHover: (star, pos) => {
           state.commitSelectionState?.('hover', star, pos, 'hover');
           state.updateGalaxyHoverCard?.(root, star, pos, false);
@@ -375,7 +387,7 @@
           const galaxy3dForLog = state.getGalaxy3d?.();
           state.logEnterSystemPipeline?.('renderer:onDoubleClick', {
             rendererInstanceId: String(galaxy3dForLog?.getRenderStats?.().instanceId || galaxy3dForLog?.instanceId || ''),
-            rendererBackend: String(galaxy3dForLog?.backendType || galaxy3dForLog?.getRenderStats?.().backend || ''),
+            rendererBackend: normalizeBackendLabel(galaxy3dForLog?.backendType || galaxy3dForLog?.getRenderStats?.().backend || ''),
             rendererHasEnterSystemView: typeof galaxy3dForLog?.enterSystemView === 'function',
             kind: String(star?.__kind || 'star'),
             galaxy: Number(star?.galaxy_index || star?.__sourceStar?.galaxy_index || 0),
@@ -580,6 +592,7 @@
             setOrchestrator: (next) => {
               state.setZoomOrchestrator?.(next || null);
             },
+            getCurrentOrchestrator: () => state.getZoomOrchestrator?.() || null,
             sharedCanvas,
             settingsState,
             SeamlessZoomOrchestrator,
@@ -660,7 +673,7 @@
 
       state.emitRuntimeEvent?.('runtime:renderer-init-ready', {
         view: 'galaxy',
-        backend: String(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
+        backend: normalizeBackendLabel(galaxy3d?.backendType || galaxy3d?.getRenderStats?.().backend || ''),
         hasRenderer: !!galaxy3d,
         hasOrchestrator: !!state.getZoomOrchestrator?.(),
         ts: Date.now(),

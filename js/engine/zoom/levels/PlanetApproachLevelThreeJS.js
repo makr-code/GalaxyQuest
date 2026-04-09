@@ -23,7 +23,7 @@ var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefine
   : window.GQIZoomLevelRenderer;
 
 /** @returns {typeof THREE | null} */
-function THREE() {
+function getThree() {
   return (typeof window !== 'undefined' && window.THREE) || null;
 }
 
@@ -65,7 +65,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     this._canvas  = canvas;
     this._backend = backend;
 
-    const T = THREE();
+    const T = getThree();
     if (!T) return;  // test / headless environment
 
     // Minimal Three.js setup — a dedicated renderer for this level.
@@ -200,7 +200,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
   }
 
   _applySceneDataVisuals(data) {
-    const T = THREE();
+    const T = getThree();
     const source = this._resolveVisualSource(data);
     const ownerColor = parseHexColor(
       source?.colony_owner_color || source?.owner_color || source?.faction_color || '',

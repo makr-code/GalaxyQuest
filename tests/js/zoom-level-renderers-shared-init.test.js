@@ -42,7 +42,7 @@ describe('Zoom level renderers shared init integration', () => {
     window.GalaxyRendererCore = undefined;
   });
 
-  it('GalaxyLevelWebGPU constructs with runtime options and stores shared instance', async () => {
+  it('GalaxyLevelWebGPU constructs with runtime options and stores shared WebGPU instance', async () => {
     const { canvas } = makeCanvasHost();
     const init = vi.fn(async () => undefined);
     const ctor = vi.fn(function (_container, opts) {
@@ -96,6 +96,29 @@ describe('Zoom level renderers shared init integration', () => {
     expect(shared._opts.qualityProfile).toBe('ultra');
     expect(typeof shared._opts.onClick).toBe('function');
     expect(window.GQGalaxy3DRendererWebGPU).not.toHaveBeenCalled();
+  });
+
+  it('GalaxyLevelWebGPU uses native renderer for shared init', async () => {
+    const { canvas } = makeCanvasHost();
+    const init = vi.fn(async () => undefined);
+    const ctor = vi.fn(function (_container, opts) {
+      this._opts = opts;
+      this.init = init;
+      this.setStars = vi.fn();
+      this.setClusterAuras = vi.fn();
+      this.setFtlInfrastructure = vi.fn();
+      this.setGalaxyFleets = vi.fn();
+      this.dispose = vi.fn();
+      return this;
+    });
+
+    window.GQGalaxy3DRendererWebGPU = ctor;
+
+    const level = new GalaxyLevelWebGPU();
+    await level.initialize(canvas, {});
+
+    expect(ctor).toHaveBeenCalledTimes(1);
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBe(level._starfield);
   });
 
   it('GalaxyLevelThreeJS constructs with runtime options and stores shared instance', async () => {

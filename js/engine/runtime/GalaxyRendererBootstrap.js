@@ -14,6 +14,7 @@
     const {
       currentOrchestrator = null,
       setOrchestrator = null,
+      getCurrentOrchestrator = null,
       sharedCanvas = null,
       settingsState = {},
       SeamlessZoomOrchestrator = null,
@@ -28,6 +29,23 @@
     if (!(sharedCanvas instanceof HTMLCanvasElement)) return currentOrchestrator;
     if (!SeamlessZoomOrchestrator || !ZOOM_LEVEL) return currentOrchestrator;
 
+    const bootstrapToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    sharedCanvas.__gqOrchestratorBootstrapToken = bootstrapToken;
+
+    function isCurrentBootstrap(candidate) {
+      if (sharedCanvas.__gqOrchestratorBootstrapToken !== bootstrapToken) {
+        return false;
+      }
+      if (typeof getCurrentOrchestrator === 'function') {
+        try {
+          return getCurrentOrchestrator() === candidate;
+        } catch (_) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     if (currentOrchestrator) {
       try {
         currentOrchestrator.dispose();
@@ -39,9 +57,11 @@
     const orchestrator = new SeamlessZoomOrchestrator(sharedCanvas, {
       rendererHint: settingsState.renderQualityProfile === 'webgpu' ? 'webgpu' : 'auto',
     });
+    orchestrator.__gqBootstrapToken = bootstrapToken;
 
     if (typeof setOrchestrator === 'function') setOrchestrator(orchestrator);
 
+    // Register WebGPU as the preferred path and keep Three.js as compatibility backend.
     orchestrator.register(ZOOM_LEVEL.GALAXY, {
       webgpu: levels.galaxyWebGPU,
       threejs: levels.galaxyThreeJS,
@@ -70,17 +90,34 @@
         threejs: levels.objectThreeJS,
       });
     }
+    const colonyBuildingThree = levels.colonyBuildingThreeJS || levels.objectThreeJS || null;
+    const colonyBuildingWebGPU = levels.colonyBuildingWebGPU || levels.objectWebGPU || null;
+    if (Number.isFinite(Number(ZOOM_LEVEL.COLONY_BUILDING)) && colonyBuildingThree && colonyBuildingWebGPU) {
+      orchestrator.register(ZOOM_LEVEL.COLONY_BUILDING, {
+        webgpu: colonyBuildingWebGPU,
+        threejs: colonyBuildingThree,
+      });
+    }
 
     orchestrator.initialize()
       .then(() => {
+        if (!isCurrentBootstrap(orchestrator)) {
+          return;
+        }
         try {
           orchestrator.zoomTo(ZOOM_LEVEL.GALAXY, null)
             .then(() => {
+              if (!isCurrentBootstrap(orchestrator)) {
+                return;
+              }
               if (typeof adoptSharedRendererIfAvailable === 'function') {
                 adoptSharedRendererIfAvailable();
               }
             })
             .catch((err) => {
+              if (!isCurrentBootstrap(orchestrator)) {
+                return;
+              }
               if (typeof onInitFailed === 'function') {
                 onInitFailed(err || new Error('SeamlessZoomOrchestrator zoomTo(GALAXY) failed'));
               }
@@ -98,6 +135,9 @@
         }
       })
       .catch((err) => {
+        if (!isCurrentBootstrap(orchestrator)) {
+          return;
+        }
         if (typeof setOrchestrator === 'function') setOrchestrator(null);
         if (typeof onInitFailed === 'function') onInitFailed(err);
         if (typeof initDirectRendererFallback === 'function') initDirectRendererFallback();

@@ -26,7 +26,7 @@ var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefine
   : window.GQIZoomLevelRenderer;
 
 /** @returns {typeof THREE | null} */
-function THREE() {
+function getThree() {
   return (typeof window !== 'undefined' && window.THREE) || null;
 }
 
@@ -45,6 +45,12 @@ function THREE() {
  */
 function buildObjectGeometry(T, targetType) {
   switch (targetType) {
+    case 'BUILDING': {
+      // Compact block silhouette representing a close-up colony structure.
+      const geo = new T.BoxGeometry(4.2, 2.8, 4.2);
+      const mat = new T.MeshStandardMaterial({ color: 0xccaa66, metalness: 0.25, roughness: 0.78 });
+      return { geometry: geo, material: mat };
+    }
     case 'FLEET': {
       // A tight cluster of box shapes representing multiple vessels.
       const geo = new T.BoxGeometry(3, 0.6, 6);
@@ -110,7 +116,7 @@ class ObjectApproachLevelThreeJS extends ZoomLevelRendererBase {
     this._canvas  = canvas;
     this._backend = backend;
 
-    const T = THREE();
+    const T = getThree();
     if (!T) return;  // test / headless environment
 
     this._renderer = new T.WebGLRenderer({ canvas, antialias: true });
@@ -186,7 +192,7 @@ class ObjectApproachLevelThreeJS extends ZoomLevelRendererBase {
   // ── Private helpers ───────────────────────────────────────────────────────
 
   _buildScene(targetType) {
-    const T = THREE();
+    const T = getThree();
     if (!T || !this._scene) return;
 
     this._clearObjectMesh();

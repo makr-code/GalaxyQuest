@@ -1,15 +1,15 @@
 (function () {
   const V = Object.freeze({
-    bootManifest: '20260408p4',
+    bootManifest: '20260409p2',
     bootAssets: '20260404p1',
     terminal: '20260404p51',
     starfield: '20260404p110',
     prolog: '1',
-    auth: '20260404p111',
+    auth: '20260409p112',
     assetCore: '20260404p50',
     tts: '20260404p1',
     webgpuCore: '20260401p1',
-    runtime: '20260408p4',
+    runtime: '20260409p2',
     galaxyController: '20260404p2',
     footerNetworkStatus: '20260404p3',
     galaxyStarLoaderFacade: '20260404p4',
@@ -39,7 +39,7 @@
     settings2fa: '20260331p2',
     adminUsers: '20260331p1',
     systemBreadcrumb: '20260331p1',
-    game: '20260408p4',
+    game: '20260409p1',
     packageBundle: '20260407p1',
     flightDriverSmoke: '20260329p1',
     lodStreamingSmoke: '20260329p2'
@@ -282,6 +282,11 @@
     'js/engine/runtime/RuntimeDesktopShell.js'
   ], V.runtime);
 
+  const bootScriptsNavigationFlow = localScripts([
+    'js/engine/runtime/RuntimeNavigationSequences.js',
+    'js/engine/runtime/RuntimeViewHyperlinks.js'
+  ], V.runtime);
+
   const bootScriptsControllers = localScripts([
     'js/engine/runtime/RuntimeFleetMissionDefaults.js',
     'js/engine/runtime/RuntimeFleetSubmitFlow.js',
@@ -431,7 +436,9 @@
       'js/engine/zoom/levels/ColonySurfaceLevelThreeJS.js',
       'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js',
       'js/engine/zoom/levels/ObjectApproachLevelThreeJS.js',
-      'js/engine/zoom/levels/ObjectApproachLevelWebGPU.js'
+      'js/engine/zoom/levels/ObjectApproachLevelWebGPU.js',
+      'js/engine/zoom/levels/ColonyBuildingLevelThreeJS.js',
+      'js/engine/zoom/levels/ColonyBuildingLevelWebGPU.js'
     ], V.runtime))
     .concat([
       localScript('js/rendering/galaxy-renderer-core.js', assetVersions.galaxyRendererCore),
@@ -458,6 +465,7 @@
     localScript('js/ui/stellaris-system-overview.js', V.stellarisSystemOverview),
     localScript('js/ui/system-bodies-card-window.js', V.systemBodiesCardWindow),
     localScript('js/ui/gq-ui.js', V.gqui),
+      localScript('js/engine/runtime/GQNeighborWaypointOverlay.js', V.runtime),
     localScript('js/runtime/game.js', V.game)
   ];
 
@@ -478,6 +486,7 @@
       .concat(bootScriptsRuntimeFoundation)
       .concat(bootScriptsGalaxy)
       .concat(bootScriptsUiRuntime)
+      .concat(bootScriptsNavigationFlow)
       .concat(bootScriptsControllers)
       .concat(bootScriptsMinimapAndSettings)
       .concat(bootScriptsBootFlow)
