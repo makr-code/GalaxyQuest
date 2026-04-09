@@ -46,6 +46,97 @@
     return Math.max(min, Math.min(max, v));
   }
 
+  function getThreeRuntime() {
+    return (typeof window !== 'undefined' && (window.THREE || window.__GQ_THREE_RUNTIME)) || null;
+  }
+
+  class Vec3Compat {
+    constructor(x = 0, y = 0, z = 0) {
+      this.x = Number(x || 0);
+      this.y = Number(y || 0);
+      this.z = Number(z || 0);
+    }
+
+    set(x, y, z) {
+      this.x = Number(x || 0);
+      this.y = Number(y || 0);
+      this.z = Number(z || 0);
+      return this;
+    }
+
+    clone() {
+      return new Vec3Compat(this.x, this.y, this.z);
+    }
+
+    copy(v) {
+      this.x = Number(v?.x || 0);
+      this.y = Number(v?.y || 0);
+      this.z = Number(v?.z || 0);
+      return this;
+    }
+
+    add(v) {
+      this.x += Number(v?.x || 0);
+      this.y += Number(v?.y || 0);
+      this.z += Number(v?.z || 0);
+      return this;
+    }
+
+    sub(v) {
+      this.x -= Number(v?.x || 0);
+      this.y -= Number(v?.y || 0);
+      this.z -= Number(v?.z || 0);
+      return this;
+    }
+
+    multiplyScalar(s) {
+      const n = Number(s || 0);
+      this.x *= n;
+      this.y *= n;
+      this.z *= n;
+      return this;
+    }
+
+    distanceTo(v) {
+      const dx = this.x - Number(v?.x || 0);
+      const dy = this.y - Number(v?.y || 0);
+      const dz = this.z - Number(v?.z || 0);
+      return Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
+    }
+
+    normalize() {
+      const len = Math.sqrt((this.x * this.x) + (this.y * this.y) + (this.z * this.z)) || 1;
+      this.x /= len;
+      this.y /= len;
+      this.z /= len;
+      return this;
+    }
+
+    crossVectors(a, b) {
+      const ax = Number(a?.x || 0), ay = Number(a?.y || 0), az = Number(a?.z || 0);
+      const bx = Number(b?.x || 0), by = Number(b?.y || 0), bz = Number(b?.z || 0);
+      this.x = ay * bz - az * by;
+      this.y = az * bx - ax * bz;
+      this.z = ax * by - ay * bx;
+      return this;
+    }
+  }
+
+  function makeVec3(x = 0, y = 0, z = 0) {
+    const three = getThreeRuntime();
+    if (three && typeof three.Vector3 === 'function') {
+      return new three.Vector3(x, y, z);
+    }
+    return new Vec3Compat(x, y, z);
+  }
+
+  function lerp(a, b, t) {
+    const ta = Number(a || 0);
+    const tb = Number(b || 0);
+    const tt = Number(t || 0);
+    return ta + ((tb - ta) * tt);
+  }
+
   const withAssetVersion = typeof window.GQResolveAssetVersion === 'function'
     ? window.GQResolveAssetVersion.bind(window)
     : function fallbackAssetVersion(path, versionKey, fallbackVersion) {
@@ -72,37 +163,56 @@
     });
   }
 
+  async function ensureWebGpuRenderers() {
+    if (window.Galaxy3DView || window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU) {
+      return;
+    }
+    await loadScript(withAssetVersion('js/rendering/starfield-webgpu.js', 'starfieldWebGpu', '20260330p2'));
+    await loadScript(withAssetVersion('js/rendering/Galaxy3DRendererWebGPU.js', 'galaxyRendererWebGpu', '20260404p4'));
+    await loadScript(withAssetVersion('js/legacy/galaxy3d-webgpu.js', 'legacyWebGpu', '20260404p2'));
+  }
+
   async function ensureDeps() {
-    if (!window.THREE) {
-      try {
-        await loadScript('js/vendor/three.min.js');
-      } catch (_) {
-        await loadScript('https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js');
+    try {
+      await ensureWebGpuRenderers();
+    } catch (_) {
+      // Continue with legacy chain when WebGPU files are unavailable.
+    }
+
+    const hasWebGpuView = !!(window.Galaxy3DView || window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU);
+    if (!hasWebGpuView) {
+      if (!window.THREE) {
+        try {
+          await loadScript('js/vendor/three.min.js');
+        } catch (_) {
+          await loadScript('https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js');
+        }
+      }
+      if (window.THREE && typeof window.THREE.Scene === 'function' && typeof window.THREE.Vector3 === 'function') {
+        window.__GQ_THREE_RUNTIME = window.THREE;
+      }
+      if (!window.GalaxyCameraController) {
+        await loadScript(withAssetVersion('js/rendering/galaxy-camera-controller.js', 'galaxyCameraController', '20260329p85'));
+      }
+      if (!window.GQTextureManager) {
+        await loadScript(withAssetVersion('js/rendering/texture-manager.js', 'textureManager', '20260404p50'));
+      }
+      if (!window.GQGeometryManager) {
+        await loadScript(withAssetVersion('js/rendering/geometry-manager.js', 'geometryManager', '20260404p50'));
+      }
+      if (!window.GQMaterialFactory) {
+        await loadScript(withAssetVersion('js/rendering/material-factory.js', 'materialFactory', '20260404p50'));
+      }
+      if (!window.GQLightRigManager) {
+        await loadScript(withAssetVersion('js/rendering/light-rig-manager.js', 'lightRigManager', '20260404p50'));
+      }
+      if (!window.Galaxy3DRenderer) {
+        await loadScript(withAssetVersion('js/rendering/galaxy-renderer-core.js', 'galaxyRendererCore', '20260404p118'));
       }
     }
-    if (window.THREE && typeof window.THREE.Scene === 'function' && typeof window.THREE.Vector3 === 'function') {
-      window.__GQ_THREE_RUNTIME = window.THREE;
-    }
-    if (!window.GalaxyCameraController) {
-      await loadScript(withAssetVersion('js/rendering/galaxy-camera-controller.js', 'galaxyCameraController', '20260329p85'));
-    }
-    if (!window.GQTextureManager) {
-      await loadScript(withAssetVersion('js/rendering/texture-manager.js', 'textureManager', '20260404p50'));
-    }
-    if (!window.GQGeometryManager) {
-      await loadScript(withAssetVersion('js/rendering/geometry-manager.js', 'geometryManager', '20260404p50'));
-    }
-    if (!window.GQMaterialFactory) {
-      await loadScript(withAssetVersion('js/rendering/material-factory.js', 'materialFactory', '20260404p50'));
-    }
-    if (!window.GQLightRigManager) {
-      await loadScript(withAssetVersion('js/rendering/light-rig-manager.js', 'lightRigManager', '20260404p50'));
-    }
-    if (!window.Galaxy3DRenderer) {
-      await loadScript(withAssetVersion('js/rendering/galaxy-renderer-core.js', 'galaxyRendererCore', '20260404p118'));
-    }
-    if (!window.Galaxy3DRenderer) {
-      throw new Error('Galaxy3DRenderer unavailable');
+
+    if (!window.Galaxy3DView && !window.GQGalaxy3DRendererWebGPU && !window.Galaxy3DRendererWebGPU && !window.Galaxy3DRenderer) {
+      throw new Error('Galaxy renderer unavailable');
     }
   }
 
@@ -655,7 +765,7 @@
     const cfg = getAuthFlightProfileConfig();
     if (!stars.length || !cameraPos) return null;
 
-    const cameraForward = new window.THREE.Vector3(0, 0, -1);
+    const cameraForward = makeVec3(0, 0, -1);
     if (camera && typeof camera.getWorldDirection === 'function') {
       camera.getWorldDirection(cameraForward);
     }
@@ -714,10 +824,10 @@
     if (!renderer || !renderer.camera) return;
 
     const bounds = resolveNavBounds();
-    const center = new window.THREE.Vector3(bounds.centerX, 0, bounds.centerZ);
+    const center = makeVec3(bounds.centerX, 0, bounds.centerZ);
 
     if (renderer.controls && renderer.camera) {
-      const currentTarget = renderer.controls.target ? renderer.controls.target.clone() : new window.THREE.Vector3();
+      const currentTarget = renderer.controls.target ? renderer.controls.target.clone() : makeVec3();
       const offset = renderer.camera.position.clone().sub(currentTarget);
       renderer.controls.target.copy(center);
       renderer.camera.position.copy(center.clone().add(offset));
@@ -754,9 +864,10 @@
 
   function createCameraDriver() {
     const sharedDriverFactory = window.GQSpaceCameraFlightDriver;
-    if (sharedDriverFactory && typeof sharedDriverFactory.create === 'function') {
+    const threeRuntime = getThreeRuntime();
+    if (sharedDriverFactory && typeof sharedDriverFactory.create === 'function' && threeRuntime) {
       const sharedDriver = sharedDriverFactory.create({
-        three: window.THREE,
+        three: threeRuntime,
         physicsTuning: {
           gravitationalConstant: 1.4e-5,
           softening: 320,
@@ -814,13 +925,13 @@
         const dtSec = dtMs * 0.001;
         flight.t = Math.min(1, flight.t + (dtSec / Math.max(1.5, flight.duration)));
 
-        const p = new THREE.Vector3(
+        const p = makeVec3(
           cubicBezier1D(flight.start.x, flight.c1.x, flight.c2.x, flight.end.x, flight.t),
           cubicBezier1D(flight.start.y, flight.c1.y, flight.c2.y, flight.end.y, flight.t),
           cubicBezier1D(flight.start.z, flight.c1.z, flight.c2.z, flight.end.z, flight.t)
         );
         const t2 = Math.min(1, flight.t + 0.015);
-        const q = new THREE.Vector3(
+        const q = makeVec3(
           cubicBezier1D(flight.start.x, flight.c1.x, flight.c2.x, flight.end.x, t2),
           cubicBezier1D(flight.start.y, flight.c1.y, flight.c2.y, flight.end.y, t2),
           cubicBezier1D(flight.start.z, flight.c1.z, flight.c2.z, flight.end.z, t2)
@@ -831,15 +942,15 @@
         const manRoll = Math.sin(now * 0.0012) * 0.015;
 
         const d = q.clone().sub(p).normalize();
-        const up = new THREE.Vector3(0, 1, 0);
-        const right = new THREE.Vector3().crossVectors(d, up).normalize();
+        const up = makeVec3(0, 1, 0);
+        const right = makeVec3().crossVectors(d, up).normalize();
         const lifted = p.clone()
           .add(right.multiplyScalar(manYaw * 280))
-          .add(new THREE.Vector3(0, manPitch * 210, 0));
-        const lookAt = q.clone().add(new THREE.Vector3(manYaw * 120, manPitch * 70, 0));
+          .add(makeVec3(0, manPitch * 210, 0));
+        const lookAt = q.clone().add(makeVec3(manYaw * 120, manPitch * 70, 0));
 
         const moved = lifted.distanceTo(flight.prevPos || lifted);
-        flight.lastSpeed = THREE.MathUtils.lerp(flight.lastSpeed || 0, moved / Math.max(0.0001, dtSec), 0.22);
+        flight.lastSpeed = lerp(flight.lastSpeed || 0, moved / Math.max(0.0001, dtSec), 0.22);
         flight.prevPos = lifted.clone();
 
         if (flight.t >= 1) {
