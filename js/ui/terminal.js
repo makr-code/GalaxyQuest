@@ -111,7 +111,6 @@
   const entries = loadPersisted().slice(-MAX_ENTRIES);
 
   const BOOT_MAX_LINES = 180;
-  const BOOT_STYLE_ID = 'gq-boot-terminal-style';
   const UI_CONSOLE_PANEL_ID = 'ui-console-panel';
   const UI_CONSOLE_LOG_ID = 'ui-console-log';
   const UI_CONSOLE_TOGGLE_ID = 'ui-console-toggle';
@@ -128,7 +127,7 @@
 
   function directBootProbe(message, level = 'info') {
     try {
-      const bootLog = document.getElementById('boot-terminal-log') || document.getElementById('ui-console-log');
+      const bootLog = document.getElementById('ui-console-log');
       if (!bootLog) return;
       const ts = new Date();
       const hh = String(ts.getHours()).padStart(2, '0');
@@ -145,148 +144,21 @@
   }
 
   function ensureBootStyle() {
-    try {
-      // Unified design: #boot-terminal has class ui-console-panel and is styled via CSS.
-      // Only inject boot-line color helpers, skip the positioning overrides.
-      const rootEl = document.getElementById('boot-terminal');
-      if (rootEl && rootEl.classList.contains('ui-console-panel')) return;
-      if (document.getElementById(BOOT_STYLE_ID)) return;
-      const style = document.createElement('style');
-      style.id = BOOT_STYLE_ID;
-      style.textContent = `
-        #boot-terminal { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 99999; border: 1px solid rgba(79,151,255,0.5); border-radius: 8px; background: rgba(4,14,36,0.94); color: #d7e8ff; font: 12px/1.4 Consolas, Menlo, Monaco, monospace; box-shadow: 0 12px 26px rgba(0,0,0,0.45); pointer-events: auto; }
-        #boot-terminal.hidden { display: none; }
-        #boot-terminal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border-bottom: 1px solid rgba(79,151,255,0.25); color: #91c7ff; background: rgba(9,24,62,0.75); }
-        .boot-terminal-title { display: inline-flex; align-items: center; gap: 8px; }
-        #boot-terminal-mode { display: inline-block; padding: 1px 6px; border: 1px solid rgba(130,184,255,0.38); border-radius: 999px; color: #b8daff; font-size: 11px; line-height: 1.2; }
-        #boot-terminal-controls { display: flex; gap: 6px; }
-        #boot-terminal-controls button { border: 1px solid rgba(130,184,255,0.42); border-radius: 4px; background: rgba(10,28,70,0.9); color: #b8daff; padding: 2px 8px; cursor: pointer; font: 11px/1.2 Consolas, Menlo, Monaco, monospace; }
-        #boot-terminal-controls button:hover { background: rgba(17,43,105,0.95); }
-        #boot-terminal-log { max-height: 180px; overflow: auto; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
-        .boot-line { margin: 0 0 3px; }
-        .boot-line-info { color: #9fd0ff; }
-        .boot-line-warn { color: #ffd37f; }
-        .boot-line-error { color: #ff9f9f; }
-      `;
-      document.head?.appendChild(style);
-    } catch (_) {}
+    // Unified console styling is owned by CSS (style.css/gqwm.css).
   }
 
   function ensureBootTerminalDom() {
     if (typeof document === 'undefined') return null;
 
-    let root = document.getElementById('boot-terminal');
-    if (!root) {
-      root = document.createElement('section');
-      root.id = 'boot-terminal';
-      root.setAttribute('aria-live', 'polite');
-      root.setAttribute('aria-label', 'Boot terminal');
-      document.body?.appendChild(root);
-    }
+    const root = document.getElementById('boot-terminal');
+    if (!root) return null;
 
-    let head = document.getElementById('boot-terminal-head');
-    if (!head) {
-      head = document.createElement('div');
-      head.id = 'boot-terminal-head';
-
-      const titleWrap = document.createElement('div');
-      titleWrap.className = 'boot-terminal-title';
-      const title = document.createElement('strong');
-      title.textContent = 'Boot Terminal';
-
-      const mode = document.createElement('span');
-      mode.id = 'boot-terminal-mode';
-      mode.textContent = 'Mode: GQLog';
-
-      titleWrap.appendChild(title);
-      titleWrap.appendChild(mode);
-      head.appendChild(titleWrap);
-
-      const controls = document.createElement('div');
-      controls.id = 'boot-terminal-controls';
-
-      const clearBtn = document.createElement('button');
-      clearBtn.type = 'button';
-      clearBtn.id = 'boot-terminal-clear';
-      clearBtn.textContent = 'Clear';
-
-      const copyBtn = document.createElement('button');
-      copyBtn.type = 'button';
-      copyBtn.id = 'boot-terminal-copy';
-      copyBtn.textContent = 'Copy';
-
-      const toggleBtn = document.createElement('button');
-      toggleBtn.type = 'button';
-      toggleBtn.id = 'boot-terminal-toggle';
-      toggleBtn.textContent = 'Hide';
-
-      controls.appendChild(copyBtn);
-      controls.appendChild(clearBtn);
-      controls.appendChild(toggleBtn);
-      head.appendChild(controls);
-      root.prepend(head);
-    }
-
-    let mode = document.getElementById('boot-terminal-mode');
-    if (!mode) {
-      const title = head.querySelector('strong');
-      let titleWrap = head.querySelector('.boot-terminal-title');
-      if (!titleWrap && title) {
-        titleWrap = document.createElement('div');
-        titleWrap.className = 'boot-terminal-title';
-        head.insertBefore(titleWrap, head.firstChild || null);
-        titleWrap.appendChild(title);
-      }
-      mode = document.createElement('span');
-      mode.id = 'boot-terminal-mode';
-      mode.textContent = 'Mode: GQLog';
-      if (titleWrap) {
-        titleWrap.appendChild(mode);
-      } else {
-        head.insertBefore(mode, head.firstChild || null);
-      }
-    }
-
-    let controls = document.getElementById('boot-terminal-controls');
-    if (!controls) {
-      controls = document.createElement('div');
-      controls.id = 'boot-terminal-controls';
-      head.appendChild(controls);
-    }
-
-    let clearBtn = document.getElementById('boot-terminal-clear') || document.getElementById('ui-console-clear');
-    if (!clearBtn) {
-      clearBtn = document.createElement('button');
-      clearBtn.type = 'button';
-      clearBtn.id = 'boot-terminal-clear';
-      clearBtn.textContent = 'Clear';
-      controls.appendChild(clearBtn);
-    }
-
-    let copyBtn = document.getElementById('boot-terminal-copy') || document.getElementById('ui-console-copy');
-    if (!copyBtn) {
-      copyBtn = document.createElement('button');
-      copyBtn.type = 'button';
-      copyBtn.id = 'boot-terminal-copy';
-      copyBtn.textContent = 'Copy';
-      controls.insertBefore(copyBtn, clearBtn || controls.firstChild || null);
-    }
-
-    let toggleBtn = document.getElementById('boot-terminal-toggle') || document.getElementById('ui-console-close');
-    if (!toggleBtn) {
-      toggleBtn = document.createElement('button');
-      toggleBtn.type = 'button';
-      toggleBtn.id = 'boot-terminal-toggle';
-      toggleBtn.textContent = 'Hide';
-      controls.appendChild(toggleBtn);
-    }
-
-    let log = document.getElementById('boot-terminal-log') || document.getElementById('ui-console-log');
-    if (!log) {
-      log = document.createElement('div');
-      log.id = 'boot-terminal-log';
-      root.appendChild(log);
-    }
+    const mode = document.getElementById('boot-terminal-mode');
+    const clearBtn = document.getElementById('ui-console-clear');
+    const copyBtn = document.getElementById('ui-console-copy');
+    const toggleBtn = document.getElementById('ui-console-close');
+    const log = document.getElementById('ui-console-log');
+    if (!log) return null;
 
     root.setAttribute('data-gq-terminal-ready', '1');
     return { root, log, clearBtn, copyBtn, toggleBtn, mode };
@@ -375,7 +247,7 @@
       });
     }
 
-    if (!localUi.clearBtn.__gqBound) {
+    if (localUi.clearBtn && !localUi.clearBtn.__gqBound) {
       localUi.clearBtn.__gqBound = true;
       localUi.clearBtn.addEventListener('click', () => {
         clearEntriesInternal();
@@ -390,7 +262,7 @@
       });
     }
 
-    if (!localUi.toggleBtn.__gqBound) {
+    if (localUi.toggleBtn && localUi.toggleBtn.id === 'boot-terminal-toggle' && !localUi.toggleBtn.__gqBound) {
       localUi.toggleBtn.__gqBound = true;
       localUi.toggleBtn.addEventListener('click', () => {
         if (!localUi.root) return;

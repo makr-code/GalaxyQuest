@@ -7,6 +7,16 @@
 'use strict';
 
 (function () {
+  function formatBackendLabel(rawBackend) {
+    const value = String(rawBackend || '').toLowerCase();
+    if (value === 'webgpu') return 'webgpu';
+    if (value === 'three-webgl' || value === 'engine-webgl' || value === 'threejs' || value === 'webgl2') {
+      return 'webgl-compat';
+    }
+    if (value === 'webgl1') return 'webgl1-compat';
+    return String(rawBackend || 'unknown');
+  }
+
   const state = {
     hookInstalled: false,
     lastToastMs: 0,
@@ -48,7 +58,7 @@
         const backend = String(detail.backend || 'unknown');
         win.__GQ_ACTIVE_RENDERER_BACKEND = backend;
         if (state.consoleRef && typeof state.consoleRef.info === 'function') {
-          state.consoleRef.info('[render-telemetry] backend-active:', backend, detail);
+          state.consoleRef.info('[render-telemetry] backend-active:', formatBackendLabel(backend), detail);
         }
         return;
       }

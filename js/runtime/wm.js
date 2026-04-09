@@ -1154,6 +1154,9 @@ const WMCore = (() => {
         var saved = _loadPos(id);
         var x     = saved ? saved.x : _nextX;
         var y     = saved ? saved.y : _nextY;
+        var useSavedSize = !(cfg && cfg.ignoreSavedSize === true);
+        var savedW = (useSavedSize && saved && saved.w != null) ? saved.w : null;
+        var savedH = (useSavedSize && saved && saved.h != null) ? saved.h : null;
 
         if (!saved) {
           if (cfg.defaultDock === 'right') {
@@ -1179,16 +1182,16 @@ const WMCore = (() => {
           _nextY = (_nextY + 32) % Math.max(100, ds.h - (cfg.h || 0) - 60);
         }
 
-        var targetW   = Number(saved && saved.w != null ? saved.w : (cfg.w  != null ? cfg.w  : 600));
-        var targetH   = Number(saved && saved.h != null ? saved.h : (cfg.h  != null ? cfg.h  : 400));
+        var targetW   = Number(savedW != null ? savedW : (cfg.w  != null ? cfg.w  : 600));
+        var targetH   = Number(savedH != null ? savedH : (cfg.h  != null ? cfg.h  : 400));
         var clamped   = _clampWindowPosition(x, y, targetW, targetH, 10);
         x = clamped.x;
         y = clamped.y;
 
         el.style.left   = x + 'px';
         el.style.top    = y + 'px';
-        el.style.width  = (saved && saved.w != null ? saved.w : cfg.w) + 'px';
-        el.style.height = (saved && saved.h != null ? saved.h : cfg.h) + 'px';
+        el.style.width  = (savedW != null ? savedW : cfg.w) + 'px';
+        el.style.height = (savedH != null ? savedH : cfg.h) + 'px';
       }
 
       if (el.parentElement !== hostEl) hostEl.appendChild(el);
@@ -1206,9 +1209,16 @@ const WMCore = (() => {
 
       _removeFromRecentClosed(id);
 
+      var forcedDockSide = (cfg && (cfg.forceDockSide === 'left' || cfg.forceDockSide === 'right' || cfg.forceDockSide === 'bottom'))
+        ? cfg.forceDockSide
+        : null;
       var savedDock = _loadDock(id);
-      if (savedDock && savedDock.side) {
+      if (forcedDockSide) {
+        _applyDockPosition(el, cfg, forcedDockSide, false);
+      } else if (savedDock && savedDock.side) {
         _applyDockPosition(el, cfg, savedDock.side, false);
+      } else if (cfg.autoDockOnOpen === true && (cfg.defaultDock === 'left' || cfg.defaultDock === 'right' || cfg.defaultDock === 'bottom')) {
+        _applyDockPosition(el, cfg, cfg.defaultDock, false);
       } else {
         _setDockState(el, null);
       }
@@ -2502,6 +2512,12 @@ const WMCore = (() => {
       } else if (side === 'bottom') {
         var tbTopInset  = Math.max(dockCfg.topInset,    insets.top    + dockCfg.margin);
         var tbBotInset  = Math.max(dockCfg.bottomInset, insets.bottom + dockCfg.margin);
+        if (cfg && cfg.dockBottomFullWidth === true) {
+          var fullWidth = Math.max(260, ds.w - (dockCfg.margin * 2));
+          winEl.style.width = fullWidth + 'px';
+          width = fullWidth;
+          x = dockCfg.margin;
+        }
         var fallbackLeft = Number.isFinite(Number(cfg && cfg.defaultX))
           ? Number(cfg.defaultX)
           : Math.floor((ds.w - width) / 2);

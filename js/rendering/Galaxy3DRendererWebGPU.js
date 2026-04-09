@@ -740,6 +740,17 @@
       this._orbitBindGroup = null;
       this._starBuf    = null;
       this._indexBuf   = null;
+      this._overlayCanvas = null;
+      this._overlayCtx = null;
+      this._overlayOwnsCanvas = false;
+      this._overlayFleetVectorsVisible = true;
+      this._overlayData = {
+        fleets: [],
+        gates: [],
+        nodes: [],
+        clusters: [],
+        clusterPalette: null,
+      };
       this._heroVertexBuf = null;
       this._heroIndexBuf = null;
       this._orbitVertexBuf = null;
@@ -897,6 +908,7 @@
     async _initWebGPU(canvas) {
       this._canvas = canvas;
       this.renderer.domElement = canvas;
+      this._ensureOverlayCanvas();
 
       this._adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
       if (!this._adapter) throw new Error('No WebGPU adapter available');
@@ -923,6 +935,288 @@
       this._canvas.height = Math.max(1, Math.floor((rect.height || this.container.clientHeight || 600) * dpr));
       this._aspect = this._canvas.width / Math.max(1, this._canvas.height);
       this._context.configure({ device: this._device, format, alphaMode: 'opaque' });
+      this._resizeOverlayCanvas();
+    }
+
+    _ensureOverlayCanvas() {
+      if (this._overlayCanvas || !this._canvas) return;
+      const host = this._canvas.parentElement || this.container;
+      if (!host) return;
+
+      if (window.getComputedStyle && host instanceof HTMLElement) {
+        const pos = window.getComputedStyle(host).position;
+        if (!pos || pos === 'static') host.style.position = 'relative';
+      }
+
+      const overlay = document.createElement('canvas');
+      overlay.className = 'gq-webgpu-overlay-canvas';
+      overlay.style.position = 'absolute';
+      overlay.style.left = '0';
+      overlay.style.top = '0';
+      overlay.style.width = '100%';
+      overlay.style.height = '100%';
+      overlay.style.pointerEvents = 'none';
+      overlay.style.zIndex = '3';
+      host.appendChild(overlay);
+
+      this._overlayCanvas = overlay;
+      this._overlayCtx = overlay.getContext('2d');
+      this._overlayOwnsCanvas = true;
+      this._resizeOverlayCanvas();
+    }
+
+    _resizeOverlayCanvas() {
+      if (!this._overlayCanvas || !this._canvas) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const rect = this._canvas.getBoundingClientRect();
+      const w = Math.max(1, Math.floor((rect.width || this._canvas.clientWidth || 800) * dpr));
+      const h = Math.max(1, Math.floor((rect.height || this._canvas.clientHeight || 600) * dpr));
+      if (this._overlayCanvas.width !== w) this._overlayCanvas.width = w;
+      if (this._overlayCanvas.height !== h) this._overlayCanvas.height = h;
+    }
+
+    _resolveStarFromRef(ref) {
+      if (!Array.isArray(this._rawStars) || !this._rawStars.length) return null;
+      if (typeof ref === 'number' && Number.isFinite(ref)) {
+        const idx = Math.max(0, Math.min(this._rawStars.length - 1, Math.floor(ref)));
+        return this._rawStars[idx] || null;
+      }
+      if (!ref || typeof ref !== 'object') return null;
+
+      const idx = Number(ref.star_index ?? ref.index ?? ref.starId);
+      if (Number.isFinite(idx)) {
+        const mapped = this._rawStars[Math.max(0, Math.min(this._rawStars.length - 1, Math.floor(idx)))];
+        if (mapped) return mapped;
+      }
+
+      const galaxyIndex = Number(ref.galaxy_index);
+      const systemIndex = Number(ref.system_index);
+      if (Number.isFinite(galaxyIndex) && Number.isFinite(systemIndex)) {
+        const found = this._rawStars.find((candidate) => (
+          Number(candidate?.galaxy_index) === galaxyIndex
+          && Number(candidate?.system_index) === systemIndex
+        ));
+        if (found) return found;
+      }
+
+      return null;
+    }
+
+    _resolvePoint2(value) {
+      if (!value) return null;
+      if (Array.isArray(value) && value.length >= 2) {
+        const xArr = Number(value[0]);
+        const yArr = Number(value[1]);
+        if (Number.isFinite(xArr) && Number.isFinite(yArr)) return { x: xArr, y: yArr };
+      }
+
+      const directX = Number(value.x_ly ?? value.x);
+      const directY = Number(value.y_ly ?? value.y);
+      if (Number.isFinite(directX) && Number.isFinite(directY)) return { x: directX, y: directY };
+
+      const nested = value.pos || value.position || value.point || value.center || value.location;
+      if (nested && nested !== value) {
+        const p = this._resolvePoint2(nested);
+        if (p) return p;
+      }
+
+      const star = this._resolveStarFromRef(value);
+      if (star) {
+        const sx = Number(star.x_ly ?? star.x);
+        const sy = Number(star.y_ly ?? star.y);
+        if (Number.isFinite(sx) && Number.isFinite(sy)) return { x: sx, y: sy };
+      }
+
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        const byIndex = this._resolveStarFromRef(value);
+        if (byIndex) {
+          const ix = Number(byIndex.x_ly ?? byIndex.x);
+          const iy = Number(byIndex.y_ly ?? byIndex.y);
+          if (Number.isFinite(ix) && Number.isFinite(iy)) return { x: ix, y: iy };
+        }
+      }
+
+      return null;
+    }
+
+    _projectWorldToOverlay(x, y) {
+      if (!this._overlayCanvas) return null;
+      const sx = (Number(x || 0) * this._starScale + this._view.panX) * this._view.zoom / this._aspect;
+      const sy = (Number(y || 0) * this._starScale + this._view.panY) * this._view.zoom;
+      return {
+        x: (sx + 1) * 0.5 * this._overlayCanvas.width,
+        y: (1 - sy) * 0.5 * this._overlayCanvas.height,
+      };
+    }
+
+    _hexWithAlpha(color, alphaHex, fallback) {
+      const raw = String(color || '').trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(raw)) return `${raw}${alphaHex}`;
+      return fallback;
+    }
+
+    _resolveClusterOverlayColor(cluster, index) {
+      const direct = String(cluster?.color_hex || cluster?.color || '').trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(direct)) return direct;
+
+      const palette = this._overlayData.clusterPalette;
+      if (!palette) return '#8fa8ff';
+
+      const keys = [cluster?.id, cluster?.cluster_id, cluster?.name, index]
+        .map((value) => String(value ?? '').trim())
+        .filter(Boolean);
+
+      if (Array.isArray(palette)) {
+        for (let i = 0; i < keys.length; i++) {
+          const idx = Number(keys[i]);
+          if (Number.isFinite(idx) && idx >= 0 && idx < palette.length) {
+            const candidate = String(palette[idx] || '').trim();
+            if (/^#[0-9a-fA-F]{6}$/.test(candidate)) return candidate;
+          }
+        }
+      } else if (typeof palette === 'object') {
+        for (let i = 0; i < keys.length; i++) {
+          const key = keys[i];
+          const candidate = String(palette[key] || '').trim();
+          if (/^#[0-9a-fA-F]{6}$/.test(candidate)) return candidate;
+        }
+      }
+
+      return '#8fa8ff';
+    }
+
+    _renderGalaxyOverlay2D() {
+      const ctx = this._overlayCtx;
+      const canvas = this._overlayCanvas;
+      if (!ctx || !canvas) return;
+
+      this._resizeOverlayCanvas();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (this.systemMode) return;
+
+      const zoom = Math.max(0.45, Number(this._view?.zoom || 1));
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const visualScale = Math.max(0.72, Math.min(1.65, (0.9 + zoom * 0.34) / Math.max(1, dpr * 0.95)));
+      const gateGlowWidth = Math.max(2.2, 3.6 * visualScale);
+      const gateLineWidth = Math.max(1.0, 1.35 * visualScale);
+      const gateMarkerRadius = Math.max(1.8, 2.15 * visualScale);
+      const nodeRadius = Math.max(2.4, 3.0 * visualScale);
+      const fleetRadius = Math.max(2.0, 2.4 * visualScale);
+      const fleetVectorWidth = Math.max(0.9, 1.05 * visualScale);
+      const arrowLen = Math.max(6, 7.5 * visualScale);
+      const arrowHalfWidth = Math.max(2.2, 3.0 * visualScale);
+
+      const clusters = Array.isArray(this._overlayData.clusters) ? this._overlayData.clusters : [];
+      for (let i = 0; i < clusters.length; i++) {
+        const cluster = clusters[i] || {};
+        const center = this._resolvePoint2(cluster);
+        if (!center) continue;
+        const c = this._projectWorldToOverlay(center.x, center.y);
+        if (!c) continue;
+        const radiusLy = Number(cluster.radius_ly || cluster.radius || cluster.influence_radius_ly || 26);
+        const edge = this._projectWorldToOverlay(center.x + Math.max(5, radiusLy), center.y);
+        const r = Math.max(5, Math.abs((edge?.x || c.x + 12) - c.x));
+        const clusterColor = this._resolveClusterOverlayColor(cluster, i);
+        ctx.beginPath();
+        ctx.fillStyle = this._hexWithAlpha(clusterColor, '22', 'rgba(143,168,255,0.12)');
+        ctx.strokeStyle = this._hexWithAlpha(clusterColor, '66', 'rgba(143,168,255,0.40)');
+        ctx.lineWidth = 1;
+        ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      const gates = Array.isArray(this._overlayData.gates) ? this._overlayData.gates : [];
+      for (let i = 0; i < gates.length; i++) {
+        const gate = gates[i] || {};
+        const a = this._resolvePoint2(gate.a || gate.from || gate.start || gate.source || gate.origin || gate.system_a || gate.src || gate.p0);
+        const b = this._resolvePoint2(gate.b || gate.to || gate.end || gate.target || gate.destination || gate.system_b || gate.dst || gate.p1);
+        if (!a || !b) continue;
+        const pa = this._projectWorldToOverlay(a.x, a.y);
+        const pb = this._projectWorldToOverlay(b.x, b.y);
+        if (!pa || !pb) continue;
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.18)';
+        ctx.lineWidth = gateGlowWidth;
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.78)';
+        ctx.lineWidth = gateLineWidth;
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(0, 229, 255, 0.92)';
+        ctx.arc(pa.x, pa.y, gateMarkerRadius, 0, Math.PI * 2);
+        ctx.arc(pb.x, pb.y, gateMarkerRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const nodes = Array.isArray(this._overlayData.nodes) ? this._overlayData.nodes : [];
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i] || {};
+        const p = this._resolvePoint2(node.pos || node.position || node.center || node);
+        if (!p) continue;
+        const sp = this._projectWorldToOverlay(p.x, p.y);
+        if (!sp) continue;
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(255, 0, 204, 0.85)';
+        ctx.arc(sp.x, sp.y, nodeRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const fleets = Array.isArray(this._overlayData.fleets) ? this._overlayData.fleets : [];
+      for (let i = 0; i < fleets.length; i++) {
+        const fleet = fleets[i] || {};
+        const p = this._resolvePoint2(fleet.pos || fleet.position || fleet.origin || fleet.from || fleet.location || fleet.center);
+        if (!p) continue;
+        const fp = this._projectWorldToOverlay(p.x, p.y);
+        if (!fp) continue;
+
+        const t = this._resolvePoint2(fleet.target || fleet.to || fleet.destination);
+        if (this._overlayFleetVectorsVisible && t) {
+          const tp = this._projectWorldToOverlay(t.x, t.y);
+          if (tp) {
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(120, 255, 215, 0.45)';
+            ctx.lineWidth = fleetVectorWidth;
+            ctx.moveTo(fp.x, fp.y);
+            ctx.lineTo(tp.x, tp.y);
+            ctx.stroke();
+
+            const dx = tp.x - fp.x;
+            const dy = tp.y - fp.y;
+            const len = Math.hypot(dx, dy);
+            if (len > arrowLen + 1) {
+              const ux = dx / len;
+              const uy = dy / len;
+              const nx = -uy;
+              const ny = ux;
+              const tipX = tp.x;
+              const tipY = tp.y;
+              const baseX = tp.x - ux * arrowLen;
+              const baseY = tp.y - uy * arrowLen;
+              ctx.beginPath();
+              ctx.fillStyle = 'rgba(120, 255, 215, 0.82)';
+              ctx.moveTo(tipX, tipY);
+              ctx.lineTo(baseX + nx * arrowHalfWidth, baseY + ny * arrowHalfWidth);
+              ctx.lineTo(baseX - nx * arrowHalfWidth, baseY - ny * arrowHalfWidth);
+              ctx.closePath();
+              ctx.fill();
+            }
+          }
+        }
+
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(120, 255, 215, 0.95)';
+        ctx.arc(fp.x, fp.y, fleetRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     async _buildPipeline() {
@@ -1570,6 +1864,7 @@
 
       pass.end();
       this._device.queue.submit([encoder.finish()]);
+      this._renderGalaxyOverlay2D();
 
       // Camera driver hook (e.g. SeamlessZoomOrchestrator)
       if (this._cameraDriver && typeof this._cameraDriver.update === 'function') {
@@ -1955,18 +2250,23 @@
 
     setGalaxyFleets(fleets) {
       if (this._delegate) return this._delegate.setGalaxyFleets?.(fleets);
+      this._overlayData.fleets = Array.isArray(fleets) ? fleets.slice() : [];
     }
 
     setFtlInfrastructure(gates, nodes) {
       if (this._delegate) return this._delegate.setFtlInfrastructure?.(gates, nodes);
+      this._overlayData.gates = Array.isArray(gates) ? gates.slice() : [];
+      this._overlayData.nodes = Array.isArray(nodes) ? nodes.slice() : [];
     }
 
     setClusterAuras(clusters) {
       if (this._delegate) return this._delegate.setClusterAuras?.(clusters);
+      this._overlayData.clusters = Array.isArray(clusters) ? clusters.slice() : [];
     }
 
     setClusterColorPalette(palette) {
       if (this._delegate) return this._delegate.setClusterColorPalette?.(palette);
+      this._overlayData.clusterPalette = palette || null;
     }
 
     setCameraTarget(target) {
@@ -2034,6 +2334,7 @@
 
     setGalaxyFleetVectorsVisible(enabled) {
       if (this._delegate) return this._delegate.setGalaxyFleetVectorsVisible?.(enabled);
+      this._overlayFleetVectorsVisible = enabled !== false;
     }
 
     setSystemOrbitPathsVisible(enabled) {
@@ -2144,6 +2445,10 @@
       this._systemPayload = null;
       this._systemPlanetEntries = [];
       this._currentTarget = null;
+      this._overlayData.fleets = [];
+      this._overlayData.gates = [];
+      this._overlayData.nodes = [];
+      this._overlayData.clusters = [];
       this._view.targetPanX = 0;
       this._view.targetPanY = 0;
       this._view.targetZoom = 1;
@@ -2178,6 +2483,9 @@
       this._syncInputContext();
       this._systemPayload = null;
       this._systemPlanetEntries = [];
+      if (this._overlayCtx && this._overlayCanvas) {
+        this._overlayCtx.clearRect(0, 0, this._overlayCanvas.width, this._overlayCanvas.height);
+      }
       this._view.targetZoom = Math.min(this._view.targetZoom, 1.2);
     }
 
@@ -2302,6 +2610,15 @@
       this._planetBindGroup = null;
       this._orbitBindGroup = null;
       this._context    = null;
+      if (this._overlayCtx && this._overlayCanvas) {
+        this._overlayCtx.clearRect(0, 0, this._overlayCanvas.width, this._overlayCanvas.height);
+      }
+      if (this._overlayOwnsCanvas && this._overlayCanvas?.parentElement) {
+        this._overlayCanvas.parentElement.removeChild(this._overlayCanvas);
+      }
+      this._overlayCanvas = null;
+      this._overlayCtx = null;
+      this._overlayOwnsCanvas = false;
       this._device?.destroy();
       this._device     = null;
       this._adapter    = null;

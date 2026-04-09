@@ -23,28 +23,41 @@ class GalaxyLevelWebGPU extends ZoomLevelRendererBase {
     this._sceneData = null;
   }
 
+  _isInteractiveWebGpuExperimentEnabled() {
+    return true;
+  }
+
   async initialize(canvas, backend) {
     this._canvas  = canvas;
     this._backend = backend;
 
-    const GalaxyCtor = (typeof window !== 'undefined' && (window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU)) || null;
+    const useNativeWebGpu = this._isInteractiveWebGpuExperimentEnabled();
+    const GalaxyCtor = (typeof window !== 'undefined' && (
+      useNativeWebGpu
+        ? (window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU)
+        : window.Galaxy3DRenderer
+    )) || null;
     const runtimeOptions = (typeof window !== 'undefined' && window.__GQ_LEVEL_RENDERER_OPTIONS && typeof window.__GQ_LEVEL_RENDERER_OPTIONS === 'object')
       ? window.__GQ_LEVEL_RENDERER_OPTIONS
       : {};
     const container = canvas?.parentElement || null;
     if (GalaxyCtor && container) {
-      const shared = window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU;
+      const shared = useNativeWebGpu ? window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU : window.__GQ_LEVEL_SHARED_RENDERER_THREEJS;
       if (shared) {
         this._starfield = shared;
         if (this._starfield._opts && typeof this._starfield._opts === 'object') {
           Object.assign(this._starfield._opts, runtimeOptions);
+        }
+        if (this._starfield.opts && typeof this._starfield.opts === 'object') {
+          Object.assign(this._starfield.opts, runtimeOptions);
         }
       } else {
         this._starfield = new GalaxyCtor(container, Object.assign({}, runtimeOptions, { externalCanvas: canvas, interactive: true }));
         if (typeof this._starfield.init === 'function') {
           await this._starfield.init();
         }
-        window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = this._starfield;
+        if (useNativeWebGpu) window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = this._starfield;
+        else window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = this._starfield;
       }
     }
   }

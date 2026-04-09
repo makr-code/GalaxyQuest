@@ -48,9 +48,9 @@
     settingsState.magnetPreset = ['precise', 'balanced', 'sticky', 'custom'].includes(String(settingsState.magnetPreset || 'balanced'))
       ? String(settingsState.magnetPreset)
       : 'balanced';
-    settingsState.renderQualityProfile = ['auto', 'low', 'medium', 'high', 'ultra'].includes(String(settingsState.renderQualityProfile || 'auto').toLowerCase())
-      ? String(settingsState.renderQualityProfile || 'auto').toLowerCase()
-      : 'auto';
+    settingsState.renderQualityProfile = ['webgpu', 'auto', 'low', 'medium', 'high', 'ultra'].includes(String(settingsState.renderQualityProfile || 'webgpu').toLowerCase())
+      ? String(settingsState.renderQualityProfile || 'webgpu').toLowerCase()
+      : 'webgpu';
     settingsState.orbitSimulationMode = ['auto', 'simple', 'complex'].includes(String(settingsState.orbitSimulationMode || 'auto').toLowerCase())
       ? String(settingsState.orbitSimulationMode || 'auto').toLowerCase()
       : 'auto';

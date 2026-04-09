@@ -23,14 +23,23 @@ class SystemLevelWebGPU extends ZoomLevelRendererBase {
     this._sceneData = null;
   }
 
+  _isInteractiveWebGpuExperimentEnabled() {
+    return true;
+  }
+
   async initialize(canvas, backend) {
     this._canvas  = canvas;
     this._backend = backend;
 
-    const GalaxyCtor = (typeof window !== 'undefined' && (window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU)) || null;
+    const useNativeWebGpu = this._isInteractiveWebGpuExperimentEnabled();
+    const GalaxyCtor = (typeof window !== 'undefined' && (
+      useNativeWebGpu
+        ? (window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU)
+        : window.Galaxy3DRenderer
+    )) || null;
     const container = canvas?.parentElement || null;
     if (GalaxyCtor && container) {
-      const shared = window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU;
+      const shared = useNativeWebGpu ? window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU : window.__GQ_LEVEL_SHARED_RENDERER_THREEJS;
       if (shared) {
         this._starfield = shared;
       } else {
@@ -38,7 +47,8 @@ class SystemLevelWebGPU extends ZoomLevelRendererBase {
         if (typeof this._starfield.init === 'function') {
           await this._starfield.init();
         }
-        window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = this._starfield;
+        if (useNativeWebGpu) window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = this._starfield;
+        else window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = this._starfield;
       }
     }
   }
