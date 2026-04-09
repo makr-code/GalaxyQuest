@@ -4,6 +4,19 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/game_engine.php';
 
+// Keep runtime calculations resilient when economy_flush.php is not part of the
+// current include chain (e.g. overview read path).
+if (!defined('ECONOMY_POP_CONSUMPTION_RATES')) {
+    define('ECONOMY_POP_CONSUMPTION_RATES', [
+        'consumer_goods'        => 0.20,
+        'biocompost'            => 0.05,
+        'research_kits'         => 0.02,
+        'military_equipment'    => 0.01,
+        'luxury_goods'          => 0.03,
+        'neural_implants'       => 0.005,
+    ]);
+}
+
 if (!function_exists('fetch_colony_runtime_row')) {
     function fetch_colony_runtime_row(PDO $db, int $colonyId): ?array {
         $stmt = $db->prepare(<<<SQL
