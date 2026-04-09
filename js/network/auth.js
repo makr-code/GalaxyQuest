@@ -70,7 +70,7 @@
       const params = new URLSearchParams(String(window.location?.search || ''));
       const qp = String(params.get('gqShellDebug') || '').toLowerCase();
       if (qp === '1' || qp === 'true' || qp === 'yes' || qp === 'on') return true;
-      return localStorage.getItem('gq_debug_logs') === '1';
+      return localStorage.getItem('gq_shell_debug') === '1';
     } catch (_) {
       return false;
     }
@@ -561,23 +561,6 @@
         extra,
       };
       console.info('[GQ][ShellDebug]', snapshot);
-      authLog('info', '[shelldbg]', JSON.stringify({
-        stage: snapshot.stage,
-        bodyClass: snapshot.bodyClass,
-        authVisible: snapshot.authVisible,
-        gameSectionExists: snapshot.gameSectionExists,
-        gameSectionId: snapshot.gameSectionId,
-        gameVisible: snapshot.gameVisible,
-        stageSectionClass: snapshot.stageSectionClass,
-        host: snapshot.host,
-        starfield: snapshot.starfield,
-        starfieldSize: snapshot.starfieldSize,
-        galaxyOpen: snapshot.galaxyOpen,
-        rendererReady: snapshot.rendererReady,
-        rendererInitReason: snapshot.rendererInitReason,
-        renderTelemetryReason: snapshot.renderTelemetryReason,
-        extra: snapshot.extra,
-      }));
     } catch (err) {
       console.warn('[GQ][ShellDebug] emit failed', String(err?.message || err || 'unknown'));
     }
