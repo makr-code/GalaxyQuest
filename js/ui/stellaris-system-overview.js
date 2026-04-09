@@ -329,7 +329,10 @@ class StellarisSystemOverview {
     const nav = this._windowRef?.navigator ?? (typeof navigator !== 'undefined' ? navigator : null);
     if (!nav?.gpu) return;
     try {
-      const adapter = await nav.gpu.requestAdapter({ powerPreference: 'high-performance' });
+      const ua = String(nav.userAgent || '').toLowerCase();
+      const isWindows = ua.includes('windows');
+      const adapterOptions = isWindows ? undefined : { powerPreference: 'high-performance' };
+      const adapter = await nav.gpu.requestAdapter(adapterOptions);
       if (!adapter) return;
       this._device = await adapter.requestDevice();
       this._canvasFormat = nav.gpu.getPreferredCanvasFormat
