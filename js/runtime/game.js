@@ -4727,6 +4727,17 @@ async function renderTradeProposals() {
       'configureRenderTelemetryRuntime',
       'installRenderTelemetryHook',
     ]);
+    const runtimeCoreModApi = requireRuntimeApi('GQRuntimeCore', ['createRuntimeCore']);
+    const runtimeAdminVisibilityApi = requireRuntimeApi('GQRuntimeAdminVisibility', [
+      'isCurrentUserAdmin',
+      'normalizeStarVisibility',
+      'normalizeStarListVisibility',
+      'normalizeSystemPayloadVisibility',
+    ]);
+    const runtimeGameBootstrapHelpersApi = requireRuntimeApi('GQRuntimeGameBootstrapHelpers', [
+      'updateCommanderButtonLabel',
+      'invalidateGetCache',
+    ]);
     const runtimeBootSetupSequenceApi = requireRuntimeApi('GQRuntimeBootSetupSequence', ['runBootSetupSequence']);
     const runtimeBootSetupContextApi = requireRuntimeApi('GQRuntimeBootSetupContext', ['createBootSetupContextBuilder']);
     const bootSetupContextBuilder = runtimeBootSetupContextApi.createBootSetupContextBuilder();
@@ -4740,6 +4751,9 @@ async function renderTradeProposals() {
       runtimeColonyVfxDebugWidgetSetupApi,
       runtimeLoadNetworkEventsApi,
       runtimeRenderTelemetryHookApi,
+      runtimeCoreModApi,
+      runtimeAdminVisibilityApi,
+      runtimeGameBootstrapHelpersApi,
       runtimeBootSetupSequenceApi,
       bootSetupContextBuilder,
     };
@@ -4755,9 +4769,14 @@ async function renderTradeProposals() {
     runtimeColonyVfxDebugWidgetSetupApi,
     runtimeLoadNetworkEventsApi,
     runtimeRenderTelemetryHookApi,
+    runtimeCoreModApi,
+    runtimeAdminVisibilityApi,
+    runtimeGameBootstrapHelpersApi,
     runtimeBootSetupSequenceApi,
     bootSetupContextBuilder,
   } = initBootSetupApis();
+  const runtimeGameCore = runtimeCoreModApi.createRuntimeCore({ autoStart: true });
+  window.GQGameRuntimeCore = runtimeGameCore;
   let lastLoadErrorToastAt = 0;
   const runtimeFeatureRegistryApi = requireRuntimeApi('GQRuntimeFeatureRegistry', ['createFeatureRegistry']);
   const runtimeLifecycleManagerApi = requireRuntimeApi('GQRuntimeLifecycleManager', ['createLifecycleManager']);
@@ -4906,7 +4925,7 @@ async function renderTradeProposals() {
       showToast,
       eventSourceFactory: eventSourceFactoryRef,
       eventBus: runtimeEventBus,
-      runtimeCore: window?.GQGameRuntimeCore || null,
+      runtimeCore: runtimeGameCore,
       setFooterLoadProgress,
       setFooterNetworkStatus,
       redirectToLogin,
@@ -4927,6 +4946,9 @@ async function renderTradeProposals() {
       logger: console,
     });
     await runtimeBootSetupSequenceApi.runBootSetupSequence(bootSetupContext);
+    if (currentUser) {
+      runtimeGameBootstrapHelpersApi.updateCommanderButtonLabel(currentUser, { documentRef: document });
+    }
     await lifecycleManager.transitionTo(LIFECYCLE_PHASES.SERVICES_READY, { source: 'game' });
     await lifecycleManager.transitionTo(LIFECYCLE_PHASES.UI_READY, { source: 'game' });
     await lifecycleManager.transitionTo(LIFECYCLE_PHASES.RUNNING, { source: 'game' });

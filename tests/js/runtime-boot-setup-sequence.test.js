@@ -126,6 +126,19 @@ describe('RuntimeBootSetupSequence event bus integration', () => {
 
     expect(setup.realtimeSyncSetupApi.setupRealtimeSync).toHaveBeenCalled();
   });
+
+  it('passes runtimeCore to registerLoadAndNetworkRuntimeEvents', async () => {
+    const mod = loadSequenceModule();
+    const fakeCore = { bindWindowEvent: vi.fn(() => () => {}) };
+    const setup = createBaseSetup(null, {});
+    setup.runtimeCore = fakeCore;
+
+    await mod.runBootSetupSequence(setup);
+
+    expect(setup.loadNetworkEventsApi.registerLoadAndNetworkRuntimeEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimeCore: fakeCore })
+    );
+  });
 });
 
 describe('RuntimeBootSetupContext event bus passthrough', () => {
