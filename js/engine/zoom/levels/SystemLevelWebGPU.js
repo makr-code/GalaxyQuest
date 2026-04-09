@@ -27,19 +27,39 @@ class SystemLevelWebGPU extends ZoomLevelRendererBase {
     return true;
   }
 
+  _isLegacyThreeFallbackEnabled() {
+    try {
+      const key = String(localStorage.getItem('gq:allowThreeFallback') || '').trim().toLowerCase();
+      return key === '1' || key === 'true' || key === 'yes' || key === 'on';
+    } catch (_) {
+      return false;
+    }
+  }
+
   async initialize(canvas, backend) {
     this._canvas  = canvas;
     this._backend = backend;
 
     const useNativeWebGpu = this._isInteractiveWebGpuExperimentEnabled();
-    const GalaxyCtor = (typeof window !== 'undefined' && (
-      useNativeWebGpu
-        ? (window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU)
-        : window.Galaxy3DRenderer
-    )) || null;
+    const webGpuCtor = (typeof window !== 'undefined' && useNativeWebGpu)
+      ? (window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU)
+      : null;
+    const allowLegacyThreeFallback = this._isLegacyThreeFallbackEnabled();
+    const useLegacyThree = !webGpuCtor && allowLegacyThreeFallback;
+    const GalaxyCtor = useLegacyThree
+      ? ((typeof window !== 'undefined' && window.Galaxy3DRenderer) || null)
+      : webGpuCtor;
+
+    if (!GalaxyCtor) {
+      throw new Error(
+        'SystemLevelWebGPU requires Galaxy3DRendererWebGPU. '
+        + 'Temporary fallback: set localStorage gq:allowThreeFallback=1.'
+      );
+    }
+
     const container = canvas?.parentElement || null;
     if (GalaxyCtor && container) {
-      const shared = useNativeWebGpu ? window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU : window.__GQ_LEVEL_SHARED_RENDERER_THREEJS;
+      const shared = useLegacyThree ? window.__GQ_LEVEL_SHARED_RENDERER_THREEJS : window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU;
       if (shared) {
         this._starfield = shared;
       } else {
@@ -47,8 +67,8 @@ class SystemLevelWebGPU extends ZoomLevelRendererBase {
         if (typeof this._starfield.init === 'function') {
           await this._starfield.init();
         }
-        if (useNativeWebGpu) window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = this._starfield;
-        else window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = this._starfield;
+        if (useLegacyThree) window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = this._starfield;
+        else window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = this._starfield;
       }
     }
   }

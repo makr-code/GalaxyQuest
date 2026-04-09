@@ -221,4 +221,53 @@ describe('Zoom level renderers shared init integration', () => {
     expect(focusOnSystemPlanet).toHaveBeenCalledTimes(1);
     expect(focusOnSystemPlanet).toHaveBeenCalledWith(focusPlanet, true);
   });
+
+  it('SystemLevelWebGPU initialize uses native WebGPU renderer and stores shared instance', async () => {
+    const { canvas } = makeCanvasHost();
+    const init = vi.fn(async () => undefined);
+    const ctor = vi.fn(function (_container, opts) {
+      this._opts = opts;
+      this.init = init;
+      this.dispose = vi.fn();
+      return this;
+    });
+
+    window.GQGalaxy3DRendererWebGPU = ctor;
+
+    const level = new SystemLevelWebGPU();
+    await level.initialize(canvas, {});
+
+    expect(ctor).toHaveBeenCalledTimes(1);
+    expect(init).toHaveBeenCalledTimes(1);
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBe(level._starfield);
+  });
+
+  it('SystemLevelWebGPU initialize throws when native renderer is missing and no fallback opt-in is set', async () => {
+    const { canvas } = makeCanvasHost();
+    const level = new SystemLevelWebGPU();
+
+    await expect(level.initialize(canvas, {})).rejects.toThrow('SystemLevelWebGPU requires Galaxy3DRendererWebGPU');
+  });
+
+  it('SystemLevelWebGPU initialize allows legacy Three fallback only with explicit localStorage opt-in', async () => {
+    const { canvas } = makeCanvasHost();
+    const init = vi.fn(async () => undefined);
+    const ctor = vi.fn(function (_container, opts) {
+      this._opts = opts;
+      this.init = init;
+      this.dispose = vi.fn();
+      return this;
+    });
+
+    localStorage.setItem('gq:allowThreeFallback', '1');
+    window.Galaxy3DRenderer = ctor;
+
+    const level = new SystemLevelWebGPU();
+    await level.initialize(canvas, {});
+
+    expect(ctor).toHaveBeenCalledTimes(1);
+    expect(init).toHaveBeenCalledTimes(1);
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_THREEJS).toBe(level._starfield);
+    localStorage.removeItem('gq:allowThreeFallback');
+  });
 });
