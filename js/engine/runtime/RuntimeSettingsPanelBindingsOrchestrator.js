@@ -6,10 +6,10 @@
  * top-level API lookups inside renderSettings().
  */
 (function () {
-  function createSettingsPanelBindingsOrchestrator() {
-    const audioApi = (typeof window !== 'undefined' && window.GQRuntimeAudioSettingsPanel) || null;
-    const aiApi    = (typeof window !== 'undefined' && window.GQRuntimeAiSettingsPanel)    || null;
-    const ftlApi   = (typeof window !== 'undefined' && window.GQRuntimeFtlSettingsPanel)   || null;
+  function createSettingsPanelBindingsOrchestrator(opts = {}) {
+    const audioApi = opts.runtimeAudioSettingsPanelApi || ((typeof window !== 'undefined' && window.GQRuntimeAudioSettingsPanel) || null);
+    const aiApi = opts.runtimeAiSettingsPanelApi || ((typeof window !== 'undefined' && window.GQRuntimeAiSettingsPanel) || null);
+    const ftlApi = opts.runtimeFtlSettingsPanelApi || ((typeof window !== 'undefined' && window.GQRuntimeFtlSettingsPanel) || null);
 
     function bindAllPanels({
       root,

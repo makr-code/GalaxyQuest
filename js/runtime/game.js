@@ -4351,6 +4351,15 @@
   const runtimeColonizationControllerApi = requireRuntimeApi('GQRuntimeColonizationController', ['createColonizationController']);
   const runtimeEmpireCategoriesPanelApi = requireRuntimeApi('GQRuntimeEmpireCategoriesPanel', ['createEmpireCategoriesPanel']);
   const runtimeEspionageControllerApi = requireRuntimeApi('GQRuntimeEspionageController', ['createEspionageController']);
+  const runtimeDiplomacyDataModelApi = requireRuntimeApi('GQRuntimeDiplomacyDataModel', [
+    'getTypes',
+    'getType',
+    'standingMeta',
+    'statusClass',
+    'acceptanceBarHTML',
+  ]);
+  const runtimeDiplomacyPanelApi = requireRuntimeApi('GQRuntimeDiplomacyPanel', ['createDiplomacyPanel']);
+  const runtimeContractNegotiationModalApi = requireRuntimeApi('GQRuntimeContractNegotiationModal', ['createModal']);
   const runtimeConflictDashboardApi = requireRuntimeApi('GQRuntimeConflictDashboard', ['createConflictDashboard']);
   const runtimeSocialControllersBootstrapApi = requireRuntimeApi('GQRuntimeSocialControllersBootstrap', ['createSocialControllersBootstrap']);
   const runtimeAdvisorWidgetApi = requireRuntimeApi('GQRuntimeAdvisorWidget', ['createAdvisorWidget']);
@@ -4370,6 +4379,9 @@
     runtimeColonizationControllerApi,
     runtimeEmpireCategoriesPanelApi,
     runtimeEspionageControllerApi,
+    runtimeDiplomacyDataModelApi,
+    runtimeDiplomacyPanelApi,
+    runtimeContractNegotiationModalApi,
     wm: WM,
     api: API,
     windowRef: window,
@@ -4594,6 +4606,9 @@ async function renderTradeProposals() {
   function initSettingsRuntime() {
     const runtimeSettingsSfxRowsApi = requireRuntimeApi('GQRuntimeSettingsSfxRows', ['createSettingsSfxRowsBuilder']);
     const runtimeSettingsMusicTrackOptionsApi = requireRuntimeApi('GQRuntimeSettingsMusicTrackOptions', ['createSettingsMusicTrackOptionsBuilder']);
+    const runtimeAiSettingsPanelApi = requireRuntimeApi('GQRuntimeAiSettingsPanel', ['bindAiSettingsPanel']);
+    const runtimeFtlSettingsPanelApi = requireRuntimeApi('GQRuntimeFtlSettingsPanel', ['bindFtlSettingsPanel']);
+    const runtimeAudioSettingsPanelApi = requireRuntimeApi('GQRuntimeAudioSettingsPanel', ['bindAudioSettingsPanel']);
     const runtimeSettingsFtlDriveButtonsApi = requireRuntimeApi('GQRuntimeSettingsFtlDriveButtons', ['createSettingsFtlDriveButtonsBuilder']);
     const runtimeSettingsFtlDrivesCatalogApi = requireRuntimeApi('GQRuntimeSettingsFtlDrivesCatalog', ['getFtlDrives']);
     const runtimeSettingsFtlTemplateStylesApi = requireRuntimeApi('GQRuntimeSettingsFtlTemplateStyles', ['getFtlTemplateStyles']);
@@ -4620,7 +4635,11 @@ async function renderTradeProposals() {
     const settingsCoreSectionTemplateBuilder = runtimeSettingsCoreSectionTemplateApi.createSettingsCoreSectionTemplateBuilder();
     const settingsViewModelBuilder = runtimeSettingsViewModelApi.createSettingsViewModelBuilder();
     const settingsBaseBindings = runtimeSettingsBaseBindingsApi.createSettingsBaseBindings();
-    const settingsPanelBindingsOrchestrator = runtimeSettingsPanelBindingsOrchestratorApi.createSettingsPanelBindingsOrchestrator();
+    const settingsPanelBindingsOrchestrator = runtimeSettingsPanelBindingsOrchestratorApi.createSettingsPanelBindingsOrchestrator({
+      runtimeAudioSettingsPanelApi,
+      runtimeAiSettingsPanelApi,
+      runtimeFtlSettingsPanelApi,
+    });
     const settingsRenderModelBuilder = runtimeSettingsRenderModelApi.createSettingsRenderModelBuilder();
     const settingsRenderBindings = runtimeSettingsRenderBindingsApi.createSettingsRenderBindings();
     const settingsRenderFacade = runtimeSettingsRenderFacadeApi.createSettingsRenderFacade();
