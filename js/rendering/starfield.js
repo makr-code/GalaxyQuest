@@ -172,6 +172,18 @@
     await loadScript(withAssetVersion('js/legacy/galaxy3d-webgpu.js', 'legacyWebGpu', '20260404p2'));
   }
 
+  async function canUseWebGpuAdapter() {
+    if (typeof navigator === 'undefined' || !navigator.gpu || typeof navigator.gpu.requestAdapter !== 'function') {
+      return false;
+    }
+    try {
+      const adapter = await navigator.gpu.requestAdapter();
+      return !!adapter;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function ensureDeps() {
     try {
       await ensureWebGpuRenderers();
@@ -180,7 +192,8 @@
     }
 
     const hasWebGpuView = !!(window.Galaxy3DView || window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU);
-    if (!hasWebGpuView) {
+    const hasUsableWebGpu = await canUseWebGpuAdapter();
+    if (!hasWebGpuView || !hasUsableWebGpu) {
       if (!window.THREE) {
         try {
           await loadScript('js/vendor/three.min.js');

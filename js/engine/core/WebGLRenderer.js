@@ -24,6 +24,75 @@ var { IGraphicsRenderer: BaseGraphicsRenderer } = typeof require !== 'undefined'
   : window.GQGraphicsContext;
 
 class WebGLRenderer extends BaseGraphicsRenderer {
+  static async _ensureThreeRuntime() {
+    if (typeof THREE !== 'undefined') {
+      return;
+    }
+
+    const win = (typeof window !== 'undefined') ? window : null;
+    const doc = (typeof document !== 'undefined') ? document : null;
+
+    if (win && win.__GQ_THREE_RUNTIME && typeof win.__GQ_THREE_RUNTIME.WebGLRenderer === 'function') {
+      win.THREE = win.__GQ_THREE_RUNTIME;
+      if (typeof globalThis !== 'undefined') {
+        globalThis.THREE = win.__GQ_THREE_RUNTIME;
+      }
+      return;
+    }
+
+    if (!win || !doc) {
+      throw new Error('WebGLRenderer requires Three.js — load three.min.js first');
+    }
+
+    if (!win.__GQ_THREE_LOAD_PROMISE) {
+      win.__GQ_THREE_LOAD_PROMISE = new Promise((resolve, reject) => {
+        const existing = doc.querySelector('script[src*="js/vendor/three.min.js"]');
+        if (existing && win.THREE) {
+          resolve();
+          return;
+        }
+
+        const timeoutId = setTimeout(() => {
+          reject(new Error('WebGLRenderer failed to load Three.js runtime (timeout)'));
+        }, 1500);
+
+        const s = existing || doc.createElement('script');
+        if (!existing) {
+          s.src = 'js/vendor/three.min.js';
+          s.async = false;
+        }
+        s.onload = () => {
+          clearTimeout(timeoutId);
+          resolve();
+        };
+        s.onerror = () => {
+          clearTimeout(timeoutId);
+          reject(new Error('WebGLRenderer failed to load Three.js runtime'));
+        };
+        if (!existing) {
+          doc.head.appendChild(s);
+        }
+      });
+    }
+
+    try {
+      await win.__GQ_THREE_LOAD_PROMISE;
+    } catch (err) {
+      win.__GQ_THREE_LOAD_PROMISE = null;
+      throw err;
+    }
+
+    if (win.THREE && typeof win.THREE.WebGLRenderer === 'function') {
+      if (typeof globalThis !== 'undefined') {
+        globalThis.THREE = win.THREE;
+      }
+      win.__GQ_THREE_RUNTIME = win.THREE;
+      return;
+    }
+
+    throw new Error('WebGLRenderer requires Three.js — load three.min.js first');
+  }
+
   /**
    * @param {Object|null} [threeOptions]  When provided the underlying
    *   THREE.WebGLRenderer is created synchronously in the constructor
@@ -133,9 +202,7 @@ class WebGLRenderer extends BaseGraphicsRenderer {
   // ---------------------------------------------------------------------------
 
   async initialize(canvas) {
-    if (typeof THREE === 'undefined') {
-      throw new Error('WebGLRenderer requires Three.js — load three.min.js first');
-    }
+    await WebGLRenderer._ensureThreeRuntime();
 
     this._log('initialize: creating THREE.WebGLRenderer…');
     this._threeRenderer = this._createThreeRenderer({

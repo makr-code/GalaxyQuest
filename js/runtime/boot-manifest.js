@@ -75,6 +75,26 @@
     });
   }
 
+  function readLocalStorageFlag(key) {
+    try {
+      return String(localStorage.getItem(key) || '').trim().toLowerCase();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function isTruthyFlag(value) {
+    return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+  }
+
+  function shouldPreloadLegacyThree() {
+    const rendererHint = readLocalStorageFlag('gq:rendererHint');
+    const allowFallback = readLocalStorageFlag('gq:allowThreeFallback');
+    const forceLegacyPath = rendererHint === 'webgl2' || isTruthyFlag(allowFallback);
+    const webGpuExposed = typeof navigator !== 'undefined' && !!navigator.gpu;
+    return forceLegacyPath || !webGpuExposed;
+  }
+
   window.GQ_ASSETS_MANIFEST_VERSION = 2;
   window.__GQ_ASSET_VERSIONS = Object.assign({}, window.__GQ_ASSET_VERSIONS || {}, assetVersions);
 
@@ -111,7 +131,7 @@
       localScript('js/runtime/galaxy-db.js', V.assetCore),
       localScript('js/runtime/audio.js', V.assetCore),
       localScript('js/runtime/tts.js', V.tts),
-      CDN.three,
+      ...(shouldPreloadLegacyThree() ? [CDN.three] : []),
       localScript('js/engine/core/WebGLTexture3DPatch.js', V.webglTexture3DPatch),
       localScript('js/engine/core/GraphicsContext.js', V.assetCore),
       localScript('js/engine/webgpu/WebGPURenderPass.js', V.webgpuCore),
