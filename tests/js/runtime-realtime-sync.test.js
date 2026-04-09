@@ -241,4 +241,58 @@ describe('CombatVfxBridge — connectEventBus()', () => {
     handlers['sse:fleet_arrived'](data);
     expect(bridge._onFleetArrived).toHaveBeenCalledWith({ detail: data });
   });
+
+  it('includes sourcePosition in dispatched weapon-fire detail when provided', () => {
+    const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const bridge = Object.create(CombatVfxBridge.prototype);
+    const dispatched = [];
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent').mockImplementation((ev) => {
+      dispatched.push(ev);
+      return true;
+    });
+
+    bridge._dispatchWeaponFire({
+      sourceType: 'installation',
+      sourcePosition: '7',
+      weaponKind: 'beam',
+      ts: 123,
+    });
+
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].type).toBe('gq:combat:weapon-fire');
+    expect(dispatched[0].detail).toMatchObject({ sourceType: 'installation', sourcePosition: 7, weaponKind: 'beam' });
+
+    dispatchSpy.mockRestore();
+  });
+
+  it('derives sourcePosition from fleet_arrived payload and forwards to battle start', () => {
+    const { CombatVfxBridge, BATTLE_DURATION_MS } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const bridge = Object.create(CombatVfxBridge.prototype);
+    bridge._dispatchWeaponFire = vi.fn();
+    bridge._startBattleFx = vi.fn();
+    bridge._deriveSourcePosition = CombatVfxBridge.prototype._deriveSourcePosition;
+    bridge._normalizeSourcePosition = CombatVfxBridge.prototype._normalizeSourcePosition;
+
+    bridge._onFleetArrived({ detail: { mission: 'attack', attacker: 'A', target: 'B', target_position: 11 } });
+
+    expect(bridge._dispatchWeaponFire).toHaveBeenCalledWith(expect.objectContaining({ sourcePosition: 11, sourceType: 'installation' }));
+    expect(bridge._startBattleFx).toHaveBeenCalledWith('A', 'B', BATTLE_DURATION_MS, 11);
+  });
+
+  it('derives sourcePosition for incoming_attack pulses', () => {
+    const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const bridge = Object.create(CombatVfxBridge.prototype);
+    bridge._dispatchWeaponFire = vi.fn();
+    bridge._deriveSourcePosition = CombatVfxBridge.prototype._deriveSourcePosition;
+    bridge._normalizeSourcePosition = CombatVfxBridge.prototype._normalizeSourcePosition;
+
+    vi.useFakeTimers();
+    bridge._onIncomingAttack({ detail: { mission: 'attack', position: 9 } });
+    vi.runAllTimers();
+    vi.useRealTimers();
+
+    expect(bridge._dispatchWeaponFire).toHaveBeenCalled();
+    const hasPos = bridge._dispatchWeaponFire.mock.calls.every((call) => call?.[0]?.sourcePosition === 9);
+    expect(hasPos).toBe(true);
+  });
 });

@@ -123,15 +123,28 @@ class CombatVfxBridge {
 
     const attacker = String(data.attacker || data.owner || '');
     const target   = String(data.target   || '');
+    const sourcePosition = this._deriveSourcePosition(data, ['targetPosition', 'target_position', 'position']);
 
     if (mission === 'attack') {
       // Immediate opening salvo then sustained fire window
       // Installations ($target system) fire defensively
-      this._dispatchWeaponFire({ sourceOwner: null, sourceType: 'installation', weaponKind: null, ts: Date.now() });
-      this._startBattleFx(attacker, target, BATTLE_DURATION_MS);
+      this._dispatchWeaponFire({
+        sourceOwner: null,
+        sourceType: 'installation',
+        sourcePosition,
+        weaponKind: null,
+        ts: Date.now(),
+      });
+      this._startBattleFx(attacker, target, BATTLE_DURATION_MS, sourcePosition);
     } else {
       // Spy: one silent pulse (no visible weapon FX needed, but emit for any interest)
-      this._dispatchWeaponFire({ sourceOwner: null, sourceType: 'installation', weaponKind: 'beam', ts: Date.now() });
+      this._dispatchWeaponFire({
+        sourceOwner: null,
+        sourceType: 'installation',
+        sourcePosition,
+        weaponKind: 'beam',
+        ts: Date.now(),
+      });
     }
   }
 
@@ -140,11 +153,18 @@ class CombatVfxBridge {
     const mission = String(data.mission || '').toLowerCase();
     // Raise alert-level weapon FX on defender installations (pre-battle warning)
     if (mission === 'spy') return;   // spy → no visible weapons
+    const sourcePosition = this._deriveSourcePosition(data, ['targetPosition', 'target_position', 'position']);
 
     let sent = 0;
     const dispatchPulse = () => {
       if (sent >= ALERT_PULSES) return;
-      this._dispatchWeaponFire({ sourceOwner: null, sourceType: 'installation', weaponKind: null, ts: Date.now() });
+      this._dispatchWeaponFire({
+        sourceOwner: null,
+        sourceType: 'installation',
+        sourcePosition,
+        weaponKind: null,
+        ts: Date.now(),
+      });
       sent += 1;
       window.setTimeout(dispatchPulse, ALERT_PULSE_DELAY);
     };
@@ -177,9 +197,10 @@ class CombatVfxBridge {
    * @param {string} attacker
    * @param {string} target
    * @param {number} durationMs
+   * @param {number|null} sourcePosition
    * @returns {string} battle key
    */
-  _startBattleFx(attacker, target, durationMs = BATTLE_DURATION_MS) {
+  _startBattleFx(attacker, target, durationMs = BATTLE_DURATION_MS, sourcePosition = null) {
     const key = this._battleKey(attacker, target);
     this._stopBattleFx(key); // clear any prior battle for the same key
 
@@ -192,6 +213,7 @@ class CombatVfxBridge {
       this._dispatchWeaponFire({
         sourceOwner: null,
         sourceType,
+        sourcePosition,
         weaponKind,
         ts: Date.now(),
       });
@@ -234,6 +256,7 @@ class CombatVfxBridge {
    * @param {object} payload
    * @param {string|null}  [payload.sourceOwner]  - Owner name filter (null = all)
    * @param {string|null}  [payload.sourceType]   - Entity type filter: installation|ship|debris|wormhole|beacon|gate (null = all)
+   * @param {number|null}  [payload.sourcePosition] - Optional system slot position hint for renderer-side narrowing
    * @param {string|null}  [payload.weaponKind]   - Weapon kind filter: beam|plasma|rail|missile|null
    * @param {number}       [payload.ts]           - Timestamp (defaults to Date.now())
    */
@@ -241,6 +264,7 @@ class CombatVfxBridge {
     const detail = {
       sourceOwner:  payload.sourceOwner  ?? null,
       sourceType:   payload.sourceType   ?? null,
+      sourcePosition: this._normalizeSourcePosition(payload.sourcePosition),
       weaponKind:   payload.weaponKind   ?? null,
       ts:           payload.ts           ?? Date.now(),
     };
@@ -253,6 +277,33 @@ class CombatVfxBridge {
 
   _battleKey(attacker, target) {
     return `${attacker}→${target}`;
+  }
+
+  _normalizeSourcePosition(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  _deriveSourcePosition(data, preferredKeys = []) {
+    const payload = data && typeof data === 'object' ? data : {};
+    const keys = [
+      ...preferredKeys,
+      'sourcePosition',
+      'source_position',
+      'targetPosition',
+      'target_position',
+      'originPosition',
+      'origin_position',
+      'position',
+      'planet_position',
+      'slot_position',
+    ];
+
+    for (const key of keys) {
+      const normalized = this._normalizeSourcePosition(payload[key]);
+      if (normalized != null) return normalized;
+    }
+    return null;
   }
 
   // ---------------------------------------------------------------------------
