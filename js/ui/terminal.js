@@ -69,6 +69,16 @@
       return true;
     }
 
+    // Ignore WebGPU powerPreference platform limitation on Windows (crbug.com/369219127).
+    if (source === 'console' && lcMsg.includes('powerpreference') && lcMsg.includes('ignored')) {
+      return true;
+    }
+
+    // Ignore WebGPU device helper unavailable fallback messages (covered by _warnOnce tracking).
+    if (source === 'console' && lcMsg.includes('webgpu') && lcMsg.includes('device helper')) {
+      return true;
+    }
+
     // Ignore expected request abort chatter when switching views/home navigation.
     if ((source === 'fetch' || source === 'trace' || source === 'console')
       && /home navigation|view switch|aborterror: home navigation|aborterror: view switch/.test(lcMsg)) {
