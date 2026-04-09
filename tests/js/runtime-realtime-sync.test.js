@@ -353,4 +353,57 @@ describe('CombatVfxBridge — connectEventBus()', () => {
       sourcePosition: 12,
     }));
   });
+
+  it('allows runtime battle pulse profile override and reset', () => {
+    const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const bridge = Object.create(CombatVfxBridge.prototype);
+
+    bridge._battlePulseProfiles = bridge._cloneBattlePulseProfiles({
+      default: { sourcePattern: ['installation', 'installation', 'ship'], weaponPattern: ['laser', 'beam', 'missile'] },
+      attack: { sourcePattern: ['installation', 'ship', 'ship'], weaponPattern: ['laser', 'beam', 'missile', 'rail'] },
+      spy: { sourcePattern: ['installation'], weaponPattern: ['beam'] },
+    });
+
+    bridge.configureBattlePulseProfiles({
+      attack: { sourcePattern: ['ship'], weaponPattern: ['rail'] },
+    });
+
+    const attackProfile = bridge._battlePulseProfile({ mission: 'attack' });
+    expect(attackProfile.sourcePattern).toEqual(['ship']);
+    expect(attackProfile.weaponPattern).toEqual(['rail']);
+
+    bridge.resetBattlePulseProfiles();
+    const resetAttack = bridge._battlePulseProfile({ mission: 'attack' });
+    expect(resetAttack.sourcePattern).toEqual(['installation', 'ship', 'ship']);
+    expect(resetAttack.weaponPattern).toEqual(['laser', 'beam', 'missile', 'rail']);
+  });
+
+  it('exposes profile configuration methods through bridge adapter', () => {
+    const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const registerAdapter = vi.fn();
+    window.GQGalaxyEngineBridge = { registerAdapter };
+
+    const bridge = Object.create(CombatVfxBridge.prototype);
+    bridge._battlePulseProfiles = bridge._cloneBattlePulseProfiles({
+      default: { sourcePattern: ['installation', 'installation', 'ship'], weaponPattern: ['laser', 'beam', 'missile'] },
+      attack: { sourcePattern: ['installation', 'ship', 'ship'], weaponPattern: ['laser', 'beam', 'missile', 'rail'] },
+      spy: { sourcePattern: ['installation'], weaponPattern: ['beam'] },
+    });
+    bridge._startBattleFx = vi.fn();
+    bridge._stopBattleFx = vi.fn();
+    bridge._dispatchWeaponFire = vi.fn();
+
+    bridge._registerBridgeAdapter();
+
+    const [, adapter] = registerAdapter.mock.calls[0];
+    expect(typeof adapter.setBattlePulseProfiles).toBe('function');
+    expect(typeof adapter.resetBattlePulseProfiles).toBe('function');
+    expect(typeof adapter.getBattlePulseProfiles).toBe('function');
+
+    adapter.setBattlePulseProfiles({ attack: { sourcePattern: ['ship'], weaponPattern: ['rail'] } });
+    expect(bridge._battlePulseProfile({ mission: 'attack' }).sourcePattern).toEqual(['ship']);
+
+    adapter.resetBattlePulseProfiles();
+    expect(bridge._battlePulseProfile({ mission: 'attack' }).sourcePattern).toEqual(['installation', 'ship', 'ship']);
+  });
 });

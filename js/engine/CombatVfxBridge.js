@@ -88,6 +88,9 @@ class CombatVfxBridge {
     /** @type {Array<Function>} EventBus unsubscribe callbacks */
     this._busUnsubs = [];
 
+    /** @type {{[mission: string]: {sourcePattern: string[], weaponPattern: string[]}}} */
+    this._battlePulseProfiles = this._cloneBattlePulseProfiles(BATTLE_PULSE_PROFILES);
+
     this._registerBridgeAdapter();
   }
 
@@ -128,6 +131,9 @@ class CombatVfxBridge {
       startBattleFx:  (attacker, target, durationMs) => this._startBattleFx(attacker, target, durationMs),
       stopBattleFx:   (key)                           => this._stopBattleFx(key),
       dispatchWpnFire:(payload)                        => this._dispatchWeaponFire(payload),
+      setBattlePulseProfiles: (profiles)               => this.configureBattlePulseProfiles(profiles),
+      resetBattlePulseProfiles: ()                     => this.resetBattlePulseProfiles(),
+      getBattlePulseProfiles: ()                       => this._cloneBattlePulseProfiles(this._battlePulseProfiles),
     });
   }
 
@@ -318,7 +324,71 @@ class CombatVfxBridge {
 
   _battlePulseProfile(context = null) {
     const mission = String(context?.mission || '').toLowerCase();
-    return BATTLE_PULSE_PROFILES[mission] || BATTLE_PULSE_PROFILES.default;
+    const profiles = this._battlePulseProfiles || BATTLE_PULSE_PROFILES;
+    return profiles[mission] || profiles.default || BATTLE_PULSE_PROFILES.default;
+  }
+
+  _sanitizePulsePattern(rawPattern, fallback) {
+    const normalized = Array.isArray(rawPattern)
+      ? rawPattern
+        .map((v) => String(v || '').trim().toLowerCase())
+        .filter((v) => !!v)
+      : [];
+    return normalized.length ? normalized : [...fallback];
+  }
+
+  _normalizePulseProfile(rawProfile = {}, fallbackProfile = null) {
+    const fallback = fallbackProfile || BATTLE_PULSE_PROFILES.default;
+    return {
+      sourcePattern: this._sanitizePulsePattern(rawProfile?.sourcePattern, fallback.sourcePattern),
+      weaponPattern: this._sanitizePulsePattern(rawProfile?.weaponPattern, fallback.weaponPattern),
+    };
+  }
+
+  _cloneBattlePulseProfiles(sourceProfiles) {
+    const source = sourceProfiles && typeof sourceProfiles === 'object'
+      ? sourceProfiles
+      : BATTLE_PULSE_PROFILES;
+
+    const baseDefault = this._normalizePulseProfile(source.default, BATTLE_PULSE_PROFILES.default);
+    const result = { default: baseDefault };
+
+    Object.keys(source).forEach((mission) => {
+      if (mission === 'default') return;
+      result[mission] = this._normalizePulseProfile(source[mission], baseDefault);
+    });
+
+    return result;
+  }
+
+  configureBattlePulseProfiles(overrides = null) {
+    const next = this._cloneBattlePulseProfiles(this._battlePulseProfiles || BATTLE_PULSE_PROFILES);
+    if (!overrides || typeof overrides !== 'object') {
+      this._battlePulseProfiles = next;
+      return this._cloneBattlePulseProfiles(next);
+    }
+
+    const fallbackDefault = next.default || BATTLE_PULSE_PROFILES.default;
+
+    Object.keys(overrides).forEach((mission) => {
+      const missionKey = String(mission || '').trim().toLowerCase();
+      if (!missionKey) return;
+      const rawProfile = overrides[mission];
+      if (!rawProfile || typeof rawProfile !== 'object') return;
+      next[missionKey] = this._normalizePulseProfile(rawProfile, fallbackDefault);
+    });
+
+    if (!next.default) {
+      next.default = this._normalizePulseProfile(null, BATTLE_PULSE_PROFILES.default);
+    }
+
+    this._battlePulseProfiles = next;
+    return this._cloneBattlePulseProfiles(next);
+  }
+
+  resetBattlePulseProfiles() {
+    this._battlePulseProfiles = this._cloneBattlePulseProfiles(BATTLE_PULSE_PROFILES);
+    return this._cloneBattlePulseProfiles(this._battlePulseProfiles);
   }
 
   _deriveSourcePosition(data, preferredKeys = []) {
