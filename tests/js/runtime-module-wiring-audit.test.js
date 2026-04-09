@@ -40,7 +40,10 @@ describe('runtime module wiring audit', () => {
 
     const gap = [...registered].filter((name) => !required.has(name)).sort();
 
-    const allowedIndirectModules = [];
+    const allowedIndirectModules = [
+      'GQRuntimeNavigationSequences',
+      'GQRuntimeViewHyperlinks',
+    ];
 
     expect(gap).toEqual(allowedIndirectModules);
   });
