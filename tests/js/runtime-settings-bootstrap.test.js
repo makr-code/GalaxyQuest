@@ -103,4 +103,61 @@ describe('RuntimeSettingsBootstrap', () => {
     bootstrap.savePortableUiSettings({ uiThemeMode: 'classic' });
     expect(saveSpy).toHaveBeenCalledOnce();
   });
+
+  it('accepts injected runtime APIs instead of window globals', () => {
+    const mod = loadModule();
+    const defaultsApi = {
+      createDefaultSettingsState: vi.fn(() => ({ fromInjectedDefaults: true })),
+      createUiThemeModeValues: vi.fn(() => ['classic']),
+      UI_THEME_DEFAULT_ACCENT: '#445566',
+      UI_THEME_DYNAMIC_VARS: ['--gq-accent'],
+      UI_SETTINGS_STORAGE_KEY: 'gq_settings',
+      UI_SETTINGS_SESSION_KEY: 'gq_settings_session',
+      UI_SETTINGS_COOKIE_KEY: 'gq_settings_cookie',
+      UI_SETTINGS_COOKIE_MAX_AGE_SEC: 3600,
+    };
+    const themeApi = {
+      configureThemeRuntime: vi.fn(),
+      normalizeHexColor: vi.fn((v, f) => v || f),
+      createThemePaletteFromAccent: vi.fn(() => ({})),
+      resolvePlayerFactionThemeSeed: vi.fn(() => 'seed'),
+      ensureFactionThemeCacheEntry: vi.fn(),
+      warmFactionThemeCacheFromTerritory: vi.fn(),
+      resolveThemePaletteForSelection: vi.fn(() => ({})),
+      applyUiTheme: vi.fn(),
+    };
+    const hintsApi = {
+      configureHintsRuntime: vi.fn(),
+      showOrbitModeHintOnce: vi.fn(),
+      showGalaxyShortcutsHintOnce: vi.fn(),
+      scheduleFleetLegendHint: vi.fn(),
+    };
+    const settingsStorageApi = {
+      loadPortableUiSettings: vi.fn(() => ({})),
+      savePortableUiSettings: vi.fn(),
+    };
+
+    delete window.GQRuntimeSettingsDefaults;
+    delete window.GQRuntimeThemePalette;
+    delete window.GQRuntimeHints;
+    delete window.GQRuntimeSettingsStorage;
+
+    const bootstrap = mod.createSettingsBootstrap({
+      windowRef: window,
+      documentRef: document,
+      showToast: vi.fn(),
+      showToastWithAction: vi.fn(),
+      gameLog: vi.fn(),
+      runtimeSettingsDefaultsApi: defaultsApi,
+      runtimeThemePaletteApi: themeApi,
+      runtimeHintsApi: hintsApi,
+      runtimeSettingsStorageApi: settingsStorageApi,
+    });
+
+    expect(bootstrap.settingsState).toEqual({ fromInjectedDefaults: true });
+    expect(themeApi.configureThemeRuntime).toHaveBeenCalledOnce();
+    expect(hintsApi.configureHintsRuntime).toHaveBeenCalledOnce();
+    bootstrap.loadPortableUiSettings();
+    expect(settingsStorageApi.loadPortableUiSettings).toHaveBeenCalledOnce();
+  });
 });

@@ -23,13 +23,14 @@
     const showToastWithAction = typeof opts.showToastWithAction === 'function' ? opts.showToastWithAction : (() => {});
     const gameLog = typeof opts.gameLog === 'function' ? opts.gameLog : (() => {});
 
-    const defaultsApi = requireApi(windowRef, 'GQRuntimeSettingsDefaults', [
+    const defaultsApi = opts.runtimeSettingsDefaultsApi || requireApi(windowRef, 'GQRuntimeSettingsDefaults', [
       'createDefaultSettingsState',
       'createUiThemeModeValues',
     ]);
-    const themeApi = requireApi(windowRef, 'GQRuntimeThemePalette', ['applyUiTheme']);
-    const hintsApi = requireApi(windowRef, 'GQRuntimeHints', ['scheduleFleetLegendHint']);
-    const settingsStorageApi = requireApi(windowRef, 'GQRuntimeSettingsStorage', ['loadPortableUiSettings', 'savePortableUiSettings']);
+    const themeApi = opts.runtimeThemePaletteApi || requireApi(windowRef, 'GQRuntimeThemePalette', ['applyUiTheme']);
+    const hintsApi = opts.runtimeHintsApi || requireApi(windowRef, 'GQRuntimeHints', ['scheduleFleetLegendHint']);
+    const settingsStorageApi = opts.runtimeSettingsStorageApi
+      || requireApi(windowRef, 'GQRuntimeSettingsStorage', ['loadPortableUiSettings', 'savePortableUiSettings']);
 
     const settingsState = (opts.settingsState && typeof opts.settingsState === 'object')
       ? opts.settingsState

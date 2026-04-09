@@ -996,6 +996,42 @@
   }
 
   const runtimeSettingsBootstrapApi = requireRuntimeApi('GQRuntimeSettingsBootstrap', ['createSettingsBootstrap']);
+  const runtimeSettingsDefaultsApi = requireRuntimeApi('GQRuntimeSettingsDefaults', [
+    'createDefaultSettingsState',
+    'createUiThemeModeValues',
+  ]);
+  const runtimeSettingsStorageApi = requireRuntimeApi('GQRuntimeSettingsStorage', [
+    'loadPortableUiSettings',
+    'savePortableUiSettings',
+  ]);
+  const runtimeThemePaletteApi = requireRuntimeApi('GQRuntimeThemePalette', [
+    'configureThemeRuntime',
+    'normalizeHexColor',
+    'resolvePlayerFactionThemeSeed',
+    'resolveThemePaletteForSelection',
+    'applyUiTheme',
+  ]);
+  const runtimeHintsApi = requireRuntimeApi('GQRuntimeHints', [
+    'configureHintsRuntime',
+    'showOrbitModeHintOnce',
+    'showGalaxyShortcutsHintOnce',
+    'scheduleFleetLegendHint',
+  ]);
+  const runtimeAudioUiApi = requireRuntimeApi('GQRuntimeAudioUi', ['refreshAudioUi']);
+  const runtimeSettingsNormalizationApi = requireRuntimeApi('GQRuntimeSettingsNormalization', ['normalizeLoadedUiSettings']);
+  const runtimeAudioSettingsApplyApi = requireRuntimeApi('GQRuntimeAudioSettingsApply', ['applyLoadedAudioSettings']);
+  const runtimeThemeSettingsUiApi = requireRuntimeApi('GQRuntimeThemeSettingsUi', [
+    'refreshThemeSettingsUi',
+    'renderThemePreviewUi',
+  ]);
+  const runtimeUserMenuUiApi = requireRuntimeApi('GQRuntimeUserMenuUi', [
+    'closeUserMenuUi',
+    'openUserMenuUi',
+    'toggleUserMenuUi',
+    'initUserMenuBindings',
+  ]);
+  const runtimeUserMenuActionsApi = requireRuntimeApi('GQRuntimeUserMenuActions', ['handleUserMenuAction']);
+  const runtimeRendererSettingsApplyApi = requireRuntimeApi('GQRuntimeRendererSettingsApply', ['applyRendererRuntimeSettings']);
   const runtimeAudioSettingsMetadataApi = requireRuntimeApi('GQRuntimeAudioSettingsMetadata', ['getAudioSfxEvents']);
 
   const settingsBootstrap = runtimeSettingsBootstrapApi.createSettingsBootstrap({
@@ -1007,6 +1043,10 @@
     showToastWithAction: showToast,
     gameLog,
     settingsState,
+    runtimeSettingsDefaultsApi,
+    runtimeSettingsStorageApi,
+    runtimeThemePaletteApi,
+    runtimeHintsApi,
   });
 
   const UI_THEME_MODE_VALUES = settingsBootstrap.uiThemeModeValues;
@@ -1089,6 +1129,13 @@
     getGalaxy3dQualityState: getGalaxy3dQualityStateRef,
     callRendererMethod,
     hasRendererMethod,
+    runtimeAudioUiApi,
+    runtimeSettingsNormalizationApi,
+    runtimeAudioSettingsApplyApi,
+    runtimeThemeSettingsUiApi,
+    runtimeUserMenuUiApi,
+    runtimeUserMenuActionsApi,
+    runtimeRendererSettingsApplyApi,
   });
   window.GQSettingsController = settingsController;
 

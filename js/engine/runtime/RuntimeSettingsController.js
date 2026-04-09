@@ -46,12 +46,18 @@
     const getGalaxy3dQualityState = typeof opts.getGalaxy3dQualityState === 'function' ? opts.getGalaxy3dQualityState : (() => null);
     const callRendererMethod = opts.callRendererMethod;
     const hasRendererMethod = opts.hasRendererMethod;
+    const runtimeAudioUiApi = opts.runtimeAudioUiApi || windowRef.GQRuntimeAudioUi || null;
+    const runtimeSettingsNormalizationApi = opts.runtimeSettingsNormalizationApi || windowRef.GQRuntimeSettingsNormalization || null;
+    const runtimeAudioSettingsApplyApi = opts.runtimeAudioSettingsApplyApi || windowRef.GQRuntimeAudioSettingsApply || null;
+    const runtimeThemeSettingsUiApi = opts.runtimeThemeSettingsUiApi || windowRef.GQRuntimeThemeSettingsUi || null;
+    const runtimeUserMenuUiApi = opts.runtimeUserMenuUiApi || windowRef.GQRuntimeUserMenuUi || null;
+    const runtimeUserMenuActionsApi = opts.runtimeUserMenuActionsApi || windowRef.GQRuntimeUserMenuActions || null;
+    const runtimeRendererSettingsApplyApi = opts.runtimeRendererSettingsApplyApi || windowRef.GQRuntimeRendererSettingsApply || null;
 
     const controller = {
       refreshAudioUi() {
-        const audioUiApi = windowRef.GQRuntimeAudioUi || null;
-        if (!audioUiApi || typeof audioUiApi.refreshAudioUi !== 'function') return;
-        audioUiApi.refreshAudioUi({
+        if (!runtimeAudioUiApi || typeof runtimeAudioUiApi.refreshAudioUi !== 'function') return;
+        runtimeAudioUiApi.refreshAudioUi({
           audioManager: getAudioManager(),
           settingsState,
           audioTrackOptions: getAudioTrackOptions(),
@@ -68,9 +74,8 @@
         if (persisted && typeof persisted === 'object') {
           Object.assign(settingsState, persisted);
         }
-        const normalizationApi = windowRef.GQRuntimeSettingsNormalization || null;
-        if (normalizationApi && typeof normalizationApi.normalizeLoadedUiSettings === 'function') {
-          normalizationApi.normalizeLoadedUiSettings(settingsState, {
+        if (runtimeSettingsNormalizationApi && typeof runtimeSettingsNormalizationApi.normalizeLoadedUiSettings === 'function') {
+          runtimeSettingsNormalizationApi.normalizeLoadedUiSettings(settingsState, {
             persisted,
             applyTransitionPreset,
             normalizeHexColor,
@@ -83,9 +88,8 @@
         }
         const audioManager = getAudioManager();
         if (audioManager) {
-          const audioApplyApi = windowRef.GQRuntimeAudioSettingsApply || null;
-          if (audioApplyApi && typeof audioApplyApi.applyLoadedAudioSettings === 'function') {
-            audioApplyApi.applyLoadedAudioSettings({
+          if (runtimeAudioSettingsApplyApi && typeof runtimeAudioSettingsApplyApi.applyLoadedAudioSettings === 'function') {
+            runtimeAudioSettingsApplyApi.applyLoadedAudioSettings({
               audioManager,
               settingsState,
             });
@@ -98,9 +102,8 @@
       },
 
       refreshThemeSettingsUi() {
-        const themeApi = windowRef.GQRuntimeThemeSettingsUi || null;
-        if (!themeApi || typeof themeApi.refreshThemeSettingsUi !== 'function') return;
-        themeApi.refreshThemeSettingsUi({
+        if (!runtimeThemeSettingsUiApi || typeof runtimeThemeSettingsUiApi.refreshThemeSettingsUi !== 'function') return;
+        runtimeThemeSettingsUiApi.refreshThemeSettingsUi({
           settingsState,
           uiState,
           currentUser,
@@ -117,9 +120,8 @@
       },
 
       renderThemePreviewUi() {
-        const themeApi = windowRef.GQRuntimeThemeSettingsUi || null;
-        if (!themeApi || typeof themeApi.renderThemePreviewUi !== 'function') return;
-        themeApi.renderThemePreviewUi({
+        if (!runtimeThemeSettingsUiApi || typeof runtimeThemeSettingsUiApi.renderThemePreviewUi !== 'function') return;
+        runtimeThemeSettingsUiApi.renderThemePreviewUi({
           settingsState,
           normalizeHexColor,
           resolveThemePaletteForSelection,
@@ -135,18 +137,16 @@
       },
 
       closeUserMenu() {
-        const userMenuApi = windowRef.GQRuntimeUserMenuUi || null;
-        if (!userMenuApi || typeof userMenuApi.closeUserMenuUi !== 'function') return;
-        userMenuApi.closeUserMenuUi({
+        if (!runtimeUserMenuUiApi || typeof runtimeUserMenuUiApi.closeUserMenuUi !== 'function') return;
+        runtimeUserMenuUiApi.closeUserMenuUi({
           WM: wm,
           documentRef,
         });
       },
 
       openUserMenu() {
-        const userMenuApi = windowRef.GQRuntimeUserMenuUi || null;
-        if (!userMenuApi || typeof userMenuApi.openUserMenuUi !== 'function') return;
-        userMenuApi.openUserMenuUi({
+        if (!runtimeUserMenuUiApi || typeof runtimeUserMenuUiApi.openUserMenuUi !== 'function') return;
+        runtimeUserMenuUiApi.openUserMenuUi({
           WM: wm,
           settingsState,
           onCloseTopbarSearchOverlay: closeTopbarSearchOverlay,
@@ -162,9 +162,8 @@
       },
 
       toggleUserMenu() {
-        const userMenuApi = windowRef.GQRuntimeUserMenuUi || null;
-        if (!userMenuApi || typeof userMenuApi.toggleUserMenuUi !== 'function') return;
-        userMenuApi.toggleUserMenuUi({
+        if (!runtimeUserMenuUiApi || typeof runtimeUserMenuUiApi.toggleUserMenuUi !== 'function') return;
+        runtimeUserMenuUiApi.toggleUserMenuUi({
           documentRef,
           onCloseUserMenu: () => {
             this.closeUserMenu();
@@ -176,9 +175,8 @@
       },
 
       async handleUserMenuAction(action) {
-        const userMenuActionsApi = windowRef.GQRuntimeUserMenuActions || null;
-        if (!userMenuActionsApi || typeof userMenuActionsApi.handleUserMenuAction !== 'function') return;
-        await userMenuActionsApi.handleUserMenuAction(action, {
+        if (!runtimeUserMenuActionsApi || typeof runtimeUserMenuActionsApi.handleUserMenuAction !== 'function') return;
+        await runtimeUserMenuActionsApi.handleUserMenuAction(action, {
           settingsState,
           audioManager: getAudioManager(),
           saveUiSettings: () => this.saveUiSettings(),
@@ -195,9 +193,8 @@
       },
 
       initUserMenu() {
-        const userMenuApi = windowRef.GQRuntimeUserMenuUi || null;
-        if (!userMenuApi || typeof userMenuApi.initUserMenuBindings !== 'function') return;
-        userMenuApi.initUserMenuBindings({
+        if (!runtimeUserMenuUiApi || typeof runtimeUserMenuUiApi.initUserMenuBindings !== 'function') return;
+        runtimeUserMenuUiApi.initUserMenuBindings({
           WM: wm,
           onCloseUserMenu: () => {
             this.closeUserMenu();
@@ -214,9 +211,8 @@
         applyUiTheme('apply-runtime');
         const galaxy3d = getGalaxy3d();
         if (!galaxy3d) return;
-        const runtimeApplyApi = windowRef.GQRuntimeRendererSettingsApply || null;
-        if (!runtimeApplyApi || typeof runtimeApplyApi.applyRendererRuntimeSettings !== 'function') return;
-        runtimeApplyApi.applyRendererRuntimeSettings({
+        if (!runtimeRendererSettingsApplyApi || typeof runtimeRendererSettingsApplyApi.applyRendererRuntimeSettings !== 'function') return;
+        runtimeRendererSettingsApplyApi.applyRendererRuntimeSettings({
           renderer: galaxy3d,
           settingsState,
           galaxy3dQualityState: getGalaxy3dQualityState(),
