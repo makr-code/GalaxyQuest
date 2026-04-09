@@ -4820,6 +4820,10 @@ async function renderTradeProposals() {
   window.GQGameRuntimeCore = runtimeGameCore;
   let lastLoadErrorToastAt = 0;
   const runtimeFeatureRegistryApi = requireRuntimeApi('GQRuntimeFeatureRegistry', ['createFeatureRegistry']);
+  const runtimeLifecyclePhasesApi = requireRuntimeApi('GQRuntimeLifecyclePhases', [
+    'getLifecyclePhaseValues',
+    'isLifecyclePhase',
+  ]);
   const runtimeLifecycleManagerApi = requireRuntimeApi('GQRuntimeLifecycleManager', ['createLifecycleManager']);
   const runtimeLifecycleCoreFeaturesApi = requireRuntimeApi('GQRuntimeLifecycleCoreFeatures', ['registerLifecycleCoreFeatures']);
   const runtimeLifecycleDomainFeaturesApi = requireRuntimeApi('GQRuntimeLifecycleDomainFeatures', ['registerLifecycleDomainFeatures']);
@@ -4827,6 +4831,7 @@ async function renderTradeProposals() {
   const lifecycleManager = runtimeLifecycleManagerApi.createLifecycleManager({
     registry: lifecycleRegistry,
     logger: gameLog,
+    runtimeLifecyclePhasesApi,
   });
   const LIFECYCLE_PHASES = runtimeLifecycleManagerApi.LIFECYCLE_PHASES;
   runtimeLifecycleCoreFeaturesApi.registerLifecycleCoreFeatures({

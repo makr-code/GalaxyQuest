@@ -41,7 +41,6 @@ describe('runtime module wiring audit', () => {
     const gap = [...registered].filter((name) => !required.has(name)).sort();
 
     const allowedIndirectModules = [
-      'GQRuntimeLifecyclePhases',
       'GQRuntimeMinimapCameraControls',
       'GQRuntimeMinimapDomScaffold',
       'GQRuntimeMinimapHelpers',

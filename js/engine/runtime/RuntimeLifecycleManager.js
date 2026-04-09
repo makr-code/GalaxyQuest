@@ -5,17 +5,17 @@
  * optional feature hooks in phase order.
  */
 (function () {
-  const phasesApi = (typeof window !== 'undefined' && window.GQRuntimeLifecyclePhases)
+  const defaultPhasesApi = (typeof window !== 'undefined' && window.GQRuntimeLifecyclePhases)
     || (typeof require !== 'undefined' ? require('./RuntimeLifecyclePhases.js') : null);
 
   const registryApi = (typeof window !== 'undefined' && window.GQRuntimeFeatureRegistry)
     || (typeof require !== 'undefined' ? require('./RuntimeFeatureRegistry.js') : null);
 
-  if (!phasesApi) {
+  if (!defaultPhasesApi) {
     throw new Error('[RuntimeLifecycleManager] RuntimeLifecyclePhases is not available');
   }
 
-  const LIFECYCLE_PHASES = phasesApi.LIFECYCLE_PHASES;
+  const LIFECYCLE_PHASES = defaultPhasesApi.LIFECYCLE_PHASES;
 
   const PHASE_HOOKS = Object.freeze({
     BOOTSTRAPPING: 'onBootstrap',
@@ -31,10 +31,15 @@
 
   class LifecycleManager {
     constructor(opts = {}) {
+      this._phasesApi = opts.runtimeLifecyclePhasesApi || defaultPhasesApi;
+      if (!this._phasesApi) {
+        throw new Error('[RuntimeLifecycleManager] RuntimeLifecyclePhases is not available');
+      }
+      this._lifecyclePhases = this._phasesApi.LIFECYCLE_PHASES;
       const fallbackRegistry = registryApi?.createFeatureRegistry ? registryApi.createFeatureRegistry() : null;
       this._registry = opts.registry || fallbackRegistry;
       this._logger = typeof opts.logger === 'function' ? opts.logger : null;
-      this._phase = LIFECYCLE_PHASES.CREATED;
+      this._phase = this._lifecyclePhases.CREATED;
       this._history = [{ phase: this._phase, ts: Date.now() }];
       this._transitionLock = Promise.resolve();
     }
@@ -56,7 +61,7 @@
 
     async transitionTo(nextPhase, context = {}) {
       this._transitionLock = this._transitionLock.then(async () => {
-        if (!phasesApi.isLifecyclePhase(nextPhase)) {
+        if (!this._phasesApi.isLifecyclePhase(nextPhase)) {
           throw new Error(`[RuntimeLifecycleManager] Unknown lifecycle phase: ${nextPhase}`);
         }
 
