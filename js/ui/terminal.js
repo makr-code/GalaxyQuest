@@ -553,8 +553,10 @@
 
   function wrapConsoleMethod(level) {
     return function (...args) {
-      if (!shouldSkip(level)) append(level, args, 'console');
-      callOriginal(level, args);
+      const text = normalizeArgs(Array.from(args || []));
+      const ignored = shouldIgnoreLog(level, 'console', text);
+      if (!ignored && !shouldSkip(level)) append(level, args, 'console');
+      if (!ignored) callOriginal(level, args);
     };
   }
 

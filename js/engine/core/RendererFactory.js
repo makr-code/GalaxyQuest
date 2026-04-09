@@ -61,11 +61,19 @@ class RendererFactory {
           await r.initialize(canvas);
           return r;
         } catch (err) {
-          console.warn('[RendererFactory] WebGPU init failed, falling back to WebGL2:', err.message);
+          const reason = String(err?.message || 'unknown-error');
+          RendererFactory._warnOnce(
+            `webgpu-failed:${reason}`,
+            '[RendererFactory] WebGPU init failed, falling back to WebGL2:',
+            reason
+          );
           if (typeof onFallback === 'function') onFallback('webgpu-failed', err);
         }
       } else if (hint === 'webgpu') {
-        console.warn('[RendererFactory] WebGPU requested but not available, falling back to WebGL2');
+        RendererFactory._warnOnce(
+          'webgpu-unavailable',
+          '[RendererFactory] WebGPU requested but not available, falling back to WebGL2'
+        );
         if (typeof onFallback === 'function') {
           onFallback('webgpu-unavailable', new Error('WebGPU requested but not available in this browser'));
         }
@@ -73,6 +81,17 @@ class RendererFactory {
     }
 
     return RendererFactory._createWebGL(canvas, onFallback, debug);
+  }
+
+  static _warnOnce(key, ...args) {
+    if (!RendererFactory.__warnedFallbacks) {
+      RendererFactory.__warnedFallbacks = new Set();
+    }
+    if (RendererFactory.__warnedFallbacks.has(key)) {
+      return;
+    }
+    RendererFactory.__warnedFallbacks.add(key);
+    console.warn(...args);
   }
 
   /**
