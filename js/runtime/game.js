@@ -995,73 +995,47 @@
     return runtimeAudioCatalogApi.loadAudioTrackCatalog(force);
   }
 
-  const runtimeSettingsDefaultsApi = requireRuntimeApi('GQRuntimeSettingsDefaults', [
-    'createUiThemeModeValues',
-  ]);
-  const runtimeSettingsStorageApi = requireRuntimeApi('GQRuntimeSettingsStorage', [
-    'loadPortableUiSettings',
-    'savePortableUiSettings',
-  ]);
-  const runtimeThemePaletteApi = requireRuntimeApi('GQRuntimeThemePalette', [
-    'configureThemeRuntime',
-    'normalizeHexColor',
-    'resolvePlayerFactionThemeSeed',
-    'resolveThemePaletteForSelection',
-    'applyUiTheme',
-  ]);
-  const runtimeHintsApi = requireRuntimeApi('GQRuntimeHints', [
-    'configureHintsRuntime',
-    'showOrbitModeHintOnce',
-    'showGalaxyShortcutsHintOnce',
-    'scheduleFleetLegendHint',
-  ]);
+  const runtimeSettingsBootstrapApi = requireRuntimeApi('GQRuntimeSettingsBootstrap', ['createSettingsBootstrap']);
   const runtimeAudioSettingsMetadataApi = requireRuntimeApi('GQRuntimeAudioSettingsMetadata', ['getAudioSfxEvents']);
 
-  const UI_THEME_MODE_VALUES = runtimeSettingsDefaultsApi.createUiThemeModeValues();
-  const UI_THEME_DEFAULT_ACCENT = runtimeSettingsDefaultsApi.UI_THEME_DEFAULT_ACCENT || '#3aa0ff';
-  const GALAXY_FILTERS_ENABLED = window.GQ_GALAXY_FILTERS_ENABLED !== false;
-  const AUDIO_SFX_EVENTS = runtimeAudioSettingsMetadataApi.getAudioSfxEvents();
-
-  runtimeThemePaletteApi.configureThemeRuntime({
-    uiThemeDefaultAccent: UI_THEME_DEFAULT_ACCENT,
-    uiThemeModeValues: UI_THEME_MODE_VALUES,
+  const settingsBootstrap = runtimeSettingsBootstrapApi.createSettingsBootstrap({
+    windowRef: window,
+    documentRef: document,
     getCurrentUser: () => currentUser,
     getUiState: () => uiState,
-    getSettingsState: () => settingsState,
-    showToast,
-    documentRef: document,
-  });
-
-  runtimeHintsApi.configureHintsRuntime({
     showToast,
     showToastWithAction: showToast,
     gameLog,
-    documentRef: document,
-    windowRef: window,
+    settingsState,
   });
 
+  const UI_THEME_MODE_VALUES = settingsBootstrap.uiThemeModeValues;
+  const UI_THEME_DEFAULT_ACCENT = settingsBootstrap.uiThemeDefaultAccent || '#3aa0ff';
+  const GALAXY_FILTERS_ENABLED = window.GQ_GALAXY_FILTERS_ENABLED !== false;
+  const AUDIO_SFX_EVENTS = runtimeAudioSettingsMetadataApi.getAudioSfxEvents();
+
   function loadPortableUiSettings() {
-    return runtimeSettingsStorageApi.loadPortableUiSettings({ logger: gameLog });
+    return settingsBootstrap.loadPortableUiSettings();
   }
 
   function savePortableUiSettings(payload) {
-    runtimeSettingsStorageApi.savePortableUiSettings(payload, { logger: gameLog });
+    settingsBootstrap.savePortableUiSettings(payload);
   }
 
   function normalizeHexColor(value, fallback = UI_THEME_DEFAULT_ACCENT) {
-    return runtimeThemePaletteApi.normalizeHexColor(value, fallback);
+    return settingsBootstrap.normalizeHexColor(value, fallback);
   }
 
   function resolvePlayerFactionThemeSeed() {
-    return runtimeThemePaletteApi.resolvePlayerFactionThemeSeed();
+    return settingsBootstrap.resolvePlayerFactionThemeSeed();
   }
 
   function resolveThemePaletteForSelection(modeInput, customAccentInput, factionIdInput) {
-    return runtimeThemePaletteApi.resolveThemePaletteForSelection(modeInput, customAccentInput, factionIdInput);
+    return settingsBootstrap.resolveThemePaletteForSelection(modeInput, customAccentInput, factionIdInput);
   }
 
   function applyUiTheme(reason = 'runtime') {
-    runtimeThemePaletteApi.applyUiTheme(reason);
+    settingsBootstrap.applyUiTheme(reason);
     try {
       const src = settingsState?.uiThemeLastSource || 'fallback';
       window.dispatchEvent(new CustomEvent('gq:theme-changed', { detail: { source: src, reason } }));
@@ -1069,15 +1043,15 @@
   }
 
   function showOrbitModeHintOnce() {
-    runtimeHintsApi.showOrbitModeHintOnce();
+    settingsBootstrap.showOrbitModeHintOnce();
   }
 
   function showGalaxyShortcutsHintOnce() {
-    runtimeHintsApi.showGalaxyShortcutsHintOnce();
+    settingsBootstrap.showGalaxyShortcutsHintOnce();
   }
 
   function scheduleFleetLegendHint(delayMs = 1300) {
-    runtimeHintsApi.scheduleFleetLegendHint(delayMs);
+    settingsBootstrap.scheduleFleetLegendHint(delayMs);
   }
 
   const runtimeSettingsControllerApi = requireRuntimeApi('GQRuntimeSettingsController', ['createSettingsController']);
@@ -3746,39 +3720,40 @@
     return false;
   }
 
+  const runtimeSystemBreadcrumbHelpersApi = requireRuntimeApi('GQRuntimeSystemBreadcrumbHelpers', [
+    'initSystemBreadcrumb',
+    'triggerSystemBreadcrumbEnter',
+    'triggerSystemBreadcrumbExit',
+  ]);
   let systemBreadcrumbIntegration = null;
 
   function initSystemBreadcrumb() {
     if (systemBreadcrumbIntegration) return systemBreadcrumbIntegration;
-    const IntegrationCtor = window.SystemBreadcrumbIntegration;
-    if (typeof IntegrationCtor !== 'function') return null;
-    try {
-      systemBreadcrumbIntegration = new IntegrationCtor();
-      return systemBreadcrumbIntegration;
-    } catch (err) {
-      gameLog('warn', 'System breadcrumb initialization failed', err);
-      systemBreadcrumbIntegration = null;
-      return null;
-    }
+    runtimeSystemBreadcrumbHelpersApi.initSystemBreadcrumb({
+      windowRef: window,
+      setIntegration: (integration) => {
+        systemBreadcrumbIntegration = integration || null;
+      },
+      logger: console,
+    });
+    if (systemBreadcrumbIntegration) return systemBreadcrumbIntegration;
+    return null;
   }
 
   function triggerSystemBreadcrumbEnter(payload, renderer) {
     const integration = initSystemBreadcrumb();
-    if (!integration || typeof integration.onSystemEnter !== 'function') return;
-    try {
-      integration.onSystemEnter(payload, renderer || null);
-    } catch (err) {
-      gameLog('warn', 'System breadcrumb enter failed', err);
-    }
+    if (!integration) return;
+    runtimeSystemBreadcrumbHelpersApi.triggerSystemBreadcrumbEnter(payload, renderer || null, {
+      getIntegration: () => systemBreadcrumbIntegration,
+      logger: console,
+    });
   }
 
   function triggerSystemBreadcrumbExit() {
-    if (!systemBreadcrumbIntegration || typeof systemBreadcrumbIntegration.onSystemExit !== 'function') return;
-    try {
-      systemBreadcrumbIntegration.onSystemExit();
-    } catch (err) {
-      gameLog('warn', 'System breadcrumb exit failed', err);
-    }
+    runtimeSystemBreadcrumbHelpersApi.triggerSystemBreadcrumbExit({
+      getIntegration: () => systemBreadcrumbIntegration,
+      logger: console,
+    });
   }
 
   function focusSystemPlanetInView(planetLike, smooth = true) {

@@ -31,7 +31,9 @@
     const hintsApi = requireApi(windowRef, 'GQRuntimeHints', ['scheduleFleetLegendHint']);
     const settingsStorageApi = requireApi(windowRef, 'GQRuntimeSettingsStorage', ['loadPortableUiSettings', 'savePortableUiSettings']);
 
-    const settingsState = defaultsApi.createDefaultSettingsState();
+    const settingsState = (opts.settingsState && typeof opts.settingsState === 'object')
+      ? opts.settingsState
+      : defaultsApi.createDefaultSettingsState();
     const uiThemeModeValues = defaultsApi.createUiThemeModeValues();
     const uiThemeDefaultAccent = defaultsApi.UI_THEME_DEFAULT_ACCENT;
     const uiThemeDynamicVars = Array.isArray(defaultsApi.UI_THEME_DYNAMIC_VARS)
