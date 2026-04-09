@@ -59,6 +59,13 @@ describe('GalaxyRendererCore weapon-fire source contract', () => {
     expect(source).toMatch(/if\s*\(!nearestDebris\s*&&\s*targetPos\)\s*\{[\s\S]*?_findNearestDebrisToPosition\(targetPos,\s*50\)/);
   });
 
+  it('uses sourcePosition narrowing for debris when id is not provided', () => {
+    expect(source).toMatch(/const\s+sourcePosition\s*=\s*Number\(ev\?\.sourcePosition\s*\|\|\s*0\)/);
+    expect(source).toMatch(/if\s*\(!targetPos\s*&&\s*!targetDebrisId\s*&&\s*!sourcePosition\)\s*return;/);
+    expect(source).toMatch(/if\s*\(!nearestDebris\s*&&\s*sourcePosition\)\s*\{[\s\S]*?_findDebrisBySourcePosition\(sourcePosition,\s*targetPos,\s*75\)/);
+    expect(source).toMatch(/_debrisMatchesSourcePosition\(debris,\s*sourcePosition\)/);
+  });
+
   it('keeps debris damage + fragment spawn pipeline contract', () => {
     expect(source).toMatch(/this\.debrisManager\.applyDamage\(nearestDebris\.id,\s*damageAmount,\s*\{/);
     expect(source).toMatch(/attacker:\s*String\(ev\.sourceOwner\s*\|\|\s*'unknown'\)/);

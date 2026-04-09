@@ -77,6 +77,12 @@ class DebrisManager {
       lastHit: null,                        // Timestamp of last damage
       damageHistory: [],                    // Array of damage events
       mesh: opts.mesh || null,              // THREE.js mesh reference (optional)
+      sourcePosition: Number(opts.sourcePosition ?? opts.source_position ?? opts.origin_position ?? 0) || 0,
+      originPosition: Number(opts.originPosition ?? opts.origin_position ?? 0) || 0,
+      targetPosition: Number(opts.targetPosition ?? opts.target_position ?? 0) || 0,
+      positionIndex: Number(opts.positionIndex ?? opts.position_index ?? 0) || 0,
+      slotPosition: Number(opts.slotPosition ?? opts.slot_position ?? 0) || 0,
+      metadata: opts.metadata && typeof opts.metadata === 'object' ? Object.assign({}, opts.metadata) : null,
       createdAt: performance.now(),
     };
 

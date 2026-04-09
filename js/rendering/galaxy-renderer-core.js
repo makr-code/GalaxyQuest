@@ -3283,6 +3283,7 @@
         return;
       }
 
+      const sourcePosition = Number(ev?.sourcePosition || 0);
       const targetPos = this._normalizeWeaponFireTargetPos(ev?.targetPos ?? ev?.target_pos ?? null);
       const targetDebrisId = this._normalizeWeaponFireDebrisId(
         ev?.targetDebrisId
@@ -3293,7 +3294,7 @@
       );
       const damageAmount = Number(ev.damage ?? 25);
 
-      if (!targetPos && !targetDebrisId) return;
+      if (!targetPos && !targetDebrisId && !sourcePosition) return;
 
       let nearestDebris = null;
 
@@ -3301,6 +3302,11 @@
       if (targetDebrisId) {
         nearestDebris = this.debrisManager.get(targetDebrisId)
           || this.debrisManager.get(String(targetDebrisId));
+      }
+
+      // Secondary targeting: source-position constrained debris (if provided).
+      if (!nearestDebris && sourcePosition) {
+        nearestDebris = this._findDebrisBySourcePosition(sourcePosition, targetPos, 75);
       }
 
       // Fallback: nearest-neighbor targeting around impact point.
@@ -3357,6 +3363,58 @@
       if (rawId == null) return null;
       const asString = String(rawId).trim();
       return asString ? rawId : null;
+    }
+
+    _debrisMatchesSourcePosition(debris, sourcePosition) {
+      const sourcePos = Number(sourcePosition || 0);
+      if (!sourcePos || !debris) return false;
+
+      const candidates = [
+        debris.sourcePosition,
+        debris.source_position,
+        debris.originPosition,
+        debris.origin_position,
+        debris.targetPosition,
+        debris.target_position,
+        debris.positionIndex,
+        debris.slotPosition,
+        debris.meta?.sourcePosition,
+        debris.meta?.source_position,
+        debris.metadata?.sourcePosition,
+        debris.metadata?.source_position,
+      ];
+
+      return candidates.some((value) => Number(value || 0) === sourcePos);
+    }
+
+    _findDebrisBySourcePosition(sourcePosition, nearWorldPos = null, maxDistance = 75) {
+      if (!this.debrisManager || typeof this.debrisManager.getAll !== 'function') return null;
+
+      const candidates = this.debrisManager
+        .getAll()
+        .filter((debris) => this._debrisMatchesSourcePosition(debris, sourcePosition));
+
+      if (!candidates.length) return null;
+
+      if (!Array.isArray(nearWorldPos) || nearWorldPos.length < 3) {
+        return candidates[0] || null;
+      }
+
+      const targetVec = new THREE.Vector3(...nearWorldPos);
+      let nearest = null;
+      let nearestDist = Number(maxDistance || 75);
+
+      candidates.forEach((debris) => {
+        if (!Array.isArray(debris?.position) || debris.position.length < 3) return;
+        const debrisVec = new THREE.Vector3(...debris.position);
+        const dist = targetVec.distanceTo(debrisVec);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = debris;
+        }
+      });
+
+      return nearest || candidates[0] || null;
     }
 
     /**
