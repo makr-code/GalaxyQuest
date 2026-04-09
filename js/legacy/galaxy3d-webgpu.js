@@ -52,6 +52,15 @@
     return true;
   }
 
+  function isLegacyThreeFallbackEnabled() {
+    try {
+      const raw = String(localStorage.getItem('gq:allowThreeFallback') || '').trim().toLowerCase();
+      return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+    } catch (_) {
+      return false;
+    }
+  }
+
   class Galaxy3DRendererWebGPU {
     /**
      * @param {HTMLElement} container
@@ -66,6 +75,7 @@
       this._canvas    = opts.externalCanvas ?? null;
       this.ready      = false;
       this._delegateInitDone = false;
+      this._allowLegacyThreeFallback = isLegacyThreeFallbackEnabled();
 
       this._interactiveExperiment = isInteractiveWebGPUExperimentEnabled();
 
@@ -86,14 +96,14 @@
             backend: 'webgpu-native',
             reason: 'interactive-webgpu-default',
           });
-        } else if (window.Galaxy3DRenderer) {
+        } else if (window.Galaxy3DRenderer && this._allowLegacyThreeFallback) {
           this._delegate = new window.Galaxy3DRenderer(this._container, this._opts);
           this._backend  = 'webgl2';
           this.ready     = true;
           emitRenderTelemetry('fallback', {
             from: 'webgpu',
             to: 'webgl2',
-            reason: 'interactive-webgpu-renderer-unavailable',
+            reason: 'interactive-webgpu-renderer-unavailable-optin',
           });
         }
       }
@@ -145,7 +155,11 @@
         }
       }
 
+      const allowLegacyFallback = !interactive || this._allowLegacyThreeFallback;
       this._backend = 'webgl2';
+      if (!allowLegacyFallback) {
+        throw new Error('[Galaxy3DRendererWebGPU] Interactive mode requires native WebGPU renderer. Set localStorage gq:allowThreeFallback=1 for temporary fallback.');
+      }
       if (!window.Galaxy3DRenderer) {
         throw new Error('[Galaxy3DRendererWebGPU] Galaxy3DRenderer (Three.js) not available and WebGPU not supported');
       }
@@ -167,7 +181,9 @@
         emitRenderTelemetry('fallback', {
           from: 'webgpu',
           to: 'webgl2',
-          reason: 'interactive-webgpu-experiment-failed-or-unavailable',
+          reason: this._allowLegacyThreeFallback
+            ? 'interactive-webgpu-experiment-failed-or-unavailable-optin'
+            : 'interactive-webgpu-experiment-failed-or-unavailable-blocked',
         });
       }
     }

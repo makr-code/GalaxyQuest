@@ -28,6 +28,7 @@ function makeContainer() {
 
 describe('galaxy3d-webgpu facade', () => {
   beforeEach(() => {
+    localStorage.removeItem('gq:allowThreeFallback');
     delete window.Galaxy3DRendererWebGPU;
     delete window.GQGalaxy3DRendererWebGPU;
     delete window.Galaxy3DView;
