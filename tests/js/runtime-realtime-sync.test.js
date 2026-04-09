@@ -312,6 +312,26 @@ describe('CombatVfxBridge — connectEventBus()', () => {
     expect(profile.weaponPattern).toEqual(['laser', 'beam', 'missile', 'rail']);
   });
 
+  it('uses stealth profile for spy missions', () => {
+    const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const bridge = Object.create(CombatVfxBridge.prototype);
+
+    const profile = bridge._battlePulseProfile({ mission: 'spy' });
+
+    expect(profile.sourcePattern).toEqual(['installation']);
+    expect(profile.weaponPattern).toEqual(['beam']);
+  });
+
+  it('falls back to default profile for unknown missions', () => {
+    const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const bridge = Object.create(CombatVfxBridge.prototype);
+
+    const profile = bridge._battlePulseProfile({ mission: 'trade' });
+
+    expect(profile.sourcePattern).toEqual(['installation', 'installation', 'ship']);
+    expect(profile.weaponPattern).toEqual(['laser', 'beam', 'missile']);
+  });
+
   it('applies mission profile inside _startBattleFx dispatch loop', () => {
     const { CombatVfxBridge, FIRE_INTERVAL_MS } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
     const bridge = Object.create(CombatVfxBridge.prototype);

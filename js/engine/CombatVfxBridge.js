@@ -46,6 +46,25 @@ const ALERT_PULSES        = 3;
 /** Delay between alert pulses in ms. */
 const ALERT_PULSE_DELAY   = 260;
 
+/**
+ * Mission-aware battle pulse profiles used by _battlePulseProfile().
+ * Keeping this data centralized allows balance tuning without touching logic.
+ */
+const BATTLE_PULSE_PROFILES = Object.freeze({
+  attack: Object.freeze({
+    sourcePattern: Object.freeze(['installation', 'ship', 'ship']),
+    weaponPattern: Object.freeze(['laser', 'beam', 'missile', 'rail']),
+  }),
+  spy: Object.freeze({
+    sourcePattern: Object.freeze(['installation']),
+    weaponPattern: Object.freeze(['beam']),
+  }),
+  default: Object.freeze({
+    sourcePattern: Object.freeze(['installation', 'installation', 'ship']),
+    weaponPattern: Object.freeze(['laser', 'beam', 'missile']),
+  }),
+});
+
 // ---------------------------------------------------------------------------
 // CombatVfxBridge
 // ---------------------------------------------------------------------------
@@ -299,25 +318,7 @@ class CombatVfxBridge {
 
   _battlePulseProfile(context = null) {
     const mission = String(context?.mission || '').toLowerCase();
-
-    if (mission === 'attack') {
-      return {
-        sourcePattern: ['installation', 'ship', 'ship'],
-        weaponPattern: ['laser', 'beam', 'missile', 'rail'],
-      };
-    }
-
-    if (mission === 'spy') {
-      return {
-        sourcePattern: ['installation'],
-        weaponPattern: ['beam'],
-      };
-    }
-
-    return {
-      sourcePattern: ['installation', 'installation', 'ship'],
-      weaponPattern: ['laser', 'beam', 'missile'],
-    };
+    return BATTLE_PULSE_PROFILES[mission] || BATTLE_PULSE_PROFILES.default;
   }
 
   _deriveSourcePosition(data, preferredKeys = []) {
