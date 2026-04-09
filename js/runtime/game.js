@@ -4615,7 +4615,7 @@ async function renderTradeProposals() {
   const MINIMAP_DRAG_THRESHOLD = 4;
   const MINIMAP_WORLD_SCALE = 0.028;
 
-  function buildMinimapFacadeOptions() {
+  function buildMinimapFacadeOptions(overrides = {}) {
     return {
       requireRuntimeApi,
       minimapPad: MINIMAP_PAD,
@@ -4640,12 +4640,34 @@ async function renderTradeProposals() {
       isSystemModeActive: () => isSystemModeActive(),
       getTradeRoutes: () => _tradeRoutesCache,
       requestFrame: (cb) => requestAnimationFrame(cb),
+      ...overrides,
     };
   }
 
   function initMinimapRuntime() {
     const runtimeMinimapFacadeApi = requireRuntimeApi('GQRuntimeMinimapFacade', ['createMinimapFacade']);
-    const facade = runtimeMinimapFacadeApi.createMinimapFacade(buildMinimapFacadeOptions());
+    const runtimeMinimapHelpersApi = requireRuntimeApi('GQRuntimeMinimapHelpers', ['createMinimapHelpers']);
+    const runtimeMinimapCameraControlsApi = requireRuntimeApi('GQRuntimeMinimapCameraControls', ['createMinimapCameraControls']);
+    const runtimeMinimapOverlayApi = requireRuntimeApi('GQRuntimeMinimapOverlay', ['createMinimapOverlay']);
+    const runtimeMinimapRendererApi = requireRuntimeApi('GQRuntimeMinimapRenderer', ['createMinimapRenderer']);
+    const runtimeMinimapInteractionsApi = requireRuntimeApi('GQRuntimeMinimapInteractions', ['createMinimapInteractions']);
+    const runtimeMinimapLoopApi = requireRuntimeApi('GQRuntimeMinimapLoop', ['createMinimapLoop']);
+    const runtimeMinimapSeedApi = requireRuntimeApi('GQRuntimeMinimapSeed', ['createMinimapSeed']);
+    const runtimeMinimapDomScaffoldApi = requireRuntimeApi('GQRuntimeMinimapDomScaffold', ['createMinimapDomScaffold']);
+    const runtimeMinimapNavigationBindingApi = requireRuntimeApi('GQRuntimeMinimapNavigationBinding', ['createMinimapNavigationBinding']);
+    const runtimeMinimapRenderOrchestratorApi = requireRuntimeApi('GQRuntimeMinimapRenderOrchestrator', ['createMinimapRenderOrchestrator']);
+    const facade = runtimeMinimapFacadeApi.createMinimapFacade(buildMinimapFacadeOptions({
+      runtimeMinimapHelpersApi,
+      runtimeMinimapCameraControlsApi,
+      runtimeMinimapOverlayApi,
+      runtimeMinimapRendererApi,
+      runtimeMinimapInteractionsApi,
+      runtimeMinimapLoopApi,
+      runtimeMinimapSeedApi,
+      runtimeMinimapDomScaffoldApi,
+      runtimeMinimapNavigationBindingApi,
+      runtimeMinimapRenderOrchestratorApi,
+    }));
     facade.bindNavigationOnce();
     return facade;
   }

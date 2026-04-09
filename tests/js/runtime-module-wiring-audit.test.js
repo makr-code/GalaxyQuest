@@ -40,18 +40,7 @@ describe('runtime module wiring audit', () => {
 
     const gap = [...registered].filter((name) => !required.has(name)).sort();
 
-    const allowedIndirectModules = [
-      'GQRuntimeMinimapCameraControls',
-      'GQRuntimeMinimapDomScaffold',
-      'GQRuntimeMinimapHelpers',
-      'GQRuntimeMinimapInteractions',
-      'GQRuntimeMinimapLoop',
-      'GQRuntimeMinimapNavigationBinding',
-      'GQRuntimeMinimapOverlay',
-      'GQRuntimeMinimapRenderer',
-      'GQRuntimeMinimapRenderOrchestrator',
-      'GQRuntimeMinimapSeed',
-    ].sort();
+    const allowedIndirectModules = [];
 
     expect(gap).toEqual(allowedIndirectModules);
   });

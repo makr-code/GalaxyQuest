@@ -38,16 +38,16 @@
       ? opts.requestFrame
       : (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : ((fn) => setTimeout(fn, 16)));
 
-    const helpersApi = requireApi('GQRuntimeMinimapHelpers', ['createMinimapHelpers']);
-    const cameraControlsApi = requireApi('GQRuntimeMinimapCameraControls', ['createMinimapCameraControls']);
-    const overlayApi = requireApi('GQRuntimeMinimapOverlay', ['createMinimapOverlay']);
-    const rendererApi = requireApi('GQRuntimeMinimapRenderer', ['createMinimapRenderer']);
-    const interactionsApi = requireApi('GQRuntimeMinimapInteractions', ['createMinimapInteractions']);
-    const loopApi = requireApi('GQRuntimeMinimapLoop', ['createMinimapLoop']);
-    const seedApi = requireApi('GQRuntimeMinimapSeed', ['createMinimapSeed']);
-    const domScaffoldApi = requireApi('GQRuntimeMinimapDomScaffold', ['createMinimapDomScaffold']);
-    const navigationBindingApi = requireApi('GQRuntimeMinimapNavigationBinding', ['createMinimapNavigationBinding']);
-    const renderOrchestratorApi = requireApi('GQRuntimeMinimapRenderOrchestrator', ['createMinimapRenderOrchestrator']);
+    const helpersApi = opts.runtimeMinimapHelpersApi || requireApi('GQRuntimeMinimapHelpers', ['createMinimapHelpers']);
+    const cameraControlsApi = opts.runtimeMinimapCameraControlsApi || requireApi('GQRuntimeMinimapCameraControls', ['createMinimapCameraControls']);
+    const overlayApi = opts.runtimeMinimapOverlayApi || requireApi('GQRuntimeMinimapOverlay', ['createMinimapOverlay']);
+    const rendererApi = opts.runtimeMinimapRendererApi || requireApi('GQRuntimeMinimapRenderer', ['createMinimapRenderer']);
+    const interactionsApi = opts.runtimeMinimapInteractionsApi || requireApi('GQRuntimeMinimapInteractions', ['createMinimapInteractions']);
+    const loopApi = opts.runtimeMinimapLoopApi || requireApi('GQRuntimeMinimapLoop', ['createMinimapLoop']);
+    const seedApi = opts.runtimeMinimapSeedApi || requireApi('GQRuntimeMinimapSeed', ['createMinimapSeed']);
+    const domScaffoldApi = opts.runtimeMinimapDomScaffoldApi || requireApi('GQRuntimeMinimapDomScaffold', ['createMinimapDomScaffold']);
+    const navigationBindingApi = opts.runtimeMinimapNavigationBindingApi || requireApi('GQRuntimeMinimapNavigationBinding', ['createMinimapNavigationBinding']);
+    const renderOrchestratorApi = opts.runtimeMinimapRenderOrchestratorApi || requireApi('GQRuntimeMinimapRenderOrchestrator', ['createMinimapRenderOrchestrator']);
 
     const minimapHelpers = helpersApi.createMinimapHelpers({
       worldScale: minimapWorldScale,
