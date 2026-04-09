@@ -15,6 +15,14 @@ describe('GalaxyRendererCore weapon-fire source contract', () => {
     expect(source).toMatch(/case\s*'installation'\s*:\s*[\s\S]*?default\s*:\s*[\s\S]*?_applyWeaponFireToInstallations\(ev,\s*elapsed\)/);
   });
 
+  it('uses sourcePosition narrowing for installations and wormholes', () => {
+    expect(source).toMatch(/_installationMatchesWeaponFireSource\(installEntry,\s*ev\)/);
+    expect(source).toMatch(/const\s+sourcePosition\s*=\s*Number\(ev\?\.sourcePosition\s*\|\|\s*0\)/);
+    expect(source).toMatch(/if\s*\(!this\._installationMatchesWeaponFireSource\(installEntry,\s*ev\)\)\s*return;/);
+    expect(source).toMatch(/if\s*\(!this\._installationMatchesWeaponFireSource\(install,\s*ev\)\)\s*return;/);
+    expect(source).toMatch(/installPosition\s*===\s*sourcePosition/);
+  });
+
   it('enforces ship weapon cooldown and target-hint resolution path', () => {
     expect(source).toMatch(/_triggerShipWeaponFire\(fleetEntry,\s*ev,\s*elapsed,\s*state\s*=\s*'active'\)/);
     expect(source).toMatch(/const\s+weaponKey\s*=\s*String\(ev\?\.weaponKind\s*\|\|\s*'default'\)/);

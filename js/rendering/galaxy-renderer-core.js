@@ -3061,6 +3061,7 @@
       this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
         const installEntry = fxEntry?.installEntry;
         if (!installEntry?.mesh) return;
+        if (!this._installationMatchesWeaponFireSource(installEntry, ev)) return;
 
         // Filter by weapon kind
         if (ev.weaponKind && ev.weaponKind !== String(fxEntry.kind || '').toLowerCase()) return;
@@ -3072,6 +3073,20 @@
         const state = String(installEntry.animState || installEntry.mesh.userData?.animState || 'active');
         this._triggerInstallationWeaponFire(fxEntry, elapsed, state, 0.7);
       });
+    }
+
+    _installationMatchesWeaponFireSource(installEntry, ev) {
+      const sourcePosition = Number(ev?.sourcePosition || 0);
+      if (!sourcePosition) return true;
+
+      const installPosition = Number(
+        installEntry?.position
+        || installEntry?.install?.position
+        || installEntry?.mesh?.userData?.position
+        || 0
+      );
+
+      return !!installPosition && installPosition === sourcePosition;
     }
 
     // ============================================================================
@@ -3602,6 +3617,7 @@
         if (!install?.mesh) return;
 
         if (!this._isWormholeLikeInstallation(install)) return;
+        if (!this._installationMatchesWeaponFireSource(install, ev)) return;
 
         // Filter by owner if specified
         if (ev.sourceOwner && ev.sourceOwner !== String(install.owner || '').trim()) return;

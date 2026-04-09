@@ -108,6 +108,20 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
           || sourcePosition === currentPosition;
       },
 
+      _installationMatchesWeaponFireSource: function(installEntry, ev) {
+        const sourcePosition = Number(ev?.sourcePosition || 0);
+        if (!sourcePosition) return true;
+
+        const installPosition = Number(
+          installEntry?.position
+          || installEntry?.install?.position
+          || installEntry?.mesh?.userData?.position
+          || 0
+        );
+
+        return !!installPosition && installPosition === sourcePosition;
+      },
+
       _triggerShipWeaponFire: function(fleetEntry, ev, elapsed, state = 'active') {
         if (!fleetEntry?.mesh || !this.beamEffect) return;
 
@@ -201,6 +215,7 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
           const install = fxEntry?.installEntry;
           if (!install?.mesh) return;
           if (!this._isWormholeLikeInstallation(install)) return;
+          if (!this._installationMatchesWeaponFireSource(install, ev)) return;
           if (ev.sourceOwner && ev.sourceOwner !== String(install.owner || '').trim()) return;
 
           const destabilization = this._applyWormholeDestabilizationHit(install, ev, elapsed);
@@ -310,6 +325,7 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
         this.systemInstallationWeaponFxEntries.forEach((fxEntry) => {
           const installEntry = fxEntry?.installEntry;
           if (!installEntry?.mesh) return;
+          if (!this._installationMatchesWeaponFireSource(installEntry, ev)) return;
           
           if (ev.weaponKind && ev.weaponKind !== String(fxEntry.kind || '').toLowerCase()) return;
           if (ev.sourceOwner && ev.sourceOwner !== String(installEntry.owner || '').trim()) return;
@@ -583,6 +599,35 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
 
       expect(renderer.beamEffect.addBeam).toHaveBeenCalledTimes(2);
     });
+
+    it('should narrow installations by sourcePosition when provided', () => {
+      renderer.systemInstallationWeaponFxEntries = [
+        {
+          kind: 'laser',
+          worldFrom: [0, 0, 0],
+          worldTo: [1, 1, 1],
+          installEntry: { mesh: {}, owner: 'Helion', position: 4, animState: 'active' },
+        },
+        {
+          kind: 'laser',
+          worldFrom: [2, 2, 2],
+          worldTo: [3, 3, 3],
+          installEntry: { mesh: {}, owner: 'Helion', position: 8, animState: 'active' },
+        },
+      ];
+
+      renderer.enqueueInstallationWeaponFire({
+        sourceType: 'installation',
+        sourcePosition: 4,
+        weaponKind: 'laser',
+      });
+
+      renderer._applyPendingInstallationWeaponFire(0.016);
+
+      const calls = renderer.beamEffect.addBeam.mock.calls;
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0].from).toEqual([0, 0, 0]);
+    });
   });
 
   describe('BeamEffect Integration', () => {
@@ -798,6 +843,39 @@ describe('GalaxyRendererCore - Weapon Fire Integration', () => {
       const first = renderer.beamEffect.addBeam.mock.calls[0][0];
       expect(first.from).toEqual([10, 0, 0]);
       expect(first.coreColor).toBe(0x6600ff);
+    });
+
+    it('should narrow wormhole effects by sourcePosition when provided', () => {
+      renderer.systemInstallationWeaponFxEntries = [
+        {
+          worldFrom: [10, 0, 0],
+          installEntry: {
+            id: 1,
+            mesh: {},
+            owner: 'Helion',
+            type: 'wormhole',
+            position: 4,
+            level: 1,
+          },
+        },
+        {
+          worldFrom: [20, 0, 0],
+          installEntry: {
+            id: 2,
+            mesh: {},
+            owner: 'Helion',
+            type: 'stargate',
+            position: 9,
+            level: 1,
+          },
+        },
+      ];
+
+      renderer._applyWeaponFireToWormholes({ sourceOwner: 'Helion', sourcePosition: 4, weaponKind: 'beam', energy: 1.2 }, 5.0);
+
+      expect(renderer.beamEffect.addBeam).toHaveBeenCalledTimes(3);
+      const first = renderer.beamEffect.addBeam.mock.calls[0][0];
+      expect(first.from).toEqual([10, 0, 0]);
     });
   });
 });
