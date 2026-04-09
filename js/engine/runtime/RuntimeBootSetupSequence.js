@@ -32,6 +32,7 @@
     refreshGalaxyDensityMetrics,
     showToast,
     eventSourceFactory,
+    eventBus,
     wm,
     loadAudioTrackCatalog,
     refreshAudioUi,
@@ -69,7 +70,13 @@
       showToast,
       gameLog,
       eventSourceFactory,
+      eventBus,
     });
+
+    const combatBridge = windowRef?.GQCombatVfxBridge || null;
+    if (eventBus && combatBridge && typeof combatBridge.connectEventBus === 'function') {
+      combatBridge.connectEventBus(eventBus);
+    }
 
     startupBootSetupApi.setupStartupBoot({
       startupBootApi,

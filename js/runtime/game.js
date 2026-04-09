@@ -26,6 +26,8 @@
     throw new Error('[runtime/game] WM is required but not available. Ensure js/ui/window-manager.js is loaded before js/runtime/game.js.');
   }
 
+  const runtimeEventBus = window?.GQEventBus?.sharedBus || null;
+
   const runtimeGameContextRefsApi = requireRuntimeApi('GQRuntimeGameContextRefs', ['createGameContextRefs']);
   const runtimeGameInfraHelpersApi = requireRuntimeApi('GQRuntimeGameInfraHelpers', ['gameLog', 'redirectToLogin']);
   const runtimeColonySurfaceSlotMappingApi = requireRuntimeApi('GQRuntimeColonySurfaceSlotMapping', [
@@ -4890,6 +4892,7 @@ async function renderTradeProposals() {
       refreshGalaxyDensityMetrics,
       showToast,
       eventSourceFactory: eventSourceFactoryRef,
+      eventBus: runtimeEventBus,
       wm: WM,
       loadAudioTrackCatalog,
       refreshAudioUi: refreshAudioUiRef,
