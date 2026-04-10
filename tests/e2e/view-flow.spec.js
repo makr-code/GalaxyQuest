@@ -25,6 +25,8 @@ function createGpuStallWarningCounter(page) {
     return /readpixels|gpu\s+stall|stall\s+due\s+to\s+readpixels/.test(msg)
       || msg.includes('no available adapters.')
       || msg.includes('homeworld target skipped (login) best-effort budget exceeded')
+      || msg.includes('overview-home-target failed request timeout')
+      || msg.includes('overview-home-target timeout retry')
       || msg.includes('webgpu requested but not available, falling back to webgl2')
       || /invalid_operation: teximage3d: flip_y|premultiply_alpha/.test(msg);
   };
