@@ -17,6 +17,16 @@ function createGpuStallWarningCounter(page) {
     gpuReadbackWarnings: 0,
     ignoredGpuDriverWarnings: 0,
     samples: [],
+    actionableSamples: [],
+  };
+
+  const isNonActionableWarning = (text) => {
+    const msg = String(text || '').toLowerCase();
+    return /readpixels|gpu\s+stall|stall\s+due\s+to\s+readpixels/.test(msg)
+      || msg.includes('no available adapters.')
+      || msg.includes('homeworld target skipped (login) best-effort budget exceeded')
+      || msg.includes('webgpu requested but not available, falling back to webgl2')
+      || /invalid_operation: teximage3d: flip_y|premultiply_alpha/.test(msg);
   };
 
   const onConsole = (msg) => {
@@ -26,19 +36,25 @@ function createGpuStallWarningCounter(page) {
     const text = String(msg.text() || '');
     if (/readpixels|gpu\s+stall|stall\s+due\s+to\s+readpixels/i.test(text)) {
       metrics.gpuReadbackWarnings += 1;
-      metrics.ignoredGpuDriverWarnings += 1;
       if (metrics.samples.length < 3) {
         metrics.samples.push(text.slice(0, 220));
       }
+    }
+
+    if (isNonActionableWarning(text)) {
+      metrics.ignoredGpuDriverWarnings += 1;
       return;
     }
 
     metrics.totalConsoleWarnings += 1;
+    if (metrics.actionableSamples.length < 5) {
+      metrics.actionableSamples.push(text.slice(0, 220));
+    }
   };
 
   page.on('console', onConsole);
   return {
-    snapshot: () => ({ ...metrics, samples: [...metrics.samples] }),
+    snapshot: () => ({ ...metrics, samples: [...metrics.samples], actionableSamples: [...metrics.actionableSamples] }),
     dispose: () => page.off('console', onConsole),
   };
 }
@@ -392,6 +408,9 @@ test('Galaxy -> System -> Planet/Colony -> Buildings flow smoke', async ({ page,
   if (gpuWarn.samples.length) {
     console.log(`[e2e:viewflow][gpu-warning-samples] ${gpuWarn.samples.join(' | ')}`);
   }
+  if (gpuWarn.actionableSamples.length) {
+    console.log(`[e2e:viewflow][actionable-warning-samples] ${gpuWarn.actionableSamples.join(' | ')}`);
+  }
 });
 
 test('UI fallback nav opens buildings window when galaxy backend is degraded', async ({ page, baseURL }) => {
@@ -421,6 +440,9 @@ test('UI fallback nav opens buildings window when galaxy backend is degraded', a
   logGpuWarnBaseline('e2e:viewflow-nav-fallback', gpuWarn);
   if (gpuWarn.samples.length) {
     console.log(`[e2e:viewflow-nav-fallback][gpu-warning-samples] ${gpuWarn.samples.join(' | ')}`);
+  }
+  if (gpuWarn.actionableSamples.length) {
+    console.log(`[e2e:viewflow-nav-fallback][actionable-warning-samples] ${gpuWarn.actionableSamples.join(' | ')}`);
   }
 });
 

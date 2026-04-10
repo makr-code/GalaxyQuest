@@ -173,13 +173,21 @@
   }
 
   async function canUseWebGpuAdapter() {
+    if (window.__GQ_WEBGPU_ADAPTER_AVAILABLE && typeof window.__GQ_WEBGPU_ADAPTER_AVAILABLE.value === 'boolean') {
+      return window.__GQ_WEBGPU_ADAPTER_AVAILABLE.value;
+    }
+
     if (typeof navigator === 'undefined' || !navigator.gpu || typeof navigator.gpu.requestAdapter !== 'function') {
+      window.__GQ_WEBGPU_ADAPTER_AVAILABLE = { value: false };
       return false;
     }
     try {
       const adapter = await navigator.gpu.requestAdapter();
-      return !!adapter;
+      const value = !!adapter;
+      window.__GQ_WEBGPU_ADAPTER_AVAILABLE = { value };
+      return value;
     } catch (_) {
+      window.__GQ_WEBGPU_ADAPTER_AVAILABLE = { value: false };
       return false;
     }
   }

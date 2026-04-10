@@ -101,11 +101,21 @@ class RendererFactory {
    * @returns {Promise<boolean>}
    */
   static async isWebGPUAvailable() {
-    if (typeof navigator === 'undefined' || !navigator.gpu) return false;
+    if (RendererFactory.__webgpuAvailabilityCache && typeof RendererFactory.__webgpuAvailabilityCache.available === 'boolean') {
+      return RendererFactory.__webgpuAvailabilityCache.available;
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.gpu) {
+      RendererFactory.__webgpuAvailabilityCache = { available: false };
+      return false;
+    }
     try {
       const adapter = await navigator.gpu.requestAdapter();
-      return adapter !== null;
+      const available = adapter !== null;
+      RendererFactory.__webgpuAvailabilityCache = { available };
+      return available;
     } catch {
+      RendererFactory.__webgpuAvailabilityCache = { available: false };
       return false;
     }
   }

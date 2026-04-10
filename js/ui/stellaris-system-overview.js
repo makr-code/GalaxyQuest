@@ -328,12 +328,20 @@ class StellarisSystemOverview {
   async _acquireDevice() {
     const nav = this._windowRef?.navigator ?? (typeof navigator !== 'undefined' ? navigator : null);
     if (!nav?.gpu) return;
+
+    const cached = this._windowRef?.__GQ_WEBGPU_ADAPTER_AVAILABLE;
+    if (cached && cached.value === false) return;
+
     try {
       const ua = String(nav.userAgent || '').toLowerCase();
       const isWindows = ua.includes('windows');
       const adapterOptions = isWindows ? undefined : { powerPreference: 'high-performance' };
       const adapter = await nav.gpu.requestAdapter(adapterOptions);
-      if (!adapter) return;
+      if (!adapter) {
+        if (this._windowRef) this._windowRef.__GQ_WEBGPU_ADAPTER_AVAILABLE = { value: false };
+        return;
+      }
+      if (this._windowRef) this._windowRef.__GQ_WEBGPU_ADAPTER_AVAILABLE = { value: true };
       this._device = await adapter.requestDevice();
       this._canvasFormat = nav.gpu.getPreferredCanvasFormat
         ? nav.gpu.getPreferredCanvasFormat()

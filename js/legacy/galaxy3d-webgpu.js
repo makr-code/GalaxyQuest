@@ -321,8 +321,18 @@
   // ---------------------------------------------------------------------------
 
   async function _probeWebGPU() {
+    if (window.__GQ_WEBGPU_ADAPTER_AVAILABLE && typeof window.__GQ_WEBGPU_ADAPTER_AVAILABLE.value === 'boolean') {
+      return window.__GQ_WEBGPU_ADAPTER_AVAILABLE.value;
+    }
     if (typeof navigator === 'undefined' || !navigator.gpu) return false;
-    try { return (await navigator.gpu.requestAdapter()) !== null; } catch { return false; }
+    try {
+      const value = (await navigator.gpu.requestAdapter()) !== null;
+      window.__GQ_WEBGPU_ADAPTER_AVAILABLE = { value };
+      return value;
+    } catch {
+      window.__GQ_WEBGPU_ADAPTER_AVAILABLE = { value: false };
+      return false;
+    }
   }
 
   // Expose both the view-facade alias and the legacy constructor name.
