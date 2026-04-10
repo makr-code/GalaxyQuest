@@ -156,12 +156,56 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
 
       @fragment
       fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
-        // Fresnel atmosphere rim-lighting
+        // Fresnel atmosphere rim-lighting + procedural surface texturing
+        fn hash2(p : vec2<f32>) -> f32 {
+          return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+        }
+
+        fn noise2(p : vec2<f32>) -> f32 {
+          let i = floor(p);
+          let f = fract(p);
+          let a = hash2(i);
+          let b = hash2(i + vec2<f32>(1.0, 0.0));
+          let c = hash2(i + vec2<f32>(0.0, 1.0));
+          let d = hash2(i + vec2<f32>(1.0, 1.0));
+          let u = f * f * (3.0 - 2.0 * f);
+          return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+        }
+
+        fn fbm(p : vec2<f32>) -> f32 {
+          var value = 0.0;
+          var amp = 0.5;
+          var freq = 1.0;
+          for (var i = 0; i < 4; i = i + 1) {
+            value = value + amp * noise2(p * freq);
+            freq = freq * 2.03;
+            amp = amp * 0.5;
+          }
+          return value;
+        }
+
         let view_dir = normalize(vec3<f32>(0.0, 0.0, 1.0));
         let fresnel  = pow(1.0 - abs(dot(in.norm, view_dir)), 3.0);
         let base_col = vec3<f32>(${base[0]}, ${base[1]}, ${base[2]});
         let atmo_col = vec3<f32>(${atmo[0]}, ${atmo[1]}, ${atmo[2]});
-        let col      = mix(base_col, atmo_col, fresnel * 0.8);
+
+        // UV-driven macro/micro detail to avoid flat-color planets.
+        let uvLarge = vec2<f32>(in.uv.x * 8.0 + u.rotation * 0.08, in.uv.y * 4.0 + u.time * 0.012);
+        let uvFine = vec2<f32>(in.uv.x * 22.0 - u.rotation * 0.03, in.uv.y * 12.0 - u.time * 0.009);
+        let terrain = fbm(uvLarge);
+        let micro = fbm(uvFine);
+        let bands = 0.5 + 0.5 * sin(in.uv.y * 18.0 + terrain * 4.5);
+        let craterMask = smoothstep(0.80, 0.97, fbm(uvFine * 1.7 + vec2<f32>(3.1, 9.7)));
+        let cloudMask = smoothstep(0.62, 0.90, fbm(uvLarge * 1.2 + vec2<f32>(0.0, u.time * 0.02)));
+
+        var surface = mix(base_col * 0.70, base_col * 1.18, terrain);
+        surface = mix(surface, atmo_col * 0.92, bands * 0.22);
+        surface = mix(surface, surface * 0.66, craterMask * 0.30);
+        surface = surface + vec3<f32>(micro * 0.05);
+
+        let clouds = vec3<f32>(1.0, 1.0, 1.0) * cloudMask * 0.12;
+        let lit = surface + clouds;
+        let col = mix(lit, atmo_col, fresnel * 0.8);
         return vec4<f32>(col, 1.0);
       }
     `;
