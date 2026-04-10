@@ -108,4 +108,53 @@ describe('Galaxy3DRendererWebGPU trade route overlay', () => {
     expect(strokeStyles).toContain('rgba(255, 209, 102, 0.82)');
     expect(strokeStyles).toContain('rgba(255, 209, 102, 0.22)');
   });
+
+  it('derives cluster overlay geometry from systems and renders colony heartbeat rings', () => {
+    const Galaxy3DRendererWebGPU = loadRendererScript();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    const renderer = new Galaxy3DRendererWebGPU(host, {});
+    const overlay = new MockOverlayCanvas(520, 320);
+    const ctx = new MockOverlayContext();
+
+    renderer._canvas = {
+      clientWidth: 520,
+      clientHeight: 320,
+      getBoundingClientRect() {
+        return { width: 520, height: 320 };
+      },
+    };
+    renderer._overlayCanvas = overlay;
+    renderer._overlayCtx = ctx;
+    renderer._aspect = 1;
+    renderer._starScale = 0.01;
+    renderer._view = { panX: 0, panY: 0, zoom: 1 };
+    renderer._rawStars = [
+      { galaxy_index: 1, system_index: 11, x_ly: -80, y_ly: -20 },
+      { galaxy_index: 1, system_index: 22, x_ly: 10, y_ly: 40 },
+      { galaxy_index: 1, system_index: 33, x_ly: 80, y_ly: -30 },
+    ];
+
+    renderer.setClusterAuras([
+      {
+        id: 1,
+        systems: [11, 22, 33],
+        color_hex: '#66ccff',
+      },
+    ]);
+    renderer.setEmpireHeartbeatSystems([22]);
+
+    window.__GQ_TRADE_ROUTES_CACHE = [];
+    renderer._renderGalaxyOverlay2D();
+
+    const arcCalls = ctx.calls.filter((call) => call.type === 'arc');
+    const strokeCalls = ctx.calls.filter((call) => call.type === 'stroke');
+    const strokeStyles = ctx.calls.filter((call) => call.type === 'strokeStyle').map((call) => call.value);
+
+    // At least one cluster circle + one heartbeat ring must be drawn.
+    expect(arcCalls.length).toBeGreaterThanOrEqual(2);
+    expect(strokeCalls.length).toBeGreaterThan(0);
+    expect(strokeStyles).toContain('rgba(255, 208, 95, 0.92)');
+  });
 });

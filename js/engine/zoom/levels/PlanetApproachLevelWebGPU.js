@@ -64,7 +64,9 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
 
     if (typeof navigator !== 'undefined' && navigator.gpu) {
       try {
-        const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+        const isWindows = String(navigator.userAgent || '').toLowerCase().includes('windows');
+        const adapterOptions = isWindows ? undefined : { powerPreference: 'high-performance' };
+        const adapter = await navigator.gpu.requestAdapter(adapterOptions);
         if (adapter) {
           this._device = await adapter.requestDevice();
           this._context = canvas.getContext('webgpu');

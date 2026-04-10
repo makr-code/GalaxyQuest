@@ -77,6 +77,57 @@ function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
     } catch (Throwable $e) {
         error_log('wormhole_regeneration_tick_global error: ' . $e->getMessage());
     }
+
+    // NPC Trader lifecycle: route transitions, supply/demand recalc, new opportunities.
+    try {
+        trader_tick_global($db);
+    } catch (Throwable $e) {
+        error_log('trader_tick_global error: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Run the NPC trader economy tick globally.
+ * Cooldown: 15 minutes, stored in app_state as 'trader_tick:last_unix'.
+ * Safe to skip if tables are not yet created (pre-migration).
+ */
+function trader_tick_global(PDO $db, bool $force = false): void {
+    $now = time();
+    $stateKey = 'trader_tick:last_unix';
+    $cooldown = 900; // 15 minutes
+
+    if (function_exists('app_state_get_int') && function_exists('app_state_set_int')) {
+        $last = app_state_get_int($db, $stateKey, 0);
+        if (!$force && ($now - $last) < $cooldown) {
+            return;
+        }
+        app_state_set_int($db, $stateKey, $now);
+    }
+
+    // Guard: tables might not exist on pre-migration DBs
+    try {
+        $db->query('SELECT 1 FROM npc_traders LIMIT 1');
+    } catch (Throwable $e) {
+        return; // Migration not applied yet
+    }
+
+    if (!defined('TRADERS_LIB_MODE')) {
+        define('TRADERS_LIB_MODE', true);
+    }
+    require_once __DIR__ . '/traders.php';
+    require_once __DIR__ . '/market_analysis.php';
+
+    // 1. Refresh supply/demand
+    update_supply_demand_table($db);
+
+    // 2. Discover / refresh trade opportunities (5% min margin for autonomous tick)
+    find_and_rank_trade_opportunities($db, 5.0);
+
+    // 3. Advance all active routes through lifecycle
+    process_route_transitions($db);
+
+    // 4. Let traders decide new routes
+    execute_trader_decisions($db);
 }
 
 function npc_faction_tick(PDO $db, int $userId, array $faction): void {

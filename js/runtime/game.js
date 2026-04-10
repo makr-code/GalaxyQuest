@@ -314,10 +314,62 @@
   // Trade-Routes-Cache: wird beim Boot-Abschluss und nach jedem renderTradeRoutes()
   // aktualisiert, damit das Autobahn-Overlay im Minimap immer Daten hat.
   let _tradeRoutesCache = [];
+
+  function publishTradeRoutesCache() {
+    try {
+      window.__GQ_TRADE_ROUTES_CACHE = Array.isArray(_tradeRoutesCache) ? _tradeRoutesCache : [];
+    } catch (_) {}
+  }
+  publishTradeRoutesCache();
+
+  function normalizeNpcTraderRoutes(routes) {
+    if (!Array.isArray(routes)) return [];
+    return routes
+      .filter((route) => route && route.origin && route.target)
+      .map((route) => ({
+        id: `npc-${route.id || Math.random().toString(36).slice(2)}`,
+        origin: route.origin,
+        target: route.target,
+        interval_hours: Number(route.interval_hours || 12),
+        is_active: route.is_active !== false,
+        is_due: !!route.is_due,
+        route_type: 'npc_trader',
+        resource_type: route.resource_type || null,
+        status: route.status || null,
+      }));
+  }
+
+  function mergeTradeRouteCaches(playerRoutes, npcRoutes) {
+    const merged = [];
+    const seen = new Set();
+
+    for (const route of Array.isArray(playerRoutes) ? playerRoutes : []) {
+      const id = String(route?.id || '');
+      if (id && seen.has(`p:${id}`)) continue;
+      if (id) seen.add(`p:${id}`);
+      merged.push(route);
+    }
+
+    for (const route of normalizeNpcTraderRoutes(npcRoutes)) {
+      const id = String(route?.id || '');
+      if (id && seen.has(`n:${id}`)) continue;
+      if (id) seen.add(`n:${id}`);
+      merged.push(route);
+    }
+
+    return merged;
+  }
+
   async function refreshTradeRoutesCache() {
     try {
-      const data = await API.tradeRoutes();
-      _tradeRoutesCache = Array.isArray(data?.trade_routes) ? data.trade_routes : [];
+      const [data, tradersData] = await Promise.all([
+        API.tradeRoutes(),
+        API.tradersRoutes('in_transit').catch(() => ({ routes: [] })),
+      ]);
+      const playerRoutes = Array.isArray(data?.trade_routes) ? data.trade_routes : [];
+      const npcRoutes = Array.isArray(tradersData?.routes) ? tradersData.routes : [];
+      _tradeRoutesCache = mergeTradeRouteCaches(playerRoutes, npcRoutes);
+      publishTradeRoutesCache();
     } catch (_) {}
   }
   let zoomOrchestrator = window.__GQ_ZOOM_ORCHESTRATOR || null;
@@ -4997,7 +5049,14 @@
   // ÔöÇÔöÇ Trade Routes Controller ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   async function renderTradeRoutes() {
     await tradeRoutesController.render();
-    _tradeRoutesCache = tradeRoutesController.routes || [];
+    const playerRoutes = tradeRoutesController.routes || [];
+    let npcRoutes = [];
+    try {
+      const tradersData = await API.tradersRoutes('in_transit');
+      npcRoutes = Array.isArray(tradersData?.routes) ? tradersData.routes : [];
+    } catch (_) {}
+    _tradeRoutesCache = mergeTradeRouteCaches(playerRoutes, npcRoutes);
+    publishTradeRoutesCache();
   }
 
   async function renderTradersDashboard() {

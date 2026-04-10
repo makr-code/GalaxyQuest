@@ -45,23 +45,30 @@ try {
     $facStmt->execute();
     $factions = $facStmt->fetchAll(PDO::FETCH_ASSOC);
     
+    // Pre-load NPC colonies as base fallback (round-robin across factions)
+    $npcColStmt = $db->query(
+        'SELECT c.id FROM colonies c JOIN users u ON u.id = c.user_id WHERE u.control_type = \'npc_engine\' ORDER BY c.id ASC'
+    );
+    $npcColIds = $npcColStmt ? array_column($npcColStmt->fetchAll(PDO::FETCH_ASSOC), 'id') : [];
+    $npcColOffset = 0;
+
     $traders_created = 0;
     foreach ($factions as $fac) {
         $fac_id = (int)$fac['id'];
         $fac_name = (string)$fac['name'];
-        
-        // Find a colony for this faction
-        $colStmt = $db->prepare(<<<SQL
-            SELECT c.id FROM colonies c
-            JOIN faction_colonies fc ON fc.colony_id = c.id
-            WHERE fc.faction_id = ?
-            LIMIT 1
-        SQL);
-        $colStmt->execute([$fac_id]);
-        $colId = $colStmt->fetchColumn();
-        
+
+        // Pick a base colony for this faction: round-robin over available NPC colonies
+        if (empty($npcColIds)) {
+            // Last resort: any colony in the DB
+            $anyCol = $db->query('SELECT id FROM colonies ORDER BY id LIMIT 1');
+            $colId = $anyCol ? (int)$anyCol->fetchColumn() : 0;
+        } else {
+            $colId = (int)$npcColIds[$npcColOffset % count($npcColIds)];
+            $npcColOffset++;
+        }
+
         if (!$colId) {
-            echo "  ⚠️  No colony for $fac_name, skipping.\n";
+            echo "  ⚠️  No colony available for $fac_name, skipping.\n";
             continue;
         }
         
@@ -75,8 +82,10 @@ try {
         
         for ($i = 0; $i < $num_traders; $i++) {
             // Create bot user for trader
-            $username = "trader_bot_{$fac['code']}_$i";
-            $email = "$username@bots.local";
+            // Keep username within VARCHAR(32): prefix + 8-char hash of faction code + index
+            $codeHash = substr(md5((string)$fac_id . $fac['code']), 0, 8);
+            $username = 'tb_' . $codeHash . '_' . $i;   // max 14 chars, always unique
+            $email = $username . '@bots.local';
             $password = password_hash(bin2hex(random_bytes(32)), PASSWORD_BCRYPT);
             
             $userStmt = $db->prepare(

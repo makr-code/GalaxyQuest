@@ -247,14 +247,28 @@ function find_and_rank_trade_opportunities(PDO $db, float $min_margin_pct = 15.0
     foreach ($resourceTypes as $resource) {
         // Get all systems' data for this resource
         $sdStmt = $db->prepare(<<<SQL
-            SELECT galaxy_index, system_index, net_balance, available_supply, desired_demand
+            SELECT galaxy_index, system_index, net_balance, available_supply, desired_demand, consumption_per_hour
             FROM market_supply_demand
             WHERE resource_type = ?
         SQL);
         $sdStmt->execute([$resource]);
+        $rows = $sdStmt->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($rows)) {
+            continue;
+        }
+
+        // Relative surplus/deficit: center each resource around its mean balance.
+        // This keeps opportunities alive even when a resource is globally abundant/scarce.
+        $sumBalance = 0.0;
+        foreach ($rows as $row) {
+            $sumBalance += (float)$row['net_balance'];
+        }
+        $avgBalance = $sumBalance / max(1, count($rows));
+
         $systemData = [];
-        foreach ($sdStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        foreach ($rows as $row) {
             $key = (int)$row['galaxy_index'] . ':' . (int)$row['system_index'];
+            $row['effective_balance'] = (float)$row['net_balance'] - $avgBalance;
             $systemData[$key] = $row;
         }
         
@@ -311,8 +325,8 @@ function check_trade_pair(
     // Seller: system with surplus
     // Buyer: system with deficit
     
-    $sellerBalance = (float)$dataA['net_balance'];
-    $buyerBalance  = (float)$dataB['net_balance'];
+    $sellerBalance = (float)($dataA['effective_balance'] ?? $dataA['net_balance']);
+    $buyerBalance  = (float)($dataB['effective_balance'] ?? $dataB['net_balance']);
     
     if ($sellerBalance <= 0 || $buyerBalance >= 0) {
         return;  // No arbitrage opportunity
@@ -327,8 +341,9 @@ function check_trade_pair(
     }
     
     // Calculate transport cost approximation
-    $distLy = system_distance($galA, $sysA, $galB, $sysB);
-    $transportCost = $distLy * 0.1;  // Rough: 0.1 credits per LY
+    $distLy = system_distance($db, $galA, $sysA, $galB, $sysB);
+    // Calibrated for current star coordinate scale (~10k-80k LY distances).
+    $transportCost = $distLy * 0.00005;
     
     // Profit calculation
     $grossMargin = ($priceB - $priceA) / $priceA * 100;
@@ -343,10 +358,8 @@ function check_trade_pair(
         (float)$dataA['available_supply'],
         abs($sellerBalance)  // How much surplus
     );
-    $desiredBuy = min(
-        abs($buyerBalance),  // How much deficit
-        (float)$dataB['desired_demand']
-    );
+    $desiredDemand = max(0.0, (float)$dataB['desired_demand']) + max(0.0, (float)($dataB['consumption_per_hour'] ?? 0.0));
+    $desiredBuy = min(abs($buyerBalance), $desiredDemand > 0 ? $desiredDemand : abs($buyerBalance));
     $tradeQty = min($availableSell, $desiredBuy);
     
     if ($tradeQty <= 0) {
@@ -385,7 +398,7 @@ function check_trade_pair(
  */
 function compute_system_price(PDO $db, int $galaxy, int $system, string $resource): float {
     $stmt = $db->prepare(<<<SQL
-        SELECT available_supply, desired_demand FROM market_supply_demand
+        SELECT available_supply, desired_demand, consumption_per_hour FROM market_supply_demand
         WHERE galaxy_index = ? AND system_index = ? AND resource_type = ?
     SQL);
     $stmt->execute([$galaxy, $system, $resource]);
@@ -396,7 +409,7 @@ function compute_system_price(PDO $db, int $galaxy, int $system, string $resourc
     }
     
     $supply = max(1.0, (float)$data['available_supply']);
-    $demand = max(1.0, (float)$data['desired_demand']);
+    $demand = max(1.0, (float)$data['desired_demand'] + (float)($data['consumption_per_hour'] ?? 0.0));
     
     $basePrice = (GQ_MARKET_ANALYSIS_BASE_PRICES[$resource] ?? 100.0);
     $elasticity = 0.4;  // Matches market.php pricing
@@ -408,16 +421,35 @@ function compute_system_price(PDO $db, int $galaxy, int $system, string $resourc
 }
 
 /**
- * Estimate distance between two systems (manhattan distance in coordinates).
+ * Estimate distance between two systems using star_systems coordinates.
+ * Falls back to legacy approximation when coordinates are unavailable.
  */
-function system_distance(int $galA, int $sysA, int $galB, int $sysB): float {
+function system_distance(PDO $db, int $galA, int $sysA, int $galB, int $sysB): float {
     if ($galA !== $galB) {
         return 10000.0;  // Inter-galactic trade (very expensive)
     }
-    
-    // Same galaxy: rough distance estimate
-    // In reality would query star_systems coords
-    return abs(($sysA - $sysB) * 15.0);  // Estimate ~15 LY per system
+
+    static $coordStmt = null;
+    if ($coordStmt === null) {
+        $coordStmt = $db->prepare(
+            'SELECT x_ly, y_ly, z_ly FROM star_systems WHERE galaxy_index = ? AND system_index = ? LIMIT 1'
+        );
+    }
+
+    $coordStmt->execute([$galA, $sysA]);
+    $a = $coordStmt->fetch(PDO::FETCH_ASSOC);
+
+    $coordStmt->execute([$galB, $sysB]);
+    $b = $coordStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$a || !$b) {
+        return abs(($sysA - $sysB) * 15.0);  // legacy fallback
+    }
+
+    $dx = (float)$a['x_ly'] - (float)$b['x_ly'];
+    $dy = (float)$a['y_ly'] - (float)$b['y_ly'];
+    $dz = (float)$a['z_ly'] - (float)$b['z_ly'];
+    return max(1.0, sqrt($dx * $dx + $dy * $dy + $dz * $dz));
 }
 
 

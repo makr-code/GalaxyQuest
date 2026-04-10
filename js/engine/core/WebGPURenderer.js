@@ -98,8 +98,10 @@ class WebGPURenderer extends BaseGraphicsRenderer {
     // 1. Acquire adapter + device via WebGPUDevice (handles exponential-backoff
     //    reconnect on unexpected device loss).
     this._gpuDevice = new WebGPUDeviceCtor();
+    const isWindows = typeof navigator !== 'undefined'
+      && String(navigator.userAgent || '').toLowerCase().includes('windows');
     await this._gpuDevice.request({
-      powerPreference: 'high-performance',
+      powerPreference: isWindows ? undefined : 'high-performance',
       onDeviceLost: () => {
         this.ready  = false;
         this.device = null;

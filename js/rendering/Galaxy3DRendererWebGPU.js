@@ -759,8 +759,10 @@
         gates: [],
         nodes: [],
         clusters: [],
+        tradeRoutes: [],
         clusterPalette: null,
       };
+      this._empireHeartbeatSystems = new Set();
       this._heroVertexBuf = null;
       this._heroIndexBuf = null;
       this._orbitVertexBuf = null;
@@ -1095,6 +1097,96 @@
       return '#8fa8ff';
     }
 
+    _buildTradeRouteStarIndex() {
+      const index = new Map();
+      const stars = Array.isArray(this._rawStars) ? this._rawStars : [];
+      for (let i = 0; i < stars.length; i++) {
+        const s = stars[i];
+        const galaxy = Number(s?.galaxy_index || 0);
+        const system = Number(s?.system_index || 0);
+        if (!galaxy || !system) continue;
+        const key = `${galaxy}:${system}`;
+        if (!index.has(key)) index.set(key, s);
+      }
+      return index;
+    }
+
+    _buildSystemIndex() {
+      const index = new Map();
+      const stars = Array.isArray(this._rawStars) ? this._rawStars : [];
+      for (let i = 0; i < stars.length; i++) {
+        const star = stars[i] || {};
+        const system = Number(star.system_index || 0);
+        if (!Number.isFinite(system) || system <= 0 || index.has(system)) continue;
+        index.set(system, star);
+      }
+      return index;
+    }
+
+    _resolveClusterOverlayGeometry(cluster, systemIndex) {
+      const directCenter = this._resolvePoint2(cluster);
+      const systems = Array.isArray(cluster?.systems)
+        ? cluster.systems.map((value) => Number(value || 0)).filter((value) => Number.isFinite(value) && value > 0)
+        : [];
+
+      let center = directCenter;
+      let radiusLy = Number(cluster?.radius_ly || cluster?.radius || cluster?.influence_radius_ly || 0);
+
+      if (!center && systems.length && systemIndex) {
+        const points = systems
+          .map((systemIndexValue) => systemIndex.get(systemIndexValue))
+          .filter(Boolean)
+          .map((star) => this._resolvePoint2(star))
+          .filter(Boolean);
+
+        if (points.length) {
+          const sum = points.reduce((acc, point) => {
+            acc.x += point.x;
+            acc.y += point.y;
+            return acc;
+          }, { x: 0, y: 0 });
+          center = {
+            x: sum.x / points.length,
+            y: sum.y / points.length,
+          };
+
+          if (!(Number.isFinite(radiusLy) && radiusLy > 0)) {
+            let maxDist = 0;
+            for (let i = 0; i < points.length; i++) {
+              const dx = points[i].x - center.x;
+              const dy = points[i].y - center.y;
+              maxDist = Math.max(maxDist, Math.sqrt(dx * dx + dy * dy));
+            }
+            radiusLy = maxDist > 0 ? maxDist : 26;
+          }
+        }
+      }
+
+      if (!center) return null;
+      if (!(Number.isFinite(radiusLy) && radiusLy > 0)) radiusLy = 26;
+      return { center, radiusLy };
+    }
+
+    _resolveTradeRouteEndpoint(endpoint, starIndex) {
+      if (!endpoint || typeof endpoint !== 'object') return null;
+      const galaxy = Number(endpoint.galaxy || endpoint.galaxy_index || 0);
+      const system = Number(endpoint.system || endpoint.system_index || 0);
+      if (!galaxy || !system) return null;
+      const star = starIndex.get(`${galaxy}:${system}`);
+      if (!star) return null;
+      const x = Number(star.x_ly ?? star.x);
+      const y = Number(star.y_ly ?? star.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return { x, y };
+    }
+
+    _getActiveTradeRoutesForOverlay() {
+      const cached = Array.isArray(window.__GQ_TRADE_ROUTES_CACHE)
+        ? window.__GQ_TRADE_ROUTES_CACHE
+        : (Array.isArray(this._overlayData.tradeRoutes) ? this._overlayData.tradeRoutes : []);
+      return cached.filter((route) => route && route.origin && route.target && route.is_active !== false);
+    }
+
     _renderGalaxyOverlay2D() {
       const ctx = this._overlayCtx;
       const canvas = this._overlayCanvas;
@@ -1113,17 +1205,21 @@
       const nodeRadius = Math.max(2.4, 3.0 * visualScale);
       const fleetRadius = Math.max(2.0, 2.4 * visualScale);
       const fleetVectorWidth = Math.max(0.9, 1.05 * visualScale);
+      const routeLineWidth = Math.max(0.9, 1.15 * visualScale);
+      const routeGlowWidth = Math.max(2.0, 3.0 * visualScale);
       const arrowLen = Math.max(6, 7.5 * visualScale);
       const arrowHalfWidth = Math.max(2.2, 3.0 * visualScale);
 
+      const systemIndex = this._buildSystemIndex();
       const clusters = Array.isArray(this._overlayData.clusters) ? this._overlayData.clusters : [];
       for (let i = 0; i < clusters.length; i++) {
         const cluster = clusters[i] || {};
-        const center = this._resolvePoint2(cluster);
-        if (!center) continue;
+        const geometry = this._resolveClusterOverlayGeometry(cluster, systemIndex);
+        if (!geometry) continue;
+        const center = geometry.center;
         const c = this._projectWorldToOverlay(center.x, center.y);
         if (!c) continue;
-        const radiusLy = Number(cluster.radius_ly || cluster.radius || cluster.influence_radius_ly || 26);
+        const radiusLy = Number(geometry.radiusLy || 26);
         const edge = this._projectWorldToOverlay(center.x + Math.max(5, radiusLy), center.y);
         const r = Math.max(5, Math.abs((edge?.x || c.x + 12) - c.x));
         const clusterColor = this._resolveClusterOverlayColor(cluster, i);
@@ -1165,6 +1261,76 @@
         ctx.arc(pa.x, pa.y, gateMarkerRadius, 0, Math.PI * 2);
         ctx.arc(pb.x, pb.y, gateMarkerRadius, 0, Math.PI * 2);
         ctx.fill();
+      }
+
+      // Trade routes (player + NPC) from merged runtime cache
+      const tradeRoutes = this._getActiveTradeRoutesForOverlay();
+      if (tradeRoutes.length) {
+        const starIndex = this._buildTradeRouteStarIndex();
+        const seen = new Set();
+
+        for (let i = 0; i < tradeRoutes.length; i++) {
+          const route = tradeRoutes[i] || {};
+          const a = this._resolveTradeRouteEndpoint(route.origin, starIndex);
+          const b = this._resolveTradeRouteEndpoint(route.target, starIndex);
+          if (!a || !b) continue;
+
+          const aKey = `${Number(route.origin?.galaxy || 0)}:${Number(route.origin?.system || 0)}`;
+          const bKey = `${Number(route.target?.galaxy || 0)}:${Number(route.target?.system || 0)}`;
+          const edgeKey = aKey <= bKey ? `${aKey}|${bKey}` : `${bKey}|${aKey}`;
+          if (seen.has(edgeKey)) continue;
+          seen.add(edgeKey);
+
+          const pa = this._projectWorldToOverlay(a.x, a.y);
+          const pb = this._projectWorldToOverlay(b.x, b.y);
+          if (!pa || !pb) continue;
+
+          const interval = Math.max(1, Number(route.interval_hours || 24));
+          const color = interval <= 6
+            ? 'rgba(255, 179, 71, 0.88)'
+            : interval <= 12
+              ? 'rgba(255, 209, 102, 0.82)'
+              : interval <= 24
+                ? 'rgba(141, 211, 168, 0.78)'
+                : 'rgba(124, 200, 255, 0.72)';
+
+          ctx.beginPath();
+          ctx.strokeStyle = color.replace(/0\.[0-9]+\)$/, '0.22)');
+          ctx.lineWidth = routeGlowWidth;
+          ctx.moveTo(pa.x, pa.y);
+          ctx.lineTo(pb.x, pb.y);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = routeLineWidth;
+          ctx.moveTo(pa.x, pa.y);
+          ctx.lineTo(pb.x, pb.y);
+          ctx.stroke();
+        }
+      }
+
+      if (this._empireHeartbeatSystems.size && systemIndex.size) {
+        for (const systemIndexValue of this._empireHeartbeatSystems) {
+          const star = systemIndex.get(Number(systemIndexValue || 0));
+          if (!star) continue;
+          const point = this._resolvePoint2(star);
+          if (!point) continue;
+          const projected = this._projectWorldToOverlay(point.x, point.y);
+          if (!projected) continue;
+
+          const ringRadius = Math.max(2.6, 3.4 * visualScale);
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(255, 208, 95, 0.92)';
+          ctx.lineWidth = Math.max(1.1, 1.3 * visualScale);
+          ctx.arc(projected.x, projected.y, ringRadius, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.fillStyle = 'rgba(255, 208, 95, 0.35)';
+          ctx.arc(projected.x, projected.y, Math.max(1.2, ringRadius * 0.42), 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
 
       const nodes = Array.isArray(this._overlayData.nodes) ? this._overlayData.nodes : [];
@@ -2279,6 +2445,11 @@
       this._overlayData.clusterPalette = palette || null;
     }
 
+    setTradeRoutes(routes) {
+      if (this._delegate) return this._delegate.setTradeRoutes?.(routes);
+      this._overlayData.tradeRoutes = Array.isArray(routes) ? routes.slice() : [];
+    }
+
     setCameraTarget(target) {
       if (this._delegate) return this._delegate.setCameraTarget?.(target);
       this._currentTarget = target || null;
@@ -2369,6 +2540,10 @@
 
     setEmpireHeartbeatSystems(list) {
       if (this._delegate) return this._delegate.setEmpireHeartbeatSystems?.(list);
+      const normalized = Array.isArray(list)
+        ? list.map((value) => Number(value || 0)).filter((value) => Number.isFinite(value) && value > 0)
+        : [];
+      this._empireHeartbeatSystems = new Set(normalized);
     }
 
     focusOnStar(star, immediate = false) {

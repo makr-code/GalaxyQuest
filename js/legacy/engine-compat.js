@@ -33,6 +33,13 @@
 
   /** @type {Promise<import('./engine/core/GraphicsContext').IGraphicsRenderer>|null} */
   let _rendererPromise = null;
+  const _warnedKeys = new Set();
+
+  function _warnOnce(key, ...args) {
+    if (_warnedKeys.has(key)) return;
+    _warnedKeys.add(key);
+    console.warn(...args);
+  }
 
   const GQEngineCompat = {
     /**
@@ -97,7 +104,11 @@
       try {
         return await _createWebGPU(canvas);
       } catch (e) {
-        console.warn('[GQEngineCompat] WebGPU init failed, falling back to WebGL2 compatibility backend:', e.message);
+        _warnOnce(
+          `webgpu-init-failed:${String(e?.message || 'unknown')}`,
+          '[GQEngineCompat] WebGPU init failed, falling back to WebGL2 compatibility backend:',
+          e.message
+        );
       }
     }
     return _createWebGL(canvas);
@@ -131,7 +142,7 @@
       const r = new window.GQWebGLRenderer();
       return r.initialize(canvas).then(() => r);
     }
-    console.warn('[GQEngineCompat] No supported renderer found');
+    _warnOnce('no-supported-renderer', '[GQEngineCompat] No supported renderer found');
     return Promise.resolve(null);
   }
 

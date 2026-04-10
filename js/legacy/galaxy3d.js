@@ -142,6 +142,10 @@
       this.visibleStars = [];
       this.visibleToRawIndex = [];
       this.starPoints = null;
+      this.tradeRouteOverlayGroup = null;
+      this.tradeRouteOverlayMesh = null;
+      this._lastTradeRouteOverlaySyncMs = 0;
+      this._tradeRouteOverlaySyncIntervalMs = 2200;
       this.selectedIndex = -1;
       this.hoverIndex = -1;
       this.focusTarget = null;
@@ -253,6 +257,12 @@
 
       this.clusterAuraGroup = new THREE.Group();
       this.renderFrames.galaxy.add(this.clusterAuraGroup);
+
+      // 3D trade-route overlay (autobahn lines in main galaxy canvas).
+      this.tradeRouteOverlayGroup = new THREE.Group();
+      this.tradeRouteOverlayGroup.visible = true;
+      this.tradeRouteOverlayGroup.renderOrder = 5;
+      this.renderFrames.galaxy.add(this.tradeRouteOverlayGroup);
 
       this.systemSkyGroup = new THREE.Group();
       this.systemSkyGroup.visible = false;
@@ -3611,6 +3621,7 @@
       if (!this.stars.length) {
         this._rebuildClusterAuras();
         this._syncClusterAuraTransform();
+        this._clearTradeRouteOverlay();
         return;
       }
 
@@ -3835,6 +3846,7 @@
       this._rebuildClusterAuras();
       this._applyEmpireHeartbeatMask();
       this._syncClusterAuraTransform();
+      this._updateTradeRouteOverlay(true);
       this._updateHoverMarker();
     }
 
@@ -4409,6 +4421,102 @@
       }
     }
 
+    _clearTradeRouteOverlay() {
+      if (this.tradeRouteOverlayMesh && this.tradeRouteOverlayGroup) {
+        this.tradeRouteOverlayGroup.remove(this.tradeRouteOverlayMesh);
+      }
+      if (this.tradeRouteOverlayMesh?.geometry) this.tradeRouteOverlayMesh.geometry.dispose();
+      if (this.tradeRouteOverlayMesh?.material) this.tradeRouteOverlayMesh.material.dispose();
+      this.tradeRouteOverlayMesh = null;
+    }
+
+    _buildTradeRouteStarIndex() {
+      const map = new Map();
+      const stars = Array.isArray(this.stars) ? this.stars : [];
+      for (const star of stars) {
+        const galaxy = Number(star?.galaxy_index || 0);
+        const system = Number(star?.system_index || 0);
+        if (!galaxy || !system) continue;
+        const key = `${galaxy}:${system}`;
+        if (map.has(key)) continue;
+        map.set(key, star);
+      }
+      return map;
+    }
+
+    _updateTradeRouteOverlay(force = false) {
+      if (!this.tradeRouteOverlayGroup || !this.renderFrames?.galaxy || this.systemMode) return;
+
+      const now = performance.now();
+      if (!force && (now - this._lastTradeRouteOverlaySyncMs) < this._tradeRouteOverlaySyncIntervalMs) {
+        return;
+      }
+      this._lastTradeRouteOverlaySyncMs = now;
+
+      const routes = Array.isArray(window.__GQ_TRADE_ROUTES_CACHE) ? window.__GQ_TRADE_ROUTES_CACHE : [];
+      if (!routes.length || !Array.isArray(this.stars) || !this.stars.length) {
+        this._clearTradeRouteOverlay();
+        return;
+      }
+
+      const starIndex = this._buildTradeRouteStarIndex();
+      const edgeSeen = new Set();
+      const positions = [];
+      const scale = 0.028;
+
+      for (const route of routes) {
+        if (route?.is_active === false) continue;
+
+        const og = Number(route?.origin?.galaxy || 0);
+        const os = Number(route?.origin?.system || 0);
+        const tg = Number(route?.target?.galaxy || 0);
+        const ts = Number(route?.target?.system || 0);
+        if (!og || !os || !tg || !ts) continue;
+
+        const a = `${og}:${os}`;
+        const b = `${tg}:${ts}`;
+        const edgeKey = a <= b ? `${a}|${b}` : `${b}|${a}`;
+        if (edgeSeen.has(edgeKey)) continue;
+        edgeSeen.add(edgeKey);
+
+        const sA = starIndex.get(a);
+        const sB = starIndex.get(b);
+        if (!sA || !sB) continue;
+
+        positions.push(
+          (Number(sA.x_ly) || 0) * scale,
+          (Number(sA.z_ly) || 0) * scale * 0.42,
+          (Number(sA.y_ly) || 0) * scale,
+          (Number(sB.x_ly) || 0) * scale,
+          (Number(sB.z_ly) || 0) * scale * 0.42,
+          (Number(sB.y_ly) || 0) * scale
+        );
+      }
+
+      if (!positions.length) {
+        this._clearTradeRouteOverlay();
+        return;
+      }
+
+      this._clearTradeRouteOverlay();
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      const material = new THREE.LineBasicMaterial({
+        color: 0xffc46b,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+      });
+
+      const mesh = new THREE.LineSegments(geometry, material);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 5;
+
+      this.tradeRouteOverlayGroup.add(mesh);
+      this.tradeRouteOverlayMesh = mesh;
+    }
+
     _animate() {
       if (this.destroyed) return;
       requestAnimationFrame(() => this._animate());
@@ -4512,6 +4620,7 @@
           });
         });
 
+        this._updateTradeRouteOverlay();
         this._syncClusterAuraTransform();
       } else {
         const elapsed = this.clock.elapsedTime;
@@ -4637,6 +4746,8 @@
         this.coreStars.geometry.dispose();
         this.coreStars.material.dispose();
       }
+      this._clearTradeRouteOverlay();
+      this._clearGroup(this.tradeRouteOverlayGroup);
       this._clearGroup(this.clusterAuraGroup);
       this._clearGroup(this.systemSkyGroup);
       this._clearGroup(this.systemBackdrop);

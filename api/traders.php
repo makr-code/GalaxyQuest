@@ -21,25 +21,28 @@ require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/market_analysis.php';
 
-header('Content-Type: application/json; charset=utf-8');
+// When included as a library (e.g. from npc_ai.php), skip HTTP dispatch.
+if (!defined('TRADERS_LIB_MODE')) {
+    header('Content-Type: application/json; charset=utf-8');
 
-$action = $_GET['action'] ?? '';
-$uid    = require_auth();
-$db     = get_db();
+    $action = $_GET['action'] ?? '';
+    $uid    = require_auth();
+    $db     = get_db();
 
-try {
-    match ($action) {
-        'list_opportunities'   => action_list_opportunities($db),
-        'list_traders'         => action_list_traders($db),
-        'list_routes'          => action_list_routes($db),
-        'market_analysis'      => action_market_analysis($db),
-        'process_trader_tick'  => action_process_trader_tick($db),
-        'create_trader'        => action_create_trader($db),
-        default => json_error("Unknown action: $action", 400),
-    };
-} catch (Throwable $e) {
-    error_log("traders.php error: " . $e->getMessage());
-    json_error($e->getMessage(), 500);
+    try {
+        match ($action) {
+            'list_opportunities'   => action_list_opportunities($db),
+            'list_traders'         => action_list_traders($db),
+            'list_routes'          => action_list_routes($db),
+            'market_analysis'      => action_market_analysis($db),
+            'process_trader_tick'  => action_process_trader_tick($db),
+            'create_trader'        => action_create_trader($db),
+            default => json_error("Unknown action: $action", 400),
+        };
+    } catch (Throwable $e) {
+        error_log("traders.php error: " . $e->getMessage());
+        json_error($e->getMessage(), 500);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,11 +162,17 @@ function action_list_routes(PDO $db): never {
             tr.expected_profit, tr.actual_profit,
             tr.departure_at, tr.arrival_at, tr.delivered_at,
             sc.name as source_colony, tc.name as target_colony,
+            scb.galaxy_index as source_galaxy_index,
+            scb.system_index as source_system_index,
+            tcb.galaxy_index as target_galaxy_index,
+            tcb.system_index as target_system_index,
             nt.name as trader_name,
             f.id as fleet_id, f.distance_ly
         FROM trader_routes tr
         JOIN colonies sc ON sc.id = tr.source_colony_id
         JOIN colonies tc ON tc.id = tr.target_colony_id
+        JOIN celestial_bodies scb ON scb.id = sc.body_id
+        JOIN celestial_bodies tcb ON tcb.id = tc.body_id
         JOIN npc_traders nt ON nt.id = tr.trader_id
         LEFT JOIN fleets f ON f.id = tr.fleet_id
         WHERE 1=1
@@ -182,15 +191,29 @@ function action_list_routes(PDO $db): never {
     
     $routes = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $route) {
+        $statusValue = (string)$route['status'];
+        $isActive = !in_array($statusValue, ['completed', 'failed'], true);
+
         $routes[] = [
             'id'                => (int)$route['id'],
             'trader_id'         => (int)$route['trader_id'],
             'trader_name'       => (string)$route['trader_name'],
             'fleet_id'          => (int)$route['fleet_id'],
+            'origin'            => [
+                'galaxy' => (int)$route['source_galaxy_index'],
+                'system' => (int)$route['source_system_index'],
+            ],
+            'target'            => [
+                'galaxy' => (int)$route['target_galaxy_index'],
+                'system' => (int)$route['target_system_index'],
+            ],
+            'interval_hours'    => 12,
+            'is_active'         => $isActive,
+            'is_due'            => $statusValue === 'planning' || $statusValue === 'delivering',
             'source_colony'     => (string)$route['source_colony'],
             'target_colony'     => (string)$route['target_colony'],
             'resource_type'     => (string)$route['resource_type'],
-            'status'            => (string)$route['status'],
+            'status'            => $statusValue,
             'quantity'          => [
                 'planned'   => (float)$route['quantity_planned'],
                 'acquired'  => (float)$route['quantity_acquired'],
@@ -816,6 +839,12 @@ function execute_trader_strategy(PDO $db, array $trader): bool {
         default       => 15.0,
     };
     
+    $orderBy = match ($strategy) {
+        'profit_max' => 'net_profit_per_unit * actual_qty DESC',
+        'volume'     => 'actual_qty DESC',
+        default      => 'confidence DESC',
+    };
+
     $oppStmt = $db->prepare(<<<SQL
         SELECT 
             id, source_system, target_system, resource_type,
@@ -825,14 +854,10 @@ function execute_trader_strategy(PDO $db, array $trader): bool {
         WHERE profit_margin >= ?
             AND expires_at > NOW()
             AND (? = '' OR resource_type = ?)
-        ORDER BY CASE 
-            WHEN ? = 'profit_max' THEN net_profit_per_unit * actual_qty DESC
-            WHEN ? = 'volume' THEN actual_qty DESC
-            ELSE confidence DESC
-        END
+        ORDER BY {$orderBy}
         LIMIT 1
     SQL);
-    $oppStmt->execute([$minMargin, $spec, $spec, $strategy, $strategy]);
+    $oppStmt->execute([$minMargin, $spec, $spec]);
     $opp = $oppStmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$opp) {

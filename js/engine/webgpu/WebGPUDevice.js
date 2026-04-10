@@ -124,7 +124,13 @@ class WebGPUDevice {
   // ── Private ─────────────────────────────────────────────────────────────────
 
   async _acquireDevice(powerPreference) {
-    this.adapter = await navigator.gpu.requestAdapter({ powerPreference });
+    const isWindows = typeof navigator !== 'undefined'
+      && String(navigator.userAgent || '').toLowerCase().includes('windows');
+    const adapterOptions = (isWindows || !powerPreference)
+      ? undefined
+      : { powerPreference };
+
+    this.adapter = await navigator.gpu.requestAdapter(adapterOptions);
     if (!this.adapter) throw new Error('No WebGPU adapter available');
 
     const features = /** @type {GPUFeatureName[]} */ ([]);
