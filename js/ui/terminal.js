@@ -79,6 +79,11 @@
       return true;
     }
 
+    // Browser GPU driver spam: non-actionable readback stall diagnostics.
+    if (source === 'console' && /gpu\s+stall|stall\s+due\s+to\s+readpixels|readpixels/i.test(msg)) {
+      return true;
+    }
+
     // Ignore expected request abort chatter when switching views/home navigation.
     if ((source === 'fetch' || source === 'trace' || source === 'console')
       && /home navigation|view switch|aborterror: home navigation|aborterror: view switch/.test(lcMsg)) {

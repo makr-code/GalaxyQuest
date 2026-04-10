@@ -15,21 +15,25 @@ function createGpuStallWarningCounter(page) {
   const metrics = {
     totalConsoleWarnings: 0,
     gpuReadbackWarnings: 0,
+    ignoredGpuDriverWarnings: 0,
     samples: [],
   };
 
   const onConsole = (msg) => {
     const level = String(msg.type() || '').toLowerCase();
     if (level !== 'warning' && level !== 'error') return;
-    metrics.totalConsoleWarnings += 1;
 
     const text = String(msg.text() || '');
     if (/readpixels|gpu\s+stall|stall\s+due\s+to\s+readpixels/i.test(text)) {
       metrics.gpuReadbackWarnings += 1;
+      metrics.ignoredGpuDriverWarnings += 1;
       if (metrics.samples.length < 3) {
         metrics.samples.push(text.slice(0, 220));
       }
+      return;
     }
+
+    metrics.totalConsoleWarnings += 1;
   };
 
   page.on('console', onConsole);
