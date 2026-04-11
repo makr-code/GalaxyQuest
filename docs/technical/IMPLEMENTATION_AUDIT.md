@@ -152,7 +152,7 @@ GESAMT (vs. finale Vision)                                  ~60%
 - Sektoren, Gouverneure, Edikte (Empire Sprawl/AdminCap via `lib/ColonizationEngine.php`)
 - 14 Kolonisierungs-API-Endpunkte (`api/colonization.php`)
 - Isometrisches Colony-Building-Backend (`api/colony_buildings.php`, `sql/migrate_colony_buildings_v1.sql`)
-- Frontend: `RuntimeColonizationController.js`, `RuntimeColonizationController.js`
+- Frontend: `RuntimeColonizationController.js`, `RuntimeSocialControllersBootstrap.js`
 
 **Fehlend:**
 - ❌ Pop-Satisfaction-Mechanik vollständig an Güterverbrauch gekoppelt (Tabelle existiert, Logik fehlt)
