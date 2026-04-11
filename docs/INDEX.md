@@ -29,6 +29,7 @@
 |---|---|
 | [technical/ARCHITECTURE.md](technical/ARCHITECTURE.md) | **Main technical reference** — backend, frontend, engine, DB, security |
 | [technical/DOCUMENTATION_GUIDE.md](technical/DOCUMENTATION_GUIDE.md) | How to navigate and contribute to docs |
+| [technical/IMPLEMENTATION_AUDIT.md](technical/IMPLEMENTATION_AUDIT.md) | **Implementierungs-Audit** — Vollständige Statusanalyse aller Systeme (Stand 11.04.2026) |
 | [technical/GAP_TODO.md](technical/GAP_TODO.md) | **Gap-TODO** — priorisierte Lücken zwischen Design und Implementierung |
 | [technical/TEMPLATE_SYSTEM_DESIGN.md](technical/TEMPLATE_SYSTEM_DESIGN.md) | **Template system design** — Mustache in PHP, JS & CSS: Vorgaben, Vor-/Nachteile, Migrationsplan |
 | [technical/MIGRATION_STRATEGY_OOP.md](technical/MIGRATION_STRATEGY_OOP.md) | OOP refactoring roadmap and conventions |

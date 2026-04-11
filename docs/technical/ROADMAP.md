@@ -1,6 +1,522 @@
-# GalaxyQuest Roadmap (Engine-Fokus)
+# GalaxyQuest — Projekt-Roadmap
 
-Diese Datei ist die operative Schritt-fuer-Schritt-Roadmap fuer die aktuelle 3D-Engine- und Datenpipeline-Arbeit.
+> **Status:** Living Document  
+> **Stand:** 11. April 2026  
+> **Gesamtfortschritt:** ~60 % des finalen Produkts  
+> **Geplanter Launch:** ~30 Wochen (7 Sprints)  
+> Siehe auch: [IMPLEMENTATION_AUDIT.md](IMPLEMENTATION_AUDIT.md) für detaillierte Statusanalyse
+
+---
+
+## Legende
+
+| Symbol | Bedeutung |
+|---|---|
+| ✅ | Abgeschlossen |
+| 🚧 | In Arbeit / partiell implementiert |
+| 🎯 | Hohe Priorität — als nächstes implementieren |
+| 💡 | Gute Idee, mittlere Priorität |
+| 🔭 | Langfristig / Forschungsphase |
+
+---
+
+## Abgeschlossene Meilensteine (Zusammenfassung)
+
+Folgende große Arbeitspakete sind abgeschlossen und bilden das Fundament des Projekts:
+
+| Meilenstein | Details |
+|---|---|
+| ✅ Engine-Roadmap Phase 0–5 | Vollständige 3D-Engine inkl. Camera, Data-Pipeline, Assets, Physics, QA (siehe Appendix A) |
+| ✅ Backend-Parallelspur B1–B4 | Chunk-Streaming, LOD-Vorberechnung, Asset-Metadaten, Performance-Telemetrie |
+| ✅ Phase 1 Core Gameplay | Auth, Galaxie, Kolonien, Wirtschaft (Basis), Militär, NPC, Diplomatie, Achievements |
+| ✅ Phase 2 Depth & Polish | Echtzeit-Fleet-Tracking, Trade Routes, Spy Reports, Alliance System, SSE Push |
+| ✅ Phase 3 Multiplayer & Social | Alliance System vollständig, SSE Notifications, Player-to-Player Trading |
+| ✅ VFX Phase 1–3 | Weapon Fire, Multi-Entity Combat, Debris Destruction System |
+| ✅ Post-Processing alle 5 Phasen | Film Grain, Color Grading, Star Scintillation, Disk Rotation, Jet Lighting, Tone Mapping, Lens Flare, Dust Layer, Motion Blur |
+| ✅ WebGPU-Migration Phase 1–5 | Galaxy3DRenderer, Starfield, HybridPhysicsEngine, NPCPathfindingCompute, Hardware-in-Loop CI |
+| ✅ FTL-Drive-System | 6 fraktionsspezifische Drives vollständig implementiert |
+| ✅ Kolonisierungssystem | Empire Sprawl, Sektoren, Gouverneure, Edikte (GAP_TODO A-1) |
+| ✅ Empire-Kategorien & Spionage | 7 Scores, Spider-Chart, Agenten, Missions (GAP_TODO A-2) |
+| ✅ Colony Buildings Backend | Isometrisches System, API, SQL-Migration (GAP_TODO A-3) |
+| ✅ Onboarding-Prolog (Basis) | 5-stufiger passwordloser Registrierungs-Flow, Herald-NPCs |
+
+---
+
+## Sprint 1: Stabilisierung & Qualität (Wochen 1–3)
+
+> **Ziel:** Solides Fundament — keine technischen Schulden, die weitere Entwicklung blockieren
+
+**Abhängigkeiten:** Keine (Grundlage für alle weiteren Sprints)
+
+### 1.1 CI/CD Pipeline 🎯
+
+**Aufgaben:**
+- [ ] GitHub Actions Workflow einrichten (`PHPUnit` + `Vitest` + `Playwright Smoke`)
+- [ ] Automatisches Testing bei jedem Push/PR
+- [ ] Fail-Fast bei Test-Regressions
+
+**Akzeptanzkriterien:**
+- Jeder Commit triggert automatisch PHPUnit + Vitest
+- Playwright Smoke-Test läuft in CI
+- Badge in `README.md` zeigt Build-Status
+
+**Aufwand:** ~8h  
+**Referenz:** `phpunit.xml`, `vitest.config.mjs`, `playwright.config.js`
+
+---
+
+### 1.2 Technische Schulden bereinigen 🎯
+
+**Aufgaben:**
+- [ ] Root-Level Test-Dateien nach `tests/` verschieben (`test_*.php`, `test_*.sql`)
+- [ ] API-Versioning konsequent auf alle Endpunkte anwenden (`config/api_version.php`)
+- [ ] Einheitliches Error-Logging (Logger-Service statt `error_log()` direkt)
+- [ ] `.gitignore` auditieren (Cookie-/Cache-Dateien ausschließen)
+
+**Akzeptanzkriterien:**
+- Kein `test_*.php` im Root-Verzeichnis
+- Alle APIs verwenden `api/v1/`-Präfix konsistent
+- Kein `error_log(` direkt in API-Dateien
+
+**Aufwand:** ~6h  
+**Referenz:** `docs/technical/IMPLEMENTATION_AUDIT.md` §5
+
+---
+
+### 1.3 Testabdeckung erhöhen 🎯
+
+**Aufgaben:**
+- [ ] `tests/js/war-events.test.js` erstellen (GAP_TODO B-1)
+- [ ] E2E-Tests: War Goal Progression, Peace Negotiation Flow
+- [ ] E2E-Tests: Economy Policy Switch → Production Changes
+
+**Akzeptanzkriterien:**
+- Alle neuen Tests grün
+- Gesamttest-Coverage nicht gesunken
+
+**Aufwand:** ~8h  
+**Referenz:** `docs/technical/GAP_TODO.md`
+
+---
+
+### 1.4 DB-Migration-Tooling 🎯
+
+**Aufgaben:**
+- [ ] Versioniertes Migrationssystem implementieren (Migrationstabelle mit Checksums)
+- [ ] Setup-Script anpassen, um nur noch nicht-angewendete Migrationen auszuführen
+- [ ] Dry-Run-Modus für Migrations-Preview
+
+**Akzeptanzkriterien:**
+- `setup.php` führt nur noch nicht-angewendete Migrationen aus
+- Migrationsstatus in DB nachvollziehbar
+
+**Aufwand:** ~6h
+
+---
+
+## Sprint 2: Wirtschafts-Tiefe (Wochen 4–8)
+
+> **Ziel:** Vollständige Anno/Victoria-inspirierte Produktionsketten gemäß GAMEPLAY_DATA_MODEL.md
+
+**Abhängigkeiten:** Sprint 1 (stabile DB-Migration-Basis)  
+**Referenz:** `docs/gamedesign/GAMEPLAY_DATA_MODEL.md`, `docs/gamedesign/ECONOMY_DESIGN.md`, `docs/technical/GAP_TODO.md` B-2
+
+### 2.1 Produktionsketten Tier-2/Tier-3 🎯
+
+**Aufgaben:**
+- [ ] Tier-2 Güter-Produktionsrezepte vollständig verdrahten (`api/economy.php`)
+- [ ] Tier-3 Güter (Luxus, Militär, Forschung) implementieren
+- [ ] Rohstoff → Zwischenprodukt → Endprodukt im Colony-Tick
+- [ ] Manufacturing-Bottleneck-Warnungen im Frontend
+
+**Akzeptanzkriterien:**
+- Colony-Tick verarbeitet mehrstufige Produktionsketten korrekt
+- Frontend zeigt Produktionsketten-Fluss visuell an
+- Bottleneck-Alerts auslösbar
+
+**Aufwand:** ~20h
+
+---
+
+### 2.2 Pop-Satisfaction-System 🎯
+
+**Aufgaben:**
+- [ ] `economy_pop_classes.satisfaction_index` und `migration_rate` befüllen
+- [ ] Satisfaction-Berechnungsalgorithmus (Employment, Wages, Happiness, Culture)
+- [ ] Pop-Class-Satisfaction an Güterverbrauch koppeln
+- [ ] Shortage/Starvation-Events triggern
+- [ ] UI-Anzeige für Pop-Satisfaction pro Klasse
+
+**Akzeptanzkriterien:**
+- Pop-Satisfaction beeinflusst Produktionsertrag
+- Migration zwischen Kolonien im Frontend sichtbar
+- Shortage-Events triggern korrekt
+
+**Aufwand:** ~12h  
+**Referenz:** `docs/technical/WAVE_17_IMPLEMENTATION_PLAN.md` Phase 1.1
+
+---
+
+### 2.3 Policy-Enforcement 🎯
+
+**Aufgaben:**
+- [ ] War-Economy-Policy (+30% Militär, −20% Konsumgüter) vollständig erzwingen
+- [ ] Autarkie-Policy: Import-Blockierung in `api/market.php`
+- [ ] Merkantilismus: Import-Einschränkungen
+- [ ] Subventionen (Landwirtschaft/Forschung/Militär) Boost-Logik finalisieren
+
+**Akzeptanzkriterien:**
+- Policy-Wechsel zeigt sofort messbaren Effekt auf Produktion/Markt
+- War-Economy-Policy koppelt an aktivem Kriegszustand
+
+**Aufwand:** ~10h
+
+---
+
+### 2.4 Regionale Marktdynamik 💡
+
+**Aufgaben:**
+- [ ] `MarketRegion` und `MarketQuotes` mit regionaler Preisbildung (α-Formel)
+- [ ] Regionale Preisunterschiede im Market-UI anzeigen
+
+**Aufwand:** ~10h  
+**Referenz:** `docs/gamedesign/GAMEPLAY_DATA_MODEL.md`
+
+---
+
+### 2.5 Colony Goods Flow & Logistics Routes 💡
+
+**Aufgaben:**
+- [ ] `colony_goods_flow`-Tabelle live berechnen
+- [ ] Automatische + manuelle Inter-Colony-Lieferungen (Logistics Routes)
+- [ ] Economy-Telemetrie-Snapshots für Makro-Dashboard
+
+**Aufwand:** ~12h
+
+---
+
+## Sprint 3: Kriegs- & Diplomatie-Tiefe (Wochen 9–12)
+
+> **Ziel:** Stellaris-inspiriertes Eskalations- und Politikmodell
+
+**Abhängigkeiten:** Sprint 1 (Testbasis), Sprint 2 (Economy-Kopplung)  
+**Referenz:** `docs/gamedesign/GAMEPLAY_DATA_MODEL.md`, `docs/gamedesign/COMBAT_SYSTEM_DESIGN.md`
+
+### 3.1 War-Frontend Completion 🎯
+
+**Aufgaben:**
+- [ ] War-Intelligence-Panel (feindliche Flottenanzahl, Ressourcen-Scan)
+- [ ] War-Goal-Score sichtbar im Frontend
+- [ ] Allianz-Kriege: N-vs-M Szenarien
+- [ ] War-Attrition an aktiven Combat koppeln
+- [ ] `tests/js/war-events.test.js` vervollständigen
+
+**Akzeptanzkriterien:**
+- Spieler sieht War-Goal-Fortschritt numerisch
+- Alliance Wars mit 2+ Allianzen möglich
+- War-Intelligence zeigt Bedrohungslage
+
+**Aufwand:** ~12h  
+**Referenz:** `docs/technical/GAP_TODO.md` B-1
+
+---
+
+### 3.2 Diplomatic Plays: 4-Phasen-System 🎯
+
+**Aufgaben:**
+- [ ] Datenmodell: `diplomatic_plays`-Tabelle (Proposal → Counter → Mobilization → Resolution)
+- [ ] API-Endpunkte: `propose_play`, `counter_play`, `mobilize`, `resolve`
+- [ ] Frontend: Diplomatische Spielzüge UI
+- [ ] NPC-Reaktionen bei Kriegserklärungen
+
+**Akzeptanzkriterien:**
+- Diplomatische Spannungen eskalieren über 4 Phasen
+- Spieler kann in jeder Phase eingreifen
+- NPC-Fraktionen reagieren auf Spieler-Aktionen
+
+**Aufwand:** ~20h
+
+---
+
+### 3.3 Trust/Threat-Achsen 🎯
+
+**Aufgaben:**
+- [ ] `trust` und `threat` als getrennte Spalten in der Diplomatie-Tabelle
+- [ ] Trust: wächst durch eingehaltene Abkommen
+- [ ] Threat: hängt von Militärstärke und Aggression ab
+- [ ] UI: Trust/Threat als Balkendiagramme in der Diplomatie-Ansicht
+
+**Aufwand:** ~8h
+
+---
+
+### 3.4 War Exhaustion & Status-Quo 💡
+
+**Aufgaben:**
+- [ ] War Exhaustion vollständig an Verluste und Zeit koppeln
+- [ ] Status-Quo-Erzwingung bei Erschöpfungs-Schwellwert
+- [ ] Fleet Damage Carryover zwischen Schlachten
+
+**Aufwand:** ~8h
+
+---
+
+### 3.5 Alliance Wars N-vs-M 💡
+
+**Aufgaben:**
+- [ ] Backend-Erweiterung für Alliance-Level-Kriege
+- [ ] Kriegseintritt verbündeter Allianzen
+- [ ] Gemeinsame War-Score-Berechnung
+
+**Aufwand:** ~12h
+
+---
+
+## Sprint 4: Exploration & Situations (Wochen 13–16)
+
+> **Ziel:** Langzeitmotivation durch Entdeckungen und dynamische Spielsituationen
+
+**Abhängigkeiten:** Sprint 2 (Economy Basis), Sprint 3 (Diplomatie-Backend)
+
+### 4.1 Anomalien-System 🎯
+
+**Aufgaben:**
+- [ ] `anomalies`-Tabelle und API-Endpunkte erstellen
+- [ ] Anomalie-Entdeckung beim Erkunden eines Systems
+- [ ] Untersuchung (Forschungsschiff, Zeitbedarf)
+- [ ] Belohnungen: Tech-Fragmente, Unique Modifiers, Dark Matter
+
+**Akzeptanzkriterien:**
+- Flotten entdecken Anomalien beim Erkunden
+- Untersuchung benötigt Zeit und Schiffstyp
+- Belohnungen werden korrekt vergeben
+
+**Aufwand:** ~10h
+
+---
+
+### 4.2 Situations-Framework vollständig 🎯
+
+**Aufgaben:**
+- [ ] Situations-Datenmodell: mehrstufige Incidents mit Approaches
+- [ ] Situations-API: `list_situations`, `choose_approach`, `get_outcome`
+- [ ] Mehrere Lösungspfade pro Situation mit unterschiedlichen Konsequenzen
+- [ ] Frontend: Situations-Panel mit Entscheidungsbaum
+
+**Akzeptanzkriterien:**
+- Mindestens 5 verschiedene Situation-Typen implementiert
+- Jede Situation hat ≥ 2 Lösungspfade
+- Konsequenzen sind im Spiel spürbar
+
+**Aufwand:** ~20h
+
+---
+
+### 4.3 Fleet Supply & Readiness 💡
+
+**Aufgaben:**
+- [ ] Supply Range als kampfrelevante Mechanik
+- [ ] Maintenance Drain bei langen Einsätzen
+- [ ] Readiness-Combat-Faktor
+- [ ] Supply-Line-Disruption durch Feinde
+
+**Aufwand:** ~12h  
+**Referenz:** `docs/gamedesign/GAMEPLAY_DATA_MODEL.md`
+
+---
+
+### 4.4 Population Strata vollständig 💡
+
+**Aufgaben:**
+- [ ] Workers/Specialists/Elites mit Loyalty/Radicalization im Colony-Tick
+- [ ] Migration/Resettlement zwischen Kolonien
+- [ ] Pop Tier Promotion-Kriterien im Frontend anzeigen
+
+**Aufwand:** ~12h
+
+---
+
+## Sprint 5: Siegpfade & Endgame (Wochen 17–20)
+
+> **Ziel:** Spielmotivation für fortgeschrittene Spieler; Late-Game-Content
+
+**Abhängigkeiten:** Sprint 2 (Economy), Sprint 3 (Diplomatie), Sprint 4 (Situations)
+
+### 5.1 4 Siegpfade implementieren 🎯
+
+**Aufgaben:**
+- [ ] Wirtschafts-Siegpfad: Galactic Market Dominanz (X% Marktanteile aller Güter)
+- [ ] Wissenschafts-Siegpfad: alle Forschungs-Meilensteine erreicht
+- [ ] Diplomatie-Siegpfad: Galaktische Liga — Mehrheit der Fraktionen verbündet
+- [ ] Dominanz-Siegpfad: Militärische Hegemonie (X% aller bewohnten Systeme)
+- [ ] Tracking-System für Siegpfad-Fortschritt
+- [ ] UI: Siegpfad-Dashboard
+
+**Akzeptanzkriterien:**
+- Alle 4 Siegpfade haben messbare Fortschrittskriterien
+- Spieler kann aktiven Siegpfad wählen und wechseln
+- Spielende wird korrekt erkannt und gemeldet
+
+**Aufwand:** ~30h  
+**Referenz:** `docs/gamedesign/GAMEPLAY_DATA_MODEL.md`
+
+---
+
+### 5.2 Endgame-Krisen 💡
+
+**Aufgaben:**
+- [ ] Zeitgesteuerte galaktische Krisen-Events (Precursor-Erwachen, Void Entity)
+- [ ] Krisenereignisse erfordern kooperative Reaktion (Allianzen)
+- [ ] Krisenstärke skaliert mit Spielfortschritt
+
+**Aufwand:** ~20h
+
+---
+
+### 5.3 Megastructures 🔭
+
+**Aufgaben:**
+- [ ] Dyson Sphere, Ring World, Gravity Well Generator, Ansible Array
+- [ ] Alliance-Level-Konstruktionen (geteilte Ressourcen)
+- [ ] Endgame-Vorteil, nicht zwingend für Siegpfade
+
+**Aufwand:** ~20h
+
+---
+
+## Sprint 6: Onboarding & Content (Wochen 21–24)
+
+> **Ziel:** Neue Spieler abholen und binden; mehr Fraktions-Content
+
+**Abhängigkeiten:** Sprint 1–3 (stabiles Gameplay)
+
+### 6.1 Tutorial/Onboarding-Prolog 🎯
+
+**Aufgaben:**
+- [ ] Interaktiven narrativen Prolog implementieren (5-stufig, fraktionsspezifisch)
+- [ ] Guided Missions für die ersten 30 Spielminuten
+- [ ] Tooltip-Ketten für UI-Elemente
+- [ ] Kontext-sensitive Hilfe
+
+**Akzeptanzkriterien:**
+- Neue Spieler können ohne externe Hilfe die ersten 30 Minuten spielen
+- Tutorial schließt mit Erreichen der ersten eigenen Kolonie ab
+- Alle 6 Fraktionen haben fraktionsspezifischen Prolog-Text
+
+**Aufwand:** ~30h  
+**Referenz:** `docs/gamedesign/ONBOARDING_PROLOGUE_DESIGN.md`
+
+---
+
+### 6.2 Faction Introduction Flow 🎯
+
+**Aufgaben:**
+- [ ] Spieler starten als Rang-1-Mitglied ihrer Rassen-Fraktion
+- [ ] Herald-NPC führt durch den Aufstieg im Rang
+- [ ] Reputations-basierter Zugang zu Fraktions-Features
+
+**Aufwand:** ~15h  
+**Referenz:** `docs/gamedesign/FACTION_INTRODUCTION.md`
+
+---
+
+### 6.3 Weitere World-Scenarios 💡
+
+**Aufgaben:**
+- [ ] 2 neue World-Scenarios neben Iron Fleet Global Council
+- [ ] Scenario-spezifische NPCs und Ereignisse
+- [ ] Scenario-Start-Screen
+
+**Aufwand:** ~15h
+
+---
+
+## Sprint 7: Polish & Launch-Vorbereitung (Wochen 25–30)
+
+> **Ziel:** Spielerfreundlichkeit, Performance, Production-Readiness
+
+**Abhängigkeiten:** Alle vorherigen Sprints
+
+### 7.1 UI/UX-Überarbeitung 🎯
+
+**Aufgaben:**
+- [ ] Responsives Design für alle kritischen Windows
+- [ ] Selection Unification (6 Phasen, `docs/technical/SELECTION_UNIFICATION_TODO.md`)
+- [ ] Template System Migration (`docs/technical/TEMPLATE_SYSTEM_DESIGN.md`)
+- [ ] Consistent Dark Theme
+
+**Aufwand:** ~20h
+
+---
+
+### 7.2 Performance-Optimierung 🎯
+
+**Aufgaben:**
+- [ ] DB-Query-Optimierung (EXPLAIN ANALYZE für alle kritischen Abfragen)
+- [ ] Caching-Strategie implementieren (Redis oder APCu)
+- [ ] JS-Refactoring Phase 2–4 (`docs/technical/JS_REFACTOR_ZIELSTRUKTUR_TODO.md`)
+- [ ] Galaxy-Map-Rendering bei 25.000 Systemen optimieren
+
+**Aufwand:** ~20h
+
+---
+
+### 7.3 Internationalisierung 💡
+
+**Aufgaben:**
+- [ ] i18n-Framework einrichten (Deutsch + Englisch)
+- [ ] Alle UI-Strings in Sprachdateien auslagern
+- [ ] Sprachumschalter im Einstellungsmenü
+
+**Aufwand:** ~20h
+
+---
+
+### 7.4 Sound & Musik 💡
+
+**Aufgaben:**
+- [ ] Vollständiges SFX-Set für UI-Aktionen und Kampf
+- [ ] Ambient-Soundtrack für Galaxie/System-View
+- [ ] GQAudioManager-Integration für alle neuen Sounds
+
+**Aufwand:** ~15h  
+**Referenz:** `js/runtime/audio.js`
+
+---
+
+### 7.5 Production Deployment 🎯
+
+**Aufgaben:**
+- [ ] HTTPS-Konfiguration (Let's Encrypt)
+- [ ] Secrets Management (keine Credentials in `.env`)
+- [ ] Ollama im Production-Modus (GPU-Instanz)
+- [ ] DB-Backup-Strategie
+
+**Akzeptanzkriterien:**
+- Produktions-URL erreichbar mit HTTPS
+- Keine Credentials in Git
+- Tägliche DB-Backups
+
+**Aufwand:** ~10h
+
+---
+
+### 7.6 Load-Testing 🎯
+
+**Aufgaben:**
+- [ ] 100+ gleichzeitige Spieler simulieren
+- [ ] Bottlenecks identifizieren und beheben
+- [ ] WebSocket-Vorbereitung für SSE-Ablösung
+
+**Aufwand:** ~10h
+
+---
+
+## Appendix A: Engine-Roadmap (historisch — alle ✅)
+
+> Die folgende Roadmap dokumentiert die abgeschlossene 3D-Engine- und Datenpipeline-Arbeit (Phasen 0–5 plus Backend-Parallelspur B1–B4). Alle Einträge sind erledigt.
+
+
 
 ## Aktueller Stand
 
