@@ -1697,13 +1697,16 @@ const API = (() => {
       const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
       return get(`api/economy.php?action=get_pop_status${q}`);
     },
-    setPopPolicy: ({ colony_id, wage_adjustment = 1.0, culture_spending = 0, safety_budget = 0 } = {}) =>
-      post('api/economy.php?action=set_pop_policy', {
-        colony_id: Math.max(1, Number(colony_id || 0)),
+    setPopPolicy: ({ colony_id, wage_adjustment = 1.0, culture_spending = 0, safety_budget = 0 } = {}) => {
+      const cid = Number(colony_id);
+      if (!cid || cid < 1) return Promise.reject(new Error('setPopPolicy: colony_id is required'));
+      return post('api/economy.php?action=set_pop_policy', {
+        colony_id: cid,
         wage_adjustment: Math.min(2.0, Math.max(0.5, Number(wage_adjustment))),
         culture_spending: Math.min(1000, Math.max(0, Number(culture_spending))),
         safety_budget: Math.min(100, Math.max(0, Number(safety_budget))),
-      }),
+      });
+    },
 
     // Strategic wars
     wars: () => get('api/war.php?action=list'),

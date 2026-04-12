@@ -250,7 +250,8 @@
     }
 
     /**
-     * Colour-coded satisfaction badge: red < 40, orange 40–59, green ≥ 60, teal ≥ 80.
+     * Returns the CSS badge modifier class for a satisfaction value (0–100).
+     * is-critical < 40 | is-warning 40–59 | is-neutral 60–79 | is-good ≥ 80
      */
     function _satClass(sat) {
       if (sat >= 80) return 'is-good';
@@ -484,7 +485,7 @@
               safety_budget:    safetySlider  ? Number(safetySlider.value)       : 0,
             });
             if (!resp?.success) throw new Error(resp?.error || 'Failed to apply pop policy');
-            invalidateGetCache('pop status');
+            invalidateGetCache([/api\/economy\.php\?action=get_pop_status/i]);
             _state.popStatus = null; // force reload on next render
             showToast('Pop policy updated — changes apply on next tick');
             await render();
