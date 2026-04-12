@@ -74,6 +74,23 @@ if (!defined('ECONOMY_POP_CONSUMPTION_RATES')) {
 const ECONOMY_FLUSH_MAX_HOURS = 24.0;
 
 /**
+ * Tier-3 input requirements: units of Tier-2 goods consumed per unit of Tier-3 output.
+ * Mirrors the STANDARD method inputs in EconomySimulation.js PROCESSING_RECIPES.
+ *
+ * Structure: T3_good → [ [T2_good, ratio], ... ]
+ * Ratio = units of T2 consumed per 1 unit of T3 produced.
+ */
+if (!defined('ECONOMY_TIER3_INPUT_RATIOS')) {
+    define('ECONOMY_TIER3_INPUT_RATIOS', [
+        'consumer_goods'     => [['steel_alloy', 1.0], ['electronics_components', 1.0]],
+        'luxury_goods'       => [['focus_crystals', 1.0], ['biocompost', 1.0]],
+        'military_equipment' => [['steel_alloy', 2.0], ['focus_crystals', 1.0]],
+        'research_kits'      => [['focus_crystals', 1.0], ['electronics_components', 1.0]],
+        'colonization_packs' => [['steel_alloy', 1.0], ['biocompost', 1.0], ['reactor_fuel', 1.0]],
+    ]);
+}
+
+/**
  * Policy-aware per-good production multipliers.
  *
  * war_economy: military_equipment +30%, consumer_goods −20%
@@ -348,6 +365,20 @@ function flush_colony_production(PDO $db, int $colony_id): void {
         }
     }
 
+    // PHASE 2.1 (Sprint 2.1): Tier-3 goods require Tier-2 inputs.
+    // For each Tier-3 good being produced, add the corresponding Tier-2 consumption
+    // rates to $consRates (so that lazy-evaluation stock depletion reflects T3 demand).
+    // The effective T3 production rate is gated by available T2 stock below (step 7).
+    foreach (ECONOMY_TIER3_INPUT_RATIOS as $t3Good => $inputPairs) {
+        $t3Rate = $prodRates[$t3Good] ?? 0.0;
+        if ($t3Rate <= 0.0) {
+            continue;
+        }
+        foreach ($inputPairs as [$t2Good, $ratio]) {
+            $consRates[$t2Good] = ($consRates[$t2Good] ?? 0.0) + $t3Rate * $ratio;
+        }
+    }
+
     // 6. Ensure rows exist for all actively-produced goods (INSERT IGNORE)
     $insStmt = $db->prepare(<<<SQL
         INSERT IGNORE INTO economy_processed_goods (colony_id, good_type, quantity, capacity)
@@ -368,6 +399,45 @@ function flush_colony_production(PDO $db, int $colony_id): void {
 
     if (!$rows) {
         return;
+    }
+
+    // Index current stock by good_type for Tier-3 gating calculations
+    $currentStock = [];
+    foreach ($rows as $r) {
+        $currentStock[$r['good_type']] = (float)$r['quantity'];
+    }
+
+    // PHASE 2.1 (Sprint 2.1): Gate Tier-3 production rate by available Tier-2 stock.
+    // If a Tier-2 input good has insufficient stock to sustain the full T3 production
+    // rate for the upcoming period, scale down the T3 rate accordingly.
+    // This prevents T3 buildings from silently over-producing when T2 inputs run out.
+    foreach (ECONOMY_TIER3_INPUT_RATIOS as $t3Good => $inputPairs) {
+        $t3Rate = $prodRates[$t3Good] ?? 0.0;
+        if ($t3Rate <= 0.0) {
+            continue;
+        }
+        // Compute the limiting scale factor from each T2 input's available supply.
+        // Available supply = current stock + T2 net production over max flush window.
+        $scaleFactor = 1.0;
+        foreach ($inputPairs as [$t2Good, $ratio]) {
+            $t2Available = ($currentStock[$t2Good] ?? 0.0)
+                         + max(0.0, ($prodRates[$t2Good] ?? 0.0) - ($consRates[$t2Good] ?? 0.0))
+                           * ECONOMY_FLUSH_MAX_HOURS;
+            $t3Demand    = $t3Rate * $ratio * ECONOMY_FLUSH_MAX_HOURS;
+            if ($t3Demand > 0.0 && $t2Available < $t3Demand) {
+                $scaleFactor = min($scaleFactor, $t2Available / $t3Demand);
+            }
+        }
+        if ($scaleFactor < 1.0) {
+            $prodRates[$t3Good] = $t3Rate * max(0.0, $scaleFactor);
+            // Also scale down the T2 consumption rates that we added above
+            foreach ($inputPairs as [$t2Good, $ratio]) {
+                $oldContribution   = $t3Rate * $ratio;
+                $scaledContribution = $prodRates[$t3Good] * $ratio;
+                $consRates[$t2Good] = max(0.0, ($consRates[$t2Good] ?? 0.0) - $oldContribution);
+                $consRates[$t2Good] += $scaledContribution;
+            }
+        }
     }
 
     $now = time();

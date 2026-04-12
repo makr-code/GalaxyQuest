@@ -3,6 +3,7 @@
  *
  * Empire Economy Management window.
  * Tabs: Policy (global policy, taxes, subsidies) | Overview (colonies: goods + pop classes)
+ *       | Production (Tier-2/Tier-3 production chain flow + bottleneck alerts).
  *       | Population (per-colony/per-class satisfaction, migration, production multiplier, policy).
  */
 
@@ -42,7 +43,50 @@
     luxury_goods: '✨',
     military_hardware: '🔫',
     advanced_components: '🔬',
+    // Tier-2 intermediates
+    steel_alloy: '🔩',
+    focus_crystals: '🔷',
+    reactor_fuel: '⚗',
+    biocompost: '🌿',
+    electronics_components: '🔌',
+    // Tier-3 finished goods
+    military_equipment: '🛡',
+    research_kits: '📦',
+    colonization_packs: '🚀',
+    // Tier-4
+    neural_implants: '🧠',
+    quantum_circuits: '💡',
+    bio_supplements: '💊',
+    stellar_art: '🎨',
+    advanced_propulsion: '🛸',
+    // Tier-5
+    void_crystals: '🌌',
+    synthetic_consciousness: '🤖',
+    temporal_luxuries: '⌛',
     default: '▣',
+  };
+
+  /**
+   * Production chain definition for Tier-2 and Tier-3 goods.
+   * Used to render the visual production chain flow.
+   * tier2: { building → good }
+   * tier3: { building → { good, inputs: [goodType, ...] } }
+   */
+  const PRODUCTION_CHAIN = {
+    tier2: [
+      { building: 'metallurgy',       good: 'steel_alloy',             icon: '🏭', label: 'Metallurgy' },
+      { building: 'crystal_grinder',  good: 'focus_crystals',          icon: '💎', label: 'Crystal Grinder' },
+      { building: 'refinery',         good: 'reactor_fuel',            icon: '⚗',  label: 'Refinery' },
+      { building: 'bioreactor',       good: 'biocompost',              icon: '🌿', label: 'Bioreactor' },
+      { building: 'electronics_fab',  good: 'electronics_components',  icon: '🔌', label: 'Electronics Fab' },
+    ],
+    tier3: [
+      { building: 'consumer_factory', good: 'consumer_goods',     icon: '🏪', label: 'Consumer Factory',  inputs: ['steel_alloy', 'electronics_components'] },
+      { building: 'luxury_workshop',  good: 'luxury_goods',        icon: '💎', label: 'Luxury Workshop',   inputs: ['focus_crystals', 'biocompost'] },
+      { building: 'arms_factory',     good: 'military_equipment',  icon: '🔫', label: 'Arms Factory',       inputs: ['steel_alloy', 'focus_crystals'] },
+      { building: 'research_lab_adv', good: 'research_kits',       icon: '🔬', label: 'Advanced Lab',       inputs: ['focus_crystals', 'electronics_components'] },
+      { building: 'colony_supplies',  good: 'colonization_packs',  icon: '🚀', label: 'Colony Supplies',    inputs: ['steel_alloy', 'biocompost', 'reactor_fuel'] },
+    ],
   };
 
   function createEconomyController(opts = {}) {
@@ -56,6 +100,11 @@
     } = opts;
 
     let _state = {
+      tab: 'policy',          // 'policy' | 'overview' | 'production'
+      policy: null,           // { global_policy, taxes:{income,production,trade}, subsidies:{agriculture,research,military} }
+      overview: null,         // { colonies: [...] }
+      popClasses: null,       // empire-wide aggregation
+      production: null,       // { colonies: [...], bottlenecks: [...] }
       tab: 'policy',          // 'policy' | 'overview' | 'market'
       policy: null,           // { global_policy, taxes:{income,production,trade}, subsidies:{agriculture,research,military} }
       overview: null,         // { colonies: [...] }
@@ -98,6 +147,18 @@
       _state.popClasses = popResp?.success ? popResp : null;
     }
 
+    async function _loadProductionTab() {
+      const [ovResp, bottleneckResp] = await Promise.all([
+        api.economyOverview(),
+        api.economyBottleneck ? api.economyBottleneck() : Promise.resolve(null),
+      ]);
+      if (!ovResp?.success) throw new Error(ovResp?.error || 'Economy overview request failed');
+      _state.production = {
+        colonies: ovResp.colonies || [],
+        bottlenecks: bottleneckResp?.bottlenecks || [],
+        war_modifiers: ovResp.war_modifiers || null,
+        pirate_damage_mult: ovResp.pirate_damage_mult ?? 1.0,
+      };
     async function _loadMarketTab() {
       const resp = await api.marketRegionPrices();
       if (!resp?.success) throw new Error(resp?.error || 'Market region prices request failed');
@@ -247,6 +308,7 @@
       const warningHtml = _renderConflictWarnings(warMods, pirateMult);
 
       if (!colonies.length) {
+        return warningHtml + '<p class="text-muted">No colonies found.</p>';
         return `${warningHtml}<p class="text-muted">No colonies found.</p>`;
       }
 
@@ -290,6 +352,138 @@
       }).join('');
 
       return warningHtml + empirePopHtml + colonyCards;
+    }
+
+    /**
+     * Render the production chain tab showing Tier-2 → Tier-3 flow per colony.
+     *
+     * Color coding for each chain node:
+     *   🟢 is-good:     stock ≥ 50% capacity  (well-supplied)
+     *   🟡 is-warning:  stock 10–50% capacity  (running low)
+     *   🔴 is-critical: stock < 10% or missing building (bottleneck / blocked)
+     *
+     * @param {Array}  colonies    Colony objects with 'goods' and 'buildings' (or 'building_levels')
+     * @param {Array}  bottlenecks Array of { colony_id, colony_name, warnings[] } from get_bottleneck
+     * @param {Object} warMods     War economy modifiers (may be null)
+     * @param {number} pirateMult  Pirate damage multiplier
+     */
+    function _renderProductionTab(colonies, bottlenecks, warMods, pirateMult) {
+      const warningHtml = _renderConflictWarnings(warMods, pirateMult);
+
+      if (!colonies.length) {
+        return warningHtml + '<p class="text-muted">No colonies found.</p>';
+      }
+
+      /** Map bottleneck warnings by colony_id for quick lookup. */
+      const btByColony = {};
+      for (const bt of (bottlenecks || [])) {
+        btByColony[bt.colony_id] = bt;
+      }
+
+      /**
+       * Determine chain-node tone from stock percentage.
+       * @param {number} qty
+       * @param {number} cap
+       * @returns {string}  CSS class name
+       */
+      function _chainTone(qty, cap) {
+        if (!cap || cap <= 0) return 'is-critical';
+        const pct = qty / cap;
+        if (pct >= 0.5) return 'is-good';
+        if (pct >= 0.1) return 'is-warning';
+        return 'is-critical';
+      }
+
+      const colonyChains = colonies.map((col) => {
+        const goods = col.goods || {};
+        const buildings = col.building_levels || col.buildings || {};
+
+        // Build Tier-2 chain nodes
+        const tier2Nodes = PRODUCTION_CHAIN.tier2.map((def) => {
+          const hasBuilding = (buildings[def.building] ?? 0) > 0;
+          const stockData   = goods[def.good];
+          const qty = Number(stockData?.quantity ?? 0);
+          const cap = Number(stockData?.capacity ?? 5000);
+          const tone = hasBuilding ? _chainTone(qty, cap) : 'is-critical';
+          const label = def.good.replace(/_/g, ' ');
+          const qtyStr = qty.toFixed(0);
+          const statusIcon = tone === 'is-good' ? '🟢' : (tone === 'is-warning' ? '🟡' : '🔴');
+          return `<div class="chain-node ${tone}" title="${esc(def.label)} → ${esc(label)}: ${qtyStr}/${cap}">
+            <span class="chain-building-lbl">${statusIcon} ${esc(def.icon)} ${esc(def.label)}</span>
+            <span class="chain-arrow">→</span>
+            <span class="chain-good-lbl">${esc(GOOD_ICONS[def.good] || '▣')} ${esc(label)}</span>
+            <span class="chain-stock-lbl">${qtyStr}</span>
+          </div>`;
+        }).join('');
+
+        // Build Tier-3 chain nodes — check if all T2 inputs are sufficient
+        const tier3Nodes = PRODUCTION_CHAIN.tier3.map((def) => {
+          const hasBuilding = (buildings[def.building] ?? 0) > 0;
+          // Check T2 input availability: all inputs must have stock ≥ 10% capacity
+          const inputTones = def.inputs.map((inputGood) => {
+            const sd  = goods[inputGood];
+            const qty = Number(sd?.quantity ?? 0);
+            const cap = Number(sd?.capacity ?? 5000);
+            return _chainTone(qty, cap);
+          });
+          const inputsOk   = inputTones.every((t) => t !== 'is-critical');
+          const inputsMed  = inputTones.some((t) => t === 'is-warning');
+          const outputData = goods[def.good];
+          const outQty     = Number(outputData?.quantity ?? 0);
+          const outCap     = Number(outputData?.capacity ?? 2000);
+
+          let tone;
+          if (!hasBuilding)    tone = 'is-critical';   // building not present
+          else if (!inputsOk)  tone = 'is-critical';   // T2 inputs depleted
+          else if (inputsMed)  tone = 'is-warning';    // T2 inputs running low
+          else                 tone = _chainTone(outQty, outCap);
+
+          const inputsHtml = def.inputs.map((ig) => {
+            const sd   = goods[ig];
+            const iqty = Number(sd?.quantity ?? 0).toFixed(0);
+            const tone = _chainTone(iqty, Number(sd?.capacity ?? 5000));
+            const inputIcon = tone === 'is-good' ? '🟢' : (tone === 'is-warning' ? '🟡' : '🔴');
+            return `<span class="${tone}" title="${esc(ig)}: ${iqty}">${inputIcon} ${esc(ig.replace(/_/g, ' '))}</span>`;
+          }).join(' + ');
+
+          const statusIcon = tone === 'is-good' ? '🟢' : (tone === 'is-warning' ? '🟡' : '🔴');
+          const outLabel   = def.good.replace(/_/g, ' ');
+          return `<div class="chain-node chain-node--t3 ${tone}">
+            <div class="chain-t3-inputs">${inputsHtml}</div>
+            <span class="chain-arrow">→</span>
+            <span class="chain-building-lbl">${statusIcon} ${esc(def.icon)} ${esc(def.label)}</span>
+            <span class="chain-arrow">→</span>
+            <span class="chain-good-lbl">${esc(GOOD_ICONS[def.good] || '▣')} ${esc(outLabel)}</span>
+            <span class="chain-stock-lbl">${outQty.toFixed(0)}</span>
+          </div>`;
+        }).join('');
+
+        // Bottleneck warnings for this colony
+        const bt = btByColony[col.id];
+        let bottleneckHtml = '';
+        if (bt?.warnings?.length) {
+          const rows = bt.warnings.map((w) => {
+            const icon = w.severity === 'critical' ? '🔴' : (w.severity === 'warning' ? '🟡' : 'ℹ');
+            return `<div class="chain-warning chain-warning--${esc(w.severity)}">${icon} ${esc(w.message)}</div>`;
+          }).join('');
+          bottleneckHtml = `<div class="chain-bottleneck-section" style="margin-top:.5rem;font-size:11px;">${rows}</div>`;
+        }
+
+        const loc = col.location ? `G${col.location.galaxy} S${col.location.system} P${col.location.pos}` : '';
+        return `<div class="system-card economy-chain-card" style="margin-bottom:.75rem">
+          <div class="system-row" style="margin-bottom:.5rem">
+            <strong>${esc(col.name || 'Colony')}</strong>
+            <span class="text-muted" style="font-size:.8rem">${esc(loc)}</span>
+          </div>
+          <div class="chain-tier-label" style="font-size:11px;font-weight:600;color:#8ab4f8;margin-bottom:.25rem">⚙ Tier-2 — Intermediate Goods</div>
+          <div class="chain-tier-nodes" style="display:flex;flex-wrap:wrap;gap:.3rem .5rem;margin-bottom:.5rem">${tier2Nodes}</div>
+          <div class="chain-tier-label" style="font-size:11px;font-weight:600;color:#f9ab00;margin-bottom:.25rem">🏭 Tier-3 — Finished Goods</div>
+          <div class="chain-tier-nodes" style="display:flex;flex-direction:column;gap:.3rem">${tier3Nodes}</div>
+          ${bottleneckHtml}
+        </div>`;
+      }).join('');
+
+      return warningHtml + colonyChains;
     }
 
     function _renderSkeleton() {
@@ -455,6 +649,9 @@
     }
 
     function _buildFullHtml(state) {
+      const tabPolicy     = state.tab === 'policy'     ? ' economy-tab--active' : '';
+      const tabOverview   = state.tab === 'overview'   ? ' economy-tab--active' : '';
+      const tabProduction = state.tab === 'production' ? ' economy-tab--active' : '';
       const tabPolicy = state.tab === 'policy' ? ' economy-tab--active' : '';
       const tabOverview = state.tab === 'overview' ? ' economy-tab--active' : '';
       const tabPopulation = state.tab === 'population' ? ' economy-tab--active' : '';
@@ -473,6 +670,13 @@
           state.overview.war_modifiers,
           state.overview.pirate_damage_mult,
         );
+      } else if (state.tab === 'production' && state.production) {
+        contentHtml = _renderProductionTab(
+          state.production.colonies,
+          state.production.bottlenecks,
+          state.production.war_modifiers,
+          state.production.pirate_damage_mult,
+        );
       } else if (state.tab === 'market' && state.marketRegions) {
         contentHtml = _renderMarketTab(state.marketRegions);
       } else if (state.tab === 'population' && state.popStatus) {
@@ -485,6 +689,7 @@
         <div class="economy-tabs">
           <button class="economy-tab${tabPolicy}" data-economy-tab="policy">Policy</button>
           <button class="economy-tab${tabOverview}" data-economy-tab="overview">Colony Overview</button>
+          <button class="economy-tab${tabProduction}" data-economy-tab="production">⛓ Production</button>
           <button class="economy-tab${tabMarket}" data-economy-tab="market">Regional Market</button>
           <button class="economy-tab${tabPopulation}" data-economy-tab="population">Population</button>
         </div>
@@ -677,6 +882,11 @@
         _attachPolicyListeners(root);
       }
 
+      if (!_state.loading && !_state.production && _state.tab === 'production') {
+        _state.loading = true;
+        root.innerHTML = _buildFullHtml(_state);
+        try {
+          await _loadProductionTab();
       if (!_state.loading && !_state.marketRegions && _state.tab === 'market') {
         _state.loading = true;
         root.innerHTML = _buildFullHtml(_state);
@@ -692,6 +902,7 @@
         } catch (err) {
           _state.loading = false;
           _state.error = String(err?.message || err);
+          gameLog('warn', 'Economy production load failed', err);
           gameLog('warn', 'Regional market load failed', err);
           gameLog('warn', 'Economy population load failed', err);
         }
@@ -701,6 +912,11 @@
     }
 
     async function refresh() {
+      _state.policy     = null;
+      _state.overview   = null;
+      _state.popClasses = null;
+      _state.production = null;
+      _state.error      = null;
       _state.policy        = null;
       _state.overview      = null;
       _state.popClasses    = null;

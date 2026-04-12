@@ -264,6 +264,7 @@ function action_get_overview(PDO $db, int $uid): never {
  * GET economy.php?action=get_production&colony_id=N
  *
  * Returns detailed per-building production chain status for one colony.
+ * Includes chain_status: per Tier-3 good, whether all T2 inputs are available.
  */
 function action_get_production(PDO $db, int $uid): never {
     $colonyId = (int)($_GET['colony_id'] ?? 0);
@@ -299,17 +300,45 @@ function action_get_production(PDO $db, int $uid): never {
         $buildings[$row['type']] = (int)$row['cnt'];
     }
 
+    // SPRINT 2.1: Build production chain status for Tier-3 goods.
+    // For each T3 good, determine whether its T2 inputs are sufficient.
+    // Thresholds: >= 50% capacity → 'ok', 10–50% → 'low', < 10% or 0 → 'starved'
+    $chainStatus = [];
+    $tier3InputRatios = ECONOMY_TIER3_INPUT_RATIOS;
+    foreach ($tier3InputRatios as $t3Good => $inputPairs) {
+        $status    = 'ok';
+        $inputInfo = [];
+        foreach ($inputPairs as [$t2Good, $ratio]) {
+            $stockData  = $goods[$t2Good] ?? ['quantity' => 0.0, 'capacity' => 5000.0];
+            $qty        = (float)$stockData['quantity'];
+            $cap        = (float)($stockData['capacity'] ?: 5000.0);
+            $pct        = $cap > 0 ? $qty / $cap : 0.0;
+            $inputStatus = $pct >= 0.5 ? 'ok' : ($pct >= 0.1 ? 'low' : 'starved');
+            if ($inputStatus === 'starved') { $status = 'starved'; }
+            elseif ($inputStatus === 'low' && $status !== 'starved') { $status = 'low'; }
+            $inputInfo[$t2Good] = ['quantity' => $qty, 'capacity' => $cap, 'pct' => round($pct, 3), 'status' => $inputStatus, 'ratio' => $ratio];
+        }
+        // Output stock info
+        $outData = $goods[$t3Good] ?? ['quantity' => 0.0, 'capacity' => 2000.0];
+        $chainStatus[$t3Good] = [
+            'status'  => $status,
+            'inputs'  => $inputInfo,
+            'output'  => ['quantity' => (float)$outData['quantity'], 'capacity' => (float)($outData['capacity'] ?: 2000.0)],
+        ];
+    }
+
     json_ok([
-        'colony_id' => $colonyId,
-        'buildings' => $buildings,
-        'methods'   => $methods,
-        'goods'     => $goods,
-        'resources' => $runtime['resources'] ?? [],
-        'storage' => $runtime['storage'] ?? [],
+        'colony_id'      => $colonyId,
+        'buildings'      => $buildings,
+        'methods'        => $methods,
+        'goods'          => $goods,
+        'chain_status'   => $chainStatus,
+        'resources'      => $runtime['resources'] ?? [],
+        'storage'        => $runtime['storage'] ?? [],
         'raw_production' => $runtime['production'] ?? [],
-        'raw_consumption' => $runtime['consumption'] ?? [],
-        'welfare' => $runtime['welfare'] ?? [],
-        'building_levels' => $runtime['building_levels'] ?? [],
+        'raw_consumption'=> $runtime['consumption'] ?? [],
+        'welfare'        => $runtime['welfare'] ?? [],
+        'building_levels'=> $runtime['building_levels'] ?? [],
     ]);
 }
 
