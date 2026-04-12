@@ -65,6 +65,8 @@ const API = (() => {
     { re: /api\/alliances\.php\?action=war_map/i, ttl: 10 * 1000 },
     { re: /api\/war\.php\?action=list/i, ttl: 8 * 1000 },
     { re: /api\/war\.php\?action=get_status/i, ttl: 5 * 1000 },
+    { re: /api\/war\.php\?action=get_intel/i, ttl: 30 * 1000 },
+    { re: /api\/war\.php\?action=alliance_wars/i, ttl: 10 * 1000 },
     { re: /api\/galaxy\.php\?action=stars/i, ttl: 45 * 1000 },
     { re: /api\/galaxy\.php\?action=bootstrap/i, ttl: 20 * 1000 },
     { re: /api\/galaxy\.php\?/i, ttl: 15 * 1000 },
@@ -1727,6 +1729,9 @@ const API = (() => {
       get(`api/war.php?action=get_status&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
     warGoalProgress: (warId) =>
       get(`api/war.php?action=get_goal_progress&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
+    warIntel: (warId) =>
+      get(`api/war.php?action=get_intel&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
+    warAllianceList: () => get('api/war.php?action=alliance_wars'),
     declareStrategicWar: ({ target_user_id, war_goals = [], casus_belli = '' } = {}) =>
       post('api/war.php?action=declare', {
         target_user_id: Math.max(0, Number(target_user_id || 0)),
