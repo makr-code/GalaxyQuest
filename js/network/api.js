@@ -1735,6 +1735,8 @@ const API = (() => {
   listTradeSuggestions: ({ limit = 10, interval_hours = 24 } = {}) =>
     get(`api/trade.php?action=list_suggestions&limit=${encodeURIComponent(Math.max(1, Number(limit || 10)))}&interval_hours=${encodeURIComponent(Math.max(1, Number(interval_hours || 24)))}`),
   applyTradeSuggestion: (data) => post('api/trade.php?action=apply_suggestion', data),
+  goodsFlowAnalysis: ({ limit = 10, interval_hours = 24 } = {}) =>
+    get(`api/trade.php?action=goods_flow&limit=${encodeURIComponent(Math.max(1, Number(limit || 10)))}&interval_hours=${encodeURIComponent(Math.max(1, Number(interval_hours || 24)))}`),
   listTradeProposals: ()       => get('api/trade.php?action=list_proposals'),
   proposeTrade: (data)         => post('api/trade.php?action=propose', data),
   acceptTrade: (id)            => post('api/trade.php?action=accept',  { proposal_id: id }),

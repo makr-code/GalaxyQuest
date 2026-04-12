@@ -107,6 +107,22 @@
 
 ---
 
+### B-2a Colony Goods Flow & Logistics Routes ✅ (Sprint 2.5)
+**Referenz:** `ECONOMY_DESIGN.md` §7, `GAP_TODO.md`  
+**Status:** Vollständig implementiert
+
+- [x] `api/trade.php` — neuer `goods_flow`-Endpunkt: per-colony Surplus/Deficit-Matrix, Inter-Colony-Heatmap, AI-Empfehlungen
+- [x] `js/network/api.js` — `goodsFlowAnalysis({ limit, interval_hours })` Client-Methode
+- [x] `js/engine/runtime/layers/domain/trade/RuntimeLogisticsRoutesController.js` — Dashboard-Controller mit 3 Tabs: Flows (Heatmap), Routes (Effizienz-Metriken), Recommendations (KI-Empfehlungen)
+- [x] `js/engine/runtime/RuntimeSocialControllersBootstrap.js` — `logisticsRoutesController` verdrahtet
+- [x] `js/engine/runtime/RuntimeDesktopShell.js` — Fenster `logistics-routes` (680×680) registriert
+- [x] `js/runtime/boot-manifest.js` — Controller im Boot-Manifest aufgenommen
+- [x] `js/runtime/game.js` — `runtimeLogisticsRoutesControllerApi`, `logisticsRoutesController`, `renderLogisticsRoutes`, `window.GQLogisticsRoutesController` verdrahtet
+- [x] `js/engine/runtime/RuntimeOpenWindowCommand.js` — `logistics-routes` im erlaubten Fenstersatz
+- [x] `tests/js/logistics-routes.test.js` — 44 Unit-Tests (alle ✅)
+
+---
+
 ### B-3 Pirates — Konsequenzen & Interaktionen 🟡 🚧
 **Referenz:** `IMPLEMENTATION_STATUS_SUMMARY.md` (§1)  
 **Status:** ~75 % Feature-Complete (teilweise implementiert)

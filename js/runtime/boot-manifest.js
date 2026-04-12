@@ -333,6 +333,7 @@
     'js/engine/runtime/layers/domain/trade/RuntimeTradeProposalsController.js',
     'js/engine/runtime/layers/domain/trade/RuntimeTradeRoutesController.js',
     'js/engine/runtime/layers/domain/trade/RuntimeTradersDashboardController.js',
+    'js/engine/runtime/layers/domain/trade/RuntimeLogisticsRoutesController.js',
     'js/engine/runtime/layers/domain/pirates/RuntimePiratesController.js',
     'js/engine/runtime/layers/domain/war/RuntimeWarController.js',
     'js/engine/runtime/RuntimeEconomyController.js',

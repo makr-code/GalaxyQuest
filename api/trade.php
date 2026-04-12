@@ -51,6 +51,7 @@ match ($action) {
     'accept'          => action_accept($db, $uid),
     'reject'          => action_reject($db, $uid),
     'cancel'          => action_cancel($db, $uid),
+    'goods_flow'      => action_goods_flow($db, $uid),
     default           => json_error('Unknown action: ' . $action, 400),
 };
 
@@ -682,6 +683,177 @@ function action_toggle(PDO $db, int $uid): never {
 
         return array_slice($suggestions, 0, $limit);
     }
+
+// ─── Goods Flow Analysis ─────────────────────────────────────────────────────
+
+/**
+ * action_goods_flow — returns per-colony resource flow data, an inter-colony
+ * heatmap matrix, existing route efficiency metrics, and AI recommendations.
+ */
+function action_goods_flow(PDO $db, int $uid): never {
+    $intervalHours = min(168, max(1, (int)($_GET['interval_hours'] ?? 24)));
+    $limit         = min(20,  max(1, (int)($_GET['limit']          ?? 10)));
+
+    $colonies = fetch_trade_user_colony_nodes($db, $uid);
+    if (count($colonies) === 0) {
+        json_ok([
+            'colonies'        => [],
+            'heatmap'         => [],
+            'routes'          => [],
+            'recommendations' => [],
+            'summary'         => ['total_colonies' => 0, 'active_routes' => 0],
+        ]);
+    }
+
+    $goodsByColony   = fetch_trade_user_processed_goods($db, $uid);
+    $runtimeProfiles = build_trade_colony_runtime_profiles($db, $colonies);
+
+    // Build per-colony flow nodes
+    $resourceSet = array_fill_keys(TRADE_COLONY_RESOURCES, true);
+    foreach ($goodsByColony as $goods) {
+        foreach (array_keys($goods) as $goodType) {
+            $resourceSet[$goodType] = true;
+        }
+    }
+    $resources = array_keys($resourceSet);
+
+    $colonyNodes = [];
+    foreach ($colonies as $colony) {
+        $colonyId = (int)$colony['id'];
+        $runtime  = $runtimeProfiles[$colonyId] ?? [];
+        $goods    = [];
+        foreach ($resources as $resource) {
+            $qty     = trade_colony_resource_qty($colony, $goodsByColony, $resource);
+            $reserve = trade_colony_resource_reserve($colony, $runtimeProfiles, $resource, $intervalHours);
+            $surplus = max(0.0, $qty - $reserve);
+            $deficit = max(0.0, $reserve - $qty);
+            $goods[$resource] = [
+                'qty'     => round($qty, 2),
+                'reserve' => round($reserve, 2),
+                'surplus' => round($surplus, 2),
+                'deficit' => round($deficit, 2),
+                'tone'    => $surplus > 0 ? 'surplus' : ($deficit > 0 ? 'deficit' : 'balanced'),
+            ];
+        }
+        $colonyNodes[] = [
+            'colony_id'      => $colonyId,
+            'name'           => (string)$colony['name'],
+            'galaxy'         => (int)$colony['galaxy'],
+            'system'         => (int)$colony['system_index'],
+            'position'       => (int)$colony['position'],
+            'x_ly'           => (float)$colony['x_ly'],
+            'y_ly'           => (float)$colony['y_ly'],
+            'z_ly'           => (float)$colony['z_ly'],
+            'goods'          => $goods,
+            'welfare'        => [
+                'happiness'     => (int)($runtime['welfare']['happiness']     ?? 70),
+                'food_coverage' => round((float)($runtime['welfare']['food_coverage']  ?? 1.0), 4),
+                'energy_balance'=> round((float)($runtime['welfare']['energy_balance'] ?? 0.0), 2),
+            ],
+        ];
+    }
+
+    // Build heatmap: for each resource, an array of {from, to, qty} transfer volumes
+    // (one entry per active trade route that carries this resource)
+    $routeStmt = $db->prepare(<<<SQL
+        SELECT tr.id, tr.origin_colony_id, tr.target_colony_id,
+               tr.cargo_metal, tr.cargo_crystal, tr.cargo_deuterium,
+               tr.cargo_payload, tr.interval_hours, tr.is_active,
+               tr.last_dispatch,
+               oc.name AS origin_name, tc.name AS target_name,
+               COALESCE(os.x_ly,0) AS ox, COALESCE(os.y_ly,0) AS oy, COALESCE(os.z_ly,0) AS oz,
+               COALESCE(ts.x_ly,0) AS tx, COALESCE(ts.y_ly,0) AS ty, COALESCE(ts.z_ly,0) AS tz
+        FROM trade_routes tr
+        JOIN colonies oc ON oc.id = tr.origin_colony_id
+        JOIN colonies tc ON tc.id = tr.target_colony_id
+        JOIN celestial_bodies ocb ON ocb.id = oc.body_id
+        JOIN celestial_bodies tcb ON tcb.id = tc.body_id
+        LEFT JOIN star_systems os ON os.galaxy_index = ocb.galaxy_index AND os.system_index = ocb.system_index
+        LEFT JOIN star_systems ts ON ts.galaxy_index = tcb.galaxy_index AND ts.system_index = tcb.system_index
+        WHERE tr.user_id = ?
+        ORDER BY tr.id ASC
+    SQL);
+    $routeStmt->execute([$uid]);
+    $rawRoutes = $routeStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Per-route efficiency metrics
+    $enrichedRoutes = [];
+    foreach ($rawRoutes as $r) {
+        $payload   = decode_trade_route_payload($r);
+        $primary   = extract_primary_cargo($payload);
+        $totalCargo = total_trade_cargo_units($payload);
+        $dx = (float)$r['tx'] - (float)$r['ox'];
+        $dy = (float)$r['ty'] - (float)$r['oy'];
+        $dz = (float)$r['tz'] - (float)$r['oz'];
+        $distanceLy  = max(0.1, sqrt($dx * $dx + $dy * $dy + $dz * $dz));
+        $fuelCost    = (float)max(5, ceil(($distanceLy * 0.35) + ($totalCargo / 20000)));
+        $effScore    = $totalCargo > 0 ? round($totalCargo / max(1.0, $distanceLy), 2) : 0.0;
+
+        $enrichedRoutes[] = [
+            'id'               => (int)$r['id'],
+            'origin_colony_id' => (int)$r['origin_colony_id'],
+            'target_colony_id' => (int)$r['target_colony_id'],
+            'origin_name'      => (string)$r['origin_name'],
+            'target_name'      => (string)$r['target_name'],
+            'cargo'            => [
+                'metal'     => (float)$primary['metal'],
+                'crystal'   => (float)$primary['crystal'],
+                'deuterium' => (float)$primary['deuterium'],
+            ],
+            'cargo_payload'       => $payload,
+            'interval_hours'      => (int)$r['interval_hours'],
+            'is_active'           => (bool)$r['is_active'],
+            'last_dispatch'       => $r['last_dispatch'],
+            'distance_ly'         => round($distanceLy, 2),
+            'fuel_cost_deuterium' => round($fuelCost, 2),
+            'total_cargo_units'   => round($totalCargo, 2),
+            'efficiency_score'    => $effScore,
+        ];
+    }
+
+    // Heatmap: per resource → list of {from_id, to_id, qty}
+    $heatmap = [];
+    foreach ($resources as $resource) {
+        $cells = [];
+        foreach ($rawRoutes as $r) {
+            $payload = decode_trade_route_payload($r);
+            $qty = (float)($payload[$resource] ?? 0.0);
+            if ($qty > 0) {
+                $cells[] = [
+                    'from_id'   => (int)$r['origin_colony_id'],
+                    'to_id'     => (int)$r['target_colony_id'],
+                    'from_name' => (string)$r['origin_name'],
+                    'to_name'   => (string)$r['target_name'],
+                    'qty'       => round($qty, 2),
+                    'is_active' => (bool)$r['is_active'],
+                ];
+            }
+        }
+        if (count($cells) > 0) {
+            $heatmap[$resource] = $cells;
+        }
+    }
+
+    // Recommendations: reuse suggestion engine (max 10)
+    $recommendations = [];
+    if (count($colonies) >= 2) {
+        $recommendations = build_trade_balance_suggestions($db, $uid, $colonies, $intervalHours, $limit);
+    }
+
+    $activeRoutes = array_filter($rawRoutes, fn($r) => (bool)$r['is_active']);
+
+    json_ok([
+        'colonies'        => $colonyNodes,
+        'heatmap'         => $heatmap,
+        'routes'          => $enrichedRoutes,
+        'recommendations' => $recommendations,
+        'summary'         => [
+            'total_colonies' => count($colonies),
+            'active_routes'  => count($activeRoutes),
+            'resources'      => $resources,
+        ],
+    ]);
+}
 
 // ─── Auto-dispatch logic ──────────────────────────────────────────────────────
 
