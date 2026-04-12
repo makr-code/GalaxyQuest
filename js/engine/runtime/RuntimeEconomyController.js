@@ -55,10 +55,11 @@
     } = opts;
 
     let _state = {
-      tab: 'policy',          // 'policy' | 'overview'
+      tab: 'policy',          // 'policy' | 'overview' | 'market'
       policy: null,           // { global_policy, taxes:{income,production,trade}, subsidies:{agriculture,research,military} }
       overview: null,         // { colonies: [...] }
       popClasses: null,       // empire-wide aggregation
+      marketRegions: null,    // { regions: { core_worlds: {...}, frontier_sectors: {...} } }
       loading: false,
       error: null,
     };
@@ -89,6 +90,12 @@
         pirate_damage_mult: ovResp.pirate_damage_mult ?? 1.0,
       };
       _state.popClasses = popResp?.success ? popResp : null;
+    }
+
+    async function _loadMarketTab() {
+      const resp = await api.marketRegionPrices();
+      if (!resp?.success) throw new Error(resp?.error || 'Market region prices request failed');
+      _state.marketRegions = resp.regions || {};
     }
 
     // -----------------------------------------------------------------------
@@ -241,9 +248,82 @@
       return `<p class="text-red" style="padding:.5rem 0">⚠ ${esc(msg)}</p>`;
     }
 
+    function _renderMarketTab(regions) {
+      const regionIds = Object.keys(regions);
+      if (!regionIds.length) return `<p style="color:var(--gq-dim,#888)">No regional market data available.</p>`;
+
+      const regionHeaders = regionIds.map((rid) => {
+        const r = regions[rid];
+        const surcharge = r.transport_cost_mult > 1
+          ? ` <span style="color:var(--gq-warn,#f5a623);font-size:.8em">(+${Math.round((r.transport_cost_mult - 1) * 100)}% transport)</span>`
+          : '';
+        return `<th style="padding:.3rem .6rem;text-align:right">${esc(r.label)}${surcharge}</th>`;
+      }).join('');
+
+      // Collect all unique good_types across regions
+      const allGoods = new Set();
+      for (const rid of regionIds) {
+        const pricesArr = Array.isArray(regions[rid].prices) ? regions[rid].prices : [];
+        for (const p of pricesArr) allGoods.add(p.good_type);
+      }
+
+      // Build a map { regionId: { good_type: price } } for quick lookup
+      const priceByRegion = {};
+      for (const rid of regionIds) {
+        priceByRegion[rid] = {};
+        const pricesArr = Array.isArray(regions[rid].prices) ? regions[rid].prices : [];
+        for (const p of pricesArr) priceByRegion[rid][p.good_type] = p.price;
+      }
+
+      const rows = [...allGoods].map((good) => {
+        const regionPrices = regionIds.map((rid) => priceByRegion[rid][good] ?? null);
+        const validPrices  = regionPrices.filter((p) => p !== null);
+        const maxP  = validPrices.length ? Math.max(...validPrices) : 0;
+        const minP  = validPrices.length ? Math.min(...validPrices) : 0;
+
+        const priceCells = regionIds.map((rid) => {
+          const p = priceByRegion[rid][good];
+          if (p === null || p === undefined) return `<td style="padding:.25rem .6rem;text-align:right;color:var(--gq-dim,#888)">—</td>`;
+          let style = 'text-align:right;padding:.25rem .6rem;';
+          if (validPrices.length > 1) {
+            if (p === maxP) style += 'color:var(--gq-warn,#f5a623);font-weight:600;';
+            else if (p === minP) style += 'color:var(--gq-success,#4caf50);font-weight:600;';
+          }
+          return `<td style="${style}">${p.toFixed(2)} Cr</td>`;
+        }).join('');
+
+        const goodLabel = good.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        return `<tr><td style="padding:.25rem .6rem;color:var(--gq-text,#ccc)">${esc(goodLabel)}</td>${priceCells}</tr>`;
+      }).join('');
+
+      const spreadNote = regionIds.length > 1
+        ? `<p style="font-size:.8em;color:var(--gq-dim,#888);margin:.5rem 0 .25rem">
+             <span style="color:var(--gq-success,#4caf50)">■</span> cheapest &nbsp;
+             <span style="color:var(--gq-warn,#f5a623)">■</span> most expensive per good
+           </p>`
+        : '';
+
+      return `<div class="economy-market-panel">
+        <h4 style="margin:.25rem 0 .5rem;font-size:.95em">Regional Market Prices</h4>
+        ${spreadNote}
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.85em">
+            <thead>
+              <tr>
+                <th style="padding:.3rem .6rem;text-align:left">Good</th>
+                ${regionHeaders}
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+    }
+
     function _buildFullHtml(state) {
-      const tabPolicy = state.tab === 'policy' ? ' economy-tab--active' : '';
-      const tabOverview = state.tab === 'overview' ? ' economy-tab--active' : '';
+      const tabPolicy   = state.tab === 'policy'   ? ' economy-tab--active' : '';
+      const tabOverview = state.tab === 'overview'  ? ' economy-tab--active' : '';
+      const tabMarket   = state.tab === 'market'    ? ' economy-tab--active' : '';
 
       let contentHtml;
       if (state.loading) {
@@ -259,6 +339,8 @@
           state.overview.war_modifiers,
           state.overview.pirate_damage_mult,
         );
+      } else if (state.tab === 'market' && state.marketRegions) {
+        contentHtml = _renderMarketTab(state.marketRegions);
       } else {
         contentHtml = _renderSkeleton();
       }
@@ -267,6 +349,7 @@
         <div class="economy-tabs">
           <button class="economy-tab${tabPolicy}" data-economy-tab="policy">Policy</button>
           <button class="economy-tab${tabOverview}" data-economy-tab="overview">Colony Overview</button>
+          <button class="economy-tab${tabMarket}" data-economy-tab="market">Regional Market</button>
         </div>
         <div class="economy-tab-content">
           ${contentHtml}
@@ -402,13 +485,30 @@
         root.innerHTML = _buildFullHtml(_state);
         _attachPolicyListeners(root);
       }
+
+      if (!_state.loading && !_state.marketRegions && _state.tab === 'market') {
+        _state.loading = true;
+        root.innerHTML = _buildFullHtml(_state);
+        try {
+          await _loadMarketTab();
+          _state.loading = false;
+          _state.error = null;
+        } catch (err) {
+          _state.loading = false;
+          _state.error = String(err?.message || err);
+          gameLog('warn', 'Regional market load failed', err);
+        }
+        root.innerHTML = _buildFullHtml(_state);
+        _attachPolicyListeners(root);
+      }
     }
 
     async function refresh() {
-      _state.policy   = null;
-      _state.overview = null;
-      _state.popClasses = null;
-      _state.error    = null;
+      _state.policy        = null;
+      _state.overview      = null;
+      _state.popClasses    = null;
+      _state.marketRegions = null;
+      _state.error         = null;
       await render();
     }
 

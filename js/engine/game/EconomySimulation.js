@@ -569,6 +569,284 @@ const MARKET_EVENT_TEMPLATES = Object.freeze([
 ]);
 
 // ---------------------------------------------------------------------------
+// Regional market constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Price-adjustment speed for the regional α-formula.
+ * price_t+1 = clamp(price_t × (1 + α × (demand − supply) / max(1, supply)), min, max)
+ * Reference: GAMEPLAY_DATA_MODEL.md §6.1
+ */
+const MARKET_REGION_ALPHA = 0.03;
+
+/**
+ * Pre-defined market region definitions.
+ *
+ * supplyBias: initial supply multiplier per good type.
+ *   > 1.0 → surplus (lower prices)   < 1.0 → scarcity (higher prices)
+ *
+ * Core Worlds — manufacturing hub, raw-material importer.
+ * Frontier Sectors — resource-rich frontier, finished-goods importer (+20% transport surcharge).
+ *
+ * @type {Readonly<Array<{id: string, label: string, transportCostMult: number,
+ *        supplyBias: Object.<string,number>}>>}
+ */
+const MARKET_REGION_DEFS = Object.freeze([
+  {
+    id:               'core_worlds',
+    label:            'Kernwelten',
+    transportCostMult: 1.0,
+    supplyBias: {
+      metal: 0.7, crystal: 0.8, deuterium: 0.8, rare_earth: 0.6, food: 0.9,
+      steel_alloy: 1.3, focus_crystals: 1.2, reactor_fuel: 1.1,
+      consumer_goods: 1.4, luxury_goods: 1.3, research_kits: 1.2,
+    },
+  },
+  {
+    id:               'frontier_sectors',
+    label:            'Grenzgebiete',
+    transportCostMult: 1.20,
+    supplyBias: {
+      metal: 1.4, crystal: 1.3, deuterium: 1.2, rare_earth: 1.5, food: 0.7,
+      steel_alloy: 0.7, focus_crystals: 0.6, reactor_fuel: 0.8,
+      consumer_goods: 0.5, luxury_goods: 0.4, research_kits: 0.6,
+    },
+  },
+]);
+
+// ---------------------------------------------------------------------------
+// MarketRegion
+// ---------------------------------------------------------------------------
+
+/**
+ * A regional market segment with independent supply/demand and price evolution.
+ *
+ * Prices evolve each tick via the α-formula:
+ *   price_t+1 = clamp(
+ *     price_t × (1 + MARKET_REGION_ALPHA × (demand − supply) / max(1, supply)),
+ *     base × PRICE_MULT_MIN,
+ *     base × PRICE_MULT_MAX × transportCostMult
+ *   )
+ *
+ * Region-scoped market events (e.g. regional shortages) apply price multipliers
+ * on top of the evolved price.
+ *
+ * EventBus events emitted:
+ *   'economy:market:region_price_change'  — when a regional price changes by ≥5%
+ *   'economy:market:region_event_start'   — when a regional event starts
+ *   'economy:market:region_event_end'     — when a regional event expires
+ */
+class MarketRegion {
+  /**
+   * @param {string} id                         Unique region identifier
+   * @param {string} label                      Display name
+   * @param {number} [transportCostMult=1.0]    Base-price surcharge factor
+   * @param {Object.<string,number>} [supplyBias={}]  Per-good initial supply multiplier
+   * @param {import('../EventBus').EventBus} [bus]
+   */
+  constructor(id, label, transportCostMult = 1.0, supplyBias = {}, bus = null) {
+    this.id                 = id;
+    this.label              = label;
+    this._transportCostMult = transportCostMult;
+    this._bus               = bus;
+
+    /** @type {Map<string, {supply: number, demand: number, currentPrice: number}>} */
+    this._data   = new Map();
+    /** @type {Array<{code: string, label: string, affectedGood: string|null,
+     *                priceMult: number, demandMult: number, remainingTicks: number}>} */
+    this._events = [];
+
+    const allGoods = [...Object.values(GoodType), 'metal', 'crystal', 'deuterium', 'rare_earth', 'food'];
+    for (const g of allGoods) {
+      const bias  = supplyBias[g] ?? 1.0;
+      const base  = GOOD_BASE_PRICE[g] ?? 10;
+      this._data.set(g, {
+        supply:       100 * bias,
+        demand:       100,
+        currentPrice: base * transportCostMult,
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Price query
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Current price for a good in this region, including active regional event
+   * multipliers. Returns at least PRICE_MULT_MIN × base.
+   *
+   * @param {string} good
+   * @returns {number}
+   */
+  getPrice(good) {
+    const base = (GOOD_BASE_PRICE[good] ?? 10) * this._transportCostMult;
+    const d    = this._data.get(good);
+    let price  = d ? d.currentPrice : base;
+
+    for (const ev of this._events) {
+      if (ev.affectedGood === null || ev.affectedGood === good) {
+        price *= ev.priceMult;
+      }
+    }
+
+    const minP = (GOOD_BASE_PRICE[good] ?? 10) * PRICE_MULT_MIN;
+    const maxP = base * PRICE_MULT_MAX;
+    return Math.round(Math.min(maxP, Math.max(minP, price)) * 100) / 100;
+  }
+
+  /**
+   * Supply/demand/price snapshot for a good.
+   * @param {string} good
+   * @returns {{supply: number, demand: number, currentPrice: number}}
+   */
+  getInfo(good) {
+    const d = this._data.get(good);
+    return {
+      supply:       d ? d.supply       : 100,
+      demand:       d ? d.demand       : 100,
+      currentPrice: this.getPrice(good),
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Supply / demand update
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Apply additive supply/demand changes for a good.
+   * Does NOT recalculate the price; call tickPrices() to evolve prices.
+   *
+   * @param {string} good
+   * @param {{supply?: number, demand?: number}} delta
+   */
+  updateSupplyDemand(good, { supply = 0, demand = 0 }) {
+    let d = this._data.get(good);
+    if (!d) {
+      const base = (GOOD_BASE_PRICE[good] ?? 10) * this._transportCostMult;
+      d = { supply: 100, demand: 100, currentPrice: base };
+      this._data.set(good, d);
+    }
+    d.supply = Math.max(0, d.supply + supply);
+    d.demand = Math.max(0, d.demand + demand);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Price ticking (α-formula)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Advance regional prices by dt ticks using the α-formula:
+   *   price_t+1 = clamp(
+   *     price_t × (1 + α × (demand − supply) / max(1, supply)),
+   *     base × PRICE_MULT_MIN,
+   *     base × transportCostMult × PRICE_MULT_MAX
+   *   )
+   *
+   * Emits 'economy:market:region_price_change' when price changes ≥5%.
+   *
+   * @param {number} [dt=1]
+   */
+  tickPrices(dt = 1) {
+    for (const [good, d] of this._data) {
+      const base     = (GOOD_BASE_PRICE[good] ?? 10) * this._transportCostMult;
+      const minPrice = (GOOD_BASE_PRICE[good] ?? 10) * PRICE_MULT_MIN;
+      const maxPrice = base * PRICE_MULT_MAX;
+      const oldPrice = d.currentPrice;
+
+      for (let i = 0; i < dt; i++) {
+        const alpha = MARKET_REGION_ALPHA;
+        d.currentPrice *= (1 + alpha * (d.demand - d.supply) / Math.max(1, d.supply));
+        d.currentPrice  = Math.min(maxPrice, Math.max(minPrice, d.currentPrice));
+      }
+
+      const changePct = Math.abs((d.currentPrice - oldPrice) / Math.max(1, oldPrice));
+      if (changePct >= 0.05) {
+        this._bus?.emit('economy:market:region_price_change', {
+          regionId: this.id, good, oldPrice, newPrice: d.currentPrice, changePct,
+        });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Regional events
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Register a region-scoped market event (e.g. regional shortage, blockade).
+   *
+   * @param {{code: string, label: string, affectedGood: string|null,
+   *           priceMult: number, demandMult: number, durationTicks: number}} event
+   */
+  addEvent(event) {
+    const ev = {
+      code:           event.code,
+      label:          event.label,
+      affectedGood:   event.affectedGood ?? null,
+      priceMult:      event.priceMult    ?? 1.0,
+      demandMult:     event.demandMult   ?? 1.0,
+      remainingTicks: event.durationTicks ?? 24,
+    };
+    this._events.push(ev);
+    this._bus?.emit('economy:market:region_event_start', { regionId: this.id, event: ev });
+  }
+
+  /**
+   * Advance regional events by dt ticks; remove expired ones.
+   * @param {number} [dt=1]
+   */
+  tickEvents(dt = 1) {
+    this._events = this._events.filter((ev) => {
+      ev.remainingTicks -= dt;
+      if (ev.remainingTicks <= 0) {
+        this._bus?.emit('economy:market:region_event_end', { regionId: this.id, event: ev });
+        return false;
+      }
+      return true;
+    });
+  }
+
+  /** @returns {ReadonlyArray} Active regional events */
+  get activeEvents() { return [...this._events]; }
+
+  // ---------------------------------------------------------------------------
+  // Serialization
+  // ---------------------------------------------------------------------------
+
+  /** @returns {Object} */
+  serialize() {
+    const data = {};
+    for (const [good, d] of this._data) data[good] = { ...d };
+    return {
+      id:                this.id,
+      label:             this.label,
+      transportCostMult: this._transportCostMult,
+      data,
+      events: this._events.map(e => ({ ...e })),
+    };
+  }
+
+  /**
+   * @param {Object} json
+   * @param {import('../EventBus').EventBus} [bus]
+   * @returns {MarketRegion}
+   */
+  static deserialize(json, bus = null) {
+    const r = new MarketRegion(json.id, json.label, json.transportCostMult ?? 1.0, {}, bus);
+    for (const [good, d] of Object.entries(json.data ?? {})) {
+      r._data.set(good, {
+        supply:       d.supply       ?? 100,
+        demand:       d.demand       ?? 100,
+        currentPrice: d.currentPrice ?? (GOOD_BASE_PRICE[good] ?? 10) * (json.transportCostMult ?? 1.0),
+      });
+    }
+    r._events = (json.events ?? []).map(e => ({ ...e }));
+    return r;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // GoodStock
 // ---------------------------------------------------------------------------
 
@@ -706,6 +984,12 @@ class GalacticMarket {
     ];
     for (const g of allGoods) {
       this._data.set(g, { supply: 100, demand: 100, priceMult: 1.0 });
+    }
+
+    /** @type {Map<string, MarketRegion>} Regional market segments */
+    this._regions = new Map();
+    for (const def of MARKET_REGION_DEFS) {
+      this._regions.set(def.id, new MarketRegion(def.id, def.label, def.transportCostMult, def.supplyBias, bus));
     }
   }
 
@@ -854,6 +1138,74 @@ class GalacticMarket {
   get activeEvents() { return [...this._events]; }
 
   // ---------------------------------------------------------------------------
+  // Regional market API
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get a MarketRegion by its identifier.
+   * Returns undefined if the region does not exist.
+   *
+   * @param {string} regionId
+   * @returns {MarketRegion|undefined}
+   */
+  getRegion(regionId) {
+    return this._regions.get(regionId);
+  }
+
+  /**
+   * Get the current price for a good in a specific region.
+   * Falls back to the global price if the region is not found.
+   *
+   * @param {string} good
+   * @param {string} regionId
+   * @returns {number}
+   */
+  getRegionPrice(good, regionId) {
+    return this._regions.get(regionId)?.getPrice(good) ?? this.getPrice(good);
+  }
+
+  /**
+   * Get prices for a good across all regions.
+   *
+   * @param {string} good
+   * @returns {Object.<string, number>}  { regionId: price }
+   */
+  getAllRegionPrices(good) {
+    const result = {};
+    for (const [id, region] of this._regions) {
+      result[id] = region.getPrice(good);
+    }
+    return result;
+  }
+
+  /**
+   * Apply a market event scoped to a specific region (e.g. regional shortage, blockade).
+   *
+   * @param {string} regionId
+   * @param {{code: string, label: string, affectedGood: string|null,
+   *           priceMult: number, demandMult: number, durationTicks: number}} event
+   * @throws {RangeError} If regionId is not a known region
+   */
+  applyRegionalEvent(regionId, event) {
+    const region = this._regions.get(regionId);
+    if (!region) throw new RangeError(`[GalacticMarket] Unknown region: '${regionId}'`);
+    region.addEvent(event);
+  }
+
+  /**
+   * Tick all regional prices and regional events forward by dt ticks.
+   * Should be called alongside tickEvents() on each game tick.
+   *
+   * @param {number} [dt=1]
+   */
+  tickRegions(dt = 1) {
+    for (const region of this._regions.values()) {
+      region.tickPrices(dt);
+      region.tickEvents(dt);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Serialization
   // ---------------------------------------------------------------------------
 
@@ -863,7 +1215,9 @@ class GalacticMarket {
   serialize() {
     const data = {};
     for (const [good, d] of this._data) data[good] = { ...d };
-    return { data, events: this._events.map(e => ({ ...e })) };
+    const regions = {};
+    for (const [id, region] of this._regions) regions[id] = region.serialize();
+    return { data, events: this._events.map(e => ({ ...e })), regions };
   }
 
   /**
@@ -877,6 +1231,9 @@ class GalacticMarket {
       m._data.set(good, { supply: d.supply ?? 100, demand: d.demand ?? 100, priceMult: d.priceMult ?? 1.0 });
     }
     m._events = (json.events ?? []).map(e => ({ ...e }));
+    for (const [id, regionJson] of Object.entries(json.regions ?? {})) {
+      m._regions.set(id, MarketRegion.deserialize(regionJson, bus));
+    }
     return m;
   }
 }
@@ -1660,6 +2017,7 @@ class EconomySimulation {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     EconomySimulation, ColonyEconomyNode, GalacticMarket, EconomyPolicy, GoodStock,
+    MarketRegion, MARKET_REGION_DEFS, MARKET_REGION_ALPHA,
     GoodType, GOOD_TIER, ProcessingMethod, ProcessingBuilding, EconomicPolicy,
     PROCESSING_RECIPES, GOOD_BASE_PRICE, POP_CONSUMPTION_RATE, CONSUMPTION_HAPPINESS,
     CONSUMER_GOODS_SHORTAGE_CREDIT_MULT, POLICY_EFFECTS, DEFAULT_TAX_RATES,
@@ -1672,6 +2030,7 @@ if (typeof module !== 'undefined' && module.exports) {
 } else {
   window.GQEconomy = {
     EconomySimulation, ColonyEconomyNode, GalacticMarket, EconomyPolicy, GoodStock,
+    MarketRegion, MARKET_REGION_DEFS, MARKET_REGION_ALPHA,
     GoodType, GOOD_TIER, ProcessingMethod, ProcessingBuilding, EconomicPolicy,
     PROCESSING_RECIPES, GOOD_BASE_PRICE, POP_CONSUMPTION_RATE, CONSUMPTION_HAPPINESS,
     CONSUMER_GOODS_SHORTAGE_CREDIT_MULT, POLICY_EFFECTS, DEFAULT_TAX_RATES,
