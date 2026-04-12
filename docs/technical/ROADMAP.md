@@ -222,30 +222,33 @@ Folgende große Arbeitspakete sind abgeschlossen und bilden das Fundament des Pr
 
 ---
 
-### 3.2 Diplomatic Plays: 4-Phasen-System 🎯
+### 3.2 Diplomatic Plays: 4-Phasen-System ✅
 
 **Aufgaben:**
-- [ ] Datenmodell: `diplomatic_plays`-Tabelle (Proposal → Counter → Mobilization → Resolution)
-- [ ] API-Endpunkte: `propose_play`, `counter_play`, `mobilize`, `resolve`
-- [ ] Frontend: Diplomatische Spielzüge UI
-- [ ] NPC-Reaktionen bei Kriegserklärungen
+- [x] Datenmodell: `diplomatic_plays`-Tabelle (Cooperation → Threat → Ultimatum → War)
+- [x] Trust/Threat-Spalten in `diplomacy`-Tabelle (`sql/migrate_diplomatic_plays_v1.sql`)
+- [x] API-Endpunkte: `propose_play`, `counter_play`, `mobilize`, `resolve`, `trust_threat`, `list` (`api/diplomatic_plays.php`)
+- [x] Frontend: Diplomatische Spielzüge UI – 4-Phasen-Stepper + Trust/Threat-Balken (`RuntimeDiplomaticPlaysDataModel.js`, `RuntimeDiplomaticPlaysPanel.js`)
+- [x] NPC-Reaktionen (AI-gestützte Akzeptanz-Berechnung in jeder Phase)
+- [x] 38 Unit-Tests in `tests/js/diplomatic-plays.test.js`
 
 **Akzeptanzkriterien:**
-- Diplomatische Spannungen eskalieren über 4 Phasen
-- Spieler kann in jeder Phase eingreifen
-- NPC-Fraktionen reagieren auf Spieler-Aktionen
+- ✅ Diplomatische Spannungen eskalieren über 4 Phasen
+- ✅ Spieler kann in jeder Phase eingreifen
+- ✅ NPC-Fraktionen reagieren auf Spieler-Aktionen (AI-Akzeptanzmodell)
+- ✅ Trust/Threat als Balkendiagramme sichtbar und interaktiv
 
 **Aufwand:** ~20h
 
 ---
 
-### 3.3 Trust/Threat-Achsen 🎯
+### 3.3 Trust/Threat-Achsen ✅
 
 **Aufgaben:**
-- [ ] `trust` und `threat` als getrennte Spalten in der Diplomatie-Tabelle
-- [ ] Trust: wächst durch eingehaltene Abkommen
-- [ ] Threat: hängt von Militärstärke und Aggression ab
-- [ ] UI: Trust/Threat als Balkendiagramme in der Diplomatie-Ansicht
+- [x] `trust_level` und `threat_level` als getrennte Spalten in der `diplomacy`-Tabelle (via `migrate_diplomatic_plays_v1.sql`)
+- [x] Trust: wächst durch Kooperation und erfolgreiche Abkommen
+- [x] Threat: steigt bei Eskalation und Kriegserklärungen
+- [x] UI: Trust/Threat als Balkendiagramme in der Diplomatie-Ansicht
 
 **Aufwand:** ~8h
 

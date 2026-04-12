@@ -8,12 +8,14 @@
  * - Economic trade simulation
  * - AI-driven event generation
  * 
- * GET  /api/faction_relations.php?action=standing     – player's standing with all factions
+ * GET  /api/faction_relations.php?action=standing     – player's standing with all factions (incl. trust/threat)
  * GET  /api/faction_relations.php?action=relationships – faction-to-faction matrix
  * GET  /api/faction_relations.php?action=trade_routes  – active trade network
  * GET  /api/faction_relations.php?action=conflicts    – predicted conflicts
  * POST /api/faction_relations.php?action=update_standing body: {faction_id, delta}
  * GET  /api/faction_relations.php?action=diplomacy_events – AI-driven events
+ * GET  /api/faction_relations.php?action=trust_threat  – trust+threat for all/one faction
+ * POST /api/faction_relations.php?action=update_trust_threat body: {faction_id, trust_delta?, threat_delta?}
  */
 
 require_once __DIR__ . '/helpers.php';
@@ -334,11 +336,22 @@ function generate_diplomatic_event($db, $uid, $relations_data) {
 //   db_status         – health of both MySQL and ThemisDB
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Diplomatic stance derived from trust + threat (mirrors COMBAT_SYSTEM_DESIGN §6.1)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function _diplo_stance(float $trust, float $threat): string {
+    if ($trust >= 75 && $threat < 20) return 'ALLY';
+    if ($trust >= 40 && $threat < 40) return 'FRIENDLY';
+    if ($threat >= 75)                return 'HOSTILE';
+    if ($threat >= 50)                return 'TENSE';
+    return 'NEUTRAL';
+}
+
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     $action = strtolower($_GET['action'] ?? 'standing');
     $uid = require_auth();
     $db = get_db();
-
     // Parallel-DB service (dual-write + ThemisDB graph reads).
     $dualSvc = ThemisDbDualWriteService::instance($db);
 
@@ -360,7 +373,10 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             ensure_diplomacy_rows($db, $uid);
 
             $standings = $db->prepare('
-                SELECT f.id, f.name, COALESCE(d.standing, 0) as standing
+                SELECT f.id, f.name,
+                       COALESCE(d.standing, 0)      as standing,
+                       COALESCE(d.trust_level, 0.0)  as trust_level,
+                       COALESCE(d.threat_level, 0.0) as threat_level
                 FROM npc_factions f
                 LEFT JOIN diplomacy d ON d.faction_id = f.id AND d.user_id = ?
                 ORDER BY f.id
@@ -373,9 +389,124 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                     'faction_id'   => (int)$row['id'],
                     'faction_name' => $row['name'],
                     'standing'     => (int)$row['standing'],
+                    'trust_level'  => (float)$row['trust_level'],
+                    'threat_level' => (float)$row['threat_level'],
                 ];
             }
             json_ok(['standings' => $result]);
+            break;
+
+        // Trust + Threat values for one or all factions
+        // GET ?action=trust_threat               → all factions
+        // GET ?action=trust_threat&faction_id=N  → single faction
+        case 'trust_threat':
+            only_method('GET');
+            ensure_diplomacy_rows($db, $uid);
+
+            $faction_id_filter = (int)($_GET['faction_id'] ?? 0);
+            if ($faction_id_filter > 0) {
+                $stmt = $db->prepare('
+                    SELECT faction_id,
+                           COALESCE(trust_level,  0.0) as trust_level,
+                           COALESCE(threat_level, 0.0) as threat_level,
+                           COALESCE(trust_decay_rate, 0.5) as trust_decay_rate
+                    FROM diplomacy
+                    WHERE user_id = ? AND faction_id = ?
+                    LIMIT 1
+                ');
+                $stmt->execute([$uid, $faction_id_filter]);
+                $row = $stmt->fetch();
+                json_ok($row
+                    ? ['faction_id' => (int)$row['faction_id'],
+                       'trust_level' => (float)$row['trust_level'],
+                       'threat_level' => (float)$row['threat_level'],
+                       'trust_decay_rate' => (float)$row['trust_decay_rate']]
+                    : ['error' => 'Faction not found', 'faction_id' => $faction_id_filter]);
+                break;
+            }
+
+            $stmt = $db->prepare('
+                SELECT f.id AS faction_id, f.name AS faction_name,
+                       COALESCE(d.trust_level,  0.0) as trust_level,
+                       COALESCE(d.threat_level, 0.0) as threat_level,
+                       COALESCE(d.trust_decay_rate, 0.5) as trust_decay_rate
+                FROM npc_factions f
+                LEFT JOIN diplomacy d ON d.faction_id = f.id AND d.user_id = ?
+                ORDER BY f.id
+            ');
+            $stmt->execute([$uid]);
+            $rows = $stmt->fetchAll();
+            $out = [];
+            foreach ($rows as $r) {
+                $out[] = [
+                    'faction_id'       => (int)$r['faction_id'],
+                    'faction_name'     => $r['faction_name'],
+                    'trust_level'      => (float)$r['trust_level'],
+                    'threat_level'     => (float)$r['threat_level'],
+                    'trust_decay_rate' => (float)$r['trust_decay_rate'],
+                    'stance'           => _diplo_stance((float)$r['trust_level'], (float)$r['threat_level']),
+                ];
+            }
+            json_ok(['trust_threat' => $out]);
+            break;
+
+        // Update trust and/or threat for a faction
+        // POST ?action=update_trust_threat  body: { faction_id, trust_delta?, threat_delta? }
+        case 'update_trust_threat':
+            only_method('POST');
+            verify_csrf();
+            $body = get_json_body();
+
+            $faction_id   = (int)($body['faction_id']   ?? 0);
+            $trust_delta  = (float)($body['trust_delta']  ?? 0.0);
+            $threat_delta = (float)($body['threat_delta'] ?? 0.0);
+            $reason       = trim($body['reason'] ?? 'player_action');
+
+            if ($faction_id <= 0) {
+                json_error('Invalid faction_id', 400);
+            }
+
+            $verify = $db->prepare('SELECT id FROM npc_factions WHERE id = ? LIMIT 1');
+            $verify->execute([$faction_id]);
+            if (!$verify->fetch()) {
+                json_error('Faction not found', 404);
+            }
+
+            ensure_diplomacy_rows($db, $uid);
+
+            // Clamp deltas to reasonable per-event limits
+            $trust_delta  = max(-50.0, min(50.0, $trust_delta));
+            $threat_delta = max(-50.0, min(50.0, $threat_delta));
+
+            $upd = $db->prepare('
+                UPDATE diplomacy
+                SET trust_level  = LEAST(100, GREATEST(0, trust_level  + ?)),
+                    threat_level = LEAST(100, GREATEST(0, threat_level + ?)),
+                    last_event   = ?,
+                    last_event_at = NOW()
+                WHERE user_id = ? AND faction_id = ?
+            ');
+            $upd->execute([$trust_delta, $threat_delta, $reason, $uid, $faction_id]);
+
+            // Read back new values
+            $sel = $db->prepare('
+                SELECT trust_level, threat_level
+                FROM diplomacy WHERE user_id = ? AND faction_id = ? LIMIT 1
+            ');
+            $sel->execute([$uid, $faction_id]);
+            $new = $sel->fetch();
+
+            gq_cache_delete('faction_relations_standing', ['uid' => $uid]);
+
+            json_ok([
+                'faction_id'   => $faction_id,
+                'trust_delta'  => $trust_delta,
+                'threat_delta' => $threat_delta,
+                'trust_level'  => (float)($new['trust_level']  ?? 0),
+                'threat_level' => (float)($new['threat_level'] ?? 0),
+                'stance'       => _diplo_stance((float)($new['trust_level'] ?? 0), (float)($new['threat_level'] ?? 0)),
+                'reason'       => $reason,
+            ]);
             break;
 
         // Faction-to-faction relationship matrix

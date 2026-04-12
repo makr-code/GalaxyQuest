@@ -571,6 +571,122 @@ describe('Ended war – detail view shows reason badge', () => {
       war_score_att: 100, war_score_def: 90,
       exhaustion_att: 100, exhaustion_def: 85,
       started_at: '2025-01-01',
+// ── Alliance Wars section ─────────────────────────────────────────────────────
+
+describe('Alliance Wars – allianceWarsHtml rendering', () => {
+  beforeEach(loadModule);
+
+  it('loadAllianceWars populates state from API', async () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({
+      esc,
+      api: {
+        warAllianceList: async () => ({
+          success: true,
+          my_alliance: { id: 1, name: 'Iron Fleet', tag: 'IF' },
+          alliance_wars: [
+            { relation_id: 10, other_alliance_id: 2, other_alliance_name: 'Star Raiders', other_alliance_tag: 'SR', other_user_id: null, other_user_name: null, declared_at: '2025-01-01 00:00:00', expires_at: null },
+          ],
+        }),
+      },
+    });
+    await ctrl.loadAllianceWars();
+    expect(ctrl.state.allianceWars).not.toBeNull();
+    expect(ctrl.state.allianceWars.my_alliance.name).toBe('Iron Fleet');
+    expect(ctrl.state.allianceWars.alliance_wars).toHaveLength(1);
+  });
+
+  it('loadAllianceWars leaves state null when not in alliance', async () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({
+      esc,
+      api: {
+        warAllianceList: async () => ({ success: true, my_alliance: null, alliance_wars: [] }),
+      },
+    });
+    await ctrl.loadAllianceWars();
+    expect(ctrl.state.allianceWars).not.toBeNull();
+    expect(ctrl.state.allianceWars.my_alliance).toBeNull();
+    expect(ctrl.state.allianceWars.alliance_wars).toHaveLength(0);
+  });
+
+  it('loadAllianceWars handles API error silently', async () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({
+      esc,
+      api: {
+        warAllianceList: async () => { throw new Error('Network error'); },
+      },
+    });
+    await ctrl.loadAllianceWars();
+    expect(ctrl.state.allianceWars).toBeNull();
+  });
+
+  it('renderListHtml shows alliance wars section when allianceWars is set', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [];
+    ctrl.state.myUid = 1;
+    ctrl.state.allianceWars = {
+      my_alliance: { id: 1, name: 'Iron Fleet', tag: 'IF' },
+      alliance_wars: [
+        { relation_id: 10, other_alliance_id: 2, other_alliance_name: 'Star Raiders', other_alliance_tag: 'SR', other_user_id: null, other_user_name: null, declared_at: '2025-01-01 00:00:00', expires_at: null },
+      ],
+    };
+    const html = ctrl.renderListHtml();
+    expect(html).toContain('Alliance Wars');
+    expect(html).toContain('Iron Fleet');
+    expect(html).toContain('Star Raiders');
+  });
+
+  it('renderListHtml shows empty alliance wars message when array is empty', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [];
+    ctrl.state.myUid = 1;
+    ctrl.state.allianceWars = {
+      my_alliance: { id: 1, name: 'Steel Union', tag: 'SU' },
+      alliance_wars: [],
+    };
+    const html = ctrl.renderListHtml();
+    expect(html).toContain('Alliance Wars');
+    expect(html).toContain('No active alliance-level war declarations');
+  });
+
+  it('renderListHtml does not show alliance section when allianceWars is null', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [];
+    ctrl.state.myUid = 1;
+    ctrl.state.allianceWars = null;
+    const html = ctrl.renderListHtml();
+    expect(html).not.toContain('Alliance Wars');
+  });
+
+  it('alliance war row contains WAR status badge', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [];
+    ctrl.state.myUid = 5;
+    ctrl.state.allianceWars = {
+      my_alliance: { id: 3, name: 'Nova Pact', tag: 'NP' },
+      alliance_wars: [
+        { relation_id: 7, other_alliance_id: null, other_alliance_name: null, other_alliance_tag: null, other_user_id: 88, other_user_name: 'EnemyPlayer', declared_at: '2025-06-01 00:00:00', expires_at: null },
+      ],
+    };
+    const html = ctrl.renderListHtml();
+    expect(html).toContain('WAR');
+    expect(html).toContain('EnemyPlayer');
+  });
+});
+
+// ── War detail – Intel panel and Scan Enemy button ────────────────────────────
+
+describe('War detail – Scan Enemy button and intel panel', () => {
+  beforeEach(loadModule);
+
+  it('war detail renders Scan Enemy button when war is active', async () => {
+    document.body.innerHTML = '<div id="wars-intel-test"></div>';
+    const root = document.getElementById('wars-intel-test');
+    const wm = { body: () => root };
+    const warData = {
+      war_id: 9, status: 'active',
+      war_score_att: 100, war_score_def: 50,
+      exhaustion_att: 2, exhaustion_def: 1,
+      started_at: '2025-02-01',
       goals: [],
       peace_offers: [],
     };
@@ -594,6 +710,21 @@ describe('Ended war – detail view shows reason badge', () => {
       war_score_att: 50, war_score_def: 30,
       exhaustion_att: 75, exhaustion_def: 40,
       started_at: '2025-01-01',
+    ctrl.state.detailWarId = 9;
+    await ctrl.render();
+    expect(root.innerHTML).toContain('data-intel-load');
+    expect(root.innerHTML).toContain('Scan Enemy');
+  });
+
+  it('war detail includes intel host placeholder', async () => {
+    document.body.innerHTML = '<div id="wars-intel-placeholder"></div>';
+    const root = document.getElementById('wars-intel-placeholder');
+    const wm = { body: () => root };
+    const warData = {
+      war_id: 11, status: 'active',
+      war_score_att: 0, war_score_def: 0,
+      exhaustion_att: 0, exhaustion_def: 0,
+      started_at: '2025-03-01',
       goals: [],
       peace_offers: [],
     };
@@ -633,5 +764,78 @@ describe('primaryGoal label rendering fix', () => {
     const html = ctrl.renderListHtml();
     expect(html).toContain('Exhaustion Advantage');
     expect(html).not.toContain('[object Object]');
+    ctrl.state.detailWarId = 11;
+    await ctrl.render();
+    expect(root.innerHTML).toContain('data-intel-host');
+  });
+
+  it('intelPanelHtml renders fleet count and colony count', async () => {
+    const intelData = {
+      success: true,
+      war_id: 5,
+      opponent_user_id: 42,
+      enemy_fleet_count: 7,
+      enemy_colony_count: 3,
+      enemy_alliance: { id: 2, name: 'Vortex', tag: 'VX' },
+      resource_scan: { metal: 15000, crystal: 8000, deuterium: 3500 },
+      scan_accuracy: 0.65,
+      scanned_at: '2025-06-01 12:00:00',
+    };
+
+    // Simulate intel scan via clicking the button
+    document.body.innerHTML = '<div id="wars-detail-view"></div>';
+    const root = document.getElementById('wars-detail-view');
+    const wm = { body: () => root };
+    const warData = {
+      war_id: 5, status: 'active',
+      war_score_att: 200, war_score_def: 100,
+      exhaustion_att: 5, exhaustion_def: 3,
+      started_at: '2025-06-01',
+      goals: [],
+      peace_offers: [],
+    };
+    const mockApi = {
+      warStatus: async () => ({ success: true, ...warData }),
+      warIntel: async () => ({ ...intelData }),
+    };
+    const ctrl = window.GQRuntimeWarController.createWarController({
+      esc, wm, api: mockApi, uiKitEmptyStateHTML: () => '',
+      gameLog: () => {}, showToast: () => {}, invalidateGetCache: () => {},
+    });
+    ctrl.state.detailWarId = 5;
+    await ctrl.render();
+
+    // Click the intel scan button
+    const scanBtn = root.querySelector('[data-intel-load]');
+    expect(scanBtn).not.toBeNull();
+    await scanBtn.click();
+    // Give async handler time to complete
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(root.innerHTML).toContain('7');   // enemy_fleet_count
+    expect(root.innerHTML).toContain('3');   // enemy_colony_count
+    expect(root.innerHTML).toContain('Vortex');
+  });
+
+  it('intel panel does not show Scan Enemy button for ended wars', async () => {
+    document.body.innerHTML = '<div id="wars-ended-test"></div>';
+    const root = document.getElementById('wars-ended-test');
+    const wm = { body: () => root };
+    const warData = {
+      war_id: 20, status: 'ended',
+      war_score_att: 500, war_score_def: 200,
+      exhaustion_att: 80, exhaustion_def: 40,
+      started_at: '2025-01-01',
+      goals: [],
+      peace_offers: [],
+    };
+    const api = { warStatus: async () => ({ success: true, ...warData }) };
+    const ctrl = window.GQRuntimeWarController.createWarController({
+      esc, wm, api, uiKitEmptyStateHTML: () => '',
+    });
+    ctrl.state.detailWarId = 20;
+    await ctrl.render();
+    expect(root.innerHTML).not.toContain('data-intel-load');
+    expect(root.innerHTML).not.toContain('Scan Enemy');
   });
 });

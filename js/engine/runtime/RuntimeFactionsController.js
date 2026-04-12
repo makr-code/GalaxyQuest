@@ -12,6 +12,7 @@
     const windowRef = opts.windowRef || window;
     const diplomacyPanel = opts.diplomacyPanel || null;
     const contractNegotiationModal = opts.contractNegotiationModal || null;
+    const diplomaticPlaysPanel = opts.diplomaticPlaysPanel || null;
 
     class FactionsController {
       constructor() {
@@ -49,6 +50,26 @@
         if (n >= -10) return '#aaa';
         if (n >= -50) return '#e67e22';
         return '#e74c3c';
+      }
+
+      diploStanceClass(trust, threat) {
+        const t = Math.max(0, Math.min(100, Number(trust  || 0)));
+        const h = Math.max(0, Math.min(100, Number(threat || 0)));
+        if (t >= 75 && h < 20) return 'stance-ally';
+        if (t >= 40 && h < 40) return 'stance-friendly';
+        if (h >= 75)           return 'stance-hostile';
+        if (h >= 50)           return 'stance-tense';
+        return 'stance-neutral';
+      }
+
+      diploStanceLabel(trust, threat) {
+        const t = Math.max(0, Math.min(100, Number(trust  || 0)));
+        const h = Math.max(0, Math.min(100, Number(threat || 0)));
+        if (t >= 75 && h < 20) return 'Ally';
+        if (t >= 40 && h < 40) return 'Friendly';
+        if (h >= 75)           return 'Hostile';
+        if (h >= 50)           return 'Tense';
+        return 'Neutral';
       }
 
       formatEffect(key, value) {
@@ -154,6 +175,12 @@
                       ${this.standingLabel(faction.standing)} (${faction.standing > 0 ? '+' : ''}${faction.standing})
                     </div>
                   </div>
+                  <div class="diplomacy-trust-threat-row faction-trust-threat-row" data-fid="${faction.id}"
+                       style="font-size:0.78rem;margin-top:0.25rem;display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap">
+                    <span class="trust-badge" title="Trust (0–100)">🤝 ${Math.round(Number(faction.trust_level ?? 0))}</span>
+                    <span class="threat-badge" title="Threat (0–100)">⚠️ ${Math.round(Number(faction.threat_level ?? 0))}</span>
+                    <span class="diplo-stance-chip ${this.diploStanceClass(faction.trust_level, faction.threat_level)}">${this.diploStanceLabel(faction.trust_level, faction.threat_level)}</span>
+                  </div>
                   <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
                     <button class="btn btn-primary btn-sm" data-fid="${faction.id}" data-act="contact">Kontakt</button>
                     <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="trade">Handel</button>
@@ -173,6 +200,7 @@
                   <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="quests">Quests</button>
                   <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="contact">Contact</button>
                   <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="treaties">⚖️ Treaties</button>
+                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="plays">🎭 Plays</button>
                 </div>
               </div>`).join('')}
           </div>
@@ -283,6 +311,20 @@
         const lastEvent = card.querySelector('.faction-last-event');
         if (lastEvent) {
           lastEvent.textContent = String(faction.last_event || '');
+        }
+
+        // Sync trust/threat row
+        const ttRow = card.querySelector('.faction-trust-threat-row');
+        if (ttRow) {
+          const trustBadge  = ttRow.querySelector('.trust-badge');
+          const threatBadge = ttRow.querySelector('.threat-badge');
+          const stanceChip  = ttRow.querySelector('.diplo-stance-chip');
+          if (trustBadge)  trustBadge.textContent  = `🤝 ${Math.round(Number(faction.trust_level ?? 0))}`;
+          if (threatBadge) threatBadge.textContent  = `⚠️ ${Math.round(Number(faction.threat_level ?? 0))}`;
+          if (stanceChip) {
+            stanceChip.className  = `diplo-stance-chip ${this.diploStanceClass(faction.trust_level, faction.threat_level)}`;
+            stanceChip.textContent = this.diploStanceLabel(faction.trust_level, faction.threat_level);
+          }
         }
       }
 
@@ -574,6 +616,20 @@
             await diplomacyPanel.render(detail, faction);
           } else {
             detail.innerHTML = '<p class="text-muted">Treaty panel unavailable.</p>';
+          }
+          return;
+        }
+
+        if (mode === 'plays') {
+          const faction = this.getFactionById(fid);
+          if (!faction) {
+            detail.innerHTML = '<p class="error">Faction not found.</p>';
+            return;
+          }
+          if (diplomaticPlaysPanel) {
+            await diplomaticPlaysPanel.render(detail, faction);
+          } else {
+            detail.innerHTML = '<p class="text-muted">Diplomatic Plays panel unavailable.</p>';
           }
           return;
         }

@@ -114,13 +114,18 @@ function fa_get_type(string $code): ?array {
  *   standing delta from faction's min_standing  → positive push
  *   leverage_score (player debt) → negative modifier
  *   aggression of faction        → negative modifier
+ *   trust_level (0–100)          → positive modifier (up to +15)
+ *   threat_level (0–100)         → negative modifier (up to -20)
  */
-function fa_ai_acceptance(array $type, int $standing, int $leverage, int $aggression): int {
+function fa_ai_acceptance(array $type, int $standing, int $leverage, int $aggression,
+                          float $trust = 0.0, float $threat = 0.0): int {
     $min = (int)($type['min_standing'] ?? 0);
     $gap = $standing - $min;                       // how far above the gate
     $base = 40 + min(40, max(-40, $gap));           // 0–80
     $base -= (int)($leverage * 0.3);               // leverage reduces willingness
     $base -= (int)(($aggression / 100) * 20);      // aggressive factions are harder
+    $base += (int)(($trust  / 100) * 15);          // high trust boosts acceptance
+    $base -= (int)(($threat / 100) * 20);          // high threat reduces acceptance
     return max(5, min(95, (int)$base));
 }
 
@@ -180,6 +185,20 @@ function handle_propose(PDO $db, int $uid): array {
         )];
     }
 
+    // Threat gate for alliance: very high threat blocks war alliances
+    // (Both sides view each other as a threat – alliances impossible)
+    if ($type_code === 'alliance') {
+        $ttStmt = $db->prepare('SELECT threat_level FROM diplomacy WHERE user_id = ? AND faction_id = ? LIMIT 1');
+        $ttStmt->execute([$uid, $faction_id]);
+        $threatRow = $ttStmt->fetch(PDO::FETCH_ASSOC);
+        $threat_level = (float)($threatRow['threat_level'] ?? 0.0);
+        if ($threat_level >= 75.0) {
+            return ['success' => false, 'error' => sprintf(
+                'Cannot form an alliance while threat level is critical (%.0f/100). Reduce hostilities first.', $threat_level
+            )];
+        }
+    }
+
     // Block duplicate active/proposed agreement of same type
     $dup = $db->prepare('
         SELECT id FROM faction_agreements
@@ -197,9 +216,17 @@ function handle_propose(PDO $db, int $uid): array {
     $faction = $fstmt->fetch(PDO::FETCH_ASSOC);
     if (!$faction) return ['success' => false, 'error' => 'Faction not found'];
 
+    // Fetch trust/threat for AI acceptance model
+    $ttStmt2 = $db->prepare('SELECT trust_level, threat_level FROM diplomacy WHERE user_id = ? AND faction_id = ? LIMIT 1');
+    $ttStmt2->execute([$uid, $faction_id]);
+    $ttRow2 = $ttStmt2->fetch(PDO::FETCH_ASSOC);
+    $propose_trust  = (float)($ttRow2['trust_level']  ?? 0.0);
+    $propose_threat = (float)($ttRow2['threat_level'] ?? 0.0);
+
     // Placeholder leverage: could be tied to real debt table later
     $leverage = 0;
-    $ai_pct   = fa_ai_acceptance($type, $standing, $leverage, (int)($faction['aggression'] ?? 50));
+    $ai_pct   = fa_ai_acceptance($type, $standing, $leverage, (int)($faction['aggression'] ?? 50),
+                                 $propose_trust, $propose_threat);
 
     $expires_at = null;
     if ($duration !== null) {
@@ -280,10 +307,30 @@ function handle_respond(PDO $db, int $uid): array {
                          'Agreement signed: ' . $agreement['agreement_type'], $now]);
         }
 
+        // Trust gain: successful agreements build bilateral trust
+        // trade +5, research +8, alliance +10, non_aggression +3
+        $trust_gain_map = [
+            'trade'          => 5.0,
+            'research'       => 8.0,
+            'alliance'       => 10.0,
+            'non_aggression' => 3.0,
+        ];
+        $trust_gain = $trust_gain_map[$agreement['agreement_type']] ?? 3.0;
+        $db->prepare('
+            UPDATE diplomacy
+            SET trust_level = LEAST(100, GREATEST(0, trust_level + ?)),
+                last_event    = ?,
+                last_event_at = ?
+            WHERE user_id = ? AND faction_id = ?
+        ')->execute([$trust_gain,
+                     'Agreement signed (trust +' . $trust_gain . '): ' . $agreement['agreement_type'],
+                     $now, $uid, $agreement['faction_id']]);
+
         return [
             'success'       => true,
             'outcome'       => 'accepted',
             'standing_gain' => $reward,
+            'trust_gain'    => $trust_gain,
         ];
     } else {
         $db->prepare('UPDATE faction_agreements SET status = "rejected" WHERE id = ?')
@@ -312,8 +359,8 @@ function handle_cancel(PDO $db, int $uid): array {
 
     // Penalty: lose the standing reward that was granted
     $penalty = -(int)($agreement['standing_reward'] ?? 0);
+    $now = date('Y-m-d H:i:s');
     if ($penalty !== 0) {
-        $now = date('Y-m-d H:i:s');
         $db->prepare('
             INSERT INTO diplomacy (user_id, faction_id, standing, last_event, last_event_at)
             VALUES (?, ?, ?, ?, ?)
@@ -325,7 +372,23 @@ function handle_cancel(PDO $db, int $uid): array {
                      'Agreement cancelled: ' . $agreement['agreement_type'], $now]);
     }
 
-    return ['success' => true, 'standing_penalty' => abs($penalty)];
+    // Trust penalty on cancellation: breaking an agreement hurts trust
+    $trust_penalty = -5.0;
+    // Cancelling an alliance hurts more
+    if ($agreement['agreement_type'] === 'alliance') {
+        $trust_penalty = -15.0;
+    }
+    $db->prepare('
+        UPDATE diplomacy
+        SET trust_level = LEAST(100, GREATEST(0, trust_level + ?)),
+            last_event    = ?,
+            last_event_at = ?
+        WHERE user_id = ? AND faction_id = ?
+    ')->execute([$trust_penalty,
+                 'Agreement cancelled (trust ' . $trust_penalty . '): ' . $agreement['agreement_type'],
+                 $now, $uid, $agreement['faction_id']]);
+
+    return ['success' => true, 'standing_penalty' => abs($penalty), 'trust_penalty' => abs($trust_penalty)];
 }
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────

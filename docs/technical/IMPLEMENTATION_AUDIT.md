@@ -285,12 +285,17 @@ GESAMT (vs. finale Vision)                                  ~60%
 
 ---
 
-### 3.12 Diplomatie – Zielmodell: Diplomatic Plays (~40%)
+### 3.12 Diplomatie – Zielmodell: Diplomatic Plays (~80%)
 
-**Fehlend (nach GAMEPLAY_DATA_MODEL.md):**
-- ❌ 4-Phasen-Eskalationsmodell für diplomatische Konflikte
-- ❌ Trust-Achse: langfristiges Vertrauen aus Abkommen-Einhaltung
-- ❌ Threat-Achse: militärische Bedrohungswahrnehmung
+**Fertig implementiert (Sprint 3.2):**
+- ✅ 4-Phasen-Eskalationsmodell: Cooperation → Threat → Ultimatum → War (`api/diplomatic_plays.php`, `sql/migrate_diplomatic_plays_v1.sql`)
+- ✅ Trust-Achse: `trust_level`-Spalte in `diplomacy`-Tabelle, wächst durch Kooperation
+- ✅ Threat-Achse: `threat_level`-Spalte in `diplomacy`-Tabelle, steigt durch Eskalation
+- ✅ Frontend: `RuntimeDiplomaticPlaysDataModel.js` + `RuntimeDiplomaticPlaysPanel.js` (4-Phasen-Stepper, Trust/Threat-Balken, NPC-Reaktionen)
+- ✅ API: `propose_play`, `counter_play`, `mobilize`, `resolve`, `trust_threat`, `list`
+- ✅ 38 Unit-Tests in `tests/js/diplomatic-plays.test.js`
+
+**Noch fehlend:**
 - ❌ Internal Factions: Approval + Support-gewichteter Stabilitätsdruck
 - ❌ Colony Modifiers: dynamische Modifier mit Ablaufdatum
 

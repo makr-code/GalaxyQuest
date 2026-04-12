@@ -110,6 +110,83 @@
     return (agreements || []).filter((a) => set.has(String(a.status || '')));
   }
 
+  // ── Trust / Threat helpers ────────────────────────────────────────────────
+
+  /**
+   * Trust value (0–100) → { cls, label }
+   * Used for coloring the trust bar and chip.
+   */
+  function trustMeta(value) {
+    const v = Math.max(0, Math.min(100, Number(value || 0)));
+    if (v >= 75) return { cls: 'trust-high',    label: 'High Trust'    };
+    if (v >= 40) return { cls: 'trust-moderate', label: 'Moderate Trust' };
+    if (v >= 15) return { cls: 'trust-low',      label: 'Low Trust'     };
+    return             { cls: 'trust-none',      label: 'No Trust'      };
+  }
+
+  /**
+   * Threat value (0–100) → { cls, label }
+   * Used for coloring the threat bar and chip.
+   */
+  function threatMeta(value) {
+    const v = Math.max(0, Math.min(100, Number(value || 0)));
+    if (v >= 75) return { cls: 'threat-critical', label: 'Critical Threat' };
+    if (v >= 50) return { cls: 'threat-high',     label: 'High Threat'     };
+    if (v >= 25) return { cls: 'threat-moderate', label: 'Moderate Threat' };
+    return             { cls: 'threat-low',       label: 'Low Threat'      };
+  }
+
+  /**
+   * Derive the combined diplomatic stance from trust + threat values.
+   * Mirrors the table in COMBAT_SYSTEM_DESIGN.md §6.1.
+   */
+  function diploStance(trust, threat) {
+    const t = Math.max(0, Math.min(100, Number(trust  || 0)));
+    const h = Math.max(0, Math.min(100, Number(threat || 0)));
+    if (t >= 75 && h < 20) return { code: 'ALLY',     label: 'Ally',     cls: 'stance-ally'     };
+    if (t >= 40 && h < 40) return { code: 'FRIENDLY', label: 'Friendly', cls: 'stance-friendly' };
+    if (h >= 75)           return { code: 'HOSTILE',  label: 'Hostile',  cls: 'stance-hostile'  };
+    if (h >= 50)           return { code: 'TENSE',    label: 'Tense',    cls: 'stance-tense'    };
+    return                        { code: 'NEUTRAL',  label: 'Neutral',  cls: 'stance-neutral'  };
+  }
+
+  /**
+   * Render dual trust/threat progress bars plus the combined stance chip.
+   *
+   * @param {number} trust  0–100
+   * @param {number} threat 0–100
+   * @returns {string} HTML fragment
+   */
+  function trustThreatBarsHTML(trust, threat) {
+    const t   = Math.max(0, Math.min(100, Number(trust  || 0)));
+    const h   = Math.max(0, Math.min(100, Number(threat || 0)));
+    const tm  = trustMeta(t);
+    const hm  = threatMeta(h);
+    const stance = diploStance(t, h);
+
+    const trustColor  = t >= 75 ? '#27ae60' : t >= 40 ? '#f0a500' : t >= 15 ? '#aaa' : '#666';
+    const threatColor = h >= 75 ? '#e74c3c' : h >= 50 ? '#e67e22' : h >= 25 ? '#f0a500' : '#888';
+
+    return `
+      <div class="gq-trust-threat-bars" title="Trust: ${t} | Threat: ${h} | Stance: ${stance.label}">
+        <div class="gq-axis-row">
+          <span class="gq-axis-label">🤝 Trust</span>
+          <div class="gq-axis-track">
+            <div class="gq-axis-fill gq-axis-fill--trust ${tm.cls}" style="width:${t}%;background:${trustColor}"></div>
+          </div>
+          <span class="gq-axis-value">${Math.round(t)}</span>
+        </div>
+        <div class="gq-axis-row">
+          <span class="gq-axis-label">⚠️ Threat</span>
+          <div class="gq-axis-track">
+            <div class="gq-axis-fill gq-axis-fill--threat ${hm.cls}" style="width:${h}%;background:${threatColor}"></div>
+          </div>
+          <span class="gq-axis-value">${Math.round(h)}</span>
+        </div>
+        <div class="gq-stance-chip ${stance.cls}">${stance.label}</div>
+      </div>`;
+  }
+
   const api = {
     getTypes,
     getType,
@@ -118,6 +195,10 @@
     acceptanceBarHTML,
     standingMeterHTML,
     filterByStatus,
+    trustMeta,
+    threatMeta,
+    diploStance,
+    trustThreatBarsHTML,
   };
 
   if (typeof window !== 'undefined') {

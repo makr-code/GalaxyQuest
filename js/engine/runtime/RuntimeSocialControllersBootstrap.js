@@ -25,6 +25,8 @@
     const runtimeLogisticsRoutesControllerApi = opts.runtimeLogisticsRoutesControllerApi || {};
     const runtimeDiplomacyDataModelApi = opts.runtimeDiplomacyDataModelApi || (typeof window !== 'undefined' && window.GQRuntimeDiplomacyDataModel) || null;
     const runtimeDiplomacyPanelApi = opts.runtimeDiplomacyPanelApi || (typeof window !== 'undefined' && window.GQRuntimeDiplomacyPanel) || null;
+    const runtimeDiplomaticPlaysDataModelApi = opts.runtimeDiplomaticPlaysDataModelApi || (typeof window !== 'undefined' && window.GQRuntimeDiplomaticPlaysDataModel) || null;
+    const runtimeDiplomaticPlaysPanelApi = opts.runtimeDiplomaticPlaysPanelApi || (typeof window !== 'undefined' && window.GQRuntimeDiplomaticPlaysPanel) || null;
     const runtimeContractNegotiationModalApi = opts.runtimeContractNegotiationModalApi || (typeof window !== 'undefined' && window.GQRuntimeContractNegotiationModal) || null;
 
     const messagesController = runtimeMessagesControllerApi.createMessagesController({
@@ -152,6 +154,15 @@
         })
       : null;
 
+    const diplomaticPlaysPanel = runtimeDiplomaticPlaysPanelApi && runtimeDiplomaticPlaysPanelApi.createDiplomaticPlaysPanel
+      ? runtimeDiplomaticPlaysPanelApi.createDiplomaticPlaysPanel({
+          api: opts.api,
+          esc: opts.esc,
+          showToast: opts.showToast,
+          dataModel: runtimeDiplomaticPlaysDataModelApi,
+        })
+      : null;
+
     const factionsController = runtimeFactionsControllerApi.createFactionsController({
       wm: opts.wm,
       api: opts.api,
@@ -163,6 +174,7 @@
       getCurrentColony: opts.getCurrentColony,
       windowRef: opts.windowRef,
       diplomacyPanel,
+      diplomaticPlaysPanel,
       contractNegotiationModal,
     });
 
