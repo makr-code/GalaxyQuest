@@ -56,6 +56,7 @@ const API = (() => {
     { re: /api\/economy\.php\?action=get_overview/i, ttl: 8 * 1000 },
     { re: /api\/economy\.php\?action=get_policy/i, ttl: 10 * 1000 },
     { re: /api\/economy\.php\?action=get_pop_classes/i, ttl: 10 * 1000 },
+    { re: /api\/economy\.php\?action=get_pop_status/i, ttl: 10 * 1000 },
     { re: /api\/economy\.php\?action=get_production/i, ttl: 8 * 1000 },
     { re: /api\/alliances\.php\?action=list/i, ttl: 8 * 1000 },
     { re: /api\/alliances\.php\?action=details/i, ttl: 6 * 1000 },
@@ -1692,6 +1693,23 @@ const API = (() => {
       const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
       return get(`api/economy.php?action=get_pop_classes${q}`);
     },
+    marketRegionPrices: (good_type = null) => {
+      const q = good_type ? `&good_type=${encodeURIComponent(String(good_type))}` : '';
+      return get(`api/market.php?action=get_region_prices${q}`);
+    economyPopStatus: (colony_id = null) => {
+      const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
+      return get(`api/economy.php?action=get_pop_status${q}`);
+    },
+    setPopPolicy: ({ colony_id, wage_adjustment = 1.0, culture_spending = 0, safety_budget = 0 } = {}) => {
+      const cid = Number(colony_id);
+      if (!cid || cid < 1) return Promise.reject(new Error('setPopPolicy: colony_id is required'));
+      return post('api/economy.php?action=set_pop_policy', {
+        colony_id: cid,
+        wage_adjustment: Math.min(2.0, Math.max(0.5, Number(wage_adjustment))),
+        culture_spending: Math.min(1000, Math.max(0, Number(culture_spending))),
+        safety_budget: Math.min(100, Math.max(0, Number(safety_budget))),
+      });
+    },
 
     // Strategic wars
     wars: () => get('api/war.php?action=list'),
@@ -1720,6 +1738,8 @@ const API = (() => {
   listTradeSuggestions: ({ limit = 10, interval_hours = 24 } = {}) =>
     get(`api/trade.php?action=list_suggestions&limit=${encodeURIComponent(Math.max(1, Number(limit || 10)))}&interval_hours=${encodeURIComponent(Math.max(1, Number(interval_hours || 24)))}`),
   applyTradeSuggestion: (data) => post('api/trade.php?action=apply_suggestion', data),
+  goodsFlowAnalysis: ({ limit = 10, interval_hours = 24 } = {}) =>
+    get(`api/trade.php?action=goods_flow&limit=${encodeURIComponent(Math.max(1, Number(limit || 10)))}&interval_hours=${encodeURIComponent(Math.max(1, Number(interval_hours || 24)))}`),
   listTradeProposals: ()       => get('api/trade.php?action=list_proposals'),
   proposeTrade: (data)         => post('api/trade.php?action=propose', data),
   acceptTrade: (id)            => post('api/trade.php?action=accept',  { proposal_id: id }),

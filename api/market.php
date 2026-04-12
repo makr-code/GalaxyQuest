@@ -19,12 +19,13 @@ $db     = get_db();
 $action = $_GET['action'] ?? '';
 
 match ($action) {
-    'get_prices'       => action_get_prices($db, $uid),
-    'buy'              => action_buy($db, $uid),
-    'sell'             => action_sell($db, $uid),
-    'get_history'      => action_get_history($db, $uid),
-    'get_active_events'=> action_get_active_events($db),
-    default            => json_error('Unknown action: ' . $action, 400),
+    'get_prices'        => action_get_prices($db, $uid),
+    'get_region_prices' => action_get_region_prices($db, $uid),
+    'buy'               => action_buy($db, $uid),
+    'sell'              => action_sell($db, $uid),
+    'get_history'       => action_get_history($db, $uid),
+    'get_active_events' => action_get_active_events($db),
+    default             => json_error('Unknown action: ' . $action, 400),
 };
 
 // ---------------------------------------------------------------------------
@@ -150,6 +151,18 @@ function compute_price(PDO $db, string $goodType, ?int $colonyId = null): float 
 }
 
 /**
+ * Resolve a raw economy_policies.global_policy value (integer index or string key)
+ * to a canonical policy string.
+ */
+function resolve_policy_str(mixed $raw): string {
+    static $keys = ['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'];
+    if (is_numeric($raw)) {
+        return $keys[(int)$raw] ?? 'free_market';
+    }
+    return in_array((string)$raw, $keys, true) ? (string)$raw : 'free_market';
+}
+
+/**
  * Fetch the player's trade tax rate from their economy_policies row.
  *
  * @param PDO $db
@@ -242,6 +255,134 @@ function action_get_prices(PDO $db, int $uid): never {
     json_ok(['prices' => $filter ? ($prices[$filter] ?? []) : array_values($prices)]);
 }
 
+// ---------------------------------------------------------------------------
+// Regional market constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-defined market regions.
+ *
+ * Each region has:
+ *   - transport_cost_mult: surcharge applied on top of the global price formula
+ *   - supply_bias: per-good initial supply multiplier seeded into market_region_quotes
+ *
+ * Core Worlds  — manufacturing hub; raw-material importer.
+ * Frontier Sectors — resource-rich frontier; finished-goods importer (+20% surcharge).
+ */
+const MARKET_REGIONS = [
+    'core_worlds' => [
+        'label'              => 'Kernwelten',
+        'transport_cost_mult' => 1.0,
+        'supply_bias'        => [
+            'metal' => 0.7, 'crystal' => 0.8, 'deuterium' => 0.8, 'rare_earth' => 0.6, 'food' => 0.9,
+            'steel_alloy' => 1.3, 'focus_crystals' => 1.2, 'reactor_fuel' => 1.1,
+            'consumer_goods' => 1.4, 'luxury_goods' => 1.3, 'research_kits' => 1.2,
+        ],
+    ],
+    'frontier_sectors' => [
+        'label'              => 'Grenzgebiete',
+        'transport_cost_mult' => 1.20,
+        'supply_bias'        => [
+            'metal' => 1.4, 'crystal' => 1.3, 'deuterium' => 1.2, 'rare_earth' => 1.5, 'food' => 0.7,
+            'steel_alloy' => 0.7, 'focus_crystals' => 0.6, 'reactor_fuel' => 0.8,
+            'consumer_goods' => 0.5, 'luxury_goods' => 0.4, 'research_kits' => 0.6,
+        ],
+    ],
+];
+
+/**
+ * Compute the current regional market price for a good.
+ *
+ * Regional price = global_price × transport_cost_mult × supply_bias_adj
+ *
+ * The supply_bias_adj is derived from the regional supply/demand row in
+ * market_region_quotes (if present) or estimated from supply_bias defaults.
+ *
+ * @param PDO    $db
+ * @param string $goodType
+ * @param string $regionId   'core_worlds' | 'frontier_sectors'
+ * @return float
+ */
+function compute_regional_price(PDO $db, string $goodType, string $regionId): float {
+    $region = MARKET_REGIONS[$regionId] ?? null;
+    if (!$region) return compute_price($db, $goodType);
+
+    $tcm = (float)$region['transport_cost_mult'];
+
+    // Try market_region_quotes for live supply/demand
+    $stmt = $db->prepare(<<<SQL
+        SELECT supply, demand, active_events_mult
+        FROM market_region_quotes
+        WHERE region_id = ? AND good_type = ?
+    SQL);
+    $stmt->execute([$regionId, $goodType]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($row) {
+        $supply = max(1.0, (float)$row['supply']);
+        $demand = max(1.0, (float)$row['demand']);
+        $mult   = pow($demand / $supply, PRICE_ELASTICITY);
+        $mult   = max(PRICE_MULT_MIN, min(PRICE_MULT_MAX * $tcm, $mult));
+        $evMult = (float)($row['active_events_mult'] ?? 1.0);
+        $base   = BASE_PRICES[$goodType] ?? 10.0;
+        return round($base * $tcm * $mult * $evMult, 2);
+    }
+
+    // Fallback: scale global price by transport cost and supply_bias estimate
+    $globalPrice = compute_price($db, $goodType);
+    $bias        = (float)($region['supply_bias'][$goodType] ?? 1.0);
+    // bias > 1 → surplus → lower price; bias < 1 → scarcity → higher price
+    $biasAdj     = 1.0 / max(0.1, $bias);
+    return round($globalPrice * $tcm * $biasAdj, 2);
+}
+
+/**
+ * GET market.php?action=get_region_prices[&good_type=X]
+ *
+ * Returns current market prices per region (core_worlds, frontier_sectors)
+ * for all goods, or for a single good if good_type is specified.
+ *
+ * Response shape:
+ * {
+ *   "regions": {
+ *     "core_worlds": {
+ *       "label": "Kernwelten",
+ *       "transport_cost_mult": 1.0,
+ *       "prices": [ { good_type, base_price, price, supply, demand } ]
+ *     },
+ *     "frontier_sectors": { … }
+ *   }
+ * }
+ */
+function action_get_region_prices(PDO $db, int $uid): never {
+    $filter = $_GET['good_type'] ?? null;
+    $goods  = $filter ? [$filter] : array_keys(BASE_PRICES);
+
+    if ($filter && !isset(BASE_PRICES[$filter])) {
+        json_error('Unknown good_type: ' . $filter, 400);
+    }
+
+    $result = [];
+    foreach (MARKET_REGIONS as $regionId => $regionDef) {
+        $prices = [];
+        foreach ($goods as $good) {
+            $regionalPrice = compute_regional_price($db, $good, $regionId);
+            $prices[] = [
+                'good_type'  => $good,
+                'base_price' => BASE_PRICES[$good] ?? 0,
+                'price'      => $regionalPrice,
+            ];
+        }
+        $result[$regionId] = [
+            'label'              => $regionDef['label'],
+            'transport_cost_mult' => $regionDef['transport_cost_mult'],
+            'prices'             => $filter ? ($prices[0] ?? []) : $prices,
+        ];
+    }
+
+    json_ok(['regions' => $result]);
+}
+
 /**
  * POST market.php?action=buy
  * Body: { colony_id, good_type, quantity }
@@ -273,9 +414,7 @@ function action_buy(PDO $db, int $uid): never {
     $pStmt->execute([$uid]);
     $pRow  = $pStmt->fetch(PDO::FETCH_ASSOC);
     $rawPolicy = $pRow ? $pRow['global_policy'] : 'free_market';
-    $resolvedPolicy = is_numeric($rawPolicy)
-        ? (['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'][(int)$rawPolicy] ?? 'free_market')
-        : (string)$rawPolicy;
+    $resolvedPolicy = resolve_policy_str($rawPolicy);
 
     if ($resolvedPolicy === 'autarky') {
         json_error('Autarky policy: imports are blocked', 403);
@@ -374,12 +513,13 @@ function action_sell(PDO $db, int $uid): never {
         json_error('Insufficient stock. Have ' . $available . ', trying to sell ' . $quantity, 400);
     }
 
-    // MERCANTILISM +20% export bonus
+    // MERCANTILISM +20% export bonus (resolve integer or string policy value)
     $pStmt = $db->prepare('SELECT global_policy, tax_trade FROM economy_policies WHERE user_id = ?');
     $pStmt->execute([$uid]);
     $pRow      = $pStmt->fetch(PDO::FETCH_ASSOC);
     $taxRate   = $pRow ? (float)$pRow['tax_trade'] : 0.05;
-    $exportMult = ($pRow && $pRow['global_policy'] === 'mercantilism') ? 1.20 : 1.0;
+    $resolvedSellPolicy = resolve_policy_str($pRow['global_policy'] ?? 'free_market');
+    $exportMult = ($resolvedSellPolicy === 'mercantilism') ? 1.20 : 1.0;
 
     $price  = compute_price($db, $goodType, $colonyId);
     $gross  = $price * $quantity;
@@ -420,6 +560,7 @@ function action_sell(PDO $db, int $uid): never {
         'quantity'      => $quantity,
         'price_per_unit'=> $price,
         'trade_tax'     => $taxRate,
+        'export_mult'   => $exportMult,
         'net_credits'   => $net,
     ]);
 }

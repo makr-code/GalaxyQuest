@@ -22,6 +22,7 @@
     const runtimeColonizationControllerApi = opts.runtimeColonizationControllerApi || {};
     const runtimeEmpireCategoriesPanelApi = opts.runtimeEmpireCategoriesPanelApi || {};
     const runtimeEspionageControllerApi = opts.runtimeEspionageControllerApi || {};
+    const runtimeLogisticsRoutesControllerApi = opts.runtimeLogisticsRoutesControllerApi || {};
     const runtimeDiplomacyDataModelApi = opts.runtimeDiplomacyDataModelApi || (typeof window !== 'undefined' && window.GQRuntimeDiplomacyDataModel) || null;
     const runtimeDiplomacyPanelApi = opts.runtimeDiplomacyPanelApi || (typeof window !== 'undefined' && window.GQRuntimeDiplomacyPanel) || null;
     const runtimeContractNegotiationModalApi = opts.runtimeContractNegotiationModalApi || (typeof window !== 'undefined' && window.GQRuntimeContractNegotiationModal) || null;
@@ -225,6 +226,22 @@
         })
       : null;
 
+    const logisticsRoutesController = runtimeLogisticsRoutesControllerApi.createLogisticsRoutesController
+      ? runtimeLogisticsRoutesControllerApi.createLogisticsRoutesController({
+          wm: opts.wm,
+          api: opts.api,
+          documentRef: opts.documentRef,
+          uiKitSkeletonHTML: opts.uiKitSkeletonHTML,
+          uiKitEmptyStateHTML: opts.uiKitEmptyStateHTML,
+          esc: opts.esc,
+          fmt: opts.fmt,
+          fmtName: opts.fmtName,
+          gameLog: opts.gameLog,
+          showToast: opts.showToast,
+          invalidateGetCache: opts.invalidateGetCache,
+        })
+      : null;
+
     return {
       messagesController,
       intelController,
@@ -240,6 +257,7 @@
       colonizationController,
       empireCategoriesPanel,
       espionageController,
+      logisticsRoutesController,
     };
   }
 

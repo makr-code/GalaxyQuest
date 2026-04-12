@@ -65,6 +65,7 @@
           // ─── TIER 2d: Economy Hub ──────────────────────────────────────
           ['economy', { title: 'Economy Management', w: 680, h: 640, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderEconomy() }],
           ['economy-flow', { title: 'Economy Flow', w: 540, h: 600, defaultDock: 'right', defaultY: 670, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderEconomyFlow() }],
+          ['logistics-routes', { title: 'Logistics Routes', w: 680, h: 680, defaultDock: 'right', defaultY: 1290, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderLogisticsRoutes() }],
           ['trade', { title: 'Trade', w: 540, h: 580, defaultDock: 'right', defaultY: 1290, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradeProposals() }],
           ['trade-routes', { title: 'Trade Routes', w: 520, h: 560, defaultDock: 'right', defaultY: 12, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradeRoutes() }],
           ['traders', { title: 'Trader Ops', w: 760, h: 680, defaultDock: 'right', defaultY: 590, dockable: true, dockableSides: ['left', 'right'], dockMagnetThreshold: 72, onRender: () => renderers.renderTradersDashboard() }],
