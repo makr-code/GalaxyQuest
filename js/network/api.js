@@ -1693,6 +1693,9 @@ const API = (() => {
       const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
       return get(`api/economy.php?action=get_pop_classes${q}`);
     },
+    marketRegionPrices: (good_type = null) => {
+      const q = good_type ? `&good_type=${encodeURIComponent(String(good_type))}` : '';
+      return get(`api/market.php?action=get_region_prices${q}`);
     economyPopStatus: (colony_id = null) => {
       const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
       return get(`api/economy.php?action=get_pop_status${q}`);

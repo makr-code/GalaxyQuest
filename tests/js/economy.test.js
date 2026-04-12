@@ -36,6 +36,9 @@ const {
   MARKET_EVENT_TEMPLATES,
   PRICE_MULT_MIN,
   PRICE_MULT_MAX,
+  MarketRegion,
+  MARKET_REGION_DEFS,
+  MARKET_REGION_ALPHA,
   PopClass,
   POP_CLASS_ORDER,
   POP_CLASS_NEEDS,
@@ -935,6 +938,235 @@ describe('MARKET_EVENT_TEMPLATES', () => {
 });
 
 // ---------------------------------------------------------------------------
+// MarketRegion — regional market dynamics
+// ---------------------------------------------------------------------------
+
+describe('MARKET_REGION_DEFS — predefined regions', () => {
+  it('defines at least 2 regions', () => {
+    expect(MARKET_REGION_DEFS.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('each region has id, label, transportCostMult and supplyBias', () => {
+    for (const def of MARKET_REGION_DEFS) {
+      expect(typeof def.id).toBe('string');
+      expect(typeof def.label).toBe('string');
+      expect(def.transportCostMult).toBeGreaterThan(0);
+      expect(typeof def.supplyBias).toBe('object');
+    }
+  });
+
+  it('includes core_worlds and frontier_sectors', () => {
+    const ids = MARKET_REGION_DEFS.map(d => d.id);
+    expect(ids).toContain('core_worlds');
+    expect(ids).toContain('frontier_sectors');
+  });
+
+  it('frontier_sectors has higher transportCostMult than core_worlds', () => {
+    const core     = MARKET_REGION_DEFS.find(d => d.id === 'core_worlds');
+    const frontier = MARKET_REGION_DEFS.find(d => d.id === 'frontier_sectors');
+    expect(frontier.transportCostMult).toBeGreaterThan(core.transportCostMult);
+  });
+});
+
+describe('MarketRegion — initialization', () => {
+  it('initializes currentPrice at base × transportCostMult', () => {
+    const region = new MarketRegion('test', 'Test', 1.5, {});
+    const base   = GOOD_BASE_PRICE[GoodType.STEEL_ALLOY];
+    expect(region.getPrice(GoodType.STEEL_ALLOY)).toBeCloseTo(base * 1.5, 0);
+  });
+
+  it('supplyBias > 1 lowers initial price after one tick', () => {
+    const region  = new MarketRegion('r', 'R', 1.0, { [GoodType.STEEL_ALLOY]: 2.0 }, null);
+    const base    = GOOD_BASE_PRICE[GoodType.STEEL_ALLOY];
+    region.tickPrices(1);
+    expect(region.getPrice(GoodType.STEEL_ALLOY)).toBeLessThan(base);
+  });
+
+  it('supplyBias < 1 raises initial price after one tick', () => {
+    const region = new MarketRegion('r', 'R', 1.0, { [GoodType.CONSUMER_GOODS]: 0.3 }, null);
+    const base   = GOOD_BASE_PRICE[GoodType.CONSUMER_GOODS] ?? 80;
+    region.tickPrices(1);
+    expect(region.getPrice(GoodType.CONSUMER_GOODS)).toBeGreaterThan(base);
+  });
+});
+
+describe('MarketRegion — price ticking (α-formula)', () => {
+  it('getInfo() returns supply, demand, currentPrice', () => {
+    const region = new MarketRegion('r', 'R', 1.0, {});
+    const info   = region.getInfo(GoodType.STEEL_ALLOY);
+    expect(info.supply).toBeGreaterThan(0);
+    expect(info.demand).toBeGreaterThan(0);
+    expect(info.currentPrice).toBeGreaterThan(0);
+  });
+
+  it('updateSupplyDemand() changes stored values', () => {
+    const region = new MarketRegion('r', 'R', 1.0, {});
+    region.updateSupplyDemand(GoodType.STEEL_ALLOY, { supply: 50 });
+    const info = region.getInfo(GoodType.STEEL_ALLOY);
+    expect(info.supply).toBe(150);
+  });
+
+  it('price rises when demand > supply after tick', () => {
+    const region = new MarketRegion('r', 'R', 1.0, {});
+    region.updateSupplyDemand(GoodType.STEEL_ALLOY, { demand: 200 });
+    const before = region.getPrice(GoodType.STEEL_ALLOY);
+    region.tickPrices(1);
+    expect(region.getPrice(GoodType.STEEL_ALLOY)).toBeGreaterThan(before);
+  });
+
+  it('price falls when supply > demand after tick', () => {
+    const region = new MarketRegion('r', 'R', 1.0, {});
+    region.updateSupplyDemand(GoodType.STEEL_ALLOY, { supply: 500 });
+    const before = region.getPrice(GoodType.STEEL_ALLOY);
+    region.tickPrices(1);
+    expect(region.getPrice(GoodType.STEEL_ALLOY)).toBeLessThan(before);
+  });
+
+  it('price is clamped to PRICE_MULT_MIN × base', () => {
+    const region = new MarketRegion('r', 'R', 1.0, { [GoodType.FOOD]: 9999 });
+    region.tickPrices(200);
+    const base = GOOD_BASE_PRICE[GoodType.FOOD] ?? 8;
+    expect(region.getPrice(GoodType.FOOD)).toBeGreaterThanOrEqual(base * PRICE_MULT_MIN);
+  });
+
+  it('price is clamped to PRICE_MULT_MAX × base × transportCostMult', () => {
+    const region = new MarketRegion('r', 'R', 1.2, { [GoodType.FOOD]: 0.001 });
+    region.tickPrices(200);
+    const base = (GOOD_BASE_PRICE[GoodType.FOOD] ?? 8) * 1.2;
+    expect(region.getPrice(GoodType.FOOD)).toBeLessThanOrEqual(base * PRICE_MULT_MAX + 0.01);
+  });
+});
+
+describe('MarketRegion — regional events (shortages)', () => {
+  it('addEvent() registers a regional event', () => {
+    const region = new MarketRegion('r', 'R', 1.0, {});
+    region.addEvent({ code: 'shortage', label: 'Engpass', affectedGood: GoodType.STEEL_ALLOY, priceMult: 2.0, demandMult: 1.0, durationTicks: 5 });
+    expect(region.activeEvents).toHaveLength(1);
+  });
+
+  it('regional event raises price for affected good', () => {
+    const region = new MarketRegion('r', 'R', 1.0, {});
+    const before = region.getPrice(GoodType.BIOCOMPOST);
+    region.addEvent({ code: 'famine', label: 'Hungersnot', affectedGood: GoodType.BIOCOMPOST, priceMult: 3.0, demandMult: 2.0, durationTicks: 10 });
+    expect(region.getPrice(GoodType.BIOCOMPOST)).toBeGreaterThan(before);
+  });
+
+  it('regional event does not affect goods outside its scope', () => {
+    const region = new MarketRegion('r', 'R', 1.0, {});
+    const before = region.getPrice(GoodType.STEEL_ALLOY);
+    region.addEvent({ code: 'famine', label: 'Hungersnot', affectedGood: GoodType.BIOCOMPOST, priceMult: 3.0, demandMult: 2.0, durationTicks: 10 });
+    expect(region.getPrice(GoodType.STEEL_ALLOY)).toBeCloseTo(before, 2);
+  });
+
+  it('tickEvents() removes expired regional events', () => {
+    const region = new MarketRegion('r', 'R', 1.0, {});
+    region.addEvent({ code: 'test', label: 'Test', affectedGood: null, priceMult: 1.5, demandMult: 1.0, durationTicks: 2 });
+    region.tickEvents(3);
+    expect(region.activeEvents).toHaveLength(0);
+  });
+});
+
+describe('MarketRegion — serialize / deserialize', () => {
+  it('round-trips id, label and transportCostMult', () => {
+    const r  = new MarketRegion('frontier_sectors', 'Grenzgebiete', 1.2, {});
+    const r2 = MarketRegion.deserialize(r.serialize());
+    expect(r2.id).toBe('frontier_sectors');
+    expect(r2.label).toBe('Grenzgebiete');
+    expect(r2._transportCostMult).toBe(1.2);
+  });
+
+  it('round-trips supply/demand/currentPrice', () => {
+    const r = new MarketRegion('r', 'R', 1.0, { [GoodType.STEEL_ALLOY]: 0.5 });
+    r.tickPrices(3);
+    const r2 = MarketRegion.deserialize(r.serialize());
+    expect(r2.getInfo(GoodType.STEEL_ALLOY).currentPrice).toBeCloseTo(
+      r.getInfo(GoodType.STEEL_ALLOY).currentPrice, 4,
+    );
+  });
+
+  it('round-trips active events', () => {
+    const r = new MarketRegion('r', 'R', 1.0, {});
+    r.addEvent({ code: 'test', label: 'T', affectedGood: null, priceMult: 1.5, demandMult: 1.0, durationTicks: 10 });
+    const r2 = MarketRegion.deserialize(r.serialize());
+    expect(r2.activeEvents).toHaveLength(1);
+    expect(r2.activeEvents[0].remainingTicks).toBe(10);
+  });
+});
+
+describe('GalacticMarket — regional market integration', () => {
+  let market;
+  beforeEach(() => { market = new GalacticMarket(); });
+
+  it('getRegion() returns a MarketRegion for core_worlds', () => {
+    const r = market.getRegion('core_worlds');
+    expect(r).toBeInstanceOf(MarketRegion);
+    expect(r.id).toBe('core_worlds');
+  });
+
+  it('getRegion() returns a MarketRegion for frontier_sectors', () => {
+    const r = market.getRegion('frontier_sectors');
+    expect(r).toBeInstanceOf(MarketRegion);
+    expect(r.id).toBe('frontier_sectors');
+  });
+
+  it('getRegion() returns undefined for unknown region', () => {
+    expect(market.getRegion('unknown_region')).toBeUndefined();
+  });
+
+  it('getRegionPrice() returns a price > 0', () => {
+    expect(market.getRegionPrice(GoodType.STEEL_ALLOY, 'core_worlds')).toBeGreaterThan(0);
+    expect(market.getRegionPrice(GoodType.STEEL_ALLOY, 'frontier_sectors')).toBeGreaterThan(0);
+  });
+
+  it('frontier_sectors prices start higher than core_worlds for manufactured goods', () => {
+    const corePrice     = market.getRegionPrice(GoodType.CONSUMER_GOODS, 'core_worlds');
+    const frontierPrice = market.getRegionPrice(GoodType.CONSUMER_GOODS, 'frontier_sectors');
+    expect(frontierPrice).toBeGreaterThan(corePrice);
+  });
+
+  it('getAllRegionPrices() returns an entry per region', () => {
+    const prices = market.getAllRegionPrices(GoodType.STEEL_ALLOY);
+    expect(prices).toHaveProperty('core_worlds');
+    expect(prices).toHaveProperty('frontier_sectors');
+    expect(Object.keys(prices).length).toBe(MARKET_REGION_DEFS.length);
+  });
+
+  it('applyRegionalEvent() raises the price only in the targeted region', () => {
+    const beforeCore     = market.getRegionPrice(GoodType.FOOD, 'core_worlds');
+    const beforeFrontier = market.getRegionPrice(GoodType.FOOD, 'frontier_sectors');
+
+    market.applyRegionalEvent('frontier_sectors', {
+      code: 'famine', label: 'Hungersnot',
+      affectedGood: GoodType.FOOD, priceMult: 3.0, demandMult: 2.0, durationTicks: 10,
+    });
+
+    expect(market.getRegionPrice(GoodType.FOOD, 'frontier_sectors')).toBeGreaterThan(beforeFrontier);
+    expect(market.getRegionPrice(GoodType.FOOD, 'core_worlds')).toBeCloseTo(beforeCore, 2);
+  });
+
+  it('applyRegionalEvent() throws for unknown region', () => {
+    expect(() => market.applyRegionalEvent('nowhere', {
+      code: 'x', label: 'X', affectedGood: null, priceMult: 1.0, demandMult: 1.0, durationTicks: 1,
+    })).toThrow(/Unknown region/);
+  });
+
+  it('tickRegions() evolves regional prices', () => {
+    const region = market.getRegion('frontier_sectors');
+    region.updateSupplyDemand(GoodType.STEEL_ALLOY, { demand: 300 });
+    const before = market.getRegionPrice(GoodType.STEEL_ALLOY, 'frontier_sectors');
+    market.tickRegions(1);
+    const after = market.getRegionPrice(GoodType.STEEL_ALLOY, 'frontier_sectors');
+    expect(after).toBeGreaterThan(before);
+  });
+
+  it('serialize/deserialize preserves region state', () => {
+    market.applyRegionalEvent('frontier_sectors', {
+      code: 'shortage', label: 'Engpass', affectedGood: GoodType.STEEL_ALLOY,
+      priceMult: 2.0, demandMult: 1.0, durationTicks: 5,
+    });
+    const m2 = GalacticMarket.deserialize(market.serialize());
+    expect(m2.getRegion('frontier_sectors').activeEvents).toHaveLength(1);
+    expect(m2.getRegion('core_worlds')).toBeInstanceOf(MarketRegion);
 // Sprint 2.3 — Policy Enforcement in Production (Issue B-2)
 // ---------------------------------------------------------------------------
 

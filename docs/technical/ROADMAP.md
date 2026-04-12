@@ -173,11 +173,12 @@ Folgende große Arbeitspakete sind abgeschlossen und bilden das Fundament des Pr
 
 ---
 
-### 2.4 Regionale Marktdynamik 💡
+### 2.4 Regionale Marktdynamik ✅
 
 **Aufgaben:**
-- [ ] `MarketRegion` und `MarketQuotes` mit regionaler Preisbildung (α-Formel)
-- [ ] Regionale Preisunterschiede im Market-UI anzeigen
+- [x] `MarketRegion` und `MarketQuotes` mit regionaler Preisbildung (α-Formel)
+- [x] Regionale Preisunterschiede im Market-UI anzeigen
+- [x] Marktevents/Regionale Engpässe simulierbar (region-scoped events)
 
 **Aufwand:** ~10h  
 **Referenz:** `docs/gamedesign/GAMEPLAY_DATA_MODEL.md`
