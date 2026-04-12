@@ -1751,6 +1751,10 @@ const API = (() => {
         offer_id: Math.max(0, Number(offer_id || 0)),
         accept: !!accept,
       }),
+    forceStatusQuo: ({ war_id } = {}) =>
+      post('api/war.php?action=force_status_quo', {
+        war_id: Math.max(0, Number(war_id || 0)),
+      }),
 
   // Trade Proposals (player-to-player)
   listTradeSuggestions: ({ limit = 10, interval_hours = 24 } = {}) =>

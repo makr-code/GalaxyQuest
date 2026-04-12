@@ -69,3 +69,13 @@ if (!defined('FORTIFICATION_LVL4_DEFENSE_MULT')) {
 if (!defined('WAR_DEFAULT_PEACE_OFFER_TTL_SECONDS')) {
     define('WAR_DEFAULT_PEACE_OFFER_TTL_SECONDS', 86400);
 }
+
+// Exhaustion level at which peace pressure begins (NPC diplomats active, player can force status quo).
+if (!defined('WAR_EXHAUSTION_PRESSURE_THRESHOLD')) {
+    define('WAR_EXHAUSTION_PRESSURE_THRESHOLD', 80);
+}
+
+// How long (in seconds) a recently-ended war stays visible in the active-wars list.
+if (!defined('WAR_ENDED_VISIBILITY_SECONDS')) {
+    define('WAR_ENDED_VISIBILITY_SECONDS', 172800); // 48 hours
+}

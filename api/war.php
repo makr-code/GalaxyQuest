@@ -380,6 +380,10 @@ function war_mark_expired_offers(PDO $db, int $warId): void {
 }
 
 function war_list_active(PDO $db, int $uid): array {
+    $endedVisibilitySeconds = defined('WAR_ENDED_VISIBILITY_SECONDS')
+        ? (int)WAR_ENDED_VISIBILITY_SECONDS
+        : 172800; // 48 hours default
+
     $st = $db->prepare(
         'SELECT w.id,
                 w.status,
@@ -391,6 +395,8 @@ function war_list_active(PDO $db, int $uid): array {
                 w.exhaustion_att,
                 w.exhaustion_def,
                 w.started_at,
+                w.ended_at,
+                w.ended_reason,
                 ua.username           AS attacker_name,
                 ud.username           AS defender_name,
                 nf.name               AS npc_attacker_name,
@@ -399,17 +405,21 @@ function war_list_active(PDO $db, int $uid): array {
          LEFT JOIN users ua ON ua.id = w.attacker_user_id
          JOIN      users ud ON ud.id = w.defender_user_id
          LEFT JOIN npc_factions nf ON nf.id = w.npc_aggressor_faction_id
-         WHERE w.status = "active"
-           AND (w.attacker_user_id = ? OR w.defender_user_id = ?)
-         ORDER BY w.id DESC'
+         WHERE (w.attacker_user_id = ? OR w.defender_user_id = ?)
+           AND (
+               w.status = "active"
+            OR (w.status = "ended" AND w.ended_at >= NOW() - INTERVAL ? SECOND)
+           )
+         ORDER BY w.status DESC, w.id DESC'
     );
-    $st->execute([$uid, $uid]);
+    $st->execute([$uid, $uid, $endedVisibilitySeconds]);
     $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
     $wars = [];
     foreach ($rows as $row) {
         $isNpcWar    = $row['npc_aggressor_faction_id'] !== null;
         $isAttacker  = !$isNpcWar && (int)$row['attacker_user_id'] === $uid;
+        $isEnded     = (string)$row['status'] === 'ended';
 
         if ($isNpcWar) {
             // Player is always the defender in NPC-initiated wars
@@ -423,6 +433,8 @@ function war_list_active(PDO $db, int $uid): array {
         $wars[] = [
             'war_id'      => (int)$row['id'],
             'status'      => (string)$row['status'],
+            'ended_reason'=> $row['ended_reason'],
+            'ended_at'    => $row['ended_at'],
             'is_npc_war'  => $isNpcWar,
             'npc_aggressor_faction_id' => $isNpcWar ? (int)$row['npc_aggressor_faction_id'] : null,
             'attacker_user_id' => $row['attacker_user_id'] !== null ? (int)$row['attacker_user_id'] : null,
@@ -440,7 +452,7 @@ function war_list_active(PDO $db, int $uid): array {
             'exhaustion_att'  => (float)$row['exhaustion_att'],
             'exhaustion_def'  => (float)$row['exhaustion_def'],
             'started_at'      => (string)$row['started_at'],
-            'summary'         => war_list_summary($db, $row, $isAttacker),
+            'summary'         => $isEnded ? [] : war_list_summary($db, $row, $isAttacker),
         ];
     }
 
@@ -607,13 +619,28 @@ switch ($action) {
             if ($accept) {
                 $db->prepare('UPDATE peace_offers SET status = "accepted", responded_at = NOW() WHERE id = ?')
                    ->execute([$offerId]);
-                $db->prepare('UPDATE wars SET status = "ended", ended_at = NOW(), ended_reason = "peace_accepted" WHERE id = ?')
-                   ->execute([(int)$offer['war_id']]);
+
+                // Determine end reason: "status_quo" when offer contains white_peace term.
+                $termsDecoded = json_decode((string)($offer['terms_json'] ?? '[]'), true);
+                $hasWhitePeace = false;
+                if (is_array($termsDecoded)) {
+                    foreach ($termsDecoded as $term) {
+                        $termType = is_array($term) ? (string)($term['type'] ?? $term[0] ?? '') : (string)$term;
+                        if ($termType === 'white_peace') {
+                            $hasWhitePeace = true;
+                            break;
+                        }
+                    }
+                }
+                $endedReason = $hasWhitePeace ? 'status_quo' : 'peace_accepted';
+
+                $db->prepare('UPDATE wars SET status = "ended", ended_at = NOW(), ended_reason = ? WHERE id = ?')
+                   ->execute([$endedReason, (int)$offer['war_id']]);
 
                 $db->commit();
                 json_ok([
                     'war_status' => 'ended',
-                    'new_state' => 'peace_accepted',
+                    'new_state' => $endedReason,
                 ]);
             }
 
@@ -987,6 +1014,57 @@ switch ($action) {
                 'logistics_cost' => (float)($war['total_logistics_cost'] ?? 0),
                 'attrition_rate' => round((float)($war['avg_attrition_rate'] ?? 0), 3),
             ],
+        ]);
+    }
+
+    case 'force_status_quo': {
+        only_method('POST');
+        verify_csrf();
+
+        $body   = get_json_body();
+        $warId  = (int)($body['war_id'] ?? 0);
+        if ($warId <= 0) {
+            json_error('war_id is required.', 400);
+        }
+
+        $war = war_load_for_participant($db, $warId, $uid);
+        if ($war === null) {
+            json_error('War not found.', 404);
+        }
+        if ((string)$war['status'] !== 'active') {
+            json_error('War is not active.', 409);
+        }
+
+        $isAttacker = (int)$war['attacker_user_id'] === $uid;
+        $ownExhaustion = $isAttacker
+            ? (float)$war['exhaustion_att']
+            : (float)$war['exhaustion_def'];
+
+        $threshold = defined('WAR_EXHAUSTION_PRESSURE_THRESHOLD')
+            ? (float)WAR_EXHAUSTION_PRESSURE_THRESHOLD
+            : 80.0;
+
+        if ($ownExhaustion < $threshold) {
+            json_error(
+                sprintf(
+                    'Exhaustion too low to force Status Quo. Required: %.0f, current: %.1f.',
+                    $threshold,
+                    $ownExhaustion
+                ),
+                403
+            );
+        }
+
+        $db->prepare(
+            'UPDATE wars
+             SET status = "ended", ended_at = NOW(), ended_reason = "status_quo"
+             WHERE id = ? AND status = "active"'
+        )->execute([$warId]);
+
+        json_ok([
+            'war_status'  => 'ended',
+            'new_state'   => 'status_quo',
+            'war_id'      => $warId,
         ]);
     }
 

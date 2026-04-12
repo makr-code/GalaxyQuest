@@ -331,6 +331,246 @@ describe('War-Intelligence-Panel – API response format', () => {
   });
 });
 
+// ── Exhaustion warning display ────────────────────────────────────────────────
+
+describe('Exhaustion warning display', () => {
+  beforeEach(loadModule);
+
+  it('shows ⚠ HIGH badge in list row when own exhaustion >= 80', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [{
+      war_id: 10, id: 10, status: 'active',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 100, war_score_def: 50,
+      exhaustion_att: 85, exhaustion_def: 20,
+      is_npc_war: false,
+      summary: { primary_goal: null, goal_counts: {}, pressure: { own_exhaustion: 85, enemy_exhaustion: 20 } },
+    }];
+    ctrl.state.myUid = 1; // attacker → ownExhaustion = 85
+    const html = ctrl.renderListHtml();
+    expect(html).toContain('⚠ HIGH');
+  });
+
+  it('shows ⚠ MAX badge in list row when exhaustion >= 100', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [{
+      war_id: 11, id: 11, status: 'active',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 0, war_score_def: 0,
+      exhaustion_att: 100, exhaustion_def: 30,
+      is_npc_war: false,
+      summary: { primary_goal: null, goal_counts: {}, pressure: { own_exhaustion: 100, enemy_exhaustion: 30 } },
+    }];
+    ctrl.state.myUid = 1;
+    const html = ctrl.renderListHtml();
+    expect(html).toContain('⚠ MAX');
+  });
+
+  it('does not show exhaustion warning when exhaustion < 80', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [{
+      war_id: 12, id: 12, status: 'active',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 0, war_score_def: 0,
+      exhaustion_att: 50, exhaustion_def: 30,
+      is_npc_war: false,
+      summary: { primary_goal: null, goal_counts: {}, pressure: { own_exhaustion: 50, enemy_exhaustion: 30 } },
+    }];
+    ctrl.state.myUid = 1;
+    const html = ctrl.renderListHtml();
+    expect(html).not.toContain('⚠ HIGH');
+    expect(html).not.toContain('⚠ MAX');
+  });
+});
+
+// ── Force Status Quo button ───────────────────────────────────────────────────
+
+describe('Force Status Quo button', () => {
+  beforeEach(loadModule);
+
+  it('shows Force Status Quo button in detail when own exhaustion >= 80', async () => {
+    document.body.innerHTML = '<div id="war-detail-host"></div>';
+    const root = document.getElementById('war-detail-host');
+    const wm = { body: () => root };
+    const warData = {
+      war_id: 20, status: 'active',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 50, war_score_def: 30,
+      exhaustion_att: 82, exhaustion_def: 10,
+      started_at: '2025-01-01',
+      goals: [],
+      peace_offers: [],
+    };
+    const api = {
+      warStatus: async () => ({ success: true, ...warData }),
+    };
+    window._GQ_meta = { uid: 1 }; // attacker → ownExhaustion = 82
+    const ctrl = window.GQRuntimeWarController.createWarController({
+      esc, wm, api, uiKitEmptyStateHTML: () => '',
+    });
+    ctrl.state.detailWarId = 20;
+    await ctrl.render();
+    expect(root.innerHTML).toContain('Force Status Quo');
+    expect(root.innerHTML).toContain('data-force-status-quo');
+  });
+
+  it('does not show Force Status Quo button when exhaustion < 80', async () => {
+    document.body.innerHTML = '<div id="war-detail-host2"></div>';
+    const root = document.getElementById('war-detail-host2');
+    const wm = { body: () => root };
+    const warData = {
+      war_id: 21, status: 'active',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 50, war_score_def: 30,
+      exhaustion_att: 50, exhaustion_def: 20,
+      started_at: '2025-01-01',
+      goals: [],
+      peace_offers: [],
+    };
+    const api = { warStatus: async () => ({ success: true, ...warData }) };
+    const ctrl = window.GQRuntimeWarController.createWarController({
+      esc, wm, api, uiKitEmptyStateHTML: () => '',
+    });
+    ctrl.state.detailWarId = 21;
+    ctrl.state.myUid = 1;
+    await ctrl.render();
+    expect(root.innerHTML).not.toContain('Force Status Quo');
+  });
+
+  it('does not show Force Status Quo button for ended wars', async () => {
+    document.body.innerHTML = '<div id="war-detail-host3"></div>';
+    const root = document.getElementById('war-detail-host3');
+    const wm = { body: () => root };
+    const warData = {
+      war_id: 22, status: 'ended', ended_reason: 'status_quo', ended_at: '2025-06-01',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 50, war_score_def: 30,
+      exhaustion_att: 100, exhaustion_def: 20,
+      started_at: '2025-01-01',
+      goals: [],
+      peace_offers: [],
+    };
+    const api = { warStatus: async () => ({ success: true, ...warData }) };
+    const ctrl = window.GQRuntimeWarController.createWarController({
+      esc, wm, api, uiKitEmptyStateHTML: () => '',
+    });
+    ctrl.state.detailWarId = 22;
+    ctrl.state.myUid = 1;
+    await ctrl.render();
+    expect(root.innerHTML).not.toContain('Force Status Quo');
+  });
+
+  it('forceStatusQuo is called with correct war_id', async () => {
+    const forceStatusQuo = vi.fn(async () => ({ success: true, war_id: 30, new_state: 'status_quo' }));
+    const showToast = vi.fn();
+    const ctrl = window.GQRuntimeWarController.createWarController({
+      esc,
+      api: {
+        forceStatusQuo,
+        wars: async () => ({ success: true, wars: [] }),
+        warStatus: async () => ({ success: false }),
+      },
+      showToast,
+      invalidateGetCache: vi.fn(),
+    });
+    const res = await forceStatusQuo({ war_id: 30 });
+    expect(res.success).toBe(true);
+    expect(res.new_state).toBe('status_quo');
+    expect(forceStatusQuo).toHaveBeenCalledWith(expect.objectContaining({ war_id: 30 }));
+  });
+});
+
+// ── Ended war display in list ─────────────────────────────────────────────────
+
+describe('Ended war display in list', () => {
+  beforeEach(loadModule);
+
+  it('shows ended war with ended_reason label in list', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [
+      {
+        war_id: 50, id: 50, status: 'ended', ended_reason: 'status_quo',
+        attacker_user_id: 1, defender_user_id: 2,
+        war_score_att: 100, war_score_def: 80,
+        exhaustion_att: 100, exhaustion_def: 45,
+        is_npc_war: false, summary: {},
+      },
+    ];
+    ctrl.state.myUid = 1;
+    const html = ctrl.renderListHtml();
+    expect(html).toContain('Status Quo');
+  });
+
+  it('shows forced peace exhaustion reason in list', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [{
+      war_id: 51, id: 51, status: 'ended', ended_reason: 'forced_peace_exhaustion',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 0, war_score_def: 0,
+      exhaustion_att: 100, exhaustion_def: 100,
+      is_npc_war: false, summary: {},
+    }];
+    ctrl.state.myUid = 1;
+    const html = ctrl.renderListHtml();
+    expect(html).toContain('Forced Peace');
+  });
+
+  it('shows peace treaty reason in list', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [{
+      war_id: 52, id: 52, status: 'ended', ended_reason: 'peace_accepted',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 200, war_score_def: 50,
+      exhaustion_att: 30, exhaustion_def: 15,
+      is_npc_war: false, summary: {},
+    }];
+    ctrl.state.myUid = 1;
+    const html = ctrl.renderListHtml();
+    expect(html).toContain('Peace Treaty');
+  });
+
+  it('shows recently ended wars alongside active wars with correct section title', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [
+      {
+        war_id: 60, id: 60, status: 'active',
+        attacker_user_id: 1, defender_user_id: 2,
+        war_score_att: 100, war_score_def: 50,
+        exhaustion_att: 10, exhaustion_def: 5,
+        is_npc_war: false,
+        summary: { primary_goal: null, goal_counts: {}, pressure: {} },
+      },
+      {
+        war_id: 61, id: 61, status: 'ended', ended_reason: 'status_quo',
+        attacker_user_id: 1, defender_user_id: 3,
+        war_score_att: 80, war_score_def: 80,
+        exhaustion_att: 100, exhaustion_def: 80,
+        is_npc_war: false, summary: {},
+      },
+    ];
+    ctrl.state.myUid = 1;
+    const html = ctrl.renderListHtml();
+    expect(html).toContain('recently ended');
+    expect(html).toContain('#60');
+    expect(html).toContain('#61');
+  });
+});
+
+// ── endedReasonLabel helper ───────────────────────────────────────────────────
+
+describe('Ended war – detail view shows reason badge', () => {
+  beforeEach(loadModule);
+
+  it('renders ended_reason label in detail view for status_quo', async () => {
+    document.body.innerHTML = '<div id="war-ended-detail"></div>';
+    const root = document.getElementById('war-ended-detail');
+    const wm = { body: () => root };
+    const warData = {
+      war_id: 70, status: 'ended', ended_reason: 'status_quo', ended_at: '2025-05-01 12:00:00',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 100, war_score_def: 90,
+      exhaustion_att: 100, exhaustion_def: 85,
+      started_at: '2025-01-01',
 // ── Alliance Wars section ─────────────────────────────────────────────────────
 
 describe('Alliance Wars – allianceWarsHtml rendering', () => {
@@ -454,6 +694,22 @@ describe('War detail – Scan Enemy button and intel panel', () => {
     const ctrl = window.GQRuntimeWarController.createWarController({
       esc, wm, api, uiKitEmptyStateHTML: () => '',
     });
+    ctrl.state.detailWarId = 70;
+    ctrl.state.myUid = 1;
+    await ctrl.render();
+    expect(root.innerHTML).toContain('Status Quo');
+  });
+
+  it('renders exhaustion progress bars in detail view', async () => {
+    document.body.innerHTML = '<div id="war-exhaust-bars"></div>';
+    const root = document.getElementById('war-exhaust-bars');
+    const wm = { body: () => root };
+    const warData = {
+      war_id: 71, status: 'active',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 50, war_score_def: 30,
+      exhaustion_att: 75, exhaustion_def: 40,
+      started_at: '2025-01-01',
     ctrl.state.detailWarId = 9;
     await ctrl.render();
     expect(root.innerHTML).toContain('data-intel-load');
@@ -476,6 +732,38 @@ describe('War detail – Scan Enemy button and intel panel', () => {
     const ctrl = window.GQRuntimeWarController.createWarController({
       esc, wm, api, uiKitEmptyStateHTML: () => '',
     });
+    ctrl.state.detailWarId = 71;
+    ctrl.state.myUid = 1;
+    await ctrl.render();
+    expect(root.innerHTML).toContain('War Exhaustion');
+    expect(root.innerHTML).toContain('75.0 / 100');
+    expect(root.innerHTML).toContain('40.0 / 100');
+  });
+});
+
+// ── primaryGoal label rendering fix ──────────────────────────────────────────
+
+describe('primaryGoal label rendering fix', () => {
+  beforeEach(loadModule);
+
+  it('shows goal.label string (not [object Object]) when primaryGoal is an object', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc });
+    ctrl.state.wars = [{
+      war_id: 80, id: 80, status: 'active',
+      attacker_user_id: 1, defender_user_id: 2,
+      war_score_att: 0, war_score_def: 0,
+      exhaustion_att: 0, exhaustion_def: 0,
+      is_npc_war: false,
+      summary: {
+        primary_goal: { goal_type: 'attrition', label: 'Exhaustion Advantage', status: 'advantage', score_rate_per_day: 1.5, hint: '' },
+        goal_counts: { total: 1, advantage: 1 },
+        pressure: { own_exhaustion: 10, enemy_exhaustion: 30 },
+      },
+    }];
+    ctrl.state.myUid = 1;
+    const html = ctrl.renderListHtml();
+    expect(html).toContain('Exhaustion Advantage');
+    expect(html).not.toContain('[object Object]');
     ctrl.state.detailWarId = 11;
     await ctrl.render();
     expect(root.innerHTML).toContain('data-intel-host');
