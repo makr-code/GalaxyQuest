@@ -1530,6 +1530,7 @@
       renderConflict,
       renderEconomyFlow,
       renderEconomy,
+      renderLogisticsRoutes,
       renderTradeProposals,
       renderQuests,
       renderLeaderboard,
@@ -4946,6 +4947,7 @@
   const runtimeColonizationControllerApi = requireRuntimeApi('GQRuntimeColonizationController', ['createColonizationController']);
   const runtimeEmpireCategoriesPanelApi = requireRuntimeApi('GQRuntimeEmpireCategoriesPanel', ['createEmpireCategoriesPanel']);
   const runtimeEspionageControllerApi = requireRuntimeApi('GQRuntimeEspionageController', ['createEspionageController']);
+  const runtimeLogisticsRoutesControllerApi = requireRuntimeApi('GQRuntimeLogisticsRoutesController', ['createLogisticsRoutesController']);
   const runtimeDiplomacyDataModelApi = requireRuntimeApi('GQRuntimeDiplomacyDataModel', [
     'getTypes',
     'getType',
@@ -4974,6 +4976,7 @@
     runtimeColonizationControllerApi,
     runtimeEmpireCategoriesPanelApi,
     runtimeEspionageControllerApi,
+    runtimeLogisticsRoutesControllerApi,
     runtimeDiplomacyDataModelApi,
     runtimeDiplomacyPanelApi,
     runtimeContractNegotiationModalApi,
@@ -5020,6 +5023,7 @@
   const colonizationController = socialControllers.colonizationController;
   const empireCategoriesPanel = socialControllers.empireCategoriesPanel;
   const espionageController = socialControllers.espionageController;
+  const logisticsRoutesController = socialControllers.logisticsRoutesController;
   const conflictDashboard = runtimeConflictDashboardApi.createConflictDashboard({
     wm: WM,
     api: API,
@@ -5043,6 +5047,7 @@
   window.GQColonizationController = colonizationController;
   window.GQEmpirePanel = empireCategoriesPanel;
   window.GQEspionageController = espionageController;
+  window.GQLogisticsRoutesController = logisticsRoutesController;
 
   // ── Messages window ─────────────────────────────────────────────────────────
   async function renderMessages() {
@@ -5085,6 +5090,10 @@
 
   async function renderConflict() {
     await conflictDashboard.render();
+  }
+
+  async function renderLogisticsRoutes() {
+    if (logisticsRoutesController) await logisticsRoutesController.render();
   }
 
   function renderNavOrb() {
