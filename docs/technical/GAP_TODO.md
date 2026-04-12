@@ -93,17 +93,33 @@
 
 ### B-2 Economy — Produktionsketten & Policy-Enforcement 🟡
 **Referenz:** `IMPLEMENTATION_STATUS_SUMMARY.md` (§2), `WAVE_17_IMPLEMENTATION_PLAN.md`  
-**Status:** API ~75 %, Integration ~60 %
+**Status:** API ~85 %, Integration ~85 %
 
 - [ ] Tier-2 Güter-Produktionsrezepte vollständig verdrahten (`api/economy.php`)
 - [ ] Tier-3 Güter (Luxus, Militär, Forschung) implementieren
 - [ ] Pop-Class-Satisfaction an Güterverbrauch koppeln
 - [ ] Shortage/Starvation-Events triggern
-- [ ] War-Economy-Policy (+30 % Militär, −20 % Konsumgüter) erzwingen
-- [ ] Autarkie-Policy vollständig integrieren (Stub vorhanden)
-- [ ] Merkantilismus: Import-Einschränkungen in `api/market.php` einbauen
-- [ ] Subventionen (Landwirtschaft/Forschung/Militär) Boost-Logik finalisieren
-- [ ] Manufacturing-Bottleneck-Warnungen im Frontend
+- [x] War-Economy-Policy (+30 % Militär, −20 % Konsumgüter) erzwingen — `economy_flush.php` + `EconomySimulation.js` `processTick()`
+- [x] Autarkie-Policy vollständig integrieren — Import-Blockierung in `api/market.php`, Produktion +10 % in `economy_flush.php` + `EconomySimulation.js`
+- [x] Merkantilismus: Import-Einschränkungen in `api/market.php` (Buy +20 %), Export-Bonus (Sell +20 %) — Integer-Policy-Bug gefixt
+- [x] Subventionen (Landwirtschaft/Forschung/Militär) Boost-Logik — `economy_flush.php` + `EconomyPolicy.productionMultipliers()`
+- [x] Manufacturing-Bottleneck-Warnungen im Frontend — `_renderPolicyEffectsPanel()` + `_renderConflictWarnings()` Bug gefixt
+
+---
+
+### B-2a Colony Goods Flow & Logistics Routes ✅ (Sprint 2.5)
+**Referenz:** `ECONOMY_DESIGN.md` §7, `GAP_TODO.md`  
+**Status:** Vollständig implementiert
+
+- [x] `api/trade.php` — neuer `goods_flow`-Endpunkt: per-colony Surplus/Deficit-Matrix, Inter-Colony-Heatmap, AI-Empfehlungen
+- [x] `js/network/api.js` — `goodsFlowAnalysis({ limit, interval_hours })` Client-Methode
+- [x] `js/engine/runtime/layers/domain/trade/RuntimeLogisticsRoutesController.js` — Dashboard-Controller mit 3 Tabs: Flows (Heatmap), Routes (Effizienz-Metriken), Recommendations (KI-Empfehlungen)
+- [x] `js/engine/runtime/RuntimeSocialControllersBootstrap.js` — `logisticsRoutesController` verdrahtet
+- [x] `js/engine/runtime/RuntimeDesktopShell.js` — Fenster `logistics-routes` (680×680) registriert
+- [x] `js/runtime/boot-manifest.js` — Controller im Boot-Manifest aufgenommen
+- [x] `js/runtime/game.js` — `runtimeLogisticsRoutesControllerApi`, `logisticsRoutesController`, `renderLogisticsRoutes`, `window.GQLogisticsRoutesController` verdrahtet
+- [x] `js/engine/runtime/RuntimeOpenWindowCommand.js` — `logistics-routes` im erlaubten Fenstersatz
+- [x] `tests/js/logistics-routes.test.js` — 44 Unit-Tests (alle ✅)
 
 ---
 

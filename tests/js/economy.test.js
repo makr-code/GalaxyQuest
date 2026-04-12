@@ -1167,5 +1167,165 @@ describe('GalacticMarket — regional market integration', () => {
     const m2 = GalacticMarket.deserialize(market.serialize());
     expect(m2.getRegion('frontier_sectors').activeEvents).toHaveLength(1);
     expect(m2.getRegion('core_worlds')).toBeInstanceOf(MarketRegion);
+// Sprint 2.3 — Policy Enforcement in Production (Issue B-2)
+// ---------------------------------------------------------------------------
+
+describe('EconomyPolicy — productionMultipliers()', () => {
+  let policy;
+  beforeEach(() => { policy = new EconomyPolicy(); });
+
+  it('returns empty object for FREE_MARKET with no subsidies', () => {
+    const mults = policy.productionMultipliers();
+    expect(Object.keys(mults).length).toBe(0);
+  });
+
+  it('WAR_ECONOMY: military_equipment ×1.30, consumer_goods ×0.80', () => {
+    policy.setGlobalPolicy(EconomicPolicy.WAR_ECONOMY);
+    const mults = policy.productionMultipliers();
+    expect(mults[GoodType.MILITARY_EQUIPMENT]).toBeCloseTo(1.30, 5);
+    expect(mults[GoodType.CONSUMER_GOODS]).toBeCloseTo(0.80, 5);
+  });
+
+  it('AUTARKY: all GoodType values get ×1.10', () => {
+    policy.setGlobalPolicy(EconomicPolicy.AUTARKY);
+    const mults = policy.productionMultipliers();
+    for (const good of Object.values(GoodType)) {
+      expect(mults[good]).toBeCloseTo(1.10, 5);
+    }
+  });
+
+  it('subsidy agriculture: biocompost ×1.20', () => {
+    policy.setSubsidy('agriculture', true);
+    const mults = policy.productionMultipliers();
+    expect(mults[GoodType.BIOCOMPOST]).toBeCloseTo(1.20, 5);
+  });
+
+  it('subsidy research: research_kits ×1.20', () => {
+    policy.setSubsidy('research', true);
+    const mults = policy.productionMultipliers();
+    expect(mults[GoodType.RESEARCH_KITS]).toBeCloseTo(1.20, 5);
+  });
+
+  it('subsidy military: military_equipment ×1.20', () => {
+    policy.setSubsidy('military', true);
+    const mults = policy.productionMultipliers();
+    expect(mults[GoodType.MILITARY_EQUIPMENT]).toBeCloseTo(1.20, 5);
+  });
+
+  it('WAR_ECONOMY + military subsidy stacks: military_equipment ×1.56 (1.30×1.20)', () => {
+    policy.setGlobalPolicy(EconomicPolicy.WAR_ECONOMY);
+    policy.setSubsidy('military', true);
+    const mults = policy.productionMultipliers();
+    expect(mults[GoodType.MILITARY_EQUIPMENT]).toBeCloseTo(1.30 * 1.20, 5);
+  });
+
+  it('AUTARKY + agriculture subsidy stacks: biocompost ×1.32 (1.10×1.20)', () => {
+    policy.setGlobalPolicy(EconomicPolicy.AUTARKY);
+    policy.setSubsidy('agriculture', true);
+    const mults = policy.productionMultipliers();
+    expect(mults[GoodType.BIOCOMPOST]).toBeCloseTo(1.10 * 1.20, 5);
+  });
+});
+
+describe('EconomySimulation — policy affects production output', () => {
+  function makeMilitaryEco(policy) {
+    const eco = new EconomySimulation();
+    eco.policy.setGlobalPolicy(policy);
+    eco.unlockTech('economy.military_industrial');
+    const stockpile = { metal: 5000, crystal: 5000, rare_earth: 2000 };
+    eco.registerColony('c1', {
+      buildings: { [ProcessingBuilding.ARMS_FACTORY]: 1 },
+      stockpile,
+      population: 0,
+    });
+    const node = eco.getColony('c1');
+    // Pre-seed Tier-2 inputs for arms factory (steel_alloy + focus_crystals)
+    node.stock.add(GoodType.STEEL_ALLOY, 5000);
+    node.stock.add(GoodType.FOCUS_CRYSTALS, 5000);
+    return eco;
+  }
+
+  it('WAR_ECONOMY produces more military_equipment than FREE_MARKET', () => {
+    const ecoWar  = makeMilitaryEco(EconomicPolicy.WAR_ECONOMY);
+    const ecoFree = makeMilitaryEco(EconomicPolicy.FREE_MARKET);
+
+    const resWar  = ecoWar.tick(1);
+    const resFree = ecoFree.tick(1);
+
+    const milWar  = resWar.produced[GoodType.MILITARY_EQUIPMENT]  ?? 0;
+    const milFree = resFree.produced[GoodType.MILITARY_EQUIPMENT] ?? 0;
+
+    expect(milWar).toBeGreaterThan(0);
+    expect(milWar).toBeCloseTo(milFree * 1.30, 1);
+  });
+
+  it('WAR_ECONOMY produces less consumer_goods than FREE_MARKET', () => {
+    function makeConsumerEco(policy) {
+      const eco = new EconomySimulation();
+      eco.policy.setGlobalPolicy(policy);
+      eco.unlockTech('economy.basic_manufacturing');
+      const stockpile = { metal: 5000, crystal: 5000, rare_earth: 2000 };
+      eco.registerColony('c1', {
+        buildings: { [ProcessingBuilding.CONSUMER_FACTORY]: 1 },
+        stockpile,
+        population: 0,
+      });
+      const node = eco.getColony('c1');
+      node.stock.add(GoodType.STEEL_ALLOY, 5000);
+      node.stock.add(GoodType.ELECTRONICS_COMPONENTS, 5000);
+      return eco;
+    }
+
+    const ecoWar  = makeConsumerEco(EconomicPolicy.WAR_ECONOMY);
+    const ecoFree = makeConsumerEco(EconomicPolicy.FREE_MARKET);
+
+    const resWar  = ecoWar.tick(1);
+    const resFree = ecoFree.tick(1);
+
+    const cgWar  = resWar.produced[GoodType.CONSUMER_GOODS]  ?? 0;
+    const cgFree = resFree.produced[GoodType.CONSUMER_GOODS] ?? 0;
+
+    expect(cgFree).toBeGreaterThan(0);
+    expect(cgWar).toBeCloseTo(cgFree * 0.80, 1);
+  });
+
+  it('AUTARKY produces more steel_alloy than FREE_MARKET (domestic +10%)', () => {
+    function makeMetallurgyEco(policy) {
+      const eco = new EconomySimulation();
+      eco.policy.setGlobalPolicy(policy);
+      eco.unlockTech('economy.metallurgy_i');
+      const stockpile = { metal: 5000 };
+      eco.registerColony('c1', {
+        buildings: { [ProcessingBuilding.METALLURGY]: 1 },
+        stockpile,
+        population: 0,
+      });
+      return eco;
+    }
+
+    const ecoAut  = makeMetallurgyEco(EconomicPolicy.AUTARKY);
+    const ecoFree = makeMetallurgyEco(EconomicPolicy.FREE_MARKET);
+
+    const resAut  = ecoAut.tick(1);
+    const resFree = ecoFree.tick(1);
+
+    const saAut  = resAut.produced[GoodType.STEEL_ALLOY]  ?? 0;
+    const saFree = resFree.produced[GoodType.STEEL_ALLOY] ?? 0;
+
+    expect(saAut).toBeCloseTo(saFree * 1.10, 1);
+  });
+
+  it('military subsidy boosts military_equipment output by 20%', () => {
+    const ecoSub  = makeMilitaryEco(EconomicPolicy.FREE_MARKET);
+    ecoSub.policy.setSubsidy('military', true);
+    const ecoBase = makeMilitaryEco(EconomicPolicy.FREE_MARKET);
+
+    const resSub  = ecoSub.tick(1);
+    const resBase = ecoBase.tick(1);
+
+    const milSub  = resSub.produced[GoodType.MILITARY_EQUIPMENT]  ?? 0;
+    const milBase = resBase.produced[GoodType.MILITARY_EQUIPMENT] ?? 0;
+
+    expect(milSub).toBeCloseTo(milBase * 1.20, 1);
   });
 });

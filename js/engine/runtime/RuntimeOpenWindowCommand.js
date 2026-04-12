@@ -27,6 +27,7 @@
       'economy-flow','economy','trade','quests','leaderboard','leaders',
       'factions','alliances','wars','nav-orb','minimap','quicknav',
       'console','wormholes','settings','left-sidebar','right-sidebar',
+      'logistics-routes',
     ]);
 
     if (!valid.has(win)) {

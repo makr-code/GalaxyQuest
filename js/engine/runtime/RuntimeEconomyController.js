@@ -2,7 +2,8 @@
  * RuntimeEconomyController.js
  *
  * Empire Economy Management window.
- * Tabs: Policy (global policy, taxes, subsidies) | Overview (colonies: goods + pop classes).
+ * Tabs: Policy (global policy, taxes, subsidies) | Overview (colonies: goods + pop classes)
+ *       | Population (per-colony/per-class satisfaction, migration, production multiplier, policy).
  */
 
 'use strict';
@@ -60,6 +61,11 @@
       overview: null,         // { colonies: [...] }
       popClasses: null,       // empire-wide aggregation
       marketRegions: null,    // { regions: { core_worlds: {...}, frontier_sectors: {...} } }
+      tab: 'policy',          // 'policy' | 'overview' | 'population'
+      policy: null,           // { global_policy, taxes:{income,production,trade}, subsidies:{agriculture,research,military} }
+      overview: null,         // { colonies: [...] }
+      popClasses: null,       // empire-wide aggregation
+      popStatus: null,        // { colonies: [{colony_id, name, avg_satisfaction, …}] } from get_pop_status
       loading: false,
       error: null,
     };
@@ -96,6 +102,10 @@
       const resp = await api.marketRegionPrices();
       if (!resp?.success) throw new Error(resp?.error || 'Market region prices request failed');
       _state.marketRegions = resp.regions || {};
+    async function _loadPopulationTab() {
+      const resp = await api.economyPopStatus();
+      if (!resp?.success) throw new Error(resp?.error || 'Pop status request failed');
+      _state.popStatus = { colonies: resp.colonies || [] };
     }
 
     // -----------------------------------------------------------------------
@@ -148,7 +158,8 @@
       <div class="economy-section" style="margin-top:1rem">
         <div class="system-row" style="margin-bottom:.5rem"><strong>Subsidies</strong></div>
         <div class="economy-subsidies">${subsidyRows}</div>
-      </div>`;
+      </div>
+      ${_renderPolicyEffectsPanel(policy)}`;
     }
 
     function _renderPopBadge(classes) {
@@ -157,6 +168,47 @@
         .filter(([, v]) => v?.count > 0)
         .map(([cls, v]) => `<span class="economy-pop-badge" title="${esc(POP_LABELS[cls] || cls)}: satisfaction ${v.satisfaction_ticks ?? '?'}">${esc(POP_LABELS[cls] || cls)}: ${v.count}</span>`)
         .join(' ');
+    }
+
+    // PHASE 2.3 – Active policy production effects panel (shown in Policy tab)
+    function _renderPolicyEffectsPanel(policy) {
+      const p = policy?.global_policy || 'free_market';
+      const subs = policy?.subsidies || {};
+      const lines = [];
+
+      if (p === 'war_economy') {
+        lines.push({ label: 'Military Equipment output', val: '+30%', tone: 'is-good' });
+        lines.push({ label: 'Consumer Goods output', val: '−20%', tone: 'is-critical' });
+        lines.push({ label: 'Happiness modifier', val: '−10', tone: 'is-critical' });
+      } else if (p === 'autarky') {
+        lines.push({ label: 'All domestic production', val: '+10%', tone: 'is-good' });
+        lines.push({ label: 'Market imports', val: 'BLOCKED', tone: 'is-critical' });
+      } else if (p === 'mercantilism') {
+        lines.push({ label: 'Import cost surcharge', val: '+20%', tone: 'is-warning' });
+        lines.push({ label: 'Export earnings bonus', val: '+20%', tone: 'is-good' });
+      } else if (p === 'subsidies') {
+        lines.push({ label: 'Factory build cost', val: '−20%', tone: 'is-good' });
+        lines.push({ label: 'Credits income', val: '−10%', tone: 'is-warning' });
+      } else if (p === 'free_market') {
+        lines.push({ label: 'Credits income bonus', val: '+15%', tone: 'is-good' });
+        lines.push({ label: 'Trade speed', val: '+10%', tone: 'is-good' });
+      }
+
+      if (subs.agriculture) lines.push({ label: 'Agriculture output (biocompost)', val: '+20%', tone: 'is-good' });
+      if (subs.research)    lines.push({ label: 'Research output (research kits)', val: '+20%', tone: 'is-good' });
+      if (subs.military)    lines.push({ label: 'Military output (equipment)', val: '+20%', tone: 'is-good' });
+
+      if (!lines.length) return '';
+      const rows = lines.map(({ label, val, tone }) =>
+        `<div class="economy-effect-row" style="display:flex;justify-content:space-between;font-size:12px;line-height:1.6">
+          <span class="text-muted">${esc(label)}</span>
+          <span class="badge ${esc(tone)}" style="font-size:11px">${esc(val)}</span>
+        </div>`
+      ).join('');
+      return `<div class="economy-section" style="margin-top:1rem">
+        <div class="system-row" style="margin-bottom:.5rem"><strong>Active Policy Effects</strong></div>
+        <div class="economy-effects-list">${rows}</div>
+      </div>`;
     }
 
     // PHASE 4.2 – Conflict-driven production warning banner
@@ -192,9 +244,10 @@
     }
 
     function _renderOverviewTab(colonies, popClasses, warMods, pirateMult) {
+      const warningHtml = _renderConflictWarnings(warMods, pirateMult);
+
       if (!colonies.length) {
-        return '<p class="text-muted">No colonies found.</p>';
-        const warningHtml = _renderConflictWarnings(warMods, pirateMult);
+        return `${warningHtml}<p class="text-muted">No colonies found.</p>`;
       }
 
       // Empire-wide pop summary
@@ -324,6 +377,87 @@
       const tabPolicy   = state.tab === 'policy'   ? ' economy-tab--active' : '';
       const tabOverview = state.tab === 'overview'  ? ' economy-tab--active' : '';
       const tabMarket   = state.tab === 'market'    ? ' economy-tab--active' : '';
+    /**
+     * Returns the CSS badge modifier class for a satisfaction value (0–100).
+     * is-critical < 40 | is-warning 40–59 | is-neutral 60–79 | is-good ≥ 80
+     */
+    function _satClass(sat) {
+      if (sat >= 80) return 'is-good';
+      if (sat >= 60) return 'is-neutral';
+      if (sat >= 40) return 'is-warning';
+      return 'is-critical';
+    }
+
+    /**
+     * Render the Population tab — per-colony, per-class satisfaction detail.
+     * @param {{ colonies: Array }} popStatus  — from get_pop_status (all-colonies variant)
+     */
+    function _renderPopulationTab(popStatus) {
+      if (!popStatus?.colonies?.length) {
+        return '<p class="text-muted">No population data available. Make sure colonies have pop classes seeded.</p>';
+      }
+
+      const colonyCards = popStatus.colonies.map((col) => {
+        const satCls = _satClass(col.avg_satisfaction ?? 50);
+        const prodMult = (0.5 + (col.avg_satisfaction ?? 50) / 100).toFixed(3);
+        const migSign = col.avg_migration > 0 ? '+' : '';
+
+        return `<div class="system-card economy-colony-card" data-pop-colony-id="${esc(col.colony_id)}">
+          <div class="system-row">
+            <strong>${esc(col.name || 'Colony')}</strong>
+            <span class="badge ${satCls}" title="Weighted average satisfaction">
+              😊 ${esc(String(col.avg_satisfaction ?? 50))}%
+            </span>
+            <span class="tag" title="Production multiplier from satisfaction">× ${esc(prodMult)}</span>
+            <span class="text-muted" style="font-size:.8rem">pop: ${(col.total_population || 0).toLocaleString()}</span>
+          </div>
+          <div class="economy-colony-detail">
+            <div class="economy-detail-row">
+              <span class="economy-detail-label">Employment:</span>
+              <span>${esc(String(Math.round(col.avg_employment ?? 80)))}%</span>
+            </div>
+            <div class="economy-detail-row">
+              <span class="economy-detail-label">Migration:</span>
+              <span class="${col.avg_migration > 1 ? 'text-red' : ''}">${migSign}${esc(String((col.avg_migration ?? 0).toFixed(2)))}%/tick</span>
+            </div>
+          </div>
+          <details class="economy-pop-policy-details" style="margin-top:.5rem">
+            <summary style="cursor:pointer;font-size:.85rem;color:var(--text-muted,#888)">Adjust Pop Policy</summary>
+            <div class="economy-pop-policy-form" data-pop-policy-colony="${esc(col.colony_id)}" style="padding:.5rem 0">
+              <div class="economy-tax-row">
+                <span class="economy-tax-label">Wage Adjustment</span>
+                <input type="range" class="economy-tax-slider pop-wage-slider"
+                  data-colony="${esc(col.colony_id)}" min="50" max="200" step="5" value="100"
+                  title="0.5x–2.0x wage multiplier">
+                <span class="economy-tax-value pop-wage-display" data-colony="${esc(col.colony_id)}">1.00×</span>
+              </div>
+              <div class="economy-tax-row">
+                <span class="economy-tax-label">Culture Spending</span>
+                <input type="range" class="economy-tax-slider pop-culture-slider"
+                  data-colony="${esc(col.colony_id)}" min="0" max="1000" step="50" value="0"
+                  title="0–1000 credits/tick for culture">
+                <span class="economy-tax-value pop-culture-display" data-colony="${esc(col.colony_id)}">0 cr</span>
+              </div>
+              <div class="economy-tax-row">
+                <span class="economy-tax-label">Safety Budget</span>
+                <input type="range" class="economy-tax-slider pop-safety-slider"
+                  data-colony="${esc(col.colony_id)}" min="0" max="100" step="5" value="0"
+                  title="0–100% budget allocation to public safety">
+                <span class="economy-tax-value pop-safety-display" data-colony="${esc(col.colony_id)}">0%</span>
+              </div>
+              <button class="btn btn--sm pop-policy-save" data-colony="${esc(col.colony_id)}" style="margin-top:.4rem">Apply Policy</button>
+            </div>
+          </details>
+        </div>`;
+      }).join('');
+
+      return colonyCards;
+    }
+
+    function _buildFullHtml(state) {
+      const tabPolicy = state.tab === 'policy' ? ' economy-tab--active' : '';
+      const tabOverview = state.tab === 'overview' ? ' economy-tab--active' : '';
+      const tabPopulation = state.tab === 'population' ? ' economy-tab--active' : '';
 
       let contentHtml;
       if (state.loading) {
@@ -341,6 +475,8 @@
         );
       } else if (state.tab === 'market' && state.marketRegions) {
         contentHtml = _renderMarketTab(state.marketRegions);
+      } else if (state.tab === 'population' && state.popStatus) {
+        contentHtml = _renderPopulationTab(state.popStatus);
       } else {
         contentHtml = _renderSkeleton();
       }
@@ -350,6 +486,7 @@
           <button class="economy-tab${tabPolicy}" data-economy-tab="policy">Policy</button>
           <button class="economy-tab${tabOverview}" data-economy-tab="overview">Colony Overview</button>
           <button class="economy-tab${tabMarket}" data-economy-tab="market">Regional Market</button>
+          <button class="economy-tab${tabPopulation}" data-economy-tab="population">Population</button>
         </div>
         <div class="economy-tab-content">
           ${contentHtml}
@@ -437,6 +574,60 @@
           }
         });
       });
+
+      // Population tab — live-preview sliders
+      root.querySelectorAll('.pop-wage-slider').forEach((slider) => {
+        const colId = slider.dataset.colony;
+        const display = root.querySelector(`.pop-wage-display[data-colony="${colId}"]`);
+        slider.addEventListener('input', () => {
+          if (display) display.textContent = (Number(slider.value) / 100).toFixed(2) + '×';
+        });
+      });
+
+      root.querySelectorAll('.pop-culture-slider').forEach((slider) => {
+        const colId = slider.dataset.colony;
+        const display = root.querySelector(`.pop-culture-display[data-colony="${colId}"]`);
+        slider.addEventListener('input', () => {
+          if (display) display.textContent = slider.value + ' cr';
+        });
+      });
+
+      root.querySelectorAll('.pop-safety-slider').forEach((slider) => {
+        const colId = slider.dataset.colony;
+        const display = root.querySelector(`.pop-safety-display[data-colony="${colId}"]`);
+        slider.addEventListener('input', () => {
+          if (display) display.textContent = slider.value + '%';
+        });
+      });
+
+      // Population tab — Apply Policy button
+      root.querySelectorAll('.pop-policy-save').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const colId = btn.dataset.colony;
+          const wageSlider    = root.querySelector(`.pop-wage-slider[data-colony="${colId}"]`);
+          const cultureSlider = root.querySelector(`.pop-culture-slider[data-colony="${colId}"]`);
+          const safetySlider  = root.querySelector(`.pop-safety-slider[data-colony="${colId}"]`);
+          btn.disabled = true;
+          try {
+            const resp = await api.setPopPolicy({
+              colony_id:        Number(colId),
+              wage_adjustment:  wageSlider   ? Number(wageSlider.value)   / 100 : 1.0,
+              culture_spending: cultureSlider ? Number(cultureSlider.value)      : 0,
+              safety_budget:    safetySlider  ? Number(safetySlider.value)       : 0,
+            });
+            if (!resp?.success) throw new Error(resp?.error || 'Failed to apply pop policy');
+            invalidateGetCache([/api\/economy\.php\?action=get_pop_status/i]);
+            _state.popStatus = null; // force reload on next render
+            showToast('Pop policy updated — changes apply on next tick');
+            await render();
+          } catch (err) {
+            showToast('Failed to apply pop policy: ' + String(err?.message || err), 'error');
+            gameLog('warn', 'setPopPolicy failed', err);
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      });
     }
 
     // -----------------------------------------------------------------------
@@ -491,12 +682,18 @@
         root.innerHTML = _buildFullHtml(_state);
         try {
           await _loadMarketTab();
+      if (!_state.loading && !_state.popStatus && _state.tab === 'population') {
+        _state.loading = true;
+        root.innerHTML = _buildFullHtml(_state);
+        try {
+          await _loadPopulationTab();
           _state.loading = false;
           _state.error = null;
         } catch (err) {
           _state.loading = false;
           _state.error = String(err?.message || err);
           gameLog('warn', 'Regional market load failed', err);
+          gameLog('warn', 'Economy population load failed', err);
         }
         root.innerHTML = _buildFullHtml(_state);
         _attachPolicyListeners(root);
@@ -509,6 +706,11 @@
       _state.popClasses    = null;
       _state.marketRegions = null;
       _state.error         = null;
+      _state.policy    = null;
+      _state.overview  = null;
+      _state.popClasses = null;
+      _state.popStatus = null;
+      _state.error     = null;
       await render();
     }
 
