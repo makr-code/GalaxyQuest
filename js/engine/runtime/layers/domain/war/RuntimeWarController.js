@@ -63,33 +63,91 @@
       return parts.join(' <span style="color:#4a5878;">·</span> ') || '<span style="color:#9fb0ce;font-size:11px;">no data</span>';
     }
 
+    // ── Exhaustion level helpers ──────────────────────────────────────────────
+    /** Returns a color string based on exhaustion level (0–100). */
+    function exhaustionColor(value) {
+      if (value >= 100) return '#ff4040';
+      if (value >= 80)  return '#ff8040';
+      if (value >= 50)  return '#f0c040';
+      return '#9fb0ce';
+    }
+
+    /** Returns a small inline warning badge when exhaustion is in the pressure zone. */
+    function exhaustionBadgeHtml(value) {
+      if (value >= 100) return ' <span style="color:#ff4040;font-size:10px;font-weight:700;">⚠ MAX</span>';
+      if (value >= 80)  return ' <span style="color:#ff8040;font-size:10px;font-weight:700;">⚠ HIGH</span>';
+      return '';
+    }
+
+    /** Returns the human-readable label for a war ended_reason code. */
+    function endedReasonLabel(reason) {
+      switch (reason) {
+        case 'status_quo':              return '⚖ Status Quo';
+        case 'peace_accepted':          return '🕊 Peace Treaty';
+        case 'forced_peace_exhaustion': return '😮 Forced Peace (Exhaustion)';
+        default:                        return reason ? String(reason) : 'Ended';
+      }
+    }
+
     // ── War row ────────────────────────────────────────────────────────────────
     function warRowHtml(war, isAttacker) {
-      const isNpc = !!war.is_npc_war;
-      const side = isNpc ? 'NPC Attack' : (isAttacker ? 'Attacker' : 'Defender');
+      const isNpc    = !!war.is_npc_war;
+      const isEnded  = war.status === 'ended';
+      const side     = isNpc ? 'NPC Attack' : (isAttacker ? 'Attacker' : 'Defender');
       const sideColor = isNpc ? '#ff9f40' : (isAttacker ? '#7eb8ff' : '#ff9980');
-      const summary = war.summary || {};
+      const summary  = war.summary || {};
       const primaryGoal = summary.primary_goal || null;
-      const pressure = Number(summary.pressure || 0);
+      // pressure is an object {own_exhaustion, enemy_exhaustion, score_balance, exhaustion_gap}
+      const pressure = (summary.pressure && typeof summary.pressure === 'object') ? summary.pressure : {};
+      const ownExhaustion = Number(pressure.own_exhaustion || 0);
       const goalCounts = summary.goal_counts || {};
       const attScore = Number(war.war_score_att || 0);
       const defScore = Number(war.war_score_def || 0);
-      const exhaustAtt = Number(war.exhaustion_att || 0).toFixed(1);
-      const exhaustDef = Number(war.exhaustion_def || 0).toFixed(1);
+      const exhaustAtt = Number(war.exhaustion_att || 0);
+      const exhaustDef = Number(war.exhaustion_def || 0);
+      const myExhaustion = isAttacker ? exhaustAtt : exhaustDef;
+
+      if (isEnded) {
+        return `
+          <tr data-war-row="${esc(war.war_id || war.id)}" style="opacity:0.65;">
+            <td style="${S.td}">#${esc(war.war_id || war.id)}</td>
+            <td style="${S.td}"><span style="color:${sideColor};font-weight:700;">${side}</span></td>
+            <td style="${S.td}">
+              ${scoreBarHtml(attScore, defScore)}
+            </td>
+            <td style="${S.td};font-size:11px;color:#9fb0ce;">
+              ${exhaustAtt.toFixed(1)} / ${exhaustDef.toFixed(1)}
+            </td>
+            <td style="${S.td}" colspan="3">
+              <span style="color:#a0b0c0;font-size:11px;">${endedReasonLabel(war.ended_reason)}</span>
+              ${war.ended_at ? `<span style="color:#5a6a80;font-size:10px;margin-left:6px;">${esc(war.ended_at)}</span>` : ''}
+            </td>
+            <td style="${S.tdR};">
+              <button style="${S.btn}" data-war-details="${esc(war.war_id || war.id)}">Details</button>
+            </td>
+          </tr>
+        `;
+      }
 
       return `
-        <tr data-war-row="${esc(war.id)}">
-          <td style="${S.td}">#${esc(war.id)}</td>
+        <tr data-war-row="${esc(war.war_id || war.id)}">
+          <td style="${S.td}">#${esc(war.war_id || war.id)}</td>
           <td style="${S.td}"><span style="color:${sideColor};font-weight:700;">${side}</span></td>
           <td style="${S.td}">
             ${scoreBarHtml(attScore, defScore)}
           </td>
-          <td style="${S.td};font-size:11px;color:#9fb0ce;">${exhaustAtt} / ${exhaustDef}</td>
-          <td style="${S.td};font-size:11px;color:#f0c040;">${primaryGoal ? esc(primaryGoal) : '—'}</td>
+          <td style="${S.td};font-size:11px;color:${exhaustionColor(myExhaustion)};">
+            ${exhaustAtt.toFixed(1)} / ${exhaustDef.toFixed(1)}${exhaustionBadgeHtml(myExhaustion)}
+          </td>
+          <td style="${S.td};font-size:11px;color:#f0c040;">
+            ${primaryGoal ? esc(primaryGoal.label || primaryGoal.goal_type || '?') : '—'}
+          </td>
           <td style="${S.td}">${goalBadgeHtml(goalCounts)}</td>
-          <td style="${S.tdR};color:${pressure > 50 ? '#ff9980' : '#9fb0ce'};">${Number(pressure).toFixed(0)}</td>
+          <td style="${S.tdR};color:${ownExhaustion >= 80 ? '#ff8040' : (ownExhaustion >= 50 ? '#f0c040' : '#9fb0ce')};">
+            ${ownExhaustion.toFixed(0)}
+          </td>
           <td style="${S.tdR};">
-            <button style="${S.btn}" data-war-details="${esc(war.id)}">Details</button>
+            <button style="${S.btn}" data-war-details="${esc(war.war_id || war.id)}">Details</button>
           </td>
         </tr>
       `;
@@ -184,6 +242,33 @@
       const offers = Array.isArray(warData.peace_offers) ? warData.peace_offers : [];
       const attScore = Number(warData.war_score_att || 0);
       const defScore = Number(warData.war_score_def || 0);
+      const exhaustAtt = Number(warData.exhaustion_att || 0);
+      const exhaustDef = Number(warData.exhaustion_def || 0);
+      const isAttacker  = Number(warData.attacker_user_id) === Number(myUid);
+      const ownExhaustion = isAttacker ? exhaustAtt : exhaustDef;
+      const enemyExhaustion = isAttacker ? exhaustDef : exhaustAtt;
+
+      // Exhaustion progress bars
+      function exhaustionBarHtml(label, value) {
+        const pct = Math.min(100, Math.max(0, value));
+        const color = value >= 100 ? '#ff4040' : value >= 80 ? '#ff8040' : value >= 50 ? '#f0c040' : '#5fd679';
+        return `
+          <div style="margin-bottom:4px;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#9fb0ce;margin-bottom:2px;">
+              <span>${label}</span>
+              <span style="color:${color};font-weight:700;">${value.toFixed(1)} / 100</span>
+            </div>
+            <div style="height:6px;background:#1f2533;border-radius:3px;overflow:hidden;">
+              <div style="width:${pct}%;height:100%;background:${color};border-radius:3px;transition:width .3s;"></div>
+            </div>
+            ${value >= 80 ? `<div style="font-size:10px;color:${color};margin-top:2px;">
+              ${value >= 100
+                ? '⚠ Maximum exhaustion — Status Quo peace is imminent!'
+                : '⚠ High exhaustion — Status Quo peace can be forced.'}
+            </div>` : ''}
+          </div>
+        `;
+      }
 
       const goalRows = goals.map((goal) => {
         const progress = goal.progress || {};
@@ -207,20 +292,37 @@
         `;
       }).join('');
 
+      const isEnded = warData.status === 'ended';
+      const canForceStatusQuo = !isEnded && ownExhaustion >= 80;
+
       return `
         <div style="display:grid;gap:10px;">
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <button style="${S.btn}" data-back="1">← Back</button>
             <span style="font-weight:700;font-size:14px;color:#e3efff;">War #${esc(warData.war_id)} — ${esc(warData.status)}</span>
             <span style="flex:1;"></span>
-            ${warData.status === 'active' ? `<button style="${S.btnDanger}" data-offer-peace-btn="${esc(warData.war_id)}">Offer Peace</button>` : ''}
+            ${isEnded
+              ? `<span style="color:#a0b0c0;font-size:12px;padding:4px 8px;background:#1a2030;border:1px solid #2e374e;border-radius:4px;">
+                  ${endedReasonLabel(warData.ended_reason)}
+                 </span>`
+              : `
+                <button style="${S.btnDanger}" data-offer-peace-btn="${esc(warData.war_id)}">⚖ Offer Peace</button>
+                ${canForceStatusQuo ? `<button style="background:#5a2800;border:1px solid #a06020;color:#ffd8a0;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:12px;" data-force-status-quo="${esc(warData.war_id)}">⚡ Force Status Quo</button>` : ''}
+              `
+            }
           </div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <div style="${S.card}"><div style="${S.cardLabel}">Attacker Score</div><div style="${S.cardValue}" style="color:#7eb8ff;">${Number(attScore).toLocaleString('de-DE')}</div></div>
             <div style="${S.card}"><div style="${S.cardLabel}">Defender Score</div><div style="${S.cardValue}" style="color:#ff9980;">${Number(defScore).toLocaleString('de-DE')}</div></div>
-            <div style="${S.card}"><div style="${S.cardLabel}">Exhaustion Att/Def</div><div style="${S.cardValue}">${Number(warData.exhaustion_att || 0).toFixed(1)} / ${Number(warData.exhaustion_def || 0).toFixed(1)}</div></div>
             <div style="${S.card}"><div style="${S.cardLabel}">Started</div><div style="${S.cardValue}" style="font-size:11px;">${esc(warData.started_at || '?')}</div></div>
+            ${isEnded ? `<div style="${S.card}"><div style="${S.cardLabel}">Ended</div><div style="${S.cardValue}" style="font-size:11px;">${esc(warData.ended_at || '?')}</div></div>` : ''}
+          </div>
+
+          <div style="${S.section}">
+            <div style="${S.sectionTitle}">War Exhaustion</div>
+            ${exhaustionBarHtml(isAttacker ? '🔵 Your Exhaustion (Attacker)' : '🔴 Your Exhaustion (Defender)', ownExhaustion)}
+            ${exhaustionBarHtml(isAttacker ? '🔴 Enemy Exhaustion (Defender)' : '🔵 Enemy Exhaustion (Attacker)', enemyExhaustion)}
           </div>
 
           ${pendingOffersHtml(offers, myUid)}
@@ -306,6 +408,8 @@
       renderListHtml() {
         const wars = this.state.wars;
         const myUid = this.state.myUid;
+        const activeWars = wars.filter((w) => w.status === 'active');
+        const endedWars  = wars.filter((w) => w.status === 'ended');
 
         if (!wars.length) {
           return `
@@ -326,6 +430,10 @@
           return warRowHtml(w, isAttacker);
         }).join('');
 
+        const sectionTitle = activeWars.length && endedWars.length
+          ? `Active Wars <span style="color:#5a6a80;font-weight:400;font-size:11px;margin-left:6px;">(+ ${endedWars.length} recently ended)</span>`
+          : (endedWars.length && !activeWars.length ? 'Recent Wars' : 'Active Wars');
+
         return `
           <div style="display:grid;gap:10px;">
             <section style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -334,7 +442,7 @@
             </section>
             <div data-declare-form-host style="display:none;"></div>
             <div style="${S.section}">
-              <div style="${S.sectionTitle}">Active Wars</div>
+              <div style="${S.sectionTitle}">${sectionTitle}</div>
               <table style="${S.table}">
                 <thead>
                   <tr>
@@ -344,7 +452,7 @@
                     <th style="${S.th}">Exhaustion</th>
                     <th style="${S.th}">Primary Goal</th>
                     <th style="${S.th}">Goal Progress</th>
-                    <th style="${S.thR}">Pressure</th>
+                    <th style="${S.thR}">Exhaustion</th>
                     <th style="${S.thR}"></th>
                   </tr>
                 </thead>
@@ -497,6 +605,31 @@
               await this.render();
             }
           });
+        });
+
+        // Force Status Quo (available when own exhaustion >= 80)
+        root.querySelector('[data-force-status-quo]')?.addEventListener('click', async (ev) => {
+          if (this.isBusy) return;
+          const wid = Number(ev.currentTarget.dataset.forceStatusQuo);
+          if (!window.confirm('Force a Status Quo peace? This will immediately end the war with no territorial changes.')) return;
+          this.isBusy = true;
+          try {
+            const res = await api.forceStatusQuo({ war_id: wid });
+            if (res && res.success) {
+              invalidateGetCache([/api\/war\.php\?action=/i]);
+              showToast('Status Quo peace enforced — war ended.', 'success');
+              this.state.detailWarId = null;
+              this.state.detailData = null;
+            } else {
+              showToast(res?.error || 'Failed to force Status Quo.', 'error');
+            }
+          } catch (err) {
+            gameLog('warn', 'forceStatusQuo failed', err);
+            showToast('Network error enforcing Status Quo.', 'error');
+          } finally {
+            this.isBusy = false;
+            await this.render();
+          }
         });
 
         // Accept / reject / counter incoming offers
