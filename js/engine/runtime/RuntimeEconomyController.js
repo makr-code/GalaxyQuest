@@ -149,7 +149,8 @@
       <div class="economy-section" style="margin-top:1rem">
         <div class="system-row" style="margin-bottom:.5rem"><strong>Subsidies</strong></div>
         <div class="economy-subsidies">${subsidyRows}</div>
-      </div>`;
+      </div>
+      ${_renderPolicyEffectsPanel(policy)}`;
     }
 
     function _renderPopBadge(classes) {
@@ -158,6 +159,47 @@
         .filter(([, v]) => v?.count > 0)
         .map(([cls, v]) => `<span class="economy-pop-badge" title="${esc(POP_LABELS[cls] || cls)}: satisfaction ${v.satisfaction_ticks ?? '?'}">${esc(POP_LABELS[cls] || cls)}: ${v.count}</span>`)
         .join(' ');
+    }
+
+    // PHASE 2.3 – Active policy production effects panel (shown in Policy tab)
+    function _renderPolicyEffectsPanel(policy) {
+      const p = policy?.global_policy || 'free_market';
+      const subs = policy?.subsidies || {};
+      const lines = [];
+
+      if (p === 'war_economy') {
+        lines.push({ label: 'Military Equipment output', val: '+30%', tone: 'is-good' });
+        lines.push({ label: 'Consumer Goods output', val: '−20%', tone: 'is-critical' });
+        lines.push({ label: 'Happiness modifier', val: '−10', tone: 'is-critical' });
+      } else if (p === 'autarky') {
+        lines.push({ label: 'All domestic production', val: '+10%', tone: 'is-good' });
+        lines.push({ label: 'Market imports', val: 'BLOCKED', tone: 'is-critical' });
+      } else if (p === 'mercantilism') {
+        lines.push({ label: 'Import cost surcharge', val: '+20%', tone: 'is-warning' });
+        lines.push({ label: 'Export earnings bonus', val: '+20%', tone: 'is-good' });
+      } else if (p === 'subsidies') {
+        lines.push({ label: 'Factory build cost', val: '−20%', tone: 'is-good' });
+        lines.push({ label: 'Credits income', val: '−10%', tone: 'is-warning' });
+      } else if (p === 'free_market') {
+        lines.push({ label: 'Credits income bonus', val: '+15%', tone: 'is-good' });
+        lines.push({ label: 'Trade speed', val: '+10%', tone: 'is-good' });
+      }
+
+      if (subs.agriculture) lines.push({ label: 'Agriculture output (biocompost)', val: '+20%', tone: 'is-good' });
+      if (subs.research)    lines.push({ label: 'Research output (research kits)', val: '+20%', tone: 'is-good' });
+      if (subs.military)    lines.push({ label: 'Military output (equipment)', val: '+20%', tone: 'is-good' });
+
+      if (!lines.length) return '';
+      const rows = lines.map(({ label, val, tone }) =>
+        `<div class="economy-effect-row" style="display:flex;justify-content:space-between;font-size:12px;line-height:1.6">
+          <span class="text-muted">${esc(label)}</span>
+          <span class="badge ${esc(tone)}" style="font-size:11px">${esc(val)}</span>
+        </div>`
+      ).join('');
+      return `<div class="economy-section" style="margin-top:1rem">
+        <div class="system-row" style="margin-bottom:.5rem"><strong>Active Policy Effects</strong></div>
+        <div class="economy-effects-list">${rows}</div>
+      </div>`;
     }
 
     // PHASE 4.2 – Conflict-driven production warning banner
@@ -193,9 +235,10 @@
     }
 
     function _renderOverviewTab(colonies, popClasses, warMods, pirateMult) {
+      const warningHtml = _renderConflictWarnings(warMods, pirateMult);
+
       if (!colonies.length) {
-        return '<p class="text-muted">No colonies found.</p>';
-        const warningHtml = _renderConflictWarnings(warMods, pirateMult);
+        return `${warningHtml}<p class="text-muted">No colonies found.</p>`;
       }
 
       // Empire-wide pop summary
