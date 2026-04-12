@@ -230,7 +230,7 @@
       const warningHtml = _renderConflictWarnings(warMods, pirateMult);
 
       if (!colonies.length) {
-        return warningHtml + '<p class="text-muted">No colonies found.</p>';
+        return `${warningHtml}<p class="text-muted">No colonies found.</p>`;
       }
 
       // Empire-wide pop summary

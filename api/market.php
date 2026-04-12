@@ -150,6 +150,18 @@ function compute_price(PDO $db, string $goodType, ?int $colonyId = null): float 
 }
 
 /**
+ * Resolve a raw economy_policies.global_policy value (integer index or string key)
+ * to a canonical policy string.
+ */
+function resolve_policy_str(mixed $raw): string {
+    static $keys = ['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'];
+    if (is_numeric($raw)) {
+        return $keys[(int)$raw] ?? 'free_market';
+    }
+    return in_array((string)$raw, $keys, true) ? (string)$raw : 'free_market';
+}
+
+/**
  * Fetch the player's trade tax rate from their economy_policies row.
  *
  * @param PDO $db
@@ -273,9 +285,7 @@ function action_buy(PDO $db, int $uid): never {
     $pStmt->execute([$uid]);
     $pRow  = $pStmt->fetch(PDO::FETCH_ASSOC);
     $rawPolicy = $pRow ? $pRow['global_policy'] : 'free_market';
-    $resolvedPolicy = is_numeric($rawPolicy)
-        ? (['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'][(int)$rawPolicy] ?? 'free_market')
-        : (string)$rawPolicy;
+    $resolvedPolicy = resolve_policy_str($rawPolicy);
 
     if ($resolvedPolicy === 'autarky') {
         json_error('Autarky policy: imports are blocked', 403);
@@ -379,10 +389,7 @@ function action_sell(PDO $db, int $uid): never {
     $pStmt->execute([$uid]);
     $pRow      = $pStmt->fetch(PDO::FETCH_ASSOC);
     $taxRate   = $pRow ? (float)$pRow['tax_trade'] : 0.05;
-    $rawSellPolicy = $pRow ? $pRow['global_policy'] : 'free_market';
-    $resolvedSellPolicy = is_numeric($rawSellPolicy)
-        ? (['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'][(int)$rawSellPolicy] ?? 'free_market')
-        : (string)$rawSellPolicy;
+    $resolvedSellPolicy = resolve_policy_str($pRow['global_policy'] ?? 'free_market');
     $exportMult = ($resolvedSellPolicy === 'mercantilism') ? 1.20 : 1.0;
 
     $price  = compute_price($db, $goodType, $colonyId);

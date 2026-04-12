@@ -1018,7 +1018,7 @@ class EconomyPolicy {
    * Rules (mirrors api/economy_flush.php get_policy_good_multipliers()):
    *   war_economy  → military_equipment ×1.30, consumer_goods ×0.80
    *   autarky      → all produced goods ×1.10
-   *   subsidies    → agriculture: biocompost/food ×1.20
+   *   subsidies    → agriculture: biocompost ×1.20
    *                  research:    research_kits ×1.20
    *                  military:    military_equipment ×1.20 (stacks with war_economy)
    *
