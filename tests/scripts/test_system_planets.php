@@ -4,10 +4,10 @@
  * Überprüft, ob Planeten-Daten korrekt geladen und gesendet werden
  */
 
-require_once __DIR__ . '/api/helpers.php';
-require_once __DIR__ . '/api/galaxy_gen.php';
-require_once __DIR__ . '/api/galaxy_seed.php';
-require_once __DIR__ . '/api/planet_helper.php';
+require_once __DIR__ . '/../../api/helpers.php';
+require_once __DIR__ . '/../../api/galaxy_gen.php';
+require_once __DIR__ . '/../../api/galaxy_seed.php';
+require_once __DIR__ . '/../../api/planet_helper.php';
 
 $db = get_db();
 

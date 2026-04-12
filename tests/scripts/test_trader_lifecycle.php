@@ -10,12 +10,12 @@ declare(strict_types=1);
 define('SKIP_AUTH', true);
 define('IS_CLI', true);
 
-require_once __DIR__ . '/config/config.php';
-require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/db.php';
 
 // Include trader system files
-require_once __DIR__ . '/api/helpers.php';
-require_once __DIR__ . '/api/market_analysis.php';
+require_once __DIR__ . '/../../api/helpers.php';
+require_once __DIR__ . '/../../api/market_analysis.php';
 
 try {
     $db = get_db();

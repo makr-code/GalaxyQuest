@@ -9,8 +9,8 @@
  * 3. Ticker calculates satisfaction correctly
  */
 
-require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/api/helpers.php';
+require_once __DIR__ . '/../../config/db.php';
+require_once __DIR__ . '/../../api/helpers.php';
 
 $db = get_db();
 
@@ -83,7 +83,7 @@ try {
 
     // TEST 2: Process satisfaction ticker
     echo "TEST 2: Running pop satisfaction ticker...\n";
-    require_once __DIR__ . '/api/game_engine.php';
+    require_once __DIR__ . '/../../api/game_engine.php';
     
     $tickResult = process_economy_pop_satisfaction_tick($db, true);
     

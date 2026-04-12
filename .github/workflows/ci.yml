@@ -19,6 +19,9 @@ on:
       - main
       - master
 
+permissions:
+  contents: read
+
 jobs:
   js-tests:
     name: JavaScript Unit Tests (Vitest)

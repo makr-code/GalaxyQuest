@@ -11,10 +11,10 @@ declare(strict_types=1);
 define('IS_CLI', true);
 define('SKIP_AUTH', true);
 
-require_once __DIR__ . '/config/config.php';
-require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/api/helpers.php';
-require_once __DIR__ . '/api/market_analysis.php';
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/db.php';
+require_once __DIR__ . '/../../api/helpers.php';
+require_once __DIR__ . '/../../api/market_analysis.php';
 
 $db = get_db();
 

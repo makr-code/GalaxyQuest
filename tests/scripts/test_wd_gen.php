@@ -32,5 +32,5 @@ for ($i = 1; $i <= 20; $i++) {
 
 echo "────────────────────────────────────────────\n";
 printf("Summary: %d WDs (expected ~6%s), %d Main-Sequence (94%%)\n", 
-       $wd_count, (6*20/100)===int($wd_count%5) ? "✓" : "~", $ms_count);
+       $wd_count, (6*20/100)===(int)($wd_count%5) ? "✓" : "~", $ms_count);
 ?>
