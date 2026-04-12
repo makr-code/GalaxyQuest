@@ -4956,6 +4956,15 @@
     'acceptanceBarHTML',
   ]);
   const runtimeDiplomacyPanelApi = requireRuntimeApi('GQRuntimeDiplomacyPanel', ['createDiplomacyPanel']);
+  const runtimeDiplomaticPlaysDataModelApi = requireRuntimeApi('GQRuntimeDiplomaticPlaysDataModel', [
+    'getPhases',
+    'getPhase',
+    'trustBarHTML',
+    'threatBarHTML',
+    'phaseStepperHTML',
+    'playCardHTML',
+  ]);
+  const runtimeDiplomaticPlaysPanelApi = requireRuntimeApi('GQRuntimeDiplomaticPlaysPanel', ['createDiplomaticPlaysPanel']);
   const runtimeContractNegotiationModalApi = requireRuntimeApi('GQRuntimeContractNegotiationModal', ['createModal']);
   const runtimeConflictDashboardApi = requireRuntimeApi('GQRuntimeConflictDashboard', ['createConflictDashboard']);
   const runtimeSocialControllersBootstrapApi = requireRuntimeApi('GQRuntimeSocialControllersBootstrap', ['createSocialControllersBootstrap']);
@@ -4979,6 +4988,8 @@
     runtimeLogisticsRoutesControllerApi,
     runtimeDiplomacyDataModelApi,
     runtimeDiplomacyPanelApi,
+    runtimeDiplomaticPlaysDataModelApi,
+    runtimeDiplomaticPlaysPanelApi,
     runtimeContractNegotiationModalApi,
     wm: WM,
     api: API,

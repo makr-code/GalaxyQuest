@@ -1615,6 +1615,16 @@ const API = (() => {
     factionAgreementsRespond:(id)         => post('api/diplomacy.php?action=respond', { agreement_id: Number(id) }),
     factionAgreementsCancel: (id)         => post('api/diplomacy.php?action=cancel',  { agreement_id: Number(id) }),
 
+    // Diplomatic Plays – 4-phase escalation system (Sprint 3.2)
+    diplomaticPlaysList:       (faction_id) =>
+      get(faction_id ? `api/diplomatic_plays.php?action=list&faction_id=${Number(faction_id)}` : 'api/diplomatic_plays.php?action=list'),
+    diplomaticPlaysTrustThreat:(faction_id) =>
+      get(`api/diplomatic_plays.php?action=trust_threat&faction_id=${Number(faction_id)}`),
+    diplomaticPlaysPropose:    (data)       => post('api/diplomatic_plays.php?action=propose_play',  data),
+    diplomaticPlaysCounter:    (data)       => post('api/diplomatic_plays.php?action=counter_play',  data),
+    diplomaticPlaysMobilize:   (data)       => post('api/diplomatic_plays.php?action=mobilize',      data),
+    diplomaticPlaysResolve:    (data)       => post('api/diplomatic_plays.php?action=resolve',       data),
+
     // NPC / PvE controller
     npcControllerStatus: () => get('api/npc_controller.php?action=status'),
     npcControllerSummary: ({ hours = 24, faction_id = 0 } = {}) =>

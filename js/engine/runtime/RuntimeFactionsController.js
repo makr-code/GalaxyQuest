@@ -12,6 +12,7 @@
     const windowRef = opts.windowRef || window;
     const diplomacyPanel = opts.diplomacyPanel || null;
     const contractNegotiationModal = opts.contractNegotiationModal || null;
+    const diplomaticPlaysPanel = opts.diplomaticPlaysPanel || null;
 
     class FactionsController {
       constructor() {
@@ -199,6 +200,7 @@
                   <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="quests">Quests</button>
                   <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="contact">Contact</button>
                   <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="treaties">⚖️ Treaties</button>
+                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="plays">🎭 Plays</button>
                 </div>
               </div>`).join('')}
           </div>
@@ -614,6 +616,20 @@
             await diplomacyPanel.render(detail, faction);
           } else {
             detail.innerHTML = '<p class="text-muted">Treaty panel unavailable.</p>';
+          }
+          return;
+        }
+
+        if (mode === 'plays') {
+          const faction = this.getFactionById(fid);
+          if (!faction) {
+            detail.innerHTML = '<p class="error">Faction not found.</p>';
+            return;
+          }
+          if (diplomaticPlaysPanel) {
+            await diplomaticPlaysPanel.render(detail, faction);
+          } else {
+            detail.innerHTML = '<p class="text-muted">Diplomatic Plays panel unavailable.</p>';
           }
           return;
         }
