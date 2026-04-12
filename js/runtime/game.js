@@ -84,6 +84,7 @@
     'configureSelectionRuntime',
     'commitSelectionState',
     'getSelectionGroupHighlightedSystems',
+    'createSelectionStore',
   ]);
   const PERF_TELEMETRY_OPT_IN_KEY = 'gq_perf_telemetry_opt_in';
 
@@ -296,8 +297,15 @@
       rawClusters: [],
       territory: [],
       colonyViewFocus: null,
-      selection: {},
+      selectionState: runtimeSelectionStateApi.createSelectionStore(),
     };
+  // Legacy alias kept for backward compatibility with existing call-sites.
+  Object.defineProperty(uiState, 'selection', {
+    get() { return this.selectionState; },
+    set(v) { this.selectionState = v; },
+    enumerable: true,
+    configurable: true,
+  });
   const currentUser = window.currentUser || window.GQ_CURRENT_USER || null;
 
   let audioManager = window.__GQ_AUDIO_MANAGER || window.audioManager || window.GQAudioManagerInstance || null;

@@ -1,5 +1,13 @@
 # .github/workflows/ci.yml
 #
+# Continuous Integration – GalaxyQuest
+#
+# Runs on every push and pull request to main/master branches.
+# Executes:
+#   1. Vitest unit tests (JavaScript)
+#   2. PHPUnit unit tests (PHP)
+
+name: CI
 # GalaxyQuest — Main CI/CD Pipeline
 #
 # Runs on every push to main and on every pull request targeting main.
@@ -16,6 +24,12 @@ on:
   push:
     branches:
       - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
   pull_request:
     branches:
       - main
@@ -26,6 +40,12 @@ permissions:
   contents: read
 
 jobs:
+  js-tests:
+    name: JavaScript Unit Tests (Vitest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
   # ── PHP Unit Tests ──────────────────────────────────────────────────────────
   phpunit:
     name: PHPUnit Tests
@@ -105,6 +125,28 @@ jobs:
         run: npm ci
 
       - name: Run Vitest
+        run: npx vitest run --reporter=verbose
+
+  php-tests:
+    name: PHP Unit Tests (PHPUnit)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_sqlite, json, mbstring, intl
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Run PHPUnit
+        run: vendor/bin/phpunit --testdox
         run: npm run test:unit:js
 
   # ── End-to-End Smoke Test ───────────────────────────────────────────────────

@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const src = fs.readFileSync(
-  path.resolve(process.cwd(), 'js/engine/runtime/RuntimeWarController.js'),
+  path.resolve(process.cwd(), 'js/engine/runtime/layers/domain/war/RuntimeWarController.js'),
   'utf8'
 );
 

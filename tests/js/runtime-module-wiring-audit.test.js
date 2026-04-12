@@ -5,13 +5,25 @@ import path from 'node:path';
 const runtimeDir = path.resolve(process.cwd(), 'js/engine/runtime');
 const gamePath = path.resolve(process.cwd(), 'js/runtime/game.js');
 
+function collectJsFilesRecursive(dir) {
+  const result = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      result.push(...collectJsFilesRecursive(fullPath));
+    } else if (entry.name.endsWith('.js')) {
+      result.push(fullPath);
+    }
+  }
+  return result;
+}
+
 function collectRegisteredRuntimeModules() {
-  const files = fs.readdirSync(runtimeDir).filter((name) => name.endsWith('.js'));
+  const files = collectJsFilesRecursive(runtimeDir);
   const registered = new Set();
   const registrationPattern = /window\.(GQRuntime\w+)\s*=/g;
 
-  for (const fileName of files) {
-    const filePath = path.join(runtimeDir, fileName);
+  for (const filePath of files) {
     const source = fs.readFileSync(filePath, 'utf8');
     for (const match of source.matchAll(registrationPattern)) {
       registered.add(match[1]);
