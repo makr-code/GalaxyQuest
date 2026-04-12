@@ -760,7 +760,524 @@
     return new WarController();
   }
 
-  const api = { createWarController };
+  // ── Alliance War Controller (N-vs-M) ────────────────────────────────────────
+
+  /**
+   * createAllianceWarController(opts)
+   *
+   * Renders N-vs-M alliance wars into a WM-managed window body.
+   * Supports declaring wars between multiple alliances per side (e.g. 2v2, 3v4),
+   * viewing war status, and managing peace offers.
+   */
+  function createAllianceWarController(opts = {}) {
+    const wm = opts.wm;
+    const api = opts.api;
+    const uiKitSkeletonHTML = opts.uiKitSkeletonHTML || (() => '<p class="text-muted">Loading…</p>');
+    const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML || (() => '');
+    const esc = opts.esc || ((v) => String(v ?? ''));
+    const gameLog = typeof opts.gameLog === 'function' ? opts.gameLog : (() => {});
+    const showToast = typeof opts.showToast === 'function' ? opts.showToast : (() => {});
+    const invalidateGetCache = typeof opts.invalidateGetCache === 'function' ? opts.invalidateGetCache : (() => {});
+
+    const S = {
+      card: 'flex:1 1 110px;min-width:110px;background:#1f2533;border:1px solid #3a4762;border-radius:8px;padding:10px;',
+      cardLabel: 'font-size:11px;color:#9fb0ce;',
+      cardValue: 'font-size:18px;font-weight:700;color:#e3efff;',
+      section: 'background:#171c28;border:1px solid #2e374e;border-radius:8px;padding:10px;overflow:auto;',
+      sectionTitle: 'font-weight:700;margin-bottom:6px;',
+      table: 'width:100%;border-collapse:collapse;font-size:12px;',
+      th: 'text-align:left;padding:4px;border-bottom:1px solid #3a4762;',
+      thR: 'text-align:right;padding:4px;border-bottom:1px solid #3a4762;',
+      td: 'padding:4px;',
+      tdR: 'text-align:right;padding:4px;',
+      btn: 'background:#2e374e;border:1px solid #4a5878;color:#d7e4ff;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:12px;',
+      btnDanger: 'background:#4e2020;border:1px solid #782e2e;color:#ffcdd2;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:12px;',
+      btnWarn: 'background:#4e3a00;border:1px solid #7a5c00;color:#ffe5a0;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:12px;',
+      sideA: 'color:#7eb8ff;font-weight:700;',
+      sideB: 'color:#ff9980;font-weight:700;',
+    };
+
+    /** Renders a comma-separated list of alliance tags with links. */
+    function sideTagsHtml(sideAlliances, styleStr) {
+      if (!Array.isArray(sideAlliances) || !sideAlliances.length) {
+        return '<span style="color:#9fb0ce;font-size:11px;">—</span>';
+      }
+      return sideAlliances
+        .map((a) => `<span style="${styleStr}">[${esc(a.tag)}] ${esc(a.name)}</span>`)
+        .join('<span style="color:#4a5878;"> + </span>');
+    }
+
+    /** Score bar for two sides. */
+    function scoreBarHtml(scoreA, scoreB) {
+      const total = Math.max(1, scoreA + scoreB);
+      const pctA = Math.round((scoreA / total) * 100);
+      const pctB = 100 - pctA;
+      return `
+        <div style="display:flex;gap:6px;align-items:center;font-size:11px;">
+          <span style="color:#7eb8ff;min-width:38px;text-align:right;">${Number(scoreA).toLocaleString('de-DE')}</span>
+          <div style="flex:1;height:8px;background:#1f2533;border-radius:4px;overflow:hidden;display:flex;">
+            <div style="width:${pctA}%;background:#3a7eff;"></div>
+            <div style="width:${pctB}%;background:#bf4040;"></div>
+          </div>
+          <span style="color:#ff9980;min-width:38px;">${Number(scoreB).toLocaleString('de-DE')}</span>
+        </div>`;
+    }
+
+    /** Single war row for list view. */
+    function warRowHtml(war) {
+      const mySide = war.my_side === 'a' ? 'Side A' : 'Side B';
+      const mySideColor = war.my_side === 'a' ? '#7eb8ff' : '#ff9980';
+      const sideA = war.side_a || [];
+      const sideB = war.side_b || [];
+      return `
+        <tr data-aw-row="${esc(war.war_id)}">
+          <td style="${S.td}">#${esc(war.war_id)}</td>
+          <td style="${S.td};max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(war.name)}</td>
+          <td style="${S.td};font-size:11px;">${sideTagsHtml(sideA, S.sideA)}</td>
+          <td style="${S.td};font-size:11px;">${sideTagsHtml(sideB, S.sideB)}</td>
+          <td style="${S.td};">${scoreBarHtml(Number(war.war_score_a || 0), Number(war.war_score_b || 0))}</td>
+          <td style="${S.td};color:${mySideColor};font-size:11px;">${mySide}</td>
+          <td style="${S.tdR};">
+            <button style="${S.btn}" data-aw-details="${esc(war.war_id)}">Details</button>
+          </td>
+        </tr>`;
+    }
+
+    /** Peace offer rows. */
+    function peaceOffersHtml(offers, myAllianceIds) {
+      const pending = (offers || []).filter((o) => o.status === 'pending');
+      if (!pending.length) return '';
+      const rows = pending.map((offer) => {
+        const isIncoming = !myAllianceIds.includes(Number(offer.from_alliance_id));
+        return `
+          <div style="background:#141922;border:1px solid #2e374e;border-radius:6px;padding:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span style="flex:1;font-size:12px;color:#d7e4ff;">
+              ${isIncoming ? '⬇ Incoming' : '⬆ Outgoing'} peace offer #${esc(offer.id)}
+              <span style="color:#9fb0ce;margin-left:6px;">(expires ${esc(offer.expires_at || '?')})</span>
+            </span>
+            ${isIncoming ? `
+              <button style="${S.btn}" data-aw-offer-accept="${esc(offer.id)}">Accept</button>
+              <button style="${S.btnDanger}" data-aw-offer-reject="${esc(offer.id)}">Reject</button>
+            ` : `<span style="color:#9fb0ce;font-size:11px;">Awaiting response</span>`}
+          </div>`;
+      }).join('');
+      return `
+        <div style="${S.section}">
+          <div style="${S.sectionTitle}">⚖ Peace Offers</div>
+          <div style="display:grid;gap:6px;">${rows}</div>
+        </div>`;
+    }
+
+    /** Detail view for a single alliance war. */
+    function warDetailHtml(warData, myAllianceIds) {
+      const sideA = warData.side_a || [];
+      const sideB = warData.side_b || [];
+      const offers = warData.peace_offers || [];
+      const scoreA = Number(warData.war_score_a || 0);
+      const scoreB = Number(warData.war_score_b || 0);
+      const exhA = Number(warData.exhaustion_a || 0).toFixed(1);
+      const exhB = Number(warData.exhaustion_b || 0).toFixed(1);
+      const mySide = warData.my_side;
+
+      return `
+        <div style="display:grid;gap:10px;">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button style="${S.btn}" data-aw-back="1">← Back</button>
+            <span style="font-weight:700;font-size:14px;color:#e3efff;">
+              Alliance War #${esc(warData.war_id)} — ${esc(warData.name)}
+            </span>
+            <span style="color:#9fb0ce;font-size:11px;">[${esc(warData.status)}]</span>
+            <span style="flex:1;"></span>
+            ${warData.status === 'active' ? `<button style="${S.btnWarn}" data-aw-offer-peace-btn="${esc(warData.war_id)}" data-aw-my-side="${esc(mySide)}">⚖ Offer Peace</button>` : ''}
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <div style="${S.card}">
+              <div style="${S.cardLabel}">⚔ Side A</div>
+              <div style="font-size:12px;color:#7eb8ff;margin-top:4px;">${sideTagsHtml(sideA, 'color:#7eb8ff;')}</div>
+            </div>
+            <div style="${S.card}">
+              <div style="${S.cardLabel}">⚔ Side B</div>
+              <div style="font-size:12px;color:#ff9980;margin-top:4px;">${sideTagsHtml(sideB, 'color:#ff9980;')}</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <div style="${S.card}"><div style="${S.cardLabel}">Score A / B</div><div style="${S.cardValue}">${scoreBarHtml(scoreA, scoreB)}</div></div>
+            <div style="${S.card}"><div style="${S.cardLabel}">Exhaustion A / B</div><div style="${S.cardValue};font-size:13px;">${exhA} / ${exhB}</div></div>
+            <div style="${S.card}"><div style="${S.cardLabel}">Started</div><div style="${S.cardValue};font-size:11px;">${esc(warData.started_at || '?')}</div></div>
+            ${warData.casus_belli ? `<div style="${S.card}"><div style="${S.cardLabel}">Casus Belli</div><div style="font-size:11px;color:#d7e4ff;">${esc(warData.casus_belli)}</div></div>` : ''}
+          </div>
+
+          ${peaceOffersHtml(offers, myAllianceIds)}
+
+          <div data-aw-offer-form-host style="display:none;"></div>
+        </div>`;
+    }
+
+    /** Declare war form. */
+    function declareFormHtml() {
+      return `
+        <div style="background:#1a1a2e;border:1px solid #7a2e2e;border-radius:8px;padding:12px;display:grid;gap:10px;">
+          <div style="font-weight:700;color:#ffcdd2;">⚔ Declare Alliance War</div>
+          <label style="font-size:11px;color:#9fb0ce;">War Name (optional)
+            <input data-aw-war-name type="text" maxlength="120" placeholder="Auto-generated from alliance tags"
+              style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:4px;">
+          </label>
+          <div style="font-size:11px;color:#9fb0ce;">
+            Side A — Alliance IDs (comma-separated, e.g. 1,3)
+            <input data-aw-side-a type="text" placeholder="e.g. 1, 3"
+              style="width:100%;margin-top:3px;background:#111827;color:#7eb8ff;border:1px solid #3a4762;border-radius:4px;padding:4px;">
+          </div>
+          <div style="font-size:11px;color:#9fb0ce;">
+            Side B — Alliance IDs (comma-separated, e.g. 2,4,5)
+            <input data-aw-side-b type="text" placeholder="e.g. 2, 4, 5"
+              style="width:100%;margin-top:3px;background:#111827;color:#ff9980;border:1px solid #3a4762;border-radius:4px;padding:4px;">
+          </div>
+          <label style="font-size:11px;color:#9fb0ce;">Casus Belli (optional)
+            <input data-aw-casus type="text" maxlength="200" placeholder="e.g. Territorial aggression"
+              style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:4px;">
+          </label>
+          <div style="display:flex;gap:8px;">
+            <button data-aw-declare-confirm style="${S.btnDanger}">Declare War</button>
+            <button data-aw-declare-cancel style="${S.btn}">Cancel</button>
+          </div>
+        </div>`;
+    }
+
+    /** Parse comma-separated integer list. */
+    function parseIntList(str) {
+      return (str || '').split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => n > 0);
+    }
+
+    class AllianceWarController {
+      constructor() {
+        this.state = {
+          wars: [],
+          detailWarId: null,
+          detailData: null,
+          myAllianceIds: [],
+        };
+        this.isBusy = false;
+      }
+
+      _myAllianceIds() {
+        try {
+          const meta = window._GQ_meta || {};
+          if (Array.isArray(meta.alliance_ids)) {
+            return meta.alliance_ids.map(Number);
+          }
+          if (meta.alliance_id) {
+            return [Number(meta.alliance_id)];
+          }
+        } catch (_) { /* ignore */ }
+        return [];
+      }
+
+      async loadList() {
+        const res = await api.allianceWars();
+        this.state.wars = (res && res.success && Array.isArray(res.wars)) ? res.wars : [];
+      }
+
+      async loadDetail(warId) {
+        const res = await api.allianceWarStatus(warId);
+        this.state.detailData = (res && res.success) ? res : null;
+      }
+
+      async render() {
+        const root = wm && wm.body('alliance_wars');
+        if (!root) return;
+        root.innerHTML = uiKitSkeletonHTML();
+        this.state.myAllianceIds = this._myAllianceIds();
+
+        try {
+          if (this.state.detailWarId !== null) {
+            await this.loadDetail(this.state.detailWarId);
+            root.innerHTML = this.state.detailData
+              ? warDetailHtml(this.state.detailData, this.state.myAllianceIds)
+              : `<p style="color:#ff9980;padding:10px;">Failed to load war details.</p>`;
+          } else {
+            await this.loadList();
+            root.innerHTML = this._renderListHtml();
+          }
+          this._attachListeners(root);
+        } catch (err) {
+          gameLog('warn', 'AllianceWarController render failed', err);
+          root.innerHTML = '<p class="text-red">Failed to load alliance war data.</p>';
+        }
+      }
+
+      _renderListHtml() {
+        const wars = this.state.wars;
+        const toolbar = `
+          <section style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button style="${S.btn}" data-aw-refresh="1">Refresh</button>
+            <button style="${S.btnDanger}" data-aw-declare="1">⚔ Declare Alliance War</button>
+          </section>
+          <div data-aw-declare-form-host style="display:none;"></div>`;
+
+        if (!wars.length) {
+          return `<div style="display:grid;gap:10px;">${toolbar}${uiKitEmptyStateHTML('No alliance wars', 'No active alliance wars.')}</div>`;
+        }
+
+        const rows = wars.map((w) => warRowHtml(w)).join('');
+        return `
+          <div style="display:grid;gap:10px;">
+            ${toolbar}
+            <div style="${S.section}">
+              <div style="${S.sectionTitle}">Active Alliance Wars</div>
+              <table style="${S.table}">
+                <thead>
+                  <tr>
+                    <th style="${S.th}">ID</th>
+                    <th style="${S.th}">War Name</th>
+                    <th style="${S.th}">Side A</th>
+                    <th style="${S.th}">Side B</th>
+                    <th style="${S.th}">Score (A / B)</th>
+                    <th style="${S.th}">Your Side</th>
+                    <th style="${S.thR}"></th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          </div>`;
+      }
+
+      _attachListeners(root) {
+        // Back
+        root.querySelector('[data-aw-back="1"]')?.addEventListener('click', () => {
+          this.state.detailWarId = null;
+          this.state.detailData = null;
+          this.render();
+        });
+
+        // Refresh
+        root.querySelector('[data-aw-refresh="1"]')?.addEventListener('click', () => {
+          this.render();
+        });
+
+        // Detail view
+        root.querySelectorAll('[data-aw-details]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            this.state.detailWarId = Number(btn.dataset.awDetails);
+            await this.render();
+          });
+        });
+
+        // Declare war toggle
+        root.querySelector('[data-aw-declare="1"]')?.addEventListener('click', () => {
+          const formHost = root.querySelector('[data-aw-declare-form-host]');
+          if (!formHost) return;
+          if (formHost.style.display !== 'none') {
+            formHost.style.display = 'none';
+            formHost.innerHTML = '';
+            return;
+          }
+          formHost.innerHTML = declareFormHtml();
+          formHost.style.display = '';
+
+          formHost.querySelector('[data-aw-declare-cancel]')?.addEventListener('click', () => {
+            formHost.style.display = 'none';
+            formHost.innerHTML = '';
+          });
+
+          formHost.querySelector('[data-aw-declare-confirm]')?.addEventListener('click', async () => {
+            if (this.isBusy) return;
+            this.isBusy = true;
+
+            const name = String(formHost.querySelector('[data-aw-war-name]')?.value || '').trim();
+            const sideA = parseIntList(formHost.querySelector('[data-aw-side-a]')?.value || '');
+            const sideB = parseIntList(formHost.querySelector('[data-aw-side-b]')?.value || '');
+            const casusBelli = String(formHost.querySelector('[data-aw-casus]')?.value || '').trim();
+
+            if (!sideA.length || !sideB.length) {
+              showToast('Both sides must have at least one alliance ID.', 'warning');
+              this.isBusy = false;
+              return;
+            }
+
+            try {
+              const res = await api.declareAllianceWar({ name, side_a: sideA, side_b: sideB, casus_belli: casusBelli });
+              if (res?.success) {
+                showToast('Alliance War declared! War #' + (res.war_id || '?'), 'warning');
+                invalidateGetCache([/api\/alliance_wars\.php\?action=/i]);
+                formHost.style.display = 'none';
+                formHost.innerHTML = '';
+                await this.render();
+              } else {
+                showToast(res?.error || 'Failed to declare alliance war.', 'error');
+              }
+            } catch (err) {
+              gameLog('warn', 'declareAllianceWar failed', err);
+              showToast('Network error declaring alliance war.', 'error');
+            } finally {
+              this.isBusy = false;
+            }
+          });
+        });
+
+        // Offer peace (in detail view)
+        root.querySelector('[data-aw-offer-peace-btn]')?.addEventListener('click', (ev) => {
+          const wid = Number(ev.currentTarget.dataset.awOfferPeaceBtn);
+          const mySide = ev.currentTarget.dataset.awMySide;
+          const offerHost = root.querySelector('[data-aw-offer-form-host]');
+          if (!offerHost) return;
+
+          // Build alliance selector from the user's own alliances on their side
+          const warData = this.state.detailData;
+          const sideKey = mySide === 'a' ? 'side_a' : 'side_b';
+          const mySideAlliances = (warData && warData[sideKey]) ? warData[sideKey] : [];
+          const myAllianceIds = this.state.myAllianceIds;
+          const ownAlliances = mySideAlliances.filter((a) => myAllianceIds.includes(Number(a.alliance_id)));
+
+          if (!ownAlliances.length) {
+            showToast('No alliance found on your side to offer peace from.', 'warning');
+            return;
+          }
+
+          const allianceOptions = ownAlliances
+            .map((a) => `<option value="${esc(a.alliance_id)}">[${esc(a.tag)}] ${esc(a.name)}</option>`)
+            .join('');
+
+          offerHost.innerHTML = `
+            <div style="background:#1a1020;border:1px solid #4a3070;border-radius:8px;padding:12px;display:grid;gap:10px;">
+              <div style="${S.sectionTitle}">⚖ Offer Peace (Alliance War #${esc(wid)})</div>
+              <label style="font-size:11px;color:#9fb0ce;">Offering Alliance
+                <select data-aw-peace-alliance style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:4px;">
+                  ${allianceOptions}
+                </select>
+              </label>
+              <p style="color:#9fb0ce;font-size:11px;">A peace offer must be accepted by a leader/diplomat of the opposing side to end the war.</p>
+              <div style="display:flex;gap:8px;">
+                <button data-aw-peace-confirm="${esc(wid)}" style="${S.btnWarn}">Send Peace Offer</button>
+                <button data-aw-peace-cancel style="${S.btn}">Cancel</button>
+              </div>
+            </div>`;
+          offerHost.style.display = '';
+
+          offerHost.querySelector('[data-aw-peace-cancel]')?.addEventListener('click', () => {
+            offerHost.style.display = 'none';
+            offerHost.innerHTML = '';
+          });
+
+          offerHost.querySelector(`[data-aw-peace-confirm]`)?.addEventListener('click', async () => {
+            if (this.isBusy) return;
+            this.isBusy = true;
+            const fromAllianceId = Number(offerHost.querySelector('[data-aw-peace-alliance]')?.value || 0);
+            try {
+              const res = await api.offerAlliancePeace({
+                war_id: wid,
+                from_alliance_id: fromAllianceId,
+                terms: [],
+              });
+              if (res && res.success) {
+                invalidateGetCache([/api\/alliance_wars\.php\?action=/i]);
+                showToast('Peace offer sent.', 'success');
+                offerHost.style.display = 'none';
+                offerHost.innerHTML = '';
+                await this.loadDetail(wid);
+                await this.render();
+              } else {
+                showToast(res?.error || 'Failed to send peace offer.', 'error');
+              }
+            } catch (err) {
+              gameLog('warn', 'offerAlliancePeace failed', err);
+              showToast('Network error sending peace offer.', 'error');
+            } finally {
+              this.isBusy = false;
+            }
+          });
+        });
+
+        // Accept peace offer
+        root.querySelectorAll('[data-aw-offer-accept]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            if (this.isBusy) return;
+            this.isBusy = true;
+            const offerId = Number(btn.dataset.awOfferAccept);
+            const warData = this.state.detailData;
+            const mySide = warData?.my_side;
+            const sideKey = mySide === 'a' ? 'side_a' : 'side_b';
+            const mySideAlliances = (warData && warData[sideKey]) ? warData[sideKey] : [];
+            const myAllianceIds = this.state.myAllianceIds;
+            const ownAlliance = mySideAlliances.find((a) => myAllianceIds.includes(Number(a.alliance_id)));
+            if (!ownAlliance) {
+              showToast('No eligible alliance found to accept on your behalf.', 'error');
+              this.isBusy = false;
+              return;
+            }
+            try {
+              const res = await api.respondAlliancePeaceOffer({
+                offer_id: offerId,
+                alliance_id: ownAlliance.alliance_id,
+                accept: true,
+              });
+              if (res && res.success) {
+                invalidateGetCache([/api\/alliance_wars\.php\?action=/i]);
+                showToast('Peace accepted — war ended.', 'success');
+                this.state.detailWarId = null;
+                this.state.detailData = null;
+              } else {
+                showToast(res?.error || 'Failed to accept peace offer.', 'error');
+              }
+            } catch (err) {
+              gameLog('warn', 'respondAlliancePeaceOffer(accept) failed', err);
+              showToast('Network error accepting peace offer.', 'error');
+            } finally {
+              this.isBusy = false;
+              await this.render();
+            }
+          });
+        });
+
+        // Reject peace offer
+        root.querySelectorAll('[data-aw-offer-reject]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            if (this.isBusy) return;
+            this.isBusy = true;
+            const offerId = Number(btn.dataset.awOfferReject);
+            const warData = this.state.detailData;
+            const mySide = warData?.my_side;
+            const sideKey = mySide === 'a' ? 'side_a' : 'side_b';
+            const mySideAlliances = (warData && warData[sideKey]) ? warData[sideKey] : [];
+            const myAllianceIds = this.state.myAllianceIds;
+            const ownAlliance = mySideAlliances.find((a) => myAllianceIds.includes(Number(a.alliance_id)));
+            if (!ownAlliance) {
+              showToast('No eligible alliance found to reject on your behalf.', 'error');
+              this.isBusy = false;
+              return;
+            }
+            try {
+              const res = await api.respondAlliancePeaceOffer({
+                offer_id: offerId,
+                alliance_id: ownAlliance.alliance_id,
+                accept: false,
+              });
+              if (res && res.success) {
+                invalidateGetCache([/api\/alliance_wars\.php\?action=/i]);
+                showToast('Peace offer rejected.', 'info');
+              } else {
+                showToast(res?.error || 'Failed to reject peace offer.', 'error');
+              }
+            } catch (err) {
+              gameLog('warn', 'respondAlliancePeaceOffer(reject) failed', err);
+              showToast('Network error rejecting peace offer.', 'error');
+            } finally {
+              this.isBusy = false;
+              await this.render();
+            }
+          });
+        });
+      }
+    }
+
+    return new AllianceWarController();
+  }
+
+  const api = { createWarController, createAllianceWarController };
 
   if (typeof window !== 'undefined') {
     window.GQRuntimeWarController = api;

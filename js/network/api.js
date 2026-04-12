@@ -63,6 +63,8 @@ const API = (() => {
     { re: /api\/alliances\.php\?action=relations/i, ttl: 5 * 1000 },
     { re: /api\/alliances\.php\?action=get_messages/i, ttl: 5 * 1000 },
     { re: /api\/alliances\.php\?action=war_map/i, ttl: 10 * 1000 },
+    { re: /api\/alliance_wars\.php\?action=list/i, ttl: 8 * 1000 },
+    { re: /api\/alliance_wars\.php\?action=get_status/i, ttl: 5 * 1000 },
     { re: /api\/war\.php\?action=list/i, ttl: 8 * 1000 },
     { re: /api\/war\.php\?action=get_status/i, ttl: 5 * 1000 },
     { re: /api\/war\.php\?action=get_intel/i, ttl: 30 * 1000 },
@@ -97,6 +99,7 @@ const API = (() => {
     /^api\/pirates\.php\?action=/i,
     /^api\/economy\.php\?action=/i,
     /^api\/alliances\.php\?action=/i,
+    /^api\/alliance_wars\.php\?action=/i,
     /^api\/war\.php\?action=/i,
     /^api\/galaxy\.php\?/i,
   ];
@@ -1811,6 +1814,30 @@ const API = (() => {
     setAllianceRelation: (data) => post('api/alliances.php?action=set_relation', data),
     allianceMessages: (id)     => get(`api/alliances.php?action=get_messages&alliance_id=${id}`),
     sendAllianceMessage: (id, msg) => post('api/alliances.php?action=send_message', { alliance_id: id, message: msg }),
+
+    // Alliance Wars — N-vs-M multi-alliance wars
+    allianceWars: () => get('api/alliance_wars.php?action=list'),
+    allianceWarStatus: (warId) =>
+      get(`api/alliance_wars.php?action=get_status&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
+    declareAllianceWar: ({ name = '', side_a = [], side_b = [], casus_belli = '' } = {}) =>
+      post('api/alliance_wars.php?action=declare', {
+        name: String(name || ''),
+        side_a: Array.isArray(side_a) ? side_a.map(Number) : [],
+        side_b: Array.isArray(side_b) ? side_b.map(Number) : [],
+        casus_belli: String(casus_belli || ''),
+      }),
+    offerAlliancePeace: ({ war_id, from_alliance_id, terms = [] } = {}) =>
+      post('api/alliance_wars.php?action=offer_peace', {
+        war_id: Math.max(0, Number(war_id || 0)),
+        from_alliance_id: Math.max(0, Number(from_alliance_id || 0)),
+        terms: Array.isArray(terms) ? terms : [],
+      }),
+    respondAlliancePeaceOffer: ({ offer_id, alliance_id, accept } = {}) =>
+      post('api/alliance_wars.php?action=respond_peace', {
+        offer_id: Math.max(0, Number(offer_id || 0)),
+        alliance_id: Math.max(0, Number(alliance_id || 0)),
+        accept: !!accept,
+      }),
 
     // Local LLM (Ollama)
     llmStatus: () => get('api/ollama.php?action=status', { priority: 'high' }),
