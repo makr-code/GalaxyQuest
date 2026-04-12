@@ -189,7 +189,7 @@
       'js/engine/runtime/RuntimePolicyEngine.js',
       'js/engine/runtime/layers/integration/galaxy/DebugLog.js',
       'js/engine/runtime/RuntimeColonyBuildingLogic.js',
-      'js/engine/runtime/RuntimeMessageSignals.js',
+      'js/engine/runtime/layers/domain/messages/RuntimeMessageSignals.js',
       'js/engine/runtime/RuntimeRenderTelemetryHook.js',
       'js/engine/runtime/layers/integration/galaxy/CanvasDebug.js',
       'js/engine/runtime/layers/integration/galaxy/EventProbe.js',
@@ -197,8 +197,8 @@
       'js/engine/runtime/RuntimePerfTelemetryCommand.js',
       'js/engine/runtime/RuntimeTerminalCommand.js',
       'js/engine/runtime/RuntimeOpenWindowCommand.js',
-      'js/engine/runtime/RuntimeMessageSendCommand.js',
-      'js/engine/runtime/RuntimeMessageConsoleCommand.js'
+      'js/engine/runtime/layers/domain/messages/RuntimeMessageSendCommand.js',
+      'js/engine/runtime/layers/domain/messages/RuntimeMessageConsoleCommand.js'
     ], V.runtime));
 
   const bootScriptsGalaxy = []
@@ -326,15 +326,15 @@
     'js/engine/runtime/RuntimeDevelopmentControllersBootstrap.js',
     'js/engine/runtime/RuntimeShipyardController.js',
     'js/ui/ShipHangarViewer.js',
-    'js/engine/runtime/RuntimeMessagesController.js',
+    'js/engine/runtime/layers/domain/messages/RuntimeMessagesController.js',
     'js/engine/runtime/RuntimeIntelController.js',
     'js/engine/runtime/RuntimeLeadersController.js',
     'js/engine/runtime/RuntimeAlliancesController.js',
-    'js/engine/runtime/RuntimeTradeProposalsController.js',
-    'js/engine/runtime/RuntimeTradeRoutesController.js',
-    'js/engine/runtime/RuntimeTradersDashboardController.js',
-    'js/engine/runtime/RuntimePiratesController.js',
-    'js/engine/runtime/RuntimeWarController.js',
+    'js/engine/runtime/layers/domain/trade/RuntimeTradeProposalsController.js',
+    'js/engine/runtime/layers/domain/trade/RuntimeTradeRoutesController.js',
+    'js/engine/runtime/layers/domain/trade/RuntimeTradersDashboardController.js',
+    'js/engine/runtime/layers/domain/pirates/RuntimePiratesController.js',
+    'js/engine/runtime/layers/domain/war/RuntimeWarController.js',
     'js/engine/runtime/RuntimeEconomyController.js',
     'js/engine/runtime/RuntimeConflictDashboard.js',
     'js/engine/runtime/RuntimeColonizationController.js',

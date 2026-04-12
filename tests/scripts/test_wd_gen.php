@@ -2,7 +2,7 @@
 /**
  * Quick test: Verify white dwarf generation
  */
-require_once 'api/galaxy_gen.php';
+require_once __DIR__ . '/../../api/galaxy_gen.php';
 
 // Test 20 star systems to see if WDs appear
 $wd_count = 0;

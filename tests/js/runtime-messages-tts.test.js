@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const modulePath = path.resolve(process.cwd(), 'js/engine/runtime/RuntimeMessagesController.js');
+const modulePath = path.resolve(process.cwd(), 'js/engine/runtime/layers/domain/messages/RuntimeMessagesController.js');
 
 function loadModule() {
   delete window.GQRuntimeMessagesController;

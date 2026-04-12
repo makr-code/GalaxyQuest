@@ -537,29 +537,30 @@ GESAMT (vs. finale Vision)                                  ~60%
 ### 5.1 JS-Refactoring (Phase 2–4)
 
 **Referenz:** `docs/technical/JS_REFACTOR_ZIELSTRUKTUR_TODO.md`  
-**Status:** Phase 1 ✅ (Layer-Struktur 1–14 fertig), Phase 2–4 ausstehend
+**Status:** Phase 1 ✅, Phase 2 ✅ (Domain-Subtrees migriert), Phase 3–4 ausstehend
 
-| Ausstehende Aufgaben |
-|---|
-| `RuntimeMessage*`, `RuntimeTrade*`, `RuntimeWar*`, `RuntimePirates*` in Domain-Subtrees unter `js/engine/runtime/layers/domain/` migrieren |
-| Minimap in eigenes Runtime-Modul auslagern |
-| `SettingsController` in Runtime-Teilmodule aufsplitten |
-| `js/network/api.js` → `api-transport.js`, `api-queue.js`, `api-cache.js`, `api-schema-adapters.js`, `api-session.js` |
-| `js/network/auth.js` → `auth-shell.js`, `auth-boot-assets.js`, `auth-ui-state.js`, `auth-audio.js`, `auth-reachability.js`, `auth-2fa.js` |
+| Aufgabe | Status |
+|---|---|
+| `RuntimeMessage*`, `RuntimeTrade*`, `RuntimeWar*`, `RuntimePirates*` in Domain-Subtrees unter `js/engine/runtime/layers/domain/` migrieren | ✅ Sprint 1.2 |
+| Minimap in eigenes Runtime-Modul auslagern | ⬜ offen |
+| `SettingsController` in Runtime-Teilmodule aufsplitten | ⬜ offen |
+| `js/network/api.js` → `api-transport.js`, `api-queue.js`, `api-cache.js`, `api-schema-adapters.js`, `api-session.js` | ⬜ offen |
+| `js/network/auth.js` → `auth-shell.js`, `auth-boot-assets.js`, `auth-ui-state.js`, `auth-audio.js`, `auth-reachability.js`, `auth-2fa.js` | ⬜ offen |
 
 ### 5.2 Selection Unification
 
 **Referenz:** `docs/technical/SELECTION_UNIFICATION_TODO.md`  
-**Status:** Alle 6 Phasen ausstehend
+**Status:** Phase 1 teilweise ✅ (Central Store + Key), Phase 2–4 ausstehend
 
-| Ausstehende Aufgaben |
-|---|
-| Zentralen Selection Store einführen (`uiState.selectionState`) |
-| Einheitlichen Selection-Key (kind + ids + scope) definieren |
-| Persistenten Selection-Marker (getrennt vom Hover-Marker) |
-| Ownership-Visuals in Galaxy-, System-, Approach-, Colony-View vereinheitlichen |
-| Gruppen-Selektion generalisieren (Cluster → Fraktion) |
-| Multi-Select UX (Ctrl/Shift) |
+| Aufgabe | Status |
+|---|---|
+| Zentralen Selection Store einführen (`uiState.selectionState`) | ✅ Sprint 1.2 |
+| Einheitlichen Selection-Key (kind + ids + scope) definieren | ✅ Sprint 1.2 |
+| Unit-Tests für Selection-Key, State-Reducer, Group-Selection | ✅ Sprint 1.2 |
+| Persistenten Selection-Marker (getrennt vom Hover-Marker) | ⬜ offen |
+| Ownership-Visuals in Galaxy-, System-, Approach-, Colony-View vereinheitlichen | ⬜ offen |
+| Gruppen-Selektion generalisieren (Cluster → Fraktion) | ⬜ offen |
+| Multi-Select UX (Ctrl/Shift) | ⬜ offen |
 
 ### 5.3 Template System Migration
 
@@ -573,24 +574,16 @@ Aktuell wird HTML größtenteils als String-Interpolation in PHP/JS erzeugt. Zie
 **Referenz:** `docs/technical/THEMISDB_MIGRATION_ROADMAP.md`  
 **Status:** Nur Phase 0 (Infrastruktur), Phase 1–6 ausstehend (Aufwand ~80–100h)
 
-### 5.5 Fehlende CI/CD-Pipeline
+### 5.5 CI/CD-Pipeline
 
-**Status:** Keine GitHub Actions konfiguriert  
-**Auswirkung:** Kein automatisches Testing bei jedem Commit; Regressionen möglich  
-**Empfehlung:** GitHub Actions Workflow mit PHPUnit + Vitest + Playwright Smoke-Tests einrichten
+**Status:** ✅ Sprint 1.2 — `.github/workflows/ci.yml` eingerichtet  
+Läuft Vitest (JS) + PHPUnit (PHP) auf jedem Push/PR gegen `main`/`master`.
 
 ### 5.6 Root-Level Test-Dateien
 
-Im Root-Verzeichnis befinden sich noch temporäre Test-Dateien:
-- `test_lifecycle_sql.sql`
-- `test_pop_satisfaction_phase1.php`
-- `test_species_loading.php`
-- `test_system_planets.php`
-- `test_trader_lifecycle.php`
-- `test_traders_complete.php`
-- `test_wd_gen.php`
+**Status:** ✅ Sprint 1.2 — 13 Skripte nach `tests/scripts/` verschoben.
 
-Diese sollten nach `tests/` verschoben oder entfernt werden.
+`tests/scripts/README.md` dokumentiert Zweck und Verwendung aller Skripte.
 
 ### 5.7 API-Versioning Konsistenz
 

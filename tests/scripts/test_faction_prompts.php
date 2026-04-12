@@ -1,6 +1,6 @@
 <?php
-require_once 'api/character_profile_generator.php';
-require_once 'api/helpers.php';
+require_once __DIR__ . '/../../api/character_profile_generator.php';
+require_once __DIR__ . '/../../api/helpers.php';
 
 $db = get_db();
 

@@ -197,6 +197,35 @@
     return normalized;
   }
 
+  /**
+   * createSelectionStore() — Phase 1: Unified Selection Store
+   *
+   * Returns a properly shaped, mutable selection-state object that can be
+   * assigned to uiState.selectionState (or the legacy uiState.selection alias).
+   * Every field has a defined initial value so consumers never encounter
+   * undefined properties.
+   *
+   * Shape:
+   *   active         – currently selected object (normalized or null)
+   *   hover          – object under pointer (normalized or null)
+   *   multiSelection – array of normalized members for group/cluster selection
+   *   group          – group descriptor { type, systems, factionId, factionName }
+   *   mode           – 'galaxy' | 'system'
+   *   sourceView     – view that last triggered a selection event
+   *   updatedAt      – timestamp of last mutation (ms since epoch, 0 = never)
+   */
+  function createSelectionStore() {
+    return {
+      active: null,
+      hover: null,
+      multiSelection: [],
+      group: null,
+      mode: 'galaxy',
+      sourceView: 'renderer',
+      updatedAt: 0,
+    };
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       configureSelectionRuntime,
@@ -206,6 +235,7 @@
       resolveSelectionGroupMembers,
       getSelectionGroupHighlightedSystems,
       commitSelectionState,
+      createSelectionStore,
     };
   } else {
     window.GQRuntimeSelectionState = {
@@ -216,6 +246,7 @@
       resolveSelectionGroupMembers,
       getSelectionGroupHighlightedSystems,
       commitSelectionState,
+      createSelectionStore,
     };
   }
 })();

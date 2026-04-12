@@ -125,9 +125,9 @@
 
 ### C-1 JS-Refactor Phase 2–4 🟡
 **Referenz:** `docs/technical/JS_REFACTOR_ZIELSTRUKTUR_TODO.md`  
-**Status:** Phase 1 ✅ (Layer-Struktur 1–14 fertig), Phase 2–4 ausstehend
+**Status:** Phase 1 ✅ (Layer-Struktur 1–14 fertig), Phase 2 ✅ (Domain-Subtrees), Phase 3–4 ausstehend
 
-- [ ] `RuntimeMessage*`, `RuntimeTrade*`, `RuntimeWar*`, `RuntimePirates*` in Domain-Subtrees unter `js/engine/runtime/layers/domain/` migrieren
+- [x] `RuntimeMessage*`, `RuntimeTrade*`, `RuntimeWar*`, `RuntimePirates*` in Domain-Subtrees unter `js/engine/runtime/layers/domain/` migrieren
 - [ ] Minimap in eigenes Runtime-Modul auslagern
 - [ ] `SettingsController` in Runtime-Teilmodule aufsplitten
 - [ ] `js/network/api.js` → in `api-transport.js`, `api-queue.js`, `api-cache.js`, `api-schema-adapters.js`, `api-session.js` zerlegen
@@ -137,16 +137,16 @@
 
 ### C-2 Selection Unification 🟡
 **Referenz:** `docs/technical/SELECTION_UNIFICATION_TODO.md`  
-**Status:** Alle 6 Phasen ausstehend
+**Status:** Phase 1 teilweise ✅ (Selection Store + Key), Phase 2–4 ausstehend
 
-- [ ] Zentralen Selection Store einführen (`uiState.selectionState`)
-- [ ] Einheitlichen Selection-Key (kind + ids + scope) definieren
+- [x] Zentralen Selection Store einführen (`uiState.selectionState` via `createSelectionStore()`)
+- [x] Einheitlichen Selection-Key (kind + ids + scope) definieren (`buildSelectionKey`)
+- [x] Unit-Tests für Selection-Key, State-Reducer, Group-Selection (22 Tests in `tests/js/runtime-selection-state.test.js`)
 - [ ] Persistenten Selection-Marker (getrennt vom Hover-Marker)
 - [ ] Ownership-Visuals in Galaxy-, System-, Approach-, Colony-View vereinheitlichen
 - [ ] Gruppen-Selektion generalisieren (Cluster → Fraktion)
 - [ ] Multi-Select UX (Ctrl/Shift)
 - [ ] Accessibility: Tastatur-Navigation + aria-live für Selections
-- [ ] Unit-Tests für Selection-Key, State-Reducer, Group-Selection
 
 ---
 
@@ -234,3 +234,7 @@
 | 2026-04-08 | Modul 6 (A-1) | `tests/Unit/ColonizationEngineTest.php` — 37 Tests, 60 Assertions ✅ |
 | 2026-04-08 | Modul 7 (B-1) | `RuntimeWarController.js`: Multi-Goal-Declaration, Peace-Terms-Checkboxen, counterOfferFormHtml() |
 | 2026-04-08 | Modul 8 (B-2) | `api/npc_ai.php::maybe_pirate_raid()`: Deuterium-Loot, Countermeasure-Effektivität, pirate_raid_history-Log |
+| 2026-04-12 | Sprint 1.2 (C-1) | Domain-Subtrees: 9 RuntimeMessage*/Trade*/War*/Pirates* → `layers/domain/`; boot-manifest.js + Audit-Test aktualisiert |
+| 2026-04-12 | Sprint 1.2 (C-2) | Selection Unification Phase 1: `createSelectionStore()`, `uiState.selectionState`, 22 Unit-Tests |
+| 2026-04-12 | Sprint 1.2 (5.5) | CI/CD: `.github/workflows/ci.yml` — Vitest + PHPUnit auf Push/PR |
+| 2026-04-12 | Sprint 1.2 (5.6) | Root-Test-Dateien: 13 Skripte nach `tests/scripts/` verschoben, Pfade korrigiert, README.md erstellt |
