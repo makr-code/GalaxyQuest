@@ -78,16 +78,16 @@
 
 ### B-1 War-System Frontend 🟡 🚧
 **Referenz:** `IMPLEMENTATION_STATUS_SUMMARY.md` (§3), `COMBAT_SYSTEM_DESIGN.md`, `docs/github-issues/07`  
-**Status:** Backend ~80 %, Frontend ~65 % (teilweise implementiert)
+**Status:** Backend ~85 %, Frontend ~90 % (Sprint 3.1 abgeschlossen)
 
 - [x] War Declaration Dialog: Multi-Goal-Checkboxen statt Single-Select (5 Ziele mit Beschreibung)
 - [x] Casus-Belli-Eingabe im Deklarations-Dialog
 - [x] Peace-Negotiation: Counter-Offer-UI (counterOfferFormHtml, counterTerms-Checkboxen)
 - [x] Peace-Terms-Auswahl beim Senden (White Peace, Reparations, System Handover, Vassal, Resource Tribute)
-- [ ] War-Intelligence-Panel (feindliche Flottenanzahl, Ressourcen-Scan)
-- [ ] Allianz-Kriege: N-vs-M Szenarien (Backend-Stub vorhanden)
-- [ ] War-Goal-Score sichtbar in Frontend (Backend trackt, Frontend zeigt "unknown")
-- [ ] `tests/js/war-events.test.js` erstellen
+- [x] War-Intelligence-Panel (feindliche Flottenanzahl, Ressourcen-Scan) — `get_intel` Endpunkt + `🔍 Scan Enemy`-Button im Detail-View
+- [x] Allianz-Kriege: N-vs-M Szenarien sichtbar — `alliance_wars`-Endpunkt + Alliance Wars-Sektion im War-Overview
+- [x] War-Goal-Score sichtbar in Frontend (Backend trackt, `score_value`-Spalte im Goals-Table)
+- [x] `tests/js/war-events.test.js` erstellen (31 Tests)
 
 ---
 
@@ -254,3 +254,4 @@
 | 2026-04-12 | Sprint 1.2 (C-2) | Selection Unification Phase 1: `createSelectionStore()`, `uiState.selectionState`, 22 Unit-Tests |
 | 2026-04-12 | Sprint 1.2 (5.5) | CI/CD: `.github/workflows/ci.yml` — Vitest + PHPUnit auf Push/PR |
 | 2026-04-12 | Sprint 1.2 (5.6) | Root-Test-Dateien: 13 Skripte nach `tests/scripts/` verschoben, Pfade korrigiert, README.md erstellt |
+| 2026-04-12 | Sprint 3.1 (B-1) | War-Frontend-Completion: `get_intel`+`alliance_wars` Endpunkte, War-Intelligence-Panel, Alliance-Wars-Sektion, `warIntel`+`warAllianceList` in api.js, 11 neue Tests (31 total) |

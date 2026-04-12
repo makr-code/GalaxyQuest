@@ -4,6 +4,8 @@
  *
  * GET  /api/war.php?action=list
  * GET  /api/war.php?action=get_status&war_id=X
+ * GET  /api/war.php?action=get_intel&war_id=X
+ * GET  /api/war.php?action=alliance_wars
  * POST /api/war.php?action=declare       body: {target_user_id, war_goals?, casus_belli?}
  * POST /api/war.php?action=offer_peace   body: {war_id, terms?}
  * POST /api/war.php?action=respond_peace body: {offer_id, accept}
@@ -801,6 +803,136 @@ switch ($action) {
             'distance_ly'     => round($distanceLy, 2),
             'logistics_cost'  => $logisticsCost,
             'status'          => 'active',
+        ]);
+    }
+
+    // PHASE 3.4 – Alliance war overview
+    // GET /api/war.php?action=alliance_wars
+    case 'alliance_wars': {
+        only_method('GET');
+
+        // Look up the player's current alliance
+        $amStmt = $db->prepare(
+            'SELECT am.alliance_id, a.name AS alliance_name, a.tag AS alliance_tag
+             FROM alliance_members am
+             JOIN alliances a ON a.id = am.alliance_id
+             WHERE am.user_id = ?
+             LIMIT 1'
+        );
+        $amStmt->execute([$uid]);
+        $allianceRow = $amStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$allianceRow) {
+            json_ok(['my_alliance' => null, 'alliance_wars' => []]);
+        }
+
+        $myAllianceId = (int)$allianceRow['alliance_id'];
+
+        // Fetch active war relations for this alliance
+        $relStmt = $db->prepare(<<<SQL
+            SELECT ar.id,
+                   ar.relation_type,
+                   ar.other_alliance_id,
+                   ar.other_user_id,
+                   ar.declared_at,
+                   ar.expires_at,
+                   a2.name  AS other_alliance_name,
+                   a2.tag   AS other_alliance_tag,
+                   u.username AS other_user_name
+            FROM alliance_relations ar
+            LEFT JOIN alliances a2 ON a2.id = ar.other_alliance_id
+            LEFT JOIN users u ON u.id = ar.other_user_id
+            WHERE ar.alliance_id = ?
+              AND ar.relation_type = 'war'
+              AND (ar.expires_at IS NULL OR ar.expires_at > NOW())
+            ORDER BY ar.declared_at DESC
+        SQL);
+        $relStmt->execute([$myAllianceId]);
+        $rows = $relStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $allianceWars = array_map(function (array $r): array {
+            return [
+                'relation_id'         => (int)$r['id'],
+                'other_alliance_id'   => $r['other_alliance_id'] !== null ? (int)$r['other_alliance_id'] : null,
+                'other_alliance_name' => $r['other_alliance_name'],
+                'other_alliance_tag'  => $r['other_alliance_tag'],
+                'other_user_id'       => $r['other_user_id'] !== null ? (int)$r['other_user_id'] : null,
+                'other_user_name'     => $r['other_user_name'],
+                'declared_at'         => (string)$r['declared_at'],
+                'expires_at'          => $r['expires_at'],
+            ];
+        }, $rows);
+
+        json_ok([
+            'my_alliance' => [
+                'id'   => $myAllianceId,
+                'name' => (string)$allianceRow['alliance_name'],
+                'tag'  => (string)$allianceRow['alliance_tag'],
+            ],
+            'alliance_wars' => $allianceWars,
+        ]);
+    }
+
+    // PHASE 3.5 – War intelligence scan
+    // GET /api/war.php?action=get_intel&war_id=X
+    case 'get_intel': {
+        only_method('GET');
+        $warId = (int)($_GET['war_id'] ?? 0);
+        if ($warId <= 0) json_error('Missing war_id', 400);
+
+        $war = war_load_for_participant($db, $warId, $uid);
+        if (!$war) json_error('War not found or access denied', 403);
+
+        $isAttacker  = (int)$war['attacker_user_id'] === $uid;
+        $opponentId  = $isAttacker ? (int)$war['defender_user_id'] : (int)$war['attacker_user_id'];
+
+        // Fleet count
+        $fleetStmt = $db->prepare(
+            'SELECT COUNT(*) FROM fleets WHERE user_id = ? AND status IN ("orbiting","flying","returning")'
+        );
+        $fleetStmt->execute([$opponentId]);
+        $fleetCount = (int)$fleetStmt->fetchColumn();
+
+        // Colony count
+        $colonyStmt = $db->prepare('SELECT COUNT(*) FROM colonies WHERE user_id = ?');
+        $colonyStmt->execute([$opponentId]);
+        $colonyCount = (int)$colonyStmt->fetchColumn();
+
+        // Alliance membership
+        $allianceStmt = $db->prepare(
+            'SELECT a.id, a.name, a.tag
+             FROM alliance_members am
+             JOIN alliances a ON a.id = am.alliance_id
+             WHERE am.user_id = ?
+             LIMIT 1'
+        );
+        $allianceStmt->execute([$opponentId]);
+        $allianceInfo = $allianceStmt->fetch(PDO::FETCH_ASSOC);
+
+        // Resource scan (imperfect — scaled by scan_accuracy)
+        $scanAccuracy = 0.65;
+        $resourceStmt = $db->prepare(
+            'SELECT SUM(metal) AS metal, SUM(crystal) AS crystal, SUM(deuterium) AS deuterium
+             FROM colonies WHERE user_id = ?'
+        );
+        $resourceStmt->execute([$opponentId]);
+        $resources = $resourceStmt->fetch(PDO::FETCH_ASSOC);
+
+        json_ok([
+            'war_id'             => $warId,
+            'opponent_user_id'   => $opponentId,
+            'enemy_fleet_count'  => $fleetCount,
+            'enemy_colony_count' => $colonyCount,
+            'enemy_alliance'     => $allianceInfo
+                ? ['id' => (int)$allianceInfo['id'], 'name' => $allianceInfo['name'], 'tag' => $allianceInfo['tag']]
+                : null,
+            'resource_scan'      => [
+                'metal'     => $resources ? (int)round((float)($resources['metal']     ?? 0) * $scanAccuracy) : 0,
+                'crystal'   => $resources ? (int)round((float)($resources['crystal']   ?? 0) * $scanAccuracy) : 0,
+                'deuterium' => $resources ? (int)round((float)($resources['deuterium'] ?? 0) * $scanAccuracy) : 0,
+            ],
+            'scan_accuracy' => $scanAccuracy,
+            'scanned_at'    => date('Y-m-d H:i:s'),
         ]);
     }
 

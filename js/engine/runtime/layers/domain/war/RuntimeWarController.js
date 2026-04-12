@@ -95,6 +95,85 @@
       `;
     }
 
+    // ── Alliance wars section ─────────────────────────────────────────────────
+    function allianceWarsHtml(myAlliance, allianceWars) {
+      if (!myAlliance) return '';
+      const allianceLabel = `[${esc(myAlliance.tag || '?')}] ${esc(myAlliance.name || '?')}`;
+      if (!allianceWars || allianceWars.length === 0) {
+        return `
+          <div style="${S.section}">
+            <div style="${S.sectionTitle}">🤝 Alliance Wars — ${allianceLabel}</div>
+            <p style="color:#9fb0ce;font-size:12px;margin:4px 0 0;">No active alliance-level war declarations.</p>
+          </div>
+        `;
+      }
+      const rows = allianceWars.map((aw) => {
+        const target = aw.other_alliance_name
+          ? `[${esc(aw.other_alliance_tag || '?')}] ${esc(aw.other_alliance_name)}`
+          : esc(aw.other_user_name || `User #${aw.other_user_id}`);
+        return `
+          <tr>
+            <td style="${S.td};color:#ff9980;font-weight:700;">⚔ WAR</td>
+            <td style="${S.td};">${target}</td>
+            <td style="${S.td};color:#9fb0ce;font-size:11px;">${esc(aw.declared_at || '?')}</td>
+          </tr>
+        `;
+      }).join('');
+      return `
+        <div style="${S.section}">
+          <div style="${S.sectionTitle}">🤝 Alliance Wars — ${allianceLabel}</div>
+          <table style="${S.table}">
+            <thead>
+              <tr>
+                <th style="${S.th}">Status</th>
+                <th style="${S.th}">Target</th>
+                <th style="${S.th}">Declared</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    // ── War intelligence panel ────────────────────────────────────────────────
+    function intelPanelHtml(intel) {
+      if (!intel) return '';
+      const scan = intel.resource_scan || {};
+      const alliance = intel.enemy_alliance;
+      const accuracy = Math.round((intel.scan_accuracy || 0) * 100);
+      return `
+        <div style="${S.section}">
+          <div style="${S.sectionTitle}">🔍 War Intelligence <span style="color:#9fb0ce;font-size:11px;font-weight:400;">(~${accuracy}% accuracy)</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+            <div style="${S.card}">
+              <div style="${S.cardLabel}">Enemy Fleets</div>
+              <div style="${S.cardValue}">${Number(intel.enemy_fleet_count || 0).toLocaleString('de-DE')}</div>
+            </div>
+            <div style="${S.card}">
+              <div style="${S.cardLabel}">Enemy Colonies</div>
+              <div style="${S.cardValue}">${Number(intel.enemy_colony_count || 0).toLocaleString('de-DE')}</div>
+            </div>
+            ${alliance ? `
+              <div style="${S.card}">
+                <div style="${S.cardLabel}">Alliance</div>
+                <div style="${S.cardValue};font-size:12px;">[${esc(alliance.tag || '?')}] ${esc(alliance.name || '?')}</div>
+              </div>
+            ` : ''}
+          </div>
+          <div style="margin-top:8px;">
+            <div style="font-size:11px;color:#9fb0ce;margin-bottom:4px;">Resource Scan (estimated)</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <span style="font-size:12px;color:#d7e4ff;">⛏ Metal: <strong>${Number(scan.metal || 0).toLocaleString('de-DE')}</strong></span>
+              <span style="font-size:12px;color:#d7e4ff;">💎 Crystal: <strong>${Number(scan.crystal || 0).toLocaleString('de-DE')}</strong></span>
+              <span style="font-size:12px;color:#d7e4ff;">⚗ Deuterium: <strong>${Number(scan.deuterium || 0).toLocaleString('de-DE')}</strong></span>
+            </div>
+          </div>
+          <div style="margin-top:6px;font-size:11px;color:#6a7a9e;">Scanned: ${esc(intel.scanned_at || '?')}</div>
+        </div>
+      `;
+    }
+
     // ── Offer-peace modal content ─────────────────────────────────────────────
     function offerPeaceFormHtml(warId) {
       const peaceTermOptions = [
@@ -213,7 +292,10 @@
             <button style="${S.btn}" data-back="1">← Back</button>
             <span style="font-weight:700;font-size:14px;color:#e3efff;">War #${esc(warData.war_id)} — ${esc(warData.status)}</span>
             <span style="flex:1;"></span>
-            ${warData.status === 'active' ? `<button style="${S.btnDanger}" data-offer-peace-btn="${esc(warData.war_id)}">Offer Peace</button>` : ''}
+            ${warData.status === 'active' ? `
+              <button style="${S.btn}" data-intel-load="${esc(warData.war_id)}">🔍 Scan Enemy</button>
+              <button style="${S.btnDanger}" data-offer-peace-btn="${esc(warData.war_id)}">Offer Peace</button>
+            ` : ''}
           </div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -222,6 +304,8 @@
             <div style="${S.card}"><div style="${S.cardLabel}">Exhaustion Att/Def</div><div style="${S.cardValue}">${Number(warData.exhaustion_att || 0).toFixed(1)} / ${Number(warData.exhaustion_def || 0).toFixed(1)}</div></div>
             <div style="${S.card}"><div style="${S.cardLabel}">Started</div><div style="${S.cardValue}" style="font-size:11px;">${esc(warData.started_at || '?')}</div></div>
           </div>
+
+          <div data-intel-host style="display:none;"></div>
 
           ${pendingOffersHtml(offers, myUid)}
 
@@ -253,6 +337,7 @@
       constructor() {
         this.state = {
           wars: [],
+          allianceWars: null,   // { my_alliance, alliance_wars[] } or null
           detailWarId: null,
           detailData: null,
           myUid: null,
@@ -263,6 +348,21 @@
       async loadList() {
         const res = await api.wars();
         this.state.wars = (res && res.success && Array.isArray(res.wars)) ? res.wars : [];
+      }
+
+      async loadAllianceWars() {
+        try {
+          const res = await api.warAllianceList();
+          if (res && res.success) {
+            this.state.allianceWars = {
+              my_alliance: res.my_alliance || null,
+              alliance_wars: Array.isArray(res.alliance_wars) ? res.alliance_wars : [],
+            };
+          }
+        } catch (_) {
+          // Alliance wars are optional — fail silently
+          this.state.allianceWars = null;
+        }
       }
 
       async loadDetail(warId) {
@@ -293,7 +393,7 @@
               ? warDetailHtml(this.state.detailData, this.state.myUid)
               : `<p style="color:#ff9980;padding:10px;">Failed to load war details.</p>`;
           } else {
-            await this.loadList();
+            await Promise.all([this.loadList(), this.loadAllianceWars()]);
             root.innerHTML = this.renderListHtml();
           }
           this._attachListeners(root);
@@ -306,6 +406,10 @@
       renderListHtml() {
         const wars = this.state.wars;
         const myUid = this.state.myUid;
+        const allianceWarData = this.state.allianceWars;
+        const allianceSection = allianceWarData
+          ? allianceWarsHtml(allianceWarData.my_alliance, allianceWarData.alliance_wars)
+          : '';
 
         if (!wars.length) {
           return `
@@ -316,6 +420,7 @@
               </section>
               <div data-declare-form-host style="display:none;"></div>
               ${uiKitEmptyStateHTML('No active wars', 'Your empire is currently at peace.')}
+              ${allianceSection}
             </div>
           `;
         }
@@ -351,6 +456,7 @@
                 <tbody>${rows}</tbody>
               </table>
             </div>
+            ${allianceSection}
           </div>
         `;
       }
@@ -460,6 +566,30 @@
             this.state.detailWarId = wid;
             await this.render();
           });
+        });
+
+        // War intelligence scan button
+        root.querySelector('[data-intel-load]')?.addEventListener('click', async (ev) => {
+          if (this.isBusy) return;
+          this.isBusy = true;
+          const wid = Number(ev.currentTarget.dataset.intelLoad);
+          const intelHost = root.querySelector('[data-intel-host]');
+          if (!intelHost) { this.isBusy = false; return; }
+          intelHost.innerHTML = `<p style="color:#9fb0ce;padding:6px;font-size:12px;">Scanning…</p>`;
+          intelHost.style.display = '';
+          try {
+            const res = await api.warIntel(wid);
+            if (res && res.success) {
+              intelHost.innerHTML = intelPanelHtml(res);
+            } else {
+              intelHost.innerHTML = `<p style="color:#ff9980;padding:6px;font-size:12px;">${esc(res?.error || 'Intel scan failed.')}</p>`;
+            }
+          } catch (err) {
+            gameLog('warn', 'warIntel failed', err);
+            intelHost.innerHTML = `<p style="color:#ff9980;padding:6px;font-size:12px;">Network error loading intel.</p>`;
+          } finally {
+            this.isBusy = false;
+          }
         });
 
         // Offer peace (in detail view toolbar)
