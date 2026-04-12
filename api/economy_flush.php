@@ -432,10 +432,10 @@ function flush_colony_production(PDO $db, int $colony_id): void {
             $prodRates[$t3Good] = $t3Rate * max(0.0, $scaleFactor);
             // Also scale down the T2 consumption rates that we added above
             foreach ($inputPairs as [$t2Good, $ratio]) {
-                $addedConsRate = $t3Rate * $ratio;
-                $scaledConsRate = $prodRates[$t3Good] * $ratio;
-                // Remove the old contribution and add the scaled one
-                $consRates[$t2Good] = max(0.0, ($consRates[$t2Good] ?? 0.0) - $addedConsRate + $scaledConsRate);
+                $oldContribution   = $t3Rate * $ratio;
+                $scaledContribution = $prodRates[$t3Good] * $ratio;
+                $consRates[$t2Good] = max(0.0, ($consRates[$t2Good] ?? 0.0) - $oldContribution);
+                $consRates[$t2Good] += $scaledContribution;
             }
         }
     }

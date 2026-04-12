@@ -47,9 +47,9 @@
     focus_crystals: '🔷',
     reactor_fuel: '⚗',
     biocompost: '🌿',
-    electronics_components: '🔬',
+    electronics_components: '🔌',
     // Tier-3 finished goods
-    military_equipment: '🔫',
+    military_equipment: '🛡',
     research_kits: '📦',
     colonization_packs: '🚀',
     // Tier-4
