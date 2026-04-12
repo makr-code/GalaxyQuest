@@ -1,5 +1,7 @@
 # GalaxyQuest
 
+[![CI/CD Pipeline](https://github.com/makr-code/GalaxyQuest/actions/workflows/ci.yml/badge.svg)](https://github.com/makr-code/GalaxyQuest/actions/workflows/ci.yml)
+
 > **A browser-based, multiplayer space-strategy game** — persistent galaxy, Newtonian fleet movement, planetary economies, NPC factions, and AI-driven leaders. No build step, no framework, no dependencies.
 
 ---
