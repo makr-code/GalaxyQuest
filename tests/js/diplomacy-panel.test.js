@@ -110,6 +110,83 @@ describe('RuntimeDiplomacyDataModel', () => {
     expect(dm.filterByStatus(null, 'active')).toHaveLength(0);
     expect(dm.filterByStatus([], 'active')).toHaveLength(0);
   });
+
+  // ── Trust / Threat helpers ────────────────────────────────────────────────
+
+  it('trustMeta: high trust ≥ 75', () => {
+    expect(dm.trustMeta(80).cls).toBe('trust-high');
+    expect(dm.trustMeta(80).label).toBe('High Trust');
+  });
+
+  it('trustMeta: moderate trust 40..74', () => {
+    expect(dm.trustMeta(55).cls).toBe('trust-moderate');
+  });
+
+  it('trustMeta: low trust 15..39', () => {
+    expect(dm.trustMeta(20).cls).toBe('trust-low');
+  });
+
+  it('trustMeta: no trust < 15', () => {
+    expect(dm.trustMeta(0).cls).toBe('trust-none');
+  });
+
+  it('threatMeta: critical threat ≥ 75', () => {
+    expect(dm.threatMeta(90).cls).toBe('threat-critical');
+    expect(dm.threatMeta(90).label).toBe('Critical Threat');
+  });
+
+  it('threatMeta: high threat 50..74', () => {
+    expect(dm.threatMeta(60).cls).toBe('threat-high');
+  });
+
+  it('threatMeta: moderate threat 25..49', () => {
+    expect(dm.threatMeta(35).cls).toBe('threat-moderate');
+  });
+
+  it('threatMeta: low threat < 25', () => {
+    expect(dm.threatMeta(10).cls).toBe('threat-low');
+  });
+
+  it('diploStance: ALLY when trust ≥ 75 and threat < 20', () => {
+    expect(dm.diploStance(80, 10).code).toBe('ALLY');
+  });
+
+  it('diploStance: FRIENDLY when trust 40..74 and threat < 40', () => {
+    expect(dm.diploStance(50, 25).code).toBe('FRIENDLY');
+  });
+
+  it('diploStance: HOSTILE when threat ≥ 75', () => {
+    expect(dm.diploStance(10, 80).code).toBe('HOSTILE');
+  });
+
+  it('diploStance: TENSE when threat 50..74', () => {
+    expect(dm.diploStance(20, 60).code).toBe('TENSE');
+  });
+
+  it('diploStance: NEUTRAL fallback', () => {
+    expect(dm.diploStance(10, 10).code).toBe('NEUTRAL');
+  });
+
+  it('trustThreatBarsHTML renders trust and threat bars', () => {
+    const html = dm.trustThreatBarsHTML(60, 30);
+    expect(html).toContain('gq-trust-threat-bars');
+    expect(html).toContain('60');
+    expect(html).toContain('30');
+    expect(html).toContain('gq-axis-fill--trust');
+    expect(html).toContain('gq-axis-fill--threat');
+  });
+
+  it('trustThreatBarsHTML shows stance chip', () => {
+    const html = dm.trustThreatBarsHTML(80, 5);
+    expect(html).toContain('stance-ally');
+    expect(html).toContain('Ally');
+  });
+
+  it('trustThreatBarsHTML clamps values to 0–100', () => {
+    const html = dm.trustThreatBarsHTML(-20, 150);
+    expect(html).toContain('0');
+    expect(html).toContain('100');
+  });
 });
 
 // ── RuntimeDiplomacyPanel (render / tab switching) ─────────────────────────
@@ -227,5 +304,27 @@ describe('RuntimeDiplomacyPanel', () => {
     nagTab?.click();
     expect(container.innerHTML).toContain('gq-ai-confidence');
     expect(container.innerHTML).toContain('62%');
+  });
+
+  it('renders trust/threat bars in panel header', async () => {
+    const api = makeAPI([]);
+    const panel = panelApi.createDiplomacyPanel({ api, dataModel: dm });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const factionWithTrustThreat = { ...fakeFaction, trust_level: 65, threat_level: 20 };
+    await panel.render(container, factionWithTrustThreat);
+    expect(container.innerHTML).toContain('gq-trust-threat-bars');
+    expect(container.innerHTML).toContain('65');
+    expect(container.innerHTML).toContain('20');
+  });
+
+  it('renders NEUTRAL stance when trust and threat are both 0', async () => {
+    const api = makeAPI([]);
+    const panel = panelApi.createDiplomacyPanel({ api, dataModel: dm });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const neutralFaction = { ...fakeFaction, trust_level: 0, threat_level: 0 };
+    await panel.render(container, neutralFaction);
+    expect(container.innerHTML).toContain('stance-neutral');
   });
 });

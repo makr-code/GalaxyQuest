@@ -51,6 +51,26 @@
         return '#e74c3c';
       }
 
+      diploStanceClass(trust, threat) {
+        const t = Math.max(0, Math.min(100, Number(trust  || 0)));
+        const h = Math.max(0, Math.min(100, Number(threat || 0)));
+        if (t >= 75 && h < 20) return 'stance-ally';
+        if (t >= 40 && h < 40) return 'stance-friendly';
+        if (h >= 75)           return 'stance-hostile';
+        if (h >= 50)           return 'stance-tense';
+        return 'stance-neutral';
+      }
+
+      diploStanceLabel(trust, threat) {
+        const t = Math.max(0, Math.min(100, Number(trust  || 0)));
+        const h = Math.max(0, Math.min(100, Number(threat || 0)));
+        if (t >= 75 && h < 20) return 'Ally';
+        if (t >= 40 && h < 40) return 'Friendly';
+        if (h >= 75)           return 'Hostile';
+        if (h >= 50)           return 'Tense';
+        return 'Neutral';
+      }
+
       formatEffect(key, value) {
         const n = Number(value || 0);
         const sign = n > 0 ? '+' : '';
@@ -153,6 +173,12 @@
                     <div class="diplomacy-standing-value faction-standing-chip ${this.standingClass(faction.standing)}" data-fid="${faction.id}">
                       ${this.standingLabel(faction.standing)} (${faction.standing > 0 ? '+' : ''}${faction.standing})
                     </div>
+                  </div>
+                  <div class="diplomacy-trust-threat-row faction-trust-threat-row" data-fid="${faction.id}"
+                       style="font-size:0.78rem;margin-top:0.25rem;display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap">
+                    <span class="trust-badge" title="Trust (0–100)">🤝 ${Math.round(Number(faction.trust_level ?? 0))}</span>
+                    <span class="threat-badge" title="Threat (0–100)">⚠️ ${Math.round(Number(faction.threat_level ?? 0))}</span>
+                    <span class="diplo-stance-chip ${this.diploStanceClass(faction.trust_level, faction.threat_level)}">${this.diploStanceLabel(faction.trust_level, faction.threat_level)}</span>
                   </div>
                   <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
                     <button class="btn btn-primary btn-sm" data-fid="${faction.id}" data-act="contact">Kontakt</button>
@@ -283,6 +309,20 @@
         const lastEvent = card.querySelector('.faction-last-event');
         if (lastEvent) {
           lastEvent.textContent = String(faction.last_event || '');
+        }
+
+        // Sync trust/threat row
+        const ttRow = card.querySelector('.faction-trust-threat-row');
+        if (ttRow) {
+          const trustBadge  = ttRow.querySelector('.trust-badge');
+          const threatBadge = ttRow.querySelector('.threat-badge');
+          const stanceChip  = ttRow.querySelector('.diplo-stance-chip');
+          if (trustBadge)  trustBadge.textContent  = `🤝 ${Math.round(Number(faction.trust_level ?? 0))}`;
+          if (threatBadge) threatBadge.textContent  = `⚠️ ${Math.round(Number(faction.threat_level ?? 0))}`;
+          if (stanceChip) {
+            stanceChip.className  = `diplo-stance-chip ${this.diploStanceClass(faction.trust_level, faction.threat_level)}`;
+            stanceChip.textContent = this.diploStanceLabel(faction.trust_level, faction.threat_level);
+          }
         }
       }
 

@@ -112,12 +112,17 @@
       const types      = dataModel.getTypes();
       const activeTab  = types[0].code;
 
+      const trustThreatHTML = dataModel
+        ? dataModel.trustThreatBarsHTML(faction.trust_level ?? 0, faction.threat_level ?? 0)
+        : '';
+
       containerEl.innerHTML = `
         <div class="gq-diplomacy-panel">
           <div class="gq-diplomacy-panel__header">
             <span class="gq-diplomacy-panel__title">⚖️ Agreements with ${esc(faction.icon ?? '')} ${esc(faction.name)}</span>
             <button class="btn btn-sm gq-contract-new-btn" data-type="${esc(types[0].code)}">+ New Agreement</button>
           </div>
+          ${trustThreatHTML}
 
           <div class="gq-contract-tabs" role="tablist">
             ${_agreementTypeTabsHTML(activeTab)}

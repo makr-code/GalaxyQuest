@@ -211,7 +211,21 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         $fid = (int)($_GET['faction_id'] ?? 0);
         $db  = get_db();
         $standing = get_standing($db, $uid, $fid);
-        $offersCacheParams = ['uid' => $uid, 'fid' => $fid, 'standing' => $standing];
+
+        // Fetch trust/threat so we can annotate offers and apply threat surcharge
+        $ttRow = $db->prepare('SELECT trust_level, threat_level FROM diplomacy WHERE user_id = ? AND faction_id = ? LIMIT 1');
+        $ttRow->execute([$uid, $fid]);
+        $ttData = $ttRow->fetch() ?: ['trust_level' => 0.0, 'threat_level' => 0.0];
+        $trust_level  = (float)$ttData['trust_level'];
+        $threat_level = (float)$ttData['threat_level'];
+
+        // High-threat factions require a standing surplus to trade (threat surcharge).
+        // Every 10 points of threat above 50 adds 1 required standing point.
+        $threat_surcharge = (int)(max(0.0, $threat_level - 50.0) / 10.0);
+        $effective_standing = $standing - $threat_surcharge;
+
+        $offersCacheParams = ['uid' => $uid, 'fid' => $fid, 'standing' => $standing,
+                              'trust' => (int)$trust_level, 'threat' => (int)$threat_level];
         $cached = gq_cache_get('faction_trade_offers', $offersCacheParams);
         if (is_array($cached) && isset($cached['offers'])) {
             json_ok($cached);
@@ -225,8 +239,14 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                AND ? >= t.min_standing
              ORDER BY t.id DESC LIMIT 10'
         );
-        $stmt->execute([$fid, $standing]);
-           $payload = ['offers' => $stmt->fetchAll(), 'standing' => $standing];
+        $stmt->execute([$fid, $effective_standing]);
+           $payload = [
+               'offers'           => $stmt->fetchAll(),
+               'standing'         => $standing,
+               'trust_level'      => $trust_level,
+               'threat_level'     => $threat_level,
+               'threat_surcharge' => $threat_surcharge,
+           ];
            gq_cache_set('faction_trade_offers', $offersCacheParams, $payload, CACHE_TTL_DEFAULT);
            json_ok($payload);
         break;
