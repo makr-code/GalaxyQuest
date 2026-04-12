@@ -374,12 +374,16 @@ function action_sell(PDO $db, int $uid): never {
         json_error('Insufficient stock. Have ' . $available . ', trying to sell ' . $quantity, 400);
     }
 
-    // MERCANTILISM +20% export bonus
+    // MERCANTILISM +20% export bonus (resolve integer or string policy value)
     $pStmt = $db->prepare('SELECT global_policy, tax_trade FROM economy_policies WHERE user_id = ?');
     $pStmt->execute([$uid]);
     $pRow      = $pStmt->fetch(PDO::FETCH_ASSOC);
     $taxRate   = $pRow ? (float)$pRow['tax_trade'] : 0.05;
-    $exportMult = ($pRow && $pRow['global_policy'] === 'mercantilism') ? 1.20 : 1.0;
+    $rawSellPolicy = $pRow ? $pRow['global_policy'] : 'free_market';
+    $resolvedSellPolicy = is_numeric($rawSellPolicy)
+        ? (['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'][(int)$rawSellPolicy] ?? 'free_market')
+        : (string)$rawSellPolicy;
+    $exportMult = ($resolvedSellPolicy === 'mercantilism') ? 1.20 : 1.0;
 
     $price  = compute_price($db, $goodType, $colonyId);
     $gross  = $price * $quantity;
@@ -420,6 +424,7 @@ function action_sell(PDO $db, int $uid): never {
         'quantity'      => $quantity,
         'price_per_unit'=> $price,
         'trade_tax'     => $taxRate,
+        'export_mult'   => $exportMult,
         'net_credits'   => $net,
     ]);
 }

@@ -1011,6 +1011,49 @@ class EconomyPolicy {
     return base * (1 - this._taxes.trade);
   }
 
+  /**
+   * Compute per-good production multipliers based on the current global policy
+   * and active subsidies.  Used by ColonyEconomyNode.processTick().
+   *
+   * Rules (mirrors api/economy_flush.php get_policy_good_multipliers()):
+   *   war_economy  → military_equipment ×1.30, consumer_goods ×0.80
+   *   autarky      → all produced goods ×1.10
+   *   subsidies    → agriculture: biocompost/food ×1.20
+   *                  research:    research_kits ×1.20
+   *                  military:    military_equipment ×1.20 (stacks with war_economy)
+   *
+   * @returns {Object}  Plain map { [GoodType]: multiplier }
+   */
+  productionMultipliers() {
+    const mults = {};
+    const eff = POLICY_EFFECTS[this._globalPolicy];
+
+    if ((eff.military_prod_mult ?? 1.0) !== 1.0) {
+      mults[GoodType.MILITARY_EQUIPMENT] = eff.military_prod_mult;
+    }
+    if ((eff.consumer_goods_mult ?? 1.0) !== 1.0) {
+      mults[GoodType.CONSUMER_GOODS] = eff.consumer_goods_mult;
+    }
+
+    if (this._globalPolicy === EconomicPolicy.AUTARKY) {
+      for (const good of Object.values(GoodType)) {
+        mults[good] = (mults[good] ?? 1.0) * 1.10;
+      }
+    }
+
+    if (this._subsidies.agriculture) {
+      mults[GoodType.BIOCOMPOST] = (mults[GoodType.BIOCOMPOST] ?? 1.0) * 1.20;
+    }
+    if (this._subsidies.research) {
+      mults[GoodType.RESEARCH_KITS] = (mults[GoodType.RESEARCH_KITS] ?? 1.0) * 1.20;
+    }
+    if (this._subsidies.military) {
+      mults[GoodType.MILITARY_EQUIPMENT] = (mults[GoodType.MILITARY_EQUIPMENT] ?? 1.0) * 1.20;
+    }
+
+    return mults;
+  }
+
   // ---------------------------------------------------------------------------
   // Serialization
   // ---------------------------------------------------------------------------
@@ -1134,9 +1177,10 @@ class ColonyEconomyNode {
    *
    * @param {number} [dt=1]
    * @param {Set<string>} [unlockedTechs]
+   * @param {Object} [policyMults]  Per-good production multipliers from EconomyPolicy.productionMultipliers()
    * @returns {Array<{good: string, produced: number, inputsConsumed: Object}>}
    */
-  processTick(dt = 1, unlockedTechs = new Set()) {
+  processTick(dt = 1, unlockedTechs = new Set(), policyMults = {}) {
     const report = [];
 
     for (const [buildingType, count] of Object.entries(this.buildings)) {
@@ -1186,8 +1230,9 @@ class ColonyEconomyNode {
           inputsConsumed[resource] = (inputsConsumed[resource] ?? 0) + consumed;
         }
 
-        // Produce output (capped by stock capacity)
-        const produced = recipe.outputs * dt;
+        // Produce output (capped by stock capacity), applying policy multiplier
+        const policyMult = policyMults[targetGood] ?? 1.0;
+        const produced = recipe.outputs * dt * policyMult;
         totalProduced += this.stock.add(targetGood, produced);
       }
 
@@ -1528,8 +1573,9 @@ class EconomySimulation {
     const allShortages  = [];
 
     for (const node of this._nodes.values()) {
-      // 1. Processing
-      const prodReport = node.processTick(dt, this._unlockedTechs);
+      // 1. Processing (with policy-based per-good production multipliers)
+      const policyMults = this.policy.productionMultipliers();
+      const prodReport = node.processTick(dt, this._unlockedTechs, policyMults);
       if (prodReport.length > 0) {
         this._bus?.emit('economy:produced', { colonyId: node.id, report: prodReport });
         for (const { good, produced } of prodReport) {
