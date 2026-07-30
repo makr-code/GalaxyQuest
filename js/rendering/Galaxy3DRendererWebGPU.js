@@ -761,8 +761,20 @@
         clusters: [],
         tradeRoutes: [],
         clusterPalette: null,
+        selections: [],
+        trajectories: [],
+        impactEffects: [],
+        highlights: [],
+        labels: [],
+        particles: [],
       };
       this._empireHeartbeatSystems = new Set();
+       
+      // Animation & trajectory infrastructure
+      this._animationController = null;
+      this._trajectoryRenderer = null;
+      this._lastFrameTime = Date.now();
+      this._marqueeDashPhase = 0;
       this._heroVertexBuf = null;
       this._heroIndexBuf = null;
       this._orbitVertexBuf = null;
@@ -975,6 +987,14 @@
       this._overlayCtx = overlay.getContext('2d');
       this._overlayOwnsCanvas = true;
       this._resizeOverlayCanvas();
+
+      // Initialize animation infrastructure
+      if (!this._animationController && typeof CanvasAnimationEngine !== 'undefined') {
+        this._animationController = new CanvasAnimationEngine.CanvasAnimationController();
+      }
+      if (!this._trajectoryRenderer && typeof TrajectoryRenderer !== 'undefined') {
+        this._trajectoryRenderer = new TrajectoryRenderer();
+      }
     }
 
     _resizeOverlayCanvas() {
@@ -1194,6 +1214,15 @@
 
       this._resizeOverlayCanvas();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Update animations
+      if (this._animationController) {
+        const now = Date.now();
+        const deltaMs = now - this._lastFrameTime;
+        this._lastFrameTime = now;
+        this._animationController.update(deltaMs);
+      }
+      
       if (this.systemMode) return;
 
       const zoom = Math.max(0.45, Number(this._view?.zoom || 1));
@@ -1393,9 +1422,270 @@
         ctx.arc(fp.x, fp.y, fleetRadius, 0, Math.PI * 2);
         ctx.fill();
       }
+
+      // Render new overlay features
+      this._renderTrajectories();
+      this._renderImpactEffects();
+      this._renderHighlights();
+      this._renderSelectionOverlay();
+      this._renderLabels();
+      this._renderParticles();
     }
 
-    async _buildPipeline() {
+    _renderTrajectories() {
+      const ctx = this._overlayCtx;
+      const canvas = this._overlayCanvas;
+      if (!ctx || !canvas || !this._trajectoryRenderer) return;
+
+      const trajectories = Array.isArray(this._overlayData.trajectories) ? this._overlayData.trajectories : [];
+      for (let i = 0; i < trajectories.length; i++) {
+        const traj = trajectories[i] || {};
+        if (!traj.animated) continue;
+        
+        const progress = Math.max(0, Math.min(1, Number(traj.currentProgress ?? 0)));
+        this._trajectoryRenderer.render(ctx, traj, progress, {});
+      }
+    }
+
+    _renderSelectionOverlay() {
+      const ctx = this._overlayCtx;
+      const canvas = this._overlayCanvas;
+      if (!ctx || !canvas) return;
+
+      const selections = Array.isArray(this._overlayData.selections) ? this._overlayData.selections : [];
+      for (let i = 0; i < selections.length; i++) {
+        const sel = selections[i] || {};
+        
+        if (sel.type === 'star' || sel.type === 'planet' || sel.type === 'fleet') {
+          this._renderSelectionRing(ctx, sel);
+        } else if (sel.type === 'selection-box') {
+          this._renderSelectionBox(ctx, sel);
+        }
+      }
+    }
+
+    _renderSelectionRing(ctx, selection) {
+      const pos = selection.pos || { x: 0, y: 0 };
+      const radius = Number(selection.radius || 30);
+      const color = selection.color || 'rgba(100, 200, 255, 0.8)';
+      const style = selection.style || 'pulsing';
+
+      let opacity = 1.0;
+      if (style === 'pulsing' && selection.animated) {
+        const now = Date.now();
+        const pulsePhase = (now % 1000) / 1000;
+        opacity = 0.5 + 0.5 * Math.sin(pulsePhase * Math.PI * 2);
+      }
+
+      const glowRadius = radius + 8;
+      const glowColor = color.replace(/[\d.]+\)/, `${opacity * 0.4})`);
+      ctx.fillStyle = glowColor;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, glowRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      const ringColor = color.replace(/[\d.]+\)/, `${opacity})`);
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    _renderSelectionBox(ctx, selection) {
+      const rect = selection.rect || { x1: 0, y1: 0, x2: 100, y2: 100 };
+      const style = selection.style || 'rect';
+      const color = selection.color || 'rgba(100, 200, 255, 0.8)';
+      const lineWidth = selection.lineWidth || 2;
+
+      const x1 = Math.min(rect.x1, rect.x2);
+      const y1 = Math.min(rect.y1, rect.y2);
+      const w = Math.abs(rect.x2 - rect.x1);
+      const h = Math.abs(rect.y2 - rect.y1);
+
+      if (style === 'marquee-dashed' && selection.animated) {
+        // Marching ants effect
+        this._marqueeDashPhase = (this._marqueeDashPhase + 2) % 12;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.setLineDash([4, 4]);
+        ctx.lineDashOffset = -this._marqueeDashPhase;
+        ctx.strokeRect(x1, y1, w, h);
+        ctx.setLineDash([]);
+      } else if (style === 'rounded-rect') {
+        const radius = Number(selection.cornerRadius || 5);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.beginPath();
+        ctx.moveTo(x1 + radius, y1);
+        ctx.lineTo(x1 + w - radius, y1);
+        ctx.arcTo(x1 + w, y1, x1 + w, y1 + radius, radius);
+        ctx.lineTo(x1 + w, y1 + h - radius);
+        ctx.arcTo(x1 + w, y1 + h, x1 + w - radius, y1 + h, radius);
+        ctx.lineTo(x1 + radius, y1 + h);
+        ctx.arcTo(x1, y1 + h, x1, y1 + h - radius, radius);
+        ctx.lineTo(x1, y1 + radius);
+        ctx.arcTo(x1, y1, x1 + radius, y1, radius);
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        // Default rect
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.strokeRect(x1, y1, w, h);
+      }
+    }
+
+    _renderImpactEffects() {
+      const ctx = this._overlayCtx;
+      if (!ctx) return;
+
+      const impacts = Array.isArray(this._overlayData.impactEffects) ? this._overlayData.impactEffects : [];
+      for (let i = impacts.length - 1; i >= 0; i--) {
+        const impact = impacts[i] || {};
+        const startTime = Number(impact.startTime || 0);
+        const duration = Number(impact.duration || 400);
+        const elapsed = Date.now() - startTime;
+        
+        if (elapsed > duration) {
+          impacts.splice(i, 1);
+          continue;
+        }
+
+        const progress = elapsed / duration;
+        const pos = impact.pos || { x: 0, y: 0 };
+        const radiusStart = Number(impact.radius?.start || 0);
+        const radiusEnd = Number(impact.radius?.end || 60);
+        const radius = radiusStart + (radiusEnd - radiusStart) * progress;
+        const opacity = Number(impact.opacity?.start || 0.8) * (1 - progress);
+
+        const color = impact.color || 'rgba(255, 100, 100, 1)';
+        const baseColor = color.substring(0, color.lastIndexOf(','));
+        ctx.strokeStyle = `${baseColor}, ${opacity})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    _renderHighlights() {
+      const ctx = this._overlayCtx;
+      if (!ctx) return;
+
+      const highlights = Array.isArray(this._overlayData.highlights) ? this._overlayData.highlights : [];
+      for (let i = 0; i < highlights.length; i++) {
+        const highlight = highlights[i] || {};
+        const pos = highlight.pos || { x: 0, y: 0 };
+        const radius = Number(highlight.radius || 40);
+        const intensity = Number(highlight.intensity ?? 0.8);
+        const type = String(highlight.type || 'glow').toLowerCase();
+        const color = highlight.color || 'rgba(255, 200, 100, 1)';
+
+        if (type === 'glow') {
+          const glowColor = color.replace(/[\d.]+\)/, `${intensity * 0.4})`);
+          ctx.fillStyle = glowColor;
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (type === 'spotlight') {
+          const gradient = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, radius);
+          const alphaCenter = color.replace(/[\d.]+\)/, `${intensity})`);
+          const alphaEdge = color.replace(/[\d.]+\)/, '0)');
+          gradient.addColorStop(0, alphaCenter);
+          gradient.addColorStop(1, alphaEdge);
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    _renderLabels() {
+      const ctx = this._overlayCtx;
+      if (!ctx) return;
+
+      const labels = Array.isArray(this._overlayData.labels) ? this._overlayData.labels : [];
+      for (let i = labels.length - 1; i >= 0; i--) {
+        const label = labels[i] || {};
+        const startTime = Number(label.timestamp || Date.now());
+        const lifespan = Number(label.lifespan || 3000);
+        const elapsed = Date.now() - startTime;
+
+        if (elapsed > lifespan) {
+          labels.splice(i, 1);
+          continue;
+        }
+
+        const progress = elapsed / lifespan;
+        const opacity = 1 - (progress > 0.8 ? (progress - 0.8) / 0.2 : 0);
+
+        const pos = label.pos || { x: 0, y: 0 };
+        const offsetX = Number(label.offsetX || 0);
+        const offsetY = Number(label.offsetY || 0);
+        const x = pos.x + offsetX;
+        const y = pos.y + offsetY;
+
+        const style = label.style || {};
+        const fontSize = Number(label.fontSize || 14);
+        const padding = Number(style.padding || 4);
+        const text = String(label.text || '');
+
+        ctx.font = `${fontSize}px sans-serif`;
+        const metrics = ctx.measureText(text);
+        const textWidth = metrics.width;
+        const textHeight = fontSize;
+
+        const bgWidth = textWidth + padding * 2;
+        const bgHeight = textHeight + padding * 2;
+
+        // Background
+        if (style.background) {
+          const bgColor = style.background.replace(/[\d.]+\)/, `${opacity})`);
+          ctx.fillStyle = bgColor;
+          if (style.borderRadius) {
+            ctx.beginPath();
+            ctx.roundRect(x - bgWidth / 2, y - bgHeight / 2, bgWidth, bgHeight, style.borderRadius);
+            ctx.fill();
+          } else {
+            ctx.fillRect(x - bgWidth / 2, y - bgHeight / 2, bgWidth, bgHeight);
+          }
+        }
+
+        // Text
+        const textColor = (style.fill || 'rgba(255,255,255,1)').replace(/[\d.]+\)/, `${opacity})`);
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, x, y);
+      }
+    }
+
+    _renderParticles() {
+      const ctx = this._overlayCtx;
+      if (!ctx) return;
+
+      const particles = Array.isArray(this._overlayData.particles) ? this._overlayData.particles : [];
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const emitter = particles[i]?.emitter || {};
+        const emitterPos = emitter.pos || { x: 0, y: 0 };
+        const rate = Number(emitter.rate || 10);
+        const lifetime = Number(emitter.lifetime || 1000);
+
+        // Simplified particle rendering (full implementation would use a pool)
+        const particleStyle = particles[i]?.particle || {};
+        const size = Number(particleStyle.size || 2);
+        const color = particleStyle.color || 'rgba(255,255,255,0.5)';
+
+        // This is a placeholder; full implementation would use a particle pool
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(emitterPos.x, emitterPos.y, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
       const format = navigator.gpu.getPreferredCanvasFormat();
 
       const shaderMod = this._device.createShaderModule({ code: STAR_SHADER_WGSL });
@@ -2546,6 +2836,119 @@
       this._empireHeartbeatSystems = new Set(normalized);
     }
 
+    // ── Selection & Animation Overlay API ──────────────────────────────────────
+
+    setSelection(selections) {
+      if (this._delegate) return this._delegate.setSelection?.(selections);
+      this._overlayData.selections = Array.isArray(selections) ? selections.slice() : [];
+    }
+
+    addSelection(id, selectionObj) {
+      if (this._delegate) return this._delegate.addSelection?.(id, selectionObj);
+      if (!id || !selectionObj) return false;
+      if (!Array.isArray(this._overlayData.selections)) this._overlayData.selections = [];
+      // Remove existing selection with same id
+      const idx = this._overlayData.selections.findIndex((s) => s?.id === id);
+      if (idx >= 0) this._overlayData.selections.splice(idx, 1);
+      this._overlayData.selections.push(Object.assign({ id }, selectionObj));
+      return true;
+    }
+
+    removeSelection(id) {
+      if (this._delegate) return this._delegate.removeSelection?.(id);
+      if (!id) return false;
+      if (!Array.isArray(this._overlayData.selections)) return false;
+      const idx = this._overlayData.selections.findIndex((s) => s?.id === id);
+      if (idx >= 0) {
+        this._overlayData.selections.splice(idx, 1);
+        return true;
+      }
+      return false;
+    }
+
+    clearSelections() {
+      if (this._delegate) return this._delegate.clearSelections?.();
+      this._overlayData.selections = [];
+    }
+
+    setTrajectories(trajectories) {
+      if (this._delegate) return this._delegate.setTrajectories?.(trajectories);
+      this._overlayData.trajectories = Array.isArray(trajectories) ? trajectories.slice() : [];
+    }
+
+    addTrajectory(id, trajectoryObj) {
+      if (this._delegate) return this._delegate.addTrajectory?.(id, trajectoryObj);
+      if (!id || !trajectoryObj) return false;
+      if (!Array.isArray(this._overlayData.trajectories)) this._overlayData.trajectories = [];
+      const idx = this._overlayData.trajectories.findIndex((t) => t?.id === id);
+      if (idx >= 0) this._overlayData.trajectories.splice(idx, 1);
+      this._overlayData.trajectories.push(Object.assign({ id }, trajectoryObj));
+      return true;
+    }
+
+    removeTrajectory(id) {
+      if (this._delegate) return this._delegate.removeTrajectory?.(id);
+      if (!id) return false;
+      if (!Array.isArray(this._overlayData.trajectories)) return false;
+      const idx = this._overlayData.trajectories.findIndex((t) => t?.id === id);
+      if (idx >= 0) {
+        this._overlayData.trajectories.splice(idx, 1);
+        return true;
+      }
+      return false;
+    }
+
+    setImpactEffects(effects) {
+      if (this._delegate) return this._delegate.setImpactEffects?.(effects);
+      this._overlayData.impactEffects = Array.isArray(effects) ? effects.slice() : [];
+    }
+
+    addImpactEffect(id, effectObj) {
+      if (this._delegate) return this._delegate.addImpactEffect?.(id, effectObj);
+      if (!id || !effectObj) return false;
+      if (!Array.isArray(this._overlayData.impactEffects)) this._overlayData.impactEffects = [];
+      this._overlayData.impactEffects.push(Object.assign({ id, startTime: Date.now() }, effectObj));
+      return true;
+    }
+
+    setHighlights(highlights) {
+      if (this._delegate) return this._delegate.setHighlights?.(highlights);
+      this._overlayData.highlights = Array.isArray(highlights) ? highlights.slice() : [];
+    }
+
+    addHighlight(id, highlightObj) {
+      if (this._delegate) return this._delegate.addHighlight?.(id, highlightObj);
+      if (!id || !highlightObj) return false;
+      if (!Array.isArray(this._overlayData.highlights)) this._overlayData.highlights = [];
+      const idx = this._overlayData.highlights.findIndex((h) => h?.id === id);
+      if (idx >= 0) this._overlayData.highlights.splice(idx, 1);
+      this._overlayData.highlights.push(Object.assign({ id }, highlightObj));
+      return true;
+    }
+
+    setLabels(labels) {
+      if (this._delegate) return this._delegate.setLabels?.(labels);
+      this._overlayData.labels = Array.isArray(labels) ? labels.slice() : [];
+    }
+
+    addLabel(id, labelObj) {
+      if (this._delegate) return this._delegate.addLabel?.(id, labelObj);
+      if (!id || !labelObj) return false;
+      if (!Array.isArray(this._overlayData.labels)) this._overlayData.labels = [];
+      this._overlayData.labels.push(Object.assign({ id, timestamp: Date.now() }, labelObj));
+      return true;
+    }
+
+    getAnimationController() {
+      if (this._delegate) return this._delegate.getAnimationController?.();
+      return this._animationController || null;
+    }
+
+    getTrajectoryRenderer() {
+      if (this._delegate) return this._delegate.getTrajectoryRenderer?.();
+      return this._trajectoryRenderer || null;
+    }
+
     focusOnStar(star, immediate = false) {
       if (this._delegate) return this._delegate.focusOnStar?.(star, immediate);
       this._currentTarget = star || null;
@@ -2634,6 +3037,12 @@
       this._overlayData.gates = [];
       this._overlayData.nodes = [];
       this._overlayData.clusters = [];
+      this._overlayData.selections = [];
+      this._overlayData.trajectories = [];
+      this._overlayData.impactEffects = [];
+      this._overlayData.highlights = [];
+      this._overlayData.labels = [];
+      this._overlayData.particles = [];
       this._view.targetPanX = 0;
       this._view.targetPanY = 0;
       this._view.targetZoom = 1;
@@ -2804,6 +3213,17 @@
       this._overlayCanvas = null;
       this._overlayCtx = null;
       this._overlayOwnsCanvas = false;
+
+      // Clean up animation and trajectory infrastructure
+      if (this._animationController) {
+        this._animationController.destroy?.();
+        this._animationController = null;
+      }
+      if (this._trajectoryRenderer) {
+        this._trajectoryRenderer.destroy?.();
+        this._trajectoryRenderer = null;
+      }
+
       this._device?.destroy();
       this._device     = null;
       this._adapter    = null;
