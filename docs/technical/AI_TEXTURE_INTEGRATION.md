@@ -534,29 +534,121 @@ descriptor = {
 
 These are incorporated into the AI prompt automatically.
 
-## Admin Panel Features (Phase 4)
+## Admin Panel Features (Phase 4) - IMPLEMENTED
 
-### Texture Regeneration UI
+### Texture Management API
 
+**Endpoint:** `api/textures-admin.php`
+
+Requires admin authentication (add security layer as needed).
+
+#### List Cached Textures
+```http
+GET /api/textures-admin.php?action=list&filter=spaceship
 ```
-/admin/textures/regenerate
-- Regenerate specific textures
-- Test different prompts/styles
-- Preview before applying
-- Batch regenerate by faction
+
+#### Regenerate Single Texture
+```http
+GET /api/textures-admin.php?action=regenerate&cache_key=<sha256>&force=1
 ```
 
-### Texture Randomization
+#### Test Custom Prompt
+```http
+POST /api/textures-admin.php?action=test_prompt
+Content-Type: application/x-www-form-urlencoded
 
-```javascript
-// In-game: "Randomize Ship Appearance"
-const variations = await generateTextureVariations({
-  baseShip: shipDescriptor,
-  count: 5,  // Generate 5 variations
-});
-
-// Player selects favorite
+prompt=sci-fi+spaceship+hull&negative_prompt=low+quality&size=512&steps=30
 ```
+
+#### Batch Regenerate
+```http
+GET /api/textures-admin.php?action=batch_regenerate&faction=iron_fleet&texture_type=albedo&dry_run=1
+```
+
+#### Clear Cache
+```http
+GET /api/textures-admin.php?action=clear_cache&confirm=yes_clear_all&pattern=spaceship
+```
+
+#### Cache Statistics
+```http
+GET /api/textures-admin.php?action=cache_stats
+```
+
+### Admin UI Component
+
+**File:** `js/admin/texture-admin-ui.js`
+
+Auto-initializes when container exists with ID `#admin-textures`.
+
+**Integration Example:**
+
+```html
+<!-- In admin panel HTML -->
+<div id="admin-textures"></div>
+<script src="js/admin/texture-admin-ui.js"></script>
+```
+
+**Features:**
+
+1. **Cache List Tab**
+   - View all cached textures with metadata
+   - Sort by creation date, type, size
+   - Individual regenerate buttons
+   - Quick view link
+
+2. **Test Prompt Tab**
+   - Custom prompt testing
+   - Real-time submission to ComfyUI
+   - Direct link to ComfyUI queue monitoring
+   - Adjustable parameters (size, steps)
+
+3. **Batch Operations Tab**
+   - Filter by faction (generic, iron_fleet, merchants, nomads)
+   - Filter by texture type (albedo, normal, specular, roughness)
+   - Dry-run preview before execution
+   - Bulk regeneration with confirmation
+
+4. **Statistics Tab**
+   - Total textures and cache size
+   - Breakdown by texture type
+   - Oldest/newest texture timestamps
+   - Usage tracking
+
+### Security Considerations
+
+1. **Authentication**: Add auth check to `api/textures-admin.php`
+   ```php
+   if (!isUserAdmin($_SESSION['user_id'])) {
+       http_response_code(403);
+       exit;
+   }
+   ```
+
+2. **Rate Limiting**: Implement on test prompt endpoint
+   ```php
+   if (!isRateLimitValid($_SERVER['REMOTE_ADDR'])) {
+       http_response_code(429);
+       exit;
+   }
+   ```
+
+3. **Input Validation**: All user inputs are sanitized (alphanumeric only)
+
+4. **CSRF Protection**: Add token validation if admin uses POST forms
+
+### Workflow Example: Faction Refresh
+
+Admin wants to regenerate all Iron Fleet ship textures:
+
+1. Open Admin Panel → Batch Operations
+2. Select "iron_fleet" faction
+3. Leave texture type as "All"
+4. Click "Dry Run" to preview (shows 12 textures)
+5. Click "Execute" with confirmation
+6. System deletes 12 cached textures
+7. Next texture request auto-regenerates with fresh AI
+8. Check Statistics tab to verify cache cleared
 
 ## Performance Metrics
 
