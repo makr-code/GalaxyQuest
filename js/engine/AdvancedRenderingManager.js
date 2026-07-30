@@ -148,6 +148,21 @@ class AdvancedRenderingManager {
   }
 
   /**
+   * Get a feature instance (e.g., for external systems)
+   * @param {string} featureName - Feature to retrieve
+   * @returns {Object|null} Feature instance or null
+   */
+  getFeature(featureName) {
+    const key = featureName.toLowerCase();
+    if (key === 'decals') {
+      return this._instances.decalManager;
+    } else if (key === 'lod') {
+      return this._instances.lodManager;
+    }
+    return this._instances[`${key}Pass`] ?? this._instances[`${key}Manager`] ?? null;
+  }
+
+  /**
    * Enable LOD system
    * @private
    */

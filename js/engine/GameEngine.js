@@ -423,17 +423,31 @@ class GameEngine {
   /**
    * Get a rendering feature instance (LOD manager, post-processing pass, etc.)
    * 
-   * @param {string} featureName - Feature to retrieve: 'lod', 'bloom', 'tonemapping', etc.
+   * @param {string} featureName - Feature to retrieve: 'lod', 'bloom', 'tonemapping', 'decals', etc.
    * @returns {Object|null} Feature instance or null if not enabled
    */
   getFeature(featureName) {
     if (!this.renderingMgr) return null;
+    return this.renderingMgr.getFeature(featureName);
+  }
+
+  /**
+   * Wire the impact decal manager to a CombatFX instance.
+   * Should be called when initializing combat systems.
+   * 
+   * @param {CombatFX} combatFX - Combat effects manager
+   * @returns {this}
+   */
+  wireDecalsToCombat(combatFX) {
+    if (!combatFX) return this;
     
-    const key = `${featureName.toLowerCase()}Manager` 
-      || `${featureName.toLowerCase()}Pass`
-      || featureName.toLowerCase();
-    
-    return this.renderingMgr._instances[key] ?? null;
+    const decalManager = this.getFeature('decals');
+    if (decalManager && typeof combatFX.setDecalManager === 'function') {
+      combatFX.setDecalManager(decalManager);
+      this._log('CombatFX wired to impact decal manager');
+    }
+
+    return this;
   }
 
   /** Shorthand: emit an event on the engine bus. */
