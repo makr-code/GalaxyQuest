@@ -1,0 +1,81 @@
+{
+  "description": "ComfyUI Workflow Templates for GalaxyQuest AI Texture Generation",
+  "version": "1.0.0",
+  "templates": {
+    "spaceship_albedo": {
+      "name": "Spaceship Hull Albedo",
+      "description": "Generate base color texture for spaceship hulls with faction and condition variations",
+      "nodes": {
+        "1": {
+          "inputs": {"text": ""},
+          "class_type": "CLIPTextEncode(positive)"
+        },
+        "2": {
+          "inputs": {"text": "low quality, blurry, watermark, text"},
+          "class_type": "CLIPTextEncode(negative)"
+        },
+        "3": {
+          "inputs": {
+            "seed": 0,
+            "steps": 30,
+            "cfg": 8.5,
+            "sampler_name": "dpmpp_2m",
+            "scheduler": "exponential",
+            "denoise": 1.0
+          },
+          "class_type": "KSampler"
+        },
+        "4": {
+          "inputs": {
+            "samples": ["3", 0],
+            "vae": ["5", 0]
+          },
+          "class_type": "VAEDecode"
+        },
+        "5": {
+          "inputs": {"ckpt_name": "model.safetensors"},
+          "class_type": "CheckpointLoaderSimple"
+        },
+        "6": {
+          "inputs": {
+            "filename_prefix": "galaxyquest_spaceship_albedo",
+            "images": ["4", 0]
+          },
+          "class_type": "SaveImage"
+        }
+      }
+    },
+    "planet_surface": {
+      "name": "Planet Surface Texture",
+      "description": "Generate realistic planetary surface textures with geological features",
+      "variations": ["rocky", "icy", "volcanic", "desert", "alien"]
+    },
+    "atmosphere_cloud": {
+      "name": "Atmospheric Cloud Texture",
+      "description": "Generate seamless cloud and atmospheric textures for planet atmospheres"
+    },
+    "detail_wear": {
+      "name": "Detail Overlay - Wear & Weathering",
+      "description": "Generate grayscale detail maps for surface wear, scratches, and aging",
+      "output": "Grayscale overlay suitable for blending with albedo maps"
+    }
+  },
+  "settings": {
+    "models": {
+      "sd15": {
+        "checkpoint": "model.safetensors",
+        "description": "Stable Diffusion 1.5 - Fast, good for varied content"
+      },
+      "sdxl": {
+        "checkpoint": "sdxl_model.safetensors",
+        "description": "SDXL - Higher quality but slower"
+      }
+    },
+    "samplers": ["dpmpp_2m", "dpmpp_2m_sde", "euler"],
+    "quality_presets": {
+      "fast": {"sampler": "euler", "steps": 20},
+      "balanced": {"sampler": "dpmpp_2m", "steps": 30},
+      "high_quality": {"sampler": "dpmpp_2m_sde", "steps": 40}
+    }
+  }
+}

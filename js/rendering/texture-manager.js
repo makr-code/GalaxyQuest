@@ -61,6 +61,100 @@
       return material;
     }
 
+    /**
+     * Request AI-generated texture from ComfyUI backend
+     * Supports spaceship hulls, planet surfaces, atmospheric effects, and detail maps
+     * Falls back to procedural generation if AI service unavailable
+     */
+    requestAITexture(descriptor = {}, options = {}) {
+      const textureType = String(options.textureType || 'albedo').trim();
+      const objectType = String(options.objectType || 'spaceship').toLowerCase();
+      const size = Math.max(128, Math.min(1024, Number(options.size || 512)));
+      
+      // Build API URL based on object type
+      let action = 'spaceship_texture';
+      let params = {
+        texture_type: textureType,
+        size,
+      };
+
+      if (objectType === 'planet') {
+        action = 'planet_texture';
+        params.biome = String(descriptor.variant || 'rocky');
+      } else if (objectType === 'atmosphere') {
+        action = 'atmosphere_texture';
+        params.style = String(descriptor.variant || 'earth_like');
+      } else if (objectType === 'detail') {
+        action = 'detail_texture';
+        params.intensity = Number(descriptor.intensity || 0.5);
+      } else {
+        // Spaceship defaults
+        params.faction = String(descriptor.faction || 'generic');
+        params.condition = String(descriptor.condition || 'new');
+        params.style = String(descriptor.style || 'scifi');
+      }
+
+      // Add seed for reproducibility
+      if (descriptor.seed !== undefined) {
+        params.seed = Number(descriptor.seed);
+      }
+
+      const url = new URL('api/textures-ai.php', window.location.href);
+      url.searchParams.set('action', action);
+      Object.entries(params).forEach(([key, value]) => {
+        url.searchParams.set(key, String(value));
+      });
+
+      // Fetch with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
+      return fetch(url.href, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
+      })
+        .then(response => {
+          clearTimeout(timeoutId);
+          if (!response.ok) throw new Error(`AI texture request failed: ${response.status}`);
+          return response.json();
+        })
+        .then(data => {
+          if (!data.success && data.fallback_required) {
+            // Service error but fallback enabled - return null to use procedural
+            console.warn('[AI Texture] Generation failed, using procedural fallback:', data.error);
+            return null;
+          }
+          if (!data.success) {
+            throw new Error(data.error || 'AI texture generation failed');
+          }
+          return data;
+        })
+        .catch(err => {
+          clearTimeout(timeoutId);
+          console.warn('[AI Texture] Request error:', err.message);
+          // Return null to trigger fallback to procedural
+          return null;
+        });
+    }
+
+    /**
+     * Check if AI texture generation is available
+     */
+    async getAITextureStatus() {
+      try {
+        const response = await fetch('api/textures-ai.php?action=status', {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(5000),
+        });
+        const data = await response.json();
+        return data.status === 'available';
+      } catch (err) {
+        return false;
+      }
+    }
+
     getProceduralTexture(key, size, drawFn) {
       const THREE = this.THREE;
       if (!THREE || typeof drawFn !== 'function') return null;
