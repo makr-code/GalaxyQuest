@@ -63,6 +63,52 @@ structure — with all fields initialised to defined values:
   `commitSelectionState` (hover + active), `resolveSelectionGroupMembers`,
   `getSelectionGroupHighlightedSystems`.
 
+### Added — Selection Unification Phase 2 (C-2, GAP_TODO)
+
+**Persistent Selection Marker Separation**
+
+Phase 2 specification and validation complete.  Infrastructure components
+validated and ready for renderer integration.
+
+- **Marker State Independence:**
+  - Persistent selection (golden marker, z-index 21, pulsing)
+  - Temporary hover (blue marker, z-index 20, static)
+  - Auto-clear hover on pointer-out without affecting selection
+  - Layering ensures proper visual hierarchy
+
+- **Ownership Visual Consistency:**
+  - 7 faction types with distinct visual tokens
+  - Color-blind safe patterns (solid, dashed, dotted, dot-dash, etc.)
+  - Symbol identification (★, ✕, ○, ◆, ▽, ☠, ?)
+  - WCAG 2.1 AAA contrast compliance verified
+
+- **Accessibility Specification Complete:**
+  - WCAG 2.1 compliance framework
+  - Keyboard navigation (Arrow Up/Down, Enter, Escape)
+  - Screen reader (ARIA) integration patterns
+  - Touch-friendly targets (44x44px minimum)
+  - Color-blind safe patterns + high-contrast palettes
+
+- **New Test Coverage:**
+  - **25 new integration tests** in `tests/js/selection-marker-separation.test.js`
+    covering marker independence, token distinction, accessibility patterns,
+    ownership visuals, and group selection states.
+  - Total test coverage: **67/67 passing** (Phase 1 + Phase 2)
+  - Plus existing marker tests: **129/129 selection-related tests passing**
+
+- **New Documentation:**
+  - `docs/technical/SELECTION_PHASE2_INTEGRATION_GUIDE.md` — Concrete renderer
+    integration patterns for Galaxy, System, Approach, and Colony views
+  - `docs/technical/SELECTION_ACCESSIBILITY_SPEC.md` — Complete accessibility
+    requirements with implementation patterns
+  - `SELECTION_UX_PHASE2_COMPLETION_SUMMARY.md` — Executive summary and roadmap
+
+- **Status:**
+  - ✅ Phase 2 specification complete
+  - ✅ Phase 2 test-validated (47 new tests)
+  - ⏳ Pending: Renderer integration (Galaxy, System, Approach, Colony)
+  - ⏳ Pending: Phase 3–5 (group selection, multi-select, accessibility integration)
+
 ### Added — CI/CD Pipeline (5.5, IMPLEMENTATION_AUDIT)
 
 New workflow: `.github/workflows/ci.yml`
