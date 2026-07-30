@@ -378,35 +378,48 @@ const API = (() => {
   };
 
   const war = async (warId, options = {}) => {
-    return get(`api/war.php?war_id=${warId}`, options);
+    return get(`api/war.php?action=get_status&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`, options);
   };
 
   const wars = async (options = {}) => {
-    return get('api/wars.php', options);
+    return get('api/war.php?action=list', options);
   };
 
   const warStatus = async (warId, options = {}) => {
-    return get(`api/war_status.php?war_id=${warId}`, options);
+    return get(`api/war.php?action=get_status&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`, options);
   };
 
   const declareStrategicWar = async (body, options = {}) => {
-    return post('api/declare_strategic_war.php', body, options);
+    const coercedBody = {
+      target_user_id: Math.max(0, Number(body?.target_user_id || 0)),
+      war_goals: Array.isArray(body?.war_goals) ? body.war_goals : [],
+      casus_belli: String(body?.casus_belli || ''),
+    };
+    return post('api/war.php?action=declare', coercedBody, options);
   };
 
   const offerPeace = async (body, options = {}) => {
-    return post('api/offer_peace.php', body, options);
+    const coercedBody = {
+      war_id: Math.max(0, Number(body?.war_id || 0)),
+      terms: Array.isArray(body?.terms) ? body.terms : [],
+    };
+    return post('api/war.php?action=offer_peace', coercedBody, options);
   };
 
   const respondPeaceOffer = async (body, options = {}) => {
-    return post('api/respond_peace_offer.php', body, options);
+    const coercedBody = {
+      offer_id: Math.max(0, Number(body?.offer_id || 0)),
+      accept: !!body?.accept,
+    };
+    return post('api/war.php?action=respond_peace', coercedBody, options);
   };
 
   const chatNpc = async (body, options = {}) => {
-    return post('api/chat_npc.php', body, options);
+    return post('api/llm.php?action=chat_npc', body, options);
   };
 
   const closeNpcSession = async (body, options = {}) => {
-    return post('api/close_npc_session.php', body, options);
+    return post('api/llm.php?action=close_npc_session', body, options);
   };
 
   const alliances = async (options = {}) => {
@@ -620,5 +633,13 @@ if (typeof window !== 'undefined') {
       }
       return 'unknown';
     },
+  };
+}
+
+// LLM API compatibility export
+if (typeof window !== 'undefined') {
+  window.GQ_LLM = {
+    chatNpc: (payload) => API.chatNpc(payload),
+    closeNpcSession: (payload) => API.closeNpcSession(payload),
   };
 }
