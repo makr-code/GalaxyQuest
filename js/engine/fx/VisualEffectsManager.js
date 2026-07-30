@@ -37,6 +37,18 @@ const { EngineMaterialAnimator } = typeof require !== 'undefined'
   ? require('./EngineMaterialAnimator.js')
   : { EngineMaterialAnimator: window.GQEngineMaterialAnimator?.EngineMaterialAnimator };
 
+const { AsteroidBeltAnimator } = typeof require !== 'undefined'
+  ? require('./AsteroidBeltAnimator.js')
+  : { AsteroidBeltAnimator: window.GQAsteroidBeltAnimator?.AsteroidBeltAnimator };
+
+const { NebulaAnimator } = typeof require !== 'undefined'
+  ? require('./NebulaAnimator.js')
+  : { NebulaAnimator: window.GQNebulaAnimator?.NebulaAnimator };
+
+const { StellarExplosionFX } = typeof require !== 'undefined'
+  ? require('./StellarExplosionFX.js')
+  : { StellarExplosionFX: window.GQStellarExplosionFX?.StellarExplosionFX };
+
 class VisualEffectsManager {
   /**
    * @param {object} opts
@@ -55,6 +67,9 @@ class VisualEffectsManager {
     this._thrusterFX = ThrusterFX ? new ThrusterFX(this._particleSystem) : null;
     this._sunAnimator = SunAnimator ? new SunAnimator() : null;
     this._engineMaterialAnimator = EngineMaterialAnimator ? new EngineMaterialAnimator() : null;
+    this._asteroidBeltAnimator = AsteroidBeltAnimator ? new AsteroidBeltAnimator() : null;
+    this._nebulaAnimator = NebulaAnimator ? new NebulaAnimator() : null;
+    this._stellarExplosionFX = StellarExplosionFX ? new StellarExplosionFX(this._particleSystem) : null;
 
     // Post-effects reference
     this._postEffects = null;
@@ -209,7 +224,66 @@ class VisualEffectsManager {
   }
 
   // -------------------------------------------------------------------------
-  // Main Update Loop
+  // Scene Effects (Asteroid Belts, Nebulae, etc.)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Attach an animated asteroid belt.
+   *
+   * @param {string} beltId - Unique identifier
+   * @param {THREE.Group|THREE.Mesh} beltMesh - Belt geometry
+   * @param {object} [config] - Animation config (see AsteroidBeltAnimator.addBelt)
+   */
+  attachAsteroidBelt(beltId, beltMesh, config = null) {
+    if (!this._asteroidBeltAnimator) return;
+    this._asteroidBeltAnimator.addBelt(beltId, beltMesh, config ?? {});
+  }
+
+  /**
+   * Detach an asteroid belt.
+   * @param {string} beltId
+   */
+  detachAsteroidBelt(beltId) {
+    if (this._asteroidBeltAnimator) {
+      this._asteroidBeltAnimator.removeBelt(beltId);
+    }
+  }
+
+  /**
+   * Attach an animated nebula cloud.
+   *
+   * @param {string} nebulaId - Unique identifier
+   * @param {THREE.Mesh|THREE.Group} nebulaMesh - Nebula geometry
+   * @param {object} [config] - Animation config (see NebulaAnimator.addNebula)
+   */
+  attachNebula(nebulaId, nebulaMesh, config = null) {
+    if (!this._nebulaAnimator) return;
+    this._nebulaAnimator.addNebula(nebulaId, nebulaMesh, config ?? {});
+  }
+
+  /**
+   * Detach a nebula.
+   * @param {string} nebulaId
+   */
+  detachNebula(nebulaId) {
+    if (this._nebulaAnimator) {
+      this._nebulaAnimator.removeNebula(nebulaId);
+    }
+  }
+
+  /**
+   * Trigger a stellar explosion (nova, supernova, etc.).
+   *
+   * @param {string} type - StellarExplosionType value
+   * @param {{x,y,z}} position - World position
+   * @param {object} [opts] - Optional overrides
+   * @returns {object} Explosion handle
+   */
+  spawnStellarExplosion(type, position, opts = null) {
+    if (!this._stellarExplosionFX) return null;
+    return this._stellarExplosionFX.spawn(type, position, opts ?? {});
+  }
+
   // -------------------------------------------------------------------------
 
   /**
@@ -244,6 +318,16 @@ class VisualEffectsManager {
     // Update engine material animations
     if (this._engineMaterialAnimator) {
       this._engineMaterialAnimator.update(dt);
+    }
+
+    // Update asteroid belt animations
+    if (this._asteroidBeltAnimator) {
+      this._asteroidBeltAnimator.update(dt, opts.cameraPos);
+    }
+
+    // Update nebula animations
+    if (this._nebulaAnimator) {
+      this._nebulaAnimator.update(dt, opts.cameraPos);
     }
   }
 
@@ -305,6 +389,8 @@ class VisualEffectsManager {
     if (this._thrusterFX) this._thrusterFX = null;
     if (this._sunAnimator) this._sunAnimator.clear();
     if (this._engineMaterialAnimator) this._engineMaterialAnimator.clear();
+    if (this._asteroidBeltAnimator) this._asteroidBeltAnimator.clear();
+    if (this._nebulaAnimator) this._nebulaAnimator.clear();
     this._shipStates.clear();
   }
 }
