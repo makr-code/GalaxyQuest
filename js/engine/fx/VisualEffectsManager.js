@@ -74,6 +74,9 @@ class VisualEffectsManager {
     // Post-effects reference
     this._postEffects = null;
 
+    // Performance optimization
+    this._perfOptimizer = null;
+
     // State tracking
     this._shipStates = new Map();  // { shipId: { velocity, acceleration, position } }
     this._globalTime = 0;
@@ -102,6 +105,49 @@ class VisualEffectsManager {
   setEnabled(enabled) {
     this._enabled = enabled;
     if (this._thrusterFX) this._thrusterFX.setEnabled(enabled);
+  }
+
+  /**
+   * Set particle emission density scale for LOD.
+   * @param {number} scale - 0 (off) to 1 (full density)
+   */
+  setParticleDensityScale(scale) {
+    if (this._thrusterFX) {
+      this._thrusterFX.setDensityScale(scale);
+    }
+    if (this._stellarExplosionFX) {
+      this._stellarExplosionFX.setDensityScale(scale);
+    }
+  }
+
+  /**
+   * Set sun/stellar intensity scale for LOD.
+   * @param {number} scale - 0 (off) to 1 (full intensity)
+   */
+  setSunIntensityScale(scale) {
+    if (this._sunAnimator) {
+      this._sunAnimator.setIntensityScale(scale);
+    }
+  }
+
+  /**
+   * Get performance optimizer for this manager.
+   * @returns {VisualEffectsPerformanceOptimizer|null}
+   */
+  getPerformanceOptimizer() {
+    if (!this._perfOptimizer) {
+      try {
+        const { VisualEffectsPerformanceOptimizer } = typeof require !== 'undefined'
+          ? require('./VisualEffectsPerformanceOptimizer.js')
+          : { VisualEffectsPerformanceOptimizer: window.GQVisualEffectsPerformanceOptimizer?.VisualEffectsPerformanceOptimizer };
+        if (VisualEffectsPerformanceOptimizer) {
+          this._perfOptimizer = new VisualEffectsPerformanceOptimizer(this);
+        }
+      } catch (e) {
+        console.warn('[VisualEffectsManager] Could not load PerformanceOptimizer:', e.message);
+      }
+    }
+    return this._perfOptimizer ?? null;
   }
 
   // -------------------------------------------------------------------------

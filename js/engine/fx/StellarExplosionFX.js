@@ -128,6 +128,7 @@ class StellarExplosionFX {
    */
   constructor(particleSystem) {
     this._particleSystem = particleSystem;
+    this._densityScale = 1.0;  // LOD scale (0..1)
   }
 
   /**
@@ -169,7 +170,13 @@ class StellarExplosionFX {
       for (const [effectName, config] of Object.entries(preset)) {
         if (effectName === 'light' || effectName === 'shockWaves' || !config.count) continue;
 
-        const emitter = this._createEmitter(position, config);
+        // Apply density scale to particle count
+        const scaledConfig = {
+          ...config,
+          count: Math.max(1, Math.floor((config.count ?? 50) * this._densityScale))
+        };
+
+        const emitter = this._createEmitter(position, scaledConfig);
         if (emitter) {
           handle.emitters.push(emitter);
           this._particleSystem.addEmitter(emitter);
@@ -216,6 +223,14 @@ class StellarExplosionFX {
    */
   flare(position) {
     return this.spawn(StellarExplosionType.FLARE, position);
+  }
+
+  /**
+   * Set particle density scale (LOD).
+   * @param {number} scale - 0 (off) to 1 (full)
+   */
+  setDensityScale(scale) {
+    this._densityScale = Math.max(0, Math.min(1, scale));
   }
 
   // -------------------------------------------------------------------------
