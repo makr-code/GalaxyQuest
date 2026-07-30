@@ -104,6 +104,7 @@
     { src: 'js/ui/terminal.js', version: V.terminal },
     { src: 'js/rendering/starfield.js', version: V.starfield },
     { src: 'js/ui/prolog.js', version: V.prolog },
+    { src: 'js/network/auth-boot-assets.js', version: V.assetCore },
     { src: 'js/network/auth.js', version: V.auth }
   ];
 
