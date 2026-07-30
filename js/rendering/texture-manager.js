@@ -139,19 +139,153 @@
     }
 
     /**
-     * Check if AI texture generation is available
+     * Request batch PBR texture set (all maps at once with visual consistency)
+     * Includes Albedo, Normal, Specular, Roughness
      */
-    async getAITextureStatus() {
+    async requestBatchPBRTextures(descriptor = {}, options = {}) {
+      const faction = String(descriptor.faction || 'generic');
+      const condition = String(descriptor.condition || 'new');
+      const size = Math.max(128, Math.min(1024, Number(options.size || 512)));
+      const useControlNet = options.useControlNet === true ? 1 : 0;
+
+      const url = new URL('api/textures-ai.php', window.location.href);
+      url.searchParams.set('action', 'batch_pbr');
+      url.searchParams.set('faction', faction);
+      url.searchParams.set('condition', condition);
+      url.searchParams.set('size', size);
+      url.searchParams.set('controlnet', useControlNet);
+
+      if (descriptor.seed !== undefined) {
+        url.searchParams.set('seed', Number(descriptor.seed));
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout
+
       try {
-        const response = await fetch('api/textures-ai.php?action=status', {
+        const response = await fetch(url.href, {
           method: 'GET',
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(5000),
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' }
         });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Batch PBR request failed: ${response.status}`);
+        }
+
         const data = await response.json();
-        return data.status === 'available';
+        if (!data.success) {
+          console.warn('[Batch PBR] Generation failed:', data.error);
+          return null;
+        }
+
+        // Convert paths to textures
+        const texturePromises = {};
+        for (const [mapType, mapData] of Object.entries(data.maps || {})) {
+          if (mapData.success && mapData.path) {
+            texturePromises[mapType] = new this.THREE.TextureLoader().loadAsync(mapData.path);
+          }
+        }
+
+        const textures = {};
+        for (const [mapType, promise] of Object.entries(texturePromises)) {
+          try {
+            textures[mapType] = await promise;
+            textures[mapType].colorSpace = this.THREE.SRGBColorSpace;
+            textures[mapType].needsUpdate = true;
+          } catch (err) {
+            console.warn(`[Batch PBR] Failed to load ${mapType}:`, err);
+          }
+        }
+
+        return { success: true, textures, metadata: data };
       } catch (err) {
-        return false;
+        clearTimeout(timeoutId);
+        console.warn('[Batch PBR] Request error:', err.message);
+        return null;
+      }
+    }
+
+    /**
+     * Progressive texture loading (low-res first for quick display, then high-res)
+     * Improves perceived performance in loading scenarios
+     */
+    async requestProgressiveTexture(descriptor = {}, options = {}) {
+      const textureType = String(options.textureType || 'albedo');
+      const objectType = String(options.objectType || 'spaceship');
+      const targetSize = Math.max(128, Math.min(1024, Number(options.size || 512)));
+      const faction = String(descriptor.faction || 'generic');
+
+      const url = new URL('api/textures-ai.php', window.location.href);
+      url.searchParams.set('action', 'progressive');
+      url.searchParams.set('texture_type', textureType);
+      url.searchParams.set('object_type', objectType);
+      url.searchParams.set('target_size', targetSize);
+      url.searchParams.set('faction', faction);
+
+      if (descriptor.seed !== undefined) {
+        url.searchParams.set('seed', Number(descriptor.seed));
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+      try {
+        const response = await fetch(url.href, {
+          method: 'GET',
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) throw new Error(`Progressive request failed: ${response.status}`);
+
+        const data = await response.json();
+        if (!data.success) {
+          console.warn('[Progressive] Phase 1 failed:', data.error);
+          return null;
+        }
+
+        // Load low-res immediately for UI
+        const lowResTexture = data.low_res?.path 
+          ? await new this.THREE.TextureLoader().loadAsync(data.low_res.path)
+          : null;
+
+        if (lowResTexture) {
+          lowResTexture.colorSpace = this.THREE.SRGBColorSpace;
+          lowResTexture.needsUpdate = true;
+        }
+
+        // Async load high-res in background
+        if (data.high_res_url) {
+          this._loadHighResProgressiveTextureAsync(data.high_res_url);
+        }
+
+        return { success: true, lowResTexture, highResUrl: data.high_res_url };
+      } catch (err) {
+        clearTimeout(timeoutId);
+        console.warn('[Progressive] Request error:', err.message);
+        return null;
+      }
+    }
+
+    /**
+     * Internal: Load high-res texture asynchronously
+     */
+    async _loadHighResProgressiveTextureAsync(url) {
+      try {
+        const texture = await new this.THREE.TextureLoader().loadAsync(url);
+        texture.colorSpace = this.THREE.SRGBColorSpace;
+        texture.needsUpdate = true;
+        // Dispatch event for UI to swap texture
+        window.dispatchEvent(new CustomEvent('GQ:textureUpgrade', {
+          detail: { url, texture }
+        }));
+      } catch (err) {
+        console.warn('[Progressive] High-res load failed:', err.message);
       }
     }
 

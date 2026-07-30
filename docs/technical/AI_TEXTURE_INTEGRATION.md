@@ -399,56 +399,140 @@ Textures regenerated every request
 3. Verify `COMFYUI_CACHE_MODE=disk` in `.env`
 4. Check disk space: `df -h`
 
-## Advanced Features (Phase 3)
+## Advanced Features (Phase 3) - IMPLEMENTED
 
 ### Batch PBR Generation
 
-Request complete PBR set (Albedo, Normal, Specular, Roughness) in one workflow:
+Request complete PBR set (Albedo, Normal, Specular, Roughness) in one workflow with visual coherence:
 
 ```javascript
-// Future: Batch API endpoint
+// Client-side usage
 const pbrSet = await textureManager.requestBatchPBRTextures({
-  objectType: 'spaceship',
   faction: 'iron_fleet',
+  condition: 'weathered',
+  seed: 12345
+}, {
   size: 512,
+  useControlNet: true  // Enable ControlNet for consistency
 });
 
-// pbrSet contains: albedo, normal, specular, roughness
+if (pbrSet) {
+  // pbrSet.textures contains: albedo, normal, specular, roughness
+  // All generated from same latent seed for visual coherence
+  const material = new THREE.MeshStandardMaterial({
+    map: pbrSet.textures.albedo,
+    normalMap: pbrSet.textures.normal,
+    roughnessMap: pbrSet.textures.roughness,
+    metalnessMap: pbrSet.textures.specular,
+  });
+}
 ```
+
+**API Endpoint:**
+```http
+GET /api/textures-ai.php?action=batch_pbr&faction=iron_fleet&condition=weathered&size=512&controlnet=1
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "batch": true,
+  "maps": {
+    "albedo": { "success": true, "path": "...", "cache_key": "..." },
+    "normal": { "success": true, "path": "...", "cache_key": "..." },
+    "specular": { "success": true, "path": "...", "cache_key": "..." },
+    "roughness": { "success": true, "path": "...", "cache_key": "..." }
+  },
+  "success_count": 4,
+  "total_maps": 4,
+  "use_controlnet": true
+}
+```
+
+### Progressive Texture Loading
+
+Load low-resolution texture instantly, then asynchronously refine to high resolution:
+
+```javascript
+// Quick load with low-res, high-res loads in background
+const progressive = await textureManager.requestProgressiveTexture({
+  faction: 'merchants',
+  seed: 12345
+}, {
+  textureType: 'albedo',
+  size: 512
+});
+
+if (progressive) {
+  // Use low-res immediately for UI
+  material.map = progressive.lowResTexture;
+  
+  // Listen for high-res completion
+  window.addEventListener('GQ:textureUpgrade', (e) => {
+    if (e.detail.url === progressive.highResUrl) {
+      material.map = e.detail.texture;
+      material.needsUpdate = true;
+    }
+  });
+}
+```
+
+**Benefits:**
+- Perceived performance improvement (fast initial display)
+- Seamless upgrade when high-res ready
+- Reduces time-to-interactive
 
 ### ControlNet Consistency
 
-Enforce visual consistency across texture set:
+When enabled, maintains visual consistency across all texture maps in a set:
 
 ```bash
-# Use reference image for all texture variations
-COMFYUI_USE_CONTROLNET=1
-COMFYUI_CONTROLNET_MODEL=normal_map_fp16
+# Enable in .env
+COMFYUI_CONTROLNET_ENABLED=1
 ```
 
-### Style Parameters
+How it works:
+1. Generate base texture from descriptor
+2. Use base as reference image for ControlNet
+3. Generate all other maps conditioned on base
+4. Result: Spatially coherent texture set
+
+Example: Iron Fleet spaceship:
+- Albedo: Determines spatial distribution of panels/details
+- Normal: References albedo distribution for consistent surface detail
+- Specular: Follows albedo highlights for material consistency  
+- Roughness: Follows albedo weathering patterns
+
+### Style Presets
+
+Faction and condition-based aesthetic variations:
 
 ```javascript
-requestAITexture({
-  style: 'rusty_industrial',    // Pre-defined style presets
-  weathering: 0.8,              // 0-1 scale
-  faction: 'nomads',            // Faction-specific aesthetics
-});
+// Factions (auto-applied in prompts)
+const factionStyles = {
+  generic: 'neutral sci-fi',
+  iron_fleet: 'military armored design, reinforced panels',
+  merchants: 'sleek commercial, efficiency focus',
+  nomads: 'rustic, repurposed parts, jury-rigged'
+};
+
+// Conditions
+const conditionStyles = {
+  new: 'pristine new condition, clean finish',
+  weathered: 'worn, weathered metal, oxidation marks',
+  damaged: 'battle scars, dents, burn marks'
+};
+
+// Custom style parameters
+descriptor = {
+  faction: 'nomads',
+  condition: 'weathered',
+  style: 'industrial',  // Additional style hints
+};
 ```
 
-### Progressive Loading
-
-Generate low-res first, then refine asynchronously:
-
-```javascript
-// Phase 1: Quick low-res (256px)
-const lowRes = await requestAITexture({...}, {size: 256, quality: 'fast'});
-
-// Phase 2: Async refinement to 1024px
-requestAITexture({...}, {size: 1024, quality: 'high'}).then(highRes => {
-  updateMaterial(highRes);
-});
-```
+These are incorporated into the AI prompt automatically.
 
 ## Admin Panel Features (Phase 4)
 

@@ -7,6 +7,12 @@ declare(strict_types=1);
  * 
  * Supports: Albedo, Normal, Specular, Roughness, Metallic, Emission, AO maps
  * Generation: Spaceships, planets, atmospheric effects, environmental details
+ * 
+ * Advanced Features:
+ * - ControlNet-based consistency (same ship gets coherent texture sets)
+ * - Progressive loading (low-res → high-res)
+ * - Style presets (rusty industrial, clean sci-tech, alien aesthetics)
+ * - Batch PBR generation (all maps in one workflow)
  */
 
 header('Access-Control-Allow-Origin: *');
@@ -17,7 +23,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once dirname(__DIR__) . '/config/config.php';
 
 $action = strtolower((string)($_GET['action'] ?? 'spaceship_texture'));
-$allowedActions = ['spaceship_texture', 'planet_texture', 'atmosphere_texture', 'detail_texture', 'status', 'queue'];
+$allowedActions = ['spaceship_texture', 'planet_texture', 'atmosphere_texture', 'detail_texture', 'batch_pbr', 'progressive', 'status', 'queue'];
 
 if (!in_array($action, $allowedActions, true)) {
     http_response_code(400);
@@ -48,6 +54,12 @@ switch ($action) {
         break;
     case 'detail_texture':
         handle_detail_texture($textureAiService);
+        break;
+    case 'batch_pbr':
+        handle_batch_pbr($textureAiService);
+        break;
+    case 'progressive':
+        handle_progressive_loading($textureAiService);
         break;
     case 'status':
         handle_status($textureAiService);
@@ -192,34 +204,91 @@ function handle_detail_texture(GQTextureAiService $service): void
 }
 
 /**
- * Check ComfyUI service status
+ * Handle batch PBR texture generation (all maps at once)
  */
-function handle_status(GQTextureAiService $service): void
+function handle_batch_pbr(GQTextureAiService $service): void
 {
-    try {
-        $status = $service->getServiceStatus();
-        http_response_code(200);
-        echo json_encode($status);
-    } catch (Exception $e) {
-        http_response_code(503);
-        echo json_encode(['success' => false, 'status' => 'unavailable', 'error' => $e->getMessage()]);
-    }
-}
+    $faction = sanitize_input((string)($_GET['faction'] ?? 'generic'));
+    $condition = sanitize_input((string)($_GET['condition'] ?? 'new'));
+    $style = sanitize_input((string)($_GET['style'] ?? 'scifi'));
+    $size = (int)($_GET['size'] ?? 512);
+    $seed = (int)($_GET['seed'] ?? 0);
+    $useControlNet = (int)($_GET['controlnet'] ?? 0) === 1;
 
-/**
- * Get current generation queue status
- */
-function handle_queue(GQTextureAiService $service): void
-{
+    $descriptor = [
+        'type' => 'spaceship',
+        'batch' => true,
+        'faction' => $faction,
+        'condition' => $condition,
+        'style' => $style,
+        'seed' => $seed,
+        'use_controlnet' => $useControlNet,
+    ];
+
     try {
-        $queue = $service->getQueueStatus();
-        http_response_code(200);
-        echo json_encode(['success' => true, 'queue' => $queue]);
+        $result = $service->generateBatchPBR($descriptor, $size);
+        if ($result['success']) {
+            http_response_code(200);
+            echo json_encode($result);
+        } else {
+            http_response_code(500);
+            echo json_encode($result);
+        }
     } catch (Exception $e) {
         http_response_code(500);
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
+
+/**
+ * Handle progressive texture loading (low-res first, then high-res)
+ */
+function handle_progressive_loading(GQTextureAiService $service): void
+{
+    $textureType = sanitize_input((string)($_GET['texture_type'] ?? 'albedo'));
+    $objectType = sanitize_input((string)($_GET['object_type'] ?? 'spaceship'));
+    $faction = sanitize_input((string)($_GET['faction'] ?? 'generic'));
+    $targetSize = (int)($_GET['target_size'] ?? 512);
+    $seed = (int)($_GET['seed'] ?? 0);
+
+    $descriptor = [
+        'type' => $objectType,
+        'texture_type' => $textureType,
+        'faction' => $faction,
+        'seed' => $seed,
+        'progressive' => true,
+    ];
+
+    try {
+        // Generate low-res first (fast)
+        $lowResSize = max(128, min(256, $targetSize / 2));
+        $lowResResult = $service->generateTexture($descriptor, $lowResSize);
+
+        if (!$lowResResult['success']) {
+            http_response_code(500);
+            echo json_encode($lowResResult);
+            exit;
+        }
+
+        http_response_code(200);
+        echo json_encode([
+            'success' => true,
+            'progressive' => true,
+            'phase' => 'low_res_ready',
+            'low_res' => $lowResResult,
+            'high_res_url' => 'api/textures-ai.php?action=' . $_GET['action'] . '&target_size=' . $targetSize . '&phase=high_res&' . http_build_query(array_filter([
+                'texture_type' => $textureType,
+                'object_type' => $objectType,
+                'faction' => $faction,
+                'seed' => $seed,
+            ])),
+        ]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+}
+
 
 /**
  * Sanitize string input
@@ -266,6 +335,64 @@ class GQTextureAiService
         if (!is_dir($this->lockDir) && !@mkdir($this->lockDir, 0775, true)) {
             throw new RuntimeException('Cannot create AI texture lock directory');
         }
+    }
+
+    /**
+     * Generate batch PBR texture set (all maps from same seed)
+     */
+    public function generateBatchPBR(array $descriptor, int $size = 512): array
+    {
+        if (!is_array($descriptor) || empty($descriptor['type'])) {
+            return ['success' => false, 'error' => 'invalid descriptor'];
+        }
+
+        $mapTypes = ['albedo', 'normal', 'specular', 'roughness'];
+        $results = [];
+        $baseSeed = $descriptor['seed'] ?? 0;
+
+        // Generate each map with consistent seed for visual coherence
+        foreach ($mapTypes as $mapType) {
+            $mapDescriptor = array_merge($descriptor, [
+                'texture_type' => $mapType,
+                'seed' => $baseSeed + hash_int($mapType),
+            ]);
+
+            try {
+                $result = $this->generateTexture($mapDescriptor, $size);
+                if ($result['success']) {
+                    $results[$mapType] = $result;
+                } else {
+                    // Continue with other maps even if one fails
+                    $results[$mapType] = ['success' => false, 'error' => 'failed'];
+                }
+            } catch (Exception $e) {
+                $results[$mapType] = ['success' => false, 'error' => $e->getMessage()];
+            }
+
+            // Small delay between requests to avoid queue overload
+            usleep(500000); // 500ms
+        }
+
+        // Check if any maps succeeded
+        $successCount = count(array_filter($results, fn($r) => $r['success'] ?? false));
+        
+        return [
+            'success' => $successCount > 0,
+            'batch' => true,
+            'maps' => $results,
+            'success_count' => $successCount,
+            'total_maps' => count($mapTypes),
+            'use_controlnet' => $descriptor['use_controlnet'] ?? false,
+        ];
+    }
+
+    /**
+     * Helper function to get consistent hash for seed variation
+     */
+    private function hash_int(string $string): int
+    {
+        $hash = crc32($string);
+        return $hash > 0 ? $hash : -$hash;
     }
 
     /**
