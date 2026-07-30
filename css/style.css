@@ -8172,3 +8172,128 @@ body.keyboard-nav textarea:focus {
   right: 0;
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* THEME MANAGEMENT & TRANSITIONS */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: dark;
+}
+
+html.theme-light {
+  color-scheme: light;
+}
+
+html.theme-transitioning {
+  transition: background-color var(--duration-standard) var(--ease-out),
+              color var(--duration-standard) var(--ease-out);
+}
+
+html.theme-light {
+  --bg-deep:    #f5f7fa;
+  --bg-panel:   #ffffff;
+  --bg-panel2:  #f0f3f7;
+  --bg-hover:   #e8ecf1;
+  --border:     #d0dce8;
+  --border-lit: #b0c4e0;
+
+  --text-primary:   #1a2a3a;
+  --text-secondary: #506080;
+  --text-muted:     #7080a0;
+
+  --accent-blue:    #0052cc;
+  --accent-green:   #22a045;
+  --accent-red:     #cc3333;
+  --accent-yellow:  #b8860b;
+  --accent-purple:  #7d3fa3;
+  --accent-cyan:    #0099ff;
+}
+
+html.theme-light input[type="text"],
+html.theme-light input[type="email"],
+html.theme-light input[type="password"],
+html.theme-light input[type="number"],
+html.theme-light select,
+html.theme-light textarea {
+  background: #ffffff;
+  color: #1a2a3a;
+  border-color: #d0dce8;
+}
+
+html.theme-light button,
+html.theme-light .btn {
+  color: #1a2a3a;
+}
+
+html.theme-light .panel,
+html.theme-light .item-card {
+  background: #ffffff;
+  border-color: #d0dce8;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* PARTICLE EFFECTS STYLING */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+.particle-container {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.particle {
+  position: fixed;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.particle-success {
+  background: rgba(34, 212, 106, 0.8);
+  box-shadow: 0 0 4px rgba(34, 212, 106, 0.9);
+}
+
+.particle-error {
+  background: rgba(255, 68, 85, 0.8);
+  box-shadow: 0 0 4px rgba(255, 68, 85, 0.9);
+}
+
+.particle-info {
+  background: rgba(58, 160, 255, 0.8);
+  box-shadow: 0 0 4px rgba(58, 160, 255, 0.9);
+}
+
+.particle-warning {
+  background: rgba(255, 204, 0, 0.8);
+  box-shadow: 0 0 4px rgba(255, 204, 0, 0.9);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* PERFORMANCE OPTIMIZATION */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* GPU acceleration for animated elements */
+.animate-fade-in,
+.animate-fade-in-up,
+.animate-slide-in-left,
+.animate-slide-in-right,
+.animate-scale-in,
+.animate-bounce,
+.animate-glow-pulse,
+.modal-in,
+.particle,
+.btn-ripple {
+  will-change: transform, opacity;
+}
+
+/* Reduce motion for non-essential animations on mobile */
+@media (max-width: 768px) {
+  .animate-glow-pulse,
+  .animate-neon-flicker,
+  .animate-wobble {
+    animation-duration: 2s;
+    animation-iteration-count: 1;
+  }
+}
+
