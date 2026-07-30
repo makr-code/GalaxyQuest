@@ -84,6 +84,7 @@ const { PerformanceMonitor } = _req('./utils/PerformanceMonitor.js',      'GQPer
 const { ResourceTracker }    = _req('./utils/ResourceTracker.js',         'GQResourceTracker');
 const { ViewportManager }    = _req('./ViewportManager.js',               'GQViewportManager');
 const { AdvancedRenderingManager } = _req('./AdvancedRenderingManager.js', 'GQAdvancedRenderingManager');
+const { AdvancedRenderingUI } = _req('./AdvancedRenderingUI.js', 'GQAdvancedRenderingUI');
 
 // ---------------------------------------------------------------------------
 // GameEngine
@@ -118,6 +119,8 @@ class GameEngine {
     this.resources        = new ResourceTracker();
     /** @type {AdvancedRenderingManager|null} Advanced 3D rendering features manager */
     this.renderingMgr     = null;
+    /** @type {AdvancedRenderingUI|null} Advanced rendering UI controls manager */
+    this.renderingUI      = null;
 
     /** CPU physics engine (SpacePhysicsEngine, always available) */
     this.physics          = null;
@@ -287,6 +290,7 @@ class GameEngine {
     this.systems.list().forEach((s) => this.systems.remove(s.name));
     this.viewports?.detach();
     this.cameras?.dispose();
+    this.renderingUI?.dispose?.();
     this.renderingMgr?.dispose?.();
     this.postFx?.dispose();
     this.gpuPhysics?.dispose();
@@ -819,6 +823,15 @@ class GameEngine {
       const preset = opts.advancedRenderingPreset ?? 'high';
       this.renderingMgr.applyPreset(preset);
       this._log(`Advanced rendering initialized with preset: ${preset}`);
+    }
+
+    // Initialize UI controls for advanced rendering
+    try {
+      if (typeof AdvancedRenderingUI !== 'undefined' && typeof document !== 'undefined') {
+        this.renderingUI = AdvancedRenderingUI.getInstance(this).init();
+      }
+    } catch (err) {
+      this._log(`Warning: Failed to initialize advanced rendering UI: ${err.message}`);
     }
 
     // 6. Game loop
