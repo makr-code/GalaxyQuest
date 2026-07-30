@@ -1,0 +1,48 @@
+# Void Collective Behavior Script
+#
+# The Void Collective is a scientific and exploratory faction.
+# They focus on research missions, knowledge accumulation, and exploration.
+# Less militaristic than Iron Fleet, more cooperative.
+
+behavior: "void_collective_exploration_strategy"
+personality_key: "scientific_explorer"
+
+conditions:
+  - type: "standing_threshold"
+    comparison: ">="
+    value: 0
+
+actions:
+  # Primary: exploration missions
+  - type: "generate_quest"
+    template: "exploration_mission"
+    probability: 0.6
+    condition_requires:
+      standing_threshold: 5
+    params:
+      location: "uncharted_sector"
+      reward_standing: 8
+      data_points: 10
+    personality_modifier: "curiosity_x1_3"
+
+  # Secondary: research collaboration
+  - type: "generate_quest"
+    template: "research_collaboration"
+    probability: 0.4
+    condition_requires:
+      standing_threshold: 10
+    params:
+      research_field: "quantum_mechanics"
+      difficulty_scale: 1.1
+      reward_standing: 12
+    personality_modifier: "academia_boost"
+
+  # Diplomatic outreach
+  - type: "send_message"
+    probability: 0.15
+    condition_requires:
+      standing_threshold: 15
+    subject: "Research Partnership Proposal"
+    message: "Your technical expertise could advance our collective research. We propose a collaboration."
+
+fallback: "none"
