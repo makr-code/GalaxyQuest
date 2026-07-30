@@ -531,6 +531,86 @@ class AdvancedRenderingManager {
   }
 
   /**
+   * Generate a procedural asteroid mesh.
+   * Creates cached meshes for reproducible asteroids by seed.
+   *
+   * @param {object} config
+   * @param {number} [config.seed] - Seed for reproducibility
+   * @param {number} [config.scale=100] - Size scale
+   * @param {number} [config.complexity=2] - Detail level (1-5)
+   * @param {boolean} [config.fracture=true] - Apply fracture patterns
+   * @returns {Object|null} Generated mesh or null if procedural meshes not enabled
+   */
+  generateAsteroid(config = {}) {
+    if (!this._features.proceduralmeshes || !this._instances.proceduralMeshGenerator) {
+      return null;
+    }
+
+    try {
+      const mesh = this._instances.proceduralMeshGenerator.generateAsteroid({
+        seed: config.seed ?? Math.random() * 1000000,
+        scale: config.scale ?? 100,
+        complexity: Math.max(1, Math.min(5, config.complexity ?? 2)),
+        fracture: config.fracture !== false,
+      });
+
+      return mesh;
+    } catch (err) {
+      console.warn('[AdvancedRenderingManager] Failed to generate asteroid:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Generate a debris field (multiple asteroid fragments).
+   * Useful for explosions, destruction sequences.
+   *
+   * @param {object} config
+   * @param {number} [config.count=10] - Number of debris pieces
+   * @param {number} [config.scale=50] - Base fragment scale
+   * @param {number} [config.seed] - Seed for reproducibility
+   * @returns {Array|null} Array of geometry objects or null if procedural meshes not enabled
+   */
+  generateDebrisField(config = {}) {
+    if (!this._features.proceduralmeshes || !this._instances.proceduralMeshGenerator) {
+      return null;
+    }
+
+    try {
+      const debris = this._instances.proceduralMeshGenerator.generateDebrisField({
+        count: Math.max(1, config.count ?? 10),
+        scale: config.scale ?? 50,
+        seed: config.seed ?? Math.random() * 1000000,
+      });
+
+      return debris;
+    } catch (err) {
+      console.warn('[AdvancedRenderingManager] Failed to generate debris field:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Clear procedural mesh cache to free memory.
+   */
+  clearProceduralCache() {
+    if (this._instances.proceduralMeshGenerator) {
+      this._instances.proceduralMeshGenerator.clearCache?.();
+    }
+  }
+
+  /**
+   * Get procedural mesh generation statistics.
+   * @returns {object} Cache stats
+   */
+  getProceduralStats() {
+    if (this._instances.proceduralMeshGenerator) {
+      return this._instances.proceduralMeshGenerator.getCacheStats?.() || {};
+    }
+    return {};
+  }
+
+  /**
    * Update rendering features each frame
    * @param {number} deltaTime - Time since last frame in seconds
    * @param {import('./scene/Camera').Camera} camera - Active camera for distance calculations

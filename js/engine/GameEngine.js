@@ -487,6 +487,49 @@ class GameEngine {
     return this.cameras?.isCinematicMode() ?? false;
   }
 
+  /**
+   * Generate a procedural asteroid mesh.
+   * Requires advanced rendering with procedural meshes enabled.
+   *
+   * @param {object} config - Asteroid configuration
+   * @param {number} [config.seed] - Seed for reproducibility
+   * @param {number} [config.scale=100] - Size scale
+   * @param {number} [config.complexity=2] - Detail level (1-5)
+   * @param {boolean} [config.fracture=true] - Apply fracture patterns
+   * @returns {Object|null} Generated mesh or null
+   */
+  generateProceduralAsteroid(config = {}) {
+    if (!this.renderingMgr) return null;
+    return this.renderingMgr.generateAsteroid(config);
+  }
+
+  /**
+   * Generate a debris field (multiple asteroid fragments).
+   * Useful for explosions, destruction sequences.
+   *
+   * @param {object} config
+   * @param {number} [config.count=10] - Number of debris pieces
+   * @param {number} [config.scale=50] - Base fragment scale
+   * @param {number} [config.seed] - Seed for reproducibility
+   * @returns {Array|null} Array of geometry objects or null
+   */
+  generateDebrisField(config = {}) {
+    if (!this.renderingMgr) return null;
+    return this.renderingMgr.generateDebrisField(config);
+  }
+
+  /**
+   * Clear procedural mesh cache to free memory.
+   * Call periodically if generating many procedural objects.
+   * @returns {this}
+   */
+  clearProceduralCache() {
+    if (this.renderingMgr) {
+      this.renderingMgr.clearProceduralCache();
+    }
+    return this;
+  }
+
   /** Shorthand: emit an event on the engine bus. */
   emit(event, payload) {
     this.events.emit(event, payload);
