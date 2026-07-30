@@ -469,6 +469,23 @@ class AdvancedRenderingManager {
   }
 
   /**
+   * Update rendering features each frame
+   * @param {number} deltaTime - Time since last frame in seconds
+   * @param {import('./scene/Camera').Camera} camera - Active camera for distance calculations
+   */
+  update(deltaTime, camera) {
+    // Update LOD manager if enabled
+    if (this._features.lod && this._instances.lodManager && camera) {
+      const cameraPos = camera.position;
+      const fps = this._performanceMonitor.fps || 60;
+      this._instances.lodManager.update(deltaTime, cameraPos, fps);
+    }
+
+    // Update metrics collection
+    this.updateMetrics(deltaTime);
+  }
+
+  /**
    * Dispose all resources
    */
   dispose() {

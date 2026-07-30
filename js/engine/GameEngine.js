@@ -83,6 +83,7 @@ const { AssetRegistry }      = _req('./AssetRegistry.js',                 'GQAss
 const { PerformanceMonitor } = _req('./utils/PerformanceMonitor.js',      'GQPerformanceMonitor');
 const { ResourceTracker }    = _req('./utils/ResourceTracker.js',         'GQResourceTracker');
 const { ViewportManager }    = _req('./ViewportManager.js',               'GQViewportManager');
+const { AdvancedRenderingManager } = _req('./AdvancedRenderingManager.js', 'GQAdvancedRenderingManager');
 
 // ---------------------------------------------------------------------------
 // GameEngine
@@ -115,6 +116,8 @@ class GameEngine {
     this.perf             = new PerformanceMonitor();
     /** @type {ResourceTracker} */
     this.resources        = new ResourceTracker();
+    /** @type {AdvancedRenderingManager|null} Advanced 3D rendering features manager */
+    this.renderingMgr     = null;
 
     /** CPU physics engine (SpacePhysicsEngine, always available) */
     this.physics          = null;
@@ -284,6 +287,7 @@ class GameEngine {
     this.systems.list().forEach((s) => this.systems.remove(s.name));
     this.viewports?.detach();
     this.cameras?.dispose();
+    this.renderingMgr?.dispose?.();
     this.postFx?.dispose();
     this.gpuPhysics?.dispose();
     this.resources.disposeAll();
@@ -369,6 +373,50 @@ class GameEngine {
     }
 
     this._log(`addFollowViewport: '${name}' targeting '${target?.name ?? '?'}'`);
+    return this;
+  }
+
+  /**
+   * Register an object with the LOD system.
+   * Should be called when spawning ships, asteroids, planets, or other dynamic objects.
+   *
+   * @param {string} objectId     Unique identifier for the object
+   * @param {Object} mesh         Mesh or scene node with position
+   * @param {string} objectType   Type hint: 'ship' | 'asteroid' | 'planet' | 'station'
+   * @returns {this}
+   */
+  registerObjectForLOD(objectId, mesh, objectType = 'ship') {
+    if (!this.renderingMgr || !this.renderingMgr._instances.lodManager) {
+      // LOD not enabled
+      return this;
+    }
+
+    try {
+      const position = mesh.position || { x: 0, y: 0, z: 0 };
+      this.renderingMgr._instances.lodManager.registerObject(objectId, mesh, objectType, position);
+    } catch (err) {
+      console.warn('[GameEngine] Failed to register object for LOD:', err);
+    }
+
+    return this;
+  }
+
+  /**
+   * Unregister an object from LOD management (e.g., when destroyed).
+   * @param {string} objectId - The unique identifier used during registration
+   * @returns {this}
+   */
+  unregisterObjectFromLOD(objectId) {
+    if (!this.renderingMgr || !this.renderingMgr._instances.lodManager) {
+      return this;
+    }
+
+    try {
+      this.renderingMgr._instances.lodManager.unregisterObject(objectId);
+    } catch (err) {
+      console.warn('[GameEngine] Failed to unregister object from LOD:', err);
+    }
+
     return this;
   }
 
@@ -654,7 +702,16 @@ class GameEngine {
     // 4. Physics
     await this._initPhysics(opts);
 
-    // 5. Game loop
+    // 5. Advanced rendering features (LOD, post-processing, decals, procedural, etc.)
+    this.renderingMgr = new AdvancedRenderingManager(this);
+    if (opts.advancedRendering !== false) {
+      // Apply default preset based on device capabilities
+      const preset = opts.advancedRenderingPreset ?? 'high';
+      this.renderingMgr.applyPreset(preset);
+      this._log(`Advanced rendering initialized with preset: ${preset}`);
+    }
+
+    // 6. Game loop
     this.loop = new GameLoop({
       fixedStep: opts.fixedStep ?? (1 / 60),
       maxDt:     opts.maxDt    ?? 0.25,
@@ -665,7 +722,7 @@ class GameEngine {
       onPanic:       () => this.events.emit('engine:panic', {}),
     });
 
-    // 6. Built-in window resize wiring
+    // 7. Built-in window resize wiring
     if (typeof window !== 'undefined' && canvas.parentElement) {
       this._resizeObserver = new (window.ResizeObserver ?? _NoopResizeObserver)(([entry]) => {
         const { width, height } = entry.contentRect;
@@ -755,6 +812,12 @@ class GameEngine {
     // Update all cameras (primary + follow cameras) with smooth lag
     this.cameras ? this.cameras.update(dt) : this.camera?.update?.();
     this.scene.update();
+    
+    // Update advanced rendering features (LOD, etc.)
+    if (this.renderingMgr) {
+      this.renderingMgr.update(dt, this.camera ?? this.cameras?.active);
+    }
+    
     this.events.emit('engine:update', { dt, alpha });
   }
 
