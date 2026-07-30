@@ -7,7 +7,8 @@
 #   1. Vitest unit tests (JavaScript)
 #   2. PHPUnit unit tests (PHP)
 
-name: CI
+name: CI/CD Pipeline
+
 # GalaxyQuest — Main CI/CD Pipeline
 #
 # Runs on every push to main and on every pull request targeting main.
@@ -17,8 +18,6 @@ name: CI
 #   vitest           — Vitest JavaScript unit tests
 #   playwright-smoke — Playwright end-to-end smoke test (full Docker stack)
 #   docker-build     — Build & push versioned Docker image to GHCR (main only)
-
-name: CI/CD Pipeline
 
 on:
   push:
@@ -30,22 +29,12 @@ on:
       - main
       - master
 
-  pull_request:
-    branches:
-      - main
-
 # Default: restrict all jobs to read-only access; individual jobs that need
 # extra permissions (e.g. docker-build → packages: write) override this.
 permissions:
   contents: read
 
 jobs:
-  js-tests:
-    name: JavaScript Unit Tests (Vitest)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
   # ── PHP Unit Tests ──────────────────────────────────────────────────────────
   phpunit:
     name: PHPUnit Tests
@@ -127,28 +116,6 @@ jobs:
       - name: Run Vitest
         run: npx vitest run --reporter=verbose
 
-  php-tests:
-    name: PHP Unit Tests (PHPUnit)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: pdo, pdo_sqlite, json, mbstring, intl
-          coverage: none
-
-      - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist --optimize-autoloader
-
-      - name: Run PHPUnit
-        run: vendor/bin/phpunit --testdox
-        run: npm run test:unit:js
-
   # ── End-to-End Smoke Test ───────────────────────────────────────────────────
   playwright-smoke:
     name: Playwright E2E Smoke Test
@@ -199,7 +166,6 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-  # ── Docker Image Build & Publish ────────────────────────────────────────────
   docker-build:
     name: Build & Publish Docker Image
     runs-on: ubuntu-latest
