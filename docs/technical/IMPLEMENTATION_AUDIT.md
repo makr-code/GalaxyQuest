@@ -582,7 +582,8 @@ Aktuell wird HTML größtenteils als String-Interpolation in PHP/JS erzeugt. Zie
 ### 5.5 CI/CD-Pipeline
 
 **Status:** ✅ Sprint 1.2 — `.github/workflows/ci.yml` eingerichtet  
-Läuft Vitest (JS) + PHPUnit (PHP) auf jedem Push/PR gegen `main`/`master`.
+Läuft PHPUnit (PHP) + Vitest (JS) + Playwright E2E (Smoke-Test) auf jedem Push/PR gegen `main`/`master`.  
+Docker-Image-Build & Push zu GHCR nur bei Push zu `main`.
 
 ### 5.6 Root-Level Test-Dateien
 
