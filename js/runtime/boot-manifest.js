@@ -105,6 +105,11 @@
     { src: 'js/rendering/starfield.js', version: V.starfield },
     { src: 'js/ui/prolog.js', version: V.prolog },
     { src: 'js/network/auth-boot-assets.js', version: V.assetCore },
+    { src: 'js/network/auth-reachability.js', version: V.assetCore },
+    { src: 'js/network/auth-2fa.js', version: V.assetCore },
+    { src: 'js/network/auth-ui-state.js', version: V.assetCore },
+    { src: 'js/network/auth-audio.js', version: V.assetCore },
+    { src: 'js/network/auth-shell.js', version: V.assetCore },
     { src: 'js/network/auth.js', version: V.auth }
   ];
 
