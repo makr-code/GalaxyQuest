@@ -1,0 +1,29 @@
+code: combat_patrol
+title_template: "Eliminate {enemy_count} {enemy_type} in {location}"
+description_template: |
+  The {enemy_type} have been terrorizing {location}. Destroy {enemy_count} of them
+  and eliminate the immediate threat. We need peace restored to that region.
+  Estimated threat level: {threat_level}.
+quest_type: combat
+difficulty_modifier: 1.2
+faction_types:
+  - military
+  - pirate
+  - envoy
+default_params:
+  location: "disputed_zone"
+  enemy_type: pirate_corvette
+  enemy_count: 5
+  threat_level: high
+  deadline_days: 3
+reward_scaling:
+  base_metal: 800
+  base_deuterium: 400
+  base_standing: 8
+  multipliers:
+    by_enemy_count: 0.2
+    by_threat_level: 1.2
+narrative_hooks:
+  - "Show the {enemy_type} that {location} is not theirs to take."
+  - "We need a commander of your skill to handle this threat."
+  - "Eliminate them with decisive action. No mercy for aggressors."
