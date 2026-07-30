@@ -118,6 +118,34 @@
       return material;
     }
 
+    /**
+     * Create an animated sun material with bloom-friendly emissive properties.
+     * Optimized for UnrealBloomPass post-processing.
+     *
+     * @param {number|THREE.Color} color - Star/sun color
+     * @param {object} [textureBundle] - Optional texture bundle
+     * @returns {THREE.MeshStandardMaterial}
+     */
+    createAnimatedSunMaterial(color, textureBundle = null) {
+      const material = new this.THREE.MeshStandardMaterial({
+        color: textureBundle?.map ? 0xffffff : color,
+        map: textureBundle?.map || null,
+        bumpMap: textureBundle?.bumpMap || null,
+        bumpScale: textureBundle?.bumpMap ? 0.02 : 0,
+        emissive: color,
+        emissiveMap: textureBundle?.emissiveMap || textureBundle?.map || null,
+        emissiveIntensity: 1.2,  // Higher base for animated pulsation
+        roughness: 0.4,
+        metalness: 0.02,
+        toneMapped: true,
+      });
+      material.userData = Object.assign({}, material.userData, { 
+        sharedTexture: true,
+        animatedSun: true,  // Flag for SunAnimator
+      });
+      return material;
+    }
+
     createMoonMaterial(color, textureBundle = null) {
       const material = new this.THREE.MeshStandardMaterial({
         color: textureBundle?.map ? 0xffffff : color,

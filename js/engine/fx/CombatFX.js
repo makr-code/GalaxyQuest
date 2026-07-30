@@ -331,9 +331,11 @@ class CombatFX {
    * @param {object}         [opts]
    * @param {ParticleSystem} [opts.particleSystem] - Shared ParticleSystem; one is created if omitted.
    * @param {number}         [opts.maxParticles=4096]
+   * @param {ImpactDecalManager} [opts.decalManager] - Optional impact decal manager for persistent burn/scorch marks
    */
   constructor(opts = {}) {
     this._ps = opts.particleSystem ?? new ParticleSystem({ maxParticles: opts.maxParticles ?? 4096 });
+    this._decalManager = opts.decalManager ?? null;
 
     /** @type {BeamRecord[]} */
     this._beams = [];
@@ -346,6 +348,35 @@ class CombatFX {
   // -------------------------------------------------------------------------
   // Public API
   // -------------------------------------------------------------------------
+
+  /**
+   * Set the impact decal manager (can be assigned after construction).
+   * @param {ImpactDecalManager} decalManager
+   */
+  setDecalManager(decalManager) {
+    this._decalManager = decalManager;
+  }
+
+  /**
+   * Spawn an impact decal at a position (e.g., scorch mark, burn mark).
+   * @private
+   * @param {{x,y,z}} position - World-space impact position
+   * @param {string} decalType - 'impact' | 'burn' | 'explosion' | 'scorch'
+   * @param {number} [lifetime=10] - How long decal persists in seconds
+   * @param {number} [scale=1] - Decal size multiplier
+   */
+  _spawnDecal(position, decalType = 'impact', lifetime = 10, scale = 1) {
+    if (!this._decalManager) return;
+
+    try {
+      this._decalManager.addDecal(position, decalType, {
+        lifetime: lifetime * scale,
+        scale: scale,
+      });
+    } catch (err) {
+      console.warn('[CombatFX] Failed to spawn decal:', err);
+    }
+  }
 
   /**
    * Spawn weapon-fire effects (muzzle flash, in-flight trail/beam, impact burst).
@@ -433,6 +464,14 @@ class CombatFX {
       this._ps.addDynamicLight(pl, cfg.duration);
     }
 
+    // Impact decal (persistent mark on target surface)
+    if (to) {
+      const decalType = type === WeaponType.LASER ? 'burn' :
+                       type === WeaponType.RAILGUN ? 'scorch' :
+                       'impact';
+      this._spawnDecal(to, decalType, 15, 1);
+    }
+
     return { emitters, lights, beams };
   }
 
@@ -502,6 +541,15 @@ class CombatFX {
       const p = _makeLight({ ...preset.light, ...(overrides.light ?? {}) }, position);
       lights.push(p);
       this._ps.addDynamicLight(p, preset.light.duration);
+    }
+
+    // Impact decals for explosions
+    if (type === ExplosionType.HIT_SPARK) {
+      this._spawnDecal(position, 'scorch', 8, scale);
+    } else if (type === ExplosionType.DETONATION) {
+      this._spawnDecal(position, 'burn', 12, scale);
+    } else if (type === ExplosionType.SHIP_DESTRUCTION) {
+      this._spawnDecal(position, 'explosion', 20, scale);
     }
 
     return { emitters, lights, shockwaves };

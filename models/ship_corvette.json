@@ -12,6 +12,23 @@
     "segments_full": 8,
     "segments_low": 6
   },
+  "engines": [
+    {
+      "id": "main_engine",
+      "position": {
+        "x": 0,
+        "y": -1.1,
+        "z": 0
+      },
+      "direction": {
+        "x": 0,
+        "y": -1,
+        "z": 0
+      },
+      "size": 0.28,
+      "propulsionType": "ion"
+    }
+  ],
   "images": [
     {
       "uuid": "img_panel_grid",

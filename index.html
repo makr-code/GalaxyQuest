@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="css/gqwm.css?v=20260406p1" />
   <link rel="stylesheet" href="css/prolog.css?v=1" />
   <link rel="stylesheet" href="css/diplomacy.css?v=1" />
+  <link rel="stylesheet" href="css/advanced-rendering.css?v=1" />
   <style>
     #boot-terminal:not(.wm-window):not(.wm-window-adapted) {
       position: fixed;
@@ -1547,6 +1548,65 @@
                 <option value="dense">Dense</option>
               </select>
             </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+           <legend>Advanced Rendering</legend>
+           <label class="settings-row">
+             <span class="settings-label">Quality Preset</span>
+             <select class="settings-select" id="adv-rendering-preset" data-setting="advRenderingPreset">
+               <option value="ultra">Ultra (RTX Desktop)</option>
+               <option value="high">High (Desktop)</option>
+               <option value="medium">Medium (Balanced)</option>
+               <option value="low">Low (Performance)</option>
+               <option value="mobile">Mobile (Extreme Low)</option>
+             </select>
+           </label>
+           <div class="settings-help" style="margin-top:6px;font-size:0.85em;opacity:0.82;">
+             Presets automatically enable/disable LOD, bloom, motion blur, depth of field, and decals based on performance target.
+           </div>
+          </fieldset>
+
+          <fieldset class="settings-group">
+           <legend>Rendering Features</legend>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-lod" data-setting="advRenderingLOD" checked />
+             <span>Level of Detail (LOD)</span>
+           </label>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-bloom" data-setting="advRenderingBloom" checked />
+             <span>Dynamic Bloom</span>
+           </label>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-motionblur" data-setting="advRenderingMotionBlur" checked />
+             <span>Motion Blur</span>
+           </label>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-dof" data-setting="advRenderingDOF" checked />
+             <span>Depth of Field</span>
+           </label>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-decals" data-setting="advRenderingDecals" checked />
+             <span>Impact Decals</span>
+           </label>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-tonemapping" data-setting="advRenderingToneMapping" checked />
+             <span>HDR Tone Mapping</span>
+           </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+           <legend>Performance Monitor</legend>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-perfmon" data-setting="advRenderingPerfMon" />
+             <span>Show Performance Stats</span>
+           </label>
+           <div id="adv-rendering-stats" class="settings-stats-display" style="display:none; margin-top:12px; padding:8px; background:rgba(0,0,0,0.3); border-radius:4px; font-family:monospace; font-size:0.85em; line-height:1.6;">
+             <div><span>FPS:</span> <span id="perf-fps">--</span></div>
+             <div><span>Memory:</span> <span id="perf-memory">-- MB</span></div>
+             <div><span>Triangles:</span> <span id="perf-triangles">--</span></div>
+             <div><span>Draw Calls:</span> <span id="perf-draws">--</span></div>
+           </div>
           </fieldset>
 
           <fieldset class="settings-group">
