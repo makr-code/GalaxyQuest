@@ -450,6 +450,43 @@ class GameEngine {
     return this;
   }
 
+  /**
+   * Enable cinematic camera mode for mission cinematics.
+   * 
+   * @param {string} [name='cinematic'] - Name of the cinematic camera
+   * @returns {Object|null} CinematicCamera instance or null if not available
+   */
+  enableCinematic(name = 'cinematic') {
+    if (!this.cameras) {
+      console.warn('[GameEngine] CameraManager not available');
+      return null;
+    }
+
+    const cinematicCam = this.cameras.enableCinematicMode(name);
+    this._log(`Cinematic mode enabled: ${name}`);
+    return cinematicCam;
+  }
+
+  /**
+   * Disable cinematic camera mode (return to gameplay camera).
+   * @returns {this}
+   */
+  disableCinematic() {
+    if (this.cameras) {
+      this.cameras.disableCinematicMode();
+      this._log('Cinematic mode disabled');
+    }
+    return this;
+  }
+
+  /**
+   * Check if currently in cinematic mode.
+   * @returns {boolean}
+   */
+  isCinematic() {
+    return this.cameras?.isCinematicMode() ?? false;
+  }
+
   /** Shorthand: emit an event on the engine bus. */
   emit(event, payload) {
     this.events.emit(event, payload);

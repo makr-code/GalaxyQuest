@@ -221,6 +221,74 @@ class CameraManager {
   }
 
   // ---------------------------------------------------------------------------
+  // Cinematic Camera Support
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Enable cinematic camera mode (switches active camera to cinematic camera).
+   * Creates a CinematicCamera if needed.
+   * 
+   * @param {string} [name='cinematic'] - Name to register the cinematic camera
+   * @returns {import('./CinematicCamera').CinematicCamera} The cinematic camera instance
+   */
+  enableCinematicMode(name = 'cinematic') {
+    // Check if cinematic camera already exists
+    if (this._cameras.has(name)) {
+      const entry = this._cameras.get(name);
+      if (entry.camera && typeof entry.camera.play === 'function') {
+        this.activeName = name;
+        return entry.camera;
+      }
+    }
+
+    // Import CinematicCamera dynamically
+    const { CinematicCamera } = typeof require !== 'undefined'
+      ? require('./CinematicCamera.js')
+      : window.GQCinematicCamera ?? {};
+
+    if (!CinematicCamera) {
+      console.warn('[CameraManager] CinematicCamera not available');
+      return null;
+    }
+
+    // Get the primary camera
+    const primaryEntry = this._cameras.get('main');
+    const primaryCamera = primaryEntry?.camera;
+    if (!primaryCamera) {
+      console.warn('[CameraManager] Primary camera not found');
+      return null;
+    }
+
+    // Create cinematic camera wrapping the primary camera
+    const cinematicCam = new CinematicCamera(primaryCamera, {
+      defaultSpeed: 1.0,
+    });
+
+    // Register it
+    this.add(name, cinematicCam, { enabled: true });
+
+    // Switch to cinematic mode
+    this.activeName = name;
+
+    return cinematicCam;
+  }
+
+  /**
+   * Disable cinematic camera mode (switches back to primary camera).
+   */
+  disableCinematicMode() {
+    this.activeName = 'main';
+  }
+
+  /**
+   * Check if currently in cinematic mode.
+   * @returns {boolean}
+   */
+  isCinematicMode() {
+    return this.activeName !== 'main' && this._cameras.has(this.activeName);
+  }
+
+  // ---------------------------------------------------------------------------
   // Dispose
   // ---------------------------------------------------------------------------
 
