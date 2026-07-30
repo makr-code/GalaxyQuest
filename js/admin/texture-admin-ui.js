@@ -13,6 +13,12 @@
       this.init();
     }
 
+    static escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     init() {
       this.renderUI();
       this.setupEventListeners();
@@ -80,15 +86,21 @@
         const data = await res.json();
         if (data.success && data.textures.length > 0) {
           let html = '<table><tr><th>Type</th><th>Cache Key</th><th>Size</th><th>Actions</th></tr>';
-          data.textures.forEach(t => {
-            html += `<tr><td>${t.type}</td><td><code>${t.cache_key.substring(0, 16)}</code></td><td>${(t.size_bytes / 1024).toFixed(1)} KB</td><td><button onclick="GQTextureAdminUI.instance.regenTexture('${t.cache_key}')">Regenerate</button></td></tr>`;
+          data.textures.forEach((t, idx) => {
+            html += `<tr><td>${GQTextureAdminUI.escapeHtml(t.type)}</td><td><code>${GQTextureAdminUI.escapeHtml(t.cache_key.substring(0, 16))}</code></td><td>${(t.size_bytes / 1024).toFixed(1)} KB</td><td><button class="btn-regen" data-cache-key="${GQTextureAdminUI.escapeHtml(t.cache_key)}">Regenerate</button></td></tr>`;
           });
           container.innerHTML = html + '</table>';
+          container.querySelectorAll('.btn-regen').forEach(btn => {
+            btn.addEventListener('click', (e) => this.regenTexture(e.target.dataset.cacheKey));
+          });
         } else {
           container.innerHTML = '<p>No textures cached.</p>';
         }
       } catch (e) {
-        container.innerHTML = `<p>Error: ${e.message}</p>`;
+        const p = document.createElement('p');
+        p.textContent = `Error: ${e.message}`;
+        container.innerHTML = '';
+        container.appendChild(p);
       }
     }
 
@@ -100,7 +112,7 @@
         alert(data.success ? 'Queued' : data.error);
         this.loadCacheList();
       } catch (e) {
-        alert(`Error: ${e.message}`);
+        alert(`Error: ${GQTextureAdminUI.escapeHtml(e.message)}`);
       }
     }
 
@@ -116,9 +128,12 @@
       try {
         const r = await fetch('api/textures-admin.php?action=test_prompt', {method: 'POST', body: form});
         const d = await r.json();
-        res.innerHTML = d.success ? `<p>Submitted! ID: ${d.prompt_id}</p>` : `<p>Error: ${d.error}</p>`;
+        res.innerHTML = d.success ? `<p>Submitted! ID: ${GQTextureAdminUI.escapeHtml(d.prompt_id)}</p>` : `<p>Error: ${GQTextureAdminUI.escapeHtml(d.error)}</p>`;
       } catch (err) {
-        res.innerHTML = `<p>Error: ${err.message}</p>`;
+        const p = document.createElement('p');
+        p.textContent = `Error: ${err.message}`;
+        res.innerHTML = '';
+        res.appendChild(p);
       }
       return false;
     }
@@ -136,9 +151,12 @@
         url.searchParams.set('dry_run', '1');
         const r = await fetch(url);
         const d = await r.json();
-        res.innerHTML = d.success ? `<p>Would affect ${d.count} texture(s)</p>` : `<p>Error: ${d.error}</p>`;
+        res.innerHTML = d.success ? `<p>Would affect ${d.count} texture(s)</p>` : `<p>Error: ${GQTextureAdminUI.escapeHtml(d.error)}</p>`;
       } catch (e) {
-        res.innerHTML = `<p>Error: ${e.message}</p>`;
+        const p = document.createElement('p');
+        p.textContent = `Error: ${e.message}`;
+        res.innerHTML = '';
+        res.appendChild(p);
       }
     }
 
@@ -156,9 +174,12 @@
         url.searchParams.set('dry_run', '0');
         const r = await fetch(url);
         const d = await r.json();
-        res.innerHTML = d.success ? `<p>Deleted ${d.deleted} texture(s)</p>` : `<p>Error: ${d.error}</p>`;
+        res.innerHTML = d.success ? `<p>Deleted ${d.deleted} texture(s)</p>` : `<p>Error: ${GQTextureAdminUI.escapeHtml(d.error)}</p>`;
       } catch (e) {
-        res.innerHTML = `<p>Error: ${e.message}</p>`;
+        const p = document.createElement('p');
+        p.textContent = `Error: ${e.message}`;
+        res.innerHTML = '';
+        res.appendChild(p);
       }
     }
 
@@ -188,14 +209,17 @@
         if (d.success) {
           let h = `<p>Total: ${d.stats.total_textures} textures, ${d.stats.total_size_mb} MB</p><table><tr><th>Type</th><th>Count</th><th>Size MB</th></tr>`;
           for (const [t, i] of Object.entries(d.stats.by_type)) {
-            h += `<tr><td>${t}</td><td>${i.count}</td><td>${(i.size / 1024 / 1024).toFixed(2)}</td></tr>`;
+            h += `<tr><td>${GQTextureAdminUI.escapeHtml(t)}</td><td>${i.count}</td><td>${(i.size / 1024 / 1024).toFixed(2)}</td></tr>`;
           }
           c.innerHTML = h + '</table>';
         } else {
-          c.innerHTML = `<p>Error: ${d.error}</p>`;
+          c.innerHTML = `<p>Error: ${GQTextureAdminUI.escapeHtml(d.error)}</p>`;
         }
       } catch (e) {
-        c.innerHTML = `<p>Error: ${e.message}</p>`;
+        const p = document.createElement('p');
+        p.textContent = `Error: ${e.message}`;
+        c.innerHTML = '';
+        c.appendChild(p);
       }
     }
   }
