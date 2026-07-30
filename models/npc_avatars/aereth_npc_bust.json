@@ -240,8 +240,23 @@
       "gqModelSemantics": {
         "factionCode": "aereth",
         "objectClass": "npc_bust",
-        "archetype": "diplomat_bust"
-      }
+        "archetype": "diplomat_bust",
+        "designLanguageVersion": "egl-1.0",
+        "silhouetteTags": [
+          "bust",
+          "portrait"
+        ],
+        "signatureParts": [
+          "head",
+          "torso"
+        ]
+      },
+      "gqAnimations": [
+        {
+          "name": "default",
+          "duration": 1
+        }
+      ]
     },
     "children": [
       {
@@ -259,7 +274,10 @@
           1.0,
           1.0,
           1.0
-        ]
+        ],
+        "userData": {
+          "role": "head"
+        }
       },
       {
         "uuid": "mesh_neck",
@@ -271,7 +289,10 @@
           0,
           0.1,
           0
-        ]
+        ],
+        "userData": {
+          "role": "neck"
+        }
       },
       {
         "uuid": "mesh_torso",
@@ -288,7 +309,10 @@
           1.15,
           0.72,
           0.8
-        ]
+        ],
+        "userData": {
+          "role": "torso"
+        }
       }
     ]
   }
