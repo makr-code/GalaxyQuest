@@ -420,6 +420,22 @@ class GameEngine {
     return this;
   }
 
+  /**
+   * Get a rendering feature instance (LOD manager, post-processing pass, etc.)
+   * 
+   * @param {string} featureName - Feature to retrieve: 'lod', 'bloom', 'tonemapping', etc.
+   * @returns {Object|null} Feature instance or null if not enabled
+   */
+  getFeature(featureName) {
+    if (!this.renderingMgr) return null;
+    
+    const key = `${featureName.toLowerCase()}Manager` 
+      || `${featureName.toLowerCase()}Pass`
+      || featureName.toLowerCase();
+    
+    return this.renderingMgr._instances[key] ?? null;
+  }
+
   /** Shorthand: emit an event on the engine bus. */
   emit(event, payload) {
     this.events.emit(event, payload);

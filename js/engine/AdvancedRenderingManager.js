@@ -183,8 +183,8 @@ class AdvancedRenderingManager {
     });
 
     // Add to effect composer if available
-    if (this._gameEngine.effectComposer) {
-      this._gameEngine.effectComposer.addPass(pass);
+    if (this._gameEngine.postFx) {
+      this._gameEngine.postFx.addPass(pass);
     }
 
     this._instances.dynamicBloomPass = pass;
@@ -205,8 +205,8 @@ class AdvancedRenderingManager {
       maxMotionBlur: options.maxMotionBlur ?? 20,
     });
 
-    if (this._gameEngine.effectComposer) {
-      this._gameEngine.effectComposer.addPass(pass);
+    if (this._gameEngine.postFx) {
+      this._gameEngine.postFx.addPass(pass);
     }
 
     this._instances.motionVectorPass = pass;
@@ -228,8 +228,8 @@ class AdvancedRenderingManager {
       maxBlur: options.maxBlur ?? 25,
     });
 
-    if (this._gameEngine.effectComposer) {
-      this._gameEngine.effectComposer.addPass(pass);
+    if (this._gameEngine.postFx) {
+      this._gameEngine.postFx.addPass(pass);
     }
 
     this._instances.dofPass = pass;
@@ -251,8 +251,8 @@ class AdvancedRenderingManager {
       gamma: options.gamma ?? 2.2,
     });
 
-    if (this._gameEngine.effectComposer) {
-      this._gameEngine.effectComposer.addPass(pass);
+    if (this._gameEngine.postFx) {
+      this._gameEngine.postFx.addPass(pass);
     }
 
     this._instances.tonemappingPass = pass;
@@ -443,7 +443,54 @@ class AdvancedRenderingManager {
       }
     }
 
+    // Ensure passes are in correct execution order
+    this._ensurePassOrder();
+
     return true;
+  }
+
+  /**
+   * Ensure post-processing passes are in optimal execution order.
+   * Order matters for correctness: bloom before tone mapping, motion vectors before motion blur.
+   * @private
+   */
+  _ensurePassOrder() {
+    const composer = this._gameEngine.postFx;
+    if (!composer || !composer._passes) return;
+
+    // Expected pass order (after RenderPass which is at index 0)
+    const desiredOrder = [
+      this._instances.dynamicBloomPass,      // 1. Extract bright areas
+      this._instances.motionVectorPass,      // 2. Compute motion vectors
+      this._instances.tonemappingPass,       // 3. Color grading / tone mapping
+      this._instances.dofPass,               // 4. Depth of field (optional, usually last)
+    ];
+
+    // Collect all enabled passes in desired order
+    const passesToAdd = desiredOrder.filter(p => p && p !== undefined);
+    if (passesToAdd.length === 0) return;
+
+    // Remove all passes except RenderPass (index 0)
+    while (composer._passes.length > 1) {
+      composer._passes.pop();
+    }
+
+    // Re-add in correct order
+    passesToAdd.forEach(pass => {
+      composer.addPass(pass);
+    });
+
+    this._log('[AdvancedRenderingManager] Post-processing passes reordered');
+  }
+
+  /**
+   * Emit a debug log message
+   * @private
+   */
+  _log(msg, ...args) {
+    if (console) {
+      console.debug(msg, ...args);
+    }
   }
 
   /**
