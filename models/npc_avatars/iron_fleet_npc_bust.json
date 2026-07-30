@@ -245,8 +245,23 @@
       "gqModelSemantics": {
         "factionCode": "iron_fleet",
         "objectClass": "npc_bust",
-        "archetype": "diplomat_bust"
-      }
+        "archetype": "diplomat_bust",
+        "designLanguageVersion": "egl-1.0",
+        "silhouetteTags": [
+          "bust",
+          "portrait"
+        ],
+        "signatureParts": [
+          "head",
+          "torso"
+        ]
+      },
+      "gqAnimations": [
+        {
+          "name": "default",
+          "duration": 1
+        }
+      ]
     },
     "children": [
       {
@@ -264,7 +279,10 @@
           1.0,
           1.0,
           1.0
-        ]
+        ],
+        "userData": {
+          "role": "head"
+        }
       },
       {
         "uuid": "mesh_neck",
@@ -276,7 +294,10 @@
           0,
           0.1,
           0
-        ]
+        ],
+        "userData": {
+          "role": "neck"
+        }
       },
       {
         "uuid": "mesh_torso",
@@ -293,7 +314,10 @@
           1.0,
           1.0,
           1.0
-        ]
+        ],
+        "userData": {
+          "role": "torso"
+        }
       }
     ]
   }
