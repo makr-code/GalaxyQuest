@@ -1711,6 +1711,7 @@ const API = (() => {
     marketRegionPrices: (good_type = null) => {
       const q = good_type ? `&good_type=${encodeURIComponent(String(good_type))}` : '';
       return get(`api/market.php?action=get_region_prices${q}`);
+    },
     economyPopStatus: (colony_id = null) => {
       const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
       return get(`api/economy.php?action=get_pop_status${q}`);
@@ -1724,6 +1725,17 @@ const API = (() => {
         culture_spending: Math.min(1000, Math.max(0, Number(culture_spending))),
         safety_budget: Math.min(100, Math.max(0, Number(safety_budget))),
       });
+    },
+    economyShortageEvents: ({ colony_id = null, resolved = false } = {}) => {
+      let q = '?action=get_shortage_events';
+      if (colony_id != null) q += `&colony_id=${encodeURIComponent(Number(colony_id))}`;
+      if (resolved) q += '&resolved=1';
+      return get(`api/economy.php${q}`);
+    },
+    economyShortageSummary: ({ colony_id = null } = {}) => {
+      let q = '?action=get_shortage_summary';
+      if (colony_id != null) q += `&colony_id=${encodeURIComponent(Number(colony_id))}`;
+      return get(`api/economy.php${q}`);
     },
 
     // Strategic wars
