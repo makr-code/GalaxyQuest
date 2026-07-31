@@ -36,18 +36,30 @@
      */
     validateContainer(container, contextName = 'Galaxy3DRenderer') {
       if (!container) {
-        throw new ValidationError?.(`${contextName}: missing container`, 'container', container)
-          || new Error(`${contextName}: missing container`);
+        const err = new (ValidationError || Error)(
+          `${contextName}: missing container`,
+          ValidationError ? 'container' : undefined,
+          ValidationError ? container : undefined
+        );
+        throw err;
       }
 
       if (!(container instanceof HTMLElement)) {
-        throw new ValidationError?.(`${contextName}: container must be an HTMLElement`, 'container', container)
-          || new Error(`${contextName}: container must be an HTMLElement`);
+        const err = new (ValidationError || Error)(
+          `${contextName}: container must be an HTMLElement`,
+          ValidationError ? 'container' : undefined,
+          ValidationError ? container : undefined
+        );
+        throw err;
       }
 
       if (container.clientWidth === 0 || container.clientHeight === 0) {
-        throw new ValidationError?.(`${contextName}: container has zero dimensions (${container.clientWidth}x${container.clientHeight})`, 'container', container)
-          || new Error(`${contextName}: container has zero dimensions`);
+        const err = new (ValidationError || Error)(
+          `${contextName}: container has zero dimensions (${container.clientWidth}x${container.clientHeight})`,
+          ValidationError ? 'container' : undefined,
+          ValidationError ? container : undefined
+        );
+        throw err;
       }
 
       return container;
@@ -62,8 +74,12 @@
       }
 
       if (!(canvas instanceof HTMLCanvasElement)) {
-        throw new ValidationError?.(`${contextName}: canvas must be an HTMLCanvasElement`, 'canvas', canvas)
-          || new Error(`${contextName}: canvas must be an HTMLCanvasElement`);
+        const err = new (ValidationError || Error)(
+          `${contextName}: canvas must be an HTMLCanvasElement`,
+          ValidationError ? 'canvas' : undefined,
+          ValidationError ? canvas : undefined
+        );
+        throw err;
       }
 
       return canvas;
@@ -74,8 +90,12 @@
      */
     validateWindow(win = window, contextName = 'Galaxy3DRenderer') {
       if (!win || typeof win !== 'object') {
-        throw new ValidationError?.(`${contextName}: window object is invalid`, 'window', win)
-          || new Error(`${contextName}: window object is invalid`);
+        const err = new (ValidationError || Error)(
+          `${contextName}: window object is invalid`,
+          ValidationError ? 'window' : undefined,
+          ValidationError ? win : undefined
+        );
+        throw err;
       }
 
       return win;
@@ -90,12 +110,14 @@
       const three = validators.resolveThreeRuntime(win);
 
       if (!three) {
-        throw new ResourceError?.(
-          `${contextName}: THREE runtime not found. Ensure three.js is loaded before renderer.`,
-          'three',
-          'THREE',
-        )
-          || new Error(`${contextName}: THREE runtime not found`);
+        const err = new (ResourceError || Error)(
+          `${contextName}: THREE runtime not found. Ensure three.js is loaded before renderer.`
+        );
+        if (ResourceError && !err.resourceType) {
+          err.resourceType = 'three';
+          err.resourceName = 'THREE';
+        }
+        throw err;
       }
 
       return three;
@@ -157,12 +179,14 @@
       const three = validators.validateThreeRuntime(win, contextName);
 
       if (!validators.ensureThreeMathUtils(win, three)) {
-        throw new ResourceError?.(
-          `${contextName}: THREE.MathUtils is unavailable. Math operations may fail.`,
-          'three.MathUtils',
-          'MathUtils',
-        )
-          || new Error(`${contextName}: THREE.MathUtils unavailable`);
+        const err = new (ResourceError || Error)(
+          `${contextName}: THREE.MathUtils is unavailable. Math operations may fail.`
+        );
+        if (ResourceError && !err.resourceType) {
+          err.resourceType = 'three.MathUtils';
+          err.resourceName = 'MathUtils';
+        }
+        throw err;
       }
 
       return three.MathUtils;
@@ -252,33 +276,39 @@
      */
     validateWebGLCapabilities(contextName = 'Galaxy3DRenderer') {
       if (!window.WebGLRenderingContext) {
-        throw new ResourceError?.(
-          `${contextName}: WebGL not supported by browser`,
-          'webgl',
-          'WebGLRenderingContext',
-        )
-          || new Error(`${contextName}: WebGL not supported`);
+        const err = new (ResourceError || Error)(
+          `${contextName}: WebGL not supported by browser`
+        );
+        if (ResourceError && !err.resourceType) {
+          err.resourceType = 'webgl';
+          err.resourceName = 'WebGLRenderingContext';
+        }
+        throw err;
       }
 
       try {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('webgl') || canvas.getContext('webgl2');
         if (!ctx) {
-          throw new ResourceError?.(
-            `${contextName}: WebGL context could not be created`,
-            'webgl',
-            'WebGLContext',
-          )
-            || new Error(`${contextName}: WebGL context creation failed`);
+          const err = new (ResourceError || Error)(
+            `${contextName}: WebGL context could not be created`
+          );
+          if (ResourceError && !err.resourceType) {
+            err.resourceType = 'webgl';
+            err.resourceName = 'WebGLContext';
+          }
+          throw err;
         }
         return ctx;
       } catch (err) {
-        throw new ResourceError?.(
-          `${contextName}: WebGL test failed: ${err?.message || String(err)}`,
-          'webgl',
-          'WebGLContext',
-        )
-          || new Error(`${contextName}: WebGL test failed`);
+        const finalErr = new (ResourceError || Error)(
+          `${contextName}: WebGL test failed: ${err?.message || String(err)}`
+        );
+        if (ResourceError && !finalErr.resourceType) {
+          finalErr.resourceType = 'webgl';
+          finalErr.resourceName = 'WebGLContext';
+        }
+        throw finalErr;
       }
     },
 
@@ -287,21 +317,21 @@
      */
     validateShaderCode(shaderCode, shaderType = 'vertex', contextName = 'Galaxy3DRenderer') {
       if (!shaderCode || typeof shaderCode !== 'string') {
-        throw new ValidationError?.(
+        const err = new (ValidationError || Error)(
           `${contextName}: shader code must be a non-empty string`,
-          `${shaderType}_shader`,
-          shaderCode,
-        )
-          || new Error(`${contextName}: invalid shader code`);
+          ValidationError ? `${shaderType}_shader` : undefined,
+          ValidationError ? shaderCode : undefined
+        );
+        throw err;
       }
 
       if (shaderCode.trim().length === 0) {
-        throw new ValidationError?.(
+        const err = new (ValidationError || Error)(
           `${contextName}: shader code is empty`,
-          `${shaderType}_shader`,
-          shaderCode,
-        )
-          || new Error(`${contextName}: shader code is empty`);
+          ValidationError ? `${shaderType}_shader` : undefined,
+          ValidationError ? shaderCode : undefined
+        );
+        throw err;
       }
 
       return shaderCode;
@@ -316,21 +346,21 @@
       const num = Number(value);
 
       if (!Number.isFinite(num)) {
-        throw new ValidationError?.(
+        const err = new (ValidationError || Error)(
           `${contextName}: '${fieldName}' must be a finite number, got ${typeof value}`,
-          fieldName,
-          value,
-        )
-          || new Error(`${contextName}: invalid numeric value for ${fieldName}`);
+          ValidationError ? fieldName : undefined,
+          ValidationError ? value : undefined
+        );
+        throw err;
       }
 
       if (num < min || num > max) {
-        throw new ValidationError?.(
+        const err = new (ValidationError || Error)(
           `${contextName}: '${fieldName}' must be between ${min} and ${max}, got ${num}`,
-          fieldName,
-          num,
-        )
-          || new Error(`${contextName}: ${fieldName} out of range`);
+          ValidationError ? fieldName : undefined,
+          ValidationError ? num : undefined
+        );
+        throw err;
       }
 
       return num;
@@ -341,12 +371,12 @@
      */
     validateObjectSchema(obj, schema, contextName = 'Galaxy3DRenderer') {
       if (!obj || typeof obj !== 'object') {
-        throw new ValidationError?.(
+        const err = new (ValidationError || Error)(
           `${contextName}: expected object, got ${typeof obj}`,
-          'object',
-          obj,
-        )
-          || new Error(`${contextName}: invalid object`);
+          ValidationError ? 'object' : undefined,
+          ValidationError ? obj : undefined
+        );
+        throw err;
       }
 
       const errors = [];
@@ -363,12 +393,12 @@
       }
 
       if (errors.length > 0) {
-        throw new ValidationError?.(
+        const err = new (ValidationError || Error)(
           `${contextName}: object validation failed: ${errors.join('; ')}`,
-          'schema',
-          obj,
-        )
-          || new Error(`${contextName}: schema validation failed`);
+          ValidationError ? 'schema' : undefined,
+          ValidationError ? obj : undefined
+        );
+        throw err;
       }
 
       return obj;
