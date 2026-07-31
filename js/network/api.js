@@ -552,6 +552,162 @@ const API = (() => {
       return APISession.handleAuthError(error);
     }
   };
+    // Achievements / quests
+    achievements:    ()    => get('api/achievements.php?action=list'),
+    claimAchievement:(id)  => post('api/achievements.php?action=claim', { achievement_id: id }),
+
+    // PvP
+    togglePvp: () => post('api/game.php?action=pvp_toggle', {}),
+
+    // Leaders
+    leaders:             ()            => get('api/leaders.php?action=list'),
+    hireLeader:          (name, role)  => post('api/leaders.php?action=hire',           { name, role }),
+    assignLeader:        (lid, cid, fid) => post('api/leaders.php?action=assign',       { leader_id: lid, colony_id: cid ?? undefined, fleet_id: fid ?? undefined }),
+    setAutonomy:         (lid, autonomy) => post('api/leaders.php?action=autonomy',     { leader_id: lid, autonomy }),
+    dismissLeader:       (lid)         => post('api/leaders.php?action=dismiss',        { leader_id: lid }),
+    aiTick:              ()            => post('api/leaders.php?action=ai_tick',        {}),
+    leaderMarketplace:   ()            => get('api/leaders.php?action=marketplace'),
+    hireCandidate:       (cid)         => post('api/leaders.php?action=hire_candidate', { candidate_id: cid }),
+    advisorHints:        ()            => get('api/leaders.php?action=advisor_hints'),
+    advisorTick:         ()            => post('api/leaders.php?action=advisor_tick',   {}),
+    dismissHint:         (hid)         => post('api/leaders.php?action=dismiss_hint',   { hint_id: hid }),
+
+    // Factions & diplomacy
+    factions:        ()           => get('api/factions.php?action=list'),
+    tradeOffers:     (fid)        => get(`api/factions.php?action=trade_offers&faction_id=${fid}`),
+    acceptTrade:     (oid, cid)   => post('api/factions.php?action=accept_trade',  { offer_id: oid, colony_id: cid }),
+    factionQuests:   (fid)        => get(`api/factions.php?action=quests&faction_id=${fid}`),
+    startFactionQuest:(fqid)      => post('api/factions.php?action=start_quest',   { faction_quest_id: fqid }),
+    checkFactionQuests:()         => post('api/factions.php?action=check_quests',  {}),
+    claimFactionQuest:(uqid)      => post('api/factions.php?action=claim_quest',   { user_quest_id: uqid }),
+    factionDialogue: ({ faction_id, history = [], player_input = '' } = {}) =>
+      post('api/factions.php?action=dialogue', { faction_id, history, player_input }),
+
+    // Faction agreements (Victoria 3-style treaty system)
+    factionAgreementsList:   (faction_id) =>
+      get(faction_id ? `api/diplomacy.php?action=list&faction_id=${Number(faction_id)}` : 'api/diplomacy.php?action=list'),
+    factionAgreementsTypes:  ()           => get('api/diplomacy.php?action=types'),
+    factionAgreementsPropose:(data)       => post('api/diplomacy.php?action=propose', data),
+    factionAgreementsRespond:(id)         => post('api/diplomacy.php?action=respond', { agreement_id: Number(id) }),
+    factionAgreementsCancel: (id)         => post('api/diplomacy.php?action=cancel',  { agreement_id: Number(id) }),
+
+    // Diplomatic Plays – 4-phase escalation system (Sprint 3.2)
+    diplomaticPlaysList:       (faction_id) =>
+      get(faction_id ? `api/diplomatic_plays.php?action=list&faction_id=${Number(faction_id)}` : 'api/diplomatic_plays.php?action=list'),
+    diplomaticPlaysTrustThreat:(faction_id) =>
+      get(`api/diplomatic_plays.php?action=trust_threat&faction_id=${Number(faction_id)}`),
+    diplomaticPlaysPropose:    (data)       => post('api/diplomatic_plays.php?action=propose_play',  data),
+    diplomaticPlaysCounter:    (data)       => post('api/diplomatic_plays.php?action=counter_play',  data),
+    diplomaticPlaysMobilize:   (data)       => post('api/diplomatic_plays.php?action=mobilize',      data),
+    diplomaticPlaysResolve:    (data)       => post('api/diplomatic_plays.php?action=resolve',       data),
+
+    // NPC / PvE controller
+    npcControllerStatus: () => get('api/npc_controller.php?action=status'),
+    npcControllerSummary: ({ hours = 24, faction_id = 0 } = {}) =>
+      get(`api/npc_controller.php?action=summary&hours=${Math.max(1, Math.min(168, Number(hours || 24)))}&faction_id=${Math.max(0, Number(faction_id || 0))}`),
+    npcControllerDecisions: ({ limit = 20, faction_id = 0 } = {}) =>
+      get(`api/npc_controller.php?action=decisions&limit=${Math.max(1, Number(limit || 20))}&faction_id=${Math.max(0, Number(faction_id || 0))}`),
+    npcControllerRunOnce: () => post('api/npc_controller.php?action=run_once', {}),
+
+    // Empire politics model (species/government/civics)
+    politicsCatalog: () => get('api/politics.php?action=catalog'),
+    politicsPresets: () => get('api/politics.php?action=presets'),
+    politicsStatus: () => get('api/politics.php?action=status', { priority: 'high' }),
+    configurePolitics: ({ primary_species_key, government_key, civic_keys } = {}) =>
+      post('api/politics.php?action=configure', {
+        primary_species_key,
+        government_key,
+        civic_keys,
+      }),
+    applyPoliticsPreset: (preset_key) =>
+      post('api/politics.php?action=apply_preset', { preset_key }),
+
+    // Messages
+    inbox:    ()               => get('api/messages.php?action=inbox'),
+    messageUsers: (q = '')     => get(`api/messages.php?action=users&q=${encodeURIComponent(String(q || ''))}`),
+    readMsg:  (id)             => get(`api/messages.php?action=read&id=${id}`),
+    sendMsg:  (to, sub, body)  => post('api/messages.php?action=send', { to_username: to, subject: sub, body }),
+    deleteMsg:(id)             => post('api/messages.php?action=delete', { id }),
+
+    // Reports
+    spyReports: ()             => get('api/reports.php?action=spy_reports'),
+    battleReports: ()          => get('api/reports.php?action=battle_reports'),
+    battleReportDetail: (id)   => get(`api/reports.php?action=battle_detail&id=${id}`),
+
+    // Trade Routes
+    tradeRoutes: ()            => get('api/trade.php?action=list'),
+    createTradeRoute: (data)   => post('api/trade.php?action=create', data),
+    deleteTradeRoute: (id)     => post('api/trade.php?action=delete', { route_id: id }),
+    toggleTradeRoute: (id)     => post('api/trade.php?action=toggle', { route_id: id }),
+
+    // NPC Traders Dashboard
+    tradersStatus: ()          => get('api/traders_events.php?event=status'),
+    tradersEvent: (eventName)  => post(`api/traders_events.php?event=${encodeURIComponent(String(eventName || 'status'))}`, {}),
+    tradersList: ()            => get('api/traders.php?action=list_traders'),
+    tradersRoutes: (status = '') => get(`api/traders.php?action=list_routes${status ? `&status=${encodeURIComponent(String(status))}` : ''}`),
+    traderOpportunities: (threshold = 15) =>
+      get(`api/traders_dashboard.php?action=opportunity_alerts&threshold=${Math.max(0, Number(threshold || 15))}`),
+
+    // Pirates / raids
+    piratesStatus: ()          => get('api/pirates.php?action=status'),
+    piratesRecentRaids: (limit = 20) => get(`api/pirates.php?action=recent_raids&limit=${Math.max(1, Number(limit || 20))}`),
+    piratesForecast: ()        => get('api/pirates.php?action=forecast'),
+    piratesRunTick: ()         => post('api/pirates.php?action=run_tick', {}),
+    piratesContracts: ()       => get('api/pirates.php?action=list_contracts'),
+    piratesProposeContract: ({ faction_id, contract_type = 'tributary', credit_offer = 0, duration_days = 30 } = {}) =>
+      post('api/pirates.php?action=propose_contract', {
+        faction_id: Math.max(0, Number(faction_id || 0)),
+        contract_type: String(contract_type || 'tributary'),
+        credit_offer: Math.max(0, Number(credit_offer || 0)),
+        duration_days: Math.max(1, Math.min(90, Number(duration_days || 30))),
+      }),
+
+    // Economy management (policy / tax / subsidies / overview)
+    economyOverview: (colony_id = null) => {
+      const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
+      return get(`api/economy.php?action=get_overview${q}`);
+    },
+    economyProduction: (colony_id) =>
+      get(`api/economy.php?action=get_production&colony_id=${encodeURIComponent(Number(colony_id))}`),
+    economyPolicy: ()          => get('api/economy.php?action=get_policy'),
+    setEconomyPolicy: (policy) => post('api/economy.php?action=set_policy', { policy }),
+    setEconomyTax: (type, rate) => post('api/economy.php?action=set_tax', { type, rate }),
+    setEconomySubsidy: (sector, enabled) => post('api/economy.php?action=set_subsidy', { sector, enabled }),
+    setEconomyProductionMethod: (colony_id, building_type, method) =>
+      post('api/economy.php?action=set_production_method', { colony_id: Number(colony_id), building_type, method }),
+    economyPopClasses: (colony_id = null) => {
+      const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
+      return get(`api/economy.php?action=get_pop_classes${q}`);
+    },
+    marketRegionPrices: (good_type = null) => {
+      const q = good_type ? `&good_type=${encodeURIComponent(String(good_type))}` : '';
+      return get(`api/market.php?action=get_region_prices${q}`);
+    },
+    economyPopStatus: (colony_id = null) => {
+      const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
+      return get(`api/economy.php?action=get_pop_status${q}`);
+    },
+    setPopPolicy: ({ colony_id, wage_adjustment = 1.0, culture_spending = 0, safety_budget = 0 } = {}) => {
+      const cid = Number(colony_id);
+      if (!cid || cid < 1) return Promise.reject(new Error('setPopPolicy: colony_id is required'));
+      return post('api/economy.php?action=set_pop_policy', {
+        colony_id: cid,
+        wage_adjustment: Math.min(2.0, Math.max(0.5, Number(wage_adjustment))),
+        culture_spending: Math.min(1000, Math.max(0, Number(culture_spending))),
+        safety_budget: Math.min(100, Math.max(0, Number(safety_budget))),
+      });
+    },
+    economyShortageEvents: ({ colony_id = null, resolved = false } = {}) => {
+      let q = '?action=get_shortage_events';
+      if (colony_id != null) q += `&colony_id=${encodeURIComponent(Number(colony_id))}`;
+      if (resolved) q += '&resolved=1';
+      return get(`api/economy.php${q}`);
+    },
+    economyShortageSummary: ({ colony_id = null } = {}) => {
+      let q = '?action=get_shortage_summary';
+      if (colony_id != null) q += `&colony_id=${encodeURIComponent(Number(colony_id))}`;
+      return get(`api/economy.php${q}`);
+    },
 
   // Public exports
   return {

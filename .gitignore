@@ -35,11 +35,16 @@ test-results/
 Thumbs.db
 
 # Local temp/debug artifacts used in this repo
+# Test and authentication session files (created by PowerShell test scripts)
+.gq_cookies.txt
+.gq_diag_cookies.txt
 .tmp-*.cookies.txt
+.tmp_system_test_cookies.txt
 *.tmp
 *.swp
 *.swo
-*.pyc\n__pycache__/
+*.pyc
+__pycache__/
 
 # TTS runtime audio cache (generated MP3s)
 cache/tts/*.mp3
