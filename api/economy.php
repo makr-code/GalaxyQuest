@@ -825,6 +825,88 @@ function action_get_shortage_events(PDO $db, int $uid): never {
     ], $rows)]);
 }
 
+/**
+ * GET economy.php?action=get_shortage_summary[&colony_id=N]
+ *
+ * Returns summary of active shortages per colony for dashboard display.
+ */
+function action_get_shortage_summary(PDO $db, int $uid): never {
+    $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
+
+    // Get all colonies for this user
+    $coloniesStmt = $db->prepare('SELECT id, name FROM colonies WHERE user_id = ?');
+    $coloniesStmt->execute([$uid]);
+    $colonies = $coloniesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $summaryData = [];
+
+    foreach ($colonies as $colony) {
+        $cid = (int)$colony['id'];
+        
+        // Skip if colony_id filter is specified and doesn't match
+        if ($colonyId !== null && $cid !== $colonyId) {
+            continue;
+        }
+
+        // Check if economy_processed_goods table exists
+        $tableExists = $db->query("SHOW TABLES LIKE 'economy_processed_goods'")->fetchColumn();
+        if (!$tableExists) {
+            $summaryData[] = [
+                'colony_id'   => $cid,
+                'colony_name' => $colony['name'],
+                'active_shortages' => 0,
+                'critical_shortages' => 0,
+                'shortage_goods' => [],
+            ];
+            continue;
+        }
+
+        // Get current shortage events for this colony
+        $shortageStmt = $db->prepare(<<<SQL
+            SELECT good_type, severity
+            FROM economy_shortage_events
+            WHERE colony_id = ? AND resolved_at IS NULL
+        SQL);
+        $shortageStmt->execute([$cid]);
+        $shortages = $shortageStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $activeCount = count($shortages);
+        $criticalCount = count(array_filter($shortages, fn($s) => $s['severity'] === 'starvation'));
+
+        // Get current good quantities vs consumption rates
+        $goodsStmt = $db->prepare(<<<SQL
+            SELECT good_type, quantity, consumption_rate_per_hour, production_rate_per_hour
+            FROM economy_processed_goods
+            WHERE colony_id = ? AND consumption_rate_per_hour > 0
+            ORDER BY consumption_rate_per_hour DESC
+        SQL);
+        $goodsStmt->execute([$cid]);
+        $goods = $goodsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $shortageGoods = array_map(fn($g) => [
+            'good_type' => $g['good_type'],
+            'quantity' => (float)$g['quantity'],
+            'consumption_rate_per_hour' => (float)$g['consumption_rate_per_hour'],
+            'production_rate_per_hour' => (float)$g['production_rate_per_hour'],
+            'deficit_per_hour' => (float)($g['consumption_rate_per_hour'] - $g['production_rate_per_hour']),
+            'hours_remaining' => (float)$g['consumption_rate_per_hour'] > 0
+                ? (float)$g['quantity'] / (float)$g['consumption_rate_per_hour']
+                : null,
+            'is_shortage' => (float)$g['consumption_rate_per_hour'] > (float)$g['production_rate_per_hour'],
+        ], array_filter($goods, fn($g) => (float)$g['consumption_rate_per_hour'] > (float)$g['production_rate_per_hour']));
+
+        $summaryData[] = [
+            'colony_id'   => $cid,
+            'colony_name' => $colony['name'],
+            'active_shortages' => $activeCount,
+            'critical_shortages' => $criticalCount,
+            'shortage_goods' => array_slice($shortageGoods, 0, 10), // Top 10 shortage goods
+        ];
+    }
+
+    json_ok(['colonies' => $summaryData]);
+}
+
 match ($action) {
     'get_overview'          => action_get_overview($db, $uid),
     'get_production'        => action_get_production($db, $uid),
@@ -838,5 +920,6 @@ match ($action) {
     'set_pop_policy'        => action_set_pop_policy($db, $uid),
     'get_bottleneck'        => action_get_bottleneck($db, $uid),
     'get_shortage_events'   => action_get_shortage_events($db, $uid),
+    'get_shortage_summary'  => action_get_shortage_summary($db, $uid),
     default                 => json_error('Unknown action: ' . $action, 400),
 };

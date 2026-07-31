@@ -2526,6 +2526,93 @@ function process_war_goal_progress(PDO $db, int $elapsedSeconds): array {
 }
 
 /**
+ * Process economy production tick for all colonies.
+ *
+ * Called once per game tick to flush lazy-evaluated production/consumption
+ * for all colonies across all players.
+ *
+ * Returns stats about the flush operation: colonies processed, shortage events
+ * generated, pop satisfaction updates applied.
+ *
+ * @param PDO $db
+ * @param bool $force  If true, run regardless of time since last tick
+ * @return array{processed: bool, schema_ready: bool, colonies_flushed: int, shortage_events: int, elapsed_seconds: int}
+ */
+function process_economy_production_tick(PDO $db, bool $force = false): array {
+    $result = [
+        'processed'        => false,
+        'schema_ready'     => false,
+        'colonies_flushed' => 0,
+        'shortage_events'  => 0,
+        'elapsed_seconds'  => 0,
+    ];
+
+    // Check if economy schema exists
+    $stmt = $db->query("SHOW TABLES LIKE 'economy_processed_goods'");
+    if (!$stmt->fetch()) {
+        return $result;
+    }
+    $result['schema_ready'] = true;
+
+    $now = time();
+    $stateKey = 'economy:production_last_tick';
+
+    if (function_exists('app_state_get_int')) {
+        $lastTick = app_state_get_int($db, $stateKey, $now);
+        if ($lastTick <= 0) $lastTick = $now;
+    } else {
+        $lastTick = $now;
+    }
+
+    // Only process if enough time has passed or force=true
+    $elapsed = max(0, $now - $lastTick);
+    $result['elapsed_seconds'] = $elapsed;
+
+    // Minimum 1 second interval between ticks
+    if (!$force && $elapsed < 1) {
+        return $result;
+    }
+
+    try {
+        // Require the economy_flush module which defines flush_colony_production()
+        require_once __DIR__ . '/economy_flush.php';
+
+        // Get all colonies
+        $colonyStmt = $db->query('SELECT id FROM colonies');
+        $colonies = $colonyStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $shortageCount = 0;
+        foreach ($colonies as $colony) {
+            $colonyId = (int)$colony['id'];
+            
+            // Call the lazy-evaluation production flush
+            flush_colony_production($db, $colonyId);
+
+            // Count active shortage events as a rough metric
+            $countStmt = $db->prepare(
+                'SELECT COUNT(*) FROM economy_shortage_events WHERE colony_id = ? AND resolved_at IS NULL'
+            );
+            $countStmt->execute([$colonyId]);
+            $shortageCount += (int)$countStmt->fetchColumn();
+            
+            $result['colonies_flushed']++;
+        }
+
+        $result['shortage_events'] = $shortageCount;
+        $result['processed'] = true;
+
+        if (function_exists('app_state_set_int')) {
+            app_state_set_int($db, $stateKey, $now);
+        }
+
+    } catch (Throwable $e) {
+        error_log('process_economy_production_tick error: ' . $e->getMessage());
+    }
+
+    return $result;
+}
+
+/**
  * Returns emoji+name label for a colony type.
  */
 function get_colony_type_label(string $type): string {
