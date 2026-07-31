@@ -121,4 +121,7 @@ return [
 
     // ── World scenarios ───────────────────────────────────────────────────
     'migrate_world_scenarios_v1.sql',
+
+    // ── Update system ──────────────────────────────────────────────────────
+    'migrate_updates_system_v1.sql',
 ];
