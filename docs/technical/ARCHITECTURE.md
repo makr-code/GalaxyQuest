@@ -883,6 +883,147 @@ to distinguish regular users from administrators without touching the `users` ta
 
 ---
 
+## 4.17 Galaxy Bounded Context (OOP Pattern)
+
+### Context Overview
+
+The Galaxy bounded context encapsulates all star system queries, range lookups, and system detail retrieval. Implemented as a proof-of-concept for the SOC/OOP migration pattern (Batches 1-6).
+
+**Layers**:
+
+```
+┌─ Presentation Layer (HTTP)
+│  └─ GalaxyController.php  — HTTP request handlers
+│
+├─ Application Layer (Business Logic)
+│  ├─ GetStarsRangeService.php  — Range query orchestration
+│  └─ GetSystemPayloadService.php  — Single system detail
+│
+├─ Infrastructure Layer (Database & Encoding)
+│  ├─ PdoGalaxyRepository.php  — PDO queries (NO SQL in above layers)
+│  └─ Encoders/
+│      ├─ JsonSystemPayloadEncoder.php
+│      └─ BinarySystemPayloadEncoder.php
+│
+└─ Domain Layer (Business Rules)
+   ├─ Interfaces/
+   │  ├─ GalaxyRepositoryInterface.php  — Repository contract
+   │  └─ SystemPayloadEncoderInterface.php  — Encoding contract
+   └─ RangeValidator.php  — Coordinate validation logic
+```
+
+### Architecture Rules (Enforced in CI)
+
+1. **No SQL in Presentation layer** – All queries via `GalaxyRepositoryInterface`
+2. **No HTTP in Domain layer** – Domain logic is framework-agnostic
+3. **Interfaces before implementations** – Contracts drive design
+4. **All errors via ApiError/ApiResponse** – Standardized error envelope
+5. **100% type hints** – PHP `declare(strict_types=1)` required
+6. **>80% test coverage** – Unit + Integration + Contract tests
+
+### Integration Bridge: `api/galaxy.php`
+
+Maintains backward compatibility while routing new actions to OOP layer:
+
+```php
+// Legacy actions (existing code unchanged)
+if ($action === 'auth_stars') {
+    // Original procedural implementation
+}
+
+// New actions (OOP layer)
+if ($action === 'range') {
+    $controller = new GalaxyController($repository, $retryPolicy);
+    $response = $controller->handleRange($_GET);
+    return json_encode($response->toArray());
+}
+```
+
+**Key points**:
+- PSR-4 autoloader bootstraps OOP stack
+- Dependency injection container creates services
+- `RetryPolicy` (exponential backoff) handles transient failures
+- Legacy and new endpoints coexist (zero downtime migration)
+
+### Performance Characteristics
+
+**Measured baselines** (see `tests/Performance/GalaxyPerformanceTest.php`):
+
+| Operation | p95 | p99 | Encoding |
+|-----------|-----|-----|----------|
+| Range query (100 records) | 0.5ms | 0.77ms | JSON (227B/record) |
+| System detail lookup | 0.2ms | 0.33ms | JSON (227B) |
+| Binary encoding (1 record) | 0.02ms | 0.05ms | Binary (239B) |
+
+**Observation**: JSON and Binary payload sizes nearly identical for small results. See [ADR-005](ADR-005-Serialization-Strategy.md) for rationale.
+
+### Frontend Integration: `js/features/galaxy/`
+
+```javascript
+// New pattern (OOP)
+const service = new GalaxyService(apiClient);
+const controller = new GalaxyController(service);
+await controller.loadSystemsInRange(10, 20, 5, 30);
+controller.on('systemsLoaded', (systems) => updateUI(systems));
+
+// Legacy pattern (maintained via bridge)
+getSystemsInRange(10, 20, 5, 30, (err, systems) => {
+    if (!err) updateUI(systems);
+});
+```
+
+**Cache strategy**: 5-minute TTL, FIFO eviction (max 100 results). See [ADR-004](ADR-004-Frontend-Backend-Bridge.md).
+
+### Testing Strategy
+
+| Test Type | Location | Count | Purpose |
+|-----------|----------|-------|---------|
+| Unit | `tests/Unit/RangeValidatorTest.php` | 9 | Business rules |
+| Unit | `tests/Unit/RetryPolicyTest.php` | 15 | Retry logic |
+| Integration | `tests/Integration/GalaxyIntegrationTest.php` | 6 | End-to-end with DB |
+| Performance | `tests/Performance/GalaxyPerformanceTest.php` | 4 | Latency & size baseline |
+| Contract | `tests/Unit/GalaxyApiContractTest.php` | 12 | API envelope structure |
+| Snapshot | `tests/Unit/GalaxyEncodingSnapshotTest.php` | 6 | Encoding consistency |
+
+**Total**: 52 tests across all layers. Coverage: >95%.
+
+### CI Validation
+
+See `.eslintrc.galaxy.js` and `ruleset.xml` for architecture-specific linting:
+
+- ESLint rule: No direct `fetch()` in domain/service layers
+- PHP CodeSniffer rule: No SQL in Presentation layer
+- CI fails on violations (enforced on all PRs)
+
+### Migration Playbook
+
+To implement a new bounded context (e.g., Identity/Auth), follow the same 4-layer structure:
+
+1. **Phase 0**: Scaffold directories, interfaces, stub implementations
+2. **Phase 1**: Implement repository (real DB queries) + services + controller
+3. **Phase 2**: Build frontend service/controller + legacy bridge
+4. **Phase 3**: Add tests (unit → integration → contract)
+5. **Phase 4**: Add CI rules, documentation, ADRs
+
+See [`MIGRATION_PLAYBOOK.md`](MIGRATION_PLAYBOOK.md) for detailed checklist and templates.
+
+### Known Limitations & Future Work
+
+- **Binary encoding**: Overhead outweighs benefit for single records; useful for bulk operations (100+)
+- **Circuit breaker**: Not implemented; add if external service calls needed
+- **Caching**: Simple FIFO; consider LRU for production
+- **Rate limiting**: Not implemented; add if bot protection needed
+
+### Related Documentation
+
+- [ADR-003: Retry Policy & Error Handling](ADR-003-Retry-Policy.md)
+- [ADR-004: Frontend-Backend API Bridge](ADR-004-Frontend-Backend-Bridge.md)
+- [ADR-005: Serialization Strategy (JSON vs Binary)](ADR-005-Serialization-Strategy.md)
+- [MIGRATION_PLAYBOOK.md](MIGRATION_PLAYBOOK.md) – Template for next contexts
+- [MIGRATION_PROGRESS.md](MIGRATION_PROGRESS.md) – Status of Batches 1-6
+
+---
+
 ## 5. Frontend Architecture
 
 ### 5.1 Entry Point & Boot Loader
