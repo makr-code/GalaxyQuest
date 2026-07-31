@@ -86,6 +86,19 @@ const { ViewportManager }    = _req('./ViewportManager.js',               'GQVie
 const { AdvancedRenderingManager } = _req('./AdvancedRenderingManager.js', 'GQAdvancedRenderingManager');
 const { AdvancedRenderingUI } = _req('./AdvancedRenderingUI.js', 'GQAdvancedRenderingUI');
 
+// Optional selection and ownership systems
+const GroupSelectionController = typeof require !== 'undefined'
+  ? (() => {
+      try { return require('./selection/GroupSelectionController.js'); } catch (_) { return null; }
+    })()
+  : (typeof window !== 'undefined' ? window.GroupSelectionController : null);
+
+const OwnershipVisualsSystem = typeof require !== 'undefined'
+  ? (() => {
+      try { return require('../rendering/OwnershipVisualsSystem.js'); } catch (_) { return null; }
+    })()
+  : (typeof window !== 'undefined' ? window.OwnershipVisualsSystem : null);
+
 // ---------------------------------------------------------------------------
 // GameEngine
 // ---------------------------------------------------------------------------
@@ -121,6 +134,15 @@ class GameEngine {
     this.renderingMgr     = null;
     /** @type {AdvancedRenderingUI|null} Advanced rendering UI controls manager */
     this.renderingUI      = null;
+
+    /** @type {GroupSelectionController|null} Multi-unit selection controller */
+    this.groupSelection   = null;
+    /** @type {OwnershipVisualsSystem|null} Ownership visual identification system */
+    this.ownershipSystem  = null;
+    /** @type {GroupHighlightBloomPass|null} Multi-selection bloom effects */
+    this.groupBloom       = null;
+    /** @type {OwnershipAuraBloomPass|null} Ownership aura bloom effects */
+    this.ownershipAuraBloom = null;
 
     /** CPU physics engine (SpacePhysicsEngine, always available) */
     this.physics          = null;
@@ -709,7 +731,8 @@ class GameEngine {
       let BloomPass, VignettePass, ChromaticPass,
           ToneMappingPass, LensFlarePass, DustLayerPass, MotionBlurPass,
           FilmGrainPass, ColorGradingPass, StarScintillationPass,
-          DiskRotationParallaxPass, JetLightingPass;
+          DiskRotationParallaxPass, JetLightingPass,
+          GroupHighlightBloomPass, OwnershipAuraBloomPass;
       if (typeof _g.GQBloomPass !== 'undefined') {
         // Browser plain-script context: globals were set by <script> tags.
         BloomPass      = _g.GQBloomPass;
@@ -724,6 +747,8 @@ class GameEngine {
         StarScintillationPass    = _g.GQStarScintillationPass?.StarScintillationPass ?? _g.GQStarScintillationPass;
         DiskRotationParallaxPass = _g.GQDiskRotationParallaxPass?.DiskRotationParallaxPass ?? _g.GQDiskRotationParallaxPass;
         JetLightingPass          = _g.GQJetLightingPass?.JetLightingPass            ?? _g.GQJetLightingPass;
+        GroupHighlightBloomPass  = _g.GroupHighlightBloomPass;
+        OwnershipAuraBloomPass   = _g.OwnershipAuraBloomPass;
       } else {
         // Node.js / bundler / test context: dynamic import() shares the ESM
         // module registry with static `import` statements, guaranteeing
@@ -733,6 +758,7 @@ class GameEngine {
           { ToneMappingPass }, { LensFlarePass }, { DustLayerPass }, { MotionBlurPass },
           { FilmGrainPass }, { ColorGradingPass }, { StarScintillationPass },
           { DiskRotationParallaxPass }, { JetLightingPass },
+          { GroupHighlightBloomPass }, { OwnershipAuraBloomPass },
         ] = await Promise.all([
           import('./post-effects/passes/BloomPass.js'),
           import('./post-effects/passes/VignettePass.js'),
@@ -746,6 +772,8 @@ class GameEngine {
           import('./post-effects/passes/StarScintillationPass.js'),
           import('./post-effects/passes/DiskRotationParallaxPass.js'),
           import('./post-effects/passes/JetLightingPass.js'),
+          import('./post-effects/passes/GroupHighlightBloomPass.js'),
+          import('./post-effects/passes/OwnershipAuraBloomPass.js'),
         ]));
       }
 
@@ -756,6 +784,28 @@ class GameEngine {
         this._bloomPass = new BloomPass(bloomOpts);
         this.postFx.addPass(this._bloomPass);
       }
+
+      // Multi-selection group highlighting bloom pass
+      if (GroupHighlightBloomPass && opts.groupBloom !== false) {
+        const groupBloomOpts = typeof opts.groupBloom === 'object' ? opts.groupBloom : {};
+        this.groupBloom = new GroupHighlightBloomPass({
+          renderer: this.renderer,
+          ...groupBloomOpts,
+        });
+        this.postFx.addPass(this.groupBloom);
+      }
+
+      // Ownership aura bloom pass
+      if (OwnershipAuraBloomPass && opts.ownershipAura !== false) {
+        const ownershipAuraOpts = typeof opts.ownershipAura === 'object' ? opts.ownershipAura : {};
+        this.ownershipAuraBloom = new OwnershipAuraBloomPass({
+          renderer: this.renderer,
+          enableOwnershipAura: opts.ownershipAura !== false,
+          ...ownershipAuraOpts,
+        });
+        this.postFx.addPass(this.ownershipAuraBloom);
+      }
+
       if (opts.vignette !== false) {
         const vignetteOpts = typeof opts.vignette === 'object' ? opts.vignette : {};
         this._vignettePass = new VignettePass(vignetteOpts);
@@ -832,6 +882,41 @@ class GameEngine {
       }
     } catch (err) {
       this._log(`Warning: Failed to initialize advanced rendering UI: ${err.message}`);
+    }
+
+    // 5b. Multi-selection and ownership visual systems
+    try {
+      // Initialize group selection controller
+      if (typeof GroupSelectionController !== 'undefined') {
+        // Get or create a marker system (can be defined in renderer context)
+        const markerSystem = opts.markerSystem || window?.SelectionMarkerSystem?.instance || null;
+        this.groupSelection = new GroupSelectionController(markerSystem, opts.groupSelection);
+        
+        // Wire to bloom effects
+        if (this._bloomPass && this.groupSelection) {
+          this._bloomPass.selectionController = this.groupSelection;
+        }
+        if (this.groupBloom) {
+          this.groupBloom.groupSelectionController = this.groupSelection;
+        }
+      }
+
+      // Initialize ownership visuals system
+      if (typeof OwnershipVisualsSystem !== 'undefined') {
+        this.ownershipSystem = new OwnershipVisualsSystem(this.renderingMgr, opts.ownershipSystem);
+        
+        // Wire to bloom effects
+        if (this.ownershipAuraBloom) {
+          this.ownershipAuraBloom.ownershipSystem = this.ownershipSystem;
+        }
+        if (this._bloomPass) {
+          this._bloomPass.ownershipSystem = this.ownershipSystem;
+        }
+      }
+
+      this._log('Multi-selection and ownership visual systems initialized');
+    } catch (err) {
+      this._log(`Warning: Failed to initialize selection/ownership systems: ${err.message}`);
     }
 
     // 6. Game loop

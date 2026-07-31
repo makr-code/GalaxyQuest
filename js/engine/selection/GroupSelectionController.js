@@ -37,6 +37,12 @@ class GroupSelectionController {
     // Group metadata
     this._groupStats = new Map(); // groupId -> stats
     
+    // Bloom effect state for visual feedback
+    this._bloomStates = new Map(); // groupId -> { enabled, intensity, color }
+    this._multiSelectionBloomEnabled = false;
+    this._multiSelectionBloomIntensity = 1.0;
+    this._ownershipAuraBloomEnabled = options.enableOwnershipAura !== false;
+    
     // Selection history for undo/redo
     this._selectionHistory = [];
     this._historyIndex = -1;
@@ -122,6 +128,7 @@ class GroupSelectionController {
     }
     
     this._updateSelectionMode();
+    this._updateMultiSelectionBloom();
   }
 
   /**
@@ -177,6 +184,10 @@ class GroupSelectionController {
     
     // Calculate and cache statistics
     this._updateGroupStats(groupId, group);
+    
+    // Apply bloom effect to group
+    const bloomColor = template.color;
+    this.setGroupBloom(groupId, true, 1.2, bloomColor);
     
     this._emit('group-created', { group, groupId });
     
@@ -246,6 +257,7 @@ class GroupSelectionController {
     this.markerSystem.deselectGroup(groupId);
     this._activeGroups.delete(groupId);
     this._groupStats.delete(groupId);
+    this._bloomStates.delete(groupId);
     
     this._emit('group-dissolved', { groupId });
   }
@@ -258,6 +270,7 @@ class GroupSelectionController {
     this.markerSystem.clearSelection();
     this._activeSelection.clear();
     this._updateSelectionMode();
+    this.disableMultiSelectionBloom();
     this._emit('selection-cleared', {});
   }
 
@@ -442,6 +455,20 @@ class GroupSelectionController {
   }
 
   /**
+   * Update multi-selection bloom based on selection count
+   * @private
+   */
+  _updateMultiSelectionBloom() {
+    if (this._activeSelection.size > 1) {
+      // Enable bloom for multi-selection with intensity based on count
+      const intensity = Math.min(2.0, 0.8 + (this._activeSelection.size * 0.1));
+      this.enableMultiSelectionBloom(intensity);
+    } else {
+      this.disableMultiSelectionBloom();
+    }
+  }
+
+  /**
    * Calculate statistics for group
    * @private
    * @param {string} groupId - Group ID
@@ -543,7 +570,112 @@ class GroupSelectionController {
       }
     });
   }
-}
+
+  // =========================================================================
+  // Bloom Effect Management
+  // =========================================================================
+
+  /**
+   * Set bloom effect state for a group
+   * @param {string} groupId - Group ID
+   * @param {boolean} enabled - Enable/disable bloom
+   * @param {number} intensity - Bloom intensity [0, 2]
+   * @param {number[]} color - RGB color [r, g, b] for bloom tint
+   */
+  setGroupBloom(groupId, enabled, intensity = 1.0, color = null) {
+    const group = this._activeGroups.get(groupId);
+    if (!group) return;
+
+    this._bloomStates.set(groupId, {
+      enabled,
+      intensity: Math.max(0, Math.min(2, intensity)),
+      color: color || this._groupTemplates[group.type]?.color || [1.0, 1.0, 1.0],
+      groupId,
+    });
+
+    this._emit('bloom-updated', {
+      groupId,
+      enabled,
+      intensity,
+      color: this._bloomStates.get(groupId).color,
+    });
+  }
+
+  /**
+   * Enable multi-selection bloom feedback
+   * @param {number} intensity - Bloom intensity for multi-selection [0, 2]
+   */
+  enableMultiSelectionBloom(intensity = 1.0) {
+    this._multiSelectionBloomEnabled = true;
+    this._multiSelectionBloomIntensity = Math.max(0, Math.min(2, intensity));
+    this._emit('multi-selection-bloom', {
+      enabled: true,
+      intensity: this._multiSelectionBloomIntensity,
+      unitCount: this._activeSelection.size,
+    });
+  }
+
+  /**
+   * Disable multi-selection bloom feedback
+   */
+  disableMultiSelectionBloom() {
+    this._multiSelectionBloomEnabled = false;
+    this._emit('multi-selection-bloom', {
+      enabled: false,
+      unitCount: this._activeSelection.size,
+    });
+  }
+
+  /**
+   * Check if multi-selection bloom is enabled
+   * @returns {boolean}
+   */
+  isMultiSelectionBloomEnabled() {
+    return this._multiSelectionBloomEnabled;
+  }
+
+  /**
+   * Get multi-selection bloom intensity
+   * @returns {number}
+   */
+  getMultiSelectionBloomIntensity() {
+    return this._multiSelectionBloomIntensity;
+  }
+
+  /**
+   * Get bloom state for group
+   * @param {string} groupId - Group ID
+   * @returns {object|null}
+   */
+  getGroupBloom(groupId) {
+    return this._bloomStates.get(groupId) || null;
+  }
+
+  /**
+   * Get all bloom states
+   * @returns {Map<string, object>}
+   */
+  getAllBloomStates() {
+    return new Map(this._bloomStates);
+  }
+
+  /**
+   * Enable/disable ownership aura bloom
+   * @param {boolean} enabled - Enable/disable
+   */
+  setOwnershipAuraBloom(enabled) {
+    this._ownershipAuraBloomEnabled = enabled;
+    this._emit('ownership-aura-bloom', { enabled });
+  }
+
+  /**
+   * Check if ownership aura bloom is enabled
+   * @returns {boolean}
+   */
+  isOwnershipAuraBloomEnabled() {
+    return this._ownershipAuraBloomEnabled;
+  }
+
 
 // Export
 if (typeof module !== 'undefined' && module.exports) {
