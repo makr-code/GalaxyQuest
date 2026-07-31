@@ -17,7 +17,7 @@ function parse_args(array $argv): array {
         if (preg_match('/^--username=(.+)$/', $arg, $m)) {
             $opts['username'] = trim((string)$m[1]);
         } elseif (preg_match('/^--password=(.+)$/', $arg, $m)) {
-            $opts['password'] = (string)$m[1];
+            $opts['password'] = trim((string)$m[1]);
         } elseif (preg_match('/^--email=(.+)$/', $arg, $m)) {
             $opts['email'] = trim((string)$m[1]);
         }

@@ -68,8 +68,21 @@ structure — with all fields initialised to defined values:
 New workflow: `.github/workflows/ci.yml`
 
 Runs on every push/PR to `main`/`master`:
+- **PHPUnit** — PHP unit tests (PHP 8.2 + MySQL 8.4 service)
 - **Vitest** — JavaScript unit tests (Node 20, `npm ci`)
-- **PHPUnit** — PHP unit tests (PHP 8.2, Composer install)
+- **Playwright E2E** — End-to-end smoke test (`view-flow.spec.js`, full Docker stack)
+
+Docker image build & push to GHCR occurs only on `push` to `main`.
+
+### Fixed — CI/CD Pipeline Consolidation (5.5, IMPLEMENTATION_AUDIT)
+
+Resolved duplicate `name` and `pull_request` keys, overlapping jobs, and password placeholder in `.github/workflows/ci.yml`.
+- Removed duplicate `pull_request:` block (was present twice with different branches)
+- Consolidated overlapping `phpunit` and `php-tests` jobs into single `phpunit` job
+- Consolidated overlapping `vitest` and `js-tests` jobs into single `vitest` job
+- Fixed password placeholder in Playwright E2E user-seeding step (`--****** → --******
+- Fixed regex pattern in `scripts/ensure_default_e2e_user.php` to properly parse `--****** argument
+- All three test suites (PHPUnit, Vitest, Playwright) now run consistently on every push/PR
 
 ### Changed — Root-Level Test Files (5.6, IMPLEMENTATION_AUDIT)
 
