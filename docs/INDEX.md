@@ -122,8 +122,9 @@
 
 | Document | Content |
 |---|---|
-| [lore/gamedesign_fractions.md](lore/gamedesign_fractions.md) | Faction species — detailed lore and world-building |
-| [lore/gamedesign_fractions_backup.md](lore/gamedesign_fractions_backup.md) | Faction lore — backup / previous version |
+| [gamedesign/GAMEDESIGN.md](gamedesign/GAMEDESIGN.md) | **Authoritative faction lore** — Rassen, Biologie, Kultur, Nebenfraktionen |
+| [lore/gamedesign_fractions.md](lore/gamedesign_fractions.md) | ⚠️ Deprecated tombstone — redirects to GAMEDESIGN.md |
+| [lore/gamedesign_fractions_backup.md](lore/gamedesign_fractions_backup.md) | Full legacy archive (8200 lines) — reference only |
 | [lore/ART_PROMPTS_SDXL.md](lore/ART_PROMPTS_SDXL.md) | SDXL image generation prompts (portraits, environments) |
 | [lore/ART_QUICKSTART.md](lore/ART_QUICKSTART.md) | Art generation quick start guide (SwarmUI / ComfyUI) |
 | [lore/LORA_TRAINING_GUIDE.md](lore/LORA_TRAINING_GUIDE.md) | LoRA model training guide for faction-specific art generation |
