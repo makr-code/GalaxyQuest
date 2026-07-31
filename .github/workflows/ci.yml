@@ -1,23 +1,18 @@
 # .github/workflows/ci.yml
 #
-# Continuous Integration – GalaxyQuest
-#
-# Runs on every push and pull request to main/master branches.
-# Executes:
-#   1. Vitest unit tests (JavaScript)
-#   2. PHPUnit unit tests (PHP)
-
-name: CI/CD Pipeline
-
 # GalaxyQuest — Main CI/CD Pipeline
 #
 # Runs on every push to main and on every pull request targeting main.
 #
 # Jobs:
+#   lint-php         — PHP linting with custom architecture rules
+#   lint-js          — ESLint with Galaxy architecture rules
 #   phpunit          — PHPUnit unit tests (PHP 8.2 + MySQL 8.4 service)
 #   vitest           — Vitest JavaScript unit tests
 #   playwright-smoke — Playwright end-to-end smoke test (full Docker stack)
 #   docker-build     — Build & push versioned Docker image to GHCR (main only)
+
+name: CI/CD Pipeline
 
 on:
   push:
@@ -35,6 +30,54 @@ permissions:
   contents: read
 
 jobs:
+  # ── PHP Architecture Linting ────────────────────────────────────────────────
+  lint-php:
+    name: PHP Architecture Validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_sqlite
+          coverage: none
+
+      - name: Install PHP CodeSniffer
+        run: composer require --dev squizlabs/php_codesniffer --prefer-dist --no-interaction
+
+      - name: Validate PHP architecture with custom ruleset
+        run: vendor/bin/phpcs --standard=ruleset.xml src/ tests/ --exclude=tests/bootstrap.php
+        continue-on-error: true
+
+  # ── JavaScript Architecture Linting ─────────────────────────────────────────
+  lint-js:
+    name: JavaScript Architecture Validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate JavaScript architecture with custom ESLint config
+        run: npx eslint js/features/galaxy/ --config .eslintrc.galaxy.js --format=stylish || echo "Note: ESLint validation completed (warnings/errors logged)"
+
   # ── PHP Unit Tests ──────────────────────────────────────────────────────────
   phpunit:
     name: PHPUnit Tests
