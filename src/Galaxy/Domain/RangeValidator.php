@@ -8,36 +8,39 @@ namespace GalaxyQuest\Galaxy\Domain;
  * RangeValidator – domain service for validating galaxy coordinate ranges.
  *
  * Encapsulates business rules for valid galaxy ranges:
- * - Minimum/maximum coordinate boundaries
- * - Range size constraints
+ * - Minimum/maximum coordinate boundaries (light-years)
+ * - Range size constraints (prevent massive queries)
  * - Precision requirements
  *
+ * Coordinates represent light-years (x_ly, y_ly from database).
  * This is a pure domain service (no external dependencies).
  */
 final class RangeValidator
 {
     /**
-     * Minimum valid coordinate.
+     * Minimum valid coordinate (light-years).
      */
     private const MIN_COORD = 0;
 
     /**
-     * Maximum valid coordinate.
+     * Maximum valid coordinate (light-years).
+     * Galactic disk diameter ≈ 100,000 ly
      */
-    private const MAX_COORD = 10000;
+    private const MAX_COORD = 50000;
 
     /**
-     * Maximum range width/height.
+     * Maximum range width/height for a single query.
+     * Prevents runaway queries; viewport typically ~500 ly
      */
-    private const MAX_RANGE_SIZE = 500;
+    private const MAX_RANGE_SIZE = 1000;
 
     /**
      * Validate coordinate bounds and range size.
      *
-     * @param int $xMin Minimum X coordinate
-     * @param int $xMax Maximum X coordinate
-     * @param int $yMin Minimum Y coordinate
-     * @param int $yMax Maximum Y coordinate
+     * @param int $xMin Minimum X coordinate (light-years)
+     * @param int $xMax Maximum X coordinate (light-years)
+     * @param int $yMin Minimum Y coordinate (light-years)
+     * @param int $yMax Maximum Y coordinate (light-years)
      * @return bool True if range is valid
      */
     public function isValidRange(int $xMin, int $xMax, int $yMin, int $yMax): bool
@@ -83,18 +86,18 @@ final class RangeValidator
         }
 
         if ($xMin < self::MIN_COORD || $xMax > self::MAX_COORD) {
-            return "X coordinates must be between {$_MIN_COORD} and " . self::MAX_COORD;
+            return "X coordinates must be between " . self::MIN_COORD . " and " . self::MAX_COORD;
         }
 
         if ($yMin < self::MIN_COORD || $yMax > self::MAX_COORD) {
-            return "Y coordinates must be between {$_MIN_COORD} and " . self::MAX_COORD;
+            return "Y coordinates must be between " . self::MIN_COORD . " and " . self::MAX_COORD;
         }
 
         $xRange = $xMax - $xMin;
         $yRange = $yMax - $yMin;
 
         if ($xRange > self::MAX_RANGE_SIZE || $yRange > self::MAX_RANGE_SIZE) {
-            return "Range size must not exceed " . self::MAX_RANGE_SIZE;
+            return "Range size must not exceed " . self::MAX_RANGE_SIZE . " light-years";
         }
 
         return null;
@@ -103,7 +106,7 @@ final class RangeValidator
     /**
      * Get maximum range size constraint.
      *
-     * @return int
+     * @return int Light-years
      */
     public static function getMaxRangeSize(): int
     {
@@ -113,7 +116,7 @@ final class RangeValidator
     /**
      * Get minimum valid coordinate.
      *
-     * @return int
+     * @return int Light-years
      */
     public static function getMinCoordinate(): int
     {
@@ -123,7 +126,7 @@ final class RangeValidator
     /**
      * Get maximum valid coordinate.
      *
-     * @return int
+     * @return int Light-years
      */
     public static function getMaxCoordinate(): int
     {
