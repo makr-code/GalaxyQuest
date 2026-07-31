@@ -1,6 +1,6 @@
 # GalaxyQuest — Implementierungs-Audit
 
-> **Stand:** 11. April 2026  
+> **Stand:** 31. Juli 2026 (Überprüfung und Synchronisation)
 > **Basis:** Vollständige Analyse des Quellcodes, aller API-Endpunkte, SQL-Migrationen, Frontend-Module und Design-Dokumente  
 > **Zweck:** Objektive Bestandsaufnahme — was ist fertig, was fehlt, welche technischen Schulden bestehen
 
@@ -26,10 +26,10 @@ GalaxyQuest besitzt ein solides Kern-Gameplay (Bauen, Forschen, Kämpfen, Handel
 ## 2. Fortschritts-Dashboard
 
 ```
-GalaxyQuest — Implementierungsfortschritt (Stand 11.04.2026)
+GalaxyQuest — Implementierungsfortschritt (Stand 31.07.2026)
 ═══════════════════════════════════════════════════════════════════
 
-Infrastruktur & DevOps         ████████████████████░░░░  ~85%  ✅ Produktionsreif
+Infrastruktur & DevOps         ██████████████████████░░  ~92%  ✅ Produktionsreif (CI/CD hinzugefügt)
 Auth & Security                ████████████████████████  ~95%  ✅ Produktionsreif
 Galaxie-Generation & Kosmos    ████████████████████████  ~95%  ✅ Produktionsreif
 3D-Engine (WebGPU/WebGL)       ██████████████████████░░  ~90%  ✅ Produktionsreif
@@ -65,7 +65,7 @@ GESAMT (vs. finale Vision)                                  ~60%
 
 ## 3. Detailanalyse pro Bereich
 
-### 3.1 Infrastruktur & DevOps (~85%)
+### 3.1 Infrastruktur & DevOps (~92%)
 
 **Fertig implementiert:**
 - Docker Compose (`docker-compose.yml`): Web + DB + TTS + optionaler ThemisDB-Container
@@ -75,9 +75,9 @@ GESAMT (vs. finale Vision)                                  ~60%
 - `.env.example` mit vollständiger Konfigurationsdokumentation
 - Xdebug-Integration für lokale Entwicklung
 - Performance-Telemetrie-Endpunkt (`api/perf_telemetry.php`)
+- ✅ CI/CD-Pipeline: GitHub Actions `.github/workflows/ci.yml` mit PHPUnit, Vitest, Playwright E2E, Docker image build/push
 
 **Fehlend:**
-- ❌ CI/CD-Pipeline (keine GitHub Actions konfiguriert)
 - ❌ Versioniertes Migrationssystem (derzeit manuelle SQL-Anwendung)
 - ❌ Produktions-Deployment-Konfiguration (HTTPS, Secrets Management)
 - ❌ Load-Testing-Setup (100+ gleichzeitige Spieler)
@@ -601,7 +601,6 @@ Docker-Image-Build & Push zu GHCR nur bei Push zu `main`.
 
 | Priorität | Lücke | Aufwand | Referenz |
 |---|---|---|---|
-| 🔴 Hoch | CI/CD Pipeline | ~8h | Sprint 1 |
 | 🔴 Hoch | Wirtschaft Tier-2/3 Produktionsketten | ~20h | Sprint 2, GAP_TODO B-2 |
 | 🔴 Hoch | War-Frontend Completion | ~12h | Sprint 3, GAP_TODO B-1 |
 | 🔴 Hoch | Diplomatic Plays (4-Phasen) | ~20h | Sprint 3 |

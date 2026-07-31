@@ -1,6 +1,7 @@
 # GalaxyQuest — Gap TODO (docs/ vs. Implementierung)
 
 > **Erstellt:** 2026-04-08  
+> **Letzte Überprüfung:** 2026-07-31
 > **Basis:** Vollständige Gap-Analyse der docs/ gegen die reale Implementierung  
 > **Status:** Living document — nach jeder Implementierung aktualisieren
 
