@@ -844,3 +844,33 @@ user_achievements      – completion + reward-claimed state per user
 colony_events          – active planetary / colony event log
 ```
 
+---
+
+## Contributing
+
+### Local Development Artifacts
+
+When running tests and development scripts, the following temporary files are **automatically created and should never be committed**. They are listed in `.gitignore` and are safe to ignore:
+
+#### Test Session Cookies
+- `.gq_cookies.txt` – Main test session authentication cookies
+- `.gq_diag_cookies.txt` – Diagnostic test session cookies
+- `.tmp-*.cookies.txt` – Temporary authentication files created by PowerShell E2E tests:
+  - `.tmp-leader-e2e.cookies.txt`
+  - `.tmp-leader-roles-e2e.cookies.txt`
+  - `.tmp-register-profile-*.cookies.txt`
+  - `.tmp-logout-test.cookies.txt`
+  - `.tmp-faction-dialog.cookies.txt`
+  - And similar test-specific variants
+- `.tmp_system_test_cookies.txt` – System test authentication file
+
+**Note:** These cookie files are created by test scripts (e.g., `scripts/test_leader_e2e.ps1`) and contain local session data only relevant to the running instance. They **never contain sensitive production data** and are automatically cleaned up by test setup routines.
+
+#### Other Temporary Artifacts
+- `*.tmp` – General temporary files
+- `*.swp`, `*.swo` – Text editor swap files
+- `*.pyc`, `__pycache__/` – Python cache files
+
+**Best practice:** Verify these files are ignored in your Git status before committing. They should never appear in `git status`.
+
+

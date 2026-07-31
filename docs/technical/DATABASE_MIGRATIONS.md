@@ -175,6 +175,30 @@ CREATE TABLE IF NOT EXISTS example (
 DROP TABLE IF EXISTS example;
 ```
 
+### Working with ALTER TABLE and Data Manipulation
+
+For detailed guidance on ALTER migrations and data manipulation patterns, see:
+- **[ALTER_MIGRATIONS_GUIDE.md](./ALTER_MIGRATIONS_GUIDE.md)** — Comprehensive patterns for:
+  - Adding/modifying/removing columns
+  - Managing indexes and constraints
+  - Backfilling data
+  - Data cleanup and validation
+  - Foreign key management
+  - Handling transactions and rollbacks
+
+Example patterns:
+- [Pattern 1: Adding New Columns](./ALTER_MIGRATIONS_GUIDE.md#pattern-1-adding-new-columns)
+- [Pattern 2: Modifying Existing Columns](./ALTER_MIGRATIONS_GUIDE.md#pattern-2-modifying-existing-columns)
+- [Pattern 6: Data Backfilling](./ALTER_MIGRATIONS_GUIDE.md#pattern-6-data-backfilling)
+
+### Reference Migrations
+
+For concrete examples of complex migrations, see:
+- **`sql/migrate_alter_examples_v1.sql`** — 15 patterns for ALTER TABLE operations with detailed comments
+- **`sql/migrate_data_manipulation_patterns_v1.sql`** — 15 patterns for data manipulation with use cases
+
+> **Note:** These reference migrations are for documentation/learning and should NOT be applied to production databases. They are included only to show best practices.
+
 ---
 
 ## Rollback Behaviour

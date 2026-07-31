@@ -1,0 +1,119 @@
+/* =========================================================
+   design-tokens.css – Design System & Token Definitions
+   Extended color palette, shadows, blur effects, easing curves
+   ========================================================= */
+
+:root {
+  /* ── EXISTING COLOR TOKENS (preserve) ─────────────────── */
+  --bg-deep:    #050a1a;
+  --bg-panel:   #0d1b2e;
+  --bg-panel2:  #0f2040;
+  --bg-hover:   #162a45;
+  --border:     #1e3a5f;
+  --border-lit: #2a6496;
+
+  --text-primary:   #c8d8e8;
+  --text-secondary: #7a9bbf;
+  --text-muted:     #456080;
+
+  --accent-blue:    #3aa0ff;
+  --accent-green:   #22d46a;
+  --accent-red:     #ff4455;
+  --accent-yellow:  #ffcc00;
+  --accent-purple:  #9b59f6;
+  --accent-cyan:    #00d4ff;
+
+  --metal-color:    #a0b4c0;
+  --crystal-color:  #5dd4ff;
+  --deut-color:     #44aaff;
+  --energy-color:   #ffe44a;
+
+  --topbar-h:  52px;
+  --radius:    8px;
+  --radius-sm: 4px;
+  --shadow:    0 4px 24px rgba(0,0,0,0.6);
+  --transition: 0.2s ease;
+
+  /* ── NEW NEON & GLOW COLOR TOKENS ─────────────────────── */
+  --neon-blue:      #1e90ff;
+  --neon-cyan:      #00ffff;
+  --neon-purple:    #da70d6;
+  --neon-green:     #39ff14;
+  --neon-pink:      #ff10f0;
+  --neon-orange:    #ff6600;
+
+  --glow-blue:      rgba(58, 160, 255, 0.4);
+  --glow-cyan:      rgba(0, 212, 255, 0.35);
+  --glow-purple:    rgba(155, 89, 246, 0.35);
+  --glow-green:     rgba(34, 212, 106, 0.35);
+  --glow-pink:      rgba(255, 68, 85, 0.35);
+  --glow-orange:    rgba(255, 102, 0, 0.35);
+
+  --glow-intense-blue:   rgba(58, 160, 255, 0.65);
+  --glow-intense-cyan:   rgba(0, 212, 255, 0.6);
+  --glow-intense-purple: rgba(155, 89, 246, 0.6);
+
+  /* ── GRADIENT TOKENS ──────────────────────────────────── */
+  --gradient-blue-purple: linear-gradient(135deg, #3aa0ff 0%, #9b59f6 100%);
+  --gradient-cyan-blue:   linear-gradient(135deg, #00d4ff 0%, #3aa0ff 100%);
+  --gradient-neon-glow:   linear-gradient(135deg, #1e90ff 0%, #da70d6 100%);
+  --gradient-success:     linear-gradient(135deg, #22d46a 0%, #39ff14 100%);
+  --gradient-warning:     linear-gradient(135deg, #ffcc00 0%, #ff6600 100%);
+  --gradient-danger:      linear-gradient(135deg, #ff4455 0%, #ff10f0 100%);
+
+  /* ── SHADOW SYSTEM (elevation-based) ──────────────────── */
+  --shadow-sm:     0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md:     0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg:     0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-xl:     0 16px 48px rgba(0, 0, 0, 0.6);
+
+  --shadow-glow-sm:  0 0 8px rgba(58, 160, 255, 0.3);
+  --shadow-glow-md:  0 0 16px rgba(58, 160, 255, 0.4);
+  --shadow-glow-lg:  0 0 24px rgba(58, 160, 255, 0.5);
+  --shadow-glow-xl:  0 0 32px rgba(58, 160, 255, 0.6);
+
+  --shadow-glow-cyan-sm:  0 0 8px rgba(0, 212, 255, 0.3);
+  --shadow-glow-cyan-md:  0 0 16px rgba(0, 212, 255, 0.4);
+  --shadow-glow-cyan-lg:  0 0 24px rgba(0, 212, 255, 0.5);
+
+  /* ── BLUR & BACKDROP TOKENS ───────────────────────────── */
+  --blur-sm:     blur(4px);
+  --blur-md:     blur(8px);
+  --blur-lg:     blur(12px);
+  --blur-xl:     blur(16px);
+
+  --backdrop-blur-sm:  backdrop-filter: blur(4px);
+  --backdrop-blur-md:  backdrop-filter: blur(8px);
+  --backdrop-blur-lg:  backdrop-filter: blur(12px);
+
+  /* ── TRANSITION & ANIMATION TIMING ───────────────────── */
+  --duration-ultra-fast:  80ms;
+  --duration-fast:        150ms;
+  --duration-standard:    250ms;
+  --duration-slow:        400ms;
+  --duration-slower:      600ms;
+
+  --ease-in:         cubic-bezier(0.4, 0, 1, 1);
+  --ease-out:        cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out:     cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-bounce:     cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --ease-elastic:    cubic-bezier(0.175, 0.885, 0.32, 1.275);
+
+  /* ── TRANSFORM BASELINE ───────────────────────────────── */
+  --transform-origin-center: center;
+  --transform-scale-hover:   1.05;
+  --transform-scale-active:  0.98;
+  --transform-translate-x:   100%;
+  --transform-translate-y:   100%;
+}
+
+/* ── Respect prefers-reduced-motion ───────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-ultra-fast:  0ms;
+    --duration-fast:        0ms;
+    --duration-standard:    0ms;
+    --duration-slow:        0ms;
+    --duration-slower:      0ms;
+  }
+}

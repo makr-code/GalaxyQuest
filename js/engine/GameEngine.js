@@ -83,6 +83,8 @@ const { AssetRegistry }      = _req('./AssetRegistry.js',                 'GQAss
 const { PerformanceMonitor } = _req('./utils/PerformanceMonitor.js',      'GQPerformanceMonitor');
 const { ResourceTracker }    = _req('./utils/ResourceTracker.js',         'GQResourceTracker');
 const { ViewportManager }    = _req('./ViewportManager.js',               'GQViewportManager');
+const { AdvancedRenderingManager } = _req('./AdvancedRenderingManager.js', 'GQAdvancedRenderingManager');
+const { AdvancedRenderingUI } = _req('./AdvancedRenderingUI.js', 'GQAdvancedRenderingUI');
 
 // ---------------------------------------------------------------------------
 // GameEngine
@@ -115,6 +117,10 @@ class GameEngine {
     this.perf             = new PerformanceMonitor();
     /** @type {ResourceTracker} */
     this.resources        = new ResourceTracker();
+    /** @type {AdvancedRenderingManager|null} Advanced 3D rendering features manager */
+    this.renderingMgr     = null;
+    /** @type {AdvancedRenderingUI|null} Advanced rendering UI controls manager */
+    this.renderingUI      = null;
 
     /** CPU physics engine (SpacePhysicsEngine, always available) */
     this.physics          = null;
@@ -284,6 +290,8 @@ class GameEngine {
     this.systems.list().forEach((s) => this.systems.remove(s.name));
     this.viewports?.detach();
     this.cameras?.dispose();
+    this.renderingUI?.dispose?.();
+    this.renderingMgr?.dispose?.();
     this.postFx?.dispose();
     this.gpuPhysics?.dispose();
     this.resources.disposeAll();
@@ -369,6 +377,160 @@ class GameEngine {
     }
 
     this._log(`addFollowViewport: '${name}' targeting '${target?.name ?? '?'}'`);
+    return this;
+  }
+
+  /**
+   * Register an object with the LOD system.
+   * Should be called when spawning ships, asteroids, planets, or other dynamic objects.
+   *
+   * @param {string} objectId     Unique identifier for the object
+   * @param {Object} mesh         Mesh or scene node with position
+   * @param {string} objectType   Type hint: 'ship' | 'asteroid' | 'planet' | 'station'
+   * @returns {this}
+   */
+  registerObjectForLOD(objectId, mesh, objectType = 'ship') {
+    if (!this.renderingMgr || !this.renderingMgr._instances.lodManager) {
+      // LOD not enabled
+      return this;
+    }
+
+    try {
+      const position = mesh.position || { x: 0, y: 0, z: 0 };
+      this.renderingMgr._instances.lodManager.registerObject(objectId, mesh, objectType, position);
+    } catch (err) {
+      console.warn('[GameEngine] Failed to register object for LOD:', err);
+    }
+
+    return this;
+  }
+
+  /**
+   * Unregister an object from LOD management (e.g., when destroyed).
+   * @param {string} objectId - The unique identifier used during registration
+   * @returns {this}
+   */
+  unregisterObjectFromLOD(objectId) {
+    if (!this.renderingMgr || !this.renderingMgr._instances.lodManager) {
+      return this;
+    }
+
+    try {
+      this.renderingMgr._instances.lodManager.unregisterObject(objectId);
+    } catch (err) {
+      console.warn('[GameEngine] Failed to unregister object from LOD:', err);
+    }
+
+    return this;
+  }
+
+  /**
+   * Get a rendering feature instance (LOD manager, post-processing pass, etc.)
+   * 
+   * @param {string} featureName - Feature to retrieve: 'lod', 'bloom', 'tonemapping', 'decals', etc.
+   * @returns {Object|null} Feature instance or null if not enabled
+   */
+  getFeature(featureName) {
+    if (!this.renderingMgr) return null;
+    return this.renderingMgr.getFeature(featureName);
+  }
+
+  /**
+   * Wire the impact decal manager to a CombatFX instance.
+   * Should be called when initializing combat systems.
+   * 
+   * @param {CombatFX} combatFX - Combat effects manager
+   * @returns {this}
+   */
+  wireDecalsToCombat(combatFX) {
+    if (!combatFX) return this;
+    
+    const decalManager = this.getFeature('decals');
+    if (decalManager && typeof combatFX.setDecalManager === 'function') {
+      combatFX.setDecalManager(decalManager);
+      this._log('CombatFX wired to impact decal manager');
+    }
+
+    return this;
+  }
+
+  /**
+   * Enable cinematic camera mode for mission cinematics.
+   * 
+   * @param {string} [name='cinematic'] - Name of the cinematic camera
+   * @returns {Object|null} CinematicCamera instance or null if not available
+   */
+  enableCinematic(name = 'cinematic') {
+    if (!this.cameras) {
+      console.warn('[GameEngine] CameraManager not available');
+      return null;
+    }
+
+    const cinematicCam = this.cameras.enableCinematicMode(name);
+    this._log(`Cinematic mode enabled: ${name}`);
+    return cinematicCam;
+  }
+
+  /**
+   * Disable cinematic camera mode (return to gameplay camera).
+   * @returns {this}
+   */
+  disableCinematic() {
+    if (this.cameras) {
+      this.cameras.disableCinematicMode();
+      this._log('Cinematic mode disabled');
+    }
+    return this;
+  }
+
+  /**
+   * Check if currently in cinematic mode.
+   * @returns {boolean}
+   */
+  isCinematic() {
+    return this.cameras?.isCinematicMode() ?? false;
+  }
+
+  /**
+   * Generate a procedural asteroid mesh.
+   * Requires advanced rendering with procedural meshes enabled.
+   *
+   * @param {object} config - Asteroid configuration
+   * @param {number} [config.seed] - Seed for reproducibility
+   * @param {number} [config.scale=100] - Size scale
+   * @param {number} [config.complexity=2] - Detail level (1-5)
+   * @param {boolean} [config.fracture=true] - Apply fracture patterns
+   * @returns {Object|null} Generated mesh or null
+   */
+  generateProceduralAsteroid(config = {}) {
+    if (!this.renderingMgr) return null;
+    return this.renderingMgr.generateAsteroid(config);
+  }
+
+  /**
+   * Generate a debris field (multiple asteroid fragments).
+   * Useful for explosions, destruction sequences.
+   *
+   * @param {object} config
+   * @param {number} [config.count=10] - Number of debris pieces
+   * @param {number} [config.scale=50] - Base fragment scale
+   * @param {number} [config.seed] - Seed for reproducibility
+   * @returns {Array|null} Array of geometry objects or null
+   */
+  generateDebrisField(config = {}) {
+    if (!this.renderingMgr) return null;
+    return this.renderingMgr.generateDebrisField(config);
+  }
+
+  /**
+   * Clear procedural mesh cache to free memory.
+   * Call periodically if generating many procedural objects.
+   * @returns {this}
+   */
+  clearProceduralCache() {
+    if (this.renderingMgr) {
+      this.renderingMgr.clearProceduralCache();
+    }
     return this;
   }
 
@@ -654,7 +816,25 @@ class GameEngine {
     // 4. Physics
     await this._initPhysics(opts);
 
-    // 5. Game loop
+    // 5. Advanced rendering features (LOD, post-processing, decals, procedural, etc.)
+    this.renderingMgr = new AdvancedRenderingManager(this);
+    if (opts.advancedRendering !== false) {
+      // Apply default preset based on device capabilities
+      const preset = opts.advancedRenderingPreset ?? 'high';
+      this.renderingMgr.applyPreset(preset);
+      this._log(`Advanced rendering initialized with preset: ${preset}`);
+    }
+
+    // Initialize UI controls for advanced rendering
+    try {
+      if (typeof AdvancedRenderingUI !== 'undefined' && typeof document !== 'undefined') {
+        this.renderingUI = AdvancedRenderingUI.getInstance(this).init();
+      }
+    } catch (err) {
+      this._log(`Warning: Failed to initialize advanced rendering UI: ${err.message}`);
+    }
+
+    // 6. Game loop
     this.loop = new GameLoop({
       fixedStep: opts.fixedStep ?? (1 / 60),
       maxDt:     opts.maxDt    ?? 0.25,
@@ -665,7 +845,7 @@ class GameEngine {
       onPanic:       () => this.events.emit('engine:panic', {}),
     });
 
-    // 6. Built-in window resize wiring
+    // 7. Built-in window resize wiring
     if (typeof window !== 'undefined' && canvas.parentElement) {
       this._resizeObserver = new (window.ResizeObserver ?? _NoopResizeObserver)(([entry]) => {
         const { width, height } = entry.contentRect;
@@ -755,6 +935,12 @@ class GameEngine {
     // Update all cameras (primary + follow cameras) with smooth lag
     this.cameras ? this.cameras.update(dt) : this.camera?.update?.();
     this.scene.update();
+    
+    // Update advanced rendering features (LOD, etc.)
+    if (this.renderingMgr) {
+      this.renderingMgr.update(dt, this.camera ?? this.cameras?.active);
+    }
+    
     this.events.emit('engine:update', { dt, alpha });
   }
 

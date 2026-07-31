@@ -330,7 +330,7 @@
             renderer: { antialias: true, maxPixelRatio: 2 },
             textures: { planetTextureSize: 256, planetMaxEntries: 128, proceduralMaxEntries: 128 },
             geometry: { vesselMaxEntries: 96, instancingUseThreshold: 4 },
-            features: { dynamicClusterLod: true, galacticCoreFx: true, postEffects: false },
+            features: { dynamicClusterLod: true, galacticCoreFx: true, postEffects: true },
             clusterDensityMode: 'max',
           };
       this.interactive = this.opts.interactive !== false;
