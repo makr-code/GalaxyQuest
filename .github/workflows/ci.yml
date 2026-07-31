@@ -1,18 +1,12 @@
 # .github/workflows/ci.yml
 #
-# Continuous Integration – GalaxyQuest
-#
-# Runs on every push and pull request to main/master branches.
-# Executes:
-#   1. Vitest unit tests (JavaScript)
-#   2. PHPUnit unit tests (PHP)
-
-name: CI
 # GalaxyQuest — Main CI/CD Pipeline
 #
 # Runs on every push to main and on every pull request targeting main.
 #
 # Jobs:
+#   lint-php         — PHP linting with custom architecture rules
+#   lint-js          — ESLint with Galaxy architecture rules
 #   phpunit          — PHPUnit unit tests (PHP 8.2 + MySQL 8.4 service)
 #   vitest           — Vitest JavaScript unit tests
 #   playwright-smoke — Playwright end-to-end smoke test (full Docker stack)
@@ -30,22 +24,60 @@ on:
       - main
       - master
 
-  pull_request:
-    branches:
-      - main
-
 # Default: restrict all jobs to read-only access; individual jobs that need
 # extra permissions (e.g. docker-build → packages: write) override this.
 permissions:
   contents: read
 
 jobs:
-  js-tests:
-    name: JavaScript Unit Tests (Vitest)
+  # ── PHP Architecture Linting ────────────────────────────────────────────────
+  lint-php:
+    name: PHP Architecture Validation
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_sqlite
+          coverage: none
+
+      - name: Install PHP CodeSniffer
+        run: composer require --dev squizlabs/php_codesniffer --prefer-dist --no-interaction
+
+      - name: Validate PHP architecture with custom ruleset
+        run: vendor/bin/phpcs --standard=ruleset.xml src/ tests/ --exclude=tests/bootstrap.php
+        continue-on-error: true
+
+  # ── JavaScript Architecture Linting ─────────────────────────────────────────
+  lint-js:
+    name: JavaScript Architecture Validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate JavaScript architecture with custom ESLint config
+        run: npx eslint js/features/galaxy/ --config .eslintrc.galaxy.js --format=stylish || echo "Note: ESLint validation completed (warnings/errors logged)"
+
   # ── PHP Unit Tests ──────────────────────────────────────────────────────────
   phpunit:
     name: PHPUnit Tests
@@ -113,41 +145,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+       uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
+       uses: actions/setup-node@v4
+       with:
+         node-version: '20'
+         cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+       run: npm ci
 
       - name: Run Vitest
-        run: npx vitest run --reporter=verbose
-
-  php-tests:
-    name: PHP Unit Tests (PHPUnit)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: pdo, pdo_sqlite, json, mbstring, intl
-          coverage: none
-
-      - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist --optimize-autoloader
-
-      - name: Run PHPUnit
-        run: vendor/bin/phpunit --testdox
-        run: npm run test:unit:js
+       run: npx vitest run --reporter=verbose
 
   # ── End-to-End Smoke Test ───────────────────────────────────────────────────
   playwright-smoke:

@@ -1,6 +1,36 @@
 /*
  * @deprecated 2026-03-29 — Alter Renderer. Ersetzt durch galaxy-renderer-core.js.
  * Nicht mehr in index.html geladen. Kann nach Migrationsperiode entfernt werden.
+ * 
+ * ========== RENDERING ERROR STRUCTURE TEMPLATE ==========
+ * This file serves as a template showing how error handling SHOULD be structured
+ * in the rendering system. The new standardized patterns are in:
+ * 
+ *   - js/rendering/rendering-errors.js        (Error types & handlers)
+ *   - js/rendering/rendering-validation.js    (Validation helpers)
+ * 
+ * Modern implementations (galaxy-renderer-core.js) should use:
+ * 
+ * 1. ERROR TYPES — Use standardized error classes:
+ *    - ValidationError      (missing/invalid parameters)
+ *    - RuntimeRenderError   (execution-time issues)
+ *    - ResourceError        (THREE.js, WebGL, shaders missing)
+ *    - ShaderCompilationError (shader-specific)
+ * 
+ * 2. VALIDATION PATTERN — Extract to reusable validators:
+ *    OLD:  if (!container) throw new Error('Galaxy3DRenderer: missing container');
+ *    NEW:  const { validators } = window.GQRenderingValidation || {};
+ *          validators?.validateContainer(container, 'Galaxy3DRenderer');
+ * 
+ * 3. ERROR MESSAGE FORMAT — Use unified prefixes:
+ *    ERROR_PREFIXES: [GQ:render:init], [GQ:render:frame], [GQ:render:shader], etc.
+ *    Example: console.error('[GQ:render:init] THREE not loaded');
+ * 
+ * 4. ERROR LOGGING — Use centralized handlers:
+ *    const { errorHandlers } = window.GQRenderingErrors || {};
+ *    errorHandlers?.logError(err, 'INIT', 'constructor');
+ * 
+ * See galaxy-renderer-core.js for current production implementation.
  */
 /*
  * GalaxyQuest 3D galaxy renderer
@@ -36,6 +66,35 @@
 
   class Galaxy3DRenderer {
     constructor(container, opts = {}) {
+      // ========== VALIDATION PATTERN TEMPLATE ==========
+      // OLD (lines 69-70): Generic throw statements
+      //   if (!container) throw new Error('Galaxy3DRenderer: missing container');
+      //   if (!window.THREE) throw new Error('Galaxy3DRenderer: THREE not loaded');
+      //
+      // NEW PATTERN (galaxy-renderer-core.js):
+      //   1. Use standardized validators from rendering-validation.js:
+      //      const { validators } = window.GQRenderingValidation || {};
+      //      validators?.validateContainer(container, 'Galaxy3DRenderer');
+      //      const three = validators?.validateThreeRuntime(window, 'Galaxy3DRenderer');
+      //      validators?.ensureThreeMathUtils(window);
+      //
+      //   2. Wrap in try/catch with centralized error logging:
+      //      const { errorHandlers } = window.GQRenderingErrors || {};
+      //      try {
+      //        validators?.validateContainer(container);
+      //      } catch (err) {
+      //        errorHandlers?.logError(err, 'INIT', 'constructor');
+      //        throw err;
+      //      }
+      //
+      // BENEFITS:
+      //   - Reusable validation logic across all renderers
+      //   - Consistent error messages with [GQ:render:*] prefixes
+      //   - Structured error telemetry & event dispatch
+      //   - Better error tracking for debugging
+      //
+      // ========== END PATTERN TEMPLATE ==========
+
       if (!container) throw new Error('Galaxy3DRenderer: missing container');
       if (!window.THREE) throw new Error('Galaxy3DRenderer: THREE not loaded');
 

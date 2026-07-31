@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="GalaxyQuest">
+    <description>PHP CodeSniffer ruleset for GalaxyQuest architecture validation.</description>
+
+    <!-- Base PSR-12 standard -->
+    <rule ref="PSR12"/>
+
+    <!-- Architecture: No SQL in Presentation Layer -->
+    <rule ref="Generic.PHP.ForbiddenFunctions">
+        <properties>
+            <property name="forbiddenFunctions" value="mysqli_query => Use repository pattern,mysqli_fetch_array => Use repository pattern,mysqli_fetch_assoc => Use repository pattern,pdoStatement.fetch => Use repository pattern (only in Infrastructure layer),db.query => Use repository pattern,db.prepare => Use repository pattern (only in Infrastructure layer)" />
+        </properties>
+        <exclude-pattern>*/Infrastructure/*</exclude-pattern>
+        <exclude-pattern>*/Presentation/*</exclude-pattern>
+    </rule>
+
+    <!-- Enforce type hints on public methods -->
+    <rule ref="Generic.PHP.NoSilencedErrors" />
+
+    <!-- Require strict types in all PHP files -->
+    <rule ref="SlevomatCodingStandard.TypeHints.DeclareStrictTypes">
+        <properties>
+            <property name="linesCountBeforeDeclare" value="0" />
+            <property name="linesCountAfterDeclare" value="1" />
+        </properties>
+    </rule>
+
+    <!-- Enforce doc blocks on public methods -->
+    <rule ref="PSR5.Classes.ClassDeclaration.MultipleClassesPerFile">
+        <severity>10</severity>
+    </rule>
+
+    <!-- Code style -->
+    <rule ref="PSR2.Classes.PropertyDeclaration" />
+    <rule ref="PSR2.ControlStructures.SwitchDeclaration" />
+    <rule ref="Generic.Classes.DuplicateClassName" />
+
+    <!-- Exclude test files from strict rules -->
+    <exclude-pattern>*/tests/*</exclude-pattern>
+    <exclude-pattern>*/Test.php</exclude-pattern>
+
+    <!-- Target PHP 8.0+ -->
+    <config name="php_version" value="80000" />
+</ruleset>

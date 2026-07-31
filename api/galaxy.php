@@ -45,6 +45,107 @@ if ($needsBlockingBootstrap) {
 $renderSchemaVersion = 1;
 $assetsManifestVersion = 2;
 
+// ── OOP/SOC Integration Bridge ──────────────────────────────────────────────
+// Initialize GalaxyController for new actions (range, system_detail)
+// Maintains backward compatibility with existing 'auth_stars', 'system' actions
+if (in_array($action, ['range', 'system_detail'], true)) {
+    // Load PSR-4 autoloader
+    if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
+        require_once __DIR__ . '/../vendor/autoload.php';
+    } else {
+        // Fallback: manual autoload for development
+        spl_autoload_register(static function (string $class): void {
+            $prefix = 'GalaxyQuest\\';
+            if (strpos($class, $prefix) === 0) {
+                $path = __DIR__ . '/../src/' . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
+                if (file_exists($path)) {
+                    require_once $path;
+                }
+            }
+        });
+    }
+
+    // Set up dependencies and create controller
+    try {
+        // Create request context using factory
+        $requestContext = \GalaxyQuest\Shared\Http\RequestContext::create(
+            userId: (int)($_SESSION['user_id'] ?? 0),
+            csrfToken: $_SESSION['csrf_token'] ?? null,
+            sessionId: session_id() ?: null,
+        );
+
+        // Create retry policy for resilience
+        $retryPolicy = new \GalaxyQuest\Shared\Http\RetryPolicy(
+            maxRetries: 3,
+            baseDelayMs: 100,
+            jitterFactor: 0.1,
+        );
+
+        // Create repository with retry wrapper
+        $galaxyRepository = new \GalaxyQuest\Galaxy\Infrastructure\PdoGalaxyRepository($db);
+
+        // Create default encoder (JSON for API responses)
+        $payloadEncoder = new \GalaxyQuest\Galaxy\Infrastructure\Encoders\JsonSystemPayloadEncoder();
+
+        // Create application services
+        $getStarsRangeService = new \GalaxyQuest\Galaxy\Application\GetStarsRangeService(
+            galaxyRepository: $galaxyRepository,
+        );
+        $getSystemPayloadService = new \GalaxyQuest\Galaxy\Application\GetSystemPayloadService(
+            galaxyRepository: $galaxyRepository,
+            encoder: $payloadEncoder,
+        );
+
+        // Create controller
+        $galaxyController = new \GalaxyQuest\Galaxy\Presentation\GalaxyController(
+            getStarsRangeService: $getStarsRangeService,
+            getSystemPayloadService: $getSystemPayloadService,
+        );
+
+        // Route action to controller method
+        $response = match ($action) {
+            'range' => $galaxyController->getStarsRange(
+                $requestContext,
+                [
+                    'xmin' => (int)($_GET['xmin'] ?? 0),
+                    'xmax' => (int)($_GET['xmax'] ?? 0),
+                    'ymin' => (int)($_GET['ymin'] ?? 0),
+                    'ymax' => (int)($_GET['ymax'] ?? 0),
+                ],
+            ),
+            'system_detail' => $galaxyController->getSystemPayload(
+                $requestContext,
+                [
+                    'x' => (int)($_GET['x'] ?? 0),
+                    'y' => (int)($_GET['y'] ?? 0),
+                ],
+            ),
+            default => throw new \RuntimeException('Unknown action'),
+        };
+
+        // Send response as JSON
+        $response->send();
+        exit;
+    } catch (\Throwable $e) {
+        // Log error and return error response
+        error_log("GalaxyController integration error: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => false,
+            'error' => [
+                'code' => 'INTERNAL_ERROR',
+                'message' => 'Internal server error',
+            ],
+            'meta' => [
+                'trace_id' => bin2hex(random_bytes(8)),
+                'ts' => (int)(microtime(true) * 1000),
+            ],
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
 function galaxy_users_has_empire_color(PDO $db): bool {
     static $cache = null;
     if ($cache !== null) {
