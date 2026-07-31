@@ -24,6 +24,7 @@ export class AdvancedRenderingUI {
     this._onPresetChange = this._onPresetChange.bind(this);
     this._onFeatureToggle = this._onFeatureToggle.bind(this);
     this._onPerfMonToggle = this._onPerfMonToggle.bind(this);
+    this._onColorblindModeChange = this._onColorblindModeChange.bind(this);
     this._updatePerfMonitor = this._updatePerfMonitor.bind(this);
   }
 
@@ -74,7 +75,7 @@ export class AdvancedRenderingUI {
     // Colorblind mode selector
     const colorblindSelect = document.getElementById('adv-rendering-colorblind');
     if (colorblindSelect) {
-      colorblindSelect.addEventListener('change', this._onColorblindModeChange.bind(this));
+      colorblindSelect.addEventListener('change', this._onColorblindModeChange);
     }
   }
 

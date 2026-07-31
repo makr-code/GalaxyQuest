@@ -61,44 +61,28 @@
     // Store original constructor
     const OriginalConstructor = OriginalGalaxy3DRendererWebGPU;
 
-    // Create wrapper constructor that applies integration
-    const PatchedConstructor = function(container, opts) {
-      // Call original constructor
-      OriginalConstructor.call(this, container, opts);
-
-      // Apply selection marker integration after construction
-      const self = this;
-      const applyIntegration = () => {
-        const result = window.GQGalaxy3DRendererWebGPUSelectionMarkerIntegration.apply(self);
-        if (result) {
-          console.log('[GalaxyRendererBootstrap-SelectionMarkers] Integration applied successfully');
-        } else {
-          console.warn('[GalaxyRendererBootstrap-SelectionMarkers] Integration already applied or failed');
-        }
-      };
-
-      // Apply immediately (synchronous)
-      try {
-        applyIntegration();
-      } catch (err) {
-        console.error('[GalaxyRendererBootstrap-SelectionMarkers] Error applying integration:', err);
+    const applyIntegration = (renderer) => {
+      const result = window.GQGalaxy3DRendererWebGPUSelectionMarkerIntegration.apply(renderer);
+      if (result) {
+        console.log('[GalaxyRendererBootstrap-SelectionMarkers] Integration applied successfully');
+      } else {
+        console.warn('[GalaxyRendererBootstrap-SelectionMarkers] Integration already applied or failed');
       }
     };
 
-    // Copy prototype and static members
-    PatchedConstructor.prototype = OriginalConstructor.prototype;
-    Object.setPrototypeOf(PatchedConstructor, OriginalConstructor);
+    // Create wrapper constructor that applies integration
+    const PatchedConstructor = class extends OriginalConstructor {
+      constructor(container, opts) {
+        super(container, opts);
 
-    // Copy static properties
-    for (const key of Object.getOwnPropertyNames(OriginalConstructor)) {
-      if (key !== 'prototype' && key !== 'length' && key !== 'name') {
+        // Apply selection marker integration after construction
         try {
-          PatchedConstructor[key] = OriginalConstructor[key];
-        } catch (e) {
-          // Some properties might be read-only
+          applyIntegration(this);
+        } catch (err) {
+          console.error('[GalaxyRendererBootstrap-SelectionMarkers] Error applying integration:', err);
         }
       }
-    }
+    };
 
     // Replace the global constructor
     window.Galaxy3DRendererWebGPU = PatchedConstructor;

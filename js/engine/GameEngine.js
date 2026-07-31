@@ -89,13 +89,23 @@ const { AdvancedRenderingUI } = _req('./AdvancedRenderingUI.js', 'GQAdvancedRend
 // Optional selection and ownership systems
 const GroupSelectionController = typeof require !== 'undefined'
   ? (() => {
-      try { return require('./selection/GroupSelectionController.js'); } catch (_) { return null; }
+      try {
+        const mod = require('./selection/GroupSelectionController.js');
+        return typeof mod === 'function' ? mod : (mod?.GroupSelectionController ?? mod?.default ?? null);
+      } catch (_) {
+        return null;
+      }
     })()
   : (typeof window !== 'undefined' ? window.GroupSelectionController : null);
 
 const OwnershipVisualsSystem = typeof require !== 'undefined'
   ? (() => {
-      try { return require('../rendering/OwnershipVisualsSystem.js'); } catch (_) { return null; }
+      try {
+        const mod = require('../rendering/OwnershipVisualsSystem.js');
+        return typeof mod === 'function' ? mod : (mod?.OwnershipVisualsSystem ?? mod?.default ?? null);
+      } catch (_) {
+        return null;
+      }
     })()
   : (typeof window !== 'undefined' ? window.OwnershipVisualsSystem : null);
 
@@ -887,9 +897,9 @@ class GameEngine {
     // 5b. Multi-selection and ownership visual systems
     try {
       // Initialize group selection controller
-      if (typeof GroupSelectionController !== 'undefined') {
+      if (typeof GroupSelectionController === 'function') {
         // Get or create a marker system (can be defined in renderer context)
-        const markerSystem = opts.markerSystem || window?.SelectionMarkerSystem?.instance || null;
+        const markerSystem = opts.markerSystem || globalThis.SelectionMarkerSystem?.instance || null;
         this.groupSelection = new GroupSelectionController(markerSystem, opts.groupSelection);
         
         // Wire to bloom effects
@@ -902,7 +912,7 @@ class GameEngine {
       }
 
       // Initialize ownership visuals system
-      if (typeof OwnershipVisualsSystem !== 'undefined') {
+      if (typeof OwnershipVisualsSystem === 'function') {
         this.ownershipSystem = new OwnershipVisualsSystem(this.renderingMgr, opts.ownershipSystem);
         
         // Wire to bloom effects
