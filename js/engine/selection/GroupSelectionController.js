@@ -675,7 +675,7 @@ class GroupSelectionController {
   isOwnershipAuraBloomEnabled() {
     return this._ownershipAuraBloomEnabled;
   }
-
+}
 
 // Export
 if (typeof module !== 'undefined' && module.exports) {

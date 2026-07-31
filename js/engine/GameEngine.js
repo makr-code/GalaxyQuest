@@ -915,6 +915,16 @@ class GameEngine {
       }
 
       this._log('Multi-selection and ownership visual systems initialized');
+
+      // Wire systems to ViewportManager for multi-view consistency
+      if (this.viewports) {
+        if (this.groupSelection) {
+          this.viewports.setGroupSelection(this.groupSelection);
+        }
+        if (this.ownershipSystem) {
+          this.viewports.setOwnershipSystem(this.ownershipSystem);
+        }
+      }
     } catch (err) {
       this._log(`Warning: Failed to initialize selection/ownership systems: ${err.message}`);
     }
