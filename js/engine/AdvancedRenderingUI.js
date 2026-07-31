@@ -24,6 +24,7 @@ export class AdvancedRenderingUI {
     this._onPresetChange = this._onPresetChange.bind(this);
     this._onFeatureToggle = this._onFeatureToggle.bind(this);
     this._onPerfMonToggle = this._onPerfMonToggle.bind(this);
+    this._onColorblindModeChange = this._onColorblindModeChange.bind(this);
     this._updatePerfMonitor = this._updatePerfMonitor.bind(this);
   }
 
@@ -70,6 +71,12 @@ export class AdvancedRenderingUI {
     if (perfMonCheckbox) {
       perfMonCheckbox.addEventListener('change', this._onPerfMonToggle);
     }
+
+    // Colorblind mode selector
+    const colorblindSelect = document.getElementById('adv-rendering-colorblind');
+    if (colorblindSelect) {
+      colorblindSelect.addEventListener('change', this._onColorblindModeChange);
+    }
   }
 
   /**
@@ -103,6 +110,14 @@ export class AdvancedRenderingUI {
         checkbox.checked = savedState === 'true';
       }
     });
+
+    // Restore colorblind mode
+    const savedColorblindMode = localStorage.getItem('adv-rendering-colorblind') || 'normal';
+    const colorblindSelect = document.getElementById('adv-rendering-colorblind');
+    if (colorblindSelect) {
+      colorblindSelect.value = savedColorblindMode;
+      this._applyColorblindMode(savedColorblindMode);
+    }
   }
 
   /**
@@ -267,6 +282,44 @@ export class AdvancedRenderingUI {
   }
 
   /**
+   * Handle colorblind mode selection change.
+   * @private
+   */
+  _onColorblindModeChange(evt) {
+    const mode = evt.target.value;
+    localStorage.setItem('adv-rendering-colorblind', mode);
+    this._applyColorblindMode(mode);
+  }
+
+  /**
+   * Apply colorblind mode to rendering systems.
+   * @private
+   * @param {string} mode - Colorblind mode (normal|deuteranopia|protanopia|tritanopia|achromatic)
+   */
+  _applyColorblindMode(mode) {
+    if (!this.engine) return;
+
+    // Apply to ownership visuals system if available
+    if (this.engine.ownershipSystem?.setColorblindMode) {
+      this.engine.ownershipSystem.setColorblindMode(mode);
+    }
+
+    // Apply to ownership aura bloom pass if available
+    if (this.engine.ownershipAuraBloom?.setColorblindMode) {
+      this.engine.ownershipAuraBloom.setColorblindMode(mode);
+    }
+
+    // Dispatch event for other systems that need colorblind mode
+    if (typeof window !== 'undefined' && window.dispatchEvent) {
+      window.dispatchEvent(
+        new CustomEvent('colorblind-mode-changed', {
+          detail: { mode },
+        })
+      );
+    }
+  }
+
+  /**
    * Dispose and clean up resources.
    */
   dispose() {
@@ -299,6 +352,11 @@ export class AdvancedRenderingUI {
     const perfMonCheckbox = document.getElementById('adv-rendering-perfmon');
     if (perfMonCheckbox) {
       perfMonCheckbox.removeEventListener('change', this._onPerfMonToggle);
+    }
+
+    const colorblindSelect = document.getElementById('adv-rendering-colorblind');
+    if (colorblindSelect) {
+      colorblindSelect.removeEventListener('change', this._onColorblindModeChange);
     }
   }
 
