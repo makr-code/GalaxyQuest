@@ -2,38 +2,31 @@
  * post-effects.test.js — Unit tests for the post-processing pipeline.
  *
  * Tests cover:
- *   BloomPass
- *     • Construction: default params, custom params, mipLevels clamping
- *     • buildThresholdParamBlock(): size, threshold, strength
- *     • buildBlurParamBlock(): size, horizontal flag, radius, levelRadius default
- *     • buildCompositeParamBlock(): size, strength
- *     • levelRadius(): doubling per level
- *     • render(): no-op when disabled, does not throw otherwise
- *     • dispose(): clears pipeline
+ *   BloomPass, VignettePass, ChromaticPass, MotionBlurPass, ToneMappingPass,
+ *   LensFlarePass, DepthOfFieldPass, VolumetricDustPass, CoronaPass,
+ *   StarScintillationPass, and EffectComposer.
  *
- *   VignettePass
- *     • Construction: default params, custom params, centre defaults
- *     • buildParamBlock(): size, darkness, falloff, centreX, centreY
- *     • render(): no-op when disabled, does not throw otherwise
- *     • dispose(): clears pipeline
+ * Phase 3-5 Additions:
+ *   DepthOfFieldPass
+ *     • Construction: default params, custom params
+ *     • buildCoCParamBlock(): Circle of Confusion parameters
+ *     • buildBlurParamBlock(): Blur radius parameters
+ *     • setFocusDistance(), setBlurAmount(), setAperture()
+ *     • render(): dispatches to renderer when enabled
  *
- *   ChromaticPass
- *     • Construction: default params (including barrelStrength), custom params
- *     • buildParamBlock(): size, power, angle, barrelStrength, pad
- *     • render(): no-op when disabled, does not throw otherwise
- *     • dispose(): clears pipeline
+ *   VolumetricDustPass
+ *     • Construction: layer initialization with defaults
+ *     • buildParamBlock(): layer color/opacity packing
+ *     • buildPropertyBlock(): layer scale/speed packing
+ *     • setLayerColor(), setLayerOpacity(), setLayerScale()
+ *     • update(): time advancement for animation
  *
- *   EffectComposer (MockRenderer — no real GPU)
- *     • Construction: creates two render targets via renderer.createTexture
- *     • addPass() / removePass(): manages pass list
- *     • passes getter: returns current pass array
- *     • render(): calls each enabled pass in order with correct src/dst textures
- *     • render(): skips disabled passes without breaking ping-pong for remaining passes
- *     • render(): last enabled pass receives mainTarget as destination
- *     • render(): accepts explicit inputTexture for the first pass
- *     • render(): empty chain does not throw
- *     • resize(): recreates render targets
- *     • dispose(): calls dispose() on each pass
+ *   CoronaPass
+ *     • Construction: position and pulse parameters
+ *     • buildParamBlock(): corona parameters (position, radius, timing)
+ *     • buildRingParamBlock(): ring configuration
+ *     • setCoreScreenPos(), setPulseAmplitude(), setColorCycleSpeed()
+ *     • update(): time advancement for animation
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -50,6 +43,20 @@ const { VignettePass } =
   require(path.join(root, 'js/engine/post-effects/passes/VignettePass.js'));
 const { ChromaticPass } =
   require(path.join(root, 'js/engine/post-effects/passes/ChromaticPass.js'));
+const { MotionBlurPass } =
+  require(path.join(root, 'js/engine/post-effects/passes/MotionBlurPass.js'));
+const { ToneMappingPass, ToneMappingMode } =
+  require(path.join(root, 'js/engine/post-effects/passes/ToneMappingPass.js'));
+const { LensFlarePass, MAX_FLARE_SOURCES } =
+  require(path.join(root, 'js/engine/post-effects/passes/LensFlarePass.js'));
+const { DepthOfFieldPass, MAX_BLUR_RADIUS } =
+  require(path.join(root, 'js/engine/post-effects/passes/DepthOfFieldPass.js'));
+const { VolumetricDustPass, MAX_DUST_LAYERS, DEFAULT_DUST_LAYERS } =
+  require(path.join(root, 'js/engine/post-effects/passes/VolumetricDustPass.js'));
+const { CoronaPass, MAX_CORONA_RINGS } =
+  require(path.join(root, 'js/engine/post-effects/passes/CoronaPass.js'));
+const { StarScintillationPass } =
+  require(path.join(root, 'js/engine/post-effects/passes/StarScintillationPass.js'));
 const { EffectComposer } =
   require(path.join(root, 'js/engine/post-effects/EffectComposer.js'));
 
@@ -816,5 +823,458 @@ describe('ChromaticPass — render dispatches to renderer when enabled', () => {
   it('is a no-op when renderer has no runChromaticPass method', () => {
     const p = new ChromaticPass();
     expect(() => p.render('src', 'dst', {})).not.toThrow();
+  });
+});
+
+// =====================================================================
+// DepthOfFieldPass — Phase 3a
+// =====================================================================
+
+describe('DepthOfFieldPass — constants', () => {
+  it('MAX_BLUR_RADIUS is 16', () => {
+    expect(MAX_BLUR_RADIUS).toBe(16);
+  });
+});
+
+describe('DepthOfFieldPass — construction', () => {
+  it('creates with default parameters', () => {
+    const dof = new DepthOfFieldPass();
+    expect(dof.enabled).toBe(true);
+    expect(dof.focusDistance).toBe(500.0);
+    expect(dof.focusRange).toBe(300.0);
+    expect(dof.nearBlurAmount).toBe(2.0);
+    expect(dof.farBlurAmount).toBe(4.0);
+    expect(dof.aperture).toBe(1.0);
+  });
+
+  it('creates with custom parameters', () => {
+    const dof = new DepthOfFieldPass({
+      focusDistance: 350.0,
+      focusRange: 200.0,
+      nearBlurAmount: 3.0,
+      farBlurAmount: 6.0,
+      aperture: 2.0,
+    });
+    expect(dof.focusDistance).toBe(350.0);
+    expect(dof.focusRange).toBe(200.0);
+    expect(dof.nearBlurAmount).toBe(3.0);
+    expect(dof.farBlurAmount).toBe(6.0);
+    expect(dof.aperture).toBe(2.0);
+  });
+
+  it('clamps blur amounts to [0, MAX_BLUR_RADIUS]', () => {
+    const dof = new DepthOfFieldPass({
+      nearBlurAmount: -5.0,
+      farBlurAmount: 100.0,
+    });
+    expect(dof.nearBlurAmount).toBe(0);
+    expect(dof.farBlurAmount).toBe(MAX_BLUR_RADIUS);
+  });
+});
+
+describe('DepthOfFieldPass — buildCoCParamBlock', () => {
+  it('returns Float32Array of length 4', () => {
+    const dof = new DepthOfFieldPass();
+    const params = dof.buildCoCParamBlock();
+    expect(params).toBeInstanceOf(Float32Array);
+    expect(params.length).toBe(4);
+  });
+
+  it('packs focusDistance, focusRange, aperture correctly', () => {
+    const dof = new DepthOfFieldPass({
+      focusDistance: 400.0,
+      focusRange: 250.0,
+      aperture: 1.5,
+    });
+    const params = dof.buildCoCParamBlock();
+    expect(params[0]).toBe(400.0);
+    expect(params[1]).toBe(250.0);
+    expect(params[2]).toBe(1.5);
+  });
+});
+
+describe('DepthOfFieldPass — buildBlurParamBlock', () => {
+  it('returns Float32Array of length 4', () => {
+    const dof = new DepthOfFieldPass();
+    const params = dof.buildBlurParamBlock(3.0);
+    expect(params).toBeInstanceOf(Float32Array);
+    expect(params.length).toBe(4);
+  });
+
+  it('packs blur radius correctly', () => {
+    const dof = new DepthOfFieldPass();
+    const params = dof.buildBlurParamBlock(5.5);
+    expect(params[0]).toBe(6); // Ceiled
+  });
+});
+
+describe('DepthOfFieldPass — API methods', () => {
+  it('setFocusDistance updates focusDistance', () => {
+    const dof = new DepthOfFieldPass();
+    dof.setFocusDistance(600.0);
+    expect(dof.focusDistance).toBe(600.0);
+  });
+
+  it('setFocusRange updates focusRange', () => {
+    const dof = new DepthOfFieldPass();
+    dof.setFocusRange(150.0);
+    expect(dof.focusRange).toBe(150.0);
+  });
+
+  it('setBlurAmount updates both blur amounts', () => {
+    const dof = new DepthOfFieldPass();
+    dof.setBlurAmount(5.0, 8.0);
+    expect(dof.nearBlurAmount).toBe(5.0);
+    expect(dof.farBlurAmount).toBe(8.0);
+  });
+
+  it('setAperture updates aperture', () => {
+    const dof = new DepthOfFieldPass();
+    dof.setAperture(2.5);
+    expect(dof.aperture).toBe(2.5);
+  });
+});
+
+describe('DepthOfFieldPass — render dispatches to renderer when enabled', () => {
+  it('calls renderer.runDepthOfFieldPass when enabled', () => {
+    const dof = new DepthOfFieldPass();
+    let capturedArgs = null;
+    const renderer = { 
+      runDepthOfFieldPass: (...args) => { capturedArgs = args; } 
+    };
+    dof.render('src', 'dst', renderer);
+    expect(capturedArgs).not.toBeNull();
+    expect(capturedArgs[0]).toBe(dof);
+  });
+
+  it('is a no-op when disabled', () => {
+    const dof = new DepthOfFieldPass();
+    dof.enabled = false;
+    let called = false;
+    const renderer = { 
+      runDepthOfFieldPass: () => { called = true; } 
+    };
+    dof.render('src', 'dst', renderer);
+    expect(called).toBe(false);
+  });
+});
+
+// =====================================================================
+// VolumetricDustPass — Phase 3b
+// =====================================================================
+
+describe('VolumetricDustPass — constants', () => {
+  it('MAX_DUST_LAYERS is 8', () => {
+    expect(MAX_DUST_LAYERS).toBe(8);
+  });
+
+  it('DEFAULT_DUST_LAYERS has 3 entries', () => {
+    expect(DEFAULT_DUST_LAYERS.length).toBe(3);
+  });
+
+  it('default layers have correct structure', () => {
+    DEFAULT_DUST_LAYERS.forEach(layer => {
+      expect(Array.isArray(layer.color)).toBe(true);
+      expect(layer.color.length).toBe(3);
+      expect(typeof layer.opacity).toBe('number');
+      expect(typeof layer.scale).toBe('number');
+      expect(typeof layer.speed).toBe('number');
+    });
+  });
+});
+
+describe('VolumetricDustPass — construction', () => {
+  it('creates with default 3 layers', () => {
+    const dust = new VolumetricDustPass();
+    expect(dust.layers.length).toBe(3);
+    expect(dust.enabled).toBe(true);
+  });
+
+  it('creates with custom layer count', () => {
+    const dust = new VolumetricDustPass({ layerCount: 5 });
+    expect(dust.layers.length).toBe(5);
+  });
+
+  it('clamps layer count to [1, MAX_DUST_LAYERS]', () => {
+    let dust = new VolumetricDustPass({ layerCount: -1 });
+    expect(dust.layers.length).toBe(1);
+    dust = new VolumetricDustPass({ layerCount: 100 });
+    expect(dust.layers.length).toBe(MAX_DUST_LAYERS);
+  });
+});
+
+describe('VolumetricDustPass — buildParamBlock', () => {
+  it('returns Float32Array with correct size', () => {
+    const dust = new VolumetricDustPass({ layerCount: 3 });
+    const params = dust.buildParamBlock();
+    expect(params).toBeInstanceOf(Float32Array);
+    expect(params.length).toBe(3 * 4 + 4); // 3 layers (4 floats each) + 4 global
+  });
+
+  it('packs layer colors and opacities correctly', () => {
+    const dust = new VolumetricDustPass({ layerCount: 1 });
+    dust.setLayerColor(0, 1.0, 0.5, 0.0);
+    dust.setLayerOpacity(0, 0.8);
+    const params = dust.buildParamBlock();
+    expect(params[0]).toBe(1.0);
+    expect(params[1]).toBe(0.5);
+    expect(params[2]).toBe(0.0);
+    expect(params[3]).toBeCloseTo(0.8, 5);
+  });
+});
+
+describe('VolumetricDustPass — update and animation', () => {
+  it('advances time via update()', () => {
+    const dust = new VolumetricDustPass();
+    expect(dust._time).toBe(0);
+    dust.update(0.016); // ~60 FPS
+    expect(dust._time).toBeCloseTo(0.016, 5);
+    dust.update(0.016);
+    expect(dust._time).toBeCloseTo(0.032, 5);
+  });
+});
+
+describe('VolumetricDustPass — layer management', () => {
+  it('setLayerColor updates layer color', () => {
+    const dust = new VolumetricDustPass();
+    dust.setLayerColor(0, 0.2, 0.3, 0.4);
+    expect(dust.layers[0].color[0]).toBe(0.2);
+    expect(dust.layers[0].color[1]).toBe(0.3);
+    expect(dust.layers[0].color[2]).toBe(0.4);
+  });
+
+  it('setLayerOpacity updates layer opacity', () => {
+    const dust = new VolumetricDustPass();
+    dust.setLayerOpacity(0, 0.5);
+    expect(dust.layers[0].opacity).toBe(0.5);
+  });
+
+  it('setLayerCount adjusts layer array', () => {
+    const dust = new VolumetricDustPass({ layerCount: 3 });
+    dust.setLayerCount(5);
+    expect(dust.layers.length).toBe(5);
+    dust.setLayerCount(2);
+    expect(dust.layers.length).toBe(2);
+  });
+});
+
+// =====================================================================
+// CoronaPass — Phase 4c
+// =====================================================================
+
+describe('CoronaPass — constants', () => {
+  it('MAX_CORONA_RINGS is 8', () => {
+    expect(MAX_CORONA_RINGS).toBe(8);
+  });
+});
+
+describe('CoronaPass — construction', () => {
+  it('creates with default parameters', () => {
+    const corona = new CoronaPass();
+    expect(corona.enabled).toBe(true);
+    expect(corona.centerX).toBe(0.5);
+    expect(corona.centerY).toBe(0.5);
+    expect(corona.baseRadius).toBe(200);
+    expect(corona.pulseAmplitude).toBe(3.0);
+    expect(corona.pulseFrequency).toBe(0.1);
+    expect(corona.colorCycleSpeed).toBe(0.05);
+    expect(corona.intensity).toBe(1.0);
+    expect(corona.ringCount).toBe(4);
+  });
+
+  it('creates with custom parameters', () => {
+    const corona = new CoronaPass({
+      centerX: 0.3,
+      centerY: 0.7,
+      baseRadius: 300,
+      pulseAmplitude: 5.0,
+      colorCycleSpeed: 0.1,
+      intensity: 1.5,
+      ringCount: 6,
+    });
+    expect(corona.centerX).toBe(0.3);
+    expect(corona.centerY).toBe(0.7);
+    expect(corona.baseRadius).toBe(300);
+    expect(corona.pulseAmplitude).toBe(5.0);
+    expect(corona.colorCycleSpeed).toBe(0.1);
+    expect(corona.intensity).toBe(1.5);
+    expect(corona.ringCount).toBe(6);
+  });
+
+  it('clamps intensity to [0, 2]', () => {
+    let corona = new CoronaPass({ intensity: -1.0 });
+    expect(corona.intensity).toBe(0);
+    corona = new CoronaPass({ intensity: 3.0 });
+    expect(corona.intensity).toBe(2);
+  });
+});
+
+describe('CoronaPass — buildParamBlock', () => {
+  it('returns Float32Array of length 8', () => {
+    const corona = new CoronaPass();
+    const params = corona.buildParamBlock();
+    expect(params).toBeInstanceOf(Float32Array);
+    expect(params.length).toBe(8);
+  });
+
+  it('packs parameters correctly', () => {
+    const corona = new CoronaPass({
+      centerX: 0.4,
+      centerY: 0.6,
+      baseRadius: 250,
+      pulseAmplitude: 4.0,
+      pulseFrequency: 0.2,
+      colorCycleSpeed: 0.08,
+      intensity: 1.2,
+    });
+    const params = corona.buildParamBlock();
+    expect(params[0]).toBeCloseTo(0.4, 5);
+    expect(params[1]).toBeCloseTo(0.6, 5);
+    expect(params[2]).toBe(250);
+    expect(params[3]).toBeCloseTo(4.0, 5);
+    expect(params[4]).toBeCloseTo(0.2, 5);
+    expect(params[5]).toBeCloseTo(0.08, 5);
+    expect(params[6]).toBeCloseTo(1.2, 5);
+  });
+});
+
+describe('CoronaPass — API methods', () => {
+  it('setCoreScreenPos updates center coordinates', () => {
+    const corona = new CoronaPass();
+    corona.setCoreScreenPos(0.3, 0.4);
+    expect(corona.centerX).toBe(0.3);
+    expect(corona.centerY).toBe(0.4);
+  });
+
+  it('setPulseAmplitude updates amplitude', () => {
+    const corona = new CoronaPass();
+    corona.setPulseAmplitude(8.0);
+    expect(corona.pulseAmplitude).toBe(8.0);
+  });
+
+  it('setColorCycleSpeed updates speed', () => {
+    const corona = new CoronaPass();
+    corona.setColorCycleSpeed(0.15);
+    expect(corona.colorCycleSpeed).toBe(0.15);
+  });
+
+  it('setIntensity clamps value', () => {
+    const corona = new CoronaPass();
+    corona.setIntensity(2.5);
+    expect(corona.intensity).toBe(2);
+    corona.setIntensity(-0.5);
+    expect(corona.intensity).toBe(0);
+  });
+});
+
+describe('CoronaPass — update and animation', () => {
+  it('advances time via update()', () => {
+    const corona = new CoronaPass();
+    expect(corona._time).toBe(0);
+    corona.update(0.016);
+    expect(corona._time).toBeCloseTo(0.016, 5);
+  });
+});
+
+describe('CoronaPass — render dispatches to renderer when enabled', () => {
+  it('calls renderer.runCoronaPass when enabled', () => {
+    const corona = new CoronaPass();
+    let capturedArgs = null;
+    const renderer = { 
+      runCoronaPass: (...args) => { capturedArgs = args; } 
+    };
+    corona.render('src', 'dst', renderer);
+    expect(capturedArgs).not.toBeNull();
+    expect(capturedArgs[0]).toBe(corona);
+  });
+
+  it('is a no-op when disabled', () => {
+    const corona = new CoronaPass();
+    corona.enabled = false;
+    let called = false;
+    const renderer = { 
+      runCoronaPass: () => { called = true; } 
+    };
+    corona.render('src', 'dst', renderer);
+    expect(called).toBe(false);
+  });
+});
+
+// =====================================================================
+// MotionBlurPass verification (Phase 3c)
+// =====================================================================
+
+describe('MotionBlurPass — verify implementation', () => {
+  it('can set velocity', () => {
+    const blur = new MotionBlurPass();
+    blur.setVelocity(0.02, 0.01);
+    expect(blur.velX).toBe(0.02);
+    expect(blur.velY).toBe(0.01);
+  });
+
+  it('buildParamBlock returns correct size', () => {
+    const blur = new MotionBlurPass();
+    const params = blur.buildParamBlock();
+    expect(params).toBeInstanceOf(Float32Array);
+    expect(params.length).toBe(8);
+  });
+});
+
+// =====================================================================
+// ToneMappingPass verification (Phase 4a)
+// =====================================================================
+
+describe('ToneMappingPass — verify implementation', () => {
+  it('supports REINHARD and ACES modes', () => {
+    const tm1 = new ToneMappingPass({ mode: ToneMappingMode.REINHARD });
+    expect(tm1.mode).toBe(ToneMappingMode.REINHARD);
+    const tm2 = new ToneMappingPass({ mode: ToneMappingMode.ACES });
+    expect(tm2.mode).toBe(ToneMappingMode.ACES);
+  });
+
+  it('buildParamBlock returns correct size', () => {
+    const tm = new ToneMappingPass();
+    const params = tm.buildParamBlock();
+    expect(params).toBeInstanceOf(Float32Array);
+    expect(params.length).toBe(4);
+  });
+});
+
+// =====================================================================
+// LensFlarePass verification (Phase 4b)
+// =====================================================================
+
+describe('LensFlarePass — verify implementation', () => {
+  it('can add and remove flare sources', () => {
+    const flare = new LensFlarePass();
+    const id = flare.addSource(0.2, 0.5, 1.0, 0xffffff);
+    expect(typeof id).toBe('number');
+    flare.removeSource(id);
+  });
+
+  it('buildParamBlock returns correct size', () => {
+    const flare = new LensFlarePass();
+    flare.addSource(0.5, 0.5, 1.0, 0xffffff);
+    const params = flare.buildParamBlock();
+    expect(params).toBeInstanceOf(Float32Array);
+  });
+});
+
+// =====================================================================
+// StarScintillationPass verification (Phase 5)
+// =====================================================================
+
+describe('StarScintillationPass — verify implementation', () => {
+  it('has configurable threshold and amplitude', () => {
+    const sci = new StarScintillationPass({ threshold: 0.9, amplitude: 0.2 });
+    expect(sci.threshold).toBe(0.9);
+    expect(sci.amplitude).toBe(0.2);
+  });
+
+  it('buildParamBlock returns correct size', () => {
+    const sci = new StarScintillationPass();
+    const params = sci.buildParamBlock();
+    expect(params).toBeInstanceOf(Float32Array);
+    expect(params.length).toBe(4);
   });
 });

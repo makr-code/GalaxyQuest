@@ -7,6 +7,7 @@
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/npc_llm_controller.php';
+require_once __DIR__ . '/npc_behavior_script_executor.php';
 require_once __DIR__ . '/character_profile_generator.php';
 require_once __DIR__ . '/../lib/MiniYamlParser.php';
 require_once __DIR__ . '/llm_soc/ScenarioEngine.php';
@@ -132,7 +133,29 @@ function trader_tick_global(PDO $db, bool $force = false): void {
 
 function npc_faction_tick(PDO $db, int $userId, array $faction): void {
     $fid = (int)$faction['id'];
+    $factionCode = $faction['code'] ?? '';
 
+    // ── PRIORITY 1: Behavior-Script evaluation ─────────────────────────────
+    // Behavior-scripts are checked first and can override default behavior
+    if (!empty($factionCode)) {
+        try {
+            $context = npc_get_behavior_context($db, $userId, $factionCode);
+            $scriptResult = npc_execute_behavior_script($db, $userId, $factionCode, $context);
+
+            if ($scriptResult['ok'] && $scriptResult['action']) {
+                $actionResult = npc_execute_behavior_action($db, $userId, $factionCode, $scriptResult['action']);
+                if ($actionResult['executed'] ?? false) {
+                    // Behavior-script action was executed, skip default behavior
+                    return;
+                }
+            }
+        } catch (Throwable $e) {
+            error_log("Behavior script execution error for faction $factionCode: " . $e->getMessage());
+            // Fall through to LLM controller on error
+        }
+    }
+
+    // ── PRIORITY 2: LLM controller (fallback) ──────────────────────────────
     // Optional LLM steering path for PvE controller.
     $llm = npc_pve_llm_controller_try($db, $userId, $faction);
     if (!empty($llm['handled'])) {

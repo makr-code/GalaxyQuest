@@ -42,7 +42,7 @@ Diese Items sind im nächsten Sprint direkt umsetzbar und haben hohen Gameplay-I
 
 ### Infrastruktur
 
-- 🎯 **CI/CD Pipeline**: GitHub Actions mit PHPUnit + Vitest + Playwright Smoke (kein Automatismus vorhanden)
+- ✅ **CI/CD Pipeline**: GitHub Actions mit PHPUnit + Vitest + Playwright Smoke (implementiert, siehe `.github/workflows/ci.yml`)
 - 🎯 **DB-Migration-Tooling**: Versioniertes Migrationssystem statt manueller SQL-Anwendung
 
 ---

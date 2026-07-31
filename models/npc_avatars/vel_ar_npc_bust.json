@@ -256,8 +256,23 @@
       "gqModelSemantics": {
         "factionCode": "vel_ar",
         "objectClass": "npc_bust",
-        "archetype": "diplomat_bust"
-      }
+        "archetype": "diplomat_bust",
+        "designLanguageVersion": "egl-1.0",
+        "silhouetteTags": [
+          "bust",
+          "portrait"
+        ],
+        "signatureParts": [
+          "head",
+          "torso"
+        ]
+      },
+      "gqAnimations": [
+        {
+          "name": "default",
+          "duration": 1
+        }
+      ]
     },
     "children": [
       {
@@ -287,9 +302,15 @@
               0,
               -0.04,
               0.52
-            ]
+            ],
+            "userData": {
+              "role": "beak"
+            }
           }
-        ]
+        ],
+        "userData": {
+          "role": "head"
+        }
       },
       {
         "uuid": "mesh_neck",
@@ -301,7 +322,10 @@
           0,
           0.1,
           0
-        ]
+        ],
+        "userData": {
+          "role": "neck"
+        }
       },
       {
         "uuid": "mesh_torso",
@@ -318,7 +342,10 @@
           1.12,
           0.88,
           0.85
-        ]
+        ],
+        "userData": {
+          "role": "torso"
+        }
       }
     ]
   }

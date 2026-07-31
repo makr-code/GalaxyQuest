@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/ollama_client.php';
+require_once __DIR__ . '/npc_quest_action_executor.php';
 
 /**
  * Attempts one LLM-guided PvE decision for a single NPC faction and user.
@@ -362,6 +363,16 @@ function npc_pve_apply_decision(PDO $db, int $userId, array $faction, int $stand
         case 'send_message':
             npc_pve_send_message($db, $userId, $decision['subject'], $decision['message']);
             return ['ok' => true, 'executed' => true, 'reason' => 'message_sent', 'standing_after' => $standingBefore];
+
+        case 'generate_quest':
+            $questResult = npc_pve_apply_quest_action($db, $userId, $faction, $decision);
+            return [
+                'ok' => (bool) ($questResult['ok'] ?? false),
+                'executed' => (bool) ($questResult['executed'] ?? false),
+                'reason' => (string) ($questResult['reason'] ?? 'quest_failed'),
+                'standing_after' => $standingBefore, // Quest generation doesn't change standing
+                'error' => $questResult['error'] ?? null,
+            ];
 
         default:
             return ['ok' => true, 'executed' => false, 'reason' => 'none', 'standing_after' => $standingBefore];

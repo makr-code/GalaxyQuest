@@ -145,19 +145,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-       uses: actions/checkout@v4
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-       uses: actions/setup-node@v4
-       with:
-         node-version: '20'
-         cache: 'npm'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
-       run: npm ci
+        run: npm ci
 
       - name: Run Vitest
-       run: npx vitest run --reporter=verbose
+        run: npx vitest run --reporter=verbose
 
   # ── End-to-End Smoke Test ───────────────────────────────────────────────────
   playwright-smoke:
@@ -209,7 +209,6 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-  # ── Docker Image Build & Publish ────────────────────────────────────────────
   docker-build:
     name: Build & Publish Docker Image
     runs-on: ubuntu-latest

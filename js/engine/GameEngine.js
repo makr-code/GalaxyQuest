@@ -83,6 +83,31 @@ const { AssetRegistry }      = _req('./AssetRegistry.js',                 'GQAss
 const { PerformanceMonitor } = _req('./utils/PerformanceMonitor.js',      'GQPerformanceMonitor');
 const { ResourceTracker }    = _req('./utils/ResourceTracker.js',         'GQResourceTracker');
 const { ViewportManager }    = _req('./ViewportManager.js',               'GQViewportManager');
+const { AdvancedRenderingManager } = _req('./AdvancedRenderingManager.js', 'GQAdvancedRenderingManager');
+const { AdvancedRenderingUI } = _req('./AdvancedRenderingUI.js', 'GQAdvancedRenderingUI');
+
+// Optional selection and ownership systems
+const GroupSelectionController = typeof require !== 'undefined'
+  ? (() => {
+      try {
+        const mod = require('./selection/GroupSelectionController.js');
+        return typeof mod === 'function' ? mod : (mod?.GroupSelectionController ?? mod?.default ?? null);
+      } catch (_) {
+        return null;
+      }
+    })()
+  : (typeof window !== 'undefined' ? window.GroupSelectionController : null);
+
+const OwnershipVisualsSystem = typeof require !== 'undefined'
+  ? (() => {
+      try {
+        const mod = require('../rendering/OwnershipVisualsSystem.js');
+        return typeof mod === 'function' ? mod : (mod?.OwnershipVisualsSystem ?? mod?.default ?? null);
+      } catch (_) {
+        return null;
+      }
+    })()
+  : (typeof window !== 'undefined' ? window.OwnershipVisualsSystem : null);
 
 // ---------------------------------------------------------------------------
 // GameEngine
@@ -115,6 +140,19 @@ class GameEngine {
     this.perf             = new PerformanceMonitor();
     /** @type {ResourceTracker} */
     this.resources        = new ResourceTracker();
+    /** @type {AdvancedRenderingManager|null} Advanced 3D rendering features manager */
+    this.renderingMgr     = null;
+    /** @type {AdvancedRenderingUI|null} Advanced rendering UI controls manager */
+    this.renderingUI      = null;
+
+    /** @type {GroupSelectionController|null} Multi-unit selection controller */
+    this.groupSelection   = null;
+    /** @type {OwnershipVisualsSystem|null} Ownership visual identification system */
+    this.ownershipSystem  = null;
+    /** @type {GroupHighlightBloomPass|null} Multi-selection bloom effects */
+    this.groupBloom       = null;
+    /** @type {OwnershipAuraBloomPass|null} Ownership aura bloom effects */
+    this.ownershipAuraBloom = null;
 
     /** CPU physics engine (SpacePhysicsEngine, always available) */
     this.physics          = null;
@@ -284,6 +322,8 @@ class GameEngine {
     this.systems.list().forEach((s) => this.systems.remove(s.name));
     this.viewports?.detach();
     this.cameras?.dispose();
+    this.renderingUI?.dispose?.();
+    this.renderingMgr?.dispose?.();
     this.postFx?.dispose();
     this.gpuPhysics?.dispose();
     this.resources.disposeAll();
@@ -369,6 +409,160 @@ class GameEngine {
     }
 
     this._log(`addFollowViewport: '${name}' targeting '${target?.name ?? '?'}'`);
+    return this;
+  }
+
+  /**
+   * Register an object with the LOD system.
+   * Should be called when spawning ships, asteroids, planets, or other dynamic objects.
+   *
+   * @param {string} objectId     Unique identifier for the object
+   * @param {Object} mesh         Mesh or scene node with position
+   * @param {string} objectType   Type hint: 'ship' | 'asteroid' | 'planet' | 'station'
+   * @returns {this}
+   */
+  registerObjectForLOD(objectId, mesh, objectType = 'ship') {
+    if (!this.renderingMgr || !this.renderingMgr._instances.lodManager) {
+      // LOD not enabled
+      return this;
+    }
+
+    try {
+      const position = mesh.position || { x: 0, y: 0, z: 0 };
+      this.renderingMgr._instances.lodManager.registerObject(objectId, mesh, objectType, position);
+    } catch (err) {
+      console.warn('[GameEngine] Failed to register object for LOD:', err);
+    }
+
+    return this;
+  }
+
+  /**
+   * Unregister an object from LOD management (e.g., when destroyed).
+   * @param {string} objectId - The unique identifier used during registration
+   * @returns {this}
+   */
+  unregisterObjectFromLOD(objectId) {
+    if (!this.renderingMgr || !this.renderingMgr._instances.lodManager) {
+      return this;
+    }
+
+    try {
+      this.renderingMgr._instances.lodManager.unregisterObject(objectId);
+    } catch (err) {
+      console.warn('[GameEngine] Failed to unregister object from LOD:', err);
+    }
+
+    return this;
+  }
+
+  /**
+   * Get a rendering feature instance (LOD manager, post-processing pass, etc.)
+   * 
+   * @param {string} featureName - Feature to retrieve: 'lod', 'bloom', 'tonemapping', 'decals', etc.
+   * @returns {Object|null} Feature instance or null if not enabled
+   */
+  getFeature(featureName) {
+    if (!this.renderingMgr) return null;
+    return this.renderingMgr.getFeature(featureName);
+  }
+
+  /**
+   * Wire the impact decal manager to a CombatFX instance.
+   * Should be called when initializing combat systems.
+   * 
+   * @param {CombatFX} combatFX - Combat effects manager
+   * @returns {this}
+   */
+  wireDecalsToCombat(combatFX) {
+    if (!combatFX) return this;
+    
+    const decalManager = this.getFeature('decals');
+    if (decalManager && typeof combatFX.setDecalManager === 'function') {
+      combatFX.setDecalManager(decalManager);
+      this._log('CombatFX wired to impact decal manager');
+    }
+
+    return this;
+  }
+
+  /**
+   * Enable cinematic camera mode for mission cinematics.
+   * 
+   * @param {string} [name='cinematic'] - Name of the cinematic camera
+   * @returns {Object|null} CinematicCamera instance or null if not available
+   */
+  enableCinematic(name = 'cinematic') {
+    if (!this.cameras) {
+      console.warn('[GameEngine] CameraManager not available');
+      return null;
+    }
+
+    const cinematicCam = this.cameras.enableCinematicMode(name);
+    this._log(`Cinematic mode enabled: ${name}`);
+    return cinematicCam;
+  }
+
+  /**
+   * Disable cinematic camera mode (return to gameplay camera).
+   * @returns {this}
+   */
+  disableCinematic() {
+    if (this.cameras) {
+      this.cameras.disableCinematicMode();
+      this._log('Cinematic mode disabled');
+    }
+    return this;
+  }
+
+  /**
+   * Check if currently in cinematic mode.
+   * @returns {boolean}
+   */
+  isCinematic() {
+    return this.cameras?.isCinematicMode() ?? false;
+  }
+
+  /**
+   * Generate a procedural asteroid mesh.
+   * Requires advanced rendering with procedural meshes enabled.
+   *
+   * @param {object} config - Asteroid configuration
+   * @param {number} [config.seed] - Seed for reproducibility
+   * @param {number} [config.scale=100] - Size scale
+   * @param {number} [config.complexity=2] - Detail level (1-5)
+   * @param {boolean} [config.fracture=true] - Apply fracture patterns
+   * @returns {Object|null} Generated mesh or null
+   */
+  generateProceduralAsteroid(config = {}) {
+    if (!this.renderingMgr) return null;
+    return this.renderingMgr.generateAsteroid(config);
+  }
+
+  /**
+   * Generate a debris field (multiple asteroid fragments).
+   * Useful for explosions, destruction sequences.
+   *
+   * @param {object} config
+   * @param {number} [config.count=10] - Number of debris pieces
+   * @param {number} [config.scale=50] - Base fragment scale
+   * @param {number} [config.seed] - Seed for reproducibility
+   * @returns {Array|null} Array of geometry objects or null
+   */
+  generateDebrisField(config = {}) {
+    if (!this.renderingMgr) return null;
+    return this.renderingMgr.generateDebrisField(config);
+  }
+
+  /**
+   * Clear procedural mesh cache to free memory.
+   * Call periodically if generating many procedural objects.
+   * @returns {this}
+   */
+  clearProceduralCache() {
+    if (this.renderingMgr) {
+      this.renderingMgr.clearProceduralCache();
+    }
     return this;
   }
 
@@ -547,7 +741,8 @@ class GameEngine {
       let BloomPass, VignettePass, ChromaticPass,
           ToneMappingPass, LensFlarePass, DustLayerPass, MotionBlurPass,
           FilmGrainPass, ColorGradingPass, StarScintillationPass,
-          DiskRotationParallaxPass, JetLightingPass;
+          DiskRotationParallaxPass, JetLightingPass,
+          GroupHighlightBloomPass, OwnershipAuraBloomPass;
       if (typeof _g.GQBloomPass !== 'undefined') {
         // Browser plain-script context: globals were set by <script> tags.
         BloomPass      = _g.GQBloomPass;
@@ -562,6 +757,8 @@ class GameEngine {
         StarScintillationPass    = _g.GQStarScintillationPass?.StarScintillationPass ?? _g.GQStarScintillationPass;
         DiskRotationParallaxPass = _g.GQDiskRotationParallaxPass?.DiskRotationParallaxPass ?? _g.GQDiskRotationParallaxPass;
         JetLightingPass          = _g.GQJetLightingPass?.JetLightingPass            ?? _g.GQJetLightingPass;
+        GroupHighlightBloomPass  = _g.GroupHighlightBloomPass;
+        OwnershipAuraBloomPass   = _g.OwnershipAuraBloomPass;
       } else {
         // Node.js / bundler / test context: dynamic import() shares the ESM
         // module registry with static `import` statements, guaranteeing
@@ -571,6 +768,7 @@ class GameEngine {
           { ToneMappingPass }, { LensFlarePass }, { DustLayerPass }, { MotionBlurPass },
           { FilmGrainPass }, { ColorGradingPass }, { StarScintillationPass },
           { DiskRotationParallaxPass }, { JetLightingPass },
+          { GroupHighlightBloomPass }, { OwnershipAuraBloomPass },
         ] = await Promise.all([
           import('./post-effects/passes/BloomPass.js'),
           import('./post-effects/passes/VignettePass.js'),
@@ -584,6 +782,8 @@ class GameEngine {
           import('./post-effects/passes/StarScintillationPass.js'),
           import('./post-effects/passes/DiskRotationParallaxPass.js'),
           import('./post-effects/passes/JetLightingPass.js'),
+          import('./post-effects/passes/GroupHighlightBloomPass.js'),
+          import('./post-effects/passes/OwnershipAuraBloomPass.js'),
         ]));
       }
 
@@ -594,6 +794,28 @@ class GameEngine {
         this._bloomPass = new BloomPass(bloomOpts);
         this.postFx.addPass(this._bloomPass);
       }
+
+      // Multi-selection group highlighting bloom pass
+      if (GroupHighlightBloomPass && opts.groupBloom !== false) {
+        const groupBloomOpts = typeof opts.groupBloom === 'object' ? opts.groupBloom : {};
+        this.groupBloom = new GroupHighlightBloomPass({
+          renderer: this.renderer,
+          ...groupBloomOpts,
+        });
+        this.postFx.addPass(this.groupBloom);
+      }
+
+      // Ownership aura bloom pass
+      if (OwnershipAuraBloomPass && opts.ownershipAura !== false) {
+        const ownershipAuraOpts = typeof opts.ownershipAura === 'object' ? opts.ownershipAura : {};
+        this.ownershipAuraBloom = new OwnershipAuraBloomPass({
+          renderer: this.renderer,
+          enableOwnershipAura: opts.ownershipAura !== false,
+          ...ownershipAuraOpts,
+        });
+        this.postFx.addPass(this.ownershipAuraBloom);
+      }
+
       if (opts.vignette !== false) {
         const vignetteOpts = typeof opts.vignette === 'object' ? opts.vignette : {};
         this._vignettePass = new VignettePass(vignetteOpts);
@@ -654,7 +876,70 @@ class GameEngine {
     // 4. Physics
     await this._initPhysics(opts);
 
-    // 5. Game loop
+    // 5. Advanced rendering features (LOD, post-processing, decals, procedural, etc.)
+    this.renderingMgr = new AdvancedRenderingManager(this);
+    if (opts.advancedRendering !== false) {
+      // Apply default preset based on device capabilities
+      const preset = opts.advancedRenderingPreset ?? 'high';
+      this.renderingMgr.applyPreset(preset);
+      this._log(`Advanced rendering initialized with preset: ${preset}`);
+    }
+
+    // Initialize UI controls for advanced rendering
+    try {
+      if (typeof AdvancedRenderingUI !== 'undefined' && typeof document !== 'undefined') {
+        this.renderingUI = AdvancedRenderingUI.getInstance(this).init();
+      }
+    } catch (err) {
+      this._log(`Warning: Failed to initialize advanced rendering UI: ${err.message}`);
+    }
+
+    // 5b. Multi-selection and ownership visual systems
+    try {
+      // Initialize group selection controller
+      if (typeof GroupSelectionController === 'function') {
+        // Get or create a marker system (can be defined in renderer context)
+        const markerSystem = opts.markerSystem || globalThis.SelectionMarkerSystem?.instance || null;
+        this.groupSelection = new GroupSelectionController(markerSystem, opts.groupSelection);
+        
+        // Wire to bloom effects
+        if (this._bloomPass && this.groupSelection) {
+          this._bloomPass.selectionController = this.groupSelection;
+        }
+        if (this.groupBloom) {
+          this.groupBloom.groupSelectionController = this.groupSelection;
+        }
+      }
+
+      // Initialize ownership visuals system
+      if (typeof OwnershipVisualsSystem === 'function') {
+        this.ownershipSystem = new OwnershipVisualsSystem(this.renderingMgr, opts.ownershipSystem);
+        
+        // Wire to bloom effects
+        if (this.ownershipAuraBloom) {
+          this.ownershipAuraBloom.ownershipSystem = this.ownershipSystem;
+        }
+        if (this._bloomPass) {
+          this._bloomPass.ownershipSystem = this.ownershipSystem;
+        }
+      }
+
+      this._log('Multi-selection and ownership visual systems initialized');
+
+      // Wire systems to ViewportManager for multi-view consistency
+      if (this.viewports) {
+        if (this.groupSelection) {
+          this.viewports.setGroupSelection(this.groupSelection);
+        }
+        if (this.ownershipSystem) {
+          this.viewports.setOwnershipSystem(this.ownershipSystem);
+        }
+      }
+    } catch (err) {
+      this._log(`Warning: Failed to initialize selection/ownership systems: ${err.message}`);
+    }
+
+    // 6. Game loop
     this.loop = new GameLoop({
       fixedStep: opts.fixedStep ?? (1 / 60),
       maxDt:     opts.maxDt    ?? 0.25,
@@ -665,7 +950,7 @@ class GameEngine {
       onPanic:       () => this.events.emit('engine:panic', {}),
     });
 
-    // 6. Built-in window resize wiring
+    // 7. Built-in window resize wiring
     if (typeof window !== 'undefined' && canvas.parentElement) {
       this._resizeObserver = new (window.ResizeObserver ?? _NoopResizeObserver)(([entry]) => {
         const { width, height } = entry.contentRect;
@@ -755,6 +1040,12 @@ class GameEngine {
     // Update all cameras (primary + follow cameras) with smooth lag
     this.cameras ? this.cameras.update(dt) : this.camera?.update?.();
     this.scene.update();
+    
+    // Update advanced rendering features (LOD, etc.)
+    if (this.renderingMgr) {
+      this.renderingMgr.update(dt, this.camera ?? this.cameras?.active);
+    }
+    
     this.events.emit('engine:update', { dt, alpha });
   }
 

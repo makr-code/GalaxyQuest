@@ -1,0 +1,27 @@
+code: research_collaboration
+title_template: "Research {tech_name} with {faction_name}"
+description_template: |
+  {faction_name} offers to collaborate on {tech_name} research.
+  Complete the research together and unlock shared benefits.
+  Estimated time: {research_days} days.
+quest_type: research
+difficulty_modifier: 1.0
+faction_types:
+  - science
+  - trade
+  - envoy
+default_params:
+  tech_name: "Advanced Propulsion Systems"
+  research_days: 10
+  investment_required: 5000
+  shared_benefit: true
+reward_scaling:
+  base_rare_earth: 700
+  base_standing: 7
+  multipliers:
+    by_tech_tier: 2.0
+    by_difficulty: 1.0
+narrative_hooks:
+  - "Science advances faster when we work together."
+  - "Join us in pushing the boundaries of what's possible."
+  - "This technology will benefit us both. Let's collaborate."

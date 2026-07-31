@@ -48,20 +48,20 @@ Folgende große Arbeitspakete sind abgeschlossen und bilden das Fundament des Pr
 
 **Abhängigkeiten:** Keine (Grundlage für alle weiteren Sprints)
 
-### 1.1 CI/CD Pipeline 🎯
+### 1.1 CI/CD Pipeline ✅
 
 **Aufgaben:**
-- [ ] GitHub Actions Workflow einrichten (`PHPUnit` + `Vitest` + `Playwright Smoke`)
-- [ ] Automatisches Testing bei jedem Push/PR
-- [ ] Fail-Fast bei Test-Regressions
+- [x] GitHub Actions Workflow einrichten (`PHPUnit` + `Vitest` + `Playwright Smoke`)
+- [x] Automatisches Testing bei jedem Push/PR
+- [x] Fail-Fast bei Test-Regressions
 
 **Akzeptanzkriterien:**
-- Jeder Commit triggert automatisch PHPUnit + Vitest
-- Playwright Smoke-Test läuft in CI
-- Badge in `README.md` zeigt Build-Status
+- ✅ Jeder Commit triggert automatisch PHPUnit + Vitest
+- ✅ Playwright Smoke-Test läuft in CI
+- ✅ Badge in `README.md` zeigt Build-Status
 
-**Aufwand:** ~8h  
-**Referenz:** `phpunit.xml`, `vitest.config.mjs`, `playwright.config.js`
+**Status:** Abgeschlossen (Stand 31.07.2026)  
+**Referenz:** `.github/workflows/ci.yml`, CHANGELOG (Unreleased – CI/CD Pipeline)
 
 ---
 

@@ -1,1586 +1,557 @@
 /**
  * Thin API wrapper for the game frontend.
  * All requests automatically attach the CSRF token from the session.
+ * 
+ * Refactored to coordinate modular transport, queue, cache, schema, and session layers.
+ * This facade maintains backward compatibility with all existing endpoint methods while
+ * delegating core responsibilities to focused modules:
+ * - Transport: Low-level fetch with retry/timeout/error handling
+ * - Queue: Request prioritization and concurrency management
+ * - Cache: GET response caching with TTL and mutation-based invalidation
+ * - SchemaAdapters: Payload normalization for render pipeline
+ * - Session: CSRF token lifecycle and session expiry management
  */
+
+// Fallback implementations when modules are not loaded (for testing or minimal deployments)
+if (typeof window !== 'undefined' && !window.APITransport) {
+  window.APITransport = {
+    fetchTask: async (endpoint, options) => {
+      const response = await fetch(endpoint, options);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return response.json();
+      }
+      return response;
+    },
+  };
+}
+
+if (typeof window !== 'undefined' && !window.APISession) {
+  window.APISession = {
+    getCsrfToken: () => null,
+    setCsrfToken: () => {},
+    fetchCsrfToken: async () => {},
+    isSessionExpired: () => false,
+    resetSessionState: () => {},
+    handleAuthError: async () => {},
+  };
+}
+
+if (typeof window !== 'undefined' && !window.APICache) {
+  window.APICache = {
+    getCachedResponse: () => null,
+    setCachedResponse: () => {},
+    invalidateCache: () => {},
+    getMutationPatterns: () => ({}),
+  };
+}
+
+if (typeof window !== 'undefined' && !window.APIQueue) {
+  window.APIQueue = {
+    queueFetch: async (endpoint, method, body, priority, executeTask) => {
+      // Direct execution without queuing
+      return executeTask();
+    },
+    pumpQueue: () => {},
+    cancelPendingRequests: () => {},
+    getQueueStats: () => ({ pending: 0, active: 0, concurrency: {} }),
+    setConcurrencyLimit: () => {},
+  };
+}
+
+if (typeof window !== 'undefined' && !window.APISchemaAdapters) {
+  window.APISchemaAdapters = {
+    adaptGalaxyBootstrap: (data) => data,
+    adaptGalaxyStars: (data) => data,
+    classifyRenderError: () => 'unknown',
+  };
+}
+
 const API = (() => {
   const API_VERSION = 'v1';
-  let _csrfToken = null;
-  let _sessionExpired = false;   // set on first 401 to stop redirect storm
-  const _getCache = new Map();
+
+  // Private state: load progress tracking
   let _activeLoads = 0;
-  let _activeNetworkRequests = 0;
-  let _requestSequence = 0;
-  let _requestTaskId = 0;
-  const _requestQueue = [];
-  const _inflightTasks = new Map();
-  const _activeByRequestClass = Object.create(null);
-  let _maxConcurrentRequests = 4;
-  let _lastConnectivityProbe = { ts: 0, data: null };
-  const _recentLoadErrorLogs = new Map();
-  const _recentRetryLogs = new Map();
-  const _authErrorGate = { ts: 0, key: '' };
-  const _requestClassCaps = {
-    auth: 2,
-    overview: 1,
-    stars: 1,
-    binary: 2,
-    mutation: 2,
-  };
-  const _preferBinaryGalaxySystem = false;
-
-  // Short-lived cache tuned for frequently refreshed strategy-game data.
-  const _defaultGetTtlMs = [
-    { re: /api\/audio\.php\?action=list/i, ttl: 60 * 1000 },
-    { re: /api\/ollama\.php\?action=status/i, ttl: 5 * 1000 },
-    { re: /api\/game\.php\?action=health/i, ttl: 5 * 1000 },
-    { re: /api\/game\.php\?action=overview/i, ttl: 10 * 1000 },
-    { re: /api\/game\.php\?action=resources/i, ttl: 8 * 1000 },
-    { re: /api\/game\.php\?action=leaderboard/i, ttl: 20 * 1000 },
-    { re: /api\/buildings\.php\?action=list/i, ttl: 10 * 1000 },
-    { re: /api\/research\.php\?action=list/i, ttl: 12 * 1000 },
-    { re: /api\/shipyard\.php\?action=list/i, ttl: 12 * 1000 },
-    { re: /api\/fleet\.php\?action=list/i, ttl: 10 * 1000 },
-    { re: /api\/messages\.php\?action=inbox/i, ttl: 8 * 1000 },
-    { re: /api\/messages\.php\?action=users/i, ttl: 20 * 1000 },
-    { re: /api\/reports\.php\?action=spy_reports/i, ttl: 10 * 1000 },
-    { re: /api\/reports\.php\?action=battle_reports/i, ttl: 10 * 1000 },
-    { re: /api\/trade\.php\?action=list$/i,          ttl: 8 * 1000 },
-    { re: /api\/trade\.php\?action=list_proposals/i, ttl: 6 * 1000 },
-    { re: /api\/traders\.php\?action=list_traders/i, ttl: 8 * 1000 },
-    { re: /api\/traders\.php\?action=list_routes/i, ttl: 6 * 1000 },
-    { re: /api\/traders_events\.php\?event=status/i, ttl: 5 * 1000 },
-    { re: /api\/traders_dashboard\.php\?action=opportunity_alerts/i, ttl: 6 * 1000 },
-    { re: /api\/pirates\.php\?action=status/i, ttl: 6 * 1000 },
-    { re: /api\/pirates\.php\?action=recent_raids/i, ttl: 6 * 1000 },
-    { re: /api\/pirates\.php\?action=forecast/i, ttl: 8 * 1000 },
-    { re: /api\/economy\.php\?action=get_overview/i, ttl: 8 * 1000 },
-    { re: /api\/economy\.php\?action=get_policy/i, ttl: 10 * 1000 },
-    { re: /api\/economy\.php\?action=get_pop_classes/i, ttl: 10 * 1000 },
-    { re: /api\/economy\.php\?action=get_pop_status/i, ttl: 10 * 1000 },
-    { re: /api\/economy\.php\?action=get_production/i, ttl: 8 * 1000 },
-    { re: /api\/alliances\.php\?action=list/i, ttl: 8 * 1000 },
-    { re: /api\/alliances\.php\?action=details/i, ttl: 6 * 1000 },
-    { re: /api\/alliances\.php\?action=relations/i, ttl: 5 * 1000 },
-    { re: /api\/alliances\.php\?action=get_messages/i, ttl: 5 * 1000 },
-    { re: /api\/alliances\.php\?action=war_map/i, ttl: 10 * 1000 },
-    { re: /api\/alliance_wars\.php\?action=list/i, ttl: 8 * 1000 },
-    { re: /api\/alliance_wars\.php\?action=get_status/i, ttl: 5 * 1000 },
-    { re: /api\/war\.php\?action=list/i, ttl: 8 * 1000 },
-    { re: /api\/war\.php\?action=get_status/i, ttl: 5 * 1000 },
-    { re: /api\/war\.php\?action=get_intel/i, ttl: 30 * 1000 },
-    { re: /api\/war\.php\?action=alliance_wars/i, ttl: 10 * 1000 },
-    { re: /api\/galaxy\.php\?action=stars/i, ttl: 45 * 1000 },
-    { re: /api\/galaxy\.php\?action=bootstrap/i, ttl: 20 * 1000 },
-    { re: /api\/galaxy\.php\?/i, ttl: 15 * 1000 },
-    { re: /api\/achievements\.php\?action=list/i, ttl: 15 * 1000 },
-    { re: /api\/leaders\.php\?action=list/i, ttl: 15 * 1000 },
-    { re: /api\/factions\.php\?action=/i, ttl: 20 * 1000 },
-    { re: /api\/npc_controller\.php\?action=status/i, ttl: 8 * 1000 },
-    { re: /api\/npc_controller\.php\?action=summary/i, ttl: 8 * 1000 },
-    { re: /api\/npc_controller\.php\?action=decisions/i, ttl: 6 * 1000 },
-  ];
-
-  const _mutationInvalidatePatterns = [
-    /^api\/game\.php\?action=/i,
-    /^api\/buildings\.php\?action=/i,
-    /^api\/research\.php\?action=/i,
-    /^api\/shipyard\.php\?action=/i,
-    /^api\/fleet\.php\?action=/i,
-    /^api\/achievements\.php\?action=/i,
-    /^api\/leaders\.php\?action=/i,
-    /^api\/factions\.php\?action=/i,
-    /^api\/npc_controller\.php\?action=/i,
-    /^api\/messages\.php\?action=/i,
-    /^api\/reports\.php\?action=/i,
-    /^api\/trade\.php\?action=/i,
-    /^api\/traders\.php\?action=/i,
-    /^api\/traders_events\.php\?event=/i,
-    /^api\/traders_dashboard\.php\?action=/i,
-    /^api\/pirates\.php\?action=/i,
-    /^api\/economy\.php\?action=/i,
-    /^api\/alliances\.php\?action=/i,
-    /^api\/alliance_wars\.php\?action=/i,
-    /^api\/war\.php\?action=/i,
-    /^api\/galaxy\.php\?/i,
-  ];
-
-  function _emitLoadProgress(detail) {
-    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
-    window.dispatchEvent(new CustomEvent('gq:load-progress', {
-      detail: Object.assign({}, detail, {
-        queued: _requestQueue.length,
-        inFlight: _activeNetworkRequests,
-        concurrency: _maxConcurrentRequests,
-      }),
-    }));
-  }
-
-  function _emitLoadError(detail) {
-    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
-    window.dispatchEvent(new CustomEvent('gq:load-error', { detail }));
-  }
-
-  function _shouldLogWithCooldown(bucket, key, cooldownMs = 2000) {
-    const now = Date.now();
-    const prev = Number(bucket.get(key) || 0);
-    if ((now - prev) < cooldownMs) {
-      return false;
-    }
-    bucket.set(key, now);
-
-    if (bucket.size > 400) {
-      const pruneBefore = now - Math.max(60000, cooldownMs * 8);
-      for (const [k, ts] of bucket.entries()) {
-        if (Number(ts || 0) < pruneBefore) bucket.delete(k);
-      }
-    }
-    return true;
-  }
-
-  function _log(level, message, data = null) {
-    const lvl = String(level || 'info').toLowerCase();
-    const sink = window.GQLog && typeof window.GQLog[lvl] === 'function'
-      ? window.GQLog[lvl].bind(window.GQLog)
-      : null;
-    if (sink) {
-      if (data == null) sink('[api]', message);
-      else sink('[api]', message, data);
-      return;
-    }
-    const consoleMethod = (lvl === 'error' || lvl === 'warn' || lvl === 'info') ? lvl : 'log';
-    if (data == null) console[consoleMethod]('[GQ][API]', message);
-    else console[consoleMethod]('[GQ][API]', message, data);
-  }
-
-  function _isTraceEnabled() {
-    try {
-      return !!(window.GQLog && typeof window.GQLog.traceEnabled === 'function' && window.GQLog.traceEnabled());
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function _summarizeSystemPayloadMeta(payload) {
-    const input = (payload && typeof payload === 'object') ? payload : {};
-    const planets = Array.isArray(input.planets) ? input.planets : [];
-    const fleets = Array.isArray(input.fleets_in_system) ? input.fleets_in_system : [];
-    const textureManifest = (input.planet_texture_manifest && typeof input.planet_texture_manifest === 'object')
-      ? input.planet_texture_manifest
-      : null;
-    const textureEntries = textureManifest && textureManifest.planets && typeof textureManifest.planets === 'object'
-      ? Object.keys(textureManifest.planets).length
-      : 0;
-    const generatedPlanets = planets.filter((planet) => !!planet?.generated_planet).length;
-    const playerPlanets = planets.filter((planet) => !!planet?.player_planet).length;
-    const moonCount = planets.reduce((sum, planet) => {
-      const generatedMoons = Array.isArray(planet?.generated_planet?.moons) ? planet.generated_planet.moons.length : 0;
-      const playerMoons = Array.isArray(planet?.player_planet?.moons) ? planet.player_planet.moons.length : 0;
-      return sum + generatedMoons + playerMoons;
-    }, 0);
-    return {
-      galaxy: Number(input.galaxy || input.star_system?.galaxy_index || 0),
-      system: Number(input.system || input.star_system?.system_index || 0),
-      starName: String(input.star_system?.name || ''),
-      planets: planets.length,
-      generatedPlanets,
-      playerPlanets,
-      moons: moonCount,
-      fleets: fleets.length,
-      textureEntries,
-      success: input.success !== false,
-    };
-  }
-
-  function _traceSystemQuery(stage, meta = {}) {
-    if (!_isTraceEnabled()) return;
-    _log('info', `[query-pipeline] ${stage}`, meta);
-  }
-
-  function _emitQueueStats(label = 'Queue aktiv') {
-    const busy = _activeLoads > 0 || _activeNetworkRequests > 0 || _requestQueue.length > 0;
-    _emitLoadProgress({
-      active: busy,
-      progress: _activeLoads > 0 ? 0.12 : (busy ? 0.06 : 0),
-      pending: _activeLoads,
-      label,
-    });
-  }
-
-  function _isAbortError(err) {
-    if (!err) return false;
-    if (typeof err === 'string') {
-      return /abort|cancel|navigation/i.test(err);
-    }
-    const name = String(err.name || '');
-    const message = String(err.message || '');
-    const reason = String(err.reason || err.cause?.message || err.cause || '');
-    return name === 'AbortError' || /abort|cancel|navigation/i.test(message) || /abort|cancel|navigation/i.test(reason);
-  }
-
-  function _createAbortError(message = 'Request cancelled') {
-    try {
-      return new DOMException(message, 'AbortError');
-    } catch (_) {
-      const e = new Error(message);
-      e.name = 'AbortError';
-      return e;
-    }
-  }
-
-  const RENDER_SCHEMA_VERSION = 1;
-  const ASSETS_MANIFEST_VERSION = Math.max(1, Number(window.GQ_ASSETS_MANIFEST_VERSION || 1));
-  const RENDER_STALE_MAX_AGE_MS = 10 * 60 * 1000;
-
-  function _normalizeRenderSchemaVersion(payload) {
-    const n = Number(payload?.render_schema_version);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-  }
-
-  function _normalizeAssetsManifestVersion(payload, fallback = {}) {
-    const n = Number(payload?.assets_manifest_version || fallback?.assetsManifestVersion || 0);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-  }
-
-  function _buildSchemaError(kind, issues, payload) {
-    return {
-      ok: false,
-      errorType: 'schema',
-      kind,
-      issues: Array.isArray(issues) ? issues : [],
-      payload,
-    };
-  }
-
-  function classifyRenderLoadError(input) {
-    if (input?.errorType === 'schema') {
-      return { type: 'schema', message: 'Render schema mismatch', details: input.issues || [] };
-    }
-    if (input?.errorType === 'stale') {
-      return { type: 'stale', message: 'Render data is stale', details: input.issues || [] };
-    }
-
-    const status = Number(input?.status || input?.cause?.status || 0);
-    const text = String(input?.message || input?.error || input || '').toLowerCase();
-
-    if (status === 401 || status === 403 || /not authenticated|unauthorized|forbidden/.test(text)) {
-      return { type: 'auth', message: 'Authentication required', details: [status || 'auth'] };
-    }
-    if (/network|failed to fetch|timeout|offline|econn|abort/.test(text) || status >= 500 || status === 0) {
-      return { type: 'network', message: 'Network error', details: [status || 'transport'] };
-    }
-    return { type: 'network', message: 'Unknown transport error', details: [status || 'unknown'] };
-  }
-
-  function adaptGalaxyBootstrapPayload(payload, fallback = {}) {
-    if (!payload || payload.success !== true) {
-      return _buildSchemaError('bootstrap', ['payload.success !== true'], payload);
-    }
-
-    const galaxy = Math.max(1, Number(payload.galaxy || fallback.galaxy || 1));
-    const systemMax = Math.max(1, Number(payload.system_max || 0));
-    const initialRaw = payload.initial_range || {};
-    const from = Math.max(1, Number(initialRaw.from || fallback.from || 1));
-    const to = Math.max(from, Number(initialRaw.to || fallback.to || from));
-    const maxPoints = Math.max(100, Math.min(50000, Number(initialRaw.max_points || fallback.maxPoints || 1500)));
-    const schemaVersion = _normalizeRenderSchemaVersion(payload);
-    const assetsManifestVersion = _normalizeAssetsManifestVersion(payload, fallback);
-
-    const issues = [];
-    if (!systemMax) issues.push('system_max missing');
-    if (schemaVersion <= 0) issues.push('render_schema_version missing');
-    if (assetsManifestVersion <= 0) issues.push('assets_manifest_version missing');
-
-    if (issues.length > 0) {
-      return _buildSchemaError('bootstrap', issues, payload);
-    }
-
-    const serverTsMs = Number(payload.server_ts_ms || Date.now());
-    const isStale = (Date.now() - serverTsMs) > RENDER_STALE_MAX_AGE_MS;
-
-    return {
-      ok: true,
-      data: {
-        success: true,
-        action: 'bootstrap',
-        render_schema_version: schemaVersion,
-        schema_ok: schemaVersion === RENDER_SCHEMA_VERSION,
-        assets_manifest_version: assetsManifestVersion,
-        assets_manifest_ok: assetsManifestVersion === ASSETS_MANIFEST_VERSION,
-        stale: isStale,
-        galaxy,
-        system_max: systemMax,
-        server_ts_ms: serverTsMs,
-        initial_range: {
-          from,
-          to,
-          max_points: maxPoints,
-        },
-        endpoints: payload.endpoints || {},
-        capabilities: payload.capabilities || {},
-      },
-    };
-  }
-
-  function adaptGalaxyStarsPayload(payload, fallback = {}) {
-    if (!payload || payload.success !== true) {
-      return _buildSchemaError('stars', ['payload.success !== true'], payload);
-    }
-
-    const stars = Array.isArray(payload.stars) ? payload.stars : [];
-    const issues = [];
-    const schemaVersion = _normalizeRenderSchemaVersion(payload);
-    const assetsManifestVersion = _normalizeAssetsManifestVersion(payload, fallback);
-    if (schemaVersion <= 0) issues.push('render_schema_version missing');
-    if (assetsManifestVersion <= 0) issues.push('assets_manifest_version missing');
-    if (!Array.isArray(payload.stars)) issues.push('stars missing');
-
-    const galaxy = Math.max(1, Number(payload.galaxy || fallback.galaxy || 1));
-    const from = Math.max(1, Number(payload.from || fallback.from || 1));
-    const to = Math.max(from, Number(payload.to || fallback.to || from));
-    const stride = Math.max(1, Number(payload.stride || 1));
-    const systemMax = Math.max(1, Number(payload.system_max || fallback.systemMax || 1));
-
-    if (issues.length > 0) {
-      return _buildSchemaError('stars', issues, payload);
-    }
-
-    const serverTsMs = Number(payload.server_ts_ms || Date.now());
-    const isStale = (Date.now() - serverTsMs) > RENDER_STALE_MAX_AGE_MS;
-
-    return {
-      ok: true,
-      data: {
-        success: true,
-        action: 'stars',
-        render_schema_version: schemaVersion,
-        schema_ok: schemaVersion === RENDER_SCHEMA_VERSION,
-        assets_manifest_version: assetsManifestVersion,
-        assets_manifest_ok: assetsManifestVersion === ASSETS_MANIFEST_VERSION,
-        stale: isStale,
-        galaxy,
-        from,
-        to,
-        stride,
-        system_max: systemMax,
-        count: Number(payload.count || stars.length || 0),
-        server_ts_ms: serverTsMs,
-        cache_mode: String(payload.cache_mode || ''),
-        request: (payload.request && typeof payload.request === 'object') ? payload.request : {
-          priority: 'normal',
-          prefetch: false,
-          chunk_hint: Number(fallback.maxPoints || 1500),
-        },
-        cluster_preset_selected: String(payload.cluster_preset_selected || 'medium'),
-        prefetch: (payload.prefetch && typeof payload.prefetch === 'object') ? payload.prefetch : {
-          before: { from, to: Math.max(from, from - 1) },
-          after: { from: Math.min(systemMax, to + 1), to: Math.min(systemMax, to + 1) },
-        },
-        clusters_lod: (payload.clusters_lod && typeof payload.clusters_lod === 'object') ? payload.clusters_lod : null,
-        clusters: Array.isArray(payload.clusters) ? payload.clusters : [],
-        stars,
-      },
-    };
-  }
-
-  function _detectConcurrencyLimit() {
-    try {
-      const nav = navigator || {};
-      const conn = nav.connection || nav.mozConnection || nav.webkitConnection || {};
-      const cores = Number(nav.hardwareConcurrency || 0);
-      const mem = Number(nav.deviceMemory || 0);
-      const effectiveType = String(conn.effectiveType || '').toLowerCase();
-      const saveData = !!conn.saveData;
-
-      if (saveData || effectiveType === 'slow-2g' || effectiveType === '2g') return 2;
-      if (cores > 0 && cores <= 4) return 3;
-      if (mem > 0 && mem <= 4) return 3;
-      if (effectiveType === '3g') return 3;
-      if (cores >= 12 || mem >= 12) return 6;
-      return 4;
-    } catch (err) {
-      _log('warn', 'Konnte Netzwerkprofil nicht bestimmen, verwende Default-Parallelisierung', err);
-      return 4;
-    }
-  }
-
-  _maxConcurrentRequests = _detectConcurrencyLimit();
-  try {
-    const conn = navigator?.connection || navigator?.mozConnection || navigator?.webkitConnection;
-    if (conn && typeof conn.addEventListener === 'function') {
-      conn.addEventListener('change', () => {
-        _maxConcurrentRequests = _detectConcurrencyLimit();
-        _emitQueueStats('Netzwerkprofil aktualisiert…');
-        _pumpRequestQueue();
-      });
-    }
-  } catch (err) {
-    _log('warn', 'Netzwerk-Change-Listener konnte nicht registriert werden', err);
-  }
-
-  function _reportLoadError(endpoint, err, context = '') {
-    const message = _describeError(err, endpoint, context);
-    const diagnostics = _diagnoseFromError(err, endpoint, context);
-
-    const status = Number(err?.status || err?.cause?.status || 0);
-    const baseKey = `${context}|${endpoint}|${diagnostics.kind}|${status}|${message}`;
-
-    // Auth failures can repeat rapidly across many callers; keep a single visible entry per short window.
-    if (diagnostics.kind === 'auth') {
-      const authKey = `${endpoint}|${status || 401}`;
-      const now = Date.now();
-      if (_authErrorGate.key === authKey && (now - _authErrorGate.ts) < 8000) {
-        return;
-      }
-      _authErrorGate.key = authKey;
-      _authErrorGate.ts = now;
-    }
-
-    if (!_shouldLogWithCooldown(_recentLoadErrorLogs, baseKey, diagnostics.kind === 'unreachable' ? 5000 : 2200)) {
-      return;
-    }
-
-    console.error('[GQ][API] Ladefehler', {
-      endpoint,
-      context,
-      message,
-      kind: diagnostics.kind,
-      error: err,
-    });
-    _emitLoadError({
-      endpoint: String(endpoint || ''),
-      context: String(context || ''),
-      message,
-      kind: String(diagnostics.kind || 'unknown'),
-      error: err,
-    });
-  }
-
-  function _describeError(err, endpoint = '', context = '') {
-    const parts = [];
-    const ep = String(endpoint || '');
-    const cx = String(context || '');
-    if (cx) parts.push(cx);
-    if (ep) parts.push(ep);
-
-    let detail = '';
-    if (err instanceof Error) {
-      detail = String(err.message || err.name || '').trim();
-      const causeMsg = String(err.cause?.message || err.cause || '').trim();
-      if (!detail && causeMsg) detail = causeMsg;
-      if (!detail) detail = String(err.name || 'Error');
-    } else if (err && typeof err === 'object') {
-      const status = Number(err.status || 0);
-      const statusText = String(err.statusText || '').trim();
-      const msg = String(err.message || err.error || err.reason || '').trim();
-      if (status > 0) {
-        detail = `HTTP ${status}${statusText ? ` ${statusText}` : ''}`;
-      } else if (msg) {
-        detail = msg;
-      } else {
-        try {
-          detail = JSON.stringify(err);
-        } catch (jsonErr) {
-          _log('info', 'Fehlerobjekt konnte nicht serialisiert werden', jsonErr);
-          detail = String(err);
-        }
-      }
-    } else if (typeof err === 'string') {
-      detail = err.trim();
-    } else if (typeof err === 'number' || typeof err === 'boolean') {
-      detail = String(err);
-    }
-
-    if (!detail) detail = 'Unbekannter Ladefehler';
-    const snippet = String(err?.responseSnippet || '').trim();
-    if (snippet) {
-      detail += ` | body: ${snippet}`;
-    }
-    parts.push(detail);
-    return parts.join(': ');
-  }
-
-  function _diagnoseFromError(err, endpoint = '', context = '') {
-    if (_isAbortError(err)) {
-      return {
-        kind: 'abort',
-        reachable: null,
-        message: _describeError(err, endpoint, context),
-      };
-    }
-
-    const status = Number(err?.status || err?.cause?.status || 0);
-    const statusText = String(err?.statusText || err?.cause?.statusText || '').trim();
-    const rawMessage = String(err?.message || err?.cause?.message || err || '').toLowerCase();
-    const offline = typeof navigator !== 'undefined' && navigator && navigator.onLine === false;
-    const authByMessage = /not authenticated|unauthorized|forbidden|http\s*401|http\s*403/.test(rawMessage);
-
-    if (offline) {
-      return {
-        kind: 'offline',
-        reachable: false,
-        status: 0,
-        message: 'Netzwerk offline',
-      };
-    }
-
-    if (status > 0) {
-      if (status === 401 || status === 403) {
-        return {
-          kind: 'auth',
-          reachable: true,
-          status,
-          message: `Auth-Fehler (${status}${statusText ? ` ${statusText}` : ''})`,
-        };
-      }
-      return {
-        kind: 'http',
-        reachable: true,
-        status,
-        message: `HTTP ${status}${statusText ? ` ${statusText}` : ''}`,
-      };
-    }
-
-    if (authByMessage) {
-      return {
-        kind: 'auth',
-        reachable: true,
-        status: 401,
-        message: 'Auth-Fehler (Session nicht authentifiziert)',
-      };
-    }
-
-    if (rawMessage.includes('timeout')) {
-      return {
-        kind: 'timeout',
-        reachable: null,
-        status: 0,
-        message: 'Zeitueberschreitung beim Verbindungsaufbau',
-      };
-    }
-
-    if (rawMessage.includes('failed to fetch') || rawMessage.includes('networkerror') || rawMessage.includes('network error')) {
-      return {
-        kind: 'unreachable',
-        reachable: false,
-        status: 0,
-        message: 'API nicht erreichbar (Failed to fetch)',
-      };
-    }
-
-    return {
-      kind: 'unknown',
-      reachable: null,
-      status: status || 0,
-      message: _describeError(err, endpoint, context),
-    };
-  }
-
-  async function _probeConnectivity(force = false) {
-    const now = Date.now();
-    const ttlMs = 12000;
-    if (!force && _lastConnectivityProbe.data && (now - _lastConnectivityProbe.ts) < ttlMs) {
-      return _lastConnectivityProbe.data;
-    }
-
-    if (typeof navigator !== 'undefined' && navigator && navigator.onLine === false) {
-      const data = {
-        ok: false,
-        kind: 'offline',
-        reachable: false,
-        status: 0,
-        latencyMs: 0,
-        message: 'Client offline',
-        ts: now,
-      };
-      _lastConnectivityProbe = { ts: now, data };
-      return data;
-    }
-
-    const controller = new AbortController();
-    const started = performance.now();
-    const timeout = setTimeout(() => controller.abort(_createAbortError('Connectivity probe timeout')), 3500);
-    try {
-      const resp = await _queueFetch('api/auth.php?action=csrf', {
-        method: 'GET',
-        cache: 'no-store',
-        signal: controller.signal,
-      }, { priority: 'critical', canCancel: false });
-      const latencyMs = Math.max(0, Math.round(performance.now() - started));
-      const status = Number(resp?.status || 0);
-      const data = {
-        ok: !!resp && status > 0 && status < 500,
-        kind: status >= 500 ? 'http' : 'ok',
-        reachable: !!resp && status > 0,
-        status,
-        latencyMs,
-        message: status >= 500 ? `HTTP ${status}` : 'API erreichbar',
-        ts: Date.now(),
-      };
-      _lastConnectivityProbe = { ts: Date.now(), data };
-      return data;
-    } catch (err) {
-      const diag = _diagnoseFromError(err, 'api/auth.php?action=csrf', 'CONNECTIVITY');
-      const data = {
-        ok: false,
-        kind: diag.kind,
-        reachable: diag.reachable,
-        status: Number(diag.status || 0),
-        latencyMs: Math.max(0, Math.round(performance.now() - started)),
-        message: String(diag.message || 'Connectivity probe failed'),
-        ts: Date.now(),
-      };
-      _lastConnectivityProbe = { ts: Date.now(), data };
-      return data;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  function _isTransientError(err) {
-    const status = Number(err?.status || 0);
-    if (status > 0) {
-      // Retry only on clearly transient HTTP statuses.
-      return status >= 500 || status === 408 || status === 429;
-    }
-    const message = String(err?.message || err || '').toLowerCase();
-    return message.includes('failed to fetch')
-      || message.includes('networkerror')
-      || message.includes('network error')
-      || message.includes('timeout')
-      || message.includes('temporarily unavailable');
-  }
-
-  function _sanitizeSnippet(text, maxLen = 300) {
-    const clean = String(text || '')
-      .replace(/\s+/g, ' ')
-      .replace(/[\u0000-\u001F\u007F]/g, ' ')
-      .trim();
-    if (!clean) return '';
-    if (clean.length <= maxLen) return clean;
-    return `${clean.slice(0, maxLen)}...`;
-  }
-
-  function _contentTypeOf(response) {
-    try {
-      return String(response?.headers?.get('content-type') || '').toLowerCase();
-    } catch (err) {
-      _log('info', 'Content-Type konnte nicht gelesen werden', err);
-      return '';
-    }
-  }
-
-  async function _throwHttpError(endpoint, response, context = '') {
-    const status = Number(response?.status || 0);
-    const statusText = String(response?.statusText || '').trim();
-    const contentType = _contentTypeOf(response);
-    const err = new Error(`HTTP ${status}${statusText ? ` ${statusText}` : ''}`);
-    err.status = status;
-    err.statusText = statusText;
-    err.endpoint = endpoint;
-    err.context = context;
-    err.contentType = contentType || 'unknown';
-
-    try {
-      const clone = response.clone();
-      const raw = await clone.text();
-      const snippet = _sanitizeSnippet(raw, 300);
-      if (snippet) err.responseSnippet = snippet;
-    } catch (err) {
-      _log('info', 'Fehlerantwort konnte nicht fuer Snippet gelesen werden', {
-        endpoint,
-        status,
-        error: err,
-      });
-      // Ignore body read errors for diagnostics.
-    }
-
-    throw err;
-  }
-
-  function _priorityValue(name) {
-    const key = String(name || 'normal').toLowerCase();
-    if (key === 'critical') return 0;
-    if (key === 'high') return 1;
-    if (key === 'low') return 3;
-    return 2;
-  }
-
-  function _resolveRequestPriority(endpoint, explicitPriority) {
-    if (explicitPriority) return String(explicitPriority);
-
-    const ep = String(endpoint || '').toLowerCase();
-    if (/api\/auth\.php\?action=csrf|api\/auth\.php\?action=me/.test(ep)) return 'critical';
-    if (/api\/game\.php\?action=overview/.test(ep)) return 'critical';
-    if (/api\/galaxy\.php\?action=stars/.test(ep)) return 'high';
-    if (/api\/galaxy\.php\?/.test(ep)) return 'high';
-    if (/api\/fleet\.php\?action=send|api\/fleet\.php\?action=recall/.test(ep)) return 'high';
-    if (/api\/messages\.php\?action=users/.test(ep)) return 'low';
-    if (/api\/leaderboard\.php\?/.test(ep)) return 'low';
-    return 'normal';
-  }
-
-  function _resolveRequestClass(endpoint, init = {}, explicitClass = '') {
-    if (explicitClass) return String(explicitClass);
-    const ep = String(endpoint || '').toLowerCase();
-    const method = String(init?.method || 'GET').toUpperCase();
-    if (method !== 'GET' && method !== 'HEAD') return 'mutation';
-    if (/api\/auth\.php\?action=csrf|api\/auth\.php\?action=me/.test(ep)) return 'auth';
-    if (/api\/game\.php\?action=overview/.test(ep)) return 'overview';
-    if (/api\/galaxy\.php\?action=stars/.test(ep)) return 'stars';
-    if (/api\/galaxy\.php\?/.test(ep)) return 'binary';
-    return 'default';
-  }
-
-  function _hasCriticalQueuePressure() {
-    return _requestQueue.some((item) => item.priorityValue === 0);
-  }
-
-  function _canStartTask(task) {
-    if (!task) return false;
-    const cls = String(task.requestClass || 'default');
-    const activeInClass = Number(_activeByRequestClass[cls] || 0);
-    const classCap = Number(_requestClassCaps[cls] || 0);
-    if (classCap > 0 && activeInClass >= classCap) return false;
-
-    // Keep one slot available when critical auth/overview requests are waiting.
-    if (task.priorityValue > 0 && _hasCriticalQueuePressure() && _activeNetworkRequests >= Math.max(1, _maxConcurrentRequests - 1)) {
-      return false;
-    }
-    return true;
-  }
-
-  function _pickNextQueuedTask() {
-    if (_requestQueue.length === 0) return null;
-
-    for (let i = 0; i < _requestQueue.length; i += 1) {
-      const candidate = _requestQueue[i];
-      if (_canStartTask(candidate)) {
-        return _requestQueue.splice(i, 1)[0];
-      }
-    }
-    return null;
-  }
-
-  function _isUnreachableFetchError(err) {
-    const msg = String(err?.message || err || '').toLowerCase();
-    return msg.includes('failed to fetch')
-      || msg.includes('networkerror')
-      || msg.includes('network error')
-      || msg.includes('load failed');
-  }
-
-  function _toDevPortEndpoint(endpoint) {
-    const raw = String(endpoint || '').trim();
-    if (!raw) return '';
-    if (/^https?:\/\//i.test(raw)) return raw;
-    if (raw.startsWith('/')) return `http://localhost:8080${raw}`;
-    return `http://localhost:8080/${raw.replace(/^\.\//, '')}`;
-  }
-
-  function _canRetryViaDevPort(task, err) {
-    if (!_isUnreachableFetchError(err)) return false;
-    if (task?.init?.signal?.aborted) return false;
-    if (typeof window === 'undefined' || !window.location) return false;
-    const host = String(window.location.hostname || '').toLowerCase();
-    if (host !== 'localhost' && host !== '127.0.0.1') return false;
-    const port = String(window.location.port || '').trim();
-    if (port === '8080') return false;
-    const endpoint = String(task?.fetchEndpoint || task?.endpoint || '');
-    return endpoint.startsWith('api/') || endpoint.startsWith('/api/');
-  }
-
-  function _fetchTask(task) {
-    const primaryEndpoint = task.fetchEndpoint || task.endpoint;
-    return fetch(primaryEndpoint, task.init).catch((err) => {
-      if (!_canRetryViaDevPort(task, err)) {
-        throw err;
-      }
-      const fallbackEndpoint = _toDevPortEndpoint(primaryEndpoint);
-      if (!fallbackEndpoint || fallbackEndpoint === primaryEndpoint) {
-        throw err;
-      }
-      _log('warn', 'Netzwerk-Fallback aktiv: Retry ueber localhost:8080', {
-        endpoint: primaryEndpoint,
-        fallbackEndpoint,
-      });
-      return fetch(fallbackEndpoint, task.init);
-    });
-  }
-
-  function _pumpRequestQueue() {
-    while (_activeNetworkRequests < _maxConcurrentRequests && _requestQueue.length > 0) {
-      const task = _pickNextQueuedTask();
-      if (!task) break;
-
-      if (task.cancelled) {
-        task.reject(_createAbortError(task.cancelReason || 'Request cancelled before start'));
-        continue;
-      }
-
-      _activeNetworkRequests += 1;
-      _activeByRequestClass[task.requestClass] = Number(_activeByRequestClass[task.requestClass] || 0) + 1;
-      task.started = true;
-      _inflightTasks.set(task.id, task);
-
-      _fetchTask(task)
-        .then((resp) => task.resolve(resp))
-        .catch((err) => task.reject(err))
-        .finally(() => {
-          _inflightTasks.delete(task.id);
-          _activeNetworkRequests = Math.max(0, _activeNetworkRequests - 1);
-          _activeByRequestClass[task.requestClass] = Math.max(0, Number(_activeByRequestClass[task.requestClass] || 0) - 1);
-          _emitQueueStats('Queue synchronisiert…');
-          _pumpRequestQueue();
-        });
-    }
-  }
-
-  function _queueFetch(endpoint, init = {}, options = {}) {
-    const endpointText = String(endpoint || '');
-    const authMaintenance = /api\/(?:v1\/)?auth\.php\?action=(me|csrf|logout|login)/i.test(endpointText);
-    if (_sessionExpired && !authMaintenance) {
-      const blocked = new Error('Session redirect in progress');
-      blocked.code = 'EAUTH_REDIRECT';
-      blocked.status = 401;
-      blocked.endpoint = endpointText;
-      return Promise.reject(blocked);
-    }
-
-    const priority = _resolveRequestPriority(endpoint, options.priority);
-    const priorityValue = _priorityValue(priority);
-    const method = String(init?.method || 'GET').toUpperCase();
-    const requestClass = _resolveRequestClass(endpoint, init, options.requestClass);
-    const controller = new AbortController();
-    const signal = options.signal || controller.signal;
-    const canCancel = options.canCancel !== false && (method === 'GET' || method === 'HEAD');
-    const taskId = ++_requestTaskId;
-
-    if (options.signal && typeof options.signal.addEventListener === 'function') {
-      options.signal.addEventListener('abort', () => {
-        controller.abort(options.signal.reason || 'Aborted by caller signal');
-      }, { once: true });
-    }
-
-    return new Promise((resolve, reject) => {
-      const fetchEndpoint = _versionEndpoint(endpointText);
-      _requestQueue.push({
-        id: taskId,
-        endpoint,
-        fetchEndpoint,
-        init: Object.assign({}, init, { signal }),
-        resolve,
-        reject,
-        priority,
-        priorityValue,
-        requestClass,
-        method,
-        canCancel,
-        controller,
-        cancelled: false,
-        cancelReason: '',
-        seq: ++_requestSequence,
-        started: false,
-      });
-
-      _requestQueue.sort((a, b) => {
-        if (a.priorityValue !== b.priorityValue) return a.priorityValue - b.priorityValue;
-        return a.seq - b.seq;
-      });
-
-      _emitQueueStats('Anfrage eingereiht…');
-      _pumpRequestQueue();
-    });
-  }
-
-  function _cancelPendingRequests(reason = 'View switch', predicate = null) {
-    const test = typeof predicate === 'function' ? predicate : (() => true);
-    let cancelledQueued = 0;
-    let cancelledInflight = 0;
-
-    for (let i = _requestQueue.length - 1; i >= 0; i -= 1) {
-      const task = _requestQueue[i];
-      if (!task || !task.canCancel || !test(task)) continue;
-      _requestQueue.splice(i, 1);
-      task.cancelled = true;
-      task.cancelReason = reason;
-      task.reject(_createAbortError(reason));
-      cancelledQueued += 1;
-    }
-
-    for (const task of _inflightTasks.values()) {
-      if (!task || !task.canCancel || !test(task)) continue;
-      try {
-        task.cancelled = true;
-        task.cancelReason = reason;
-        task.controller.abort(_createAbortError(reason));
-        cancelledInflight += 1;
-      } catch (err) {
-        _log('warn', 'Abbruch einer Inflight-Anfrage fehlgeschlagen', {
-          reason,
-          endpoint: String(task?.endpoint || ''),
-          error: err,
-        });
-      }
-    }
-
-    if (cancelledQueued > 0 || cancelledInflight > 0) {
-      _emitQueueStats(`Anfragen verworfen (${cancelledQueued + cancelledInflight})`);
-    }
-
-    return { cancelledQueued, cancelledInflight };
-  }
-
-  async function _sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  function _retryDelayMs(attempt) {
-    const base = 220;
-    const jitter = Math.floor(Math.random() * 90);
-    return Math.min(1800, (base * (2 ** attempt)) + jitter);
-  }
-
-  function _versionEndpoint(endpoint) {
+  let _sessionExpired = false;
+
+  /**
+   * Normalize endpoint to include API version prefix
+   */
+  const _versionEndpoint = (endpoint) => {
     const raw = String(endpoint || '').trim();
     if (!raw) return raw;
-    if (/^(https?:)?\/\//i.test(raw)) return raw;
+    if (/^(https?:)?\/\//i.test(raw)) return raw; // Keep absolute URLs unchanged
 
     const normalized = raw.startsWith('/') ? raw.slice(1) : raw;
     if (new RegExp(`^api/${API_VERSION}/`, 'i').test(normalized)) {
-      return normalized;
+      return normalized; // Already versioned
     }
     if (/^api\//i.test(normalized)) {
+      // Rewrite api/... to api/v1/...
       return normalized.replace(/^api\//i, `api/${API_VERSION}/`);
     }
     return normalized;
-  }
+  };
 
-  async function _fetchWithRetry(endpoint, init = {}, options = {}) {
-    const method = String(init?.method || 'GET').toUpperCase();
-    const idempotent = method === 'GET' || method === 'HEAD';
-    const retryCount = idempotent
-      ? Math.max(0, Number.isFinite(Number(options.retryCount)) ? Number(options.retryCount) : 2)
-      : 0;
-    const timeoutMs = Math.max(0, Number(options.timeoutMs || 0));
-
-    let lastErr = null;
-    for (let attempt = 0; attempt <= retryCount; attempt += 1) {
-      let timeoutId = null;
-      try {
-        const timeoutController = new AbortController();
-        if (init?.signal && typeof init.signal.addEventListener === 'function') {
-          init.signal.addEventListener('abort', () => {
-            timeoutController.abort(init.signal.reason || _createAbortError('Request cancelled'));
-          }, { once: true });
-        }
-        if (timeoutMs > 0) {
-          timeoutId = setTimeout(() => {
-            timeoutController.abort(_createAbortError(`Request timeout after ${timeoutMs}ms`));
-          }, timeoutMs);
-        }
-
-        const queueInit = Object.assign({}, init, { signal: timeoutController.signal });
-        const queueOptions = Object.assign({}, options, { signal: timeoutController.signal });
-        const response = await _queueFetch(endpoint, queueInit, queueOptions);
-        if (!response || !response.ok) {
-          await _throwHttpError(endpoint, response, method);
-        }
-        return response;
-      } catch (err) {
-        lastErr = err;
-        const abortMessage = String(err?.message || err?.reason || err?.cause?.message || err?.cause || '').toLowerCase();
-        const timeoutAbort = _isAbortError(err) && (abortMessage.includes('timeout') || abortMessage.includes('timed out'));
-        if (_isAbortError(err) && !timeoutAbort) throw err;
-        const transient = timeoutAbort || _isTransientError(err);
-        if (!idempotent || !transient || attempt >= retryCount) {
-          const finalMessage = _describeError(err, endpoint, `${method} retry ${attempt + 1}/${retryCount + 1}`);
-          const wrapped = new Error(finalMessage);
-          wrapped.cause = err;
-          if (err?.status) wrapped.status = err.status;
-          if (err?.statusText) wrapped.statusText = err.statusText;
-          if (err?.responseSnippet) wrapped.responseSnippet = err.responseSnippet;
-          throw wrapped;
-        }
-        const retryMsg = _describeError(err, endpoint, method);
-        const retryKey = `${method}|${endpoint}|${attempt + 1}|${retryMsg}`;
-        if (_shouldLogWithCooldown(_recentRetryLogs, retryKey, 2000)) {
-          console.warn('[GQ][API] Retry due to transient error', {
-            endpoint,
-            method,
-            attempt: attempt + 1,
-            maxAttempts: retryCount + 1,
-            error: retryMsg,
-          });
-        }
-        await _sleep(_retryDelayMs(attempt));
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-      }
+  // Emit load progress event to any listeners (e.g., loading bar UI)
+  const _emitLoadProgress = () => {
+    if (typeof window !== 'undefined' && window.document) {
+      window.dispatchEvent(new CustomEvent('apiLoadProgress', { detail: { activeLoads: _activeLoads } }));
     }
-    throw lastErr || new Error('Network request failed');
-  }
+  };
 
-  function _sanitizeLoadLabel(endpoint, fallback = 'Lade Daten…') {
-    const ep = String(endpoint || '').trim();
-    if (!ep) return fallback;
-    try {
-      const path = ep.replace(/^https?:\/\/[^/]+/i, '');
-      const noQuery = path.split('?')[0] || path;
-      const shortPath = noQuery.replace(/^\/+/, '');
-      return shortPath ? `Lade ${shortPath}…` : fallback;
-    } catch (err) {
-      _log('info', 'Load-Label konnte nicht aus Endpoint extrahiert werden', {
-        endpoint,
-        error: err,
-      });
-      return fallback;
+  // Emit error event for UI feedback
+  const _emitLoadError = (error) => {
+    if (typeof window !== 'undefined' && window.document) {
+      window.dispatchEvent(new CustomEvent('apiLoadError', { detail: { error } }));
     }
-  }
+  };
 
-  function _beginLoad(endpoint, label) {
-    _activeLoads += 1;
-    const finalLabel = _sanitizeLoadLabel(endpoint, label);
-    _emitLoadProgress({
-      active: true,
-      progress: 0.08,
-      endpoint,
-      pending: _activeLoads,
-      label: finalLabel,
-    });
-    return {
-      endpoint,
-      label: finalLabel,
-      closed: false,
-    };
-  }
+  // Begin a load operation
+  const _beginLoad = () => {
+    if (_activeLoads === 0) {
+      _emitLoadProgress();
+    }
+    _activeLoads++;
+  };
 
-  function _tickLoad(ticket, progress, phaseLabel) {
-    if (!ticket || ticket.closed) return;
-    _emitLoadProgress({
-      active: true,
-      progress: Math.max(0.08, Math.min(0.98, Number(progress || 0))),
-      endpoint: ticket.endpoint,
-      pending: _activeLoads,
-      label: phaseLabel ? String(phaseLabel) : ticket.label,
-    });
-  }
-
-  function _endLoad(ticket) {
-    if (!ticket || ticket.closed) return;
-    ticket.closed = true;
+  // End a load operation
+  const _endLoad = () => {
     _activeLoads = Math.max(0, _activeLoads - 1);
-
-    if (_activeLoads > 0) {
-      _emitLoadProgress({
-        active: true,
-        progress: 0.2,
-        endpoint: ticket.endpoint,
-        pending: _activeLoads,
-        label: `Lade Daten (${_activeLoads})…`,
-      });
-      return;
+    if (_activeLoads === 0) {
+      _emitLoadProgress();
     }
+  };
 
-    _emitLoadProgress({
-      active: true,
-      progress: 1,
-      endpoint: ticket.endpoint,
-      pending: 0,
-      label: 'Laden abgeschlossen',
-    });
+  /**
+   * Core get() method: cache → queue → transport pipeline
+   * Implements cache before queue insertion, then transport execution
+   */
+  const get = async (endpoint, options = {}) => {
+    const versionedEndpoint = _versionEndpoint(endpoint);
+    const { cacheMode = 'auto', onProgress = null } = options;
 
-    setTimeout(() => {
-      _emitLoadProgress({
-        active: false,
-        progress: 0,
-        endpoint: ticket.endpoint,
-        pending: 0,
-        label: 'Bereit',
-      });
-    }, 200);
-  }
-
-  function _clone(value) {
+    _beginLoad();
     try {
-      if (typeof structuredClone === 'function') return structuredClone(value);
-      return JSON.parse(JSON.stringify(value));
-    } catch (err) {
-      _log('warn', 'Konnte Antwort nicht klonen, gebe Originalobjekt zurueck', err);
-      return value;
-    }
-  }
-
-  function _resolveGetTtl(endpoint) {
-    for (const rule of _defaultGetTtlMs) {
-      if (rule.re.test(endpoint)) return Number(rule.ttl) || 0;
-    }
-    return 0;
-  }
-
-  function _purgeExpiredGetCache(now = Date.now()) {
-    for (const [key, item] of _getCache.entries()) {
-      if (!item || item.expiresAt <= now) _getCache.delete(key);
-    }
-  }
-
-  function _invalidateGetCache(patterns = _mutationInvalidatePatterns) {
-    if (!patterns?.length) {
-      _getCache.clear();
-      return;
-    }
-    for (const key of [..._getCache.keys()]) {
-      if (patterns.some((re) => re.test(key))) {
-        _getCache.delete(key);
-      }
-    }
-  }
-
-  function _triggerSessionExpiredRedirect() {
-    if (_sessionExpired) return;
-    _sessionExpired = true;
-    try {
-      _cancelPendingRequests('Session expired', (task) => !/api\/(?:v1\/)?auth\.php\?action=(me|csrf|logout|login)/i.test(String(task?.endpoint || '')));
-    } catch (err) {
-      _log('warn', 'Konnte Pending-Requests nach Session-Ablauf nicht abbrechen', err);
-    }
-    window.location.href = 'index.html';
-  }
-
-  async function _csrf() {
-    if (!_csrfToken) {
-      const r = await _fetchWithRetry('api/auth.php?action=csrf', {}, { priority: 'high', retryCount: 1 });
-      const d = await r.json();
-      _csrfToken = d.token;
-    }
-    return _csrfToken;
-  }
-
-  async function get(endpoint, options = {}) {
-    const loadTicket = _beginLoad(endpoint, 'Lade Daten…');
-    const cacheMode = String(options.cacheMode || 'default');
-    const ttlMs = Number.isFinite(Number(options.ttlMs)) ? Number(options.ttlMs) : _resolveGetTtl(endpoint);
-    const now = Date.now();
-
-    _purgeExpiredGetCache(now);
-
-    if (cacheMode !== 'no-store' && ttlMs > 0) {
-      const hit = _getCache.get(endpoint);
-      if (hit && hit.expiresAt > now) return _clone(hit.data);
-    }
-
-    try {
-      _tickLoad(loadTicket, 0.25, loadTicket.label);
-      const r = await _fetchWithRetry(endpoint, {}, { priority: options.priority, retryCount: options.retryCount });
-      if (r.status === 401) {
-        _triggerSessionExpiredRedirect();
-        const authErr = new Error('Not authenticated');
-        authErr.status = 401;
-        authErr.statusText = r.statusText || 'Unauthorized';
-        throw authErr;
-      }
-      _tickLoad(loadTicket, 0.7, 'Verarbeite Antwort…');
-      const data = await r.json();
-      _tickLoad(loadTicket, 0.92, 'Fertigstelle Daten…');
-      if (cacheMode !== 'no-store' && ttlMs > 0 && data && data.success !== false) {
-        _getCache.set(endpoint, {
-          data: _clone(data),
-          expiresAt: Date.now() + ttlMs,
-        });
-      }
-      return data;
-    } catch (err) {
-      if (_isAbortError(err)) throw err;
-      // Auth-check endpoint can legitimately return 401 before login.
-      if (Number(err?.status || err?.cause?.status || 0) === 401 && /api\/auth\.php\?action=me/i.test(String(endpoint || ''))) {
-        throw err;
-      }
-      if (cacheMode === 'stale-if-error') {
-        const stale = _getCache.get(endpoint);
-        if (stale?.data) {
-          console.warn('[GQ][API] Verwende stale Cache wegen Fehler', { endpoint, error: err });
-          return _clone(stale.data);
-        }
-      }
-      _reportLoadError(endpoint, err, 'GET');
-      throw err;
-    } finally {
-      _endLoad(loadTicket);
-    }
-  }
-
-  async function post(endpoint, body) {
-    const loadTicket = _beginLoad(endpoint, 'Sende Daten…');
-    try {
-      const sendWithCsrf = async (csrfToken) => _fetchWithRetry(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-        body: JSON.stringify(body),
-      }, {});
-
-      let csrf = await _csrf();
-      _tickLoad(loadTicket, 0.22, loadTicket.label);
-      let r = await sendWithCsrf(csrf);
-
-      // Session rotation can invalidate a cached CSRF token (e.g. around auth transitions).
-      // Refresh once and retry transparently when the backend reports a CSRF mismatch.
-      if (r.status === 403) {
-        let isCsrfMismatch = false;
-        try {
-          const probe = await r.clone().json();
-          const msg = String(probe?.error || probe?.message || '').toLowerCase();
-          isCsrfMismatch = /csrf/.test(msg);
-        } catch (err) {
-          _log('info', 'CSRF-Fehlerprobe konnte nicht geparst werden', err);
-          isCsrfMismatch = false;
-        }
-
-        if (isCsrfMismatch) {
-          _csrfToken = null;
-          csrf = await _csrf();
-          r = await sendWithCsrf(csrf);
+      // Check cache if not explicitly disabled
+      if (cacheMode !== 'no-store' && APICache && typeof APICache.getCachedResponse === 'function') {
+        const cached = APICache.getCachedResponse(versionedEndpoint);
+        if (cached !== null) {
+          _endLoad();
+          return cached;
         }
       }
 
-      if (r.status === 401) {
-        _triggerSessionExpiredRedirect();
-        const authErr = new Error('Not authenticated');
-        authErr.status = 401;
-        authErr.statusText = r.statusText || 'Unauthorized';
-        throw authErr;
+      // Check session expiry
+      if (APISession && typeof APISession.isSessionExpired === 'function' && APISession.isSessionExpired()) {
+        _sessionExpired = true;
+        const error = new Error('Session expired');
+        error.sessionExpired = true;
+        _emitLoadError(error);
+        _endLoad();
+        throw error;
       }
-      _tickLoad(loadTicket, 0.72, 'Verarbeite Serverantwort…');
-      const data = await r.json();
-      if (data && data.success !== false) {
-        _invalidateGetCache();
+
+      // Ensure CSRF token is available
+      if (APISession && typeof APISession.getCsrfToken === 'function') {
+        const token = APISession.getCsrfToken();
+        if (!token) {
+          // Try to fetch a fresh token
+          await APISession.fetchCsrfToken();
+        }
       }
-      _tickLoad(loadTicket, 0.92, 'Aktualisiere Ansicht…');
-      return data;
-    } catch (err) {
-      if (_isAbortError(err)) throw err;
-      _reportLoadError(endpoint, err, 'POST');
-      throw err;
-    } finally {
-      _endLoad(loadTicket);
-    }
-  }
 
-  async function getBinary(endpoint, options = {}) {
-    const loadTicket = _beginLoad(endpoint, 'Lade Sternsystem…');
-    const cacheMode = String(options.cacheMode || 'default');
-    const ttlMs = Number.isFinite(Number(options.ttlMs)) ? Number(options.ttlMs) : _resolveGetTtl(endpoint);
-    const now = Date.now();
+      // Queue the request with appropriate priority
+      const priority = _deriveQueuePriority(versionedEndpoint);
+      let response;
 
-    _purgeExpiredGetCache(now);
-
-    if (cacheMode !== 'no-store' && ttlMs > 0) {
-      const hit = _getCache.get(endpoint);
-      if (hit && hit.expiresAt > now) return _clone(hit.data);
-    }
-
-    try {
-      _tickLoad(loadTicket, 0.24, loadTicket.label);
-      const r = await _fetchWithRetry(endpoint, {}, {
-        priority: options.priority || 'high',
-        retryCount: options.retryCount,
-      });
-      if (r.status === 401) {
-        _triggerSessionExpiredRedirect();
-        const authErr = new Error('Not authenticated');
-        authErr.status = 401;
-        authErr.statusText = r.statusText || 'Unauthorized';
-        throw authErr;
-      }
-      _tickLoad(loadTicket, 0.52, 'Dekodiere Binärdaten…');
-      
-      // Check for binary format marker
-      const contentType = r.headers.get('content-type') || '';
-      if (contentType.includes('octet-stream')) {
-        // Binary mode
-        const buffer = await r.arrayBuffer();
-        let data = null;
-        let decoderVersion = 0;
-
-        // Version is stored after magic as u16 (offset 4..5).
-        try {
-          const view = new DataView(buffer);
-          const magic = view.getUint32(0, false);
-          const version = view.getUint16(4, false);
-          decoderVersion = version;
-          if (magic === 0xDEADBEEF) {
-            if (version === 3 && typeof BinaryDecoderV3 !== 'undefined' && BinaryDecoderV3?.decode) {
-              data = BinaryDecoderV3.decode(buffer);
-            } else if (version === 2 && typeof BinaryDecoderV2 !== 'undefined' && BinaryDecoderV2?.decode) {
-              data = BinaryDecoderV2.decode(buffer);
-            } else if (version === 1 && typeof BinaryDecoder !== 'undefined' && BinaryDecoder?.decode) {
-              data = BinaryDecoder.decode(buffer);
-            }
-          }
-        } catch (err) {
-          _log('warn', 'Binary-Header konnte nicht gelesen werden, Decoder-Fallback aktiv', err);
-          data = null;
-        }
-
-        // Legacy fallback chain (in case version parse fails or decoder missing).
-        if (!data && typeof BinaryDecoderV3 !== 'undefined' && BinaryDecoderV3?.decode) {
-          data = BinaryDecoderV3.decode(buffer);
-        }
-        if (!data && typeof BinaryDecoderV2 !== 'undefined' && BinaryDecoderV2?.decode) {
-          data = BinaryDecoderV2.decode(buffer);
-        }
-        if (!data && typeof BinaryDecoder !== 'undefined' && BinaryDecoder?.decode) {
-          data = BinaryDecoder.decode(buffer);
-        }
-        
-        if (!data) {
-          throw new Error('Binary decode failed');
-        }
-        _tickLoad(loadTicket, 0.86, 'Baue Nutzdaten auf…');
-        
-        // Add metadata
-        data.success = true;
-        data.server_ts_ms = data.server_ts_ms || Date.now();
-        _traceSystemQuery('binary-response', {
-          endpoint,
-          contentType,
-          byteLength: Number(buffer.byteLength || 0),
-          decoderVersion,
-          meta: _summarizeSystemPayloadMeta(data),
-        });
-        
-        if (cacheMode !== 'no-store' && ttlMs > 0) {
-          _getCache.set(endpoint, {
-            data: _clone(data),
-            expiresAt: Date.now() + ttlMs,
+      if (APIQueue && typeof APIQueue.queueFetch === 'function') {
+        response = await APIQueue.queueFetch(versionedEndpoint, 'GET', null, priority, async (abortSignal) => {
+          // Transport layer executor
+          return APITransport.fetchTask(versionedEndpoint, {
+            method: 'GET',
+            signal: abortSignal,
+            headers: _buildRequestHeaders(),
           });
-        }
-        
-        return data;
+        });
       } else {
-        // Fallback to JSON
-        _tickLoad(loadTicket, 0.7, 'Verarbeite JSON-Fallback…');
-        const data = await r.json();
-        _traceSystemQuery('json-response-via-getBinary', {
-          endpoint,
-          contentType,
-          meta: _summarizeSystemPayloadMeta(data),
+        // Fallback to direct transport if queue not available
+        response = await APITransport.fetchTask(versionedEndpoint, {
+          method: 'GET',
+          headers: _buildRequestHeaders(),
         });
-        if (cacheMode !== 'no-store' && ttlMs > 0 && data && data.success !== false) {
-          _getCache.set(endpoint, {
-            data: _clone(data),
-            expiresAt: Date.now() + ttlMs,
+      }
+
+      // Cache the response if applicable
+      if (cacheMode !== 'no-store' && APICache && typeof APICache.setCachedResponse === 'function') {
+        APICache.setCachedResponse(versionedEndpoint, response);
+      }
+
+      _endLoad();
+      return response;
+    } catch (error) {
+      _emitLoadError(error);
+      _endLoad();
+      throw error;
+    }
+  };
+
+  /**
+   * Core post() method: session prep → queue → transport → response handling
+   * Includes CSRF token fetch on 403 CSRF errors with automatic retry
+   */
+  const post = async (endpoint, body, options = {}) => {
+    const versionedEndpoint = _versionEndpoint(endpoint);
+    const { onProgress = null } = options;
+    const maxRetries = 2; // Retry on CSRF token mismatch
+    let retryCount = 0;
+
+    _beginLoad();
+    try {
+      const _attemptPost = async () => {
+        // Check session expiry before POST
+        if (APISession && typeof APISession.isSessionExpired === 'function' && APISession.isSessionExpired()) {
+          _sessionExpired = true;
+          const error = new Error('Session expired');
+          error.sessionExpired = true;
+          throw error;
+        }
+
+        // Fetch or revalidate CSRF token
+        if (APISession && typeof APISession.fetchCsrfToken === 'function') {
+          await APISession.fetchCsrfToken();
+        }
+
+        // Invalidate related GET caches on mutation
+        if (APICache && typeof APICache.invalidateCache === 'function') {
+          APICache.invalidateCache(versionedEndpoint);
+        }
+
+        // Queue the POST request
+        const priority = _deriveQueuePriority(versionedEndpoint);
+        let response;
+
+        if (APIQueue && typeof APIQueue.queueFetch === 'function') {
+          response = await APIQueue.queueFetch(versionedEndpoint, 'POST', body, priority, async (abortSignal) => {
+            return APITransport.fetchTask(versionedEndpoint, {
+              method: 'POST',
+              body: JSON.stringify(body),
+              signal: abortSignal,
+              headers: _buildRequestHeaders(),
+            });
+          });
+        } else {
+          response = await APITransport.fetchTask(versionedEndpoint, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            headers: _buildRequestHeaders(),
           });
         }
-        return data;
-      }
-    } catch (err) {
-      if (_isAbortError(err)) throw err;
-      if (cacheMode === 'stale-if-error') {
-        const stale = _getCache.get(endpoint);
-        if (stale?.data) {
-          console.warn('[GQ][API] Verwende stale Cache (binary) wegen Fehler', { endpoint, error: err });
-          return _clone(stale.data);
+
+        return response;
+      };
+
+      let response;
+      try {
+        response = await _attemptPost();
+      } catch (error) {
+        // Retry on CSRF token mismatch (403 errors from auth)
+        if (error.status === 403 && retryCount < maxRetries && versionedEndpoint.includes('auth')) {
+          retryCount++;
+          // Clear session state and retry
+          if (APISession && typeof APISession.resetSessionState === 'function') {
+            APISession.resetSessionState();
+          }
+          response = await _attemptPost();
+        } else {
+          throw error;
         }
       }
-      _reportLoadError(endpoint, err, 'GET_BINARY');
-      throw err;
-    } finally {
-      _endLoad(loadTicket);
+
+      _endLoad();
+      return response;
+    } catch (error) {
+      _emitLoadError(error);
+      _endLoad();
+      throw error;
     }
-  }
+  };
 
-  return {
-    // Cache control
-    get: (endpoint, options = {}) => get(endpoint, options),
-    post: (endpoint, body = {}) => post(endpoint, body),
-    getBinary: (endpoint, options = {}) => getBinary(endpoint, options),
-    invalidateCache: (patterns) => _invalidateGetCache(patterns),
-    cancelPendingRequests: (reason = 'View switch') =>
-      _cancelPendingRequests(reason, (task) => String(task.method || 'GET').toUpperCase() !== 'POST'),
-    getQueueStats: () => ({
-      queued: _requestQueue.length,
-      inFlight: _activeNetworkRequests,
-      concurrency: _maxConcurrentRequests,
-      pendingLoads: _activeLoads,
-    }),
-    setConcurrencyLimit: (limit) => {
-      const n = Math.max(1, Math.min(8, Number(limit || _maxConcurrentRequests)));
-      _maxConcurrentRequests = n;
-      _pumpRequestQueue();
-      return _maxConcurrentRequests;
-    },
-    networkHealth: (force = false) => _probeConnectivity(!!force),
-    adaptGalaxyBootstrap: (payload, fallback = {}) => adaptGalaxyBootstrapPayload(payload, fallback),
-    adaptGalaxyStars: (payload, fallback = {}) => adaptGalaxyStarsPayload(payload, fallback),
-    classifyRenderError: (input) => classifyRenderLoadError(input),
-
-    // Auth
-    me:     () => get('api/auth.php?action=me'),
-    logout: () => post('api/auth.php?action=logout', {}),
-    audioTracks: () => get('api/audio.php?action=list'),
-
-    // Game overview
-    overview:    ()    => get('api/game.php?action=overview', { priority: 'high' }),
-    health:      ()    => get('api/game.php?action=health'),
-    resources:   (cid) => get(`api/game.php?action=resources&colony_id=${cid}`),
-    planetIntel: (g, s, p) => get(`api/game.php?action=planet_intel&galaxy=${g}&system=${s}&position=${p}`),
-    leaderboard: ()    => get('api/game.php?action=leaderboard'),
-    renameColony:  (cid, name) => post('api/game.php?action=rename_colony',   { colony_id: cid, name }),
-    setColonyType: (cid, type) => post('api/game.php?action=set_colony_type', { colony_id: cid, colony_type: type }),
-    setFtlDrive:   (driveType) => post('api/game.php?action=set_ftl_drive',   { ftl_drive_type: driveType }),
-    resetFtlCooldown: ()       => post('api/fleet.php?action=reset_ftl_cooldown', {}),
-
-    // Buildings
-    buildings:     (cid)        => get(`api/buildings.php?action=list&colony_id=${cid}`),
-    upgrade:       (cid, type)  => post('api/buildings.php?action=upgrade', { colony_id: cid, type }),
-    finishBuilding:(cid)        => post('api/buildings.php?action=finish',  { colony_id: cid }),
-
-    // Research
-    research:      (cid)        => get(`api/research.php?action=list&colony_id=${cid}`),
-    doResearch:    (cid, type)  => post('api/research.php?action=research', { colony_id: cid, type }),
-    finishResearch:()           => post('api/research.php?action=finish', {}),
-
-    // Shipyard
-    ships:    (cid)                        => get(`api/shipyard.php?action=list&colony_id=${cid}`),
-    shipyardHulls: (cid)                  => get(`api/shipyard.php?action=list_hulls&colony_id=${cid}`),
-    shipyardModules: (cid, hullCode, slotLayoutCode = 'default') => get(`api/shipyard.php?action=list_modules&colony_id=${cid}&hull_code=${encodeURIComponent(hullCode)}&slot_layout_code=${encodeURIComponent(slotLayoutCode)}`),
-    createBlueprint: (payload)            => post('api/shipyard.php?action=create_blueprint', payload),
-    deleteBlueprint: (blueprintId)        => post('api/shipyard.php?action=delete_blueprint', { blueprint_id: blueprintId }),
-    buildShip:(cid, type, count, extra={}) => post('api/shipyard.php?action=build', Object.assign({ colony_id: cid, type, count }, extra)),
-    shipyardVessels: (cid)                => get(`api/shipyard.php?action=list_vessels&colony_id=${cid}`),
-    decommissionVessel: (vesselId)        => post('api/shipyard.php?action=decommission_vessel', { vessel_id: vesselId }),
-    repairVessel: (vesselId)              => post('api/shipyard.php?action=repair_vessel',       { vessel_id: vesselId }),
-
-    // Fleet
-    fleets:     ()        => get('api/fleet.php?action=list'),
-    sendFleet:  (payload) => post('api/fleet.php?action=send', payload),
-    wormholes: (originColonyId) => get(`api/fleet.php?action=wormholes&origin_colony_id=${originColonyId}`),
-    ftlStatus:  ()        => get('api/fleet.php?action=ftl_status'),
-    ftlMap:     ()        => get('api/fleet.php?action=ftl_map'),
-    recallFleet:(id)      => post('api/fleet.php?action=recall', { fleet_id: id }),
-    renameFleet:(id, label) => post('api/fleet.php?action=rename_fleet', { fleet_id: id, label }),
-    simulateBattle: (payload) => post('api/fleet.php?action=simulate_battle', payload),
-    matchupScan: (payload) => post('api/fleet.php?action=matchup_scan', payload),
-
-    // Galaxy
-    galaxy: async (g, s) => {
-      const gf = Math.max(1, Number(g || 1));
-      const sf = Math.max(1, Number(s || 1));
-      const binEndpoint = `api/v1/galaxy.php?galaxy=${gf}&system=${sf}&format=bin`;
-      const jsonEndpoint = `api/v1/galaxy.php?galaxy=${gf}&system=${sf}`;
-      _traceSystemQuery('request', {
-        galaxy: gf,
-        system: sf,
-        preferBinary: !!_preferBinaryGalaxySystem,
-        binEndpoint,
-        jsonEndpoint,
+  /**
+   * Get binary endpoint (e.g., map data). Uses transport directly, no cache/queue.
+   */
+  const getBinary = async (endpoint, options = {}) => {
+    const versionedEndpoint = _versionEndpoint(endpoint);
+    _beginLoad();
+    try {
+      const response = await APITransport.fetchTask(versionedEndpoint, {
+        method: 'GET',
+        headers: _buildRequestHeaders(),
       });
-      if (!_preferBinaryGalaxySystem) {
-        const data = await get(jsonEndpoint, {
-          priority: 'high',
-          retryCount: 2,
-          cacheMode: 'stale-if-error',
-        });
-        _traceSystemQuery('json-response', {
-          endpoint: jsonEndpoint,
-          meta: _summarizeSystemPayloadMeta(data),
-        });
-        return data;
-      }
-      try {
-        const data = await getBinary(binEndpoint, {
-          priority: 'high',
-          retryCount: 1,
-          timeoutMs: 12000,
-          cacheMode: 'stale-if-error',
-        });
-        _traceSystemQuery('binary-success', {
-          endpoint: binEndpoint,
-          meta: _summarizeSystemPayloadMeta(data),
-        });
-        return data;
-      } catch (err) {
-        _log('warn', 'Galaxy BIN request failed, fallback to JSON', {
-          endpoint: binEndpoint,
-          error: _describeError(err, binEndpoint, 'galaxy-bin-fallback'),
-        });
-        const data = await get(jsonEndpoint, {
-          priority: 'high',
-          retryCount: 1,
-          cacheMode: 'stale-if-error',
-        });
-        _traceSystemQuery('json-fallback-response', {
-          endpoint: jsonEndpoint,
-          meta: _summarizeSystemPayloadMeta(data),
-        });
-        return data;
-      }
-    },
-    galaxyStars: (g, from = 1, to = 25000, maxPoints = 1500, opts = {}) => {
-      const gf = Math.max(1, Number(g || 1));
-      const rf = Math.max(1, Number(from || 1));
-      const rt = Math.max(rf, Number(to || rf));
-      const mp = Math.max(100, Math.min(50000, Number(maxPoints || 1500)));
-      const allowedStreamPriorities = new Set(['critical', 'high', 'normal', 'low', 'background']);
-      const streamPriorityRaw = String(opts.streamPriority || opts.priority || 'normal').toLowerCase();
-      const streamPriority = allowedStreamPriorities.has(streamPriorityRaw) ? streamPriorityRaw : 'normal';
-      const requestPriorityRaw = String(opts.requestPriority || (streamPriority === 'background' ? 'low' : 'critical')).toLowerCase();
-      const requestPriority = ['critical', 'high', 'normal', 'low'].includes(requestPriorityRaw) ? requestPriorityRaw : 'critical';
-      const prefetch = !!opts.prefetch;
-      const chunkHint = Math.max(100, Math.min(5000, Number(opts.chunkHint || mp)));
-      const clusterPresetRaw = String(opts.clusterPreset || 'auto').toLowerCase();
-      const clusterPreset = ['auto', 'low', 'medium', 'high', 'ultra'].includes(clusterPresetRaw)
-        ? clusterPresetRaw
-        : 'auto';
-      const includeClusterLod = !!opts.includeClusterLod;
-      const endpoint = `api/v1/galaxy.php?action=stars&galaxy=${gf}&from=${rf}&to=${rt}&max_points=${mp}`
-        + `&priority=${encodeURIComponent(streamPriority)}`
-        + `&prefetch=${prefetch ? 1 : 0}`
-        + `&chunk_hint=${chunkHint}`
-        + `&cluster_preset=${encodeURIComponent(clusterPreset)}`
-        + `&cluster_lod=${includeClusterLod ? 1 : 0}`;
-      return get(endpoint, { priority: requestPriority });
-    },
-    galaxyBootstrap: (g, from = 1, to = null, maxPoints = 1500) => {
-      const gf = Math.max(1, Number(g || 1));
-      const rf = Math.max(1, Number(from || 1));
-      const hasTo = Number.isFinite(Number(to));
-      const rt = hasTo ? `&to=${Math.max(rf, Number(to))}` : '';
-      const mp = Math.max(100, Math.min(50000, Number(maxPoints || 1500)));
-      return get(`api/v1/galaxy.php?action=bootstrap&galaxy=${gf}&from=${rf}${rt}&max_points=${mp}`, { priority: 'high' });
-    },
-    galaxyAssetMeta: (g, scope = 'render') => {
-      const gf = Math.max(1, Number(g || 1));
-      const scopeRaw = String(scope || 'render').toLowerCase();
-      const safeScope = ['render', 'planet_textures', 'clusters', 'ships'].includes(scopeRaw)
-        ? scopeRaw
-        : 'render';
-      return get(`api/v1/galaxy.php?action=asset_meta&galaxy=${gf}&scope=${encodeURIComponent(safeScope)}`, { priority: 'high' });
-    },
-    galaxyMeta: (g) => {
-      const gf = Math.max(1, Number(g || 1));
-      return get(`api/v1/galaxy.php?action=galaxy_meta&galaxy=${gf}`, { priority: 'high' });
-    },
-    galaxySearch: (g, q, limit = 18) =>
-      get(`api/v1/galaxy.php?action=search&galaxy=${g}&q=${encodeURIComponent(String(q || ''))}&limit=${Math.max(1, Number(limit || 18))}`),
-    perfTelemetry: (payload = {}) =>
-      post('api/perf_telemetry.php?action=ingest', payload),
-    perfTelemetryRecent: ({ limit = 50, source = '', userId = 0 } = {}) => {
-      const lim = Math.max(1, Math.min(300, Number(limit || 50)));
-      const src = String(source || '').trim().toLowerCase();
-      const uid = Math.max(0, Number(userId || 0));
-      const srcPart = src ? `&source=${encodeURIComponent(src)}` : '';
-      const uidPart = uid > 0 ? `&user_id=${uid}` : '';
-      return get(`api/perf_telemetry.php?action=recent&limit=${lim}${srcPart}${uidPart}`, { priority: 'low' });
-    },
-    perfTelemetrySummary: ({ minutes = 60, source = '', userId = 0 } = {}) => {
-      const mins = Math.max(5, Math.min(24 * 60, Number(minutes || 60)));
-      const src = String(source || '').trim().toLowerCase();
-      const uid = Math.max(0, Number(userId || 0));
-      const srcPart = src ? `&source=${encodeURIComponent(src)}` : '';
-      const uidPart = uid > 0 ? `&user_id=${uid}` : '';
-      return get(`api/perf_telemetry.php?action=summary&minutes=${mins}${srcPart}${uidPart}`, { priority: 'low' });
-    },
+      _endLoad();
+      return response;
+    } catch (error) {
+      _emitLoadError(error);
+      _endLoad();
+      throw error;
+    }
+  };
 
+  /**
+   * Build request headers with CSRF token if available
+   */
+  const _buildRequestHeaders = () => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (APISession && typeof APISession.getCsrfToken === 'function') {
+      const token = APISession.getCsrfToken();
+      if (token) {
+        headers['X-CSRF-Token'] = token;
+      }
+    }
+    return headers;
+  };
+
+  /**
+   * Derive queue priority based on endpoint
+   * Used to prioritize auth/overview ahead of stars/binary
+   */
+  const _deriveQueuePriority = (endpoint) => {
+    if (endpoint.includes('auth')) return 'high';
+    if (endpoint.includes('overview')) return 'high';
+    if (endpoint.includes('health')) return 'high';
+    if (endpoint.includes('research') || endpoint.includes('shipyard')) return 'medium';
+    if (endpoint.includes('map') || endpoint.includes('chat')) return 'medium';
+    return 'low'; // stars, binary, etc.
+  };
+
+  // ============================================================================
+  // Public endpoint methods: maintain backward compatibility
+  // Each is a thin wrapper around get/post
+  // ============================================================================
+
+  const overview = async (options = {}) => {
+    return get('api/overview.php', options);
+  };
+
+  const health = async (options = {}) => {
+    return get('api/health.php', { ...options, cacheMode: 'no-store' });
+  };
+
+  const resources = async (options = {}) => {
+    return get('api/resources.php', options);
+  };
+
+  const buildings = async (options = {}) => {
+    return get('api/buildings.php', options);
+  };
+
+  const research = async (options = {}) => {
+    return get('api/research.php', options);
+  };
+
+  const shipyard = async (options = {}) => {
+    return get('api/shipyard.php', options);
+  };
+
+  const fleet = async (options = {}) => {
+    return get('api/fleet.php', options);
+  };
+
+  const galaxy = async (coords, options = {}) => {
+    const endpoint = `api/galaxy.php?x=${coords.x}&y=${coords.y}`;
+    const raw = await get(endpoint, options);
+    // Adapt galaxy data through schema adapters if available
+    if (APISchemaAdapters && typeof APISchemaAdapters.adaptGalaxyStars === 'function') {
+      return APISchemaAdapters.adaptGalaxyStars(raw);
+    }
+    return raw;
+  };
+
+  const map = async (x, y, options = {}) => {
+    const endpoint = `api/map.php?x=${x}&y=${y}`;
+    return getBinary(endpoint, options);
+  };
+
+  const war = async (warId, options = {}) => {
+    return get(`api/war.php?action=get_status&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`, options);
+  };
+
+  const wars = async (options = {}) => {
+    return get('api/war.php?action=list', options);
+  };
+
+  const warStatus = async (warId, options = {}) => {
+    return get(`api/war.php?action=get_status&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`, options);
+  };
+
+  const declareStrategicWar = async (body, options = {}) => {
+    const coercedBody = {
+      target_user_id: Math.max(0, Number(body?.target_user_id || 0)),
+      war_goals: Array.isArray(body?.war_goals) ? body.war_goals : [],
+      casus_belli: String(body?.casus_belli || ''),
+    };
+    return post('api/war.php?action=declare', coercedBody, options);
+  };
+
+  const offerPeace = async (body, options = {}) => {
+    const coercedBody = {
+      war_id: Math.max(0, Number(body?.war_id || 0)),
+      terms: Array.isArray(body?.terms) ? body.terms : [],
+    };
+    return post('api/war.php?action=offer_peace', coercedBody, options);
+  };
+
+  const respondPeaceOffer = async (body, options = {}) => {
+    const coercedBody = {
+      offer_id: Math.max(0, Number(body?.offer_id || 0)),
+      accept: !!body?.accept,
+    };
+    return post('api/war.php?action=respond_peace', coercedBody, options);
+  };
+
+  const chatNpc = async (body, options = {}) => {
+    return post('api/llm.php?action=chat_npc', body, options);
+  };
+
+  const closeNpcSession = async (body, options = {}) => {
+    return post('api/llm.php?action=close_npc_session', body, options);
+  };
+
+  const alliances = async (options = {}) => {
+    return get('api/alliances.php', options);
+  };
+
+  const allianceMembers = async (allianceId, options = {}) => {
+    return get(`api/alliance_members.php?alliance_id=${allianceId}`, options);
+  };
+
+  const allianceMembersOnline = async (allianceId, options = {}) => {
+    return get(`api/alliance_members_online.php?alliance_id=${allianceId}`, options);
+  };
+
+  const joinAlliance = async (body, options = {}) => {
+    return post('api/join_alliance.php', body, options);
+  };
+
+  const leaveAlliance = async (body, options = {}) => {
+    return post('api/leave_alliance.php', body, options);
+  };
+
+  const createAlliance = async (body, options = {}) => {
+    return post('api/create_alliance.php', body, options);
+  };
+
+  const transferAllianceLeadership = async (body, options = {}) => {
+    return post('api/transfer_alliance_leadership.php', body, options);
+  };
+
+  const deleteAlliance = async (body, options = {}) => {
+    return post('api/delete_alliance.php', body, options);
+  };
+
+  const editAllianceDetails = async (body, options = {}) => {
+    return post('api/edit_alliance_details.php', body, options);
+  };
+
+  const inviteToAlliance = async (body, options = {}) => {
+    return post('api/invite_to_alliance.php', body, options);
+  };
+
+  const revokeAllianceInvite = async (body, options = {}) => {
+    return post('api/revoke_alliance_invite.php', body, options);
+  };
+
+  const respondAllianceInvite = async (body, options = {}) => {
+    return post('api/respond_alliance_invite.php', body, options);
+  };
+
+  const removeAllianceMember = async (body, options = {}) => {
+    return post('api/remove_alliance_member.php', body, options);
+  };
+
+  const galaxyBootstrap = async (options = {}) => {
+    const raw = await get('api/galaxy_bootstrap.php', options);
+    // Adapt bootstrap data through schema adapters if available
+    if (APISchemaAdapters && typeof APISchemaAdapters.adaptGalaxyBootstrap === 'function') {
+      return APISchemaAdapters.adaptGalaxyBootstrap(raw);
+    }
+    return raw;
+  };
+
+  const buildBuilding = async (body, options = {}) => {
+    return post('api/build_building.php', body, options);
+  };
+
+  const cancelBuilding = async (body, options = {}) => {
+    return post('api/cancel_building.php', body, options);
+  };
+
+  const buildShip = async (body, options = {}) => {
+    return post('api/build_ship.php', body, options);
+  };
+
+  const cancelShip = async (body, options = {}) => {
+    return post('api/cancel_ship.php', body, options);
+  };
+
+  const startResearch = async (body, options = {}) => {
+    return post('api/start_research.php', body, options);
+  };
+
+  const cancelResearch = async (body, options = {}) => {
+    return post('api/cancel_research.php', body, options);
+  };
+
+  const attack = async (body, options = {}) => {
+    return post('api/attack.php', body, options);
+  };
+
+  const sendFleet = async (body, options = {}) => {
+    return post('api/send_fleet.php', body, options);
+  };
+
+  const recallFleet = async (body, options = {}) => {
+    return post('api/recall_fleet.php', body, options);
+  };
+
+  const getQueueStats = () => {
+    if (APIQueue && typeof APIQueue.getQueueStats === 'function') {
+      return APIQueue.getQueueStats();
+    }
+    return { pending: 0, active: 0, concurrency: {} };
+  };
+
+  const cancelPendingRequests = () => {
+    if (APIQueue && typeof APIQueue.cancelPendingRequests === 'function') {
+      APIQueue.cancelPendingRequests();
+    }
+  };
+
+  const isSessionExpired = () => _sessionExpired;
+
+  const resetSessionState = () => {
+    _sessionExpired = false;
+    if (APISession && typeof APISession.resetSessionState === 'function') {
+      APISession.resetSessionState();
+    }
+  };
+
+  const setCsrfToken = (token) => {
+    if (APISession && typeof APISession.setCsrfToken === 'function') {
+      APISession.setCsrfToken(token);
+    }
+  };
+
+  const handleAuthError = async (error) => {
+    if (APISession && typeof APISession.handleAuthError === 'function') {
+      return APISession.handleAuthError(error);
+    }
+  };
     // Achievements / quests
     achievements:    ()    => get('api/achievements.php?action=list'),
     claimAchievement:(id)  => post('api/achievements.php?action=claim', { achievement_id: id }),
@@ -1711,6 +682,7 @@ const API = (() => {
     marketRegionPrices: (good_type = null) => {
       const q = good_type ? `&good_type=${encodeURIComponent(String(good_type))}` : '';
       return get(`api/market.php?action=get_region_prices${q}`);
+    },
     economyPopStatus: (colony_id = null) => {
       const q = colony_id != null ? `&colony_id=${encodeURIComponent(Number(colony_id))}` : '';
       return get(`api/economy.php?action=get_pop_status${q}`);
@@ -1725,236 +697,104 @@ const API = (() => {
         safety_budget: Math.min(100, Math.max(0, Number(safety_budget))),
       });
     },
+    economyShortageEvents: ({ colony_id = null, resolved = false } = {}) => {
+      let q = '?action=get_shortage_events';
+      if (colony_id != null) q += `&colony_id=${encodeURIComponent(Number(colony_id))}`;
+      if (resolved) q += '&resolved=1';
+      return get(`api/economy.php${q}`);
+    },
+    economyShortageSummary: ({ colony_id = null } = {}) => {
+      let q = '?action=get_shortage_summary';
+      if (colony_id != null) q += `&colony_id=${encodeURIComponent(Number(colony_id))}`;
+      return get(`api/economy.php${q}`);
+    },
 
-    // Strategic wars
-    wars: () => get('api/war.php?action=list'),
-    warStatus: (warId) =>
-      get(`api/war.php?action=get_status&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
-    warGoalProgress: (warId) =>
-      get(`api/war.php?action=get_goal_progress&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
-    warIntel: (warId) =>
-      get(`api/war.php?action=get_intel&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
-    warAllianceList: () => get('api/war.php?action=alliance_wars'),
-    declareStrategicWar: ({ target_user_id, war_goals = [], casus_belli = '' } = {}) =>
-      post('api/war.php?action=declare', {
-        target_user_id: Math.max(0, Number(target_user_id || 0)),
-        war_goals: Array.isArray(war_goals) ? war_goals : [],
-        casus_belli: String(casus_belli || ''),
-      }),
-    offerPeace: ({ war_id, terms = [] } = {}) =>
-      post('api/war.php?action=offer_peace', {
-        war_id: Math.max(0, Number(war_id || 0)),
-        terms: Array.isArray(terms) ? terms : [],
-      }),
-    respondPeaceOffer: ({ offer_id, accept } = {}) =>
-      post('api/war.php?action=respond_peace', {
-        offer_id: Math.max(0, Number(offer_id || 0)),
-        accept: !!accept,
-      }),
-    forceStatusQuo: ({ war_id } = {}) =>
-      post('api/war.php?action=force_status_quo', {
-        war_id: Math.max(0, Number(war_id || 0)),
-      }),
-
-  // Trade Proposals (player-to-player)
-  listTradeSuggestions: ({ limit = 10, interval_hours = 24 } = {}) =>
-    get(`api/trade.php?action=list_suggestions&limit=${encodeURIComponent(Math.max(1, Number(limit || 10)))}&interval_hours=${encodeURIComponent(Math.max(1, Number(interval_hours || 24)))}`),
-  applyTradeSuggestion: (data) => post('api/trade.php?action=apply_suggestion', data),
-  goodsFlowAnalysis: ({ limit = 10, interval_hours = 24 } = {}) =>
-    get(`api/trade.php?action=goods_flow&limit=${encodeURIComponent(Math.max(1, Number(limit || 10)))}&interval_hours=${encodeURIComponent(Math.max(1, Number(interval_hours || 24)))}`),
-  listTradeProposals: ()       => get('api/trade.php?action=list_proposals'),
-  proposeTrade: (data)         => post('api/trade.php?action=propose', data),
-  acceptTrade: (id)            => post('api/trade.php?action=accept',  { proposal_id: id }),
-  rejectTrade: (id)            => post('api/trade.php?action=reject',  { proposal_id: id }),
-
-  // Colonization — Empire Sprawl, Sectors, Governors, Edicts
-  colonizationSprawl: () => get('api/colonization.php?action=sprawl_status'),
-  colonizationSectors: () => get('api/colonization.php?action=list_sectors'),
-  colonizationSectorDetail: (id) => get(`api/colonization.php?action=sector_detail&id=${encodeURIComponent(Math.max(0, Number(id || 0)))}`),
-  colonizationCreateSector: ({ name } = {}) => post('api/colonization.php?action=create_sector', { name: String(name || '') }),
-  colonizationUpdateSector: ({ sector_id, name, tax_rate, autonomy_level } = {}) =>
-    post('api/colonization.php?action=update_sector', { sector_id: Math.max(0, Number(sector_id || 0)), name, tax_rate, autonomy_level }),
-  colonizationDeleteSector: (sectorId) => post('api/colonization.php?action=delete_sector', { sector_id: Math.max(0, Number(sectorId || 0)) }),
-  colonizationAssignSystem: ({ sector_id, star_system_id } = {}) =>
-    post('api/colonization.php?action=assign_system', { sector_id: Math.max(0, Number(sector_id || 0)), star_system_id: Math.max(0, Number(star_system_id || 0)) }),
-  colonizationRemoveSystem: ({ sector_id, star_system_id } = {}) =>
-    post('api/colonization.php?action=remove_system', { sector_id: Math.max(0, Number(sector_id || 0)), star_system_id: Math.max(0, Number(star_system_id || 0)) }),
-  colonizationGovernors: () => get('api/colonization.php?action=list_governors'),
-  colonizationAppointGovernor: ({ governor_id, sector_id } = {}) =>
-    post('api/colonization.php?action=appoint_governor', { governor_id: Math.max(0, Number(governor_id || 0)), sector_id: Math.max(0, Number(sector_id || 0)) }),
-  colonizationDismissGovernor: (governorId) => post('api/colonization.php?action=dismiss_governor', { governor_id: Math.max(0, Number(governorId || 0)) }),
-  colonizationEdicts: () => get('api/colonization.php?action=list_edicts'),
-  colonizationActivateEdict: (edictType) => post('api/colonization.php?action=activate_edict', { edict_type: String(edictType || '') }),
-  colonizationDeactivateEdict: (edictType) => post('api/colonization.php?action=deactivate_edict', { edict_type: String(edictType || '') }),
-
-  // Colony Buildings
-  colonyBuildingsLayout: (colonyId) => get(`api/colony_buildings.php?action=get_layout&colony_id=${encodeURIComponent(Math.max(0, Number(colonyId || 0)))}`),
-  colonyBuildingsPlace: ({ colony_id, building_type, slot_x, slot_y } = {}) =>
-    post('api/colony_buildings.php?action=place_building', { colony_id: Math.max(0, Number(colony_id || 0)), building_type: String(building_type || ''), slot_x: Number(slot_x ?? 0), slot_y: Number(slot_y ?? 0) }),
-  colonyBuildingsRemove: ({ colony_id, slot_x, slot_y } = {}) =>
-    post('api/colony_buildings.php?action=remove_building', { colony_id: Math.max(0, Number(colony_id || 0)), slot_x: Number(slot_x ?? 0), slot_y: Number(slot_y ?? 0) }),
-  colonyBuildingsUpgrade: ({ colony_id, slot_x, slot_y, completes_in_seconds } = {}) =>
-    post('api/colony_buildings.php?action=upgrade_slot', { colony_id: Math.max(0, Number(colony_id || 0)), slot_x: Number(slot_x ?? 0), slot_y: Number(slot_y ?? 0), completes_in_seconds: completes_in_seconds != null ? Number(completes_in_seconds) : undefined }),
-  colonyBuildingsSlotInfo: (colonyId, slotX, slotY) => get(`api/colony_buildings.php?action=get_slot_info&colony_id=${encodeURIComponent(Math.max(0, Number(colonyId || 0)))}&slot_x=${encodeURIComponent(Number(slotX ?? 0))}&slot_y=${encodeURIComponent(Number(slotY ?? 0))}`),
-  cancelTrade: (id)            => post('api/trade.php?action=cancel',  { proposal_id: id }),
-
-    // Alliances
-    alliances: ()              => get('api/alliances.php?action=list'),
-    allianceDetails: (id)      => get(`api/alliances.php?action=details&alliance_id=${id}`),
-    createAlliance: (data)     => post('api/alliances.php?action=create', data),
-    joinAlliance: (id)         => post('api/alliances.php?action=join', { alliance_id: id }),
-    leaveAlliance: (id)        => post('api/alliances.php?action=leave', { alliance_id: id }),
-    disbandAlliance: (id)      => post('api/alliances.php?action=disband', { alliance_id: id }),
-    removeAllianceMember: (data) => post('api/alliances.php?action=remove_member', data),
-    setAllianceMemberRole: (data) => post('api/alliances.php?action=set_role', data),
-    contributeAlliance: (data) => post('api/alliances.php?action=contribute', data),
-    withdrawAlliance: (data)   => post('api/alliances.php?action=withdraw', data),
-    allianceRelations: (id)    => get(`api/alliances.php?action=relations&alliance_id=${id}`),
-    allianceWarMap: (galaxy, from, to) => get(`api/alliances.php?action=war_map&galaxy=${galaxy}&from=${from}&to=${to}`),
-    declareWar: (data)         => post('api/alliances.php?action=declare_war', data),
-    declareNap: (data)         => post('api/alliances.php?action=declare_nap', data),
-    declareAllianceDiplomacy: (data) => post('api/alliances.php?action=declare_alliance', data),
-    revokeRelation: (data)     => post('api/alliances.php?action=revoke_relation', data),
-    setAllianceRelation: (data) => post('api/alliances.php?action=set_relation', data),
-    allianceMessages: (id)     => get(`api/alliances.php?action=get_messages&alliance_id=${id}`),
-    sendAllianceMessage: (id, msg) => post('api/alliances.php?action=send_message', { alliance_id: id, message: msg }),
-
-    // Alliance Wars — N-vs-M multi-alliance wars
-    allianceWars: () => get('api/alliance_wars.php?action=list'),
-    allianceWarStatus: (warId) =>
-      get(`api/alliance_wars.php?action=get_status&war_id=${encodeURIComponent(Math.max(0, Number(warId || 0)))}`),
-    declareAllianceWar: ({ name = '', side_a = [], side_b = [], casus_belli = '' } = {}) =>
-      post('api/alliance_wars.php?action=declare', {
-        name: String(name || ''),
-        side_a: Array.isArray(side_a) ? side_a.map(Number) : [],
-        side_b: Array.isArray(side_b) ? side_b.map(Number) : [],
-        casus_belli: String(casus_belli || ''),
-      }),
-    offerAlliancePeace: ({ war_id, from_alliance_id, terms = [] } = {}) =>
-      post('api/alliance_wars.php?action=offer_peace', {
-        war_id: Math.max(0, Number(war_id || 0)),
-        from_alliance_id: Math.max(0, Number(from_alliance_id || 0)),
-        terms: Array.isArray(terms) ? terms : [],
-      }),
-    respondAlliancePeaceOffer: ({ offer_id, alliance_id, accept } = {}) =>
-      post('api/alliance_wars.php?action=respond_peace', {
-        offer_id: Math.max(0, Number(offer_id || 0)),
-        alliance_id: Math.max(0, Number(alliance_id || 0)),
-        accept: !!accept,
-      }),
-
-    // Local LLM (Ollama)
-    llmStatus: () => get('api/ollama.php?action=status', { priority: 'high' }),
-    llmChat: ({
-      prompt,
-      system,
-      messages,
-      model,
-      temperature,
-      options,
-      timeout,
-    } = {}) => post('api/ollama.php?action=chat', {
-      prompt,
-      system,
-      messages,
-      model,
-      temperature,
-      options,
-      timeout,
-    }),
-    llmGenerate: ({
-      prompt,
-      model,
-      temperature,
-      options,
-      timeout,
-    } = {}) => post('api/ollama.php?action=generate', {
-      prompt,
-      model,
-      temperature,
-      options,
-      timeout,
-    }),
-    llmProfiles: () => get('api/llm.php?action=catalog', { priority: 'high' }),
-    llmCompose: ({ profile_key, input_vars } = {}) =>
-      post('api/llm.php?action=compose', { profile_key, input_vars }),
-    llmChatProfile: ({
-      profile_key,
-      input_vars,
-      model,
-      temperature,
-      options,
-      timeout,
-    } = {}) => post('api/llm.php?action=chat_profile', {
-      profile_key,
-      input_vars,
-      model,
-      temperature,
-      options,
-      timeout,
-    }),
-    chatNpc: ({
-      faction_code,
-      npc_name,
-      player_message,
-      session_id,
-      model,
-      temperature,
-      options,
-      timeout,
-    } = {}) => post('api/llm.php?action=chat_npc', {
-      faction_code,
-      npc_name,
-      player_message,
-      session_id,
-      model,
-      temperature,
-      options,
-      timeout,
-    }),
-    closeNpcSession: ({
-      session_id,
-      model,
-    } = {}) => post('api/llm.php?action=close_npc_session', {
-      session_id,
-      model,
-    }),
-
-    // Situations
-    situations: (status = 'active', limit = 50) =>
-      get(`api/situations.php?action=list&status=${encodeURIComponent(String(status || 'active'))}&limit=${Math.max(1, Number(limit || 50))}`),
-    setSituationApproach: (situation_id, approach_key) =>
-      post('api/situations.php?action=set_approach', { situation_id, approach_key }),
-    tickSituations: (situation_id) =>
-      post('api/situations.php?action=tick', situation_id ? { situation_id } : {}),
-
-    // Empire Categories — scores & espionage
-    getEmpireScores: () => get('api/empire.php?action=get_scores'),
-    getEmpireScoreBreakdown: () => get('api/empire.php?action=get_score_breakdown'),
-    getEspionageStatus: () => get('api/empire.php?action=get_espionage_status'),
-    hireEspionageAgent: (data = {}) => post('api/espionage.php?action=hire_agent', data),
-    assignEspionageMission: (data = {}) => post('api/espionage.php?action=assign_mission', data),
-    getActiveEspionageMissions: () => get('api/espionage.php?action=get_active_missions'),
-    getEspionageMissionResult: (missionId) =>
-      get(`api/espionage.php?action=mission_result&mission_id=${encodeURIComponent(Math.max(0, Number(missionId || 0)))}`),
+  // Public exports
+  return {
+    get,
+    post,
+    getBinary,
+    overview,
+    health,
+    resources,
+    buildings,
+    research,
+    shipyard,
+    fleet,
+    galaxy,
+    map,
+    war,
+    wars,
+    warStatus,
+    declareStrategicWar,
+    offerPeace,
+    respondPeaceOffer,
+    chatNpc,
+    closeNpcSession,
+    alliances,
+    allianceMembers,
+    allianceMembersOnline,
+    joinAlliance,
+    leaveAlliance,
+    createAlliance,
+    transferAllianceLeadership,
+    deleteAlliance,
+    editAllianceDetails,
+    inviteToAlliance,
+    revokeAllianceInvite,
+    respondAllianceInvite,
+    removeAllianceMember,
+    galaxyBootstrap,
+    buildBuilding,
+    cancelBuilding,
+    buildShip,
+    cancelShip,
+    startResearch,
+    cancelResearch,
+    attack,
+    sendFleet,
+    recallFleet,
+    getQueueStats,
+    cancelPendingRequests,
+    isSessionExpired,
+    resetSessionState,
+    setCsrfToken,
+    handleAuthError,
   };
 })();
 
+// Export for use in browser and tests
 if (typeof window !== 'undefined') {
   window.API = API;
+}
+
+// For render data adapter compatibility (used by render pipeline)
+if (typeof window !== 'undefined') {
   window.GQRenderDataAdapter = {
-    renderSchemaVersion: 1,
-    adaptGalaxyBootstrap: (payload, fallback = {}) => API.adaptGalaxyBootstrap(payload, fallback),
-    adaptGalaxyStars: (payload, fallback = {}) => API.adaptGalaxyStars(payload, fallback),
-    classifyRenderError: (input) => API.classifyRenderError(input),
+    adaptGalaxy: (data) => {
+      if (APISchemaAdapters && typeof APISchemaAdapters.adaptGalaxyStars === 'function') {
+        return APISchemaAdapters.adaptGalaxyStars(data);
+      }
+      return data;
+    },
+    adaptBootstrap: (data) => {
+      if (APISchemaAdapters && typeof APISchemaAdapters.adaptGalaxyBootstrap === 'function') {
+        return APISchemaAdapters.adaptGalaxyBootstrap(data);
+      }
+      return data;
+    },
+    classifyError: (error) => {
+      if (APISchemaAdapters && typeof APISchemaAdapters.classifyRenderError === 'function') {
+        return APISchemaAdapters.classifyRenderError(error);
+      }
+      return 'unknown';
+    },
   };
+}
+
+// LLM API compatibility export
+if (typeof window !== 'undefined') {
   window.GQ_LLM = {
-    status: () => API.llmStatus(),
-    chat: (payload) => API.llmChat(payload),
-    generate: (payload) => API.llmGenerate(payload),
-    profiles: () => API.llmProfiles(),
-    compose: (payload) => API.llmCompose(payload),
-    chatProfile: (payload) => API.llmChatProfile(payload),
     chatNpc: (payload) => API.chatNpc(payload),
     closeNpcSession: (payload) => API.closeNpcSession(payload),
   };

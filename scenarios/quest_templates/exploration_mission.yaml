@@ -1,0 +1,27 @@
+code: exploration_mission
+title_template: "Explore {location} and report findings"
+description_template: |
+  We need detailed information about {location}. Send a full exploration report
+  and map the area. This intelligence is vital for our strategic planning.
+  Expected hazard level: {hazard_level}.
+quest_type: explore
+difficulty_modifier: 1.1
+faction_types:
+  - science
+  - ancient
+  - envoy
+default_params:
+  location: "unknown_sector"
+  hazard_level: low
+  scan_type: full_analysis
+  deadline_days: 14
+reward_scaling:
+  base_crystal: 600
+  base_standing: 6
+  multipliers:
+    by_hazard_level: 1.5
+    by_difficulty: 1.1
+narrative_hooks:
+  - "Explore where others fear to venture."
+  - "Knowledge is power; bring us the truth about {location}."
+  - "Be careful out there. We need you to return with data."

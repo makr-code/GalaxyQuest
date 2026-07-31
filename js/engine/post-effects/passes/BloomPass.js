@@ -48,6 +48,8 @@ class BloomPass {
    * @param {number} [opts.strength=1.2]   - Bloom intensity multiplier
    * @param {number} [opts.radius=0.6]     - Base blur radius (texels) for level 0
    * @param {number} [opts.mipLevels=4]    - Blur-pyramid depth (1–8)
+   * @param {GroupSelectionController} [opts.selectionController] - For dynamic adjustment
+   * @param {OwnershipVisualsSystem} [opts.ownershipSystem] - For colorblind mode
    */
   constructor(opts = {}) {
     this.enabled   = true;
@@ -59,8 +61,69 @@ class BloomPass {
       MAX_BLOOM_LEVELS,
     );
 
+    // Selection integration
+    this.selectionController = opts.selectionController || null;
+    this.ownershipSystem = opts.ownershipSystem || null;
+
+    // Dynamic parameter tracking
+    this._dynamicThreshold = this.threshold;
+    this._dynamicStrength = this.strength;
+    this._lastUpdateTime = 0;
+    this._updateThrottleMs = 16;
+
     /** @private — GPU pipeline reference (populated by renderer after compile) */
     this._pipeline = null;
+  }
+
+  /**
+   * Update dynamic parameters based on selection state
+   * Call this before rendering to apply selection-aware bloom adjustments
+   */
+  updateDynamicParameters() {
+    const now = performance.now();
+    if (now - this._lastUpdateTime < this._updateThrottleMs) {
+      return;
+    }
+    this._lastUpdateTime = now;
+
+    // Check for multi-selection bloom
+    if (this.selectionController?.isMultiSelectionBloomEnabled()) {
+      const intensity = this.selectionController.getMultiSelectionBloomIntensity();
+      // Reduce threshold for selected groups (more bloom on bright areas)
+      this._dynamicThreshold = this.threshold * (1.0 - intensity * 0.15);
+      // Increase strength for visual feedback
+      this._dynamicStrength = this.strength * (1.0 + intensity * 0.3);
+    } else {
+      // Reset to base values
+      this._dynamicThreshold = this.threshold;
+      this._dynamicStrength = this.strength;
+    }
+  }
+
+  /**
+   * Set threshold and strength directly for dynamic effects
+   * @param {number} threshold - Bloom threshold [0, 1]
+   * @param {number} strength - Bloom strength multiplier [0, 3]
+   */
+  setDynamicParameters(threshold, strength) {
+    this._dynamicThreshold = Math.max(0, Math.min(1, threshold));
+    this._dynamicStrength = Math.max(0, Math.min(3, strength));
+  }
+
+  /**
+   * Get currently effective threshold (may be dynamic)
+   * @returns {number}
+   */
+  getEffectiveThreshold() {
+    return this._dynamicThreshold ?? this.threshold;
+  }
+
+  /**
+   * Get currently effective strength (may be dynamic)
+   * @returns {number}
+   */
+  getEffectiveStrength() {
+    return this._dynamicStrength ?? this.strength;
   }
 
   // =========================================================================
@@ -80,8 +143,8 @@ class BloomPass {
    */
   buildThresholdParamBlock() {
     const out = new Float32Array(4);
-    out[0] = this.threshold;
-    out[1] = this.strength;
+    out[0] = this.getEffectiveThreshold();
+    out[1] = this.getEffectiveStrength();
     // [2] and [3] reserved for future use (e.g. knee width)
     return out;
   }
@@ -127,7 +190,7 @@ class BloomPass {
    */
   buildCompositeParamBlock() {
     const out = new Float32Array(4);
-    out[0] = this.strength;
+    out[0] = this.getEffectiveStrength();
     return out;
   }
 
@@ -160,6 +223,10 @@ class BloomPass {
    */
   render(srcTex, dstTex, renderer) {
     if (!this.enabled) return;
+
+    // Update dynamic parameters based on selection state
+    this.updateDynamicParameters();
+
     // Dispatch to the renderer's two-pass bloom implementation.
     // The renderer iterates mipLevels and calls buildThresholdParamBlock(),
     // buildBlurParamBlock(true/false, levelRadius(l)) for each level, then

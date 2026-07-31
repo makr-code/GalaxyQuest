@@ -1,0 +1,28 @@
+code: resource_delivery
+title_template: "Deliver {amount} {resource} to {faction_name}"
+description_template: |
+  The {faction_name} requires {amount} units of {resource} for their operations.
+  Transport it to {location} within {deadline_days} days.
+  This shipment is crucial for their survival and prosperity.
+quest_type: deliver
+difficulty_modifier: 1.0
+faction_types:
+  - trade
+  - science
+  - military
+  - envoy
+default_params:
+  amount: 1000
+  resource: metal
+  location: "faction_capital"
+  deadline_days: 7
+reward_scaling:
+  base_metal: 500
+  base_standing: 5
+  multipliers:
+    by_amount: 0.001
+    by_difficulty: 1.0
+narrative_hooks:
+  - "The {faction_name} depends on your generosity."
+  - "Prove your commitment by providing what they need."
+  - "{faction_name} remembers those who help in times of need."

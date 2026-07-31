@@ -14,7 +14,8 @@ const ALLOWED_GEOMETRIES = new Set([
   'CylinderGeometry',
   'TorusGeometry',
   'RingGeometry',
-  'OctahedronGeometry'
+  'OctahedronGeometry',
+  'ConeGeometry'
 ]);
 
 const ALLOWED_OBJECT_CLASSES = new Set([
@@ -23,7 +24,8 @@ const ALLOWED_OBJECT_CLASSES = new Set([
   'base',
   'building',
   'defense_platform',
-  'relay_or_sensor'
+  'relay_or_sensor',
+  'npc_bust'
 ]);
 
 const ALLOWED_MATERIAL_TYPES = new Set([
@@ -65,7 +67,7 @@ function readJson(filePath) {
 }
 
 function getFactionCodes() {
-  const codes = new Set();
+  const codes = new Set(['neutral']); // Add neutral for generic/unaffiliated models
   for (const entry of fs.readdirSync(FRACTIONS_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const specPath = path.join(FRACTIONS_DIR, entry.name, 'spec.json');

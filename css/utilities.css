@@ -1,0 +1,535 @@
+/* =========================================================
+   utilities.css – Animation & State Utility Classes
+   Quick-apply classes for animations and interactive states
+   ========================================================= */
+
+/* ── ENTRANCE ANIMATION UTILITIES ─────────────────────── */
+
+.animate-fade-in {
+  animation: fadeIn var(--duration-standard) var(--ease-out) forwards;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp var(--duration-standard) var(--ease-out) forwards;
+}
+
+.animate-fade-in-down {
+  animation: fadeInDown var(--duration-standard) var(--ease-out) forwards;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft var(--duration-standard) var(--ease-out) forwards;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight var(--duration-standard) var(--ease-out) forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn var(--duration-standard) var(--ease-out) forwards;
+}
+
+.animate-scale-in-bouncy {
+  animation: scaleInBouncy var(--duration-slow) var(--ease-bounce) forwards;
+}
+
+/* ── EXIT ANIMATION UTILITIES ────────────────────────── */
+
+.animate-fade-out {
+  animation: fadeOut var(--duration-standard) var(--ease-in) forwards;
+}
+
+.animate-fade-out-up {
+  animation: fadeOutUp var(--duration-standard) var(--ease-in) forwards;
+}
+
+.animate-slide-out-right {
+  animation: slideOutRight var(--duration-standard) var(--ease-in) forwards;
+}
+
+.animate-scale-out {
+  animation: scaleOut var(--duration-standard) var(--ease-in) forwards;
+}
+
+/* ── PULSE & GLOW ANIMATION UTILITIES ────────────────– */
+
+.animate-pulse {
+  animation: pulse var(--duration-slower) ease-in-out infinite;
+}
+
+.animate-pulse-soft {
+  animation: pulseSoft var(--duration-slower) ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glowPulse var(--duration-slow) ease-in-out infinite;
+}
+
+.animate-glow {
+  animation: glow var(--duration-slow) ease-in-out infinite;
+}
+
+.animate-glow-intense {
+  animation: glowIntense var(--duration-slow) ease-in-out infinite;
+}
+
+.animate-neon-flicker {
+  animation: neonFlicker 0.15s linear infinite;
+}
+
+/* ── MOTION ANIMATION UTILITIES ──────────────────────── */
+
+.animate-bounce {
+  animation: bounce var(--duration-slower) ease-in-out infinite;
+}
+
+.animate-bounce-large {
+  animation: bounceLarge var(--duration-slower) ease-in-out infinite;
+}
+
+.animate-bounce-3d {
+  animation: bounce3d var(--duration-slower) ease-in-out infinite;
+}
+
+.animate-shake {
+  animation: shake var(--duration-standard) ease-in-out;
+}
+
+.animate-shake-x {
+  animation: shakeX var(--duration-standard) ease-in-out;
+}
+
+/* ── ROTATION ANIMATION UTILITIES ────────────────────– */
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.animate-spin-slow {
+  animation: spinSlow 3s linear infinite;
+}
+
+.animate-spin-reverse {
+  animation: spinReverse 1s linear infinite;
+}
+
+.animate-wobble {
+  animation: wobble var(--duration-slower) ease-in-out infinite;
+}
+
+/* ── GRADIENT & COLOR ANIMATION UTILITIES ────────────– */
+
+.animate-gradient-shift {
+  animation: gradientShift var(--duration-slower) ease-in-out infinite;
+  background-size: 200% 200%;
+}
+
+.animate-color-shift {
+  animation: colorShift 3s ease-in-out infinite;
+}
+
+/* ── UNDERLINE & BORDER ANIMATION UTILITIES ────────– */
+
+.animate-underline-slide {
+  position: relative;
+}
+
+.animate-underline-slide::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: currentColor;
+  animation: underlineSlide var(--duration-standard) var(--ease-out) forwards;
+}
+
+.animate-border-glow {
+  animation: borderGlow var(--duration-slower) ease-in-out infinite;
+}
+
+/* ── LABEL & TEXT ANIMATION UTILITIES ────────────────– */
+
+.animate-label-float {
+  animation: labelFloat var(--duration-standard) var(--ease-out) forwards;
+}
+
+.animate-checkmark {
+  animation: checkmarkScale var(--duration-standard) var(--ease-bounce) forwards;
+}
+
+/* ── LOADING & PROGRESS ANIMATION UTILITIES ──────────– */
+
+.animate-progress {
+  animation: progress var(--duration-slower) ease-out forwards;
+}
+
+.animate-progress-indeterminate {
+  animation: progressIndeterminate 1.5s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-blue),
+    transparent
+  );
+  background-size: 200% 100%;
+}
+
+.animate-spinner-blink {
+  animation: spinnerBlink 1.2s ease-in-out infinite;
+}
+
+/* ── TAB & NAVIGATION ANIMATION UTILITIES ────────────– */
+
+.animate-tab-indicator {
+  animation: tabIndicatorSlide var(--duration-fast) var(--ease-out) forwards;
+}
+
+.animate-breadcrumb-fade {
+  animation: breadcrumbFade var(--duration-standard) var(--ease-out) forwards;
+}
+
+/* ── RIPPLE EFFECT UTILITY ───────────────────────────– */
+
+.animate-ripple {
+  animation: ripple 0.6s ease-out;
+}
+
+/* ── PARTICLE BURST ANIMATION UTILITIES ──────────────– */
+
+.animate-particle-burst {
+  animation: particleBurst var(--duration-slow) var(--ease-out) forwards;
+}
+
+.animate-pop {
+  animation: pop var(--duration-standard) var(--ease-bounce) forwards;
+}
+
+/* ── MODAL & DIALOG ANIMATION UTILITIES ──────────────– */
+
+.animate-modal-in {
+  animation: modalSlideIn var(--duration-slow) var(--ease-out) forwards;
+}
+
+.animate-modal-out {
+  animation: modalFadeOut var(--duration-fast) var(--ease-in) forwards;
+}
+
+.animate-backdrop-in {
+  animation: backdropFadeIn var(--duration-standard) var(--ease-out) forwards;
+}
+
+/* ── TOOLTIP & POPOVER ANIMATION UTILITIES ──────────– */
+
+.animate-tooltip-in {
+  animation: tooltipFadeIn var(--duration-fast) var(--ease-out) forwards;
+}
+
+.animate-popover-in {
+  animation: popoverBounceIn var(--duration-standard) var(--ease-bounce) forwards;
+}
+
+/* ── NOTIFICATION & TOAST ANIMATION UTILITIES ────────– */
+
+.animate-toast-in {
+  animation: toastSlideIn var(--duration-standard) var(--ease-out) forwards;
+}
+
+.animate-toast-out {
+  animation: toastSlideOut var(--duration-standard) var(--ease-in) forwards;
+}
+
+/* ── SUCCESS & ERROR ANIMATION UTILITIES ─────────────– */
+
+.animate-success-pulse {
+  animation: successPulse var(--duration-slow) ease-out;
+}
+
+.animate-error-shake {
+  animation: errorShakeAlt var(--duration-standard) ease-out;
+}
+
+/* ── HOVER & FOCUS ANIMATION UTILITIES ───────────────– */
+
+.animate-focus-glow {
+  animation: focusGlowIn 0.3s ease-out;
+}
+
+.hover\:animate-lift:hover {
+  animation: hoverLift var(--duration-fast) var(--ease-out) forwards;
+}
+
+/* ── BACKGROUND & LAYER ANIMATION UTILITIES ──────────– */
+
+.animate-background-shift {
+  animation: backgroundShift var(--duration-slower) ease-in-out infinite;
+  background-size: 200% 200%;
+}
+
+.animate-float {
+  animation: float var(--duration-slower) ease-in-out infinite;
+}
+
+/* ── THEME CHANGE ANIMATION UTILITY ──────────────────– */
+
+.animate-theme-transition {
+  animation: themeTransition var(--duration-standard) var(--ease-out) forwards;
+}
+
+/* ──────────────────────────────────────────────────── */
+/* GLOW & VISUAL EFFECT UTILITY CLASSES */
+/* ──────────────────────────────────────────────────── */
+
+.glow-accent {
+  text-shadow: 0 0 8px var(--glow-blue);
+  filter: drop-shadow(0 0 4px var(--glow-blue));
+}
+
+.glow-accent-intense {
+  text-shadow: 0 0 16px var(--glow-intense-blue);
+  filter: drop-shadow(0 0 8px var(--glow-intense-blue));
+}
+
+.glow-cyan {
+  text-shadow: 0 0 8px var(--glow-cyan);
+  filter: drop-shadow(0 0 4px var(--glow-cyan));
+}
+
+.glow-purple {
+  text-shadow: 0 0 8px var(--glow-purple);
+  filter: drop-shadow(0 0 4px var(--glow-purple));
+}
+
+.glow-green {
+  text-shadow: 0 0 8px var(--glow-green);
+  filter: drop-shadow(0 0 4px var(--glow-green));
+}
+
+.glow-pink {
+  text-shadow: 0 0 8px var(--glow-pink);
+  filter: drop-shadow(0 0 4px var(--glow-pink));
+}
+
+/* ──────────────────────────────────────────────────── */
+/* SHADOW UTILITY CLASSES */
+/* ──────────────────────────────────────────────────── */
+
+.shadow-sm {
+  box-shadow: var(--shadow-sm);
+}
+
+.shadow-md {
+  box-shadow: var(--shadow-md);
+}
+
+.shadow-lg {
+  box-shadow: var(--shadow-lg);
+}
+
+.shadow-xl {
+  box-shadow: var(--shadow-xl);
+}
+
+.shadow-glow-sm {
+  box-shadow: var(--shadow-glow-sm);
+}
+
+.shadow-glow-md {
+  box-shadow: var(--shadow-glow-md);
+}
+
+.shadow-glow-lg {
+  box-shadow: var(--shadow-glow-lg);
+}
+
+.shadow-glow-xl {
+  box-shadow: var(--shadow-glow-xl);
+}
+
+.shadow-glow-cyan-md {
+  box-shadow: var(--shadow-glow-cyan-md);
+}
+
+/* ──────────────────────────────────────────────────── */
+/* BLUR & BACKDROP UTILITY CLASSES */
+/* ──────────────────────────────────────────────────── */
+
+.blur-sm {
+  filter: var(--blur-sm);
+}
+
+.blur-md {
+  filter: var(--blur-md);
+}
+
+.blur-lg {
+  filter: var(--blur-lg);
+}
+
+.blur-xl {
+  filter: var(--blur-xl);
+}
+
+.backdrop-blur-sm {
+  backdrop-filter: blur(4px);
+}
+
+.backdrop-blur-md {
+  backdrop-filter: blur(8px);
+}
+
+.backdrop-blur-lg {
+  backdrop-filter: blur(12px);
+}
+
+/* ──────────────────────────────────────────────────── */
+/* TRANSITION & DURATION UTILITY CLASSES */
+/* ──────────────────────────────────────────────────── */
+
+.transition-fast {
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.transition-standard {
+  transition: all var(--duration-standard) var(--ease-out);
+}
+
+.transition-slow {
+  transition: all var(--duration-slow) var(--ease-out);
+}
+
+.transition-slower {
+  transition: all var(--duration-slower) var(--ease-out);
+}
+
+.transition-colors {
+  transition: color var(--duration-standard) var(--ease-out),
+              background-color var(--duration-standard) var(--ease-out),
+              border-color var(--duration-standard) var(--ease-out);
+}
+
+.transition-transform {
+  transition: transform var(--duration-standard) var(--ease-out);
+}
+
+.transition-shadow {
+  transition: box-shadow var(--duration-standard) var(--ease-out);
+}
+
+.transition-opacity {
+  transition: opacity var(--duration-standard) var(--ease-out);
+}
+
+/* ──────────────────────────────────────────────────── */
+/* INTERACTIVE STATE UTILITY CLASSES */
+/* ──────────────────────────────────────────────────── */
+
+.interactive-hover:hover {
+  transform: scale(var(--transform-scale-hover, 1.05));
+  filter: brightness(1.1);
+  transition: transform var(--duration-fast) var(--ease-out),
+              filter var(--duration-fast) var(--ease-out);
+}
+
+.interactive-active:active {
+  transform: scale(var(--transform-scale-active, 0.98));
+  transition: transform var(--duration-ultra-fast) var(--ease-out);
+}
+
+.interactive-focus:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(58, 160, 255, 0.3);
+  animation: focusGlowIn 0.3s var(--ease-out);
+}
+
+.interactive-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ──────────────────────────────────────────────────– */
+/* GRADIENT UTILITY CLASSES */
+/* ──────────────────────────────────────────────────── */
+
+.gradient-blue-purple {
+  background: var(--gradient-blue-purple);
+}
+
+.gradient-cyan-blue {
+  background: var(--gradient-cyan-blue);
+}
+
+.gradient-neon-glow {
+  background: var(--gradient-neon-glow);
+}
+
+.gradient-success {
+  background: var(--gradient-success);
+}
+
+.gradient-warning {
+  background: var(--gradient-warning);
+}
+
+.gradient-danger {
+  background: var(--gradient-danger);
+}
+
+/* ──────────────────────────────────────────────────– */
+/* GLASS MORPHISM UTILITY CLASSES */
+/* ──────────────────────────────────────────────────– */
+
+.glass {
+  background: rgba(13, 27, 46, 0.4);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(58, 160, 255, 0.1);
+}
+
+.glass-sm {
+  background: rgba(13, 27, 46, 0.3);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(58, 160, 255, 0.08);
+}
+
+.glass-lg {
+  background: rgba(13, 27, 46, 0.5);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(58, 160, 255, 0.15);
+}
+
+/* ──────────────────────────────────────────────────– */
+/* STAGGERED ANIMATION HELPER */
+/* ──────────────────────────────────────────────────– */
+
+.stagger-1 { animation-delay: 0ms; }
+.stagger-2 { animation-delay: 50ms; }
+.stagger-3 { animation-delay: 100ms; }
+.stagger-4 { animation-delay: 150ms; }
+.stagger-5 { animation-delay: 200ms; }
+
+/* ──────────────────────────────────────────────────– */
+/* NO-ANIMATION OVERRIDE */
+/* ──────────────────────────────────────────────────– */
+
+.no-animate {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* ──────────────────────────────────────────────────– */
+/* GPU ACCELERATION HINT */
+/* ──────────────────────────────────────────────────– */
+
+.will-animate {
+  will-change: transform, opacity;
+}
+
+.will-animate-transform {
+  will-change: transform;
+}
+
+.will-animate-opacity {
+  will-change: opacity;
+}

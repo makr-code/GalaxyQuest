@@ -426,4 +426,26 @@ describe('GameEngine integration', () => {
     expect(caps.webgl2).toBe(true);
     expect(caps.webgpu).toBe(false);
   });
+
+  it('does not touch window when optional selection wiring runs outside the browser', async () => {
+    const renderer = makeMockRenderer();
+    const hadWindow = 'window' in globalThis;
+    const originalWindow = globalThis.window;
+
+    delete globalThis.window;
+
+    try {
+      const engine = new GameEngine();
+      await expect(engine._init(makeCanvas(), { _rendererOverride: renderer, postFx: false }))
+        .resolves
+        .toBeUndefined();
+      expect(engine.groupSelection).toBeTruthy();
+    } finally {
+      if (hadWindow) {
+        globalThis.window = originalWindow;
+      } else {
+        delete globalThis.window;
+      }
+    }
+  });
 });

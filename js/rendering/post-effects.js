@@ -20,17 +20,17 @@ class PostEffectsManager {
     this.config = {
       bloom: {
         enabled: true,
-        threshold: 0.8,
-        strength: 1.2,
-        radius: 0.6,
+        threshold: 0.6,  // Lower threshold for sun glow to trigger bloom
+        strength: 1.8,   // Higher strength for more prominent glow
+        radius: 0.8,     // Larger bloom radius for stellar effects
       },
       vignette: {
-        enabled: true,
+        enabled: false,  // Disabled for cleaner space view
         darkness: 0.5,
         falloff: 2.0,
       },
       chromaticAberration: {
-        enabled: true,
+        enabled: false,  // Disabled by default for clarity
         power: 0.3,
       },
     };

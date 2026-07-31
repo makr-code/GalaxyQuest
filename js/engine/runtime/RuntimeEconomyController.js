@@ -87,6 +87,18 @@
       { building: 'research_lab_adv', good: 'research_kits',       icon: '🔬', label: 'Advanced Lab',       inputs: ['focus_crystals', 'electronics_components'] },
       { building: 'colony_supplies',  good: 'colonization_packs',  icon: '🚀', label: 'Colony Supplies',    inputs: ['steel_alloy', 'biocompost', 'reactor_fuel'] },
     ],
+    tier4: [
+      { building: 'neural_fabricator', good: 'neural_implants',      icon: '🧠', label: 'Neural Fabricator',   inputs: ['focus_crystals', 'electronics_components'] },
+      { building: 'quantum_lab',       good: 'quantum_circuits',      icon: '💡', label: 'Quantum Lab',         inputs: ['electronics_components', 'reactor_fuel'] },
+      { building: 'bio_pharma',        good: 'bio_supplements',       icon: '💊', label: 'Bio Pharma',          inputs: ['biocompost', 'focus_crystals'] },
+      { building: 'cultural_center',   good: 'stellar_art',           icon: '🎨', label: 'Cultural Center',     inputs: ['luxury_goods', 'focus_crystals'] },
+      { building: 'propulsion_works',  good: 'advanced_propulsion',   icon: '🛸', label: 'Propulsion Works',     inputs: ['reactor_fuel', 'steel_alloy'] },
+    ],
+    tier5: [
+      { building: 'void_refinery',             good: 'void_crystals',              icon: '🌌', label: 'Void Refinery',              inputs: ['quantum_circuits', 'focus_crystals'] },
+      { building: 'consciousness_institute',   good: 'synthetic_consciousness',    icon: '🤖', label: 'Consciousness Institute',   inputs: ['neural_implants', 'quantum_circuits'] },
+      { building: 'temporal_atelier',          good: 'temporal_luxuries',          icon: '⌛',  label: 'Temporal Atelier',            inputs: ['stellar_art', 'void_crystals'] },
+    ],
   };
 
   function createEconomyController(opts = {}) {

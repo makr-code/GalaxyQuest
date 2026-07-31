@@ -58,15 +58,28 @@ if (!defined('ECONOMY_METHOD_MULTIPLIERS')) {
 /**
  * Per-1000-population consumption rates per hour.
  * Only covers goods that pops actively consume; others accumulate freely.
+ * Includes Tier-3, Tier-4, and Tier-5 goods based on pop class needs.
  */
 if (!defined('ECONOMY_POP_CONSUMPTION_RATES')) {
     define('ECONOMY_POP_CONSUMPTION_RATES', [
+        // Tier 3 — basic and intermediate finished goods
         'consumer_goods'        => 0.20,
         'biocompost'            => 0.05,
         'research_kits'         => 0.02,
         'military_equipment'    => 0.01,
         'luxury_goods'          => 0.03,
+        
+        // Tier 4 — specialist-class needs (engineers, artisans)
         'neural_implants'       => 0.005,
+        'quantum_circuits'      => 0.003,
+        'bio_supplements'       => 0.008,
+        'stellar_art'           => 0.004,
+        'advanced_propulsion'   => 0.001,
+        
+        // Tier 5 — elite-class needs (investors, transcendents)
+        'void_crystals'         => 0.001,
+        'synthetic_consciousness' => 0.0005,
+        'temporal_luxuries'     => 0.0005,
     ]);
 }
 
@@ -74,19 +87,34 @@ if (!defined('ECONOMY_POP_CONSUMPTION_RATES')) {
 const ECONOMY_FLUSH_MAX_HOURS = 24.0;
 
 /**
- * Tier-3 input requirements: units of Tier-2 goods consumed per unit of Tier-3 output.
+ * Tier-3+ input requirements: units of lower-tier goods consumed per unit of output.
  * Mirrors the STANDARD method inputs in EconomySimulation.js PROCESSING_RECIPES.
  *
- * Structure: T3_good → [ [T2_good, ratio], ... ]
- * Ratio = units of T2 consumed per 1 unit of T3 produced.
+ * Structure: good_type → [ [input_good, ratio], ... ]
+ * Ratio = units of input_good consumed per 1 unit of output produced.
+ * 
+ * Includes Tier-3, Tier-4, and Tier-5 goods since they all have prerequisite inputs.
  */
 if (!defined('ECONOMY_TIER3_INPUT_RATIOS')) {
     define('ECONOMY_TIER3_INPUT_RATIOS', [
+        // Tier 3
         'consumer_goods'     => [['steel_alloy', 1.0], ['electronics_components', 1.0]],
         'luxury_goods'       => [['focus_crystals', 1.0], ['biocompost', 1.0]],
         'military_equipment' => [['steel_alloy', 2.0], ['focus_crystals', 1.0]],
         'research_kits'      => [['focus_crystals', 1.0], ['electronics_components', 1.0]],
         'colonization_packs' => [['steel_alloy', 1.0], ['biocompost', 1.0], ['reactor_fuel', 1.0]],
+        
+        // Tier 4
+        'neural_implants'    => [['focus_crystals', 1.0], ['electronics_components', 1.0]],
+        'quantum_circuits'   => [['electronics_components', 1.0], ['reactor_fuel', 1.0]],
+        'bio_supplements'    => [['biocompost', 1.0], ['focus_crystals', 0.5]],
+        'stellar_art'        => [['luxury_goods', 1.0], ['focus_crystals', 1.0]],
+        'advanced_propulsion'=> [['reactor_fuel', 1.0], ['steel_alloy', 1.0]],
+        
+        // Tier 5 (inputs may include Tier-4 goods and primary resources)
+        'void_crystals'             => [['quantum_circuits', 1.0], ['focus_crystals', 1.0]],
+        'synthetic_consciousness'   => [['neural_implants', 1.0], ['quantum_circuits', 1.0]],
+        'temporal_luxuries'         => [['stellar_art', 1.0], ['void_crystals', 1.0]],
     ]);
 }
 
@@ -95,7 +123,7 @@ if (!defined('ECONOMY_TIER3_INPUT_RATIOS')) {
  *
  * war_economy: military_equipment +30%, consumer_goods −20%
  * autarky:     all domestic production +10% (import-substitution bonus)
- * subsidies:   agriculture/research/military +20% on relevant goods
+ * subsidies:   agriculture/research/military +20% on relevant goods and their derivatives
  */
 function get_policy_good_multipliers(PDO $db, int $owner_id): array {
     $mult = [];
@@ -118,7 +146,9 @@ function get_policy_good_multipliers(PDO $db, int $owner_id): array {
     if ($policy === 'autarky') {
         // Domestic production bonus — all goods +10%
         foreach (['steel_alloy','focus_crystals','reactor_fuel','biocompost','electronics_components',
-                  'consumer_goods','luxury_goods','military_equipment','research_kits','colonization_packs'] as $g) {
+                  'consumer_goods','luxury_goods','military_equipment','research_kits','colonization_packs',
+                  'neural_implants','quantum_circuits','bio_supplements','stellar_art','advanced_propulsion',
+                  'void_crystals','synthetic_consciousness','temporal_luxuries'] as $g) {
             $mult[$g] = ($mult[$g] ?? 1.0) * 1.10;
         }
     }
@@ -126,13 +156,21 @@ function get_policy_good_multipliers(PDO $db, int $owner_id): array {
     if ((int)($row['subsidy_agriculture'] ?? 0)) {
         $mult['biocompost']  = ($mult['biocompost']  ?? 1.0) * 1.20;
         $mult['food']        = ($mult['food']        ?? 1.0) * 1.20;
+        // Biocompost is an input to luxury_goods and bio_supplements
+        $mult['luxury_goods']    = ($mult['luxury_goods']    ?? 1.0) * 1.10;
+        $mult['bio_supplements'] = ($mult['bio_supplements'] ?? 1.0) * 1.10;
     }
     if ((int)($row['subsidy_research'] ?? 0)) {
         $mult['research_kits']     = ($mult['research_kits']     ?? 1.0) * 1.20;
         $mult['quantum_circuits']  = ($mult['quantum_circuits']  ?? 1.0) * 1.15;
+        // Also boost the tech-dependent Tier-4 goods
+        $mult['neural_implants']   = ($mult['neural_implants']   ?? 1.0) * 1.10;
+        $mult['void_crystals']     = ($mult['void_crystals']     ?? 1.0) * 1.10;
     }
     if ((int)($row['subsidy_military'] ?? 0)) {
         $mult['military_equipment'] = ($mult['military_equipment'] ?? 1.0) * 1.20;
+        // Tier-4 military applications
+        $mult['advanced_propulsion'] = ($mult['advanced_propulsion'] ?? 1.0) * 1.15;
     }
 
     return $mult;
@@ -141,10 +179,14 @@ function get_policy_good_multipliers(PDO $db, int $owner_id): array {
 /**
  * Log a shortage/starvation event for a colony/good when stock hits zero.
  * The economy_shortage_events table must exist (created by migration).
+ * 
+ * Critical goods (starvation) are those essential for population survival and basic function.
+ * Important goods (shortage) include military and research items; temporary shortages are survivable.
  */
 function log_shortage_event(PDO $db, int $colony_id, string $good_type, float $deficit_per_hour): void {
     // Critical goods cause starvation; others are just shortages
-    static $criticalGoods = ['consumer_goods', 'biocompost'];
+    // Tier-3+ goods needed by pops for happiness/advancement
+    static $criticalGoods = ['consumer_goods', 'biocompost', 'luxury_goods', 'research_kits'];
     $severity = in_array($good_type, $criticalGoods, true) ? 'starvation' : 'shortage';
 
     // Insert only if no open event for this colony+good already exists
@@ -274,10 +316,13 @@ function flush_colony_production(PDO $db, int $colony_id): void {
     // T3+ goods are disrupted when:
     //   a) Pop satisfaction < 40 (workforce too unhappy to operate advanced facilities)
     //   b) Player has an active war AND no 'war_economy' policy active
+    // T4/T5 additionally requires minimum satisfaction >= 60 and no war disruption
     $tier3Blocked = false;
+    $tier4Blocked = false;  // NEW: Tier-4 has stricter requirements
     {
         if ($satisfactionIndex < 40.0) {
             $tier3Blocked = true;
+            $tier4Blocked = true;
         } else {
             // Check for war without war_economy policy
             $ownerStmt = $db->prepare('SELECT user_id FROM colonies WHERE id = ?');
@@ -307,16 +352,24 @@ function flush_colony_production(PDO $db, int $colony_id): void {
 
                         if (!$warEconomyActive) {
                             $tier3Blocked = true;
+                            $tier4Blocked = true;
                         }
                     }
                 }
             }
         }
+        // NEW: Tier-4/5 production also requires satisfaction >= 60 (elite workforce expectations)
+        if ($satisfactionIndex < 60.0) {
+            $tier4Blocked = true;
+        }
     }
 
-    // Tier-3+ building keys (consumer_factory and above in ECONOMY_BUILDING_BASE_RATES definition)
+    // Tier-3 building keys (consumer_factory and above in ECONOMY_BUILDING_BASE_RATES definition)
     static $tier3Buildings = [
         'consumer_factory', 'luxury_workshop', 'arms_factory', 'research_lab_adv', 'colony_supplies',
+    ];
+    // NEW: Tier-4+ building keys (require advanced research + high satisfaction)
+    static $tier4Buildings = [
         'neural_fabricator', 'quantum_lab', 'bio_pharma', 'cultural_center', 'propulsion_works',
         'void_refinery', 'consciousness_institute', 'temporal_atelier',
     ];
@@ -344,8 +397,12 @@ function flush_colony_production(PDO $db, int $colony_id): void {
         if ($level <= 0) {
             continue;
         }
-        // PHASE 3.2: Block T3+ production under war/satisfaction stress
+        // PHASE 3.2: Block T3 production under war/satisfaction stress
         if ($tier3Blocked && in_array($buildingType, $tier3Buildings, true)) {
+            continue;
+        }
+        // NEW: Block T4/T5 production when satisfaction < 60
+        if ($tier4Blocked && in_array($buildingType, $tier4Buildings, true)) {
             continue;
         }
         $method = $methods[$buildingType] ?? 'standard';

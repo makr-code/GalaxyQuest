@@ -1,0 +1,27 @@
+{
+  "version": "1.0.0",
+  "lastCheckAt": null,
+  "checkIntervalHours": 24,
+  "autoUpdateEnabled": false,
+  "githubOwner": "makr-code",
+  "githubRepo": "GalaxyQuest",
+  "minimumVersion": "1.0.0",
+  "updateCheckUrl": "https://api.github.com/repos/{owner}/{repo}/releases/latest",
+  "versionFilePath": "VERSION.txt",
+  "releaseArtifactUrl": "https://github.com/{owner}/{repo}/releases/download/{version}/{filename}",
+  "releaseChannels": {
+    "stable": {
+      "enabled": true,
+      "prerelease": false
+    },
+    "beta": {
+      "enabled": false,
+      "prerelease": true
+    }
+  },
+  "notificationSettings": {
+    "notifyAdminsOnUpdate": true,
+    "notifyUsersOnMaintenance": true,
+    "maintenanceWindowHours": 2
+  }
+}

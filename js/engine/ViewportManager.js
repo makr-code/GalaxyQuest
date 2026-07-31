@@ -74,11 +74,18 @@ class ViewportManager {
    * @param {HTMLCanvasElement}  mainCanvas  The primary game canvas
    * @param {import('./core/GraphicsContext').IGraphicsRenderer} renderer
    * @param {import('./scene/CameraManager').CameraManager} cameraManager
+   * @param {Object} [opts]
+   * @param {GroupSelectionController} [opts.groupSelection] Multi-selection controller
+   * @param {OwnershipVisualsSystem} [opts.ownershipSystem] Ownership visuals system
    */
-  constructor(mainCanvas, renderer, cameraManager) {
+  constructor(mainCanvas, renderer, cameraManager, opts = {}) {
     this._mainCanvas     = mainCanvas;
     this._renderer       = renderer;
     this._cameraManager  = cameraManager;
+
+    // Multi-selection and ownership systems
+    this.groupSelection = opts.groupSelection || null;
+    this.ownershipSystem = opts.ownershipSystem || null;
 
     /** @type {Map<string, ViewportEntry>} */
     this._viewports      = new Map();
@@ -123,8 +130,102 @@ class ViewportManager {
   }
 
   // ---------------------------------------------------------------------------
-  // Viewport registration
+  // Multi-selection and ownership integration
   // ---------------------------------------------------------------------------
+
+  /**
+   * Set the group selection controller for this viewport manager
+   * @param {GroupSelectionController} controller
+   */
+  setGroupSelection(controller) {
+    this.groupSelection = controller;
+    if (controller) {
+      // Wire selection change events to propagate to viewports
+      controller.on('multi-selection-bloom', ({ enabled, unitCount }) => {
+        this._propagateSelectionState({ enabled, unitCount });
+      });
+    }
+  }
+
+  /**
+   * Set the ownership visuals system for this viewport manager
+   * @param {OwnershipVisualsSystem} system
+   */
+  setOwnershipSystem(system) {
+    this.ownershipSystem = system;
+  }
+
+  /**
+   * Propagate selection state changes to all viewports
+   * @private
+   */
+  _propagateSelectionState(state) {
+    // Emit event for renderers that may need to update viewport markers
+    if (typeof window !== 'undefined' && window.dispatchEvent) {
+      window.dispatchEvent(
+        new CustomEvent('viewport:selection-changed', {
+          detail: state,
+        })
+      );
+    }
+  }
+
+  /**
+   * Apply selection markers to all active viewports
+   */
+  applySelectionMarkersToViewports() {
+    if (!this.groupSelection) return;
+
+    for (const entry of this._viewports.values()) {
+      if (!entry.enabled || !entry.canvas) continue;
+
+      // Propagate selection information to viewport
+      const selectedUnits = this.groupSelection.getSelectedUnits();
+      const bloomEnabled = this.groupSelection.isMultiSelectionBloomEnabled();
+
+      if (typeof window !== 'undefined' && window.dispatchEvent) {
+        window.dispatchEvent(
+          new CustomEvent('viewport:apply-selection-markers', {
+            detail: {
+              viewport: entry.name,
+              camera: entry.camera,
+              canvas: entry.canvas,
+              selectedUnits,
+              bloomEnabled,
+              bloomIntensity: this.groupSelection.getMultiSelectionBloomIntensity(),
+            },
+          })
+        );
+      }
+    }
+  }
+
+  /**
+   * Apply ownership aura colors to all active viewports
+   */
+  applyOwnershipAurasToViewports() {
+    if (!this.ownershipSystem) return;
+
+    for (const entry of this._viewports.values()) {
+      if (!entry.enabled || !entry.canvas) continue;
+
+      const colorblindMode = this.ownershipSystem._colorblindMode || 'normal';
+
+      if (typeof window !== 'undefined' && window.dispatchEvent) {
+        window.dispatchEvent(
+          new CustomEvent('viewport:apply-ownership-auras', {
+            detail: {
+              viewport: entry.name,
+              camera: entry.camera,
+              canvas: entry.canvas,
+              colorblindMode,
+            },
+          })
+        );
+      }
+    }
+  }
+
 
   /**
    * Add a PiP viewport for a named camera.

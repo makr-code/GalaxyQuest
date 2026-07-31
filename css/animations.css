@@ -1,0 +1,536 @@
+/* =========================================================
+   animations.css – Keyframe Animation Library
+   Modern gaming UX animations: bounce, pulse, glow, slide, etc.
+   ========================================================= */
+
+/* ── ENTRANCE ANIMATIONS ──────────────────────────────── */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes scaleInBouncy {
+  0%   { opacity: 0; transform: scale(0.85); }
+  50%  { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* ── EXIT ANIMATIONS ──────────────────────────────────── */
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@keyframes fadeOutUp {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes slideOutRight {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+@keyframes scaleOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+/* ── PULSE & GLOW ANIMATIONS ──────────────────────────– */
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes pulseSoft {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+@keyframes glowPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  50% {
+    filter: drop-shadow(0 0 8px var(--glow-blue, rgba(58, 160, 255, 0.4)));
+  }
+}
+
+@keyframes glow {
+  from {
+    filter: drop-shadow(0 0 4px var(--glow-blue, rgba(58, 160, 255, 0.3)));
+  }
+  to {
+    filter: drop-shadow(0 0 12px var(--glow-blue, rgba(58, 160, 255, 0.5)));
+  }
+}
+
+@keyframes glowIntense {
+  from {
+    filter: drop-shadow(0 0 8px var(--glow-intense-blue, rgba(58, 160, 255, 0.65)));
+    text-shadow: 0 0 8px rgba(58, 160, 255, 0.5);
+  }
+  to {
+    filter: drop-shadow(0 0 16px var(--glow-intense-blue, rgba(58, 160, 255, 0.65)));
+    text-shadow: 0 0 16px rgba(58, 160, 255, 0.6);
+  }
+}
+
+@keyframes neonFlicker {
+  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 10px currentColor);
+  }
+  20%, 24%, 55% {
+    opacity: 0.8;
+    filter: drop-shadow(0 0 5px currentColor);
+  }
+}
+
+/* ── MOTION & BOUNCE ANIMATIONS ───────────────────────– */
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes bounceLarge {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-16px);
+  }
+}
+
+@keyframes bounce3d {
+  0%, 100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(-12px) scaleY(0.95);
+  }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+  20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+
+@keyframes shakeX {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* ── ROTATION & SPIN ANIMATIONS ───────────────────────– */
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes spinReverse {
+  from { transform: rotate(360deg); }
+  to   { transform: rotate(0deg); }
+}
+
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes wobble {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(2deg); }
+  75% { transform: rotate(-2deg); }
+}
+
+/* ── GRADIENT & COLOR ANIMATIONS ──────────────────────– */
+
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes colorShift {
+  0%, 100%   { color: #3aa0ff; }
+  25%        { color: #00d4ff; }
+  50%        { color: #9b59f6; }
+  75%        { color: #22d46a; }
+}
+
+/* ── UNDERLINE & BORDER ANIMATIONS ───────────────────– */
+
+@keyframes underlineSlide {
+  from {
+    width: 0;
+    left: 0;
+  }
+  to {
+    width: 100%;
+    left: 0;
+  }
+}
+
+@keyframes borderGlow {
+  0%, 100% {
+    border-color: rgba(58, 160, 255, 0.3);
+    box-shadow: 0 0 8px rgba(58, 160, 255, 0.2);
+  }
+  50% {
+    border-color: rgba(58, 160, 255, 0.8);
+    box-shadow: 0 0 16px rgba(58, 160, 255, 0.4);
+  }
+}
+
+/* ── LABEL & TEXT ANIMATIONS ─────────────────────────– */
+
+@keyframes labelFloat {
+  from {
+    opacity: 0.7;
+    transform: translateY(16px);
+    font-size: 14px;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-20px);
+    font-size: 12px;
+  }
+}
+
+@keyframes checkmarkScale {
+  0%   { opacity: 0; transform: scale(0); }
+  50%  { transform: scale(1.2); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* ── LOADING & PROGRESS ANIMATIONS ───────────────────– */
+
+@keyframes progress {
+  0%   { width: 0%; }
+  50%  { width: 70%; }
+  100% { width: 100%; }
+}
+
+@keyframes progressIndeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes spinnerBlink {
+  0%, 49%, 100% { opacity: 1; }
+  50%, 99%      { opacity: 0.3; }
+}
+
+/* ── TAB & NAV ANIMATIONS ────────────────────────────– */
+
+@keyframes tabIndicatorSlide {
+  from {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes breadcrumbFade {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ── RIPPLE EFFECT ANIMATION ────────────────────────– */
+
+@keyframes ripple {
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+/* ── PARTICLE & BURST ANIMATIONS ───────────────────– */
+
+@keyframes particleBurst {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--tx, 0), var(--ty, 0)) scale(0);
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ── MODAL & DIALOG ANIMATIONS ──────────────────────– */
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes modalFadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+}
+
+@keyframes backdropFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── TOOLTIP & POPOVER ANIMATIONS ──────────────────– */
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes popoverBounceIn {
+  0%   { opacity: 0; transform: scale(0.9) translateY(-8px); }
+  60%  { opacity: 1; transform: scale(1.05) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ── NOTIFICATION & TOAST ANIMATIONS ───────────────– */
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(400px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes toastSlideOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(400px);
+  }
+}
+
+/* ── SUCCESS & ERROR ANIMATIONS ────────────────────– */
+
+@keyframes successPulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  50% {
+    transform: scale(1.05);
+    filter: drop-shadow(0 0 8px rgba(34, 212, 106, 0.5));
+  }
+}
+
+@keyframes errorShakeAlt {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  25%      { transform: translateX(-4px) rotate(-1deg); }
+  75%      { transform: translateX(4px) rotate(1deg); }
+}
+
+/* ── HOVER & FOCUS STATE ANIMATIONS ────────────────– */
+
+@keyframes focusGlowIn {
+  from {
+    box-shadow: 0 0 0 0 rgba(58, 160, 255, 0.4);
+  }
+  to {
+    box-shadow: 0 0 0 8px rgba(58, 160, 255, 0);
+  }
+}
+
+@keyframes hoverLift {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-2px);
+  }
+}
+
+/* ── BACKGROUND & LAYER ANIMATIONS ─────────────────– */
+
+@keyframes backgroundShift {
+  0%, 100% { background-position: 0% 0%; }
+  50%      { background-position: 100% 100%; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-8px); }
+}
+
+/* ── THEME CHANGE ANIMATION ────────────────────────– */
+
+@keyframes themeTransition {
+  from {
+    opacity: 0.8;
+    filter: brightness(1.1);
+  }
+  to {
+    opacity: 1;
+    filter: brightness(1);
+  }
+}
+
+/* ── MARQUEE ANIMATION (existing, enhanced) ────────– */
+
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}
+
+/* ── Respect prefers-reduced-motion for all animations ──– */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
