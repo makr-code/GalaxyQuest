@@ -1,0 +1,52 @@
+# Iron Fleet Behavior Script
+# 
+# The Iron Fleet is an aggressive trading faction with militaristic tendencies.
+# Their behavior emphasizes resource acquisition, territorial dominance, and
+# wealth accumulation through commerce and occasional military action.
+
+behavior: "iron_fleet_daily_strategy"
+personality_key: "militaristic_trader"
+
+# Conditions that must be met for this behavior to activate
+conditions:
+  - type: "standing_threshold"
+    comparison: ">="
+    value: 0  # Always active, but intensity varies by standing
+
+# Available actions in priority order
+actions:
+  # Quest generation is primary action (70% probability when standing >= 5)
+  - type: "generate_quest"
+    template: "resource_delivery"
+    probability: 0.7
+    condition_requires:
+      standing_threshold: 5
+    params:
+      amount: 1000
+      resource: "metal"
+      deadline_days: 7
+      reward_standing: 10
+    personality_modifier: "aggression_x1_2"
+
+  # Secondary quest: combat patrol (especially for high standing)
+  - type: "generate_quest"
+    template: "combat_patrol"
+    probability: 0.3
+    condition_requires:
+      standing_threshold: 15
+    params:
+      difficulty_scale: 1.5
+      target_faction: "pirates"
+      reward_standing: 15
+    personality_modifier: "aggression_x1_5"
+
+  # Tertiary: diplomatic messages (low probability but good for lore)
+  - type: "send_message"
+    probability: 0.2
+    condition_requires:
+      standing_threshold: 10
+    subject: "Trade Opportunity"
+    message: "We have a lucrative offer for you. Visit our headquarters to discuss terms."
+
+# Default action if conditions fail or no action selected
+fallback: "none"

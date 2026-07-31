@@ -1,0 +1,28 @@
+code: diplomacy_mission
+title_template: "Visit {location} and negotiate with {contact_faction}"
+description_template: |
+  Travel to {location} and establish diplomatic relations with {contact_faction}.
+  Bring gifts ({gift_amount} units of {gift_resource}) to show goodwill.
+  Your negotiation skills will determine the outcome.
+quest_type: diplomacy
+difficulty_modifier: 0.8
+faction_types:
+  - trade
+  - science
+  - envoy
+default_params:
+  location: "neutral_station"
+  contact_faction: "unknown_ally"
+  gift_resource: crystal
+  gift_amount: 500
+  deadline_days: 14
+  negotiation_skill: neutral
+reward_scaling:
+  base_standing: 12
+  multipliers:
+    by_gift_value: 0.01
+    by_difficulty: 0.8
+narrative_hooks:
+  - "Peace comes through understanding. Go and make friends."
+  - "Diplomacy requires finesse. Show them what you're made of."
+  - "Bring words of peace and tokens of friendship."
