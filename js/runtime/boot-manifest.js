@@ -104,6 +104,12 @@
     { src: 'js/ui/terminal.js', version: V.terminal },
     { src: 'js/rendering/starfield.js', version: V.starfield },
     { src: 'js/ui/prolog.js', version: V.prolog },
+    { src: 'js/network/auth-boot-assets.js', version: V.assetCore },
+    { src: 'js/network/auth-reachability.js', version: V.assetCore },
+    { src: 'js/network/auth-2fa.js', version: V.assetCore },
+    { src: 'js/network/auth-ui-state.js', version: V.assetCore },
+    { src: 'js/network/auth-audio.js', version: V.assetCore },
+    { src: 'js/network/auth-shell.js', version: V.assetCore },
     { src: 'js/network/auth.js', version: V.auth }
   ];
 
@@ -124,6 +130,11 @@
       localScript('js/network/binary-decoder.js', V.assetCore),
       localScript('js/network/binary-decoder-v2.js', V.assetCore),
       localScript('js/network/binary-decoder-v3.js', V.assetCore),
+      localScript('js/network/api-transport.js', V.assetCore),
+      localScript('js/network/api-queue.js', V.assetCore),
+      localScript('js/network/api-cache.js', V.assetCore),
+      localScript('js/network/api-schema-adapters.js', V.assetCore),
+      localScript('js/network/api-session.js', V.assetCore),
       localScript('js/network/api.js', V.assetCore),
       localScript('js/network/api-contracts.js', V.assetCore),
       CDN.dexie,
