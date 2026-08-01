@@ -88,6 +88,7 @@ services:
       TTS_DEFAULT_VOICE: de_DE-thorsten-high
       TTS_MAX_CHARS: 2000
       # TTS_SECRET: change_me_in_production
+      # TTS_CORS_ORIGINS: http://localhost:8080  # restrict CORS in production
     ports:
       - "5500:5500"
     volumes:

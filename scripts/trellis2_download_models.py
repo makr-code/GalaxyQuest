@@ -10,21 +10,24 @@ Verwendung:
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 AVAILABLE_MODELS: dict[str, str] = {
-    "image-large":  "microsoft/TRELLIS-image-large",
-    "text-base":    "microsoft/TRELLIS-text-base",
-    "text-large":   "microsoft/TRELLIS-text-large",
-    "text-xlarge":  "microsoft/TRELLIS-text-xlarge",
+    "image-large": "microsoft/TRELLIS-image-large",
+    "text-base": "microsoft/TRELLIS-text-base",
+    "text-large": "microsoft/TRELLIS-text-large",
+    "text-xlarge": "microsoft/TRELLIS-text-xlarge",
 }
 DEFAULT_MODELS = ["image-large"]
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Laedt TRELLIS2-Modelle von HuggingFace lokal herunter.")
+    parser = argparse.ArgumentParser(
+        description="Laedt TRELLIS2-Modelle von HuggingFace lokal herunter."
+    )
     parser.add_argument(
         "--models",
         default=",".join(DEFAULT_MODELS),
@@ -76,8 +79,7 @@ def download_model(
 
     if model_key not in AVAILABLE_MODELS:
         raise ValueError(
-            f"Unbekannter Model-Schluessel '{model_key}'. "
-            f"Erlaubt: {', '.join(AVAILABLE_MODELS)}"
+            f"Unbekannter Model-Schluessel '{model_key}'. Erlaubt: {', '.join(AVAILABLE_MODELS)}"
         )
 
     repo_id = AVAILABLE_MODELS[model_key]
@@ -102,8 +104,6 @@ def download_model(
 
 def write_model_registry(cache_dir: pathlib.Path, downloaded: dict[str, pathlib.Path]) -> None:
     """Schreibt models.json mit lokalen Pfaden fuer schnellen Zugriff durch generate-Skripte."""
-    import json
-
     registry: dict = {}
     for key, local_dir in downloaded.items():
         registry[key] = {
@@ -152,14 +152,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             local_dir = download_model(model_key, cache_dir, args.token, args.revision)
             downloaded[model_key] = local_dir
-        except Exception as exc:
+        except (OSError, ValueError, RuntimeError) as exc:
             print(f"[TRELLIS2] ✗ Fehler bei '{model_key}': {exc}")
             failed.append(model_key)
 
     if downloaded:
         write_model_registry(cache_dir, downloaded)
 
-    print("")
+    print()
     print(f"[TRELLIS2] Abgeschlossen: {len(downloaded)} OK, {len(failed)} Fehler.")
     if failed:
         print(f"[TRELLIS2] Fehlgeschlagen: {failed}")
