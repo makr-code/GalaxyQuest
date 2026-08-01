@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_trader_09",
+    "username": "dev_npc_colonist_05",
     "is_npc": true,
-    "race": "Crystalline Asterite",
-    "profession": "Fleet Logistician",
-    "stance": "Pragmatic",
-    "vita": "dev_npc_trader_09 emerged from an autonomous sector protocol and built a reputation as a fleet logistician. Their pragmatic outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
-    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Crystalline Asterite, role: Fleet Logistician, attitude: Pragmatic, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
-    "generated_at": "2026-04-09T07:03:13+00:00"
+    "race": "Synthetic Helion",
+    "profession": "Recon Analyst",
+    "stance": "Opportunistic",
+    "vita": "dev_npc_colonist_05 emerged from an autonomous sector protocol and built a reputation as a recon analyst. Their opportunistic outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
+    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Synthetic Helion, role: Recon Analyst, attitude: Opportunistic, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
+    "generated_at": "2026-08-01T10:12:56+00:00"
 }

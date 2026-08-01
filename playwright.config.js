@@ -18,7 +18,8 @@ const webgpuArgs = process.env.GQ_WEBGPU_SHADER_CI === '1' || process.env.PLAYWR
   : [];
 
 module.exports = {
-  testDir: './tests/e2e',
+  testDir: './tests',
+  testMatch: ['**/*.spec.{js,ts}'],
   timeout: 90_000,
   expect: {
     timeout: 15_000,

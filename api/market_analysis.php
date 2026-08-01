@@ -58,16 +58,25 @@ function calculate_system_supply_demand(
     int $galaxy_index,
     int $system_index
 ): array {
-    // 1. Get all colonies in this system
-    $colStmt = $db->prepare(<<<SQL
-        SELECT c.id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
-               c.population
-        FROM colonies c
-        JOIN celestial_bodies cb ON cb.id = c.body_id
-        WHERE cb.galaxy_index = ? AND cb.system_index = ?
-    SQL);
-    $colStmt->execute([$galaxy_index, $system_index]);
-    $colonies = $colStmt->fetchAll(PDO::FETCH_ASSOC);
+    try {
+        // 1. Get all colonies in this system
+        $colStmt = $db->prepare(<<<SQL
+            SELECT c.id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
+                   c.population
+            FROM colonies c
+            JOIN celestial_bodies cb ON cb.id = c.body_id
+            WHERE cb.galaxy_index = ? AND cb.system_index = ?
+        SQL);
+        $colStmt->execute([$galaxy_index, $system_index]);
+        $colonies = $colStmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if (!is_array($colonies)) {
+            $colonies = [];
+        }
+    } catch (PDOException $e) {
+        error_log('Market Analysis: DB error retrieving colonies for galaxy=' . $galaxy_index . ', system=' . $system_index . ': ' . $e->getMessage());
+        $colonies = [];
+    }
     
     // 2. Initialize supply/demand accumulator
     $resourceTypes = array_merge(
@@ -98,7 +107,13 @@ function calculate_system_supply_demand(
         $colId = (int)$col['id'];
 
         // Flush lazy accumulation so quantities and rate columns are up to date
-        flush_colony_production($db, $colId);
+        try {
+            if (function_exists('flush_colony_production')) {
+                flush_colony_production($db, $colId);
+            }
+        } catch (Throwable $e) {
+            error_log('Market Analysis: Error flushing colony production for colony=' . $colId . ': ' . $e->getMessage());
+        }
         
         // Primary resources in storage
         $analysis['metal']['available_supply']     += (float)$col['metal'];

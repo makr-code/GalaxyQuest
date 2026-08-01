@@ -146,8 +146,30 @@ function gq_invalidate_domain(string $domain, int $entity_id): int {
             // Hooks are stored as serialized closures (if APCu supports)
             // or as function names.
             $callable = $hookData['callable'] ?? null;
-            if (is_callable($callable)) {
+            
+            // Security: Validate callable type before execution
+            // Only allow: string (function name), array (class method), or Closure
+            if ($callable === null || $callable === false) {
+                continue;
+            }
+            
+            $callableType = gettype($callable);
+            $isValidCallable = (
+                ($callableType === 'string' && function_exists($callable))
+                || ($callableType === 'array' && count($callable) === 2 && is_string($callable[0]) && is_string($callable[1]))
+                || ($callable instanceof Closure)
+                || is_callable($callable)
+            );
+            
+            if ($isValidCallable) {
                 call_user_func($callable, $entity_id);
+            } else {
+                error_log(sprintf(
+                    '[GQ Invalidation] Hook %s for domain %s has invalid callable type %s',
+                    $hookId,
+                    $domain,
+                    $callableType
+                ));
             }
         } catch (Throwable $e) {
             error_log(sprintf(

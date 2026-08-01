@@ -1,10 +1,10 @@
 {
-    "username": "dev_npc_trader_05",
+    "username": "dev_npc_pirate_06",
     "is_npc": true,
-    "race": "Velarian",
-    "profession": "Trader",
-    "stance": "Neutral Entrepreneur",
-    "vita": "As a Velarian Trader hailing from the bustling trade hub of Zyphus Prime, I've built my reputation on fair deals and respected negotiations. My ship 'The Serenity Star', adorned with symbols representing peace among star systems, sails through space-lanes carrying exotic goods that bridge worlds together.",
-    "portrait_prompt": "A photorealistic alien bust portrait of a Velarian Trader stands on transparent background; the figure wears traditional attire indicative of their neutral stance and wealth, with intricate patterns reflecting both elegance and diversity. The eyes are intelligent and welcoming, suggesting an open mind towards all species.",
-    "generated_at": "2026-03-31T13:05:12+00:00"
+    "race": "Cephalid Synapsekin",
+    "profession": "Navigator",
+    "stance": "Skeptical",
+    "vita": "dev_npc_pirate_06 emerged from an autonomous sector protocol and built a reputation as a navigator. Their skeptical outlook makes them effective in uncertain diplomacy. In hostile regions they balance risk, intelligence, and timing before committing resources.",
+    "portrait_prompt": "Photorealistic bust portrait of a sci-fi alien character, head and shoulders only, race: Cephalid Synapsekin, role: Navigator, attitude: Skeptical, autonomous npc representative, ultra detailed skin or material texture, studio portrait lighting with soft key light and subtle rim light, sharp focus on face and eyes, transparent background, PNG alpha, cinematic realism",
+    "generated_at": "2026-08-01T10:12:54+00:00"
 }

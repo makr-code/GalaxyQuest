@@ -1,0 +1,64 @@
+# Game Guide NPC Configuration - Simplified YAML (no block scalars)
+guide_agent:
+  name: 'Advisor Tau'
+  faction: 'Neutral'
+  role: 'game_guide'
+  system_prompt: 'Du bist Advisor Tau, der Lehr- und Ratgeber-NPC in GalaxyQuest. Hilf Spielern durch Tipps und Erklärungen.'
+
+help_topics:
+  getting_started:
+    title: 'Erste Schritte'
+    questions: ['Wie fange ich an?', 'Was sollte ich als erstes tun?', 'Wie baue ich meine erste Kolonie?']
+    tips: ['Sammele Ressourcen durch Abbau', 'Baue eine Farm für Lebensmittel', 'Gründe deine zweite Kolonie', 'Erfinde erste Technologien', 'Trete einer Fraktion bei']
+
+  resources_and_production:
+    title: 'Ressourcen & Produktion'
+    questions: ['Wie produziere ich mehr Ressourcen?', 'Warum sind meine Ressourcen immer zu wenig?', 'Wie funktioniert Rohstoffproduktion?']
+    tips: ['Produktion > Verbrauch ist der Schlüssel', 'Spezialisiere Kolonien', 'Research Technologien', 'Nutze Markt', 'Lagere Ressourcen']
+
+  military_and_fleets:
+    title: 'Militär & Flotten'
+    questions: ['Wie baue ich Kriegsschiffe?', 'Wie verteidge ich meine Kolonien?', 'Wann sollte ich eine Flotte bauen?']
+    tips: ['Baue Flotte zur Verteidigung', 'Verschiedene Schiffe, verschiedene Rollen', 'Flottenstärke >= Bedrohung', 'Positioniere über Kolonien', 'Upgrade Rüstung']
+
+  diplomacy_and_factions:
+    title: 'Diplomatie & Fraktionen'
+    questions: ['Welche Fraktion?', 'Wie verbessere ich Beziehungen?', 'Wie schließe ich Bündnisse?']
+    tips: ['Fraktionen geben Bonusse', 'Handel ist oft günstiger', 'Bündnisse geben Schutz', 'Halte Verträge', 'Nutze Diplomatie']
+
+  technology_and_research:
+    title: 'Technologie & Forschung'
+    questions: ['Welche Technologie sollte ich erforschen?', 'Wie schneller forsche ich?', 'Welche Technologien sind wichtig?']
+    tips: ['Priorität: Produktion', 'Forschungszentren bauen', 'Neue Gebäude freischalten', 'Spezialisiere dich', 'Tausche mit anderen']
+
+  colonization:
+    title: 'Kolonisierung'
+    questions: ['Wie viele Kolonien?', 'Wie colonisiere ich?', 'Wo platziere ich Kolonien?']
+    tips: ['3-5 Kolonien am Anfang', 'Spezialisiere Ressourcen', 'Platziere nah beieinander', 'Upgrade Infrastruktur', 'Erobere später']
+
+  market_and_trading:
+    title: 'Markt & Handel'
+    questions: ['Wie funktioniert der Markt?', 'Wie verdiene ich durch Handel?', 'Welche Ressourcen sind wertvoll?']
+    tips: ['Kaufe billig, verkaufe teuer', 'Spezialisiere auf Ressource', 'Langfristige Verträge', 'Nutze Markt-Kenntnis', 'Kartelle bilden']
+
+  events_and_quests:
+    title: 'Events & Quests'
+    questions: ['Wie verdiene ich Zusatzbelohnungen?', 'Was sind Events?', 'Wie helfen Quests?']
+    tips: ['Tägliche Quests machen', 'Special Events nutzen', 'Quest-Ketten spielen', 'Guilds beitreten', 'Events vermeiden']
+
+  troubleshooting:
+    title: 'Probleme & Lösungen'
+    questions: ['Ressourcen gehen aus?', 'Flotte wird angegriffen?', 'Wie hole ich auf?']
+    tips: ['Erhöhe Produktion oder kaufe', 'Baue Verteidigung oder alliiere', 'Spezialisiere dich', 'Nutze Direct Help', 'Frag Spieler']
+
+tutorial_checkpoints:
+  beginner:
+    - 'tutorial_start'
+    - 'first_resources'
+    - 'first_building'
+    - 'first_colony'
+
+direct_help:
+  enabled: true
+  max_per_session: 5
+  cooldown_seconds: 3600

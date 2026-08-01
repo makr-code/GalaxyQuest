@@ -1,0 +1,21 @@
+{
+    "session_id": "user_87676_npc_58cf0b0df8a4b6de6ec27af66e787c7a_faction_43db2a9bc6b7310c67fd6873bb6ca7a4",
+    "user_id": 87676,
+    "npc_id": "npc_commander_01",
+    "faction": "Federation",
+    "created_at": 1785586676,
+    "updated_at": 1785586676,
+    "messages": [
+        {
+            "role": "user",
+            "content": "Hello!",
+            "timestamp": 1785586676
+        },
+        {
+            "role": "assistant",
+            "content": "Greetings, commander!",
+            "timestamp": 1785586676
+        }
+    ],
+    "summary": null
+}

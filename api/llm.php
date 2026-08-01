@@ -248,19 +248,32 @@ switch ($action) {
 		json_error('NPC not found: ' . $npcName, 404);
 		}
 
-		$chatSessions = new NpcChatSessionRepository();
+		try {
+			if (!class_exists('NpcChatSessionRepository')) {
+				json_error('Chat system temporarily unavailable (missing NPC repository).', 503);
+			}
+			$chatSessions = new NpcChatSessionRepository();
+		} catch (Throwable $e) {
+			error_log('LLM: Error instantiating NpcChatSessionRepository: ' . $e->getMessage());
+			json_error('Chat system unavailable.', 503);
+		}
 
 		// Resolve or create session.
-		if ($sessionId !== null) {
-		$session = $chatSessions->loadSession($db, $sessionId, $uid);
-		if ($session === null) {
-			json_error('Session not found or access denied.', 404);
-		}
-		$isNewSession = false;
-		} else {
-		$session      = $chatSessions->createSession($db, $uid, $factionCode, $npcName);
-		$sessionId    = (int) $session['id'];
-		$isNewSession = true;
+		try {
+			if ($sessionId !== null) {
+				$session = $chatSessions->loadSession($db, $sessionId, $uid);
+				if ($session === null) {
+					json_error('Session not found or access denied.', 404);
+				}
+				$isNewSession = false;
+			} else {
+				$session      = $chatSessions->createSession($db, $uid, $factionCode, $npcName);
+				$sessionId    = (int) $session['id'];
+				$isNewSession = true;
+			}
+		} catch (Throwable $e) {
+			error_log('LLM: Error managing NPC chat session: ' . $e->getMessage());
+			json_error('Failed to initialize chat session.', 500);
 		}
 
 		$chatFile = (string) $session['chat_file'];
@@ -270,14 +283,22 @@ switch ($action) {
 
 		// Inject summaries of previous sessions on new session start.
 		if ($isNewSession) {
-		$summaries = $chatSessions->loadPreviousSummaries($db, $uid, $factionCode, $npcName);
-		if (!empty($summaries)) {
-			$summaryLines = [];
-			foreach ($summaries as $s) {
-				$date = substr((string) ($s['started_at'] ?? ''), 0, 10);
-				$summaryLines[] = '[' . $date . '] ' . (string) ($s['summary'] ?? '');
+			try {
+				if (method_exists($chatSessions, 'loadPreviousSummaries')) {
+					$summaries = $chatSessions->loadPreviousSummaries($db, $uid, $factionCode, $npcName);
+					if (!empty($summaries) && is_array($summaries)) {
+						$summaryLines = [];
+						foreach ($summaries as $s) {
+							$date = substr((string) ($s['started_at'] ?? ''), 0, 10);
+							$summaryLines[] = '[' . $date . '] ' . (string) ($s['summary'] ?? '');
+						}
+						$systemPrompt .= "\n\nBisherige Gespräche (Zusammenfassung):\n" . implode("\n", $summaryLines);
+					}
+				}
+			} catch (Throwable $e) {
+				error_log('LLM: Error loading previous chat summaries: ' . $e->getMessage());
+				// Non-fatal: continue without summaries
 			}
-			$systemPrompt .= "\n\nBisherige Gespräche (Zusammenfassung):\n" . implode("\n", $summaryLines);
 		}
 		}
 

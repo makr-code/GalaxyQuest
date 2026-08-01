@@ -24,8 +24,10 @@ services:
       SESSION_LIFETIME: 3600
       XDEBUG_MODE: develop,debug
       XDEBUG_CONFIG: client_host=host.docker.internal client_port=9003 idekey=VSCODE
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
-      SWARMUI_BASE_URL: http://host.docker.internal:7801
+      OLLAMA_BASE_URL: http://ollama:11434
+      VLLM_BASE_URL: http://vllm:8000
+      COMFYUI_BASE_URL: http://comfyui:8188
+      STABLE_DIFFUSION_BASE_URL: http://stable-diffusion:7860
       TTS_ENABLED: 1
       TTS_SERVICE_URL: http://tts:5500
       # ThemisDB – Phase 0 dual-write (disabled by default; enable when themisdb profile is active)
@@ -73,10 +75,11 @@ services:
       - ./sql/migrate_actor_model_v1.sql:/docker-entrypoint-initdb.d/022-actor-model-v1.sql:ro
       - ./sql/migrate_faction_species_v1.sql:/docker-entrypoint-initdb.d/023-faction-species-v1.sql:ro
       - ./sql/migrate_actor_model_v2_drop_is_npc.sql:/docker-entrypoint-initdb.d/024-actor-model-v2-drop-is-npc.sql:ro
-      - ./sql/migrate_tts_v1.sql:/docker-entrypoint-initdb.d/025-tts-v1.sql:ro
-      - ./sql/migrate_trade_proposals_v1.sql:/docker-entrypoint-initdb.d/026-trade-proposals.sql:ro
-      - ./sql/migrate_npc_wars_v1.sql:/docker-entrypoint-initdb.d/027-npc-wars-v1.sql:ro
-      - ./sql/migrate_economy_shortage_v1.sql:/docker-entrypoint-initdb.d/028-economy-shortage.sql:ro
+      - ./sql/migrate_combat_v1_wars.sql:/docker-entrypoint-initdb.d/025-combat-v1-wars.sql:ro
+      - ./sql/migrate_tts_v1.sql:/docker-entrypoint-initdb.d/026-tts-v1.sql:ro
+      - ./sql/migrate_trade_proposals_v1.sql:/docker-entrypoint-initdb.d/027-trade-proposals.sql:ro
+      - ./sql/migrate_npc_wars_v1.sql:/docker-entrypoint-initdb.d/028-npc-wars-v1.sql:ro
+      - ./sql/migrate_economy_shortage_v1.sql:/docker-entrypoint-initdb.d/029-economy-shortage.sql:ro
 
   tts:
     build:
@@ -94,35 +97,106 @@ services:
       - galaxyquest-tts-voice-cache:/app/voice_cache
       - galaxyquest-tts-audio-cache:/app/audio_cache
 
-  # ── ComfyUI (AI-powered texture generation) ─────────────────────────
-  # Optional service for AI-generated PBR textures (spaceships, planets, etc.)
-  # Requires GPU with CUDA support for fast generation
-  # Set COMFYUI_ENABLED=1 and COMFYUI_BASE_URL in web environment to use
-  comfyui:
-    image: comfyui/comfyui:latest
-    container_name: galaxyquest-comfyui
+  # ── vLLM Server (Fast LLM Inference for NPC Dialog) ────────────────────────────
+  # OpenAI-compatible API server for rapid NPC dialogue generation
+  # Profile: ai-fast, ai-full
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: galaxyquest-vllm
     profiles:
-      - ai              # opt-in: start with `docker compose --profile ai up`
+      - ai-fast
+      - ai-full
     environment:
-      LISTEN: 0.0.0.0
-      LISTEN_PORT: 8188
-      # GPU support - adjust based on your setup (cuda, rocm, cpu, directml)
-      DEVICE: cuda
+      HF_TOKEN: ""
+      CUDA_VISIBLE_DEVICES: 0
+    ports:
+      - "8000:8000"
+    volumes:
+      - vllm-models:/root/.cache/huggingface/hub
+      - vllm-cache:/root/.cache
+    command: >
+      --model mistralai/Mistral-7B-Instruct-v0.2
+      --max-model-len 4096
+      --tensor-parallel-size 1
+      --gpu-memory-utilization 0.9
+      --trust-remote-code
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/v1/models"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  # ── Stable Diffusion WebUI (Fast Text-to-Image Generation) ──────────────────────
+  # Standard SD for quick ship/planet/texture generation
+  # Profile: ai-fast, ai-full
+  stable-diffusion:
+    image: ghcr.io/automatic1111/stable-diffusion-webui:latest
+    container_name: galaxyquest-stable-diffusion
+    profiles:
+      - ai-fast
+      - ai-full
+    environment:
+      GRADIO_QUEUE_CONCURRENCY_COUNT: 2
+      CUDA_VISIBLE_DEVICES: 0
+    ports:
+      - "7860:7860"
+    volumes:
+      - stable-diffusion-models:/stable-diffusion-webui/models
+      - stable-diffusion-outputs:/stable-diffusion-webui/outputs
+      - stable-diffusion-extensions:/stable-diffusion-webui/extensions
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:7860/info"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  # ── ComfyUI (Node-based Image Generation Workflows) ──────────────────────────────
+  # Flexible node-based workflow engine for advanced image generation and processing
+  # Ports: 8188 (HTTP API + WebSocket)
+  # For production: replace with actual ComfyUI image
+  # For testing: uses PHP mock server at docker/comfyui-mock-server.php
+  comfyui:
+    image: php:8.3-cli
+    container_name: galaxyquest-comfyui
+    working_dir: /var/www
+    volumes:
+      - ./docker/comfyui-mock-server.php:/var/www/comfyui-mock-server.php:ro
+    command: php -S 0.0.0.0:8188 comfyui-mock-server.php
     ports:
       - "8188:8188"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8188/system_stats"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Ollama (Local LLM Inference Engine for Fallback NPC Dialogue) ────────────────
+  # Lightweight local LLM (Mistral-7B: 4GB VRAM) for dialogue generation
+  # Profile: ai-creative, ai-full
+  ollama:
+    image: ollama/ollama:latest
+    container_name: galaxyquest-ollama
+    profiles:
+      - ai-creative
+      - ai-full
+    environment:
+      CUDA_VISIBLE_DEVICES: 0
+    ports:
+      - "11434:11434"
     volumes:
-      - comfyui-models:/root/.comfyui/models
-      - comfyui-output:/root/.comfyui/output
-      - comfyui-temp:/root/.comfyui/temp
-      - ./ai/comfyui_workflows:/root/.comfyui/custom_nodes/GalaxyQuest:ro
-    # Uncomment for GPU support (requires nvidia-docker):
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+      - ollama-models:/root/.ollama
+    # Pre-download model on start (optional, comment out for faster startup)
+    # Uncomment to auto-pull model on container start:
+    # entrypoint: sh -c 'ollama serve & sleep 2 && ollama pull mistral && wait'
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   # ── ThemisDB (Phase 0: parallel to MySQL for dual-write PoC) ──────────────
   # ThemisDB COMMUNITY edition – multi-model database with native LLM support.
@@ -203,5 +277,12 @@ volumes:
   galaxyquest-tts-audio-cache:
   galaxyquest-themisdb-data:
   comfyui-models:
+  comfyui-input:
   comfyui-output:
-  comfyui-temp:
+  comfyui-custom:
+  vllm-models:
+  vllm-cache:
+  stable-diffusion-models:
+  stable-diffusion-outputs:
+  stable-diffusion-extensions:
+  ollama-models:

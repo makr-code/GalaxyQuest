@@ -27,7 +27,7 @@ define('ENABLE_DEV_AUTH_TOOLS', (int) env_value('ENABLE_DEV_AUTH_TOOLS', APP_ENV
 define('OLLAMA_ENABLED', (int) env_value('OLLAMA_ENABLED', APP_ENV === 'production' ? 0 : 1));
 define('OLLAMA_LOCAL_ONLY', (int) env_value('OLLAMA_LOCAL_ONLY', 1));
 define('OLLAMA_BASE_URL', rtrim((string) env_value('OLLAMA_BASE_URL', 'http://127.0.0.1:11434'), '/'));
-define('OLLAMA_DEFAULT_MODEL', (string) env_value('OLLAMA_DEFAULT_MODEL', 'llama3.1:8b'));
+define('OLLAMA_DEFAULT_MODEL', (string) env_value('OLLAMA_DEFAULT_MODEL', 'mistral'));
 define('OLLAMA_TIMEOUT_SECONDS', (int) env_value('OLLAMA_TIMEOUT_SECONDS', 45));
 
 // SwarmUI (local Stable Diffusion image generation)

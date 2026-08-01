@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPC Dialogue Panel Test - GalaxyQuest</title>
+    <link rel="stylesheet" href="css/npc_dialogue_panel.css?v=2">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0a1a2e 0%, #16213e 100%);
+            color: #e8f4f8;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .demo-container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .demo-header {
+            margin-bottom: 40px;
+            text-align: center;
+        }
+
+        .demo-header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+            color: #4fbf73;
+            text-shadow: 0 2px 10px rgba(79, 191, 115, 0.3);
+        }
+
+        .demo-header p {
+            color: #a8c5d1;
+            font-size: 16px;
+        }
+
+        .demo-layout {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 30px;
+            align-items: start;
+        }
+
+        .demo-content {
+            background: rgba(20, 45, 65, 0.5);
+            border: 1px solid rgba(79, 191, 115, 0.2);
+            border-radius: 8px;
+            padding: 30px;
+            min-height: 600px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .demo-npc-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+
+        .npc-button {
+            padding: 16px;
+            border: 1px solid rgba(79, 191, 115, 0.3);
+            border-radius: 6px;
+            background: rgba(20, 45, 65, 0.7);
+            color: #e8f4f8;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        .npc-button:hover {
+            background: rgba(79, 191, 115, 0.1);
+            border-color: rgba(79, 191, 115, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .npc-button-name {
+            font-weight: 600;
+            color: #4fbf73;
+            margin-bottom: 4px;
+        }
+
+        .npc-button-faction {
+            font-size: 12px;
+            color: #a8c5d1;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            background: linear-gradient(135deg, #4fbf73 0%, #2a8c52 100%);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: linear-gradient(135deg, #5bcd82 0%, #349d60 100%);
+            transform: translateY(-2px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .demo-panel-wrapper {
+            npc-dialogue-container {
+                position: sticky;
+                top: 20px;
+            }
+        }
+
+        .status-display {
+            background: rgba(15, 35, 60, 0.8);
+            border: 1px solid rgba(79, 191, 115, 0.2);
+            border-radius: 6px;
+            padding: 16px;
+            margin-top: 20px;
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .status-line {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(79, 191, 115, 0.1);
+        }
+
+        .status-line:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            color: #a8c5d1;
+        }
+
+        .status-value {
+            color: #4fbf73;
+            font-weight: 600;
+        }
+
+        .info-box {
+            background: rgba(100, 150, 200, 0.1);
+            border-left: 3px solid #4fbf73;
+            padding: 16px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #d7e8ff;
+        }
+
+        @media (max-width: 1024px) {
+            .demo-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .demo-npc-list {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <!-- Header -->
+        <div class="demo-header">
+            <h1>🎮 NPC Dialogue Panel Test</h1>
+            <p>Interactive dialogue system for GalaxyQuest NPCs</p>
+        </div>
+
+        <!-- Main Layout -->
+        <div class="demo-layout">
+            <!-- Content Area -->
+            <div class="demo-content">
+                <div class="info-box">
+                    ℹ️ Select an NPC from the list to start a dialogue. Each NPC has a distinct personality based on their agent type.
+                </div>
+
+                <h3 style="margin-bottom: 20px; color: #91d4ff;">Available NPCs</h3>
+
+                <div class="demo-npc-list">
+                    <button class="npc-button" onclick="launchDialogue('npc_commander_01', 'Commander Vex', 'Federation')">
+                        <div class="npc-button-name">⚔️ Commander Vex</div>
+                        <div class="npc-button-faction">Federation • Military</div>
+                    </button>
+
+                    <button class="npc-button" onclick="launchDialogue('npc_diplomat_01', 'Envoy Salix', 'Federation')">
+                        <div class="npc-button-name">🤝 Envoy Salix</div>
+                        <div class="npc-button-faction">Federation • Diplomat</div>
+                    </button>
+
+                    <button class="npc-button" onclick="launchDialogue('npc_merchant_01', 'Trader Kess', 'Neutral Traders')">
+                        <div class="npc-button-name">💰 Trader Kess</div>
+                        <div class="npc-button-faction">Neutral Traders • Commercial</div>
+                    </button>
+
+                    <button class="npc-button" onclick="launchDialogue('npc_scientist_01', 'Dr. Lythe', 'Xylothian')">
+                        <div class="npc-button-name">🔬 Dr. Lythe</div>
+                        <div class="npc-button-faction">Xylothian • Research</div>
+                    </button>
+                </div>
+
+                <div class="controls" style="margin-top: 30px;">
+                    <button onclick="clearAllPanels()">Clear All</button>
+                    <button onclick="showSystemStatus()">Show Status</button>
+                </div>
+
+                <div id="status-display" class="status-display" style="display: none;">
+                    <div class="status-line">
+                        <span class="status-label">Panels Active:</span>
+                        <span class="status-value" id="panels-count">0</span>
+                    </div>
+                    <div class="status-line">
+                        <span class="status-label">Total Messages:</span>
+                        <span class="status-value" id="total-messages">0</span>
+                    </div>
+                    <div class="status-line">
+                        <span class="status-label">Cache Hit Rate:</span>
+                        <span class="status-value" id="cache-rate">—</span>
+                    </div>
+                    <div class="status-line">
+                        <span class="status-label">Avg Response Time:</span>
+                        <span class="status-value" id="avg-latency">—</span>
+                    </div>
+                    <div class="status-line">
+                        <span class="status-label">Last Update:</span>
+                        <span class="status-value" id="last-update">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel Area -->
+            <div class="demo-panel-wrapper">
+                <npc-dialogue-container id="npc-dialogue-container"></npc-dialogue-container>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/systems/npc_dialogue_system.js?v=2"></script>
+    <script src="js/components/npc_dialogue_panel.js?v=2"></script>
+
+    <script>
+        // Global state
+        let dialoguePanels = {};
+        let stats = {
+            totalMessages: 0,
+            cacheHits: 0,
+            cacheMisses: 0,
+            responseTimes: []
+        };
+
+        /**
+         * Launch dialogue with an NPC
+         */
+        function launchDialogue(npcId, npcName, faction) {
+            const container = document.getElementById('npc-dialogue-container');
+            
+            // Clear existing panel
+            container.innerHTML = '';
+
+            // Create new panel
+            const panel = new NPCDialoguePanel({
+                containerId: 'npc-dialogue-container',
+                npcId: npcId,
+                npcName: npcName,
+                faction: faction,
+                playerId: 'test-player-1',
+                apiBaseUrl: '/api',
+                autoLoadHistory: true
+            });
+
+            // Store panel
+            dialoguePanels[npcId] = panel;
+
+            // Open panel
+            panel.open({ faction: faction });
+
+            // Update UI
+            updateStats();
+
+            console.log(`✅ Dialogue opened with ${npcName}`);
+        }
+
+        /**
+         * Clear all panels
+         */
+        function clearAllPanels() {
+            Object.values(dialoguePanels).forEach(panel => {
+                panel.destroy();
+            });
+            dialoguePanels = {};
+            document.getElementById('npc-dialogue-container').innerHTML = '';
+            document.getElementById('status-display').style.display = 'none';
+            console.log('✅ All panels cleared');
+        }
+
+        /**
+         * Show system status
+         */
+        function showSystemStatus() {
+            const display = document.getElementById('status-display');
+            const isVisible = display.style.display !== 'none';
+            display.style.display = isVisible ? 'none' : 'block';
+
+            if (!isVisible) {
+                updateStats();
+            }
+        }
+
+        /**
+         * Update statistics display
+         */
+        function updateStats() {
+            let totalMessages = 0;
+            let totalCacheHits = 0;
+            let totalCacheMisses = 0;
+
+            Object.values(dialoguePanels).forEach(panel => {
+                totalMessages += panel.state.messages.length;
+                totalCacheHits += panel.state.cacheStats.hits;
+                totalCacheMisses += panel.state.cacheStats.misses;
+            });
+
+            const cacheTotal = totalCacheHits + totalCacheMisses;
+            const cacheRate = cacheTotal > 0 
+                ? Math.round((totalCacheHits / cacheTotal) * 100) 
+                : 0;
+
+            document.getElementById('panels-count').textContent = Object.keys(dialoguePanels).length;
+            document.getElementById('total-messages').textContent = totalMessages;
+            document.getElementById('cache-rate').textContent = `${cacheRate}%`;
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+
+            if (stats.responseTimes.length > 0) {
+                const avgLatency = Math.round(
+                    stats.responseTimes.reduce((a, b) => a + b, 0) / stats.responseTimes.length
+                );
+                document.getElementById('avg-latency').textContent = `${avgLatency}ms`;
+            }
+        }
+
+        /**
+         * Periodically update stats
+         */
+        setInterval(updateStats, 2000);
+
+        // Initial message
+        console.log('%c🎮 NPC Dialogue Panel Test Suite', 'color: #4fbf73; font-size: 16px; font-weight: bold;');
+        console.log('Select an NPC to begin dialogue. Use showSystemStatus() to view metrics.');
+    </script>
+</body>
+</html>

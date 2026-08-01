@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Guide NPC Test - GalaxyQuest</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: #4fbf73;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 2.5em;
+            text-shadow: 0 0 10px rgba(79, 191, 115, 0.5);
+        }
+        
+        .demo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .demo-panel {
+            background: rgba(20, 25, 45, 0.8);
+            border: 1px solid #4fbf73;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 0 20px rgba(79, 191, 115, 0.2);
+        }
+        
+        .demo-panel h2 {
+            color: #4fbf73;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        .info-box {
+            background: rgba(79, 191, 115, 0.1);
+            border-left: 3px solid #4fbf73;
+            padding: 12px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            font-size: 0.95em;
+        }
+        
+        .critical-issue {
+            background: rgba(220, 50, 50, 0.2);
+            border-left: 3px solid #dc3232;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        
+        .warning {
+            background: rgba(255, 193, 7, 0.2);
+            border-left: 3px solid #ffc107;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        
+        .tip {
+            background: rgba(79, 191, 115, 0.1);
+            border-left: 3px solid #4fbf73;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        
+        button, select {
+            padding: 10px 16px;
+            background: #4fbf73;
+            color: #0a0e27;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+            font-size: 0.95em;
+        }
+        
+        button:hover {
+            background: #3fa063;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(79, 191, 115, 0.3);
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        select {
+            background: #2a3050;
+            color: #e0e0e0;
+            cursor: pointer;
+        }
+        
+        .slider-group {
+            margin-bottom: 20px;
+        }
+        
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            background: rgba(79, 191, 115, 0.2);
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #4fbf73;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: #4fbf73;
+            cursor: pointer;
+            border-radius: 50%;
+            border: none;
+        }
+        
+        .output-box {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid #4fbf73;
+            border-radius: 4px;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #4fbf73;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .greeting-box {
+            background: rgba(79, 191, 115, 0.15);
+            border: 2px solid #4fbf73;
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 20px;
+            font-style: italic;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #4fbf73;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-indicator.loading {
+            animation: pulse 1s infinite;
+        }
+        
+        .progress-bar {
+            background: rgba(79, 191, 115, 0.2);
+            height: 4px;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        
+        .progress-fill {
+            background: #4fbf73;
+            height: 100%;
+            transition: width 0.3s;
+        }
+        
+        @media (max-width: 768px) {
+            .demo-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            h1 {
+                font-size: 1.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Game Guide NPC Test</h1>
+        
+        <!-- Greeting & Overview -->
+        <div class="demo-grid">
+            <div class="demo-panel">
+                <h2>📍 Greeting & Status</h2>
+                <button onclick="getGreeting()">Get Greeting</button>
+                
+                <div id="greeting-output" class="greeting-box" style="display:none; margin-top: 15px;">
+                    <span class="status-indicator"></span>
+                    <span id="greeting-text"></span>
+                </div>
+                
+                <div style="margin-top: 15px;">
+                    <div style="font-size: 0.9em; color: #aaa;">
+                        <div>New Player: <span id="is-new">-</span></div>
+                        <div>Player Level: <span id="player-level">-</span></div>
+                        <div>Last Assessment: <span id="last-assessment">Never</span></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="demo-panel">
+                <h2>🎮 Game State Simulator</h2>
+                
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Food (0-1000)</span>
+                        <strong id="food-value">500</strong>
+                    </div>
+                    <input type="range" id="food-slider" min="0" max="1000" value="500" 
+                           onchange="updateValue('food')">
+                </div>
+                
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Production Rate (0-100)</span>
+                        <strong id="production-value">50</strong>
+                    </div>
+                    <input type="range" id="production-slider" min="0" max="100" value="50"
+                           onchange="updateValue('production')">
+                </div>
+                
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Population (0-1000)</span>
+                        <strong id="population-value">100</strong>
+                    </div>
+                    <input type="range" id="population-slider" min="0" max="1000" value="100"
+                           onchange="updateValue('population')">
+                </div>
+                
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Fleet Strength (0-500)</span>
+                        <strong id="fleet-value">0</strong>
+                    </div>
+                    <input type="range" id="fleet-slider" min="0" max="500" value="0"
+                           onchange="updateValue('fleet')">
+                </div>
+                
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Nearby Threats (0-10)</span>
+                        <strong id="threats-value">0</strong>
+                    </div>
+                    <input type="range" id="threats-slider" min="0" max="10" value="0"
+                           onchange="updateValue('threats')">
+                </div>
+                
+                <button onclick="assessGameState()" style="width: 100%; margin-top: 15px;">
+                    Assess Current State
+                </button>
+            </div>
+        </div>
+        
+        <!-- Assessment Results -->
+        <div class="demo-panel" id="assessment-panel" style="display:none; margin-bottom: 20px;">
+            <h2>📊 Assessment Results</h2>
+            
+            <div id="critical-issues-container">
+                <h3 style="color: #dc3232; margin-bottom: 10px;">🚨 Critical Issues</h3>
+                <div id="critical-issues"></div>
+            </div>
+            
+            <div id="warnings-container" style="margin-top: 20px;">
+                <h3 style="color: #ffc107; margin-bottom: 10px;">⚠️ Warnings</h3>
+                <div id="warnings"></div>
+            </div>
+            
+            <div id="tips-container" style="margin-top: 20px;">
+                <h3 style="color: #4fbf73; margin-bottom: 10px;">💡 Recommendations</h3>
+                <div id="tips"></div>
+            </div>
+        </div>
+        
+        <!-- Help Topics -->
+        <div class="demo-grid" style="margin-bottom: 20px;">
+            <div class="demo-panel">
+                <h2>📚 Help Topics</h2>
+                
+                <select id="help-category" style="width: 100%; margin-bottom: 10px;">
+                    <option value="">Choose a topic...</option>
+                    <option value="getting_started">🚀 Getting Started</option>
+                    <option value="resources_and_production">🌾 Resources & Production</option>
+                    <option value="military_and_fleets">⚔️ Military & Fleets</option>
+                    <option value="diplomacy_and_factions">🤝 Diplomacy & Factions</option>
+                    <option value="technology_and_research">🔬 Technology & Research</option>
+                    <option value="colonization">🌍 Colonization</option>
+                    <option value="market_and_trading">💰 Market & Trading</option>
+                    <option value="troubleshooting">🔧 Troubleshooting</option>
+                </select>
+                
+                <button onclick="getHelpTopic()" style="width: 100%;">Load Help Topic</button>
+                
+                <div id="help-output" class="output-box" style="display:none; margin-top: 15px;">
+                    <strong id="help-title"></strong>
+                    <div id="help-questions" style="margin-top: 10px; font-size: 0.85em;"></div>
+                    <div id="help-tips" style="margin-top: 10px;"></div>
+                </div>
+            </div>
+            
+            <div class="demo-panel">
+                <h2>🤝 Direct Help</h2>
+                
+                <select id="help-type" style="width: 100%; margin-bottom: 10px;">
+                    <option value="">Choose help type...</option>
+                    <option value="grant_starting_resources">Starting Resources</option>
+                    <option value="grant_research_points">Research Boost</option>
+                    <option value="grant_credits_emergency">Emergency Credits</option>
+                    <option value="grant_colony_buildings">Colony Buildings</option>
+                    <option value="unlock_tutorial_tech">Tutorial Technologies</option>
+                </select>
+                
+                <button onclick="requestDirectHelp()" style="width: 100%;">Request Help</button>
+                
+                <div id="help-result" class="output-box" style="display:none; margin-top: 15px;">
+                    <div id="help-result-content"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tutorial Progress -->
+        <div class="demo-grid">
+            <div class="demo-panel">
+                <h2>✅ Tutorial Progress</h2>
+                
+                <div class="button-group">
+                    <button onclick="recordCheckpoint('first_colony_created')">First Colony</button>
+                    <button onclick="recordCheckpoint('first_building_built')">First Building</button>
+                    <button onclick="recordCheckpoint('first_research_completed')">First Research</button>
+                    <button onclick="recordCheckpoint('first_fleet_built')">First Fleet</button>
+                </div>
+                
+                <button onclick="getProgress()" style="width: 100%;">Show Progress</button>
+                
+                <div id="progress-output" class="output-box" style="display:none; margin-top: 15px;">
+                    <div id="progress-content"></div>
+                </div>
+            </div>
+            
+            <div class="demo-panel">
+                <h2>📝 Test Output</h2>
+                
+                <button onclick="clearOutput()" style="width: 100%;">Clear Output</button>
+                
+                <div id="test-output" class="output-box">
+                    <div style="color: #999;">Test output will appear here...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Mock gameState for CSRF token
+        window.gameState = {
+            userId: 999,
+            csrfToken: 'test_csrf_token',
+            authToken: 'test_auth_token'
+        };
+        
+        // Game state simulator
+        let gameState = {
+            resources: {food: 500, energy: 250, minerals: 100},
+            production: {food: 50, energy: 25},
+            population: 100,
+            colony_count: 1,
+            fleet_strength: 0,
+            nearby_threats: 0,
+            technologies_researched: 0,
+            research_buildings: 0,
+            buildings: [],
+            is_new_player: true,
+            time_played_hours: 0.5
+        };
+        
+        let isLoading = false;
+        
+        function updateValue(name) {
+            const slider = document.getElementById(name + '-slider');
+            const valueSpan = document.getElementById(name + '-value');
+            valueSpan.textContent = slider.value;
+            
+            switch(name) {
+                case 'food':
+                    gameState.resources.food = parseInt(slider.value);
+                    break;
+                case 'production':
+                    gameState.production.food = parseInt(slider.value);
+                    break;
+                case 'population':
+                    gameState.population = parseInt(slider.value);
+                    break;
+                case 'fleet':
+                    gameState.fleet_strength = parseInt(slider.value);
+                    break;
+                case 'threats':
+                    gameState.nearby_threats = parseInt(slider.value);
+                    break;
+            }
+            
+            log(`Updated ${name}: ${slider.value}`);
+        }
+        
+        async function getGreeting() {
+            if (isLoading) return;
+            isLoading = true;
+            
+            try {
+                log('Fetching greeting...');
+                const response = await fetch('/api/game_guide.php?action=greeting');
+                const data = await response.json();
+                
+                if (data.ok) {
+                    document.getElementById('greeting-text').textContent = data.greeting;
+                    document.getElementById('greeting-output').style.display = 'block';
+                    document.getElementById('is-new').textContent = data.is_new_player ? 'Yes' : 'No';
+                    document.getElementById('player-level').textContent = data.player_level;
+                    log('✅ Greeting received!');
+                } else {
+                    log('❌ Error: ' + data.error);
+                }
+            } catch (error) {
+                log('❌ Fetch failed: ' + error.message);
+            } finally {
+                isLoading = false;
+            }
+        }
+        
+        async function assessGameState() {
+            if (isLoading) return;
+            isLoading = true;
+            
+            try {
+                log('Assessing game state...');
+                
+                const formData = new FormData();
+                formData.append('action', 'assess_game_state');
+                formData.append('game_state', JSON.stringify(gameState));
+                formData.append('csrf_token', 'test_csrf_token');
+                
+                const response = await fetch('/api/game_guide.php', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'Authorization': 'Bearer test_auth_token'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.ok) {
+                    displayAssessment(data);
+                    document.getElementById('last-assessment').textContent = new Date().toLocaleTimeString();
+                    log('✅ Assessment complete!');
+                } else {
+                    log('❌ Error: ' + data.error);
+                }
+            } catch (error) {
+                log('❌ Fetch failed: ' + error.message);
+            } finally {
+                isLoading = false;
+            }
+        }
+        
+        function displayAssessment(data) {
+            const panel = document.getElementById('assessment-panel');
+            const criticalDiv = document.getElementById('critical-issues');
+            const warningsDiv = document.getElementById('warnings');
+            const tipsDiv = document.getElementById('tips');
+            
+            criticalDiv.innerHTML = (data.critical_issues || []).length === 0 
+                ? '<p style="color: #4fbf73;">✅ No critical issues</p>'
+                : data.critical_issues.map(i => `
+                    <div class="critical-issue">
+                        <strong>${i.type}</strong><br>
+                        ${i.message}
+                    </div>
+                `).join('');
+            
+            warningsDiv.innerHTML = (data.warnings || []).length === 0
+                ? '<p style="color: #4fbf73;">✅ No warnings</p>'
+                : data.warnings.map(w => `
+                    <div class="warning">
+                        <strong>${w.type}</strong><br>
+                        ${w.message}
+                    </div>
+                `).join('');
+            
+            tipsDiv.innerHTML = (data.tips || []).length === 0
+                ? '<p style="color: #4fbf73;">No specific tips</p>'
+                : data.tips.map(t => `
+                    <div class="tip">
+                        ${t.text}
+                    </div>
+                `).join('');
+            
+            panel.style.display = 'block';
+        }
+        
+        async function getHelpTopic() {
+            const category = document.getElementById('help-category').value;
+            if (!category) {
+                log('❌ Please select a topic');
+                return;
+            }
+            
+            if (isLoading) return;
+            isLoading = true;
+            
+            try {
+                log('Loading help topic: ' + category);
+                
+                const response = await fetch(`/api/game_guide.php?action=help_topic&category=${category}`, {
+                    headers: {
+                        'Authorization': 'Bearer test_auth_token'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.ok) {
+                    const output = document.getElementById('help-output');
+                    document.getElementById('help-title').textContent = data.title;
+                    document.getElementById('help-questions').innerHTML = data.questions
+                        .map(q => `<div>❓ ${q}</div>`).join('');
+                    document.getElementById('help-tips').innerHTML = data.tips
+                        .map(t => `<div>💡 ${t}</div>`).join('');
+                    output.style.display = 'block';
+                    log('✅ Help topic loaded!');
+                } else {
+                    log('❌ Error: ' + data.error);
+                }
+            } catch (error) {
+                log('❌ Fetch failed: ' + error.message);
+            } finally {
+                isLoading = false;
+            }
+        }
+        
+        async function requestDirectHelp() {
+            const helpType = document.getElementById('help-type').value;
+            if (!helpType) {
+                log('❌ Please select a help type');
+                return;
+            }
+            
+            if (isLoading) return;
+            isLoading = true;
+            
+            try {
+                log('Requesting direct help: ' + helpType);
+                
+                const formData = new FormData();
+                formData.append('action', 'provide_help');
+                formData.append('help_type', helpType);
+                formData.append('game_state', JSON.stringify(gameState));
+                formData.append('csrf_token', 'test_csrf_token');
+                
+                const response = await fetch('/api/game_guide.php', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'Authorization': 'Bearer test_auth_token'
+                    }
+                });
+                
+                const data = await response.json();
+                const resultDiv = document.getElementById('help-result');
+                
+                if (data.ok) {
+                    document.getElementById('help-result-content').innerHTML = `
+                        <strong>✅ Help Granted!</strong><br>
+                        Action: ${data.action.type}<br>
+                        Message: ${data.action.message || ''}<br>
+                        <pre>${JSON.stringify(data.action, null, 2)}</pre>
+                    `;
+                    log('✅ Help provided!');
+                } else {
+                    document.getElementById('help-result-content').innerHTML = `
+                        <strong>❌ Help Denied</strong><br>
+                        Reason: ${data.reason || data.error}
+                    `;
+                    log('⚠️ Help could not be provided');
+                }
+                
+                resultDiv.style.display = 'block';
+            } catch (error) {
+                log('❌ Fetch failed: ' + error.message);
+            } finally {
+                isLoading = false;
+            }
+        }
+        
+        async function recordCheckpoint(checkpoint) {
+            if (isLoading) return;
+            isLoading = true;
+            
+            try {
+                log('Recording checkpoint: ' + checkpoint);
+                
+                const formData = new FormData();
+                formData.append('action', 'record_checkpoint');
+                formData.append('checkpoint', checkpoint);
+                formData.append('csrf_token', 'test_csrf_token');
+                
+                const response = await fetch('/api/game_guide.php', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'Authorization': 'Bearer test_auth_token'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.ok) {
+                    log('✅ Checkpoint recorded: ' + checkpoint);
+                } else {
+                    log('❌ Error: ' + data.error);
+                }
+            } catch (error) {
+                log('❌ Fetch failed: ' + error.message);
+            } finally {
+                isLoading = false;
+            }
+        }
+        
+        async function getProgress() {
+            if (isLoading) return;
+            isLoading = true;
+            
+            try {
+                log('Fetching tutorial progress...');
+                
+                const response = await fetch('/api/game_guide.php?action=get_progress', {
+                    headers: {
+                        'Authorization': 'Bearer test_auth_token'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.ok) {
+                    const progressDiv = document.getElementById('progress-output');
+                    const content = data.progress.length === 0
+                        ? '<p>No checkpoints completed yet</p>'
+                        : data.progress.map(p => `
+                            <div>✅ ${p.checkpoint_id} (${p.completed_at})</div>
+                        `).join('');
+                    
+                    document.getElementById('progress-content').innerHTML = `
+                        <strong>${data.checkpoint_count} checkpoints completed</strong><br><br>
+                        ${content}
+                    `;
+                    progressDiv.style.display = 'block';
+                    log('✅ Progress loaded!');
+                } else {
+                    log('❌ Error: ' + data.error);
+                }
+            } catch (error) {
+                log('❌ Fetch failed: ' + error.message);
+            } finally {
+                isLoading = false;
+            }
+        }
+        
+        function log(message) {
+            const output = document.getElementById('test-output');
+            const timestamp = new Date().toLocaleTimeString();
+            const line = document.createElement('div');
+            line.textContent = `[${timestamp}] ${message}`;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        function clearOutput() {
+            document.getElementById('test-output').innerHTML = '';
+            log('Output cleared');
+        }
+        
+        // Initial log
+        document.addEventListener('DOMContentLoaded', () => {
+            log('Game Guide NPC Test Page Loaded');
+            log('Ready for testing!');
+        });
+    </script>
+</body>
+</html>

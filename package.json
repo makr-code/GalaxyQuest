@@ -22,7 +22,7 @@
     "test:e2e:webgpu-shaders": "GQ_WEBGPU_SHADER_CI=1 playwright test tests/e2e/webgpu-shader-validation.spec.js --project=chromium --reporter=list"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2",
+    "@playwright/test": "^1.62.1",
     "jsdom": "^24.1.3",
     "vitest": "^4.1.3"
   },
