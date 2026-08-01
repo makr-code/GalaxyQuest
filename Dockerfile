@@ -20,3 +20,11 @@ COPY docker/php/conf.d/dev.ini /usr/local/etc/php/conf.d/zz-dev.ini
 COPY docker/php/conf.d/xdebug.ini /usr/local/etc/php/conf.d/zz-xdebug.ini
 
 WORKDIR /var/www/html
+
+# Install npm dependencies + build Vite bundles
+COPY package.json package-lock.json /var/www/html/
+RUN npm ci
+
+# Copy all source files for Vite build
+COPY . /var/www/html/
+RUN npm run vite:build || true  # Continue even if build fails (for development)

@@ -1420,9 +1420,13 @@
     })();
   </script>
 
-  <script src="js/runtime/boot-manifest.js?v=20260409p2"></script>
-  <script src="js/runtime/boot-assets.js?v=20260404p1"></script>
-  <script src="js/ui/terminal.js?v=20260404p51"></script>
+  <!-- ES6 Module Entry Point (Vite) — NEW -->
+  <script type="module" src="/js/main.js"></script>
+
+  <!-- Legacy boot-manifest and runtime initialization (DISABLED - being replaced by ES6 modules) -->
+  <!-- <script src="js/runtime/boot-manifest.js?v=20260801p1"></script> -->
+  <!-- <script src="js/runtime/boot-assets.js?v=20260404p1"></script> -->
+  <!-- <script src="js/ui/terminal.js?v=20260404p51"></script> -->
   
   <!-- Comprehensive Debug Logging -->
   <script>
@@ -1441,41 +1445,40 @@
     debugLog('Debug logging started');
   </script>
   
-  <!-- Core Network & API Scripts (manually prioritized) -->
-  <script src="js/runtime/wm.js?v=20260408p2"></script>
-  <script>debugLog('wm.js loaded')</script>
+  <!-- Core Network & API Scripts (manually prioritized - DISABLED for ES6 migration) -->
+  <!-- <script src="js/runtime/wm.js?v=20260408p2"></script> -->
+  <!-- <script>debugLog('wm.js loaded')</script> -->
   
-  <script src="js/runtime/wm-widgets.js?v=20260406p2"></script>
-  <script>debugLog('wm-widgets.js loaded')</script>
+  <!-- <script>debugLog('wm-widgets.js loaded')</script> -->
   
-  <script src="js/runtime/gqwm.js?v=20260407p1"></script>
-  <script>debugLog('gqwm.js loaded')</script>
+  <!-- <script src="js/runtime/gqwm.js?v=20260407p1"></script> -->
+  <!-- <script>debugLog('gqwm.js loaded')</script> -->
   
-  <script src="js/network/binary-decoder.js?v=20260404p50"></script>
-  <script>debugLog('binary-decoder.js loaded')</script>
+  <!-- <script src="js/network/binary-decoder.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('binary-decoder.js loaded')</script> -->
   
-  <script src="js/network/binary-decoder-v2.js?v=20260404p50"></script>
-  <script>debugLog('binary-decoder-v2.js loaded')</script>
+  <!-- <script src="js/network/binary-decoder-v2.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('binary-decoder-v2.js loaded')</script> -->
   
-  <script src="js/network/binary-decoder-v3.js?v=20260404p50"></script>
-  <script>debugLog('binary-decoder-v3.js loaded')</script>
+  <!-- <script src="js/network/binary-decoder-v3.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('binary-decoder-v3.js loaded')</script> -->
   
-  <script src="js/network/api-transport.js?v=20260404p50"></script>
-  <script>debugLog('api-transport.js loaded')</script>
+  <!-- <script src="js/network/api-transport.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('api-transport.js loaded')</script> -->
   
-  <script src="js/network/api-queue.js?v=20260404p50"></script>
-  <script>debugLog('api-queue.js loaded')</script>
+  <!-- <script src="js/network/api-queue.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('api-queue.js loaded')</script> -->
   
-  <script src="js/network/api-cache.js?v=20260404p50"></script>
-  <script>debugLog('api-cache.js loaded')</script>
+  <!-- <script src="js/network/api-cache.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('api-cache.js loaded')</script> -->
   
-  <script src="js/network/api-schema-adapters.js?v=20260404p50"></script>
-  <script>debugLog('api-schema-adapters.js loaded')</script>
+  <!-- <script src="js/network/api-schema-adapters.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('api-schema-adapters.js loaded')</script> -->
   
-  <script>debugLog('api-session.js loaded')</script>
+  <!-- <script>debugLog('api-session.js loaded')</script> -->
   
-  <script>
-    // Verify API dependencies before loading api.js
+  <!-- LEGACY: Verify API dependencies (now handled by ES6 modules) -->
+  <!-- <script>
     const deps = {
       APITransport: typeof window.APITransport,
       APIQueue: typeof window.APIQueue,
@@ -1484,19 +1487,17 @@
       APISchemaAdapters: typeof window.APISchemaAdapters
     };
     debugLog(`API Deps before api.js: ${JSON.stringify(deps)}`);
-  </script>
+  </script> -->
   
-  <script>debugLog(`Before api.js: window.API = ${typeof window.API}, APITransport = ${typeof window.APITransport}`)</script>
-  <script src="js/network/api.js?v=20260405p1"></script>
-  <script>
+  <!-- <script>debugLog(`Before api.js: window.API = ${typeof window.API}, APITransport = ${typeof window.APITransport}`)</script> -->
+  <!-- <script src="js/network/api.js?v=20260405p1"></script> -->
+  <!-- <script>
     debugLog(`After api.js: window.API = ${typeof window.API}`);
     if (typeof window.API === 'undefined') {
       debugLog('ERROR: window.API is undefined after api.js load');
       debugLog(`API object exists: ${typeof API}`);
       debugLog(`Setting window.API manually...`);
-      // Try to set it manually from the const API variable if it exists
       try {
-        // This won't work since API is scoped, but at least we can check for errors
         if (typeof API !== 'undefined') {
           window.API = API;
           debugLog(`Manually set window.API: ${typeof window.API}`);
@@ -1505,13 +1506,13 @@
         debugLog(`Error setting window.API: ${err.message}`);
       }
     }
-  </script>
+  </script> -->
   
-  <script src="js/network/api-contracts.js?v=20260404p50"></script>
-  <script>debugLog('api-contracts.js loaded')</script>
+  <!-- <script src="js/network/api-contracts.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('api-contracts.js loaded')</script> -->
   
-  <!-- Game engine + runtime startup -->
-  <script>
+  <!-- LEGACY: Game engine + runtime startup (replaced by ES6 modules) -->
+  <!-- <script>
     (async function() {
       debugLog('Inline loader starting');
       if (!window.__GQ_BOOT) {
@@ -1551,18 +1552,19 @@
       }
       debugLog('All scripts loaded');
     })();
-  </script>
+  </script> -->
   
   <!-- Minimal boot path: auth shell + shared galaxy background before session branching. -->
   <!-- UX/UI Interactions Module -->
-  <script src="js/ui/theme-manager.js?v=20260730p1"></script>
-  <script src="js/ui/interactions.js?v=20260730p1"></script>
-  <script src="js/ui/tooltips.js?v=20260730p1"></script>
-  <script src="js/ui/modals.js?v=20260730p1"></script>
-  <script src="js/vfx/particle-system.js?v=20260730p1"></script>
-  <script src="js/rendering/canvas-animation-engine.js?v=20260730p1"></script>
-  <script src="js/rendering/trajectory-renderer.js?v=20260730p1"></script>
-  <script src="js/rendering/starfield.js?v=20260404p110"></script>
+  <!-- Legacy UI scripts (temporarily disabled for ES6 module migration) -->
+  <!-- <script src="js/ui/theme-manager.js?v=20260730p1"></script> -->
+  <!-- <script src="js/ui/interactions.js?v=20260730p1"></script> -->
+  <!-- <script src="js/ui/tooltips.js?v=20260730p1"></script> -->
+  <!-- <script src="js/ui/modals.js?v=20260730p1"></script> -->
+  <!-- <script src="js/vfx/particle-system.js?v=20260730p1"></script> -->
+  <!-- <script src="js/rendering/canvas-animation-engine.js?v=20260730p1"></script> -->
+  <!-- <script src="js/rendering/trajectory-renderer.js?v=20260730p1"></script> -->
+  <!-- <script src="js/rendering/starfield.js?v=20260404p110"></script> -->
   <script>
     // Debug and fallback canvas initialization
     (function() {
@@ -1607,15 +1609,15 @@
       }, 500);
     })();
   </script>
-  <script src="js/ui/prolog.js?v=1"></script>
-  <script src="js/network/auth.js?v=20260409p112"></script>
+  <!-- <script src="js/ui/prolog.js?v=1"></script> -->
+  <!-- <script src="js/network/auth.js?v=20260409p112"></script> -->
   <!-- NPC Dialogue System Integration -->
-  <script src="js/systems/npc_dialogue_system.js?v=1"></script>
-  <script src="js/components/npc_dialogue_panel.js?v=1"></script>
-  <script src="js/components/npc_interaction_handler.js?v=1"></script>
+  <!-- <script src="js/systems/npc_dialogue_system.js?v=1"></script> -->
+  <!-- <script src="js/components/npc_dialogue_panel.js?v=1"></script> -->
+  <!-- <script src="js/components/npc_interaction_handler.js?v=1"></script> -->
   <!-- Game Guide NPC System -->
-  <script src="js/systems/game_guide_system.js?v=1"></script>
-  <script src="js/components/advisor_npc_integration.js?v=1"></script>
+  <!-- <script src="js/systems/game_guide_system.js?v=1"></script> -->
+  <!-- <script src="js/components/advisor_npc_integration.js?v=1"></script> -->
   <script>
     (function initNpcDialoguePanel() {
       try {
