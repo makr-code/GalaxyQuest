@@ -664,8 +664,6 @@
       const tabPolicy     = state.tab === 'policy'     ? ' economy-tab--active' : '';
       const tabOverview   = state.tab === 'overview'   ? ' economy-tab--active' : '';
       const tabProduction = state.tab === 'production' ? ' economy-tab--active' : '';
-      const tabPolicy = state.tab === 'policy' ? ' economy-tab--active' : '';
-      const tabOverview = state.tab === 'overview' ? ' economy-tab--active' : '';
       const tabPopulation = state.tab === 'population' ? ' economy-tab--active' : '';
 
       let contentHtml;

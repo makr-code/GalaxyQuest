@@ -84,10 +84,15 @@
             sectionId: 'left_sidebar',
             prebuiltSelector: '.sidebar-panel-left',
             adaptExisting: true,
+            fullscreenDesktop: false,  // Ensure resize handles are created
             defaultDock: 'left',
             defaultY: 560,
             w: 300,
             h: 520,
+            minWidth: 200,
+            maxWidth: 600,
+            dockable: true,
+            dockableSides: ['left', 'right'],
             onRender: (root) => {
               if (!root) return;
               if (!root.innerHTML.trim()) root.innerHTML = '<p class="text-muted">Left sidebar window.</p>';
@@ -98,10 +103,15 @@
             sectionId: 'right_sidebar',
             prebuiltSelector: '.sidebar-panel-right',
             adaptExisting: true,
+            fullscreenDesktop: false,  // Ensure resize handles are created
             defaultDock: 'right',
             defaultY: 1400,
             w: 300,
             h: 520,
+            minWidth: 200,
+            maxWidth: 600,
+            dockable: true,
+            dockableSides: ['left', 'right'],
             onRender: (root) => {
               if (!root) return;
               if (!root.innerHTML.trim()) root.innerHTML = '<p class="text-muted">Right sidebar window.</p>';

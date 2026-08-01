@@ -39,6 +39,7 @@ class NPCDialoguePanel {
 
     this.elements = {};
     this.dialogueSystem = null;
+    this.onResponseCallback = null; // Callback after response is generated
     this.init();
   }
 
@@ -70,10 +71,12 @@ class NPCDialoguePanel {
       header: this.containerElement.querySelector('.npc-panel-header'),
       content: this.containerElement.querySelector('.npc-panel-content'),
       messageList: this.containerElement.querySelector('.npc-messages-list'),
+      quickReplies: this.containerElement.querySelector('.npc-quick-replies'),
       inputForm: this.containerElement.querySelector('.npc-input-form'),
       inputField: this.containerElement.querySelector('.npc-message-input'),
       sendBtn: this.containerElement.querySelector('.npc-send-btn'),
       closeBtn: this.containerElement.querySelector('.npc-close-btn'),
+      dockBtn: this.containerElement.querySelector('.npc-dock-btn'),
       statusBar: this.containerElement.querySelector('.npc-status-bar'),
       typingIndicator: this.containerElement.querySelector('.npc-typing-indicator'),
       agentBadge: this.containerElement.querySelector('.npc-agent-badge'),
@@ -94,6 +97,11 @@ class NPCDialoguePanel {
 
     // Close panel
     this.elements.closeBtn.addEventListener('click', () => this.close());
+
+    // Dock panel
+    if (this.elements.dockBtn) {
+      this.elements.dockBtn.addEventListener('click', () => this.showDockMenu());
+    }
 
     // Input handling
     this.elements.inputField.addEventListener('keyup', (e) => {
@@ -127,6 +135,12 @@ class NPCDialoguePanel {
               <path d="M15 5L5 15M5 5L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
           </button>
+          <button class="npc-dock-btn" aria-label="Dock/Undock panel" title="Dock left/right/floating">
+            <svg class="icon-dock" width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <rect x="2" y="2" width="16" height="16" stroke="currentColor" stroke-width="1.5" rx="1"/>
+              <line x1="8" y1="2" x2="8" y2="18" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </button>
         </div>
 
         <!-- Messages -->
@@ -138,6 +152,9 @@ class NPCDialoguePanel {
             <div class="typing-dot"></div>
           </div>
         </div>
+
+        <!-- Quick Replies -->
+        <div class="npc-quick-replies"></div>
 
         <!-- Input -->
         <form class="npc-input-form">
@@ -236,6 +253,17 @@ class NPCDialoguePanel {
       this.updateLatency(latency);
       this.updateStatus(`Response received (${latency}ms)`);
 
+      // Call response callback if set (e.g., for updating quick replies)
+      if (typeof this.onResponseCallback === 'function') {
+        this.onResponseCallback({
+          userMessage: text,
+          assistantResponse: response.response,
+          npcId: this.options.npcId,
+          playerId: this.options.playerId,
+          latency: latency,
+        });
+      }
+
     } catch (error) {
       console.error('NPC dialogue error:', error);
       this.addMessage('system', `Error: ${error.message || 'Failed to generate response'}`);
@@ -323,6 +351,42 @@ class NPCDialoguePanel {
     });
   }
 
+  /**
+   * Render quick reply suggestions
+   * @param {Array<string>} suggestions - Array of suggestion texts
+   */
+  renderQuickReplies(suggestions = []) {
+    this.elements.quickReplies.innerHTML = '';
+    
+    if (!suggestions || suggestions.length === 0) {
+      return;
+    }
+
+    const container = document.createElement('div');
+    container.className = 'npc-quick-replies-container';
+    
+    suggestions.forEach(suggestion => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'npc-quick-reply-btn';
+      btn.textContent = suggestion;
+      btn.addEventListener('click', () => {
+        this.elements.inputField.value = suggestion;
+        this.sendMessage();
+      });
+      container.appendChild(btn);
+    });
+
+    this.elements.quickReplies.appendChild(container);
+  }
+
+  /**
+   * Clear quick replies
+   */
+  clearQuickReplies() {
+    this.elements.quickReplies.innerHTML = '';
+  }
+
   updateAgentBadge() {
     if (!this.state.agentInfo) return;
     const type = this.state.agentInfo.type || 'agent';
@@ -370,6 +434,274 @@ class NPCDialoguePanel {
     const charCount = this.containerElement.querySelector('.npc-char-count');
     if (charCount) {
       charCount.textContent = count;
+    }
+  }
+
+  /**
+   * Show dock position menu
+   */
+  showDockMenu() {
+    // Show custom menu with direct callbacks, not WM contextMenu
+    this.showDockMenuCustom();
+  }
+
+  /**
+   * Custom dock menu with direct fallbackDock callbacks
+   */
+  showDockMenuCustom() {
+    const menuItems = [
+      { label: '⬅️ Dock Left', action: 'left' },
+      { label: '➡️ Dock Right', action: 'right' },
+      { label: '⬇️ Dock Bottom', action: 'bottom' },
+      { label: '🪟 Floating', action: 'floating' }
+    ];
+
+    // Create menu
+    const menu = document.createElement('div');
+    menu.style.position = 'fixed';
+    menu.style.background = 'rgba(10, 25, 45, 0.98)';
+    menu.style.border = '1px solid rgba(79, 191, 115, 0.3)';
+    menu.style.borderRadius = '4px';
+    menu.style.zIndex = '99999';
+    menu.style.padding = '8px 0';
+    menu.style.minWidth = '180px';
+    menu.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5)';
+    
+    const dockBtn = this.elements?.dockBtn;
+    if (dockBtn) {
+      const rect = dockBtn.getBoundingClientRect();
+      menu.style.left = (rect.left + rect.width / 2 - 90) + 'px';
+      menu.style.top = (rect.bottom + 8) + 'px';
+    }
+
+    menuItems.forEach(item => {
+      const option = document.createElement('div');
+      option.style.padding = '10px 16px';
+      option.style.cursor = 'pointer';
+      option.style.color = '#e8f4f8';
+      option.style.userSelect = 'none';
+      option.style.transition = 'background 0.2s';
+      option.style.fontSize = '14px';
+      option.textContent = item.label;
+      
+      option.addEventListener('mouseover', () => {
+        option.style.background = 'rgba(79, 191, 115, 0.25)';
+      });
+      option.addEventListener('mouseout', () => {
+        option.style.background = 'transparent';
+      });
+      option.addEventListener('click', () => {
+        console.log(`[npc-panel] Menu action clicked: ${item.action}`);
+        this.fallbackDock(item.action);  // DIRECT CALL TO FALLBACK DOCK
+        document.body.removeChild(menu);
+      });
+      
+      menu.appendChild(option);
+    });
+
+    document.body.appendChild(menu);
+
+    // Close menu on outside click
+    const closeMenu = (e) => {
+      if (!menu.contains(e.target) && e.target !== dockBtn) {
+        if (document.body.contains(menu)) {
+          document.body.removeChild(menu);
+        }
+        document.removeEventListener('click', closeMenu);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
+  }
+
+  /**
+   * Fallback dock menu if WM is not available
+   */
+  showFallbackDockMenu() {
+    const menuItems = [
+      { label: '⬅️ Dock Left', action: 'left' },
+      { label: '➡️ Dock Right', action: 'right' },
+      { label: '⬇️ Dock Bottom', action: 'bottom' },
+      { label: '🪟 Floating', action: 'floating' }
+    ];
+
+    // Create simple menu
+    const menu = document.createElement('div');
+    menu.style.position = 'fixed';
+    menu.style.background = 'rgba(10, 25, 45, 0.98)';
+    menu.style.border = '1px solid rgba(79, 191, 115, 0.3)';
+    menu.style.borderRadius = '4px';
+    menu.style.zIndex = '99999';
+    menu.style.padding = '8px 0';
+    menu.style.minWidth = '150px';
+    
+    const dockBtn = this.elements?.dockBtn;
+    const rect = dockBtn?.getBoundingClientRect();
+    menu.style.left = (rect?.left || 0) + 'px';
+    menu.style.top = (rect?.bottom || 0) + 8 + 'px';
+
+    menuItems.forEach(item => {
+      const option = document.createElement('div');
+      option.style.padding = '8px 16px';
+      option.style.cursor = 'pointer';
+      option.style.color = '#e8f4f8';
+      option.style.userSelect = 'none';
+      option.style.transition = 'background 0.2s';
+      option.textContent = item.label;
+      
+      option.addEventListener('mouseover', () => {
+        option.style.background = 'rgba(79, 191, 115, 0.15)';
+      });
+      option.addEventListener('mouseout', () => {
+        option.style.background = 'transparent';
+      });
+      option.addEventListener('click', () => {
+        this.fallbackDock(item.action);
+        document.body.removeChild(menu);
+      });
+      
+      menu.appendChild(option);
+    });
+
+    document.body.appendChild(menu);
+
+    // Close menu on outside click
+    const closeMenu = (e) => {
+      if (!menu.contains(e.target) && e.target !== dockBtn) {
+        document.body.removeChild(menu);
+        document.removeEventListener('click', closeMenu);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
+  }
+
+  /**
+   * Fallback docking if Window Manager methods not available
+   */
+  fallbackDock(position) {
+    const container = this.containerElement;
+    const panel = this.elements.panel;
+    if (!container || !panel) {
+      console.warn('[npc-panel] fallbackDock: container or panel not found');
+      return;
+    }
+
+    const windowId = 'npc-dialogue';
+
+    console.log(`[npc-panel] fallbackDock: Attempting to dock to "${position}"`);
+    console.log('[npc-panel] fallbackDock: container=', container, 'panel=', panel);
+
+    if (position === 'left') {
+      try {
+        // Move panel to left sidebar
+        const leftSidebar = document.getElementById('left_sidebar');
+        console.log('[npc-panel] leftSidebar found:', !!leftSidebar);
+        if (leftSidebar) {
+          // Create a flex wrapper in the sidebar
+          const sidebarContainer = document.createElement('div');
+          sidebarContainer.className = 'npc-sidebar-dock';
+          sidebarContainer.style.display = 'flex';
+          sidebarContainer.style.flexDirection = 'column';
+          sidebarContainer.style.height = '100%';
+          sidebarContainer.style.width = '100%';
+          
+          // Move the container into the sidebar
+          console.log('[npc-panel] Moving container to sidebar');
+          
+          // Save existing resize handle if present
+          const oldResizeHandle = leftSidebar.querySelector('.wm-resize-handle');
+          
+          leftSidebar.innerHTML = '';
+          sidebarContainer.appendChild(container);
+          leftSidebar.appendChild(sidebarContainer);
+          
+          // Recreate resize handle
+          const resizeHandle = document.createElement('div');
+          resizeHandle.className = 'wm-resize-handle';
+          resizeHandle.title = 'Resize';
+          leftSidebar.appendChild(resizeHandle);
+          
+          // Update panel to dock styling
+          container.classList.add('wm-adaptable-window');
+          container.classList.remove('npc-panel-floating');
+          panel.classList.remove('npc-panel-floating');
+          panel.style.position = 'relative';
+          panel.style.width = '100%';
+          panel.style.maxHeight = 'none';
+          panel.style.bottom = 'auto';
+          panel.style.right = 'auto';
+          
+          console.log('[npc-panel] ✅ Docked to left sidebar');
+        }
+      } catch (e) {
+        console.error('[npc-panel] Failed to dock left:', e);
+      }
+    } 
+    else if (position === 'right') {
+      try {
+        const rightSidebar = document.getElementById('right_sidebar');
+        console.log('[npc-panel] rightSidebar found:', !!rightSidebar);
+        if (rightSidebar) {
+          const sidebarContainer = document.createElement('div');
+          sidebarContainer.className = 'npc-sidebar-dock';
+          sidebarContainer.style.display = 'flex';
+          sidebarContainer.style.flexDirection = 'column';
+          sidebarContainer.style.height = '100%';
+          sidebarContainer.style.width = '100%';
+          
+          rightSidebar.innerHTML = '';
+          sidebarContainer.appendChild(container);
+          rightSidebar.appendChild(sidebarContainer);
+          
+          // Recreate resize handle
+          const resizeHandle = document.createElement('div');
+          resizeHandle.className = 'wm-resize-handle';
+          resizeHandle.title = 'Resize';
+          rightSidebar.appendChild(resizeHandle);
+          
+          container.classList.add('wm-adaptable-window');
+          container.classList.remove('npc-panel-floating');
+          panel.classList.remove('npc-panel-floating');
+          panel.style.position = 'relative';
+          panel.style.width = '100%';
+          panel.style.maxHeight = 'none';
+          panel.style.bottom = 'auto';
+          panel.style.right = 'auto';
+          
+          console.log('[npc-panel] ✅ Docked to right sidebar');
+        }
+      } catch (e) {
+        console.error('[npc-panel] Failed to dock right:', e);
+      }
+    } 
+    else if (position === 'floating') {
+      // Move back to NPC panel host
+      try {
+        const panelHost = document.getElementById('npc-dialogue-panel-host');
+        console.log('[npc-panel] panelHost found:', !!panelHost);
+        if (panelHost) {
+          panelHost.innerHTML = '';
+          panelHost.appendChild(container);
+          
+          container.classList.remove('wm-adaptable-window');
+          container.classList.add('npc-panel-floating');
+          panel.classList.add('npc-panel-floating');
+          panel.style.position = 'fixed';
+          panel.style.width = '380px';
+          panel.style.maxHeight = '600px';
+          panel.style.bottom = '20px';
+          panel.style.right = '20px';
+          
+          console.log('[npc-panel] ✅ Returned to floating mode');
+        }
+      } catch (e) {
+        console.error('[npc-panel] Failed to return to floating:', e);
+      }
+    }
+    
+    // Setup resize handlers if we docked to a sidebar
+    if ((position === 'left' || position === 'right') && window.advisorNPC && typeof window.advisorNPC.setupResizeHandlers === 'function') {
+      console.log('[npc-panel] Setting up resize handlers for sidebar');
+      window.advisorNPC.setupResizeHandlers();
     }
   }
 

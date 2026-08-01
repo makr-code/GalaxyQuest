@@ -498,7 +498,7 @@
     localScript('js/ui/system-bodies-card-window.js', V.systemBodiesCardWindow),
     localScript('js/ui/gq-ui.js', V.gqui),
       localScript('js/engine/runtime/GQNeighborWaypointOverlay.js', V.runtime),
-    localScript('js/runtime/game.js', V.game)
+    localScript('js/engine/game.js', V.game)
   ];
 
   window.__GQ_BOOT = {

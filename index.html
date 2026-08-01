@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="css/animations.css?v=20260730p1" />
   <link rel="stylesheet" href="css/utilities.css?v=20260730p1" />
   <!-- Core Stylesheets -->
-  <link rel="stylesheet" href="css/style.css?v=20260404p54" />
+  <link rel="stylesheet" href="css/style.css?v=20260404p56" />
   <link rel="stylesheet" href="css/wm.css?v=20260406p1" />
   <link rel="stylesheet" href="css/gqwm.css?v=20260406p1" />
   <link rel="stylesheet" href="css/prolog.css?v=1" />
@@ -460,6 +460,13 @@
 
         <!-- User menu -->
         <div class="user-menu-wrap" id="user-menu-wrap">
+          <!-- Advisor Tau Button -->
+          <button id="open-advisor-btn" class="btn btn-info btn-sm advisor-btn" type="button" 
+                  title="Open Advisor Tau" aria-label="Open Advisor Tau"
+                  style="margin-right: 0.5rem;">
+            <span style="font-size: 1.2em;">📚</span>
+          </button>
+          
           <div class="commander-split" role="group" aria-label="Commander menu">
             <button id="commander-name" class="commander commander-btn" type="button"
                     aria-haspopup="dialog" title="Einstellungen oeffnen"></button>
@@ -537,12 +544,14 @@
   <section id="left_sidebar" class="wm-window-host" aria-label="Left Sidebar Host">
     <div class="wm-adaptable-window sidebar-panel sidebar-panel-left" data-wm-window="left-sidebar" data-wm-title="Left Sidebar" data-wm-width="300" data-wm-height="520" data-wm-default-dock="left" data-wm-default-y="72" data-wm-preserve-on-close="1" data-wm-hide-task-button="0" data-wm-persist-state="0">
       <div class="sidebar-panel-content text-muted">Left Sidebar ready for WM adapt.</div>
+      <div class="wm-resize-handle" title="Resize"></div>
     </div>
   </section>
 
   <section id="right_sidebar" class="wm-window-host" aria-label="Right Sidebar Host">
     <div class="wm-adaptable-window sidebar-panel sidebar-panel-right" data-wm-window="right-sidebar" data-wm-title="Right Sidebar" data-wm-width="300" data-wm-height="520" data-wm-default-dock="right" data-wm-default-y="72" data-wm-preserve-on-close="1" data-wm-hide-task-button="0" data-wm-persist-state="0">
       <div class="sidebar-panel-content text-muted">Right Sidebar ready for WM adapt.</div>
+      <div class="wm-resize-handle" title="Resize"></div>
     </div>
   </section>
 
@@ -563,11 +572,26 @@
 
   <!-- NPC Dialogue Panel Host -->
   <section id="npc-dialogue-panel-host" class="wm-window-host" aria-label="NPC Dialogue Panel Host">
-    <div id="npc-dialogue-panel" class="npc-dialogue-container"></div>
+    <div 
+      id="npc-dialogue-panel" 
+      class="npc-dialogue-container wm-adaptable-window" 
+      data-wm-window="npc-dialogue"
+      data-wm-title="NPC Chat"
+      data-wm-width="380"
+      data-wm-height="500"
+      data-wm-default-dock="floating"
+      data-wm-default-x="auto"
+      data-wm-default-y="auto"
+      data-wm-default-floating-x="calc(100% - 420px)"
+      data-wm-default-floating-y="calc(100% - 540px)"
+      data-wm-preserve-on-close="1"
+      data-wm-hide-task-button="0"
+      data-wm-persist-state="1">
+    </div>
   </section>
 
   <!-- Game Guide NPC Panel -->
-  <div id="game-guide-panel" class="hidden">
+  <div id="game-guide-panel" class="hidden" style="display: none !important;">
     <div class="guide-header">
       <span class="guide-name">📚 Advisor Tau</span>
       <button class="close-btn" onclick="document.getElementById('game-guide-panel').classList.add('hidden')">×</button>
@@ -1399,6 +1423,136 @@
   <script src="js/runtime/boot-manifest.js?v=20260409p2"></script>
   <script src="js/runtime/boot-assets.js?v=20260404p1"></script>
   <script src="js/ui/terminal.js?v=20260404p51"></script>
+  
+  <!-- Comprehensive Debug Logging -->
+  <script>
+    window.__GQ_DEBUG_LOG = [];
+    
+    function debugLog(msg) {
+      window.__GQ_DEBUG_LOG.push({ ts: Date.now(), msg });
+      if (window.__GQ_DEBUG_LOG.length > 100) window.__GQ_DEBUG_LOG.shift();
+    }
+    
+    // Catch early errors
+    window.addEventListener('error', (e) => {
+      debugLog(`ERROR: ${e.message} @ ${e.filename}:${e.lineno}`);
+    }, true);
+    
+    debugLog('Debug logging started');
+  </script>
+  
+  <!-- Core Network & API Scripts (manually prioritized) -->
+  <script src="js/runtime/wm.js?v=20260408p2"></script>
+  <script>debugLog('wm.js loaded')</script>
+  
+  <script src="js/runtime/wm-widgets.js?v=20260406p2"></script>
+  <script>debugLog('wm-widgets.js loaded')</script>
+  
+  <script src="js/runtime/gqwm.js?v=20260407p1"></script>
+  <script>debugLog('gqwm.js loaded')</script>
+  
+  <script src="js/network/binary-decoder.js?v=20260404p50"></script>
+  <script>debugLog('binary-decoder.js loaded')</script>
+  
+  <script src="js/network/binary-decoder-v2.js?v=20260404p50"></script>
+  <script>debugLog('binary-decoder-v2.js loaded')</script>
+  
+  <script src="js/network/binary-decoder-v3.js?v=20260404p50"></script>
+  <script>debugLog('binary-decoder-v3.js loaded')</script>
+  
+  <script src="js/network/api-transport.js?v=20260404p50"></script>
+  <script>debugLog('api-transport.js loaded')</script>
+  
+  <script src="js/network/api-queue.js?v=20260404p50"></script>
+  <script>debugLog('api-queue.js loaded')</script>
+  
+  <script src="js/network/api-cache.js?v=20260404p50"></script>
+  <script>debugLog('api-cache.js loaded')</script>
+  
+  <script src="js/network/api-schema-adapters.js?v=20260404p50"></script>
+  <script>debugLog('api-schema-adapters.js loaded')</script>
+  
+  <script>debugLog('api-session.js loaded')</script>
+  
+  <script>
+    // Verify API dependencies before loading api.js
+    const deps = {
+      APITransport: typeof window.APITransport,
+      APIQueue: typeof window.APIQueue,
+      APICache: typeof window.APICache,
+      APISession: typeof window.APISession,
+      APISchemaAdapters: typeof window.APISchemaAdapters
+    };
+    debugLog(`API Deps before api.js: ${JSON.stringify(deps)}`);
+  </script>
+  
+  <script>debugLog(`Before api.js: window.API = ${typeof window.API}, APITransport = ${typeof window.APITransport}`)</script>
+  <script src="js/network/api.js?v=20260405p1"></script>
+  <script>
+    debugLog(`After api.js: window.API = ${typeof window.API}`);
+    if (typeof window.API === 'undefined') {
+      debugLog('ERROR: window.API is undefined after api.js load');
+      debugLog(`API object exists: ${typeof API}`);
+      debugLog(`Setting window.API manually...`);
+      // Try to set it manually from the const API variable if it exists
+      try {
+        // This won't work since API is scoped, but at least we can check for errors
+        if (typeof API !== 'undefined') {
+          window.API = API;
+          debugLog(`Manually set window.API: ${typeof window.API}`);
+        }
+      } catch (err) {
+        debugLog(`Error setting window.API: ${err.message}`);
+      }
+    }
+  </script>
+  
+  <script src="js/network/api-contracts.js?v=20260404p50"></script>
+  <script>debugLog('api-contracts.js loaded')</script>
+  
+  <!-- Game engine + runtime startup -->
+  <script>
+    (async function() {
+      debugLog('Inline loader starting');
+      if (!window.__GQ_BOOT) {
+        debugLog('ERROR: __GQ_BOOT not available');
+        return;
+      }
+      
+      const scripts = (window.__GQ_BOOT.gameScripts || []).slice(14); // Skip the ones we already loaded above
+      debugLog(`Starting to load ${scripts.length} additional scripts`);
+      
+      for (let i = 0; i < scripts.length; i++) {
+        const src = scripts[i];
+        if (!src || typeof src !== 'string') continue;
+        
+        const existing = document.querySelector(`script[src="${src}"]`);
+        if (existing) continue;
+        
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = false;
+        
+        try {
+          await new Promise((resolve, reject) => {
+            script.onload = () => {
+              if (i % 50 === 0) debugLog(`Loaded ${i}/${scripts.length}`);
+              resolve();
+            };
+            script.onerror = () => {
+              debugLog(`Script load failed: ${src}`);
+              resolve(); // Continue on error
+            };
+            document.head.appendChild(script);
+          });
+        } catch (err) {
+          debugLog(`Error: ${src}: ${err.message}`);
+        }
+      }
+      debugLog('All scripts loaded');
+    })();
+  </script>
+  
   <!-- Minimal boot path: auth shell + shared galaxy background before session branching. -->
   <!-- UX/UI Interactions Module -->
   <script src="js/ui/theme-manager.js?v=20260730p1"></script>
@@ -1409,6 +1563,50 @@
   <script src="js/rendering/canvas-animation-engine.js?v=20260730p1"></script>
   <script src="js/rendering/trajectory-renderer.js?v=20260730p1"></script>
   <script src="js/rendering/starfield.js?v=20260404p110"></script>
+  <script>
+    // Debug and fallback canvas initialization
+    (function() {
+      setTimeout(() => {
+        const canvas = document.getElementById('starfield');
+        if (!canvas) {
+          console.error('Starfield canvas not found');
+          return;
+        }
+        
+        console.log('Starfield canvas dimensions:', { width: canvas.width, height: canvas.height });
+        
+        // Check for different context types
+        const ctx2d = canvas.getContext('2d');
+        const ctxWebGL = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        const ctxWebGL2 = canvas.getContext('webgl2');
+        
+        console.log('Canvas contexts available:', { 
+          '2d': !!ctx2d, 
+          'webgl': !!ctxWebGL, 
+          'webgl2': !!ctxWebGL2 
+        });
+        
+        // If canvas already has WebGL initialized, it won't support 2D
+        // Just make sure it's visible and sized correctly
+        if (canvas.width <= 1 && canvas.height <= 1) {
+          console.log('Canvas not resized, resizing now');
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = Math.floor(window.innerWidth * dpr);
+          canvas.height = Math.floor(window.innerHeight * dpr);
+          canvas.style.width = window.innerWidth + 'px';
+          canvas.style.height = window.innerHeight + 'px';
+          console.log('Canvas resized to:', { width: canvas.width, height: canvas.height });
+        }
+        
+        // Make sure canvas is visible
+        canvas.style.display = 'block';
+        canvas.style.visibility = 'visible';
+        canvas.style.opacity = '1';
+        
+        console.log('Starfield canvas ready');
+      }, 500);
+    })();
+  </script>
   <script src="js/ui/prolog.js?v=1"></script>
   <script src="js/network/auth.js?v=20260409p112"></script>
   <!-- NPC Dialogue System Integration -->
@@ -1417,6 +1615,7 @@
   <script src="js/components/npc_interaction_handler.js?v=1"></script>
   <!-- Game Guide NPC System -->
   <script src="js/systems/game_guide_system.js?v=1"></script>
+  <script src="js/components/advisor_npc_integration.js?v=1"></script>
   <script>
     (function initNpcDialoguePanel() {
       try {
@@ -1453,84 +1652,52 @@
       }
     })();
     
-    // Initialize Game Guide NPC
-    (function initGameGuide() {
+    // Initialize Game Guide NPC Integration
+    (function initGameGuideNPC() {
       try {
-        if (typeof GameGuideSystem !== 'undefined') {
+        if (typeof GameGuideSystem !== 'undefined' && typeof AdvisorNPCIntegration !== 'undefined') {
+          // Initialize Game Guide System
           window.gameGuide = new GameGuideSystem({
             userId: window.gameState?.userId || parseInt(localStorage.getItem('user_id') || '1'),
             apiBaseUrl: '/api',
             debug: false
           });
           
-          // Show greeting on startup
-          window.gameGuide.getGreeting().then(result => {
-            if (result.ok) {
-              const greetingDiv = document.getElementById('guide-greeting');
-              if (greetingDiv) {
-                greetingDiv.innerHTML = result.greeting;
-                document.getElementById('game-guide-panel').classList.remove('hidden');
-              }
-              if (window.GQLog && typeof window.GQLog.info === 'function') {
-                window.GQLog.info('[game-guide] System initialized - ' + result.greeting);
-              }
-            }
-          });
+          // Initialize Advisor NPC Integration
+          window.advisorNPC = new AdvisorNPCIntegration();
+          window.advisorNPC.init(window.gameGuide);
           
-          // Global helpers for Game Guide UI
-          window.showGameGuideTopic = async function(category) {
-            const topic = await window.gameGuide.getHelpTopic(category);
-            if (topic.ok) {
-              const tipsDiv = document.getElementById('guide-tips');
-              if (tipsDiv) {
-                tipsDiv.style.display = 'block';
-                tipsDiv.innerHTML = '<strong>' + topic.title + '</strong><br>' + 
-                  topic.tips.slice(0, 2).map(t => '💡 ' + t).join('<br>');
-              }
+          // Setup click handler for advisor button
+          const setupButtonHandler = () => {
+            const button = document.getElementById('open-advisor-btn');
+            if (button && window.GQNpcDialogueSystem && window.initNpcDialoguePanel) {
+              window.advisorNPC.setupAdvisorButtonHandler(async () => {
+                const panel = window.initNpcDialoguePanel(
+                  'npc_advisor_tau',
+                  'Advisor Tau',
+                  'Neutral',
+                  localStorage.getItem('user_id') || '1'
+                );
+                const gameContext = window.gameState?.currentGameState || {};
+                await window.advisorNPC.openAdvisor(panel, gameContext);
+              });
+              clearTimeout(setupTimeout);
             }
           };
           
-          window.assessGameStateFromGuide = async function() {
-            const gameState = window.gameState?.currentGameState || {
-              resources: {food: 100, energy: 50},
-              production: {food: 10},
-              population: 50,
-              colony_count: 1,
-              fleet_strength: 0,
-              technologies_researched: 0,
-              research_buildings: 0,
-              buildings: [],
-              is_new_player: true,
-              time_played_hours: 0.5
-            };
-            
-            const assessment = await window.gameGuide.assessGameState(gameState);
-            if (assessment.ok) {
-              const assessmentDiv = document.getElementById('guide-assessment');
-              if (assessmentDiv) {
-                assessmentDiv.style.display = 'block';
-                let html = '<strong>📊 Analyse:</strong><br>';
-                
-                if (assessment.critical_issues && assessment.critical_issues.length > 0) {
-                  html += '<div class="critical">' + assessment.critical_issues[0].message + '</div>';
-                }
-                
-                if (assessment.warnings && assessment.warnings.length > 0) {
-                  html += '<div class="warning">' + assessment.warnings[0].message + '</div>';
-                }
-                
-                if (assessment.tips && assessment.tips.length > 0) {
-                  html += '<div class="tip">💡 ' + assessment.tips[0].text + '</div>';
-                }
-                
-                assessmentDiv.innerHTML = html;
-              }
-            }
-          };
+          // Try to setup immediately, then retry every 500ms for 5 seconds
+          let setupTimeout;
+          const setupCheck = setInterval(() => {
+            setupButtonHandler();
+          }, 500);
+          setupTimeout = setTimeout(() => clearInterval(setupCheck), 5000);
           
+          if (window.GQLog && typeof window.GQLog.info === 'function') {
+            window.GQLog.info('[game-guide-npc] System initialized');
+          }
         }
-      } catch (e) {
-        console.error('[game-guide] Initialization failed:', e);
+      } catch (error) {
+        console.error('[game-guide-npc] Initialization failed:', error);
       }
     })();
   </script>

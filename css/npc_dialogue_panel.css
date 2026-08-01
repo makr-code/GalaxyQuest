@@ -61,6 +61,13 @@
   gap: 4px;
 }
 
+.npc-header-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  align-items: center;
+}
+
 .npc-name {
   margin: 0;
   font-size: 16px;
@@ -128,6 +135,30 @@
 }
 
 .npc-close-btn:active {
+  transform: scale(0.95);
+}
+
+.npc-dock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: rgba(79, 191, 115, 0.1);
+  border-radius: 4px;
+  color: var(--npc-text);
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: 8px;
+}
+
+.npc-dock-btn:hover {
+  background: rgba(79, 191, 115, 0.25);
+  color: #4fbf73;
+}
+
+.npc-dock-btn:active {
   transform: scale(0.95);
 }
 
@@ -296,6 +327,56 @@
   }
 }
 
+/* ── Quick Replies ──────────────────────────────────────────────────────── */
+
+.npc-quick-replies {
+  padding: 8px 16px 0;
+  flex-shrink: 0;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.npc-quick-replies-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.npc-quick-reply-btn {
+  padding: 8px 12px;
+  border: 1px solid var(--npc-border);
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(79, 191, 115, 0.15) 0%, rgba(79, 191, 115, 0.05) 100%);
+  color: var(--npc-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.npc-quick-reply-btn:hover {
+  background: linear-gradient(135deg, rgba(79, 191, 115, 0.25) 0%, rgba(79, 191, 115, 0.15) 100%);
+  border-color: rgba(79, 191, 115, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(79, 191, 115, 0.2);
+}
+
+.npc-quick-reply-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(79, 191, 115, 0.1);
+}
+
+.npc-quick-reply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* ── Input ──────────────────────────────────────────────────────────────── */
 
 .npc-input-form {
@@ -438,8 +519,9 @@
   bottom: 20px;
   right: 20px;
   width: 380px;
-  z-index: 9000;
+  z-index: 99999; /* Increased from 9000 to ensure it's above game canvas */
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  pointer-events: auto; /* Ensure panel captures events */
 }
 
 .npc-panel-floating.minimized {
@@ -452,7 +534,58 @@
   display: none;
 }
 
-/* ── Dark mode / Light mode ────────────────────────────────────────────── */
+/* ── Sidebar Docked Mode ───────────────────────────────────────────────── */
+
+.npc-dialogue-container.wm-adaptable-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.npc-dialogue-container.wm-adaptable-window .npc-panel {
+  flex: 1;
+  width: 100%;
+  max-height: none;
+  border-radius: 0;
+  box-shadow: none;
+  border: 1px solid var(--npc-border);
+}
+
+/* When docked in left/right sidebar */
+.sidebar-panel-left .npc-dialogue-container,
+.sidebar-panel-right .npc-dialogue-container {
+  width: 100%;
+  height: 100%;
+}
+
+.sidebar-panel-left .npc-panel,
+.sidebar-panel-right .npc-panel {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  max-height: none;
+}
+
+/* Overlay/floating mode - keep original styling */
+.npc-dialogue-container.npc-panel-floating {
+  position: fixed;
+  width: 380px !important;
+  height: auto !important;
+  bottom: 20px;
+  right: 20px;
+  z-index: 99999;
+}
+
+.npc-dialogue-container.npc-panel-floating .npc-panel {
+  position: relative;
+  width: 100%;
+  height: auto;
+  max-height: 600px;
+}
+
+/* Dark mode / Light mode ────────────────────────────────────────────── */
 
 @media (prefers-color-scheme: light) {
   .npc-dialogue-container {

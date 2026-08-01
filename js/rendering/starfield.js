@@ -8,6 +8,46 @@
   const host = document.getElementById('galaxy-host-wrapper') || document.getElementById('galaxy-3d-host') || canvas?.parentElement;
   if (!canvas || !host) return;
 
+  // Immediately resize canvas to match host
+  function resizeCanvas() {
+    const rect = host.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    
+    // Try computed style first (for fixed/absolute elements)
+    const computedStyle = window.getComputedStyle(host);
+    let width = parseInt(computedStyle.width, 10) || rect.width || window.innerWidth;
+    let height = parseInt(computedStyle.height, 10) || rect.height || window.innerHeight;
+    
+    // Fallback: if dimensions are still 0, use window dimensions
+    if (width < 10) width = window.innerWidth;
+    if (height < 10) height = window.innerHeight;
+    
+    canvas.width = Math.max(256, Math.floor(width * dpr));
+    canvas.height = Math.max(256, Math.floor(height * dpr));
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    
+    // Set 2D context scale for retina
+    const ctx = canvas.getContext('2d');
+    if (ctx) ctx.scale(dpr, dpr);
+  }
+  
+  // Try to resize immediately
+  if (document.readyState === 'loading') {
+    // Page still loading, wait for DOMContentLoaded
+    document.addEventListener('DOMContentLoaded', resizeCanvas);
+  } else {
+    // Page already loaded, resize immediately
+    setTimeout(resizeCanvas, 50);
+  }
+  
+  // Also resize on window resize
+  let resizeTimeout;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(resizeCanvas, 250);
+  });
+
   const runtime = window.__GQ_AUTH_GALAXY_BG_RUNTIME = Object.assign(
     window.__GQ_AUTH_GALAXY_BG_RUNTIME || {},
     {
@@ -1120,6 +1160,34 @@
       : [];
 
     const GalaxyViewCtor = window.Galaxy3DView || window.Galaxy3DRendererWebGPU || window.Galaxy3DRenderer;
+    
+    if (!GalaxyViewCtor) {
+      // Fallback: simple 2D starfield
+      resizeCanvas();
+      const ctx = canvas.getContext('2d');
+      if (ctx && runtime.stars && runtime.stars.length > 0) {
+        // Simple 2D rendering of starfield
+        ctx.fillStyle = 'rgba(15, 22, 36, 1)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw stars
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = 0.8;
+        for (let i = 0; i < Math.min(runtime.stars.length, 2000); i++) {
+          const star = runtime.stars[i];
+          const x = ((star.x || 0) % canvas.width);
+          const y = ((star.y || 0) % canvas.height);
+          const size = Math.max(0.5, (star.lum || 1) * 1.5);
+          ctx.fillRect(x, y, size, size);
+        }
+        ctx.globalAlpha = 1;
+      }
+      canvas.style.opacity = '1';
+      canvas.style.visibility = 'visible';
+      canvas.style.display = 'block';
+      return;
+    }
+    
     runtime.renderer = new GalaxyViewCtor(host, {
       externalCanvas: canvas,
       alpha: true,
@@ -1134,6 +1202,10 @@
     if (runtime.renderer && typeof runtime.renderer.init === 'function') {
       await runtime.renderer.init();
     }
+    
+    // Re-resize canvas after renderer init to ensure proper dimensions
+    resizeCanvas();
+    
     if (runtime.renderer && runtime.renderer.backendType) {
       window.__GQ_ACTIVE_RENDERER_BACKEND = runtime.renderer.backendType;
     }
