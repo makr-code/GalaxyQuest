@@ -112,7 +112,7 @@ def choose_model(mode: str, model_override: str) -> str:
     return "microsoft/TRELLIS-text-xlarge"
 
 
-def generate(args: argparse.Namespace) -> tuple[pathlib.Path, pathlib.Path]:
+def generate(args: argparse.Namespace) -> tuple[pathlib.Path, pathlib.Path, dict]:
     repo_root = pathlib.Path(args.repo_root)
     ensure_repo_path(repo_root)
 

@@ -10,6 +10,7 @@ Verwendung:
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import sys
 from typing import Sequence
@@ -102,8 +103,6 @@ def download_model(
 
 def write_model_registry(cache_dir: pathlib.Path, downloaded: dict[str, pathlib.Path]) -> None:
     """Schreibt models.json mit lokalen Pfaden fuer schnellen Zugriff durch generate-Skripte."""
-    import json
-
     registry: dict = {}
     for key, local_dir in downloaded.items():
         registry[key] = {

@@ -11,48 +11,74 @@ GET  /voices                       – list available voices
 POST /synthesize                   – synthesise text → MP3 bytes
 POST /preload/{voice}              – eagerly load a voice model
 
-Environment variables
----------------------
-TTS_ENGINE          piper | xtts        (default: piper)
-TTS_CACHE_DIR       directory for voice model files  (default: ./voice_cache)
-TTS_AUDIO_CACHE_DIR directory for rendered MP3s       (default: ./audio_cache)
-TTS_DEFAULT_VOICE   voice name used when none given   (default: de_DE-thorsten-high)
-TTS_MAX_CHARS       max input length (anti-abuse)     (default: 2000)
-TTS_SECRET          shared secret sent in X-TTS-Key   (default: empty = disabled)
+Environment variables (see TTSSettings below for full list and defaults)
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
-import logging
-import os
 import re
 import shutil
 import subprocess
 import tempfile
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Annotated
 
 import aiofiles
+import structlog
 from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from starlette.concurrency import run_in_threadpool
 
-# ── Config ─────────────────────────────────────────────────────────────────────
-ENGINE: str = os.getenv("TTS_ENGINE", "piper").lower()
-CACHE_DIR = Path(os.getenv("TTS_CACHE_DIR", "./voice_cache"))
-AUDIO_CACHE_DIR = Path(os.getenv("TTS_AUDIO_CACHE_DIR", "./audio_cache"))
-DEFAULT_VOICE: str = os.getenv("TTS_DEFAULT_VOICE", "de_DE-thorsten-high")
-MAX_CHARS: int = int(os.getenv("TTS_MAX_CHARS", "2000"))
-TTS_SECRET: str = os.getenv("TTS_SECRET", "")
+# ── Config (pydantic-settings, no bare os.getenv) ─────────────────────────────
 
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
-AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("gq-tts")
+class TTSSettings(BaseSettings):
+    """All TTS service configuration, loaded from environment / .env file."""
+
+    engine: str = Field(default="piper", description="TTS engine: piper | xtts")
+    cache_dir: Path = Field(default=Path("./voice_cache"), description="Voice model cache")
+    audio_cache_dir: Path = Field(default=Path("./audio_cache"), description="Rendered MP3 cache")
+    default_voice: str = Field(default="de_DE-thorsten-high", description="Fallback voice name")
+    max_chars: int = Field(default=2000, description="Maximum input length (anti-abuse)")
+    secret: str = Field(default="", description="Shared secret for X-TTS-Key header")
+    cors_origins: str = Field(
+        default="",
+        description="Comma-separated allowed CORS origins. Empty = disabled.",
+    )
+
+    model_config = SettingsConfigDict(env_prefix="TTS_", env_file=".env", extra="ignore")
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        if not self.cors_origins or self.cors_origins == "*":
+            return [self.cors_origins] if self.cors_origins else []
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+
+cfg = TTSSettings()
+cfg.cache_dir.mkdir(parents=True, exist_ok=True)
+cfg.audio_cache_dir.mkdir(parents=True, exist_ok=True)
+
+# ── Logging (structlog) ────────────────────────────────────────────────────────
+structlog.configure(
+    processors=[
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.JSONRenderer(),
+    ],
+    wrapper_class=structlog.BoundLogger,
+    context_class=dict,
+    logger_factory=structlog.PrintLoggerFactory(),
+)
+log: structlog.BoundLogger = structlog.get_logger("gq-tts")
 
 # ── Piper voice registry ────────────────────────────────────────────────────────
 # Model files are downloaded on first use.  Add more voices as needed.
@@ -86,20 +112,21 @@ PIPER_VOICES: dict[str, dict] = {
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="GalaxyQuest TTS Service", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-)
+if cfg.cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cfg.cors_origin_list,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
 
 # ── Auth helper ────────────────────────────────────────────────────────────────
 
 def _check_secret(x_tts_key: str | None) -> None:
     """Reject request when TTS_SECRET is configured and the header mismatches."""
-    if not TTS_SECRET:
+    if not cfg.secret:
         return
-    if not x_tts_key or x_tts_key != TTS_SECRET:
+    if not x_tts_key or x_tts_key != cfg.secret:
         raise HTTPException(status_code=401, detail="Invalid TTS secret.")
 
 
@@ -128,6 +155,7 @@ def _piper_ensure_model(voice: str) -> tuple[Path, Path]:
 
     File paths are derived entirely from the hardcoded PIPER_VOICES registry
     (never from user input) to prevent path-traversal vulnerabilities.
+    Uses httpx with an explicit timeout instead of the deprecated urllib.request.urlretrieve.
     """
     _validate_voice_name(voice)
     if voice not in PIPER_VOICES:
@@ -142,36 +170,54 @@ def _piper_ensure_model(voice: str) -> tuple[Path, Path]:
     # Use a SHA-256 of the whitelisted key (never user input) as the directory
     # name so that the filesystem path is fully under our control.
     dir_name = hashlib.sha256(info["model_url"].encode()).hexdigest()
-    voice_dir = CACHE_DIR / dir_name
+    voice_dir = cfg.cache_dir / dir_name
     voice_dir.mkdir(parents=True, exist_ok=True)
 
     onnx = voice_dir / model_filename
-    cfg  = voice_dir / config_filename
+    voice_cfg = voice_dir / config_filename
 
     if not onnx.exists():
-        log.info("Downloading Piper model %s …", voice)
-        urllib.request.urlretrieve(info["model_url"], str(onnx))
+        log.info("downloading_piper_model", voice=voice)
+        _download_file(info["model_url"], onnx)
 
-    if not cfg.exists():
-        log.info("Downloading Piper config %s …", voice)
-        urllib.request.urlretrieve(info["config_url"], str(cfg))
+    if not voice_cfg.exists():
+        log.info("downloading_piper_config", voice=voice)
+        _download_file(info["config_url"], voice_cfg)
 
-    return onnx, cfg
+    return onnx, voice_cfg
+
+
+def _download_file(url: str, dest: Path) -> None:
+    """Download *url* to *dest* using httpx with an explicit timeout."""
+    import httpx
+
+    with httpx.Client(timeout=120.0, follow_redirects=True) as client:
+        with client.stream("GET", url) as resp:
+            resp.raise_for_status()
+            tmp = dest.with_suffix(".tmp")
+            try:
+                with open(tmp, "wb") as fh:
+                    for chunk in resp.iter_bytes(chunk_size=65536):
+                        fh.write(chunk)
+                tmp.rename(dest)
+            except Exception:
+                tmp.unlink(missing_ok=True)
+                raise
 
 
 def _piper_synthesise_wav(text: str, voice: str) -> bytes:
     """Run piper CLI and return raw WAV bytes."""
-    onnx, cfg = _piper_ensure_model(voice)
+    onnx, voice_cfg = _piper_ensure_model(voice)
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp_path = tmp.name
 
     try:
-        result = subprocess.run(
+        subprocess.run(
             [
                 "piper",
                 "--model", str(onnx),
-                "--config", str(cfg),
+                "--config", str(voice_cfg),
                 "--output_file", tmp_path,
             ],
             input=text.encode("utf-8"),
@@ -186,11 +232,11 @@ def _piper_synthesise_wav(text: str, voice: str) -> bytes:
             status_code=500,
             detail=f"Piper synthesis failed: {exc.stderr.decode(errors='replace')}"
         ) from exc
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
         raise HTTPException(
             status_code=500,
             detail="piper binary not found. Ensure the piper-tts package is installed."
-        )
+        ) from exc
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
@@ -198,39 +244,50 @@ def _piper_synthesise_wav(text: str, voice: str) -> bytes:
 # ── Coqui XTTS helpers ─────────────────────────────────────────────────────────
 
 _xtts_model = None
+_xtts_lock = asyncio.Lock()
 
-def _xtts_model_load():
+
+async def _xtts_model_load() -> object:
+    """Load the Coqui XTTS v2 model exactly once; thread-safe via asyncio.Lock."""
     global _xtts_model
-    if _xtts_model is not None:
-        return _xtts_model
-    try:
-        from TTS.api import TTS as CoquiTTS  # type: ignore
-        log.info("Loading Coqui XTTS v2 model (first call) …")
-        _xtts_model = CoquiTTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
-        return _xtts_model
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Coqui TTS package not installed: {exc}"
-        ) from exc
-    except (RuntimeError, OSError, ValueError) as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Could not load XTTS model: {exc}"
-        ) from exc
+    async with _xtts_lock:
+        if _xtts_model is not None:
+            return _xtts_model
+        try:
+            from TTS.api import TTS as CoquiTTS  # type: ignore[import]
+
+            log.info("loading_xtts_model")
+            _xtts_model = await run_in_threadpool(
+                lambda: CoquiTTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
+            )
+            return _xtts_model
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Coqui TTS package not installed: {exc}"
+            ) from exc
+        except (RuntimeError, OSError, ValueError) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Could not load XTTS model: {exc}"
+            ) from exc
 
 
-def _xtts_synthesise_wav(text: str, lang: str = "de", speaker_wav: str | None = None) -> bytes:
-    tts = _xtts_model_load()
-
+def _xtts_synthesise_wav_sync(
+    tts: object,
+    text: str,
+    lang: str,
+    speaker_wav: str | None,
+) -> bytes:
+    """Blocking helper – always called via run_in_threadpool."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp_path = tmp.name
 
     try:
-        kwargs: dict = {"text": text, "language": lang, "file_path": tmp_path}
+        kwargs: dict[str, object] = {"text": text, "language": lang, "file_path": tmp_path}
         if speaker_wav:
             kwargs["speaker_wav"] = speaker_wav
-        tts.tts_to_file(**kwargs)
+        tts.tts_to_file(**kwargs)  # type: ignore[attr-defined]
         with open(tmp_path, "rb") as fh:
             return fh.read()
     except (RuntimeError, OSError, ValueError) as exc:
@@ -270,7 +327,7 @@ def _audio_cache_key(text: str, voice: str, engine: str) -> str:
 
 
 def _audio_cache_path(key: str) -> Path:
-    return AUDIO_CACHE_DIR / f"{key}.mp3"
+    return cfg.audio_cache_dir / f"{key}.mp3"
 
 
 async def _audio_cache_get(key: str) -> bytes | None:
@@ -304,17 +361,17 @@ class SynthesiseRequest(BaseModel):
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
-def health():
-    extra: dict = {}
-    if ENGINE == "piper":
+def health() -> dict[str, object]:
+    extra: dict[str, object] = {}
+    if cfg.engine == "piper":
         extra["piper_available"] = shutil.which("piper") is not None
-    return {"ok": True, "engine": ENGINE, "default_voice": DEFAULT_VOICE, **extra}
+    return {"ok": True, "engine": cfg.engine, "default_voice": cfg.default_voice, **extra}
 
 
 @app.get("/voices")
-def list_voices(x_tts_key: Annotated[str | None, Header()] = None):
+def list_voices(x_tts_key: Annotated[str | None, Header()] = None) -> dict[str, object]:
     _check_secret(x_tts_key)
-    if ENGINE == "piper":
+    if cfg.engine == "piper":
         return {
             "engine": "piper",
             "voices": [
@@ -334,37 +391,39 @@ def list_voices(x_tts_key: Annotated[str | None, Header()] = None):
 async def synthesize(
     req: SynthesiseRequest,
     x_tts_key: Annotated[str | None, Header()] = None,
-):
+) -> Response:
     _check_secret(x_tts_key)
 
     text = req.text.strip()
-    if len(text) > MAX_CHARS:
+    if len(text) > cfg.max_chars:
         raise HTTPException(
             status_code=400,
-            detail=f"Text too long ({len(text)} chars, max {MAX_CHARS})."
+            detail=f"Text too long ({len(text)} chars, max {cfg.max_chars})."
         )
     if not text:
         raise HTTPException(status_code=400, detail="text must not be empty.")
 
-    voice = req.voice.strip() or DEFAULT_VOICE
-    engine_key = ENGINE
+    voice = req.voice.strip() or cfg.default_voice
+    engine_key = cfg.engine
 
     cache_key = _audio_cache_key(text, voice, engine_key)
 
     if not req.no_cache:
         cached = await _audio_cache_get(cache_key)
         if cached is not None:
-            log.info("TTS cache hit: %s", cache_key[:16])
+            log.info("tts_cache_hit", key=cache_key[:16])
             return Response(content=cached, media_type="audio/mpeg")
 
-    log.info("Synthesising (%s / %s) %d chars …", engine_key, voice, len(text))
+    log.info("tts_synthesising", engine=engine_key, voice=voice, chars=len(text))
 
     if engine_key == "piper":
-        wav = _piper_synthesise_wav(text, voice)
+        # Run blocking subprocess in a thread pool to avoid blocking the event loop.
+        wav = await run_in_threadpool(_piper_synthesise_wav, text, voice)
     else:
-        wav = _xtts_synthesise_wav(text, lang=req.lang, speaker_wav=req.speaker_wav)
+        tts = await _xtts_model_load()
+        wav = await run_in_threadpool(_xtts_synthesise_wav_sync, tts, text, req.lang, req.speaker_wav)
 
-    mp3 = _wav_to_mp3(wav)
+    mp3 = await run_in_threadpool(_wav_to_mp3, wav)
 
     await _audio_cache_set(cache_key, mp3)
 
@@ -375,13 +434,13 @@ async def synthesize(
 async def preload_voice(
     voice: str,
     x_tts_key: Annotated[str | None, Header()] = None,
-):
+) -> dict[str, object]:
     """Eagerly download and cache a Piper voice model."""
     _check_secret(x_tts_key)
-    if ENGINE != "piper":
+    if cfg.engine != "piper":
         raise HTTPException(
             status_code=400,
             detail="Preload is only supported for the Piper engine."
         )
-    _piper_ensure_model(voice)
+    await run_in_threadpool(_piper_ensure_model, voice)
     return {"ok": True, "voice": voice}

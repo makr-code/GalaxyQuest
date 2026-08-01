@@ -1,0 +1,40 @@
+name: python-quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Ruff lint + format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: pip install ruff
+      - name: ruff check
+        run: ruff check tts_service/ scripts/
+      - name: ruff format check
+        run: ruff format --check tts_service/ scripts/
+
+  typecheck:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install tts_service dependencies
+        run: pip install -r tts_service/requirements.txt
+      - name: mypy – tts_service
+        run: mypy tts_service/main.py
