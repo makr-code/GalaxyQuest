@@ -1,0 +1,16 @@
+# Root ruff configuration – applies to tts_service/ and scripts/.
+# Per-directory overrides can be placed in tts_service/pyproject.toml.
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+ignore = [
+    "E501",   # line too long – handled by formatter
+    "B008",   # do not perform function calls in default arguments (FastAPI Depends)
+    "C901",   # function complexity
+    "EXE001", # shebang without exec bit – expected on non-Unix checkouts
+]
+
+[lint.isort]
+known-first-party = []
