@@ -16,7 +16,9 @@ from PIL import Image
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate 3D assets for GQ with TRELLIS2 (dev mode)")
+    parser = argparse.ArgumentParser(
+        description="Generate 3D assets for GQ with TRELLIS2 (dev mode)"
+    )
     parser.add_argument("--repo-root", default="tools/trellis2", help="Path to local TRELLIS repo")
     parser.add_argument("--mode", choices=["text", "image"], default="text")
     parser.add_argument("--prompt", default="A modular sci-fi cargo ship with hard surface panels")
@@ -68,20 +70,26 @@ def check_quality(glb_path: pathlib.Path) -> dict:
         bbox_min = all_vertices.min(axis=0).tolist()
         bbox_max = all_vertices.max(axis=0).tolist()
         size = [round(bbox_max[i] - bbox_min[i], 4) for i in range(3)]
-        result["bounding_box"] = {"min": [round(v, 4) for v in bbox_min],
-                                   "max": [round(v, 4) for v in bbox_max],
-                                   "size": size}
+        result["bounding_box"] = {
+            "min": [round(v, 4) for v in bbox_min],
+            "max": [round(v, 4) for v in bbox_max],
+            "size": size,
+        }
 
         if total_tri == 0:
             result["issues"].append("WARN: Keine Dreiecke gefunden (leeres Mesh?)")
         if total_tri > 150_000:
-            result["issues"].append(f"WARN: Hohe Dreieckszahl ({total_tri}). Fuer Dev-Asset prüfen.")
+            result["issues"].append(
+                f"WARN: Hohe Dreieckszahl ({total_tri}). Fuer Dev-Asset prüfen."
+            )
         if result["file_size_kb"] > 20_000:
             result["issues"].append(f"WARN: Datei sehr groß ({result['file_size_kb']} KB).")
         any_zero = any(s < 0.001 for s in size)
         if any_zero:
-            result["issues"].append("WARN: Eine Achse der Bounding-Box ist nahezu null (flaches Mesh?).")
-    except Exception as exc:
+            result["issues"].append(
+                "WARN: Eine Achse der Bounding-Box ist nahezu null (flaches Mesh?)."
+            )
+    except (OSError, ValueError, RuntimeError, AttributeError, KeyError) as exc:
         result["issues"].append(f"ERROR beim Laden des GLB: {exc}")
     return result
 
@@ -103,6 +111,7 @@ def print_quality_report(report: dict) -> None:
     else:
         print("  ✓ Keine Qualitätsprobleme erkannt.")
     print(sep)
+
 
 def choose_model(mode: str, model_override: str) -> str:
     if model_override:
@@ -142,8 +151,14 @@ def generate(args: argparse.Namespace) -> tuple[pathlib.Path, pathlib.Path, dict
             image,
             seed=args.seed,
             formats=["gaussian", "mesh"],
-            sparse_structure_sampler_params={"steps": args.ss_steps, "cfg_strength": args.ss_cfg},
-            slat_sampler_params={"steps": args.slat_steps, "cfg_strength": args.slat_cfg},
+            sparse_structure_sampler_params={
+                "steps": args.ss_steps,
+                "cfg_strength": args.ss_cfg,
+            },
+            slat_sampler_params={
+                "steps": args.slat_steps,
+                "cfg_strength": args.slat_cfg,
+            },
         )
     else:
         pipeline = TrellisTextTo3DPipeline.from_pretrained(model_name)
@@ -153,8 +168,14 @@ def generate(args: argparse.Namespace) -> tuple[pathlib.Path, pathlib.Path, dict
             args.prompt,
             seed=args.seed,
             formats=["gaussian", "mesh"],
-            sparse_structure_sampler_params={"steps": args.ss_steps, "cfg_strength": args.ss_cfg},
-            slat_sampler_params={"steps": args.slat_steps, "cfg_strength": args.slat_cfg},
+            sparse_structure_sampler_params={
+                "steps": args.ss_steps,
+                "cfg_strength": args.ss_cfg,
+            },
+            slat_sampler_params={
+                "steps": args.slat_steps,
+                "cfg_strength": args.slat_cfg,
+            },
         )
 
     glb = postprocessing_utils.to_glb(
@@ -168,7 +189,9 @@ def generate(args: argparse.Namespace) -> tuple[pathlib.Path, pathlib.Path, dict
     glb_path = out_dir / f"{slug}_{args.mode}.glb"
     glb.export(str(glb_path))
 
-    preview = render_utils.render_video(outputs["mesh"][0], num_frames=args.preview_frames)["normal"]
+    preview = render_utils.render_video(outputs["mesh"][0], num_frames=args.preview_frames)[
+        "normal"
+    ]
     preview_path = out_dir / f"{slug}_{args.mode}_preview.mp4"
     imageio.mimsave(preview_path, preview, fps=args.fps)
 

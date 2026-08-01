@@ -36,8 +36,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy application
-COPY main.py .
+# Copy application (all modules; tests excluded via .dockerignore)
+COPY main.py audio.py auth.py cache.py config.py models.py ./
+COPY engines/ ./engines/
 
 # Voice model downloads happen at first request (lazy) or via /preload.
 ENV TTS_CACHE_DIR=/app/voice_cache \

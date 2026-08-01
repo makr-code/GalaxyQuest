@@ -37,4 +37,23 @@ jobs:
       - name: Install tts_service dependencies
         run: pip install -r tts_service/requirements.txt
       - name: mypy – tts_service
-        run: mypy tts_service/main.py
+        working-directory: tts_service
+        run: mypy main.py config.py cache.py audio.py auth.py engines/
+      - name: mypy – scripts
+        run: |
+          pip install pathlib2 huggingface_hub 2>/dev/null || true
+          mypy scripts/prepend_trigger.py scripts/trellis2_download_models.py scripts/trellis2_generate.py
+
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r tts_service/requirements.txt
+      - name: Run tests
+        working-directory: tts_service
+        run: pytest tests/ -v
