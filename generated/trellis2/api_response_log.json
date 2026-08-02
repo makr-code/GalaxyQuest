@@ -1,0 +1,11 @@
+{
+  "status": "success",
+  "model": "TRELLIS-text-base",
+  "prompt": "a sci-fi cargo ship",
+  "output": {
+    "glb_url": "generated/trellis2/test_mock_ship.glb",
+    "preview_url": "generated/trellis2/test_mock_ship_preview.png",
+    "generation_time_ms": 45000,
+    "quality_tier": "medium"
+  }
+}

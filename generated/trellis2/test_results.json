@@ -1,0 +1,64 @@
+{
+  "timestamp": "2026-08-01T21:10:05.673287",
+  "model": "TRELLIS-text-base",
+  "device": "cpu",
+  "tests": [
+    {
+      "name": "imports",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "directories",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "torch_device",
+      "status": "PASS",
+      "error": null,
+      "details": {
+        "cuda_available": true,
+        "device": "CUDA"
+      }
+    },
+    {
+      "name": "mock_glb_generation",
+      "status": "PASS",
+      "error": null,
+      "details": {
+        "file": "C:\\Projects\\GalaxyQuest\\generated\\trellis2\\test_mock_ship.glb",
+        "size_bytes": 614
+      }
+    },
+    {
+      "name": "api_simulation",
+      "status": "PASS",
+      "error": null,
+      "details": {
+        "model": "TRELLIS-text-base",
+        "output": {
+          "glb_url": "generated/trellis2/test_mock_ship.glb",
+          "preview_url": "generated/trellis2/test_mock_ship_preview.png",
+          "generation_time_ms": 45000,
+          "quality_tier": "medium"
+        }
+      }
+    },
+    {
+      "name": "asset_pipeline",
+      "status": "PASS",
+      "error": null,
+      "details": {
+        "asset_id": "test_001",
+        "triangles": 5000,
+        "materials": 4
+      }
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 0,
+    "skipped": 0
+  }
+}

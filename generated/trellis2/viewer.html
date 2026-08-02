@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRELLIS2 WebGL Viewer - GLB 3D Model Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0e27;
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100vh;
+        }
+
+        .ui-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #1e3a5f 0%, #0a0e27 100%);
+            border-bottom: 2px solid #00d4ff;
+            padding: 15px 20px;
+            pointer-events: auto;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0, 212, 255, 0.1);
+        }
+
+        .header h1 {
+            font-size: 18px;
+            margin: 0;
+            color: #00d4ff;
+        }
+
+        .header p {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(10, 14, 39, 0.95);
+            border: 1px solid #00d4ff;
+            border-radius: 8px;
+            padding: 15px;
+            pointer-events: auto;
+            z-index: 100;
+            min-width: 250px;
+            box-shadow: 0 4px 20px rgba(0, 212, 255, 0.2);
+        }
+
+        .controls h3 {
+            color: #00d4ff;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .control-group {
+            margin-bottom: 12px;
+        }
+
+        .control-group label {
+            display: block;
+            font-size: 12px;
+            color: #aaa;
+            margin-bottom: 5px;
+        }
+
+        .control-group input[type="file"] {
+            font-size: 11px;
+            color: #e0e0e0;
+            width: 100%;
+        }
+
+        .control-group input[type="file"]::file-selector-button {
+            background: #00d4ff;
+            color: #0a0e27;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 11px;
+        }
+
+        .control-group input[type="file"]::file-selector-button:hover {
+            background: #00a8cc;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        button {
+            flex: 1;
+            background: #00d4ff;
+            color: #0a0e27;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: #00a8cc;
+            transform: translateY(-2px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .stats {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            background: rgba(10, 14, 39, 0.95);
+            border: 1px solid #00d4ff;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 11px;
+            color: #888;
+            z-index: 100;
+            pointer-events: auto;
+            font-family: 'Courier New', monospace;
+            max-width: 250px;
+        }
+
+        .stats-item {
+            margin: 4px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .stats-label {
+            color: #aaa;
+        }
+
+        .stats-value {
+            color: #00d4ff;
+            font-weight: bold;
+        }
+
+        .message {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(10, 14, 39, 0.95);
+            border: 1px solid #00d4ff;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 12px;
+            color: #e0e0e0;
+            z-index: 100;
+            pointer-events: auto;
+            max-width: 300px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .message.error {
+            border-color: #ff4444;
+            color: #ff8888;
+        }
+
+        .message.success {
+            border-color: #44ff44;
+            color: #88ff88;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .info-panel {
+            position: fixed;
+            top: 70px;
+            left: 20px;
+            background: rgba(10, 14, 39, 0.95);
+            border: 1px solid #00d4ff;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 11px;
+            color: #888;
+            z-index: 100;
+            pointer-events: auto;
+            max-width: 250px;
+        }
+
+        .info-item {
+            margin: 4px 0;
+        }
+
+        .info-label {
+            color: #aaa;
+            display: inline-block;
+            min-width: 80px;
+        }
+
+        .info-value {
+            color: #00d4ff;
+        }
+
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(10, 14, 39, 0.98);
+            border: 2px solid #00d4ff;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            z-index: 200;
+            display: none;
+            pointer-events: auto;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #00d4ff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .keyboard-help {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(10, 14, 39, 0.95);
+            border: 1px solid #00d4ff;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 10px;
+            color: #888;
+            z-index: 90;
+            max-width: 200px;
+            display: none;
+        }
+
+        .keyboard-help.show {
+            display: block;
+        }
+
+        .help-item {
+            margin: 3px 0;
+            color: #aaa;
+        }
+
+        .help-key {
+            color: #00d4ff;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="ui-overlay">
+        <div class="header">
+            <h1>🚀 TRELLIS2 WebGL Viewer</h1>
+            <p>GLB 3D Model Viewer - Generierte TRELLIS2 Assets anzeigen</p>
+        </div>
+
+        <div class="info-panel">
+            <div class="info-item">
+                <span class="info-label">Status:</span>
+                <span class="info-value" id="status">Bereit</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Datei:</span>
+                <span class="info-value" id="filename">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Größe:</span>
+                <span class="info-value" id="filesize">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Polygone:</span>
+                <span class="info-value" id="polycount">-</span>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stats-item">
+                <span class="stats-label">FPS:</span>
+                <span class="stats-value" id="fps">60</span>
+            </div>
+            <div class="stats-item">
+                <span class="stats-label">Triangles:</span>
+                <span class="stats-value" id="triangles">0</span>
+            </div>
+            <div class="stats-item">
+                <span class="stats-label">Lights:</span>
+                <span class="stats-value" id="lights">1</span>
+            </div>
+            <div class="stats-item">
+                <span class="stats-label">Geometries:</span>
+                <span class="stats-value" id="geometries">0</span>
+            </div>
+            <div class="stats-item">
+                <span class="stats-label">Textures:</span>
+                <span class="stats-value" id="textures">0</span>
+            </div>
+            <div class="stats-item">
+                <span class="stats-label">Memory:</span>
+                <span class="stats-value" id="memory">0 MB</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <h3>🎮 Steuerung</h3>
+            <div class="control-group">
+                <label for="file-input">GLB Datei:</label>
+                <input type="file" id="file-input" accept=".glb,.gltf" />
+            </div>
+            <div class="control-group">
+                <label>oder von URL:</label>
+                <input type="text" id="url-input" placeholder="URL eingeben..." style="width: 100%; padding: 6px; background: #1a1a2e; border: 1px solid #00d4ff; color: #e0e0e0; border-radius: 4px; font-size: 11px;" />
+            </div>
+            <div class="button-group">
+                <button onclick="loadFromURL()">📥 URL laden</button>
+                <button onclick="resetView()">🔄 Reset</button>
+            </div>
+            <div class="button-group">
+                <button onclick="downloadScreenshot()">📸 Screenshot</button>
+                <button onclick="toggleHelp()">❓ Hilfe</button>
+            </div>
+        </div>
+
+        <div class="keyboard-help" id="keyboard-help">
+            <div class="help-item"><span class="help-key">Maus</span> - Rotieren</div>
+            <div class="help-item"><span class="help-key">Scroll</span> - Zoom</div>
+            <div class="help-item"><span class="help-key">Space</span> - Reset</div>
+            <div class="help-item"><span class="help-key">L</span> - Lichter</div>
+            <div class="help-item"><span class="help-key">W</span> - Wireframe</div>
+            <div class="help-item"><span class="help-key">G</span> - Grid</div>
+            <div class="help-item"><span class="help-key">S</span> - Screenshot</div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div id="loading-text">Model wird geladen...</div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script async src="https://cdn.jsdelivr.net/npm/three@r128/build/three.min.js"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/three@r128/examples/js/loaders/GLTFLoader.js"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/three@r128/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // === SCENE SETUP ===
+        const canvas = document.getElementById('canvas');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0e27);
+        scene.fog = new THREE.Fog(0x0a0e27, 100, 1000);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+
+        // === LIGHTING ===
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 10, 7);
+        directionalLight.castShadow = true;
+        scene.add(directionalLight);
+
+        // === ORBIT CONTROLS ===
+        const controls = new THREE.OrbitControls(camera, canvas);
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 2;
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        // === GRID ===
+        const gridHelper = new THREE.GridHelper(20, 20, 0x00d4ff, 0x1a3a4a);
+        gridHelper.visible = false;
+        scene.add(gridHelper);
+
+        // === STATE ===
+        let currentModel = null;
+        let stats = { triangles: 0, geometries: 0, textures: 0, fps: 60 };
+        let showWireframe = false;
+        let showGrid = false;
+        let fpsCounter = 0;
+        let lastTime = performance.now();
+
+        // === UI FUNCTIONS ===
+        function showMessage(text, type = 'info') {
+            const msg = document.createElement('div');
+            msg.className = `message ${type}`;
+            msg.textContent = text;
+            document.body.appendChild(msg);
+            setTimeout(() => msg.remove(), 3000);
+        }
+
+        function setStatus(text) {
+            document.getElementById('status').textContent = text;
+        }
+
+        function updateStats() {
+            // Count geometry info
+            let geometries = 0;
+            let triangles = 0;
+            let textures = 0;
+
+            if (currentModel) {
+                currentModel.traverse(child => {
+                    if (child.geometry) geometries++;
+                    if (child.geometry && child.geometry.isBufferGeometry) {
+                        const posAttr = child.geometry.getAttribute('position');
+                        if (posAttr) triangles += posAttr.count / 3;
+                    }
+                    if (child.material) {
+                        const mat = Array.isArray(child.material) ? child.material[0] : child.material;
+                        if (mat.map) textures++;
+                    }
+                });
+            }
+
+            stats.geometries = geometries;
+            stats.triangles = Math.round(triangles);
+            stats.textures = textures;
+
+            document.getElementById('geometries').textContent = geometries;
+            document.getElementById('triangles').textContent = triangles.toLocaleString('de-DE');
+            document.getElementById('textures').textContent = textures;
+            document.getElementById('polycount').textContent = triangles > 0 ? `${triangles.toLocaleString('de-DE')} Poly` : '-';
+        }
+
+        function updateFPS() {
+            const now = performance.now();
+            const delta = now - lastTime;
+            lastTime = now;
+
+            if (delta > 0) {
+                stats.fps = Math.round(1000 / delta);
+            }
+
+            fpsCounter++;
+            if (fpsCounter % 10 === 0) {
+                document.getElementById('fps').textContent = stats.fps;
+            }
+        }
+
+        function toggleWireframe() {
+            showWireframe = !showWireframe;
+            if (currentModel) {
+                currentModel.traverse(child => {
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(m => m.wireframe = showWireframe);
+                        } else {
+                            child.material.wireframe = showWireframe;
+                        }
+                    }
+                });
+            }
+            showMessage(`Wireframe: ${showWireframe ? 'AN' : 'AUS'}`);
+        }
+
+        function toggleGrid() {
+            showGrid = !showGrid;
+            gridHelper.visible = showGrid;
+            showMessage(`Grid: ${showGrid ? 'AN' : 'AUS'}`);
+        }
+
+        function resetView() {
+            camera.position.set(0, 0, 5);
+            controls.target.set(0, 0, 0);
+            controls.update();
+            showMessage('Ansicht zurückgesetzt');
+        }
+
+        function downloadScreenshot() {
+            renderer.render(scene, camera);
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `trellis2-screenshot-${Date.now()}.png`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showMessage('Screenshot heruntergeladen', 'success');
+            });
+        }
+
+        function toggleHelp() {
+            document.getElementById('keyboard-help').classList.toggle('show');
+        }
+
+        // === FILE LOADING ===
+        function loadFile(file) {
+            if (!file.name.endsWith('.glb') && !file.name.endsWith('.gltf')) {
+                showMessage('Bitte nur GLB oder GLTF Dateien laden', 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const arrayBuffer = e.target.result;
+                loadGLB(arrayBuffer, file.name, file.size);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function loadFromURL() {
+            const url = document.getElementById('url-input').value.trim();
+            if (!url) {
+                showMessage('Bitte URL eingeben', 'error');
+                return;
+            }
+
+            setStatus('Wird geladen...');
+            document.getElementById('loading').classList.add('active');
+
+            fetch(url)
+                .then(res => res.arrayBuffer())
+                .then(arrayBuffer => {
+                    const filename = url.split('/').pop() || 'model.glb';
+                    loadGLB(arrayBuffer, filename, arrayBuffer.byteLength);
+                })
+                .catch(err => {
+                    showMessage(`Fehler beim Laden: ${err.message}`, 'error');
+                    setStatus('Fehler');
+                    document.getElementById('loading').classList.remove('active');
+                });
+        }
+
+        function loadGLB(arrayBuffer, filename, filesize) {
+            setStatus('Wird geladen...');
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('loading-text').textContent = 'Modell wird parsiert...';
+
+            const loader = new THREE.GLTFLoader();
+            loader.parse(arrayBuffer, '', (gltf) => {
+                // Remove old model
+                if (currentModel) scene.remove(currentModel);
+
+                currentModel = gltf.scene;
+                scene.add(currentModel);
+
+                // Auto-center and scale
+                const box = new THREE.Box3().setFromObject(currentModel);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+
+                currentModel.position.sub(center);
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const scale = 4 / maxDim;
+                currentModel.scale.multiplyScalar(scale);
+
+                // Update camera
+                camera.position.z = Math.max(size.x, size.y, size.z) * 1.5 * scale;
+                controls.target.set(0, 0, 0);
+                controls.update();
+
+                // Update UI
+                document.getElementById('filename').textContent = filename;
+                document.getElementById('filesize').textContent = (filesize / 1024 / 1024).toFixed(2) + ' MB';
+
+                updateStats();
+                setStatus('Geladen ✓');
+                document.getElementById('loading').classList.remove('active');
+                showMessage(`Model geladen: ${filename}`, 'success');
+
+                console.log('Model Info:', {
+                    filename,
+                    filesize: (filesize / 1024 / 1024).toFixed(2) + ' MB',
+                    size: { x: size.x.toFixed(2), y: size.y.toFixed(2), z: size.z.toFixed(2) },
+                    stats
+                });
+            }, (err) => {
+                showMessage(`Parse Error: ${err.message}`, 'error');
+                setStatus('Fehler');
+                document.getElementById('loading').classList.remove('active');
+            });
+        }
+
+        // === FILE INPUT ===
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                loadFile(e.target.files[0]);
+            }
+        });
+
+        // === KEYBOARD SHORTCUTS ===
+        document.addEventListener('keydown', (e) => {
+            switch (e.code) {
+                case 'Space':
+                    resetView();
+                    break;
+                case 'KeyW':
+                    toggleWireframe();
+                    break;
+                case 'KeyG':
+                    toggleGrid();
+                    break;
+                case 'KeyS':
+                    downloadScreenshot();
+                    break;
+                case 'KeyL':
+                    directionalLight.visible = !directionalLight.visible;
+                    showMessage(`Licht: ${directionalLight.visible ? 'AN' : 'AUS'}`);
+                    break;
+            }
+        });
+
+        // === ANIMATION LOOP ===
+        function animate() {
+            requestAnimationFrame(animate);
+
+            controls.update();
+            updateFPS();
+
+            renderer.render(scene, camera);
+        }
+
+        // === WINDOW RESIZE ===
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // === START ===
+        animate();
+        setStatus('Bereit - Datei laden');
+        showMessage('WebGL Viewer bereit. GLB Datei laden oder URL eingeben.', 'success');
+    </script>
+</body>
+</html>

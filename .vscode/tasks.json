@@ -349,6 +349,68 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "TRELLIS2 Docker: Up (GPU)",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_docker.ps1 -Action up -Profile ai-3d",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2 Docker: Down",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_docker.ps1 -Action down",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2 Docker: Logs",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_docker.ps1 -Action logs",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2 Docker: GPU Check",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_docker.ps1 -Action gpu-check",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2 Docker: Download Models",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_docker.ps1 -Action models-download",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "TRELLIS2 Docker: Shell",
+			"type": "shell",
+			"command": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/trellis2_docker.ps1 -Action shell",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": [],
+			"isBackground": true
+		},
+		{
 			"label": "Temp: Test Admin Stats Endpoint",
 			"type": "shell",
 			"command": "docker compose exec -T web php scripts/test_admin_stats_endpoint.php"

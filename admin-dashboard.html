@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRELLIS2 Admin Dashboard — GalaxyQuest</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #0a0e27;
+            color: #e5e7eb;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace;
+        }
+        
+        #app {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        header {
+            background: linear-gradient(to right, #0f172a, #1e1b4b);
+            border-bottom: 2px solid #ef4444;
+            padding: 1.5rem 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        
+        header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.3rem;
+        }
+        
+        header .subtitle {
+            font-size: 0.9rem;
+            color: #9ca3af;
+        }
+        
+        .container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid #1f2937;
+            padding-bottom: 0;
+        }
+        
+        .tab {
+            padding: 0.75rem 1.5rem;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: #9ca3af;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover {
+            color: #d1d5db;
+        }
+        
+        .tab.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Grid layouts */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .card {
+            background: #111827;
+            border: 1px solid #1f2937;
+            border-radius: 8px;
+            padding: 1.5rem;
+            transition: all 0.3s;
+        }
+        
+        .card:hover {
+            border-color: #374151;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+        }
+        
+        .card-title {
+            font-size: 0.85rem;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }
+        
+        .card-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #60a5fa;
+            margin-bottom: 0.3rem;
+        }
+        
+        .card-meta {
+            font-size: 0.8rem;
+            color: #6b7280;
+        }
+        
+        .status-ok {
+            color: #10b981;
+        }
+        
+        .status-warn {
+            color: #f59e0b;
+        }
+        
+        .status-error {
+            color: #ef4444;
+        }
+        
+        /* Queue table */
+        .table-container {
+            background: #111827;
+            border: 1px solid #1f2937;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        
+        thead {
+            background: #0f172a;
+            border-bottom: 2px solid #1f2937;
+        }
+        
+        th {
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 0.8rem;
+        }
+        
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid #1f2937;
+        }
+        
+        tr:hover {
+            background: #1f2937;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .badge-queued {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        .badge-processing {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .badge-complete {
+            background: #10b981;
+            color: white;
+        }
+        
+        .badge-failed {
+            background: #ef4444;
+            color: white;
+        }
+        
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .control-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            background: #111827;
+            border: 1px solid #1f2937;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+        }
+        
+        .control-group label {
+            font-size: 0.85rem;
+            color: #9ca3af;
+        }
+        
+        .control-group input,
+        .control-group select {
+            background: #1f2937;
+            border: 1px solid #374151;
+            color: #e5e7eb;
+            padding: 0.4rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+        
+        button {
+            padding: 0.5rem 1.2rem;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: #2563eb;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+        
+        button:disabled {
+            background: #4b5563;
+            cursor: not-allowed;
+        }
+        
+        button.danger {
+            background: #ef4444;
+        }
+        
+        button.danger:hover {
+            background: #dc2626;
+        }
+        
+        /* Chart container */
+        .chart-container {
+            background: #111827;
+            border: 1px solid #1f2937;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            position: relative;
+            height: 300px;
+        }
+        
+        .chart-title {
+            margin-bottom: 1rem;
+            font-weight: 600;
+            color: #d1d5db;
+        }
+        
+        /* Quota bar */
+        .quota-bar {
+            height: 20px;
+            background: #1f2937;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+        
+        .quota-fill {
+            height: 100%;
+            background: linear-gradient(to right, #10b981, #f59e0b, #ef4444);
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 0.5rem;
+            font-size: 0.75rem;
+            color: white;
+            font-weight: 600;
+        }
+        
+        /* Loading state */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            color: #9ca3af;
+            padding: 2rem;
+        }
+        
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #374151;
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        footer {
+            background: #0f172a;
+            border-top: 1px solid #1f2937;
+            padding: 1rem 2rem;
+            font-size: 0.85rem;
+            color: #6b7280;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .tabs {
+                flex-wrap: wrap;
+            }
+            
+            table {
+                font-size: 0.75rem;
+            }
+            
+            th, td {
+                padding: 0.5rem;
+            }
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-start;
+        }
+        
+        .alert-info {
+            background: #0f2f5f;
+            border: 1px solid #1e40af;
+            color: #93c5fd;
+        }
+        
+        .alert-warn {
+            background: #5f3f00;
+            border: 1px solid #b45309;
+            color: #fcd34d;
+        }
+        
+        .alert-error {
+            background: #5f1f1f;
+            border: 1px solid #991b1b;
+            color: #fca5a5;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>⚙️ TRELLIS2 Admin Dashboard</h1>
+            <div class="subtitle">
+                Queue Monitor • Quota Management • Performance Analytics
+            </div>
+        </header>
+        
+        <div class="container">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" data-tab="overview">📊 Overview</button>
+                <button class="tab" data-tab="queue">📋 Queue Monitor</button>
+                <button class="tab" data-tab="quotas">👤 User Quotas</button>
+                <button class="tab" data-tab="analytics">📈 Analytics</button>
+                <button class="tab" data-tab="logs">📝 Audit Logs</button>
+                <button class="tab" data-tab="settings">⚙️ Settings</button>
+            </div>
+            
+            <!-- Tab: Overview -->
+            <div class="tab-content active" data-tab="overview">
+                <div class="alert alert-info">
+                    <span>ℹ️</span>
+                    <div>
+                        <strong>System Status:</strong> TRELLIS2 GPU worker active. 
+                        Check queue depth and worker health below.
+                    </div>
+                </div>
+                
+                <div class="grid">
+                    <div class="card">
+                        <div class="card-title">Active Jobs</div>
+                        <div class="card-value" id="stat-active-jobs">0</div>
+                        <div class="card-meta status-ok" id="stat-active-status">Idle</div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Queued Jobs</div>
+                        <div class="card-value" id="stat-queued">0</div>
+                        <div class="card-meta">Waiting for GPU</div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Today Completed</div>
+                        <div class="card-value" id="stat-today-completed">0</div>
+                        <div class="card-meta">Success rate: <span id="stat-success-rate">-</span></div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Total Storage Used</div>
+                        <div class="card-value" id="stat-storage-used">0 GB</div>
+                        <div class="card-meta">of ~500 GB available</div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Cache Hit Ratio</div>
+                        <div class="card-value" id="stat-cache-ratio">--</div>
+                        <div class="card-meta">Saves GPU processing</div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Avg Process Time</div>
+                        <div class="card-value" id="stat-avg-time">--</div>
+                        <div class="card-meta">Including queue wait</div>
+                    </div>
+                </div>
+                
+                <!-- Quick Actions -->
+                <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.1rem;">Quick Actions</h3>
+                <div class="controls">
+                    <button onclick="refreshData()">🔄 Refresh Stats</button>
+                    <button onclick="restartWorker()">⚡ Restart Worker</button>
+                    <button onclick="clearFailedJobs()">🗑️ Clear Failed Jobs</button>
+                    <button class="danger" onclick="pauseQueue()">⏸️ Pause Queue</button>
+                </div>
+            </div>
+            
+            <!-- Tab: Queue Monitor -->
+            <div class="tab-content" data-tab="queue">
+                <div class="controls">
+                    <div class="control-group">
+                        <label>Status Filter:</label>
+                        <select id="status-filter" onchange="filterQueue()">
+                            <option value="">All</option>
+                            <option value="queued">Queued</option>
+                            <option value="processing">Processing</option>
+                            <option value="complete">Complete</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label>Rows:</label>
+                        <select id="page-size" onchange="filterQueue()">
+                            <option value="10">10</option>
+                            <option value="25" selected>25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                    <button onclick="refreshQueue()">🔄 Refresh Queue</button>
+                </div>
+                
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Status</th>
+                                <th>User</th>
+                                <th>Prompt Preview</th>
+                                <th>Position</th>
+                                <th>Est. Time</th>
+                                <th>Retries</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="queue-table">
+                            <tr>
+                                <td colspan="8" class="loading">
+                                    <div class="spinner"></div> Loading queue...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top: 1rem; text-align: center; color: #6b7280; font-size: 0.85rem;">
+                    <div id="queue-pagination"></div>
+                </div>
+            </div>
+            
+            <!-- Tab: User Quotas -->
+            <div class="tab-content" data-tab="quotas">
+                <div class="controls">
+                    <div class="control-group">
+                        <label>Filter:</label>
+                        <select id="quota-filter" onchange="filterQuotas()">
+                            <option value="">All Users</option>
+                            <option value="free">Free Tier</option>
+                            <option value="supporter">Supporter</option>
+                            <option value="premium">Premium</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label>Search User ID:</label>
+                        <input type="text" id="quota-search" placeholder="123" onchange="filterQuotas()">
+                    </div>
+                    <button onclick="refreshQuotas()">🔄 Refresh Quotas</button>
+                </div>
+                
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>User ID</th>
+                                <th>Tier</th>
+                                <th>Storage</th>
+                                <th>Monthly Gen</th>
+                                <th>Storage Remaining</th>
+                                <th>Gen Remaining</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="quota-table">
+                            <tr>
+                                <td colspan="7" class="loading">
+                                    <div class="spinner"></div> Loading quotas...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Tab: Analytics -->
+            <div class="tab-content" data-tab="analytics">
+                <h3 style="margin-bottom: 1.5rem; font-size: 1.1rem;">Performance Metrics</h3>
+                
+                <div class="grid">
+                    <div class="chart-container">
+                        <div class="chart-title">Generations per Hour</div>
+                        <canvas id="chart-hourly"></canvas>
+                    </div>
+                    
+                    <div class="chart-container">
+                        <div class="chart-title">Queue Depth Trend</div>
+                        <canvas id="chart-queue-trend"></canvas>
+                    </div>
+                    
+                    <div class="chart-container">
+                        <div class="chart-title">Success Rate</div>
+                        <canvas id="chart-success"></canvas>
+                    </div>
+                    
+                    <div class="chart-container">
+                        <div class="chart-title">Processing Time Distribution</div>
+                        <canvas id="chart-time-dist"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tab: Audit Logs -->
+            <div class="tab-content" data-tab="logs">
+                <div class="controls">
+                    <div class="control-group">
+                        <label>Event Type:</label>
+                        <select id="log-type" onchange="filterLogs()">
+                            <option value="">All Events</option>
+                            <option value="queued">Queued</option>
+                            <option value="started">Started</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                            <option value="retried">Retried</option>
+                        </select>
+                    </div>
+                    <button onclick="refreshLogs()">🔄 Refresh Logs</button>
+                    <button onclick="exportLogs()">📥 Export CSV</button>
+                </div>
+                
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Event Type</th>
+                                <th>Generation ID</th>
+                                <th>User ID</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log-table">
+                            <tr>
+                                <td colspan="5" class="loading">
+                                    <div class="spinner"></div> Loading logs...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Tab: Settings -->
+            <div class="tab-content" data-tab="settings">
+                <div class="card">
+                    <h3 style="margin-bottom: 1rem;">System Configuration</h3>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem;">
+                            <strong>TRELLIS2 API URL</strong>
+                        </label>
+                        <input type="text" id="setting-trellis2-url" value="http://trellis2:7862/api/predict" style="width: 100%; padding: 0.5rem;">
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem;">
+                            <strong>Worker Poll Interval (seconds)</strong>
+                        </label>
+                        <input type="number" id="setting-poll-interval" value="10" min="5" max="60" style="width: 100%; padding: 0.5rem;">
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem;">
+                            <strong>Max Retries per Job</strong>
+                        </label>
+                        <input type="number" id="setting-max-retries" value="3" min="1" max="10" style="width: 100%; padding: 0.5rem;">
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem;">
+                            <strong>Default Storage Quota (GB)</strong>
+                        </label>
+                        <input type="number" id="setting-storage-quota" value="5" min="1" max="100" step="0.5" style="width: 100%; padding: 0.5rem;">
+                    </div>
+                    
+                    <div style="margin-bottom: 2rem;">
+                        <label style="display: block; margin-bottom: 0.5rem;">
+                            <strong>Default Monthly Generation Limit</strong>
+                        </label>
+                        <input type="number" id="setting-monthly-limit" value="100" min="10" max="1000" step="10" style="width: 100%; padding: 0.5rem;">
+                    </div>
+                    
+                    <button onclick="saveSettings()">💾 Save Settings</button>
+                </div>
+                
+                <div class="card" style="margin-top: 2rem;">
+                    <h3 style="margin-bottom: 1rem;">System Health</h3>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <div style="font-weight: 600; margin-bottom: 0.3rem;">Database Connection</div>
+                        <div id="health-db" class="status-ok">✅ Connected</div>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <div style="font-weight: 600; margin-bottom: 0.3rem;">TRELLIS2 API</div>
+                        <div id="health-trellis2" class="status-ok">✅ Responding</div>
+                    </div>
+                    
+                    <div>
+                        <div style="font-weight: 600; margin-bottom: 0.3rem;">Worker Service</div>
+                        <div id="health-worker" class="status-ok">✅ Running (1 instance)</div>
+                    </div>
+                    
+                    <button onclick="checkHealth()" style="margin-top: 1.5rem;">🔍 Check Health</button>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <div>
+                <strong>TRELLIS2 Admin Dashboard v1.0</strong> • 
+                Last updated: <span id="last-update">Just now</span> • 
+                <a href="/docs/TRELLIS2_COMPLETE_INTEGRATION.md" style="color: #60a5fa; text-decoration: none;">Documentation</a>
+            </div>
+        </footer>
+    </div>
+    
+    <script>
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+                tab.classList.add('active');
+                document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+                
+                // Load data for this tab
+                if (tabName === 'queue') refreshQueue();
+                if (tabName === 'quotas') refreshQuotas();
+                if (tabName === 'analytics') loadAnalytics();
+                if (tabName === 'logs') refreshLogs();
+            });
+        });
+        
+        // Data loading
+        async function refreshData() {
+            try {
+                // Load overview stats
+                const statsRes = await fetch('/api/admin/stats');
+                if (statsRes.ok) {
+                    const stats = await statsRes.json();
+                    document.getElementById('stat-active-jobs').textContent = stats.active_jobs || 0;
+                    document.getElementById('stat-queued').textContent = stats.queued_jobs || 0;
+                    document.getElementById('stat-today-completed').textContent = stats.today_completed || 0;
+                    document.getElementById('stat-storage-used').textContent = (stats.storage_used_gb || 0).toFixed(1) + ' GB';
+                    document.getElementById('stat-cache-ratio').textContent = (stats.cache_hit_ratio || 0).toFixed(1) + '%';
+                    document.getElementById('stat-avg-time').textContent = (stats.avg_process_time || 0).toFixed(1) + 's';
+                    document.getElementById('stat-success-rate').textContent = (stats.success_rate || 0).toFixed(1) + '%';
+                    
+                    // Update status
+                    const statusEl = document.getElementById('stat-active-status');
+                    if (stats.active_jobs > 0) {
+                        statusEl.textContent = `Processing ${stats.active_jobs}`;
+                        statusEl.className = 'card-meta status-warn';
+                    } else {
+                        statusEl.textContent = 'Idle';
+                        statusEl.className = 'card-meta status-ok';
+                    }
+                }
+                
+                updateLastUpdate();
+            } catch (e) {
+                console.error('Failed to load stats:', e);
+            }
+        }
+        
+        async function refreshQueue() {
+            try {
+                const status = document.getElementById('status-filter')?.value || '';
+                const limit = document.getElementById('page-size')?.value || 25;
+                
+                const res = await fetch(`/api/admin/queue?status=${status}&limit=${limit}`);
+                if (!res.ok) throw new Error('Failed to load queue');
+                
+                const data = await res.json();
+                const tbody = document.getElementById('queue-table');
+                
+                if (!data.queue || data.queue.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #6b7280;">No jobs in queue</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = data.queue.map(job => `
+                    <tr>
+                        <td><code>${job.id}</code></td>
+                        <td><span class="badge badge-${job.status}">${job.status}</span></td>
+                        <td>${job.user_id || '-'}</td>
+                        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${job.prompt_text?.substring(0, 40)}...
+                        </td>
+                        <td>${job.queue_position || '-'}</td>
+                        <td>${job.estimated_wait_seconds || 0}s</td>
+                        <td>${job.retry_count || 0}</td>
+                        <td>
+                            <button onclick="cancelJob(${job.id})" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;">Cancel</button>
+                        </td>
+                    </tr>
+                `).join('');
+                
+                updateLastUpdate();
+            } catch (e) {
+                console.error('Failed to load queue:', e);
+                document.getElementById('queue-table').innerHTML = `
+                    <tr><td colspan="8" style="color: #ef4444;">Error loading queue</td></tr>
+                `;
+            }
+        }
+        
+        async function refreshQuotas() {
+            try {
+                const tier = document.getElementById('quota-filter')?.value || '';
+                const userId = document.getElementById('quota-search')?.value || '';
+                
+                const res = await fetch(`/api/admin/quotas?tier=${tier}&user_id=${userId}`);
+                if (!res.ok) throw new Error('Failed to load quotas');
+                
+                const data = await res.json();
+                const tbody = document.getElementById('quota-table');
+                
+                if (!data.quotas || data.quotas.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #6b7280;">No users found</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = data.quotas.map(quota => `
+                    <tr>
+                        <td>${quota.user_id}</td>
+                        <td><span class="badge" style="background: #6366f1; color: white;">${quota.tier}</span></td>
+                        <td>${quota.storage_limit_gb} GB</td>
+                        <td>${quota.monthly_generation_limit}</td>
+                        <td>
+                            <div class="quota-bar">
+                                <div class="quota-fill" style="width: ${quota.storage_percent_used}%">
+                                    ${quota.storage_percent_used.toFixed(0)}%
+                                </div>
+                            </div>
+                        </td>
+                        <td>${quota.monthly_remaining}</td>
+                        <td>
+                            <button onclick="editQuota(${quota.user_id})" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;">Edit</button>
+                        </td>
+                    </tr>
+                `).join('');
+                
+                updateLastUpdate();
+            } catch (e) {
+                console.error('Failed to load quotas:', e);
+            }
+        }
+        
+        async function refreshLogs() {
+            try {
+                const type = document.getElementById('log-type')?.value || '';
+                
+                const res = await fetch(`/api/admin/audit_logs?event_type=${type}&limit=50`);
+                if (!res.ok) throw new Error('Failed to load logs');
+                
+                const data = await res.json();
+                const tbody = document.getElementById('log-table');
+                
+                if (!data.logs || data.logs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: #6b7280;">No logs found</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = data.logs.map(log => `
+                    <tr>
+                        <td><small>${log.created_at}</small></td>
+                        <td><span class="badge" style="background: #6366f1; color: white;">${log.event_type}</span></td>
+                        <td><code>${log.generation_id || '-'}</code></td>
+                        <td>${log.user_id || '-'}</td>
+                        <td><small>${log.event_message}</small></td>
+                    </tr>
+                `).join('');
+                
+                updateLastUpdate();
+            } catch (e) {
+                console.error('Failed to load logs:', e);
+            }
+        }
+        
+        async function loadAnalytics() {
+            try {
+                const res = await fetch('/api/admin/analytics');
+                if (!res.ok) throw new Error('Failed to load analytics');
+                
+                const data = await res.json();
+                
+                // Hourly generations chart
+                const hourlyCtx = document.getElementById('chart-hourly')?.getContext('2d');
+                if (hourlyCtx) {
+                    new Chart(hourlyCtx, {
+                        type: 'line',
+                        data: {
+                            labels: data.hourly?.labels || [],
+                            datasets: [{
+                                label: 'Generations',
+                                data: data.hourly?.values || [],
+                                borderColor: '#3b82f6',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                tension: 0.4,
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } }
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to load analytics:', e);
+            }
+        }
+        
+        // Actions
+        async function cancelJob(jobId) {
+            if (!confirm('Cancel this job?')) return;
+            
+            try {
+                const res = await fetch(`/api/admin/queue/${jobId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    alert('Job cancelled');
+                    refreshQueue();
+                }
+            } catch (e) {
+                alert('Failed to cancel job: ' + e.message);
+            }
+        }
+        
+        async function editQuota(userId) {
+            const storage = prompt('Storage limit (GB):', '5');
+            if (storage === null) return;
+            
+            const monthly = prompt('Monthly generations:', '100');
+            if (monthly === null) return;
+            
+            try {
+                const res = await fetch(`/api/admin/quotas/${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        storage_limit_gb: parseFloat(storage),
+                        monthly_generation_limit: parseInt(monthly)
+                    })
+                });
+                
+                if (res.ok) {
+                    alert('Quota updated');
+                    refreshQuotas();
+                }
+            } catch (e) {
+                alert('Failed to update quota: ' + e.message);
+            }
+        }
+        
+        function filterQueue() { refreshQueue(); }
+        function filterQuotas() { refreshQuotas(); }
+        function filterLogs() { refreshLogs(); }
+        function refreshQueue() { /* Already defined above */ }
+        function refreshQuotas() { /* Already defined above */ }
+        function refreshLogs() { /* Already defined above */ }
+        
+        async function restartWorker() {
+            if (!confirm('Restart TRELLIS2 worker?')) return;
+            try {
+                const res = await fetch('/api/admin/worker/restart', { method: 'POST' });
+                alert(res.ok ? 'Worker restarting...' : 'Failed to restart worker');
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        async function clearFailedJobs() {
+            if (!confirm('Clear all failed jobs?')) return;
+            try {
+                const res = await fetch('/api/admin/queue/failed', { method: 'DELETE' });
+                alert(res.ok ? 'Failed jobs cleared' : 'Failed to clear jobs');
+                refreshQueue();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        async function pauseQueue() {
+            try {
+                const res = await fetch('/api/admin/queue/pause', { method: 'POST' });
+                alert(res.ok ? 'Queue paused' : 'Failed to pause queue');
+                refreshData();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        async function saveSettings() {
+            try {
+                const settings = {
+                    trellis2_api_url: document.getElementById('setting-trellis2-url').value,
+                    poll_interval_seconds: parseInt(document.getElementById('setting-poll-interval').value),
+                    max_retries: parseInt(document.getElementById('setting-max-retries').value),
+                    default_storage_quota_gb: parseFloat(document.getElementById('setting-storage-quota').value),
+                    default_monthly_limit: parseInt(document.getElementById('setting-monthly-limit').value),
+                };
+                
+                const res = await fetch('/api/admin/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                
+                alert(res.ok ? 'Settings saved' : 'Failed to save settings');
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        async function checkHealth() {
+            try {
+                const res = await fetch('/api/admin/health');
+                if (res.ok) {
+                    const health = await res.json();
+                    document.getElementById('health-db').textContent = 
+                        health.database ? '✅ Connected' : '❌ Disconnected';
+                    document.getElementById('health-trellis2').textContent = 
+                        health.trellis2_api ? '✅ Responding' : '❌ Not responding';
+                    document.getElementById('health-worker').textContent = 
+                        health.worker_running ? `✅ Running (${health.worker_instances} instances)` : '❌ Not running';
+                }
+            } catch (e) {
+                alert('Health check failed: ' + e.message);
+            }
+        }
+        
+        async function exportLogs() {
+            try {
+                const res = await fetch('/api/admin/audit_logs/export?format=csv');
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'trellis2_audit_logs.csv';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                }
+            } catch (e) {
+                alert('Export failed: ' + e.message);
+            }
+        }
+        
+        function updateLastUpdate() {
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+        }
+        
+        // Auto-refresh
+        setInterval(refreshData, 30000); // Every 30 seconds
+        
+        // Initial load
+        refreshData();
+    </script>
+</body>
+</html>

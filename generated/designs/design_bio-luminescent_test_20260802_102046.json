@@ -1,0 +1,160 @@
+{
+  "species_code": "sylnar",
+  "base_template": {
+    "display_name": "Syl'Nar",
+    "base_concept": "Mystical cephalopod intelligences with bioluminescent wonder",
+    "faction_origin": "Spiritual leaders, cosmic explorers, empathic diplomats",
+    "lora_trigger_word": "sylnar_race",
+    "lora_recommended_weight": 0.8,
+    "morphology": {
+      "base_form": "cephalopod, graceful flowing tentacles",
+      "height_cm": [
+        175,
+        215
+      ],
+      "body_mass_ratio": 0.8,
+      "facial_features": "expressive alien eyes, spiritual depth, cosmic swirls",
+      "skin_variations": [
+        "translucent-cyan",
+        "pastel-blue",
+        "perlmut-iridescent",
+        "luminous-white"
+      ],
+      "tentacle_traits": [
+        "flowing graceful",
+        "pulsing bioluminescence",
+        "sensory-detailed",
+        "ethereal"
+      ],
+      "symmetry": "radial with flowing tentacle grace"
+    },
+    "aesthetic_principles": {
+      "primary_philosophy": "spiritual harmony, cosmic wonder, empathic connection",
+      "material_preference": [
+        "bio-membrane",
+        "luminescent-crystal",
+        "water-sealed-composite",
+        "living-light"
+      ],
+      "color_palette": [
+        "neon cyan",
+        "pastel blues",
+        "perlmut reflections",
+        "luminous pinks"
+      ],
+      "texture_traits": [
+        "translucent softness",
+        "pulsing bioluminescence",
+        "flowing curves",
+        "wet appearance"
+      ],
+      "era_reference": "transcendent spirituality meets advanced alien biology",
+      "cultural_markers": [
+        "meditation chambers",
+        "harmonic resonance nodes",
+        "wisdom-stones"
+      ]
+    },
+    "ship_design_archetype": {
+      "hull_shape": "organic flowing curves, bio-form, asymmetric beauty",
+      "propulsion_style": "bioluminescent jets, pulsing muscle-like propulsion",
+      "weapon_integration": "harmonic disruption fields, sonic projectors",
+      "windows_ports": "luminescent observation domes, bio-optical arrays",
+      "color_scheme": "deep blues with cyan and pink bioluminescent accents",
+      "size_range": [
+        90,
+        380
+      ],
+      "design_tags": [
+        "organic",
+        "spiritual",
+        "luminous",
+        "flowing",
+        "mystical"
+      ]
+    },
+    "customization_points": [
+      {
+        "name": "bioluminescence_color",
+        "type": "color",
+        "default": "#00ffdd",
+        "description": "Primary bioluminescence glow color",
+        "affects": [
+          "glow_color",
+          "energy_trail_color",
+          "mystical_appearance"
+        ]
+      },
+      {
+        "name": "translucency_level",
+        "type": "slider",
+        "range": [
+          0,
+          100
+        ],
+        "default": 60,
+        "description": "How transparent/translucent the hull appears",
+        "affects": [
+          "hull_transparency",
+          "internal_glow_visibility",
+          "ethereal_quality"
+        ]
+      },
+      {
+        "name": "spiritual_alignment",
+        "type": "choice",
+        "options": [
+          "peaceful-healer",
+          "wise-mentor",
+          "cosmic-seeker",
+          "harmonic-guide",
+          "transcendent"
+        ],
+        "affects": [
+          "color_warmth",
+          "glow_rhythm",
+          "spiritual_presence"
+        ]
+      },
+      {
+        "name": "tentacle_complexity",
+        "type": "slider",
+        "range": [
+          0,
+          100
+        ],
+        "default": 50,
+        "description": "Visual complexity of flowing tentacle structures",
+        "affects": [
+          "hull_appendage_detail",
+          "sensory_complexity",
+          "organic_appearance"
+        ]
+      }
+    ],
+    "prompt_template": "3D bioship design: {ship_name}\nSpecies Origin: Syl'Nar (cephalopod mystics)\nBioluminescence Color: {bioluminescence_color}\nTranslucency Level: {translucency_level}%\nSpiritual Alignment: {spiritual_alignment}\nTentacle Complexity: {tentacle_complexity}%\n\nSpecifications:\n- Organic flowing bio-form hull, {ship_length}m\n- Graceful asymmetric tentacle-like structures\n- Pulsing bioluminescent propulsion systems\n- Harmonic resonance disruption weapons\n- Semi-transparent membrane hull with internal luminescence\n- Cosmic-scale sensory observation arrays\n\nVisual Style: Transcendent spirituality in living form. Bioluminescent wonder and cosmic empathy.\nMaterial Language: Flowing bio-membranes with pulsing luminescent patterns in cyan and pink.\nAesthetic Philosophy: Form flows with grace and spiritual purpose. Every surface resonates with cosmic connection.\nPurpose: Diplomatic explorer, spiritual guide, cosmic seeker vessel\n"
+  },
+  "customizations": {
+    "bioluminescence_color": "#00d4ff"
+  },
+  "enhancement_history": [
+    {
+      "timestamp": "2026-08-02T10:20:46.892110",
+      "pattern": "weathering",
+      "parameters": {
+        "age_level": 60,
+        "damage_intensity": 40,
+        "patina_type": "bio-growth"
+      },
+      "prompt_modification": "Apply 60% natural aging with 40% battle damage and bio-growth patina formation"
+    }
+  ],
+  "generated_prompt": "3D bioship design: Bio-Luminescent Test\nSpecies Origin: Syl'Nar (cephalopod mystics)\nBioluminescence Color: #00d4ff\nTranslucency Level: 60%\nSpiritual Alignment: \nTentacle Complexity: 50%\n\nSpecifications:\n- Organic flowing bio-form hull, 200m\n- Graceful asymmetric tentacle-like structures\n- Pulsing bioluminescent propulsion systems\n- Harmonic resonance disruption weapons\n- Semi-transparent membrane hull with internal luminescence\n- Cosmic-scale sensory observation arrays\n\nVisual Style: Transcendent spirituality in living form. Bioluminescent wonder and cosmic empathy.\nMaterial Language: Flowing bio-membranes with pulsing luminescent patterns in cyan and pink.\nAesthetic Philosophy: Form flows with grace and spiritual purpose. Every surface resonates with cosmic connection.\nPurpose: Diplomatic explorer, spiritual guide, cosmic seeker vessel\n\n\nEnhancement: Apply 60% natural aging with 40% battle damage and bio-growth patina formation",
+  "metadata": {
+    "ship_name": "Bio-Luminescent Test",
+    "ship_length": 200,
+    "design_version": 1
+  },
+  "created_at": "2026-08-02T10:20:46.892003",
+  "updated_at": "2026-08-02T10:20:46.892118"
+}

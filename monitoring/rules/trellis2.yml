@@ -1,0 +1,223 @@
+# Prometheus Alert Rules for TRELLIS2
+# File: monitoring/rules/trellis2.yml
+#
+# Usage:
+#   - Copy to /etc/prometheus/rules/trellis2.yml
+#   - Reload Prometheus config: curl -X POST http://localhost:9090/-/reload
+
+groups:
+  - name: trellis2_queue
+    interval: 30s
+    rules:
+      # Queue too deep
+      - alert: TrellisTooManyQueuedJobs
+        expr: trellis2_queued_jobs > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: trellis2
+        annotations:
+          summary: "Too many jobs queued ({{ $value }})"
+          description: "Queue depth exceeded 100 jobs. Check worker service."
+
+      # No progress in queue
+      - alert: TrellisQueueStalled
+        expr: |
+          increase(trellis2_jobs_completed_today[5m]) == 0 
+          and trellis2_queued_jobs > 0
+        for: 10m
+        labels:
+          severity: critical
+          service: trellis2
+        annotations:
+          summary: "Queue appears stalled"
+          description: "No jobs completed in last 5 minutes but queue is not empty"
+
+      # Active jobs stuck
+      - alert: TrellisActiveJobStuck
+        expr: trellis2_active_jobs > 5
+        for: 30m
+        labels:
+          severity: warning
+          service: trellis2
+        annotations:
+          summary: "Many jobs stuck processing ({{ $value }})"
+          description: "Multiple jobs in processing state for >30 minutes. May indicate worker hang."
+
+  - name: trellis2_success_rate
+    interval: 30s
+    rules:
+      # Low success rate
+      - alert: TrellisLowSuccessRate
+        expr: trellis2_success_rate_today < 80
+        for: 15m
+        labels:
+          severity: warning
+          service: trellis2
+        annotations:
+          summary: "Success rate below 80% ({{ $value }}%)"
+          description: "Too many jobs are failing today. Investigate error logs."
+
+      # Very low success rate
+      - alert: TrellisCriticalSuccessRate
+        expr: trellis2_success_rate_today < 50
+        for: 5m
+        labels:
+          severity: critical
+          service: trellis2
+        annotations:
+          summary: "Success rate critically low ({{ $value }}%)"
+          description: "Majority of jobs are failing. Immediate action required."
+
+      # High failure rate in 24h
+      - alert: TrellisTooManyFailures
+        expr: trellis2_failed_jobs_24h > 50
+        for: 5m
+        labels:
+          severity: warning
+          service: trellis2
+        annotations:
+          summary: "High failure count in 24h ({{ $value }})"
+          description: "More than 50 jobs failed in last 24 hours"
+
+  - name: trellis2_processing_time
+    interval: 30s
+    rules:
+      # Processing time too high
+      - alert: TrellisSlowProcessing
+        expr: trellis2_avg_processing_ms > 30000
+        for: 10m
+        labels:
+          severity: warning
+          service: trellis2
+        annotations:
+          summary: "Processing time above 30s ({{ $value }}ms)"
+          description: "Average job processing time has increased significantly"
+
+      # P95 processing time
+      - alert: TrellisP95Slow
+        expr: trellis2_p95_processing_ms > 45000
+        for: 5m
+        labels:
+          severity: info
+          service: trellis2
+        annotations:
+          summary: "P95 processing time above 45s ({{ $value }}ms)"
+          description: "95th percentile of processing times is elevated"
+
+  - name: trellis2_cache
+    interval: 30s
+    rules:
+      # Cache hit ratio too low
+      - alert: TrellisCacheMiss
+        expr: trellis2_cache_hit_ratio < 25
+        for: 15m
+        labels:
+          severity: info
+          service: trellis2
+        annotations:
+          summary: "Cache hit ratio low ({{ $value }}%)"
+          description: "Cache effectiveness is below expected. May indicate unique prompts."
+
+  - name: trellis2_storage
+    interval: 30s
+    rules:
+      # Storage quota high
+      - alert: TrellisStorageAlmostFull
+        expr: trellis2_avg_user_storage_percent > 90
+        for: 10m
+        labels:
+          severity: warning
+          service: trellis2
+        annotations:
+          summary: "Average user storage at {{ $value }}%"
+          description: "Users are approaching their storage quotas"
+
+      # Total storage used is high
+      - alert: TrellisTotalStorageHigh
+        expr: trellis2_storage_used_gb > 500
+        for: 5m
+        labels:
+          severity: warning
+          service: trellis2
+        annotations:
+          summary: "Total storage usage high ({{ $value }}GB)"
+          description: "Consider cleanup or quota rebalancing"
+
+      # Users at limit
+      - alert: TrellisUsersAtStorageLimit
+        expr: trellis2_users_at_storage_limit > 10
+        for: 10m
+        labels:
+          severity: warning
+          service: trellis2
+        annotations:
+          summary: "{{ $value }} users at storage limit"
+          description: "Multiple users have nearly full quotas. Consider capacity planning."
+
+  - name: trellis2_database
+    interval: 30s
+    rules:
+      # Database connection lost
+      - alert: TrellisDatabaseDown
+        expr: trellis2_database_connected == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: trellis2
+        annotations:
+          summary: "Database connection lost"
+          description: "Cannot connect to TRELLIS2 database. System is offline."
+
+  - name: trellis2_throughput
+    interval: 30s
+    rules:
+      # No completions in last hour
+      - alert: TrellisNoActivity
+        expr: trellis2_completions_per_hour == 0
+        for: 60m
+        labels:
+          severity: warning
+          service: trellis2
+        annotations:
+          summary: "No job completions in last hour"
+          description: "Check if queue is empty or worker is hung"
+
+      # Very high throughput (unusual)
+      - alert: TrellisUnusuallyHighThroughput
+        expr: trellis2_completions_per_hour > 100
+        for: 5m
+        labels:
+          severity: info
+          service: trellis2
+        annotations:
+          summary: "Unusually high throughput ({{ $value }} jobs/hour)"
+          description: "Processing rate is above expected. Monitor for issues."
+
+  - name: trellis2_retries
+    interval: 30s
+    rules:
+      # High retry rate
+      - alert: TrellisHighRetryRate
+        expr: trellis2_total_retries > 50
+        for: 15m
+        labels:
+          severity: warning
+          service: trellis2
+        annotations:
+          summary: "High retry count ({{ $value }})"
+          description: "Many jobs are being retried. Check for transient failures."
+
+  - name: trellis2_users
+    interval: 30s
+    rules:
+      # Active users growing
+      - alert: TrellisActiveUsersHigh
+        expr: trellis2_active_users > 1000
+        for: 5m
+        labels:
+          severity: info
+          service: trellis2
+        annotations:
+          summary: "High active user count ({{ $value }})"
+          description: "System load may increase. Monitor capacity."

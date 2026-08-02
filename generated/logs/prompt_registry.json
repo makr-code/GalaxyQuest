@@ -1,0 +1,23 @@
+{
+  "e3b0c44298fc1c14": {
+    "prompt_hash": "e3b0c44298fc1c14",
+    "first_seen": "2026-08-02T10:14:44.650239",
+    "usage_count": 3,
+    "metadata": {},
+    "last_used": "2026-08-02T10:14:44.652602"
+  },
+  "4aeef14ee649a9f1": {
+    "prompt_hash": "4aeef14ee649a9f1",
+    "first_seen": "2026-08-02T10:16:21.437410",
+    "usage_count": 4,
+    "metadata": {},
+    "last_used": "2026-08-02T10:20:46.897279"
+  },
+  "556b09b35c68ea66": {
+    "prompt_hash": "556b09b35c68ea66",
+    "first_seen": "2026-08-02T10:16:21.439936",
+    "usage_count": 2,
+    "metadata": {},
+    "last_used": "2026-08-02T10:20:46.898823"
+  }
+}

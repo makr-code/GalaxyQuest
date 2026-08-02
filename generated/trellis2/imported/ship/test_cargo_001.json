@@ -1,0 +1,23 @@
+{
+  "id": "test_001",
+  "name": "Test Cargo Ship",
+  "class": "freighter",
+  "geometry": {
+    "triangles": 5000,
+    "vertices": 2500,
+    "bones": 10
+  },
+  "textures": {
+    "baseColor": 512,
+    "roughness": 256,
+    "normal": 512,
+    "metallic": 256
+  },
+  "materials": 4,
+  "metadata": {
+    "origin": "TRELLIS2",
+    "generation_time_ms": 45000,
+    "model": "TRELLIS-text-base",
+    "quality_tier": "medium"
+  }
+}

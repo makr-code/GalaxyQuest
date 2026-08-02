@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GalaxyQuest — Ship Designer (TRELLIS2 Integration)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #0a0e27;
+            color: #e5e7eb;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        
+        #app {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        header {
+            background: linear-gradient(to right, #0f172a, #1e1b4b);
+            border-bottom: 2px solid #3b82f6;
+            padding: 1rem 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        
+        header h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.3rem;
+        }
+        
+        header .subtitle {
+            font-size: 0.9rem;
+            color: #9ca3af;
+        }
+        
+        #ship-designer-container {
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        footer {
+            background: #0f172a;
+            border-top: 1px solid #1f2937;
+            padding: 1rem 2rem;
+            font-size: 0.85rem;
+            color: #6b7280;
+            text-align: center;
+        }
+        
+        footer a {
+            color: #60a5fa;
+            text-decoration: none;
+        }
+        
+        footer a:hover {
+            text-decoration: underline;
+        }
+        
+        .status-bar {
+            padding: 0.5rem 1rem;
+            background: #1f2937;
+            border-top: 1px solid #374151;
+            font-size: 0.85rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .status-item {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .api-status {
+            font-size: 0.75rem;
+        }
+        
+        .api-status.ok {
+            color: #10b981;
+        }
+        
+        .api-status.error {
+            color: #ef4444;
+        }
+        
+        /* Loading spinner */
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #374151;
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>🛸 GalaxyQuest Ship Designer</h1>
+            <div class="subtitle">
+                TRELLIS2 Integration — Real-time 3D Ship Generation
+                <span id="api-ready" style="margin-left: 2rem; font-weight: 600;"></span>
+            </div>
+        </header>
+        
+        <div id="ship-designer-container"></div>
+        
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-indicator"></div>
+                <span>System Status: Ready</span>
+            </div>
+            <div class="status-item">
+                <span class="api-status ok" id="api-status">
+                    <span class="spinner"></span> Checking API connectivity...
+                </span>
+            </div>
+        </div>
+        
+        <footer>
+            <div>
+                <strong>TRELLIS2 Ship Designer v2.0</strong> 
+                — 
+                <a href="/docs/SHIP_DESIGNER_INTEGRATION.md" target="_blank">📖 Integration Guide</a>
+                —
+                <a href="/docs/TRELLIS2_ASSET_MANAGEMENT.md" target="_blank">📋 Architecture</a>
+            </div>
+            <div style="margin-top: 0.5rem; font-size: 0.75rem; color: #4b5563;">
+                GPU Processing: TRELLIS2 | Storage: Generated/trellis2/models/ | Cache: 40-60% hit ratio
+            </div>
+        </footer>
+    </div>
+    
+    <!-- Three.js for 3D rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- Ship Designer Module -->
+    <script type="module">
+        import { createShipDesignerUI } from '/js/ui/ship-designer.js';
+        
+        // Check API connectivity
+        async function checkAPIStatus() {
+            try {
+                const response = await fetch('/api/user_quota.php', {
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('api-status').innerHTML = 
+                        '✅ API Connected | ' + 
+                        (data.storage_limit_gb ? 
+                            `Storage: ${(data.storage_limit_gb - data.storage_used_gb).toFixed(1)}GB / ${data.storage_limit_gb}GB` :
+                            'Ready'
+                        );
+                    document.getElementById('api-status').className = 'api-status ok';
+                    return true;
+                } else if (response.status === 401) {
+                    document.getElementById('api-status').innerHTML = 
+                        '⚠️ Not authenticated — Create account or log in first';
+                    document.getElementById('api-status').className = 'api-status error';
+                    return false;
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                document.getElementById('api-status').innerHTML = 
+                    '❌ API Error: ' + error.message;
+                document.getElementById('api-status').className = 'api-status error';
+                return false;
+            }
+        }
+        
+        // Initialize designer
+        async function init() {
+            // Check API first
+            const apiReady = await checkAPIStatus();
+            
+            if (!apiReady && !document.getElementById('api-status').innerHTML.includes('authenticated')) {
+                // API error, but still initialize designer for demo
+            }
+            
+            // Initialize designer
+            try {
+                const designer = createShipDesignerUI({
+                    containerId: 'ship-designer-container',
+                    apiBase: '/api',
+                    onGenerate: (metadata) => {
+                        console.log('✅ Ship generation metadata:', metadata);
+                        showNotification('Generation started! Check the progress bar.');
+                    },
+                    onSave: (result) => {
+                        console.log('✅ Ship saved:', result);
+                        showNotification(`Ship saved successfully! (ID: ${result.id})`);
+                    },
+                    onError: (error) => {
+                        console.error('❌ Designer error:', error);
+                        showNotification(`Error: ${error}`, 'error');
+                    },
+                });
+                
+                console.log('✅ Ship Designer initialized successfully');
+                window.shipDesigner = designer; // Expose for debugging
+                
+            } catch (error) {
+                console.error('❌ Failed to initialize designer:', error);
+                document.getElementById('ship-designer-container').innerHTML = 
+                    `<div style="padding: 2rem; color: #ef4444; text-align: center;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">❌</div>
+                        <div><strong>Failed to load Ship Designer</strong></div>
+                        <div style="margin-top: 1rem; color: #9ca3af; font-size: 0.9rem;">
+                            ${error.message}
+                        </div>
+                        <div style="margin-top: 2rem; font-size: 0.85rem; color: #6b7280;">
+                            Check browser console (F12) for more details
+                        </div>
+                    </div>`;
+            }
+        }
+        
+        // Notification helper
+        function showNotification(message, type = 'info') {
+            const div = document.createElement('div');
+            const icon = type === 'error' ? '❌' : '✅';
+            const bgColor = type === 'error' ? '#1f1f1f' : '#1a3a1a';
+            const textColor = type === 'error' ? '#fca5a5' : '#86efac';
+            
+            div.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 1rem 1.5rem;
+                background: ${bgColor};
+                border: 1px solid ${textColor};
+                border-radius: 8px;
+                color: ${textColor};
+                font-size: 0.9rem;
+                max-width: 400px;
+                z-index: 9999;
+                animation: slideIn 0.3s ease-out;
+            `;
+            
+            div.innerHTML = `${icon} ${message}`;
+            document.body.appendChild(div);
+            
+            setTimeout(() => {
+                div.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => div.remove(), 300);
+            }, 3000);
+        }
+        
+        // Add animation styles
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+            
+            @keyframes slideOut {
+                from {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+                to {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        // Start
+        init();
+        
+        // Console info
+        console.log('%c🛸 GalaxyQuest Ship Designer', 'font-size: 16px; font-weight: bold; color: #3b82f6;');
+        console.log('%cTRELLIS2 Integration Ready', 'color: #10b981; font-size: 12px;');
+        console.log('Access designer via: window.shipDesigner');
+        console.log('API Base: /api');
+        console.log('Check: /api/user/quota for quota status');
+    </script>
+</body>
+</html>

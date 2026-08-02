@@ -5,6 +5,8 @@
 **Datum:** 2026-08-01  
 **SOC Score:** 3.6/10 → Target: 8/10
 
+> **📌 WICHTIG:** Siehe auch [AI_CONTEXT_FRONTEND_ARCHITECTURE.md](AI_CONTEXT_FRONTEND_ARCHITECTURE.md) für übergeordnete Frontend-Architektur. Diese Datei fokussiert nur auf JavaScript-Best-Practices.
+
 ---
 
 ## 🎯 Overarching Principles

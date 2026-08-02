@@ -6,6 +6,8 @@
 **Datum:** 2026-08-01  
 **SOC Score:** 7.2/10 → Target: 9/10
 
+> **📌 WICHTIG:** Siehe auch [AI_CONTEXT_BACKEND_ARCHITECTURE.md](AI_CONTEXT_BACKEND_ARCHITECTURE.md) für Hybrid-Architektur (PHP + Python Services). Diese Datei fokussiert nur auf Python-Best-Practices.
+
 ---
 
 ## 🎯 Overarching Principles

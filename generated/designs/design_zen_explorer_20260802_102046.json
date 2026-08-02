@@ -1,0 +1,160 @@
+{
+  "species_code": "zhareen",
+  "base_template": {
+    "display_name": "Zhareen",
+    "base_concept": "Crystalline sentiences with prismatic empathy and harmonic awareness",
+    "faction_origin": "Archivists, historians, emotional guides, crystalline collectives",
+    "lora_trigger_word": "zhareen_race",
+    "lora_recommended_weight": 0.85,
+    "morphology": {
+      "base_form": "crystalline matrix, geometric humanoid form",
+      "height_cm": [
+        165,
+        195
+      ],
+      "body_mass_ratio": 0.6,
+      "facial_features": "faceted crystal surfaces, geometric angles, internal glow",
+      "crystal_variations": [
+        "deep cobalt-blue",
+        "warm rosy-gold",
+        "amethyst-violet",
+        "clear-prismatic"
+      ],
+      "facet_traits": [
+        "perfectly angular",
+        "light-refracting",
+        "prismatic rainbow",
+        "internally-lit"
+      ],
+      "symmetry": "geometric precision with flowing balance"
+    },
+    "aesthetic_principles": {
+      "primary_philosophy": "harmonic balance, prismatic empathy, crystalline memory",
+      "material_preference": [
+        "crystal-matrix",
+        "prismatic-lattice",
+        "harmonic-resonance",
+        "memory-crystal"
+      ],
+      "color_palette": [
+        "deep blues",
+        "warm golds",
+        "amethyst-purples",
+        "rainbow-iridescent"
+      ],
+      "texture_traits": [
+        "faceted perfection",
+        "soft light diffusion",
+        "prismatic refraction",
+        "internal luminescence"
+      ],
+      "era_reference": "timeless crystalline wisdom meets cosmic harmony",
+      "cultural_markers": [
+        "memory archives",
+        "harmonic attunement chambers",
+        "crystalline vaults"
+      ]
+    },
+    "ship_design_archetype": {
+      "hull_shape": "geometric crystalline, mandala-symmetry, faceted beauty",
+      "propulsion_style": "harmonic resonance driven, prism-effect trails",
+      "weapon_integration": "prismatic disruption beams, harmonic resonators",
+      "windows_ports": "multi-faceted crystal observation nodes",
+      "color_scheme": "deep blues and warm golds with rainbow prismatic accents",
+      "size_range": [
+        70,
+        320
+      ],
+      "design_tags": [
+        "crystalline",
+        "geometric",
+        "harmonic",
+        "prismatic",
+        "empathic"
+      ]
+    },
+    "customization_points": [
+      {
+        "name": "primary_crystal_color",
+        "type": "color",
+        "default": "#1a3a52",
+        "description": "Primary crystal matrix color (warm or cool)",
+        "affects": [
+          "base_hue",
+          "emotional_temperature",
+          "empathic_alignment"
+        ]
+      },
+      {
+        "name": "prismatic_intensity",
+        "type": "slider",
+        "range": [
+          0,
+          100
+        ],
+        "default": 70,
+        "description": "How strongly light refracts and diffracts",
+        "affects": [
+          "rainbow_appearance",
+          "light_play",
+          "ethereal_quality"
+        ]
+      },
+      {
+        "name": "archival_purpose",
+        "type": "choice",
+        "options": [
+          "memory-keeper",
+          "history-guardian",
+          "emotion-archivist",
+          "cosmic-witness",
+          "truth-holder"
+        ],
+        "affects": [
+          "archive_appearance",
+          "storage_complexity",
+          "wisdom_markers"
+        ]
+      },
+      {
+        "name": "harmonic_frequency",
+        "type": "slider",
+        "range": [
+          0,
+          100
+        ],
+        "default": 60,
+        "description": "Emotional resonance and harmonic vibration level",
+        "affects": [
+          "resonance_visibility",
+          "empathic_aura",
+          "cosmic_connection"
+        ]
+      }
+    ],
+    "prompt_template": "3D crystal-ship design: {ship_name}\nSpecies Origin: Zhareen (crystalline empaths)\nPrimary Crystal Color: {primary_crystal_color}\nPrismatic Intensity: {prismatic_intensity}%\nHarmonic Frequency: {harmonic_frequency}%\nArchival Purpose: {archival_purpose}\n\nSpecifications:\n- Faceted crystalline hull with geometric mandala-symmetry, {ship_length}m\n- Multi-faceted crystal planes creating prismatic light play\n- Harmonic resonance propulsion with soft glow trails\n- Prismatic disruption beam weapons\n- Internal luminescence revealing memory archives\n- Observation chambers for cosmic-scale emotional sensing\n\nVisual Style: Geometric crystalline transcendence with soft prismatic beauty and deep empathy.\nMaterial Language: Faceted crystals in deep blues and warm golds, creating rainbow light play.\nAesthetic Philosophy: Every facet reflects wisdom. Form harmonizes with cosmic empathy.\nPurpose: Cosmic archivist, emotional guide, truth-keeper vessel\n"
+  },
+  "customizations": {
+    "primary_crystal_color": "#0055ff"
+  },
+  "enhancement_history": [
+    {
+      "timestamp": "2026-08-02T10:20:46.905009",
+      "pattern": "faction_customization",
+      "parameters": {
+        "faction_name": "Zhareen Archive",
+        "rank_insignia": "Archivist",
+        "honor_markings": "explorer-path"
+      },
+      "prompt_modification": "Add Zhareen Archive faction insignia, Archivist rank markings, and explorer-path achievement stripes"
+    }
+  ],
+  "generated_prompt": "3D crystal-ship design: Zen Explorer\nSpecies Origin: Zhareen (crystalline empaths)\nPrimary Crystal Color: #0055ff\nPrismatic Intensity: 70%\nHarmonic Frequency: 60%\nArchival Purpose: \n\nSpecifications:\n- Faceted crystalline hull with geometric mandala-symmetry, 120m\n- Multi-faceted crystal planes creating prismatic light play\n- Harmonic resonance propulsion with soft glow trails\n- Prismatic disruption beam weapons\n- Internal luminescence revealing memory archives\n- Observation chambers for cosmic-scale emotional sensing\n\nVisual Style: Geometric crystalline transcendence with soft prismatic beauty and deep empathy.\nMaterial Language: Faceted crystals in deep blues and warm golds, creating rainbow light play.\nAesthetic Philosophy: Every facet reflects wisdom. Form harmonizes with cosmic empathy.\nPurpose: Cosmic archivist, emotional guide, truth-keeper vessel\n\n\nEnhancement: Add Zhareen Archive faction insignia, Archivist rank markings, and explorer-path achievement stripes",
+  "metadata": {
+    "ship_name": "Zen Explorer",
+    "ship_length": 120,
+    "design_version": 1
+  },
+  "created_at": "2026-08-02T10:20:46.900525",
+  "updated_at": "2026-08-02T10:20:46.905022"
+}

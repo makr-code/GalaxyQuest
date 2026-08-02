@@ -1,0 +1,2 @@
+{"timestamp": "2026-08-02T09:33:26.104680", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}
+{"timestamp": "2026-08-02T09:35:14.224334", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}

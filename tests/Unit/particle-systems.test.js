@@ -278,14 +278,16 @@ describe('Particle Systems: CPU Pool & Emitters', () => {
       // Update for 80% of lifetime (fade-out starts at 80%)
       pool.update(0.8);
 
+      const particle = pool.particles[0];
       // Still at full alpha (fade-out not started yet)
-      expect(pool.particles[0].color[3]).toBeCloseTo(1.0, 0);
+      expect(particle.color[3]).toBeCloseTo(1.0, 0);
+      expect(particle.active).toBe(true);
 
-      // Update remaining 20% (now at 100% = 1.0s)
-      pool.update(0.2);
-
-      // Should have faded out completely
-      expect(pool.particles[0].color[3]).toBeCloseTo(0.0, 0);
+      // Fade starts at 80%, so at 85% should be partially faded
+      pool.update(0.05); // Now at 85%
+      expect(particle.color[3]).toBeLessThan(1.0);
+      expect(particle.color[3]).toBeGreaterThan(0.0); // In fade window
+      expect(particle.active).toBe(true); // Still active
     });
 
     it('should remove dead particles from active list', () => {

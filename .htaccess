@@ -35,6 +35,22 @@ RewriteRule ^generated/tts/[a-f0-9]{64}\.mp3$ - [L]
 # Canonical API prefix: /api/v1/*.php -> /api/*.php
 RewriteRule ^api/v1/(.*)$ /api/$1 [QSA,L]
 
+# API REST Routes - map to PHP handlers
+# /api/vessel_designs* -> /api/vessel_designs.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^api/vessel_designs(/.*)?$ /api/vessel_designs.php [QSA,L]
+
+# /api/generation_queue/* -> /api/generation_queue.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^api/generation_queue(/.*)?$ /api/generation_queue.php [QSA,L]
+
+# /api/asset_generations/* -> /api/asset_generations.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^api/asset_generations(/.*)?$ /api/asset_generations.php [QSA,L]
+
 # PHP files in api/ are served normally
 # Everything else (non-existing files/dirs) falls back to index.php for template processing
 RewriteCond %{REQUEST_FILENAME} !-f

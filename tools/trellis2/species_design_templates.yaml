@@ -1,0 +1,764 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# TRELLIS2 Species Design Templates for 3D Model Generation
+# Based on GalaxyQuest LoRA Training Guide & Art Prompts SDXL (docs/lore/)
+# LLM Wiki Pattern: Base Specification + User Customization + Iterative Enhancement
+# ═══════════════════════════════════════════════════════════════════════════════
+
+species:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # VOR'TAK - Reptiloide Strategen
+  # Ref: docs/lore/LORA_TRAINING_GUIDE.md §5, docs/lore/ART_PROMPTS_SDXL.md
+  # ─────────────────────────────────────────────────────────────────────────────
+  vortak:
+    display_name: "Vor'Tak"
+    base_concept: "Massive reptilian strategists with predatory intelligence"
+    faction_origin: "Military commanders, tactical masterminds"
+    lora_trigger_word: "vortak_race"
+    lora_recommended_weight: 0.85
+    
+    morphology:
+      base_form: "bipedal reptilian, heavily muscled"
+      height_cm: [195, 230]
+      body_mass_ratio: 1.3
+      facial_features: "sharp angular structure, strong jaw, slit pupils in yellow"
+      scale_variations: ["dark green-black", "emerald with gold", "bronze-dark", "teal-iridescent"]
+      scale_traits: ["iridescent", "battle-scarred", "bone-plated", "rigid armor-like"]
+      symmetry: "bilateral with dorsal bone ridges"
+      
+    aesthetic_principles:
+      primary_philosophy: "predatory efficiency, battle-hardened majesty"
+      material_preference: ["bronze-metal", "scale-derived armor", "bone-plating", "war-forged steel"]
+      color_palette: ["dark greens", "bronze-gold", "deep teals", "rust-reds from battle"]
+      texture_traits: ["heavy scale plating", "massive bone structures", "battle scars", "metallic accents"]
+      era_reference: "ancient warrior kingdoms meets modern warfare"
+      cultural_markers: ["honor-scars and ridges", "brass insignia", "commander plates"]
+      
+    ship_design_archetype:
+      hull_shape: "aggressive wedge-forward, predatory silhouette"
+      propulsion_style: "powerful twin nacelles, thermal-aggressive glow"
+      weapon_integration: "heavy armor plating, dominant dorsal ridge weapons"
+      windows_ports: "narrow predatory slits, minimal viewports"
+      color_scheme: "dark scale-green with bronze and gold accents"
+      size_range: [120, 420]  # meters
+      design_tags: ["militaristic", "predatory", "battle-hardened", "dominant", "ancient"]
+      
+    customization_points:
+      - name: "scale_coloration"
+        type: "color"
+        default: "#1a4d2e"
+        description: "Primary scale color with iridescent undertones"
+        affects: ["hull_base_color", "light_reflection_patterns", "visual_age"]
+        
+      - name: "metallic_accents"
+        type: "color"
+        default: "#c9a961"
+        description: "Brass/bronze armor accent color"
+        affects: ["armor_plating_color", "insignia_color", "authority_appearance"]
+        
+      - name: "battle_scars_intensity"
+        type: "slider"
+        range: [0, 100]
+        default: 45
+        description: "How heavily battle-damaged the ship appears"
+        affects: ["scar_patterns", "armor_dents", "survival_appearance"]
+        
+      - name: "commander_rank"
+        type: "choice"
+        options: ["squadron-leader", "general", "admiral", "war-chief", "legendary-veteran"]
+        affects: ["insignia_placement", "rank_markings", "overall_authority"]
+        
+      - name: "age_and_honor"
+        type: "slider"
+        range: [0, 100]
+        default: 30
+        description: "Accumulated age, scars, and honors (0=young warrior, 100=ancient legend)"
+        affects: ["weathering_patterns", "patina_accumulation", "gravitas_appearance"]
+        
+    prompt_template: |
+      3D warship design: {ship_name}
+      Species Origin: Vor'Tak (massive reptilian strategists)
+      Scale Color: {scale_coloration}
+      Metallic Accent: {metallic_accents}
+      Commander Rank: {commander_rank}
+      Battle Scars: {battle_scars_intensity}%
+      Age & Honor Level: {age_and_honor}%
+      
+      Specifications:
+      - Predatory wedge-forward hull shape
+      - Length: {ship_length}m, muscular twin-nacelle propulsion
+      - Heavy dorsal-ridge weapon arrays
+      - Massive scale-derived armor plating with bronze reinforcements
+      - Battle-scarred hull with accumulated honor marks
+      - Thermal-aggressive engine glow indicating raw power
+      
+      Visual Style: Ancient warrior kingdom meets advanced warfare. Reptilian predatory excellence.
+      Material Language: Bronze-gold metallic accents on dark scale-green armor. Bone-white ridge weapons.
+      Aesthetic Philosophy: Form follows predatory function. Every surface speaks of dominance and battle-proven tactics.
+      Purpose: Tactical command vessel, apex predator of the galaxy
+      
+  # ─────────────────────────────────────────────────────────────────────────────
+  # SYL'NAR - Cephalopodische Mystiker
+  # Ref: docs/lore/LORA_TRAINING_GUIDE.md §5, docs/lore/ART_PROMPTS_SDXL.md
+  # ─────────────────────────────────────────────────────────────────────────────
+  sylnar:
+    display_name: "Syl'Nar"
+    base_concept: "Mystical cephalopod intelligences with bioluminescent wonder"
+    faction_origin: "Spiritual leaders, cosmic explorers, empathic diplomats"
+    lora_trigger_word: "sylnar_race"
+    lora_recommended_weight: 0.80
+    
+    morphology:
+      base_form: "cephalopod, graceful flowing tentacles"
+      height_cm: [175, 215]
+      body_mass_ratio: 0.8
+      facial_features: "expressive alien eyes, spiritual depth, cosmic swirls"
+      skin_variations: ["translucent-cyan", "pastel-blue", "perlmut-iridescent", "luminous-white"]
+      tentacle_traits: ["flowing graceful", "pulsing bioluminescence", "sensory-detailed", "ethereal"]
+      symmetry: "radial with flowing tentacle grace"
+      
+    aesthetic_principles:
+      primary_philosophy: "spiritual harmony, cosmic wonder, empathic connection"
+      material_preference: ["bio-membrane", "luminescent-crystal", "water-sealed-composite", "living-light"]
+      color_palette: ["neon cyan", "pastel blues", "perlmut reflections", "luminous pinks"]
+      texture_traits: ["translucent softness", "pulsing bioluminescence", "flowing curves", "wet appearance"]
+      era_reference: "transcendent spirituality meets advanced alien biology"
+      cultural_markers: ["meditation chambers", "harmonic resonance nodes", "wisdom-stones"]
+      
+    ship_design_archetype:
+      hull_shape: "organic flowing curves, bio-form, asymmetric beauty"
+      propulsion_style: "bioluminescent jets, pulsing muscle-like propulsion"
+      weapon_integration: "harmonic disruption fields, sonic projectors"
+      windows_ports: "luminescent observation domes, bio-optical arrays"
+      color_scheme: "deep blues with cyan and pink bioluminescent accents"
+      size_range: [90, 380]  # meters
+      design_tags: ["organic", "spiritual", "luminous", "flowing", "mystical"]
+      
+    customization_points:
+      - name: "bioluminescence_color"
+        type: "color"
+        default: "#00ffdd"
+        description: "Primary bioluminescence glow color"
+        affects: ["glow_color", "energy_trail_color", "mystical_appearance"]
+        
+      - name: "translucency_level"
+        type: "slider"
+        range: [0, 100]
+        default: 60
+        description: "How transparent/translucent the hull appears"
+        affects: ["hull_transparency", "internal_glow_visibility", "ethereal_quality"]
+        
+      - name: "spiritual_alignment"
+        type: "choice"
+        options: ["peaceful-healer", "wise-mentor", "cosmic-seeker", "harmonic-guide", "transcendent"]
+        affects: ["color_warmth", "glow_rhythm", "spiritual_presence"]
+        
+      - name: "tentacle_complexity"
+        type: "slider"
+        range: [0, 100]
+        default: 50
+        description: "Visual complexity of flowing tentacle structures"
+        affects: ["hull_appendage_detail", "sensory_complexity", "organic_appearance"]
+        
+    prompt_template: |
+      3D bioship design: {ship_name}
+      Species Origin: Syl'Nar (cephalopod mystics)
+      Bioluminescence Color: {bioluminescence_color}
+      Translucency Level: {translucency_level}%
+      Spiritual Alignment: {spiritual_alignment}
+      Tentacle Complexity: {tentacle_complexity}%
+      
+      Specifications:
+      - Organic flowing bio-form hull, {ship_length}m
+      - Graceful asymmetric tentacle-like structures
+      - Pulsing bioluminescent propulsion systems
+      - Harmonic resonance disruption weapons
+      - Semi-transparent membrane hull with internal luminescence
+      - Cosmic-scale sensory observation arrays
+      
+      Visual Style: Transcendent spirituality in living form. Bioluminescent wonder and cosmic empathy.
+      Material Language: Flowing bio-membranes with pulsing luminescent patterns in cyan and pink.
+      Aesthetic Philosophy: Form flows with grace and spiritual purpose. Every surface resonates with cosmic connection.
+      Purpose: Diplomatic explorer, spiritual guide, cosmic seeker vessel
+      
+  # ─────────────────────────────────────────────────────────────────────────────
+  # AERETH - Humanoide Energiewesen
+  # Ref: docs/lore/LORA_TRAINING_GUIDE.md §5, docs/lore/ART_PROMPTS_SDXL.md
+  # ─────────────────────────────────────────────────────────────────────────────
+  aereth:
+    display_name: "Aereth"
+    base_concept: "Pure energy consciousnesses inhabiting crystalline humanoid forms"
+    faction_origin: "Scientists, researchers, knowledge-seekers, enlightened minds"
+    lora_trigger_word: "aereth_race"
+    lora_recommended_weight: 0.80
+    
+    morphology:
+      base_form: "humanoid crystalline, energy-based, translucent"
+      height_cm: [170, 200]
+      body_mass_ratio: 0.4
+      facial_features: "angular crystalline structure, glowing energy core, refracted geometry"
+      energy_variations: ["cool white-blue", "silver-electric", "warm golden-white", "violet-ethereal"]
+      glow_traits: ["intense internal luminescence", "crackling electricity", "refractive light", "energy tendrils"]
+      symmetry: "geometric perfection with energy flow"
+      
+    aesthetic_principles:
+      primary_philosophy: "energy efficiency, geometric enlightenment, pure intellect"
+      material_preference: ["quantum-flux crystal", "energy-lattice", "refraction-optimized", "harmonic-resonance"]
+      color_palette: ["brilliant whites", "electric blues", "silver-sparks", "warm golds"]
+      texture_traits: ["sharp crystalline surfaces", "smooth energy flows", "light refraction", "geometric precision"]
+      era_reference: "far-future energy-tech, scientific transcendence"
+      cultural_markers: ["research labs", "knowledge archives", "harmonic resonators"]
+      
+    ship_design_archetype:
+      hull_shape: "geometric crystalline, precision-engineered angles"
+      propulsion_style: "energy-field driven, crackling electromagnetic glow"
+      weapon_integration: "energy beam projectors, photon cannons"
+      windows_ports: "transparent energy observation crystals"
+      color_scheme: "brilliant whites/silvers with electric blue and golden accents"
+      size_range: [80, 350]  # meters
+      design_tags: ["geometric", "energy-based", "brilliant", "enlightened", "precise"]
+      
+    customization_points:
+      - name: "energy_color"
+        type: "color"
+        default: "#00ccff"
+        description: "Primary energy glow color"
+        affects: ["glow_color", "energy_trail_color", "intellectual_appearance"]
+        
+      - name: "geometric_precision"
+        type: "slider"
+        range: [0, 100]
+        default: 75
+        description: "How geometrically precise vs organic-flowing"
+        affects: ["hull_angularity", "surface_precision", "crystalline_appearance"]
+        
+      - name: "research_specialization"
+        type: "choice"
+        options: ["theoretical-physics", "biology-study", "cosmology-explorer", "technology-fusion", "universal-knowledge"]
+        affects: ["instrument_configuration", "research_appearance", "knowledge_markers"]
+        
+      - name: "energy_intensity"
+        type: "slider"
+        range: [0, 100]
+        default: 70
+        description: "How brightly the energy glows and crackles"
+        affects: ["luminescence_level", "glow_radius", "electromagnetic_appearance"]
+        
+    prompt_template: |
+      3D crystal-ship design: {ship_name}
+      Species Origin: Aereth (energy-consciousness)
+      Primary Energy Color: {energy_color}
+      Geometric Precision: {geometric_precision}%
+      Energy Intensity: {energy_intensity}%
+      Research Specialization: {research_specialization}
+      
+      Specifications:
+      - Crystalline geometric hull with energy core, {ship_length}m
+      - Refracted light patterns creating hypnotic beauty
+      - Electromagnetic energy propulsion with crackling trails
+      - Photon-based research and defense systems
+      - Semi-transparent energy observation chambers
+      - Internal luminescence revealing pure intellectual power
+      
+      Visual Style: Geometric transcendence meets pure energy manifestation. Brilliant and precise.
+      Material Language: Sharp crystalline surfaces with smooth flowing energy, white-silver-blue coloring.
+      Aesthetic Philosophy: Every surface reveals brilliant intellect. Form follows function perfectly.
+      Purpose: Research explorer, scientific seeker, enlightenment vessel
+      
+  # ─────────────────────────────────────────────────────────────────────────────
+  # KRYL'THA - Insektoide Kriegerkaste
+  # Ref: docs/lore/LORA_TRAINING_GUIDE.md §5, docs/lore/ART_PROMPTS_SDXL.md
+  # ─────────────────────────────────────────────────────────────────────────────
+  kryltha:
+    display_name: "Kryl'Tha"
+    base_concept: "Insectoid warriors with crystalline exoskeletons and hive-mind coordination"
+    faction_origin: "Military hierarchy, collective warriors, coordinated swarms"
+    lora_trigger_word: "kryltha_race"
+    lora_recommended_weight: 0.90
+    
+    morphology:
+      base_form: "insectoid, hexapodal-influenced, chitinous"
+      height_cm: [185, 225]
+      body_mass_ratio: 1.0
+      facial_features: "compound faceted eyes, mandible structure, aggressive visage"
+      carapace_variations: ["dark iridescent green", "oil-slick rainbow", "gold-turquoise", "metallic-amber"]
+      exoskeleton_traits: ["thick armor plating", "segmented body", "sharp edges", "battle-scarred"]
+      symmetry: "bilateral with segmented body sections"
+      
+    aesthetic_principles:
+      primary_philosophy: "collective efficiency, warrior honor, hive perfection"
+      material_preference: ["chitin-derived", "crystalline-armor", "bio-metal hybrid", "regenerating-shell"]
+      color_palette: ["dark iridescent greens", "amber-golds", "turquoise accents", "rust-tones"]
+      texture_traits: ["thick segmented armor", "sharp mandible edges", "metallic reflections", "battle weathering"]
+      era_reference: "ancient warrior collectives meets advanced biotech"
+      cultural_markers: ["rank mandibles", "hive insignia", "warrior honors"]
+      
+    ship_design_archetype:
+      hull_shape: "aggressive insectoid, sharp angles, intimidating"
+      propulsion_style: "bio-jet thrusters, pulsing muscle-like acceleration"
+      weapon_integration: "chitin-hardened cannons, mandible-inspired weapons"
+      windows_ports: "compound-lens clusters, optical hardening arrays"
+      color_scheme: "iridescent dark greens with gold and turquoise battle accents"
+      size_range: [110, 400]  # meters
+      design_tags: ["militaristic", "insectoid", "collective", "sharp", "dominant"]
+      
+    customization_points:
+      - name: "carapace_color"
+        type: "color"
+        default: "#2d5016"
+        description: "Primary carapace coloration with iridescent sheen"
+        affects: ["hull_base_color", "reflection_patterns", "military_appearance"]
+        
+      - name: "battle_scars"
+        type: "slider"
+        range: [0, 100]
+        default: 55
+        description: "Visible battle damage and warrior scars"
+        affects: ["scar_patterns", "armor_dents", "combat_history_appearance"]
+        
+      - name: "warrior_caste"
+        type: "choice"
+        options: ["drone-soldier", "warrior-elite", "commander", "nest-guardian", "swarm-leader"]
+        affects: ["weapon_configuration", "armor_thickness", "rank_appearance"]
+        
+      - name: "hive_coordination_level"
+        type: "slider"
+        range: [0, 100]
+        default: 75
+        description: "Visual signs of hive-mind connection"
+        affects: ["communication_nodes", "synchronized_appearance", "collective_harmony"]
+        
+    prompt_template: |
+      3D bioship design: {ship_name}
+      Species Origin: Kryl'Tha (insectoid warriors)
+      Carapace Color: {carapace_color}
+      Battle Scars: {battle_scars}%
+      Warrior Caste: {warrior_caste}
+      Hive Coordination: {hive_coordination_level}%
+      
+      Specifications:
+      - Aggressive insectoid hull form, {ship_length}m length
+      - Thick segmented chitin-derived armor plating
+      - Sharp mandible-inspired weapon arrays
+      - Compound-lens optical targeting systems
+      - Bio-jet thrusters with coordinated acceleration
+      - Hive-mind connection nodes pulsing with collective consciousness
+      - Battle-scarred surfaces showing warrior heritage
+      
+      Visual Style: Collective insectoid dominance. Sharp, efficient, intimidating warrior form.
+      Material Language: Dark iridescent carapace with gold and turquoise battle accents.
+      Aesthetic Philosophy: Every segment optimized for coordinated combat. Hive perfection.
+      Purpose: Collective warrior, tactical coordinator, swarm-dominance vessel
+      
+  # ─────────────────────────────────────────────────────────────────────────────
+  # ZHAREEN - Kristalline Empathen
+  # Ref: docs/lore/LORA_TRAINING_GUIDE.md §5, docs/lore/ART_PROMPTS_SDXL.md
+  # ─────────────────────────────────────────────────────────────────────────────
+  zhareen:
+    display_name: "Zhareen"
+    base_concept: "Crystalline sentiences with prismatic empathy and harmonic awareness"
+    faction_origin: "Archivists, historians, emotional guides, crystalline collectives"
+    lora_trigger_word: "zhareen_race"
+    lora_recommended_weight: 0.85
+    
+    morphology:
+      base_form: "crystalline matrix, geometric humanoid form"
+      height_cm: [165, 195]
+      body_mass_ratio: 0.6
+      facial_features: "faceted crystal surfaces, geometric angles, internal glow"
+      crystal_variations: ["deep cobalt-blue", "warm rosy-gold", "amethyst-violet", "clear-prismatic"]
+      facet_traits: ["perfectly angular", "light-refracting", "prismatic rainbow", "internally-lit"]
+      symmetry: "geometric precision with flowing balance"
+      
+    aesthetic_principles:
+      primary_philosophy: "harmonic balance, prismatic empathy, crystalline memory"
+      material_preference: ["crystal-matrix", "prismatic-lattice", "harmonic-resonance", "memory-crystal"]
+      color_palette: ["deep blues", "warm golds", "amethyst-purples", "rainbow-iridescent"]
+      texture_traits: ["faceted perfection", "soft light diffusion", "prismatic refraction", "internal luminescence"]
+      era_reference: "timeless crystalline wisdom meets cosmic harmony"
+      cultural_markers: ["memory archives", "harmonic attunement chambers", "crystalline vaults"]
+      
+    ship_design_archetype:
+      hull_shape: "geometric crystalline, mandala-symmetry, faceted beauty"
+      propulsion_style: "harmonic resonance driven, prism-effect trails"
+      weapon_integration: "prismatic disruption beams, harmonic resonators"
+      windows_ports: "multi-faceted crystal observation nodes"
+      color_scheme: "deep blues and warm golds with rainbow prismatic accents"
+      size_range: [70, 320]  # meters
+      design_tags: ["crystalline", "geometric", "harmonic", "prismatic", "empathic"]
+      
+    customization_points:
+      - name: "primary_crystal_color"
+        type: "color"
+        default: "#1a3a52"
+        description: "Primary crystal matrix color (warm or cool)"
+        affects: ["base_hue", "emotional_temperature", "empathic_alignment"]
+        
+      - name: "prismatic_intensity"
+        type: "slider"
+        range: [0, 100]
+        default: 70
+        description: "How strongly light refracts and diffracts"
+        affects: ["rainbow_appearance", "light_play", "ethereal_quality"]
+        
+      - name: "archival_purpose"
+        type: "choice"
+        options: ["memory-keeper", "history-guardian", "emotion-archivist", "cosmic-witness", "truth-holder"]
+        affects: ["archive_appearance", "storage_complexity", "wisdom_markers"]
+        
+      - name: "harmonic_frequency"
+        type: "slider"
+        range: [0, 100]
+        default: 60
+        description: "Emotional resonance and harmonic vibration level"
+        affects: ["resonance_visibility", "empathic_aura", "cosmic_connection"]
+        
+    prompt_template: |
+      3D crystal-ship design: {ship_name}
+      Species Origin: Zhareen (crystalline empaths)
+      Primary Crystal Color: {primary_crystal_color}
+      Prismatic Intensity: {prismatic_intensity}%
+      Harmonic Frequency: {harmonic_frequency}%
+      Archival Purpose: {archival_purpose}
+      
+      Specifications:
+      - Faceted crystalline hull with geometric mandala-symmetry, {ship_length}m
+      - Multi-faceted crystal planes creating prismatic light play
+      - Harmonic resonance propulsion with soft glow trails
+      - Prismatic disruption beam weapons
+      - Internal luminescence revealing memory archives
+      - Observation chambers for cosmic-scale emotional sensing
+      
+      Visual Style: Geometric crystalline transcendence with soft prismatic beauty and deep empathy.
+      Material Language: Faceted crystals in deep blues and warm golds, creating rainbow light play.
+      Aesthetic Philosophy: Every facet reflects wisdom. Form harmonizes with cosmic empathy.
+      Purpose: Cosmic archivist, emotional guide, truth-keeper vessel
+      
+  # ─────────────────────────────────────────────────────────────────────────────
+  # VEL'AR - Gasförmige Intelligenzen
+  # Ref: docs/lore/LORA_TRAINING_GUIDE.md §5, docs/lore/ART_PROMPTS_SDXL.md
+  # ─────────────────────────────────────────────────────────────────────────────
+  velar:
+    display_name: "Vel'Ar"
+    base_concept: "Sentient gas-based entities with semi-solid biomask avatars"
+    faction_origin: "Shadow intelligence, observers, mysterious guides, cosmic mysteries"
+    lora_trigger_word: "velar_race"
+    lora_recommended_weight: 0.75
+    
+    morphology:
+      base_form: "gaseous with biomask, semi-solid avatar"
+      height_cm: [160, 200]
+      body_mass_ratio: 0.3
+      facial_features: "semi-solid smooth biomask, mysterious expression, suspended eyes"
+      gas_variations: ["smoke-gray", "nebula-white", "lavendel-pale", "twilight-indigo"]
+      gas_traits: ["swirling patterns", "soft luminescence", "flowing form", "ethereal presence"]
+      symmetry: "soft bilateral with flowing asymmetry"
+      
+    aesthetic_principles:
+      primary_philosophy: "mystery and flow, elusive intelligence, cosmic secrets"
+      material_preference: ["living-gas", "semi-solid-biomask", "energy-membrane", "nebula-matter"]
+      color_palette: ["smoke-grays", "nebula-whites", "lavendel-purples", "twilight-blues"]
+      texture_traits: ["soft flowing swirls", "diffuse luminescence", "ethereal wisps", "semi-transparent"]
+      era_reference: "primordial gas intelligence meets cosmic consciousness"
+      cultural_markers: ["mystery nodes", "shadow archives", "cosmic observers"]
+      
+    ship_design_archetype:
+      hull_shape: "flowing asymmetric, ghost-like, mysterious contours"
+      propulsion_style: "ethereal drift, whisper-quiet propulsion"
+      weapon_integration: "dimensional disruptors, phase-weapons"
+      windows_ports: "shadowy observation nexuses, mystery sensors"
+      color_scheme: "smoke-gray and nebula-white with lavendel and twilight accents"
+      size_range: [80, 360]  # meters
+      design_tags: ["mysterious", "ethereal", "shadowy", "flowing", "elusive"]
+      
+    customization_points:
+      - name: "nebula_color"
+        type: "color"
+        default: "#8b7ba8"
+        description: "Primary gas cloud color with nebula-like appearance"
+        affects: ["cloud_hue", "atmospheric_color", "mysterious_aura"]
+        
+      - name: "biomask_definition"
+        type: "slider"
+        range: [0, 100]
+        default: 40
+        description: "How defined vs diffuse the semi-solid biomask appears"
+        affects: ["form_solidity", "boundary_clarity", "manifestation_intensity"]
+        
+      - name: "shadow_specialization"
+        type: "choice"
+        options: ["silent-observer", "ghost-infiltrator", "mystery-keeper", "void-explorer", "cosmic-sentinel"]
+        affects: ["weapon_type", "sensor_configuration", "stealth_appearance"]
+        
+      - name: "ethereal_luminescence"
+        type: "slider"
+        range: [0, 100]
+        default: 45
+        description: "Soft glow and luminescence level of gas-form"
+        affects: ["glow_intensity", "visibility", "mystical_appearance"]
+        
+    prompt_template: |
+      3D ethereal-ship design: {ship_name}
+      Species Origin: Vel'Ar (gaseous intelligences)
+      Nebula Color: {nebula_color}
+      Biomask Definition: {biomask_definition}%
+      Ethereal Luminescence: {ethereal_luminescence}%
+      Shadow Specialization: {shadow_specialization}
+      
+      Specifications:
+      - Flowing gas-form hull with semi-solid biomask avatar, {ship_length}m
+      - Asymmetric mysterious contours with ghost-like appearance
+      - Dimension-shifting ethereal propulsion
+      - Phase-disruption and dimensional-breach weapons
+      - Shadowy observation nexuses with reality-sensing arrays
+      - Swirling gas patterns with soft nebula luminescence
+      - Semi-transparent form suggesting vast hidden depths
+      
+      Visual Style: Ethereal mystery and flowing beauty. Ghost-like and barely-there presence.
+      Material Language: Soft swirling nebula clouds in smoke-gray and lavendel, semi-solid biomask avatar.
+      Aesthetic Philosophy: Form hints at vast cosmic intelligence. Elusive and profoundly mysterious.
+      Purpose: Shadow intelligence, cosmic observer, mystery keeper vessel
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUSTOMIZATION ENHANCEMENT GUIDES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+enhancement_patterns:
+  weathering:
+    description: "Add age and battle-worn characteristics"
+    display_name: "⚔️ Weathering & Age"
+    parameters:
+      - age_level:
+          type: "slider"
+          range: [0, 100]
+          description: "0=brand new, 100=ancient relic"
+      - damage_intensity:
+          type: "slider"
+          range: [0, 100]
+          description: "0=pristine, 100=extensively battle-scarred"
+      - patina_type:
+          type: "choice"
+          options: ["rust-oxidation", "corrosion-patina", "bio-growth", "crystalline-decay", "energy-erosion"]
+          description: "Type of aging/decay specific to species material"
+    affects_prompt: "Apply {age_level}% natural aging with {damage_intensity}% battle damage and {patina_type} patina formation"
+    
+  faction_customization:
+    description: "Add faction-specific insignia, ranks, and honors"
+    display_name: "🏆 Faction Customization"
+    parameters:
+      - faction_name:
+          type: "choice"
+          options: ["Vor'Tak Command", "Syl'Nar Collective", "Aereth Research", "Kryl'Tha Swarm", "Zhareen Archive", "Vel'Ar Shadow"]
+          description: "Faction colors and insignia style"
+      - rank_insignia:
+          type: "choice"
+          options: ["Recruit", "Officer", "Commander", "Admiral", "War-Chief", "Legendary"]
+          description: "Military rank affects insignia complexity and placement"
+      - honor_markings:
+          type: "text"
+          description: "Custom achievement marks or campaign honors"
+    affects_prompt: "Add {faction_name} faction insignia, {rank_insignia} rank markings, and {honor_markings} achievement stripes"
+    
+  special_purpose:
+    description: "Optimize design for specific ship role and mission profile"
+    display_name: "🎯 Special Purpose Roles"
+    options:
+      scout:
+        description: "Minimal armor, sensor-heavy, maximum agility"
+        prompt_additions: "Optimized for reconnaissance with advanced sensor arrays, sleek aerodynamic profile, minimal weapons. Emphasis on speed and stealth."
+      
+      carrier:
+        description: "Massive cargo bay, reinforced hull, moderate weapons"
+        prompt_additions: "Large internal hangar capacity, reinforced structural beams, slower but capable of carrying fighter squadrons. Cargo-optimized geometry."
+      
+      battleship:
+        description: "Maximum armor, heavy weapons, intimidating silhouette"
+        prompt_additions: "Heavy armor plating, prominent weapon arrays, commanding presence. Every surface suggests overwhelming firepower and durability."
+      
+      explorer:
+        description: "Advanced sensors, moderate defenses, scientific instruments"
+        prompt_additions: "Extended sensor arrays, lab compartments, advanced spectrographic equipment. Built for discovery and data collection."
+      
+      colony_ship:
+        description: "Massive habitat, self-sufficient, civilian-optimized"
+        prompt_additions: "Extensive living quarters, agricultural domes, life support emphasis. Designed for long-term habitation and colony establishment."
+      
+      logistics:
+        description: "Supply transport, processing centers, resupply capability"
+        prompt_additions: "Large cargo processing centers, fuel transfer ports, supply distribution nodes. Industrial appearance emphasizing cargo capacity."
+    
+    affects_prompt: "Design optimized for {special_purpose} role with {special_purpose_specific_modifications}"
+
+  model_detail_enhancement:
+    description: "Increase geometric detail and polygonal complexity of 3D model"
+    display_name: "🔍 Model Detail Level"
+    parameters:
+      - detail_level:
+          type: "choice"
+          options: ["low-poly", "standard", "high-detail", "ultra-hd", "extreme"]
+          description: "Polygonal complexity and geometric resolution"
+      - surface_complexity:
+          type: "slider"
+          range: [0, 100]
+          default: 50
+          description: "Add micro-details, panel lines, rivets, seams, surface imperfections"
+      - structural_emphasis:
+          type: "choice"
+          options: ["smooth-organic", "engineered-precision", "bio-mechanical", "crystalline-faceted", "energy-channeled"]
+          description: "Structural style affects detail interpretation"
+    affects_prompt: "Increase geometric detail to {detail_level} with {surface_complexity}% micro-detailing. Use {structural_emphasis} structural approach for detail placement."
+    
+  texture_material_enhancement:
+    description: "Add material properties, wear patterns, and texture variation"
+    display_name: "🎨 Texture & Material"
+    parameters:
+      - texture_resolution:
+          type: "choice"
+          options: ["1k", "2k", "4k", "8k"]
+          default: "2k"
+          description: "Texture map resolution (1024px to 8192px)"
+      - material_variety:
+          type: "slider"
+          range: [0, 100]
+          default: 50
+          description: "Blend between different materials (metal/organic/crystal/energy)"
+      - weathering_pattern:
+          type: "choice"
+          options: ["uniform", "edge-wear", "directional-erosion", "environmental-patina", "combat-scarring"]
+          description: "How weathering appears across surface"
+      - surface_properties:
+          type: "choice"
+          options: ["matte", "satin", "glossy", "metallic-reflective", "bioluminescent", "energy-plasma"]
+          description: "Surface finish and reflectance properties"
+    affects_prompt: "Apply {texture_resolution} texture resolution with {material_variety}% multi-material variation. Use {weathering_pattern} weathering pattern and {surface_properties} surface finish."
+    
+  bioluminescence_glow_enhancement:
+    description: "Add glowing effects, energy flows, and light emission"
+    display_name: "✨ Glow & Light Emission"
+    parameters:
+      - glow_intensity:
+          type: "slider"
+          range: [0, 100]
+          default: 50
+          description: "Brightness of emissive surfaces (0=none, 100=blinding)"
+      - glow_coverage:
+          type: "slider"
+          range: [0, 100]
+          default: 30
+          description: "Percentage of hull covered by glowing elements"
+      - energy_flow_pattern:
+          type: "choice"
+          options: ["static-nodes", "pulsing-rhythm", "flowing-streams", "arc-patterns", "harmonic-resonance"]
+          description: "How energy/light appears to flow or pulse"
+      - glow_color_variation:
+          type: "choice"
+          options: ["monochromatic", "complementary-dual", "spectrum-rainbow", "complex-palette"]
+          description: "Color complexity of glow effects"
+    affects_prompt: "Add bioluminescence/glow with {glow_intensity}% intensity covering {glow_coverage}% of surface using {energy_flow_pattern} pattern in {glow_color_variation} color scheme."
+    
+  armor_plating_enhancement:
+    description: "Add plating, panel lines, armor segmentation, and hull structure"
+    display_name: "🛡️ Armor & Plating"
+    parameters:
+      - plating_scale:
+          type: "slider"
+          range: [1, 100]
+          default: 50
+          description: "Size of armor plates and panel segments (large=few big plates, small=intricate segmentation)"
+      - plating_definition:
+          type: "slider"
+          range: [0, 100]
+          default: 60
+          description: "Depth and visibility of seams, gaps, and panel edges"
+      - armor_style:
+          type: "choice"
+          options: ["overlapping-scales", "interlocking-hexagonal", "angular-facets", "organic-flow", "crystalline-lattice"]
+          description: "Arrangement pattern of armor segments"
+      - structural_reinforcement:
+          type: "slider"
+          range: [0, 100]
+          default: 40
+          description: "Add visible reinforcement beams, struts, and internal structure hints"
+    affects_prompt: "Add armor plating with {plating_scale}% scale and {plating_definition}% definition using {armor_style} arrangement. Include {structural_reinforcement}% visible structural reinforcement."
+    
+  particle_effects_enhancement:
+    description: "Add particle systems, exhaust trails, and environmental effects"
+    display_name: "💨 Particle Effects"
+    parameters:
+      - exhaust_intensity:
+          type: "slider"
+          range: [0, 100]
+          default: 50
+          description: "Density and visibility of engine exhaust/propulsion trails"
+      - particle_types:
+          type: "choice"
+          options: ["ion-plasma", "chemical-smoke", "energy-discharge", "bio-spores", "crystalline-shards"]
+          description: "Type of particles emitted by ship systems"
+      - effect_density:
+          type: "slider"
+          range: [0, 100]
+          default: 50
+          description: "Overall density of particle systems and visual effects"
+      - environmental_interaction:
+          type: "choice"
+          options: ["no-interaction", "subtle-wind", "turbulent-streams", "environmental-reaction", "dimensional-distortion"]
+          description: "How particles interact with environment"
+    affects_prompt: "Add particle effects with {exhaust_intensity}% exhaust intensity, {particle_types} particle type, and {effect_density}% overall density. Use {environmental_interaction} environmental interaction."
+    
+  color_grading_enhancement:
+    description: "Apply color scheme adjustments, saturation, and tone"
+    display_name: "🎭 Color Grading"
+    parameters:
+      - saturation_level:
+          type: "slider"
+          range: [0, 150]
+          default: 100
+          description: "Color saturation (0=grayscale, 100=normal, 150=hyper-saturated)"
+      - color_temperature:
+          type: "choice"
+          options: ["cool-blue", "neutral", "warm-orange", "alien-purple", "exotic-cyan"]
+          description: "Overall color temperature and tone"
+      - contrast_level:
+          type: "slider"
+          range: [0.5, 2.0]
+          default: 1.0
+          description: "Contrast between light and dark areas (0.5=flat, 1.0=normal, 2.0=high-contrast)"
+      - special_color_effects:
+          type: "choice"
+          options: ["none", "iridescent-shift", "holographic", "thermal-vision", "spectral-analysis"]
+          description: "Special color processing effects"
+    affects_prompt: "Apply color grading with {saturation_level}% saturation, {color_temperature} color temperature, {contrast_level}x contrast, and {special_color_effects} special effects."
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SPECIES REFERENCE QUICK-LOOKUP
+# ═══════════════════════════════════════════════════════════════════════════════
+
+species_summary:
+  vortak:
+    trigger_word: "vortak_race"
+    lora_weight: 0.85
+    aesthetic: "Predatory reptilian command vessels, bronze and dark green, battle-scarred"
+    
+  sylnar:
+    trigger_word: "sylnar_race"
+    lora_weight: 0.80
+    aesthetic: "Mystical bioluminescent bio-forms, flowing organic curves, cyan/pink glow"
+    
+  aereth:
+    trigger_word: "aereth_race"
+    lora_weight: 0.80
+    aesthetic: "Brilliant crystalline energy-ships, geometric precision, white-blue-gold"
+    
+  kryltha:
+    trigger_word: "kryltha_race"
+    lora_weight: 0.90
+    aesthetic: "Aggressive insectoid war-forms, sharp angles, dark iridescent green/gold"
+    
+  zhareen:
+    trigger_word: "zhareen_race"
+    lora_weight: 0.85
+    aesthetic: "Prismatic crystalline archives, mandala-geometry, blue/gold/rainbow"
+    
+  velar:
+    trigger_word: "velar_race"
+    lora_weight: 0.75
+    aesthetic: "Mysterious gas-form mysteries, flowing biomask, smoke-gray/lavendel"
