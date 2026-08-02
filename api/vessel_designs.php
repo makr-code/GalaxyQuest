@@ -19,17 +19,61 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Parse request path
         $method = $_SERVER['REQUEST_METHOD'];
         $requestUri = $_SERVER['REQUEST_URI'] ?? '';
+        $isWireframeQuery = isset($_GET['wireframe']) || (isset($_POST['name']) && !isset($_POST['species_code']));
         
         // Remove query string
         $path = preg_replace('/\?.*/', '', $requestUri);
         
-        // Extract parts after /api/vessel_designs
-        preg_match('#/api/vessel_designs(?:/([a-f0-9]+))?(?:/([a-z_]+))?#', $path, $matches);
+        // Extract parts after /api/vessel_designs or /api/wireframe_designs
+        $isWireframe = ($isWireframeQuery || strpos($path, '/wireframe_designs') !== false);
+        $pattern = $isWireframe 
+            ? '#/api/wireframe_designs(?:/([a-f0-9_]+))?(?:/([a-z_]+))?#'
+            : '#/api/vessel_designs(?:/([a-f0-9]+))?(?:/([a-z_]+))?#';
+        
+        preg_match($pattern, $path, $matches);
         $designId = $matches[1] ?? null;
         $action = $matches[2] ?? null;
         
+        // Handle CREATE wireframe design: POST /api/wireframe_designs
+        if ($isWireframe && $method === 'POST' && !$designId && !$action) {
+            only_method('POST');
+            $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
+            
+            $db = get_db();
+            $body = json_decode(file_get_contents('php://input'), true);
+            
+            // Wireframe format: {name, description, vertices, edges, faces, components}
+            // design_id column is varchar(16), so use bin2hex(random_bytes(6)) = 12 chars + 'wd_' = 15 chars
+            $newDesignId = 'wd_' . bin2hex(random_bytes(6));
+            $designName = $body['name'] ?? 'Untitled Wireframe';
+            $description = $body['description'] ?? '';
+            $geometryData = json_encode([
+                'vertices' => $body['vertices'] ?? [],
+                'edges' => $body['edges'] ?? [],
+                'faces' => $body['faces'] ?? [],
+                'components' => $body['components'] ?? [],
+            ]);
+            
+            $stmt = $db->prepare(<<<'SQL'
+                INSERT INTO vessel_designs 
+                (design_id, user_id, design_name, description, geometry_data, wireframe_source)
+                VALUES (?, ?, ?, ?, ?, 'manual')
+            SQL);
+            $stmt->execute([$newDesignId, $uid, $designName, $description, $geometryData]);
+            
+            json_ok([
+                'id' => $newDesignId,
+                'name' => $designName,
+                'vertex_count' => count($body['vertices'] ?? []),
+                'edge_count' => count($body['edges'] ?? []),
+                'face_count' => count($body['faces'] ?? []),
+                'created_at' => date('c'),
+            ]);
+            return;
+        }
+        
         // Handle CREATE new design: POST /api/vessel_designs
-        if ($method === 'POST' && !$designId && !$action) {
+        if (!$isWireframe && $method === 'POST' && !$designId && !$action) {
             only_method('POST');
             $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
             

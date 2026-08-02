@@ -7,6 +7,8 @@
  * - LoRA style selector
  * - 3D GLB viewer (Three.js)
  * - Generation progress tracking
+ * - Interactive Node Editor for geometry modification
+ * - AI-powered prompt refinement
  * - Ship save/export
  */
 
@@ -39,14 +41,29 @@ export function createShipDesignerUI(opts = {}) {
     shipTemplates: {},
     loraStyles: {},
     allFactionSigs: {},
+    currentTab: 'designer', // designer or node-editor
+    nodeEditor: null,
   };
 
   // ─── UI Components ────────────────────────────────────────────────────────
 
   const html = `
-    <div class="ship-designer" style="display: flex; gap: 1rem; height: 100%; background: #0a0e27;">
+    <div class="ship-designer" style="display: flex; flex-direction: column; height: 100%; width: 100%; background: #0a0e27; flex: 1; overflow: hidden;">
       
-      <!-- Left panel: Configuration & Prompt -->
+      <!-- Tab Navigation -->
+      <div style="display: flex; gap: 1rem; background: #111827; border-bottom: 2px solid #1f2937; padding: 0.5rem 1rem; flex: 0 0 auto;">
+        <button id="tab-designer" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 3px 3px 0 0; cursor: pointer; font-weight: bold;">
+          🎨 Ship Designer
+        </button>
+        <button id="tab-node-editor" style="padding: 0.5rem 1rem; background: #1f2937; color: #9ca3af; border: none; border-radius: 3px 3px 0 0; cursor: pointer; font-weight: bold;">
+          🔗 Node Editor (Geometry)
+        </button>
+      </div>
+      
+      <!-- Designer Tab -->
+      <div id="designer-tab" style="display: flex; gap: 1rem; flex: 1; background: #0a0e27; overflow: hidden; min-height: 0;">
+        
+        <!-- Left panel: Configuration & Prompt -->
       <div class="sd-config-panel" style="flex: 0 0 380px; display: flex; flex-direction: column; gap: 1rem; padding: 1rem; background: #111827; border-right: 1px solid #1f2937; overflow-y: auto;">
         
         <!-- Faction selector -->
@@ -108,6 +125,42 @@ export function createShipDesignerUI(opts = {}) {
       <!-- Center/Right: 3D Viewer & Generation Progress -->
       <div class="sd-viewer-panel" style="flex: 1; display: flex; flex-direction: column; gap: 1rem; padding: 1rem; background: #0a0e27; position: relative;">
         
+        <!-- Viewer Controls -->
+        <div style="display: flex; gap: 0.5rem; align-items: center; background: #1f2937; padding: 0.75rem; border-radius: 4px; flex-wrap: wrap;">
+          <span style="font-size: 0.85rem; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;">View:</span>
+          
+          <!-- Grid Toggle -->
+          <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer; padding: 0.3rem 0.6rem; background: #111827; border-radius: 3px; border: 1px solid #374151; font-size: 0.8rem; color: #e5e7eb;">
+            <input type="checkbox" id="toggle-grid" style="width: 14px; height: 14px; cursor: pointer;">
+            Grid
+          </label>
+          
+          <!-- Flat White Mode -->
+          <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer; padding: 0.3rem 0.6rem; background: #111827; border-radius: 3px; border: 1px solid #374151; font-size: 0.8rem; color: #e5e7eb;">
+            <input type="checkbox" id="toggle-flat-white" style="width: 14px; height: 14px; cursor: pointer;">
+            Flat White
+          </label>
+          
+          <!-- Texture Mode -->
+          <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer; padding: 0.3rem 0.6rem; background: #111827; border-radius: 3px; border: 1px solid #374151; font-size: 0.8rem; color: #e5e7eb;">
+            <input type="checkbox" id="toggle-textures" checked style="width: 14px; height: 14px; cursor: pointer;">
+            Textures
+          </label>
+          
+          <!-- Lighting Mode -->
+          <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer; padding: 0.3rem 0.6rem; background: #111827; border-radius: 3px; border: 1px solid #374151; font-size: 0.8rem; color: #e5e7eb;">
+            <input type="checkbox" id="toggle-lighting" checked style="width: 14px; height: 14px; cursor: pointer;">
+            Lighting
+          </label>
+          
+          <div style="flex: 1;"></div>
+          
+          <!-- Camera Info -->
+          <div style="font-size: 0.75rem; color: #6b7280;">
+            <span style="margin: 0 0.5rem;">🖱 Drag to rotate | Scroll to zoom | Right-click to pan</span>
+          </div>
+        </div>
+        
         <!-- 3D GLB Viewer -->
         <div id="glb-viewer-container" style="flex: 1; background: #111827; border: 1px solid #1f2937; border-radius: 4px; position: relative; display: flex; align-items: center; justify-content: center; color: #6b7280;">
           <canvas id="glb-viewer" style="width: 100%; height: 100%;"></canvas>
@@ -160,6 +213,84 @@ export function createShipDesignerUI(opts = {}) {
   `;
 
   container.innerHTML = html;
+  
+  // Add node editor tab separately (after main template)
+  const nodeEditorTab = document.createElement('div');
+  nodeEditorTab.id = 'node-editor-tab';
+  nodeEditorTab.style.cssText = 'display: flex; flex-direction: column; flex: 1; background: #0a0e27; overflow: hidden; min-height: 0; visibility: hidden; height: 0;';
+  container.appendChild(nodeEditorTab);
+
+  // ─── Tab Switching ────────────────────────────────────────────────────────
+
+  const tabDesigner = container.querySelector('#tab-designer');
+  const tabNodeEditor = container.querySelector('#tab-node-editor');
+  const designerTabContent = container.querySelector('#designer-tab');
+  const nodeEditorTabContent = container.querySelector('#node-editor-tab');
+
+  tabDesigner.addEventListener('click', () => {
+    state.currentTab = 'designer';
+    designerTabContent.style.display = 'flex';
+    designerTabContent.style.visibility = 'visible';
+    designerTabContent.style.height = 'auto';
+    nodeEditorTabContent.style.visibility = 'hidden';
+    nodeEditorTabContent.style.height = '0';
+    tabDesigner.style.background = '#3b82f6';
+    tabDesigner.style.color = 'white';
+    tabNodeEditor.style.background = '#1f2937';
+    tabNodeEditor.style.color = '#9ca3af';
+  });
+
+  tabNodeEditor.addEventListener('click', () => {
+    state.currentTab = 'node-editor';
+    designerTabContent.style.visibility = 'hidden';
+    designerTabContent.style.height = '0';
+    nodeEditorTabContent.style.visibility = 'visible';
+    nodeEditorTabContent.style.height = 'auto';
+    nodeEditorTabContent.style.display = 'flex';  // Changed from 'block' to 'flex'
+    tabNodeEditor.style.background = '#3b82f6';
+    tabNodeEditor.style.color = 'white';
+    tabDesigner.style.background = '#1f2937';
+    tabDesigner.style.color = '#9ca3af';
+
+    // Initialize node editor on first access
+    if (!state.nodeEditor) {
+      // CRITICAL FIX: Delay initialization until layout is calculated
+      // When we set display: 'flex', the browser needs time to recalculate layout
+      // Without this delay, container.clientWidth/Height are still 0
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          console.log('[ShipDesigner] Initializing Node Editor...');
+          console.log('[ShipDesigner] window.createNodeEditor available?', typeof window.createNodeEditor === 'function');
+          console.log('[ShipDesigner] nodeEditorTabContent size:', nodeEditorTabContent.clientWidth, 'x', nodeEditorTabContent.clientHeight);
+          
+          if (typeof window.createWireframeEditor === 'function') {
+            try {
+              state.nodeEditor = window.createWireframeEditor({
+                container: nodeEditorTabContent,
+                apiBase,
+                onPromptUpdate: (prompt) => {
+                  state.customizationPrompt = prompt;
+                },
+                onExport: (geometry) => {
+                  console.log('[ShipDesigner] Geometry exported:', geometry);
+                  state.customizationPrompt = geometry;
+                  const promptEl = container.querySelector('#custom-prompt');
+                  if (promptEl) {
+                    promptEl.value = geometry;
+                  }
+                },
+              });
+          console.log('[ShipDesigner] Wireframe Editor initialized successfully');
+        } catch (err) {
+          console.error('[ShipDesigner] Error initializing Wireframe Editor:', err);
+        }
+      } else {
+        console.error('[ShipDesigner] createWireframeEditor not found in window');
+      }
+        }, 50);  // 50ms delay for layout calculation
+      });  // end requestAnimationFrame
+    }
+  });
 
   // ─── Initialization ───────────────────────────────────────────────────────
 
@@ -549,8 +680,106 @@ export function createShipDesignerUI(opts = {}) {
 
   // ─── 3D Viewer ────────────────────────────────────────────────────────────
 
+  function createSimpleOrbitControls(camera, canvas, obj = null) {
+    const controls = {
+      autoRotate: true,
+      autoRotateSpeed: 0.005,
+      isDragging: false,
+      isPanning: false,
+      previousMousePosition: { x: 0, y: 0 },
+      cameraTarget: new THREE.Vector3(0, 0, 0),
+      distance: 5,
+      phi: 0.5,
+      theta: 0,
+    };
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 2) {
+        // Right-click: pan
+        controls.isPanning = true;
+      } else {
+        // Left-click: rotate
+        controls.isDragging = true;
+      }
+      controls.previousMousePosition = { x: e.clientX, y: e.clientY };
+      controls.autoRotate = false;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      const deltaX = e.clientX - controls.previousMousePosition.x;
+      const deltaY = e.clientY - controls.previousMousePosition.y;
+
+      if (controls.isDragging) {
+        controls.theta -= deltaX * 0.005;
+        controls.phi -= deltaY * 0.005;
+        controls.phi = Math.max(0.1, Math.min(Math.PI - 0.1, controls.phi));
+      } else if (controls.isPanning) {
+        const panSpeed = 0.01;
+        const camDir = camera.position.clone().normalize();
+        const rightVec = new THREE.Vector3(0, 1, 0).cross(camDir).normalize();
+        const upVec = camDir.cross(rightVec).normalize();
+        controls.cameraTarget.addScaledVector(rightVec, -deltaX * panSpeed);
+        controls.cameraTarget.addScaledVector(upVec, deltaY * panSpeed);
+      }
+
+      controls.previousMousePosition = { x: e.clientX, y: e.clientY };
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      controls.isDragging = false;
+      controls.isPanning = false;
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      controls.distance *= 1 + e.deltaY * 0.001;
+      controls.distance = Math.max(1, Math.min(20, controls.distance));
+      controls.autoRotate = false;
+    });
+
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    controls.update = function() {
+      if (controls.autoRotate) {
+        controls.theta += controls.autoRotateSpeed;
+      }
+
+      const x = controls.cameraTarget.x + controls.distance * Math.sin(controls.phi) * Math.cos(controls.theta);
+      const y = controls.cameraTarget.y + controls.distance * Math.cos(controls.phi);
+      const z = controls.cameraTarget.z + controls.distance * Math.sin(controls.phi) * Math.sin(controls.theta);
+
+      camera.position.set(x, y, z);
+      camera.lookAt(controls.cameraTarget);
+    };
+
+    return controls;
+  }
+
+  function createGrid(size = 10, divisions = 10) {
+    const geometry = new THREE.BufferGeometry();
+    const material = new THREE.LineBasicMaterial({ color: 0x444444, transparent: true, opacity: 0.3 });
+
+    const points = [];
+    const step = size / divisions;
+
+    for (let i = 0; i <= divisions; i++) {
+      const pos = -size / 2 + i * step;
+
+      // Lines along X
+      points.push(pos, 0, -size / 2);
+      points.push(pos, 0, size / 2);
+
+      // Lines along Z
+      points.push(-size / 2, 0, pos);
+      points.push(size / 2, 0, pos);
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(points), 3));
+    return new THREE.LineSegments(geometry, material);
+  }
+
   function loadGLBIntoViewer(glbPath) {
-    // Load GLB file into Three.js viewer
+    // Load GLB file into Three.js viewer with advanced controls
     console.log('[ShipDesigner] Loading GLB into viewer:', glbPath);
 
     const placeholder = container.querySelector('#viewer-placeholder');
@@ -564,29 +793,85 @@ export function createShipDesignerUI(opts = {}) {
     // Initialize Three.js scene if not already done
     if (!state.scene) {
       state.scene = new THREE.Scene();
+      state.scene.background = new THREE.Color(0x111827);
       state.camera = new THREE.PerspectiveCamera(75, canvas.parentElement.clientWidth / canvas.parentElement.clientHeight, 0.1, 1000);
-      state.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      state.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
       state.renderer.setSize(canvas.parentElement.clientWidth, canvas.parentElement.clientHeight);
       state.renderer.setClearColor(0x111827, 1);
+      state.renderer.shadowMap.enabled = true;
 
-      // Lighting
-      const light = new THREE.DirectionalLight(0xffffff, 0.8);
-      light.position.set(5, 10, 7);
-      state.scene.add(light);
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-      state.scene.add(ambientLight);
+      // Create lights
+      state.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      state.directionalLight.position.set(5, 10, 7);
+      state.directionalLight.castShadow = true;
+      state.scene.add(state.directionalLight);
+
+      state.ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+      state.scene.add(state.ambientLight);
 
       state.camera.position.z = 5;
+
+      // Create grid
+      state.grid = createGrid(15, 15);
+      state.scene.add(state.grid);
+
+      // Create orbit controls
+      state.controls = createSimpleOrbitControls(state.camera, canvas);
 
       // Animation loop
       const animate = () => {
         requestAnimationFrame(animate);
+        
+        state.controls.update();
+
         if (state.model) {
-          state.model.rotation.y += 0.005;
+          if (!state.isFlatWhite) {
+            state.model.rotation.y += 0.005;
+          }
         }
+
         state.renderer.render(state.scene, state.camera);
       };
       animate();
+
+      // Handle window resize
+      window.addEventListener('resize', () => {
+        const width = canvas.parentElement.clientWidth;
+        const height = canvas.parentElement.clientHeight;
+        state.camera.aspect = width / height;
+        state.camera.updateProjectionMatrix();
+        state.renderer.setSize(width, height);
+      });
+
+      // Setup viewer control toggles
+      const gridToggle = container.querySelector('#toggle-grid');
+      const flatWhiteToggle = container.querySelector('#toggle-flat-white');
+      const texturesToggle = container.querySelector('#toggle-textures');
+      const lightingToggle = container.querySelector('#toggle-lighting');
+
+      gridToggle?.addEventListener('change', (e) => {
+        state.grid.visible = e.target.checked;
+      });
+
+      flatWhiteToggle?.addEventListener('change', (e) => {
+        state.isFlatWhite = e.target.checked;
+        applyFlatWhiteMode();
+      });
+
+      texturesToggle?.addEventListener('change', (e) => {
+        state.useTextures = e.target.checked;
+        applyMaterialMode();
+      });
+
+      lightingToggle?.addEventListener('change', (e) => {
+        state.useLighting = e.target.checked;
+        state.directionalLight.intensity = e.target.checked ? 0.8 : 0;
+        state.ambientLight.intensity = e.target.checked ? 0.4 : 0.6;
+      });
+
+      state.useTextures = true;
+      state.useLighting = true;
+      state.isFlatWhite = false;
     }
 
     // Load GLB
@@ -597,13 +882,69 @@ export function createShipDesignerUI(opts = {}) {
         if (state.model) {
           state.scene.remove(state.model);
         }
+
         state.model = gltf.scene;
         state.scene.add(state.model);
+
+        // Apply initial material mode
+        applyMaterialMode();
+
+        // Center model
+        const box = new THREE.Box3().setFromObject(state.model);
+        const center = box.getCenter(new THREE.Vector3());
+        state.model.position.sub(center);
+
         console.log('[ShipDesigner] GLB loaded successfully');
       });
     } else {
       console.warn('[ShipDesigner] Three.js GLTFLoader not available');
     }
+  }
+
+  function applyFlatWhiteMode() {
+    if (!state.model) return;
+
+    state.model.traverse((child) => {
+      if (child.isMesh) {
+        if (state.isFlatWhite) {
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            metalness: 0.3,
+            roughness: 0.6,
+            emissive: 0x000000,
+          });
+        } else {
+          applyMaterialMode();
+        }
+      }
+    });
+  }
+
+  function applyMaterialMode() {
+    if (!state.model) return;
+
+    state.model.traverse((child) => {
+      if (child.isMesh) {
+        if (state.isFlatWhite) {
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            metalness: 0.3,
+            roughness: 0.6,
+          });
+        } else if (state.useTextures && child.material && child.material.map) {
+          // Keep texture-based materials
+          child.material.map = child.material.map;
+        } else {
+          // Fallback to solid color material
+          const color = child.material?.color || new THREE.Color(0x8B4513);
+          child.material = new THREE.MeshStandardMaterial({
+            color: color,
+            metalness: 0.5,
+            roughness: 0.4,
+          });
+        }
+      }
+    });
   }
 
   function updateShipStats() {

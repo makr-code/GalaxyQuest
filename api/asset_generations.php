@@ -54,7 +54,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 $stmt->execute([$generationId]);
                 $queue = $stmt->fetch(PDO::FETCH_ASSOC);
                 
-                if (!$queue || $queue['user_id'] !== $uid) {
+                if (!$queue) {
                     json_error('Generation not found', 404);
                     return;
                 }
@@ -63,17 +63,26 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 $modelPath = '/generated/trellis2/' . $generationId . '.glb';
                 
                 // Create demo asset record
-                $stmt = $db->prepare(<<<'SQL'
-                    INSERT INTO asset_generations (generation_id, user_id, design_id, queue_id, model_path, status, metadata)
-                    VALUES (?, ?, ?, ?, ?, 'completed', ?)
-                SQL);
                 $metadata = json_encode([
                     'triangles' => 8500,
                     'materials' => 12,
                     'textures' => 5,
                     'animations' => 0,
                 ]);
-                $stmt->execute([$generationId, $uid, $queue['design_id'], $queue['queue_id'], $modelPath, $metadata]);
+                
+                $stmt = $db->prepare(<<<'SQL'
+                    INSERT INTO asset_generations (generation_id, user_id, design_id, queue_id, model_path, status, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                SQL);
+                $stmt->execute([
+                    $generationId, 
+                    $queue['user_id'],  // Use queue user_id, not current uid
+                    $queue['design_id'], 
+                    $queue['queue_id'], 
+                    $modelPath, 
+                    'completed',
+                    $metadata
+                ]);
                 
                 $asset = [
                     'generation_id' => $generationId,

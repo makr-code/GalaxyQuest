@@ -1,0 +1,346 @@
+/**
+ * Window Manager Styling
+ * Dockable, resizable Panels mit Tab-System
+ */
+
+.wm-root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #0a0e27;
+  overflow: hidden;
+}
+
+.wm-workspace {
+  flex: 1;
+  display: flex;
+  gap: 0;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Panel Container Styling */
+.wm-panel-container {
+  display: flex;
+  flex-direction: column;
+  background: #1a1f3a;
+  border: 1px solid #2d3748;
+  position: relative;
+  min-width: 200px;
+  min-height: 150px;
+  overflow: hidden;
+}
+
+.wm-left-sidebar {
+  width: 280px;
+  border-right: 2px solid #3b82f6;
+  flex-shrink: 0;
+}
+
+.wm-right-sidebar {
+  width: 280px;
+  border-left: 2px solid #3b82f6;
+  flex-shrink: 0;
+}
+
+.wm-top-panel {
+  height: 250px;
+  border-bottom: 2px solid #3b82f6;
+  flex-shrink: 0;
+}
+
+.wm-center-panel {
+  flex: 1;
+  min-width: 300px;
+  min-height: 200px;
+}
+
+.wm-main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 300px;
+}
+
+/* Tab Bar */
+.wm-panel-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0.5rem;
+  background: #0f172a;
+  border-bottom: 1px solid #2d3748;
+  overflow-x: auto;
+  flex-shrink: 0;
+  border-radius: 4px 4px 0 0;
+}
+
+.wm-panel-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.wm-panel-tabs::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 3px;
+}
+
+.wm-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  background: #1f2937;
+  color: #9ca3af;
+  border: 1px solid #374151;
+  border-radius: 4px 4px 0 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  position: relative;
+}
+
+.wm-tab:hover {
+  background: #374151;
+  color: #e5e7eb;
+  border-color: #4b5563;
+}
+
+.wm-tab.active {
+  background: #3b82f6;
+  color: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+
+.wm-tab-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.wm-tab-label {
+  font-weight: 600;
+}
+
+.wm-tab-close {
+  margin-left: 0.4rem;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  font-size: 0.75rem;
+}
+
+.wm-tab-close:hover {
+  opacity: 1;
+  color: #ef4444;
+}
+
+/* Panel Content Area */
+.wm-panel-content {
+  flex: 1;
+  overflow: auto;
+  background: #1a1f3a;
+  position: relative;
+  padding: 1rem;
+}
+
+.wm-panel-content::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.wm-panel-content::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.wm-panel-content::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 4px;
+}
+
+.wm-panel-content::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Resize Handles */
+.wm-resize-handle {
+  position: absolute;
+  background: transparent;
+  z-index: 100;
+  transition: background 0.2s;
+}
+
+.wm-resize-handle:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+.wm-resize-handle.wm-resize-vertical {
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.wm-resize-handle.wm-resize-vertical[data-direction="right"] {
+  right: -2px;
+  top: 0;
+}
+
+.wm-resize-handle.wm-resize-vertical[data-direction="left"] {
+  left: -2px;
+  top: 0;
+}
+
+.wm-resize-handle.wm-resize-horizontal {
+  width: 100%;
+  height: 4px;
+  cursor: row-resize;
+}
+
+.wm-resize-handle.wm-resize-horizontal[data-direction="down"] {
+  bottom: -2px;
+  left: 0;
+}
+
+.wm-resize-handle.wm-resize-horizontal[data-direction="up"] {
+  top: -2px;
+  left: 0;
+}
+
+/* Layout Variants */
+.wm-root[data-layout="default"] .wm-left-sidebar {
+  width: 280px;
+}
+
+.wm-root[data-layout="maximized"] .wm-left-sidebar,
+.wm-root[data-layout="maximized"] .wm-right-sidebar {
+  display: none;
+}
+
+.wm-root[data-layout="maximized"] .wm-top-panel {
+  height: 200px;
+}
+
+.wm-root[data-layout="fullscreen"] .wm-left-sidebar,
+.wm-root[data-layout="fullscreen"] .wm-right-sidebar,
+.wm-root[data-layout="fullscreen"] .wm-top-panel {
+  display: none;
+}
+
+.wm-root[data-layout="split"] .wm-left-sidebar {
+  width: 400px;
+}
+
+.wm-root[data-layout="split"] .wm-right-sidebar {
+  width: 350px;
+}
+
+/* Animation für Tab-Wechsel */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wm-panel-content {
+  animation: fadeIn 0.15s ease;
+}
+
+/* Responsive Design */
+@media (max-width: 1400px) {
+  .wm-left-sidebar {
+    width: 240px !important;
+  }
+  
+  .wm-right-sidebar {
+    width: 240px !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  .wm-left-sidebar,
+  .wm-right-sidebar {
+    display: none !important;
+  }
+  
+  .wm-root[data-layout="split"] .wm-left-sidebar,
+  .wm-root[data-layout="split"] .wm-right-sidebar {
+    display: flex !important;
+    width: 240px !important;
+  }
+}
+
+/* Panel-spezifische Styles */
+.wm-panel-content-ship-designer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.wm-panel-content-wireframe {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wm-panel-content-properties {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.wm-panel-content-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+/* Control Buttons für Layout */
+.wm-layout-controls {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: #1f2937;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.wm-layout-btn {
+  padding: 0.4rem 0.8rem;
+  background: #374151;
+  color: #9ca3af;
+  border: 1px solid #4b5563;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.wm-layout-btn:hover {
+  background: #4b5563;
+  color: #e5e7eb;
+}
+
+.wm-layout-btn.active {
+  background: #3b82f6;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+/* Empty State */
+.wm-panel-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6b7280;
+  font-style: italic;
+  text-align: center;
+}

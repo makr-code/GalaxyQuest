@@ -36,10 +36,17 @@ RewriteRule ^generated/tts/[a-f0-9]{64}\.mp3$ - [L]
 RewriteRule ^api/v1/(.*)$ /api/$1 [QSA,L]
 
 # API REST Routes - map to PHP handlers
-# /api/vessel_designs* -> /api/vessel_designs.php
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^api/vessel_designs(/.*)?$ /api/vessel_designs.php [QSA,L]
+# /api/vessel_designs* -> /api/vessel_designs.php (also handles wireframe_designs)
+# NOTE: Disabled - use direct .php file access with query parameters instead
+# RewriteCond %{REQUEST_FILENAME} !-f
+# RewriteCond %{REQUEST_FILENAME} !-d
+# RewriteRule ^api/vessel_designs(/.*)?$ /api/vessel_designs.php [QSA,L]
+
+# /api/wireframe_designs* -> /api/wireframe_designs.php
+# NOTE: Disabled - POST body not forwarded via RewriteRule; use query parameter approach
+# RewriteCond %{REQUEST_FILENAME} !-f
+# RewriteCond %{REQUEST_FILENAME} !-d
+# RewriteRule ^api/wireframe_designs(/.*)?$ /api/wireframe_designs.php [QSA,L]
 
 # /api/generation_queue/* -> /api/generation_queue.php
 RewriteCond %{REQUEST_FILENAME} !-f
@@ -51,8 +58,9 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^api/asset_generations(/.*)?$ /api/asset_generations.php [QSA,L]
 
-# PHP files in api/ are served normally
-# Everything else (non-existing files/dirs) falls back to index.php for template processing
+# PHP files in api/ are served directly without RewriteRule
+# (POSTDaten werden mit Rewrite Rules nicht korrekt weitergeleitet)
+# Instead, allow direct access to .php files in /api/
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteCond %{REQUEST_URI} !^/api/
