@@ -1,0 +1,3 @@
+[submodule "tools/comfyui-trellis2"]
+	path = tools/comfyui-trellis2
+	url = https://github.com/visualbruno/ComfyUI-Trellis2.git
