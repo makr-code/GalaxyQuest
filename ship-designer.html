@@ -6,6 +6,7 @@
     <title>GalaxyQuest — Ship Designer (TRELLIS2 Integration)</title>
     <link rel="stylesheet" href="/css/window-manager.css">
     <link rel="stylesheet" href="/css/unified-designer.css">
+    <link rel="stylesheet" href="/css/multi-mode-modal.css">
     <style>
         * {
             margin: 0;
@@ -137,10 +138,33 @@
 <body>
     <div id="app">
         <header>
-            <h1>🛸 GalaxyQuest Ship Designer</h1>
-            <div class="subtitle">
-                TRELLIS2 Integration — Real-time 3D Ship Generation
-                <span id="api-ready" style="margin-left: 2rem; font-weight: 600;"></span>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h1>🛸 GalaxyQuest Ship Designer</h1>
+                    <div class="subtitle">
+                        TRELLIS2 Integration — Real-time 3D Ship Generation
+                        <span id="api-ready" style="margin-left: 2rem; font-weight: 600;"></span>
+                    </div>
+                </div>
+                <button id="multi-mode-btn" style="
+                    background: linear-gradient(135deg, #3b82f6, #2563eb);
+                    color: white;
+                    border: none;
+                    padding: 0.75rem 1.5rem;
+                    border-radius: 6px;
+                    font-size: 0.95rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.3s;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    white-space: nowrap;
+                    box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+                " onmouseover="this.style.boxShadow='0 0 30px rgba(59, 130, 246, 0.5)'" onmouseout="this.style.boxShadow='0 0 20px rgba(59, 130, 246, 0.3)'">
+                    <span>🚀</span>
+                    <span>Generate 3D</span>
+                </button>
             </div>
         </header>
         
@@ -528,6 +552,23 @@
         console.log('Access designer via: window.shipDesigner');
         console.log('API Base: /api');
         console.log('Check: /api/user/quota for quota status');
+    </script>
+    
+    <!-- Multi-Mode TRELLIS2 Generation Modal -->
+    <script src="/js/components/multi-mode-modal.js"></script>
+    
+    <!-- Setup Multi-Mode Button -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const btn = document.getElementById('multi-mode-btn');
+            if (btn) {
+                btn.addEventListener('click', () => {
+                    if (window.multiModeModal) {
+                        window.multiModeModal.show();
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>

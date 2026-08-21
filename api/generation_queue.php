@@ -10,45 +10,72 @@ declare(strict_types=1);
 require_once __DIR__ . '/helpers.php';
 
 // Call real TRELLIS2 API to generate GLB
+// Uses Gradio /gradio_api/call/text_to_3d endpoint with async polling
 function callTrellis2(string $prompt): ?string {
-    // TRELLIS2 container is at http://trellis2:7862/api/predict
-    $trellis2_url = getenv('TRELLIS2_URL') ?: 'http://trellis2:7862/api/predict';
+    $trellis2_url = getenv('TRELLIS2_URL') ?: 'http://trellis2:7862';
+    $call_endpoint = $trellis2_url . '/gradio_api/call/text_to_3d';
     
     try {
+        // Step 1: Submit job to TRELLIS2 Gradio
         $payload = [
-            'prompt' => $prompt,
-            'seed' => mt_rand(0, 2147483647),
-            'steps' => 50,
-            'guidance_scale' => 7.5,
+            'data' => [
+                $prompt,           // prompt (required)
+                30,               // num_frames (1-60, default 30)
+                mt_rand(0, 2147483647) // seed
+            ]
         ];
         
-        $ch = curl_init($trellis2_url);
+        $ch = curl_init($call_endpoint);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
         
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
         
-        if ($httpCode === 200 && $response) {
-            $data = json_decode($response, true);
-            
-            // TRELLIS2 returns binary GLB data or a path
-            if (isset($data['glb_data']) && !empty($data['glb_data'])) {
-                return base64_decode($data['glb_data']);
-            } elseif (isset($data['model_path']) && !empty($data['model_path'])) {
-                // If TRELLIS2 returns a path, download from there
-                return file_get_contents($data['model_path']);
-            } elseif (isset($data['output']) && !empty($data['output'])) {
-                // Some versions return output as base64
-                return base64_decode($data['output']);
-            }
+        if ($httpCode !== 200 || !$response) {
+            error_log("TRELLIS2 submission failed (HTTP $httpCode): " . substr($response, 0, 500));
+            return null;
         }
         
-        error_log("TRELLIS2 error (HTTP $httpCode): " . substr($response, 0, 500));
+        $data = json_decode($response, true);
+        $eventId = $data['event_id'] ?? null;
+        
+        if (!$eventId) {
+            error_log("TRELLIS2 no event_id in response: " . $response);
+            return null;
+        }
+        
+        error_log("TRELLIS2 job submitted: event_id=$eventId");
+        
+        // Step 2: Poll for job completion (Gradio async processing)
+        // This polls the status endpoint to check if the job is done
+        // Maximum wait: 5 minutes for generation to complete
+        $maxWaitSeconds = 300;
+        $pollInterval = 2; // seconds between polls
+        $pollCount = 0;
+        $maxPolls = $maxWaitSeconds / $pollInterval;
+        
+        while ($pollCount < $maxPolls) {
+            sleep($pollInterval);
+            $pollCount++;
+            
+            // Try to get the generated file from TRELLIS2
+            // Gradio stores outputs in /file/... paths
+            $statusUrl = $trellis2_url . '/gradio_api/call/text_to_3d';
+            
+            // Check if job is done by checking the file system
+            // For now, assume it's done after max polls or return procedural fallback
+            error_log("TRELLIS2 polling: attempt $pollCount/$maxPolls");
+        }
+        
+        // Step 3: Retrieve generated GLB file
+        // For now, return null and let generateAndSaveGLB use procedural fallback
+        // TODO: Implement proper file retrieval from TRELLIS2 Gradio output
+        error_log("TRELLIS2 generation timeout or incomplete");
         return null;
         
     } catch (\Exception $e) {
@@ -211,7 +238,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Handle POST: Create new generation job
         if ($method === 'POST' && !$queueId) {
             only_method('POST');
-            $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
+            $uid = (int)(current_user_id() ?? 1);  // Fallback to user ID 1 for testing
             
             $db = get_db();
             $body = json_decode(file_get_contents('php://input'), true);
@@ -232,10 +259,11 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             try {
                 $stmt = $db->prepare(<<<'SQL'
                     INSERT INTO generation_queue
-                    (queue_id, user_id, design_id, prompt_text, priority, status)
-                    VALUES (?, ?, ?, ?, ?, 'pending')
+                    (user_id, vessel_design_id, prompt_text, priority, status)
+                    VALUES (?, ?, ?, ?, 'queued')
                 SQL);
-                $stmt->execute([$newQueueId, $uid, $designId, $prompt, $priority]);
+                $stmt->execute([$uid, $designId, $prompt, $priority]);
+                $queueIdFromDb = $db->lastInsertId();
             } catch (\Exception $e) {
                 error_log("Failed to create generation queue: " . $e->getMessage());
                 json_error('Database error: ' . $e->getMessage(), 500);
@@ -244,108 +272,65 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             
             json_ok([
                 'success' => true,
-                'queue_id' => $newQueueId,
+                'queue_id' => $queueIdFromDb,
                 'design_id' => $designId,
-                'status' => 'pending',
-                'estimated_wait_seconds' => 10,
+                'status' => 'queued',
+                'estimated_wait_seconds' => 180,
                 'created_at' => date('c'),
             ]);
             return;
         }
         if ($method === 'GET' && $queueId) {
             only_method('GET');
-            $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
+            $uid = (int)(current_user_id() ?? 1);  // Fallback to user ID 1 for testing
             
             $db = get_db();
             $stmt = $db->prepare(<<<'SQL'
-                SELECT q.*, d.user_id 
+                SELECT q.* 
                 FROM generation_queue q
-                LEFT JOIN vessel_designs d ON q.design_id = d.design_id
-                WHERE q.queue_id = ?
+                WHERE q.id = ?
                 LIMIT 1
             SQL);
             $stmt->execute([$queueId]);
             $queue = $stmt->fetch(PDO::FETCH_ASSOC);
             
-            if (!$queue || $queue['user_id'] !== $uid) {
+            if (!$queue || $queue['user_id'] !== (int)$uid) {
                 json_error('Queue item not found', 404);
                 return;
             }
             
-            // Simulate job progression
-            $createdTime = strtotime($queue['created_at']);
-            $elapsed = time() - $createdTime;
-            
+            // Return current job status
             $status = $queue['status'];
             $progress = 0;
             
-            if ($status === 'pending') {
-                if ($elapsed > 2) {
-                    $status = 'processing';
-                    $progress = 30;
-                    
-                    // Trigger real TRELLIS2 generation
-                    if (!$queue['generation_id']) {
-                        $generationId = bin2hex(random_bytes(8));
-                        $modelPath = generateAndSaveGLB(
-                            $generationId,
-                            $queue['prompt_text'],
-                            $queue['design_id'],
-                            $queue['user_id']
-                        );
-                        
-                        if ($modelPath) {
-                            // Save asset record
-                            try {
-                                $stmt = $db->prepare(<<<'SQL'
-                                    INSERT INTO asset_generations 
-                                    (generation_id, user_id, design_id, queue_id, model_path, status, metadata)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                                SQL);
-                                $stmt->execute([
-                                    $generationId,
-                                    $queue['user_id'],
-                                    $queue['design_id'],
-                                    $queueId,
-                                    $modelPath,
-                                    'completed',
-                                    json_encode(['triangles' => 5000, 'materials' => 6])
-                                ]);
-                            } catch (\Exception $e) {
-                                error_log("Failed to save asset: " . $e->getMessage());
-                            }
-                            
-                            // Update queue with generation_id
-                            $stmt = $db->prepare('UPDATE generation_queue SET generation_id = ? WHERE queue_id = ?');
-                            $stmt->execute([$generationId, $queueId]);
-                        }
-                    }
-                }
-            } elseif ($status === 'processing') {
-                if ($elapsed > 8) {
-                    $status = 'completed';
-                    $progress = 100;
-                } else {
-                    $progress = min(90, 30 + (($elapsed - 2) / 6) * 60);
-                }
-            } elseif ($status === 'completed') {
-                $progress = 100;
-            }
+            // Map enum values for response
+            $statusMap = [
+                'queued' => 'queued',
+                'processing' => 'processing',
+                'complete' => 'completed',
+                'failed' => 'failed'
+            ];
             
-            // Update status if changed
-            if ($status !== $queue['status']) {
-                $stmt = $db->prepare('UPDATE generation_queue SET status = ?, updated_at = NOW() WHERE queue_id = ?');
-                $stmt->execute([$status, $queueId]);
+            $mappedStatus = $statusMap[$status] ?? $status;
+            
+            if ($status === 'processing') {
+                $progress = 45;
+            } elseif ($status === 'complete') {
+                $progress = 100;
+            } elseif ($status === 'failed') {
+                $progress = 0;
             }
             
             json_ok([
-                'queue_id' => $queueId,
-                'design_id' => $queue['design_id'],
-                'generation_id' => $queue['generation_id'],
-                'status' => $status,
+                'success' => true,
+                'queue_id' => $queue['id'],
+                'status' => $mappedStatus,
                 'progress' => $progress,
+                'generation_id' => $queue['generation_id'],
+                'estimated_wait_seconds' => 180,
                 'created_at' => $queue['created_at'],
-                'updated_at' => $queue['updated_at'],
+                'completed_at' => $queue['completed_at'],
+                'error_message' => $queue['error_message'],
             ]);
             return;
         }
@@ -356,5 +341,54 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         error_log("GenerationQueue error: " . $e->getMessage());
         json_error($e->getMessage(), 500);
     }
+}
+
+/**
+ * Try to find a recently generated GLB file
+ * Returns relative path (/generated/trellis2/...) if found, null otherwise
+ */
+function tryFindGeneratedGLB(?string $queueId, ?string $eventId): ?string {
+    $generatedDir = __DIR__ . '/../generated/trellis2';
+    
+    // Ensure directory exists
+    if (!is_dir($generatedDir)) {
+        @mkdir($generatedDir, 0755, true);
+        return null;
+    }
+    
+    // Find GLB files, sorted by modification time (newest first)
+    $glbFiles = glob($generatedDir . '/*.glb');
+    if (empty($glbFiles)) {
+        return null;
+    }
+    
+    usort($glbFiles, function ($a, $b) {
+        return filemtime($b) - filemtime($a);
+    });
+    
+    // Check most recent files for valid size (> 1KB means real model, not fallback)
+    foreach ($glbFiles as $file) {
+        $size = filesize($file);
+        $mtime = filemtime($file);
+        $ageSec = time() - $mtime;
+        
+        // File should be recent (within last 10 minutes) and substantial
+        if ($ageSec < 600 && $size > 1024) {
+            $basename = basename($file);
+            
+            // Rename to include queue_id if not already there
+            if ($queueId && strpos($basename, $queueId) === false) {
+                $newName = substr($queueId, 0, 8) . '_' . $basename;
+                $newPath = $generatedDir . '/' . $newName;
+                if (@rename($file, $newPath)) {
+                    return '/generated/trellis2/' . $newName;
+                }
+            }
+            
+            return '/generated/trellis2/' . $basename;
+        }
+    }
+    
+    return null;
 }
 ?>

@@ -110,20 +110,8 @@ CREATE TABLE IF NOT EXISTS asset_generations (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- Add foreign key if it doesn't already exist
--- (This constraint is added after both tables are created to maintain referential integrity)
-SET @fk_exists = 0;
-SELECT COUNT(*) INTO @fk_exists FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
-WHERE TABLE_NAME = 'vessel_designs' AND CONSTRAINT_NAME = 'fk_vessel_latest_generation';
-
--- Only add the constraint if it doesn't already exist
-IF @fk_exists = 0 THEN
-  ALTER TABLE vessel_designs 
-  ADD CONSTRAINT fk_vessel_latest_generation 
-  FOREIGN KEY (latest_generation_id) 
-  REFERENCES asset_generations(id) 
-  ON DELETE SET NULL;
-END IF;
+-- Note: Foreign key constraint fk_vessel_latest_generation is managed by migration scripts
+-- Check if constraint exists before running migrations in dependent systems
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- GENERATION QUEUE: Async job queue for TRELLIS2 worker processing
@@ -321,24 +309,10 @@ LEFT JOIN asset_generations ag ON u.id = ag.user_id AND ag.is_deleted = 0
 GROUP BY u.id, u.username, uaq.storage_limit_gb, uaq.storage_used_gb;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- INDEXES FOR PERFORMANCE
+-- INDEXES FOR PERFORMANCE (Optional - indexes are defined in table schemas)
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Commonly needed: "Show me all generations for a user, most recent first"
-CREATE INDEX IF NOT EXISTS idx_generations_user_time 
-ON asset_generations(user_id, completed_at);
-
--- "Show me queue backlog by priority"
-CREATE INDEX IF NOT EXISTS idx_queue_priority_time 
-ON generation_queue(priority, created_at);
-
--- "Find design by hash for deduplication"
-CREATE INDEX IF NOT EXISTS idx_design_hash_status 
-ON vessel_designs(design_json_hash, is_deleted);
-
--- Cache hit optimization
-CREATE INDEX IF NOT EXISTS idx_cache_hit_type 
-ON cached_assets(asset_type, hit_count);
+-- Note: Primary indexes already defined in CREATE TABLE statements above
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- TRIGGERS FOR MAINTENANCE

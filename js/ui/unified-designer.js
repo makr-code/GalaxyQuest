@@ -122,6 +122,12 @@ class UnifiedDesignerUI {
       icon: '⌨',
       component: this.createConsolePanel()
     });
+
+    this.wm.registerTab('inspector-panel', 'trellis2-monitor', {
+      title: 'TRELLIS2',
+      icon: '🤖',
+      component: this.createMonitoringPanel()
+    });
   }
 
   setupPanelComponents() {
@@ -701,6 +707,176 @@ class UnifiedDesignerUI {
         clearInterval(pollInterval);
       }
     }, 2000); // Poll alle 2 Sekunden
+  }
+
+  createMonitoringPanel() {
+    const div = document.createElement('div');
+    div.id = 'trellis2-monitor';
+    div.className = 'wm-panel-content-inspector';
+    div.style.cssText = `
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      height: 100%;
+      overflow-y: auto;
+      padding: 0.5rem;
+    `;
+    
+    div.innerHTML = `
+      <!-- Service Status -->
+      <div style="background: #0a0e27; border: 1px solid #374151; border-radius: 8px; padding: 1rem;">
+        <div style="color: #9ca3af; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem;">🤖 TRELLIS2 Service</div>
+        <div style="display: grid; gap: 0.5rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #6b7280;">Status:</span>
+            <span data-trellis2-status style="color: #ef4444; font-weight: 600;">⚠️ Checking...</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #6b7280;">Response:</span>
+            <span data-response-time style="color: #3b82f6;">-- ms</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #6b7280;">Version:</span>
+            <span data-trellis2-version style="color: #9ca3af;">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- GPU Memory -->
+      <div style="background: #0a0e27; border: 1px solid #374151; border-radius: 8px; padding: 1rem;">
+        <div style="color: #9ca3af; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem;">💾 GPU Memory</div>
+        <div style="display: grid; gap: 0.5rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #6b7280;">Used:</span>
+            <span data-gpu-used style="color: #3b82f6;">-- MB</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #6b7280;">Total:</span>
+            <span data-gpu-total style="color: #9ca3af;">-- MB</span>
+          </div>
+          <div style="width: 100%; height: 6px; background: #1f2937; border-radius: 3px; margin-top: 0.25rem; overflow: hidden;">
+            <div data-gpu-bar style="width: 8%; height: 100%; background: linear-gradient(90deg, #3b82f6, #1e40af); transition: width 0.3s ease;"></div>
+          </div>
+          <div style="text-align: right; color: #9ca3af; font-size: 0.7rem;">
+            <span data-gpu-percent>8%</span> utilization
+          </div>
+        </div>
+      </div>
+
+      <!-- Queue Stats -->
+      <div style="background: #0a0e27; border: 1px solid #374151; border-radius: 8px; padding: 1rem;">
+        <div style="color: #9ca3af; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem;">📊 Queue Status</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.8rem;">
+          <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 4px; padding: 0.5rem; text-align: center;">
+            <div style="color: #6b7280; font-size: 0.7rem;">Pending</div>
+            <div data-queue-pending style="color: #3b82f6; font-weight: 600; font-size: 1rem;">0</div>
+          </div>
+          <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 4px; padding: 0.5rem; text-align: center;">
+            <div style="color: #6b7280; font-size: 0.7rem;">Processing</div>
+            <div data-queue-processing style="color: #f59e0b; font-weight: 600; font-size: 1rem;">0</div>
+          </div>
+          <div style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 4px; padding: 0.5rem; text-align: center;">
+            <div style="color: #6b7280; font-size: 0.7rem;">Completed</div>
+            <div data-queue-completed style="color: #22c55e; font-weight: 600; font-size: 1rem;">0</div>
+          </div>
+          <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; padding: 0.5rem; text-align: center;">
+            <div style="color: #6b7280; font-size: 0.7rem;">Failed</div>
+            <div data-queue-failed style="color: #ef4444; font-weight: 600; font-size: 1rem;">0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Jobs -->
+      <div style="background: #0a0e27; border: 1px solid #374151; border-radius: 8px; padding: 1rem; flex: 1; overflow-y: auto;">
+        <div style="color: #9ca3af; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem;">📋 Recent Jobs</div>
+        <div data-recent-jobs style="display: grid; gap: 0.5rem; font-size: 0.75rem;">
+          <div style="color: #6b7280; text-align: center; padding: 1rem;">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Refresh Button -->
+      <button data-monitor-refresh style="padding: 0.6rem; background: #3b82f6; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 0.85rem; transition: background 0.2s;">
+        🔄 Refresh Now
+      </button>
+    `;
+
+    // Refresh button
+    div.querySelector('[data-monitor-refresh]').addEventListener('click', () => {
+      this.updateMonitoringData(div);
+    });
+
+    // Initial load + auto-update every 5 seconds
+    this.updateMonitoringData(div);
+    setInterval(() => this.updateMonitoringData(div), 5000);
+
+    return div;
+  }
+
+  async updateMonitoringData(panelDiv) {
+    try {
+      const response = await fetch('/api/trellis2_monitor.php');
+      const data = await response.json();
+
+      // Update Service Status
+      const statusSpan = panelDiv.querySelector('[data-trellis2-status]');
+      const statusColor = data.service.status === 'healthy' ? '#22c55e' : 
+                         data.service.status === 'degraded' ? '#f59e0b' : '#ef4444';
+      const statusEmoji = data.service.status === 'healthy' ? '✅' : 
+                         data.service.status === 'degraded' ? '⚠️' : '❌';
+      statusSpan.textContent = `${statusEmoji} ${data.service.status.charAt(0).toUpperCase() + data.service.status.slice(1)}`;
+      statusSpan.style.color = statusColor;
+
+      panelDiv.querySelector('[data-response-time]').textContent = `${data.service.response_time_ms} ms`;
+      panelDiv.querySelector('[data-trellis2-version]').textContent = data.service.version || 'Unknown';
+
+      // Update GPU Memory
+      const gpuPercent = data.gpu.memory_total_mb > 0 
+        ? Math.round((data.gpu.memory_used_mb / data.gpu.memory_total_mb) * 100) 
+        : 0;
+      panelDiv.querySelector('[data-gpu-used]').textContent = `${data.gpu.memory_used_mb} MB`;
+      panelDiv.querySelector('[data-gpu-total]').textContent = `${data.gpu.memory_total_mb} MB`;
+      panelDiv.querySelector('[data-gpu-bar]').style.width = `${Math.max(gpuPercent, 5)}%`;
+      panelDiv.querySelector('[data-gpu-percent]').textContent = `${gpuPercent}%`;
+
+      // Update Queue Stats
+      panelDiv.querySelector('[data-queue-pending]').textContent = data.queue.pending_jobs;
+      panelDiv.querySelector('[data-queue-processing]').textContent = data.queue.processing_jobs;
+      panelDiv.querySelector('[data-queue-completed]').textContent = data.queue.completed_jobs;
+      panelDiv.querySelector('[data-queue-failed]').textContent = data.queue.failed_jobs;
+
+      // Update Recent Jobs
+      const jobsContainer = panelDiv.querySelector('[data-recent-jobs]');
+      if (data.jobs && data.jobs.length > 0) {
+        jobsContainer.innerHTML = data.jobs.map(job => {
+          const statusColor = job.status === 'completed' ? '#22c55e' : 
+                             job.status === 'processing' ? '#f59e0b' : 
+                             job.status === 'failed' ? '#ef4444' : '#3b82f6';
+          const shortPrompt = (job.prompt_text || 'unnamed').substring(0, 40) + '...';
+          return `
+            <div style="background: rgba(31, 41, 55, 0.5); border-left: 3px solid ${statusColor}; padding: 0.5rem; border-radius: 4px;">
+              <div style="color: ${statusColor}; font-weight: 600; font-size: 0.7rem; text-transform: uppercase;">${job.status}</div>
+              <div style="color: #d1d5db; margin-top: 0.25rem; word-break: break-word;">${shortPrompt}</div>
+              <div style="color: #6b7280; font-size: 0.65rem; margin-top: 0.25rem;">${new Date(job.updated_at).toLocaleTimeString()}</div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        jobsContainer.innerHTML = '<div style="color: #6b7280; text-align: center; padding: 1rem;">No recent jobs</div>';
+      }
+
+      // Update button feedback
+      const button = panelDiv.querySelector('[data-monitor-refresh]');
+      button.style.background = '#10b981';
+      setTimeout(() => {
+        button.style.background = '#3b82f6';
+      }, 500);
+
+    } catch (error) {
+      console.error('[TRELLIS2 Monitor] Update error:', error);
+      const statusSpan = panelDiv.querySelector('[data-trellis2-status]');
+      statusSpan.textContent = '❌ Error';
+      statusSpan.style.color = '#ef4444';
+    }
   }
 
   showNotification(message, type = 'info') {

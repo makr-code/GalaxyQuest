@@ -11,9 +11,21 @@ import traceback
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
+import tempfile
+import base64
+from io import BytesIO
 
 import gradio as gr
 import torch
+from PIL import Image
+
+# Try to import TRELLIS2 (will be available if models are linked)
+try:
+    from trellis.pipelines import TrellisTextTo3DPipeline, TrellisImageTo3DPipeline
+    from trellis.utils import postprocessing_utils
+    TRELLIS2_AVAILABLE = True
+except ImportError:
+    TRELLIS2_AVAILABLE = False
 
 
 # Configuration
@@ -63,88 +75,211 @@ def health_check():
 
 def text_to_3d(prompt: str, num_frames: int = 30, seed: int = 42) -> tuple:
     """
-    Generate 3D model from text description
+    Generate 3D model from text description using TRELLIS2
     
     Args:
         prompt: Text description of the 3D object
-        num_frames: Number of frames for generation
+        num_frames: Number of frames for generation (UI value, not used in actual inference)
         seed: Random seed for reproducibility
     
     Returns:
-        (glb_path, preview_image_path, metadata_json)
+        (glb_path_or_none, status_message, metadata_json)
     """
     try:
         log_event("text_to_3d_start", {"prompt": prompt, "frames": num_frames})
         
-        # Note: Full TRELLIS2 requires model download from HuggingFace
-        # For now, this is a placeholder that logs the request
+        if not TRELLIS2_AVAILABLE:
+            error_msg = "TRELLIS2 not available. Models not downloaded."
+            log_event("text_to_3d_error", {"error": error_msg})
+            return (None, f"❌ {error_msg}", json.dumps({"error": error_msg}))
         
-        output_name = f"text2image/{datetime.now().strftime('%Y%m%d_%H%M%S')}_prompt.glb"
+        # Load pipeline with error handling
+        try:
+            model_name = "microsoft/TRELLIS-text-large"
+            print(f"[TRELLIS2] Loading model: {model_name}")
+            pipeline = TrellisTextTo3DPipeline.from_pretrained(model_name)
+            pipeline.cuda()
+        except Exception as e:
+            error_msg = f"Failed to load model: {str(e)}"
+            log_event("text_to_3d_error", {"error": error_msg})
+            return (None, f"❌ Model Loading Error: {str(e)}", json.dumps({"error": error_msg}))
+        
+        # Run inference
+        print(f"[TRELLIS2] Running text-to-3d: '{prompt}'")
+        outputs = pipeline.run(
+            prompt,
+            seed=seed,
+            formats=["gaussian", "mesh"],
+            sparse_structure_sampler_params={
+                "steps": 12,
+                "cfg_strength": 7.5,
+            },
+            slat_sampler_params={
+                "steps": 12,
+                "cfg_strength": 3.0,
+            },
+        )
+        
+        # Post-process to GLB
+        print("[TRELLIS2] Post-processing to GLB")
+        glb = postprocessing_utils.to_glb(
+            outputs["gaussian"][0],
+            outputs["mesh"][0],
+            simplify=0.95,
+            texture_size=1024,
+            verbose=False,
+        )
+        
+        # Save GLB
+        output_name = f"text2image/{datetime.now().strftime('%Y%m%d_%H%M%S')}_text.glb"
         output_path = OUTPUT_DIR / output_name
+        glb.export(str(output_path))
         
-        # Create a minimal valid GLB file (placeholder)
-        # Real implementation would call TRELLIS2 inference pipeline
-        glb_content = create_minimal_glb(f"Generated from: {prompt}")
-        output_path.write_bytes(glb_content)
+        file_size_kb = output_path.stat().st_size / 1024
+        print(f"[TRELLIS2] Generated GLB: {output_path} ({file_size_kb:.1f} KB)")
         
         log_event("text_to_3d_success", {
             "prompt": prompt,
             "output_path": str(output_path),
-            "file_size_bytes": len(glb_content)
+            "file_size_bytes": output_path.stat().st_size
         })
         
         return (
             str(output_path),
-            "Generation complete! GLB file ready for download.",
-            json.dumps({"prompt": prompt, "frames": num_frames, "seed": seed})
+            f"✅ Generation complete! ({file_size_kb:.1f} KB)",
+            json.dumps({
+                "prompt": prompt,
+                "frames": num_frames,
+                "seed": seed,
+                "file_size_kb": round(file_size_kb, 1)
+            })
         )
         
     except Exception as e:
         error_msg = f"Text-to-3D Error: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
         log_event("text_to_3d_error", {"prompt": prompt, "error": str(e)})
-        return (None, f"❌ Error: {str(e)}", json.dumps({"error": str(e)}))
+        return (None, f"❌ {str(e)}", json.dumps({"error": str(e)}))
 
 
-def image_to_3d(image_input, num_frames: int = 30, seed: int = 42) -> tuple:
+def image_to_3d(image_input = None, num_frames: int = 30, seed: int = 42) -> tuple:
     """
-    Generate 3D model from image
+    Generate 3D model from image using TRELLIS2
     
     Args:
-        image_input: Input image (PIL.Image or path)
-        num_frames: Number of frames for generation
+        image_input: Image dict from Gradio or file path (Gradio sends {'name': ..., 'data': base64})
+        num_frames: Number of frames for generation (UI value, not used in actual inference)
         seed: Random seed for reproducibility
     
     Returns:
-        (glb_path, preview_image_path, metadata_json)
+        (glb_path_or_none, status_message, metadata_json)
     """
     try:
         log_event("image_to_3d_start", {"frames": num_frames})
         
-        # Note: Full TRELLIS2 requires model download from HuggingFace
-        # For now, this is a placeholder that logs the request
+        if not image_input:
+            raise ValueError("No image provided")
         
+        if not TRELLIS2_AVAILABLE:
+            error_msg = "TRELLIS2 not available. Models not downloaded."
+            log_event("image_to_3d_error", {"error": error_msg})
+            return (None, f"❌ {error_msg}", json.dumps({"error": error_msg}))
+        
+        # Handle Gradio's image dict format: {'name': '...', 'data': 'base64_string'}
+        image = None
+        image_name = "uploaded_image.jpg"
+        
+        if isinstance(image_input, dict):
+            # Gradio dict format with base64 data
+            import base64
+            import io
+            if 'data' in image_input:
+                base64_str = image_input['data']
+                # Decode base64 to PIL Image
+                image_data = base64.b64decode(base64_str)
+                image = Image.open(io.BytesIO(image_data))
+                if 'name' in image_input:
+                    image_name = image_input['name']
+        elif isinstance(image_input, str):
+            # It's a file path
+            image_path = Path(image_input)
+            image_name = image_path.name
+            if not image_path.exists():
+                raise FileNotFoundError(f"Image file not found: {image_path}")
+            image = Image.open(image_path)
+        else:
+            raise ValueError(f"Unexpected image format: {type(image_input)}")
+        
+        if image is None:
+            raise ValueError("Failed to process image")
+        
+        # Load pipeline with error handling
+        try:
+            model_name = "microsoft/TRELLIS-image-large"
+            print(f"[TRELLIS2] Loading model: {model_name}")
+            pipeline = TrellisImageTo3DPipeline.from_pretrained(model_name)
+            pipeline.cuda()
+        except Exception as e:
+            error_msg = f"Failed to load model: {str(e)}"
+            log_event("image_to_3d_error", {"error": error_msg})
+            return (None, f"❌ Model Loading Error: {str(e)}", json.dumps({"error": error_msg}))
+        
+        # Run inference
+        print(f"[TRELLIS2] Running image-to-3d for: {image_name}")
+        outputs = pipeline.run(
+            image,
+            seed=seed,
+            formats=["gaussian", "mesh"],
+            sparse_structure_sampler_params={
+                "steps": 12,
+                "cfg_strength": 7.5,
+            },
+            slat_sampler_params={
+                "steps": 12,
+                "cfg_strength": 3.0,
+            },
+        )
+        
+        # Post-process to GLB
+        print("[TRELLIS2] Post-processing to GLB")
+        glb = postprocessing_utils.to_glb(
+            outputs["gaussian"][0],
+            outputs["mesh"][0],
+            simplify=0.95,
+            texture_size=1024,
+            verbose=False,
+        )
+        
+        # Save GLB
         output_name = f"image2text/{datetime.now().strftime('%Y%m%d_%H%M%S')}_image.glb"
         output_path = OUTPUT_DIR / output_name
+        glb.export(str(output_path))
         
-        # Create a minimal valid GLB file (placeholder)
-        glb_content = create_minimal_glb("Generated from image")
-        output_path.write_bytes(glb_content)
+        file_size_kb = output_path.stat().st_size / 1024
+        print(f"[TRELLIS2] Generated GLB: {output_path} ({file_size_kb:.1f} KB)")
         
         log_event("image_to_3d_success", {
             "output_path": str(output_path),
-            "file_size_bytes": len(glb_content)
+            "file_size_bytes": output_path.stat().st_size,
+            "image_name": image_name
         })
         
         return (
             str(output_path),
-            "Image-to-3D complete! GLB file ready for download.",
-            json.dumps({"frames": num_frames, "seed": seed})
+            f"✅ Generation complete! ({file_size_kb:.1f} KB)",
+            json.dumps({
+                "image": image_name,
+                "frames": num_frames,
+                "seed": seed,
+                "file_size_kb": round(file_size_kb, 1)
+            })
         )
         
     except Exception as e:
         error_msg = f"Image-to-3D Error: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
         log_event("image_to_3d_error", {"error": str(e)})
-        return (None, f"❌ Error: {str(e)}", json.dumps({"error": str(e)}))
+        return (None, f"❌ {str(e)}", json.dumps({"error": str(e)}))
 
 
 def create_minimal_glb(description: str) -> bytes:
@@ -277,5 +412,6 @@ if __name__ == "__main__":
         server_name=server_name,
         server_port=server_port,
         share=False,
-        show_error=True
+        show_error=True,
+        allowed_paths=["/workspace/generated", "/workspace/generated/text2image", "/tmp"]
     )

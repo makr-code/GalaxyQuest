@@ -156,24 +156,54 @@ services:
 
   # ── ComfyUI (Node-based Image Generation Workflows) ──────────────────────────────
   # Flexible node-based workflow engine for advanced image generation and processing
+  # Includes ComfyUI-TRELLIS2 custom nodes for 3D model generation
   # Ports: 8188 (HTTP API + WebSocket)
-  # For production: replace with actual ComfyUI image
-  # For testing: uses PHP mock server at docker/comfyui-mock-server.php
+  # Profile: ai-3d, ai-full
   comfyui:
-    image: php:8.3-cli
+    build:
+      context: ./docker/comfyui
+      dockerfile: Dockerfile
     container_name: galaxyquest-comfyui
-    working_dir: /var/www
+    working_dir: /workspace
+    profiles:
+      - ai-3d
+      - ai-full
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONUNBUFFERED=1
+      - COMFYUI_PORT=8188
     volumes:
-      - ./docker/comfyui-mock-server.php:/var/www/comfyui-mock-server.php:ro
-    command: php -S 0.0.0.0:8188 comfyui-mock-server.php
+      # ComfyUI-TRELLIS2 custom nodes
+      - ./tools/comfyui-trellis2:/workspace/custom_nodes/ComfyUI-Trellis2:ro
+      # Workflow input/output
+      - ./generated/comfyui/input:/workspace/input:rw
+      - ./generated/comfyui/output:/workspace/output:rw
+      # Models shared with TRELLIS2
+      - ./generated/trellis2:/workspace/models/trellis2:ro
+      # ComfyUI models directory
+      - comfyui-models:/workspace/models
+      # Temp directory for processing
+      - /tmp/comfyui:/workspace/temp:rw
     ports:
       - "8188:8188"
+    expose:
+      - "8188"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8188/system_stats"]
       interval: 15s
       timeout: 5s
       retries: 10
-      start_period: 10s
+      start_period: 30s
+    depends_on:
+      - trellis2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   # ── Ollama (Local LLM Inference Engine for Fallback NPC Dialogue) ────────────────
   # Lightweight local LLM (Mistral-7B: 4GB VRAM) for dialogue generation
