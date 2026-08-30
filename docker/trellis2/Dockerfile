@@ -9,7 +9,9 @@ FROM nvidia/cuda:12.1.1-cudnn${CUDNN_VERSION}-runtime-${BASE_OS}
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_RETRIES=10
 
 # Install Python & system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -25,11 +27,12 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 &
 WORKDIR /workspace
 
 # Step 1: Install PyTorch (cu121)  - PINNED, do NOT change
-RUN python3.11 -m pip install --no-cache-dir torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 \
+RUN python3.11 -m pip install --no-cache-dir --retries 10 --timeout 120 \
+    torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 \
     --index-url https://download.pytorch.org/whl/cu121
 
 # Step 2: Install TRELLIS2 & AI dependencies (flexible versions, let pip resolve)
-RUN python3.11 -m pip install --no-cache-dir \
+RUN python3.11 -m pip install --no-cache-dir --retries 10 --timeout 120 \
     transformers diffusers accelerate safetensors \
     pillow numpy scipy scikit-image pydantic omegaconf \
     opencv-python trimesh gradio huggingface-hub \

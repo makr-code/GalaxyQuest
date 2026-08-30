@@ -46,3 +46,6 @@
 {"timestamp": "2026-08-03T10:05:27.824957", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}
 {"timestamp": "2026-08-03T10:06:54.399640", "event_type": "text_to_3d_start", "device": "cuda", "cuda_available": true, "prompt": "A crystalline blue cube", "frames": 30}
 {"timestamp": "2026-08-03T10:06:54.403936", "event_type": "text_to_3d_error", "device": "cuda", "cuda_available": true, "error": "TRELLIS2 not available. Models not downloaded."}
+{"timestamp": "2026-08-21T07:09:19.025509", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}
+{"timestamp": "2026-08-21T19:22:01.866682", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}
+{"timestamp": "2026-08-30T07:04:20.220149", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}
