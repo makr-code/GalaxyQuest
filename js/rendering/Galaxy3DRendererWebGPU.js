@@ -1787,6 +1787,7 @@
       }
     }
 
+    async _buildPipeline() {
       const format = navigator.gpu.getPreferredCanvasFormat();
 
       const shaderMod = this._device.createShaderModule({ code: STAR_SHADER_WGSL });
