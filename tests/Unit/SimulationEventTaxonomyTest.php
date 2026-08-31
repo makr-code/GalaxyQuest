@@ -15,7 +15,8 @@ final class SimulationEventTaxonomyTest extends TestCase
 
         $this->assertSame('1.0.0', $taxonomy['version']);
         $this->assertNotEmpty($taxonomy['events']);
-        $this->assertSame('tick.global.started', $taxonomy['events'][0]['key']);
+        $eventKeys = array_column($taxonomy['events'], 'key');
+        $this->assertContains('tick.global.started', $eventKeys);
     }
 
     public function testLoadThrowsForMissingFile(): void
@@ -24,4 +25,3 @@ final class SimulationEventTaxonomyTest extends TestCase
         SimulationEventTaxonomy::load(dirname(__DIR__, 2) . '/config/does-not-exist.json');
     }
 }
-

@@ -21,15 +21,39 @@ use GalaxyQuest\Simulation\Application\SimulationEventTaxonomy;
  */
 function simulation_runtime_event_taxonomy(): array
 {
+    /** @var array<string, mixed>|null $cachedTaxonomy */
+    static $cachedTaxonomy = null;
+    if (is_array($cachedTaxonomy)) {
+        return $cachedTaxonomy;
+    }
+
     try {
-        return SimulationEventTaxonomy::load(SIMULATION_EVENT_TAXONOMY_FILE);
+        $cachedTaxonomy = SimulationEventTaxonomy::load(SIMULATION_EVENT_TAXONOMY_FILE);
+        return $cachedTaxonomy;
     } catch (Throwable $e) {
         error_log('[simulation] taxonomy_load_error: ' . $e->getMessage());
-        return [
+        $cachedTaxonomy = [
             'version' => 'unknown',
             'events' => [],
         ];
+        return $cachedTaxonomy;
     }
+}
+
+function simulation_runtime_supports_state_tracking(): bool
+{
+    $supports = function_exists('app_state_get_int') && function_exists('app_state_set_int');
+    if ($supports) {
+        return true;
+    }
+
+    static $warningLogged = false;
+    if (!$warningLogged) {
+        error_log('[simulation] state_tracking_unavailable: app_state_get_int/app_state_set_int missing; cooldown enforcement disabled');
+        $warningLogged = true;
+    }
+
+    return false;
 }
 
 /**
@@ -41,7 +65,9 @@ function simulation_tick_global(PDO $db, bool $force = false): array
     $cooldown = max(1, (int)SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS);
     $stateKey = 'simulation:global:last_tick_unix';
 
-    if (!$force && function_exists('app_state_get_int')) {
+    $supportsStateTracking = simulation_runtime_supports_state_tracking();
+
+    if (!$force && $supportsStateTracking) {
         $last = app_state_get_int($db, $stateKey, 0);
         if (($now - $last) < $cooldown) {
             return [
@@ -102,7 +128,15 @@ function simulation_tick_global(PDO $db, bool $force = false): array
         $result['ticks']['traders'] = ['ok' => false, 'error' => $e->getMessage()];
     }
 
-    if (function_exists('app_state_set_int')) {
+    $hasSuccessfulTick = false;
+    foreach ($result['ticks'] as $tick) {
+        if (is_array($tick) && !empty($tick['ok'])) {
+            $hasSuccessfulTick = true;
+            break;
+        }
+    }
+
+    if ($hasSuccessfulTick && $supportsStateTracking) {
         app_state_set_int($db, $stateKey, $now);
     }
 
@@ -125,7 +159,9 @@ function simulation_tick_user(PDO $db, int $userId, bool $force = false): array
     $cooldown = max(1, (int)SIMULATION_USER_TICK_COOLDOWN_SECONDS);
     $stateKey = 'simulation:user:' . $userId . ':last_tick_unix';
 
-    if (!$force && function_exists('app_state_get_int')) {
+    $supportsStateTracking = simulation_runtime_supports_state_tracking();
+
+    if (!$force && $supportsStateTracking) {
         $last = app_state_get_int($db, $stateKey, 0);
         if (($now - $last) < $cooldown) {
             return [
@@ -157,7 +193,15 @@ function simulation_tick_user(PDO $db, int $userId, bool $force = false): array
         $result['ticks']['npc_ai'] = ['ok' => false, 'error' => $e->getMessage()];
     }
 
-    if (function_exists('app_state_set_int')) {
+    $hasSuccessfulTick = false;
+    foreach ($result['ticks'] as $tick) {
+        if (is_array($tick) && !empty($tick['ok'])) {
+            $hasSuccessfulTick = true;
+            break;
+        }
+    }
+
+    if ($hasSuccessfulTick && $supportsStateTracking) {
         app_state_set_int($db, $stateKey, $now);
     }
 
@@ -166,4 +210,3 @@ function simulation_tick_user(PDO $db, int $userId, bool $force = false): array
 
     return $result;
 }
-

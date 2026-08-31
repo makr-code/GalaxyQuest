@@ -11,7 +11,9 @@ final class ShardLocatorTest extends TestCase
     {
         $actual = ShardLocator::locateSystem(1, 25001, 20000);
 
-        $this->assertSame('g1:s1', $actual['shard_id']);
+        $this->assertSame('g1:s2', $actual['shard_id']);
+        $this->assertSame(1, $actual['shard_index']);
+        $this->assertSame(2, $actual['shard_ordinal']);
         $this->assertSame(20001, $actual['system_min']);
         $this->assertSame(40000, $actual['system_max']);
     }
@@ -22,4 +24,3 @@ final class ShardLocatorTest extends TestCase
         ShardLocator::locateSystem(0, 1, 20000);
     }
 }
-

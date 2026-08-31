@@ -4,11 +4,11 @@ This introduces an explicit simulation runtime path independent from frontend re
 
 ## What is included
 
-- Runtime orchestrator: `/home/runner/work/GalaxyQuest/GalaxyQuest/api/simulation_runtime.php`
-- Manual trigger endpoint: `/home/runner/work/GalaxyQuest/GalaxyQuest/api/simulation_tick.php`
-- Scheduler entry point: `/home/runner/work/GalaxyQuest/GalaxyQuest/scripts/run_simulation_tick.php`
-- Canonical event taxonomy: `/home/runner/work/GalaxyQuest/GalaxyQuest/config/simulation_event_taxonomy.json`
-- Deterministic shard locator: `/home/runner/work/GalaxyQuest/GalaxyQuest/src/Simulation/Domain/ShardLocator.php`
+- Runtime orchestrator: `api/simulation_runtime.php`
+- Manual trigger endpoint: `api/simulation_tick.php`
+- Scheduler entry point: `scripts/run_simulation_tick.php`
+- Canonical event taxonomy: `config/simulation_event_taxonomy.json`
+- Deterministic shard locator: `src/Simulation/Domain/ShardLocator.php`
 
 ## Runtime mode
 
@@ -22,9 +22,9 @@ This introduces an explicit simulation runtime path independent from frontend re
 ### CLI (scheduler-friendly)
 
 ```bash
-php /home/runner/work/GalaxyQuest/GalaxyQuest/scripts/run_simulation_tick.php --scope=global
-php /home/runner/work/GalaxyQuest/GalaxyQuest/scripts/run_simulation_tick.php --scope=user --user=123
-php /home/runner/work/GalaxyQuest/GalaxyQuest/scripts/run_simulation_tick.php --scope=global --force
+php scripts/run_simulation_tick.php --scope=global
+php scripts/run_simulation_tick.php --scope=user --user=123
+php scripts/run_simulation_tick.php --scope=global --force
 ```
 
 ### HTTP (manual/admin)
@@ -38,4 +38,3 @@ Content-Type: application/json
 ```
 
 `scope=global` requires admin privileges. `scope=user` defaults to the current user.
-

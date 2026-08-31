@@ -115,6 +115,21 @@ function write_user_overview_projection(PDO $db, int $userId, array $payload): v
 }
 
 /**
+ * Default payload shape for faction pressure events when no simulation tick is executed.
+ *
+ * @return array{triggered:bool,resolved:bool,faction_pressure_score:float|null,active_situation_id:int|null}
+ */
+function default_faction_pressure_events(): array
+{
+    return [
+        'triggered' => false,
+        'resolved' => false,
+        'faction_pressure_score' => null,
+        'active_situation_id' => null,
+    ];
+}
+
+/**
  * Mark a user's projection as stale without deleting it.
  * This is lighter than re-projecting immediately and lets the worker handle it.
  */
@@ -383,12 +398,7 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSimulationSideE
         'effects'         => empire_dynamic_effects($db, $uid),
         'pressure_events' => $runSimulationSideEffects
             ? apply_faction_pressure_situations($db, $uid)
-            : [
-                'triggered' => false,
-                'resolved' => false,
-                'faction_pressure_score' => null,
-                'active_situation_id' => null,
-            ],
+            : default_faction_pressure_events(),
         'war'             => $warRuntime,
     ];
 
