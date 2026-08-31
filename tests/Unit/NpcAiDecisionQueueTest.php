@@ -28,4 +28,12 @@ final class NpcAiDecisionQueueTest extends TestCase
         $this->assertSame('failed', npc_ai_decision_queue_failure_status(1, 3));
         $this->assertSame('dead', npc_ai_decision_queue_failure_status(3, 3));
     }
+
+    public function testNormalizeWorkerIdValidation(): void
+    {
+        $this->assertSame('py-worker_1', npc_ai_decision_queue_normalize_worker_id('py-worker_1'));
+        $this->assertNull(npc_ai_decision_queue_normalize_worker_id(''));
+        $this->assertNull(npc_ai_decision_queue_normalize_worker_id('x'));
+        $this->assertNull(npc_ai_decision_queue_normalize_worker_id('bad worker'));
+    }
 }

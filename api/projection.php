@@ -160,7 +160,7 @@ function mark_projection_stale(PDO $db, int $userId): void
  * @param bool $runSimulationSideEffects  true = run achievements + simulation ticks
  * @return array  The overview payload (same structure as the HTTP response body)
  */
-function build_live_overview_payload(PDO $db, int $uid, bool $runSimulationSideEffects = false): array
+function build_live_overview_payload(PDO $db, int $uid, bool $runSimulationSideEffects = true): array
 {
     // ── Offline-progress: snapshot before resource update ─────────────────────
     $offlineBeforeStmt = $db->prepare(

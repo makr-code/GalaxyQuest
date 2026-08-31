@@ -59,3 +59,64 @@ php scripts/process_npc_ai_decision_queue.php --limit=50
 ```
 
 This worker contract is intentionally simple so a Python AI worker can later replace or co-run the processor while keeping MySQL queue semantics.
+
+## External Python worker HTTP contract (signed)
+
+- Endpoint: `POST /api/npc_ai_worker.php?action=claim|complete`
+- Feature flag: `NPC_AI_WORKER_API_ENABLED=1`
+- Shared secret: `NPC_AI_WORKER_SHARED_SECRET`
+- Required headers:
+  - `X-Worker-Id`: worker identifier (`[a-zA-Z0-9:_-]{3,64}`)
+  - `X-Worker-Timestamp`: unix seconds
+  - `X-Worker-Nonce`: unique nonce per request
+  - `X-Worker-Signature`: `hex(hmac_sha256(canonical, shared_secret))`
+- Canonical string:
+  - `<worker_id>\n<timestamp>\n<nonce>\n<raw_json_body>`
+- Replay protection:
+  - Nonce is single-use (stored in `npc_ai_worker_nonce`)
+  - Timestamp drift must be within `NPC_AI_WORKER_SIGNATURE_MAX_SKEW_SECONDS`
+
+### Claim request
+
+Body:
+
+```json
+{"limit": 20}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "worker_id": "py-worker-1",
+  "claimed": 1,
+  "jobs": [
+    {
+      "queue_id": 123,
+      "user_id": 77,
+      "faction_id": 4,
+      "attempts": 1,
+      "max_attempts": 3,
+      "payload": {"lore_lock": true},
+      "claim_token": "..."
+    }
+  ]
+}
+```
+
+### Complete request
+
+Body:
+
+```json
+{
+  "queue_id": 123,
+  "claim_token": "...",
+  "ok": true,
+  "result": {"handled": true, "reason": "standing_updated"},
+  "error_message": ""
+}
+```
+
+`claim_token` + `worker_id` ownership is validated server-side; expired/invalid claims are rejected.
