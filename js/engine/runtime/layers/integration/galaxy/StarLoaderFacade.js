@@ -46,8 +46,6 @@
     let requestMaxPoints = Number(starsPolicy.maxPoints || 6000);
     requestMaxPoints = Math.max(1500, Math.min(50000, requestMaxPoints));
     let galaxyMeta = null;
-    const settingsState = opts.getSettingsState?.() || {};
-    settingsState.clusterDensityMode = 'max';
     const clusterPreset = 'ultra';
 
     const renderDataAdapter = opts.getRenderDataAdapter?.() || null;
