@@ -102,7 +102,7 @@ class GalaxyPerformanceTest extends TestCase
     }
 
     /**
-     * Insert 500 test star systems for profiling.
+     * Insert 5000 test star systems for profiling.
      */
     private function insertTestSystems(): void
     {
@@ -113,7 +113,7 @@ class GalaxyPerformanceTest extends TestCase
         $spectralClasses = ['G2V', 'K5V', 'M0V', 'F5V', 'A0V', 'B3V'];
         $types = ['G-type', 'K-type', 'M-type', 'F-type', 'A-type', 'B-type'];
 
-        for ($i = 1; $i <= 500; $i++) {
+        for ($i = 1; $i <= 5000; $i++) {
             $x = 10.0 + ($i % 50) * 2.0;
             $y = 20.0 + (int)($i / 50) * 2.0;
             $spectralIdx = ($i - 1) % count($spectralClasses);

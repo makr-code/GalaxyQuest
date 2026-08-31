@@ -1,5 +1,5 @@
 /**
- * StarPersistence.js
+ * RuntimeGalaxyStarPersistence.js
  *
  * Persists network-loaded galaxy stars into model and DB caches.
  */
@@ -47,6 +47,12 @@
       galaxyDb.upsertStars(galaxyStars, responseTs).catch((err) => {
         state.gameLog?.('info', 'DB upsertStars fehlgeschlagen', err);
       });
+      if (typeof galaxyDb.upsertStarChunks === 'function' && galaxyModel && typeof galaxyModel.listStarChunks === 'function') {
+        const chunkSummaries = galaxyModel.listStarChunks(galaxyIndex);
+        galaxyDb.upsertStarChunks(chunkSummaries, responseTs).catch((err) => {
+          state.gameLog?.('info', 'DB upsertStarChunks fehlgeschlagen', err);
+        });
+      }
     }
 
     return responseTs;

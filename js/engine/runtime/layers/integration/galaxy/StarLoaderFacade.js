@@ -1,5 +1,5 @@
 /**
- * StarLoaderFacade.js
+ * RuntimeGalaxyStarLoaderFacade.js
  *
  * High-level orchestration facade for galaxy star loading.
  */
@@ -42,8 +42,9 @@
     uiState.activeRange = { from, to };
     opts.setGalaxyContext?.(g, uiState.activeSystem || from, uiState.activeStar);
 
-    const starsPolicy = opts.getStarsPolicy?.() || { cacheMaxAgeMs: 0, maxPoints: 1500, alwaysRefreshNetwork: false };
-    let requestMaxPoints = Number(starsPolicy.maxPoints || 1500);
+    const starsPolicy = opts.getStarsPolicy?.() || { cacheMaxAgeMs: 0, maxPoints: 6000, alwaysRefreshNetwork: false };
+    let requestMaxPoints = Number(starsPolicy.maxPoints || 6000);
+    requestMaxPoints = Math.max(1500, Math.min(50000, requestMaxPoints));
     let galaxyMeta = null;
     const settingsState = opts.getSettingsState?.() || {};
     settingsState.clusterDensityMode = 'max';

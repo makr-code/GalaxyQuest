@@ -11,9 +11,11 @@
       this.policies = {
         starMaxAgeMs: 24 * 60 * 60 * 1000,
         systemMaxAgeMs: 15 * 60 * 1000,
-        maxStars: 45000,
+        maxStars: 250000,
         maxSystems: 30000,
         maxPlanets: 220000,
+        maxStarChunks: 12000,
+        sectorSpanLy: 256,
       };
     }
 
@@ -34,6 +36,12 @@
         stars: '&id, galaxy_index, system_index, cached_at',
         systems: '&id, galaxy_index, system_index, [galaxy_index+system_index], fetched_at',
         planets: '&id, galaxy_index, system_index, [galaxy_index+system_index], [galaxy_index+system_index+position], position, updated_at',
+      });
+      this.db.version(2).stores({
+        stars: '&id, galaxy_index, system_index, cached_at',
+        systems: '&id, galaxy_index, system_index, [galaxy_index+system_index], fetched_at',
+        planets: '&id, galaxy_index, system_index, [galaxy_index+system_index], [galaxy_index+system_index+position], position, updated_at',
+        star_chunks: '&id, galaxy_index, [galaxy_index+sector_x], [galaxy_index+sector_y], [galaxy_index+sector_x+sector_y], updated_at',
       });
 
       await this.db.open();
@@ -60,6 +68,65 @@
         fetched_at: now,
       }));
       await this.db.systems.bulkPut(sysRows);
+      await this.upsertStarChunksFromStars(rows.map((r) => r.data), now);
+    }
+
+    _sectorCoord(value, sectorSpanLy) {
+      return Math.floor(Number(value || 0) / Math.max(1, Number(sectorSpanLy || this.policies.sectorSpanLy || 256)));
+    }
+
+    _buildChunkRows(stars, timestampMs, opts = {}) {
+      const now = Number(timestampMs || Date.now());
+      const sectorSpanLy = Math.max(1, Number(opts.sectorSpanLy || this.policies.sectorSpanLy || 256));
+      const sampleLimit = Math.max(1, Number(opts.sampleLimit || 12));
+      const chunkMap = new Map();
+      for (const star of Array.isArray(stars) ? stars : []) {
+        const galaxyIndex = Number(star?.galaxy_index || 0);
+        if (!galaxyIndex) continue;
+        const x = Number(star?.x_ly || star?.x || 0);
+        const y = Number(star?.y_ly || star?.y || 0);
+        const sectorX = this._sectorCoord(x, sectorSpanLy);
+        const sectorY = this._sectorCoord(y, sectorSpanLy);
+        const id = `g:${galaxyIndex}:chunk:${sectorX}:${sectorY}`;
+        const entry = chunkMap.get(id) || {
+          id,
+          galaxy_index: galaxyIndex,
+          sector_x: sectorX,
+          sector_y: sectorY,
+          sector_span_ly: sectorSpanLy,
+          star_count: 0,
+          min_x_ly: Number.POSITIVE_INFINITY,
+          max_x_ly: Number.NEGATIVE_INFINITY,
+          min_y_ly: Number.POSITIVE_INFINITY,
+          max_y_ly: Number.NEGATIVE_INFINITY,
+          sample_star_ids: [],
+          updated_at: now,
+        };
+        entry.star_count += 1;
+        entry.min_x_ly = Math.min(entry.min_x_ly, x);
+        entry.max_x_ly = Math.max(entry.max_x_ly, x);
+        entry.min_y_ly = Math.min(entry.min_y_ly, y);
+        entry.max_y_ly = Math.max(entry.max_y_ly, y);
+        if (entry.sample_star_ids.length < sampleLimit) {
+          const starId = String(star?.id || `g:${galaxyIndex}:s:${Number(star?.system_index || 0)}`);
+          if (!entry.sample_star_ids.includes(starId)) entry.sample_star_ids.push(starId);
+        }
+        chunkMap.set(id, entry);
+      }
+      return Array.from(chunkMap.values());
+    }
+
+    async upsertStarChunks(chunks, timestampMs) {
+      if (this.mode !== 'indexeddb' || !this.db?.star_chunks || !Array.isArray(chunks) || !chunks.length) return;
+      const now = Number(timestampMs || Date.now());
+      const rows = chunks.map((chunk) => Object.assign({}, chunk, { updated_at: now }));
+      await this.db.star_chunks.bulkPut(rows);
+    }
+
+    async upsertStarChunksFromStars(stars, timestampMs, opts = {}) {
+      if (this.mode !== 'indexeddb' || !this.db?.star_chunks || !Array.isArray(stars) || !stars.length) return;
+      const rows = this._buildChunkRows(stars, timestampMs, opts);
+      await this.upsertStarChunks(rows, timestampMs);
     }
 
     async getStars(galaxyIndex, fromSystem, toSystem, opts = {}) {
@@ -76,6 +143,26 @@
       return rows
         .filter((r) => this._isFresh(r.cached_at, maxAgeMs))
         .map((r) => r.data);
+    }
+
+    async getStarChunkSummaries(galaxyIndex, opts = {}) {
+      if (this.mode !== 'indexeddb' || !this.db?.star_chunks) return [];
+      const g = Number(galaxyIndex || 0);
+      const maxAgeMs = Number(opts.maxAgeMs || this.policies.starMaxAgeMs);
+      const rows = await this.db.star_chunks.where('galaxy_index').equals(g).toArray();
+      const minX = Number.isFinite(Number(opts.minX)) ? Number(opts.minX) : Number.NEGATIVE_INFINITY;
+      const maxX = Number.isFinite(Number(opts.maxX)) ? Number(opts.maxX) : Number.POSITIVE_INFINITY;
+      const minY = Number.isFinite(Number(opts.minY)) ? Number(opts.minY) : Number.NEGATIVE_INFINITY;
+      const maxY = Number.isFinite(Number(opts.maxY)) ? Number(opts.maxY) : Number.POSITIVE_INFINITY;
+      return rows
+        .filter((row) => this._isFresh(row.updated_at, maxAgeMs))
+        .filter((row) => (
+          Number(row.max_x_ly || 0) >= minX
+          && Number(row.min_x_ly || 0) <= maxX
+          && Number(row.max_y_ly || 0) >= minY
+          && Number(row.min_y_ly || 0) <= maxY
+        ))
+        .sort((a, b) => (Number(a.sector_y || 0) - Number(b.sector_y || 0)) || (Number(a.sector_x || 0) - Number(b.sector_x || 0)));
     }
 
     async upsertSystemPayload(galaxyIndex, systemIndex, payload, timestampMs) {
@@ -159,11 +246,15 @@
       await this.db.stars.where('cached_at').below(starCutoff).delete();
       await this.db.systems.where('fetched_at').below(systemCutoff).delete();
       await this.db.planets.where('updated_at').below(systemCutoff).delete();
+      if (this.db.star_chunks) {
+        await this.db.star_chunks.where('updated_at').below(starCutoff).delete();
+      }
 
-      const [starCount, systemCount, planetCount] = await Promise.all([
+      const [starCount, systemCount, planetCount, starChunkCount] = await Promise.all([
         this.db.stars.count(),
         this.db.systems.count(),
         this.db.planets.count(),
+        this.db.star_chunks ? this.db.star_chunks.count() : Promise.resolve(0),
       ]);
 
       if (starCount > policy.maxStars) {
@@ -183,6 +274,11 @@
         const toDelete = await this.db.planets.orderBy('updated_at').limit(excess).primaryKeys();
         if (toDelete.length) await this.db.planets.bulkDelete(toDelete);
       }
+      if (this.db.star_chunks && starChunkCount > policy.maxStarChunks) {
+        const excess = starChunkCount - policy.maxStarChunks;
+        const toDelete = await this.db.star_chunks.orderBy('updated_at').limit(excess).primaryKeys();
+        if (toDelete.length) await this.db.star_chunks.bulkDelete(toDelete);
+      }
     }
 
     async clearAll() {
@@ -191,6 +287,7 @@
         this.db.stars.clear(),
         this.db.systems.clear(),
         this.db.planets.clear(),
+        this.db.star_chunks ? this.db.star_chunks.clear() : Promise.resolve(),
       ]);
     }
   }
