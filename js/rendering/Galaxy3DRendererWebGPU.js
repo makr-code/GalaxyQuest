@@ -18,12 +18,12 @@
  */
 
 (function () {
+  'use strict';
+
   function getChunkUtils() {
     if (!window.GQGalaxyChunkUtils) throw new Error('GQGalaxyChunkUtils is required');
     return window.GQGalaxyChunkUtils;
   }
-
-  'use strict';
 
   // ── WGSL shaders ───────────────────────────────────────────────────────────
 
@@ -2742,10 +2742,12 @@
 
     setStars(stars, _opts) {
       if (this._delegate) return this._delegate.setStars?.(stars, _opts);
+      const opts = _opts && typeof _opts === 'object' ? _opts : {};
       this._rawStars  = Array.isArray(stars) ? stars.slice() : [];
       this.stars      = this._rawStars;
       this.starPoints = this._rawStars;
-      this._chunkSummaries = buildChunkSummaries(this._rawStars);
+      if (Array.isArray(opts.chunkSummaries)) this._chunkSummaries = opts.chunkSummaries.slice();
+      else if (!opts.skipChunkSummaryBuild) this._chunkSummaries = buildChunkSummaries(this._rawStars);
       this._uploadStars(this._rawStars);
       this._selectionIndex = buildStarSelectionIndex(this._rawStars, this._starScale);
     }
@@ -2764,9 +2766,11 @@
         this.setGalaxyMetadata(nextSnapshot.galaxyMetadata);
       }
       if (Array.isArray(nextSnapshot.stars)) {
-        this.setStars(nextSnapshot.stars, opts);
-      }
-      if (Array.isArray(nextSnapshot.chunkSummaries)) {
+        this.setStars(nextSnapshot.stars, Object.assign({}, opts, {
+          chunkSummaries: Array.isArray(nextSnapshot.chunkSummaries) ? nextSnapshot.chunkSummaries : null,
+          skipChunkSummaryBuild: Array.isArray(nextSnapshot.chunkSummaries),
+        }));
+      } else if (Array.isArray(nextSnapshot.chunkSummaries)) {
         this.setChunkSummaries(nextSnapshot.chunkSummaries);
       }
       if (typeof this.setGalaxyFleets === 'function') {
