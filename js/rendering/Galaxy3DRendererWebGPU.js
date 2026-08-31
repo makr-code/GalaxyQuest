@@ -18,6 +18,11 @@
  */
 
 (function () {
+  function getChunkUtils() {
+    if (!window.GQGalaxyChunkUtils) throw new Error('GQGalaxyChunkUtils is required');
+    return window.GQGalaxyChunkUtils;
+  }
+
   'use strict';
 
   // ── WGSL shaders ───────────────────────────────────────────────────────────
@@ -718,42 +723,7 @@
   }
 
   function buildChunkSummaries(stars, opts = {}) {
-    const list = Array.isArray(stars) ? stars : [];
-    const sectorSpanLy = Math.max(1, Number(opts.sectorSpanLy || 256));
-    const sampleLimit = Math.max(1, Number(opts.sampleLimit || 8));
-    const chunkMap = new Map();
-    for (const star of list) {
-      const galaxyIndex = Number(star?.galaxy_index || 0);
-      const x = Number(star?.x_ly || star?.x || 0);
-      const y = Number(star?.y_ly || star?.y || 0);
-      const sectorX = Math.floor(x / sectorSpanLy);
-      const sectorY = Math.floor(y / sectorSpanLy);
-      const key = `${galaxyIndex}:${sectorX}:${sectorY}`;
-      const chunk = chunkMap.get(key) || {
-        id: `g:${galaxyIndex}:chunk:${sectorX}:${sectorY}`,
-        galaxy_index: galaxyIndex,
-        sector_x: sectorX,
-        sector_y: sectorY,
-        sector_span_ly: sectorSpanLy,
-        star_count: 0,
-        min_x_ly: Number.POSITIVE_INFINITY,
-        max_x_ly: Number.NEGATIVE_INFINITY,
-        min_y_ly: Number.POSITIVE_INFINITY,
-        max_y_ly: Number.NEGATIVE_INFINITY,
-        sample_star_ids: [],
-      };
-      chunk.star_count += 1;
-      chunk.min_x_ly = Math.min(chunk.min_x_ly, x);
-      chunk.max_x_ly = Math.max(chunk.max_x_ly, x);
-      chunk.min_y_ly = Math.min(chunk.min_y_ly, y);
-      chunk.max_y_ly = Math.max(chunk.max_y_ly, y);
-      if (chunk.sample_star_ids.length < sampleLimit) {
-        const starId = String(star?.id || `g:${galaxyIndex}:s:${Number(star?.system_index || 0)}`);
-        if (!chunk.sample_star_ids.includes(starId)) chunk.sample_star_ids.push(starId);
-      }
-      chunkMap.set(key, chunk);
-    }
-    return Array.from(chunkMap.values());
+    return getChunkUtils().buildStarChunkSummaries(stars, opts);
   }
 
   function buildStarSelectionIndex(stars, scale, opts = {}) {

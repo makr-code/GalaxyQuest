@@ -13,10 +13,16 @@ import path from 'node:path';
 // ---------------------------------------------------------------------------
 
 function loadRenderer() {
+  const chunkUtilsSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'js/runtime/galaxy-chunk-utils.js'),
+    'utf8',
+  );
   const src = fs.readFileSync(
     path.resolve(process.cwd(), 'js/rendering/Galaxy3DRendererWebGPU.js'),
     'utf8',
   );
+  // eslint-disable-next-line no-eval
+  window.eval(chunkUtilsSrc);
   // Evaluate in the global context (jsdom window)
   // eslint-disable-next-line no-eval
   window.eval(src);

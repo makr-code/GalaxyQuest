@@ -5,6 +5,8 @@
 (function () {
   class GQGalaxyDB {
     constructor() {
+      if (!window.GQGalaxyChunkUtils) throw new Error('GQGalaxyChunkUtils is required');
+      this.chunkUtils = window.GQGalaxyChunkUtils;
       this.ready = false;
       this.db = null;
       this.mode = 'memory';
@@ -72,48 +74,15 @@
     }
 
     _sectorCoord(value, sectorSpanLy) {
-      return Math.floor(Number(value || 0) / Math.max(1, Number(sectorSpanLy || this.policies.sectorSpanLy || 256)));
+      return this.chunkUtils.sectorCoord(value, sectorSpanLy || this.policies.sectorSpanLy);
     }
 
     _buildChunkRows(stars, timestampMs, opts = {}) {
-      const now = Number(timestampMs || Date.now());
-      const sectorSpanLy = Math.max(1, Number(opts.sectorSpanLy || this.policies.sectorSpanLy || 256));
-      const sampleLimit = Math.max(1, Number(opts.sampleLimit || 12));
-      const chunkMap = new Map();
-      for (const star of Array.isArray(stars) ? stars : []) {
-        const galaxyIndex = Number(star?.galaxy_index || 0);
-        if (!galaxyIndex) continue;
-        const x = Number(star?.x_ly || star?.x || 0);
-        const y = Number(star?.y_ly || star?.y || 0);
-        const sectorX = this._sectorCoord(x, sectorSpanLy);
-        const sectorY = this._sectorCoord(y, sectorSpanLy);
-        const id = `g:${galaxyIndex}:chunk:${sectorX}:${sectorY}`;
-        const entry = chunkMap.get(id) || {
-          id,
-          galaxy_index: galaxyIndex,
-          sector_x: sectorX,
-          sector_y: sectorY,
-          sector_span_ly: sectorSpanLy,
-          star_count: 0,
-          min_x_ly: Number.POSITIVE_INFINITY,
-          max_x_ly: Number.NEGATIVE_INFINITY,
-          min_y_ly: Number.POSITIVE_INFINITY,
-          max_y_ly: Number.NEGATIVE_INFINITY,
-          sample_star_ids: [],
-          updated_at: now,
-        };
-        entry.star_count += 1;
-        entry.min_x_ly = Math.min(entry.min_x_ly, x);
-        entry.max_x_ly = Math.max(entry.max_x_ly, x);
-        entry.min_y_ly = Math.min(entry.min_y_ly, y);
-        entry.max_y_ly = Math.max(entry.max_y_ly, y);
-        if (entry.sample_star_ids.length < sampleLimit) {
-          const starId = String(star?.id || `g:${galaxyIndex}:s:${Number(star?.system_index || 0)}`);
-          if (!entry.sample_star_ids.includes(starId)) entry.sample_star_ids.push(starId);
-        }
-        chunkMap.set(id, entry);
-      }
-      return Array.from(chunkMap.values());
+      return this.chunkUtils.buildStarChunkSummaries(stars, {
+        sectorSpanLy: opts.sectorSpanLy || this.policies.sectorSpanLy,
+        sampleLimit: opts.sampleLimit || 12,
+        timestampMs,
+      });
     }
 
     async upsertStarChunks(chunks, timestampMs) {

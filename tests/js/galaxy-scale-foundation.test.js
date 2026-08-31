@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const modelPath = path.resolve(process.cwd(), 'js/runtime/galaxy-model.js');
+const chunkUtilsPath = path.resolve(process.cwd(), 'js/runtime/galaxy-chunk-utils.js');
 const helperPath = path.resolve(process.cwd(), 'js/engine/runtime/RuntimeGalaxyStarLoadingHelpers.js');
 
 function evalBrowserScript(filePath) {
@@ -13,11 +14,13 @@ function evalBrowserScript(filePath) {
 describe('galaxy scale foundation', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
+    delete window.GQGalaxyChunkUtils;
     delete window.GQGalaxyModel;
     delete window.GQRuntimeGalaxyStarLoadingHelpers;
   });
 
   it('builds chunk summaries in the galaxy model during star upsert', () => {
+    evalBrowserScript(chunkUtilsPath);
     evalBrowserScript(modelPath);
     const model = new window.GQGalaxyModel();
     model.upsertStarBatch(1, [
@@ -37,6 +40,7 @@ describe('galaxy scale foundation', () => {
   });
 
   it('bridges runtime star loads through snapshot-based renderer updates', () => {
+    evalBrowserScript(chunkUtilsPath);
     evalBrowserScript(helperPath);
     const api = window.GQRuntimeGalaxyStarLoadingHelpers;
     const renderer = {
@@ -73,5 +77,30 @@ describe('galaxy scale foundation', () => {
       }),
       expect.objectContaining({ preserveView: false }),
     );
+  });
+
+  it('updates chunk summaries incrementally when deleting stars and systems', () => {
+    evalBrowserScript(chunkUtilsPath);
+    evalBrowserScript(modelPath);
+    const model = new window.GQGalaxyModel();
+    model.upsertStarBatch(1, [
+      { galaxy_index: 1, system_index: 1, x_ly: 10, y_ly: 10, name: 'Sol' },
+      { galaxy_index: 1, system_index: 2, x_ly: 30, y_ly: 40, name: 'Alpha' },
+      { galaxy_index: 1, system_index: 3, x_ly: 310, y_ly: 20, name: 'Vega' },
+    ], { sectorSpanLy: 256 });
+
+    expect(model.listStarChunks(1).map((chunk) => chunk.star_count)).toEqual([2, 1]);
+
+    model.delete('star', { galaxy_index: 1, system_index: 2 });
+    let chunks = model.listStarChunks(1);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].star_count).toBe(1);
+    expect(chunks[0].sample_star_ids).not.toContain('g:1:s:2');
+
+    model.delete('system', { galaxy_index: 1, system_index: 3 });
+    chunks = model.listStarChunks(1);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].star_count).toBe(1);
+    expect(model.stats().starChunks).toBe(1);
   });
 });
