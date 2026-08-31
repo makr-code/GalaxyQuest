@@ -93,8 +93,10 @@
         this.starChunkMembers.delete(chunkKey);
         return null;
       }
-      const rebuilt = this.chunkUtils.buildStarChunkSummaries(stars, this._getChunkPolicy(opts))[0] || null;
+      const summaries = this.chunkUtils.buildStarChunkSummaries(stars, this._getChunkPolicy(opts));
+      const rebuilt = summaries.find((entry) => entry?.id === chunkKey) || null;
       if (rebuilt) this.starChunkIndex.set(chunkKey, rebuilt);
+      else this.starChunkIndex.delete(chunkKey);
       return rebuilt;
     }
 
@@ -428,15 +430,31 @@
       const list = Array.isArray(stars) ? stars : [];
       const out = [];
       const rebuildChunks = opts.rebuildChunks !== false;
+      const touchedChunkKeys = new Set();
       for (const s of list) {
         const systemIndex = Number(s?.system_index || 1);
         const sys = this.create('system', { galaxy_index: g, system_index: systemIndex });
         const existing = this.read('star', { galaxy_index: g, system_index: systemIndex });
         if (existing) {
+          const previous = rebuildChunks ? Object.assign({}, existing) : null;
           Object.assign(existing, s || {});
           existing.cached_at = Date.now();
           out.push(existing);
           this._emit('update:star', existing);
+          if (rebuildChunks) {
+            const nextKey = this._getChunkKeyForStar(g, existing, opts);
+            const previousKey = previous ? this._getChunkKeyForStar(g, previous, opts) : null;
+            if (previousKey && previousKey !== nextKey) {
+              this._removeStarFromChunk(g, previous, opts);
+              touchedChunkKeys.add(previousKey);
+              this._touchStarChunk(g, existing, opts);
+              if (nextKey) touchedChunkKeys.add(nextKey);
+            } else if (nextKey) {
+              const rebuilt = this._rebuildChunkFromMembers(nextKey, opts);
+              if (!rebuilt) this._touchStarChunk(g, existing, opts);
+              touchedChunkKeys.add(nextKey);
+            }
+          }
         } else {
           const star = this.create('star', Object.assign({}, s || {}, {
             galaxy_index: g,
@@ -444,14 +462,17 @@
             cached_at: Date.now(),
           }));
           out.push(star);
+          if (rebuildChunks) {
+            const nextKey = this._getChunkKeyForStar(g, star, opts);
+            this._touchStarChunk(g, star, opts);
+            if (nextKey) touchedChunkKeys.add(nextKey);
+          }
         }
         sys.fetched_at = Date.now();
         sys.lazy_state.star = 'loaded';
         sys.lazy_state.fetched_at = sys.fetched_at;
       }
-      if (rebuildChunks) {
-        this.rebuildStarChunks(g, opts);
-      }
+      if (rebuildChunks && touchedChunkKeys.size) this._emitStarChunkUpdate(g);
       return out;
     }
 

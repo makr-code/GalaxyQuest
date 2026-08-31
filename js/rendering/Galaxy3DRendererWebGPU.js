@@ -2655,6 +2655,9 @@
 
         self._selectedIdx = idx;
         self._pinnedStar  = star;
+        if (typeof self._opts.onHover === 'function') {
+          self._opts.onHover(star, star ? self._starToScreenPos(canvas, star) : null);
+        }
         if (star && typeof self._opts.onClick === 'function') {
           self._opts.onClick(self._selectionPayload(star), self._starToScreenPos(canvas, star));
         }

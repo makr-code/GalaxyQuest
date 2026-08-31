@@ -23,6 +23,7 @@ describe('galaxy scale foundation', () => {
     evalBrowserScript(chunkUtilsPath);
     evalBrowserScript(modelPath);
     const model = new window.GQGalaxyModel();
+    model.rebuildStarChunks = vi.fn(model.rebuildStarChunks.bind(model));
     model.upsertStarBatch(1, [
       { galaxy_index: 1, system_index: 1, x_ly: 10, y_ly: 10, name: 'Sol' },
       { galaxy_index: 1, system_index: 2, x_ly: 30, y_ly: 40, name: 'Alpha' },
@@ -37,6 +38,7 @@ describe('galaxy scale foundation', () => {
     expect(visible).toHaveLength(1);
     expect(visible[0].star_count).toBe(2);
     expect(model.stats().starChunks).toBe(2);
+    expect(model.rebuildStarChunks).not.toHaveBeenCalled();
   });
 
   it('bridges runtime star loads through snapshot-based renderer updates', () => {

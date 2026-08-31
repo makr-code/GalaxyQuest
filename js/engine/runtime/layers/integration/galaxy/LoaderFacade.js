@@ -48,9 +48,11 @@
     let galaxyMeta = null;
     const settingsState = opts.getSettingsState?.() || {};
     const clusterDensityMode = String(settingsState.clusterDensityMode || 'auto').toLowerCase();
-    const clusterPreset = clusterDensityMode === 'ultra' || clusterDensityMode === 'high'
-      ? clusterDensityMode
-      : 'auto';
+    const clusterPreset = clusterDensityMode === 'ultra' || clusterDensityMode === 'max'
+      ? 'ultra'
+      : clusterDensityMode === 'high'
+        ? 'high'
+        : 'auto';
 
     const renderDataAdapter = opts.getRenderDataAdapter?.() || null;
     const expectedAssetsManifestVersion = Number(opts.getExpectedAssetsManifestVersion?.() || 1);
