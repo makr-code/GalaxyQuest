@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "events": [
+    { "key": "tick.global.started", "scope": "global", "category": "tick" },
+    { "key": "tick.global.completed", "scope": "global", "category": "tick" },
+    { "key": "tick.user.started", "scope": "user", "category": "tick" },
+    { "key": "tick.user.completed", "scope": "user", "category": "tick" },
+    { "key": "galaxy.system.updated", "scope": "system", "category": "state" },
+    { "key": "fleet.arrived", "scope": "fleet", "category": "state" },
+    { "key": "fleet.returned", "scope": "fleet", "category": "state" },
+    { "key": "diplomacy.shifted", "scope": "relation", "category": "state" },
+    { "key": "war.status.changed", "scope": "war", "category": "state" },
+    { "key": "economy.production.tick", "scope": "global", "category": "simulation" },
+    { "key": "economy.population.tick", "scope": "global", "category": "simulation" },
+    { "key": "npc.decision.committed", "scope": "faction", "category": "ai" },
+    { "key": "npc.quest.generated", "scope": "faction", "category": "ai" },
+    { "key": "narrative.world_event.changed", "scope": "global", "category": "narrative" },
+    { "key": "projection.user.refreshed", "scope": "user", "category": "projection" },
+    { "key": "projection.system.refreshed", "scope": "system", "category": "projection" }
+  ]
+}

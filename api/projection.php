@@ -136,16 +136,16 @@ function mark_projection_stale(PDO $db, int $userId): void
  * game.php?action=overview response structure exactly.
  * It runs update_all_colonies() to keep resource counts fresh.
  *
- * When $runSessionSideEffects is true (default), achievements and the NPC
+ * When $runSimulationSideEffects is true, achievements and simulation ticks
  * AI tick are also executed – use false in the projector worker to avoid
  * running session-scoped logic outside a user request.
  *
  * @param PDO  $db
  * @param int  $uid
- * @param bool $runSessionSideEffects  true = run achievements + NPC tick
+ * @param bool $runSimulationSideEffects  true = run achievements + simulation ticks
  * @return array  The overview payload (same structure as the HTTP response body)
  */
-function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffects = true): array
+function build_live_overview_payload(PDO $db, int $uid, bool $runSimulationSideEffects = false): array
 {
     // ── Offline-progress: snapshot before resource update ─────────────────────
     $offlineBeforeStmt = $db->prepare(
@@ -366,8 +366,8 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
         'last_tick' => 0,
     ];
 
-    // ── Session side-effects (achievements + NPC tick + war runtime) ─────────
-    if ($runSessionSideEffects) {
+    // ── Simulation side-effects (legacy compatibility path) ───────────────────
+    if ($runSimulationSideEffects) {
         check_and_update_achievements($db, $uid);
         require_once __DIR__ . '/npc_ai.php';
         try { npc_ai_tick($db, $uid); } catch (Throwable $e) { error_log('npc_ai_tick error: ' . $e->getMessage()); }
@@ -381,7 +381,14 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSessionSideEffe
     // ── Politics runtime ──────────────────────────────────────────────────────
     $politicsRuntime = [
         'effects'         => empire_dynamic_effects($db, $uid),
-        'pressure_events' => apply_faction_pressure_situations($db, $uid),
+        'pressure_events' => $runSimulationSideEffects
+            ? apply_faction_pressure_situations($db, $uid)
+            : [
+                'triggered' => false,
+                'resolved' => false,
+                'faction_pressure_score' => null,
+                'active_situation_id' => null,
+            ],
         'war'             => $warRuntime,
     ];
 

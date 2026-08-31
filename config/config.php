@@ -92,6 +92,18 @@ define('PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS', (int) env_value('PROJECTION
 // Projector worker: max system dirty-queue entries to process per batch run.
 define('PROJECTION_SYSTEM_BATCH_SIZE', (int) env_value('PROJECTION_SYSTEM_BATCH_SIZE', 200));
 
+// ── Headless Simulation Runtime ────────────────────────────────────────────────
+// When enabled, overview reads may execute simulation side-effects inline.
+// Recommended for migration compatibility only; keep disabled for worker-driven simulation.
+define('SIMULATION_TICK_ON_READ_ENABLED', (bool)(int) env_value('SIMULATION_TICK_ON_READ_ENABLED', 0));
+// Default systems-per-shard for deterministic galaxy partitioning.
+define('SIMULATION_SYSTEMS_PER_SHARD', (int) env_value('SIMULATION_SYSTEMS_PER_SHARD', 20000));
+// Cooldown windows for manual/worker-triggered simulation ticks.
+define('SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS', (int) env_value('SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS', 60));
+define('SIMULATION_USER_TICK_COOLDOWN_SECONDS', (int) env_value('SIMULATION_USER_TICK_COOLDOWN_SECONDS', 300));
+// Canonical event taxonomy path used by the headless simulation runtime.
+define('SIMULATION_EVENT_TAXONOMY_FILE', (string) env_value('SIMULATION_EVENT_TAXONOMY_FILE', dirname(__DIR__) . '/config/simulation_event_taxonomy.json'));
+
 // ── Cache ────────────────────────────────────────────────────────────────────
 // Verifikationsmaßstab: CACHE_VERSION in jeden Schlüssel eingebettet.
 // Increment → alle bestehenden Einträge sofort invalidiert (kein Flush nötig).
