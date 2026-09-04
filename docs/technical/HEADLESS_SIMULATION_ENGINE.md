@@ -60,6 +60,22 @@ php scripts/process_npc_ai_decision_queue.php --limit=50
 
 This worker contract is intentionally simple so a Python AI worker can later replace or co-run the processor while keeping MySQL queue semantics.
 
+### Python reference worker
+
+```bash
+python3 scripts/npc_ai_worker_client.py --once
+python3 scripts/npc_ai_worker_client.py
+```
+
+Environment variables:
+
+- `NPC_AI_WORKER_API_BASE_URL`
+- `NPC_AI_WORKER_SHARED_SECRET`
+- `NPC_AI_WORKER_WORKER_ID`
+- `NPC_AI_WORKER_CLAIM_LIMIT`
+- `NPC_AI_WORKER_POLL_INTERVAL_SECONDS`
+- `NPC_AI_WORKER_REQUEST_TIMEOUT_SECONDS`
+
 ## External Python worker HTTP contract (signed)
 
 - Endpoint: `POST /api/npc_ai_worker.php?action=claim|complete`
