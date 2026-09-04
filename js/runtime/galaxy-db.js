@@ -92,6 +92,13 @@
       await this.db.star_chunks.bulkPut(rows);
     }
 
+    async deleteStarChunks(chunkIds) {
+      if (this.mode !== 'indexeddb' || !this.db?.star_chunks || !Array.isArray(chunkIds) || !chunkIds.length) return;
+      const ids = chunkIds.map((id) => String(id || '')).filter(Boolean);
+      if (!ids.length) return;
+      await this.db.star_chunks.bulkDelete(ids);
+    }
+
     async upsertStarChunksFromStars(stars, timestampMs, opts = {}) {
       if (this.mode !== 'indexeddb' || !this.db?.star_chunks || !Array.isArray(stars) || !stars.length) return;
       const rows = this._buildChunkRows(stars, timestampMs, opts);

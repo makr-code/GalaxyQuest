@@ -431,6 +431,7 @@
       const out = [];
       const rebuildChunks = opts.rebuildChunks !== false;
       const touchedChunkKeys = new Set();
+      const removedChunkKeys = new Set();
       for (const s of list) {
         const systemIndex = Number(s?.system_index || 1);
         const sys = this.create('system', { galaxy_index: g, system_index: systemIndex });
@@ -447,6 +448,7 @@
             if (previousKey && previousKey !== nextKey) {
               this._removeStarFromChunk(g, previous, opts);
               touchedChunkKeys.add(previousKey);
+              if (!this.starChunkIndex.has(previousKey)) removedChunkKeys.add(previousKey);
               this._touchStarChunk(g, existing, opts);
               if (nextKey) touchedChunkKeys.add(nextKey);
             } else if (nextKey) {
@@ -473,6 +475,21 @@
         sys.lazy_state.fetched_at = sys.fetched_at;
       }
       if (rebuildChunks && touchedChunkKeys.size) this._emitStarChunkUpdate(g);
+      if (rebuildChunks && typeof opts.onChunkDelta === 'function') {
+        const updatedChunkIds = Array.from(touchedChunkKeys).filter((key) => this.starChunkIndex.has(key));
+        const chunks = updatedChunkIds
+          .map((key) => this.starChunkIndex.get(key))
+          .filter(Boolean)
+          .map((chunk) => this.chunkUtils.normalizeStarChunkRecord(chunk));
+        try {
+          opts.onChunkDelta({
+            galaxy_index: g,
+            updatedChunkIds,
+            removedChunkIds: Array.from(removedChunkKeys),
+            chunks,
+          });
+        } catch (_) {}
+      }
       return out;
     }
 

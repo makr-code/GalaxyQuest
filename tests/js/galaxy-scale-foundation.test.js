@@ -5,6 +5,7 @@ import path from 'node:path';
 const modelPath = path.resolve(process.cwd(), 'js/runtime/galaxy-model.js');
 const chunkUtilsPath = path.resolve(process.cwd(), 'js/runtime/galaxy-chunk-utils.js');
 const helperPath = path.resolve(process.cwd(), 'js/engine/runtime/RuntimeGalaxyStarLoadingHelpers.js');
+const persistencePath = path.resolve(process.cwd(), 'js/engine/runtime/RuntimeGalaxyStarPersistence.js');
 
 function evalBrowserScript(filePath) {
   const src = fs.readFileSync(filePath, 'utf8');
@@ -17,6 +18,7 @@ describe('galaxy scale foundation', () => {
     delete window.GQGalaxyChunkUtils;
     delete window.GQGalaxyModel;
     delete window.GQRuntimeGalaxyStarLoadingHelpers;
+    delete window.GQRuntimeGalaxyStarPersistence;
   });
 
   it('builds chunk summaries in the galaxy model during star upsert', () => {
@@ -104,5 +106,51 @@ describe('galaxy scale foundation', () => {
     expect(chunks).toHaveLength(1);
     expect(chunks[0].star_count).toBe(1);
     expect(model.stats().starChunks).toBe(1);
+  });
+
+  it('persists only touched chunk summaries and deletes emptied chunk ids', () => {
+    evalBrowserScript(chunkUtilsPath);
+    evalBrowserScript(modelPath);
+    evalBrowserScript(persistencePath);
+    const model = new window.GQGalaxyModel();
+    const db = {
+      upsertStars: vi.fn(() => Promise.resolve()),
+      upsertStarChunks: vi.fn(() => Promise.resolve()),
+      deleteStarChunks: vi.fn(() => Promise.resolve()),
+    };
+    const api = window.GQRuntimeGalaxyStarPersistence;
+    api.configureGalaxyStarPersistenceRuntime({
+      getGalaxyModel: () => model,
+      getGalaxyDb: () => db,
+      hasDenseSystemCoverage: () => true,
+    });
+
+    api.persistNetworkStars({
+      galaxyIndex: 1,
+      fromSystem: 1,
+      toSystem: 1,
+      data: { server_ts_ms: 100, stride: 1, stars: [] },
+      galaxyStars: [{ galaxy_index: 1, system_index: 1, x_ly: 12, y_ly: 12, name: 'Sol' }],
+    });
+    expect(db.upsertStarChunks).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ id: 'g:1:chunk:0:0', star_count: 1 })],
+      100,
+    );
+
+    db.upsertStarChunks.mockClear();
+    db.deleteStarChunks.mockClear();
+    api.persistNetworkStars({
+      galaxyIndex: 1,
+      fromSystem: 1,
+      toSystem: 1,
+      data: { server_ts_ms: 200, stride: 1, stars: [] },
+      galaxyStars: [{ galaxy_index: 1, system_index: 1, x_ly: 400, y_ly: 12, name: 'Sol' }],
+    });
+
+    expect(db.deleteStarChunks).toHaveBeenCalledWith(['g:1:chunk:0:0']);
+    expect(db.upsertStarChunks).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ id: 'g:1:chunk:1:0', star_count: 1 })],
+      200,
+    );
   });
 });
