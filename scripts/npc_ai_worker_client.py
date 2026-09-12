@@ -221,7 +221,7 @@ async def run_once(client: httpx.AsyncClient, settings: WorkerSettings, log: str
                 queue_id=job.queue_id,
                 error=str(exc),
             )
-        except Exception as exc:  # Defensive isolation for plugin/runtime errors.
+        except (AssertionError, AttributeError, LookupError, TypeError) as exc:
             log.error(
                 "job_complete_unexpected_error",
                 queue_id=job.queue_id,

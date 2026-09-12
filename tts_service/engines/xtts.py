@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from pathlib import Path
+from typing import cast
 
 import structlog
 from fastapi import HTTPException
@@ -36,8 +37,8 @@ class XTTSEngine:
         speaker_wav: str | None,
     ) -> bytes:
         model = await _load_xtts_model()
-        wav = await run_in_threadpool(_synthesise_xtts_wav, model, text, lang, speaker_wav)
-        return await run_in_threadpool(wav_to_mp3, wav)
+        wav = cast(bytes, await run_in_threadpool(_synthesise_xtts_wav, model, text, lang, speaker_wav))
+        return cast(bytes, await run_in_threadpool(wav_to_mp3, wav))
 
 
 async def _load_xtts_model() -> object:

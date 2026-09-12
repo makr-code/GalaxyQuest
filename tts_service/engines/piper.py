@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import urllib.parse
 from pathlib import Path
+from typing import cast
 
 import httpx
 import structlog
@@ -106,8 +107,8 @@ class PiperEngine:
         lang: str,
         speaker_wav: str | None,
     ) -> bytes:
-        wav = await run_in_threadpool(self._synthesise_wav, text, voice)
-        return await run_in_threadpool(wav_to_mp3, wav)
+        wav = cast(bytes, await run_in_threadpool(self._synthesise_wav, text, voice))
+        return cast(bytes, await run_in_threadpool(wav_to_mp3, wav))
 
     def ensure_model(self, voice: str) -> tuple[Path, Path]:
         """Download Piper voice model files if not already cached.
