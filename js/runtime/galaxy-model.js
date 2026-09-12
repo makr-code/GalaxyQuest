@@ -488,7 +488,11 @@
             removedChunkIds: Array.from(removedChunkKeys),
             chunks,
           });
-        } catch (_) {}
+        } catch (err) {
+          try {
+            console.warn('[GQGalaxyModel] onChunkDelta callback failed', err);
+          } catch (_) {}
+        }
       }
       return out;
     }
