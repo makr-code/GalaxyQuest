@@ -52,7 +52,7 @@
       return this;
     }
 
-    async upsertStars(stars, timestampMs) {
+    async upsertStars(stars, timestampMs, opts = {}) {
       if (this.mode !== 'indexeddb' || !Array.isArray(stars) || !stars.length) return;
       const now = Number(timestampMs || Date.now());
       const rows = stars.map((s) => ({
@@ -70,7 +70,9 @@
         fetched_at: now,
       }));
       await this.db.systems.bulkPut(sysRows);
-      await this.upsertStarChunksFromStars(rows.map((r) => r.data), now);
+      if (!opts.skipChunkSummaries) {
+        await this.upsertStarChunksFromStars(rows.map((r) => r.data), now, opts);
+      }
     }
 
     _sectorCoord(value, sectorSpanLy) {

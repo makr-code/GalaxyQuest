@@ -69,6 +69,7 @@
   function applyStarsToRenderer(opts = {}) {
     const stars = Array.isArray(opts.stars) ? opts.stars : [];
     const clusterSummary = Array.isArray(opts.clusterSummary) ? opts.clusterSummary : [];
+    const providedChunkSummaries = Array.isArray(opts.chunkSummaries) ? opts.chunkSummaries : null;
     const contextLabel = String(opts.contextLabel || 'render');
     const galaxyIndex = Number(opts.galaxyIndex || 0);
     const galaxyMeta = opts.galaxyMeta || null;
@@ -87,7 +88,7 @@
       const displayedClusterSummary = state.getDisplayedGalaxyClusterSummary
         ? state.getDisplayedGalaxyClusterSummary(clusterSummary, displayedStars)
         : clusterSummary;
-      const chunkSummaries = buildChunkSummaries(displayedStars);
+      const chunkSummaries = providedChunkSummaries || buildChunkSummaries(displayedStars);
 
       const ftlMap = state.getFtlMap ? state.getFtlMap() : null;
       const ctx = state.getZoomTransitionContext ? state.getZoomTransitionContext() : {};

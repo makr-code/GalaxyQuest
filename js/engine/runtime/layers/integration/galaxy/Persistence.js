@@ -47,7 +47,7 @@
     }
 
     if (galaxyDb) {
-      galaxyDb.upsertStars(galaxyStars, responseTs).catch((err) => {
+      galaxyDb.upsertStars(galaxyStars, responseTs, { skipChunkSummaries: true }).catch((err) => {
         state.gameLog?.('info', 'DB upsertStars fehlgeschlagen', err);
       });
       if (Array.isArray(chunkDelta?.removedChunkIds) && chunkDelta.removedChunkIds.length && typeof galaxyDb.deleteStarChunks === 'function') {
@@ -63,7 +63,10 @@
       }
     }
 
-    return responseTs;
+    return {
+      responseTs,
+      chunkSummaries: Array.isArray(chunkDelta?.chunks) ? chunkDelta.chunks : (galaxyModel?.listStarChunks?.(galaxyIndex) || []),
+    };
   }
 
   const api = {

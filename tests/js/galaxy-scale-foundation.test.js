@@ -5,6 +5,7 @@ import path from 'node:path';
 const modelPath = path.resolve(process.cwd(), 'js/runtime/galaxy-model.js');
 const chunkUtilsPath = path.resolve(process.cwd(), 'js/runtime/galaxy-chunk-utils.js');
 const helperPath = path.resolve(process.cwd(), 'js/engine/runtime/RuntimeGalaxyStarLoadingHelpers.js');
+const cacheReadPath = path.resolve(process.cwd(), 'js/engine/runtime/RuntimeGalaxyStarCacheRead.js');
 const persistencePath = path.resolve(process.cwd(), 'js/engine/runtime/RuntimeGalaxyStarPersistence.js');
 
 function evalBrowserScript(filePath) {
@@ -18,6 +19,7 @@ describe('galaxy scale foundation', () => {
     delete window.GQGalaxyChunkUtils;
     delete window.GQGalaxyModel;
     delete window.GQRuntimeGalaxyStarLoadingHelpers;
+    delete window.GQRuntimeGalaxyStarCacheRead;
     delete window.GQRuntimeGalaxyStarPersistence;
   });
 
@@ -83,6 +85,37 @@ describe('galaxy scale foundation', () => {
     );
   });
 
+  it('reuses provided chunk summaries during renderer snapshot application', () => {
+    evalBrowserScript(chunkUtilsPath);
+    evalBrowserScript(helperPath);
+    const api = window.GQRuntimeGalaxyStarLoadingHelpers;
+    const chunkSummaries = [{ id: 'chunk-provided', star_count: 99 }];
+    const renderer = {
+      applyGalaxySnapshot: vi.fn(),
+    };
+
+    api.configureGalaxyStarLoadingHelpersRuntime({
+      getGalaxy3d: () => renderer,
+      getGalaxyStars: () => [],
+      getUiState: () => ({}),
+      getDisplayedGalaxyStars: (stars) => stars,
+      getDisplayedGalaxyClusterSummary: (clusters) => clusters,
+      getGalaxyFleets: () => [],
+      getFtlMap: () => ({ gates: [], resonance_nodes: [] }),
+    });
+
+    api.applyStarsToRenderer({
+      stars: [{ galaxy_index: 1, system_index: 1, x_ly: 10, y_ly: 10 }],
+      chunkSummaries,
+      galaxyIndex: 1,
+    });
+
+    expect(renderer.applyGalaxySnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ chunkSummaries }),
+      expect.any(Object),
+    );
+  });
+
   it('updates chunk summaries incrementally when deleting stars and systems', () => {
     evalBrowserScript(chunkUtilsPath);
     evalBrowserScript(modelPath);
@@ -132,6 +165,11 @@ describe('galaxy scale foundation', () => {
       data: { server_ts_ms: 100, stride: 1, stars: [] },
       galaxyStars: [{ galaxy_index: 1, system_index: 1, x_ly: 12, y_ly: 12, name: 'Sol' }],
     });
+    expect(db.upsertStars).toHaveBeenLastCalledWith(
+      [{ galaxy_index: 1, system_index: 1, x_ly: 12, y_ly: 12, name: 'Sol' }],
+      100,
+      { skipChunkSummaries: true },
+    );
     expect(db.upsertStarChunks).toHaveBeenLastCalledWith(
       [expect.objectContaining({ id: 'g:1:chunk:0:0', star_count: 1 })],
       100,
@@ -152,5 +190,39 @@ describe('galaxy scale foundation', () => {
       [expect.objectContaining({ id: 'g:1:chunk:1:0', star_count: 1 })],
       200,
     );
+  });
+
+  it('returns cached chunk summaries from the model without DB recomputation', async () => {
+    evalBrowserScript(chunkUtilsPath);
+    evalBrowserScript(modelPath);
+    evalBrowserScript(cacheReadPath);
+    const model = new window.GQGalaxyModel();
+    model.upsertStarBatch(1, [
+      { galaxy_index: 1, system_index: 1, x_ly: 10, y_ly: 10 },
+      { galaxy_index: 1, system_index: 2, x_ly: 300, y_ly: 10 },
+    ]);
+
+    const db = {
+      getStars: vi.fn(async () => []),
+      getStarChunkSummaries: vi.fn(async () => []),
+    };
+    const api = window.GQRuntimeGalaxyStarCacheRead;
+    api.configureGalaxyStarCacheReadRuntime({
+      getGalaxyModel: () => model,
+      getGalaxyDb: () => db,
+      normalizeStarListVisibility: (stars) => stars,
+    });
+
+    const result = await api.loadCachedStarRange({
+      galaxyIndex: 1,
+      fromSystem: 1,
+      toSystem: 2,
+      cacheMaxAgeMs: 1000,
+    });
+
+    expect(result.cachedStars).toHaveLength(2);
+    expect(result.chunkSummaries).toHaveLength(2);
+    expect(db.getStars).not.toHaveBeenCalled();
+    expect(db.getStarChunkSummaries).not.toHaveBeenCalled();
   });
 });

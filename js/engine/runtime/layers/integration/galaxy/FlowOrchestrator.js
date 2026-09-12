@@ -15,6 +15,7 @@
     const toSystem = Number(opts.toSystem || 0);
     const fullRangeInModel = !!opts.fullRangeInModel;
     const cachedStars = Array.isArray(opts.cachedStars) ? opts.cachedStars : [];
+    const chunkSummaries = Array.isArray(opts.chunkSummaries) ? opts.chunkSummaries : [];
     let galaxyStars = Array.isArray(opts.galaxyStars) ? opts.galaxyStars : [];
     const uiState = opts.uiState && typeof opts.uiState === 'object' ? opts.uiState : {};
 
@@ -37,7 +38,7 @@
     uiState.clusterSummary = assignClusterFactions
       ? assignClusterFactions(uiState.rawClusters || [], uiState.territory)
       : (uiState.clusterSummary || []);
-    const rendered = applyStarsToRenderer ? !!applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'cache') : false;
+    const rendered = applyStarsToRenderer ? !!applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'cache', chunkSummaries) : false;
 
     if (!rendered) {
       renderGalaxyFallbackList?.(root, galaxyStars, fromSystem, toSystem, '3D renderer unavailable (cache fallback)');
@@ -101,16 +102,17 @@
       ? assignClusterFactions(uiState.rawClusters, uiState.territory)
       : (uiState.clusterSummary || []);
 
-    persistNetworkStars?.({
+    const persistenceResult = persistNetworkStars?.({
       galaxyIndex,
       fromSystem,
       toSystem,
       data,
       galaxyStars,
     });
+    const persistedChunkSummaries = Array.isArray(persistenceResult?.chunkSummaries) ? persistenceResult.chunkSummaries : [];
 
     const rendered = applyStarsToRenderer
-      ? !!applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'network')
+      ? !!applyStarsToRenderer(galaxyStars, uiState.clusterSummary, 'network', persistedChunkSummaries)
       : false;
     if (!rendered || !(getGalaxy3d && getGalaxy3d())) {
       renderGalaxyFallbackList?.(root, galaxyStars, fromSystem, toSystem, fallbackReason);

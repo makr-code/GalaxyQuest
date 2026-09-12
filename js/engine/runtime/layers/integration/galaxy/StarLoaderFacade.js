@@ -94,9 +94,10 @@
     }
     opts.setGalaxySystemMax?.(galaxySystemMax);
 
-    const applyStarsToRenderer = (stars, clusterSummary, contextLabel = 'render') => loadingHelpersApi.applyStarsToRenderer({
+    const applyStarsToRenderer = (stars, clusterSummary, contextLabel = 'render', chunkSummaries = null) => loadingHelpersApi.applyStarsToRenderer({
       stars,
       clusterSummary,
+      chunkSummaries,
       contextLabel,
       galaxyIndex: g,
       galaxyMeta,
@@ -118,6 +119,7 @@
       cacheMaxAgeMs: starsPolicy.cacheMaxAgeMs,
     });
     let cachedStars = cacheSnapshot.cachedStars;
+    const cachedChunkSummaries = cacheSnapshot.chunkSummaries;
     const fullRangeInModel = !!cacheSnapshot.fullRangeInModel;
 
     const cacheResult = flowOrchestratorApi.applyCacheHit({
@@ -128,6 +130,7 @@
       toSystem: to,
       fullRangeInModel,
       cachedStars,
+      chunkSummaries: cachedChunkSummaries,
       galaxyStars,
       uiState,
       mergeGalaxyStarsBySystem: opts.mergeGalaxyStarsBySystem,
