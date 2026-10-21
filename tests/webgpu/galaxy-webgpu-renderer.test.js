@@ -13,10 +13,16 @@ import path from 'node:path';
 // ---------------------------------------------------------------------------
 
 function loadRenderer() {
+  const chunkUtilsSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'js/runtime/galaxy-chunk-utils.js'),
+    'utf8',
+  );
   const src = fs.readFileSync(
     path.resolve(process.cwd(), 'js/rendering/Galaxy3DRendererWebGPU.js'),
     'utf8',
   );
+  // eslint-disable-next-line no-eval
+  window.eval(chunkUtilsSrc);
   // Evaluate in the global context (jsdom window)
   // eslint-disable-next-line no-eval
   window.eval(src);
@@ -732,5 +738,24 @@ describe('Galaxy3DRendererWebGPU — star data and color', () => {
     r.setStars(SAMPLE_STARS);
     const stats = r.getRenderStats();
     expect(stats.rawStars).toBe(3);
+  });
+
+  it('applyGalaxySnapshot updates stars and chunk-aware render stats', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    r.applyGalaxySnapshot({
+      stars: SAMPLE_STARS,
+      chunkSummaries: [
+        { id: 'g:1:chunk:0:0', galaxy_index: 1, sector_x: 0, sector_y: 0, star_count: 2 },
+        { id: 'g:1:chunk:1:0', galaxy_index: 1, sector_x: 1, sector_y: 0, star_count: 1 },
+      ],
+      fleets: [{ id: 'fleet-1' }],
+      ftlInfrastructure: { gates: [{ id: 'gate-1' }], resonance_nodes: [{ id: 'node-1' }] },
+      clusterAuras: [{ id: 'cluster-1', systems: [1, 2] }],
+    });
+    const stats = r.getRenderStats();
+    expect(r.stars.length).toBe(3);
+    expect(stats.chunkCount).toBe(2);
+    expect(stats.selectionIndexCells).toBeGreaterThan(0);
   });
 });

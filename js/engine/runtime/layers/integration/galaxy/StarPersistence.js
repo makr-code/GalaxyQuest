@@ -1,5 +1,5 @@
 /**
- * StarPersistence.js
+ * RuntimeGalaxyStarPersistence.js
  *
  * Persists network-loaded galaxy stars into model and DB caches.
  */
@@ -31,9 +31,12 @@
     const responseTs = Number(data.server_ts_ms || Date.now());
     const galaxyModel = typeof state.getGalaxyModel === 'function' ? state.getGalaxyModel() : null;
     const galaxyDb = typeof state.getGalaxyDb === 'function' ? state.getGalaxyDb() : null;
+    let chunkDelta = null;
 
     if (galaxyModel) {
-      galaxyModel.upsertStarBatch(galaxyIndex, galaxyStars);
+      galaxyModel.upsertStarBatch(galaxyIndex, galaxyStars, {
+        onChunkDelta: (delta) => { chunkDelta = delta; },
+      });
       const stride = Number(data.stride || 1);
       const isDense = typeof state.hasDenseSystemCoverage === 'function'
         ? state.hasDenseSystemCoverage(data.stars || galaxyStars, galaxyIndex, fromSystem, toSystem)
@@ -44,12 +47,26 @@
     }
 
     if (galaxyDb) {
-      galaxyDb.upsertStars(galaxyStars, responseTs).catch((err) => {
+      galaxyDb.upsertStars(galaxyStars, responseTs, { skipChunkSummaries: true }).catch((err) => {
         state.gameLog?.('info', 'DB upsertStars fehlgeschlagen', err);
       });
+      if (Array.isArray(chunkDelta?.removedChunkIds) && chunkDelta.removedChunkIds.length && typeof galaxyDb.deleteStarChunks === 'function') {
+        galaxyDb.deleteStarChunks(chunkDelta.removedChunkIds).catch((err) => {
+          state.gameLog?.('info', 'DB deleteStarChunks fehlgeschlagen', err);
+        });
+      }
+      if (typeof galaxyDb.upsertStarChunks === 'function' && galaxyModel && typeof galaxyModel.listStarChunks === 'function') {
+        const chunkSummaries = Array.isArray(chunkDelta?.chunks) ? chunkDelta.chunks : galaxyModel.listStarChunks(galaxyIndex);
+        galaxyDb.upsertStarChunks(chunkSummaries, responseTs).catch((err) => {
+          state.gameLog?.('info', 'DB upsertStarChunks fehlgeschlagen', err);
+        });
+      }
     }
 
-    return responseTs;
+    return {
+      responseTs,
+      chunkSummaries: Array.isArray(chunkDelta?.chunks) ? chunkDelta.chunks : (galaxyModel?.listStarChunks?.(galaxyIndex) || []),
+    };
   }
 
   const api = {

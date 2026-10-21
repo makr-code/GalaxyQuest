@@ -207,6 +207,7 @@
     if (window.Galaxy3DView || window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU) {
       return;
     }
+    await loadScript(withAssetVersion('js/runtime/galaxy-chunk-utils.js', 'galaxyChunkUtils', '20260831p1'));
     await loadScript(withAssetVersion('js/rendering/starfield-webgpu.js', 'starfieldWebGpu', '20260330p2'));
     await loadScript(withAssetVersion('js/rendering/Galaxy3DRendererWebGPU.js', 'galaxyRendererWebGpu', '20260404p4'));
     await loadScript(withAssetVersion('js/legacy/galaxy3d-webgpu.js', 'legacyWebGpu', '20260404p2'));

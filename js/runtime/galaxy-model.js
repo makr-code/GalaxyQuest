@@ -5,11 +5,19 @@
 (function () {
   class GQGalaxyModel {
     constructor() {
+      if (!window.GQGalaxyChunkUtils) throw new Error('GQGalaxyChunkUtils is required');
+      this.chunkUtils = window.GQGalaxyChunkUtils;
       this.galaxies = new Map();
       this.systemIndex = new Map();
       this.starIndex = new Map();
       this.planetIndex = new Map();
+      this.starChunkIndex = new Map();
+      this.starChunkMembers = new Map();
       this.listeners = new Set();
+      this.chunkPolicies = {
+        sectorSpanLy: 256,
+        sampleLimit: 12,
+      };
     }
 
     subscribe(fn) {
@@ -28,6 +36,133 @@
     _systemId(galaxyIndex, systemIndex) { return `g:${galaxyIndex}:s:${systemIndex}`; }
     _starId(galaxyIndex, systemIndex) { return `g:${galaxyIndex}:s:${systemIndex}`; }
     _planetId(galaxyIndex, systemIndex, position) { return `g:${galaxyIndex}:s:${systemIndex}:p:${position}`; }
+    _chunkId(galaxyIndex, sectorX, sectorY) { return `g:${galaxyIndex}:chunk:${sectorX}:${sectorY}`; }
+
+    _getChunkPolicy(opts = {}) {
+      return this.chunkUtils.resolveChunkPolicy(opts, this.chunkPolicies);
+    }
+
+    _sectorCoord(value, sectorSpanLy) {
+      return this.chunkUtils.sectorCoord(value, sectorSpanLy);
+    }
+
+    _buildChunkRecord(galaxyIndex, sectorX, sectorY, sectorSpanLy) {
+      return this.chunkUtils.createStarChunkRecord(galaxyIndex, sectorX, sectorY, { sectorSpanLy, sampleLimit: this.chunkPolicies.sampleLimit });
+    }
+
+    _emitStarChunkUpdate(galaxyIndex) {
+      this._emit('update:star-chunks', { galaxy_index: Number(galaxyIndex || 1), chunks: this.listStarChunks(galaxyIndex) });
+    }
+
+    _getChunkKeyForStar(galaxyIndex, star, opts = {}) {
+      if (!star || typeof star !== 'object') return null;
+      const policy = this._getChunkPolicy(opts);
+      const x = Number(star.x_ly || star.x || 0);
+      const y = Number(star.y_ly || star.y || 0);
+      return this._chunkId(galaxyIndex, this._sectorCoord(x, policy.sectorSpanLy), this._sectorCoord(y, policy.sectorSpanLy));
+    }
+
+    _syncChunkMember(chunkKey, starId, add) {
+      if (!chunkKey || !starId) return;
+      const members = this.starChunkMembers.get(chunkKey) || new Set();
+      if (add) {
+        members.add(starId);
+        this.starChunkMembers.set(chunkKey, members);
+        return;
+      }
+      members.delete(starId);
+      if (members.size) this.starChunkMembers.set(chunkKey, members);
+      else this.starChunkMembers.delete(chunkKey);
+    }
+
+    _collectChunkStars(chunkKey) {
+      const members = this.starChunkMembers.get(chunkKey);
+      if (!members || !members.size) return [];
+      const out = [];
+      for (const starId of members) {
+        const star = this.starIndex.get(starId);
+        if (star) out.push(star);
+      }
+      return out;
+    }
+
+    _rebuildChunkFromMembers(chunkKey, opts = {}) {
+      const stars = this._collectChunkStars(chunkKey);
+      if (!stars.length) {
+        this.starChunkIndex.delete(chunkKey);
+        this.starChunkMembers.delete(chunkKey);
+        return null;
+      }
+      const summaries = this.chunkUtils.buildStarChunkSummaries(stars, this._getChunkPolicy(opts));
+      const rebuilt = summaries.find((entry) => entry?.id === chunkKey) || null;
+      if (rebuilt) this.starChunkIndex.set(chunkKey, rebuilt);
+      else this.starChunkIndex.delete(chunkKey);
+      return rebuilt;
+    }
+
+    _removeStarFromChunk(galaxyIndex, star, opts = {}) {
+      if (!star || typeof star !== 'object') return false;
+      const key = this._getChunkKeyForStar(galaxyIndex, star, opts);
+      if (!key) return false;
+      const chunk = this.starChunkIndex.get(key);
+      const starId = String(star.id || this._starId(galaxyIndex, Number(star.system_index || 0)));
+      this._syncChunkMember(key, starId, false);
+      if (!chunk) return false;
+      const nextCount = Math.max(0, Number(chunk.star_count || 0) - 1);
+      if (!nextCount) {
+        this.starChunkIndex.delete(key);
+        this.starChunkMembers.delete(key);
+        return true;
+      }
+      const x = Number(star.x_ly || star.x || 0);
+      const y = Number(star.y_ly || star.y || 0);
+      const touchedBounds = (
+        x === Number(chunk.min_x_ly)
+        || x === Number(chunk.max_x_ly)
+        || y === Number(chunk.min_y_ly)
+        || y === Number(chunk.max_y_ly)
+      );
+      chunk.star_count = nextCount;
+      chunk.updated_at = Date.now();
+      if (Array.isArray(chunk.sample_star_ids)) {
+        chunk.sample_star_ids = chunk.sample_star_ids.filter((id) => id !== starId);
+      }
+      if (touchedBounds) this._rebuildChunkFromMembers(key, opts);
+      else this.starChunkIndex.set(key, chunk);
+      return true;
+    }
+
+    _touchStarChunk(galaxyIndex, star, opts = {}) {
+      if (!star || typeof star !== 'object') return null;
+      const policy = this._getChunkPolicy(opts);
+      const x = Number(star.x_ly || star.x || 0);
+      const y = Number(star.y_ly || star.y || 0);
+      const sectorX = this._sectorCoord(x, policy.sectorSpanLy);
+      const sectorY = this._sectorCoord(y, policy.sectorSpanLy);
+      const key = this._chunkId(galaxyIndex, sectorX, sectorY);
+      const existing = this.starChunkIndex.get(key) || this._buildChunkRecord(galaxyIndex, sectorX, sectorY, policy.sectorSpanLy);
+      this.chunkUtils.addStarToChunkRecord(existing, star, policy);
+      this.starChunkIndex.set(key, existing);
+      this._syncChunkMember(key, String(star.id || this._starId(galaxyIndex, Number(star.system_index || 0))), true);
+      return existing;
+    }
+
+    rebuildStarChunks(galaxyIndex, opts = {}) {
+      const g = Number(galaxyIndex || 1);
+      for (const key of Array.from(this.starChunkIndex.keys())) {
+        if (key.startsWith(`g:${g}:chunk:`)) this.starChunkIndex.delete(key);
+      }
+      for (const key of Array.from(this.starChunkMembers.keys())) {
+        if (key.startsWith(`g:${g}:chunk:`)) this.starChunkMembers.delete(key);
+      }
+      const stars = this.listStars(g, 1, Number.MAX_SAFE_INTEGER);
+      for (const star of stars) {
+        this._touchStarChunk(g, star, opts);
+      }
+      const chunkList = this.listStarChunks(g);
+      this._emit('update:star-chunks', { galaxy_index: g, chunks: chunkList });
+      return chunkList;
+    }
 
     ensureGalaxy(galaxyIndex) {
       const key = this._galaxyId(galaxyIndex);
@@ -234,7 +369,7 @@
       return node;
     }
 
-    delete(entity, idOrCoords) {
+    delete(entity, idOrCoords, opts = {}) {
       if (entity === 'planet') {
         const node = this.read('planet', idOrCoords);
         if (!node) return false;
@@ -250,7 +385,9 @@
         if (!node) return false;
         const sys = this.read('system', { galaxy_index: node.galaxy_index, system_index: node.system_index });
         if (sys) sys.star = null;
+        if (!opts.skipChunkUpdate) this._removeStarFromChunk(node.galaxy_index, node, opts);
         this.starIndex.delete(node.id);
+        if (!opts.skipChunkUpdate) this._emitStarChunkUpdate(node.galaxy_index);
         this._emit('delete:star', node);
         return true;
       }
@@ -258,11 +395,13 @@
       if (entity === 'system') {
         const node = this.read('system', idOrCoords);
         if (!node) return false;
+        if (node.star && !opts.skipChunkUpdate) this._removeStarFromChunk(node.galaxy_index, node.star, opts);
         if (node.star) this.starIndex.delete(node.star.id);
         for (const planet of node.planets.values()) this.planetIndex.delete(planet.id);
         const galaxy = this.read('galaxy', node.galaxy_index);
         if (galaxy) galaxy.systems.delete(node.system_index);
         this.systemIndex.delete(node.id);
+        if (!opts.skipChunkUpdate) this._emitStarChunkUpdate(node.galaxy_index);
         this._emit('delete:system', node);
         return true;
       }
@@ -270,7 +409,13 @@
       if (entity === 'galaxy') {
         const galaxy = this.read('galaxy', idOrCoords);
         if (!galaxy) return false;
-        for (const sys of galaxy.systems.values()) this.delete('system', sys.id);
+        for (const sys of Array.from(galaxy.systems.values())) this.delete('system', sys.id, { skipChunkUpdate: true });
+        for (const key of Array.from(this.starChunkIndex.keys())) {
+          if (key.startsWith(`g:${Number(galaxy.galaxy_index || 1)}:chunk:`)) this.starChunkIndex.delete(key);
+        }
+        for (const key of Array.from(this.starChunkMembers.keys())) {
+          if (key.startsWith(`g:${Number(galaxy.galaxy_index || 1)}:chunk:`)) this.starChunkMembers.delete(key);
+        }
         this.galaxies.delete(galaxy.id);
         this._emit('delete:galaxy', galaxy);
         return true;
@@ -279,20 +424,39 @@
       return false;
     }
 
-    upsertStarBatch(galaxyIndex, stars) {
+    upsertStarBatch(galaxyIndex, stars, opts = {}) {
       const g = Number(galaxyIndex || 1);
       this.ensureGalaxy(g);
       const list = Array.isArray(stars) ? stars : [];
       const out = [];
+      const rebuildChunks = opts.rebuildChunks !== false;
+      const touchedChunkKeys = new Set();
+      const removedChunkKeys = new Set();
       for (const s of list) {
         const systemIndex = Number(s?.system_index || 1);
         const sys = this.create('system', { galaxy_index: g, system_index: systemIndex });
         const existing = this.read('star', { galaxy_index: g, system_index: systemIndex });
         if (existing) {
+          const previous = rebuildChunks ? Object.assign({}, existing) : null;
           Object.assign(existing, s || {});
           existing.cached_at = Date.now();
           out.push(existing);
           this._emit('update:star', existing);
+          if (rebuildChunks) {
+            const nextKey = this._getChunkKeyForStar(g, existing, opts);
+            const previousKey = previous ? this._getChunkKeyForStar(g, previous, opts) : null;
+            if (previousKey && previousKey !== nextKey) {
+              this._removeStarFromChunk(g, previous, opts);
+              touchedChunkKeys.add(previousKey);
+              if (!this.starChunkIndex.has(previousKey)) removedChunkKeys.add(previousKey);
+              this._touchStarChunk(g, existing, opts);
+              if (nextKey) touchedChunkKeys.add(nextKey);
+            } else if (nextKey) {
+              const rebuilt = this._rebuildChunkFromMembers(nextKey, opts);
+              if (!rebuilt) this._touchStarChunk(g, existing, opts);
+              touchedChunkKeys.add(nextKey);
+            }
+          }
         } else {
           const star = this.create('star', Object.assign({}, s || {}, {
             galaxy_index: g,
@@ -300,10 +464,35 @@
             cached_at: Date.now(),
           }));
           out.push(star);
+          if (rebuildChunks) {
+            const nextKey = this._getChunkKeyForStar(g, star, opts);
+            this._touchStarChunk(g, star, opts);
+            if (nextKey) touchedChunkKeys.add(nextKey);
+          }
         }
         sys.fetched_at = Date.now();
         sys.lazy_state.star = 'loaded';
         sys.lazy_state.fetched_at = sys.fetched_at;
+      }
+      if (rebuildChunks && touchedChunkKeys.size) this._emitStarChunkUpdate(g);
+      if (rebuildChunks && typeof opts.onChunkDelta === 'function') {
+        const updatedChunkIds = Array.from(touchedChunkKeys).filter((key) => this.starChunkIndex.has(key));
+        const chunks = updatedChunkIds
+          .map((key) => this.starChunkIndex.get(key))
+          .filter(Boolean)
+          .map((chunk) => this.chunkUtils.normalizeStarChunkRecord(chunk));
+        try {
+          opts.onChunkDelta({
+            galaxy_index: g,
+            updatedChunkIds,
+            removedChunkIds: Array.from(removedChunkKeys),
+            chunks,
+          });
+        } catch (err) {
+          try {
+            console.warn('[GQGalaxyModel] onChunkDelta callback failed', err);
+          } catch (_) {}
+        }
       }
       return out;
     }
@@ -362,6 +551,31 @@
       return out;
     }
 
+    listStarChunks(galaxyIndex) {
+      const g = Number(galaxyIndex || 1);
+      const out = [];
+      for (const chunk of this.starChunkIndex.values()) {
+        if (Number(chunk.galaxy_index || 0) !== g) continue;
+        out.push(this.chunkUtils.normalizeStarChunkRecord(chunk));
+      }
+      out.sort((a, b) => (a.sector_y - b.sector_y) || (a.sector_x - b.sector_x));
+      return out;
+    }
+
+    queryStarChunks(galaxyIndex, bounds = {}) {
+      const g = Number(galaxyIndex || 1);
+      const minX = Number.isFinite(Number(bounds.minX)) ? Number(bounds.minX) : Number.NEGATIVE_INFINITY;
+      const maxX = Number.isFinite(Number(bounds.maxX)) ? Number(bounds.maxX) : Number.POSITIVE_INFINITY;
+      const minY = Number.isFinite(Number(bounds.minY)) ? Number(bounds.minY) : Number.NEGATIVE_INFINITY;
+      const maxY = Number.isFinite(Number(bounds.maxY)) ? Number(bounds.maxY) : Number.POSITIVE_INFINITY;
+      return this.listStarChunks(g).filter((chunk) => (
+        chunk.max_x_ly >= minX
+        && chunk.min_x_ly <= maxX
+        && chunk.max_y_ly >= minY
+        && chunk.min_y_ly <= maxY
+      ));
+    }
+
     listPlanets(galaxyIndex, systemIndex) {
       const sys = this.read('system', { galaxy_index: Number(galaxyIndex), system_index: Number(systemIndex) });
       if (!sys) return [];
@@ -374,6 +588,7 @@
         systems: this.systemIndex.size,
         stars: this.starIndex.size,
         planets: this.planetIndex.size,
+        starChunks: this.starChunkIndex.size,
       };
     }
 
@@ -382,6 +597,8 @@
       this.systemIndex.clear();
       this.starIndex.clear();
       this.planetIndex.clear();
+      this.starChunkIndex.clear();
+      this.starChunkMembers.clear();
       this._emit('clear:all', this.stats());
     }
   }
