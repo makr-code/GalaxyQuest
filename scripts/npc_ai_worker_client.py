@@ -40,7 +40,7 @@ class WorkerSettings(BaseSettings):
     )
 
 
-WORKER_ID_PATTERN = re.compile(r"^[a-zA-Z0-9:_-]{3,64}$")
+WORKER_ID_PATTERN = re.compile(r"[a-zA-Z0-9:_-]{3,64}")
 
 
 class ClaimRequest(BaseModel):
