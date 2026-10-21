@@ -65,6 +65,7 @@ This worker contract is intentionally simple so a Python AI worker can later rep
 ```bash
 python3 scripts/npc_ai_worker_client.py --once
 python3 scripts/npc_ai_worker_client.py
+python3 scripts/npc_ai_worker_client.py --max-iterations=100
 ```
 
 Environment variables:
@@ -75,6 +76,8 @@ Environment variables:
 - `NPC_AI_WORKER_CLAIM_LIMIT`
 - `NPC_AI_WORKER_POLL_INTERVAL_SECONDS`
 - `NPC_AI_WORKER_REQUEST_TIMEOUT_SECONDS`
+- `NPC_AI_WORKER_DECISION_MODE` (`deterministic` or `placeholder`)
+- `NPC_AI_WORKER_MAX_ITERATIONS` (`0` = unlimited)
 
 ## External Python worker HTTP contract (signed)
 

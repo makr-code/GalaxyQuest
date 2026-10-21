@@ -83,5 +83,41 @@ class WorkerClientModelsTest(unittest.TestCase):
             )
 
 
+class WorkerClientDecisionTest(unittest.TestCase):
+    def _job(self) -> worker.ClaimedJob:
+        return worker.ClaimedJob.model_validate(
+            {
+                "queue_id": 99,
+                "user_id": 7,
+                "faction_id": 3,
+                "attempts": 1,
+                "max_attempts": 3,
+                "payload": {"lore_lock": True},
+                "claim_token": "b" * 64,
+            }
+        )
+
+    def test_deterministic_mode_returns_stable_policy(self) -> None:
+        settings = worker.WorkerSettings(shared_secret="x", decision_mode="deterministic")
+        decision = worker.decide_job(self._job(), settings)
+        validated = worker.DecisionResult.model_validate(decision.result)
+        self.assertTrue(validated.reason.startswith("deterministic_"))
+        self.assertIn(validated.policy["action"], {"none", "send_message", "diplomacy_shift"})
+        self.assertGreaterEqual(int(validated.policy["delta_standing"]), -2)
+        self.assertLessEqual(int(validated.policy["delta_standing"]), 2)
+
+    def test_placeholder_mode_returns_noop(self) -> None:
+        settings = worker.WorkerSettings(shared_secret="x", decision_mode="placeholder")
+        decision = worker.decide_job(self._job(), settings)
+        validated = worker.DecisionResult.model_validate(decision.result)
+        self.assertFalse(validated.handled)
+        self.assertEqual(validated.policy["action"], "none")
+
+    def test_unsupported_mode_raises(self) -> None:
+        settings = worker.WorkerSettings(shared_secret="x", decision_mode="invalid")
+        with self.assertRaises(RuntimeError):
+            worker.decide_job(self._job(), settings)
+
+
 if __name__ == "__main__":
     unittest.main()

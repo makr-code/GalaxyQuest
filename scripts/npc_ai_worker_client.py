@@ -32,6 +32,14 @@ class WorkerSettings(BaseSettings):
     claim_limit: int = Field(default=10, description="Requested claim batch size.")
     poll_interval_seconds: float = Field(default=2.0, description="Idle polling interval.")
     request_timeout_seconds: float = Field(default=15.0, description="HTTP timeout.")
+    decision_mode: str = Field(
+        default="deterministic",
+        description="Decision mode: deterministic | placeholder.",
+    )
+    max_iterations: int = Field(
+        default=0,
+        description="Maximum loop iterations in continuous mode (0 = unlimited).",
+    )
 
     model_config = SettingsConfigDict(
         env_prefix="NPC_AI_WORKER_",
@@ -77,6 +85,12 @@ class CompletionResponse(BaseModel):
     worker_id: str
     queue_id: int
     accepted: bool
+
+
+class DecisionResult(BaseModel):
+    handled: bool
+    reason: str = Field(min_length=1, max_length=120)
+    policy: dict[str, Any] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -164,9 +178,24 @@ async def claim_jobs(
     return parsed.jobs
 
 
-def decide_job(job: ClaimedJob) -> WorkerDecision:
-    """Placeholder strategy; replace with real Python AI decision logic for production."""
+def _deterministic_decision(job: ClaimedJob) -> WorkerDecision:
+    lore_lock = bool(job.payload.get("lore_lock", True))
+    key = (job.user_id * 31 + job.faction_id * 17 + job.attempts) % 3
+    action = ["none", "send_message", "diplomacy_shift"][key]
+    standing_delta = ((job.user_id + job.faction_id + job.attempts) % 5) - 2
+    result = {
+        "handled": action != "none",
+        "reason": f"deterministic_{action}",
+        "policy": {
+            "lore_lock": lore_lock,
+            "action": action,
+            "delta_standing": standing_delta,
+        },
+    }
+    return WorkerDecision(ok=True, result=result)
 
+
+def _placeholder_decision(job: ClaimedJob) -> WorkerDecision:
     lore_lock = bool(job.payload.get("lore_lock", True))
     result = {
         "handled": False,
@@ -177,6 +206,15 @@ def decide_job(job: ClaimedJob) -> WorkerDecision:
         },
     }
     return WorkerDecision(ok=True, result=result)
+
+
+def decide_job(job: ClaimedJob, settings: WorkerSettings) -> WorkerDecision:
+    """Compute a bounded strategy result to submit to the queue completion API."""
+    if settings.decision_mode == "placeholder":
+        return _placeholder_decision(job)
+    if settings.decision_mode == "deterministic":
+        return _deterministic_decision(job)
+    raise RuntimeError(f"Unsupported NPC_AI_WORKER_DECISION_MODE: {settings.decision_mode}")
 
 
 async def complete_job(
@@ -205,7 +243,13 @@ async def run_once(client: httpx.AsyncClient, settings: WorkerSettings, log: str
     processed = 0
     for job in jobs:
         try:
-            decision = decide_job(job)
+            decision = decide_job(job, settings)
+            validated = DecisionResult.model_validate(decision.result)
+            decision = WorkerDecision(
+                ok=decision.ok,
+                result=validated.model_dump(),
+                error_message=decision.error_message,
+            )
             completion = await complete_job(client, settings, job, decision)
             log.info(
                 "job_completed",
@@ -230,12 +274,14 @@ async def run_once(client: httpx.AsyncClient, settings: WorkerSettings, log: str
     return processed
 
 
-async def run_worker(*, once: bool) -> None:
+async def run_worker(*, once: bool, max_iterations_override: int | None = None) -> None:
     settings = WorkerSettings()
     if settings.shared_secret.strip() == "":
         raise RuntimeError("NPC_AI_WORKER_SHARED_SECRET must be set.")
     if WORKER_ID_PATTERN.fullmatch(settings.worker_id) is None:
         raise RuntimeError("NPC_AI_WORKER_WORKER_ID must match [a-zA-Z0-9:_-]{3,64}.")
+    if settings.decision_mode not in {"deterministic", "placeholder"}:
+        raise RuntimeError("NPC_AI_WORKER_DECISION_MODE must be deterministic or placeholder.")
 
     log = configure_logging()
     timeout = httpx.Timeout(settings.request_timeout_seconds)
@@ -244,9 +290,19 @@ async def run_worker(*, once: bool) -> None:
             await run_once(client, settings, log)
             return
 
+        max_iterations = (
+            max(0, max_iterations_override)
+            if max_iterations_override is not None
+            else max(0, settings.max_iterations)
+        )
+        iterations = 0
         while True:
             try:
                 processed = await run_once(client, settings, log)
+                iterations += 1
+                if max_iterations > 0 and iterations >= max_iterations:
+                    log.info("worker_max_iterations_reached", iterations=iterations)
+                    return
                 if processed == 0:
                     await asyncio.sleep(max(0.2, settings.poll_interval_seconds))
             except httpx.HTTPError as exc:
@@ -260,12 +316,18 @@ async def run_worker(*, once: bool) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="GalaxyQuest NPC AI signed worker client.")
     parser.add_argument("--once", action="store_true", help="Process one claim batch and exit.")
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help="Maximum loop iterations in continuous mode (overrides env setting).",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    asyncio.run(run_worker(once=args.once))
+    asyncio.run(run_worker(once=args.once, max_iterations_override=args.max_iterations))
 
 
 if __name__ == "__main__":
