@@ -27,7 +27,15 @@ function ensure_user_character_profile(PDO $db, int $userId, bool $isNpc = false
         $username = (string)($u->fetchColumn() ?: ('user_' . $userId));
     }
 
-    $profile = character_profile_fallback($userId, $username, $isNpc);
+    $speciesCode = '';
+    if (!$isNpc && (int)$db->query(
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'user_onboarding'"
+    )->fetchColumn() > 0) {
+        $selection = $db->prepare('SELECT species_code FROM user_onboarding WHERE user_id = ?');
+        $selection->execute([$userId]);
+        $speciesCode = (string)($selection->fetchColumn() ?: '');
+    }
+    $profile = character_profile_fallback($userId, $username, $isNpc, $speciesCode);
     $profile['_fallback'] = true;
     $paths = [
         'dir_abs' => dirname(__DIR__) . DIRECTORY_SEPARATOR . 'generated' . DIRECTORY_SEPARATOR . 'characters' . DIRECTORY_SEPARATOR . 'u_' . $userId,
@@ -40,7 +48,7 @@ function ensure_user_character_profile(PDO $db, int $userId, bool $isNpc = false
     $lastError = '';
 
     try {
-        $profile = character_profile_generate_payload($db, $userId, $username, $isNpc);
+        $profile = character_profile_generate_payload($db, $userId, $username, $isNpc, $speciesCode);
         $paths = character_profile_store_files($userId, $profile);
         $portrait = character_profile_generate_portrait($userId, $profile, $paths['dir_abs']);
 
@@ -118,16 +126,17 @@ function ensure_character_profile_tables(PDO $db): void {
     );
 }
 
-function character_profile_generate_payload(PDO $db, int $userId, string $username, bool $isNpc): array {
-    $fallback = character_profile_fallback($userId, $username, $isNpc);
+function character_profile_generate_payload(PDO $db, int $userId, string $username, bool $isNpc, string $speciesCode = ''): array {
+    $fallback = character_profile_fallback($userId, $username, $isNpc, $speciesCode);
     if (!ollama_is_enabled()) {
         $fallback['_fallback'] = true;
         return $fallback;
     }
 
-    // Pick a random species and load its design specs for consistent portraits
-    $species = character_profile_pick_random_species($db);
-    $speciesCode = $species['species_code'] ?? 'aereth';
+    if ($speciesCode === '') {
+        $species = character_profile_pick_random_species($db);
+        $speciesCode = $species['species_code'] ?? 'aereth';
+    }
     $speciesDesigns = character_profile_load_species_designs($db, $speciesCode);
 
     $model = character_profile_pick_model();
@@ -171,7 +180,7 @@ function character_profile_generate_payload(PDO $db, int $userId, string $userna
         return $fallback;
     }
 
-    $race = character_profile_trim((string)($payload['race'] ?? ''), 80);
+    $race = character_profile_trim((string)($speciesDesigns['display_name'] ?? $payload['race'] ?? ''), 80);
     $profession = character_profile_trim((string)($payload['profession'] ?? ''), 80);
     $stance = character_profile_trim((string)($payload['stance'] ?? ''), 80);
     $vita = character_profile_trim((string)($payload['vita'] ?? ''), 500);
@@ -315,7 +324,7 @@ function character_profile_parse_json(string $raw): ?array {
     return null;
 }
 
-function character_profile_fallback(int $userId, string $username, bool $isNpc): array {
+function character_profile_fallback(int $userId, string $username, bool $isNpc, string $speciesCode = ''): array {
     $races = ['Human Frontierborn', 'Cephalid Synapsekin', 'Crystalline Asterite', 'Insectoid Varkh', 'Synthetic Helion'];
     $jobs = ['Navigator', 'Trade Envoy', 'Recon Analyst', 'Xeno-Archaeologist', 'Fleet Logistician'];
     $stances = ['Pragmatic', 'Diplomatic', 'Resolute', 'Skeptical', 'Opportunistic'];
@@ -329,7 +338,7 @@ function character_profile_fallback(int $userId, string $username, bool $isNpc):
         . '. Their ' . strtolower($stance) . ' outlook makes them effective in uncertain diplomacy.
 In hostile regions they balance risk, intelligence, and timing before committing resources.';
 
-    return [
+    $profile = [
         'username' => $username,
         'is_npc' => $isNpc,
         'race' => $race,
@@ -344,6 +353,14 @@ In hostile regions they balance risk, intelligence, and timing before committing
             'is_npc' => $isNpc,
         ]),
     ];
+    if ($speciesCode !== '') {
+        $design = character_profile_load_species_designs_from_files($speciesCode);
+        if (!$design) throw new InvalidArgumentException('Selected species has no design specification: ' . $speciesCode);
+        $profile['race'] = $design['display_name'];
+        $profile['species_code'] = $speciesCode;
+        $profile['portrait_prompt'] = character_profile_build_prompt_with_designs($design, $profile);
+    }
+    return $profile;
 }
 
 /**

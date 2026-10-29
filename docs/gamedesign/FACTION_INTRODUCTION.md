@@ -1,10 +1,19 @@
 # 🌌 Fraktionseinführung – Spielerstart & Aufstieg in der Kalytherion-Konvergenz
 
-**Version:** 1.3  
+**Version:** 1.4
 **Status:** Konzept & LORE – Blaupause für Spieldesign & Erzählung  
 **Zugehörig zu:** [GAMEDESIGN.md](GAMEDESIGN.md) → [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md)  
 **Registrierungs-Prolog:** [ONBOARDING_PROLOGUE_DESIGN.md](ONBOARDING_PROLOGUE_DESIGN.md)
-**Entscheidungen (kanonisch):** Rasse bei Spielstart wählen · Isolationspfad vollständig spezifiziert · Legacy-NPC-Fraktionen Hard-Replace (ALTER + UPDATE) · Spieler-Startmitgliedschaft · Gilde-Gründung möglich (Spieler-eigene Organisationen)
+**Entscheidungen (kanonisch):** Politische Fraktion und Spezies unabhängig wählen · Privater Registrierungs-Prolog vor der E-Mail-Verifikation · Isolationspfad vollständig spezifiziert · Legacy-NPC-Fraktionen Hard-Replace (ALTER + UPDATE) · Gilde-Gründung möglich (Spieler-eigene Organisationen)
+
+> **Vorrang für den Registrierungsstart:** [Onboarding-Design v2, Abschnitt 0](ONBOARDING_PROLOGUE_DESIGN.md#0-massgeblicher-zielablauf-spielbarer-prolog-vor-der-registrierung)
+> ersetzt die frühere automatische Kopplung Rasse → Fraktionsmitgliedschaft.
+> Zur Wahl stehen Schildzirkel, Lichtbund, Kernrat und Schattenzirkel; anschließend
+> unabhängig davon eine der sechs Spezies. Die sechs Herolde und ihre Heimatwelten
+> bleiben Teil der Lore, sind aber nicht sechs politische Registrierungsoptionen.
+> Alte Startbonus- und Mitgliedschaftstabellen unten sind historischer Designvorrat,
+> keine bereits aktiven Registrierungsboni. Khal'Vethis ist das narrative Vorbild
+> der persönlichen Randwelt, kein gemeinsam beanspruchter Startplanet.
 
 ---
 
@@ -1469,8 +1478,11 @@ CREATE TABLE IF NOT EXISTS galactic_events (
 
 ### 13.2 Startmitgliedschaft: Rasse → interne Fraktionsstelle
 
-Der Spieler beginnt als **Neubürger (Rang 1)** seiner Heimatfraktion. Diese Startmitgliedschaft
-ist automatisch und bedarf keiner Quest-Aktivierung.
+**Historisches Modell; für die Registrierung durch Onboarding v2 ersetzt.**
+Die gewünschte politische Zugehörigkeit wird ausdrücklich gewählt, nicht aus
+der Spezies abgeleitet. Rang, Standing und Mitgliedschaft werden nicht bereits
+beim privaten Draft als reale Spielerobjekte angelegt. Ihre endgültige Abbildung
+erfolgt erst mit der verifizierten Weltaktivierung.
 
 **Mitglieds-Ränge (interne Hierarchie):**
 

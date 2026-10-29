@@ -13,6 +13,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as EcoModule from '../../js/engine/game/EconomySimulation.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -429,7 +430,6 @@ describe('PRODUCTION_CHAIN — completeness (via rendered HTML)', () => {
 // (These tests import EconomySimulation directly, verifying production chain)
 // ---------------------------------------------------------------------------
 
-import * as EcoModule from '../../js/engine/game/EconomySimulation.js';
 const {
   EconomySimulation,
   GoodType,
@@ -588,22 +588,8 @@ describe('EconomySimulation — Tier-2 chain: all 5 buildings produce their resp
       expect(result.produced[good] ?? 0).toBeGreaterThan(0);
     });
   }
- * runtime-economy-controller.test.js
- *
- * Unit tests for RuntimeEconomyController — Population tab (Sprint 2.2).
- *
- * Covers:
- *   • Population tab renders via _buildFullHtml (tab button visible)
- *   • _renderPopulationTab: colony cards show satisfaction, production_mult, migration
- *   • _satClass colour mapping
- *   • _loadPopulationTab calls api.economyPopStatus
- *   • Pop-policy save button calls api.setPopPolicy with correct params
- *   • refresh() resets popStatus so it re-fetches
- */
-
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import fs   from 'node:fs';
-import path from 'node:path';
+});
+// Population-tab tests
 
 const controllerPath = path.resolve(process.cwd(), 'js/engine/runtime/RuntimeEconomyController.js');
 
@@ -660,13 +646,13 @@ describe('RuntimeEconomyController — Population tab button', () => {
     expect(tabBtns).toContain('population');
   });
 
-  it('renders three tabs: policy, overview, population', () => {
+  it('renders all economy tabs in order', () => {
     const { createEconomyController } = loadController();
     const root = document.createElement('div');
     createEconomyController({ wm: makeWm(root), api: makeApi(), esc: (v) => String(v ?? '') }).render();
 
     const tabs = [...root.querySelectorAll('[data-economy-tab]')].map((b) => b.dataset.economyTab);
-    expect(tabs).toEqual(['policy', 'overview', 'population']);
+    expect(tabs).toEqual(['policy', 'overview', 'production', 'market', 'population']);
   });
 });
 

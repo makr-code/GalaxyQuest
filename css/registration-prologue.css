@@ -1,0 +1,53 @@
+.registration-prologue[hidden], .registration-prologue [hidden] { display: none !important; }
+body.registration-active #auth-section,
+body.registration-active #auth-status-section,
+body.registration-active #auth-preload-section,
+body.registration-active #auth-action-section,
+body.registration-active #boot-terminal,
+body.registration-active #copyright,
+body.registration-active #affilates { display: none !important; }
+.registration-prologue {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  overflow: auto;
+  color: #e3efff;
+  background: linear-gradient(90deg, #000b, #0004, #0009);
+}
+.registration-back { position: sticky; top: 20px; margin: 20px 24px; z-index: 1; background: #102536bb; border: 1px solid #a7dfff66; padding: 10px 24px; color: #ddecff; cursor: pointer; }
+.registration-stage { width: min(940px, calc(100% - 48px)); margin: min(12svh, 100px) auto 60px; text-align: center; }
+.registration-chapter { font-size: .75rem; letter-spacing: .2em; text-transform: uppercase; color: #9dc6e3; }
+.registration-stage h2 { font-size: clamp(1.7rem, 4vw, 3.4rem); font-weight: 400; letter-spacing: .05em; }
+.registration-story { max-width: 720px; margin: 28px auto; font-size: clamp(1rem, 2vw, 1.3rem); line-height: 1.9; white-space: pre-line; }
+.registration-reveal { animation: registration-reveal 1.1s ease-out both; }
+.registration-choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin: 28px auto; }
+.registration-choice { flex: 0 1 190px; border: 1px solid #a7dfff44; background: #06121d88; color: #e3efff; padding: 22px 12px; cursor: pointer; font: inherit; }
+.registration-choice[aria-pressed="true"] { border-color: var(--faction-color, #bce6ff); box-shadow: 0 0 32px #9dc6e333; background: #193650bb; }
+.registration-choice svg { display: block; width: 64px; height: 64px; margin: 0 auto 20px; color: var(--faction-color, #bce6ff); }
+.registration-choice:focus-visible, .registration-back:focus-visible { outline: 2px solid #bce6ff; outline-offset: 4px; }
+.registration-stage-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 24px; }
+#registration-character-form { display: grid; text-align: left; gap: 12px; max-width: 520px; margin: 24px auto; }
+#registration-character-form input, #registration-character-form textarea { width: 100%; box-sizing: border-box; background: #0c2032dd; color: #e3efff; border: 1px solid #a7dfff77; padding: 12px; font: inherit; }
+#registration-error { color: #ffb4a1; }
+.registration-portrait { max-width: 520px; margin: 20px auto; }
+.registration-portrait img { display: block; margin: 0 auto; object-fit: contain; border: 1px solid #a7dfff44; }
+#registration-narration-status, .registration-draft-summary, #registration-character-form p { font-size: .85rem; line-height: 1.7; color: #b6cadd; }
+#registration-flight-status { font-size: .8rem; line-height: 1.6; color: #b6cadd; }
+.registration-prologue:is([data-phase="species"], [data-phase="character"], [data-phase="surface"]) { background: linear-gradient(90deg, #000a, transparent 70%); }
+@media (min-width: 900px) {
+  .registration-prologue:is([data-phase="species"], [data-phase="character"], [data-phase="surface"]) .registration-stage {
+    width: 340px; margin: 0 24px 40px; padding: 20px; background: #04101bcc; border: 1px solid #a7dfff33;
+  }
+  .registration-prologue:is([data-phase="species"], [data-phase="character"], [data-phase="surface"]) h2 { font-size: 1.6rem; }
+  .registration-prologue:is([data-phase="species"], [data-phase="character"], [data-phase="surface"]) .registration-story { font-size: .9rem; line-height: 1.6; margin: 16px auto; }
+  .registration-prologue[data-phase="species"] .registration-choice { flex-basis: calc(50% - 10px); padding: 12px 8px; }
+  .registration-prologue[data-phase="species"] .registration-choice svg { width: 32px; height: 32px; margin-bottom: 10px; }
+}
+@keyframes registration-reveal { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@media (max-width: 600px) {
+  .registration-stage { margin-top: 20px; }
+  .registration-choice { flex-basis: calc(50% - 12px); padding: 16px 8px; min-width: 0; }
+  .registration-choice svg { width: 48px; height: 48px; }
+}
+@media (prefers-reduced-motion: reduce) { body:not([data-start-reduced-motion="false"]) .registration-reveal { animation: none; } }
+.start-reduced-motion .registration-reveal { animation: none; }

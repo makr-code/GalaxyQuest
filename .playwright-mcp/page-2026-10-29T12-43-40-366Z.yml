@@ -1,0 +1,70 @@
+- generic [active] [ref=e1]:
+  - main "GalaxyQuest main menu" [ref=e7]:
+    - generic [ref=e8]:
+      - paragraph [ref=e9]: A galaxy of possibilities
+      - heading "GalaxyQuest" [level=1] [ref=e10]
+      - paragraph [ref=e11]: Conquer the Stars
+    - navigation "Main menu" [ref=e12]:
+      - button "Login" [ref=e13] [cursor=pointer]
+      - button "Register Begin your story" [ref=e14] [cursor=pointer]:
+        - text: Register
+        - generic [ref=e15]: Begin your story
+      - button "News Transmission feed" [ref=e16] [cursor=pointer]:
+        - text: News
+        - generic [ref=e17]: Transmission feed
+      - button "Blog Beyond the frontier" [ref=e18] [cursor=pointer]:
+        - text: Blog
+        - generic [ref=e19]: Beyond the frontier
+      - button "Settings Your experience" [ref=e20] [cursor=pointer]:
+        - text: Settings
+        - generic [ref=e21]: Your experience
+    - status [ref=e22]: Session could not be checked. Sign in or try reloading.
+    - generic [ref=e23]:
+      - link "Galaxy Quest Interactive" [ref=e24] [cursor=pointer]:
+        - /url: README.md
+      - generic [ref=e28]: © 2026 Galaxy Quest Interactive. All rights reserved.
+      - generic [ref=e29]: v1.0.0 · Development build
+  - generic [ref=e30]:
+    - generic [ref=e31]: "AUTH: Initializing shell..."
+    - button "Status / Logs" [ref=e32] [cursor=pointer]
+  - region "Entwickler-Konsole" [ref=e33]:
+    - generic [ref=e34]:
+      - generic [ref=e35]:
+        - strong [ref=e36]: Console
+        - generic [ref=e37]: "Mode: Fallback"
+      - generic [ref=e38]:
+        - generic [ref=e39]: Level
+        - combobox "Level" [ref=e40]:
+          - option "All" [selected]
+          - option "Abort"
+          - option "Error"
+          - option "Warn"
+          - option "Info"
+          - option "Log"
+          - option "Debug"
+          - option "System"
+        - button "Copy" [ref=e41] [cursor=pointer]
+        - button "Clear" [ref=e42] [cursor=pointer]
+        - button "Close" [ref=e43] [cursor=pointer]
+    - generic [ref=e44]:
+      - generic [ref=e45]: "[13:43:40] [INFO] [boot] Boot terminal active | Fallback aktiv bis terminal.js uebernimmt"
+      - generic [ref=e46]: "[13:43:40] [INFO] [auth-fallback] [auth] bootstrap start"
+      - generic [ref=e47]: "[13:43:40] [INFO] [probe] [auth] bootstrap start"
+      - generic [ref=e48]: "[13:43:40] [INFO] [probe] [auth] login handler bound=true"
+      - generic [ref=e49]: "[13:43:40] [INFO] [probe] [auth] register handler bound=true"
+      - generic [ref=e50]: "[13:43:40] [INFO] [auth-fallback] [auth] [login-ui] boot progress 8% Pruefe Session..."
+      - generic [ref=e51]: "[13:43:40] [INFO] [auth-fallback] [auth] [login-ui] checking session state"
+      - generic [ref=e52]: "[13:43:40] [INFO] [auth-fallback] [auth] [login-ui] auth preload panel hidden (reset)"
+      - generic [ref=e53]: "[13:43:40] [INFO] [probe] index load event reached"
+      - generic [ref=e54]: "[13:43:40] [ERROR] [auth-fallback] [auth] [login-ui] menu session check failed invalid server response (session-menu)"
+      - generic [ref=e55]: "[13:43:40] [WARN] [auth-fallback] [auth] [login-ui] session check failed, staying on auth screen"
+      - generic [ref=e56]: "[13:43:40] [INFO] [auth-fallback] [auth] [login-ui] auth preload panel hidden (reset)"
+      - generic [ref=e57]: "[13:43:40] [INFO] [auth-fallback] [auth] [login-ui] login confirm section hidden"
+      - generic [ref=e58]: "[13:43:40] [INFO] [auth-fallback] [auth] [initdiag] stage=setAuthVisible body=auth-page authVisible=true gameSectionExists=false gameVisible=false wmReady=false registryReady=false galaxyOpen=false orb=false starfieldReady=true terminalReady=false"
+      - generic [ref=e59]: "[13:43:40] [INFO] [bootdiag] [initdiag] stage=setAuthVisible body=auth-page authVisible=true gameSectionExists=false gameVisible=false wmReady=false registryReady=false galaxyOpen=false orb=false starfieldReady=true terminalReady=false | auth-init"
+      - generic [ref=e60]: "[13:43:40] [INFO] [auth-fallback] [auth] [login-ui] auth preload panel hidden (reset)"
+      - generic [ref=e61]: "[13:43:40] [INFO] [auth-fallback] [auth] bootstrap ready"
+      - generic [ref=e62]: "[13:43:40] [INFO] [auth-fallback] [auth] dev tools status unavailable Unexpected token '<', \""
+    - generic [ref=e63]:
+      - textbox "help | refresh | home | open settings | transitions on/off | msg <user> <text>" [ref=e64]
+      - button "Run" [ref=e65] [cursor=pointer]

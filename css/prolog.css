@@ -18,6 +18,7 @@
 .prolog-section.hidden {
   display: none;
 }
+.prolog-section [hidden] { display: none !important; }
 
 /* ── Phase base ───────────────────────────────────────── */
 .prolog-phase {

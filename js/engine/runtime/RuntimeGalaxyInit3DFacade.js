@@ -322,10 +322,9 @@
 
       const gqZoom = state.windowRef.GQSeamlessZoomOrchestrator || {};
       const gqLevels = {
-        // Three.js levels remain wired as compatibility backends while WebGPU reaches parity.
+        // Keep legacy classes only as explicit compatibility implementations.
         galaxyThreeJS: (state.windowRef.GQGalaxyLevelThreeJS || {}).GalaxyLevelThreeJS,
-        galaxyWebGPU: (state.windowRef.GQGalaxyLevelWebGPU || {}).GalaxyLevelWebGPU
-          || (state.windowRef.GQGalaxyLevelThreeJS || {}).GalaxyLevelThreeJS,
+        galaxyWebGPU: (state.windowRef.GQGalaxyLevelWebGPU || {}).GalaxyLevelWebGPU,
         systemThreeJS: (state.windowRef.GQSystemLevelThreeJS || {}).SystemLevelThreeJS,
         systemWebGPU: (state.windowRef.GQSystemLevelWebGPU || {}).SystemLevelWebGPU,
         planetThreeJS: (state.windowRef.GQPlanetApproachLevelThreeJS || {}).PlanetApproachLevelThreeJS,
@@ -590,6 +589,9 @@
             getCurrentOrchestrator: () => state.getZoomOrchestrator?.() || null,
             sharedCanvas,
             settingsState,
+            rendererCtor: GalaxyViewCtor,
+            rendererContainer: holder,
+            rendererOptions,
             SeamlessZoomOrchestrator,
             ZOOM_LEVEL,
             levels: gqLevels,

@@ -1,0 +1,10 @@
+[     104ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://127.0.0.1:8080/:1750
+[     287ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:8080/:0
+[     287ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:8080/:0
+[     340ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     340ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     341ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     402ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Stellar_Ascension%20v2.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     402ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Nebula_Overture.mp3, to: music/Stellar_Ascension%20v2.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     403ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Stellar_Ascension%20v2.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     514ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://127.0.0.1:8080/js/rendering/starfield-webgpu.js:331

@@ -24,6 +24,21 @@ Unified server setup (schema + migrations + bootstrap):
 docker compose exec -T web php setup.php
 ```
 
+Setup also creates persistent faction capitals/NPC footholds, their engine-controlled
+owners and starter assets. Placements for the 19 lore factions are explicit in
+[faction_homeworlds.json](config/faction_homeworlds.json) and currently marked as
+provisional. Other DB/PvE factions receive deterministic footholds. Existing worlds
+and spent resources are preserved on reruns; occupied locations are never taken over.
+See [setup behavior and verification](docs/technical/REALITY_CHECK_2026-10-29.md#fraktionshauptwelten-als-setup-voraussetzung).
+
+On an **already migrated** database, preview or ensure just these homeworlds without
+the global galaxy warmup:
+
+```bash
+docker compose exec -T web php setup.php --homeworlds-only --dry-run
+docker compose exec -T web php setup.php --homeworlds-only
+```
+
 If you changed galaxy generation and want a full regeneration of cached systems:
 
 ```bash
@@ -487,15 +502,31 @@ window.__GQ_RENDER_TELEMETRY         // → array of render events
 
 ## Architecture & Design Decisions
 
-### No Framework, No Build Step
+Current implementation status and verification limits: [Reality Check (29 October 2026)](docs/technical/REALITY_CHECK_2026-10-29.md).
 
-The frontend is plain HTML5 + CSS3 + vanilla JS (ES2020). The backend is plain PHP 8 with PDO. This was a deliberate choice:
+### Vanilla JavaScript and ES Modules
 
-- **Zero deploy friction** — copy files, create DB, done.
-- **No transpiler, bundler, or package manager** — `index.html` is a unified self-contained shell.
-- **Full control** — every byte of the stack is readable without tooling.
+The frontend uses HTML5, CSS3 and vanilla JavaScript ES modules, with PHP 8 and PDO on the backend. The active page entry point is `js/main.js`, loaded by `index.html`; it composes the authentication and renderer runtimes, then initializes the game domains after authentication succeeds and exposes the public runtime through `window.GQGame`.
 
-The only "framework" is a ~300-line home-grown **Window Manager** (`js/wm.js`) that gives the UI a desktop metaphor (draggable floating windows, taskbar, localStorage position persistence).
+- **No UI framework** — application UI and runtime behavior are implemented in project modules.
+- **Build and test tooling exists** — Vite, Vitest and Playwright are configured in `package.json`; the project is not dependency-free.
+- **Deployment must serve the module graph and assets correctly** — Docker/PHP setup remains available, while Vite provides development and build commands.
+
+#### Local Vite + PHP development
+
+`npm run vite:dev` serves the frontend on `http://127.0.0.1:8080` and proxies
+PHP requests (including registration, sessions, portraits and narration) to
+`http://127.0.0.1:8081`. The PHP backend must be running separately, serving
+this repository with its configured MySQL database. Vite does not execute PHP.
+Port 8080 is strict so a conflict does not silently open a different frontend.
+The Compose Apache service binds to `127.0.0.1:8081`; start the existing backend
+services with `docker compose up -d --no-build db tts web`, then run Vite.
+
+For another PHP backend, set `GQ_PHP_BACKEND_URL` in the shell or in the local
+Vite `.env.local` file, then restart Vite. Keep database credentials on the PHP
+server, not in `VITE_*` variables. An unavailable backend returns a JSON 502
+with a setup hint rather than serving PHP source or a misleading HTML response.
+The development audio catalogue remains available directly from Vite.
 
 ### Server-authoritative, Tick-free
 
@@ -872,5 +903,3 @@ When running tests and development scripts, the following temporary files are **
 - `*.pyc`, `__pycache__/` – Python cache files
 
 **Best practice:** Verify these files are ignored in your Git status before committing. They should never appear in `git status`.
-
-

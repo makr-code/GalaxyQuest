@@ -30,7 +30,7 @@ final class FactionShipSignature {
     private const SIGNATURES = [
         'vor_tak' => [
             'silhouette' => 'wedge-based, heavily armored, front-heavy, with dorsal spinal ridges',
-            'materials' => 'dark industrial metals, bone-colored plating, bronze accents, matte finish',
+            'materials' => 'dark industrial metals, layered armor plating, bronze accents, matte finish',
             'signature_parts' => ['jaw_bridge', 'dorsal_spine', 'armor_scales'],
             'color_primary' => '#8B4513',      // dark brown-bronze
             'color_secondary' => '#C0C0C0',    // silver
@@ -39,7 +39,7 @@ final class FactionShipSignature {
         ],
         'syl_nar' => [
             'silhouette' => 'soft orbital geometry, flowing curves, tentacle-like extensions, bioluminescent features',
-            'materials' => 'translucent shells, bio-luminescent veins, wet-glossy surfaces, mother-of-pearl shimmer',
+            'materials' => 'translucent shells, bioluminescent veins, wet-glossy surfaces, mother-of-pearl shimmer',
             'signature_parts' => ['halo_tentacles', 'lumen_veins', 'tide_fins'],
             'color_primary' => '#4169E1',      // royal blue
             'color_secondary' => '#7FFFD4',    // aquamarine

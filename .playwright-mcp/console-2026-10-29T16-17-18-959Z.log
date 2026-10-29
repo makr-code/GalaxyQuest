@@ -1,0 +1,113 @@
+[     150ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://127.0.0.1:8080/:1852
+[     235ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:8080/:0
+[     254ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     255ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     256ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Stellar_Ascension%20trance%20v1.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     263ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Aurora_Transit.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     263ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Stellar_Ascension%20trance%20v1.mp3, to: music/Aurora_Transit.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     263ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Aurora_Transit.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[     264ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[     267ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[     267ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8080/favicon.ico:0
+[     278ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:8080/api/v1/server_announcements.php?action=list:0
+[     383ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://127.0.0.1:8080/js/rendering/starfield-webgpu.js:331
+[   12431ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   12431ms] [INFO] [GQ][Audio] Play-Versuch {track: music/Aurora_Transit.mp3, muted: false, volume: 0.44000000000000006} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   12540ms] [INFO] [GQ][Audio] Musik läuft {track: music/Aurora_Transit.mp3, currentTime: 0} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   12540ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-pause'%20viewBox='0%200%2024%2024'%3e%3crect%20x='7'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3crect%20x='13'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-pause from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   12540ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-pause'%20viewBox='0%200%2024%2024'%3e%3crect%20x='7'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3crect%20x='13'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-pause from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   12549ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8080/favicon.ico:0
+[   14463ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-pause'%20viewBox='0%200%2024%2024'%3e%3crect%20x='7'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3crect%20x='13'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-pause from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   14464ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   14464ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   15774ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   15774ms] [INFO] [GQ][Audio] Play-Versuch {track: music/Aurora_Transit.mp3, muted: false, volume: 0.44000000000000006} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   15805ms] [INFO] [GQ][Audio] Musik läuft {track: music/Aurora_Transit.mp3, currentTime: 1.948739} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   15805ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-pause'%20viewBox='0%200%2024%2024'%3e%3crect%20x='7'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3crect%20x='13'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-pause from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   15805ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-pause'%20viewBox='0%200%2024%2024'%3e%3crect%20x='7'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3crect%20x='13'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-pause from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   17005ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-pause'%20viewBox='0%200%2024%2024'%3e%3crect%20x='7'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3crect%20x='13'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-pause from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   17006ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: true} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   17006ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Aurora_Transit.mp3, to: music/Nebula_Overture.mp3, autoplay: true, smooth: true, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   17522ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-pause'%20viewBox='0%200%2024%2024'%3e%3crect%20x='7'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3crect%20x='13'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-pause from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   17522ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-pause'%20viewBox='0%200%2024%2024'%3e%3crect%20x='7'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3crect%20x='13'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-pause from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   22879ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-pause'%20viewBox='0%200%2024%2024'%3e%3crect%20x='7'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3crect%20x='13'%20y='5'%20width='4'%20height='14'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-pause from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   22879ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   22879ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   53980ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://127.0.0.1:8080/:1850
+[   54067ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:8080/:0
+[   54097ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   54097ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   54097ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   54103ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Aurora_Transit.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   54104ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Nebula_Overture.mp3, to: music/Aurora_Transit.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   54104ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Aurora_Transit.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   54104ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   54105ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Aurora_Transit.mp3, to: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   54105ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Stellar_Ascension%20trance%20v1.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[   54105ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   54109ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   54109ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[   54126ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:8080/api/v1/server_announcements.php?action=list:0
+[   54212ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://127.0.0.1:8080/js/rendering/starfield-webgpu.js:331
+[  105857ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://127.0.0.1:8080/:1850
+[  105967ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:8080/:0
+[  105977ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  105977ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  105977ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Stellar_Ascension%20trance%20v1.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  105983ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Quantum_Horizon.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  105984ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Stellar_Ascension%20trance%20v1.mp3, to: music/Quantum_Horizon.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  105984ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Quantum_Horizon.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  105984ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[  105989ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[  106013ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:8080/api/v1/server_announcements.php?action=list:0
+[  106071ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://127.0.0.1:8080/js/rendering/starfield-webgpu.js:331
+[  145168ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://127.0.0.1:8080/:1850
+[  145235ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:8080/:0
+[  145241ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Quantum_Horizon.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  145241ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Quantum_Horizon.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  145241ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Quantum_Horizon.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  145252ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Aurora_Transit.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  145253ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Quantum_Horizon.mp3, to: music/Aurora_Transit.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  145253ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Aurora_Transit.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  145253ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[  145255ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[  145276ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:8080/api/v1/server_announcements.php?action=list:0
+[  145315ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://127.0.0.1:8080/js/rendering/starfield-webgpu.js:331
+[  276493ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://127.0.0.1:8080/:1850
+[  276589ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:8080/:0
+[  276598ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Aurora_Transit.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  276598ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Aurora_Transit.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  276598ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Aurora_Transit.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  276645ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  276646ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Aurora_Transit.mp3, to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  276646ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://127.0.0.1:8080/js/runtime/audio.js:230
+[  276646ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[  276650ms] [ERROR] Unsafe attempt to load URL data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20style='display:none'%3e%3csymbol%20id='icon-play'%20viewBox='0%200%2024%2024'%3e%3cpath%20d='M8%205l11%207-11%207z'%20fill='currentColor'/%3e%3c/symbol%3e%3c/svg%3e#icon-play from frame with URL http://127.0.0.1:8080/. Domains, protocols and ports must match.
+ @ http://127.0.0.1:8080/js/network/start-music-player.js:29
+[  276667ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:8080/api/v1/server_announcements.php?action=list:0
+[  276695ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://127.0.0.1:8080/js/rendering/starfield-webgpu.js:331

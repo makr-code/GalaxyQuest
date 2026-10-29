@@ -136,6 +136,7 @@
         try {
           this._native = new window.StarfieldWebGPU(canvas, {
             stars: this._opts.initialStars || [],
+            menuGalaxy: this._opts.menuGalaxy === true,
           });
           await this._native.init();
           this._backend = this._native.backendType || 'webgpu';
@@ -147,6 +148,11 @@
           });
           return;
         } catch (err) {
+          if (this._opts.menuGalaxy) {
+            this._native.destroy();
+            this._native = null;
+            throw err;
+          }
           emitRenderTelemetry('fallback', {
             from: 'webgpu',
             to: 'webgl2',
@@ -155,6 +161,9 @@
         }
       }
 
+      if (this._opts.menuGalaxy) {
+        throw new Error('The start-screen galaxy requires WebGPU. No legacy renderer will be started.');
+      }
       const allowLegacyFallback = !interactive || this._allowLegacyThreeFallback;
       this._backend = 'webgl2';
       if (!allowLegacyFallback) {
@@ -218,6 +227,12 @@
     setCameraTarget(target) {
       this._callNative('setCameraTarget', [target]);
       return this._callDelegate('setCameraTarget', [target]);
+    }
+    setRegionPreview(target) {
+      return this._callNative('setRegionPreview', [target]);
+    }
+    setRegistrationScene(scene) {
+      return this._callNative('setRegistrationScene', [scene]) === true;
     }
     setTransitionsEnabled(flag) {
       this._callNative('setTransitionsEnabled', [flag]);
@@ -312,6 +327,40 @@
     get starPoints() { return this._delegate?.starPoints ?? this._native?.starPoints ?? null; }
     get stars() { return this._delegate?.stars ?? this._native?.stars ?? []; }
     get backendType() { return this._delegate?.rendererBackend ?? this._delegate?.backendType ?? this._native?.backendType ?? this._backend; }
+    get device() { return this._delegate?.device ?? this._delegate?._device ?? this._native?._device ?? null; }
+    get context() { return this._delegate?.context ?? this._delegate?._context ?? this._native?._context ?? null; }
+    getCapabilities() {
+      if (typeof this._delegate?.getCapabilities === 'function') return this._delegate.getCapabilities();
+      return { webgpu: this.backendType === 'webgpu', webgl2: this.backendType === 'webgl2' };
+    }
+    addFrameHook(hook) {
+      if (typeof this._delegate?.addFrameHook !== 'function') return null;
+      return this._delegate.addFrameHook(hook);
+    }
+    createMesh(descriptor) {
+      if (typeof this._delegate?.createMesh !== 'function') {
+        throw new Error('The active renderer does not support shared WebGPU object meshes');
+      }
+      return this._delegate.createMesh(descriptor);
+    }
+    setMeshRotation(handle, rotation) {
+      if (typeof this._delegate?.setMeshRotation !== 'function') {
+        throw new Error('The active renderer does not support shared WebGPU object meshes');
+      }
+      return this._delegate.setMeshRotation(handle, rotation);
+    }
+    renderMesh(handle) {
+      if (typeof this._delegate?.renderMesh !== 'function') {
+        throw new Error('The active renderer does not support shared WebGPU object meshes');
+      }
+      return this._delegate.renderMesh(handle);
+    }
+    destroyMesh(handle) {
+      if (typeof this._delegate?.destroyMesh !== 'function') {
+        throw new Error('The active renderer does not support shared WebGPU object meshes');
+      }
+      return this._delegate.destroyMesh(handle);
+    }
     get instanceId() { return this._delegate?.instanceId ?? this._native?.instanceId ?? ''; }
     get systemMode() { return !!(this._delegate?.systemMode ?? this._native?.systemMode ?? false); }
     get visibleStars() { return this._delegate?.visibleStars ?? this._native?.visibleStars ?? []; }

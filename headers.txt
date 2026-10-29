@@ -1,0 +1,18 @@
+HTTP/1.1 200 OK
+Date: Sun, 30 Aug 2026 09:56:57 GMT
+Server: Apache/2.4.68 (Debian)
+X-Powered-By: PHP/8.2.33
+Set-Cookie: XDEBUG_SESSION=VSCODE; path=/; SameSite=Lax
+X-API-Legacy-Route: 1
+X-API-Recommended-Prefix: /api/v1/
+Set-Cookie: PHPSESSID=a2ddd46fe620f48b774200fb19814c3f; expires=Sun, 30 Aug 2026 10:56:57 GMT; Max-Age=3600; path=/; HttpOnly; SameSite=Strict
+Expires: Thu, 19 Nov 1981 08:52:00 GMT
+Cache-Control: no-store, no-cache, must-revalidate
+Pragma: no-cache
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'
+Referrer-Policy: strict-origin-when-cross-origin
+Content-Length: 91
+Content-Type: application/json; charset=utf-8
+

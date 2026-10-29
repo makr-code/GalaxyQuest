@@ -33,7 +33,7 @@ class MockRenderingManager {
 }
 
 // Import classes under test
-import { GroupSelectionController } from '../../js/engine/selection/GroupSelectionController.js';
+import GroupSelectionController from '../../js/engine/selection/GroupSelectionController.js';
 import { GroupHighlightBloomPass } from '../../js/engine/post-effects/passes/GroupHighlightBloomPass.js';
 import { OwnershipAuraBloomPass } from '../../js/engine/post-effects/passes/OwnershipAuraBloomPass.js';
 import { BloomPass } from '../../js/engine/post-effects/passes/BloomPass.js';
@@ -271,9 +271,11 @@ describe('Visual Feedback System', () => {
     it('should return uniform data', () => {
       const unit1 = { id: 'unit1' };
       const unit2 = { id: 'unit2' };
+      const unit3 = { id: 'unit3' };
 
       groupCtrl.toggleUnitSelection(unit1);
       groupCtrl.toggleUnitSelection(unit2, { multiSelect: true });
+      groupCtrl.toggleUnitSelection(unit3, { multiSelect: true });
 
       const uniformData = groupBloom.getUniformData();
       expect(uniformData).toBeDefined();
@@ -474,8 +476,8 @@ describe('Visual Feedback System', () => {
       bloom.updateDynamicParameters();
 
       const thresholdBlock = bloom.buildThresholdParamBlock();
-      expect(thresholdBlock[0]).toBe(bloom.getEffectiveThreshold());
-      expect(thresholdBlock[1]).toBe(bloom.getEffectiveStrength());
+      expect(thresholdBlock[0]).toBeCloseTo(bloom.getEffectiveThreshold(), 6);
+      expect(thresholdBlock[1]).toBeCloseTo(bloom.getEffectiveStrength(), 6);
     });
   });
 
@@ -531,22 +533,20 @@ describe('Visual Feedback System', () => {
     });
 
     it('should save colorblind mode to localStorage', () => {
-      const setItemSpy = vi.spyOn(localStorage, 'setItem');
+      window.localStorage.removeItem('adv-rendering-colorblind');
 
       ui._onColorblindModeChange({ target: { value: 'tritanopia' } });
 
-      expect(setItemSpy).toHaveBeenCalledWith('adv-rendering-colorblind', 'tritanopia');
+      expect(window.localStorage.getItem('adv-rendering-colorblind')).toBe('tritanopia');
     });
 
-    it('should emit colorblind-mode-changed event', (done) => {
-      if (typeof window !== 'undefined') {
-        window.addEventListener('colorblind-mode-changed', (evt) => {
-          expect(evt.detail.mode).toBe('achromatic');
-          done();
-        });
-      }
-
+    it('should emit colorblind-mode-changed event', async () => {
+      const eventPromise = new Promise((resolve) => {
+        window.addEventListener('colorblind-mode-changed', resolve, { once: true });
+      });
       ui._applyColorblindMode('achromatic');
+      const event = await eventPromise;
+      expect(event.detail.mode).toBe('achromatic');
     });
   });
 
@@ -591,23 +591,27 @@ describe('Visual Feedback System', () => {
       expect(viewport.ownershipSystem).toBe(mockSystem);
     });
 
-    it('should wire selection events', (done) => {
+    it('should wire selection events', async () => {
       const newCtrl = new GroupSelectionController(markerSystem);
 
       viewport.setGroupSelection(newCtrl);
 
-      if (typeof window !== 'undefined') {
-        window.addEventListener('viewport:selection-changed', (evt) => {
-          expect(evt.detail.enabled).toBe(true);
-          done();
-        });
-      }
+      const selectionEnabled = new Promise((resolve) => {
+        const onSelectionChanged = (evt) => {
+          if (!evt.detail.enabled) return;
+          window.removeEventListener('viewport:selection-changed', onSelectionChanged);
+          resolve(evt.detail);
+        };
+        window.addEventListener('viewport:selection-changed', onSelectionChanged);
+      });
 
       const unit = { id: 'unit1' };
       newCtrl.toggleUnitSelection(unit);
 
       const unit2 = { id: 'unit2' };
       newCtrl.toggleUnitSelection(unit2, { multiSelect: true });
+
+      await expect(selectionEnabled).resolves.toMatchObject({ enabled: true });
     });
   });
 });

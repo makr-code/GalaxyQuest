@@ -10,6 +10,25 @@
  * - Event emitting
  */
 
+import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+
+let GalaxyService;
+let GalaxyController;
+let GalaxyLegacyBridge;
+
+beforeAll(() => {
+    const featureDirectory = path.resolve(process.cwd(), 'js/features/galaxy');
+    for (const filename of ['GalaxyService.js', 'GalaxyController.js', 'legacy-bridge.js']) {
+        window.eval(fs.readFileSync(path.join(featureDirectory, filename), 'utf8'));
+    }
+
+    GalaxyService = window.GalaxyService;
+    GalaxyController = window.GalaxyController;
+    GalaxyLegacyBridge = window.GalaxyLegacyBridge;
+});
+
 // Simple mock HTTP server for testing
 class MockApiClient {
     constructor(data = {}) {
@@ -267,60 +286,36 @@ describe('GalaxyController Tests', () => {
 
 describe('GalaxyLegacyBridge Tests', () => {
     let bridge;
-    let apiClient;
+    let legacyGame;
 
     beforeEach(() => {
-        const testSystems = [
-            { id: 1, x: 10, y: 20, name: 'Sol' },
-            { id: 2, x: 15, y: 25, name: 'Sirius' },
-        ];
-
-        apiClient = new MockApiClient({ systems: testSystems });
-        bridge = new GalaxyLegacyBridge(apiClient);
-    });
-
-    test('getStarsRange (legacy) returns systems', async () => {
-        const systems = await bridge.getStarsRange({
-            xmin: 5,
-            xmax: 20,
-            ymin: 15,
-            ymax: 30,
+        legacyGame = {
+            galaxy: {
+                loadStars: vi.fn().mockResolvedValue(true),
+                showSystem: vi.fn().mockResolvedValue(true),
+            },
+        };
+        bridge = new GalaxyLegacyBridge({
+            apiClient: new MockApiClient(),
+            legacyGame,
         });
-
-        expect(systems).toBeDefined();
-        expect(systems.length).toBeGreaterThan(0);
+        bridge.setUseLegacy(true);
     });
 
-    test('getStarsRange supports callback style', (done) => {
-        bridge.getStarsRange(
-            { xmin: 5, xmax: 20, ymin: 15, ymax: 30, callback: (err, systems) => {
-                expect(err).toBeNull();
-                expect(systems).toBeDefined();
-                done();
-            }},
-        );
+    test('loadStars delegates to the legacy implementation when selected', async () => {
+        const params = { xMin: 5, xMax: 20, yMin: 15, yMax: 30 };
+
+        await expect(bridge.loadStars(params)).resolves.toBe(true);
+        expect(legacyGame.galaxy.loadStars).toHaveBeenCalledWith(params);
     });
 
-    test('getSystemDetail (legacy) returns detail', async () => {
-        const detail = await bridge.getSystemDetail(10, 20);
-
-        expect(detail).toBeDefined();
-        expect(detail.name).toBe('Sol');
+    test('showSystem delegates to the legacy implementation when selected', async () => {
+        await expect(bridge.showSystem(10, 20)).resolves.toBe(true);
+        expect(legacyGame.galaxy.showSystem).toHaveBeenCalledWith(10, 20);
     });
 
-    test('getSystemDetail supports callback style', (done) => {
-        bridge.getSystemDetail(10, 20, (err, detail) => {
-            expect(err).toBeNull();
-            expect(detail).toBeDefined();
-            done();
-        });
-    });
-
-    test('clearCache delegates to service', () => {
-        bridge.clearCache();
-        const stats = bridge.getCacheStats();
-
-        expect(stats.rangeSize).toBe(0);
-        expect(stats.detailSize).toBe(0);
+    test('setUseLegacy(false) selects the new implementation', () => {
+        bridge.setUseLegacy(false);
+        expect(bridge.useNewImplementation).toBe(true);
     });
 });

@@ -1,0 +1,89 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "GalaxyQuest" [level=1] [ref=e8]
+      - paragraph [ref=e9]: Conquer the Stars
+    - generic [ref=e10]:
+      - button "Login" [ref=e11] [cursor=pointer]
+      - button "Register" [ref=e12] [cursor=pointer]
+      - button "Dev" [ref=e13] [cursor=pointer]
+    - generic [ref=e14]:
+      - generic [ref=e15]:
+        - generic [ref=e16]: Commander Name or E-Mail
+        - textbox "Commander Name or E-Mail" [ref=e17]:
+          - /placeholder: Your username or e-mail
+      - generic [ref=e18]:
+        - generic [ref=e19]: Password
+        - textbox "Password" [ref=e20]:
+          - /placeholder: ••••••••
+      - generic [ref=e22]:
+        - checkbox "Keep me signed in" [checked] [ref=e23]
+        - text: Keep me signed in
+      - button "Enter the Galaxy" [ref=e24] [cursor=pointer]
+    - generic [aria-hidden] [ref=e26]:
+      - paragraph [ref=e27]: © 2026 Galaxy Quest Interactive. All rights reserved.
+      - paragraph [ref=e28]: "build {{buildnr}} — {{build_date}}"
+    - generic "Auth Quick Links" [ref=e29]:
+      - button "Developer Console" [ref=e30] [cursor=pointer]: Konsole
+      - link "Hilfe oeffnen" [ref=e33] [cursor=pointer]:
+        - /url: README.md
+        - text: Hilfe
+      - link "Blog oeffnen" [ref=e36] [cursor=pointer]:
+        - /url: docs/lore/
+        - text: Blog
+  - generic: "AUTH: Initializing shell..."
+  - region "System Bodies Card Window Host":
+    - generic:
+      - generic:
+        - generic: System Bodies
+        - generic:
+          - button "-"
+          - button "X"
+      - generic:
+        - list "Celestial bodies"
+      - generic "Resize"
+  - region [aria-hidden]
+  - region "Entwickler-Konsole" [ref=e39]:
+    - generic [ref=e40]:
+      - generic [ref=e41]:
+        - strong [ref=e42]: Console
+        - generic [ref=e43]: "Mode: Fallback"
+      - generic [ref=e44]:
+        - generic [ref=e45]: Level
+        - combobox "Level" [ref=e46]:
+          - option "All" [selected]
+          - option "Abort"
+          - option "Error"
+          - option "Warn"
+          - option "Info"
+          - option "Log"
+          - option "Debug"
+          - option "System"
+        - button "Copy" [ref=e47] [cursor=pointer]
+        - button "Clear" [ref=e48] [cursor=pointer]
+        - button "Close" [ref=e49] [cursor=pointer]
+    - generic [ref=e50]:
+      - generic [ref=e51]: "[13:17:31] [INFO] [boot] Boot terminal active | Fallback aktiv bis terminal.js uebernimmt"
+      - generic [ref=e52]: "[13:17:32] [INFO] [auth-fallback] [auth] bootstrap start"
+      - generic [ref=e53]: "[13:17:32] [INFO] [probe] [auth] bootstrap start"
+      - generic [ref=e54]: "[13:17:32] [INFO] [probe] [auth] login handler bound=true"
+      - generic [ref=e55]: "[13:17:32] [INFO] [probe] [auth] register handler bound=true"
+      - generic [ref=e56]: "[13:17:32] [INFO] [auth-fallback] [auth] [login-ui] boot progress 8% Pruefe Session..."
+      - generic [ref=e57]: "[13:17:32] [INFO] [auth-fallback] [auth] [login-ui] checking session state"
+      - generic [ref=e58]: "[13:17:32] [INFO] [auth-fallback] [auth] [login-ui] auth preload panel hidden (reset)"
+      - generic [ref=e59]: "[13:17:32] [INFO] [probe] index load event reached"
+      - generic [ref=e60]: "[13:17:32] [INFO] [probe] login submit probe bound"
+      - generic [ref=e61]:
+        - text: "[13:17:32] [ERROR] [auth-fallback] [auth] [login-ui] startGameShell failed with error Unexpected token '<', \""
+        - generic [ref=e62]:
+          - text: "[13:17:32] [ERROR] [auth-fallback] [auth] startGameShell stack: SyntaxError: Unexpected token '<', \""
+          - generic [ref=e63]: "[13:17:32] [WARN] [auth-fallback] [auth] [login-ui] session check failed, staying on auth screen"
+          - generic [ref=e64]: "[13:17:32] [INFO] [auth-fallback] [auth] [login-ui] auth preload panel hidden (reset)"
+          - generic [ref=e65]: "[13:17:32] [INFO] [auth-fallback] [auth] [login-ui] login confirm section hidden"
+          - generic [ref=e66]: "[13:17:32] [INFO] [auth-fallback] [auth] [initdiag] stage=setAuthVisible body=auth-page authVisible=true gameSectionExists=true gameVisible=false wmReady=false registryReady=false galaxyOpen=false orb=false starfieldReady=true terminalReady=false"
+          - generic [ref=e67]: "[13:17:32] [INFO] [bootdiag] [initdiag] stage=setAuthVisible body=auth-page authVisible=true gameSectionExists=true gameVisible=false wmReady=false registryReady=false galaxyOpen=false orb=false starfieldReady=true terminalReady=false | auth-init"
+          - generic [ref=e68]: "[13:17:32] [INFO] [auth-fallback] [auth] [login-ui] auth preload panel hidden (reset)"
+          - generic [ref=e69]: "[13:17:32] [INFO] [auth-fallback] [auth] bootstrap ready"
+    - generic [ref=e70]:
+      - textbox "help | refresh | home | open settings | transitions on/off | msg <user> <text>" [ref=e71]
+      - button "Run" [ref=e72] [cursor=pointer]

@@ -9,13 +9,98 @@ const root = path.resolve(fileURLToPath(import.meta.url), '../../..');
 const { bootstrapSeamlessZoomOrchestrator } = require(path.join(root, 'js/engine/runtime/GalaxyRendererBootstrap.js'));
 
 describe('GalaxyRendererBootstrap', () => {
+  it('registers available WebGPU zoom levels even without Three.js counterparts', () => {
+    const register = vi.fn();
+    const initialize = vi.fn().mockResolvedValue(undefined);
+    const zoomTo = vi.fn().mockResolvedValue(undefined);
+
+    class MockOrchestrator {
+      constructor(_canvas, opts) {
+        this.opts = opts;
+        this.register = register;
+        this.initialize = initialize;
+        this.zoomTo = zoomTo;
+        this.dispose = vi.fn();
+      }
+    }
+
+    const galaxyWebGPU = class {};
+    const systemWebGPU = class {};
+    const canvas = document.createElement('canvas');
+
+    const orchestrator = bootstrapSeamlessZoomOrchestrator({
+      sharedCanvas: canvas,
+      settingsState: { renderQualityProfile: 'medium' },
+      SeamlessZoomOrchestrator: MockOrchestrator,
+      ZOOM_LEVEL: { GALAXY: 0, SYSTEM: 1 },
+      levels: { galaxyWebGPU, systemWebGPU },
+      adoptSharedRendererIfAvailable: () => {},
+      initDirectRendererFallback: () => {},
+    });
+
+    expect(register).toHaveBeenCalledWith(0, { webgpu: galaxyWebGPU, threejs: undefined });
+    expect(register).toHaveBeenCalledWith(1, { webgpu: systemWebGPU, threejs: undefined });
+    expect(orchestrator.opts.rendererHint).toBe('webgpu');
+  });
+
+  it('creates one shared renderer backend for the zoom orchestrator', () => {
+    const initialize = vi.fn().mockResolvedValue(undefined);
+    let sharedRenderer = null;
+    class MockRenderer {
+      constructor(container, opts) {
+        this.container = container;
+        this.opts = opts;
+        this.init = initialize;
+        sharedRenderer = this;
+      }
+    }
+
+    class MockOrchestrator {
+      constructor(_canvas, opts) {
+        this.opts = opts;
+        this.register = vi.fn();
+        this.initialize = vi.fn().mockResolvedValue(undefined);
+        this.zoomTo = vi.fn().mockResolvedValue(undefined);
+        this.dispose = vi.fn();
+      }
+    }
+
+    const { host, canvas } = (() => {
+      const host = document.createElement('div');
+      const canvas = document.createElement('canvas');
+      host.appendChild(canvas);
+      return { host, canvas };
+    })();
+    const rendererOptions = { qualityProfile: 'webgpu' };
+    const orchestrator = bootstrapSeamlessZoomOrchestrator({
+      sharedCanvas: canvas,
+      rendererCtor: MockRenderer,
+      rendererContainer: host,
+      rendererOptions,
+      SeamlessZoomOrchestrator: MockOrchestrator,
+      ZOOM_LEVEL: { GALAXY: 0 },
+      levels: { galaxyWebGPU: class {} },
+    });
+
+    expect(sharedRenderer.container).toBe(host);
+    expect(sharedRenderer.opts).toMatchObject({
+      qualityProfile: 'webgpu',
+      externalCanvas: canvas,
+      interactive: true,
+    });
+    expect(orchestrator.opts.backend).toBe(sharedRenderer);
+    expect(orchestrator.opts.requireSharedBackend).toBe(true);
+    expect(initialize).not.toHaveBeenCalled();
+  });
+
   it('registers COLONY_BUILDING level when provided', () => {
     const register = vi.fn();
     const initialize = vi.fn().mockResolvedValue(undefined);
     const zoomTo = vi.fn().mockResolvedValue(undefined);
 
     class MockOrchestrator {
-      constructor() {
+      constructor(_canvas, opts) {
+        this.opts = opts;
         this.register = register;
         this.initialize = initialize;
         this.zoomTo = zoomTo;
@@ -54,6 +139,7 @@ describe('GalaxyRendererBootstrap', () => {
       onInitFailed: () => {},
     });
 
+    expect(register.mock.calls.length).toBeGreaterThan(0);
     expect(register).toHaveBeenCalledWith(5, expect.objectContaining({
       webgpu: expect.any(Function),
       threejs: expect.any(Function),

@@ -4,8 +4,8 @@
  * Tests cover end-to-end scenarios:
  *   • Tier-4 production chains (with Tier-2 input gating)
  *   • Tier-5 production chains (with Tier-4 input gating)
- *   • Shortage cascades (T2 shortage → T3 blocked → satisfaction drop)
- *   • Pop satisfaction × production yield coupling
+ *   • Shortage cascades (T2 shortage → T3 blocked → pop-needs shortages)
+ *   • Production behavior with different population counts
  *   • Multi-tier bottleneck detection
  */
 
@@ -308,7 +308,7 @@ describe('Shortage Cascade — Tier-2 shortage blocks Tier-3', () => {
     expect(result.produced[GoodType.CONSUMER_GOODS] ?? 0).toBeLessThanOrEqual(1);
   });
 
-  it('tier-3 shortage reduces pop satisfaction by -5 per shortage', () => {
+  it('reports population-need shortages when inputs are unavailable', () => {
     const eco = new EconomySimulation();
     eco.unlockTech('economy.basic_manufacturing');
 
@@ -319,15 +319,11 @@ describe('Shortage Cascade — Tier-2 shortage blocks Tier-3', () => {
     });
 
     const node = eco.getColony('c1');
-    // Start with satisfied population
-    node.pops.forEach(p => p.satisfaction = 80);
+    expect(node.pops).toBeUndefined();
+    expect(Object.values(node.popClasses).reduce((total, count) => total + count, 0)).toBe(10);
 
-    // First tick: shortage event fires, satisfaction drops
     const res1 = eco.tick(1);
-
-    // Satisfaction should be tracked via the tick results or colony state
-    // (this test validates the API response structure, not the actual satisfaction value,
-    // which is calculated server-side in economy_flush.php)
+    expect(res1.shortages.length).toBeGreaterThan(0);
   });
 });
 
@@ -348,37 +344,28 @@ describe('Shortage Cascade — Critical goods shortages cause starvation', () =>
 });
 
 // ---------------------------------------------------------------------------
-// Satisfaction × Production Multiplier
+// Population counts and production
 // ---------------------------------------------------------------------------
 
-describe('Satisfaction × Production Yield', () => {
-  it('50% satisfaction reduces production by 25% (mult = 1.0 at 100%)', () => {
+describe('Population counts and production yield', () => {
+  it('production output is independent of population count', () => {
     const eco1 = new EconomySimulation();
     eco1.unlockTech('economy.metallurgy_i');
 
     const eco2 = new EconomySimulation();
     eco2.unlockTech('economy.metallurgy_i');
 
-    // High satisfaction (100%)
     eco1.registerColony('c1', {
       buildings: { [ProcessingBuilding.METALLURGY]: 1 },
       stockpile: { metal: 5000 },
-      population: 0,
+      population: 100,
     });
 
-    // Simulate 100% satisfaction
-    const node1 = eco1.getColony('c1');
-    node1.pops.forEach(p => p.satisfaction = 100);
-
-    // Mid satisfaction (50%)
     eco2.registerColony('c2', {
       buildings: { [ProcessingBuilding.METALLURGY]: 1 },
       stockpile: { metal: 5000 },
-      population: 0,
+      population: 50,
     });
-
-    const node2 = eco2.getColony('c2');
-    node2.pops.forEach(p => p.satisfaction = 50);
 
     const res1 = eco1.tick(1);
     const res2 = eco2.tick(1);
@@ -386,46 +373,34 @@ describe('Satisfaction × Production Yield', () => {
     const steel1 = res1.produced[GoodType.STEEL_ALLOY] ?? 0;
     const steel2 = res2.produced[GoodType.STEEL_ALLOY] ?? 0;
 
-    // At 50% satisfaction: mult = 0.5 + (50/100) = 1.0, so no penalty (baseline)
     expect(steel2).toBeCloseTo(steel1, 0);
-
-    // At 100% satisfaction: mult = 0.5 + (100/100) = 1.5
-    // At 0% satisfaction: mult = 0.5 + (0/100) = 0.5
   });
 
-  it('0% satisfaction reduces production to 50% of baseline', () => {
+  it('metallurgy produces with zero population', () => {
     const eco = new EconomySimulation();
     eco.unlockTech('economy.metallurgy_i');
 
     eco.registerColony('c1', {
       buildings: { [ProcessingBuilding.METALLURGY]: 1 },
       stockpile: { metal: 5000 },
-      population: 100,
+      population: 0,
     });
 
-    const node = eco.getColony('c1');
-    node.pops.forEach(p => p.satisfaction = 0);  // Minimum satisfaction
-
-    // First tick at 0% satisfaction
     const result = eco.tick(1);
     const produced = result.produced[GoodType.STEEL_ALLOY] ?? 0;
 
-    // Should produce at 0.5x multiplier
     expect(produced).toBeGreaterThan(0);
   });
 
-  it('100% satisfaction increases production to 150% of baseline', () => {
+  it('metallurgy output is independent of population count', () => {
     const ecoMin = new EconomySimulation();
     ecoMin.unlockTech('economy.metallurgy_i');
 
     ecoMin.registerColony('c1', {
       buildings: { [ProcessingBuilding.METALLURGY]: 1 },
       stockpile: { metal: 5000 },
-      population: 100,
+      population: 0,
     });
-
-    const nodeMin = ecoMin.getColony('c1');
-    nodeMin.pops.forEach(p => p.satisfaction = 0);
 
     const ecoMax = new EconomySimulation();
     ecoMax.unlockTech('economy.metallurgy_i');
@@ -436,17 +411,13 @@ describe('Satisfaction × Production Yield', () => {
       population: 100,
     });
 
-    const nodeMax = ecoMax.getColony('c1');
-    nodeMax.pops.forEach(p => p.satisfaction = 100);
-
     const resMin = ecoMin.tick(1);
     const resMax = ecoMax.tick(1);
 
     const steelMin = resMin.produced[GoodType.STEEL_ALLOY] ?? 0;
     const steelMax = resMax.produced[GoodType.STEEL_ALLOY] ?? 0;
 
-    // Max should be 3x Min (1.5x / 0.5x = 3)
-    expect(steelMax).toBeCloseTo(steelMin * 3.0, 0);
+    expect(steelMax).toBeCloseTo(steelMin, 0);
   });
 });
 

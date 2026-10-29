@@ -1,0 +1,45 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e7]:
+    - generic [ref=f5e8]:
+      - heading "GalaxyQuest" [level=1] [ref=f5e12]
+      - paragraph [ref=f5e13]: Conquer the Stars
+    - generic [ref=f5e14]:
+      - button "Login" [ref=f5e15] [cursor=pointer]
+      - button "Register" [ref=f5e16] [cursor=pointer]
+      - button "Dev" [ref=f5e17] [cursor=pointer]
+    - generic [ref=f5e18]:
+      - generic [ref=f5e19]:
+        - generic [ref=f5e20]: Commander Name or E-Mail
+        - textbox "Commander Name or E-Mail" [ref=f5e21]:
+          - /placeholder: Your username or e-mail
+      - generic [ref=f5e22]:
+        - generic [ref=f5e23]: Password
+        - textbox "Password" [ref=f5e24]:
+          - /placeholder: ••••••••
+      - generic [ref=f5e26]:
+        - checkbox "Keep me signed in" [checked] [ref=f5e27]
+        - text: Keep me signed in
+      - button "Enter the Galaxy" [ref=f5e28] [cursor=pointer]
+    - generic [aria-hidden] [ref=f5e30]:
+      - paragraph [ref=f5e31]: © 2026 Galaxy Quest Interactive. All rights reserved.
+      - paragraph [ref=f5e32]: build 20260330p1 — 2026-03-30 09:00:00
+    - generic "Auth Quick Links" [ref=f5e33]:
+      - button "Developer Console" [ref=f5e34] [cursor=pointer]: Konsole
+      - link "Hilfe oeffnen" [ref=f5e37] [cursor=pointer]:
+        - /url: README.md
+        - text: Hilfe
+      - link "Blog oeffnen" [ref=f5e40] [cursor=pointer]:
+        - /url: docs/lore/
+        - text: Blog
+  - generic: "AUTH: Initializing shell..."
+  - region "System Bodies Card Window Host":
+    - generic:
+      - generic:
+        - generic: System Bodies
+        - generic:
+          - button "-"
+          - button "X"
+      - generic:
+        - list "Celestial bodies"
+      - generic "Resize"
+  - region [aria-hidden]

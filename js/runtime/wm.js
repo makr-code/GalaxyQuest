@@ -51,6 +51,9 @@ const WMCore = (() => {
     minimize:         'Minimize',
     dockLeft:         'Dock left',
     dockRight:        'Dock right',
+    dockTopbar:       'Dock title bar',
+    dockResource:     'Dock resources bar',
+    dockTop:          'Dock top',
     dockBottom:       'Dock bottom',
     resetPosition:    'Reset position',
     close:            'Close',
@@ -1209,7 +1212,14 @@ const WMCore = (() => {
 
       _removeFromRecentClosed(id);
 
-      var forcedDockSide = (cfg && (cfg.forceDockSide === 'left' || cfg.forceDockSide === 'right' || cfg.forceDockSide === 'bottom'))
+      var forcedDockSide = (cfg && (
+        cfg.forceDockSide === 'left'
+        || cfg.forceDockSide === 'right'
+        || cfg.forceDockSide === 'topbar'
+        || cfg.forceDockSide === 'resource'
+        || cfg.forceDockSide === 'top'
+        || cfg.forceDockSide === 'bottom'
+      ))
         ? cfg.forceDockSide
         : null;
       var savedDock = _loadDock(id);
@@ -1217,7 +1227,14 @@ const WMCore = (() => {
         _applyDockPosition(el, cfg, forcedDockSide, false);
       } else if (savedDock && savedDock.side) {
         _applyDockPosition(el, cfg, savedDock.side, false);
-      } else if (cfg.autoDockOnOpen === true && (cfg.defaultDock === 'left' || cfg.defaultDock === 'right' || cfg.defaultDock === 'bottom')) {
+      } else if (cfg.autoDockOnOpen === true && (
+        cfg.defaultDock === 'left'
+        || cfg.defaultDock === 'right'
+        || cfg.defaultDock === 'topbar'
+        || cfg.defaultDock === 'resource'
+        || cfg.defaultDock === 'top'
+        || cfg.defaultDock === 'bottom'
+      )) {
         _applyDockPosition(el, cfg, cfg.defaultDock, false);
       } else {
         _setDockState(el, null);
@@ -1361,6 +1378,17 @@ const WMCore = (() => {
       if (!el.id) el.id = 'wm-win-' + id;
       el.setAttribute('data-winid', id);
 
+      var isAuthWindow = id === 'auth' || el.id === 'auth-wrapper' || el.classList.contains('auth-wrapper');
+      if (isAuthWindow) {
+        el.style.margin = '0';
+        el.style.padding = '0';
+        el.style.background = 'transparent';
+        el.style.border = 'none';
+        el.style.borderRadius = '0';
+        el.style.boxShadow = 'none';
+        el.style.overflow = 'hidden';
+      }
+
       var existingBody   = el.querySelector(':scope > .wm-body');
       var titlebar       = el.querySelector(':scope > .wm-titlebar');
       var resizeHandle   = el.querySelector(':scope > .wm-resize-handle');
@@ -1389,6 +1417,21 @@ const WMCore = (() => {
         var existingResize = el.querySelector(':scope > .wm-resize-handle');
         if (existingResize) el.insertBefore(bodyEl, existingResize);
         else el.appendChild(bodyEl);
+      }
+
+      if (isAuthWindow) {
+        var authBody = el.querySelector(':scope > .wm-body');
+        if (authBody) {
+          authBody.style.padding = '0.8rem 1rem 0.7rem';
+          authBody.style.background = 'var(--bg-panel)';
+          authBody.style.border = '1px solid var(--border)';
+          authBody.style.borderRadius = 'var(--radius)';
+          authBody.style.boxShadow = 'var(--shadow), 0 0 80px rgba(58,160,255,0.08)';
+          authBody.style.display = 'flex';
+          authBody.style.flexDirection = 'column';
+          authBody.style.overflowY = 'auto';
+          authBody.style.overflowX = 'hidden';
+        }
       }
 
       if (!cfg.fullscreenDesktop && !resizeHandle) {
@@ -2250,6 +2293,27 @@ const WMCore = (() => {
           onSelect: function () { _applyDockPosition(win.el, cfg, 'right', true); },
         });
         var freshDockCfg = _getDockConfig(cfg);
+        if (freshDockCfg && freshDockCfg.sides.indexOf('topbar') !== -1) {
+          items.push({
+            label:    _labels.dockTopbar,
+            checked:  win.el.dataset.wmDocked === 'topbar',
+            onSelect: function () { _applyDockPosition(win.el, cfg, 'topbar', true); },
+          });
+        }
+        if (freshDockCfg && freshDockCfg.sides.indexOf('resource') !== -1) {
+          items.push({
+            label:    _labels.dockResource,
+            checked:  win.el.dataset.wmDocked === 'resource',
+            onSelect: function () { _applyDockPosition(win.el, cfg, 'resource', true); },
+          });
+        }
+        if (freshDockCfg && freshDockCfg.sides.indexOf('top') !== -1) {
+          items.push({
+            label:    _labels.dockTop,
+            checked:  win.el.dataset.wmDocked === 'top',
+            onSelect: function () { _applyDockPosition(win.el, cfg, 'top', true); },
+          });
+        }
         if (freshDockCfg && freshDockCfg.sides.indexOf('bottom') !== -1) {
           items.push({
             label:    _labels.dockBottom,
@@ -2415,7 +2479,7 @@ const WMCore = (() => {
 
       var sides = Array.isArray(cfg.dockableSides) && cfg.dockableSides.length
         ? cfg.dockableSides.map(function (s) { return String(s || '').toLowerCase(); })
-        : ['left', 'right'];
+        : ['left', 'right', 'topbar', 'resource', 'top', 'bottom'];
       return {
         sides:      sides,
         threshold:  Math.max(18, Number(cfg.dockMagnetThreshold != null ? cfg.dockMagnetThreshold : 56)),
@@ -2428,9 +2492,19 @@ const WMCore = (() => {
     function _setDockPreview(side) {
       var root = document.body || document.documentElement;
       if (!root) return;
-      root.classList.remove('wm-dock-preview-left', 'wm-dock-preview-right', 'wm-dock-preview-bottom');
+      root.classList.remove(
+        'wm-dock-preview-left',
+        'wm-dock-preview-right',
+        'wm-dock-preview-topbar',
+        'wm-dock-preview-resource',
+        'wm-dock-preview-top',
+        'wm-dock-preview-bottom'
+      );
       if (side === 'left')   root.classList.add('wm-dock-preview-left');
       if (side === 'right')  root.classList.add('wm-dock-preview-right');
+      if (side === 'topbar') root.classList.add('wm-dock-preview-topbar');
+      if (side === 'resource') root.classList.add('wm-dock-preview-resource');
+      if (side === 'top')    root.classList.add('wm-dock-preview-top');
       if (side === 'bottom') root.classList.add('wm-dock-preview-bottom');
     }
 
@@ -2438,11 +2512,29 @@ const WMCore = (() => {
 
     function _setDockState(winEl, side) {
       if (!winEl) return;
-      winEl.classList.remove('wm-docked', 'wm-docked-left', 'wm-docked-right', 'wm-docked-bottom');
-      if (side === 'left' || side === 'right' || side === 'bottom') {
+      winEl.classList.remove(
+        'wm-docked',
+        'wm-docked-left',
+        'wm-docked-right',
+        'wm-docked-topbar',
+        'wm-docked-resource',
+        'wm-docked-top',
+        'wm-docked-bottom'
+      );
+      if (
+        side === 'left'
+        || side === 'right'
+        || side === 'topbar'
+        || side === 'resource'
+        || side === 'top'
+        || side === 'bottom'
+      ) {
         winEl.classList.add('wm-docked');
         if (side === 'left')   winEl.classList.add('wm-docked-left');
         if (side === 'right')  winEl.classList.add('wm-docked-right');
+        if (side === 'topbar') winEl.classList.add('wm-docked-topbar');
+        if (side === 'resource') winEl.classList.add('wm-docked-resource');
+        if (side === 'top')    winEl.classList.add('wm-docked-top');
         if (side === 'bottom') winEl.classList.add('wm-docked-bottom');
         winEl.dataset.wmDocked = side;
       } else {
@@ -2466,7 +2558,14 @@ const WMCore = (() => {
         var raw    = localStorage.getItem(_dockPrefix + id);
         if (!raw) return null;
         var parsed = JSON.parse(raw);
-        if (!parsed || (parsed.side !== 'left' && parsed.side !== 'right' && parsed.side !== 'bottom')) return null;
+        if (!parsed || (
+          parsed.side !== 'left'
+          && parsed.side !== 'right'
+          && parsed.side !== 'topbar'
+          && parsed.side !== 'resource'
+          && parsed.side !== 'top'
+          && parsed.side !== 'bottom'
+        )) return null;
         return parsed;
       } catch (_) { return null; }
     }
@@ -2476,9 +2575,24 @@ const WMCore = (() => {
       if (!dockCfg) return null;
       var width   = Math.max(320, window.innerWidth  || (document.documentElement && document.documentElement.clientWidth)  || 1280);
       var height  = Math.max(240, window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 720);
+      var insets  = _getViewportInsets() || {};
+      var titlebarBottom = Number(insets.titlebarBottom);
+      var resourceBottom = Number(insets.resourceBottom);
       var nearLeft   = cx <= dockCfg.threshold;
       var nearRight  = cx >= (width  - dockCfg.threshold);
+      var nearTop    = cy <= dockCfg.threshold;
       var nearBottom = cy >= (height - dockCfg.threshold);
+      if (
+        Number.isFinite(resourceBottom)
+        && dockCfg.sides.indexOf('resource') !== -1
+        && Math.abs(cy - resourceBottom) <= dockCfg.threshold
+      ) return 'resource';
+      if (
+        Number.isFinite(titlebarBottom)
+        && dockCfg.sides.indexOf('topbar') !== -1
+        && Math.abs(cy - titlebarBottom) <= dockCfg.threshold
+      ) return 'topbar';
+      if (nearTop    && dockCfg.sides.indexOf('top')    !== -1) return 'top';
       if (nearBottom && dockCfg.sides.indexOf('bottom') !== -1) return 'bottom';
       if (nearLeft   && dockCfg.sides.indexOf('left')   !== -1) return 'left';
       if (nearRight  && dockCfg.sides.indexOf('right')  !== -1) return 'right';
@@ -2487,7 +2601,14 @@ const WMCore = (() => {
 
     function _applyDockPosition(winEl, cfg, side, persist) {
       persist = persist !== false;
-      if (!winEl || (side !== 'left' && side !== 'right' && side !== 'bottom')) return false;
+      if (!winEl || (
+        side !== 'left'
+        && side !== 'right'
+        && side !== 'topbar'
+        && side !== 'resource'
+        && side !== 'top'
+        && side !== 'bottom'
+      )) return false;
       var dockCfg = _getDockConfig(cfg);
       if (!dockCfg || dockCfg.sides.indexOf(side) === -1) return false;
 
@@ -2509,6 +2630,29 @@ const WMCore = (() => {
         var fallbackTop = Number.isFinite(Number(cfg && cfg.defaultY)) ? Number(cfg.defaultY) : topInset;
         var maxTop      = Math.max(topInset, ds.h - height - dockCfg.margin - botInset);
         y = Math.min(maxTop, Math.max(topInset, Number.isFinite(y) ? y : fallbackTop));
+      } else if (side === 'topbar' || side === 'resource' || side === 'top') {
+        var tpTopInset  = Math.max(dockCfg.topInset,    insets.top    + dockCfg.margin);
+        var tpBotInset  = Math.max(dockCfg.bottomInset, insets.bottom + dockCfg.margin);
+        var titlebarBottomPx = Number(insets.titlebarBottom);
+        var resourceBottomPx = Number(insets.resourceBottom);
+        var fallbackLeftTop = Number.isFinite(Number(cfg && cfg.defaultX))
+          ? Number(cfg.defaultX)
+          : Math.floor((ds.w - width) / 2);
+        x = Math.min(
+          Math.max(dockCfg.margin, Number.isFinite(x) ? x : fallbackLeftTop),
+          Math.max(dockCfg.margin, ds.w - width - dockCfg.margin),
+        );
+        if (side === 'topbar' && Number.isFinite(titlebarBottomPx)) {
+          y = Math.max(tpTopInset, Math.round(titlebarBottomPx + dockCfg.margin));
+        } else if (side === 'resource' && Number.isFinite(resourceBottomPx)) {
+          y = Math.max(tpTopInset, Math.round(resourceBottomPx + dockCfg.margin));
+        } else {
+          y = tpTopInset;
+        }
+        // Keep top-docked windows above taskbar/safe-bottom while retaining top lock.
+        if (y > Math.max(dockCfg.margin, ds.h - height - dockCfg.margin - tpBotInset)) {
+          y = Math.max(dockCfg.margin, ds.h - height - dockCfg.margin - tpBotInset);
+        }
       } else if (side === 'bottom') {
         var tbTopInset  = Math.max(dockCfg.topInset,    insets.top    + dockCfg.margin);
         var tbBotInset  = Math.max(dockCfg.bottomInset, insets.bottom + dockCfg.margin);
@@ -2838,7 +2982,14 @@ const WMCore = (() => {
             w: Number.isFinite(width)  ? width  : 420,
             h: Number.isFinite(height) ? height : 360,
           };
-          if (defaultDock === 'left' || defaultDock === 'right') cfg.defaultDock = defaultDock;
+          if (
+            defaultDock === 'left'
+            || defaultDock === 'right'
+            || defaultDock === 'topbar'
+            || defaultDock === 'resource'
+            || defaultDock === 'top'
+            || defaultDock === 'bottom'
+          ) cfg.defaultDock = defaultDock;
           if (hostId) cfg.sectionId = hostId;
 
           try {

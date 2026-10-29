@@ -17,6 +17,9 @@
       getCurrentOrchestrator = null,
       sharedCanvas = null,
       settingsState = {},
+      rendererCtor = null,
+      rendererContainer = null,
+      rendererOptions = {},
       SeamlessZoomOrchestrator = null,
       ZOOM_LEVEL = null,
       levels = {},
@@ -54,49 +57,37 @@
       }
     }
 
+    const sharedRenderer = typeof rendererCtor === 'function'
+      ? new rendererCtor(rendererContainer || sharedCanvas.parentElement, {
+          ...rendererOptions,
+          externalCanvas: sharedCanvas,
+          interactive: true,
+        })
+      : null;
     const orchestrator = new SeamlessZoomOrchestrator(sharedCanvas, {
-      rendererHint: settingsState.renderQualityProfile === 'webgpu' ? 'webgpu' : 'auto',
+      rendererHint: 'webgpu',
+      backend: sharedRenderer,
+      requireSharedBackend: true,
     });
     orchestrator.__gqBootstrapToken = bootstrapToken;
 
     if (typeof setOrchestrator === 'function') setOrchestrator(orchestrator);
 
-    // Register WebGPU as the preferred path and keep Three.js as compatibility backend.
-    orchestrator.register(ZOOM_LEVEL.GALAXY, {
-      webgpu: levels.galaxyWebGPU,
-      threejs: levels.galaxyThreeJS,
-    });
-    if (levels.systemThreeJS && levels.systemWebGPU) {
-      orchestrator.register(ZOOM_LEVEL.SYSTEM, {
-        webgpu: levels.systemWebGPU,
-        threejs: levels.systemThreeJS,
-      });
-    }
-    if (levels.planetThreeJS && levels.planetWebGPU) {
-      orchestrator.register(ZOOM_LEVEL.PLANET_APPROACH, {
-        webgpu: levels.planetWebGPU,
-        threejs: levels.planetThreeJS,
-      });
-    }
-    if (levels.colonyThreeJS && levels.colonyWebGPU) {
-      orchestrator.register(ZOOM_LEVEL.COLONY_SURFACE, {
-        webgpu: levels.colonyWebGPU,
-        threejs: levels.colonyThreeJS,
-      });
-    }
-    if (levels.objectThreeJS && levels.objectWebGPU) {
-      orchestrator.register(ZOOM_LEVEL.OBJECT_APPROACH, {
-        webgpu: levels.objectWebGPU,
-        threejs: levels.objectThreeJS,
-      });
-    }
+    // WebGPU implementations can now ship independently of their legacy fallback.
+    const registerLevel = (level, webgpu, threejs) => {
+      if (webgpu || threejs) {
+        orchestrator.register(level, { webgpu, threejs });
+      }
+    };
+    registerLevel(ZOOM_LEVEL.GALAXY, levels.galaxyWebGPU, levels.galaxyThreeJS);
+    registerLevel(ZOOM_LEVEL.SYSTEM, levels.systemWebGPU, levels.systemThreeJS);
+    registerLevel(ZOOM_LEVEL.PLANET_APPROACH, levels.planetWebGPU, levels.planetThreeJS);
+    registerLevel(ZOOM_LEVEL.COLONY_SURFACE, levels.colonyWebGPU, levels.colonyThreeJS);
+    registerLevel(ZOOM_LEVEL.OBJECT_APPROACH, levels.objectWebGPU, levels.objectThreeJS);
     const colonyBuildingThree = levels.colonyBuildingThreeJS || levels.objectThreeJS || null;
     const colonyBuildingWebGPU = levels.colonyBuildingWebGPU || levels.objectWebGPU || null;
-    if (Number.isFinite(Number(ZOOM_LEVEL.COLONY_BUILDING)) && colonyBuildingThree && colonyBuildingWebGPU) {
-      orchestrator.register(ZOOM_LEVEL.COLONY_BUILDING, {
-        webgpu: colonyBuildingWebGPU,
-        threejs: colonyBuildingThree,
-      });
+    if (Number.isFinite(Number(ZOOM_LEVEL.COLONY_BUILDING))) {
+      registerLevel(ZOOM_LEVEL.COLONY_BUILDING, colonyBuildingWebGPU, colonyBuildingThree);
     }
 
     orchestrator.initialize()

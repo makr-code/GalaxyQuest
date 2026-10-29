@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 2) . '/api/ship_designer_engine.php';
+
 /**
  * Unit Tests for Ship Designer Prompt Engine
  * Validates faction signatures, ship templates, LoRA styles, and prompt generation
@@ -270,7 +272,7 @@ final class ShipDesignerEngineTest extends TestCase
         $this->assertArrayHasKey('available_classes', $result);
         
         $this->assertEquals('kryl_tha', $result['faction']['code']);
-        $this->assertContains('insectoid', $result['signature']['silhouette']);
+        $this->assertStringContainsString('insectoid', $result['signature']['silhouette']);
     }
 
     public function testGetLoRAStylesForFaction(): void

@@ -94,6 +94,10 @@ body.wm-theme-dusk {
   pointer-events: none;
 }
 
+.wm-window-host[aria-hidden="true"] .wm-body {
+  pointer-events: none;
+}
+
 /* ── Window chrome ────────────────────────────────────────────────────── */
 .wm-window {
   position: absolute;
@@ -108,7 +112,9 @@ body.wm-theme-dusk {
 }
 
 .wm-window.wm-closed {
-  display: none;
+  display: none !important;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .wm-window.wm-window-background {
@@ -208,6 +214,9 @@ body.wm-theme-dusk {
 
 .wm-window.wm-docked-left,
 .wm-window.wm-docked-right,
+.wm-window.wm-docked-topbar,
+.wm-window.wm-docked-resource,
+.wm-window.wm-docked-top,
 .wm-window.wm-docked-bottom {
   border-color: rgba(94, 164, 230, 0.75);
 }
@@ -215,6 +224,9 @@ body.wm-theme-dusk {
 /* ── Dock preview ghost (drag feedback) ──────────────────────────────── */
 body.wm-dock-preview-left::before,
 body.wm-dock-preview-right::before,
+body.wm-dock-preview-topbar::before,
+body.wm-dock-preview-resource::before,
+body.wm-dock-preview-top::before,
 body.wm-dock-preview-bottom::before {
   content: '';
   position: fixed;
@@ -241,6 +253,28 @@ body.wm-dock-preview-bottom::before {
   right: min(24vw, 220px);
   bottom: 52px;
   height: min(300px, 36vh);
+}
+
+body.wm-dock-preview-top::before {
+  left: min(20vw, 220px);
+  right: min(20vw, 220px);
+  top: 64px;
+  height: min(280px, 32vh);
+}
+
+body.wm-dock-preview-topbar::before,
+body.wm-dock-preview-resource::before {
+  left: min(20vw, 220px);
+  right: min(20vw, 220px);
+  height: min(260px, 30vh);
+}
+
+body.wm-dock-preview-topbar::before {
+  top: 64px;
+}
+
+body.wm-dock-preview-resource::before {
+  top: 118px;
 }
 
 /* ── Titlebar ─────────────────────────────────────────────────────────── */

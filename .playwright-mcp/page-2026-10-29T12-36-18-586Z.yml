@@ -1,0 +1,40 @@
+- generic [active] [ref=f1e1]:
+  - main "GalaxyQuest main menu" [ref=f1e7]:
+    - generic [ref=f1e8]:
+      - paragraph [ref=f1e9]: A galaxy of possibilities
+      - heading "GalaxyQuest" [level=1] [ref=f1e10]
+      - paragraph [ref=f1e11]: Conquer the Stars
+    - navigation "Main menu" [ref=f1e12]:
+      - button "Login" [ref=f1e13] [cursor=pointer]
+      - button "Register Begin your story" [ref=f1e14] [cursor=pointer]:
+        - text: Register
+        - generic [ref=f1e15]: Begin your story
+      - button "News Transmission feed" [ref=f1e16] [cursor=pointer]:
+        - text: News
+        - generic [ref=f1e17]: Transmission feed
+      - button "Blog Beyond the frontier" [ref=f1e18] [cursor=pointer]:
+        - text: Blog
+        - generic [ref=f1e19]: Beyond the frontier
+      - button "Settings Your experience" [ref=f1e20] [cursor=pointer]:
+        - text: Settings
+        - generic [ref=f1e21]: Your experience
+    - status [ref=f1e22]: Checking your session...
+    - generic [ref=f1e23]:
+      - link "Galaxy Quest Interactive" [ref=f1e24] [cursor=pointer]:
+        - /url: README.md
+      - generic [ref=f1e28]: © 2026 Galaxy Quest Interactive. All rights reserved.
+      - generic [ref=f1e29]: v1.0.0 · Development build
+  - generic [ref=f1e30]:
+    - generic [ref=f1e31]: "AUTH: Initializing shell..."
+    - button "Status / Logs" [ref=f1e32] [cursor=pointer]
+  - region "System Bodies Card Window Host":
+    - generic:
+      - generic:
+        - generic: System Bodies
+        - generic:
+          - button "-"
+          - button "X"
+      - generic:
+        - list "Celestial bodies"
+      - generic "Resize"
+  - region [aria-hidden]

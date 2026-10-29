@@ -77,20 +77,12 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._canvas  = canvas;
     this._backend = backend;
 
-    if (typeof navigator !== 'undefined' && navigator.gpu) {
-      try {
-        const isWindows = String(navigator.userAgent || '').toLowerCase().includes('windows');
-        const adapterOptions = isWindows ? undefined : { powerPreference: 'high-performance' };
-        const adapter = await navigator.gpu.requestAdapter(adapterOptions);
-        if (adapter) {
-          this._device  = await adapter.requestDevice();
-          this._context = canvas.getContext('webgpu');
-          if (this._device && this._context) {
-            await this._buildPipelines();
-          }
-        }
-      } catch (_) { /* headless / CI */ }
+    this._device = backend?.device || null;
+    this._context = backend?.context || null;
+    if (!this._device || !this._context) {
+      throw new Error('ColonySurfaceLevelWebGPU requires the shared WebGPU device and canvas context');
     }
+    await this._buildPipelines();
   }
 
   setSceneData(data) {
@@ -143,10 +135,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       profileCounts: {},
       burstActive: false,
     };
-    if (this._device) {
-      try { this._device.destroy(); } catch (_) {}
-      this._device = null;
-    }
+    this._device = null;
     this._context = null;
     this._canvas  = null;
     this._backend = null;

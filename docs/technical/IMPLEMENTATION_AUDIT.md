@@ -1,5 +1,7 @@
 # GalaxyQuest — Implementierungs-Audit
 
+> **Aktualitätshinweis (29. Oktober 2026):** Dieser Audit ist ein historischer Snapshot vom 31. Juli 2026. Die damaligen Prozentwerte sind keine aktuelle Messung. Für den gegen den heutigen Checkout abgeglichenen Stand siehe [Reality Check](REALITY_CHECK_2026-10-29.md).
+
 > **Stand:** 31. Juli 2026 (Überprüfung und Synchronisation)
 > **Basis:** Vollständige Analyse des Quellcodes, aller API-Endpunkte, SQL-Migrationen, Frontend-Module und Design-Dokumente  
 > **Zweck:** Objektive Bestandsaufnahme — was ist fertig, was fehlt, welche technischen Schulden bestehen

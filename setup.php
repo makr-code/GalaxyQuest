@@ -6,12 +6,12 @@ require_once __DIR__ . '/api/helpers.php';
 require_once __DIR__ . '/api/galaxy_seed.php';
 require_once __DIR__ . '/api/game_engine.php';
 require_once __DIR__ . '/api/character_profile_generator.php';
+require_once __DIR__ . '/lib/FactionHomeworldSeeder.php';
 
 if (PHP_SAPI !== 'cli') {
     fwrite(STDERR, "setup.php must be run from CLI.\n");
     exit(1);
 }
-
 $opts = parse_setup_options($argv);
 if ($opts['help']) {
     print_help();
@@ -32,15 +32,19 @@ $defaultMigrations = [
     __DIR__ . '/sql/migrate_npc_pve_controller_v2.sql',
     __DIR__ . '/sql/migrate_fog_of_war.sql',
     __DIR__ . '/sql/migrate_galaxies_metadata.sql',
+    __DIR__ . '/sql/migrate_actor_model_v1.sql',
+    __DIR__ . '/sql/migrate_actor_model_v2_drop_is_npc.sql',
+    __DIR__ . '/sql/migrate_faction_homeworlds_v1.sql',
 ];
 
-if (!is_existing_runtime_schema($db)) {
+$existingRuntimeSchema = is_existing_runtime_schema($db);
+if (!$existingRuntimeSchema) {
     array_unshift($defaultMigrations, __DIR__ . '/sql/schema.sql');
 }
 
 // Legacy upgrade path: migrate_v2 contains MySQL-version-sensitive ALTER syntax
 // and should only run when v2 markers are actually missing.
-if (!has_v2_schema_markers($db)) {
+if ($existingRuntimeSchema && !has_v2_schema_markers($db)) {
     array_splice($defaultMigrations, 1, 0, [__DIR__ . '/sql/migrate_v2.sql']);
 }
 
@@ -53,8 +57,12 @@ $migrationsRun = [];
 $defaultIdentityResult = null;
 $bootstrapResult = null;
 $npcSeedResult = null;
+$factionWorldResult = null;
 
 try {
+    $factionWorlds = FactionHomeworldSeeder::configuredWorlds(
+        __DIR__ . '/config/faction_homeworlds.json', __DIR__ . '/fractions'
+    );
     if (!$opts['skipMigrations']) {
         foreach ($defaultMigrations as $sqlFile) {
             $count = execute_sql_file($db, $sqlFile, $opts['dryRun']);
@@ -64,8 +72,6 @@ try {
                 'statements' => $count,
             ];
         }
-
-        $defaultIdentityResult = ensure_default_identities_after_rbac($db, $opts['dryRun']);
     }
 
     if (!$opts['skipBootstrap']) {
@@ -79,6 +85,21 @@ try {
         } else {
             $bootstrapResult = ensure_galaxy_bootstrap_progress($db, true);
         }
+    }
+
+    if (!$opts['skipFactionWorlds']) {
+        if ($opts['dryRun']) {
+            $factionWorldResult = ['dry_run' => true, 'configured' => count($factionWorlds)];
+        } else {
+            ensure_star_system_columns($db);
+            ensure_binary_systems_table($db);
+            ensure_pve_factions_seed($db);
+            $factionWorldResult = (new FactionHomeworldSeeder($db))->seed($factionWorlds);
+        }
+    }
+
+    if (!$opts['skipMigrations']) {
+        $defaultIdentityResult = ensure_default_identities_after_rbac($db, $opts['dryRun'], !$opts['skipFactionWorlds']);
     }
 
     if (!$opts['skipNpcSeed']) {
@@ -97,7 +118,7 @@ try {
     exit(1);
 }
 
-print_summary($migrationsRun, $totalStatements, $defaultIdentityResult, $bootstrapResult, $npcSeedResult, $opts);
+print_summary($migrationsRun, $totalStatements, $defaultIdentityResult, $bootstrapResult, $npcSeedResult, $opts, $factionWorldResult);
 exit(0);
 
 function parse_setup_options(array $argv): array
@@ -111,6 +132,7 @@ function parse_setup_options(array $argv): array
         'skipNpcSeed' => false,
         'npcCount' => 12,
         'npcProfiles' => false,
+        'skipFactionWorlds' => false,
     ];
 
     foreach ($argv as $arg) {
@@ -128,6 +150,12 @@ function parse_setup_options(array $argv): array
         } elseif ($arg === '--migrations-only') {
             $opts['skipMigrations'] = false;
             $opts['skipBootstrap'] = true;
+            $opts['skipFactionWorlds'] = true;
+            $opts['skipNpcSeed'] = true;
+        } elseif ($arg === '--homeworlds-only') {
+            $opts['skipMigrations'] = true;
+            $opts['skipBootstrap'] = true;
+            $opts['skipNpcSeed'] = true;
         } elseif ($arg === '--regen-galaxy') {
             $opts['regenGalaxy'] = true;
         } elseif ($arg === '--skip-npc-seed') {
@@ -150,9 +178,10 @@ function print_help(): void
     echo "Options:\n";
     echo "  --regen-galaxy      Include spiral-regeneration migration (clears star_systems + generated planets).\n";
     echo "  --skip-migrations   Skip SQL setup steps.\n";
-    echo "  --skip-bootstrap    Skip galaxy bootstrap warmup.\n";
-    echo "  --bootstrap-only    Run only bootstrap warmup.\n";
+    echo "  --skip-bootstrap    Skip global warmup; still prepare faction/NPC homeworld systems.\n";
+    echo "  --bootstrap-only    Warm galaxy and seed homeworlds/NPCs without running migrations.\n";
     echo "  --migrations-only   Run only SQL migrations.\n";
+    echo "  --homeworlds-only   Ensure faction capitals/footholds on an already migrated database.\n";
     echo "  --skip-npc-seed     Skip relevant NPC account seeding.\n";
     echo "  --npc-count=N       Number of relevant NPC accounts to ensure (default: 12).\n";
     echo "  --npc-profiles      Also generate NPC character profiles during setup.\n";
@@ -295,7 +324,7 @@ function split_sql_statements(string $sql): array
     return $parts;
 }
 
-function print_summary(array $migrationsRun, int $totalStatements, ?array $defaultIdentityResult, ?array $bootstrapResult, ?array $npcSeedResult, array $opts): void
+function print_summary(array $migrationsRun, int $totalStatements, ?array $defaultIdentityResult, ?array $bootstrapResult, ?array $npcSeedResult, array $opts, ?array $factionWorldResult): void
 {
     echo "\n[setup] Summary\n";
 
@@ -335,6 +364,18 @@ function print_summary(array $migrationsRun, int $totalStatements, ?array $defau
         echo "- Bootstrap: galaxy {$galaxy}, seeded {$seeded}, last {$last}, target {$target}, complete={$complete}\n";
     }
 
+    if ($factionWorldResult === null) {
+        echo "- Faction homeworlds: skipped\n";
+    } elseif (!empty($factionWorldResult['dry_run'])) {
+        echo "- Faction homeworlds: dry-run (configured=" . $factionWorldResult['configured'] . ", plus DB NPC factions)\n";
+    } else {
+        echo "- Faction homeworlds: created={$factionWorldResult['created']}, reused={$factionWorldResult['reused']}\n";
+        foreach ($factionWorldResult['worlds'] as $world) {
+            echo "  - {$world['code']}: {$world['name']} [{$world['galaxy']}:{$world['system']}:{$world['position']}]"
+                . " ({$world['kind']}, {$world['placement_version']}, provisional=" . (int)$world['provisional'] . ")\n";
+        }
+    }
+
     if ($npcSeedResult === null) {
         echo "- Relevant NPC seed: skipped\n";
     } elseif (($npcSeedResult['dry_run'] ?? false) === true) {
@@ -354,7 +395,7 @@ function print_summary(array $migrationsRun, int $totalStatements, ?array $defau
     }
 }
 
-function ensure_default_identities_after_rbac(PDO $db, bool $dryRun): array
+function ensure_default_identities_after_rbac(PDO $db, bool $dryRun, bool $withHomeworlds = true): array
 {
     if ($dryRun) {
         return [
@@ -468,7 +509,7 @@ function ensure_default_identities_after_rbac(PDO $db, bool $dryRun): array
         }
 
         $homeworldCheck->execute([$userId]);
-        if (!$homeworldCheck->fetch(PDO::FETCH_ASSOC)) {
+        if ($withHomeworlds && !$homeworldCheck->fetch(PDO::FETCH_ASSOC)) {
             create_seed_npc_homeworld($db, $userId, $spec['username'] . ' Home');
             $homeworldsCreated++;
         }
@@ -555,43 +596,58 @@ function seed_relevant_npcs(PDO $db, int $count, bool $withProfiles): array
         [$username, $displayName] = build_npc_identity($i, $faction, $nameRules);
         $email = $username . '@seed.local';
 
-        $sel = $db->prepare('SELECT id, is_npc FROM users WHERE username = ? LIMIT 1');
-        $sel->execute([$username]);
-        $row = $sel->fetch(PDO::FETCH_ASSOC);
-
-        if (!$row) {
-            $hash = password_hash(bin2hex(random_bytes(10)), PASSWORD_BCRYPT);
-            $db->prepare(
-                'INSERT INTO users (username, email, password_hash, is_npc, protection_until, created_at)
-                 VALUES (?, ?, ?, 1, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())'
-            )->execute([$username, $email, $hash]);
-            $uid = (int)$db->lastInsertId();
-            $created++;
-        } else {
-            $uid = (int)$row['id'];
-            $reused++;
-            if ((int)$row['is_npc'] !== 1) {
-                $db->prepare('UPDATE users SET is_npc = 1 WHERE id = ?')->execute([$uid]);
+        $db->beginTransaction();
+        try {
+            $sel = $db->prepare('SELECT id, control_type, auth_enabled FROM users WHERE username = ? LIMIT 1');
+            $sel->execute([$username]);
+            $row = $sel->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                $db->prepare(
+                    "INSERT INTO users (username, email, password_hash, control_type, auth_enabled)
+                     VALUES (?, ?, '', 'npc_engine', 0)"
+                )->execute([$username, $email]);
+                $uid = (int)$db->lastInsertId();
+                $created++;
+            } else {
+                $uid = (int)$row['id'];
+                $reused++;
+                if ($row['control_type'] !== 'npc_engine' || (int)$row['auth_enabled'] !== 0) {
+                    throw new RuntimeException('NPC seed username belongs to a login-capable actor: ' . $username);
+                }
             }
-        }
 
-        $cSel = $db->prepare('SELECT id FROM colonies WHERE user_id = ? AND is_homeworld = 1 LIMIT 1');
-        $cSel->execute([$uid]);
-        if (!$cSel->fetch(PDO::FETCH_ASSOC)) {
-            create_seed_npc_homeworld($db, $uid, $displayName . ' Nexus');
-            $homeworldsCreated++;
+            $cSel = $db->prepare('SELECT id FROM colonies WHERE user_id = ? AND is_homeworld = 1 LIMIT 1');
+            $cSel->execute([$uid]);
+            if (!$cSel->fetch(PDO::FETCH_ASSOC)) {
+                (new FactionHomeworldSeeder($db))->createMemberHomeworld($uid, (int)$faction['id'], $displayName . ' Nexus');
+                $homeworldsCreated++;
+            }
+            $membership = $db->prepare('SELECT faction_id FROM npc_faction_memberships WHERE user_id = ?');
+            $membership->execute([$uid]);
+            $linkedFaction = $membership->fetchColumn();
+            if ($linkedFaction !== false && (int)$linkedFaction !== (int)$faction['id']) {
+                throw new RuntimeException('NPC faction membership conflict: ' . $username);
+            }
+            if ($linkedFaction === false) {
+                $db->prepare('INSERT INTO npc_faction_memberships (user_id, faction_id) VALUES (?, ?)')
+                    ->execute([$uid, (int)$faction['id']]);
+            }
+            $db->commit();
+        } catch (Throwable $error) {
+            if ($db->inTransaction()) $db->rollBack();
+            throw $error;
         }
 
         if ($withProfiles) {
             try {
                 ensure_user_character_profile($db, $uid, true, $displayName);
             } catch (Throwable $e) {
-                // Keep setup resilient if local generation backends are unavailable.
+                fwrite(STDERR, '[setup] NPC profile generation failed: ' . $e->getMessage() . "\n");
             }
         }
     }
 
-    $totalNpc = (int)$db->query('SELECT COUNT(*) FROM users WHERE is_npc = 1')->fetchColumn();
+    $totalNpc = (int)$db->query("SELECT COUNT(*) FROM users WHERE control_type = 'npc_engine'")->fetchColumn();
 
     return [
         'created' => $created,
@@ -603,106 +659,11 @@ function seed_relevant_npcs(PDO $db, int $count, bool $withProfiles): array
 
 function create_seed_npc_homeworld(PDO $db, int $userId, string $username): int
 {
-    ensure_galaxy_bootstrap_progress($db, true);
-
     [$g, $s, $p] = find_free_position_for_seed($db);
     seed_user_start_region($db, $g, $s);
-
-    $pCheck = $db->prepare('SELECT id FROM planets WHERE galaxy=? AND `system`=? AND position=?');
-    $pCheck->execute([$g, $s, $p]);
-    $planet = $pCheck->fetch(PDO::FETCH_ASSOC);
-    if ($planet) {
-        $planetId = (int)$planet['id'];
-    } else {
-        $db->prepare('INSERT INTO planets (galaxy, `system`, position, type) VALUES (?, ?, ?, \'terrestrial\')')
-           ->execute([$g, $s, $p]);
-        $planetId = (int)$db->lastInsertId();
-    }
-
-    $bodyUid = sprintf('legacy-p-%d-%d-%d', $g, $s, $p);
-    $bodyStmt = $db->prepare('SELECT id FROM celestial_bodies WHERE body_uid = ? LIMIT 1');
-    $bodyStmt->execute([$bodyUid]);
-    $bodyId = (int)($bodyStmt->fetchColumn() ?: 0);
-    if ($bodyId <= 0) {
-        $db->prepare(
-            'INSERT INTO celestial_bodies
-                (body_uid, galaxy_index, system_index, position, body_type, parent_body_type,
-                 name, planet_class, can_colonize, payload_json)
-             VALUES (?, ?, ?, ?, \'planet\', \'star\', ?, \'terrestrial\', 1, JSON_OBJECT(\'legacy_planet_id\', ?))'
-        )->execute([$bodyUid, $g, $s, $p, 'Planet ' . $p, $planetId]);
-        $bodyId = (int)$db->lastInsertId();
-    }
-
-    $db->prepare(
-        'INSERT INTO colonies
-            (planet_id, body_id, user_id, name, colony_type, is_homeworld,
-             metal, crystal, deuterium, rare_earth, food, energy,
-             population, max_population, happiness, public_services, last_update)
-         VALUES (?, ?, ?, ?, ?, 1, 1200, 800, 500, 0, 500, 30, 220, 850, 68, 30, NOW())'
-    )->execute([
-        $planetId,
-        $bodyId,
-        $userId,
-        $username,
-        'industrial',
+    return (new FactionHomeworldSeeder($db))->createColony($userId, $username, [
+        'galaxy' => $g, 'system' => $s, 'position' => $p,
     ]);
-    $colonyId = (int)$db->lastInsertId();
-
-    touch_system_visibility($db, $userId, $g, $s, 'own', null, null);
-
-    $buildings = [
-        'metal_mine' => 1,
-        'crystal_mine' => 1,
-        'deuterium_synth' => 0,
-        'solar_plant' => 1,
-        'metal_storage' => 1,
-        'crystal_storage' => 1,
-        'deuterium_tank' => 1,
-        'robotics_factory' => 0,
-        'shipyard' => 0,
-        'research_lab' => 0,
-        'terraformer' => 0,
-        'nanite_factory' => 0,
-        'fusion_reactor' => 0,
-        'alliance_depot' => 0,
-        'missile_silo' => 0,
-    ];
-    $bIns = $db->prepare(
-        'INSERT INTO buildings (colony_id, type, level) VALUES (?, ?, ?)
-         ON DUPLICATE KEY UPDATE level=VALUES(level)'
-    );
-    foreach ($buildings as $type => $level) {
-        $bIns->execute([$colonyId, $type, $level]);
-    }
-
-    $research = [
-        'energy_tech', 'laser_tech', 'ion_tech', 'hyperspace_tech',
-        'plasma_tech', 'combustion_drive', 'impulse_drive', 'hyperspace_drive',
-        'espionage_tech', 'computer_tech', 'astrophysics', 'intergalactic_network',
-        'graviton_tech', 'weapons_tech', 'shielding_tech', 'armor_tech',
-        'nano_materials', 'genetic_engineering', 'quantum_computing',
-        'dark_energy_tap', 'wormhole_theory', 'terraforming_tech', 'stealth_tech',
-    ];
-    $rIns = $db->prepare('INSERT IGNORE INTO research (user_id, type, level) VALUES (?, ?, 0)');
-    foreach ($research as $type) {
-        $rIns->execute([$userId, $type]);
-    }
-
-    $ships = [
-        'small_cargo' => 5,
-        'light_fighter' => 10,
-        'heavy_fighter' => 2,
-        'spy_probe' => 2,
-    ];
-    $sIns = $db->prepare(
-        'INSERT INTO ships (colony_id, type, count) VALUES (?, ?, ?)
-         ON DUPLICATE KEY UPDATE count=VALUES(count)'
-    );
-    foreach ($ships as $type => $shipCount) {
-        $sIns->execute([$colonyId, $type, $shipCount]);
-    }
-
-    return $colonyId;
 }
 
 function find_free_position_for_seed(PDO $db): array
@@ -719,7 +680,9 @@ function find_free_position_for_seed(PDO $db): array
         $s = random_int(1, $systemLimit);
         $p = random_int(1, POSITION_MAX);
         $check->execute([$g, $s, $p]);
-        if (!$check->fetch(PDO::FETCH_ASSOC)) {
+        $generated = generate_star_system($g, $s);
+        $colonizable = array_filter($generated['planets'], static fn(array $v): bool => (int)$v['position'] === $p && !empty($v['can_colonize']));
+        if ($colonizable && !$check->fetch(PDO::FETCH_ASSOC)) {
             return [$g, $s, $p];
         }
     }
@@ -728,7 +691,9 @@ function find_free_position_for_seed(PDO $db): array
         for ($s = 1; $s <= $systemLimit; $s++) {
             for ($p = 1; $p <= POSITION_MAX; $p++) {
                 $check->execute([$g, $s, $p]);
-                if (!$check->fetch(PDO::FETCH_ASSOC)) {
+                $generated = generate_star_system($g, $s);
+                $colonizable = array_filter($generated['planets'], static fn(array $v): bool => (int)$v['position'] === $p && !empty($v['can_colonize']));
+                if ($colonizable && !$check->fetch(PDO::FETCH_ASSOC)) {
                     return [$g, $s, $p];
                 }
             }
@@ -740,17 +705,11 @@ function find_free_position_for_seed(PDO $db): array
 
 function load_npc_factions_for_setup(PDO $db): array
 {
-    $rows = $db->query('SELECT code, name, faction_type FROM npc_factions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+    $rows = $db->query('SELECT id, code, name, faction_type FROM npc_factions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
     if (is_array($rows) && count($rows) > 0) {
         return $rows;
     }
-    return [
-        ['code' => 'empire', 'name' => 'Galactic Empire', 'faction_type' => 'military'],
-        ['code' => 'guild', 'name' => 'Merchant Guild', 'faction_type' => 'trade'],
-        ['code' => 'science', 'name' => 'Science Collective', 'faction_type' => 'science'],
-        ['code' => 'pirates', 'name' => 'Pirate Clans', 'faction_type' => 'pirate'],
-        ['code' => 'precursors', 'name' => 'Ancient Precursors', 'faction_type' => 'ancient'],
-    ];
+    throw new RuntimeException('No NPC factions found. Seed faction homeworlds first.');
 }
 
 function load_npc_name_generation_rules(string $yamlPath): array

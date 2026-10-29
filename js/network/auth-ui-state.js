@@ -20,7 +20,6 @@ const AuthUiState = (() => {
       // Main sections
       authSection: document.getElementById('auth-section'),
       gameSection: document.getElementById('game-section') 
-        || document.getElementById('wm-galaxy-section')
         || document.getElementById('wm-host-galaxy'),
 
       // Forms

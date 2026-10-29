@@ -1,0 +1,75 @@
+- generic [active] [ref=f12e1]:
+  - main "GalaxyQuest main menu" [ref=f12e7]:
+    - generic [ref=f12e8]:
+      - paragraph [ref=f12e9]: A galaxy of possibilities
+      - heading "GalaxyQuest" [level=1] [ref=f12e10]
+      - paragraph [ref=f12e11]: Conquer the Stars
+    - navigation "Main menu" [ref=f12e12]:
+      - button "Login" [ref=f12e14] [cursor=pointer]
+      - button "Register Begin your story" [ref=f12e15] [cursor=pointer]:
+        - text: Register
+        - generic [ref=f12e16]: Begin your story
+      - button "News Transmission feed" [ref=f12e17] [cursor=pointer]:
+        - text: News
+        - generic [ref=f12e18]: Transmission feed
+      - button "Blog Beyond the frontier" [ref=f12e19] [cursor=pointer]:
+        - text: Blog
+        - generic [ref=f12e20]: Beyond the frontier
+      - button "Settings Your experience" [ref=f12e21] [cursor=pointer]:
+        - text: Settings
+        - generic [ref=f12e22]: Your experience
+    - status [ref=f12e23]: Session could not be checked. Sign in or try reloading.
+    - status [ref=f12e24]: Procedural loading galaxy - not database stars.
+    - generic [ref=f12e25]:
+      - link "Galaxy Quest Interactive" [ref=f12e26] [cursor=pointer]:
+        - /url: README.md
+      - generic [ref=f12e30]: © 2026 Galaxy Quest Interactive. All rights reserved.
+      - generic [ref=f12e31]: v1.0.0 · Development build
+  - generic [ref=f12e32]:
+    - generic [ref=f12e33]: "AUTH: Initializing shell..."
+    - button "Status / Logs" [ref=f12e34] [cursor=pointer]
+  - region "Entwickler-Konsole" [ref=f12e35]:
+    - generic [ref=f12e36]:
+      - generic [ref=f12e37]:
+        - strong [ref=f12e38]: Console
+        - generic [ref=f12e39]: "Mode: Fallback"
+      - generic [ref=f12e40]:
+        - generic [ref=f12e41]: Level
+        - combobox "Level" [ref=f12e42]:
+          - option "All" [selected]
+          - option "Abort"
+          - option "Error"
+          - option "Warn"
+          - option "Info"
+          - option "Log"
+          - option "Debug"
+          - option "System"
+        - button "Copy" [ref=f12e43] [cursor=pointer]
+        - button "Clear" [ref=f12e44] [cursor=pointer]
+        - button "Close" [ref=f12e45] [cursor=pointer]
+    - generic [ref=f12e46]:
+      - generic [ref=f12e47]: "[14:16:02] [INFO] [boot] Boot terminal active | Fallback aktiv bis terminal.js uebernimmt"
+      - generic [ref=f12e48]: "[14:16:02] [INFO] [auth-fallback] [auth] bootstrap start"
+      - generic [ref=f12e49]: "[14:16:02] [INFO] [probe] [auth] bootstrap start"
+      - generic [ref=f12e50]: "[14:16:02] [INFO] [probe] [auth] login handler bound=true"
+      - generic [ref=f12e51]: "[14:16:02] [INFO] [probe] [auth] register handler bound=true"
+      - generic [ref=f12e52]: "[14:16:02] [INFO] [auth-fallback] [auth] [login-ui] boot progress 8% Pruefe Session..."
+      - generic [ref=f12e53]: "[14:16:02] [INFO] [auth-fallback] [auth] [login-ui] checking session state"
+      - generic [ref=f12e54]: "[14:16:02] [INFO] [auth-fallback] [auth] [login-ui] auth preload panel hidden (reset)"
+      - generic [ref=f12e55]: "[14:16:02] [INFO] [probe] index load event reached"
+      - generic [ref=f12e56]: "[14:16:02] [ERROR] [auth-fallback] [auth] [login-ui] menu session check failed invalid server response (session-menu)"
+      - generic [ref=f12e57]: "[14:16:02] [WARN] [auth-fallback] [auth] [login-ui] session check failed, staying on auth screen"
+      - generic [ref=f12e58]: "[14:16:02] [INFO] [auth-fallback] [auth] [login-ui] auth preload panel hidden (reset)"
+      - generic [ref=f12e59]: "[14:16:02] [INFO] [auth-fallback] [auth] [login-ui] login confirm section hidden"
+      - generic [ref=f12e60]: "[14:16:02] [INFO] [auth-fallback] [auth] [initdiag] stage=setAuthVisible body=auth-page authVisible=true gameSectionExists=false gameVisible=false wmReady=false registryReady=false galaxyOpen=false orb=false starfieldReady=true terminalReady=false"
+      - generic [ref=f12e61]: "[14:16:02] [INFO] [bootdiag] [initdiag] stage=setAuthVisible body=auth-page authVisible=true gameSectionExists=false gameVisible=false wmReady=false registryReady=false galaxyOpen=false orb=false starfieldReady=true terminalReady=false | auth-init"
+      - generic [ref=f12e62]: "[14:16:02] [INFO] [auth-fallback] [auth] [login-ui] auth preload panel hidden (reset)"
+      - generic [ref=f12e63]: "[14:16:02] [INFO] [auth-fallback] [auth] bootstrap ready"
+      - generic [ref=f12e64]:
+        - text: "[14:16:02] [WARN] [auth-fallback] [auth] audio list fetch failed, using fallback track Unexpected token '<', \""
+        - generic [ref=f12e65]: "[14:16:02] [INFO] [auth-fallback] [auth] audio primed (lazy), random title track selected music/Nebula_Overture.mp3"
+        - generic [ref=f12e66]: "[14:16:02] [INFO] [probe] [auth] audio primed (lazy), random title track: music/Nebula_Overture.mp3"
+        - generic [ref=f12e67]: "[14:16:02] [INFO] [auth-fallback] [auth] dev tools status unavailable Unexpected token '<', \""
+    - generic [ref=f12e68]:
+      - textbox "help | refresh | home | open settings | transitions on/off | msg <user> <text>" [ref=f12e69]
+      - button "Run" [ref=f12e70] [cursor=pointer]

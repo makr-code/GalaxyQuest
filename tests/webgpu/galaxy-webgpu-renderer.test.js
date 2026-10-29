@@ -281,6 +281,32 @@ describe('Galaxy3DRendererWebGPU — native WebGPU path (mocked GPU)', () => {
     expect(mockQueue.writeBuffer).toHaveBeenCalled();
   });
 
+  it('updates the native WebGPU view from a camera-driver flight pose', async () => {
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 0));
+    const r = new Ctor(container, {});
+    await r.init();
+    r.setStars(SAMPLE_STARS);
+    const driver = {
+      update: vi.fn(({ renderer, dt, now }) => {
+        expect(renderer).toBe(r);
+        expect(dt).toBeGreaterThan(0);
+        expect(now).toBe(1000);
+        return {
+          position: { x: 25, y: -50, z: 12 },
+          target: { x: 30, y: -40, z: 15 },
+        };
+      }),
+    };
+    r.setCameraDriver(driver);
+
+    r._renderFrame(1000);
+
+    expect(driver.update).toHaveBeenCalledOnce();
+    expect(r.camera.position).toEqual({ x: 25, y: -50, z: 12 });
+    expect(r._view.targetPanX).toBeCloseTo(-25 * r._starScale);
+    expect(r._view.targetPanY).toBeCloseTo(50 * r._starScale);
+  });
+
   it('resize calls _configureContext', async () => {
     const r = new Ctor(container, {});
     await r.init();
@@ -685,6 +711,7 @@ describe('Galaxy3DRendererWebGPU — native camera (no delegate)', () => {
     r.clearCameraDriver();
     expect(r._cameraDriver).toBeNull();
   });
+
 });
 
 // ---------------------------------------------------------------------------
@@ -732,5 +759,66 @@ describe('Galaxy3DRendererWebGPU — star data and color', () => {
     r.setStars(SAMPLE_STARS);
     const stats = r.getRenderStats();
     expect(stats.rawStars).toBe(3);
+  });
+});
+
+describe('Galaxy3DRendererWebGPU — shared object meshes', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.innerHTML = '';
+  });
+
+  it('creates, draws and releases object geometry through the shared device/context', async () => {
+    const nav = Object.create(navigator);
+    nav.gpu = { getPreferredCanvasFormat: vi.fn(() => 'bgra8unorm') };
+    vi.stubGlobal('navigator', nav);
+    vi.stubGlobal('GPUBufferUsage', { VERTEX: 1, COPY_DST: 2, UNIFORM: 4 });
+    vi.stubGlobal('GPUShaderStage', { VERTEX: 1, FRAGMENT: 2 });
+
+    const buffers = [];
+    const pass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      setVertexBuffer: vi.fn(),
+      draw: vi.fn(),
+      end: vi.fn(),
+    };
+    const encoder = { beginRenderPass: vi.fn(() => pass), finish: vi.fn(() => ({})) };
+    const device = {
+      queue: { writeBuffer: vi.fn(), submit: vi.fn() },
+      createShaderModule: vi.fn(() => ({})),
+      createBindGroupLayout: vi.fn(() => ({})),
+      createPipelineLayout: vi.fn(() => ({})),
+      createRenderPipeline: vi.fn(() => ({})),
+      createBuffer: vi.fn((descriptor) => {
+        const buffer = { descriptor, destroy: vi.fn() };
+        buffers.push(buffer);
+        return buffer;
+      }),
+      createBindGroup: vi.fn(() => ({})),
+      createCommandEncoder: vi.fn(() => encoder),
+    };
+    const context = { getCurrentTexture: vi.fn(() => ({ createView: vi.fn(() => ({})) })) };
+    const container = document.createElement('div');
+    const Ctor = loadRenderer();
+    const renderer = new Ctor(container);
+    renderer._device = device;
+    renderer._context = context;
+
+    const mesh = await renderer.createMesh({
+      shape: 'torus',
+      color: [0.2, 0.6, 1],
+      emissive: [0, 0.2, 0.4],
+    });
+    renderer.setMeshRotation(mesh, { y: 1.25 });
+
+    expect(renderer.renderMesh(mesh)).toBe(true);
+    expect(mesh.rotation).toBe(1.25);
+    expect(pass.draw).toHaveBeenCalledWith(mesh.vertexCount);
+    expect(device.queue.submit).toHaveBeenCalledOnce();
+    expect(context.getCurrentTexture).toHaveBeenCalledOnce();
+    expect(renderer.destroyMesh(mesh)).toBe(true);
+    expect(buffers).toHaveLength(2);
+    expect(buffers.every((buffer) => buffer.destroy.mock.calls.length === 1)).toBe(true);
   });
 });

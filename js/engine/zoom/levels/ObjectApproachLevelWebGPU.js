@@ -89,26 +89,18 @@ class ObjectApproachLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   render(dt, cameraState) {
-    if (!this._backend) return;
+    if (!this._backend || !this._meshHandle) return;
 
     const dtS = dt > 1 ? dt / 1000 : dt;
     this._rotation  += dtS * 0.08;
     this._cameraState = cameraState || null;
 
-    // Update the mesh transform through the backend abstraction if available.
-    if (this._meshHandle && typeof this._backend.setMeshRotation === 'function') {
-      this._backend.setMeshRotation(this._meshHandle, { y: this._rotation });
+    if (typeof this._backend.setMeshRotation !== 'function'
+      || typeof this._backend.renderMesh !== 'function') {
+      throw new Error('ObjectApproachLevelWebGPU requires shared WebGPU mesh rendering methods');
     }
-
-    // Apply camera state.
-    if (cameraState && cameraState.position && typeof this._backend.setCameraPosition === 'function') {
-      this._backend.setCameraPosition(cameraState.position);
-    }
-
-    // Trigger a frame draw.
-    if (typeof this._backend.renderFrame === 'function') {
-      this._backend.renderFrame();
-    }
+    this._backend.setMeshRotation(this._meshHandle, { y: this._rotation });
+    this._backend.renderMesh(this._meshHandle);
   }
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
@@ -117,13 +109,15 @@ class ObjectApproachLevelWebGPU extends ZoomLevelRendererBase {
       ? transitionPayload.targetType
       : null;
 
-    if (this._backend && typeof this._backend.createMesh === 'function') {
-      // Clear any previous mesh.
-      this._releaseMesh();
-
-      const descriptor = meshDescriptorFor(this._targetType);
-      this._meshHandle = await this._backend.createMesh(descriptor);
+    if (!this._backend) return;
+    if (typeof this._backend.createMesh !== 'function') {
+      throw new Error('ObjectApproachLevelWebGPU requires the shared WebGPU mesh renderer');
     }
+
+    this._releaseMesh();
+    const descriptor = meshDescriptorFor(this._targetType);
+    this._meshHandle = await this._backend.createMesh(descriptor);
+    if (!this._meshHandle) throw new Error('Shared WebGPU renderer returned no object mesh handle');
   }
 
   async exit(nextLevel) { // eslint-disable-line no-unused-vars
@@ -140,9 +134,10 @@ class ObjectApproachLevelWebGPU extends ZoomLevelRendererBase {
 
   _releaseMesh() {
     if (!this._meshHandle) return;
-    if (this._backend && typeof this._backend.destroyMesh === 'function') {
-      try { this._backend.destroyMesh(this._meshHandle); } catch (_) {}
+    if (typeof this._backend?.destroyMesh !== 'function') {
+      throw new Error('ObjectApproachLevelWebGPU requires shared WebGPU mesh cleanup');
     }
+    this._backend.destroyMesh(this._meshHandle);
     this._meshHandle = null;
   }
 }

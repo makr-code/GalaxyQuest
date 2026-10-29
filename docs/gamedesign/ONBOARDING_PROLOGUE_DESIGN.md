@@ -1,9 +1,266 @@
 # 🌌 Narrativer Registrierungsprolog – Onboarding in die Kalytherion-Konvergenz
 
-**Version:** 1.0  
-**Status:** Konzept & Design – Blaupause für Implementierung  
+**Version:** 2.0
+
+**Status:** Verbindlicher Zielablauf; Implementierung noch nicht abgeschlossen
 **Zugehörig zu:** [FACTION_INTRODUCTION.md](FACTION_INTRODUCTION.md) → [GAMEDESIGN.md](GAMEDESIGN.md)  
-**Letztes Update:** 2026-04-01
+**Letztes Update:** 2026-10-29
+
+---
+
+## 0. Massgeblicher Zielablauf: spielbarer Prolog vor der Registrierung
+
+Die folgenden Festlegungen ersetzen den bisherigen Fuenf-Stufen-Entwurf.
+Die Abschnitte 1 bis 11 bleiben als historischer Erzaehl- und Gestaltungsvorrat
+erhalten, sind bei abweichender Reihenfolge oder Mechanik aber nicht mehr
+verbindlich. Insbesondere entfallen die fruehe E-Mail-/Passworteingabe und die
+Gleichsetzung von Fraktion und Spezies.
+
+### Implementierter Zwischenstand
+
+- Der Register-Einstieg ist ein Vollbild-Prolog statt einer Auth-Kaskade.
+  Statische Container stehen in [index.html](../../index.html), der Ablauf in
+  [registration-prologue.js](../../js/network/registration-prologue.js).
+- Vier Lorekapitel und vier politische Vorstellungen stammen aus
+  [onboarding_prologue.json](../../config/onboarding_prologue.json).
+  Danach folgen die Symbolwahl, sechs unabhaengige Spezies und ein privater
+  Charakter-Draft mit Name und Hintergrund.
+  Jedes Erzaehlkapitel bietet sofort **Zurueck** und **Weiter**, auch waehrend
+  der Sprachausgabe oder ihres Textfallbacks. Manuelles Weiter beendet die
+  vorherige Narration; erforderliche Fraktions-/Spezieswahlen bleiben Pflicht.
+  Vor dem Landeanflug muss der Charakter gespeichert sein.
+- Derselbe WebGPU-Canvas fuehrt die Darstellung mit: Gesamtgalaxie im Teaser,
+  jeweiliges DB-Fraktionsgebiet bei der Vorstellung, reserviertes Startsystem
+  waehrend der Spezieswahl, Zielplanet beim Charakter und ein expliziter
+  Landeanflug nach dem Speichern. Back durchlaeuft diese Massstaebe rueckwaerts;
+  reduzierte Bewegung setzt sie unmittelbar. Der zusaetzliche Renderpass nutzt
+  denselben Device, Encoder und Animationsloop.
+  Die Reservierung erfolgt deshalb bereits nach Bestaetigung der Fraktion,
+  nicht erst nach der Spezieswahl. Sonnentemperatur/-radius, Planetendurchmesser
+  und Halbachsen stammen aus dem deterministischen Systemgenerator im Draft.
+  Orbitabstaende und Planetenphasen sind eine schematische Vorschau, keine
+  zeitlich korrekte Orbit-Simulation. Die Oberflaeche ist prozedurale Grafik,
+  noch kein bebaubares Terrain; der Tutorial-Weiterbutton bleibt entsprechend
+  sichtbar gesperrt. Es werden weder aktive Gebaeude noch Spieler angelegt.
+- Gastnarration liest nur vorbereitete Kapitel aus dem bestehenden TTS-Cache.
+  Vorbereitung:
+  `php scripts/render_onboarding_narration.php` bei konfiguriertem, aktiviertem
+  Piper-/XTTS-Dienst. Fehlende Sprache wird sichtbar gemeldet; lesbarer Text
+  laeuft mit kapitelweiser Lesezeit weiter. Back beendet Requests, Sprache
+  und Kapitel-Timer. Shared Mute/Volume, Musik-Ducking und reduzierte Bewegung
+  bleiben wirksam.
+- Die NPC-Hauptwelten bleiben bestehen; politische Codes verweisen explizit
+  auf geografische Anker. Charakterdaten werden noch nicht in User-Tabellen
+  publiziert. Eine Speziesaenderung verwirft den abhaengigen Charakter.
+- Nach dem Speichern kann ein KI-Portrait ueber den vorhandenen lokalen
+  SwarmUI-Client angefordert werden. Die kanonische Spezies-Spezifikation
+  bestimmt Morphologie und Palette; ein LLM darf die Spezies nicht neu erfinden.
+  Aktueller Name/Spezies/Hintergrund und eine Identitaetsrevision binden das Bild
+  an genau diesen Draft. Geaenderte Identitaeten verwerfen alte Antworten.
+  PNGs (768 x 1024, maximal 2 MiB) liegen in `registration_portraits`, nicht
+  unter oeffentlichen `generated/characters/u_*`-Pfaden. Der Bildabruf verlangt
+  dieselbe Session und einen gueltigen, nicht abgelaufenen Draft.
+  Die neue Migration [migrate_registration_portraits_v1.sql](../../sql/migrate_registration_portraits_v1.sql)
+  ist dafuer erforderlich; bestehende Installationen wurden nicht migriert.
+  Status, Fehler und Wiederholung stehen im Charakterbildschirm. Drei Versuche
+  pro Draft, 30 Sekunden Mindestabstand und zehn Auftraege pro IP/Stunde
+  begrenzen Gastgenerierung. Erfolg wird erst nach Bildvalidierung gespeichert.
+  Der lange HTTP-Auftrag laesst die PHP-Session frei; Back beendet die Anzeige,
+  nicht notwendigerweise eine bereits gestartete SwarmUI-Berechnung.
+  Nach Wiederoeffnen kann der Status erneut geladen werden. Ohne fertiges
+  Ergebnis nach fuenf Minuten wird ein wiederholbarer Timeout gemeldet;
+  dies ist keine dauerhafte Hintergrund-Jobqueue.
+- `register` und `register_complete` sind serverseitig gesperrt (HTTP 503).
+  **Noch kein** Oberflaechen-Tutorial, Mailversand, Verifikationslink
+  oder Einmal-Startpasswort. Es gibt keinen vorzeitigen Login oder aktiven
+  Spielerplaneten. Die bisherigen Formular- und Sofortabschluss-Pfade wurden
+  aus dem aktiven Frontend entfernt.
+
+### Verbindliche Entscheidungen
+
+- **Vier politische Fraktionen** stehen zur Wahl: Schildzirkel, Lichtbund,
+  Kernrat und Schattenzirkel. Grundlage ist
+  [Politik und Fraktionen](GAMEDESIGN.md#politik-und-fraktionen).
+  Die sechs Herolde und die sechs Heimatkulturen sind keine vier weiteren
+  oder sechs alternativen politischen Startfraktionen.
+- **Sechs Spezies werden separat gewaehlt.** Politische Zugehoerigkeit,
+  biologische Herkunft und individueller Charakter sind drei getrennte Achsen.
+  Die bisherige automatische Mitgliedschaft allein aufgrund der Rasse aus
+  [FACTION_INTRODUCTION.md](FACTION_INTRODUCTION.md) gilt fuer diesen Einstieg
+  nicht mehr.
+- **Vor der E-Mail-Bestaetigung bleibt alles ein privater Draft.**
+  Ein Tutorialstart, eine Charakterwahl oder ein erfolgreicher Portraitauftrag
+  darf weder ein anmeldbares Konto noch eine aktive Kolonie erzeugen.
+- **E-Mail kommt zuletzt.** Versand eines Einmal-Startpassworts und eines
+  Verifikationslinks. Erst die bestaetigte Adresse ermoeglicht die atomare
+  Uebernahme in die reale Galaxie. Fuer den anschliessenden Zugang muss das
+  Startpasswort durch ein eigenes Passwort ersetzt werden; es ist kein
+  dauerhaftes oder bei jeder Anmeldung neu angefordertes Passwort.
+- **Sprachausgabe ueber den vorhandenen Piper-/XTTS-Dienst.** Whisper ist
+  Spracherkennung und wird fuer diesen Ablauf nicht als TTS-Engine eingeplant.
+
+### Stufe 1: Teaser statt Auth-Fenster
+
+Der Klick auf **Registrierung** blendet das Startmenue und seine
+Bedienelemente einschliesslich Musikplayer, Credits und Status-/Logleiste aus.
+Als Navigation bleiben **Zurueck** und **Weiter** sichtbar; fuer reine
+Erzaehlkapitel ist keine Eingabe und kein Abwarten der Sprache erforderlich.
+Die existierende
+WebGPU-Galaxie bleibt erhalten; es wird kein zweiter Renderer gestartet.
+
+Ein zentrierter, rahmenloser Textteaser und eine zeitlich passende
+Erzaehlerstimme fuehren in das Universum ein. Die gewuenschte
+Eroeffnungsstimmung ist eine ferne Galaxie, keine Kopie eines fremden
+Filmvorspanns. Der konkrete GalaxyQuest-Text wird aus der eigenen Lore
+formuliert.
+
+Erzaehlgrundlage:
+
+1. Die Kalytherion-Konvergenz verbindet sechs Hochzivilisationen.
+2. Militaerische, spirituelle, wissenschaftliche und nachrichtendienstliche
+   Interessen halten dieses Buendnis zusammen und treiben es auseinander.
+3. Leerenbrut, Eisenflotte und die unsicheren Randgebiete bedrohen die Ordnung.
+4. Eine Randwelt, ihre Transitverbindungen und das Vethisit-Vorkommen bieten
+   dem kuenftigen Gouverneur eine Gelegenheit.
+
+Quellen sind [START_HERE.md](START_HERE.md),
+[GAMEDESIGN.md](GAMEDESIGN.md) und
+[die Randwelt-Einfuehrung](FACTION_INTRODUCTION.md).
+Kampagnengeheimnisse, insbesondere die Hintergruende der Leerenbrut,
+werden nicht vorweggenommen. Khal'Vethis ist die erzaehlerische Vorlage,
+nicht automatisch eine einzige globale Spielerwelt fuer alle Registrierungen.
+
+Text und Sprache muessen dieselben Kapitel wiedergeben. Sprachfehler werden
+sichtbar gemeldet; ein nicht erzeugter Clip darf nicht als abgespielt gelten.
+Vorgegebene, zwischengespeicherte Lore-Clips sind fuer Gaeste vorgesehen,
+kein oeffentlicher Freitext-TTS-Endpunkt. Bestehende Audioeinstellungen und
+reduzierte Bewegung bleiben wirksam.
+
+### Stufe 2: Die vier politischen Fraktionen
+
+Jede Fraktion erhaelt eine kurze Vorstellung ihrer Haltung, Angebote und
+Zielkonflikte. Danach stehen die vier Fraktionssymbole zentral als
+Overlaygrafiken ueber der Galaxie. Der Spieler muss eine auswaehlen.
+
+Die Auswahl bestimmt:
+
+- das regionale Startgebiet und die politischen Ansprechpartner;
+- die Fraktionsanbindung sowie spaetere Netzwerk-/Infrastrukturvorteile;
+- den passenden erzählerischen Kontakt und die Einfuehrungsauftraege.
+
+Die geographischen Anker leiten sich aus den bestehenden Hauptwelten und
+Lore-Verbindungen ab: Schildzirkel/Vor'Tak, Lichtbund/Syl'Nar,
+Kernrat/Aereth und Schattenzirkel/Vel'Ar. Die politische Fraktion muss dafuer
+explizit auf ihren Anker verweisen; ein Speziescode ist nicht selbst die
+politische Mitgliedschaft. Die Heimatwelten von Kryl'Tha und Zhareen sowie
+die weiteren NPC-Welten bleiben Teil der Galaxie.
+
+Konkrete Zahlen fuer Netzwerkboni sind noch nicht festgelegt. Die UI darf
+keine bereits wirksamen Modifikatoren behaupten, die im Backend fehlen.
+
+### Stufe 3: Spezies und Koloniegrundlage
+
+Vorstellung und Auswahl von Vor'Tak, Syl'Nar, Aereth, Kryl'Tha, Zhareen
+oder Vel'Ar, unabhaengig von der politischen Fraktion.
+
+Diese Auswahl praegt die planetare/koloniale Ausgangslage des Drafts.
+Biologie, Lebensraum und lokale Gestaltung werden aus den vorhandenen
+Spezies-Spezifikationen abgeleitet. Numerische Speziesboni oder
+Habitabilitaetsregeln werden nicht ohne eigenes Balancing erfunden.
+Die Fraktionshauptwelt wird dabei nicht zur privaten Spielerhauptwelt.
+
+### Stufe 4: Spielercharakter
+
+Name, Hintergrund, Charakterdarstellung und ein generativ erzeugtes Portrait
+werden im privaten Draft vorbereitet. Die gewaehlte Spezies ist fuer die
+Portraitgenerierung verbindlich und darf nicht erneut zufaellig bestimmt
+werden.
+
+Hintergruende, Boni und Mali sind **noch auszugestalten**. Bis dahin muessen
+entsprechende Entwurfsoptionen als solche erkennbar sein und duerfen keine
+erfundenen aktiven Spieleffekte besitzen.
+
+Portraitauftraege und Ergebnisse gehoeren zur Draft-Session, nicht zu einem
+beliebig angegebenen aktiven User. Generierungsfehler, Wartezustand und
+Wiederholungen werden explizit dargestellt; ein Platzhalter ist kein
+erfolgreich generiertes Portrait.
+
+### Stufe 5: Spielbares Tutorial auf der Planetenoberflaeche
+
+Der Spieler wechselt mit derselben WebGPU-Engine von der Galaxie zu seiner
+privaten Planetenoberflaeche. Er gibt erste echte, serverseitig validierte
+Draft-Baubefehle, beispielsweise fuer ein Einfuehrungsgebaeude, und erhaelt
+Rueckmeldung vom Tutor.
+
+- Gebaeude, Ressourcen, Entscheidungen und Tutorialfortschritt werden
+  persistent am Draft gespeichert.
+- Keine oeffentliche Wirtschaft, Rangliste, Flotteninteraktion oder
+  Multiplayer-Wirkung vor der Aktivierung.
+- Die Fortschrittsanzeige folgt nachgewiesenen Bau-/Spielereignissen,
+  keinen hartcodierten Erfolgsantworten.
+- Bei der Aktivierung wird der erspielte Zustand uebernommen, nicht durch
+  einen unveraenderten Starterdatensatz ersetzt.
+
+Der vorhandene Game-Guide ist derzeit teilweise eine Mock-Implementierung
+und erfuellt diese Anforderungen noch nicht.
+
+### Stufe 6: E-Mail, Bestaetigung und Uebernahme
+
+Erst nach dem Einstiegstutorial wird die E-Mail-Adresse abgefragt.
+Der Server versendet Einmal-Startpasswort und Verifikationslink.
+Ein blosses Absenden des Formulars oder ein erfolgreicher Versand aktiviert
+die Welt noch nicht.
+
+Die finale Uebernahme muss:
+
+1. ein unbenutztes, nicht abgelaufenes Verifikationstoken pruefen;
+2. Draft-Zugehoerigkeit, Namen, E-Mail und Zielposition erneut validieren;
+3. Konto, politische Mitgliedschaft, Spezies, Charakter und erspielten
+   Kolonie-/Flotten-/Tutorialzustand atomar uebertragen;
+4. die Verifikation verbrauchen und Mehrfachaktivierung verhindern;
+5. den erforderlichen Wechsel des Einmal-Startpassworts durchsetzen.
+
+Token und Startpasswort werden serverseitig nur gehasht gespeichert.
+Ausbleibender oder fehlgeschlagener Mailversand ist ein sichtbarer Fehler
+mit kontrollierter Wiederholungsmoeglichkeit, kein verifizierter Erfolg.
+Ein bereits belegter Name oder Zielplanet darf weder still umbenannt noch
+ohne nachvollziehbare Entscheidung an eine andere Position verschoben werden.
+
+### Zustandsmaschine und Back-Verhalten
+
+```text
+START_MENU
+  -> TEASER
+  -> FACTION_PRESENTATION -> FACTION_CHOICE
+  -> SPECIES_PRESENTATION -> SPECIES_CHOICE
+  -> CHARACTER_DRAFT
+  -> DRAFT_SURFACE_TUTORIAL
+  -> EMAIL_ENTRY
+  -> AWAITING_EMAIL_VERIFICATION
+  -> ACTIVATED / PASSWORD_CHANGE_REQUIRED
+  -> GAME
+```
+
+Zurueck navigiert innerhalb des Prologs oder verlaesst ihn zum Startmenue.
+Sprachwiedergabe und Animationen des verlassenen Kapitels werden dabei
+gestoppt. Ein persistierter Draft wird nicht allein durch das Schliessen
+der Darstellung geloescht. Explizites Verwerfen und Ablauf sind getrennte
+Operationen. Aenderungen frueherer Wahlen muessen abhaengigen
+Charakter-/Kolonie-/Tutorialzustand gezielt invalidieren; alte Ergebnisse
+duerfen nicht versehentlich zur neuen Wahl weiterverwendet werden.
+
+### Implementierungsgrenze am 2026-10-29
+
+Vorhanden sind der WebGPU-Startbildschirm, Fraktionshauptwelten, TTS- und
+Portraitbausteine sowie ein zwischenzeitlicher Formular-Wizard mit privaten
+DB-Drafts. **Dieser Wizard ist noch nicht der hier spezifizierte Prolog.**
+Sein Passwortabschluss vor dem Tutorial ist fuer diesen Zielablauf zu ersetzen.
+
+Noch nicht fertig sind die vier unabhaengigen politischen Startfraktionen
+im Onboarding, Gast-Narration, isoliertes Oberflaechen-Tutorial, Mailversand,
+E-Mail-Verifikation und der erzwungene Startpasswortwechsel.
+Die bisherigen Tests des Formular-Wizards sind kein Nachweis fuer diese
+neuen Abnahmekriterien.
 
 ---
 

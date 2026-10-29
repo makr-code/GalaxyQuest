@@ -44,7 +44,7 @@
     return stars;
   }
 
-  function normalizeStars(stars) {
+  function normalizeStars(stars, menuGalaxy, fixedScale) {
     const list = Array.isArray(stars) && stars.length ? stars : generateFallbackStars(1400);
     let maxAbs = 1;
     for (let i = 0; i < list.length; i += 1) {
@@ -53,12 +53,18 @@
       const y = Number(s.y_ly || s.y || 0);
       maxAbs = Math.max(maxAbs, Math.abs(x), Math.abs(y));
     }
-    const scale = maxAbs > 0 ? 1 / maxAbs : 1;
-    const out = new Float32Array(list.length * 2);
+    const scale = fixedScale || (maxAbs > 0 ? 1 / maxAbs : 1);
+    const out = new Float32Array(list.length * 7);
     for (let i = 0; i < list.length; i += 1) {
       const s = list[i] || {};
-      out[(i * 2)] = Number(s.x_ly || s.x || 0) * scale;
-      out[(i * 2) + 1] = Number(s.y_ly || s.y || 0) * scale;
+      const color = menuGalaxy && Array.isArray(s.display_color) ? s.display_color : [0.82, 0.9, 1];
+      out.set([
+        Number(s.x_ly || s.x || 0) * scale,
+        Number(s.y_ly || s.y || 0) * scale,
+        ...color,
+        menuGalaxy ? (s.display_opacity ?? 0.65) : 1,
+        menuGalaxy ? (s.display_size ?? 1.5) : 1.5,
+      ], i * 7);
     }
     return { positions: out, scale, stars: list };
   }
@@ -76,6 +82,163 @@
       y: Number(star.y_ly || star.y || 0),
     };
   }
+
+  const STARFIELD_SHADER_WGSL = `
+    struct ViewUniform {
+      pan : vec2<f32>,
+      zoom : f32,
+      rotation : f32,
+      pixelSize : vec2<f32>,
+      aspect : f32,
+      menuGalaxy : f32,
+    };
+    @group(0) @binding(0) var<uniform> uView : ViewUniform;
+
+    struct VSOut {
+      @builtin(position) pos : vec4<f32>,
+      @location(0) localPos : vec2<f32>,
+      @location(1) color : vec4<f32>,
+    };
+
+    @vertex
+    fn vs_main(
+      @builtin(vertex_index) vertexIndex : u32,
+      @location(0) inPos : vec2<f32>,
+      @location(1) color : vec4<f32>,
+      @location(2) size : f32
+    ) -> VSOut {
+      let corners = array<vec2<f32>, 4>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>( 1.0, -1.0),
+        vec2<f32>(-1.0,  1.0),
+        vec2<f32>( 1.0,  1.0),
+      );
+      let corner = corners[vertexIndex];
+      var out : VSOut;
+      var p = (inPos + uView.pan) * uView.zoom;
+      if (uView.menuGalaxy > 0.5) {
+        let c = cos(uView.rotation);
+        let s = sin(uView.rotation);
+        let rotated = vec2<f32>(inPos.x * c - inPos.y * s, inPos.x * s + inPos.y * c);
+        p = vec2<f32>(
+          (rotated.x + uView.pan.x) * uView.zoom * 1.6 / max(uView.aspect, 0.1) + 0.4,
+          (rotated.y + uView.pan.y) * uView.zoom * 0.85
+        );
+      }
+      out.pos = vec4<f32>(p + corner * uView.pixelSize * size, 0.0, 1.0);
+      out.localPos = corner;
+      out.color = color;
+      return out;
+    }
+
+    @fragment
+    fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
+      let radius = length(input.localPos);
+      if (radius > 1.0) {
+        discard;
+      }
+      var alpha = 1.0 - smoothstep(0.25, 1.0, radius);
+      if (uView.menuGalaxy > 0.5) {
+        alpha = (exp(-5.0 * radius * radius) - exp(-5.0)) / (1.0 - exp(-5.0));
+      }
+      return vec4<f32>(input.color.rgb, alpha * input.color.a);
+    }
+  `;
+
+  const REGISTRATION_SCENE_WGSL = `
+    struct Scene {
+      view: vec4<f32>,
+      planet: vec4<f32>,
+      color: vec4<f32>,
+      orbits: array<vec4<f32>, 16>,
+    };
+    @group(0) @binding(0) var<uniform> scene: Scene;
+    struct Output {
+      @builtin(position) position: vec4<f32>,
+      @location(0) uv: vec2<f32>,
+    };
+    @vertex fn vs_main(@builtin(vertex_index) index: u32) -> Output {
+      let positions = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+      var out: Output;
+      out.position = vec4(positions[index], 0.0, 1.0);
+      out.uv = positions[index];
+      return out;
+    }
+    fn terrain(p: vec3<f32>) -> f32 {
+      let q = p * 3.8 + vec3(scene.planet.z);
+      return sin(q.x + sin(q.z * 1.7)) * cos(q.y * 1.5 + sin(q.x))
+        + 0.22 * sin(q.x * 4.7 + q.y * 3.2) * sin(q.z * 5.3);
+    }
+    fn sphereColor(uv: vec2<f32>, progress: f32) -> vec3<f32> {
+      let descent = smoothstep(1.0, 2.0, progress);
+      let orbitalDistance = mix(30.0, 3.4, smoothstep(0.0, 1.0, progress));
+      let distance = mix(orbitalDistance, 1.018, descent);
+      let tilt = descent * 1.10;
+      let origin = vec3<f32>(0.0, 0.0, distance);
+      let forward = vec3<f32>(0.0, sin(tilt), -cos(tilt));
+      let up = vec3<f32>(0.0, cos(tilt), sin(tilt));
+      let ray = normalize(forward + uv.x * vec3(1.0, 0.0, 0.0) * 0.68 + uv.y * up * 0.68);
+      let b = dot(origin, ray);
+      let discriminant = b * b - dot(origin, origin) + 1.0;
+      if (discriminant < 0.0 || b > 0.0) {
+        let glow = exp(-abs(discriminant) * 9.0) * 0.24;
+        return scene.color.rgb * glow;
+      }
+      let hit = origin + ray * (-b - sqrt(discriminant));
+      let normal = normalize(hit);
+      let height = terrain(normal);
+      let ocean = smoothstep(-0.2, 0.05, height);
+      let base = mix(vec3(0.018, 0.08, 0.14), scene.color.rgb * (0.32 + height * 0.16), ocean);
+      let detail = 0.88 + 0.12 * sin(hit.x * 470.0) * sin(hit.y * 360.0 + hit.z * 250.0);
+      let light = max(0.12, dot(normal, normalize(vec3(-0.6, 0.8, 1.4))));
+      let clouds = smoothstep(0.72, 1.04, terrain(normal * 1.75 + vec3(scene.view.z * 0.003, 0.0, 0.0)));
+      let rim = pow(1.0 - max(0.0, dot(normal, -ray)), 3.0);
+      return mix(base * detail, vec3(0.72, 0.78, 0.8), clouds * 0.6) * light
+        + scene.color.rgb * rim * 0.35;
+    }
+    @fragment fn fs_main(input: Output) -> @location(0) vec4<f32> {
+      let stage = scene.view.x;
+      if (stage < 0.001) { return vec4(0.0); }
+      let horizontalOffset = select(0.0, 0.4, scene.view.y > 1.3);
+      let uv = vec2(input.uv.x * scene.view.y - horizontalOffset, input.uv.y);
+      let approach = smoothstep(0.0, 1.0, stage - 1.0);
+      var selectedCenter = vec2<f32>(0.0);
+      for (var i = 0u; i < 16u; i++) {
+        if (i >= u32(scene.planet.x)) { break; }
+        let orbit = scene.orbits[i];
+        if (orbit.w > 0.5) {
+          selectedCenter = vec2(-0.48 + cos(orbit.y) * orbit.x, 0.1 + sin(orbit.y) * orbit.x * 0.42);
+        }
+      }
+      let systemUv = uv / (1.0 + approach * 16.0) + selectedCenter * approach;
+      var system = vec3<f32>(0.0);
+      let starDistance = length(systemUv - vec2(-0.48, 0.1));
+      let starTint = mix(vec3(1.0, 0.46, 0.18), vec3(0.65, 0.8, 1.0), clamp(scene.view.w, 0.0, 1.0));
+      let starSize = clamp(scene.planet.w, 0.4, 2.0);
+      system += starTint * (exp(-starDistance * 40.0 / starSize) + exp(-starDistance * 7.0) * 0.12);
+      let count = u32(scene.planet.x);
+      for (var i = 0u; i < 16u; i++) {
+        if (i >= count) { break; }
+        let orbit = scene.orbits[i];
+        let projected = vec2(systemUv.x + 0.48, (systemUv.y - 0.1) / 0.42);
+        let ring = 1.0 - smoothstep(0.001, 0.004, abs(length(projected) - orbit.x));
+        system += vec3(0.12, 0.24, 0.3) * ring * 0.25;
+        let angle = orbit.y;
+        let center = vec2(-0.48 + cos(angle) * orbit.x, 0.1 + sin(angle) * orbit.x * 0.42);
+        let radius = orbit.z;
+        let delta = (systemUv - center) / radius;
+        let disk = 1.0 - smoothstep(0.85, 1.0, length(delta));
+        let color = mix(vec3(0.35, 0.4, 0.45), scene.color.rgb, orbit.w);
+        system += color * disk * (0.45 + 0.55 * max(0.0, 1.0 - length(delta)));
+        if (orbit.w > 0.5) {
+          system += scene.color.rgb * (1.0 - smoothstep(0.002, 0.007, abs(length(systemUv - center) - radius * 1.6)));
+        }
+      }
+      let planet = sphereColor(uv, stage - 1.0);
+      let opacity = smoothstep(0.0, 1.0, stage);
+      return vec4(mix(system, planet, smoothstep(0.2, 0.95, approach)), opacity);
+    }
+  `;
 
   class StarfieldWebGPU {
     /**
@@ -99,6 +262,21 @@
       this._rafId = 0;
       this._frameTick = 0;
       this._lastRenderTs = 0;
+      this._lastCameraDriverTime = 0;
+      this._galaxyRotation = 0;
+      this._registrationScene = null;
+      this._sceneStage = 0;
+      this._sceneTarget = 0;
+      this._sceneTime = 0;
+      this._scenePipeline = null;
+      this._sceneBuffer = null;
+      this._sceneBindGroup = null;
+      const motionPreference = document.body.dataset.startReducedMotion;
+      this._reducedMotion = motionPreference !== undefined
+        ? motionPreference === 'true'
+        : window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+      this._onMotionChange = (event) => { this._reducedMotion = event.detail.reduced; };
+      window.addEventListener('gq:start-motion', this._onMotionChange);
       this._running = false;
       this._currentTarget = null;
       this._cameraDriver = null;
@@ -156,6 +334,7 @@
           emitRenderTelemetry('backend-active', { backend: 'webgpu' });
           return;
         } catch (err) {
+          if (this._opts.menuGalaxy) throw err;
           emitRenderTelemetry('fallback', {
             from: 'webgpu',
             to: 'webgl2',
@@ -164,6 +343,9 @@
         }
       }
 
+      if (this._opts.menuGalaxy) {
+        throw new Error('WebGPU is unavailable. Use a WebGPU-capable browser to display the galaxy.');
+      }
       this._backend = 'webgl2';
       this.ready    = true;
       emitRenderTelemetry('backend-active', { backend: 'webgl2' });
@@ -172,23 +354,66 @@
     /** @returns {'webgpu'|'webgl2'|null} */
     get backendType() { return this._backend; }
 
-    setStars(stars) {
+    setStars(stars, options = {}) {
       this.stars = Array.isArray(stars) ? stars.slice() : [];
       this.starPoints = this.stars;
       if (this._backend !== 'webgpu' || !this._device) {
         return;
       }
-      this._uploadStars(stars);
+      this._uploadStars(stars, options.preserveScale ? this._starScale : null);
     }
 
     setCameraTarget(target) {
       this._currentTarget = target || null;
       this.focusOnStar(target, false);
     }
+    setRegionPreview(target) {
+      this._regionPreviewTarget = target || null;
+      if (!target) {
+        this.fitCameraToStars();
+        return true;
+      }
+      const position = toStarPosition(target);
+      if (!position) return false;
+      const x = position.x * this._starScale;
+      const y = position.y * this._starScale;
+      const c = Math.cos(this._galaxyRotation);
+      const s = Math.sin(this._galaxyRotation);
+      this._viewState.targetPanX = -(x * c - y * s);
+      this._viewState.targetPanY = -(x * s + y * c);
+      this._viewState.targetZoom = 4.5;
+      if (this._reducedMotion) {
+        this._viewState.panX = this._viewState.targetPanX;
+        this._viewState.panY = this._viewState.targetPanY;
+        this._viewState.zoom = this._viewState.targetZoom;
+      }
+      return true;
+    }
+    setRegistrationScene(scene) {
+      const stage = scene?.stage || (scene ? 'region' : 'galaxy');
+      const stages = { galaxy: 0, region: 0, system: 1, planet: 2, surface: 3 };
+      if (!(stage in stages)) return false;
+      if (stages[stage] > 0 && (!scene?.draft?.planets?.length
+        || !scene.draft.planets.some((planet) => planet.position === scene.draft.position?.position))) return false;
+      this._registrationScene = scene;
+      if (scene?.draft) this._lastSceneDraft = scene.draft;
+      this._sceneTarget = stages[stage];
+      if (stages[stage] > 0) this._viewState.targetZoom = 6;
+      if (this._reducedMotion) {
+        this._sceneStage = this._sceneTarget;
+        this._viewState.zoom = this._viewState.targetZoom;
+      }
+      return true;
+    }
     fitCameraToStars() {
       this._viewState.targetPanX = 0;
       this._viewState.targetPanY = 0;
       this._viewState.targetZoom = this.systemMode ? 2.25 : 1;
+      if (this._reducedMotion) {
+        this._viewState.panX = 0;
+        this._viewState.panY = 0;
+        this._viewState.zoom = this._viewState.targetZoom;
+      }
     }
     setTransitionsEnabled(flag) { this.transitionsEnabled = !!flag; }
     setClusterBoundsVisible(flag) { this._clusterBoundsVisible = !!flag; }
@@ -286,10 +511,10 @@
     start() {
       if (this._backend !== 'webgpu' || this._running) return;
       this._running = true;
-      const tick = () => {
+      const tick = (timestamp) => {
         if (!this._running) return;
         this._rafId = requestAnimationFrame(tick);
-        this._renderFrame();
+        this._renderFrame(timestamp);
       };
       this._rafId = requestAnimationFrame(tick);
     }
@@ -304,6 +529,7 @@
 
     dispose() {
       this.stop();
+      window.removeEventListener('gq:start-motion', this._onMotionChange);
       try {
         if (this._starBuffer) {
           this._starBuffer.destroy();
@@ -311,6 +537,10 @@
         }
       } catch (_) {}
       this._pipeline = null;
+      this._sceneBuffer?.destroy();
+      this._sceneBuffer = null;
+      this._scenePipeline = null;
+      this._sceneBindGroup = null;
       this._viewUniformBuffer = null;
       this._viewBindGroup = null;
       this._context = null;
@@ -341,31 +571,7 @@
       this._configureContext();
 
       const shader = this._device.createShaderModule({
-        code: `
-          struct ViewUniform {
-            pan : vec2<f32>,
-            zoom : f32,
-            pad : f32,
-          };
-          @group(0) @binding(0) var<uniform> uView : ViewUniform;
-
-          struct VSOut {
-            @builtin(position) pos : vec4<f32>,
-          };
-
-          @vertex
-          fn vs_main(@location(0) inPos : vec2<f32>) -> VSOut {
-            var out : VSOut;
-            let p = (inPos + uView.pan) * uView.zoom;
-            out.pos = vec4<f32>(p.x, p.y, 0.0, 1.0);
-            return out;
-          }
-
-          @fragment
-          fn fs_main() -> @location(0) vec4<f32> {
-            return vec4<f32>(0.95, 0.97, 1.0, 1.0);
-          }
-        `,
+        code: STARFIELD_SHADER_WGSL,
       });
 
       this._pipeline = this._device.createRenderPipeline({
@@ -374,22 +580,33 @@
           module: shader,
           entryPoint: 'vs_main',
           buffers: [{
-            arrayStride: 8,
-            attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
+            arrayStride: 28,
+            stepMode: 'instance',
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: 'float32x2' },
+              { shaderLocation: 1, offset: 8, format: 'float32x4' },
+              { shaderLocation: 2, offset: 24, format: 'float32' },
+            ],
           }],
         },
         fragment: {
           module: shader,
           entryPoint: 'fs_main',
-          targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
+          targets: [{
+            format: navigator.gpu.getPreferredCanvasFormat(),
+            blend: {
+              color: { srcFactor: 'src-alpha', dstFactor: this._opts.menuGalaxy ? 'one' : 'one-minus-src-alpha', operation: 'add' },
+              alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            },
+          }],
         },
         primitive: {
-          topology: 'point-list',
+          topology: 'triangle-strip',
         },
       });
 
       this._viewUniformBuffer = this._device.createBuffer({
-        size: 16,
+        size: 32,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       this._viewBindGroup = this._device.createBindGroup({
@@ -397,6 +614,32 @@
         entries: [{ binding: 0, resource: { buffer: this._viewUniformBuffer } }],
       });
 
+      const sceneShader = this._device.createShaderModule({ code: REGISTRATION_SCENE_WGSL, label: 'registration-flight' });
+      if (sceneShader.getCompilationInfo) {
+        const info = await sceneShader.getCompilationInfo();
+        const errors = info.messages.filter((message) => message.type === 'error');
+        if (errors.length) throw new Error(`Registration shader: ${errors.map((error) => error.message).join('; ')}`);
+      }
+      this._scenePipeline = this._device.createRenderPipeline({
+        layout: 'auto',
+        vertex: { module: sceneShader, entryPoint: 'vs_main' },
+        fragment: {
+          module: sceneShader, entryPoint: 'fs_main',
+          targets: [{
+            format: navigator.gpu.getPreferredCanvasFormat(),
+            blend: {
+              color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+              alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            },
+          }],
+        },
+        primitive: { topology: 'triangle-list' },
+      });
+      this._sceneBuffer = this._device.createBuffer({ size: 304, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      this._sceneBindGroup = this._device.createBindGroup({
+        layout: this._scenePipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: this._sceneBuffer } }],
+      });
       this._uploadStars(this._opts?.stars || []);
     }
 
@@ -413,13 +656,13 @@
       });
     }
 
-    _uploadStars(stars) {
+    _uploadStars(stars, fixedScale) {
       if (!this._device) return;
-      const normalized = normalizeStars(stars);
+      const normalized = normalizeStars(stars, this._opts.menuGalaxy, fixedScale);
       this._starScale = Number(normalized.scale || 1);
       this.stars = Array.isArray(normalized.stars) ? normalized.stars.slice() : [];
       this.starPoints = this.stars;
-      this._starCount = Math.floor(normalized.positions.length / 2);
+      this._starCount = Math.floor(normalized.positions.length / 7);
       if (this._starBuffer) {
         this._starBuffer.destroy();
         this._starBuffer = null;
@@ -434,12 +677,52 @@
       this._device.queue.writeBuffer(this._starBuffer, 0, normalized.positions.buffer, normalized.positions.byteOffset, normalized.positions.byteLength);
     }
 
-    _renderFrame() {
+    _renderFrame(timestamp = performance.now()) {
       if (!this._device || !this._context || !this._pipeline || !this._starBuffer || !this._viewUniformBuffer || !this._viewBindGroup || this._starCount <= 0) {
         return;
       }
 
-      const smooth = 0.14;
+      const now = Number.isFinite(Number(timestamp)) ? Number(timestamp) : performance.now();
+      const dt = this._lastCameraDriverTime
+        ? Math.max(0, Math.min(0.048, (now - this._lastCameraDriverTime) / 1000))
+        : (1 / 60);
+      this._lastCameraDriverTime = now;
+      if (this._opts.menuGalaxy && !this._reducedMotion && !this._regionPreviewTarget) {
+        // The loading arms wind toward increasing angles, so rotation must be negative for trailing arms.
+        this._galaxyRotation -= dt * 0.035;
+      }
+
+      if (this._cameraDriver && typeof this._cameraDriver.update === 'function') {
+        try {
+          const pose = this._cameraDriver.update({
+            renderer: this,
+            camera: this.camera,
+            target: this._currentTarget,
+            dt,
+            now,
+          });
+          const position = pose?.position;
+          if (position) {
+            const x = Number(position.x);
+            const y = Number(position.y);
+            const z = Number(position.z);
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+              this.camera.position.x = x;
+              this.camera.position.y = y;
+              this.camera.position.z = z;
+              this._viewState.targetPanX = Math.max(-1.8, Math.min(1.8, -x * this._starScale));
+              this._viewState.targetPanY = Math.max(-1.8, Math.min(1.8, -y * this._starScale));
+            }
+          }
+        } catch (error) {
+          emitRenderTelemetry('camera-driver-error', {
+            backend: this._backend,
+            message: String(error?.message || error),
+          });
+        }
+      }
+
+      const smooth = this._reducedMotion ? 1 : 0.14;
       this._viewState.panX += (this._viewState.targetPanX - this._viewState.panX) * smooth;
       this._viewState.panY += (this._viewState.targetPanY - this._viewState.panY) * smooth;
       this._viewState.zoom += (this._viewState.targetZoom - this._viewState.zoom) * smooth;
@@ -448,12 +731,20 @@
       this._viewState.panX = Math.max(-panClamp, Math.min(panClamp, this._viewState.panX));
       this._viewState.panY = Math.max(-panClamp, Math.min(panClamp, this._viewState.panY));
       this._viewState.zoom = Math.max(0.45, Math.min(6, this._viewState.zoom));
+      // Move at a bounded speed across every intervening scale, including reverse flights.
+      const difference = this._sceneTarget - this._sceneStage;
+      this._sceneStage += this._reducedMotion ? difference : Math.sign(difference) * Math.min(Math.abs(difference), dt * 0.55);
+      if (!this._reducedMotion) this._sceneTime += dt;
 
       const viewUniform = new Float32Array([
         this._viewState.panX,
         this._viewState.panY,
         this._viewState.zoom,
-        0,
+        this._galaxyRotation,
+        2 / Math.max(1, this._canvas.width),
+        2 / Math.max(1, this._canvas.height),
+        this._canvas.width / Math.max(1, this._canvas.height),
+        this._opts.menuGalaxy ? 1 : 0,
       ]);
       this._device.queue.writeBuffer(this._viewUniformBuffer, 0, viewUniform.buffer, 0, viewUniform.byteLength);
 
@@ -462,7 +753,7 @@
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view,
-          clearValue: { r: 0.02, g: 0.03, b: 0.08, a: 0.0 },
+          clearValue: { r: 0, g: 0, b: 0, a: this._opts.menuGalaxy ? 1 : 0 },
           loadOp: 'clear',
           storeOp: 'store',
         }],
@@ -470,21 +761,39 @@
       pass.setPipeline(this._pipeline);
       pass.setBindGroup(0, this._viewBindGroup);
       pass.setVertexBuffer(0, this._starBuffer);
-      pass.draw(this._starCount, 1, 0, 0);
+      pass.draw(4, this._starCount, 0, 0);
+      if (this._sceneStage > 0 && this._scenePipeline) {
+        const draft = this._registrationScene?.draft;
+        const planets = draft?.planets || this._lastSceneDraft?.planets || [];
+        if (draft) this._lastSceneDraft = draft;
+        const data = draft || this._lastSceneDraft;
+        const selected = planets.find((planet) => planet.position === data?.position.position);
+        const palette = selected?.class?.startsWith('ice_') ? [0.55, 0.75, 0.85]
+          : selected?.class === 'lava' ? [0.72, 0.24, 0.08]
+          : selected?.class === 'ocean' ? [0.16, 0.4, 0.65] : [0.22, 0.52, 0.33];
+        const uniforms = new Float32Array(76);
+        uniforms.set([this._sceneStage, this._canvas.width / Math.max(1, this._canvas.height), this._sceneTime,
+          ((data?.star?.temperature_k || 5778) - 2500) / 10000,
+          Math.min(16, planets.length), selected?.position || 1,
+          ((data?.position.galaxy || 1) * 131 + (data?.position.system || 1) * 17 + (selected?.position || 1)) % 997,
+          data?.star?.radius_solar || 1, ...palette, 1]);
+        const maxOrbit = Math.max(1, ...planets.map((planet) => planet.semi_major_axis_au || planet.position));
+        planets.slice(0, 16).forEach((planet, index) => {
+          uniforms.set([
+            0.15 + 1.15 * Math.sqrt((planet.semi_major_axis_au || planet.position) / maxOrbit),
+            planet.position * 2.39996, 0.012 + Math.min(0.025, (planet.diameter_km || 12000) / 1000000),
+            planet.position === data?.position.position ? 1 : 0,
+          ], 12 + index * 4);
+        });
+        this._device.queue.writeBuffer(this._sceneBuffer, 0, uniforms);
+        pass.setPipeline(this._scenePipeline);
+        pass.setBindGroup(0, this._sceneBindGroup);
+        pass.draw(3);
+      }
       pass.end();
       this._device.queue.submit([encoder.finish()]);
 
-      if (this._cameraDriver && typeof this._cameraDriver.update === 'function') {
-        try {
-          this._cameraDriver.update({
-            camera: this.camera,
-            target: this._currentTarget,
-          });
-        } catch (_) {}
-      }
-
       this._frameTick += 1;
-      const now = performance.now();
       if (!this._lastRenderTs || (now - this._lastRenderTs) > 5000) {
         this._lastRenderTs = now;
         emitRenderTelemetry('frame-heartbeat', {

@@ -721,7 +721,7 @@
   function show(opts) {
     opts = opts || {};
     _onComplete      = typeof opts.onComplete === 'function' ? opts.onComplete : null;
-    _selectedFaction = null;
+    _selectedFaction = FACTIONS.find((faction) => faction.id === opts.factionCode) || null;
     _prologToken     = '';
     _colonyName      = typeof opts.colonyName === 'string' ? opts.colonyName : '';
     _username        = typeof opts.username   === 'string' ? opts.username   : '';
@@ -737,7 +737,12 @@
     buildDOM();
     section.classList.remove('hidden');
     section.setAttribute('aria-hidden', 'false');
-    showPhase(1);
+    if (_selectedFaction && _colonyName && _username) {
+      showPhase(3);
+      revealFactionStory();
+    } else {
+      showPhase(1);
+    }
   }
 
   window.GQProlog = {

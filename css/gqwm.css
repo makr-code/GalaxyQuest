@@ -3,6 +3,10 @@
    Extends wm.css (must be loaded AFTER wm.css)
    ============================================================ */
 
+:root {
+  --gq-console-titlebar-height: 18px;
+}
+
 /* ── Auth-page: hide GQ overlay elements ─────────────────── */
 .auth-page .galaxy-overlay-window,
 .auth-page #galaxy-nav-orb-overlay,
@@ -26,6 +30,7 @@
 .wm-window.wm-window-background[data-winid="galaxy"] .galaxy-overlay-window * {
   pointer-events: auto;
 }
+
 
 /* ── Galaxy window (fullscreen) ─────────────────────────────── */
 .wm-window.wm-window-fullscreen[data-winid="galaxy"] .wm-body {
@@ -66,6 +71,52 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  margin: 0;
+}
+
+.wm-window[data-winid="console"] {
+  position: fixed !important;
+  left: 12px !important;
+  right: 12px !important;
+  top: auto !important;
+  bottom: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 320px;
+  max-width: none;
+  min-height: 120px;
+  max-height: 260px;
+  height: 170px !important;
+  z-index: 260 !important;
+  border-radius: 10px 10px 0 0;
+  box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(92, 155, 220, 0.35) inset;
+}
+
+.wm-window[data-winid="console"] .wm-titlebar {
+  height: clamp(15px, var(--gq-console-titlebar-height, 18px), 20px);
+  min-height: clamp(15px, var(--gq-console-titlebar-height, 18px), 20px);
+  padding: 0 0.45rem 0 0.55rem;
+  margin: 0;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.wm-window[data-winid="console"] .wm-title {
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.wm-window[data-winid="console"] .wm-controls {
+  gap: 0.2rem;
+}
+
+.wm-window[data-winid="console"] .wm-btn {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  border-radius: 4px;
+  padding: 0;
+  font-size: 10px;
 }
 
 .wm-window[data-winid="console"] .ui-console-panel {
@@ -113,7 +164,27 @@
 }
 
 .wm-window[data-winid="console"].wm-docked-bottom {
-  border-radius: 8px 8px 0 0;
+  border-radius: 10px 10px 0 0;
+  left: 12px !important;
+  right: 12px !important;
+  width: auto !important;
+  max-width: none;
+  min-height: 120px;
+  height: 170px !important;
+}
+
+.wm-window[data-winid="console"] .wm-body {
+  height: calc(100% - clamp(15px, var(--gq-console-titlebar-height, 18px), 20px));
+  box-sizing: border-box;
+}
+
+.wm-window[data-winid="console"] .ui-console-panel {
+  height: 100%;
+  min-height: 0;
+}
+
+.wm-window[data-winid="console"] .wm-resize-handle {
+  cursor: ns-resize;
 }
 
 /* NOTE: .galaxy-overlay-window, #galaxy-info-overlay, .galaxy-info-tabs etc.

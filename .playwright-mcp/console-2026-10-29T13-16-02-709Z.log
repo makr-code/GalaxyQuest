@@ -1,0 +1,91 @@
+[      99ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1802
+[     195ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[     204ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[     204ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[     204ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[     222ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[     222ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[     348ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793279209828:412
+[     413ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/js/rendering/starfield.js?t=1793279209828:108
+[    3318ms] [INFO] [GQ][Audio] Play-Versuch {track: music/Nebula_Overture.mp3, muted: false, volume: 0.44000000000000006} @ http://localhost:8080/js/runtime/audio.js:230
+[    3331ms] [INFO] [GQ][Audio] Musik läuft {track: music/Nebula_Overture.mp3, currentTime: 0} @ http://localhost:8080/js/runtime/audio.js:230
+[    3337ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8080/favicon.ico:0
+[    3418ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[  141800ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1812
+[  141987ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[  141994ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  141994ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[  141994ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[  142008ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  142008ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  142087ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793279209828:412
+[  142163ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/js/rendering/starfield.js?t=1793279209828:108
+[  150945ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1812
+[  151050ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[  151057ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  151058ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[  151058ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[  151068ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  151068ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  151135ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793279209828:412
+[  151208ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/js/rendering/starfield.js?t=1793279209828:108
+[  257214ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1823
+[  257414ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1823
+[  257538ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[  257547ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  257547ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[  257548ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[  257559ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  257560ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  257621ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793279209828:412
+[  257738ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/js/rendering/starfield.js?t=1793279209828:108
+[  284592ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1823
+[  284703ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[  284712ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  284713ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[  284713ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[  284723ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  284724ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  284806ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793279209828:412
+[  284902ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/js/rendering/starfield.js?t=1793279209828:108
+[  356344ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1823
+[  356588ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1823
+[  356682ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[  356718ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  356718ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[  356719ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[  356725ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  356725ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  356782ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793279209828:412
+[  356852ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/js/rendering/starfield.js?t=1793279209828:108
+[  363002ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1823
+[  363121ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[  363152ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  363152ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[  363152ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[  363159ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  363159ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  363212ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793279209828:412
+[  363323ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/js/rendering/starfield.js?t=1793279209828:108
+[  425846ms] [INFO] [GQ][Audio] Play-Versuch {track: music/Nebula_Overture.mp3, muted: false, volume: 0.44000000000000006} @ http://localhost:8080/js/runtime/audio.js:230
+[  425863ms] [INFO] [GQ][Audio] Musik läuft {track: music/Nebula_Overture.mp3, currentTime: 0} @ http://localhost:8080/js/runtime/audio.js:230
+[  425869ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8080/favicon.ico:0
+[ 3024767ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1842
+[ 3024911ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1842
+[ 3025007ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[ 3025021ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[ 3025021ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[ 3025021ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[ 3025036ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[ 3025037ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[ 3025161ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793279209828:412
+[ 3025236ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/js/rendering/starfield.js?t=1793279209828:108
+[ 3055155ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1842
+[ 3055256ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[ 3055293ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[ 3055294ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[ 3055294ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[ 3055305ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[ 3055305ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[ 3055368ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793279209828:412
+[ 3055455ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/js/rendering/starfield.js?t=1793279209828:108

@@ -103,7 +103,7 @@ class ComfyUIWorkflowBuilder {
                     'low_vram' => true,
                     'keep_models_loaded' => false,
                     'conv_backend' => 'flex_gemm',
-                    'sparse_backend' => 'sdpa',
+                    'sparse_backend' => 'xformers',
                     'use_reconviagen' => false,
                 ],
             ],

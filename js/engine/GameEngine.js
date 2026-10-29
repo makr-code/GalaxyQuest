@@ -696,7 +696,7 @@ class GameEngine {
       this.renderer = opts._rendererOverride;
     } else {
       this.renderer = await RendererFactory.create(canvas, {
-        hint:  opts.renderer ?? 'auto',
+        hint:  opts.renderer ?? 'webgpu',
         debug: this._debugEnabled,
         onFallback: (reason) => {
           this._log('Renderer fallback:', reason);

@@ -1,0 +1,20 @@
+[     930ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://127.0.0.1:4173/:1745
+[    1121ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:4173/:0
+[    1122ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:4173/:0
+[    2121ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[    2122ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[    2122ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[    2144ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[    2144ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[    2406ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:4173/favicon.ico:0
+[    3011ms] [WARNING] [GQ][Starfield] {stage: destroy, ts: 1793270803725, keepCanvasVisible: false, releaseRequested: false, released: false} @ http://127.0.0.1:4173/assets/core-C8roVs6p.js:167
+[  654009ms] [INFO] [GQ][Audio] Play-Versuch {track: music/Nebula_Overture.mp3, muted: false, volume: 0.44000000000000006} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[  654037ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/music/Nebula_Overture.mp3:0
+[  654038ms] [ERROR] [GQ][Audio] Media-Element Fehler beim Laden/Abspielen {track: music/Nebula_Overture.mp3, code: 4, message: MEDIA_ERR_SRC_NOT_SUPPORTED} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[  654038ms] [ERROR] [GQ][Audio] playMusic fehlgeschlagen {track: music/Nebula_Overture.mp3, error: Failed to load because no supported source was found., name: NotSupportedError} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[  655196ms] [INFO] [GQ][Audio] Play-Versuch {track: music/Nebula_Overture.mp3, muted: false, volume: 0.44000000000000006} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[  655196ms] [ERROR] [GQ][Audio] playMusic fehlgeschlagen {track: music/Nebula_Overture.mp3, error: The element has no supported sources., name: NotSupportedError} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[  662738ms] [INFO] [GQ][Audio] Play-Versuch {track: music/Nebula_Overture.mp3, muted: false, volume: 0.44000000000000006} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[  662738ms] [ERROR] [GQ][Audio] playMusic fehlgeschlagen {track: music/Nebula_Overture.mp3, error: The element has no supported sources., name: NotSupportedError} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[  667034ms] [INFO] [GQ][Audio] Play-Versuch {track: music/Nebula_Overture.mp3, muted: false, volume: 0.44000000000000006} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197
+[  667035ms] [ERROR] [GQ][Audio] playMusic fehlgeschlagen {track: music/Nebula_Overture.mp3, error: The element has no supported sources., name: NotSupportedError} @ http://127.0.0.1:4173/assets/audio-5BvQObpA.js:197

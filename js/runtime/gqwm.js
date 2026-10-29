@@ -14,6 +14,42 @@
  */
 const WM = (function () {
 
+  var CONSOLE_TITLEBAR_HEIGHT_KEY = 'gq_console_titlebar_height_px';
+
+  function clampConsoleTitlebarHeight(value) {
+    var n = Number(value);
+    if (!Number.isFinite(n)) return 18;
+    return Math.max(15, Math.min(20, Math.round(n)));
+  }
+
+  function applyConsoleTitlebarHeight(valuePx) {
+    var height = clampConsoleTitlebarHeight(valuePx);
+    try {
+      document.documentElement.style.setProperty('--gq-console-titlebar-height', String(height) + 'px');
+    } catch (_) {}
+    try {
+      localStorage.setItem(CONSOLE_TITLEBAR_HEIGHT_KEY, String(height));
+    } catch (_) {}
+    return height;
+  }
+
+  function initConsoleTitlebarHeight() {
+    var fallback = 18;
+    try {
+      var raw = localStorage.getItem(CONSOLE_TITLEBAR_HEIGHT_KEY);
+      if (raw == null || raw === '') {
+        document.documentElement.style.setProperty('--gq-console-titlebar-height', String(fallback) + 'px');
+        return fallback;
+      }
+      return applyConsoleTitlebarHeight(raw);
+    } catch (_) {
+      try {
+        document.documentElement.style.setProperty('--gq-console-titlebar-height', String(fallback) + 'px');
+      } catch (__){ }
+      return fallback;
+    }
+  }
+
   // ── GQ default window configurations ───────────────────────────────────────
   var GQ_WINDOW_DEFAULTS = {
     overview:    { title: 'Overview',    w: 860, h: 540 },
@@ -22,6 +58,7 @@ const WM = (function () {
     shipyard:    { title: 'Shipyard',    w: 740, h: 540 },
     fleet:       { title: 'Fleet',       w: 640, h: 640 },
     galaxy:      { title: 'Galaxy Map',  w: 860, h: 540 },
+    console:     { title: 'Console',     w: 1280, h: 170, defaultDock: 'bottom', autoDockOnOpen: true, forceDockSide: 'bottom', dockBottomFullWidth: true, dockMargin: 12, defaultDockMargin: 12, dockBottomInset: 0, minHeight: 120, maxHeight: 260, ignoreSavedSize: true, keepExistingGeometry: false, dockable: true, dockableSides: ['bottom', 'left', 'right'] },
     messages:    { title: 'Messages',    w: 640, h: 520 },
     quests:      { title: 'Quests',      w: 860, h: 620 },
     leaderboard: { title: 'Leaderboard', w: 540, h: 480 },
@@ -36,11 +73,24 @@ const WM = (function () {
     var bottomInset= 0;
 
     var topSection = document.getElementById('topbar-section');
+    var titlebarBottom = null;
     if (topSection instanceof HTMLElement) {
       var topStyle = window.getComputedStyle(topSection);
       var topRect  = topSection.getBoundingClientRect();
       if (topStyle.display !== 'none' && topStyle.visibility !== 'hidden' && topRect.height > 0) {
+        titlebarBottom = Math.max(0, Math.round(topRect.bottom));
         topInset = Math.max(topInset, Math.max(0, Math.round(topRect.bottom)));
+      }
+    }
+
+    var resourceSection = document.getElementById('resource-section');
+    var resourceBottom = null;
+    if (resourceSection instanceof HTMLElement) {
+      var resourceStyle = window.getComputedStyle(resourceSection);
+      var resourceRect  = resourceSection.getBoundingClientRect();
+      if (resourceStyle.display !== 'none' && resourceStyle.visibility !== 'hidden' && resourceRect.height > 0) {
+        resourceBottom = Math.max(0, Math.round(resourceRect.bottom));
+        topInset = Math.max(topInset, Math.max(0, Math.round(resourceRect.bottom)));
       }
     }
 
@@ -53,7 +103,14 @@ const WM = (function () {
       }
     }
 
-    return { top: topInset, bottom: bottomInset, left: 0, right: 0 };
+    return {
+      top: topInset,
+      bottom: bottomInset,
+      left: 0,
+      right: 0,
+      titlebarBottom: titlebarBottom,
+      resourceBottom: resourceBottom,
+    };
   }
 
   // ── German UI labels ────────────────────────────────────────────────────────
@@ -63,6 +120,9 @@ const WM = (function () {
     minimize:         'Minimieren',
     dockLeft:         'Links andocken',
     dockRight:        'Rechts andocken',
+    dockTopbar:       'An Titelbar andocken',
+    dockResource:     'An Ressourcenleiste andocken',
+    dockTop:          'Oben andocken',
     dockBottom:       'Unten andocken',
     resetPosition:    'Position zur\u00fccksetzen',
     close:            'Schliessen',
@@ -134,5 +194,56 @@ if (typeof WMWidgets !== 'undefined') WM.widgets = WMWidgets;
 }());
 
 if (typeof window !== 'undefined') {
+  var consoleTitlebarKey = 'gq_console_titlebar_height_px';
+  var clampConsoleTitlebarHeightGlobal = function (value) {
+    var n = Number(value);
+    if (!Number.isFinite(n)) return 18;
+    return Math.max(15, Math.min(20, Math.round(n)));
+  };
+  var applyConsoleTitlebarHeightGlobal = function (valuePx) {
+    var height = clampConsoleTitlebarHeightGlobal(valuePx);
+    try {
+      document.documentElement.style.setProperty('--gq-console-titlebar-height', String(height) + 'px');
+    } catch (_) {}
+    try {
+      localStorage.setItem(consoleTitlebarKey, String(height));
+    } catch (_) {}
+    return height;
+  };
+  var initConsoleTitlebarHeightGlobal = function () {
+    var fallback = 18;
+    try {
+      var raw = localStorage.getItem(consoleTitlebarKey);
+      if (raw == null || raw === '') {
+        document.documentElement.style.setProperty('--gq-console-titlebar-height', String(fallback) + 'px');
+        return fallback;
+      }
+      return applyConsoleTitlebarHeightGlobal(raw);
+    } catch (_) {
+      try {
+        document.documentElement.style.setProperty('--gq-console-titlebar-height', String(fallback) + 'px');
+      } catch (__){ }
+      return fallback;
+    }
+  };
+
   window.WM = WM;
+  window.GQConsoleChrome = {
+    getSmallTitlebarHeight: function () {
+      try {
+        var raw = getComputedStyle(document.documentElement).getPropertyValue('--gq-console-titlebar-height');
+        return clampConsoleTitlebarHeightGlobal(parseInt(String(raw || '').replace('px', '').trim(), 10));
+      } catch (_) {
+        return 18;
+      }
+    },
+    setSmallTitlebarHeight: function (valuePx) {
+      return applyConsoleTitlebarHeightGlobal(valuePx);
+    },
+    resetSmallTitlebarHeight: function () {
+      try { localStorage.removeItem(consoleTitlebarKey); } catch (_) {}
+      return applyConsoleTitlebarHeightGlobal(18);
+    },
+  };
+  initConsoleTitlebarHeightGlobal();
 }

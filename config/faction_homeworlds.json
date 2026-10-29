@@ -1,0 +1,25 @@
+{
+  "placement_version": "draft-v1",
+  "provisional": true,
+  "worlds": {
+    "aereth": {"galaxy": 1, "system": 1317, "position": 4, "name": "Sol'Ryaan", "kind": "capital", "type": "science"},
+    "vor_tak": {"galaxy": 1, "system": 453, "position": 6, "name": "Drak'Thuun", "kind": "capital", "type": "military"},
+    "syl_nar": {"galaxy": 1, "system": 285, "position": 4, "name": "Oon'Vareth", "kind": "capital", "type": "science"},
+    "kryl_tha": {"galaxy": 1, "system": 48, "position": 1, "name": "Zyr'Mekar", "kind": "capital", "type": "military"},
+    "zhareen": {"galaxy": 1, "system": 1057, "position": 5, "name": "Aeryth'Luun", "kind": "capital", "type": "ancient"},
+    "vel_ar": {"galaxy": 1, "system": 968, "position": 3, "name": "Nira'Voss", "kind": "capital", "type": "science"},
+    "aethernox": {"galaxy": 1, "system": 838, "position": 6, "name": "Aethernox Foothold", "kind": "outpost", "type": "ancient"},
+    "architekten_des_lichts": {"galaxy": 1, "system": 571, "position": 4, "name": "Monolith Foothold", "kind": "outpost", "type": "ancient"},
+    "brut_der_ewigkeit": {"galaxy": 1, "system": 1205, "position": 3, "name": "Brood Foothold", "kind": "outpost", "type": "military"},
+    "echos_der_leere": {"galaxy": 1, "system": 12, "position": 3, "name": "Rift Foothold", "kind": "outpost", "type": "pirate"},
+    "genesis_kollektiv": {"galaxy": 1, "system": 755, "position": 4, "name": "Bio-Forge Foothold", "kind": "outpost", "type": "science"},
+    "helion_confederation": {"galaxy": 1, "system": 398, "position": 5, "name": "Helion Prime", "kind": "capital", "type": "trade"},
+    "iron_fleet": {"galaxy": 1, "system": 1157, "position": 5, "name": "Erde", "kind": "capital", "type": "military"},
+    "ketzer_von_verath": {"galaxy": 1, "system": 765, "position": 7, "name": "Verath", "kind": "capital", "type": "science"},
+    "khar_morr_syndicate": {"galaxy": 1, "system": 1160, "position": 3, "name": "Syndicate Foothold", "kind": "outpost", "type": "pirate"},
+    "myr_keth": {"galaxy": 1, "system": 892, "position": 3, "name": "Myr'Keth Foothold", "kind": "outpost", "type": "science"},
+    "nomaden_des_rifts": {"galaxy": 1, "system": 763, "position": 4, "name": "Rift Nomad Foothold", "kind": "outpost", "type": "science"},
+    "omniscienta": {"galaxy": 1, "system": 548, "position": 5, "name": "Omniscienta Foothold", "kind": "outpost", "type": "science"},
+    "schattenkompakt": {"galaxy": 1, "system": 308, "position": 5, "name": "Shadow Compact Foothold", "kind": "outpost", "type": "science"}
+  }
+}

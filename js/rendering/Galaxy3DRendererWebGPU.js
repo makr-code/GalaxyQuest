@@ -717,6 +717,116 @@
     return best;
   }
 
+  const OBJECT_MESH_SHADER_WGSL = `
+    struct MeshUniforms {
+      rotation: vec4f,
+      color: vec4f,
+      emissive: vec4f,
+    };
+    @group(0) @binding(0) var<uniform> uniforms: MeshUniforms;
+
+    struct VertexOutput {
+      @builtin(position) position: vec4f,
+      @location(0) normal: vec3f,
+    };
+
+    @vertex
+    fn vs_main(@location(0) position: vec3f) -> VertexOutput {
+      let c = cos(uniforms.rotation.x);
+      let s = sin(uniforms.rotation.x);
+      let rotated = vec3f(
+        position.x * c + position.z * s,
+        position.y,
+        -position.x * s + position.z * c
+      );
+      var output: VertexOutput;
+      output.position = vec4f(rotated.xy * uniforms.rotation.y, rotated.z * 0.25, 1.0);
+      output.normal = normalize(rotated);
+      return output;
+    }
+
+    @fragment
+    fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+      let light = 0.32 + 0.68 * max(dot(normalize(input.normal), normalize(vec3f(0.45, 0.7, 1.0))), 0.0);
+      return vec4f(uniforms.color.rgb * light + uniforms.emissive.rgb, uniforms.color.a);
+    }
+  `;
+
+  function objectMeshPositions(shape) {
+    const positions = [];
+    const triangle = (a, b, c) => positions.push(...a, ...b, ...c);
+    const quad = (a, b, c, d) => {
+      triangle(a, b, c);
+      triangle(a, c, d);
+    };
+
+    if (shape === 'box') {
+      const faces = [
+        [[-0.42, -0.3,  0.3], [0.42, -0.3,  0.3], [0.42, 0.3,  0.3], [-0.42, 0.3,  0.3]],
+        [[0.42, -0.3, -0.3], [-0.42, -0.3, -0.3], [-0.42, 0.3, -0.3], [0.42, 0.3, -0.3]],
+        [[-0.42, 0.3,  0.3], [0.42, 0.3,  0.3], [0.42, 0.3, -0.3], [-0.42, 0.3, -0.3]],
+        [[-0.42, -0.3, -0.3], [0.42, -0.3, -0.3], [0.42, -0.3, 0.3], [-0.42, -0.3, 0.3]],
+        [[0.42, -0.3,  0.3], [0.42, -0.3, -0.3], [0.42, 0.3, -0.3], [0.42, 0.3, 0.3]],
+        [[-0.42, -0.3, -0.3], [-0.42, -0.3, 0.3], [-0.42, 0.3, 0.3], [-0.42, 0.3, -0.3]],
+      ];
+      faces.forEach((face) => quad(...face));
+    } else if (shape === 'cylinder') {
+      const segments = 20;
+      for (let i = 0; i < segments; i++) {
+        const a = (i / segments) * Math.PI * 2;
+        const b = ((i + 1) / segments) * Math.PI * 2;
+        const lowerA = [Math.cos(a) * 0.25, -0.4, Math.sin(a) * 0.25];
+        const lowerB = [Math.cos(b) * 0.25, -0.4, Math.sin(b) * 0.25];
+        const upperA = [Math.cos(a) * 0.18, 0.4, Math.sin(a) * 0.18];
+        const upperB = [Math.cos(b) * 0.18, 0.4, Math.sin(b) * 0.18];
+        quad(lowerA, lowerB, upperB, upperA);
+        triangle([0, -0.4, 0], lowerB, lowerA);
+        triangle([0, 0.4, 0], upperA, upperB);
+      }
+    } else if (shape === 'torus' || shape === 'torus_large') {
+      const majorSegments = 32;
+      const minorSegments = 10;
+      const majorRadius = shape === 'torus_large' ? 0.4 : 0.32;
+      const minorRadius = shape === 'torus_large' ? 0.055 : 0.09;
+      for (let i = 0; i < majorSegments; i++) {
+        const u0 = (i / majorSegments) * Math.PI * 2;
+        const u1 = ((i + 1) / majorSegments) * Math.PI * 2;
+        for (let j = 0; j < minorSegments; j++) {
+          const v0 = (j / minorSegments) * Math.PI * 2;
+          const v1 = ((j + 1) / minorSegments) * Math.PI * 2;
+          const point = (u, v) => [
+            (majorRadius + minorRadius * Math.cos(v)) * Math.cos(u),
+            (majorRadius + minorRadius * Math.cos(v)) * Math.sin(u),
+            minorRadius * Math.sin(v),
+          ];
+          quad(point(u0, v0), point(u1, v0), point(u1, v1), point(u0, v1));
+        }
+      }
+    } else {
+      const radius = 0.42;
+      const top = [0, radius, 0];
+      const bottom = [0, -radius, 0];
+      const ring = [
+        [radius, 0, 0], [-radius, 0, 0], [0, 0, radius], [0, 0, -radius],
+      ];
+      for (let i = 0; i < ring.length; i++) {
+        const current = ring[i];
+        const next = ring[(i + 1) % ring.length];
+        triangle(top, current, next);
+        triangle(bottom, next, current);
+      }
+      if (shape === 'dodecahedron') {
+        const extra = [
+          [0.28, 0.28, 0.28], [-0.28, 0.28, 0.28],
+          [0.28, -0.28, -0.28], [-0.28, -0.28, -0.28],
+        ];
+        extra.forEach((point, index) => triangle(point, ring[index], ring[(index + 1) % ring.length]));
+      }
+    }
+
+    return new Float32Array(positions);
+  }
+
   // ── Main renderer class ────────────────────────────────────────────────────
 
   class Galaxy3DRendererWebGPU {
@@ -789,6 +899,11 @@
       this._rafId      = 0;
       this._running    = false;
       this._frameTick  = 0;
+      this._frameHooks = new Set();
+      this._objectMeshPipeline = null;
+      this._objectMeshBindGroupLayout = null;
+      this._objectMeshes = new Set();
+      this._lastCameraDriverTime = 0;
       this._timeOrigin = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       this._systemPayload = null;
       this._systemPlanetEntries = [];
@@ -1686,6 +1801,7 @@
       }
     }
 
+    async _buildPipeline() {
       const format = navigator.gpu.getPreferredCanvasFormat();
 
       const shaderMod = this._device.createShaderModule({ code: STAR_SHADER_WGSL });
@@ -2254,16 +2370,21 @@
     _startRenderLoop() {
       if (this._running) return;
       this._running = true;
-      const tick = () => {
+      const tick = (timestamp) => {
         if (!this._running) return;
         this._rafId = requestAnimationFrame(tick);
-        this._renderFrame();
+        this._renderFrame(timestamp);
       };
       this._rafId = requestAnimationFrame(tick);
     }
 
-    _renderFrame() {
+    _renderFrame(timestamp = performance.now()) {
       if (!this._device || !this._context || !this._pipeline || !this._uniformBuf) return;
+      const now = Number.isFinite(Number(timestamp)) ? Number(timestamp) : performance.now();
+      const dt = this._lastCameraDriverTime
+        ? Math.max(0, Math.min(0.048, (now - this._lastCameraDriverTime) / 1000))
+        : (1 / 60);
+      this._lastCameraDriverTime = now;
 
       if (this._kbdMove.zoomIn) {
         this._view.targetZoom = Math.min(6, Number(this._view.targetZoom || this._view.zoom || 1) * 1.02);
@@ -2282,6 +2403,37 @@
       }
       if (this._kbdMove.panD) {
         this._view.targetPanY -= 0.012 / Math.max(0.45, Number(this._view.zoom || this._view.targetZoom || 1));
+      }
+
+      if (this._cameraDriver && typeof this._cameraDriver.update === 'function') {
+        try {
+          const pose = this._cameraDriver.update({
+            renderer: this,
+            camera: this.camera,
+            target: this._currentTarget,
+            dt,
+            now,
+          });
+          const position = pose?.position;
+          if (position) {
+            const x = Number(position.x);
+            const y = Number(position.y);
+            const z = Number(position.z);
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+              this.camera.position.x = x;
+              this.camera.position.y = y;
+              this.camera.position.z = z;
+              const scale = Number(this._starScale || 1);
+              this._view.targetPanX = Math.max(-1.8, Math.min(1.8, -x * scale));
+              this._view.targetPanY = Math.max(-1.8, Math.min(1.8, -y * scale));
+            }
+          }
+        } catch (error) {
+          emitRenderTelemetry('camera-driver-error', {
+            backend: this._backend,
+            message: String(error?.message || error),
+          });
+        }
       }
 
       // Smooth camera
@@ -2332,14 +2484,150 @@
       this._device.queue.submit([encoder.finish()]);
       this._renderGalaxyOverlay2D();
 
-      // Camera driver hook (e.g. SeamlessZoomOrchestrator)
-      if (this._cameraDriver && typeof this._cameraDriver.update === 'function') {
-        try {
-          this._cameraDriver.update({ camera: this.camera, target: this._currentTarget });
-        } catch (_) {}
-      }
-
       this._frameTick++;
+      for (const hook of this._frameHooks) {
+        try {
+          hook(dt, now);
+        } catch (error) {
+          emitRenderTelemetry('frame-hook-error', {
+            backend: this._backend,
+            message: String(error?.message || error),
+          });
+        }
+      }
+    }
+
+    addFrameHook(hook) {
+      if (typeof hook !== 'function') {
+        throw new TypeError('addFrameHook requires a function');
+      }
+      this._frameHooks.add(hook);
+      return () => this._frameHooks.delete(hook);
+    }
+
+    _ensureObjectMeshPipeline() {
+      if (this._objectMeshPipeline) return;
+      if (!this._device) throw new Error('Object mesh rendering requires the shared WebGPU device');
+
+      const format = navigator.gpu.getPreferredCanvasFormat();
+      const shader = this._device.createShaderModule({ code: OBJECT_MESH_SHADER_WGSL });
+      this._objectMeshBindGroupLayout = this._device.createBindGroupLayout({
+        entries: [{
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform' },
+        }],
+      });
+      this._objectMeshPipeline = this._device.createRenderPipeline({
+        layout: this._device.createPipelineLayout({
+          bindGroupLayouts: [this._objectMeshBindGroupLayout],
+        }),
+        vertex: {
+          module: shader,
+          entryPoint: 'vs_main',
+          buffers: [{
+            arrayStride: 12,
+            stepMode: 'vertex',
+            attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }],
+          }],
+        },
+        fragment: {
+          module: shader,
+          entryPoint: 'fs_main',
+          targets: [{ format }],
+        },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+      });
+    }
+
+    async createMesh(descriptor = {}) {
+      if (!this._device || !this._context) {
+        throw new Error('Object meshes require the initialized shared WebGPU renderer');
+      }
+      this._ensureObjectMeshPipeline();
+
+      const positions = objectMeshPositions(descriptor.shape);
+      if (!positions.length) throw new Error(`Unsupported object mesh shape: ${descriptor.shape}`);
+      const usage = GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST;
+      const vertexBuffer = this._device.createBuffer({
+        size: positions.byteLength,
+        usage,
+      });
+      const uniformBuffer = this._device.createBuffer({
+        size: 48,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      const color = Array.isArray(descriptor.color) ? descriptor.color : [0.53, 0.67, 0.8];
+      const emissive = Array.isArray(descriptor.emissive) ? descriptor.emissive : [0, 0, 0];
+      const handle = {
+        vertexBuffer,
+        uniformBuffer,
+        vertexCount: positions.length / 3,
+        color: [...color.slice(0, 3), 1],
+        emissive: [...emissive.slice(0, 3), 0],
+        rotation: 0,
+      };
+
+      this._device.queue.writeBuffer(vertexBuffer, 0, positions);
+      handle.bindGroup = this._device.createBindGroup({
+        layout: this._objectMeshBindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+      });
+      this._objectMeshes.add(handle);
+      return handle;
+    }
+
+    setMeshRotation(handle, rotation = {}) {
+      if (!this._objectMeshes.has(handle)) return false;
+      const angle = Number(rotation.y);
+      if (Number.isFinite(angle)) handle.rotation = angle;
+      return true;
+    }
+
+    renderMesh(handle) {
+      if (!this._objectMeshes.has(handle) || !this._device || !this._context) return false;
+
+      const uniforms = new Float32Array([
+        handle.rotation, 1, 0, 0,
+        ...handle.color,
+        ...handle.emissive,
+      ]);
+      this._device.queue.writeBuffer(handle.uniformBuffer, 0, uniforms);
+
+      const encoder = this._device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: this._context.getCurrentTexture().createView(),
+          loadOp: 'load',
+          storeOp: 'store',
+        }],
+      });
+      pass.setPipeline(this._objectMeshPipeline);
+      pass.setBindGroup(0, handle.bindGroup);
+      pass.setVertexBuffer(0, handle.vertexBuffer);
+      pass.draw(handle.vertexCount);
+      pass.end();
+      this._device.queue.submit([encoder.finish()]);
+      return true;
+    }
+
+    destroyMesh(handle) {
+      if (!this._objectMeshes.delete(handle)) return false;
+      handle.vertexBuffer.destroy();
+      handle.uniformBuffer.destroy();
+      handle.vertexBuffer = null;
+      handle.uniformBuffer = null;
+      handle.bindGroup = null;
+      return true;
+    }
+
+    getCapabilities() {
+      return {
+        webgpu: this._backend === 'webgpu',
+        webgl2: this._backend === 'webgl2',
+        computeShaders: this._backend === 'webgpu',
+        maxTextureSize: this._device?.limits?.maxTextureDimension2D || 0,
+      };
     }
 
     _resolveInputActions(ctx, phase, inputContextHint = '') {
@@ -3176,6 +3464,7 @@
         this._resizeObserver = null;
       }
       this._detachInteraction();
+      for (const mesh of this._objectMeshes) this.destroyMesh(mesh);
       try { this._starBuf?.destroy();  } catch (_) {}
       try { this._indexBuf?.destroy(); } catch (_) {}
       try { this._heroVertexBuf?.destroy(); } catch (_) {}
@@ -3199,6 +3488,8 @@
       this._heroCoronaPipeline = null;
       this._planetPipeline = null;
       this._orbitPipeline = null;
+      this._objectMeshPipeline = null;
+      this._objectMeshBindGroupLayout = null;
       this._bindGroup  = null;
       this._heroBindGroup = null;
       this._planetBindGroup = null;
@@ -3226,6 +3517,7 @@
 
       this._device?.destroy();
       this._device     = null;
+      this._frameHooks.clear();
       this._adapter    = null;
       this._cameraDriver = null;
       this._systemPayload = null;
@@ -3235,6 +3527,8 @@
 
     // Legacy accessors
     get backendType()  { return this._delegate?.rendererBackend ?? this._delegate?.backendType ?? this._backend; }
+    get device()       { return this._delegate?.device ?? this._delegate?._device ?? null; }
+    get context()      { return this._delegate?.context ?? this._delegate?._context ?? null; }
     get instanceId()   { return this._delegate?.instanceId ?? this._instanceId ?? ''; }
     get visibleStars() { return this._delegate?.visibleStars ?? this._rawStars ?? []; }
     get selectedIndex(){ return Number(this._delegate?.selectedIndex ?? this._selectedIdx ?? -1); }

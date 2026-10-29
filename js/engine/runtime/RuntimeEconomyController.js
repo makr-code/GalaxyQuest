@@ -117,15 +117,7 @@
       overview: null,         // { colonies: [...] }
       popClasses: null,       // empire-wide aggregation
       production: null,       // { colonies: [...], bottlenecks: [...] }
-      tab: 'policy',          // 'policy' | 'overview' | 'market'
-      policy: null,           // { global_policy, taxes:{income,production,trade}, subsidies:{agriculture,research,military} }
-      overview: null,         // { colonies: [...] }
-      popClasses: null,       // empire-wide aggregation
       marketRegions: null,    // { regions: { core_worlds: {...}, frontier_sectors: {...} } }
-      tab: 'policy',          // 'policy' | 'overview' | 'population'
-      policy: null,           // { global_policy, taxes:{income,production,trade}, subsidies:{agriculture,research,military} }
-      overview: null,         // { colonies: [...] }
-      popClasses: null,       // empire-wide aggregation
       popStatus: null,        // { colonies: [{colony_id, name, avg_satisfaction, …}] } from get_pop_status
       loading: false,
       error: null,
@@ -171,10 +163,14 @@
         war_modifiers: ovResp.war_modifiers || null,
         pirate_damage_mult: ovResp.pirate_damage_mult ?? 1.0,
       };
+    }
+
     async function _loadMarketTab() {
       const resp = await api.marketRegionPrices();
       if (!resp?.success) throw new Error(resp?.error || 'Market region prices request failed');
       _state.marketRegions = resp.regions || {};
+    }
+
     async function _loadPopulationTab() {
       const resp = await api.economyPopStatus();
       if (!resp?.success) throw new Error(resp?.error || 'Pop status request failed');
@@ -579,10 +575,6 @@
       </div>`;
     }
 
-    function _buildFullHtml(state) {
-      const tabPolicy   = state.tab === 'policy'   ? ' economy-tab--active' : '';
-      const tabOverview = state.tab === 'overview'  ? ' economy-tab--active' : '';
-      const tabMarket   = state.tab === 'market'    ? ' economy-tab--active' : '';
     /**
      * Returns the CSS badge modifier class for a satisfaction value (0–100).
      * is-critical < 40 | is-warning 40–59 | is-neutral 60–79 | is-good ≥ 80
@@ -664,6 +656,7 @@
       const tabPolicy     = state.tab === 'policy'     ? ' economy-tab--active' : '';
       const tabOverview   = state.tab === 'overview'   ? ' economy-tab--active' : '';
       const tabProduction = state.tab === 'production' ? ' economy-tab--active' : '';
+      const tabMarket     = state.tab === 'market'     ? ' economy-tab--active' : '';
       const tabPopulation = state.tab === 'population' ? ' economy-tab--active' : '';
 
       let contentHtml;
@@ -897,11 +890,33 @@
         root.innerHTML = _buildFullHtml(_state);
         try {
           await _loadProductionTab();
+          _state.loading = false;
+          _state.error = null;
+        } catch (err) {
+          _state.loading = false;
+          _state.error = String(err?.message || err);
+          gameLog('warn', 'Economy production load failed', err);
+        }
+        root.innerHTML = _buildFullHtml(_state);
+        _attachPolicyListeners(root);
+      }
+
       if (!_state.loading && !_state.marketRegions && _state.tab === 'market') {
         _state.loading = true;
         root.innerHTML = _buildFullHtml(_state);
         try {
           await _loadMarketTab();
+          _state.loading = false;
+          _state.error = null;
+        } catch (err) {
+          _state.loading = false;
+          _state.error = String(err?.message || err);
+          gameLog('warn', 'Regional market load failed', err);
+        }
+        root.innerHTML = _buildFullHtml(_state);
+        _attachPolicyListeners(root);
+      }
+
       if (!_state.loading && !_state.popStatus && _state.tab === 'population') {
         _state.loading = true;
         root.innerHTML = _buildFullHtml(_state);
@@ -912,8 +927,6 @@
         } catch (err) {
           _state.loading = false;
           _state.error = String(err?.message || err);
-          gameLog('warn', 'Economy production load failed', err);
-          gameLog('warn', 'Regional market load failed', err);
           gameLog('warn', 'Economy population load failed', err);
         }
         root.innerHTML = _buildFullHtml(_state);
@@ -922,21 +935,13 @@
     }
 
     async function refresh() {
-      _state.policy     = null;
-      _state.overview   = null;
+      _state.policy = null;
+      _state.overview = null;
       _state.popClasses = null;
       _state.production = null;
-      _state.error      = null;
-      _state.policy        = null;
-      _state.overview      = null;
-      _state.popClasses    = null;
       _state.marketRegions = null;
-      _state.error         = null;
-      _state.policy    = null;
-      _state.overview  = null;
-      _state.popClasses = null;
       _state.popStatus = null;
-      _state.error     = null;
+      _state.error = null;
       await render();
     }
 

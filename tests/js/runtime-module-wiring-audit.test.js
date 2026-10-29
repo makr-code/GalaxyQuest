@@ -2,61 +2,77 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const runtimeDir = path.resolve(process.cwd(), 'js/engine/runtime');
-const gamePath = path.resolve(process.cwd(), 'js/runtime/game.js');
+const mainPath = path.resolve(process.cwd(), 'js/main.js');
+const indexPath = path.resolve(process.cwd(), 'index.html');
+const moduleLoaderPath = path.resolve(process.cwd(), 'js/runtime/runtime-module-loader.js');
+const expectedInitializers = [
+  'initializeAllianceDomain',
+  'initializeColonizationDomain',
+  'initializeDiplomacyDomain',
+  'initializeEconomyDomain',
+  'initializeEspionageDomain',
+  'initializeEventDomain',
+  'initializeFleetDomain',
+  'initializeGalaxyDomain',
+  'initializeMarketDomain',
+  'initializeNPCDomain',
+  'initializeResearchDomain',
+  'initializeWarDomain',
+];
 
-function collectJsFilesRecursive(dir) {
-  const result = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      result.push(...collectJsFilesRecursive(fullPath));
-    } else if (entry.name.endsWith('.js')) {
-      result.push(fullPath);
-    }
+function collectMainDomainImports(source) {
+  const imports = new Map();
+  const importPattern = /import\s+\{\s*(initialize\w+Domain)\s*\}\s+from\s+['"]([^'"]+)['"]/g;
+
+  for (const match of source.matchAll(importPattern)) {
+    imports.set(match[1], path.resolve(path.dirname(mainPath), match[2]));
   }
-  return result;
+
+  return imports;
 }
 
-function collectRegisteredRuntimeModules() {
-  const files = collectJsFilesRecursive(runtimeDir);
-  const registered = new Set();
-  const registrationPattern = /window\.(GQRuntime\w+)\s*=/g;
+function collectBootDomainInitializers(source) {
+  const initializers = new Set();
+  const initializerPattern = /\{\s*name:\s*'[^']+'\s*,\s*fn:\s*(initialize\w+Domain)\s*\}/g;
 
-  for (const filePath of files) {
-    const source = fs.readFileSync(filePath, 'utf8');
-    for (const match of source.matchAll(registrationPattern)) {
-      registered.add(match[1]);
-    }
+  for (const match of source.matchAll(initializerPattern)) {
+    initializers.add(match[1]);
   }
 
-  return registered;
-}
-
-function collectDirectGameRequires() {
-  const source = fs.readFileSync(gamePath, 'utf8');
-  const required = new Set();
-  const requirePattern = /requireRuntimeApi\('(GQRuntime\w+)'/g;
-
-  for (const match of source.matchAll(requirePattern)) {
-    required.add(match[1]);
-  }
-
-  return required;
+  return initializers;
 }
 
 describe('runtime module wiring audit', () => {
-  it('keeps direct game wiring complete except approved indirect modules', () => {
-    const registered = collectRegisteredRuntimeModules();
-    const required = collectDirectGameRequires();
+  it('loads auth and renderer through the ES module composition root', () => {
+    const mainSource = fs.readFileSync(mainPath, 'utf8');
+    const indexSource = fs.readFileSync(indexPath, 'utf8');
+    const loaderSource = fs.readFileSync(moduleLoaderPath, 'utf8');
+    const authSource = fs.readFileSync(path.resolve(process.cwd(), 'js/network/auth.js'), 'utf8');
+    const starfieldSource = fs.readFileSync(path.resolve(process.cwd(), 'js/rendering/starfield.js'), 'utf8');
 
-    const gap = [...registered].filter((name) => !required.has(name)).sort();
+    expect(mainSource).toContain("import './network/auth.js';");
+    expect(mainSource).toContain("import './rendering/starfield.js';");
+    expect(indexSource).toContain('<script type="module" src="/js/main.js"></script>');
+    expect(indexSource).not.toContain('window.__GQ_AUTH_FORCE_WEBGL = true;');
+    expect(indexSource).not.toMatch(/<script\s+src="js\/(?:network\/auth|rendering\/starfield)\.js/);
+    expect(loaderSource).toContain("['js/runtime/wm.js'");
+    expect(loaderSource).toContain("['js/runtime/wm-widgets.js'");
+    expect(loaderSource).toContain("['js/runtime/gqwm.js'");
+    expect(loaderSource).toContain("['js/rendering/galaxy-renderer-core.js'");
+    expect(loaderSource).toContain("['js/legacy/galaxy3d-webgpu.js'");
+    expect(mainSource).toContain("'gq:authenticated'");
+    expect(authSource).toContain("new CustomEvent('gq:authenticated')");
+    expect(starfieldSource).toContain("import { loadAuthGalaxySamples } from './auth-galaxy-loader.js';");
+    expect(starfieldSource).toContain('runtime.renderer.setStars?.(runtime.stars, { preserveView: true });');
+  });
 
-    const allowedIndirectModules = [
-      'GQRuntimeNavigationSequences',
-      'GQRuntimeViewHyperlinks',
-    ];
+  it('keeps every ES module domain import wired into the main boot sequence', () => {
+    const source = fs.readFileSync(mainPath, 'utf8');
+    const imports = collectMainDomainImports(source);
+    const initializers = collectBootDomainInitializers(source);
 
-    expect(gap).toEqual(allowedIndirectModules);
+    expect([...imports.keys()].sort()).toEqual(expectedInitializers);
+    expect([...initializers].sort()).toEqual(expectedInitializers);
+    expect([...imports.values()].every((filePath) => fs.existsSync(filePath))).toBe(true);
   });
 });

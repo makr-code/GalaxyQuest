@@ -124,4 +124,8 @@ return [
 
     // ── Update system ──────────────────────────────────────────────────────
     'migrate_updates_system_v1.sql',
+    'migrate_server_announcements_v1.sql',
+    'migrate_faction_homeworlds_v1.sql',
+    'migrate_registration_drafts_v1.sql',
+    'migrate_registration_portraits_v1.sql',
 ];

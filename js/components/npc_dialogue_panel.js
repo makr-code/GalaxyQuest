@@ -40,6 +40,7 @@ class NPCDialoguePanel {
     this.elements = {};
     this.dialogueSystem = null;
     this.onResponseCallback = null; // Callback after response is generated
+    this.contentRoot = null;
     this.init();
   }
 
@@ -55,6 +56,7 @@ class NPCDialoguePanel {
     }
 
     this.containerElement = container;
+    this.contentRoot = container.querySelector(':scope > .wm-body') || container;
     this.setupElements();
     
     if (this.options.autoLoadHistory) {
@@ -63,24 +65,25 @@ class NPCDialoguePanel {
   }
 
   setupElements() {
-    this.containerElement.innerHTML = this.getTemplate();
+    const mountRoot = this.contentRoot || this.containerElement;
+    mountRoot.innerHTML = this.getTemplate();
     
     // Cache DOM references
     this.elements = {
-      panel: this.containerElement.querySelector('.npc-panel'),
-      header: this.containerElement.querySelector('.npc-panel-header'),
-      content: this.containerElement.querySelector('.npc-panel-content'),
-      messageList: this.containerElement.querySelector('.npc-messages-list'),
-      quickReplies: this.containerElement.querySelector('.npc-quick-replies'),
-      inputForm: this.containerElement.querySelector('.npc-input-form'),
-      inputField: this.containerElement.querySelector('.npc-message-input'),
-      sendBtn: this.containerElement.querySelector('.npc-send-btn'),
-      closeBtn: this.containerElement.querySelector('.npc-close-btn'),
-      dockBtn: this.containerElement.querySelector('.npc-dock-btn'),
-      statusBar: this.containerElement.querySelector('.npc-status-bar'),
-      typingIndicator: this.containerElement.querySelector('.npc-typing-indicator'),
-      agentBadge: this.containerElement.querySelector('.npc-agent-badge'),
-      cacheIndicator: this.containerElement.querySelector('.npc-cache-indicator'),
+      panel: mountRoot.querySelector('.npc-panel'),
+      header: mountRoot.querySelector('.npc-panel-header'),
+      content: mountRoot.querySelector('.npc-panel-content'),
+      messageList: mountRoot.querySelector('.npc-messages-list'),
+      quickReplies: mountRoot.querySelector('.npc-quick-replies'),
+      inputForm: mountRoot.querySelector('.npc-input-form'),
+      inputField: mountRoot.querySelector('.npc-message-input'),
+      sendBtn: mountRoot.querySelector('.npc-send-btn'),
+      closeBtn: mountRoot.querySelector('.npc-close-btn'),
+      dockBtn: mountRoot.querySelector('.npc-dock-btn'),
+      statusBar: mountRoot.querySelector('.npc-status-bar'),
+      typingIndicator: mountRoot.querySelector('.npc-typing-indicator'),
+      agentBadge: mountRoot.querySelector('.npc-agent-badge'),
+      cacheIndicator: mountRoot.querySelector('.npc-cache-indicator'),
     };
 
     // Attach event listeners
@@ -186,6 +189,22 @@ class NPCDialoguePanel {
   async open(gameContext = {}) {
     if (this.state.isOpen) return;
 
+    const host = document.getElementById('npc-dialogue-panel-host');
+    const wm = (typeof window !== 'undefined' && window.WM) ? window.WM : null;
+    if (wm && typeof wm.open === 'function') {
+      try { wm.open('npc-dialogue'); } catch (_) {}
+    }
+
+    if (host) {
+      host.removeAttribute('aria-hidden');
+      host.setAttribute('aria-hidden', 'false');
+    }
+
+    if (this.containerElement) {
+      this.containerElement.classList.remove('hidden', 'wm-closed');
+      this.containerElement.setAttribute('aria-hidden', 'false');
+    }
+
     this.state.isOpen = true;
     this.elements.panel.classList.remove('npc-panel-closed');
     
@@ -201,8 +220,22 @@ class NPCDialoguePanel {
   close() {
     if (!this.state.isOpen) return;
 
+    const host = document.getElementById('npc-dialogue-panel-host');
     this.state.isOpen = false;
     this.elements.panel.classList.add('npc-panel-closed');
+
+    const wm = (typeof window !== 'undefined' && window.WM) ? window.WM : null;
+    if (wm && typeof wm.close === 'function') {
+      try { wm.close('npc-dialogue'); } catch (_) {}
+    }
+
+    if (this.containerElement) {
+      this.containerElement.setAttribute('aria-hidden', 'true');
+    }
+    if (host) {
+      host.setAttribute('aria-hidden', 'true');
+    }
+
     this.updateStatus('Dialogue closed');
   }
 
@@ -596,6 +629,7 @@ class NPCDialoguePanel {
         const leftSidebar = document.getElementById('left_sidebar');
         console.log('[npc-panel] leftSidebar found:', !!leftSidebar);
         if (leftSidebar) {
+          const leftSidebarBody = leftSidebar.querySelector(':scope > .wm-body') || leftSidebar;
           // Create a flex wrapper in the sidebar
           const sidebarContainer = document.createElement('div');
           sidebarContainer.className = 'npc-sidebar-dock';
@@ -607,18 +641,11 @@ class NPCDialoguePanel {
           // Move the container into the sidebar
           console.log('[npc-panel] Moving container to sidebar');
           
-          // Save existing resize handle if present
-          const oldResizeHandle = leftSidebar.querySelector('.wm-resize-handle');
-          
-          leftSidebar.innerHTML = '';
+          while (leftSidebarBody.firstChild) {
+            leftSidebarBody.removeChild(leftSidebarBody.firstChild);
+          }
           sidebarContainer.appendChild(container);
-          leftSidebar.appendChild(sidebarContainer);
-          
-          // Recreate resize handle
-          const resizeHandle = document.createElement('div');
-          resizeHandle.className = 'wm-resize-handle';
-          resizeHandle.title = 'Resize';
-          leftSidebar.appendChild(resizeHandle);
+          leftSidebarBody.appendChild(sidebarContainer);
           
           // Update panel to dock styling
           container.classList.add('wm-adaptable-window');
@@ -641,6 +668,7 @@ class NPCDialoguePanel {
         const rightSidebar = document.getElementById('right_sidebar');
         console.log('[npc-panel] rightSidebar found:', !!rightSidebar);
         if (rightSidebar) {
+          const rightSidebarBody = rightSidebar.querySelector(':scope > .wm-body') || rightSidebar;
           const sidebarContainer = document.createElement('div');
           sidebarContainer.className = 'npc-sidebar-dock';
           sidebarContainer.style.display = 'flex';
@@ -648,15 +676,11 @@ class NPCDialoguePanel {
           sidebarContainer.style.height = '100%';
           sidebarContainer.style.width = '100%';
           
-          rightSidebar.innerHTML = '';
+          while (rightSidebarBody.firstChild) {
+            rightSidebarBody.removeChild(rightSidebarBody.firstChild);
+          }
           sidebarContainer.appendChild(container);
-          rightSidebar.appendChild(sidebarContainer);
-          
-          // Recreate resize handle
-          const resizeHandle = document.createElement('div');
-          resizeHandle.className = 'wm-resize-handle';
-          resizeHandle.title = 'Resize';
-          rightSidebar.appendChild(resizeHandle);
+          rightSidebarBody.appendChild(sidebarContainer);
           
           container.classList.add('wm-adaptable-window');
           container.classList.remove('npc-panel-floating');
@@ -679,8 +703,11 @@ class NPCDialoguePanel {
         const panelHost = document.getElementById('npc-dialogue-panel-host');
         console.log('[npc-panel] panelHost found:', !!panelHost);
         if (panelHost) {
-          panelHost.innerHTML = '';
-          panelHost.appendChild(container);
+          const panelHostBody = panelHost.querySelector(':scope > .wm-body') || panelHost;
+          while (panelHostBody.firstChild) {
+            panelHostBody.removeChild(panelHostBody.firstChild);
+          }
+          panelHostBody.appendChild(container);
           
           container.classList.remove('wm-adaptable-window');
           container.classList.add('npc-panel-floating');
@@ -725,7 +752,8 @@ class NPCDialoguePanel {
   destroy() {
     this.elements.sendBtn?.removeEventListener('click', this.sendMessage);
     this.elements.inputForm?.removeEventListener('submit', this.sendMessage);
-    this.containerElement.innerHTML = '';
+    const mountRoot = this.contentRoot || this.containerElement;
+    if (mountRoot) mountRoot.innerHTML = '';
   }
 }
 

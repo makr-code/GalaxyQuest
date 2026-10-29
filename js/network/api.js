@@ -598,6 +598,16 @@ const API = (() => {
     attack,
     sendFleet,
     recallFleet,
+    colonyBuildingsLayout: (colonyId, options = {}) =>
+      get(`api/colony_buildings.php?action=get_layout&colony_id=${encodeURIComponent(Number(colonyId))}`, options),
+    colonyBuildingsPlace: (data, options = {}) =>
+      post('api/colony_buildings.php?action=place_building', data, options),
+    colonyBuildingsRemove: (data, options = {}) =>
+      post('api/colony_buildings.php?action=remove_building', data, options),
+    colonyBuildingsUpgrade: (data, options = {}) =>
+      post('api/colony_buildings.php?action=upgrade_slot', data, options),
+    colonyBuildingsSlotInfo: (colonyId, slotX, slotY, options = {}) =>
+      get(`api/colony_buildings.php?action=get_slot_info&colony_id=${encodeURIComponent(Number(colonyId))}&slot_x=${encodeURIComponent(Number(slotX))}&slot_y=${encodeURIComponent(Number(slotY))}`, options),
     getQueueStats,
     cancelPendingRequests,
     isSessionExpired,

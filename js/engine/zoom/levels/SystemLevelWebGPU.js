@@ -40,6 +40,12 @@ class SystemLevelWebGPU extends ZoomLevelRendererBase {
     this._canvas  = canvas;
     this._backend = backend;
 
+    if (backend && typeof backend.enterSystemView === 'function' && backend.backendType === 'webgpu') {
+      this._starfield = backend;
+      window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = backend;
+      return;
+    }
+
     const useNativeWebGpu = this._isInteractiveWebGpuExperimentEnabled();
     const webGpuCtor = (typeof window !== 'undefined' && useNativeWebGpu)
       ? (window.GQGalaxy3DRendererWebGPU || window.Galaxy3DRendererWebGPU)

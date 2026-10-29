@@ -152,7 +152,7 @@ class SeamlessZoomOrchestrator {
    * @param {Function}          [opts.onExitLevel]
    * @param {Function}          [opts.onSlotClick]
    * @param {Function}          [opts.onPlanetClick]
-   * @param {'webgpu'|'webgl2'|'auto'} [opts.rendererHint='auto']
+   * @param {'webgpu'|'webgl2'|'auto'} [opts.rendererHint='webgpu']
    */
   constructor(canvas, opts = {}) {
     this._canvas     = canvas;
@@ -164,6 +164,7 @@ class SeamlessZoomOrchestrator {
     this._activeLevel = null;
     this._transition = false;  // guard flag
     this._rafId      = 0;
+    this._removeFrameHook = null;
     this._running    = false;
     this._lastTs     = 0;
 
@@ -192,9 +193,29 @@ class SeamlessZoomOrchestrator {
       this._startLoop();
       return;
     }
+    if (this._opts.backend) {
+      this._backend = this._opts.backend;
+      if (typeof this._backend.init === 'function') {
+        await this._backend.init();
+      }
+      if (typeof this._backend.addFrameHook === 'function') {
+        const removeFrameHook = this._backend.addFrameHook((dt) => this.tick(dt));
+        if (typeof removeFrameHook === 'function') {
+          this._removeFrameHook = removeFrameHook;
+        } else {
+          this._startLoop();
+        }
+      } else {
+        this._startLoop();
+      }
+      return;
+    }
+    if (this._opts.requireSharedBackend) {
+      throw new Error('SeamlessZoomOrchestrator requires the shared Galaxy WebGPU renderer');
+    }
     this._backend = await RendererFactoryApi.create(
       this._canvas,
-      { hint: this._opts.rendererHint || 'auto' },
+      { hint: this._opts.rendererHint || 'webgpu' },
     );
     this._startLoop();
   }
@@ -376,6 +397,8 @@ class SeamlessZoomOrchestrator {
       cancelAnimationFrame(this._rafId);
       this._rafId = 0;
     }
+    this._removeFrameHook?.();
+    this._removeFrameHook = null;
     if (this._active) {
       try { this._active.dispose(); } catch (_) {}
       this._active = null;
@@ -400,7 +423,7 @@ class SeamlessZoomOrchestrator {
   }
 
   _startLoop() {
-    if (this._running || typeof requestAnimationFrame !== 'function') return;
+    if (this._running || this._removeFrameHook || typeof requestAnimationFrame !== 'function') return;
     this._running = true;
     this._lastTs = 0;
     const frame = (ts) => {

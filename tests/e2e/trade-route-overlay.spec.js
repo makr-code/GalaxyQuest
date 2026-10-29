@@ -116,6 +116,7 @@ async function loginDefaultUser(page, baseURL) {
     } catch (_) {}
   });
   await page.goto(`${baseURL}/index.html`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#start-login').click();
   await page.fill('#login-username', 'default_user');
   await page.fill('#login-password', 'User!23456');
   await page.click('#login-form button[type="submit"]');

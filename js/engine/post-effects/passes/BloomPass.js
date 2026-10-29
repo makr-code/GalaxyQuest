@@ -65,9 +65,9 @@ class BloomPass {
     this.selectionController = opts.selectionController || null;
     this.ownershipSystem = opts.ownershipSystem || null;
 
-    // Dynamic parameter tracking
-    this._dynamicThreshold = this.threshold;
-    this._dynamicStrength = this.strength;
+    // Dynamic values are unset until an override or selection update is applied.
+    this._dynamicThreshold = null;
+    this._dynamicStrength = null;
     this._lastUpdateTime = 0;
     this._updateThrottleMs = 16;
 

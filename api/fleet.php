@@ -16,6 +16,7 @@ require_once __DIR__ . '/planet_helper.php';
 require_once __DIR__ . '/projection.php';
 require_once __DIR__ . '/galaxy_seed.php';
 require_once __DIR__ . '/shipyard_queue.php';
+require_once __DIR__ . '/../lib/PlanetReservation.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -2150,6 +2151,13 @@ function combat_modifiers_tables_exist(PDO $db): bool {
 }
 
 function colonize_planet(PDO $db, array $fleet, array $ships): void {
+    $planetId = ensure_planet($db, (int)$fleet['target_galaxy'], (int)$fleet['target_system'], (int)$fleet['target_position']);
+    PlanetReservation::withLock($db, $planetId, static function () use ($db, $fleet, $ships): void {
+        colonize_planet_rows($db, $fleet, $ships);
+    });
+}
+
+function colonize_planet_rows(PDO $db, array $fleet, array $ships): void {
     $planetId = ensure_planet($db, (int)$fleet['target_galaxy'],
                               (int)$fleet['target_system'], (int)$fleet['target_position']);
     $bodyUid = sprintf('legacy-p-%d-%d-%d', (int)$fleet['target_galaxy'], (int)$fleet['target_system'], (int)$fleet['target_position']);
@@ -2176,9 +2184,9 @@ function colonize_planet(PDO $db, array $fleet, array $ships): void {
     // Check if already colonised
     $cRow = $db->prepare('SELECT id FROM colonies WHERE body_id=?');
     $cRow->execute([$bodyId]);
-    if ($cRow->fetch()) {
+    if ($cRow->fetch() || PlanetReservation::isReserved($db, $planetId)) {
         $db->prepare('INSERT INTO messages (receiver_id,subject,body) VALUES (?,?,?)')
-           ->execute([$fleet['user_id'], 'Colonisation Failed', 'Position already occupied.']);
+           ->execute([$fleet['user_id'], 'Colonisation Failed', 'Position already occupied or temporarily reserved.']);
     } else {
         // Get planet info for starting resources
         $pInfo = $db->prepare('SELECT planet_class, richness_metal, deposit_metal FROM planets WHERE id=?');

@@ -1,7 +1,7 @@
 /**
  * RendererRegistry.js
  *
- * Maps zoom-level numbers → { webgpu: Class, threejs: Class } and
+ * Maps zoom-level numbers → { webgpu?: Class, threejs?: Class } and
  * instantiates the right implementation at runtime based on the active
  * IGraphicsRenderer backend.
  *
@@ -17,26 +17,28 @@
 
 class RendererRegistry {
   constructor() {
-    /** @type {Map<number, { webgpu: Function, threejs: Function }>} */
+    /** @type {Map<number, { webgpu?: Function, threejs?: Function }>} */
     this._entries = new Map();
     /** @type {Map<number, import('./IZoomLevelRenderer').IZoomLevelRenderer>} */
     this._instances = new Map();
   }
 
   /**
-   * Register a pair of renderer classes for a zoom level.
+   * Register one or both renderer classes for a zoom level.
    * Calling register() a second time for the same level replaces the entry
    * and invalidates the cached instance, enabling hot-swap without restart.
    *
    * @param {number} level
-   * @param {{ webgpu: Function, threejs: Function }} classes
+   * @param {{ webgpu?: Function, threejs?: Function }} classes
    */
   register(level, { webgpu, threejs }) {
     if (typeof level !== 'number' || !Number.isFinite(level)) {
       throw new TypeError(`RendererRegistry.register: level must be a finite number, got ${level}`);
     }
-    if (typeof webgpu !== 'function' || typeof threejs !== 'function') {
-      throw new TypeError('RendererRegistry.register: webgpu and threejs must be constructor functions');
+    const hasWebGPU = typeof webgpu === 'function';
+    const hasThreeJS = typeof threejs === 'function';
+    if (!hasWebGPU && !hasThreeJS) {
+      throw new TypeError('RendererRegistry.register: at least one renderer constructor is required');
     }
     this._entries.set(level, { webgpu, threejs });
     // Invalidate cached instance so next resolve() creates a fresh one.
@@ -46,7 +48,8 @@ class RendererRegistry {
   /**
    * Returns the cached (or freshly created) IZoomLevelRenderer instance for
    * the given level.  Selects WebGPU class when the backend reports
-   * capabilities.webgpu === true, otherwise falls back to ThreeJS.
+   * capabilities.webgpu === true. Three.js is only selected for a non-WebGPU
+   * backend when that compatibility implementation was registered.
    *
    * @param {number} level
    * @param {import('../engine/core/GraphicsContext').IGraphicsRenderer} backend
@@ -64,6 +67,10 @@ class RendererRegistry {
     const { webgpu, threejs } = this._entries.get(level);
     const useWebGPU = RendererRegistry._backendIsWebGPU(backend);
     const Ctor = useWebGPU ? webgpu : threejs;
+    if (typeof Ctor !== 'function') {
+      const backendName = useWebGPU ? 'WebGPU' : 'non-WebGPU';
+      throw new Error(`RendererRegistry.resolve: no ${backendName} renderer registered for level ${level}`);
+    }
     const instance = new Ctor();
     this._instances.set(level, instance);
     return instance;

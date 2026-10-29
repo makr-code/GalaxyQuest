@@ -10,6 +10,8 @@ const { GalaxyLevelWebGPU } = require(path.join(root, 'js/engine/zoom/levels/Gal
 const { GalaxyLevelThreeJS } = require(path.join(root, 'js/engine/zoom/levels/GalaxyLevelThreeJS.js'));
 const { SystemLevelWebGPU } = require(path.join(root, 'js/engine/zoom/levels/SystemLevelWebGPU.js'));
 const { SystemLevelThreeJS } = require(path.join(root, 'js/engine/zoom/levels/SystemLevelThreeJS.js'));
+const { PlanetApproachLevelWebGPU } = require(path.join(root, 'js/engine/zoom/levels/PlanetApproachLevelWebGPU.js'));
+const { ColonySurfaceLevelWebGPU } = require(path.join(root, 'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js'));
 
 function makeCanvasHost() {
   const host = document.createElement('div');
@@ -34,6 +36,7 @@ describe('Zoom level renderers shared init integration', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = undefined;
     window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = undefined;
     window.__GQ_LEVEL_RENDERER_OPTIONS = undefined;
@@ -123,6 +126,26 @@ describe('Zoom level renderers shared init integration', () => {
     expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBe(level._starfield);
   });
 
+  it('GalaxyLevelWebGPU reuses the orchestrator-owned native renderer', async () => {
+    const { canvas } = makeCanvasHost();
+    const backend = {
+      backendType: 'webgpu',
+      setStars: vi.fn(),
+      setClusterAuras: vi.fn(),
+      setFtlInfrastructure: vi.fn(),
+      setGalaxyFleets: vi.fn(),
+    };
+    const ctor = vi.fn();
+    window.GQGalaxy3DRendererWebGPU = ctor;
+
+    const level = new GalaxyLevelWebGPU();
+    await level.initialize(canvas, backend);
+
+    expect(level._starfield).toBe(backend);
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBe(backend);
+    expect(ctor).not.toHaveBeenCalled();
+  });
+
   it('GalaxyLevelWebGPU initialize throws when native renderer is missing and no fallback opt-in is set', async () => {
     const { canvas } = makeCanvasHost();
     const level = new GalaxyLevelWebGPU();
@@ -151,6 +174,46 @@ describe('Zoom level renderers shared init integration', () => {
 
     expect(ctor).toHaveBeenCalledTimes(1);
     expect(window.__GQ_LEVEL_SHARED_RENDERER_THREEJS).toBe(level._starfield);
+  });
+
+  it('PlanetApproachLevelWebGPU borrows the shared device/context and does not destroy them', async () => {
+    const { canvas } = makeCanvasHost();
+    const device = { destroy: vi.fn() };
+    const context = {};
+    const backend = { device, context };
+    const requestAdapter = vi.fn();
+    const stubNavigator = Object.create(navigator);
+    stubNavigator.gpu = { requestAdapter };
+    vi.stubGlobal('navigator', stubNavigator);
+    const level = new PlanetApproachLevelWebGPU();
+    level._buildPipeline = vi.fn().mockResolvedValue(undefined);
+
+    await level.initialize(canvas, backend);
+    level.dispose();
+
+    expect(level._buildPipeline).toHaveBeenCalledOnce();
+    expect(requestAdapter).not.toHaveBeenCalled();
+    expect(device.destroy).not.toHaveBeenCalled();
+  });
+
+  it('ColonySurfaceLevelWebGPU borrows the shared device/context and does not destroy them', async () => {
+    const { canvas } = makeCanvasHost();
+    const device = { destroy: vi.fn() };
+    const context = {};
+    const backend = { device, context };
+    const requestAdapter = vi.fn();
+    const stubNavigator = Object.create(navigator);
+    stubNavigator.gpu = { requestAdapter };
+    vi.stubGlobal('navigator', stubNavigator);
+    const level = new ColonySurfaceLevelWebGPU();
+    level._buildPipelines = vi.fn().mockResolvedValue(undefined);
+
+    await level.initialize(canvas, backend);
+    level.dispose();
+
+    expect(level._buildPipelines).toHaveBeenCalledOnce();
+    expect(requestAdapter).not.toHaveBeenCalled();
+    expect(device.destroy).not.toHaveBeenCalled();
   });
 
   it('GalaxyLevelThreeJS constructs with runtime options and stores shared instance', async () => {
@@ -272,6 +335,24 @@ describe('Zoom level renderers shared init integration', () => {
     expect(ctor).toHaveBeenCalledTimes(1);
     expect(init).toHaveBeenCalledTimes(1);
     expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBe(level._starfield);
+  });
+
+  it('SystemLevelWebGPU reuses the orchestrator-owned native renderer', async () => {
+    const { canvas } = makeCanvasHost();
+    const backend = {
+      backendType: 'webgpu',
+      enterSystemView: vi.fn(),
+      exitSystemView: vi.fn(),
+    };
+    const ctor = vi.fn();
+    window.GQGalaxy3DRendererWebGPU = ctor;
+
+    const level = new SystemLevelWebGPU();
+    await level.initialize(canvas, backend);
+
+    expect(level._starfield).toBe(backend);
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBe(backend);
+    expect(ctor).not.toHaveBeenCalled();
   });
 
   it('SystemLevelWebGPU initialize throws when native renderer is missing and no fallback opt-in is set', async () => {

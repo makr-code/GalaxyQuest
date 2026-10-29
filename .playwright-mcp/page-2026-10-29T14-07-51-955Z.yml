@@ -1,0 +1,43 @@
+- generic [active] [ref=f24e1]:
+  - generic [ref=f24e6]:
+    - complementary "Musiksteuerung" [ref=f24e7]:
+      - generic [ref=f24e8]: SOUNDTRACK
+      - generic [ref=f24e9]: Musik wird geladen...
+      - generic [ref=f24e10]:
+        - button "Vorheriger Titel" [disabled] [ref=f24e11]
+        - button "Musik starten" [disabled] [ref=f24e14]
+        - button "Nächster Titel" [disabled] [ref=f24e17]
+        - button "Audio stummschalten" [disabled] [ref=f24e20]
+      - status
+    - main "GalaxyQuest main menu" [ref=f24e23]:
+      - generic [ref=f24e24]:
+        - paragraph [ref=f24e25]: A galaxy of possibilities
+        - heading "GalaxyQuest" [level=1] [ref=f24e26]
+        - paragraph [ref=f24e27]: Conquer the Stars
+      - navigation "Main menu" [ref=f24e28]:
+        - button "Login" [ref=f24e30] [cursor=pointer]
+        - button "Register Begin your story" [ref=f24e32] [cursor=pointer]:
+          - text: Register
+          - generic [ref=f24e33]: Begin your story
+        - button "News Transmission feed" [ref=f24e35] [cursor=pointer]:
+          - text: News
+          - generic [ref=f24e36]: Transmission feed
+        - button "Blog Beyond the frontier" [ref=f24e38] [cursor=pointer]:
+          - text: Blog
+          - generic [ref=f24e39]: Beyond the frontier
+        - button "Settings Your experience" [ref=f24e41] [cursor=pointer]:
+          - text: Settings
+          - generic [ref=f24e42]: Your experience
+        - button "Server messages Checking transmissions..." [ref=f24e43] [cursor=pointer]:
+          - text: Server messages
+          - generic [ref=f24e44]: Checking transmissions...
+      - status [ref=f24e45]: Checking your session...
+      - status [ref=f24e46]: Procedural loading galaxy - not database stars.
+      - generic [ref=f24e47]:
+        - link "Galaxy Quest Interactive" [ref=f24e48] [cursor=pointer]:
+          - /url: README.md
+        - generic [ref=f24e52]: © 2026 Galaxy Quest Interactive. All rights reserved.
+        - generic [ref=f24e53]: v1.0.0 · Development build
+  - generic [ref=f24e54]:
+    - generic [ref=f24e55]: "AUTH: Initializing shell..."
+    - button "Status / Logs" [ref=f24e56] [cursor=pointer]

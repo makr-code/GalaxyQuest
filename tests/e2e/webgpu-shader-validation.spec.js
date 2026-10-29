@@ -47,9 +47,41 @@ function extractWgslFromModule(relPath, exportedKey) {
   return mod[exportedKey];
 }
 
+function extractWgslConstant(relPath, constantName) {
+  const source = fs.readFileSync(path.join(ROOT, relPath), 'utf8');
+  const escapedName = constantName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = source.match(new RegExp(`const\\s+${escapedName}\\s*=\\s*\`([\\s\\S]*?)\`;`));
+  if (!match) throw new Error(`WGSL constant ${constantName} not found in ${relPath}`);
+  return match[1];
+}
+
 /** Build the catalogue of all shaders to validate. */
 function buildShaderCatalogue() {
   return [
+    {
+      label: 'StarfieldWebGPU — instanced galaxy stars',
+      type: 'render',
+      source: extractWgslConstant(
+        'js/rendering/starfield-webgpu.js',
+        'STARFIELD_SHADER_WGSL',
+      ),
+    },
+    {
+      label: 'StarfieldWebGPU — private registration flight',
+      type: 'render',
+      source: extractWgslConstant(
+        'js/rendering/starfield-webgpu.js',
+        'REGISTRATION_SCENE_WGSL',
+      ),
+    },
+    {
+      label: 'Galaxy3DRendererWebGPU — shared object mesh',
+      type: 'render',
+      source: extractWgslConstant(
+        'js/rendering/Galaxy3DRendererWebGPU.js',
+        'OBJECT_MESH_SHADER_WGSL',
+      ),
+    },
     // ── Compute shaders (inline WGSL in JS) ────────────────────────────────
     {
       label: 'WebGPUPhysics — N-body gravity compute',

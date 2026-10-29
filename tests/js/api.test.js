@@ -102,6 +102,48 @@ describe('API wrapper versioning', () => {
   });
 });
 
+describe('Colony buildings API methods', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    vi.stubGlobal('fetch', vi.fn(async (endpoint) => {
+      const ep = String(endpoint || '');
+      if (ep.includes('auth.php?action=csrf')) {
+        return okJson({ success: true, token: 'csrf_token_test' });
+      }
+      return okJson({ success: true, endpoint: ep });
+    }));
+  });
+
+  it('uses the colony buildings endpoints and forwards mutation payloads', async () => {
+    const API = loadApiScript();
+
+    await API.colonyBuildingsLayout(17);
+    expect(String(global.fetch.mock.calls.at(-1)[0])).toContain(
+      'api/v1/colony_buildings.php?action=get_layout&colony_id=17',
+    );
+
+    const requests = [
+      ['colonyBuildingsPlace', 'place_building', { colony_id: 17, building_type: 'farm', slot_x: 2, slot_y: 3 }],
+      ['colonyBuildingsRemove', 'remove_building', { colony_id: 17, slot_x: 2, slot_y: 3 }],
+      ['colonyBuildingsUpgrade', 'upgrade_slot', { colony_id: 17, slot_x: 2, slot_y: 3, completes_in_seconds: 45 }],
+    ];
+
+    for (const [method, action, payload] of requests) {
+      await API[method](payload);
+
+      const [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+      expect(String(endpoint)).toContain(`api/v1/colony_buildings.php?action=${action}`);
+      expect(requestInit.method).toBe('POST');
+      expect(JSON.parse(requestInit.body)).toEqual(payload);
+    }
+
+    await API.colonyBuildingsSlotInfo(17, 2, 3);
+    expect(String(global.fetch.mock.calls.at(-1)[0])).toContain(
+      'api/v1/colony_buildings.php?action=get_slot_info&colony_id=17&slot_x=2&slot_y=3',
+    );
+  });
+});
+
 describe('API chatNpc', () => {
   beforeEach(() => {
     document.body.innerHTML = '';

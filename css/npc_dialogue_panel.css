@@ -536,12 +536,17 @@
 
 /* ── Sidebar Docked Mode ───────────────────────────────────────────────── */
 
-.npc-dialogue-container.wm-adaptable-window {
+.npc-dialogue-container.wm-adaptable-window:not(.wm-closed):not(.hidden) {
   display: flex;
   flex-direction: column;
   height: 100%;
   width: 100%;
   overflow: hidden;
+}
+
+.npc-dialogue-container.wm-closed,
+.npc-dialogue-container.hidden {
+  display: none !important;
 }
 
 .npc-dialogue-container.wm-adaptable-window .npc-panel {

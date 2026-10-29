@@ -20,7 +20,7 @@ const AuthBootAssets = (() => {
   const GQUI_SCRIPT = withAssetVersion('js/ui/gq-ui.js', 'gqui', '20260330p1');
   const WM_SCRIPT = withAssetVersion('js/runtime/wm.js', 'wm', '20260406p2');
   const WM_WIDGETS_SCRIPT = withAssetVersion('js/runtime/wm-widgets.js', 'wmWidgets', '20260406p2');
-  const GQWM_SCRIPT = withAssetVersion('js/runtime/gqwm.js', 'gqwm', '20260406p2');
+  const GQWM_SCRIPT = withAssetVersion('js/runtime/gqwm.js', 'gqwm', '20260830p3');
 
   // Audio assets to preload during auth
   const AUDIO_PRELOAD = [

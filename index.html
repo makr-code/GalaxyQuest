@@ -11,15 +11,17 @@
   <link rel="stylesheet" href="css/design-tokens.css?v=20260730p1" />
   <link rel="stylesheet" href="css/animations.css?v=20260730p1" />
   <link rel="stylesheet" href="css/utilities.css?v=20260730p1" />
+  <link rel="stylesheet" href="css/start-screen.css?v=20261029p1" />
+  <link rel="stylesheet" href="css/registration-prologue.css?v=20261029p1" />
   <!-- Core Stylesheets -->
-  <link rel="stylesheet" href="css/style.css?v=20260404p56" />
-  <link rel="stylesheet" href="css/wm.css?v=20260406p1" />
-  <link rel="stylesheet" href="css/gqwm.css?v=20260406p1" />
+  <link rel="stylesheet" href="css/style.css?v=20261029p1" />
+  <link rel="stylesheet" href="css/wm.css?v=20260830p4" />
+  <link rel="stylesheet" href="css/gqwm.css?v=20261029p1" />
   <link rel="stylesheet" href="css/prolog.css?v=1" />
   <link rel="stylesheet" href="css/diplomacy.css?v=1" />
   <link rel="stylesheet" href="css/advanced-rendering.css?v=1" />
   <!-- NPC Dialogue Panel -->
-  <link rel="stylesheet" href="css/npc_dialogue_panel.css?v=1" />
+  <link rel="stylesheet" href="css/npc_dialogue_panel.css?v=2" />
   <!-- Game Guide NPC -->
   <style>
     #game-guide-panel {
@@ -126,14 +128,15 @@
       position: fixed;
       left: 12px;
       right: 12px;
-      bottom: 12px;
+      bottom: 0;
+      height: 170px;
       z-index: 99999;
       border: 1px solid rgba(79, 151, 255, 0.5);
-      border-radius: 8px;
+      border-radius: 10px 10px 0 0;
       background: rgba(4, 14, 36, 0.94);
       color: #d7e8ff;
       font: 12px/1.4 Consolas, Menlo, Monaco, monospace;
-      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.45);
+      box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.38);
       pointer-events: auto;
     }
     #boot-terminal:not(.wm-window):not(.wm-window-adapted).hidden {
@@ -185,7 +188,53 @@
   </section> 
   
   <section id="auth-section" class="auth-shell">
-  <div class="auth-wrapper" id="auth-wrapper">
+    <div id="start-menu" class="start-menu">
+      <div id="start-music-player" class="start-music-player" aria-label="Start music player">
+        <span class="start-music-label">GALACTIC RADIO</span>
+        <span id="start-music-title" class="start-music-title">Nebula Overture</span>
+        <div class="start-music-controls">
+          <button id="start-music-prev" type="button" title="Previous track" aria-label="Previous track" disabled><svg aria-hidden="true"><use href="gfx/icons/mono/prev.svg#icon-prev"></use></svg></button>
+          <button id="start-music-play" type="button" title="Musik starten" aria-label="Musik starten" disabled><svg aria-hidden="true"><use href="gfx/icons/mono/play.svg#icon-play"></use></svg></button>
+          <button id="start-music-next" type="button" title="Next track" aria-label="Next track" disabled><svg aria-hidden="true"><use href="gfx/icons/mono/next.svg#icon-next"></use></svg></button>
+          <button id="start-music-mute" type="button" title="Audio stummschalten" aria-label="Audio stummschalten" aria-pressed="false" disabled><svg aria-hidden="true"><use href="gfx/icons/mono/volume.svg#icon-volume"></use></svg></button>
+        </div>
+        <span id="start-music-status" class="start-music-status" aria-live="polite"></span>
+      </div>
+      <p class="start-eyebrow">GALAXY QUEST / COMMAND INTERFACE</p>
+      <h1 class="start-title">Galaxy<span>Quest</span></h1>
+      <p class="start-tagline">Conquer the stars</p>
+      <nav class="start-navigation" aria-label="Main menu">
+        <button id="start-resume" class="start-button start-button-primary" type="button" hidden>Resume</button>
+        <div class="start-panel-anchor"><button id="start-login" class="start-button start-button-primary" type="button" aria-expanded="false">Login<span>Return to your command</span></button></div>
+        <div class="start-panel-anchor"><button id="start-register" class="start-button" type="button" aria-expanded="false">Begin a new campaign<span>Write your first chapter</span></button></div>
+        <div class="start-panel-anchor"><button id="start-dev" class="start-button start-button-small" type="button" aria-expanded="false">Developer tools</button></div>
+        <div class="start-panel-anchor"><button class="start-button start-button-small" type="button" data-start-panel="news" aria-expanded="false">News and transmissions</button></div>
+        <div class="start-panel-anchor"><button class="start-button start-button-small" type="button" data-start-panel="settings" aria-expanded="false">Settings</button></div>
+        <button id="start-announcements" class="start-log-button" type="button" aria-expanded="false">Server announcements <span id="start-announcements-status" class="start-session-status">Loading</span></button>
+      </nav>
+      <p id="start-session-status" class="start-session-status" role="status" aria-live="polite">Your next chapter awaits.</p>
+      <div class="start-credits">
+        <span>© 2026 Galaxy Quest Interactive</span>
+        <span>Conquer the stars</span>
+      </div>
+      <dialog id="start-content-dialog" class="start-dialog" aria-labelledby="start-content-title">
+        <header class="start-dialog-header">
+          <h2 id="start-content-title">Start menu</h2>
+          <button type="button" data-start-close>Close</button>
+        </header>
+        <section id="start-panel-news" hidden>
+          <p>Command updates and transmissions from across the galaxy.</p>
+          <p id="server-announcements-status"></p>
+        </section>
+        <section id="start-panel-settings" hidden>
+          <label class="start-setting"><input id="start-reduced-motion" type="checkbox" /> Reduce motion</label>
+          <label class="start-setting"><input id="start-mute" type="checkbox" /> Mute audio</label>
+          <p id="start-settings-status" class="start-session-status" role="status" aria-live="polite"></p>
+        </section>
+      </dialog>
+    </div>
+    <template id="auth-forms-template">
+  <div class="auth-wrapper" id="auth-wrapper" data-wm-window="auth">
     <div class="auth-logo">
       <div class="logo-icon"><svg class="gq-icon" aria-hidden="true" focusable="false" style="width:1.9rem;height:1.9rem"><use href="gfx/icons/mono/galaxy.svg#icon-galaxy"></use></svg></div>
       <h1 class="logo-title">GalaxyQuest</h1>
@@ -297,7 +346,54 @@
       <a class="auth-bottom-btn auth-bottom-link" href="docs/lore/" target="_blank" rel="noopener noreferrer" aria-label="Blog oeffnen"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/mail.svg#icon-mail"></use></svg>Blog</a>
     </div>
   </div>
+    </template>
   </section>
+
+    <dialog id="server-announcements-dialog" class="start-dialog server-announcements-dialog" aria-labelledby="server-announcements-title">
+      <header class="start-dialog-header">
+        <h2 id="server-announcements-title">Server announcements</h2>
+        <button type="button" data-announcements-close>Close</button>
+      </header>
+      <p id="server-announcements-status" class="start-session-status" role="status" aria-live="polite">Loading announcements...</p>
+      <div id="server-announcements-list"></div>
+      <button id="server-announcements-refresh" class="start-button start-button-small" type="button">Refresh</button>
+    </dialog>
+
+    <section id="registration-prologue" class="registration-prologue" aria-label="Registration prologue" hidden>
+      <button id="registration-back" class="registration-back" type="button">Zurück</button>
+      <main class="registration-stage">
+        <p id="registration-chapter" class="registration-chapter"></p>
+        <h2 id="registration-title" tabindex="-1"></h2>
+        <p id="registration-story" class="registration-story"></p>
+        <p id="registration-narration-status" role="status" aria-live="polite"></p>
+        <button id="registration-narration-retry" class="wm-modal-nav-btn" type="button" hidden>Sprachausgabe erneut versuchen</button>
+        <p id="registration-flight-status" role="status" aria-live="polite"></p>
+        <div id="registration-choices" class="registration-choices"></div>
+        <section id="registration-character" hidden>
+          <p id="registration-draft-summary" class="registration-draft-summary" hidden></p>
+          <form id="registration-character-form">
+            <label for="registration-name">Commander-Name</label>
+            <input id="registration-name" name="name" type="text" minlength="3" maxlength="32" required autocomplete="off" />
+            <label for="registration-background">Hintergrund</label>
+            <textarea id="registration-background" name="background" rows="3" maxlength="500" required></textarea>
+            <button class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="submit" disabled>Charakter-Draft speichern</button>
+          </form>
+          <div class="registration-portrait">
+            <img id="registration-portrait-image" alt="Privates Commander-Portrait" hidden />
+            <p id="registration-portrait-status" role="status" aria-live="polite">Speichere zuerst deinen Charakter-Draft.</p>
+            <button id="registration-portrait-generate" class="wm-modal-nav-btn" type="button" disabled>KI-Portrait erzeugen</button>
+            <button id="registration-portrait-refresh" class="wm-modal-nav-btn" type="button" hidden>Status aktualisieren</button>
+          </div>
+        </section>
+        <section id="registration-surface" hidden aria-label="Planetenoberfläche"></section>
+        <p id="registration-status" role="status" aria-live="polite"></p>
+        <p id="registration-error" role="alert" aria-live="assertive"></p>
+        <div class="registration-stage-actions">
+          <button id="registration-retry" class="wm-modal-nav-btn" type="button" hidden>Erneut versuchen</button>
+          <button id="registration-continue" class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="button" hidden>Weiter</button>
+        </div>
+      </main>
+    </section>
 
   <!-- Narrative registration prologue (shown once after successful registration) -->
   <section id="prolog-section" class="prolog-section hidden" aria-hidden="true" aria-live="polite"></section>
@@ -320,6 +416,10 @@
         <p id="auth-action-text" class="auth-action-text">Anmeldung wird verarbeitet.</p>
       </div>
     </div>
+  </section>
+
+  <section id="auth-status-section" class="auth-status-shell" aria-live="polite" aria-atomic="true">
+    <div id="auth-status-line" class="auth-status-line">AUTH: Initializing shell...</div>
   </section>
 
   <section id="auth-login-confirm-section" class="auth-login-confirm-section hidden" aria-live="polite" aria-atomic="true">
@@ -542,39 +642,85 @@
   <!-- WM windows are section-based. New window hosts are created as <section> directly under <body>. -->
 
   <section id="left_sidebar" class="wm-window-host" aria-label="Left Sidebar Host">
-    <div class="wm-adaptable-window sidebar-panel sidebar-panel-left" data-wm-window="left-sidebar" data-wm-title="Left Sidebar" data-wm-width="300" data-wm-height="520" data-wm-default-dock="left" data-wm-default-y="72" data-wm-preserve-on-close="1" data-wm-hide-task-button="0" data-wm-persist-state="0">
-      <div class="sidebar-panel-content text-muted">Left Sidebar ready for WM adapt.</div>
+    <section class="wm-adaptable-window sidebar-panel sidebar-panel-left"
+      data-wm-window="left-sidebar"
+      data-wm-title="Left Sidebar"
+      data-wm-width="300"
+      data-wm-height="520"
+      data-wm-default-dock="left"
+      data-wm-default-y="72"
+      data-wm-preserve-on-close="1"
+      data-wm-hide-task-button="0"
+      data-wm-persist-state="0">
+      <div class="wm-titlebar">
+        <span class="wm-title">Left Sidebar</span>
+        <div class="wm-controls">
+          <button type="button" class="wm-btn wm-btn-min" title="Minimise">-</button>
+          <button type="button" class="wm-btn wm-btn-close" title="Close">X</button>
+        </div>
+      </div>
+      <div class="wm-body">
+        <div class="sidebar-panel-content text-muted">Left Sidebar ready for WM adapt.</div>
+      </div>
       <div class="wm-resize-handle" title="Resize"></div>
-    </div>
+    </section>
   </section>
 
   <section id="right_sidebar" class="wm-window-host" aria-label="Right Sidebar Host">
-    <div class="wm-adaptable-window sidebar-panel sidebar-panel-right" data-wm-window="right-sidebar" data-wm-title="Right Sidebar" data-wm-width="300" data-wm-height="520" data-wm-default-dock="right" data-wm-default-y="72" data-wm-preserve-on-close="1" data-wm-hide-task-button="0" data-wm-persist-state="0">
-      <div class="sidebar-panel-content text-muted">Right Sidebar ready for WM adapt.</div>
+    <section class="wm-adaptable-window sidebar-panel sidebar-panel-right"
+      data-wm-window="right-sidebar"
+      data-wm-title="Right Sidebar"
+      data-wm-width="300"
+      data-wm-height="520"
+      data-wm-default-dock="right"
+      data-wm-default-y="72"
+      data-wm-preserve-on-close="1"
+      data-wm-hide-task-button="0"
+      data-wm-persist-state="0">
+      <div class="wm-titlebar">
+        <span class="wm-title">Right Sidebar</span>
+        <div class="wm-controls">
+          <button type="button" class="wm-btn wm-btn-min" title="Minimise">-</button>
+          <button type="button" class="wm-btn wm-btn-close" title="Close">X</button>
+        </div>
+      </div>
+      <div class="wm-body">
+        <div class="sidebar-panel-content text-muted">Right Sidebar ready for WM adapt.</div>
+      </div>
       <div class="wm-resize-handle" title="Resize"></div>
-    </div>
+    </section>
   </section>
 
   <!-- System Bodies Card Window — GQWM floating window with card layout -->
   <section id="system-bodies-cards-host" class="wm-window-host" aria-label="System Bodies Card Window Host">
-    <div class="wm-adaptable-window"
-         data-wm-window="system-bodies-cards"
-         data-wm-title="System Bodies"
-         data-wm-width="740"
-         data-wm-height="500"
-         data-wm-persist-state="1">
-      <div class="sbcw-toolbar">
-        <span id="system-bodies-cards-count" class="sbcw-count" aria-live="polite"></span>
+    <section class="wm-adaptable-window"
+      data-wm-window="system-bodies-cards"
+      data-wm-title="System Bodies"
+      data-wm-width="740"
+      data-wm-height="500"
+      data-wm-persist-state="1">
+      <div class="wm-titlebar">
+        <span class="wm-title">System Bodies</span>
+        <div class="wm-controls">
+          <button type="button" class="wm-btn wm-btn-min" title="Minimise">-</button>
+          <button type="button" class="wm-btn wm-btn-close" title="Close">X</button>
+        </div>
       </div>
-      <div id="system-bodies-cards-grid" class="sbcw-grid" role="list" aria-label="Celestial bodies"></div>
-    </div>
+      <div class="wm-body">
+        <div class="sbcw-toolbar">
+          <span id="system-bodies-cards-count" class="sbcw-count" aria-live="polite"></span>
+        </div>
+        <div id="system-bodies-cards-grid" class="sbcw-grid" role="list" aria-label="Celestial bodies"></div>
+      </div>
+      <div class="wm-resize-handle" title="Resize"></div>
+    </section>
   </section>
 
   <!-- NPC Dialogue Panel Host -->
-  <section id="npc-dialogue-panel-host" class="wm-window-host" aria-label="NPC Dialogue Panel Host">
-    <div 
+  <section id="npc-dialogue-panel-host" class="wm-window-host" aria-label="NPC Dialogue Panel Host" aria-hidden="true">
+    <section 
       id="npc-dialogue-panel" 
-      class="npc-dialogue-container wm-adaptable-window" 
+      class="npc-dialogue-container wm-adaptable-window hidden" 
       data-wm-window="npc-dialogue"
       data-wm-title="NPC Chat"
       data-wm-width="380"
@@ -586,8 +732,17 @@
       data-wm-default-floating-y="calc(100% - 540px)"
       data-wm-preserve-on-close="1"
       data-wm-hide-task-button="0"
-      data-wm-persist-state="1">
-    </div>
+      data-wm-persist-state="0">
+      <div class="wm-titlebar">
+        <span class="wm-title">NPC Chat</span>
+        <div class="wm-controls">
+          <button type="button" class="wm-btn wm-btn-min" title="Minimise">-</button>
+          <button type="button" class="wm-btn wm-btn-close" title="Close">X</button>
+        </div>
+      </div>
+      <div class="wm-body"></div>
+      <div class="wm-resize-handle" title="Resize"></div>
+    </section>
   </section>
 
   <!-- Game Guide NPC Panel -->
@@ -639,7 +794,7 @@
 
   <section id="terminal-section" aria-live="assertive" aria-atomic="true">
     <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
-    <section id="boot-terminal" class="ui-console-panel hidden" aria-live="polite" aria-label="Entwickler-Konsole">
+    <section id="boot-terminal" class="ui-console-panel hidden" data-wm-window="console" aria-live="polite" aria-label="Entwickler-Konsole">
       <div id="boot-terminal-head" class="ui-console-head">
         <div class="boot-terminal-title">
           <strong>Console</strong>
@@ -1444,6 +1599,67 @@
     
     debugLog('Debug logging started');
   </script>
+  <script>
+    (function initAuthStatusBar() {
+      const line = document.getElementById('auth-status-line');
+      if (!line) return;
+
+      let lastDebugCount = 0;
+
+      function statusText() {
+        const lock = !!window.__GQ_AUTH_BOOTSTRAP_LOCK;
+        const ready = !!window.__GQ_AUTH_READY;
+        const bg = !!(window.GQStarfieldControl || window.GQAuthGalaxyBackgroundControl);
+        const game = !!window.GQGame;
+        return `AUTH lock=${lock ? '1' : '0'} ready=${ready ? '1' : '0'} bg=${bg ? '1' : '0'} game=${game ? '1' : '0'}`;
+      }
+
+      function setInfo(text) {
+        line.classList.remove('auth-status-warn', 'auth-status-error');
+        line.textContent = text;
+      }
+
+      function setWarn(text) {
+        line.classList.remove('auth-status-error');
+        line.classList.add('auth-status-warn');
+        line.textContent = text;
+      }
+
+      function setError(text) {
+        line.classList.remove('auth-status-warn');
+        line.classList.add('auth-status-error');
+        line.textContent = text;
+      }
+
+      window.addEventListener('error', function (e) {
+        const msg = String(e?.message || 'Unknown runtime error');
+        setError(`ERR ${msg}`);
+      });
+
+      window.addEventListener('unhandledrejection', function (e) {
+        const msg = String(e?.reason?.message || e?.reason || 'Unhandled promise rejection');
+        setError(`REJ ${msg}`);
+      });
+
+      setInterval(function () {
+        const logs = Array.isArray(window.__GQ_DEBUG_LOG) ? window.__GQ_DEBUG_LOG : [];
+        if (logs.length > lastDebugCount) {
+          lastDebugCount = logs.length;
+          const latest = logs[logs.length - 1];
+          const text = String(latest?.msg || '').trim();
+          if (text) {
+            if (text.startsWith('ERROR:')) {
+              setError(text);
+            } else {
+              setWarn(`${statusText()} | ${text}`);
+            }
+            return;
+          }
+        }
+        setInfo(statusText());
+      }, 1200);
+    })();
+  </script>
   
   <!-- Core Network & API Scripts (manually prioritized - DISABLED for ES6 migration) -->
   <!-- <script src="js/runtime/wm.js?v=20260408p2"></script> -->
@@ -1564,53 +1780,30 @@
   <!-- <script src="js/vfx/particle-system.js?v=20260730p1"></script> -->
   <!-- <script src="js/rendering/canvas-animation-engine.js?v=20260730p1"></script> -->
   <!-- <script src="js/rendering/trajectory-renderer.js?v=20260730p1"></script> -->
-  <!-- <script src="js/rendering/starfield.js?v=20260404p110"></script> -->
   <script>
-    // Debug and fallback canvas initialization
+    window.__GQ_AUTH_FORCE_WEBGL = true;
+  </script>
+  <script>
+    // Keep the auth shell canvas visually ready without forcing a second context
+    // onto a renderer-owned WebGL canvas.
     (function() {
       setTimeout(() => {
         const canvas = document.getElementById('starfield');
-        if (!canvas) {
-          console.error('Starfield canvas not found');
-          return;
-        }
-        
-        console.log('Starfield canvas dimensions:', { width: canvas.width, height: canvas.height });
-        
-        // Check for different context types
-        const ctx2d = canvas.getContext('2d');
-        const ctxWebGL = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-        const ctxWebGL2 = canvas.getContext('webgl2');
-        
-        console.log('Canvas contexts available:', { 
-          '2d': !!ctx2d, 
-          'webgl': !!ctxWebGL, 
-          'webgl2': !!ctxWebGL2 
-        });
-        
-        // If canvas already has WebGL initialized, it won't support 2D
-        // Just make sure it's visible and sized correctly
+        if (!canvas) return;
         if (canvas.width <= 1 && canvas.height <= 1) {
-          console.log('Canvas not resized, resizing now');
           const dpr = window.devicePixelRatio || 1;
           canvas.width = Math.floor(window.innerWidth * dpr);
           canvas.height = Math.floor(window.innerHeight * dpr);
-          canvas.style.width = window.innerWidth + 'px';
-          canvas.style.height = window.innerHeight + 'px';
-          console.log('Canvas resized to:', { width: canvas.width, height: canvas.height });
+          canvas.style.width = `${window.innerWidth}px`;
+          canvas.style.height = `${window.innerHeight}px`;
         }
-        
-        // Make sure canvas is visible
         canvas.style.display = 'block';
         canvas.style.visibility = 'visible';
         canvas.style.opacity = '1';
-        
-        console.log('Starfield canvas ready');
       }, 500);
     })();
   </script>
   <!-- <script src="js/ui/prolog.js?v=1"></script> -->
-  <!-- <script src="js/network/auth.js?v=20260409p112"></script> -->
   <!-- NPC Dialogue System Integration -->
   <!-- <script src="js/systems/npc_dialogue_system.js?v=1"></script> -->
   <!-- <script src="js/components/npc_dialogue_panel.js?v=1"></script> -->
@@ -1622,7 +1815,11 @@
     (function initNpcDialoguePanel() {
       try {
         // Initialize the NPC Dialogue Panel for the game UI
-        if (document.getElementById('npc-dialogue-panel')) {
+        if (
+          document.getElementById('npc-dialogue-panel')
+          && typeof NpcDialogueSystem === 'function'
+          && typeof NPCDialoguePanel === 'function'
+        ) {
           window.GQNpcDialogueSystem = new NpcDialogueSystem();
           window.initNpcDialoguePanel = function(npcId, npcName, faction, playerId) {
             const panel = new NPCDialoguePanel({
@@ -1648,6 +1845,8 @@
           if (window.GQLog && typeof window.GQLog.info === 'function') {
             window.GQLog.info('[npc-dialogue] System initialized');
           }
+        } else if (document.getElementById('npc-dialogue-panel')) {
+          console.warn('[npc-dialogue] dependencies missing, init skipped');
         }
       } catch (error) {
         console.error('[npc-dialogue] Initialization failed:', error);

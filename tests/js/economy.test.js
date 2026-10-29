@@ -1167,6 +1167,8 @@ describe('GalacticMarket — regional market integration', () => {
     const m2 = GalacticMarket.deserialize(market.serialize());
     expect(m2.getRegion('frontier_sectors').activeEvents).toHaveLength(1);
     expect(m2.getRegion('core_worlds')).toBeInstanceOf(MarketRegion);
+  });
+});
 // Sprint 2.3 — Policy Enforcement in Production (Issue B-2)
 // ---------------------------------------------------------------------------
 

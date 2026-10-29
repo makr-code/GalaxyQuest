@@ -229,7 +229,7 @@ class OwnershipAuraBloomPass {
    * @returns {number}
    */
   getFactionIntensity(factionId) {
-    return this._factionIntensities[factionId] || 0.8;
+    return this._factionIntensities[factionId] ?? 0.8;
   }
 
   /**

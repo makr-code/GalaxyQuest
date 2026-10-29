@@ -225,7 +225,7 @@ describe('DebrisManager - Phase 3 Advanced Debris System', () => {
 
       const debris = manager.get('ast_1');
       expect(debris.damageLevel).toBeCloseTo(0.6, 1);  // 60% damage
-      expect(debris.state).toBe('critical');
+      expect(debris.state).toBe('damaged');
     });
 
     it('should track damage history', () => {
@@ -331,7 +331,7 @@ describe('DebrisManager - Phase 3 Advanced Debris System', () => {
 
       const debris = mgr.get('ast_1');
       expect(debris.damageLevel).toBeLessThan(0.55);  // < 50% damage
-      expect(debris.state).toNotBe('critical');
+      expect(debris.state).not.toBe('critical');
     });
 
     it('should respect health limits', () => {

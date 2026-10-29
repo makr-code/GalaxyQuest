@@ -1,0 +1,47 @@
+[      71ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1798
+[     168ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[     175ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[     176ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[     176ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[     203ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[     203ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[     305ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793277373924:395
+[     364ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/@vite/client:528
+[   28977ms] [WARNING] Error while parsing WGSL: :1:1 error: invalid character found
+\r\n    struct ViewUniform {\r\n      pan : vec2<f32>,\r\n      zoom : f32,\r\n      pad : f32,\r\n      pixelSize : vec2<f32>,\r\n      padding : vec2<f32>,\r\n    };\r\n    @group(0) @binding(0) var<uniform> uView : ViewUniform;\r\n\r\n    struct VSOut {\r\n      @builtin(position) pos : vec4<f32>,\r\n      @location(0) localPos : vec2<f32>,\r\n    };\r\n\r\n    @vertex\r\n    fn vs_main(\r\n      @builtin(vertex_index) vertexIndex : u32,\r\n      @location(0) inPos : vec2<f32>\r\n    ) -> VSOut {\r\n      let corners = array<vec2<f32>, 4>(\r\n        vec2<f32>(-1.0, -1.0),\r\n        vec2<f32>( 1.0, -1.0),\r\n        vec2<f32>(-1.0,  1.0),\r\n        vec2<f32>( 1.0,  1.0),\r\n      );\r\n      let corner = corners[vertexIndex];\r\n      var out : VSOut;\r\n      var p = (inPos + uView.pan) * uView.zoom;\r\n      if (uView.padding.y > 0.5) {\r\n        let c = cos(uView.pad);\r\n        let s = sin(uView.pad);\r\n        let rotated = vec2<f32>(inPos.x * c - inPos.y * s, inPos.x * s + inPos.y * c);\r\n        p = vec2<f32>(\r\n          rotated.x * 1.6 / max(uView.padding.x, 0.1) + 0.4,\r\n          rotated.y * 0.85\r\n        );\r\n      }\r\n      out.pos = vec4<f32>(p + corner * uView.pixelSize * 1.5, 0.0, 1.0);\r\n      out.localPos = corner;\r\n      return out;\r\n    }\r\n\r\n    @fragment\r\n    fn fs_main(input : VSOut) -> @location(0) vec4<f32> {\r\n      let radius = length(input.localPos);\r\n      if (radius > 1.0) {\r\n        discard;\r\n      }\r\n      let alpha = 1.0 - smoothstep(0.25, 1.0, radius);\r\n      let color = vec3<f32>(0.82, 0.9, 1.0);\r\n      return vec4<f32>(color, alpha);\r\n    }\r\n  
+^
+
+
+ - While calling [Device].CreateShaderModule([ShaderModuleDescriptor]).
+ @ http://localhost:8080/:0
+[   62087ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1798
+[   62274ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[   62322ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[   62322ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[   62323ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[   62332ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[   62332ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[   62426ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793277640023:399
+[   62511ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/@vite/client:528
+[   88948ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1798
+[   89203ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1798
+[   89384ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[   89416ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[   89416ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[   89417ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[   89430ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[   89431ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[   89893ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793277667298:400
+[   89953ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/@vite/client:528
+[  158510ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1798
+[  158672ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[  158702ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  158702ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[  158702ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[  158734ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  158734ms] [INFO] [GQ][Audio] Track bereits aktiv {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[  158832ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793277667298:400
+[  159005ms] [WARNING] [GQ][Starfield] {stage: auth-galaxy-data-load, message: Unexpected token '<', "<!DOCTYPE "... is not valid JSON, loadedStars: 9000} @ http://localhost:8080/@vite/client:528
+[  172734ms] [INFO] [GQ][Audio] Play-Versuch {track: music/Nebula_Overture.mp3, muted: false, volume: 0.44000000000000006} @ http://localhost:8080/js/runtime/audio.js:230
+[  178541ms] [INFO] [GQ][Audio] Musik läuft {track: music/Nebula_Overture.mp3, currentTime: 0} @ http://localhost:8080/js/runtime/audio.js:230
+[  178570ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8080/favicon.ico:0

@@ -2,12 +2,14 @@
  * GalaxyQuest Main Entry Point (ES6 Modules)
  * 
  * Responsibilities:
- * - Import all domain initialization functions
- * - Bootstrap all 12 game domains
+ * - Start authentication and the shared galaxy background
+ * - Bootstrap game domains only after authentication succeeds
  * - Export to window for debugging/access
  * - Handle boot errors
  */
 
+import './rendering/starfield.js';
+import './network/auth.js';
 import { API } from './api.js';
 
 // Import all domain initialization functions
@@ -30,6 +32,7 @@ window.API = API;
 // Game State
 const game = {
   domains: {},      // All initialized domains
+  bootPromise: null,
   config: {
     eventBus: null,   // Will be set if available
     repository: null, // Will be set if available
@@ -41,6 +44,13 @@ const game = {
  * Bootstrap all 12 game domains
  */
 async function boot() {
+  if (game.bootPromise) return game.bootPromise;
+
+  game.bootPromise = bootAuthenticatedDomains();
+  return game.bootPromise;
+}
+
+async function bootAuthenticatedDomains() {
   console.log('🚀 GalaxyQuest Booting...');
 
   try {
@@ -231,13 +241,8 @@ async function boot() {
   }
 }
 
-// Start the boot sequence when DOM is ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot);
-} else {
-  // DOM already loaded (e.g., defer on script)
-  boot().catch(error => {
-    console.error('❌ Unhandled boot error:', error);
-    // Optionally: display error UI
+window.addEventListener('gq:authenticated', () => {
+  boot().catch((error) => {
+    console.error('❌ Unhandled authenticated boot error:', error);
   });
-}
+}, { once: true });

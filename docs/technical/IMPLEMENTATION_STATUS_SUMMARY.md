@@ -1,5 +1,7 @@
 # GalaxyQuest System Implementation Status
 
+> **Aktualitätshinweis (29. Oktober 2026):** Dieser Status ist ein historischer Snapshot vom 31. Juli 2026. Die Prozentangabe ist keine aktuelle Messung. Für den gegen den heutigen Checkout abgeglichenen Stand siehe [Reality Check](REALITY_CHECK_2026-10-29.md).
+
 **Last Updated**: 31 July 2026 (Documentation sync)
 **Scope**: Pirates, Economy, War systems + Phase documentation  
 **Status Summary**: ~70% complete with significant incomplete features in Economy integration

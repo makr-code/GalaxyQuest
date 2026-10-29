@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "language": "de",
+  "teaser": [
+    { "id": "teaser-distance", "title": "Jenseits vertrauter Sterne", "text": "Weit hinter den Sternen deiner Heimat verbindet die Kalytherion-Konvergenz sechs Zivilisationen. Sechs Arten zu leben. Eine fragile Hoffnung auf eine gemeinsame Zukunft." },
+    { "id": "teaser-convergence", "title": "Ein Bündnis im Wandel", "text": "Stärke, Glaube, Wissen und Information halten die Konvergenz zusammen. Doch dieselben Kräfte ziehen sie auseinander. An ihren Grenzen wartet die Eisenflotte. Aus den Tiefen zwischen den Welten dringt die Leerenbrut." },
+    { "id": "teaser-frontier", "title": "Eine ungeschriebene Welt", "text": "An der Wegscheide alter Transitkorridore liegt eine unscheinbare Randwelt. Unter ihrem Boden ruht Vethisit: ein Mineral, das auf die Energie der Sprungfelder antwortet. Was gestern eine vergessene Siedlung war, könnte morgen das Schicksal ganzer Welten verändern." },
+    { "id": "teaser-commander", "title": "Deine Geschichte beginnt", "text": "Die Mächtigen haben die Signale empfangen. Ihre Gesandten suchen Verbündete. Und die Bewohner deiner neuen Kolonie brauchen jemanden, der entscheidet. Nicht über die Vergangenheit. Über das, was jetzt beginnt." }
+  ],
+  "factions": [
+    { "code": "schildzirkel", "anchor_species": "vor_tak", "name": "Schildzirkel", "symbol": "military", "color": "#e6a184", "title": "Stärke ist Schutz", "text": "Der Schildzirkel schützt die Konvergenz mit Disziplin, Patrouillen und militärischer Entschlossenheit. General Drak'Mol will die Grenzen sichern. Seine Unterstützung öffnet militärische Kontakte. Doch wer Schutz verspricht, verlangt Einfluss.", "network": "Militärische Kontakte und Grenzschutz; konkrete Netzwerkboni sind noch nicht aktiv." },
+    { "code": "lichtbund", "anchor_species": "syl_nar", "name": "Lichtbund", "symbol": "star", "color": "#f1dba0", "title": "Einheit durch Harmonie", "text": "Der Lichtbund sieht in jedem Leben einen Ausdruck derselben kosmischen Energie. Hohepriesterin Vela'Thii sucht Verständigung, bevor Waffen sprechen. Gemeinschaft und Vermittlung sind seine Stärke. Doch Geduld kann zur Gefahr werden, wenn andere längst handeln.", "network": "Diplomatische und gemeinschaftliche Kontakte; konkrete Netzwerkboni sind noch nicht aktiv." },
+    { "code": "kernrat", "anchor_species": "aereth", "name": "Kernrat", "symbol": "research", "color": "#a7dfff", "title": "Wissen verändert Welten", "text": "Der Kernrat sucht Antworten, wo andere nur Bedrohungen sehen. Sol'Kaar führt Forscher und Expeditionen an die Grenzen des Bekannten. Erkenntnis verspricht Energie und neue Wege zwischen den Sternen. Doch nicht jede Grenze sollte unbedacht überschritten werden.", "network": "Forschungs- und Energienetzwerke; konkrete Netzwerkboni sind noch nicht aktiv." },
+    { "code": "schattenzirkel", "anchor_species": "vel_ar", "name": "Schattenzirkel", "symbol": "intel", "color": "#bbb1e6", "title": "Information ist Kontrolle", "text": "Der Schattenzirkel hört zu, wenn andere ihre Geheimnisse sicher glauben. Shy'Nira führt ein Netz aus Beobachtern und stillen Verbindungen. Wer verborgene Absichten erkennt, gewinnt Zeit. Doch Vertrauen ist der Preis jeder unsichtbaren Hand.", "network": "Aufklärung und nachrichtendienstliche Verbindungen; konkrete Netzwerkboni sind noch nicht aktiv." }
+  ]
+}

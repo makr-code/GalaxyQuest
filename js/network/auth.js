@@ -2,6 +2,11 @@
  * Unified shell bootstrap (index.html).
  * Handles auth section, game section, and progressive runtime loading.
  */
+import { loadRuntimeModule } from '../runtime/runtime-module-loader.js';
+import { initializeStartScreen } from './start-screen.js';
+import { initializeStartMusicPlayer } from './start-music-player.js';
+import '../ui/prolog.js';
+
 (async function () {
   if (window.__GQ_AUTH_BOOTSTRAP_LOCK === true) {
     if (window.GQLog && typeof window.GQLog.warn === 'function') {
@@ -21,9 +26,9 @@
 
   const AUTH_AUDIO_SCRIPT = withAssetVersion('js/runtime/audio.js', 'audio', '20260404p50');
   const AUTH_GQUI_SCRIPT = withAssetVersion('js/ui/gq-ui.js', 'gqui', '20260330p1');
-  const AUTH_WM_SCRIPT = withAssetVersion('js/runtime/wm.js', 'wm', '20260406p2');
-  const AUTH_WM_WIDGETS_SCRIPT = withAssetVersion('js/runtime/wm-widgets.js', 'wmWidgets', '20260406p2');
-  const AUTH_GQWM_SCRIPT = withAssetVersion('js/runtime/gqwm.js', 'gqwm', '20260406p2');
+  const AUTH_WM_SCRIPT = withAssetVersion('js/runtime/wm.js', 'wm', '20260830p211');
+  const AUTH_WM_WIDGETS_SCRIPT = withAssetVersion('js/runtime/wm-widgets.js', 'wmWidgets', '20260830p211');
+  const AUTH_GQWM_SCRIPT = withAssetVersion('js/runtime/gqwm.js', 'gqwm', '20260830p211');
   const AUTH_AUDIO_PRELOAD = [
     'music/Nebula_Overture.mp3',
     'sfx/mixkit-video-game-retro-click-237.wav',
@@ -81,23 +86,56 @@
   authProbe('bootstrap start');
 
   const authSection = document.getElementById('auth-section');
+  const startMusicPlayer = document.getElementById('start-music-player')
+    ? initializeStartMusicPlayer()
+    : { setManager() {}, setError() {} };
+  let titleTracks = [];
+  let titleCatalogError = '';
+  const startScreen = initializeStartScreen({
+    onRegistrationRequest: registrationRequest,
+    onRegistrationPreview: (preview) => {
+      const control = window.GQAuthGalaxyBackgroundControl;
+      if (typeof control?.setRegistrationPreview !== 'function') return false;
+      return control.setRegistrationPreview(preview);
+    },
+    onResume: async () => {
+      const response = await fetchWithTimeout('api/auth.php?action=me&quiet=1', {
+        credentials: 'same-origin',
+        timeoutMs: 10000,
+        tag: 'resume',
+      });
+      if (response.status === 401 || response.status === 403) {
+        startScreen.setSession(false);
+        throw new Error('Your session expired. Please sign in again.');
+      }
+      const data = await parseApiJson(response, 'resume');
+      if (!data.success || !(data.authenticated === true || data.user)) {
+        startScreen.setSession(false);
+        throw new Error('Your session expired. Please sign in again.');
+      }
+      await startGameShell();
+    },
+    onMute: async (muted) => {
+      await loadScript(AUTH_AUDIO_SCRIPT);
+      const manager = ensureSharedAudioManager();
+      if (!manager) throw new Error('Audio manager is unavailable');
+      manager.setMasterMuted(muted);
+    },
+  });
+  const authRoot = startScreen.authRoot;
   function resolveGameSection() {
     return document.getElementById('game-section')
-      || document.getElementById('wm-galaxy-section')
       || document.getElementById('wm-host-galaxy')
       || null;
   }
-  const tabs = authSection
-    ? authSection.querySelectorAll('.auth-tabs .tab-btn')
-    : document.querySelectorAll('.auth-tabs .tab-btn');
-  const loginForm = document.getElementById('login-form');
-  const registerForm = document.getElementById('register-form');
-  const devTools = document.getElementById('dev-auth-tools');
-  const devTabButton = document.getElementById('auth-dev-tab');
-  const devResetBtn = document.getElementById('dev-reset-btn');
-  const devResetUser = document.getElementById('dev-reset-username');
-  const devResetPass = document.getElementById('dev-reset-password');
-  const devResetResult = document.getElementById('dev-reset-result');
+  const tabs = authRoot.querySelectorAll('.auth-tabs .tab-btn');
+  const loginForm = authRoot.querySelector('#login-form');
+  const devTools = authRoot.querySelector('#dev-auth-tools');
+  const devTabButton = document.getElementById('start-dev');
+  const devResetBtn = authRoot.querySelector('#dev-reset-btn');
+  const devResetUser = authRoot.querySelector('#dev-reset-username');
+  const devResetPass = authRoot.querySelector('#dev-reset-password');
+  const devResetResult = authRoot.querySelector('#dev-reset-result');
   const preloadPanel = document.getElementById('auth-preload-panel');
   const preloadBar = document.getElementById('auth-preload-bar');
   const preloadLabel = document.getElementById('auth-preload-label');
@@ -111,8 +149,8 @@
   const authLoginConfirmText = document.getElementById('auth-login-confirm-text');
   const authLoginConfirmBar = document.getElementById('auth-login-confirm-bar');
   const authLoginConfirmMeta = document.getElementById('auth-login-confirm-meta');
-  const loginRemember = document.getElementById('login-remember');
-  const regRemember = document.getElementById('reg-remember');
+  const loginRemember = authRoot.querySelector('#login-remember');
+  const regRemember = authRoot.querySelector('#reg-remember');
   const AUTH_FLIGHT_PROFILE_KEY = 'gq_auth_flight_profile';
   const AUTH_DEFAULT_FLIGHT_PROFILE = 'cinematic';
 
@@ -273,17 +311,20 @@
   const scriptLoadPromises = new Map();
   const packageLoadPromises = new Map();
   let authDebugDetails = false;
-  let authWindowIntegrationAttempted = false;
   let preloadPanelSuppressed = false;
   let lastPhaseBucket = -1;
   let homeworldTargetInflight = null;
   let homeworldTargetCache = null;
   let homeworldTargetCacheAt = 0;
+  let logoutBridgeBound = false;
 
   const HOMEWORLD_TARGET_CACHE_TTL_MS = 30000;
 
   // Keep remember-me enabled by default on the auth shell.
-  if (loginRemember) loginRemember.checked = true;
+  if (loginRemember) {
+    loginRemember.defaultChecked = true;
+    loginRemember.checked = true;
+  }
   if (regRemember) regRemember.checked = false;
 
   try {
@@ -403,6 +444,33 @@
     }
   }
 
+  function bindLogoutBridge() {
+    if (logoutBridgeBound) return true;
+    const logoutBtn = document.getElementById('logout-btn');
+    if (!logoutBtn) return false;
+    if (logoutBtn.dataset.gqAuthLogoutBridgeBound === '1') {
+      logoutBridgeBound = true;
+      return true;
+    }
+
+    logoutBtn.dataset.gqAuthLogoutBridgeBound = '1';
+    logoutBtn.addEventListener('click', async () => {
+      try {
+        await performLogoutCleanup();
+      } catch (_) {
+        // Best effort only; redirect still enforces sign-out shell state.
+      }
+
+      const target = `index.html?logout=1&nocache=${Date.now()}`;
+      if (window.location?.href && window.location.href.includes('logout=1')) return;
+      window.location.href = target;
+    });
+
+    logoutBridgeBound = true;
+    authLog('info', 'logout bridge bound');
+    return true;
+  }
+
   function showLoginConfirmSection(title, text, meta = '') {
     if (authLoginConfirmTitle) authLoginConfirmTitle.textContent = String(title || 'Login ok');
     if (authLoginConfirmText) authLoginConfirmText.textContent = String(text || 'Lade Kommandostand...');
@@ -440,16 +508,18 @@
   }
 
   function showActionModal(title, text, busy = true) {
+    const inDialog = startScreen.setActivity(title || 'Please wait...', text || 'Working...');
     if (authActionTitle) authActionTitle.textContent = String(title || 'Please wait...');
     if (authActionText) authActionText.textContent = String(text || 'Working...');
     if (authActionSpinner) authActionSpinner.classList.toggle('hidden', !busy);
     if (authActionModal) {
-      authActionModal.classList.remove('hidden');
+      authActionModal.classList.toggle('hidden', inDialog);
       authActionModal.setAttribute('aria-busy', busy ? 'true' : 'false');
     }
   }
 
   function hideActionModal() {
+    startScreen.setActivity('', '');
     if (authActionModal) {
       authActionModal.classList.add('hidden');
       authActionModal.setAttribute('aria-busy', 'false');
@@ -646,14 +716,7 @@
     gameSection?.classList.add('hidden');
     gameSection?.setAttribute('aria-hidden', 'true');
     closeGameplayWindowsForAuthState();
-    // Try once UI is visible so prepared auth container can be adapted into a WM window.
-    Promise.resolve().then(() => {
-      try {
-        ensureAuthWindowManaged();
-      } catch (err) {
-        authLog('warn', 'ensureAuthWindowManaged failed', String(err?.message || err || 'unknown'));
-      }
-    });
+    startScreen.setSession(false);
     emitInitDiag('setAuthVisible');
     emitShellDebugConsole('setAuthVisible');
   }
@@ -743,6 +806,7 @@
       stageSection.classList.add('game-shell');
     }
     ensureSharedGalaxyStageVisible();
+    startScreen.closeAuth(true);
     authSection?.classList.add('hidden');
     authSection?.setAttribute('aria-hidden', 'true');
     gameSection?.classList.remove('hidden');
@@ -757,11 +821,14 @@
 
     // Safety net: if the galaxy background/orb was not mounted yet, retry briefly.
     Promise.resolve().then(() => ensureGalaxyUiMounted(0));
+    Promise.resolve().then(() => bindLogoutBridge());
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
     emitInitDiag('setGameVisible');
     emitShellDebugConsole('setGameVisible');
   }
 
   function hideAuthWindowForBootProgress() {
+    startScreen.closeAuth(true);
     authSection?.classList.add('hidden');
     authSection?.setAttribute('aria-hidden', 'true');
     try {
@@ -908,71 +975,6 @@
     }
   }
 
-  async function ensureAuthWindowManaged() {
-    if (!authSection || authSection.classList.contains('hidden')) return;
-    if (!window.GQUI) {
-      try {
-        await loadScript(AUTH_GQUI_SCRIPT);
-      } catch (err) {
-        if (!authWindowIntegrationAttempted) {
-          authLog('warn', 'auth GQUI preload skipped', String(err?.message || err || 'unknown'));
-        }
-      }
-    }
-    if (!window.WM) {
-      try {
-        await loadScript(AUTH_WM_SCRIPT);
-        await loadScript(AUTH_WM_WIDGETS_SCRIPT);
-        await loadScript(AUTH_GQWM_SCRIPT);
-      } catch (err) {
-        if (!authWindowIntegrationAttempted) {
-          authLog('warn', 'auth WM integration skipped', String(err?.message || err || 'unknown'));
-        }
-        authWindowIntegrationAttempted = true;
-        return;
-      }
-    }
-
-    if (!window.WM || typeof window.WM.adopt !== 'function') {
-      authWindowIntegrationAttempted = true;
-      return;
-    }
-
-    const desiredW = 440;
-    const desiredH = 580;
-    const defaultX = Math.max(18, Math.floor((window.innerWidth - desiredW) / 2));
-    const defaultY = Math.max(14, Math.floor((window.innerHeight - desiredH) / 2));
-    const authWindowCfg = {
-      title: 'Commander Login',
-      sectionId: 'auth-section',
-      prebuiltSelector: '#auth-wrapper',
-      adaptExisting: true,
-      preserveOnClose: false,
-      hideTaskButton: false,
-      w: desiredW,
-      h: desiredH,
-      defaultX,
-      defaultY,
-    };
-
-    try {
-      if (!window.WM.isOpen('auth')) {
-        window.WM.adopt('auth', authWindowCfg);
-      } else {
-        window.WM.open('auth');
-      }
-      if (typeof window.WM.refresh === 'function') {
-        window.WM.refresh('auth');
-      }
-      authWindowIntegrationAttempted = true;
-    } catch (err) {
-      if (!authWindowIntegrationAttempted) {
-        authLog('warn', 'auth WM adopt failed', String(err?.message || err || 'unknown'));
-      }
-      authWindowIntegrationAttempted = true;
-    }
-  }
-
   function canonicalScriptKey(src) {
     const raw = String(src || '').trim();
     if (!raw) return '';
@@ -1028,7 +1030,8 @@
       listeners.length = 0;
     };
 
-    const attemptResume = async () => {
+    const attemptResume = async (event) => {
+      if (event?.target instanceof Element && event.target.closest('#start-music-player')) return;
       if (unlocked) return;
       if (resumeInFlight) return;
       const now = Date.now();
@@ -1096,6 +1099,8 @@
   }
 
   async function pickRandomTitleTrack() {
+    titleTracks = [];
+    titleCatalogError = '';
     const fallback = String(AUTH_AUDIO_PRELOAD.find((entry) => String(entry || '').trim().startsWith('music/')) || 'music/Nebula_Overture.mp3').trim();
     let previous = '';
     try {
@@ -1109,15 +1114,20 @@
         method: 'GET',
         credentials: 'same-origin',
         cache: 'no-store',
+        signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) {
-        return pickRandomItemAvoiding([fallback], previous) || fallback;
+        throw new Error(`Playlist-Anfrage fehlgeschlagen (HTTP ${res.status}).`);
       }
       const data = await res.json();
-      const tracks = Array.isArray(data?.tracks) ? data.tracks : [];
-      const urls = tracks
+      if (data?.success !== true || !Array.isArray(data.tracks)) {
+        throw new Error(data?.error || 'Ungültige Playlist-Antwort.');
+      }
+      const urls = [...new Set(data.tracks
         .map((entry) => String(entry?.value || '').trim())
-        .filter((value) => value.startsWith('music/'));
+        .filter((value) => value.startsWith('music/')))];
+      if (!urls.length) throw new Error('Die Playlist enthält keine Musiktitel.');
+      titleTracks = urls;
       const selected = pickRandomItemAvoiding(urls, previous);
       const chosen = selected || fallback;
       try {
@@ -1128,6 +1138,7 @@
       return chosen;
     } catch (err) {
       authLog('warn', 'audio list fetch failed, using fallback track', String(err?.message || err || 'unknown'));
+      titleCatalogError = 'Playlist nicht verfügbar; nur Ersatztitel geladen.';
       const selected = pickRandomItemAvoiding([fallback], previous) || fallback;
       try {
         localStorage.setItem(AUTH_LAST_TITLE_TRACK_KEY, selected);
@@ -1145,11 +1156,15 @@
     } catch (err) {
       authLog('warn', 'audio lazy load failed', String(err?.message || err || 'unknown'));
       authProbe('audio lazy load failed', 'warn');
+      startMusicPlayer.setError('Audio konnte nicht geladen werden.');
       return null;
     }
 
     const manager = ensureSharedAudioManager();
-    if (!manager) return null;
+    if (!manager) {
+      startMusicPlayer.setError('AudioManager ist nicht verfügbar.');
+      return null;
+    }
 
     try {
       const randomTitleTrack = await pickRandomTitleTrack();
@@ -1159,11 +1174,15 @@
         manager.setSceneTrack('ui', randomTitleTrack);
       }
       manager.setMusicTrack(randomTitleTrack, false);
+      manager.setMusicPlaylist(titleTracks.length ? titleTracks : [randomTitleTrack], { mode: 'sequential' });
+      startMusicPlayer.setManager(manager);
+      if (titleCatalogError) startMusicPlayer.setError(titleCatalogError);
       installAudioUnlock(manager);
       authLog('info', 'audio primed (lazy), random title track selected', randomTitleTrack);
       authProbe(`audio primed (lazy), random title track: ${randomTitleTrack}`);
     } catch (err) {
       authLog('warn', 'audio priming failed', String(err?.message || err || 'unknown'));
+      startMusicPlayer.setError('Musik konnte nicht vorbereitet werden.');
     }
 
     return manager;
@@ -1205,6 +1224,16 @@
         resolve();
         return;
       }
+
+      const moduleLoad = loadRuntimeModule(rawSrc);
+      if (moduleLoad) {
+        moduleLoad.then(() => {
+          traceModule('done', rawSrc, '(module)');
+          resolve();
+        }, reject);
+        return;
+      }
+
       traceModule('init', rawSrc);
       const s = document.createElement('script');
       s.src = rawSrc;
@@ -1388,14 +1417,40 @@
   async function bootGameRuntime() {
     if (gameBootPromise) return gameBootPromise;
     gameBootPromise = (async () => {
-      const packageBundles = shouldLoadPackageBundles() && Array.isArray(window.__GQ_BOOT?.packageBundles)
-        ? window.__GQ_BOOT.packageBundles.filter((v) => String(v || '').trim() !== '')
+      const bootConfig = window.__GQ_BOOT && typeof window.__GQ_BOOT === 'object' ? window.__GQ_BOOT : {};
+      const packageBundles = shouldLoadPackageBundles() && Array.isArray(bootConfig.packageBundles)
+        ? bootConfig.packageBundles.filter((v) => String(v || '').trim() !== '')
         : [];
-      const scripts = Array.isArray(window.__GQ_BOOT?.gameScripts) ? window.__GQ_BOOT.gameScripts : [];
+      const scripts = Array.isArray(bootConfig.gameScripts) ? bootConfig.gameScripts : [];
       authLog('info', `boot runtime scripts: ${scripts.length}, packages: ${packageBundles.length}`);
-      if (!scripts.length) throw new Error('No game scripts configured.');
+      if (!scripts.length) {
+        authLog('warn', 'No game scripts configured; loading WM fallback runtime for shell interactivity');
 
-      if (!packageBundles.length && Array.isArray(window.__GQ_BOOT?.packageBundles) && window.__GQ_BOOT.packageBundles.length) {
+        if (!window.GQUI) {
+          try {
+            await loadScript(AUTH_GQUI_SCRIPT);
+          } catch (err) {
+            authLog('warn', 'WM fallback: GQUI load failed', String(err?.message || err || 'unknown'));
+          }
+        }
+
+        if (!window.WM) {
+          try {
+            await loadScript(AUTH_WM_SCRIPT);
+            await loadScript(AUTH_WM_WIDGETS_SCRIPT);
+            await loadScript(AUTH_GQWM_SCRIPT);
+          } catch (err) {
+            authLog('warn', 'WM fallback: runtime script load failed', String(err?.message || err || 'unknown'));
+          }
+        }
+
+        if (window.WM && typeof window.WM.listDockGroups === 'function') {
+          authLog('info', 'WM fallback runtime ready');
+        }
+        return;
+      }
+
+      if (!packageBundles.length && Array.isArray(bootConfig.packageBundles) && bootConfig.packageBundles.length) {
         authLog('info', 'package bundles disabled for dev host; using single-script bootstrap');
       }
 
@@ -1484,25 +1539,34 @@
 
     try {
       return await startGameShellPromise;
+    } catch (error) {
+      gameBootPromise = null;
+      hideActionModal();
+      setAuthVisible();
+      startScreen.setSession(true);
+      startScreen.setStatus(`Unable to enter the galaxy: ${String(error?.message || error)}. Try Resume again or reload.`, 'error');
+      throw error;
     } finally {
       startGameShellPromise = null;
     }
   }
 
-  async function checkSessionAndBoot() {
+  async function checkSessionForMenu() {
     preloadPanelSuppressed = false;
     lastPhaseBucket = -1;
     authUiLog('info', 'checking session state');
     hidePreloadPanel(true);
     try {
-      const me = await fetch('api/auth.php?action=me&quiet=1', { credentials: 'same-origin' });
+      const me = await fetchWithTimeout('api/auth.php?action=me&quiet=1', {
+        credentials: 'same-origin', timeoutMs: 10000, tag: 'session-menu',
+      });
       if (!me.ok) {
         authUiLog('info', 'no valid session detected (HTTP)');
         setAuthVisible();
         hidePreloadPanel(true);
         return false;
       }
-      const data = await me.json();
+      const data = await parseApiJson(me, 'session-menu');
       const hasAuthSuccess = !!data?.success;
       const isAuthenticated = data?.authenticated === true || !!data?.user;
       if (!hasAuthSuccess || !isAuthenticated) {
@@ -1511,14 +1575,15 @@
         hidePreloadPanel(true);
         return false;
       }
-      authUiLog('info', 'valid session detected, booting game shell');
-      await startGameShell();
+
+      authUiLog('info', 'valid session detected, showing Resume');
+      startScreen.setSession(true, String(data.user?.username || ''));
       return true;
     } catch (err) {
-      authUiLog('error', 'startGameShell failed with error', String(err?.message || err || 'unknown'));
-      authLog('error', 'startGameShell stack:', err?.stack || 'no stack');
+      authUiLog('error', 'menu session check failed', String(err?.message || err || 'unknown'));
       authUiLog('warn', 'session check failed, staying on auth screen');
       setAuthVisible();
+      startScreen.setStatus('Session could not be checked. Sign in or try reloading.', 'warn');
       hidePreloadPanel(true);
       return false;
     }
@@ -1544,7 +1609,6 @@
     };
 
     setVisible(loginForm, tab === 'login');
-    setVisible(registerForm, tab === 'register');
     setVisible(devTools, tab === 'dev');
   }
 
@@ -1845,7 +1909,11 @@
       const r = await fetch('api/auth.php?action=dev_tools_status');
       const d = await r.json();
       if (d.success && d.enabled) {
-        devTabButton?.classList.remove('hidden');
+        if (devTabButton) {
+          devTabButton.hidden = false;
+          devTabButton.parentElement.hidden = false;
+          devTabButton.classList.remove('hidden');
+        }
         authDebugDetails = true;
       }
     } catch (err) {
@@ -2066,6 +2134,7 @@
     // Show the panel, focus the input.
     loginForm?.classList.add('hidden');
     panel.classList.remove('hidden');
+    panel.removeAttribute('hidden');
     if (panelErr) panelErr.textContent = '';
     codeInput.value = '';
     codeInput.focus();
@@ -2080,6 +2149,7 @@
     }
 
     async function onSubmit() {
+      if (submitBtn.disabled) return;
       const code = codeInput.value.trim();
       if (!/^\d{6}$/.test(code)) {
         if (panelErr) panelErr.textContent = 'Bitte einen 6-stelligen Code eingeben.';
@@ -2170,114 +2240,30 @@
     }
   }
 
-  if (!registerForm) {
-    authLog('error', 'register-form missing; submit handler not bound');
-    authProbe('register-form missing; submit handler not bound', 'error');
-  }
-  bindEnterSubmit(registerForm);
-  registerForm?.addEventListener('submit', async (e) => {
-    authReady.lastRegisterSubmitAt = Date.now();
-    authProbe('register submit handler entered', 'warn');
-    authLog('info', 'register submit fired');
-    e.preventDefault();
-    const errEl = document.getElementById('register-error');
-    if (errEl) {
-      errEl.textContent = '';
-    } else {
-      authLog('warn', 'register-error element missing');
-    }
-    const btn = registerForm.querySelector('button[type="submit"]');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Creating empire...';
-    }
-    showActionModal('Creating account...', 'Registering your empire profile.', true);
-
+  async function registrationRequest(action, body) {
+    const send = async (force = false) => {
+      const csrf = body === undefined ? null : await getCsrf({ force });
+      const response = await fetchWithTimeout(`api/auth.php?action=${action}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        credentials: 'same-origin',
+        timeoutMs: action === 'register_portrait' ? 270000 : 30000,
+        tag: action,
+        headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      const data = await parseApiJson(response, action);
+      if (data.success !== true) throw new Error(data.error || 'Registration request failed.');
+      return data;
+    };
     try {
-      const regUserEl = document.getElementById('reg-username');
-      const regEmailEl = document.getElementById('reg-email');
-      const regPassEl = document.getElementById('reg-password');
-      const regRememberEl = document.getElementById('reg-remember');
-      if (!regUserEl || !regEmailEl || !regPassEl || !regRememberEl) {
-        throw new Error('Register form elements missing in DOM');
-      }
-
-      const registerPayload = {
-        username: regUserEl.value.trim(),
-        email: regEmailEl.value.trim(),
-        password: regPassEl.value,
-        remember: regRememberEl.checked,
-      };
-
-      const submitRegister = async (forceCsrfRefresh = false) => {
-        const csrf = await getCsrf({ force: forceCsrfRefresh });
-        const res = await fetchWithTimeout('api/auth.php?action=register', {
-          method: 'POST',
-          credentials: 'same-origin',
-          timeoutMs: 22000,
-          tag: forceCsrfRefresh ? 'register#retry' : 'register',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-          body: JSON.stringify(registerPayload),
-        });
-        return parseApiJson(res, forceCsrfRefresh ? 'register#retry' : 'register');
-      };
-
-      let data;
-      try {
-        data = await submitRegister(false);
-      } catch (err) {
-        const status = Number(err?.status || 0);
-        const msg = String(err?.message || '').toLowerCase();
-        const isCsrfMismatch = status === 403 && /csrf/.test(msg);
-        if (!isCsrfMismatch) throw err;
-        data = await submitRegister(true);
-      }
-      if (data.success) {
-        const homeTargetTask = resolveHomeworldFlightTarget().catch((targetErr) => {
-          authLog('warn', 'homeworld target resolve failed (register)', String(targetErr?.message || targetErr || 'unknown'));
-          return null;
-        });
-        const homeTarget = await Promise.race([
-          homeTargetTask,
-          sleep(2200).then(() => null),
-        ]);
-        if (homeTarget) {
-          queueHomeworldIntroFlight({ source: 'register', targetStar: homeTarget });
-          applyAuthFlightTarget(homeTarget);
-          await sleep(700);
-        } else {
-          authLog('warn', 'homeworld target skipped (register)', 'best-effort budget exceeded');
-          queueHomeworldIntroFlight({ source: 'register' });
-        }
-
-        // Show narrative prologue for new registrations; fall back to direct launch
-        // when GQProlog is unavailable (e.g. script failed to load).
-        if (window.GQProlog && typeof window.GQProlog.show === 'function') {
-          hideActionModal();
-          authSection?.classList.add('hidden');
-          window.GQProlog.show({
-            username: String(registerPayload.username || ''),
-            colonyName: String(data.colony_name || ''),
-            onComplete: async () => { await startGameShell(); },
-          });
-        } else {
-          await startGameShell();
-        }
-      } else {
-        hideActionModal();
-        if (errEl) errEl.textContent = data.error || 'Registration failed.';
-      }
-    } catch (err) {
-      hideActionModal();
-      setAuthError(errEl, err, userFacingAuthError(err));
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = 'Launch into the Galaxy';
-      }
+      return await send();
+    } catch (error) {
+      if (Number(error.status) === 403 && /csrf/i.test(error.message) && body !== undefined) return send(true);
+      throw error;
     }
-  });
-  authReady.registerBound = !!registerForm;
+  }
+
+  authReady.registerBound = !!document.getElementById('registration-character-form');
   authProbe(`register handler bound=${authReady.registerBound}`);
 
   try {
@@ -2299,7 +2285,7 @@
       }
     }
 
-    const hasSession = skipAutoBootAfterLogout ? false : await checkSessionAndBoot();
+    const hasSession = skipAutoBootAfterLogout ? false : await checkSessionForMenu();
     if (!hasSession) {
       getCsrf().catch((err) => {
         authLog('warn', 'background csrf warmup failed', String(err?.message || err || 'unknown'));

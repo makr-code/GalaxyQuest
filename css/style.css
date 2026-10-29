@@ -322,15 +322,38 @@
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.8rem 1rem 0.7rem;
-  width: 100%;
-  max-width: 100%;
+  padding: 0.7rem 0.9rem 0.6rem;
+  width: min(100%, 420px);
+  max-width: 420px;
   min-height: auto;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
   overflow-x: hidden;
   box-shadow: var(--shadow), 0 0 80px rgba(58,160,255,0.08);
+}
+
+/* The static auth card may be adopted into WM; in that case the window root must stay neutral.
+   All visible card styling belongs to the actual wm-body child. */
+.auth-wrapper.wm-window-adapted,
+#auth-wrapper.wm-window.wm-window-adapted {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.auth-wrapper.wm-window-adapted > .wm-body,
+#auth-wrapper.wm-window.wm-window-adapted > .wm-body {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow), 0 0 80px rgba(58,160,255,0.08);
+  padding: 0.8rem 1rem 0.7rem;
 }
 
 .auth-shell {
@@ -363,6 +386,46 @@
   inset: 0;
   z-index: 72;
   pointer-events: none;
+}
+
+.auth-status-shell {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 78;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+  padding: 0 0.75rem 0.55rem;
+}
+
+.auth-status-line {
+  width: min(96vw, 980px);
+  border: 1px solid rgba(73, 145, 225, 0.48);
+  border-radius: 10px;
+  background: rgba(6, 15, 34, 0.9);
+  color: #a9d8ff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.36);
+  font: 12px/1.25 Consolas, Menlo, Monaco, monospace;
+  padding: 0.38rem 0.62rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.auth-status-line.auth-status-warn {
+  border-color: rgba(225, 176, 73, 0.62);
+  color: #ffd493;
+}
+
+.auth-status-line.auth-status-error {
+  border-color: rgba(224, 96, 96, 0.75);
+  color: #ffb3b3;
+}
+
+.game-page .auth-status-shell {
+  display: none;
 }
 
 .auth-preload-label {
@@ -578,20 +641,24 @@
 /* Tabs */
 .auth-tabs {
   display: flex;
-  margin-bottom: 1rem;
+  gap: 0.35rem;
+  margin-bottom: 0.8rem;
   border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2rem;
 }
 .tab-btn {
   flex: 1;
-  background: none;
-  border: none;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid transparent;
   color: var(--text-secondary);
-  padding: 0.5rem;
+  padding: 0.42rem 0.5rem;
   cursor: pointer;
-  font-size: 0.84rem;
+  font-size: 0.76rem;
+  border-radius: 8px 8px 0 0;
   border-bottom: 2px solid transparent;
   transition: color var(--duration-standard) var(--ease-out),
-              border-color var(--duration-standard) var(--ease-out);
+              border-color var(--duration-standard) var(--ease-out),
+              background-color var(--duration-standard) var(--ease-out);
   position: relative;
 }
 
@@ -606,12 +673,12 @@
 }
 
 /* ── Forms ────────────────────────────────────────────── */
-.auth-form { display: flex; flex-direction: column; gap: 0.5rem; }
+.auth-form { display: flex; flex-direction: column; gap: 0.38rem; }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 0.12rem;
+  gap: 0.1rem;
   position: relative;
   transition: all var(--duration-fast) var(--ease-out);
 }
@@ -622,9 +689,9 @@
 
 .form-group label {
   color: var(--text-secondary);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   transition: all var(--duration-standard) var(--ease-out);
   transform-origin: left top;
   cursor: text;
@@ -650,8 +717,8 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  padding: 0.52rem 0.72rem;
-  font-size: 0.84rem;
+  padding: 0.46rem 0.62rem;
+  font-size: 0.8rem;
   transition: border-color var(--duration-standard) var(--ease-out),
               box-shadow var(--duration-standard) var(--ease-out),
               background-color var(--duration-standard) var(--ease-out);
@@ -684,8 +751,8 @@ input:focus, select:focus, textarea:focus {
   gap: 0.4rem;
   border: none;
   border-radius: var(--radius-sm);
-  padding: 0.52rem 1rem;
-  font-size: 0.84rem;
+  padding: 0.46rem 0.8rem;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
   transition: filter var(--duration-fast) var(--ease-out),
@@ -2332,6 +2399,8 @@ input:focus, select:focus, textarea:focus {
     padding-inline: 0.5rem;
   }
   .auth-wrapper { margin: 1rem; padding: 1.3rem 0.95rem 0.95rem; }
+  .auth-wrapper.wm-window-adapted { margin: 0; padding: 0; }
+  .auth-wrapper.wm-window-adapted > .wm-body { padding: 1.3rem 0.95rem 0.95rem; }
   .auth-bottom-bar {
     grid-template-columns: 1fr;
     gap: 0.35rem;

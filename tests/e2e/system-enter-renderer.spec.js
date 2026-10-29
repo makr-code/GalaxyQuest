@@ -97,6 +97,7 @@ async function loginDefaultUser(page, baseURL) {
     window.__GQ_E2E_MODE = true;
   });
   await page.goto(`${baseURL}/index.html`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#start-login').click();
   const userInput = page.locator('#login-username');
   const passInput = page.locator('#login-password');
   await expect(userInput).toBeVisible({ timeout: 20_000 });

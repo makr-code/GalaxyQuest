@@ -14,7 +14,11 @@ import {
   LoopAnimation,
   EASING_FUNCTIONS,
   getEasing,
-} from '../js/rendering/canvas-animation-engine.js';
+} from '../../js/rendering/canvas-animation-engine.js';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('Easing Functions', () => {
   it('should have linear easing that returns input', () => {
@@ -58,7 +62,7 @@ describe('Animation Base Class', () => {
     expect(anim.getProgress()).toBe(0);
   });
 
-  it('should start animation and track progress', (done) => {
+  it('should start animation and track progress', () => {
     vi.useFakeTimers();
     const anim = new Animation({ duration: 1000 });
     
@@ -70,14 +74,12 @@ describe('Animation Base Class', () => {
     expect(anim.getProgress()).toBeCloseTo(0.5, 1);
     
     vi.advanceTimersByTime(500);
+    anim.update();
     expect(anim.completed).toBe(true);
     expect(anim.getProgress()).toBe(1);
-    
-    vi.useRealTimers();
-    done();
   });
 
-  it('should support pause/resume', (done) => {
+  it('should support pause/resume', () => {
     vi.useFakeTimers();
     const anim = new Animation({ duration: 1000 });
     
@@ -93,12 +95,9 @@ describe('Animation Base Class', () => {
     anim.resume();
     vi.advanceTimersByTime(200);
     expect(anim.getProgress()).toBeGreaterThan(pausedProgress);
-    
-    vi.useRealTimers();
-    done();
   });
 
-  it('should call onComplete callback when finished', (done) => {
+  it('should call onComplete callback when finished', () => {
     vi.useFakeTimers();
     const callback = vi.fn();
     const anim = new Animation({ duration: 100 });
@@ -112,12 +111,9 @@ describe('Animation Base Class', () => {
     anim.update();
     
     expect(callback).toHaveBeenCalled();
-    
-    vi.useRealTimers();
-    done();
   });
 
-  it('should apply easing function', (done) => {
+  it('should apply easing function', () => {
     vi.useFakeTimers();
     const anim = new Animation({ duration: 1000, easing: 'easeInQuad' });
     
@@ -129,14 +125,11 @@ describe('Animation Base Class', () => {
     
     // With easeInQuad, eased progress should be less than linear at 0.5
     expect(easedProgress).toBeLessThan(linearProgress);
-    
-    vi.useRealTimers();
-    done();
   });
 });
 
 describe('PropertyTween', () => {
-  it('should interpolate object properties', (done) => {
+  it('should interpolate object properties', () => {
     vi.useFakeTimers();
     const target = { opacity: 0 };
     const tween = new PropertyTween({
@@ -144,6 +137,7 @@ describe('PropertyTween', () => {
       from: { opacity: 0 },
       to: { opacity: 1 },
       duration: 1000,
+      snapToInteger: false,
     });
 
     expect(target.opacity).toBe(0);
@@ -155,12 +149,9 @@ describe('PropertyTween', () => {
     vi.advanceTimersByTime(500);
     tween.update();
     expect(target.opacity).toBe(1);
-
-    vi.useRealTimers();
-    done();
   });
 
-  it('should snap to integer when specified', (done) => {
+  it('should snap to integer when specified', () => {
     vi.useFakeTimers();
     const target = { value: 0 };
     const tween = new PropertyTween({
@@ -173,12 +164,9 @@ describe('PropertyTween', () => {
     vi.advanceTimersByTime(250);
     tween.update();
     expect(Number.isInteger(target.value)).toBe(true);
-
-    vi.useRealTimers();
-    done();
   });
 
-  it('should interpolate multiple properties', (done) => {
+  it('should interpolate multiple properties', () => {
     vi.useFakeTimers();
     const target = { x: 0, y: 0 };
     const tween = new PropertyTween({
@@ -191,18 +179,20 @@ describe('PropertyTween', () => {
     tween.update();
     expect(target.x).toBeCloseTo(50, 1);
     expect(target.y).toBeCloseTo(25, 1);
-
-    vi.useRealTimers();
-    done();
   });
 });
 
 describe('SequenceAnimation', () => {
-  it('should play animations in sequence', (done) => {
+  it('should play animations in sequence', () => {
     vi.useFakeTimers();
     const target = { value: 0 };
     const tween1 = new PropertyTween({ target, to: { value: 50 }, duration: 100 });
-    const tween2 = new PropertyTween({ target, to: { value: 100 }, duration: 100 });
+    const tween2 = new PropertyTween({
+      target,
+      from: { value: 50 },
+      to: { value: 100 },
+      duration: 100,
+    });
 
     const sequence = new SequenceAnimation({
       animations: [tween1, tween2],
@@ -215,14 +205,11 @@ describe('SequenceAnimation', () => {
     vi.advanceTimersByTime(100);
     sequence.update();
     expect(target.value).toBeCloseTo(75, 0); // Second animation at 50%
-
-    vi.useRealTimers();
-    done();
   });
 });
 
 describe('ParallelAnimation', () => {
-  it('should play animations in parallel', (done) => {
+  it('should play animations in parallel', () => {
     vi.useFakeTimers();
     const target1 = { value: 0 };
     const target2 = { value: 0 };
@@ -237,14 +224,11 @@ describe('ParallelAnimation', () => {
     parallel.update();
     expect(target1.value).toBeCloseTo(50, 1);
     expect(target2.value).toBeCloseTo(25, 1);
-
-    vi.useRealTimers();
-    done();
   });
 });
 
 describe('LoopAnimation', () => {
-  it('should loop animation specified number of iterations', (done) => {
+  it('should loop animation specified number of iterations', () => {
     vi.useFakeTimers();
     const target = { value: 0 };
     const tween = new PropertyTween({ target, to: { value: 100 }, duration: 100 });
@@ -257,9 +241,6 @@ describe('LoopAnimation', () => {
     vi.advanceTimersByTime(100);
     loop.update();
     expect(loop.completed).toBe(true); // Two iterations done
-
-    vi.useRealTimers();
-    done();
   });
 });
 
@@ -276,7 +257,7 @@ describe('CanvasAnimationController', () => {
     expect(controller.size()).toBe(0);
   });
 
-  it('should auto-remove completed animations on update', (done) => {
+  it('should auto-remove completed animations on update', () => {
     vi.useFakeTimers();
     const controller = new CanvasAnimationController();
     const anim = new Animation({ id: 'test', duration: 50 });
@@ -288,12 +269,9 @@ describe('CanvasAnimationController', () => {
     controller.update();
 
     expect(controller.size()).toBe(0);
-
-    vi.useRealTimers();
-    done();
   });
 
-  it('should pause and resume all animations', (done) => {
+  it('should pause and resume all animations', () => {
     vi.useFakeTimers();
     const controller = new CanvasAnimationController();
     const anim1 = new Animation({ id: 'a1', duration: 1000 });
@@ -315,9 +293,6 @@ describe('CanvasAnimationController', () => {
     controller.resumeAll();
     vi.advanceTimersByTime(100);
     expect(anim1.getProgress()).toBeGreaterThan(p1);
-
-    vi.useRealTimers();
-    done();
   });
 
   it('should clear all animations', () => {

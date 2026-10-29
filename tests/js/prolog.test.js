@@ -33,6 +33,17 @@ describe('GQProlog – FACTIONS data', () => {
     GQProlog = loadProlog();
   });
 
+  it('continues a completed expedition with its selected faction without another registration', () => {
+    GQProlog.show({ factionCode: 'aereth', username: 'Commander', colonyName: 'Frontier Colony' });
+    expect(GQProlog._test.getSelectedFaction().id).toBe('aereth');
+    expect(document.getElementById('prolog-p3').hidden).toBe(false);
+    expect(document.getElementById('prolog-story-inner').textContent).toContain('Aereth');
+    document.getElementById('prolog-next3').click();
+    expect(document.getElementById('prolog-p4').hidden).toBe(true);
+    expect(document.getElementById('prolog-p5').hidden).toBe(false);
+    expect(document.getElementById('prolog-transition-text').textContent).toContain('Frontier Colony');
+  });
+
   it('exposes exactly 6 factions', () => {
     expect(GQProlog._test.FACTIONS).toHaveLength(6);
   });

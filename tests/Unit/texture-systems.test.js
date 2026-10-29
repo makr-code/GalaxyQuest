@@ -411,12 +411,8 @@ describe('Texture Systems & AI Generation', () => {
       expect(normal.type).toBe('planet_normal');
       expect(normal.size).toBe(256);
       expect(normal.data).toHaveLength(256 * 256 * 3);
-      
-      // Normals should have reasonable values
-      for (let i = 0; i < normal.data.length; i++) {
-        expect(normal.data[i]).toBeGreaterThanOrEqual(0);
-        expect(normal.data[i]).toBeLessThanOrEqual(255);
-      }
+      expect(normal.data).toBeInstanceOf(Uint8Array);
+      expect(normal.data[(128 * 256 + 128) * 3 + 2]).toBeGreaterThan(200);
     });
 
     it('should support multiple quality tiers', () => {

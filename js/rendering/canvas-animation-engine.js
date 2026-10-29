@@ -115,6 +115,7 @@
       this.easing = getEasing(opts?.easing);
       this.startTime = null;
       this.pausedTime = 0;
+      this.pauseStartTime = null;
       this.paused = false;
       this.completed = false;
       this._completeCallback = null;
@@ -140,13 +141,17 @@
     }
 
     pause() {
+      if (!this.paused && this.startTime !== null) {
+        this.pauseStartTime = Date.now();
+      }
       this.paused = true;
       return this;
     }
 
     resume() {
-      if (this.paused && this.startTime !== null) {
+      if (this.paused && this.startTime !== null && this.pauseStartTime !== null) {
         this.pausedTime += Date.now() - this.pauseStartTime;
+        this.pauseStartTime = null;
       }
       this.paused = false;
       return this;
@@ -177,7 +182,10 @@
     getProgress() {
       if (this.completed) return 1;
       if (this.startTime === null) return 0;
-      const elapsed = Date.now() - this.startTime - this.pausedTime;
+      const currentTime = this.paused && this.pauseStartTime !== null
+        ? this.pauseStartTime
+        : Date.now();
+      const elapsed = currentTime - this.startTime - this.pausedTime;
       return this.duration === 0 ? 1 : Math.min(1, elapsed / this.duration);
     }
 
@@ -188,6 +196,7 @@
     reset() {
       this.startTime = null;
       this.pausedTime = 0;
+      this.pauseStartTime = null;
       this.paused = false;
       this.completed = false;
       return this;
@@ -236,7 +245,7 @@
       this.animations = Array.isArray(opts?.animations) ? opts.animations.slice() : [];
       this.currentIndex = 0;
       this.delayMs = Math.max(0, Number(opts?.delayMs || 0));
-      this.delayStart = null;
+      this.delayStart = Date.now();
 
       // Compute total duration
       let total = 0;
@@ -244,6 +253,11 @@
         total += (Number(anim.duration || 0) + Number(anim.delayMs || 0));
       }
       this.duration = total;
+      for (const anim of this.animations) {
+        if (typeof anim.reset === 'function') {
+          anim.reset();
+        }
+      }
       this.start();
     }
 
@@ -251,9 +265,6 @@
       if (this.completed || this.paused) return this.getProgress();
 
       // Handle initial delay
-      if (this.delayStart === null) {
-        this.delayStart = Date.now();
-      }
       const delayElapsed = Date.now() - this.delayStart - this.pausedTime;
       if (delayElapsed < this.delayMs) {
         return 0;
@@ -285,6 +296,9 @@
         // This is the active animation
         this.currentIndex = i;
         const relativeElapsed = elapsed - accumulatedTime - animDelay;
+        if (anim.startTime === null && relativeElapsed > 0) {
+          anim.startTime = Date.now() - relativeElapsed;
+        }
         if (relativeElapsed > 0) {
           anim.update();
         }

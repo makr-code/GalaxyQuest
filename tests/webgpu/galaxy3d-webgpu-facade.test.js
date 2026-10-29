@@ -61,4 +61,57 @@ describe('galaxy3d-webgpu facade', () => {
     expect(initSpy).toHaveBeenCalledTimes(1);
     expect(facade.ready).toBe(true);
   });
+
+  it('exposes the native delegate device, context, capabilities and frame hook', async () => {
+    const device = {};
+    const context = {};
+    const frameHook = vi.fn();
+    const removeFrameHook = vi.fn();
+    const addFrameHook = vi.fn(() => removeFrameHook);
+    class MockNativeRenderer {
+      constructor() {
+        this.device = device;
+        this.context = context;
+        this.getCapabilities = () => ({ webgpu: true });
+        this.addFrameHook = addFrameHook;
+        this.createMesh = vi.fn(async (descriptor) => ({ descriptor }));
+        this.setMeshRotation = vi.fn();
+        this.renderMesh = vi.fn(() => true);
+        this.destroyMesh = vi.fn(() => true);
+      }
+
+      async init() {}
+    }
+
+    window.GQGalaxy3DRendererWebGPU = MockNativeRenderer;
+
+    const FacadeCtor = loadFacade();
+    const facade = new FacadeCtor(makeContainer(), { interactive: true });
+    await facade.init();
+
+    expect(facade.device).toBe(device);
+    expect(facade.context).toBe(context);
+    expect(facade.getCapabilities()).toEqual({ webgpu: true });
+    expect(facade.addFrameHook(frameHook)).toBe(removeFrameHook);
+    expect(addFrameHook).toHaveBeenCalledWith(frameHook);
+    const descriptor = { shape: 'torus' };
+    const handle = await facade.createMesh(descriptor);
+    facade.setMeshRotation(handle, { y: 1 });
+    facade.renderMesh(handle);
+    facade.destroyMesh(handle);
+    expect(facade._delegate.createMesh).toHaveBeenCalledWith(descriptor);
+    expect(facade._delegate.setMeshRotation).toHaveBeenCalledWith(handle, { y: 1 });
+    expect(facade._delegate.renderMesh).toHaveBeenCalledWith(handle);
+    expect(facade._delegate.destroyMesh).toHaveBeenCalledWith(handle);
+  });
+
+  it('never constructs a legacy renderer for the WebGPU start menu', async () => {
+    vi.stubGlobal('__GQ_WEBGPU_ADAPTER_AVAILABLE', { value: false });
+    window.Galaxy3DRenderer = vi.fn();
+    const FacadeCtor = loadFacade();
+    const facade = new FacadeCtor(makeContainer(), { interactive: false, menuGalaxy: true });
+    await expect(facade.init()).rejects.toThrow('requires WebGPU');
+    expect(window.Galaxy3DRenderer).not.toHaveBeenCalled();
+    expect(facade.ready).toBe(false);
+  });
 });

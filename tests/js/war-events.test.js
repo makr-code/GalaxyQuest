@@ -556,21 +556,6 @@ describe('Ended war display in list', () => {
   });
 });
 
-// ── endedReasonLabel helper ───────────────────────────────────────────────────
-
-describe('Ended war – detail view shows reason badge', () => {
-  beforeEach(loadModule);
-
-  it('renders ended_reason label in detail view for status_quo', async () => {
-    document.body.innerHTML = '<div id="war-ended-detail"></div>';
-    const root = document.getElementById('war-ended-detail');
-    const wm = { body: () => root };
-    const warData = {
-      war_id: 70, status: 'ended', ended_reason: 'status_quo', ended_at: '2025-05-01 12:00:00',
-      attacker_user_id: 1, defender_user_id: 2,
-      war_score_att: 100, war_score_def: 90,
-      exhaustion_att: 100, exhaustion_def: 85,
-      started_at: '2025-01-01',
 // ── Alliance Wars section ─────────────────────────────────────────────────────
 
 describe('Alliance Wars – allianceWarsHtml rendering', () => {
@@ -678,7 +663,7 @@ describe('Alliance Wars – allianceWarsHtml rendering', () => {
 describe('War detail – Scan Enemy button and intel panel', () => {
   beforeEach(loadModule);
 
-  it('war detail renders Scan Enemy button when war is active', async () => {
+  it('renders Scan Enemy for an active war', async () => {
     document.body.innerHTML = '<div id="wars-intel-test"></div>';
     const root = document.getElementById('wars-intel-test');
     const wm = { body: () => root };
@@ -694,10 +679,11 @@ describe('War detail – Scan Enemy button and intel panel', () => {
     const ctrl = window.GQRuntimeWarController.createWarController({
       esc, wm, api, uiKitEmptyStateHTML: () => '',
     });
-    ctrl.state.detailWarId = 70;
+    ctrl.state.detailWarId = 9;
     ctrl.state.myUid = 1;
     await ctrl.render();
-    expect(root.innerHTML).toContain('Status Quo');
+    expect(root.innerHTML).toContain('data-intel-load');
+    expect(root.innerHTML).toContain('Scan Enemy');
   });
 
   it('renders exhaustion progress bars in detail view', async () => {
@@ -710,13 +696,22 @@ describe('War detail – Scan Enemy button and intel panel', () => {
       war_score_att: 50, war_score_def: 30,
       exhaustion_att: 75, exhaustion_def: 40,
       started_at: '2025-01-01',
-    ctrl.state.detailWarId = 9;
+      goals: [],
+      peace_offers: [],
+    };
+    const api = { warStatus: async () => ({ success: true, ...warData }) };
+    const ctrl = window.GQRuntimeWarController.createWarController({
+      esc, wm, api, uiKitEmptyStateHTML: () => '',
+    });
+    ctrl.state.detailWarId = 71;
+    ctrl.state.myUid = 1;
     await ctrl.render();
-    expect(root.innerHTML).toContain('data-intel-load');
-    expect(root.innerHTML).toContain('Scan Enemy');
+    expect(root.innerHTML).toContain('War Exhaustion');
+    expect(root.innerHTML).toContain('75.0 / 100');
+    expect(root.innerHTML).toContain('40.0 / 100');
   });
 
-  it('war detail includes intel host placeholder', async () => {
+  it('includes the intel host placeholder', async () => {
     document.body.innerHTML = '<div id="wars-intel-placeholder"></div>';
     const root = document.getElementById('wars-intel-placeholder');
     const wm = { body: () => root };
@@ -732,12 +727,10 @@ describe('War detail – Scan Enemy button and intel panel', () => {
     const ctrl = window.GQRuntimeWarController.createWarController({
       esc, wm, api, uiKitEmptyStateHTML: () => '',
     });
-    ctrl.state.detailWarId = 71;
+    ctrl.state.detailWarId = 11;
     ctrl.state.myUid = 1;
     await ctrl.render();
-    expect(root.innerHTML).toContain('War Exhaustion');
-    expect(root.innerHTML).toContain('75.0 / 100');
-    expect(root.innerHTML).toContain('40.0 / 100');
+    expect(root.innerHTML).toContain('data-intel-host');
   });
 });
 
@@ -764,9 +757,6 @@ describe('primaryGoal label rendering fix', () => {
     const html = ctrl.renderListHtml();
     expect(html).toContain('Exhaustion Advantage');
     expect(html).not.toContain('[object Object]');
-    ctrl.state.detailWarId = 11;
-    await ctrl.render();
-    expect(root.innerHTML).toContain('data-intel-host');
   });
 
   it('intelPanelHtml renders fleet count and colony count', async () => {

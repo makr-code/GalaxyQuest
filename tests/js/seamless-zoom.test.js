@@ -112,6 +112,23 @@ describe('RendererRegistry — resolve()', () => {
     expect(resolved).toBeInstanceOf(ThreeJSClass);
   });
 
+  it('supports a WebGPU-only level without requiring a Three.js implementation', () => {
+    const webgpuOnlyRegistry = new RendererRegistry();
+    webgpuOnlyRegistry.register(ZOOM_LEVEL.SYSTEM, { webgpu: WebGPUClass });
+
+    expect(webgpuOnlyRegistry.resolve(ZOOM_LEVEL.SYSTEM, makeMockBackend('webgpu')))
+      .toBeInstanceOf(WebGPUClass);
+    const fallbackRegistry = new RendererRegistry();
+    fallbackRegistry.register(ZOOM_LEVEL.SYSTEM, { webgpu: WebGPUClass });
+    expect(() => fallbackRegistry.resolve(ZOOM_LEVEL.SYSTEM, makeMockBackend('webgl2')))
+      .toThrow(/no non-WebGPU renderer registered/i);
+  });
+
+  it('requires at least one renderer implementation per level', () => {
+    expect(() => registry.register(ZOOM_LEVEL.SYSTEM, {}))
+      .toThrow(/at least one renderer constructor/i);
+  });
+
   it('returns the same (cached) instance on repeated calls for the same level', () => {
     const backend = makeMockBackend('webgpu');
     const first   = registry.resolve(ZOOM_LEVEL.GALAXY, backend);
@@ -169,6 +186,45 @@ describe('SeamlessZoomOrchestrator — zoomTo() lifecycle', () => {
     const payload = { star: { id: 42 } };
     await orchestrator.zoomTo(ZOOM_LEVEL.GALAXY, payload);
     expect(levelA.enter.mock.calls[0][1]).toBe(payload);
+  });
+});
+
+describe('SeamlessZoomOrchestrator — shared renderer frame loop', () => {
+  it('does not create a second renderer when a shared backend is required', async () => {
+    const orchestrator = new SeamlessZoomOrchestrator(null, { requireSharedBackend: true });
+
+    await expect(orchestrator.initialize()).rejects.toThrow(
+      'requires the shared Galaxy WebGPU renderer',
+    );
+    expect(orchestrator._backend).toBeNull();
+  });
+
+  it('drives zoom levels from the shared renderer hook and removes it on dispose', async () => {
+    const level = makeMockLevel();
+    const LevelClass = makeLevelClass(level);
+    const removeFrameHook = vi.fn();
+    let frameHook;
+    const backend = {
+      backendType: 'webgpu',
+      getCapabilities: () => ({ webgpu: true }),
+      init: vi.fn().mockResolvedValue(undefined),
+      addFrameHook: vi.fn((hook) => {
+        frameHook = hook;
+        return removeFrameHook;
+      }),
+    };
+    const orchestrator = new SeamlessZoomOrchestrator(null, { backend });
+    orchestrator.register(ZOOM_LEVEL.GALAXY, { webgpu: LevelClass });
+
+    await orchestrator.initialize();
+    await orchestrator.zoomTo(ZOOM_LEVEL.GALAXY, null);
+    frameHook(1 / 60);
+    orchestrator.dispose();
+
+    expect(backend.init).toHaveBeenCalledOnce();
+    expect(backend.addFrameHook).toHaveBeenCalledOnce();
+    expect(level.render).toHaveBeenCalledWith(1 / 60, expect.objectContaining({ position: expect.any(Object) }));
+    expect(removeFrameHook).toHaveBeenCalledOnce();
   });
 });
 
@@ -491,6 +547,30 @@ describe('ObjectApproachLevelWebGPU — interface compliance', () => {
     await lvl.enter(null, { targetType: ApproachTargetType.VESSEL });
     expect(backend.createMesh).toHaveBeenCalledOnce();
     expect(lvl._meshHandle).toBe(fakeHandle);
+  });
+
+  it('render() rotates and draws the mesh through the shared backend', async () => {
+    const fakeHandle = Symbol('mesh');
+    const backend = {
+      createMesh: vi.fn().mockResolvedValue(fakeHandle),
+      setMeshRotation: vi.fn(),
+      renderMesh: vi.fn(),
+    };
+    const lvl = new ObjectApproachLevelWebGPU();
+    await lvl.initialize(null, backend);
+    await lvl.enter(null, { targetType: ApproachTargetType.VESSEL });
+    lvl.render(16, null);
+
+    expect(backend.setMeshRotation).toHaveBeenCalledWith(fakeHandle, { y: expect.any(Number) });
+    expect(backend.renderMesh).toHaveBeenCalledWith(fakeHandle);
+  });
+
+  it('enter() reports when the shared backend cannot create meshes', async () => {
+    const lvl = new ObjectApproachLevelWebGPU();
+    await lvl.initialize(null, {});
+
+    await expect(lvl.enter(null, { targetType: ApproachTargetType.VESSEL }))
+      .rejects.toThrow('requires the shared WebGPU mesh renderer');
   });
 
   it('exit() calls backend.destroyMesh() when a handle exists', async () => {
