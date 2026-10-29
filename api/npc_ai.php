@@ -7,6 +7,7 @@
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/npc_llm_controller.php';
+require_once __DIR__ . '/npc_ai_decision_queue.php';
 require_once __DIR__ . '/npc_behavior_script_executor.php';
 require_once __DIR__ . '/character_profile_generator.php';
 require_once __DIR__ . '/../lib/MiniYamlParser.php';
@@ -156,10 +157,14 @@ function npc_faction_tick(PDO $db, int $userId, array $faction): void {
     }
 
     // ── PRIORITY 2: LLM controller (fallback) ──────────────────────────────
-    // Optional LLM steering path for PvE controller.
-    $llm = npc_pve_llm_controller_try($db, $userId, $faction);
-    if (!empty($llm['handled'])) {
-        return;
+    // Optional async queue path for non-blocking strategic AI decisions.
+    $queued = npc_ai_decision_queue_maybe_enqueue($db, $userId, $faction);
+    if (empty($queued['queued'])) {
+        // Queue disabled/unavailable/cooldown: keep existing sync fallback behavior.
+        $llm = npc_pve_llm_controller_try($db, $userId, $faction);
+        if (!empty($llm['handled'])) {
+            return;
+        }
     }
 
     // ── Generate trade offers if none active ─────────────────────────────

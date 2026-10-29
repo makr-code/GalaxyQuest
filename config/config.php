@@ -55,6 +55,16 @@ define('NPC_LLM_CONTROLLER_ENABLED', (int) env_value('NPC_LLM_CONTROLLER_ENABLED
 define('NPC_LLM_CONTROLLER_TIMEOUT_SECONDS', (int) env_value('NPC_LLM_CONTROLLER_TIMEOUT_SECONDS', 8));
 define('NPC_LLM_CONTROLLER_COOLDOWN_SECONDS', (int) env_value('NPC_LLM_CONTROLLER_COOLDOWN_SECONDS', 900));
 define('NPC_LLM_CONTROLLER_MIN_CONFIDENCE', (float) env_value('NPC_LLM_CONTROLLER_MIN_CONFIDENCE', 0.55));
+define('NPC_LLM_ASYNC_QUEUE_ENABLED', (int) env_value('NPC_LLM_ASYNC_QUEUE_ENABLED', 0));
+define('NPC_LLM_ASYNC_QUEUE_BATCH_SIZE', (int) env_value('NPC_LLM_ASYNC_QUEUE_BATCH_SIZE', 20));
+define('NPC_LLM_ASYNC_QUEUE_COOLDOWN_SECONDS', (int) env_value('NPC_LLM_ASYNC_QUEUE_COOLDOWN_SECONDS', 600));
+define('NPC_LLM_ASYNC_QUEUE_MAX_ATTEMPTS', (int) env_value('NPC_LLM_ASYNC_QUEUE_MAX_ATTEMPTS', 3));
+define('NPC_LLM_ASYNC_QUEUE_RETRY_BACKOFF_SECONDS', (int) env_value('NPC_LLM_ASYNC_QUEUE_RETRY_BACKOFF_SECONDS', 120));
+define('NPC_AI_WORKER_API_ENABLED', (int) env_value('NPC_AI_WORKER_API_ENABLED', 0));
+define('NPC_AI_WORKER_SHARED_SECRET', (string) env_value('NPC_AI_WORKER_SHARED_SECRET', ''));
+define('NPC_AI_WORKER_SIGNATURE_MAX_SKEW_SECONDS', (int) env_value('NPC_AI_WORKER_SIGNATURE_MAX_SKEW_SECONDS', 300));
+define('NPC_AI_WORKER_MAX_CLAIM_LIMIT', (int) env_value('NPC_AI_WORKER_MAX_CLAIM_LIMIT', 50));
+define('NPC_AI_WORKER_CLAIM_TTL_SECONDS', (int) env_value('NPC_AI_WORKER_CLAIM_TTL_SECONDS', 900));
 
 // Politics model tuning
 define('POLITICS_MAX_CIVICS', (int) env_value('POLITICS_MAX_CIVICS', 2));
@@ -91,6 +101,18 @@ define('PROJECTION_GALAXY_STARS_ENABLED', (bool)(int) env_value('PROJECTION_GALA
 define('PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS', (int) env_value('PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS', 300));
 // Projector worker: max system dirty-queue entries to process per batch run.
 define('PROJECTION_SYSTEM_BATCH_SIZE', (int) env_value('PROJECTION_SYSTEM_BATCH_SIZE', 200));
+
+// ── Headless Simulation Runtime ────────────────────────────────────────────────
+// When enabled, overview reads may execute simulation side-effects inline.
+// Recommended for migration compatibility only; keep disabled for worker-driven simulation.
+define('SIMULATION_TICK_ON_READ_ENABLED', (bool)(int) env_value('SIMULATION_TICK_ON_READ_ENABLED', 0));
+// Default systems-per-shard for deterministic galaxy partitioning.
+define('SIMULATION_SYSTEMS_PER_SHARD', (int) env_value('SIMULATION_SYSTEMS_PER_SHARD', 20000));
+// Cooldown windows for manual/worker-triggered simulation ticks.
+define('SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS', (int) env_value('SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS', 60));
+define('SIMULATION_USER_TICK_COOLDOWN_SECONDS', (int) env_value('SIMULATION_USER_TICK_COOLDOWN_SECONDS', 300));
+// Canonical event taxonomy path used by the headless simulation runtime.
+define('SIMULATION_EVENT_TAXONOMY_FILE', (string) env_value('SIMULATION_EVENT_TAXONOMY_FILE', dirname(__DIR__) . '/config/simulation_event_taxonomy.json'));
 
 // ── Cache ────────────────────────────────────────────────────────────────────
 // Verifikationsmaßstab: CACHE_VERSION in jeden Schlüssel eingebettet.

@@ -20,6 +20,11 @@
 (function () {
   'use strict';
 
+  function getChunkUtils() {
+    if (!window.GQGalaxyChunkUtils) throw new Error('GQGalaxyChunkUtils is required');
+    return window.GQGalaxyChunkUtils;
+  }
+
   // ── WGSL shaders ───────────────────────────────────────────────────────────
 
   /** Star-point vertex + fragment shader. */
@@ -717,6 +722,7 @@
     return best;
   }
 
+<<<<<<< HEAD
   const OBJECT_MESH_SHADER_WGSL = `
     struct MeshUniforms {
       rotation: vec4f,
@@ -825,6 +831,70 @@
     }
 
     return new Float32Array(positions);
+=======
+  function buildChunkSummaries(stars, opts = {}) {
+    return getChunkUtils().buildStarChunkSummaries(stars, opts);
+  }
+
+  function buildStarSelectionIndex(stars, scale, opts = {}) {
+    const list = Array.isArray(stars) ? stars : [];
+    const cellSize = Math.max(0.01, Number(opts.cellSize || 0.08));
+    const positions = new Array(list.length);
+    const cells = new Map();
+    for (let i = 0; i < list.length; i += 1) {
+      const star = list[i] || {};
+      const x = Number(star.x_ly || star.x || 0) * scale;
+      const y = Number(star.y_ly || star.y || 0) * scale;
+      positions[i] = { x, y };
+      const cellX = Math.floor(x / cellSize);
+      const cellY = Math.floor(y / cellSize);
+      const key = `${cellX}:${cellY}`;
+      const bucket = cells.get(key) || [];
+      bucket.push(i);
+      cells.set(key, bucket);
+    }
+    return {
+      cellSize,
+      positions,
+      cells,
+      starCount: list.length,
+      cellCount: cells.size,
+    };
+  }
+
+  function findNearestStarWithIndex(index, stars, nx, ny, scale, viewState, aspectRatio, thresholdNdc) {
+    if (!index || !Array.isArray(stars) || !stars.length) {
+      return _findNearestStar(stars || [], nx, ny, scale, viewState, aspectRatio, thresholdNdc);
+    }
+    const zoom = Math.max(0.0001, Number(viewState?.zoom || 1));
+    const worldX = (Number(nx || 0) * Math.max(0.0001, Number(aspectRatio || 1)) / zoom) - Number(viewState?.panX || 0);
+    const worldY = (Number(ny || 0) / zoom) - Number(viewState?.panY || 0);
+    const thresholdWorld = Math.max(0.001, Number(thresholdNdc || 0), Number(thresholdNdc || 0) * Math.max(1, Number(aspectRatio || 1)) / zoom);
+    const radiusCells = Math.max(1, Math.ceil(thresholdWorld / index.cellSize));
+    const baseCellX = Math.floor(worldX / index.cellSize);
+    const baseCellY = Math.floor(worldY / index.cellSize);
+    let best = -1;
+    let bestDist2 = thresholdWorld * thresholdWorld;
+    for (let dy = -radiusCells; dy <= radiusCells; dy += 1) {
+      for (let dx = -radiusCells; dx <= radiusCells; dx += 1) {
+        const bucket = index.cells.get(`${baseCellX + dx}:${baseCellY + dy}`);
+        if (!bucket || !bucket.length) continue;
+        for (let i = 0; i < bucket.length; i += 1) {
+          const starIdx = bucket[i];
+          const pos = index.positions[starIdx];
+          if (!pos) continue;
+          const ddx = pos.x - worldX;
+          const ddy = pos.y - worldY;
+          const d2 = ddx * ddx + ddy * ddy;
+          if (d2 < bestDist2) {
+            bestDist2 = d2;
+            best = starIdx;
+          }
+        }
+      }
+    }
+    return best;
+>>>>>>> bb0cfba843ee795f4661832512556d4c2272eaeb
   }
 
   // ── Main renderer class ────────────────────────────────────────────────────
@@ -894,6 +964,8 @@
       this._heroLodKey = '';
       this._starCount  = 0;
       this._starScale  = 1;
+      this._chunkSummaries = [];
+      this._selectionIndex = buildStarSelectionIndex([], 1);
       this._backend    = null;  // 'webgpu' | 'webgl2'
       this._delegate   = null;  // Three.js delegate when in webgl2 mode
       this._rafId      = 0;
@@ -2774,7 +2846,7 @@
             const ndc = { x: ctx.ndcX, y: ctx.ndcY };
             const magPx = self.hoverMagnetStarPx || 24;
             const thresh = (magPx / Math.max(1, canvas.clientWidth)) * 2;
-            const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
+            const idx = self._queryNearestStarIndex(ndc.x, ndc.y, thresh);
             if (idx !== self._hoveredIdx) {
               self._hoveredIdx = idx;
               const star = idx >= 0 ? self._rawStars[idx] : null;
@@ -2787,7 +2859,7 @@
             const ndc = { x: ctx.ndcX, y: ctx.ndcY };
             const magPx = self.clickMagnetEnabled ? (self.hoverMagnetStarPx || 24) : 8;
             const thresh = (magPx / Math.max(1, canvas.clientWidth)) * 2;
-            const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
+            const idx = self._queryNearestStarIndex(ndc.x, ndc.y, thresh);
             const star = idx >= 0 ? self._rawStars[idx] : null;
             self._selectedIdx = idx;
             self._pinnedStar = star;
@@ -2798,7 +2870,7 @@
           onDoubleClick: (ctx) => {
             const ndc = { x: ctx.ndcX, y: ctx.ndcY };
             const thresh = ((self.hoverMagnetStarPx || 24) / Math.max(1, canvas.clientWidth)) * 2;
-            const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
+            const idx = self._queryNearestStarIndex(ndc.x, ndc.y, thresh);
             const star = idx >= 0 ? self._rawStars[idx] : null;
             if (star && typeof self._opts.onDoubleClick === 'function') {
               self._opts.onDoubleClick(self._selectionPayload(star), self._starToScreenPos(canvas, star));
@@ -2815,7 +2887,7 @@
         const ndc = self._canvasToNdc(canvas, e.clientX, e.clientY);
         const magPx = self.hoverMagnetStarPx || 24;
         const thresh = (magPx / Math.max(1, canvas.clientWidth)) * 2;
-        const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
+        const idx = self._queryNearestStarIndex(ndc.x, ndc.y, thresh);
         if (idx !== self._hoveredIdx) {
           self._hoveredIdx = idx;
           const star = idx >= 0 ? self._rawStars[idx] : null;
@@ -2855,8 +2927,8 @@
       const onClick = (e) => {
         const ndc = self._canvasToNdc(canvas, e.clientX, e.clientY);
         const magPx = self.clickMagnetEnabled ? (self.hoverMagnetStarPx || 24) : 8;
-            self._opts.onHover(self._selectionPayload(star), star ? self._starToScreenPos(canvas, star) : null);
-        const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
+        const thresh = (magPx / Math.max(1, canvas.clientWidth)) * 2;
+        const idx = self._queryNearestStarIndex(ndc.x, ndc.y, thresh);
         const star = idx >= 0 ? self._rawStars[idx] : null;
         const now = Date.now();
         const dbl = (now - self._lastClickTs) < 280;
@@ -2871,6 +2943,9 @@
 
         self._selectedIdx = idx;
         self._pinnedStar  = star;
+        if (typeof self._opts.onHover === 'function') {
+          self._opts.onHover(self._selectionPayload(star), star ? self._starToScreenPos(canvas, star) : null);
+        }
         if (star && typeof self._opts.onClick === 'function') {
           self._opts.onClick(self._selectionPayload(star), self._starToScreenPos(canvas, star));
         }
@@ -2879,7 +2954,7 @@
       const onDblClick = (e) => {
         const ndc = self._canvasToNdc(canvas, e.clientX, e.clientY);
         const thresh = ((self.hoverMagnetStarPx || 24) / Math.max(1, canvas.clientWidth)) * 2;
-        const idx = _findNearestStar(self._rawStars, ndc.x, ndc.y, self._starScale, self._view, self._aspect, thresh);
+        const idx = self._queryNearestStarIndex(ndc.x, ndc.y, thresh);
         const star = idx >= 0 ? self._rawStars[idx] : null;
         if (star && typeof self._opts.onDoubleClick === 'function') {
           self._opts.onDoubleClick(self._selectionPayload(star), self._starToScreenPos(canvas, star));
@@ -2958,10 +3033,64 @@
 
     setStars(stars, _opts) {
       if (this._delegate) return this._delegate.setStars?.(stars, _opts);
+      const opts = _opts && typeof _opts === 'object' ? _opts : {};
       this._rawStars  = Array.isArray(stars) ? stars.slice() : [];
       this.stars      = this._rawStars;
       this.starPoints = this._rawStars;
+      if (Array.isArray(opts.chunkSummaries)) this._chunkSummaries = opts.chunkSummaries.slice();
+      else if (!opts.skipChunkSummaryBuild) this._chunkSummaries = buildChunkSummaries(this._rawStars);
       this._uploadStars(this._rawStars);
+      this._selectionIndex = buildStarSelectionIndex(this._rawStars, this._starScale);
+    }
+
+    setChunkSummaries(chunks) {
+      if (this._delegate) return this._delegate.setChunkSummaries?.(chunks);
+      this._chunkSummaries = Array.isArray(chunks) ? chunks.slice() : [];
+    }
+
+    applyGalaxySnapshot(snapshot = {}, opts = {}) {
+      if (this._delegate && typeof this._delegate.applyGalaxySnapshot === 'function') {
+        return this._delegate.applyGalaxySnapshot(snapshot, opts);
+      }
+      const nextSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : {};
+      if (nextSnapshot.galaxyMetadata && typeof this.setGalaxyMetadata === 'function') {
+        this.setGalaxyMetadata(nextSnapshot.galaxyMetadata);
+      }
+      if (Array.isArray(nextSnapshot.stars)) {
+        this.setStars(nextSnapshot.stars, Object.assign({}, opts, {
+          chunkSummaries: Array.isArray(nextSnapshot.chunkSummaries) ? nextSnapshot.chunkSummaries : null,
+          skipChunkSummaryBuild: Array.isArray(nextSnapshot.chunkSummaries),
+        }));
+      } else if (Array.isArray(nextSnapshot.chunkSummaries)) {
+        this.setChunkSummaries(nextSnapshot.chunkSummaries);
+      }
+      if (typeof this.setGalaxyFleets === 'function') {
+        this.setGalaxyFleets(nextSnapshot.fleets || []);
+      }
+      if (typeof this.setFtlInfrastructure === 'function') {
+        const ftl = nextSnapshot.ftlInfrastructure || {};
+        this.setFtlInfrastructure(ftl.gates || [], ftl.resonance_nodes || []);
+      }
+      if (typeof this.setClusterAuras === 'function') {
+        this.setClusterAuras(nextSnapshot.clusterAuras || []);
+      }
+      if (typeof this.setClusterColorPalette === 'function' && nextSnapshot.clusterPalette) {
+        this.setClusterColorPalette(nextSnapshot.clusterPalette);
+      }
+      return true;
+    }
+
+    _queryNearestStarIndex(nx, ny, thresholdNdc) {
+      return findNearestStarWithIndex(
+        this._selectionIndex,
+        this._rawStars,
+        nx,
+        ny,
+        this._starScale,
+        this._view,
+        this._aspect,
+        thresholdNdc
+      );
     }
 
     setEmpires(empires) {
@@ -3000,6 +3129,7 @@
 
     setGalaxyMetadata(meta) {
       if (this._delegate) return this._delegate.setGalaxyMetadata?.(meta);
+      this._galaxyMetadata = meta || null;
     }
 
     setGalaxyFleets(fleets) {
@@ -3429,6 +3559,8 @@
         pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
         rawStars: this._rawStars.length,
         visibleStars: this._starCount,
+        chunkCount: Array.isArray(this._chunkSummaries) ? this._chunkSummaries.length : 0,
+        selectionIndexCells: Number(this._selectionIndex?.cellCount || 0),
         frameTick: this._frameTick,
         instanceId: this._instanceId || '',
         systemMode: !!this.systemMode,
@@ -3488,8 +3620,13 @@
       this._heroCoronaPipeline = null;
       this._planetPipeline = null;
       this._orbitPipeline = null;
+<<<<<<< HEAD
       this._objectMeshPipeline = null;
       this._objectMeshBindGroupLayout = null;
+=======
+      this._chunkSummaries = [];
+      this._selectionIndex = buildStarSelectionIndex([], 1);
+>>>>>>> bb0cfba843ee795f4661832512556d4c2272eaeb
       this._bindGroup  = null;
       this._heroBindGroup = null;
       this._planetBindGroup = null;

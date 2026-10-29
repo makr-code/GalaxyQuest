@@ -39,8 +39,14 @@
       }
       return Array.isArray(stars) ? stars : [];
     };
+    const getModelChunkSummaries = () => (
+      galaxyModel && typeof galaxyModel.listStarChunks === 'function'
+        ? galaxyModel.listStarChunks(galaxyIndex)
+        : []
+    );
 
     let cachedStars = normalize(galaxyModel ? galaxyModel.listStars(galaxyIndex, fromSystem, toSystem) : []);
+    let chunkSummaries = getModelChunkSummaries();
     const fullRangeInModel = galaxyModel
       ? galaxyModel.hasLoadedStarRange(galaxyIndex, fromSystem, toSystem, cacheMaxAgeMs)
       : false;
@@ -50,6 +56,7 @@
         const dbStars = await galaxyDb.getStars(galaxyIndex, fromSystem, toSystem, { maxAgeMs: cacheMaxAgeMs });
         if (dbStars.length && galaxyModel) {
           cachedStars = normalize(galaxyModel.upsertStarBatch(galaxyIndex, dbStars));
+          chunkSummaries = getModelChunkSummaries();
           const hasDenseCoverage = typeof state.hasDenseSystemCoverage === 'function'
             ? state.hasDenseSystemCoverage(dbStars, galaxyIndex, fromSystem, toSystem)
             : false;
@@ -58,6 +65,9 @@
           }
         } else {
           cachedStars = normalize(dbStars);
+          chunkSummaries = typeof galaxyDb.getStarChunkSummaries === 'function'
+            ? await galaxyDb.getStarChunkSummaries(galaxyIndex, { maxAgeMs: cacheMaxAgeMs })
+            : [];
         }
       } catch (dbErr) {
         console.warn('[GQ] loadGalaxyStars3D: DB cache read failed', dbErr);
@@ -66,6 +76,7 @@
 
     return {
       cachedStars: Array.isArray(cachedStars) ? cachedStars : [],
+      chunkSummaries: Array.isArray(chunkSummaries) ? chunkSummaries : [],
       fullRangeInModel: !!fullRangeInModel,
     };
   }

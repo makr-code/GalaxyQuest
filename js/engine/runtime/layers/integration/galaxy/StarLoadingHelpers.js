@@ -1,5 +1,5 @@
 /**
- * StarLoadingHelpers.js
+ * RuntimeGalaxyStarLoadingHelpers.js
  *
  * Shared helper logic for galaxy star render application, probes and initial framing.
  */
@@ -7,6 +7,11 @@
 'use strict';
 
 (function () {
+  function getChunkUtils() {
+    if (!window.GQGalaxyChunkUtils) throw new Error('GQGalaxyChunkUtils is required');
+    return window.GQGalaxyChunkUtils;
+  }
+
   const state = {
     getGalaxy3d: null,
     setGalaxy3d: null,
@@ -57,9 +62,14 @@
     return typeof state.getGalaxy3d === 'function' ? state.getGalaxy3d() : null;
   }
 
+  function buildChunkSummaries(stars, opts = {}) {
+    return getChunkUtils().buildStarChunkSummaries(stars, opts);
+  }
+
   function applyStarsToRenderer(opts = {}) {
     const stars = Array.isArray(opts.stars) ? opts.stars : [];
     const clusterSummary = Array.isArray(opts.clusterSummary) ? opts.clusterSummary : [];
+    const providedChunkSummaries = Array.isArray(opts.chunkSummaries) ? opts.chunkSummaries : null;
     const contextLabel = String(opts.contextLabel || 'render');
     const galaxyIndex = Number(opts.galaxyIndex || 0);
     const galaxyMeta = opts.galaxyMeta || null;
@@ -78,6 +88,7 @@
       const displayedClusterSummary = state.getDisplayedGalaxyClusterSummary
         ? state.getDisplayedGalaxyClusterSummary(clusterSummary, displayedStars)
         : clusterSummary;
+      const chunkSummaries = providedChunkSummaries || buildChunkSummaries(displayedStars);
 
       const ftlMap = state.getFtlMap ? state.getFtlMap() : null;
       const ctx = state.getZoomTransitionContext ? state.getZoomTransitionContext() : {};
@@ -104,10 +115,31 @@
 
       if (!galaxy3d) return true;
 
+      const snapshot = {
+        stars: displayedStars,
+        chunkSummaries,
+        clusterAuras: displayedClusterSummary || [],
+        ftlInfrastructure: {
+          gates: ftlMap?.gates || [],
+          resonance_nodes: ftlMap?.resonance_nodes || [],
+        },
+        fleets: state.getGalaxyFleets ? state.getGalaxyFleets() : [],
+        galaxyMetadata: galaxyMeta || null,
+      };
+
+      if (typeof galaxy3d.applyGalaxySnapshot === 'function') {
+        galaxy3d.applyGalaxySnapshot(snapshot, { preserveView });
+        state.applyGalaxyOwnerHighlightToRenderer?.(displayedStars);
+        return true;
+      }
+
       if (galaxyMeta && typeof galaxy3d.setGalaxyMetadata === 'function') {
         galaxy3d.setGalaxyMetadata(galaxyMeta);
       }
       galaxy3d.setStars(displayedStars, { preserveView });
+      if (typeof galaxy3d.setChunkSummaries === 'function') {
+        galaxy3d.setChunkSummaries(chunkSummaries);
+      }
       if (typeof galaxy3d.setGalaxyFleets === 'function') {
         galaxy3d.setGalaxyFleets(state.getGalaxyFleets ? state.getGalaxyFleets() : []);
       }

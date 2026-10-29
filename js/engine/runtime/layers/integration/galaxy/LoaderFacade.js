@@ -42,14 +42,17 @@
     uiState.activeRange = { from, to };
     opts.setGalaxyContext?.(g, uiState.activeSystem || from, uiState.activeStar);
 
-    const starsPolicy = opts.getStarsPolicy?.() || { cacheMaxAgeMs: 0, maxPoints: 1500, alwaysRefreshNetwork: false };
-    let requestMaxPoints = Number(starsPolicy.maxPoints || 1500);
+    const starsPolicy = opts.getStarsPolicy?.() || { cacheMaxAgeMs: 0, maxPoints: 6000, alwaysRefreshNetwork: false };
+    let requestMaxPoints = Number(starsPolicy.maxPoints || 6000);
+    requestMaxPoints = Math.max(1500, Math.min(50000, requestMaxPoints));
     let galaxyMeta = null;
     const settingsState = opts.getSettingsState?.() || {};
-    const densityMode = String(settingsState.clusterDensityMode || 'auto').toLowerCase();
-    const clusterPreset = densityMode === 'max'
+    const clusterDensityMode = String(settingsState.clusterDensityMode || 'auto').toLowerCase();
+    const clusterPreset = clusterDensityMode === 'ultra' || clusterDensityMode === 'max'
       ? 'ultra'
-      : (densityMode === 'high' ? 'high' : 'auto');
+      : clusterDensityMode === 'high'
+        ? 'high'
+        : 'auto';
 
     const renderDataAdapter = opts.getRenderDataAdapter?.() || null;
     const expectedAssetsManifestVersion = Number(opts.getExpectedAssetsManifestVersion?.() || 1);
@@ -91,9 +94,10 @@
     }
     opts.setGalaxySystemMax?.(galaxySystemMax);
 
-    const applyStarsToRenderer = (stars, clusterSummary, contextLabel = 'render') => loadingHelpersApi.applyStarsToRenderer({
+    const applyStarsToRenderer = (stars, clusterSummary, contextLabel = 'render', chunkSummaries = null) => loadingHelpersApi.applyStarsToRenderer({
       stars,
       clusterSummary,
+      chunkSummaries,
       contextLabel,
       galaxyIndex: g,
       galaxyMeta,
@@ -115,6 +119,7 @@
       cacheMaxAgeMs: starsPolicy.cacheMaxAgeMs,
     });
     let cachedStars = cacheSnapshot.cachedStars;
+    const cachedChunkSummaries = cacheSnapshot.chunkSummaries;
     const fullRangeInModel = !!cacheSnapshot.fullRangeInModel;
 
     const cacheResult = flowOrchestratorApi.applyCacheHit({
@@ -125,6 +130,7 @@
       toSystem: to,
       fullRangeInModel,
       cachedStars,
+      chunkSummaries: cachedChunkSummaries,
       galaxyStars,
       uiState,
       mergeGalaxyStarsBySystem: opts.mergeGalaxyStarsBySystem,
