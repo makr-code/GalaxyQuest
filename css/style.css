@@ -389,26 +389,25 @@
 }
 
 .auth-status-shell {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 78;
+  position: static;
+  z-index: auto;
   pointer-events: none;
   display: flex;
-  justify-content: center;
-  padding: 0 0.75rem 0.55rem;
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  min-width: 0;
+  padding: 0;
 }
 
 .auth-status-line {
-  width: min(96vw, 980px);
+  width: 100%;
+  min-width: 0;
   border: 1px solid rgba(73, 145, 225, 0.48);
-  border-radius: 10px;
+  border-radius: 0;
   background: rgba(6, 15, 34, 0.9);
   color: #a9d8ff;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.36);
   font: 12px/1.25 Consolas, Menlo, Monaco, monospace;
-  padding: 0.38rem 0.62rem;
+  padding: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -422,10 +421,6 @@
 .auth-status-line.auth-status-error {
   border-color: rgba(224, 96, 96, 0.75);
   color: #ffb3b3;
-}
-
-.game-page .auth-status-shell {
-  display: none;
 }
 
 .auth-preload-label {

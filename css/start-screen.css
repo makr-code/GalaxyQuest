@@ -258,3 +258,64 @@
 .start-reduced-motion .start-title, .start-reduced-motion .start-title span,
 .start-reduced-motion .start-dialog[open] { animation: none; }
 .start-reduced-motion .start-button { transition: none; }
+
+.auth-page #boot-terminal:not(.wm-window):not(.wm-window-adapted),
+.auth-page #boot-terminal.ui-console-panel {
+  position: fixed;
+  inset: auto 12px 12px;
+  z-index: 99999;
+  width: auto;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  padding: 8px 10px;
+  border: 1px solid rgba(79, 151, 255, 0.5);
+  border-radius: 6px;
+  background: rgba(4, 14, 36, 0.96);
+  box-shadow: 0 0 28px rgba(0, 0, 0, 0.38);
+}
+.auth-page #boot-terminal.is-expanded { max-height: min(62svh, 460px); overflow-y: auto; }
+.auth-page #boot-terminal .ui-console-head { min-width: 0; gap: 12px; margin: 0; }
+.auth-page #boot-terminal .boot-terminal-title { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.auth-page #boot-terminal .ui-console-head strong { color: #d7e8ff; font-size: 0.76rem; }
+.auth-page #boot-terminal .boot-terminal-title > span { color: #a9c7e5; font-size: 0.66rem; }
+.auth-page #boot-terminal .auth-status-shell {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  display: flex;
+  justify-content: flex-start;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.auth-page #boot-terminal .auth-status-line {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #9fd0ff;
+  font-size: 0.68rem;
+  text-align: center;
+}
+.auth-page #boot-terminal .ui-console-actions { flex: 0 0 auto; gap: 6px; }
+.auth-page #boot-terminal:not(.is-expanded) .ui-console-actions > :not(#ui-console-expand) { display: none; }
+.auth-page #boot-terminal #ui-console-expand { min-width: 54px; }
+.auth-page #boot-terminal .ui-console-log { height: min(36svh, 240px); margin-top: 8px; }
+.auth-page #boot-terminal .ui-console-input-row { margin-top: 8px; }
+.auth-page #boot-terminal [hidden] { display: none !important; }
+@media (max-width: 700px) {
+  .auth-page #boot-terminal:not(.wm-window):not(.wm-window-adapted),
+  .auth-page #boot-terminal.ui-console-panel { inset-inline: 8px; bottom: max(8px, env(safe-area-inset-bottom)); padding: 7px 8px; }
+  .auth-page #boot-terminal .ui-console-head { flex-wrap: wrap; gap: 6px; }
+  .auth-page #boot-terminal .boot-terminal-title { gap: 6px; }
+  .auth-page #boot-terminal .auth-status-shell { order: 3; flex-basis: 100%; }
+  .auth-page #boot-terminal .auth-status-line { text-align: left; }
+  .auth-page #boot-terminal .ui-console-actions { margin-left: auto; }
+}

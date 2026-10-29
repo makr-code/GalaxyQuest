@@ -11,10 +11,10 @@
   <link rel="stylesheet" href="css/design-tokens.css?v=20260730p1" />
   <link rel="stylesheet" href="css/animations.css?v=20260730p1" />
   <link rel="stylesheet" href="css/utilities.css?v=20260730p1" />
-  <link rel="stylesheet" href="css/start-screen.css?v=20261029p1" />
+  <link rel="stylesheet" href="css/start-screen.css?v=20261029p2" />
   <link rel="stylesheet" href="css/registration-prologue.css?v=20261029p1" />
   <!-- Core Stylesheets -->
-  <link rel="stylesheet" href="css/style.css?v=20261029p1" />
+  <link rel="stylesheet" href="css/style.css?v=20261029p2" />
   <link rel="stylesheet" href="css/wm.css?v=20260830p4" />
   <link rel="stylesheet" href="css/gqwm.css?v=20261029p1" />
   <link rel="stylesheet" href="css/prolog.css?v=1" />
@@ -418,10 +418,6 @@
     </div>
   </section>
 
-  <section id="auth-status-section" class="auth-status-shell" aria-live="polite" aria-atomic="true">
-    <div id="auth-status-line" class="auth-status-line">AUTH: Initializing shell...</div>
-  </section>
-
   <section id="auth-login-confirm-section" class="auth-login-confirm-section hidden" aria-live="polite" aria-atomic="true">
     <div id="auth-login-confirm-card" class="auth-login-confirm-card">
       <h3 id="auth-login-confirm-title" class="auth-login-confirm-title">Login ok</h3>
@@ -794,13 +790,17 @@
 
   <section id="terminal-section" aria-live="assertive" aria-atomic="true">
     <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
-    <section id="boot-terminal" class="ui-console-panel hidden" data-wm-window="console" aria-live="polite" aria-label="Entwickler-Konsole">
+    <section id="boot-terminal" class="ui-console-panel" data-wm-window="console" aria-live="polite" aria-label="Systemstatus und Entwickler-Konsole">
       <div id="boot-terminal-head" class="ui-console-head">
         <div class="boot-terminal-title">
-          <strong>Console</strong>
+          <strong>System</strong>
           <span id="boot-terminal-mode">Mode: Fallback</span>
         </div>
+        <section id="auth-status-section" class="auth-status-shell" aria-live="polite" aria-atomic="true">
+          <div id="auth-status-line" class="auth-status-line">INITIALIZING</div>
+        </section>
         <div class="ui-console-actions">
+          <button id="ui-console-expand" class="btn btn-secondary btn-sm" type="button" aria-expanded="false" aria-controls="ui-console-log" title="Boot-Log anzeigen">Logs</button>
           <label for="ui-console-filter" class="ui-console-filter-label">Level</label>
           <select id="ui-console-filter" class="ui-console-filter" title="Log-Level filtern">
             <option value="all" selected>All</option>
@@ -817,8 +817,8 @@
           <button id="ui-console-close" class="btn btn-secondary btn-sm" type="button">Close</button>
         </div>
       </div>
-      <div id="ui-console-log" class="ui-console-log"></div>
-      <div class="ui-console-input-row">
+      <div id="ui-console-log" class="ui-console-log" hidden></div>
+      <div id="ui-console-input-row" class="ui-console-input-row" hidden>
         <input id="ui-console-input" type="text" placeholder="help | refresh | home | open settings | transitions on/off | msg &lt;user&gt; &lt;text&gt;" />
         <button id="ui-console-run" class="btn btn-primary btn-sm" type="button">Run</button>
       </div>
@@ -828,10 +828,28 @@
         const bootTerminal = document.getElementById('boot-terminal');
         const bootLog = document.getElementById('ui-console-log');
         const bootMode = document.getElementById('boot-terminal-mode');
+        const bootLogToggle = document.getElementById('ui-console-expand');
+        const bootConsoleInput = document.getElementById('ui-console-input-row');
         const bootLines = [];
         const maxBootLines = 120;
         const moduleTraceSeen = new Map();
         let fallbackActive = true;
+
+        function setBootConsoleExpanded(expanded) {
+          if (!bootTerminal || !bootLog || !bootConsoleInput || !bootLogToggle) return;
+          const isExpanded = Boolean(expanded);
+          bootTerminal.classList.toggle('is-expanded', isExpanded);
+          bootLog.hidden = !isExpanded;
+          bootConsoleInput.hidden = !isExpanded;
+          bootLogToggle.setAttribute('aria-expanded', String(isExpanded));
+          bootLogToggle.textContent = isExpanded ? 'Hide logs' : 'Logs';
+          bootLogToggle.title = isExpanded ? 'Boot-Log ausblenden' : 'Boot-Log anzeigen';
+        }
+
+        window.__GQ_SET_BOOT_CONSOLE_EXPANDED = setBootConsoleExpanded;
+        bootLogToggle?.addEventListener('click', () => {
+          setBootConsoleExpanded(!bootTerminal?.classList.contains('is-expanded'));
+        });
 
         function isBootScriptTraceEnabled() {
           try {
@@ -861,6 +879,19 @@
           bootMode.textContent = `Mode: ${safeText(modeText || 'Fallback')}`;
         }
 
+        function setStatusFromLog(level, source, text) {
+          const line = document.getElementById('auth-status-line');
+          if (!line) return;
+          const normalizedLevel = safeText(level || 'info').toUpperCase();
+          const normalizedSource = safeText(source || 'app');
+          const message = safeText(text);
+          line.textContent = `[${normalizedLevel}] [${normalizedSource}] ${message}`;
+          line.classList.toggle('auth-status-warn', normalizedLevel === 'WARN' || normalizedLevel === 'WARNING');
+          line.classList.toggle('auth-status-error', normalizedLevel === 'ERROR');
+        }
+
+        window.__GQ_SET_AUTH_STATUS_FROM_LOG = setStatusFromLog;
+
         function appendBootLine(level, message, detail, source) {
           if (!bootLog) return;
           const ts = new Date();
@@ -874,6 +905,7 @@
           const lineText = `[${hh}:${mm}:${ss}] [${lvl}] [${src}] ${msg}${det ? ' | ' + det : ''}`;
 
           bootLines.push({ level: lvl.toLowerCase(), text: lineText });
+          setStatusFromLog(lvl, src, `${msg}${det ? ' | ' + det : ''}`);
           if (bootLines.length > maxBootLines) bootLines.shift();
 
           bootLog.innerHTML = bootLines.map((line) => {
@@ -889,6 +921,7 @@
           if (String(lvl).toLowerCase() === 'error' && bootTerminal) {
             ensureBootTerminalHostVisible();
             bootTerminal.classList.remove('hidden');
+            setBootConsoleExpanded(true);
           }
         }
 
@@ -1143,17 +1176,20 @@
         window.addEventListener('load', function () {
           directProbe('index load event reached');
           const loginForm = document.getElementById('login-form');
-          if (loginForm && !loginForm.__gqProbeBound) {
-            loginForm.__gqProbeBound = true;
-            loginForm.addEventListener('submit', function () {
+          const loginTemplate = document.getElementById('auth-forms-template');
+          if (!loginForm && loginTemplate?.content.querySelector('#login-form')) {
+            directProbe('login form deferred to the start-screen dialog');
+          } else if (loginForm) {
+            document.addEventListener('submit', function (event) {
+              if (event.target?.id !== 'login-form') return;
               const st = window.__GQ_AUTH_READY || {};
               const status = `authReady init=${!!st.initialized} loginBound=${!!st.loginBound} registerBound=${!!st.registerBound}`;
               directProbe('login submit captured in index', 'warn');
               directProbe(status, 'warn');
             }, true);
             directProbe('login submit probe bound');
-          } else if (!loginForm) {
-            directProbe('login-form missing in DOM', 'error');
+          } else {
+            directProbe('login form missing from start-screen markup', 'error');
           }
 
           if (window.GQLog && window.__GQ_BOOT_TERMINAL_ADAPTER && typeof window.__GQ_BOOT_TERMINAL_ADAPTER.takeover === 'function') {
@@ -1601,63 +1637,17 @@
   </script>
   <script>
     (function initAuthStatusBar() {
-      const line = document.getElementById('auth-status-line');
-      if (!line) return;
+      const renderStatus = window.__GQ_SET_AUTH_STATUS_FROM_LOG;
+      if (typeof renderStatus !== 'function') return;
 
-      let lastDebugCount = 0;
-
-      function statusText() {
-        const lock = !!window.__GQ_AUTH_BOOTSTRAP_LOCK;
-        const ready = !!window.__GQ_AUTH_READY;
-        const bg = !!(window.GQStarfieldControl || window.GQAuthGalaxyBackgroundControl);
-        const game = !!window.GQGame;
-        return `AUTH lock=${lock ? '1' : '0'} ready=${ready ? '1' : '0'} bg=${bg ? '1' : '0'} game=${game ? '1' : '0'}`;
-      }
-
-      function setInfo(text) {
-        line.classList.remove('auth-status-warn', 'auth-status-error');
-        line.textContent = text;
-      }
-
-      function setWarn(text) {
-        line.classList.remove('auth-status-error');
-        line.classList.add('auth-status-warn');
-        line.textContent = text;
-      }
-
-      function setError(text) {
-        line.classList.remove('auth-status-warn');
-        line.classList.add('auth-status-error');
-        line.textContent = text;
-      }
-
-      window.addEventListener('error', function (e) {
-        const msg = String(e?.message || 'Unknown runtime error');
-        setError(`ERR ${msg}`);
+      window.addEventListener('gq:terminal-log', (event) => {
+        const entry = event.detail || {};
+        renderStatus(entry.level, entry.source, entry.text);
       });
 
-      window.addEventListener('unhandledrejection', function (e) {
-        const msg = String(e?.reason?.message || e?.reason || 'Unhandled promise rejection');
-        setError(`REJ ${msg}`);
-      });
-
-      setInterval(function () {
-        const logs = Array.isArray(window.__GQ_DEBUG_LOG) ? window.__GQ_DEBUG_LOG : [];
-        if (logs.length > lastDebugCount) {
-          lastDebugCount = logs.length;
-          const latest = logs[logs.length - 1];
-          const text = String(latest?.msg || '').trim();
-          if (text) {
-            if (text.startsWith('ERROR:')) {
-              setError(text);
-            } else {
-              setWarn(`${statusText()} | ${text}`);
-            }
-            return;
-          }
-        }
-        setInfo(statusText());
-      }, 1200);
+      const entries = window.GQLog?.getSessionEntries?.() || window.GQLog?.getAll?.() || [];
+      const latest = entries[entries.length - 1];
+      if (latest) renderStatus(latest.level, latest.source, latest.text);
     })();
   </script>
   

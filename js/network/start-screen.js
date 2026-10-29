@@ -189,7 +189,9 @@ export function initializeStartScreen({ onResume, onMute, onRegistrationRequest,
       report('The log console is unavailable.', 'error');
       return;
     }
-    terminal.classList.toggle('hidden');
+    terminal.classList.remove('hidden');
+    window.WM?.open?.('console');
+    window.__GQ_SET_BOOT_CONSOLE_EXPANDED?.(!terminal.classList.contains('is-expanded'));
   });
 
   const motion = document.getElementById('start-reduced-motion');

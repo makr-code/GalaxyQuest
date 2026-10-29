@@ -722,7 +722,6 @@
     return best;
   }
 
-<<<<<<< HEAD
   const OBJECT_MESH_SHADER_WGSL = `
     struct MeshUniforms {
       rotation: vec4f,
@@ -831,7 +830,8 @@
     }
 
     return new Float32Array(positions);
-=======
+  }
+
   function buildChunkSummaries(stars, opts = {}) {
     return getChunkUtils().buildStarChunkSummaries(stars, opts);
   }
@@ -894,7 +894,6 @@
       }
     }
     return best;
->>>>>>> bb0cfba843ee795f4661832512556d4c2272eaeb
   }
 
   // ── Main renderer class ────────────────────────────────────────────────────
@@ -3620,13 +3619,10 @@
       this._heroCoronaPipeline = null;
       this._planetPipeline = null;
       this._orbitPipeline = null;
-<<<<<<< HEAD
       this._objectMeshPipeline = null;
       this._objectMeshBindGroupLayout = null;
-=======
       this._chunkSummaries = [];
       this._selectionIndex = buildStarSelectionIndex([], 1);
->>>>>>> bb0cfba843ee795f4661832512556d4c2272eaeb
       this._bindGroup  = null;
       this._heroBindGroup = null;
       this._planetBindGroup = null;

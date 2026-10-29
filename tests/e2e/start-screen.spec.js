@@ -92,6 +92,20 @@ test('narration chapters offer manual Back and Next without waiting for speech',
   await expect(page.locator('#registration-continue')).toBeDisabled();
 });
 
+test('front-page status row mirrors the latest log entry and expands the same log', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await expect(page.locator('#auth-status-line')).toContainText(/\[(INFO|WARN|ERROR)\]/);
+  await page.evaluate(() => window.__GQ_BOOT_PROBE.log('front-page-log-sync-check'));
+  await expect(page.locator('#auth-status-line')).toContainText('front-page-log-sync-check');
+  await page.evaluate(() => window.__GQ_SET_BOOT_CONSOLE_EXPANDED(false));
+  await expect(page.locator('#ui-console-log')).toBeHidden();
+  await page.locator('#ui-console-expand').click();
+  await expect(page.locator('#ui-console-log')).toBeVisible();
+  await expect(page.locator('#ui-console-log')).toContainText('front-page-log-sync-check');
+  await expect(page.locator('#ui-console-expand')).toHaveAttribute('aria-expanded', 'true');
+});
+
 test('guest menu opens lazy login and cinematic private registration without credentials', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');

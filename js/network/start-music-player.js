@@ -1,5 +1,5 @@
-import playIcon from '../../gfx/icons/mono/play.svg?url';
-import pauseIcon from '../../gfx/icons/mono/pause.svg?url';
+import playIcon from '../../gfx/icons/mono/play.svg?url&no-inline';
+import pauseIcon from '../../gfx/icons/mono/pause.svg?url&no-inline';
 
 export function initializeStartMusicPlayer() {
   const root = document.getElementById('start-music-player');

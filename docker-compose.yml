@@ -81,6 +81,7 @@ services:
       - ./sql/migrate_npc_wars_v1.sql:/docker-entrypoint-initdb.d/028-npc-wars-v1.sql:ro
       - ./sql/migrate_economy_shortage_v1.sql:/docker-entrypoint-initdb.d/029-economy-shortage.sql:ro
       - ./sql/migrate_trellis2_integration_v1.sql:/docker-entrypoint-initdb.d/030-trellis2-integration-v1.sql:ro
+      - ./sql/migrate_server_announcements_v1.sql:/docker-entrypoint-initdb.d/031-server-announcements-v1.sql:ro
 
   tts:
     build:
