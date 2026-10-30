@@ -1,0 +1,21 @@
+- region "Registration prologue" [ref=f25e53]:
+  - button "Zurück" [ref=f25e54] [cursor=pointer]
+  - main [ref=f25e55]:
+    - paragraph [ref=f25e56]: Schritt 4 / Commander
+    - heading "Wer übernimmt das Kommando?" [active] [level=2] [ref=f25e94]
+    - paragraph [ref=f25e58]: Deine Identität entsteht in einem privaten Draft. Noch keine E-Mail, kein Passwort und keine aktive Welt.
+    - status
+    - status [ref=f25e87]: Anflug auf deinen reservierten Startplaneten.
+    - generic [ref=f25e95]:
+      - paragraph [ref=f25e96]: Vraesrioshyu III Colony [1:13416:3] · Privat reserviert bis 30.10.2026, 20:02:13.
+      - generic [ref=f25e97]:
+        - generic [ref=f25e98]: Commander-Name
+        - textbox "Commander-Name" [ref=f25e99]
+        - generic [ref=f25e100]: Hintergrund
+        - textbox "Hintergrund" [ref=f25e101]
+        - button "Charakter-Draft speichern" [ref=f25e102] [cursor=pointer]
+      - generic [ref=f25e103]:
+        - status [ref=f25e104]: Speichere zuerst deinen Charakter-Draft.
+        - button "KI-Portrait erzeugen" [disabled] [ref=f25e105]
+    - status
+    - alert

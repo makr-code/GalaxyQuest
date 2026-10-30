@@ -6,6 +6,15 @@
 import { loadRuntimeModule } from '../runtime/runtime-module-loader.js';
 import { loadAuthGalaxySamples } from './auth-galaxy-loader.js';
 import { generateLoadingGalaxy } from './loading-galaxy.js';
+import { measureCameraRelativeMotion } from './camera-relative-motion.js';
+import { createStartFlightTour } from './start-flight-tour.js';
+import { clearFlightStateCookie, readFlightStateCookie, writeFlightStateCookie } from './flight-state-cookie.js';
+import './perspective-space-flight.js';
+import { GalaxyNebulaField } from './galaxy-nebula-field.js';
+import { PerspectiveBloom } from './space-bloom.js';
+
+window.GQGalaxyNebulaField = GalaxyNebulaField;
+window.GQPerspectiveBloom = PerspectiveBloom;
 
 (async function () {
   let canvas = document.getElementById('starfield');
@@ -82,6 +91,9 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
       renderer: null,
       error: null,
       starSource: 'procedural',
+      visualStars: [],
+      armCount: 6,
+      pitchAngleDeg: 14,
       destroy: null,
       animationEngine: null,
       hudRoot: null,
@@ -94,10 +106,73 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
       speedOverlayParticles: null,
       speedOverlayPrevCamPos: null,
       speedOverlayPrevCamQuat: null,
+      speedOverlayPrevZoom: null,
       speedOverlayPrevTs: 0,
       authStarsAbortController: null,
+      registrationSceneGraph: null,
+      registrationSceneGraphToken: '',
     }
   );
+
+  function renderableStars(catalogStars) {
+    const stars = Array.isArray(catalogStars) ? catalogStars : [];
+    if (!isStartMenu || !runtime.visualStars.length || stars === runtime.visualStars) return stars;
+    return runtime.visualStars.concat(stars);
+  }
+
+  function getRegistrationSceneGraph(draft) {
+    if (!draft?.prolog_token || !draft.target || !Array.isArray(draft.planets)) return null;
+    if (runtime.registrationSceneGraphToken === draft.prolog_token && runtime.registrationSceneGraph) {
+      return runtime.registrationSceneGraph;
+    }
+    const star = {
+      ...draft.star,
+      name: draft.system_name,
+      galaxy_index: Number(draft.position?.galaxy ?? draft.target.galaxy_index),
+      system_index: Number(draft.position?.system ?? draft.target.system_index),
+      x_ly: Number(draft.target.x_ly),
+      y_ly: Number(draft.target.y_ly),
+      z_ly: Number(draft.target.z_ly),
+    };
+    if (![star.x_ly, star.y_ly, star.z_ly].every(Number.isFinite)) return null;
+    const children = draft.planets.map((planet) => {
+      const position = Number(planet.position);
+      return {
+        type: 'planet',
+        data: {
+          ...planet,
+          position,
+          planet_class: planet.class || planet.planet_class || 'rocky',
+          preview_only: true,
+        },
+        children: position === Number(draft.position?.position)
+          ? [{ type: 'colony-site', previewOnly: true, children: [] }]
+          : [],
+      };
+    });
+    runtime.registrationSceneGraph = {
+      type: 'galaxy',
+      children: [{ type: 'system', data: star, children }],
+    };
+    runtime.registrationSceneGraphToken = draft.prolog_token;
+    return runtime.registrationSceneGraph;
+  }
+
+  function registrationNavigationTarget(preview) {
+    if (preview.stage === 'region') {
+      return { kind: 'point', x_ly: preview.target.x_ly, y_ly: preview.target.y_ly, z_ly: preview.target.z_ly };
+    }
+    if (preview.stage === 'system') return { kind: 'system' };
+    if (preview.stage === 'planet') return { kind: 'planet', position: preview.target.position };
+    if (preview.stage === 'surface') return { kind: 'surface', position: preview.target.position };
+    return null;
+  }
+
+  function updateSpatialLabelStars(stars) {
+    const renderer = runtime.renderer;
+    if (typeof renderer?.setSpatialLabelStars === 'function') return renderer.setSpatialLabelStars(stars);
+    return renderer?._native?.setSpatialLabelStars?.(stars) ?? 0;
+  }
 
   function starfieldDebug(payload, level = 'info') {
     try {
@@ -239,9 +314,9 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
       return;
     }
     await loadScript(withAssetVersion('js/runtime/galaxy-chunk-utils.js', 'galaxyChunkUtils', '20260831p1'));
-    await loadScript(withAssetVersion('js/rendering/starfield-webgpu.js', 'starfieldWebGpu', '20260330p2'));
+    await loadScript(withAssetVersion('js/rendering/starfield-webgpu.js', 'starfieldWebGpu', '20261029perspective1'));
     await loadScript(withAssetVersion('js/rendering/Galaxy3DRendererWebGPU.js', 'galaxyRendererWebGpu', '20260404p4'));
-    await loadScript(withAssetVersion('js/legacy/galaxy3d-webgpu.js', 'legacyWebGpu', '20260404p2'));
+    await loadScript(withAssetVersion('js/legacy/galaxy3d-webgpu.js', 'legacyWebGpu', '20261029perspective1'));
   }
 
   async function canUseWebGpuAdapter() {
@@ -357,6 +432,7 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
     }));
     runtime.speedOverlayPrevCamPos = null;
     runtime.speedOverlayPrevCamQuat = null;
+    runtime.speedOverlayPrevZoom = null;
     runtime.speedOverlayPrevTs = performance.now();
   }
 
@@ -440,7 +516,48 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
     const overlay = runtime.speedOverlayCanvas;
     const ctx = runtime.speedOverlayCtx;
     const renderer = runtime.renderer;
-    if (!overlay || !ctx || !renderer || !renderer.camera || !window.THREE) return;
+    if (!overlay || !ctx || !renderer) return;
+    if (renderer.getFlightTelemetry?.()?.spatial) {
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      return;
+    }
+
+    if ((!window.THREE || typeof renderer.camera?.position?.clone !== 'function')
+      && typeof renderer.getFlightTelemetry === 'function') {
+      resizeSpeedOverlayCanvas();
+      const rect = host.getBoundingClientRect();
+      const w = Math.max(1, rect.width);
+      const h = Math.max(1, rect.height);
+      const telemetry = renderer.getFlightTelemetry();
+      const speed = clamp(Number(telemetry?.speedNorm) || 0, 0, 1);
+      ctx.clearRect(0, 0, w, h);
+      if (speed < 0.01) return;
+      const particles = runtime.speedOverlayParticles || [];
+      const cx = w * 0.5;
+      const cy = h * 0.5;
+      const lengthGain = 5 + speed * 36;
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < particles.length; i++) {
+        const particle = particles[i];
+        particle.radiusNorm += (0.006 + speed * 0.035) * (0.25 + particle.depth);
+        if (particle.radiusNorm > 1) particle.radiusNorm = Math.random() * 0.08;
+        const radius = particle.radiusNorm * Math.hypot(w, h) * 0.52;
+        const x = cx + Math.cos(particle.angle) * radius;
+        const y = cy + Math.sin(particle.angle) * radius * 0.7;
+        const dx = Math.cos(particle.angle);
+        const dy = Math.sin(particle.angle);
+        ctx.strokeStyle = `rgba(159, 208, 255, ${(0.08 + speed * 0.2).toFixed(3)})`;
+        ctx.lineWidth = 0.5 + particle.depth * 1.3;
+        ctx.beginPath();
+        ctx.moveTo(x - dx * lengthGain, y - dy * lengthGain);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      return;
+    }
+
+    if (!renderer.camera || !window.THREE) return;
 
     resizeSpeedOverlayCanvas();
     const rect = host.getBoundingClientRect();
@@ -452,30 +569,26 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
     const telemetry = runtime.cameraDriver && typeof runtime.cameraDriver.getTelemetry === 'function'
       ? runtime.cameraDriver.getTelemetry()
       : null;
-    const speed = Number(telemetry?.speed ?? runtime.flight?.lastSpeed ?? 0);
     const phase = String(telemetry?.phase || 'idle').toLowerCase();
-    const speedBand = resolveSpeedBand(speed, phase);
-    const speedNorm = clamp((speed / 1), 0, 1);
-
-    ctx.clearRect(0, 0, w, h);
-    if (speedNorm < 0.01) return;
 
     const camPos = renderer.camera.position;
     const camQuat = renderer.camera.quaternion;
     const prevPos = runtime.speedOverlayPrevCamPos || camPos.clone();
     const prevQuat = runtime.speedOverlayPrevCamQuat || camQuat.clone();
     const dtSec = Math.max(0.001, (now - Number(runtime.speedOverlayPrevTs || now)) * 0.001);
+    const cameraZoom = Math.max(0.01, Number(renderer.camera.zoom) || 1);
+    const prevZoom = runtime.speedOverlayPrevZoom || cameraZoom;
     runtime.speedOverlayPrevCamPos = camPos.clone();
     runtime.speedOverlayPrevCamQuat = camQuat.clone();
+    runtime.speedOverlayPrevZoom = cameraZoom;
     runtime.speedOverlayPrevTs = now;
 
     const worldDelta = camPos.clone().sub(prevPos);
-    const motionMag = worldDelta.length() / dtSec;
     const invQuat = renderer.camera.quaternion.clone().invert();
-    const localDelta = worldDelta.applyQuaternion(invQuat);
+    const localDelta = worldDelta.clone().applyQuaternion(invQuat);
 
     const deltaQuat = prevQuat.clone().invert().multiply(camQuat.clone()).normalize();
-    const dqW = clamp(deltaQuat.w, -1, 1);
+    const dqW = clamp(Math.abs(deltaQuat.w), -1, 1);
     const rotAngle = 2 * Math.acos(dqW);
     const rotS = Math.sqrt(Math.max(1 - dqW * dqW, 0));
     const rotAxis = rotS < 1e-4
@@ -489,6 +602,17 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
     const yawRate = rotAxis.y * rotAngle / dtSec;
     const pitchRate = rotAxis.x * rotAngle / dtSec;
     const rollRate = rotAxis.z * rotAngle / dtSec;
+    const relativeMotion = measureCameraRelativeMotion({
+      positionDelta: worldDelta,
+      rotationDelta: { x: pitchRate * dtSec, y: yawRate * dtSec, z: rollRate * dtSec },
+      zoomRatio: cameraZoom / prevZoom,
+      deltaSeconds: dtSec,
+    });
+    const speedNorm = relativeMotion.speedNorm;
+    const speedBand = resolveSpeedBand(speedNorm, phase);
+
+    ctx.clearRect(0, 0, w, h);
+    if (speedNorm < 0.01) return;
 
     const lateralX = clamp(localDelta.x * 0.12, -42, 42);
     const lateralY = clamp(-localDelta.y * 0.12, -32, 32);
@@ -502,7 +626,7 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
     const centerX = cx + centerShiftX;
     const centerY = cy + centerShiftY;
 
-    const motionBoost = clamp((motionMag / 250) * speedBand.motionGain, 0.45, 2.9);
+    const motionBoost = clamp((relativeMotion.opticalSpeed / 250) * speedBand.motionGain, 0.45, 2.9);
     const coreClearRadius = Math.min(w, h) * 0.14;
     const maxR = Math.hypot(w, h) * 0.78;
     const usableRadius = Math.max(24, maxR - coreClearRadius);
@@ -538,9 +662,8 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
       const uy = dirY / dirLen;
 
       const len = (3 + p.depth * 20) * (0.2 + speedBand.lengthGain * 1.45 + speedNorm * 0.95) * motionBoost;
-      const tailRadius = Math.max(coreClearRadius + 2, radius - len);
-      const x0 = centerX + (radialX * tailRadius);
-      const y0 = centerY + (radialY * tailRadius);
+      const x0 = px - (ux * len);
+      const y0 = py - (uy * len);
 
       const alpha = clamp((0.022 + p.depth * 0.13) * (0.12 + speedBand.alphaGain * 0.88), 0.01, 0.32);
       const width = (0.45 + p.depth * 1.5) * speedBand.widthGain;
@@ -1112,7 +1235,77 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
     runtime.animationEngine = null;
   }
 
+  function getFlightRenderer() {
+    const renderer = runtime.renderer;
+    if (!renderer) return null;
+    if (typeof renderer.setFlightScene === 'function' && typeof renderer.navigateTo === 'function') return renderer;
+    const nativeRenderer = renderer._native;
+    if (typeof nativeRenderer?.setFlightScene === 'function'
+      && typeof nativeRenderer?.navigateTo === 'function') return nativeRenderer;
+    return renderer;
+  }
+
   const controlApi = {
+    setFlightTourScene(scene) {
+      const renderer = getFlightRenderer();
+      if (!isStartMenu || !renderer) return false;
+      if (!scene) {
+        renderer.setFlightScene?.(null);
+        renderer.cancelCameraFlight?.();
+        if (renderer.getFlightTelemetry?.()?.spatial) return true;
+        renderer.setRegionPreview?.(null);
+        renderer.setRegistrationScene?.(null);
+        renderer.setStars?.(renderableStars(runtime.stars), { preserveView: true });
+        const label = document.getElementById('start-galaxy-source');
+        if (label) label.textContent = runtime.starSource === 'database'
+          ? `Database galaxy sample: ${runtime.stars.length.toLocaleString()} real systems plus a separate illustrative stellar field.`
+          : 'Procedural visual galaxy; not DB system data.';
+        return true;
+      }
+
+      if (renderer.setFlightScene?.(scene) === true && renderer.getFlightTelemetry?.()?.spatial) {
+        const label = document.getElementById('start-galaxy-source');
+        if (label) label.textContent = `READ-ONLY FLIGHT · ${scene.target?.name || 'Space'}`;
+        return true;
+      }
+
+      if (typeof renderer.getFlightTelemetry === 'function') {
+        ensureSpeedOverlayCanvas();
+        startSpeedOverlayLoop();
+      }
+
+      const visibleStars = [...new Map(
+        [...runtime.stars, ...(scene.stars || [])]
+          .map((star) => [`${star.galaxy_index}:${star.system_index}`, star])
+      ).values()];
+      renderer.setStars?.(renderableStars(visibleStars), { preserveScale: true, preserveView: true });
+      if (renderer.setRegionPreview?.(scene.target || null) !== true) return false;
+      const setScene = renderer.setFlightScene || renderer.setRegistrationScene;
+      if (typeof setScene === 'function' && setScene.call(renderer, scene) !== true) return false;
+      const label = document.getElementById('start-galaxy-source');
+      if (label) label.textContent = `READ-ONLY FLIGHT · ${String(scene.stage || 'region').toUpperCase()} · ${scene.target?.name || `System ${scene.target?.system_index || ''}`}`;
+      return true;
+    },
+    setFlightTourEnabled(enabled) {
+      if (!isStartMenu || !runtime.flightTourController) return false;
+      if (enabled && document.body.dataset.startReducedMotion === 'true') return false;
+      if (enabled) {
+        if (getFlightRenderer()?.getFlightTelemetry) {
+          ensureSpeedOverlayCanvas();
+          startSpeedOverlayLoop();
+        }
+        return runtime.flightTourController.start();
+      }
+      runtime.flightTourController.stop();
+      clearFlightStateCookie();
+      if (runtime.speedOverlayRafId) cancelAnimationFrame(runtime.speedOverlayRafId);
+      runtime.speedOverlayRafId = 0;
+      if (runtime.speedOverlayCtx && runtime.speedOverlayCanvas) {
+        runtime.speedOverlayCtx.clearRect(0, 0, runtime.speedOverlayCanvas.width, runtime.speedOverlayCanvas.height);
+      }
+      controlApi.setFlightTourScene(null);
+      return true;
+    },
     setRegistrationPreview(preview) {
       const stars = preview?.stars;
       if (preview && (!Array.isArray(stars) || !stars.length)) return false;
@@ -1124,8 +1317,39 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
         const visible = preview && runtime.starSource === 'database'
           ? [...new Map([...runtime.stars, ...stars].map((star) => [`${star.galaxy_index}:${star.system_index}`, star])).values()]
           : preview ? stars : runtime.stars;
-        runtime.renderer.setStars?.(visible, { preserveScale: !!preview && runtime.starSource === 'database' });
+        runtime.renderer.setStars?.(renderableStars(visible), { preserveScale: !!preview && runtime.starSource === 'database' });
       }
+
+      const flightRenderer = getFlightRenderer();
+      if (preview && flightRenderer?.setFlightScene && flightRenderer?.navigateTo) {
+        const sceneGraph = getRegistrationSceneGraph(preview.draft);
+        const scene = {
+          flightTour: true,
+          stage: preview.stage,
+          target: preview.target,
+          stars,
+          draft: preview.draft,
+          sceneGraph,
+        };
+        if (sceneGraph && flightRenderer.setFlightScene(scene) === true
+          && flightRenderer.getFlightTelemetry?.()?.spatial === true) {
+          const target = registrationNavigationTarget(preview);
+          if (target) void flightRenderer.navigateTo(target, { durationMs: 2600 });
+          const label = document.getElementById('start-galaxy-source');
+          if (label) label.textContent = `WEBGPU FLIGHT · ${String(preview.stage).toUpperCase()} · ${preview.target?.name || `System ${preview.target?.system_index || ''}`}`;
+          return true;
+        }
+      }
+
+      if (!preview && flightRenderer?.getFlightTelemetry?.()?.spatial === true) {
+        flightRenderer.setFlightScene(null);
+        flightRenderer.setRegistrationScene?.(null);
+        runtime.registrationSceneGraph = null;
+        runtime.registrationSceneGraphToken = '';
+        runtime.renderer.setStars?.(renderableStars(runtime.stars), { preserveView: false });
+        return true;
+      }
+
       if (runtime.renderer.setRegionPreview(preview?.target || null) !== true) return false;
       if (typeof runtime.renderer.setRegistrationScene === 'function') {
         if (runtime.renderer.setRegistrationScene(preview) !== true) return false;
@@ -1141,6 +1365,7 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
       return true;
     },
     releaseCanvasForGame() {
+      runtime.flightTourController?.stop();
       runtime.releaseRequested = true;
       if (runtime.released && !runtime.renderer) {
         return;
@@ -1165,7 +1390,25 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
     isActive() {
       return !!runtime.renderer && !runtime.released;
     },
+    getRenderBenchmark() {
+      return getFlightRenderer()?.getFlightTelemetry?.()?.renderBenchmark ?? null;
+    },
   };
+
+  runtime.flightTourController = createStartFlightTour({
+    getStars: () => runtime.starSource === 'database' ? runtime.stars : [],
+    showScene: (scene) => controlApi.setFlightTourScene(scene),
+    navigateTo: (target, options) => getFlightRenderer()?.navigateTo?.(target, options) ?? false,
+    readResumeState: () => readFlightStateCookie(),
+    restoreFlightCoordinates: (coordinates) => getFlightRenderer()?.restoreFlightCoordinates?.(coordinates) ?? false,
+    getFlightCoordinates: () => getFlightRenderer()?.getFlightCoordinates?.() ?? null,
+    writeFlightState: (coordinates) => writeFlightStateCookie(coordinates),
+    clearFlightState: clearFlightStateCookie,
+    onStatus: (message) => {
+      const status = document.getElementById('start-flight-status');
+      if (status) status.textContent = message;
+    },
+  });
 
   window.GQStarfieldControl = Object.assign(window.GQStarfieldControl || {}, controlApi);
   window.GQAuthGalaxyBackgroundControl = Object.assign(window.GQAuthGalaxyBackgroundControl || {}, controlApi);
@@ -1184,7 +1427,14 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
     }
     runtime.releaseRequested = false;
     runtime.released = false;
-    runtime.stars = generateLoadingGalaxy(isStartMenu ? 9000 : 1200, 5800);
+    const visualStarCount = isStartMenu
+      ? (window.matchMedia?.('(max-width: 700px)').matches ? 45000 : 120000)
+      : 1200;
+    runtime.stars = generateLoadingGalaxy(visualStarCount, 50000, Math.random, {
+      armCount: runtime.armCount,
+      pitchAngleDeg: runtime.pitchAngleDeg,
+    });
+    runtime.visualStars = isStartMenu ? runtime.stars : [];
     runtime.navBounds = null;
     runtime.occupiedSystems = [];
 
@@ -1224,6 +1474,9 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
       interactive: false,
       initialStars: runtime.stars,
       menuGalaxy: isStartMenu,
+      galaxyRadiusLy: 50000,
+      armCount: runtime.armCount,
+      pitchAngleDeg: runtime.pitchAngleDeg,
       onHover: null,
       onClick: null,
       onDoubleClick: null,
@@ -1299,9 +1552,21 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
     runtime.authStarsAbortController = authStarsAbortController;
     loadAuthGalaxySamples({
       signal: authStarsAbortController.signal,
-      onSample: ({ stars, occupiedSystems: sampleOccupiedSystems }) => {
+      onSample: ({ stars, occupiedSystems: sampleOccupiedSystems, armCount, pitchAngleDeg }) => {
         if (runtime.releaseRequested || runtime.released || !runtime.renderer || !stars.length) return;
         const isFirstSample = starsBySystem.size === 0;
+        const nextArmCount = Number(armCount);
+        const nextPitchAngle = Number(pitchAngleDeg);
+        if (isStartMenu && nextArmCount >= 2 && nextPitchAngle > 0
+          && (nextArmCount !== runtime.armCount || nextPitchAngle !== runtime.pitchAngleDeg)) {
+          runtime.armCount = nextArmCount;
+          runtime.pitchAngleDeg = nextPitchAngle;
+          runtime.visualStars = generateLoadingGalaxy(runtime.visualStars.length, 50000, Math.random, {
+            armCount: runtime.armCount,
+            pitchAngleDeg: runtime.pitchAngleDeg,
+          });
+          runtime.renderer.setNebulaConfiguration?.({ armCount: runtime.armCount, pitchAngleDeg: runtime.pitchAngleDeg });
+        }
 
         for (const star of stars) {
           const systemIndex = Number(star.system_index || star.id);
@@ -1320,10 +1585,11 @@ import { generateLoadingGalaxy } from './loading-galaxy.js';
         runtime.stars = Array.from(starsBySystem.values());
         runtime.starSource = 'database';
         const sourceLabel = document.getElementById('start-galaxy-source');
-        if (sourceLabel && !runtime.registrationPreview) sourceLabel.textContent = `Database galaxy sample: ${runtime.stars.length.toLocaleString()} star systems. Loading points replaced.`;
+        if (sourceLabel && !runtime.registrationPreview) sourceLabel.textContent = `Database galaxy sample: ${runtime.stars.length.toLocaleString()} real systems plus a separate illustrative stellar field.`;
         runtime.occupiedSystems = Array.from(occupiedSystems);
         runtime.navBounds = null;
-        if (!runtime.registrationPreview) runtime.renderer.setStars?.(runtime.stars, { preserveView: true });
+        if (!runtime.registrationPreview) runtime.renderer.setStars?.(renderableStars(runtime.stars), { preserveView: true });
+        updateSpatialLabelStars(runtime.stars);
         runtime.renderer.setEmpireHeartbeatSystems?.(runtime.occupiedSystems);
         runtime.cameraDriver?.setRandomStars?.(runtime.stars);
         if (isFirstSample && !isStartMenu) {

@@ -41,11 +41,18 @@ final class RegistrationDraftService {
                 'description' => $definition['text'], 'anchor_species' => $definition['anchor_species'],
             ]);
         }
+        $speciesCatalog = [];
+        foreach ($this->species as $code => $spec) {
+            $region = $factions[$code];
+            $speciesCatalog[] = [
+                'code' => $code, 'name' => $spec['display_name'], 'description' => $spec['species_type'],
+                'faction_id' => $region['id'], 'homeworld' => $region['homeworld'],
+                'target' => $region['target'], 'stars' => $region['stars'],
+            ];
+        }
         return [
             'factions' => $political,
-            'species' => array_map(static fn(string $code, array $spec): array => [
-                'code' => $code, 'name' => $spec['display_name'], 'description' => $spec['species_type'],
-            ], array_keys($this->species), array_values($this->species)),
+            'species' => $speciesCatalog,
             'gameplay_styles' => self::STYLES,
         ];
     }
@@ -58,10 +65,115 @@ final class RegistrationDraftService {
     }
 
     public function status(string $owner): ?array {
-        $stmt = $this->db->prepare('SELECT * FROM registration_drafts WHERE session_hash = ? AND expires_at > UTC_TIMESTAMP()');
+        $stmt = $this->db->prepare('SELECT * FROM registration_drafts WHERE selected_session_hash = ? AND expires_at > UTC_TIMESTAMP()');
         $stmt->execute([$owner]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ? $this->publicDraft($row) : null;
+    }
+
+    public function mentorDrafts(string $owner, string $ipHash): array {
+        $catalog = $this->catalog();
+        $existing = $this->draftRows($owner);
+        if (count($existing) === count($catalog['species'])) return $this->orderedDrafts($existing, $catalog['species']);
+
+        $this->limit($ipHash);
+        $preparedGalaxies = [];
+        foreach ($catalog['species'] as $species) {
+            $galaxy = (int)$species['target']['galaxy_index'];
+            if (isset($preparedGalaxies[$galaxy])) continue;
+            $this->prepareFrontier($species['target'], count($catalog['species']));
+            $preparedGalaxies[$galaxy] = true;
+        }
+        $this->db->beginTransaction();
+        try {
+            $this->db->query('SELECT faction_id FROM faction_homeworlds ORDER BY faction_id FOR UPDATE')->fetchAll();
+            $this->db->exec('DELETE FROM registration_drafts WHERE expires_at <= UTC_TIMESTAMP()');
+            $existing = $this->draftRows($owner);
+            if (count($existing) === count($catalog['species'])) {
+                $this->db->commit();
+                return $this->orderedDrafts($existing, $catalog['species']);
+            }
+            $reservedPlanetIds = array_map(static fn(array $row): int => (int)$row['planet_id'], $existing);
+            $reservedSystemKeys = [];
+            foreach ($existing as $row) {
+                $snapshot = json_decode($row['snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+                $position = $snapshot['position'] ?? [];
+                if (isset($position['galaxy'], $position['system'])) {
+                    $reservedSystemKeys[] = (int)$position['galaxy'] . ':' . (int)$position['system'];
+                }
+            }
+            $existingCodes = array_fill_keys(array_column($existing, 'mentor_code'), true);
+            foreach ($catalog['species'] as $species) {
+                $code = $species['code'];
+                if (isset($existingCodes[$code])) continue;
+                $planet = $this->allocate($species['target'], $reservedPlanetIds, $reservedSystemKeys);
+                $reservedPlanetIds[] = (int)$planet['id'];
+                $reservedSystemKeys[] = (int)$planet['galaxy'] . ':' . (int)$planet['system'];
+                $system = generate_star_system((int)$planet['galaxy'], (int)$planet['system']);
+                $body = array_values(array_filter($system['planets'], static fn(array $candidate): bool =>
+                    (int)$candidate['position'] === (int)$planet['position']))[0];
+                $snapshot = [
+                    'mentor_code' => $code, 'species_code' => $code, 'anchor_species' => $code,
+                    'faction_code' => null, 'colony_name' => mb_substr($body['name'] . ' Colony', 0, 64),
+                    'position' => ['galaxy' => (int)$planet['galaxy'], 'system' => (int)$planet['system'], 'position' => (int)$planet['position']],
+                    'target' => $this->target([
+                        'galaxy_index' => $planet['galaxy'], 'system_index' => $planet['system'],
+                        'position' => $planet['position'], 'x_ly' => $planet['x_ly'], 'y_ly' => $planet['y_ly'], 'z_ly' => $planet['z_ly'],
+                    ]),
+                    'system_name' => $system['name'],
+                    'star' => ['temperature_k' => (int)$system['temperature_k'], 'radius_solar' => (float)$system['radius_solar']],
+                    'stars' => $species['stars'],
+                    'planets' => array_map(static fn(array $candidate): array => [
+                        'name' => $candidate['name'], 'position' => (int)$candidate['position'],
+                        'class' => $candidate['planet_class'], 'can_colonize' => (bool)$candidate['can_colonize'],
+                        'diameter_km' => (int)$candidate['diameter_km'],
+                        'semi_major_axis_au' => (float)$candidate['semi_major_axis_au'],
+                    ], $system['planets']),
+                    'starter' => $this->starter,
+                ];
+                $token = bin2hex(random_bytes(32));
+                PlanetReservation::withLock($this->db, (int)$planet['id'], function () use ($token, $owner, $species, $planet, $snapshot): void {
+                    $stmt = $this->db->prepare('SELECT id FROM colonies WHERE planet_id = ? FOR UPDATE');
+                    $stmt->execute([$planet['id']]);
+                    if ($stmt->fetchColumn() || PlanetReservation::isReserved($this->db, (int)$planet['id'])) {
+                        throw new RuntimeException('World was just claimed. Please continue again.', 409);
+                    }
+                    $this->db->prepare(
+                        'INSERT INTO registration_drafts (token, session_hash, mentor_code, selected_session_hash,
+                            faction_id, planet_id, snapshot_json, expires_at)
+                         VALUES (?, ?, ?, NULL, ?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 HOUR))'
+                    )->execute([$token, $owner, $species['code'], $species['faction_id'], $planet['id'], json_encode($snapshot, JSON_THROW_ON_ERROR)]);
+                });
+            }
+            $drafts = $this->draftRows($owner);
+            $this->db->commit();
+            return $this->orderedDrafts($drafts, $catalog['species']);
+        } catch (Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
+    }
+
+    public function selectMentor(string $owner, string $token, string $mentorCode): array {
+        $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare(
+                'SELECT * FROM registration_drafts WHERE token = ? AND session_hash = ? AND mentor_code = ?
+                 AND expires_at > UTC_TIMESTAMP() FOR UPDATE'
+            );
+            $stmt->execute([$token, $owner, $mentorCode]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) throw new RuntimeException('Mentor system draft expired or unavailable.', 410);
+            $this->db->prepare('UPDATE registration_drafts SET selected_session_hash = NULL WHERE selected_session_hash = ?')
+                ->execute([$owner]);
+            $this->db->prepare('UPDATE registration_drafts SET selected_session_hash = ? WHERE token = ? AND session_hash = ?')
+                ->execute([$owner, $token, $owner]);
+            $this->db->commit();
+            return $this->status($owner) ?? throw new RuntimeException('Selected mentor draft is unavailable.', 410);
+        } catch (Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
     }
 
     public function cancel(string $owner): void {
@@ -115,9 +227,10 @@ final class RegistrationDraftService {
                     throw new RuntimeException('World was just claimed. Please continue again.', 409);
                 }
                 $this->db->prepare(
-                    'INSERT INTO registration_drafts (token, session_hash, faction_id, planet_id, snapshot_json, expires_at)
-                     VALUES (?, ?, ?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 HOUR))'
-                )->execute([$token, $owner, $faction['id'], $planet['id'], json_encode($snapshot, JSON_THROW_ON_ERROR)]);
+                    'INSERT INTO registration_drafts (token, session_hash, mentor_code, selected_session_hash,
+                        faction_id, planet_id, snapshot_json, expires_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 HOUR))'
+                )->execute([$token, $owner, $faction['anchor_species'], $owner, $faction['id'], $planet['id'], json_encode($snapshot, JSON_THROW_ON_ERROR)]);
             });
             $draft = $this->status($owner);
             $this->db->commit();
@@ -146,6 +259,7 @@ final class RegistrationDraftService {
         if (!$draft || !hash_equals($draft['prolog_token'], $input['prolog_token'])) {
             throw new RuntimeException('Registration draft expired or unavailable. Choose your faction again.', 410);
         }
+        $this->db->prepare('DELETE FROM registration_drafts WHERE session_hash = ? AND token <> ?')->execute([$owner, $input['prolog_token']]);
         return $draft;
     }
 
@@ -189,7 +303,7 @@ final class RegistrationDraftService {
         if ((int)$stmt->fetchColumn() > 10) throw new RuntimeException('Too many registration drafts. Please try again later.', 429);
     }
 
-    private function allocate(array $anchor): array {
+    private function allocate(array $anchor, array $excludePlanetIds = [], array $excludeSystemKeys = []): array {
         $stmt = $this->db->prepare(
             'SELECT p.*, s.x_ly, s.y_ly, s.z_ly FROM planets p
              JOIN star_systems s ON s.galaxy_index = p.galaxy AND s.system_index = p.`system`
@@ -206,6 +320,9 @@ final class RegistrationDraftService {
         );
         $stmt->execute([$anchor['galaxy_index'], $anchor['x_ly'], $anchor['y_ly'], $anchor['z_ly']]);
         while ($planet = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            if (in_array((int)$planet['id'], $excludePlanetIds, true)) continue;
+            $systemKey = (int)$planet['galaxy'] . ':' . (int)$planet['system'];
+            if (in_array($systemKey, $excludeSystemKeys, true)) continue;
             $generated = generate_star_system((int)$planet['galaxy'], (int)$planet['system']);
             foreach ($generated['planets'] as $body) {
                 if ((int)$body['position'] === (int)$planet['position'] && !empty($body['can_colonize'])) return $planet;
@@ -214,7 +331,7 @@ final class RegistrationDraftService {
         throw new RuntimeException('No prepared frontier world is free. Extend the galaxy setup before registering.', 503);
     }
 
-    private function prepareFrontier(array $anchor): void {
+    private function prepareFrontier(array $anchor, int $requiredSystems = 3): void {
         $galaxy = $anchor['galaxy_index'];
         $stmt = $this->db->prepare(
             'SELECT cb.system_index, cb.position FROM colonies c JOIN celestial_bodies cb ON cb.id = c.body_id
@@ -242,12 +359,18 @@ final class RegistrationDraftService {
         $seeder = new FactionHomeworldSeeder($this->db);
         foreach ($distances as $system => $distance) {
             $generated = generate_star_system($galaxy, $system);
+            $hasFreePlanet = false;
             foreach ($generated['planets'] as $planet) {
                 if (empty($planet['can_colonize']) || isset($occupied[$system . ':' . $planet['position']])) continue;
-                $seeder->prepareSystem($galaxy, $system);
-                if (++$prepared >= 3) return;
+                $hasFreePlanet = true;
                 break;
             }
+            if (!$hasFreePlanet) continue;
+            $seeder->prepareSystem($galaxy, $system);
+            foreach ($generated['planets'] as $planet) {
+                $occupied[$system . ':' . $planet['position']] = true;
+            }
+            if (++$prepared >= max(1, $requiredSystems)) return;
         }
         if ($prepared === 0) throw new RuntimeException('No free colonizable frontier world remains in this galaxy.', 503);
     }
@@ -264,7 +387,28 @@ final class RegistrationDraftService {
 
     private function publicDraft(array $row): array {
         $snapshot = json_decode($row['snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
-        return ['prolog_token' => $row['token'], 'expires_at' => str_replace(' ', 'T', $row['expires_at']) . 'Z'] + $snapshot;
+        return [
+            'prolog_token' => $row['token'],
+            'expires_at' => str_replace(' ', 'T', $row['expires_at']) . 'Z',
+            'mentor_code' => $row['mentor_code'],
+            'selected' => isset($row['selected_session_hash']) && $row['selected_session_hash'] === $row['session_hash'],
+        ] + $snapshot;
+    }
+
+    private function draftRows(string $owner): array {
+        $stmt = $this->db->prepare('SELECT * FROM registration_drafts WHERE session_hash = ? AND expires_at > UTC_TIMESTAMP()');
+        $stmt->execute([$owner]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function orderedDrafts(array $rows, array $species): array {
+        $byCode = [];
+        foreach ($rows as $row) $byCode[$row['mentor_code']] = $this->publicDraft($row);
+        $ordered = [];
+        foreach ($species as $entry) {
+            if (isset($byCode[$entry['code']])) $ordered[] = $byCode[$entry['code']];
+        }
+        return $ordered;
     }
 
     private function target(array $row): array {

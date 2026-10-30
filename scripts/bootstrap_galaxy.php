@@ -5,7 +5,14 @@ require_once __DIR__ . '/../api/galaxy_seed.php';
 require_once __DIR__ . '/ensure_default_admin.php';
 
 $db = get_db();
-$adminId = ensure_default_admin($db);
+$adminLookup = $db->prepare('SELECT id FROM users WHERE username = ? LIMIT 1');
+$adminLookup->execute(['administrator']);
+$adminId = $adminLookup->fetchColumn();
+if ($adminId === false) {
+	$adminId = ensure_default_admin($db);
+} else {
+	$adminId = (int)$adminId;
+}
 $result = ensure_galaxy_bootstrap_progress($db, true);
 
 echo 'Galaxy bootstrap complete.' . PHP_EOL;

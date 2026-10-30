@@ -24,7 +24,7 @@ require_once __DIR__ . '/projection.php';
 only_method('GET');
 
 $action = (string)($_GET['action'] ?? 'system');
-if ($action !== 'auth_stars') {
+if (!in_array($action, ['auth_stars', 'auth_flight_preview'], true)) {
     require_auth();
     // Star-hydration requests can be long-running; do not hold the PHP session
     // lock while streaming galaxy data.
@@ -38,7 +38,7 @@ $g = max(1, min(GALAXY_MAX, (int)($_GET['galaxy'] ?? 1)));
 $s = max(1, min(galaxy_system_limit(), (int)($_GET['system'] ?? 1)));
 
 $db = get_db();
-$needsBlockingBootstrap = !in_array($action, ['auth_stars', 'stars', 'bootstrap'], true);
+$needsBlockingBootstrap = !in_array($action, ['auth_stars', 'auth_flight_preview', 'stars', 'bootstrap'], true);
 if ($needsBlockingBootstrap) {
     ensure_galaxy_bootstrap_progress($db, false);
 }
@@ -162,6 +162,7 @@ function galaxy_users_has_empire_color(PDO $db): bool {
 }
 
 if ($action === 'auth_stars') {
+    $galaxyConfig = galaxy_config()['galaxy'] ?? [];
     $systemMax = galaxy_system_limit();
     $from = max(1, min($systemMax, (int)($_GET['from'] ?? 1)));
     $to = max($from, min($systemMax, (int)($_GET['to'] ?? $systemMax)));
@@ -175,7 +176,9 @@ if ($action === 'auth_stars') {
     $stmt = $db->prepare(
         'SELECT ss.id, ss.galaxy_index, ss.system_index, ss.name,
                 COALESCE(NULLIF(ss.catalog_name, ""), ss.name) AS catalog_name,
-                ss.spectral_class, ss.subtype, ss.x_ly, ss.y_ly, ss.z_ly,
+                ss.spectral_class, ss.subtype, ss.luminosity_class,
+                ss.mass_solar, ss.radius_solar, ss.temperature_k, ss.luminosity_solar,
+                ss.x_ly, ss.y_ly, ss.z_ly,
                 ss.galactic_radius_ly, ss.galactic_theta_rad, ss.galactic_height_ly,
                 ss.planet_count, ss.hz_inner_au, ss.hz_outer_au,
                 COUNT(DISTINCT c.id) AS colony_count,
@@ -188,7 +191,9 @@ if ($action === 'auth_stars') {
            AND ss.system_index BETWEEN ? AND ?
            AND MOD(ss.system_index - ?, ?) = 0
          GROUP BY ss.id, ss.galaxy_index, ss.system_index, ss.name, ss.catalog_name,
-                   ss.spectral_class, ss.subtype, ss.x_ly, ss.y_ly, ss.z_ly,
+                   ss.spectral_class, ss.subtype, ss.luminosity_class,
+                   ss.mass_solar, ss.radius_solar, ss.temperature_k, ss.luminosity_solar,
+                   ss.x_ly, ss.y_ly, ss.z_ly,
                    ss.galactic_radius_ly, ss.galactic_theta_rad, ss.galactic_height_ly,
                   ss.planet_count, ss.hz_inner_au, ss.hz_outer_au
          ORDER BY ss.system_index ASC'
@@ -199,6 +204,11 @@ if ($action === 'auth_stars') {
     $occupiedSystems = [];
     foreach ($stars as &$star) {
         $star['visibility_level'] = 'own';
+        $star['subtype'] = (int)($star['subtype'] ?? 0);
+        $star['mass_solar'] = (float)($star['mass_solar'] ?? 0.0);
+        $star['radius_solar'] = (float)($star['radius_solar'] ?? 0.0);
+        $star['temperature_k'] = (int)($star['temperature_k'] ?? 0);
+        $star['luminosity_solar'] = (float)($star['luminosity_solar'] ?? 0.0);
         $star['colony_count'] = (int)($star['colony_count'] ?? 0);
         $star['colony_population'] = (int)($star['colony_population'] ?? 0);
     }
@@ -221,6 +231,8 @@ if ($action === 'auth_stars') {
         'render_schema_version' => $renderSchemaVersion,
         'assets_manifest_version' => $assetsManifestVersion,
         'galaxy' => $g,
+        'arm_count' => galaxy_arm_count($g),
+        'pitch_angle_deg' => (float)($galaxyConfig['pitch_angle_deg'] ?? GAL_PITCH_ANGLE_DEG),
         'system_max' => $systemMax,
         'from' => $from,
         'to' => $to,
@@ -229,6 +241,202 @@ if ($action === 'auth_stars') {
         'stars' => $stars,
         'occupied_systems' => array_values(array_filter(array_unique($occupiedSystems), static fn($n): bool => $n > 0)),
         'server_ts_ms' => (int)round(microtime(true) * 1000),
+    ]);
+    exit;
+}
+
+if ($action === 'auth_flight_preview') {
+    $systemStmt = $db->prepare(
+        'SELECT galaxy_index, system_index, name, spectral_class, subtype,
+                mass_solar, radius_solar, temperature_k, luminosity_solar,
+            x_ly, y_ly, z_ly, planet_count, is_binary, is_circumbinary,
+            companion_mass_solar, companion_separation_au, companion_eccentricity
+         FROM star_systems
+         WHERE galaxy_index = ? AND system_index = ?
+         LIMIT 1'
+    );
+    $systemStmt->execute([$g, $s]);
+    $system = $systemStmt->fetch(PDO::FETCH_ASSOC);
+    if (!is_array($system)) {
+        json_error('System is not present in the public galaxy catalog.', 404);
+    }
+
+    $planetStmt = $db->prepare(
+        'SELECT p.position, p.planet_class, p.semi_major_axis_au,
+                p.orbital_period_days, p.orbital_eccentricity, p.diameter AS diameter_km,
+                p.surface_gravity_g, p.temp_min, p.temp_max, p.in_habitable_zone,
+                COALESCE(cb.mass_earth, NULL) AS mass_earth,
+                COALESCE(cb.eq_temp_k, NULL) AS equilibrium_temperature_k,
+                COALESCE(cb.can_colonize, 0) AS can_colonize
+         FROM planets p
+         LEFT JOIN celestial_bodies cb
+           ON cb.galaxy_index = p.galaxy AND cb.system_index = p.`system`
+          AND cb.position = p.position AND cb.body_type = \'planet\'
+          AND cb.parent_body_type = \'star\'
+         WHERE p.galaxy = ? AND p.`system` = ?
+         ORDER BY p.position'
+    );
+    $planetStmt->execute([$g, $s]);
+    $planets = $planetStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (count($planets) < (int)($system['planet_count'] ?? 0)) {
+        $existingPositions = [];
+        foreach ($planets as $planet) $existingPositions[(int)$planet['position']] = true;
+        $generatedPlanets = generate_planets($system, $g, $s, (string)$system['name'], [
+            'is_binary' => !empty($system['is_binary']) ? 1 : 0,
+            'is_circumbinary' => !empty($system['is_circumbinary']) ? 1 : 0,
+            'companion_mass_solar' => $system['companion_mass_solar'] ?? null,
+            'companion_separation_au' => $system['companion_separation_au'] ?? null,
+            'companion_eccentricity' => $system['companion_eccentricity'] ?? null,
+        ]);
+        foreach ($generatedPlanets as $generatedPlanet) {
+            $position = (int)($generatedPlanet['position'] ?? 0);
+            if ($position <= 0 || isset($existingPositions[$position])) continue;
+            $planets[] = [
+                'position' => $position,
+                'planet_class' => (string)($generatedPlanet['planet_class'] ?? 'rocky'),
+                'semi_major_axis_au' => (float)($generatedPlanet['semi_major_axis_au'] ?? 0),
+                'orbital_period_days' => (float)($generatedPlanet['orbital_period_days'] ?? 0),
+                'orbital_eccentricity' => (float)($generatedPlanet['orbital_eccentricity'] ?? 0),
+                'diameter_km' => (int)($generatedPlanet['diameter_km'] ?? 0),
+                'surface_gravity_g' => (float)($generatedPlanet['surface_gravity_g'] ?? 0),
+                'temp_min' => (int)($generatedPlanet['temp_min'] ?? 0),
+                'temp_max' => (int)($generatedPlanet['temp_max'] ?? 0),
+                'in_habitable_zone' => !empty($generatedPlanet['in_habitable_zone']) ? 1 : 0,
+                'mass_earth' => (float)($generatedPlanet['mass_earth'] ?? 0),
+                'equilibrium_temperature_k' => (float)($generatedPlanet['eq_temp_k'] ?? 0),
+                'can_colonize' => !empty($generatedPlanet['can_colonize']) ? 1 : 0,
+                'moons' => is_array($generatedPlanet['moons'] ?? null) ? $generatedPlanet['moons'] : [],
+                'preview_generated' => true,
+            ];
+            $existingPositions[$position] = true;
+        }
+        usort($planets, static fn(array $a, array $b): int => (int)$a['position'] <=> (int)$b['position']);
+    }
+
+    $colonyStmt = $db->prepare(
+        'SELECT body.position, COUNT(colonies.id) AS colony_count,
+                COALESCE(SUM(colonies.population), 0) AS colony_population
+         FROM celestial_bodies body
+         INNER JOIN colonies ON colonies.body_id = body.id
+         WHERE body.galaxy_index = ? AND body.system_index = ?
+           AND body.body_type = \'planet\' AND body.parent_body_type = \'star\'
+         GROUP BY body.position'
+    );
+    $colonyStmt->execute([$g, $s]);
+    $habitationByPosition = [];
+    foreach ($colonyStmt->fetchAll(PDO::FETCH_ASSOC) as $habitation) {
+        $position = (int)($habitation['position'] ?? 0);
+        if ($position <= 0) continue;
+        $habitationByPosition[$position] = [
+            'colony_count' => (int)($habitation['colony_count'] ?? 0),
+            'colony_population' => (int)($habitation['colony_population'] ?? 0),
+        ];
+    }
+
+    $buildingStmt = $db->prepare(
+        'SELECT body.position, buildings.type, buildings.level
+         FROM colonies
+         INNER JOIN celestial_bodies body ON body.id = colonies.body_id
+         INNER JOIN buildings ON buildings.colony_id = colonies.id
+         WHERE body.galaxy_index = ? AND body.system_index = ?
+           AND body.body_type = \'planet\' AND body.parent_body_type = \'star\'
+         ORDER BY body.position, buildings.type'
+    );
+    $buildingStmt->execute([$g, $s]);
+    $buildingDefinitions = building_definitions();
+    $facilitiesByPlanet = [];
+    $starInstallationsByKey = [];
+    foreach ($buildingStmt->fetchAll(PDO::FETCH_ASSOC) as $building) {
+        $position = (int)($building['position'] ?? 0);
+        $type = strtolower((string)($building['type'] ?? ''));
+        $level = (int)($building['level'] ?? 0);
+        $definition = $buildingDefinitions[$type] ?? null;
+        if ($position <= 0 || !$definition || $level <= 0) continue;
+        $facility = [
+            'type' => $type,
+            'label' => (string)($definition['label'] ?? $type),
+            'level' => $level,
+            'zone' => (string)($definition['zone'] ?? 'surface'),
+            'category' => (string)($definition['category'] ?? 'facility'),
+        ];
+        if ($facility['zone'] === 'star_orbit') {
+            $key = $position . ':' . $type;
+            if (!isset($starInstallationsByKey[$key]) || $starInstallationsByKey[$key]['level'] < $level) {
+                $starInstallationsByKey[$key] = $facility + ['position' => $position];
+            }
+        } else {
+            $facilitiesByPlanet[$position][] = $facility;
+        }
+    }
+    $starInstallations = array_values($starInstallationsByKey);
+
+    $moonStmt = $db->prepare(
+        'SELECT moon.id AS moon_index, parent.position AS parent_position,
+                moon.name, moon.planet_class, moon.semi_major_axis_parent_r,
+                moon.orbital_period_days, moon.diameter_km, moon.can_colonize
+         FROM celestial_bodies moon
+         INNER JOIN celestial_bodies parent ON parent.id = moon.parent_body_id
+         WHERE moon.galaxy_index = ? AND moon.system_index = ?
+           AND moon.body_type = \'moon\' AND moon.parent_body_type = \'planet\'
+         ORDER BY parent.position, moon.id
+         LIMIT 256'
+    );
+    $moonStmt->execute([$g, $s]);
+    $moonsByPlanet = [];
+    foreach ($moonStmt->fetchAll(PDO::FETCH_ASSOC) as $moon) {
+        $parentPosition = (int)($moon['parent_position'] ?? 0);
+        if ($parentPosition <= 0) continue;
+        $moonsByPlanet[$parentPosition][] = [
+            'moon_index' => (int)($moon['moon_index'] ?? 0),
+            'name' => (string)($moon['name'] ?? 'Moon'),
+            'planet_class' => (string)($moon['planet_class'] ?? 'rocky'),
+            'semi_major_axis_parent_r' => (float)($moon['semi_major_axis_parent_r'] ?? 0),
+            'orbital_period_days' => (float)($moon['orbital_period_days'] ?? 0),
+            'diameter_km' => (int)($moon['diameter_km'] ?? 0),
+            'can_colonize' => (int)($moon['can_colonize'] ?? 0),
+        ];
+    }
+    foreach ($planets as &$planet) {
+        $position = (int)($planet['position'] ?? 0);
+        $habitation = $habitationByPosition[$position] ?? ['colony_count' => 0, 'colony_population' => 0];
+        $planet['colony_count'] = $habitation['colony_count'];
+        $planet['colony_population'] = $habitation['colony_population'];
+        $planet['inhabited'] = $habitation['colony_count'] > 0;
+        $planet['facilities'] = $facilitiesByPlanet[$position] ?? [];
+        if (isset($moonsByPlanet[$position])) {
+            $planet['moons'] = $moonsByPlanet[$position];
+        } elseif (!is_array($planet['moons'] ?? null)) {
+            $planet['moons'] = [];
+        }
+        foreach (['position', 'diameter_km', 'temp_min', 'temp_max', 'in_habitable_zone', 'can_colonize'] as $field) {
+            $planet[$field] = (int)($planet[$field] ?? 0);
+        }
+        foreach (['semi_major_axis_au', 'orbital_period_days', 'orbital_eccentricity', 'surface_gravity_g', 'mass_earth', 'equilibrium_temperature_k'] as $field) {
+            $planet[$field] = $planet[$field] !== null ? (float)$planet[$field] : null;
+        }
+    }
+    unset($planet);
+
+    $textureSlots = array_map(static fn(array $planet): array => [
+        'position' => $planet['position'] ?? 0,
+        'generated_planet' => $planet,
+    ], $planets);
+    $planetTextureManifest = build_planet_texture_manifest(
+        $g,
+        $s,
+        $system,
+        $textureSlots,
+        $assetsManifestVersion
+    );
+
+    json_ok([
+        'preview_only' => true,
+        'system' => $system,
+        'planets' => $planets,
+        'planet_texture_manifest' => $planetTextureManifest,
+        'free_comets' => generate_free_comets_for_system($g, $s),
+        'rogue_planets' => generate_rogue_planets_for_system($g, $s),
+        'star_installations' => $starInstallations,
     ]);
     exit;
 }

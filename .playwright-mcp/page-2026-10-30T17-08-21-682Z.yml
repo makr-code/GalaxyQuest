@@ -1,0 +1,12 @@
+- region "Registration prologue" [ref=f25e53]:
+  - button "Zurück" [ref=f25e54] [cursor=pointer]
+  - main [ref=f25e55]:
+    - paragraph [ref=f25e56]: Prolog / Die Kalytherion-Konvergenz
+    - heading "Eine ungeschriebene Welt" [active] [level=2] [ref=f25e63]
+    - paragraph [ref=f25e58]: "An der Wegscheide alter Transitkorridore liegt eine unscheinbare Randwelt. Unter ihrem Boden ruht Vethisit: ein Mineral, das auf die Energie der Sprungfelder antwortet. Was gestern eine vergessene Siedlung war, könnte morgen das Schicksal ganzer Welten verändern."
+    - status [ref=f25e59]: Sprachausgabe nicht verfügbar. Der Prolog läuft als Text weiter.
+    - button "Sprachausgabe erneut versuchen" [ref=f25e60] [cursor=pointer]
+    - status
+    - status
+    - alert
+    - button "Weiter" [ref=f25e62] [cursor=pointer]

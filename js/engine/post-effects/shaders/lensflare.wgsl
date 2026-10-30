@@ -35,7 +35,7 @@ struct FlareSource {
   colorR    : f32,
   colorG    : f32,
   colorB    : f32,
-  active    : f32,         // 1.0 = visible, 0.0 = skip
+  enabled   : f32,         // 1.0 = visible, 0.0 = skip
   _pad      : f32,
 }
 
@@ -103,21 +103,12 @@ fn starburst(uv_ndc: vec2<f32>, centre: vec2<f32>, radius: f32, intensity: f32) 
 // -------------------------------------------------------------------------
 // Fragment shader
 // -------------------------------------------------------------------------
-@fragment
-fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-  // Convert UV [0,1] → NDC [-1,1]
-  let ndc = in.uv * vec2<f32>(2.0) - vec2<f32>(1.0);
-  // Y is flipped between UV and NDC
-  let uv_ndc = vec2<f32>(ndc.x, -ndc.y);
-
-  // Start with scene colour
-  var col = textureSample(inputTex, inputSmp, in.uv).rgb;
-
+fn flare_color(uv_ndc: vec2<f32>) -> vec3<f32> {
   var flare_add = vec3<f32>(0.0);
 
   for (var fi: u32 = 0u; fi < MAX_FLARES; fi++) {
     let src = params.flares[fi];
-    if (src.active < 0.5) { continue; }
+    if (src.enabled < 0.5) { continue; }
 
     let src_ndc = src.pos;
     let src_col = vec3<f32>(src.colorR, src.colorG, src.colorB) * src.intensity;
@@ -157,5 +148,18 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     flare_add += src_col * streak_h * streak_len * streak_len * 0.08;
   }
 
-  return vec4<f32>(col + flare_add, 1.0);
+  return flare_add;
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+  let ndc = in.uv * 2.0 - 1.0;
+  let color = textureSample(inputTex, inputSmp, in.uv).rgb;
+  return vec4<f32>(color + flare_color(vec2<f32>(ndc.x, -ndc.y)), 1.0);
+}
+
+@fragment
+fn fs_overlay(in: VSOut) -> @location(0) vec4<f32> {
+  let ndc = in.uv * 2.0 - 1.0;
+  return vec4<f32>(flare_color(vec2<f32>(ndc.x, -ndc.y)), 0.0);
 }

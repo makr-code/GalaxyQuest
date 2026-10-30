@@ -10,6 +10,8 @@ describe('auth galaxy progressive loader', () => {
         stars: [{ system_index: fetchImpl.mock.calls.length }],
         occupied_systems: [1],
         system_max: 50000,
+        arm_count: 6,
+        pitch_angle_deg: 14,
       }),
     }));
     const onSample = vi.fn();
@@ -27,6 +29,8 @@ describe('auth galaxy progressive loader', () => {
       stars: [{ system_index: 3 }],
       occupiedSystems: [1],
       systemMax: 50000,
+      armCount: 6,
+      pitchAngleDeg: 14,
     });
   });
 

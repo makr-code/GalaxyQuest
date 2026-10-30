@@ -1,0 +1,89 @@
+[12530525ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1843
+[12530788ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[12530809ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[12530814ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[12530814ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[12530834ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Quantum_Horizon.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[12530834ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Nebula_Overture.mp3, to: music/Quantum_Horizon.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[12530834ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Quantum_Horizon.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[12530844ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8080/favicon.ico:0
+[12531138ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793353055992:729
+[12560156ms] [INFO] [GQ][Audio] Play-Versuch {track: music/Quantum_Horizon.mp3, muted: false, volume: 0.44000000000000006} @ http://localhost:8080/js/runtime/audio.js:230
+[12560360ms] [INFO] [GQ][Audio] Musik läuft {track: music/Quantum_Horizon.mp3, currentTime: 0} @ http://localhost:8080/js/runtime/audio.js:230
+[12560372ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8080/favicon.ico:0
+[12872871ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1843
+[12873097ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[12873134ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Quantum_Horizon.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[12873135ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Quantum_Horizon.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[12873135ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Quantum_Horizon.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[12873158ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Stellar_Ascension%20v2.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[12873160ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Quantum_Horizon.mp3, to: music/Stellar_Ascension%20v2.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[12873160ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Stellar_Ascension%20v2.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[12873349ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793353055992:729
+[13827287ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1843
+[13830381ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[13830399ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Stellar_Ascension%20v2.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[13830399ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Stellar_Ascension%20v2.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[13830400ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Stellar_Ascension%20v2.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[13830431ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Aurora_Transit.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[13830431ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Stellar_Ascension%20v2.mp3, to: music/Aurora_Transit.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[13830431ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Aurora_Transit.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[13830603ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793353055992:729
+[15317006ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1843
+[15317251ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[15317259ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Aurora_Transit.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[15317260ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Aurora_Transit.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[15317260ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Aurora_Transit.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[15317265ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[15317266ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Aurora_Transit.mp3, to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[15317266ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[15317556ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793355867497:729
+[15494135ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1843
+[15494307ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[15494319ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[15494320ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[15494320ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[15494343ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Aurora_Transit.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[15494343ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Nebula_Overture.mp3, to: music/Aurora_Transit.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[15494344ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Aurora_Transit.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[15494482ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793355867497:729
+[15621621ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1843
+[15621802ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[15621808ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Aurora_Transit.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[15621809ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Aurora_Transit.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[15621809ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Aurora_Transit.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[15621813ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[15621814ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Aurora_Transit.mp3, to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[15621814ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[15621970ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793355867497:729
+[15747713ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1843
+[15748158ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[15748281ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Nebula_Overture.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[15748281ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Nebula_Overture.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[15748281ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Nebula_Overture.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[15748297ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[15748297ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Nebula_Overture.mp3, to: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[15748298ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Stellar_Ascension%20trance%20v1.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[15748484ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793355867497:729
+[16077023ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1843
+[16077248ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[16077256ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[16077256ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[16077257ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Stellar_Ascension%20trance%20v1.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[16077263ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Quantum_Horizon.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[16077263ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Stellar_Ascension%20trance%20v1.mp3, to: music/Quantum_Horizon.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[16077263ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Quantum_Horizon.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[16077461ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793355867497:729
+[16346580ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://localhost:8080/api/registration_narration.php?clip=teaser-distance:0
+[16356126ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://localhost:8080/api/registration_narration.php?clip=teaser-convergence:0
+[16364886ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://localhost:8080/api/registration_narration.php?clip=lichtbund:0
+[16364886ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://localhost:8080/api/registration_narration.php?clip=kernrat:0
+[16426005ms] [WARNING] [npc-dialogue] dependencies missing, init skipped @ http://localhost:8080/:1843
+[16426265ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:8080/:0
+[16426276ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Quantum_Horizon.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[16426276ms] [INFO] [GQ][Audio] Trackwechsel {from: (kein Track), to: music/Quantum_Horizon.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[16426277ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Quantum_Horizon.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[16426282ms] [INFO] [GQ][Audio] setMusicTrack aufgerufen {track: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false} @ http://localhost:8080/js/runtime/audio.js:230
+[16426282ms] [INFO] [GQ][Audio] Trackwechsel {from: music/Quantum_Horizon.mp3, to: music/Stellar_Ascension%20trance%20v1.mp3, autoplay: false, smooth: false, transitionMode: fade} @ http://localhost:8080/js/runtime/audio.js:230
+[16426282ms] [INFO] [GQ][Audio] Track vorbereitet (ohne Autoplay) {track: music/Stellar_Ascension%20trance%20v1.mp3} @ http://localhost:8080/js/runtime/audio.js:230
+[16426471ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ http://localhost:8080/js/rendering/starfield-webgpu.js?t=1793355867497:729

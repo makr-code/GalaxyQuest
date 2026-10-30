@@ -68,6 +68,53 @@ class LensFlarePass {
 
     /** @private — GPU pipeline reference (populated by renderer after compile) */
     this._pipeline = null;
+    this._uniformBuffer = null;
+    this._bindGroup = null;
+  }
+
+  setProjectedSources(sources) {
+    this.clearSources();
+    this._nextId = 1;
+    for (const source of sources.slice(0, MAX_FLARE_SOURCES)) {
+      if (!Number.isFinite(source.x) || !Number.isFinite(source.y)
+        || !Number.isFinite(source.intensity) || source.intensity <= 0) continue;
+      this.addSource(source.x, source.y, source.intensity, source.colorHex ?? 0xffeebb);
+    }
+  }
+
+  async initialize(device, format, source) {
+    const shader = device.createShaderModule({ code: source, label: 'solar-lens-flare' });
+    if (shader.getCompilationInfo) {
+      const info = await shader.getCompilationInfo();
+      const errors = info.messages.filter((message) => message.type === 'error');
+      if (errors.length) throw new Error(`Lens flare shader: ${errors.map((error) => error.message).join('; ')}`);
+    }
+    this._pipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: shader, entryPoint: 'vs_main' },
+      fragment: { module: shader, entryPoint: 'fs_overlay', targets: [{ format,
+        blend: {
+          color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+          alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+        },
+      }] },
+      primitive: { topology: 'triangle-list' },
+    });
+    this._uniformBuffer?.destroy();
+    this._uniformBuffer = device.createBuffer({ size: 272, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this._bindGroup = device.createBindGroup({ layout: this._pipeline.getBindGroupLayout(0),
+      entries: [{ binding: 2, resource: { buffer: this._uniformBuffer } }],
+    });
+  }
+
+  renderOverlay(pass, device, { aspect, time = 0 }) {
+    if (!this.enabled || !this._pipeline || !this.sourceCount) return;
+    this.aspect = aspect;
+    this._time = time;
+    device.queue.writeBuffer(this._uniformBuffer, 0, this.buildParamBlock());
+    pass.setPipeline(this._pipeline);
+    pass.setBindGroup(0, this._bindGroup);
+    pass.draw(6);
   }
 
   // =========================================================================
@@ -216,6 +263,9 @@ class LensFlarePass {
   }
 
   dispose() {
+    this._uniformBuffer?.destroy();
+    this._uniformBuffer = null;
+    this._bindGroup = null;
     this._pipeline = null;
     this._sources.clear();
   }
@@ -227,6 +277,7 @@ class LensFlarePass {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { LensFlarePass, MAX_FLARE_SOURCES };
-} else {
+}
+if (typeof window !== 'undefined') {
   window.GQLensFlarePass = { LensFlarePass, MAX_FLARE_SOURCES };
 }

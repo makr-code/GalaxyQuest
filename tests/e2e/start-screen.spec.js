@@ -8,6 +8,15 @@ const registrationDraft = {
   planets: [{ name: 'Frontier III', position: 3, class: 'rocky', can_colonize: true }],
   starter: { ships: { small_cargo: 2, light_fighter: 4 } }, expires_at: '2099-01-01T12:00:00Z',
 };
+const mentorDrafts = ['aereth', 'vor_tak', 'syl_nar', 'vel_ar', 'kryl_tha', 'zhareen'].map((code, index) => {
+  const target = { ...registrationTarget, system_index: index + 10, position: index + 1, x_ly: registrationTarget.x_ly + index * 10 };
+  return {
+    ...registrationDraft, prolog_token: String(index + 1).repeat(64), mentor_code: code, species_code: code,
+    selected: false, system_name: `${code} System`, target, stars: [target],
+    position: { galaxy: 1, system: index + 10, position: index + 1 },
+    planets: [{ name: `${code} III`, position: index + 1, class: 'rocky', can_colonize: true }],
+  };
+});
 
 async function mockApi(page, { authenticated = false, expireOnResume = false, twoFactor = false } = {}) {
   let sessionChecks = 0;
@@ -25,7 +34,7 @@ async function mockApi(page, { authenticated = false, expireOnResume = false, tw
       const valid = authenticated && !(expireOnResume && sessionChecks > 1);
       data = { success: true, authenticated: valid, user: valid ? { username: 'TestCommander' } : null };
     } else if (action === 'auth_stars') {
-      data = { success: true, stars: [], occupied_systems: [] };
+      data = { success: true, stars: [], occupied_systems: [], arm_count: 6, pitch_angle_deg: 14 };
     } else if (action === 'csrf') {
       data = { success: true, csrf_token: 'start-screen-test-token', token: 'start-screen-test-token' };
     } else if (action === 'dev_tools_status') {
@@ -39,10 +48,15 @@ async function mockApi(page, { authenticated = false, expireOnResume = false, tw
     } else if (action === 'register_catalog') {
       data = { success: true,
         factions: prologueContent.factions.map((entry) => ({ ...entry, homeworld: "Sol'Ryaan", target: registrationTarget, stars: [registrationTarget] })),
-        species: ['aereth', 'vor_tak', 'syl_nar', 'vel_ar', 'kryl_tha', 'zhareen'].map((code) => ({ code, name: code, description: 'Independent origin' })),
+        species: mentorDrafts.map((draft) => ({ code: draft.mentor_code, name: draft.mentor_code, description: 'Independent origin', homeworld: `${draft.mentor_code} home` })),
       };
     } else if (action === 'register_status') {
       data = { success: true, draft: null };
+    } else if (action === 'register_mentor_drafts') {
+      data = { success: true, drafts: mentorDrafts };
+    } else if (action === 'register_select_mentor') {
+      const body = route.request().postDataJSON();
+      data = { success: true, draft: { ...mentorDrafts.find((draft) => draft.mentor_code === body.mentor_code), selected: true } };
     } else if (action === 'register_prepare') {
       data = { success: true, draft: registrationDraft };
     } else if (action === 'register_profile') {
@@ -58,7 +72,7 @@ async function mockApi(page, { authenticated = false, expireOnResume = false, tw
   });
 }
 
-async function reachFactionChoices(page) {
+async function reachMentorRoom(page) {
   await page.clock.install();
   await page.locator('#start-register').click();
   for (const clip of prologueContent.teaser) {
@@ -67,11 +81,8 @@ async function reachFactionChoices(page) {
     await page.clock.fastForward(30000);
   }
   await page.locator('#registration-continue').click();
-  for (const faction of prologueContent.factions) {
-    await expect(page.locator('#registration-title')).toHaveText(faction.name);
-    await page.locator('#registration-continue').click();
-  }
-  await expect(page.locator('#registration-choices button')).toHaveCount(4);
+  await expect(page.locator('#registration-title')).toHaveText('Die Heroldkammer');
+  await expect(page.locator('#registration-choices button')).toHaveCount(6);
   await expect(page.locator('#registration-choices button').first()).toBeEnabled();
 }
 
@@ -86,10 +97,10 @@ test('narration chapters offer manual Back and Next without waiting for speech',
   await page.locator('#registration-back').click();
   await expect(page.locator('#registration-title')).toHaveText(prologueContent.teaser[0].title);
   for (let index = 0; index < prologueContent.teaser.length; index++) await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-title')).toHaveText(prologueContent.factions[0].name);
-  for (let index = 0; index < prologueContent.factions.length; index++) await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-title')).toHaveText('Die Heroldkammer');
   await expect(page.locator('#registration-choices button').first()).toBeEnabled();
-  await expect(page.locator('#registration-continue')).toBeDisabled();
+  await expect(page.locator('#registration-choices button')).toHaveCount(6);
+  await expect(page.locator('#registration-continue')).toBeHidden();
 });
 
 test('front-page status row mirrors the latest log entry and expands the same log', async ({ page }) => {
@@ -120,7 +131,7 @@ test('guest menu opens lazy login and cinematic private registration without cre
   await expect(page.locator('#start-auth-dialog')).toHaveCount(0);
   await expect(page.locator('#start-login')).toBeFocused();
 
-  await reachFactionChoices(page);
+  await reachMentorRoom(page);
   await expect(page.locator('#start-menu')).toBeHidden();
   await expect(page.locator('#start-music-player')).toBeHidden();
   await expect(page.locator('#auth-status-section')).toBeHidden();
@@ -128,11 +139,19 @@ test('guest menu opens lazy login and cinematic private registration without cre
   await expect(page.locator('#start-auth-dialog')).toHaveCount(0);
   await expect.poll(() => page.locator('#registration-choices svg').evaluateAll(
     (symbols) => symbols.filter((symbol) => symbol.getBBox().width > 0).length,
-  )).toBe(4);
-  await page.locator('[data-choice="kernrat"]').click();
-  await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-choices button')).toHaveCount(6);
+  )).toBe(6);
   await page.locator('[data-choice="syl_nar"]').click();
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-title')).toHaveText('Dein Sternsystem');
+  await expect(page.locator('#registration-continue')).toBeHidden();
+  await page.locator('[data-tutorial-planet="3"]').click();
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-title')).toHaveText('Planetenscan');
+  await expect(page.locator('#registration-story')).toContainText('Status: kolonialisierbar');
+  await expect(page.locator('#registration-continue')).toContainText('Landeanflug starten');
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-title')).toHaveText('Landeanflug');
+  await expect(page.locator('#registration-continue')).toHaveText('Landeanflug bestätigen');
   await page.locator('#registration-continue').click();
   await expect(page.locator('#registration-draft-summary')).toContainText('Frontier Colony');
   await page.locator('#registration-name').fill('Commander');
@@ -142,21 +161,34 @@ test('guest menu opens lazy login and cinematic private registration without cre
   await expect(page.locator('#registration-prologue input[type="email"],#registration-prologue input[type="password"]')).toHaveCount(0);
 });
 
-test('registration previews DB-shaped regional stars and restores a private character draft on mobile', async ({ page }) => {
+test('registration previews mentor systems and restores a private character draft on mobile', async ({ page }) => {
   await mockApi(page);
   await mockBackgroundRenderer(page);
-  const saved = { ...registrationDraft, species_code: 'vor_tak', character: { name: 'SavedCommander', background: 'Explorer' } };
+  const saved = { ...mentorDrafts[1], selected: true, character: { name: 'SavedCommander', background: 'Explorer' } };
+  await page.route('**/auth.php?action=register_mentor_drafts', (route) => route.fulfill({ json: { success: true, drafts: [
+    ...mentorDrafts.filter((item) => item.mentor_code !== 'vor_tak'), saved,
+  ] } }));
+  await page.route('**/auth.php?action=register_select_mentor', (route) => route.fulfill({ json: { success: true, draft: saved } }));
   await page.route('**/auth.php?action=register_status', (route) => route.fulfill({ json: { success: true, draft: saved } }));
-  await page.route('**/auth.php?action=register_prepare', (route) => route.fulfill({ json: { success: true, draft: saved } }));
   await page.route('**/auth.php?action=register_profile', (route) => route.fulfill({ json: { success: true, draft: saved } }));
   await page.goto('/');
-  await reachFactionChoices(page);
-  await expect(page.locator('#registration-status')).toContainText('privater Draft');
-  await page.locator('[data-choice="kernrat"]').click();
-  await expect(page.locator('#registration-story')).toContainText("Sol'Ryaan");
-  await expect.poll(() => page.evaluate(() => document.getElementById('start-galaxy-source').textContent)).toContain('Database registration region');
-  await page.locator('#registration-continue').click();
+  await reachMentorRoom(page);
+  await expect(page.locator('#registration-status')).toContainText('private System-Drafts');
   await page.locator('[data-choice="vor_tak"]').click();
+  await expect(page.locator('#registration-story')).toContainText('vor_tak System');
+  await expect.poll(() => page.evaluate(() => document.getElementById('start-galaxy-source').textContent)).toContain('WEBGPU FLIGHT');
+  const sceneState = await page.evaluate(() => {
+    const renderer = window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer;
+    return { scene: renderer.scene, destinations: renderer.destinations };
+  });
+  expect(sceneState.scene.sceneGraph.type).toBe('galaxy');
+  expect(sceneState.scene.sceneGraph.children[0].type).toBe('system');
+  expect(sceneState.scene.sceneGraph.children[0].children[0].type).toBe('planet');
+  expect(sceneState.destinations).toContainEqual({ kind: 'planet', position: 2 });
+  await page.locator('#registration-continue').click();
+  await page.locator('[data-tutorial-planet="2"]').click();
+  await page.locator('#registration-continue').click();
+  await page.locator('#registration-continue').click();
   await page.locator('#registration-continue').click();
   await expect(page.locator('#registration-name')).toHaveValue('SavedCommander');
   await expect(page.locator('#registration-background')).toHaveValue('Explorer');
@@ -168,34 +200,24 @@ test('registration surfaces setup failures and Back cancels the visible flow wit
   await mockApi(page);
   let release;
   const pending = new Promise((resolve) => { release = resolve; });
-  await page.route('**/auth.php?action=register_prepare', async (route) => {
+  await page.route('**/auth.php?action=register_mentor_drafts', async (route) => {
     await pending;
     await route.fulfill({ status: 503, json: { success: false, error: 'Registration setup is incomplete.' } });
   });
   await page.goto('/');
-  await reachFactionChoices(page);
-  await page.locator('[data-choice="kernrat"]').click();
+  await page.clock.install();
+  await page.locator('#start-register').click();
+  for (const clip of prologueContent.teaser) await page.clock.fastForward(30000);
   await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-status')).toContainText('reserviert');
+  await expect(page.locator('#registration-status')).toContainText('Systeme werden vorbereitet');
   release();
   await expect(page.locator('#registration-error')).toContainText('Registration setup is incomplete');
-  await expect(page.locator('#registration-continue')).toBeEnabled();
+  await expect(page.locator('#registration-retry')).toBeVisible();
   await expect(page.locator('#registration-character')).toBeHidden();
-  let releaseLate;
-  const late = new Promise((resolve) => { releaseLate = resolve; });
-  await page.route('**/auth.php?action=register_prepare', async (route) => {
-    await late;
-    await route.fulfill({ status: 503, json: { success: false, error: 'Late setup failure' } });
-  });
-  await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-status')).toContainText('reserviert');
-  await page.keyboard.press('Escape');
+  for (let index = 0; index <= prologueContent.teaser.length; index++) await page.keyboard.press('Escape');
   await expect(page.locator('#registration-prologue')).toBeHidden();
   await expect(page.locator('#start-menu')).toBeVisible();
   await expect(page.locator('#start-register')).toBeFocused();
-  const lateResponse = page.waitForResponse('**/auth.php?action=register_prepare');
-  releaseLate();
-  await lateResponse;
   await expect(page.locator('#registration-prologue')).toBeHidden();
 });
 
@@ -393,8 +415,31 @@ test('unsupported WebGPU reports an unavailable background without loading the l
 async function mockBackgroundRenderer(page) {
   await page.addInitScript(() => {
     window.__GQ_WEBGPU_ADAPTER_AVAILABLE = { value: true };
+    window.__flightRestoreCalls = [];
     window.Galaxy3DView = class {
       backendType = 'webgpu';
+      constructor() {
+        this.flightCoordinates = null;
+        this._native = {
+          setFlightScene: (scene) => { this.scene = scene; return true; },
+          setSpatialLabelStars: (stars) => { this._native.spatialLabelStars = stars.slice(); return stars.length; },
+          getFlightTelemetry: () => ({ spatial: true, phase: 'idle' }),
+          getFlightCoordinates: () => this.flightCoordinates,
+          restoreFlightCoordinates: (coordinates) => {
+            window.__flightRestoreCalls.push(coordinates);
+            this.flightCoordinates = coordinates;
+            return true;
+          },
+          navigateTo: async (target) => {
+            (this.destinations ||= []).push(target);
+            this.flightCoordinates = {
+              start: this.flightCoordinates?.destination || [1, 2, 3],
+              destination: target.kind === 'point' ? [target.x_ly, target.y_ly, target.z_ly] : [4, 5, 6],
+            };
+            return true;
+          },
+        };
+      }
       async init() {}
       setStars(stars) { this.stars = stars; }
       setRegionPreview(target) { this.region = target; return true; }
@@ -414,24 +459,41 @@ test('registration flies galaxy to surface and back without replacing its canvas
   await page.goto('/');
   await expect(page.locator('#galaxy-bg-wrapper canvas')).toHaveCount(1);
   await page.evaluate(() => { window.__flightCanvas = document.querySelector('#galaxy-bg-wrapper canvas'); });
-  await reachFactionChoices(page);
-  await page.locator('[data-choice="kernrat"]').click();
-  await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-choices button')).toHaveCount(6);
+  await reachMentorRoom(page);
+  const hasWebGpuAdapter = await page.evaluate(async () => !!(await navigator.gpu?.requestAdapter()));
+  if (hasWebGpuAdapter) {
+    const heraldCanvas = page.locator('.registration-herald-canvas');
+    await expect(heraldCanvas).toHaveCount(1, { timeout: 20000 });
+    await page.locator('[data-choice="vor_tak"]').focus();
+    await expect.poll(() => heraldCanvas.getAttribute('data-focused-herald'), { timeout: 20000 }).toBe('vor_tak');
+    await page.screenshot({ path: 'test-results/registration-herald-desktop.png' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: 'test-results/registration-herald-mobile.png' });
+    await page.setViewportSize({ width: 1280, height: 800 });
+  }
   const sceneStage = () => page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer.scene?.stage || 'galaxy');
-  await expect.poll(sceneStage).toBe('system');
   await page.locator('[data-choice="vor_tak"]').click();
+  await expect.poll(sceneStage).toBe('planet');
+  await page.locator('#registration-continue').click();
+  await expect.poll(sceneStage).toBe('system');
+  await expect(page.locator('#registration-continue')).toBeHidden();
+  await page.locator('[data-tutorial-planet="2"]').click();
+  await expect.poll(sceneStage).toBe('planet');
+  await page.locator('#registration-continue').click();
+  await expect.poll(sceneStage).toBe('planet');
+  await page.locator('#registration-continue').click();
+  await expect.poll(sceneStage).toBe('surface');
   await page.locator('#registration-continue').click();
   await expect(page.locator('#registration-character')).toBeVisible();
   await expect.poll(sceneStage).toBe('planet');
   await page.locator('#registration-name').fill('LandingCommander');
+  await page.locator('#registration-background').fill('An explorer seeking a new beginning.');
   await page.locator('#registration-character-form [type="submit"]').click();
   await expect(page.locator('#registration-status')).toContainText('nicht aktiviert');
-  await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-surface')).toBeVisible();
-  await expect.poll(sceneStage).toBe('surface');
-  await expect(page.locator('#registration-flight-status')).toContainText('Noch kein Baututorial');
+  await expect(page.locator('#registration-title')).toHaveText('Wer übernimmt das Kommando?');
   expect(await page.evaluate(() => window.__flightCanvas === document.querySelector('#galaxy-bg-wrapper canvas'))).toBe(true);
+  await page.locator('#registration-back').click();
+  await expect.poll(sceneStage).toBe('surface');
   await page.locator('#registration-back').click();
   await expect.poll(sceneStage).toBe('planet');
   await page.locator('#registration-back').click();
@@ -451,7 +513,7 @@ test('the galaxy backdrop is black and procedural loading points are explicitly 
   await expect(page.locator('#galaxy-bg-wrapper')).toHaveCSS('background-image', 'none');
 });
 
-test('database samples replace the procedural points rather than adding fictional stars', async ({ page }) => {
+test('database systems stay authoritative while an illustrative visual field remains separate', async ({ page }) => {
   await mockApi(page);
   await mockBackgroundRenderer(page);
   const stars = [
@@ -459,15 +521,94 @@ test('database samples replace the procedural points rather than adding fictiona
     { system_index: 2, galaxy_index: 1, x_ly: -600, y_ly: 100 },
   ];
   await page.route('**/galaxy.php?action=auth_stars**', (route) =>
-    route.fulfill({ json: { success: true, stars, occupied_systems: [] } }));
+    route.fulfill({ json: { success: true, stars, occupied_systems: [], arm_count: 5, pitch_angle_deg: 14 } }));
   await page.goto('/');
   await expect(page.locator('#start-galaxy-source')).toContainText('Database galaxy sample: 2');
   const state = await page.evaluate(() => {
     const runtime = window.__GQ_AUTH_GALAXY_BG_RUNTIME;
-    return { source: runtime.starSource, stars: runtime.stars };
+    return {
+      source: runtime.starSource,
+      stars: runtime.stars,
+      visualStars: runtime.visualStars,
+      visualOnly: runtime.visualStars.every((star) => star.visual_only === true),
+      armCount: runtime.armCount,
+      pitchAngleDeg: runtime.pitchAngleDeg,
+      renderedArms: new Set(runtime.visualStars.map((star) => star.arm_index).filter((arm) => arm !== null)).size,
+    };
   });
   expect(state.source).toBe('database');
   expect(state.stars).toEqual(stars);
+  expect(state.visualStars.length).toBeGreaterThan(32);
+  expect(state.visualOnly).toBe(true);
+  expect(state.armCount).toBe(5);
+  expect(state.pitchAngleDeg).toBe(14);
+  expect(state.renderedArms).toBe(5);
+});
+
+test('settings flight tour visits DB system preview stages without writing world state', async ({ page }) => {
+  await mockApi(page);
+  await mockBackgroundRenderer(page);
+  const target = { id: 17, galaxy_index: 1, system_index: 17, name: 'DB System 17', x_ly: 120, y_ly: -15, z_ly: 210 };
+  const previewRequests = [];
+  const writeRequests = [];
+  await page.route('**/galaxy.php?action=auth_stars**', (route) => route.fulfill({ json: {
+    success: true, stars: [target], occupied_systems: [], arm_count: 6, pitch_angle_deg: 14,
+  } }));
+  await page.route('**/galaxy.php?action=auth_flight_preview**', async (route) => {
+    previewRequests.push(route.request().url());
+    await route.fulfill({ json: {
+      success: true,
+      preview_only: true,
+      system: { ...target, spectral_class: 'G', temperature_k: 5778, radius_solar: 1, planet_count: 2 },
+      planets: [
+        { position: 1, name: 'Preview One', planet_class: 'gas_giant', can_colonize: false, semi_major_axis_au: 2.5 },
+        { position: 2, name: 'Preview Two', planet_class: 'rocky', can_colonize: true, semi_major_axis_au: 1.0 },
+      ],
+    } });
+  });
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && /colony|register_prepare|register_profile|register_complete/.test(request.url())) {
+      writeRequests.push(request.url());
+    }
+  });
+
+  await page.goto('/');
+  await expect.poll(() => page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME?.starSource)).toBe('database');
+  await page.locator('[data-start-panel="settings"]').click();
+  const toggle = page.locator('#start-flight-tour');
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await expect(toggle).toBeChecked();
+  await expect.poll(() => page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME?.renderer?.scene?.stage), { timeout: 20000 }).toBe('surface');
+
+  const previewState = await page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer.scene);
+  expect(previewState.flightTour).toBe(true);
+  expect(previewState.draft.preview_only).toBe(true);
+  expect(await page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer._native.spatialLabelStars.length)).toBe(1);
+  expect(await page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer.destinations.slice(0, 3)))
+    .toEqual([{ kind: 'system' }, { kind: 'planet', position: 2 }, { kind: 'surface', position: 2 }]);
+  expect(previewRequests.length).toBeGreaterThan(0);
+  expect(writeRequests).toEqual([]);
+  const savedState = await page.evaluate(() => {
+    const cookie = document.cookie.split('; ').find((part) => part.startsWith('gq_galaxy_flight='));
+    return cookie ? JSON.parse(decodeURIComponent(cookie.slice('gq_galaxy_flight='.length))) : null;
+  });
+  expect(Object.keys(savedState).sort()).toEqual(['destination', 'start']);
+  expect(savedState.start).toHaveLength(3);
+  expect(savedState.destination).toHaveLength(3);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => window.__flightRestoreCalls.length), { timeout: 20000 }).toBe(1);
+  expect(await page.evaluate(() => window.__flightRestoreCalls[0])).toEqual(savedState);
+  await expect.poll(() => page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME?.renderer?.destinations
+    ?.some((destination) => destination.kind === 'point')), { timeout: 20000 }).toBe(true);
+  await page.locator('[data-start-panel="settings"]').click();
+  const toggleAfterReload = page.locator('#start-flight-tour');
+  await expect(toggleAfterReload).toBeChecked();
+
+  await toggleAfterReload.uncheck();
+  await expect(page.locator('#start-flight-status')).toContainText('off');
+  await expect.poll(() => page.evaluate(() => document.cookie.includes('gq_galaxy_flight='))).toBe(false);
+  await expect.poll(() => page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME?.renderer?.scene), { timeout: 5000 }).toBeNull();
 });
 
 test('login cascades beside its button on desktop and below it on narrow screens', async ({ page }) => {

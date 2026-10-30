@@ -68,6 +68,14 @@ function handle_registration(string $action): void {
                 if (!is_string($body['faction_id'] ?? null)) json_error('Choose a faction.');
                 $draft = $service->prepare($owner, $body['faction_id'], hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
                 json_ok(['draft' => $draft] + $draft);
+            case 'register_mentor_drafts':
+                json_ok(['drafts' => $service->mentorDrafts($owner, hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown'))]);
+            case 'register_select_mentor':
+                if (!is_string($body['prolog_token'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $body['prolog_token'])
+                    || !is_string($body['mentor_code'] ?? null)) {
+                    json_error('Choose a valid mentor system draft.');
+                }
+                json_ok(['draft' => $service->selectMentor($owner, $body['prolog_token'], $body['mentor_code'])]);
         }
     } catch (InvalidArgumentException $error) {
         json_error($error->getMessage(), 400);

@@ -628,6 +628,30 @@ describe('Galaxy3DRendererWebGPU — native camera (no delegate)', () => {
     expect(r._view.targetZoom).toBeGreaterThan(before);
   });
 
+  it('forwards start-screen flight calls and arrival promise to the native starfield', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    const scene = { stage: 'system' };
+    const target = { kind: 'system', position: 17 };
+    const arrival = Promise.resolve(true);
+    r._native = {
+      setFlightScene: vi.fn(() => true),
+      navigateTo: vi.fn(() => arrival),
+      getFlightTelemetry: vi.fn(() => ({ spatial: true, phase: 'cruise' })),
+      getSpatialLabels: vi.fn(() => [{ id: 'planet:1', text: 'Neris', worldPosition: [1, 2, 3], x: 120, y: 80 }]),
+      setNebulaConfiguration: vi.fn(() => true),
+    };
+
+    expect(r.setFlightScene(scene)).toBe(true);
+    expect(r._native.setFlightScene).toHaveBeenCalledWith(scene);
+    expect(r.navigateTo(target, { durationMs: 12000 })).toBe(arrival);
+    expect(r._native.navigateTo).toHaveBeenCalledWith(target, { durationMs: 12000 });
+    expect(r.getFlightTelemetry()).toEqual({ spatial: true, phase: 'cruise' });
+    expect(r.getSpatialLabels()).toEqual([{ id: 'planet:1', text: 'Neris', worldPosition: [1, 2, 3], x: 120, y: 80 }]);
+    expect(r.setNebulaConfiguration({ armCount: 8 })).toBe(true);
+    expect(r._native.setNebulaConfiguration).toHaveBeenCalledWith({ armCount: 8 });
+  });
+
   it('nudgeZoom-out reduces targetZoom', async () => {
     const r = new Ctor(container, {});
     await r.init();

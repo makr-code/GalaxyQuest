@@ -11,8 +11,8 @@
   <link rel="stylesheet" href="css/design-tokens.css?v=20260730p1" />
   <link rel="stylesheet" href="css/animations.css?v=20260730p1" />
   <link rel="stylesheet" href="css/utilities.css?v=20260730p1" />
-  <link rel="stylesheet" href="css/start-screen.css?v=20261029p2" />
-  <link rel="stylesheet" href="css/registration-prologue.css?v=20261029p1" />
+  <link rel="stylesheet" href="css/start-screen.css?v=20261029p3" />
+  <link rel="stylesheet" href="css/registration-prologue.css?v=20261030p3" />
   <!-- Core Stylesheets -->
   <link rel="stylesheet" href="css/style.css?v=20261029p2" />
   <link rel="stylesheet" href="css/wm.css?v=20260830p4" />
@@ -213,6 +213,7 @@
         <button id="start-announcements" class="start-log-button" type="button" aria-expanded="false">Server announcements <span id="start-announcements-status" class="start-session-status">Loading</span></button>
       </nav>
       <p id="start-session-status" class="start-session-status" role="status" aria-live="polite">Your next chapter awaits.</p>
+      <p id="start-galaxy-source" class="start-galaxy-source" role="status" aria-live="polite">Procedural visual galaxy; not DB system data.</p>
       <div class="start-credits">
         <span>© 2026 Galaxy Quest Interactive</span>
         <span>Conquer the stars</span>
@@ -228,6 +229,8 @@
         </section>
         <section id="start-panel-settings" hidden>
           <label class="start-setting"><input id="start-reduced-motion" type="checkbox" /> Reduce motion</label>
+          <label class="start-setting"><input id="start-flight-tour" type="checkbox" /> Automatic galaxy flight</label>
+          <p id="start-flight-status" class="start-session-status" role="status" aria-live="polite">Off. Read-only database flight demo.</p>
           <label class="start-setting"><input id="start-mute" type="checkbox" /> Mute audio</label>
           <p id="start-settings-status" class="start-session-status" role="status" aria-live="polite"></p>
         </section>

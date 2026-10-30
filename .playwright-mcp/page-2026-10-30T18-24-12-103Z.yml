@@ -1,0 +1,10 @@
+- region "Registration prologue" [ref=f32e53]:
+  - button "Zurück" [ref=f32e54] [cursor=pointer]
+  - main [ref=f32e55]:
+    - paragraph [ref=f32e56]: Schritt 2 / Mentor und Herkunft
+    - heading "Die Heroldkammer" [active] [level=2] [ref=f32e66]
+    - paragraph [ref=f32e58]: Sechs Mentoren erwarten dich. Jeder bietet dir eine Herkunft und ein eigenes Startsystem an.
+    - status
+    - status
+    - status [ref=f32e67]: Die sechs Mentor-Systeme werden vorbereitet...
+    - alert

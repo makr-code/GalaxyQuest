@@ -1,0 +1,18 @@
+- region "Registration prologue" [ref=f22e6]:
+  - button "Zurück" [ref=f22e7] [cursor=pointer]
+  - main [ref=f22e8]:
+    - paragraph [ref=f22e9]: Schritt 2 / Mentor und Herkunft
+    - heading "Die Heroldkammer" [level=2] [ref=f22e19]
+    - paragraph [ref=f22e11]: "Ich bin der Herold der Vor'Tak. Reptiloide Krieger und Strategen Mein System: Vraesrioshyuiret. Vraesrioshyu III ist deine mögliche Heimatwelt in Drak'Thuun."
+    - status
+    - status [ref=f22e40]: Anflug auf deinen reservierten Startplaneten.
+    - generic [ref=f22e20]:
+      - button "Aereth" [ref=f22e21] [cursor=pointer]
+      - button "Kryl'Tha" [ref=f22e24] [cursor=pointer]
+      - button "Syl'Nar" [ref=f22e27] [cursor=pointer]
+      - button "Vel'Ar" [ref=f22e30] [cursor=pointer]
+      - button "Vor'Tak" [active] [pressed] [ref=f22e33] [cursor=pointer]
+      - button "Zhareen" [ref=f22e36] [cursor=pointer]
+    - status [ref=f22e39]: Sechs private System-Drafts bereit. Noch keine Welt ist aktiviert.
+    - alert
+    - button "System wählen und Tutorial starten" [ref=f22e41] [cursor=pointer]

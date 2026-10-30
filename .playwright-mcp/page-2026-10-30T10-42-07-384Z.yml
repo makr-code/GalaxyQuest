@@ -1,0 +1,16 @@
+- region "Registration prologue" [ref=f7e6]:
+  - button "Zurück" [ref=f7e7] [cursor=pointer]
+  - main [ref=f7e8]:
+    - paragraph [ref=f7e9]: Schritt 2 / Politische Zugehörigkeit
+    - heading "Wem schenkst du dein Vertrauen?" [level=2] [ref=f7e16]
+    - paragraph [ref=f7e11]: "Wissen verändert Welten Forschungs- und Energienetzwerke; konkrete Netzwerkboni sind noch nicht aktiv. Startregion: Sol'Ryaan. Noch keine Welt reserviert."
+    - status
+    - status [ref=f7e17]: Anflug auf das Fraktionsgebiet.
+    - generic [ref=f7e18]:
+      - button "Schildzirkel" [ref=f7e19] [cursor=pointer]
+      - button "Lichtbund" [ref=f7e22] [cursor=pointer]
+      - button "Kernrat" [active] [pressed] [ref=f7e25] [cursor=pointer]
+      - button "Schattenzirkel" [ref=f7e28] [cursor=pointer]
+    - status
+    - alert
+    - button "Weiter" [ref=f7e15] [cursor=pointer]

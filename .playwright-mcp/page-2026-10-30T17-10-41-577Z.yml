@@ -1,0 +1,11 @@
+- region "Registration prologue" [ref=f25e53]:
+  - button "Zurück" [ref=f25e54] [cursor=pointer]
+  - main [ref=f25e55]:
+    - paragraph [ref=f25e56]: Schritt 3 / Tutorial 2 von 3
+    - heading "Deine mögliche Heimat" [active] [level=2] [ref=f25e91]
+    - paragraph [ref=f25e58]: Der markierte Planet ist kolonialisierbar. Der Systementwurf bleibt privat, bis du den Registrierungsablauf abschließt.
+    - status
+    - status [ref=f25e87]: Anflug auf deinen reservierten Startplaneten.
+    - status
+    - alert
+    - button "Weiter" [ref=f25e90] [cursor=pointer]

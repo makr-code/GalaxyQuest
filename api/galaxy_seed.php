@@ -962,60 +962,44 @@ function fetch_star_system_row_id(PDO $db, int $galaxyIdx, int $systemIdx): int 
     return (int)($stmt->fetchColumn() ?: 0);
 }
 
+function upsert_rows_in_batches(PDO $db, string $table, array $columns, array $updateColumns, array $rows, int $batchSize = 100): void {
+    if (!$rows) return;
+    if (!preg_match('/^[a-z_]+$/', $table)) {
+        throw new InvalidArgumentException('Invalid batch upsert table name.');
+    }
+
+    $columnSql = implode(', ', $columns);
+    $updates = implode(', ', array_map(
+        static fn(string $column): string => $column . ' = VALUES(' . $column . ')',
+        $updateColumns
+    ));
+    $rowWidth = count($columns);
+    $rowPlaceholder = '(' . implode(', ', array_fill(0, $rowWidth, '?')) . ')';
+
+    foreach (array_chunk($rows, max(1, $batchSize)) as $batch) {
+        $sql = 'INSERT INTO ' . $table . ' (' . $columnSql . ') VALUES '
+            . implode(', ', array_fill(0, count($batch), $rowPlaceholder))
+            . ' ON DUPLICATE KEY UPDATE ' . $updates;
+        $parameters = [];
+        foreach ($batch as $row) {
+            if (count($row) !== $rowWidth) {
+                throw new InvalidArgumentException('Batch upsert row width does not match columns.');
+            }
+            array_push($parameters, ...$row);
+        }
+        $db->prepare($sql)->execute($parameters);
+    }
+}
+
 function upsert_generated_planets(PDO $db, int $galaxyIdx, int $systemIdx, int $systemId, array $planets): void {
     ensure_planet_science_columns($db);
-    $insert = $db->prepare(
-        'INSERT INTO planets
-            (system_id, galaxy, `system`, position, type, planet_class, diameter,
-             temp_min, temp_max, semi_major_axis_au, orbital_period_days,
-             orbital_eccentricity, surface_gravity_g, in_habitable_zone,
-             atmosphere_type, richness_metal, richness_crystal, richness_deuterium,
-             richness_rare_earth, deposit_metal, deposit_crystal,
-             deposit_deuterium, deposit_rare_earth, composition_family,
-             dominant_surface_material, surface_pressure_bar, water_state,
-             methane_state, ammonia_state, dominant_surface_liquid,
-             radiation_level, habitability_score, life_friendliness, species_affinity_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-            system_id = VALUES(system_id),
-            type = VALUES(type),
-            planet_class = VALUES(planet_class),
-            diameter = VALUES(diameter),
-            temp_min = VALUES(temp_min),
-            temp_max = VALUES(temp_max),
-            semi_major_axis_au = VALUES(semi_major_axis_au),
-            orbital_period_days = VALUES(orbital_period_days),
-            orbital_eccentricity = VALUES(orbital_eccentricity),
-            surface_gravity_g = VALUES(surface_gravity_g),
-            in_habitable_zone = VALUES(in_habitable_zone),
-            atmosphere_type = VALUES(atmosphere_type),
-            richness_metal = VALUES(richness_metal),
-            richness_crystal = VALUES(richness_crystal),
-            richness_deuterium = VALUES(richness_deuterium),
-            richness_rare_earth = VALUES(richness_rare_earth),
-            deposit_metal = VALUES(deposit_metal),
-            deposit_crystal = VALUES(deposit_crystal),
-            deposit_deuterium = VALUES(deposit_deuterium),
-                deposit_rare_earth = VALUES(deposit_rare_earth),
-                composition_family = VALUES(composition_family),
-                dominant_surface_material = VALUES(dominant_surface_material),
-                surface_pressure_bar = VALUES(surface_pressure_bar),
-                water_state = VALUES(water_state),
-                methane_state = VALUES(methane_state),
-                ammonia_state = VALUES(ammonia_state),
-                dominant_surface_liquid = VALUES(dominant_surface_liquid),
-                radiation_level = VALUES(radiation_level),
-                habitability_score = VALUES(habitability_score),
-                life_friendliness = VALUES(life_friendliness),
-                species_affinity_json = VALUES(species_affinity_json)'
-    );
-
+    $rows = [];
     foreach ($planets as $planet) {
         if (!is_array($planet)) {
             continue;
         }
         $planetClass = (string)($planet['planet_class'] ?? 'rocky');
-        $insert->execute([
+        $rows[] = [
             $systemId,
             $galaxyIdx,
             $systemIdx,
@@ -1050,11 +1034,157 @@ function upsert_generated_planets(PDO $db, int $galaxyIdx, int $systemIdx, int $
             (int)($planet['habitability_score'] ?? 0),
             (string)($planet['life_friendliness'] ?? 'life_hostile'),
             json_encode($planet['species_suitability'] ?? [], JSON_UNESCAPED_SLASHES),
-        ]);
+        ];
+    }
+    $columns = [
+        'system_id', 'galaxy', '`system`', 'position', 'type', 'planet_class', 'diameter',
+        'temp_min', 'temp_max', 'semi_major_axis_au', 'orbital_period_days',
+        'orbital_eccentricity', 'surface_gravity_g', 'in_habitable_zone', 'atmosphere_type',
+        'richness_metal', 'richness_crystal', 'richness_deuterium', 'richness_rare_earth',
+        'deposit_metal', 'deposit_crystal', 'deposit_deuterium', 'deposit_rare_earth',
+        'composition_family', 'dominant_surface_material', 'surface_pressure_bar',
+        'water_state', 'methane_state', 'ammonia_state', 'dominant_surface_liquid',
+        'radiation_level', 'habitability_score', 'life_friendliness', 'species_affinity_json',
+    ];
+    upsert_rows_in_batches($db, 'planets', $columns, array_slice($columns, 4), $rows);
+}
+
+function upsert_generated_celestial_bodies(PDO $db, int $galaxyIdx, int $systemIdx, array $bodies): void {
+    if (!$bodies) return;
+
+    $existingPlanets = $db->prepare(
+        "SELECT position, body_uid, name FROM celestial_bodies
+         WHERE galaxy_index = ? AND system_index = ?
+           AND body_type = 'planet' AND parent_body_type = 'star'"
+    );
+    $existingPlanets->execute([$galaxyIdx, $systemIdx]);
+    $bodyUidRemap = [];
+    $preservedNames = [];
+    foreach ($existingPlanets->fetchAll(PDO::FETCH_ASSOC) as $existing) {
+        $position = (int)$existing['position'];
+        $generatedUid = sprintf('g%d-s%d-p%d', $galaxyIdx, $systemIdx, $position);
+        $bodyUidRemap[$generatedUid] = (string)$existing['body_uid'];
+        if (str_starts_with((string)$existing['body_uid'], 'legacy-p-')) {
+            $preservedNames[$generatedUid] = (string)$existing['name'];
+        }
+    }
+
+    $columns = [
+        'body_uid', 'galaxy_index', 'system_index', 'position', 'parent_body_id',
+        'body_type', 'parent_body_type', 'name', 'planet_class', 'can_colonize',
+        'orbit_ref_au', 'semi_major_axis_au', 'semi_major_axis_parent_r',
+        'local_x', 'local_y', 'local_z', 'polar_radius', 'polar_theta_rad', 'polar_height',
+        'angular_velocity_rad_day', 'orbital_period_days', 'orbital_eccentricity',
+        'mass_earth', 'diameter_km', 'surface_gravity_g', 'eq_temp_k', 'atmosphere_type',
+        'ring_inner_radius_planet_r', 'ring_outer_radius_planet_r',
+        'ring_optical_depth', 'ring_tilt_deg', 'ring_composition', 'payload_json',
+    ];
+    $updateColumns = array_slice($columns, 3);
+    $rootRows = [];
+    $childRows = [];
+
+    foreach ($bodies as $body) {
+        if (!is_array($body)) continue;
+        $generatedUid = (string)($body['body_id'] ?? '');
+        if ($generatedUid === '') continue;
+        $bodyUid = $bodyUidRemap[$generatedUid] ?? $generatedUid;
+        $parentUid = $body['parent_body_id'] ?? null;
+        if (is_string($parentUid)) $parentUid = $bodyUidRemap[$parentUid] ?? $parentUid;
+
+        $type = (string)($body['body_type'] ?? 'planet');
+        $parentType = (string)($body['parent_body_type'] ?? (
+            $type === 'planet' ? 'star' : (is_string($parentUid) ? 'planet' : 'none')
+        ));
+        $position = $body['position'] ?? $body['parent_position'] ?? null;
+        $name = $preservedNames[$generatedUid] ?? (string)($body['name'] ?? $bodyUid);
+        $payload = $body;
+        unset($payload['moons'], $payload['ring_system'], $payload['rings']);
+        $payload['body_id'] = $bodyUid;
+        $payload['parent_body_id'] = $parentUid;
+
+        $row = [
+            $bodyUid,
+            $galaxyIdx,
+            $systemIdx,
+            $position !== null ? (int)$position : null,
+            null,
+            $type,
+            $parentType,
+            $name,
+            $body['planet_class'] ?? null,
+            !empty($body['can_colonize']) ? 1 : 0,
+            $body['orbit_ref_au'] ?? $body['semi_major_axis_au'] ?? null,
+            $body['semi_major_axis_au'] ?? null,
+            $body['semi_major_axis_parent_r'] ?? null,
+            $body['local_x'] ?? null,
+            $body['local_y'] ?? null,
+            $body['local_z'] ?? null,
+            $body['polar_radius'] ?? null,
+            $body['polar_theta_rad'] ?? null,
+            $body['polar_height'] ?? null,
+            $body['angular_velocity_rad_day'] ?? null,
+            $body['orbital_period_days'] ?? null,
+            $body['orbital_eccentricity'] ?? null,
+            $body['mass_earth'] ?? null,
+            $body['diameter_km'] ?? null,
+            $body['surface_gravity_g'] ?? null,
+            $body['eq_temp_k'] ?? null,
+            $body['atmosphere_type'] ?? null,
+            $body['inner_radius_planet_r'] ?? null,
+            $body['outer_radius_planet_r'] ?? null,
+            $body['optical_depth'] ?? null,
+            $body['tilt_deg'] ?? null,
+            $body['composition'] ?? null,
+            json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ];
+        $entry = ['row' => $row, 'parent_uid' => $parentUid];
+        if ($parentType === 'planet') $childRows[] = $entry;
+        else $rootRows[] = $row;
+    }
+
+    upsert_rows_in_batches($db, 'celestial_bodies', $columns, $updateColumns, $rootRows);
+    if (!$childRows) return;
+
+    $planetRows = $db->prepare(
+        "SELECT body_uid,id FROM celestial_bodies
+         WHERE galaxy_index = ? AND system_index = ?
+           AND body_type = 'planet' AND parent_body_type = 'star'"
+    );
+    $planetRows->execute([$galaxyIdx, $systemIdx]);
+    $planetIds = [];
+    foreach ($planetRows->fetchAll(PDO::FETCH_ASSOC) as $planetRow) {
+        $planetIds[(string)$planetRow['body_uid']] = (int)$planetRow['id'];
+    }
+
+    $resolvedChildRows = [];
+    foreach ($childRows as $entry) {
+        $parentUid = (string)($entry['parent_uid'] ?? '');
+        $parentId = $planetIds[$parentUid] ?? 0;
+        if ($parentId <= 0) {
+            throw new RuntimeException('Generated celestial body has no persisted parent: ' . $parentUid);
+        }
+        $row = $entry['row'];
+        $row[4] = $parentId;
+        $resolvedChildRows[] = $row;
+    }
+    upsert_rows_in_batches($db, 'celestial_bodies', $columns, $updateColumns, $resolvedChildRows);
+}
+
+function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $seedPlanets = true, bool $bodyCatalogOnly = false): array {
+    if ($seedPlanets) ensure_planet_science_columns($db);
+    $ownsTransaction = !$db->inTransaction();
+    if ($ownsTransaction) $db->beginTransaction();
+    try {
+        $system = cache_generated_system_rows($db, $galaxyIdx, $systemIdx, $seedPlanets, $bodyCatalogOnly);
+        if ($ownsTransaction) $db->commit();
+        return $system;
+    } catch (Throwable $error) {
+        if ($ownsTransaction && $db->inTransaction()) $db->rollBack();
+        throw $error;
     }
 }
 
-function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $seedPlanets = true): array {
+function cache_generated_system_rows(PDO $db, int $galaxyIdx, int $systemIdx, bool $seedPlanets, bool $bodyCatalogOnly): array {
     $stmt = $db->prepare(
         'SELECT * FROM star_systems WHERE galaxy_index = ? AND system_index = ?'
     );
@@ -1062,7 +1192,7 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($row) {
-        if (preg_match('/^GQ-\d+-\d+$/', (string)($row['name'] ?? '')) === 1) {
+        if (!$bodyCatalogOnly && preg_match('/^GQ-\d+-\d+$/', (string)($row['name'] ?? '')) === 1) {
             $newName = generate_star_name($galaxyIdx, $systemIdx);
             $db->prepare(
                 'UPDATE star_systems SET name = ? WHERE id = ?'
@@ -1091,7 +1221,7 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
             $system['catalog_name'] = (string)($system['name'] ?? '');
         }
         $system['planet_count'] = (int)($system['planet_count'] ?? $planetCount);
-        if ((int)$system['planet_count'] <= 0 || (string)$system['catalog_name'] === '') {
+        if (!$bodyCatalogOnly && ((int)$system['planet_count'] <= 0 || (string)$system['catalog_name'] === '')) {
             $db->prepare(
                 'UPDATE star_systems
                  SET catalog_name = COALESCE(NULLIF(catalog_name, ""), ?),
@@ -1107,8 +1237,31 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
 
         if ($seedPlanets) {
             upsert_generated_planets($db, $galaxyIdx, $systemIdx, (int)$row['id'], $system['planets']);
+            upsert_generated_celestial_bodies(
+                $db,
+                $galaxyIdx,
+                $systemIdx,
+                build_system_body_catalog(
+                    $system['planets'],
+                    generate_free_comets_for_system($galaxyIdx, $systemIdx),
+                    generate_rogue_planets_for_system($galaxyIdx, $systemIdx)
+                )
+            );
+        } elseif ($bodyCatalogOnly) {
+            upsert_generated_celestial_bodies(
+                $db,
+                $galaxyIdx,
+                $systemIdx,
+                build_system_body_catalog(
+                    $system['planets'],
+                    generate_free_comets_for_system($galaxyIdx, $systemIdx),
+                    generate_rogue_planets_for_system($galaxyIdx, $systemIdx)
+                )
+            );
         }
-        upsert_binary_system_row($db, (int)$row['id'], $system);
+        if (!$bodyCatalogOnly) {
+            upsert_binary_system_row($db, (int)$row['id'], $system);
+        }
         return $system;
     }
 
@@ -1210,6 +1363,16 @@ function cache_generated_system(PDO $db, int $galaxyIdx, int $systemIdx, bool $s
     if ($seedPlanets) {
         if ($systemId > 0) {
             upsert_generated_planets($db, $galaxyIdx, $systemIdx, $systemId, $system['planets']);
+            upsert_generated_celestial_bodies(
+                $db,
+                $galaxyIdx,
+                $systemIdx,
+                build_system_body_catalog(
+                    $system['planets'],
+                    $system['free_comets'],
+                    $system['rogue_planets']
+                )
+            );
         }
     }
 
@@ -1230,6 +1393,28 @@ function ensure_galaxy_bootstrap_progress(PDO $db, bool $forceComplete = false):
         return ['galaxy' => $galaxyIdx, 'seeded' => 0, 'complete' => true, 'target' => 0];
     }
 
+    $bodyBackfilled = 0;
+    if ($forceComplete) {
+        $bodyBackfillKey = 'galaxy_body_catalog:' . $galaxyIdx . ':backfilled_through';
+        $bodyBackfilledThrough = app_state_get_int($db, $bodyBackfillKey, 0);
+        if ($bodyBackfilledThrough < $targetSystems) {
+            $existingSystems = $db->prepare(
+                'SELECT system_index FROM star_systems
+                 WHERE galaxy_index = ? AND system_index BETWEEN ? AND ?
+                 ORDER BY system_index'
+            );
+            $existingSystems->execute([$galaxyIdx, $bodyBackfilledThrough + 1, $targetSystems]);
+            foreach ($existingSystems->fetchAll(PDO::FETCH_COLUMN) as $systemIndex) {
+                cache_generated_system($db, $galaxyIdx, (int)$systemIndex, false, true);
+                $bodyBackfilled++;
+                if ($bodyBackfilled % 100 === 0) {
+                    app_state_set_int($db, $bodyBackfillKey, (int)$systemIndex);
+                }
+            }
+            app_state_set_int($db, $bodyBackfillKey, $targetSystems);
+        }
+    }
+
     $stateKey = galaxy_bootstrap_state_key($galaxyIdx);
     $lastSeeded = app_state_get_int($db, $stateKey, -1);
     if ($lastSeeded < 0) {
@@ -1240,21 +1425,39 @@ function ensure_galaxy_bootstrap_progress(PDO $db, bool $forceComplete = false):
     }
 
     if ($lastSeeded >= $targetSystems) {
-        return ['galaxy' => $galaxyIdx, 'seeded' => 0, 'complete' => true, 'target' => $targetSystems];
+        return [
+            'galaxy' => $galaxyIdx,
+            'seeded' => 0,
+            'body_backfilled' => $bodyBackfilled,
+            'complete' => true,
+            'target' => $targetSystems,
+        ];
     }
 
     $batchSize = $forceComplete ? ($targetSystems - $lastSeeded) : (int)$cfg['auto_seed_batch_size'];
     $endSystem = min($targetSystems, $lastSeeded + max(1, $batchSize));
     $seededCount = 0;
-    for ($systemIdx = $lastSeeded + 1; $systemIdx <= $endSystem; $systemIdx++) {
-        cache_generated_system($db, $galaxyIdx, $systemIdx, (bool)$cfg['seed_planets']);
-        $seededCount++;
+    $checkpointBatchSize = 100;
+    $existingSystem = $db->prepare(
+        'SELECT 1 FROM star_systems WHERE galaxy_index = ? AND system_index = ? LIMIT 1'
+    );
+    for ($batchStart = $lastSeeded + 1; $batchStart <= $endSystem; $batchStart += $checkpointBatchSize) {
+        $batchEnd = min($endSystem, $batchStart + $checkpointBatchSize - 1);
+        for ($systemIdx = $batchStart; $systemIdx <= $batchEnd; $systemIdx++) {
+            $existingSystem->execute([$galaxyIdx, $systemIdx]);
+            if ($existingSystem->fetchColumn() !== false) {
+                continue;
+            }
+            cache_generated_system($db, $galaxyIdx, $systemIdx, (bool)$cfg['seed_planets']);
+            $seededCount++;
+        }
+        app_state_set_int($db, $stateKey, $batchEnd);
     }
-    app_state_set_int($db, $stateKey, $endSystem);
 
     return [
         'galaxy' => $galaxyIdx,
         'seeded' => $seededCount,
+        'body_backfilled' => $bodyBackfilled,
         'complete' => $endSystem >= $targetSystems,
         'target' => $targetSystems,
         'last_seeded_system' => $endSystem,

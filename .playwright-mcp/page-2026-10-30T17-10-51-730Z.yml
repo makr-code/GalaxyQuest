@@ -1,0 +1,11 @@
+- region "Registration prologue" [ref=f25e53]:
+  - button "Zurück" [ref=f25e54] [cursor=pointer]
+  - main [ref=f25e55]:
+    - paragraph [ref=f25e56]: Schritt 3 / Tutorial 3 von 3
+    - heading "Landeanflug" [active] [level=2] [ref=f25e92]
+    - paragraph [ref=f25e58]: Du hast Mentor, Herkunft und Startwelt kennengelernt. Die eigentliche Kolonie wird erst nach dem Tutorial aktiviert.
+    - status
+    - status [ref=f25e87]: Sinkflug zur privaten Landeplatz-Vorschau. Noch kein Baututorial.
+    - status
+    - alert
+    - button "Weiter zur Commander-Erstellung" [ref=f25e93] [cursor=pointer]

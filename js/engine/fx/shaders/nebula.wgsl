@@ -2,22 +2,18 @@
 // WGSL fragment shader: volumetric nebula / plasma cloud rendering.
 //
 // Uses layered fractional Brownian motion (fBm) noise to produce convincing
-// volumetric gas cloud appearances without full raymarching.  The shader is
-// applied as a full-screen quad pass that composites the nebula volume over
-// the scene using additive or alpha blending.
+// volumetric gas clouds with bounded raymarching. Each quad covers only its
+// volume's projected bounds and uses normalized galactic coordinates.
 //
 // Technique summary:
-//   1. Transform the fragment UV into a 3D "view ray" through the cloud volume.
+//   1. Transform screen coordinates into a world-space ray through the volume.
 //   2. Step along the ray (NUM_STEPS short marches).
 //   3. Sample a domain-warped value noise at each step position.
 //   4. Accumulate colour and opacity (front-to-back compositing).
-//   5. Output the accumulated colour with premultiplied alpha.
+//   5. Output straight-alpha colour for scene compositing.
 //
 // Bind-group 0:
 //   binding 0 → uniform buffer  — NebulaParams
-//   binding 1 → sampler         — linear/clamp sampler
-//   binding 2 → texture_2d<f32> — optional tiling noise texture (fallback: procedural)
-//   binding 3 → texture_2d<f32> — depth/scene texture (for depth-fade at solid objects)
 //
 // Inspired by:
 //   Inigo Quilez "Rendering Clouds" (MIT) — https://www.shadertoy.com/view/XslGRr
@@ -31,7 +27,7 @@
 // ---------------------------------------------------------------------------
 
 struct NebulaParams {
-  // Volume centre in view space (x, y, z, radius)
+  // Volume centre and radius in normalized galactic coordinates.
   centerAndRadius : vec4<f32>,
 
   // Inner colour (dense regions) + density scale (w)
@@ -41,8 +37,8 @@ struct NebulaParams {
   colorOuter    : vec4<f32>,
 
   // Camera / projection helpers
-  invProjMat    : mat4x4<f32>,    // inverse projection matrix: transforms NDC → view space
-  viewMat       : mat4x4<f32>,    // view matrix (reserved for world-space variant)
+  invProjMat    : mat4x4<f32>,
+  bounds        : vec4<f32>,
 
   // Misc
   time          : f32,   // elapsed time (seconds) — used for slow drift animation
@@ -52,8 +48,6 @@ struct NebulaParams {
 }
 
 @group(0) @binding(0) var<uniform> params   : NebulaParams;
-@group(0) @binding(1) var          smpl     : sampler;
-@group(0) @binding(2) var          noiseTex : texture_2d<f32>;
 
 // ---------------------------------------------------------------------------
 // Vertex shader (full-screen triangle, no VBO)
@@ -70,13 +64,10 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VSOut {
     vec2(-1.0, -1.0), vec2( 1.0, -1.0), vec2( 1.0,  1.0),
     vec2(-1.0, -1.0), vec2( 1.0,  1.0), vec2(-1.0,  1.0),
   );
-  var uvs = array<vec2<f32>, 6>(
-    vec2(0.0, 1.0), vec2(1.0, 1.0), vec2(1.0, 0.0),
-    vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(0.0, 0.0),
-  );
   var out: VSOut;
-  out.pos = vec4<f32>(positions[idx], 0.0, 1.0);
-  out.uv  = uvs[idx];
+  let clip = mix(params.bounds.xy, params.bounds.zw, positions[idx] * 0.5 + 0.5);
+  out.pos = vec4<f32>(clip, 0.0, 1.0);
+  out.uv  = clip;
   return out;
 }
 
@@ -122,9 +113,9 @@ fn fbm(p: vec3<f32>) -> f32 {
 fn warpedFbm(p: vec3<f32>) -> f32 {
   let turb  = params.colorOuter.w;
   let warp  = vec3<f32>(
-    fbm(p + vec3(1.7, 9.2, 1.3)),
-    fbm(p + vec3(8.3, 2.8, 4.6)),
-    fbm(p + vec3(3.1, 5.4, 7.9)),
+    valueNoise(p + vec3(1.7, 9.2, 1.3)),
+    valueNoise(p + vec3(8.3, 2.8, 4.6)),
+    valueNoise(p + vec3(3.1, 5.4, 7.9)),
   );
   return fbm(p + turb * warp);
 }
@@ -138,12 +129,13 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let center = params.centerAndRadius.xyz;
   let radius = params.centerAndRadius.w;
 
-  // Reconstruct view-space ray from UV
-  let ndc       = vec3<f32>(in.uv * 2.0 - 1.0, 1.0);
-  let rayDir    = normalize((params.invProjMat * vec4<f32>(ndc, 1.0)).xyz);
+  let nearPoint = params.invProjMat * vec4<f32>(in.uv, -1.0, 1.0);
+  let farPoint = params.invProjMat * vec4<f32>(in.uv, 1.0, 1.0);
+  let rayOrigin = nearPoint.xyz / nearPoint.w;
+  let rayDir = normalize(farPoint.xyz / farPoint.w - rayOrigin);
 
   // Simple sphere-intersection test for bounding volume
-  let oc   = -center;   // ray origin is at view-origin (0,0,0)
+  let oc   = rayOrigin - center;
   let b    = dot(oc, rayDir);
   let c    = dot(oc, oc) - radius * radius;
   let disc = b * b - c;
@@ -155,9 +147,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let sqrtD  = sqrt(disc);
   let tMin   = max(0.0, -b - sqrtD);
   let tMax   = -b + sqrtD;
+  if (tMax <= tMin) { return vec4<f32>(0.0); }
   let tRange = tMax - tMin;
 
-  let numSteps = max(1u, u32(params.steps));
+  let numSteps = clamp(u32(params.steps), 8u, 24u);
   let stepSize = tRange / f32(numSteps);
 
   var accumColor   = vec3<f32>(0.0);
@@ -168,16 +161,20 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     if (accumAlpha >= 0.99) { break; }
 
     let t       = tMin + (f32(i) + 0.5) * stepSize;
-    let sampleP = rayDir * t;  // view-space sample position
+    let sampleP = rayOrigin + rayDir * t;
 
     // Scale into noise space (normalise by radius, add drift)
-    let noiseP  = sampleP / radius * 2.0 + vec3<f32>(slowDrift, 0.0, slowDrift);
+    let noiseP  = (sampleP - center) / radius * 2.0 + center * 17.0 + vec3<f32>(slowDrift, 0.0, slowDrift);
 
-    let density = warpedFbm(noiseP);
+    let density = max(0.0, warpedFbm(noiseP) - 0.3) * 2.2;
 
     // Radial fade so edges dissolve naturally
-    let distFromCentre = length(sampleP - center) / radius;
-    let radFade        = 1.0 - smoothstep(0.6, 1.0, distFromCentre);
+    let relative = (sampleP - center) / radius;
+    let radial = normalize(vec3<f32>(center.xy, 0.0001));
+    let tangent = normalize(vec3<f32>(-radial.y, radial.x, 0.0));
+    let distFromCentre = length(vec3<f32>(dot(relative, tangent), dot(relative, radial) * 1.5, relative.z * 2.2));
+    let boundary = 0.7 + valueNoise(noiseP * 1.3) * 0.28;
+    let radFade        = 1.0 - smoothstep(boundary - 0.35, boundary, distFromCentre);
     let d              = density * radFade * params.colorInner.w;  // colorInner.w = density scale
 
     if (d < 0.01) { continue; }
@@ -186,7 +183,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let col = mix(params.colorOuter.rgb, params.colorInner.rgb, density);
 
     // Front-to-back compositing
-    let stepAlpha   = 1.0 - exp(-d * stepSize * 2.0);
+    let stepAlpha   = 1.0 - exp(-d * stepSize / radius * 1.6);
     let weight      = stepAlpha * (1.0 - accumAlpha);
     accumColor     += col * weight;
     accumAlpha     += weight;
@@ -194,6 +191,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
   let finalAlpha = accumAlpha * params.opacity;
   // Mix emissive (additive) with absorptive output
-  let emissiveMix = mix(accumColor * finalAlpha, accumColor, params.emissive);
+  let color = accumColor / max(accumAlpha, 0.0001);
+  let emissiveMix = color * mix(0.65, 1.0, params.emissive);
   return vec4<f32>(emissiveMix, finalAlpha);
 }

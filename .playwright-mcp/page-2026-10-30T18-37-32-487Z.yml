@@ -1,0 +1,12 @@
+- region "Registration prologue" [ref=f35e53]:
+  - button "Zurück" [ref=f35e54] [cursor=pointer]
+  - main [ref=f35e55]:
+    - paragraph [ref=f35e56]: Prolog / Die Kalytherion-Konvergenz
+    - heading "Jenseits vertrauter Sterne" [active] [level=2] [ref=f35e57]
+    - paragraph [ref=f35e58]: Weit hinter den Sternen deiner Heimat verbindet die Kalytherion-Konvergenz sechs Zivilisationen. Sechs Arten zu leben. Eine fragile Hoffnung auf eine gemeinsame Zukunft.
+    - status [ref=f35e59]: Sprachausgabe nicht verfügbar. Der Prolog läuft als Text weiter.
+    - button "Sprachausgabe erneut versuchen" [ref=f35e60] [cursor=pointer]
+    - status
+    - status
+    - alert
+    - button "Weiter" [ref=f35e62] [cursor=pointer]

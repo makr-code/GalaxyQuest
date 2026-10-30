@@ -266,6 +266,30 @@
       this._callNative('setCameraDriver', [driver, opts]);
       return this._callDelegate('setCameraDriver', [driver, opts]);
     }
+    flyToStar(target, durationMs) {
+      this._callNative('flyToStar', [target, durationMs]);
+      return this._callDelegate('flyToStar', [target, durationMs]);
+    }
+    cancelCameraFlight() {
+      this._callNative('cancelCameraFlight', []);
+      return this._callDelegate('cancelCameraFlight', []);
+    }
+    getFlightTelemetry() {
+      return this._callNative('getFlightTelemetry', [])
+        ?? this._callDelegate('getFlightTelemetry', []);
+    }
+    setNebulaConfiguration(options) {
+      return this._callNative('setNebulaConfiguration', [options])
+        ?? this._callDelegate('setNebulaConfiguration', [options]);
+    }
+    setFlightScene(scene) {
+      return this._callNative('setFlightScene', [scene])
+        ?? this._callDelegate('setFlightScene', [scene]);
+    }
+    navigateTo(target, options) {
+      return this._callNative('navigateTo', [target, options])
+        ?? this._callDelegate('navigateTo', [target, options]);
+    }
     clearCameraDriver() {
       this._callNative('clearCameraDriver', []);
       return this._callDelegate('clearCameraDriver', []);

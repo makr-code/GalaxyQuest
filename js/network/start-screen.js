@@ -1,7 +1,7 @@
 import { initializeServerAnnouncements } from './server-announcements.js';
 import { initializeRegistrationPrologue } from './registration-prologue.js';
 
-export function initializeStartScreen({ onResume, onMute, onRegistrationRequest, onRegistrationPreview } = {}) {
+export function initializeStartScreen({ onResume, onMute, onFlightTour = () => true, onRegistrationRequest, onRegistrationPreview } = {}) {
   const menu = document.getElementById('start-menu');
   const template = document.getElementById('auth-forms-template');
   if (!menu || !template?.content.firstElementChild) throw new Error('Start-screen HTML is missing required markup');
@@ -196,15 +196,21 @@ export function initializeStartScreen({ onResume, onMute, onRegistrationRequest,
 
   const motion = document.getElementById('start-reduced-motion');
   const mute = document.getElementById('start-mute');
+  const flightTour = document.getElementById('start-flight-tour');
+  const flightStatus = document.getElementById('start-flight-status');
   const settingsStatus = document.getElementById('start-settings-status');
   const media = window.matchMedia('(prefers-reduced-motion: reduce)');
   try {
     const storedMotion = localStorage.getItem('gq_start_reduced_motion');
     motion.checked = storedMotion === null ? media.matches : storedMotion === '1';
+    const storedFlightTour = localStorage.getItem('gq_start_flight_tour') === '1';
+    flightTour.checked = storedFlightTour && !motion.checked;
+    if (storedFlightTour && motion.checked) flightStatus.textContent = 'Turn off Reduce motion to enable automatic flight.';
     const audio = JSON.parse(localStorage.getItem('gq_audio_settings') || '{}');
     mute.checked = audio.masterMuted === true;
   } catch (error) {
     motion.checked = media.matches;
+    flightTour.checked = false;
     settingsStatus.textContent = `Preferences could not be loaded: ${error.message}`;
   }
   function applyMotion() {
@@ -221,7 +227,33 @@ export function initializeStartScreen({ onResume, onMute, onRegistrationRequest,
     } catch (error) {
       settingsStatus.textContent = `Preference could not be saved: ${error.message}`;
     }
+    if (motion.checked && flightTour.checked) {
+      flightTour.checked = false;
+      void applyFlightTour(false);
+      flightStatus.textContent = 'Stopped because Reduce motion is enabled.';
+    }
   });
+  async function applyFlightTour(enabled, persist = true) {
+    if (enabled && motion.checked) {
+      flightTour.checked = false;
+      flightStatus.textContent = 'Turn off Reduce motion to enable automatic flight.';
+      return;
+    }
+    flightTour.disabled = true;
+    try {
+      const accepted = await onFlightTour(enabled);
+      if (enabled && accepted === false) throw new Error('The galaxy renderer is not ready yet.');
+      if (persist) localStorage.setItem('gq_start_flight_tour', enabled ? '1' : '0');
+      flightStatus.textContent = enabled ? 'Automatic database flight is running.' : 'Automatic flight is off.';
+    } catch (error) {
+      flightTour.checked = !enabled;
+      flightStatus.textContent = `Automatic flight could not be changed: ${error.message}`;
+    } finally {
+      flightTour.disabled = false;
+    }
+  }
+  flightTour.addEventListener('change', () => { void applyFlightTour(flightTour.checked); });
+  if (flightTour.checked) void applyFlightTour(true, false);
   mute.addEventListener('change', async () => {
     mute.disabled = true;
     try {

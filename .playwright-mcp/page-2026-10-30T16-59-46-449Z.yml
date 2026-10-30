@@ -1,0 +1,11 @@
+- region "Registration prologue" [ref=f21e53]:
+  - button "Zurück" [ref=f21e54] [cursor=pointer]
+  - main [ref=f21e55]:
+    - paragraph [ref=f21e56]: Schritt 2 / Mentor und Herkunft
+    - heading "Die Heroldkammer" [active] [level=2] [ref=f21e66]
+    - paragraph [ref=f21e58]: Sechs Mentoren erwarten dich. Jeder bietet dir eine Herkunft und ein eigenes Startsystem an.
+    - status
+    - status
+    - status [ref=f21e67]: Die sechs Mentor-Systeme werden vorbereitet...
+    - alert [ref=f21e68]: "PDOException: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'mentor_code' in 'field list' in RegistrationDraftService.php:141"
+    - button "Erneut versuchen" [ref=f21e69] [cursor=pointer]

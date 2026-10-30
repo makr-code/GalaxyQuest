@@ -14,6 +14,8 @@ body.registration-active #affilates { display: none !important; }
   color: #e3efff;
   background: linear-gradient(90deg, #000b, #0004, #0009);
 }
+.registration-herald-canvas { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; }
+.registration-stage { position: relative; z-index: 1; }
 .registration-back { position: sticky; top: 20px; margin: 20px 24px; z-index: 1; background: #102536bb; border: 1px solid #a7dfff66; padding: 10px 24px; color: #ddecff; cursor: pointer; }
 .registration-stage { width: min(940px, calc(100% - 48px)); margin: min(12svh, 100px) auto 60px; text-align: center; }
 .registration-chapter { font-size: .75rem; letter-spacing: .2em; text-transform: uppercase; color: #9dc6e3; }
@@ -33,15 +35,20 @@ body.registration-active #affilates { display: none !important; }
 .registration-portrait img { display: block; margin: 0 auto; object-fit: contain; border: 1px solid #a7dfff44; }
 #registration-narration-status, .registration-draft-summary, #registration-character-form p { font-size: .85rem; line-height: 1.7; color: #b6cadd; }
 #registration-flight-status { font-size: .8rem; line-height: 1.6; color: #b6cadd; }
-.registration-prologue:is([data-phase="species"], [data-phase="character"], [data-phase="surface"]) { background: linear-gradient(90deg, #000a, transparent 70%); }
+.registration-prologue:is([data-phase="mentor-room"], [data-phase="character"], [data-phase="surface"]) { background: linear-gradient(90deg, #000a, transparent 70%); }
+.registration-prologue[data-phase="mentor-room"] { background: linear-gradient(90deg, #02080ef2 0%, #06111bc9 31%, #06111b55 66%, #02080e44 100%); }
+.registration-prologue[data-phase="mentor-room"] .registration-herald-choice { background: #071521e8; border-color: color-mix(in srgb, var(--faction-color, #bce6ff) 48%, transparent); }
+.registration-prologue[data-phase="mentor-room"] .registration-herald-choice:hover,
+.registration-prologue[data-phase="mentor-room"] .registration-herald-choice:focus-visible { background: #102538f2; }
+.registration-prologue[data-phase="mentor-room"] .registration-herald-choice[aria-pressed="true"] { background: #17364beF; }
 @media (min-width: 900px) {
-  .registration-prologue:is([data-phase="species"], [data-phase="character"], [data-phase="surface"]) .registration-stage {
+  .registration-prologue:is([data-phase="mentor-room"], [data-phase="character"], [data-phase="surface"]) .registration-stage {
     width: 340px; margin: 0 24px 40px; padding: 20px; background: #04101bcc; border: 1px solid #a7dfff33;
   }
-  .registration-prologue:is([data-phase="species"], [data-phase="character"], [data-phase="surface"]) h2 { font-size: 1.6rem; }
-  .registration-prologue:is([data-phase="species"], [data-phase="character"], [data-phase="surface"]) .registration-story { font-size: .9rem; line-height: 1.6; margin: 16px auto; }
-  .registration-prologue[data-phase="species"] .registration-choice { flex-basis: calc(50% - 10px); padding: 12px 8px; }
-  .registration-prologue[data-phase="species"] .registration-choice svg { width: 32px; height: 32px; margin-bottom: 10px; }
+  .registration-prologue:is([data-phase="mentor-room"], [data-phase="character"], [data-phase="surface"]) h2 { font-size: 1.6rem; }
+  .registration-prologue:is([data-phase="mentor-room"], [data-phase="character"], [data-phase="surface"]) .registration-story { font-size: .9rem; line-height: 1.6; margin: 16px auto; }
+  .registration-prologue[data-phase="mentor-room"] .registration-choice { flex-basis: calc(50% - 10px); padding: 12px 8px; }
+  .registration-prologue[data-phase="mentor-room"] .registration-choice svg { width: 32px; height: 32px; margin-bottom: 10px; }
 }
 @keyframes registration-reveal { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
 @media (max-width: 600px) {

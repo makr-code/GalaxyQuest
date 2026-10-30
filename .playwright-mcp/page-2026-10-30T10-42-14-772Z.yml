@@ -1,0 +1,18 @@
+- region "Registration prologue" [ref=f7e6]:
+  - button "Zurück" [ref=f7e7] [cursor=pointer]
+  - main [ref=f7e8]:
+    - paragraph [ref=f7e9]: Schritt 3 / Herkunft
+    - heading "Die sechs Herolde" [active] [level=2] [ref=f7e32]
+    - paragraph [ref=f7e11]: Wähle die Kultur, aus der du kommst. Deine Herkunft bestimmt deine Spezies und Startregion; deine spätere Berufung legst du im Spiel fest.
+    - status
+    - status [ref=f7e17]: Anflug auf dein reserviertes Startsystem. Umlaufbahnen schematisch.
+    - generic [ref=f7e18]:
+      - button "Aereth" [ref=f7e33] [cursor=pointer]
+      - button "Kryl'Tha" [ref=f7e36] [cursor=pointer]
+      - button "Syl'Nar" [ref=f7e39] [cursor=pointer]
+      - button "Vel'Ar" [ref=f7e42] [cursor=pointer]
+      - button "Vor'Tak" [ref=f7e45] [cursor=pointer]
+      - button "Zhareen" [ref=f7e48] [cursor=pointer]
+    - status
+    - alert
+    - button "Weiter" [disabled] [ref=f7e15]

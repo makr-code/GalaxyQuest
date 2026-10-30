@@ -3168,6 +3168,47 @@
       this._cameraDriver = driver || null;
     }
 
+    setFlightScene(scene) {
+      if (this._delegate?.setFlightScene) return this._delegate.setFlightScene(scene);
+      if (this._native?.setFlightScene) return this._native.setFlightScene(scene);
+      return false;
+    }
+
+    navigateTo(target, options) {
+      if (this._delegate?.navigateTo) return this._delegate.navigateTo(target, options);
+      if (this._native?.navigateTo) return this._native.navigateTo(target, options);
+      return false;
+    }
+
+    getFlightTelemetry() {
+      if (this._delegate?.getFlightTelemetry) return this._delegate.getFlightTelemetry();
+      return this._native?.getFlightTelemetry?.() ?? null;
+    }
+
+    getFlightCoordinates() {
+      if (this._delegate?.getFlightCoordinates) return this._delegate.getFlightCoordinates();
+      return this._native?.getFlightCoordinates?.() ?? null;
+    }
+
+    restoreFlightCoordinates(coordinates) {
+      if (this._delegate?.restoreFlightCoordinates) return this._delegate.restoreFlightCoordinates(coordinates);
+      return this._native?.restoreFlightCoordinates?.(coordinates) ?? false;
+    }
+    getSpatialLabels() {
+      if (this._delegate?.getSpatialLabels) return this._delegate.getSpatialLabels();
+      return this._native?.getSpatialLabels?.() || [];
+    }
+
+    setSpatialLabelStars(stars) {
+      if (this._delegate?.setSpatialLabelStars) return this._delegate.setSpatialLabelStars(stars);
+      return this._native?.setSpatialLabelStars?.(stars) ?? 0;
+    }
+
+    setNebulaConfiguration(options) {
+      if (this._delegate?.setNebulaConfiguration) return this._delegate.setNebulaConfiguration(options);
+      return this._native?.setNebulaConfiguration?.(options) ?? false;
+    }
+
     clearCameraDriver() {
       if (this._delegate) return this._delegate.clearCameraDriver?.();
       this._cameraDriver = null;

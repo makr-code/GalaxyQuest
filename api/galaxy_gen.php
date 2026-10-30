@@ -159,6 +159,10 @@ function galaxy_default_config(): array
         'galaxy' => [
             'name'               => 'Milky Way Core',
             'arms'               => GAL_ARMS,
+            'spurs_per_arm'      => 10,
+            'spur_fraction'      => 0.35,
+            'spur_length_fraction' => 0.65,
+            'spur_max_offset_deg' => 3.0,
             'radius_ly'          => GAL_RADIUS_LY,
             'arm_start_ly'       => GAL_ARM_START_LY,
             'arm_end_ly'         => GAL_ARM_END_LY,
@@ -430,6 +434,36 @@ function galaxy_arm_count(int $galaxyIdx): int
 
     $pick = (int)floor(gen_rand($galaxyIdx, $galaxyIdx, 7700) * $span);
     return max($armMin, min($armMax, $armMin + $pick));
+}
+
+/** Return the deterministic secondary-arm spur assigned to a system, if any. */
+function galaxy_spur_deviation(int $galaxyIdx, int $systemIdx, int $armIndex, float $radialT): array
+{
+    $galCfg = galaxy_config()['galaxy'] ?? [];
+    $spurCount = max(0, (int)($galCfg['spurs_per_arm'] ?? 10));
+    if ($spurCount === 0) {
+        return ['spur_index' => null, 'theta_offset_rad' => 0.0];
+    }
+
+    $spurFraction = max(0.0, min(1.0, (float)($galCfg['spur_fraction'] ?? 0.35)));
+    $lengthFraction = max(0.1, min(1.0, (float)($galCfg['spur_length_fraction'] ?? 0.65)));
+    $maxOffsetDeg = max(0.0, min(15.0, (float)($galCfg['spur_max_offset_deg'] ?? 3.0)));
+    $t = max(0.0, min(1.0, $radialT));
+    $spurIndex = min($spurCount - 1, (int)floor($t * $spurCount));
+    $spurProgress = ($t * $spurCount) - $spurIndex;
+
+    if ($spurProgress > $lengthFraction
+        || gen_rand($galaxyIdx, $systemIdx, 44221) >= $spurFraction) {
+        return ['spur_index' => null, 'theta_offset_rad' => 0.0];
+    }
+
+    $progress = $spurProgress / $lengthFraction;
+    $smoothProgress = $progress * $progress * (3.0 - 2.0 * $progress);
+    $side = (($armIndex + $spurIndex) % 2 === 0) ? 1.0 : -1.0;
+    return [
+        'spur_index' => $spurIndex,
+        'theta_offset_rad' => $side * deg2rad($maxOffsetDeg) * $smoothProgress,
+    ];
 }
 
 if (!function_exists('normalize_angle_rad')) {
@@ -1024,6 +1058,8 @@ function galactic_position(int $galaxyIdx, int $systemIdx): array
 
     $rFinal     = max($armStartLy, min($armEndLy, $r + $scatterR));
     $thetaFinal = $theta + $scatterT;
+    $spur = galaxy_spur_deviation($galaxyIdx, $systemIdx, $armIndex, $t);
+    $thetaFinal += $spur['theta_offset_rad'];
 
     return [
         round($rFinal * cos($thetaFinal), 2),
@@ -1635,6 +1671,8 @@ function build_system_body_catalog(array $planets, array $freeComets, array $rog
             $all[] = ($p['ring_system'] + [
                 'body_id' => (string)$p['body_id'] . '-ring',
                 'parent_body_id' => $p['body_id'] ?? null,
+                'position' => $p['position'] ?? null,
+                'parent_position' => $p['position'] ?? null,
                 'name' => ($p['name'] ?? 'Planet') . ' Ring',
                 'local_x' => $p['local_x'] ?? 0.0,
                 'local_y' => $p['local_y'] ?? 0.0,

@@ -1,0 +1,36 @@
+- generic [active] [ref=f9e1]:
+  - generic [ref=f9e7]:
+    - generic "Start music player" [ref=f9e8]:
+      - generic [ref=f9e9]: GALACTIC RADIO
+      - generic "Nebula Overture" [ref=f9e10]
+      - generic [ref=f9e11]:
+        - button "Previous track" [ref=f9e12] [cursor=pointer]
+        - button "Musik starten" [ref=f9e15] [cursor=pointer]
+        - button "Next track" [ref=f9e18] [cursor=pointer]
+        - button "Audio stummschalten" [ref=f9e21] [cursor=pointer]
+    - paragraph [ref=f9e24]: GALAXY QUEST / COMMAND INTERFACE
+    - heading "GalaxyQuest" [level=1] [ref=f9e25]
+    - paragraph [ref=f9e26]: Conquer the stars
+    - navigation "Main menu" [ref=f9e27]:
+      - button "Login Return to your command" [ref=f9e29] [cursor=pointer]:
+        - text: Login
+        - generic [ref=f9e30]: Return to your command
+      - button "Begin a new campaign Write your first chapter" [ref=f9e32] [cursor=pointer]:
+        - text: Begin a new campaign
+        - generic [ref=f9e33]: Write your first chapter
+      - button "Developer tools" [ref=f9e35] [cursor=pointer]
+      - button "News and transmissions" [ref=f9e37] [cursor=pointer]
+      - button "Settings" [ref=f9e39] [cursor=pointer]
+      - button "Server announcements Loading" [ref=f9e40] [cursor=pointer]
+    - status [ref=f9e41]: Your next chapter awaits.
+    - status [ref=f9e42]: Procedural visual galaxy; not DB system data.
+    - generic [ref=f9e43]:
+      - generic [ref=f9e44]: © 2026 Galaxy Quest Interactive
+      - generic [ref=f9e45]: Conquer the stars
+  - region "Systemstatus und Entwickler-Konsole" [ref=f9e46]:
+    - generic [ref=f9e47]:
+      - generic [ref=f9e48]:
+        - strong [ref=f9e49]: System
+        - generic [ref=f9e50]: "Mode: Fallback"
+      - generic: "[INFO] [probe] [auth] audio primed (lazy), random title track: music/Nebula_Overture.mp3"
+      - button "Logs" [ref=f9e52] [cursor=pointer]

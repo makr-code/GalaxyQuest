@@ -33,6 +33,8 @@ export async function loadAuthGalaxySamples({ onSample, fetchImpl = globalThis.f
       stars: data.stars,
       occupiedSystems: Array.isArray(data.occupied_systems) ? data.occupied_systems : [],
       systemMax: Number(data.system_max) || null,
+      armCount: Number(data.arm_count) || null,
+      pitchAngleDeg: Number(data.pitch_angle_deg) || null,
     });
   }
 }

@@ -11,6 +11,8 @@
  * GET  /api/auth.php?action=register_catalog
  * GET  /api/auth.php?action=register_status
  * POST /api/auth.php?action=register_prepare   body: {faction_id}
+ * POST /api/auth.php?action=register_mentor_drafts
+ * POST /api/auth.php?action=register_select_mentor body: {prolog_token,mentor_code}
  * POST /api/auth.php?action=register_profile   body: {prolog_token,species_code,gameplay_style?}
  * POST /api/auth.php?action=register_character body: {prolog_token,name,background}
  * GET  /api/auth.php?action=register_portrait_status
@@ -58,6 +60,8 @@ switch ($action) {
     case 'register_portrait_image':
     case 'register_cancel':
     case 'register_prepare':
+    case 'register_mentor_drafts':
+    case 'register_select_mentor':
     case 'register_complete':
         handle_registration($action);
         break;

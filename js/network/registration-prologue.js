@@ -1,11 +1,6 @@
 import content from '../../config/onboarding_prologue.json';
-import militaryIcon from '../../gfx/icons/mono/military.svg?url&no-inline';
-import starIcon from '../../gfx/icons/mono/star.svg?url&no-inline';
-import researchIcon from '../../gfx/icons/mono/research.svg?url&no-inline';
-import intelIcon from '../../gfx/icons/mono/intel.svg?url&no-inline';
 import populationIcon from '../../gfx/icons/mono/population.svg?url&no-inline';
-
-const icons = { military: militaryIcon, star: starIcon, research: researchIcon, intel: intelIcon };
+import { RegistrationHeraldStage } from '../rendering/registration-herald-stage-webgpu.js';
 
 export function initializeRegistrationPrologue({ request, onPreview = () => {}, onClose = () => {} }) {
   const root = document.getElementById('registration-prologue');
@@ -25,11 +20,15 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
   let chapter = 0;
   let catalog = null;
   let draft = null;
-  let selectedFaction = '';
   let selectedSpecies = '';
+  let selectedMentorDraft = null;
+  let selectedTutorialPlanet = null;
+  let mentorDrafts = [];
+  let tutorialIndex = 0;
   let busy = false;
   let portraitTimer = null;
   let portraitRevision = 0;
+  let heraldStage = null;
 
   function characterSaved() {
     return draft?.character && element('name').value.trim() === draft.character.name
@@ -223,6 +222,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
 
   function frame(title, text, label) {
     root.dataset.phase = phase;
+    heraldStage?.setVisible(active && phase === 'mentor-room');
     resetPortrait();
     revision++;
     stopNarration();
@@ -257,39 +257,10 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     frame(clip.title, clip.text, 'Prolog / Die Kalytherion-Konvergenz');
     preview(null);
     next.hidden = false;
-    next.textContent = index + 1 < content.teaser.length ? 'Weiter' : 'Weiter zu den Fraktionen';
+    next.textContent = index + 1 < content.teaser.length ? 'Weiter' : 'Weiter zur Heroldkammer';
     void narrate(clip, () => {
       if (index + 1 < content.teaser.length) showTeaser(index + 1);
     });
-  }
-
-  function showFactionIntroduction(index) {
-    phase = 'faction-intro';
-    chapter = index;
-    const faction = content.factions[index];
-    frame(faction.name, faction.text, `Politische Fraktionen / ${index + 1} von 4`);
-    next.hidden = false;
-    next.textContent = index === 3 ? 'Weiter zur Fraktionswahl' : 'Weiter';
-    void narrate({ id: faction.code, text: faction.text }, () => {
-      if (index < 3) showFactionIntroduction(index + 1);
-      else showFactions();
-    });
-    const version = revision;
-    preview(null);
-    const region = catalog?.factions.find((entry) => entry.code === faction.code);
-    if (region) preview({ stage: 'region', target: region.target, stars: region.stars });
-    else {
-      void request('register_catalog').then((data) => {
-        if (!active || version !== revision) return;
-        if (!Array.isArray(data.factions) || data.factions.length !== 4) throw new Error('Die Fraktionsgebiete sind nicht vollständig eingerichtet.');
-        catalog = data;
-        const area = data.factions.find((entry) => entry.code === faction.code);
-        if (!area) throw new Error('Das Fraktionsgebiet fehlt.');
-        preview({ stage: 'region', target: area.target, stars: area.stars });
-      }).catch((error) => {
-        if (active && version === revision) element('flight-status').textContent = `Fraktionsflug nicht verfügbar: ${error.message}`;
-      });
-    }
   }
 
   function choice(entry, icon, choose) {
@@ -316,55 +287,6 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     return button;
   }
 
-  async function loadCatalog() {
-    if (busy) return;
-    const version = revision;
-    busy = true;
-    for (const button of element('choices').querySelectorAll('button')) button.disabled = true;
-    element('status').textContent = 'Fraktionsgebiete und vorhandener Draft werden geladen...';
-    try {
-      const [data, saved] = await Promise.all([request('register_catalog'), request('register_status')]);
-      if (!active || version !== revision) return;
-      if (!Array.isArray(data.factions) || data.factions.length !== 4 || !Array.isArray(data.species) || data.species.length !== 6) {
-        throw new Error('Die vier politischen Fraktionen und sechs Spezies sind noch nicht vollständig eingerichtet.');
-      }
-      catalog = data;
-      draft = saved.draft;
-      if (draft) {
-        selectedFaction = draft.faction_code;
-        selectedSpecies = draft.species_code || '';
-      }
-      element('status').textContent = draft ? 'Dein privater Draft ist vorhanden. Gleiche Wahlen übernehmen deinen Fortschritt.' : '';
-      for (const button of element('choices').querySelectorAll('button')) button.disabled = false;
-    } catch (error) {
-      if (!active || version !== revision) return;
-      fail(error);
-      element('retry').hidden = false;
-    } finally {
-      if (active && version === revision) { busy = false; if (!catalog) element('status').textContent = ''; }
-    }
-  }
-
-  function showFactions() {
-    phase = 'faction-choice';
-    busy = false;
-    frame('Wem schenkst du dein Vertrauen?', 'Deine politische Fraktion bestimmt dein Startgebiet und deine ersten Kontakte. Deine Spezies wählst du unabhängig davon.', 'Schritt 2 / Politische Zugehörigkeit');
-    preview(null);
-    next.hidden = false;
-    next.disabled = true;
-    for (const faction of content.factions) {
-      const button = choice(faction, icons[faction.symbol], () => {
-        selectedFaction = faction.code;
-        const region = catalog.factions.find((item) => item.code === faction.code);
-        element('story').textContent = `${faction.title}\n${faction.network}\nStartregion: ${region.homeworld}. Noch keine Welt reserviert.`;
-        preview({ stage: 'region', target: region.target, stars: region.stars });
-        next.disabled = false;
-      });
-      button.disabled = true;
-    }
-    void loadCatalog();
-  }
-
   function preview(value) {
     if (onPreview(value) === false && value) {
       element('flight-status').textContent = 'Der WebGPU-Flug ist nicht verfügbar. Die Auswahl bleibt bedienbar.';
@@ -376,38 +298,176 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     }
   }
 
-  async function prepareSystem() {
+  function showMentorRoom() {
+    phase = 'mentor-room';
+    selectedMentorDraft = null;
+    selectedSpecies = '';
+    frame('Die Heroldkammer', 'Sechs Mentoren erwarten dich. Jeder bietet dir eine Herkunft und ein eigenes Startsystem an.', 'Schritt 2 / Mentor und Herkunft');
+    preview(null);
+    next.hidden = true;
+    void loadMentorDrafts();
+  }
+
+  async function loadMentorDrafts() {
+    if (busy) return;
     const version = revision;
     busy = true;
-    next.disabled = true;
     element('error').textContent = '';
-    element('status').textContent = 'Dein privates Startsystem wird reserviert...';
+    element('status').textContent = 'Die sechs Mentor-Systeme werden vorbereitet...';
+    element('retry').hidden = true;
     try {
-      const prepared = await request('register_prepare', { faction_id: selectedFaction });
+      const [data, result] = await Promise.all([
+        request('register_catalog'),
+        request('register_mentor_drafts', {}),
+      ]);
       if (!active || version !== revision) return;
-      draft = prepared.draft;
-      busy = false;
-      showSpecies();
+      if (!Array.isArray(data.species) || data.species.length !== 6
+        || !Array.isArray(result.drafts) || result.drafts.length !== 6) {
+        throw new Error('Die sechs Mentor-Systeme sind noch nicht vollständig vorbereitet.');
+      }
+      catalog = data;
+      mentorDrafts = result.drafts;
+      for (const species of catalog.species) {
+        const candidate = mentorDrafts.find((item) => item.mentor_code === species.code);
+        if (!candidate) throw new Error(`Das System für ${species.name} fehlt.`);
+        const button = choice(species, populationIcon, () => activateMentor(species, candidate));
+        button.classList.add('registration-herald-choice');
+        button.addEventListener('focus', () => heraldStage?.setFocus(species.code));
+        button.addEventListener('pointerenter', () => heraldStage?.setFocus(species.code));
+        button.addEventListener('pointerleave', () => {
+          if (document.activeElement !== button) heraldStage?.setFocus(selectedSpecies || null);
+        });
+      }
+      const previousSelection = mentorDrafts.find((item) => item.selected === true);
+      if (previousSelection) {
+        const species = catalog.species.find((item) => item.code === previousSelection.mentor_code);
+        if (species) activateMentor(species, previousSelection);
+      }
+      element('status').textContent = 'Sechs private System-Drafts bereit. Noch keine Welt ist aktiviert.';
+      ensureHeraldStage(catalog.species);
     } catch (error) {
-      if (active && version === revision) fail(error);
+      if (!active || version !== revision) return;
+      fail(error);
+      element('retry').hidden = false;
     } finally {
-      if (active && version === revision) { busy = false; next.disabled = false; element('status').textContent = ''; }
+      if (active && version === revision) busy = false;
     }
   }
 
-  function showSpecies() {
-    phase = 'species';
-    frame('Welche Geschichte trägst du in dir?', 'Sechs Spezies gehören zur Konvergenz. Deine biologische Herkunft ist unabhängig von deiner politischen Zugehörigkeit. Lebensraumregeln und Speziesboni sind noch im Entwurf.', 'Schritt 3 / Spezies');
-    preview({ stage: 'system', target: draft.target, stars: draft.stars, draft });
+  function activateMentor(species, candidate) {
+    selectedSpecies = species.code;
+    selectedMentorDraft = candidate;
+    element('choices').querySelectorAll('button').forEach((button) => {
+      button.setAttribute('aria-pressed', String(button.dataset.choice === species.code));
+    });
+    heraldStage?.setSelected(species.code);
+    const planet = candidate.planets?.find((item) => Number(item.position) === Number(candidate.target.position));
+    element('story').textContent = `Ich bin der Herold der ${species.name}. ${species.description}\n\nMein System: ${candidate.system_name}. ${planet?.name || candidate.colony_name} ist deine mögliche Heimatwelt in ${species.homeworld || 'unserer Herkunftsregion'}.`;
+    preview({ stage: 'planet', target: candidate.target, stars: candidate.stars, draft: candidate });
     next.hidden = false;
+    next.disabled = false;
+    next.textContent = 'System wählen und Tutorial starten';
+  }
+
+  async function selectMentorDraft() {
+    if (busy || !selectedMentorDraft) return;
+    const version = revision;
+    busy = true;
     next.disabled = true;
-    for (const species of catalog.species) {
-      choice(species, populationIcon, () => {
-        selectedSpecies = species.code;
-        element('story').textContent = `${species.name}\n${species.description}\nDeine Fraktion bleibt ${content.factions.find((f) => f.code === selectedFaction).name}.`;
-        next.disabled = false;
+    element('status').textContent = 'Dein ausgewähltes System wird reserviert...';
+    try {
+      const result = await request('register_select_mentor', {
+        prolog_token: selectedMentorDraft.prolog_token,
+        mentor_code: selectedMentorDraft.mentor_code,
       });
+      if (!active || version !== revision) return;
+      draft = result.draft;
+      selectedSpecies = draft.species_code;
+      selectedTutorialPlanet = null;
+      busy = false;
+      showTutorial(0);
+    } catch (error) {
+      if (active && version === revision) {
+        fail(error);
+        next.disabled = false;
+      }
+    } finally {
+      if (active && version === revision) busy = false;
     }
+  }
+
+  const tutorialSteps = [
+    { stage: 'system', title: 'Dein Sternsystem', text: 'Untersuche das System und markiere die vom Mentor vorgeschlagene Startwelt für den Scan.' },
+    { stage: 'planet', title: 'Planetenscan', text: 'Der Planet ist markiert. Lies seine Messwerte und bereite den Landeanflug vor.' },
+    { stage: 'surface', title: 'Landeanflug', text: 'Der Landeanflug ist abgeschlossen. Dein System bleibt ein privater Draft; noch wird keine Welt aktiviert.' },
+  ];
+
+  function chooseTutorialPlanet(planet) {
+    selectedTutorialPlanet = planet;
+    const position = Number(planet.position);
+    const target = { ...draft.target, position };
+    const button = element('choices').querySelector(`[data-tutorial-planet="${position}"]`);
+    element('choices').querySelectorAll('button').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+    element('story').textContent = `${planet.name} · ${planet.class}\n${Number(planet.diameter_km).toLocaleString()} km Durchmesser · ${Number(planet.semi_major_axis_au).toFixed(2)} AU\nDies ist die für deinen privaten Draft reservierte Startwelt.`;
+    preview({ stage: 'planet', target, stars: draft.stars, draft });
+    next.hidden = false;
+    next.disabled = false;
+    next.textContent = 'Planet scannen';
+  }
+
+  function showTutorial(index) {
+    tutorialIndex = Math.max(0, Math.min(tutorialSteps.length - 1, index));
+    phase = 'tutorial';
+    const step = tutorialSteps[tutorialIndex];
+    frame(step.title, step.text, `Schritt 3 / Tutorial ${tutorialIndex + 1} von ${tutorialSteps.length}`);
+    if (tutorialIndex === 1 && selectedTutorialPlanet) {
+      const planet = selectedTutorialPlanet;
+      element('story').textContent = `${planet.name} · ${planet.class}\nDurchmesser: ${Number(planet.diameter_km).toLocaleString()} km\nUmlaufbahn: ${Number(planet.semi_major_axis_au).toFixed(2)} AU\nStatus: kolonialisierbar · Reservierung: privat`;
+    }
+    const target = selectedTutorialPlanet
+      ? { ...draft.target, position: Number(selectedTutorialPlanet.position) }
+      : draft.target;
+    preview({ stage: step.stage, target, stars: draft.stars, draft });
+    next.hidden = tutorialIndex === 0 && !selectedTutorialPlanet;
+    next.disabled = false;
+    if (tutorialIndex === 0) {
+      for (const planet of draft.planets.filter((item) => item.can_colonize
+        && Number(item.position) === Number(draft.position.position))) {
+        const button = choice({ ...planet, code: `planet-${planet.position}` }, populationIcon,
+          () => chooseTutorialPlanet(planet));
+        button.dataset.tutorialPlanet = String(planet.position);
+        if (selectedTutorialPlanet?.position === planet.position) button.setAttribute('aria-pressed', 'true');
+      }
+      if (selectedTutorialPlanet) next.textContent = 'Planet scannen';
+    } else {
+      next.textContent = tutorialIndex === 1 ? 'Scan akzeptieren und Landeanflug starten' : 'Landeanflug bestätigen';
+    }
+  }
+
+  function ensureHeraldStage(species) {
+    if (heraldStage) {
+      heraldStage.setVisible(active && phase === 'mentor-room');
+      return;
+    }
+    const stage = new RegistrationHeraldStage();
+    heraldStage = stage;
+    void stage.mount(root, species).then((mounted) => {
+      if (heraldStage !== stage) {
+        stage.destroy();
+        return;
+      }
+      if (!mounted) {
+        stage.destroy();
+        heraldStage = null;
+        return;
+      }
+      if (selectedSpecies) stage.setSelected(selectedSpecies);
+      stage.setVisible(active && phase === 'mentor-room');
+    }).catch((error) => {
+      if (heraldStage === stage) heraldStage = null;
+      stage.destroy();
+      window.GQLog?.warn?.('[registration-herald-webgpu]', String(error?.message || error));
+    });
   }
 
   async function prepareCharacter() {
@@ -466,10 +526,10 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       if (!active || version !== revision) return;
       draft = data.draft;
       busy = false;
-      next.textContent = 'Weiter zur Planetenoberfläche';
+      next.textContent = 'Startwelt-Vorschau anzeigen';
       next.hidden = false;
       void refreshPortrait();
-      element('status').textContent = 'Charakter-Draft gespeichert. Das spielbare Oberflächen-Tutorial und die E-Mail-Verifikation sind noch nicht verfügbar. Deine Welt wurde nicht aktiviert.';
+      element('status').textContent = 'Charakter-Draft gespeichert. Dein geführter Anflug ist abgeschlossen; die Welt bleibt privat und ist noch nicht aktiviert.';
     } catch (error) {
       if (active && version === revision) fail(error);
     } finally {
@@ -488,26 +548,28 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     document.body.classList.remove('registration-active');
     document.removeEventListener('keydown', onKeydown);
     preview(null);
+    heraldStage?.destroy();
+    heraldStage = null;
     onClose();
   }
 
   function showSurface() {
     phase = 'surface';
-    frame('Deine neue Welt', 'Hier wird deine Kolonie entstehen. Dieser Landeplatz bleibt privat, bis das Tutorial abgeschlossen und deine E-Mail bestätigt ist.', 'Schritt 5 / Landeanflug');
+    frame('Startwelt-Vorschau', 'Dein Mentor, das System und der Planetenscan sind abgeschlossen. Diese Welt bleibt ein privater Entwurf; die Spielwelt wird erst mit der späteren Registrierungsaktivierung erstellt.', 'Onboarding / Vorschau abgeschlossen');
     element('surface').hidden = false;
     preview({ stage: 'surface', target: draft.target, stars: draft.stars, draft });
-    next.hidden = false;
-    next.disabled = true;
-    next.textContent = 'Weiter zum Tutorial (noch nicht verfügbar)';
+    next.hidden = true;
   }
 
   function back() {
     if (busy) { close(); return; }
     if (phase === 'teaser') { if (chapter > 0) showTeaser(chapter - 1); else close(); }
-    else if (phase === 'faction-intro') { if (chapter > 0) showFactionIntroduction(chapter - 1); else showTeaser(content.teaser.length - 1); }
-    else if (phase === 'faction-choice') showFactionIntroduction(3);
-    else if (phase === 'species') showFactions();
-    else if (phase === 'character') showSpecies();
+    else if (phase === 'mentor-room') showTeaser(content.teaser.length - 1);
+    else if (phase === 'tutorial') {
+      if (tutorialIndex > 0) showTutorial(tutorialIndex - 1);
+      else showMentorRoom();
+    }
+    else if (phase === 'character') showTutorial(tutorialSteps.length - 1);
     else if (phase === 'surface') showCharacter();
   }
 
@@ -519,15 +581,17 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     if (busy) return;
     if (phase === 'teaser') {
       if (chapter + 1 < content.teaser.length) showTeaser(chapter + 1);
-      else showFactionIntroduction(0);
+      else showMentorRoom();
     }
-    else if (phase === 'faction-intro') { if (chapter < 3) showFactionIntroduction(chapter + 1); else showFactions(); }
-    else if (phase === 'faction-choice') void prepareSystem();
-    else if (phase === 'species') void prepareCharacter();
-    else if (phase === 'character' && characterSaved()) showSurface();
+    else if (phase === 'mentor-room') void selectMentorDraft();
+    else if (phase === 'tutorial') {
+      if (tutorialIndex + 1 < tutorialSteps.length) showTutorial(tutorialIndex + 1);
+      else void prepareCharacter();
+    }
+    else if (phase === 'character') showSurface();
   });
   element('back').addEventListener('click', back);
-  element('retry').addEventListener('click', loadCatalog);
+  element('retry').addEventListener('click', loadMentorDrafts);
   element('character-form').addEventListener('submit', saveCharacter);
   element('character-form').addEventListener('input', () => { resetPortrait(); next.hidden = true; });
   element('portrait-generate').addEventListener('click', generatePortrait);
@@ -551,6 +615,10 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       if (active) return;
       active = true;
       catalog = null;
+      mentorDrafts = [];
+      selectedMentorDraft = null;
+      selectedTutorialPlanet = null;
+      selectedSpecies = '';
       root.hidden = false;
       document.body.classList.add('registration-active');
       document.addEventListener('keydown', onKeydown);

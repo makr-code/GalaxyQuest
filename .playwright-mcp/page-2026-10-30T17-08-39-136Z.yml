@@ -1,0 +1,17 @@
+- region "Registration prologue" [ref=f25e53]:
+  - button "Zurück" [ref=f25e54] [cursor=pointer]
+  - main [ref=f25e55]:
+    - paragraph [ref=f25e56]: Schritt 2 / Mentor und Herkunft
+    - heading "Die Heroldkammer" [active] [level=2] [ref=f25e66]
+    - paragraph [ref=f25e58]: Sechs Mentoren erwarten dich. Jeder bietet dir eine Herkunft und ein eigenes Startsystem an.
+    - status
+    - status
+    - generic [ref=f25e67]:
+      - button "Aereth" [ref=f25e68] [cursor=pointer]
+      - button "Kryl'Tha" [ref=f25e71] [cursor=pointer]
+      - button "Syl'Nar" [ref=f25e74] [cursor=pointer]
+      - button "Vel'Ar" [ref=f25e77] [cursor=pointer]
+      - button "Vor'Tak" [ref=f25e80] [cursor=pointer]
+      - button "Zhareen" [ref=f25e83] [cursor=pointer]
+    - status [ref=f25e86]: Sechs private System-Drafts bereit. Noch keine Welt ist aktiviert.
+    - alert

@@ -3,7 +3,7 @@
   background: #000 !important;
 }
 
-.auth-page #auth-section {
+body.auth-page #auth-section {
   position: relative;
   min-height: 100svh;
   display: block;
@@ -15,8 +15,9 @@
   position: relative;
   z-index: 4;
   box-sizing: border-box;
+  width: 100%;
   min-height: 100svh;
-  padding: clamp(32px, 7vh, 80px) clamp(24px, 7vw, 120px) 76px;
+  padding: clamp(32px, 7vh, 80px) 24px 76px clamp(24px, 5vw, 64px);
   color: #e6efff;
   display: flex;
   flex-direction: column;
@@ -262,23 +263,39 @@
 .auth-page #boot-terminal:not(.wm-window):not(.wm-window-adapted),
 .auth-page #boot-terminal.ui-console-panel {
   position: fixed;
-  inset: auto 12px 12px;
+  inset: auto 16px 16px auto;
   z-index: 99999;
-  width: auto;
+  width: min(560px, calc(100vw - 32px));
   height: auto;
   max-height: none;
   overflow: visible;
-  padding: 8px 10px;
-  border: 1px solid rgba(79, 151, 255, 0.5);
-  border-radius: 6px;
-  background: rgba(4, 14, 36, 0.96);
-  box-shadow: 0 0 28px rgba(0, 0, 0, 0.38);
+  padding: 6px 8px;
+  border: 1px solid rgba(116, 167, 220, 0.3);
+  border-left: 2px solid rgba(144, 202, 255, 0.72);
+  border-radius: 4px;
+  background: rgba(7, 17, 31, 0.94);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
 }
-.auth-page #boot-terminal.is-expanded { max-height: min(62svh, 460px); overflow-y: auto; }
-.auth-page #boot-terminal .ui-console-head { min-width: 0; gap: 12px; margin: 0; }
-.auth-page #boot-terminal .boot-terminal-title { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
-.auth-page #boot-terminal .ui-console-head strong { color: #d7e8ff; font-size: 0.76rem; }
-.auth-page #boot-terminal .boot-terminal-title > span { color: #a9c7e5; font-size: 0.66rem; }
+.auth-page #boot-terminal.is-expanded {
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(64svh, 480px);
+  overflow: hidden;
+  padding: 10px;
+  border-color: rgba(116, 167, 220, 0.48);
+  background: rgba(5, 14, 27, 0.97);
+}
+.auth-page #boot-terminal .ui-console-head { min-width: 0; gap: 10px; margin: 0; }
+.auth-page #boot-terminal .boot-terminal-title { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.auth-page #boot-terminal .ui-console-head strong { color: #e0eeff; font-size: 0.72rem; font-weight: 650; }
+.auth-page #boot-terminal .boot-terminal-title > span {
+  padding: 2px 6px;
+  border: 1px solid rgba(116, 167, 220, 0.24);
+  border-radius: 3px;
+  color: #9fb6cf;
+  font-size: 0.61rem;
+  line-height: 1.2;
+}
 .auth-page #boot-terminal .auth-status-shell {
   position: static;
   inset: auto;
@@ -287,32 +304,91 @@
   justify-content: flex-start;
   flex: 1 1 auto;
   min-width: 0;
-  padding: 0;
+  padding: 0 4px;
   border: 0;
   background: transparent;
   pointer-events: none;
 }
 .auth-page #boot-terminal .auth-status-line {
+  position: relative;
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  padding: 0;
+  padding: 3px 4px 3px 13px;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  color: #9fd0ff;
+  color: #c0d8ef;
   font-size: 0.68rem;
-  text-align: center;
+  line-height: 1.25;
+  text-align: left;
+  text-overflow: ellipsis;
 }
-.auth-page #boot-terminal .ui-console-actions { flex: 0 0 auto; gap: 6px; }
+.auth-page #boot-terminal .auth-status-line::before {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #75caa5;
+  content: '';
+  transform: translateY(-50%);
+}
+.auth-page #boot-terminal .auth-status-line.auth-status-warn::before { background: #e9bd73; }
+.auth-page #boot-terminal .auth-status-line.auth-status-error::before { background: #ee827c; }
+.auth-page #boot-terminal .auth-status-line.auth-status-warn { color: #f0d7a8; }
+.auth-page #boot-terminal .auth-status-line.auth-status-error { color: #f3b2ac; }
+.auth-page #boot-terminal .ui-console-actions > button {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid rgba(116, 167, 220, 0.22);
+  border-radius: 3px;
+  background: rgba(21, 42, 64, 0.72);
+  color: #c6d9eb;
+  font-size: 0.66rem;
+}
+.auth-page #boot-terminal .ui-console-actions > button:hover {
+  border-color: rgba(156, 219, 255, 0.68);
+  background: rgba(42, 79, 112, 0.78);
+  color: #f0f7ff;
+}
+.auth-page #boot-terminal .ui-console-actions > button:focus-visible {
+  outline: 2px solid #a8d7ff;
+  outline-offset: 2px;
+}
+.auth-page #boot-terminal .ui-console-actions .ui-console-filter-label,
+.auth-page #boot-terminal .ui-console-actions .ui-console-filter {
+  color: #a9c7e5;
+  font-size: 0.64rem;
+}
+.auth-page #boot-terminal .ui-console-actions .ui-console-filter { height: 28px; min-width: 78px; }
+.auth-page #boot-terminal .ui-console-actions #ui-console-close {
+  border-color: rgba(234, 133, 127, 0.3);
+  color: #e9b0ad;
+}
+.auth-page #boot-terminal .ui-console-actions { flex: 0 0 auto; gap: 5px; }
 .auth-page #boot-terminal:not(.is-expanded) .ui-console-actions > :not(#ui-console-expand) { display: none; }
-.auth-page #boot-terminal #ui-console-expand { min-width: 54px; }
-.auth-page #boot-terminal .ui-console-log { height: min(36svh, 240px); margin-top: 8px; }
+.auth-page #boot-terminal #ui-console-expand { min-width: 48px; }
+.auth-page #boot-terminal .ui-console-log {
+  height: min(38svh, 280px);
+  margin-top: 9px;
+  border: 1px solid rgba(100, 145, 190, 0.2);
+  border-radius: 3px;
+  background: rgba(2, 8, 15, 0.78);
+  font-size: 0.69rem;
+}
 .auth-page #boot-terminal .ui-console-input-row { margin-top: 8px; }
+.auth-page #boot-terminal .ui-console-input-row input { min-width: 0; }
 .auth-page #boot-terminal [hidden] { display: none !important; }
 @media (max-width: 700px) {
   .auth-page #boot-terminal:not(.wm-window):not(.wm-window-adapted),
-  .auth-page #boot-terminal.ui-console-panel { inset-inline: 8px; bottom: max(8px, env(safe-area-inset-bottom)); padding: 7px 8px; }
+  .auth-page #boot-terminal.ui-console-panel {
+    inset: auto 8px max(8px, env(safe-area-inset-bottom)) auto;
+    width: calc(100vw - 16px);
+    padding: 7px 8px;
+  }
   .auth-page #boot-terminal .ui-console-head { flex-wrap: wrap; gap: 6px; }
   .auth-page #boot-terminal .boot-terminal-title { gap: 6px; }
   .auth-page #boot-terminal .auth-status-shell { order: 3; flex-basis: 100%; }

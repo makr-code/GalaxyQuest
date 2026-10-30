@@ -27,6 +27,7 @@ final class FactionHomeworldSetupTest extends TestCase {
         $this->db->exec(file_get_contents(__DIR__ . '/../../sql/migrate_fog_of_war.sql'));
         $this->db->exec(file_get_contents(__DIR__ . '/../../sql/migrate_faction_homeworlds_v1.sql'));
         $this->db->exec(file_get_contents(__DIR__ . '/../../sql/migrate_registration_drafts_v1.sql'));
+        $this->db->exec(file_get_contents(__DIR__ . '/../../sql/migrate_registration_mentor_drafts_v2.sql'));
         $worlds = FactionHomeworldSeeder::configuredWorlds(
             __DIR__ . '/../../config/faction_homeworlds.json', __DIR__ . '/../../fractions'
         );

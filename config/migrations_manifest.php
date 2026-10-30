@@ -127,5 +127,6 @@ return [
     'migrate_server_announcements_v1.sql',
     'migrate_faction_homeworlds_v1.sql',
     'migrate_registration_drafts_v1.sql',
+    'migrate_registration_mentor_drafts_v2.sql',
     'migrate_registration_portraits_v1.sql',
 ];

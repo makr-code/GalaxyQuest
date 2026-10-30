@@ -135,6 +135,35 @@ describe('Start-screen menu', () => {
     expect(document.getElementById('start-mute').checked).toBe(false);
   });
 
+  it('starts and stops the optional flight tour from Settings and respects reduced motion', async () => {
+    const onFlightTour = vi.fn().mockResolvedValue(true);
+    initializeStartScreen({ onFlightTour });
+    const toggle = document.getElementById('start-flight-tour');
+    toggle.click();
+    await vi.waitFor(() => expect(onFlightTour).toHaveBeenLastCalledWith(true));
+    expect(localStorage.getItem('gq_start_flight_tour')).toBe('1');
+    toggle.click();
+    await vi.waitFor(() => expect(onFlightTour).toHaveBeenLastCalledWith(false));
+    expect(localStorage.getItem('gq_start_flight_tour')).toBe('0');
+
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+    document.body.innerHTML = '';
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    for (const id of ['auth-section', 'auth-forms-template', 'auth-status-section', 'boot-terminal', 'server-announcements-dialog', 'registration-prologue']) {
+      document.body.append(document.importNode(parsed.getElementById(id), true));
+    }
+    localStorage.clear();
+    const blockedTour = vi.fn();
+    initializeStartScreen({ onFlightTour: blockedTour });
+    const blockedToggle = document.getElementById('start-flight-tour');
+    blockedToggle.checked = true;
+    blockedToggle.dispatchEvent(new Event('change'));
+    await Promise.resolve();
+    expect(blockedTour).not.toHaveBeenCalled();
+    expect(blockedToggle.checked).toBe(false);
+    expect(document.getElementById('start-flight-status').textContent).toContain('Reduce motion');
+  });
+
   it('opens the existing HTML content panels and saves motion preferences', () => {
     initializeStartScreen();
     document.querySelector('[data-start-panel="settings"]').click();

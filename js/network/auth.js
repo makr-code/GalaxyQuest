@@ -98,6 +98,11 @@ import '../ui/prolog.js';
       if (typeof control?.setRegistrationPreview !== 'function') return false;
       return control.setRegistrationPreview(preview);
     },
+    onFlightTour: (enabled) => {
+      const control = window.GQAuthGalaxyBackgroundControl;
+      if (typeof control?.setFlightTourEnabled !== 'function') return false;
+      return control.setFlightTourEnabled(enabled);
+    },
     onResume: async () => {
       const response = await fetchWithTimeout('api/auth.php?action=me&quiet=1', {
         credentials: 'same-origin',

@@ -20,7 +20,8 @@ final class RegistrationDraftTest extends TestCase {
         self::assertSame(0, (int)$db->query('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()')->fetchColumn(),
             'Never run this test against an existing installation.');
         foreach (['schema.sql', 'migrate_security_v1.sql', 'migrate_security_v2_totp.sql', 'migrate_admin_user_crud_v1.sql', 'migrate_fog_of_war.sql',
-                  'migrate_faction_homeworlds_v1.sql', 'migrate_registration_drafts_v1.sql', 'migrate_registration_portraits_v1.sql'] as $file) {
+                  'migrate_faction_homeworlds_v1.sql', 'migrate_registration_drafts_v1.sql', 'migrate_registration_mentor_drafts_v2.sql',
+                  'migrate_registration_portraits_v1.sql'] as $file) {
             $db->exec(file_get_contents(__DIR__ . '/../../sql/' . $file));
         }
         ensure_star_system_columns($db);
@@ -35,6 +36,23 @@ final class RegistrationDraftTest extends TestCase {
         $service = new RegistrationDraftService($db, $species, $config['starter_homeworld']);
         self::assertSame(['schildzirkel', 'lichtbund', 'kernrat', 'schattenzirkel'], array_column($service->catalog()['factions'], 'code'));
         self::assertCount(6, $service->catalog()['species']);
+        $mentorOwner = hash('sha256', 'mentor-browser');
+        $mentorDrafts = $service->mentorDrafts($mentorOwner, hash('sha256', 'mentor-ip'));
+        self::assertCount(6, $mentorDrafts);
+        self::assertCount(6, array_unique(array_column($mentorDrafts, 'mentor_code')));
+        self::assertCount(6, array_unique(array_map(static fn(array $draft): string =>
+            $draft['position']['galaxy'] . ':' . $draft['position']['system'], $mentorDrafts)));
+        self::assertNull($service->status($mentorOwner), 'Candidate systems are not selected until a mentor is confirmed.');
+        $selectedMentor = $mentorDrafts[2];
+        $selectedDraft = $service->selectMentor($mentorOwner, $selectedMentor['prolog_token'], $selectedMentor['mentor_code']);
+        self::assertSame($selectedMentor['mentor_code'], $selectedDraft['mentor_code']);
+        self::assertSame($selectedDraft['prolog_token'], $service->status($mentorOwner)['prolog_token']);
+        self::assertCount(6, $service->mentorDrafts($mentorOwner, hash('sha256', 'mentor-ip')));
+        $service->saveProfile($mentorOwner, ['prolog_token' => $selectedDraft['prolog_token'], 'species_code' => $selectedDraft['mentor_code']]);
+        $mentorReservations = $db->prepare('SELECT COUNT(*) FROM registration_drafts WHERE session_hash = ?');
+        $mentorReservations->execute([$mentorOwner]);
+        self::assertSame(1, (int)$mentorReservations->fetchColumn(), 'Saving the selected species releases the five alternatives.');
+        $service->cancel($mentorOwner);
         $before = $this->counts($db);
         $owner = hash('sha256', 'browser-one');
         $other = hash('sha256', 'browser-two');

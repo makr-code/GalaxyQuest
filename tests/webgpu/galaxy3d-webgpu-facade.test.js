@@ -114,4 +114,16 @@ describe('galaxy3d-webgpu facade', () => {
     expect(window.Galaxy3DRenderer).not.toHaveBeenCalled();
     expect(facade.ready).toBe(false);
   });
+
+  it('returns native spatial scene acceptance, navigation promises and flight telemetry', async () => {
+    const FacadeCtor = loadFacade();
+    const facade = new FacadeCtor(makeContainer(), { interactive: false });
+    const telemetry = { spatial: true, speed: 1 };
+    facade._native = { setFlightScene: vi.fn(() => true), getFlightTelemetry: () => telemetry,
+      navigateTo: vi.fn(async () => true) };
+    expect(facade.setFlightScene({ stage: 'system' })).toBe(true);
+    expect(facade.getFlightTelemetry()).toBe(telemetry);
+    expect(await facade.navigateTo({ kind: 'planet', position: 2 })).toBe(true);
+    expect(facade._native.navigateTo).toHaveBeenCalledWith({ kind: 'planet', position: 2 }, undefined);
+  });
 });

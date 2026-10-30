@@ -62,6 +62,32 @@
       "widthSegments": 1,
       "heightSegments": 1,
       "depthSegments": 1
+    },
+    {
+      "uuid": "geo_detail_eye",
+      "type": "SphereGeometry",
+      "radius": 0.07,
+      "widthSegments": 12,
+      "heightSegments": 8
+    },
+    {
+      "uuid": "geo_detail_pupil",
+      "type": "SphereGeometry",
+      "radius": 0.032,
+      "widthSegments": 8,
+      "heightSegments": 6
+    },
+    {
+      "uuid": "geo_detail_shoulder",
+      "type": "OctahedronGeometry",
+      "radius": 0.22,
+      "detail": 1
+    },
+    {
+      "uuid": "geo_detail_insignia",
+      "type": "OctahedronGeometry",
+      "radius": 0.15,
+      "detail": 0
     }
   ],
   "materials": [
@@ -99,6 +125,22 @@
       "color": 9136404,
       "roughness": 0.6,
       "metalness": 0.2
+    },
+    {
+      "uuid": "mat_detail_eye",
+      "type": "MeshStandardMaterial",
+      "color": 15792383,
+      "roughness": 0.24,
+      "metalness": 0.05,
+      "emissive": 2763306,
+      "emissiveIntensity": 0.32
+    },
+    {
+      "uuid": "mat_detail_pupil",
+      "type": "MeshStandardMaterial",
+      "color": 1184274,
+      "roughness": 0.3,
+      "metalness": 0.1
     }
   ],
   "animations": [
@@ -387,6 +429,65 @@
         "userData": {
           "role": "torso"
         }
+      },
+      {
+        "uuid": "mesh_eye_left",
+        "type": "Mesh",
+        "name": "eye_left",
+        "geometry": "geo_detail_eye",
+        "material": "mat_detail_eye",
+        "position": [-0.18, 0.65, 0.4]
+      },
+      {
+        "uuid": "mesh_eye_right",
+        "type": "Mesh",
+        "name": "eye_right",
+        "geometry": "geo_detail_eye",
+        "material": "mat_detail_eye",
+        "position": [0.18, 0.65, 0.4]
+      },
+      {
+        "uuid": "mesh_pupil_left",
+        "type": "Mesh",
+        "name": "pupil_left",
+        "geometry": "geo_detail_pupil",
+        "material": "mat_detail_pupil",
+        "position": [-0.18, 0.65, 0.464]
+      },
+      {
+        "uuid": "mesh_pupil_right",
+        "type": "Mesh",
+        "name": "pupil_right",
+        "geometry": "geo_detail_pupil",
+        "material": "mat_detail_pupil",
+        "position": [0.18, 0.65, 0.464]
+      },
+      {
+        "uuid": "mesh_shoulder_left",
+        "type": "Mesh",
+        "name": "shoulder_left",
+        "geometry": "geo_detail_shoulder",
+        "material": "mat_extra_1",
+        "position": [-0.53, -0.18, 0.04],
+        "scale": [1.35, 0.72, 0.88]
+      },
+      {
+        "uuid": "mesh_shoulder_right",
+        "type": "Mesh",
+        "name": "shoulder_right",
+        "geometry": "geo_detail_shoulder",
+        "material": "mat_extra_1",
+        "position": [0.53, -0.18, 0.04],
+        "scale": [1.35, 0.72, 0.88]
+      },
+      {
+        "uuid": "mesh_chest_insignia",
+        "type": "Mesh",
+        "name": "chest_insignia",
+        "geometry": "geo_detail_insignia",
+        "material": "mat_extra_1",
+        "position": [0, -0.36, 0.34],
+        "scale": [0.9, 1.2, 0.5]
       }
     ]
   }

@@ -36,6 +36,33 @@
       "radius": 0.62,
       "widthSegments": 10,
       "heightSegments": 8
+    },
+    {
+      "uuid": "geo_detail_eye",
+      "type": "SphereGeometry",
+      "radius": 0.065,
+      "widthSegments": 12,
+      "heightSegments": 8
+    },
+    {
+      "uuid": "geo_detail_pupil",
+      "type": "SphereGeometry",
+      "radius": 0.028,
+      "widthSegments": 8,
+      "heightSegments": 6
+    },
+    {
+      "uuid": "geo_detail_chitin",
+      "type": "OctahedronGeometry",
+      "radius": 0.2,
+      "detail": 1
+    },
+    {
+      "uuid": "geo_detail_antenna",
+      "type": "ConeGeometry",
+      "radius": 0.075,
+      "height": 0.36,
+      "radialSegments": 8
     }
   ],
   "materials": [
@@ -59,6 +86,31 @@
       "color": 5906440,
       "roughness": 0.7,
       "metalness": 0.2
+    },
+    {
+      "uuid": "mat_detail_eye",
+      "type": "MeshStandardMaterial",
+      "color": 15792383,
+      "roughness": 0.24,
+      "metalness": 0.05,
+      "emissive": 2763306,
+      "emissiveIntensity": 0.32
+    },
+    {
+      "uuid": "mat_detail_pupil",
+      "type": "MeshStandardMaterial",
+      "color": 1184274,
+      "roughness": 0.3,
+      "metalness": 0.1
+    },
+    {
+      "uuid": "mat_detail_chitin",
+      "type": "MeshStandardMaterial",
+      "color": 12441672,
+      "roughness": 0.34,
+      "metalness": 0.38,
+      "emissive": 3874580,
+      "emissiveIntensity": 0.2
     }
   ],
   "animations": [
@@ -315,6 +367,74 @@
         "userData": {
           "role": "torso"
         }
+      },
+      {
+        "uuid": "mesh_eye_left",
+        "type": "Mesh",
+        "name": "eye_left",
+        "geometry": "geo_detail_eye",
+        "material": "mat_detail_eye",
+        "position": [-0.16, 0.62, 0.36]
+      },
+      {
+        "uuid": "mesh_eye_right",
+        "type": "Mesh",
+        "name": "eye_right",
+        "geometry": "geo_detail_eye",
+        "material": "mat_detail_eye",
+        "position": [0.16, 0.62, 0.36]
+      },
+      {
+        "uuid": "mesh_pupil_left",
+        "type": "Mesh",
+        "name": "pupil_left",
+        "geometry": "geo_detail_pupil",
+        "material": "mat_detail_pupil",
+        "position": [-0.16, 0.62, 0.42]
+      },
+      {
+        "uuid": "mesh_pupil_right",
+        "type": "Mesh",
+        "name": "pupil_right",
+        "geometry": "geo_detail_pupil",
+        "material": "mat_detail_pupil",
+        "position": [0.16, 0.62, 0.42]
+      },
+      {
+        "uuid": "mesh_antenna_left",
+        "type": "Mesh",
+        "name": "antenna_left",
+        "geometry": "geo_detail_antenna",
+        "material": "mat_detail_chitin",
+        "position": [-0.22, 1.12, 0],
+        "rotation": [0, 0, 0.24]
+      },
+      {
+        "uuid": "mesh_antenna_right",
+        "type": "Mesh",
+        "name": "antenna_right",
+        "geometry": "geo_detail_antenna",
+        "material": "mat_detail_chitin",
+        "position": [0.22, 1.12, 0],
+        "rotation": [0, 0, -0.24]
+      },
+      {
+        "uuid": "mesh_chitin_left",
+        "type": "Mesh",
+        "name": "chitin_left",
+        "geometry": "geo_detail_chitin",
+        "material": "mat_detail_chitin",
+        "position": [-0.48, -0.18, 0],
+        "scale": [1.35, 0.8, 0.9]
+      },
+      {
+        "uuid": "mesh_chitin_right",
+        "type": "Mesh",
+        "name": "chitin_right",
+        "geometry": "geo_detail_chitin",
+        "material": "mat_detail_chitin",
+        "position": [0.48, -0.18, 0],
+        "scale": [1.35, 0.8, 0.9]
       }
     ]
   }

@@ -15,7 +15,7 @@
  *   • dispose(): clears pipeline, clears sources
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -285,6 +285,35 @@ describe('LensFlarePass — render', () => {
 // ---------------------------------------------------------------------------
 
 describe('LensFlarePass — dispose', () => {
+  it('executes projected solar flares additively and releases its GPU resources', async () => {
+    const pass = new LensFlarePass();
+    const buffer = { destroy: vi.fn() };
+    const device = { createShaderModule: vi.fn(() => ({})),
+      createRenderPipeline: vi.fn(() => ({ getBindGroupLayout: () => ({}) })),
+      createBuffer: vi.fn(() => buffer), createBindGroup: vi.fn(() => ({})),
+      queue: { writeBuffer: vi.fn() } };
+    const renderPass = { setPipeline: vi.fn(), setBindGroup: vi.fn(), draw: vi.fn() };
+    vi.stubGlobal('GPUBufferUsage', { UNIFORM: 1, COPY_DST: 2 });
+    try {
+      await pass.initialize(device, 'bgra8unorm', 'shader fixture');
+      pass.setProjectedSources([{ x: 0.3, y: -0.2, intensity: 0.5, colorHex: 0xff8800 },
+        { x: 0, y: 0, intensity: 0 }]);
+      expect(pass.sourceCount).toBe(1);
+      pass.renderOverlay(renderPass, device, { aspect: 16 / 9, time: 2 });
+      expect(renderPass.draw).toHaveBeenCalledWith(6);
+      expect(device.createRenderPipeline.mock.calls[0][0].fragment.entryPoint).toBe('fs_overlay');
+      expect(device.createRenderPipeline.mock.calls[0][0].fragment.targets[0].blend.color.dstFactor).toBe('one');
+      expect(device.queue.writeBuffer.mock.calls[0][2][0]).toBeCloseTo(0.3);
+      expect(device.queue.writeBuffer.mock.calls[0][2][67]).toBe(2);
+      pass.setProjectedSources([]);
+      pass.renderOverlay(renderPass, device, { aspect: 1 });
+      expect(renderPass.draw).toHaveBeenCalledOnce();
+      pass.dispose();
+      expect(buffer.destroy).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('clears _pipeline', () => {
     const p = new LensFlarePass();
     p._pipeline = {};

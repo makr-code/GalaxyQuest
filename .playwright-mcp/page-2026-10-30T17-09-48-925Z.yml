@@ -1,0 +1,11 @@
+- region "Registration prologue" [ref=f25e53]:
+  - button "Zurück" [ref=f25e54] [cursor=pointer]
+  - main [ref=f25e55]:
+    - paragraph [ref=f25e56]: Schritt 3 / Tutorial 1 von 3
+    - heading "Dein Sternsystem" [active] [level=2] [ref=f25e89]
+    - paragraph [ref=f25e58]: Dies ist dein privater Startentwurf. Sieh dir Stern, Umlaufbahnen und die erreichbaren Welten an.
+    - status
+    - status [ref=f25e87]: Anflug auf dein reserviertes Startsystem. Umlaufbahnen schematisch.
+    - status
+    - alert
+    - button "Weiter" [ref=f25e90] [cursor=pointer]

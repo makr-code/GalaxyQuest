@@ -1,0 +1,12 @@
+- region "Registration prologue" [ref=f21e53]:
+  - button "Zurück" [ref=f21e54] [cursor=pointer]
+  - main [ref=f21e55]:
+    - paragraph [ref=f21e56]: Prolog / Die Kalytherion-Konvergenz
+    - heading "Deine Geschichte beginnt" [active] [level=2] [ref=f21e64]
+    - paragraph [ref=f21e58]: Die Mächtigen haben die Signale empfangen. Ihre Gesandten suchen Verbündete. Und die Bewohner deiner neuen Kolonie brauchen jemanden, der entscheidet. Nicht über die Vergangenheit. Über das, was jetzt beginnt.
+    - status [ref=f21e59]: Sprachausgabe nicht verfügbar. Der Prolog läuft als Text weiter.
+    - button "Sprachausgabe erneut versuchen" [ref=f21e60] [cursor=pointer]
+    - status
+    - status
+    - alert
+    - button "Weiter zur Heroldkammer" [ref=f21e65] [cursor=pointer]

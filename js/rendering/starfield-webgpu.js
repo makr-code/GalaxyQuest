@@ -55,19 +55,39 @@
     }
     const scale = fixedScale || (maxAbs > 0 ? 1 / maxAbs : 1);
     const out = new Float32Array(list.length * 7);
+    const spectralColors = {
+      O: [0.58, 0.68, 1.0],
+      B: [0.68, 0.77, 1.0],
+      A: [0.83, 0.87, 1.0],
+      F: [1.0, 0.95, 0.82],
+      G: [1.0, 0.83, 0.62],
+      K: [1.0, 0.66, 0.42],
+      M: [1.0, 0.43, 0.28],
+      WD: [0.75, 0.84, 1.0],
+    };
     for (let i = 0; i < list.length; i += 1) {
       const s = list[i] || {};
-      const color = menuGalaxy && Array.isArray(s.display_color) ? s.display_color : [0.82, 0.9, 1];
+      const spectralClass = String(s.spectral_class || '').toUpperCase().slice(0, 1);
+      const color = menuGalaxy && Array.isArray(s.display_color)
+        ? s.display_color
+        : menuGalaxy ? (spectralColors[spectralClass] || [0.76, 0.82, 0.92]) : [0.82, 0.9, 1];
+      const luminosityScale = menuGalaxy && Number.isFinite(Number(s.luminosity_solar))
+        ? Math.max(0.55, Math.min(1.2, 0.75 + Math.log10(Math.max(0.05, Number(s.luminosity_solar))) * 0.08))
+        : 1;
       out.set([
         Number(s.x_ly || s.x || 0) * scale,
         Number(s.y_ly || s.y || 0) * scale,
         ...color,
-        menuGalaxy ? (s.display_opacity ?? 0.65) : 1,
-        menuGalaxy ? (s.display_size ?? 1.5) : 1.5,
+        menuGalaxy ? (s.display_opacity ?? 0.12) : 1,
+        menuGalaxy ? (s.display_size ?? 0.55) * luminosityScale : 1.5,
       ], i * 7);
     }
     return { positions: out, scale, stars: list };
   }
+
+  const MAX_FLIGHT_STARS = 6000;
+  const MAX_FLIGHT_VISUAL_STARS = 4500;
+  const MAX_FLIGHT_CATALOG_STARS = MAX_FLIGHT_STARS - MAX_FLIGHT_VISUAL_STARS;
 
   function toStarPosition(star) {
     if (!star || typeof star !== 'object') return null;
@@ -280,6 +300,8 @@
       this._running = false;
       this._currentTarget = null;
       this._cameraDriver = null;
+      this._bloom = null;
+      this._flightMotion = null;
       this._followSelection = true;
       this._clusterBoundsVisible = false;
       this._galacticCoreFxEnabled = false;
@@ -304,6 +326,8 @@
       };
       this.starPoints = [];
       this.stars = [];
+      this._flightStars = [];
+      this._spatialLabelStars = [];
       this.renderFrames = {
         world: null,
         galaxy: null,
@@ -358,9 +382,51 @@
       this.stars = Array.isArray(stars) ? stars.slice() : [];
       this.starPoints = this.stars;
       if (this._backend !== 'webgpu' || !this._device) {
+        this._prepareFlightStars(this.stars);
         return;
       }
       this._uploadStars(stars, options.preserveScale ? this._starScale : null);
+    }
+
+    _sampleFlightGroup(stars, limit) {
+      if (stars.length <= limit) return stars.slice();
+      const sample = [];
+      const stride = (stars.length - 1) / Math.max(1, limit - 1);
+      for (let index = 0; index < limit; index += 1) sample.push(stars[Math.round(index * stride)]);
+      return sample;
+    }
+
+    _prepareFlightStars(stars) {
+      const visual = [];
+      const catalog = [];
+      for (const star of Array.isArray(stars) ? stars : []) {
+        (star?.visual_only === true ? visual : catalog).push(star);
+      }
+      const selected = [
+        ...this._sampleFlightGroup(visual, MAX_FLIGHT_VISUAL_STARS),
+        ...this._sampleFlightGroup(catalog, MAX_FLIGHT_CATALOG_STARS),
+      ].slice(0, MAX_FLIGHT_STARS);
+      const target = this._currentTarget || this._regionPreviewTarget;
+      if (target && target.visual_only !== true
+        && !selected.some((star) => Number(star?.galaxy_index) === Number(target.galaxy_index)
+          && Number(star?.system_index) === Number(target.system_index))) {
+        const targetStar = catalog.find((star) => Number(star?.galaxy_index) === Number(target.galaxy_index)
+          && Number(star?.system_index) === Number(target.system_index));
+        if (targetStar && selected.length) selected[selected.length - 1] = targetStar;
+      }
+      this._flightStars = selected;
+      return selected.length;
+    }
+
+    setSpatialLabelStars(stars) {
+      this._spatialLabelStars = Array.isArray(stars) ? stars.slice() : [];
+      this._perspectiveFlight?.setGalaxyLabelStars(this._spatialLabelStars);
+      return this._spatialLabelStars.length;
+    }
+
+    setNebulaConfiguration(options) {
+      this._nebulaField?.configure({ radiusLy: this._opts.galaxyRadiusLy || 50000, ...options });
+      return true;
     }
 
     setCameraTarget(target) {
@@ -391,10 +457,16 @@
     }
     setRegistrationScene(scene) {
       const stage = scene?.stage || (scene ? 'region' : 'galaxy');
-      const stages = { galaxy: 0, region: 0, system: 1, planet: 2, surface: 3 };
+      const stages = { galaxy: 0, region: 0, system: 1, planet: 2, moon: 2.5, surface: 3 };
       if (!(stage in stages)) return false;
       if (stages[stage] > 0 && (!scene?.draft?.planets?.length
         || !scene.draft.planets.some((planet) => planet.position === scene.draft.position?.position))) return false;
+      if ((!scene || !scene.flightTour) && this._perspectiveFlight) {
+        this._perspectiveFlight.dispose();
+        this._perspectiveFlight = null;
+        this._flightSceneGraph = null;
+        this.camera = { position: { x: 0, y: 0, z: 1 } };
+      }
       this._registrationScene = scene;
       if (scene?.draft) this._lastSceneDraft = scene.draft;
       this._sceneTarget = stages[stage];
@@ -404,6 +476,48 @@
         this._viewState.zoom = this._viewState.targetZoom;
       }
       return true;
+    }
+    setFlightScene(scene) {
+      if (window.GQPerspectiveSpaceFlight) {
+        if (scene?.target) {
+          this._currentTarget = scene.target;
+          this._prepareFlightStars(this.stars);
+        }
+        if (!this._perspectiveFlight && scene) {
+          this._perspectiveFlight = new window.GQPerspectiveSpaceFlight({
+            radius: 1 / this._starScale, lensFlare: this._lensFlare, bloom: this._bloom,
+          });
+          this._perspectiveFlight.setGalaxyLabelStars(this._spatialLabelStars || []);
+          this.camera = this._perspectiveFlight.camera;
+          if (this._device) {
+            void this._perspectiveFlight.initialize(this._device, this._sceneFormat || navigator.gpu.getPreferredCanvasFormat())
+              .catch((error) => emitRenderTelemetry('spatial-label-init-error', {
+                message: String(error?.message || error),
+              }));
+          }
+        }
+        if (!scene) {
+          this._perspectiveFlight?.stop();
+          return true;
+        }
+        if (scene.sceneGraph && scene.sceneGraph !== this._flightSceneGraph) {
+          if (!this._perspectiveFlight.setSystem(scene)) return false;
+          this._flightSceneGraph = scene.sceneGraph;
+        }
+        if (this._perspectiveFlight && this._spatialLabelStars.length) {
+          this._perspectiveFlight.setGalaxyLabelStars(this._spatialLabelStars);
+        }
+        return true;
+      }
+      this._flightSceneGraph = scene?.sceneGraph || null;
+      return this.setRegistrationScene(scene);
+    }
+    navigateTo(target, options = {}) {
+      if (!this._perspectiveFlight) return false;
+      return this._perspectiveFlight.navigate(target, {
+        durationSec: (Number(options.durationMs) || 18000) / 1000,
+        signal: options.signal,
+      });
     }
     fitCameraToStars() {
       this._viewState.targetPanX = 0;
@@ -421,6 +535,53 @@
     setEmpireHeartbeatSystems() {}
     setCameraDriver(driver) { this._cameraDriver = driver || null; }
     clearCameraDriver() { this._cameraDriver = null; }
+    flyToStar(target, durationMs = 6000) {
+      const position = toStarPosition(target);
+      if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return false;
+      const c = Math.cos(this._galaxyRotation);
+      const s = Math.sin(this._galaxyRotation);
+      const x = position.x * c - position.y * s;
+      const y = position.x * s + position.y * c;
+      this._flightMotion = {
+        targetPanX: Math.max(-1.8, Math.min(1.8, -x * this._starScale)),
+        targetPanY: Math.max(-1.8, Math.min(1.8, -y * this._starScale)),
+        velocityX: 0,
+        velocityY: 0,
+        elapsed: 0,
+        duration: Math.max(1000, Number(durationMs) || 6000) / 1000,
+        speed: 0,
+        active: true,
+      };
+      this._regionPreviewTarget = target;
+      this._viewState.targetPanX = this._flightMotion.targetPanX;
+      this._viewState.targetPanY = this._flightMotion.targetPanY;
+      this._viewState.targetZoom = 4.5;
+      return true;
+    }
+    cancelCameraFlight() {
+      this._perspectiveFlight?.stop();
+      this._flightMotion = null;
+    }
+    getFlightTelemetry() {
+      if (this._perspectiveFlight) return { ...this._perspectiveFlight.telemetry, spatial: true,
+        position: this.camera.position.toArray(), quaternion: this.camera.quaternion.toArray(),
+        origin: this._perspectiveFlight.origin.toArray(), instances: this._perspectiveFlight.renderedInstances || 0,
+        renderBenchmark: this._perspectiveFlight.getRenderBenchmark() };
+      const flight = this._flightMotion;
+      if (!flight) return { phase: 'idle', speedNorm: 0, speed: 0 };
+      const progress = Math.min(1, flight.elapsed / flight.duration);
+      const phase = progress < 0.2 ? 'acquire' : progress > 0.72 ? 'brake' : 'cruise';
+      return { phase, speedNorm: Math.min(1, flight.speed), speed: flight.speed };
+    }
+    getSpatialLabels() {
+      return this._perspectiveFlight?.currentLabels?.slice() || [];
+    }
+    getFlightCoordinates() {
+      return this._perspectiveFlight?.getFlightCoordinates?.() || null;
+    }
+    restoreFlightCoordinates(coordinates) {
+      return this._perspectiveFlight?.restoreFlightCoordinates?.(coordinates) ?? false;
+    }
     setClusterColorPalette() {}
     setClusterDensityMode() {}
     setClusterAuras() {}
@@ -529,6 +690,13 @@
 
     dispose() {
       this.stop();
+      this._perspectiveFlight?.dispose();
+      this._bloom?.dispose();
+      this._bloom = null;
+      this._lensFlare?.dispose();
+      this._lensFlare = null;
+      this._nebulaField?.dispose();
+      this._nebulaField = null;
       window.removeEventListener('gq:start-motion', this._onMotionChange);
       try {
         if (this._starBuffer) {
@@ -563,7 +731,11 @@
       if (!this._adapter) {
         throw new Error('no webgpu adapter');
       }
-      this._device = await this._adapter.requestDevice();
+      const filterableFloat16 = this._adapter.features?.has('float16-filterable') === true;
+      this._device = await this._adapter.requestDevice({
+        requiredFeatures: filterableFloat16 ? ['float16-filterable'] : [],
+      });
+      this._sceneFormat = filterableFloat16 ? 'rgba16float' : navigator.gpu.getPreferredCanvasFormat();
       this._context = this._canvas.getContext('webgpu');
       if (!this._context) {
         throw new Error('webgpu canvas context unavailable');
@@ -595,7 +767,7 @@
           targets: [{
             format: navigator.gpu.getPreferredCanvasFormat(),
             blend: {
-              color: { srcFactor: 'src-alpha', dstFactor: this._opts.menuGalaxy ? 'one' : 'one-minus-src-alpha', operation: 'add' },
+              color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
               alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
             },
           }],
@@ -641,6 +813,30 @@
         entries: [{ binding: 0, resource: { buffer: this._sceneBuffer } }],
       });
       this._uploadStars(this._opts?.stars || []);
+      if (this._opts.menuGalaxy && window.GQGalaxyNebulaField) {
+        this._nebulaField = new window.GQGalaxyNebulaField({
+          radiusLy: this._opts.galaxyRadiusLy || 50000,
+          armCount: this._opts.armCount,
+          pitchAngleDeg: this._opts.pitchAngleDeg,
+        });
+        await this._nebulaField.init(this._device, navigator.gpu.getPreferredCanvasFormat(), null, this._sceneFormat);
+      }
+      if (this._opts.menuGalaxy && window.GQLensFlarePass?.LensFlarePass) {
+        const response = await fetch(new URL('js/engine/post-effects/shaders/lensflare.wgsl', document.baseURI));
+        if (!response.ok) throw new Error(`Lens flare shader: HTTP ${response.status}`);
+        this._lensFlare = new window.GQLensFlarePass.LensFlarePass({ globalScale: 0.9 });
+        await this._lensFlare.initialize(this._device, this._sceneFormat, await response.text());
+      }
+      if (this._opts.menuGalaxy && window.GQPerspectiveBloom) {
+        const [bloomResponse, compositeResponse] = await Promise.all([
+          fetch(new URL('js/engine/post-effects/shaders/bloom.wgsl', document.baseURI)),
+          fetch(new URL('js/engine/post-effects/shaders/bloom-composite.wgsl', document.baseURI)),
+        ]);
+        if (!bloomResponse.ok || !compositeResponse.ok) throw new Error('Bloom shaders could not be loaded');
+        this._bloom = new window.GQPerspectiveBloom();
+        await this._bloom.initialize(this._device, navigator.gpu.getPreferredCanvasFormat(),
+          await bloomResponse.text(), await compositeResponse.text(), this._sceneFormat);
+      }
     }
 
     _configureContext() {
@@ -662,6 +858,7 @@
       this._starScale = Number(normalized.scale || 1);
       this.stars = Array.isArray(normalized.stars) ? normalized.stars.slice() : [];
       this.starPoints = this.stars;
+      this._prepareFlightStars(this.stars);
       this._starCount = Math.floor(normalized.positions.length / 7);
       if (this._starBuffer) {
         this._starBuffer.destroy();
@@ -687,6 +884,14 @@
         ? Math.max(0, Math.min(0.048, (now - this._lastCameraDriverTime) / 1000))
         : (1 / 60);
       this._lastCameraDriverTime = now;
+      if (this._perspectiveFlight) {
+        if (!this._reducedMotion) this._perspectiveFlight.update(dt);
+        this._perspectiveFlight.renderFrame(this._device, this._context, this._flightStars,
+          this._canvas.width, this._canvas.height, this._nebulaField,
+          this._canvas.width / Math.max(1, this._canvas.clientWidth));
+        this._frameTick++;
+        return;
+      }
       if (this._opts.menuGalaxy && !this._reducedMotion && !this._regionPreviewTarget) {
         // The loading arms wind toward increasing angles, so rotation must be negative for trailing arms.
         this._galaxyRotation -= dt * 0.035;
@@ -723,9 +928,37 @@
       }
 
       const smooth = this._reducedMotion ? 1 : 0.14;
-      this._viewState.panX += (this._viewState.targetPanX - this._viewState.panX) * smooth;
-      this._viewState.panY += (this._viewState.targetPanY - this._viewState.panY) * smooth;
+      if (!this._flightMotion?.active) {
+        this._viewState.panX += (this._viewState.targetPanX - this._viewState.panX) * smooth;
+        this._viewState.panY += (this._viewState.targetPanY - this._viewState.panY) * smooth;
+      }
       this._viewState.zoom += (this._viewState.targetZoom - this._viewState.zoom) * smooth;
+
+      const flight = this._flightMotion;
+      if (flight?.active && !this._reducedMotion) {
+        flight.elapsed += dt;
+        const remaining = Math.max(0.001, flight.duration - flight.elapsed);
+        const stepAxis = (current, velocity, target) => {
+          const distance = target - current;
+          const direction = Math.sign(distance);
+          const brakingSpeed = Math.sqrt(Math.max(0, 2 * 1.1 * Math.abs(distance)));
+          const desiredSpeed = direction * Math.min(0.9, brakingSpeed, Math.abs(distance) / remaining);
+          const nextVelocity = velocity + Math.max(-0.75 * dt, Math.min(0.75 * dt, desiredSpeed - velocity));
+          return [current + nextVelocity * dt, nextVelocity];
+        };
+        [this._viewState.panX, flight.velocityX] = stepAxis(this._viewState.panX, flight.velocityX, flight.targetPanX);
+        [this._viewState.panY, flight.velocityY] = stepAxis(this._viewState.panY, flight.velocityY, flight.targetPanY);
+        flight.speed = Math.min(1, Math.hypot(flight.velocityX, flight.velocityY));
+        const remainingDistance = Math.hypot(flight.targetPanX - this._viewState.panX, flight.targetPanY - this._viewState.panY);
+        if (flight.elapsed >= flight.duration || remainingDistance < 0.002) {
+          this._viewState.panX = flight.targetPanX;
+          this._viewState.panY = flight.targetPanY;
+          flight.velocityX = 0;
+          flight.velocityY = 0;
+          flight.speed = 0;
+          flight.active = false;
+        }
+      }
 
       const panClamp = 1.8;
       this._viewState.panX = Math.max(-panClamp, Math.min(panClamp, this._viewState.panX));
@@ -758,24 +991,46 @@
           storeOp: 'store',
         }],
       });
+      if (this._nebulaField) {
+        const projection = this._nebulaField.overviewProjection({
+          scale: this._starScale, zoom: this._viewState.zoom, rotation: this._galaxyRotation,
+          panX: this._viewState.panX, panY: this._viewState.panY,
+          aspect: this._canvas.width / Math.max(1, this._canvas.height),
+        });
+        this._nebulaField.render(pass, this._device, projection, {
+          width: this._canvas.width, height: this._canvas.height, time: this._sceneTime,
+        });
+      }
       pass.setPipeline(this._pipeline);
       pass.setBindGroup(0, this._viewBindGroup);
       pass.setVertexBuffer(0, this._starBuffer);
       pass.draw(4, this._starCount, 0, 0);
       if (this._sceneStage > 0 && this._scenePipeline) {
         const draft = this._registrationScene?.draft;
-        const planets = draft?.planets || this._lastSceneDraft?.planets || [];
+        const sceneSystem = this._flightSceneGraph?.children?.find((node) => node.type === 'system');
+        const scenePlanets = sceneSystem?.children?.filter((node) => node.type === 'planet') || [];
+        const planets = draft?.planets?.length
+          ? draft.planets
+          : scenePlanets.length
+            ? scenePlanets.map((node) => node.data).filter(Boolean)
+            : this._lastSceneDraft?.planets || [];
         if (draft) this._lastSceneDraft = draft;
         const data = draft || this._lastSceneDraft;
         const selected = planets.find((planet) => planet.position === data?.position.position);
-        const palette = selected?.class?.startsWith('ice_') ? [0.55, 0.75, 0.85]
-          : selected?.class === 'lava' ? [0.72, 0.24, 0.08]
-          : selected?.class === 'ocean' ? [0.16, 0.4, 0.65] : [0.22, 0.52, 0.33];
+        const selectedPlanetNode = scenePlanets.find((node) => node.data?.position === selected?.position);
+        const moonNode = selectedPlanetNode?.children?.find((node) => node.type === 'moon');
+        const selectedMoon = this._registrationScene?.stage === 'moon'
+          ? moonNode?.data || selected?.moons?.[0]
+          : null;
+        const body = selectedMoon || selected;
+        const palette = body?.class?.startsWith('ice_') ? [0.55, 0.75, 0.85]
+          : body?.class === 'lava' ? [0.72, 0.24, 0.08]
+          : body?.class === 'ocean' ? [0.16, 0.4, 0.65] : [0.22, 0.52, 0.33];
         const uniforms = new Float32Array(76);
         uniforms.set([this._sceneStage, this._canvas.width / Math.max(1, this._canvas.height), this._sceneTime,
           ((data?.star?.temperature_k || 5778) - 2500) / 10000,
           Math.min(16, planets.length), selected?.position || 1,
-          ((data?.position.galaxy || 1) * 131 + (data?.position.system || 1) * 17 + (selected?.position || 1)) % 997,
+          selectedMoon?.position || ((data?.position.galaxy || 1) * 131 + (data?.position.system || 1) * 17 + (selected?.position || 1)) % 997,
           data?.star?.radius_solar || 1, ...palette, 1]);
         const maxOrbit = Math.max(1, ...planets.map((planet) => planet.semi_major_axis_au || planet.position));
         planets.slice(0, 16).forEach((planet, index) => {
