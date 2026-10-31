@@ -1,0 +1,36 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e7]:
+    - generic "Start music player" [ref=e8]:
+      - generic [ref=e9]: GALACTIC RADIO
+      - generic "Quantum Horizon" [ref=e10]
+      - generic [ref=e11]:
+        - button "Previous track" [ref=e12] [cursor=pointer]
+        - button "Musik starten" [ref=e15] [cursor=pointer]
+        - button "Next track" [ref=e18] [cursor=pointer]
+        - button "Audio stummschalten" [ref=e21] [cursor=pointer]
+    - paragraph [ref=e24]: GALAXY QUEST / COMMAND INTERFACE
+    - heading "GalaxyQuest" [level=1] [ref=e25]
+    - paragraph [ref=e26]: Conquer the stars
+    - navigation "Main menu" [ref=e27]:
+      - button "Login Return to your command" [ref=e29] [cursor=pointer]:
+        - text: Login
+        - generic [ref=e30]: Return to your command
+      - button "Begin a new campaign Write your first chapter" [ref=e32] [cursor=pointer]:
+        - text: Begin a new campaign
+        - generic [ref=e33]: Write your first chapter
+      - button "Developer tools" [ref=e35] [cursor=pointer]
+      - button "News and transmissions" [ref=e37] [cursor=pointer]
+      - button "Settings" [ref=e39] [cursor=pointer]
+      - button "Server announcements Unavailable" [ref=e40] [cursor=pointer]
+    - status [ref=e41]: Your next chapter awaits.
+    - status [ref=e42]: Procedural visual galaxy; not DB system data.
+    - generic [ref=e43]:
+      - generic [ref=e44]: © 2026 Galaxy Quest Interactive
+      - generic [ref=e45]: Conquer the stars
+  - region "Systemstatus und Entwickler-Konsole" [ref=e46]:
+    - generic [ref=e47]:
+      - generic [ref=e48]:
+        - strong [ref=e49]: System
+        - generic [ref=e50]: "Mode: Fallback"
+      - generic: "[INFO] [probe] [auth] audio primed (lazy), random title track: music/Quantum_Horizon.mp3"
+      - button "Logs" [ref=e52] [cursor=pointer]

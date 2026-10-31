@@ -23,6 +23,31 @@ function tts_is_enabled(): bool
     return (int) TTS_ENABLED === 1;
 }
 
+/** @internal @param array<string, mixed> $settings @return array<string, float> */
+function tts_normalize_prosody(array $settings): array
+{
+    $allowed = ['length_scale', 'noise_scale', 'noise_w_scale', 'sentence_silence', 'volume'];
+    $prosody = [];
+    foreach ($allowed as $name) {
+        if (isset($settings[$name]) && is_numeric($settings[$name])) {
+            $prosody[$name] = (float) $settings[$name];
+        }
+    }
+    ksort($prosody, SORT_STRING);
+    return $prosody;
+}
+
+/** @internal @param array<string, float> $prosody */
+function tts_cache_key(string $voice, string $text, array $prosody = []): string
+{
+    $identity = $voice . '|' . $text;
+    if ($prosody !== []) {
+        $encoded = json_encode($prosody, JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
+        $identity .= '|' . ($encoded === false ? '{}' : $encoded);
+    }
+    return hash('sha256', $identity);
+}
+
 /**
  * Synthesise text to speech and return a web-accessible audio URL.
  *
@@ -62,9 +87,10 @@ function tts_synthesise(string $text, array $options = []): array
     }
     $lang     = trim((string) ($options['lang'] ?? 'de'));
     $noCache  = (bool) ($options['no_cache'] ?? false);
+    $prosody  = tts_normalize_prosody((array) ($options['prosody'] ?? []));
 
     // ── PHP-level filesystem cache ────────────────────────────────────────────
-    $cacheKey = hash('sha256', $voice . '|' . $text);
+    $cacheKey = tts_cache_key($voice, $text, $prosody);
     $cacheFile = rtrim(TTS_AUDIO_DIR, '/\\') . DIRECTORY_SEPARATOR . $cacheKey . '.mp3';
     $webUrl    = TTS_AUDIO_WEB . '/' . $cacheKey . '.mp3';
 
@@ -84,6 +110,7 @@ function tts_synthesise(string $text, array $options = []): array
         'text'     => $text,
         'voice'    => $voice,
         'lang'     => $lang,
+        'prosody'  => $prosody,
         'no_cache' => false,
     ], $options);
 

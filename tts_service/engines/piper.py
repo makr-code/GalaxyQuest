@@ -106,8 +106,9 @@ class PiperEngine:
         voice: str,
         lang: str,
         speaker_wav: str | None,
+        prosody: dict[str, float] | None = None,
     ) -> bytes:
-        wav = cast(bytes, await run_in_threadpool(self._synthesise_wav, text, voice))
+        wav = cast(bytes, await run_in_threadpool(self._synthesise_wav, text, voice, prosody or {}))
         return cast(bytes, await run_in_threadpool(wav_to_mp3, wav))
 
     def ensure_model(self, voice: str) -> tuple[Path, Path]:
@@ -145,7 +146,7 @@ class PiperEngine:
 
         return onnx, voice_cfg
 
-    def _synthesise_wav(self, text: str, voice: str) -> bytes:
+    def _synthesise_wav(self, text: str, voice: str, prosody: dict[str, float]) -> bytes:
         """Run the Piper CLI and return raw WAV bytes."""
         onnx, voice_cfg = self.ensure_model(voice)
 
@@ -153,16 +154,27 @@ class PiperEngine:
             tmp_path = Path(tmp.name)
 
         try:
+            arguments = [
+                "piper",
+                "--model",
+                str(onnx),
+                "--config",
+                str(voice_cfg),
+                "--output_file",
+                str(tmp_path),
+            ]
+            cli_options = {
+                "length_scale": "--length_scale",
+                "noise_scale": "--noise_scale",
+                "noise_w_scale": "--noise_w_scale",
+                "sentence_silence": "--sentence_silence",
+                "volume": "--volume",
+            }
+            for name, flag in cli_options.items():
+                if name in prosody:
+                    arguments.extend([flag, f"{prosody[name]:.4f}"])
             subprocess.run(
-                [
-                    "piper",
-                    "--model",
-                    str(onnx),
-                    "--config",
-                    str(voice_cfg),
-                    "--output_file",
-                    str(tmp_path),
-                ],
+                arguments,
                 input=text.encode("utf-8"),
                 capture_output=True,
                 timeout=60,

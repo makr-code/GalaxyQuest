@@ -69,9 +69,17 @@ describe('Cinematic draft registration', () => {
       play = vi.fn().mockResolvedValue(undefined);
     });
     vi.stubGlobal('fetch', vi.fn(async (url) => {
-      const id = new URL(url, 'http://localhost').searchParams.get('clip');
-      const clip = content.teaser.find((entry) => entry.id === id) || content.factions.find((entry) => entry.code === id);
-      return { ok: true, json: async () => ({ success: true, text: clip.text, audio_url: `generated/tts/${'b'.repeat(64)}.mp3` }) };
+      const clipId = new URL(url, 'http://localhost').searchParams.get('clip');
+      const staticClip = [...content.teaser, ...(content.registration_steps || [])].find((entry) => entry.id === clipId)
+        || content.factions.find((entry) => entry.code === clipId);
+      const mentorCode = clipId?.match(/^mentor-(.+)$/)?.[1];
+      const mentorSpecies = species.find((entry) => entry.code === mentorCode);
+      const mentorDraft = mentorDrafts.find((entry) => entry.mentor_code === mentorCode);
+      const mentorPlanet = mentorDraft?.planets.find((entry) => entry.position === mentorDraft.target.position);
+      const text = staticClip?.text || (mentorSpecies && mentorDraft
+        ? `Ich bin der Herold der ${mentorSpecies.name}. ${mentorSpecies.description}\n\nMein System heißt ${mentorDraft.system_name}. Die mögliche Heimatwelt ist ${mentorPlanet?.name || mentorDraft.colony_name}.`
+        : '');
+      return { ok: true, json: async () => ({ success: true, text, audio_url: `generated/tts/${'b'.repeat(64)}.mp3` }) };
     }));
     request = vi.fn(async (action, input) => {
       if (action === 'register_catalog') return catalog;
@@ -104,6 +112,8 @@ describe('Cinematic draft registration', () => {
     expect(el('continue').hidden).toBe(false);
     expect(el('continue').disabled).toBe(false);
     expect(el('title').textContent).toBe(content.teaser[0].title);
+    expect(el('progress').value).toBe(1);
+    expect(preview).toHaveBeenLastCalledWith({ stage: 'galaxy', beat: content.teaser[0].id });
     await endClip();
     expect(el('title').textContent).toBe(content.teaser[1].title);
     expect(audio.pause).toHaveBeenCalled();
@@ -154,6 +164,10 @@ describe('Cinematic draft registration', () => {
     expect(preview).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'planet', draft: expect.objectContaining({ mentor_code: 'vor_tak' }) }));
     expect(el('story').textContent).toContain('vor_tak System');
     expect(el('continue').textContent).toContain('Tutorial starten');
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('clip=mentor-vor_tak'), expect.objectContaining({ credentials: 'same-origin' }),
+    ));
+    await vi.waitFor(() => expect(audio.onended).toBeTypeOf('function'));
     el('continue').click();
     await vi.waitFor(() => expect(el('title').textContent).toBe('Dein Sternsystem'));
     expect(request).toHaveBeenCalledWith('register_select_mentor', {
@@ -174,6 +188,9 @@ describe('Cinematic draft registration', () => {
 
   it('persists species and character privately, never requests activation or credentials', async () => {
     await reachCharacter();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('clip=character-dossier'), expect.objectContaining({ credentials: 'same-origin' }),
+    );
     expect(request).toHaveBeenCalledWith('register_select_mentor', expect.objectContaining({ mentor_code: 'vor_tak' }));
     expect(request).toHaveBeenCalledWith('register_profile', { prolog_token: draft.prolog_token, species_code: 'vor_tak' });
     el('name').value = 'Commander';
@@ -183,6 +200,31 @@ describe('Cinematic draft registration', () => {
     expect(request).toHaveBeenCalledWith('register_character', { prolog_token: draft.prolog_token, name: 'Commander', background: 'Grenzforscher' });
     expect(request.mock.calls.some(([action]) => /complete|^register$/.test(action))).toBe(false);
     expect(document.querySelector('input[type="email"],input[type="password"]')).toBeNull();
+  });
+
+  it('shows progress and a review of the private draft before returning to the start screen', async () => {
+    await reachCharacter();
+    expect(el('progress').value).toBe(9);
+    el('name').value = 'Commander';
+    el('background').value = 'Grenzforscher';
+    el('character-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(el('status').textContent).toContain('nicht aktiviert'));
+    el('continue').click();
+
+    expect(el('progress').value).toBe(10);
+    expect(el('review').hidden).toBe(false);
+    expect(el('review-origin').textContent).toBe('vor_tak');
+    expect(el('review-system').textContent).toBe('vor_tak System');
+    expect(el('review-world').textContent).toBe('vor_tak III');
+    expect(el('review-commander').textContent).toBe('Commander');
+    expect(el('review-background').textContent).toBe('Grenzforscher');
+    expect(el('continue').textContent).toBe('Fertig – zurück zum Start');
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('clip=draft-review'), expect.objectContaining({ credentials: 'same-origin' }),
+    );
+    el('continue').click();
+    expect(prologue.isActive()).toBe(false);
+    expect(preview).toHaveBeenLastCalledWith(null);
   });
 
   it('keeps API failures visible and does not advance to character', async () => {

@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="css/animations.css?v=20260730p1" />
   <link rel="stylesheet" href="css/utilities.css?v=20260730p1" />
   <link rel="stylesheet" href="css/start-screen.css?v=20261029p3" />
-  <link rel="stylesheet" href="css/registration-prologue.css?v=20261030p3" />
+  <link rel="stylesheet" href="css/registration-prologue.css?v=20261030p4" />
   <!-- Core Stylesheets -->
   <link rel="stylesheet" href="css/style.css?v=20261029p2" />
   <link rel="stylesheet" href="css/wm.css?v=20260830p4" />
@@ -366,6 +366,7 @@
       <button id="registration-back" class="registration-back" type="button">Zurück</button>
       <main class="registration-stage">
         <p id="registration-chapter" class="registration-chapter"></p>
+        <progress id="registration-progress" class="registration-progress" max="10" value="1" aria-label="Fortschritt im Registrierungsintro"></progress>
         <h2 id="registration-title" tabindex="-1"></h2>
         <p id="registration-story" class="registration-story"></p>
         <p id="registration-narration-status" role="status" aria-live="polite"></p>
@@ -389,6 +390,17 @@
           </div>
         </section>
         <section id="registration-surface" hidden aria-label="Planetenoberfläche"></section>
+        <section id="registration-review" class="registration-review" hidden aria-labelledby="registration-review-title">
+          <h3 id="registration-review-title">Dein Entwurf</h3>
+          <dl>
+            <div><dt>Herkunft</dt><dd id="registration-review-origin"></dd></div>
+            <div><dt>System</dt><dd id="registration-review-system"></dd></div>
+            <div><dt>Startwelt</dt><dd id="registration-review-world"></dd></div>
+            <div><dt>Kommandantenname</dt><dd id="registration-review-commander"></dd></div>
+            <div><dt>Hintergrund</dt><dd id="registration-review-background"></dd></div>
+          </dl>
+          <p>Dieser private Entwurf ist noch kein Konto und aktiviert keine Spielwelt.</p>
+        </section>
         <p id="registration-status" role="status" aria-live="polite"></p>
         <p id="registration-error" role="alert" aria-live="assertive"></p>
         <div class="registration-stage-actions">

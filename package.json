@@ -7,6 +7,7 @@
     "vite:dev": "vite serve --host 127.0.0.1 --port 8080",
     "vite:build": "vite build",
     "vite:preview": "vite preview --host 127.0.0.1 --port 4173",
+    "export:herald-base": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/export_mpfb_herald_base.ps1",
     "test:js": "vitest",
     "test:unit:js": "vitest run",
     "test:3d-geometry": "vitest run tests/unit/3d-geometry-trellis2.test.js tests/unit/particle-systems.test.js tests/unit/texture-systems.test.js tests/integration/3d-asset-pipeline.test.js",
@@ -38,7 +39,7 @@
     "@microsoft/fetch-event-source": "^2.0.1",
     "dexie": "^4.0.8",
     "mustache": "^4.2.0",
-    "three": "^0.160.0",
+    "three": "0.186.1",
     "tone": "^15.1.22"
   }
 }

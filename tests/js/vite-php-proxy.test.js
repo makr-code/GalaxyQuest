@@ -19,6 +19,11 @@ it('proxies PHP APIs with session cookies and returns an explicit JSON error whe
   const requests = [];
   backend = createHttpServer((req, res) => {
     requests.push({ url: req.url, cookie: req.headers.cookie, method: req.method });
+    if (req.url?.startsWith('/generated/tts/')) {
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'public, max-age=31536000, immutable' });
+      res.end(Buffer.from([0xff, 0xfb, 0x90, 0x00]));
+      return;
+    }
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Set-Cookie': 'PHPSESSID=proxy-test; Path=/; HttpOnly',
@@ -53,6 +58,11 @@ it('proxies PHP APIs with session cookies and returns an explicit JSON error whe
   const audio = await fetch(`${base}/api/audio.php?action=list`);
   expect(audio.status).toBe(200);
   expect((await audio.json()).tracks.length).toBeGreaterThan(1);
+  const cachedSpeech = await fetch(`${base}/generated/tts/${'a'.repeat(64)}.mp3`);
+  expect(cachedSpeech.status).toBe(200);
+  expect(cachedSpeech.headers.get('content-type')).toContain('audio/mpeg');
+  expect([...new Uint8Array(await cachedSpeech.arrayBuffer())]).toEqual([0xff, 0xfb, 0x90, 0x00]);
+  expect(requests.at(-1)).toEqual({ url: `/generated/tts/${'a'.repeat(64)}.mp3`, cookie: undefined, method: 'GET' });
   await new Promise((resolve) => backend.close(resolve));
   const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
   const offline = await fetch(`${base}/api/auth.php?action=register_catalog`);

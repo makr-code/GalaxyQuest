@@ -18,6 +18,9 @@ from main import app, get_cache, get_engine
 class _MockEngine:
     name = "mock"
 
+    def __init__(self) -> None:
+        self.calls: list[dict[str, float] | None] = []
+
     def list_voices(self) -> list[dict[str, object]]:
         return [{"name": "mock-voice", "lang": "de", "description": "Mock TTS voice"}]
 
@@ -27,7 +30,9 @@ class _MockEngine:
         voice: str,
         lang: str,
         speaker_wav: str | None,
+        prosody: dict[str, float] | None = None,
     ) -> bytes:
+        self.calls.append(prosody)
         # Return minimal valid-looking MP3 header bytes for test assertions
         return b"ID3\x00\x00\x00\x00\x00\x00\x00"
 

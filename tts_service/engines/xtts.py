@@ -35,9 +35,12 @@ class XTTSEngine:
         voice: str,
         lang: str,
         speaker_wav: str | None,
+        _prosody: dict[str, float] | None = None,
     ) -> bytes:
         model = await _load_xtts_model()
-        wav = cast(bytes, await run_in_threadpool(_synthesise_xtts_wav, model, text, lang, speaker_wav))
+        wav = cast(
+            bytes, await run_in_threadpool(_synthesise_xtts_wav, model, text, lang, speaker_wav)
+        )
         return cast(bytes, await run_in_threadpool(wav_to_mp3, wav))
 
 

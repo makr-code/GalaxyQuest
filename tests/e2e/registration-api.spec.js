@@ -57,22 +57,84 @@ test('real API persists a private political and character draft but refuses unve
   }
 });
 
-test('guest narration accepts only prepared chapter IDs and never arbitrary synthesis requests', async ({ playwright }) => {
+test('guest narration synthesizes approved chapters on demand and serves cached audio', async ({ playwright }) => {
   const context = await playwright.request.newContext({ baseURL: api });
   try {
     expect((await context.get('/api/registration_narration.php?clip=anything&text=arbitrary')).status()).toBe(404);
     expect((await context.post('/api/registration_narration.php', { data: { text: 'arbitrary' } })).status()).toBe(405);
+    for (const step of content.registration_steps) {
+      const instruction = await context.get(`/api/registration_narration.php?clip=${step.id}`);
+      expect([200, 503]).toContain(instruction.status());
+      const instructionBody = await instruction.json();
+      if (instruction.status() === 503) {
+        expect(instructionBody.error).toContain('unavailable');
+      } else {
+        expect(instructionBody.success).toBe(true);
+        expect(instructionBody.text).toBe(step.text);
+        expect(instructionBody.audio_url).toMatch(/^generated\/tts\/[a-f0-9]{64}\.mp3$/);
+      }
+    }
     const clip = await context.get('/api/registration_narration.php?clip=teaser-distance');
     expect([200, 503]).toContain(clip.status());
     const body = await clip.json();
     if (clip.status() === 503) {
       expect(body.success).toBe(false);
-      expect(body.error).toContain('not been prepared');
+      expect(body.error).toContain('unavailable');
     } else {
       expect(body.success).toBe(true);
       expect(body.audio_url).toMatch(/^generated\/tts\/[a-f0-9]{64}\.mp3$/);
+      const audio = await context.get(`/${body.audio_url}`);
+      expect(audio.status()).toBe(200);
+      expect(audio.headers()['content-type']).toContain('audio/mpeg');
+      const repeated = await (await context.get('/api/registration_narration.php?clip=teaser-distance')).json();
+      expect(repeated.audio_url).toBe(body.audio_url);
+      expect(repeated.cached).toBe(true);
     }
   } finally {
+    await context.dispose();
+  }
+});
+
+test('mentor narration speaks only the current session draft and caches its system introduction', async ({ playwright }) => {
+  const context = await playwright.request.newContext({ baseURL: api });
+  let csrfToken = '';
+  try {
+    const csrf = await (await context.get('/api/auth.php?action=csrf')).json();
+    csrfToken = csrf.token;
+    const created = await context.post('/api/auth.php?action=register_mentor_drafts', {
+      data: {}, headers: { 'X-CSRF-Token': csrfToken }, timeout: 240_000,
+    });
+    expect(created.ok(), await created.text()).toBe(true);
+    const drafts = (await created.json()).drafts;
+    expect(drafts).toHaveLength(6);
+    const draft = drafts[0];
+
+    const clip = await context.get(`/api/registration_narration.php?clip=mentor-${draft.mentor_code}`, { timeout: 240_000 });
+    expect(clip.ok(), await clip.text()).toBe(true);
+    const body = await clip.json();
+    expect(body.text).toContain(draft.system_name);
+    expect(body.audio_url).toMatch(/^generated\/tts\/[a-f0-9]{64}\.mp3$/);
+    const audio = await context.get(`/${body.audio_url}`);
+    expect(audio.status()).toBe(200);
+    expect(audio.headers()['content-type']).toContain('audio/mpeg');
+
+    const repeated = await (await context.get(`/api/registration_narration.php?clip=mentor-${draft.mentor_code}`)).json();
+    expect(repeated.audio_url).toBe(body.audio_url);
+    expect(repeated.cached).toBe(true);
+
+    const otherSession = await playwright.request.newContext({ baseURL: api });
+    try {
+      const forbidden = await otherSession.get(`/api/registration_narration.php?clip=mentor-${draft.mentor_code}`);
+      expect(forbidden.status()).toBe(404);
+    } finally {
+      await otherSession.dispose();
+    }
+  } finally {
+    if (csrfToken) {
+      await context.post('/api/auth.php?action=register_cancel', {
+        data: {}, headers: { 'X-CSRF-Token': csrfToken },
+      }).catch(() => {});
+    }
     await context.dispose();
   }
 });

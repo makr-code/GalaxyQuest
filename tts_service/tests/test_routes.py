@@ -46,7 +46,12 @@ def test_voices_requires_secret_when_set(
             return []
 
         async def synthesise_mp3(
-            self, text: str, voice: str, lang: str, speaker_wav: object
+            self,
+            text: str,
+            voice: str,
+            lang: str,
+            speaker_wav: object,
+            prosody: dict[str, float] | None = None,
         ) -> bytes:
             return b""
 
@@ -86,6 +91,36 @@ def test_synthesize_bypasses_cache_with_no_cache(client: TestClient) -> None:
     payload = {"text": "Bypass cache", "no_cache": True}
     resp = client.post("/synthesize", json=payload)
     assert resp.status_code == 200
+
+
+def test_synthesize_passes_prosody_and_separates_cache(client: TestClient, mock_engine) -> None:  # type: ignore[no-untyped-def]
+    mock_engine.name = "piper"
+    first = client.post(
+        "/synthesize",
+        json={"text": "Prosody cache", "prosody": {"length_scale": 0.97}},
+    )
+    second = client.post(
+        "/synthesize",
+        json={"text": "Prosody cache", "prosody": {"length_scale": 0.97}},
+    )
+    third = client.post(
+        "/synthesize",
+        json={"text": "Prosody cache", "prosody": {"length_scale": 0.97, "sentence_silence": 0.22}},
+    )
+
+    assert first.status_code == second.status_code == third.status_code == 200
+    assert mock_engine.calls == [
+        {"length_scale": 0.97},
+        {"length_scale": 0.97, "sentence_silence": 0.22},
+    ]
+
+
+def test_synthesize_rejects_out_of_range_prosody(client: TestClient) -> None:
+    resp = client.post(
+        "/synthesize",
+        json={"text": "Invalid prosody", "prosody": {"length_scale": 4.0}},
+    )
+    assert resp.status_code == 422
 
 
 def test_synthesize_rejects_empty_text(client: TestClient) -> None:

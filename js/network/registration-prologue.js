@@ -158,7 +158,9 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     const version = ++revision;
     let reading = false;
     element('narration-retry').hidden = true;
-    element('narration-status').textContent = muted() ? 'Sprachausgabe ist stummgeschaltet.' : 'Sprachausgabe wird geladen...';
+    element('narration-status').textContent = muted()
+      ? 'Sprachausgabe ist stummgeschaltet.'
+      : 'Sprachausgabe wird erzeugt oder aus dem Cache geladen. Der erste Abruf kann länger dauern.';
     const finishByReading = () => {
       if (reading) return;
       reading = true;
@@ -180,7 +182,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     }
     const controller = new AbortController();
     narrationRequest = controller;
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 220000);
     try {
       const response = await fetch(`api/registration_narration.php?clip=${encodeURIComponent(clip.id)}`, {
         credentials: 'same-origin', signal: controller.signal,
@@ -230,9 +232,13 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     element('title').textContent = title;
     element('story').textContent = text;
     element('chapter').textContent = label;
+    const progressValue = ({ teaser: chapter + 1, 'mentor-room': 5, tutorial: 6 + tutorialIndex, character: 9, surface: 10 })[phase] || 1;
+    element('progress').value = progressValue;
+    element('progress').setAttribute('aria-valuetext', `${progressValue} von 10: ${title}`);
     element('choices').replaceChildren();
     element('character').hidden = true;
     element('surface').hidden = true;
+    element('review').hidden = true;
     element('draft-summary').hidden = true;
     element('error').textContent = '';
     element('status').textContent = '';
@@ -255,7 +261,8 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     chapter = index;
     const clip = content.teaser[index];
     frame(clip.title, clip.text, 'Prolog / Die Kalytherion-Konvergenz');
-    preview(null);
+    root.dataset.beat = clip.id;
+    preview({ stage: 'galaxy', beat: clip.id });
     next.hidden = false;
     next.textContent = index + 1 < content.teaser.length ? 'Weiter' : 'Weiter zur Heroldkammer';
     void narrate(clip, () => {
@@ -362,8 +369,10 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     });
     heraldStage?.setSelected(species.code);
     const planet = candidate.planets?.find((item) => Number(item.position) === Number(candidate.target.position));
-    element('story').textContent = `Ich bin der Herold der ${species.name}. ${species.description}\n\nMein System: ${candidate.system_name}. ${planet?.name || candidate.colony_name} ist deine mögliche Heimatwelt in ${species.homeworld || 'unserer Herkunftsregion'}.`;
+    const introduction = `Ich bin der Herold der ${species.name}. ${species.description}\n\nMein System heißt ${candidate.system_name}. Die mögliche Heimatwelt ist ${planet?.name || candidate.colony_name}.`;
+    element('story').textContent = introduction;
     preview({ stage: 'planet', target: candidate.target, stars: candidate.stars, draft: candidate });
+    void narrate({ id: `mentor-${species.code}`, text: introduction }, () => {});
     next.hidden = false;
     next.disabled = false;
     next.textContent = 'System wählen und Tutorial starten';
@@ -506,6 +515,9 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     preview({ stage: 'planet', target: draft.target, stars: draft.stars, draft });
     next.textContent = 'Weiter zur Planetenoberfläche';
     next.hidden = !draft.character;
+    root.dataset.beat = 'character-dossier';
+    const narration = content.registration_steps?.find((clip) => clip.id === 'character-dossier');
+    if (narration) void narrate(narration, () => {});
     void refreshPortrait();
   }
 
@@ -555,10 +567,25 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
 
   function showSurface() {
     phase = 'surface';
-    frame('Startwelt-Vorschau', 'Dein Mentor, das System und der Planetenscan sind abgeschlossen. Diese Welt bleibt ein privater Entwurf; die Spielwelt wird erst mit der späteren Registrierungsaktivierung erstellt.', 'Onboarding / Vorschau abgeschlossen');
+    frame('Startwelt-Vorschau', 'Prüfe deinen Entwurf. Mit Zurück kannst du Name oder Hintergrund noch ändern.', 'Schritt 10 / Entwurf prüfen');
     element('surface').hidden = false;
+    const species = catalog?.species.find((item) => item.code === draft.species_code);
+    const planet = selectedTutorialPlanet
+      || draft.planets.find((item) => Number(item.position) === Number(draft.position.position))
+      || draft.planets[0];
+    element('review-origin').textContent = species?.name || draft.species_code || 'Nicht festgelegt';
+    element('review-system').textContent = draft.system_name || 'Nicht festgelegt';
+    element('review-world').textContent = planet?.name || draft.colony_name || 'Nicht festgelegt';
+    element('review-commander').textContent = draft.character?.name || 'Nicht festgelegt';
+    element('review-background').textContent = draft.character?.background || 'Nicht festgelegt';
+    element('review').hidden = false;
+    element('status').textContent = 'Privater, befristeter Entwurf. Es wurde kein Konto angelegt und keine Welt aktiviert.';
     preview({ stage: 'surface', target: draft.target, stars: draft.stars, draft });
-    next.hidden = true;
+    next.hidden = false;
+    next.textContent = 'Fertig – zurück zum Start';
+    root.dataset.beat = 'draft-review';
+    const narration = content.registration_steps?.find((clip) => clip.id === 'draft-review');
+    if (narration) void narrate(narration, () => {});
   }
 
   function back() {
@@ -589,6 +616,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       else void prepareCharacter();
     }
     else if (phase === 'character') showSurface();
+    else if (phase === 'surface') close();
   });
   element('back').addEventListener('click', back);
   element('retry').addEventListener('click', loadMentorDrafts);

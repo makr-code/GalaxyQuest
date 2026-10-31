@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import aiofiles
@@ -18,8 +20,14 @@ class AudioCache:
         self._dir = cache_dir
         self._dir.mkdir(parents=True, exist_ok=True)
 
-    def key(self, text: str, voice: str, engine: str) -> str:
-        return hashlib.sha256(f"{engine}|{voice}|{text}".encode()).hexdigest()
+    def key(
+        self, text: str, voice: str, engine: str, prosody: Mapping[str, float] | None = None
+    ) -> str:
+        source = f"{engine}|{voice}|{text}"
+        if prosody:
+            settings = json.dumps(dict(prosody), sort_keys=True, separators=(",", ":"))
+            source = f"{source}|{settings}"
+        return hashlib.sha256(source.encode()).hexdigest()
 
     def path(self, key: str) -> Path:
         return self._dir / f"{key}.mp3"

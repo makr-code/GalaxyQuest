@@ -136,7 +136,8 @@ async def synthesize(
         raise HTTPException(status_code=400, detail="text must not be empty.")
 
     voice = req.voice.strip() or cfg.default_voice
-    cache_key = cache.key(text, voice, engine.name)
+    prosody = req.prosody.model_dump(exclude_none=True) if engine.name == "piper" else {}
+    cache_key = cache.key(text, voice, engine.name, prosody)
 
     if not req.no_cache:
         cached = await cache.get(cache_key)
@@ -145,7 +146,7 @@ async def synthesize(
             return Response(content=cached, media_type="audio/mpeg")
 
     log.info("tts_synthesising", engine=engine.name, voice=voice, chars=len(text))
-    mp3 = await engine.synthesise_mp3(text, voice, req.lang, req.speaker_wav)
+    mp3 = await engine.synthesise_mp3(text, voice, req.lang, req.speaker_wav, prosody or None)
     await cache.set(cache_key, mp3)
 
     return Response(content=mp3, media_type="audio/mpeg")

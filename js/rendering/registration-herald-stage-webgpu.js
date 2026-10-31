@@ -292,6 +292,7 @@ export class RegistrationHeraldStage {
     this.height = 1;
     this.pixelRatio = 1;
     this.vertexCount = 0;
+    this.riggedOrchestrator = null;
     this._frame = (timestamp) => this.render(timestamp);
   }
 
@@ -299,6 +300,19 @@ export class RegistrationHeraldStage {
     if (!this.window?.navigator?.gpu || !container || this.destroyed) return false;
     this.actors = Array.isArray(actors) ? actors.slice() : [];
     if (!this.actors.length) return false;
+    const { RegistrationHeraldModelOrchestrator } = await import('./registration-herald-model-orchestrator.js');
+    const riggedOrchestrator = new RegistrationHeraldModelOrchestrator({
+      windowRef: this.window,
+      documentRef: this.document,
+    });
+    if (await riggedOrchestrator.mount(container, this.actors)) {
+      this.riggedOrchestrator = riggedOrchestrator;
+      this.canvas = riggedOrchestrator.canvas;
+      this.canvas.dataset.renderer = 'three-webgpu-gltf';
+      return true;
+    }
+    riggedOrchestrator.destroy();
+    if (this.destroyed) return false;
     const fetchImpl = this.window.fetch?.bind(this.window) || globalThis.fetch;
     const loadedModels = await Promise.all(this.actors.map(async (actor, actorIndex) => {
       try {
@@ -450,6 +464,10 @@ export class RegistrationHeraldStage {
 
   setVisible(visible) {
     this.visible = visible === true;
+    if (this.riggedOrchestrator) {
+      this.riggedOrchestrator.setVisible(this.visible);
+      return;
+    }
     if (this.canvas) this.canvas.hidden = !this.visible;
     if (!this.visible) {
       if (this.rafId) this.window.cancelAnimationFrame(this.rafId);
@@ -461,6 +479,10 @@ export class RegistrationHeraldStage {
 
   setFocus(code) {
     this.focusCode = code || null;
+    if (this.riggedOrchestrator) {
+      this.riggedOrchestrator.setFocus(this.focusCode);
+      return;
+    }
     if (this.canvas) this.canvas.dataset.focusedHerald = this.focusCode || '';
     this.scheduleFrame();
   }
@@ -468,6 +490,10 @@ export class RegistrationHeraldStage {
   setSelected(code) {
     this.selectedCode = code || null;
     this.focusCode = code || this.focusCode;
+    if (this.riggedOrchestrator) {
+      this.riggedOrchestrator.setSelected(this.selectedCode);
+      return;
+    }
     if (this.canvas) {
       this.canvas.dataset.focusedHerald = this.focusCode || '';
       this.canvas.dataset.selectedHerald = this.selectedCode || '';
@@ -565,6 +591,8 @@ export class RegistrationHeraldStage {
     if (this.destroyed) return;
     this.destroyed = true;
     this.visible = false;
+    this.riggedOrchestrator?.destroy();
+    this.riggedOrchestrator = null;
     if (this.rafId) this.window.cancelAnimationFrame(this.rafId);
     this.resizeObserver?.disconnect();
     this.window.removeEventListener('resize', this.resizeHandler);

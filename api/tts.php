@@ -82,6 +82,7 @@ switch ($action) {
         $result = tts_synthesise($text, [
             'voice'    => $body['voice'] ?? null,
             'lang'     => $body['lang'] ?? 'de',
+            'prosody'  => is_array($body['prosody'] ?? null) ? $body['prosody'] : [],
             'no_cache' => (bool) ($body['no_cache'] ?? false),
         ]);
 

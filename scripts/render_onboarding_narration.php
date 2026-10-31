@@ -9,7 +9,6 @@ require_once __DIR__ . '/../api/tts_client.php';
 
 $content = json_decode(file_get_contents(__DIR__ . '/../config/onboarding_prologue.json'), true, 512, JSON_THROW_ON_ERROR);
 $clips = $content['teaser'];
-foreach ($content['factions'] as $faction) $clips[] = ['id' => $faction['code'], 'text' => $faction['text']];
 foreach ($clips as $clip) {
     $result = tts_synthesise($clip['text'], ['lang' => $content['language']]);
     if (!($result['ok'] ?? false)) {

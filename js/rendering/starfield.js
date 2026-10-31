@@ -1307,12 +1307,31 @@ window.GQPerspectiveBloom = PerspectiveBloom;
       return true;
     },
     setRegistrationPreview(preview) {
+      const isGalaxyBeat = preview?.stage === 'galaxy';
       const stars = preview?.stars;
-      if (preview && (!Array.isArray(stars) || !stars.length)) return false;
+      if (preview && !isGalaxyBeat && (!Array.isArray(stars) || !stars.length)) return false;
       const previous = runtime.registrationPreview;
       runtime.registrationPreview = preview;
       if (!runtime.renderer) return !runtime.released;
       if (typeof runtime.renderer.setRegionPreview !== 'function') return false;
+      if (isGalaxyBeat) {
+        const flightRenderer = getFlightRenderer();
+        if (flightRenderer?.getFlightTelemetry?.()?.spatial === true) {
+          flightRenderer.setFlightScene(null);
+          flightRenderer.setRegistrationScene?.(null);
+          runtime.registrationSceneGraph = null;
+          runtime.registrationSceneGraphToken = '';
+        }
+        if (!previous || previous.stage !== 'galaxy') {
+          if (previous) runtime.renderer.setStars?.(renderableStars(runtime.stars), { preserveView: false });
+          if (runtime.renderer.setRegionPreview(null) !== true) return false;
+        }
+        if (typeof runtime.renderer.setRegistrationScene === 'function'
+          && runtime.renderer.setRegistrationScene(preview) !== true) return false;
+        const label = document.getElementById('start-galaxy-source');
+        if (label) label.textContent = `WEBGPU INTRO · ${String(preview.beat || 'GALAXY').toUpperCase()}`;
+        return true;
+      }
       if (!preview || previous?.stars !== stars) {
         const visible = preview && runtime.starSource === 'database'
           ? [...new Map([...runtime.stars, ...stars].map((star) => [`${star.galaxy_index}:${star.system_index}`, star])).values()]

@@ -17,6 +17,7 @@ class TTSEngine(Protocol):
         voice: str,
         lang: str,
         speaker_wav: str | None,
+        prosody: dict[str, float] | None = None,
     ) -> bytes:
         """Return MP3 bytes for the given text and voice parameters."""
         ...

@@ -57,6 +57,10 @@ export default ({ mode }) => {
     host: '127.0.0.1',
     strictPort: true,
     proxy: {
+      '^/generated/tts/[a-f0-9]{64}\\.mp3$': {
+        target: backend,
+        changeOrigin: true,
+      },
       '^/.*\\.php(?:\\?|$)': {
         target: backend,
         changeOrigin: true,

@@ -38,6 +38,18 @@ def test_key_differs_by_engine(cache: AudioCache) -> None:
     assert cache.key("t", "v", "piper") != cache.key("t", "v", "xtts")
 
 
+def test_key_differs_by_prosody(cache: AudioCache) -> None:
+    assert cache.key("t", "v", "piper", {"length_scale": 0.96}) != cache.key(
+        "t", "v", "piper", {"length_scale": 1.04}
+    )
+
+
+def test_key_is_stable_when_prosody_order_differs(cache: AudioCache) -> None:
+    first = {"length_scale": 0.96, "sentence_silence": 0.22}
+    second = {"sentence_silence": 0.22, "length_scale": 0.96}
+    assert cache.key("t", "v", "piper", first) == cache.key("t", "v", "piper", second)
+
+
 def test_path_uses_mp3_extension(cache: AudioCache) -> None:
     p = cache.path("abc123")
     assert p.suffix == ".mp3"

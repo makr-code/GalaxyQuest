@@ -52,3 +52,7 @@ cache/tts/*.mp3
 # Generated procedural textures (runtime artifacts)
 generated/textures/**/*.png
 generated/textures/**/*.lock
+
+# Locally generated MakeHuman/MPFB development model, not a deployment asset
+generated/dev-only/heralds/*.glb
+generated/dev-only/heralds/*.json

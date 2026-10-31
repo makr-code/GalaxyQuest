@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
  *   - tts_is_enabled() reflects the TTS_ENABLED constant
  *   - _tts_decode() correctly parses audio, JSON-success, and JSON-error responses
  *   - tts_synthesise() returns early when TTS is disabled, text empty, or too long
- *   - Cache key is deterministic (sha256 of voice|text)
+ *   - Cache keys are deterministic and include prosody when supplied
  */
 final class TtsClientTest extends TestCase
 {
@@ -135,6 +135,21 @@ final class TtsClientTest extends TestCase
         $key2 = hash('sha256', 'de_DE-thorsten-high|Willkommen, Kommandant!');
         self::assertSame($key1, $key2);
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $key1);
+        self::assertSame($key1, tts_cache_key('de_DE-thorsten-high', 'Willkommen, Kommandant!'));
+    }
+
+    public function testCacheKeyDiffersForDifferentProsody(): void
+    {
+        $slow = tts_cache_key('voice', 'Same text', ['length_scale' => 0.97]);
+        $fast = tts_cache_key('voice', 'Same text', ['length_scale' => 1.03]);
+        self::assertNotSame($slow, $fast);
+    }
+
+    public function testProsodyCacheKeyIsStableRegardlessOfInputKeyOrder(): void
+    {
+        $first = tts_normalize_prosody(['length_scale' => 0.97, 'sentence_silence' => 0.22]);
+        $second = tts_normalize_prosody(['sentence_silence' => 0.22, 'length_scale' => 0.97]);
+        self::assertSame(tts_cache_key('voice', 'Same text', $first), tts_cache_key('voice', 'Same text', $second));
     }
 
     public function testCacheKeyDiffersForDifferentVoices(): void

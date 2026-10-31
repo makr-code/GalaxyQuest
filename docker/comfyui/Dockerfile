@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir --retries 10 --timeout 120 torch==2.9.1 torchvisi
 
 RUN pip install --no-cache-dir nvidia-cuda-runtime-cu12
 
-RUN pip install --no-cache-dir trimesh opencv-python pymeshlab requests plyfile
+RUN pip install --no-cache-dir trimesh opencv-python pymeshlab requests plyfile spconv-cu121==2.3.8
 
 RUN mkdir -p /init && echo '#!/bin/bash\nset -e\nCUDA_RT_LIB="/usr/local/lib/python3.12/site-packages/nvidia/cuda_runtime/lib"\nif [ -d "$CUDA_RT_LIB" ]; then\n  export LD_LIBRARY_PATH="$CUDA_RT_LIB:${LD_LIBRARY_PATH}"\nfi\necho "[STARTUP] Installing TRELLIS2 wheels (no-deps)"\nif [ -d /workspace/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch291 ]; then\n  pip install --no-cache-dir --no-deps /workspace/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch291/*.whl\nfi\necho "[STARTUP] Launching ComfyUI"\nexec python -m main --listen 0.0.0.0 --port 8188' > /init/entrypoint.sh && chmod +x /init/entrypoint.sh
 
