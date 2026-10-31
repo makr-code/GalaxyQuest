@@ -5,9 +5,9 @@ import { chromium } from '@playwright/test';
 const root = process.cwd();
 const width = 1024;
 const height = 1024;
-const modelPath = path.join(root, 'models', 'ship_corvette.json');
+const modelPath = path.join(root, 'models', 'transport_shuttle.json');
 const vendorPath = path.join(root, 'js', 'vendor', 'three.min.js');
-const outputPath = path.join(root, 'generated', 'comfyui', 'input', 'trellis2_teaser_ship_source.png');
+const outputPath = path.join(root, 'generated', 'comfyui', 'input', 'trellis2_teaser_transfer_ship_source.png');
 const model = JSON.parse(await fs.readFile(modelPath, 'utf8'));
 const browser = await chromium.launch({ headless: true });
 
@@ -42,7 +42,7 @@ try {
         roughness: 0.34,
       });
     });
-    if (!meshCount) throw new Error('The Corvette descriptor has no meshes.');
+    if (!meshCount) throw new Error('The transport shuttle descriptor has no meshes.');
 
     ship.rotation.set(-0.15, 0.45, 0.12);
     ship.updateMatrixWorld(true);

@@ -126,4 +126,63 @@ describe('registration herald model orchestrator', () => {
     orchestrator.destroy();
     expect(canvas.removed).toBe(true);
   });
+
+  it('loads and gently animates an optional TRELLIS2 ship prop', async () => {
+    const herald = new Group();
+    herald.add(new Mesh(new BoxGeometry(1, 2, 0.5), new MeshBasicMaterial()));
+    const ship = new Group();
+    ship.add(new Mesh(new BoxGeometry(2, 0.6, 1), new MeshBasicMaterial()));
+    const canvas = {
+      dataset: {},
+      setAttribute() {},
+      remove() {},
+      clientWidth: 1280,
+      clientHeight: 720,
+      parentElement: null,
+    };
+    const container = {
+      prepend(element) { element.parentElement = this; },
+      getBoundingClientRect: () => ({ width: 1280, height: 720 }),
+    };
+    class ResizeObserverMock {
+      observe() {}
+      disconnect() {}
+    }
+    const windowRef = {
+      navigator: { gpu: { requestAdapter: async () => ({}) } },
+      ResizeObserver: ResizeObserverMock,
+      devicePixelRatio: 1,
+      performance: { now: () => 1000 },
+      requestAnimationFrame: () => 1,
+      cancelAnimationFrame() {},
+      GQLog: { info() {}, warn() {} },
+    };
+    const renderer = {
+      backend: { isWebGPUBackend: true },
+      init: async () => {},
+      setPixelRatio() {},
+      setSize() {},
+      render: vi.fn(),
+      dispose() {},
+    };
+    const orchestrator = new RegistrationHeraldModelOrchestrator({
+      teaserShipUrl: 'generated/trellis2/imported/ship/teaser.glb',
+      windowRef,
+      documentRef: { body: { dataset: {} }, createElement: () => canvas },
+      rendererFactory: () => renderer,
+      loaderFactory: () => ({
+        loadAsync: async (url) => ({ scene: url.endsWith('teaser.glb') ? ship : herald, animations: [] }),
+      }),
+    });
+
+    await expect(orchestrator.mount(container, [{ code: 'vor_tak' }])).resolves.toBe(true);
+    expect(canvas.dataset.teaserShip).toBe('loaded');
+    const initialRotation = orchestrator.teaserShip.rotation.y;
+    expect(orchestrator.teaserShip.scale.x).toBeGreaterThan(1);
+    orchestrator.setVisible(true);
+    orchestrator.render(1016);
+    expect(orchestrator.teaserShip.rotation.y).toBeGreaterThan(initialRotation);
+    expect(renderer.render).toHaveBeenCalledOnce();
+    orchestrator.destroy();
+  });
 });

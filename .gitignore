@@ -52,6 +52,7 @@ cache/tts/*.mp3
 # Generated procedural textures (runtime artifacts)
 generated/textures/**/*.png
 generated/textures/**/*.lock
+/generated/comfyui/output/3D/trellis2_teaser_transfer_ship_00001_.glb
 
 # Locally generated MakeHuman/MPFB development model, not a deployment asset
 generated/dev-only/heralds/*.glb

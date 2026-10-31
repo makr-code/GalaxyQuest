@@ -52,6 +52,7 @@ export class RegistrationHeraldModelOrchestrator {
   constructor({
     modelUrl = null,
     modelUrls = MODEL_URLS,
+    teaserShipUrl = null,
     windowRef = globalThis.window,
     documentRef = globalThis.document,
     rendererFactory = (options) => new WebGPURenderer(options),
@@ -61,6 +62,7 @@ export class RegistrationHeraldModelOrchestrator {
     this.modelUrls = modelUrl
       ? { high: modelUrl, medium: modelUrl, low: modelUrl }
       : { ...MODEL_URLS, ...modelUrls };
+    this.teaserShipUrl = teaserShipUrl;
     this.window = windowRef;
     this.document = documentRef;
     this.rendererFactory = rendererFactory;
@@ -72,6 +74,8 @@ export class RegistrationHeraldModelOrchestrator {
     this.camera = null;
     this.actors = [];
     this.actorDefinitions = [];
+    this.teaserShip = null;
+    this.teaserShipBaseY = 0;
     this.currentQuality = null;
     this.qualityLoadPromise = null;
     this.pendingQuality = null;
@@ -130,6 +134,7 @@ export class RegistrationHeraldModelOrchestrator {
       rimLight.position.set(4, 4, -5);
       this.scene.add(rimLight);
       this.addActors(gltf, actors);
+      await this.addTeaserShip();
       this.resizeObserver = new this.window.ResizeObserver(() => this.resize());
       this.resizeObserver.observe(container);
       this.resize();
@@ -218,6 +223,34 @@ export class RegistrationHeraldModelOrchestrator {
         accent,
       });
     });
+  }
+
+  async addTeaserShip() {
+    if (!this.teaserShipUrl || this.destroyed) return;
+    if (this.canvas) this.canvas.dataset.teaserShip = 'loading';
+    try {
+      const gltf = await this.loaderFactory().loadAsync(this.teaserShipUrl);
+      if (this.destroyed || !gltf?.scene) return;
+      const ship = gltf.scene;
+      const bounds = new Box3().setFromObject(ship);
+      const center = bounds.getCenter(new Vector3());
+      const size = bounds.getSize(new Vector3());
+      const maxDimension = Math.max(size.x, size.y, size.z);
+      if (!Number.isFinite(maxDimension) || maxDimension <= 0) {
+        throw new Error('TRELLIS2 teaser ship has empty geometry.');
+      }
+      const scale = 2.4 / maxDimension;
+      ship.scale.setScalar(scale);
+      ship.position.set(-center.x * scale, 2.8 - center.y * scale, -2.5 - center.z * scale);
+      ship.rotation.set(0.08, 0.55, -0.04);
+      this.teaserShipBaseY = ship.position.y;
+      this.teaserShip = ship;
+      this.scene.add(ship);
+      if (this.canvas) this.canvas.dataset.teaserShip = 'loaded';
+    } catch (error) {
+      if (this.canvas) this.canvas.dataset.teaserShip = 'unavailable';
+      this.window.GQLog?.info?.('[registration-trellis2-prop]', String(error?.message || error));
+    }
   }
 
   findGreetingBone(model) {
@@ -345,6 +378,10 @@ export class RegistrationHeraldModelOrchestrator {
     const delta = Math.min(0.05, Math.max(0, (now - this.previousTime) / 1000));
     this.previousTime = now;
     if (!this.reducedMotion) {
+      if (this.teaserShip) {
+        this.teaserShip.rotation.y += delta * 0.12;
+        this.teaserShip.position.y = this.teaserShipBaseY + Math.sin(now / 1700) * 0.045;
+      }
       for (const actor of this.actors) {
         actor.mixer.update(delta);
         actor.root.position.y = Math.sin(now / 580 + actor.root.position.x) * 0.018;
@@ -383,5 +420,6 @@ export class RegistrationHeraldModelOrchestrator {
     this.renderer = null;
     this.canvas = null;
     this.actors = [];
+    this.teaserShip = null;
   }
 }

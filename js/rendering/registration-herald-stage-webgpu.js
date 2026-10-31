@@ -8,6 +8,7 @@ const HERALD_COLORS = {
   kryl_tha: [0.62, 0.68, 0.24],
   zhareen: [0.86, 0.66, 0.28],
 };
+const TEASER_SHIP_URL = 'generated/trellis2/imported/ship/ship_generic_teaser_corvette_lod0_trellis2_dev.glb';
 
 const PART_COUNT = 11;
 const INSTANCE_FLOATS = 16;
@@ -304,6 +305,7 @@ export class RegistrationHeraldStage {
     const riggedOrchestrator = new RegistrationHeraldModelOrchestrator({
       windowRef: this.window,
       documentRef: this.document,
+      teaserShipUrl: TEASER_SHIP_URL,
     });
     if (await riggedOrchestrator.mount(container, this.actors)) {
       this.riggedOrchestrator = riggedOrchestrator;
