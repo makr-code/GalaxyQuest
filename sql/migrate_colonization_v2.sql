@@ -20,17 +20,53 @@ USE galaxyquest;
 --   energy_balance – Nettoenergie = Produktion − Verbrauch;
 --                    negativ = Defizit (Effizienz-Malus)
 -- ──────────────────────────────────────────────────────────────────────────────
-ALTER TABLE colonies
-    ADD COLUMN IF NOT EXISTS phase          TINYINT NOT NULL DEFAULT 0
-        COMMENT '0=Outpost 1=Settlement 2=Colony 3=City 4=Metropolis',
-    ADD COLUMN IF NOT EXISTS sector_id      INT DEFAULT NULL
-        COMMENT 'FK to sectors.id – NULL means colony is not in any sector',
-    ADD COLUMN IF NOT EXISTS energy_balance INT NOT NULL DEFAULT 0
-        COMMENT 'Net energy (production - consumption); negative triggers efficiency penalty';
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'colonies'
+       AND COLUMN_NAME = 'phase') = 0,
+    'ALTER TABLE colonies ADD COLUMN phase          TINYINT NOT NULL DEFAULT 0
+        COMMENT ''0=Outpost 1=Settlement 2=Colony 3=City 4=Metropolis''',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'colonies'
+       AND COLUMN_NAME = 'sector_id') = 0,
+    'ALTER TABLE colonies ADD COLUMN sector_id      INT DEFAULT NULL
+        COMMENT ''FK to sectors.id – NULL means colony is not in any sector''',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'colonies'
+       AND COLUMN_NAME = 'energy_balance') = 0,
+    'ALTER TABLE colonies ADD COLUMN energy_balance INT NOT NULL DEFAULT 0
+        COMMENT ''Net energy (production - consumption); negative triggers efficiency penalty''',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- Index für Sektor-Lookups (häufige JOIN-Abfragen in Sprawl-Berechnung)
-ALTER TABLE colonies
-    ADD INDEX IF NOT EXISTS idx_colonies_sector (sector_id);
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'colonies'
+       AND INDEX_NAME = 'idx_colonies_sector') = 0,
+    'ALTER TABLE colonies ADD INDEX idx_colonies_sector (sector_id)',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- Fremdschlüssel nach der Index-Erstellung hinzufügen
 ALTER TABLE colonies

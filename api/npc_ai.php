@@ -1306,27 +1306,20 @@ function wormhole_regeneration_tick_global(PDO $db): void {
  *  collective / others   → aereth    (default Alcubierre)
  */
 function npc_assign_ftl_drive(PDO $db, int $npcUserId): void {
-    $uRow = $db->prepare('SELECT ftl_drive_type FROM users WHERE id = ? LIMIT 1');
+    $uRow = $db->prepare("SELECT ftl_drive_type FROM users WHERE id = ? AND control_type = 'npc_engine' LIMIT 1");
     $uRow->execute([$npcUserId]);
     $u = $uRow->fetch();
     if (!$u || $u['ftl_drive_type'] !== 'aereth') {
         return; // already assigned
     }
 
-    // Determine which NPC faction this user is primarily affiliated with
-    // via faction_colonies (NPC factions seed colonies linked to NPC users)
-    try {
-        $fcStmt = $db->prepare(
-            'SELECT nf.code FROM faction_colonies fc
-               JOIN npc_factions nf ON nf.id = fc.faction_id
-               JOIN colonies c ON c.id = fc.colony_id
-              WHERE c.user_id = ? LIMIT 1'
-        );
-        $fcStmt->execute([$npcUserId]);
-        $fc = $fcStmt->fetch();
-    } catch (\Throwable) {
-        return; // table not yet migrated, skip silently
-    }
+    $fcStmt = $db->prepare(
+        'SELECT nf.code FROM npc_faction_memberships fm
+           JOIN npc_factions nf ON nf.id = fm.faction_id
+          WHERE fm.user_id = ? LIMIT 1'
+    );
+    $fcStmt->execute([$npcUserId]);
+    $fc = $fcStmt->fetch();
 
     if (!$fc) return;
 
@@ -1339,6 +1332,7 @@ function npc_assign_ftl_drive(PDO $db, int $npcUserId): void {
         'pirates'       => 'kryl_tha',
         'pve_pirates'   => 'kryl_tha',
         'precursors'    => 'vel_ar',
+        'pve_precursors' => 'vel_ar',
         'guild'         => 'syl_nar',
         'pve_guild'     => 'syl_nar',
     ];
@@ -1346,6 +1340,6 @@ function npc_assign_ftl_drive(PDO $db, int $npcUserId): void {
     $drive = $driveMap[$code] ?? 'aereth';
     if ($drive === 'aereth') return; // no change needed
 
-    $db->prepare('UPDATE users SET ftl_drive_type = ? WHERE id = ?')
+    $db->prepare("UPDATE users SET ftl_drive_type = ? WHERE id = ? AND control_type = 'npc_engine' AND ftl_drive_type = 'aereth'")
        ->execute([$drive, $npcUserId]);
 }

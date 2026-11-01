@@ -300,7 +300,6 @@ switch ($action) {
 				// Non-fatal: continue without summaries
 			}
 		}
-		}
 
 		// Enrich with diplomacy context.
 		$diplomacyStmt = $db->prepare(

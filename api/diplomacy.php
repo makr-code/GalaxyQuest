@@ -396,13 +396,14 @@ function handle_cancel(PDO $db, int $uid): array {
 try {
     $db = get_db();
     switch ($action) {
-        case 'list':    json_out(handle_list($db, $uid));    break;
-        case 'types':   json_out(handle_types());            break;
-        case 'propose': json_out(handle_propose($db, $uid)); break;
-        case 'respond': json_out(handle_respond($db, $uid)); break;
-        case 'cancel':  json_out(handle_cancel($db, $uid));  break;
-        default:        json_out(['success' => false, 'error' => 'Unknown action']);
+        case 'list':    json_response(handle_list($db, $uid));
+        case 'types':   json_response(handle_types());
+        case 'propose': json_response(handle_propose($db, $uid));
+        case 'respond': json_response(handle_respond($db, $uid));
+        case 'cancel':  json_response(handle_cancel($db, $uid));
+        default:        json_error('Unknown action', 400);
     }
-} catch (Throwable $e) {
-    json_out(['success' => false, 'error' => $e->getMessage()]);
+} catch (PDOException $e) {
+    error_log('diplomacy dispatch error: ' . $e->getMessage());
+    json_error('Unable to process diplomacy request.', 500);
 }

@@ -1,5 +1,11 @@
 {
     "require-dev": {
-        "phpunit/phpunit": "^11"
+        "phpunit/phpunit": "^11",
+        "phpstan/phpstan": "^2.1",
+        "squizlabs/php_codesniffer": "^4.0"
+    },
+    "scripts": {
+        "analyse": "phpstan analyse --no-progress --memory-limit=1G",
+        "lint:php": "@php scripts/check_phpcs.php"
     }
 }

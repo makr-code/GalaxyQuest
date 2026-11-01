@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<ruleset name="GalaxyQuest">
+    <description>PSR-12 for backend PHP; existing violations are counted separately.</description>
+    <rule ref="PSR12"/>
+    <arg name="extensions" value="php"/>
+    <file>api</file>
+    <file>lib</file>
+    <file>config</file>
+</ruleset>

@@ -21,7 +21,6 @@ use GalaxyQuest\Shared\Http\RetryPolicy;
 class RetryPolicyTest extends TestCase
 {
     /**
-     * @test
      */
     public function testConstructorWithValidConfig(): void
     {
@@ -37,7 +36,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testConstructorWithDefaults(): void
     {
@@ -49,7 +47,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testInvalidMaxRetries(): void
     {
@@ -58,7 +55,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testInvalidBaseDelay(): void
     {
@@ -67,7 +63,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testInvalidJitterFactor(): void
     {
@@ -76,7 +71,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testSuccessfulExecutionFirstAttempt(): void
     {
@@ -93,7 +87,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testRetryOnTransientError(): void
     {
@@ -113,7 +106,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testExhaustedRetries(): void
     {
@@ -130,7 +122,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testNonRetryableError(): void
     {
@@ -149,7 +140,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testDatabaseConnectionError(): void
     {
@@ -170,7 +160,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testRetryableErrorClassification(): void
     {
@@ -195,7 +184,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testExponentialBackoffProgression(): void
     {
@@ -216,7 +204,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testJitterApplication(): void
     {
@@ -234,7 +221,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testReturnsCorrectDataType(): void
     {
@@ -252,7 +238,6 @@ class RetryPolicyTest extends TestCase
     }
 
     /**
-     * @test
      */
     public function testZeroRetries(): void
     {

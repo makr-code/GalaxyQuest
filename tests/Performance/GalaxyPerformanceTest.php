@@ -147,7 +147,6 @@ class GalaxyPerformanceTest extends TestCase
     }
 
     /**
-     * @test
      * Profile range query latency over multiple iterations.
      */
     public function testRangeQueryLatency(): void
@@ -188,7 +187,6 @@ class GalaxyPerformanceTest extends TestCase
     }
 
     /**
-     * @test
      * Profile system detail query latency.
      */
     public function testSystemDetailLatency(): void
@@ -230,7 +228,6 @@ class GalaxyPerformanceTest extends TestCase
     }
 
     /**
-     * @test
      * Compare JSON vs Binary encoding sizes.
      */
     public function testPayloadSizeComparison(): void
@@ -265,7 +262,6 @@ class GalaxyPerformanceTest extends TestCase
     }
 
     /**
-     * @test
      * Verify encoding consistency (same data from both encoders).
      */
     public function testEncodingConsistency(): void

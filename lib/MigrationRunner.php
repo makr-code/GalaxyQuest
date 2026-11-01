@@ -3,17 +3,19 @@
 declare(strict_types=1);
 
 /**
- * MigrationRunner – transactional database migration runner for GalaxyQuest.
+ * MigrationRunner – database migration runner for GalaxyQuest.
  *
  * Features
  * ─────────
  *  • Tracks applied migrations in the `schema_migrations` table.
  *  • Applies pending migrations in canonical manifest order (config/migrations_manifest.php).
- *  • Wraps every migration in a PDO transaction; rolls back automatically on
- *    any SQL error, leaving the DB in a consistent state.
+ *  • Uses PDO transactions where supported; MySQL DDL commits implicitly and
+ *    cannot be rolled back. Failed DDL migrations may leave partial changes.
  *  • Supports dry-run mode (no DB changes, shows what would run).
  *  • Supports rollback via companion `*_down.sql` files.
  *  • Records checksum (MD5), execution time, and environment per migration.
+ *  • Serializes MySQL bootstrap/up/rollback via a nonblocking database-scoped session lock.
+ *  • Rejects changed applied forward files and preflights selected pending files.
  *
  * Typical usage (via scripts/migrate.php):
  *   php scripts/migrate.php status
@@ -34,6 +36,7 @@ class MigrationRunner
     private string $environment;
     /** @var list<string> */
     private array  $manifest;
+    private bool $migrationLockHeld = false;
 
     /**
      * @param PDO    $db          Open PDO connection (MySQL / MariaDB).
@@ -55,8 +58,24 @@ class MigrationRunner
             $manifestFile = dirname(__DIR__) . '/config/migrations_manifest.php';
         }
 
-        /** @var list<string> $loaded */
         $loaded = require $manifestFile;
+        if (!is_array($loaded) || !array_is_list($loaded)) {
+            throw new InvalidArgumentException('Migration manifest must return a list of SQL filenames.');
+        }
+        $seen = [];
+        foreach ($loaded as $name) {
+            if (
+                !is_string($name) || !preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*\.sql$/D', $name)
+                || str_ends_with(strtolower($name), '_down.sql')
+            ) {
+                throw new InvalidArgumentException('Migration manifest contains an invalid forward SQL filename.');
+            }
+            $identity = strtolower($name);
+            if (isset($seen[$identity])) {
+                throw new InvalidArgumentException('Duplicate migration in manifest: ' . $name);
+            }
+            $seen[$identity] = true;
+        }
         $this->manifest = $loaded;
     }
 
@@ -69,6 +88,13 @@ class MigrationRunner
      * Safe to call on every run; the CREATE TABLE uses IF NOT EXISTS.
      */
     public function bootstrap(): void
+    {
+        $this->withMigrationLock(function (): void {
+            $this->bootstrapTrackingTable();
+        });
+    }
+
+    private function bootstrapTrackingTable(): void
     {
         $ddl = file_get_contents($this->sqlDir . '/schema_migrations.sql');
         if ($ddl === false) {
@@ -122,9 +148,44 @@ class MigrationRunner
      */
     public function runUp(?int $steps = null, bool $dryRun = false): array
     {
-        $this->ensureTrackingTable();
+        if ($steps !== null && $steps < 1) {
+            throw new InvalidArgumentException('Migration steps must be positive.');
+        }
+        return $this->withMigrationLock(fn(): array => $this->runUpLocked($steps, $dryRun));
+    }
 
-        $applied = $this->loadAppliedMigrations();
+    /**
+     * Verify the complete deployment manifest and its exact applied bytes without writing SQL.
+     *
+     * @return int Number of verified forward migrations.
+     */
+    public function verifyDeployment(): int
+    {
+        return $this->withMigrationLock(function (): int {
+            if (!$this->ensureTrackingTable(true)) {
+                throw new RuntimeException('Deployment verification requires an existing migration tracking table.');
+            }
+            $applied = $this->loadAppliedMigrations();
+            foreach ($applied as $name => $row) {
+                if (!in_array($name, $this->manifest, true)) {
+                    throw new RuntimeException('Applied migration is absent from the deployment manifest: ' . $name);
+                }
+            }
+            $this->verifyAppliedChecksums($applied);
+            foreach ($this->manifest as $name) {
+                if (!isset($applied[$name])) {
+                    throw new RuntimeException('Deployment has a pending migration: ' . $name);
+                }
+            }
+            return count($this->manifest);
+        });
+    }
+
+    /** @return list<array{name:string,statements:int,execution_ms:int,skipped:bool}> */
+    private function runUpLocked(?int $steps, bool $dryRun): array
+    {
+        $applied = $this->ensureTrackingTable($dryRun) ? $this->loadAppliedMigrations() : [];
+        $this->verifyAppliedChecksums($applied);
         $pending = array_values(array_filter(
             $this->manifest,
             static fn(string $n) => !isset($applied[$n])
@@ -134,6 +195,9 @@ class MigrationRunner
             $pending = array_slice($pending, 0, $steps);
         }
 
+        foreach ($pending as $name) {
+            $this->readMigrationSql($name);
+        }
         $results = [];
         foreach ($pending as $name) {
             $results[] = $this->applyMigration($name, $dryRun);
@@ -147,7 +211,7 @@ class MigrationRunner
      *
      * A rollback requires a companion `<migration_name_without_.sql>_down.sql`
      * file in the same directory.  If no down-file exists the migration is
-     * reported as non-reversible and skipped (the tracking record is kept).
+     * reported as non-reversible; the entire selected rollback is blocked.
      *
      * @param int  $steps   Number of migrations to roll back (default: 1).
      * @param bool $dryRun  When true, show what would happen without changing the DB.
@@ -155,9 +219,17 @@ class MigrationRunner
      */
     public function runRollback(int $steps = 1, bool $dryRun = false): array
     {
-        $this->ensureTrackingTable();
+        if ($steps < 1) {
+            throw new InvalidArgumentException('Rollback steps must be positive.');
+        }
+        return $this->withMigrationLock(fn(): array => $this->runRollbackLocked($steps, $dryRun));
+    }
 
-        $applied = $this->loadAppliedMigrations();
+    /** @return list<array{name:string,status:string,statements:int,execution_ms:int}> */
+    private function runRollbackLocked(int $steps, bool $dryRun): array
+    {
+        $applied = $this->ensureTrackingTable($dryRun) ? $this->loadAppliedMigrations() : [];
+        $this->verifyAppliedChecksums($applied);
 
         // Build ordered list of applied migrations (manifest order, reversed).
         $appliedInOrder = array_values(array_filter(
@@ -166,6 +238,18 @@ class MigrationRunner
         ));
         $toRollback = array_slice(array_reverse($appliedInOrder), 0, $steps);
 
+        foreach ($toRollback as $name) {
+            $downName = $this->resolveDownFileName($name);
+            if (!file_exists($this->sqlDir . '/' . $downName)) {
+                return [[
+                    'name' => $name,
+                    'status' => 'no_down_file',
+                    'statements' => 0,
+                    'execution_ms' => 0,
+                ]];
+            }
+            $this->readMigrationSql($downName);
+        }
         $results = [];
         foreach ($toRollback as $name) {
             $results[] = $this->revertMigration($name, $dryRun);
@@ -179,22 +263,13 @@ class MigrationRunner
     // ──────────────────────────────────────────────────────────────────────────
 
     /**
-     * Apply a single migration file, wrapped in a transaction.
+     * Apply a single migration file; DDL may implicitly end the transaction.
      *
      * @return array{name:string,statements:int,execution_ms:int,skipped:bool}
      */
     private function applyMigration(string $name, bool $dryRun): array
     {
-        $filePath = $this->sqlDir . '/' . $name;
-
-        if (!is_file($filePath)) {
-            throw new RuntimeException('Migration file not found: ' . $filePath);
-        }
-
-        $sql      = file_get_contents($filePath);
-        if ($sql === false) {
-            throw new RuntimeException('Cannot read migration file: ' . $filePath);
-        }
+        $sql = $this->readMigrationSql($name);
         $checksum   = md5($sql);
         $statements = $this->splitStatements($sql);
 
@@ -229,11 +304,17 @@ class MigrationRunner
             );
             $insert->execute([$name, $checksum, $this->environment, $executionMs]);
 
-            $this->db->commit();
+            if ($this->db->inTransaction()) {
+                $this->db->commit();
+            }
         } catch (Throwable $e) {
-            $this->db->rollBack();
+            $transactionActive = $this->db->inTransaction();
+            if ($transactionActive) {
+                $this->db->rollBack();
+            }
             throw new RuntimeException(
-                'Migration "' . $name . '" failed: ' . $e->getMessage(),
+                'Migration "' . $name . '" failed: ' . $e->getMessage()
+                . (!$transactionActive ? ' Changes may already be committed; inspect the database before retrying.' : ''),
                 0,
                 $e
             );
@@ -255,21 +336,8 @@ class MigrationRunner
     private function revertMigration(string $name, bool $dryRun): array
     {
         $downName = $this->resolveDownFileName($name);
-        $downPath = $this->sqlDir . '/' . $downName;
 
-        if (!is_file($downPath)) {
-            return [
-                'name'         => $name,
-                'status'       => 'no_down_file',
-                'statements'   => 0,
-                'execution_ms' => 0,
-            ];
-        }
-
-        $sql = file_get_contents($downPath);
-        if ($sql === false) {
-            throw new RuntimeException('Cannot read rollback file: ' . $downPath);
-        }
+        $sql = $this->readMigrationSql($downName);
         $statements = $this->splitStatements($sql);
 
         if ($dryRun) {
@@ -301,11 +369,17 @@ class MigrationRunner
             );
             $delete->execute([$name]);
 
-            $this->db->commit();
+            if ($this->db->inTransaction()) {
+                $this->db->commit();
+            }
         } catch (Throwable $e) {
-            $this->db->rollBack();
+            $transactionActive = $this->db->inTransaction();
+            if ($transactionActive) {
+                $this->db->rollBack();
+            }
             throw new RuntimeException(
-                'Rollback of "' . $name . '" failed: ' . $e->getMessage(),
+                'Rollback of "' . $name . '" failed: ' . $e->getMessage()
+                . (!$transactionActive ? ' Changes may already be committed; inspect the database before retrying.' : ''),
                 0,
                 $e
             );
@@ -357,19 +431,63 @@ class MigrationRunner
         return $map;
     }
 
+    private function readMigrationSql(string $name): string
+    {
+        $filePath = $this->sqlDir . '/' . $name;
+        if (!is_file($filePath) || !is_readable($filePath)) {
+            throw new RuntimeException('Migration file not found or unreadable: ' . $filePath);
+        }
+        $sql = file_get_contents($filePath);
+        if ($sql === false) {
+            throw new RuntimeException('Cannot read migration file: ' . $filePath);
+        }
+        return $sql;
+    }
+
+    /** @param array<string, array{applied_at:string,checksum:string,environment:string}> $applied */
+    private function verifyAppliedChecksums(array $applied): void
+    {
+        foreach ($this->manifest as $name) {
+            if (!isset($applied[$name])) {
+                continue;
+            }
+            $checksum = md5($this->readMigrationSql($name));
+            if (!hash_equals($applied[$name]['checksum'], $checksum)) {
+                throw new RuntimeException(
+                    'Applied migration checksum mismatch: ' . $name
+                    . '. Restore the originally applied SQL file; do not rewrite tracking checksums.'
+                );
+            }
+        }
+    }
+
     /**
-     * Ensure the tracking table exists; if not, bootstrap it automatically.
+     * Probe tracking storage; only an actual missing table permits bootstrap.
+     * A dry run treats absent storage as empty without issuing DDL.
      *
      * Uses a lightweight probe query rather than information_schema so the
      * method works on both MySQL/MariaDB and SQLite (tests).
      */
-    private function ensureTrackingTable(): void
+    private function ensureTrackingTable(bool $dryRun = false): bool
     {
         try {
-            $this->db->query('SELECT 1 FROM ' . self::TRACKING_TABLE . ' LIMIT 1');
-        } catch (Throwable $e) {
+            $probe = $this->db->query('SELECT 1 FROM ' . self::TRACKING_TABLE . ' LIMIT 1');
+            $probe->closeCursor();
+        } catch (PDOException $e) {
+            $driver = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME);
+            $missing = ($driver === 'mysql' && $e->getCode() === '42S02'
+                && ($e->errorInfo[1] ?? null) === 1146)
+                || ($driver === 'sqlite' && ($e->errorInfo[1] ?? null) === 1
+                    && ($e->errorInfo[2] ?? '') === 'no such table: ' . self::TRACKING_TABLE);
+            if (!$missing) {
+                throw $e;
+            }
+            if ($dryRun) {
+                return false;
+            }
             $this->bootstrap();
         }
+        return true;
     }
 
     /**
@@ -445,6 +563,11 @@ class MigrationRunner
                     continue;
                 }
             } else {
+                if (($inSingle || $inDouble) && $ch === '\\' && $next !== '') {
+                    $buf .= $ch . $next;
+                    $i++;
+                    continue;
+                }
                 if ($inSingle && $ch === "'" && $next === "'") {
                     $buf .= $ch . $next;
                     $i++;
@@ -481,5 +604,70 @@ class MigrationRunner
         }
 
         return $parts;
+    }
+
+    /**
+     * @template T
+     * @param callable(): T $operation
+     * @return T
+     */
+    private function withMigrationLock(callable $operation): mixed
+    {
+        if ($this->migrationLockHeld) {
+            return $operation();
+        }
+        $driver = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'sqlite') {
+            // SQLite is used by the isolated unit suite, not production migrations.
+            return $operation();
+        }
+        if ($driver !== 'mysql') {
+            throw new RuntimeException('Migration locking requires MySQL/MariaDB.');
+        }
+        if ($this->db->inTransaction()) {
+            throw new RuntimeException('Migrations require a connection without an active transaction.');
+        }
+        $databaseQuery = $this->db->query('SELECT DATABASE()');
+        $database = $databaseQuery->fetchColumn();
+        $databaseQuery->closeCursor();
+        if (!is_string($database) || $database === '') {
+            throw new RuntimeException('Select a database before running migrations.');
+        }
+        $lockName = 'gq:migrations:' . substr(hash('sha256', $database), 0, 48);
+        $acquire = $this->db->prepare('SELECT GET_LOCK(?, 0)');
+        $acquire->execute([$lockName]);
+        $acquired = $acquire->fetchColumn();
+        $acquire->closeCursor();
+        if ((string)$acquired !== '1') {
+            throw new RuntimeException(
+                $acquired === null || $acquired === false
+                    ? 'Cannot acquire the database migration lock.'
+                    : 'Another migration process holds the database migration lock; retry after it finishes.'
+            );
+        }
+        $this->migrationLockHeld = true;
+        $failure = null;
+        try {
+            return $operation();
+        } catch (Throwable $error) {
+            $failure = $error;
+            throw $error;
+        } finally {
+            $this->migrationLockHeld = false;
+            try {
+                $release = $this->db->prepare('SELECT RELEASE_LOCK(?)');
+                $release->execute([$lockName]);
+                $released = $release->fetchColumn();
+                $release->closeCursor();
+                if ((string)$released !== '1') {
+                    throw new RuntimeException('Database migration lock was not released by its owner.');
+                }
+            } catch (PDOException | RuntimeException $releaseError) {
+                if ($failure === null) {
+                    throw $releaseError;
+                }
+                error_log('migration_lock_release_failed: ' . $releaseError->getMessage());
+            }
+        }
     }
 }

@@ -40,11 +40,11 @@ CREATE TABLE IF NOT EXISTS world_scenarios (
         COMMENT 'Minimum hours between two activations of this scenario',
     min_player_progress   TINYINT UNSIGNED NOT NULL DEFAULT 0
         COMMENT 'Minimum average colony level required galaxy-wide to allow trigger',
-    phases_json           TEXT NOT NULL DEFAULT '[]'
+    phases_json           TEXT NOT NULL DEFAULT ('[]')
         COMMENT 'JSON array of phase label strings',
-    conclusions_json      TEXT NOT NULL DEFAULT '[]'
+    conclusions_json      TEXT NOT NULL DEFAULT ('[]')
         COMMENT 'JSON array of {key, weight, condition_json, title_de, description_de}',
-    effects_json          TEXT NOT NULL DEFAULT '{}'
+    effects_json          TEXT NOT NULL DEFAULT ('{}')
         COMMENT 'JSON map of conclusion_key → effect array',
     llm_prompt_key        VARCHAR(64) DEFAULT NULL
         COMMENT 'Optional LLM profile key for flavor-text generation',

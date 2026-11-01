@@ -2,6 +2,8 @@ Options -Indexes
 RewriteEngine On
 DirectoryIndex index.php index.html
 
+RewriteRule ^health(?:/.*)?$ health.php [L]
+
 # Serve compressed JavaScript artifacts (*.js.gz) with strict JS MIME + gzip.
 <IfModule mod_mime.c>
 	AddEncoding gzip .gz

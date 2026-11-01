@@ -433,14 +433,15 @@ function _dp_declare_war(PDO $db, int $uid, int $faction_id, int $play_id): void
 try {
     $db = get_db();
     switch ($action) {
-        case 'list':          json_out(handle_list($db, $uid));          break;
-        case 'trust_threat':  json_out(handle_trust_threat($db, $uid));  break;
-        case 'propose_play':  json_out(handle_propose_play($db, $uid));  break;
-        case 'counter_play':  json_out(handle_counter_play($db, $uid));  break;
-        case 'mobilize':      json_out(handle_mobilize($db, $uid));      break;
-        case 'resolve':       json_out(handle_resolve($db, $uid));       break;
-        default:              json_out(['success' => false, 'error' => 'Unknown action']);
+        case 'list':          json_response(handle_list($db, $uid));
+        case 'trust_threat':  json_response(handle_trust_threat($db, $uid));
+        case 'propose_play':  json_response(handle_propose_play($db, $uid));
+        case 'counter_play':  json_response(handle_counter_play($db, $uid));
+        case 'mobilize':      json_response(handle_mobilize($db, $uid));
+        case 'resolve':       json_response(handle_resolve($db, $uid));
+        default:              json_error('Unknown action', 400);
     }
-} catch (Throwable $e) {
-    json_out(['success' => false, 'error' => $e->getMessage()]);
+} catch (PDOException $e) {
+    error_log('diplomatic_plays dispatch error: ' . $e->getMessage());
+    json_error('Unable to process diplomatic play request.', 500);
 }

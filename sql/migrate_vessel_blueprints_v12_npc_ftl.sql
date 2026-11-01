@@ -1,13 +1,22 @@
 -- GalaxyQuest migration v12: NPC faction FTL drive type assignment (OD-3)
 -- Assigns faction-specific FTL drives to NPC accounts based on their
--- npc_faction affiliation (empire→vor_tak, guild→aereth, science→zhareen,
--- pirates→kryl_tha, precursors→vel_ar, pve_*→aereth default).
+-- npc_faction affiliation (empire→vor_tak, guild→syl_nar, science→zhareen,
+-- pirates→kryl_tha, precursors→vel_ar, including pve_* aliases).
 --
 -- NPC users are identified by control_type = 'npc_engine'.
--- This migration uses a best-effort approach: NPC users are matched via
--- the faction_colonies join (npc_factions → faction_colonies → colonies → users).
+-- NPC users are matched through the canonical user-to-faction membership.
 
 USE galaxyquest;
+
+-- Required here before FTL assignment; the later homeworld migration uses
+-- the same table definition and keeps its existing manifest position.
+CREATE TABLE IF NOT EXISTS npc_faction_memberships (
+    user_id INT NOT NULL PRIMARY KEY,
+    faction_id INT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE,
+    KEY idx_npc_membership_faction (faction_id)
+) ENGINE=InnoDB;
 
 -- ── Empire faction → Vor'Tak (disciplined jump drives, strategic planning) ──
 UPDATE users u
@@ -15,10 +24,9 @@ UPDATE users u
  WHERE u.control_type = 'npc_engine'
    AND u.ftl_drive_type = 'aereth'
    AND EXISTS (
-       SELECT 1 FROM faction_colonies fc
-         JOIN npc_factions nf ON nf.id = fc.faction_id
-         JOIN colonies c ON c.id = fc.colony_id
-        WHERE c.user_id = u.id
+       SELECT 1 FROM npc_faction_memberships fm
+         JOIN npc_factions nf ON nf.id = fm.faction_id
+        WHERE fm.user_id = u.id
           AND nf.code IN ('empire', 'pve_empire')
        LIMIT 1
    );
@@ -29,10 +37,9 @@ UPDATE users u
  WHERE u.control_type = 'npc_engine'
    AND u.ftl_drive_type = 'aereth'
    AND EXISTS (
-       SELECT 1 FROM faction_colonies fc
-         JOIN npc_factions nf ON nf.id = fc.faction_id
-         JOIN colonies c ON c.id = fc.colony_id
-        WHERE c.user_id = u.id
+       SELECT 1 FROM npc_faction_memberships fm
+         JOIN npc_factions nf ON nf.id = fm.faction_id
+        WHERE fm.user_id = u.id
           AND nf.code IN ('science', 'pve_science')
        LIMIT 1
    );
@@ -43,10 +50,9 @@ UPDATE users u
  WHERE u.control_type = 'npc_engine'
    AND u.ftl_drive_type = 'aereth'
    AND EXISTS (
-       SELECT 1 FROM faction_colonies fc
-         JOIN npc_factions nf ON nf.id = fc.faction_id
-         JOIN colonies c ON c.id = fc.colony_id
-        WHERE c.user_id = u.id
+       SELECT 1 FROM npc_faction_memberships fm
+         JOIN npc_factions nf ON nf.id = fm.faction_id
+        WHERE fm.user_id = u.id
           AND nf.code IN ('pirates', 'pve_pirates')
        LIMIT 1
    );
@@ -57,10 +63,9 @@ UPDATE users u
  WHERE u.control_type = 'npc_engine'
    AND u.ftl_drive_type = 'aereth'
    AND EXISTS (
-       SELECT 1 FROM faction_colonies fc
-         JOIN npc_factions nf ON nf.id = fc.faction_id
-         JOIN colonies c ON c.id = fc.colony_id
-        WHERE c.user_id = u.id
+       SELECT 1 FROM npc_faction_memberships fm
+         JOIN npc_factions nf ON nf.id = fm.faction_id
+        WHERE fm.user_id = u.id
           AND nf.code IN ('precursors', 'pve_precursors')
        LIMIT 1
    );
@@ -71,10 +76,9 @@ UPDATE users u
  WHERE u.control_type = 'npc_engine'
    AND u.ftl_drive_type = 'aereth'
    AND EXISTS (
-       SELECT 1 FROM faction_colonies fc
-         JOIN npc_factions nf ON nf.id = fc.faction_id
-         JOIN colonies c ON c.id = fc.colony_id
-        WHERE c.user_id = u.id
+       SELECT 1 FROM npc_faction_memberships fm
+         JOIN npc_factions nf ON nf.id = fm.faction_id
+        WHERE fm.user_id = u.id
           AND nf.code IN ('guild', 'pve_guild')
        LIMIT 1
    );

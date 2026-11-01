@@ -530,6 +530,9 @@ final class SpeciesAvatarGenerator {
      */
     private function buildAvatarPrompt(array $speciesProfile, string $gender): string {
         $colors = $speciesProfile[$gender . '_colors'] ?? $speciesProfile['colors'];
+        $genderFeatures = $gender === 'male'
+            ? '- More angular, defined musculature'
+            : '- Curves emphasized, flowing elegance';
         
         return <<<PROMPT
 Generate a detailed 3D character avatar for the {$speciesProfile['display_name']} species.
@@ -557,7 +560,7 @@ OUTPUT REQUIREMENTS:
 - Embedded materials with PBR workflow
 
 Gender-specific features:
-{$gender === 'male' ? '- More angular, defined musculature' : '- Curves emphasized, flowing elegance'}
+{$genderFeatures}
 - Distinct silhouette from opposite gender
 
 Export as GLB with all materials embedded.

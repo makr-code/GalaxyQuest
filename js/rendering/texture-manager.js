@@ -276,8 +276,21 @@
      * Internal: Load high-res texture asynchronously
      */
     async _loadHighResProgressiveTextureAsync(url) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
       try {
-        const texture = await new this.THREE.TextureLoader().loadAsync(url);
+        const response = await fetch(url, {
+          method: 'GET',
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!response.ok) throw new Error(`High-res request failed: ${response.status}`);
+        const data = await response.json();
+        if (!data.success || data.phase !== 'high_res_ready' ||
+            typeof data.high_res?.path !== 'string' || !data.high_res.path) {
+          throw new Error(data.error || 'Invalid high-res texture response');
+        }
+        const texture = await new this.THREE.TextureLoader().loadAsync(data.high_res.path);
         texture.colorSpace = this.THREE.SRGBColorSpace;
         texture.needsUpdate = true;
         // Dispatch event for UI to swap texture
@@ -286,6 +299,8 @@
         }));
       } catch (err) {
         console.warn('[Progressive] High-res load failed:', err.message);
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../../lib/MiniYamlParser.php';
@@ -424,7 +425,7 @@ final class ScenarioEngineTest extends TestCase
 
     // ── compareStanding ───────────────────────────────────────────────────────
 
-    /** @dataProvider provideCompareStandingCases */
+    #[DataProvider('provideCompareStandingCases')]
     public function testCompareStanding(
         int $standing, string $op, int $value, bool $expected
     ): void {

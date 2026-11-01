@@ -1,8 +1,28 @@
 services:
   web:
+    container_name: !reset null
+    volumes: !reset []
     depends_on: !override
       db:
         condition: service_healthy
     environment:
+      APP_ENV: dev
+      XDEBUG_MODE: off
+      COMFYUI_ENABLED: 0
+      THEMISDB_ENABLED: 0
       NPC_LLM_CONTROLLER_ENABLED: 0
       TTS_ENABLED: 0
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1/health/live', false, stream_context_create(['http' => ['timeout' => 3]])) === false ? 1 : 0);"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+  db:
+    container_name: !reset null
+    ports: !reset []
+    volumes: !override
+      - galaxyquest-db-data:/var/lib/mysql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--protocol=TCP", "-h", "127.0.0.1", "-proot"]

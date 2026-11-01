@@ -42,8 +42,7 @@ if (!$existingRuntimeSchema) {
     array_unshift($defaultMigrations, __DIR__ . '/sql/schema.sql');
 }
 
-// Legacy upgrade path: migrate_v2 contains MySQL-version-sensitive ALTER syntax
-// and should only run when v2 markers are actually missing.
+// The setup legacy upgrade path runs only when v2 markers are missing.
 if ($existingRuntimeSchema && !has_v2_schema_markers($db)) {
     array_splice($defaultMigrations, 1, 0, [__DIR__ . '/sql/migrate_v2.sql']);
 }

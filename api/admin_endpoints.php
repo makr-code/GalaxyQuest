@@ -58,7 +58,7 @@ $adminUserId = requireAdmin();
 
 // Match routes
 if (preg_match('#^/api/admin/stats$#', $path) && $method === 'GET') {
-    getStats();
+    trellis_admin_get_stats();
 } elseif (preg_match('#^/api/admin/queue$#', $path) && $method === 'GET') {
     getQueue();
 } elseif (preg_match('#^/api/admin/queue/(\d+)$#', $path, $m) && $method === 'DELETE') {
@@ -94,7 +94,7 @@ if (preg_match('#^/api/admin/stats$#', $path) && $method === 'GET') {
  * GET /api/admin/stats
  * Overview statistics for dashboard
  */
-function getStats(): void {
+function trellis_admin_get_stats(): void {
     try {
         $pdo = getDatabase();
         

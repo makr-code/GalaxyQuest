@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -98,9 +99,9 @@ final class FactionSpeciesSpecTest extends TestCase
     // ── per-spec structural tests ─────────────────────────────────────────────
 
     /**
-     * @dataProvider playableSpecProvider
      * @param array<string,mixed> $spec
      */
+    #[DataProvider('playableSpecProvider')]
     public function testPortraitureBlockExists(string $code, array $spec): void
     {
         $this->assertIsArray(
@@ -110,9 +111,9 @@ final class FactionSpeciesSpecTest extends TestCase
     }
 
     /**
-     * @dataProvider playableSpecProvider
      * @param array<string,mixed> $spec
      */
+    #[DataProvider('playableSpecProvider')]
     public function testPortraitureRequiredKeys(string $code, array $spec): void
     {
         $portraiture = $spec['portraiture'] ?? [];
@@ -123,9 +124,9 @@ final class FactionSpeciesSpecTest extends TestCase
     }
 
     /**
-     * @dataProvider playableSpecProvider
      * @param array<string,mixed> $spec
      */
+    #[DataProvider('playableSpecProvider')]
     public function testLogoBlockExists(string $code, array $spec): void
     {
         $logo = $spec['logo'] ?? null;
@@ -135,9 +136,9 @@ final class FactionSpeciesSpecTest extends TestCase
     }
 
     /**
-     * @dataProvider playableSpecProvider
      * @param array<string,mixed> $spec
      */
+    #[DataProvider('playableSpecProvider')]
     public function testDisplayColorPaletteKeys(string $code, array $spec): void
     {
         $display = is_array($spec['display'] ?? null) ? $spec['display'] : [];
@@ -153,9 +154,9 @@ final class FactionSpeciesSpecTest extends TestCase
     }
 
     /**
-     * @dataProvider playableSpecProvider
      * @param array<string,mixed> $spec
      */
+    #[DataProvider('playableSpecProvider')]
     public function testSpeciesCodePresent(string $code, array $spec): void
     {
         $specCode = $spec['species_code'] ?? $spec['faction_code'] ?? null;
@@ -163,9 +164,9 @@ final class FactionSpeciesSpecTest extends TestCase
     }
 
     /**
-     * @dataProvider playableSpecProvider
      * @param array<string,mixed> $spec
      */
+    #[DataProvider('playableSpecProvider')]
     public function testDescriptionPresent(string $code, array $spec): void
     {
         $desc = $spec['description'] ?? null;

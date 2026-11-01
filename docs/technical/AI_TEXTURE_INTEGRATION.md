@@ -18,8 +18,8 @@ All with faction-specific and condition-based variations.
 #### Backend (PHP)
 - **`api/textures-ai.php`** - Main API endpoint bridging GalaxyQuest to ComfyUI
   - Texture generation requests
-  - LRU caching with SHA256 key generation
-  - Queue management (avoid service overload)
+  - Persistent disk caching with canonical SHA256 keys
+  - Per-descriptor generation locks and queue monitoring (no global concurrency cap)
   - Status/health checks
   - Fallback logic to procedural generation
 
@@ -28,7 +28,7 @@ All with faction-specific and condition-based variations.
   - `requestAITexture()` - Request AI-generated textures
   - `getAITextureStatus()` - Check service availability
   - Automatic fallback to procedural textures
-  - ETag-based HTTP caching
+  - JSON image descriptors; image HTTP caching belongs to the static file response
 
 #### Docker Service
 - **`docker-compose.yml`** - ComfyUI service configuration
@@ -41,10 +41,11 @@ All with faction-specific and condition-based variations.
   - `COMFYUI_ENABLED` - Enable/disable feature
   - `COMFYUI_BASE_URL` - Service endpoint
   - `COMFYUI_MODEL` - Model selection (sd15, sdxl)
+  - `COMFYUI_CHECKPOINT` - Exact installed checkpoint filename for `CheckpointLoaderSimple`
   - `COMFYUI_TEXTURE_SIZE` - Resolution (128-1024)
   - `COMFYUI_DIFFUSION_STEPS` - Quality/speed tradeoff
   - `COMFYUI_GUIDANCE_SCALE` - Prompt adherence strength
-  - `COMFYUI_CACHE_MODE` - Caching strategy (memory/disk)
+  - `COMFYUI_CACHE_MODE` - `disk` reuses generated images; other values regenerate (no memory cache)
 
 ### Data Flow
 
@@ -82,12 +83,13 @@ Add these to your `.env` file (copy from `.env.example`):
 COMFYUI_ENABLED=1
 COMFYUI_BASE_URL=http://localhost:8188
 COMFYUI_MODEL=sdxl                    # sd15 or sdxl
+COMFYUI_CHECKPOINT=model.safetensors # exact filename installed in ComfyUI models/checkpoints
 COMFYUI_TEXTURE_SIZE=512              # 128-1024
 COMFYUI_DIFFUSION_STEPS=30            # 20-50
 COMFYUI_GUIDANCE_SCALE=8.5            # 7.0-12.0
-COMFYUI_QUEUE_TIMEOUT=120             # seconds
-COMFYUI_CACHE_MODE=disk               # disk or memory
-COMFYUI_MAX_CONCURRENT=2              # 1-4
+COMFYUI_CACHE_MODE=disk               # disk reuse; other values regenerate
+COMFYUI_MAX_CONCURRENT=2              # 1-16 slots across processes sharing the lock directory
+COMFYUI_QUEUE_TIMEOUT=120             # 1-600 seconds per texture-generation budget
 COMFYUI_FALLBACK_PROCEDURAL=1         # 1=yes, 0=no
 ```
 
@@ -264,12 +266,11 @@ if (isAvailable) {
 - **Advantages:** Survives server restart, HTTP ETag support
 - **Disadvantages:** Disk usage grows over time
 
-### Memory Cache
-
-- **Location:** PHP in-memory cache
-- **TTL:** Session lifetime
-- **Advantages:** Fast, no disk I/O
-- **Disadvantages:** Lost on restart
+There is no PHP memory cache or LRU eviction in this endpoint. Generated files
+remain on disk even when reuse is disabled. JSON descriptor responses do not
+honor `If-None-Match`: returning HTTP 304 from an internal service method would
+abort batch/progressive responses. The returned `etag` identifies the image;
+conditional image serving belongs to the static-file layer.
 
 ### Fallback Mechanism
 
@@ -302,15 +303,69 @@ COMFYUI_TEXTURE_SIZE=1024
 
 ### Queue Management
 
-```bash
-# Avoid overload
-COMFYUI_MAX_CONCURRENT=1              # Process one at a time
-COMFYUI_QUEUE_TIMEOUT=60              # Fail fast
+Generation admission uses nonblocking descriptor locks plus
+`COMFYUI_MAX_CONCURRENT` file-lock slots (default 2, allowed 1-16). Slots apply
+across PHP processes sharing the same lock directory and configuration; separate
+hosts/directories are not coordinated. Occupied descriptor locks or exhausted
+slots fail immediately without submission. OS locks release on process exit;
+slot files must not be deleted while workers are active. Cache hits need no slot.
 
-# Allow parallelism (with GPU memory)
-COMFYUI_MAX_CONCURRENT=4
-COMFYUI_QUEUE_TIMEOUT=180
-```
+`COMFYUI_QUEUE_TIMEOUT` (default 120, allowed 1-600 seconds) is now a monotonic
+per-texture budget. Submission, history and download timeouts are capped by the
+remaining budget and checked after reads; polling waits cannot cross it, and
+publication checks it again. Polling also stops after 30 attempts. Batch maps
+each receive their own budget. Invalid configuration fails initialization
+explicitly. This is cooperative admission/time-budget enforcement, **not** hard
+process cancellation: PHP stream timeouts, DNS, CPU decode and filesystem I/O
+cannot guarantee an exact wall-clock ceiling. Backend jobs already submitted
+are not cancelled on timeout. Distributed admission and a durable async queue
+with cancellation remain production work.
+
+All ComfyUI JSON reads (submission, history and monitoring) are capped at
+1 MiB; image downloads are capped at 16 MiB. Each read requests at most the
+limit plus one byte so oversized bodies are rejected without buffering the
+entire response. HTTP redirects are disabled for every backend read;
+non-2xx final HTTP statuses are rejected, including redirects with valid JSON
+bodies. These are not a complete HTTP-header, host-allowlist or wall-clock policy.
+
+### Generation protocol and local verification
+
+Submission sends `{"prompt": workflow}` to `/prompt`. The basic checkpoint
+workflow wires two `CLIPTextEncode` nodes, `EmptyLatentImage`, `KSampler`,
+`VAEDecode` and `SaveImage` to the appropriate checkpoint outputs. Server model,
+checkpoint, steps, guidance and normalized size take precedence over descriptor
+overrides. The configured checkpoint must actually exist on the backend; the
+`sdxl`/`sd15` label does not install or select a checkpoint automatically.
+
+All JSON response roots must be objects. Submission requires a nonempty string
+prompt ID and rejects backend/node errors. A missing history job remains pending,
+but present malformed entries, statuses, completion flags, outputs or image
+lists fail explicitly, including null values for typed fields. History execution
+errors and completed jobs without images fail explicitly.
+Downloads preserve `filename`, `subfolder` and `type`; local temporary filenames
+hash the prompt ID. New PNG downloads must have dimensions from 1 to 1024 on
+each axis and decode successfully with GD before publication. GD must be
+installed in the runtime. This is decode validation, not semantic PBR quality
+or an exact match to the requested resolution; existing cache files are not
+retroactively decoded. Failed or partial writes and failed publication remove
+temporary output (cleanup failures are logged). Lock failures
+stop before submission; acquired handles close in `finally`. Generation failures
+are logged and clients receive generic errors plus `fallback_required` when
+procedural fallback is enabled.
+
+`tests/Unit/TextureAiGenerationTest.php` exercises the actual service against
+simulated HTTP responses and isolated files, including successful submission,
+workflow links/settings, polling, download, disk reuse, disabled reuse, PNG
+rejection, byte-limit boundaries, truncated PNGs, dimensions, real bounded
+stream reads and lock release on failures. It does **not** certify a live GPU
+generation or semantic PBR/ControlNet quality. The simple workflow does not
+implement ControlNet despite accepting the existing batch option.
+
+`tests/Unit/TextureAiHttpTransportTest.php` additionally uses real loopback HTTP
+streams for HTTP 200, 302 and 503, verifying that a redirect with a JSON body is
+rejected rather than followed or treated as success. Explicit `COMFYUI_ENABLED=0`
+disables the endpoint even in development; only absent/empty settings use the
+environment default (enabled in dev, disabled otherwise).
 
 ### Memory Usage
 

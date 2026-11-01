@@ -80,7 +80,6 @@ class GalaxyEncodingSnapshotTest extends TestCase
     }
 
     /**
-     * @test
      * JSON encoding produces consistent output.
      */
     public function testJsonEncodingSnapshot(): void
@@ -104,7 +103,6 @@ class GalaxyEncodingSnapshotTest extends TestCase
     }
 
     /**
-     * @test
      * Binary encoding produces consistent output.
      */
     public function testBinaryEncodingSnapshot(): void
@@ -122,7 +120,6 @@ class GalaxyEncodingSnapshotTest extends TestCase
     }
 
     /**
-     * @test
      * Verify JSON structure matches expected contract.
      */
     public function testJsonStructureContract(): void
@@ -151,7 +148,6 @@ class GalaxyEncodingSnapshotTest extends TestCase
     }
 
     /**
-     * @test
      * Verify round-trip encoding (encode -> decode -> compare).
      */
     public function testEncodingRoundTrip(): void
@@ -170,7 +166,6 @@ class GalaxyEncodingSnapshotTest extends TestCase
     }
 
     /**
-     * @test
      * Verify MIME types are correct.
      */
     public function testMimeTypes(): void
@@ -184,7 +179,6 @@ class GalaxyEncodingSnapshotTest extends TestCase
     }
 
     /**
-     * @test
      * Verify encoding names are correct.
      */
     public function testEncodingNames(): void

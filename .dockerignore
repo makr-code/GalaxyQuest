@@ -3,3 +3,65 @@
 .vscode
 node_modules
 vendor
+
+# Local environment material is injected at runtime, never baked into layers.
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/.git
+**/.vscode
+**/.idea
+
+# Host dependency trees and language/tool caches.
+**/node_modules
+**/vendor
+**/__pycache__
+**/*.pyc
+**/.venv
+**/venv
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+.phpstan-cache
+**/.phpunit.cache
+**/.phpunit.result.cache
+
+# Rebuild frontend output in the image; do not copy local test reports.
+dist
+build
+coverage
+.nyc_output
+playwright-report
+test-results
+.playwright-mcp
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+**/*.log
+**/*.tmp
+**/*.swp
+**/*.swo
+
+# Known local authentication dumps and test-user SQL.
+cookies.txt
+tmp-gq-cookies.txt
+headers.txt
+.gq_cookies.txt
+.gq_diag_cookies.txt
+.tmp-*.cookies.txt
+.tmp_system_test_cookies.txt
+create_test_user.sql
+temp_create_user.sql
+update_test_user.sql
+
+# Mutable runtime output; retain checked-in SVG fallbacks and deployment models.
+cache
+generated/tts
+generated/textures/**/*.png
+generated/textures/**/*.lock
+generated/trellis2/logs
+generated/trellis2/import_log.jsonl
+generated/dev-only
+generated/comfyui/output/3D/trellis2_teaser_transfer_ship_00001_.glb

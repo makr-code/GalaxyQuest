@@ -6,19 +6,77 @@ USE galaxyquest;
 
 -- ─── Users: add new columns ───────────────────────────────────────────────────
 
-ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS dark_matter     INT UNSIGNED NOT NULL DEFAULT 0
-        AFTER is_admin,
-    ADD COLUMN IF NOT EXISTS rank_points     INT UNSIGNED NOT NULL DEFAULT 0
-        AFTER dark_matter,
-    ADD COLUMN IF NOT EXISTS protection_until DATETIME DEFAULT NULL
-        AFTER rank_points,
-    ADD COLUMN IF NOT EXISTS vacation_mode   TINYINT(1) NOT NULL DEFAULT 0
-        AFTER protection_until,
-    ADD COLUMN IF NOT EXISTS pvp_mode        TINYINT(1) NOT NULL DEFAULT 0
-        AFTER vacation_mode,
-    ADD COLUMN IF NOT EXISTS is_npc          TINYINT(1) NOT NULL DEFAULT 0
-        AFTER pvp_mode;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+       AND COLUMN_NAME = 'dark_matter') = 0,
+    'ALTER TABLE users ADD COLUMN dark_matter     INT UNSIGNED NOT NULL DEFAULT 0
+        AFTER is_admin',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+       AND COLUMN_NAME = 'rank_points') = 0,
+    'ALTER TABLE users ADD COLUMN rank_points     INT UNSIGNED NOT NULL DEFAULT 0
+        AFTER dark_matter',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+       AND COLUMN_NAME = 'protection_until') = 0,
+    'ALTER TABLE users ADD COLUMN protection_until DATETIME DEFAULT NULL
+        AFTER rank_points',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+       AND COLUMN_NAME = 'vacation_mode') = 0,
+    'ALTER TABLE users ADD COLUMN vacation_mode   TINYINT(1) NOT NULL DEFAULT 0
+        AFTER protection_until',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+       AND COLUMN_NAME = 'pvp_mode') = 0,
+    'ALTER TABLE users ADD COLUMN pvp_mode        TINYINT(1) NOT NULL DEFAULT 0
+        AFTER vacation_mode',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+       AND COLUMN_NAME = 'is_npc') = 0,
+    'ALTER TABLE users ADD COLUMN is_npc          TINYINT(1) NOT NULL DEFAULT 0
+        AFTER pvp_mode',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ─── Persistent login tokens (remember me) ──────────────────────────────────
 CREATE TABLE IF NOT EXISTS remember_tokens (
@@ -75,43 +133,221 @@ CREATE TABLE IF NOT EXISTS star_systems (
     UNIQUE KEY unique_system (galaxy_index, system_index)
 ) ENGINE=InnoDB;
 
-ALTER TABLE star_systems
-    ADD COLUMN IF NOT EXISTS stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') NOT NULL DEFAULT 'main_sequence'
-        AFTER frost_line_au,
-    ADD COLUMN IF NOT EXISTS age_gyr DECIMAL(4,2) NOT NULL DEFAULT 5.0
-        AFTER stellar_type,
-    ADD COLUMN IF NOT EXISTS metallicity_z DECIMAL(6,4) NOT NULL DEFAULT 0.0200
-        AFTER age_gyr,
-    ADD COLUMN IF NOT EXISTS is_binary TINYINT(1) NOT NULL DEFAULT 0
-        AFTER metallicity_z,
-    ADD COLUMN IF NOT EXISTS is_circumbinary TINYINT(1) NOT NULL DEFAULT 0
-        AFTER is_binary,
-    ADD COLUMN IF NOT EXISTS companion_stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') DEFAULT NULL
-        AFTER is_circumbinary,
-    ADD COLUMN IF NOT EXISTS companion_spectral_class VARCHAR(4) DEFAULT NULL
-        AFTER companion_stellar_type,
-    ADD COLUMN IF NOT EXISTS companion_subtype TINYINT UNSIGNED DEFAULT NULL
-        AFTER companion_spectral_class,
-    ADD COLUMN IF NOT EXISTS companion_luminosity_class VARCHAR(4) DEFAULT NULL
-        AFTER companion_subtype,
-    ADD COLUMN IF NOT EXISTS companion_mass_solar DOUBLE DEFAULT NULL
-        AFTER companion_luminosity_class,
-    ADD COLUMN IF NOT EXISTS companion_radius_solar DOUBLE DEFAULT NULL
-        AFTER companion_mass_solar,
-    ADD COLUMN IF NOT EXISTS companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL
-        AFTER companion_radius_solar,
-    ADD COLUMN IF NOT EXISTS companion_luminosity_solar DOUBLE DEFAULT NULL
-        AFTER companion_temperature_k,
-    ADD COLUMN IF NOT EXISTS companion_separation_au DOUBLE DEFAULT NULL
-        AFTER companion_luminosity_solar,
-    ADD COLUMN IF NOT EXISTS companion_eccentricity DOUBLE DEFAULT NULL
-        AFTER companion_separation_au,
-    ADD COLUMN IF NOT EXISTS stability_critical_au DOUBLE DEFAULT NULL
-        AFTER companion_eccentricity,
-    ADD COLUMN IF NOT EXISTS catalog_name VARCHAR(32) NOT NULL DEFAULT ''
-        AFTER name,
-    ADD COLUMN IF NOT EXISTS planet_count TINYINT UNSIGNED NOT NULL DEFAULT 0
-        AFTER catalog_name;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'stellar_type') = 0,
+    'ALTER TABLE star_systems ADD COLUMN stellar_type ENUM(''main_sequence'',''white_dwarf'',''brown_dwarf'',''neutron_star'',''giant'',''subdwarf'') NOT NULL DEFAULT ''main_sequence''
+        AFTER frost_line_au',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'age_gyr') = 0,
+    'ALTER TABLE star_systems ADD COLUMN age_gyr DECIMAL(4,2) NOT NULL DEFAULT 5.0
+        AFTER stellar_type',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'metallicity_z') = 0,
+    'ALTER TABLE star_systems ADD COLUMN metallicity_z DECIMAL(6,4) NOT NULL DEFAULT 0.0200
+        AFTER age_gyr',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'is_binary') = 0,
+    'ALTER TABLE star_systems ADD COLUMN is_binary TINYINT(1) NOT NULL DEFAULT 0
+        AFTER metallicity_z',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'is_circumbinary') = 0,
+    'ALTER TABLE star_systems ADD COLUMN is_circumbinary TINYINT(1) NOT NULL DEFAULT 0
+        AFTER is_binary',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'companion_stellar_type') = 0,
+    'ALTER TABLE star_systems ADD COLUMN companion_stellar_type ENUM(''main_sequence'',''white_dwarf'',''brown_dwarf'',''neutron_star'',''giant'',''subdwarf'') DEFAULT NULL
+        AFTER is_circumbinary',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'companion_spectral_class') = 0,
+    'ALTER TABLE star_systems ADD COLUMN companion_spectral_class VARCHAR(4) DEFAULT NULL
+        AFTER companion_stellar_type',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'companion_subtype') = 0,
+    'ALTER TABLE star_systems ADD COLUMN companion_subtype TINYINT UNSIGNED DEFAULT NULL
+        AFTER companion_spectral_class',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'companion_luminosity_class') = 0,
+    'ALTER TABLE star_systems ADD COLUMN companion_luminosity_class VARCHAR(4) DEFAULT NULL
+        AFTER companion_subtype',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'companion_mass_solar') = 0,
+    'ALTER TABLE star_systems ADD COLUMN companion_mass_solar DOUBLE DEFAULT NULL
+        AFTER companion_luminosity_class',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'companion_radius_solar') = 0,
+    'ALTER TABLE star_systems ADD COLUMN companion_radius_solar DOUBLE DEFAULT NULL
+        AFTER companion_mass_solar',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'companion_temperature_k') = 0,
+    'ALTER TABLE star_systems ADD COLUMN companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL
+        AFTER companion_radius_solar',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'companion_luminosity_solar') = 0,
+    'ALTER TABLE star_systems ADD COLUMN companion_luminosity_solar DOUBLE DEFAULT NULL
+        AFTER companion_temperature_k',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'companion_separation_au') = 0,
+    'ALTER TABLE star_systems ADD COLUMN companion_separation_au DOUBLE DEFAULT NULL
+        AFTER companion_luminosity_solar',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'companion_eccentricity') = 0,
+    'ALTER TABLE star_systems ADD COLUMN companion_eccentricity DOUBLE DEFAULT NULL
+        AFTER companion_separation_au',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'stability_critical_au') = 0,
+    'ALTER TABLE star_systems ADD COLUMN stability_critical_au DOUBLE DEFAULT NULL
+        AFTER companion_eccentricity',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'catalog_name') = 0,
+    'ALTER TABLE star_systems ADD COLUMN catalog_name VARCHAR(32) NOT NULL DEFAULT ''''
+        AFTER name',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'planet_count') = 0,
+    'ALTER TABLE star_systems ADD COLUMN planet_count TINYINT UNSIGNED NOT NULL DEFAULT 0
+        AFTER catalog_name',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 CREATE TABLE IF NOT EXISTS binary_systems (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -138,35 +374,121 @@ CREATE TABLE IF NOT EXISTS binary_systems (
 
 -- ─── Planets: add scientific columns ─────────────────────────────────────────
 
-ALTER TABLE planets
-    ADD COLUMN IF NOT EXISTS system_id INT DEFAULT NULL
-        AFTER user_id,
-    ADD COLUMN IF NOT EXISTS planet_class ENUM(
-        'rocky','super_earth','ocean',
-        'gas_giant','ice_giant','hot_jupiter',
-        'lava','ice_dwarf','comet_belt'
-    ) NOT NULL DEFAULT 'rocky'
-        AFTER type,
-    ADD COLUMN IF NOT EXISTS semi_major_axis_au DOUBLE NOT NULL DEFAULT 1.0
-        AFTER temp_max,
-    ADD COLUMN IF NOT EXISTS orbital_period_days DOUBLE NOT NULL DEFAULT 365.25
-        AFTER semi_major_axis_au,
-    ADD COLUMN IF NOT EXISTS orbital_eccentricity DOUBLE NOT NULL DEFAULT 0.017
-        AFTER orbital_period_days,
-    ADD COLUMN IF NOT EXISTS surface_gravity_g DOUBLE NOT NULL DEFAULT 1.0
-        AFTER orbital_eccentricity,
-    ADD COLUMN IF NOT EXISTS in_habitable_zone TINYINT(1) NOT NULL DEFAULT 0
-        AFTER surface_gravity_g,
-    ADD COLUMN IF NOT EXISTS atmosphere_type ENUM(
-        'none','thin_co2','thick_co2',
-        'nitrogen_oxygen','hydrogen_helium',
-        'methane','sulfuric'
-    ) NOT NULL DEFAULT 'nitrogen_oxygen'
-        AFTER in_habitable_zone;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'system_id') = 0,
+    'ALTER TABLE planets ADD COLUMN system_id INT DEFAULT NULL
+        AFTER user_id',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
-ALTER TABLE planets
-    ADD CONSTRAINT IF NOT EXISTS fk_planets_system_id
-        FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE SET NULL;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'planet_class') = 0,
+    'ALTER TABLE planets ADD COLUMN planet_class ENUM(
+        ''rocky'',''super_earth'',''ocean'',
+        ''gas_giant'',''ice_giant'',''hot_jupiter'',
+        ''lava'',''ice_dwarf'',''comet_belt''
+    ) NOT NULL DEFAULT ''rocky''
+        AFTER type',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'semi_major_axis_au') = 0,
+    'ALTER TABLE planets ADD COLUMN semi_major_axis_au DOUBLE NOT NULL DEFAULT 1.0
+        AFTER temp_max',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'orbital_period_days') = 0,
+    'ALTER TABLE planets ADD COLUMN orbital_period_days DOUBLE NOT NULL DEFAULT 365.25
+        AFTER semi_major_axis_au',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'orbital_eccentricity') = 0,
+    'ALTER TABLE planets ADD COLUMN orbital_eccentricity DOUBLE NOT NULL DEFAULT 0.017
+        AFTER orbital_period_days',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'surface_gravity_g') = 0,
+    'ALTER TABLE planets ADD COLUMN surface_gravity_g DOUBLE NOT NULL DEFAULT 1.0
+        AFTER orbital_eccentricity',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'in_habitable_zone') = 0,
+    'ALTER TABLE planets ADD COLUMN in_habitable_zone TINYINT(1) NOT NULL DEFAULT 0
+        AFTER surface_gravity_g',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'atmosphere_type') = 0,
+    'ALTER TABLE planets ADD COLUMN atmosphere_type ENUM(
+        ''none'',''thin_co2'',''thick_co2'',
+        ''nitrogen_oxygen'',''hydrogen_helium'',
+        ''methane'',''sulfuric''
+    ) NOT NULL DEFAULT ''nitrogen_oxygen''
+        AFTER in_habitable_zone',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND CONSTRAINT_NAME = 'fk_planets_system_id') = 0,
+    'ALTER TABLE planets ADD CONSTRAINT fk_planets_system_id
+        FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE SET NULL',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ─── Achievements tables (new in v2) ─────────────────────────────────────────
 
@@ -261,44 +583,197 @@ CREATE TABLE IF NOT EXISTS colonies (
     UNIQUE KEY unique_colony (planet_id)
 ) ENGINE=InnoDB;
 
--- Populate colonies from existing planets data
-INSERT IGNORE INTO colonies (planet_id, user_id, name, colony_type, metal, crystal, deuterium, energy, is_homeworld, last_update)
-SELECT id, user_id, name, 'balanced', metal, crystal, deuterium, energy, is_homeworld, last_update
-FROM planets WHERE user_id IS NOT NULL AND user_id > 0;
+-- Legacy planet ownership is absent on the current astronomical-only schema.
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'user_id') > 0,
+    'INSERT IGNORE INTO colonies (planet_id, user_id, name, colony_type, metal, crystal, deuterium, energy, is_homeworld, last_update)
+     SELECT id, user_id, name, ''balanced'', metal, crystal, deuterium, energy, is_homeworld, last_update
+     FROM planets WHERE user_id IS NOT NULL AND user_id > 0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- Add colony_id column to buildings (keep planet_id for backward compat)
-ALTER TABLE buildings ADD COLUMN IF NOT EXISTS colony_id INT DEFAULT NULL;
-ALTER TABLE buildings ADD INDEX IF NOT EXISTS idx_colony (colony_id);
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'buildings'
+       AND COLUMN_NAME = 'colony_id') = 0,
+    'ALTER TABLE buildings ADD COLUMN colony_id INT DEFAULT NULL',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'buildings'
+       AND INDEX_NAME = 'idx_colony') = 0,
+    'ALTER TABLE buildings ADD INDEX idx_colony (colony_id)',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 -- Populate colony_id from planet_id
-UPDATE buildings b
-  JOIN colonies c ON c.planet_id = b.planet_id
-  SET b.colony_id = c.id
-  WHERE b.colony_id IS NULL;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'buildings'
+       AND COLUMN_NAME = 'planet_id') > 0,
+    'UPDATE buildings b
+     JOIN colonies c ON c.planet_id = b.planet_id
+     SET b.colony_id = c.id
+     WHERE b.colony_id IS NULL',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- Add colony_id to ships
-ALTER TABLE ships ADD COLUMN IF NOT EXISTS colony_id INT DEFAULT NULL;
-ALTER TABLE ships ADD INDEX IF NOT EXISTS idx_colony (colony_id);
-UPDATE ships s
-  JOIN colonies c ON c.planet_id = s.planet_id
-  SET s.colony_id = c.id
-  WHERE s.colony_id IS NULL;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ships'
+       AND COLUMN_NAME = 'colony_id') = 0,
+    'ALTER TABLE ships ADD COLUMN colony_id INT DEFAULT NULL',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ships'
+       AND INDEX_NAME = 'idx_colony') = 0,
+    'ALTER TABLE ships ADD INDEX idx_colony (colony_id)',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ships'
+       AND COLUMN_NAME = 'planet_id') > 0,
+    'UPDATE ships s
+     JOIN colonies c ON c.planet_id = s.planet_id
+     SET s.colony_id = c.id
+     WHERE s.colony_id IS NULL',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- Add origin_colony_id to fleets
-ALTER TABLE fleets ADD COLUMN IF NOT EXISTS origin_colony_id INT DEFAULT NULL;
-UPDATE fleets f
-  JOIN colonies c ON c.planet_id = f.origin_planet_id
-  SET f.origin_colony_id = c.id
-  WHERE f.origin_colony_id IS NULL;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fleets'
+       AND COLUMN_NAME = 'origin_colony_id') = 0,
+    'ALTER TABLE fleets ADD COLUMN origin_colony_id INT DEFAULT NULL',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fleets'
+       AND COLUMN_NAME = 'origin_planet_id') > 0,
+    'UPDATE fleets f
+     JOIN colonies c ON c.planet_id = f.origin_planet_id
+     SET f.origin_colony_id = c.id
+     WHERE f.origin_colony_id IS NULL',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ── Fleet 3-D coordinates (Newtonian movement) ───────────────────────────────
-ALTER TABLE fleets ADD COLUMN IF NOT EXISTS origin_x_ly DOUBLE NOT NULL DEFAULT 0;
-ALTER TABLE fleets ADD COLUMN IF NOT EXISTS origin_y_ly DOUBLE NOT NULL DEFAULT 0;
-ALTER TABLE fleets ADD COLUMN IF NOT EXISTS origin_z_ly DOUBLE NOT NULL DEFAULT 0;
-ALTER TABLE fleets ADD COLUMN IF NOT EXISTS target_x_ly DOUBLE NOT NULL DEFAULT 0;
-ALTER TABLE fleets ADD COLUMN IF NOT EXISTS target_y_ly DOUBLE NOT NULL DEFAULT 0;
-ALTER TABLE fleets ADD COLUMN IF NOT EXISTS target_z_ly DOUBLE NOT NULL DEFAULT 0;
-ALTER TABLE fleets ADD COLUMN IF NOT EXISTS speed_ly_h  DOUBLE NOT NULL DEFAULT 1.0;
-ALTER TABLE fleets ADD COLUMN IF NOT EXISTS distance_ly DOUBLE NOT NULL DEFAULT 0;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fleets'
+       AND COLUMN_NAME = 'origin_x_ly') = 0,
+    'ALTER TABLE fleets ADD COLUMN origin_x_ly DOUBLE NOT NULL DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fleets'
+       AND COLUMN_NAME = 'origin_y_ly') = 0,
+    'ALTER TABLE fleets ADD COLUMN origin_y_ly DOUBLE NOT NULL DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fleets'
+       AND COLUMN_NAME = 'origin_z_ly') = 0,
+    'ALTER TABLE fleets ADD COLUMN origin_z_ly DOUBLE NOT NULL DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fleets'
+       AND COLUMN_NAME = 'target_x_ly') = 0,
+    'ALTER TABLE fleets ADD COLUMN target_x_ly DOUBLE NOT NULL DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fleets'
+       AND COLUMN_NAME = 'target_y_ly') = 0,
+    'ALTER TABLE fleets ADD COLUMN target_y_ly DOUBLE NOT NULL DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fleets'
+       AND COLUMN_NAME = 'target_z_ly') = 0,
+    'ALTER TABLE fleets ADD COLUMN target_z_ly DOUBLE NOT NULL DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fleets'
+       AND COLUMN_NAME = 'speed_ly_h') = 0,
+    'ALTER TABLE fleets ADD COLUMN speed_ly_h  DOUBLE NOT NULL DEFAULT 1.0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fleets'
+       AND COLUMN_NAME = 'distance_ly') = 0,
+    'ALTER TABLE fleets ADD COLUMN distance_ly DOUBLE NOT NULL DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ── Leaders / Officers ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS leaders (
@@ -329,22 +804,148 @@ ALTER TABLE leaders
     MODIFY COLUMN role ENUM('colony_manager','fleet_commander','science_director','diplomacy_officer','trade_director') NOT NULL;
 
 -- ── Planet deposit & richness columns ────────────────────────────────────────
-ALTER TABLE planets ADD COLUMN IF NOT EXISTS richness_metal      DOUBLE NOT NULL DEFAULT 1.0;
-ALTER TABLE planets ADD COLUMN IF NOT EXISTS richness_crystal    DOUBLE NOT NULL DEFAULT 1.0;
-ALTER TABLE planets ADD COLUMN IF NOT EXISTS richness_deuterium  DOUBLE NOT NULL DEFAULT 1.0;
-ALTER TABLE planets ADD COLUMN IF NOT EXISTS richness_rare_earth DOUBLE NOT NULL DEFAULT 0.5;
-ALTER TABLE planets ADD COLUMN IF NOT EXISTS deposit_metal       BIGINT NOT NULL DEFAULT 5000000;
-ALTER TABLE planets ADD COLUMN IF NOT EXISTS deposit_crystal     BIGINT NOT NULL DEFAULT 2000000;
-ALTER TABLE planets ADD COLUMN IF NOT EXISTS deposit_deuterium   BIGINT NOT NULL DEFAULT 1000000;
-ALTER TABLE planets ADD COLUMN IF NOT EXISTS deposit_rare_earth  BIGINT NOT NULL DEFAULT 200000;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'richness_metal') = 0,
+    'ALTER TABLE planets ADD COLUMN richness_metal      DOUBLE NOT NULL DEFAULT 1.0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'richness_crystal') = 0,
+    'ALTER TABLE planets ADD COLUMN richness_crystal    DOUBLE NOT NULL DEFAULT 1.0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'richness_deuterium') = 0,
+    'ALTER TABLE planets ADD COLUMN richness_deuterium  DOUBLE NOT NULL DEFAULT 1.0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'richness_rare_earth') = 0,
+    'ALTER TABLE planets ADD COLUMN richness_rare_earth DOUBLE NOT NULL DEFAULT 0.5',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'deposit_metal') = 0,
+    'ALTER TABLE planets ADD COLUMN deposit_metal       BIGINT NOT NULL DEFAULT 5000000',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'deposit_crystal') = 0,
+    'ALTER TABLE planets ADD COLUMN deposit_crystal     BIGINT NOT NULL DEFAULT 2000000',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'deposit_deuterium') = 0,
+    'ALTER TABLE planets ADD COLUMN deposit_deuterium   BIGINT NOT NULL DEFAULT 1000000',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets'
+       AND COLUMN_NAME = 'deposit_rare_earth') = 0,
+    'ALTER TABLE planets ADD COLUMN deposit_rare_earth  BIGINT NOT NULL DEFAULT 200000',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ── Colony population / food / welfare columns ────────────────────────────────
-ALTER TABLE colonies ADD COLUMN IF NOT EXISTS rare_earth      DECIMAL(20,4) NOT NULL DEFAULT 0;
-ALTER TABLE colonies ADD COLUMN IF NOT EXISTS food            DECIMAL(20,4) NOT NULL DEFAULT 200;
-ALTER TABLE colonies ADD COLUMN IF NOT EXISTS population      INT UNSIGNED NOT NULL DEFAULT 100;
-ALTER TABLE colonies ADD COLUMN IF NOT EXISTS max_population  INT UNSIGNED NOT NULL DEFAULT 500;
-ALTER TABLE colonies ADD COLUMN IF NOT EXISTS happiness       TINYINT UNSIGNED NOT NULL DEFAULT 70;
-ALTER TABLE colonies ADD COLUMN IF NOT EXISTS public_services TINYINT UNSIGNED NOT NULL DEFAULT 0;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'colonies'
+       AND COLUMN_NAME = 'rare_earth') = 0,
+    'ALTER TABLE colonies ADD COLUMN rare_earth      DECIMAL(20,4) NOT NULL DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'colonies'
+       AND COLUMN_NAME = 'food') = 0,
+    'ALTER TABLE colonies ADD COLUMN food            DECIMAL(20,4) NOT NULL DEFAULT 200',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'colonies'
+       AND COLUMN_NAME = 'population') = 0,
+    'ALTER TABLE colonies ADD COLUMN population      INT UNSIGNED NOT NULL DEFAULT 100',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'colonies'
+       AND COLUMN_NAME = 'max_population') = 0,
+    'ALTER TABLE colonies ADD COLUMN max_population  INT UNSIGNED NOT NULL DEFAULT 500',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'colonies'
+       AND COLUMN_NAME = 'happiness') = 0,
+    'ALTER TABLE colonies ADD COLUMN happiness       TINYINT UNSIGNED NOT NULL DEFAULT 70',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'colonies'
+       AND COLUMN_NAME = 'public_services') = 0,
+    'ALTER TABLE colonies ADD COLUMN public_services TINYINT UNSIGNED NOT NULL DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ── NPC faction tables ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS npc_factions (
@@ -400,7 +1001,7 @@ CREATE TABLE IF NOT EXISTS faction_quests (
     title VARCHAR(128) NOT NULL,
     description TEXT NOT NULL,
     quest_type ENUM('kill','deliver','explore','build','research','spy') NOT NULL,
-    requirements_json TEXT NOT NULL DEFAULT '{}',
+    requirements_json TEXT NOT NULL DEFAULT ('{}'),
     reward_metal INT UNSIGNED NOT NULL DEFAULT 0,
     reward_crystal INT UNSIGNED NOT NULL DEFAULT 0,
     reward_deuterium INT UNSIGNED NOT NULL DEFAULT 0,
@@ -419,14 +1020,23 @@ CREATE TABLE IF NOT EXISTS user_faction_quests (
     user_id INT NOT NULL,
     faction_quest_id INT NOT NULL,
     status ENUM('active','completed','failed','claimed') NOT NULL DEFAULT 'active',
-    progress_json TEXT NOT NULL DEFAULT '{}',
+    progress_json TEXT NOT NULL DEFAULT ('{}'),
     started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME DEFAULT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (faction_quest_id) REFERENCES faction_quests(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
-ALTER TABLE users ADD COLUMN IF NOT EXISTS last_npc_tick DATETIME DEFAULT NULL;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+       AND COLUMN_NAME = 'last_npc_tick') = 0,
+    'ALTER TABLE users ADD COLUMN last_npc_tick DATETIME DEFAULT NULL',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 CREATE TABLE IF NOT EXISTS user_character_profiles (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -450,11 +1060,38 @@ CREATE TABLE IF NOT EXISTS user_character_profiles (
 ) ENGINE=InnoDB;
 
 -- ── Battle report indexes ─────────────────────────────────────────────────────
-ALTER TABLE battle_reports ADD KEY IF NOT EXISTS idx_attacker_time (attacker_id, created_at);
-ALTER TABLE battle_reports ADD KEY IF NOT EXISTS idx_defender_time  (defender_id, created_at);
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'battle_reports'
+       AND INDEX_NAME = 'idx_attacker_time') = 0,
+    'ALTER TABLE battle_reports ADD KEY idx_attacker_time (attacker_id, created_at)',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'battle_reports'
+       AND INDEX_NAME = 'idx_defender_time') = 0,
+    'ALTER TABLE battle_reports ADD KEY idx_defender_time  (defender_id, created_at)',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ── Research: add start timestamp for live progress bars ──────────────────────
-ALTER TABLE research ADD COLUMN IF NOT EXISTS research_start DATETIME DEFAULT NULL AFTER research_end;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'research'
+       AND COLUMN_NAME = 'research_start') = 0,
+    'ALTER TABLE research ADD COLUMN research_start DATETIME DEFAULT NULL AFTER research_end',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ── Trade routes system ───────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS trade_routes (
@@ -568,10 +1205,38 @@ CREATE TABLE IF NOT EXISTS colony_events (
 ) ENGINE=InnoDB;
 
 -- ─── Phase 5.1 – Extended stellar diversity ──────────────────────────────────
-ALTER TABLE star_systems
-    ADD COLUMN IF NOT EXISTS stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') NOT NULL DEFAULT 'main_sequence'
-        AFTER frost_line_au,
-    ADD COLUMN IF NOT EXISTS age_gyr DECIMAL(4,2) NOT NULL DEFAULT 5.0
-        AFTER stellar_type,
-    ADD COLUMN IF NOT EXISTS metallicity_z DECIMAL(6,4) NOT NULL DEFAULT 0.0200
-        AFTER age_gyr;
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'stellar_type') = 0,
+    'ALTER TABLE star_systems ADD COLUMN stellar_type ENUM(''main_sequence'',''white_dwarf'',''brown_dwarf'',''neutron_star'',''giant'',''subdwarf'') NOT NULL DEFAULT ''main_sequence''
+        AFTER frost_line_au',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'age_gyr') = 0,
+    'ALTER TABLE star_systems ADD COLUMN age_gyr DECIMAL(4,2) NOT NULL DEFAULT 5.0
+        AFTER stellar_type',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'star_systems'
+       AND COLUMN_NAME = 'metallicity_z') = 0,
+    'ALTER TABLE star_systems ADD COLUMN metallicity_z DECIMAL(6,4) NOT NULL DEFAULT 0.0200
+        AFTER age_gyr',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;

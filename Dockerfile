@@ -29,4 +29,10 @@ RUN npm ci
 
 # Copy all source files for Vite build
 COPY . /var/www/html/
-RUN npm run vite:build
+RUN npm run vite:build \
+    && cp dist/index.html index.html \
+    && mkdir -p assets \
+    && cp -a dist/assets/. assets/
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD php -r "exit(@file_get_contents('http://127.0.0.1/health/live', false, stream_context_create(['http' => ['timeout' => 3]])) === false ? 1 : 0);"

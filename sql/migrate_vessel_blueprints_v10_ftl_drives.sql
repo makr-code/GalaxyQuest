@@ -7,14 +7,30 @@ USE galaxyquest;
 
 -- ftl_drive_type: which faction drive the player uses
 -- Defaults to 'aereth' (Alcubierre Warp) as the simplest/most universal drive.
-ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS ftl_drive_type VARCHAR(30) NOT NULL DEFAULT 'aereth'
-        COMMENT 'Faction FTL drive: aereth|vor_tak|syl_nar|vel_ar|zhareen|kryl_tha';
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+       AND COLUMN_NAME = 'ftl_drive_type') = 0,
+    'ALTER TABLE users ADD COLUMN ftl_drive_type VARCHAR(30) NOT NULL DEFAULT ''aereth''
+        COMMENT ''Faction FTL drive: aereth|vor_tak|syl_nar|vel_ar|zhareen|kryl_tha''',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ftl_cooldown_until: used by Vor''Tak K-F Drive (72h recharge)
-ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS ftl_cooldown_until DATETIME DEFAULT NULL
-        COMMENT 'FTL drive cooldown expiry (Vor''Tak K-F recharge)';
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+       AND COLUMN_NAME = 'ftl_cooldown_until') = 0,
+    'ALTER TABLE users ADD COLUMN ftl_cooldown_until DATETIME DEFAULT NULL
+        COMMENT ''FTL drive cooldown expiry (Vor''''Tak K-F recharge)''',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ─── fleet mission ENUM: add 'survey' ─────────────────────────────────────────
 

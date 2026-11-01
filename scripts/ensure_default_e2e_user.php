@@ -11,10 +11,13 @@ function parse_args(array $argv): array {
         'username' => 'default_user',
         'password' => 'User!23456',
         'email' => 'default_user@local.test',
+        'skip_bootstrap' => false,
     ];
 
     foreach ($argv as $arg) {
-        if (preg_match('/^--username=(.+)$/', $arg, $m)) {
+        if ($arg === '--skip-bootstrap') {
+            $opts['skip_bootstrap'] = true;
+        } elseif (preg_match('/^--username=(.+)$/', $arg, $m)) {
             $opts['username'] = trim((string)$m[1]);
         } elseif (preg_match('/^--password=(.+)$/', $arg, $m)) {
             $opts['password'] = trim((string)$m[1]);
@@ -109,7 +112,7 @@ function ensure_planet_body(PDO $db, int $g, int $s, int $p, int $planetId): int
     return (int)$db->lastInsertId();
 }
 
-function ensure_homeworld(PDO $db, int $userId, string $username): bool {
+function ensure_homeworld(PDO $db, int $userId, string $username, bool $bootstrapGalaxy = true): bool {
     $cSel = $db->prepare('SELECT id FROM colonies WHERE user_id = ? AND is_homeworld = 1 LIMIT 1');
     $cSel->execute([$userId]);
     $existing = $cSel->fetch(PDO::FETCH_ASSOC);
@@ -117,7 +120,14 @@ function ensure_homeworld(PDO $db, int $userId, string $username): bool {
         return false;
     }
 
-    ensure_galaxy_bootstrap_progress($db, true);
+    if ($bootstrapGalaxy) {
+        ensure_galaxy_bootstrap_progress($db, true);
+    } else {
+        ensure_star_system_columns($db);
+        ensure_binary_systems_table($db);
+        ensure_pve_factions_seed($db);
+        ensure_diplomacy_initialized($db);
+    }
 
     [$g, $s, $p] = find_free_position($db);
     seed_user_start_region($db, $g, $s);
@@ -224,7 +234,7 @@ try {
         $userCreated = true;
     }
 
-    $homeworldCreated = ensure_homeworld($db, $userId, $username);
+    $homeworldCreated = ensure_homeworld($db, $userId, $username, !$options['skip_bootstrap']);
 
     echo json_encode([
         'success' => true,

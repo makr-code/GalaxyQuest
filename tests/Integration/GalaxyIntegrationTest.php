@@ -108,7 +108,6 @@ class GalaxyIntegrationTest extends TestCase
     }
 
     /**
-     * @test
      * Test successful range query with systems in database.
      */
     public function testGetStarsRangeSuccess(): void
@@ -134,7 +133,6 @@ class GalaxyIntegrationTest extends TestCase
     }
 
     /**
-     * @test
      * Test empty range query (no systems found).
      */
     public function testGetStarsRangeEmpty(): void
@@ -159,7 +157,6 @@ class GalaxyIntegrationTest extends TestCase
     }
 
     /**
-     * @test
      * Test invalid range (min > max).
      */
     public function testGetStarsRangeInvalidRange(): void
@@ -183,7 +180,6 @@ class GalaxyIntegrationTest extends TestCase
     }
 
     /**
-     * @test
      * Test system detail lookup success.
      */
     public function testGetSystemPayloadSuccess(): void
@@ -209,7 +205,6 @@ class GalaxyIntegrationTest extends TestCase
     }
 
     /**
-     * @test
      * Test system not found.
      */
     public function testGetSystemPayloadNotFound(): void
@@ -233,7 +228,6 @@ class GalaxyIntegrationTest extends TestCase
     }
 
     /**
-     * @test
      * Test response envelope structure.
      */
     public function testResponseEnvelopeStructure(): void

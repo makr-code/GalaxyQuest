@@ -15,8 +15,8 @@ declare(strict_types=1);
  *  - New migrations MUST be appended at the END of the list.
  *  - Never re-order or remove an entry; that would break existing deployments.
  *  - The schema.sql base install is handled separately by setup.php and is
- *    NOT included here (it is recorded automatically with the special name
- *    "schema.sql" when the runner bootstraps on a fresh database).
+ *    NOT included here. Runner bootstrap creates only the tracking table;
+ *    it does not install or automatically record the base schema.
  *  - A down-migration companion file named <basename>_down.sql (same
  *    directory) enables the `rollback` command for that migration.
  *

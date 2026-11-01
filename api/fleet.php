@@ -1258,20 +1258,11 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
 
         $factionId = 0;
 
-        // Primary mapping: NPC user owns a colony that is linked in faction_colonies.
-        try {
-            $fc = $db->prepare(
-                'SELECT fc.faction_id
-                   FROM faction_colonies fc
-                   JOIN colonies c ON c.id = fc.colony_id
-                  WHERE c.user_id = ?
-                  LIMIT 1'
-            );
-            $fc->execute([(int)$target['user_id']]);
-            $factionId = (int)($fc->fetchColumn() ?: 0);
-        } catch (\Throwable) {
-            $factionId = 0;
-        }
+        $fc = $db->prepare(
+            'SELECT faction_id FROM npc_faction_memberships WHERE user_id = ? LIMIT 1'
+        );
+        $fc->execute([(int)$target['user_id']]);
+        $factionId = (int)($fc->fetchColumn() ?: 0);
 
         // Fallback for trader-NPC users.
         if ($factionId <= 0) {

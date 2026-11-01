@@ -8,6 +8,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — Sprint 1.2: Technische Schulden abbauen
 
+### Added — Release metadata quality gate
+
+- `npm run check:release-metadata` validates SemVer in `VERSION.txt` and
+  its exact mirrors in `package.json` and `package-lock.json`.
+- Tagged metadata preparation requires matching `v<version>` and one dated
+  changelog section with real change notes; validated notes are uploaded
+  for operator review, without publishing a release or deploying.
+- The existing `1.0.0` version is historical metadata, not a production-readiness
+  claim. No released `1.0.0` changelog or tag has been invented.
+
+### Changed — Image publication gates
+
+- Main-branch image publication now waits for all main CI lint, test and E2E
+  jobs and scans its local image candidate before registry authentication.
+- Trivy HIGH/CRITICAL vulnerability and secret findings block publication,
+  including unfixed vulnerabilities. Only the verified, scanned image ID is
+  tagged and pushed; there is no second build between scan and publication.
+- This hardens the existing development-image path, not a production release
+  approval. Live registry evidence and staging/signature/SBOM gates remain open.
+
+### Changed — Docker build context hygiene
+
+- Docker `COPY .` no longer includes local environment material, known session
+  dumps, reports, host dependencies or mutable audio/texture caches.
+- Required backend/frontend configuration, deployment models, SVG fallbacks
+  and legacy gzip bundles are retained.
+- A synthetic real-Docker context gate and negative policy regressions verify
+  these boundaries in CI without copying actual secrets or publishing images.
+
+### Changed — Isolated CI smoke stack
+
+- Smoke tests now use the built web image without a checkout mount, isolated
+  Compose project identities and a database with no host port.
+- Database initialization imports only the base schema; canonical migrations
+  run inside the image before seeding and browser tests.
+- MySQL readiness now waits for TCP rather than the temporary initialization
+  socket. Smoke seeding explicitly skips full-galaxy bootstrap while retaining
+  schema preflight and the user start region; default seed behavior is unchanged.
+- Docker now serves the built Vite entry and hashed assets from Apache's root,
+  rather than leaving the compiled entry unused under `dist`.
+- HTTP liveness, disabled optional AI paths, failure logs and project-scoped
+  unconditional teardown make CI failures explicit without retaining test data.
+
+### Added — Bounded application health probes
+
+- Public session-free `/health/live` and `/health/ready` distinguish PHP
+  liveness from DB access plus complete canonical migration tracking; GET/HEAD,
+  explicit failure statuses and non-cacheable minimal JSON are tested.
+- Readiness is read-only and isolated behind a supervised three-second PHP CLI
+  deadline, including DNS/DB stalls; credentials and exception text stay out
+  of HTTP output. Gameplay DB connection behavior is unchanged.
+- Docker/Compose healthchecks use liveness; CI verifies unavailable readiness
+  before migrations and ready status before seed/browser tests.
+- Worker health, migration checksum integrity and production observability
+  remain separate gates, not implied by a successful readiness response.
+
+### Added — Read-only migration deployment verification
+
+- `php scripts/migrate.php verify` requires existing tracking, a complete
+  canonical manifest, matching applied SQL bytes and no foreign history.
+- Verification shares the migration advisory lock and checksum helper; it
+  never executes migration SQL, bootstraps storage or repairs tracking.
+- CI runs the gate from the image after migrations and before readiness/seed.
+  Missing, pending, changed or newer-image migration history blocks deployment;
+  public health snapshots and existing status behavior are unchanged.
+
 ### Refactored — JS-Refactoring Phase 2 (C-1, GAP_TODO)
 
 **Domain-Subtree Migration** — `js/engine/runtime/layers/domain/`

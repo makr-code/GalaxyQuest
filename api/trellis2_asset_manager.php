@@ -270,7 +270,7 @@ final class TRELLIS2AssetManager {
             $result['glb_path'],
             $glbSize,
             $result['thumbnail_path'] ?? null,
-            json_encode($result['metadata'] ?? {}),
+            json_encode($result['metadata'] ?? new \stdClass()),
             $result['model_variant'] ?? 'text-base',
             $result['generation_time_ms'] ?? 0,
         ]);

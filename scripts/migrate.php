@@ -6,14 +6,15 @@ declare(strict_types=1);
 /**
  * GalaxyQuest – database migration CLI tool.
  *
- * Provides safe, transactional, versioned database migrations for all
- * environments (DEV, PROD).
+ * Provides versioned database migrations for all environments (DEV, PROD).
+ * MySQL DDL commits implicitly; failed migrations can leave partial changes.
  *
  * Usage:
  *   php scripts/migrate.php <command> [options]
  *
  * Commands:
  *   status                       Show which migrations are applied / pending.
+ *   verify                       Verify complete deployment manifest and checksums without changes.
  *   up      [--step=N] [--dry-run]  Apply pending migrations (default: all).
  *   rollback [--step=N] [--dry-run] Roll back the last N applied migrations.
  *
@@ -46,9 +47,6 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $root = dirname(__DIR__);
-require_once $root . '/config/config.php';
-require_once $root . '/config/db.php';
-require_once $root . '/lib/MigrationRunner.php';
 
 // ── Parse CLI arguments ───────────────────────────────────────────────────────
 
@@ -64,61 +62,100 @@ foreach ($args as $arg) {
         print_help();
         exit(0);
     } elseif ($arg === '--dry-run') {
+        if ($dryRun) {
+            migration_usage_error('Duplicate --dry-run option.');
+        }
         $dryRun = true;
     } elseif (preg_match('/^--step=(\d+)$/', $arg, $m)) {
-        $step = max(1, (int)$m[1]);
+        if ($step !== null) {
+            migration_usage_error('Duplicate --step option.');
+        }
+        $validated = filter_var($m[1], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($validated === false) {
+            migration_usage_error('--step must be a positive integer within the PHP integer range.');
+        }
+        $step = $validated;
     } elseif (preg_match('/^--env=(\S+)$/', $arg, $m)) {
+        if (isset($seenEnv)) {
+            migration_usage_error('Duplicate --env option.');
+        }
+        $seenEnv = true;
         $env = $m[1];
     } elseif (preg_match('/^--sql-dir=(.+)$/', $arg, $m)) {
+        if (isset($seenSqlDir)) {
+            migration_usage_error('Duplicate --sql-dir option.');
+        }
+        $seenSqlDir = true;
         $sqlDir = rtrim($m[1], '/\\');
     } elseif ($command === null && !str_starts_with($arg, '--')) {
         $command = $arg;
+    } else {
+        migration_usage_error('Unknown or invalid argument: ' . $arg);
     }
 }
 
-if ($command === null) {
-    fwrite(STDERR, "Error: no command specified.\n\n");
-    print_help();
-    exit(1);
+if (!in_array($command, ['status', 'verify', 'up', 'rollback'], true)) {
+    migration_usage_error($command === null ? 'No command specified.' : 'Unknown command: ' . $command);
+}
+if (in_array($command, ['status', 'verify'], true) && ($step !== null || $dryRun)) {
+    migration_usage_error($command . ' does not accept --step or --dry-run.');
+}
+if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,19}$/D', $env)) {
+    migration_usage_error('Environment label must contain 1-20 letters, digits, underscores or hyphens.');
+}
+if ($sqlDir === '' || !is_dir($sqlDir) || !is_readable($sqlDir)) {
+    migration_usage_error('SQL directory does not exist or is unreadable: ' . $sqlDir);
 }
 
 // ── Connect to database ───────────────────────────────────────────────────────
 
+require_once $root . '/config/config.php';
+require_once $root . '/config/db.php';
+require_once $root . '/lib/MigrationRunner.php';
+
 try {
     $db = get_db();
-} catch (Throwable $e) {
+} catch (PDOException | RuntimeException $e) {
     fwrite(STDERR, "Database connection failed: " . $e->getMessage() . "\n");
     exit(1);
 }
 
 // ── Build runner ──────────────────────────────────────────────────────────────
 
-$runner = new MigrationRunner($db, $sqlDir, strtoupper($env));
-
 // ── Dispatch command ──────────────────────────────────────────────────────────
 
-switch ($command) {
-    case 'status':
-        cmd_status($runner);
-        break;
-
-    case 'up':
-        cmd_up($runner, $step, $dryRun);
-        break;
-
-    case 'rollback':
-        cmd_rollback($runner, $step ?? 1, $dryRun);
-        break;
-
-    default:
-        fwrite(STDERR, "Unknown command: {$command}\n\n");
-        print_help();
-        exit(1);
+try {
+    $runner = new MigrationRunner($db, $sqlDir, strtoupper($env));
+    switch ($command) {
+        case 'status':
+            cmd_status($runner);
+            break;
+        case 'verify':
+            $verified = $runner->verifyDeployment();
+            printf("[migrate] Verified %d migration(s); no pending, foreign or checksum-mismatched migrations. No changes made.\n", $verified);
+            break;
+        case 'up':
+            cmd_up($runner, $step, $dryRun);
+            break;
+        case 'rollback':
+            cmd_rollback($runner, $step ?? 1, $dryRun);
+            break;
+    }
+} catch (PDOException | RuntimeException | InvalidArgumentException $e) {
+    fwrite(STDERR, "[migrate] Failed: " . $e->getMessage() . "\n");
+    exit(1);
 }
 
 exit(0);
 
 // ── Command implementations ───────────────────────────────────────────────────
+
+function migration_usage_error(string $message): never
+{
+    fwrite(STDERR, "Error: " . $message . "\n\n");
+    print_help();
+    exit(1);
+}
 
 function cmd_status(MigrationRunner $runner): void
 {
@@ -200,10 +237,12 @@ function cmd_rollback(MigrationRunner $runner, int $step, bool $dryRun): void
                 $rolledBack++;
                 break;
             case 'no_down_file':
-                printf("[migrate] SKIP (no _down.sql)  %s\n", $r['name']);
-                break;
+                throw new RuntimeException(
+                    'Rollback blocked: no _down.sql for ' . $r['name']
+                    . '. No selected migrations were reverted; use a reviewed recovery or restore procedure.'
+                );
             default:
-                printf("[migrate] UNKNOWN STATUS (%s)  %s\n", $r['status'], $r['name']);
+                throw new RuntimeException('Unknown rollback result: ' . $r['status']);
         }
     }
 
@@ -223,18 +262,23 @@ Usage:
 
 Commands:
   status                          Show applied / pending migrations.
+  verify                          Verify complete manifest/checksums; no DB changes.
   up      [--step=N] [--dry-run]  Apply pending migrations (default: all).
   rollback [--step=N] [--dry-run] Roll back the last N migrations (default: 1).
 
 Options:
-  --step=N        Max number of migrations to process.
+  --step=N        Positive integer within PHP integer range (up/rollback only).
   --dry-run       Preview actions; make no DB changes.
-  --env=LABEL     Override environment label (default: GQ_ENV env-var or "DEV").
+  --env=LABEL     1-20 letters/digits/_/- (default: GQ_ENV env-var or "DEV").
   --sql-dir=PATH  Override path to sql/ directory.
   --help, -h      Show this help.
 
+Unknown arguments, duplicate options and invalid values fail before DB access.
+Operational failures exit 1 and are reported on stderr; details are CLI-only.
+
 Examples:
   php scripts/migrate.php status
+  php scripts/migrate.php verify
   php scripts/migrate.php up
   php scripts/migrate.php up --step=5
   php scripts/migrate.php up --dry-run

@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS update_history (
     INDEX idx_operation_type (operation_type),
     INDEX idx_status (status),
     INDEX idx_started_at (started_at),
-    FOREIGN KEY (admin_user_id) REFERENCES actor(id) ON DELETE SET NULL
+    FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: update_configuration
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS update_configuration (
     updated_by INT,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_config_key (config_key),
-    FOREIGN KEY (updated_by) REFERENCES actor(id) ON DELETE SET NULL
+    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Insert default configuration values
@@ -67,7 +67,7 @@ INSERT INTO update_configuration (config_key, config_value, config_type) VALUES
 ('update_check_url', 'https://api.github.com/repos/{owner}/{repo}/releases/latest', 'string'),
 ('notify_admins_on_update', 'true', 'boolean'),
 ('maintenance_window_hours', '2', 'integer')
-ON DUPLICATE KEY UPDATE config_value = VALUES(config_value);
+ON DUPLICATE KEY UPDATE config_key = VALUES(config_key);
 
 -- Table: update_backups
 -- Tracks version backups for rollback capability

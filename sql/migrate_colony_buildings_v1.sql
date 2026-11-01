@@ -6,7 +6,7 @@
 -- Isometric grid slots for colony buildings
 CREATE TABLE IF NOT EXISTS colony_building_slots (
     id               INT UNSIGNED    NOT NULL AUTO_INCREMENT,
-    colony_id        INT UNSIGNED    NOT NULL,
+    colony_id        INT             NOT NULL,
     slot_x           INT             NOT NULL,
     slot_y           INT             NOT NULL,
     building_type    VARCHAR(64)     NULL,

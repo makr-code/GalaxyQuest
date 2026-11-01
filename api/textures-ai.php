@@ -32,7 +32,10 @@ if (!in_array($action, $allowedActions, true)) {
 }
 
 // Check if AI texture generation is enabled
-$aiEnabled = (getenv('COMFYUI_ENABLED') ?: (APP_ENV === 'dev' ? '1' : '0')) === '1';
+$enabledSetting = getenv('COMFYUI_ENABLED');
+$aiEnabled = ($enabledSetting === false || $enabledSetting === ''
+    ? (APP_ENV === 'dev' ? '1' : '0')
+    : $enabledSetting) === '1';
 if (!$aiEnabled) {
     http_response_code(503);
     echo json_encode(['success' => false, 'error' => 'AI texture generation is disabled']);
@@ -40,7 +43,12 @@ if (!$aiEnabled) {
 }
 
 // Initialize AI texture service
-$textureAiService = new GQTextureAiService();
+try {
+    $textureAiService = new GQTextureAiService();
+} catch (RuntimeException | InvalidArgumentException $e) {
+    error_log('texture_ai initialization error: ' . $e->getMessage());
+    json_error('AI texture service initialization failed.', 500);
+}
 
 switch ($action) {
     case 'spaceship_texture':
@@ -60,7 +68,6 @@ switch ($action) {
         break;
     case 'progressive':
         handle_progressive_loading($textureAiService);
-        break;
     case 'status':
         handle_status($textureAiService);
         break;
@@ -243,12 +250,20 @@ function handle_batch_pbr(GQTextureAiService $service): void
 /**
  * Handle progressive texture loading (low-res first, then high-res)
  */
-function handle_progressive_loading(GQTextureAiService $service): void
+function handle_progressive_loading(GQTextureAiService $service): never
 {
+    only_method('GET');
     $textureType = sanitize_input((string)($_GET['texture_type'] ?? 'albedo'));
     $objectType = sanitize_input((string)($_GET['object_type'] ?? 'spaceship'));
     $faction = sanitize_input((string)($_GET['faction'] ?? 'generic'));
-    $targetSize = (int)($_GET['target_size'] ?? 512);
+    $targetSize = filter_var($_GET['target_size'] ?? 512, FILTER_VALIDATE_INT);
+    $phase = $_GET['phase'] ?? 'low_res';
+    if ($targetSize === false || $targetSize < 128 || $targetSize > 1024) {
+        json_error('target_size must be an integer between 128 and 1024.', 400);
+    }
+    if (!in_array($phase, ['low_res', 'high_res'], true)) {
+        json_error('Invalid progressive phase.', 400);
+    }
     $seed = (int)($_GET['seed'] ?? 0);
 
     $descriptor = [
@@ -260,35 +275,59 @@ function handle_progressive_loading(GQTextureAiService $service): void
     ];
 
     try {
-        // Generate low-res first (fast)
-        $lowResSize = max(128, min(256, $targetSize / 2));
-        $lowResResult = $service->generateTexture($descriptor, $lowResSize);
-
-        if (!$lowResResult['success']) {
-            http_response_code(500);
-            echo json_encode($lowResResult);
-            exit;
-        }
-
-        http_response_code(200);
-        echo json_encode([
-            'success' => true,
-            'progressive' => true,
-            'phase' => 'low_res_ready',
-            'low_res' => $lowResResult,
-            'high_res_url' => 'api/textures-ai.php?action=' . $_GET['action'] . '&target_size=' . $targetSize . '&phase=high_res&' . http_build_query(array_filter([
-                'texture_type' => $textureType,
-                'object_type' => $objectType,
-                'faction' => $faction,
-                'seed' => $seed,
-            ])),
-        ]);
-    } catch (Exception $e) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        $size = $phase === 'high_res' ? $targetSize : max(128, min(256, intdiv($targetSize, 2)));
+        $result = $service->generateTexture($descriptor, $size);
+    } catch (RuntimeException | JsonException $e) {
+        error_log('texture_ai progressive error: ' . $e->getMessage());
+        json_error('Progressive texture generation failed.', 500);
     }
+    if (!$result['success']) {
+        error_log('texture_ai progressive failure: ' . ($result['error'] ?? 'unknown generation error'));
+        json_response($result, 500);
+    }
+    if ($phase === 'high_res') {
+        json_ok(['progressive' => true, 'phase' => 'high_res_ready', 'high_res' => $result]);
+    }
+    json_ok([
+        'progressive' => true,
+        'phase' => 'low_res_ready',
+        'low_res' => $result,
+        'high_res_url' => 'api/textures-ai.php?' . http_build_query([
+            'action' => 'progressive',
+            'target_size' => $targetSize,
+            'phase' => 'high_res',
+            'texture_type' => $textureType,
+            'object_type' => $objectType,
+            'faction' => $faction,
+            'seed' => $seed,
+        ]),
+    ]);
 }
 
+
+function handle_status(GQTextureAiService $service): void
+{
+    only_method('GET');
+    try {
+        $status = $service->getServiceStatus();
+    } catch (RuntimeException $e) {
+        error_log('texture_ai status error: ' . $e->getMessage());
+        json_error('AI texture service status unavailable.', 503);
+    }
+    json_response($status);
+}
+
+function handle_queue(GQTextureAiService $service): void
+{
+    only_method('GET');
+    try {
+        $queue = $service->getQueueStatus();
+    } catch (RuntimeException $e) {
+        error_log('texture_ai queue error: ' . $e->getMessage());
+        json_error('AI texture service queue unavailable.', 503);
+    }
+    json_ok($queue);
+}
 
 /**
  * Sanitize string input
@@ -304,8 +343,11 @@ function sanitize_input(string $input): string
  */
 class GQTextureAiService
 {
+    private const MAX_JSON_BYTES = 1048576;
+    private const MAX_IMAGE_BYTES = 16777216;
     private string $comfyuiBaseUrl;
     private string $model;
+    private string $checkpoint;
     private int $textureSize;
     private int $diffusionSteps;
     private float $guidanceScale;
@@ -313,16 +355,34 @@ class GQTextureAiService
     private string $cacheDir;
     private string $lockDir;
     private bool $fallbackProcedural;
+    private int $maxConcurrent = 2;
+    private int $generationTimeout = 120;
 
     public function __construct()
     {
         $this->comfyuiBaseUrl = getenv('COMFYUI_BASE_URL') ?: 'http://localhost:8188';
         $this->model = getenv('COMFYUI_MODEL') ?: 'sdxl';
+        $this->checkpoint = getenv('COMFYUI_CHECKPOINT') ?: 'model.safetensors';
         $this->textureSize = (int)getenv('COMFYUI_TEXTURE_SIZE') ?: 512;
         $this->diffusionSteps = (int)getenv('COMFYUI_DIFFUSION_STEPS') ?: 30;
         $this->guidanceScale = (float)getenv('COMFYUI_GUIDANCE_SCALE') ?: 8.5;
         $this->cacheMode = getenv('COMFYUI_CACHE_MODE') ?: 'disk';
         $this->fallbackProcedural = (getenv('COMFYUI_FALLBACK_PROCEDURAL') ?: '1') === '1';
+        foreach (['COMFYUI_MAX_CONCURRENT' => [1, 16], 'COMFYUI_QUEUE_TIMEOUT' => [1, 600]] as $name => [$min, $max]) {
+            $raw = getenv($name);
+            if ($raw === false || $raw === '') {
+                continue;
+            }
+            $value = filter_var($raw, FILTER_VALIDATE_INT, ['options' => ['min_range' => $min, 'max_range' => $max]]);
+            if ($value === false) {
+                throw new \InvalidArgumentException('Invalid ' . $name);
+            }
+            if ($name === 'COMFYUI_MAX_CONCURRENT') {
+                $this->maxConcurrent = $value;
+            } else {
+                $this->generationTimeout = $value;
+            }
+        }
 
         // Setup cache directories
         $projectRoot = dirname(dirname(__FILE__));
@@ -342,7 +402,7 @@ class GQTextureAiService
      */
     public function generateBatchPBR(array $descriptor, int $size = 512): array
     {
-        if (!is_array($descriptor) || empty($descriptor['type'])) {
+        if (empty($descriptor['type'])) {
             return ['success' => false, 'error' => 'invalid descriptor'];
         }
 
@@ -354,7 +414,7 @@ class GQTextureAiService
         foreach ($mapTypes as $mapType) {
             $mapDescriptor = array_merge($descriptor, [
                 'texture_type' => $mapType,
-                'seed' => $baseSeed + hash_int($mapType),
+                'seed' => $baseSeed + $this->hash_int($mapType),
             ]);
 
             try {
@@ -401,7 +461,8 @@ class GQTextureAiService
     public function generateTexture(array $descriptor, int $size = 512): array
     {
         // Validate and normalize descriptor
-        if (!is_array($descriptor) || empty($descriptor['type'])) {
+        if (empty($descriptor['type'])) {
+            error_log('texture_ai generation error: invalid descriptor');
             return ['success' => false, 'error' => 'invalid descriptor'];
         }
 
@@ -418,64 +479,98 @@ class GQTextureAiService
         $lockPath = $this->lockDir . DIRECTORY_SEPARATOR . $cacheKey . '.lock';
         $lockHandle = @fopen($lockPath, 'c+');
 
-        if ($lockHandle !== false) {
-            if (!@flock($lockHandle, LOCK_EX)) {
-                @fclose($lockHandle);
-                return ['success' => false, 'error' => 'cannot acquire generation lock'];
-            }
+        if ($lockHandle === false) {
+            error_log('texture_ai generation error: cannot open generation lock');
+            return ['success' => false, 'error' => 'cannot open generation lock'];
         }
 
+        $generatedPath = null;
+        $slotHandle = null;
+        $deadline = hrtime(true) / 1e9 + $this->generationTimeout;
         try {
+            if (!flock($lockHandle, LOCK_EX | LOCK_NB)) {
+                throw new RuntimeException('Texture generation already in progress');
+            }
             // Double-check cache after acquiring lock
-            if (is_file($cachePath)) {
-                if ($lockHandle !== false) {
-                    @flock($lockHandle, LOCK_UN);
-                    @fclose($lockHandle);
-                }
+            if ($this->cacheMode === 'disk' && is_file($cachePath)) {
                 return $this->getCachedTextureResponse($cachePath, $cacheKey);
             }
+            $slotHandle = $this->acquireGenerationSlot();
 
             // Generate texture
             $prompt = $this->descriptorToPrompt($normalizedDescriptor);
-            $generatedPath = $this->requestComfyUIGeneration($prompt, $normalizedDescriptor, $size);
+            $generatedPath = $this->requestComfyUIGeneration($prompt, $normalizedDescriptor, $normalizedDescriptor['size'], $deadline);
+            $this->remainingSeconds($deadline);
 
             if ($generatedPath && is_file($generatedPath)) {
                 if (rename($generatedPath, $cachePath)) {
-                    if ($lockHandle !== false) {
-                        @flock($lockHandle, LOCK_UN);
-                        @fclose($lockHandle);
-                    }
                     return $this->getCachedTextureResponse($cachePath, $cacheKey);
                 }
             }
 
             throw new RuntimeException('Texture generation failed');
-        } catch (Exception $e) {
-            if ($lockHandle !== false) {
-                @flock($lockHandle, LOCK_UN);
-                @fclose($lockHandle);
-            }
-
+        } catch (RuntimeException | JsonException $e) {
+            error_log('texture_ai generation error: ' . $e->getMessage());
             // Fallback to procedural if enabled
             if ($this->fallbackProcedural) {
-                return ['success' => false, 'error' => $e->getMessage(), 'fallback_required' => true];
+                return ['success' => false, 'error' => 'Texture generation failed.', 'fallback_required' => true];
             }
 
-            return ['success' => false, 'error' => $e->getMessage()];
+            return ['success' => false, 'error' => 'Texture generation failed.'];
+        } finally {
+            if ($generatedPath !== null && is_file($generatedPath) && !unlink($generatedPath)) {
+                error_log('texture_ai cleanup error: cannot remove temporary image');
+            }
+            flock($lockHandle, LOCK_UN);
+            fclose($lockHandle);
+            if (is_resource($slotHandle)) {
+                flock($slotHandle, LOCK_UN);
+                fclose($slotHandle);
+            }
         }
+    }
+
+    /** @return resource */
+    private function acquireGenerationSlot()
+    {
+        for ($slot = 0; $slot < $this->maxConcurrent; $slot++) {
+            $handle = @fopen($this->lockDir . DIRECTORY_SEPARATOR . 'slot_' . $slot . '.lock', 'c+');
+            if ($handle === false) {
+                throw new RuntimeException('Cannot open generation slot');
+            }
+            if (flock($handle, LOCK_EX | LOCK_NB)) {
+                return $handle;
+            }
+            fclose($handle);
+        }
+        throw new RuntimeException('AI texture generation capacity exhausted');
+    }
+
+    private function remainingSeconds(float $deadline): float
+    {
+        $remaining = $deadline - hrtime(true) / 1e9;
+        if ($remaining <= 0) {
+            throw new RuntimeException('AI texture generation deadline exceeded');
+        }
+        return $remaining;
+    }
+
+    private function waitForJob(int $seconds, float $deadline): void
+    {
+        if ($this->remainingSeconds($deadline) <= $seconds) {
+            throw new RuntimeException('AI texture generation deadline exceeded');
+        }
+        sleep($seconds);
+        $this->remainingSeconds($deadline);
     }
 
     /**
      * Request texture generation from ComfyUI
      */
-    private function requestComfyUIGeneration(string $prompt, array $descriptor, int $size): ?string
+    private function requestComfyUIGeneration(string $prompt, array $descriptor, int $size, float $deadline): string
     {
         $workflow = $this->buildComfyUIWorkflow($prompt, $descriptor, $size);
-        $json = json_encode($workflow, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-
-        if ($json === false) {
-            throw new RuntimeException('Cannot encode ComfyUI workflow');
-        }
+        $json = json_encode(['prompt' => $workflow], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
         $url = $this->comfyuiBaseUrl . '/prompt';
         $context = stream_context_create([
@@ -487,24 +582,26 @@ class GQTextureAiService
             ],
         ]);
 
-        $response = @file_get_contents($url, false, $context);
+        $response = $this->readHttpResponse($url, $context, self::MAX_JSON_BYTES, $deadline);
         if ($response === false) {
             throw new RuntimeException('ComfyUI service unreachable');
         }
 
-        $data = json_decode($response, true);
-        if (!is_array($data) || empty($data['prompt_id'])) {
+        $data = $this->decodeObjectResponse($response);
+        if (!is_string($data['prompt_id'] ?? null) || $data['prompt_id'] === ''
+            || isset($data['error']) || (array_key_exists('node_errors', $data) && !is_array($data['node_errors']))
+            || !empty($data['node_errors'])) {
             throw new RuntimeException('Invalid ComfyUI response');
         }
 
         // Poll for completion (simplified - production would use WebSocket)
-        return $this->pollComfyUIJob($data['prompt_id'], $descriptor);
+        return $this->pollComfyUIJob($data['prompt_id'], $descriptor, $deadline);
     }
 
     /**
      * Poll ComfyUI job status until completion
      */
-    private function pollComfyUIJob(string $promptId, array $descriptor, int $maxRetries = 30): ?string
+    private function pollComfyUIJob(string $promptId, array $descriptor, float $deadline, int $maxRetries = 30): string
     {
         $retries = 0;
         $outputDir = $this->cacheDir . DIRECTORY_SEPARATOR . 'tmp';
@@ -515,32 +612,59 @@ class GQTextureAiService
 
         while ($retries < $maxRetries) {
             $url = $this->comfyuiBaseUrl . '/history/' . urlencode($promptId);
-            $response = @file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 10]]));
+            $response = $this->readHttpResponse(
+                $url,
+                stream_context_create(['http' => ['timeout' => 10]]),
+                self::MAX_JSON_BYTES,
+                $deadline
+            );
 
             if ($response === false) {
-                sleep(1);
+                $this->waitForJob(1, $deadline);
                 $retries++;
                 continue;
             }
 
-            $history = json_decode($response, true);
-            if (!is_array($history) || empty($history[$promptId])) {
-                sleep(2);
+            $history = $this->decodeObjectResponse($response);
+            if (!array_key_exists($promptId, $history)) {
+                $this->waitForJob(2, $deadline);
                 $retries++;
                 continue;
             }
 
             $jobData = $history[$promptId];
+            if (!is_array($jobData)) {
+                throw new RuntimeException('Invalid ComfyUI history entry');
+            }
+            if (array_key_exists('status', $jobData) && !is_array($jobData['status'])) {
+                throw new RuntimeException('Invalid ComfyUI history status');
+            }
+            $status = $jobData['status'] ?? [];
+            if (array_key_exists('completed', $status) && !is_bool($status['completed'])) {
+                throw new RuntimeException('Invalid ComfyUI completion flag');
+            }
+            if (array_key_exists('status_str', $status) && !is_string($status['status_str'])) {
+                throw new RuntimeException('Invalid ComfyUI execution status');
+            }
+            if (array_key_exists('outputs', $jobData) && !is_array($jobData['outputs'])) {
+                throw new RuntimeException('Invalid ComfyUI history outputs');
+            }
+            if (($jobData['status']['status_str'] ?? null) === 'error') {
+                throw new RuntimeException('ComfyUI execution failed');
+            }
 
             // Check if completed
             if (!empty($jobData['outputs'])) {
                 $output = $this->extractComfyUIOutput($jobData['outputs']);
                 if ($output) {
-                    return $this->downloadComfyUIImage($output, $outputDir, $promptId);
+                    return $this->downloadComfyUIImage($output, $outputDir, $promptId, $deadline);
                 }
             }
+            if (($jobData['status']['completed'] ?? false) === true) {
+                throw new RuntimeException('ComfyUI completed without an image');
+            }
 
-            sleep(2);
+            $this->waitForJob(2, $deadline);
             $retries++;
         }
 
@@ -550,15 +674,30 @@ class GQTextureAiService
     /**
      * Extract image filename from ComfyUI output
      */
-    private function extractComfyUIOutput(array $outputs): ?string
+    private function extractComfyUIOutput(array $outputs): ?array
     {
         // ComfyUI outputs are organized by node ID
         foreach ($outputs as $nodeId => $nodeOutput) {
-            if (is_array($nodeOutput) && !empty($nodeOutput['images'])) {
-                $images = $nodeOutput['images'];
-                if (is_array($images) && !empty($images[0])) {
-                    return $images[0]['filename'] ?? null;
+            if (!is_array($nodeOutput)) {
+                throw new RuntimeException('Invalid ComfyUI output node');
+            }
+            if (array_key_exists('images', $nodeOutput) && (!is_array($nodeOutput['images'])
+                || !array_is_list($nodeOutput['images']))) {
+                throw new RuntimeException('Invalid ComfyUI image list');
+            }
+            if (!empty($nodeOutput['images'])) {
+                $image = $nodeOutput['images'][0];
+                if (!is_array($image) || !is_string($image['filename'] ?? null)
+                    || $image['filename'] === ''
+                    || (array_key_exists('subfolder', $image) && !is_string($image['subfolder']))
+                    || (array_key_exists('type', $image) && !in_array($image['type'], ['output', 'temp'], true))) {
+                    throw new RuntimeException('Invalid ComfyUI image metadata');
                 }
+                return [
+                    'filename' => $image['filename'],
+                    'subfolder' => $image['subfolder'] ?? '',
+                    'type' => $image['type'] ?? 'output',
+                ];
             }
         }
         return null;
@@ -567,23 +706,37 @@ class GQTextureAiService
     /**
      * Download generated image from ComfyUI
      */
-    private function downloadComfyUIImage(string $filename, string $outputDir, string $promptId): ?string
+    private function downloadComfyUIImage(array $image, string $outputDir, string $promptId, float $deadline): string
     {
-        $localPath = $outputDir . DIRECTORY_SEPARATOR . $promptId . '.png';
-        $url = $this->comfyuiBaseUrl . '/view?filename=' . urlencode($filename);
+        $localPath = $outputDir . DIRECTORY_SEPARATOR . hash('sha256', $promptId) . '.png';
+        $url = $this->comfyuiBaseUrl . '/view?' . http_build_query($image);
 
         $context = stream_context_create(['http' => ['timeout' => 30]]);
-        $imageData = @file_get_contents($url, false, $context);
+        $imageData = $this->readHttpResponse($url, $context, self::MAX_IMAGE_BYTES, $deadline);
 
         if ($imageData === false || empty($imageData)) {
-            return null;
+            throw new RuntimeException('Cannot download ComfyUI image');
         }
+        $info = @getimagesizefromstring($imageData);
+        if ($info === false || $info[2] !== IMAGETYPE_PNG) {
+            throw new RuntimeException('ComfyUI output is not a valid PNG');
+        }
+        if ($info[0] < 1 || $info[1] < 1 || $info[0] > 1024 || $info[1] > 1024) {
+            throw new RuntimeException('ComfyUI image dimensions exceed texture limits');
+        }
+        $decoded = @imagecreatefromstring($imageData);
+        if ($decoded === false) {
+            throw new RuntimeException('ComfyUI PNG cannot be decoded');
+        }
+        imagedestroy($decoded);
 
-        if (@file_put_contents($localPath, $imageData) !== false) {
+        if (@file_put_contents($localPath, $imageData) === strlen($imageData)) {
             return $localPath;
         }
-
-        return null;
+        if (is_file($localPath) && !unlink($localPath)) {
+            error_log('texture_ai cleanup error: cannot remove partial image');
+        }
+        throw new RuntimeException('Cannot save ComfyUI image');
     }
 
     /**
@@ -591,14 +744,10 @@ class GQTextureAiService
      */
     public function getServiceStatus(): array
     {
-        $url = $this->comfyuiBaseUrl . '/system_stats';
-        $response = @file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 5]]));
-
-        if ($response === false) {
-            return ['success' => false, 'status' => 'unavailable'];
+        $stats = $this->getMonitoringData('/system_stats');
+        if (!is_array($stats['system'] ?? null) || !is_array($stats['devices'] ?? null)) {
+            throw new RuntimeException('Invalid ComfyUI system stats response.');
         }
-
-        $stats = json_decode($response, true);
         return [
             'success' => true,
             'status' => 'available',
@@ -612,18 +761,77 @@ class GQTextureAiService
      */
     public function getQueueStatus(): array
     {
-        $url = $this->comfyuiBaseUrl . '/queue';
-        $response = @file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 5]]));
-
-        if ($response === false) {
-            return [];
+        $queueData = $this->getMonitoringData('/queue');
+        foreach (['queue_pending', 'queue_running'] as $field) {
+            if (!is_array($queueData[$field] ?? null) || !array_is_list($queueData[$field])) {
+                throw new RuntimeException('Invalid ComfyUI queue response.');
+            }
         }
-
-        $queueData = json_decode($response, true);
         return [
-            'pending' => $queueData['queue'] ?? [],
-            'running' => $queueData['executing'] ?? null,
+            'pending' => $queueData['queue_pending'],
+            'running' => $queueData['queue_running'],
         ];
+    }
+
+    private function getMonitoringData(string $path): array
+    {
+        $response = $this->readHttpResponse(
+            $this->comfyuiBaseUrl . $path,
+            stream_context_create(['http' => ['timeout' => 5]]),
+            self::MAX_JSON_BYTES
+        );
+        if ($response === false) {
+            throw new RuntimeException('ComfyUI monitoring request failed.');
+        }
+        try {
+            $data = $this->decodeObjectResponse($response);
+        } catch (JsonException $e) {
+            throw new RuntimeException('Invalid ComfyUI monitoring JSON.', 0, $e);
+        }
+        return $data;
+    }
+
+    private function decodeObjectResponse(string $response): array
+    {
+        $data = json_decode($response, true, flags: JSON_THROW_ON_ERROR);
+        if (!is_array($data) || !str_starts_with(ltrim($response), '{')) {
+            throw new RuntimeException('ComfyUI response must be a JSON object');
+        }
+        return $data;
+    }
+
+    /** @param resource $context */
+    private function readHttpResponse(string $url, mixed $context, int $maxBytes, ?float $deadline = null): string|false
+    {
+        stream_context_set_option($context, 'http', 'follow_location', 0);
+        stream_context_set_option($context, 'http', 'max_redirects', 0);
+        stream_context_set_option($context, 'http', 'ignore_errors', false);
+        if ($deadline !== null) {
+            $options = stream_context_get_options($context);
+            stream_context_set_option($context, 'http', 'timeout', min(
+                (float)($options['http']['timeout'] ?? 120),
+                $this->remainingSeconds($deadline)
+            ));
+        }
+        // Read one extra byte to reject oversized responses without buffering the entire body.
+        $http_response_header = [];
+        $response = @file_get_contents($url, false, $context, 0, $maxBytes + 1);
+        $httpStatus = 0;
+        foreach ($http_response_header as $header) {
+            if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $header, $match)) {
+                $httpStatus = (int)$match[1];
+            }
+        }
+        if ($httpStatus !== 0 && ($httpStatus < 200 || $httpStatus >= 300)) {
+            throw new RuntimeException('ComfyUI HTTP ' . $httpStatus);
+        }
+        if ($deadline !== null) {
+            $this->remainingSeconds($deadline);
+        }
+        if ($response !== false && strlen($response) > $maxBytes) {
+            throw new RuntimeException('ComfyUI response exceeds byte limit');
+        }
+        return $response;
     }
 
     /**
@@ -748,15 +956,15 @@ class GQTextureAiService
     private function normalizeDescriptor(array $desc, int $size): array
     {
         return [
+            ...$desc,
             'type' => $desc['type'] ?? 'generic',
             'texture_type' => $desc['texture_type'] ?? 'albedo',
             'size' => min(1024, max(128, $size)),
             'seed' => $desc['seed'] ?? 0,
             'model' => $this->model,
+            'checkpoint' => $this->checkpoint,
             'steps' => $this->diffusionSteps,
             'guidance' => $this->guidanceScale,
-            // Keep additional fields as-is
-            ...$desc,
         ];
     }
 
@@ -765,8 +973,25 @@ class GQTextureAiService
      */
     private function generateCacheKey(array $descriptor): string
     {
-        $keyData = json_encode($descriptor, JSON_UNESCAPED_SLASHES | JSON_SORT_KEYS);
+        $keyData = json_encode(
+            $this->sortDescriptorKeys($descriptor),
+            JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        );
         return hash('sha256', $keyData);
+    }
+
+    private function sortDescriptorKeys(array $value): array
+    {
+        if (!array_is_list($value)) {
+            ksort($value, SORT_STRING);
+        }
+        foreach ($value as &$item) {
+            if (is_array($item)) {
+                $item = $this->sortDescriptorKeys($item);
+            }
+        }
+        unset($item);
+        return $value;
     }
 
     /**
@@ -777,13 +1002,6 @@ class GQTextureAiService
         $etag = '"' . $cacheKey . '"';
         $mtime = @filemtime($cachePath);
         $size = @filesize($cachePath);
-
-        // Check ETag
-        $clientEtag = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
-        if ($clientEtag === $etag) {
-            http_response_code(304);
-            exit;
-        }
 
         return [
             'success' => true,
@@ -801,16 +1019,14 @@ class GQTextureAiService
      */
     private function buildComfyUIWorkflow(string $prompt, array $descriptor, int $size): array
     {
-        // This is a simplified workflow structure
-        // Production would use more sophisticated ComfyUI nodes for PBR generation
         return [
             '1' => [
-                'inputs' => ['text' => $prompt],
-                'class_type' => 'CLIPTextEncode(positive)',
+                'inputs' => ['text' => $prompt, 'clip' => ['5', 1]],
+                'class_type' => 'CLIPTextEncode',
             ],
             '2' => [
-                'inputs' => ['text' => 'low quality, artifacts, blurry, watermark'],
-                'class_type' => 'CLIPTextEncode(negative)',
+                'inputs' => ['text' => 'low quality, artifacts, blurry, watermark', 'clip' => ['5', 1]],
+                'class_type' => 'CLIPTextEncode',
             ],
             '3' => [
                 'inputs' => [
@@ -820,18 +1036,22 @@ class GQTextureAiService
                     'sampler_name' => 'euler',
                     'scheduler' => 'normal',
                     'denoise' => 1.0,
+                    'model' => ['5', 0],
+                    'positive' => ['1', 0],
+                    'negative' => ['2', 0],
+                    'latent_image' => ['7', 0],
                 ],
                 'class_type' => 'KSampler',
             ],
             '4' => [
                 'inputs' => [
                     'samples' => ['3', 0],
-                    'vae' => ['5', 0],
+                    'vae' => ['5', 2],
                 ],
                 'class_type' => 'VAEDecode',
             ],
             '5' => [
-                'inputs' => ['ckpt_name' => 'model.safetensors'],
+                'inputs' => ['ckpt_name' => $this->checkpoint],
                 'class_type' => 'CheckpointLoaderSimple',
             ],
             '6' => [
@@ -840,6 +1060,10 @@ class GQTextureAiService
                     'images' => ['4', 0],
                 ],
                 'class_type' => 'SaveImage',
+            ],
+            '7' => [
+                'inputs' => ['width' => $size, 'height' => $size, 'batch_size' => 1],
+                'class_type' => 'EmptyLatentImage',
             ],
         ];
     }

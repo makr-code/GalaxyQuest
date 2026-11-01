@@ -1,0 +1,1297 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: api/achievements.php
+
+		-
+			message: '#^Dead catch \- Exception is never thrown in the try block\.$#'
+			identifier: catch.neverThrown
+			count: 2
+			path: api/admin_endpoints.php
+
+		-
+			message: '#^Parameter \#2 \$associative of function get_headers expects bool, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/admin_endpoints.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: api/asset_generations.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: api/auth.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 2
+			path: api/auth.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 2
+			path: api/buildings.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: api/buildings.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: api/cache_diagnostics.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 5
+			path: api/cache_diagnostics.php
+
+		-
+			message: '#^Parameter \#1 \$array \(array\{''Photorealistic bust…'', ''head and shoulders…'', non\-falsy\-string, non\-falsy\-string, non\-falsy\-string, ''autonomous npc…''\|''player commander'', non\-falsy\-string, non\-falsy\-string, \.\.\.\}\) to function array_filter does not contain falsy values, the array will always stay the same\.$#'
+			identifier: arrayFilter.same
+			count: 1
+			path: api/character_profile_generator.php
+
+		-
+			message: '#^Constant ComfyUIWorkflowBuilder\:\:OVOXEL_EXPORT_GLB_NODE is unused\.$#'
+			identifier: classConstant.unused
+			count: 1
+			path: api/comfyui_workflow_builder.php
+
+		-
+			message: '#^Constant ComfyUIWorkflowBuilder\:\:VOXEL_TO_MESH_NODE is unused\.$#'
+			identifier: classConstant.unused
+			count: 1
+			path: api/comfyui_workflow_builder.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: api/comfyui_workflow_builder.php
+
+		-
+			message: '#^If condition is always false\.$#'
+			identifier: if.alwaysFalse
+			count: 1
+			path: api/comfyui_workflow_builder.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 2
+			path: api/comfyui_workflow_builder.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between bool and ''cli\-server'' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: api/comfyui_workflow_builder.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between null and ''POST'' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: api/comfyui_workflow_builder.php
+
+		-
+			message: '#^Constant FIELD_ID not found\.$#'
+			identifier: constant.notFound
+			count: 3
+			path: api/compression-v2.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: api/diplomacy.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between \-30\|\-5\|15 and 0 will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: api/diplomatic_plays.php
+
+		-
+			message: '#^Offset ''consumer_goods'' on array\{military_equipment\: 1\.3\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/economy_flush.php
+
+		-
+			message: '#^Offset ''food'' on array\{steel_alloy\?\: float, focus_crystals\?\: float, reactor_fuel\?\: float, biocompost\: float, electronics_components\?\: float, consumer_goods\?\: float, luxury_goods\?\: float, military_equipment\?\: float, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/economy_flush.php
+
+		-
+			message: '#^Offset ''military_equipment'' on array\{\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/economy_flush.php
+
+		-
+			message: '#^Function calc_and_store_empire_scores not found\.$#'
+			identifier: function.notFound
+			count: 2
+			path: api/empire.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 15
+			path: api/faction_relations.php
+
+		-
+			message: '#^Comparison operation "\>" between int\<1, max\> and 0 is always true\.$#'
+			identifier: greater.alwaysTrue
+			count: 2
+			path: api/factions.php
+
+		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, audio_url\?\: string, error\?\: string, status\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/factions.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 9
+			path: api/factions.php
+
+		-
+			message: '#^Constant FTL_COOLDOWN_RESET_COST not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: api/fleet.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: api/fleet.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-falsy\-string and '''' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: api/fleet.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 11
+			path: api/fleet.php
+
+		-
+			message: '#^Variable \$firstOutcome on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: api/fleet.php
+
+		-
+			message: '#^Comparison operation "\>" between int\<1, max\> and 0 is always true\.$#'
+			identifier: greater.alwaysTrue
+			count: 2
+			path: api/galaxy.php
+
+		-
+			message: '#^Comparison operation "\>" between int\<2, max\> and 1 is always true\.$#'
+			identifier: greater.alwaysTrue
+			count: 1
+			path: api/galaxy.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: api/galaxy.php
+
+		-
+			message: '#^Match arm comparison between ''system_detail'' and ''system_detail'' is always true\.$#'
+			identifier: match.alwaysTrue
+			count: 1
+			path: api/galaxy.php
+
+		-
+			message: '#^Offset ''high''\|''low''\|''medium''\|''ultra'' on array\{low\: 8, medium\: 14, high\: 20, ultra\: 28\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: api/galaxy.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between int and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 2
+			path: api/galaxy.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 10
+			path: api/galaxy.php
+
+		-
+			message: '#^Comparison operation "\>" between int\<2, max\> and 1 is always true\.$#'
+			identifier: greater.alwaysTrue
+			count: 1
+			path: api/galaxy_gen.php
+
+		-
+			message: '#^Function pick_binary_companion\(\) should return array\{spectral_class\: string, subtype\: int, luminosity_class\: string, mass_solar\: float, radius_solar\: float, temperature_k\: int, luminosity_solar\: float, age_gyr\: float, \.\.\.\} but returns array\{spectral_class\: string, subtype\: int, luminosity_class\: string, mass_solar\: float, radius_solar\: float, temperature_k\: int, luminosity_solar\: float\}\.$#'
+			identifier: return.type
+			count: 2
+			path: api/galaxy_gen.php
+
+		-
+			message: '#^Offset ''mass_solar'' on array\{spectral_class\: string, subtype\: int, luminosity_class\: string, mass_solar\: float, radius_solar\: float, temperature_k\: int, luminosity_solar\: float\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_gen.php
+
+		-
+			message: '#^Offset ''radius_solar'' on array\{spectral_class\: string, subtype\: int, luminosity_class\: string, mass_solar\: float, radius_solar\: float, temperature_k\: int, luminosity_solar\: float\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_gen.php
+
+		-
+			message: '#^Offset ''temperature_k'' on array\{spectral_class\: string, subtype\: int, luminosity_class\: string, mass_solar\: float, radius_solar\: float, temperature_k\: int, luminosity_solar\: float\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_gen.php
+
+		-
+			message: '#^Call to function array_key_exists\(\) with ''seed_planets'' and non\-empty\-array\<mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''age_gyr'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''catalog_name'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''companion_mass_solar'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''companion_radius…'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''companion_spectral…'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''companion_stellar…'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''companion_subtype'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''companion…'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 5
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''free_comets'' does not exist on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''galactic_height_ly'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''galactic_radius_ly'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''galactic_theta_rad'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''is_binary'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} in empty\(\) does not exist\.$#'
+			identifier: empty.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''is_circumbinary'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} in empty\(\) does not exist\.$#'
+			identifier: empty.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''metallicity_z'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''planets'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''rogue_planets'' does not exist on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''stability_critical…'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Offset ''stellar_type'' on array\{galaxy_index\: int, system_index\: int, name\: string, x_ly\: float, y_ly\: float, z_ly\: float, spectral_class\: string, subtype\: int, \.\.\.\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Right side of && is always false\.$#'
+			identifier: booleanAnd.rightAlwaysFalse
+			count: 1
+			path: api/galaxy_seed.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 11
+			path: api/game.php
+
+		-
+			message: '#^Comparison operation "\<\=" between 2\.0 and 0\.0 is always false\.$#'
+			identifier: smallerOrEqual.alwaysFalse
+			count: 1
+			path: api/game_engine.php
+
+		-
+			message: '#^Inner named functions are not supported by PHPStan\. Consider refactoring to an anonymous function, class method, or a top\-level\-defined function\. See issue \#165 \(https\://github\.com/phpstan/phpstan/issues/165\) for more details\.$#'
+			identifier: function.inner
+			count: 1
+			path: api/game_engine.php
+
+		-
+			message: '#^Offset ''att'' on array\{att\: int, def\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/game_engine.php
+
+		-
+			message: '#^Offset ''def'' on array\{att\: int, def\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/game_engine.php
+
+		-
+			message: '#^Offset 1 on array\{non\-falsy\-string, numeric\-string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/game_engine.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: api/game_engine.php
+
+		-
+			message: '#^Undefined variable\: \$active$#'
+			identifier: variable.undefined
+			count: 4
+			path: api/game_engine.php
+
+		-
+			message: '#^Access to undefined constant PDO\:\:ERRMODE_THROW\.$#'
+			identifier: classConstant.notFound
+			count: 1
+			path: api/game_guide.php
+
+		-
+			message: '#^Function class_basename not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: api/game_guide.php
+
+		-
+			message: '#^Function verifyAuth not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: api/game_guide.php
+
+		-
+			message: '#^Function callTrellis2\(\) never returns string so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: api/generation_queue.php
+
+		-
+			message: '#^Function createProceduralGLB invoked with 1 parameter, 0 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: api/generation_queue.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 5
+			path: api/generation_queue.php
+
+		-
+			message: '#^Variable \$POLL_INTERVAL might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: api/generation_queue_daemon.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 7
+			path: api/generation_queue_v2.php
+
+		-
+			message: '#^Function generate_llm_definition_legacy\(\) never returns array so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: api/glossary.php
+
+		-
+			message: '#^Offset ''tokens'' on array\{short\: string, full\: string, tokens\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/glossary.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 6
+			path: api/glossary.php
+
+		-
+			message: '#^Offset ''domain'' on array\{lifetime\: int\<0, max\>, path\: non\-falsy\-string, domain\: string, secure\: bool, httponly\: bool, samesite\: ''Lax''\|''lax''\|''None''\|''none''\|''Strict''\|''strict''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/helpers.php
+
+		-
+			message: '#^Offset ''file'' on array\{type\: int, message\: string, file\: string, line\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/helpers.php
+
+		-
+			message: '#^Offset ''httponly'' on array\{lifetime\: int\<0, max\>, path\: non\-falsy\-string, domain\: string, secure\: bool, httponly\: bool, samesite\: ''Lax''\|''lax''\|''None''\|''none''\|''Strict''\|''strict''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/helpers.php
+
+		-
+			message: '#^Offset ''line'' on array\{type\: int, message\: string, file\: string, line\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/helpers.php
+
+		-
+			message: '#^Offset ''message'' on array\{type\: int, message\: string, file\: string, line\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/helpers.php
+
+		-
+			message: '#^Offset ''path'' on array\{lifetime\: int\<0, max\>, path\: non\-falsy\-string, domain\: string, secure\: bool, httponly\: bool, samesite\: ''Lax''\|''lax''\|''None''\|''none''\|''Strict''\|''strict''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/helpers.php
+
+		-
+			message: '#^Offset ''samesite'' on array\{lifetime\: int\<0, max\>, path\: non\-falsy\-string, domain\: string, secure\: bool, httponly\: bool, samesite\: ''Lax''\|''lax''\|''None''\|''none''\|''Strict''\|''strict''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/helpers.php
+
+		-
+			message: '#^Offset ''secure'' on array\{lifetime\: int\<0, max\>, path\: non\-falsy\-string, domain\: string, secure\: bool, httponly\: bool, samesite\: ''Lax''\|''lax''\|''None''\|''none''\|''Strict''\|''strict''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/helpers.php
+
+		-
+			message: '#^Offset ''type'' on array\{type\: int, message\: string, file\: string, line\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/helpers.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''production'' and ''production'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: api/helpers.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: api/leaders.php
+
+		-
+			message: '#^Offset ''battlecruiser''\|''battleship''\|''cruiser''\|''heavy_fighter''\|''light_fighter'' on array\{battlecruiser\: 12, battleship\: 16, cruiser\: 18, heavy_fighter\: 32, light_fighter\: 48\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/leaders.php
+
+		-
+			message: '#^Offset int\<0, 2\> on array\{''inactive'', ''suggest'', ''full auto''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/leaders.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 13
+			path: api/leaders.php
+
+		-
+			message: '#^Call to function is_array\(\) with non\-empty\-array\<int, array\{id\: int, summary\: string, started_at\: string\}\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/llm.php
+
+		-
+			message: '#^Call to function method_exists\(\) with NpcChatSessionRepository and ''loadPreviousSummari…'' will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/llm.php
+
+		-
+			message: '#^Offset ''content'' on array\{role\: string, content\: string, ts\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: api/llm.php
+
+		-
+			message: '#^Offset ''role'' on array\{role\: string, content\: string, ts\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: api/llm.php
+
+		-
+			message: '#^Offset ''started_at'' on array\{id\: int, summary\: string, started_at\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/llm.php
+
+		-
+			message: '#^Offset ''summary'' on array\{id\: int, summary\: string, started_at\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/llm.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 9
+			path: api/llm.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/llm_soc/FactionSpecLoader.php
+
+		-
+			message: '#^Undefined variable\: \$colony_count$#'
+			identifier: variable.undefined
+			count: 1
+			path: api/llm_soc/GameGuideNPC.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/llm_soc/IronFleetPromptVarsComposer.php
+
+		-
+			message: '#^Property IronFleetPromptVarsComposer\:\:\$mode is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: api/llm_soc/IronFleetPromptVarsComposer.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between null and null will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: api/llm_soc/IronFleetPromptVarsComposer.php
+
+		-
+			message: '#^Offset 1 on array\{list\<string\>, list\<non\-empty\-string\>\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/llm_soc/LlmPromptService.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/llm_soc/NpcAgentManager.php
+
+		-
+			message: '#^Property NpcChatService\:\:\$db is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: api/llm_soc/NpcChatService.php
+
+		-
+			message: '#^Offset ''content'' on array\{role\: string, content\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/llm_soc/NpcChatSessionRepository.php
+
+		-
+			message: '#^Offset ''role'' on array\{role\: string, content\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/llm_soc/NpcChatSessionRepository.php
+
+		-
+			message: '#^Offset 0 on non\-empty\-list\<array\{good_type\: mixed, base_price\: 0\|8\|10\|15\|20\|25\|35\|50\|55\|60\|70\|80\|130\|150\|200\|250\|350\|400\|550\|600\|800\|2500\|4000\|5000, price\: float\}\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/market.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: api/market.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/market_analysis.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 6
+			path: api/messages.php
+
+		-
+			message: '#^Offset ''crystal_mine''\|''deuterium_synth''\|''food_silo''\|''hydroponic_farm''\|''metal_mine''\|''research_lab''\|''robotics_factory''\|''shipyard''\|''solar_plant'' on array\{metal_mine\: 18, crystal_mine\: 16, deuterium_synth\: 14, solar_plant\: 16, fusion_reactor\: 8, robotics_factory\: 8, shipyard\: 8, research_lab\: 10, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_ai.php
+
+		-
+			message: '#^Parameter \#1 \$array \(array\{''solar_flare'', ''mineral_vein'', ''disease''\}\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 2
+			path: api/npc_ai.php
+
+		-
+			message: '#^Variable \$eligibleEventKeys in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: api/npc_ai.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between \(PDOStatement\|false\) and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: api/npc_ai_decision_queue.php
+
+		-
+			message: '#^Parameter \#3 \$faction of function npc_pve_apply_quest_action expects array, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/npc_behavior_script_executor.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 4
+			path: api/npc_controller.php
+
+		-
+			message: '#^Anonymous function has an unused use \$faction\.$#'
+			identifier: closure.unusedUse
+			count: 1
+			path: api/npc_faction_daily_quests.php
+
+		-
+			message: '#^Parameter \#4 \$questId of function npc_quest_trigger_log_insert expects int, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/npc_faction_daily_quests.php
+
+		-
+			message: '#^Variable \$t in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: api/npc_faction_daily_quests.php
+
+		-
+			message: '#^Offset ''executed'' on array\{ok\: bool, executed\: bool, reason\: string, quest_id\?\: int, error\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_llm_controller.php
+
+		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, executed\: bool, reason\: string, quest_id\?\: int, error\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_llm_controller.php
+
+		-
+			message: '#^Offset ''reason'' on array\{ok\: bool, executed\: bool, reason\: string, quest_id\?\: int, error\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_llm_controller.php
+
+		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, log_id\?\: int, error\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_quest_action_executor.php
+
+		-
+			message: '#^Parameter \#2 \$logData of function npc_quest_trigger_log_record expects array\{faction_id\: int, user_id\: int, quest_id\?\: int, trigger_reason\: string, trigger_context\?\: array, chain_parent_id\?\: int, chain_position\?\: int\}, array\{faction_id\: int, user_id\: int, quest_id\: int, trigger_reason\: ''npc_decision'', trigger_context\: array\{action_type\: ''generate_quest'', template\: non\-empty\-string, llm_or_script\: ''llm''\}, chain_parent_id\: null, chain_position\: 0\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/npc_quest_action_executor.php
+
+		-
+			message: '#^Offset ''code'' on array\{code\: string, title\: string, description\?\: string, faction_id\?\: int, quest_ids\: array\<int\>, is_sequential\: bool, min_standing_threshold\: int, reward_escalation\: float\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_quest_chain_manager.php
+
+		-
+			message: '#^Offset ''is_sequential'' on array\{code\: string, title\: string, description\?\: string, faction_id\?\: int, quest_ids\: array\<int\>, is_sequential\: bool, min_standing_threshold\: int, reward_escalation\: float\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_quest_chain_manager.php
+
+		-
+			message: '#^Offset ''min_standing…'' on array\{code\: string, title\: string, description\?\: string, faction_id\?\: int, quest_ids\: array\<int\>, is_sequential\: bool, min_standing_threshold\: int, reward_escalation\: float\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_quest_chain_manager.php
+
+		-
+			message: '#^Offset ''quest_ids'' on array\{code\: string, title\: string, description\?\: string, faction_id\?\: int, quest_ids\: array\<int\>, is_sequential\: bool, min_standing_threshold\: int, reward_escalation\: float\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_quest_chain_manager.php
+
+		-
+			message: '#^Offset ''reward_escalation'' on array\{code\: string, title\: string, description\?\: string, faction_id\?\: int, quest_ids\: array\<int\>, is_sequential\: bool, min_standing_threshold\: int, reward_escalation\: float\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_quest_chain_manager.php
+
+		-
+			message: '#^Offset ''title'' on array\{code\: string, title\: string, description\?\: string, faction_id\?\: int, quest_ids\: array\<int\>, is_sequential\: bool, min_standing_threshold\: int, reward_escalation\: float\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_quest_chain_manager.php
+
+		-
+			message: '#^Method PDOStatement\:\:execute\(\) invoked with 4 parameters, 0\-1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: api/npc_quest_contextual_trigger.php
+
+		-
+			message: '#^Parameter \#1 \$params of method PDOStatement\:\:execute\(\) expects array\|null, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/npc_quest_contextual_trigger.php
+
+		-
+			message: '#^Function cache_get not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: api/npc_quest_llm_generator.php
+
+		-
+			message: '#^Function cache_set not found\.$#'
+			identifier: function.notFound
+			count: 2
+			path: api/npc_quest_llm_generator.php
+
+		-
+			message: '#^Function llm_query not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: api/npc_quest_llm_generator.php
+
+		-
+			message: '#^Offset ''faction_id'' on array\{faction_id\: int, user_id\: int, quest_id\?\: int, trigger_reason\: string, trigger_context\?\: array, chain_parent_id\?\: int, chain_position\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_quest_trigger_log.php
+
+		-
+			message: '#^Offset ''trigger_reason'' on array\{faction_id\: int, user_id\: int, quest_id\?\: int, trigger_reason\: string, trigger_context\?\: array, chain_parent_id\?\: int, chain_position\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_quest_trigger_log.php
+
+		-
+			message: '#^Offset ''user_id'' on array\{faction_id\: int, user_id\: int, quest_id\?\: int, trigger_reason\: string, trigger_context\?\: array, chain_parent_id\?\: int, chain_position\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/npc_quest_trigger_log.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: api/ollama.php
+
+		-
+			message: '#^Call to function is_array\(\) with list\<string\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/ollama_client.php
+
+		-
+			message: '#^Variable \$http_response_header in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: api/ollama_client.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<int, string\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/perf_telemetry.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: api/perf_telemetry.php
+
+		-
+			message: '#^Offset ''threat_score'' on array\{id\: int, code\: string, name\: string, icon\: string, standing\: int, aggression\: int, power_level\: int, threat_score\: int\<0, 100\>, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/pirates.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 8
+			path: api/pirates.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 5
+			path: api/politics.php
+
+		-
+			message: '#^Comparison operation "\>" between int\<1, max\> and 0 is always true\.$#'
+			identifier: greater.alwaysTrue
+			count: 1
+			path: api/projection.php
+
+		-
+			message: '#^Function process_war_attrition_tick not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: api/projection.php
+
+		-
+			message: '#^Offset ''welfare'' on array\{colony_id\: int, colony_name\: string, status\: ''strain''\|''watch'', risk_score\: 1\|2\|3\|4\|5\|6\|7\|8\|9\|10\|12, risk_flags\: array\{\}\|array\{''low_welfare''\}\|array\{0\: ''energy_deficit'', 1\?\: ''low_welfare''\}\|list\{0\: ''food_decline'', 1\?\: ''energy_deficit''\|''low_food_buffer''\|''low_welfare'', 2\?\: ''energy_deficit''\|''low_welfare'', 3\?\: ''low_welfare''\}\|list\{0\: ''low_food_buffer'', 1\?\: ''energy_deficit''\|''low_welfare'', 2\?\: ''low_welfare''\}, welfare\: float, food_per_capita\: float, energy\: float, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: api/projection.php
+
+		-
+			message: '#^Offset ''cached'' on array\{ok\: bool, audio_url\?\: string, error\?\: string, status\?\: int\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/registration_narration.php
+
+		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, audio_url\?\: string, error\?\: string, status\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/registration_narration.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-falsy\-string and '''' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: api/reports.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: api/research.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 5
+			path: api/ship_component_prompts.php
+
+		-
+			message: '#^Offset ''faction_code'' on array\{faction_code\: string, ship_class\: string, name\?\: string, customization_prompt\?\: string, lora_styles\?\: list\<string\>\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/ship_designer_engine.php
+
+		-
+			message: '#^Offset ''ship_class'' on array\{faction_code\: string, ship_class\: string, name\?\: string, customization_prompt\?\: string, lora_styles\?\: list\<string\>\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/ship_designer_engine.php
+
+		-
+			message: '#^Property ShipDesignerPromptEngine\:\:\$db is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: api/ship_designer_engine.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 4
+			path: api/ship_designer_engine.php
+
+		-
+			message: '#^Property EnhancedShipDesigner\:\:\$componentGenerator is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: api/ship_designer_enhanced.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 4
+			path: api/ship_designer_enhanced.php
+
+		-
+			message: '#^Offset ''type'' on array\{id\: int, type\: string, code\: string, name\: string, hull_code\: string, hull_label\: string, ship_class\: string, doctrine_tag\: string, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/shipyard.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between mixed and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: api/shipyard.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 10
+			path: api/shipyard.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 2
+			path: api/shipyard_queue.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\{ok\: false, error\: string\}\|array\{ok\: true\} will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/simulation_runtime.php
+
+		-
+			message: '#^Function process_war_attrition_tick not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: api/simulation_runtime.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 4
+			path: api/simulation_tick.php
+
+		-
+			message: '#^Function tick_situation\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: api/situations.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 5
+			path: api/situations.php
+
+		-
+			message: '#^Offset ''mtime'' on array\{0\: int, 1\: int, 2\: int, 3\: int, 4\: int, 5\: int, 6\: int, 7\: int, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/textures-admin.php
+
+		-
+			message: '#^Offset ''size'' on array\{0\: int, 1\: int, 2\: int, 3\: int, 4\: int, 5\: int, 6\: int, 7\: int, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/textures-admin.php
+
+		-
+			message: '#^Property GQTextureAiService\:\:\$textureSize is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: api/textures-ai.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''production'' and ''dev'' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: api/textures-ai.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 2
+			path: api/trade.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: api/traders.php
+
+		-
+			message: '#^Match expression does not handle remaining value\: string$#'
+			identifier: match.unhandled
+			count: 1
+			path: api/traders.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: api/traders_events.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 3
+			path: api/trellis2_asset_manager.php
+
+		-
+			message: '#^Property TRELLIS2AssetManager\:\:\$maxRetries is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: api/trellis2_asset_manager.php
+
+		-
+			message: '#^Offset ''design_json_hash'' does not exist on array\{id\: int, design_json_path\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: api/trellis2_endpoints.php
+
+		-
+			message: '#^Unknown parameter \$description in call to method TRELLIS2AssetManager\:\:createDesign\(\)\.$#'
+			identifier: argument.unknown
+			count: 1
+			path: api/trellis2_endpoints.php
+
+		-
+			message: '#^Parameter \#3 \$value of function curl_setopt expects bool, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/trellis2_generator.php
+
+		-
+			message: '#^Property TRELLIS2Client\:\:\$timeoutSeconds is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: api/trellis2_generator.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 6
+			path: api/trellis2_generator.php
+
+		-
+			message: '#^Offset ''cached'' on array\{ok\: bool, audio_url\?\: string, error\?\: string, status\?\: int\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/tts.php
+
+		-
+			message: '#^Offset ''engine'' on array\{ok\: bool, voices\?\: list\<array\>, error\?\: string\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/tts.php
+
+		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, audio_url\?\: string, error\?\: string, status\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/tts.php
+
+		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, engine\?\: string, default_voice\?\: string, error\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/tts.php
+
+		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, voices\?\: list\<array\>, error\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/tts.php
+
+		-
+			message: '#^Offset ''status'' on array\{ok\: bool, voices\?\: list\<array\>, error\?\: string\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/tts.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: api/tts.php
+
+		-
+			message: '#^Call to function is_array\(\) with list\<string\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/tts_client.php
+
+		-
+			message: '#^Variable \$http_response_header in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: api/tts_client.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 5
+			path: api/vessel_designs.php
+
+		-
+			message: '#^Right side of && is always false\.$#'
+			identifier: booleanAnd.rightAlwaysFalse
+			count: 1
+			path: lib/FactionHomeworldSeeder.php
+
+		-
+			message: '#^Property GithubReleaseChecker\:\:\$connectTimeoutSeconds is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: lib/GithubReleaseChecker.php
+
+		-
+			message: '#^Variable \$http_response_header in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: lib/GithubReleaseChecker.php
+
+		-
+			message: '#^Access to constant ClosedOpen on an unknown class Random\\IntervalBoundary\.$#'
+			identifier: class.notFound
+			count: 1
+			path: lib/NpcBehaviorScript.php
+
+		-
+			message: '#^Call to method getFloat\(\) on an unknown class Random\.$#'
+			identifier: class.notFound
+			count: 1
+			path: lib/NpcBehaviorScript.php
+
+		-
+			message: '#^Parameter \$rng of method NpcBehaviorScript\:\:selectAction\(\) has invalid type Random\.$#'
+			identifier: class.notFound
+			count: 2
+			path: lib/NpcBehaviorScript.php
+
+		-
+			message: '#^Call to function is_array\(\) with list\<string\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: lib/ThemisDbClient.php
+
+		-
+			message: '#^Variable \$http_response_header in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: lib/ThemisDbClient.php
+
+		-
+			message: '#^Property UpdateManager\:\:\$maxBackups is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: lib/UpdateManager.php
+
+		-
+			message: '#^Method GalaxyQuest\\Galaxy\\Infrastructure\\Encoders\\BinarySystemPayloadEncoder\:\:encode\(\) never returns array\<string, mixed\> so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: src/Galaxy/Infrastructure/Encoders/BinarySystemPayloadEncoder.php
+
+		-
+			message: '#^Method GalaxyQuest\\Galaxy\\Infrastructure\\Encoders\\JsonSystemPayloadEncoder\:\:encode\(\) never returns string so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: src/Galaxy/Infrastructure/Encoders/JsonSystemPayloadEncoder.php

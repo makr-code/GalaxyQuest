@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../../lib/MiniYamlParser.php';
@@ -77,9 +78,7 @@ final class IronFleetPromptVarsComposerIntegrationTest extends TestCase
     // Composer + template render integration
     // =========================================================================
 
-    /**
-     * @dataProvider provideMiniFactionCodes
-     */
+    #[DataProvider('provideMiniFactionCodes')]
     public function testComposerVarsSatisfyAllRequiredTemplateTokens(string $code): void
     {
         $context = [
@@ -120,9 +119,7 @@ final class IronFleetPromptVarsComposerIntegrationTest extends TestCase
             . implode(', ', $templateMissingFromVars));
     }
 
-    /**
-     * @dataProvider provideMiniFactionCodes
-     */
+    #[DataProvider('provideMiniFactionCodes')]
     public function testRenderedTemplateContainsNoUnresolvedPlaceholders(string $code): void
     {
         $context = [
@@ -138,9 +135,7 @@ final class IronFleetPromptVarsComposerIntegrationTest extends TestCase
             "Faction '{$code}': rendered template still contains {{…}} placeholders");
     }
 
-    /**
-     * @dataProvider provideMiniFactionCodes
-     */
+    #[DataProvider('provideMiniFactionCodes')]
     public function testRenderedTemplateContainsNpcName(string $code): void
     {
         $context = [
@@ -155,9 +150,7 @@ final class IronFleetPromptVarsComposerIntegrationTest extends TestCase
             "Rendered template should contain the NPC name for '{$code}'");
     }
 
-    /**
-     * @dataProvider provideMiniFactionCodes
-     */
+    #[DataProvider('provideMiniFactionCodes')]
     public function testRenderedTemplateContainsPlayerName(string $code): void
     {
         $context = [

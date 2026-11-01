@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../../lib/ColonizationEngine.php';
@@ -128,7 +129,7 @@ final class ColonizationEngineTest extends TestCase
     // calcColonyPhase
     // ──────────────────────────────────────────────────────────────────────────
 
-    /** @dataProvider phaseProvider */
+    #[DataProvider('phaseProvider')]
     public function testCalcColonyPhase(int $pop, int $expected): void
     {
         $this->assertSame($expected, ColonizationEngine::calcColonyPhase($pop));

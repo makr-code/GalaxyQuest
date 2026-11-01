@@ -28,7 +28,6 @@ use GalaxyQuest\Shared\Http\ApiError;
 class GalaxyApiContractTest extends TestCase
 {
     /**
-     * @test
      * Success response has correct structure.
      */
     public function testSuccessResponseStructure(): void
@@ -61,7 +60,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * Error response has correct structure.
      */
     public function testErrorResponseStructure(): void
@@ -89,7 +87,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * Metadata is always present and correct.
      */
     public function testMetadataContract(): void
@@ -117,7 +114,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * Multiple responses have different trace IDs.
      */
     public function testTraceIdUniqueness(): void
@@ -132,7 +128,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * Success response with empty data array.
      */
     public function testSuccessResponseWithEmptyData(): void
@@ -146,7 +141,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * Error response formats correctly for HTTP headers.
      */
     public function testErrorResponseHttpStatus(): void
@@ -159,7 +153,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * Range query response contract.
      */
     public function testRangeQueryResponseContract(): void
@@ -190,7 +183,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * System detail response contract.
      */
     public function testSystemDetailResponseContract(): void
@@ -227,7 +219,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * Error codes are consistent across responses.
      */
     public function testErrorCodeConsistency(): void
@@ -251,7 +242,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * API response can be serialized to JSON.
      */
     public function testApiResponseJsonSerialization(): void
@@ -270,7 +260,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * API response getters work correctly.
      */
     public function testApiResponseGetters(): void
@@ -288,7 +277,6 @@ class GalaxyApiContractTest extends TestCase
     }
 
     /**
-     * @test
      * Error API response getters work correctly.
      */
     public function testErrorApiResponseGetters(): void

@@ -221,10 +221,15 @@ function action_details(PDO $db, int $uid): never {
 }
 
 function action_create(PDO $db, int $uid): never {
-    $body = json_decode(file_get_contents('php://input'), true) ?? [];
-    $name = trim(String($body['name'] ?? ''));
-    $tag = trim(String($body['tag'] ?? ''));
-    $description = trim(String($body['description'] ?? ''));
+    $body = get_json_body();
+    foreach (['name', 'tag', 'description'] as $field) {
+        if (isset($body[$field]) && !is_string($body[$field])) {
+            json_error('Alliance ' . $field . ' must be a string.', 400);
+        }
+    }
+    $name = trim($body['name'] ?? '');
+    $tag = trim($body['tag'] ?? '');
+    $description = trim($body['description'] ?? '');
 
     if (strlen($name) < 3 || strlen($name) > 64) {
         json_error('Alliance name must be 3–64 characters.', 400);
@@ -343,10 +348,13 @@ function action_remove_member(PDO $db, int $uid): never {
 }
 
 function action_set_role(PDO $db, int $uid): never {
-    $body = json_decode(file_get_contents('php://input'), true) ?? [];
+    $body = get_json_body();
     $allianceId = (int)($body['alliance_id'] ?? 0);
     $targetUserId = (int)($body['user_id'] ?? 0);
-    $role = strtolower(String($body['role'] ?? ''));
+    if (isset($body['role']) && !is_string($body['role'])) {
+        json_error('Alliance role must be a string.', 400);
+    }
+    $role = strtolower($body['role'] ?? '');
 
     if ($allianceId <= 0 || $targetUserId <= 0) {
         json_error('Invalid alliance or user ID.', 400);
@@ -869,10 +877,13 @@ function action_disband(PDO $db, int $uid): never {
 }
 
 function action_set_relation(PDO $db, int $uid): never {
-    $body = json_decode(file_get_contents('php://input'), true) ?? [];
+    $body = get_json_body();
     $allianceId = (int)($body['alliance_id'] ?? 0);
     $otherAllianceId = (int)($body['other_alliance_id'] ?? 0);
-    $relationType = String($body['relation_type'] ?? '');
+    if (isset($body['relation_type']) && !is_string($body['relation_type'])) {
+        json_error('Alliance relation_type must be a string.', 400);
+    }
+    $relationType = $body['relation_type'] ?? '';
 
     if (!in_array($relationType, ['nap', 'alliance', 'war', 'enemy', 'neutral'])) {
         json_error('Invalid relation type.', 400);
@@ -940,9 +951,12 @@ function action_get_messages(PDO $db, int $uid): never {
 }
 
 function action_send_message(PDO $db, int $uid): never {
-    $body = json_decode(file_get_contents('php://input'), true) ?? [];
+    $body = get_json_body();
     $allianceId = (int)($body['alliance_id'] ?? 0);
-    $text = trim(String($body['message'] ?? ''));
+    if (isset($body['message']) && !is_string($body['message'])) {
+        json_error('Alliance message must be a string.', 400);
+    }
+    $text = trim($body['message'] ?? '');
 
     if (strlen($text) === 0 || strlen($text) > 1000) {
         json_error('Message must be 1–1000 characters.', 400);

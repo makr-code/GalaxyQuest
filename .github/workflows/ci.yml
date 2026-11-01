@@ -5,11 +5,12 @@
 # Runs on every push to supported branches and on every pull request.
 #
 # Jobs:
-#   lint-php         — PHP linting with custom architecture rules
+#   lint-php         — PHP syntax, counted PSR-12 baseline and PHPStan Level 5
 #   lint-js          — ESLint with Galaxy architecture rules
-#   phpunit          — PHPUnit unit tests (PHP 8.2 + MySQL 8.4 service)
+#   phpunit-unit     — Database-independent PHPUnit unit tests (SQLite)
+#   phpunit          — Complete PHPUnit suite (PHP 8.2 + MySQL 8.4 service)
 #   vitest           — Vitest JavaScript unit tests
-#   playwright-smoke — Playwright end-to-end smoke test (full Docker stack)
+#   playwright-smoke — Playwright smoke test (isolated built web image + database)
 #   docker-build     — Build & push versioned Docker image to GHCR (main only)
 
 name: CI/CD Pipeline
@@ -32,9 +33,9 @@ permissions:
   contents: read
 
 jobs:
-  # ── PHP Syntax Validation ────────────────────────────────────────────────────
+  # ── PHP Syntax, Style and Static Analysis ────────────────────────────────────
   lint-php:
-    name: PHP Syntax Validation
+    name: PHP Syntax, PSR-12 and PHPStan Level 5
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -47,7 +48,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          extensions: pdo, pdo_sqlite
+          extensions: pdo, pdo_sqlite, tokenizer, xmlwriter
           coverage: none
 
       - name: Lint PHP syntax
@@ -56,6 +57,15 @@ jobs:
             -not -path './vendor/*' \
             -not -path './tools/*' \
             -print0 | xargs -0 -n1 php -l
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Reject new PHPStan Level 5 findings
+        run: composer analyse
+
+      - name: Reject new and stale PHPCS PSR-12 findings
+        run: composer lint:php
 
   # ── JavaScript Architecture Linting ─────────────────────────────────────────
   lint-js:
@@ -80,7 +90,38 @@ jobs:
       - name: Lint JavaScript and enforce sanitization baseline
         run: npm run lint:js
 
-  # ── PHP Unit Tests ──────────────────────────────────────────────────────────
+      - name: Reject generated texture caches and oversized Git blobs
+        run: npm run check:repository-artifacts
+
+      - name: Validate canonical version and changelog metadata
+        run: npm run check:release-metadata
+
+      - name: Verify Docker context excludes private and runtime material
+        env:
+          GQ_DOCKER_CONTEXT_TESTS: '1'
+        run: npx vitest run tests/js/docker-context.test.js tests/js/ci-stack.test.js --testTimeout=30000
+
+  phpunit-unit:
+    name: PHPUnit Unit Tests (SQLite)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, gd
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run database-independent unit tests
+        run: vendor/bin/phpunit --testsuite "GalaxyQuest Unit" --no-coverage --do-not-cache-result --fail-on-warning --fail-on-risky --fail-on-phpunit-deprecation
+
+  # ── PHP Tests with MySQL ────────────────────────────────────────────────────
   phpunit:
     name: PHPUnit Tests
     runs-on: ubuntu-latest
@@ -120,17 +161,25 @@ jobs:
       - name: Audit Composer dependencies
         run: composer audit --locked
 
+      - name: Test MigrationRunner against isolated MySQL databases
+        env:
+          GQ_MIGRATION_TEST_DSN: "mysql:host=127.0.0.1;port=3306;charset=utf8mb4"
+          GQ_MIGRATION_TEST_USER: root
+          GQ_MIGRATION_TEST_PASSWORD: root
+        run: vendor/bin/phpunit tests/Integration/MigrationRunnerMySqlTest.php --no-coverage --do-not-cache-result --fail-on-warning --fail-on-risky --fail-on-phpunit-deprecation
+
       - name: Initialise database schema and migrations
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: galaxyquest
+          DB_USER: galaxyquest_user
+          DB_PASS: galaxyquest_dev
         run: |
           mysql -h 127.0.0.1 -u galaxyquest_user -pgalaxyquest_dev galaxyquest \
             < sql/schema.sql
-          # Apply all incremental migration files in alphabetical order so
-          # that new migrations are picked up automatically.
-          for f in sql/migrate_*.sql; do
-            [ -e "$f" ] || continue
-            echo "Applying $f …"
-            mysql -h 127.0.0.1 -u galaxyquest_user -pgalaxyquest_dev galaxyquest < "$f"
-          done
+          php scripts/migrate.php up --env=TEST
+          php scripts/migrate.php status
 
       - name: Run PHPUnit
         env:
@@ -139,7 +188,7 @@ jobs:
           DB_NAME: galaxyquest
           DB_USER: galaxyquest_user
           DB_PASS: galaxyquest_dev
-        run: vendor/bin/phpunit --no-coverage
+        run: vendor/bin/phpunit --no-coverage --fail-on-warning --fail-on-risky --fail-on-phpunit-deprecation
 
   # ── JavaScript Unit Tests ───────────────────────────────────────────────────
   vitest:
@@ -186,6 +235,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      COMPOSE_PROJECT_NAME: gq-ci-${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
       - name: Checkout repository
@@ -207,9 +258,33 @@ jobs:
         run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --wait web db
         timeout-minutes: 10
 
+      - name: Check live but not ready before canonical migrations
+        env:
+          GQ_HEALTH_HTTP_TESTS: '1'
+          GQ_HEALTH_EXPECT_READY: '0'
+          GQ_BASE_URL: http://localhost:8081
+        run: npx vitest run tests/js/health-http.test.js --testTimeout=10000
+
+      - name: Apply canonical migrations from the built image
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T web php scripts/migrate.php up --env=TEST
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T web php scripts/migrate.php up --env=TEST
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T web php scripts/migrate.php status
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T web php scripts/migrate.php verify --env=TEST
+
+      - name: Require application DB readiness after migrations
+        env:
+          GQ_HEALTH_HTTP_TESTS: '1'
+          GQ_HEALTH_EXPECT_READY: '1'
+          GQ_BASE_URL: http://localhost:8081
+        run: |
+          curl --fail --silent --show-error --max-time 5 http://localhost:8081/health/live
+          curl --fail --silent --show-error --max-time 5 http://localhost:8081/health/ready
+          npx vitest run tests/js/health-http.test.js --testTimeout=10000
+
       - name: Seed E2E test user
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T web php scripts/ensure_default_e2e_user.php \
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T web php scripts/ensure_default_e2e_user.php --skip-bootstrap \
             --username=default_user \
             --password=User!23456 \
             --email=default_user@local.test
@@ -230,12 +305,20 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+      - name: Capture isolated stack logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color web db
+
+      - name: Remove isolated CI stack and volumes
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down --volumes --remove-orphans
+
   docker-build:
     name: Build & Publish Docker Image
     runs-on: ubuntu-latest
     # Only publish images for pushes to main (not PRs)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [phpunit, vitest]
+    needs: [lint-php, lint-js, phpunit-unit, phpunit, vitest, playwright-smoke]
 
     permissions:
       contents: read
@@ -244,13 +327,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract Docker metadata
         id: meta
@@ -262,10 +338,44 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
+      - name: Build local candidate without publishing
+        id: candidate
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          load: true
+          push: false
+          tags: galaxyquest:publish-candidate
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Scan exact candidate before registry authentication
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: galaxyquest:publish-candidate
+          format: table
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Log in to GitHub Container Registry after scan
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push only the scanned candidate without rebuilding
+        env:
+          CANDIDATE_ID: ${{ steps.candidate.outputs.imageid }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          test -n "$CANDIDATE_ID"
+          test -n "$IMAGE_TAGS"
+          test "$(docker image inspect --format '{{.Id}}' galaxyquest:publish-candidate)" = "$CANDIDATE_ID"
+          while IFS= read -r tag; do
+            test -n "$tag"
+            docker tag "$CANDIDATE_ID" "$tag"
+            docker push "$tag"
+          done <<< "$IMAGE_TAGS"

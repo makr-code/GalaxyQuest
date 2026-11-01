@@ -33,7 +33,7 @@ if (!is_admin_user($db, $uid)) {
 switch ($action) {
     case 'list':
         only_method('GET');
-        handle_list($db);
+        admin_users_handle_list($db);
         break;
 
     case 'get':
@@ -65,7 +65,7 @@ switch ($action) {
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
-function handle_list(PDO $db): void
+function admin_users_handle_list(PDO $db): void
 {
     $page  = max(1, (int)($_GET['page']  ?? 1));
     $limit = min(200, max(1, (int)($_GET['limit'] ?? 50)));

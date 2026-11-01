@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../../lib/MiniYamlParser.php';
@@ -124,18 +125,14 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     // Mode A: loadMiniFactionSpec
     // =========================================================================
 
-    /**
-     * @dataProvider miniFactionCodeProvider
-     */
+    #[DataProvider('miniFactionCodeProvider')]
     public function testMiniFactionSpecLoadsForAllCodes(string $code): void
     {
         $spec = $this->composer->loadMiniFactionSpec($code);
         $this->assertNotEmpty($spec, "loadMiniFactionSpec('{$code}') must return a non-empty array");
     }
 
-    /**
-     * @dataProvider miniFactionCodeProvider
-     */
+    #[DataProvider('miniFactionCodeProvider')]
     public function testMiniFactionSpecHasDescription(string $code): void
     {
         $spec = $this->composer->loadMiniFactionSpec($code);
@@ -143,9 +140,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         $this->assertNotEmpty((string) ($spec['description'] ?? ''));
     }
 
-    /**
-     * @dataProvider miniFactionCodeProvider
-     */
+    #[DataProvider('miniFactionCodeProvider')]
     public function testMiniFactionSpecHasLlmVoice(string $code): void
     {
         $spec  = $this->composer->loadMiniFactionSpec($code);
@@ -153,9 +148,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         $this->assertIsArray($voice, "Spec for '{$code}' must have llm_voice array");
     }
 
-    /**
-     * @dataProvider miniFactionCodeProvider
-     */
+    #[DataProvider('miniFactionCodeProvider')]
     public function testMiniFactionSpecHasAtLeastOneNpc(string $code): void
     {
         $spec = $this->composer->loadMiniFactionSpec($code);
@@ -196,9 +189,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     // Mode A: compose(string, array)
     // =========================================================================
 
-    /**
-     * @dataProvider miniFactionCodeProvider
-     */
+    #[DataProvider('miniFactionCodeProvider')]
     public function testComposeReturnsFlatStringArray(string $code): void
     {
         $vars = $this->composer->compose($code);
@@ -209,9 +200,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider miniFactionCodeProvider
-     */
+    #[DataProvider('miniFactionCodeProvider')]
     public function testComposeIncludesRequiredKeys(string $code): void
     {
         $vars     = $this->composer->compose($code);
@@ -620,9 +609,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
     // Mode C: composeVars
     // =========================================================================
 
-    /**
-     * @dataProvider provideMiniFactionCodes
-     */
+    #[DataProvider('provideMiniFactionCodes')]
     public function testComposeVarsReturnsRequiredKeys(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
@@ -643,9 +630,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider provideMiniFactionCodes
-     */
+    #[DataProvider('provideMiniFactionCodes')]
     public function testComposeVarsCodeMatchesFilename(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
@@ -654,9 +639,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
             "mini_faction_code must match the requested code '{$code}'");
     }
 
-    /**
-     * @dataProvider provideMiniFactionCodes
-     */
+    #[DataProvider('provideMiniFactionCodes')]
     public function testComposeVarsMirrorOfIsIronFleet(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
@@ -665,9 +648,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
             "mirror_of must be 'iron_fleet' for '{$code}'");
     }
 
-    /**
-     * @dataProvider provideMiniFactionCodes
-     */
+    #[DataProvider('provideMiniFactionCodes')]
     public function testComposeVarsListFieldsAreCommaJoined(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
@@ -679,9 +660,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider provideMiniFactionCodes
-     */
+    #[DataProvider('provideMiniFactionCodes')]
     public function testComposeVarsQuotesSeparatedByPipe(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);
@@ -692,9 +671,7 @@ final class IronFleetPromptVarsComposerTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider provideMiniFactionCodes
-     */
+    #[DataProvider('provideMiniFactionCodes')]
     public function testContextOverridesVars(string $code): void
     {
         $composer = new IronFleetPromptVarsComposer($this->specDir);

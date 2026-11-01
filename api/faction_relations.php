@@ -512,7 +512,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Faction-to-faction relationship matrix
         case 'relationships':
             only_method('GET');
-            $cached = gq_cache_get($cache_key, ['uid' => $uid], CACHE_TTL_FACTIONS);
+            $cached = gq_cache_get($cache_key, ['uid' => $uid]);
             if ($cached) {
                 json_ok($cached);
             }
@@ -524,7 +524,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Predicted conflicts (classic PHP/MySQL loop)
         case 'conflicts':
             only_method('GET');
-            $cached = gq_cache_get($cache_key, ['uid' => $uid], CACHE_TTL_FACTIONS);
+            $cached = gq_cache_get($cache_key, ['uid' => $uid]);
             if ($cached) {
                 json_ok($cached);
             }

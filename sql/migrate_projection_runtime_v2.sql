@@ -18,45 +18,128 @@
 -- The existing unique key on (entity_type, entity_id) is preserved to keep
 -- the idempotent / coalescing behaviour of enqueue_projection_dirty().
 --
--- Safe to run multiple times on MySQL 8.0+ (uses IF NOT EXISTS / IF EXISTS).
+-- Conditional ALTER operations use information_schema guards for MySQL 8.4.
 
 USE galaxyquest;
 
 -- ── Add new columns to projection_dirty_queue ─────────────────────────────────
 
-ALTER TABLE projection_dirty_queue
-    ADD COLUMN IF NOT EXISTS event_type   VARCHAR(60)  NOT NULL DEFAULT ''
-        COMMENT 'Event/trigger type that caused the enqueue (e.g. fleet_sent)'
-        AFTER entity_id,
-    ADD COLUMN IF NOT EXISTS payload_json TEXT         DEFAULT NULL
-        COMMENT 'Optional supplementary JSON payload for the projection worker'
-        AFTER event_type,
-    ADD COLUMN IF NOT EXISTS status       ENUM('queued','processing','done','failed')
-                                          NOT NULL DEFAULT 'queued'
-        COMMENT 'Current lifecycle state of the queue entry'
-        AFTER payload_json,
-    ADD COLUMN IF NOT EXISTS created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
-        COMMENT 'When this row was first created (mirrors enqueued_at)'
-        AFTER next_attempt_at,
-    ADD COLUMN IF NOT EXISTS updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+SET @gq_created_at_missing = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projection_dirty_queue'
+      AND COLUMN_NAME = 'created_at'
+) = 0;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projection_dirty_queue'
+       AND COLUMN_NAME = 'event_type') = 0,
+    'ALTER TABLE projection_dirty_queue ADD COLUMN event_type   VARCHAR(60)  NOT NULL DEFAULT ''''
+        COMMENT ''Event/trigger type that caused the enqueue (e.g. fleet_sent)''
+        AFTER entity_id',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projection_dirty_queue'
+       AND COLUMN_NAME = 'payload_json') = 0,
+    'ALTER TABLE projection_dirty_queue ADD COLUMN payload_json TEXT         DEFAULT NULL
+        COMMENT ''Optional supplementary JSON payload for the projection worker''
+        AFTER event_type',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projection_dirty_queue'
+       AND COLUMN_NAME = 'status') = 0,
+    'ALTER TABLE projection_dirty_queue ADD COLUMN status       ENUM(''queued'',''processing'',''done'',''failed'')
+                                          NOT NULL DEFAULT ''queued''
+        COMMENT ''Current lifecycle state of the queue entry''
+        AFTER payload_json',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projection_dirty_queue'
+       AND COLUMN_NAME = 'created_at') = 0,
+    'ALTER TABLE projection_dirty_queue ADD COLUMN created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+        COMMENT ''When this row was first created (mirrors enqueued_at)''
+        AFTER next_attempt_at',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projection_dirty_queue'
+       AND COLUMN_NAME = 'updated_at') = 0,
+    'ALTER TABLE projection_dirty_queue ADD COLUMN updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                           ON UPDATE CURRENT_TIMESTAMP
-        COMMENT 'Timestamp of the last status change'
-        AFTER created_at,
-    ADD COLUMN IF NOT EXISTS processed_at DATETIME     DEFAULT NULL
-        COMMENT 'Set when the entry was successfully projected'
-        AFTER updated_at;
+        COMMENT ''Timestamp of the last status change''
+        AFTER created_at',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projection_dirty_queue'
+       AND COLUMN_NAME = 'processed_at') = 0,
+    'ALTER TABLE projection_dirty_queue ADD COLUMN processed_at DATETIME     DEFAULT NULL
+        COMMENT ''Set when the entry was successfully projected''
+        AFTER updated_at',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ── Add new indices ───────────────────────────────────────────────────────────
 
-ALTER TABLE projection_dirty_queue
-    ADD INDEX IF NOT EXISTS idx_dirty_status_next   (status, next_attempt_at),
-    ADD INDEX IF NOT EXISTS idx_dirty_event_created (event_type, created_at);
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projection_dirty_queue'
+       AND INDEX_NAME = 'idx_dirty_status_next') = 0,
+    'ALTER TABLE projection_dirty_queue ADD INDEX idx_dirty_status_next   (status, next_attempt_at)',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projection_dirty_queue'
+       AND INDEX_NAME = 'idx_dirty_event_created') = 0,
+    'ALTER TABLE projection_dirty_queue ADD INDEX idx_dirty_event_created (event_type, created_at)',
+    'SELECT 1'
+);
+PREPARE _stmt FROM @sql;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- ── Back-fill created_at from enqueued_at for existing rows ──────────────────
 
 UPDATE projection_dirty_queue
    SET created_at = enqueued_at
- WHERE created_at = '0000-00-00 00:00:00'
+ WHERE @gq_created_at_missing
+    OR CAST(created_at AS CHAR) = '0000-00-00 00:00:00'
     OR created_at IS NULL;
 
 -- ── Create system-snapshot read-model table (Phase 2) ────────────────────────

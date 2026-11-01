@@ -18,9 +18,7 @@ require_auth();
 
 $type = preg_replace('/[^a-z0-9_]/i', '', (string)($_GET['type'] ?? ''));
 if ($type === '') {
-    http_response_code(400);
-    json_err('type parameter is required.');
-    exit;
+    json_error('type parameter is required.', 400);
 }
 
 // Strict allow-list of model types (must match models/*.json filename stems)
@@ -39,9 +37,7 @@ const ALLOWED_MODEL_TYPES = [
 ];
 
 if (!in_array($type, ALLOWED_MODEL_TYPES, true)) {
-    http_response_code(404);
-    json_err("Unknown model type: {$type}");
-    exit;
+    json_error("Unknown model type: {$type}", 404);
 }
 
 $modelDir  = realpath(__DIR__ . '/../models');
@@ -49,23 +45,20 @@ $modelFile = $modelDir . DIRECTORY_SEPARATOR . $type . '.json';
 
 // Extra paranoia: ensure resolved path is inside models/
 if ($modelDir === false || !str_starts_with(realpath($modelFile) ?: '', $modelDir)) {
-    http_response_code(404);
-    json_err('Model file not found.');
-    exit;
+    json_error('Model file not found.', 404);
 }
 
 if (!is_file($modelFile) || !is_readable($modelFile)) {
-    http_response_code(404);
-    json_err("Model descriptor not found for type: {$type}");
-    exit;
+    json_error("Model descriptor not found for type: {$type}", 404);
 }
 
 $descriptor = file_get_contents($modelFile);
+if ($descriptor === false) {
+    json_error('Unable to read model descriptor.', 500);
+}
 $parsed     = json_decode($descriptor, true);
 if (!is_array($parsed)) {
-    http_response_code(500);
-    json_err('Malformed model descriptor.');
-    exit;
+    json_error('Malformed model descriptor.', 500);
 }
 
 // Cache-friendly (models change rarely)

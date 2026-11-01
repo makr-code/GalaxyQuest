@@ -1,0 +1,49 @@
+name: Release Metadata Preparation
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to validate (must match VERSION.txt)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    name: Validate tagged version and prepare release notes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Verify version tag and extract reviewed changelog
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        run: |
+          node scripts/check_release_metadata.mjs --tag "$RELEASE_TAG" --notes-file "$NOTES_FILE"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+
+      - name: Upload validated notes for operator review
+        uses: actions/upload-artifact@v4
+        with:
+          name: validated-release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+          retention-days: 30
+
+# Preparation only: no GitHub Release, deployment or production image publication.
+# Full release quality/security gates and staging approval remain mandatory.

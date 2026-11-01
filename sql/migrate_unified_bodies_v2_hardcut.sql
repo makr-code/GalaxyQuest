@@ -109,10 +109,23 @@ EXECUTE stmt_add_battle_body;
 DEALLOCATE PREPARE stmt_add_battle_body;
 
 -- historical battle_reports.planet_id often contained colony_id; map from colonies.id
-UPDATE battle_reports br
-JOIN colonies c ON c.id = br.planet_id
-SET br.body_id = c.body_id
-WHERE br.body_id IS NULL;
+SET @has_battle_planet := (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'battle_reports'
+      AND COLUMN_NAME = 'planet_id'
+);
+SET @sql_map_battle_body := IF(
+    @has_battle_planet > 0,
+    'UPDATE battle_reports br
+     JOIN colonies c ON c.id = br.planet_id
+     SET br.body_id = c.body_id
+     WHERE br.body_id IS NULL',
+    'SELECT 1'
+);
+PREPARE stmt_map_battle_body FROM @sql_map_battle_body;
+EXECUTE stmt_map_battle_body;
+DEALLOCATE PREPARE stmt_map_battle_body;
 
 SET @has_idx_battle_body := (
     SELECT COUNT(*) FROM information_schema.STATISTICS
@@ -138,7 +151,7 @@ SET @has_spy_body := (
 );
 SET @sql_add_spy_body := IF(
     @has_spy_body = 0,
-    'ALTER TABLE spy_reports ADD COLUMN target_body_id BIGINT UNSIGNED NULL AFTER target_planet_id',
+    'ALTER TABLE spy_reports ADD COLUMN target_body_id BIGINT UNSIGNED NULL',
     'SELECT 1'
 );
 PREPARE stmt_add_spy_body FROM @sql_add_spy_body;
@@ -146,10 +159,23 @@ EXECUTE stmt_add_spy_body;
 DEALLOCATE PREPARE stmt_add_spy_body;
 
 -- target_planet_id points to colonies.id in legacy fleet path
-UPDATE spy_reports sr
-JOIN colonies c ON c.id = sr.target_planet_id
-SET sr.target_body_id = c.body_id
-WHERE sr.target_body_id IS NULL;
+SET @has_spy_planet := (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'spy_reports'
+      AND COLUMN_NAME = 'target_planet_id'
+);
+SET @sql_map_spy_body := IF(
+    @has_spy_planet > 0,
+    'UPDATE spy_reports sr
+     JOIN colonies c ON c.id = sr.target_planet_id
+     SET sr.target_body_id = c.body_id
+     WHERE sr.target_body_id IS NULL',
+    'SELECT 1'
+);
+PREPARE stmt_map_spy_body FROM @sql_map_spy_body;
+EXECUTE stmt_map_spy_body;
+DEALLOCATE PREPARE stmt_map_spy_body;
 
 SET @has_idx_spy_body := (
     SELECT COUNT(*) FROM information_schema.STATISTICS
