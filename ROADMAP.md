@@ -128,7 +128,9 @@ GalaxyQuest gilt als produktionsreif, wenn **alle** folgenden Aussagen nachweisb
 
 **Repository & Prozess** (REPO-02 … REPO-04, DOC-01 … DOC-04, CI-06)
 - [ ] Branch-Schutz für `main` und `develop` (Required Checks, Review); gemergte `copilot/*`-Branches aufräumen
-- [ ] Artefakte aus dem Index entfernen: `generated/textures/**`, `js/**/*.gz`, große `.glb`-Dateien (Git LFS oder Asset-Storage)
+- [x] Generierte Texture-Cache-PNGs und Lockfiles aus dem Index entfernt; lokale Cache-Dateien bleiben erhalten und werden ignoriert
+- [ ] `js/**/*.gz` erst nach Migration des Boot-Loaders entfernen: Die komprimierten Bundles werden derzeit vom Boot-System geladen und durch `.htaccess` mit `Content-Encoding: gzip` ausgeliefert ([Boot-System](docs/technical/BOOT_SYSTEM_ARCHITECTURE.md), [`.htaccess`](.htaccess))
+- [ ] Die 22 verbleibenden GLB-Dateien auf Runtime-/Testbedarf prüfen und nicht benötigte generierte Assets auslagern; größtes getracktes GLB aktuell ca. 10 MiB
 - [ ] Root aufräumen: Snapshot- und Statusdokumente nach `docs/archive/`; Root enthält nur Einstiegsdateien
 - [x] Falsche README-Aussagen „No build step“ und „Tick-free“ korrigiert
 - [x] README mit dieser Roadmap verlinkt
