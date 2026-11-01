@@ -3136,6 +3136,18 @@
       this._overlayData.fleets = Array.isArray(fleets) ? fleets.slice() : [];
     }
 
+    setSpaceVessels(vessels) {
+      if (this._delegate?.setSpaceVessels) return this._delegate.setSpaceVessels(vessels);
+      if (this._native?.setSpaceVessels) return this._native.setSpaceVessels(vessels);
+      return false;
+    }
+
+    setSpaceEntities(entities) {
+      if (this._delegate?.setSpaceEntities) return this._delegate.setSpaceEntities(entities);
+      if (this._native?.setSpaceEntities) return this._native.setSpaceEntities(entities);
+      return false;
+    }
+
     setFtlInfrastructure(gates, nodes) {
       if (this._delegate) return this._delegate.setFtlInfrastructure?.(gates, nodes);
       this._overlayData.gates = Array.isArray(gates) ? gates.slice() : [];

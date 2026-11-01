@@ -38,6 +38,7 @@ set_exception_handler(function (Throwable $e) {
 
 $root_dir = dirname(__DIR__);
 require_once $root_dir . '/api/trellis2_asset_manager.php';
+require_once $root_dir . '/api/auth_helpers.php';
 
 // Get current user (from session or auth header)
 $user_id = getCurrentUserId();

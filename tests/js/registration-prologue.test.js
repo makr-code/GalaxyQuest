@@ -112,6 +112,9 @@ describe('Cinematic draft registration', () => {
     expect(el('continue').hidden).toBe(false);
     expect(el('continue').disabled).toBe(false);
     expect(el('title').textContent).toBe(content.teaser[0].title);
+    expect(el('chapter').classList.contains('registration-reveal')).toBe(true);
+    expect(el('title').classList.contains('registration-reveal')).toBe(true);
+    expect(el('story').classList.contains('registration-reveal')).toBe(true);
     expect(el('progress').value).toBe(1);
     expect(preview).toHaveBeenLastCalledWith({ stage: 'galaxy', beat: content.teaser[0].id });
     await endClip();

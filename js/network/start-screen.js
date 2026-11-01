@@ -18,6 +18,7 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
   let authDialog = null;
   let returnFocus = null;
   let resumePending = false;
+  let registrationPausedFlightTour = false;
   let panelListeners = null;
   let activeTrigger = null;
   const loginButton = document.getElementById('start-login');
@@ -96,6 +97,7 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
   const registration = initializeRegistrationPrologue({
     request: onRegistrationRequest, onPreview: onRegistrationPreview,
     onClose: () => {
+      resumeFlightTourAfterRegistration();
       document.getElementById('start-register').focus();
       window.dispatchEvent(new Event('gq:start-panel-closed'));
     },
@@ -148,6 +150,7 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
     if (authDialog) return;
     closeContent();
     announcements.close();
+    pauseFlightTourForRegistration();
     registration.open();
   });
   document.getElementById('start-resume').addEventListener('click', async (event) => {
@@ -251,6 +254,16 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
     } finally {
       flightTour.disabled = false;
     }
+  }
+  function pauseFlightTourForRegistration() {
+    if (!flightTour.checked || motion.checked) return;
+    registrationPausedFlightTour = true;
+    void applyFlightTour(false, false);
+  }
+  function resumeFlightTourAfterRegistration() {
+    if (!registrationPausedFlightTour) return;
+    registrationPausedFlightTour = false;
+    if (flightTour.checked && !motion.checked) void applyFlightTour(true, false);
   }
   flightTour.addEventListener('change', () => { void applyFlightTour(flightTour.checked); });
   if (flightTour.checked) void applyFlightTour(true, false);

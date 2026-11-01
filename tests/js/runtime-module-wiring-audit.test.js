@@ -63,7 +63,9 @@ describe('runtime module wiring audit', () => {
     expect(mainSource).toContain("'gq:authenticated'");
     expect(authSource).toContain("new CustomEvent('gq:authenticated')");
     expect(starfieldSource).toContain("import { loadAuthGalaxySamples } from './auth-galaxy-loader.js';");
-    expect(starfieldSource).toContain('runtime.renderer.setStars?.(runtime.stars, { preserveView: true });');
+    expect(starfieldSource).toContain(
+      'runtime.renderer.setStars?.(renderableStars(runtime.stars), { preserveView: true });'
+    );
   });
 
   it('keeps every ES module domain import wired into the main boot sequence', () => {

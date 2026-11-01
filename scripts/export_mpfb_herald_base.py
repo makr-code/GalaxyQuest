@@ -9,7 +9,7 @@ from __future__ import annotations
 import importlib
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 
@@ -34,13 +34,19 @@ def ensure_mpfb_enabled() -> None:
 
 
 def get_output_path() -> Path:
-    arguments = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    arguments = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     workspace = Path(__file__).resolve().parents[1]
-    output = Path(arguments[0]) if arguments else workspace / "generated/dev-only/heralds/generic_humanoid_base.glb"
+    output = (
+        Path(arguments[0])
+        if arguments
+        else workspace / "generated/dev-only/heralds/generic_humanoid_base.glb"
+    )
     return output.resolve()
 
 
-def add_bone_action(armature, action_name: str, bone_name: str, keyframes: list[tuple[int, float]]) -> None:
+def add_bone_action(
+    armature, action_name: str, bone_name: str, keyframes: list[tuple[int, float]]
+) -> None:
     if armature.data.bones.get(bone_name) is None:
         raise RuntimeError(f"MPFB game_engine rig is missing required bone {bone_name}.")
     animation_data = armature.animation_data_create()
@@ -79,7 +85,9 @@ def export_lod_variant(
             remove_helpers=True,
             also_proxy=True,
         )
-        armature_modifier = next((modifier for modifier in mesh.modifiers if modifier.type == "ARMATURE"), None)
+        armature_modifier = next(
+            (modifier for modifier in mesh.modifiers if modifier.type == "ARMATURE"), None
+        )
         decimate = mesh.modifiers.new(f"WebGPU_{label}_Decimate", "DECIMATE")
         decimate.ratio = ratio
         decimate.use_collapse_triangulate = True
@@ -109,10 +117,19 @@ def export_lod_variant(
             export_apply=True,
             export_yup=True,
         )
-        if "FINISHED" not in result or not output_path.is_file() or output_path.stat().st_size < 4096:
+        if (
+            "FINISHED" not in result
+            or not output_path.is_file()
+            or output_path.stat().st_size < 4096
+        ):
             raise RuntimeError(f"Blender did not produce the {label} LOD GLB at {output_path}.")
-        return {"label": label, "ratio": ratio, "triangles": triangles,
-                "file": output_path.name, "bytes": output_path.stat().st_size}
+        return {
+            "label": label,
+            "ratio": ratio,
+            "triangles": triangles,
+            "file": output_path.name,
+            "bytes": output_path.stat().st_size,
+        }
     finally:
         for child in object_service.get_list_of_children(root):
             bpy.data.objects.remove(child, do_unlink=True)
@@ -138,10 +155,17 @@ def export_base_character(output_path: Path) -> None:
     if armature is None:
         raise RuntimeError("MPFB did not create its game_engine armature.")
     add_bone_action(armature, "Idle_Breathing", "spine_03", [(1, 0.0), (30, 0.018), (60, 0.0)])
-    add_bone_action(armature, "Greeting_Wave", "upperarm_r", [(1, 0.0), (8, -0.72), (13, -0.95), (18, -0.72), (25, 0.0)])
+    add_bone_action(
+        armature,
+        "Greeting_Wave",
+        "upperarm_r",
+        [(1, 0.0), (8, -0.72), (13, -0.95), (18, -0.72), (25, 0.0)],
+    )
 
     export_root = export_service.create_character_copy(basemesh, name_suffix="_webgpu_export")
-    export_basemesh = object_service.find_object_of_type_amongst_nearest_relatives(export_root, "Basemesh")
+    export_basemesh = object_service.find_object_of_type_amongst_nearest_relatives(
+        export_root, "Basemesh"
+    )
     if export_basemesh is None:
         raise RuntimeError("Could not find the copied MPFB basemesh for export.")
     export_service.bake_modifiers_remove_helpers(
@@ -177,9 +201,12 @@ def export_base_character(output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     variants = [
         export_lod_variant(
-            basemesh, label, ratio,
+            basemesh,
+            label,
+            ratio,
             output_path.with_name(f"{output_path.stem}_lod_{label}{output_path.suffix}"),
-            export_service, object_service,
+            export_service,
+            object_service,
         )
         for label, ratio in (("medium", 0.4), ("low", 0.15))
     ]
@@ -190,10 +217,12 @@ def export_base_character(output_path: Path) -> None:
         "purpose": "Development-only WebGPU herald prototype",
         "high": {"file": output_path.name, "ratio": 1.0, "bytes": output_path.stat().st_size},
         "lods": variants,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "redistribution": "Review MakeHuman/MPFB asset licensing before any public release.",
     }
-    output_path.with_suffix(".json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    output_path.with_suffix(".json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
     print(f"[MPFB] Exported {output_path} ({output_path.stat().st_size} bytes)")
 
 

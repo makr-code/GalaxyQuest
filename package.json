@@ -7,6 +7,8 @@
     "vite:dev": "vite serve --host 127.0.0.1 --port 8080",
     "vite:build": "vite build",
     "vite:preview": "vite preview --host 127.0.0.1 --port 4173",
+    "check:bundle-budget": "node scripts/check_bundle_budget.mjs",
+    "lint:js": "eslint js/ --config .eslintrc.galaxy.js --suppressions-location eslint-suppressions.json --report-unused-disable-directives-severity off --max-warnings 0",
     "export:herald-base": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/export_mpfb_herald_base.ps1",
     "test:js": "vitest",
     "test:unit:js": "vitest run",
@@ -31,9 +33,11 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "eslint": "^10.14.0",
+    "eslint-plugin-no-unsanitized": "^4.1.5",
     "jsdom": "^24.1.3",
     "vite": "^8.2.0",
-    "vitest": "^4.1.3"
+    "vitest": "^5.0.5"
   },
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",
@@ -41,5 +45,8 @@
     "mustache": "^4.2.0",
     "three": "0.186.1",
     "tone": "^15.1.22"
+  },
+  "overrides": {
+    "minimatch": "11.0.3"
   }
 }

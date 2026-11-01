@@ -1,15 +1,22 @@
 import { Group, Matrix4, Object3D, PerspectiveCamera, Quaternion, Ray, Sphere, Vector3 } from 'three';
 import '../engine/post-effects/passes/LensFlarePass.js';
 import { SpatialLabelRenderer } from './spatial-label-renderer.js';
+import { createSpaceEntity, normalizeSpaceEntityKind, resolveSpaceEntityModelUrl } from './space-entity.js';
+import { SpaceVessel } from './space-vessel.js';
+import { SpaceVesselRenderPass } from './space-vessel-render-pass.js';
 import { createSpatialStarIndex, resolveSpatialLabels } from './spatial-label-layout.js';
 
 export const AU_LY = 1 / 63241.077084266;
 export const KM_LY = 1 / 9460730472580.8;
+const THREE_DEG_TO_RAD = Math.PI / 180;
 
 const SPECTRAL_COLORS = {
   O: [0.68, 0.81, 1], B: [0.75, 0.88, 1], A: [0.9, 0.93, 1], F: [1, 1, 0.95],
   G: [1, 0.96, 0.82], K: [1, 0.85, 0.55], M: [1, 0.6, 0.4],
 };
+const LOCAL_ARTIFICIAL_MODELS = new Set([
+  'deep_space_radar', 'jump_inhibitor', 'relay_station', 'space_station', 'stargate',
+]);
 
 function stableSurfaceSeed(star, type, body) {
   const manifestSeed = Number(body?.texture?.seed);
@@ -187,7 +194,8 @@ fn surfaceFbm(point: vec3<f32>) -> f32 {
 }`;
 
 export class PerspectiveSpaceFlight {
-  constructor({ radius = 50000, aspect = 1, lensFlare = null, bloom = null, labelRenderer = new SpatialLabelRenderer() } = {}) {
+  constructor({ radius = 50000, aspect = 1, lensFlare = null, bloom = null,
+    labelRenderer = new SpatialLabelRenderer(), vesselLoaderFactory } = {}) {
     this.camera = new PerspectiveCamera(58, aspect, 1e-14, radius * 20);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(radius * 0.35, -radius * 1.1, radius * 0.75);
@@ -202,6 +210,14 @@ export class PerspectiveSpaceFlight {
     this.lensFlare = lensFlare;
     this.bloom = bloom;
     this.labelRenderer = labelRenderer;
+    this.vesselRenderPass = new SpaceVesselRenderPass({ loaderFactory: vesselLoaderFactory });
+    this.device = null;
+    this.spaceEntities = new Map();
+    this.spaceVessels = this.spaceEntities;
+    this.systemManagedEntityIds = new Set();
+    this.cameraFollowEntity = null;
+    this.vesselCameraPose = null;
+    this.vesselDurationSeconds = 7;
     this.galaxyLabelIndex = createSpatialStarIndex([]);
     this.currentLabels = [];
     this.labelDiagnostics = { sourceStars: 0, queriedStars: 0, visibleCandidates: 0 };
@@ -210,6 +226,219 @@ export class PerspectiveSpaceFlight {
     this.lastRenderStart = 0;
     this.flight = null;
     this.telemetry = { phase: 'idle', speed: 0, speedNorm: 0, angularSpeed: 0, arrived: true };
+  }
+
+  setGalaxyFleets(fleets = []) {
+    const vessels = (Array.isArray(fleets) ? fleets : []).filter((fleet) =>
+      fleet?.registration_vessel === true || fleet?.space_entity === 'vessel' || fleet?.kind === 'vessel');
+    if (!vessels.length) {
+      this.clearSpaceVessels();
+      return true;
+    }
+    return this.setSpaceEntities(vessels);
+  }
+
+  setSpaceVessels(vessels = []) {
+    return this.setSpaceEntities(vessels);
+  }
+
+  setSpaceEntities(entities = []) {
+    const descriptors = (Array.isArray(entities) ? entities : []).filter((entity) => {
+      return entity?.id;
+    });
+    const desiredIds = new Set(descriptors.map((entity) => String(entity.id)));
+    for (const [id, entity] of this.spaceEntities) {
+      if (!desiredIds.has(id)) this._removeSpaceEntity(entity);
+    }
+    const primary = descriptors.find((entity) => entity.follow_camera || entity.registration_vessel) || null;
+    this.cameraFollowEntity = primary ? this.spaceEntities.get(String(primary.id)) || null : null;
+    return Promise.all(descriptors.map((entity) => this.registerSpaceEntity(entity)))
+      .then((results) => results.every(Boolean));
+  }
+
+  async registerSpaceEntity(descriptor) {
+    const kind = normalizeSpaceEntityKind(descriptor || {});
+    const modelUrl = resolveSpaceEntityModelUrl(descriptor, kind);
+    const id = String(descriptor?.id || '');
+    let entity = this.spaceEntities.get(id);
+    const sameAsset = entity?.modelUrl === modelUrl && entity.kind === kind;
+    const route = Array.isArray(descriptor?.route) ? descriptor.route
+      : descriptor?.position || descriptor?.local_position || descriptor?.anchor_body || descriptor?.body_anchor
+        || descriptor?.parent_entity_id || descriptor?.parent_id
+        ? [descriptor.position || descriptor.local_position || [0, 0, 0]] : [];
+    const points = route.map((point) => new Vector3(
+      Number(point?.x_ly ?? point?.x ?? point?.[0]),
+      Number(point?.y_ly ?? point?.y ?? point?.[1]),
+      Number(point?.z_ly ?? point?.z ?? point?.[2]),
+    ));
+    if (points.length === 1 && normalizeSpaceEntityKind(descriptor) !== 'vessel') {
+      points.push(points[0].clone());
+    }
+    const minimumRoutePoints = sameAsset && descriptor?.continue_from_current === true ? 1 : 2;
+    if (!id || !modelUrl || points.length < minimumRoutePoints
+      || points.some((point) => !point.toArray().every(Number.isFinite))) return false;
+
+    if (entity && !sameAsset) this._removeSpaceEntity(entity);
+    entity = this.spaceEntities.get(id);
+    if (!entity) {
+      const followsCamera = descriptor.follow_camera === true || descriptor.registration_vessel === true;
+      if (followsCamera && !this.cameraFollowEntity) {
+        this.vesselCameraPose = {
+          position: this.camera.position.clone(),
+          quaternion: this.camera.quaternion.clone(),
+        };
+      }
+      entity = createSpaceEntity(descriptor, points, this.camera, this.vesselDurationSeconds);
+      this.spaceEntities.set(id, entity);
+      if (entity.followCamera) this.cameraFollowEntity = entity;
+    } else {
+      entity.setRoute(descriptor, points, { defaultDuration: this.vesselDurationSeconds });
+    }
+    if (entity === this.cameraFollowEntity) this._followVessel(entity, entity.reducedMotion ? 1 : 0);
+
+    if (!this.vesselRenderPass.resources.has(entity.id) && !entity.assetLoadPromise) {
+      const currentEntity = entity;
+      currentEntity.assetLoadPromise = this.vesselRenderPass.load(currentEntity).catch((error) => {
+        if (this.spaceEntities.get(id) === currentEntity) this._removeSpaceEntity(currentEntity);
+        throw error;
+      }).finally(() => {
+        currentEntity.assetLoadPromise = null;
+      });
+    }
+    if (entity.assetLoadPromise) await entity.assetLoadPromise;
+    return this.spaceEntities.get(id) === entity && this.vesselRenderPass.resources.has(id);
+  }
+
+  async registerSpaceVessel(fleet) {
+    return this.registerSpaceEntity({ ...fleet, space_entity: 'vessel' });
+  }
+
+  registerVessel(fleet) {
+    return this.registerSpaceVessel(fleet);
+  }
+
+  _removeSpaceEntity(entity) {
+    this.vesselRenderPass.remove(entity.id);
+    this.spaceEntities.delete(entity.id);
+    this.systemManagedEntityIds.delete(entity.id);
+    if (this.cameraFollowEntity === entity) {
+      this.cameraFollowEntity = [...this.spaceEntities.values()]
+        .find((candidate) => candidate.followCamera) || null;
+    }
+    if (this.spaceEntities.size === 0 && this.vesselCameraPose) {
+      this.camera.position.copy(this.vesselCameraPose.position);
+      this.camera.quaternion.copy(this.vesselCameraPose.quaternion);
+      this.camera.updateMatrixWorld(true);
+      this.vesselCameraPose = null;
+    }
+  }
+
+  clearSpaceEntities() {
+    for (const entity of this.spaceEntities.values()) this.vesselRenderPass.remove(entity.id);
+    this.spaceEntities.clear();
+    this.systemManagedEntityIds.clear();
+    this.cameraFollowEntity = null;
+    if (this.vesselCameraPose) {
+      this.camera.position.copy(this.vesselCameraPose.position);
+      this.camera.quaternion.copy(this.vesselCameraPose.quaternion);
+      this.camera.updateMatrixWorld(true);
+      this.vesselCameraPose = null;
+    }
+  }
+
+  clearSpaceVessels() {
+    this.clearSpaceEntities();
+  }
+
+  clearRegistrationVessel() {
+    this.clearSpaceEntities();
+  }
+
+  get cameraFollowVessel() {
+    return this.cameraFollowEntity?.kind === 'vessel' ? this.cameraFollowEntity : null;
+  }
+
+  get registrationVessel() {
+    return this.cameraFollowEntity?.kind === 'vessel' ? this.cameraFollowEntity : null;
+  }
+
+  _followVessel(vessel, alpha) {
+    if (!vessel) return;
+    const direction = vessel.getForwardDirection();
+    vessel.quaternion.setFromUnitVectors(new Vector3(1, 0, 0), direction);
+    const localPosition = vessel.position.clone().sub(this.origin);
+    const lookAt = localPosition.clone().addScaledVector(direction, vessel.scale * 0.55);
+    const cameraTarget = localPosition.clone()
+      .addScaledVector(direction, -vessel.scale * 5)
+      .add(new Vector3(0, 0, vessel.scale * 1.8));
+    const previousQuaternion = this.camera.quaternion.clone();
+    this.camera.position.lerp(cameraTarget, alpha);
+    this.camera.lookAt(lookAt);
+    const targetQuaternion = this.camera.quaternion.clone();
+    if (!vessel.reducedMotion && vessel.cameraTransitionElapsed <= vessel.cameraTransitionDuration) {
+      const progress = Math.min(1, vessel.cameraTransitionElapsed / vessel.cameraTransitionDuration);
+      const eased = progress * progress * (3 - 2 * progress);
+      this.camera.position.copy(vessel.cameraStartPosition).lerp(cameraTarget, eased);
+      this.camera.quaternion.copy(vessel.cameraStartQuaternion).slerp(targetQuaternion, eased);
+    } else {
+      this.camera.quaternion.copy(previousQuaternion).slerp(targetQuaternion, alpha);
+    }
+    this.camera.updateMatrixWorld(true);
+  }
+
+  _updateSpaceEntities(dt) {
+    for (const entity of this.spaceEntities.values()) {
+      const moved = entity.update(dt);
+      if (moved && entity === this.cameraFollowEntity) {
+        this._followVessel(entity, 1 - Math.exp(-dt * 2.8));
+      }
+    }
+    this._syncSpaceEntityAnchors();
+  }
+
+  _syncSpaceEntityAnchors() {
+    for (const entity of this.spaceEntities.values()) {
+      const anchor = entity.parentBodyAnchor;
+      if (!anchor) continue;
+      const bodyKind = String(anchor.kind || anchor.type || 'planet');
+      const body = this.bodies.find((candidate) => candidate.userData.type === bodyKind
+        && Number(candidate.userData.data.position) === Number(anchor.position)
+        && (anchor.parentPosition === undefined
+          || Number(candidate.userData.parentPosition) === Number(anchor.parentPosition)));
+      if (!body) continue;
+      const latitude = THREE_DEG_TO_RAD * entity.surfaceLatitude;
+      const longitude = THREE_DEG_TO_RAD * entity.surfaceLongitude;
+      const normal = new Vector3(Math.cos(latitude) * Math.cos(longitude),
+        Math.cos(latitude) * Math.sin(longitude), Math.sin(latitude));
+      normal.applyQuaternion(body.getWorldQuaternion(new Quaternion())).normalize();
+      entity.position.copy(body.getWorldPosition(new Vector3()).add(this.origin))
+        .addScaledVector(normal, body.userData.radius + entity.surfaceHeight);
+      entity.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), normal);
+    }
+
+    const resolving = new Set();
+    const resolved = new Set();
+    const resolveParent = (entity) => {
+      if (resolved.has(entity.id) || !entity.parentEntityId) return;
+      if (resolving.has(entity.id)) return;
+      const parent = this.spaceEntities.get(entity.parentEntityId);
+      if (!parent) return;
+      resolving.add(entity.id);
+      resolveParent(parent);
+      entity.position.copy(entity.localPosition).applyQuaternion(parent.quaternion).add(parent.position);
+      entity.quaternion.copy(parent.quaternion).multiply(entity.localQuaternion);
+      resolving.delete(entity.id);
+      resolved.add(entity.id);
+    };
+    for (const entity of this.spaceEntities.values()) resolveParent(entity);
+  }
+
+  _registerSystemSpaceEntity(descriptor) {
+    this.systemManagedEntityIds.add(String(descriptor.id));
+    void this.registerSpaceEntity(descriptor).catch((error) => {
+      this.systemManagedEntityIds.delete(String(descriptor.id));
+      window.GQLog?.warn?.('[space-entity]', String(error?.message || error));
+    });
   }
 
   setSystem(scene) {
@@ -225,6 +454,12 @@ export class PerspectiveSpaceFlight {
       this.flight.focus.add(shift);
     }
     this.origin.copy(origin);
+    for (const id of this.systemManagedEntityIds) {
+      const entity = this.spaceEntities.get(id);
+      if (entity) this._removeSpaceEntity(entity);
+    }
+    this.systemManagedEntityIds.clear();
+    const systemId = `${Number(star.galaxy_index) || 0}:${Number(star.system_index) || 0}`;
     this.previousView = null;
     this.lensFlare?.clearSources();
     this.root.clear();
@@ -269,7 +504,29 @@ export class PerspectiveSpaceFlight {
       const radius = (Number(data.diameter_km) || 12000) * 0.5 * KM_LY;
       const planet = addBody(this.root, 'planet', data,
         new Vector3(Math.cos(angle) * orbit, Math.sin(angle) * orbit, 0), radius);
-      for (const child of node.children || []) {
+      const colonyId = `colony:${systemId}:${Number(data.position)}`;
+      const registerColony = (suffix, seed, latitude, longitude) => {
+        this._registerSystemSpaceEntity({
+          id: `${colonyId}:${suffix}`,
+          space_entity: 'colony',
+          route: [[0, 0, 0], [0, 0, 0]],
+          anchor_body: { kind: 'planet', position: Number(data.position) },
+          surface_latitude_deg: latitude,
+          surface_longitude_deg: longitude,
+          surface_height_ly: radius * 0.002,
+          visual_scale_ly: radius * 0.035,
+          color: [0.38, 0.78, 0.62, 1],
+          model_url: data.colony_model_url || 'procedural:colony',
+          seed,
+        });
+      };
+      const hasColony = data?.inhabited === true || Number(data?.colony_count) > 0;
+      if (hasColony) {
+        const seed = stableSurfaceSeed(star, 'colony', data);
+        registerColony('settlement', seed, ((seed % 1200) / 10) - 60,
+          ((seed * 2.399963229728653) % 360) - 180);
+      }
+      for (const [childIndex, child] of (node.children || []).entries()) {
         if (child.type === 'moon') {
           const moon = child.data;
           const distance = Math.max(2, Number(moon.semi_major_axis_parent_r) || 6) * radius;
@@ -282,19 +539,47 @@ export class PerspectiveSpaceFlight {
           const site = addBody(planet, 'colony-site', { previewOnly: true, position: data.position },
             new Vector3(0.25, -0.75, 0.612372).normalize().multiplyScalar(radius * 1.002), radius * 0.002);
           site.userData.parentPosition = Number(data.position);
-        } else if (child.type === 'facility') {
+          if (!hasColony) {
+            registerColony('preview', stableSurfaceSeed(star, 'colony-site', data),
+              37.76, -71.57);
+          }
+        } else if (child.type === 'facility' || child.type === 'building') {
           const facility = child.data || {};
           const zone = String(facility.zone || 'surface');
-          const angle = stableSurfaceSeed(star, 'facility', facility) * 2.399963229728653;
+          const seed = (stableSurfaceSeed(star, child.type, facility) + childIndex * 1379) % 10000;
+          const angle = seed * 2.399963229728653;
           const orbit = zone === 'orbital' ? radius * 1.28 : radius * 1.003;
           const body = addBody(planet, 'facility', facility,
             new Vector3(Math.cos(angle) * orbit, Math.sin(angle) * orbit, radius * 0.08),
             Math.max(radius * 0.008, 1e-15));
           body.userData.parentPosition = Number(data.position);
+          const modelType = String(facility.model_id || facility.modelId || facility.type || '').toLowerCase();
+          this._registerSystemSpaceEntity({
+            id: `building:${systemId}:${Number(data.position)}:${String(facility.id || facility.facility_id || `${modelType || 'facility'}-${childIndex}`)}`,
+            space_entity: 'building',
+            route: [[0, 0, 0], [0, 0, 0]],
+            ...(hasColony && zone !== 'orbital'
+              ? {
+                parent_entity_id: `${colonyId}:settlement`,
+                local_position: [Math.cos(angle) * radius * 0.22,
+                  Math.sin(angle) * radius * 0.22, radius * 0.035],
+              }
+              : {
+                anchor_body: { kind: 'planet', position: Number(data.position) },
+                surface_latitude_deg: ((seed % 1200) / 10) - 60,
+                surface_longitude_deg: ((seed * 2.399963229728653) % 360) - 180,
+                surface_height_ly: zone === 'orbital' ? radius * 0.28 : radius * 0.004,
+              }),
+            visual_scale_ly: radius * (zone === 'orbital' ? 0.055 : 0.028),
+            color: Array.isArray(facility.color) ? facility.color : [0.68, 0.74, 0.82, 1],
+            ...(facility.model_url ? { model_url: facility.model_url }
+              : LOCAL_ARTIFICIAL_MODELS.has(modelType) ? { model_url: `/models/${modelType}.json` } : {}),
+          });
         }
       }
     }
     this.root.updateMatrixWorld(true);
+    this._syncSpaceEntityAnchors();
     return true;
   }
 
@@ -365,6 +650,8 @@ export class PerspectiveSpaceFlight {
   }
 
   async initialize(device, format) {
+    this.device = device;
+    this.vesselRenderPass.initialize(device, this.bloom?.sceneFormat || format);
     await this.labelRenderer?.initialize(device, format);
   }
 
@@ -407,6 +694,7 @@ export class PerspectiveSpaceFlight {
   update(deltaSeconds) {
     const dt = Math.max(0, Math.min(0.05, Number(deltaSeconds) || 0));
     this.effectTime += dt;
+    this._updateSpaceEntities(dt);
     const flight = this.flight;
     if (!flight || !dt) return;
     const previousOrientation = this.camera.quaternion.clone();
@@ -457,7 +745,7 @@ export class PerspectiveSpaceFlight {
   getLensFlareSources() {
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld(true);
-    const bodies = this.bodies.filter((body) => body.userData.type !== 'colony-site')
+    const bodies = this.bodies.filter((body) => !['colony-site', 'facility'].includes(body.userData.type))
       .map((body) => ({ type: body.userData.type, data: body.userData.data,
         sphere: new Sphere(body.getWorldPosition(new Vector3()), body.userData.radius) }));
     const occluders = bodies.filter((body) => body.type !== 'star');
@@ -522,6 +810,9 @@ export class PerspectiveSpaceFlight {
       this.cameraBindGroup = device.createBindGroup({ layout: this.pipeline.getBindGroupLayout(0),
         entries: [{ binding: 0, resource: { buffer: this.cameraBuffer } }] });
     }
+    this.device = device;
+    this.vesselRenderPass.initialize(device,
+      this.bloom?.sceneFormat || navigator.gpu.getPreferredCanvasFormat());
     const capacity = (stars.length + this.bodies.length * 2 + 8) * 20;
     if (!this.instances || this.instances.length < capacity) {
       this.instanceBuffer?.destroy();
@@ -582,7 +873,7 @@ export class PerspectiveSpaceFlight {
       .sort((left, right) => right.position.distanceToSquared(this.camera.position) - left.position.distanceToSquared(this.camera.position));
     for (const item of sortedBodies) {
       const { type, data, radius } = item.body.userData;
-      if (type === 'colony-site') continue;
+      if (type === 'colony-site' || type === 'facility') continue;
       const kind = type === 'star' ? 1 : type === 'moon' ? 3 : 2;
       const planetClass = String(data.class || data.planet_class || 'rocky');
       const fallbackColor = planetClass.includes('ice') ? [0.65, 0.78, 0.86]
@@ -627,6 +918,8 @@ export class PerspectiveSpaceFlight {
     pass.setBindGroup(0, this.cameraBindGroup);
     pass.setVertexBuffer(0, this.instanceBuffer);
     pass.draw(4, count, 0, 0);
+    this.vesselRenderPass.render(pass, [...this.spaceVessels.values()], this.camera,
+      this.origin, this.effectTime);
     if (this.lensFlare) {
       this.lensFlare.setProjectedSources(this.getLensFlareSources());
       this.lensFlare.renderOverlay(pass, device, { aspect, time: this.effectTime });
@@ -661,12 +954,15 @@ export class PerspectiveSpaceFlight {
 
   dispose() {
     this.stop();
+    this.clearSpaceVessels();
+    this.vesselRenderPass.dispose();
     this.lensFlare?.clearSources();
     this.labelRenderer?.dispose();
     this.instanceBuffer?.destroy();
     this.cameraBuffer?.destroy();
     this.instanceBuffer = null;
     this.pipeline = null;
+    this.device = null;
     this.root.clear();
   }
 }

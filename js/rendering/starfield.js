@@ -111,6 +111,8 @@ window.GQPerspectiveBloom = PerspectiveBloom;
       authStarsAbortController: null,
       registrationSceneGraph: null,
       registrationSceneGraphToken: '',
+      registrationVesselActive: false,
+      registrationVesselOrbitKey: '',
     }
   );
 
@@ -166,6 +168,46 @@ window.GQPerspectiveBloom = PerspectiveBloom;
     if (preview.stage === 'planet') return { kind: 'planet', position: preview.target.position };
     if (preview.stage === 'surface') return { kind: 'surface', position: preview.target.position };
     return null;
+  }
+
+  function registrationVesselOrbit(preview) {
+    const target = preview?.target;
+    const planet = preview?.draft?.planets?.find((candidate) =>
+      Number(candidate.position) === Number(target?.position));
+    const position = Number(planet?.position);
+    const starPosition = [Number(target?.x_ly), Number(target?.y_ly), Number(target?.z_ly)];
+    if (!planet || !Number.isFinite(position) || !starPosition.every(Number.isFinite)) return null;
+
+    const semiMajorAxis = Math.max(0.01,
+      Number(planet.semi_major_axis_au) || position) / 63241.077084266;
+    const orbitalAngle = position * 2.399963229728653;
+    const center = [
+      starPosition[0] + Math.cos(orbitalAngle) * semiMajorAxis,
+      starPosition[1] + Math.sin(orbitalAngle) * semiMajorAxis,
+      starPosition[2],
+    ];
+    const planetRadius = Math.max(1e-15,
+      (Number(planet.diameter_km) || 12000) * 0.5 / 9460730472580.8);
+    const orbitRadius = planetRadius * 7.5;
+    const startAngle = orbitalAngle + 0.45;
+    return {
+      center,
+      radius: orbitRadius,
+      startAngle,
+      visualScale: planetRadius * 1.4,
+      position: [
+        center[0] + Math.cos(startAngle) * orbitRadius,
+        center[1] + Math.sin(startAngle) * orbitRadius,
+        center[2] + Math.sin(startAngle * 0.5) * orbitRadius * 0.18,
+      ],
+    };
+  }
+
+  function registrationVesselOrbitKey(preview) {
+    const target = preview?.target;
+    const token = String(preview?.draft?.prolog_token || '');
+    if (preview?.stage !== 'planet' || !token || !target) return '';
+    return [token, target.galaxy_index, target.system_index, target.position].join(':');
   }
 
   function updateSpatialLabelStars(stars) {
@@ -1314,9 +1356,12 @@ window.GQPerspectiveBloom = PerspectiveBloom;
       runtime.registrationPreview = preview;
       if (!runtime.renderer) return !runtime.released;
       if (typeof runtime.renderer.setRegionPreview !== 'function') return false;
+      const flightRenderer = getFlightRenderer();
       if (isGalaxyBeat) {
-        const flightRenderer = getFlightRenderer();
-        if (flightRenderer?.getFlightTelemetry?.()?.spatial === true) {
+        if (flightRenderer?.getFlightTelemetry?.()?.spatial === true && previous?.stage !== 'galaxy') {
+          flightRenderer.setGalaxyFleets?.([]);
+          runtime.registrationVesselActive = false;
+          runtime.registrationVesselOrbitKey = '';
           flightRenderer.setFlightScene(null);
           flightRenderer.setRegistrationScene?.(null);
           runtime.registrationSceneGraph = null;
@@ -1328,6 +1373,32 @@ window.GQPerspectiveBloom = PerspectiveBloom;
         }
         if (typeof runtime.renderer.setRegistrationScene === 'function'
           && runtime.renderer.setRegistrationScene(preview) !== true) return false;
+        if (flightRenderer?.setFlightScene?.({ flightTour: true, stage: 'galaxy', stars: runtime.stars }) === true
+          && flightRenderer.getFlightTelemetry?.()?.spatial === true) {
+          const anchor = runtime.stars.find((star) => star?.visual_only !== true) || runtime.stars[0] || {};
+          const anchorPosition = [Number(anchor.x_ly ?? anchor.x) || 0,
+            Number(anchor.y_ly ?? anchor.y) || 0, Number(anchor.z_ly ?? anchor.z) || 0];
+          const routeOffsets = [[0, 0, 0], [2, 0.3, 0.1], [5, 1.1, 0.25], [9, 2, 0.6], [13, 3.2, 1]];
+          const beatIndex = ({ 'teaser-distance': 0, 'teaser-convergence': 1,
+            'teaser-frontier': 2, 'teaser-commander': 3 })[preview.beat] ?? 0;
+          const fleetResult = flightRenderer.setGalaxyFleets?.([{
+            id: 'registration-transfer',
+            registration_vessel: true,
+            model_url: '/generated/trellis2/imported/ship/ship_generic_teaser_transfer_organic_lod0_dev.glb',
+            route: routeOffsets.map(([x, y, z]) => ({
+              x_ly: anchorPosition[0] + x,
+              y_ly: anchorPosition[1] + y,
+              z_ly: anchorPosition[2] + z,
+            })),
+            chapter_index: beatIndex,
+            segment_duration_seconds: 7,
+            visual_scale_ly: 0.08,
+            reduced_motion: document.body.dataset.startReducedMotion === 'true',
+            color: [0.62, 0.82, 0.98, 1],
+          }]);
+          runtime.registrationVesselActive = fleetResult !== false;
+          runtime.registrationVesselOrbitKey = '';
+        }
         const label = document.getElementById('start-galaxy-source');
         if (label) label.textContent = `WEBGPU INTRO · ${String(preview.beat || 'GALAXY').toUpperCase()}`;
         return true;
@@ -1339,7 +1410,6 @@ window.GQPerspectiveBloom = PerspectiveBloom;
         runtime.renderer.setStars?.(renderableStars(visible), { preserveScale: !!preview && runtime.starSource === 'database' });
       }
 
-      const flightRenderer = getFlightRenderer();
       if (preview && flightRenderer?.setFlightScene && flightRenderer?.navigateTo) {
         const sceneGraph = getRegistrationSceneGraph(preview.draft);
         const scene = {
@@ -1352,8 +1422,40 @@ window.GQPerspectiveBloom = PerspectiveBloom;
         };
         if (sceneGraph && flightRenderer.setFlightScene(scene) === true
           && flightRenderer.getFlightTelemetry?.()?.spatial === true) {
+          const targetOrbitKey = registrationVesselOrbitKey(preview);
+          const isVesselArrival = targetOrbitKey
+            && runtime.registrationVesselActive
+            && runtime.registrationVesselOrbitKey !== targetOrbitKey;
+          if (isVesselArrival) {
+            const orbit = registrationVesselOrbit(preview);
+            if (orbit) {
+              const fleetResult = flightRenderer.setGalaxyFleets?.([{
+                id: 'registration-transfer',
+                registration_vessel: true,
+                model_url: '/generated/trellis2/imported/ship/ship_generic_teaser_transfer_organic_lod0_dev.glb',
+                route: [orbit.position],
+                continue_from_current: true,
+                segment_duration_seconds: 7.5,
+                visual_scale_ly: orbit.visualScale,
+                orbit_center: orbit.center,
+                orbit_radius_ly: orbit.radius,
+                orbit_start_angle: orbit.startAngle,
+                orbit_angular_speed: 0.1,
+                reduced_motion: document.body.dataset.startReducedMotion === 'true',
+                color: [0.62, 0.82, 0.98, 1],
+              }]);
+              runtime.registrationVesselActive = fleetResult !== false;
+              runtime.registrationVesselOrbitKey = targetOrbitKey;
+            } else {
+              flightRenderer.setGalaxyFleets?.([]);
+              runtime.registrationVesselActive = false;
+              runtime.registrationVesselOrbitKey = '';
+            }
+          }
           const target = registrationNavigationTarget(preview);
-          if (target) void flightRenderer.navigateTo(target, { durationMs: 2600 });
+          if (target && !runtime.registrationVesselActive) {
+            void flightRenderer.navigateTo(target, { durationMs: 2600 });
+          }
           const label = document.getElementById('start-galaxy-source');
           if (label) label.textContent = `WEBGPU FLIGHT · ${String(preview.stage).toUpperCase()} · ${preview.target?.name || `System ${preview.target?.system_index || ''}`}`;
           return true;
@@ -1361,6 +1463,9 @@ window.GQPerspectiveBloom = PerspectiveBloom;
       }
 
       if (!preview && flightRenderer?.getFlightTelemetry?.()?.spatial === true) {
+        flightRenderer.setGalaxyFleets?.([]);
+        runtime.registrationVesselActive = false;
+        runtime.registrationVesselOrbitKey = '';
         flightRenderer.setFlightScene(null);
         flightRenderer.setRegistrationScene?.(null);
         runtime.registrationSceneGraph = null;

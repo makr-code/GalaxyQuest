@@ -1,4 +1,9 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
  * Test endpoint for Ollama integration
  * GET /api/test_ollama.php?action=health

@@ -1,4 +1,9 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 $response = @file_get_contents('http://comfyui:8188/invalid/endpoint');
 $data = json_decode($response, true);
 

@@ -2,7 +2,7 @@
 
 [![CI/CD Pipeline](https://github.com/makr-code/GalaxyQuest/actions/workflows/ci.yml/badge.svg)](https://github.com/makr-code/GalaxyQuest/actions/workflows/ci.yml)
 
-> **A browser-based, multiplayer space-strategy game** — persistent galaxy, Newtonian fleet movement, planetary economies, NPC factions, and AI-driven leaders. No build step, no framework, no dependencies.
+> **A browser-based, multiplayer space-strategy game** — persistent galaxy, Newtonian fleet movement, planetary economies, NPC factions, and AI-driven leaders. The frontend is built with Vite and the backend uses PHP and MySQL.
 
 ---
 
@@ -503,6 +503,7 @@ window.__GQ_RENDER_TELEMETRY         // → array of render events
 ## Architecture & Design Decisions
 
 Current implementation status and verification limits: [Reality Check (29 October 2026)](docs/technical/REALITY_CHECK_2026-10-29.md).
+Path to production readiness: [ROADMAP.md](ROADMAP.md), based on the [Production Readiness Audit (31 October 2026)](docs/technical/PRODUCTION_AUDIT_2026-10-31.md).
 
 ### Vanilla JavaScript and ES Modules
 
@@ -528,15 +529,19 @@ server, not in `VITE_*` variables. An unavailable backend returns a JSON 502
 with a setup hint rather than serving PHP source or a misleading HTML response.
 The development audio catalogue remains available directly from Vite.
 
-### Server-authoritative, Tick-free
+### Server-authoritative, elapsed-time production
 
-There is no server-side game loop or cron job. Instead:
+Colony production is calculated from elapsed time rather than a continuously
+running game loop. Fleet arrivals and NPC updates are still resolved lazily on
+requests:
 
 - Every API call that touches a colony first calls `update_colony_resources($db, $colonyId)`, which calculates exactly how much was produced/consumed since `last_update` using elapsed-time arithmetic.
 - Fleet arrivals are resolved lazily the first time any request reads fleet state (`check_arrivals`).
 - NPC AI runs a single rate-limited tick (max once per 5 minutes) on each overview load.
 
-This makes the game trivially deployable on shared hosting with no background process.
+This avoids requiring a dedicated simulation worker for those paths, but
+request-time simulation and concurrent updates still need operational controls
+before production use.
 
 ### 5-Level Hierarchy
 

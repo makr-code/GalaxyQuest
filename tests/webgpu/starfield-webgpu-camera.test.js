@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, Vector3 } from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { PerspectiveSpaceFlight } from '../../js/rendering/perspective-space-flight.js';
 import { generateGalaxyNebulae } from '../../js/rendering/loading-galaxy.js';
 import { GalaxyNebulaField } from '../../js/rendering/galaxy-nebula-field.js';
@@ -17,6 +19,373 @@ function loadStarfield() {
 }
 
 describe('StarfieldWebGPU camera driver', () => {
+  it('loads the organic transfer GLB with its procedural engine flame and particle trail', async () => {
+    const file = fs.readFileSync(path.resolve(process.cwd(),
+      'generated/trellis2/imported/ship/ship_generic_teaser_transfer_organic_lod0_dev.glb'));
+    const arrayBuffer = Uint8Array.from(file).buffer;
+    const gltf = await new Promise((resolve, reject) => {
+      new GLTFLoader().parse(arrayBuffer, '', resolve, reject);
+    });
+    const flight = new PerspectiveSpaceFlight({ vesselLoaderFactory: () => ({
+      loadAsync: async () => gltf,
+    }) });
+
+    await expect(flight.setGalaxyFleets([{
+      id: 'organic-transfer', registration_vessel: true, model_url: '/organic-transfer.glb',
+      route: [[0, 0, 0], [1, 0, 0]],
+    }])).resolves.toBe(true);
+
+    const vessel = flight.registrationVessel;
+    const renderable = flight.vesselRenderPass.resources.get(vessel.id);
+    expect(renderable.asset.vertexCount).toBeGreaterThan(6000);
+    expect(renderable.asset.engineVertexCount).toBeGreaterThan(0);
+    expect(renderable.asset.particleCount).toBe(18);
+    expect(renderable.asset.particleInstances).toHaveLength(renderable.asset.particleCount * 4);
+    expect(renderable.asset.vertices[renderable.asset.engineVertexOffset * 10 + 9]).toBeGreaterThan(0.8);
+    flight.dispose();
+  });
+
+  it('loads a registration vessel, animates its route, and follows it with the flight camera', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 2, 0, 0, 0, 1, 0], 3));
+    geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    const scene = new Group();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const loadAsync = vi.fn(async () => ({ scene }));
+    const flight = new PerspectiveSpaceFlight({ vesselLoaderFactory: () => ({ loadAsync }) });
+    const startingCameraPosition = flight.camera.position.clone();
+    const fleet = {
+      id: 'registration-transfer', registration_vessel: true, model_url: '/transfer.glb',
+      route: [[10, 0, 0], [20, 0, 0], [30, 5, 0]], visual_scale_ly: 1,
+      segment_duration_seconds: 4, chapter_index: 0,
+    };
+
+    await expect(flight.setGalaxyFleets([fleet])).resolves.toBe(true);
+    expect(loadAsync).toHaveBeenCalledWith('/transfer.glb');
+    const renderable = flight.vesselRenderPass.resources.get(flight.registrationVessel.id);
+    expect(renderable.asset.vertexCount).toBe(3);
+    expect(flight.registrationVessel.position.toArray()).toEqual([10, 0, 0]);
+    expect(flight.camera.position.toArray()).toEqual(startingCameraPosition.toArray());
+    for (let frame = 0; frame < 40; frame += 1) flight._updateSpaceEntities(0.05);
+    expect(flight.registrationVessel.position.x).toBeCloseTo(15);
+    expect(flight.camera.position.x).toBeCloseTo(10, 1);
+
+    await flight.setGalaxyFleets([{ ...fleet, chapter_index: 1 }]);
+    expect(flight.registrationVessel.to.toArray()).toEqual([30, 5, 0]);
+    const destroy = vi.fn();
+    renderable.asset.vertexBuffer = { destroy };
+    expect(flight.setGalaxyFleets([])).toBe(true);
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(flight.registrationVessel).toBeNull();
+    expect(flight.camera.position.toArray()).toEqual(startingCameraPosition.toArray());
+    flight.dispose();
+  });
+
+  it('continues the current shuttle into a planet-scale orbit and keeps it circling', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 2, 0, 0, 0, 1, 0], 3));
+    geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    const scene = new Group();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const loadAsync = vi.fn(async () => ({ scene }));
+    const flight = new PerspectiveSpaceFlight({ vesselLoaderFactory: () => ({ loadAsync }) });
+    const modelUrl = '/organic-transfer.glb';
+    await flight.setGalaxyFleets([{
+      id: 'registration-transfer', registration_vessel: true, model_url: modelUrl,
+      route: [[100, 0, 0], [110, 0, 0]], visual_scale_ly: 0.08,
+    }]);
+    flight.origin.set(100, 0, 0);
+
+    await flight.setGalaxyFleets([{
+      id: 'registration-transfer', registration_vessel: true, model_url: modelUrl,
+      continue_from_current: true,
+      route: [[200, 30, 4]],
+      segment_duration_seconds: 1,
+      visual_scale_ly: 2e-9,
+      orbit_center: [200, 30, 4],
+      orbit_radius_ly: 8e-9,
+      orbit_start_angle: 0.4,
+      orbit_angular_speed: 0.5,
+    }]);
+    const vessel = flight.registrationVessel;
+    expect(vessel.position.toArray()).toEqual([100, 0, 0]);
+    expect(vessel.scale).toBe(2e-9);
+
+    for (let frame = 0; frame < 20; frame += 1) flight._updateSpaceEntities(0.05);
+    expect(vessel.position.toArray()).toEqual([200, 30, 4]);
+    for (let frame = 0; frame < 10; frame += 1) flight._updateSpaceEntities(0.05);
+    expect(vessel.position.distanceTo(new (vessel.position.constructor)(200, 30, 4)))
+      .toBeCloseTo(8e-9, 9);
+    expect(vessel.position.y).toBeGreaterThan(30);
+    expect(flight.camera.position.x).toBeLessThan(100);
+    flight.dispose();
+  });
+
+  it('places the registration vessel at the active beat without animating for reduced motion', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const scene = new Group();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const flight = new PerspectiveSpaceFlight({ vesselLoaderFactory: () => ({
+      loadAsync: async () => ({ scene }),
+    }) });
+    await flight.setGalaxyFleets([{
+      id: 'registration-transfer', registration_vessel: true, model_url: '/transfer.glb',
+      route: [[0, 0, 0], [5, 0, 0], [10, 2, 0]], chapter_index: 1,
+      visual_scale_ly: 1, reduced_motion: true,
+    }]);
+    expect(flight.registrationVessel.position.toArray()).toEqual([10, 2, 0]);
+    expect(flight.camera.position.x).toBeCloseTo(5);
+    expect(flight.camera.position.y).toBeCloseTo(2);
+    expect(flight.camera.position.z).toBeCloseTo(1.8);
+    flight._updateSpaceEntities(2);
+    expect(flight.registrationVessel.position.toArray()).toEqual([10, 2, 0]);
+    flight.dispose();
+  });
+
+  it('draws the registered vessel in the shared perspective WebGPU pass', async () => {
+    vi.stubGlobal('GPUBufferUsage', { VERTEX: 1, COPY_DST: 2, UNIFORM: 4 });
+    const nav = Object.create(navigator);
+    nav.gpu = { getPreferredCanvasFormat: () => 'bgra8unorm' };
+    vi.stubGlobal('navigator', nav);
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const scene = new Group();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const pass = { setPipeline: vi.fn(), setBindGroup: vi.fn(), setVertexBuffer: vi.fn(), draw: vi.fn(), end: vi.fn() };
+    const device = {
+      createShaderModule: vi.fn(() => ({})),
+      createRenderPipeline: vi.fn(() => ({ getBindGroupLayout: () => ({}) })),
+      createBindGroup: vi.fn(() => ({})),
+      createBuffer: vi.fn(() => ({ destroy: vi.fn() })),
+      queue: { writeBuffer: vi.fn(), submit: vi.fn() },
+      createCommandEncoder: () => ({ beginRenderPass: () => pass, finish: () => ({}) }),
+    };
+    const context = { getCurrentTexture: () => ({ createView: () => ({}) }) };
+    const loadAsync = vi.fn(async () => ({ scene }));
+    const flight = new PerspectiveSpaceFlight({ vesselLoaderFactory: () => ({
+      loadAsync,
+    }) });
+    await flight.setSpaceVessels([{
+      id: 'registration-transfer', space_entity: 'vessel', follow_camera: true,
+      model_url: '/transfer.glb', route: [[0, 0, 0], [1, 0, 0]],
+    }, {
+      id: 'escort-transfer', space_entity: 'vessel',
+      model_url: '/transfer.glb', route: [[0, 2, 0], [1, 2, 0]],
+    }]);
+    const renderable = flight.vesselRenderPass.resources.get('registration-transfer');
+    const escortRenderable = flight.vesselRenderPass.resources.get('escort-transfer');
+    expect(loadAsync).toHaveBeenCalledOnce();
+    expect(renderable.asset).toBe(escortRenderable.asset);
+
+    flight.renderFrame(device, context, [], 640, 360);
+
+    expect(device.createRenderPipeline).toHaveBeenCalledTimes(3);
+    expect(device.createRenderPipeline.mock.calls[1][0].primitive.topology).toBe('triangle-list');
+    expect(device.createRenderPipeline.mock.calls[2][0].vertex.buffers[0].stepMode).toBe('instance');
+    expect(renderable.uniformBuffer).not.toBe(escortRenderable.uniformBuffer);
+    expect(renderable.particleUniformBuffer).not.toBe(escortRenderable.particleUniformBuffer);
+    expect(device.queue.writeBuffer.mock.calls.filter(([buffer]) => buffer === renderable.asset.vertexBuffer)).toHaveLength(1);
+    expect(device.queue.writeBuffer.mock.calls.filter(([buffer]) => buffer === renderable.asset.particleBuffer)).toHaveLength(1);
+    expect(pass.draw.mock.calls.filter(([vertexCount]) => vertexCount === 3)).toHaveLength(2);
+    expect(pass.draw.mock.calls.filter(([vertexCount]) => vertexCount === renderable.asset.engineVertexCount)).toHaveLength(2);
+    expect(pass.draw.mock.calls.filter(([vertexCount]) => vertexCount === 6)).toHaveLength(2);
+    expect(device.queue.submit).toHaveBeenCalledOnce();
+    flight.dispose();
+  });
+
+  it('manages multiple space vessels independently through the shared render pass', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const scene = new Group();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const loadAsync = vi.fn(async () => ({ scene }));
+    const flight = new PerspectiveSpaceFlight({ vesselLoaderFactory: () => ({
+      loadAsync,
+    }) });
+
+    await expect(flight.setSpaceVessels([
+      { id: 'freighter-1', space_entity: 'vessel', follow_camera: true,
+        model_url: '/fleet-common.glb', route: [[0, 0, 0], [1, 0, 0]] },
+      { id: 'escort-1', space_entity: 'vessel',
+          model_url: '/fleet-common.glb', route: [[0, 2, 0], [1, 2, 0]] },
+    ])).resolves.toBe(true);
+
+    expect(flight.spaceVessels.size).toBe(2);
+    expect(flight.vesselRenderPass.resources.size).toBe(2);
+    expect(flight.vesselRenderPass.assets.size).toBe(1);
+    expect(flight.vesselRenderPass.resources.get('freighter-1').asset)
+      .toBe(flight.vesselRenderPass.resources.get('escort-1').asset);
+    expect(loadAsync).toHaveBeenCalledOnce();
+    expect(flight.vesselRenderPass.assets.get('/fleet-common.glb#vessel-effects').refCount).toBe(2);
+    expect(flight.registrationVessel.id).toBe('freighter-1');
+    expect(flight.spaceVessels.get('escort-1').position.y).toBe(2);
+
+    await flight.setSpaceVessels([{ id: 'escort-1', space_entity: 'vessel',
+      model_url: '/fleet-common.glb', route: [[2, 2, 0], [3, 2, 0]] }]);
+    expect(flight.spaceVessels.size).toBe(1);
+    expect(flight.spaceVessels.has('escort-1')).toBe(true);
+    expect(flight.vesselRenderPass.assets.get('/fleet-common.glb#vessel-effects').refCount).toBe(1);
+    expect(flight.cameraFollowEntity).toBeNull();
+    await flight.setSpaceVessels([]);
+    expect(flight.vesselRenderPass.assets.size).toBe(0);
+    flight.dispose();
+  });
+
+  it('integrates stations and artificial objects without ship engine effects', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const scene = new Group();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const flight = new PerspectiveSpaceFlight({ vesselLoaderFactory: () => ({
+      loadAsync: async () => ({ scene }),
+    }) });
+
+    await expect(flight.setSpaceEntities([
+      { id: 'orbital-station', space_entity: 'station', model_url: '/station.glb',
+        position: [0, 0, 4] },
+      { id: 'relay-beacon', space_entity: 'artificial', model_url: '/beacon.glb',
+        position: [0, 2, 0] },
+    ])).resolves.toBe(true);
+
+    expect(flight.spaceEntities.get('orbital-station').kind).toBe('station');
+    expect(flight.spaceEntities.get('relay-beacon').kind).toBe('artificial');
+    for (const entityId of ['orbital-station', 'relay-beacon']) {
+      const renderable = flight.vesselRenderPass.resources.get(entityId);
+      expect(renderable.asset.engineVertexCount).toBe(0);
+      expect(renderable.asset.particleCount).toBe(0);
+    }
+    flight.dispose();
+  });
+
+  it('loads the existing Three.js station model JSON as a static space entity', async () => {
+    const descriptor = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'models/space_station.json'), 'utf8'));
+    descriptor.images = [];
+    descriptor.textures = [];
+    for (const material of descriptor.materials || []) {
+      delete material.map;
+      delete material.emissiveMap;
+      delete material.bumpMap;
+      delete material.normalMap;
+      delete material.specularMap;
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => descriptor })));
+    const flight = new PerspectiveSpaceFlight();
+
+    await expect(flight.setSpaceEntities([{
+      id: 'relay-orbit-1', space_entity: 'station',
+      position: [10, 4, 2],
+    }])).resolves.toBe(true);
+
+    const entity = flight.spaceEntities.get('relay-orbit-1');
+    const asset = flight.vesselRenderPass.resources.get(entity.id).asset;
+    expect(entity.kind).toBe('station');
+    expect(asset.vertexCount).toBeGreaterThan(0);
+    expect(asset.engineVertexCount).toBe(0);
+    expect(asset.particleCount).toBe(0);
+    expect(fetch).toHaveBeenCalledWith('/models/space_station.json');
+    expect(asset.vertices[6]).not.toBe(0.58);
+    flight.dispose();
+  });
+
+  it('anchors colonies to a planet surface and buildings to their colony parent', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const scene = new Group();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const flight = new PerspectiveSpaceFlight({ vesselLoaderFactory: () => ({
+      loadAsync: async () => ({ scene }),
+    }), radius: 50000 });
+    const system = { sceneGraph: { type: 'galaxy', children: [{ type: 'system',
+      data: { x_ly: 12, y_ly: -4, z_ly: 2, radius_solar: 1 },
+      children: [{ type: 'planet', data: { position: 2, semi_major_axis_au: 1.4,
+        diameter_km: 12000, planet_class: 'ocean' }, children: [] }],
+    }] } };
+    expect(flight.setSystem(system)).toBe(true);
+    await flight.setSpaceEntities([{
+      id: 'colony-1', space_entity: 'colony', model_url: '/colony.glb',
+      anchor_body: { kind: 'planet', position: 2 },
+      surface_latitude_deg: 15, surface_longitude_deg: 40,
+      visual_scale_ly: 1e-10,
+    }, {
+      id: 'building-1', space_entity: 'building', model_url: '/building.glb',
+      parent_entity_id: 'colony-1', local_position: [0, 0, 2e-10],
+      visual_scale_ly: 2e-11,
+    }]);
+    flight._updateSpaceEntities(0.016);
+
+    const colony = flight.spaceEntities.get('colony-1');
+    const building = flight.spaceEntities.get('building-1');
+    const planetBody = flight.bodies.find((body) => body.userData.type === 'planet');
+    const planetCenter = planetBody.getWorldPosition(new Vector3()).add(flight.origin);
+    expect(colony.position.distanceTo(planetCenter)).toBeCloseTo(planetBody.userData.radius, 14);
+    const expectedBuildingPosition = building.localPosition.clone()
+      .applyQuaternion(colony.quaternion).add(colony.position);
+    expect(building.position.distanceTo(expectedBuildingPosition)).toBeLessThan(1e-14);
+    expect(flight.vesselRenderPass.resources.get('colony-1').asset.particleCount).toBe(0);
+    expect(flight.vesselRenderPass.resources.get('building-1').asset.engineVertexCount).toBe(0);
+    flight.dispose();
+  });
+
+  it('bridges inhabited planets and facility nodes from a system graph into engine entities', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const scene = new Group();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const loadAsync = vi.fn(async () => ({ scene }));
+    const flight = new PerspectiveSpaceFlight({ vesselLoaderFactory: () => ({ loadAsync }) });
+    const systemData = { galaxy_index: 2, system_index: 7, name: 'Solis', x_ly: 24, y_ly: -8,
+      z_ly: 3, radius_solar: 1 };
+    expect(flight.setSystem({ sceneGraph: { type: 'galaxy', children: [{ type: 'system',
+      data: systemData,
+      children: [{ type: 'planet', data: { position: 3, name: 'Neris', inhabited: true,
+        colony_count: 1, semi_major_axis_au: 1.4, diameter_km: 12000 },
+        children: [
+          { type: 'facility', data: { id: 'hydroponics-1', type: 'hydroponic_farm', zone: 'surface' } },
+          { type: 'facility', data: { type: 'hydroponic_farm', zone: 'surface' } },
+        ] }],
+    }] } })).toBe(true);
+
+    await vi.waitFor(() => expect(flight.spaceEntities.size).toBe(3));
+    await vi.waitFor(() => expect(flight.vesselRenderPass.resources.size).toBe(3));
+    const colony = flight.spaceEntities.get('colony:2:7:3:settlement');
+    const buildings = [...flight.spaceEntities.values()].filter((entity) => entity.kind === 'building');
+    const building = buildings[0];
+    expect(colony.kind).toBe('colony');
+    expect(building.kind).toBe('building');
+    expect(building.parentEntityId).toBe(colony.id);
+    expect(new Set(buildings.map((entity) => entity.id)).size).toBe(2);
+    expect(building.modelUrl).toBe('procedural:building');
+    expect(loadAsync).not.toHaveBeenCalled();
+    expect(flight.systemManagedEntityIds.size).toBe(3);
+    expect(flight.setSystem({ sceneGraph: { type: 'galaxy', children: [{ type: 'system',
+      data: { ...systemData, system_index: 8, x_ly: 28 }, children: [],
+    }] } })).toBe(true);
+    expect(flight.systemManagedEntityIds.size).toBe(0);
+    expect(flight.spaceEntities.size).toBe(0);
+    expect(flight.vesselRenderPass.resources.size).toBe(0);
+    flight.dispose();
+  });
+
+  it('does not restore render resources when a vessel is removed during GLTF loading', async () => {
+    let resolveLoad;
+    const flight = new PerspectiveSpaceFlight({ vesselLoaderFactory: () => ({
+      loadAsync: () => new Promise((resolve) => { resolveLoad = resolve; }),
+    }) });
+    const loading = flight.setSpaceVessels([{
+      id: 'temporary-escort', space_entity: 'vessel', model_url: '/escort.glb',
+      route: [[0, 0, 0], [1, 0, 0]],
+    }]);
+    await vi.waitFor(() => expect(resolveLoad).toBeTypeOf('function'));
+    expect(await flight.setSpaceVessels([])).toBe(true);
+    resolveLoad({ scene: new Group() });
+
+    await expect(loading).resolves.toBe(false);
+    expect(flight.spaceVessels.size).toBe(0);
+    expect(flight.vesselRenderPass.resources.size).toBe(0);
+    flight.dispose();
+  });
+
   it('caps per-frame flight stars and preserves streamed catalog targets', () => {
     const StarfieldWebGPU = loadStarfield();
     const renderer = new StarfieldWebGPU(document.createElement('canvas'), { menuGalaxy: true });
@@ -446,6 +815,15 @@ describe('StarfieldWebGPU camera driver', () => {
     expect(renderer.setRegistrationScene(null)).toBe(true);
     expect(dispose).toHaveBeenCalledOnce();
     expect(renderer._perspectiveFlight).toBeNull();
+    renderer.dispose();
+  });
+  it('keeps the spatial flight alive while galaxy teaser beats update', () => {
+    const StarfieldWebGPU = loadStarfield();
+    const renderer = new StarfieldWebGPU(document.createElement('canvas'), { menuGalaxy: true });
+    expect(renderer.setFlightScene({ stage: 'galaxy', flightTour: true })).toBe(true);
+    const rig = renderer._perspectiveFlight;
+    expect(renderer.setRegistrationScene({ stage: 'galaxy', beat: 'teaser-convergence' })).toBe(true);
+    expect(renderer._perspectiveFlight).toBe(rig);
     renderer.dispose();
   });
   it('builds a spatial mentor-system scene and navigates to its reserved planet', async () => {

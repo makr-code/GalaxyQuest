@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../api/helpers.php';
 
-function ensure_default_admin(PDO $db): int {
+function ensure_default_admin(PDO $db, string $password): int {
     $select = $db->prepare('SELECT id FROM users WHERE username = ? LIMIT 1');
     $select->execute(['administrator']);
     $row = $select->fetch(PDO::FETCH_ASSOC);
 
-    $passwordHash = password_hash('Admin!23456', PASSWORD_BCRYPT);
+    $passwordHash = password_hash($password, PASSWORD_BCRYPT);
 
     if ($row) {
         $userId = (int) $row['id'];
@@ -48,8 +48,14 @@ function ensure_default_admin(PDO $db): int {
 }
 
 if (PHP_SAPI === 'cli' && realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) === __FILE__) {
+    $password = getenv('DEFAULT_ADMIN_PASSWORD');
+    if ($password === false || strlen($password) < 16) {
+        fwrite(STDERR, "Set DEFAULT_ADMIN_PASSWORD to a unique password of at least 16 characters.\n");
+        exit(1);
+    }
+
     $db = get_db();
-    $adminId = ensure_default_admin($db);
+    $adminId = ensure_default_admin($db, $password);
 
     echo 'Administrator ensured: id=' . $adminId . PHP_EOL;
 }

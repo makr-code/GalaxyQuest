@@ -20,18 +20,18 @@ define('SYSTEM_MAX', (int) env_value('SYSTEM_MAX', 25000)); // Max systems per g
 define('POSITION_MAX', (int) env_value('POSITION_MAX', 15)); // Max planets per system
 define('SESSION_LIFETIME', (int) env_value('SESSION_LIFETIME', 3600)); // Seconds
 define('REMEMBER_ME_DAYS', (int) env_value('REMEMBER_ME_DAYS', 30)); // Persistent login cookie lifetime
-define('APP_ENV', env_value('APP_ENV', 'dev'));
-define('ENABLE_DEV_AUTH_TOOLS', (int) env_value('ENABLE_DEV_AUTH_TOOLS', APP_ENV === 'production' ? 0 : 1));
+define('APP_ENV', env_value('APP_ENV', 'production'));
+define('ENABLE_DEV_AUTH_TOOLS', (int) env_value('ENABLE_DEV_AUTH_TOOLS', APP_ENV === 'dev' ? 1 : 0));
 
 // Local LLM (Ollama) configuration
-define('OLLAMA_ENABLED', (int) env_value('OLLAMA_ENABLED', APP_ENV === 'production' ? 0 : 1));
+define('OLLAMA_ENABLED', (int) env_value('OLLAMA_ENABLED', APP_ENV === 'dev' ? 1 : 0));
 define('OLLAMA_LOCAL_ONLY', (int) env_value('OLLAMA_LOCAL_ONLY', 1));
 define('OLLAMA_BASE_URL', rtrim((string) env_value('OLLAMA_BASE_URL', 'http://127.0.0.1:11434'), '/'));
 define('OLLAMA_DEFAULT_MODEL', (string) env_value('OLLAMA_DEFAULT_MODEL', 'mistral'));
 define('OLLAMA_TIMEOUT_SECONDS', (int) env_value('OLLAMA_TIMEOUT_SECONDS', 45));
 
 // SwarmUI (local Stable Diffusion image generation)
-define('SWARMUI_ENABLED',         (int)    env_value('SWARMUI_ENABLED', 1));
+define('SWARMUI_ENABLED',         (int)    env_value('SWARMUI_ENABLED', APP_ENV === 'dev' ? 1 : 0));
 define('SWARMUI_BASE_URL',        (string) env_value('SWARMUI_BASE_URL', 'http://127.0.0.1:7801'));
 define('SWARMUI_DEFAULT_MODEL',   (string) env_value('SWARMUI_DEFAULT_MODEL', 'OfficialStableDiffusion/sd_xl_base_1.0.safetensors'));
 define('SWARMUI_TURBO_MODEL',     (string) env_value('SWARMUI_TURBO_MODEL', 'ZImage/SwarmUI_Z-Image-Turbo-FP8Mix.safetensors'));

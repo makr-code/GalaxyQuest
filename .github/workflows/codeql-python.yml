@@ -1,12 +1,14 @@
-name: codeql-python
+name: CodeQL
 
 on:
   push:
     branches:
+      - develop
       - main
       - master
   pull_request:
     branches:
+      - develop
       - main
       - master
   schedule:
@@ -25,11 +27,8 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: python
-          paths: |
-            tts_service
-            scripts
+          languages: javascript, python
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:python"
+          category: "/language:javascript,python"

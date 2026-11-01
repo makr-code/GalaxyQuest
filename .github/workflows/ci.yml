@@ -2,7 +2,7 @@
 #
 # GalaxyQuest — Main CI/CD Pipeline
 #
-# Runs on every push to main and on every pull request targeting main.
+# Runs on every push to supported branches and on every pull request.
 #
 # Jobs:
 #   lint-php         — PHP linting with custom architecture rules
@@ -17,10 +17,12 @@ name: CI/CD Pipeline
 on:
   push:
     branches:
+      - develop
       - main
       - master
   pull_request:
     branches:
+      - develop
       - main
       - master
 
@@ -30,9 +32,9 @@ permissions:
   contents: read
 
 jobs:
-  # ── PHP Architecture Linting ────────────────────────────────────────────────
+  # ── PHP Syntax Validation ────────────────────────────────────────────────────
   lint-php:
-    name: PHP Architecture Validation
+    name: PHP Syntax Validation
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -48,12 +50,12 @@ jobs:
           extensions: pdo, pdo_sqlite
           coverage: none
 
-      - name: Install PHP CodeSniffer
-        run: composer require --dev squizlabs/php_codesniffer --prefer-dist --no-interaction
-
-      - name: Validate PHP architecture with custom ruleset
-        run: vendor/bin/phpcs --standard=ruleset.xml src/ tests/ --exclude=tests/bootstrap.php
-        continue-on-error: true
+      - name: Lint PHP syntax
+        run: |
+          find . -type f -name '*.php' \
+            -not -path './vendor/*' \
+            -not -path './tools/*' \
+            -print0 | xargs -0 -n1 php -l
 
   # ── JavaScript Architecture Linting ─────────────────────────────────────────
   lint-js:
@@ -69,14 +71,14 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate JavaScript architecture with custom ESLint config
-        run: npx eslint js/features/galaxy/ --config .eslintrc.galaxy.js --format=stylish || echo "Note: ESLint validation completed (warnings/errors logged)"
+      - name: Lint JavaScript and enforce sanitization baseline
+        run: npm run lint:js
 
   # ── PHP Unit Tests ──────────────────────────────────────────────────────────
   phpunit:
@@ -115,16 +117,19 @@ jobs:
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      - name: Audit Composer dependencies
+        run: composer audit --locked
+
       - name: Initialise database schema and migrations
         run: |
-          mysql -h 127.0.0.1 -u galaxyquest_user -pgalaxquest_dev galaxyquest \
+          mysql -h 127.0.0.1 -u galaxyquest_user -pgalaxyquest_dev galaxyquest \
             < sql/schema.sql
           # Apply all incremental migration files in alphabetical order so
           # that new migrations are picked up automatically.
           for f in sql/migrate_*.sql; do
             [ -e "$f" ] || continue
             echo "Applying $f …"
-            mysql -h 127.0.0.1 -u galaxyquest_user -pgalaxquest_dev galaxyquest < "$f"
+            mysql -h 127.0.0.1 -u galaxyquest_user -pgalaxyquest_dev galaxyquest < "$f"
           done
 
       - name: Run PHPUnit
@@ -150,14 +155,30 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
       - name: Run Vitest
         run: npx vitest run --reporter=verbose
+
+      - name: Build production frontend
+        run: npm run vite:build
+
+      - name: Enforce JavaScript bundle budget
+        run: npm run check:bundle-budget
+
+      - name: Ensure production build has no source maps
+        run: |
+          if [ -n "$(find dist -type f -name '*.map' -print -quit)" ]; then
+            echo "Production build unexpectedly contains source maps." >&2
+            exit 1
+          fi
 
   # ── End-to-End Smoke Test ───────────────────────────────────────────────────
   playwright-smoke:
@@ -173,7 +194,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
@@ -182,20 +203,20 @@ jobs:
       - name: Install Playwright Chromium browser
         run: npx playwright install chromium --with-deps
 
-      - name: Start application stack (web + db + tts)
-        run: docker compose up -d --wait
+      - name: Start application stack (web + db, AI services disabled)
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --wait web db
         timeout-minutes: 10
 
       - name: Seed E2E test user
         run: |
-          docker compose exec -T web php scripts/ensure_default_e2e_user.php \
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T web php scripts/ensure_default_e2e_user.php \
             --username=default_user \
             --password=User!23456 \
             --email=default_user@local.test
 
       - name: Run view-flow smoke test
         env:
-          GQ_BASE_URL: http://localhost:8080
+          GQ_BASE_URL: http://localhost:8081
         run: |
           npx playwright test tests/e2e/view-flow.spec.js \
             --reporter=list \

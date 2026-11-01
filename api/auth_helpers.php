@@ -6,25 +6,16 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/helpers.php';
+
 /**
- * Get current user ID from multiple sources
- * Priority: Session → JWT → API Key → Dev fallback
+ * Get current user ID from the session or an active API key.
  */
 function getCurrentUserId(): ?int {
     // 1. Session-based auth (primary)
-    session_start();
+    session_start_secure();
     if (!empty($_SESSION['user_id'])) {
         return (int)$_SESSION['user_id'];
-    }
-    
-    // 2. JWT Bearer token
-    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (preg_match('/^Bearer\s+(.+)$/', $auth, $m)) {
-        $token = $m[1];
-        $decoded = verifyJWT($token);
-        if ($decoded && isset($decoded->sub)) {
-            return (int)$decoded->sub;
-        }
     }
     
     // 3. API key (X-API-Key header)
@@ -33,39 +24,7 @@ function getCurrentUserId(): ?int {
         return verifyAPIKey($apiKey);
     }
     
-    // 4. Development fallback (if not production)
-    if (getenv('APP_ENV') !== 'production') {
-        return $_GET['user_id'] ?? null;
-    }
-    
     return null;
-}
-
-/**
- * Verify JWT token and extract payload
- */
-function verifyJWT(string $token): ?object {
-    try {
-        $secret = getenv('JWT_SECRET');
-        if (!$secret) return null;
-        
-        // Simple JWT verification (use firebase/php-jwt for production)
-        $parts = explode('.', $token);
-        if (count($parts) !== 3) return null;
-        
-        // Verify signature (simplified)
-        $payload = json_decode(base64_decode($parts[1]));
-        if (!$payload) return null;
-        
-        // Check expiration if present
-        if (isset($payload->exp) && $payload->exp < time()) {
-            return null;
-        }
-        
-        return $payload;
-    } catch (Exception $e) {
-        return null;
-    }
 }
 
 /**
@@ -131,7 +90,7 @@ function requireAuth(): int {
         http_response_code(401);
         echo json_encode([
             'error' => 'Authentication required',
-            'message' => 'Please provide valid credentials (session, JWT Bearer token, or X-API-Key header)'
+            'message' => 'Please provide a valid session or X-API-Key header'
         ]);
         exit;
     }
@@ -142,23 +101,12 @@ function requireAuth(): int {
  * Check if user is admin
  */
 function isAdminUser(int $userId): bool {
-    // Priority 1: Admin API key header (for simple integration)
     $adminKey = $_SERVER['HTTP_X_ADMIN_KEY'] ?? null;
     if ($adminKey && $adminKey === getenv('ADMIN_API_KEY')) {
         return true;
     }
-    
-    // Priority 2: Check database for admin role
-    try {
-        $pdo = getDatabase();
-        $stmt = $pdo->prepare('SELECT role FROM users WHERE id = :id LIMIT 1');
-        $stmt->execute([':id' => $userId]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        return $result && in_array($result['role'], ['admin', 'superadmin']);
-    } catch (Exception $e) {
-        return false;
-    }
+
+    return is_admin_user(getDatabase(), $userId);
 }
 
 /**
@@ -184,25 +132,5 @@ function requireAdmin(): int {
  * Get database connection (requires getDatabase() in calling file)
  */
 function getDatabase(): PDO {
-    // This function must be defined in the calling file
-    // But we can try to create it here as fallback
-    static $pdo = null;
-    
-    if ($pdo === null) {
-        $dsn = sprintf(
-            'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-            getenv('DB_HOST') ?: 'db',
-            getenv('DB_PORT') ?: 3306,
-            getenv('DB_NAME') ?: 'galaxyquest'
-        );
-        
-        $pdo = new PDO(
-            $dsn,
-            getenv('DB_USER') ?: 'root',
-            getenv('DB_PASS') ?: 'root'
-        );
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    }
-    
-    return $pdo;
+    return get_db();
 }

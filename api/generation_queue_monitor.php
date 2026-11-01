@@ -13,6 +13,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/helpers.php';
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    require_admin();
     try {
         $action = $_GET['action'] ?? 'list_all';
         $mode = $_GET['mode'] ?? null;

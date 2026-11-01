@@ -452,21 +452,19 @@ describe('Texture Systems & AI Generation', () => {
     });
 
     it('should validate prompt input', async () => {
-      expect(async () => {
-        await aiGen.generateTexture('', 'baseColor', 'medium');
-      }).rejects.toThrow();
+      await expect(aiGen.generateTexture('', 'baseColor', 'medium')).rejects.toThrow();
     });
 
     it('should validate texture type', async () => {
-      expect(async () => {
-        await aiGen.generateTexture('valid prompt', 'invalid_type', 'medium');
-      }).rejects.toThrow('Invalid texture type');
+      await expect(
+        aiGen.generateTexture('valid prompt', 'invalid_type', 'medium')
+      ).rejects.toThrow('Invalid texture type');
     });
 
     it('should validate quality tier', async () => {
-      expect(async () => {
-        await aiGen.generateTexture('prompt', 'baseColor', 'ultra');
-      }).rejects.toThrow('Invalid quality tier');
+      await expect(aiGen.generateTexture('prompt', 'baseColor', 'ultra')).rejects.toThrow(
+        'Invalid quality tier'
+      );
     });
 
     it('should support quality tiers with different configs', async () => {

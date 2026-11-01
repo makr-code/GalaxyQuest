@@ -10,6 +10,7 @@ services:
       tts:
         condition: service_started
     environment:
+      APP_ENV: ${APP_ENV:-dev}
       DB_HOST: db
       DB_PORT: 3306
       DB_NAME: galaxyquest
@@ -56,7 +57,7 @@ services:
       retries: 20
       start_period: 20s
     ports:
-      - "3307:3306"
+      - "127.0.0.1:3307:3306"
     volumes:
       - galaxyquest-db-data:/var/lib/mysql
       - ./sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
@@ -95,7 +96,7 @@ services:
       # TTS_SECRET: change_me_in_production
       # TTS_CORS_ORIGINS: http://localhost:8080  # restrict CORS in production
     ports:
-      - "5500:5500"
+      - "127.0.0.1:5500:5500"
     volumes:
       - galaxyquest-tts-voice-cache:/app/voice_cache
       - galaxyquest-tts-audio-cache:/app/audio_cache
@@ -113,7 +114,7 @@ services:
       HF_TOKEN: ""
       CUDA_VISIBLE_DEVICES: 0
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - vllm-models:/root/.cache/huggingface/hub
       - vllm-cache:/root/.cache
@@ -143,7 +144,7 @@ services:
       GRADIO_QUEUE_CONCURRENCY_COUNT: 2
       CUDA_VISIBLE_DEVICES: 0
     ports:
-      - "7860:7860"
+      - "127.0.0.1:7860:7860"
     volumes:
       - stable-diffusion-models:/stable-diffusion-webui/models
       - stable-diffusion-outputs:/stable-diffusion-webui/outputs
@@ -190,7 +191,7 @@ services:
       # Temp directory for processing
       - /tmp/comfyui:/workspace/temp:rw
     ports:
-      - "8188:8188"
+      - "127.0.0.1:8188:8188"
     expose:
       - "8188"
     healthcheck:
@@ -221,7 +222,7 @@ services:
     environment:
       CUDA_VISIBLE_DEVICES: 0
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama-models:/root/.ollama
     # Pre-download model on start (optional, comment out for faster startup)
@@ -261,8 +262,8 @@ services:
       PYTHONUNBUFFERED: 1
       TRELLIS_MODEL: TRELLIS-large  # or TRELLIS-image-large, TRELLIS-text-large
     ports:
-      - "7862:7862"  # Image→3D WebApp
-      - "7863:7863"  # Text→3D WebApp (alternative)
+      - "127.0.0.1:7862:7862"  # Image→3D WebApp
+      - "127.0.0.1:7863:7863"  # Text→3D WebApp (alternative)
     volumes:
       - ./tools/trellis2:/workspace/trellis2:ro  # TRELLIS2 repository (read-only)
       - trellis2-models:/workspace/models        # Cached models (persistent)
@@ -308,9 +309,9 @@ services:
       THEMIS_LLM_ENABLED: 0
       THEMIS_LLM_MODEL_DIR: /models
     ports:
-      - "8090:8080"
-      - "18765:18765"
-      - "4318:4318"
+      - "127.0.0.1:8090:8080"
+      - "127.0.0.1:18765:18765"
+      - "127.0.0.1:4318:4318"
     volumes:
       - galaxyquest-themisdb-data:/data
     healthcheck:

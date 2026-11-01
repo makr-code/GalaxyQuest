@@ -1,0 +1,540 @@
+{
+  "js/admin/texture-admin-ui.js": {
+    "no-unsanitized/property": {
+      "count": 6
+    }
+  },
+  "js/components/advisor_npc_integration.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/components/multi-mode-modal.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/components/npc_dialogue_panel.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/RuntimeAdvisorWidget.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/RuntimeAiSettingsPanel.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeAlliancesController.js": {
+    "no-unsanitized/property": {
+      "count": 8
+    }
+  },
+  "js/engine/runtime/RuntimeAudioCatalog.js": {
+    "no-unsanitized/property": {
+      "count": 4
+    }
+  },
+  "js/engine/runtime/RuntimeBuildingsController.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/RuntimeColonizationController.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/RuntimeColonyVfxDebugWidget.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeColonyViewController.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeConflictDashboard.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeContractNegotiationModal.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/RuntimeDiplomacyPanel.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/RuntimeDiplomaticPlaysPanel.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeEconomyController.js": {
+    "no-unsanitized/property": {
+      "count": 11
+    }
+  },
+  "js/engine/runtime/RuntimeEconomyFlowController.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeEmpireCategoriesPanel.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/RuntimeEspionageController.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/RuntimeFactionsController.js": {
+    "no-unsanitized/property": {
+      "count": 13
+    }
+  },
+  "js/engine/runtime/RuntimeFleetController.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeFleetMissionDefaults.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeFleetStatusPanels.js": {
+    "no-unsanitized/method": {
+      "count": 1
+    },
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeFtlSettingsPanel.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/RuntimeGalaxyControllerNavigation.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeGalaxyControllerWindow.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeGalaxyDebugLog.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeGalaxyHoverCardFacade.js": {
+    "no-unsanitized/property": {
+      "count": 4
+    }
+  },
+  "js/engine/runtime/RuntimeGalaxyInit3DFacade.js": {
+    "no-unsanitized/property": {
+      "count": 4
+    }
+  },
+  "js/engine/runtime/RuntimeGalaxyStarErrorUi.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/RuntimeGalaxyStarUiStatus.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/RuntimeGalaxySystemDetailsFacade.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/RuntimeIntelController.js": {
+    "no-unsanitized/property": {
+      "count": 6
+    }
+  },
+  "js/engine/runtime/RuntimeLeaderboardController.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/RuntimeLeadersController.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/RuntimeMinimapDomScaffold.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeOverviewController.js": {
+    "no-unsanitized/property": {
+      "count": 5
+    }
+  },
+  "js/engine/runtime/RuntimeOverviewLists.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/RuntimeQuestsRenderFacade.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeQuickNavFacade.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/RuntimeResearchController.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeResourceScanOverview.js": {
+    "no-unsanitized/property": {
+      "count": 4
+    }
+  },
+  "js/engine/runtime/RuntimeSettingsRenderBindings.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeThemeSettingsUi.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeTopbarSearch.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeUiConsolePanel.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeWormholeController.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/domains/alliance/AllianceUI.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/domains/colonization/ColonizationUI.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/domains/diplomacy/DiplomacyUI.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/domains/economy/EconomyUI.js": {
+    "no-unsanitized/property": {
+      "count": 4
+    }
+  },
+  "js/engine/runtime/domains/espionage/EspionageUI.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/domains/event/EventUI.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/domains/fleet/FleetUI.js": {
+    "no-unsanitized/property": {
+      "count": 5
+    }
+  },
+  "js/engine/runtime/domains/galaxy/GalaxyUI.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/domains/market/MarketUI.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/domains/npc/NPCUI.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/domains/research/ResearchUI.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/domains/war/WarUI.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/layers/domain/galaxy/ControllerNavigation.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/layers/domain/messages/RuntimeMessagesController.js": {
+    "no-unsanitized/property": {
+      "count": 7
+    }
+  },
+  "js/engine/runtime/layers/domain/pirates/RuntimePiratesController.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/layers/domain/trade/RuntimeLogisticsRoutesController.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/layers/domain/trade/RuntimeTradeProposalsController.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/layers/domain/trade/RuntimeTradeRoutesController.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/layers/domain/trade/RuntimeTradersDashboardController.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/layers/domain/war/RuntimeWarController.js": {
+    "no-unsanitized/property": {
+      "count": 13
+    }
+  },
+  "js/engine/runtime/layers/integration/galaxy/DebugLog.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/layers/integration/galaxy/ErrorUi.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/layers/integration/galaxy/Init3DFacade.js": {
+    "no-unsanitized/property": {
+      "count": 4
+    }
+  },
+  "js/engine/runtime/layers/integration/galaxy/UiStatus.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/layers/ui/console/Panel.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/layers/ui/galaxy/ControllerWindow.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/layers/ui/galaxy/HoverCardFacade.js": {
+    "no-unsanitized/property": {
+      "count": 4
+    }
+  },
+  "js/engine/runtime/layers/ui/galaxy/StarErrorUi.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/layers/ui/galaxy/StarUiStatus.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/layers/ui/galaxy/SystemDetailsFacade.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/engine/runtime/layers/ui/settings/ai/SettingsPanel.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/layers/ui/settings/ftl/SettingsPanel.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/engine/runtime/layers/ui/settings/render/RenderBindings.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/runtime/layers/ui/settings/theme/SettingsUi.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/engine/utils/GpuDevOverlay.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/features/galaxy/galaxy-controller.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/gq-ui.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/runtime/wm-widgets.js": {
+    "no-unsanitized/property": {
+      "count": 7
+    }
+  },
+  "js/runtime/wm.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/tests/benchmark-v3.js": {
+    "no-unsanitized/property": {
+      "count": 3
+    }
+  },
+  "js/ui/ShipyardModuleEditor.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/ui/admin-users.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/ui/glossary.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/ui/gq-ui.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/ui/node-editor-option-a.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/ui/node-editor-simple.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/ui/node-editor.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/ui/prolog.js": {
+    "no-unsanitized/property": {
+      "count": 4
+    }
+  },
+  "js/ui/ship-designer-trellis2.js": {
+    "no-unsanitized/property": {
+      "count": 4
+    }
+  },
+  "js/ui/ship-designer.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/ui/star-tooltip.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/ui/system-bodies-breadcrumb.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/ui/system-bodies-card-window.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/ui/system-info-panel.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/ui/terminal.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/ui/tooltips.js": {
+    "no-unsanitized/property": {
+      "count": 1
+    }
+  },
+  "js/ui/unified-designer.js": {
+    "no-unsanitized/property": {
+      "count": 7
+    }
+  },
+  "js/ui/window-manager.js": {
+    "no-unsanitized/property": {
+      "count": 2
+    }
+  },
+  "js/ui/wireframe-editor.js": {
+    "no-unsanitized/property": {
+      "count": 4
+    }
+  }
+}

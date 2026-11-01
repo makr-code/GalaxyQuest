@@ -113,6 +113,21 @@ describe('Start-screen menu', () => {
     expect(preview).toHaveBeenCalledWith(null);
   });
 
+  it('pauses the automatic galaxy tour during registration and resumes it without changing its preference', () => {
+    localStorage.setItem('gq_start_flight_tour', '1');
+    const onFlightTour = vi.fn(() => true);
+    initializeStartScreen({ onFlightTour });
+    expect(onFlightTour).toHaveBeenNthCalledWith(1, true);
+
+    document.getElementById('start-register').click();
+    expect(onFlightTour).toHaveBeenNthCalledWith(2, false);
+    expect(localStorage.getItem('gq_start_flight_tour')).toBe('1');
+
+    document.getElementById('registration-back').click();
+    expect(onFlightTour).toHaveBeenNthCalledWith(3, true);
+    expect(localStorage.getItem('gq_start_flight_tour')).toBe('1');
+  });
+
   it('shows Resume only for a server-confirmed session without auto-resuming', async () => {
     const onResume = vi.fn().mockResolvedValue(undefined);
     const screen = initializeStartScreen({ onResume });

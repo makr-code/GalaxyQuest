@@ -1,0 +1,1 @@
+export { SpaceVessel } from './space-entity.js';

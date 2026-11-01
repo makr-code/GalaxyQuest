@@ -27,20 +27,25 @@
 
 | Document | Content |
 |---|---|
+| [../ROADMAP.md](../ROADMAP.md) | **Production-Readiness-Roadmap** — verbindlicher Weg zum Launch (Phasen 0–9, Go-Live-Gates) |
+| [technical/PRODUCTION_AUDIT_2026-10-31.md](technical/PRODUCTION_AUDIT_2026-10-31.md) | **Production-Readiness-Audit** — Befunde mit IDs (Security, Backend, DB, Frontend, CI, Infra, Legal), Stand 31.10.2026 |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Branch, pull request, and quality-check guidance |
+| [../SECURITY.md](../SECURITY.md) | Private vulnerability reporting policy |
+| [technical/REALITY_CHECK_2026-10-29.md](technical/REALITY_CHECK_2026-10-29.md) | **Reality Check** — evidenzbasierter Implementierungsstand, Stand 29.10.2026 |
 | [technical/ARCHITECTURE.md](technical/ARCHITECTURE.md) | **Main technical reference** — backend, frontend, engine, DB, security |
 | [technical/DOCUMENTATION_GUIDE.md](technical/DOCUMENTATION_GUIDE.md) | How to navigate and contribute to docs |
-| [technical/IMPLEMENTATION_AUDIT.md](technical/IMPLEMENTATION_AUDIT.md) | **Implementierungs-Audit** — Vollständige Statusanalyse aller Systeme (Stand 11.04.2026) |
+| [technical/IMPLEMENTATION_AUDIT.md](technical/IMPLEMENTATION_AUDIT.md) | Implementierungs-Audit — Statusanalyse aller Systeme (historisch, Stand 11.04.2026) |
 | [technical/GAP_TODO.md](technical/GAP_TODO.md) | **Gap-TODO** — priorisierte Lücken zwischen Design und Implementierung |
 | [technical/TEMPLATE_SYSTEM_DESIGN.md](technical/TEMPLATE_SYSTEM_DESIGN.md) | **Template system design** — Mustache in PHP, JS & CSS: Vorgaben, Vor-/Nachteile, Migrationsplan |
 | [technical/MIGRATION_STRATEGY_OOP.md](technical/MIGRATION_STRATEGY_OOP.md) | OOP refactoring roadmap and conventions |
 | [technical/PROJECTION_RUNBOOK.md](technical/PROJECTION_RUNBOOK.md) | Projection runtime operations guide |
 | [technical/OLLAMA_SETUP.md](technical/OLLAMA_SETUP.md) | Ollama local LLM setup and configuration |
 | [technical/DEV_USERS.md](technical/DEV_USERS.md) | Pre-seeded development accounts |
-| [technical/ROADMAP.md](technical/ROADMAP.md) | Engine & feature development roadmap |
+| [technical/ROADMAP.md](technical/ROADMAP.md) | Engine & feature development roadmap (Feature-Backlog, historisch, Stand 11.04.2026) |
 | [technical/FUTURE_ENHANCEMENTS.md](technical/FUTURE_ENHANCEMENTS.md) | Planned features and extension points |
 | [technical/FACTION_3D_VFX_RUNTIME_MAPPING.md](technical/FACTION_3D_VFX_RUNTIME_MAPPING.md) | Runtime-Mapping: gqVfxEmitters/gqWeaponFx -> ParticleEmitter/BeamEffect |
 | [technical/WAVE_17_IMPLEMENTATION_PLAN.md](technical/WAVE_17_IMPLEMENTATION_PLAN.md) | Wave 17 — Pirates + Economy + War full domain feature completion plan |
-| [technical/IMPLEMENTATION_STATUS_SUMMARY.md](technical/IMPLEMENTATION_STATUS_SUMMARY.md) | Implementation status: Pirates, Economy, War systems (~70 % complete) |
+| [technical/IMPLEMENTATION_STATUS_SUMMARY.md](technical/IMPLEMENTATION_STATUS_SUMMARY.md) | Implementation status: Pirates, Economy, War systems (historischer Snapshot, keine Release-Aussage) |
 | [technical/IMPLEMENTATION_CHECKLIST.md](technical/IMPLEMENTATION_CHECKLIST.md) | VFX Phase 1 implementation final verification checklist |
 
 ### WebGPU Engine

@@ -25,6 +25,13 @@ test-results/
 # PHP unit / runtime cache
 .phpunit.cache/
 .phpunit.result.cache
+/.playwright-mcp/
+/cookies.txt
+/tmp-gq-cookies.txt
+/headers.txt
+/create_test_user.sql
+/temp_create_user.sql
+/update_test_user.sql
 
 # IDE / editor
 .vscode/*.log
@@ -45,6 +52,7 @@ Thumbs.db
 *.swo
 *.pyc
 __pycache__/
+**/.mypy_cache/
 
 # TTS runtime audio cache (generated MP3s)
 cache/tts/*.mp3

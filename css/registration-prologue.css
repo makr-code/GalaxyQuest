@@ -1,11 +1,21 @@
 .registration-prologue[hidden], .registration-prologue [hidden] { display: none !important; }
-body.registration-active #auth-section,
 body.registration-active #auth-status-section,
 body.registration-active #auth-preload-section,
 body.registration-active #auth-action-section,
 body.registration-active #boot-terminal,
 body.registration-active #copyright,
 body.registration-active #affilates { display: none !important; }
+@keyframes registration-menu-exit {
+  to { opacity: 0; transform: scale(1.015); }
+}
+@keyframes registration-scene-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+body.registration-active #auth-section {
+  pointer-events: none;
+  animation: registration-menu-exit .65s cubic-bezier(.22, .61, .36, 1) both;
+}
 .registration-prologue {
   position: fixed;
   inset: 0;
@@ -13,6 +23,7 @@ body.registration-active #affilates { display: none !important; }
   overflow: auto;
   color: #e3efff;
   background: linear-gradient(90deg, #000b, #0004, #0009);
+  animation: registration-scene-enter .9s ease-out both;
 }
 .registration-herald-canvas { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; }
 .registration-stage { position: relative; z-index: 1; }
@@ -32,7 +43,10 @@ body.registration-active #affilates { display: none !important; }
 .registration-review dd { min-width: 0; margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
 .registration-review > p { color: #b6cadd; font-size: .85rem; line-height: 1.6; }
 .registration-story { max-width: 720px; margin: 28px auto; font-size: clamp(1rem, 2vw, 1.3rem); line-height: 1.9; white-space: pre-line; }
-.registration-reveal { animation: registration-reveal 1.1s ease-out both; }
+.registration-chapter.registration-reveal { animation-delay: 0s; }
+.registration-stage h2.registration-reveal { animation-delay: .08s; }
+.registration-story.registration-reveal { animation-delay: .16s; }
+.registration-reveal { animation: registration-reveal .68s cubic-bezier(.2, .65, .3, 1) both; }
 .registration-choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin: 28px auto; }
 .registration-choice { flex: 0 1 190px; border: 1px solid #a7dfff44; background: #06121d88; color: #e3efff; padding: 22px 12px; cursor: pointer; font: inherit; }
 .registration-choice[aria-pressed="true"] { border-color: var(--faction-color, #bce6ff); box-shadow: 0 0 32px #9dc6e333; background: #193650bb; }
@@ -52,6 +66,8 @@ body.registration-active #affilates { display: none !important; }
 .registration-prologue[data-phase="mentor-room"] .registration-herald-choice:hover,
 .registration-prologue[data-phase="mentor-room"] .registration-herald-choice:focus-visible { background: #102538f2; }
 .registration-prologue[data-phase="mentor-room"] .registration-herald-choice[aria-pressed="true"] { background: #17364beF; }
+body.start-reduced-motion.registration-active #auth-section,
+body.start-reduced-motion .registration-prologue { animation-duration: 1ms; }
 @media (min-width: 900px) {
   .registration-prologue:is([data-phase="mentor-room"], [data-phase="character"], [data-phase="surface"]) .registration-stage {
     width: 340px; margin: 0 24px 40px; padding: 20px; background: #04101bcc; border: 1px solid #a7dfff33;
@@ -73,7 +89,10 @@ body.registration-active #affilates { display: none !important; }
   .registration-prologue[data-phase="mentor-room"] .registration-choice { flex-basis: calc(33.333% - 8px); min-width: 0; padding: 8px 5px; }
   .registration-prologue[data-phase="mentor-room"] .registration-choice svg { width: 30px; height: 30px; margin-bottom: 5px; }
 }
-@keyframes registration-reveal { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes registration-reveal {
+  from { opacity: 0; transform: translate3d(0, 14px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
 @media (max-width: 600px) {
   .registration-stage { margin-top: 20px; }
   .registration-review dl > div { grid-template-columns: 1fr; gap: 3px; }

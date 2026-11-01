@@ -1,4 +1,9 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 require_once __DIR__ . '/helpers.php';
 $db = get_db();
 $stmt = $db->prepare('SELECT * FROM generation_queue WHERE id = 4 LIMIT 1');

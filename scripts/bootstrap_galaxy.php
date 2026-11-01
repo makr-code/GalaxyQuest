@@ -1,5 +1,9 @@
 <?php
 
+if (PHP_SAPI !== 'cli') {
+	exit(1);
+}
+
 require_once __DIR__ . '/../api/helpers.php';
 require_once __DIR__ . '/../api/galaxy_seed.php';
 require_once __DIR__ . '/ensure_default_admin.php';
@@ -9,7 +13,12 @@ $adminLookup = $db->prepare('SELECT id FROM users WHERE username = ? LIMIT 1');
 $adminLookup->execute(['administrator']);
 $adminId = $adminLookup->fetchColumn();
 if ($adminId === false) {
-	$adminId = ensure_default_admin($db);
+	$adminPassword = getenv('DEFAULT_ADMIN_PASSWORD');
+	if ($adminPassword === false || strlen($adminPassword) < 16) {
+		fwrite(STDERR, "Set DEFAULT_ADMIN_PASSWORD to a unique password of at least 16 characters.\n");
+		exit(1);
+	}
+	$adminId = ensure_default_admin($db, $adminPassword);
 } else {
 	$adminId = (int)$adminId;
 }

@@ -1687,7 +1687,7 @@ input:focus, select:focus, textarea:focus {
   gap: 0.5rem;
   transition: border-color var(--duration-standard) var(--ease-out),
               box-shadow var(--duration-standard) var(--ease-out),
-              transform var(--duration-standard) var(--ease-out));
+              transform var(--duration-standard) var(--ease-out);
   animation: slideInUp var(--duration-slow) var(--ease-out) forwards;
 }
 
@@ -8172,7 +8172,7 @@ body.keyboard-nav textarea:focus {
   padding: 0.65rem 1rem;
   color: var(--text-primary);
   cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-out));
+  transition: all var(--duration-fast) var(--ease-out);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -8385,4 +8385,3 @@ html.theme-light .item-card {
     animation-iteration-count: 1;
   }
 }
-

@@ -1,12 +1,14 @@
+FROM node:24-bookworm-slim AS node
+
 FROM php:8.2-apache
+
+COPY --from=node /usr/local/ /usr/local/
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libpng-dev \
         libjpeg62-turbo-dev \
         libfreetype6-dev \
-        nodejs \
-        npm \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install gd pdo_mysql \
     && pecl install xdebug \
@@ -27,4 +29,4 @@ RUN npm ci
 
 # Copy all source files for Vite build
 COPY . /var/www/html/
-RUN npm run vite:build || true  # Continue even if build fails (for development)
+RUN npm run vite:build

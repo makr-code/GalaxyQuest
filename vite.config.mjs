@@ -86,8 +86,10 @@ export default ({ mode }) => {
 
   build: {
     outDir: 'dist',
-    sourcemap: true,
-    minify: false,  // Disable minify due to lightningcss CSS parsing issues
+    sourcemap: false,
+    minify: 'oxc',
+    cssMinify: 'lightningcss',
+    chunkSizeWarningLimit: 1280,
     
     rollupOptions: {
       output: {

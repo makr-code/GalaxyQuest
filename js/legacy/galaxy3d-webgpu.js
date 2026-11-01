@@ -245,7 +245,18 @@
     setClusterColorPalette(palette) { return this._callDelegate('setClusterColorPalette', [palette]); }
     setClusterAuras(clusters) { return this._callDelegate('setClusterAuras', [clusters]); }
     setGalaxyMetadata(meta) { return this._callDelegate('setGalaxyMetadata', [meta]); }
-    setGalaxyFleets(fleets) { return this._callDelegate('setGalaxyFleets', [fleets]); }
+    setGalaxyFleets(fleets) {
+      return this._callNative('setGalaxyFleets', [fleets])
+        ?? this._callDelegate('setGalaxyFleets', [fleets]);
+    }
+    setSpaceVessels(vessels) {
+      return this._callNative('setSpaceVessels', [vessels])
+        ?? this._callDelegate('setSpaceVessels', [vessels]);
+    }
+    setSpaceEntities(entities) {
+      return this._callNative('setSpaceEntities', [entities])
+        ?? this._callDelegate('setSpaceEntities', [entities]);
+    }
     setFtlInfrastructure(gates, nodes) { return this._callDelegate('setFtlInfrastructure', [gates, nodes]); }
     setGalaxyFleetVectorsVisible(enabled) { return this._callDelegate('setGalaxyFleetVectorsVisible', [enabled]); }
     setSystemOrbitPathsVisible(enabled) { return this._callDelegate('setSystemOrbitPathsVisible', [enabled]); }

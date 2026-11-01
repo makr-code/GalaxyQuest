@@ -294,6 +294,14 @@ function require_auth(): int {
     return $uid;
 }
 
+function require_admin(): int {
+    $uid = require_auth();
+    if (!is_admin_user(get_db(), $uid)) {
+        json_error('Admin access required', 403);
+    }
+    return $uid;
+}
+
 // ─── Security headers ────────────────────────────────────────────────────────
 function send_security_headers(): void {
     if (headers_sent()) return;

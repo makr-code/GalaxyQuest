@@ -461,7 +461,7 @@
       if (!(stage in stages)) return false;
       if (stages[stage] > 0 && (!scene?.draft?.planets?.length
         || !scene.draft.planets.some((planet) => planet.position === scene.draft.position?.position))) return false;
-      if ((!scene || !scene.flightTour) && this._perspectiveFlight) {
+      if ((!scene || (!scene.flightTour && scene.stage !== 'galaxy')) && this._perspectiveFlight) {
         this._perspectiveFlight.dispose();
         this._perspectiveFlight = null;
         this._flightSceneGraph = null;
@@ -585,7 +585,27 @@
     setClusterColorPalette() {}
     setClusterDensityMode() {}
     setClusterAuras() {}
-    setGalaxyFleets() {}
+    setSpaceEntities(entities = []) {
+      if (!this._perspectiveFlight) return false;
+      const result = this._perspectiveFlight.setSpaceEntities(entities);
+      if (result && typeof result.then === 'function') {
+        result.catch((error) => emitRenderTelemetry('space-entity-load-error', {
+          message: String(error?.message || error),
+        }));
+      }
+      return result !== false;
+    }
+    setSpaceVessels(vessels = []) { return this.setSpaceEntities(vessels); }
+    setGalaxyFleets(fleets = []) {
+      if (!this._perspectiveFlight) return false;
+      const result = this._perspectiveFlight.setGalaxyFleets(fleets);
+      if (result && typeof result.then === 'function') {
+        result.catch((error) => emitRenderTelemetry('space-entity-load-error', {
+          message: String(error?.message || error),
+        }));
+      }
+      return result !== false;
+    }
     setGalaxyFleetVectorsVisible() {}
     setFtlInfrastructure() {}
     focusCurrentSelection() {}

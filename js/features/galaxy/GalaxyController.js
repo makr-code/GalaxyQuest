@@ -18,7 +18,7 @@ class GalaxyController {
      * @param {GalaxyService} galaxyService Service layer instance
      * @param {Object} options Optional configuration
      */
-    constructor(galaxyService, options = {}) {
+    constructor(galaxyService, _options = {}) {
         this.service = galaxyService;
         this.listeners = new Map();  // event → [callbacks]
         

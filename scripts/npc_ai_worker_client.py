@@ -196,7 +196,9 @@ async def complete_job(
     return CompletionResponse.model_validate(data)
 
 
-async def run_once(client: httpx.AsyncClient, settings: WorkerSettings, log: structlog.BoundLogger) -> int:
+async def run_once(
+    client: httpx.AsyncClient, settings: WorkerSettings, log: structlog.BoundLogger
+) -> int:
     jobs = await claim_jobs(client, settings)
     if not jobs:
         log.info("worker_idle")

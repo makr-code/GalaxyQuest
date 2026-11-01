@@ -1,5 +1,9 @@
 # GalaxyQuest — Projekt-Roadmap
 
+> ⚠️ **Historische Feature-Roadmap (Stand 11.04.2026).** Die Prozent- und Statusangaben unten sind nicht mehr maßgeblich.
+> Verbindlich für den Weg zum Launch ist die [Production-Readiness-Roadmap](../../ROADMAP.md) mit dem zugehörigen [Audit vom 31.10.2026](PRODUCTION_AUDIT_2026-10-31.md).
+> Dieses Dokument dient nur noch als Feature-Backlog.
+
 > **Status:** Living Document  
 > **Stand:** 11. April 2026  
 > **Gesamtfortschritt:** ~60 % des finalen Produkts  

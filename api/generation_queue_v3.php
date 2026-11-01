@@ -15,6 +15,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
+$userId = require_auth();
 
 header('Content-Type: application/json');
 
@@ -42,7 +43,6 @@ try {
     $prompt = $payload['prompt'] ?? null;
     $imageBase64 = $payload['image_base64'] ?? null;
     $refinementPrompt = $payload['refinement_prompt'] ?? null;
-    $userId = $payload['user_id'] ?? 1;           // Default to user 1 for testing
     
     // Validation
     if (!in_array($mode, ['text', 'image', 'hybrid'])) {

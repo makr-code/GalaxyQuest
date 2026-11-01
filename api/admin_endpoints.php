@@ -17,62 +17,16 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
+require_once __DIR__ . '/helpers.php';
+
 // ─── Authentication ───────────────────────────────────────────────────────
 
 function getCurrentUserId(): ?int {
-    // Same as trellis2_endpoints.php
-    if (!empty($_SESSION['user_id'])) {
-        return (int)$_SESSION['user_id'];
-    }
-    
-    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (preg_match('/^Bearer\s+(.+)$/', $auth, $m)) {
-        $token = $m[1];
-        try {
-            $decoded = verifyJWT($token);
-            if ($decoded && isset($decoded->sub)) {
-                return (int)$decoded->sub;
-            }
-        } catch (Exception $e) {
-            return null;
-        }
-    }
-    
-    return null;
-}
-
-function verifyJWT(string $token): ?object {
-    try {
-        $secret = getenv('JWT_SECRET');
-        if (!$secret) return null;
-        $parts = explode('.', $token);
-        if (count($parts) !== 3) return null;
-        $payload = json_decode(base64_decode($parts[1]));
-        return $payload;
-    } catch (Exception $e) {
-        return null;
-    }
+    return current_user_id();
 }
 
 function isAdminUser(int $userId): bool {
-    // Check multiple auth methods:
-    
-    // 1. Admin API key header (for simple integrations)
-    $adminKey = $_SERVER['HTTP_X_ADMIN_KEY'] ?? null;
-    if ($adminKey === getenv('ADMIN_API_KEY')) {
-        return true;
-    }
-    
-    // 2. Check user role in database
-    try {
-        $pdo = getDatabase();
-        $stmt = $pdo->prepare('SELECT role FROM users WHERE id = :id');
-        $stmt->execute([':id' => $userId]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $result && $result['role'] === 'admin';
-    } catch (Exception $e) {
-        return false;
-    }
+    return is_admin_user(get_db(), $userId);
 }
 
 function requireAdmin(): int {
@@ -93,25 +47,7 @@ function requireAdmin(): int {
 // ─── Database Connection ──────────────────────────────────────────────────
 
 function getDatabase(): PDO {
-    static $pdo = null;
-    
-    if ($pdo === null) {
-        $dsn = sprintf(
-            'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-            getenv('DB_HOST') ?: 'db',
-            getenv('DB_PORT') ?: 3306,
-            getenv('DB_NAME') ?: 'galaxyquest'
-        );
-        
-        $pdo = new PDO(
-            $dsn,
-            getenv('DB_USER') ?: 'root',
-            getenv('DB_PASS') ?: 'root'
-        );
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    }
-    
-    return $pdo;
+    return get_db();
 }
 
 // ─── Routing ──────────────────────────────────────────────────────────────

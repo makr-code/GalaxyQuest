@@ -249,9 +249,10 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     next.hidden = true;
     next.disabled = false;
     next.textContent = 'Weiter';
-    element('story').classList.remove('registration-reveal');
+    const copyElements = [element('chapter'), element('title'), element('story')];
+    copyElements.forEach((copy) => copy.classList.remove('registration-reveal'));
     void element('story').offsetWidth;
-    element('story').classList.add('registration-reveal');
+    copyElements.forEach((copy) => copy.classList.add('registration-reveal'));
     element('title').focus();
     root.scrollTop = 0;
   }

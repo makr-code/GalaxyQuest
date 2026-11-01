@@ -126,4 +126,61 @@ describe('galaxy3d-webgpu facade', () => {
     expect(await facade.navigateTo({ kind: 'planet', position: 2 })).toBe(true);
     expect(facade._native.navigateTo).toHaveBeenCalledWith({ kind: 'planet', position: 2 }, undefined);
   });
+
+  it('routes galaxy fleet updates to the native renderer with delegate fallback', () => {
+    const FacadeCtor = loadFacade();
+    const facade = new FacadeCtor(makeContainer(), { interactive: false });
+    const fleets = [{ id: 'registration-transfer' }];
+    const nativeSetFleets = vi.fn(() => true);
+    const delegateSetFleets = vi.fn(() => true);
+    facade._native = { setGalaxyFleets: nativeSetFleets };
+    facade._delegate = { setGalaxyFleets: delegateSetFleets };
+
+    expect(facade.setGalaxyFleets(fleets)).toBe(true);
+    expect(nativeSetFleets).toHaveBeenCalledWith(fleets);
+    expect(delegateSetFleets).not.toHaveBeenCalled();
+
+    facade._native.setGalaxyFleets = vi.fn(() => undefined);
+    expect(facade.setGalaxyFleets(fleets)).toBe(true);
+    expect(delegateSetFleets).toHaveBeenCalledWith(fleets);
+  });
+
+  it('routes generalized space-vessel collections through the native renderer first', () => {
+    const FacadeCtor = loadFacade();
+    const facade = new FacadeCtor(makeContainer(), { interactive: false });
+    const vessels = [{ id: 'freighter-1', space_entity: 'vessel', model_url: '/freighter.glb' }];
+    const nativeSetVessels = vi.fn(() => true);
+    const delegateSetVessels = vi.fn(() => true);
+    facade._native = { setSpaceVessels: nativeSetVessels };
+    facade._delegate = { setSpaceVessels: delegateSetVessels };
+
+    expect(facade.setSpaceVessels(vessels)).toBe(true);
+    expect(nativeSetVessels).toHaveBeenCalledWith(vessels);
+    expect(delegateSetVessels).not.toHaveBeenCalled();
+
+    facade._native.setSpaceVessels = vi.fn(() => undefined);
+    expect(facade.setSpaceVessels(vessels)).toBe(true);
+    expect(delegateSetVessels).toHaveBeenCalledWith(vessels);
+  });
+
+  it('routes station and artificial entity collections through setSpaceEntities', () => {
+    const FacadeCtor = loadFacade();
+    const facade = new FacadeCtor(makeContainer(), { interactive: false });
+    const entities = [
+      { id: 'station-1', space_entity: 'station', model_url: '/station.glb' },
+      { id: 'relay-1', space_entity: 'artificial', model_url: '/relay.glb' },
+    ];
+    const nativeSetEntities = vi.fn(() => true);
+    const delegateSetEntities = vi.fn(() => true);
+    facade._native = { setSpaceEntities: nativeSetEntities };
+    facade._delegate = { setSpaceEntities: delegateSetEntities };
+
+    expect(facade.setSpaceEntities(entities)).toBe(true);
+    expect(nativeSetEntities).toHaveBeenCalledWith(entities);
+    expect(delegateSetEntities).not.toHaveBeenCalled();
+
+    facade._native.setSpaceEntities = vi.fn(() => undefined);
+    expect(facade.setSpaceEntities(entities)).toBe(true);
+    expect(delegateSetEntities).toHaveBeenCalledWith(entities);
+  });
 });

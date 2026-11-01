@@ -1,4 +1,9 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
  * Simple NPC chat endpoint for testing Ollama integration
  * POST /api/npc_chat_test.php

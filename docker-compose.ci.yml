@@ -1,0 +1,8 @@
+services:
+  web:
+    depends_on: !override
+      db:
+        condition: service_healthy
+    environment:
+      NPC_LLM_CONTROLLER_ENABLED: 0
+      TTS_ENABLED: 0

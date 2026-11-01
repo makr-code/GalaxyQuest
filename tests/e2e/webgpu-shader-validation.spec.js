@@ -75,6 +75,22 @@ function buildShaderCatalogue() {
       ),
     },
     {
+      label: 'SpaceVesselRenderPass — lit vessel mesh',
+      type: 'render',
+      source: extractWgslConstant(
+        'js/rendering/space-vessel-render-pass.js',
+        'VESSEL_SHADER',
+      ),
+    },
+    {
+      label: 'SpaceVesselRenderPass — engine particles',
+      type: 'render',
+      source: extractWgslConstant(
+        'js/rendering/space-vessel-render-pass.js',
+        'VESSEL_PARTICLE_SHADER',
+      ),
+    },
+    {
       label: 'Galaxy3DRendererWebGPU — shared object mesh',
       type: 'render',
       source: extractWgslConstant(

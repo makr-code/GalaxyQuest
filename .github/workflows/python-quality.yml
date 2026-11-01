@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches:
+      - develop
       - main
       - master
 
@@ -20,7 +21,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.15.21
       - name: ruff check
         run: ruff check tts_service/ scripts/
       - name: ruff format check
@@ -35,14 +36,15 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install tts_service dependencies
-        run: pip install -r tts_service/requirements.txt
+        run: pip install -r tts_service/requirements.txt mypy==1.18.2 types-aiofiles
       - name: mypy – tts_service
         working-directory: tts_service
         run: mypy main.py config.py cache.py audio.py auth.py engines/
       - name: mypy – scripts
         run: |
-          pip install pathlib2 huggingface_hub 2>/dev/null || true
-          mypy scripts/prepend_trigger.py scripts/trellis2_download_models.py scripts/trellis2_generate.py
+          pip install pathlib2 huggingface_hub
+          mypy --ignore-missing-imports --follow-imports=skip \
+            scripts/prepend_trigger.py scripts/trellis2_download_models.py scripts/trellis2_generate.py
 
   test:
     name: pytest

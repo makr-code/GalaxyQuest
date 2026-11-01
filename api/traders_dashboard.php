@@ -11,6 +11,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 
 header('Content-Type: application/json; charset=utf-8');
+require_auth();
 
 $action = $_GET['action'] ?? '';
 $db = get_db();

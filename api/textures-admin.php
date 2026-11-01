@@ -6,14 +6,12 @@ declare(strict_types=1);
  * Admin panel for regenerating textures, testing prompts, and batch operations
  */
 
-header('Access-Control-Allow-Origin: *');
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: private, no-store');
 
-// Load environment configuration
-require_once dirname(__DIR__) . '/config/config.php';
-
-// TODO: Add admin authentication check here
-// if (!isUserAdmin($_SESSION['user_id'])) { http_response_code(403); exit; }
+require_once __DIR__ . '/helpers.php';
+send_security_headers();
+require_admin();
 
 $action = strtolower((string)($_GET['action'] ?? 'list'));
 $allowedActions = ['list', 'regenerate', 'test_prompt', 'batch_regenerate', 'clear_cache', 'cache_stats'];

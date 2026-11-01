@@ -15,12 +15,12 @@ declare(strict_types=1);
  * - Batch PBR generation (all maps in one workflow)
  */
 
-header('Access-Control-Allow-Origin: *');
-header('Cache-Control: public, max-age=31536000, immutable');
+header('Cache-Control: private, no-store');
 header('Content-Type: application/json; charset=utf-8');
 
-// Load environment configuration
-require_once dirname(__DIR__) . '/config/config.php';
+require_once __DIR__ . '/helpers.php';
+send_security_headers();
+require_auth();
 
 $action = strtolower((string)($_GET['action'] ?? 'spaceship_texture'));
 $allowedActions = ['spaceship_texture', 'planet_texture', 'atmosphere_texture', 'detail_texture', 'batch_pbr', 'progressive', 'status', 'queue'];
@@ -32,7 +32,7 @@ if (!in_array($action, $allowedActions, true)) {
 }
 
 // Check if AI texture generation is enabled
-$aiEnabled = (getenv('COMFYUI_ENABLED') ?: '1') === '1';
+$aiEnabled = (getenv('COMFYUI_ENABLED') ?: (APP_ENV === 'dev' ? '1' : '0')) === '1';
 if (!$aiEnabled) {
     http_response_code(503);
     echo json_encode(['success' => false, 'error' => 'AI texture generation is disabled']);
