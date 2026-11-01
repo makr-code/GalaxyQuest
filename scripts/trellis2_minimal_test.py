@@ -248,12 +248,12 @@ class TRELLIS2Tests:
 
             asset_class = asset["class"]
             assert asset_class in budget, f"Unbekannte Asset-Klasse: {asset_class}"
-            assert (
-                asset["geometry"]["triangles"] <= budget[asset_class]["max_triangles"]
-            ), f"Zu viele Dreiecke: {asset['geometry']['triangles']} > {budget[asset_class]['max_triangles']}"
-            assert (
-                asset["materials"] <= budget[asset_class]["max_materials"]
-            ), f"Zu viele Materialien: {asset['materials']} > {budget[asset_class]['max_materials']}"
+            assert asset["geometry"]["triangles"] <= budget[asset_class]["max_triangles"], (
+                f"Zu viele Dreiecke: {asset['geometry']['triangles']} > {budget[asset_class]['max_triangles']}"
+            )
+            assert asset["materials"] <= budget[asset_class]["max_materials"], (
+                f"Zu viele Materialien: {asset['materials']} > {budget[asset_class]['max_materials']}"
+            )
 
             # Speichere Asset
             asset_file = GENERATED_DIR / "imported" / "ship" / "test_cargo_001.json"
