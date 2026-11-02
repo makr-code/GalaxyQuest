@@ -58,12 +58,16 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   durch den Körper führen. Bei Annäherung an die Hülle bleibt sie davor stehen.
   Der Planet-Anflug lädt nur das Manifest und verwendet dieselbe Form im
   vorhandenen Shader, ohne Detailkacheln herunterzuladen.
+  Auch der vereinfachte Planetenrenderer in der Sternensystemansicht liest
+  persistierte Körperformen oder dieselben deterministischen Kleinkörper-
+  Defaults und berücksichtigt sie bei Geometrie und Beleuchtungsnormalen.
+  Der Anflug-Flugkorridor verwendet eine konservative Kollisionshülle aus
+  maximalem Achsenradius und Deformationsfaktor.
   Eine gegebenenfalls explizit aktivierte Wolkenschale umfasst die Form;
   Kometen und Asteroiden bleiben standardmäßig atmosphärenlos.
   **Grenzen:** ein radial eindeutiges Modell, keine Höhlen, Überhänge oder
-  beliebig konkaven/mehrschaligen Meshes. Die vereinfachte Systemansicht und
-  deren Flugkollisionskugeln bleiben unverändert; sie verwenden noch nicht
-  die persistierte Form.
+  beliebig konkaven/mehrschaligen Meshes. Die Systemansicht bleibt ein
+  vereinfachter Bildschirmraum-Renderer und erzeugt keine Terrainkacheln.
 - **Wolken und Himmel:** Eine analytisch geschnittene, transparente Kugelschale
   um denselben Körper bildet außen Wolken und innen die Himmelskuppel ab.
   Sie wird nach der Stadt im selben Renderpass mit Tiefenprüfung, aber ohne
@@ -191,7 +195,8 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
 **Bewusste Grenzen:** stilisierte prozedurale Gebäude statt JSON-/GLTF-Modellen,
 diskrete Cube-Sphere-LOD ohne Geomorphing zwischen Stufen;
 der separate Planet-Anflug teilt die Körperform, aber noch nicht die
-Detailhöhenfelder; die vereinfachte Systemansicht bleibt unverändert,
+Detailhöhenfelder; die vereinfachte Systemansicht nutzt die Körperform,
+erzeugt dort jedoch keine Terrainkacheln,
 keine Erosion, unterirdische Geometrie oder hydrologische Simulation, kein GPU-Picking,
 keine Wegfindungs-/Haushalts-/Arbeitsmarkt-Simulation einzelner Personen, keine
 neuen Bau-Mutationen im 3D-Viewport. Fußgänger laufen kosmetische Straßenzyklen.
@@ -224,8 +229,9 @@ verzögertes Laden und das Cachebudget; der echte GPU-Test bestätigt den
 Stufenwechsel und Wiederverwendung desselben Buffers beim Zurückzoomen.
 
 Die Systemansicht bleibt beim bestehenden vereinfachten Planetenrenderer:
-Sie erzeugt keine Kolonie-Terrainmeshes für die übrigen Körper. Der separate
-Planet-Anflug ist weiterhin kein geometrisch durchgängiges Terrain-LOD-System.
+Sie zeigt Körperformen, erzeugt aber keine Kolonie-Terrainmeshes für die
+übrigen Körper. Der separate Planet-Anflug ist weiterhin kein geometrisch
+durchgängiges Terrain-LOD-System.
 
 ---
 

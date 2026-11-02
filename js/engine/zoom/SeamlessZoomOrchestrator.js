@@ -69,6 +69,44 @@ const ZOOM_LEVEL = Object.freeze({
   COLONY_BUILDING: 5,
 });
 
+function _planetCollisionRadius(payload) {
+  const candidates = [
+    payload?.focusPlanet,
+    payload?.planet,
+    payload?.__slot?.player_planet,
+    payload?.__slot?.generated_planet,
+    payload?.player_planet,
+    payload?.generated_planet,
+    payload,
+  ];
+  const body = candidates.find((candidate) => candidate && (
+    candidate.shape || candidate.payload_json || candidate.body_type || candidate.planet_class
+  )) || payload;
+  let bodyPayload = body?.payload_json;
+  if (typeof bodyPayload === 'string') {
+    try {
+      bodyPayload = JSON.parse(bodyPayload);
+    } catch (error) {
+      throw new TypeError('Planet approach received invalid body payload JSON', { cause: error });
+    }
+  }
+  let shape = body?.shape || bodyPayload?.shape;
+  if (!shape) {
+    const smallBody = /comet|asteroid/i.test(`${body?.body_type || ''} ${body?.planet_class || ''}`);
+    shape = {
+      version: 1,
+      axes: smallBody ? [1.45, 0.8, 0.95] : [1, 1, 1],
+      deformation: smallBody ? 0.22 : 0,
+    };
+  }
+  if (shape.version !== 1 || !Array.isArray(shape.axes) || shape.axes.length !== 3
+      || !shape.axes.every((axis) => Number.isFinite(axis) && axis >= 0.5 && axis <= 2)
+      || !Number.isFinite(shape.deformation) || shape.deformation < 0 || shape.deformation > 0.35) {
+    throw new TypeError('Planet approach received an invalid persistent body shape');
+  }
+  return Math.max(...shape.axes) * (1 + shape.deformation);
+}
+
 /**
  * Target-object types for the OBJECT_APPROACH zoom level.
  * Pass `{ targetType: ApproachTargetType.FLEET, target: fleetObj }` as the
@@ -381,7 +419,7 @@ class SeamlessZoomOrchestrator {
             target: opts.cameraTarget ?? payload?.cameraTarget ?? { x: 0, y: 0, z: 0 },
             colliders: [
               ...(level === ZOOM_LEVEL.PLANET_APPROACH
-                ? [{ type: 'sphere', center: { x: 0, y: 0, z: 0 }, radius: 1 }]
+                ? [{ type: 'sphere', center: { x: 0, y: 0, z: 0 }, radius: _planetCollisionRadius(payload) }]
                 : []),
               ...(opts.cameraColliders || []),
             ],

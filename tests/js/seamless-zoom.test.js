@@ -334,6 +334,23 @@ describe('SeamlessZoomOrchestrator — PLANET_APPROACH triggers flyTo()', () => 
       })
     );
   });
+
+  it('uses the persistent body extent for approach collision and default small-body shapes', async () => {
+    const mockBackend = makeMockBackend('webgl2');
+    const orch = new SeamlessZoomOrchestrator(null, { _backend: mockBackend });
+    const planetLevel = makeMockLevel();
+    const PlanetClass = makeLevelClass(planetLevel);
+    orch.register(ZOOM_LEVEL.PLANET_APPROACH, { webgpu: PlanetClass, threejs: PlanetClass });
+    const flyToSpy = vi.spyOn(orch._flight, 'flyTo').mockResolvedValue(undefined);
+
+    await orch.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, {
+      planet: { id: 8, payload_json: JSON.stringify({ shape: { version: 1, axes: [1.5, 1, 0.9], deformation: 0.2 } }) },
+    });
+    expect(flyToSpy.mock.calls[0][3].colliders[0].radius).toBeCloseTo(1.8);
+
+    await orch.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, { planet: { id: 9, body_type: 'asteroid' } });
+    expect(flyToSpy.mock.calls[1][3].colliders[0].radius).toBeCloseTo(1.769);
+  });
 });
 
 // ---------------------------------------------------------------------------

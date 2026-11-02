@@ -82,11 +82,27 @@ test(`persistent colony terrain ${scenario.kind} streams bounded cube tiles on t
     const validationErrors = [];
     renderer.device.addEventListener('uncapturederror', (event) => validationErrors.push(event.error.message));
     renderer.device.pushErrorScope('validation');
+    renderer.enterSystemView({ x: 0, y: 0, name: 'Shape test star' }, { planets: [
+      { player_planet: { id: 21, body_type: 'planet', planet_class: 'terran', shape: { version: 1, axes: [1, 1, 1], deformation: 0 } } },
+      { generated_planet: { id: 22, body_type: 'comet', planet_class: 'ice', payload_json: JSON.stringify({ shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 } }) } },
+      { generated_planet: { id: 23, body_type: 'asteroid', planet_class: 'rock' } },
+    ] });
+    const systemShapes = renderer._systemPlanetEntries.map((entry) => entry.shape);
+    if (JSON.stringify(systemShapes) !== JSON.stringify([
+      { version: 1, axes: [1, 1, 1], deformation: 0 },
+      { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 },
+      { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 },
+    ])) throw new Error(`System body shape mismatch: ${JSON.stringify(systemShapes)}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    renderer.exitSystemView();
+    const systemError = await renderer.device.popErrorScope();
+    if (systemError) throw new Error(`System body shape WebGPU validation failed: ${systemError.message}`);
+    renderer.device.pushErrorScope('validation');
     const scene = {
       colony: { id: 7, body_id: 12, name: 'Persistent terrain', diameter_km: diameter, body_type: kind, population: 100 },
       slots: [{ x: 0, z: 0, type: 'habitat', level: 2 }],
     };
-    window.terrainTest = { renderer, orchestrator, validationErrors, scene };
+    window.terrainTest = { renderer, orchestrator, validationErrors, scene, systemShapes };
     await orchestrator.zoomTo(2, scene, { skipCameraFlight: true });
   }, scenario);
   await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._terrainManifest?.shape)).toEqual(scenario.shape);

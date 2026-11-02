@@ -346,6 +346,7 @@
       accentG    : f32,
       accentB    : f32,
       pad0       : f32,
+      shape      : vec4<f32>,
     };
 
     struct LightEntry {
@@ -386,8 +387,17 @@
     fn vs_main(in : PlanetIn) -> PlanetOut {
       var out : PlanetOut;
       let spin = uPlanet.time * (0.12 + uPlanet.seed * 0.04);
-      let pos = rotateY(in.pos, spin);
-      let normal = normalize(rotateY(in.normal, spin));
+      let direction = rotateY(in.pos, spin);
+      let sphereNormal = normalize(rotateY(in.normal, spin));
+      let axes = max(uPlanet.shape.xyz,vec3<f32>(0.5));
+      let wave = 0.6 * (direction.x * direction.x - direction.y * direction.y) + 0.4 * direction.x * direction.z;
+      let ellipsoidDistance = length(direction / axes);
+      let radialFactor = (1.0 + uPlanet.shape.w * wave) / ellipsoidDistance;
+      let pos = direction * radialFactor;
+      let waveGradient = vec3<f32>(1.2 * direction.x + 0.4 * direction.z, -1.2 * direction.y, 0.4 * direction.x);
+      let tangentWaveGradient = waveGradient - direction * dot(direction, waveGradient);
+      let ellipsoidNormal = sphereNormal / (axes * axes * ellipsoidDistance * ellipsoidDistance);
+      let normal = normalize(ellipsoidNormal - uPlanet.shape.w * tangentWaveGradient / (1.0 + uPlanet.shape.w * wave));
       out.clipPos = vec4<f32>(
         uPlanet.centerX + (pos.x * uPlanet.radius) / max(uPlanet.aspect, 0.0001),
         uPlanet.centerY + pos.y * uPlanet.radius,
@@ -700,6 +710,32 @@
       baseSize *= orbitFactor;
     }
     return baseSize;
+  }
+
+  function _bodyShape(body) {
+    let payload = body?.payload_json;
+    if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload);
+      } catch (error) {
+        throw new TypeError('System renderer received invalid body payload JSON', { cause: error });
+      }
+    }
+    const shape = body?.shape || payload?.shape;
+    if (!shape) {
+      const smallBody = /comet|asteroid/i.test(`${body?.body_type || ''} ${body?.planet_class || ''}`);
+      return {
+        version: 1,
+        axes: smallBody ? [1.45, 0.8, 0.95] : [1, 1, 1],
+        deformation: smallBody ? 0.22 : 0,
+      };
+    }
+    if (shape.version !== 1 || !Array.isArray(shape.axes) || shape.axes.length !== 3
+        || !shape.axes.every((axis) => Number.isFinite(axis) && axis >= 0.5 && axis <= 2)
+        || !Number.isFinite(shape.deformation) || shape.deformation < 0 || shape.deformation > 0.35) {
+      throw new TypeError('System renderer received an invalid persistent body shape');
+    }
+    return { version: 1, axes: shape.axes.slice(), deformation: shape.deformation };
   }
 
   /** Find the index of the star closest to the normalised canvas coordinate. */
@@ -2009,7 +2045,7 @@
 
       const planetShader = this._device.createShaderModule({ code: PLANET_SHADER_WGSL });
       this._planetUniformBuf = this._device.createBuffer({
-        size: 64,
+        size: 80,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       const planetBgl = this._device.createBindGroupLayout({
@@ -2341,6 +2377,7 @@
           angle: Number.isFinite(phase) ? phase : (index / Math.max(1, orbitBodies.length)) * Math.PI * 2,
           speed: 0.0035 / Math.max(0.3, periodMetric / minPeriodMetric),
           radius,
+          shape: _bodyShape(body),
           profile: _planetVisualProfile(body, index),
         };
       });
@@ -2367,7 +2404,7 @@
     _writePlanetUniforms(entry, centerX, centerY) {
       if (!this._planetUniformBuf || !entry) return;
       const time = (((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - this._timeOrigin) / 1000;
-      const uni = new DataView(new ArrayBuffer(64));
+      const uni = new DataView(new ArrayBuffer(80));
       uni.setFloat32(0, centerX, true);
       uni.setFloat32(4, centerY, true);
       uni.setFloat32(8, entry.radius, true);
@@ -2384,6 +2421,10 @@
       uni.setFloat32(52, entry.profile.accent[1], true);
       uni.setFloat32(56, entry.profile.accent[2], true);
       uni.setFloat32(60, 0, true);
+      uni.setFloat32(64, entry.shape.axes[0], true);
+      uni.setFloat32(68, entry.shape.axes[1], true);
+      uni.setFloat32(72, entry.shape.axes[2], true);
+      uni.setFloat32(76, entry.shape.deformation, true);
       this._device.queue.writeBuffer(this._planetUniformBuf, 0, uni.buffer);
     }
 
