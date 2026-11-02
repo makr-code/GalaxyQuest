@@ -215,22 +215,22 @@ synchronisation uses polling. See [§5.7](#57-tts--audio-system) and
 GalaxyQuest combines two fundamentally different timing models that operate at
 different layers of the stack.
 
-#### Backend — lazy resource model + rate-limited AI ticks
+#### Backend — lazy resource settlement + explicit simulation triggers
 
 | Layer | Model | Trigger | Implementation |
 |---|---|---|---|
-| Colony resources | **Lazy / tick-free** | Every API read | `update_colony_resources()` in `game_engine.php` |
-| Fleet arrivals | **Lazy** | Every `fleet.php?action=list` | `process_fleet_arrivals()` |
-| NPC faction AI | **Rate-limited tick** | ≤5 min per user | `npc_ai_tick()` in `npc_ai.php` |
-| NPC player accounts | **Rate-limited tick** | ≤3 min globally | `npc_player_accounts_tick_global()` |
-| Faction / colony events | **Rate-limited tick** | Inside NPC tick | `faction_events_tick_global()`, `colony_events_tick_global()` |
-| Wormhole maintenance | **Rate-limited tick** | Inside NPC tick | `wormhole_regeneration_tick_global()` |
+| Colony resources | **Lazy settlement** | Overview/resource reads and game mutations; based on `last_update` | `update_colony_resources()` in `game_engine.php` |
+| Fleet arrivals | **Explicit mutation** | CSRF-protected `POST fleet.php?action=check` | `process_fleet_arrivals()` |
+| Trade routes | **Explicit mutation** | CSRF-protected `POST trade.php?action=dispatch_due` | `check_and_dispatch_trade_routes()` |
+| Simulation ticks | **Explicit / worker** | CSRF-protected tick API or CLI runner | `simulation_tick.php`, `scripts/run_simulation_tick.php` |
 | Leader AI | **On-demand** | Player-triggered | `POST /api/leaders.php?action=ai_tick` |
 | Background projections | **Worker / cron** | CLI batch | `scripts/project_*.php` via projection queue |
 
-Key insight: **there is no server-side cron job for resource advancement.** Resources
-accumulate passively and are computed lazily on first read. NPC AI ticks are
-piggy-backed onto active player traffic — avoiding idle-server load entirely.
+Key insight: **there is no periodic resource-advancement scheduler.** Colony
+economy settlement is lazy and based on `last_update`; it may persist resource
+accounting during overview/resource reads and mutations. Overview GETs do not run
+simulation ticks, and fleet arrivals and recurring trade dispatches use explicit
+CSRF-protected POST actions instead of list requests.
 
 #### Frontend UI — event-driven with polling heartbeat
 

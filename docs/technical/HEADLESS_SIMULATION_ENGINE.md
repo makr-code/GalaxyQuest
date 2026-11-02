@@ -16,9 +16,12 @@ This introduces an explicit simulation runtime path independent from frontend re
 
 - Single persistent galaxy mode remains active.
 - Flexible tick cadence is supported via scheduler frequency + cooldowns.
-- Simulation side-effects on overview reads are now feature-flagged:
-  - `SIMULATION_TICK_ON_READ_ENABLED=0` (default, recommended)
-  - `SIMULATION_TICK_ON_READ_ENABLED=1` (legacy compatibility)
+- Overview GETs never execute simulation side-effects. The legacy
+  `SIMULATION_TICK_ON_READ_ENABLED` setting has been retired; changing it in an
+  environment file has no effect.
+- Simulation runs only through the explicit HTTP or CLI trigger paths below.
+- The overview still performs lazy colony-resource settlement from `last_update`;
+  this on-demand economy accounting is separate from simulation ticks.
 
 ## Trigger ticks
 

@@ -68,6 +68,36 @@ describe('API wrapper versioning', () => {
     expect(calledEndpoint).toContain('api/v1/war.php?action=get_status&war_id=42');
   });
 
+  it('keeps fleet listing read-only and exposes explicit arrival processing as a POST', async () => {
+    const API = loadApiScript();
+
+    await API.fleets({ cacheMode: 'no-store' });
+    let [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/fleet.php?action=list');
+    expect(requestInit.method).toBe('GET');
+
+    await API.processFleetArrivals();
+    [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/fleet.php?action=check');
+    expect(requestInit.method).toBe('POST');
+    expect(JSON.parse(requestInit.body)).toEqual({});
+  });
+
+  it('keeps trade listing read-only and exposes due-route dispatch as a POST', async () => {
+    const API = loadApiScript();
+
+    await API.tradeRoutes({ cacheMode: 'no-store' });
+    let [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/trade.php?action=list');
+    expect(requestInit.method).toBe('GET');
+
+    await API.dispatchTradeRoutes();
+    [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/trade.php?action=dispatch_due');
+    expect(requestInit.method).toBe('POST');
+    expect(JSON.parse(requestInit.body)).toEqual({});
+  });
+
   it('normalizes strategic war mutation payloads before posting', async () => {
     const API = loadApiScript();
 

@@ -104,7 +104,12 @@
         const fleets = [];
         // Try to load fleet data (survey missions)
         try {
-          const result = await api.get('api/fleet.php?action=list');
+          await api.processFleetArrivals();
+        } catch (err) {
+          gameLog('warn', 'ResourceScanOverview: fleet arrival processing failed', err);
+        }
+        try {
+          const result = await api.fleets({ cacheMode: 'no-store' });
           const raw = Array.isArray(result?.fleets) ? result.fleets : [];
           for (const fleet of raw) {
             if (String(fleet?.mission || '').toLowerCase() === 'survey') {

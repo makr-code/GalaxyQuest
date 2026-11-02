@@ -38,11 +38,9 @@ if (!function_exists('galactic_polar_from_cartesian')) {
     }
 }
 
-// Dispatch any trade routes due this session
-check_and_dispatch_trade_routes($db, $uid);
-
 match ($action) {
     'list'            => action_list($db, $uid),
+    'dispatch_due'    => action_dispatch_due($db, $uid),
     'create'          => action_create($db, $uid),
     'delete'          => action_delete($db, $uid),
     'toggle'          => action_toggle($db, $uid),
@@ -196,6 +194,15 @@ function action_list(PDO $db, int $uid): never {
             'is_due' => (bool)$r['is_due'],
         ];
     }, $routes)]);
+}
+
+function action_dispatch_due(PDO $db, int $uid): never
+{
+    only_method('POST');
+    verify_csrf();
+
+    $result = check_and_dispatch_trade_routes($db, $uid);
+    json_ok($result);
 }
 
 function action_create(PDO $db, int $uid): never {
@@ -859,7 +866,8 @@ function action_goods_flow(PDO $db, int $uid): never {
 
 // ─── Auto-dispatch logic ──────────────────────────────────────────────────────
 
-function check_and_dispatch_trade_routes(PDO $db, int $uid): void {
+function check_and_dispatch_trade_routes(PDO $db, int $uid): array
+{
     $stmt = $db->prepare(<<<SQL
         SELECT * FROM trade_routes
         WHERE user_id = ? AND is_active = 1
@@ -869,13 +877,18 @@ function check_and_dispatch_trade_routes(PDO $db, int $uid): void {
         )
     SQL);
     $stmt->execute([$uid]);
-    
+
+    $result = ['dispatched_routes' => 0, 'skipped_routes' => 0, 'failed_routes' => 0];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $route) {
-        dispatch_trade_fleet($db, $route);
+        $outcome = dispatch_trade_fleet($db, $route);
+        $result[$outcome . '_routes']++;
     }
+
+    return $result;
 }
 
-function dispatch_trade_fleet(PDO $db, array $route): void {
+function dispatch_trade_fleet(PDO $db, array $route): string
+{
     $uid = (int)$route['user_id'];
     $originColonyId = (int)$route['origin_colony_id'];
     $targetColonyId = (int)$route['target_colony_id'];
@@ -885,11 +898,11 @@ function dispatch_trade_fleet(PDO $db, array $route): void {
     $origin = load_trade_colony_node($db, $originColonyId, $uid);
     $target = load_trade_colony_node($db, $targetColonyId, null);
     if (!$origin || !$target) {
-        return;
+        return 'skipped';
     }
 
-    $db->beginTransaction();
     try {
+        $db->beginTransaction();
         if (ON_DEMAND_ECONOMY_ENABLED) {
             $db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE')->execute([$uid]);
             $due = $db->prepare(
@@ -900,7 +913,7 @@ function dispatch_trade_fleet(PDO $db, array $route): void {
             $due->execute([$routeId]);
             if (!$due->fetch()) {
                 $db->commit();
-                return;
+                return 'skipped';
             }
         }
         launch_trade_transport_fleet(
@@ -914,10 +927,13 @@ function dispatch_trade_fleet(PDO $db, array $route): void {
         $stmt = $db->prepare('UPDATE trade_routes SET last_dispatch = NOW() WHERE id = ?');
         $stmt->execute([$routeId]);
         $db->commit();
+        return 'dispatched';
     } catch (Throwable $_) {
-        $db->rollBack();
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
         error_log("dispatch_trade_fleet routeId={$routeId}: " . $_->getMessage());
-        return;
+        return 'failed';
     }
 }
 

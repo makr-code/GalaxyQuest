@@ -249,7 +249,10 @@ GalaxyQuest gilt als produktionsreif, wenn **alle** folgenden Aussagen nachweisb
 - [ ] Nebenläufigkeitstests (parallele Requests) für jede Ressourcenmutation; Invariante „Ressourcen ≥ 0“ per DB-Constraint oder Check
 - [x] Opt-in Koloniewirtschaft als serverseitiger On-Demand-Prozess: persistente 300-Sekunden-Schritte, begrenztes Catch-up, reale Produktionsinputs und Bevoelkerungsklassen, gemeinsame Bau-/Markt-Abrechnung und aggregierte System-/Galaxieprojektionen mit Altersangabe. Migration und `ON_DEMAND_ECONOMY_ENABLED=1` erforderlich; kein Wirtschaftsworker. Externe Marktliquiditaet bleibt ein Market-Maker.
 - [ ] Nichtwirtschaftliche Weltsimulation als eigener Worker-Prozess mit Lease und idempotenter Tick-Nummer pruefen; dies ist keine Voraussetzung fuer Kolonieproduktion.
-- [ ] Tick-on-Read entfernen (`trade.php`, `fleet.php` u. a.); Lesepfade bleiben frei von Seiteneffekten
+- [ ] Tick-on-Read entfernen (`trade.php`, `fleet.php` u. a.); Lesepfade bleiben frei von Simulations-Seiteneffekten. Die getrennte lazy Wirtschaftsabrechnung wird weiterhin beim Overview-GET ausgeführt und muss als eigener Read-/Settlement-Vertrag behandelt werden.
+- [x] Fleet-Ankunftsverarbeitung vom GET-Listenpfad getrennt: `action=list` ist read-only; der CSRF-geschuetzte POST `action=check` wird beim Oeffnen der Ressourcenuebersicht explizit aufgerufen.
+- [x] Faellige Handelsrouten vom globalen Request-Pfad getrennt: Trade-GETs dispatchen nicht mehr; die Routenuebersicht ruft einen expliziten CSRF-geschuetzten POST `action=dispatch_due` auf und laedt danach die Liste ungecached. Weitere Tick-on-Read-Pfade muessen weiterhin geprueft werden.
+- [x] Legacy-Simulationsticks aus Overview-GET entfernt: Der Overview-Handler uebergibt immer `false`; `SIMULATION_TICK_ON_READ_ENABLED` ist entfernt. Explizite HTTP-/CLI-Ticks und lazy Settlement der Koloniewirtschaft bleiben getrennte Pfade.
 - [ ] Tick-Metriken: Dauer, Lag, Fehler pro Subsystem
 
 **Datenlebenszyklus** (DB-06, DB-07)

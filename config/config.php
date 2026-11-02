@@ -104,9 +104,6 @@ define('PROJECTION_SYSTEM_SNAPSHOT_MAX_AGE_SECONDS', (int) env_value('PROJECTION
 define('PROJECTION_SYSTEM_BATCH_SIZE', (int) env_value('PROJECTION_SYSTEM_BATCH_SIZE', 200));
 
 // ── Headless Simulation Runtime ────────────────────────────────────────────────
-// When enabled, overview reads may execute simulation side-effects inline.
-// Recommended for migration compatibility only; keep disabled for worker-driven simulation.
-define('SIMULATION_TICK_ON_READ_ENABLED', (bool)(int) env_value('SIMULATION_TICK_ON_READ_ENABLED', 0));
 // Default systems-per-shard for deterministic galaxy partitioning.
 define('SIMULATION_SYSTEMS_PER_SHARD', (int) env_value('SIMULATION_SYSTEMS_PER_SHARD', 20000));
 // Cooldown windows for manual/worker-triggered simulation ticks.

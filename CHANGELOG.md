@@ -46,6 +46,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A synthetic real-Docker context gate and negative policy regressions verify
   these boundaries in CI without copying actual secrets or publishing images.
 
+### Changed — Fleet arrival processing
+
+- Fleet listing is read-only. Due arrivals are processed through the
+  CSRF-protected `POST fleet.php?action=check` endpoint when the resource-scan
+  overview requests fleet data.
+- Fleet delivery smoke checks now use the explicit POST mutation path.
+
+### Changed — Trade route dispatch
+
+- Trade read requests no longer dispatch due routes. The trade-routes view uses
+  an explicit CSRF-protected `POST trade.php?action=dispatch_due` request and
+  then reloads the route list without cache.
+- Dispatch results report dispatched, skipped and failed route counts.
+
+### Changed — Overview simulation ticks
+
+- Overview GETs always suppress simulation side-effects; the legacy
+  `SIMULATION_TICK_ON_READ_ENABLED` setting was removed.
+- Explicit HTTP/CLI simulation triggers and lazy colony-resource settlement
+  remain separate paths.
+
 ### Changed — Isolated CI smoke stack
 
 - Smoke tests now use the built web image without a checkout mount, isolated

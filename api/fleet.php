@@ -4,7 +4,7 @@
  * GET  /api/fleet.php?action=list
  * POST /api/fleet.php?action=send   body: {origin_colony_id, target_galaxy, target_system, target_position, mission, ships:{type:count,...}, cargo:{metal,crystal,deuterium}}
  * POST /api/fleet.php?action=recall body: {fleet_id}
- * GET  /api/fleet.php?action=check  (process arrivals – called by client polling)
+ * POST /api/fleet.php?action=check  (process due arrivals on demand)
  * POST /api/fleet.php?action=simulate_battle body: {attacker_fleet_id, target_colony_id?, deterministic_seed?, iterations?}
  * POST /api/fleet.php?action=matchup_scan body: {attacker_fleet_id, target_colony_ids?, target_colony_id?, deterministic_seed?, iterations?}
  */
@@ -27,7 +27,6 @@ switch ($action) {
     case 'list':
         only_method('GET');
         $db = get_db();
-        process_fleet_arrivals($db);
         $stmt = $db->prepare(
             'SELECT f.id, f.mission, f.origin_colony_id,
                     f.target_galaxy, f.target_system, f.target_position,
@@ -108,7 +107,8 @@ switch ($action) {
         break;
 
     case 'check':
-        only_method('GET');
+        only_method('POST');
+        verify_csrf();
         process_fleet_arrivals(get_db());
         json_ok();
         break;
