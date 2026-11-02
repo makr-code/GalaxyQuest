@@ -351,6 +351,18 @@ describe('SeamlessZoomOrchestrator — PLANET_APPROACH triggers flyTo()', () => 
     await orch.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, { planet: { id: 9, body_type: 'asteroid' } });
     expect(flyToSpy.mock.calls[1][3].colliders[0].radius).toBeCloseTo(1.769);
   });
+
+  it('rejects unsupported persisted shapes instead of silently using a sphere', async () => {
+    const mockBackend = makeMockBackend('webgl2');
+    const orch = new SeamlessZoomOrchestrator(null, { _backend: mockBackend });
+    const planetLevel = makeMockLevel();
+    const PlanetClass = makeLevelClass(planetLevel);
+    orch.register(ZOOM_LEVEL.PLANET_APPROACH, { webgpu: PlanetClass, threejs: PlanetClass });
+
+    await expect(orch.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, {
+      planet: { id: 10, shape: { version: 2, axes: [1, 1, 1], deformation: 0 } },
+    })).rejects.toThrow('invalid persistent body shape');
+  });
 });
 
 // ---------------------------------------------------------------------------
