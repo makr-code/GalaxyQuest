@@ -51,17 +51,33 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   Monde, Kometen und Asteroiden erhalten weder Wolken noch Himmel.
   Ein explizit atmosphärischer Mond kann dennoch eine Kuppel zeigen.
 - **Detailgelände:** Ein körperstabiler Seed erzeugt echtes verdrängtes
-  Kugelgelände statt bloßer Farbflecken. 72 konzentrische Ringe verdichten die
-  Kolonieregion, 32 weitere schließen die restliche Kugel; 128 Segmente ergeben
-  maximal 79.872 Vertices (ca. 2,14 MiB). Das Gelände rotiert nicht unter der
-  Stadt und wird bei unveränderten Körper-/Layoutdaten nicht erneut hochgeladen.
+  Kugelgelände statt bloßer Farbflecken. Die lokale Verdichtung folgt dem
+  Kameratarget; gröbere Ringe schließen die restliche Kugel.
+  Vier bedarfsgesteuerte Stufen verwenden 6.144, 23.040, 79.872 oder 161.280
+  Vertices (höchstens ca. 4,31 MiB pro Mesh). Auswahlkriterium ist die
+  projizierte Größe einer Terrain-Skalenlänge in tatsächlichen Renderpixeln,
+  einschließlich Seitenverhältnis und Renderauflösung. Schwellwerte sind
+  120/400/1.400 Pixel mit 15 % Hysterese; die Höhenfunktion selbst bleibt
+  unabhängig von der Detailstufe.
+  Ein LRU-Cache begrenzt die Summe aller Terrainbuffer auf 8 MiB und verwendet
+  zuvor erzeugte Stufen beim Zurückzoomen erneut. Auch die lokale Verdichtung
+  hat eine Schwenk-Hysterese statt Neubau bei jeder kleinen Zielbewegung.
+  Das Gelände rotiert nicht unter der Stadt.
+  Szenendaten-Vorbereitung erzeugt noch kein Terrainmesh; erst der Frame einer
+  aktiven, sichtbaren Oberfläche generiert und lädt die tatsächlich benötigte
+  Stufe. Verborgene Dokumente, unsichtbare/außerhalb des Viewports liegende
+  Canvas-Flächen und inaktive Szenen erzeugen keine neuen Terrainbuffer.
+  Körper-/Layoutwechsel invalidieren den Cache, Austritt gibt ihn frei.
   Erdähnliche Welten zeigen grüne Niederungen, Wasser, Felsrücken und Schnee
   auf hohen Gipfeln; Ozeanwelten mehr Wasser, Eiswelten Eisgebirge,
   Wüsten Sand-/Gesteinsfarben, Vulkanwelten dunkles Gestein und Lava.
   Monde/Asteroiden bleiben felsig, Kometen eisig. Gas-/Eisriesen behalten eine
   gebänderte Ersatzoberfläche ohne erfundene feste Berge oder Seen.
   Im Fragmentshader entstehen zusätzliche Gesteinskörnung, Schichten,
-  Eisfarben und zeitabhängige Wasserrippel; die Beleuchtung nutzt die wirkliche
+  Eisfarben und zeitabhängige Wasserrippel. Ableitungsbasierte Filterung
+  (`fwidth`) blendet nicht mehr auflösbare Frequenzen aus; nahe Ansichten zeigen
+  die Details automatisch, ohne zusätzliche Texturdownloads.
+  Die Beleuchtung nutzt die wirkliche
   Dreiecksgeometrie statt ausschließlich der Kugelnormale.
   Die bestehende Koloniefläche wird trocken und eben entlang der Kugel
   gradiert und weich ins Relief eingebettet. Gebäude und Figuren stehen damit
@@ -109,7 +125,8 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   Tiefentextur; gecachte Pipelines werden beim Orchestrator-Dispose freigegeben.
 
 **Bewusste Grenzen:** stilisierte prozedurale Gebäude statt JSON-/GLTF-Modellen,
-prozedurales, begrenztes Relief statt streamender Planetenterrain-LOD,
+prozedurales Relief mit diskreter, bildschirmabhängiger LOD statt
+serverseitig streamender Terrainkacheln; noch kein Geomorphing zwischen Stufen,
 keine Erosion, unterirdische Geometrie oder hydrologische Simulation, kein GPU-Picking,
 keine Wegfindungs-/Haushalts-/Arbeitsmarkt-Simulation einzelner Personen, keine
 neuen Bau-Mutationen im 3D-Viewport. Fußgänger laufen kosmetische Straßenzyklen.
@@ -136,6 +153,13 @@ derselben Kamerapose und legt `colony-view.png` als Screenshot-Artefakt ab.
 Weitere Pixelvergleiche und Screenshots prüfen Ozean-, Eis-, Wüsten- und
 Vulkangelände. Unit-Tests messen Höhenvariation, Materialverteilung, trockene
 Fundamente, Straßenabstand, Geometriebudget, Kameraabstand und Buffer-Lebensdauer.
+LOD-Tests prüfen Nah-/Fernzoom, Auflösungswechsel, Hysterese, Zielverschiebung,
+verzögertes Laden und das Cachebudget; der echte GPU-Test bestätigt den
+Stufenwechsel und Wiederverwendung desselben Buffers beim Zurückzoomen.
+
+Die Systemansicht bleibt beim bestehenden vereinfachten Planetenrenderer:
+Sie erzeugt keine Kolonie-Terrainmeshes für die übrigen Körper. Der separate
+Planet-Anflug ist weiterhin kein geometrisch durchgängiges Terrain-LOD-System.
 
 ---
 

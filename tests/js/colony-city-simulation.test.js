@@ -5,7 +5,8 @@ const require = createRequire(import.meta.url);
 const {
   ColonySurfaceLevelWebGPU, normalizeCitySlots, buildCityGeometry,
   cityCameraMatrix, cityCameraPose, colonyAtmosphereState, projectCityPoint, mapColonySurfacePoint, projectColonySurfacePoint,
-  resolveBodySurface, sampleColonyTerrain, buildColonyTerrainMesh, cityPedestrians, cityEconomyStatus,
+  resolveBodySurface, sampleColonyTerrain, buildColonyTerrainMesh, selectColonyTerrainLod,
+  TERRAIN_LODS, TERRAIN_CACHE_BYTES, COLONY_BODY_WGSL, cityPedestrians, cityEconomyStatus,
 } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
 const { SeamlessZoomOrchestrator, ZOOM_LEVEL } = require('../../js/engine/zoom/SeamlessZoomOrchestrator.js');
 const { planetViewProjection } = require('../../js/engine/zoom/levels/PlanetApproachLevelWebGPU.js');
@@ -242,6 +243,7 @@ describe('Detailed body terrain', () => {
   it('reuses uploaded terrain across snapshots and releases it on body changes and exit', async () => {
     const { level, backend } = await makeLevel();
     await level.enter(2, scene());
+    level.render(0.016);
     const terrain = level._terrainBuffer;
     level.setSceneData(scene({ economy: { shortages: {} } }));
     expect(level._terrainBuffer).toBe(terrain);
@@ -250,6 +252,8 @@ describe('Detailed body terrain', () => {
     expect(backend.pass.draw).toHaveBeenCalledWith(level._terrainVertexCount, 1, 0, 0);
     level.setSceneData(scene({ colony: { id: 7, planet_class: 'ice_dwarf' } }));
     expect(terrain.destroy).toHaveBeenCalledOnce();
+    expect(level._terrainBuffer).toBeNull();
+    level.render(0.016);
     const ice = level._terrainBuffer;
     await level.exit();
     expect(ice.destroy).toHaveBeenCalledOnce();
@@ -285,6 +289,117 @@ describe('Detailed body terrain', () => {
     const projected = projectColonySurfacePoint(level._viewProjection, terrain.radius, 45, 0, 28, terrain);
     expect(projected[0]).toBeCloseTo(0);
     expect(projected[1]).toBeCloseTo(0);
+  });
+});
+
+describe('Demand-driven terrain detail', () => {
+  it('selects increasing LOD from projected feature size with a stable hysteresis band', () => {
+    expect([50, 200, 800, 2000].map((pixels) => selectColonyTerrainLod(pixels))).toEqual([0, 1, 2, 3]);
+    expect(selectColonyTerrainLod(125, 0)).toBe(0);
+    expect(selectColonyTerrainLod(140, 0)).toBe(1);
+    expect(selectColonyTerrainLod(110, 1)).toBe(1);
+    expect(selectColonyTerrainLod(100, 1)).toBe(0);
+    expect(selectColonyTerrainLod(0, 3)).toBe(0);
+  });
+
+  it('generates increasingly dense bounded meshes around the current target', () => {
+    const terrain = resolveBodySurface(scene(), 24, 18).terrain;
+    let previous = 0;
+    for (let lod = 0; lod < TERRAIN_LODS.length; lod++) {
+      const { vertices, vertexCount } = buildColonyTerrainMesh(terrain, lod, { x: 45, z: 28 });
+      expect(vertexCount).toBeGreaterThan(previous);
+      expect(vertices.byteLength).toBeLessThan(TERRAIN_CACHE_BYTES);
+      const expected = mapColonySurfacePoint(terrain.radius, 45, 0, 28, terrain);
+      expected.forEach((value, axis) => expect(vertices[axis]).toBeCloseTo(value, 4));
+      expect([...vertices].every(Number.isFinite)).toBe(true);
+      previous = vertexCount;
+    }
+    expect(previous).toBe(161280);
+  });
+
+  it('does not generate or upload terrain for prepared, inactive, hidden or zero-size views', async () => {
+    const { level, backend, canvas } = await makeLevel();
+    level.setSceneData(scene());
+    level.render(0.016);
+    expect(level._terrainBuffer).toBeNull();
+    expect(backend.device.createBuffer.mock.calls.some(([buffer]) => buffer.label?.startsWith('colony_terrain_'))).toBe(false);
+    await level.enter(2, scene());
+    expect(level._terrainBuffer).toBeNull();
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    level.render(0.016);
+    expect(level._terrainBuffer).toBeNull();
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    const rect = canvas.getBoundingClientRect;
+    canvas.getBoundingClientRect = () => ({ width: 0, height: 0 });
+    level.render(0.016);
+    expect(level._terrainBuffer).toBeNull();
+    canvas.getBoundingClientRect = () => ({ width: 1000, height: 700, left: 0, top: window.innerHeight + 1 });
+    level.render(0.016);
+    expect(level._terrainBuffer).toBeNull();
+    canvas.getBoundingClientRect = rect;
+    level.render(0.016);
+    expect(level._terrainLod).toBe(0);
+    expect(level._terrainBuffer.size).toBe(172032);
+  });
+
+  it('refines on zoom and viewport resolution, and reuses previously generated levels', async () => {
+    const { level, canvas } = await makeLevel();
+    await level.enter(2, scene());
+    level.render(0);
+    const coarse = level._terrainBuffer;
+    level._camera.progress = 1;
+    level._setCameraSpan(level._citySpan);
+    level.render(0);
+    expect(level._terrainLod).toBe(2);
+    const detailed = level._terrainBuffer;
+    level._setCameraSpan(9);
+    level.render(0);
+    expect(level._terrainLod).toBe(3);
+    expect(level._terrainBuffer.size).toBeGreaterThan(detailed.size);
+    level._setCameraSpan(level._entrySpan);
+    level.render(0);
+    expect(level._terrainBuffer).toBe(coarse);
+    level._setCameraSpan(level._citySpan);
+    level.render(0);
+    expect(level._terrainBuffer).toBe(detailed);
+    canvas.width *= 2;
+    canvas.height *= 2;
+    level.render(0);
+    expect(level._terrainLod).toBe(3);
+    expect(level._terrainCacheBytes).toBeLessThanOrEqual(TERRAIN_CACHE_BYTES);
+  });
+
+  it('moves refinement with panning, avoids focus-boundary churn, and evicts old buffers within budget', async () => {
+    const { level } = await makeLevel();
+    await level.enter(2, scene());
+    level._camera.progress = 1;
+    level._setCameraSpan(9);
+    level.render(0);
+    const step = level._bodySurface.terrain.scale * 0.5;
+    const original = level._terrainBuffer;
+    level._camera.target.x = step * 0.6;
+    level.render(0);
+    expect(level._terrainBuffer).toBe(original);
+    const buffers = [];
+    for (let i = 1; i < 10; i++) {
+      level._camera.target.x = step * i;
+      level.render(0);
+      buffers.push(level._terrainBuffer);
+      expect(level._terrainCacheBytes).toBeLessThanOrEqual(TERRAIN_CACHE_BYTES);
+      expect(level._terrainFocus.x).toBeCloseTo(step * i);
+    }
+    expect(original.destroy).toHaveBeenCalledOnce();
+    expect(buffers.some((buffer) => buffer.destroy.mock.calls.length)).toBe(true);
+    await level.exit();
+    expect(level._terrainCache.size).toBe(0);
+    expect(level._terrainCacheBytes).toBe(0);
+    buffers.forEach((buffer) => expect(buffer.destroy).toHaveBeenCalledOnce());
+  });
+
+  it('filters procedural grain, strata and waves using their actual pixel footprint', () => {
+    expect(COLONY_BODY_WGSL).toContain('fwidth(grainPhase.x)');
+    expect(COLONY_BODY_WGSL).toContain('fwidth(strataPhase)');
+    expect(COLONY_BODY_WGSL).toContain('fwidth(ripplePhase.x)');
   });
 });
 

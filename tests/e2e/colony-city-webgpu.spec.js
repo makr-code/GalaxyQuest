@@ -90,12 +90,43 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
   const terrainBuffers = await page.evaluate(() => {
     const city = window.cityTest.orchestrator._active;
     const buffer = city._terrainBuffer;
+    const span = city._camera.span;
     city.setSceneData({ ...city._sceneData });
+    city._setCameraSpan(span);
     city.render(0);
     return { reused: city._terrainBuffer === buffer, vertices: city._terrainVertexCount, bytes: buffer.size };
   });
   expect(terrainBuffers).toMatchObject({ reused: true, vertices: 79872 });
   expect(terrainBuffers.bytes).toBeLessThan(2.5 * 1024 * 1024);
+  const adaptiveDetail = await page.evaluate(() => {
+    const { orchestrator, renderer } = window.cityTest;
+    const city = orchestrator._active;
+    const hooks = [...renderer._frameHooks];
+    renderer._frameHooks.clear();
+    const span = city._camera.span;
+    const original = city._terrainBuffer;
+    try {
+      city._setCameraSpan(9);
+      city.render(0);
+      const near = { lod: city._terrainLod, vertices: city._terrainVertexCount };
+      city._setCameraSpan(city._entrySpan);
+      city.render(0);
+      const far = { lod: city._terrainLod, vertices: city._terrainVertexCount };
+      city._setCameraSpan(span);
+      city.render(0);
+      return {
+        near, far, reused: city._terrainBuffer === original, cacheBytes: city._terrainCacheBytes,
+        hooks: hooks.length, independentRaf: orchestrator._rafId,
+      };
+    } finally {
+      for (const hook of hooks) renderer._frameHooks.add(hook);
+    }
+  });
+  expect(adaptiveDetail).toMatchObject({
+    near: { lod: 3, vertices: 161280 }, far: { lod: 0, vertices: 6144 },
+    reused: true, hooks: 1, independentRaf: 0,
+  });
+  expect(adaptiveDetail.cacheBytes).toBeLessThanOrEqual(8 * 1024 * 1024);
   await page.locator('#host').screenshot({ path: testInfo.outputPath('colony-view.png') });
   const clouds = await page.evaluate(() => {
     const { orchestrator, renderer } = window.cityTest;
