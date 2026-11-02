@@ -6,6 +6,8 @@
   "scripts": {
     "vite:dev": "vite serve --host 127.0.0.1 --port 8080",
     "vite:build": "vite build",
+    "vite:build:evaluation": "vite build --config vite.evaluation.config.mjs",
+    "vite:preview:evaluation": "vite preview --config vite.evaluation.config.mjs --host 127.0.0.1 --port 4174",
     "vite:preview": "vite preview --host 127.0.0.1 --port 4173",
     "check:bundle-budget": "node scripts/check_bundle_budget.mjs",
     "check:repository-artifacts": "node scripts/check_repository_artifacts.mjs",
@@ -43,6 +45,7 @@
     "vitest": "^5.0.5"
   },
   "dependencies": {
+    "@babylonjs/core": "9.33.1",
     "@microsoft/fetch-event-source": "^2.0.1",
     "dexie": "^4.0.8",
     "mustache": "^4.2.0",
