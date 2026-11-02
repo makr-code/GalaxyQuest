@@ -22,7 +22,9 @@
  *   --batch=N          Max dirty-queue entries to process per run (default 50).
  *   --max-seconds=N    Soft wall-clock limit; stop claiming after N seconds (default 0 = no limit).
  *   --max-items=N      Stop after projecting N users total (default 0 = no limit).
- *   --dry-run          Claim batch and log intent but skip all writes.
+ *   --dry-run          Read due entries and log intent without claiming or writing.
+ * Limits apply before claiming; finish an already claimed batch even beyond
+ * the soft deadline so normal limit exits do not strand processing entries.
  *
  * Exit codes:
  *   0 – ran successfully (batch may have been empty)
@@ -38,6 +40,19 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $repoRoot = dirname(__DIR__);
+require_once $repoRoot . '/lib/projection_runtime.php';
+if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === realpath(__FILE__)) {
+    if (array_slice($argv ?? [], 1) === ['--help']) {
+        fwrite(STDOUT, projection_worker_usage());
+        exit(0);
+    }
+    try {
+        parse_worker_args($argv ?? []);
+    } catch (InvalidArgumentException $e) {
+        fwrite(STDERR, '[projector:user] FATAL: ' . $e->getMessage() . "\n");
+        exit(1);
+    }
+}
 require_once $repoRoot . '/config/config.php';
 require_once $repoRoot . '/config/db.php';
 require_once $repoRoot . '/api/game_engine.php';
@@ -49,14 +64,18 @@ require_once $repoRoot . '/api/projection.php';
 
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === realpath(__FILE__)) {
 
-$workerArgs   = parse_worker_args($argv ?? []);
-$batchSize    = defined('PROJECTION_BATCH_SIZE')            ? (int)PROJECTION_BATCH_SIZE            : 50;
+try {
+    $workerArgs = parse_worker_args(
+        $argv ?? [],
+        defined('PROJECTION_BATCH_SIZE') ? (int)PROJECTION_BATCH_SIZE : 50
+    );
+} catch (InvalidArgumentException $e) {
+    fwrite(STDERR, '[projector:user] FATAL: ' . $e->getMessage() . "\n");
+    exit(1);
+}
+$batchSize    = $workerArgs['batch'];
 $retryBackoff = defined('PROJECTION_RETRY_BACKOFF_SECONDS') ? (int)PROJECTION_RETRY_BACKOFF_SECONDS : 30;
 
-// CLI flags override config defaults.
-if ($workerArgs['batch'] !== 50) {
-    $batchSize = $workerArgs['batch'];
-}
 $maxSeconds = $workerArgs['max-seconds'];
 $maxItems   = $workerArgs['max-items'];
 $dryRun     = $workerArgs['dry-run'];
@@ -75,58 +94,39 @@ try {
     exit(1);
 }
 
-// Ensure the required tables exist (idempotent – handles pre-migration deploys).
+// Validate canonical storage before claiming queue entries.
 try {
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS projection_dirty_queue (
-            id              BIGINT        NOT NULL AUTO_INCREMENT,
-            entity_type     VARCHAR(40)   NOT NULL DEFAULT \'user\',
-            entity_id       INT           NOT NULL,
-            event_type      VARCHAR(60)   NOT NULL DEFAULT \'\',
-            reason          VARCHAR(120)  NOT NULL DEFAULT \'\',
-            payload_json    TEXT          DEFAULT NULL,
-            status          ENUM(\'queued\',\'processing\',\'done\',\'failed\') NOT NULL DEFAULT \'queued\',
-            enqueued_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            attempts        SMALLINT      NOT NULL DEFAULT 0,
-            last_error      TEXT          DEFAULT NULL,
-            next_attempt_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            processed_at    DATETIME      DEFAULT NULL,
-            PRIMARY KEY (id),
-            UNIQUE KEY uniq_dirty_entity    (entity_type, entity_id),
-            INDEX idx_dirty_status_next     (status, next_attempt_at),
-            INDEX idx_dirty_entity_id       (entity_id),
-            INDEX idx_dirty_event_created   (event_type, created_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
-    );
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS projection_user_overview (
-            user_id      INT          NOT NULL,
-            payload_json LONGTEXT     NOT NULL,
-            version      BIGINT       NOT NULL DEFAULT 0,
-            updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
-                         ON UPDATE CURRENT_TIMESTAMP,
-            source_tick  BIGINT       NOT NULL DEFAULT 0,
-            stale_flag   TINYINT(1)   NOT NULL DEFAULT 0,
-            PRIMARY KEY (user_id),
-            INDEX idx_proj_overview_stale   (stale_flag),
-            INDEX idx_proj_overview_updated (updated_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
-    );
-} catch (Throwable $e) {
-    // Non-fatal: tables may already exist; the real migration creates them.
-    error_log('[projector:user] table_ensure_warning: ' . $e->getMessage());
+    require_once $repoRoot . '/lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertProjectionQueue($db);
+    \GalaxyQuest\Schema\GalaxySchema::assertUserProjection($db);
+    \GalaxyQuest\Schema\GalaxySchema::assertProjectionTransactions($db, 'projection_user_overview');
+} catch (PDOException | RuntimeException $e) {
+    fwrite(STDERR, '[projector:user] FATAL: schema preflight failed: ' . $e->getMessage() . "\n");
+    exit(1);
 }
 
 // ── Claim and process batches ─────────────────────────────────────────────────
 
 $processed  = 0;
+$skipped    = 0;
 $errors     = 0;
 $totalItems = 0;
 
 try {
-    $dueRows = claim_batch($db, 'user', $batchSize);
+    $limit = $maxItems > 0 ? min($batchSize, $maxItems) : $batchSize;
+    if ($maxSeconds > 0 && (microtime(true) - $workerStart) >= $maxSeconds) {
+        $dueRows = [];
+    } elseif ($dryRun) {
+        $stmt = $db->prepare(
+            "SELECT id, entity_id, attempts FROM projection_dirty_queue
+             WHERE entity_type = 'user' AND status = 'queued' AND next_attempt_at <= NOW()
+             ORDER BY next_attempt_at ASC LIMIT " . (int)$limit
+        );
+        $stmt->execute();
+        $dueRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        $dueRows = claim_batch($db, 'user', $limit);
+    }
 } catch (Throwable $e) {
     fwrite(STDERR, '[projector:user] FATAL: claim_batch failed: ' . $e->getMessage() . "\n");
     exit(1);
@@ -140,14 +140,6 @@ if (empty($dueRows)) {
 // ── Process each dirty user ───────────────────────────────────────────────────
 
 foreach ($dueRows as $row) {
-    // Respect soft limits.
-    if ($maxItems > 0 && $totalItems >= $maxItems) {
-        break;
-    }
-    if ($maxSeconds > 0 && (microtime(true) - $workerStart) >= $maxSeconds) {
-        break;
-    }
-
     $queueId = (int)$row['id'];
     $userId  = (int)$row['entity_id'];
     $attempt = (int)$row['attempts'] + 1;
@@ -167,11 +159,18 @@ foreach ($dueRows as $row) {
         // Build the full overview payload (without session side-effects like NPC tick).
         $payload = build_live_overview_payload($db, $userId, false);
 
-        // Persist the projection atomically.
-        write_user_overview_projection($db, $userId, $payload);
-
-        // Remove from dirty queue on success.
-        mark_done($db, $queueId);
+        $completed = complete_projection_claim(
+            $db,
+            $queueId,
+            $row['claim_token'],
+            static function (PDO $connection) use ($userId, $payload): void {
+                write_user_overview_projection($connection, $userId, $payload, true);
+            },
+        );
+        if (!$completed) {
+            $skipped++;
+            continue;
+        }
 
         $durationMs = (int)round((microtime(true) - $userStart) * 1000);
         error_log(sprintf('[projector:user] done  user=%d  duration_ms=%d', $userId, $durationMs));
@@ -179,7 +178,11 @@ foreach ($dueRows as $row) {
 
     } catch (Throwable $e) {
         $errors++;
-        mark_failed($db, $queueId, $attempt, $e->getMessage(), $retryBackoff);
+        if ($db->inTransaction()) {
+            fwrite(STDERR, '[projector:user] FATAL: completion transaction not recovered: ' . $e->getMessage() . "\n");
+            exit(1);
+        }
+        mark_failed($db, $queueId, $attempt, $e->getMessage(), $retryBackoff, $row['claim_token']);
         error_log(sprintf('[projector:user] error  user=%d  err=%s', $userId, $e->getMessage()));
     }
 }
@@ -188,8 +191,8 @@ foreach ($dueRows as $row) {
 
 $totalMs = (int)round((microtime(true) - $workerStart) * 1000);
 error_log(sprintf(
-    '[projector:user] finish  processed=%d  errors=%d  duration_ms=%d',
-    $processed, $errors, $totalMs,
+    '[projector:user] finish  processed=%d  errors=%d  skipped=%d  duration_ms=%d',
+    $processed, $errors, $skipped, $totalMs,
 ));
 
 exit($errors > 0 ? 2 : 0);

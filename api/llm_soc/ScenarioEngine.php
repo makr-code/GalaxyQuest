@@ -39,9 +39,8 @@ final class ScenarioEngine
         if (!self::isTickDue($db)) {
             return;
         }
-        self::markTick($db);
-
         self::ensureTables($db);
+        self::markTick($db);
 
         // 1. Resolve any expired active events
         self::resolveExpiredEvents($db);
@@ -167,67 +166,10 @@ final class ScenarioEngine
         }
     }
 
-    /**
-     * Ensure required tables exist (graceful degradation on old installs).
-     */
     private static function ensureTables(PDO $db): void
     {
-        try {
-            $db->exec(
-                'CREATE TABLE IF NOT EXISTS galactic_events (
-                    id              INT AUTO_INCREMENT PRIMARY KEY,
-                    event_type      VARCHAR(64) NOT NULL,
-                    faction_id      INT DEFAULT NULL,
-                    source_user_id  INT DEFAULT NULL,
-                    description     TEXT,
-                    modifier_key    VARCHAR(64),
-                    modifier_value  DECIMAL(9,4),
-                    affected_scope  ENUM(\'cluster\',\'sector\',\'galaxy\') NOT NULL DEFAULT \'cluster\',
-                    starts_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    ends_at         DATETIME NOT NULL,
-                    is_visible      TINYINT(1) NOT NULL DEFAULT 1,
-                    INDEX idx_ge_faction    (faction_id),
-                    INDEX idx_ge_scope_time (affected_scope, ends_at)
-                ) ENGINE=InnoDB'
-            );
-            $db->exec(
-                'CREATE TABLE IF NOT EXISTS world_scenarios (
-                    id                       INT AUTO_INCREMENT PRIMARY KEY,
-                    code                     VARCHAR(64) NOT NULL UNIQUE,
-                    faction_id               INT DEFAULT NULL,
-                    title_de                 VARCHAR(128) NOT NULL,
-                    description_de           TEXT NOT NULL,
-                    duration_hours           SMALLINT UNSIGNED NOT NULL DEFAULT 24,
-                    trigger_chance           DECIMAL(5,4) NOT NULL DEFAULT 0.0500,
-                    trigger_cooldown_hours   SMALLINT UNSIGNED NOT NULL DEFAULT 72,
-                    min_player_progress      TINYINT UNSIGNED NOT NULL DEFAULT 0,
-                    phases_json              TEXT NOT NULL DEFAULT \'[]\',
-                    conclusions_json         TEXT NOT NULL DEFAULT \'[]\',
-                    effects_json             TEXT NOT NULL DEFAULT \'{}\',
-                    llm_prompt_key           VARCHAR(64) DEFAULT NULL,
-                    active                   TINYINT(1) NOT NULL DEFAULT 1,
-                    created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB'
-            );
-            $db->exec(
-                'CREATE TABLE IF NOT EXISTS active_world_events (
-                    id               INT AUTO_INCREMENT PRIMARY KEY,
-                    scenario_id      INT NOT NULL,
-                    phase            TINYINT UNSIGNED NOT NULL DEFAULT 0,
-                    started_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    ends_at          DATETIME NOT NULL,
-                    conclusion_key   VARCHAR(64) DEFAULT NULL,
-                    resolved_at      DATETIME DEFAULT NULL,
-                    effects_applied  TINYINT(1) NOT NULL DEFAULT 0,
-                    flavor_text      TEXT DEFAULT NULL,
-                    INDEX idx_awe_open     (conclusion_key, ends_at),
-                    INDEX idx_awe_scenario (scenario_id)
-                ) ENGINE=InnoDB'
-            );
-        } catch (\Throwable $e) {
-            error_log('[ScenarioEngine] ensureTables error: ' . $e->getMessage());
-        }
+        require_once __DIR__ . '/../../lib/GalaxySchema.php';
+        \GalaxyQuest\Schema\GalaxySchema::assertWorldScenarios($db);
     }
 
     /**

@@ -28,139 +28,28 @@ function galaxy_bootstrap_config(): array {
     return $merged;
 }
 
-function ensure_app_state_table(PDO $db): void {
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS app_state (
-            state_key VARCHAR(64) PRIMARY KEY,
-            state_value VARCHAR(255) NOT NULL,
-            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB'
-    );
+function ensure_app_state_table(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertAppState($db);
 }
 
-function ensure_planet_science_columns(PDO $db): void {
-    static $done = false;
-    if ($done) {
-        return;
-    }
-
-    $columns = [
-        'composition_family' => "ALTER TABLE planets ADD COLUMN composition_family VARCHAR(64) NOT NULL DEFAULT 'silicate_metal'",
-        'dominant_surface_material' => "ALTER TABLE planets ADD COLUMN dominant_surface_material VARCHAR(64) NOT NULL DEFAULT 'basaltic_regolith'",
-        'surface_pressure_bar' => "ALTER TABLE planets ADD COLUMN surface_pressure_bar DOUBLE NOT NULL DEFAULT 0.0",
-        'water_state' => "ALTER TABLE planets ADD COLUMN water_state VARCHAR(32) NOT NULL DEFAULT 'solid'",
-        'methane_state' => "ALTER TABLE planets ADD COLUMN methane_state VARCHAR(32) NOT NULL DEFAULT 'gas'",
-        'ammonia_state' => "ALTER TABLE planets ADD COLUMN ammonia_state VARCHAR(32) NOT NULL DEFAULT 'gas'",
-        'dominant_surface_liquid' => "ALTER TABLE planets ADD COLUMN dominant_surface_liquid VARCHAR(32) NOT NULL DEFAULT 'none'",
-        'radiation_level' => "ALTER TABLE planets ADD COLUMN radiation_level VARCHAR(32) NOT NULL DEFAULT 'moderate'",
-        'habitability_score' => "ALTER TABLE planets ADD COLUMN habitability_score TINYINT UNSIGNED NOT NULL DEFAULT 0",
-        'life_friendliness' => "ALTER TABLE planets ADD COLUMN life_friendliness VARCHAR(32) NOT NULL DEFAULT 'life_hostile'",
-        'species_affinity_json' => "ALTER TABLE planets ADD COLUMN species_affinity_json JSON DEFAULT NULL",
-    ];
-
-    $check = $db->prepare(
-        'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
-    );
-
-    foreach ($columns as $name => $ddl) {
-        $check->execute(['planets', $name]);
-        if ((int)$check->fetchColumn() === 0) {
-            $db->exec($ddl);
-        }
-    }
-
-    $done = true;
+function ensure_planet_science_columns(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertPlanets($db);
 }
 
-function ensure_star_system_columns(PDO $db): void {
-    static $done = false;
-    if ($done) {
-        return;
-    }
-
-    $columns = [
-        'stellar_type' => "ALTER TABLE star_systems ADD COLUMN stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') NOT NULL DEFAULT 'main_sequence'",
-        'age_gyr' => "ALTER TABLE star_systems ADD COLUMN age_gyr DECIMAL(4,2) NOT NULL DEFAULT 5.0",
-        'metallicity_z' => "ALTER TABLE star_systems ADD COLUMN metallicity_z DECIMAL(6,4) NOT NULL DEFAULT 0.0200",
-        'is_binary' => "ALTER TABLE star_systems ADD COLUMN is_binary TINYINT(1) NOT NULL DEFAULT 0",
-        'is_circumbinary' => "ALTER TABLE star_systems ADD COLUMN is_circumbinary TINYINT(1) NOT NULL DEFAULT 0",
-        'companion_stellar_type' => "ALTER TABLE star_systems ADD COLUMN companion_stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') DEFAULT NULL",
-        'companion_spectral_class' => "ALTER TABLE star_systems ADD COLUMN companion_spectral_class VARCHAR(4) DEFAULT NULL",
-        'companion_subtype' => "ALTER TABLE star_systems ADD COLUMN companion_subtype TINYINT UNSIGNED DEFAULT NULL",
-        'companion_luminosity_class' => "ALTER TABLE star_systems ADD COLUMN companion_luminosity_class VARCHAR(4) DEFAULT NULL",
-        'companion_mass_solar' => "ALTER TABLE star_systems ADD COLUMN companion_mass_solar DOUBLE DEFAULT NULL",
-        'companion_radius_solar' => "ALTER TABLE star_systems ADD COLUMN companion_radius_solar DOUBLE DEFAULT NULL",
-        'companion_temperature_k' => "ALTER TABLE star_systems ADD COLUMN companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL",
-        'companion_luminosity_solar' => "ALTER TABLE star_systems ADD COLUMN companion_luminosity_solar DOUBLE DEFAULT NULL",
-        'companion_separation_au' => "ALTER TABLE star_systems ADD COLUMN companion_separation_au DOUBLE DEFAULT NULL",
-        'companion_eccentricity' => "ALTER TABLE star_systems ADD COLUMN companion_eccentricity DOUBLE DEFAULT NULL",
-        'stability_critical_au' => "ALTER TABLE star_systems ADD COLUMN stability_critical_au DOUBLE DEFAULT NULL",
-        'catalog_name' => "ALTER TABLE star_systems ADD COLUMN catalog_name VARCHAR(32) NOT NULL DEFAULT ''",
-        'planet_count' => "ALTER TABLE star_systems ADD COLUMN planet_count TINYINT UNSIGNED NOT NULL DEFAULT 0",
-    ];
-
-    $check = $db->prepare(
-        'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
-    );
-
-    foreach ($columns as $name => $ddl) {
-        $check->execute(['star_systems', $name]);
-        if ((int)$check->fetchColumn() === 0) {
-            $db->exec($ddl);
-        }
-    }
-
-    // White dwarfs are generated with spectral_class='WD'.
-    // Older schemas use ENUM('O','B','A','F','G','K','M') and would throw
-    // "Data truncated for column spectral_class" on insert.
-    $enumStmt = $db->prepare(
-        'SELECT COLUMN_TYPE
-         FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
-    );
-    $enumStmt->execute(['star_systems', 'spectral_class']);
-    $columnType = strtolower((string)$enumStmt->fetchColumn());
-    if ($columnType !== '' && strpos($columnType, "'wd'") === false) {
-        $db->exec("ALTER TABLE star_systems MODIFY COLUMN spectral_class ENUM('O','B','A','F','G','K','M','WD') NOT NULL DEFAULT 'G'");
-    }
-
-    $done = true;
+function ensure_star_system_columns(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertStars($db);
 }
 
-function ensure_binary_systems_table(PDO $db): void {
-    static $done = false;
-    if ($done) {
-        return;
-    }
-
-    $db->exec(
-        "CREATE TABLE IF NOT EXISTS binary_systems (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            primary_star_system_id INT NOT NULL UNIQUE,
-            is_circumbinary TINYINT(1) NOT NULL DEFAULT 0,
-            companion_stellar_type ENUM('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf') DEFAULT NULL,
-            companion_spectral_class VARCHAR(4) DEFAULT NULL,
-            companion_subtype TINYINT UNSIGNED DEFAULT NULL,
-            companion_luminosity_class VARCHAR(4) DEFAULT NULL,
-            companion_mass_solar DOUBLE DEFAULT NULL,
-            companion_radius_solar DOUBLE DEFAULT NULL,
-            companion_temperature_k MEDIUMINT UNSIGNED DEFAULT NULL,
-            companion_luminosity_solar DOUBLE DEFAULT NULL,
-            separation_au DOUBLE NOT NULL DEFAULT 1.0,
-            eccentricity DOUBLE NOT NULL DEFAULT 0.0,
-            stability_critical_au DOUBLE DEFAULT NULL,
-            mass_ratio DOUBLE DEFAULT NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            FOREIGN KEY (primary_star_system_id) REFERENCES star_systems(id) ON DELETE CASCADE,
-            INDEX idx_binary_sep (separation_au),
-            INDEX idx_binary_type (companion_stellar_type)
-        ) ENGINE=InnoDB"
-    );
-
-    $done = true;
+function ensure_binary_systems_table(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertBinaries($db);
 }
 
 function upsert_binary_system_row(PDO $db, int $starSystemId, array $system): void {
@@ -328,47 +217,10 @@ function pve_faction_defaults(): array {
     ];
 }
 
-function ensure_pve_faction_tables(PDO $db): void {
-    $db->exec(
-        "CREATE TABLE IF NOT EXISTS npc_factions (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            code VARCHAR(32) NOT NULL UNIQUE,
-            name VARCHAR(64) NOT NULL,
-            description TEXT NOT NULL,
-            faction_type ENUM('military','trade','science','pirate','ancient') NOT NULL,
-            aggression TINYINT UNSIGNED NOT NULL DEFAULT 50,
-            trade_willingness TINYINT UNSIGNED NOT NULL DEFAULT 50,
-            base_diplomacy SMALLINT NOT NULL DEFAULT 0,
-            power_level INT UNSIGNED NOT NULL DEFAULT 1000,
-            home_galaxy_min TINYINT UNSIGNED NOT NULL DEFAULT 1,
-            home_galaxy_max TINYINT UNSIGNED NOT NULL DEFAULT 9,
-            color VARCHAR(7) NOT NULL DEFAULT '#888888',
-            icon VARCHAR(4) NOT NULL DEFAULT '👾'
-        ) ENGINE=InnoDB"
-    );
-
-    $db->exec(
-        "CREATE TABLE IF NOT EXISTS faction_quests (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            faction_id INT NOT NULL,
-            code VARCHAR(64) NOT NULL UNIQUE,
-            title VARCHAR(128) NOT NULL,
-            description TEXT NOT NULL,
-            quest_type ENUM('kill','deliver','explore','build','research','spy') NOT NULL,
-            requirements_json TEXT NOT NULL,
-            reward_metal INT UNSIGNED NOT NULL DEFAULT 0,
-            reward_crystal INT UNSIGNED NOT NULL DEFAULT 0,
-            reward_deuterium INT UNSIGNED NOT NULL DEFAULT 0,
-            reward_rare_earth INT UNSIGNED NOT NULL DEFAULT 0,
-            reward_dark_matter INT UNSIGNED NOT NULL DEFAULT 0,
-            reward_rank_points INT UNSIGNED NOT NULL DEFAULT 0,
-            reward_standing SMALLINT NOT NULL DEFAULT 10,
-            min_standing SMALLINT NOT NULL DEFAULT -100,
-            difficulty ENUM('easy','medium','hard','epic') NOT NULL DEFAULT 'medium',
-            repeatable TINYINT(1) NOT NULL DEFAULT 0,
-            FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB"
-    );
+function ensure_pve_faction_tables(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertFactions($db);
 }
 
 function pve_faction_config(): array {
@@ -762,40 +614,10 @@ function government_form_config(): array {
     return $merged;
 }
 
-function ensure_government_tables(PDO $db): void {
-    $db->exec(
-        "CREATE TABLE IF NOT EXISTS faction_government (
-            faction_id INT PRIMARY KEY,
-            government_form VARCHAR(32) NOT NULL DEFAULT 'democracy',
-            stability_score INT NOT NULL DEFAULT 75,
-            last_form_change DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB"
-    );
-
-    $db->exec(
-        "CREATE TABLE IF NOT EXISTS faction_alliances (
-            faction_a_id INT NOT NULL,
-            faction_b_id INT NOT NULL,
-            alliance_strength INT NOT NULL DEFAULT 0,
-            last_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (faction_a_id, faction_b_id),
-            FOREIGN KEY (faction_a_id) REFERENCES npc_factions(id) ON DELETE CASCADE,
-            FOREIGN KEY (faction_b_id) REFERENCES npc_factions(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB"
-    );
-
-    $db->exec(
-        "CREATE TABLE IF NOT EXISTS faction_standing_adjustments (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            faction_id INT NOT NULL,
-            adjustment INT NOT NULL,
-            reason VARCHAR(128) NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB"
-    );
+function ensure_government_tables(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertGovernments($db);
 }
 
 function pick_government_form(string $archetype, int ...$seeds): string {

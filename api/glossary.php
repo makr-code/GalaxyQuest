@@ -44,6 +44,7 @@ exit;
  * Generate a definition using Ollama LLM with Wikipedia RAG
  */
 function generate_rag_definition(PDO $db, string $termKey): void {
+    ensure_glossary_cache_table($db);
     // Check cache first (5 days TTL)
     $cached = get_glossary_cache($db, $termKey);
     if ($cached) {
@@ -330,6 +331,7 @@ function get_term_metadata(string $termKey): ?array {
  * Retrieve cached definition
  */
 function get_glossary_cache(PDO $db, string $termKey): ?array {
+    ensure_glossary_cache_table($db);
     try {
         $stmt = $db->prepare(
             'SELECT definition_json, generated_at FROM glossary_cache
@@ -346,8 +348,9 @@ function get_glossary_cache(PDO $db, string $termKey): ?array {
         }
 
         return null;
-    } catch (Exception $e) {
-        return null;
+    } catch (PDOException $e) {
+        error_log('Glossary cache read failed: ' . $e->getMessage());
+        throw $e;
     }
 }
 
@@ -355,6 +358,7 @@ function get_glossary_cache(PDO $db, string $termKey): ?array {
  * Cache definition result
  */
 function cache_glossary_definition(PDO $db, string $termKey, array $definition): void {
+    ensure_glossary_cache_table($db);
     try {
         $db->prepare(
             'INSERT INTO glossary_cache (term_key, definition_json, generated_at)
@@ -366,28 +370,16 @@ function cache_glossary_definition(PDO $db, string $termKey, array $definition):
             $termKey,
             json_encode($definition),
         ]);
-    } catch (Exception $e) {
+    } catch (PDOException $e) {
         error_log('Cache write failed: ' . $e->getMessage());
+        throw $e;
     }
 }
 
-// Ensure table exists
-function ensure_glossary_cache_table(PDO $db): void {
-    try {
-        $db->exec(
-            'CREATE TABLE IF NOT EXISTS glossary_cache (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                term_key VARCHAR(30) NOT NULL UNIQUE,
-                definition_json LONGTEXT NOT NULL,
-                generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_termkey (term_key),
-                INDEX idx_generated (generated_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
-        );
-    } catch (Exception $e) {
-        // Table may already exist
-    }
+function ensure_glossary_cache_table(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertGlossaryCache($db);
 }
 
-ensure_glossary_cache_table($db);
 ?>

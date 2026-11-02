@@ -1251,28 +1251,9 @@ function wormhole_regeneration_tick_global(PDO $db): void {
     if (($now - $lastTick) < 600) {
         return;
     }
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertWormholes($db);
     app_state_set_int($db, 'wormholes:regen:last_tick', $now);
-
-    try {
-        $db->exec(
-            'CREATE TABLE IF NOT EXISTS wormholes (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                endpoint_a_galaxy INT NOT NULL,
-                endpoint_a_system INT NOT NULL,
-                endpoint_b_galaxy INT NOT NULL,
-                endpoint_b_system INT NOT NULL,
-                stability INT NOT NULL DEFAULT 100,
-                cooldown_until DATETIME DEFAULT NULL,
-                is_active TINYINT(1) NOT NULL DEFAULT 1,
-                label VARCHAR(80) DEFAULT NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_wormholes_a (endpoint_a_galaxy, endpoint_a_system),
-                INDEX idx_wormholes_b (endpoint_b_galaxy, endpoint_b_system)
-            ) ENGINE=InnoDB'
-        );
-    } catch (Throwable $e) {
-        return;
-    }
 
     $db->exec(
         'UPDATE wormholes
