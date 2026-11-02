@@ -104,6 +104,12 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
   });
   await page.mouse.click(point.x, point.y);
   await expect(page.getByRole('region', { name: 'Colony surface simulation' })).toContainText('research lab · Level 5');
+  await page.evaluate(() => {
+    const city = window.cityTest.orchestrator._active;
+    window.cityTest.surface = city;
+    window.cityTest.cityPose = { target: { ...city._camera.target }, span: city._camera.span };
+    window.cityTest.resources = [city._instanceBuffer, city._cameraBuffer, city._depthTexture];
+  });
   await page.getByRole('button', { name: 'Focus building' }).click();
   await expect.poll(() => page.evaluate(() => {
     const city = window.cityTest.orchestrator._active;
@@ -115,8 +121,34 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
       targetMatchesSelection: city._camera.target.x === city._selected.x && city._camera.target.z === city._selected.z,
       hooks: window.cityTest.renderer._frameHooks.size,
       raf: window.cityTest.orchestrator._rafId,
+      depth: window.cityTest.orchestrator._activeLevel,
+      sameSurface: city === window.cityTest.surface,
+      sameResources: window.cityTest.resources.every((resource, index) =>
+        resource === [city._instanceBuffer, city._cameraBuffer, city._depthTexture][index]),
+      separateBuildingScene: window.cityTest.orchestrator._registry._instances.has(5),
     };
-  })).toEqual({ targetMatchesSelection: true, hooks: 1, raf: 0 });
+  })).toEqual({
+    targetMatchesSelection: true, hooks: 1, raf: 0, depth: 5,
+    sameSurface: true, sameResources: true, separateBuildingScene: false,
+  });
+  await page.getByRole('button', { name: 'Back to colony' }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const { orchestrator, cityPose } = window.cityTest;
+    const city = orchestrator._active;
+    return orchestrator._activeLevel === 3 && city._cameraFocus === null
+      && Math.abs(city._camera.span - cityPose.span) < 0.001
+      && city._camera.target.x === cityPose.target.x && city._camera.target.z === cityPose.target.z;
+  })).toBe(true);
+  await page.mouse.move(750, 500);
+  for (let step = 0; step < 15; step++) {
+    if (await page.evaluate(() => window.cityTest.orchestrator._activeLevel === 5)) break;
+    await page.mouse.wheel(0, -150);
+    await page.waitForTimeout(50);
+  }
+  await expect.poll(() => page.evaluate(() => window.cityTest.orchestrator._activeLevel)).toBe(5);
+  await page.keyboard.press('Escape');
+  await expect.poll(() => page.evaluate(() => window.cityTest.orchestrator._activeLevel)).toBe(3);
+  await expect.poll(() => page.evaluate(() => window.cityTest.orchestrator._active._cameraFocus)).toBeNull();
   const galaxyPan = await page.evaluate(() => ({ ...window.cityTest.renderer._view }));
   await page.mouse.move(750, 500);
   await page.mouse.down();

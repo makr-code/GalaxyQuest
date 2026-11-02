@@ -50,6 +50,21 @@ async function makeLevel() {
   return { level, canvas, backend, host };
 }
 
+async function makeCityOrchestrator(data = scene()) {
+  const setup = await makeLevel();
+  const { level, canvas, backend } = setup;
+  const orchestrator = new SeamlessZoomOrchestrator(canvas);
+  orchestrator._backend = backend;
+  level._initialised = true;
+  const resolve = vi.spyOn(orchestrator._registry, 'resolve').mockImplementation((depth) => {
+    if (depth !== ZOOM_LEVEL.COLONY_SURFACE) throw new Error('Building must reuse the live surface');
+    return level;
+  });
+  await orchestrator.zoomTo(ZOOM_LEVEL.COLONY_SURFACE, data);
+  for (let frame = 0; frame < 80; frame++) orchestrator.tick(0.016);
+  return { ...setup, orchestrator, resolve };
+}
+
 beforeEach(() => {
   vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
@@ -401,6 +416,136 @@ describe('Isometric camera and shared WebGPU rendering', () => {
     await vi.waitFor(() => expect(orchestrator._activeLevel).toBe(ZOOM_LEVEL.SYSTEM));
     expect(flyTo).toHaveBeenCalledOnce();
     orchestrator.dispose();
+  });
+});
+
+describe('Integrated colony building depth', () => {
+  it('enters and leaves building depth without exiting, rebuilding or requesting another snapshot', async () => {
+    const { level, orchestrator, resolve, host } = await makeCityOrchestrator();
+    const exit = vi.spyOn(level, 'exit');
+    const enter = vi.spyOn(level, 'enter');
+    const events = [];
+    orchestrator.on('exitLevel', (depth) => events.push(['exit', depth]));
+    orchestrator.on('enterLevel', (depth) => events.push(['enter', depth]));
+    const buffers = [level._instanceBuffer, level._cameraBuffer, level._depthTexture];
+    const original = { target: { ...level._camera.target }, span: level._camera.span };
+    const requests = fetch.mock.calls.length;
+    await orchestrator.zoomToTarget({ ...level._slots[0], spatialDepth: ZOOM_LEVEL.COLONY_BUILDING });
+    expect(orchestrator._activeLevel).toBe(ZOOM_LEVEL.COLONY_BUILDING);
+    expect(orchestrator._active).toBe(level);
+    expect(level._cameraFocus).not.toBeNull();
+    expect(host.textContent).toContain('Back to colony');
+    for (let frame = 0; frame < 50; frame++) orchestrator.tick(0.016);
+    expect(level._camera.span).toBeCloseTo(9);
+    [...host.querySelectorAll('button')].find((button) => button.textContent === 'Back to colony').click();
+    expect(orchestrator._activeLevel).toBe(ZOOM_LEVEL.COLONY_SURFACE);
+    for (let frame = 0; frame < 50; frame++) orchestrator.tick(0.016);
+    expect(level._camera.target).toEqual(original.target);
+    expect(level._camera.span).toBeCloseTo(original.span);
+    expect([level._instanceBuffer, level._cameraBuffer, level._depthTexture]).toEqual(buffers);
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(exit).not.toHaveBeenCalled();
+    expect(enter).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(requests);
+    expect(events).toEqual([['exit', 3], ['enter', 5], ['exit', 5], ['enter', 3]]);
+  });
+
+  it('keeps the original colony pose when switching between building targets', async () => {
+    const { level, orchestrator } = await makeCityOrchestrator(scene({
+      slots: [{ x: 5, z: 2, type: 'habitat', level: 2 }, { x: -5, z: -2, type: 'factory', level: 3 }],
+    }));
+    level._camera.target = { x: 2, z: 3 };
+    level._setCameraSpan(32);
+    await orchestrator.zoomTo(5, { building: level._slots[0], colonyId: 7 });
+    for (let frame = 0; frame < 50; frame++) orchestrator.tick(0.016);
+    await orchestrator.zoomTo(5, { target: level._slots[1] });
+    for (let frame = 0; frame < 50; frame++) orchestrator.tick(0.016);
+    expect(level._camera.target).toEqual({ x: -5, z: -2 });
+    await orchestrator.zoomTo(3);
+    for (let frame = 0; frame < 50; frame++) orchestrator.tick(0.016);
+    expect(level._camera.target).toEqual({ x: 2, z: 3 });
+    expect(level._camera.span).toBeCloseTo(32);
+  });
+
+  it.each(['double-click', 'wheel', 'keyboard'])('opens the selected building through %s and returns to colony first', async (input) => {
+    const { level, orchestrator, canvas } = await makeCityOrchestrator();
+    level._selected = level._slots[0];
+    level._setCameraSpan(10);
+    if (input === 'double-click') canvas.dispatchEvent(new MouseEvent('dblclick'));
+    if (input === 'wheel') canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -150, cancelable: true }));
+    if (input === 'keyboard') window.dispatchEvent(new KeyboardEvent('keydown', { key: '+', cancelable: true }));
+    expect(orchestrator._activeLevel).toBe(5);
+    for (let frame = 0; frame < 50; frame++) orchestrator.tick(0.016);
+    if (input === 'wheel') canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 150, cancelable: true }));
+    else window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+    expect(orchestrator._activeLevel).toBe(3);
+    expect(level._active).toBe(true);
+  });
+
+  it('rejects unknown and foreign buildings without changing level or camera', async () => {
+    const { level, orchestrator } = await makeCityOrchestrator();
+    for (const payload of [
+      { key: 'unknown' },
+      { ...level._slots[0], colonyId: 8 },
+      { target: { ...level._slots[0], colony_id: 8 } },
+      { building: level._slots[0], colony: { id: 8 } },
+    ]) {
+      await expect(orchestrator.zoomTo(5, payload)).rejects.toThrow(/building|colony/i);
+      expect(orchestrator._activeLevel).toBe(3);
+      expect(orchestrator._transition).toBe(false);
+      expect(level._buildingView).toBeNull();
+    }
+  });
+
+  it('refreshes authoritative building levels in place and leaves detail if the building disappears', async () => {
+    fetch.mockResolvedValue({ ok: true, json: async () => scene({ success: true, economy: {} }) });
+    const { level, orchestrator, resolve } = await makeCityOrchestrator();
+    await vi.waitFor(() => expect(level._snapshotLoaded).toBe(true));
+    await orchestrator.zoomTo(5, level._slots[0]);
+    for (let frame = 0; frame < 50; frame++) orchestrator.tick(0.016);
+    fetch.mockResolvedValue({ ok: true, json: async () => scene({
+      success: true, economy: {}, slots: [{ x: 0, z: 0, type: 'habitat', level: 6 }],
+    }) });
+    await level._loadSnapshot();
+    expect(orchestrator._activeLevel).toBe(5);
+    expect(level._selected.level).toBe(6);
+    expect(level._camera.span).toBeCloseTo(9);
+    fetch.mockResolvedValue({ ok: true, json: async () => scene({ success: true, economy: {}, slots: [] }) });
+    await level._loadSnapshot();
+    expect(orchestrator._activeLevel).toBe(3);
+    expect(level._buildingView).toBeNull();
+    expect(level._selected).toBeNull();
+    expect(resolve).toHaveBeenCalledOnce();
+  });
+
+  it('routes runtime surface updates to the active detail scene instead of resolving a second renderer', async () => {
+    const { level, orchestrator, resolve } = await makeCityOrchestrator();
+    await orchestrator.zoomTo(5, level._slots[0]);
+    await orchestrator.setSceneData(3, scene({ colony: { id: 8 }, slots: [] }));
+    expect(orchestrator._activeLevel).toBe(3);
+    expect(level._sceneData.colony.id).toBe(8);
+    expect(level._buildingView).toBeNull();
+    expect(resolve).toHaveBeenCalledOnce();
+  });
+
+  it('unwinds building, colony, planet and system without overwriting the surface parent', async () => {
+    const { level, orchestrator, resolve } = await makeCityOrchestrator();
+    let planetNavigation;
+    const planet = {
+      _initialised: true, enter: vi.fn(), exit: vi.fn(),
+      setNavigationHandlers: (handlers) => { planetNavigation = handlers; },
+    };
+    const system = { _initialised: true, enter: vi.fn(), exit: vi.fn() };
+    resolve.mockImplementation((depth) => ({ 1: system, 2: planet, 3: level })[depth]);
+    await orchestrator.zoomTo(5, level._slots[0]);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(orchestrator._activeLevel).toBe(3);
+    expect(orchestrator._surfaceReturnLevel).toBe(2);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await vi.waitFor(() => expect(orchestrator._activeLevel).toBe(2));
+    expect(level._active).toBe(false);
+    planetNavigation.back();
+    await vi.waitFor(() => expect(orchestrator._activeLevel).toBe(1));
   });
 });
 

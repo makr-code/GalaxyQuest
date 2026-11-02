@@ -44,6 +44,16 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   Neue Szenendaten (auch aus Snapshot-Refresh) und Austritt verwerfen
   ausstehende Fokusziele.
   Ein Refresh erhält die aktuelle Kamerapose und respektiert neue Höhenlimits.
+  Gebäude-Nahansicht (`COLONY_BUILDING`, Tiefe 5) innerhalb der Kolonie verwendet
+  dieselbe laufende Oberflächenszene einschließlich Planet, Nachbargebäuden,
+  Figuren, Buffern und Eingabehandlern. Doppelklick, „Focus building“ oder
+  Hineinzoomen auf das ausgewählte Gebäude aktiviert dieses logische Level;
+  kein zusätzlicher Renderer, Snapshot-Request oder Anflug vom Weltraum entsteht.
+  „Back to colony“, Escape oder Herauszoomen führt zuerst weich zur gespeicherten
+  Koloniekamera zurück, bevor der nächste Rückschritt den Planeten öffnet.
+  Ein Gebäudwechsel behält die ursprüngliche Rückkehrpose. Snapshot-Refresh
+  aktualisiert die Auswahl anhand ihres Slot-Schlüssels; verschwindet das
+  Gebäude oder wechselt die Kolonie, endet die Nahansicht.
   CPU-Picking projizierter Gebäude-Bounds
   berücksichtigt Tiefe und Viewportgröße. Auswahl zeigt Typ/Level/Bauzustand.
   „Back to orbit“/Escape beendet die Oberfläche. Der Weg über das Koloniefenster
@@ -69,8 +79,9 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
 prozedurale Kugeloberfläche statt vollständigem Planetenterrain, kein GPU-Picking,
 keine Wegfindungs-/Haushalts-/Arbeitsmarkt-Simulation einzelner Personen, keine
 neuen Bau-Mutationen im 3D-Viewport. Fußgänger laufen kosmetische Straßenzyklen.
-Die Legacy-Three.js-Familie und der separate alte Gebäude-Close-up sind nicht
-Teil dieses Kerns. Die folgenden Blueprint-Kapitel sind **keine** Zusage, dass
+Die Legacy-Three.js-Familie und der separate alte Gebäude-Close-up bei direktem
+Einstieg ohne aktive Kolonie bleiben unverändert. Die folgenden
+Blueprint-Kapitel sind **keine** Zusage, dass
 PiP, SSAO, Modell-LOD oder Compute-Bauanimationen bereits integriert sind.
 
 **Nachweise:**

@@ -248,7 +248,10 @@ class SeamlessZoomOrchestrator {
     if (!backend) return false;
 
     let target = null;
-    if (this._active && this._activeLevel === level) {
+    if (this._active && (this._activeLevel === level
+        || (level === ZOOM_LEVEL.COLONY_SURFACE
+          && this._activeLevel === ZOOM_LEVEL.COLONY_BUILDING
+          && typeof this._active.enterBuilding === 'function'))) {
       target = this._active;
     } else {
       target = this._registry.resolve(level, backend);
@@ -294,6 +297,25 @@ class SeamlessZoomOrchestrator {
     this._transition = true;
 
     try {
+      // Building detail is a camera state of the live surface, not another scene.
+      if (level === ZOOM_LEVEL.COLONY_BUILDING
+          && [ZOOM_LEVEL.COLONY_SURFACE, ZOOM_LEVEL.COLONY_BUILDING].includes(this._activeLevel)
+          && typeof this._active?.enterBuilding === 'function') {
+        this._active.enterBuilding(payload);
+        if (this._activeLevel !== level) this._emit('exitLevel', this._activeLevel);
+        this._activeLevel = level;
+        this._emit('enterLevel', level, payload);
+        return;
+      }
+      if (level === ZOOM_LEVEL.COLONY_SURFACE && payload == null
+          && this._activeLevel === ZOOM_LEVEL.COLONY_BUILDING
+          && typeof this._active?.leaveBuilding === 'function') {
+        this._active.leaveBuilding();
+        this._emit('exitLevel', this._activeLevel);
+        this._activeLevel = level;
+        this._emit('enterLevel', level, payload);
+        return;
+      }
       const next = this._registry.resolve(level, this._backend);
 
       // Initialise the renderer on first use if it hasn't been already.
@@ -313,8 +335,11 @@ class SeamlessZoomOrchestrator {
       if (typeof next.setNavigationHandlers === 'function') {
         next.setNavigationHandlers({
           slotClick: (slot) => this._emit('slotClick', slot),
+          building: (slot) => this.zoomTo(ZOOM_LEVEL.COLONY_BUILDING, slot),
           back: () => this.zoomTo(
-            level === ZOOM_LEVEL.COLONY_SURFACE
+            this._activeLevel === ZOOM_LEVEL.COLONY_BUILDING
+              ? ZOOM_LEVEL.COLONY_SURFACE
+              : level === ZOOM_LEVEL.COLONY_SURFACE
               ? this._surfaceReturnLevel
               : level === ZOOM_LEVEL.PLANET_APPROACH
                 ? this._planetReturnLevel
@@ -325,14 +350,16 @@ class SeamlessZoomOrchestrator {
           surface: (data) => this.zoomTo(ZOOM_LEVEL.COLONY_SURFACE, data),
         });
       }
-      if (level === ZOOM_LEVEL.COLONY_SURFACE && this._activeLevel !== level) {
+      if (level === ZOOM_LEVEL.COLONY_SURFACE && this._activeLevel !== level
+          && this._activeLevel !== ZOOM_LEVEL.COLONY_BUILDING) {
         this._surfaceReturnLevel = Number.isFinite(this._activeLevel)
           ? this._activeLevel
           : ZOOM_LEVEL.PLANET_APPROACH;
       }
       if (level === ZOOM_LEVEL.PLANET_APPROACH
           && this._activeLevel !== level
-          && this._activeLevel !== ZOOM_LEVEL.COLONY_SURFACE) {
+          && this._activeLevel !== ZOOM_LEVEL.COLONY_SURFACE
+          && this._activeLevel !== ZOOM_LEVEL.COLONY_BUILDING) {
         this._planetReturnLevel = Number.isFinite(this._activeLevel)
           ? this._activeLevel
           : ZOOM_LEVEL.SYSTEM;
