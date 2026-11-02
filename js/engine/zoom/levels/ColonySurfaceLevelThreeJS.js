@@ -29,6 +29,17 @@ function parseHexColor(hex, fallback) {
     : fallback;
 }
 
+function slotActivity(slot) {
+  if (slot?.active === false || slot?.powered === false || slot?.vfx_enabled === false) return 0;
+  const appearance = slot?.appearance?.effects?.state;
+  const state = slot?.effects?.state;
+  if (appearance?.activity === 0 || state?.activity === 0) return 0;
+  const activity = appearance?.activity ?? state?.activity;
+  const damage = appearance?.damage ?? state?.damage;
+  return (Number.isFinite(activity) ? Math.max(0, Math.min(1, activity)) : 1)
+    * (1 - (Number.isFinite(damage) ? Math.max(0, Math.min(1, damage)) : 0));
+}
+
 /** Maximum buildings rendered at once. */
 const MAX_BUILDINGS = 512;
 
@@ -91,9 +102,8 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
       await import('../../assets/CoherentMaterialGenerator.js');
       this._materials = window.CoherentMaterialGenerator;
     }
-    const epoch = this._materialEpoch;
-    await this._prepareMaterialSets();
-    if (this._unloaded || this._canvas !== canvas || epoch !== this._materialEpoch) return;
+    if (this._unloaded || this._canvas !== canvas) return;
+    this._prepareMaterialSets();
 
     this._renderer = new T.WebGLRenderer({ canvas, antialias: true });
     this._renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -129,9 +139,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
     this._unloaded = false;
-    const epoch = this._materialEpoch;
-    await this._prepareMaterialSets();
-    if (this._unloaded || epoch !== this._materialEpoch) return;
+    this._prepareMaterialSets();
     const T = getThree();
     if (!this._scene && T && this._renderer) {
       this._scene = new T.Scene();
@@ -239,6 +247,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     const hiGeo = new T.BoxGeometry(1, 2, 1);
     const variants = new Float32Array(MAX_BUILDINGS);
     hiGeo.setAttribute('materialVariant', new T.InstancedBufferAttribute(variants, 1));
+    hiGeo.setAttribute('emissiveActivity', new T.InstancedBufferAttribute(new Float32Array(MAX_BUILDINGS).fill(1), 1));
     const coherentMaps = this._createCoherentMaps(T);
     const hiMat = new T.MeshStandardMaterial({
       color: '#ffffff', vertexColors: true, roughness: 1, metalness: 1,
@@ -252,6 +261,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     // Low-detail placeholder (same mesh, lower poly in a real impl)
     const loGeo = new T.BoxGeometry(1, 2, 1);
     loGeo.setAttribute('materialVariant', new T.InstancedBufferAttribute(new Float32Array(MAX_BUILDINGS), 1));
+    loGeo.setAttribute('emissiveActivity', new T.InstancedBufferAttribute(new Float32Array(MAX_BUILDINGS).fill(1), 1));
     const loMat = new T.MeshStandardMaterial({
       color: '#ffffff', vertexColors: true, roughness: 1, metalness: 1,
       emissive: '#ffffff', emissiveIntensity: 1.2, ...coherentMaps,
@@ -301,8 +311,8 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     return maps;
   }
 
-  async _prepareMaterialSets() {
-    if (this._materialSets || !this._materials) return;
+  _prepareMaterialSets() {
+    if (this._unloaded || this._materialSets || !this._materials) return;
     const epoch = this._materialEpoch;
     const generator = this._materials;
     const descriptors = ['painted-metal', 'painted-metal', 'emissive', 'glass']
@@ -335,13 +345,16 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
 
   _configureMaterialAtlas(material) {
     material.onBeforeCompile = (shader) => {
-      shader.vertexShader = `attribute float materialVariant;\n${shader.vertexShader}`;
+      shader.vertexShader = `attribute float materialVariant;\nattribute float emissiveActivity;\nvarying float vEmissiveActivity;\n${shader.vertexShader}`;
+      shader.fragmentShader = `varying float vEmissiveActivity;\n${shader.fragmentShader}`;
       const transforms = [
         ['USE_MAP', 'vMapUv'], ['USE_NORMALMAP', 'vNormalMapUv'],
         ['USE_ROUGHNESSMAP', 'vRoughnessMapUv'], ['USE_METALNESSMAP', 'vMetalnessMapUv'],
         ['USE_EMISSIVEMAP', 'vEmissiveMapUv'], ['USE_AOMAP', 'vAoMapUv'],
       ].map(([define, uv]) => `\n#ifdef ${define}\n${uv}.x = (${uv}.x * 0.98 + 0.01 + materialVariant) / 4.0;\n#endif`).join('');
-      shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>${transforms}`);
+      shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>\nvEmissiveActivity = emissiveActivity;${transforms}`);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= vEmissiveActivity;');
     };
     material.customProgramCacheKey = () => 'colony-coherent-atlas-v1';
   }
@@ -366,11 +379,15 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
         : /power|reactor|energy/i.test(text) ? 2 : /lab|research|science/i.test(text) ? 3 : 0;
       this._instanced.geometry.getAttribute('materialVariant').setX(i, variant);
       this._instancedLo?.geometry.getAttribute('materialVariant').setX(i, variant);
+      this._instanced.geometry.getAttribute('emissiveActivity').setX(i, slotActivity(s));
+      this._instancedLo?.geometry.getAttribute('emissiveActivity').setX(i, slotActivity(s));
     }
     this._instanced.count = count;
     this._instanced.instanceMatrix.needsUpdate = true;
     this._instanced.geometry.getAttribute('materialVariant').needsUpdate = true;
     if (this._instancedLo) this._instancedLo.geometry.getAttribute('materialVariant').needsUpdate = true;
+    this._instanced.geometry.getAttribute('emissiveActivity').needsUpdate = true;
+    if (this._instancedLo) this._instancedLo.geometry.getAttribute('emissiveActivity').needsUpdate = true;
     if (this._instanced.instanceColor) this._instanced.instanceColor.needsUpdate = true;
     this._slotCount = count;
     this._rebuildBuildingVfx(slots);
@@ -401,7 +418,8 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
   }
 
   _slotVfxProfile(slot) {
-    const explicitProfile = String(slot?.vfx_profile || slot?.fx_profile || '').toLowerCase();
+    const explicitProfile = String(slot?.vfx_profile || slot?.fx_profile
+      || slot?.appearance?.effects?.profile || slot?.effects?.profile || '').toLowerCase();
     const explicitIntensity = Math.max(0.4, Math.min(2.2, Number(slot?.vfx_intensity || slot?.fx_intensity || 1) || 1));
     if (explicitProfile) {
       if (explicitProfile === 'construction' || explicitProfile === 'upgrade') {
@@ -415,7 +433,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
           colorHex: '#ffb36b',
         };
       }
-      if (explicitProfile === 'industry' || explicitProfile === 'smelter' || explicitProfile === 'refinery') {
+      if (explicitProfile === 'industry' || explicitProfile === 'industrial' || explicitProfile === 'smelter' || explicitProfile === 'refinery') {
         return {
           profileName: 'industry',
           particleMul: 1.2 * explicitIntensity,
@@ -426,7 +444,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
           colorHex: '#ffc978',
         };
       }
-      if (explicitProfile === 'power' || explicitProfile === 'reactor') {
+      if (explicitProfile === 'power' || explicitProfile === 'energy' || explicitProfile === 'reactor') {
         return {
           profileName: 'power',
           particleMul: 1.05 * explicitIntensity,
@@ -580,7 +598,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
       || this._sceneData?.visible === false || reduced;
     const catalog = Array.isArray(slots) ? slots.slice(0, MAX_BUILDINGS) : [];
     this._ingestUpgradeTransitions(catalog);
-    const source = disabled ? [] : catalog.filter((slot) => slot?.visible !== false);
+    const source = disabled ? [] : catalog.filter((slot) => slot?.visible !== false && slotActivity(slot) > 0);
     if (!source.length) {
       this._buildingVfxStats = {
         backend: 'threejs', quality: this._resolveBuildingVfxQuality(0),
@@ -609,7 +627,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
       const profile = this._slotVfxProfile(slot);
       const profileName = String(profile.profileName || 'auto');
       profileCounts[profileName] = (profileCounts[profileName] || 0) + 1;
-      const particleCount = Math.max(3, Math.min(remainingParticles, Math.round(cfg.particlesPerEmitter * profile.particleMul)));
+      const particleCount = Math.max(3, Math.min(remainingParticles, Math.round(cfg.particlesPerEmitter * profile.particleMul * slotActivity(slot))));
       const positions = new Float32Array(particleCount * 3);
       for (let i = 0; i < particleCount; i += 1) {
         const idx = i * 3;

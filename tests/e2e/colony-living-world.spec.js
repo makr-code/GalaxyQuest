@@ -109,6 +109,21 @@ test('colony renders coherent PBR rows and GPU-resident particles across re-entr
       pixels.unmap();
       sourceUploads.forEach((upload) => writeTexture(...upload));
     }
+    level.setSceneData({ slots: slots.map((slot) => ({ ...slot, active: false })), vfx_enabled: false });
+    level.render(0);
+    encoder = device.createCommandEncoder();
+    encoder.copyTextureToBuffer({ texture: context.getCurrentTexture() },
+      { buffer: pixels, bytesPerRow: 2048 }, [512, 384]);
+    device.queue.submit([encoder.finish()]);
+    await pixels.mapAsync(GPUMapMode.READ);
+    const inactivePixels = new Uint8Array(pixels.getMappedRange());
+    let stateDifferences = 0;
+    for (let offset = 0; offset < inactivePixels.length; offset += 4) {
+      if (Math.abs(inactivePixels[offset] - originalPixels[offset])
+        + Math.abs(inactivePixels[offset + 1] - originalPixels[offset + 1])
+        + Math.abs(inactivePixels[offset + 2] - originalPixels[offset + 2]) > 3) stateDifferences++;
+    }
+    pixels.unmap();
     level.setSceneData({ slots: slots.map((slot) => ({ ...slot, upgrade_end: 'pending' })), vfx_quality: 'high' });
     for (let frame = 0; frame < 20; frame++) level.render(1 / 60);
     const captureBurstPixels = async () => {
@@ -144,7 +159,7 @@ test('colony renders coherent PBR rows and GPU-resident particles across re-entr
     if (scoped) errors.push(scoped.message);
     device.destroy();
     return { errors, initialY, simulatedY, cpuY, colors: colors.size, bands: occupiedBands.size,
-      count, smoke, additive, released, reentered, mapDifferences, burstDifferences };
+      count, smoke, additive, released, reentered, mapDifferences, burstDifferences, stateDifferences };
   });
   test.skip(result.unavailable, 'WebGPU adapter unavailable');
   expect(result.errors).toEqual([]);
@@ -153,6 +168,7 @@ test('colony renders coherent PBR rows and GPU-resident particles across re-entr
   expect(result.colors).toBeGreaterThan(20);
   for (const differences of result.mapDifferences) expect(differences).toBeGreaterThan(10);
   expect(result.burstDifferences).toBeGreaterThan(20);
+  expect(result.stateDifferences).toBeGreaterThan(10);
   expect(result.bands).toBeGreaterThan(5);
   expect(result.count).toBeLessThanOrEqual(900);
   expect(result.smoke && result.additive && result.released).toBe(true);
@@ -226,17 +242,28 @@ test('Three.js fallback renders the same coherent atlas and separates smoke blen
       }
     }
     const blending = level._buildingVfxEmitters.map((emitter) => emitter.material.blending);
+    level.setSceneData({ slots: level._sceneData.slots.map((slot) => ({ ...slot, active: false })) });
+    level.render(0);
+    const inactive = new Uint8Array(bytes.length);
+    gl.readPixels(0, 0, 512, 384, gl.RGBA, gl.UNSIGNED_BYTE, inactive);
+    let stateDifferences = 0;
+    for (let offset = 0; offset < bytes.length; offset += 4) {
+      if (Math.abs(bytes[offset] - inactive[offset])
+        + Math.abs(bytes[offset + 1] - inactive[offset + 1])
+        + Math.abs(bytes[offset + 2] - inactive[offset + 2]) > 3) stateDifferences++;
+    }
     const calls = level._renderer.info.render.calls;
     await level.exit(0);
     await level.enter(0);
     level.render(0.016);
     const count = level._instanced.count;
     level.dispose(); level.dispose();
-    return { colors: colors.size, blending, calls, count };
+    return { colors: colors.size, blending, calls, count, stateDifferences };
   });
   expect(errors).toEqual([]);
   expect(result.colors).toBeGreaterThan(20);
   expect(result.calls).toBeGreaterThan(1);
   expect(new Set(result.blending).size).toBe(2);
   expect(result.count).toBe(4);
+  expect(result.stateDifferences).toBeGreaterThan(10);
 });

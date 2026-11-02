@@ -23,7 +23,8 @@ ${projection}
 @group(1) @binding(5) var emissiveMap: texture_2d_array<f32>;
 struct Out { @builtin(position) position: vec4f, @location(0) uv: vec2f,
   @location(1) normal: vec3f, @location(2) tangent: vec3f,
-  @location(3) color: vec3f, @location(4) @interpolate(flat) layer: i32 };
+  @location(3) color: vec3f, @location(4) @interpolate(flat) layer: i32,
+  @location(5) @interpolate(flat) activity: f32 };
 @vertex fn vs_main(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: u32) -> Out {
   let instance = instances[index];
   var normals = array<vec3f, 6>(vec3f(0,0,1), vec3f(0,0,-1), vec3f(1,0,0),
@@ -39,7 +40,7 @@ struct Out { @builtin(position) position: vec4f, @location(0) uv: vec2f,
   let world = (local + vec3f(0,0.5,0)) * instance.shape.xyz + instance.position.xyz;
   var out: Out; out.position = project(world); out.uv = uv;
   out.normal = n; out.tangent = t; out.color = instance.color.rgb;
-  out.layer = i32(instance.material.x); return out;
+  out.layer = i32(instance.material.x); out.activity = instance.material.y; return out;
 }
 @fragment fn fs_main(in: Out) -> @location(0) vec4f {
   let base = textureSample(albedoMap, surfaceSampler, in.uv, in.layer).rgb * in.color;
@@ -47,7 +48,7 @@ struct Out { @builtin(position) position: vec4f, @location(0) uv: vec2f,
   let n = normalize(in.tangent * sampledNormal.x + cross(in.normal,in.tangent) * sampledNormal.y + in.normal * sampledNormal.z);
   let roughness = clamp(textureSample(roughnessMap, surfaceSampler, in.uv, in.layer).g, 0.06, 1.0);
   let metallic = textureSample(metalnessMap, surfaceSampler, in.uv, in.layer).b;
-  let emissive = textureSample(emissiveMap, surfaceSampler, in.uv, in.layer).rgb;
+  let emissive = textureSample(emissiveMap, surfaceSampler, in.uv, in.layer).rgb * in.activity;
   let light = normalize(vec3f(0.5,0.85,0.4)); let view = normalize(vec3f(0,0.57,0.82));
   let halfVector = normalize(light + view); let ndl = max(dot(n, light),0.0);
   let ndv = max(dot(n,view),0.001); let ndh = max(dot(n,halfVector),0.0);

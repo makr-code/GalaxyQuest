@@ -47,6 +47,15 @@ const slots = [
   { x: -3, z: -6, type: 'factory' }, { x: 3, z: 6, type: 'reactor' },
 ];
 
+function stateSlots() {
+  return [
+    { active: false }, { powered: false }, { vfx_enabled: false },
+    { appearance: { effects: { state: { activity: 0 } } } },
+    { effects: { state: { activity: 0 } } },
+    { effects: { state: { activity: 0.5, damage: 0.5 } } }, {},
+  ].map((state, index) => ({ id: index + 10, x: index * 3, z: 0, type: 'factory', ...state }));
+}
+
 afterEach(() => {
   vi.restoreAllMocks(); vi.unstubAllGlobals();
   delete window.THREE; delete window.__GQ_COLONY_VFX_STATS;
@@ -137,6 +146,56 @@ describe('Living colony native render path', () => {
     level.dispose();
   });
 
+  it('honors explicit authorized slot state, scales emissive activity, and keeps dimensions stable on reorder', async () => {
+    const backend = nativeBackend();
+    const level = new ColonySurfaceLevelWebGPU();
+    await level.initialize(document.createElement('canvas'), backend);
+    const states = stateSlots();
+    level.setSceneData({ slots: states });
+    const instanceData = () => new Float32Array(backend.device.queue.writeBuffer.mock.calls
+      .filter((call) => call[0] === level._instanceBuffer).at(-1)[2]);
+    const data = instanceData();
+    expect(states.map((_, index) => data[index * 16 + 9])).toEqual([0, 0, 0, 0, 0, 0.25, 1]);
+    expect(level._buildingVfxStats.emitters).toBe(2);
+    level.setSceneData({ slots: [...states].reverse() });
+    const reversed = instanceData();
+    states.forEach((_, index) => expect(data[index * 16 + 5]).toBe(reversed[(states.length - 1 - index) * 16 + 5]));
+    for (const [profile, expected] of [['construction', 'construction'], ['industrial', 'industry'], ['energy', 'power']]) {
+      expect(level._slotVfxProfile({ appearance: { effects: { profile } } }).profileName).toBe(expected);
+    }
+    level.dispose();
+  });
+
+  it('keeps invalid coordinates/colors out of both instance attributes and fitted camera bounds', async () => {
+    const backend = nativeBackend();
+    const level = new ColonySurfaceLevelWebGPU();
+    await level.initialize(document.createElement('canvas'), backend);
+    level.setSceneData({ slots: [
+      { id: 1, type: 'factory', x: '8', z: 4, r: 2, g: -1, b: Infinity },
+      { id: 2, type: 'reactor', x: Infinity, z: NaN, r: NaN, g: Infinity, b: -Infinity },
+    ] });
+    const upload = backend.device.queue.writeBuffer.mock.calls
+      .find((call) => call[0] === level._instanceBuffer);
+    const data = new Float32Array(upload[2]);
+    expect([...data].every(Number.isFinite)).toBe(true);
+    expect(data[0]).toBe(1);
+    expect(data[1]).toBe(0);
+    expect(data[12]).toBe(8);
+    expect(data[28]).toBe(0);
+    expect(data[30]).toBe(0);
+    expect(Object.values(level._bounds).every(Number.isFinite)).toBe(true);
+    expect(level._bounds.x).toBe(4);
+    expect(level._buildingVfxParticles.every((particle) => Number.isFinite(particle.x) && Number.isFinite(particle.z))).toBe(true);
+    level.render(0.016, { target: { x: 0, z: 0 } });
+    const camera = backend.device.queue.writeBuffer.mock.calls
+      .filter((call) => call[0] === level._cameraBuffer).at(-1)[2];
+    expect([...camera].every(Number.isFinite)).toBe(true);
+    expect(camera[0]).toBe(0);
+    expect(camera[2]).toBe(0);
+    expect(camera[3]).toBeGreaterThan(0);
+    level.dispose();
+  });
+
   it('recycles GPU particle allocations using lifetime bookkeeping without CPU position simulation', () => {
     const { device } = nativeBackend();
     const system = new GPUParticleSystem({ device, maxParticles: 1 });
@@ -196,6 +255,28 @@ describe('Living colony native render path', () => {
       .filter((call) => call[0].texture === level._materialTextures[0]).at(-1);
     expect(albedoUpload[1][0]).toBe(17);
     level.dispose();
+  });
+
+  it('initializes and reenters both renderers even when cached generation never settles', async () => {
+    const generator = require('../../js/engine/assets/CoherentMaterialGenerator.js');
+    const cached = vi.spyOn(generator, 'generateCached').mockImplementation(() => new Promise(() => {}));
+    const backend = nativeBackend();
+    const renderer = { setPixelRatio() {}, setSize() {}, dispose() {}, render: vi.fn() };
+    window.THREE = { ...THREE, WebGLRenderer: function () { return renderer; } };
+    for (const Level of [ColonySurfaceLevelWebGPU, ColonySurfaceLevelThreeJS]) {
+      const level = new Level();
+      await level.initialize(document.createElement('canvas'), backend);
+      await level.enter(2, { slots });
+      level.render(0.016);
+      expect(level._slotCount).toBe(2);
+      await level.exit(0);
+      await level.enter(0);
+      level.render(0.016);
+      expect(level._slotCount).toBe(2);
+      level.dispose();
+    }
+    expect(cached).toHaveBeenCalledTimes(16);
+    expect(renderer.render).toHaveBeenCalledTimes(2);
   });
 
   it('bounds invalid capacities, spawn fields and timesteps to finite values', () => {
@@ -265,6 +346,24 @@ describe('Living colony native render path', () => {
 });
 
 describe('Living colony Three.js fallback', () => {
+  it('honors explicit inactive states and carries bounded per-instance emissive activity into the shader', async () => {
+    const renderer = { setPixelRatio() {}, setSize() {}, dispose() {}, render() {} };
+    window.THREE = { ...THREE, WebGLRenderer: function () { return renderer; } };
+    const level = new ColonySurfaceLevelThreeJS();
+    await level.initialize(document.createElement('canvas'), {});
+    level.setSceneData({ slots: stateSlots() });
+    expect([...level._instanced.geometry.getAttribute('emissiveActivity').array.slice(0, 7)])
+      .toEqual([0, 0, 0, 0, 0, 0.25, 1]);
+    expect(level._buildingVfxStats.emitters).toBe(2);
+    const shader = { vertexShader: '#include <uv_vertex>', fragmentShader: '#include <emissivemap_fragment>' };
+    level._instanced.material.onBeforeCompile(shader);
+    expect(shader.fragmentShader).toContain('totalEmissiveRadiance *= vEmissiveActivity');
+    for (const [profile, expected] of [['construction', 'construction'], ['industrial', 'industry'], ['energy', 'power']]) {
+      expect(level._slotVfxProfile({ appearance: { effects: { profile } } }).profileName).toBe(expected);
+    }
+    level.dispose();
+  });
+
   it('binds linear scalar/normal maps and sRGB color maps with no fabricated AO', async () => {
     const renderer = { setPixelRatio() {}, setSize() {}, dispose() {}, render() {} };
     window.THREE = { ...THREE, WebGLRenderer: function () { return renderer; } };

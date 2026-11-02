@@ -184,6 +184,10 @@ back from the GPU. Three.js retains its bounded instanced/points fallback.
 Quality presets and particle/emitter caps bound cosmetic work.
 Scene flags `vfx_enabled`, `vfx_quality`, `visible`, `reduced_motion` and
 `reduced_flash` control effects alongside the OS reduced-motion preference.
+Explicit slot inactivity, `powered:false` or zero normalized activity suppresses
+emitters; bounded activity/damage modulates per-instance emission. Where the
+backend supplies no activity state, effects retain coarse visual-profile defaults
+rather than inferring production or advancing the economy.
 View exit/disposal releases owned texture, depth, camera and particle resources
 without destroying the shared device/context. Later asynchronous asset results
 must never resurrect an unloaded view.
@@ -219,6 +223,9 @@ The optional AI endpoint's independent PBR image requests are not promoted to a
 guaranteed coherent material set; no AI request is added to the render loop.
 Full network World Partition, offline AO baking, global illumination and
 per-pixel transparent overdraw measurement remain separate work.
+Chromium/SwiftShader checks validate actual GPU API usage and rendered pixels,
+not representative hardware performance. CPU/GPU timings on target devices and
+screen-area-based transparency budgeting still need separate acceptance.
 
 ### Combat event identity and bounded lifetime
 
