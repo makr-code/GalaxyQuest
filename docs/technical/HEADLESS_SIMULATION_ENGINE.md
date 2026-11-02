@@ -2,6 +2,13 @@
 
 This introduces an explicit simulation runtime path independent from frontend rendering.
 
+Body-bound resource profiles and the staged inventory capture are documented in
+[Body resource foundation](BODY_RESOURCE_FOUNDATION.md). They do not yet change the
+economy tick or activate a second resource writer.
+
+Colony stockpiles still settle **on demand**, not through a new periodic engine;
+see [Colony on-demand economy](COLONY_ON_DEMAND_ECONOMY.md).
+
 ## What is included
 
 - Runtime orchestrator: `api/simulation_runtime.php`

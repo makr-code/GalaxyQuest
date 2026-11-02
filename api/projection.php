@@ -499,6 +499,9 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSimulationSideE
             $col['deuterium_per_hour']  = $prod['deuterium_per_hour'] ?? 0.0;
             $col['food_per_hour']       = $prod['food_per_hour'] ?? 0.0;
             $col['rare_earth_per_hour'] = $prod['rare_earth_per_hour'] ?? 0.0;
+            $col['food_consumption_per_hour'] = $snap['consumption']['food_per_hour'];
+            $col['food_coverage'] = $snap['welfare']['food_coverage'];
+            $col['population_growth_per_hour'] = $snap['welfare']['population_growth_per_hour'];
             $col['metal_cap']           = $stor['metal'] ?? 500000.0;
             $col['crystal_cap']         = $stor['crystal'] ?? 500000.0;
             $col['deuterium_cap']       = $stor['deuterium'] ?? 500000.0;

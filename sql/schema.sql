@@ -183,10 +183,10 @@ CREATE TABLE IF NOT EXISTS planets (
     richness_deuterium  DOUBLE NOT NULL DEFAULT 1.0,
     richness_rare_earth DOUBLE NOT NULL DEFAULT 0.5,
     -- total reserves in raw units (0 = depleted; -1 = unlimited gas-giant deuterium)
-    deposit_metal       BIGINT NOT NULL DEFAULT 5000000,
-    deposit_crystal     BIGINT NOT NULL DEFAULT 2000000,
-    deposit_deuterium   BIGINT NOT NULL DEFAULT 1000000,
-    deposit_rare_earth  BIGINT NOT NULL DEFAULT 200000,
+    deposit_metal       DECIMAL(20,6) NOT NULL DEFAULT 5000000,
+    deposit_crystal     DECIMAL(20,6) NOT NULL DEFAULT 2000000,
+    deposit_deuterium   DECIMAL(20,6) NOT NULL DEFAULT 1000000,
+    deposit_rare_earth  DECIMAL(20,6) NOT NULL DEFAULT 200000,
     FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE SET NULL,
     UNIQUE KEY unique_position (galaxy, `system`, position)
 ) ENGINE=InnoDB;
@@ -220,6 +220,16 @@ CREATE TABLE IF NOT EXISTS colonies (
     UNIQUE KEY unique_colony_body (body_id),
     KEY idx_colonies_body_id (body_id)
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS colony_economy_precision (
+    colony_id INT NOT NULL PRIMARY KEY,
+    population_remainder DECIMAL(12,9) NOT NULL DEFAULT 0,
+    dark_matter_remainder DECIMAL(12,9) NOT NULL DEFAULT 0,
+    stock_remainders_json TEXT NOT NULL,
+    FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE CASCADE,
+    CONSTRAINT ck_population_remainder CHECK (population_remainder > -1 AND population_remainder < 1),
+    CONSTRAINT ck_dark_matter_remainder CHECK (dark_matter_remainder >= 0 AND dark_matter_remainder < 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Buildings on colonies
 CREATE TABLE IF NOT EXISTS buildings (

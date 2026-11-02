@@ -868,7 +868,12 @@ function upsert_generated_planets(PDO $db, int $galaxyIdx, int $systemIdx, int $
         'water_state', 'methane_state', 'ammonia_state', 'dominant_surface_liquid',
         'radiation_level', 'habitability_score', 'life_friendliness', 'species_affinity_json',
     ];
-    upsert_rows_in_batches($db, 'planets', $columns, array_slice($columns, 4), $rows);
+    // Geological reserves are initialized once, not replenished by catalog refreshes.
+    $updateColumns = array_values(array_filter(
+        array_slice($columns, 4),
+        static fn (string $column): bool => !str_starts_with($column, 'deposit_')
+    ));
+    upsert_rows_in_batches($db, 'planets', $columns, $updateColumns, $rows);
 }
 
 function upsert_generated_celestial_bodies(PDO $db, int $galaxyIdx, int $systemIdx, array $bodies): void {
