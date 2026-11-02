@@ -35,6 +35,7 @@ class GQModelRegistry {
 
     this._textureCache = new Map();
     this._textureLoading = new Map();
+    this._binaryCache = null;
     this.configureAssetLoaders({ gltfLoader, ktx2Loader, ownsGltfResources });
     /** @type {((instance: THREE.Group, payload: object) => void)|null} */
     this._vfxBridge = null;
@@ -313,8 +314,8 @@ class GQModelRegistry {
     const loader = this._gltfLoader;
     if (this._ktx2Loader) loader.setKTX2Loader(this._ktx2Loader);
     const ownsResources = this._ownsGltfResources;
-    const results = await Promise.allSettled(levels.map((level) => (
-      Promise.resolve().then(() => loader.loadAsync(level.model_url))
+    const results = await Promise.allSettled(levels.map((level, index) => (
+      Promise.resolve().then(() => this._loadPublicGltf(loader, level, descriptor, index))
     )));
     const assets = results.filter((result) => result.status === 'fulfilled').map((result) => result.value);
     try {
@@ -350,6 +351,76 @@ class GQModelRegistry {
     } catch (error) {
       if (ownsResources) this._disposeGltfAssets(assets);
       throw error;
+    }
+  }
+
+  async _loadPublicGltf(loader, level, descriptor, lod) {
+    const url = new URL(level.model_url, globalThis.location?.href || 'http://localhost/');
+    const version = url.searchParams.get('v') || url.searchParams.get('version') || descriptor.version;
+    const eligible = typeof loader.parseAsync === 'function'
+      && url.origin === globalThis.location?.origin
+      && /^\/(?:assets\/models|generated\/trellis2\/imported)\/[a-z0-9_./-]+\.glb$/i.test(url.pathname)
+      && !/%|\\/.test(level.model_url) && !url.username && !url.password && !url.hash
+      && [...url.searchParams.keys()].every((key) => key === 'v' || key === 'version')
+      && (typeof version === 'string' || typeof version === 'number') && String(version).length > 0;
+    if (!eligible) return loader.loadAsync(level.model_url);
+
+    const { publicAssetBinaryCache } = await import('../engine/assets/AssetBinaryCache.js');
+    const cache = this._binaryCache || publicAssetBinaryCache;
+    const key = {
+      scope: 'public', kind: 'standalone-glb', version, seed: 0, lod,
+      generatorHash: 'gq-glb-loader-v1', parameters: { url: url.href },
+    };
+    const load = async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      try {
+        const response = await fetch(url.href, {
+          credentials: 'omit', redirect: 'error', cache: 'no-store', signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Public GLB HTTP ${response.status}`);
+        const policy = response.headers?.get('cache-control') || '';
+        const bytes = await response.arrayBuffer();
+        this._validateStandaloneGlb(bytes);
+        // A server can override the public-path convention with an explicit policy.
+        return { bytes, cacheable: !/\b(private|no-store)\b/i.test(policy) };
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    let bytes = await cache.get(key);
+    let fromCache = !!bytes;
+    if (!bytes) {
+      const result = await load();
+      bytes = result.bytes;
+      if (result.cacheable) await cache.put(key, bytes);
+    }
+    try {
+      this._validateStandaloneGlb(bytes);
+      return await loader.parseAsync(bytes, new URL('.', url).href);
+    } catch (error) {
+      await cache.delete(key);
+      if (!fromCache) throw error;
+      // Parsing failure (including old/corrupt formats) gets one network retry.
+      fromCache = false;
+      const result = await load();
+      const asset = await loader.parseAsync(result.bytes, new URL('.', url).href);
+      if (result.cacheable) await cache.put(key, result.bytes);
+      return asset;
+    }
+  }
+
+  _validateStandaloneGlb(bytes) {
+    if (!(bytes instanceof ArrayBuffer) || bytes.byteLength < 20) throw new Error('Invalid public GLB');
+    const view = new DataView(bytes);
+    if (view.getUint32(0, true) !== 0x46546c67 || view.getUint32(4, true) !== 2
+      || view.getUint32(8, true) !== bytes.byteLength
+      || view.getUint32(16, true) !== 0x4e4f534a) throw new Error('Invalid public GLB header');
+    const length = view.getUint32(12, true);
+    if (length % 4 || length > bytes.byteLength - 20) throw new Error('Invalid public GLB JSON');
+    const json = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 20, length)));
+    if ([...(json.buffers || []), ...(json.images || [])].some((entry) => entry.uri != null)) {
+      throw new Error('Public GLB cache requires embedded resources');
     }
   }
 

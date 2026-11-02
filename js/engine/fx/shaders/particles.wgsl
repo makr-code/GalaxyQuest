@@ -28,7 +28,7 @@
  *   [0-2]  position.xyz   [3]    lifetime (remaining, seconds)
  *   [4-6]  velocity.xyz   [7]    age (elapsed since spawn, seconds)
  *   [8]    colorR         [9]    colorG    [10]   colorB    [11]   size
- *   [12]   active (u32)   [13-15] _pad (u32)
+ *   [12]   alive (f32)    [13-15] _pad (u32)
  */
 struct Particle {
   position  : vec3<f32>,
@@ -39,7 +39,7 @@ struct Particle {
   colorG    : f32,
   colorB    : f32,
   size      : f32,        // current display radius
-  active    : u32,        // 1 = alive, 0 = dead / available
+  alive     : f32,        // Float32 CPU mirror: 1 = alive, 0 = dead
   _pad0     : u32,
   _pad1     : u32,
   _pad2     : u32,
@@ -70,7 +70,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (i >= arrayLength(&particles)) { return; }
 
   var p = particles[i];
-  if (p.active == 0u) { return; }    // skip dead particles
+  if (p.alive < 0.5) { return; }    // skip dead particles
 
   let dt = params.dt;
 
@@ -79,7 +79,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   p.lifetime -= dt;
 
   if (p.lifetime <= 0.0) {
-    p.active = 0u;
+    p.alive = 0.0;
     particles[i] = p;
     return;
   }

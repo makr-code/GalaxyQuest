@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GalaxyQuest · Coherent material reference</title>
+  <style>
+    body { margin: 0; background: #303238; color: #eee; font: 16px system-ui, sans-serif; }
+    main { max-width: 1200px; margin: auto; padding: 24px; }
+    h1 { font-size: 24px; }
+    p { max-width: 85ch; line-height: 1.5; }
+    fieldset { display: flex; flex-wrap: wrap; gap: 20px; border: 1px solid #888; padding: 16px; }
+    label { cursor: pointer; }
+    #reference-viewport { width: 100%; aspect-ratio: 3 / 1; min-height: 200px; margin-top: 20px; }
+    canvas { width: 100%; height: 100%; display: block; }
+    .swatch-labels { display: grid; grid-template-columns: repeat(4, 1fr); text-align: center; gap: 8px; }
+    #reference-status { min-height: 1.5em; }
+    code { color: #d7edff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Coherent world material reference</h1>
+    <p>Development-only reference: run <code>npm run vite:dev</code> and open this URL.
+      This page is not a production Vite build entry. Fixed seed 42, age 0.7,
+      neutral lighting and identical geometry isolate material differences.</p>
+    <fieldset id="map-controls">
+      <legend>Visible PBR maps · toggle each independently</legend>
+      <label><input type="checkbox" name="albedo" checked> Albedo (sRGB)</label>
+      <label><input type="checkbox" name="normal" checked> Normal (linear)</label>
+      <label><input type="checkbox" name="roughness" checked> Roughness (G)</label>
+      <label><input type="checkbox" name="metalness" checked> Metalness (B)</label>
+      <label><input type="checkbox" name="emissive" checked> Emissive (sRGB)</label>
+    </fieldset>
+    <div id="reference-viewport" aria-label="Four neutral-lit material swatches"></div>
+    <div class="swatch-labels">
+      <strong>Painted metal</strong><strong>Rock</strong><strong>Glass</strong><strong>Emissive</strong>
+    </div>
+    <p id="reference-status" role="status">Loading reference…</p>
+    <p>Glass is transparent dielectric, not metallic. All five maps share seeded height and feature masks.
+      No fabricated AO or simultaneous normal/bump mapping. Disabling a map removes its contribution;
+      emissive is disabled entirely when its checkbox is cleared. This procedural reference does not use AI.</p>
+  </main>
+  <script type="module" src="../js/rendering/world-material-reference.js"></script>
+</body>
+</html>

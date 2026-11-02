@@ -61,6 +61,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
       burstActive: false,
     };
     this._slotCount = 0;
+    this._ownedTextures = new Set();
     this._visualPalette = {
       ownerColor: '#7db7ee',
       isOwned: false,
@@ -80,6 +81,14 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
 
     const T = getThree();
     if (!T) return;
+    if (typeof require !== 'undefined') {
+      this._materials = require('../../assets/CoherentMaterialGenerator.js');
+    } else {
+      await import('../../assets/WorldAssetDescriptor.js');
+      await import('../../assets/CoherentMaterialGenerator.js');
+      this._materials = window.CoherentMaterialGenerator;
+    }
+    if (this._unloaded || this._canvas !== canvas) return;
 
     this._renderer = new T.WebGLRenderer({ canvas, antialias: true });
     this._renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -142,6 +151,8 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     });
     geometries.forEach((geometry) => geometry.dispose?.());
     materials.forEach((material) => material.dispose?.());
+    this._ownedTextures.forEach((texture) => texture.dispose());
+    this._ownedTextures.clear();
     this._scene?.clear();
     this._scene = null;
     this._instanced = null;
@@ -215,14 +226,26 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
 
     // High-detail instanced mesh
     const hiGeo = new T.BoxGeometry(1, 2, 1);
-    const hiMat = new T.MeshStandardMaterial({ color: this._visualPalette.buildingColor, vertexColors: true });
+    const variants = new Float32Array(MAX_BUILDINGS);
+    hiGeo.setAttribute('materialVariant', new T.InstancedBufferAttribute(variants, 1));
+    const coherentMaps = this._createCoherentMaps(T);
+    const hiMat = new T.MeshStandardMaterial({
+      color: '#ffffff', vertexColors: true, roughness: 1, metalness: 1,
+      emissive: '#ffffff', emissiveIntensity: 1.2, ...coherentMaps,
+    });
+    this._configureMaterialAtlas(hiMat);
     this._instanced = new T.InstancedMesh(hiGeo, hiMat, MAX_BUILDINGS);
     this._instanced.count = 0;
     this._lod.addLevel(this._instanced, 0);
 
     // Low-detail placeholder (same mesh, lower poly in a real impl)
     const loGeo = new T.BoxGeometry(1, 2, 1);
-    const loMat = new T.MeshStandardMaterial({ color: this._visualPalette.buildingColor, wireframe: true, vertexColors: true });
+    loGeo.setAttribute('materialVariant', new T.InstancedBufferAttribute(new Float32Array(MAX_BUILDINGS), 1));
+    const loMat = new T.MeshStandardMaterial({
+      color: '#ffffff', vertexColors: true, roughness: 1, metalness: 1,
+      emissive: '#ffffff', emissiveIntensity: 1.2, ...coherentMaps,
+    });
+    this._configureMaterialAtlas(loMat);
     const loMesh = new T.InstancedMesh(loGeo, loMat, MAX_BUILDINGS);
     loMesh.count = 0;
     this._lod.addLevel(loMesh, 50);
@@ -233,6 +256,53 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     const sun = new T.DirectionalLight(0xfff0cc, 1.2);
     sun.position.set(30, 60, 40);
     this._scene.add(sun);
+  }
+
+  _createCoherentMaps(T) {
+    if (!this._materials || !T.DataTexture) return {};
+    const sets = ['painted-metal', 'painted-metal', 'emissive', 'glass'].map((materialFamily, index) =>
+      this._materials.generate({
+        seed: 420 + index, materialFamily, age: [0.1, 0.9, 0.25, 0.35][index],
+        color: [[0.8, 0.85, 0.9], [0.86, 0.58, 0.3], [0.2, 0.65, 0.95], [0.4, 0.8, 0.65]][index],
+      }, { size: 64 }));
+    const maps = {};
+    const names = { albedo: 'map', normal: 'normalMap', roughness: 'roughnessMap',
+      metalness: 'metalnessMap', emissive: 'emissiveMap', ao: 'aoMap' };
+    for (const [name, property] of Object.entries(names)) {
+      const source = sets[0].maps[name];
+      if (!source) continue;
+      const width = source.width * sets.length;
+      const data = new Uint8Array(width * source.height * 4);
+      sets.forEach((set, index) => {
+        for (let row = 0; row < source.height; row++) {
+          data.set(set.maps[name].data.subarray(row * source.width * 4, (row + 1) * source.width * 4),
+            (row * width + index * source.width) * 4);
+        }
+      });
+      const texture = new T.DataTexture(data, width, source.height, T.RGBAFormat);
+      texture.colorSpace = name === 'albedo' || name === 'emissive' ? T.SRGBColorSpace : T.NoColorSpace;
+      texture.magFilter = T.LinearFilter;
+      texture.minFilter = T.LinearFilter;
+      texture.wrapS = T.RepeatWrapping;
+      texture.wrapT = T.RepeatWrapping;
+      texture.needsUpdate = true;
+      this._ownedTextures.add(texture);
+      maps[property] = texture;
+    }
+    return maps;
+  }
+
+  _configureMaterialAtlas(material) {
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader = `attribute float materialVariant;\n${shader.vertexShader}`;
+      const transforms = [
+        ['USE_MAP', 'vMapUv'], ['USE_NORMALMAP', 'vNormalMapUv'],
+        ['USE_ROUGHNESSMAP', 'vRoughnessMapUv'], ['USE_METALNESSMAP', 'vMetalnessMapUv'],
+        ['USE_EMISSIVEMAP', 'vEmissiveMapUv'], ['USE_AOMAP', 'vAoMapUv'],
+      ].map(([define, uv]) => `\n#ifdef ${define}\n${uv}.x = (${uv}.x * 0.98 + 0.01 + materialVariant) / 4.0;\n#endif`).join('');
+      shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>${transforms}`);
+    };
+    material.customProgramCacheKey = () => 'colony-coherent-atlas-v1';
   }
 
   _updateInstances(slots) {
@@ -250,9 +320,16 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
       this._instanced.setMatrixAt(i, mat);
       color.set(parseHexColor(s.owner_color || s.colony_owner_color || s.faction_color || '', this._visualPalette.buildingColor));
       this._instanced.setColorAt(i, color);
+      const text = String(s.type || s.building_type || s.category || '');
+      const variant = /mine|factory|refinery|industry/i.test(text) ? 1
+        : /power|reactor|energy/i.test(text) ? 2 : /lab|research|science/i.test(text) ? 3 : 0;
+      this._instanced.geometry.getAttribute('materialVariant').setX(i, variant);
+      this._instancedLo?.geometry.getAttribute('materialVariant').setX(i, variant);
     }
     this._instanced.count = count;
     this._instanced.instanceMatrix.needsUpdate = true;
+    this._instanced.geometry.getAttribute('materialVariant').needsUpdate = true;
+    if (this._instancedLo) this._instancedLo.geometry.getAttribute('materialVariant').needsUpdate = true;
     if (this._instanced.instanceColor) this._instanced.instanceColor.needsUpdate = true;
     this._slotCount = count;
     this._rebuildBuildingVfx(slots);
@@ -456,7 +533,12 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     const T = getThree();
     if (!T || !this._buildingVfxGroup) return;
     this._clearBuildingVfx(true);
-    const source = Array.isArray(slots) ? slots : [];
+    const reduced = this._sceneData?.reduced_motion
+      || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const disabled = this._sceneData?.vfx_enabled === false || this._sceneData?.vfx_quality === 'off'
+      || this._sceneData?.visible === false || reduced;
+    const source = !disabled && Array.isArray(slots)
+      ? slots.slice(0, MAX_BUILDINGS).filter((slot) => slot?.visible !== false) : [];
     this._ingestUpgradeTransitions(source);
     if (!source.length) {
       this._buildingVfxStats = {
@@ -504,11 +586,11 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
         this._visualPalette.buildingColor
       );
       const material = new T.PointsMaterial({
-        color,
+        color: profileName === 'industry' ? '#7d8996' : color,
         size: cfg.size * profile.sizeMul,
         transparent: true,
         opacity: Math.max(0.08, Math.min(0.58, cfg.opacity + profile.opacityAdd)),
-        blending: T.AdditiveBlending,
+        blending: profileName === 'industry' ? T.NormalBlending : T.AdditiveBlending,
         depthWrite: false,
         sizeAttenuation: true,
       });
@@ -540,7 +622,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     if (!this._buildingVfxEmitters.length) return;
     this._buildingVfxTime += Math.max(0, Number(dt) || 0.016);
     const t = this._buildingVfxTime;
-    const burstT = this._buildingVfxBurstUntil > t
+    const burstT = this._sceneData?.reduced_flash !== true && this._buildingVfxBurstUntil > t
       ? Math.max(0, Math.min(1, (this._buildingVfxBurstUntil - t) / 1.6))
       : 0;
     this._buildingVfxEmitters.forEach((points, index) => {
@@ -600,10 +682,10 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
       this._ground.material.color.set(this._visualPalette.groundColor);
     }
     if (this._instanced?.material?.color) {
-      this._instanced.material.color.set(this._visualPalette.buildingColor);
+      this._instanced.material.color.set('#ffffff');
     }
     if (this._instancedLo?.material?.color) {
-      this._instancedLo.material.color.set(this._visualPalette.buildingColor);
+      this._instancedLo.material.color.set('#ffffff');
     }
     if (this._ownershipRing?.material?.color) {
       this._ownershipRing.material.color.set(this._visualPalette.ringColor);

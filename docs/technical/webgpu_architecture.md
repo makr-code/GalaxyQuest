@@ -129,6 +129,32 @@ accepts an externally supplied prefiltered PMREM `environmentMap` and optional
 ownership, never destroys borrowed environment textures, and releases owned
 shadow resources when profiles/scenes change or the manager is disposed.
 
+## Living-world presentation
+
+Visual activity is derived from supplied object state and existing fleet/combat
+events. It never advances colony production, resolves combat or introduces an
+economic tick. On re-entry, visible effects resume from current state rather than
+replaying every particle emitted while the view was absent.
+
+### Combat event identity and bounded lifetime
+
+`CombatVfxBridge` accepts both the legacy window events and the canonical
+`sse:*` EventBus path. It deduplicates each lifecycle stage by `event_id` /
+`eventId`, falling back to the server's `fleet_id`. Up to 1,024 identities are
+retained for ten minutes in memory, not persisted as public asset data.
+For id-less legacy payloads, only repeated delivery of the same object is
+deduplicated; unrelated battles are not guessed from matching owner/target names.
+
+At most 32 battle loops and 32 warning chains are active. Battle duration is capped
+at eight seconds. `stopAll()`, document hiding and destruction cancel both
+warning timeouts and battle timers; hidden arrivals are not replayed on visibility
+restoration. Server return events can stop the matching fleet without a target
+field. These are cosmetic firing windows, not authoritative battle simulation.
+
+`setVisualOptions({ reducedMotion, reducedFlashes })` stops sustained firing when
+either option is true; the operating-system reduced-motion preference also applies.
+An initial notification pulse remains, but no repeating flash sequence is started.
+
 ## Historical opt-in Babylon colony evaluation (not a production migration)
 
 The diagrams below describe engine components, **not** a guarantee that every

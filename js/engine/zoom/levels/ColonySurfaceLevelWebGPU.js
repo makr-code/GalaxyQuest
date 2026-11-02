@@ -68,6 +68,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       burstActive: false,
     };
     this._slotCount      = 0;
+    this._native = false;
+    this._particlePools = [];
+    this._materialTextures = [];
+    this._cameraBuffer = null;
+    this._depthTexture = null;
     this._visualPalette  = {
       owner: [0.49, 0.72, 0.93],
       clear: [0.05, 0.06, 0.04],
@@ -84,6 +89,23 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     if (!this._device || !this._context) {
       throw new Error('ColonySurfaceLevelWebGPU requires the shared WebGPU device and canvas context');
     }
+    if (typeof require !== 'undefined') {
+      this._fxModules = {
+        ...require('../../fx/ColonySurfaceShaders.js'),
+        ...require('../../fx/GPUParticleSystem.js'),
+      };
+      this._materials = require('../../assets/CoherentMaterialGenerator.js');
+    } else {
+      await import('../../assets/WorldAssetDescriptor.js');
+      await Promise.all([
+        import('../../fx/ColonySurfaceShaders.js'),
+        import('../../fx/GPUParticleSystem.js'),
+        import('../../assets/CoherentMaterialGenerator.js'),
+      ]);
+      this._fxModules = { ...window.GQColonySurfaceShaders, ...window.GQGPUParticleSystem };
+      this._materials = window.CoherentMaterialGenerator;
+    }
+    if (this._unloaded || this._canvas !== canvas) return;
     await this._buildPipelines();
   }
 
@@ -99,7 +121,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   render(dt, cameraState) { // eslint-disable-line no-unused-vars
     if (this._unloaded || !this._device || !this._context) return;
     this._updateBuildingVfxBuffer(Number(dt) || 0.016);
-    this._drawFrame();
+    this._drawFrame(dt, cameraState);
   }
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
@@ -114,6 +136,15 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   _releaseSceneBuffers() {
+    this._particlePools.forEach((pool) => pool.system.dispose());
+    this._particlePools = [];
+    this._materialTextures.forEach((texture) => texture.destroy());
+    this._materialTextures = [];
+    this._materialBindGroup = null;
+    this._depthTexture?.destroy();
+    this._depthTexture = null;
+    this._cameraBuffer?.destroy();
+    this._cameraBuffer = null;
     if (this._instanceBuffer) {
       try { this._instanceBuffer.destroy(); } catch (_) {}
       this._instanceBuffer = null;
@@ -154,6 +185,128 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
+  _buildNativePipelines(format) {
+    const device = this._device;
+    this._native = true;
+    const depthStencil = { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' };
+    const mesh = device.createShaderModule({ label: 'colony-coherent-pbr', code: this._fxModules.buildingShader });
+    this._meshPipeline = device.createRenderPipeline({
+      layout: 'auto', vertex: { module: mesh, entryPoint: 'vs_main' },
+      fragment: { module: mesh, entryPoint: 'fs_main', targets: [{ format }] },
+      primitive: { topology: 'triangle-list' }, depthStencil,
+    });
+    const particles = device.createShaderModule({ label: 'colony-storage-billboards', code: this._fxModules.particleShader });
+    const pipeline = (smoke) => device.createRenderPipeline({
+      layout: 'auto', vertex: { module: particles, entryPoint: 'vs_main' },
+      fragment: { module: particles, entryPoint: 'fs_main', targets: [{ format, blend: {
+        color: { srcFactor: 'src-alpha', dstFactor: smoke ? 'one-minus-src-alpha' : 'one', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      } }] },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: { ...depthStencil, depthWriteEnabled: false },
+    });
+    this._vfxPipeline = pipeline(false);
+    this._smokePipeline = pipeline(true);
+  }
+
+  _ensureNativeResources() {
+    if (!this._cameraBuffer) this._cameraBuffer = this._device.createBuffer({
+      size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    if (this._materialBindGroup) return;
+    const sets = ['painted-metal', 'painted-metal', 'emissive', 'glass'].map((materialFamily, index) =>
+      this._materials.generate({
+        seed: 420 + index, materialFamily, age: [0.1, 0.9, 0.25, 0.35][index],
+        color: [[0.8, 0.85, 0.9], [0.86, 0.58, 0.3], [0.2, 0.65, 0.95], [0.4, 0.8, 0.65]][index],
+      }, { size: 64 }));
+    const names = ['albedo', 'normal', 'roughness', 'metalness', 'emissive'];
+    const views = names.map((name) => {
+      const texture = this._device.createTexture({
+        label: `colony-${name}`, size: [64, 64, sets.length],
+        format: name === 'albedo' || name === 'emissive' ? 'rgba8unorm-srgb' : 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      this._materialTextures.push(texture);
+      sets.forEach((set, layer) => this._device.queue.writeTexture(
+        { texture, origin: [0, 0, layer] }, set.maps[name].data,
+        { bytesPerRow: 64 * 4, rowsPerImage: 64 }, [64, 64, 1],
+      ));
+      return texture.createView({ dimension: '2d-array' });
+    });
+    this._materialBindGroup = this._device.createBindGroup({
+      layout: this._meshPipeline.getBindGroupLayout(1),
+      entries: [
+        { binding: 0, resource: this._device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat' }) },
+        ...views.map((view, index) => ({ binding: index + 1, resource: view })),
+      ],
+    });
+  }
+
+  _createParticlePools() {
+    const { GPUParticleSystem } = this._fxModules;
+    for (const smoke of [true, false]) {
+      const sources = this._buildingVfxParticles.filter((particle) => particle.smoke === smoke);
+      if (!sources.length) continue;
+      const system = new GPUParticleSystem({
+        device: this._device, maxParticles: sources.length, gravity: smoke ? -0.035 : -0.01, drag: 0.06,
+      });
+      const pipeline = smoke ? this._smokePipeline : this._vfxPipeline;
+      const bindGroup = this._device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: system.storageBuffer } },
+          { binding: 1, resource: { buffer: this._cameraBuffer } },
+        ],
+      });
+      this._particlePools.push({ smoke, sources, system, bindGroup, cursor: 0 });
+      sources.forEach((source, index) => this._spawnNativeParticle(system, source, index));
+    }
+  }
+
+  _spawnNativeParticle(system, source, index) {
+    const smoke = source.smoke;
+    system.spawn({
+      px: source.x, py: source.y + 1.8, pz: source.z,
+      vx: smoke ? 0.12 : Math.sin(index * 2.4) * 0.18,
+      vy: smoke ? 0.5 : 0.35, vz: smoke ? 0.04 : Math.cos(index * 2.4) * 0.18,
+      lifetime: 1.8 + (index % 11) * 0.19,
+      size: smoke ? 0.34 + (index % 4) * 0.06 : 0.1,
+      colorHex: smoke ? 0x7d8996
+        : ((Math.round(source.r * 255) << 16) | (Math.round(source.g * 255) << 8) | Math.round(source.b * 255)),
+    });
+  }
+
+  _prepareNativeFrame(encoder, dt, cameraState) {
+    this._ensureNativeResources();
+    const width = Math.max(1, this._canvas.width || 800);
+    const height = Math.max(1, this._canvas.height || 600);
+    const aspect = width / height;
+    const bounds = this._bounds || { x: 0, z: 0, width: 30, height: 20 };
+    const scale = 1.7 / Math.max(bounds.height, bounds.width / aspect);
+    const target = cameraState?.target;
+    this._device.queue.writeBuffer(this._cameraBuffer, 0, new Float32Array([
+      Number.isFinite(target?.x) ? target.x : bounds.x, 1.5,
+      Number.isFinite(target?.z) ? target.z : bounds.z,
+      scale, aspect, this._buildingVfxTime, 0, 0,
+    ]));
+    if (!this._depthTexture || this._depthSize !== `${width}:${height}`) {
+      this._depthTexture?.destroy();
+      this._depthTexture = this._device.createTexture({
+        size: [width, height], format: 'depth24plus', usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      this._depthSize = `${width}:${height}`;
+    }
+    this._particlePools.forEach((pool) => {
+      pool.system.update(Math.max(0, Math.min(0.1, Number(dt) || 0)), encoder);
+      // Only new spawn commands cross the CPU/GPU boundary; positions remain GPU-resident.
+      const budget = Math.min(8, pool.sources.length - pool.system.liveCount);
+      for (let i = 0; i < budget; i++) {
+        const index = pool.cursor++ % pool.sources.length;
+        this._spawnNativeParticle(pool.system, pool.sources[index], index);
+      }
+    });
+  }
+
   async _buildPipelines() {
     if (!this._device) return;
 
@@ -185,7 +338,15 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       vertex:   { module: gridShader, entryPoint: 'vs_main' },
       fragment: { module: gridShader, entryPoint: 'fs_main', targets: [{ format }] },
       primitive: { topology: 'triangle-list' },
+      ...(typeof this._device.createTexture === 'function'
+        && typeof this._device.createComputePipeline === 'function'
+        ? { depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'always' } } : {}),
     });
+    if (typeof this._device.createTexture === 'function'
+      && typeof this._device.createComputePipeline === 'function') {
+      this._buildNativePipelines(format);
+      return;
+    }
 
     // building_mesh.wgsl — instanced building pass (simplified inline).
     const meshShader = this._device.createShaderModule({
@@ -289,6 +450,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
   _uploadSlots(slots) {
     if (!this._device) return;
+    slots = slots.slice(0, 512);
+    if (this._native) this._ensureNativeResources();
     const count  = slots.length;
     const size   = count * BYTES_PER_SLOT;
 
@@ -318,8 +481,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       data[base + 2] = Number(s.b ?? tint[2] ?? 0.6);
       data[base + 3] = 1.0;
       // col1–col2 = rotation matrix rows (identity by default)
-      data[base + 4] = 1; data[base + 5] = 0; data[base + 6] = 0; data[base + 7] = 0;
-      data[base + 8] = 0; data[base + 9] = 1; data[base +10] = 0; data[base +11] = 0;
+      data[base + 4] = 1.6; data[base + 5] = 2 + (i % 3) * 0.6; data[base + 6] = 1.6; data[base + 7] = 0;
+      const text = String(s.type || s.building_type || s.category || '');
+      data[base + 8] = /mine|factory|refinery|industry/i.test(text) ? 1
+        : /power|reactor|energy/i.test(text) ? 2 : /lab|research|science/i.test(text) ? 3 : 0;
+      data[base + 9] = 1; data[base +10] = 0; data[base +11] = 0;
       // col3 = translation
       data[base +12] = Number(s.x || 0);
       data[base +13] = 0;
@@ -331,13 +497,26 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       try {
         this._instanceBindGroup = this._device.createBindGroup({
           layout: this._meshPipeline.getBindGroupLayout(0),
-          entries: [{ binding: 0, resource: { buffer: this._instanceBuffer } }],
+          entries: [
+            { binding: 0, resource: { buffer: this._instanceBuffer } },
+            ...(this._native ? [{ binding: 1, resource: { buffer: this._cameraBuffer } }] : []),
+          ],
         });
       } catch (_) {
         this._instanceBindGroup = null;
       }
     }
     this._slotCount = count;
+    if (this._native && count) {
+      const xs = slots.map((s) => Number(s.x) || 0);
+      const zs = slots.map((s) => Number(s.z) || 0);
+      this._bounds = {
+        x: (Math.min(...xs) + Math.max(...xs)) / 2,
+        z: (Math.min(...zs) + Math.max(...zs)) / 2,
+        width: Math.max(...xs) - Math.min(...xs) + 7,
+        height: (Math.max(...zs) - Math.min(...zs)) * 0.57 + 8,
+      };
+    }
   }
 
   _resolveBuildingVfxQuality(slotCount) {
@@ -426,7 +605,14 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   _rebuildBuildingVfx(slots) {
-    const source = Array.isArray(slots) ? slots : [];
+    this._particlePools.forEach((pool) => pool.system.dispose());
+    this._particlePools = [];
+    const reduced = this._sceneData?.reduced_motion
+      || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const disabled = this._sceneData?.vfx_enabled === false || this._sceneData?.vfx_quality === 'off'
+      || this._sceneData?.visible === false || reduced;
+    const source = !disabled && Array.isArray(slots)
+      ? slots.slice(0, 512).filter((slot) => slot?.visible !== false) : [];
     this._ingestUpgradeTransitions(source);
     this._buildingVfxParticles = [];
     this._buildingVfxVertexCount = 0;
@@ -479,13 +665,15 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
           baseOpacity: Math.max(0.05, Math.min(0.6, cfg.opacity + profile.opacityAdd)),
           pulsePhase: Math.random() * Math.PI * 2,
           drift: (0.14 + Math.random() * 0.22) * profile.driftMul,
+          smoke: profileName === 'industry',
         });
       }
       remainingParticles -= particleCount;
     }
 
     this._buildingVfxVertexCount = this._buildingVfxParticles.length * 6;
-    this._ensureBuildingVfxBufferCapacity(this._buildingVfxVertexCount);
+    if (this._native) this._createParticlePools();
+    else this._ensureBuildingVfxBufferCapacity(this._buildingVfxVertexCount);
     this._buildingVfxStats = {
       backend: 'webgpu',
       quality,
@@ -513,6 +701,13 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   _updateBuildingVfxBuffer(dt) {
+    if (this._native) {
+      this._buildingVfxTime += Math.max(0, Math.min(0.1, Number(dt) || 0));
+      this._buildingVfxStats.burstActive = this._sceneData?.reduced_flash !== true
+        && this._buildingVfxBurstUntil > this._buildingVfxTime;
+      if (typeof window !== 'undefined') window.__GQ_COLONY_VFX_STATS = { ...this._buildingVfxStats };
+      return;
+    }
     if (!this._device || !this._buildingVfxVertexCount || !this._buildingVfxBuffer) return;
     const particles = this._buildingVfxParticles;
     if (!particles.length) return;
@@ -555,10 +750,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     }
   }
 
-  _drawFrame() {
+  _drawFrame(dt, cameraState) {
     if (!this._device || !this._context || !this._gridPipeline) return;
     try {
       const encoder = this._device.createCommandEncoder();
+      if (this._native) this._prepareNativeFrame(encoder, dt, cameraState);
       const view    = this._context.getCurrentTexture().createView();
       const pass    = encoder.beginRenderPass({
         colorAttachments: [{
@@ -567,17 +763,29 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
           loadOp: 'clear',
           storeOp: 'store',
         }],
+        ...(this._native ? { depthStencilAttachment: {
+          view: this._depthTexture.createView(), depthClearValue: 1,
+          depthLoadOp: 'clear', depthStoreOp: 'store',
+        } } : {}),
       });
       // Ground grid pass
       pass.setPipeline(this._gridPipeline);
       pass.draw(6, 1, 0, 0);
       // Building instances pass
-      if (this._meshPipeline && this._slotCount > 0) {
+      if (this._meshPipeline && this._slotCount > 0 && this._instanceBindGroup) {
         pass.setPipeline(this._meshPipeline);
         if (this._instanceBindGroup) {
           pass.setBindGroup(0, this._instanceBindGroup);
         }
-        pass.draw(8, this._slotCount, 0, 0);
+        if (this._native) pass.setBindGroup(1, this._materialBindGroup);
+        pass.draw(this._native ? 36 : 8, this._slotCount, 0, 0);
+      }
+      if (this._native) {
+        this._particlePools.forEach((pool) => {
+          pass.setPipeline(pool.smoke ? this._smokePipeline : this._vfxPipeline);
+          pass.setBindGroup(0, pool.bindGroup);
+          pass.draw(6, pool.system.maxParticles);
+        });
       }
       if (this._vfxPipeline && this._buildingVfxBuffer && this._buildingVfxVertexCount > 0) {
         pass.setPipeline(this._vfxPipeline);

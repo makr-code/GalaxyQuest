@@ -2,12 +2,12 @@
  * GQMaterialFactory
  * Konsistente Materialerstellung fuer PBR-Profile und Emissive/Bloom-Look.
  */
-(function () {
+(function (root) {
   'use strict';
 
   class GQMaterialFactory {
     constructor(opts = {}) {
-      this.THREE = opts.three || window.THREE;
+      this.THREE = opts.three || root.THREE;
       this.envMapIntensity = Number.isFinite(opts.envMapIntensity) && opts.envMapIntensity >= 0
         ? opts.envMapIntensity : null;
       this._textureRoles = new WeakMap();
@@ -175,8 +175,20 @@
     _createMaterial(parameters, bundle = null) {
       const dataMaps = ['bumpMap', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'alphaMap'];
       const ownedTextures = new Set();
+      if (bundle?.coherentMaterial) {
+        Object.assign(parameters, bundle.coherentMaterial, {
+          color: 0xffffff,
+          emissive: 0xffffff,
+          map: bundle.map,
+          emissiveMap: bundle.emissiveMap,
+        });
+      }
       for (const slot of dataMaps) {
         if (bundle?.[slot]) parameters[slot] = bundle[slot];
+      }
+      if (parameters.normalMap) {
+        parameters.bumpMap = null;
+        parameters.bumpScale = 0;
       }
       for (const slot of ['map', 'emissiveMap', ...dataMaps]) {
         const texture = parameters[slot];
@@ -209,6 +221,14 @@
       }
       if (this.envMapIntensity !== null) parameters.envMapIntensity = this.envMapIntensity;
       const material = new this.THREE.MeshStandardMaterial(parameters);
+      if (typeof bundle?.retainTextures === 'function') {
+        const releaseTextures = bundle.retainTextures();
+        const release = () => {
+          material.removeEventListener('dispose', release);
+          releaseTextures();
+        };
+        material.addEventListener('dispose', release);
+      }
       if (['map', 'emissiveMap', ...dataMaps].some((slot) => parameters[slot])) {
         material.userData.sharedTexture = true;
       }
@@ -241,5 +261,6 @@
     }
   }
 
-  window.GQMaterialFactory = GQMaterialFactory;
-})();
+  if (typeof module !== 'undefined' && module.exports) module.exports = GQMaterialFactory;
+  root.GQMaterialFactory = GQMaterialFactory;
+})(typeof window !== 'undefined' ? window : globalThis);

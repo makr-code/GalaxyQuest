@@ -30,10 +30,12 @@
  */
 
 class ProceduralMeshGenerator {
-  constructor() {
+  constructor({ maxCacheBytes = 16 * 1024 * 1024, maxCacheSize = 128 } = {}) {
     this._noiseCache = new Map();
     this._meshCache = new Map();
-    this._maxCacheSize = 1000;
+    this._maxCacheSize = Number.isFinite(maxCacheSize) ? Math.max(0, Math.floor(maxCacheSize)) : 128;
+    this._maxCacheBytes = Number.isFinite(maxCacheBytes) ? Math.max(0, Math.floor(maxCacheBytes)) : 16 * 1024 * 1024;
+    this._cacheBytes = 0;
   }
 
   /**
@@ -42,19 +44,23 @@ class ProceduralMeshGenerator {
    * @returns {THREE.BufferGeometry}
    */
   generateAsteroid(config = {}) {
-    const seed = config.seed ?? Math.random();
-    const scale = config.scale ?? 100;
-    const complexity = Math.max(1, Math.min(5, config.complexity ?? 2));
-    const fracture = config.fracture ?? true;
+    const seed = this._seed(config.seed ?? 0);
+    const scale = this._bounded(config.scale, 100, 0.001, 1000000);
+    const lod = Math.floor(this._bounded(config.lod, 0, 0, 4));
+    const complexity = Math.max(1, Math.floor(this._bounded(config.complexity, 2, 1, 5)) - lod);
+    const fracture = Boolean(config.fracture ?? true);
 
     // Check cache first
     const cacheKey = `asteroid_${seed}_${scale}_${complexity}_${fracture}`;
     if (this._meshCache.has(cacheKey)) {
-      return this._meshCache.get(cacheKey).clone();
+      const cached = this._meshCache.get(cacheKey);
+      this._meshCache.delete(cacheKey);
+      this._meshCache.set(cacheKey, cached);
+      return cached.clone();
     }
 
     // Generate base icosahedron
-    const geometry = this._createIcosphere(4 - complexity); // More subdivisions for higher complexity
+    const geometry = this._createIcosphere(complexity - 1);
 
     // Apply Perlin noise displacement
     this._displaceMesh(geometry, seed, scale, complexity);
@@ -66,13 +72,76 @@ class ProceduralMeshGenerator {
 
     // Optimize mesh
     geometry.computeVertexNormals();
-    geometry.mergeVertices?.();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
 
     // Cache if space available
-    if (this._meshCache.size < this._maxCacheSize) {
+    const bytes = this._geometryBytes(geometry);
+    if (this._maxCacheSize > 0 && bytes <= this._maxCacheBytes) {
+      while (this._meshCache.size >= this._maxCacheSize || this._cacheBytes + bytes > this._maxCacheBytes) {
+        const key = this._meshCache.keys().next().value;
+        const cached = this._meshCache.get(key);
+        this._cacheBytes -= this._geometryBytes(cached);
+        cached.dispose();
+        this._meshCache.delete(key);
+      }
       this._meshCache.set(cacheKey, geometry.clone());
+      this._cacheBytes += bytes;
     }
 
+    return geometry;
+  }
+
+  /** Persist CPU arrays, not GPU buffers. Every call returns caller-owned geometry. */
+  async generateAsteroidAsync(config = {}, binaryCache = null) {
+    const { publicAssetBinaryCache } = await import('../assets/AssetBinaryCache.js');
+    const cache = binaryCache || publicAssetBinaryCache;
+    const parameters = {
+      scale: this._bounded(config.scale, 100, 0.001, 1000000),
+      complexity: Math.floor(this._bounded(config.complexity, 2, 1, 5)),
+      fracture: Boolean(config.fracture ?? true),
+    };
+    const lod = Math.floor(this._bounded(config.lod, 0, 0, 4));
+    const descriptor = {
+      scope: 'public', kind: 'asteroid-arrays', version: 1,
+      generatorHash: 'gq-icosphere-value-noise-v2', seed: this._seed(config.seed ?? 0), parameters, lod,
+    };
+    const bytes = await cache.get(descriptor);
+    if (bytes) {
+      let geometry;
+      try {
+        const view = new DataView(bytes);
+        const count = view.getUint32(0, true);
+        const hasColors = view.getUint32(4, true);
+        if (!count || count > 1800 || count % 3 || hasColors > 1
+          || bytes.byteLength !== 8 + count * 3 * 4 * (2 + hasColors)) {
+          throw new Error('Invalid procedural geometry arrays');
+        }
+        geometry = new THREE.BufferGeometry();
+        const names = hasColors ? ['position', 'normal', 'color'] : ['position', 'normal'];
+        for (let i = 0; i < names.length; i++) {
+          const array = new Float32Array(bytes.slice(8 + i * count * 12, 8 + (i + 1) * count * 12));
+          if (!array.every(Number.isFinite)) throw new Error('Nonfinite procedural geometry');
+          geometry.setAttribute(names[i], new THREE.BufferAttribute(array, 3));
+        }
+        geometry.computeBoundingBox();
+        geometry.computeBoundingSphere();
+        return geometry;
+      } catch {
+        geometry?.dispose();
+        await cache.delete(descriptor);
+      }
+    }
+    const geometry = this.generateAsteroid({ ...parameters, seed: config.seed ?? 0, lod });
+    const names = geometry.hasAttribute('color') ? ['position', 'normal', 'color'] : ['position', 'normal'];
+    const count = geometry.attributes.position.count;
+    const buffer = new ArrayBuffer(8 + count * 12 * names.length);
+    const view = new DataView(buffer);
+    view.setUint32(0, count, true);
+    view.setUint32(4, names.length - 2, true);
+    names.forEach((name, i) => new Float32Array(buffer, 8 + i * count * 12, count * 3)
+      .set(geometry.attributes[name].array));
+    await cache.put(descriptor, buffer);
     return geometry;
   }
 
@@ -85,38 +154,84 @@ class ProceduralMeshGenerator {
    * @returns {object[]} Array of geometry objects with transforms
    */
   generateDebrisField(config = {}) {
-    const count = config.count ?? 10;
-    const scale = config.scale ?? 50;
-    const seed = config.seed ?? Math.random();
+    const count = Math.floor(this._bounded(config.count, 10, 0, 256));
+    const scale = this._bounded(config.scale, 50, 0.001, 1000000);
+    const seed = this._seed(config.seed ?? 0);
+    const random = this._random(seed);
 
     const debris = [];
     for (let i = 0; i < count; i++) {
-      const fragmentSeed = seed + i / count;
-      const fragmentScale = scale * (0.5 + Math.random() * 0.5);
+      const fragmentSeed = `${seed}:${i}`;
+      const fragmentScale = scale * (0.5 + random() * 0.5);
 
       const geometry = this.generateAsteroid({
         seed: fragmentSeed,
         scale: fragmentScale,
-        complexity: 1 + Math.floor(Math.random() * 2),
-        fracture: Math.random() > 0.5,
+        complexity: 1 + Math.floor(random() * 2),
+        fracture: random() > 0.5,
       });
 
       debris.push({
         geometry,
         position: {
-          x: (Math.random() - 0.5) * scale * 3,
-          y: (Math.random() - 0.5) * scale * 3,
-          z: (Math.random() - 0.5) * scale * 3,
+          x: (random() - 0.5) * scale * 3,
+          y: (random() - 0.5) * scale * 3,
+          z: (random() - 0.5) * scale * 3,
         },
         rotation: {
-          x: Math.random() * Math.PI * 2,
-          y: Math.random() * Math.PI * 2,
-          z: Math.random() * Math.PI * 2,
+          x: random() * Math.PI * 2,
+          y: random() * Math.PI * 2,
+          z: random() * Math.PI * 2,
         },
       });
     }
 
     return debris;
+  }
+
+  /** Caller owns every returned geometry, including all prepared LOD levels. */
+  generateAsteroidLODs(config = {}) {
+    const scale = this._bounded(config.scale, 100, 0.001, 1000000);
+    return [5, 3, 1].map((complexity, index) => ({
+      distance: [0, scale * 8, scale * 24][index],
+      geometry: this.generateAsteroid({ ...config, complexity, lod: 0 }),
+    }));
+  }
+
+  generateWreck(config = {}) {
+    const geometry = this.generateAsteroid({ ...config, fracture: true });
+    const random = this._random(this._seed(config.seed ?? 0));
+    geometry.scale(1.5 + random(), 0.2 + random() * 0.3, 0.5 + random() * 0.5);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    return geometry;
+  }
+
+  _bounded(value, fallback, min, max) {
+    return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+  }
+
+  _seed(value) {
+    const text = String(value);
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+    return hash >>> 0;
+  }
+
+  _random(seed) {
+    let state = seed >>> 0;
+    return () => {
+      state = (state + 0x6d2b79f5) | 0;
+      let value = Math.imul(state ^ state >>> 15, 1 | state);
+      value ^= value + Math.imul(value ^ value >>> 7, 61 | value);
+      return ((value ^ value >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  _geometryBytes(geometry) {
+    return Object.values(geometry.attributes).reduce((sum, attribute) => sum + attribute.array.byteLength, 0)
+      + (geometry.index?.array.byteLength || 0);
   }
 
   /**
@@ -127,8 +242,7 @@ class ProceduralMeshGenerator {
    */
   _createIcosphere(subdivisions = 2) {
     if (typeof THREE === 'undefined') {
-      // Fallback for non-Three.js environment
-      return { vertices: [], indices: [] };
+      throw new Error('ProceduralMeshGenerator requires THREE');
     }
 
     const geometry = new THREE.IcosahedronGeometry(1, subdivisions);
@@ -148,7 +262,6 @@ class ProceduralMeshGenerator {
     if (!positions) return;
 
     const posArray = positions.array;
-    const amplitude = scale * 0.3;
     const frequency = 1.0 + complexity * 0.5;
 
     for (let i = 0; i < posArray.length; i += 3) {
@@ -161,7 +274,7 @@ class ProceduralMeshGenerator {
 
       // Displace along normal (simplified - assumes unit sphere)
       const length = Math.sqrt(x * x + y * y + z * z);
-      const factor = 1.0 + noise * amplitude / length;
+      const factor = scale * (1.0 + noise * 0.3) / Math.max(length, 0.000001);
 
       posArray[i] = x * factor;
       posArray[i + 1] = y * factor;
@@ -212,7 +325,8 @@ class ProceduralMeshGenerator {
       h ^= ((h << 5) + h) ^ px;
       h ^= ((h << 5) + h) ^ py;
       h ^= ((h << 5) + h) ^ pz;
-      return Math.sin(h) * 43758.5453;
+      const value = Math.sin(h) * 43758.5453;
+      return (value - Math.floor(value)) * 2 - 1;
     };
 
     const xi = Math.floor(x);
@@ -254,8 +368,14 @@ class ProceduralMeshGenerator {
    * Clear mesh cache
    */
   clearCache() {
+    for (const geometry of this._meshCache.values()) geometry.dispose();
     this._meshCache.clear();
     this._noiseCache.clear();
+    this._cacheBytes = 0;
+  }
+
+  dispose() {
+    this.clearCache();
   }
 
   /**
@@ -267,6 +387,8 @@ class ProceduralMeshGenerator {
       meshCount: this._meshCache.size,
       noiseCount: this._noiseCache.size,
       maxSize: this._maxCacheSize,
+      bytes: this._cacheBytes,
+      maxBytes: this._maxCacheBytes,
     };
   }
 }
