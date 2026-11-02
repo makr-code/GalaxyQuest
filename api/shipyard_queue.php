@@ -1,33 +1,9 @@
 <?php
 
-function ensure_ship_build_queue_table(PDO $db): void {
-    static $ready = false;
-    if ($ready) {
-        return;
-    }
-
-    $db->exec(
-        "CREATE TABLE IF NOT EXISTS ship_build_queue (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            colony_id INT NOT NULL,
-            ship_type VARCHAR(64) NOT NULL,
-            blueprint_id INT DEFAULT NULL,
-            quantity INT NOT NULL DEFAULT 1,
-            cost_metal INT NOT NULL DEFAULT 0,
-            cost_crystal INT NOT NULL DEFAULT 0,
-            cost_deuterium INT NOT NULL DEFAULT 0,
-            duration_secs INT NOT NULL,
-            queued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            started_at DATETIME DEFAULT NULL,
-            eta DATETIME DEFAULT NULL,
-            status ENUM('queued','running','done','cancelled') NOT NULL DEFAULT 'queued',
-            FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE CASCADE,
-            INDEX idx_sbq_colony_status (colony_id, status),
-            INDEX idx_sbq_eta (eta)
-        ) ENGINE=InnoDB"
-    );
-
-    $ready = true;
+function ensure_ship_build_queue_table(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertShipQueue($db);
 }
 
 function estimate_ship_build_duration(PDO $db, int $colonyId, string $shipType, int $count): int {
@@ -114,34 +90,10 @@ function start_next_ship_build_queue(PDO $db, int $colonyId): ?array {
     ];
 }
 
-function ensure_built_vessels_table(PDO $db): void {
-    static $ready = false;
-    if ($ready) {
-        return;
-    }
-    try {
-        $db->exec(
-            'CREATE TABLE IF NOT EXISTS built_vessels (
-                id             BIGINT AUTO_INCREMENT PRIMARY KEY,
-                owner_user_id  INT NOT NULL,
-                colony_id      INT NOT NULL,
-                blueprint_id   BIGINT NOT NULL,
-                name           VARCHAR(100) DEFAULT NULL,
-                snapshot_stats_json JSON NOT NULL,
-                hp_state_json       JSON NOT NULL,
-                status         ENUM(\'docked\',\'assigned\',\'destroyed\') NOT NULL DEFAULT \'docked\',
-                created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                FOREIGN KEY (colony_id)    REFERENCES colonies(id) ON DELETE CASCADE,
-                FOREIGN KEY (blueprint_id) REFERENCES vessel_blueprints(id) ON DELETE CASCADE,
-                INDEX idx_bv_colony (colony_id, status),
-                INDEX idx_bv_user   (owner_user_id, status)
-            ) ENGINE=InnoDB'
-        );
-        $ready = true;
-    } catch (PDOException $e) {
-        // vessel_blueprints table not yet present — skip silently
-    }
+function ensure_built_vessels_table(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertBuiltVessels($db);
 }
 
 function spawn_built_vessels(PDO $db, int $colonyId, int $ownerId, int $blueprintId, int $quantity): void {
@@ -191,6 +143,15 @@ function complete_ship_build_queue(PDO $db, int $colonyId): void {
         $ownerId = (int)$ownerStmt->fetchColumn();
     }
 
+    if ($ownerId > 0) {
+        foreach ($dueRows as $row) {
+            if (isset($row['blueprint_id'])) {
+                ensure_built_vessels_table($db);
+                break;
+            }
+        }
+    }
+
     foreach ($dueRows as $row) {
         $shipType    = (string)($row['ship_type'] ?? '');
         $blueprintId = isset($row['blueprint_id']) && $row['blueprint_id'] !== null
@@ -206,11 +167,7 @@ function complete_ship_build_queue(PDO $db, int $colonyId): void {
 
             // individual vessel records for blueprint builds
             if ($blueprintId !== null && $ownerId > 0) {
-                try {
-                    spawn_built_vessels($db, $colonyId, $ownerId, $blueprintId, $quantity);
-                } catch (Throwable $e) {
-                    // non-fatal: built_vessels table might not exist yet
-                }
+                spawn_built_vessels($db, $colonyId, $ownerId, $blueprintId, $quantity);
             }
 
             $db->prepare('UPDATE ship_build_queue SET status = \'done\' WHERE id = ?')

@@ -293,29 +293,10 @@ function get_building_level(PDO $db, int $colonyId, string $type): int {
     return $row ? (int)$row['level'] : 0;
 }
 
-function ensure_building_upgrade_queue_table(PDO $db): void {
-    static $ready = false;
-    if ($ready) return;
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS building_upgrade_queue (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            colony_id INT NOT NULL,
-            building_type VARCHAR(64) NOT NULL,
-            target_level INT NOT NULL,
-            cost_metal INT NOT NULL DEFAULT 0,
-            cost_crystal INT NOT NULL DEFAULT 0,
-            cost_deuterium INT NOT NULL DEFAULT 0,
-            duration_secs INT NOT NULL,
-            queued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            started_at DATETIME DEFAULT NULL,
-            eta DATETIME DEFAULT NULL,
-            status ENUM(\'queued\',\'running\',\'done\',\'cancelled\') NOT NULL DEFAULT \'queued\',
-            FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE CASCADE,
-            INDEX idx_buq_colony_status (colony_id, status),
-            INDEX idx_buq_eta (eta)
-        ) ENGINE=InnoDB'
-    );
-    $ready = true;
+function ensure_building_upgrade_queue_table(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertBuildingQueue($db);
 }
 
 function start_next_building_upgrade(PDO $db, int $colonyId): ?array {

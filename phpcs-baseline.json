@@ -155,6 +155,15 @@
             "lineHash": "24890302ac510be2a323a150856f54fd15af551c5f58b39669387940134f184b",
             "count": 1
         },
+        "00f78ddd1478d54cba10ad4cc04828c090fd44c9f578c43e9d044d2d1201365f": {
+            "path": "api/factions.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 477 and the first side effect is on line 14.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "00fa4127ade69bf64ae27e0d6b768f15855dc5ce12aed64adbf833ed3e0b2f1e": {
             "path": "api/vessel_designs.php",
             "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
@@ -425,15 +434,6 @@
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
-        "01f68fd39ba287fb9d23af1e647c0b4baa33c34fc9cc8e494d8c087908c8f629": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected at least 28 spaces, found 24",
-            "column": 25,
-            "lineHash": "440e5f962f15ca37496a7f26815ffd90ab5cdaaa99068bc36d3f328b21521a2b",
-            "count": 1
-        },
         "01fad2690ac86af555ab2ceffe1a2302a168056a84e8912cb5a148ca75e3b254": {
             "path": "api/economy.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -486,15 +486,6 @@
             "message": "Line exceeds 120 characters; contains 129 characters",
             "column": 129,
             "lineHash": "fff4697847fe642f5edb24b96845287195c84f2abca49960ef9efff7070a4241",
-            "count": 1
-        },
-        "029006929034c5a2364d3f1b5a64b29bdc93bc9dec487c7cfe50828f9ebf1de2": {
-            "path": "api/leaders.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 67,
-            "lineHash": "e7ccaf11ff035329050ff6c14c12f1f9ff16498c145ed10295241f37c9eb992b",
             "count": 1
         },
         "02a4536728b30f19c1b7c2772b2799ad25579e37b7a9b59aba5123c540ed6935": {
@@ -2729,15 +2720,6 @@
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
-        "0f6da6152455be1b73e7fd3791e3e1f07f99a77cc75ffe19090c34c5b4e99a84": {
-            "path": "api/alliance_wars.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 42,
-            "lineHash": "a6fb06089487892126f3ee6b2251eeaa95214a4b1ff55ab6adcb116ad3e84a51",
-            "count": 1
-        },
         "0f791b92f9c7bac3460fcbe870d06996b80ef07b9daa6e0a36a6c73ec31bb289": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -3638,15 +3620,6 @@
             "lineHash": "1b6f3105ad1095390d8deac0c19e1cd4e16f55e7f7d1dad6b57f1f09e820187d",
             "count": 1
         },
-        "14646ea272fd9ba98d5d5f48fafeef3f710a23f1dca53422a71d7a781bb922ce": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 131 characters",
-            "column": 131,
-            "lineHash": "039fc679cacd6609c425eb3cb57bc4c568d66d4fd07224297abf119fbfd7bea2",
-            "count": 1
-        },
         "146605580c6d628d36b447c0734f13c4e40325a0ca1c60dd9beac315d55d0615": {
             "path": "lib/projection_runtime.php",
             "source": "PSR2.Methods.FunctionCallSignature.MultipleArguments",
@@ -3906,15 +3879,6 @@
             "message": "Line exceeds 120 characters; contains 130 characters",
             "column": 130,
             "lineHash": "34219c1b0e0d040b6709a0fc45d0b688f49a3f0d8c6df795f815b7c740797816",
-            "count": 1
-        },
-        "15a78c00830d4fb6cc8383482d751504aff2aec7dbe3ff708f18500992a99479": {
-            "path": "api/galaxy_seed.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 50,
-            "lineHash": "69f34ff0f1b786792eb1974718bc4d03f8a7418d67691b24eec7b0917ce1bb86",
             "count": 1
         },
         "15c3dd84e2dcfb3ad557cf84b75774085254398e5ddfe68821db73df419d9615": {
@@ -4312,15 +4276,6 @@
             "column": 1,
             "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
             "count": 24
-        },
-        "18002e3e65c851af668d032da090d535a21bf5b0dd9726ac0f85938514709375": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected at least 28 spaces, found 12",
-            "column": 13,
-            "lineHash": "9d15906ed698c119454795c40926a6dbb94651bea6d7e83804c5a24e530bd04b",
-            "count": 1
         },
         "18008862938682ec2f668c5f7b1038d0e8a227477adc49cbab89425c924268b8": {
             "path": "api/comfyui_job_executor.php",
@@ -5139,15 +5094,6 @@
             "message": "Opening brace should be on a new line",
             "column": 51,
             "lineHash": "192ba107de2f75ba0601cbddca4970cc57a16498ed89b7a3f37e1e7a8e7da00a",
-            "count": 1
-        },
-        "1c60351321aba344557d349b8f78596ff34941f75b562ad4a31218d1474592ef": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 147 characters",
-            "column": 147,
-            "lineHash": "be5a37b596518f3f648fb41a8e0728b6039be8c00d9da008fcc798acb0541b15",
             "count": 1
         },
         "1c60b6693682bc31f39211981b971aeeaf625b8341d1df60790c3d1c7491e3fe": {
@@ -6968,15 +6914,6 @@
             "lineHash": "080f0568812b89c6f97c5691f980505a34850dc569147724e2a590d52677acae",
             "count": 1
         },
-        "26a4c5d1eec76e1b4fe40aef293d405d9599e9189312f870747edac70de091a0": {
-            "path": "api/glossary.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 53,
-            "lineHash": "57b33858d5eb9f24bfc109b1fbb012019ed9b4dd86726191117c6a65fee88140",
-            "count": 1
-        },
         "26b06da30816abc06803f8777343669fa3ff9999e06ef218000ae7bf01882c7f": {
             "path": "api/galaxy.php",
             "source": "PSR2.Methods.FunctionCallSignature.Indent",
@@ -7245,15 +7182,6 @@
             "message": "Opening brace should be on a new line",
             "column": 31,
             "lineHash": "918631d16c6ec783775a9b2fa53070471c82048609f370f76ce6ecf1e264423c",
-            "count": 1
-        },
-        "27f075eea15fcbb379b5f2975e34e1d5d624ac6172f6ac8e0a5939ac89bb8fd6": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 16 spaces, found 8",
-            "column": 9,
-            "lineHash": "b0f6453da40c8cc403f91f624e3139120d456a334c276bf1173932810a8ec1a4",
             "count": 1
         },
         "27f72453b68378f84e8d65b964f53ea7362767a94523b5987195cf5030538ed2": {
@@ -8172,15 +8100,6 @@
             "message": "Line indented incorrectly; expected at least 24 spaces, found 20",
             "column": 21,
             "lineHash": "c1e47986ce6ad10747338c3d41dad0903b8235a457aa84bb52a13d60c40f43ce",
-            "count": 1
-        },
-        "2d2ee2d1ca0c8c8ce6fad66162ee8c7a143c4e0c98c46e7d378f089e8f03274d": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 132 characters",
-            "column": 1,
-            "lineHash": "0a8be37153854ea188c19fc064b7c04760427c78216d183471635cf563f07186",
             "count": 1
         },
         "2d5f3d972997ec15a5c4c912c4f0062d050cea1391d39533ea6cb694bd0ff0de": {
@@ -9432,15 +9351,6 @@
             "message": "Line indented incorrectly; expected at least 12 spaces, found 8",
             "column": 9,
             "lineHash": "09dfbf1a8ac2872986dfe52c0ff75dbdde06d0f4a99d50213796e95e5bf5c4ab",
-            "count": 1
-        },
-        "341d741697c0b904b00385cdea7fb768c0cc4fd487d3d306fa6b51a2df65547a": {
-            "path": "api/buildings.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 5,
-            "lineHash": "384294fca9d7c2c79684a0d52fa3b5bbb8bd4aa6999f5ca33653702a69815f5c",
             "count": 1
         },
         "3423641659ce162dd6ab874ef2cc6c8411a6499ae19255c62be847828ac607d7": {
@@ -11781,7 +11691,7 @@
             "message": "Line indented incorrectly; expected 16 spaces, found 8",
             "column": 9,
             "lineHash": "2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d",
-            "count": 10
+            "count": 8
         },
         "414aa59080c4ed1c1ed7f22955fb12d992c68ed48a3c9571cbc8177695168a3c": {
             "path": "lib/RegistrationPortraitService.php",
@@ -14222,15 +14132,6 @@
             "lineHash": "9fc3e5d638cf3a23767d5cb7044a2417df51ec40899dbe7bf2d8a3186060c018",
             "count": 1
         },
-        "4f7e6abd1f9e80401d60b45a2dd783407c36bc0ac2a911f97f94e254460de3ce": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 16 spaces, found 8",
-            "column": 9,
-            "lineHash": "5385d847620fa5b032cf7a7b5f2fddefad8c90365f9c6d1e9b68ef386211161c",
-            "count": 1
-        },
         "4f92e92aa33d55e82908f5c23c303bbf9171dfaec26fa432707cb5447867ff78": {
             "path": "api/fleet.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -14265,15 +14166,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 21,
             "lineHash": "fd0765635d2d9bde7556014f0fafb1c7f556b0bf1b034e3eb98f07aa8670d87d",
-            "count": 1
-        },
-        "4fbee4c11b2f1cf69f4dc411e330db234d44de9f9ae0145910277210d62d4692": {
-            "path": "api/buildings.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 61,
-            "lineHash": "84dc12598dc923a23505e266a1940421dce7612e002c507705c69dbdd7e62e31",
             "count": 1
         },
         "4fc4a6237b652e91e6c4d406b19cd117ea5b8703bde72c1752d0b25107a3cb2b": {
@@ -14823,15 +14715,6 @@
             "message": "Spaces must be used to indent lines; tabs are not allowed",
             "column": 1,
             "lineHash": "f76f497d6d69566c0acdc34fe618584a8fa6f168864ab6500be633a626042153",
-            "count": 1
-        },
-        "52b3d4ed4d70848329b25e95c88e192698dae43a46c04d28eb8604a20f69367d": {
-            "path": "api/alliances.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 48,
-            "lineHash": "3a59684044f1e9684a4d71efee758c4d6bae7d45bb87442ded077bee2a78b169",
             "count": 1
         },
         "52b542a82cdc660420b231a9b50e184ea75d9ae464470f495ecd6b04f1da1ee9": {
@@ -17291,15 +17174,6 @@
             "lineHash": "23214728fd03b7d9e6c583636d8cd727200a6bb612c23e16dafad2432432c8b4",
             "count": 1
         },
-        "610d8cef7d5cedb538babce59cdbd28304438f104b3e49e8e2e30c1f48046c7b": {
-            "path": "api/character_profile_generator.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 57,
-            "lineHash": "4a059765bda1387f3aa6dbe902ab02af379ab6f8695f27044b29f90bd375f336",
-            "count": 1
-        },
         "61125860a77d93bd99424b10236267855aa40ef170c8cbbcc10f9789e59665c3": {
             "path": "api/galaxy.php",
             "source": "PSR12.ControlStructures.ControlStructureSpacing.CloseParenthesisLine",
@@ -18272,15 +18146,6 @@
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
-        "66d8ec2c22c065775cb19981f08678dbcfbb8e23b96154a66cb924a706f1d232": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 194 characters",
-            "column": 194,
-            "lineHash": "52bbf49e5b065b124abc25fe1b5fe77930cd0902bf0f1ce0caa8809569d93288",
-            "count": 1
-        },
         "66e25305ccff447fdf4eb76f4c6c7a17e272820843ba8987b41ec0e0c6ed56c1": {
             "path": "lib/MigrationRunner.php",
             "source": "PSR2.Classes.PropertyDeclaration.SpacingAfterType",
@@ -18288,15 +18153,6 @@
             "message": "There must be 1 space after the property type declaration; 4 found",
             "column": 13,
             "lineHash": "096aeb6fd23a037c7a85e824b921282c7dfffbcbe6d8c7913261a2dba47c7836",
-            "count": 1
-        },
-        "6710ea2d482fafd332ad05e473f61e1e3a802d87da598b02d32158e90dc3d980": {
-            "path": "api/factions.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 484 and the first side effect is on line 14.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "671a008cea0cb0756c3e2f3af6d08e7e69ec4ca39d6beb9c1159e1e6b88f428c": {
@@ -18351,15 +18207,6 @@
             "message": "Expected at least 1 space before \"=>\"; 0 found",
             "column": 29,
             "lineHash": "8649f9bd073c036c5268fb977624a113e1b0271aafba89b5d505e200466517c3",
-            "count": 1
-        },
-        "6754314f3a8e3cd97fc323e27bf609ffe1d452dae34075b3b91cd84934ac48d2": {
-            "path": "api/auth.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 57,
-            "lineHash": "2cae9eb34932b8a472c943d526f4db64afd1468761290296824b716862d5a408",
             "count": 1
         },
         "67570496644b64c7c10473070e36b826657d0dec0111aef9a5a1be9fe4e1813a": {
@@ -18657,15 +18504,6 @@
             "message": "Spaces must be used to indent lines; tabs are not allowed",
             "column": 1,
             "lineHash": "4827159dfc7da2a5df491732c05cc3ed5c3c5298a85dd718b2fa79c2c01b5339",
-            "count": 1
-        },
-        "68dd702294735bea3e6d4342750f8f712d7a1d6b76f1c285b80935a2abe81e65": {
-            "path": "api/galaxy_seed.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 48,
-            "lineHash": "e89307427b87bea05c98c4d4c0689b8ac0df080fef9fe3d19406cef71f6ab5c8",
             "count": 1
         },
         "68dda43107590e7e74981763cb22e69b3bc2adbc79dc65663268062fea22fede": {
@@ -21215,15 +21053,6 @@
             "lineHash": "89e3e3fddf415426da5a53efbf983d01caf0bad1d787a20a3ca5a9eaae4a24b5",
             "count": 1
         },
-        "774b1e7e39e4b58e39e34931c49e34148b67144844d4430e4cad65f283922774": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected at least 20 spaces, found 12",
-            "column": 13,
-            "lineHash": "1fb6377361d4cc7edf447e29046e164786330645e3f9378564f9c829407ca0a5",
-            "count": 1
-        },
         "7754725cb3494bec810c0138fe4435dc83ee067516af613bb96d6ab003e08a48": {
             "path": "api/diplomacy.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -21420,15 +21249,6 @@
             "message": "Opening brace should be on a new line",
             "column": 119,
             "lineHash": "5b2a9f0b5298a1f8d9f08c6441215bc99c5982446d652c0dc8c742893f07bc5c",
-            "count": 1
-        },
-        "787875f46c61f6c8c4e735232b78850d0f44aedb12b4df63c372a10719144ce9": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected at least 28 spaces, found 12",
-            "column": 13,
-            "lineHash": "ccb95586dcd3f43d77e39ca04c414140d466175f1b4e0b03f207dc96a89fd323",
             "count": 1
         },
         "7878f46bb10cabb23947368f19d2a5bac04de6d06b6c28c2903334a81c234c83": {
@@ -21746,15 +21566,6 @@
             "lineHash": "da7dbc7b0178e668ae562c36e4147b137a0bb14ef452f5dd530a49c1f0832710",
             "count": 1
         },
-        "7a54009a6aabb7cab4f153d5a6eba052f657d4fe33b943d2740a764af6264601": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 126 characters",
-            "column": 126,
-            "lineHash": "97fadb35d77776592c7d04aacd6ab24e4d35477ae8864481f6f6b31a14a01f1a",
-            "count": 1
-        },
         "7a62228f4f2339b31a896f31cefbb01d4d8a73ff0601f14893634a04e83b7aaa": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -22023,15 +21834,6 @@
             "message": "Inline control structures are not allowed",
             "column": 5,
             "lineHash": "3b9a2a873971c5b74ec316aed5ae5f42e50fbb804f98751485197e2820e0d904",
-            "count": 1
-        },
-        "7c16ba9c25e0a621b0065fbf2018114a1f6a9d8bf5d7bbc439d9538c3a7d8cf3": {
-            "path": "api/galaxy_seed.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 55,
-            "lineHash": "f524c29c830be902bb946dcd909ac031d8676d758b205685b3ff1678a2ca2b1e",
             "count": 1
         },
         "7c19ef7243d5ba096b322194aec0c57cc299d31ca57eb188361257432d5f6627": {
@@ -24716,15 +24518,6 @@
             "lineHash": "8b53be11a9b23ef466f515eb118f1026acdc24e979408db25ea8b79d1e97ae69",
             "count": 1
         },
-        "8b81cdad03e92b1c35d8d011d54cb0988a6590f6017e2913b4b72b74ed0d54bf": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 125 characters",
-            "column": 125,
-            "lineHash": "7d37b690da4abd3a110833bbff1bcbea65b5357cef759384359329c2cd4a1a5b",
-            "count": 1
-        },
         "8b82c044216dd410e43988b9a5446f158f3a65a8f7b49fc5b69fab90b69d8481": {
             "path": "lib/NpcBehaviorScript.php",
             "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
@@ -25634,15 +25427,6 @@
             "lineHash": "4e42833741a71c469df6045657a513251a2d1ebf5ca6630d5af987cc42513637",
             "count": 1
         },
-        "9184186be6d98bf696c6e73083116279f76c845fdc1a0180d7f0c09d37448a6d": {
-            "path": "api/leaders.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 143 characters",
-            "column": 1,
-            "lineHash": "6b8cfac139fb7fcf59e315f39f4fac9b3ee19dd32583f22ab07e2b9508dab4eb",
-            "count": 1
-        },
         "918f0256f8616e74830c4a3a56d0579969c2fd840e908a4740daca6dd24106c3": {
             "path": "lib/template-renderer.php",
             "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
@@ -25714,15 +25498,6 @@
             "column": 1,
             "lineHash": "944676e7c99878a69cac61be0bc22fe49269e483bc0241494fea380d0f9c1cfb",
             "count": 2
-        },
-        "920d7f983bab10ad6e60711b2fd4b0e5ecb780a6cc8f3be13dddfcc99bb7c609": {
-            "path": "api/situations.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 50,
-            "lineHash": "a47865d2cbbba1ae21d6e8fa6f97855abf5d93367be758809a5a2a8d674d5b74",
-            "count": 1
         },
         "92256154a8e326d59abcb727b35fa9a3ba275e02e9b87da88358cbbaae819af0": {
             "path": "lib/RegistrationDraftService.php",
@@ -25868,15 +25643,6 @@
             "lineHash": "5b55cb2e10f3155d6ca0d0c131a5a2f5603c6bc267ba96f8772320607b254c90",
             "count": 1
         },
-        "9306d0ac23a3f8eeeffe79b0ccd8d5036f75dfb93a5634837feff43b0d4a2238": {
-            "path": "api/factions.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 122 characters",
-            "column": 1,
-            "lineHash": "9b26e4d56eabe4798cbfcb8f3aec1ba483b25c10df0a36e9f56dff80d8067319",
-            "count": 1
-        },
         "93241e4c843e307bc6a4722ed7adf7067762bee3ab5a1a79f00fe1a81c232d19": {
             "path": "api/research.php",
             "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
@@ -25911,15 +25677,6 @@
             "message": "Inline control structures are not allowed",
             "column": 9,
             "lineHash": "0d66e75b795590d8a8e51d1ead9308ab329797a0b50830040c300608b87c435f",
-            "count": 1
-        },
-        "9352fef3777a55514b96dc0e1368f2eb0b2a8b3932abec49818dd2cc1f5c8e3c": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 130 characters",
-            "column": 130,
-            "lineHash": "4a0e4af1a5a68fd8dd0ac7f3d6a453ecda71687a09b85f86dc1a358f536a67b9",
             "count": 1
         },
         "9353223b3f4b6dd22b023777e0f8146bb383f7a644637cd6470c9fb2a8c0e69b": {
@@ -29072,15 +28829,6 @@
             "lineHash": "c0450df8f845da45389ebd1d92a85327ed56cfe5373cbf4df1639e320ce3ea2c",
             "count": 1
         },
-        "a4b1e7984d3746797017a4f799d3470d7f1e4a84fafb1b5100028c23737a97d7": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected at least 20 spaces, found 16",
-            "column": 17,
-            "lineHash": "a4e1bd3719793c0de7a39c479694c37cfa72f82d8b19bc43a29292a9a9637c0d",
-            "count": 1
-        },
         "a4bc731978f4a87f436ac26dc7b32d77eb532749a5548d7544f45519b8c82380": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -29233,15 +28981,6 @@
             "column": 1,
             "lineHash": "05a8475feebbfea685ece06045be63722edc61bb2ade8060a9f03aed6d49f454",
             "count": 18
-        },
-        "a5fcfb51d4cc3d7e40f27eeb4c80693a9f288685ef791d3513448cd1f4e7f577": {
-            "path": "api/shipyard_queue.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 55,
-            "lineHash": "c9b7708bee1c1542af06c7cc9d549ba732f10f0b190b8d20b74faf54053043b7",
-            "count": 1
         },
         "a600bf0157eacac81c7acad54ecdf18bf43ed0ad3da23d0bb2e4e0204a3b1f55": {
             "path": "api/galaxy.php",
@@ -30197,15 +29936,6 @@
             "lineHash": "745a78f305f880b4579a9eb5665b9ce2730fe7d1f7f0cf7f80e3eb7aa892d827",
             "count": 1
         },
-        "abc9983955c8dc566e816b8ab54860c23ee87ab2ebb724f76ddde72a8b9e7a3a": {
-            "path": "api/galaxy_seed.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 51,
-            "lineHash": "52bc171e989b6831d8bc64a3f14eb930e9b72f6dc4801d91caa8e68cccdf0f2c",
-            "count": 1
-        },
         "abcabf32c30f81bade4bba20be54342dbd34bceb0989a69145dec230c222c741": {
             "path": "api/reports.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -30330,15 +30060,6 @@
             "message": "Line exceeds 120 characters; contains 124 characters",
             "column": 124,
             "lineHash": "4f1c64dd7c2bf512ec58f09ee3b8bcbf0c3327e6d04e5a26d2544b23ae0d5010",
-            "count": 1
-        },
-        "ac78940ab046bf0480fa8706685c271a0f4589556cbece321eda36aae0eb2768": {
-            "path": "api/galaxy_seed.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 53,
-            "lineHash": "3451689e9fb95568e9251be048ad14609cb8b7335741c1879717a37f75cd73af",
             "count": 1
         },
         "ac8f674f06e6ae273d2055d60aa980488e8a284095aa6e6b761135942fbf0749": {
@@ -31637,15 +31358,6 @@
             "lineHash": "38113c36d1f8eb3558d5868d285a7ddcba11128374fd2f13537255c351ea8c2f",
             "count": 2
         },
-        "b4a555aca411e4a13f08d029a3ee2b7279db81d37047ce9a199114929ed91e17": {
-            "path": "api/leaders.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 58,
-            "lineHash": "943702d539c91067e7ba2cda90e2f1e51df4739322ac16521b6fd02979e72674",
-            "count": 1
-        },
         "b4c4778cfd2e5005c0f23e7efe33a3ab1d6e880b9b081176c6018b6677382927": {
             "path": "api/traders.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -32186,15 +31898,6 @@
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
-        "b81d13c83b4fe272990f3f603506476fd98846c73e98e3c4cb6ca0ef77422d59": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected at least 28 spaces, found 12",
-            "column": 13,
-            "lineHash": "268f143988961510671772ba0b05a0303d3721101eaf5a1f5e50ea14a552dded",
-            "count": 1
-        },
         "b8374183bf9760e7fe32a2251d1a708a0b5a37304fb0000252ec2d575e3afbf3": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -32265,15 +31968,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 27,
             "lineHash": "aa4a1174a7783f0f5d8494ff81f6c058bfae4c81a302766128b65a1aa59af76d",
-            "count": 1
-        },
-        "b88add87fd30c85fc8beaa9c74e90062ad69261de70b40812cc9f9b6283f6a26": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected at least 20 spaces, found 16",
-            "column": 17,
-            "lineHash": "611d6d2ec34e2d09733c84b49631cccfe6fcede98e30d4f572ac60238698994f",
             "count": 1
         },
         "b88fc71902cd892a9daa7b18e3af3fdaa081f0b74e7d6faabf86025c4719f03e": {
@@ -34715,15 +34409,6 @@
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
-        "c6df86a75b7810cfafbd184b58de8e04bac38fd0def0cfb38d138e676f2f0dbc": {
-            "path": "api/shipyard_queue.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 52,
-            "lineHash": "2b5d2f14a65e6e531962e3c285430412f4ffd1ee77a47cd232002b8f7066fc5a",
-            "count": 1
-        },
         "c6e1118a6dc81ceff64a3188a9da476421db284a179e08df52088a16dc458179": {
             "path": "api/llm_soc/LlmPromptService.php",
             "source": "Generic.Files.LineEndings.InvalidEOLChar",
@@ -36650,15 +36335,6 @@
             "lineHash": "909259941c2848fc1f65f588f23b19bd118063a0f37e287940b0f84e1603e51c",
             "count": 1
         },
-        "d1656aae38cfc88975df766ac09aacbec7673d7531bf8ed8a8cdf521dbc1f2d4": {
-            "path": "api/galaxy_seed.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 52,
-            "lineHash": "fbc5762a11457be7418158464ab600b7972fecb85b405d013dace3e67adb86f6",
-            "count": 1
-        },
         "d18f078bb7642717aa7b89da668cf01988ca9d7b175b9ef966b4a5020b078cd5": {
             "path": "api/traders_events.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -37080,15 +36756,6 @@
             "message": "The first expression of a multi-line control structure must be on the line after the opening parenthesis",
             "column": 13,
             "lineHash": "5f903b404d2e7d242d2a3c3e5195285e0a591c16ddeef5d400271c2ccfea43f0",
-            "count": 1
-        },
-        "d49eedb56d4d3cf6d35c6fde133d7536099d1560172c693820e64b0a3640823f": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected at least 20 spaces, found 12",
-            "column": 13,
-            "lineHash": "9d15906ed698c119454795c40926a6dbb94651bea6d7e83804c5a24e530bd04b",
             "count": 1
         },
         "d4b0044fda0b19d790bc76f32940d8ab47f3ad371588834ff3d948015d60ddfb": {
@@ -39251,15 +38918,6 @@
             "lineHash": "cd219e0f3a57170b9adc829fa8ac1d0f1066be172159fdf913ecfd9c91ab24b2",
             "count": 1
         },
-        "e0672ab7cbf40e7498c057150b450da6ad8e453f6634511fdcb9de103ffbff1b": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 125 characters",
-            "column": 125,
-            "lineHash": "3240dff2e6597b08b325ad950c9ce96fa72d0829f5037162d65d28082b4e7ada",
-            "count": 1
-        },
         "e06a4b304c387722525b1869bcf56fbf63cf10725ecd8bad11426282b8ad4718": {
             "path": "api/generation_queue_v2.php",
             "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
@@ -41078,15 +40736,6 @@
             "lineHash": "b5e3e6c8590e31adcf2b67417c2762c21d3f11deba5220f4dea5232702b14092",
             "count": 2
         },
-        "e8e542db3d95a7c12cf5ef2722c0d611d9dea3522d0d3c60ae63865a1357cad7": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected at least 28 spaces, found 16",
-            "column": 17,
-            "lineHash": "73bea0dec0df2232b4ad30cdf1804b5f5285cb9501bc493da754bb0eb5461908",
-            "count": 1
-        },
         "e8ea137c73d2d16aea6629cd20ea83f3a44c46337c3e7efb2c18911fb7f57eee": {
             "path": "api/shipyard.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -41519,15 +41168,6 @@
             "lineHash": "aa4a1174a7783f0f5d8494ff81f6c058bfae4c81a302766128b65a1aa59af76d",
             "count": 1
         },
-        "eb0ccffad9d0c7e4b6390cb298331bf9c4859b7547067a6898ae45584a3662d2": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 130 characters",
-            "column": 130,
-            "lineHash": "50851c0e1ff7c1a7d7c745c2dc222252c8646504a464df156105c3b87b710762",
-            "count": 1
-        },
         "eb1d295ad1b8dd82423672a2cf847578e590034e46f11ba84a451ef65db7e23a": {
             "path": "api/colonization.php",
             "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
@@ -41868,15 +41508,6 @@
             "message": "Expected 1 space after comma in argument list; 4 found",
             "column": 32,
             "lineHash": "321bb09a6fe617fc7003c90dab9b78381773d9955f00b41ef74d037f6b959139",
-            "count": 1
-        },
-        "ecdf1c986fb47a67f238eeaf1f0b55b5ce9de082d215fa2ea83217988b442d17": {
-            "path": "api/factions.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected at least 28 spaces, found 12",
-            "column": 13,
-            "lineHash": "4cff10dc31067219b9d558a9dbdc85ab60116a93147e1ed6b634da217b7ab577",
             "count": 1
         },
         "ecfe09f93b86c5fb115bc28ff7d64ae6d93d9d4ad3eb2dc19c91b93b21d5ffbb": {
@@ -42518,15 +42149,6 @@
             "lineHash": "623c12af217c6cab203cb449416d93346981e3857cda3fa1fb6d4be14a28be22",
             "count": 1
         },
-        "f040d1b45a845ad2c1297326ddeda29bbd4c329c659df83247b9f86e1e1ad43f": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 135 characters",
-            "column": 135,
-            "lineHash": "de1ac1d1633e067891ab61b2b327ef37f7bd8ed387f408be5645ea5d2c971853",
-            "count": 1
-        },
         "f048006c3481970842ffefbff9a80fe4399f6d8e2c638f6e3455e772aa450d8a": {
             "path": "api/diplomacy.php",
             "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
@@ -42849,15 +42471,6 @@
             "message": "Line indented incorrectly; expected 12 spaces, found 8",
             "column": 9,
             "lineHash": "f1893d046854020642cc0f18ec74ca69ed688a0eeaaf1d21af9027484d354780",
-            "count": 1
-        },
-        "f23b916a1e404af8979f786f94e6d1254888f21c382ea7f16297b877ab74853a": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 194 characters",
-            "column": 194,
-            "lineHash": "8294c6fcbbe6937207be0c63a47873afa0899f6d51a4a10359070dba2735c144",
             "count": 1
         },
         "f2443f9c029acfa4326b6d2fd190f0f742de32c6fb9f79f422507017b18f6e6d": {
@@ -44667,15 +44280,6 @@
             "message": "Inline control structures are not allowed",
             "column": 5,
             "lineHash": "d07c699d0c55762cf6e09ce0310a0058fb036d37f5d0e964a40d45c048f62118",
-            "count": 1
-        },
-        "fd9890896cf30d483f5ec4e2a91d24ff8324a2c9aca7d79a9897a6bf505fd7d7": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 129 characters",
-            "column": 129,
-            "lineHash": "54d3ae9845dc30af100ad5de0426b31dde618d86a9df4e85a55ebd1f98befcb9",
             "count": 1
         },
         "fdd82abe7f58a501d9e9ab326fd57151a3e98e76d8f5daa73906e9e88ef01513": {

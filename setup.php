@@ -35,6 +35,14 @@ $defaultMigrations = [
     __DIR__ . '/sql/migrate_actor_model_v1.sql',
     __DIR__ . '/sql/migrate_actor_model_v2_drop_is_npc.sql',
     __DIR__ . '/sql/migrate_faction_homeworlds_v1.sql',
+    __DIR__ . '/sql/migrate_star_spectral_wd_v1.sql',
+    __DIR__ . '/sql/migrate_planet_science_v1.sql',
+    __DIR__ . '/sql/migrate_app_state_v1.sql',
+    __DIR__ . '/sql/migrate_faction_government_v1.sql',
+    __DIR__ . '/sql/migrate_ship_build_queue_v1.sql',
+    __DIR__ . '/sql/migrate_glossary_cache_v1.sql',
+    __DIR__ . '/sql/migrate_alliance_wars_v1.sql',
+    __DIR__ . '/sql/migrate_projection_claim_token_v1.sql',
 ];
 
 $existingRuntimeSchema = is_existing_runtime_schema($db);
