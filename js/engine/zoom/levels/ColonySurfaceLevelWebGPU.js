@@ -373,6 +373,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._cameraBuffer = null;
     this._depthTexture = null;
     this._camera = { span: 25, target: { x: 0, z: 0 }, progress: 0 };
+    this._cameraFocus = null;
     this._viewProjection = cityCameraMatrix(1, 25);
     this._elapsed = 0;
     this._active = false;
@@ -401,6 +402,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   setSceneData(data) {
+    this._cameraFocus = null;
     if (Number(this._sceneData?.colony?.id || 0) !== Number(data?.colony?.id || 0)) {
       this._requestGeneration++;
       this._request?.abort();
@@ -432,7 +434,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     const seconds = bounded(Number(dt) > 1 ? Number(dt) / 1000 : dt, 0, 0.1, 0.016);
     this._elapsed += seconds;
     this._camera.progress = Math.min(1, this._camera.progress + seconds / 1.2);
-    this._camera.span = this._transitionBaseSpan() * this._zoomMultiplier;
+    this._setCameraSpan(this._transitionBaseSpan() * this._zoomMultiplier);
+    this._advanceCameraFocus(seconds);
     const aspect = Math.max(0.1, this._canvas.width / Math.max(1, this._canvas.height));
     this._viewProjection = cityCameraMatrix(
       aspect, this._camera.span / Math.min(1, aspect), this._camera.progress,
@@ -471,6 +474,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
   async exit() {
     this._active = false;
+    this._cameraFocus = null;
     this._requestGeneration++;
     this._request?.abort();
     this._request = null;
@@ -652,9 +656,35 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   _setCameraSpan(span) {
-    const currentSpan = Math.max(0.001, this._camera.span);
-    this._zoomMultiplier *= span / currentSpan;
+    span = bounded(span, this._minCameraSpan, this._entrySpan, this._citySpan);
+    this._zoomMultiplier = span / Math.max(0.001, this._transitionBaseSpan());
     this._camera.span = span;
+  }
+
+  _focusBuilding(slot = this._selected) {
+    if (!slot) return;
+    this._cameraFocus = {
+      fromTarget: { ...this._camera.target },
+      toTarget: { x: slot.x, z: slot.z },
+      fromSpan: this._camera.span,
+      toSpan: Math.max(9, this._minCameraSpan),
+      elapsed: 0,
+      duration: Math.max(0.65, (1 - this._camera.progress) * 1.2),
+    };
+  }
+
+  _advanceCameraFocus(seconds) {
+    const focus = this._cameraFocus;
+    if (!focus) return;
+    focus.elapsed += seconds;
+    const t = Math.min(1, focus.elapsed / focus.duration);
+    const eased = t * t * (3 - 2 * t);
+    this._camera.target = {
+      x: focus.fromTarget.x + (focus.toTarget.x - focus.fromTarget.x) * eased,
+      z: focus.fromTarget.z + (focus.toTarget.z - focus.fromTarget.z) * eased,
+    };
+    this._setCameraSpan(focus.fromSpan + (focus.toSpan - focus.fromSpan) * eased);
+    if (t === 1) this._cameraFocus = null;
   }
 
   async _loadSnapshot() {
@@ -685,8 +715,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       this.setSceneData({ ...this._sceneData, ...snapshot, colony: { ...this._sceneData.colony, ...snapshot.colony } });
       if (preserveCamera) {
         this._camera.target = target;
-        this._camera.span = span;
-        this._zoomMultiplier = span / Math.max(0.001, this._citySpan);
+        this._setCameraSpan(span);
       }
     } catch (error) {
       if (!this._active || generation !== this._requestGeneration || error.name === 'AbortError') return;
@@ -722,6 +751,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       stop(event);
       if (event.button !== 0) return;
       event.preventDefault();
+      this._cameraFocus = null;
       drag = { x: event.clientX, y: event.clientY, moved: false };
       canvas.setPointerCapture?.(event.pointerId);
     }, capture);
@@ -752,17 +782,12 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     for (const name of ['mousedown', 'mousemove', 'mouseup']) listen(canvas, name, stop, capture);
     listen(canvas, 'dblclick', (event) => {
       stop(event);
-      if (this._selected) {
-        this._camera.target = { x: this._selected.x, z: this._selected.z };
-        this._camera.progress = 1;
-        this._camera.span = this._citySpan;
-        this._zoomMultiplier = 1;
-        this._setCameraSpan(9);
-      }
+      this._focusBuilding();
     }, capture);
     listen(canvas, 'wheel', (event) => {
       event.preventDefault();
       stop(event);
+      this._cameraFocus = null;
       const direction = bounded(event.deltaY, -150, 150);
       const nextSpan = this._camera.span * Math.exp(direction * 0.002);
       if (direction > 0 && nextSpan >= this._entrySpan * 0.98) {
@@ -777,6 +802,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       if (!['Escape', '+', '=', '-', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) return;
       stop(event);
       event.preventDefault();
+      this._cameraFocus = null;
       if (key === 'Escape') this._navigation?.back?.();
       if (key === '+' || key === '=') {
         this._setCameraSpan(Math.max(this._minCameraSpan, this._camera.span * 0.9));
@@ -814,13 +840,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       [typeof this._sceneData?.onOpenBuildings === 'function' ? 'Buildings' : 'Focus building', () => {
         this._navigation?.slotClick?.(this._selected);
         if (typeof this._sceneData?.onOpenBuildings === 'function') this._sceneData.onOpenBuildings(this._selected);
-        else if (this._selected) {
-          this._camera.target = { x: this._selected.x, z: this._selected.z };
-          this._camera.progress = 1;
-          this._camera.span = this._citySpan;
-          this._zoomMultiplier = 1;
-          this._setCameraSpan(9);
-        }
+        else this._focusBuilding();
       }],
     ]) {
       const button = document.createElement('button');

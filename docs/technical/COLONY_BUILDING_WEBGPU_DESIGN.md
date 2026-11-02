@@ -33,10 +33,18 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   Scrollen führt vom Körper in die Kolonie und beim Herauszoomen wieder zum
   jeweiligen Eltern-Level zurück. Flugkameras richten sich auf ein eigenes,
   optional dynamisches Target aus; ihre Bewegung prüft eine Kamerakugel gegen
-  Körper-Sphären und AABB-Hindernisse. Die Kolonie-Kamera hält zusätzlich
-  Mindestabstand zu den höchsten Gebäuden.
+  Körper-Sphären und AABB-Hindernisse, auch wenn ein einzelner Frame innerhalb
+  eines Hindernisses enden würde. Bereits überlappende Startpositionen dürfen
+  nur nach außen entkommen, nicht durch das Hindernis hindurchfliegen.
+  Die Kolonie-Kamera hält zusätzlich Mindestabstand zu den höchsten Gebäuden.
 - **Interaktion:** Ziehen verschiebt die Kamera, Mausrad oder +/- zoomt,
-  Doppelklick fokussiert ein Gebäude. CPU-Picking projizierter Gebäude-Bounds
+  Doppelklick bzw. „Focus building“ fährt Target und Zoom weich in mindestens
+  650 ms zum Gebäude; der vorhandene Frame-Hook steuert diese Bewegung ohne
+  zusätzlichen RAF. Direkte Kameraeingaben brechen den Fokusflug ab.
+  Neue Szenendaten (auch aus Snapshot-Refresh) und Austritt verwerfen
+  ausstehende Fokusziele.
+  Ein Refresh erhält die aktuelle Kamerapose und respektiert neue Höhenlimits.
+  CPU-Picking projizierter Gebäude-Bounds
   berücksichtigt Tiefe und Viewportgröße. Auswahl zeigt Typ/Level/Bauzustand.
   „Back to orbit“/Escape beendet die Oberfläche. Der Weg über das Koloniefenster
   kann die bestehende Gebäudeverwaltung für genau diese Kolonie öffnen.

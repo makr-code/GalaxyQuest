@@ -90,15 +90,33 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
   const point = await page.evaluate(() => {
     const city = window.cityTest.orchestrator._active;
     const slot = city._slots.at(-1);
+    const radius = city._bodySurface.radius;
+    const distance = Math.hypot(slot.x, slot.z);
+    const angle = distance / radius;
+    const scale = distance > 0.0001 ? Math.sin(angle) / distance : 0;
+    const point = [slot.x * scale * (radius + 1), Math.cos(angle) * (radius + 1) - radius, slot.z * scale * (radius + 1)];
     const matrix = city._viewProjection;
-    const w = matrix[3] * slot.x + matrix[7] + matrix[11] * slot.z + matrix[15];
-    const x = (matrix[0] * slot.x + matrix[4] + matrix[8] * slot.z + matrix[12]) / w;
-    const y = (matrix[1] * slot.x + matrix[5] + matrix[9] * slot.z + matrix[13]) / w;
+    const w = matrix[3] * point[0] + matrix[7] * point[1] + matrix[11] * point[2] + matrix[15];
+    const x = (matrix[0] * point[0] + matrix[4] * point[1] + matrix[8] * point[2] + matrix[12]) / w;
+    const y = (matrix[1] * point[0] + matrix[5] * point[1] + matrix[9] * point[2] + matrix[13]) / w;
     const rect = city._canvas.getBoundingClientRect();
     return { x: rect.left + (x + 1) * rect.width / 2, y: rect.top + (1 - y) * rect.height / 2 };
   });
   await page.mouse.click(point.x, point.y);
   await expect(page.getByRole('region', { name: 'Colony surface simulation' })).toContainText('research lab · Level 5');
+  await page.getByRole('button', { name: 'Focus building' }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const city = window.cityTest.orchestrator._active;
+    return city._cameraFocus === null && Math.abs(city._camera.span - 9) < 0.001;
+  })).toBe(true);
+  expect(await page.evaluate(() => {
+    const city = window.cityTest.orchestrator._active;
+    return {
+      targetMatchesSelection: city._camera.target.x === city._selected.x && city._camera.target.z === city._selected.z,
+      hooks: window.cityTest.renderer._frameHooks.size,
+      raf: window.cityTest.orchestrator._rafId,
+    };
+  })).toEqual({ targetMatchesSelection: true, hooks: 1, raf: 0 });
   const galaxyPan = await page.evaluate(() => ({ ...window.cityTest.renderer._view }));
   await page.mouse.move(750, 500);
   await page.mouse.down();
@@ -106,6 +124,7 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
   await page.mouse.up();
   expect(await page.evaluate(() => ({ ...window.cityTest.renderer._view }))).toEqual(galaxyPan);
   expect(requests).toBe(1);
+  expect(await page.evaluate(() => window.cityTest.validationErrors)).toEqual([]);
   await page.getByRole('button', { name: 'Back to orbit' }).click();
   await expect(page.getByRole('region', { name: 'Colony surface simulation' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Back', exact: true }).click();

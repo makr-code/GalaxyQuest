@@ -131,17 +131,18 @@ function segmentSphereHit(start, end, center, radius) {
   const lengthSquared = direction.reduce((sum, value) => sum + value * value, 0);
   if (lengthSquared < 1e-12) return null;
   const offset = start.map((value, axis) => value - center[axis]);
-  const startDistance = Math.hypot(...offset);
-  const endDistance = Math.hypot(...end.map((value, axis) => value - center[axis]));
-  if (startDistance < radius) return endDistance > startDistance ? null : start;
-  const projection = -offset.reduce((sum, value, axis) => sum + value * direction[axis], 0) / lengthSquared;
-  if (projection < 0 || projection > 1) return null;
-  const closest = start.map((value, axis) => value + direction[axis] * projection);
-  const closestDistance = Math.hypot(...closest.map((value, axis) => value - center[axis]));
-  if (closestDistance >= radius) return null;
-  const segmentLength = Math.sqrt(lengthSquared);
-  const halfChord = Math.sqrt(radius * radius - closestDistance * closestDistance) / segmentLength;
-  const hit = Math.max(0, projection - halfChord - 0.002 / segmentLength);
+  const radialMotion = offset.reduce((sum, value, axis) => sum + value * direction[axis], 0);
+  const distanceSquared = offset.reduce((sum, value) => sum + value * value, 0);
+  if (distanceSquared < radius * radius) {
+    // An initially overlapping camera may escape, but not cross the body.
+    return radialMotion >= 0 ? null : start;
+  }
+  if (radialMotion >= 0) return null;
+  const discriminant = radialMotion * radialMotion - lengthSquared * (distanceSquared - radius * radius);
+  if (discriminant <= 0) return null;
+  const entry = (-radialMotion - Math.sqrt(discriminant)) / lengthSquared;
+  if (entry < 0 || entry > 1) return null;
+  const hit = Math.max(0, entry - 0.002 / Math.sqrt(lengthSquared));
   return start.map((value, axis) => value + direction[axis] * hit);
 }
 
@@ -151,8 +152,12 @@ function segmentBoxHit(start, end, min, max, radius) {
   const upper = max.map((value) => value + radius);
   const inside = start.every((value, axis) => value >= lower[axis] && value <= upper[axis]);
   if (inside) {
-    const exits = end.some((value, axis) => value < lower[axis] || value > upper[axis]);
-    return exits ? null : start;
+    const depths = start.flatMap((value, axis) => [value - lower[axis], upper[axis] - value]);
+    const nearestFace = Math.min(...depths);
+    const escaping = direction.some((value, axis) =>
+      (value < 0 && depths[axis * 2] <= nearestFace + 1e-12)
+      || (value > 0 && depths[axis * 2 + 1] <= nearestFace + 1e-12));
+    return escaping ? null : start;
   }
   let enter = 0;
   let leave = 1;

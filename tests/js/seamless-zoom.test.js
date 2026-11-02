@@ -419,6 +419,98 @@ describe('CameraFlightPath — tick() t progression', () => {
     const boxHit = flight.tick(100);
     expect(boxHit.position.z).toBeGreaterThanOrEqual(1.49);
   });
+
+  it.each(['flyTo', 'flyToBuilding'])('blocks %s destinations inside the clearance sphere', async (method) => {
+    const flight = new CameraFlightPath();
+    const done = flight[method]({ x: 0, y: 0, z: 4 }, { x: 0, y: 0, z: 1 }, 100, {
+      collisionRadius: 0.5,
+      colliders: [{ type: 'sphere', center: { x: 0, y: 0, z: 0 }, radius: 2 }],
+    });
+    const state = flight.tick(100);
+    expect(state.position).toEqual({ x: 0, y: 0, z: 2.502 });
+    await done;
+  });
+
+  it('prevents slow approaches from entering a body over successive frames', async () => {
+    const flight = new CameraFlightPath();
+    const done = flight.flyToBuilding({ x: 0, y: 0, z: 4 }, { x: 0, y: 0, z: 1 }, 1000, {
+      collisionRadius: 0.5,
+      colliders: [{ type: 'sphere', center: { x: 0, y: 0, z: 0 }, radius: 2 }],
+    });
+    let previous = [0, 0, 4];
+    for (let frame = 0; frame < 100; frame++) {
+      const state = flight.tick(10);
+      const current = Object.values(state.position);
+      const direction = current.map((value, axis) => value - previous[axis]);
+      const squaredLength = direction.reduce((sum, value) => sum + value * value, 0);
+      const projection = squaredLength ? Math.max(0, Math.min(1,
+        -previous.reduce((sum, value, axis) => sum + value * direction[axis], 0) / squaredLength)) : 0;
+      const closest = previous.map((value, axis) => value + projection * direction[axis]);
+      expect(Math.hypot(...closest)).toBeGreaterThanOrEqual(2.5 - 1e-9);
+      previous = current;
+    }
+    await done;
+  });
+
+  it('can reverse a blocked flight back to its start without entering the body', async () => {
+    const flight = new CameraFlightPath();
+    const done = flight.flyToBuilding({ x: 0, y: 0, z: 4 }, { x: 0, y: 0, z: 1 }, 1000, {
+      collisionRadius: 0.5,
+      colliders: [{ type: 'sphere', center: { x: 0, y: 0, z: 0 }, radius: 2 }],
+    });
+    flight.tick(800);
+    flight.abort();
+    let state;
+    for (let frame = 0; frame < 100 && flight.isFlying; frame++) {
+      state = flight.tick(16);
+      expect(Math.hypot(...Object.values(state.position))).toBeGreaterThanOrEqual(2.5);
+    }
+    expect(state.position).toEqual({ x: 0, y: 0, z: 4 });
+    expect(flight.isFlying).toBe(false);
+    await done;
+  });
+
+  it.each([false, true])('stops at the nearest collider independently of order (reversed: %s)', async (reverse) => {
+    const flight = new CameraFlightPath();
+    const colliders = [
+      { type: 'sphere', center: { x: 0, y: 0, z: 3 }, radius: 1 },
+      { type: 'box', min: { x: -1, y: -1, z: 5.5 }, max: { x: 1, y: 1, z: 6.5 } },
+    ];
+    const done = flight.flyTo({ x: 0, y: 0, z: 10 }, { x: 0, y: 0, z: -10 }, 100, {
+      colliders: reverse ? colliders.reverse() : colliders,
+    });
+    expect(flight.tick(100).position.z).toBeCloseTo(6.752);
+    await done;
+  });
+
+  it.each([
+    { type: 'sphere', center: { x: 0, y: 0, z: 0 }, radius: 2 },
+    { type: 'box', min: { x: -2, y: -2, z: -2 }, max: { x: 2, y: 2, z: 2 } },
+  ])('allows escape but not crossing from an initially overlapping $type', async (collider) => {
+    const flight = new CameraFlightPath();
+    for (const [destination, expected] of [[-5, 1], [5, 5]]) {
+      const done = flight.flyToBuilding({ x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: destination }, 100, {
+        colliders: [collider],
+      });
+      expect(flight.tick(100).position.z).toBe(expected);
+      await done;
+    }
+  });
+
+  it('allows movement away from a sphere boundary and unobstructed tangential paths', async () => {
+    for (const [from, to] of [
+      [{ x: 0, y: 0, z: 2 }, { x: 0, y: 0, z: 5 }],
+      [{ x: -4, y: 0, z: 2 }, { x: 4, y: 0, z: 2 }],
+    ]) {
+      const flight = new CameraFlightPath();
+      const done = flight.flyToBuilding(from, to, 100, {
+        collisionRadius: 0,
+        colliders: [{ type: 'sphere', center: { x: 0, y: 0, z: 0 }, radius: 2 }],
+      });
+      expect(flight.tick(100).position).toEqual(to);
+      await done;
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

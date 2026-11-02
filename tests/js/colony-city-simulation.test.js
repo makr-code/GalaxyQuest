@@ -224,6 +224,94 @@ describe('Isometric camera and shared WebGPU rendering', () => {
     expect(level._inputCleanups).toHaveLength(0);
   });
 
+  it('smoothly focuses a building through the shared render loop without a pose jump', async () => {
+    const { level, canvas } = await makeLevel();
+    await level.enter(2, scene({ slots: [{ x: 5, z: -4, type: 'research_lab', level: 7 }] }));
+    for (let i = 0; i < 80; i++) level.render(0.016);
+    level._selected = level._slots[0];
+    const start = { ...level._camera, target: { ...level._camera.target } };
+    canvas.dispatchEvent(new MouseEvent('dblclick'));
+    expect(level._camera).toEqual(start);
+    level.render(0.1);
+    expect(level._camera.target.x).toBeGreaterThan(0);
+    expect(level._camera.target.x).toBeLessThan(5);
+    expect(level._camera.span).toBeGreaterThan(9);
+    expect(level._camera.span).toBeLessThan(start.span);
+    for (let i = 0; i < 7; i++) level.render(0.1);
+    expect(level._cameraFocus).toBeNull();
+    expect(level._camera.target).toEqual({ x: 5, z: -4 });
+    expect(level._camera.span).toBeCloseTo(9);
+    const center = projectColonySurfacePoint(level._viewProjection, level._bodySurface.radius, 5, 0, -4);
+    expect(center[0]).toBeCloseTo(0);
+    expect(center[1]).toBeCloseTo(0);
+    level.render(0.1);
+    expect(level._camera.span).toBeCloseTo(9);
+  });
+
+  it('focuses during entry without skipping the planet-to-colony projection transition', async () => {
+    const { level, host } = await makeLevel();
+    await level.enter(2, scene({ slots: [{ x: 5, z: -4, type: 'habitat', level: 2 }] }));
+    level.render(0.1);
+    level._selected = level._slots[0];
+    const progress = level._camera.progress;
+    [...host.querySelectorAll('button')].find((button) => button.textContent === 'Focus building').click();
+    expect(level._camera.progress).toBe(progress);
+    expect(level._camera.target).toEqual({ x: 0, z: 0 });
+    for (let i = 0; i < 13; i++) level.render(0.1);
+    expect(level._camera.progress).toBe(1);
+    expect(level._cameraFocus).toBeNull();
+    expect(level._camera.target).toEqual({ x: 5, z: -4 });
+    expect(level._camera.span).toBeCloseTo(9);
+  });
+
+  it.each(['wheel', 'keydown', 'pointerdown'])('cancels focus immediately on direct %s input', async (input) => {
+    const { level, canvas } = await makeLevel();
+    await level.enter(2, scene({ slots: [{ x: 5, z: -4, type: 'habitat', level: 2 }] }));
+    for (let i = 0; i < 80; i++) level.render(0.016);
+    level._selected = level._slots[0];
+    level._focusBuilding();
+    level.render(0.1);
+    if (input === 'wheel') canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 10, cancelable: true }));
+    if (input === 'keydown') window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', cancelable: true }));
+    if (input === 'pointerdown') canvas.dispatchEvent(new MouseEvent('pointerdown', { button: 0, cancelable: true }));
+    const target = { ...level._camera.target };
+    const span = level._camera.span;
+    expect(level._cameraFocus).toBeNull();
+    for (let i = 0; i < 10; i++) level.render(0.1);
+    expect(level._camera.target).toEqual(target);
+    expect(level._camera.span).toBeCloseTo(span);
+  });
+
+  it('enforces safe zoom for focus and clears pending movement on scene replacement and exit', async () => {
+    const { level } = await makeLevel();
+    await level.enter(2, scene());
+    level._minCameraSpan = 12;
+    level._setCameraSpan(1);
+    expect(level._camera.span).toBe(12);
+    level._focusBuilding(level._slots[0]);
+    expect(level._cameraFocus.toSpan).toBe(12);
+    for (let i = 0; i < 13; i++) level.render(0.1);
+    expect(level._camera.span).toBeCloseTo(12);
+    level._focusBuilding(level._slots[0]);
+    level.setSceneData(scene({ colony: { id: 8 } }));
+    expect(level._cameraFocus).toBeNull();
+    level._focusBuilding(level._slots[0]);
+    await level.exit();
+    expect(level._cameraFocus).toBeNull();
+  });
+
+  it('retains the clearance limit when entry continues after a manual close zoom', async () => {
+    const { level } = await makeLevel();
+    await level.enter(2, scene());
+    level.render(0.1);
+    level._setCameraSpan(level._minCameraSpan);
+    for (let i = 0; i < 13; i++) {
+      level.render(0.1);
+      expect(level._camera.span).toBeGreaterThanOrEqual(level._minCameraSpan);
+    }
+    expect(level._camera.span).toBeCloseTo(level._minCameraSpan);
+  });
+
   it('replaces populated scenes with an empty colony without ghost instances or emitters', async () => {
     const { level } = await makeLevel();
     level.setSceneData(scene());
@@ -344,6 +432,23 @@ describe('Colony window integration', () => {
 });
 
 describe('On-demand authoritative snapshot lifecycle', () => {
+  it('preserves the current pose on refresh during entry and cancels stale building focus', async () => {
+    fetch.mockResolvedValue({ ok: true, json: async () => scene({ success: true, economy: {} }) });
+    const { level } = await makeLevel();
+    await level.enter(2, scene());
+    await vi.waitFor(() => expect(level._snapshotLoaded).toBe(true));
+    level.render(0.1);
+    level._camera.target = { x: 2, z: 3 };
+    level._setCameraSpan(40);
+    level._focusBuilding(level._slots[0]);
+    await level._loadSnapshot();
+    expect(level._cameraFocus).toBeNull();
+    level.render(0);
+    expect(level._camera.target).toEqual({ x: 2, z: 3 });
+    expect(level._camera.span).toBeCloseTo(40);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('loads once on entry, updates buildings/economy/people and never polls during rendering', async () => {
     const snapshot = scene({
       success: true, economy: { shortages: { food: 5 }, settled_at: 'server-time' },
