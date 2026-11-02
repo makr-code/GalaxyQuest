@@ -234,6 +234,31 @@ describe('native planet living world', () => {
     await expect(new PlanetApproachLevelWebGPU().initialize({}, mock)).rejects.toThrow('invalid WGSL');
   });
 
+  it('uses the same inverse longitude rotation as Three SphereGeometry for both surface and clouds', async () => {
+    const mock = gpu();
+    const level = new PlanetApproachLevelWebGPU();
+    await level.initialize({ width: 512, height: 384 }, mock);
+    const shader = mock.device.createShaderModule.mock.calls[0][0].code;
+    const operator = shader.match(/atan2\(normal\.z, normal\.x\) \/ 6\.2831853 ([+-]) rotation \/ 6\.2831853/);
+    expect(operator).not.toBeNull();
+    const sign = operator[1] === '-' ? -1 : 1;
+    const geometry = new THREE.SphereGeometry(5, 32, 16);
+    const normal = new THREE.Vector3();
+    const axis = new THREE.Vector3(0, 1, 0);
+    for (const rotation of [0.35, -1.1, 2.4]) {
+      for (let vertex = 36; vertex < geometry.attributes.position.count - 36; vertex += 19) {
+        normal.fromBufferAttribute(geometry.attributes.position, vertex).normalize().applyAxisAngle(axis, rotation);
+        const shaderU = 0.5 - Math.atan2(normal.z, normal.x) / (Math.PI * 2) + sign * rotation / (Math.PI * 2);
+        const expectedU = geometry.attributes.uv.getX(vertex);
+        const difference = shaderU - expectedU;
+        expect(Math.abs(difference - Math.round(difference))).toBeLessThan(1e-6);
+      }
+    }
+    expect(shader).toContain('uv(normal, u.motion.x)');
+    expect(shader).toContain('uv(normal, u.motion.y)');
+    geometry.dispose(); level.dispose();
+  });
+
   it.each(['exit', 'dispose'])('does not resurrect owned resources when %s wins an asynchronous pipeline build', async action => {
     const mock = gpu();
     let finish;

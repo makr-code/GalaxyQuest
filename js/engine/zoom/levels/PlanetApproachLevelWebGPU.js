@@ -135,7 +135,7 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
         return -1.0;
       }
       fn uv(normal: vec3f, rotation: f32) -> vec2f {
-        return vec2f(fract(0.5 - atan2(normal.z, normal.x) / 6.2831853 + rotation / 6.2831853),
+        return vec2f(fract(0.5 - atan2(normal.z, normal.x) / 6.2831853 - rotation / 6.2831853),
           0.5 - asin(clamp(normal.y, -1.0, 1.0)) / 3.14159265);
       }
       fn srgbToLinear(color: vec3f) -> vec3f {
