@@ -67,12 +67,41 @@ Besitz-/Fraktionsfarben veraendern das Oberflaechenmaterial nicht.
   aus dem System und Dispose geben die zugehoerigen Ressourcen frei.
 
 Dies ist ein PBR-/Material-LOD-Kern, kein Blender-/Unreal-Nodeeditor.
-GeoJSON-Masken, externe Materialassets, Image-Based Lighting, Materialkachel-
-Caches und materialbedingtes Displacement sind nicht implementiert.
-Kuesten und lokale Wasser-/Eis-/Lavamasken stammen weiter aus dem vorhandenen
-Terrainpfad; das gemeinsame Materialmodell ersetzt kein durchgaengiges
-geologisches Terrain-LOD zwischen System und Kolonie. Figuren und Gebaeude
+Externe Materialassets, Image-Based Lighting, Materialkachel-Caches und
+materialbedingtes Displacement sind nicht implementiert. Figuren und Gebaeude
 behalten ihren bisherigen stilisierten Materialpfad.
+
+### Persistierte GeoJSON-Terrainregionen
+
+Ein Koerper kann in `payload_json.terrain_regions` eine optionale RFC-7946-
+`FeatureCollection` bereitstellen. `Polygon` und `MultiPolygon` inklusive
+geschlossener Aussenringe, Loecher und Datumsgrenzen werden unter einem
+festen Budget validiert (maximal 8 Features, 8 Polygone/Ringe je Feature,
+256 Positionen insgesamt). Unbekannte Geometrietypen, nicht endliche oder
+ausserhalb [-180,180]/[-90,90] liegende Koordinaten und offene Ringe werden
+explizit abgewiesen.
+
+Unterstuetzte Feature-Eigenschaften: `height_offset_km` (-100 bis 100,
+Standard 0; die Summe der Absolutwerte ist zusaetzlich auf 5 % des
+Koerperradius bzw. 100 km begrenzt), `transition_km` (0 bis 2000, Standard 0,25), `material`
+(`water`, `ice`, `rock`, `lava`) und optional `color` als `#RRGGBB`.
+Fehlende Hoehen-/Materialeigenschaften veraendern diese Kanaele nicht.
+Materialfarben werden entlang desselben vorzeichenbehafteten geodaetischen
+Grenzabstands weich ueberblendet, den die Hoehenkorrektur verwendet.
+Polygonloecher bleiben ausserhalb der Region; Datumsgrenzen werden sphärisch
+ausgewertet und nicht als lange lineare Laengengradkante fehlinterpretiert.
+Hoehenoffsets ueberlagern sich additiv; bei konkurrierenden Farbregionen
+gewinnt die lokal staerkste Maske, bei Gleichstand die fruehere Feature-Reihenfolge.
+
+Das Backend normalisiert und speichert nichtleere Regionen im vorhandenen
+Terrainmanifest; es ist keine Tabellenerweiterung oder Hintergrundsimulation
+noetig. Die begrenzten Hoehenoffsets werden in den Hoehenbereich aufgenommen,
+bevor Cube-Sphere-Kacheln quantisiert und persistent gespeichert werden.
+Die Clientberechnungen fuer Kamera-/Solidkollisionen verwenden dieselbe
+Maske. Die Kolonie kodiert den geglaetteten Regionsanteil pro Terrainvertex;
+die Anflugansicht rendert bei Regionen dieselbe persistierte Hoehen-/Material-
+maske auf einem kugelfesten Oberflaechenmesh. Alte Manifeste ohne Regionen
+bleiben unveraendert. Gasriesen koennen keine Terrainregionen besitzen.
 
 `ColonySurfaceLevelWebGPU` zeichnet eine echte, tiefengeprüfte 3D-Stadt:
 instanzierte Quader mit 36 Vertices, Straßenraster, Farmbeete, Wohnhäuser mit

@@ -34,6 +34,115 @@ final class BodyTerrainTest extends TestCase
         self::assertSame(1, (int)$this->db->query('SELECT COUNT(*) FROM body_terrain_manifests')->fetchColumn());
     }
 
+    public function testGeoJsonRegionsShareHeightAndMaterialMasksAcrossHolesAndDateline(): void
+    {
+        $polygon = [
+            [[-20, -20], [20, -20], [20, 20], [-20, 20], [-20, -20]],
+            [[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]],
+        ];
+        $dateline = [[170, -10], [-170, -10], [-170, 10], [170, 10], [170, -10]];
+        $body = $this->body;
+        $body['payload_json'] = json_encode(['terrain_regions' => [
+            'type' => 'FeatureCollection',
+            'features' => [
+                ['type' => 'Feature', 'properties' => [
+                    'material' => 'water', 'height_offset_km' => 2, 'transition_km' => 0.25,
+                ], 'geometry' => ['type' => 'Polygon', 'coordinates' => $polygon]],
+                ['type' => 'Feature', 'properties' => ['material' => 'ice'],
+                    'geometry' => ['type' => 'MultiPolygon', 'coordinates' => [
+                        [[ [50, -5], [55, -5], [55, 5], [50, 5], [50, -5] ]],
+                        [[ [60, -5], [65, -5], [65, 5], [60, 5], [60, -5] ]],
+                    ]]],
+                ['type' => 'Feature', 'properties' => ['color' => '#AABBCC', 'height_offset_km' => -1],
+                    'geometry' => ['type' => 'Polygon', 'coordinates' => [$dateline]]],
+            ],
+        ]], JSON_THROW_ON_ERROR);
+        $manifest = BodyTerrain::manifest($this->db, $body);
+        $baselineBody = $this->body;
+        $baselineBody['id'] = 8;
+        $baseline = BodyTerrain::manifest($this->db, $baselineBody);
+        $direction = static function (float $longitude): array {
+            $longitude = deg2rad($longitude);
+            return [cos($longitude), 0, sin($longitude)];
+        };
+
+        self::assertSame('FeatureCollection', $manifest['regions']['type']);
+        self::assertCount(3, $manifest['regions']['features']);
+        self::assertSame('MultiPolygon', $manifest['regions']['features'][1]['geometry']['type']);
+        self::assertSame('custom', $manifest['regions']['features'][2]['properties']['material']);
+        self::assertSame('#AABBCC', $manifest['regions']['features'][2]['properties']['color']);
+        $coverageAt = static fn (float $longitude) => BodyTerrain::terrainRegionCoverages(
+            $manifest['regions'],
+            $direction($longitude),
+            $manifest['radius_km']
+        );
+        $holeCoverage = $coverageAt(0);
+        $landCoverage = $coverageAt(10);
+        $dateCoverage = $coverageAt(179);
+        self::assertSame(0.0, $holeCoverage[0]);
+        self::assertEqualsWithDelta(1, $landCoverage[0], 1e-12);
+        self::assertEqualsWithDelta(1, $dateCoverage[2], 1e-12);
+        self::assertEqualsWithDelta(
+            2,
+            BodyTerrain::height($manifest, $direction(10)) - BodyTerrain::height($baseline, $direction(10)),
+            1e-8
+        );
+        self::assertEqualsWithDelta(
+            0,
+            BodyTerrain::height($manifest, $direction(0)) - BodyTerrain::height($baseline, $direction(0)),
+            1e-8
+        );
+        self::assertEqualsWithDelta(
+            -1,
+            BodyTerrain::height($manifest, $direction(179)) - BodyTerrain::height($baseline, $direction(179)),
+            1e-8
+        );
+        self::assertGreaterThan($baseline['height_max_km'], $manifest['height_max_km'] - 0.01);
+        $regionTile = BodyTerrain::tile($this->db, $manifest, ['face' => 0, 'lod' => 0, 'x' => 0, 'y' => 0]);
+        $baseTile = BodyTerrain::tile($this->db, $baseline, ['face' => 0, 'lod' => 0, 'x' => 0, 'y' => 0]);
+        $decode = static fn (array $tile, array $source, int $index) =>
+            $source['height_min_km'] + $tile['heights'][$index] / 65535
+                * ($source['height_max_km'] - $source['height_min_km']);
+        self::assertEqualsWithDelta(2, $decode($regionTile, $manifest, 8 * 17 + 6)
+            - $decode($baseTile, $baseline, 8 * 17 + 6), 0.001);
+        $regionDatelineTile = BodyTerrain::tile($this->db, $manifest, ['face' => 1, 'lod' => 0, 'x' => 0, 'y' => 0]);
+        $baseDatelineTile = BodyTerrain::tile($this->db, $baseline, ['face' => 1, 'lod' => 0, 'x' => 0, 'y' => 0]);
+        self::assertEqualsWithDelta(-1, $decode($regionDatelineTile, $manifest, 8 * 17 + 8)
+            - $decode($baseDatelineTile, $baseline, 8 * 17 + 8), 0.001);
+    }
+
+    public function testGeoJsonRegionsRejectUnclosedRingsAndUnsupportedGeometry(): void
+    {
+        $body = $this->body;
+        $body['payload_json'] = json_encode(['terrain_regions' => [
+            'type' => 'FeatureCollection', 'features' => [[
+                'type' => 'Feature', 'properties' => [], 'geometry' => [
+                    'type' => 'LineString', 'coordinates' => [],
+                ],
+            ]],
+        ]], JSON_THROW_ON_ERROR);
+        $this->expectException(InvalidArgumentException::class);
+        BodyTerrain::manifest($this->db, $body);
+    }
+
+    public function testGeoJsonHeightOffsetsHaveAnAggregateBodyScaleLimit(): void
+    {
+        $feature = [
+            'type' => 'Feature',
+            'properties' => ['height_offset_km' => 60],
+            'geometry' => ['type' => 'Polygon', 'coordinates' => [[
+                [-20, -20], [20, -20], [20, 20], [-20, 20], [-20, -20],
+            ]]],
+        ];
+        $body = $this->body;
+        $body['payload_json'] = json_encode(['terrain_regions' => [
+            'type' => 'FeatureCollection', 'features' => [$feature, $feature],
+        ]], JSON_THROW_ON_ERROR);
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('body-scale budget');
+        BodyTerrain::manifest($this->db, $body);
+    }
+
     public function testTilePersistenceAndSharedEdgesAtSameAndDifferentDepths(): void
     {
         $manifest = BodyTerrain::manifest($this->db, $this->body);

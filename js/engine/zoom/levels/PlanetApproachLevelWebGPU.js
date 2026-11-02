@@ -25,6 +25,7 @@ struct Out {
   @location(1) uv: vec2<f32>,
   @location(2) world: vec3<f32>,
   @location(3) bodyPoint: vec3<f32>,
+  @location(4) region: vec4<f32>,
 };
 fn noise(p: vec2<f32>) -> f32 {
   return sin(p.x * 2.7 + sin(p.y * 3.8)) * cos(p.y * 2.1 + sin(p.x * 1.7)) * 0.5 + 0.5;
@@ -47,6 +48,7 @@ fn noise(p: vec2<f32>) -> f32 {
   out.position = u.viewProjection * vec4<f32>(out.world,1);
   out.normal = normal;
   out.uv = uv;
+  out.region = vec4<f32>(0);
   return out;
 }
 @fragment fn fs_main(in: Out, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
@@ -59,7 +61,8 @@ fn noise(p: vec2<f32>) -> f32 {
   let canonicalNormal = vec3<f32>(normal.x * c + normal.z * s,normal.y,-normal.x * s + normal.z * c);
   let worldView = normalize(u.eye.xyz - in.world);
   let view = vec3<f32>(worldView.x * c + worldView.z * s,worldView.y,-worldView.x * s + worldView.z * c);
-  let surface = gqSurface(in.bodyPoint,in.bodyPoint * gqMaterial.scale.y,canonicalNormal,-1.0);
+  var surface = gqSurface(in.bodyPoint,in.bodyPoint * gqMaterial.scale.y,canonicalNormal,-1.0);
+  surface.albedo = mix(surface.albedo,gqLinear(in.region.rgb),in.region.a);
   let cloud = smoothstep(0.65,0.9,noise(in.uv * vec2<f32>(15,23) + vec2<f32>(u.animation.y * 0.02,0))) * (1.0 - u.animation.w);
   let light = normalize(vec3<f32>(-0.7,0.8,1));
   let canonicalLight = vec3<f32>(light.x * c + light.z * s,light.y,-light.x * s + light.z * c);
@@ -68,7 +71,7 @@ fn noise(p: vec2<f32>) -> f32 {
   let rim = pow(1.0 - abs(normal.z),3.0);
   return vec4<f32>(gqFinish(mix(color,gqLinear(u.atmosphere.rgb),rim * 0.3 * (1.0 - u.animation.w))) * u.animation.z,1);
 }
-@vertex fn vs_mesh(@location(0) point: vec3<f32>) -> Out {
+@vertex fn vs_mesh(@location(0) point: vec3<f32>, @location(1) region: vec4<f32>) -> Out {
   let c = cos(u.animation.x);
   let s = sin(u.animation.x);
   let world = vec3<f32>(point.x * c - point.z * s,point.y,point.x * s + point.z * c);
@@ -78,6 +81,7 @@ fn noise(p: vec2<f32>) -> f32 {
   out.position = u.viewProjection * vec4<f32>(world,1);
   out.normal = normalize(world);
   out.uv = vec2<f32>(atan2(point.z,point.x) / 6.2831853,asin(clamp(normalize(point).y,-1.0,1.0)) / 3.14159265);
+  out.region = region;
   return out;
 }
 `;
@@ -290,7 +294,10 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
     this._solidPipeline = this._device.createRenderPipeline({
       layout: 'auto',
       vertex: { module, entryPoint: 'vs_mesh', buffers: [{
-        arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }],
+        arrayStride: 28, attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x3' },
+          { shaderLocation: 1, offset: 12, format: 'float32x4' },
+        ],
       }] },
       fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
@@ -329,6 +336,8 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
     const geometry = typeof require !== 'undefined'
       ? require('./ColonySurfaceLevelWebGPU.js') : window.GQColonySurfaceLevelWebGPU;
     const solid = this._terrainManifest?.solid;
+    const hasRegions = !!this._terrainManifest?.regions?.features?.length;
+    const meshSurface = !!solid || hasRegions;
     const extent = solid ? geometry.bodySolidBound(solid)
       : Math.max(...(shape?.axes || [1, 1, 1])) * (1 + (shape?.deformation || 0));
     const distance = (2.8 + Math.min(2, cameraDistance / 50)) * extent;
@@ -354,17 +363,32 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
       this._backend?.setBodyTerrainManifest?.(this._terrainManifest);
       this._publishedTerrainManifest = this._terrainManifest;
     }
-    if (solid) {
+    if (meshSurface) {
       const key = JSON.stringify(this._terrainManifest);
       if (key !== this._solidMeshKey) {
-        const mesh = geometry.buildCompositeBodyMesh(this._terrainManifest, 160);
+        let vertices, vertexCount;
+        if (solid) {
+          const mesh = geometry.buildCompositeBodyMesh(this._terrainManifest, 160);
+          vertices = new Float32Array(mesh.vertexCount * 7);
+          for (let index = 0; index < mesh.vertexCount; index++) {
+            const point = Array.from(mesh.vertices.subarray(index * 3, index * 3 + 3));
+            const region = geometry.terrainRegionVisual?.(this._terrainManifest.regions,
+              point.map((value) => value / Math.max(1e-10, Math.hypot(...point))), this._terrainManifest.radius_km);
+            vertices.set([...point, ...(region?.color || [0, 0, 0]), region?.weight || 0], index * 7);
+          }
+          vertexCount = mesh.vertexCount;
+        } else {
+          const mesh = geometry.buildTerrainRegionSphereMesh(this._terrainManifest);
+          vertices = mesh.vertices;
+          vertexCount = mesh.vertexCount;
+        }
         this._solidBuffer?.destroy();
         this._solidBuffer = this._device.createBuffer({
-          label: 'approach_composite_solid', size: mesh.vertices.byteLength,
+          label: solid ? 'approach_composite_solid' : 'approach_geojson_regions', size: vertices.byteLength,
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         });
-        this._device.queue.writeBuffer(this._solidBuffer, 0, mesh.vertices);
-        this._solidVertexCount = mesh.vertexCount;
+        this._device.queue.writeBuffer(this._solidBuffer, 0, vertices);
+        this._solidVertexCount = vertexCount;
         this._solidMeshKey = key;
       }
     }
@@ -386,10 +410,10 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
         view: this._depthTexture.createView(), depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store',
       },
     });
-    pass.setPipeline(solid ? this._solidPipeline : this._pipeline);
-    pass.setBindGroup(0, solid ? this._solidBindGroup : this._bindGroup);
-    if (solid) pass.setVertexBuffer(0, this._solidBuffer);
-    pass.draw(solid ? this._solidVertexCount : 32 * 64 * 6,1,0,0);
+    pass.setPipeline(meshSurface ? this._solidPipeline : this._pipeline);
+    pass.setBindGroup(0, meshSurface ? this._solidBindGroup : this._bindGroup);
+    if (meshSurface) pass.setVertexBuffer(0, this._solidBuffer);
+    pass.draw(meshSurface ? this._solidVertexCount : 32 * 64 * 6,1,0,0);
     pass.end();
     this._device.queue.submit([encoder.finish()]);
   }

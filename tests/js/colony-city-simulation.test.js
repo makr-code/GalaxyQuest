@@ -217,7 +217,7 @@ describe('Detailed body terrain', () => {
     expect(mesh.vertices.byteLength).toBeLessThan(2.5 * 1024 * 1024);
     expect([...mesh.vertices].every(Number.isFinite)).toBe(true);
     const radialHeights = [];
-    for (let i = 0; i < mesh.vertices.length; i += 7) {
+    for (let i = 0; i < mesh.vertices.length; i += 8) {
       radialHeights.push(Math.hypot(mesh.vertices[i], mesh.vertices[i + 1] + terrain.radius, mesh.vertices[i + 2]) - terrain.radius);
     }
     expect(Math.max(...radialHeights)).toBeGreaterThan(2);
@@ -340,7 +340,7 @@ describe('Demand-driven terrain detail', () => {
     canvas.getBoundingClientRect = rect;
     level.render(0.016);
     expect(level._terrainLod).toBe(0);
-    expect(level._terrainBuffer.size).toBe(172032);
+    expect(level._terrainBuffer.size).toBe(196608);
   });
 
   it('refines on zoom and viewport resolution, and reuses previously generated levels', async () => {

@@ -4,7 +4,8 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
   validateBodySolid, bodySolidDistance, bodySolidBound, bodySolidRadius,
-  validateBodyGeology, bodyGeologicalHeight, buildCompositeBodyMesh, compositeSurfaceDistance,
+  validateBodyGeology, validateTerrainRegions, terrainRegionCoverages, terrainRegionVisual,
+  bodyGeologicalHeight, buildTerrainRegionSphereMesh, buildCompositeBodyMesh, compositeSurfaceDistance,
   applyTerrainSettlement, resolveBodySurface, bodyCenterRadius, mapColonySurfacePoint, constrainBodyCamera,
 } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
 
@@ -66,6 +67,63 @@ describe('Persistent geological and composite bodies', () => {
     const active = { ...base, geology: { ...base.geology, tectonics: 1 } };
     expect(bodyGeologicalHeight(active, rimDirection)).not.toBe(bodyGeologicalHeight(base, rimDirection));
     expect(bodyGeologicalHeight({ ...active, biome: 'gas' }, rimDirection)).toBe(0);
+  });
+
+  it('uses shared GeoJSON height and material masks for polygon holes and dateline crossings', () => {
+    const regions = validateTerrainRegions({
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', properties: { material: 'water', height_offset_km: 0.2, transition_km: 0.25 }, geometry: {
+          type: 'Polygon', coordinates: [
+            [[-20, -20], [20, -20], [20, 20], [-20, 20], [-20, -20]],
+            [[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]],
+          ],
+        } },
+        { type: 'Feature', properties: { material: 'ice' }, geometry: {
+          type: 'MultiPolygon', coordinates: [
+            [[[50, -5], [55, -5], [55, 5], [50, 5], [50, -5]]],
+            [[[60, -5], [65, -5], [65, 5], [60, 5], [60, -5]]],
+          ],
+        } },
+        { type: 'Feature', properties: { color: '#AABBCC', height_offset_km: -0.05 }, geometry: {
+          type: 'Polygon', coordinates: [[[170, -10], [-170, -10], [-170, 10], [170, 10], [170, -10]]],
+        } },
+      ],
+    }, 6);
+    const direction = (longitude) => [Math.cos(longitude * Math.PI / 180), 0, Math.sin(longitude * Math.PI / 180)];
+    expect(terrainRegionCoverages(regions, direction(0), 6371)[0]).toBe(0);
+    expect(terrainRegionCoverages(regions, direction(10), 6371)[0]).toBe(1);
+    expect(terrainRegionCoverages(regions, direction(179), 6371)[2]).toBe(1);
+    const material = terrainRegionVisual(regions, direction(10), 6371);
+    expect(material).toEqual({ weight: 1, color: [18 / 255, 71 / 255, 125 / 255] });
+    const base = { ...manifest, regions: undefined };
+    expect(bodyGeologicalHeight({ ...base, regions }, direction(10)) - bodyGeologicalHeight(base, direction(10)))
+      .toBeCloseTo(0.2, 8);
+    expect(bodyGeologicalHeight({ ...base, regions }, direction(179)) - bodyGeologicalHeight(base, direction(179)))
+      .toBeCloseTo(-0.05, 8);
+    const surface = buildTerrainRegionSphereMesh({ ...base, regions }, 8, 16);
+    expect(surface.vertexCount).toBe(8 * 16 * 6);
+    expect([...surface.vertices].every(Number.isFinite)).toBe(true);
+    const mask = Array.from({ length: surface.vertexCount }, (_, index) => surface.vertices[index * 7 + 6]);
+    expect(Math.max(...mask)).toBe(1);
+    expect(Math.min(...mask)).toBe(0);
+    expect(() => validateTerrainRegions({
+      type: 'FeatureCollection', features: [{
+        type: 'Feature', properties: {}, geometry: {
+          type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1]]],
+        },
+      }],
+    })).toThrow('closed');
+    const highOffset = {
+      type: 'Feature',
+      properties: { height_offset_km: 0.2 },
+      geometry: { type: 'Polygon', coordinates: [[
+        [-20, -20], [20, -20], [20, 20], [-20, 20], [-20, -20],
+      ]] },
+    };
+    expect(() => validateTerrainRegions({
+      type: 'FeatureCollection', features: [highOffset, highOffset],
+    }, 6)).toThrow('body-scale budget');
   });
 
   it('extracts a deterministic volumetric surface rather than overlapping sphere meshes', () => {

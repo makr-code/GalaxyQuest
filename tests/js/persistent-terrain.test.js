@@ -295,12 +295,25 @@ describe('Persisted cube-sphere terrain', () => {
     // Far-side global vertices are float32; permit at most half a metre of quantization.
     const radialTolerance = 0.5 / COLONY_METERS_PER_UNIT;
     expect(Math.abs(radiusAt(0) - terrain.radius - terrain.radius / manifest.radius_km * 8)).toBeLessThan(radialTolerance);
-    const center = 2 * 1920 * 7 + (8 * 16 + 8) * 6 * 7;
+    const center = 2 * 1920 * 8 + (8 * 16 + 8) * 6 * 8;
     expect(radiusAt(center)).toBeCloseTo(terrain.radius, 4);
     const water = buildPersistedTerrainMesh(manifest, roots().map((a) => tile(a, 0)), terrain);
-    expect(water.vertices[6]).toBe(1);
+    expect(water.vertices[7]).toBe(1);
     expect(Math.abs(Math.hypot(water.vertices[0], water.vertices[1] + terrain.radius, water.vertices[2]) - terrain.radius))
       .toBeLessThan(radialTolerance);
+    const regionManifest = {
+      ...manifest,
+      regions: { type: 'FeatureCollection', features: [{
+        type: 'Feature', properties: { material: 'water', transition_km: 0.25 },
+        geometry: { type: 'Polygon', coordinates: [[
+          [-20, -20], [20, -20], [20, 20], [-20, 20], [-20, -20],
+        ]] },
+      }] },
+    };
+    const regionMesh = buildPersistedTerrainMesh(regionManifest, tiles, terrain);
+    const regionalVertex = (8 * 16 + 8) * 6 * 8;
+    expect(regionMesh.vertices[regionalVertex + 6]).toBe(1);
+    expect(regionMesh.vertices[regionalVertex + 7]).toBe(2);
     const stream = new CubeSphereTerrainStream(7, vi.fn());
     stream.manifest = manifest;
     tiles.forEach((t) => stream.surfaceTiles.set(key(t), t));
@@ -329,7 +342,7 @@ describe('Persisted cube-sphere terrain', () => {
     expect(Math.hypot(...normal)).toBeCloseTo(1);
     const northTile = tile({ face: 2, lod: 0, x: 0, y: 0 }, 65535);
     const mesh = buildPersistedTerrainMesh(shaped, [northTile], terrain);
-    const center = (8 * 16 + 8) * 6 * 7;
+    const center = (8 * 16 + 8) * 6 * 8;
     expect(mesh.vertices[center + 1]).toBeCloseTo(ground[1], 4);
     const pose = cityCameraPose(25, 1, { x: 0, z: 0 }, terrain.radius, terrain);
     pose.target.forEach((value, axis) => expect(value).toBeCloseTo(ground[axis]));

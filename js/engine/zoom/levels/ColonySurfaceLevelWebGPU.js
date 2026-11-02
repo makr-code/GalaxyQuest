@@ -190,10 +190,10 @@ struct Camera {
 struct Out {
   @builtin(position) position: vec4<f32>,
   @location(0) world: vec3<f32>,
-  @location(1) color: vec3<f32>,
-  @location(2) @interpolate(flat) material: f32,
+  @location(1) color: vec4<f32>,
+  @location(2) material: f32,
 };
-@vertex fn vs_main(@location(0) world: vec3<f32>, @location(1) color: vec3<f32>, @location(2) material: f32) -> Out {
+@vertex fn vs_main(@location(0) world: vec3<f32>, @location(1) color: vec4<f32>, @location(2) material: f32) -> Out {
   var out: Out;
   out.position = camera.viewProjection * vec4<f32>(world,1);
   out.world = world;
@@ -211,7 +211,8 @@ struct Out {
   let bodyPoint = frame * (in.world + vec3<f32>(0,camera.surface.w,0)) / camera.transition.y;
   let meters = frame * in.world * (gqMaterial.scale.y / camera.transition.y);
   let canonicalNormal = frame * normal;
-  let surface = gqSurface(bodyPoint,meters,canonicalNormal,in.material);
+  var surface = gqSurface(bodyPoint,meters,canonicalNormal,in.material);
+  surface.albedo = mix(surface.albedo,gqLinear(in.color.rgb),in.color.a);
   let lightDirection = normalize(vec3<f32>(-0.7,0.8,1.0));
   let color = surface.albedo * 0.3 + surface.emission
     + gqDirect(surface,frame * (camera.eye.xyz - in.world),frame * lightDirection,vec3<f32>(2.8));
@@ -363,6 +364,185 @@ function validateBodyGeology(geology) {
   return geology;
 }
 
+function validateTerrainRegions(regions, radiusKm = Infinity) {
+  if (regions?.type !== 'FeatureCollection' || !Array.isArray(regions.features) || regions.features.length > 8) {
+    throw new Error('Unsupported or invalid terrain GeoJSON FeatureCollection');
+  }
+  let vertexCount = 0;
+  const features = regions.features.map((feature) => {
+    if (feature?.type !== 'Feature' || !feature.geometry || typeof feature.geometry !== 'object'
+        || (feature.properties !== undefined && (!feature.properties || typeof feature.properties !== 'object'
+          || Array.isArray(feature.properties)))) {
+      throw new Error('Unsupported or invalid terrain GeoJSON feature');
+    }
+    const { type, coordinates } = feature.geometry;
+    const polygons = type === 'Polygon' ? [coordinates] : type === 'MultiPolygon' ? coordinates : null;
+    if (!Array.isArray(polygons) || polygons.length < 1 || polygons.length > 8) {
+      throw new Error('Terrain GeoJSON supports Polygon and MultiPolygon only');
+    }
+    const normalized = polygons.map((polygon) => {
+      if (!Array.isArray(polygon) || polygon.length < 1 || polygon.length > 8) {
+        throw new Error('Invalid terrain GeoJSON polygon rings');
+      }
+      return polygon.map((ring) => {
+        if (!Array.isArray(ring) || ring.length < 4 || ring.length > 129) {
+          throw new Error('Invalid terrain GeoJSON ring');
+        }
+        const points = ring.map((point) => {
+          if (!Array.isArray(point) || point.length < 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1])
+              || point[0] < -180 || point[0] > 180 || point[1] < -90 || point[1] > 90) {
+            throw new Error('Invalid terrain GeoJSON longitude/latitude');
+          }
+          return [point[0], point[1]];
+        });
+        const first = points[0], last = points[points.length - 1];
+        if (Math.abs(first[0] - last[0]) > 1e-9 || Math.abs(first[1] - last[1]) > 1e-9) {
+          throw new Error('Terrain GeoJSON rings must be closed');
+        }
+        for (let index = 0; index < points.length - 1; index++) {
+          const arc = angularDistance(geoVector(points[index]), geoVector(points[index + 1]));
+          if (arc < 1e-12 || arc >= Math.PI - 1e-8) {
+            throw new Error('Terrain GeoJSON ring has a degenerate or antipodal edge');
+          }
+        }
+        vertexCount += points.length - 1;
+        if (vertexCount > 256) throw new Error('Terrain GeoJSON exceeds the 256-vertex budget');
+        return points;
+      });
+    });
+    const properties = feature.properties || {};
+    const material = properties.material ?? null;
+    const color = properties.color ?? null;
+    if ((material !== null && !['water', 'ice', 'rock', 'lava', 'custom'].includes(material))
+        || (color !== null && (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)))) {
+      throw new Error('Invalid terrain region material or color');
+    }
+    if (material === 'custom' && color === null) throw new Error('Custom terrain regions require a color');
+    return {
+      type: 'Feature',
+      properties: {
+        height_offset_km: properties.height_offset_km ?? 0,
+        transition_km: properties.transition_km ?? 0.25,
+        material: material ?? (color === null ? null : 'custom'),
+        color: color?.toUpperCase() ?? null,
+      },
+      geometry: { type, coordinates: type === 'Polygon' ? normalized[0] : normalized },
+    };
+  });
+  let totalOffset = 0;
+  for (const feature of features) {
+    const { height_offset_km: offset, transition_km: transition } = feature.properties;
+    if (!Number.isFinite(offset) || offset < -100 || offset > 100
+        || !Number.isFinite(transition) || transition < 0 || transition > 2000) {
+      throw new Error('Terrain region values must be finite and within bounds');
+    }
+    totalOffset += Math.abs(offset);
+  }
+  if (Number.isFinite(radiusKm) && totalOffset > Math.min(100, radiusKm * 0.05)) {
+    throw new Error('Terrain GeoJSON height offsets exceed the body-scale budget');
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+function geoVector(coordinate) {
+  const longitude = coordinate[0] * Math.PI / 180, latitude = coordinate[1] * Math.PI / 180;
+  const cosLatitude = Math.cos(latitude);
+  return [cosLatitude * Math.cos(longitude), Math.sin(latitude), cosLatitude * Math.sin(longitude)];
+}
+
+function ringContains(ring, point) {
+  let winding = 0;
+  const vertices = ring.slice(0, -1).map(geoVector);
+  const origin = vertices[0];
+  const dot = (left, right) => left.reduce((sum, value, axis) => sum + value * right[axis], 0);
+  let area = 0;
+  for (let index = 1; index < vertices.length - 1; index++) {
+    const a = vertices[index], b = vertices[index + 1];
+    const cross = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    area += 2 * Math.atan2(dot(origin, cross), 1 + dot(origin, a) + dot(a, b) + dot(b, origin));
+  }
+  for (let index = 0; index < ring.length - 1; index++) {
+    const a = geoVector(ring[index]), b = geoVector(ring[index + 1]);
+    const cross = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    winding += Math.atan2(dot(point, cross), dot(a, b) - dot(point, a) * dot(point, b));
+  }
+  return Math.abs(winding) > Math.PI && winding * area > 0;
+}
+
+function angularDistance(a, b) {
+  const cross = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  return Math.atan2(Math.hypot(...cross), a.reduce((sum, value, axis) => sum + value * b[axis], 0));
+}
+
+function ringDistance(ring, point) {
+  let minimum = Math.PI;
+  for (let index = 0; index < ring.length - 1; index++) {
+    const a = geoVector(ring[index]), b = geoVector(ring[index + 1]);
+    const arc = angularDistance(a, b);
+    minimum = Math.min(minimum, angularDistance(point, a), angularDistance(point, b));
+    const normal = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const normalLength = Math.hypot(...normal);
+    if (normalLength < 1e-12) continue;
+    const unit = normal.map((value) => value / normalLength);
+    const along = point.reduce((sum, value, axis) => sum + value * unit[axis], 0);
+    const projection = point.map((value, axis) => value - unit[axis] * along);
+    const length = Math.hypot(...projection);
+    if (length < 1e-12) continue;
+    const candidate = projection.map((value) => value / length);
+    for (const projected of [candidate, candidate.map((value) => -value)]) {
+      if (angularDistance(a, projected) + angularDistance(projected, b) <= arc + 1e-8) {
+        minimum = Math.min(minimum, angularDistance(point, projected));
+      }
+    }
+  }
+  return minimum;
+}
+
+function terrainRegionCoverages(regions, direction, radiusKm) {
+  if (!regions?.features?.length) return [];
+  const length = Math.hypot(...direction);
+  if (length < 1e-12 || !Number.isFinite(radiusKm) || radiusKm <= 0) {
+    throw new Error('Terrain region sampling requires a direction and positive radius');
+  }
+  const point = direction.map((value) => value / length);
+  return regions.features.map((feature) => {
+    let best = 0;
+    const polygons = feature.geometry.type === 'Polygon' ? [feature.geometry.coordinates] : feature.geometry.coordinates;
+    for (const polygon of polygons) {
+      let inside = ringContains(polygon[0], point);
+      let distance = ringDistance(polygon[0], point);
+      for (const hole of polygon.slice(1)) {
+        if (ringContains(hole, point)) inside = false;
+        distance = Math.min(distance, ringDistance(hole, point));
+      }
+      const signedDistance = (inside ? 1 : -1) * distance * radiusKm;
+      const transition = feature.properties.transition_km;
+      const t = transition > 0 ? bounded(signedDistance / transition + 0.5, 0, 1) : Number(inside);
+      best = Math.max(best, t * t * (3 - 2 * t));
+    }
+    return best;
+  });
+}
+
+function terrainRegionVisual(regions, direction, radiusKm) {
+  if (!regions?.features?.length) return null;
+  const coverages = terrainRegionCoverages(regions, direction, radiusKm);
+  let selected = -1;
+  for (let index = 0; index < coverages.length; index++) {
+    if (regions.features[index].properties.material && coverages[index] > (selected < 0 ? 0 : coverages[selected])) {
+      selected = index;
+    }
+  }
+  if (selected < 0) return null;
+  const { material, color } = regions.features[selected].properties;
+  const palette = { water: '#12477D', ice: '#B8DAE5', rock: '#66635E', lava: '#F53D09' };
+  const hex = color || palette[material];
+  return {
+    weight: coverages[selected],
+    color: [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255),
+  };
+}
+
 function bodyGeologicalHeight(manifest, direction) {
   if (manifest.biome === 'gas') return 0;
   const [x, y, z] = direction;
@@ -387,7 +567,45 @@ function bodyGeologicalHeight(manifest, direction) {
       }
     }
   }
+  for (const [index, coverage] of terrainRegionCoverages(manifest.regions, direction, manifest.radius_km).entries()) {
+    height += manifest.regions.features[index].properties.height_offset_km * coverage;
+  }
   return height;
+}
+
+function buildTerrainRegionSphereMesh(manifest, rows = 32, columns = 64) {
+  if (!Number.isInteger(rows) || rows < 8 || rows > 128 || !Number.isInteger(columns) || columns < 16 || columns > 256) {
+    throw new Error('Terrain region sphere resolution is outside supported bounds');
+  }
+  const grid = Array.from({ length: rows + 1 }, (_, row) => {
+    const latitude = row / rows * Math.PI - Math.PI / 2;
+    return Array.from({ length: columns + 1 }, (_, column) => {
+      const longitude = column / columns * Math.PI * 2;
+      const direction = [Math.cos(latitude) * Math.cos(longitude), Math.sin(latitude), Math.cos(latitude) * Math.sin(longitude)];
+      const radius = bodyShapeFactor(direction, manifest.shape) + bodyGeologicalHeight(manifest, direction) / manifest.radius_km;
+      const region = terrainRegionVisual(manifest.regions, direction, manifest.radius_km);
+      return [
+        ...direction.map((value) => value * radius),
+        ...(region?.color || [0, 0, 0]),
+        region?.weight || 0,
+      ];
+    });
+  });
+  const vertices = new Float32Array(rows * columns * 6 * 7);
+  let offset = 0;
+  for (let row = 0; row < rows; row++) {
+    for (let column = 0; column < columns; column++) {
+      const corners = [
+        grid[row][column], grid[row + 1][column], grid[row][column + 1],
+        grid[row][column + 1], grid[row + 1][column], grid[row + 1][column + 1],
+      ];
+      for (const point of corners) {
+        vertices.set(point, offset);
+        offset += 7;
+      }
+    }
+  }
+  return { vertices, vertexCount: vertices.length / 7 };
 }
 
 function compositeSurfaceDistance(point, manifest, terrain = null) {
@@ -806,7 +1024,7 @@ function buildColonyTerrainMesh(terrain, lod = 2, focus = { x: 0, z: 0 }) {
   const rings = Array.from({ length: localRings + distantRings + 1 }, (_, index) =>
     index <= localRings ? capAngle * index / localRings
       : capAngle + (Math.PI - capAngle) * (index - localRings) / distantRings);
-  const vertices = new Float32Array((rings.length - 1) * segments * 6 * 7);
+  const vertices = new Float32Array((rings.length - 1) * segments * 6 * 8);
   let offset = 0;
   const focusPoint = mapColonySurfacePoint(terrain.radius, focus.x, 0, focus.z);
   const normal = [focusPoint[0] / terrain.radius, (focusPoint[1] + terrain.radius) / terrain.radius, focusPoint[2] / terrain.radius];
@@ -826,7 +1044,7 @@ function buildColonyTerrainMesh(terrain, lod = 2, focus = { x: 0, z: 0 }) {
     const z = horizontal > 1e-8 ? radial[2] / horizontal * globalAngle * terrain.radius : 0;
     const sample = sampleColonyTerrain(terrain, x, z);
     const position = mapColonySurfacePoint(terrain.radius, x, sample.height, z);
-    return [...position, ...sample.color, sample.material];
+    return [...position, ...sample.color, 0, sample.material];
   };
   let previous = Array.from({ length: segments + 1 }, (_, segment) => point(0, segment / segments * Math.PI * 2));
   for (let ring = 1; ring < rings.length; ring++) {
@@ -836,12 +1054,12 @@ function buildColonyTerrainMesh(terrain, lod = 2, focus = { x: 0, z: 0 }) {
       for (const vertex of [previous[segment], next[segment], previous[segment + 1],
         previous[segment + 1], next[segment], next[segment + 1]]) {
         vertices.set(vertex, offset);
-        offset += 7;
+        offset += 8;
       }
     }
     previous = next;
   }
-  return { vertices, vertexCount: vertices.length / 7 };
+  return { vertices, vertexCount: vertices.length / 8 };
 }
 
 function cubeSphereDirection(face, u, v) {
@@ -899,6 +1117,12 @@ function validateTerrainManifest(manifest) {
   if (manifest.shape) validateBodyShape(manifest.shape);
   if (manifest.solid) validateBodySolid(manifest.solid);
   if (manifest.geology) validateBodyGeology(manifest.geology);
+  if (manifest.regions) {
+    validateTerrainRegions(manifest.regions, manifest.radius_km);
+    if (manifest.biome === 'gas' && manifest.regions.features.length) {
+      throw new Error('Gas bodies cannot have terrain GeoJSON regions');
+    }
+  }
   if (manifest.settlement) {
     const site = manifest.settlement;
     if (site.version !== 1 || site.kind !== 'valley-dome'
@@ -1109,19 +1333,25 @@ function persistedTerrainSample(manifest, tile, col, row, terrain) {
   const frozen = manifest.biome === 'ice' || (manifest.biome === 'terran' && physicalHeight > manifest.amplitude_km * 0.55);
   const material = wet ? manifest.biome === 'lava' ? 3 : 1 : frozen ? 2 : 0;
   const band = manifest.biome === 'gas' ? Math.sin(direction[1] * 40 + manifest.seed % 100) * 0.1 : 0;
-  const color = material === 1 ? [0.07, 0.28, 0.44] : material === 2 ? [0.72, 0.85, 0.91]
+  let color = material === 1 ? [0.07, 0.28, 0.44] : material === 2 ? [0.72, 0.85, 0.91]
     : material === 3 ? [0.96, 0.24, 0.035] : manifest.biome === 'gas' ? [0.48 + band, 0.42 + band, 0.58 + band]
       : manifest.biome === 'desert' ? [0.67, 0.46, 0.24] : manifest.biome === 'lava' ? [0.24, 0.19, 0.18]
         : manifest.biome === 'rock' ? [0.4, 0.39, 0.37] : [0.24, 0.42, 0.21];
+  let regionWeight = 0;
+  const region = terrainRegionVisual(manifest.regions, global, manifest.radius_km);
+  if (region) {
+    color = region.color;
+    regionWeight = region.weight;
+  }
   const elevation = gradePersistentHeight(manifest, terrain, x, z, physicalHeight);
   return [...direction.map((value, axis) => value * (terrain.radius * bodyShapeFactor(global, manifest.shape) + elevation)
-    - (axis === 1 ? bodyCenterRadius(terrain.radius, terrain.shape) : 0)), ...color, material];
+    - (axis === 1 ? bodyCenterRadius(terrain.radius, terrain.shape) : 0)), ...color, regionWeight, material];
 }
 
 function buildPersistedTerrainMesh(manifest, tiles, terrain) {
-  const vertices = new Float32Array(tiles.length * (16 * 16 * 6 + 16 * 4 * 6) * 7);
+  const vertices = new Float32Array(tiles.length * (16 * 16 * 6 + 16 * 4 * 6) * 8);
   let offset = 0;
-  const append = (point) => { vertices.set(point, offset); offset += 7; };
+  const append = (point) => { vertices.set(point, offset); offset += 8; };
   for (const tile of tiles) {
     const points = Array.from({ length: 17 * 17 }, (_, index) =>
       persistedTerrainSample(manifest, tile, index % 17, Math.floor(index / 17), terrain));
@@ -1145,7 +1375,7 @@ function buildPersistedTerrainMesh(manifest, tiles, terrain) {
       }
     }
   }
-  return { vertices, vertexCount: vertices.length / 7 };
+  return { vertices, vertexCount: vertices.length / 8 };
 }
 
 function cityCameraPose(span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0, terrain = null, previousEye = null) {
@@ -1693,11 +1923,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       label: 'colony_body_surface',
       layout: 'auto',
       vertex: { module: bodyShader, entryPoint: 'vs_main', buffers: [{
-        arrayStride: 28,
+        arrayStride: 32,
         attributes: [
           { shaderLocation: 0, offset: 0, format: 'float32x3' },
-          { shaderLocation: 1, offset: 12, format: 'float32x3' },
-          { shaderLocation: 2, offset: 24, format: 'float32' },
+          { shaderLocation: 1, offset: 12, format: 'float32x4' },
+          { shaderLocation: 2, offset: 28, format: 'float32' },
         ],
       }] },
       fragment: { module: bodyShader, entryPoint: 'fs_main', targets: [{ format, blend: {
@@ -1820,15 +2050,19 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         const key = `solid:${this._terrainKey}:${lod}:${focus.map((n) => Math.round(n * 16)).join(',')}`;
         if (key !== this._persistentMeshKey) {
           const raw = buildCompositeBodyMesh(stream.manifest, pixels, terrain, focus);
-          const vertices = new Float32Array(raw.vertexCount * 7);
-          const color = stream.manifest.biome === 'ice' ? [0.72, 0.85, 0.91] : [0.4, 0.39, 0.37];
+          const vertices = new Float32Array(raw.vertexCount * 8);
+          const baseColor = stream.manifest.biome === 'ice' ? [0.72, 0.85, 0.91] : [0.4, 0.39, 0.37];
           const centerRadius = bodyCenterRadius(terrain.radius, terrain.shape);
           for (let index = 0; index < raw.vertexCount; index++) {
-            const point = bodyFrameDirection(Array.from(raw.vertices.subarray(index * 3, index * 3 + 3)), terrain.shape.frame, true);
+            const bodyPoint = Array.from(raw.vertices.subarray(index * 3, index * 3 + 3));
+            const region = terrainRegionVisual(stream.manifest.regions,
+              bodyPoint.map((value) => value / Math.max(1e-10, Math.hypot(...bodyPoint))), stream.manifest.radius_km);
+            const point = bodyFrameDirection(bodyPoint, terrain.shape.frame, true);
             vertices.set([
               point[0] * terrain.radius, point[1] * terrain.radius - centerRadius,
-              point[2] * terrain.radius, ...color, stream.manifest.biome === 'ice' ? 2 : 0,
-            ], index * 7);
+              point[2] * terrain.radius, ...(region?.color || baseColor), region?.weight || 0,
+              stream.manifest.biome === 'ice' ? 2 : 0,
+            ], index * 8);
           }
           this._releaseTerrain();
           this._terrainKey = JSON.stringify(terrain);
@@ -2588,7 +2822,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     validateBodySolid, bodySolidDistance, bodySolidRadius, bodySolidBound,
-    validateBodyGeology, bodyGeologicalHeight, compositeSurfaceDistance, buildCompositeBodyMesh,
+    validateBodyGeology, validateTerrainRegions, terrainRegionCoverages, terrainRegionVisual,
+    bodyGeologicalHeight, buildTerrainRegionSphereMesh, compositeSurfaceDistance, buildCompositeBodyMesh,
     COLONY_METERS_PER_UNIT, bodyCenterRadius,
     bodyFrameDirection, settlementFrame, applyTerrainSettlement, colonyDomeHeight, gradePersistentHeight,
     ColonySurfaceLevelWebGPU, COLONY_CITY_WGSL, COLONY_BODY_WGSL, COLONY_VFX_WGSL, COLONY_SKY_WGSL,
@@ -2603,6 +2838,7 @@ if (typeof module !== 'undefined' && module.exports) {
   window.GQColonySurfaceLevelWebGPU = {
     ColonySurfaceLevelWebGPU, CubeSphereTerrainStream, bodyCenterRadius, COLONY_METERS_PER_UNIT,
     validateBodySolid, bodySolidDistance, bodySolidRadius, bodySolidBound,
-    validateBodyGeology, bodyGeologicalHeight, compositeSurfaceDistance, buildCompositeBodyMesh,
+    validateBodyGeology, validateTerrainRegions, terrainRegionCoverages, terrainRegionVisual,
+    bodyGeologicalHeight, buildTerrainRegionSphereMesh, compositeSurfaceDistance, buildCompositeBodyMesh,
   };
 }

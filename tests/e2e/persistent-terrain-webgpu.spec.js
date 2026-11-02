@@ -6,12 +6,13 @@ const root = path.resolve(__dirname, '../..');
 
 for (const scenario of [
   { kind: 'planet', diameter: 12742, shape: { version: 1, axes: [1, 1, 1], deformation: 0 } },
+  { kind: 'planet', diameter: 12742, shape: { version: 1, axes: [1, 1, 1], deformation: 0 }, regions: true },
   { kind: 'comet', diameter: 12, shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 } },
   { kind: 'comet', sheltered: true, diameter: 12, shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 } },
   { kind: 'comet', sheltered: true, composite: true, diameter: 12, shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 } },
   { kind: 'asteroid', diameter: 20, shape: { version: 1, axes: [1.8, 0.65, 0.9], deformation: 0.3 } },
 ]) {
-test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley dome' : ''}${scenario.composite ? ' composite solid' : ''} streams bounded geometry on the shared WebGPU device`, async ({ page }, testInfo) => {
+test(`persistent colony terrain ${scenario.kind}${scenario.regions ? ' GeoJSON regions' : ''}${scenario.sheltered ? ' valley dome' : ''}${scenario.composite ? ' composite solid' : ''} streams bounded geometry on the shared WebGPU device`, async ({ page }, testInfo) => {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('http://localhost/persistent-terrain-test', (route) => route.fulfill({
@@ -45,6 +46,13 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
         { direction: [0, 1, 0], angular_radius: 0.12, depth_km: 0.03 },
       ] },
     } : {}),
+    ...(scenario.regions || scenario.composite ? { regions: { type: 'FeatureCollection', features: [{
+      type: 'Feature',
+      properties: { material: 'water', height_offset_km: -0.025, transition_km: 0.6 },
+      geometry: { type: 'Polygon', coordinates: [[
+        [-75, -50], [75, -50], [75, 50], [-75, 50], [-75, -50],
+      ]] },
+    }] } } : {}),
   };
   let requests = 0, batches = 0, maxBatch = 0;
   const generated = new Map();
@@ -130,7 +138,14 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
   const expectedMaterial = require('../../js/rendering/body-material.js').resolveBodyMaterial({}, manifest);
   await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._materialState)).toEqual(expectedMaterial);
   const approachMaterial = await page.evaluate(() => window.terrainTest.orchestrator._active._materialState);
+  if (scenario.regions) {
+    await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._solidBuffer?.label))
+      .toBe('approach_geojson_regions');
+  }
   if (scenario.composite) {
+    expect(await page.evaluate(() => window.GQColonySurfaceLevelWebGPU.terrainRegionVisual(
+      window.terrainTest.orchestrator._active._terrainManifest.regions, [1, 0, 0], 6
+    ))).toEqual({ weight: 1, color: [18 / 255, 71 / 255, 125 / 255] });
     await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._solidBuffer?.label)).toBe('approach_composite_solid');
     const systemSolid = await page.evaluate(async () => {
       const { renderer, orchestrator } = window.terrainTest;
