@@ -112,6 +112,67 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) color: vec4<f3
 @fragment fn fs_main(in: Out) -> @location(0) vec4<f32> { return in.color; }
 `;
 
+const COLONY_SKY_WGSL = `
+struct Camera {
+  viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32>,
+  eye: vec4<f32>, right: vec4<f32>, up: vec4<f32>, back: vec4<f32>,
+  sky: vec4<f32>, clouds: vec4<f32>,
+};
+@group(0) @binding(0) var<uniform> camera: Camera;
+struct Out { @builtin(position) position: vec4<f32>, @location(0) screen: vec2<f32> };
+@vertex fn vs_main(@builtin(vertex_index) vertex: u32) -> Out {
+  let corners = array<vec2<f32>, 3>(vec2<f32>(-1,-1), vec2<f32>(3,-1), vec2<f32>(-1,3));
+  var out: Out;
+  out.screen = corners[vertex];
+  out.position = vec4<f32>(out.screen,0,1);
+  return out;
+}
+fn cloudNoise(point: vec3<f32>) -> f32 {
+  let drift = camera.transition.w * 0.035;
+  let p = point / max(camera.clouds.x * 0.35, 1.0) + vec3<f32>(drift,0,drift * 0.4);
+  let broad = sin(p.x + sin(p.z * 1.3)) * cos(p.z * 0.8 + sin(p.y));
+  let detail = sin(p.x * 3.1 + p.z * 1.7) * cos(p.z * 2.9 - p.y);
+  return broad * 0.34 + detail * 0.16 + 0.5;
+}
+struct SkyOut { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 };
+@fragment fn fs_sky(in: Out) -> SkyOut {
+  let offset = camera.right.xyz * in.screen.x * camera.right.w
+    + camera.up.xyz * in.screen.y * camera.up.w;
+  let origin = camera.eye.xyz + offset * camera.clouds.w;
+  let direction = normalize(-camera.back.xyz + offset * (1.0 - camera.clouds.w) / camera.back.w);
+  let center = vec3<f32>(0,-camera.transition.y,0);
+  let relative = origin - center;
+  let radius = camera.transition.y + camera.clouds.x;
+  let b = dot(relative,direction);
+  let c = dot(relative,relative) - radius * radius;
+  let discriminant = b * b - c;
+  if (discriminant <= 0.0) { discard; }
+  let root = sqrt(discriminant);
+  let nearHit = -b - root;
+  let distance = select(-b + root, nearHit, nearHit > 0.0);
+  if (distance <= 0.0) { discard; }
+  let point = origin + direction * distance;
+  let clip = camera.viewProjection * vec4<f32>(point,1);
+  if (clip.w <= 0.0 || clip.z < 0.0) { discard; }
+  let normal = normalize(point - center);
+  let cloud = smoothstep(1.0 - camera.clouds.z, 1.02, cloudNoise(point)) * min(1.0,camera.clouds.z * 4.0);
+  let inside = c < 0.0;
+  let light = 0.65 + 0.35 * max(0.0,dot(normal,normalize(vec3<f32>(-0.7,0.8,1))));
+  let haze = pow(1.0 - abs(dot(direction,normal)),2.0);
+  let color = mix(camera.sky.rgb,vec3<f32>(0.95,0.97,1.0) * light,cloud);
+  let opacity = select(cloud * 0.82 + haze * 0.12, 0.12 + cloud * 0.28 + haze * 0.25, inside);
+  var out: SkyOut;
+  out.color = vec4<f32>(color,opacity * camera.sky.w * camera.transition.x);
+  out.depth = min(clip.z / clip.w,0.999999);
+  return out;
+}
+@fragment fn fs_veil(in: Out) -> @location(0) vec4<f32> {
+  let billow = cloudNoise(vec3<f32>(in.screen * camera.clouds.x, camera.transition.w));
+  let opacity = camera.eye.w * (0.8 + billow * 0.2) * camera.transition.x;
+  return vec4<f32>(mix(camera.sky.rgb,vec3<f32>(0.94,0.97,1.0),0.8),opacity);
+}
+`;
+
 const bounded = (value, min, max, fallback = min) => {
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
@@ -154,7 +215,7 @@ function projectColonySurfacePoint(matrix, radius, x, y, z) {
 
 function resolveBodySurface(data, cityWidth, cityDepth) {
   const colony = data?.colony || {};
-  const body = data?.focusPlanet || data?.planet || colony?.body || colony;
+  const body = { ...colony, ...(data?.focusPlanet || data?.planet || colony?.body || {}) };
   const layout = data?.layout || colony?.layout || {};
   const diameter = Number(
     body?.diameter_km ?? body?.diameter ?? body?.planet_diameter
@@ -170,10 +231,20 @@ function resolveBodySurface(data, cityWidth, cityDepth) {
         : /gas|jovian/.test(kind) ? [0.43, 0.42, 0.66]
           : /moon|comet|asteroid/.test(kind) ? [0.48, 0.51, 0.49]
             : [0.25, 0.42, 0.29];
-  return { radius, kind: kind || 'planet', tint };
+  const atmosphereType = String(body?.atmosphere_type ?? colony?.atmosphere_type ?? '').toLowerCase();
+  const hasAtmosphere = body?.has_atmosphere ?? colony?.has_atmosphere;
+  const explicitAbsence = hasAtmosphere === false || hasAtmosphere === 0 || hasAtmosphere === '0'
+    || /^(none|vacuum|airless)$/.test(atmosphereType);
+  const airlessFallback = !atmosphereType && hasAtmosphere == null && /moon|comet|asteroid|barren/.test(kind);
+  const atmosphere = {
+    strength: explicitAbsence || airlessFallback ? 0 : /thin|trace/.test(atmosphereType) ? 0.4 : 1,
+    coverage: bounded(body?.cloud_coverage ?? colony?.cloud_coverage, 0, 1, 0.65),
+    color: /lava|volcan|molten|desert|arid/.test(kind) ? [0.65, 0.47, 0.34] : [0.4, 0.65, 0.9],
+  };
+  return { radius, kind: kind || 'planet', tint, atmosphere };
 }
 
-function cityCameraMatrix(aspect, span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0) {
+function cityCameraPose(span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0) {
   const t = bounded(progress, 0, 1);
   const eased = t * t * (3 - 2 * t);
   const yaw = Math.PI / 4;
@@ -212,6 +283,14 @@ function cityCameraMatrix(aspect, span, progress = 1, target = { x: 0, z: 0 }, s
     up = orient(up);
     back = orient(back);
   }
+  return {
+    right, up, back, target: targetPosition, distance, eased,
+    eye: targetPosition.map((value, axis) => value + back[axis] * distance),
+  };
+}
+
+function cityCameraMatrix(aspect, span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0) {
+  const { right, up, back, target: targetPosition, distance, eased } = cityCameraPose(span, progress, target, surfaceRadius);
   const view = new Float32Array([
     right[0], up[0], back[0], 0, right[1], up[1], back[1], 0,
     right[2], up[2], back[2], 0,
@@ -236,6 +315,25 @@ function cityCameraMatrix(aspect, span, progress = 1, target = { x: 0, z: 0 }, s
   ]);
   const projection = perspective.map((v, i) => v * (1 - eased) + ortho[i] * eased);
   return multiplyMatrix(projection, view);
+}
+
+function colonyAtmosphereState(body, citySpan, pose) {
+  const radius = body.radius;
+  const finalDistance = citySpan * 2;
+  const finalAltitude = Math.hypot(radius + finalDistance * Math.sin(35.264 * Math.PI / 180),
+    finalDistance * Math.cos(35.264 * Math.PI / 180)) - radius;
+  const cloudAltitude = Math.max(12, finalAltitude * 1.8);
+  const thickness = cloudAltitude * 0.3;
+  const altitude = Math.hypot(pose.eye[0], pose.eye[1] + radius, pose.eye[2]) - radius;
+  const density = Math.exp(-(((altitude - cloudAltitude) / thickness) ** 2));
+  const clearing = bounded((altitude / cloudAltitude - 0.6) / 0.25, 0, 1);
+  const atmosphere = body.atmosphere;
+  return {
+    altitude, cloudAltitude, thickness,
+    fogOpacity: density * clearing * clearing * (3 - 2 * clearing)
+      * (atmosphere?.strength || 0) * (atmosphere?.coverage || 0) * 0.92,
+    belowClouds: altitude < cloudAltitude,
+  };
 }
 
 function normalizeCitySlots(data) {
@@ -344,6 +442,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._meshPipeline   = null;
     this._bodyPipeline   = null;
     this._bodyBindGroup  = null;
+    this._skyPipeline = null;
+    this._cloudVeilPipeline = null;
+    this._skyBindGroup = null;
+    this._cloudVeilBindGroup = null;
+    this._atmosphereState = null;
     this._vfxPipeline    = null;
     this._instanceBuffer = null;
     this._instanceBindGroup = null;
@@ -452,12 +555,22 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     );
     this._backdropRendered = this._camera.progress < 1
       && !!this._planetBackdrop?.renderBackdrop(seconds, this._backdropPose, 1 - this._camera.progress);
-    const uniforms = new Float32Array(24);
+    const cameraSpan = this._camera.span / Math.min(1, aspect);
+    const pose = cityCameraPose(cameraSpan, this._camera.progress, this._camera.target, this._bodySurface.radius);
+    this._atmosphereState = colonyAtmosphereState(this._bodySurface, this._citySpan, pose);
+    const uniforms = new Float32Array(48);
     uniforms.set(this._viewProjection);
     uniforms[16] = this._backdropRendered ? this._camera.progress : 1;
     uniforms[17] = this._bodySurface.radius;
     uniforms[19] = this._elapsed;
     uniforms.set([...this._bodySurface.tint, 1], 20);
+    uniforms.set([...pose.eye, this._atmosphereState.fogOpacity], 24);
+    uniforms.set([...pose.right, cameraSpan * aspect * 0.5], 28);
+    uniforms.set([...pose.up, cameraSpan * 0.5], 32);
+    uniforms.set([...pose.back, pose.distance], 36);
+    uniforms.set([...this._bodySurface.atmosphere.color, this._bodySurface.atmosphere.strength], 40);
+    uniforms.set([this._atmosphereState.cloudAltitude, this._atmosphereState.thickness,
+      this._bodySurface.atmosphere.coverage, pose.eased], 44);
     this._device.queue.writeBuffer(this._cameraBuffer, 0, uniforms);
     this._uploadPeople();
     this._updateBuildingVfxBuffer(seconds);
@@ -472,7 +585,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     let data = transitionPayload || this._sceneData;
     const planetColony = transitionPayload?.__slot?.player_planet || transitionPayload?.planet?.__slot?.player_planet || transitionPayload?.planet || transitionPayload;
     if (!transitionPayload?.colony && Number(planetColony?.colony_id) > 0) {
-      data = { colony: { ...planetColony, id: Number(planetColony.colony_id) }, slots: [] };
+      data = {
+        colony: { ...planetColony, id: Number(planetColony.colony_id) },
+        focusPlanet: transitionPayload?.focusPlanet || transitionPayload?.planet || transitionPayload,
+        slots: [],
+      };
     }
     this._snapshotState = '';
     this._snapshotLoaded = false;
@@ -485,6 +602,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._active = false;
     this._cameraFocus = null;
     this._buildingView = null;
+    this._atmosphereState = null;
     this._requestGeneration++;
     this._request?.abort();
     this._request = null;
@@ -522,6 +640,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._meshPipeline = null;
     this._bodyPipeline = null;
     this._bodyBindGroup = null;
+    this._skyPipeline = null;
+    this._cloudVeilPipeline = null;
+    this._skyBindGroup = null;
+    this._cloudVeilBindGroup = null;
     this._vfxPipeline = null;
     this._instanceBindGroup = null;
     this._buildingVfxVertexCount = 0;
@@ -575,7 +697,32 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
     this._cameraBuffer = this._device.createBuffer({
-      size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const skyShader = this._device.createShaderModule({ label: 'colony_cloud_sky', code: COLONY_SKY_WGSL });
+    for (const [entryPoint, property, depthCompare] of [
+      ['fs_sky', '_skyPipeline', 'less-equal'],
+      ['fs_veil', '_cloudVeilPipeline', 'always'],
+    ]) {
+      this[property] = this._device.createRenderPipeline({
+        label: entryPoint === 'fs_sky' ? 'colony_sky_dome' : 'colony_cloud_crossing',
+        layout: 'auto',
+        vertex: { module: skyShader, entryPoint: 'vs_main' },
+        fragment: { module: skyShader, entryPoint, targets: [{ format, blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        } }] },
+        primitive: { topology: 'triangle-list' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare },
+      });
+    }
+    this._skyBindGroup = this._device.createBindGroup({
+      layout: this._skyPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this._cameraBuffer } }],
+    });
+    this._cloudVeilBindGroup = this._device.createBindGroup({
+      layout: this._cloudVeilPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this._cameraBuffer } }],
     });
     const vfxShader = this._device.createShaderModule({ label: 'colony_vfx', code: COLONY_VFX_WGSL });
     this._vfxPipeline = this._device.createRenderPipeline({
@@ -662,7 +809,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   _transitionBaseSpan() {
     const t = bounded(this._camera.progress, 0, 1);
     const eased = t * t * (3 - 2 * t);
-    return this._entrySpan + (this._citySpan - this._entrySpan) * eased;
+    return this._entrySpan * Math.pow(this._citySpan / this._entrySpan, eased);
   }
 
   _setCameraSpan(span) {
@@ -1229,6 +1376,16 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       pass.setVertexBuffer(0, this._buildingVfxBuffer);
       pass.draw(this._buildingVfxVertexCount, 1, 0, 0);
     }
+    if (this._bodySurface.atmosphere?.strength > 0 && this._skyPipeline) {
+      pass.setPipeline(this._skyPipeline);
+      pass.setBindGroup(0, this._skyBindGroup);
+      pass.draw(3, 1, 0, 0);
+      if (this._atmosphereState?.fogOpacity > 0.001) {
+        pass.setPipeline(this._cloudVeilPipeline);
+        pass.setBindGroup(0, this._cloudVeilBindGroup);
+        pass.draw(3, 1, 0, 0);
+      }
+    }
     pass.end();
     this._device.queue.submit([encoder.finish()]);
   }
@@ -1260,8 +1417,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    ColonySurfaceLevelWebGPU, COLONY_CITY_WGSL, COLONY_BODY_WGSL, COLONY_VFX_WGSL,
-    normalizeCitySlots, buildCityGeometry, cityCameraMatrix, projectCityPoint,
+    ColonySurfaceLevelWebGPU, COLONY_CITY_WGSL, COLONY_BODY_WGSL, COLONY_VFX_WGSL, COLONY_SKY_WGSL,
+    normalizeCitySlots, buildCityGeometry, cityCameraMatrix, cityCameraPose, colonyAtmosphereState, projectCityPoint,
     mapColonySurfacePoint, projectColonySurfacePoint, resolveBodySurface,
     cityPedestrians, cityEconomyStatus,
   };

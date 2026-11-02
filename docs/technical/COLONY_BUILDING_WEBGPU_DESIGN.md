@@ -37,6 +37,19 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   eines Hindernisses enden würde. Bereits überlappende Startpositionen dürfen
   nur nach außen entkommen, nicht durch das Hindernis hindurchfliegen.
   Die Kolonie-Kamera hält zusätzlich Mindestabstand zu den höchsten Gebäuden.
+- **Wolken und Himmel:** Eine analytisch geschnittene, transparente Kugelschale
+  um denselben Körper bildet außen Wolken und innen die Himmelskuppel ab.
+  Sie wird nach der Stadt im selben Renderpass mit Tiefenprüfung, aber ohne
+  Tiefenschreiben gezeichnet; Vordergrundgebäude bleiben sichtbar.
+  Beim Durchqueren der Wolkenhöhe nimmt ein prozeduraler Nebelschleier kurz zu
+  und gibt darunter die Kolonie wieder frei. Die Dichte hängt von der realen
+  Kamerahöhe über der Kugel ab, nicht von einem separaten Timer – daher gilt
+  der Effekt auch beim manuellen Heraus- und Hineinzoomen.
+  Logarithmische Zoominterpolation macht den Durchflug auch auf großen Planeten
+  sichtbar. `atmosphere_type`, `has_atmosphere` und optional `cloud_coverage`
+  steuern die Darstellung; explizit atmosphärenlose Körper sowie standardmäßig
+  Monde, Kometen und Asteroiden erhalten weder Wolken noch Himmel.
+  Ein explizit atmosphärischer Mond kann dennoch eine Kuppel zeigen.
 - **Interaktion:** Ziehen verschiebt die Kamera, Mausrad oder +/- zoomt,
   Doppelklick bzw. „Focus building“ fährt Target und Zoom weich in mindestens
   650 ms zum Gebäude; der vorhandene Frame-Hook steuert diese Bewegung ohne
@@ -97,6 +110,8 @@ Der Browser-Test verwendet echte WebGPU-Pipelines auf dem Galaxy-Renderer
 Rückkehr und prüft gemeinsame Ressourcen, fehlende Validierungsfehler sowie
 genau einen Snapshot-Request. Ein lokal vorhandener Chromium kann über
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` gewählt werden.
+Zusätzlich vergleicht er echte Canvas-Pixel mit und ohne Wolkenschleier an
+derselben Kamerapose und legt `colony-view.png` als Screenshot-Artefakt ab.
 
 ---
 

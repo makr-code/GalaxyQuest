@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
   ColonySurfaceLevelWebGPU, normalizeCitySlots, buildCityGeometry,
-  cityCameraMatrix, projectCityPoint, mapColonySurfacePoint, projectColonySurfacePoint,
+  cityCameraMatrix, cityCameraPose, colonyAtmosphereState, projectCityPoint, mapColonySurfacePoint, projectColonySurfacePoint,
   resolveBodySurface, cityPedestrians, cityEconomyStatus,
 } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
 const { SeamlessZoomOrchestrator, ZOOM_LEVEL } = require('../../js/engine/zoom/SeamlessZoomOrchestrator.js');
@@ -166,6 +166,71 @@ describe('Authoritative city scene mapping', () => {
 });
 
 describe('Isometric camera and shared WebGPU rendering', () => {
+  it('crosses a physical cloud altitude with visible fog, then clears the near colony view', async () => {
+    const { level, backend } = await makeLevel();
+    await level.enter(2, scene({ colony: { id: 7, diameter_km: 12742, atmosphere_type: 'nitrogen_oxygen' } }));
+    const states = [];
+    for (let frame = 0; frame < 80; frame++) {
+      level.render(0.016);
+      states.push({ ...level._atmosphereState });
+    }
+    expect(states[0].belowClouds).toBe(false);
+    expect(states[0].fogOpacity).toBeLessThan(0.01);
+    expect(Math.max(...states.map((state) => state.fogOpacity))).toBeGreaterThan(0.5);
+    expect(states.filter((state) => state.fogOpacity > 0.2).length).toBeGreaterThanOrEqual(8);
+    expect(states.at(-1).belowClouds).toBe(true);
+    expect(states.at(-1).fogOpacity).toBeLessThan(0.05);
+    expect(backend.pass.setPipeline).toHaveBeenCalledWith(level._skyPipeline);
+    expect(backend.pass.setPipeline).toHaveBeenCalledWith(level._cloudVeilPipeline);
+    const pipelines = backend.device.createRenderPipeline.mock.calls.map(([pipeline]) => pipeline);
+    expect(pipelines.find((pipeline) => pipeline.label === 'colony_sky_dome').depthStencil)
+      .toMatchObject({ depthWriteEnabled: false, depthCompare: 'less-equal' });
+    expect(pipelines.find((pipeline) => pipeline.label === 'colony_cloud_crossing').depthStencil)
+      .toMatchObject({ depthWriteEnabled: false, depthCompare: 'always' });
+    level._setCameraSpan(level._entrySpan);
+    level.render(0);
+    expect(level._atmosphereState.belowClouds).toBe(false);
+    expect(level._atmosphereState.fogOpacity).toBeLessThan(0.01);
+  });
+
+  it.each([
+    { atmosphere_type: 'none' },
+    { has_atmosphere: false },
+    { has_atmosphere: 0 },
+    { body_type: 'comet' },
+    { body_type: 'asteroid' },
+    { planet_type: 'moon' },
+  ])('does not render a cloudy atmosphere on an airless body: %j', async (metadata) => {
+    const { level, backend } = await makeLevel();
+    await level.enter(2, scene({ colony: { id: 7, ...metadata } }));
+    for (let frame = 0; frame < 80; frame++) level.render(0.016);
+    expect(level._bodySurface.atmosphere.strength).toBe(0);
+    expect(level._atmosphereState.fogOpacity).toBe(0);
+    expect(backend.pass.setPipeline).not.toHaveBeenCalledWith(level._skyPipeline);
+    expect(backend.pass.setPipeline).not.toHaveBeenCalledWith(level._cloudVeilPipeline);
+  });
+
+  it('uses explicit atmosphere and cloud metadata rather than body kind alone', () => {
+    const body = resolveBodySurface({ colony: { planet_type: 'moon', atmosphere_type: 'thin', cloud_coverage: 0 } }, 24, 18);
+    expect(body.atmosphere.strength).toBe(0.4);
+    const pose = cityCameraPose(40, 1, { x: 7, z: -9 }, body.radius);
+    const state = colonyAtmosphereState(body, 32, pose);
+    expect(state.fogOpacity).toBe(0);
+    expect(Number.isFinite(state.altitude)).toBe(true);
+    expect(Math.hypot(pose.eye[0] - pose.target[0], pose.eye[1] - pose.target[1], pose.eye[2] - pose.target[2]))
+      .toBeCloseTo(pose.distance);
+    const matrix = cityCameraMatrix(1.5, 40, 1, { x: 7, z: -9 }, body.radius);
+    const eye = projectCityPoint(matrix, ...pose.eye);
+    expect(eye[0]).toBeCloseTo(0);
+    expect(eye[1]).toBeCloseTo(0);
+    const inherited = resolveBodySurface({
+      focusPlanet: { id: 8 },
+      colony: { body_type: 'comet', diameter_km: 300, atmosphere_type: 'none' },
+    }, 24, 18);
+    expect(inherited.kind).toBe('comet');
+    expect(inherited.atmosphere.strength).toBe(0);
+  });
+
   it('interpolates real projection matrices and keeps the target centered at all aspects', () => {
     for (const aspect of [0.5, 1, 2]) {
       for (const t of [0, 0.4, 1]) {

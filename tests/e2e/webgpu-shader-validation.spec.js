@@ -80,6 +80,13 @@ function buildShaderCatalogue() {
       ),
     },
     {
+      label: 'Colony surface — cloud shell and interior sky dome',
+      type: 'render',
+      source: extractWgslFromModule(
+        'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js', 'COLONY_SKY_WGSL',
+      ),
+    },
+    {
       label: 'Colony surface — projected activity particles',
       type: 'render',
       source: extractWgslFromModule(

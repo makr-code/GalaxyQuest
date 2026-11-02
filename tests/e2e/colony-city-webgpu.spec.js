@@ -4,7 +4,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '../..');
 
-test('colony city uses the live galaxy device, canvas and frame loop', async ({ page }) => {
+test('colony city uses the live galaxy device, canvas and frame loop', async ({ page }, testInfo) => {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('http://localhost/colony-city-test', (route) => route.fulfill({
@@ -87,6 +87,67 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
     scoped: null, errors: [], shared: true, canvases: initial.canvases, hooks: 1, independentRaf: 0, buildings: 5, people: 96,
   });
   expect(rendered.frames).toBeGreaterThan(2);
+  await page.locator('#host').screenshot({ path: testInfo.outputPath('colony-view.png') });
+  const clouds = await page.evaluate(() => {
+    const { orchestrator, renderer } = window.cityTest;
+    const city = orchestrator._active;
+    window.cityTest.cloudHooks = [...renderer._frameHooks];
+    window.cityTest.atmosphereStrength = city._bodySurface.atmosphere.strength;
+    renderer._frameHooks.clear();
+    let peak = { fogOpacity: 0, progress: 0 };
+    for (let frame = 0; frame <= 30; frame++) {
+      city._camera.progress = frame / 30;
+      city._zoomMultiplier = 1;
+      city.render(0);
+      if (city._atmosphereState.fogOpacity > peak.fogOpacity) {
+        peak = { ...city._atmosphereState, progress: frame / 30 };
+      }
+    }
+    const landed = { ...city._atmosphereState };
+    city._camera.progress = peak.progress;
+    city._zoomMultiplier = 1;
+    city.render(0);
+    return { peak, landed };
+  });
+  let brightnessIncrease;
+  try {
+    const cloudImage = await page.locator('#host').screenshot({ path: testInfo.outputPath('colony-cloud-crossing.png') });
+    await page.evaluate(() => {
+      const city = window.cityTest.orchestrator._active;
+      city._bodySurface.atmosphere.strength = 0;
+      city.render(0);
+    });
+    const clearImage = await page.locator('#host').screenshot();
+    brightnessIncrease = await page.evaluate(async ({ cloudy, clear }) => {
+      const average = async (base64) => {
+        const bytes = Uint8Array.from(atob(base64), (value) => value.charCodeAt(0));
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const sample = new OffscreenCanvas(32, 32);
+        const context = sample.getContext('2d');
+        context.drawImage(bitmap, 0, 0, 32, 32);
+        bitmap.close();
+        const { data } = context.getImageData(0, 0, 32, 32);
+        let total = 0;
+        for (let i = 0; i < data.length; i += 4) total += (data[i] + data[i + 1] + data[i + 2]) / 3;
+        return total / (32 * 32);
+      };
+      return await average(cloudy) - await average(clear);
+    }, { cloudy: cloudImage.toString('base64'), clear: clearImage.toString('base64') });
+  } finally {
+    await page.evaluate(() => {
+      const { orchestrator, renderer, cloudHooks, atmosphereStrength } = window.cityTest;
+      const city = orchestrator._active;
+      city._bodySurface.atmosphere.strength = atmosphereStrength;
+      city._camera.progress = 1;
+      city._zoomMultiplier = 1;
+      city.render(0);
+      for (const hook of cloudHooks) renderer._frameHooks.add(hook);
+    });
+  }
+  expect(clouds.peak.fogOpacity).toBeGreaterThan(0.5);
+  expect(clouds.landed.belowClouds).toBe(true);
+  expect(clouds.landed.fogOpacity).toBeLessThan(0.05);
+  expect(brightnessIncrease).toBeGreaterThan(20);
   const point = await page.evaluate(() => {
     const city = window.cityTest.orchestrator._active;
     const slot = city._slots.at(-1);
