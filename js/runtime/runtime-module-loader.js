@@ -10,7 +10,15 @@ const runtimeModules = new Map([
   ['js/rendering/Galaxy3DRendererWebGPU.js', () => import('../rendering/Galaxy3DRendererWebGPU.js')],
   ['js/legacy/galaxy3d-webgpu.js', () => import('../legacy/galaxy3d-webgpu.js')],
   ['js/rendering/galaxy-camera-controller.js', () => import('../rendering/galaxy-camera-controller.js')],
-  ['js/rendering/texture-manager.js', () => import('../rendering/texture-manager.js')],
+  ['js/engine/assets/WorldAssetDescriptor.js', () => import('../engine/assets/WorldAssetDescriptor.js')],
+  ['js/engine/assets/CoherentMaterialGenerator.js', async () => {
+    await loadRuntimeModule('js/engine/assets/WorldAssetDescriptor.js');
+    return import('../engine/assets/CoherentMaterialGenerator.js');
+  }],
+  ['js/rendering/texture-manager.js', async () => {
+    await loadRuntimeModule('js/engine/assets/CoherentMaterialGenerator.js');
+    return import('../rendering/texture-manager.js');
+  }],
   ['js/rendering/geometry-manager.js', () => import('../rendering/geometry-manager.js')],
   ['js/rendering/material-factory.js', () => import('../rendering/material-factory.js')],
   ['js/rendering/light-rig-manager.js', () => import('../rendering/light-rig-manager.js')],

@@ -7,8 +7,26 @@
   const generatedSets = new WeakSet();
   const mapNames = ['albedo', 'normal', 'roughness', 'metalness', 'emissive'];
   let cacheModule;
+  const materialProperties = descriptor => {
+    const glass = descriptor.materialFamily === 'glass';
+    return { roughness: 1, metalness: descriptor.materialFamily === 'painted-metal' ? 1 : 0,
+      transparent: glass, opacity: glass ? 0.35 : 1, depthWrite: !glass,
+      emissiveIntensity: CoherentMaterialGenerator.emissiveIntensity(descriptor) };
+  };
+  const resultFor = (descriptor, size, maps) => {
+    const result = { descriptor, width: size, height: size, maps, material: materialProperties(descriptor) };
+    generatedSets.add(result);
+    return result;
+  };
 
   class CoherentMaterialGenerator {
+    static emissiveIntensity(descriptor) {
+      const state = descriptor?.effects?.state;
+      const activity = Number.isFinite(state?.activity) ? Math.max(0, Math.min(1, state.activity)) : 1;
+      const damage = Number.isFinite(state?.damage) ? Math.max(0, Math.min(1, state.damage)) : 0;
+      return (descriptor?.materialFamily === 'emissive' ? 1.5 : 0.45) * activity * (1 - damage);
+    }
+
     static resolveSize(descriptor, options = {}) {
       const fallback = { low: 32, medium: 64, high: 128 }[descriptor.quality] || 64;
       return Number.isFinite(options?.size) ? Math.max(8, Math.min(256, Math.floor(options.size))) : fallback;
@@ -64,8 +82,7 @@
           // The same exposed substrate drives pigment loss, roughness and conductivity.
           put('roughness', i, glass ? 0.08 + w * 0.17 : metal ? 0.34 + w * 0.45 + (0.5 - h) * 0.2 : 0.72 + w * 0.25);
           put('metalness', i, metal ? 0.12 + w * 0.85 : 0);
-          put('emissive', i, ...descriptor.color.map(c =>
-            lit * c * descriptor.effects.state.activity * (1 - descriptor.effects.state.damage)));
+          put('emissive', i, ...descriptor.color.map(c => lit * c));
           const left = height[y * size + (x + size - 1) % size];
           const right = height[y * size + (x + 1) % size];
           const down = height[((y + size - 1) % size) * size + x];
@@ -76,11 +93,7 @@
           put('normal', i, nx / length * 0.5 + 0.5, ny / length * 0.5 + 0.5, 1 / length * 0.5 + 0.5);
         }
       }
-      const result = { descriptor, width: size, height: size, maps,
-        material: { roughness: 1, metalness: metal ? 1 : 0, transparent: glass,
-          opacity: glass ? 0.35 : 1, depthWrite: !glass, emissiveIntensity: glowing ? 1.5 : 0.45 } };
-      generatedSets.add(result);
-      return result;
+      return resultFor(descriptor, size, maps);
     }
 
     /**
@@ -94,10 +107,11 @@
       const size = this.resolveSize(descriptor, options);
       let generated = generatedSets.has(options?.fallback)
         && options.fallback.descriptor.id === descriptor.id && options.fallback.width === size
-        ? options.fallback : null;
+        ? resultFor(descriptor, size, options.fallback.maps) : null;
       const fallback = () => generated || (generated = this.generate(descriptor, { size }));
       const key = { scope: 'public', version: descriptor.schemaVersion, seed: descriptor.seed,
-        parameters: descriptor, lod: size, generatorHash: descriptor.generatorVersion, kind: 'coherent-pbr-rgba' };
+        parameters: Contract.publicParameters(descriptor), lod: size,
+        generatorHash: descriptor.generatorVersion, kind: 'coherent-pbr-rgba' };
       const mapLength = size * size * 4;
       const pack = () => {
         const bytes = new Uint8Array(mapLength * mapNames.length);
@@ -123,14 +137,7 @@
           maps[name] = { ...descriptor.maps[name], width: size, height: size, channels: 4, bytesPerRow: size * 4,
             data: new Uint8Array(buffer.slice(i * mapLength, (i + 1) * mapLength)) };
         });
-        const metal = descriptor.materialFamily === 'painted-metal';
-        const glass = descriptor.materialFamily === 'glass';
-        const result = { descriptor, width: size, height: size, maps,
-          material: { roughness: 1, metalness: metal ? 1 : 0, transparent: glass,
-            opacity: glass ? 0.35 : 1, depthWrite: !glass,
-            emissiveIntensity: descriptor.materialFamily === 'emissive' ? 1.5 : 0.45 } };
-        generatedSets.add(result);
-        return result;
+        return resultFor(descriptor, size, maps);
       } catch {
         return fallback();
       }

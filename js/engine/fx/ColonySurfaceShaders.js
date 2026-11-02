@@ -74,9 +74,11 @@ struct Out { @builtin(position) position: vec4f, @location(0) uv: vec2f,
   var corners = array<vec2f,6>(vec2f(-1,-1),vec2f(1,-1),vec2f(-1,1),
     vec2f(-1,1),vec2f(1,-1),vec2f(1,1));
   let uv = corners[vertex]; var out: Out; out.position = project(p.position);
-  out.position.x += uv.x * p.size * camera.centerScale.w / camera.aspectTime.x;
-  out.position.y += uv.y * p.size * camera.centerScale.w;
-  out.uv = uv; out.color = vec4f(p.color, p.alive * min(p.age * 4.0,1.0) * min(p.lifetime,1.0) * 0.5);
+  let burst = clamp(camera.aspectTime.z, 0.0, 1.0);
+  let size = p.size * (1.0 + burst * 0.18);
+  out.position.x += uv.x * size * camera.centerScale.w / camera.aspectTime.x;
+  out.position.y += uv.y * size * camera.centerScale.w;
+  out.uv = uv; out.color = vec4f(p.color, p.alive * min(p.age * 4.0,1.0) * min(p.lifetime,1.0) * (0.5 + burst * 0.22));
   return out;
 }
 @fragment fn fs_main(in: Out) -> @location(0) vec4f {

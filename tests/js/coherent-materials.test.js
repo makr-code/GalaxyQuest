@@ -21,7 +21,7 @@ describe('deterministic public world asset contract', () => {
     expect(Descriptor.normalize(first)).toEqual(first);
     expect(first.seed).toBe(0);
     expect(first.id).toMatch(/^wa1-[0-9a-f]{16}$/);
-    expect(first.generatorVersion).toBe('coherent-pbr-1');
+    expect(first.generatorVersion).toBe('coherent-pbr-2');
     expect(first.schemaVersion).toBe(1);
     expect(JSON.stringify(first)).not.toMatch(/secret|password|inventory|internal/);
     expect(Object.isFrozen(first)).toBe(true);
@@ -40,10 +40,10 @@ describe('deterministic public world asset contract', () => {
         anchors: Array(1000).fill({ position: [1e99, -1e99, NaN], direction: [0, 0, 0], intensity: 1e99 }) },
     });
     expect(descriptor.faction).toHaveLength(48);
-    expect(descriptor.lods).toHaveLength(4);
+    expect(descriptor.lods).toEqual([{ distance: 0, detail: 0 }]);
     expect(descriptor.effects.anchors).toHaveLength(16);
     expect(descriptor.effects.anchors[0]).toEqual({
-      type: 'vent', position: [1000, -1000, 0], direction: [0, 1, 0], intensity: 4,
+      id: 'vent-0', name: 'vent-0', type: 'vent', position: [1000, -1000, 0], direction: [0, 1, 0], intensity: 4,
     });
     expect(descriptor.geometry.scale).toEqual([1, 0.001, 1000]);
     expect(descriptor.color).toEqual([0.35, 1, 0]);
@@ -52,6 +52,53 @@ describe('deterministic public world asset contract', () => {
     expect(Generator.resolveSize(descriptor, { size: -10 })).toBe(8);
     expect(Generator.resolveSize(descriptor, { size: 1e99 })).toBe(256);
     expect(Descriptor.normalize(null)).toEqual(Descriptor.normalize());
+  });
+
+  it('prepares at least one LOD starting at zero with strictly increasing distances', () => {
+    expect(Descriptor.normalize({ lods: [] }).lods).toEqual([{ distance: 0, detail: 1 }]);
+    const descriptor = Descriptor.normalize({ lods: [
+      { distance: 300, detail: 0.3 }, { distance: 100, detail: 0.7 },
+      { distance: 100, detail: 0.2 }, { distance: 500, detail: 0.1 },
+    ] });
+    expect(descriptor.lods).toEqual([
+      { distance: 0, detail: 1 }, { distance: 100, detail: 0.7 },
+      { distance: 300, detail: 0.3 }, { distance: 500, detail: 0.1 },
+    ]);
+    expect(Descriptor.normalize(descriptor)).toEqual(descriptor);
+  });
+
+  it('assigns stable unique named anchors and supports industry, energy and construction profiles', () => {
+    const descriptor = Descriptor.normalize({ effects: { profile: 'construction', anchors: [
+      { name: 'Build Beam', type: 'energy' }, { id: 'buildbeam', name: 'Weld Vent', type: 'vent' },
+      { id: 'buildbeam', type: 'beacon' },
+    ] } });
+    expect(descriptor.effects.profile).toBe('construction');
+    expect(descriptor.effects.anchors.map(anchor => anchor.id)).toEqual(['buildbeam', 'buildbeam-1', 'buildbeam-2']);
+    expect(descriptor.effects.anchors.map(anchor => anchor.name)).toEqual(['buildbeam', 'weldvent', 'buildbeam-2']);
+    expect(Descriptor.normalize(descriptor)).toEqual(descriptor);
+    expect(Descriptor.normalize({ effects: { profile: 'industry' } }).effects.profile).toBe('industrial');
+    expect(Descriptor.normalize({ effects: { profile: 'build' } }).effects.profile).toBe('construction');
+    expect(Descriptor.normalize({ effects: { profile: 'energy' } }).effects.profile).toBe('energy');
+  });
+
+  it.each([[1, 1, 1], [0.3, 0.6, 0.7]])('keeps normalized non-axis direction %j hash-stable', (...direction) => {
+    const descriptor = Descriptor.normalize({ seed: 0, effects: { anchors: [{ id: 'beam', direction }] } });
+    expect(Math.hypot(...descriptor.effects.anchors[0].direction)).toBeCloseTo(1, 12);
+    let normalized = descriptor;
+    for (let i = 0; i < 10; i++) {
+      normalized = Descriptor.normalize(normalized);
+      expect(normalized).toEqual(descriptor);
+      expect(normalized.id).toBe(descriptor.id);
+    }
+  });
+
+  it('excludes live authoritative state from public identities and parameter projections', () => {
+    const active = Descriptor.normalize({ seed: 0, effects: { state: { activity: 1, damage: 0 } } });
+    const damaged = Descriptor.normalize({ seed: 0, effects: { state: { activity: 0.2, damage: 0.8 } } });
+    expect(active.id).toBe(damaged.id);
+    expect(active.effects.state).not.toEqual(damaged.effects.state);
+    expect(Descriptor.publicParameters(active)).toEqual(Descriptor.publicParameters(damaged));
+    expect(JSON.stringify(Descriptor.publicParameters(active))).not.toMatch(/"state"|"activity"|"damage"/);
   });
 
   it('preserves seed zero and deterministic strings, effects and quality choices', () => {
@@ -103,14 +150,16 @@ describe('coherent typed PBR synthesis', () => {
     }
   });
 
-  it('uses dielectric transparent glass and gates emission by public effect state', () => {
+  it('uses dielectric glass and applies live state only through runtime emissive intensity', () => {
     const glass = Generator.generate({ materialFamily: 'glass' }, { size: 16 });
     expect(glass.material).toMatchObject({ transparent: true, opacity: 0.35, depthWrite: false, metalness: 0 });
     expect(glass.maps.metalness.data.filter((_, i) => i % 4 !== 3).every(n => n === 0)).toBe(true);
     const on = Generator.generate({ materialFamily: 'emissive' }, { size: 16 });
     const off = Generator.generate({ materialFamily: 'emissive', effects: { state: { activity: 0 } } }, { size: 16 });
     expect(on.maps.emissive.data.some((n, i) => i % 4 !== 3 && n > 0)).toBe(true);
-    expect(off.maps.emissive.data.filter((_, i) => i % 4 !== 3).every(n => n === 0)).toBe(true);
+    expect(off.maps).toEqual(on.maps);
+    expect(off.material.emissiveIntensity).toBe(0);
+    expect(on.material.emissiveIntensity).toBe(1.5);
   });
 });
 
@@ -155,6 +204,7 @@ describe('active Three coherent material route and ownership', () => {
     const manager = new Manager({ three: THREE, coherentMaxEntries: 1 });
     const first = manager.getCoherentMaterialBundle({ seed: 0 }, { size: 8 });
     const alsoFirst = manager.getCoherentMaterialBundle({ seed: 0 }, { size: 8 });
+    const secondOwner = alsoFirst.material;
     const dispose = vi.spyOn(first.material.map, 'dispose');
     const second = manager.getCoherentMaterialBundle({ seed: 1 }, { size: 8 });
     expect(manager.coherentTextureCache.size).toBe(1);
@@ -162,7 +212,7 @@ describe('active Three coherent material route and ownership', () => {
     first.material.dispose();
     first.material.dispose();
     expect(dispose).not.toHaveBeenCalled();
-    alsoFirst.material.dispose();
+    secondOwner.dispose();
     expect(dispose).toHaveBeenCalledOnce();
     const secondDispose = vi.spyOn(second.material.map, 'dispose');
     manager.dispose();
@@ -214,6 +264,44 @@ describe('active Three coherent material route and ownership', () => {
     manager.dispose();
     factory.dispose();
   });
+
+  it('does not allocate or retain an unused material when a factory only consumes bundle maps', () => {
+    let created = 0;
+    const three = { ...THREE, MeshStandardMaterial: class extends THREE.MeshStandardMaterial {
+      constructor(parameters) { super(parameters); created++; }
+    } };
+    const manager = new Manager({ three, coherentMaxEntries: 1 });
+    const factory = new Factory({ three });
+    const bundle = manager.getCoherentMaterialBundle({ seed: 0 }, { size: 8 });
+    expect(created).toBe(0);
+    const material = factory.createStationBodyMaterial(0xffffff, bundle);
+    expect(created).toBe(1);
+    const dispose = vi.spyOn(bundle.map, 'dispose');
+    manager.getCoherentMaterialBundle({ seed: 1 }, { size: 8 });
+    expect(dispose).not.toHaveBeenCalled();
+    material.dispose();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(created).toBe(1);
+    manager.dispose();
+    factory.dispose();
+  });
+
+  it('shares static map originals across live states while preserving per-material intensity', () => {
+    const manager = new Manager({ three: THREE });
+    const on = manager.getCoherentMaterialBundle({ materialFamily: 'emissive' }, { size: 8 });
+    const off = manager.getCoherentMaterialBundle({
+      materialFamily: 'emissive', effects: { state: { activity: 0, damage: 1 } },
+    }, { size: 8 });
+    expect(on.descriptor.id).toBe(off.descriptor.id);
+    expect(on.material.map).toBe(off.material.map);
+    expect(on.material.emissiveMap).toBe(off.material.emissiveMap);
+    expect(on.material.emissiveIntensity).toBe(1.5);
+    expect(off.material.emissiveIntensity).toBe(0);
+    expect(manager.coherentTextureCache.size).toBe(1);
+    on.material.dispose();
+    off.material.dispose();
+    manager.dispose();
+  });
 });
 
 describe('persisted coherent public map bytes', () => {
@@ -232,7 +320,7 @@ describe('persisted coherent public map bytes', () => {
     const key = load.mock.calls[0][0];
     expect(key).toMatchObject({
       scope: 'public', version: 1, seed: 0, lod: 16,
-      generatorHash: 'coherent-pbr-1', kind: 'coherent-pbr-rgba',
+      generatorHash: 'coherent-pbr-2', kind: 'coherent-pbr-rgba',
     });
     expect(JSON.stringify(key)).not.toMatch(/privateInventory|fuel/);
     expect((await cache.get(key)).byteLength).toBe(16 * 16 * 4 * 5);
@@ -261,8 +349,29 @@ describe('persisted coherent public map bytes', () => {
     expect(cache.delete).toHaveBeenCalledOnce();
     expect(cache.put.mock.calls[0][1].byteLength).toBe(8 * 8 * 4 * 5);
     cache.getOrLoad.mockRejectedValue(new Error('quota unavailable'));
-    expect(await Generator.generateCached(descriptor, { size: 8, cache, fallback })).toBe(fallback);
-    expect(await Generator.generateCached(descriptor, { size: 8, cache: null, fallback })).toBe(fallback);
+    expect(await Generator.generateCached(descriptor, { size: 8, cache, fallback })).toEqual(fallback);
+    expect(await Generator.generateCached(descriptor, { size: 8, cache: null, fallback })).toEqual(fallback);
+  });
+
+  it('persists identical public base bytes for different private states with runtime-only intensity', async () => {
+    const cache = new AssetBinaryCache({ indexedDB: null, crypto: webcrypto });
+    const source = { seed: 0, materialFamily: 'emissive' };
+    const fallback = Generator.generate(source, { size: 8 });
+    const load = vi.spyOn(cache, 'getOrLoad');
+    const on = await Generator.generateCached(source, { size: 8, cache, fallback });
+    const off = await Generator.generateCached({
+      ...source, effects: { state: { activity: 0.1, damage: 0.8 } },
+    }, { size: 8, cache, fallback });
+    const firstKey = load.mock.calls[0][0];
+    const secondKey = load.mock.calls[1][0];
+    expect(cache.key(firstKey)).toBe(cache.key(secondKey));
+    expect(JSON.stringify(firstKey)).not.toMatch(/"state"|"activity"|"damage"/);
+    expect(cache._memory.size).toBe(1);
+    expect(on.maps).toEqual(off.maps);
+    expect(on.material.emissiveIntensity).toBe(1.5);
+    expect(off.material.emissiveIntensity).toBeCloseTo(0.03);
+    expect(off.descriptor.effects.state).toEqual({ activity: 0.1, damage: 0.8 });
+    cache.close();
   });
 
   it('replaces active Three pixel buffers from persistence and ignores late results after disposal', async () => {

@@ -115,6 +115,17 @@ describe('combat VFX identity and lifecycle', () => {
     expect(events).toHaveLength(0);
   });
 
+  describe.each(['_onIncomingAttack', '_onFleetArrived'])('%s', (handler) => {
+    it.each(['destroy', 'stopAll'])('does not schedule effects after a synchronous listener calls %s', (method) => {
+      window.addEventListener('gq:combat:weapon-fire', () => bridge[method](), { once: true });
+      bridge[handler]({ detail: { fleet_id: 1, mission: 'attack' } });
+      expect(bridge._alertTimers.size).toBe(0);
+      expect(bridge._activeBattles.size).toBe(0);
+      vi.advanceTimersByTime(9000);
+      expect(events).toHaveLength(1);
+    });
+  });
+
   it('limits concurrent visual work and adapter-requested duration', () => {
     for (let i = 0; i < 80; i++) bridge._startBattleFx('a', `target${i}`, Infinity);
     expect(bridge._activeBattles.size).toBe(32);

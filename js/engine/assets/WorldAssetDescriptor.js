@@ -1,7 +1,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 'coherent-pbr-1';
+  const VERSION = 'coherent-pbr-2';
   const record = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const finite = (value, fallback, min, max) => typeof value === 'number' && Number.isFinite(value)
     ? Math.max(min, Math.min(max, value)) : fallback;
@@ -17,8 +17,27 @@
     }
     return value;
   };
+  const publicProjection = descriptor => ({
+    schemaVersion: descriptor.schemaVersion,
+    generatorVersion: descriptor.generatorVersion,
+    seed: descriptor.seed,
+    materialFamily: descriptor.materialFamily,
+    biome: descriptor.biome,
+    faction: descriptor.faction,
+    age: descriptor.age,
+    color: descriptor.color,
+    geometry: descriptor.geometry,
+    lods: descriptor.lods,
+    maps: descriptor.maps,
+    effects: { profile: descriptor.effects.profile, anchors: descriptor.effects.anchors, variation: descriptor.effects.variation },
+    quality: descriptor.quality,
+  });
 
   class WorldAssetDescriptor {
+    static publicParameters(input = {}) {
+      return freeze(publicProjection(this.normalize(input)));
+    }
+
     static hash(value) {
       const text = typeof value === 'string' ? value : JSON.stringify(value);
       let a = 2166136261;
@@ -50,17 +69,34 @@
         ? parseInt(this.hash(source.seed.slice(0, 128)).slice(0, 8), 16)
         : Math.trunc(finite(source.seed, 0, -4294967295, 4294967295)) >>> 0;
       const random = this.random(seed);
-      const anchors = (Array.isArray(effects.anchors) ? effects.anchors.slice(0, 16) : []).map(value => {
+      const anchorIds = new Set();
+      const anchors = Array.from(Array.isArray(effects.anchors) ? effects.anchors.slice(0, 16) : []).map((value, index) => {
         const anchor = record(value);
+        const type = choice(anchor.type, ['exhaust', 'vent', 'window', 'beacon', 'energy'], 'vent');
+        const baseId = token(anchor.id, token(anchor.name, `${type}-${index}`));
+        let id = baseId;
+        let suffix = 1;
+        while (anchorIds.has(id)) id = `${baseId.slice(0, 40)}-${suffix++}`;
+        anchorIds.add(id);
         const direction = vector(anchor.direction, [0, 1, 0], -1, 1);
         const length = Math.hypot(...direction);
         return {
-          type: choice(anchor.type, ['exhaust', 'vent', 'window', 'beacon', 'energy'], 'vent'),
+          id,
+          name: token(anchor.name, id),
+          type,
           position: vector(anchor.position, [0, 0, 0], -1000, 1000),
-          direction: length > 0 ? direction.map(n => n / length) : [0, 1, 0],
+          direction: length === 0 ? [0, 1, 0]
+            : Math.abs(length - 1) <= 1e-12 ? direction : direction.map(n => n / length),
           intensity: finite(anchor.intensity, 1, 0, 4),
         };
       });
+      const lods = (Array.isArray(source.lods) ? source.lods.slice(0, 4) : [])
+        .map(value => {
+          const lod = record(value);
+          return { distance: finite(lod.distance, 0, 0, 1000000), detail: finite(lod.detail, 1, 0, 1) };
+        }).sort((a, b) => a.distance - b.distance)
+        .filter((lod, index, entries) => index === 0 || lod.distance > entries[index - 1].distance);
+      if (!lods.length || lods[0].distance !== 0) lods.unshift({ distance: 0, detail: 1 });
       const color = Array.isArray(source.color)
         ? vector(source.color, [0.35, 0.43, 0.52], 0, 1)
         : typeof source.color === 'number' && Number.isFinite(source.color)
@@ -79,11 +115,7 @@
           kind: choice(geometry.kind, ['sphere', 'box', 'cylinder', 'mesh', 'rock'], 'mesh'),
           scale: vector(geometry.scale, [1, 1, 1], 0.001, 1000),
         },
-        lods: (Array.isArray(source.lods) ? source.lods.slice(0, 4) : [{ distance: 0, detail: 1 }])
-          .map(value => {
-            const lod = record(value);
-            return { distance: finite(lod.distance, 0, 0, 1000000), detail: finite(lod.detail, 1, 0, 1) };
-          }).sort((a, b) => a.distance - b.distance),
+        lods: lods.slice(0, 4),
         maps: {
           albedo: { format: 'rgba8unorm', colorSpace: 'srgb', channel: 'rgb' },
           normal: { format: 'rgba8unorm', colorSpace: 'linear', channel: 'rgb', convention: 'opengl' },
@@ -92,14 +124,15 @@
           emissive: { format: 'rgba8unorm', colorSpace: 'srgb', channel: 'rgb' },
         },
         effects: {
-          profile: choice(effects.profile, ['none', 'engine', 'industrial', 'habitat', 'energy'], 'none'),
+          profile: choice(effects.profile === 'build' ? 'construction' : effects.profile === 'industry'
+            ? 'industrial' : effects.profile, ['none', 'engine', 'industrial', 'habitat', 'energy', 'construction'], 'none'),
           anchors,
           state: { activity: finite(state.activity, 1, 0, 1), damage: finite(state.damage, 0, 0, 1) },
           variation: { phase: random() * Math.PI * 2, rate: 0.8 + random() * 0.4, scale: 0.85 + random() * 0.3 },
         },
         quality: choice(source.quality, ['low', 'medium', 'high'], 'medium'),
       };
-      descriptor.id = `wa1-${this.hash(descriptor)}`;
+      descriptor.id = `wa1-${this.hash(publicProjection(descriptor))}`;
       return freeze(descriptor);
     }
   }

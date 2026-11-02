@@ -104,6 +104,14 @@ describe('deterministic procedural geometry', () => {
     const restored = await other.generateAsteroidAsync(config, cache);
     expect(generate).not.toHaveBeenCalled();
     expect(positions(first)).toEqual(positions(restored));
+    expect(Object.keys(restored.attributes).sort()).toEqual(Object.keys(first.attributes).sort());
+    for (const [name, attribute] of Object.entries(first.attributes)) {
+      expect(restored.attributes[name].itemSize).toBe(attribute.itemSize);
+      expect(restored.attributes[name].normalized).toBe(attribute.normalized);
+      expect(Array.from(restored.attributes[name].array)).toEqual(Array.from(attribute.array));
+    }
+    expect(restored.attributes.uv.itemSize).toBe(2);
+    expect(restored.index).toBe(first.index);
     expect(first.attributes.position.array).not.toBe(restored.attributes.position.array);
     expect(restored.boundingSphere.radius).toBeGreaterThan(0);
     first.attributes.position.array[0] = 9999;
@@ -114,6 +122,32 @@ describe('deterministic procedural geometry', () => {
     restored.dispose();
     other.dispose();
     cache.close();
+  });
+
+  it.each(['get', 'put', 'delete'])('returns fresh owned geometry when optional cache %s fails', async (method) => {
+    const cache = {
+      get: vi.fn(async () => null), put: vi.fn(async () => true), delete: vi.fn(async () => {}),
+    };
+    cache[method].mockRejectedValue(new Error('Optional cache unavailable'));
+    if (method === 'delete') cache.get.mockResolvedValue(new ArrayBuffer(16));
+    const generate = vi.spyOn(generator, 'generateAsteroid');
+    const geometry = await generator.generateAsteroidAsync({ seed: 0 }, cache);
+    expect(generate).toHaveBeenCalledOnce();
+    expect(geometry).toBe(generate.mock.results[0].value);
+    expect(geometry.attributes.uv.itemSize).toBe(2);
+    expect(positions(geometry).every(Number.isFinite)).toBe(true);
+    geometry.dispose();
+  });
+
+  it('returns ordinary generated geometry if the optional cache module fails to import', async () => {
+    vi.doMock('../../js/engine/assets/AssetBinaryCache.js', () => { throw new Error('Module unavailable'); });
+    try {
+      const generate = vi.spyOn(generator, 'generateAsteroid');
+      const geometry = await generator.generateAsteroidAsync({ seed: 0 });
+      expect(geometry).toBe(generate.mock.results[0].value);
+      expect(geometry.attributes.uv.itemSize).toBe(2);
+      geometry.dispose();
+    } finally { vi.doUnmock('../../js/engine/assets/AssetBinaryCache.js'); }
   });
 
   it('regenerates when persisted arrays fail structural validation despite a valid digest', async () => {

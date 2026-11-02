@@ -81,6 +81,11 @@ function _hexToRgb(hex) {
 
 function _lerp(a, b, t) { return a + (b - a) * t; }
 
+function finiteParticleNumber(value, fallback, min, max) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(min, Math.min(max, value)) : fallback;
+}
+
 // ---------------------------------------------------------------------------
 // Class
 // ---------------------------------------------------------------------------
@@ -89,14 +94,14 @@ class GPUParticleSystem {
   /**
    * @param {object}       [opts]
    * @param {object|null}  [opts.device]          - WebGPU GPUDevice; null → CPU path
-   * @param {number}       [opts.maxParticles=4096]
+   * @param {number}       [opts.maxParticles=4096] - bounded to 1–65536 slots
    * @param {number}       [opts.gravity=0]        - Y-down gravity (world-units/s²)
    * @param {number}       [opts.drag=0.04]        - Default drag per second
    */
   constructor(opts = {}) {
-    this._maxParticles = opts.maxParticles ?? DEFAULT_MAX_PARTICLES;
-    this._gravity      = opts.gravity      ?? 0;
-    this._drag         = opts.drag         ?? 0.04;
+    this._maxParticles = Math.floor(finiteParticleNumber(opts.maxParticles, DEFAULT_MAX_PARTICLES, 1, 65536));
+    this._gravity      = finiteParticleNumber(opts.gravity, 0, -10000, 10000);
+    this._drag         = finiteParticleNumber(opts.drag, 0.04, 0, 100);
     this._device       = opts.device       ?? null;
 
     // CPU-side data mirror — always maintained (GPU path writes here too on syncFromGPU)
@@ -133,32 +138,33 @@ class GPUParticleSystem {
    * @param {object} p
    * @param {number} p.px, p.py, p.pz         - spawn position
    * @param {number} p.vx, p.vy, p.vz         - initial velocity
-   * @param {number} p.lifetime               - total lifetime (seconds)
+   * @param {number} p.lifetime               - total lifetime (0.01–120 seconds)
    * @param {number} [p.colorHex=0xffffff]    - packed 24-bit RGB color
    * @param {number} [p.size=1]               - display radius
    * @returns {number} Slot index, or -1 if pool is full
    */
   spawn(p) {
     if (this._disposed) return -1;
+    p = p && typeof p === 'object' ? p : {};
     const slot = this._allocate();
     if (slot < 0) return -1;
 
-    const [cr, cg, cb] = _hexToRgb(p.colorHex ?? 0xffffff);
+    const [cr, cg, cb] = _hexToRgb(finiteParticleNumber(p.colorHex, 0xffffff, 0, 0xffffff));
     const b = slot * FLOATS_PER_PARTICLE;
     const d = this._data;
 
-    d[b + FP_PX]       = p.px       ?? 0;
-    d[b + FP_PY]       = p.py       ?? 0;
-    d[b + FP_PZ]       = p.pz       ?? 0;
-    d[b + FP_LIFETIME] = Math.max(0.01, p.lifetime ?? 1.0);
-    d[b + FP_VX]       = p.vx       ?? 0;
-    d[b + FP_VY]       = p.vy       ?? 0;
-    d[b + FP_VZ]       = p.vz       ?? 0;
+    d[b + FP_PX]       = finiteParticleNumber(p.px, 0, -1e6, 1e6);
+    d[b + FP_PY]       = finiteParticleNumber(p.py, 0, -1e6, 1e6);
+    d[b + FP_PZ]       = finiteParticleNumber(p.pz, 0, -1e6, 1e6);
+    d[b + FP_LIFETIME] = finiteParticleNumber(p.lifetime, 1, 0.01, 120);
+    d[b + FP_VX]       = finiteParticleNumber(p.vx, 0, -1e6, 1e6);
+    d[b + FP_VY]       = finiteParticleNumber(p.vy, 0, -1e6, 1e6);
+    d[b + FP_VZ]       = finiteParticleNumber(p.vz, 0, -1e6, 1e6);
     d[b + FP_AGE]      = 0;
     d[b + FP_CR]       = cr;
     d[b + FP_CG]       = cg;
     d[b + FP_CB]       = cb;
-    d[b + FP_SIZE]     = p.size     ?? 1;
+    d[b + FP_SIZE]     = finiteParticleNumber(p.size, 1, 0.001, 100);
     d[b + FP_ACTIVE]   = 1;
     this._remaining[slot] = d[b + FP_LIFETIME];
     this.liveCount++;
@@ -175,11 +181,11 @@ class GPUParticleSystem {
    * Advance the simulation by `dt` seconds.
    * Dispatches the GPU compute shader if available; otherwise runs the CPU path.
    *
-   * @param {number} dt - Delta-time in seconds
+   * @param {number} dt - Delta-time in seconds; finite, clamped to [0, 0.25]
    */
   update(dt, encoder = null) {
     if (this._disposed) return;
-    dt = Math.max(0, Number(dt) || 0);
+    dt = finiteParticleNumber(dt, 0, 0, 0.25);
     if (this._gpuEnabled) {
       for (let i = 0; i < this._maxParticles; i++) {
         if (this._remaining[i] > 0) {
@@ -227,15 +233,20 @@ class GPUParticleSystem {
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
 
-    const enc = this._device.createCommandEncoder();
-    enc.copyBufferToBuffer(this._gpuBuffer, 0, staging, 0, byteSize);
-    this._device.queue.submit([enc.finish()]);
-
-    await staging.mapAsync(GPUMapMode.READ);
-    const src = new Float32Array(staging.getMappedRange());
-    this._data.set(src);
-    staging.unmap();
-    staging.destroy();
+    let mapped = false;
+    try {
+      const enc = this._device.createCommandEncoder();
+      enc.copyBufferToBuffer(this._gpuBuffer, 0, staging, 0, byteSize);
+      this._device.queue.submit([enc.finish()]);
+      await staging.mapAsync(GPUMapMode.READ);
+      mapped = true;
+      if (this._disposed) return;
+      const src = new Float32Array(staging.getMappedRange());
+      this._data.set(src);
+    } finally {
+      if (mapped) staging.unmap();
+      staging.destroy();
+    }
   }
 
   // -------------------------------------------------------------------------

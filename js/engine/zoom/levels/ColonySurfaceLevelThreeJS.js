@@ -62,6 +62,9 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     };
     this._slotCount = 0;
     this._ownedTextures = new Set();
+    this._materialSets = null;
+    this._materialEpoch = 0;
+    this._materialRefresh = null;
     this._visualPalette = {
       ownerColor: '#7db7ee',
       isOwned: false,
@@ -88,7 +91,9 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
       await import('../../assets/CoherentMaterialGenerator.js');
       this._materials = window.CoherentMaterialGenerator;
     }
-    if (this._unloaded || this._canvas !== canvas) return;
+    const epoch = this._materialEpoch;
+    await this._prepareMaterialSets();
+    if (this._unloaded || this._canvas !== canvas || epoch !== this._materialEpoch) return;
 
     this._renderer = new T.WebGLRenderer({ canvas, antialias: true });
     this._renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -123,12 +128,15 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
   }
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
+    this._unloaded = false;
+    const epoch = this._materialEpoch;
+    await this._prepareMaterialSets();
+    if (this._unloaded || epoch !== this._materialEpoch) return;
     const T = getThree();
     if (!this._scene && T && this._renderer) {
       this._scene = new T.Scene();
       this._buildScene(T);
     }
-    this._unloaded = false;
     this.setSceneData({ ...this._sceneData, ...transitionPayload });
   }
 
@@ -140,6 +148,9 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
   }
 
   _releaseScene() {
+    this._materialEpoch++;
+    this._materialSets = null;
+    this._materialRefresh = null;
     const geometries = new Set();
     const materials = new Set();
     this._scene?.traverse((object) => {
@@ -260,11 +271,8 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
 
   _createCoherentMaps(T) {
     if (!this._materials || !T.DataTexture) return {};
-    const sets = ['painted-metal', 'painted-metal', 'emissive', 'glass'].map((materialFamily, index) =>
-      this._materials.generate({
-        seed: 420 + index, materialFamily, age: [0.1, 0.9, 0.25, 0.35][index],
-        color: [[0.8, 0.85, 0.9], [0.86, 0.58, 0.3], [0.2, 0.65, 0.95], [0.4, 0.8, 0.65]][index],
-      }, { size: 64 }));
+    const sets = this._materialSets;
+    if (!sets) return {};
     const maps = {};
     const names = { albedo: 'map', normal: 'normalMap', roughness: 'roughnessMap',
       metalness: 'metalnessMap', emissive: 'emissiveMap', ao: 'aoMap' };
@@ -280,6 +288,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
         }
       });
       const texture = new T.DataTexture(data, width, source.height, T.RGBAFormat);
+      texture.userData.coherentMap = name;
       texture.colorSpace = name === 'albedo' || name === 'emissive' ? T.SRGBColorSpace : T.NoColorSpace;
       texture.magFilter = T.LinearFilter;
       texture.minFilter = T.LinearFilter;
@@ -290,6 +299,38 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
       maps[property] = texture;
     }
     return maps;
+  }
+
+  async _prepareMaterialSets() {
+    if (this._materialSets || !this._materials) return;
+    const epoch = this._materialEpoch;
+    const generator = this._materials;
+    const descriptors = ['painted-metal', 'painted-metal', 'emissive', 'glass']
+      .map((materialFamily, index) => ({
+        seed: 420 + index, materialFamily, age: [0.1, 0.9, 0.25, 0.35][index],
+        color: [[0.8, 0.85, 0.9], [0.86, 0.58, 0.3], [0.2, 0.65, 0.95], [0.4, 0.8, 0.65]][index],
+      }));
+    this._materialSets = descriptors.map((descriptor) => generator.generate(descriptor, { size: 64 }));
+    if (typeof generator.generateCached !== 'function') return;
+    this._materialRefresh = Promise.all(descriptors.map((descriptor, index) =>
+      generator.generateCached(descriptor, { size: 64, fallback: this._materialSets[index] })))
+      .then((sets) => {
+        if (this._unloaded || epoch !== this._materialEpoch) return;
+        this._materialSets = sets;
+        this._ownedTextures.forEach((texture) => {
+          const name = texture.userData.coherentMap;
+          if (!name) return;
+          sets.forEach((set, index) => {
+            const source = set.maps[name];
+            for (let row = 0; row < source.height; row++) {
+              texture.image.data.set(source.data.subarray(row * source.width * 4, (row + 1) * source.width * 4),
+                (row * texture.image.width + index * source.width) * 4);
+            }
+          });
+          texture.needsUpdate = true;
+        });
+      })
+      .catch(() => { /* Keep the visible synchronous fallback when optional persistence fails. */ });
   }
 
   _configureMaterialAtlas(material) {
@@ -537,9 +578,9 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
       || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     const disabled = this._sceneData?.vfx_enabled === false || this._sceneData?.vfx_quality === 'off'
       || this._sceneData?.visible === false || reduced;
-    const source = !disabled && Array.isArray(slots)
-      ? slots.slice(0, MAX_BUILDINGS).filter((slot) => slot?.visible !== false) : [];
-    this._ingestUpgradeTransitions(source);
+    const catalog = Array.isArray(slots) ? slots.slice(0, MAX_BUILDINGS) : [];
+    this._ingestUpgradeTransitions(catalog);
+    const source = disabled ? [] : catalog.filter((slot) => slot?.visible !== false);
     if (!source.length) {
       this._buildingVfxStats = {
         backend: 'threejs', quality: this._resolveBuildingVfxQuality(0),

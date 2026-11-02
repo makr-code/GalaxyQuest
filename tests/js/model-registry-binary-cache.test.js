@@ -28,7 +28,7 @@ describe('registry public standalone GLB binary path', () => {
       loadAsync: vi.fn(async () => ({ scene: new THREE.Group(), animations: [] })),
       parseAsync: vi.fn(async () => ({ scene: new THREE.Group(), animations: [] })),
     };
-    registry.configureAssetLoaders({ gltfLoader: loader });
+    registry.configureAssetLoaders({ gltfLoader: loader, cachePublicAssets: true });
     cache = new AssetBinaryCache({ indexedDB: null, crypto: webcrypto });
     registry._binaryCache = cache;
     vi.stubGlobal('fetch', vi.fn(async () => ({
@@ -55,6 +55,19 @@ describe('registry public standalone GLB binary path', () => {
     expect(loader.loadAsync).not.toHaveBeenCalled();
     await registry._buildFromDescriptor({ model_url: '/assets/models/station.glb?v=43' });
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves injected loader URL/auth/header/manager behavior unless explicitly opted in', async () => {
+    registry.configureAssetLoaders({ gltfLoader: loader });
+    loader.requestHeader = { Authorization: 'test-only-private-request-policy' };
+    loader.manager = new THREE.LoadingManager();
+    loader.manager.setURLModifier((url) => `/resolved${url}`);
+    await registry._buildFromDescriptor({ model_url: '/assets/models/station.glb?v=42' });
+    expect(registry._gltfLoaderInjected).toBe(true);
+    expect(loader.loadAsync).toHaveBeenCalledExactlyOnceWith('/assets/models/station.glb?v=42');
+    expect(loader.parseAsync).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(cache._memory.size).toBe(0);
   });
 
   it.each([
@@ -90,16 +103,42 @@ describe('registry public standalone GLB binary path', () => {
     expect(cache._memory.size).toBe(1);
   });
 
-  it('rejects external GLB resources before parsing or persistence', async () => {
+  it('preserves ordinary loading of external GLB resources without persistence', async () => {
     fetch.mockResolvedValue({
       ok: true, arrayBuffer: async () => glb({
         asset: { version: '2.0' }, buffers: [{ uri: '/api/private-buffer' }],
       }),
     });
-    await expect(registry._buildFromDescriptor({ model_url: '/assets/models/hull.glb?v=1' }))
-      .rejects.toThrow('embedded resources');
+    await registry._buildFromDescriptor({ model_url: '/assets/models/hull.glb?v=1' });
+    expect(loader.loadAsync).toHaveBeenCalledExactlyOnceWith('/assets/models/hull.glb?v=1');
     expect(loader.parseAsync).not.toHaveBeenCalled();
     expect(cache._memory.size).toBe(0);
+  });
+
+  it.each([NaN, Infinity, -Infinity, '', '  ', 'a'.repeat(129)])(
+    'leaves invalid asset version %s on the uncached loader path', async (version) => {
+      await registry._buildFromDescriptor({ model_url: '/assets/models/hull.glb', version });
+      expect(loader.loadAsync).toHaveBeenCalledExactlyOnceWith('/assets/models/hull.glb');
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['get', 'put', 'delete'])('falls back to the original loader if cache %s fails', async (method) => {
+    vi.spyOn(cache, method).mockRejectedValue(new Error('Storage unavailable'));
+    if (method === 'delete') loader.parseAsync.mockRejectedValueOnce(new Error('Bad GLB'));
+    await registry._buildFromDescriptor({ model_url: '/assets/models/hull.glb?v=1' });
+    expect(loader.loadAsync).toHaveBeenCalledExactlyOnceWith('/assets/models/hull.glb?v=1');
+  });
+
+  it('keeps ordinary model loading available when the cache module cannot import', async () => {
+    vi.doMock('../../js/engine/assets/AssetBinaryCache.js', () => { throw new Error('Module unavailable'); });
+    try {
+      await registry._buildFromDescriptor({ model_url: '/assets/models/hull.glb?v=1' });
+      expect(loader.loadAsync).toHaveBeenCalledExactlyOnceWith('/assets/models/hull.glb?v=1');
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock('../../js/engine/assets/AssetBinaryCache.js');
+    }
   });
 
   it('refetches integrity-corrupt cached bytes before parsing', async () => {
@@ -126,5 +165,23 @@ describe('registry public standalone GLB binary path', () => {
     expect(group.isGroup).toBe(true);
     expect(group.children).toHaveLength(1);
     expect(cache._memory.size).toBe(1);
+  });
+
+  it('retains the successfully reparsed asset if the retry cache write fails', async () => {
+    const descriptor = { model_url: '/assets/models/hull.glb?v=1' };
+    await registry._buildFromDescriptor(descriptor);
+    const scene = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    scene.add(mesh);
+    const dispose = vi.spyOn(mesh.geometry, 'dispose');
+    loader.parseAsync.mockRejectedValueOnce(new Error('Cached parse rejected'))
+      .mockResolvedValueOnce({ scene, animations: [] });
+    vi.spyOn(cache, 'put').mockRejectedValue(new Error('Optional persistence write failed'));
+    const group = await registry._buildFromDescriptor(descriptor);
+    expect(group.children[0]).toBe(scene);
+    expect(loader.loadAsync).not.toHaveBeenCalled();
+    expect(loader.parseAsync).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(dispose).not.toHaveBeenCalled();
   });
 });

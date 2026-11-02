@@ -73,6 +73,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._materialTextures = [];
     this._cameraBuffer = null;
     this._depthTexture = null;
+    this._materialSets = null;
+    this._materialEpoch = 0;
+    this._materialRefresh = null;
     this._visualPalette  = {
       owner: [0.49, 0.72, 0.93],
       clear: [0.05, 0.06, 0.04],
@@ -105,7 +108,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       this._fxModules = { ...window.GQColonySurfaceShaders, ...window.GQGPUParticleSystem };
       this._materials = window.CoherentMaterialGenerator;
     }
-    if (this._unloaded || this._canvas !== canvas) return;
+    const epoch = this._materialEpoch;
+    await this._prepareMaterialSets();
+    if (this._unloaded || this._canvas !== canvas || epoch !== this._materialEpoch) return;
     await this._buildPipelines();
   }
 
@@ -126,6 +131,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
     this._unloaded = false;
+    const epoch = this._materialEpoch;
+    await this._prepareMaterialSets();
+    if (this._unloaded || epoch !== this._materialEpoch) return;
     this.setSceneData({ ...this._sceneData, ...transitionPayload });
   }
 
@@ -136,6 +144,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   _releaseSceneBuffers() {
+    this._materialEpoch++;
+    this._materialSets = null;
+    this._materialRefresh = null;
     this._particlePools.forEach((pool) => pool.system.dispose());
     this._particlePools = [];
     this._materialTextures.forEach((texture) => texture.destroy());
@@ -214,11 +225,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     if (this._materialBindGroup) return;
-    const sets = ['painted-metal', 'painted-metal', 'emissive', 'glass'].map((materialFamily, index) =>
-      this._materials.generate({
-        seed: 420 + index, materialFamily, age: [0.1, 0.9, 0.25, 0.35][index],
-        color: [[0.8, 0.85, 0.9], [0.86, 0.58, 0.3], [0.2, 0.65, 0.95], [0.4, 0.8, 0.65]][index],
-      }, { size: 64 }));
+    const sets = this._materialSets;
+    if (!sets) return;
     const names = ['albedo', 'normal', 'roughness', 'metalness', 'emissive'];
     const views = names.map((name) => {
       const texture = this._device.createTexture({
@@ -240,6 +248,33 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         ...views.map((view, index) => ({ binding: index + 1, resource: view })),
       ],
     });
+  }
+
+  async _prepareMaterialSets() {
+    if (this._materialSets || !this._materials) return;
+    const epoch = this._materialEpoch;
+    const generator = this._materials;
+    const descriptors = ['painted-metal', 'painted-metal', 'emissive', 'glass']
+      .map((materialFamily, index) => ({
+        seed: 420 + index, materialFamily, age: [0.1, 0.9, 0.25, 0.35][index],
+        color: [[0.8, 0.85, 0.9], [0.86, 0.58, 0.3], [0.2, 0.65, 0.95], [0.4, 0.8, 0.65]][index],
+      }));
+    this._materialSets = descriptors.map((descriptor) => generator.generate(descriptor, { size: 64 }));
+    if (typeof generator.generateCached !== 'function') return;
+    this._materialRefresh = Promise.all(descriptors.map((descriptor, index) =>
+      generator.generateCached(descriptor, { size: 64, fallback: this._materialSets[index] })))
+      .then((sets) => {
+        if (this._unloaded || epoch !== this._materialEpoch) return;
+        this._materialSets = sets;
+        const names = ['albedo', 'normal', 'roughness', 'metalness', 'emissive'];
+        this._materialTextures.forEach((texture, map) => {
+          sets.forEach((set, layer) => this._device.queue.writeTexture(
+            { texture, origin: [0, 0, layer] }, set.maps[names[map]].data,
+            { bytesPerRow: 64 * 4, rowsPerImage: 64 }, [64, 64, 1],
+          ));
+        });
+      })
+      .catch(() => { /* Optional persistence never interrupts the visible synchronous fallback. */ });
   }
 
   _createParticlePools() {
@@ -284,10 +319,12 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     const bounds = this._bounds || { x: 0, z: 0, width: 30, height: 20 };
     const scale = 1.7 / Math.max(bounds.height, bounds.width / aspect);
     const target = cameraState?.target;
+    const burst = this._sceneData?.reduced_flash === true ? 0
+      : Math.max(0, Math.min(1, (this._buildingVfxBurstUntil - this._buildingVfxTime) / 1.6));
     this._device.queue.writeBuffer(this._cameraBuffer, 0, new Float32Array([
       Number.isFinite(target?.x) ? target.x : bounds.x, 1.5,
       Number.isFinite(target?.z) ? target.z : bounds.z,
-      scale, aspect, this._buildingVfxTime, 0, 0,
+      scale, aspect, this._buildingVfxTime, burst, 0,
     ]));
     if (!this._depthTexture || this._depthSize !== `${width}:${height}`) {
       this._depthTexture?.destroy();
@@ -611,9 +648,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     const disabled = this._sceneData?.vfx_enabled === false || this._sceneData?.vfx_quality === 'off'
       || this._sceneData?.visible === false || reduced;
-    const source = !disabled && Array.isArray(slots)
-      ? slots.slice(0, 512).filter((slot) => slot?.visible !== false) : [];
-    this._ingestUpgradeTransitions(source);
+    const catalog = Array.isArray(slots) ? slots.slice(0, 512) : [];
+    this._ingestUpgradeTransitions(catalog);
+    const source = disabled ? [] : catalog.filter((slot) => slot?.visible !== false);
     this._buildingVfxParticles = [];
     this._buildingVfxVertexCount = 0;
     if (!source.length) {

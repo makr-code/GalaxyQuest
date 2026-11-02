@@ -120,6 +120,7 @@ class CombatVfxBridge {
     this._seenEvents = new Map();
     this._seenPayloads = new WeakMap();
     this._destroyed = false;
+    this._effectEpoch = 0;
     this._visualOptions = { reducedMotion: false, reducedFlashes: false };
     this._onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') this.stopAll();
@@ -235,6 +236,7 @@ class CombatVfxBridge {
     const sourcePosition = this._deriveSourcePosition(data, ['targetPosition', 'target_position', 'position']);
 
     if (mission === 'attack') {
+      const epoch = this._effectEpoch;
       // Immediate opening salvo then sustained fire window
       // Installations ($target system) fire defensively
       this._dispatchWeaponFire({
@@ -244,7 +246,7 @@ class CombatVfxBridge {
         weaponKind: null,
         ts: Date.now(),
       });
-      if (this._reducedEffects()) return;
+      if (epoch !== this._effectEpoch || this._reducedEffects()) return;
       this._startBattleFx(attacker, target, BATTLE_DURATION_MS, sourcePosition, {
         mission,
         attacker,
@@ -274,8 +276,9 @@ class CombatVfxBridge {
     const sourcePosition = this._deriveSourcePosition(data, ['targetPosition', 'target_position', 'position']);
 
     let sent = 0;
+    const epoch = this._effectEpoch;
     const dispatchPulse = () => {
-      if (this._destroyed || sent >= ALERT_PULSES) return;
+      if (this._destroyed || epoch !== this._effectEpoch || sent >= ALERT_PULSES) return;
       this._dispatchWeaponFire({
         sourceOwner: null,
         sourceType: 'installation',
@@ -284,7 +287,7 @@ class CombatVfxBridge {
         ts: Date.now(),
       });
       sent += 1;
-      if (sent < ALERT_PULSES && !this._reducedEffects()) {
+      if (!this._destroyed && epoch === this._effectEpoch && sent < ALERT_PULSES && !this._reducedEffects()) {
         const timer = window.setTimeout(() => {
           this._alertTimers.delete(timer);
           dispatchPulse();
@@ -392,6 +395,7 @@ class CombatVfxBridge {
 
   /** Stop all active battle FX loops. */
   stopAll() {
+    this._effectEpoch = (this._effectEpoch || 0) + 1;
     for (const key of this._activeBattles.keys()) this._stopBattleFx(key);
     for (const timer of this._alertTimers || []) window.clearTimeout(timer);
     this._alertTimers?.clear();

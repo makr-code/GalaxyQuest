@@ -12,6 +12,19 @@ const memoryCache = (options = {}) => new AssetBinaryCache({
 });
 
 describe('public binary asset cache', () => {
+  it('bounds invalid constructor configuration and rejects empty metadata-only entries', async () => {
+    for (const invalid of [NaN, Infinity, -Infinity, 'unbounded']) {
+      const cache = memoryCache({ maxBytes: invalid, timeoutMs: invalid, version: invalid });
+      expect(cache.maxBytes).toBe(32 * 1024 * 1024);
+      expect(cache._timeoutMs).toBe(1500);
+      expect(cache.version).toBe(1);
+      expect(await cache.put(descriptor(), new ArrayBuffer(0))).toBe(false);
+    }
+    const cache = memoryCache({ maxBytes: 1e15, timeoutMs: 1e15 });
+    expect(cache.maxBytes).toBe(256 * 1024 * 1024);
+    expect(cache._timeoutMs).toBe(30000);
+  });
+
   it('normalizes parameter order and separates all generation identity fields', () => {
     const cache = memoryCache();
     const base = descriptor(0, { z: 2, a: { b: 1, a: 2 } });

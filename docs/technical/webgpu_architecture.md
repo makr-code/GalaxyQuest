@@ -136,6 +136,90 @@ events. It never advances colony production, resolves combat or introduces an
 economic tick. On re-entry, visible effects resume from current state rather than
 replaying every particle emitted while the view was absent.
 
+### Deterministic material assets
+
+`WorldAssetDescriptor.normalize()` produces a frozen, versioned visual descriptor
+and stable asset identity. It retains only the supported visual parameters, not
+an arbitrary server/game-state payload. The material families are `rock`,
+`painted-metal`, `glass` and `emissive`; seeds include zero. Color, aging, quality,
+geometry/LOD metadata and effect metadata form part of the description.
+
+`CoherentMaterialGenerator.generate()` derives albedo, normal, roughness,
+metalness and emissive RGBA maps from shared seeded height/wear/light masks.
+Albedo/emissive are sRGB; normals are OpenGL-style linear data, roughness uses G
+and metalness uses B. No AO is invented from albedo, no specular map is silently
+treated as metalness, and a normal map replaces automatic bump duplication.
+Generated sizes are bounded; optional `generateCached()` persists fixed-layout
+map bytes and falls back to local generation when storage is unavailable.
+Public material keys and map bytes exclude live activity/damage state; that state
+modulates emissive intensity at runtime instead of creating persistent snapshots.
+
+`GQTextureManager.getCoherentMaterialBundle()` supplies shared map textures and a
+caller-owned material. Callers must dispose their materials; eviction does not
+destroy textures still referenced by live materials. The existing object material
+entry accepts descriptors with `materialFamily`; legacy descriptors keep their
+existing texture pipeline. These maps are generated, not runtime KTX2 compression.
+
+The development reference at `/tools/world-material-reference.html` displays all
+four material families with fixed lighting and a local PMREM room environment.
+Individual map checkboxes make visible material changes inspectable. Run the
+existing Vite development server; this page is not a new default game entry.
+
+### Native colony materials and particles
+
+On a real WebGPU device the colony draws complete, instanced, depth-tested cubes
+with five generated texture arrays and direct GGX lighting. Its fitted isometric
+projection separates colony rows; it is not a general perspective/orbit camera.
+This is not full Three.js material equivalence: native colony shading has no
+prefiltered IBL, supplied AO integration or transparent-glass pass.
+
+The existing `GPUParticleSystem` now has a native compute path and exposes the
+storage buffer directly to the colony billboard vertex shader. Compute dispatches
+precede render submission; solids populate depth before particles test it without
+writing depth. Industry smoke uses alpha blending; energy/construction particles
+use additive blending. Runtime drawing does not require `syncFromGPU()`.
+CPU-side lifetime accounting permits bounded slot reuse without reading positions
+back from the GPU. Three.js retains its bounded instanced/points fallback.
+
+Quality presets and particle/emitter caps bound cosmetic work.
+Scene flags `vfx_enabled`, `vfx_quality`, `visible`, `reduced_motion` and
+`reduced_flash` control effects alongside the OS reduced-motion preference.
+View exit/disposal releases owned texture, depth, camera and particle resources
+without destroying the shared device/context. Later asynchronous asset results
+must never resurrect an unloaded view.
+
+### Public binary cache and procedural geometry
+
+`AssetBinaryCache` stores public, reproducible ArrayBuffer data in IndexedDB,
+with a bounded in-memory fallback. Its default byte budget is 32 MiB. Canonical
+keys include schema/version, generator hash, seed, parameters and LOD; SHA-256
+verifies stored bytes. Quota, blocked storage and corruption must remain cache
+misses, not a dependency for rendering. Cookies and localStorage are not used
+for asset binaries, and GPU handles are recreated rather than serialized.
+
+The registry can persist versioned same-origin standalone GLBs from explicitly
+public model directories. Cache fetches omit credentials and reject redirects;
+private/no-store responses are not persisted. Authenticated API descriptors,
+player snapshots and externally referenced model resources do not become public
+cache entries. Custom loaders retain their normal loading contract unless they
+explicitly opt in.
+
+`ProceduralMeshGenerator` uses seeded randomness for asteroid, debris and wreck
+generation, with prepared asteroid LODs, bounds and a byte/entry-limited CPU LRU.
+Returned geometries are caller-owned clones. Its asynchronous asteroid API can
+persist CPU geometry attributes; synchronous callers remain synchronous and are
+not falsely described as disk-cached.
+
+### Deliberate scope limits
+
+This block supplies the reference colony and reusable infrastructure, not an
+automatically authored library of modular ships/buildings. Existing planet clouds,
+night lighting, fleet traffic and combat effects remain their existing integrations.
+The optional AI endpoint's independent PBR image requests are not promoted to a
+guaranteed coherent material set; no AI request is added to the render loop.
+Full network World Partition, offline AO baking, global illumination and
+per-pixel transparent overdraw measurement remain separate work.
+
 ### Combat event identity and bounded lifetime
 
 `CombatVfxBridge` accepts both the legacy window events and the canonical

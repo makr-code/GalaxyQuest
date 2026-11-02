@@ -37,7 +37,7 @@
       if (!Engine || !Contract) return null;
       const descriptor = Contract.normalize(input);
       const size = Engine.resolveSize(descriptor, options);
-      const key = `${JSON.stringify(descriptor)}|${size}`;
+      const key = `${JSON.stringify(Contract.publicParameters(descriptor))}|${size}`;
       const entry = this.coherentTextureCache.get(key);
       const generation = this._coherentGeneration;
       const generated = await Engine.generateCached(descriptor, { ...options, size, fallback: entry?.generated });
@@ -54,8 +54,10 @@
     }
 
     /**
-     * Maps are shared; each returned material is caller-owned. Dispose it to
-     * release its reference. LRU eviction never invalidates a live material.
+     * Maps are borrowed; the material is created lazily on first access and is
+     * caller-owned. Factories retain maps without allocating an unused material.
+     * Access material or retain maps before another request can evict the bundle.
+     * Dispose accessed materials to release their references.
      */
     getCoherentMaterialBundle(input = {}, options = {}) {
       return this._createCoherentMaterialBundle(input, options);
@@ -68,7 +70,7 @@
       if (!Contract || !Engine || !THREE?.DataTexture || !THREE?.MeshStandardMaterial) return null;
       const descriptor = Contract.normalize(input);
       const size = Engine.resolveSize(descriptor, options);
-      const key = `${JSON.stringify(descriptor)}|${size}`;
+      const key = `${JSON.stringify(Contract.publicParameters(descriptor))}|${size}`;
       let entry = this.coherentTextureCache.get(key);
       if (!entry) {
         const generated = prepared || Engine.generate(descriptor, { size });
@@ -89,17 +91,24 @@
       const textures = entry.textures;
       const slots = { map: textures.albedo, normalMap: textures.normal, roughnessMap: textures.roughness,
         metalnessMap: textures.metalness, emissiveMap: textures.emissive };
-      const material = new THREE.MeshStandardMaterial({
-        ...entry.generated.material, ...slots, color: 0xffffff, emissive: 0xffffff,
-      });
-      material.userData = Object.assign({}, material.userData, { sharedTexture: true, assetId: descriptor.id });
-      entry.references++;
-      const release = () => {
-        material.removeEventListener('dispose', release);
-        entry.references--;
-        this._releaseCoherentEntry(entry);
+      const coherentMaterial = { ...entry.generated.material, emissiveIntensity: Engine.emissiveIntensity(descriptor) };
+      let material = null;
+      const getMaterial = () => {
+        if (material) return material;
+        if (entry.disposed) throw new Error('Cannot create a material from an evicted coherent texture bundle');
+        material = new THREE.MeshStandardMaterial({
+          ...coherentMaterial, ...slots, color: 0xffffff, emissive: 0xffffff,
+        });
+        material.userData = Object.assign({}, material.userData, { sharedTexture: true, assetId: descriptor.id });
+        entry.references++;
+        const release = () => {
+          material.removeEventListener('dispose', release);
+          entry.references--;
+          this._releaseCoherentEntry(entry);
+        };
+        material.addEventListener('dispose', release);
+        return material;
       };
-      material.addEventListener('dispose', release);
       while (this.coherentTextureCache.size > this.coherentMaxEntries) {
         const oldestKey = this.coherentTextureCache.keys().next().value;
         const oldest = this.coherentTextureCache.get(oldestKey);
@@ -107,8 +116,9 @@
         oldest.cached = false;
         this._releaseCoherentEntry(oldest);
       }
-      return { descriptor: entry.generated.descriptor, material, maps: entry.generated.maps, textures,
-        ...slots, coherentMaterial: entry.generated.material,
+      return { descriptor, get material() { return getMaterial(); },
+        maps: entry.generated.maps, textures,
+        ...slots, coherentMaterial,
         retainTextures: () => {
           if (entry.disposed) throw new Error('Cannot retain a disposed coherent texture bundle');
           entry.references++;

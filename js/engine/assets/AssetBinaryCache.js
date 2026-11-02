@@ -8,12 +8,13 @@ export class AssetBinaryCache {
     indexedDB, crypto = globalThis.crypto, timeoutMs = 1500,
   } = {}) {
     this.name = name;
-    this.version = version;
-    this.maxBytes = Number.isFinite(maxBytes) ? Math.max(0, Math.floor(maxBytes)) : 32 * 1024 * 1024;
+    this.version = Number.isSafeInteger(version) && version > 0 && version <= 2147483647 ? version : 1;
+    this.maxBytes = Number.isFinite(maxBytes)
+      ? Math.min(256 * 1024 * 1024, Math.max(0, Math.floor(maxBytes))) : 32 * 1024 * 1024;
     try { this._idb = indexedDB === undefined ? globalThis.indexedDB : indexedDB; }
     catch { this._idb = null; }
     this._crypto = crypto;
-    this._timeoutMs = timeoutMs;
+    this._timeoutMs = Number.isFinite(timeoutMs) ? Math.min(30000, Math.max(1, timeoutMs)) : 1500;
     this._memory = new Map();
     this._bytes = 0;
     this._pending = new Map();
@@ -21,6 +22,8 @@ export class AssetBinaryCache {
     this._opening = null;
     this._disabled = false;
     this._clock = 0;
+    this._closed = false;
+    this._cancelOpen = null;
   }
 
   _now() {
@@ -47,6 +50,7 @@ export class AssetBinaryCache {
   }
 
   _remember(record) {
+    if (this._closed) return;
     const old = this._memory.get(record.key);
     if (old) this._bytes -= old.bytes.byteLength;
     this._memory.delete(record.key);
@@ -60,7 +64,7 @@ export class AssetBinaryCache {
   }
 
   async _open() {
-    if (this._disabled || !this._idb) return null;
+    if (this._closed || this._disabled || !this._idb) return null;
     if (this._database) return this._database;
     if (this._opening) return this._opening;
     this._opening = new Promise((resolve) => {
@@ -70,11 +74,13 @@ export class AssetBinaryCache {
         if (done) { database?.close(); return; }
         done = true;
         clearTimeout(timer);
+        this._cancelOpen = null;
         if (!database) this._disabled = true;
         this._database = database;
         resolve(database);
       };
       const timer = setTimeout(() => finish(null), this._timeoutMs);
+      this._cancelOpen = () => finish(null);
       try {
         request = this._idb.open(this.name, this.version);
         request.onupgradeneeded = () => {
@@ -127,13 +133,20 @@ export class AssetBinaryCache {
         try { transaction?.abort(); } catch { /* Already completed. */ }
         finish(undefined, true);
       }, this._timeoutMs);
+      const fail = () => {
+        try { transaction?.abort(); } catch { /* Already completed. */ }
+        finish(undefined, true);
+      };
+      const guard = (handler) => (event) => {
+        try { handler(event); } catch { fail(); }
+      };
       try {
         transaction = database.transaction('assets', mode);
         transaction.oncomplete = () => finish(result);
         transaction.onerror = transaction.onabort = () => finish(undefined, true);
-        action(transaction.objectStore('assets'), (value) => { result = value; });
+        action(transaction.objectStore('assets'), (value) => { result = value; }, guard);
       } catch {
-        finish(undefined, true);
+        fail();
       }
     });
   }
@@ -142,8 +155,8 @@ export class AssetBinaryCache {
     const key = this.key(descriptor);
     let record = this._memory.get(key);
     if (!record) {
-      record = await this._transaction('readonly', (store, result) => {
-        store.get(key).onsuccess = (event) => result(event.target.result);
+      record = await this._transaction('readonly', (store, result, guard) => {
+        store.get(key).onsuccess = guard((event) => result(event.target.result));
       });
     }
     if (!record) return null;
@@ -160,39 +173,49 @@ export class AssetBinaryCache {
     }
     record = { ...record, accessed: this._now() };
     this._remember(record);
-    await this._transaction('readwrite', (store) => {
+    await this._transaction('readwrite', (store, _, guard) => {
       // Do not resurrect an entry evicted by another tab.
-      store.get(key).onsuccess = (event) => {
+      store.get(key).onsuccess = guard((event) => {
         const current = event.target.result;
         if (current?.digest === record.digest) store.put({ ...current, accessed: record.accessed });
-      };
+      });
     });
     return record.bytes.slice(0);
   }
 
   async put(descriptor, bytes) {
     const key = this.key(descriptor);
-    if (!(bytes instanceof ArrayBuffer) || !bytes.byteLength || bytes.byteLength > this.maxBytes) return false;
+    if (this._closed || !(bytes instanceof ArrayBuffer) || !bytes.byteLength || bytes.byteLength > this.maxBytes) return false;
     const copy = bytes.slice(0);
     let digest;
     try { digest = await this._digest(copy); } catch { return false; }
+    if (this._closed) return false;
     const record = {
       key, schema: this.version, bytes: copy, size: copy.byteLength, digest, accessed: this._now(),
     };
     this._remember(record);
-    await this._transaction('readwrite', (store) => {
-      store.getAll().onsuccess = (event) => {
-        const records = event.target.result.filter((entry) => entry.key !== key);
-        records.push(record);
-        records.sort((a, b) => b.accessed - a.accessed || (a.key === key ? -1 : b.key === key ? 1 : a.key.localeCompare(b.key)));
-        let total = 0;
+    await this._transaction('readwrite', (store, _, guard) => {
+      store.getAll().onsuccess = guard((event) => {
+        const records = [];
+        for (const entry of event.target.result) {
+          if (!entry || typeof entry.key !== 'string' || entry.schema !== this.version
+            || !(entry.bytes instanceof ArrayBuffer) || entry.size !== entry.bytes.byteLength
+            || !Number.isSafeInteger(entry.size) || entry.size <= 0
+            || !Number.isFinite(entry.accessed) || typeof entry.digest !== 'string') {
+            // keyPath records always have a valid IDB key, though it may not be a string.
+            if (entry?.key !== undefined) store.delete(entry.key);
+          } else if (entry.key !== key) records.push(entry);
+        }
+        records.sort((a, b) => b.accessed - a.accessed || a.key.localeCompare(b.key));
+        // Reserve the incoming entry even when other tabs' clocks are ahead.
+        let total = record.size;
         for (const entry of records) {
           if (!Number.isSafeInteger(entry.size) || entry.size < 0 || total + entry.size > this.maxBytes) {
             store.delete(entry.key);
           } else total += entry.size;
         }
         store.put(record);
-      };
+      });
     });
     return true;
   }
@@ -221,6 +244,8 @@ export class AssetBinaryCache {
   }
 
   close() {
+    this._closed = true;
+    this._cancelOpen?.();
     this._database?.close();
     this._database = null;
     this._memory.clear();

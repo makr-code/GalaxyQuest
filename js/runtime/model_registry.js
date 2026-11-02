@@ -22,7 +22,10 @@
 /* global THREE */
 
 class GQModelRegistry {
-  constructor({ gltfLoader = null, ktx2Loader = null, ownsGltfResources = !gltfLoader } = {}) {
+  constructor({
+    gltfLoader = null, ktx2Loader = null, ownsGltfResources = !gltfLoader,
+    cachePublicAssets = !gltfLoader,
+  } = {}) {
     /** @type {Map<string, THREE.Group>} cached template groups (do NOT add to scene) */
     this._cache     = new Map();
     /** @type {Map<string, Promise<void>>} in-flight requests */
@@ -36,7 +39,7 @@ class GQModelRegistry {
     this._textureCache = new Map();
     this._textureLoading = new Map();
     this._binaryCache = null;
-    this.configureAssetLoaders({ gltfLoader, ktx2Loader, ownsGltfResources });
+    this.configureAssetLoaders({ gltfLoader, ktx2Loader, ownsGltfResources, cachePublicAssets });
     /** @type {((instance: THREE.Group, payload: object) => void)|null} */
     this._vfxBridge = null;
   }
@@ -56,13 +59,20 @@ class GQModelRegistry {
    * Inject existing Three.js loaders. KTX2 requires setTranscoderPath() and
    * detectSupport(renderer) beforehand; this registry never guesses GPU formats.
    * Injected glTF results are borrowed unless ownsGltfResources is explicitly true.
+   * Injected loaders keep their loading/auth/URL policies unless cachePublicAssets
+   * explicitly opts into credentialless public fetch + parseAsync.
    */
-  configureAssetLoaders({ gltfLoader = null, ktx2Loader = null, ownsGltfResources = !gltfLoader } = {}) {
+  configureAssetLoaders({
+    gltfLoader = null, ktx2Loader = null, ownsGltfResources = !gltfLoader,
+    cachePublicAssets = !gltfLoader,
+  } = {}) {
     if (ktx2Loader && (!ktx2Loader.transcoderPath || !ktx2Loader.workerConfig
       || typeof ktx2Loader.load !== 'function')) {
       throw new Error('KTX2 loader requires a transcoder path and detected renderer support');
     }
     this._gltfLoader = gltfLoader;
+    this._gltfLoaderInjected = !!gltfLoader;
+    this._cachePublicAssets = cachePublicAssets === true;
     this._ktx2Loader = ktx2Loader;
     this._ownsGltfResources = ownsGltfResources;
   }
@@ -357,14 +367,26 @@ class GQModelRegistry {
   async _loadPublicGltf(loader, level, descriptor, lod) {
     const url = new URL(level.model_url, globalThis.location?.href || 'http://localhost/');
     const version = url.searchParams.get('v') || url.searchParams.get('version') || descriptor.version;
-    const eligible = typeof loader.parseAsync === 'function'
+    const validVersion = typeof version === 'number' ? Number.isFinite(version)
+      : typeof version === 'string' && version.trim().length > 0 && version.length <= 128;
+    const eligible = this._cachePublicAssets && typeof loader.parseAsync === 'function'
       && url.origin === globalThis.location?.origin
       && /^\/(?:assets\/models|generated\/trellis2\/imported)\/[a-z0-9_./-]+\.glb$/i.test(url.pathname)
       && !/%|\\/.test(level.model_url) && !url.username && !url.password && !url.hash
       && [...url.searchParams.keys()].every((key) => key === 'v' || key === 'version')
-      && (typeof version === 'string' || typeof version === 'number') && String(version).length > 0;
+      && validVersion;
     if (!eligible) return loader.loadAsync(level.model_url);
 
+    try {
+      return await this._loadCachedPublicGltf(loader, lod, url, version);
+    } catch {
+      // Persistence and standalone-GLB validation must never narrow loader support.
+      // External resources stay on the original, uncached loader path.
+      return loader.loadAsync(level.model_url);
+    }
+  }
+
+  async _loadCachedPublicGltf(loader, lod, url, version) {
     const { publicAssetBinaryCache } = await import('../engine/assets/AssetBinaryCache.js');
     const cache = this._binaryCache || publicAssetBinaryCache;
     const key = {
@@ -405,7 +427,9 @@ class GQModelRegistry {
       fromCache = false;
       const result = await load();
       const asset = await loader.parseAsync(result.bytes, new URL('.', url).href);
-      if (result.cacheable) await cache.put(key, result.bytes);
+      if (result.cacheable) {
+        try { await cache.put(key, result.bytes); } catch { /* Keep the successfully parsed owned asset. */ }
+      }
       return asset;
     }
   }

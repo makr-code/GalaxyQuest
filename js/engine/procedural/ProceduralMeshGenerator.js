@@ -94,54 +94,76 @@ class ProceduralMeshGenerator {
 
   /** Persist CPU arrays, not GPU buffers. Every call returns caller-owned geometry. */
   async generateAsteroidAsync(config = {}, binaryCache = null) {
-    const { publicAssetBinaryCache } = await import('../assets/AssetBinaryCache.js');
-    const cache = binaryCache || publicAssetBinaryCache;
     const parameters = {
       scale: this._bounded(config.scale, 100, 0.001, 1000000),
       complexity: Math.floor(this._bounded(config.complexity, 2, 1, 5)),
       fracture: Boolean(config.fracture ?? true),
     };
     const lod = Math.floor(this._bounded(config.lod, 0, 0, 4));
+    const generate = () => this.generateAsteroid({ ...parameters, seed: config.seed ?? 0, lod });
     const descriptor = {
-      scope: 'public', kind: 'asteroid-arrays', version: 1,
-      generatorHash: 'gq-icosphere-value-noise-v2', seed: this._seed(config.seed ?? 0), parameters, lod,
+      scope: 'public', kind: 'asteroid-arrays', version: 2,
+      generatorHash: 'gq-icosphere-value-noise-v3', seed: this._seed(config.seed ?? 0), parameters, lod,
     };
-    const bytes = await cache.get(descriptor);
+    let cache;
+    let bytes;
+    try {
+      cache = binaryCache || (await import('../assets/AssetBinaryCache.js')).publicAssetBinaryCache;
+      bytes = await cache.get(descriptor);
+    } catch {
+      return generate();
+    }
     if (bytes) {
       let geometry;
       try {
         const view = new DataView(bytes);
         const count = view.getUint32(0, true);
         const hasColors = view.getUint32(4, true);
-        if (!count || count > 1800 || count % 3 || hasColors > 1
-          || bytes.byteLength !== 8 + count * 3 * 4 * (2 + hasColors)) {
+        const hasUv = view.getUint32(8, true);
+        const format = view.getUint32(12, true);
+        if (!count || count > 1800 || count % 3 || hasColors > 1 || hasUv > 1 || format !== 2
+          || bytes.byteLength !== 16 + count * 4 * (6 + hasColors * 3 + hasUv * 2)) {
           throw new Error('Invalid procedural geometry arrays');
         }
         geometry = new THREE.BufferGeometry();
-        const names = hasColors ? ['position', 'normal', 'color'] : ['position', 'normal'];
-        for (let i = 0; i < names.length; i++) {
-          const array = new Float32Array(bytes.slice(8 + i * count * 12, 8 + (i + 1) * count * 12));
+        const names = ['position', 'normal', ...(hasColors ? ['color'] : []), ...(hasUv ? ['uv'] : [])];
+        let offset = 16;
+        for (const name of names) {
+          const itemSize = name === 'uv' ? 2 : 3;
+          const length = count * itemSize * 4;
+          const array = new Float32Array(bytes.slice(offset, offset + length));
           if (!array.every(Number.isFinite)) throw new Error('Nonfinite procedural geometry');
-          geometry.setAttribute(names[i], new THREE.BufferAttribute(array, 3));
+          geometry.setAttribute(name, new THREE.BufferAttribute(array, itemSize));
+          offset += length;
         }
         geometry.computeBoundingBox();
         geometry.computeBoundingSphere();
         return geometry;
       } catch {
         geometry?.dispose();
-        await cache.delete(descriptor);
+        try { await cache.delete(descriptor); } catch { /* Optional storage is unavailable. */ }
       }
     }
-    const geometry = this.generateAsteroid({ ...parameters, seed: config.seed ?? 0, lod });
-    const names = geometry.hasAttribute('color') ? ['position', 'normal', 'color'] : ['position', 'normal'];
-    const count = geometry.attributes.position.count;
-    const buffer = new ArrayBuffer(8 + count * 12 * names.length);
-    const view = new DataView(buffer);
-    view.setUint32(0, count, true);
-    view.setUint32(4, names.length - 2, true);
-    names.forEach((name, i) => new Float32Array(buffer, 8 + i * count * 12, count * 3)
-      .set(geometry.attributes[name].array));
-    await cache.put(descriptor, buffer);
+    const geometry = generate();
+    try {
+      const hasColors = geometry.hasAttribute('color');
+      const hasUv = geometry.hasAttribute('uv');
+      const names = ['position', 'normal', ...(hasColors ? ['color'] : []), ...(hasUv ? ['uv'] : [])];
+      const count = geometry.attributes.position.count;
+      const buffer = new ArrayBuffer(16 + count * 4 * (6 + Number(hasColors) * 3 + Number(hasUv) * 2));
+      const view = new DataView(buffer);
+      view.setUint32(0, count, true);
+      view.setUint32(4, Number(hasColors), true);
+      view.setUint32(8, Number(hasUv), true);
+      view.setUint32(12, 2, true);
+      let offset = 16;
+      for (const name of names) {
+        const array = geometry.attributes[name].array;
+        new Float32Array(buffer, offset, array.length).set(array);
+        offset += array.byteLength;
+      }
+      await cache.put(descriptor, buffer);
+    } catch { /* Return the owned generated geometry even if persistence fails. */ }
     return geometry;
   }
 
