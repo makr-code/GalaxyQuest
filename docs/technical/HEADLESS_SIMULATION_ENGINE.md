@@ -29,6 +29,11 @@ see [Colony on-demand economy](COLONY_ON_DEMAND_ECONOMY.md).
 - Simulation runs only through the explicit HTTP or CLI trigger paths below.
 - The overview still performs lazy colony-resource settlement from `last_update`;
   this on-demand economy accounting is separate from simulation ticks.
+- Each executed global/user subsystem emits `duration_ms`, `lag_seconds`
+  (seconds since its previous attempt; `null` on the first attempt), `ok` and
+  `error_count` in the result and a `[simulation_metrics]` structured log entry.
+  Metrics are persisted in `app_state`; per-user timestamps are isolated by
+  user. Retention, dashboards and alerts are not included.
 
 ## Trigger ticks
 

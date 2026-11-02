@@ -9,6 +9,7 @@
  * POST /api/fleet.php?action=matchup_scan body: {attacker_fleet_id, target_colony_ids?, target_colony_id?, deterministic_seed?, iterations?}
  */
 use GalaxyQuest\Economy\OnDemandEconomy;
+use GalaxyQuest\Economy\ResourceLedger;
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
@@ -18,6 +19,7 @@ require_once __DIR__ . '/planet_helper.php';
 require_once __DIR__ . '/projection.php';
 require_once __DIR__ . '/galaxy_seed.php';
 require_once __DIR__ . '/shipyard_queue.php';
+require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
 require_once __DIR__ . '/../lib/PlanetReservation.php';
 
 $action = $_GET['action'] ?? '';
@@ -247,6 +249,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         $travel = fleet_travel_time_3d($distLy, $speedLyH);
     }
 
+    $wormhole = null;
     if ($useWormhole) {
         $wormhole = resolve_wormhole_route(
             $db,
@@ -262,13 +265,14 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         $travel = 30;
         $distLy = 0.0;
         $speedLyH = max($speedLyH, 999999.0);
-        consume_wormhole_jump($db, (int)$wormhole['id']);
     }
 
     // ── Faction FTL mechanics ────────────────────────────────────────────────
     // Only apply when not already using a wormhole jump.
     $stealthUntil   = null; // Set by Vel'Ar for stealth window
     $hullDamagePct  = 0;    // Set by Kryl'Tha for hull degradation
+    $ftlCooldownSec = null;
+    $resonanceNodeId = null;
     if (!$useWormhole) {
         $ftlType = get_user_ftl_type($db, $uid);
 
@@ -292,8 +296,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
                 $distLy   = max($distLy, 0.0);
                 // Set 72h cooldown (scaled by GAME_SPEED so faster servers scale correctly)
                 $cooldownSec = max(60, (int)(72 * 3600 / GAME_SPEED));
-                $db->prepare('UPDATE users SET ftl_cooldown_until = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE id = ?')
-                   ->execute([$cooldownSec, $uid]);
+                $ftlCooldownSec = $cooldownSec;
                 break;
 
             // ── Syl'Nar: Resonance Gate Network ─────────────────────────────
@@ -370,8 +373,7 @@ function send_fleet(PDO $db, int $uid, array $body): never {
                 $speedLyH = 999999.0;
                 $distLy   = 0.0;
                 // Apply 30-min node cooldown
-                $db->prepare('UPDATE ftl_resonance_nodes SET cooldown_until = DATE_ADD(NOW(), INTERVAL 30 MINUTE) WHERE id = ?')
-                   ->execute([$node['id']]);
+                $resonanceNodeId = (int)$node['id'];
                 break;
 
             // ── Aereth: Alcubierre Warp ───────────────────────────────────────
@@ -443,24 +445,46 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         $arrival,
         $returnT,
         $stealthUntil,
-        $hullDamagePct
+        $hullDamagePct,
+        $useWormhole,
+        $wormhole,
+        $ftlCooldownSec,
+        $resonanceNodeId
     ): int {
         foreach ($shipsToSend as $type => $cnt) {
-            $sql = 'UPDATE ships SET count=count-? WHERE colony_id=? AND type=?';
-            $params = [$cnt, $originCid, $type];
-            if (ON_DEMAND_ECONOMY_ENABLED) {
-                $sql .= ' AND count>=?';
-                $params[] = $cnt;
-            }
-            $reservation = $db->prepare($sql);
-            $reservation->execute($params);
-            if (ON_DEMAND_ECONOMY_ENABLED && $reservation->rowCount() !== 1) {
+            $reservation = $db->prepare(
+                'UPDATE ships SET count = count - ? WHERE colony_id = ? AND type = ? AND count >= ?'
+            );
+            $reservation->execute([$cnt, $originCid, $type, $cnt]);
+            if ($reservation->rowCount() !== 1) {
                 throw new DomainException('Ships are no longer available.', 409);
             }
         }
-        if (!ON_DEMAND_ECONOMY_ENABLED) {
-            $db->prepare('UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?')
-               ->execute([$cMetal, $cCrys, $cDeut, $originCid]);
+
+        if ($useWormhole) {
+            consume_wormhole_jump($db, (int)$wormhole['id']);
+        }
+        if ($ftlCooldownSec !== null) {
+            $cooldown = $db->prepare(
+                'UPDATE users
+                 SET ftl_cooldown_until = DATE_ADD(NOW(), INTERVAL ? SECOND)
+                 WHERE id = ? AND (ftl_cooldown_until IS NULL OR ftl_cooldown_until <= NOW())'
+            );
+            $cooldown->execute([$ftlCooldownSec, $uid]);
+            if ($cooldown->rowCount() !== 1) {
+                throw new DomainException('K-F Drive recharging. Refresh and retry.', 409);
+            }
+        }
+        if ($resonanceNodeId !== null) {
+            $cooldown = $db->prepare(
+                'UPDATE ftl_resonance_nodes
+                 SET cooldown_until = DATE_ADD(NOW(), INTERVAL 30 MINUTE)
+                 WHERE id = ? AND (cooldown_until IS NULL OR cooldown_until <= NOW())'
+            );
+            $cooldown->execute([$resonanceNodeId]);
+            if ($cooldown->rowCount() !== 1) {
+                throw new DomainException('Resonance node cooling down. Refresh and retry.', 409);
+            }
         }
 
         $originPolar = galactic_polar_from_cartesian($ox, $oy, $oz);
@@ -498,7 +522,12 @@ function send_fleet(PDO $db, int $uid, array $body): never {
                 ['metal' => $cMetal, 'crystal' => $cCrys, 'deuterium' => $cDeut],
                 $dispatch
             )
-            : $dispatch();
+            : (new ResourceLedger($db))->spend(
+                $originCid,
+                $uid,
+                ['metal' => $cMetal, 'crystal' => $cCrys, 'deuterium' => $cDeut],
+                $dispatch
+            );
     } catch (DomainException $error) {
         json_error($error->getMessage(), $error->getCode() ?: 400);
     }
@@ -757,12 +786,17 @@ function resolve_wormhole_route(PDO $db, int $uid, int $originGalaxy, int $origi
 }
 
 function consume_wormhole_jump(PDO $db, int $wormholeId): void {
-    $db->prepare(
+    $update = $db->prepare(
         'UPDATE wormholes
          SET stability = GREATEST(0, stability - 5),
              cooldown_until = DATE_ADD(NOW(), INTERVAL 15 MINUTE)
-         WHERE id = ?'
-    )->execute([$wormholeId]);
+         WHERE id = ? AND is_active = 1 AND stability >= 10
+           AND (cooldown_until IS NULL OR cooldown_until <= NOW())'
+    );
+    $update->execute([$wormholeId]);
+    if ($update->rowCount() !== 1) {
+        throw new DomainException('Wormhole route is no longer available.', 409);
+    }
 }
 
 // ─── Recall ───────────────────────────────────────────────────────────────────

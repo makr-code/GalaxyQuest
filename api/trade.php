@@ -1,11 +1,13 @@
 <?php
 // api/trade.php — Trade routes: automated recurring transport
 use GalaxyQuest\Economy\OnDemandEconomy;
+use GalaxyQuest\Economy\ResourceLedger;
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/economy_flush.php';
 require_once __DIR__ . '/economy_runtime.php';
+require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -903,18 +905,16 @@ function dispatch_trade_fleet(PDO $db, array $route): string
 
     try {
         $db->beginTransaction();
-        if (ON_DEMAND_ECONOMY_ENABLED) {
-            $db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE')->execute([$uid]);
-            $due = $db->prepare(
-                'SELECT id FROM trade_routes WHERE id=? AND is_active=1 '
-                    . 'AND (last_dispatch IS NULL OR DATE_ADD(last_dispatch, INTERVAL interval_hours HOUR)<=NOW()) '
-                    . 'FOR UPDATE'
-            );
-            $due->execute([$routeId]);
-            if (!$due->fetch()) {
-                $db->commit();
-                return 'skipped';
-            }
+        $db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE')->execute([$uid]);
+        $due = $db->prepare(
+            'SELECT id FROM trade_routes WHERE id=? AND is_active=1 '
+                . 'AND (last_dispatch IS NULL OR DATE_ADD(last_dispatch, INTERVAL interval_hours HOUR)<=NOW()) '
+                . 'FOR UPDATE'
+        );
+        $due->execute([$routeId]);
+        if (!$due->fetch()) {
+            $db->commit();
+            return 'skipped';
         }
         launch_trade_transport_fleet(
             $db,
@@ -1030,6 +1030,10 @@ function pick_trade_source_for_target(PDO $db, int $userId, array $target, array
 }
 
 function launch_trade_transport_fleet(PDO $db, int $userId, array $origin, array $target, array $cargo, array $options = []): array {
+    if (!$db->inTransaction()) {
+        throw new RuntimeException('Trade dispatch requires an active transaction.');
+    }
+
     $payload = normalize_trade_cargo_payload(['cargo' => $cargo]);
     if (!$payload) {
         throw new RuntimeException('Transport payload is empty.');
@@ -1046,9 +1050,6 @@ function launch_trade_transport_fleet(PDO $db, int $userId, array $origin, array
     $arrTime = date('Y-m-d H:i:s', time() + (int)$profile['travel_seconds']);
     $shipsJson = json_encode(['cargo_freighter' => 1], JSON_UNESCAPED_SLASHES);
     if (ON_DEMAND_ECONOMY_ENABLED) {
-        if (!$db->inTransaction()) {
-            throw new RuntimeException('Trade dispatch requires an active transaction.');
-        }
         $cost = $payload;
         $cost['deuterium'] = ($cost['deuterium'] ?? 0) + $fuelCost;
         $freighters = max(1, (int)ceil(total_trade_cargo_units($payload) / ship_cargo('large_cargo')));
@@ -1068,7 +1069,16 @@ function launch_trade_transport_fleet(PDO $db, int $userId, array $origin, array
         );
         $shipsJson = json_encode(['large_cargo' => $freighters], JSON_UNESCAPED_SLASHES);
     } else {
-        reserve_trade_payload_from_origin($db, (int)$origin['id'], $payload, $fuelCost);
+        $freighters = max(1, (int)ceil(total_trade_cargo_units($payload) / ship_cargo('large_cargo')));
+        reserve_trade_payload_from_origin(
+            $db,
+            (int)$origin['id'],
+            $userId,
+            $payload,
+            $fuelCost,
+            $freighters
+        );
+        $shipsJson = json_encode(['large_cargo' => $freighters], JSON_UNESCAPED_SLASHES);
     }
 
     $originPolar = galactic_polar_from_cartesian((float)$origin['x_ly'], (float)$origin['y_ly'], (float)$origin['z_ly']);
@@ -1143,70 +1153,64 @@ function launch_trade_transport_fleet(PDO $db, int $userId, array $origin, array
     ];
 }
 
-function reserve_trade_payload_from_origin(PDO $db, int $originColonyId, array $payload, float $fuelCost): void {
-    $stmt = $db->prepare('SELECT metal, crystal, deuterium, rare_earth, food FROM colonies WHERE id = ? FOR UPDATE');
-    $stmt->execute([$originColonyId]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) {
-        throw new RuntimeException('Origin colony not found.');
+function reserve_trade_payload_from_origin(
+    PDO $db,
+    int $originColonyId,
+    int $userId,
+    array $payload,
+    float $fuelCost,
+    int $freighters
+): void {
+    if (!$db->inTransaction()) {
+        throw new RuntimeException('Trade resource reservation requires an active transaction.');
     }
 
-    $metalNeed = (float)($payload['metal'] ?? 0.0);
-    $crystalNeed = (float)($payload['crystal'] ?? 0.0);
-    $deutNeed = (float)($payload['deuterium'] ?? 0.0) + $fuelCost;
-    $rareEarthNeed = (float)($payload['rare_earth'] ?? 0.0);
-    $foodNeed = (float)($payload['food'] ?? 0.0);
-
-    if ((float)$row['metal'] < $metalNeed
-        || (float)$row['crystal'] < $crystalNeed
-        || (float)$row['deuterium'] < $deutNeed
-        || (float)$row['rare_earth'] < $rareEarthNeed
-        || (float)$row['food'] < $foodNeed
-    ) {
-        throw new RuntimeException('Origin colony cannot cover cargo and freight fuel.');
-    }
-
+    $cost = [];
     $needsFlush = false;
-    foreach ($payload as $resource => $qty) {
-        if (!in_array($resource, TRADE_COLONY_RESOURCES, true) && max(0.0, (float)$qty) > 0) {
+    foreach ($payload as $resource => $quantity) {
+        if (in_array($resource, TRADE_COLONY_RESOURCES, true)) {
+            $cost[$resource] = (float)$quantity;
+        } elseif ((float)$quantity > 0) {
             $needsFlush = true;
-            break;
         }
     }
+    $cost['deuterium'] = ($cost['deuterium'] ?? 0.0) + $fuelCost;
     if ($needsFlush) {
         flush_colony_production($db, $originColonyId);
     }
 
-    foreach ($payload as $resource => $qty) {
-        $qty = max(0.0, (float)$qty);
-        if ($qty <= 0 || in_array($resource, TRADE_COLONY_RESOURCES, true)) {
-            continue;
+    (new ResourceLedger($db))->spend(
+        $originColonyId,
+        $userId,
+        $cost,
+        function () use ($db, $originColonyId, $payload, $freighters): void {
+            foreach ($payload as $resource => $quantity) {
+                $quantity = max(0.0, (float)$quantity);
+                if ($quantity <= 0 || in_array($resource, TRADE_COLONY_RESOURCES, true)) {
+                    continue;
+                }
+
+                $update = $db->prepare(
+                    'UPDATE economy_processed_goods
+                     SET quantity = quantity - ?
+                     WHERE colony_id = ? AND good_type = ? AND quantity >= ?'
+                );
+                $update->execute([$quantity, $originColonyId, $resource, $quantity]);
+                if ($update->rowCount() !== 1) {
+                    throw new DomainException('Origin colony lacks processed goods: ' . $resource, 409);
+                }
+            }
+
+            $ships = $db->prepare(
+                "UPDATE ships SET count = count - ?
+                 WHERE colony_id = ? AND type = 'large_cargo' AND count >= ?"
+            );
+            $ships->execute([$freighters, $originColonyId, $freighters]);
+            if ($ships->rowCount() !== 1) {
+                throw new DomainException('Not enough large cargo ships for this transport.', 409);
+            }
         }
-
-        $gStmt = $db->prepare('SELECT quantity FROM economy_processed_goods WHERE colony_id = ? AND good_type = ? FOR UPDATE');
-        $gStmt->execute([$originColonyId, $resource]);
-        $available = (float)($gStmt->fetchColumn() ?: 0.0);
-        if ($available < $qty) {
-            throw new RuntimeException('Origin colony lacks processed goods: ' . $resource);
-        }
-    }
-
-    $db->prepare(<<<SQL
-        UPDATE colonies
-        SET metal = metal - ?, crystal = crystal - ?, deuterium = deuterium - ?,
-            rare_earth = rare_earth - ?, food = food - ?
-        WHERE id = ?
-    SQL)->execute([$metalNeed, $crystalNeed, $deutNeed, $rareEarthNeed, $foodNeed, $originColonyId]);
-
-    foreach ($payload as $resource => $qty) {
-        $qty = max(0.0, (float)$qty);
-        if ($qty <= 0 || in_array($resource, TRADE_COLONY_RESOURCES, true)) {
-            continue;
-        }
-
-        $db->prepare('UPDATE economy_processed_goods SET quantity = GREATEST(0, quantity - ?) WHERE colony_id = ? AND good_type = ?')
-           ->execute([$qty, $originColonyId, $resource]);
-    }
+    );
 }
 
 // ─── Trade Proposal handlers ─────────────────────────────────────────────────
@@ -1344,12 +1348,10 @@ function action_accept(PDO $db, int $uid): never {
         }
 
         $initId      = (int)$p['initiator_id'];
-        if (ON_DEMAND_ECONOMY_ENABLED) {
-            $participants = [$uid, $initId];
-            sort($participants, SORT_NUMERIC);
-            foreach (array_unique($participants) as $participant) {
-                $db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE')->execute([$participant]);
-            }
+        $participants = [$uid, $initId];
+        sort($participants, SORT_NUMERIC);
+        foreach (array_unique($participants) as $participant) {
+            $db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE')->execute([$participant]);
         }
         $offerMetal  = (float)$p['offer_metal'];
         $offerCrys   = (float)$p['offer_crystal'];

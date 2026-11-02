@@ -7,12 +7,14 @@
  */
 
 use GalaxyQuest\Economy\OnDemandEconomy;
+use GalaxyQuest\Economy\ResourceLedger;
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
 require_once __DIR__ . '/shipyard_queue.php';
+require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
 
 // Build-queue status constants (must match ship_build_queue.status enum/values)
 const SBQ_STATUS_QUEUED  = 'queued';
@@ -120,18 +122,6 @@ if (PHP_SAPI !== 'cli') {
             'deuterium' => $cost['deuterium'] * $count,
             ];
 
-            $colony = $db->prepare('SELECT metal, crystal, deuterium FROM colonies WHERE id = ?');
-            $colony->execute([$cid]);
-            $res = $colony->fetch();
-
-            if (
-                $res['metal'] < $totalCost['metal']
-                || $res['crystal'] < $totalCost['crystal']
-                || $res['deuterium'] < $totalCost['deuterium']
-            ) {
-                json_error('Insufficient resources.');
-            }
-
             $durationSecs = estimate_ship_build_duration($db, $cid, $buildType, $count);
             $enqueue = function () use ($db, $cid, $buildType, $blueprintId, $count, $totalCost, $durationSecs): int {
                 $db->prepare(
@@ -157,17 +147,27 @@ if (PHP_SAPI !== 'cli') {
                 } catch (DomainException $error) {
                     json_error($error->getMessage(), $error->getCode() ?: 400);
                 }
+                start_next_ship_build_queue($db, $cid);
             } else {
-                $db->prepare(
-                    'UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?'
-                )->execute([$totalCost['metal'], $totalCost['crystal'], $totalCost['deuterium'], $cid]);
-                $queueId = $enqueue();
+                try {
+                    $queueId = (new ResourceLedger($db))->spend(
+                        $cid,
+                        $uid,
+                        $totalCost,
+                        function () use ($enqueue, $db, $cid): int {
+                            $queueId = $enqueue();
+                            start_next_ship_build_queue($db, $cid);
+                            return $queueId;
+                        }
+                    );
+                } catch (DomainException $error) {
+                    json_error($error->getMessage(), $error->getCode() ?: 400);
+                }
             }
 
             gq_cache_delete('shipyard_list', ['uid' => $uid, 'cid' => $cid]);
             gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
 
-            start_next_ship_build_queue($db, $cid);
             $queue = list_ship_build_queue($db, $cid);
             $queuedEntry = null;
             foreach ($queue as $entry) {

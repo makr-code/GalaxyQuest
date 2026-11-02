@@ -245,15 +245,16 @@ GalaxyQuest gilt als produktionsreif, wenn **alle** folgenden Aussagen nachweisb
 - [ ] Datentypen bereinigen: `BIGINT` für Ressourcen und IDs, `DECIMAL` statt `DOUBLE` für deterministische Werte, UTC-Konvention
 
 **Spielintegrität** (BE-01 … BE-03)
-- [ ] Gemeinsamer `ResourceLedger`-Service: Transaktion + `SELECT … FOR UPDATE` + bedingtes Update; Einsatz in Bau, Forschung, Werft, Flotte, Handel und Markt
-- [ ] Nebenläufigkeitstests (parallele Requests) für jede Ressourcenmutation; Invariante „Ressourcen ≥ 0“ per DB-Constraint oder Check
+- [x] Gemeinsamer `ResourceLedger`-Service mit Transaktion, `SELECT … FOR UPDATE` und bedingten Updates; Legacy-Einsatz für Gebäude-Upgrades, Forschungsstarts, Werft, Flottenstarts, Handelslieferungen und Markt-Kauf/Verkauf inklusive atomarem Queue-/Forschungs-/Flotten-/Marktcommit, bedingter Schiffs-/Güter-/Creditreservierung und commitgebundener FTL-/Wurmloch-Cooldowns. SQLite-Unit- und Quellvertragstests decken Transaktions-/Rollback-Verhalten ab; echte parallele MySQL-Requests sind noch nicht abgenommen.
+- [x] Echter MySQL-Mehrprozess-Test für parallele ResourceLedger-Spends: Zwei Verbindungen starten synchronisiert konkurrierende Abbuchungen, genau eine gekoppelte Mutation committed; der Bestand bleibt dank bedingtem Update und DB-Check nichtnegativ.
+- [ ] API-spezifische Nebenläufigkeitstests für Gebäude, Forschung, Werft, Flotte, Handel und Markt; der zentrale Ledger-Test ersetzt diese End-to-End-Abnahme nicht.
 - [x] Opt-in Koloniewirtschaft als serverseitiger On-Demand-Prozess: persistente 300-Sekunden-Schritte, begrenztes Catch-up, reale Produktionsinputs und Bevoelkerungsklassen, gemeinsame Bau-/Markt-Abrechnung und aggregierte System-/Galaxieprojektionen mit Altersangabe. Migration und `ON_DEMAND_ECONOMY_ENABLED=1` erforderlich; kein Wirtschaftsworker. Externe Marktliquiditaet bleibt ein Market-Maker.
 - [ ] Nichtwirtschaftliche Weltsimulation als eigener Worker-Prozess mit Lease und idempotenter Tick-Nummer pruefen; dies ist keine Voraussetzung fuer Kolonieproduktion.
 - [ ] Tick-on-Read entfernen (`trade.php`, `fleet.php` u. a.); Lesepfade bleiben frei von Simulations-Seiteneffekten. Die getrennte lazy Wirtschaftsabrechnung wird weiterhin beim Overview-GET ausgeführt und muss als eigener Read-/Settlement-Vertrag behandelt werden.
 - [x] Fleet-Ankunftsverarbeitung vom GET-Listenpfad getrennt: `action=list` ist read-only; der CSRF-geschuetzte POST `action=check` wird beim Oeffnen der Ressourcenuebersicht explizit aufgerufen.
 - [x] Faellige Handelsrouten vom globalen Request-Pfad getrennt: Trade-GETs dispatchen nicht mehr; die Routenuebersicht ruft einen expliziten CSRF-geschuetzten POST `action=dispatch_due` auf und laedt danach die Liste ungecached. Weitere Tick-on-Read-Pfade muessen weiterhin geprueft werden.
 - [x] Legacy-Simulationsticks aus Overview-GET entfernt: Der Overview-Handler uebergibt immer `false`; `SIMULATION_TICK_ON_READ_ENABLED` ist entfernt. Explizite HTTP-/CLI-Ticks und lazy Settlement der Koloniewirtschaft bleiben getrennte Pfade.
-- [ ] Tick-Metriken: Dauer, Lag, Fehler pro Subsystem
+- [x] Tick-Metriken fuer Simulation: je ausgefuehrtem globalem/User-Subsystem Dauer, Sekunden seit vorherigem Versuch, Erfolgsstatus und Fehlerzahl im Tick-Ergebnis sowie strukturierte Logs; erste Ausfuehrung meldet unbekannten Lag. Keine Retention-/Dashboard-Metrik oder Produktionsalarme enthalten.
 
 **Datenlebenszyklus** (DB-06, DB-07)
 - [ ] Retention-Jobs und Partitionierung für Logs, Events, LLM-Logs und Nachrichten

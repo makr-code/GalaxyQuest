@@ -6,11 +6,13 @@
  * POST /api/buildings.php?action=finish   body: {colony_id}
  */
 use GalaxyQuest\Economy\OnDemandEconomy;
+use GalaxyQuest\Economy\ResourceLedger;
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/achievements.php';
+require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     $action = $_GET['action'] ?? '';
@@ -215,59 +217,81 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 $secs = max(1, (int)round($secs * 0.9));
             }
 
-            $db->prepare(
-                'UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?'
-            )->execute([$cost['metal'], $cost['crystal'], $cost['deuterium'], $cid]);
+            try {
+                $queued = (new ResourceLedger($db))->spend(
+                    $cid,
+                    $uid,
+                    $cost,
+                    function () use ($db, $cid, $type, $nextLevel, $cost, $secs): array {
+                        $currentLevel = $db->prepare(
+                            'SELECT level FROM buildings WHERE colony_id = ? AND type = ?'
+                        );
+                        $currentLevel->execute([$cid, $type]);
+                        $level = $currentLevel->fetchColumn();
+                        $pending = $db->prepare(
+                            'SELECT COUNT(*) FROM building_upgrade_queue
+                             WHERE colony_id = ? AND building_type = ? AND status IN (\'queued\', \'running\')'
+                        );
+                        $pending->execute([$cid, $type]);
+                        if ($level === false || (int)$level + (int)$pending->fetchColumn() + 1 !== $nextLevel) {
+                            throw new DomainException('Building upgrade state changed. Refresh and retry.', 409);
+                        }
 
-            $db->prepare(
-                'INSERT INTO building_upgrade_queue
-                 (colony_id, building_type, target_level, cost_metal, cost_crystal, cost_deuterium,
-                  duration_secs, queued_at, status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), \'queued\')'
-            )->execute([
-                $cid,
-                $type,
-                $nextLevel,
-                (int)$cost['metal'],
-                (int)$cost['crystal'],
-                (int)$cost['deuterium'],
-                $secs,
-            ]);
-            $queueId = (int)$db->lastInsertId();
+                        $db->prepare(
+                            'INSERT INTO building_upgrade_queue
+                             (colony_id, building_type, target_level, cost_metal, cost_crystal, cost_deuterium,
+                              duration_secs, queued_at, status)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), \'queued\')'
+                        )->execute([
+                            $cid,
+                            $type,
+                            $nextLevel,
+                            (int)$cost['metal'],
+                            (int)$cost['crystal'],
+                            (int)$cost['deuterium'],
+                            $secs,
+                        ]);
+                        $queueId = (int)$db->lastInsertId();
+
+                        start_next_building_upgrade($db, $cid);
+
+                        $activeStmt = $db->prepare(
+                            'SELECT building_type, eta FROM building_upgrade_queue
+                             WHERE colony_id = ? AND status = \'running\'
+                             ORDER BY id ASC LIMIT 1'
+                        );
+                        $activeStmt->execute([$cid]);
+                        $active = $activeStmt->fetch() ?: null;
+
+                        $positionStmt = $db->prepare(
+                            'SELECT COUNT(*) FROM building_upgrade_queue
+                             WHERE colony_id = ? AND status IN (\'queued\', \'running\') AND id <= ?'
+                        );
+                        $positionStmt->execute([$cid, $queueId]);
+                        $queuePosition = (int)$positionStmt->fetchColumn();
+
+                        $db->prepare(
+                            'UPDATE buildings SET upgrade_end=? WHERE colony_id=? AND type=?'
+                        )->execute([$active['eta'] ?? null, $cid, $active['building_type'] ?? $type]);
+
+                        return [
+                            'queued' => true,
+                            'queue_id' => $queueId,
+                            'queue_position' => $queuePosition,
+                            'type' => $type,
+                            'target_level' => $nextLevel,
+                            'duration_secs' => $secs,
+                            'upgrade_end' => $active['eta'] ?? null,
+                            'active_type' => $active['building_type'] ?? null,
+                        ];
+                    }
+                );
+            } catch (DomainException $error) {
+                json_error($error->getMessage(), $error->getCode() ?: 400);
+            }
 
             gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
-
-            start_next_building_upgrade($db, $cid);
-
-            $activeStmt = $db->prepare(
-                'SELECT building_type, eta FROM building_upgrade_queue
-                 WHERE colony_id = ? AND status = \'running\'
-                 ORDER BY id ASC LIMIT 1'
-            );
-            $activeStmt->execute([$cid]);
-            $active = $activeStmt->fetch() ?: null;
-
-            $positionStmt = $db->prepare(
-                'SELECT COUNT(*) FROM building_upgrade_queue
-                 WHERE colony_id = ? AND status IN (\'queued\', \'running\') AND id <= ?'
-            );
-            $positionStmt->execute([$cid, $queueId]);
-            $queuePosition = (int)$positionStmt->fetchColumn();
-
-            $db->prepare(
-                'UPDATE buildings SET upgrade_end=? WHERE colony_id=? AND type=?'
-            )->execute([$active['eta'] ?? null, $cid, $active['building_type'] ?? $type]);
-
-            json_ok([
-                'queued' => true,
-                'queue_id' => $queueId,
-                'queue_position' => $queuePosition,
-                'type' => $type,
-                'target_level' => $nextLevel,
-                'duration_secs' => $secs,
-                'upgrade_end' => $active['eta'] ?? null,
-                'active_type' => $active['building_type'] ?? null,
-            ]);
+            json_ok($queued);
             break;
 
         case 'finish':

@@ -180,6 +180,13 @@ jobs:
           GQ_MIGRATION_TEST_PASSWORD: root
         run: vendor/bin/phpunit tests/Integration/MigrationRunnerMySqlTest.php --no-coverage --do-not-cache-result --fail-on-warning --fail-on-risky --fail-on-phpunit-deprecation
 
+      - name: Test ResourceLedger concurrency against isolated MySQL
+        env:
+          GQ_RESOURCE_LEDGER_TEST_DSN: "mysql:host=127.0.0.1;port=3306;charset=utf8mb4"
+          GQ_RESOURCE_LEDGER_TEST_USER: root
+          GQ_RESOURCE_LEDGER_TEST_PASSWORD: root
+        run: vendor/bin/phpunit tests/Integration/ResourceLedgerConcurrencyTest.php --no-coverage --do-not-cache-result --fail-on-warning --fail-on-risky --fail-on-phpunit-deprecation
+
       - name: Initialise database schema and migrations
         env:
           DB_HOST: 127.0.0.1

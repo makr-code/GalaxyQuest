@@ -9,10 +9,12 @@
 //   get_active_events — list active market events
 
 use GalaxyQuest\Economy\OnDemandEconomy;
+use GalaxyQuest\Economy\ResourceLedger;
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/economy_flush.php';
+require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -411,29 +413,29 @@ function action_get_region_prices(PDO $db, int $uid): never {
 function action_buy(PDO $db, int $uid): never {
     verify_csrf();
     $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+    $colonyId = (int)($body['colony_id'] ?? 0);
+    $goodType = is_string($body['good_type'] ?? null) ? trim($body['good_type']) : '';
+    $quantity = is_numeric($body['quantity'] ?? null) ? (float)$body['quantity'] : NAN;
+
+    if (!$colonyId)       json_error('colony_id required', 400);
+    if (!$goodType)       json_error('good_type required', 400);
+    if (!is_finite($quantity) || $quantity <= 0) json_error('quantity must be a finite number > 0', 400);
+    if (!isset(BASE_PRICES[$goodType])) json_error('Unknown good_type: ' . $goodType, 400);
+
     if (ON_DEMAND_ECONOMY_ENABLED) {
         require_once __DIR__ . '/game_engine.php';
         try {
             json_ok((new OnDemandEconomy($db))->exchange(
-                (int)($body['colony_id'] ?? 0),
+                $colonyId,
                 $uid,
-                (string)($body['good_type'] ?? ''),
-                (float)($body['quantity'] ?? 0),
+                $goodType,
+                $quantity,
                 true
             ));
         } catch (DomainException $error) {
             json_error($error->getMessage(), $error->getCode() ?: 400);
         }
     }
-    $colonyId = (int)($body['colony_id'] ?? 0);
-    $goodType = trim($body['good_type'] ?? '');
-    $quantity = (float)($body['quantity'] ?? 0);
-
-    if (!$colonyId)       json_error('colony_id required', 400);
-    if (!$goodType)       json_error('good_type required', 400);
-    if ($quantity <= 0)   json_error('quantity must be > 0', 400);
-    if (!isset(BASE_PRICES[$goodType])) json_error('Unknown good_type: ' . $goodType, 400);
-
     // Verify colony ownership
     $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
     $stmt->execute([$colonyId, $uid]);
@@ -458,44 +460,67 @@ function action_buy(PDO $db, int $uid): never {
     // MERCANTILISM: import surcharge +20% (protects domestic industry)
     $importMult = ($resolvedPolicy === 'mercantilism') ? 1.20 : 1.0;
     $total    = round($gross * $importMult * (1 + $taxRate), 2);
-
-    // Check player credits
-    $cStmt = $db->prepare('SELECT credits FROM users WHERE id = ?');
-    $cStmt->execute([$uid]);
-    $cRow  = $cStmt->fetch(PDO::FETCH_ASSOC);
-    if (!$cRow || (float)$cRow['credits'] < $total) {
-        json_error('Insufficient credits. Need ' . $total . ', have ' . (float)($cRow['credits'] ?? 0), 400);
+    if (!is_finite($total) || $total <= 0) {
+        json_error('Invalid transaction amount.', 400);
     }
 
-    $db->beginTransaction();
     try {
-        // Deduct credits
-        $db->prepare('UPDATE users SET credits = credits - ? WHERE id = ?')
-           ->execute([$total, $uid]);
+        (new ResourceLedger($db))->transactionWithColony(
+            $colonyId,
+            $uid,
+            function () use ($db, $uid, $colonyId, $goodType, $quantity, $total, $price, $taxRate): void {
+                $debit = $db->prepare(
+                    'UPDATE users SET credits = credits - ? WHERE id = ? AND credits >= ?'
+                );
+                $debit->execute([$total, $uid, $total]);
+                if ($debit->rowCount() !== 1) {
+                    throw new DomainException('Insufficient credits.', 409);
+                }
 
-        // Add goods to colony stock
-        $db->prepare(<<<SQL
-            INSERT INTO economy_processed_goods (colony_id, good_type, quantity, capacity)
-            VALUES (?, ?, ?, 5000)
-            ON DUPLICATE KEY UPDATE
-                quantity = LEAST(capacity, quantity + VALUES(quantity)),
-                updated_at = CURRENT_TIMESTAMP
-        SQL)->execute([$colonyId, $goodType, $quantity]);
+                $lock = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+                $stock = $db->prepare(
+                    'SELECT quantity, capacity FROM economy_processed_goods '
+                    . 'WHERE colony_id = ? AND good_type = ?' . $lock
+                );
+                $stock->execute([$colonyId, $goodType]);
+                $current = $stock->fetch(PDO::FETCH_ASSOC);
+                if (!$current) {
+                    if ($quantity > 5000) {
+                        throw new DomainException('Insufficient storage capacity.', 409);
+                    }
+                    $db->prepare(
+                        'INSERT INTO economy_processed_goods (colony_id, good_type, quantity, capacity) '
+                        . 'VALUES (?, ?, ?, 5000)'
+                    )->execute([$colonyId, $goodType, $quantity]);
+                } else {
+                    if ((float)$current['quantity'] + $quantity > (float)$current['capacity']) {
+                        throw new DomainException('Insufficient storage capacity.', 409);
+                    }
+                    $add = $db->prepare(
+                        'UPDATE economy_processed_goods '
+                        . 'SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP '
+                        . 'WHERE colony_id = ? AND good_type = ? AND quantity + ? <= capacity'
+                    );
+                    $add->execute([$quantity, $colonyId, $goodType, $quantity]);
+                    if ($add->rowCount() !== 1) {
+                        throw new DomainException('Insufficient storage capacity.', 409);
+                    }
+                }
 
-        // Update market demand
-        update_supply_demand($db, $colonyId, $goodType, 0, $quantity * 0.1);
+                update_supply_demand($db, $colonyId, $goodType, 0, $quantity * 0.1);
 
-        // Log transaction
-        $db->prepare(<<<SQL
-            INSERT INTO economy_market_transactions
-                (user_id, colony_id, good_type, direction, quantity, price_per_unit, total_credits, trade_tax_rate, net_credits)
-            VALUES (?, ?, ?, 'buy', ?, ?, ?, ?, ?)
-        SQL)->execute([$uid, $colonyId, $goodType, $quantity, $price, $total, $taxRate, $total]);
-
-        $db->commit();
-    } catch (Throwable $e) {
-        $db->rollBack();
-        json_error('Transaction failed: ' . $e->getMessage(), 500);
+                $db->prepare(<<<SQL
+                    INSERT INTO economy_market_transactions
+                        (user_id, colony_id, good_type, direction, quantity, price_per_unit, total_credits, trade_tax_rate, net_credits)
+                    VALUES (?, ?, ?, 'buy', ?, ?, ?, ?, ?)
+                SQL)->execute([$uid, $colonyId, $goodType, $quantity, $price, $total, $taxRate, $total]);
+            }
+        );
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
+    } catch (Throwable $error) {
+        error_log("market buy failed user={$uid} colony={$colonyId}: " . $error->getMessage());
+        json_error('Transaction failed.', 500);
     }
 
     json_ok([
@@ -519,29 +544,29 @@ function action_buy(PDO $db, int $uid): never {
 function action_sell(PDO $db, int $uid): never {
     verify_csrf();
     $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+    $colonyId = (int)($body['colony_id'] ?? 0);
+    $goodType = is_string($body['good_type'] ?? null) ? trim($body['good_type']) : '';
+    $quantity = is_numeric($body['quantity'] ?? null) ? (float)$body['quantity'] : NAN;
+
+    if (!$colonyId)     json_error('colony_id required', 400);
+    if (!$goodType)     json_error('good_type required', 400);
+    if (!is_finite($quantity) || $quantity <= 0) json_error('quantity must be a finite number > 0', 400);
+    if (!isset(BASE_PRICES[$goodType])) json_error('Unknown good_type: ' . $goodType, 400);
+
     if (ON_DEMAND_ECONOMY_ENABLED) {
         require_once __DIR__ . '/game_engine.php';
         try {
             json_ok((new OnDemandEconomy($db))->exchange(
-                (int)($body['colony_id'] ?? 0),
+                $colonyId,
                 $uid,
-                (string)($body['good_type'] ?? ''),
-                (float)($body['quantity'] ?? 0),
+                $goodType,
+                $quantity,
                 false
             ));
         } catch (DomainException $error) {
             json_error($error->getMessage(), $error->getCode() ?: 400);
         }
     }
-    $colonyId = (int)($body['colony_id'] ?? 0);
-    $goodType = trim($body['good_type'] ?? '');
-    $quantity = (float)($body['quantity'] ?? 0);
-
-    if (!$colonyId)     json_error('colony_id required', 400);
-    if (!$goodType)     json_error('good_type required', 400);
-    if ($quantity <= 0) json_error('quantity must be > 0', 400);
-    if (!isset(BASE_PRICES[$goodType])) json_error('Unknown good_type: ' . $goodType, 400);
-
     // Verify colony ownership
     $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
     $stmt->execute([$colonyId, $uid]);
@@ -569,34 +594,45 @@ function action_sell(PDO $db, int $uid): never {
     $price  = compute_price($db, $goodType, $colonyId);
     $gross  = $price * $quantity;
     $net    = round($gross * $exportMult * (1 - $taxRate), 2);
+    if (!is_finite($net) || $net <= 0) {
+        json_error('Invalid transaction amount.', 400);
+    }
 
-    $db->beginTransaction();
     try {
-        // Deduct goods from colony
-        $db->prepare(<<<SQL
-            UPDATE economy_processed_goods
-            SET quantity = GREATEST(0, quantity - ?), updated_at = CURRENT_TIMESTAMP
-            WHERE colony_id = ? AND good_type = ?
-        SQL)->execute([$quantity, $colonyId, $goodType]);
+        (new ResourceLedger($db))->transactionWithColony(
+            $colonyId,
+            $uid,
+            function () use ($db, $uid, $colonyId, $goodType, $quantity, $price, $net, $taxRate): void {
+                $remove = $db->prepare(<<<SQL
+                    UPDATE economy_processed_goods
+                    SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE colony_id = ? AND good_type = ? AND quantity >= ?
+                SQL);
+                $remove->execute([$quantity, $colonyId, $goodType, $quantity]);
+                if ($remove->rowCount() !== 1) {
+                    throw new DomainException('Insufficient stock.', 409);
+                }
 
-        // Add credits to player
-        $db->prepare('UPDATE users SET credits = credits + ? WHERE id = ?')
-           ->execute([$net, $uid]);
+                $credit = $db->prepare('UPDATE users SET credits = credits + ? WHERE id = ?');
+                $credit->execute([$net, $uid]);
+                if ($credit->rowCount() !== 1) {
+                    throw new DomainException('User not found.', 404);
+                }
 
-        // Update market supply
-        update_supply_demand($db, $colonyId, $goodType, $quantity * 0.1, 0);
+                update_supply_demand($db, $colonyId, $goodType, $quantity * 0.1, 0);
 
-        // Log transaction
-        $db->prepare(<<<SQL
-            INSERT INTO economy_market_transactions
-                (user_id, colony_id, good_type, direction, quantity, price_per_unit, total_credits, trade_tax_rate, net_credits)
-            VALUES (?, ?, ?, 'sell', ?, ?, ?, ?, ?)
-        SQL)->execute([$uid, $colonyId, $goodType, $quantity, $price, $net, $taxRate, $net]);
-
-        $db->commit();
-    } catch (Throwable $e) {
-        $db->rollBack();
-        json_error('Transaction failed: ' . $e->getMessage(), 500);
+                $db->prepare(<<<SQL
+                    INSERT INTO economy_market_transactions
+                        (user_id, colony_id, good_type, direction, quantity, price_per_unit, total_credits, trade_tax_rate, net_credits)
+                    VALUES (?, ?, ?, 'sell', ?, ?, ?, ?, ?)
+                SQL)->execute([$uid, $colonyId, $goodType, $quantity, $price, $net, $taxRate, $net]);
+            }
+        );
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
+    } catch (Throwable $error) {
+        error_log("market sell failed user={$uid} colony={$colonyId}: " . $error->getMessage());
+        json_error('Transaction failed.', 500);
     }
 
     json_ok([

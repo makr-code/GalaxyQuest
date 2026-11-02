@@ -57,6 +57,112 @@ function simulation_runtime_supports_state_tracking(): bool
 }
 
 /**
+ * @param callable(): mixed $operation
+ * @return array<string, mixed>
+ */
+function simulation_runtime_measure_subsystem(
+    callable $operation,
+    ?int $previousRunUnix,
+    int $startedAtUnix
+): array {
+    $start = microtime(true);
+    try {
+        $outcome = $operation();
+        $result = is_array($outcome) ? $outcome : [];
+        $ok = ($result['ok'] ?? true) !== false;
+        $errorClass = null;
+    } catch (Throwable $e) {
+        $result = ['error' => $e->getMessage()];
+        $ok = false;
+        $errorClass = get_class($e);
+    }
+
+    $durationMs = (int)round((microtime(true) - $start) * 1000);
+    $lagSeconds = $previousRunUnix === null
+        ? null
+        : max(0, $startedAtUnix - $previousRunUnix);
+    $result['ok'] = $ok;
+    $result['duration_ms'] = $durationMs;
+    $result['lag_seconds'] = $lagSeconds;
+    $result['error_count'] = $ok ? 0 : 1;
+
+    if ($errorClass !== null) {
+        $result['error_class'] = $errorClass;
+    }
+
+    return $result;
+}
+
+/**
+ * Execute one subsystem and report its duration, time since its previous run,
+ * and error state without allowing telemetry persistence to mask tick results.
+ *
+ * @param callable(): mixed $operation
+ * @return array<string, mixed>
+ */
+function simulation_runtime_execute_subsystem(
+    PDO $db,
+    string $scope,
+    string $subsystem,
+    string $scopeId,
+    callable $operation,
+    bool $supportsStateTracking,
+    int $startedAtUnix
+): array {
+    $stateScope = $scope === 'user' ? 'u:' . $scopeId : 'g';
+    $stateKey = 'sim:m:' . $stateScope . ':' . $subsystem . ':run';
+    $previousRunUnix = null;
+
+    if ($supportsStateTracking) {
+        try {
+            $lastRun = app_state_get_int($db, $stateKey, 0);
+            $previousRunUnix = $lastRun > 0 ? $lastRun : null;
+        } catch (Throwable $e) {
+            error_log(sprintf(
+                '[simulation_metrics] state_read_error scope=%s subsystem=%s error_class=%s',
+                $scope,
+                $subsystem,
+                get_class($e)
+            ));
+        }
+    }
+
+    $result = simulation_runtime_measure_subsystem(
+        $operation,
+        $previousRunUnix,
+        $startedAtUnix
+    );
+
+    if ($supportsStateTracking) {
+        try {
+            app_state_set_int($db, $stateKey, $startedAtUnix);
+        } catch (Throwable $e) {
+            error_log(sprintf(
+                '[simulation_metrics] state_write_error scope=%s subsystem=%s error_class=%s',
+                $scope,
+                $subsystem,
+                get_class($e)
+            ));
+        }
+    }
+
+    $metric = [
+        'scope' => $scope,
+        'subsystem' => $subsystem,
+        'duration_ms' => $result['duration_ms'],
+        'lag_seconds' => $result['lag_seconds'],
+        'ok' => $result['ok'],
+        'error_count' => $result['error_count'],
+    ];
+    if (isset($result['error_class'])) {
+        $metric['error_class'] = $result['error_class'];
+    }
+    error_log('[simulation_metrics] ' . json_encode($metric, JSON_UNESCAPED_SLASHES));
+
+    return $result;
+}
+
+/**
  * @return array<string, mixed>
  */
 function simulation_tick_global(PDO $db, bool $force = false): array
@@ -82,6 +188,7 @@ function simulation_tick_global(PDO $db, bool $force = false): array
     }
 
     $tickStart = microtime(true);
+    $tickStartedAtUnix = (int)$tickStart;
 
     $result = [
         'executed' => true,
@@ -91,48 +198,70 @@ function simulation_tick_global(PDO $db, bool $force = false): array
         'ticks' => [],
     ];
 
-    try {
-        $result['ticks']['economy_production'] = process_economy_production_tick($db, $force);
-    } catch (Throwable $e) {
-        $result['ticks']['economy_production'] = ['ok' => false, 'error' => $e->getMessage()];
-    }
-
-    try {
-        $result['ticks']['economy_population'] = process_economy_pop_satisfaction_tick($db, $force);
-    } catch (Throwable $e) {
-        $result['ticks']['economy_population'] = ['ok' => false, 'error' => $e->getMessage()];
-    }
-
-    try {
-        $result['ticks']['war_runtime'] = process_war_runtime_tick($db, $force);
-    } catch (Throwable $e) {
-        $result['ticks']['war_runtime'] = ['ok' => false, 'error' => $e->getMessage()];
-    }
-
-    try {
-        $result['ticks']['war_attrition'] = process_war_attrition_tick($db, $force);
-    } catch (Throwable $e) {
-        $result['ticks']['war_attrition'] = ['ok' => false, 'error' => $e->getMessage()];
-    }
-
-    try {
-        $result['ticks']['pirate_raids'] = process_pirate_raid_resolution_tick($db, $force);
-    } catch (Throwable $e) {
-        $result['ticks']['pirate_raids'] = ['ok' => false, 'error' => $e->getMessage()];
-    }
-
-    try {
-        trader_tick_global($db, $force);
-        $result['ticks']['traders'] = ['ok' => true];
-    } catch (Throwable $e) {
-        $result['ticks']['traders'] = ['ok' => false, 'error' => $e->getMessage()];
-    }
+    $result['ticks']['economy_production'] = simulation_runtime_execute_subsystem(
+        $db,
+        'global',
+        'economy_production',
+        '',
+        static fn(): array => process_economy_production_tick($db, $force),
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
+    $result['ticks']['economy_population'] = simulation_runtime_execute_subsystem(
+        $db,
+        'global',
+        'economy_population',
+        '',
+        static fn(): array => process_economy_pop_satisfaction_tick($db, $force),
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
+    $result['ticks']['war_runtime'] = simulation_runtime_execute_subsystem(
+        $db,
+        'global',
+        'war_runtime',
+        '',
+        static fn(): array => process_war_runtime_tick($db, $force),
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
+    $result['ticks']['war_attrition'] = simulation_runtime_execute_subsystem(
+        $db,
+        'global',
+        'war_attrition',
+        '',
+        static fn(): array => process_war_attrition_tick($db, $force),
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
+    $result['ticks']['pirate_raids'] = simulation_runtime_execute_subsystem(
+        $db,
+        'global',
+        'pirate_raids',
+        '',
+        static fn(): array => process_pirate_raid_resolution_tick($db, $force),
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
+    $result['ticks']['traders'] = simulation_runtime_execute_subsystem(
+        $db,
+        'global',
+        'traders',
+        '',
+        static function () use ($db, $force): array {
+            trader_tick_global($db, $force);
+            return [];
+        },
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
 
     $hasSuccessfulTick = false;
+    $errorCount = 0;
     foreach ($result['ticks'] as $tick) {
+        $errorCount += (int)($tick['error_count'] ?? 0);
         if (!empty($tick['ok'])) {
             $hasSuccessfulTick = true;
-            break;
         }
     }
 
@@ -141,6 +270,7 @@ function simulation_tick_global(PDO $db, bool $force = false): array
     }
 
     $result['duration_ms'] = (int)round((microtime(true) - $tickStart) * 1000);
+    $result['error_count'] = $errorCount;
     $result['tick_unix'] = $now;
 
     return $result;
@@ -177,6 +307,7 @@ function simulation_tick_user(PDO $db, int $userId, bool $force = false): array
     }
 
     $tickStart = microtime(true);
+    $tickStartedAtUnix = (int)$tickStart;
     $result = [
         'executed' => true,
         'scope' => 'user',
@@ -186,19 +317,26 @@ function simulation_tick_user(PDO $db, int $userId, bool $force = false): array
         'ticks' => [],
     ];
 
-    try {
-        npc_ai_tick($db, $userId, $force);
-        $result['ticks']['npc_ai'] = ['ok' => true];
-    } catch (Throwable $e) {
-        $result['ticks']['npc_ai'] = ['ok' => false, 'error' => $e->getMessage()];
-    }
+    $result['ticks']['npc_ai'] = simulation_runtime_execute_subsystem(
+        $db,
+        'user',
+        'npc_ai',
+        (string)$userId,
+        static function () use ($db, $userId, $force): array {
+            npc_ai_tick($db, $userId, $force);
+            return [];
+        },
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
 
     $hasSuccessfulTick = false;
+    $errorCount = 0;
     foreach ($result['ticks'] as $tick) {
-        if (is_array($tick) && !empty($tick['ok'])) {
+        if (!empty($tick['ok'])) {
             $hasSuccessfulTick = true;
-            break;
         }
+        $errorCount += (int)($tick['error_count'] ?? 0);
     }
 
     if ($hasSuccessfulTick && $supportsStateTracking) {
@@ -206,6 +344,7 @@ function simulation_tick_user(PDO $db, int $userId, bool $force = false): array
     }
 
     $result['duration_ms'] = (int)round((microtime(true) - $tickStart) * 1000);
+    $result['error_count'] = $errorCount;
     $result['tick_unix'] = $now;
 
     return $result;

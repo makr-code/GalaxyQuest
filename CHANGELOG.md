@@ -67,6 +67,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Explicit HTTP/CLI simulation triggers and lazy colony-resource settlement
   remain separate paths.
 
+### Added — Simulation tick metrics
+
+- Each executed simulation subsystem reports duration, time since its previous
+  attempt, status and error count in the tick result and structured logs.
+- Per-user subsystem timestamps are isolated by user; the first attempt reports
+  unknown lag. Metrics retention, dashboards and production alerts remain open.
+
+### Changed — Atomic legacy building upgrades
+
+- Legacy building upgrades now lock the owned colony, conditionally debit
+  available resources and commit the queue mutation in the same transaction.
+- A stale upgrade level caused by a concurrent request is rejected and rolled
+  back. Legacy research starts now use the same ledger and lock the user before
+  the colony, preventing concurrent starts across separate colonies and
+  rolling back debits if the research state changed. The on-demand economy
+  path is unchanged. Legacy ship builds now atomically debit resources, add
+  their queue entry and start the next queue item under the colony lock; the
+  on-demand shipyard path is unchanged. Legacy fleet launches now atomically
+  debit cargo, reserve ships and insert the fleet; FTL and wormhole cooldowns
+  are committed with a successful launch. Legacy trade deliveries now debit
+  cargo/fuel with the ledger, conditionally reserve processed goods and cargo
+  ships, and lock due routes to prevent duplicate dispatch. Legacy market
+  purchases and sales now use the ledger's user/colony transaction lock,
+  conditional credit and stock updates, capacity checks and atomic market
+  records. The on-demand market path remains unchanged.
+
+### Added — ResourceLedger concurrency coverage
+
+- CI now runs a real MySQL test with two synchronized PHP workers attempting
+  competing spends against one colony. It verifies only one coupled mutation
+  commits and that the remaining resource balance is nonnegative.
+- API-specific parallel request coverage for each mutation remains open.
+
 ### Changed — Isolated CI smoke stack
 
 - Smoke tests now use the built web image without a checkout mount, isolated
