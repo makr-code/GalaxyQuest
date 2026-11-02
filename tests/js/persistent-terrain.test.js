@@ -5,6 +5,8 @@ const require = createRequire(import.meta.url);
 const {
   cubeSphereDirection, planCubeSphereTiles, validateTerrainManifest, CubeSphereTerrainStream,
   buildPersistedTerrainMesh, resolveBodySurface,
+  validateBodyShape, bodyShapeFactor, bodyGroundPoint, bodySurfaceNormal, constrainBodyCamera,
+  mapColonySurfacePoint, cityCameraPose, cityCameraMatrix, projectCityPoint,
 } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
 
 const manifest = {
@@ -214,5 +216,67 @@ describe('Persisted cube-sphere terrain', () => {
     expect(stream.sample(100, 100, terrain)).toBeGreaterThan(0);
     const gas = buildPersistedTerrainMesh({ ...manifest, biome: 'gas' }, tiles, terrain);
     expect(Math.hypot(gas.vertices[0], gas.vertices[1] + terrain.radius, gas.vertices[2])).toBeCloseTo(terrain.radius, 4);
+  });
+
+  it('uses the same persisted irregular shape for terrain, buildings, normals and camera target', () => {
+    expect(mapColonySurfacePoint(0, 0, 1, 0)).toEqual([0, 1, 0]);
+    const shape = { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 };
+    const terrain = { ...resolveBodySurface({}, 20, 14).terrain, shape, heightSampler: () => 0 };
+    const shaped = { ...manifest, shape, biome: 'ice' };
+    expect(validateBodyShape(shape)).toBe(shape);
+    expect(validateTerrainManifest(shaped)).toBe(shaped);
+    const northFactor = 0.8 * (1 - 0.22 * 0.6);
+    expect(bodyShapeFactor([0, 1, 0], shape)).toBeCloseTo(northFactor);
+    const ground = mapColonySurfacePoint(terrain.radius, 0, 0, 0, terrain);
+    expect(ground[1]).toBeCloseTo(terrain.radius * (northFactor - 1));
+    const normal = bodySurfaceNormal(terrain.radius, 30, 20, shape);
+    const foundation = mapColonySurfacePoint(terrain.radius, 30, 0, 20, terrain);
+    const roof = mapColonySurfacePoint(terrain.radius, 30, 3, 20, terrain);
+    roof.forEach((value, axis) => expect(value - foundation[axis]).toBeCloseTo(normal[axis] * 3));
+    expect(Math.hypot(...normal)).toBeCloseTo(1);
+    const northTile = tile({ face: 2, lod: 0, x: 0, y: 0 }, 65535);
+    const mesh = buildPersistedTerrainMesh(shaped, [northTile], terrain);
+    const center = (8 * 16 + 8) * 6 * 7;
+    expect(mesh.vertices[center + 1]).toBeCloseTo(ground[1], 4);
+    const pose = cityCameraPose(25, 1, { x: 0, z: 0 }, terrain.radius, terrain);
+    pose.target.forEach((value, axis) => expect(value).toBeCloseTo(ground[axis]));
+    const matrix = cityCameraMatrix(1.5, 25, 1, { x: 0, z: 0 }, terrain.radius, terrain);
+    expect(projectCityPoint(matrix, ...ground)[0]).toBeCloseTo(0);
+    expect(projectCityPoint(matrix, ...ground)[1]).toBeCloseTo(0);
+    const stream = new CubeSphereTerrainStream(7, vi.fn());
+    stream.manifest = shaped;
+    stream.surfaceTiles.set(key(northTile), northTile);
+    expect(stream.sample(0, 0, terrain)).toBeCloseTo(0);
+    expect(bodyGroundPoint(terrain.radius, 30, 20, shape)).not.toEqual(bodyGroundPoint(terrain.radius, 30, 20));
+    for (const invalid of [{ ...shape, axes: [3, 1, 1] }, { ...shape, version: 2 }, { ...shape, deformation: NaN }]) {
+      expect(() => validateBodyShape(invalid)).toThrow();
+    }
+  });
+
+  it('has real perspective at every landing stage instead of orthographic depth at the surface', () => {
+    for (const progress of [0, 0.5, 1]) {
+      const pose = cityCameraPose(25, progress);
+      const matrix = cityCameraMatrix(1.5, 25, progress);
+      const point = (depth) => pose.target.map((value, axis) => value + pose.right[axis] * 3 + pose.back[axis] * depth);
+      const near = projectCityPoint(matrix, ...point(5));
+      const far = projectCityPoint(matrix, ...point(-5));
+      expect(Math.abs(near[0])).toBeGreaterThan(Math.abs(far[0]) * 1.1);
+      expect(near[2]).toBeLessThan(far[2]);
+    }
+  });
+
+  it('keeps the eye outside elongated bodies and stops swept moves before crossing a lobe', () => {
+    const shape = { version: 1, axes: [2, 0.7, 0.9], deformation: 0.3 };
+    const radius = 30;
+    const terrain = { radius, shape, collisionRelief: 0.6 };
+    const start = [100, -radius, 0], end = [-100, -radius, 0];
+    const constrained = constrainBodyCamera(start, end, radius, terrain);
+    expect(constrained[0]).toBeGreaterThan(radius * bodyShapeFactor([1, 0, 0], shape) + 0.6);
+    expect(constrained[0]).toBeLessThan(start[0]);
+    const corrected = constrainBodyCamera(null, [1, -radius, 0], radius, terrain);
+    expect(corrected[0]).toBeGreaterThan(radius * bodyShapeFactor([1, 0, 0], shape) + 0.6);
+    const clear = constrainBodyCamera([100, 100, 0], [-100, 100, 0], radius, terrain);
+    expect(clear).toEqual([-100, 100, 0]);
+    expect(constrainBodyCamera(null, [0, -radius, 0], radius, terrain).every(Number.isFinite)).toBe(true);
   });
 });

@@ -13,6 +13,43 @@ final class BodyTerrain
     public const VERSION = 1;
     public const RESOLUTION = 17;
 
+    public static function shape(array $body): array
+    {
+        $payload = $body['payload_json'] ?? null;
+        if (is_string($payload) && $payload !== '') {
+            $payload = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
+        }
+        $shape = $body['shape'] ?? (is_array($payload) ? ($payload['shape'] ?? null) : null);
+        $small = preg_match('/comet|asteroid/', (string)$body['body_type'] . ' ' . ($body['planet_class'] ?? '')) === 1;
+        if ($shape === null) {
+            return [
+                'version' => 1,
+                'axes' => $small ? [1.45, 0.8, 0.95] : [1, 1, 1],
+                'deformation' => $small ? 0.22 : 0,
+            ];
+        }
+        if (
+            !is_array($shape) || ($shape['version'] ?? 1) !== 1
+            || !isset($shape['axes']) || !is_array($shape['axes'])
+            || !array_is_list($shape['axes']) || count($shape['axes']) !== 3
+        ) {
+            throw new InvalidArgumentException('Invalid body shape');
+        }
+        foreach ($shape['axes'] as $axis) {
+            if (!is_numeric($axis) || !is_finite((float)$axis) || (float)$axis < 0.5 || (float)$axis > 2) {
+                throw new InvalidArgumentException('Body shape axes must be between 0.5 and 2');
+            }
+        }
+        $deformation = $shape['deformation'] ?? 0;
+        if (!is_numeric($deformation) || !is_finite((float)$deformation) || $deformation < 0 || $deformation > 0.35) {
+            throw new InvalidArgumentException('Body shape deformation must be between 0 and 0.35');
+        }
+        return [
+            'version' => 1, 'axes' => array_map('floatval', $shape['axes']),
+            'deformation' => (float)$deformation,
+        ];
+    }
+
     public static function forColony(PDO $db, int $userId, int $colonyId): array
     {
         $read = $db->prepare(
@@ -47,7 +84,14 @@ final class BodyTerrain
         $read->execute([(int)$body['id']]);
         $saved = $read->fetchColumn();
         if ($saved !== false) {
-            return json_decode((string)$saved, true, 512, JSON_THROW_ON_ERROR);
+            $manifest = json_decode((string)$saved, true, 512, JSON_THROW_ON_ERROR);
+            if (!isset($manifest['shape'])) {
+                // Existing v1 worlds keep their original spherical base.
+                $manifest['shape'] = ['version' => 1, 'axes' => [1, 1, 1], 'deformation' => 0];
+                $db->prepare('UPDATE body_terrain_manifests SET manifest_json = ? WHERE body_id = ?')
+                    ->execute([json_encode($manifest, JSON_THROW_ON_ERROR), $body['id']]);
+            }
+            return $manifest;
         }
         $kind = strtolower((string)(($body['planet_class'] ?? '') ?: $body['body_type']));
         $biome = match (true) {
@@ -75,6 +119,7 @@ final class BodyTerrain
             'resolution' => self::RESOLUTION,
             'max_lod' => min(16, max(0, (int)ceil(log(max(1, $radius * M_PI / 2), 2)))),
             'tile_encoding' => 'uint16-json',
+            'shape' => self::shape($body),
         ];
         $sql = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
             ? 'INSERT INTO body_terrain_manifests (body_id, manifest_json)

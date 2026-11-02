@@ -42,14 +42,16 @@ const TERRAIN_LODS = Object.freeze([
 const TERRAIN_CACHE_BYTES = 8 * 1024 * 1024;
 
 const COLONY_CITY_WGSL = `
-struct Camera { viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32> };
+struct Camera {
+  viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32>,
+  reserved: array<vec4<f32>, 6>, shape: vec4<f32>,
+};
 struct Instance { color: vec4<f32>, position: vec4<f32>, scale: vec4<f32>, extra: vec4<f32> };
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<storage, read> instances: array<Instance>;
 struct Out { @builtin(position) position: vec4<f32>, @location(0) color: vec4<f32> };
-fn surfacePoint(local: vec3<f32>) -> vec3<f32> {
+fn bodyGround(horizontal: vec2<f32>) -> vec3<f32> {
   let radius = max(camera.transition.y, 0.001);
-  let horizontal = local.xz;
   let distance = length(horizontal);
   let angle = distance / radius;
   var normal = vec3<f32>(0, 1, 0);
@@ -57,7 +59,22 @@ fn surfacePoint(local: vec3<f32>) -> vec3<f32> {
     let tangent = horizontal / distance;
     normal = vec3<f32>(tangent.x * sin(angle), cos(angle), tangent.y * sin(angle));
   }
-  return normal * (radius + local.y) + vec3<f32>(0, -radius, 0);
+  let axes = max(camera.shape.xyz,vec3<f32>(0.5));
+  let wave = 0.6 * (normal.x * normal.x - normal.y * normal.y) + 0.4 * normal.x * normal.z;
+  let factor = (1.0 + camera.shape.w * wave) / length(normal / axes);
+  return normal * radius * factor + vec3<f32>(0, -radius, 0);
+}
+fn surfacePoint(local: vec3<f32>) -> vec3<f32> {
+  let ground = bodyGround(local.xz);
+  let epsilon = max(camera.transition.y * 0.0001,0.001);
+  let east = bodyGround(local.xz + vec2<f32>(epsilon,0)) - bodyGround(local.xz - vec2<f32>(epsilon,0));
+  let north = bodyGround(local.xz + vec2<f32>(0,epsilon)) - bodyGround(local.xz - vec2<f32>(0,epsilon));
+  let radial = normalize(ground + vec3<f32>(0,camera.transition.y,0));
+  let product = cross(north,east);
+  let candidate = product / max(length(product),0.00000001);
+  let outward = select(-candidate,candidate,dot(candidate,radial) >= 0.0);
+  let normal = select(radial,outward,length(product) > 0.00000001);
+  return ground + normal * local.y;
 }
 @vertex fn vs_main(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: u32) -> Out {
   let corners = array<vec3<f32>, 8>(
@@ -134,6 +151,7 @@ struct Camera {
   viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32>,
   eye: vec4<f32>, right: vec4<f32>, up: vec4<f32>, back: vec4<f32>,
   sky: vec4<f32>, clouds: vec4<f32>,
+  shape: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> camera: Camera;
 struct Out { @builtin(position) position: vec4<f32>, @location(0) screen: vec2<f32> };
@@ -159,7 +177,8 @@ struct SkyOut { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
   let direction = normalize(-camera.back.xyz + offset * (1.0 - camera.clouds.w) / camera.back.w);
   let center = vec3<f32>(0,-camera.transition.y,0);
   let relative = origin - center;
-  let radius = camera.transition.y + camera.clouds.x;
+  let radius = camera.transition.y * max(camera.shape.x,max(camera.shape.y,camera.shape.z))
+    * (1.0 + camera.shape.w) + camera.clouds.x;
   let b = dot(relative,direction);
   let c = dot(relative,relative) - radius * radius;
   let discriminant = b * b - c;
@@ -211,19 +230,100 @@ function projectCityPoint(matrix, x, y, z) {
     (matrix[row] * x + matrix[4 + row] * y + matrix[8 + row] * z + matrix[12 + row]) / w);
 }
 
-function mapColonySurfacePoint(radius, x, y, z, terrain = null) {
-  if (terrain) y += sampleColonyTerrain(terrain, x, z).height;
+function validateBodyShape(shape) {
+  if (!shape || shape.version !== 1 || !Array.isArray(shape.axes) || shape.axes.length !== 3
+      || !shape.axes.every((axis) => Number.isFinite(axis) && axis >= 0.5 && axis <= 2)
+      || !Number.isFinite(shape.deformation) || shape.deformation < 0 || shape.deformation > 0.35) {
+    throw new Error('Unsupported or invalid body shape');
+  }
+  return shape;
+}
+
+function bodyShapeFactor(direction, shape) {
+  if (!shape) return 1;
+  const [x, y, z] = direction;
+  const wave = 0.6 * (x * x - y * y) + 0.4 * x * z;
+  return (1 + shape.deformation * wave) / Math.hypot(...direction.map((n, axis) => n / shape.axes[axis]));
+}
+
+function bodyGroundPoint(radius, x, z, shape) {
   const safeRadius = Math.max(0.001, Number(radius) || 0.001);
   const distance = Math.hypot(x, z);
   const angle = distance / safeRadius;
-  if (distance < 0.0001) return [0, y, 0];
-  const tangentScale = Math.sin(angle) / distance;
+  const tangentScale = distance > 0.0001 ? Math.sin(angle) / distance : 0;
   const normal = [x * tangentScale, Math.cos(angle), z * tangentScale];
-  return [
-    normal[0] * (safeRadius + y),
-    normal[1] * (safeRadius + y) - safeRadius,
-    normal[2] * (safeRadius + y),
-  ];
+  return normal.map((value, axis) => value * safeRadius * bodyShapeFactor(normal, shape) - (axis === 1 ? safeRadius : 0));
+}
+
+function bodySurfaceNormal(radius, x, z, shape) {
+  radius = Math.max(0.001, Number(radius) || 0.001);
+  if (!shape || (shape.deformation === 0 && shape.axes.every((axis) => axis === 1))) {
+    const point = bodyGroundPoint(radius, x, z);
+    return [point[0] / radius, (point[1] + radius) / radius, point[2] / radius];
+  }
+  const epsilon = Math.max(radius * 0.0001, 0.001);
+  const difference = (a, b) => a.map((value, axis) => value - b[axis]);
+  const east = difference(bodyGroundPoint(radius, x + epsilon, z, shape), bodyGroundPoint(radius, x - epsilon, z, shape));
+  const north = difference(bodyGroundPoint(radius, x, z + epsilon, shape), bodyGroundPoint(radius, x, z - epsilon, shape));
+  let normal = [north[1] * east[2] - north[2] * east[1], north[2] * east[0] - north[0] * east[2], north[0] * east[1] - north[1] * east[0]];
+  const length = Math.hypot(...normal);
+  if (length < 1e-10) {
+    const point = bodyGroundPoint(radius, x, z, shape);
+    normal = [point[0], point[1] + radius, point[2]];
+  }
+  const norm = Math.hypot(...normal);
+  const ground = bodyGroundPoint(radius, x, z, shape);
+  const radial = [ground[0], ground[1] + radius, ground[2]];
+  const sign = normal.reduce((sum, value, axis) => sum + value * radial[axis], 0) < 0 ? -1 : 1;
+  return normal.map((value) => value / norm * sign);
+}
+
+function mapColonySurfacePoint(radius, x, y, z, terrain = null) {
+  radius = Math.max(0.001, Number(radius) || 0.001);
+  const point = bodyGroundPoint(radius, x, z, terrain?.shape);
+  if (terrain) {
+    const height = sampleColonyTerrain(terrain, x, z).height;
+    const radial = [point[0], point[1] + radius, point[2]];
+    const length = Math.hypot(...radial);
+    point.forEach((value, axis) => { point[axis] = value + radial[axis] / length * height; });
+  }
+  if (y === 0) return point;
+  const normal = bodySurfaceNormal(radius, x, z, terrain?.shape);
+  return point.map((value, axis) => value + normal[axis] * y);
+}
+
+function constrainBodyCamera(start, end, radius, terrain, clearance = 0.35) {
+  const shape = terrain?.shape;
+  if (!shape) return end;
+  const relief = terrain.collisionRelief || 0;
+  const gap = (point) => {
+    const radial = [point[0], point[1] + radius, point[2]];
+    const length = Math.hypot(...radial);
+    if (length < 1e-10) return -radius;
+    return length - radius * bodyShapeFactor(radial.map((value) => value / length), shape) - relief - clearance;
+  };
+  const project = (point) => {
+    const radial = [point[0], point[1] + radius, point[2]];
+    const length = Math.hypot(...radial);
+    const direction = length > 1e-10 ? radial.map((value) => value / length) : [0, 1, 0];
+    const limit = radius * bodyShapeFactor(direction, shape) + relief + clearance + 0.01;
+    return direction.map((value, axis) => value * limit - (axis === 1 ? radius : 0));
+  };
+  const destination = gap(end) < 0 ? project(end) : end;
+  if (!start || gap(start) < 0) return destination;
+  const delta = destination.map((value, axis) => value - start[axis]);
+  const distance = Math.hypot(...delta);
+  if (distance < 1e-8) return destination;
+  let travel = 0;
+  let point = start.slice();
+  // The supported axis/deformation bounds permit a conservative radial-field step.
+  for (let step = 0; step < 512 && travel < distance; step++) {
+    const available = gap(point);
+    if (available < 0.005) return point;
+    travel = Math.min(distance, travel + Math.max(0.001, available / 16));
+    point = start.map((value, axis) => value + delta[axis] * travel / distance);
+  }
+  return point;
 }
 
 function projectColonySurfacePoint(matrix, radius, x, y, z, terrain = null) {
@@ -424,6 +524,7 @@ function validateTerrainManifest(manifest) {
       || !['terran', 'ocean', 'ice', 'desert', 'lava', 'rock', 'gas'].includes(manifest.biome)) {
     throw new Error('Unsupported or invalid terrain manifest');
   }
+  if (manifest.shape) validateBodyShape(manifest.shape);
   return manifest;
 }
 
@@ -487,7 +588,9 @@ class CubeSphereTerrainStream {
       const dx = sx - col, dy = sy - row;
       const vertexHeight = (cx, cy) => {
         const vertex = persistedTerrainSample(this.manifest, tile, cx, cy, terrain);
-        return Math.hypot(vertex[0], vertex[1] + terrain.radius, vertex[2]) - terrain.radius;
+        const direction = cubeSphereDirection(tile.face, (tile.x + cx / 16) / size * 2 - 1, (tile.y + cy / 16) / size * 2 - 1);
+        return Math.hypot(vertex[0], vertex[1] + terrain.radius, vertex[2])
+          - terrain.radius * bodyShapeFactor(direction, this.manifest.shape);
       };
       const a = vertexHeight(col, row), b = vertexHeight(col + 1, row);
       const c = vertexHeight(col, row + 1), d = vertexHeight(col + 1, row + 1);
@@ -620,7 +723,8 @@ function persistedTerrainSample(manifest, tile, col, row, terrain) {
       : manifest.biome === 'desert' ? [0.67, 0.46, 0.24] : manifest.biome === 'lava' ? [0.24, 0.19, 0.18]
         : manifest.biome === 'rock' ? [0.4, 0.39, 0.37] : [0.24, 0.42, 0.21];
   const elevation = gradePersistentHeight(manifest, terrain, x, z, physicalHeight);
-  return [...direction.map((value, axis) => value * (terrain.radius + elevation) - (axis === 1 ? terrain.radius : 0)), ...color, material];
+  return [...direction.map((value, axis) => value * (terrain.radius * bodyShapeFactor(direction, manifest.shape) + elevation)
+    - (axis === 1 ? terrain.radius : 0)), ...color, material];
 }
 
 function buildPersistedTerrainMesh(manifest, tiles, terrain) {
@@ -653,12 +757,12 @@ function buildPersistedTerrainMesh(manifest, tiles, terrain) {
   return { vertices, vertexCount: vertices.length / 7 };
 }
 
-function cityCameraPose(span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0, terrain = null) {
+function cityCameraPose(span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0, terrain = null, previousEye = null) {
   const t = bounded(progress, 0, 1);
   const eased = t * t * (3 - 2 * t);
   const yaw = Math.PI / 4;
   const pitch = (65 + (35.264 - 65) * eased) * Math.PI / 180;
-  const distance = span * (2.6 - eased * 0.6);
+  let distance = span * (2.6 - eased * 0.6);
   let right = [Math.cos(yaw), 0, -Math.sin(yaw)];
   let back = [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
   let up = [-Math.sin(yaw) * Math.sin(pitch), Math.cos(pitch), -Math.cos(yaw) * Math.sin(pitch)];
@@ -666,12 +770,8 @@ function cityCameraPose(span, progress = 1, target = { x: 0, z: 0 }, surfaceRadi
   const tz = Number(target.z) || 0;
   let targetPosition = [tx, 0, tz];
   if (surfaceRadius > 0) {
-    targetPosition = mapColonySurfacePoint(surfaceRadius, tx, 0, tz);
-    const normal = [
-      targetPosition[0] / surfaceRadius,
-      (targetPosition[1] + surfaceRadius) / surfaceRadius,
-      targetPosition[2] / surfaceRadius,
-    ];
+    targetPosition = mapColonySurfacePoint(surfaceRadius, tx, 0, tz, terrain);
+    const normal = bodySurfaceNormal(surfaceRadius, tx, tz, terrain?.shape);
     let east = [1 - normal[0] * normal[0], -normal[0] * normal[1], -normal[0] * normal[2]];
     const eastLength = Math.hypot(...east);
     if (eastLength < 1e-8) east = [0, 0, 1];
@@ -691,19 +791,27 @@ function cityCameraPose(span, progress = 1, target = { x: 0, z: 0 }, surfaceRadi
     right = orient(right);
     up = orient(up);
     back = orient(back);
-    if (terrain) {
-      const height = sampleColonyTerrain(terrain, tx, tz).height;
-      targetPosition = targetPosition.map((value, axis) => value + normal[axis] * height);
-    }
+  }
+  let eye = targetPosition.map((value, axis) => value + back[axis] * distance);
+  if (surfaceRadius > 0 && terrain?.shape) {
+    eye = constrainBodyCamera(previousEye, eye, surfaceRadius, terrain);
+    const delta = eye.map((value, axis) => value - targetPosition[axis]);
+    distance = Math.hypot(...delta);
+    back = delta.map((value) => value / Math.max(distance, 1e-8));
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    right = cross(up, back);
+    const length = Math.hypot(...right);
+    right = right.map((value) => value / Math.max(length, 1e-8));
+    up = cross(back, right);
   }
   return {
     right, up, back, target: targetPosition, distance, eased,
-    eye: targetPosition.map((value, axis) => value + back[axis] * distance),
+    eye,
   };
 }
 
-function cityCameraMatrix(aspect, span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0, terrain = null) {
-  const { right, up, back, target: targetPosition, distance, eased } = cityCameraPose(span, progress, target, surfaceRadius, terrain);
+function cityCameraMatrix(aspect, span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0, terrain = null, pose = null) {
+  const { right, up, back, target: targetPosition, distance } = pose || cityCameraPose(span, progress, target, surfaceRadius, terrain);
   const view = new Float32Array([
     right[0], up[0], back[0], 0, right[1], up[1], back[1], 0,
     right[2], up[2], back[2], 0,
@@ -715,19 +823,13 @@ function cityCameraMatrix(aspect, span, progress = 1, target = { x: 0, z: 0 }, s
   const near = 0.1;
   const far = span * 10;
   const half = span * 0.5;
-  const ortho = new Float32Array([
-    1 / (half * aspect), 0, 0, 0, 0, 1 / half, 0, 0,
-    0, 0, 1 / (near - far), 0, 0, 0, near / (near - far), 1,
-  ]);
-  // Scale the perspective matrix's homogeneous coordinates before blending:
-  // both projections agree at the target, avoiding a discontinuous scale jump.
+  // Homogeneous scaling keeps the target-plane framing stable during landing.
   const perspective = new Float32Array([
     1 / (half * aspect), 0, 0, 0, 0, 1 / half, 0, 0,
     0, 0, far / ((near - far) * distance), -1 / distance,
     0, 0, far * near / ((near - far) * distance), 0,
   ]);
-  const projection = perspective.map((v, i) => v * (1 - eased) + ortho[i] * eased);
-  return multiplyMatrix(projection, view);
+  return multiplyMatrix(perspective, view);
 }
 
 function colonyAtmosphereState(body, citySpan, pose) {
@@ -737,7 +839,9 @@ function colonyAtmosphereState(body, citySpan, pose) {
     finalDistance * Math.cos(35.264 * Math.PI / 180)) - radius;
   const cloudAltitude = Math.max(12, finalAltitude * 1.8);
   const thickness = cloudAltitude * 0.3;
-  const altitude = Math.hypot(pose.eye[0], pose.eye[1] + radius, pose.eye[2]) - radius;
+  const shape = body.terrain?.shape;
+  const envelope = radius * Math.max(...(shape?.axes || [1, 1, 1])) * (1 + (shape?.deformation || 0));
+  const altitude = Math.hypot(pose.eye[0], pose.eye[1] + radius, pose.eye[2]) - envelope;
   const density = Math.exp(-(((altitude - cloudAltitude) / thickness) ** 2));
   const clearing = bounded((altitude / cloudAltitude - 0.6) / 0.25, 0, 1);
   const atmosphere = body.atmosphere;
@@ -877,6 +981,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._terrainFocus = null;
     this._terrainStream = null;
     this._terrainState = '';
+    this._cameraEye = null;
+    this._cameraEye = null;
     this._persistentMeshKey = '';
     this._skyPipeline = null;
     this._cloudVeilPipeline = null;
@@ -962,6 +1068,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._city = buildCityGeometry(this._slots, data);
     this._citySpan = Math.max(this._city.width, this._city.depth) * 1.35;
     this._bodySurface = resolveBodySurface(data, this._city.width, this._city.depth);
+    if (this._persistentMeshKey && this._terrainStream?.manifest) {
+      this._bodySurface.terrain.shape = this._terrainStream.manifest.shape;
+      this._bodySurface.terrain.collisionRelief = this._terrainStream.manifest.amplitude_km
+        / this._terrainStream.manifest.radius_km * this._bodySurface.radius;
+    }
     const terrainKey = JSON.stringify(this._bodySurface.terrain);
     if (terrainKey !== this._terrainKey) {
       this._releaseTerrain();
@@ -1004,16 +1115,18 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._advanceCameraFocus(seconds);
     this._uploadTerrain();
     const aspect = Math.max(0.1, this._canvas.width / Math.max(1, this._canvas.height));
+    const cameraSpan = this._camera.span / Math.min(1, aspect);
+    const pose = cityCameraPose(cameraSpan, this._camera.progress, this._camera.target,
+      this._bodySurface.radius, this._bodySurface.terrain, this._cameraEye);
+    this._cameraEye = pose.eye;
     this._viewProjection = cityCameraMatrix(
       aspect, this._camera.span / Math.min(1, aspect), this._camera.progress,
-      this._camera.target, this._bodySurface.radius, this._bodySurface.terrain
+      this._camera.target, this._bodySurface.radius, this._bodySurface.terrain, pose
     );
     this._backdropRendered = this._camera.progress < 1
       && !!this._planetBackdrop?.renderBackdrop(seconds, this._backdropPose, 1 - this._camera.progress);
-    const cameraSpan = this._camera.span / Math.min(1, aspect);
-    const pose = cityCameraPose(cameraSpan, this._camera.progress, this._camera.target, this._bodySurface.radius, this._bodySurface.terrain);
     this._atmosphereState = colonyAtmosphereState(this._bodySurface, this._citySpan, pose);
-    const uniforms = new Float32Array(48);
+    const uniforms = new Float32Array(52);
     uniforms.set(this._viewProjection);
     uniforms[16] = this._backdropRendered ? this._camera.progress : 1;
     uniforms[17] = this._bodySurface.radius;
@@ -1025,7 +1138,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     uniforms.set([...pose.back, pose.distance], 36);
     uniforms.set([...this._bodySurface.atmosphere.color, this._bodySurface.atmosphere.strength], 40);
     uniforms.set([this._atmosphereState.cloudAltitude, this._atmosphereState.thickness,
-      this._bodySurface.atmosphere.coverage, pose.eased], 44);
+      this._bodySurface.atmosphere.coverage, 0], 44);
+    const shape = this._bodySurface.terrain.shape;
+    uniforms.set([...(shape?.axes || [1, 1, 1]), shape?.deformation || 0], 48);
     this._device.queue.writeBuffer(this._cameraBuffer, 0, uniforms);
     this._uploadPeople();
     this._updateBuildingVfxBuffer(seconds);
@@ -1055,6 +1170,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
   async exit() {
     this._active = false;
+    this._cameraEye = null;
     this._cameraFocus = null;
     this._buildingView = null;
     this._atmosphereState = null;
@@ -1166,7 +1282,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
     this._cameraBuffer = this._device.createBuffer({
-      size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      size: 208, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const skyShader = this._device.createShaderModule({ label: 'colony_cloud_sky', code: COLONY_SKY_WGSL });
     for (const [entryPoint, property, depthCompare] of [
@@ -1244,6 +1360,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       const focus = [point[0] / terrain.radius, (point[1] + terrain.radius) / terrain.radius, point[2] / terrain.radius];
       const tiles = stream.update(terrain.radius * this._canvas.height / span, focus);
       if (tiles.length) {
+        terrain.shape = stream.manifest.shape;
+        terrain.collisionRelief = stream.manifest.amplitude_km / stream.manifest.radius_km * terrain.radius;
         terrain.heightSampler = (x, z) => stream.sample(x, z, terrain);
         const key = `${this._terrainKey}:${tiles.map(terrainTileKey).join(',')}`;
         if (key !== this._persistentMeshKey) {
@@ -1980,8 +2098,9 @@ if (typeof module !== 'undefined' && module.exports) {
     mapColonySurfacePoint, projectColonySurfacePoint, resolveBodySurface,
     sampleColonyTerrain, buildColonyTerrainMesh, selectColonyTerrainLod, TERRAIN_LODS, TERRAIN_CACHE_BYTES,
     cubeSphereDirection, planCubeSphereTiles, validateTerrainManifest, CubeSphereTerrainStream, buildPersistedTerrainMesh,
+    validateBodyShape, bodyShapeFactor, bodyGroundPoint, bodySurfaceNormal, constrainBodyCamera,
     cityPedestrians, cityEconomyStatus,
   };
 } else {
-  window.GQColonySurfaceLevelWebGPU = { ColonySurfaceLevelWebGPU };
+  window.GQColonySurfaceLevelWebGPU = { ColonySurfaceLevelWebGPU, CubeSphereTerrainStream };
 }

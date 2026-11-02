@@ -15,12 +15,14 @@ struct Uniforms {
   base: vec4<f32>,
   atmosphere: vec4<f32>,
   animation: vec4<f32>,
+  shape: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 struct Out {
   @builtin(position) position: vec4<f32>,
   @location(0) normal: vec3<f32>,
   @location(1) uv: vec2<f32>,
+  @location(2) world: vec3<f32>,
 };
 fn noise(p: vec2<f32>) -> f32 {
   return sin(p.x * 2.7 + sin(p.y * 3.8)) * cos(p.y * 2.1 + sin(p.x * 1.7)) * 0.5 + 0.5;
@@ -35,13 +37,18 @@ fn noise(p: vec2<f32>) -> f32 {
   let longitude = uv.y * 6.2831853 + u.animation.x;
   let normal = vec3<f32>(cos(latitude) * cos(longitude), sin(latitude), cos(latitude) * sin(longitude));
   var out: Out;
-  out.position = u.viewProjection * vec4<f32>(normal,1);
+  let wave = 0.6 * (normal.x * normal.x - normal.y * normal.y) + 0.4 * normal.x * normal.z;
+  let factor = (1.0 + u.shape.w * wave) / length(normal / max(u.shape.xyz,vec3<f32>(0.5)));
+  out.world = normal * factor;
+  out.position = u.viewProjection * vec4<f32>(out.world,1);
   out.normal = normal;
   out.uv = uv;
   return out;
 }
 @fragment fn fs_main(in: Out) -> @location(0) vec4<f32> {
-  let normal = normalize(in.normal);
+  let face = cross(dpdx(in.world),dpdy(in.world));
+  let geometric = face / max(length(face),0.00001);
+  let normal = select(-geometric,geometric,dot(geometric,in.normal) >= 0.0);
   let terrain = noise(in.uv * vec2<f32>(9,17));
   let cloud = smoothstep(0.65,0.9,noise(in.uv * vec2<f32>(15,23) + vec2<f32>(u.animation.y * 0.02,0)));
   let light = 0.24 + 0.76 * max(0.0,dot(normal,normalize(vec3<f32>(-0.7,0.8,1))));
@@ -138,6 +145,9 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   setSceneData(data) {
+    this._terrainStream?.dispose();
+    this._terrainStream = null;
+    this._terrainManifest = null;
     this._sceneData = data;
     this._applySceneDataVisuals(data);
   }
@@ -186,6 +196,8 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
 
   async exit() {
     this._active = false;
+    this._terrainStream?.dispose();
+    this._terrainStream = null;
     this._inputCleanups.splice(0).forEach((cleanup) => cleanup());
     this._hint?.remove();
     this._hint = null;
@@ -193,6 +205,32 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
 
   render(dt, cameraState) {
     if (!this._active || !this._pipeline) return;
+    if (globalThis.document?.hidden) return;
+    const rect = this._canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0
+        || rect.top >= globalThis.innerHeight || rect.left >= globalThis.innerWidth) return;
+    if (!this._terrainStream && !this._terrainManifest) {
+      const source = this._sceneData?.focusPlanet || this._sceneData?.planet || this._sceneData;
+      const colonyId = Number(this._sceneData?.colony?.id || source?.colony_id || source?.__slot?.player_planet?.colony_id);
+      const Stream = typeof require !== 'undefined'
+        ? require('./ColonySurfaceLevelWebGPU.js').CubeSphereTerrainStream
+        : window.GQColonySurfaceLevelWebGPU?.CubeSphereTerrainStream;
+      if (Stream && Number.isSafeInteger(colonyId) && colonyId > 0) {
+        this._terrainStream = new Stream(colonyId, (status) => {
+          if (this._terrainStream?.manifest) this._terrainManifest = this._terrainStream.manifest;
+          if (this._hint) {
+            let message = this._hint.querySelector('[data-body-shape-status]');
+            if (!message) {
+              message = document.createElement('span');
+              message.dataset.bodyShapeStatus = '';
+              this._hint.appendChild(message);
+            }
+            message.textContent = ` ${status}`;
+          }
+        });
+        this._terrainStream.load();
+      }
+    }
     const seconds = Math.max(0, Math.min(0.1, dt > 1 ? dt / 1000 : Number(dt) || 0.016));
     this._rotation += seconds * 0.05;
     this._time += seconds;
@@ -216,7 +254,7 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
       fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
       primitive: { topology: 'triangle-list', cullMode: 'back' },
     });
-    this._uniformBuffer = this._device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this._uniformBuffer = this._device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this._bindGroup = this._device.createBindGroup({
       layout: this._pipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this._uniformBuffer } }],
@@ -232,14 +270,17 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
       (Number(position.y) || 0) - (Number(target.y) || 0),
       (Number(position.z) || 0) - (Number(target.z) || 0)
     );
-    const distance = 2.8 + Math.min(2, cameraDistance / 50);
+    const shape = this._terrainManifest?.shape;
+    const extent = Math.max(...(shape?.axes || [1, 1, 1])) * (1 + (shape?.deformation || 0));
+    const distance = (2.8 + Math.min(2, cameraDistance / 50)) * extent;
     const near = 0.1;
     const far = 20;
-    const uniforms = new Float32Array(28);
+    const uniforms = new Float32Array(32);
     uniforms.set(planetViewProjection(cameraState, aspect, distance, near, far));
     uniforms.set([...this._visualPalette.base,1],16);
     uniforms.set([...this._visualPalette.atmo,1],20);
     uniforms.set([this._rotation,this._time,opacity,0],24);
+    uniforms.set([...(shape?.axes || [1, 1, 1]),shape?.deformation || 0],28);
     this._device.queue.writeBuffer(this._uniformBuffer,0,uniforms);
     const encoder = this._device.createCommandEncoder();
     const pass = encoder.beginRenderPass({

@@ -149,4 +149,61 @@ final class BodyTerrainTest extends TestCase
         self::assertSame('gas', $second['biome']);
         self::assertEquals(0, BodyTerrain::height($second, [0, 1, 0]));
     }
+
+    public function testSmallBodiesPersistTheirIrregularBaseShape(): void
+    {
+        $body = $this->body;
+        $body['planet_class'] = null;
+        $body['body_type'] = 'comet';
+        $manifest = BodyTerrain::manifest($this->db, $body);
+        self::assertSame(['version' => 1, 'axes' => [1.45, 0.8, 0.95], 'deformation' => 0.22], $manifest['shape']);
+        $body['payload_json'] = '{"shape":{"version":1,"axes":[2,1,0.5],"deformation":0.3}}';
+        self::assertSame($manifest, BodyTerrain::manifest($this->db, $body));
+        $body['id'] = 8;
+        self::assertEquals(['version' => 1, 'axes' => [2, 1, 0.5], 'deformation' => 0.3],
+            BodyTerrain::manifest($this->db, $body)['shape']);
+        self::assertSame($manifest['shape'],
+            BodyTerrain::shape(['body_type' => 'planet', 'planet_class' => 'asteroid']));
+    }
+
+    public function testOldWorldsKeepTheirSphericalBaseWithoutChangingSamples(): void
+    {
+        $manifest = BodyTerrain::manifest($this->db, $this->body);
+        $tile = BodyTerrain::tile($this->db, $manifest, ['face' => 2, 'lod' => 0, 'x' => 0, 'y' => 0]);
+        unset($manifest['shape']);
+        $this->db->prepare('UPDATE body_terrain_manifests SET manifest_json = ?')
+            ->execute([json_encode($manifest, JSON_THROW_ON_ERROR)]);
+        $body = $this->body;
+        $body['body_type'] = 'comet';
+        $restored = BodyTerrain::manifest($this->db, $body);
+        self::assertSame(['version' => 1, 'axes' => [1, 1, 1], 'deformation' => 0], $restored['shape']);
+        self::assertSame($tile, BodyTerrain::tile($this->db, $restored, ['face' => 2, 'lod' => 0, 'x' => 0, 'y' => 0]));
+        self::assertSame($restored, BodyTerrain::manifest($this->db, $body));
+    }
+
+    public function testInvalidShapeParametersFailExplicitly(): void
+    {
+        foreach ([
+            ['axes' => [0, 1, 1]], ['axes' => [3, 1, 1]], ['axes' => [1, 1]],
+            ['axes' => [1, 1, 1], 'deformation' => 0.9],
+            ['version' => 2, 'axes' => [1, 1, 1]], 'invalid',
+        ] as $shape) {
+            try {
+                BodyTerrain::shape($this->body + ['shape' => $shape]);
+                self::fail('Invalid shape accepted');
+            } catch (InvalidArgumentException $expected) {
+                self::assertNotEmpty($expected->getMessage());
+            }
+        }
+
+    }
+
+    public function testRegenerationFromTheSameManifestReproducesEveryHeightSample(): void
+    {
+        $manifest = BodyTerrain::manifest($this->db, $this->body);
+        $address = ['face' => 2, 'lod' => 3, 'x' => 4, 'y' => 3];
+        $first = BodyTerrain::tile($this->db, $manifest, $address);
+        $this->db->exec('DELETE FROM body_terrain_tiles');
+        self::assertSame($first, BodyTerrain::tile($this->db, $manifest, $address));
+    }
 }

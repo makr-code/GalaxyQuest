@@ -27,8 +27,10 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   doppelklicken/hineinscrollen. Alternativ öffnet „3D city“ im Koloniefenster
   direkt die Oberfläche, sobald der native Galaxy-Renderer initialisiert ist.
   Die Kamera interpoliert in 1,2 Sekunden vom ganzen Himmelskörper zur
-  isometrischen Stadtansicht. Die Stadt, Straßen, Figuren, Effekte und das
-  Picking werden über dieselbe geodätische Abbildung auf eine Kugelkappe
+  perspektivischen Stadtansicht. Die Projektion bleibt auch nach der Landung
+  perspektivisch (keine Überblendung mehr zur Orthographie); entfernte Gebäude
+  erscheinen entsprechend kleiner. Die Stadt, Straßen, Figuren, Effekte und das
+  Picking werden über dieselbe geodätische Abbildung auf die Körperoberfläche
   projiziert; der sichtbare Planetenkörper wird im selben WebGPU-Pass gerendert.
   Scrollen führt vom Körper in die Kolonie und beim Herauszoomen wieder zum
   jeweiligen Eltern-Level zurück. Flugkameras richten sich auf ein eigenes,
@@ -37,6 +39,31 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   eines Hindernisses enden würde. Bereits überlappende Startpositionen dürfen
   nur nach außen entkommen, nicht durch das Hindernis hindurchfliegen.
   Die Kolonie-Kamera hält zusätzlich Mindestabstand zu den höchsten Gebäuden.
+- **Unregelmäßige Körper:** Das persistierte Manifest enthält zusätzlich
+  `shape: { version: 1, axes: [x,y,z], deformation: d }`.
+  Die Achsen sind dimensionslose Radienfaktoren (0,5–2), `d` liegt zwischen
+  0 und 0,35. Ein Ellipsoid mit glatter richtungsabhängiger Deformation bildet
+  gestreckte und unregelmäßige, sternförmige Körper. Neue Kometen/Asteroiden
+  erhalten standardmäßig `[1.45,0.8,0.95]` und `d=0.22`; Planeten bleiben
+  ohne explizite Vorgabe kugelförmig. Eigene Formen können vor dem ersten
+  Manifestzugriff über `celestial_bodies.payload_json.shape` festgelegt werden.
+  Bereits persistierte Manifeste ohne Form werden einmalig um die Kugelform
+  ergänzt: bestehende Welten und Höhenkacheln verändern sich nicht rückwirkend.
+  Die Form ist unabhängig von Seed, Relief und LOD eingefroren.
+  CPU und Stadtshader verwenden dieselbe Radialfunktion; Gebäudehöhen werden
+  entlang der aus der Körperform abgeleiteten lokalen Oberflächennormale
+  aufgetragen. Kamera-Target, Picking und VFX folgen derselben Abbildung.
+  Die Koloniekamera prüft außerdem den Bewegungsweg gegen ein konservatives
+  Form-/Relief-Hüllfeld; ein Sprung auf die andere Körperseite darf nicht
+  durch den Körper führen. Bei Annäherung an die Hülle bleibt sie davor stehen.
+  Der Planet-Anflug lädt nur das Manifest und verwendet dieselbe Form im
+  vorhandenen Shader, ohne Detailkacheln herunterzuladen.
+  Eine gegebenenfalls explizit aktivierte Wolkenschale umfasst die Form;
+  Kometen und Asteroiden bleiben standardmäßig atmosphärenlos.
+  **Grenzen:** ein radial eindeutiges Modell, keine Höhlen, Überhänge oder
+  beliebig konkaven/mehrschaligen Meshes. Die vereinfachte Systemansicht und
+  deren Flugkollisionskugeln bleiben unverändert; sie verwenden noch nicht
+  die persistierte Form.
 - **Wolken und Himmel:** Eine analytisch geschnittene, transparente Kugelschale
   um denselben Körper bildet außen Wolken und innen die Himmelskuppel ab.
   Sie wird nach der Stadt im selben Renderpass mit Tiefenprüfung, aber ohne
@@ -163,8 +190,8 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
 
 **Bewusste Grenzen:** stilisierte prozedurale Gebäude statt JSON-/GLTF-Modellen,
 diskrete Cube-Sphere-LOD ohne Geomorphing zwischen Stufen;
-der separate Planet-Anflug und die vereinfachte Systemansicht nutzen weiterhin
-ihre bisherigen Oberflächen und noch nicht diesen Kachelstream,
+der separate Planet-Anflug teilt die Körperform, aber noch nicht die
+Detailhöhenfelder; die vereinfachte Systemansicht bleibt unverändert,
 keine Erosion, unterirdische Geometrie oder hydrologische Simulation, kein GPU-Picking,
 keine Wegfindungs-/Haushalts-/Arbeitsmarkt-Simulation einzelner Personen, keine
 neuen Bau-Mutationen im 3D-Viewport. Fußgänger laufen kosmetische Straßenzyklen.

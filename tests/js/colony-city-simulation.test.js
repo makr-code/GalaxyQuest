@@ -458,9 +458,9 @@ describe('Isometric camera and shared WebGPU rendering', () => {
     expect(Math.hypot(pose.eye[0] - pose.target[0], pose.eye[1] - pose.target[1], pose.eye[2] - pose.target[2]))
       .toBeCloseTo(pose.distance);
     const matrix = cityCameraMatrix(1.5, 40, 1, { x: 7, z: -9 }, body.radius);
-    const eye = projectCityPoint(matrix, ...pose.eye);
-    expect(eye[0]).toBeCloseTo(0);
-    expect(eye[1]).toBeCloseTo(0);
+    const center = projectCityPoint(matrix, ...pose.target);
+    expect(center[0]).toBeCloseTo(0);
+    expect(center[1]).toBeCloseTo(0);
     const inherited = resolveBodySurface({
       focusPlanet: { id: 8 },
       colony: { body_type: 'comet', diameter_km: 300, atmosphere_type: 'none' },
