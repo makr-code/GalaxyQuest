@@ -13,6 +13,153 @@ final class BodyTerrain
     public const VERSION = 1;
     public const RESOLUTION = 17;
 
+    public static function solid(array $body): ?array
+    {
+        $payload = $body['payload_json'] ?? null;
+        if (is_string($payload) && $payload !== '') {
+            $payload = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
+        }
+        $solid = is_array($payload) ? ($payload['solid'] ?? null) : null;
+        if ($solid === null) {
+            if (preg_match('/comet/i', (string)$body['body_type'] . ' ' . ($body['planet_class'] ?? '')) !== 1) {
+                return null;
+            }
+            return [
+                'version' => 1,
+                'blend' => 0.18,
+                'lobes' => [
+                    ['center' => [-0.5, 0, 0], 'axes' => [0.85, 0.7, 0.65]],
+                    ['center' => [0.65, 0.05, 0], 'axes' => [0.6, 0.5, 0.5]],
+                ],
+                'cuts' => [['center' => [-0.6, 0.65, 0.15], 'radius' => 0.18]],
+            ];
+        }
+        if (
+            !is_array($solid) || ($solid['version'] ?? null) !== 1
+            || !isset($solid['lobes'], $solid['cuts']) || !is_array($solid['lobes'])
+            || !is_array($solid['cuts']) || !array_is_list($solid['lobes']) || !array_is_list($solid['cuts'])
+            || count($solid['lobes']) < 1 || count($solid['lobes']) > 4 || count($solid['cuts']) > 8
+        ) {
+            throw new InvalidArgumentException('Invalid body solid');
+        }
+        $result = [
+            'version' => 1, 'blend' => self::boundedNumber($solid['blend'] ?? null, 0.01, 0.4),
+            'lobes' => [], 'cuts' => [],
+        ];
+        foreach ($solid['lobes'] as $lobe) {
+            if (!is_array($lobe)) {
+                throw new InvalidArgumentException('Invalid solid lobe');
+            }
+            $result['lobes'][] = [
+                'center' => self::solidVector($lobe['center'] ?? null, -2, 2),
+                'axes' => self::solidVector($lobe['axes'] ?? null, 0.1, 2),
+            ];
+        }
+        foreach ($solid['cuts'] as $cut) {
+            if (!is_array($cut)) {
+                throw new InvalidArgumentException('Invalid solid cut');
+            }
+            $result['cuts'][] = [
+                'center' => self::solidVector($cut['center'] ?? null, -2, 2),
+                'radius' => self::boundedNumber($cut['radius'] ?? null, 0.02, 0.8),
+            ];
+        }
+        return $result;
+    }
+
+    private static function boundedNumber(mixed $value, float $min, float $max): float
+    {
+        if ((!is_int($value) && !is_float($value)) || !is_finite((float)$value) || $value < $min || $value > $max) {
+            throw new InvalidArgumentException('Solid parameters must be finite numbers within bounds');
+        }
+        return (float)$value;
+    }
+
+    private static function solidVector(mixed $vector, float $min, float $max): array
+    {
+        if (!is_array($vector) || !array_is_list($vector) || count($vector) !== 3) {
+            throw new InvalidArgumentException('Solid vectors require three coordinates');
+        }
+        return array_map(static fn ($value) => self::boundedNumber($value, $min, $max), $vector);
+    }
+
+    public static function solidDistance(array $solid, array $point): float
+    {
+        $distance = INF;
+        foreach ($solid['lobes'] as $lobe) {
+            $lengthSquared = 0;
+            for ($axis = 0; $axis < 3; $axis++) {
+                $lengthSquared += (($point[$axis] - $lobe['center'][$axis]) / $lobe['axes'][$axis]) ** 2;
+            }
+            $next = (sqrt($lengthSquared) - 1) * min($lobe['axes']);
+            $h = max($solid['blend'] - abs($distance - $next), 0) / $solid['blend'];
+            $distance = min($distance, $next) - $h * $h * $solid['blend'] / 4;
+        }
+        foreach ($solid['cuts'] as $cut) {
+            $lengthSquared = 0;
+            for ($axis = 0; $axis < 3; $axis++) {
+                $lengthSquared += ($point[$axis] - $cut['center'][$axis]) ** 2;
+            }
+            $distance = max($distance, $cut['radius'] - sqrt($lengthSquared));
+        }
+        return $distance;
+    }
+
+    public static function solidBound(array $solid): float
+    {
+        $bound = 0.0;
+        foreach ($solid['lobes'] as $lobe) {
+            $centerLength = sqrt(array_sum(array_map(static fn ($n) => $n * $n, $lobe['center'])));
+            $axis = max($lobe['axes']);
+            // Each smooth minimum can reduce approximate distance by at most blend / 4.
+            $padding = $solid['blend'] * max(1, (count($solid['lobes']) - 1) * $axis / (4 * min($lobe['axes'])));
+            $bound = max($bound, $centerLength + $axis + $padding);
+        }
+        return $bound;
+    }
+
+    private static function geology(array $manifest): array
+    {
+        $erosion = match ($manifest['biome']) {
+            'terran', 'ocean' => 0.8,
+            'lava' => 0.6,
+            'ice' => 0.1,
+            default => 0,
+        };
+        $tectonics = match ($manifest['biome']) {
+            'terran', 'ocean' => 0.6,
+            'lava' => 0.8,
+            default => 0,
+        };
+        $craters = [];
+        if ($manifest['biome'] !== 'gas') {
+            $random = static fn (int $index): float =>
+                (float)sprintf('%u', crc32($manifest['seed'] . ':geology:' . $index)) / 4294967295;
+            for ($index = 0; $index < 32; $index++) {
+                $y = $random($index * 4) * 2 - 1;
+                $azimuth = $random($index * 4 + 1) * 2 * M_PI;
+                $ring = sqrt(max(0, 1 - $y * $y));
+                $radius = 0.015 + $random($index * 4 + 2) * 0.165;
+                $craters[] = [
+                    'direction' => [$ring * cos($azimuth), $y, $ring * sin($azimuth)],
+                    'angular_radius' => $radius,
+                    'depth_km' => min(
+                        $manifest['amplitude_km'] * 0.5,
+                        $manifest['radius_km'] * $radius * 0.1
+                    ) * (0.4 + $random($index * 4 + 3) * 0.6),
+                ];
+            }
+            // Even overlapping pits fit the declared height envelope.
+            $total = array_sum(array_column($craters, 'depth_km'));
+            $scale = min(1, $manifest['amplitude_km'] * 0.5 / max($total, PHP_FLOAT_MIN));
+            foreach ($craters as &$crater) {
+                $crater['depth_km'] *= $scale;
+            }
+            unset($crater);
+        }
+        return ['version' => 1, 'erosion' => $erosion, 'tectonics' => $tectonics, 'craters' => $craters];
+    }
+
     public static function shape(array $body): array
     {
         $payload = $body['payload_json'] ?? null;
@@ -112,15 +259,17 @@ final class BodyTerrain
             'seed' => (int)sprintf('%u', crc32((string)$body['body_uid'])),
             'radius_km' => $radius,
             'amplitude_km' => $amplitude,
-            'height_min_km' => -$amplitude,
-            'height_max_km' => $amplitude,
+            'height_min_km' => -$amplitude * 2,
+            'height_max_km' => $amplitude * 2,
             'sea_level_km' => 0,
             'biome' => $biome,
             'resolution' => self::RESOLUTION,
             'max_lod' => min(16, max(0, (int)ceil(log(max(1, $radius * M_PI / 2 / 0.008), 2)))),
             'tile_encoding' => 'uint16-json',
             'shape' => self::shape($body),
+            'solid' => self::solid($body),
         ];
+        $manifest['geology'] = self::geology($manifest);
         if (preg_match('/comet/i', (string)$body['body_type'] . ' ' . ($body['planet_class'] ?? '')) === 1) {
             $manifest['settlement'] = self::valleySettlement($manifest);
         }
@@ -178,8 +327,33 @@ final class BodyTerrain
         return $best;
     }
 
-    private static function surfaceRadius(array $manifest, array $direction): float
+    public static function surfaceRadius(array $manifest, array $direction): float
     {
+        if (isset($manifest['solid'])) {
+            $solid = $manifest['solid'];
+            $bound = self::solidBound($solid);
+            $outer = $bound;
+            $previous = self::solidDistance($solid, array_map(static fn ($n) => $n * $outer, $direction));
+            for ($step = 1; $step <= 128; $step++) {
+                $inner = $bound * (1 - $step / 128);
+                $distance = self::solidDistance($solid, array_map(static fn ($n) => $n * $inner, $direction));
+                if ($previous > 0 && $distance <= 0) {
+                    for ($iteration = 0; $iteration < 24; $iteration++) {
+                        $middle = ($inner + $outer) / 2;
+                        $value = self::solidDistance($solid, array_map(static fn ($n) => $n * $middle, $direction));
+                        if ($value <= 0) {
+                            $inner = $middle;
+                        } else {
+                            $outer = $middle;
+                        }
+                    }
+                    return $manifest['radius_km'] * (($inner + $outer) / 2) + self::height($manifest, $direction);
+                }
+                $outer = $inner;
+                $previous = $distance;
+            }
+            throw new RuntimeException('Solid has no radial surface intersection');
+        }
         [$x, $y, $z] = $direction;
         [$a, $b, $c] = $manifest['shape']['axes'];
         $wave = 0.6 * ($x * $x - $y * $y) + 0.4 * $x * $z;
@@ -231,8 +405,25 @@ final class BodyTerrain
         $ridge = (1 - abs(sin($x * 41 + $z * 29 + $y * 31 + $seed))) ** 3;
         $detail = sin($x * 173 + $y * 97 + $seed) * cos($z * 157 - $y * 79);
         $offset = $manifest['biome'] === 'ocean' ? 0.4 : 0.1;
-        return max(-1, min(1, $broad * 0.6 + $ridge * 0.32 + $detail * 0.06 - $offset))
+        $geology = $manifest['geology'] ?? null;
+        $erosion = $geology['erosion'] ?? 0;
+        $height = max(-1, min(1, $broad * 0.6 + $ridge * 0.32 + $detail * 0.06 * (1 - $erosion) - $offset))
             * (float)$manifest['amplitude_km'];
+        if ($geology === null) {
+            return $height;
+        }
+        $value = sin($x * 5 + $seed) * cos($z * 4 - $seed + $y * 3);
+        $height += $manifest['amplitude_km'] * $geology['tectonics'] * 0.35 * ((1 - abs($value)) ** 8 - 0.15);
+        foreach ($geology['craters'] as $crater) {
+            $dot = $x * $crater['direction'][0] + $y * $crater['direction'][1] + $z * $crater['direction'][2];
+            $q = acos(max(-1, min(1, $dot))) / $crater['angular_radius'];
+            if ($q < 1.6) {
+                $bowl = -max(0, 1 - $q * $q) ** 2;
+                $rim = 0.25 * exp(-(($q - 1) / 0.16) ** 2);
+                $height += ($bowl + $rim) * $crater['depth_km'] * (1 - $erosion * 0.85);
+            }
+        }
+        return $height;
     }
 
     public static function tile(PDO $db, array $manifest, array $requested): array
@@ -264,7 +455,7 @@ final class BodyTerrain
                 $u = (($tile['x'] + $col / ($resolution - 1)) / $size) * 2 - 1;
                 $v = (($tile['y'] + $row / ($resolution - 1)) / $size) * 2 - 1;
                 $height = self::height($manifest, self::direction($tile['face'], $u, $v));
-                $samples[] = (int)round(($height - $min) / $range * 65535);
+                $samples[] = max(0, min(65535, (int)round(($height - $min) / $range * 65535)));
             }
         }
         $payload = $tile + [

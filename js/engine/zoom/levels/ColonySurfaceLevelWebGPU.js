@@ -48,11 +48,51 @@ struct Camera {
   viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32>,
   reserved: array<vec4<f32>, 6>, shape: vec4<f32>,
   east: vec4<f32>, pole: vec4<f32>, north: vec4<f32>, shelter: vec4<f32>,
+  lobeCenters: array<vec4<f32>,4>, lobeAxes: array<vec4<f32>,4>,
+  cuts: array<vec4<f32>,8>, solid: vec4<f32>,
 };
 struct Instance { color: vec4<f32>, position: vec4<f32>, scale: vec4<f32>, extra: vec4<f32> };
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<storage, read> instances: array<Instance>;
 struct Out { @builtin(position) position: vec4<f32>, @location(0) color: vec4<f32> };
+fn solidDistance(point: vec3<f32>) -> f32 {
+  var distance = 100.0;
+  for (var i = 0u; i < u32(camera.solid.x); i++) {
+    let axes = camera.lobeAxes[i].xyz;
+    let d = (length((point - camera.lobeCenters[i].xyz) / axes) - 1.0) * min(axes.x,min(axes.y,axes.z));
+    let h = max(camera.solid.z - abs(distance - d),0.0) / camera.solid.z;
+    distance = min(distance,d) - h * h * camera.solid.z * 0.25;
+  }
+  for (var i = 0u; i < u32(camera.solid.y); i++) {
+    distance = max(distance,camera.cuts[i].w - length(point - camera.cuts[i].xyz));
+  }
+  return distance;
+}
+fn solidRadius(direction: vec3<f32>) -> f32 {
+  var outer = camera.solid.w;
+  // The conservative ellipsoid field permits safe outside-in sphere tracing.
+  for (var iteration = 0u; iteration < 64u; iteration++) {
+    let distance = solidDistance(direction * outer);
+    if (distance <= 0.0000001) { return outer; }
+    outer = outer - distance;
+    if (outer < 0.0) { break; }
+  }
+  outer = camera.solid.w;
+  for (var step = 1u; step <= 128u; step++) {
+    let inner = camera.solid.w * (1.0 - f32(step) / 128.0);
+    if (solidDistance(direction * inner) <= 0.0) {
+      var a = inner;
+      var b = outer;
+      for (var i = 0u; i < 20u; i++) {
+        let mid = (a + b) * 0.5;
+        if (solidDistance(direction * mid) <= 0.0) { a = mid; } else { b = mid; }
+      }
+      return (a + b) * 0.5;
+    }
+    outer = inner;
+  }
+  return 0.0;
+}
 fn bodyGround(horizontal: vec2<f32>) -> vec3<f32> {
   let radius = max(camera.transition.y, 0.001);
   let distance = length(horizontal);
@@ -65,7 +105,8 @@ fn bodyGround(horizontal: vec2<f32>) -> vec3<f32> {
   let global = camera.east.xyz * normal.x + camera.pole.xyz * normal.y + camera.north.xyz * normal.z;
   let axes = max(camera.shape.xyz,vec3<f32>(0.5));
   let wave = 0.6 * (global.x * global.x - global.y * global.y) + 0.4 * global.x * global.z;
-  let factor = (1.0 + camera.shape.w * wave) / length(global / axes);
+  var factor = (1.0 + camera.shape.w * wave) / length(global / axes);
+  if (camera.solid.x > 0.0) { factor = solidRadius(global); }
   let base = radius * factor;
   return vec3<f32>(normal.x * (base + camera.transition.z),
     -2.0 * sin(angle * 0.5) * sin(angle * 0.5) * base
@@ -139,7 +180,10 @@ struct DomeOut {
 `;
 
 const COLONY_BODY_WGSL = `
-struct Camera { viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32> };
+struct Camera {
+  viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32>,
+  padding: array<vec4<f32>,27>, solidParams: vec4<f32>,
+};
 @group(0) @binding(0) var<uniform> camera: Camera;
 struct Out {
   @builtin(position) position: vec4<f32>,
@@ -155,11 +199,12 @@ struct Out {
   out.material = material;
   return out;
 }
-@fragment fn fs_main(in: Out) -> @location(0) vec4<f32> {
+@fragment fn fs_main(in: Out, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
   let radial = normalize(in.world + vec3<f32>(0,camera.surface.w,0));
   let face = cross(dpdx(in.world),dpdy(in.world));
   let geometric = face / max(length(face),0.00001);
-  let normal = select(-geometric,geometric,dot(geometric,radial) >= 0.0);
+  let radialNormal = select(-geometric,geometric,dot(geometric,radial) >= 0.0);
+  let normal = select(radialNormal,select(geometric,-geometric,front),camera.solidParams.x > 0.5);
   let grainPhase = vec2<f32>(in.world.x * 8.7 + sin(in.world.z * 11.3),in.world.z * 7.1 + in.world.y * 3.0);
   let grainFilter = 1.0 - smoothstep(0.3,1.5,max(fwidth(grainPhase.x),fwidth(grainPhase.y)));
   let grain = sin(grainPhase.x) * cos(grainPhase.y) * grainFilter;
@@ -255,6 +300,197 @@ const bounded = (value, min, max, fallback = min) => {
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
 };
 
+function validateBodySolid(solid) {
+  const vector = (value, min, max) => Array.isArray(value) && value.length === 3
+    && value.every((n) => Number.isFinite(n) && n >= min && n <= max);
+  if (solid?.version !== 1 || !Number.isFinite(solid.blend) || solid.blend < 0.01 || solid.blend > 0.4
+      || !Array.isArray(solid.lobes) || solid.lobes.length < 1 || solid.lobes.length > 4
+      || !solid.lobes.every((lobe) => vector(lobe.center, -2, 2) && vector(lobe.axes, 0.1, 2))
+      || !Array.isArray(solid.cuts) || solid.cuts.length > 8
+      || !solid.cuts.every((cut) => vector(cut.center, -2, 2)
+        && Number.isFinite(cut.radius) && cut.radius >= 0.02 && cut.radius <= 0.8)) {
+    throw new Error('Unsupported or invalid composite body solid');
+  }
+  return solid;
+}
+
+function bodySolidDistance(point, solid) {
+  let distance = Infinity;
+  for (const lobe of solid.lobes) {
+    const d = (Math.hypot(...point.map((n, axis) => (n - lobe.center[axis]) / lobe.axes[axis])) - 1)
+      * Math.min(...lobe.axes);
+    const h = Math.max(solid.blend - Math.abs(distance - d), 0) / solid.blend;
+    distance = Math.min(distance, d) - h * h * solid.blend / 4;
+  }
+  for (const cut of solid.cuts) {
+    distance = Math.max(distance, cut.radius - Math.hypot(...point.map((n, axis) => n - cut.center[axis])));
+  }
+  return distance;
+}
+
+function bodySolidRadius(direction, solid) {
+  const bound = bodySolidBound(solid);
+  let outer = bound;
+  for (let step = 1; step <= 128; step++) {
+    const inner = bound * (1 - step / 128);
+    if (bodySolidDistance(direction.map((n) => n * inner), solid) <= 0) {
+      let a = inner, b = outer;
+      for (let iteration = 0; iteration < 24; iteration++) {
+        const mid = (a + b) / 2;
+        if (bodySolidDistance(direction.map((n) => n * mid), solid) <= 0) a = mid;
+        else b = mid;
+      }
+      return (a + b) / 2;
+    }
+    outer = inner;
+  }
+  throw new Error('Composite body has no surface in the requested direction');
+}
+
+function bodySolidBound(solid) {
+  return Math.max(...solid.lobes.map((lobe) => {
+    const max = Math.max(...lobe.axes), min = Math.min(...lobe.axes);
+    return Math.hypot(...lobe.center) + max
+      + solid.blend * Math.max(1, (solid.lobes.length - 1) * max / (4 * min));
+  }));
+}
+
+function validateBodyGeology(geology) {
+  if (geology?.version !== 1 || !Number.isFinite(geology.erosion) || geology.erosion < 0 || geology.erosion > 1
+      || !Number.isFinite(geology.tectonics) || geology.tectonics < 0 || geology.tectonics > 1
+      || !Array.isArray(geology.craters) || geology.craters.length > 64
+      || !geology.craters.every((crater) => Array.isArray(crater.direction) && crater.direction.length === 3
+        && crater.direction.every(Number.isFinite) && Math.abs(Math.hypot(...crater.direction) - 1) < 1e-6
+        && Number.isFinite(crater.angular_radius) && crater.angular_radius >= 0.005 && crater.angular_radius <= 0.5
+        && Number.isFinite(crater.depth_km) && crater.depth_km >= 0 && crater.depth_km <= 100)) {
+    throw new Error('Unsupported or invalid body geology');
+  }
+  return geology;
+}
+
+function bodyGeologicalHeight(manifest, direction) {
+  if (manifest.biome === 'gas') return 0;
+  const [x, y, z] = direction;
+  const seed = manifest.seed % 100000 / 1000;
+  const geology = manifest.geology;
+  const erosion = geology?.erosion || 0;
+  const broad = Math.sin(x * 19 + seed + Math.sin(z * 11)) * Math.cos(z * 17 - seed + y * 9);
+  const ridge = (1 - Math.abs(Math.sin(x * 41 + z * 29 + y * 31 + seed))) ** 3;
+  const detail = Math.sin(x * 173 + y * 97 + seed) * Math.cos(z * 157 - y * 79);
+  let height = bounded(broad * 0.6 + ridge * 0.32 + detail * 0.06 * (1 - erosion)
+    - (manifest.biome === 'ocean' ? 0.4 : 0.1), -1, 1) * manifest.amplitude_km;
+  if (geology) {
+    const plate = Math.sin(x * 5 + seed) * Math.cos(z * 4 - seed + y * 3);
+    height += manifest.amplitude_km * geology.tectonics * 0.35 * ((1 - Math.abs(plate)) ** 8 - 0.15);
+    for (const crater of geology.craters) {
+      const q = Math.acos(bounded(direction.reduce((sum, n, axis) => sum + n * crater.direction[axis], 0), -1, 1))
+        / crater.angular_radius;
+      if (q < 1.6) {
+        const bowl = -(Math.max(0, 1 - q * q) ** 2);
+        const rim = 0.25 * Math.exp(-(((q - 1) / 0.16) ** 2));
+        height += (bowl + rim) * crater.depth_km * (1 - erosion * 0.85);
+      }
+    }
+  }
+  return height;
+}
+
+function compositeSurfaceDistance(point, manifest, terrain = null) {
+  const length = Math.hypot(...point);
+  const direction = length > 1e-10 ? point.map((n) => n / length) : [0, 1, 0];
+  let height = bodyGeologicalHeight(manifest, direction);
+  if (terrain) {
+    const local = bodyFrameDirection(direction, terrain.shape?.frame, true);
+    const angle = Math.acos(bounded(local[1], -1, 1));
+    const horizontal = Math.hypot(local[0], local[2]);
+    const x = horizontal > 1e-8 ? local[0] / horizontal * angle * terrain.radius : 0;
+    const z = horizontal > 1e-8 ? local[2] / horizontal * angle * terrain.radius : 0;
+    height = gradePersistentHeight(manifest, terrain, x, z, height) / terrain.radius * manifest.radius_km;
+    const footprint = terrain.shelter?.radius || Math.hypot(terrain.width * 0.5 + 2, terrain.depth * 0.5 + 2);
+    if (Math.hypot(x, z) < footprint * 1.4) {
+      const t = bounded((Math.hypot(x, z) / footprint - 1) / 0.4, 0, 1);
+      const blend = t * t * (3 - 2 * t);
+      const radial = length - bodySolidRadius(direction, manifest.solid) - height / manifest.radius_km;
+      return radial * (1 - blend) + (bodySolidDistance(point, manifest.solid) - height / manifest.radius_km) * blend;
+    }
+  }
+  return bodySolidDistance(point, manifest.solid) - height / manifest.radius_km;
+}
+
+function buildCompositeBodyMesh(manifest, pixels = 300, terrain = null, focus = [0, 1, 0]) {
+  validateBodySolid(manifest.solid);
+  const bound = bodySolidBound(manifest.solid) + Math.max(Math.abs(manifest.height_min_km), Math.abs(manifest.height_max_km)) / manifest.radius_km;
+  const tetrahedra = [[0, 1, 3, 7], [0, 3, 2, 7], [0, 2, 6, 7], [0, 6, 4, 7], [0, 4, 5, 7], [0, 5, 1, 7]];
+  const vertices = [];
+  const evaluate = (p) => compositeSurfaceDistance(p, manifest, terrain);
+  const segments = pixels < 100 ? 24 : terrain ? 32 : 48;
+  const side = segments + 1;
+  const focalRadius = terrain ? bodySolidRadius(focus, manifest.solid) : 0;
+  const power = terrain ? bounded(Math.log(Math.max(segments / 2, pixels)) / Math.log(segments / 2), 1, 4.5) : 1;
+  // A shared warped grid concentrates samples near the colony without octree T-junctions.
+  const axes = focus.map((component) => {
+    const center = component * focalRadius;
+    return Array.from({ length: side }, (_, index) => {
+      const t = index / segments * 2 - 1;
+      return center + Math.sign(t) * (t < 0 ? bound + center : bound - center) * Math.abs(t) ** power;
+    });
+  });
+  const points = [], distances = new Float64Array(side ** 3);
+  const address = (x, y, z) => (z * side + y) * side + x;
+  for (let z = 0; z < side; z++) for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) {
+    const index = address(x, y, z);
+    points[index] = [axes[0][x], axes[1][y], axes[2][z]];
+    distances[index] = evaluate(points[index]);
+  }
+  const intersections = new Map();
+  const edge = (a, b) => {
+    if (a > b) [a, b] = [b, a];
+    const key = a * side ** 3 + b;
+    if (intersections.has(key)) return intersections.get(key);
+    let low = 0, high = 1;
+    const negative = distances[a] <= 0;
+    for (let iteration = 0; iteration < 16; iteration++) {
+      const t = (low + high) / 2;
+      const point = points[a].map((n, axis) => n + (points[b][axis] - n) * t);
+      if ((evaluate(point) <= 0) === negative) low = t;
+      else high = t;
+    }
+    const point = points[a].map((n, axis) => n + (points[b][axis] - n) * (low + high) / 2);
+    intersections.set(key, point);
+    return point;
+  };
+  const append = (points) => {
+    const a = points[0], b = points[1], c = points[2];
+    const ab = b.map((n, axis) => n - a[axis]), ac = c.map((n, axis) => n - a[axis]);
+    const cross = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]];
+    if (Math.hypot(...cross) === 0) return;
+    const mid = a.map((n, axis) => (n + b[axis] + c[axis]) / 3);
+    const epsilon = 0.00001;
+    const gradient = [0, 1, 2].map((axis) => evaluate(mid.map((n, i) => n + (i === axis ? epsilon : 0)))
+      - evaluate(mid.map((n, i) => n - (i === axis ? epsilon : 0))));
+    if (cross.reduce((sum, n, axis) => sum + n * gradient[axis], 0) < 0) points = [a, c, b];
+    for (const point of points) vertices.push(...point);
+  };
+  for (let z = 0; z < segments; z++) for (let y = 0; y < segments; y++) for (let x = 0; x < segments; x++) {
+    const corners = Array.from({ length: 8 }, (_, index) => address(x + (index & 1), y + ((index >> 1) & 1), z + ((index >> 2) & 1)));
+    if (corners.every((i) => distances[i] <= 0) || corners.every((i) => distances[i] > 0)) continue;
+    for (const tetra of tetrahedra) {
+      const indices = tetra.map((i) => corners[i]);
+      const inside = indices.filter((i) => distances[i] <= 0), outside = indices.filter((i) => distances[i] > 0);
+      if (inside.length === 1) append(outside.map((i) => edge(inside[0], i)));
+      else if (inside.length === 3) append(inside.map((i) => edge(i, outside[0])));
+      else if (inside.length === 2) {
+        const [a, b] = inside, [c, d] = outside;
+        const ac = edge(a, c), ad = edge(a, d), bc = edge(b, c), bd = edge(b, d);
+        append([ac, ad, bc]); append([bc, ad, bd]);
+      }
+    }
+  }
+  if (!vertices.length) throw new Error('Composite body meshing produced no surface');
+  if (vertices.length / 3 * 28 > 8 * 1024 * 1024) throw new Error('Composite body mesh exceeds geometry budget');
+  return { vertices: new Float32Array(vertices), vertexCount: vertices.length / 3 };
+}
+
 function multiplyMatrix(a, b) {
   const out = new Float32Array(16);
   for (let col = 0; col < 4; col++) {
@@ -283,6 +519,7 @@ function validateBodyShape(shape) {
 function bodyShapeFactor(direction, shape) {
   if (!shape) return 1;
   direction = bodyFrameDirection(direction, shape.frame);
+  if (shape.solid) return bodySolidRadius(direction, shape.solid);
   const [x, y, z] = direction;
   const wave = 0.6 * (x * x - y * y) + 0.4 * x * z;
   return (1 + shape.deformation * wave) / Math.hypot(...direction.map((n, axis) => n / shape.axes[axis]));
@@ -310,15 +547,11 @@ function applyTerrainSettlement(terrain, manifest) {
   const site = manifest.settlement;
   terrain.radius = manifest.radius_km * 1000 / COLONY_METERS_PER_UNIT;
   terrain.shape = { ...(manifest.shape || { version: 1, axes: [1, 1, 1], deformation: 0 }) };
+  if (manifest.solid) terrain.shape.solid = manifest.solid;
+  terrain.manifest = manifest;
   terrain.shelter = null;
   const pole = site?.direction || [0, 1, 0];
-  const [x, y, z] = pole;
-  const seed = manifest.seed % 100000 / 1000;
-  const broad = Math.sin(x * 19 + seed + Math.sin(z * 11)) * Math.cos(z * 17 - seed + y * 9);
-  const ridge = (1 - Math.abs(Math.sin(x * 41 + z * 29 + y * 31 + seed))) ** 3;
-  const detail = Math.sin(x * 173 + y * 97 + seed) * Math.cos(z * 157 - y * 79);
-  const rawHeight = manifest.biome === 'gas' ? 0
-    : bounded(broad * 0.6 + ridge * 0.32 + detail * 0.06 - (manifest.biome === 'ocean' ? 0.4 : 0.1), -1, 1) * manifest.amplitude_km;
+  const rawHeight = bodyGeologicalHeight(manifest, pole);
   const floor = site?.floor_height_km ?? rawHeight;
   terrain.groundHeight = (['terran', 'ocean', 'lava'].includes(manifest.biome) ? Math.max(0, floor) : floor)
     / manifest.radius_km * terrain.radius;
@@ -412,12 +645,30 @@ function constrainBodyCamera(start, end, radius, terrain, clearance = 0.35) {
   };
   const gap = (point) => {
     const radial = [point[0], point[1] + centerRadius, point[2]];
+    if (shape.solid) {
+      const global = bodyFrameDirection(radial.map((n) => n / radius), shape.frame);
+      return compositeSurfaceDistance(global, terrain.manifest, terrain) * radius - clearance;
+    }
     const length = Math.hypot(...radial);
     if (length < 1e-10) return -radius;
     const direction = radial.map((value) => value / length);
     return length - radius * bodyShapeFactor(direction, shape) - localRelief(direction) - clearance;
   };
   const project = (point) => {
+    if (shape.solid) {
+      let candidate = point.slice();
+      for (let iteration = 0; iteration < 32; iteration++) {
+        const distance = gap(candidate);
+        if (distance >= 0.005) return candidate;
+        const epsilon = 0.01;
+        const gradient = [0, 1, 2].map((axis) => gap(candidate.map((n, i) => n + (i === axis ? epsilon : 0)))
+          - gap(candidate.map((n, i) => n - (i === axis ? epsilon : 0))));
+        const length = Math.hypot(...gradient);
+        if (length < 1e-10) throw new Error('Cannot resolve composite body camera collision');
+        candidate = candidate.map((n, axis) => n + gradient[axis] / length * (0.01 - distance));
+      }
+      throw new Error('Composite body camera collision did not converge');
+    }
     const radial = [point[0], point[1] + centerRadius, point[2]];
     const length = Math.hypot(...radial);
     const direction = length > 1e-10 ? radial.map((value) => value / length) : [0, 1, 0];
@@ -651,6 +902,8 @@ function validateTerrainManifest(manifest) {
     throw new Error('Unsupported or invalid terrain manifest');
   }
   if (manifest.shape) validateBodyShape(manifest.shape);
+  if (manifest.solid) validateBodySolid(manifest.solid);
+  if (manifest.geology) validateBodyGeology(manifest.geology);
   if (manifest.settlement) {
     const site = manifest.settlement;
     if (site.version !== 1 || site.kind !== 'valley-dome'
@@ -694,7 +947,7 @@ class CubeSphereTerrainStream {
       if (!data.success) throw new Error(data.error || 'Terrain manifest unavailable');
       if (this.disposed) return;
       this.manifest = validateTerrainManifest(data.manifest);
-      this.onChange('Persistent terrain loading');
+      this.onChange(this.manifest.solid ? 'Persistent composite terrain ready' : 'Persistent terrain loading');
     } catch (error) {
       if (error.name !== 'AbortError' && !this.disposed) {
         this.failed = true;
@@ -1269,7 +1522,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._backdropRendered = this._camera.progress < 1
       && !!this._planetBackdrop?.renderBackdrop(seconds, this._backdropPose, 1 - this._camera.progress);
     this._atmosphereState = colonyAtmosphereState(this._bodySurface, this._citySpan, pose);
-    const uniforms = new Float32Array(68);
+    const uniforms = new Float32Array(136);
     uniforms.set(this._viewProjection);
     uniforms[16] = this._backdropRendered ? this._camera.progress : 1;
     uniforms[17] = this._bodySurface.radius;
@@ -1289,6 +1542,14 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     frame.forEach((axis, index) => uniforms.set([...axis, 0], 52 + index * 4));
     const shelter = this._bodySurface.terrain.shelter;
     if (shelter) uniforms.set([shelter.radius, colonyDomeHeight(shelter, this._city.parts), 0, 0], 64);
+    if (shape?.solid) {
+      shape.solid.lobes.forEach((lobe, index) => {
+        uniforms.set([...lobe.center, 0], 68 + index * 4);
+        uniforms.set([...lobe.axes, 0], 84 + index * 4);
+      });
+      shape.solid.cuts.forEach((cut, index) => uniforms.set([...cut.center, cut.radius], 100 + index * 4));
+      uniforms.set([shape.solid.lobes.length, shape.solid.cuts.length, shape.solid.blend, bodySolidBound(shape.solid)], 132);
+    }
     this._device.queue.writeBuffer(this._cameraBuffer, 0, uniforms);
     this._uploadPeople();
     this._updateBuildingVfxBuffer(seconds);
@@ -1432,7 +1693,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
     this._cameraBuffer = this._device.createBuffer({
-      size: 272, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      size: 544, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this._domePipeline = this._device.createRenderPipeline({
       label: 'colony_pressure_dome', layout: 'auto',
@@ -1529,6 +1790,42 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         [point[0] / terrain.radius, (point[1] + terrain.radius) / terrain.radius, point[2] / terrain.radius],
         terrain.shape.frame
       );
+      if (stream.manifest.solid) {
+        terrain.heightSampler = (x, z) => {
+          const point = bodyGroundPoint(terrain.radius, x, z);
+          const direction = bodyFrameDirection([point[0] / terrain.radius, (point[1] + terrain.radius) / terrain.radius, point[2] / terrain.radius], terrain.shape.frame);
+          return gradePersistentHeight(stream.manifest, terrain, x, z, bodyGeologicalHeight(stream.manifest, direction));
+        };
+        const pixels = terrain.radius * this._canvas.height / span;
+        const lod = Math.min(13, Math.max(4, Math.ceil(Math.log2(Math.max(32, pixels) / 2))));
+        const key = `solid:${this._terrainKey}:${lod}:${focus.map((n) => Math.round(n * 16)).join(',')}`;
+        if (key !== this._persistentMeshKey) {
+          const raw = buildCompositeBodyMesh(stream.manifest, pixels, terrain, focus);
+          const vertices = new Float32Array(raw.vertexCount * 7);
+          const color = stream.manifest.biome === 'ice' ? [0.72, 0.85, 0.91] : [0.4, 0.39, 0.37];
+          const centerRadius = bodyCenterRadius(terrain.radius, terrain.shape);
+          for (let index = 0; index < raw.vertexCount; index++) {
+            const point = bodyFrameDirection(Array.from(raw.vertices.subarray(index * 3, index * 3 + 3)), terrain.shape.frame, true);
+            vertices.set([
+              point[0] * terrain.radius, point[1] * terrain.radius - centerRadius,
+              point[2] * terrain.radius, ...color, stream.manifest.biome === 'ice' ? 2 : 0,
+            ], index * 7);
+          }
+          this._releaseTerrain();
+          this._terrainKey = JSON.stringify(terrain);
+          const buffer = this._device.createBuffer({
+            label: 'colony_composite_solid', size: vertices.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+          });
+          this._device.queue.writeBuffer(buffer, 0, vertices);
+          this._terrainCache.set('solid', { buffer, bytes: vertices.byteLength, vertexCount: raw.vertexCount });
+          this._terrainCacheBytes = vertices.byteLength;
+          this._terrainBuffer = buffer;
+          this._terrainVertexCount = raw.vertexCount;
+          this._persistentMeshKey = key;
+        }
+        return;
+      }
       const tiles = stream.update(terrain.radius * this._canvas.height / span, focus);
       if (tiles.length) {
         terrain.heightSampler = (x, z) => stream.sample(x, z, terrain);
@@ -2268,6 +2565,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    validateBodySolid, bodySolidDistance, bodySolidRadius, bodySolidBound,
+    validateBodyGeology, bodyGeologicalHeight, compositeSurfaceDistance, buildCompositeBodyMesh,
     COLONY_METERS_PER_UNIT, bodyCenterRadius,
     bodyFrameDirection, settlementFrame, applyTerrainSettlement, colonyDomeHeight, gradePersistentHeight,
     ColonySurfaceLevelWebGPU, COLONY_CITY_WGSL, COLONY_BODY_WGSL, COLONY_VFX_WGSL, COLONY_SKY_WGSL,
@@ -2281,5 +2580,7 @@ if (typeof module !== 'undefined' && module.exports) {
 } else {
   window.GQColonySurfaceLevelWebGPU = {
     ColonySurfaceLevelWebGPU, CubeSphereTerrainStream, bodyCenterRadius, COLONY_METERS_PER_UNIT,
+    validateBodySolid, bodySolidDistance, bodySolidRadius, bodySolidBound,
+    validateBodyGeology, bodyGeologicalHeight, compositeSurfaceDistance, buildCompositeBodyMesh,
   };
 }

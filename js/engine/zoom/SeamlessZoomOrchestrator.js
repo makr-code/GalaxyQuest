@@ -80,7 +80,7 @@ function _planetCollisionRadius(payload) {
     payload,
   ];
   const body = candidates.find((candidate) => candidate && (
-    candidate.shape || candidate.payload_json || candidate.body_type || candidate.planet_class
+    candidate.shape || candidate.solid || candidate.payload_json || candidate.body_type || candidate.planet_class
   )) || payload;
   let bodyPayload = body?.payload_json;
   if (typeof bodyPayload === 'string') {
@@ -89,6 +89,12 @@ function _planetCollisionRadius(payload) {
     } catch (error) {
       throw new TypeError('Planet approach received invalid body payload JSON', { cause: error });
     }
+  }
+  const solid = body?.solid || bodyPayload?.solid;
+  if (solid) {
+    const geometry = typeof require !== 'undefined'
+      ? require('./levels/ColonySurfaceLevelWebGPU.js') : window.GQColonySurfaceLevelWebGPU;
+    return geometry.bodySolidBound(geometry.validateBodySolid(solid));
   }
   let shape = body?.shape || bodyPayload?.shape;
   if (!shape) {

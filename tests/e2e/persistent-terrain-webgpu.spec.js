@@ -8,9 +8,10 @@ for (const scenario of [
   { kind: 'planet', diameter: 12742, shape: { version: 1, axes: [1, 1, 1], deformation: 0 } },
   { kind: 'comet', diameter: 12, shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 } },
   { kind: 'comet', sheltered: true, diameter: 12, shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 } },
+  { kind: 'comet', sheltered: true, composite: true, diameter: 12, shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 } },
   { kind: 'asteroid', diameter: 20, shape: { version: 1, axes: [1.8, 0.65, 0.9], deformation: 0.3 } },
 ]) {
-test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley dome' : ''} streams bounded cube tiles on the shared WebGPU device`, async ({ page }, testInfo) => {
+test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley dome' : ''}${scenario.composite ? ' composite solid' : ''} streams bounded geometry on the shared WebGPU device`, async ({ page }, testInfo) => {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('http://localhost/persistent-terrain-test', (route) => route.fulfill({
@@ -31,6 +32,19 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
     ...(scenario.sheltered ? { settlement: {
       version: 1, kind: 'valley-dome', direction: [1, 0, 0], floor_height_km: -0.06, dome_height_ratio: 0.55,
     } } : {}),
+    ...(scenario.composite ? {
+      solid: {
+        version: 1, blend: 0.18,
+        lobes: [
+          { center: [-0.5, 0, 0], axes: [0.85, 0.7, 0.65] },
+          { center: [0.65, 0.05, 0], axes: [0.6, 0.5, 0.5] },
+        ],
+        cuts: [{ center: [-0.55, 0.65, 0], radius: 0.2 }],
+      },
+      geology: { version: 1, erosion: 0.1, tectonics: 0, craters: [
+        { direction: [0, 1, 0], angular_radius: 0.12, depth_km: 0.03 },
+      ] },
+    } : {}),
   };
   let requests = 0, batches = 0, maxBatch = 0;
   const generated = new Map();
@@ -89,7 +103,7 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
     renderer.device.pushErrorScope('validation');
     renderer.enterSystemView({ x: 0, y: 0, name: 'Shape test star' }, { planets: [
       { player_planet: { id: 21, body_type: 'planet', planet_class: 'terran', shape: { version: 1, axes: [1, 1, 1], deformation: 0 } } },
-      { generated_planet: { id: 22, body_type: 'comet', planet_class: 'ice', payload_json: JSON.stringify({ shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 } }) } },
+      { generated_planet: { id: 22, body_id: 12, body_type: 'comet', planet_class: 'ice', payload_json: JSON.stringify({ shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 } }) } },
       { generated_planet: { id: 23, body_type: 'asteroid', planet_class: 'rock' } },
     ] });
     const systemShapes = renderer._systemPlanetEntries.map((entry) => entry.shape);
@@ -113,6 +127,43 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
     await orchestrator.zoomTo(2, scene, { skipCameraFlight: true });
   }, scenario);
   await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._terrainManifest?.shape)).toEqual(scenario.shape);
+  if (scenario.composite) {
+    await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._solidBuffer?.label)).toBe('approach_composite_solid');
+    const systemSolid = await page.evaluate(async () => {
+      const { renderer, orchestrator } = window.terrainTest;
+      const approach = orchestrator._active;
+      const buffer = approach._solidBuffer;
+      const destroy = buffer.destroy.bind(buffer);
+      buffer.destroy = () => { window.terrainTest.approachDestroyed = true; destroy(); };
+      const manifest = renderer._bodyTerrainManifests.get(12);
+      if (!manifest) throw new Error('Approach failed to propagate the authoritative solid');
+      renderer.enterSystemView({ x: 0, y: 0, name: 'Composite body star' }, { planets: [
+        { generated_planet: { id: 22, body_id: 12, body_type: 'comet', planet_class: 'ice' } },
+      ] });
+      const entry = renderer._systemPlanetEntries[0];
+      const systemBuffer = entry.solidBuffer;
+      const systemDestroy = systemBuffer.destroy.bind(systemBuffer);
+      let destroyed = false;
+      systemBuffer.destroy = () => { destroyed = true; systemDestroy(); };
+      const count = entry.solidVertexCount;
+      renderer.setBodyTerrainManifest(manifest);
+      const reused = entry.solidBuffer === systemBuffer;
+      const encoder = renderer.device.createCommandEncoder();
+      const view = renderer.context.getCurrentTexture().createView();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{ view, loadOp: 'clear', storeOp: 'store' }],
+      });
+      renderer._drawSystemPlanets(pass);
+      pass.end();
+      renderer._drawSystemSolids(encoder, view);
+      renderer.device.queue.submit([encoder.finish()]);
+      await renderer.device.queue.onSubmittedWorkDone();
+      renderer.exitSystemView();
+      return { count, reused, destroyed };
+    });
+    expect(systemSolid).toMatchObject({ reused: true, destroyed: true });
+    expect(systemSolid.count).toBeGreaterThan(1000);
+  }
   expect(batches).toBe(0);
   await page.evaluate(async () => {
     const { orchestrator, scene } = window.terrainTest;
@@ -122,11 +173,13 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
     const city = window.terrainTest.orchestrator._active;
     const stream = city._terrainStream;
     return city._camera.progress === 1 && !!stream?.manifest && !stream.failed && !stream.request
-      && stream.wanted.every((tile) => stream.tiles.has(`${tile.face}/${tile.lod}/${tile.x}/${tile.y}`))
-      && city._terrainBuffer?.label === 'colony_persisted_cube_tiles';
+      && (stream.manifest.solid || stream.wanted.every((tile) => stream.tiles.has(`${tile.face}/${tile.lod}/${tile.x}/${tile.y}`)))
+      && city._terrainBuffer?.label === (stream.manifest.solid ? 'colony_composite_solid' : 'colony_persisted_cube_tiles');
   });
   await expect.poll(settled, { timeout: 30000 }).toBe(true);
-  expect(batches).toBeGreaterThan(1);
+  if (scenario.composite) expect(await page.evaluate(() => window.terrainTest.approachDestroyed)).toBe(true);
+  if (scenario.composite) expect(batches).toBe(0);
+  else expect(batches).toBeGreaterThan(1);
   expect(maxBatch).toBeLessThanOrEqual(16);
   const stableRequests = requests;
   const result = await page.evaluate(async () => {
@@ -151,10 +204,18 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
       shelter: city._bodySurface.terrain.shelter,
       frame: city._bodySurface.terrain.shape?.frame,
       dome: !!city._domePipeline,
+      solidGap: city._bodySurface.terrain.shape?.solid ? (() => {
+        const terrain = city._bodySurface.terrain;
+        const point = [city._cameraEye[0], city._cameraEye[1] + window.GQColonySurfaceLevelWebGPU.bodyCenterRadius(terrain.radius, terrain.shape), city._cameraEye[2]]
+          .map((n) => n / terrain.radius);
+        const global = terrain.shape.frame ? point.map((_, index) =>
+          terrain.shape.frame.reduce((sum, axis, component) => sum + axis[index] * point[component], 0)) : point;
+        return window.GQColonySurfaceLevelWebGPU.compositeSurfaceDistance(global, window.terrainTest.orchestrator._active._terrainStream.manifest, terrain);
+      })() : null,
     };
   });
   expect(result).toMatchObject({ reused: true, sameDevice: true, hooks: 1, raf: 0, scopedError: null, errors: [] });
-  expect(result.vertices).toBeGreaterThan(6 * 1920);
+  expect(result.vertices).toBeGreaterThan(scenario.composite ? 1000 : 6 * 1920);
   expect(result.bytes).toBeLessThanOrEqual(8 * 1024 * 1024);
   expect(result.shape).toMatchObject(scenario.shape);
   expect(result.radiusMeters).toBeCloseTo(scenario.diameter * 500, 6);
@@ -172,7 +233,8 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
     : direction;
   const factor = (1 + scenario.shape.deformation * (0.6 * (nx * nx - ny * ny) + 0.4 * nx * nz))
     / Math.hypot(nx / scenario.shape.axes[0], ny / scenario.shape.axes[1], nz / scenario.shape.axes[2]);
-  expect(length).toBeGreaterThan(result.radius * factor);
+  if (scenario.composite) expect(result.solidGap).toBeGreaterThan(0);
+  else expect(length).toBeGreaterThan(result.radius * factor);
   expect(requests).toBe(stableRequests);
   if (scenario.sheltered) {
     const changedPixels = await page.evaluate(() => {
@@ -212,7 +274,9 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
     city._setCameraSpan(city._entrySpan);
     city.render(0);
   });
-  await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._terrainVertexCount)).toBeLessThan(result.vertices);
+  if (!scenario.composite) {
+    await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._terrainVertexCount)).toBeLessThan(result.vertices);
+  }
   const exit = await page.evaluate(async () => {
     const city = window.terrainTest.orchestrator._active;
     const stream = city._terrainStream;

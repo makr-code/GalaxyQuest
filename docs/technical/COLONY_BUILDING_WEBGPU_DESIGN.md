@@ -43,8 +43,8 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   `shape: { version: 1, axes: [x,y,z], deformation: d }`.
   Die Achsen sind dimensionslose Radienfaktoren (0,5–2), `d` liegt zwischen
   0 und 0,35. Ein Ellipsoid mit glatter richtungsabhängiger Deformation bildet
-  gestreckte und unregelmäßige, sternförmige Körper. Neue Kometen/Asteroiden
-  erhalten standardmäßig `[1.45,0.8,0.95]` und `d=0.22`; Planeten bleiben
+  gestreckte und unregelmäßige, sternförmige Körper. Der Legacy-Pfad für
+  Kometen/Asteroiden verwendet `[1.45,0.8,0.95]` und `d=0.22`; Planeten bleiben
   ohne explizite Vorgabe kugelförmig. Eigene Formen können vor dem ersten
   Manifestzugriff über `celestial_bodies.payload_json.shape` festgelegt werden.
   Bereits persistierte Manifeste ohne Form werden einmalig um die Kugelform
@@ -68,6 +68,43 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   **Grenzen:** ein radial eindeutiges Modell, keine Höhlen, Überhänge oder
   beliebig konkaven/mehrschaligen Meshes. Die Systemansicht bleibt ein
   vereinfachter Bildschirmraum-Renderer und erzeugt keine Terrainkacheln.
+- **Geologie und zusammengesetzte Körper:** Neue Manifeste speichern zusätzlich
+  `geology: { version: 1, erosion, tectonics, craters }`. 32 seedstabile
+  Einschläge besitzen Richtung, Winkelradius und Tiefe in Kilometern.
+  Kraterschüsseln und erhöhte Ränder verändern die Geometrie, nicht nur deren
+  Farbe; Erosion schwächt Krater und feine Rauheit, tektonische Bänder ergänzen
+  das Relief geeigneter Planeten. Die Materialshader unterstützen das echte
+  Höhenprofil durch Körnung, Schichten und geometrische Beleuchtungsnormalen.
+  Dies sind stilisierte, deterministische geologische Parameter, keine
+  kontinuierlich laufende Erosions- oder Plattentektoniksimulation.
+  Neue Kometen verwenden standardmäßig einen verbundenen Zweilapper mit einer
+  subtrahierten Mulde. Eigene Definitionen werden vor der Manifestanlage über
+  `celestial_bodies.payload_json.solid` vorgegeben:
+  `solid: { version: 1, blend, lobes: [{ center: [x,y,z], axes: [a,b,c] }],
+  cuts: [{ center: [x,y,z], radius }] }`. Die normierten Koordinaten beziehen
+  sich auf `radius_km`; maximal vier Ellipsoide werden glatt vereinigt und
+  maximal acht Kugeln subtrahiert. Es handelt sich um ein gemeinsames
+  implizites Volumen, nicht um sich sichtbar überschneidende Kugelmeshes.
+  Marching Tetrahedra extrahiert dessen Oberfläche einschließlich konkaver
+  Hälse und Aushöhlungen. Ein gemeinsames, bei Nahsicht zum Koloniefokus
+  verdichtetes Gitter (24/32 Zellen je Achse, 48 im detaillierten Anflug) und gecachte, bisektierte
+  Kantenschnitte vermeiden adaptive T-Verbindungen. Neuvernetzung erfolgt
+  nur bei einem Detail-/Fokuswechsel; das Kolonie-Geometriebudget bleibt 8 MiB.
+  Solids benötigen keine Höhenkachel-Requests: persistiert werden Seed,
+  Geologie und Volumendefinition, die Dreiecke entstehen bedarfsgerecht
+  clientseitig. Annähernd kugelige Körper behalten den Cube-Sphere-Pfad.
+  Anflug und Kolonie nutzen dieselbe Definition und echte Tiefenprüfung.
+  Der Anflug gibt geladene Manifeste an den gemeinsamen Systemrenderer weiter;
+  dessen Cache hält höchstens 64 Definitionen und zeichnet bekannte Solids
+  ebenfalls als tiefengeprüfte Meshes. Vor dem autorisierten Manifestzugriff
+  bleibt dort die bisherige vereinfachte Form sichtbar. Bestehende Manifeste
+  und Höhenkacheln werden nicht auf die neue Geologie oder Solidform migriert.
+  **Grenzen:** Gebäudekoordinaten und Talanker verwenden weiterhin den
+  äußersten radialen Schnitt; freies Bauen an Überhängen/innerhalb von Höhlen
+  ist nicht unterstützt. Sehr kleine entfernte Merkmale können unter dem
+  begrenzten Samplebudget liegen; dies garantiert kein globales Submeter-LOD.
+  Die Druckkuppel-Regel ist weiterhin eine Kometen-Talbasis-Vorgabe, noch kein
+  Spezies-/Atmosphärenverträglichkeitsmodell.
 - **Kometen-Talbasis mit Druckkuppel:** Neue Kometenmanifeste speichern einen
   bevorzugten Siedlungsanker als `settlement: { version: 1, kind: "valley-dome",
   direction: [x,y,z], floor_height_km, dome_height_ratio: 0.55 }`. Eine begrenzte

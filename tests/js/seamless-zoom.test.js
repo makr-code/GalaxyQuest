@@ -350,6 +350,14 @@ describe('SeamlessZoomOrchestrator — PLANET_APPROACH triggers flyTo()', () => 
 
     await orch.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, { planet: { id: 9, body_type: 'asteroid' } });
     expect(flyToSpy.mock.calls[1][3].colliders[0].radius).toBeCloseTo(1.769);
+
+    await orch.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, {
+      planet: { id: 12, solid: {
+        version: 1, blend: 0.18,
+        lobes: [{ center: [1.5, 0, 0], axes: [0.85, 0.7, 0.65] }], cuts: [],
+      } },
+    });
+    expect(flyToSpy.mock.calls[2][3].colliders[0].radius).toBeCloseTo(2.53);
   });
 
   it('rejects unsupported persisted shapes instead of silently using a sphere', async () => {

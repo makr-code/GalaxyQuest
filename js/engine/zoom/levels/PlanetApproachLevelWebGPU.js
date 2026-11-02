@@ -45,16 +45,28 @@ fn noise(p: vec2<f32>) -> f32 {
   out.uv = uv;
   return out;
 }
-@fragment fn fs_main(in: Out) -> @location(0) vec4<f32> {
+@fragment fn fs_main(in: Out, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
   let face = cross(dpdx(in.world),dpdy(in.world));
   let geometric = face / max(length(face),0.00001);
-  let normal = select(-geometric,geometric,dot(geometric,in.normal) >= 0.0);
+  let radialNormal = select(-geometric,geometric,dot(geometric,in.normal) >= 0.0);
+  let normal = select(radialNormal,select(geometric,-geometric,front),u.animation.w > 0.5);
   let terrain = noise(in.uv * vec2<f32>(9,17));
-  let cloud = smoothstep(0.65,0.9,noise(in.uv * vec2<f32>(15,23) + vec2<f32>(u.animation.y * 0.02,0)));
+  let cloud = smoothstep(0.65,0.9,noise(in.uv * vec2<f32>(15,23) + vec2<f32>(u.animation.y * 0.02,0))) * (1.0 - u.animation.w);
   let light = 0.24 + 0.76 * max(0.0,dot(normal,normalize(vec3<f32>(-0.7,0.8,1))));
   let surface = mix(u.base.rgb * 0.55,u.base.rgb * 1.3,terrain) + cloud * 0.17;
   let rim = pow(1.0 - abs(normal.z),3.0);
-  return vec4<f32>(mix(surface * light,u.atmosphere.rgb,rim * 0.7) * u.animation.z,1);
+  return vec4<f32>(mix(surface * light,u.atmosphere.rgb,rim * 0.7 * (1.0 - u.animation.w)) * u.animation.z,1);
+}
+@vertex fn vs_mesh(@location(0) point: vec3<f32>) -> Out {
+  let c = cos(u.animation.x);
+  let s = sin(u.animation.x);
+  let world = vec3<f32>(point.x * c - point.z * s,point.y,point.x * s + point.z * c);
+  var out: Out;
+  out.world = world;
+  out.position = u.viewProjection * vec4<f32>(world,1);
+  out.normal = normalize(world);
+  out.uv = vec2<f32>(atan2(point.z,point.x) / 6.2831853,asin(clamp(normalize(point).y,-1.0,1.0)) / 3.14159265);
+  return out;
 }
 `;
 
@@ -201,6 +213,11 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
     this._inputCleanups.splice(0).forEach((cleanup) => cleanup());
     this._hint?.remove();
     this._hint = null;
+    this._solidBuffer?.destroy();
+    this._solidBuffer = null;
+    this._solidMeshKey = '';
+    this._depthTexture?.destroy();
+    this._depthTexture = null;
   }
 
   render(dt, cameraState) {
@@ -253,10 +270,24 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
       vertex: { module, entryPoint: 'vs_main' },
       fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
       primitive: { topology: 'triangle-list', cullMode: 'back' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    });
+    this._solidPipeline = this._device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module, entryPoint: 'vs_mesh', buffers: [{
+        arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }],
+      }] },
+      fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
     this._uniformBuffer = this._device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this._bindGroup = this._device.createBindGroup({
       layout: this._pipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this._uniformBuffer } }],
+    });
+    this._solidBindGroup = this._device.createBindGroup({
+      layout: this._solidPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this._uniformBuffer } }],
     });
   }
@@ -271,17 +302,43 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
       (Number(position.z) || 0) - (Number(target.z) || 0)
     );
     const shape = this._terrainManifest?.shape;
-    const extent = Math.max(...(shape?.axes || [1, 1, 1])) * (1 + (shape?.deformation || 0));
+    const geometry = typeof require !== 'undefined'
+      ? require('./ColonySurfaceLevelWebGPU.js') : window.GQColonySurfaceLevelWebGPU;
+    const solid = this._terrainManifest?.solid;
+    const extent = solid ? geometry.bodySolidBound(solid)
+      : Math.max(...(shape?.axes || [1, 1, 1])) * (1 + (shape?.deformation || 0));
     const distance = (2.8 + Math.min(2, cameraDistance / 50)) * extent;
     const near = 0.1;
-    const far = 20;
+    const far = Math.max(20, distance + extent * 2);
     const uniforms = new Float32Array(32);
     uniforms.set(planetViewProjection(cameraState, aspect, distance, near, far));
     uniforms.set([...this._visualPalette.base,1],16);
     uniforms.set([...this._visualPalette.atmo,1],20);
-    uniforms.set([this._rotation,this._time,opacity,0],24);
+    uniforms.set([this._rotation,this._time,opacity,solid ? 1 : 0],24);
     uniforms.set([...(shape?.axes || [1, 1, 1]),shape?.deformation || 0],28);
     this._device.queue.writeBuffer(this._uniformBuffer,0,uniforms);
+    if (solid) {
+      const key = JSON.stringify(this._terrainManifest);
+      if (key !== this._solidMeshKey) {
+        const mesh = geometry.buildCompositeBodyMesh(this._terrainManifest, 160);
+        this._solidBuffer?.destroy();
+        this._solidBuffer = this._device.createBuffer({
+          label: 'approach_composite_solid', size: mesh.vertices.byteLength,
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        this._device.queue.writeBuffer(this._solidBuffer, 0, mesh.vertices);
+        this._solidVertexCount = mesh.vertexCount;
+        this._solidMeshKey = key;
+        this._backend?.setBodyTerrainManifest?.(this._terrainManifest);
+      }
+    }
+    if (!this._depthTexture || this._depthTexture.width !== this._canvas.width || this._depthTexture.height !== this._canvas.height) {
+      this._depthTexture?.destroy();
+      this._depthTexture = this._device.createTexture({
+        label: 'approach_depth', size: [this._canvas.width, this._canvas.height], format: 'depth24plus',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+    }
     const encoder = this._device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
@@ -289,10 +346,14 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
         clearValue: { r: this._visualPalette.clear[0], g: this._visualPalette.clear[1], b: this._visualPalette.clear[2], a: 1 },
         loadOp: 'clear', storeOp: 'store',
       }],
+      depthStencilAttachment: {
+        view: this._depthTexture.createView(), depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store',
+      },
     });
-    pass.setPipeline(this._pipeline);
-    pass.setBindGroup(0,this._bindGroup);
-    pass.draw(32 * 64 * 6,1,0,0);
+    pass.setPipeline(solid ? this._solidPipeline : this._pipeline);
+    pass.setBindGroup(0, solid ? this._solidBindGroup : this._bindGroup);
+    if (solid) pass.setVertexBuffer(0, this._solidBuffer);
+    pass.draw(solid ? this._solidVertexCount : 32 * 64 * 6,1,0,0);
     pass.end();
     this._device.queue.submit([encoder.finish()]);
   }
@@ -312,6 +373,8 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
     this._uniformBuffer?.destroy();
     this._uniformBuffer = null;
     this._pipeline = null;
+    this._solidPipeline = null;
+    this._solidBindGroup = null;
     this._bindGroup = null;
     this._device = null;
     this._context = null;

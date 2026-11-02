@@ -50,7 +50,7 @@ function extractWgslFromModule(relPath, exportedKey) {
 function extractWgslConstant(relPath, constantName) {
   const source = fs.readFileSync(path.join(ROOT, relPath), 'utf8');
   const escapedName = constantName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = source.match(new RegExp(`const\\s+${escapedName}\\s*=\\s*\`([\\s\\S]*?)\`;`));
+  const match = source.match(new RegExp(`const\\s+${escapedName}\\s*=\\s*(?:/\\*\\s*wgsl\\s*\\*/\\s*)?\`([\\s\\S]*?)\`;`));
   if (!match) throw new Error(`WGSL constant ${constantName} not found in ${relPath}`);
   return match[1];
 }
@@ -131,6 +131,14 @@ function buildShaderCatalogue() {
       source: extractWgslConstant(
         'js/rendering/Galaxy3DRendererWebGPU.js',
         'OBJECT_MESH_SHADER_WGSL',
+      ),
+    },
+    {
+      label: 'Galaxy3DRendererWebGPU — radial and volumetric system bodies',
+      type: 'render',
+      source: extractWgslConstant(
+        'js/rendering/Galaxy3DRendererWebGPU.js',
+        'PLANET_SHADER_WGSL',
       ),
     },
     // ── Compute shaders (inline WGSL in JS) ────────────────────────────────

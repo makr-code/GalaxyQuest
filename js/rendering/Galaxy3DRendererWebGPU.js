@@ -393,7 +393,7 @@
       let wave = 0.6 * (direction.x * direction.x - direction.y * direction.y) + 0.4 * direction.x * direction.z;
       let ellipsoidDistance = length(direction / axes);
       let radialFactor = (1.0 + uPlanet.shape.w * wave) / ellipsoidDistance;
-      let pos = direction * radialFactor;
+      let pos = select(direction * radialFactor,direction,uPlanet.pad0 > 0.5);
       let waveGradient = vec3<f32>(1.2 * direction.x + 0.4 * direction.z, -1.2 * direction.y, 0.4 * direction.x);
       let tangentWaveGradient = waveGradient - direction * dot(direction, waveGradient);
       let ellipsoidNormal = sphereNormal / (axes * axes * ellipsoidDistance * ellipsoidDistance);
@@ -401,7 +401,7 @@
       out.clipPos = vec4<f32>(
         uPlanet.centerX + (pos.x * uPlanet.radius) / max(uPlanet.aspect, 0.0001),
         uPlanet.centerY + pos.y * uPlanet.radius,
-        pos.z * uPlanet.radius * 0.25,
+        select(pos.z * uPlanet.radius * 0.25,0.5 - pos.z * uPlanet.radius * 0.25,uPlanet.pad0 > 0.5),
         1.0
       );
       out.normal = normal;
@@ -415,7 +415,10 @@
     }
 
     @fragment
-    fn fs_main(in : PlanetOut) -> @location(0) vec4<f32> {
+    fn fs_main(in : PlanetOut, @builtin(front_facing) front : bool) -> @location(0) vec4<f32> {
+      let face = cross(dpdx(in.worldPos),dpdy(in.worldPos));
+      let candidate = face / max(length(face),0.000001);
+      let surfaceNormal = select(normalize(in.normal),select(candidate,-candidate,front),uPlanet.pad0 > 0.5);
       var ambient = vec3<f32>(0.12, 0.14, 0.18);
       var direct = vec3<f32>(0.0, 0.0, 0.0);
       let lightCount = min(i32(uLights.header.x), 8);
@@ -430,7 +433,7 @@
           ambient = ambient + color * intensity;
         } else if (lightType == 1) {
           let lightDir = normalize(light.dirAndDistance.xyz);
-          let ndlContribution = max(dot(normalize(in.normal), lightDir), 0.0);
+          let ndlContribution = max(dot(surfaceNormal, lightDir), 0.0);
           direct = direct + color * intensity * ndlContribution;
         } else if (lightType == 2) {
           let lightPos = light.intensityAndPos.yzw;
@@ -444,7 +447,7 @@
             distanceAtten = pow(distNorm, decay);
           }
           let pointDir = normalize(toLight);
-          let ndlPoint = max(dot(normalize(in.normal), pointDir), 0.0);
+          let ndlPoint = max(dot(surfaceNormal, pointDir), 0.0);
           direct = direct + color * intensity * ndlPoint * distanceAtten;
         }
       }
@@ -1013,6 +1016,7 @@
       this._timeOrigin = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       this._systemPayload = null;
       this._systemPlanetEntries = [];
+      this._bodyTerrainManifests = new Map();
 
       // Public properties game.js reads directly
       this.ready        = false;
@@ -2069,7 +2073,7 @@
           { binding: 1, resource: { buffer: this._lightUniformBuf } },
         ],
       });
-      this._planetPipeline = this._device.createRenderPipeline({
+      const planetPipelineDescriptor = {
         layout: this._device.createPipelineLayout({ bindGroupLayouts: [planetBgl] }),
         vertex: { module: planetShader, entryPoint: 'vs_main', buffers: heroVertexBuffers },
         fragment: {
@@ -2084,7 +2088,13 @@
           }],
         },
         primitive: { topology: 'triangle-list', cullMode: 'back' },
+      };
+      this._planetPipeline = this._device.createRenderPipeline(planetPipelineDescriptor);
+      this._planetSolidPipeline = this._device.createRenderPipeline({
+        ...planetPipelineDescriptor,
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
       });
+      this._planetBindGroupLayout = planetBgl;
 
       const orbitShader = this._device.createShaderModule({ code: ORBIT_SHADER_WGSL });
       this._orbitUniformBuf = this._device.createBuffer({
@@ -2336,6 +2346,7 @@
 
     _rebuildSystemPlanetEntries() {
       const payload = this._systemPayload;
+      this._releaseSystemBodyMeshes();
       if (!payload || !Array.isArray(payload.planets)) {
         this._systemPlanetEntries = [];
         return;
@@ -2381,6 +2392,7 @@
           profile: _planetVisualProfile(body, index),
         };
       });
+      for (const manifest of this._bodyTerrainManifests.values()) this.setBodyTerrainManifest(manifest);
     }
 
     _writeOrbitUniforms(entry, heroState) {
@@ -2420,12 +2432,64 @@
       uni.setFloat32(48, entry.profile.accent[0], true);
       uni.setFloat32(52, entry.profile.accent[1], true);
       uni.setFloat32(56, entry.profile.accent[2], true);
-      uni.setFloat32(60, 0, true);
+      uni.setFloat32(60, entry.solidBuffer ? 1 : 0, true);
       uni.setFloat32(64, entry.shape.axes[0], true);
       uni.setFloat32(68, entry.shape.axes[1], true);
       uni.setFloat32(72, entry.shape.axes[2], true);
       uni.setFloat32(76, entry.shape.deformation, true);
-      this._device.queue.writeBuffer(this._planetUniformBuf, 0, uni.buffer);
+      this._device.queue.writeBuffer(entry.solidUniformBuffer || this._planetUniformBuf, 0, uni.buffer);
+    }
+
+    _releaseSystemBodyMeshes() {
+      for (const entry of this._systemPlanetEntries) {
+        entry.solidBuffer?.destroy();
+        entry.solidUniformBuffer?.destroy();
+      }
+      this._systemSolidDepth?.destroy();
+      this._systemSolidDepth = null;
+    }
+
+    setBodyTerrainManifest(manifest) {
+      const geometry = window.GQColonySurfaceLevelWebGPU;
+      if (!manifest?.solid || !geometry || !this._device) return;
+      this._bodyTerrainManifests.set(manifest.body_id, manifest);
+      if (this._bodyTerrainManifests.size > 64) this._bodyTerrainManifests.delete(this._bodyTerrainManifests.keys().next().value);
+      for (const entry of this._systemPlanetEntries) {
+        if (Number(entry.body.body_id || entry.body.id) !== manifest.body_id) continue;
+        const key = JSON.stringify(manifest);
+        if (entry.solidKey === key) continue;
+        const mesh = geometry.buildCompositeBodyMesh(manifest, 40);
+        const vertices = new Float32Array(mesh.vertexCount * 8);
+        for (let index = 0; index < mesh.vertexCount; index++) {
+          const point = Array.from(mesh.vertices.subarray(index * 3, index * 3 + 3));
+          const length = Math.hypot(...point);
+          vertices.set([
+            ...point, ...point.map((n) => n / Math.max(length, 1e-8)),
+            Math.atan2(point[2], point[0]) / (Math.PI * 2),
+            Math.asin(Math.max(-1, Math.min(1, point[1] / Math.max(length, 1e-8)))) / Math.PI,
+          ], index * 8);
+        }
+        entry.solidBuffer?.destroy();
+        entry.solidUniformBuffer?.destroy();
+        entry.solidBuffer = this._device.createBuffer({
+          label: 'system_composite_solid', size: vertices.byteLength,
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        this._device.queue.writeBuffer(entry.solidBuffer, 0, vertices);
+        entry.solidUniformBuffer = this._device.createBuffer({
+          label: 'system_composite_uniforms', size: 80,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        entry.solidBindGroup = this._device.createBindGroup({
+          layout: this._planetBindGroupLayout,
+          entries: [
+            { binding: 0, resource: { buffer: entry.solidUniformBuffer } },
+            { binding: 1, resource: { buffer: this._lightUniformBuf } },
+          ],
+        });
+        entry.solidVertexCount = mesh.vertexCount;
+        entry.solidKey = key;
+      }
     }
 
     _drawSystemPlanets(pass) {
@@ -2443,6 +2507,7 @@
         pass.setVertexBuffer(0, this._orbitVertexBuf);
         pass.draw(this._orbitVertexCount, 1, 0, 0);
 
+        if (entry.solidBuffer) continue;
         const angle = entry.angle + now * entry.speed;
         const px = heroState.clipX + (Math.cos(angle) * entry.orbitRadius) / Math.max(this._aspect, 0.0001);
         const py = heroState.clipY + Math.sin(angle) * entry.orbitMinor;
@@ -2453,6 +2518,37 @@
         pass.setIndexBuffer(this._heroIndexBuf, this._heroIndexFormat);
         pass.drawIndexed(this._heroIndexCount, 1, 0, 0, 0);
       }
+    }
+
+    _drawSystemSolids(encoder, view) {
+      if (!this.systemMode || !this._planetSolidPipeline) return;
+      const entries = this._systemPlanetEntries.filter((entry) => entry.solidBuffer);
+      const hero = this._getHeroStarState();
+      if (!entries.length || !hero) return;
+      if (!this._systemSolidDepth || this._systemSolidDepth.width !== this._canvas.width || this._systemSolidDepth.height !== this._canvas.height) {
+        this._systemSolidDepth?.destroy();
+        this._systemSolidDepth = this._device.createTexture({
+          label: 'system_composite_depth', size: [this._canvas.width, this._canvas.height],
+          format: 'depth24plus', usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+      }
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{ view, loadOp: 'load', storeOp: 'store' }],
+        depthStencilAttachment: {
+          view: this._systemSolidDepth.createView(), depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard',
+        },
+      });
+      pass.setPipeline(this._planetSolidPipeline);
+      const now = (performance.now() - this._timeOrigin) / 1000;
+      for (const entry of entries) {
+        const angle = entry.angle + now * entry.speed;
+        this._writePlanetUniforms(entry, hero.clipX + Math.cos(angle) * entry.orbitRadius / Math.max(this._aspect, 0.0001),
+          hero.clipY + Math.sin(angle) * entry.orbitMinor);
+        pass.setBindGroup(0, entry.solidBindGroup);
+        pass.setVertexBuffer(0, entry.solidBuffer);
+        pass.draw(entry.solidVertexCount);
+      }
+      pass.end();
     }
 
     // ── Star data upload ────────────────────────────────────────────────────
@@ -2598,6 +2694,7 @@
       this._drawHeroStar(pass);
 
       pass.end();
+      this._drawSystemSolids(encoder, view);
       this._device.queue.submit([encoder.finish()]);
       this._renderGalaxyOverlay2D();
 
@@ -3556,6 +3653,7 @@
       this._lightProfile = 'galaxy';
       this._syncInputContext();
       this._systemPayload = null;
+      this._releaseSystemBodyMeshes();
       this._systemPlanetEntries = [];
       this._currentTarget = null;
       this._overlayData.fleets = [];
@@ -3601,6 +3699,7 @@
       this._lightProfile = 'galaxy';
       this._syncInputContext();
       this._systemPayload = null;
+      this._releaseSystemBodyMeshes();
       this._systemPlanetEntries = [];
       if (this._overlayCtx && this._overlayCanvas) {
         this._overlayCtx.clearRect(0, 0, this._overlayCanvas.width, this._overlayCanvas.height);
@@ -3726,6 +3825,8 @@
       this._heroPipeline = null;
       this._heroCoronaPipeline = null;
       this._planetPipeline = null;
+      this._planetSolidPipeline = null;
+      this._planetBindGroupLayout = null;
       this._orbitPipeline = null;
       this._objectMeshPipeline = null;
       this._objectMeshBindGroupLayout = null;
@@ -3762,7 +3863,9 @@
       this._adapter    = null;
       this._cameraDriver = null;
       this._systemPayload = null;
+      this._releaseSystemBodyMeshes();
       this._systemPlanetEntries = [];
+      this._bodyTerrainManifests.clear();
       this.ready = false;
     }
 
